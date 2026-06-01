@@ -50,3 +50,11 @@ func (runtime *Runtime) Replay(ctx context.Context, from types.Height, to types.
 	}
 	return result, nil
 }
+
+func (runtime *Runtime) ReplayAll(ctx context.Context) (ReplayResult, error) {
+	index, err := runtime.BlockIndex(ctx)
+	if err != nil {
+		return ReplayResult{}, err
+	}
+	return runtime.Replay(ctx, index.EarliestHeight, index.LatestHeight)
+}

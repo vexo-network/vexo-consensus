@@ -22,6 +22,9 @@ func TestRuntimeQueriesReturnNotFoundWithoutStore(t *testing.T) {
 	if _, err := runtime.BlockByHash(context.Background(), types.Hash{1}); !errors.Is(err, store.ErrBlockNotFound) {
 		t.Fatalf("expected block not found, got %v", err)
 	}
+	if _, err := runtime.BlockIndex(context.Background()); !errors.Is(err, store.ErrBlockIndexNotFound) {
+		t.Fatalf("expected block index not found, got %v", err)
+	}
 	if _, err := runtime.LatestState(context.Background()); !errors.Is(err, store.ErrStateNotFound) {
 		t.Fatalf("expected state not found, got %v", err)
 	}

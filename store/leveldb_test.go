@@ -47,6 +47,37 @@ func TestLevelDBStoreSavesAndLoadsBlockByHeightAndHash(t *testing.T) {
 	if len(byHash.StateRoots) != 1 || byHash.StateRoots[0].Root != (types.Hash{3}) {
 		t.Fatalf("unexpected state roots by hash: %+v", byHash.StateRoots)
 	}
+	index, err := store.BlockIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index.EarliestHeight != 1 || index.LatestHeight != 1 || index.TotalBlocks != 1 {
+		t.Fatalf("unexpected block index: %+v", index)
+	}
+}
+
+func TestLevelDBStoreBlockIndexTracksRangeAndUniqueBlocks(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	records := []BlockRecord{
+		{Block: types.Block{Header: types.Header{Height: 3}}, Hash: types.Hash{3}},
+		{Block: types.Block{Header: types.Header{Height: 1}}, Hash: types.Hash{1}},
+		{Block: types.Block{Header: types.Header{Height: 3}}, Hash: types.Hash{9}},
+	}
+	for _, record := range records {
+		if err := store.SaveBlock(context.Background(), record); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	index, err := store.BlockIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index.EarliestHeight != 1 || index.LatestHeight != 3 || index.TotalBlocks != 2 {
+		t.Fatalf("unexpected block index: %+v", index)
+	}
 }
 
 func TestLevelDBStorePersistsAcrossReopen(t *testing.T) {
@@ -170,6 +201,9 @@ func TestLevelDBStoreNotFound(t *testing.T) {
 	if _, err := store.StateRoot(context.Background(), 1, "bank"); !errors.Is(err, ErrStateRootNotFound) {
 		t.Fatalf("expected state root not found, got %v", err)
 	}
+	if _, err := store.BlockIndex(context.Background()); !errors.Is(err, ErrBlockIndexNotFound) {
+		t.Fatalf("expected block index not found, got %v", err)
+	}
 }
 
 func TestLevelDBStoreRejectsInvalidRecords(t *testing.T) {
@@ -205,6 +239,9 @@ func TestLevelDBStoreContextCancellation(t *testing.T) {
 	}
 	if _, err := store.BlockByHash(ctx, types.Hash{1}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected block by hash canceled, got %v", err)
+	}
+	if _, err := store.BlockIndex(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected block index canceled, got %v", err)
 	}
 	if err := store.SaveState(ctx, StateRecord{Height: 1}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected save state canceled, got %v", err)

@@ -21,6 +21,13 @@ func (runtime *Runtime) BlockByHash(ctx context.Context, hash types.Hash) (store
 	return runtime.Store.BlockByHash(ctx, hash)
 }
 
+func (runtime *Runtime) BlockIndex(ctx context.Context) (store.BlockIndex, error) {
+	if runtime.Store == nil {
+		return store.BlockIndex{}, store.ErrBlockIndexNotFound
+	}
+	return runtime.Store.BlockIndex(ctx)
+}
+
 func (runtime *Runtime) LatestState(ctx context.Context) (store.StateRecord, error) {
 	if runtime.Store == nil {
 		return store.StateRecord{}, store.ErrStateNotFound

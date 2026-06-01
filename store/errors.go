@@ -4,6 +4,7 @@ import "errors"
 
 var (
 	ErrBlockNotFound      = errors.New("block not found")
+	ErrBlockIndexNotFound = errors.New("block index not found")
 	ErrStateNotFound      = errors.New("state not found")
 	ErrStateRootNotFound  = errors.New("state root not found")
 	ErrKeyNotFound        = errors.New("key not found")

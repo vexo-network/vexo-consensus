@@ -15,6 +15,7 @@ import (
 var (
 	blockHeightPrefix = []byte("block:height:")
 	blockHashPrefix   = []byte("block:hash:")
+	blockIndexKey     = []byte("block:index")
 	kvPrefix          = []byte("kv:")
 	stateLatestKey    = []byte("state:latest")
 	stateRootPrefix   = []byte("state:root:")
@@ -49,6 +50,15 @@ func (store *LevelDBStore) SaveBlock(ctx context.Context, record BlockRecord) er
 	batch := new(leveldb.Batch)
 	batch.Put(blockHeightKey(record.Block.Header.Height), encoded)
 	batch.Put(blockHashKey(record.Hash), encoded)
+	index, err := store.nextBlockIndex(record.Block.Header.Height)
+	if err != nil {
+		return err
+	}
+	encodedIndex, err := json.Marshal(index)
+	if err != nil {
+		return err
+	}
+	batch.Put(blockIndexKey, encodedIndex)
 	return store.db.Write(batch, nil)
 }
 
@@ -68,6 +78,28 @@ func (store *LevelDBStore) BlockByHash(ctx context.Context, hash types.Hash) (Bl
 	default:
 	}
 	return store.getBlock(blockHashKey(hash))
+}
+
+func (store *LevelDBStore) BlockIndex(ctx context.Context) (BlockIndex, error) {
+	select {
+	case <-ctx.Done():
+		return BlockIndex{}, ctx.Err()
+	default:
+	}
+
+	encoded, err := store.db.Get(blockIndexKey, nil)
+	if err != nil {
+		if errors.Is(err, leveldberrors.ErrNotFound) {
+			return BlockIndex{}, ErrBlockIndexNotFound
+		}
+		return BlockIndex{}, err
+	}
+
+	var index BlockIndex
+	if err := json.Unmarshal(encoded, &index); err != nil {
+		return BlockIndex{}, err
+	}
+	return index, nil
 }
 
 func (store *LevelDBStore) SaveState(ctx context.Context, state StateRecord) error {
@@ -261,6 +293,33 @@ func (store *LevelDBStore) getBlock(key []byte) (BlockRecord, error) {
 		return BlockRecord{}, err
 	}
 	return record, nil
+}
+
+func (store *LevelDBStore) nextBlockIndex(height types.Height) (BlockIndex, error) {
+	encoded, err := store.db.Get(blockIndexKey, nil)
+	if err != nil {
+		if errors.Is(err, leveldberrors.ErrNotFound) {
+			return BlockIndex{EarliestHeight: height, LatestHeight: height, TotalBlocks: 1}, nil
+		}
+		return BlockIndex{}, err
+	}
+
+	var index BlockIndex
+	if err := json.Unmarshal(encoded, &index); err != nil {
+		return BlockIndex{}, err
+	}
+	if index.EarliestHeight == 0 || height < index.EarliestHeight {
+		index.EarliestHeight = height
+	}
+	if height > index.LatestHeight {
+		index.LatestHeight = height
+	}
+	if _, err := store.db.Get(blockHeightKey(height), nil); errors.Is(err, leveldberrors.ErrNotFound) {
+		index.TotalBlocks++
+	} else if err != nil {
+		return BlockIndex{}, err
+	}
+	return index, nil
 }
 
 func blockHeightKey(height types.Height) []byte {

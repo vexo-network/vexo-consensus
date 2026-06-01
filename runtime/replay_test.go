@@ -64,6 +64,22 @@ func TestRuntimeReplayStoredBlocks(t *testing.T) {
 	if commit.Height != 2 {
 		t.Fatalf("expected replayed commit height 2, got %d", commit.Height)
 	}
+
+	index, err := replayRuntime.BlockIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index.EarliestHeight != 1 || index.LatestHeight != 2 || index.TotalBlocks != 2 {
+		t.Fatalf("unexpected replay block index: %+v", index)
+	}
+
+	replayAllResult, err := replayRuntime.ReplayAll(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayAllResult.Blocks != 2 || replayAllResult.FromHeight != 1 || replayAllResult.ToHeight != 2 {
+		t.Fatalf("unexpected replay all result: %+v", replayAllResult)
+	}
 }
 
 func TestRuntimeReplayRejectsInvalidRange(t *testing.T) {
@@ -88,6 +104,23 @@ func TestRuntimeReplayRejectsInvalidRange(t *testing.T) {
 	_, err = runtime.Replay(context.Background(), 2, 1)
 	if !errors.Is(err, ErrInvalidReplayRange) {
 		t.Fatalf("expected invalid replay range, got %v", err)
+	}
+}
+
+func TestRuntimeReplayAllWithoutIndex(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	runtime, err := NewWithStore(config.Default("vexo-test"), noopApp{}, nil, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = runtime.ReplayAll(context.Background())
+	if !errors.Is(err, store.ErrBlockIndexNotFound) {
+		t.Fatalf("expected block index not found, got %v", err)
 	}
 }
 
