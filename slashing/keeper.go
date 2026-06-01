@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strconv"
+
+	"github.com/vexo-network/vexo-consensus/types"
 )
 
 var (
@@ -13,13 +15,15 @@ var (
 	ErrMissingHeight        = errors.New("evidence height is required")
 	ErrDuplicateEvidence    = errors.New("duplicate evidence")
 	ErrPenaltyNotConfigured = errors.New("penalty is not configured")
+	ErrInvalidSlashFraction = errors.New("invalid slash fraction")
 )
 
 type PenaltyPolicy map[EvidenceType]Penalty
 
 type InMemoryKeeper struct {
-	policy   PenaltyPolicy
-	evidence map[string]Evidence
+	policy    PenaltyPolicy
+	evidence  map[string]Evidence
+	penalties map[string]PenaltyReceipt
 }
 
 func NewInMemoryKeeper(policy PenaltyPolicy) *InMemoryKeeper {
@@ -27,8 +31,9 @@ func NewInMemoryKeeper(policy PenaltyPolicy) *InMemoryKeeper {
 		policy = DefaultPenaltyPolicy()
 	}
 	return &InMemoryKeeper{
-		policy:   policy,
-		evidence: make(map[string]Evidence),
+		policy:    policy,
+		evidence:  make(map[string]Evidence),
+		penalties: make(map[string]PenaltyReceipt),
 	}
 }
 
@@ -98,8 +103,49 @@ func (keeper *InMemoryKeeper) ApplyPenalty(ctx context.Context, evidence Evidenc
 	return penalty, nil
 }
 
+func (keeper *InMemoryKeeper) SubmitAndApply(ctx context.Context, evidence Evidence) (PenaltyReceipt, error) {
+	if err := keeper.SubmitEvidence(ctx, evidence); err != nil {
+		return PenaltyReceipt{}, err
+	}
+	penalty, err := keeper.ApplyPenalty(ctx, evidence)
+	if err != nil {
+		return PenaltyReceipt{}, err
+	}
+	receipt := PenaltyReceipt{
+		Evidence: cloneEvidence(evidence),
+		Penalty:  penalty,
+	}
+	keeper.penalties[evidenceKey(evidence)] = receipt
+	return receipt, nil
+}
+
 func (keeper *InMemoryKeeper) EvidenceCount() int {
 	return len(keeper.evidence)
+}
+
+func (keeper *InMemoryKeeper) PenaltyCount() int {
+	return len(keeper.penalties)
+}
+
+func (keeper *InMemoryKeeper) PenaltyReceipt(evidence Evidence) (PenaltyReceipt, bool) {
+	receipt, found := keeper.penalties[evidenceKey(evidence)]
+	if !found {
+		return PenaltyReceipt{}, false
+	}
+	receipt.Evidence = cloneEvidence(receipt.Evidence)
+	return receipt, true
+}
+
+func ApplySlash(power types.VotingPower, penalty Penalty) (types.VotingPower, error) {
+	fraction, err := strconv.ParseFloat(penalty.SlashFraction, 64)
+	if err != nil || fraction < 0 || fraction > 1 {
+		return 0, ErrInvalidSlashFraction
+	}
+	remaining := float64(power) * (1 - fraction)
+	if remaining < 1 && power > 0 && fraction < 1 {
+		return 1, nil
+	}
+	return types.VotingPower(remaining), nil
 }
 
 func evidenceKey(evidence Evidence) string {

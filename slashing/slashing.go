@@ -28,6 +28,11 @@ type Penalty struct {
 	JailDuration  uint64
 }
 
+type PenaltyReceipt struct {
+	Evidence Evidence
+	Penalty  Penalty
+}
+
 type Keeper interface {
 	SubmitEvidence(ctx context.Context, evidence Evidence) error
 	ValidateEvidence(ctx context.Context, evidence Evidence) error

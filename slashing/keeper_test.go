@@ -85,6 +85,79 @@ func TestInMemoryKeeperAppliesConfiguredPenalty(t *testing.T) {
 	}
 }
 
+func TestInMemoryKeeperSubmitAndApplyRecordsReceipt(t *testing.T) {
+	keeper := NewInMemoryKeeper(PenaltyPolicy{
+		EvidenceConflictingVote: {SlashFraction: "0.10", JailDuration: 20},
+	})
+	evidence := validEvidence(EvidenceConflictingVote)
+
+	receipt, err := keeper.SubmitAndApply(context.Background(), evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keeper.EvidenceCount() != 1 || keeper.PenaltyCount() != 1 {
+		t.Fatalf("expected one evidence and penalty, got evidence=%d penalty=%d", keeper.EvidenceCount(), keeper.PenaltyCount())
+	}
+	if receipt.Penalty.SlashFraction != "0.10" {
+		t.Fatalf("unexpected receipt: %+v", receipt)
+	}
+	stored, found := keeper.PenaltyReceipt(evidence)
+	if !found {
+		t.Fatal("expected stored penalty receipt")
+	}
+	if stored.Evidence.Validator != evidence.Validator || stored.Penalty.JailDuration != 20 {
+		t.Fatalf("unexpected stored receipt: %+v", stored)
+	}
+}
+
+func TestInMemoryKeeperSubmitAndApplyRejectsDuplicate(t *testing.T) {
+	keeper := NewInMemoryKeeper(nil)
+	evidence := validEvidence(EvidenceConflictingVote)
+	if _, err := keeper.SubmitAndApply(context.Background(), evidence); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := keeper.SubmitAndApply(context.Background(), evidence); !errors.Is(err, ErrDuplicateEvidence) {
+		t.Fatalf("expected duplicate evidence, got %v", err)
+	}
+}
+
+func TestApplySlash(t *testing.T) {
+	remaining, err := ApplySlash(100, Penalty{SlashFraction: "0.05"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 95 {
+		t.Fatalf("expected 95 remaining power, got %d", remaining)
+	}
+	remaining, err = ApplySlash(1, Penalty{SlashFraction: "0.50"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 1 {
+		t.Fatalf("expected minimum nonzero power, got %d", remaining)
+	}
+	remaining, err = ApplySlash(100, Penalty{SlashFraction: "1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 0 {
+		t.Fatalf("expected full slash, got %d", remaining)
+	}
+}
+
+func TestApplySlashRejectsInvalidFraction(t *testing.T) {
+	cases := []Penalty{
+		{SlashFraction: "invalid"},
+		{SlashFraction: "-0.1"},
+		{SlashFraction: "1.1"},
+	}
+	for _, penalty := range cases {
+		if _, err := ApplySlash(100, penalty); !errors.Is(err, ErrInvalidSlashFraction) {
+			t.Fatalf("expected invalid slash fraction for %+v, got %v", penalty, err)
+		}
+	}
+}
+
 func TestInMemoryKeeperRejectsEvidenceWithoutPenalty(t *testing.T) {
 	keeper := NewInMemoryKeeper(PenaltyPolicy{
 		EvidenceDoubleSign: {SlashFraction: "0.25", JailDuration: 10},
