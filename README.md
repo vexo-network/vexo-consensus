@@ -162,6 +162,12 @@ Run a minimal block execution demo:
 go run ./cmd/vexod demo
 ```
 
+Run a LevelDB-backed storage demo:
+
+```bash
+go run ./cmd/vexod store-demo
+```
+
 ## Testing
 
 Run all tests:

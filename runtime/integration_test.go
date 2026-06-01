@@ -93,6 +93,28 @@ func TestRuntimeExecuteBlockPersistsBlockAndState(t *testing.T) {
 	if rootRecord.Root == (types.Hash{}) {
 		t.Fatal("expected non-zero bank state root")
 	}
+
+	queriedBlock, err := runtime.BlockByHeight(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queriedBlock.Hash != record.Hash {
+		t.Fatalf("expected runtime block query hash %x, got %x", record.Hash, queriedBlock.Hash)
+	}
+	queriedState, err := runtime.LatestState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queriedState.Height != 2 {
+		t.Fatalf("expected latest state height 2, got %d", queriedState.Height)
+	}
+	queriedRoot, err := runtime.StateRoot(context.Background(), 2, "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queriedRoot.Root != rootRecord.Root {
+		t.Fatalf("expected queried root %x, got %x", rootRecord.Root, queriedRoot.Root)
+	}
 }
 
 func TestRuntimeInjectsStoreIntoAppRuntime(t *testing.T) {
