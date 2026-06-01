@@ -92,6 +92,45 @@ func TestNodeTransportReactorRoutesVoteBetweenNodes(t *testing.T) {
 	waitForQuorumInput(t, bobConsensus, blockHash)
 }
 
+func TestNodeConsensusLoopBroadcastsProposalAndCollectsVotes(t *testing.T) {
+	alice, bob, carol := newConsensusLoopNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+	startNode(t, carol)
+	defer carol.Stop(context.Background())
+
+	aliceConsensus, err := alice.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceConsensus.StartRound(1, 0)
+
+	proposal, blockHash, err := alice.ProposeBlock(context.Background(), types.Block{
+		Header: types.Header{Height: 1},
+		Txs: []types.Tx{
+			[]byte("tx-c"),
+			[]byte("tx-a"),
+			[]byte("tx-b"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal.Proposer != "alice" {
+		t.Fatalf("unexpected proposer: %s", proposal.Proposer)
+	}
+	if _, ok, err := alice.VoteBlock(context.Background(), proposal.Block.Header.Height, proposal.Round, blockHash); err != nil || ok {
+		t.Fatalf("local vote should not have quorum before peer votes: ok=%v err=%v", ok, err)
+	}
+
+	waitForQuorumCert(t, aliceConsensus, proposal.Block.Header.Height, proposal.Round, blockHash)
+	waitForConsensusStatus(t, aliceConsensus, func(status consensus.Status) bool {
+		return status.Phase == consensus.PhaseCommit
+	})
+}
+
 func newTransportNodes(t *testing.T) (*Node, *Node) {
 	t.Helper()
 	bus := transport.NewInMemoryBus()
@@ -123,6 +162,40 @@ func newTransportNodes(t *testing.T) (*Node, *Node) {
 	alice.WithTransport(aliceWire)
 	bob.WithTransport(bobWire)
 	return alice, bob
+}
+
+func newConsensusLoopNodes(t *testing.T) (*Node, *Node, *Node) {
+	t.Helper()
+	bus := transport.NewInMemoryBus()
+	genesis := Genesis{
+		ChainID: "vexo-test",
+		Validators: []validator.Validator{
+			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+			{ID: "bob", Address: "bob", VotingPower: 1, Stake: 1},
+			{ID: "carol", Address: "carol", VotingPower: 1, Stake: 1},
+		},
+		Governance: map[types.Address]types.VotingPower{"alice": 1, "bob": 1, "carol": 1},
+	}
+	alice := newConsensusLoopNode(t, bus, genesis, "alice")
+	bob := newConsensusLoopNode(t, bus, genesis, "bob")
+	carol := newConsensusLoopNode(t, bus, genesis, "carol")
+	return alice, bob, carol
+}
+
+func newConsensusLoopNode(t *testing.T, bus *transport.InMemoryBus, genesis Genesis, validatorID types.ValidatorID) *Node {
+	t.Helper()
+	wire, err := bus.NewPeer(p2p.PeerID(validatorID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := DefaultConfig("vexo-test", t.TempDir())
+	cfg.ValidatorID = validatorID
+	node, err := New(cfg, genesis, newTestApplication(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	node.WithTransport(wire)
+	return node
 }
 
 func startNode(t *testing.T, node *Node) {
@@ -167,4 +240,19 @@ func waitForQuorumInput(t *testing.T, machine *consensus.StateMachine, blockHash
 		return
 	}
 	t.Fatal("timed out waiting for vote input")
+}
+
+func waitForQuorumCert(t *testing.T, machine *consensus.StateMachine, height types.Height, round types.Round, blockHash types.Hash) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := machine.BuildQuorumCert(height, round, blockHash); err == nil {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if _, err := machine.BuildQuorumCert(height, round, blockHash); err == nil {
+		return
+	}
+	t.Fatal("timed out waiting for quorum cert")
 }

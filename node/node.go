@@ -18,6 +18,8 @@ var (
 	ErrMissingApplication = errors.New("application is required")
 	ErrNodeAlreadyRunning = errors.New("node already running")
 	ErrNodeNotRunning     = errors.New("node is not running")
+	ErrMissingValidatorID = errors.New("validator id is required")
+	ErrConsensusOffline   = errors.New("consensus reactor is unavailable")
 )
 
 type Status struct {
@@ -104,7 +106,17 @@ func (node *Node) Start(ctx context.Context) error {
 	}
 	var reactor *consensus.TransportReactor
 	if node.wire != nil {
-		reactor = consensus.NewTransportReactor(node.wire, consensusState)
+		receiver := consensus.Reactor(consensusState)
+		if node.cfg.ValidatorID != "" {
+			receiver = &autoVoteReactor{
+				machine:     consensusState,
+				validatorID: node.cfg.ValidatorID,
+			}
+		}
+		reactor = consensus.NewTransportReactor(node.wire, receiver)
+		if voter, ok := receiver.(*autoVoteReactor); ok {
+			voter.broadcastVote = reactor.BroadcastVote
+		}
 		if err := reactor.Start(ctx); err != nil {
 			storage.Close()
 			return err

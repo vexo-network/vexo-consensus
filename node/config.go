@@ -17,8 +17,9 @@ var (
 )
 
 type Config struct {
-	Chain   config.Config
-	DataDir string
+	Chain       config.Config
+	DataDir     string
+	ValidatorID types.ValidatorID
 }
 
 type Genesis struct {
