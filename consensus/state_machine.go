@@ -39,6 +39,8 @@ type StateMachine struct {
 	evidence     []slashing.Evidence
 	timeouts     *TimeoutCollector
 	pacemaker    *Pacemaker
+	commitRule   ThreeChainCommitRule
+	committed    []CommitDecision
 }
 
 func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
@@ -67,6 +69,8 @@ func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
 		evidence:    make([]slashing.Evidence, 0),
 		timeouts:    NewTimeoutCollector(config.ValidatorSet),
 		pacemaker:   NewPacemaker(0, 0),
+		commitRule:  ThreeChainCommitRule{},
+		committed:   make([]CommitDecision, 0),
 	}, nil
 }
 
@@ -232,6 +236,9 @@ func (machine *StateMachine) BuildQuorumCert(height types.Height, round types.Ro
 }
 
 func (machine *StateMachine) Status(ctx context.Context) Status {
+	if ctx == nil {
+		return machine.status
+	}
 	select {
 	case <-ctx.Done():
 		return machine.status
@@ -242,6 +249,20 @@ func (machine *StateMachine) Status(ctx context.Context) Status {
 
 func (machine *StateMachine) Evidence() []slashing.Evidence {
 	return append([]slashing.Evidence(nil), machine.evidence...)
+}
+
+func (machine *StateMachine) CommitDecisions() []CommitDecision {
+	return append([]CommitDecision(nil), machine.committed...)
+}
+
+func (machine *StateMachine) ApplyCommitRule(candidate CommitCandidate) (CommitDecision, error) {
+	decision, err := machine.commitRule.Decide(candidate)
+	if err != nil {
+		return CommitDecision{}, err
+	}
+	machine.status.LastFinalized = decision.CommittedBlockHash
+	machine.committed = append(machine.committed, decision)
+	return decision, nil
 }
 
 func (machine *StateMachine) recordVote(vote Vote) error {
