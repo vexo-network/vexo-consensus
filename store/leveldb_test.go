@@ -159,6 +159,9 @@ func TestLevelDBStoreContextCancellation(t *testing.T) {
 	if err := store.Delete(ctx, "bank", []byte("alice")); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected delete canceled, got %v", err)
 	}
+	if _, err := store.Root(ctx, "bank"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected root canceled, got %v", err)
+	}
 }
 
 func TestLevelDBStoreKVSetGetDelete(t *testing.T) {
@@ -188,6 +191,68 @@ func TestLevelDBStoreKVSetGetDelete(t *testing.T) {
 	}
 	if _, err := store.Get(context.Background(), "bank", []byte("alice")); !errors.Is(err, ErrKeyNotFound) {
 		t.Fatalf("expected deleted key not found, got %v", err)
+	}
+}
+
+func TestLevelDBStoreRootReflectsNamespaceState(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	emptyRoot, err := store.Root(context.Background(), "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set(context.Background(), "bank", []byte("alice"), []byte("100")); err != nil {
+		t.Fatal(err)
+	}
+	firstRoot, err := store.Root(context.Background(), "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if emptyRoot == firstRoot {
+		t.Fatal("expected root to change after set")
+	}
+
+	if err := store.Set(context.Background(), "staking", []byte("alice"), []byte("100")); err != nil {
+		t.Fatal(err)
+	}
+	afterOtherNamespace, err := store.Root(context.Background(), "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstRoot != afterOtherNamespace {
+		t.Fatal("other namespace changed bank root")
+	}
+
+	if err := store.Set(context.Background(), "bank", []byte("alice"), []byte("200")); err != nil {
+		t.Fatal(err)
+	}
+	updatedRoot, err := store.Root(context.Background(), "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updatedRoot == firstRoot {
+		t.Fatal("expected root to change after update")
+	}
+
+	if err := store.Delete(context.Background(), "bank", []byte("alice")); err != nil {
+		t.Fatal(err)
+	}
+	deletedRoot, err := store.Root(context.Background(), "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deletedRoot != emptyRoot {
+		t.Fatal("expected deleted root to match empty root")
+	}
+}
+
+func TestLevelDBStoreRootRejectsInvalidNamespace(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	if _, err := store.Root(context.Background(), ""); !errors.Is(err, ErrInvalidNamespace) {
+		t.Fatalf("expected invalid namespace, got %v", err)
 	}
 }
 

@@ -19,6 +19,11 @@ type StateStore interface {
 	Delete(ctx context.Context, namespace string, key []byte) error
 }
 
+type StateRootStore interface {
+	StateStore
+	Root(ctx context.Context, namespace string) (types.Hash, error)
+}
+
 type GenesisState map[string][]byte
 
 type Module interface {

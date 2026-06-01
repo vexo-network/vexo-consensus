@@ -33,4 +33,5 @@ type KVStore interface {
 	Set(ctx context.Context, namespace string, key []byte, value []byte) error
 	Get(ctx context.Context, namespace string, key []byte) ([]byte, error)
 	Delete(ctx context.Context, namespace string, key []byte) error
+	Root(ctx context.Context, namespace string) (types.Hash, error)
 }

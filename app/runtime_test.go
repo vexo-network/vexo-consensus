@@ -179,6 +179,46 @@ func TestRuntimePassesStateStoreToModules(t *testing.T) {
 	}
 }
 
+func TestRuntimeAppHashReflectsStateRoot(t *testing.T) {
+	firstStore, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer firstStore.Close()
+	secondStore, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer secondStore.Close()
+
+	firstRuntime, err := NewRuntime("vexo-test", []Module{&statefulModule{name: "bank"}}, PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstRuntime.WithStore(firstStore)
+	secondRuntime, err := NewRuntime("vexo-test", []Module{&statefulModule{name: "bank", value: "200"}}, PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondRuntime.WithStore(secondStore)
+
+	firstResponse, err := firstRuntime.FinalizeBlock(FinalizeBlockRequest{
+		Block: types.Block{Header: types.Header{Height: 1}, Txs: []types.Tx{[]byte("bank:alice=100")}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondResponse, err := secondRuntime.FinalizeBlock(FinalizeBlockRequest{
+		Block: types.Block{Header: types.Header{Height: 1}, Txs: []types.Tx{[]byte("bank:alice=100")}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstResponse.AppHash == secondResponse.AppHash {
+		t.Fatal("expected app hash to differ when stored state differs")
+	}
+}
+
 func TestRuntimeRequiresChainID(t *testing.T) {
 	_, err := NewRuntime("", nil, nil)
 	if !errors.Is(err, ErrEmptyChainID) {
@@ -250,7 +290,8 @@ func (module *recordingModule) EndBlock(ctx Context) error {
 }
 
 type statefulModule struct {
-	name string
+	name  string
+	value string
 }
 
 func (module *statefulModule) Name() string {
@@ -273,7 +314,11 @@ func (module *statefulModule) DeliverTx(ctx Context, tx types.Tx) types.Result {
 	if payload != "bank:alice=100" {
 		return types.Result{Code: 2, Log: "unexpected tx"}
 	}
-	if err := ctx.Store.Set(context.Background(), "bank", []byte("alice"), []byte("100")); err != nil {
+	value := module.value
+	if value == "" {
+		value = "100"
+	}
+	if err := ctx.Store.Set(context.Background(), "bank", []byte("alice"), []byte(value)); err != nil {
 		return types.Result{Code: 3, Log: err.Error()}
 	}
 	return types.Result{}

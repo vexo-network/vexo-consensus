@@ -1,7 +1,9 @@
 package app
 
 import (
+	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 
 	"github.com/vexo-network/vexo-consensus/types"
@@ -60,7 +62,7 @@ func (runtime *Runtime) InitChain(req InitChainRequest) (InitChainResponse, erro
 			return InitChainResponse{}, err
 		}
 	}
-	runtime.appHash = runtime.computeAppHash(nil)
+	runtime.appHash = runtime.computeAppHash()
 	return InitChainResponse{AppHash: runtime.appHash}, nil
 }
 
@@ -131,7 +133,7 @@ func (runtime *Runtime) FinalizeBlock(req FinalizeBlockRequest) (FinalizeBlockRe
 	}
 
 	runtime.height = req.Block.Header.Height
-	runtime.appHash = runtime.computeAppHash(req.Block.Txs)
+	runtime.appHash = runtime.computeAppHash()
 	return FinalizeBlockResponse{Results: results, AppHash: runtime.appHash}, nil
 }
 
@@ -147,19 +149,24 @@ func (runtime *Runtime) Modules() []Module {
 	return append([]Module(nil), runtime.modules...)
 }
 
-func (runtime *Runtime) computeAppHash(txs []types.Tx) types.Hash {
+func (runtime *Runtime) computeAppHash() types.Hash {
 	hasher := sha256.New()
 	hasher.Write([]byte(runtime.chainID))
 
 	var heightBuffer [8]byte
-	height := uint64(runtime.height)
-	for index := 7; index >= 0; index-- {
-		heightBuffer[index] = byte(height)
-		height >>= 8
-	}
+	binary.BigEndian.PutUint64(heightBuffer[:], uint64(runtime.height))
 	hasher.Write(heightBuffer[:])
-	for _, tx := range txs {
-		hasher.Write(tx)
+
+	rootStore, ok := runtime.store.(StateRootStore)
+	if ok {
+		for _, module := range runtime.modules {
+			root, err := rootStore.Root(context.Background(), module.Name())
+			if err != nil {
+				continue
+			}
+			hasher.Write([]byte(module.Name()))
+			hasher.Write(root[:])
+		}
 	}
 
 	var hash types.Hash

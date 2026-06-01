@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -160,6 +161,46 @@ func (store *LevelDBStore) Delete(ctx context.Context, namespace string, key []b
 	return store.db.Delete(kvKey(namespace, key), nil)
 }
 
+func (store *LevelDBStore) Root(ctx context.Context, namespace string) (types.Hash, error) {
+	select {
+	case <-ctx.Done():
+		return types.Hash{}, ctx.Err()
+	default:
+	}
+	if namespace == "" {
+		return types.Hash{}, ErrInvalidNamespace
+	}
+
+	prefix := kvNamespacePrefix(namespace)
+	iterator := store.db.NewIterator(nil, nil)
+	defer iterator.Release()
+
+	hasher := sha256.New()
+	for ok := iterator.Seek(prefix); ok; ok = iterator.Next() {
+		select {
+		case <-ctx.Done():
+			return types.Hash{}, ctx.Err()
+		default:
+		}
+		key := iterator.Key()
+		if len(key) < len(prefix) || string(key[:len(prefix)]) != string(prefix) {
+			break
+		}
+		value := iterator.Value()
+		writeUint64(hasher, uint64(len(key)))
+		hasher.Write(key)
+		writeUint64(hasher, uint64(len(value)))
+		hasher.Write(value)
+	}
+	if err := iterator.Error(); err != nil {
+		return types.Hash{}, err
+	}
+
+	var hash types.Hash
+	copy(hash[:], hasher.Sum(nil))
+	return hash, nil
+}
+
 func (store *LevelDBStore) Close() error {
 	return store.db.Close()
 }
@@ -193,8 +234,22 @@ func blockHashKey(hash types.Hash) []byte {
 }
 
 func kvKey(namespace string, key []byte) []byte {
+	dbKey := kvNamespacePrefix(namespace)
+	return append(dbKey, key...)
+}
+
+func kvNamespacePrefix(namespace string) []byte {
 	dbKey := append([]byte(nil), kvPrefix...)
 	dbKey = append(dbKey, []byte(namespace)...)
-	dbKey = append(dbKey, ':')
-	return append(dbKey, key...)
+	return append(dbKey, ':')
+}
+
+func writeUint64(writer byteWriter, value uint64) {
+	var buffer [8]byte
+	binary.BigEndian.PutUint64(buffer[:], value)
+	writer.Write(buffer[:])
+}
+
+type byteWriter interface {
+	Write([]byte) (int, error)
 }
