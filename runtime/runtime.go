@@ -23,7 +23,7 @@ type Runtime struct {
 	App        app.Application
 	Executor   consensus.ApplicationBlockExecutor
 	Validators *validator.InMemoryRegistry
-	Committee  committee.DeterministicSelector
+	Committee  committee.Selector
 	Mempool    *mempool.DAG
 	Slashing   *slashing.InMemoryKeeper
 	Governance *governance.InMemoryKeeper
@@ -47,7 +47,7 @@ func NewWithStore(cfg config.Config, application app.Application, initialValidat
 		return nil, err
 	}
 
-	selector, err := committee.NewDeterministicSelector(cfg.Committee)
+	selector, err := committee.NewSelector(cfg.Committee, crypto.NewDeterministicVRF(cfg.VRF.Keys))
 	if err != nil {
 		return nil, err
 	}

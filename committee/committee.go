@@ -7,6 +7,13 @@ import (
 	"github.com/vexo-network/vexo-consensus/validator"
 )
 
+type Backend string
+
+const (
+	BackendDeterministic Backend = "deterministic"
+	BackendVRF           Backend = "vrf"
+)
+
 type Member struct {
 	Validator validator.Validator
 	Weight    types.VotingPower
@@ -29,4 +36,5 @@ type RotationPolicy struct {
 	CommitteeSize  uint64
 	VRFThreshold   []byte
 	MinVotingPower types.VotingPower
+	Backend        Backend
 }

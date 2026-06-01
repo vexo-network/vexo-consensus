@@ -18,6 +18,7 @@ var (
 type Config struct {
 	ChainID    string
 	Crypto     CryptoConfig
+	VRF        VRFConfig
 	Validator  validator.AdmissionConfig
 	Committee  committee.RotationPolicy
 	Mempool    mempool.FIFOConfig
@@ -36,6 +37,10 @@ type CryptoConfig struct {
 	Backend CryptoBackend
 }
 
+type VRFConfig struct {
+	Keys map[string][]byte
+}
+
 func Default(chainID string) Config {
 	return Config{
 		ChainID: chainID,
@@ -50,6 +55,7 @@ func Default(chainID string) Config {
 			EpochLength:    100,
 			CommitteeSize:  128,
 			MinVotingPower: 1,
+			Backend:        committee.BackendDeterministic,
 		},
 		Mempool: mempool.FIFOConfig{
 			MaxTxBytes: 1024 * 1024,
@@ -79,7 +85,7 @@ func (config Config) Validate() error {
 	if config.Crypto.Backend == "" {
 		return ErrInvalidConfig
 	}
-	if config.Committee.EpochLength == 0 || config.Committee.CommitteeSize == 0 {
+	if config.Committee.Backend == "" || config.Committee.EpochLength == 0 || config.Committee.CommitteeSize == 0 {
 		return ErrInvalidConfig
 	}
 	return nil

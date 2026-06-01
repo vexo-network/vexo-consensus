@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/config"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -42,6 +43,41 @@ func TestRuntimeRejectsUnsupportedCryptoBackend(t *testing.T) {
 	_, err := New(cfg, noopApp{}, nil, nil)
 	if !errors.Is(err, vexocrypto.ErrUnsupportedCryptoBackend) {
 		t.Fatalf("expected unsupported crypto backend, got %v", err)
+	}
+}
+
+func TestRuntimeRejectsUnsupportedCommitteeBackend(t *testing.T) {
+	cfg := config.Default("vexo-test")
+	cfg.Committee.Backend = "unknown"
+	_, err := New(cfg, noopApp{}, nil, nil)
+	if !errors.Is(err, committee.ErrUnsupportedCommitteeBackend) {
+		t.Fatalf("expected unsupported committee backend, got %v", err)
+	}
+}
+
+func TestRuntimeBuildsVRFCommitteeSelector(t *testing.T) {
+	cfg := config.Default("vexo-test")
+	cfg.Committee.Backend = committee.BackendVRF
+	cfg.Committee.CommitteeSize = 1
+	cfg.VRF.Keys = map[string][]byte{"alice-pub": []byte("alice-secret")}
+
+	runtime, err := New(cfg, noopApp{}, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: []byte("alice-pub")},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	set, err := runtime.Validators.ValidatorSet(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	committeeResult, err := runtime.Committee.Select(context.Background(), 0, 0, types.Hash{1}, set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(committeeResult.Members) != 1 || len(committeeResult.Members[0].Proof) == 0 {
+		t.Fatalf("expected VRF selected member with proof, got %+v", committeeResult.Members)
 	}
 }
 
