@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -402,6 +403,50 @@ func TestNodeStepConsensusProposesThenCommitsReadyBlock(t *testing.T) {
 	}
 }
 
+func TestNodeBackgroundConsensusLoopCommitsAcrossPeers(t *testing.T) {
+	alice, bob, carol := newConsensusLoopNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+	startNode(t, carol)
+	defer carol.Stop(context.Background())
+
+	loopConfig := ConsensusLoopConfig{Interval: time.Millisecond, MaxBlockBytes: 1024}
+	for _, node := range []*Node{alice, bob, carol} {
+		if err := node.StartConsensusLoop(context.Background(), loopConfig); err != nil {
+			t.Fatal(err)
+		}
+		defer node.StopConsensusLoop(context.Background())
+		if err := node.StartConsensusLoop(context.Background(), loopConfig); !errors.Is(err, ErrLoopAlreadyRunning) {
+			t.Fatalf("expected loop already running, got %v", err)
+		}
+	}
+
+	if err := alice.SubmitTx(context.Background(), []byte("bank:background-loop")); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForNodeHeight(t, alice, 1)
+	waitForNodeHeight(t, bob, 1)
+	waitForNodeHeight(t, carol, 1)
+
+	for _, node := range []*Node{alice, bob, carol} {
+		if !node.ConsensusLoopRunning() {
+			t.Fatal("expected consensus loop to be running")
+		}
+		if err := node.StopConsensusLoop(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if node.ConsensusLoopRunning() {
+			t.Fatal("expected consensus loop to stop")
+		}
+		if err := node.StopConsensusLoop(context.Background()); !errors.Is(err, ErrLoopNotRunning) {
+			t.Fatalf("expected loop not running, got %v", err)
+		}
+	}
+}
+
 func newTransportNodes(t *testing.T) (*Node, *Node) {
 	t.Helper()
 	bus := transport.NewInMemoryBus()
@@ -545,4 +590,21 @@ func waitForMempoolLen(t *testing.T, node *Node, expected int) {
 	if actual := runtime.Mempool.Len(); actual != expected {
 		t.Fatalf("expected mempool len %d, got %d", expected, actual)
 	}
+}
+
+func waitForNodeHeight(t *testing.T, node *Node, height types.Height) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		status := node.Status(context.Background())
+		if status.LatestHeight >= height {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	status := node.Status(context.Background())
+	if status.LatestHeight >= height {
+		return
+	}
+	t.Fatalf("timed out waiting for node height %d, got %+v", height, status)
 }

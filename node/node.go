@@ -22,6 +22,8 @@ var (
 	ErrConsensusOffline   = errors.New("consensus reactor is unavailable")
 	ErrInvalidCommitQC    = errors.New("invalid commit quorum certificate")
 	ErrEmptyProposal      = errors.New("proposal has no transactions")
+	ErrLoopAlreadyRunning = errors.New("consensus loop already running")
+	ErrLoopNotRunning     = errors.New("consensus loop is not running")
 )
 
 type Status struct {
@@ -38,14 +40,16 @@ type Node struct {
 	app     app.Application
 	wire    transport.Transport
 
-	mu        sync.Mutex
-	runtime   *vexoruntime.Runtime
-	consensus *consensus.StateMachine
-	reactor   *consensus.TransportReactor
-	txCancel  context.CancelFunc
-	pending   map[types.Hash]consensus.Proposal
-	store     store.Store
-	running   bool
+	mu         sync.Mutex
+	runtime    *vexoruntime.Runtime
+	consensus  *consensus.StateMachine
+	reactor    *consensus.TransportReactor
+	txCancel   context.CancelFunc
+	loopCancel context.CancelFunc
+	loopDone   chan struct{}
+	pending    map[types.Hash]consensus.Proposal
+	store      store.Store
+	running    bool
 }
 
 func New(cfg Config, genesis Genesis, application app.Application) (*Node, error) {
@@ -158,6 +162,13 @@ func (node *Node) Stop(ctx context.Context) error {
 	if node.txCancel != nil {
 		node.txCancel()
 	}
+	if node.loopCancel != nil {
+		node.loopCancel()
+		loopDone := node.loopDone
+		node.mu.Unlock()
+		waitLoopDone(ctx, loopDone)
+		node.mu.Lock()
+	}
 	if node.reactor != nil {
 		if err := node.reactor.Stop(ctx); err != nil {
 			return err
@@ -169,6 +180,8 @@ func (node *Node) Stop(ctx context.Context) error {
 	node.consensus = nil
 	node.reactor = nil
 	node.txCancel = nil
+	node.loopCancel = nil
+	node.loopDone = nil
 	node.store = nil
 	return err
 }
