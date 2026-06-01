@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/vexo-network/vexo-consensus/dataavailability"
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -116,6 +117,9 @@ func (machine *StateMachine) CreateProposal(block types.Block, round types.Round
 	}
 	block.Header.ChainID = machine.chainID
 	block.Header.ValidatorSetHash = machine.validatorSet.Hash()
+	if block.Header.ConsensusHash == (types.Hash{}) && len(block.Txs) > 0 {
+		block = dataavailability.AttachCommitment(block)
+	}
 	if block.Header.PreviousBlockHash == (types.Hash{}) && justifyQC.Height > 0 {
 		block.Header.PreviousBlockHash = justifyQC.BlockHash
 	}
@@ -146,6 +150,9 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 	}
 	if proposal.Block.Header.ValidatorSetHash != machine.validatorSet.Hash() {
 		return fmt.Errorf("%w: validator set hash mismatch", ErrInvalidProposal)
+	}
+	if err := dataavailability.Verify(proposal.Block.Header, proposal.Block.Txs); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidProposal, err)
 	}
 	if proposal.Block.Header.Height < machine.status.Height {
 		return ErrStaleProposal

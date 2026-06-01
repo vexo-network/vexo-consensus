@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/vexo-network/vexo-consensus/dataavailability"
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
@@ -24,7 +25,7 @@ func TestStateMachineBuildsQuorumCert(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	block := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHash: set.Hash()}, Txs: []types.Tx{[]byte("tx")}}
+	block := dataavailability.AttachCommitment(types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHash: set.Hash()}, Txs: []types.Tx{[]byte("tx")}})
 	blockHash := HashBlock(block)
 	if err := machine.OnProposal(context.Background(), Proposal{Block: block, Proposer: "a"}); err != nil {
 		t.Fatal(err)
@@ -856,8 +857,8 @@ func TestStateMachineRejectsConflictingVote(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHash: set.Hash()}, Txs: []types.Tx{[]byte("first")}}
-	second := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHash: set.Hash()}, Txs: []types.Tx{[]byte("second")}}
+	first := dataavailability.AttachCommitment(types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHash: set.Hash()}, Txs: []types.Tx{[]byte("first")}})
+	second := dataavailability.AttachCommitment(types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHash: set.Hash()}, Txs: []types.Tx{[]byte("second")}})
 	firstHash := HashBlock(first)
 	secondHash := HashBlock(second)
 	if err := machine.OnProposal(context.Background(), Proposal{Block: first, Proposer: "a"}); err != nil {
