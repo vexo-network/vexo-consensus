@@ -347,6 +347,61 @@ func TestNodeCommitsReadyCachedProposalAfterQC(t *testing.T) {
 	}
 }
 
+func TestNodeStepConsensusProposesThenCommitsReadyBlock(t *testing.T) {
+	alice, bob, carol := newConsensusLoopNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+	startNode(t, carol)
+	defer carol.Stop(context.Background())
+
+	aliceConsensus, err := alice.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceConsensus.StartRound(1, 0)
+	bobConsensus, err := bob.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobConsensus.StartRound(1, 0)
+
+	if err := alice.SubmitTx(context.Background(), []byte("bank:step")); err != nil {
+		t.Fatal(err)
+	}
+	proposeStep, err := alice.StepConsensus(context.Background(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposeStep.Committed || !proposeStep.Proposed {
+		t.Fatalf("expected proposal step only, got %+v", proposeStep)
+	}
+	waitForQuorumCert(t, bobConsensus, proposeStep.Proposal.Block.Header.Height, proposeStep.Proposal.Round, proposeStep.BlockHash)
+
+	commitStep, err := bob.StepConsensus(context.Background(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !commitStep.Committed || commitStep.Proposed {
+		t.Fatalf("expected commit step only, got %+v", commitStep)
+	}
+	if commitStep.Commit.BlockHash != proposeStep.BlockHash {
+		t.Fatalf("commit hash mismatch: %x != %x", commitStep.Commit.BlockHash, proposeStep.BlockHash)
+	}
+	status := bob.Status(context.Background())
+	if status.LatestHeight != 1 {
+		t.Fatalf("expected bob committed height 1, got %+v", status)
+	}
+	emptyStep, err := bob.StepConsensus(context.Background(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if emptyStep.Committed || emptyStep.Proposed {
+		t.Fatalf("expected idle step after commit, got %+v", emptyStep)
+	}
+}
+
 func newTransportNodes(t *testing.T) (*Node, *Node) {
 	t.Helper()
 	bus := transport.NewInMemoryBus()
