@@ -90,8 +90,14 @@ func (machine *StateMachine) CreateProposal(block types.Block, round types.Round
 		return Proposal{}, ErrUnknownValidator
 	}
 
+	if justifyQC.Height == 0 {
+		justifyQC = machine.blockTree.HighQC()
+	}
 	block.Header.ChainID = machine.chainID
 	block.Header.ValidatorSetHash = machine.validatorSet.Hash()
+	if block.Header.PreviousBlockHash == (types.Hash{}) && justifyQC.Height > 0 {
+		block.Header.PreviousBlockHash = justifyQC.BlockHash
+	}
 
 	return Proposal{
 		Block:     block,

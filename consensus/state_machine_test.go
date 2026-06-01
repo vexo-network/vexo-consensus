@@ -96,6 +96,73 @@ func TestStateMachineStoresVoteQuorumCertInBlockTree(t *testing.T) {
 	}
 }
 
+func TestStateMachineCreateProposalUsesHighQC(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+		{ID: "c", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	parent := types.Block{Header: types.Header{
+		ChainID:          "vexo-test",
+		Height:           1,
+		ValidatorSetHash: set.Hash(),
+	}}
+	parentHash := HashBlock(parent)
+	if err := machine.OnProposal(context.Background(), Proposal{Block: parent, Proposer: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: parentHash, ValidatorID: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: parentHash, ValidatorID: "b"}); err != nil {
+		t.Fatal(err)
+	}
+
+	proposal, err := machine.CreateProposal(types.Block{Header: types.Header{Height: 2}}, 0, "a", finality.QuorumCert{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal.JustifyQC.BlockHash != parentHash {
+		t.Fatalf("expected high qc as justify qc, got %+v", proposal.JustifyQC)
+	}
+	if proposal.Block.Header.PreviousBlockHash != parentHash {
+		t.Fatal("expected proposal parent to follow high qc")
+	}
+}
+
+func TestStateMachineCreateProposalKeepsExplicitQC(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	explicitQC := finality.QuorumCert{Height: 7, Round: 1, BlockHash: types.Hash{7}}
+	proposal, err := machine.CreateProposal(types.Block{Header: types.Header{Height: 8}}, 0, "a", explicitQC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal.JustifyQC.BlockHash != explicitQC.BlockHash {
+		t.Fatalf("expected explicit qc, got %+v", proposal.JustifyQC)
+	}
+	if proposal.Block.Header.PreviousBlockHash != explicitQC.BlockHash {
+		t.Fatal("expected proposal parent to follow explicit qc")
+	}
+}
+
 func TestStateMachineWeightedQuorum(t *testing.T) {
 	set := newTestValidatorSet([]validator.Validator{
 		{ID: "a", VotingPower: 4},

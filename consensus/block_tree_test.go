@@ -69,6 +69,9 @@ func TestBlockTreeStoresQuorumCert(t *testing.T) {
 	if node.QuorumCert.BlockHash != blockHash || node.QuorumCert.VotingPower != 2 {
 		t.Fatalf("unexpected quorum cert: %+v", node.QuorumCert)
 	}
+	if tree.HighQC().BlockHash != blockHash {
+		t.Fatal("expected stored quorum cert to become high qc")
+	}
 }
 
 func TestBlockTreeRejectsInvalidQuorumCert(t *testing.T) {
@@ -110,5 +113,24 @@ func TestBlockTreeRejectsInvalidQuorumCert(t *testing.T) {
 				t.Fatalf("expected %v, got %v", testCase.expected, err)
 			}
 		})
+	}
+}
+
+func TestBlockTreeTracksHighestQuorumCert(t *testing.T) {
+	tree := NewBlockTree()
+	first := finality.QuorumCert{Height: 1, Round: 2, BlockHash: types.Hash{1}}
+	second := finality.QuorumCert{Height: 2, Round: 0, BlockHash: types.Hash{2}}
+	lowerRound := finality.QuorumCert{Height: 2, Round: 0, BlockHash: types.Hash{3}}
+	higherRound := finality.QuorumCert{Height: 2, Round: 1, BlockHash: types.Hash{4}}
+
+	tree.ObserveQuorumCert(first)
+	tree.ObserveQuorumCert(second)
+	tree.ObserveQuorumCert(lowerRound)
+	if tree.HighQC().BlockHash != second.BlockHash {
+		t.Fatalf("expected second qc to remain high qc, got %+v", tree.HighQC())
+	}
+	tree.ObserveQuorumCert(higherRound)
+	if tree.HighQC().BlockHash != higherRound.BlockHash {
+		t.Fatalf("expected higher round qc, got %+v", tree.HighQC())
 	}
 }

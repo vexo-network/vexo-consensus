@@ -22,6 +22,7 @@ type BlockNode struct {
 
 type BlockTree struct {
 	blocks map[types.Hash]BlockNode
+	highQC finality.QuorumCert
 }
 
 func NewBlockTree() *BlockTree {
@@ -38,6 +39,7 @@ func (tree *BlockTree) Insert(block types.Block, blockHash types.Hash, justifyQC
 		JustifyQC:  justifyQC,
 	}
 	tree.blocks[blockHash] = node
+	tree.ObserveQuorumCert(justifyQC)
 	return node
 }
 
@@ -59,7 +61,21 @@ func (tree *BlockTree) SetQuorumCert(qc finality.QuorumCert) error {
 	}
 	node.QuorumCert = qc
 	tree.blocks[qc.BlockHash] = node
+	tree.ObserveQuorumCert(qc)
 	return nil
+}
+
+func (tree *BlockTree) ObserveQuorumCert(qc finality.QuorumCert) {
+	if qc.Height == 0 || qc.BlockHash == (types.Hash{}) {
+		return
+	}
+	if isBetterQC(qc, tree.highQC) {
+		tree.highQC = qc
+	}
+}
+
+func (tree *BlockTree) HighQC() finality.QuorumCert {
+	return tree.highQC
 }
 
 func (tree *BlockTree) CommitCandidate(blockHash types.Hash) (CommitCandidate, bool) {
@@ -80,4 +96,11 @@ func (tree *BlockTree) CommitCandidate(blockHash types.Hash) (CommitCandidate, b
 		BlockQC:         node.JustifyQC,
 		ParentQC:        parent.JustifyQC,
 	}, true
+}
+
+func isBetterQC(candidate finality.QuorumCert, current finality.QuorumCert) bool {
+	if candidate.Height != current.Height {
+		return candidate.Height > current.Height
+	}
+	return candidate.Round > current.Round
 }
