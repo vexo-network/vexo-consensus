@@ -156,6 +156,12 @@ mempool.max_txs: 100000
 p2p.max_messages_per_window: 1000
 ```
 
+Run a minimal block execution demo:
+
+```bash
+go run ./cmd/vexod demo
+```
+
 ## Testing
 
 Run all tests:

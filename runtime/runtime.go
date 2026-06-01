@@ -20,6 +20,7 @@ import (
 type Runtime struct {
 	Config     config.Config
 	App        app.Application
+	Executor   consensus.ApplicationBlockExecutor
 	Validators *validator.InMemoryRegistry
 	Committee  committee.DeterministicSelector
 	Mempool    *mempool.DAG
@@ -53,6 +54,7 @@ func New(cfg config.Config, application app.Application, initialValidators []val
 	return &Runtime{
 		Config:     cfg,
 		App:        application,
+		Executor:   consensus.ApplicationBlockExecutor{},
 		Validators: registry,
 		Committee:  selector,
 		Mempool:    mempool.NewDAG(mempool.NewFIFO(fifoConfig)),
@@ -61,6 +63,10 @@ func New(cfg config.Config, application app.Application, initialValidators []val
 		P2PScore:   p2p.NewScoreKeeper(cfg.P2P),
 		Crypto:     crypto.DeterministicAggregateSigner{},
 	}, nil
+}
+
+func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (app.FinalizeBlockResponse, error) {
+	return runtime.Executor.Execute(ctx, runtime.App, block)
 }
 
 func (runtime *Runtime) NewConsensusStateMachine(ctx context.Context, height types.Height) (*consensus.StateMachine, error) {
