@@ -24,8 +24,11 @@ func TestStateMachineBuildsQuorumCert(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	block := types.Block{Header: types.Header{Height: 1}, Txs: []types.Tx{[]byte("tx")}}
+	block := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHash: set.Hash()}, Txs: []types.Tx{[]byte("tx")}}
 	blockHash := HashBlock(block)
+	if err := machine.OnProposal(context.Background(), Proposal{Block: block, Proposer: "a"}); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: blockHash, ValidatorID: "a"}); err != nil {
 		t.Fatal(err)
@@ -205,6 +208,97 @@ func TestStateMachineRejectsUnsafeForkBelowLockedQC(t *testing.T) {
 	}
 }
 
+func TestStateMachineRejectsUnsafeVoteBelowLockedQC(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+		{ID: "c", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lockedBlock := types.Block{Header: types.Header{
+		ChainID:          "vexo-test",
+		Height:           1,
+		ValidatorSetHash: set.Hash(),
+	}}
+	lockedHash := HashBlock(lockedBlock)
+	if err := machine.OnProposal(context.Background(), Proposal{Block: lockedBlock, Proposer: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: lockedHash, ValidatorID: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: lockedHash, ValidatorID: "b"}); err != nil {
+		t.Fatal(err)
+	}
+
+	fork := types.Block{Header: types.Header{
+		ChainID:           "vexo-test",
+		Height:            2,
+		PreviousBlockHash: types.Hash{9},
+		ValidatorSetHash:  set.Hash(),
+	}}
+	forkHash := HashBlock(fork)
+	machine.blockTree.Insert(fork, forkHash, finality.QuorumCert{})
+	machine.StartRound(2, 0)
+
+	err = machine.OnVote(context.Background(), Vote{Height: 2, Round: 0, BlockHash: forkHash, ValidatorID: "a"})
+	if !errors.Is(err, ErrUnsafeVote) {
+		t.Fatalf("expected unsafe vote, got %v", err)
+	}
+}
+
+func TestStateMachineAcceptsSafeVoteExtendingLockedQC(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+		{ID: "c", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lockedBlock := types.Block{Header: types.Header{
+		ChainID:          "vexo-test",
+		Height:           1,
+		ValidatorSetHash: set.Hash(),
+	}}
+	lockedHash := HashBlock(lockedBlock)
+	if err := machine.OnProposal(context.Background(), Proposal{Block: lockedBlock, Proposer: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: lockedHash, ValidatorID: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: lockedHash, ValidatorID: "b"}); err != nil {
+		t.Fatal(err)
+	}
+
+	child := types.Block{Header: types.Header{
+		ChainID:           "vexo-test",
+		Height:            2,
+		PreviousBlockHash: lockedHash,
+		ValidatorSetHash:  set.Hash(),
+	}}
+	childHash := HashBlock(child)
+	if err := machine.OnProposal(context.Background(), Proposal{Block: child, Proposer: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := machine.OnVote(context.Background(), Vote{Height: 2, Round: 0, BlockHash: childHash, ValidatorID: "a"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestStateMachineAcceptsProposalExtendingLockedQC(t *testing.T) {
 	set := newTestValidatorSet([]validator.Validator{
 		{ID: "a", VotingPower: 1},
@@ -306,7 +400,11 @@ func TestStateMachineWeightedQuorum(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	blockHash := HashBlock(types.Block{Header: types.Header{Height: 1}})
+	block := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHash: set.Hash()}}
+	blockHash := HashBlock(block)
+	if err := machine.OnProposal(context.Background(), Proposal{Block: block, Proposer: "a"}); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: blockHash, ValidatorID: "a"}); err != nil {
 		t.Fatal(err)
@@ -338,6 +436,25 @@ func TestStateMachineRejectsUnknownValidatorVote(t *testing.T) {
 	err = machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: blockHash, ValidatorID: "unknown"})
 	if !errors.Is(err, ErrUnknownValidator) {
 		t.Fatalf("expected unknown validator, got %v", err)
+	}
+}
+
+func TestStateMachineRejectsUnknownVoteTarget(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(1, 0)
+
+	err = machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: types.Hash{1}, ValidatorID: "a"})
+	if !errors.Is(err, ErrInvalidVote) {
+		t.Fatalf("expected invalid vote, got %v", err)
 	}
 }
 
@@ -675,7 +792,11 @@ func TestStateMachineAllowsSameVoteReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	blockHash := HashBlock(types.Block{Header: types.Header{Height: 1}})
+	block := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHash: set.Hash()}}
+	blockHash := HashBlock(block)
+	if err := machine.OnProposal(context.Background(), Proposal{Block: block, Proposer: "a"}); err != nil {
+		t.Fatal(err)
+	}
 	vote := Vote{Height: 1, Round: 0, BlockHash: blockHash, ValidatorID: "a"}
 	if err := machine.OnVote(context.Background(), vote); err != nil {
 		t.Fatal(err)
@@ -699,8 +820,16 @@ func TestStateMachineRejectsConflictingVote(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	firstHash := HashBlock(types.Block{Header: types.Header{Height: 1}, Txs: []types.Tx{[]byte("first")}})
-	secondHash := HashBlock(types.Block{Header: types.Header{Height: 1}, Txs: []types.Tx{[]byte("second")}})
+	first := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHash: set.Hash()}, Txs: []types.Tx{[]byte("first")}}
+	second := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHash: set.Hash()}, Txs: []types.Tx{[]byte("second")}}
+	firstHash := HashBlock(first)
+	secondHash := HashBlock(second)
+	if err := machine.OnProposal(context.Background(), Proposal{Block: first, Proposer: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := machine.OnProposal(context.Background(), Proposal{Block: second, Proposer: "a"}); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: firstHash, ValidatorID: "a"}); err != nil {
 		t.Fatal(err)

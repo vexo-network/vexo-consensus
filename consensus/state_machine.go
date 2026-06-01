@@ -22,6 +22,7 @@ var (
 	ErrInvalidVote      = errors.New("invalid vote")
 	ErrStaleVote        = errors.New("stale vote")
 	ErrUnsafeProposal   = errors.New("unsafe proposal")
+	ErrUnsafeVote       = errors.New("unsafe vote")
 )
 
 type StateMachineConfig struct {
@@ -209,6 +210,16 @@ func (machine *StateMachine) validateVote(vote Vote) error {
 	if vote.Height == machine.status.Height && vote.Round > machine.status.Round {
 		return fmt.Errorf("%w: future round", ErrInvalidVote)
 	}
+	node, found := machine.blockTree.Get(vote.BlockHash)
+	if !found {
+		return fmt.Errorf("%w: target block not found", ErrInvalidVote)
+	}
+	if node.Block.Header.Height != vote.Height {
+		return fmt.Errorf("%w: target height mismatch", ErrInvalidVote)
+	}
+	if !machine.isSafeVoteTarget(node) {
+		return ErrUnsafeVote
+	}
 	return nil
 }
 
@@ -309,6 +320,16 @@ func (machine *StateMachine) isSafeProposal(proposal Proposal) bool {
 	}
 	parentHash := proposal.Block.Header.PreviousBlockHash
 	return parentHash == machine.lockedQC.BlockHash || machine.blockTree.Extends(parentHash, machine.lockedQC.BlockHash)
+}
+
+func (machine *StateMachine) isSafeVoteTarget(node BlockNode) bool {
+	if machine.lockedQC.Height == 0 {
+		return true
+	}
+	if node.JustifyQC.Height >= machine.lockedQC.Height {
+		return true
+	}
+	return node.Hash == machine.lockedQC.BlockHash || machine.blockTree.Extends(node.Hash, machine.lockedQC.BlockHash)
 }
 
 func (machine *StateMachine) updateLockedQC(qc finality.QuorumCert) {
