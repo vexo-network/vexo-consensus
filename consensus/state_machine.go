@@ -19,6 +19,8 @@ var (
 	ErrNoQuorum         = errors.New("not enough voting power for quorum")
 	ErrInvalidProposal  = errors.New("invalid proposal")
 	ErrStaleProposal    = errors.New("stale proposal")
+	ErrInvalidVote      = errors.New("invalid vote")
+	ErrStaleVote        = errors.New("stale vote")
 )
 
 type StateMachineConfig struct {
@@ -136,6 +138,9 @@ func (machine *StateMachine) OnVote(ctx context.Context, vote Vote) error {
 	if _, found := machine.validatorSet.Get(vote.ValidatorID); !found {
 		return ErrUnknownValidator
 	}
+	if err := machine.validateVote(vote); err != nil {
+		return err
+	}
 
 	if err := machine.recordVote(vote); err != nil {
 		return err
@@ -146,6 +151,28 @@ func (machine *StateMachine) OnVote(ctx context.Context, vote Vote) error {
 		machine.status.LastFinalized = qc.BlockHash
 	}
 
+	return nil
+}
+
+func (machine *StateMachine) validateVote(vote Vote) error {
+	if vote.Height == 0 {
+		return fmt.Errorf("%w: missing height", ErrInvalidVote)
+	}
+	if vote.BlockHash == (types.Hash{}) {
+		return fmt.Errorf("%w: missing block hash", ErrInvalidVote)
+	}
+	if machine.status.Height > 0 && vote.Height < machine.status.Height {
+		return ErrStaleVote
+	}
+	if machine.status.Height > 0 && vote.Height > machine.status.Height {
+		return fmt.Errorf("%w: future height", ErrInvalidVote)
+	}
+	if vote.Height == machine.status.Height && vote.Round < machine.status.Round {
+		return ErrStaleVote
+	}
+	if vote.Height == machine.status.Height && vote.Round > machine.status.Round {
+		return fmt.Errorf("%w: future round", ErrInvalidVote)
+	}
 	return nil
 }
 

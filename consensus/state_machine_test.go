@@ -98,6 +98,79 @@ func TestStateMachineRejectsUnknownValidatorVote(t *testing.T) {
 	}
 }
 
+func TestStateMachineRejectsInvalidVoteFields(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(1, 1)
+
+	cases := []struct {
+		name     string
+		vote     Vote
+		expected error
+	}{
+		{
+			name:     "missing height",
+			vote:     Vote{Round: 1, BlockHash: types.Hash{1}, ValidatorID: "a"},
+			expected: ErrInvalidVote,
+		},
+		{
+			name:     "missing block hash",
+			vote:     Vote{Height: 1, Round: 1, ValidatorID: "a"},
+			expected: ErrInvalidVote,
+		},
+		{
+			name:     "future height",
+			vote:     Vote{Height: 2, Round: 1, BlockHash: types.Hash{1}, ValidatorID: "a"},
+			expected: ErrInvalidVote,
+		},
+		{
+			name:     "future round",
+			vote:     Vote{Height: 1, Round: 2, BlockHash: types.Hash{1}, ValidatorID: "a"},
+			expected: ErrInvalidVote,
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := machine.OnVote(context.Background(), testCase.vote)
+			if !errors.Is(err, testCase.expected) {
+				t.Fatalf("expected %v, got %v", testCase.expected, err)
+			}
+		})
+	}
+}
+
+func TestStateMachineRejectsStaleVote(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(2, 2)
+
+	err = machine.OnVote(context.Background(), Vote{Height: 1, Round: 2, BlockHash: types.Hash{1}, ValidatorID: "a"})
+	if !errors.Is(err, ErrStaleVote) {
+		t.Fatalf("expected stale vote by height, got %v", err)
+	}
+	err = machine.OnVote(context.Background(), Vote{Height: 2, Round: 1, BlockHash: types.Hash{1}, ValidatorID: "a"})
+	if !errors.Is(err, ErrStaleVote) {
+		t.Fatalf("expected stale vote by round, got %v", err)
+	}
+}
+
 func TestStateMachineRejectsUnknownProposalProposer(t *testing.T) {
 	set := newTestValidatorSet([]validator.Validator{
 		{ID: "a", VotingPower: 1},
