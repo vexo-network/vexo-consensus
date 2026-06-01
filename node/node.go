@@ -43,6 +43,7 @@ type Node struct {
 	consensus *consensus.StateMachine
 	reactor   *consensus.TransportReactor
 	txCancel  context.CancelFunc
+	pending   map[types.Hash]consensus.Proposal
 	store     store.Store
 	running   bool
 }
@@ -61,6 +62,7 @@ func New(cfg Config, genesis Genesis, application app.Application) (*Node, error
 		cfg:     cfg,
 		genesis: genesis,
 		app:     application,
+		pending: make(map[types.Hash]consensus.Proposal),
 	}, nil
 }
 
@@ -112,8 +114,9 @@ func (node *Node) Start(ctx context.Context) error {
 		receiver := consensus.Reactor(consensusState)
 		if node.cfg.ValidatorID != "" {
 			receiver = &autoVoteReactor{
-				machine:     consensusState,
-				validatorID: node.cfg.ValidatorID,
+				machine:            consensusState,
+				validatorID:        node.cfg.ValidatorID,
+				onProposalAccepted: node.cacheProposal,
 			}
 		}
 		reactor = consensus.NewTransportReactor(node.wire, receiver)
@@ -134,6 +137,7 @@ func (node *Node) Start(ctx context.Context) error {
 	node.runtime = runtime
 	node.consensus = consensusState
 	node.reactor = reactor
+	node.pending = make(map[types.Hash]consensus.Proposal)
 	node.store = storage
 	node.running = true
 	return nil

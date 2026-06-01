@@ -293,6 +293,60 @@ func TestNodeTickConsensusOnlyProposerBuildsMempoolProposal(t *testing.T) {
 	})
 }
 
+func TestNodeCommitsReadyCachedProposalAfterQC(t *testing.T) {
+	alice, bob, carol := newConsensusLoopNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+	startNode(t, carol)
+	defer carol.Stop(context.Background())
+
+	aliceConsensus, err := alice.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceConsensus.StartRound(1, 0)
+	bobConsensus, err := bob.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobConsensus.StartRound(1, 0)
+
+	if err := alice.SubmitTx(context.Background(), []byte("bank:cached-commit")); err != nil {
+		t.Fatal(err)
+	}
+	proposal, blockHash, proposed, err := alice.TickConsensus(context.Background(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !proposed {
+		t.Fatal("expected alice to propose")
+	}
+	waitForQuorumCert(t, bobConsensus, proposal.Block.Header.Height, proposal.Round, blockHash)
+
+	result, committed, err := bob.CommitReadyBlock(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !committed {
+		t.Fatal("expected bob to commit cached proposal")
+	}
+	if result.BlockHash != blockHash || result.Block.Header.Height != 1 {
+		t.Fatalf("unexpected commit result: %+v", result)
+	}
+	if result.Response.AppHash == (types.Hash{}) {
+		t.Fatal("expected committed app hash")
+	}
+	status := bob.Status(context.Background())
+	if status.LatestHeight != 1 || status.LatestAppHash == (types.Hash{}) {
+		t.Fatalf("unexpected bob status after cached commit: %+v", status)
+	}
+	if _, committed, err := bob.CommitReadyBlock(context.Background()); err != nil || committed {
+		t.Fatalf("expected no second ready block: committed=%v err=%v", committed, err)
+	}
+}
+
 func newTransportNodes(t *testing.T) (*Node, *Node) {
 	t.Helper()
 	bus := transport.NewInMemoryBus()

@@ -11,19 +11,24 @@ import (
 )
 
 type autoVoteReactor struct {
-	machine       *consensus.StateMachine
-	validatorID   types.ValidatorID
-	broadcastVote func(context.Context, consensus.Vote) error
+	machine            *consensus.StateMachine
+	validatorID        types.ValidatorID
+	broadcastVote      func(context.Context, consensus.Vote) error
+	onProposalAccepted func(consensus.Proposal, types.Hash)
 }
 
 func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consensus.Proposal) error {
 	if err := reactor.machine.OnProposal(ctx, proposal); err != nil {
 		return err
 	}
+	blockHash := consensus.HashBlock(proposal.Block)
+	if reactor.onProposalAccepted != nil {
+		reactor.onProposalAccepted(proposal, blockHash)
+	}
 	vote := consensus.Vote{
 		Height:      proposal.Block.Header.Height,
 		Round:       proposal.Round,
-		BlockHash:   consensus.HashBlock(proposal.Block),
+		BlockHash:   blockHash,
 		ValidatorID: reactor.validatorID,
 	}
 	if err := reactor.machine.OnVote(ctx, vote); err != nil {
@@ -78,6 +83,7 @@ func (node *Node) ProposeBlock(ctx context.Context, block types.Block) (consensu
 		return consensus.Proposal{}, types.Hash{}, err
 	}
 	blockHash := consensus.HashBlock(proposal.Block)
+	node.cacheProposal(proposal, blockHash)
 	if err := reactor.BroadcastProposal(ctx, proposal); err != nil {
 		return consensus.Proposal{}, types.Hash{}, err
 	}
@@ -149,5 +155,62 @@ func (node *Node) CommitBlock(ctx context.Context, block types.Block, quorumCert
 		return app.FinalizeBlockResponse{}, err
 	}
 	machine.StartRound(nextHeight, 0)
+	node.removePending(blockHash)
 	return response, nil
+}
+
+type CommitReadyResult struct {
+	Block      types.Block
+	BlockHash  types.Hash
+	QuorumCert finality.QuorumCert
+	Response   app.FinalizeBlockResponse
+}
+
+func (node *Node) CommitReadyBlock(ctx context.Context) (CommitReadyResult, bool, error) {
+	machine, err := node.Consensus()
+	if err != nil {
+		return CommitReadyResult{}, false, err
+	}
+	for blockHash, proposal := range node.pendingProposals() {
+		qc, err := machine.BuildQuorumCert(proposal.Block.Header.Height, proposal.Round, blockHash)
+		if err != nil {
+			continue
+		}
+		response, err := node.CommitBlock(ctx, proposal.Block, qc)
+		if err != nil {
+			return CommitReadyResult{}, false, err
+		}
+		return CommitReadyResult{
+			Block:      proposal.Block,
+			BlockHash:  blockHash,
+			QuorumCert: qc,
+			Response:   response,
+		}, true, nil
+	}
+	return CommitReadyResult{}, false, nil
+}
+
+func (node *Node) cacheProposal(proposal consensus.Proposal, blockHash types.Hash) {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	if node.pending == nil {
+		node.pending = make(map[types.Hash]consensus.Proposal)
+	}
+	node.pending[blockHash] = proposal
+}
+
+func (node *Node) removePending(blockHash types.Hash) {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	delete(node.pending, blockHash)
+}
+
+func (node *Node) pendingProposals() map[types.Hash]consensus.Proposal {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	proposals := make(map[types.Hash]consensus.Proposal, len(node.pending))
+	for blockHash, proposal := range node.pending {
+		proposals[blockHash] = proposal
+	}
+	return proposals
 }
