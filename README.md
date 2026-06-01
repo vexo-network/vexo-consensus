@@ -6,7 +6,7 @@
 
 `vexo-consensus` is an experimental, modular consensus engine skeleton for building high-throughput Proof-of-Stake chains with a Tendermint/Cosmos SDK-style development model.
 
-It focuses on clean module boundaries for consensus, validator management, committee selection, mempool design, finality verification, slashing, governance, and P2P defense.
+It focuses on clean module boundaries for consensus, validator management, committee selection, mempool design, finality verification, slashing, governance, data availability, fair ordering, storage, and P2P defense.
 
 > This repository is an experimental consensus framework skeleton. It is not production consensus software.
 
@@ -34,9 +34,9 @@ validator participation
         ↓
 committee-based consensus
         ↓
-DAG-ready mempool
+DAG-ready mempool + fair ordering
         ↓
-BFT finality
+BFT finality + data availability
         ↓
 light-client verification
 ```
@@ -65,7 +65,7 @@ The design is intentionally modular so individual components can be replaced wit
    Committee    DAG    Light Client
         │
         ▼
-   Slashing / Governance / P2P Defense
+   Slashing / Governance / Storage / P2P Defense
 ```
 
 ## Features
@@ -77,6 +77,10 @@ The design is intentionally modular so individual components can be replaced wit
 - Quorum certificate generation
 - Conflicting vote detection
 - Slashing evidence generation
+- Locked-QC proposal and vote safety rules
+- Timeout certificates carrying high-QC
+- Three-chain finality decisions
+- Deterministic scenario and adversarial simulation helpers
 
 ### Validator and Committee
 
@@ -86,6 +90,8 @@ The design is intentionally modular so individual components can be replaced wit
 - Maximum validator count policy
 - Deterministic committee selection by seed, epoch, and round
 - Epoch calculation and rotation policy
+- Validator set update and rotation support
+- Slashing-driven voting-power updates
 
 ### Mempool
 
@@ -95,6 +101,14 @@ The design is intentionally modular so individual components can be replaced wit
 - DAG batch parent/tip tracking
 - Duplicate batch and unknown parent rejection
 
+### Ordering and Data Availability
+
+- Deterministic transaction ordering
+- Proposal-level transaction reordering rejection
+- Transaction data commitments
+- Data availability proof metadata
+- Missing or mismatched data commitment rejection
+
 ### Finality and Light Client
 
 - Finality proof type
@@ -103,14 +117,25 @@ The design is intentionally modular so individual components can be replaced wit
 - Validator set hash checks
 - Quorum checks
 - Aggregate signature verification hook
+- Stored-block finality proof construction
 
 ### Safety Modules
 
 - Slashing evidence validation
+- Penalty receipt recording
+- Validator voting-power reduction after verified evidence
 - Penalty policy lookup
 - Governance quorum, veto, voting period, and timelock
 - P2P peer scoring
 - P2P rate-limit and ban threshold logic
+
+### Storage and Runtime
+
+- ABCI-like application runtime
+- Block executor
+- LevelDB block/state/state-root storage
+- Recovery and replay helpers
+- Runtime validator update application
 
 ## Packages
 
@@ -121,13 +146,16 @@ The design is intentionally modular so individual components can be replaced wit
 | `committee` | Committee selection and epoch rotation |
 | `config` | Default chain configuration and validation |
 | `consensus` | Consensus state machine, votes, proposals, QC, conflict evidence |
+| `dataavailability` | Transaction data commitments and availability checks |
 | `crypto` | Deterministic test signer and aggregate signer |
+| `fairordering` | Deterministic transaction ordering |
 | `finality` | Finality proofs and light-client verifier |
 | `governance` | Proposal, voting, quorum, veto, and timelock module |
 | `mempool` | FIFO mempool and DAG batch graph |
 | `p2p` | Peer scoring and rate-limit defense |
-| `runtime` | Module wiring and runtime builder |
+| `runtime` | Module wiring, block execution, proof building, recovery, replay |
 | `slashing` | Evidence validation and penalty keeper |
+| `store` | LevelDB-backed block, state, state-root, and KV storage |
 | `types` | Shared primitive types |
 | `validator` | Validator registry and admission policy |
 
@@ -203,15 +231,6 @@ Do not use it to secure real funds, production validator infrastructure, or crit
 ## Contributing
 
 Contributions are welcome.
-
-Useful contribution areas include:
-
-- tests for edge cases
-- interface cleanup
-- documentation
-- deterministic simulation
-- block execution prototypes
-- storage adapters
 
 Before opening a change, keep the current design rule in mind:
 
