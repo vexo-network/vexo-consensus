@@ -88,6 +88,24 @@ func (machine *StateMachine) StartRound(height types.Height, round types.Round) 
 	machine.pacemaker = NewPacemaker(height, round)
 }
 
+func (machine *StateMachine) UpdateValidatorSet(validatorSet validator.Set) error {
+	if validatorSet == nil {
+		return errors.New("validator set is required")
+	}
+	machine.validatorSet = validatorSet
+	machine.status.ValidatorSetHash = validatorSet.Hash()
+	machine.timeouts = NewTimeoutCollector(validatorSet)
+	return nil
+}
+
+func (machine *StateMachine) UpdateValidatorSetFromRegistry(ctx context.Context, registry validator.Registry, height types.Height) error {
+	validatorSet, err := registry.ValidatorSet(ctx, height)
+	if err != nil {
+		return err
+	}
+	return machine.UpdateValidatorSet(validatorSet)
+}
+
 func (machine *StateMachine) CreateProposal(block types.Block, round types.Round, proposer types.ValidatorID, justifyQC finality.QuorumCert) (Proposal, error) {
 	if _, found := machine.validatorSet.Get(proposer); !found {
 		return Proposal{}, ErrUnknownValidator
