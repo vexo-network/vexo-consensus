@@ -1,0 +1,225 @@
+package consensus
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/vexo-network/vexo-consensus/finality"
+	"github.com/vexo-network/vexo-consensus/slashing"
+	"github.com/vexo-network/vexo-consensus/types"
+	"github.com/vexo-network/vexo-consensus/validator"
+)
+
+var (
+	ErrUnknownValidator = errors.New("unknown validator")
+	ErrConflictingVote  = errors.New("conflicting vote")
+	ErrNoQuorum         = errors.New("not enough voting power for quorum")
+)
+
+type StateMachineConfig struct {
+	ChainID      string
+	ValidatorSet validator.Set
+	HashBlock    func(types.Block) types.Hash
+}
+
+type StateMachine struct {
+	chainID      string
+	validatorSet validator.Set
+	hashBlock    func(types.Block) types.Hash
+	status       Status
+	votes        map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote
+	votedBlocks  map[types.Height]map[types.Round]map[types.ValidatorID]types.Hash
+	evidence     []slashing.Evidence
+}
+
+func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
+	if config.ChainID == "" {
+		return nil, errors.New("chain id is required")
+	}
+	if config.ValidatorSet == nil {
+		return nil, errors.New("validator set is required")
+	}
+	hashBlock := config.HashBlock
+	if hashBlock == nil {
+		hashBlock = HashBlock
+	}
+
+	return &StateMachine{
+		chainID:      config.ChainID,
+		validatorSet: config.ValidatorSet,
+		hashBlock:    hashBlock,
+		status: Status{
+			ChainID:          config.ChainID,
+			Phase:            PhasePropose,
+			ValidatorSetHash: config.ValidatorSet.Hash(),
+		},
+		votes:       make(map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote),
+		votedBlocks: make(map[types.Height]map[types.Round]map[types.ValidatorID]types.Hash),
+		evidence:    make([]slashing.Evidence, 0),
+	}, nil
+}
+
+func (machine *StateMachine) StartRound(height types.Height, round types.Round) {
+	machine.status.Height = height
+	machine.status.Round = round
+	machine.status.Phase = PhasePropose
+}
+
+func (machine *StateMachine) CreateProposal(block types.Block, round types.Round, proposer types.ValidatorID, justifyQC finality.QuorumCert) (Proposal, error) {
+	if _, found := machine.validatorSet.Get(proposer); !found {
+		return Proposal{}, ErrUnknownValidator
+	}
+
+	block.Header.ChainID = machine.chainID
+	block.Header.ValidatorSetHash = machine.validatorSet.Hash()
+
+	return Proposal{
+		Block:     block,
+		Round:     round,
+		Proposer:  proposer,
+		JustifyQC: justifyQC,
+	}, nil
+}
+
+func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	if _, found := machine.validatorSet.Get(proposal.Proposer); !found {
+		return ErrUnknownValidator
+	}
+	if proposal.Block.Header.ChainID != machine.chainID {
+		return fmt.Errorf("proposal chain id mismatch: %s", proposal.Block.Header.ChainID)
+	}
+
+	machine.status.Height = proposal.Block.Header.Height
+	machine.status.Round = proposal.Round
+	machine.status.Phase = PhaseVote
+	return nil
+}
+
+func (machine *StateMachine) OnVote(ctx context.Context, vote Vote) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	if _, found := machine.validatorSet.Get(vote.ValidatorID); !found {
+		return ErrUnknownValidator
+	}
+
+	if err := machine.recordVote(vote); err != nil {
+		return err
+	}
+
+	if qc, err := machine.BuildQuorumCert(vote.Height, vote.Round, vote.BlockHash); err == nil {
+		machine.status.Phase = PhaseCommit
+		machine.status.LastFinalized = qc.BlockHash
+	}
+
+	return nil
+}
+
+func (machine *StateMachine) BuildQuorumCert(height types.Height, round types.Round, blockHash types.Hash) (finality.QuorumCert, error) {
+	blockVotes := machine.votesForBlock(height, round, blockHash)
+	if len(blockVotes) == 0 {
+		return finality.QuorumCert{}, ErrNoQuorum
+	}
+
+	var votingPower types.VotingPower
+	signers := make([]string, 0, len(blockVotes))
+	for validatorID := range blockVotes {
+		validatorInfo, found := machine.validatorSet.Get(validatorID)
+		if !found {
+			continue
+		}
+		votingPower += validatorInfo.VotingPower
+		signers = append(signers, string(validatorID))
+	}
+
+	if !hasQuorum(votingPower, machine.validatorSet.TotalVotingPower()) {
+		return finality.QuorumCert{}, ErrNoQuorum
+	}
+
+	sort.Strings(signers)
+	return finality.QuorumCert{
+		Height:      height,
+		Round:       round,
+		BlockHash:   blockHash,
+		Signers:     types.Bitmap(strings.Join(signers, ",")),
+		Signature:   types.AggregateSignature("placeholder-aggregate-signature"),
+		VotingPower: votingPower,
+	}, nil
+}
+
+func (machine *StateMachine) Status(ctx context.Context) Status {
+	select {
+	case <-ctx.Done():
+		return machine.status
+	default:
+		return machine.status
+	}
+}
+
+func (machine *StateMachine) Evidence() []slashing.Evidence {
+	return append([]slashing.Evidence(nil), machine.evidence...)
+}
+
+func (machine *StateMachine) recordVote(vote Vote) error {
+	machine.ensureVoteMaps(vote.Height, vote.Round, vote.BlockHash)
+
+	if previousBlock, found := machine.votedBlocks[vote.Height][vote.Round][vote.ValidatorID]; found && previousBlock != vote.BlockHash {
+		evidence, err := VoteConflictFromPrevious(previousBlock, vote)
+		if err == nil {
+			machine.evidence = append(machine.evidence, evidence)
+		}
+		return ErrConflictingVote
+	}
+
+	machine.votedBlocks[vote.Height][vote.Round][vote.ValidatorID] = vote.BlockHash
+	machine.votes[vote.Height][vote.Round][vote.BlockHash][vote.ValidatorID] = vote
+	return nil
+}
+
+func (machine *StateMachine) votesForBlock(height types.Height, round types.Round, blockHash types.Hash) map[types.ValidatorID]Vote {
+	if _, found := machine.votes[height]; !found {
+		return nil
+	}
+	if _, found := machine.votes[height][round]; !found {
+		return nil
+	}
+	return machine.votes[height][round][blockHash]
+}
+
+func (machine *StateMachine) ensureVoteMaps(height types.Height, round types.Round, blockHash types.Hash) {
+	if _, found := machine.votes[height]; !found {
+		machine.votes[height] = make(map[types.Round]map[types.Hash]map[types.ValidatorID]Vote)
+	}
+	if _, found := machine.votes[height][round]; !found {
+		machine.votes[height][round] = make(map[types.Hash]map[types.ValidatorID]Vote)
+	}
+	if _, found := machine.votes[height][round][blockHash]; !found {
+		machine.votes[height][round][blockHash] = make(map[types.ValidatorID]Vote)
+	}
+
+	if _, found := machine.votedBlocks[height]; !found {
+		machine.votedBlocks[height] = make(map[types.Round]map[types.ValidatorID]types.Hash)
+	}
+	if _, found := machine.votedBlocks[height][round]; !found {
+		machine.votedBlocks[height][round] = make(map[types.ValidatorID]types.Hash)
+	}
+}
+
+func hasQuorum(power types.VotingPower, total types.VotingPower) bool {
+	if total == 0 {
+		return false
+	}
+	return power*3 >= total*2
+}

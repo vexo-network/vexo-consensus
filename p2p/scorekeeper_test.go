@@ -1,0 +1,161 @@
+package p2p
+
+import (
+	"context"
+	"errors"
+	"testing"
+)
+
+func TestScoreKeeperRewardsValidMessages(t *testing.T) {
+	keeper := NewScoreKeeper(ScoreConfig{
+		InitialScore:       10,
+		ValidMessageReward: 2,
+		BanThreshold:       0,
+	})
+
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", true); err != nil {
+		t.Fatal(err)
+	}
+	score, err := keeper.Score(context.Background(), "peer-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score != 12 {
+		t.Fatalf("expected score 12, got %d", score)
+	}
+}
+
+func TestScoreKeeperPenalizesInvalidMessagesAndBans(t *testing.T) {
+	keeper := NewScoreKeeper(ScoreConfig{
+		InitialScore:       3,
+		InvalidMessageCost: 2,
+		BanThreshold:       0,
+	})
+
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", false); !errors.Is(err, ErrPeerBanned) {
+		t.Fatalf("expected peer banned, got %v", err)
+	}
+	banned, err := keeper.IsBanned(context.Background(), "peer-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !banned {
+		t.Fatal("expected peer banned")
+	}
+}
+
+func TestScoreKeeperRejectsAlreadyBannedPeer(t *testing.T) {
+	keeper := NewScoreKeeper(ScoreConfig{
+		InitialScore:       1,
+		InvalidMessageCost: 1,
+		BanThreshold:       0,
+	})
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", false); !errors.Is(err, ErrPeerBanned) {
+		t.Fatalf("expected peer banned, got %v", err)
+	}
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", true); !errors.Is(err, ErrPeerBanned) {
+		t.Fatalf("expected already banned peer rejected, got %v", err)
+	}
+}
+
+func TestScoreKeeperRateLimitsPeer(t *testing.T) {
+	keeper := NewScoreKeeper(ScoreConfig{
+		InitialScore:         10,
+		RateLimitCost:        3,
+		BanThreshold:         0,
+		MaxMessagesPerWindow: 2,
+	})
+
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", true); !errors.Is(err, ErrRateLimitExceeded) {
+		t.Fatalf("expected rate limit, got %v", err)
+	}
+	score, err := keeper.Score(context.Background(), "peer-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score != 7 {
+		t.Fatalf("expected score 7 after rate limit cost, got %d", score)
+	}
+}
+
+func TestScoreKeeperResetWindowAllowsMessagesAgain(t *testing.T) {
+	keeper := NewScoreKeeper(ScoreConfig{
+		InitialScore:         10,
+		MaxMessagesPerWindow: 1,
+	})
+
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", true); !errors.Is(err, ErrRateLimitExceeded) {
+		t.Fatalf("expected rate limit, got %v", err)
+	}
+	if err := keeper.ResetWindow(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", true); err != nil {
+		t.Fatalf("expected message after reset, got %v", err)
+	}
+}
+
+func TestScoreKeeperRateLimitCanBan(t *testing.T) {
+	keeper := NewScoreKeeper(ScoreConfig{
+		InitialScore:         1,
+		RateLimitCost:        2,
+		BanThreshold:         0,
+		MaxMessagesPerWindow: 1,
+	})
+
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", true); !errors.Is(err, ErrRateLimitExceeded) {
+		t.Fatalf("expected rate limit exceeded, got %v", err)
+	}
+	banned, err := keeper.IsBanned(context.Background(), "peer-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !banned {
+		t.Fatal("expected peer banned by rate limit")
+	}
+}
+
+func TestScoreKeeperUnknownPeerHasInitialScore(t *testing.T) {
+	keeper := NewScoreKeeper(ScoreConfig{InitialScore: 5})
+	score, err := keeper.Score(context.Background(), "unknown")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score != 5 {
+		t.Fatalf("expected initial score 5, got %d", score)
+	}
+}
+
+func TestScoreKeeperContextCancellation(t *testing.T) {
+	keeper := NewScoreKeeper(ScoreConfig{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := keeper.ObserveMessage(ctx, "peer-a", true); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected observe canceled, got %v", err)
+	}
+	if err := keeper.ResetWindow(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected reset canceled, got %v", err)
+	}
+	if _, err := keeper.Score(ctx, "peer-a"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected score canceled, got %v", err)
+	}
+	if _, err := keeper.IsBanned(ctx, "peer-a"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected banned canceled, got %v", err)
+	}
+}
