@@ -552,6 +552,26 @@ func TestNodeRewardsValidPeerMessages(t *testing.T) {
 	waitForPeerScore(t, alice, "bob", 4)
 }
 
+func TestNodeDropsRateLimitedPeerMessages(t *testing.T) {
+	alice, bob, _ := newRateLimitedNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+
+	if err := bob.SubmitTx(context.Background(), []byte("bank:first")); err != nil {
+		t.Fatal(err)
+	}
+	waitForMempoolLen(t, alice, 1)
+	waitForPeerScore(t, alice, "bob", 11)
+
+	if err := bob.SubmitTx(context.Background(), []byte("bank:dropped-by-rate-limit")); err != nil {
+		t.Fatal(err)
+	}
+	waitForPeerScore(t, alice, "bob", 6)
+	waitForMempoolLen(t, alice, 1)
+}
+
 func TestNodeBackgroundConsensusLoopCommitsAcrossPeers(t *testing.T) {
 	alice, bob, carol := newConsensusLoopNodes(t)
 	startNode(t, alice)
@@ -785,6 +805,46 @@ func newScoredNode(t *testing.T, bus *transport.InMemoryBus, genesis Genesis, va
 	cfg.Chain.P2P.ValidMessageReward = 2
 	cfg.Chain.P2P.InvalidMessageCost = 1
 	cfg.Chain.P2P.BanThreshold = 0
+	node, err := New(cfg, genesis, newTestApplication(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	node.WithTransport(wire)
+	return node
+}
+
+func newRateLimitedNodes(t *testing.T) (*Node, *Node, *Node) {
+	t.Helper()
+	bus := transport.NewInMemoryBus()
+	genesis := Genesis{
+		ChainID: "vexo-test",
+		Validators: []validator.Validator{
+			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+			{ID: "bob", Address: "bob", VotingPower: 1, Stake: 1},
+			{ID: "carol", Address: "carol", VotingPower: 1, Stake: 1},
+		},
+		Governance: map[types.Address]types.VotingPower{"alice": 1, "bob": 1, "carol": 1},
+	}
+	alice := newRateLimitedNode(t, bus, genesis, "alice")
+	bob := newRateLimitedNode(t, bus, genesis, "bob")
+	carol := newRateLimitedNode(t, bus, genesis, "carol")
+	return alice, bob, carol
+}
+
+func newRateLimitedNode(t *testing.T, bus *transport.InMemoryBus, genesis Genesis, validatorID types.ValidatorID) *Node {
+	t.Helper()
+	wire, err := bus.NewPeer(p2p.PeerID(validatorID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := DefaultConfig("vexo-test", t.TempDir())
+	cfg.ValidatorID = validatorID
+	cfg.Chain.P2P.InitialScore = 10
+	cfg.Chain.P2P.ValidMessageReward = 1
+	cfg.Chain.P2P.InvalidMessageCost = 1
+	cfg.Chain.P2P.RateLimitCost = 5
+	cfg.Chain.P2P.BanThreshold = 0
+	cfg.Chain.P2P.MaxMessagesPerWindow = 1
 	node, err := New(cfg, genesis, newTestApplication(t))
 	if err != nil {
 		t.Fatal(err)

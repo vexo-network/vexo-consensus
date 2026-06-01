@@ -114,7 +114,7 @@ func (node *Node) consumeTxGossip(ctx context.Context, events <-chan transport.E
 }
 
 func (node *Node) acceptGossipTx(ctx context.Context, from p2p.PeerID, tx types.Tx) {
-	if node.peerBanned(ctx, from) {
+	if !node.admitPeerMessage(ctx, from) {
 		return
 	}
 	runtime, err := node.Runtime()

@@ -15,7 +15,21 @@ func (node *Node) observePeerMessage(ctx context.Context, peer p2p.PeerID, valid
 	if err != nil || runtime.P2PScore == nil {
 		return true
 	}
-	if err := runtime.P2PScore.ObserveMessage(ctx, peer, valid); errors.Is(err, p2p.ErrPeerBanned) {
+	if err := runtime.P2PScore.ScoreMessage(ctx, peer, valid); errors.Is(err, p2p.ErrPeerBanned) {
+		return false
+	}
+	return true
+}
+
+func (node *Node) admitPeerMessage(ctx context.Context, peer p2p.PeerID) bool {
+	if peer == "" {
+		return true
+	}
+	runtime, err := node.Runtime()
+	if err != nil || runtime.P2PScore == nil {
+		return true
+	}
+	if err := runtime.P2PScore.AdmitMessage(ctx, peer); errors.Is(err, p2p.ErrPeerBanned) || errors.Is(err, p2p.ErrRateLimitExceeded) {
 		return false
 	}
 	return true

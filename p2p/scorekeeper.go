@@ -46,6 +46,13 @@ func NewScoreKeeper(config ScoreConfig) *ScoreKeeper {
 }
 
 func (keeper *ScoreKeeper) ObserveMessage(ctx context.Context, peer PeerID, valid bool) error {
+	if err := keeper.AdmitMessage(ctx, peer); err != nil {
+		return err
+	}
+	return keeper.ScoreMessage(ctx, peer, valid)
+}
+
+func (keeper *ScoreKeeper) AdmitMessage(ctx context.Context, peer PeerID) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -58,7 +65,6 @@ func (keeper *ScoreKeeper) ObserveMessage(ctx context.Context, peer PeerID, vali
 	if state.Banned {
 		return ErrPeerBanned
 	}
-
 	state.WindowMessages++
 	if keeper.config.MaxMessagesPerWindow > 0 && state.WindowMessages > keeper.config.MaxMessagesPerWindow {
 		state.Score -= keeper.config.RateLimitCost
@@ -66,7 +72,23 @@ func (keeper *ScoreKeeper) ObserveMessage(ctx context.Context, peer PeerID, vali
 		keeper.peers[peer] = state
 		return ErrRateLimitExceeded
 	}
+	keeper.peers[peer] = state
+	return nil
+}
 
+func (keeper *ScoreKeeper) ScoreMessage(ctx context.Context, peer PeerID, valid bool) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	keeper.mu.Lock()
+	defer keeper.mu.Unlock()
+
+	state := keeper.state(peer)
+	if state.Banned {
+		return ErrPeerBanned
+	}
 	if valid {
 		state.Score += keeper.config.ValidMessageReward
 	} else {

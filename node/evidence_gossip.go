@@ -110,7 +110,7 @@ func (node *Node) consumeEvidenceGossip(ctx context.Context, events <-chan trans
 }
 
 func (node *Node) acceptEvidenceMessage(ctx context.Context, from p2p.PeerID, data []byte) {
-	if node.peerBanned(ctx, from) {
+	if !node.admitPeerMessage(ctx, from) {
 		return
 	}
 	evidence, err := decodeEvidenceMessage(data)

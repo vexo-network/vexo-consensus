@@ -67,7 +67,7 @@ func (node *Node) consumeCommitGossip(ctx context.Context, events <-chan transpo
 }
 
 func (node *Node) acceptCommitMessage(ctx context.Context, from p2p.PeerID, data []byte) {
-	if node.peerBanned(ctx, from) {
+	if !node.admitPeerMessage(ctx, from) {
 		return
 	}
 	message, err := decodeCommitMessage(data)
