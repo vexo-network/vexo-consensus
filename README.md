@@ -136,6 +136,7 @@ The design is intentionally modular so individual components can be replaced wit
 - LevelDB block/state/state-root storage
 - Recovery and replay helpers
 - Runtime validator update application
+- Node config, genesis, data directory, and lifecycle skeleton
 
 ## Packages
 
@@ -152,6 +153,7 @@ The design is intentionally modular so individual components can be replaced wit
 | `finality` | Finality proofs and light-client verifier |
 | `governance` | Proposal, voting, quorum, veto, and timelock module |
 | `mempool` | FIFO mempool and DAG batch graph |
+| `node` | Node config, genesis, lifecycle, runtime/store wiring |
 | `p2p` | Peer scoring and rate-limit defense |
 | `runtime` | Module wiring, block execution, proof building, recovery, replay |
 | `slashing` | Evidence validation and penalty keeper |
