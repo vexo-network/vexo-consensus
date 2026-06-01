@@ -159,3 +159,17 @@ func (runtime *Runtime) NewFinalityVerifier(ctx context.Context, height types.He
 	}
 	return finality.NewVerifier(validatorSet, runtime.Crypto), nil
 }
+
+func (runtime *Runtime) Recover(ctx context.Context) (store.StateRecord, error) {
+	if runtime.Store == nil {
+		return store.StateRecord{}, store.ErrStateNotFound
+	}
+	state, err := runtime.Store.LatestState(ctx)
+	if err != nil {
+		return store.StateRecord{}, err
+	}
+	if appRuntime, ok := runtime.App.(*app.Runtime); ok {
+		appRuntime.Restore(state.Height, state.AppHash)
+	}
+	return state, nil
+}

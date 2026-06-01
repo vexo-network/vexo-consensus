@@ -141,6 +141,11 @@ func (runtime *Runtime) Commit() (CommitResponse, error) {
 	return CommitResponse{Height: runtime.height, AppHash: runtime.appHash}, nil
 }
 
+func (runtime *Runtime) Restore(height types.Height, appHash types.Hash) {
+	runtime.height = height
+	runtime.appHash = appHash
+}
+
 func (runtime *Runtime) Query(req QueryRequest) QueryResponse {
 	return QueryResponse{Code: 1, Log: "query is not implemented"}
 }

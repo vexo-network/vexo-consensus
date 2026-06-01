@@ -151,6 +151,70 @@ func TestRuntimeInjectsStoreIntoAppRuntime(t *testing.T) {
 	}
 }
 
+func TestRuntimeRecoversLatestStateIntoAppRuntime(t *testing.T) {
+	path := t.TempDir()
+	storage, err := store.OpenLevelDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{&storeWritingModule{name: "bank"}}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := NewWithStore(config.Default("vexo-test"), application, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+	}, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ExecuteBlock(context.Background(), types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 4},
+		Txs:    []types.Tx{[]byte("bank:set")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	expectedCommit, err := application.Commit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := store.OpenLevelDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+
+	recoveredApplication, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{&storeWritingModule{name: "bank"}}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveredRuntime, err := NewWithStore(config.Default("vexo-test"), recoveredApplication, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+	}, nil, reopened)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	state, err := recoveredRuntime.Recover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Height != 4 {
+		t.Fatalf("expected recovered height 4, got %d", state.Height)
+	}
+	recoveredCommit, err := recoveredApplication.Commit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recoveredCommit.Height != expectedCommit.Height || recoveredCommit.AppHash != expectedCommit.AppHash {
+		t.Fatalf("unexpected recovered commit: %+v expected %+v", recoveredCommit, expectedCommit)
+	}
+}
+
 type runtimeModule struct {
 	name string
 }
