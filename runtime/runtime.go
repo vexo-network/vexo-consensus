@@ -102,7 +102,38 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 	}); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
+	if err := runtime.saveModuleStateRoots(ctx, block.Header.Height); err != nil {
+		return app.FinalizeBlockResponse{}, err
+	}
 	return response, nil
+}
+
+func (runtime *Runtime) saveModuleStateRoots(ctx context.Context, height types.Height) error {
+	if runtime.Store == nil {
+		return nil
+	}
+	for _, module := range runtime.AppModules() {
+		root, err := runtime.Store.Root(ctx, module.Name())
+		if err != nil {
+			return err
+		}
+		if err := runtime.Store.SaveStateRoot(ctx, store.StateRootRecord{
+			Height:    height,
+			Namespace: module.Name(),
+			Root:      root,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (runtime *Runtime) AppModules() []app.Module {
+	appRuntime, ok := runtime.App.(*app.Runtime)
+	if !ok {
+		return nil
+	}
+	return appRuntime.Modules()
 }
 
 func (runtime *Runtime) NewConsensusStateMachine(ctx context.Context, height types.Height) (*consensus.StateMachine, error) {

@@ -17,6 +17,7 @@ var (
 	blockHashPrefix   = []byte("block:hash:")
 	kvPrefix          = []byte("kv:")
 	stateLatestKey    = []byte("state:latest")
+	stateRootPrefix   = []byte("state:root:")
 )
 
 type LevelDBStore struct {
@@ -106,6 +107,47 @@ func (store *LevelDBStore) LatestState(ctx context.Context) (StateRecord, error)
 		return StateRecord{}, err
 	}
 	return state, nil
+}
+
+func (store *LevelDBStore) SaveStateRoot(ctx context.Context, record StateRootRecord) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	if record.Height == 0 || record.Namespace == "" {
+		return ErrInvalidStateRoot
+	}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	return store.db.Put(stateRootKey(record.Height, record.Namespace), encoded, nil)
+}
+
+func (store *LevelDBStore) StateRoot(ctx context.Context, height types.Height, namespace string) (StateRootRecord, error) {
+	select {
+	case <-ctx.Done():
+		return StateRootRecord{}, ctx.Err()
+	default:
+	}
+	if height == 0 || namespace == "" {
+		return StateRootRecord{}, ErrInvalidStateRoot
+	}
+
+	encoded, err := store.db.Get(stateRootKey(height, namespace), nil)
+	if err != nil {
+		if errors.Is(err, leveldberrors.ErrNotFound) {
+			return StateRootRecord{}, ErrStateRootNotFound
+		}
+		return StateRootRecord{}, err
+	}
+
+	var record StateRootRecord
+	if err := json.Unmarshal(encoded, &record); err != nil {
+		return StateRootRecord{}, err
+	}
+	return record, nil
 }
 
 func (store *LevelDBStore) Set(ctx context.Context, namespace string, key []byte, value []byte) error {
@@ -231,6 +273,15 @@ func blockHeightKey(height types.Height) []byte {
 func blockHashKey(hash types.Hash) []byte {
 	key := append([]byte(nil), blockHashPrefix...)
 	return append(key, hash[:]...)
+}
+
+func stateRootKey(height types.Height, namespace string) []byte {
+	key := append([]byte(nil), stateRootPrefix...)
+	var buffer [8]byte
+	binary.BigEndian.PutUint64(buffer[:], uint64(height))
+	key = append(key, buffer[:]...)
+	key = append(key, ':')
+	return append(key, []byte(namespace)...)
 }
 
 func kvKey(namespace string, key []byte) []byte {

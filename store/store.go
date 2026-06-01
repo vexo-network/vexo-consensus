@@ -19,6 +19,12 @@ type StateRecord struct {
 	ValidatorSetHash types.Hash
 }
 
+type StateRootRecord struct {
+	Height    types.Height
+	Namespace string
+	Root      types.Hash
+}
+
 type Store interface {
 	KVStore
 	SaveBlock(ctx context.Context, record BlockRecord) error
@@ -26,6 +32,8 @@ type Store interface {
 	BlockByHash(ctx context.Context, hash types.Hash) (BlockRecord, error)
 	SaveState(ctx context.Context, state StateRecord) error
 	LatestState(ctx context.Context) (StateRecord, error)
+	SaveStateRoot(ctx context.Context, record StateRootRecord) error
+	StateRoot(ctx context.Context, height types.Height, namespace string) (StateRootRecord, error)
 	Close() error
 }
 

@@ -83,6 +83,13 @@ func TestRuntimeExecuteBlockPersistsBlockAndState(t *testing.T) {
 	if state.Height != 2 || state.ValidatorSetHash != (types.Hash{9}) {
 		t.Fatalf("unexpected stored state: %+v", state)
 	}
+	rootRecord, err := storage.StateRoot(context.Background(), 2, "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rootRecord.Root == (types.Hash{}) {
+		t.Fatal("expected non-zero bank state root")
+	}
 }
 
 func TestRuntimeInjectsStoreIntoAppRuntime(t *testing.T) {

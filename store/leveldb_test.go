@@ -98,6 +98,52 @@ func TestLevelDBStoreSavesAndLoadsLatestState(t *testing.T) {
 	}
 }
 
+func TestLevelDBStoreSavesAndLoadsStateRootByHeight(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	record := StateRootRecord{
+		Height:    5,
+		Namespace: "bank",
+		Root:      types.Hash{5},
+	}
+	if err := store.SaveStateRoot(context.Background(), record); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := store.StateRoot(context.Background(), 5, "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Height != 5 || loaded.Namespace != "bank" || loaded.Root != (types.Hash{5}) {
+		t.Fatalf("unexpected state root record: %+v", loaded)
+	}
+}
+
+func TestLevelDBStoreStateRootKeepsHeightsSeparate(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	if err := store.SaveStateRoot(context.Background(), StateRootRecord{Height: 1, Namespace: "bank", Root: types.Hash{1}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveStateRoot(context.Background(), StateRootRecord{Height: 2, Namespace: "bank", Root: types.Hash{2}}); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := store.StateRoot(context.Background(), 1, "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.StateRoot(context.Background(), 2, "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Root == second.Root {
+		t.Fatal("expected different roots for different heights")
+	}
+}
+
 func TestLevelDBStoreNotFound(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
@@ -114,6 +160,9 @@ func TestLevelDBStoreNotFound(t *testing.T) {
 	if _, err := store.Get(context.Background(), "bank", []byte("alice")); !errors.Is(err, ErrKeyNotFound) {
 		t.Fatalf("expected key not found, got %v", err)
 	}
+	if _, err := store.StateRoot(context.Background(), 1, "bank"); !errors.Is(err, ErrStateRootNotFound) {
+		t.Fatalf("expected state root not found, got %v", err)
+	}
 }
 
 func TestLevelDBStoreRejectsInvalidRecords(t *testing.T) {
@@ -125,6 +174,12 @@ func TestLevelDBStoreRejectsInvalidRecords(t *testing.T) {
 	}
 	if err := store.SaveState(context.Background(), StateRecord{}); !errors.Is(err, ErrInvalidStateRecord) {
 		t.Fatalf("expected invalid state record, got %v", err)
+	}
+	if err := store.SaveStateRoot(context.Background(), StateRootRecord{}); !errors.Is(err, ErrInvalidStateRoot) {
+		t.Fatalf("expected invalid state root record, got %v", err)
+	}
+	if _, err := store.StateRoot(context.Background(), 0, "bank"); !errors.Is(err, ErrInvalidStateRoot) {
+		t.Fatalf("expected invalid state root lookup, got %v", err)
 	}
 }
 
@@ -149,6 +204,12 @@ func TestLevelDBStoreContextCancellation(t *testing.T) {
 	}
 	if _, err := store.LatestState(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected latest state canceled, got %v", err)
+	}
+	if err := store.SaveStateRoot(ctx, StateRootRecord{Height: 1, Namespace: "bank", Root: types.Hash{1}}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected save state root canceled, got %v", err)
+	}
+	if _, err := store.StateRoot(ctx, 1, "bank"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected state root canceled, got %v", err)
 	}
 	if err := store.Set(ctx, "bank", []byte("alice"), []byte("1")); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected set canceled, got %v", err)
