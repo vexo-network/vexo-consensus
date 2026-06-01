@@ -572,6 +572,25 @@ func TestNodeDropsRateLimitedPeerMessages(t *testing.T) {
 	waitForMempoolLen(t, alice, 1)
 }
 
+func TestNodeResetsPeerRateLimitWindow(t *testing.T) {
+	alice, bob, _ := newAutoResetRateLimitedNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+
+	if err := bob.SubmitTx(context.Background(), []byte("bank:first-window")); err != nil {
+		t.Fatal(err)
+	}
+	waitForMempoolLen(t, alice, 1)
+
+	waitForPeerWindowReset(t, alice, "bob")
+	if err := bob.SubmitTx(context.Background(), []byte("bank:accepted-after-reset")); err != nil {
+		t.Fatal(err)
+	}
+	waitForMempoolLen(t, alice, 2)
+}
+
 func TestNodeBackgroundConsensusLoopCommitsAcrossPeers(t *testing.T) {
 	alice, bob, carol := newConsensusLoopNodes(t)
 	startNode(t, alice)
@@ -845,12 +864,22 @@ func newRateLimitedNode(t *testing.T, bus *transport.InMemoryBus, genesis Genesi
 	cfg.Chain.P2P.RateLimitCost = 5
 	cfg.Chain.P2P.BanThreshold = 0
 	cfg.Chain.P2P.MaxMessagesPerWindow = 1
+	cfg.Chain.P2P.WindowResetInterval = 0
 	node, err := New(cfg, genesis, newTestApplication(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	node.WithTransport(wire)
 	return node
+}
+
+func newAutoResetRateLimitedNodes(t *testing.T) (*Node, *Node, *Node) {
+	t.Helper()
+	alice, bob, carol := newRateLimitedNodes(t)
+	for _, node := range []*Node{alice, bob, carol} {
+		node.cfg.Chain.P2P.WindowResetInterval = time.Nanosecond
+	}
+	return alice, bob, carol
 }
 
 func startNode(t *testing.T, node *Node) {
@@ -1024,4 +1053,20 @@ func waitForPeerBanned(t *testing.T, node *Node, peer p2p.PeerID) {
 	if !banned {
 		t.Fatalf("expected peer %s banned", peer)
 	}
+}
+
+func waitForPeerWindowReset(t *testing.T, node *Node, peer p2p.PeerID) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		runtime, err := node.Runtime()
+		if err == nil {
+			messages, err := runtime.P2PScore.WindowMessages(context.Background(), peer)
+			if err == nil && messages == 0 {
+				return
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for peer %s score window reset", peer)
 }

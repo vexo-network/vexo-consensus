@@ -47,6 +47,8 @@ type Node struct {
 	txCancel       context.CancelFunc
 	commitCancel   context.CancelFunc
 	evidenceCancel context.CancelFunc
+	scoreCancel    context.CancelFunc
+	scoreDone      chan struct{}
 	loopCancel     context.CancelFunc
 	loopDone       chan struct{}
 	pending        map[types.Hash]consensus.Proposal
@@ -161,6 +163,7 @@ func (node *Node) Start(ctx context.Context) error {
 	node.pending = make(map[types.Hash]consensus.Proposal)
 	node.store = storage
 	node.running = true
+	node.startPeerScoreWindowReset(ctx)
 	return nil
 }
 
@@ -185,6 +188,13 @@ func (node *Node) Stop(ctx context.Context) error {
 	if node.evidenceCancel != nil {
 		node.evidenceCancel()
 	}
+	if node.scoreCancel != nil {
+		node.scoreCancel()
+		scoreDone := node.scoreDone
+		node.mu.Unlock()
+		waitLoopDone(ctx, scoreDone)
+		node.mu.Lock()
+	}
 	if node.loopCancel != nil {
 		node.loopCancel()
 		loopDone := node.loopDone
@@ -205,6 +215,8 @@ func (node *Node) Stop(ctx context.Context) error {
 	node.txCancel = nil
 	node.commitCancel = nil
 	node.evidenceCancel = nil
+	node.scoreCancel = nil
+	node.scoreDone = nil
 	node.loopCancel = nil
 	node.loopDone = nil
 	node.store = nil

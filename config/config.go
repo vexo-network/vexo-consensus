@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"time"
 
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/governance"
@@ -74,6 +75,7 @@ func Default(chainID string) Config {
 			RateLimitCost:        5,
 			BanThreshold:         0,
 			MaxMessagesPerWindow: 1000,
+			WindowResetInterval:  time.Second,
 		},
 	}
 }
@@ -86,6 +88,9 @@ func (config Config) Validate() error {
 		return ErrInvalidConfig
 	}
 	if config.Committee.Backend == "" || config.Committee.EpochLength == 0 || config.Committee.CommitteeSize == 0 {
+		return ErrInvalidConfig
+	}
+	if config.P2P.WindowResetInterval < 0 {
 		return ErrInvalidConfig
 	}
 	return nil

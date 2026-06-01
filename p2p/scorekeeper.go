@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 )
 
 var (
@@ -18,6 +19,7 @@ type ScoreConfig struct {
 	RateLimitCost        int64
 	BanThreshold         int64
 	MaxMessagesPerWindow uint64
+	WindowResetInterval  time.Duration
 }
 
 type PeerState struct {
@@ -139,6 +141,17 @@ func (keeper *ScoreKeeper) IsBanned(ctx context.Context, peer PeerID) (bool, err
 	keeper.mu.Lock()
 	defer keeper.mu.Unlock()
 	return keeper.state(peer).Banned, nil
+}
+
+func (keeper *ScoreKeeper) WindowMessages(ctx context.Context, peer PeerID) (uint64, error) {
+	select {
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	default:
+	}
+	keeper.mu.Lock()
+	defer keeper.mu.Unlock()
+	return keeper.state(peer).WindowMessages, nil
 }
 
 func (keeper *ScoreKeeper) state(peer PeerID) PeerState {

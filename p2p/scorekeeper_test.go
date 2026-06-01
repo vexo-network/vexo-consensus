@@ -158,4 +158,7 @@ func TestScoreKeeperContextCancellation(t *testing.T) {
 	if _, err := keeper.IsBanned(ctx, "peer-a"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected banned canceled, got %v", err)
 	}
+	if _, err := keeper.WindowMessages(ctx, "peer-a"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected window messages canceled, got %v", err)
+	}
 }

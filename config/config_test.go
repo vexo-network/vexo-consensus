@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestDefaultConfigIsValid(t *testing.T) {
@@ -36,6 +37,14 @@ func TestConfigValidateRejectsMissingCryptoBackend(t *testing.T) {
 func TestConfigValidateRejectsMissingCommitteeBackend(t *testing.T) {
 	cfg := Default("vexo-test")
 	cfg.Committee.Backend = ""
+	if err := cfg.Validate(); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("expected invalid config, got %v", err)
+	}
+}
+
+func TestConfigValidateRejectsNegativeP2PWindowResetInterval(t *testing.T) {
+	cfg := Default("vexo-test")
+	cfg.P2P.WindowResetInterval = -time.Second
 	if err := cfg.Validate(); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("expected invalid config, got %v", err)
 	}
