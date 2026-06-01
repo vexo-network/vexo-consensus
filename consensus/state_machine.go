@@ -33,6 +33,8 @@ type StateMachine struct {
 	votes        map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote
 	votedBlocks  map[types.Height]map[types.Round]map[types.ValidatorID]types.Hash
 	evidence     []slashing.Evidence
+	timeouts     *TimeoutCollector
+	pacemaker    *Pacemaker
 }
 
 func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
@@ -59,6 +61,8 @@ func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
 		votes:       make(map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote),
 		votedBlocks: make(map[types.Height]map[types.Round]map[types.ValidatorID]types.Hash),
 		evidence:    make([]slashing.Evidence, 0),
+		timeouts:    NewTimeoutCollector(config.ValidatorSet),
+		pacemaker:   NewPacemaker(0, 0),
 	}, nil
 }
 
@@ -66,6 +70,7 @@ func (machine *StateMachine) StartRound(height types.Height, round types.Round) 
 	machine.status.Height = height
 	machine.status.Round = round
 	machine.status.Phase = PhasePropose
+	machine.pacemaker = NewPacemaker(height, round)
 }
 
 func (machine *StateMachine) CreateProposal(block types.Block, round types.Round, proposer types.ValidatorID, justifyQC finality.QuorumCert) (Proposal, error) {
@@ -125,6 +130,29 @@ func (machine *StateMachine) OnVote(ctx context.Context, vote Vote) error {
 	}
 
 	return nil
+}
+
+func (machine *StateMachine) OnTimeoutVote(ctx context.Context, vote TimeoutVote) (finality.TimeoutCert, error) {
+	select {
+	case <-ctx.Done():
+		return finality.TimeoutCert{}, ctx.Err()
+	default:
+	}
+
+	if err := machine.timeouts.AddVote(vote); err != nil {
+		return finality.TimeoutCert{}, err
+	}
+	timeoutCert, err := machine.timeouts.BuildTimeoutCert(vote.Height, vote.Round)
+	if err != nil {
+		return finality.TimeoutCert{}, err
+	}
+	if err := machine.pacemaker.AdvanceRound(timeoutCert); err != nil {
+		return finality.TimeoutCert{}, err
+	}
+	machine.status.Height = machine.pacemaker.Height()
+	machine.status.Round = machine.pacemaker.Round()
+	machine.status.Phase = PhasePropose
+	return timeoutCert, nil
 }
 
 func (machine *StateMachine) BuildQuorumCert(height types.Height, round types.Round, blockHash types.Hash) (finality.QuorumCert, error) {

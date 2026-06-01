@@ -197,6 +197,60 @@ func TestStateMachineRejectsConflictingVote(t *testing.T) {
 	}
 }
 
+func TestStateMachineAdvancesRoundOnTimeoutQuorum(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+		{ID: "c", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(1, 0)
+
+	if _, err := machine.OnTimeoutVote(context.Background(), TimeoutVote{Height: 1, Round: 0, ValidatorID: "a"}); !errors.Is(err, ErrNoQuorum) {
+		t.Fatalf("expected no quorum, got %v", err)
+	}
+	timeoutCert, err := machine.OnTimeoutVote(context.Background(), TimeoutVote{Height: 1, Round: 0, ValidatorID: "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if timeoutCert.Round != 0 {
+		t.Fatalf("expected timeout cert round 0, got %d", timeoutCert.Round)
+	}
+	status := machine.Status(context.Background())
+	if status.Round != 1 || status.Phase != PhasePropose {
+		t.Fatalf("expected round 1 propose, got %+v", status)
+	}
+}
+
+func TestStateMachineRejectsStaleTimeoutVote(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+		{ID: "c", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(2, 1)
+
+	if _, err := machine.OnTimeoutVote(context.Background(), TimeoutVote{Height: 1, Round: 1, ValidatorID: "a"}); !errors.Is(err, ErrNoQuorum) {
+		t.Fatalf("single stale vote should still wait for quorum, got %v", err)
+	}
+	if _, err := machine.OnTimeoutVote(context.Background(), TimeoutVote{Height: 1, Round: 1, ValidatorID: "b"}); !errors.Is(err, ErrStaleTimeoutCert) {
+		t.Fatalf("expected stale timeout cert, got %v", err)
+	}
+}
+
 type testValidatorSet struct {
 	validators []validator.Validator
 	byID       map[types.ValidatorID]validator.Validator

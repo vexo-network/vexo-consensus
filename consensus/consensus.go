@@ -58,6 +58,7 @@ type Status struct {
 type Reactor interface {
 	OnProposal(ctx context.Context, proposal Proposal) error
 	OnVote(ctx context.Context, vote Vote) error
+	OnTimeoutVote(ctx context.Context, vote TimeoutVote) (finality.TimeoutCert, error)
 }
 
 type BlockExecutor interface {
