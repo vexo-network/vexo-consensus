@@ -134,7 +134,11 @@ func (runtime *Runtime) FinalizeBlock(req FinalizeBlockRequest) (FinalizeBlockRe
 
 	runtime.height = req.Block.Header.Height
 	runtime.appHash = runtime.computeAppHash()
-	return FinalizeBlockResponse{Results: results, AppHash: runtime.appHash}, nil
+	return FinalizeBlockResponse{
+		Results:          results,
+		AppHash:          runtime.appHash,
+		ValidatorUpdates: runtime.collectValidatorUpdates(ctx),
+	}, nil
 }
 
 func (runtime *Runtime) Commit() (CommitResponse, error) {
@@ -152,6 +156,32 @@ func (runtime *Runtime) Query(req QueryRequest) QueryResponse {
 
 func (runtime *Runtime) Modules() []Module {
 	return append([]Module(nil), runtime.modules...)
+}
+
+func (runtime *Runtime) collectValidatorUpdates(ctx Context) []types.ValidatorUpdate {
+	updates := make([]types.ValidatorUpdate, 0)
+	for _, module := range runtime.modules {
+		provider, ok := module.(ValidatorUpdateProvider)
+		if !ok {
+			continue
+		}
+		for _, update := range provider.ValidatorUpdates(ctx) {
+			updates = append(updates, cloneValidatorUpdate(update))
+		}
+	}
+	return updates
+}
+
+func cloneValidatorUpdate(update types.ValidatorUpdate) types.ValidatorUpdate {
+	update.PublicKey = append(types.PublicKey(nil), update.PublicKey...)
+	if update.Metadata != nil {
+		metadata := make(map[string]string, len(update.Metadata))
+		for key, value := range update.Metadata {
+			metadata[key] = value
+		}
+		update.Metadata = metadata
+	}
+	return update
 }
 
 func (runtime *Runtime) computeAppHash() types.Hash {

@@ -34,6 +34,10 @@ type Module interface {
 	EndBlock(ctx Context) error
 }
 
+type ValidatorUpdateProvider interface {
+	ValidatorUpdates(ctx Context) []types.ValidatorUpdate
+}
+
 type InitChainRequest struct {
 	ChainID string
 	Genesis GenesisState
@@ -70,8 +74,9 @@ type FinalizeBlockRequest struct {
 }
 
 type FinalizeBlockResponse struct {
-	Results []types.Result
-	AppHash types.Hash
+	Results          []types.Result
+	AppHash          types.Hash
+	ValidatorUpdates []types.ValidatorUpdate
 }
 
 type CommitResponse struct {

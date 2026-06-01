@@ -86,6 +86,17 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 	if err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
+	validatorSetHash := block.Header.ValidatorSetHash
+	if len(response.ValidatorUpdates) > 0 {
+		if err := runtime.ApplyValidatorUpdates(ctx, response.ValidatorUpdates); err != nil {
+			return app.FinalizeBlockResponse{}, err
+		}
+		validatorSet, err := runtime.Validators.ValidatorSet(ctx, block.Header.Height+1)
+		if err != nil {
+			return app.FinalizeBlockResponse{}, err
+		}
+		validatorSetHash = validatorSet.Hash()
+	}
 	if runtime.Store == nil {
 		return response, nil
 	}
@@ -107,11 +118,55 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 		Height:           block.Header.Height,
 		AppHash:          response.AppHash,
 		LastBlockHash:    blockHash,
-		ValidatorSetHash: block.Header.ValidatorSetHash,
+		ValidatorSetHash: validatorSetHash,
 	}); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
 	return response, nil
+}
+
+func (runtime *Runtime) ApplyValidatorUpdates(ctx context.Context, updates []types.ValidatorUpdate) error {
+	for _, update := range updates {
+		if update.ID == "" {
+			update.ID = types.ValidatorID(update.Address)
+		}
+		if update.Address == "" {
+			update.Address = types.Address(update.ID)
+		}
+		if update.VotingPower == 0 {
+			if err := runtime.Validators.ApplyLeave(ctx, update.ID); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, found := runtime.validatorByID(ctx, update.ID); found {
+			if err := runtime.Validators.UpdateVotingPower(ctx, update.ID, update.VotingPower); err != nil {
+				return err
+			}
+			continue
+		}
+		stake := update.Stake
+		if stake == 0 {
+			stake = uint64(update.VotingPower)
+		}
+		if _, err := runtime.Validators.ApplyJoin(ctx, validator.Candidate{
+			Address:   update.Address,
+			PublicKey: update.PublicKey,
+			Stake:     stake,
+			Metadata:  update.Metadata,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (runtime *Runtime) validatorByID(ctx context.Context, id types.ValidatorID) (validator.Validator, bool) {
+	validatorSet, err := runtime.Validators.ValidatorSet(ctx, 0)
+	if err != nil {
+		return validator.Validator{}, false
+	}
+	return validatorSet.Get(id)
 }
 
 func (runtime *Runtime) moduleStateRoots(ctx context.Context, height types.Height) ([]store.StateRootRecord, error) {

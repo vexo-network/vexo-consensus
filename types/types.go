@@ -22,6 +22,15 @@ type AggregateSignature []byte
 
 type Bitmap []byte
 
+type ValidatorUpdate struct {
+	ID          ValidatorID
+	Address     Address
+	PublicKey   PublicKey
+	VotingPower VotingPower
+	Stake       uint64
+	Metadata    map[string]string
+}
+
 type Header struct {
 	ChainID           string
 	Height            Height
