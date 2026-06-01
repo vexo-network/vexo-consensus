@@ -6,6 +6,7 @@ import (
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/config"
+	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
@@ -38,6 +39,49 @@ func TestRuntimeExecuteBlockUsesConfiguredApplication(t *testing.T) {
 	}
 	if commit.Height != 1 {
 		t.Fatalf("expected app committed height 1, got %d", commit.Height)
+	}
+}
+
+func TestRuntimeExecuteBlockPersistsBlockAndState(t *testing.T) {
+	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{&runtimeModule{name: "bank"}}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	runtime, err := NewWithStore(config.Default("vexo-test"), application, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+	}, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	block := types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 2, ValidatorSetHash: types.Hash{9}},
+		Txs:    []types.Tx{[]byte("bank:send")},
+	}
+	response, err := runtime.ExecuteBlock(context.Background(), block)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	record, err := storage.BlockByHeight(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.AppHash != response.AppHash {
+		t.Fatalf("expected stored app hash %x, got %x", response.AppHash, record.AppHash)
+	}
+	state, err := storage.LatestState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Height != 2 || state.ValidatorSetHash != (types.Hash{9}) {
+		t.Fatalf("unexpected stored state: %+v", state)
 	}
 }
 

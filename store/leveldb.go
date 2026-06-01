@@ -1,0 +1,139 @@
+package store
+
+import (
+	"context"
+	"encoding/binary"
+	"encoding/json"
+	"errors"
+
+	"github.com/syndtr/goleveldb/leveldb"
+	leveldberrors "github.com/syndtr/goleveldb/leveldb/errors"
+	"github.com/vexo-network/vexo-consensus/types"
+)
+
+var (
+	blockHeightPrefix = []byte("block:height:")
+	blockHashPrefix   = []byte("block:hash:")
+	stateLatestKey    = []byte("state:latest")
+)
+
+type LevelDBStore struct {
+	db *leveldb.DB
+}
+
+func OpenLevelDB(path string) (*LevelDBStore, error) {
+	db, err := leveldb.OpenFile(path, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &LevelDBStore{db: db}, nil
+}
+
+func (store *LevelDBStore) SaveBlock(ctx context.Context, record BlockRecord) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	if record.Block.Header.Height == 0 || record.Hash == (types.Hash{}) {
+		return ErrInvalidBlockRecord
+	}
+
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	batch := new(leveldb.Batch)
+	batch.Put(blockHeightKey(record.Block.Header.Height), encoded)
+	batch.Put(blockHashKey(record.Hash), encoded)
+	return store.db.Write(batch, nil)
+}
+
+func (store *LevelDBStore) BlockByHeight(ctx context.Context, height types.Height) (BlockRecord, error) {
+	select {
+	case <-ctx.Done():
+		return BlockRecord{}, ctx.Err()
+	default:
+	}
+	return store.getBlock(blockHeightKey(height))
+}
+
+func (store *LevelDBStore) BlockByHash(ctx context.Context, hash types.Hash) (BlockRecord, error) {
+	select {
+	case <-ctx.Done():
+		return BlockRecord{}, ctx.Err()
+	default:
+	}
+	return store.getBlock(blockHashKey(hash))
+}
+
+func (store *LevelDBStore) SaveState(ctx context.Context, state StateRecord) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	if state.Height == 0 {
+		return ErrInvalidStateRecord
+	}
+
+	encoded, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	return store.db.Put(stateLatestKey, encoded, nil)
+}
+
+func (store *LevelDBStore) LatestState(ctx context.Context) (StateRecord, error) {
+	select {
+	case <-ctx.Done():
+		return StateRecord{}, ctx.Err()
+	default:
+	}
+
+	encoded, err := store.db.Get(stateLatestKey, nil)
+	if err != nil {
+		if errors.Is(err, leveldberrors.ErrNotFound) {
+			return StateRecord{}, ErrStateNotFound
+		}
+		return StateRecord{}, err
+	}
+
+	var state StateRecord
+	if err := json.Unmarshal(encoded, &state); err != nil {
+		return StateRecord{}, err
+	}
+	return state, nil
+}
+
+func (store *LevelDBStore) Close() error {
+	return store.db.Close()
+}
+
+func (store *LevelDBStore) getBlock(key []byte) (BlockRecord, error) {
+	encoded, err := store.db.Get(key, nil)
+	if err != nil {
+		if errors.Is(err, leveldberrors.ErrNotFound) {
+			return BlockRecord{}, ErrBlockNotFound
+		}
+		return BlockRecord{}, err
+	}
+
+	var record BlockRecord
+	if err := json.Unmarshal(encoded, &record); err != nil {
+		return BlockRecord{}, err
+	}
+	return record, nil
+}
+
+func blockHeightKey(height types.Height) []byte {
+	key := append([]byte(nil), blockHeightPrefix...)
+	var buffer [8]byte
+	binary.BigEndian.PutUint64(buffer[:], uint64(height))
+	return append(key, buffer[:]...)
+}
+
+func blockHashKey(hash types.Hash) []byte {
+	key := append([]byte(nil), blockHashPrefix...)
+	return append(key, hash[:]...)
+}
