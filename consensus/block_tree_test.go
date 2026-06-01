@@ -134,3 +134,24 @@ func TestBlockTreeTracksHighestQuorumCert(t *testing.T) {
 		t.Fatalf("expected higher round qc, got %+v", tree.HighQC())
 	}
 }
+
+func TestBlockTreeExtendsAncestor(t *testing.T) {
+	tree := NewBlockTree()
+	ancestor := types.Hash{1}
+	child := types.Hash{2}
+	grandchild := types.Hash{3}
+
+	tree.Insert(types.Block{Header: types.Header{Height: 1}}, ancestor, finality.QuorumCert{})
+	tree.Insert(types.Block{Header: types.Header{Height: 2, PreviousBlockHash: ancestor}}, child, finality.QuorumCert{})
+	tree.Insert(types.Block{Header: types.Header{Height: 3, PreviousBlockHash: child}}, grandchild, finality.QuorumCert{})
+
+	if !tree.Extends(grandchild, ancestor) {
+		t.Fatal("expected grandchild to extend ancestor")
+	}
+	if tree.Extends(types.Hash{9}, ancestor) {
+		t.Fatal("unknown descendant must not extend ancestor")
+	}
+	if tree.Extends(child, grandchild) {
+		t.Fatal("ancestor must not extend descendant")
+	}
+}

@@ -163,6 +163,135 @@ func TestStateMachineCreateProposalKeepsExplicitQC(t *testing.T) {
 	}
 }
 
+func TestStateMachineRejectsUnsafeForkBelowLockedQC(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+		{ID: "c", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lockedBlock := types.Block{Header: types.Header{
+		ChainID:          "vexo-test",
+		Height:           1,
+		ValidatorSetHash: set.Hash(),
+	}}
+	lockedHash := HashBlock(lockedBlock)
+	if err := machine.OnProposal(context.Background(), Proposal{Block: lockedBlock, Proposer: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: lockedHash, ValidatorID: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: lockedHash, ValidatorID: "b"}); err != nil {
+		t.Fatal(err)
+	}
+
+	fork := types.Block{Header: types.Header{
+		ChainID:           "vexo-test",
+		Height:            2,
+		PreviousBlockHash: types.Hash{9},
+		ValidatorSetHash:  set.Hash(),
+	}}
+	err = machine.OnProposal(context.Background(), Proposal{Block: fork, Proposer: "a"})
+	if !errors.Is(err, ErrUnsafeProposal) {
+		t.Fatalf("expected unsafe proposal, got %v", err)
+	}
+}
+
+func TestStateMachineAcceptsProposalExtendingLockedQC(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+		{ID: "c", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lockedBlock := types.Block{Header: types.Header{
+		ChainID:          "vexo-test",
+		Height:           1,
+		ValidatorSetHash: set.Hash(),
+	}}
+	lockedHash := HashBlock(lockedBlock)
+	if err := machine.OnProposal(context.Background(), Proposal{Block: lockedBlock, Proposer: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: lockedHash, ValidatorID: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: lockedHash, ValidatorID: "b"}); err != nil {
+		t.Fatal(err)
+	}
+
+	child := types.Block{Header: types.Header{
+		ChainID:           "vexo-test",
+		Height:            2,
+		PreviousBlockHash: lockedHash,
+		ValidatorSetHash:  set.Hash(),
+	}}
+	if err := machine.OnProposal(context.Background(), Proposal{Block: child, Proposer: "a"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStateMachineAcceptsProposalWithNewerQCThanLockedQC(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+		{ID: "c", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lockedBlock := types.Block{Header: types.Header{
+		ChainID:          "vexo-test",
+		Height:           1,
+		ValidatorSetHash: set.Hash(),
+	}}
+	lockedHash := HashBlock(lockedBlock)
+	if err := machine.OnProposal(context.Background(), Proposal{Block: lockedBlock, Proposer: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: lockedHash, ValidatorID: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: lockedHash, ValidatorID: "b"}); err != nil {
+		t.Fatal(err)
+	}
+
+	newerParent := types.Hash{8}
+	proposal := Proposal{
+		Block: types.Block{Header: types.Header{
+			ChainID:           "vexo-test",
+			Height:            3,
+			PreviousBlockHash: newerParent,
+			ValidatorSetHash:  set.Hash(),
+		}},
+		Proposer:  "a",
+		JustifyQC: finality.QuorumCert{Height: 2, BlockHash: newerParent},
+	}
+	if err := machine.OnProposal(context.Background(), proposal); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestStateMachineWeightedQuorum(t *testing.T) {
 	set := newTestValidatorSet([]validator.Validator{
 		{ID: "a", VotingPower: 4},

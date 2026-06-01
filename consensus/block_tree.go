@@ -38,6 +38,9 @@ func (tree *BlockTree) Insert(block types.Block, blockHash types.Hash, justifyQC
 		ParentHash: block.Header.PreviousBlockHash,
 		JustifyQC:  justifyQC,
 	}
+	if previous, found := tree.blocks[blockHash]; found {
+		node.QuorumCert = previous.QuorumCert
+	}
 	tree.blocks[blockHash] = node
 	tree.ObserveQuorumCert(justifyQC)
 	return node
@@ -76,6 +79,23 @@ func (tree *BlockTree) ObserveQuorumCert(qc finality.QuorumCert) {
 
 func (tree *BlockTree) HighQC() finality.QuorumCert {
 	return tree.highQC
+}
+
+func (tree *BlockTree) Extends(descendant types.Hash, ancestor types.Hash) bool {
+	if descendant == (types.Hash{}) || ancestor == (types.Hash{}) {
+		return false
+	}
+	for current := descendant; current != (types.Hash{}); {
+		if current == ancestor {
+			return true
+		}
+		node, found := tree.Get(current)
+		if !found {
+			return false
+		}
+		current = node.ParentHash
+	}
+	return false
 }
 
 func (tree *BlockTree) CommitCandidate(blockHash types.Hash) (CommitCandidate, bool) {

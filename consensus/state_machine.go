@@ -21,6 +21,7 @@ var (
 	ErrStaleProposal    = errors.New("stale proposal")
 	ErrInvalidVote      = errors.New("invalid vote")
 	ErrStaleVote        = errors.New("stale vote")
+	ErrUnsafeProposal   = errors.New("unsafe proposal")
 )
 
 type StateMachineConfig struct {
@@ -40,6 +41,7 @@ type StateMachine struct {
 	timeouts     *TimeoutCollector
 	pacemaker    *Pacemaker
 	blockTree    *BlockTree
+	lockedQC     finality.QuorumCert
 	commitRule   ThreeChainCommitRule
 	committed    []CommitDecision
 	committedSet map[types.Hash]struct{}
@@ -138,6 +140,9 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 	if proposal.JustifyQC.Height > 0 && proposal.JustifyQC.BlockHash != proposal.Block.Header.PreviousBlockHash {
 		return fmt.Errorf("%w: justify qc must match parent block", ErrInvalidProposal)
 	}
+	if !machine.isSafeProposal(proposal) {
+		return ErrUnsafeProposal
+	}
 
 	blockHash := machine.hashBlock(proposal.Block)
 	machine.blockTree.Insert(proposal.Block, blockHash, proposal.JustifyQC)
@@ -172,8 +177,12 @@ func (machine *StateMachine) OnVote(ctx context.Context, vote Vote) error {
 	}
 
 	if qc, err := machine.BuildQuorumCert(vote.Height, vote.Round, vote.BlockHash); err == nil {
-		if err := machine.blockTree.SetQuorumCert(qc); err != nil && !errors.Is(err, ErrBlockNotFound) {
-			return err
+		setErr := machine.blockTree.SetQuorumCert(qc)
+		if setErr != nil && !errors.Is(setErr, ErrBlockNotFound) {
+			return setErr
+		}
+		if setErr == nil {
+			machine.updateLockedQC(qc)
 		}
 		machine.status.Phase = PhaseCommit
 	}
@@ -289,6 +298,26 @@ func (machine *StateMachine) ApplyCommitRule(candidate CommitCandidate) (CommitD
 		machine.committedSet[decision.CommittedBlockHash] = struct{}{}
 	}
 	return decision, nil
+}
+
+func (machine *StateMachine) isSafeProposal(proposal Proposal) bool {
+	if machine.lockedQC.Height == 0 {
+		return true
+	}
+	if proposal.JustifyQC.Height >= machine.lockedQC.Height {
+		return true
+	}
+	parentHash := proposal.Block.Header.PreviousBlockHash
+	return parentHash == machine.lockedQC.BlockHash || machine.blockTree.Extends(parentHash, machine.lockedQC.BlockHash)
+}
+
+func (machine *StateMachine) updateLockedQC(qc finality.QuorumCert) {
+	if qc.Height == 0 || qc.BlockHash == (types.Hash{}) {
+		return
+	}
+	if isBetterQC(qc, machine.lockedQC) {
+		machine.lockedQC = qc
+	}
 }
 
 func (machine *StateMachine) recordVote(vote Vote) error {
