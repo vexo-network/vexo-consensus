@@ -16,6 +16,7 @@ const (
 	TopicProposal Topic = "proposal"
 	TopicVote     Topic = "vote"
 	TopicTimeout  Topic = "timeout_vote"
+	TopicCommit   Topic = "commit"
 	TopicEvidence Topic = "evidence"
 )
 

@@ -160,6 +160,10 @@ func (node *Node) TimeoutRound(ctx context.Context) (finality.TimeoutCert, bool,
 }
 
 func (node *Node) CommitBlock(ctx context.Context, block types.Block, quorumCert finality.QuorumCert) (app.FinalizeBlockResponse, error) {
+	return node.commitBlock(ctx, block, quorumCert, true, true)
+}
+
+func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert finality.QuorumCert, requireLocalQC bool, broadcast bool) (app.FinalizeBlockResponse, error) {
 	if quorumCert.Height != block.Header.Height {
 		return app.FinalizeBlockResponse{}, fmt.Errorf("%w: height mismatch", ErrInvalidCommitQC)
 	}
@@ -176,7 +180,11 @@ func (node *Node) CommitBlock(ctx context.Context, block types.Block, quorumCert
 	if err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
-	if _, err := machine.BuildQuorumCert(quorumCert.Height, quorumCert.Round, quorumCert.BlockHash); err != nil {
+	if requireLocalQC {
+		if _, err := machine.BuildQuorumCert(quorumCert.Height, quorumCert.Round, quorumCert.BlockHash); err != nil {
+			return app.FinalizeBlockResponse{}, err
+		}
+	} else if err := node.verifyCommitCertificate(ctx, block, quorumCert); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
 
@@ -193,6 +201,11 @@ func (node *Node) CommitBlock(ctx context.Context, block types.Block, quorumCert
 	}
 	machine.StartRound(nextHeight, 0)
 	node.removePending(blockHash)
+	if broadcast {
+		if err := node.broadcastCommit(ctx, block, quorumCert); err != nil {
+			return app.FinalizeBlockResponse{}, err
+		}
+	}
 	return response, nil
 }
 

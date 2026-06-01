@@ -40,16 +40,17 @@ type Node struct {
 	app     app.Application
 	wire    transport.Transport
 
-	mu         sync.Mutex
-	runtime    *vexoruntime.Runtime
-	consensus  *consensus.StateMachine
-	reactor    *consensus.TransportReactor
-	txCancel   context.CancelFunc
-	loopCancel context.CancelFunc
-	loopDone   chan struct{}
-	pending    map[types.Hash]consensus.Proposal
-	store      store.Store
-	running    bool
+	mu           sync.Mutex
+	runtime      *vexoruntime.Runtime
+	consensus    *consensus.StateMachine
+	reactor      *consensus.TransportReactor
+	txCancel     context.CancelFunc
+	commitCancel context.CancelFunc
+	loopCancel   context.CancelFunc
+	loopDone     chan struct{}
+	pending      map[types.Hash]consensus.Proposal
+	store        store.Store
+	running      bool
 }
 
 func New(cfg Config, genesis Genesis, application app.Application) (*Node, error) {
@@ -137,6 +138,12 @@ func (node *Node) Start(ctx context.Context) error {
 			storage.Close()
 			return err
 		}
+		if err := node.startCommitGossip(ctx); err != nil {
+			node.txCancel()
+			reactor.Stop(ctx)
+			storage.Close()
+			return err
+		}
 	}
 
 	node.runtime = runtime
@@ -163,6 +170,9 @@ func (node *Node) Stop(ctx context.Context) error {
 	if node.txCancel != nil {
 		node.txCancel()
 	}
+	if node.commitCancel != nil {
+		node.commitCancel()
+	}
 	if node.loopCancel != nil {
 		node.loopCancel()
 		loopDone := node.loopDone
@@ -181,6 +191,7 @@ func (node *Node) Stop(ctx context.Context) error {
 	node.consensus = nil
 	node.reactor = nil
 	node.txCancel = nil
+	node.commitCancel = nil
 	node.loopCancel = nil
 	node.loopDone = nil
 	node.store = nil

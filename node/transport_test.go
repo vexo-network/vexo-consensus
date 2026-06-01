@@ -403,6 +403,54 @@ func TestNodeStepConsensusProposesThenCommitsReadyBlock(t *testing.T) {
 	}
 }
 
+func TestNodeCommitGossipSyncsPeerThatMissedProposal(t *testing.T) {
+	alice, bob, carol := newConsensusLoopNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, carol)
+	defer carol.Stop(context.Background())
+
+	aliceConsensus, err := alice.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceConsensus.StartRound(1, 0)
+
+	if err := alice.SubmitTx(context.Background(), []byte("bank:missed-proposal")); err != nil {
+		t.Fatal(err)
+	}
+	proposal, blockHash, err := alice.ProposeFromMempool(context.Background(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := alice.VoteBlock(context.Background(), proposal.Block.Header.Height, proposal.Round, blockHash); err != nil || ok {
+		t.Fatalf("expected no local quorum before carol vote: ok=%v err=%v", ok, err)
+	}
+	waitForQuorumCert(t, aliceConsensus, proposal.Block.Header.Height, proposal.Round, blockHash)
+	quorumCert, err := aliceConsensus.BuildQuorumCert(proposal.Block.Header.Height, proposal.Round, blockHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+	if status := bob.Status(context.Background()); status.LatestHeight != 0 {
+		t.Fatalf("expected bob to miss proposal before commit gossip, got %+v", status)
+	}
+	if _, err := alice.CommitBlock(context.Background(), proposal.Block, quorumCert); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForNodeHeight(t, bob, 1)
+	record, err := bob.runtime.BlockByHeight(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Hash != blockHash {
+		t.Fatalf("expected bob to store committed block %x, got %x", blockHash, record.Hash)
+	}
+}
+
 func TestNodeBackgroundConsensusLoopCommitsAcrossPeers(t *testing.T) {
 	alice, bob, carol := newConsensusLoopNodes(t)
 	startNode(t, alice)
