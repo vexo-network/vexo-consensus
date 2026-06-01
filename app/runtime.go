@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 
+	"github.com/vexo-network/vexo-consensus/fairordering"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -82,7 +83,7 @@ func (runtime *Runtime) PrepareProposal(req PrepareProposalRequest) (PrepareProp
 			accepted = append(accepted, append(types.Tx(nil), tx...))
 		}
 	}
-	return PrepareProposalResponse{Txs: accepted}, nil
+	return PrepareProposalResponse{Txs: fairordering.SortTxs(accepted)}, nil
 }
 
 func (runtime *Runtime) ProcessProposal(req ProcessProposalRequest) ProcessProposalResponse {

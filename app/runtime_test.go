@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/vexo-network/vexo-consensus/fairordering"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -75,6 +76,28 @@ func TestRuntimePrepareProposalFiltersInvalidTxs(t *testing.T) {
 	}
 	if !reflect.DeepEqual(response.Txs, []types.Tx{[]byte("bank:send")}) {
 		t.Fatalf("unexpected prepared txs: %q", response.Txs)
+	}
+}
+
+func TestRuntimePrepareProposalSortsAcceptedTxs(t *testing.T) {
+	runtime, err := NewRuntime("vexo-test", []Module{&recordingModule{name: "bank"}}, PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := runtime.PrepareProposal(PrepareProposalRequest{
+		Height: 1,
+		Txs: []types.Tx{
+			[]byte("bank:charlie"),
+			[]byte("bank:alpha"),
+			[]byte("bank:bravo"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fairordering.IsOrdered(response.Txs) {
+		t.Fatalf("expected ordered txs, got %q", response.Txs)
 	}
 }
 

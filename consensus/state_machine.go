@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/vexo-network/vexo-consensus/dataavailability"
+	"github.com/vexo-network/vexo-consensus/fairordering"
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -117,6 +118,7 @@ func (machine *StateMachine) CreateProposal(block types.Block, round types.Round
 	}
 	block.Header.ChainID = machine.chainID
 	block.Header.ValidatorSetHash = machine.validatorSet.Hash()
+	block.Txs = fairordering.SortTxs(block.Txs)
 	if block.Header.ConsensusHash == (types.Hash{}) && len(block.Txs) > 0 {
 		block = dataavailability.AttachCommitment(block)
 	}
@@ -150,6 +152,9 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 	}
 	if proposal.Block.Header.ValidatorSetHash != machine.validatorSet.Hash() {
 		return fmt.Errorf("%w: validator set hash mismatch", ErrInvalidProposal)
+	}
+	if !fairordering.IsOrdered(proposal.Block.Txs) {
+		return fmt.Errorf("%w: transaction ordering mismatch", ErrInvalidProposal)
 	}
 	if err := dataavailability.Verify(proposal.Block.Header, proposal.Block.Txs); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidProposal, err)
