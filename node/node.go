@@ -21,6 +21,7 @@ var (
 	ErrMissingValidatorID = errors.New("validator id is required")
 	ErrConsensusOffline   = errors.New("consensus reactor is unavailable")
 	ErrInvalidCommitQC    = errors.New("invalid commit quorum certificate")
+	ErrEmptyProposal      = errors.New("proposal has no transactions")
 )
 
 type Status struct {

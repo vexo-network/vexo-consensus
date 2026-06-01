@@ -141,6 +141,9 @@ func (node *Node) CommitBlock(ctx context.Context, block types.Block, quorumCert
 	if err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
+	if err := runtime.Mempool.MarkCommitted(ctx, block.Txs); err != nil {
+		return app.FinalizeBlockResponse{}, err
+	}
 	nextHeight := block.Header.Height + 1
 	if err := machine.UpdateValidatorSetFromRegistry(ctx, runtime.Validators, nextHeight); err != nil {
 		return app.FinalizeBlockResponse{}, err

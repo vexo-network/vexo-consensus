@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/consensus"
+	"github.com/vexo-network/vexo-consensus/fairordering"
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	"github.com/vexo-network/vexo-consensus/transport"
@@ -154,6 +155,61 @@ func TestNodeConsensusLoopBroadcastsProposalAndCollectsVotes(t *testing.T) {
 	waitForConsensusStatus(t, aliceConsensus, func(status consensus.Status) bool {
 		return status.Height == 2 && status.Round == 0 && status.Phase == consensus.PhasePropose
 	})
+}
+
+func TestNodeProposesFromMempoolAndClearsCommittedTxs(t *testing.T) {
+	alice, bob, carol := newConsensusLoopNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+	startNode(t, carol)
+	defer carol.Stop(context.Background())
+
+	aliceConsensus, err := alice.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceConsensus.StartRound(1, 0)
+
+	for _, tx := range []types.Tx{
+		[]byte("bank:second"),
+		[]byte("bank:first"),
+		[]byte("bank:third"),
+	} {
+		if err := alice.SubmitTx(context.Background(), tx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if alice.runtime.Mempool.Len() != 3 {
+		t.Fatalf("expected 3 mempool txs, got %d", alice.runtime.Mempool.Len())
+	}
+
+	proposal, blockHash, err := alice.ProposeFromMempool(context.Background(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(proposal.Block.Txs) != 3 {
+		t.Fatalf("expected 3 proposal txs, got %d", len(proposal.Block.Txs))
+	}
+	if !fairordering.IsOrdered(proposal.Block.Txs) {
+		t.Fatalf("expected deterministic proposal ordering, got %q", proposal.Block.Txs)
+	}
+	if _, ok, err := alice.VoteBlock(context.Background(), proposal.Block.Header.Height, proposal.Round, blockHash); err != nil || ok {
+		t.Fatalf("local vote should not have quorum before peer votes: ok=%v err=%v", ok, err)
+	}
+
+	waitForQuorumCert(t, aliceConsensus, proposal.Block.Header.Height, proposal.Round, blockHash)
+	quorumCert, err := aliceConsensus.BuildQuorumCert(proposal.Block.Header.Height, proposal.Round, blockHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := alice.CommitBlock(context.Background(), proposal.Block, quorumCert); err != nil {
+		t.Fatal(err)
+	}
+	if alice.runtime.Mempool.Len() != 0 {
+		t.Fatalf("expected committed txs to be removed, got %d", alice.runtime.Mempool.Len())
+	}
 }
 
 func newTransportNodes(t *testing.T) (*Node, *Node) {
