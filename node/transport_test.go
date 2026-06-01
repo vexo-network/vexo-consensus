@@ -513,6 +513,45 @@ func TestNodeGossipsConflictingVoteEvidenceAndSlashesValidator(t *testing.T) {
 	waitForValidatorPower(t, carol, "bob", 95)
 }
 
+func TestNodePenalizesAndBansInvalidPeerMessages(t *testing.T) {
+	alice, bob, _ := newScoredNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+
+	bobWire, ok := bob.wire.(transport.Transport)
+	if !ok {
+		t.Fatal("expected bob transport")
+	}
+	if err := bobWire.Publish(context.Background(), p2p.TopicTx, []byte{}); err != nil {
+		t.Fatal(err)
+	}
+	waitForPeerScore(t, alice, "bob", 1)
+	if err := bobWire.Publish(context.Background(), p2p.TopicEvidence, []byte("{bad-json")); err != nil {
+		t.Fatal(err)
+	}
+	waitForPeerBanned(t, alice, "bob")
+
+	if err := bobWire.Publish(context.Background(), p2p.TopicTx, []byte("bank:ignored-after-ban")); err != nil {
+		t.Fatal(err)
+	}
+	waitForMempoolLen(t, alice, 0)
+}
+
+func TestNodeRewardsValidPeerMessages(t *testing.T) {
+	alice, bob, _ := newScoredNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+
+	if err := bob.SubmitTx(context.Background(), []byte("bank:valid-score")); err != nil {
+		t.Fatal(err)
+	}
+	waitForPeerScore(t, alice, "bob", 4)
+}
+
 func TestNodeBackgroundConsensusLoopCommitsAcrossPeers(t *testing.T) {
 	alice, bob, carol := newConsensusLoopNodes(t)
 	startNode(t, alice)
@@ -716,6 +755,44 @@ func newSlashingNodes(t *testing.T) (*Node, *Node, *Node) {
 	return alice, bob, carol
 }
 
+func newScoredNodes(t *testing.T) (*Node, *Node, *Node) {
+	t.Helper()
+	bus := transport.NewInMemoryBus()
+	genesis := Genesis{
+		ChainID: "vexo-test",
+		Validators: []validator.Validator{
+			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+			{ID: "bob", Address: "bob", VotingPower: 1, Stake: 1},
+			{ID: "carol", Address: "carol", VotingPower: 1, Stake: 1},
+		},
+		Governance: map[types.Address]types.VotingPower{"alice": 1, "bob": 1, "carol": 1},
+	}
+	alice := newScoredNode(t, bus, genesis, "alice")
+	bob := newScoredNode(t, bus, genesis, "bob")
+	carol := newScoredNode(t, bus, genesis, "carol")
+	return alice, bob, carol
+}
+
+func newScoredNode(t *testing.T, bus *transport.InMemoryBus, genesis Genesis, validatorID types.ValidatorID) *Node {
+	t.Helper()
+	wire, err := bus.NewPeer(p2p.PeerID(validatorID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := DefaultConfig("vexo-test", t.TempDir())
+	cfg.ValidatorID = validatorID
+	cfg.Chain.P2P.InitialScore = 2
+	cfg.Chain.P2P.ValidMessageReward = 2
+	cfg.Chain.P2P.InvalidMessageCost = 1
+	cfg.Chain.P2P.BanThreshold = 0
+	node, err := New(cfg, genesis, newTestApplication(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	node.WithTransport(wire)
+	return node
+}
+
 func startNode(t *testing.T, node *Node) {
 	t.Helper()
 	if err := node.Start(context.Background()); err != nil {
@@ -841,5 +918,50 @@ func waitForValidatorPower(t *testing.T, node *Node, validatorID types.Validator
 	}
 	if validatorInfo.VotingPower != expected {
 		t.Fatalf("expected validator %s power %d, got %d", validatorID, expected, validatorInfo.VotingPower)
+	}
+}
+
+func waitForPeerScore(t *testing.T, node *Node, peer p2p.PeerID, expected int64) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		score, err := node.PeerScore(context.Background(), peer)
+		if err == nil && score == expected {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	score, err := node.PeerScore(context.Background(), peer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score != expected {
+		t.Fatalf("expected peer %s score %d, got %d", peer, expected, score)
+	}
+}
+
+func waitForPeerBanned(t *testing.T, node *Node, peer p2p.PeerID) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		runtime, err := node.Runtime()
+		if err == nil {
+			banned, err := runtime.P2PScore.IsBanned(context.Background(), peer)
+			if err == nil && banned {
+				return
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+	runtime, err := node.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	banned, err := runtime.P2PScore.IsBanned(context.Background(), peer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !banned {
+		t.Fatalf("expected peer %s banned", peer)
 	}
 }

@@ -61,23 +61,33 @@ func (node *Node) consumeCommitGossip(ctx context.Context, events <-chan transpo
 			if !ok {
 				return
 			}
-			node.acceptCommitMessage(ctx, envelope.Data)
+			node.acceptCommitMessage(ctx, envelope.From, envelope.Data)
 		}
 	}
 }
 
-func (node *Node) acceptCommitMessage(ctx context.Context, data []byte) {
+func (node *Node) acceptCommitMessage(ctx context.Context, from p2p.PeerID, data []byte) {
+	if node.peerBanned(ctx, from) {
+		return
+	}
 	message, err := decodeCommitMessage(data)
 	if err != nil {
+		node.observePeerMessage(ctx, from, false)
 		return
 	}
 	if node.hasCommitted(ctx, message.Block.Header.Height) {
+		node.observePeerMessage(ctx, from, true)
 		return
 	}
 	if err := node.verifyCommitCertificate(ctx, message.Block, message.QuorumCert); err != nil {
+		node.observePeerMessage(ctx, from, false)
 		return
 	}
-	_, _ = node.commitBlock(ctx, message.Block, message.QuorumCert, false, false)
+	if _, err := node.commitBlock(ctx, message.Block, message.QuorumCert, false, false); err != nil {
+		node.observePeerMessage(ctx, from, false)
+		return
+	}
+	node.observePeerMessage(ctx, from, true)
 }
 
 func (node *Node) broadcastCommit(ctx context.Context, block types.Block, quorumCert finality.QuorumCert) error {

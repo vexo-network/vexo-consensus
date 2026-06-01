@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"errors"
+	"sync"
 )
 
 var (
@@ -26,6 +27,7 @@ type PeerState struct {
 }
 
 type ScoreKeeper struct {
+	mu     sync.Mutex
 	config ScoreConfig
 	peers  map[PeerID]PeerState
 }
@@ -49,6 +51,8 @@ func (keeper *ScoreKeeper) ObserveMessage(ctx context.Context, peer PeerID, vali
 		return ctx.Err()
 	default:
 	}
+	keeper.mu.Lock()
+	defer keeper.mu.Unlock()
 
 	state := keeper.state(peer)
 	if state.Banned {
@@ -83,6 +87,8 @@ func (keeper *ScoreKeeper) ResetWindow(ctx context.Context) error {
 		return ctx.Err()
 	default:
 	}
+	keeper.mu.Lock()
+	defer keeper.mu.Unlock()
 
 	for peer, state := range keeper.peers {
 		state.WindowMessages = 0
@@ -97,6 +103,8 @@ func (keeper *ScoreKeeper) Score(ctx context.Context, peer PeerID) (int64, error
 		return 0, ctx.Err()
 	default:
 	}
+	keeper.mu.Lock()
+	defer keeper.mu.Unlock()
 	return keeper.state(peer).Score, nil
 }
 
@@ -106,6 +114,8 @@ func (keeper *ScoreKeeper) IsBanned(ctx context.Context, peer PeerID) (bool, err
 		return false, ctx.Err()
 	default:
 	}
+	keeper.mu.Lock()
+	defer keeper.mu.Unlock()
 	return keeper.state(peer).Banned, nil
 }
 

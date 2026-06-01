@@ -104,15 +104,26 @@ func (node *Node) consumeEvidenceGossip(ctx context.Context, events <-chan trans
 			if !ok {
 				return
 			}
-			node.acceptEvidenceMessage(ctx, envelope.Data)
+			node.acceptEvidenceMessage(ctx, envelope.From, envelope.Data)
 		}
 	}
 }
 
-func (node *Node) acceptEvidenceMessage(ctx context.Context, data []byte) {
-	evidence, err := decodeEvidenceMessage(data)
-	if err != nil {
+func (node *Node) acceptEvidenceMessage(ctx context.Context, from p2p.PeerID, data []byte) {
+	if node.peerBanned(ctx, from) {
 		return
 	}
-	_, _, _ = node.applyEvidence(ctx, evidence)
+	evidence, err := decodeEvidenceMessage(data)
+	if err != nil {
+		node.observePeerMessage(ctx, from, false)
+		return
+	}
+	if _, applied, err := node.applyEvidence(ctx, evidence); err != nil {
+		node.observePeerMessage(ctx, from, false)
+		return
+	} else if !applied {
+		node.observePeerMessage(ctx, from, true)
+		return
+	}
+	node.observePeerMessage(ctx, from, true)
 }

@@ -108,22 +108,32 @@ func (node *Node) consumeTxGossip(ctx context.Context, events <-chan transport.E
 			if !ok {
 				return
 			}
-			node.acceptGossipTx(ctx, envelope.Data)
+			node.acceptGossipTx(ctx, envelope.From, envelope.Data)
 		}
 	}
 }
 
-func (node *Node) acceptGossipTx(ctx context.Context, tx types.Tx) {
+func (node *Node) acceptGossipTx(ctx context.Context, from p2p.PeerID, tx types.Tx) {
+	if node.peerBanned(ctx, from) {
+		return
+	}
 	runtime, err := node.Runtime()
 	if err != nil {
 		return
 	}
 	if response := runtime.App.CheckTx(tx); response.Result.Code != 0 {
+		node.observePeerMessage(ctx, from, false)
 		return
 	}
-	if err := runtime.Mempool.AddTx(ctx, tx); err != nil && !errors.Is(err, mempool.ErrDuplicateTx) {
+	if err := runtime.Mempool.AddTx(ctx, tx); err != nil {
+		if errors.Is(err, mempool.ErrDuplicateTx) {
+			node.observePeerMessage(ctx, from, true)
+			return
+		}
+		node.observePeerMessage(ctx, from, false)
 		return
 	}
+	node.observePeerMessage(ctx, from, true)
 }
 
 func (node *Node) runningTransport() (transport.Transport, bool) {
