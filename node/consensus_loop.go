@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/vexo-network/vexo-consensus/app"
@@ -120,6 +121,42 @@ func (node *Node) VoteBlock(ctx context.Context, height types.Height, round type
 		return finality.QuorumCert{}, false, nil
 	}
 	return qc, true, nil
+}
+
+func (node *Node) TimeoutRound(ctx context.Context) (finality.TimeoutCert, bool, error) {
+	if node.cfg.ValidatorID == "" {
+		return finality.TimeoutCert{}, false, ErrMissingValidatorID
+	}
+	machine, err := node.Consensus()
+	if err != nil {
+		return finality.TimeoutCert{}, false, err
+	}
+	reactor, err := node.ConsensusReactor()
+	if err != nil {
+		return finality.TimeoutCert{}, false, ErrConsensusOffline
+	}
+
+	status := machine.Status(ctx)
+	if status.Height == 0 {
+		machine.StartRound(1, status.Round)
+		status = machine.Status(ctx)
+	}
+	vote := consensus.TimeoutVote{
+		Height:      status.Height,
+		Round:       status.Round,
+		ValidatorID: node.cfg.ValidatorID,
+	}
+	timeoutCert, err := machine.OnTimeoutVote(ctx, vote)
+	if err != nil && !errors.Is(err, consensus.ErrNoQuorum) {
+		return finality.TimeoutCert{}, false, err
+	}
+	if err := reactor.BroadcastTimeoutVote(ctx, vote); err != nil {
+		return finality.TimeoutCert{}, false, err
+	}
+	if err != nil {
+		return finality.TimeoutCert{}, false, nil
+	}
+	return timeoutCert, true, nil
 }
 
 func (node *Node) CommitBlock(ctx context.Context, block types.Block, quorumCert finality.QuorumCert) (app.FinalizeBlockResponse, error) {

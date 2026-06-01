@@ -113,6 +113,7 @@ func (node *Node) Start(ctx context.Context) error {
 		storage.Close()
 		return err
 	}
+	consensusState.StartRound(1, 0)
 	var reactor *consensus.TransportReactor
 	if node.wire != nil {
 		receiver := consensus.Reactor(consensusState)

@@ -412,7 +412,7 @@ func TestNodeBackgroundConsensusLoopCommitsAcrossPeers(t *testing.T) {
 	startNode(t, carol)
 	defer carol.Stop(context.Background())
 
-	loopConfig := ConsensusLoopConfig{Interval: time.Millisecond, MaxBlockBytes: 1024}
+	loopConfig := ConsensusLoopConfig{Interval: time.Millisecond, RoundTimeout: time.Hour, MaxBlockBytes: 1024}
 	for _, node := range []*Node{alice, bob, carol} {
 		if err := node.StartConsensusLoop(context.Background(), loopConfig); err != nil {
 			t.Fatal(err)
@@ -444,6 +444,80 @@ func TestNodeBackgroundConsensusLoopCommitsAcrossPeers(t *testing.T) {
 		if err := node.StopConsensusLoop(context.Background()); !errors.Is(err, ErrLoopNotRunning) {
 			t.Fatalf("expected loop not running, got %v", err)
 		}
+	}
+}
+
+func TestNodeTimeoutRoundBroadcastsAndAdvancesPeers(t *testing.T) {
+	alice, bob, carol := newConsensusLoopNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+	startNode(t, carol)
+	defer carol.Stop(context.Background())
+
+	for _, node := range []*Node{alice, bob, carol} {
+		machine, err := node.Consensus()
+		if err != nil {
+			t.Fatal(err)
+		}
+		machine.StartRound(1, 0)
+	}
+
+	for _, node := range []*Node{alice, bob, carol} {
+		if _, _, err := node.TimeoutRound(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, node := range []*Node{alice, bob, carol} {
+		machine, err := node.Consensus()
+		if err != nil {
+			t.Fatal(err)
+		}
+		waitForConsensusStatus(t, machine, func(status consensus.Status) bool {
+			return status.Height == 1 && status.Round >= 1
+		})
+	}
+}
+
+func TestNodeConsensusLoopAdvancesRoundAfterTimeout(t *testing.T) {
+	alice, bob, carol := newConsensusLoopNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+	startNode(t, carol)
+	defer carol.Stop(context.Background())
+
+	for _, node := range []*Node{alice, bob, carol} {
+		machine, err := node.Consensus()
+		if err != nil {
+			t.Fatal(err)
+		}
+		machine.StartRound(1, 0)
+	}
+
+	loopConfig := ConsensusLoopConfig{
+		Interval:      time.Millisecond,
+		RoundTimeout:  time.Nanosecond,
+		MaxBlockBytes: 1024,
+	}
+	for _, node := range []*Node{alice, bob, carol} {
+		if err := node.StartConsensusLoop(context.Background(), loopConfig); err != nil {
+			t.Fatal(err)
+		}
+		defer node.StopConsensusLoop(context.Background())
+	}
+
+	for _, node := range []*Node{alice, bob, carol} {
+		machine, err := node.Consensus()
+		if err != nil {
+			t.Fatal(err)
+		}
+		waitForConsensusStatus(t, machine, func(status consensus.Status) bool {
+			return status.Height == 1 && status.Round >= 1 && status.Phase == consensus.PhasePropose
+		})
 	}
 }
 

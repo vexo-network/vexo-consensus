@@ -8,17 +8,20 @@ import (
 
 const (
 	defaultConsensusLoopInterval = 50 * time.Millisecond
+	defaultConsensusRoundTimeout = 500 * time.Millisecond
 	defaultConsensusMaxBytes     = 1024 * 1024
 )
 
 type ConsensusLoopConfig struct {
 	Interval      time.Duration
+	RoundTimeout  time.Duration
 	MaxBlockBytes int64
 }
 
 func DefaultConsensusLoopConfig() ConsensusLoopConfig {
 	return ConsensusLoopConfig{
 		Interval:      defaultConsensusLoopInterval,
+		RoundTimeout:  defaultConsensusRoundTimeout,
 		MaxBlockBytes: defaultConsensusMaxBytes,
 	}
 }
@@ -73,9 +76,22 @@ func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig,
 
 	ticker := time.NewTicker(cfg.Interval)
 	defer ticker.Stop()
+	lastTimeout := time.Now()
 	for {
-		if _, err := node.StepConsensus(ctx, cfg.MaxBlockBytes); err != nil && errors.Is(err, ErrNodeNotRunning) {
-			return
+		result, err := node.StepConsensus(ctx, cfg.MaxBlockBytes)
+		if err != nil {
+			if errors.Is(err, ErrNodeNotRunning) {
+				return
+			}
+		}
+		if result.Committed || result.Proposed {
+			lastTimeout = time.Now()
+		}
+		if !result.Committed && !result.Proposed && time.Since(lastTimeout) >= cfg.RoundTimeout {
+			if _, _, err := node.TimeoutRound(ctx); err != nil && errors.Is(err, ErrNodeNotRunning) {
+				return
+			}
+			lastTimeout = time.Now()
 		}
 
 		select {
@@ -99,6 +115,9 @@ func (node *Node) clearConsensusLoop(done chan struct{}) {
 func normalizeConsensusLoopConfig(cfg ConsensusLoopConfig) ConsensusLoopConfig {
 	if cfg.Interval <= 0 {
 		cfg.Interval = defaultConsensusLoopInterval
+	}
+	if cfg.RoundTimeout <= 0 {
+		cfg.RoundTimeout = defaultConsensusRoundTimeout
 	}
 	if cfg.MaxBlockBytes <= 0 {
 		cfg.MaxBlockBytes = defaultConsensusMaxBytes

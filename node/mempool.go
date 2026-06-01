@@ -27,7 +27,11 @@ func (node *Node) SubmitTx(ctx context.Context, tx types.Tx) error {
 	if !ok {
 		return nil
 	}
-	return wire.Publish(ctx, p2p.TopicTx, append([]byte(nil), tx...))
+	if err := wire.Publish(ctx, p2p.TopicTx, append([]byte(nil), tx...)); err != nil {
+		return err
+	}
+	node.wakeConsensus(ctx)
+	return nil
 }
 
 func (node *Node) ProposeFromMempool(ctx context.Context, maxBytes int64) (consensus.Proposal, types.Hash, error) {
@@ -129,4 +133,11 @@ func (node *Node) runningTransport() (transport.Transport, bool) {
 		return nil, false
 	}
 	return node.wire, true
+}
+
+func (node *Node) wakeConsensus(ctx context.Context) {
+	if !node.ConsensusLoopRunning() {
+		return
+	}
+	_, _ = node.StepConsensus(ctx, defaultConsensusMaxBytes)
 }
