@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
@@ -138,6 +139,124 @@ func TestStateMachineRejectsWrongChainProposal(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected chain id mismatch")
+	}
+}
+
+func TestStateMachineAcceptsValidProposal(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = machine.OnProposal(context.Background(), Proposal{
+		Block: types.Block{Header: types.Header{
+			ChainID:          "vexo-test",
+			Height:           1,
+			ValidatorSetHash: set.Hash(),
+		}},
+		Round:    0,
+		Proposer: "a",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if machine.Status(context.Background()).Phase != PhaseVote {
+		t.Fatal("expected vote phase")
+	}
+}
+
+func TestStateMachineRejectsInvalidProposalFields(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name     string
+		proposal Proposal
+		expected error
+	}{
+		{
+			name: "missing height",
+			proposal: Proposal{
+				Block:    types.Block{Header: types.Header{ChainID: "vexo-test", ValidatorSetHash: set.Hash()}},
+				Round:    0,
+				Proposer: "a",
+			},
+			expected: ErrInvalidProposal,
+		},
+		{
+			name: "validator set mismatch",
+			proposal: Proposal{
+				Block:    types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHash: types.Hash{9}}},
+				Round:    0,
+				Proposer: "a",
+			},
+			expected: ErrInvalidProposal,
+		},
+		{
+			name: "qc height exceeds proposal height",
+			proposal: Proposal{
+				Block:     types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHash: set.Hash()}},
+				Round:     0,
+				Proposer:  "a",
+				JustifyQC: finality.QuorumCert{Height: 2},
+			},
+			expected: ErrInvalidProposal,
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := machine.OnProposal(context.Background(), testCase.proposal)
+			if !errors.Is(err, testCase.expected) {
+				t.Fatalf("expected %v, got %v", testCase.expected, err)
+			}
+		})
+	}
+}
+
+func TestStateMachineRejectsStaleProposal(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(2, 3)
+
+	err = machine.OnProposal(context.Background(), Proposal{
+		Block:    types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHash: set.Hash()}},
+		Round:    3,
+		Proposer: "a",
+	})
+	if !errors.Is(err, ErrStaleProposal) {
+		t.Fatalf("expected stale proposal by height, got %v", err)
+	}
+
+	err = machine.OnProposal(context.Background(), Proposal{
+		Block:    types.Block{Header: types.Header{ChainID: "vexo-test", Height: 2, ValidatorSetHash: set.Hash()}},
+		Round:    2,
+		Proposer: "a",
+	})
+	if !errors.Is(err, ErrStaleProposal) {
+		t.Fatalf("expected stale proposal by round, got %v", err)
 	}
 }
 

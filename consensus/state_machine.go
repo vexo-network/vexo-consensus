@@ -17,6 +17,8 @@ var (
 	ErrUnknownValidator = errors.New("unknown validator")
 	ErrConflictingVote  = errors.New("conflicting vote")
 	ErrNoQuorum         = errors.New("not enough voting power for quorum")
+	ErrInvalidProposal  = errors.New("invalid proposal")
+	ErrStaleProposal    = errors.New("stale proposal")
 )
 
 type StateMachineConfig struct {
@@ -101,6 +103,21 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 	}
 	if proposal.Block.Header.ChainID != machine.chainID {
 		return fmt.Errorf("proposal chain id mismatch: %s", proposal.Block.Header.ChainID)
+	}
+	if proposal.Block.Header.Height == 0 {
+		return fmt.Errorf("%w: missing height", ErrInvalidProposal)
+	}
+	if proposal.Block.Header.ValidatorSetHash != machine.validatorSet.Hash() {
+		return fmt.Errorf("%w: validator set hash mismatch", ErrInvalidProposal)
+	}
+	if proposal.Block.Header.Height < machine.status.Height {
+		return ErrStaleProposal
+	}
+	if proposal.Block.Header.Height == machine.status.Height && proposal.Round < machine.status.Round {
+		return ErrStaleProposal
+	}
+	if proposal.JustifyQC.Height > 0 && proposal.JustifyQC.Height > proposal.Block.Header.Height {
+		return fmt.Errorf("%w: justify qc height exceeds proposal height", ErrInvalidProposal)
 	}
 
 	machine.status.Height = proposal.Block.Header.Height
