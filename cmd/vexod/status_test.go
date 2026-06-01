@@ -18,6 +18,9 @@ func TestWriteStatus(t *testing.T) {
 		"chain_id: vexo-test",
 		"validator.permissionless: true",
 		"committee.size: 128",
+		"fair_ordering.deterministic: true",
+		"data_availability.commitments: true",
+		"storage.backend: leveldb",
 	}
 	for _, part := range expectedParts {
 		if !strings.Contains(output, part) {

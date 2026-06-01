@@ -181,6 +181,9 @@ validator.min_stake: 1
 committee.epoch_length: 100
 committee.size: 128
 mempool.max_txs: 100000
+fair_ordering.deterministic: true
+data_availability.commitments: true
+storage.backend: leveldb
 p2p.max_messages_per_window: 1000
 ```
 
