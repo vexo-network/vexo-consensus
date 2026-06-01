@@ -54,3 +54,11 @@ func (node *Node) PeerScore(ctx context.Context, peer p2p.PeerID) (int64, error)
 	}
 	return runtime.P2PScore.Score(ctx, peer)
 }
+
+func (node *Node) PeerScores(ctx context.Context) ([]p2p.PeerSnapshot, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return nil, err
+	}
+	return runtime.P2PScore.Snapshot(ctx)
+}

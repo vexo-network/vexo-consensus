@@ -189,6 +189,52 @@ func TestScoreKeeperDoesNotRecoverActiveBan(t *testing.T) {
 	}
 }
 
+func TestScoreKeeperSnapshotReturnsSortedPeerStates(t *testing.T) {
+	keeper := NewScoreKeeper(ScoreConfig{
+		InitialScore:       10,
+		InvalidMessageCost: 3,
+		ValidMessageReward: 2,
+		BanThreshold:       0,
+	})
+
+	if err := keeper.ObserveMessage(context.Background(), "peer-c", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.ObserveMessage(context.Background(), "peer-b", false); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := keeper.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot) != 3 {
+		t.Fatalf("expected 3 peers, got %d", len(snapshot))
+	}
+	expected := []struct {
+		peer  PeerID
+		score int64
+	}{
+		{peer: "peer-a", score: 12},
+		{peer: "peer-b", score: 7},
+		{peer: "peer-c", score: 7},
+	}
+	for i, item := range expected {
+		if snapshot[i].Peer != item.peer || snapshot[i].Score != item.score {
+			t.Fatalf("expected snapshot[%d] peer=%s score=%d, got %+v", i, item.peer, item.score, snapshot[i])
+		}
+		if snapshot[i].Banned {
+			t.Fatalf("expected peer %s not banned", snapshot[i].Peer)
+		}
+		if snapshot[i].WindowMessages != 1 {
+			t.Fatalf("expected peer %s window messages 1, got %d", snapshot[i].Peer, snapshot[i].WindowMessages)
+		}
+	}
+}
+
 func TestScoreKeeperRateLimitCanBan(t *testing.T) {
 	keeper := NewScoreKeeper(ScoreConfig{
 		InitialScore:         1,
@@ -242,6 +288,9 @@ func TestScoreKeeperContextCancellation(t *testing.T) {
 	}
 	if _, err := keeper.WindowMessages(ctx, "peer-a"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected window messages canceled, got %v", err)
+	}
+	if _, err := keeper.Snapshot(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected snapshot canceled, got %v", err)
 	}
 }
 

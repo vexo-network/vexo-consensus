@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"errors"
+	"sort"
 	"sync"
 	"time"
 )
@@ -25,6 +26,14 @@ type ScoreConfig struct {
 }
 
 type PeerState struct {
+	Score          int64
+	Banned         bool
+	BannedUntil    time.Time
+	WindowMessages uint64
+}
+
+type PeerSnapshot struct {
+	Peer           PeerID
 	Score          int64
 	Banned         bool
 	BannedUntil    time.Time
@@ -163,6 +172,38 @@ func (keeper *ScoreKeeper) WindowMessages(ctx context.Context, peer PeerID) (uin
 	keeper.mu.Lock()
 	defer keeper.mu.Unlock()
 	return keeper.state(peer).WindowMessages, nil
+}
+
+func (keeper *ScoreKeeper) Snapshot(ctx context.Context) ([]PeerSnapshot, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	keeper.mu.Lock()
+	defer keeper.mu.Unlock()
+
+	peers := make([]PeerID, 0, len(keeper.peers))
+	for peer := range keeper.peers {
+		peers = append(peers, peer)
+	}
+	sort.Slice(peers, func(i, j int) bool {
+		return peers[i] < peers[j]
+	})
+
+	snapshot := make([]PeerSnapshot, 0, len(peers))
+	for _, peer := range peers {
+		state := keeper.expireBan(keeper.peers[peer])
+		keeper.peers[peer] = state
+		snapshot = append(snapshot, PeerSnapshot{
+			Peer:           peer,
+			Score:          state.Score,
+			Banned:         state.Banned,
+			BannedUntil:    state.BannedUntil,
+			WindowMessages: state.WindowMessages,
+		})
+	}
+	return snapshot, nil
 }
 
 func (keeper *ScoreKeeper) state(peer PeerID) PeerState {

@@ -554,6 +554,44 @@ func TestNodeRewardsValidPeerMessages(t *testing.T) {
 	waitForPeerScore(t, alice, "bob", 4)
 }
 
+func TestNodeReportsPeerScoreSnapshots(t *testing.T) {
+	alice, bob, carol := newScoredNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+	startNode(t, carol)
+	defer carol.Stop(context.Background())
+
+	if err := bob.SubmitTx(context.Background(), []byte("bank:snapshot-valid")); err != nil {
+		t.Fatal(err)
+	}
+	waitForPeerScore(t, alice, "bob", 4)
+
+	carolWire, ok := carol.wire.(transport.Transport)
+	if !ok {
+		t.Fatal("expected carol transport")
+	}
+	if err := carolWire.Publish(context.Background(), p2p.TopicTx, []byte{}); err != nil {
+		t.Fatal(err)
+	}
+	waitForPeerScore(t, alice, "carol", 1)
+
+	snapshot, err := alice.PeerScores(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot) != 2 {
+		t.Fatalf("expected 2 peer snapshots, got %d", len(snapshot))
+	}
+	if snapshot[0].Peer != "bob" || snapshot[0].Score != 4 || snapshot[0].Banned {
+		t.Fatalf("unexpected bob snapshot: %+v", snapshot[0])
+	}
+	if snapshot[1].Peer != "carol" || snapshot[1].Score != 1 || snapshot[1].Banned {
+		t.Fatalf("unexpected carol snapshot: %+v", snapshot[1])
+	}
+}
+
 func TestNodeDropsRateLimitedPeerMessages(t *testing.T) {
 	alice, bob, _ := newRateLimitedNodes(t)
 	startNode(t, alice)
