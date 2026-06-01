@@ -17,6 +17,7 @@ var (
 
 type Config struct {
 	ChainID    string
+	Crypto     CryptoConfig
 	Validator  validator.AdmissionConfig
 	Committee  committee.RotationPolicy
 	Mempool    mempool.FIFOConfig
@@ -24,9 +25,23 @@ type Config struct {
 	P2P        p2p.ScoreConfig
 }
 
+type CryptoBackend string
+
+const (
+	CryptoBackendDeterministic CryptoBackend = "deterministic"
+	CryptoBackendEd25519       CryptoBackend = "ed25519"
+)
+
+type CryptoConfig struct {
+	Backend CryptoBackend
+}
+
 func Default(chainID string) Config {
 	return Config{
 		ChainID: chainID,
+		Crypto: CryptoConfig{
+			Backend: CryptoBackendDeterministic,
+		},
 		Validator: validator.AdmissionConfig{
 			Permissionless: true,
 			MinStake:       1,
@@ -60,6 +75,9 @@ func Default(chainID string) Config {
 func (config Config) Validate() error {
 	if config.ChainID == "" {
 		return ErrMissingChainID
+	}
+	if config.Crypto.Backend == "" {
+		return ErrInvalidConfig
 	}
 	if config.Committee.EpochLength == 0 || config.Committee.CommitteeSize == 0 {
 		return ErrInvalidConfig

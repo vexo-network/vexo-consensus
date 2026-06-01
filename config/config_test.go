@@ -24,3 +24,11 @@ func TestConfigValidateRejectsInvalidCommittee(t *testing.T) {
 		t.Fatalf("expected invalid config, got %v", err)
 	}
 }
+
+func TestConfigValidateRejectsMissingCryptoBackend(t *testing.T) {
+	cfg := Default("vexo-test")
+	cfg.Crypto.Backend = ""
+	if err := cfg.Validate(); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("expected invalid config, got %v", err)
+	}
+}

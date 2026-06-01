@@ -28,7 +28,7 @@ type Runtime struct {
 	Slashing   *slashing.InMemoryKeeper
 	Governance *governance.InMemoryKeeper
 	P2PScore   *p2p.ScoreKeeper
-	Crypto     crypto.DeterministicAggregateSigner
+	Crypto     crypto.RuntimeSuite
 	Store      store.Store
 }
 
@@ -48,6 +48,10 @@ func NewWithStore(cfg config.Config, application app.Application, initialValidat
 	}
 
 	selector, err := committee.NewDeterministicSelector(cfg.Committee)
+	if err != nil {
+		return nil, err
+	}
+	cryptoSuite, err := crypto.NewRuntimeSuite(cfg.Crypto)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +76,7 @@ func NewWithStore(cfg config.Config, application app.Application, initialValidat
 		Slashing:   slashing.NewInMemoryKeeper(nil),
 		Governance: governance.NewInMemoryKeeper(cfg.Governance, governancePower),
 		P2PScore:   p2p.NewScoreKeeper(cfg.P2P),
-		Crypto:     crypto.DeterministicAggregateSigner{},
+		Crypto:     cryptoSuite,
 		Store:      storage,
 	}, nil
 }
@@ -157,7 +161,7 @@ func (runtime *Runtime) NewFinalityVerifier(ctx context.Context, height types.He
 	if err != nil {
 		return finality.Verifier{}, err
 	}
-	return finality.NewVerifier(validatorSet, runtime.Crypto), nil
+	return finality.NewVerifier(validatorSet, runtime.Crypto.FinalityVerifier), nil
 }
 
 func (runtime *Runtime) Recover(ctx context.Context) (store.StateRecord, error) {

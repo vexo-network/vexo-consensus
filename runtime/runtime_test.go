@@ -7,6 +7,7 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/config"
+	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
@@ -35,6 +36,15 @@ func TestRuntimeRejectsInvalidConfig(t *testing.T) {
 	}
 }
 
+func TestRuntimeRejectsUnsupportedCryptoBackend(t *testing.T) {
+	cfg := config.Default("vexo-test")
+	cfg.Crypto.Backend = "unknown"
+	_, err := New(cfg, noopApp{}, nil, nil)
+	if !errors.Is(err, vexocrypto.ErrUnsupportedCryptoBackend) {
+		t.Fatalf("expected unsupported crypto backend, got %v", err)
+	}
+}
+
 func TestRuntimeBuildsConsensusStateMachine(t *testing.T) {
 	cfg := config.Default("vexo-test")
 	runtime, err := New(cfg, noopApp{}, []validator.Validator{
@@ -57,6 +67,21 @@ func TestRuntimeBuildsConsensusStateMachine(t *testing.T) {
 
 func TestRuntimeBuildsFinalityVerifier(t *testing.T) {
 	cfg := config.Default("vexo-test")
+	runtime, err := New(cfg, noopApp{}, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: []byte("pub")},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := runtime.NewFinalityVerifier(context.Background(), 1); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRuntimeBuildsEd25519FinalityVerifier(t *testing.T) {
+	cfg := config.Default("vexo-test")
+	cfg.Crypto.Backend = config.CryptoBackendEd25519
 	runtime, err := New(cfg, noopApp{}, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: []byte("pub")},
 	}, nil)
