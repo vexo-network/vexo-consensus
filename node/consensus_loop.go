@@ -2,7 +2,9 @@ package node
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -112,4 +114,37 @@ func (node *Node) VoteBlock(ctx context.Context, height types.Height, round type
 		return finality.QuorumCert{}, false, nil
 	}
 	return qc, true, nil
+}
+
+func (node *Node) CommitBlock(ctx context.Context, block types.Block, quorumCert finality.QuorumCert) (app.FinalizeBlockResponse, error) {
+	if quorumCert.Height != block.Header.Height {
+		return app.FinalizeBlockResponse{}, fmt.Errorf("%w: height mismatch", ErrInvalidCommitQC)
+	}
+	blockHash := consensus.HashBlock(block)
+	if quorumCert.BlockHash != blockHash {
+		return app.FinalizeBlockResponse{}, fmt.Errorf("%w: block hash mismatch", ErrInvalidCommitQC)
+	}
+
+	runtime, err := node.Runtime()
+	if err != nil {
+		return app.FinalizeBlockResponse{}, err
+	}
+	machine, err := node.Consensus()
+	if err != nil {
+		return app.FinalizeBlockResponse{}, err
+	}
+	if _, err := machine.BuildQuorumCert(quorumCert.Height, quorumCert.Round, quorumCert.BlockHash); err != nil {
+		return app.FinalizeBlockResponse{}, err
+	}
+
+	response, err := runtime.ExecuteBlock(ctx, block)
+	if err != nil {
+		return app.FinalizeBlockResponse{}, err
+	}
+	nextHeight := block.Header.Height + 1
+	if err := machine.UpdateValidatorSetFromRegistry(ctx, runtime.Validators, nextHeight); err != nil {
+		return app.FinalizeBlockResponse{}, err
+	}
+	machine.StartRound(nextHeight, 0)
+	return response, nil
 }

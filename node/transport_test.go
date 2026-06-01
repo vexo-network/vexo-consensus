@@ -110,9 +110,9 @@ func TestNodeConsensusLoopBroadcastsProposalAndCollectsVotes(t *testing.T) {
 	proposal, blockHash, err := alice.ProposeBlock(context.Background(), types.Block{
 		Header: types.Header{Height: 1},
 		Txs: []types.Tx{
-			[]byte("tx-c"),
-			[]byte("tx-a"),
-			[]byte("tx-b"),
+			[]byte("bank:tx-c"),
+			[]byte("bank:tx-a"),
+			[]byte("bank:tx-b"),
 		},
 	})
 	if err != nil {
@@ -128,6 +128,31 @@ func TestNodeConsensusLoopBroadcastsProposalAndCollectsVotes(t *testing.T) {
 	waitForQuorumCert(t, aliceConsensus, proposal.Block.Header.Height, proposal.Round, blockHash)
 	waitForConsensusStatus(t, aliceConsensus, func(status consensus.Status) bool {
 		return status.Phase == consensus.PhaseCommit
+	})
+	quorumCert, err := aliceConsensus.BuildQuorumCert(proposal.Block.Header.Height, proposal.Round, blockHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := alice.CommitBlock(context.Background(), proposal.Block, quorumCert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.AppHash == (types.Hash{}) {
+		t.Fatal("expected committed app hash")
+	}
+	status := alice.Status(context.Background())
+	if status.LatestHeight != 1 || status.LatestAppHash == (types.Hash{}) {
+		t.Fatalf("unexpected node status after commit: %+v", status)
+	}
+	record, err := alice.runtime.BlockByHeight(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Hash != blockHash {
+		t.Fatalf("stored block hash mismatch: %x != %x", record.Hash, blockHash)
+	}
+	waitForConsensusStatus(t, aliceConsensus, func(status consensus.Status) bool {
+		return status.Height == 2 && status.Round == 0 && status.Phase == consensus.PhasePropose
 	})
 }
 

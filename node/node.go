@@ -20,6 +20,7 @@ var (
 	ErrNodeNotRunning     = errors.New("node is not running")
 	ErrMissingValidatorID = errors.New("validator id is required")
 	ErrConsensusOffline   = errors.New("consensus reactor is unavailable")
+	ErrInvalidCommitQC    = errors.New("invalid commit quorum certificate")
 )
 
 type Status struct {
