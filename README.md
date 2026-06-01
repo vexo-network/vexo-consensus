@@ -138,6 +138,7 @@ The design is intentionally modular so individual components can be replaced wit
 - Recovery and replay helpers
 - Runtime validator update application
 - Node config, genesis, data directory, and lifecycle skeleton
+- Node-level transport reactor wiring for in-memory multi-node simulations
 
 ## Packages
 

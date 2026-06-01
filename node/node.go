@@ -7,8 +7,10 @@ import (
 	"sync"
 
 	"github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/consensus"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/store"
+	"github.com/vexo-network/vexo-consensus/transport"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -30,11 +32,14 @@ type Node struct {
 	cfg     Config
 	genesis Genesis
 	app     app.Application
+	wire    transport.Transport
 
-	mu      sync.Mutex
-	runtime *vexoruntime.Runtime
-	store   store.Store
-	running bool
+	mu        sync.Mutex
+	runtime   *vexoruntime.Runtime
+	consensus *consensus.StateMachine
+	reactor   *consensus.TransportReactor
+	store     store.Store
+	running   bool
 }
 
 func New(cfg Config, genesis Genesis, application app.Application) (*Node, error) {
@@ -52,6 +57,11 @@ func New(cfg Config, genesis Genesis, application app.Application) (*Node, error
 		genesis: genesis,
 		app:     application,
 	}, nil
+}
+
+func (node *Node) WithTransport(wire transport.Transport) *Node {
+	node.wire = wire
+	return node
 }
 
 func (node *Node) Start(ctx context.Context) error {
@@ -87,8 +97,23 @@ func (node *Node) Start(ctx context.Context) error {
 		storage.Close()
 		return err
 	}
+	consensusState, err := runtime.NewConsensusStateMachine(ctx, 1)
+	if err != nil {
+		storage.Close()
+		return err
+	}
+	var reactor *consensus.TransportReactor
+	if node.wire != nil {
+		reactor = consensus.NewTransportReactor(node.wire, consensusState)
+		if err := reactor.Start(ctx); err != nil {
+			storage.Close()
+			return err
+		}
+	}
 
 	node.runtime = runtime
+	node.consensus = consensusState
+	node.reactor = reactor
 	node.store = storage
 	node.running = true
 	return nil
@@ -106,9 +131,16 @@ func (node *Node) Stop(ctx context.Context) error {
 	if !node.running {
 		return ErrNodeNotRunning
 	}
+	if node.reactor != nil {
+		if err := node.reactor.Stop(ctx); err != nil {
+			return err
+		}
+	}
 	err := node.store.Close()
 	node.running = false
 	node.runtime = nil
+	node.consensus = nil
+	node.reactor = nil
 	node.store = nil
 	return err
 }
@@ -121,6 +153,26 @@ func (node *Node) Runtime() (*vexoruntime.Runtime, error) {
 		return nil, ErrNodeNotRunning
 	}
 	return node.runtime, nil
+}
+
+func (node *Node) Consensus() (*consensus.StateMachine, error) {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+
+	if !node.running {
+		return nil, ErrNodeNotRunning
+	}
+	return node.consensus, nil
+}
+
+func (node *Node) ConsensusReactor() (*consensus.TransportReactor, error) {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+
+	if !node.running || node.reactor == nil {
+		return nil, ErrNodeNotRunning
+	}
+	return node.reactor, nil
 }
 
 func (node *Node) Status(ctx context.Context) Status {
