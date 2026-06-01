@@ -31,4 +31,7 @@ func TestRuntimeQueriesReturnNotFoundWithoutStore(t *testing.T) {
 	if _, err := runtime.StateRoot(context.Background(), 1, "bank"); !errors.Is(err, store.ErrStateRootNotFound) {
 		t.Fatalf("expected state root not found, got %v", err)
 	}
+	if _, err := runtime.PruneBelow(context.Background(), 1); !errors.Is(err, store.ErrBlockIndexNotFound) {
+		t.Fatalf("expected block index not found, got %v", err)
+	}
 }

@@ -32,12 +32,19 @@ type BlockIndex struct {
 	TotalBlocks    uint64
 }
 
+type PruneResult struct {
+	RetainFromHeight types.Height
+	PrunedBlocks     uint64
+	PrunedStateRoots uint64
+}
+
 type Store interface {
 	KVStore
 	SaveBlock(ctx context.Context, record BlockRecord) error
 	BlockByHeight(ctx context.Context, height types.Height) (BlockRecord, error)
 	BlockByHash(ctx context.Context, hash types.Hash) (BlockRecord, error)
 	BlockIndex(ctx context.Context) (BlockIndex, error)
+	PruneBelow(ctx context.Context, retainFrom types.Height) (PruneResult, error)
 	SaveState(ctx context.Context, state StateRecord) error
 	LatestState(ctx context.Context) (StateRecord, error)
 	SaveStateRoot(ctx context.Context, record StateRootRecord) error

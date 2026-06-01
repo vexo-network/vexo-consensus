@@ -102,6 +102,61 @@ func (store *LevelDBStore) BlockIndex(ctx context.Context) (BlockIndex, error) {
 	return index, nil
 }
 
+func (store *LevelDBStore) PruneBelow(ctx context.Context, retainFrom types.Height) (PruneResult, error) {
+	select {
+	case <-ctx.Done():
+		return PruneResult{}, ctx.Err()
+	default:
+	}
+	if retainFrom == 0 {
+		return PruneResult{}, ErrInvalidPruneHeight
+	}
+
+	index, err := store.BlockIndex(ctx)
+	if err != nil {
+		return PruneResult{}, err
+	}
+	result := PruneResult{RetainFromHeight: retainFrom}
+	batch := new(leveldb.Batch)
+
+	for height := index.EarliestHeight; height < retainFrom && height <= index.LatestHeight; height++ {
+		record, err := store.getBlock(blockHeightKey(height))
+		if errors.Is(err, ErrBlockNotFound) {
+			continue
+		}
+		if err != nil {
+			return PruneResult{}, err
+		}
+		batch.Delete(blockHeightKey(height))
+		batch.Delete(blockHashKey(record.Hash))
+		result.PrunedBlocks++
+	}
+
+	prunedRoots, err := store.pruneStateRootsBelow(ctx, batch, retainFrom)
+	if err != nil {
+		return PruneResult{}, err
+	}
+	result.PrunedStateRoots = prunedRoots
+
+	newIndex, err := store.indexAfterPrune(ctx, retainFrom, index.LatestHeight)
+	if err != nil {
+		return PruneResult{}, err
+	}
+	if newIndex.TotalBlocks == 0 {
+		batch.Delete(blockIndexKey)
+	} else {
+		encodedIndex, err := json.Marshal(newIndex)
+		if err != nil {
+			return PruneResult{}, err
+		}
+		batch.Put(blockIndexKey, encodedIndex)
+	}
+	if err := store.db.Write(batch, nil); err != nil {
+		return PruneResult{}, err
+	}
+	return result, nil
+}
+
 func (store *LevelDBStore) SaveState(ctx context.Context, state StateRecord) error {
 	select {
 	case <-ctx.Done():
@@ -295,6 +350,59 @@ func (store *LevelDBStore) getBlock(key []byte) (BlockRecord, error) {
 	return record, nil
 }
 
+func (store *LevelDBStore) pruneStateRootsBelow(ctx context.Context, batch *leveldb.Batch, retainFrom types.Height) (uint64, error) {
+	iterator := store.db.NewIterator(nil, nil)
+	defer iterator.Release()
+
+	var pruned uint64
+	for ok := iterator.Seek(stateRootPrefix); ok; ok = iterator.Next() {
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		default:
+		}
+		key := iterator.Key()
+		if len(key) < len(stateRootPrefix) || string(key[:len(stateRootPrefix)]) != string(stateRootPrefix) {
+			break
+		}
+		height, ok := stateRootHeightFromKey(key)
+		if !ok {
+			continue
+		}
+		if height < retainFrom {
+			batch.Delete(append([]byte(nil), key...))
+			pruned++
+		}
+	}
+	if err := iterator.Error(); err != nil {
+		return 0, err
+	}
+	return pruned, nil
+}
+
+func (store *LevelDBStore) indexAfterPrune(ctx context.Context, retainFrom types.Height, latest types.Height) (BlockIndex, error) {
+	var nextIndex BlockIndex
+	for height := retainFrom; height <= latest; height++ {
+		select {
+		case <-ctx.Done():
+			return BlockIndex{}, ctx.Err()
+		default:
+		}
+		if _, err := store.getBlock(blockHeightKey(height)); err != nil {
+			if errors.Is(err, ErrBlockNotFound) {
+				continue
+			}
+			return BlockIndex{}, err
+		}
+		if nextIndex.TotalBlocks == 0 {
+			nextIndex.EarliestHeight = height
+		}
+		nextIndex.LatestHeight = height
+		nextIndex.TotalBlocks++
+	}
+	return nextIndex, nil
+}
+
 func (store *LevelDBStore) nextBlockIndex(height types.Height) (BlockIndex, error) {
 	encoded, err := store.db.Get(blockIndexKey, nil)
 	if err != nil {
@@ -341,6 +449,13 @@ func stateRootKey(height types.Height, namespace string) []byte {
 	key = append(key, buffer[:]...)
 	key = append(key, ':')
 	return append(key, []byte(namespace)...)
+}
+
+func stateRootHeightFromKey(key []byte) (types.Height, bool) {
+	if len(key) < len(stateRootPrefix)+8 {
+		return 0, false
+	}
+	return types.Height(binary.BigEndian.Uint64(key[len(stateRootPrefix) : len(stateRootPrefix)+8])), true
 }
 
 func kvKey(namespace string, key []byte) []byte {

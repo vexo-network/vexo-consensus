@@ -11,6 +11,7 @@ var (
 	ErrInvalidBlockRecord = errors.New("invalid block record")
 	ErrInvalidStateRecord = errors.New("invalid state record")
 	ErrInvalidStateRoot   = errors.New("invalid state root record")
+	ErrInvalidPruneHeight = errors.New("invalid prune height")
 	ErrInvalidNamespace   = errors.New("namespace is required")
 	ErrInvalidKey         = errors.New("key is required")
 )

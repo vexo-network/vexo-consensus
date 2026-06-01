@@ -80,6 +80,17 @@ func TestRuntimeReplayStoredBlocks(t *testing.T) {
 	if replayAllResult.Blocks != 2 || replayAllResult.FromHeight != 1 || replayAllResult.ToHeight != 2 {
 		t.Fatalf("unexpected replay all result: %+v", replayAllResult)
 	}
+
+	pruneResult, err := replayRuntime.PruneBelow(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pruneResult.PrunedBlocks != 1 {
+		t.Fatalf("expected one pruned block, got %+v", pruneResult)
+	}
+	if _, err := replayRuntime.BlockByHeight(context.Background(), 1); !errors.Is(err, store.ErrBlockNotFound) {
+		t.Fatalf("expected pruned block not found, got %v", err)
+	}
 }
 
 func TestRuntimeReplayRejectsInvalidRange(t *testing.T) {

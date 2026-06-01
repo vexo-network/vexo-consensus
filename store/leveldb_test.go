@@ -80,6 +80,63 @@ func TestLevelDBStoreBlockIndexTracksRangeAndUniqueBlocks(t *testing.T) {
 	}
 }
 
+func TestLevelDBStorePruneBelow(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	for height := types.Height(1); height <= 4; height++ {
+		record := BlockRecord{
+			Block: types.Block{Header: types.Header{Height: height}},
+			Hash:  types.Hash{byte(height)},
+		}
+		if err := store.SaveBlock(context.Background(), record); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SaveStateRoot(context.Background(), StateRootRecord{Height: height, Namespace: "bank", Root: types.Hash{byte(height)}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := store.PruneBelow(context.Background(), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PrunedBlocks != 2 || result.PrunedStateRoots != 2 {
+		t.Fatalf("unexpected prune result: %+v", result)
+	}
+	if _, err := store.BlockByHeight(context.Background(), 1); !errors.Is(err, ErrBlockNotFound) {
+		t.Fatalf("expected pruned block not found, got %v", err)
+	}
+	if _, err := store.StateRoot(context.Background(), 2, "bank"); !errors.Is(err, ErrStateRootNotFound) {
+		t.Fatalf("expected pruned state root not found, got %v", err)
+	}
+	if _, err := store.BlockByHeight(context.Background(), 3); err != nil {
+		t.Fatalf("expected retained block, got %v", err)
+	}
+	index, err := store.BlockIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index.EarliestHeight != 3 || index.LatestHeight != 4 || index.TotalBlocks != 2 {
+		t.Fatalf("unexpected index after prune: %+v", index)
+	}
+}
+
+func TestLevelDBStorePruneAllRemovesIndex(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	if err := store.SaveBlock(context.Background(), BlockRecord{Block: types.Block{Header: types.Header{Height: 1}}, Hash: types.Hash{1}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PruneBelow(context.Background(), 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.BlockIndex(context.Background()); !errors.Is(err, ErrBlockIndexNotFound) {
+		t.Fatalf("expected block index not found, got %v", err)
+	}
+}
+
 func TestLevelDBStorePersistsAcrossReopen(t *testing.T) {
 	path := t.TempDir()
 	store, err := OpenLevelDB(path)
@@ -204,6 +261,9 @@ func TestLevelDBStoreNotFound(t *testing.T) {
 	if _, err := store.BlockIndex(context.Background()); !errors.Is(err, ErrBlockIndexNotFound) {
 		t.Fatalf("expected block index not found, got %v", err)
 	}
+	if _, err := store.PruneBelow(context.Background(), 1); !errors.Is(err, ErrBlockIndexNotFound) {
+		t.Fatalf("expected prune block index not found, got %v", err)
+	}
 }
 
 func TestLevelDBStoreRejectsInvalidRecords(t *testing.T) {
@@ -221,6 +281,9 @@ func TestLevelDBStoreRejectsInvalidRecords(t *testing.T) {
 	}
 	if _, err := store.StateRoot(context.Background(), 0, "bank"); !errors.Is(err, ErrInvalidStateRoot) {
 		t.Fatalf("expected invalid state root lookup, got %v", err)
+	}
+	if _, err := store.PruneBelow(context.Background(), 0); !errors.Is(err, ErrInvalidPruneHeight) {
+		t.Fatalf("expected invalid prune height, got %v", err)
 	}
 }
 
@@ -242,6 +305,9 @@ func TestLevelDBStoreContextCancellation(t *testing.T) {
 	}
 	if _, err := store.BlockIndex(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected block index canceled, got %v", err)
+	}
+	if _, err := store.PruneBelow(ctx, 1); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected prune canceled, got %v", err)
 	}
 	if err := store.SaveState(ctx, StateRecord{Height: 1}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected save state canceled, got %v", err)

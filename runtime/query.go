@@ -41,3 +41,10 @@ func (runtime *Runtime) StateRoot(ctx context.Context, height types.Height, name
 	}
 	return runtime.Store.StateRoot(ctx, height, namespace)
 }
+
+func (runtime *Runtime) PruneBelow(ctx context.Context, retainFrom types.Height) (store.PruneResult, error) {
+	if runtime.Store == nil {
+		return store.PruneResult{}, store.ErrBlockIndexNotFound
+	}
+	return runtime.Store.PruneBelow(ctx, retainFrom)
+}
