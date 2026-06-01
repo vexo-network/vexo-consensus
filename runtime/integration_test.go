@@ -76,6 +76,9 @@ func TestRuntimeExecuteBlockPersistsBlockAndState(t *testing.T) {
 	if record.AppHash != response.AppHash {
 		t.Fatalf("expected stored app hash %x, got %x", response.AppHash, record.AppHash)
 	}
+	if len(record.StateRoots) != 1 || record.StateRoots[0].Namespace != "bank" {
+		t.Fatalf("expected stored block state root summary, got %+v", record.StateRoots)
+	}
 	state, err := storage.LatestState(context.Background())
 	if err != nil {
 		t.Fatal(err)

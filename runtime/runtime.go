@@ -87,10 +87,15 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 	}
 
 	blockHash := consensus.HashBlock(block)
+	stateRoots, err := runtime.moduleStateRoots(ctx, block.Header.Height)
+	if err != nil {
+		return app.FinalizeBlockResponse{}, err
+	}
 	if err := runtime.Store.SaveBlock(ctx, store.BlockRecord{
-		Block:   block,
-		Hash:    blockHash,
-		AppHash: response.AppHash,
+		Block:      block,
+		Hash:       blockHash,
+		AppHash:    response.AppHash,
+		StateRoots: stateRoots,
 	}); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
@@ -102,30 +107,30 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 	}); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
-	if err := runtime.saveModuleStateRoots(ctx, block.Header.Height); err != nil {
-		return app.FinalizeBlockResponse{}, err
-	}
 	return response, nil
 }
 
-func (runtime *Runtime) saveModuleStateRoots(ctx context.Context, height types.Height) error {
+func (runtime *Runtime) moduleStateRoots(ctx context.Context, height types.Height) ([]store.StateRootRecord, error) {
 	if runtime.Store == nil {
-		return nil
+		return nil, nil
 	}
+	roots := make([]store.StateRootRecord, 0)
 	for _, module := range runtime.AppModules() {
 		root, err := runtime.Store.Root(ctx, module.Name())
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if err := runtime.Store.SaveStateRoot(ctx, store.StateRootRecord{
+		record := store.StateRootRecord{
 			Height:    height,
 			Namespace: module.Name(),
 			Root:      root,
-		}); err != nil {
-			return err
 		}
+		if err := runtime.Store.SaveStateRoot(ctx, record); err != nil {
+			return nil, err
+		}
+		roots = append(roots, record)
 	}
-	return nil
+	return roots, nil
 }
 
 func (runtime *Runtime) AppModules() []app.Module {

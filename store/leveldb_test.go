@@ -17,8 +17,9 @@ func TestLevelDBStoreSavesAndLoadsBlockByHeightAndHash(t *testing.T) {
 			Header: types.Header{ChainID: "vexo-test", Height: 1},
 			Txs:    []types.Tx{[]byte("tx")},
 		},
-		Hash:    types.Hash{1},
-		AppHash: types.Hash{2},
+		Hash:       types.Hash{1},
+		AppHash:    types.Hash{2},
+		StateRoots: []StateRootRecord{{Height: 1, Namespace: "bank", Root: types.Hash{3}}},
 	}
 
 	if err := store.SaveBlock(context.Background(), record); err != nil {
@@ -32,6 +33,9 @@ func TestLevelDBStoreSavesAndLoadsBlockByHeightAndHash(t *testing.T) {
 	if byHeight.Hash != record.Hash || byHeight.AppHash != record.AppHash {
 		t.Fatalf("unexpected block by height: %+v", byHeight)
 	}
+	if len(byHeight.StateRoots) != 1 || byHeight.StateRoots[0].Namespace != "bank" {
+		t.Fatalf("unexpected state roots by height: %+v", byHeight.StateRoots)
+	}
 
 	byHash, err := store.BlockByHash(context.Background(), record.Hash)
 	if err != nil {
@@ -39,6 +43,9 @@ func TestLevelDBStoreSavesAndLoadsBlockByHeightAndHash(t *testing.T) {
 	}
 	if byHash.Block.Header.Height != 1 {
 		t.Fatalf("expected height 1, got %d", byHash.Block.Header.Height)
+	}
+	if len(byHash.StateRoots) != 1 || byHash.StateRoots[0].Root != (types.Hash{3}) {
+		t.Fatalf("unexpected state roots by hash: %+v", byHash.StateRoots)
 	}
 }
 

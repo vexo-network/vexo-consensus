@@ -7,9 +7,10 @@ import (
 )
 
 type BlockRecord struct {
-	Block   types.Block
-	Hash    types.Hash
-	AppHash types.Hash
+	Block      types.Block
+	Hash       types.Hash
+	AppHash    types.Hash
+	StateRoots []StateRootRecord
 }
 
 type StateRecord struct {
