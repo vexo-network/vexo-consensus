@@ -531,6 +531,42 @@ func TestStateMachineRejectsStaleVote(t *testing.T) {
 	}
 }
 
+func TestStateMachineObservesTimeoutCertHighQCForNextProposal(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+		{ID: "c", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(2, 0)
+
+	highQC := finality.QuorumCert{Height: 1, Round: 2, BlockHash: types.Hash{1}}
+	if _, err := machine.OnTimeoutVote(context.Background(), TimeoutVote{Height: 2, Round: 0, ValidatorID: "a", HighQC: finality.QuorumCert{Height: 1, Round: 1, BlockHash: types.Hash{2}}}); !errors.Is(err, ErrNoQuorum) {
+		t.Fatalf("expected no quorum, got %v", err)
+	}
+	timeoutCert, err := machine.OnTimeoutVote(context.Background(), TimeoutVote{Height: 2, Round: 0, ValidatorID: "b", HighQC: highQC})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if timeoutCert.HighQC.BlockHash != highQC.BlockHash {
+		t.Fatalf("expected timeout cert high qc, got %+v", timeoutCert.HighQC)
+	}
+
+	proposal, err := machine.CreateProposal(types.Block{Header: types.Header{Height: 2}}, 1, "a", finality.QuorumCert{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal.JustifyQC.BlockHash != highQC.BlockHash {
+		t.Fatalf("expected timeout high qc to feed next proposal, got %+v", proposal.JustifyQC)
+	}
+}
+
 func TestStateMachineRejectsUnknownProposalProposer(t *testing.T) {
 	set := newTestValidatorSet([]validator.Validator{
 		{ID: "a", VotingPower: 1},

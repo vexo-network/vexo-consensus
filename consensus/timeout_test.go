@@ -36,6 +36,58 @@ func TestTimeoutCollectorBuildsTimeoutCert(t *testing.T) {
 	}
 }
 
+func TestTimeoutCollectorSelectsHighestQC(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+		{ID: "c", VotingPower: 1},
+	})
+	collector := NewTimeoutCollector(set)
+
+	lowerQC := finality.QuorumCert{Height: 2, Round: 3, BlockHash: types.Hash{2}}
+	higherQC := finality.QuorumCert{Height: 3, Round: 0, BlockHash: types.Hash{3}}
+	if err := collector.AddVote(TimeoutVote{Height: 4, Round: 1, ValidatorID: "a", HighQC: lowerQC}); err != nil {
+		t.Fatal(err)
+	}
+	if err := collector.AddVote(TimeoutVote{Height: 4, Round: 1, ValidatorID: "b", HighQC: higherQC}); err != nil {
+		t.Fatal(err)
+	}
+
+	timeoutCert, err := collector.BuildTimeoutCert(4, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if timeoutCert.HighQC.BlockHash != higherQC.BlockHash {
+		t.Fatalf("expected highest qc in timeout cert, got %+v", timeoutCert.HighQC)
+	}
+}
+
+func TestTimeoutCollectorUsesRoundTieBreakerForHighestQC(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+		{ID: "c", VotingPower: 1},
+	})
+	collector := NewTimeoutCollector(set)
+
+	lowerRound := finality.QuorumCert{Height: 2, Round: 1, BlockHash: types.Hash{1}}
+	higherRound := finality.QuorumCert{Height: 2, Round: 2, BlockHash: types.Hash{2}}
+	if err := collector.AddVote(TimeoutVote{Height: 3, Round: 1, ValidatorID: "a", HighQC: lowerRound}); err != nil {
+		t.Fatal(err)
+	}
+	if err := collector.AddVote(TimeoutVote{Height: 3, Round: 1, ValidatorID: "b", HighQC: higherRound}); err != nil {
+		t.Fatal(err)
+	}
+
+	timeoutCert, err := collector.BuildTimeoutCert(3, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if timeoutCert.HighQC.BlockHash != higherRound.BlockHash {
+		t.Fatalf("expected higher round qc, got %+v", timeoutCert.HighQC)
+	}
+}
+
 func TestTimeoutCollectorWeightedQuorum(t *testing.T) {
 	set := newTestValidatorSet([]validator.Validator{
 		{ID: "a", VotingPower: 4},
@@ -79,6 +131,19 @@ func TestTimeoutCollectorRejectsConflictingTimeoutVote(t *testing.T) {
 	}
 	if err := collector.AddVote(second); !errors.Is(err, ErrConflictingTimeoutVote) {
 		t.Fatalf("expected conflicting timeout vote, got %v", err)
+	}
+}
+
+func TestTimeoutCollectorAllowsRepeatedSameTimeoutVote(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{{ID: "a", VotingPower: 1}})
+	collector := NewTimeoutCollector(set)
+
+	vote := TimeoutVote{Height: 1, Round: 0, ValidatorID: "a", HighQC: finality.QuorumCert{Height: 1, Round: 1, BlockHash: types.Hash{1}}}
+	if err := collector.AddVote(vote); err != nil {
+		t.Fatal(err)
+	}
+	if err := collector.AddVote(vote); err != nil {
+		t.Fatalf("expected idempotent timeout vote, got %v", err)
 	}
 }
 

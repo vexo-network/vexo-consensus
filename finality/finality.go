@@ -14,6 +14,7 @@ type QuorumCert struct {
 type TimeoutCert struct {
 	Height    types.Height
 	Round     types.Round
+	HighQC    QuorumCert
 	Signers   types.Bitmap
 	Signature types.AggregateSignature
 }

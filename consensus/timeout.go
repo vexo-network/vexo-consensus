@@ -40,7 +40,7 @@ func (collector *TimeoutCollector) AddVote(vote TimeoutVote) error {
 	}
 	collector.ensureMaps(vote.Height, vote.Round)
 	if previous, found := collector.votes[vote.Height][vote.Round][vote.ValidatorID]; found {
-		if previous.HighQC.BlockHash != vote.HighQC.BlockHash {
+		if !sameQC(previous.HighQC, vote.HighQC) {
 			return ErrConflictingTimeoutVote
 		}
 		return nil
@@ -56,14 +56,18 @@ func (collector *TimeoutCollector) BuildTimeoutCert(height types.Height, round t
 	}
 
 	var votingPower types.VotingPower
+	var highQC finality.QuorumCert
 	signers := make([]string, 0, len(roundVotes))
-	for validatorID := range roundVotes {
+	for validatorID, vote := range roundVotes {
 		validatorInfo, found := collector.validatorSet.Get(validatorID)
 		if !found {
 			continue
 		}
 		votingPower += validatorInfo.VotingPower
 		signers = append(signers, string(validatorID))
+		if isBetterQC(vote.HighQC, highQC) {
+			highQC = vote.HighQC
+		}
 	}
 	if !hasQuorum(votingPower, collector.validatorSet.TotalVotingPower()) {
 		return finality.TimeoutCert{}, ErrNoQuorum
@@ -73,6 +77,7 @@ func (collector *TimeoutCollector) BuildTimeoutCert(height types.Height, round t
 	return finality.TimeoutCert{
 		Height:    height,
 		Round:     round,
+		HighQC:    highQC,
 		Signers:   types.Bitmap(strings.Join(signers, ",")),
 		Signature: types.AggregateSignature("placeholder-timeout-signature"),
 	}, nil
@@ -92,4 +97,10 @@ func (collector *TimeoutCollector) ensureMaps(height types.Height, round types.R
 	if _, found := collector.votes[height][round]; !found {
 		collector.votes[height][round] = make(map[types.ValidatorID]TimeoutVote)
 	}
+}
+
+func sameQC(first finality.QuorumCert, second finality.QuorumCert) bool {
+	return first.Height == second.Height &&
+		first.Round == second.Round &&
+		first.BlockHash == second.BlockHash
 }

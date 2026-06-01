@@ -240,6 +240,7 @@ func (machine *StateMachine) OnTimeoutVote(ctx context.Context, vote TimeoutVote
 	if err := machine.pacemaker.AdvanceRound(timeoutCert); err != nil {
 		return finality.TimeoutCert{}, err
 	}
+	machine.blockTree.ObserveQuorumCert(timeoutCert.HighQC)
 	machine.status.Height = machine.pacemaker.Height()
 	machine.status.Round = machine.pacemaker.Round()
 	machine.status.Phase = PhasePropose
