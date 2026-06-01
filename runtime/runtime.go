@@ -56,6 +56,11 @@ func NewWithStore(cfg config.Config, application app.Application, initialValidat
 	if fifoConfig.Author == "" && len(initialValidators) > 0 {
 		fifoConfig.Author = initialValidators[0].ID
 	}
+	if storage != nil {
+		if appRuntime, ok := application.(*app.Runtime); ok {
+			appRuntime.WithStore(storage)
+		}
+	}
 
 	return &Runtime{
 		Config:     cfg,

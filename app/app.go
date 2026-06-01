@@ -1,11 +1,22 @@
 package app
 
-import "github.com/vexo-network/vexo-consensus/types"
+import (
+	"context"
+
+	"github.com/vexo-network/vexo-consensus/types"
+)
 
 type Context struct {
 	ChainID string
 	Height  types.Height
 	Header  types.Header
+	Store   StateStore
+}
+
+type StateStore interface {
+	Set(ctx context.Context, namespace string, key []byte, value []byte) error
+	Get(ctx context.Context, namespace string, key []byte) ([]byte, error)
+	Delete(ctx context.Context, namespace string, key []byte) error
 }
 
 type GenesisState map[string][]byte

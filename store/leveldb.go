@@ -14,6 +14,7 @@ import (
 var (
 	blockHeightPrefix = []byte("block:height:")
 	blockHashPrefix   = []byte("block:hash:")
+	kvPrefix          = []byte("kv:")
 	stateLatestKey    = []byte("state:latest")
 )
 
@@ -106,6 +107,59 @@ func (store *LevelDBStore) LatestState(ctx context.Context) (StateRecord, error)
 	return state, nil
 }
 
+func (store *LevelDBStore) Set(ctx context.Context, namespace string, key []byte, value []byte) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	if namespace == "" {
+		return ErrInvalidNamespace
+	}
+	if len(key) == 0 {
+		return ErrInvalidKey
+	}
+	return store.db.Put(kvKey(namespace, key), append([]byte(nil), value...), nil)
+}
+
+func (store *LevelDBStore) Get(ctx context.Context, namespace string, key []byte) ([]byte, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	if namespace == "" {
+		return nil, ErrInvalidNamespace
+	}
+	if len(key) == 0 {
+		return nil, ErrInvalidKey
+	}
+
+	value, err := store.db.Get(kvKey(namespace, key), nil)
+	if err != nil {
+		if errors.Is(err, leveldberrors.ErrNotFound) {
+			return nil, ErrKeyNotFound
+		}
+		return nil, err
+	}
+	return append([]byte(nil), value...), nil
+}
+
+func (store *LevelDBStore) Delete(ctx context.Context, namespace string, key []byte) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	if namespace == "" {
+		return ErrInvalidNamespace
+	}
+	if len(key) == 0 {
+		return ErrInvalidKey
+	}
+	return store.db.Delete(kvKey(namespace, key), nil)
+}
+
 func (store *LevelDBStore) Close() error {
 	return store.db.Close()
 }
@@ -136,4 +190,11 @@ func blockHeightKey(height types.Height) []byte {
 func blockHashKey(hash types.Hash) []byte {
 	key := append([]byte(nil), blockHashPrefix...)
 	return append(key, hash[:]...)
+}
+
+func kvKey(namespace string, key []byte) []byte {
+	dbKey := append([]byte(nil), kvPrefix...)
+	dbKey = append(dbKey, []byte(namespace)...)
+	dbKey = append(dbKey, ':')
+	return append(dbKey, key...)
 }

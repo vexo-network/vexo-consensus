@@ -111,6 +111,9 @@ func TestLevelDBStoreNotFound(t *testing.T) {
 	if _, err := store.LatestState(context.Background()); !errors.Is(err, ErrStateNotFound) {
 		t.Fatalf("expected state not found, got %v", err)
 	}
+	if _, err := store.Get(context.Background(), "bank", []byte("alice")); !errors.Is(err, ErrKeyNotFound) {
+		t.Fatalf("expected key not found, got %v", err)
+	}
 }
 
 func TestLevelDBStoreRejectsInvalidRecords(t *testing.T) {
@@ -146,6 +149,69 @@ func TestLevelDBStoreContextCancellation(t *testing.T) {
 	}
 	if _, err := store.LatestState(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected latest state canceled, got %v", err)
+	}
+	if err := store.Set(ctx, "bank", []byte("alice"), []byte("1")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected set canceled, got %v", err)
+	}
+	if _, err := store.Get(ctx, "bank", []byte("alice")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected get canceled, got %v", err)
+	}
+	if err := store.Delete(ctx, "bank", []byte("alice")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected delete canceled, got %v", err)
+	}
+}
+
+func TestLevelDBStoreKVSetGetDelete(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	if err := store.Set(context.Background(), "bank", []byte("alice"), []byte("100")); err != nil {
+		t.Fatal(err)
+	}
+	value, err := store.Get(context.Background(), "bank", []byte("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(value) != "100" {
+		t.Fatalf("expected value 100, got %s", value)
+	}
+	value[0] = '9'
+	again, err := store.Get(context.Background(), "bank", []byte("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(again) != "100" {
+		t.Fatalf("stored value mutated through copy: %s", again)
+	}
+	if err := store.Delete(context.Background(), "bank", []byte("alice")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Get(context.Background(), "bank", []byte("alice")); !errors.Is(err, ErrKeyNotFound) {
+		t.Fatalf("expected deleted key not found, got %v", err)
+	}
+}
+
+func TestLevelDBStoreKVRejectsInvalidNamespaceAndKey(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	if err := store.Set(context.Background(), "", []byte("key"), []byte("value")); !errors.Is(err, ErrInvalidNamespace) {
+		t.Fatalf("expected invalid namespace, got %v", err)
+	}
+	if err := store.Set(context.Background(), "bank", nil, []byte("value")); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("expected invalid key, got %v", err)
+	}
+	if _, err := store.Get(context.Background(), "", []byte("key")); !errors.Is(err, ErrInvalidNamespace) {
+		t.Fatalf("expected invalid namespace, got %v", err)
+	}
+	if _, err := store.Get(context.Background(), "bank", nil); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("expected invalid key, got %v", err)
+	}
+	if err := store.Delete(context.Background(), "", []byte("key")); !errors.Is(err, ErrInvalidNamespace) {
+		t.Fatalf("expected invalid namespace, got %v", err)
+	}
+	if err := store.Delete(context.Background(), "bank", nil); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("expected invalid key, got %v", err)
 	}
 }
 

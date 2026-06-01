@@ -20,6 +20,7 @@ type Runtime struct {
 	chainID string
 	modules []Module
 	router  ModuleRouter
+	store   StateStore
 	height  types.Height
 	appHash types.Hash
 }
@@ -38,6 +39,11 @@ func NewRuntime(chainID string, modules []Module, router ModuleRouter) (*Runtime
 	}, nil
 }
 
+func (runtime *Runtime) WithStore(store StateStore) *Runtime {
+	runtime.store = store
+	return runtime
+}
+
 func (runtime *Runtime) InitChain(req InitChainRequest) (InitChainResponse, error) {
 	chainID := req.ChainID
 	if chainID == "" {
@@ -48,7 +54,7 @@ func (runtime *Runtime) InitChain(req InitChainRequest) (InitChainResponse, erro
 	}
 	runtime.chainID = chainID
 
-	ctx := Context{ChainID: runtime.chainID}
+	ctx := Context{ChainID: runtime.chainID, Store: runtime.store}
 	for _, module := range runtime.modules {
 		if err := module.InitGenesis(ctx, req.Genesis); err != nil {
 			return InitChainResponse{}, err
@@ -59,7 +65,7 @@ func (runtime *Runtime) InitChain(req InitChainRequest) (InitChainResponse, erro
 }
 
 func (runtime *Runtime) CheckTx(tx types.Tx) CheckTxResponse {
-	ctx := Context{ChainID: runtime.chainID, Height: runtime.height}
+	ctx := Context{ChainID: runtime.chainID, Height: runtime.height, Store: runtime.store}
 	_, err := runtime.router.RouteTx(ctx, tx, runtime.modules)
 	if err != nil {
 		return CheckTxResponse{Result: types.Result{Code: 1, Log: err.Error()}}
@@ -96,6 +102,7 @@ func (runtime *Runtime) FinalizeBlock(req FinalizeBlockRequest) (FinalizeBlockRe
 		ChainID: runtime.chainID,
 		Height:  req.Block.Header.Height,
 		Header:  req.Block.Header,
+		Store:   runtime.store,
 	}
 
 	for _, module := range runtime.modules {

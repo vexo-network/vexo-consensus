@@ -1,10 +1,12 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"testing"
 
+	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -145,6 +147,38 @@ func TestRuntimeRejectsFailedDeliverTx(t *testing.T) {
 	}
 }
 
+func TestRuntimePassesStateStoreToModules(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	runtime, err := NewRuntime("vexo-test", []Module{&statefulModule{name: "bank"}}, PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.WithStore(storage)
+
+	_, err = runtime.FinalizeBlock(FinalizeBlockRequest{
+		Block: types.Block{
+			Header: types.Header{Height: 1},
+			Txs:    []types.Tx{[]byte("bank:alice=100")},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	value, err := storage.Get(context.Background(), "bank", []byte("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(value) != "100" {
+		t.Fatalf("expected persisted value 100, got %s", value)
+	}
+}
+
 func TestRuntimeRequiresChainID(t *testing.T) {
 	_, err := NewRuntime("", nil, nil)
 	if !errors.Is(err, ErrEmptyChainID) {
@@ -213,4 +247,38 @@ func (module *recordingModule) DeliverTx(ctx Context, tx types.Tx) types.Result 
 
 func (module *recordingModule) EndBlock(ctx Context) error {
 	return module.endErr
+}
+
+type statefulModule struct {
+	name string
+}
+
+func (module *statefulModule) Name() string {
+	return module.name
+}
+
+func (module *statefulModule) InitGenesis(ctx Context, genesis GenesisState) error {
+	return nil
+}
+
+func (module *statefulModule) BeginBlock(ctx Context, header types.Header) error {
+	return nil
+}
+
+func (module *statefulModule) DeliverTx(ctx Context, tx types.Tx) types.Result {
+	if ctx.Store == nil {
+		return types.Result{Code: 1, Log: "missing store"}
+	}
+	payload := string(tx)
+	if payload != "bank:alice=100" {
+		return types.Result{Code: 2, Log: "unexpected tx"}
+	}
+	if err := ctx.Store.Set(context.Background(), "bank", []byte("alice"), []byte("100")); err != nil {
+		return types.Result{Code: 3, Log: err.Error()}
+	}
+	return types.Result{}
+}
+
+func (module *statefulModule) EndBlock(ctx Context) error {
+	return nil
 }

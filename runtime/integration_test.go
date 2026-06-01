@@ -85,6 +85,40 @@ func TestRuntimeExecuteBlockPersistsBlockAndState(t *testing.T) {
 	}
 }
 
+func TestRuntimeInjectsStoreIntoAppRuntime(t *testing.T) {
+	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{&storeWritingModule{name: "bank"}}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	runtime, err := NewWithStore(config.Default("vexo-test"), application, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+	}, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := runtime.ExecuteBlock(context.Background(), types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 3},
+		Txs:    []types.Tx{[]byte("bank:set")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	value, err := storage.Get(context.Background(), "bank", []byte("runtime"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(value) != "ok" {
+		t.Fatalf("expected runtime store value ok, got %s", value)
+	}
+}
+
 type runtimeModule struct {
 	name string
 }
@@ -106,5 +140,35 @@ func (module *runtimeModule) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.R
 }
 
 func (module *runtimeModule) EndBlock(ctx vexoapp.Context) error {
+	return nil
+}
+
+type storeWritingModule struct {
+	name string
+}
+
+func (module *storeWritingModule) Name() string {
+	return module.name
+}
+
+func (module *storeWritingModule) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisState) error {
+	return nil
+}
+
+func (module *storeWritingModule) BeginBlock(ctx vexoapp.Context, header types.Header) error {
+	return nil
+}
+
+func (module *storeWritingModule) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
+	if ctx.Store == nil {
+		return types.Result{Code: 1, Log: "missing store"}
+	}
+	if err := ctx.Store.Set(context.Background(), "bank", []byte("runtime"), []byte("ok")); err != nil {
+		return types.Result{Code: 2, Log: err.Error()}
+	}
+	return types.Result{}
+}
+
+func (module *storeWritingModule) EndBlock(ctx vexoapp.Context) error {
 	return nil
 }

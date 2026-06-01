@@ -20,10 +20,17 @@ type StateRecord struct {
 }
 
 type Store interface {
+	KVStore
 	SaveBlock(ctx context.Context, record BlockRecord) error
 	BlockByHeight(ctx context.Context, height types.Height) (BlockRecord, error)
 	BlockByHash(ctx context.Context, hash types.Hash) (BlockRecord, error)
 	SaveState(ctx context.Context, state StateRecord) error
 	LatestState(ctx context.Context) (StateRecord, error)
 	Close() error
+}
+
+type KVStore interface {
+	Set(ctx context.Context, namespace string, key []byte, value []byte) error
+	Get(ctx context.Context, namespace string, key []byte) ([]byte, error)
+	Delete(ctx context.Context, namespace string, key []byte) error
 }
