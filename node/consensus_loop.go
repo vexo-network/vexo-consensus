@@ -8,6 +8,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/finality"
+	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -16,6 +17,7 @@ type autoVoteReactor struct {
 	validatorID        types.ValidatorID
 	broadcastVote      func(context.Context, consensus.Vote) error
 	onProposalAccepted func(consensus.Proposal, types.Hash)
+	onEvidence         func(context.Context, slashing.Evidence)
 }
 
 func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consensus.Proposal) error {
@@ -42,11 +44,27 @@ func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consens
 }
 
 func (reactor *autoVoteReactor) OnVote(ctx context.Context, vote consensus.Vote) error {
-	return reactor.machine.OnVote(ctx, vote)
+	before := len(reactor.machine.Evidence())
+	err := reactor.machine.OnVote(ctx, vote)
+	reactor.publishNewEvidence(ctx, before)
+	return err
 }
 
 func (reactor *autoVoteReactor) OnTimeoutVote(ctx context.Context, vote consensus.TimeoutVote) (finality.TimeoutCert, error) {
 	return reactor.machine.OnTimeoutVote(ctx, vote)
+}
+
+func (reactor *autoVoteReactor) publishNewEvidence(ctx context.Context, previousCount int) {
+	if reactor.onEvidence == nil {
+		return
+	}
+	evidence := reactor.machine.Evidence()
+	if previousCount >= len(evidence) {
+		return
+	}
+	for _, item := range evidence[previousCount:] {
+		reactor.onEvidence(ctx, item)
+	}
 }
 
 func (node *Node) ProposeBlock(ctx context.Context, block types.Block) (consensus.Proposal, types.Hash, error) {

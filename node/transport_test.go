@@ -451,6 +451,68 @@ func TestNodeCommitGossipSyncsPeerThatMissedProposal(t *testing.T) {
 	}
 }
 
+func TestNodeGossipsConflictingVoteEvidenceAndSlashesValidator(t *testing.T) {
+	alice, bob, carol := newSlashingNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+	startNode(t, carol)
+	defer carol.Stop(context.Background())
+
+	aliceConsensus, err := alice.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstProposal, err := aliceConsensus.CreateProposal(types.Block{
+		Header: types.Header{Height: 1},
+		Txs:    []types.Tx{[]byte("bank:first-conflict-target")},
+	}, 0, "alice", finality.QuorumCert{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := aliceConsensus.OnProposal(context.Background(), firstProposal); err != nil {
+		t.Fatal(err)
+	}
+	secondProposal, err := aliceConsensus.CreateProposal(types.Block{
+		Header: types.Header{Height: 1},
+		Txs:    []types.Tx{[]byte("bank:second-conflict-target")},
+	}, 0, "alice", finality.QuorumCert{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := aliceConsensus.OnProposal(context.Background(), secondProposal); err != nil {
+		t.Fatal(err)
+	}
+	firstHash := consensus.HashBlock(firstProposal.Block)
+	secondHash := consensus.HashBlock(secondProposal.Block)
+
+	bobReactor, err := bob.ConsensusReactor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bobReactor.BroadcastVote(context.Background(), consensus.Vote{
+		Height:      1,
+		Round:       0,
+		BlockHash:   firstHash,
+		ValidatorID: "bob",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := bobReactor.BroadcastVote(context.Background(), consensus.Vote{
+		Height:      1,
+		Round:       0,
+		BlockHash:   secondHash,
+		ValidatorID: "bob",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForValidatorPower(t, alice, "bob", 95)
+	waitForValidatorPower(t, bob, "bob", 95)
+	waitForValidatorPower(t, carol, "bob", 95)
+}
+
 func TestNodeBackgroundConsensusLoopCommitsAcrossPeers(t *testing.T) {
 	alice, bob, carol := newConsensusLoopNodes(t)
 	startNode(t, alice)
@@ -636,6 +698,24 @@ func newConsensusLoopNode(t *testing.T, bus *transport.InMemoryBus, genesis Gene
 	return node
 }
 
+func newSlashingNodes(t *testing.T) (*Node, *Node, *Node) {
+	t.Helper()
+	bus := transport.NewInMemoryBus()
+	genesis := Genesis{
+		ChainID: "vexo-test",
+		Validators: []validator.Validator{
+			{ID: "alice", Address: "alice", VotingPower: 100, Stake: 100},
+			{ID: "bob", Address: "bob", VotingPower: 100, Stake: 100},
+			{ID: "carol", Address: "carol", VotingPower: 100, Stake: 100},
+		},
+		Governance: map[types.Address]types.VotingPower{"alice": 100, "bob": 100, "carol": 100},
+	}
+	alice := newConsensusLoopNode(t, bus, genesis, "alice")
+	bob := newConsensusLoopNode(t, bus, genesis, "bob")
+	carol := newConsensusLoopNode(t, bus, genesis, "carol")
+	return alice, bob, carol
+}
+
 func startNode(t *testing.T, node *Node) {
 	t.Helper()
 	if err := node.Start(context.Background()); err != nil {
@@ -729,4 +809,37 @@ func waitForNodeHeight(t *testing.T, node *Node, height types.Height) {
 		return
 	}
 	t.Fatalf("timed out waiting for node height %d, got %+v", height, status)
+}
+
+func waitForValidatorPower(t *testing.T, node *Node, validatorID types.ValidatorID, expected types.VotingPower) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		runtime, err := node.Runtime()
+		if err == nil {
+			set, err := runtime.Validators.ValidatorSet(context.Background(), 1)
+			if err == nil {
+				validatorInfo, found := set.Get(validatorID)
+				if found && validatorInfo.VotingPower == expected {
+					return
+				}
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+	runtime, err := node.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := runtime.Validators.ValidatorSet(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validatorInfo, found := set.Get(validatorID)
+	if !found {
+		t.Fatalf("validator %s not found", validatorID)
+	}
+	if validatorInfo.VotingPower != expected {
+		t.Fatalf("expected validator %s power %d, got %d", validatorID, expected, validatorInfo.VotingPower)
+	}
 }

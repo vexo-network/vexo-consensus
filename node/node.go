@@ -40,17 +40,18 @@ type Node struct {
 	app     app.Application
 	wire    transport.Transport
 
-	mu           sync.Mutex
-	runtime      *vexoruntime.Runtime
-	consensus    *consensus.StateMachine
-	reactor      *consensus.TransportReactor
-	txCancel     context.CancelFunc
-	commitCancel context.CancelFunc
-	loopCancel   context.CancelFunc
-	loopDone     chan struct{}
-	pending      map[types.Hash]consensus.Proposal
-	store        store.Store
-	running      bool
+	mu             sync.Mutex
+	runtime        *vexoruntime.Runtime
+	consensus      *consensus.StateMachine
+	reactor        *consensus.TransportReactor
+	txCancel       context.CancelFunc
+	commitCancel   context.CancelFunc
+	evidenceCancel context.CancelFunc
+	loopCancel     context.CancelFunc
+	loopDone       chan struct{}
+	pending        map[types.Hash]consensus.Proposal
+	store          store.Store
+	running        bool
 }
 
 func New(cfg Config, genesis Genesis, application app.Application) (*Node, error) {
@@ -123,6 +124,7 @@ func (node *Node) Start(ctx context.Context) error {
 				machine:            consensusState,
 				validatorID:        node.cfg.ValidatorID,
 				onProposalAccepted: node.cacheProposal,
+				onEvidence:         node.handleLocalEvidence,
 			}
 		}
 		reactor = consensus.NewTransportReactor(node.wire, receiver)
@@ -139,6 +141,13 @@ func (node *Node) Start(ctx context.Context) error {
 			return err
 		}
 		if err := node.startCommitGossip(ctx); err != nil {
+			node.txCancel()
+			reactor.Stop(ctx)
+			storage.Close()
+			return err
+		}
+		if err := node.startEvidenceGossip(ctx); err != nil {
+			node.commitCancel()
 			node.txCancel()
 			reactor.Stop(ctx)
 			storage.Close()
@@ -173,6 +182,9 @@ func (node *Node) Stop(ctx context.Context) error {
 	if node.commitCancel != nil {
 		node.commitCancel()
 	}
+	if node.evidenceCancel != nil {
+		node.evidenceCancel()
+	}
 	if node.loopCancel != nil {
 		node.loopCancel()
 		loopDone := node.loopDone
@@ -192,6 +204,7 @@ func (node *Node) Stop(ctx context.Context) error {
 	node.reactor = nil
 	node.txCancel = nil
 	node.commitCancel = nil
+	node.evidenceCancel = nil
 	node.loopCancel = nil
 	node.loopDone = nil
 	node.store = nil
