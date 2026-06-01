@@ -39,8 +39,10 @@ type StateMachine struct {
 	evidence     []slashing.Evidence
 	timeouts     *TimeoutCollector
 	pacemaker    *Pacemaker
+	blockTree    *BlockTree
 	commitRule   ThreeChainCommitRule
 	committed    []CommitDecision
+	committedSet map[types.Hash]struct{}
 }
 
 func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
@@ -64,13 +66,15 @@ func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
 			Phase:            PhasePropose,
 			ValidatorSetHash: config.ValidatorSet.Hash(),
 		},
-		votes:       make(map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote),
-		votedBlocks: make(map[types.Height]map[types.Round]map[types.ValidatorID]types.Hash),
-		evidence:    make([]slashing.Evidence, 0),
-		timeouts:    NewTimeoutCollector(config.ValidatorSet),
-		pacemaker:   NewPacemaker(0, 0),
-		commitRule:  ThreeChainCommitRule{},
-		committed:   make([]CommitDecision, 0),
+		votes:        make(map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote),
+		votedBlocks:  make(map[types.Height]map[types.Round]map[types.ValidatorID]types.Hash),
+		evidence:     make([]slashing.Evidence, 0),
+		timeouts:     NewTimeoutCollector(config.ValidatorSet),
+		pacemaker:    NewPacemaker(0, 0),
+		blockTree:    NewBlockTree(),
+		commitRule:   ThreeChainCommitRule{},
+		committed:    make([]CommitDecision, 0),
+		committedSet: make(map[types.Hash]struct{}),
 	}, nil
 }
 
@@ -125,6 +129,17 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 	if proposal.JustifyQC.Height > 0 && proposal.JustifyQC.Height > proposal.Block.Header.Height {
 		return fmt.Errorf("%w: justify qc height exceeds proposal height", ErrInvalidProposal)
 	}
+	if proposal.JustifyQC.Height > 0 && proposal.JustifyQC.BlockHash != proposal.Block.Header.PreviousBlockHash {
+		return fmt.Errorf("%w: justify qc must match parent block", ErrInvalidProposal)
+	}
+
+	blockHash := machine.hashBlock(proposal.Block)
+	machine.blockTree.Insert(proposal.Block, blockHash, proposal.JustifyQC)
+	if candidate, found := machine.blockTree.CommitCandidate(blockHash); found {
+		if _, err := machine.ApplyCommitRule(candidate); err != nil && !errors.Is(err, ErrCommitRuleNotSatisfied) {
+			return err
+		}
+	}
 
 	machine.status.Height = proposal.Block.Header.Height
 	machine.status.Round = proposal.Round
@@ -150,9 +165,8 @@ func (machine *StateMachine) OnVote(ctx context.Context, vote Vote) error {
 		return err
 	}
 
-	if qc, err := machine.BuildQuorumCert(vote.Height, vote.Round, vote.BlockHash); err == nil {
+	if _, err := machine.BuildQuorumCert(vote.Height, vote.Round, vote.BlockHash); err == nil {
 		machine.status.Phase = PhaseCommit
-		machine.status.LastFinalized = qc.BlockHash
 	}
 
 	return nil
@@ -261,7 +275,10 @@ func (machine *StateMachine) ApplyCommitRule(candidate CommitCandidate) (CommitD
 		return CommitDecision{}, err
 	}
 	machine.status.LastFinalized = decision.CommittedBlockHash
-	machine.committed = append(machine.committed, decision)
+	if _, found := machine.committedSet[decision.CommittedBlockHash]; !found {
+		machine.committed = append(machine.committed, decision)
+		machine.committedSet[decision.CommittedBlockHash] = struct{}{}
+	}
 	return decision, nil
 }
 

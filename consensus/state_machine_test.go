@@ -244,6 +244,91 @@ func TestStateMachineAcceptsValidProposal(t *testing.T) {
 	}
 }
 
+func TestStateMachineAutoCommitsThreeChainOnProposal(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	grandparent := types.Block{Header: types.Header{
+		ChainID:          "vexo-test",
+		Height:           1,
+		ValidatorSetHash: set.Hash(),
+	}}
+	grandparentHash := HashBlock(grandparent)
+	parent := types.Block{Header: types.Header{
+		ChainID:           "vexo-test",
+		Height:            2,
+		PreviousBlockHash: grandparentHash,
+		ValidatorSetHash:  set.Hash(),
+	}}
+	parentHash := HashBlock(parent)
+	block := types.Block{Header: types.Header{
+		ChainID:           "vexo-test",
+		Height:            3,
+		PreviousBlockHash: parentHash,
+		ValidatorSetHash:  set.Hash(),
+	}}
+
+	if err := machine.OnProposal(context.Background(), Proposal{Block: grandparent, Proposer: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := machine.OnProposal(context.Background(), Proposal{
+		Block:     parent,
+		Proposer:  "a",
+		JustifyQC: finality.QuorumCert{Height: 1, BlockHash: grandparentHash},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := machine.OnProposal(context.Background(), Proposal{
+		Block:     block,
+		Proposer:  "a",
+		JustifyQC: finality.QuorumCert{Height: 2, BlockHash: parentHash},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if machine.Status(context.Background()).LastFinalized != grandparentHash {
+		t.Fatal("expected grandparent to finalize")
+	}
+	if len(machine.CommitDecisions()) != 1 {
+		t.Fatal("expected one commit decision")
+	}
+}
+
+func TestStateMachineRejectsProposalWithMismatchedJustifyQCParent(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = machine.OnProposal(context.Background(), Proposal{
+		Block: types.Block{Header: types.Header{
+			ChainID:           "vexo-test",
+			Height:            2,
+			PreviousBlockHash: types.Hash{1},
+			ValidatorSetHash:  set.Hash(),
+		}},
+		Proposer:  "a",
+		JustifyQC: finality.QuorumCert{Height: 1, BlockHash: types.Hash{9}},
+	})
+	if !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected invalid proposal, got %v", err)
+	}
+}
+
 func TestStateMachineRejectsInvalidProposalFields(t *testing.T) {
 	set := newTestValidatorSet([]validator.Validator{
 		{ID: "a", VotingPower: 1},
