@@ -76,6 +76,7 @@ func Default(chainID string) Config {
 			BanThreshold:         0,
 			MaxMessagesPerWindow: 1000,
 			WindowResetInterval:  time.Second,
+			BanDuration:          10 * time.Minute,
 		},
 	}
 }
@@ -91,6 +92,9 @@ func (config Config) Validate() error {
 		return ErrInvalidConfig
 	}
 	if config.P2P.WindowResetInterval < 0 {
+		return ErrInvalidConfig
+	}
+	if config.P2P.BanDuration < 0 {
 		return ErrInvalidConfig
 	}
 	return nil

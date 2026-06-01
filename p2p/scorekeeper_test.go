@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestScoreKeeperRewardsValidMessages(t *testing.T) {
@@ -58,6 +59,30 @@ func TestScoreKeeperRejectsAlreadyBannedPeer(t *testing.T) {
 	}
 	if err := keeper.ObserveMessage(context.Background(), "peer-a", true); !errors.Is(err, ErrPeerBanned) {
 		t.Fatalf("expected already banned peer rejected, got %v", err)
+	}
+}
+
+func TestScoreKeeperUnbansAfterBanDuration(t *testing.T) {
+	keeper := NewScoreKeeper(ScoreConfig{
+		InitialScore:       5,
+		InvalidMessageCost: 5,
+		BanThreshold:       0,
+		BanDuration:        time.Nanosecond,
+	})
+
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", false); !errors.Is(err, ErrPeerBanned) {
+		t.Fatalf("expected peer banned, got %v", err)
+	}
+	waitForUnbanned(t, keeper, "peer-a")
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", true); err != nil {
+		t.Fatalf("expected unbanned peer accepted, got %v", err)
+	}
+	score, err := keeper.Score(context.Background(), "peer-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score != 5 {
+		t.Fatalf("expected score reset to 5 after unban and valid reward, got %d", score)
 	}
 }
 
@@ -160,5 +185,24 @@ func TestScoreKeeperContextCancellation(t *testing.T) {
 	}
 	if _, err := keeper.WindowMessages(ctx, "peer-a"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected window messages canceled, got %v", err)
+	}
+}
+
+func waitForUnbanned(t *testing.T, keeper *ScoreKeeper, peer PeerID) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		banned, err := keeper.IsBanned(context.Background(), peer)
+		if err == nil && !banned {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	banned, err := keeper.IsBanned(context.Background(), peer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if banned {
+		t.Fatalf("expected peer %s unbanned", peer)
 	}
 }

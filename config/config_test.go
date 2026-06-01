@@ -49,3 +49,11 @@ func TestConfigValidateRejectsNegativeP2PWindowResetInterval(t *testing.T) {
 		t.Fatalf("expected invalid config, got %v", err)
 	}
 }
+
+func TestConfigValidateRejectsNegativeP2PBanDuration(t *testing.T) {
+	cfg := Default("vexo-test")
+	cfg.P2P.BanDuration = -time.Second
+	if err := cfg.Validate(); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("expected invalid config, got %v", err)
+	}
+}

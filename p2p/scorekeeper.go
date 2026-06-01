@@ -20,11 +20,13 @@ type ScoreConfig struct {
 	BanThreshold         int64
 	MaxMessagesPerWindow uint64
 	WindowResetInterval  time.Duration
+	BanDuration          time.Duration
 }
 
 type PeerState struct {
 	Score          int64
 	Banned         bool
+	BannedUntil    time.Time
 	WindowMessages uint64
 }
 
@@ -64,13 +66,15 @@ func (keeper *ScoreKeeper) AdmitMessage(ctx context.Context, peer PeerID) error 
 	defer keeper.mu.Unlock()
 
 	state := keeper.state(peer)
+	state = keeper.expireBan(state)
 	if state.Banned {
+		keeper.peers[peer] = state
 		return ErrPeerBanned
 	}
 	state.WindowMessages++
 	if keeper.config.MaxMessagesPerWindow > 0 && state.WindowMessages > keeper.config.MaxMessagesPerWindow {
 		state.Score -= keeper.config.RateLimitCost
-		state.Banned = keeper.shouldBan(state.Score)
+		state = keeper.applyBan(state)
 		keeper.peers[peer] = state
 		return ErrRateLimitExceeded
 	}
@@ -88,7 +92,9 @@ func (keeper *ScoreKeeper) ScoreMessage(ctx context.Context, peer PeerID, valid 
 	defer keeper.mu.Unlock()
 
 	state := keeper.state(peer)
+	state = keeper.expireBan(state)
 	if state.Banned {
+		keeper.peers[peer] = state
 		return ErrPeerBanned
 	}
 	if valid {
@@ -96,7 +102,7 @@ func (keeper *ScoreKeeper) ScoreMessage(ctx context.Context, peer PeerID, valid 
 	} else {
 		state.Score -= keeper.config.InvalidMessageCost
 	}
-	state.Banned = keeper.shouldBan(state.Score)
+	state = keeper.applyBan(state)
 	keeper.peers[peer] = state
 
 	if state.Banned {
@@ -140,7 +146,9 @@ func (keeper *ScoreKeeper) IsBanned(ctx context.Context, peer PeerID) (bool, err
 	}
 	keeper.mu.Lock()
 	defer keeper.mu.Unlock()
-	return keeper.state(peer).Banned, nil
+	state := keeper.expireBan(keeper.state(peer))
+	keeper.peers[peer] = state
+	return state.Banned, nil
 }
 
 func (keeper *ScoreKeeper) WindowMessages(ctx context.Context, peer PeerID) (uint64, error) {
@@ -164,4 +172,28 @@ func (keeper *ScoreKeeper) state(peer PeerID) PeerState {
 
 func (keeper *ScoreKeeper) shouldBan(score int64) bool {
 	return score <= keeper.config.BanThreshold
+}
+
+func (keeper *ScoreKeeper) applyBan(state PeerState) PeerState {
+	if !keeper.shouldBan(state.Score) {
+		state.Banned = false
+		state.BannedUntil = time.Time{}
+		return state
+	}
+	state.Banned = true
+	if keeper.config.BanDuration > 0 {
+		state.BannedUntil = time.Now().Add(keeper.config.BanDuration)
+	}
+	return state
+}
+
+func (keeper *ScoreKeeper) expireBan(state PeerState) PeerState {
+	if !state.Banned || state.BannedUntil.IsZero() || time.Now().Before(state.BannedUntil) {
+		return state
+	}
+	state.Banned = false
+	state.BannedUntil = time.Time{}
+	state.Score = keeper.config.InitialScore
+	state.WindowMessages = 0
+	return state
 }
