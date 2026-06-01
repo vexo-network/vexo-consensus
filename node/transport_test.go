@@ -212,6 +212,31 @@ func TestNodeProposesFromMempoolAndClearsCommittedTxs(t *testing.T) {
 	}
 }
 
+func TestNodeSubmitTxGossipsToPeers(t *testing.T) {
+	alice, bob, carol := newConsensusLoopNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+	startNode(t, carol)
+	defer carol.Stop(context.Background())
+
+	if err := alice.SubmitTx(context.Background(), []byte("bank:gossip")); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForMempoolLen(t, alice, 1)
+	waitForMempoolLen(t, bob, 1)
+	waitForMempoolLen(t, carol, 1)
+
+	if err := bob.SubmitTx(context.Background(), []byte("bank:gossip")); err == nil {
+		t.Fatal("expected duplicate tx rejection")
+	}
+	waitForMempoolLen(t, alice, 1)
+	waitForMempoolLen(t, bob, 1)
+	waitForMempoolLen(t, carol, 1)
+}
+
 func newTransportNodes(t *testing.T) (*Node, *Node) {
 	t.Helper()
 	bus := transport.NewInMemoryBus()
@@ -336,4 +361,23 @@ func waitForQuorumCert(t *testing.T, machine *consensus.StateMachine, height typ
 		return
 	}
 	t.Fatal("timed out waiting for quorum cert")
+}
+
+func waitForMempoolLen(t *testing.T, node *Node, expected int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		runtime, err := node.Runtime()
+		if err == nil && runtime.Mempool.Len() == expected {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	runtime, err := node.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actual := runtime.Mempool.Len(); actual != expected {
+		t.Fatalf("expected mempool len %d, got %d", expected, actual)
+	}
 }

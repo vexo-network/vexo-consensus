@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/vexo-network/vexo-consensus/dataavailability"
 	"github.com/vexo-network/vexo-consensus/fairordering"
@@ -34,6 +35,7 @@ type StateMachineConfig struct {
 }
 
 type StateMachine struct {
+	mu           sync.Mutex
 	chainID      string
 	validatorSet validator.Set
 	hashBlock    func(types.Block) types.Hash
@@ -84,6 +86,9 @@ func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
 }
 
 func (machine *StateMachine) StartRound(height types.Height, round types.Round) {
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
+
 	machine.status.Height = height
 	machine.status.Round = round
 	machine.status.Phase = PhasePropose
@@ -91,6 +96,9 @@ func (machine *StateMachine) StartRound(height types.Height, round types.Round) 
 }
 
 func (machine *StateMachine) UpdateValidatorSet(validatorSet validator.Set) error {
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
+
 	if validatorSet == nil {
 		return errors.New("validator set is required")
 	}
@@ -109,6 +117,9 @@ func (machine *StateMachine) UpdateValidatorSetFromRegistry(ctx context.Context,
 }
 
 func (machine *StateMachine) CreateProposal(block types.Block, round types.Round, proposer types.ValidatorID, justifyQC finality.QuorumCert) (Proposal, error) {
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
+
 	if _, found := machine.validatorSet.Get(proposer); !found {
 		return Proposal{}, ErrUnknownValidator
 	}
@@ -140,6 +151,8 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 		return ctx.Err()
 	default:
 	}
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
 
 	if _, found := machine.validatorSet.Get(proposal.Proposer); !found {
 		return ErrUnknownValidator
@@ -178,7 +191,7 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 	blockHash := machine.hashBlock(proposal.Block)
 	machine.blockTree.Insert(proposal.Block, blockHash, proposal.JustifyQC)
 	if candidate, found := machine.blockTree.CommitCandidate(blockHash); found {
-		if _, err := machine.ApplyCommitRule(candidate); err != nil && !errors.Is(err, ErrCommitRuleNotSatisfied) {
+		if _, err := machine.applyCommitRule(candidate); err != nil && !errors.Is(err, ErrCommitRuleNotSatisfied) {
 			return err
 		}
 	}
@@ -195,6 +208,8 @@ func (machine *StateMachine) OnVote(ctx context.Context, vote Vote) error {
 		return ctx.Err()
 	default:
 	}
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
 
 	if _, found := machine.validatorSet.Get(vote.ValidatorID); !found {
 		return ErrUnknownValidator
@@ -207,7 +222,7 @@ func (machine *StateMachine) OnVote(ctx context.Context, vote Vote) error {
 		return err
 	}
 
-	if qc, err := machine.BuildQuorumCert(vote.Height, vote.Round, vote.BlockHash); err == nil {
+	if qc, err := machine.buildQuorumCert(vote.Height, vote.Round, vote.BlockHash); err == nil {
 		setErr := machine.blockTree.SetQuorumCert(qc)
 		if setErr != nil && !errors.Is(setErr, ErrBlockNotFound) {
 			return setErr
@@ -259,6 +274,8 @@ func (machine *StateMachine) OnTimeoutVote(ctx context.Context, vote TimeoutVote
 		return finality.TimeoutCert{}, ctx.Err()
 	default:
 	}
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
 
 	if err := machine.timeouts.AddVote(vote); err != nil {
 		return finality.TimeoutCert{}, err
@@ -278,6 +295,13 @@ func (machine *StateMachine) OnTimeoutVote(ctx context.Context, vote TimeoutVote
 }
 
 func (machine *StateMachine) BuildQuorumCert(height types.Height, round types.Round, blockHash types.Hash) (finality.QuorumCert, error) {
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
+
+	return machine.buildQuorumCert(height, round, blockHash)
+}
+
+func (machine *StateMachine) buildQuorumCert(height types.Height, round types.Round, blockHash types.Hash) (finality.QuorumCert, error) {
 	blockVotes := machine.votesForBlock(height, round, blockHash)
 	if len(blockVotes) == 0 {
 		return finality.QuorumCert{}, ErrNoQuorum
@@ -310,6 +334,9 @@ func (machine *StateMachine) BuildQuorumCert(height types.Height, round types.Ro
 }
 
 func (machine *StateMachine) Status(ctx context.Context) Status {
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
+
 	if ctx == nil {
 		return machine.status
 	}
@@ -322,14 +349,27 @@ func (machine *StateMachine) Status(ctx context.Context) Status {
 }
 
 func (machine *StateMachine) Evidence() []slashing.Evidence {
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
+
 	return append([]slashing.Evidence(nil), machine.evidence...)
 }
 
 func (machine *StateMachine) CommitDecisions() []CommitDecision {
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
+
 	return append([]CommitDecision(nil), machine.committed...)
 }
 
 func (machine *StateMachine) ApplyCommitRule(candidate CommitCandidate) (CommitDecision, error) {
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
+
+	return machine.applyCommitRule(candidate)
+}
+
+func (machine *StateMachine) applyCommitRule(candidate CommitCandidate) (CommitDecision, error) {
 	decision, err := machine.commitRule.Decide(candidate)
 	if err != nil {
 		return CommitDecision{}, err

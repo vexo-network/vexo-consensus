@@ -42,6 +42,7 @@ type Node struct {
 	runtime   *vexoruntime.Runtime
 	consensus *consensus.StateMachine
 	reactor   *consensus.TransportReactor
+	txCancel  context.CancelFunc
 	store     store.Store
 	running   bool
 }
@@ -123,6 +124,11 @@ func (node *Node) Start(ctx context.Context) error {
 			storage.Close()
 			return err
 		}
+		if err := node.startTxGossip(ctx); err != nil {
+			reactor.Stop(ctx)
+			storage.Close()
+			return err
+		}
 	}
 
 	node.runtime = runtime
@@ -145,6 +151,9 @@ func (node *Node) Stop(ctx context.Context) error {
 	if !node.running {
 		return ErrNodeNotRunning
 	}
+	if node.txCancel != nil {
+		node.txCancel()
+	}
 	if node.reactor != nil {
 		if err := node.reactor.Stop(ctx); err != nil {
 			return err
@@ -155,6 +164,7 @@ func (node *Node) Stop(ctx context.Context) error {
 	node.runtime = nil
 	node.consensus = nil
 	node.reactor = nil
+	node.txCancel = nil
 	node.store = nil
 	return err
 }
