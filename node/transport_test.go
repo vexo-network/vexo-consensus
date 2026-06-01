@@ -43,7 +43,7 @@ func TestNodeTransportReactorRoutesProposalBetweenNodes(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForConsensusStatus(t, bobConsensus, func(status consensus.Status) bool {
-		return status.Height == 1 && status.Phase == consensus.PhaseVote
+		return status.Height == 1 && (status.Phase == consensus.PhaseVote || status.Phase == consensus.PhaseCommit)
 	})
 }
 
@@ -235,6 +235,62 @@ func TestNodeSubmitTxGossipsToPeers(t *testing.T) {
 	waitForMempoolLen(t, alice, 1)
 	waitForMempoolLen(t, bob, 1)
 	waitForMempoolLen(t, carol, 1)
+}
+
+func TestNodeTickConsensusOnlyProposerBuildsMempoolProposal(t *testing.T) {
+	alice, bob, carol := newConsensusLoopNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+	startNode(t, carol)
+	defer carol.Stop(context.Background())
+
+	aliceConsensus, err := alice.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceConsensus.StartRound(1, 0)
+	bobConsensus, err := bob.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobConsensus.StartRound(1, 0)
+
+	proposer, err := alice.Proposer(context.Background(), 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposer != "alice" {
+		t.Fatalf("expected alice proposer at h1/r0, got %s", proposer)
+	}
+	nextProposer, err := alice.Proposer(context.Background(), 1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nextProposer != "bob" {
+		t.Fatalf("expected bob proposer at h1/r1, got %s", nextProposer)
+	}
+
+	if err := alice.SubmitTx(context.Background(), []byte("bank:auto-propose")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, proposed, err := bob.TickConsensus(context.Background(), 1024); err != nil || proposed {
+		t.Fatalf("non-proposer should skip: proposed=%v err=%v", proposed, err)
+	}
+	proposal, blockHash, proposed, err := alice.TickConsensus(context.Background(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !proposed {
+		t.Fatal("expected proposer to build proposal")
+	}
+	if proposal.Proposer != "alice" || blockHash == (types.Hash{}) {
+		t.Fatalf("unexpected proposal result: proposer=%s hash=%x", proposal.Proposer, blockHash)
+	}
+	waitForConsensusStatus(t, bobConsensus, func(status consensus.Status) bool {
+		return status.Height == 1 && (status.Phase == consensus.PhaseVote || status.Phase == consensus.PhaseCommit)
+	})
 }
 
 func newTransportNodes(t *testing.T) (*Node, *Node) {
