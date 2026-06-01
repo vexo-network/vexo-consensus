@@ -57,3 +57,11 @@ func TestConfigValidateRejectsNegativeP2PBanDuration(t *testing.T) {
 		t.Fatalf("expected invalid config, got %v", err)
 	}
 }
+
+func TestConfigValidateRejectsNegativeP2PScoreRecovery(t *testing.T) {
+	cfg := Default("vexo-test")
+	cfg.P2P.ScoreRecovery = -1
+	if err := cfg.Validate(); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("expected invalid config, got %v", err)
+	}
+}

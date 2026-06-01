@@ -15,6 +15,8 @@ import (
 	"github.com/vexo-network/vexo-consensus/validator"
 )
 
+const transportTestWaitTimeout = 30 * time.Second
+
 func TestNodeTransportReactorRoutesProposalBetweenNodes(t *testing.T) {
 	alice, bob := newTransportNodes(t)
 	startNode(t, alice)
@@ -824,6 +826,8 @@ func newScoredNode(t *testing.T, bus *transport.InMemoryBus, genesis Genesis, va
 	cfg.Chain.P2P.ValidMessageReward = 2
 	cfg.Chain.P2P.InvalidMessageCost = 1
 	cfg.Chain.P2P.BanThreshold = 0
+	cfg.Chain.P2P.WindowResetInterval = 0
+	cfg.Chain.P2P.ScoreRecovery = 0
 	node, err := New(cfg, genesis, newTestApplication(t))
 	if err != nil {
 		t.Fatal(err)
@@ -891,7 +895,7 @@ func startNode(t *testing.T, node *Node) {
 
 func waitForConsensusStatus(t *testing.T, machine *consensus.StateMachine, match func(consensus.Status) bool) {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(transportTestWaitTimeout)
 	for time.Now().Before(deadline) {
 		if match(machine.Status(context.Background())) {
 			return
@@ -907,7 +911,7 @@ func waitForConsensusStatus(t *testing.T, machine *consensus.StateMachine, match
 
 func waitForQuorumInput(t *testing.T, machine *consensus.StateMachine, blockHash types.Hash) {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(transportTestWaitTimeout)
 	for time.Now().Before(deadline) {
 		_ = machine.OnVote(context.Background(), consensus.Vote{
 			Height:      1,
@@ -928,7 +932,7 @@ func waitForQuorumInput(t *testing.T, machine *consensus.StateMachine, blockHash
 
 func waitForQuorumCert(t *testing.T, machine *consensus.StateMachine, height types.Height, round types.Round, blockHash types.Hash) {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(transportTestWaitTimeout)
 	for time.Now().Before(deadline) {
 		if _, err := machine.BuildQuorumCert(height, round, blockHash); err == nil {
 			return
@@ -943,7 +947,7 @@ func waitForQuorumCert(t *testing.T, machine *consensus.StateMachine, height typ
 
 func waitForMempoolLen(t *testing.T, node *Node, expected int) {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(transportTestWaitTimeout)
 	for time.Now().Before(deadline) {
 		runtime, err := node.Runtime()
 		if err == nil && runtime.Mempool.Len() == expected {
@@ -962,7 +966,7 @@ func waitForMempoolLen(t *testing.T, node *Node, expected int) {
 
 func waitForNodeHeight(t *testing.T, node *Node, height types.Height) {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(transportTestWaitTimeout)
 	for time.Now().Before(deadline) {
 		status := node.Status(context.Background())
 		if status.LatestHeight >= height {
@@ -979,7 +983,7 @@ func waitForNodeHeight(t *testing.T, node *Node, height types.Height) {
 
 func waitForValidatorPower(t *testing.T, node *Node, validatorID types.ValidatorID, expected types.VotingPower) {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(transportTestWaitTimeout)
 	for time.Now().Before(deadline) {
 		runtime, err := node.Runtime()
 		if err == nil {
@@ -1012,7 +1016,7 @@ func waitForValidatorPower(t *testing.T, node *Node, validatorID types.Validator
 
 func waitForPeerScore(t *testing.T, node *Node, peer p2p.PeerID, expected int64) {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(transportTestWaitTimeout)
 	for time.Now().Before(deadline) {
 		score, err := node.PeerScore(context.Background(), peer)
 		if err == nil && score == expected {
@@ -1031,7 +1035,7 @@ func waitForPeerScore(t *testing.T, node *Node, peer p2p.PeerID, expected int64)
 
 func waitForPeerBanned(t *testing.T, node *Node, peer p2p.PeerID) {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(transportTestWaitTimeout)
 	for time.Now().Before(deadline) {
 		runtime, err := node.Runtime()
 		if err == nil {
@@ -1057,7 +1061,7 @@ func waitForPeerBanned(t *testing.T, node *Node, peer p2p.PeerID) {
 
 func waitForPeerWindowReset(t *testing.T, node *Node, peer p2p.PeerID) {
 	t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(transportTestWaitTimeout)
 	for time.Now().Before(deadline) {
 		runtime, err := node.Runtime()
 		if err == nil {

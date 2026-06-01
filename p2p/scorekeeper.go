@@ -20,6 +20,7 @@ type ScoreConfig struct {
 	BanThreshold         int64
 	MaxMessagesPerWindow uint64
 	WindowResetInterval  time.Duration
+	ScoreRecovery        int64
 	BanDuration          time.Duration
 }
 
@@ -121,7 +122,9 @@ func (keeper *ScoreKeeper) ResetWindow(ctx context.Context) error {
 	defer keeper.mu.Unlock()
 
 	for peer, state := range keeper.peers {
+		state = keeper.expireBan(state)
 		state.WindowMessages = 0
+		state = keeper.recoverScore(state)
 		keeper.peers[peer] = state
 	}
 	return nil
@@ -195,5 +198,16 @@ func (keeper *ScoreKeeper) expireBan(state PeerState) PeerState {
 	state.BannedUntil = time.Time{}
 	state.Score = keeper.config.InitialScore
 	state.WindowMessages = 0
+	return state
+}
+
+func (keeper *ScoreKeeper) recoverScore(state PeerState) PeerState {
+	if state.Banned || keeper.config.ScoreRecovery <= 0 || state.Score >= keeper.config.InitialScore {
+		return state
+	}
+	state.Score += keeper.config.ScoreRecovery
+	if state.Score > keeper.config.InitialScore {
+		state.Score = keeper.config.InitialScore
+	}
 	return state
 }

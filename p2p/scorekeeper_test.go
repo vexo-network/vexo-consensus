@@ -132,6 +132,63 @@ func TestScoreKeeperResetWindowAllowsMessagesAgain(t *testing.T) {
 	}
 }
 
+func TestScoreKeeperResetWindowRecoversScore(t *testing.T) {
+	keeper := NewScoreKeeper(ScoreConfig{
+		InitialScore:       10,
+		InvalidMessageCost: 4,
+		BanThreshold:       0,
+		ScoreRecovery:      3,
+	})
+
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.ResetWindow(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	score, err := keeper.Score(context.Background(), "peer-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score != 9 {
+		t.Fatalf("expected recovered score 9, got %d", score)
+	}
+	if err := keeper.ResetWindow(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	score, err = keeper.Score(context.Background(), "peer-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score != 10 {
+		t.Fatalf("expected recovered score capped at 10, got %d", score)
+	}
+}
+
+func TestScoreKeeperDoesNotRecoverActiveBan(t *testing.T) {
+	keeper := NewScoreKeeper(ScoreConfig{
+		InitialScore:       5,
+		InvalidMessageCost: 5,
+		BanThreshold:       0,
+		ScoreRecovery:      10,
+		BanDuration:        time.Hour,
+	})
+
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", false); !errors.Is(err, ErrPeerBanned) {
+		t.Fatalf("expected peer banned, got %v", err)
+	}
+	if err := keeper.ResetWindow(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	score, err := keeper.Score(context.Background(), "peer-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score != 0 {
+		t.Fatalf("expected active banned score unchanged, got %d", score)
+	}
+}
+
 func TestScoreKeeperRateLimitCanBan(t *testing.T) {
 	keeper := NewScoreKeeper(ScoreConfig{
 		InitialScore:         1,
