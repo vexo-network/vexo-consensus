@@ -81,6 +81,7 @@ The design is intentionally modular so individual components can be replaced wit
 - Timeout certificates carrying high-QC
 - Three-chain finality decisions
 - Deterministic scenario and adversarial simulation helpers
+- Transport message codec and reactor for proposal/vote/timeout routing
 
 ### Validator and Committee
 
