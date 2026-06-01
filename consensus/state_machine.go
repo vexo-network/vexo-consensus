@@ -165,7 +165,10 @@ func (machine *StateMachine) OnVote(ctx context.Context, vote Vote) error {
 		return err
 	}
 
-	if _, err := machine.BuildQuorumCert(vote.Height, vote.Round, vote.BlockHash); err == nil {
+	if qc, err := machine.BuildQuorumCert(vote.Height, vote.Round, vote.BlockHash); err == nil {
+		if err := machine.blockTree.SetQuorumCert(qc); err != nil && !errors.Is(err, ErrBlockNotFound) {
+			return err
+		}
 		machine.status.Phase = PhaseCommit
 	}
 

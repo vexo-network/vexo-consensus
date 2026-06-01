@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/finality"
@@ -48,5 +49,66 @@ func TestBlockTreeWaitsForParentQC(t *testing.T) {
 
 	if _, found := tree.CommitCandidate(block); found {
 		t.Fatal("expected no candidate without parent justify qc")
+	}
+}
+
+func TestBlockTreeStoresQuorumCert(t *testing.T) {
+	tree := NewBlockTree()
+	blockHash := types.Hash{1}
+	tree.Insert(types.Block{Header: types.Header{Height: 1}}, blockHash, finality.QuorumCert{})
+
+	qc := finality.QuorumCert{Height: 1, BlockHash: blockHash, VotingPower: 2}
+	if err := tree.SetQuorumCert(qc); err != nil {
+		t.Fatal(err)
+	}
+
+	node, found := tree.Get(blockHash)
+	if !found {
+		t.Fatal("expected block node")
+	}
+	if node.QuorumCert.BlockHash != blockHash || node.QuorumCert.VotingPower != 2 {
+		t.Fatalf("unexpected quorum cert: %+v", node.QuorumCert)
+	}
+}
+
+func TestBlockTreeRejectsInvalidQuorumCert(t *testing.T) {
+	tree := NewBlockTree()
+	blockHash := types.Hash{1}
+	tree.Insert(types.Block{Header: types.Header{Height: 2}}, blockHash, finality.QuorumCert{})
+
+	cases := []struct {
+		name     string
+		qc       finality.QuorumCert
+		expected error
+	}{
+		{
+			name:     "missing height",
+			qc:       finality.QuorumCert{BlockHash: blockHash},
+			expected: ErrInvalidBlockCert,
+		},
+		{
+			name:     "missing block hash",
+			qc:       finality.QuorumCert{Height: 2},
+			expected: ErrInvalidBlockCert,
+		},
+		{
+			name:     "unknown block",
+			qc:       finality.QuorumCert{Height: 2, BlockHash: types.Hash{9}},
+			expected: ErrBlockNotFound,
+		},
+		{
+			name:     "height mismatch",
+			qc:       finality.QuorumCert{Height: 1, BlockHash: blockHash},
+			expected: ErrInvalidBlockCert,
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := tree.SetQuorumCert(testCase.qc)
+			if !errors.Is(err, testCase.expected) {
+				t.Fatalf("expected %v, got %v", testCase.expected, err)
+			}
+		})
 	}
 }

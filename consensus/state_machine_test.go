@@ -49,6 +49,53 @@ func TestStateMachineBuildsQuorumCert(t *testing.T) {
 	}
 }
 
+func TestStateMachineStoresVoteQuorumCertInBlockTree(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+		{ID: "c", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	block := types.Block{Header: types.Header{
+		ChainID:          "vexo-test",
+		Height:           1,
+		ValidatorSetHash: set.Hash(),
+	}}
+	blockHash := HashBlock(block)
+	if err := machine.OnProposal(context.Background(), Proposal{Block: block, Proposer: "a"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: blockHash, ValidatorID: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	node, found := machine.blockTree.Get(blockHash)
+	if !found {
+		t.Fatal("expected proposed block in tree")
+	}
+	if node.QuorumCert.Height != 0 {
+		t.Fatal("expected no quorum cert before quorum")
+	}
+
+	if err := machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: blockHash, ValidatorID: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	node, found = machine.blockTree.Get(blockHash)
+	if !found {
+		t.Fatal("expected proposed block in tree")
+	}
+	if node.QuorumCert.BlockHash != blockHash || node.QuorumCert.VotingPower != 2 {
+		t.Fatalf("expected stored quorum cert, got %+v", node.QuorumCert)
+	}
+}
+
 func TestStateMachineWeightedQuorum(t *testing.T) {
 	set := newTestValidatorSet([]validator.Validator{
 		{ID: "a", VotingPower: 4},

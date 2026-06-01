@@ -7,13 +7,17 @@ import (
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
-var ErrBlockNotFound = errors.New("block not found")
+var (
+	ErrBlockNotFound    = errors.New("block not found")
+	ErrInvalidBlockCert = errors.New("invalid block certificate")
+)
 
 type BlockNode struct {
 	Block      types.Block
 	Hash       types.Hash
 	ParentHash types.Hash
 	JustifyQC  finality.QuorumCert
+	QuorumCert finality.QuorumCert
 }
 
 type BlockTree struct {
@@ -40,6 +44,22 @@ func (tree *BlockTree) Insert(block types.Block, blockHash types.Hash, justifyQC
 func (tree *BlockTree) Get(blockHash types.Hash) (BlockNode, bool) {
 	node, found := tree.blocks[blockHash]
 	return node, found
+}
+
+func (tree *BlockTree) SetQuorumCert(qc finality.QuorumCert) error {
+	if qc.Height == 0 || qc.BlockHash == (types.Hash{}) {
+		return ErrInvalidBlockCert
+	}
+	node, found := tree.Get(qc.BlockHash)
+	if !found {
+		return ErrBlockNotFound
+	}
+	if node.Block.Header.Height != qc.Height {
+		return ErrInvalidBlockCert
+	}
+	node.QuorumCert = qc
+	tree.blocks[qc.BlockHash] = node
+	return nil
 }
 
 func (tree *BlockTree) CommitCandidate(blockHash types.Hash) (CommitCandidate, bool) {
