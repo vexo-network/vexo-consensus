@@ -158,6 +158,27 @@ func TestRunOpsThresholdsAndAlerts(t *testing.T) {
 	if !strings.Contains(alerts.String(), "ops alerts alert") || !strings.Contains(alerts.String(), "height_rate") {
 		t.Fatalf("unexpected alerts output:\n%s", alerts.String())
 	}
+
+	previousMetrics := filepath.Join(t.TempDir(), "previous.json")
+	currentMetrics := filepath.Join(t.TempDir(), "current.json")
+	if err := os.WriteFile(previousMetrics, []byte(`{"latest_height":10,"round_timeouts":1,"snapshot_healthy":true,"replay_healthy":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(currentMetrics, []byte(`{"latest_height":16,"round_timeouts":2,"snapshot_healthy":true,"replay_healthy":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var metricsAlerts bytes.Buffer
+	if err := runCommand(&metricsAlerts, &bytes.Buffer{}, []string{
+		"ops", "alerts",
+		"--metrics-file", currentMetrics,
+		"--previous-metrics-file", previousMetrics,
+		"--window", "2m",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(metricsAlerts.String(), "ops alerts ok") {
+		t.Fatalf("unexpected metrics-file alerts output:\n%s", metricsAlerts.String())
+	}
 }
 
 func TestRunUpgradePlan(t *testing.T) {
@@ -263,6 +284,16 @@ func TestRunLocalnetLoadAndChaosPlans(t *testing.T) {
 	for _, expected := range []string{"localnet chaos plan", "regions: 2", "validator-1: region=1", "no conflicting finality"} {
 		if !strings.Contains(chaosOutput.String(), expected) {
 			t.Fatalf("expected localnet chaos output to contain %q, got:\n%s", expected, chaosOutput.String())
+		}
+	}
+
+	var chaosRunOutput bytes.Buffer
+	if err := runCommand(&chaosRunOutput, &bytes.Buffer{}, []string{"localnet", "chaos", "--home", home, "--validators", "4", "--timeout", "10s", "--stop-index", "2", "--dry-run"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"localnet chaos run plan", "target: validator-3", "keep quorum online", "require height increase", "require catch-up"} {
+		if !strings.Contains(chaosRunOutput.String(), expected) {
+			t.Fatalf("expected localnet chaos run output to contain %q, got:\n%s", expected, chaosRunOutput.String())
 		}
 	}
 }

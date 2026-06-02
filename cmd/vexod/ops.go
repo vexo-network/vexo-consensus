@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/ops"
@@ -65,11 +66,14 @@ func runOpsAlerts(writer io.Writer, args []string) error {
 	snapshotHealthy := flags.Bool("snapshot-healthy", false, "whether snapshot export/verify is healthy")
 	replayHealthy := flags.Bool("replay-healthy", false, "whether replay/recovery is healthy")
 	signingFailures := flags.Uint64("signing-failures", 0, "validator signing failures")
+	metricsFile := flags.String("metrics-file", "", "current /metrics JSON file to evaluate")
+	previousMetricsFile := flags.String("previous-metrics-file", "", "previous /metrics JSON file for rate deltas")
+	windowValue := flags.String("window", "1m", "elapsed time between previous and current metrics files")
 	jsonOutput := flags.Bool("json", false, "write JSON output")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	report, err := ops.Evaluate(ops.Sample{
+	sample := ops.Sample{
 		HeightRatePerMinute:      *heightRate,
 		RoundTimeoutsPerMinute:   *roundTimeouts,
 		ProposalLatency:          durationOrZero(*proposalLatency),
@@ -80,7 +84,15 @@ func runOpsAlerts(writer io.Writer, args []string) error {
 		SnapshotHealthy:          *snapshotHealthy,
 		ReplayHealthy:            *replayHealthy,
 		ValidatorSigningFailures: *signingFailures,
-	}, ops.DefaultThresholds())
+	}
+	if *metricsFile != "" {
+		derived, err := readOpsMetricsSample(*metricsFile, *previousMetricsFile, *windowValue)
+		if err != nil {
+			return err
+		}
+		sample = derived
+	}
+	report, err := ops.Evaluate(sample, ops.DefaultThresholds())
 	if err != nil {
 		return err
 	}
@@ -105,4 +117,36 @@ func durationOrZero(duration time.Duration) time.Duration {
 		return 0
 	}
 	return duration
+}
+
+func readOpsMetricsSample(metricsFile string, previousMetricsFile string, windowValue string) (ops.Sample, error) {
+	current, err := readOpsMetricsSnapshot(metricsFile)
+	if err != nil {
+		return ops.Sample{}, err
+	}
+	var previous *ops.MetricsSnapshot
+	if previousMetricsFile != "" {
+		previousValue, err := readOpsMetricsSnapshot(previousMetricsFile)
+		if err != nil {
+			return ops.Sample{}, err
+		}
+		previous = &previousValue
+	}
+	window, err := time.ParseDuration(windowValue)
+	if err != nil {
+		return ops.Sample{}, err
+	}
+	return ops.SampleFromMetricsSnapshot(previous, current, window)
+}
+
+func readOpsMetricsSnapshot(path string) (ops.MetricsSnapshot, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ops.MetricsSnapshot{}, err
+	}
+	var snapshot ops.MetricsSnapshot
+	if err := json.Unmarshal(data, &snapshot); err != nil {
+		return ops.MetricsSnapshot{}, err
+	}
+	return snapshot, nil
 }

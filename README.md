@@ -314,8 +314,16 @@ Plan sustained load, chaos, and multi-machine long-run validation:
 
 ```bash
 go run ./cmd/vexod localnet load --validators 4 --duration 1h --rate 50 --dry-run
+go run ./cmd/vexod localnet metrics --validators 4 --evaluate
+go run ./cmd/vexod localnet chaos --validators 4 --stop-index 3 --timeout 30s --dry-run
 go run ./cmd/vexod localnet chaos-plan --validators 4 --duration 24h --regions 3
 go run ./cmd/vexod localnet longrun-plan --validators 4 --duration 168h --regions 3 --hosts 4
+```
+
+Evaluate a captured `/metrics` JSON sample against default operational thresholds:
+
+```bash
+go run ./cmd/vexod ops alerts --metrics-file current-metrics.json --previous-metrics-file previous-metrics.json --window 1m
 ```
 
 Example output:

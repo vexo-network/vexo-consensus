@@ -48,3 +48,36 @@ func TestThresholdsValidate(t *testing.T) {
 		t.Fatalf("expected invalid thresholds, got %v", err)
 	}
 }
+
+func TestSampleFromMetricsSnapshotCalculatesRates(t *testing.T) {
+	previous := MetricsSnapshot{LatestHeight: 10, RoundTimeouts: 2}
+	current := MetricsSnapshot{
+		LatestHeight:         16,
+		RoundTimeouts:        5,
+		ProposalLatencyNanos: uint64((250 * time.Millisecond).Nanoseconds()),
+		VoteLatencyNanos:     uint64((100 * time.Millisecond).Nanoseconds()),
+		BannedPeers:          2,
+		MempoolSize:          9,
+		CommitLatencyNanos:   uint64((400 * time.Millisecond).Nanoseconds()),
+		SnapshotHealthy:      true,
+		ReplayHealthy:        true,
+		SigningFailures:      1,
+	}
+	sample, err := SampleFromMetricsSnapshot(&previous, current, 2*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sample.HeightRatePerMinute != 3 || sample.RoundTimeoutsPerMinute != 1.5 {
+		t.Fatalf("unexpected rates: %+v", sample)
+	}
+	if sample.ProposalLatency != 250*time.Millisecond || sample.PeerBans != 2 || sample.ValidatorSigningFailures != 1 {
+		t.Fatalf("unexpected sample fields: %+v", sample)
+	}
+}
+
+func TestSampleFromMetricsSnapshotRequiresWindowForDelta(t *testing.T) {
+	previous := MetricsSnapshot{LatestHeight: 1}
+	if _, err := SampleFromMetricsSnapshot(&previous, MetricsSnapshot{LatestHeight: 2}, 0); !errors.Is(err, ErrInvalidSampleWindow) {
+		t.Fatalf("expected invalid sample window, got %v", err)
+	}
+}

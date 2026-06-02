@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vexo-network/vexo-consensus/ops"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -59,6 +60,10 @@ func runLocalnet(writer io.Writer, args []string) error {
 		return runLocalnetSmoke(context.Background(), writer, args[1:])
 	case "load":
 		return runLocalnetLoad(context.Background(), writer, args[1:])
+	case "metrics":
+		return runLocalnetMetrics(context.Background(), writer, args[1:])
+	case "chaos":
+		return runLocalnetChaos(context.Background(), writer, args[1:])
 	case "chaos-plan":
 		return runLocalnetChaosPlan(writer, args[1:])
 	case "longrun-plan":
@@ -188,6 +193,14 @@ type localnetSmokeResult struct {
 
 type localnetStatusResponse struct {
 	LatestHeight uint64 `json:"latest_height"`
+}
+
+type localnetMetricsResponse struct {
+	ValidatorID string              `json:"validator_id"`
+	RPCAddress  string              `json:"rpc_address"`
+	Metrics     ops.MetricsSnapshot `json:"metrics"`
+	Report      ops.Report          `json:"report,omitempty"`
+	Error       string              `json:"error,omitempty"`
 }
 
 func runLocalnetUp(ctx context.Context, writer io.Writer, args []string) error {
@@ -363,6 +376,96 @@ func runLocalnetStatus(ctx context.Context, writer io.Writer, args []string) err
 	return nil
 }
 
+func runLocalnetMetrics(ctx context.Context, writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("localnet metrics", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", ".vexo-localnet", "localnet home directory")
+	validators := flags.Int("validators", 4, "validator count")
+	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first localnet P2P port")
+	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first localnet RPC port")
+	timeoutValue := flags.String("timeout", "2s", "per-node metrics query timeout")
+	evaluate := flags.Bool("evaluate", false, "evaluate each metrics response against default alert thresholds")
+	jsonOutput := flags.Bool("json", false, "write JSON output")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	timeout, err := parseLocalnetDuration(*timeoutValue)
+	if err != nil {
+		return err
+	}
+	plan, err := buildLocalnetRuntimePlanWithPorts(*home, *validators, "", *p2pBasePort, *rpcBasePort)
+	if err != nil {
+		return err
+	}
+	client := http.Client{Timeout: timeout}
+	results := collectLocalnetMetrics(ctx, client, plan, *evaluate)
+	if *jsonOutput {
+		encoder := json.NewEncoder(writer)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(results)
+	}
+	for _, result := range results {
+		if result.Error != "" {
+			fmt.Fprintf(writer, "%s rpc=%s metrics_error=%s\n", result.ValidatorID, result.RPCAddress, result.Error)
+			continue
+		}
+		status := "collected"
+		if *evaluate {
+			if result.Report.OK {
+				status = "ok"
+			} else {
+				status = "alert"
+			}
+		}
+		fmt.Fprintf(writer, "%s rpc=%s height=%d mempool=%d bans=%d status=%s\n", result.ValidatorID, result.RPCAddress, result.Metrics.LatestHeight, result.Metrics.MempoolSize, result.Metrics.BannedPeers, status)
+	}
+	return nil
+}
+
+func runLocalnetChaos(ctx context.Context, writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("localnet chaos", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", ".vexo-localnet", "localnet home directory")
+	validators := flags.Int("validators", 4, "validator count")
+	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first localnet P2P port")
+	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first localnet RPC port")
+	binaryPath := flags.String("binary", "", "vexod binary path; defaults to current executable")
+	timeoutValue := flags.String("timeout", "20s", "chaos scenario timeout")
+	stopIndex := flags.Int("stop-index", -1, "zero-based validator index to stop; defaults to last validator")
+	tx := flags.String("tx", "bank:mint:chaos:1", "transaction payload to submit while one validator is stopped")
+	restart := flags.Bool("restart", true, "restart the stopped validator and wait for catch-up")
+	dryRun := flags.Bool("dry-run", false, "print chaos execution steps without stopping or starting processes")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	timeout, err := parseLocalnetDuration(*timeoutValue)
+	if err != nil {
+		return err
+	}
+	plan, err := buildLocalnetRuntimePlanWithPorts(*home, *validators, *binaryPath, *p2pBasePort, *rpcBasePort)
+	if err != nil {
+		return err
+	}
+	if len(plan.Nodes) < 2 {
+		return errors.New("chaos run requires at least two validators")
+	}
+	targetIndex := *stopIndex
+	if targetIndex < 0 {
+		targetIndex = len(plan.Nodes) - 1
+	}
+	if targetIndex < 0 || targetIndex >= len(plan.Nodes) {
+		return fmt.Errorf("stop-index must be between 0 and %d", len(plan.Nodes)-1)
+	}
+	if *dryRun {
+		writeLocalnetChaosRunPlan(writer, plan, targetIndex, timeout, *tx, *restart)
+		return nil
+	}
+	chaosCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	client := http.Client{Timeout: timeout}
+	return runLocalnetChaosPlanExecution(chaosCtx, writer, client, plan, targetIndex, []byte(*tx), *restart)
+}
+
 func runLocalnetStop(writer io.Writer, args []string) error {
 	flags := flag.NewFlagSet("localnet stop", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -526,6 +629,28 @@ func writeLocalnetChaosPlan(writer io.Writer, plan localnetRuntimePlan, duration
 	fmt.Fprintf(writer, "6. run snapshot export/verify/restore from a surviving node\n")
 }
 
+func writeLocalnetChaosRunPlan(writer io.Writer, plan localnetRuntimePlan, targetIndex int, timeout time.Duration, tx string, restart bool) {
+	target := plan.Nodes[targetIndex]
+	survivor := localnetSurvivorNode(plan, targetIndex)
+	fmt.Fprintf(writer, "localnet chaos run plan\n")
+	fmt.Fprintf(writer, "home: %s\n", plan.Home)
+	fmt.Fprintf(writer, "validators: %d\n", plan.Validators)
+	fmt.Fprintf(writer, "target: %s\n", target.ValidatorID)
+	fmt.Fprintf(writer, "survivor_rpc: %s\n", survivor.RPCAddress)
+	fmt.Fprintf(writer, "timeout: %s\n", timeout)
+	fmt.Fprintf(writer, "tx: %s\n", tx)
+	fmt.Fprintf(writer, "restart: %t\n", restart)
+	fmt.Fprintf(writer, "steps:\n")
+	fmt.Fprintf(writer, "1. wait all validators healthy\n")
+	fmt.Fprintf(writer, "2. stop %s and keep quorum online\n", target.ValidatorID)
+	fmt.Fprintf(writer, "3. submit tx through %s and require height increase\n", survivor.ValidatorID)
+	if restart {
+		fmt.Fprintf(writer, "4. restart %s and require catch-up\n", target.ValidatorID)
+	} else {
+		fmt.Fprintf(writer, "4. leave %s stopped for operator inspection\n", target.ValidatorID)
+	}
+}
+
 func writeLocalnetLongRunPlan(writer io.Writer, plan localnetRuntimePlan, duration time.Duration, regions int, hosts int) {
 	fmt.Fprintf(writer, "localnet longrun plan\n")
 	fmt.Fprintf(writer, "home: %s\n", plan.Home)
@@ -653,6 +778,90 @@ func runLocalnetSmokePlan(ctx context.Context, client http.Client, plan localnet
 	return results, nil
 }
 
+func runLocalnetChaosPlanExecution(ctx context.Context, writer io.Writer, client http.Client, plan localnetRuntimePlan, targetIndex int, tx []byte, restart bool) error {
+	if len(plan.Nodes) < 2 {
+		return errors.New("chaos run requires at least two validators")
+	}
+	target := plan.Nodes[targetIndex]
+	survivor := localnetSurvivorNode(plan, targetIndex)
+	for _, localNode := range plan.Nodes {
+		if err := waitLocalnetHealth(ctx, client, localNode.RPCAddress); err != nil {
+			return fmt.Errorf("%s health before chaos: %w", localNode.ValidatorID, err)
+		}
+	}
+	statusBefore, err := localnetStatus(ctx, client, survivor.RPCAddress)
+	if err != nil {
+		return err
+	}
+	pid, err := readLocalnetPID(target.PIDPath)
+	if err != nil {
+		return fmt.Errorf("%s pid: %w", target.ValidatorID, err)
+	}
+	if err := stopLocalnetPID(pid); err != nil {
+		return fmt.Errorf("%s stop: %w", target.ValidatorID, err)
+	}
+	_ = os.Remove(target.PIDPath)
+	fmt.Fprintf(writer, "chaos stopped %s pid=%d\n", target.ValidatorID, pid)
+	if err := submitLocalnetTx(ctx, client, survivor.RPCAddress, tx); err != nil {
+		return fmt.Errorf("%s tx during chaos: %w", survivor.ValidatorID, err)
+	}
+	statusAfter, err := waitLocalnetHeight(ctx, client, survivor.RPCAddress, statusBefore.LatestHeight+1)
+	if err != nil {
+		return fmt.Errorf("%s height during chaos: %w", survivor.ValidatorID, err)
+	}
+	fmt.Fprintf(writer, "chaos survivor %s height_before=%d height_after=%d\n", survivor.ValidatorID, statusBefore.LatestHeight, statusAfter.LatestHeight)
+	if !restart {
+		fmt.Fprintf(writer, "localnet chaos ok; %s remains stopped\n", target.ValidatorID)
+		return nil
+	}
+	if err := startLocalnetNode(plan.Binary, target); err != nil {
+		return fmt.Errorf("%s restart: %w", target.ValidatorID, err)
+	}
+	fmt.Fprintf(writer, "chaos restarted %s\n", target.ValidatorID)
+	if err := waitLocalnetHealth(ctx, client, target.RPCAddress); err != nil {
+		return fmt.Errorf("%s health after restart: %w", target.ValidatorID, err)
+	}
+	if _, err := waitLocalnetHeight(ctx, client, target.RPCAddress, statusAfter.LatestHeight); err != nil {
+		return fmt.Errorf("%s catch-up after restart: %w", target.ValidatorID, err)
+	}
+	fmt.Fprintf(writer, "localnet chaos ok\n")
+	return nil
+}
+
+func collectLocalnetMetrics(ctx context.Context, client http.Client, plan localnetRuntimePlan, evaluate bool) []localnetMetricsResponse {
+	results := make([]localnetMetricsResponse, 0, len(plan.Nodes))
+	for _, localNode := range plan.Nodes {
+		metrics, err := localnetMetrics(ctx, client, localNode.RPCAddress)
+		result := localnetMetricsResponse{
+			ValidatorID: localNode.ValidatorID,
+			RPCAddress:  localNode.RPCAddress,
+			Metrics:     metrics,
+		}
+		if err != nil {
+			result.Error = err.Error()
+			results = append(results, result)
+			continue
+		}
+		if evaluate {
+			sample, err := ops.SampleFromMetricsSnapshot(nil, metrics, 0)
+			if err != nil {
+				result.Error = err.Error()
+				results = append(results, result)
+				continue
+			}
+			report, err := ops.Evaluate(sample, ops.DefaultThresholds())
+			if err != nil {
+				result.Error = err.Error()
+				results = append(results, result)
+				continue
+			}
+			result.Report = report
+		}
+		results = append(results, result)
+	}
+	return results
+}
+
 func runLocalnetLoadPlan(ctx context.Context, client http.Client, plan localnetRuntimePlan, rate int, txPrefix string) localnetLoadResult {
 	started := time.Now()
 	if len(plan.Nodes) == 0 {
@@ -679,6 +888,13 @@ func runLocalnetLoadPlan(ctx context.Context, client http.Client, plan localnetR
 			result.Submitted++
 		}
 	}
+}
+
+func localnetSurvivorNode(plan localnetRuntimePlan, targetIndex int) localnetNodeRuntimePlan {
+	if targetIndex != 0 {
+		return plan.Nodes[0]
+	}
+	return plan.Nodes[1]
 }
 
 func localnetLoadPayload(txPrefix string, sequence uint64) types.Tx {
@@ -740,6 +956,23 @@ func localnetStatus(ctx context.Context, client http.Client, address string) (lo
 	}
 	var status localnetStatusResponse
 	return status, json.NewDecoder(response.Body).Decode(&status)
+}
+
+func localnetMetrics(ctx context.Context, client http.Client, address string) (ops.MetricsSnapshot, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+address+"/metrics", nil)
+	if err != nil {
+		return ops.MetricsSnapshot{}, err
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return ops.MetricsSnapshot{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return ops.MetricsSnapshot{}, fmt.Errorf("metrics returned HTTP %d", response.StatusCode)
+	}
+	var metrics ops.MetricsSnapshot
+	return metrics, json.NewDecoder(response.Body).Decode(&metrics)
 }
 
 func submitLocalnetTx(ctx context.Context, client http.Client, address string, tx []byte) error {
