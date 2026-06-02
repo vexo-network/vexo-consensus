@@ -16,16 +16,19 @@ type setSnapshot struct {
 
 func newSetSnapshot(validators []Validator) setSnapshot {
 	byID := make(map[types.ValidatorID]Validator, len(validators))
+	copiedValidators := make([]Validator, len(validators))
 	var totalPower types.VotingPower
-	for _, validatorInfo := range validators {
-		byID[validatorInfo.ID] = validatorInfo
+	for index, validatorInfo := range validators {
+		validatorInfo = cloneValidator(validatorInfo)
+		copiedValidators[index] = validatorInfo
+		byID[validatorInfo.ID] = cloneValidator(validatorInfo)
 		totalPower += validatorInfo.VotingPower
 	}
 	return setSnapshot{
-		validators: append([]Validator(nil), validators...),
+		validators: copiedValidators,
 		byID:       byID,
 		totalPower: totalPower,
-		hash:       hashValidators(validators),
+		hash:       hashValidators(copiedValidators),
 	}
 }
 
@@ -39,11 +42,30 @@ func (set setSnapshot) TotalVotingPower() types.VotingPower {
 
 func (set setSnapshot) Get(id types.ValidatorID) (Validator, bool) {
 	validatorInfo, found := set.byID[id]
-	return validatorInfo, found
+	if !found {
+		return Validator{}, false
+	}
+	return cloneValidator(validatorInfo), true
 }
 
 func (set setSnapshot) List() []Validator {
-	return append([]Validator(nil), set.validators...)
+	validators := make([]Validator, len(set.validators))
+	for index, validatorInfo := range set.validators {
+		validators[index] = cloneValidator(validatorInfo)
+	}
+	return validators
+}
+
+func cloneValidator(validatorInfo Validator) Validator {
+	validatorInfo.PublicKey = append(types.PublicKey(nil), validatorInfo.PublicKey...)
+	if validatorInfo.Metadata != nil {
+		metadata := make(map[string]string, len(validatorInfo.Metadata))
+		for key, value := range validatorInfo.Metadata {
+			metadata[key] = value
+		}
+		validatorInfo.Metadata = metadata
+	}
+	return validatorInfo
 }
 
 func hashValidators(validators []Validator) types.Hash {

@@ -97,14 +97,14 @@ The design is intentionally modular so individual components can be replaced wit
 
 ### Validator and Committee
 
-- In-memory validator registry
+- In-memory and LevelDB-backed height-versioned validator registry
 - Permissionless or whitelist-style admission policy
 - Minimum stake policy
 - Maximum validator count policy
 - Deterministic committee selection by seed, epoch, and round
 - Epoch calculation and rotation policy
 - Validator set update and rotation support
-- Slashing-driven voting-power updates
+- Persistent slashing lifecycle with evidence status, penalty receipts, jailing, and slashing-driven voting-power updates
 
 ### Mempool
 
@@ -208,11 +208,11 @@ The design is intentionally modular so individual components can be replaced wit
 | `p2p` | Peer scoring, rate-limit, flood defense, and persistent address book |
 | `rpc` | HTTP health, readiness, status, metrics, admin, pprof, and query endpoints |
 | `runtime` | Module wiring, block execution, proof building, recovery, replay |
-| `slashing` | Evidence validation and penalty keeper |
+| `slashing` | Evidence validation, lifecycle tracking, penalty receipts, and keeper implementations |
 | `store` | LevelDB-backed block, versioned state, state-root, evidence, KV, recovery, pruning, and compaction storage |
 | `transport` | In-memory, TCP, and gRPC message transport with pub/sub interfaces |
 | `types` | Shared primitive types |
-| `validator` | Validator registry and admission policy |
+| `validator` | In-memory and store-backed validator registries with admission policy |
 
 ## Documentation
 

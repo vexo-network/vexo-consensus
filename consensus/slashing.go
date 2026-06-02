@@ -17,15 +17,15 @@ type SlashResult struct {
 	RemainingPower types.VotingPower
 }
 
-func SubmitEvidenceForSlashing(ctx context.Context, keeper *slashing.InMemoryKeeper, registry validator.Registry, evidence slashing.Evidence) (SlashResult, error) {
+type SlashingKeeper interface {
+	SubmitEvidence(ctx context.Context, evidence slashing.Evidence) error
+	ApplyPenaltyWithStake(ctx context.Context, evidence slashing.Evidence, currentPower types.VotingPower) (slashing.PenaltyReceipt, error)
+}
+
+func SubmitEvidenceForSlashing(ctx context.Context, keeper SlashingKeeper, registry validator.Registry, evidence slashing.Evidence) (SlashResult, error) {
 	if err := verifyConsensusEvidence(evidence); err != nil {
 		return SlashResult{}, err
 	}
-	receipt, err := keeper.SubmitAndApply(ctx, evidence)
-	if err != nil {
-		return SlashResult{}, err
-	}
-
 	set, err := registry.ValidatorSet(ctx, evidence.Height)
 	if err != nil {
 		return SlashResult{}, err
@@ -34,18 +34,21 @@ func SubmitEvidenceForSlashing(ctx context.Context, keeper *slashing.InMemoryKee
 	if !found {
 		return SlashResult{}, ErrEvidenceValidatorNotFound
 	}
-	remainingPower, err := slashing.ApplySlash(validatorInfo.VotingPower, receipt.Penalty)
+	if err := keeper.SubmitEvidence(ctx, evidence); err != nil {
+		return SlashResult{}, err
+	}
+	receipt, err := keeper.ApplyPenaltyWithStake(ctx, evidence, validatorInfo.VotingPower)
 	if err != nil {
 		return SlashResult{}, err
 	}
-	if err := registry.UpdateVotingPower(ctx, evidence.Validator, remainingPower); err != nil {
+	if err := registry.UpdateVotingPower(ctx, evidence.Validator, receipt.RemainingPower); err != nil {
 		return SlashResult{}, err
 	}
 
 	return SlashResult{
 		Receipt:        receipt,
 		PreviousPower:  validatorInfo.VotingPower,
-		RemainingPower: remainingPower,
+		RemainingPower: receipt.RemainingPower,
 	}, nil
 }
 

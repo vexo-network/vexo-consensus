@@ -7,6 +7,7 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/slashing"
+	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
@@ -147,5 +148,60 @@ func TestSubmitTimeoutEvidenceForSlashingReducesValidatorPower(t *testing.T) {
 	}
 	if result.PreviousPower != 100 || result.RemainingPower != 75 {
 		t.Fatalf("unexpected slash result: %+v", result)
+	}
+}
+
+func TestSubmitEvidenceForSlashingSupportsStoreBackedState(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	registry, err := validator.NewStoreRegistry(context.Background(), storage, nil, 1, []validator.Validator{
+		{ID: "a", Address: "a", VotingPower: 100, Stake: 100},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keeper, err := slashing.NewStoreKeeper(storage, slashing.PenaltyPolicy{
+		slashing.EvidenceConflictingVote: {SlashFraction: "0.25", JailDuration: 30},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := NewConflictingVoteEvidence(
+		testVote("a", 1, 0, types.Hash{1}),
+		testVote("a", 1, 0, types.Hash{2}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PreviousPower != 100 || result.RemainingPower != 75 {
+		t.Fatalf("unexpected store-backed slash result: %+v", result)
+	}
+	status, found, err := keeper.EvidenceLifecycle(context.Background(), evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || status != slashing.EvidenceStatusApplied {
+		t.Fatalf("expected applied evidence, got %s found=%t", status, found)
+	}
+	reopenedRegistry, err := validator.NewStoreRegistry(context.Background(), storage, nil, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := reopenedRegistry.ValidatorSet(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validatorInfo, found := set.Get("a")
+	if !found || validatorInfo.VotingPower != 75 {
+		t.Fatalf("expected persisted voting power 75, got %+v found=%t", validatorInfo, found)
 	}
 }

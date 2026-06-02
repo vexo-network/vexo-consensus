@@ -20,6 +20,10 @@ Each height has a validator set hash. Consensus proposals and finality proofs bi
 
 Validator updates are applied through app/runtime output and become effective for the next height.
 
+Implementations may use the in-memory registry for tests or the store-backed registry for durable chains.
+The store-backed registry persists sorted validator-set snapshots by height and serves historical lookups
+from the latest snapshot at or below the requested height.
+
 ## Rotation
 
 Committee/proposer rotation is height and round dependent. Deterministic rotation is the default; VRF-backed rotation can be configured.
@@ -34,6 +38,10 @@ Evidence states:
 - expired
 
 Evidence must be validated, deduplicated, persisted, and only then applied.
+
+Durable keepers persist evidence lifecycle, penalty receipts, and jail-until heights. Consensus slashing
+first validates evidence, then records it, applies a stake-aware penalty, and finally writes the resulting
+validator voting-power update through the registry.
 
 ## Slashing
 
