@@ -207,6 +207,20 @@ Machine-readable status:
 go run ./cmd/vexod status --json
 ```
 
+Initialize node files:
+
+```bash
+go run ./cmd/vexod init --home .vexo --chain-id vexo-local --validator validator-1
+```
+
+This writes `.vexo/config.json`, `.vexo/genesis.json`, and `.vexo/data`.
+
+Validate node files:
+
+```bash
+go run ./cmd/vexod validate --home .vexo
+```
+
 Run a minimal block execution demo:
 
 ```bash
