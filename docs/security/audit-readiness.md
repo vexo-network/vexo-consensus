@@ -51,7 +51,7 @@ This package is intended for independent reviewers evaluating Vexo consensus, ne
 - Ed25519 finality is ordered multisignature concatenation, not cryptographic aggregation.
 - Validator registry and slashing keeper have durable store-backed implementations; full production stake custody, unbonding queues, and reward accounting remain chain-specific integration work.
 - Multi-region long-running tests are planned through localnet/longrun plans but must be executed on real machines.
-- Governance upgrade execution is scaffolded; production chains need durable upgrade state and operator runbooks.
+- Governance upgrade execution records applied, pending, and rollback-required outcomes; production chains still need operator-specific rollback runbooks and release governance policy.
 - The current RPC API is unversioned but documented as v1 semantics.
 
 ## Formal-ish Safety Argument

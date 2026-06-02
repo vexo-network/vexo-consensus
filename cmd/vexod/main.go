@@ -164,7 +164,7 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  snapshot        export, verify, fetch, sync, or restore latest persisted state snapshot\n")
 	fmt.Fprintf(writer, "  doctor          inspect config, keys, store, snapshot, and recovery readiness\n")
 	fmt.Fprintf(writer, "  ops             print alert thresholds or evaluate operational samples\n")
-	fmt.Fprintf(writer, "  upgrade         build governance-driven upgrade and migration plans\n")
+	fmt.Fprintf(writer, "  upgrade         build and apply governance-driven upgrade and migration plans\n")
 	fmt.Fprintf(writer, "  status          print default node capability status\n")
 	fmt.Fprintf(writer, "  demo            run an in-memory bank execution demo\n")
 	fmt.Fprintf(writer, "  store-demo      run a LevelDB-backed storage demo\n")

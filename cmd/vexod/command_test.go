@@ -206,6 +206,53 @@ func TestRunUpgradePlan(t *testing.T) {
 	}
 }
 
+func TestRunUpgradeApplyPersistsExecutionRecord(t *testing.T) {
+	home := t.TempDir()
+	planFile := filepath.Join(home, "plan.json")
+	recordFile := filepath.Join(home, "records.json")
+	plan := []byte(`{
+		"name":"v0.2.0",
+		"height":100,
+		"binary_version":"v0.2.0",
+		"config_schema_from":1,
+		"config_schema_to":2,
+		"store_schema_from":1,
+		"store_schema_to":2,
+		"app_state_schema_from":1,
+		"app_state_schema_to":2
+	}`)
+	if err := os.WriteFile(planFile, plan, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"upgrade", "apply",
+		"--plan-file", planFile,
+		"--record-file", recordFile,
+		"--height", "100",
+		"--binary-version", "v0.1.0",
+		"--config-version", "1",
+		"--store-version", "1",
+		"--app-version", "1",
+		"--allow-empty-migrations",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"upgrade apply applied", "binary_version: v0.1.0 -> v0.2.0", "store_schema: 1 -> 2"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected upgrade apply output to contain %q, got:\n%s", expected, output.String())
+		}
+	}
+	record, err := os.ReadFile(recordFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(record), `"status": "applied"`) || !strings.Contains(string(record), `"v0.2.0"`) {
+		t.Fatalf("unexpected record file:\n%s", string(record))
+	}
+}
+
 func TestRunLocalnetInitAndStartDryRun(t *testing.T) {
 	home := t.TempDir()
 	var initOutput bytes.Buffer

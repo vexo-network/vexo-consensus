@@ -23,6 +23,8 @@
 - Define target binary version.
 - Define config/store/app-state schema from/to versions.
 - Generate upgrade plan with `vexod upgrade plan --json`.
+- Execute the plan with `vexod upgrade apply` at the approved height and persist the execution record.
+- Treat any `rollback_required` record as an operator stop condition until rollback is completed.
 - Run `make release-candidate`.
 - Sign checksums and publish SBOM.
 - Execute rollback drill before mainnet activation.

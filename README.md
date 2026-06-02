@@ -578,6 +578,20 @@ go run ./cmd/vexod upgrade plan \
   --rollback-binary v0.1.0
 ```
 
+Apply a generated plan at the governance-approved height and persist the execution record:
+
+```bash
+go run ./cmd/vexod upgrade plan --json --name v0.2.0 --height 100000 --config-from 1 --config-to 2 > upgrade-plan.json
+go run ./cmd/vexod upgrade apply \
+  --plan-file upgrade-plan.json \
+  --record-file .vexo/upgrade-records.json \
+  --height 100000 \
+  --config-version 1 \
+  --store-version 1 \
+  --app-version 1 \
+  --allow-empty-migrations
+```
+
 Run short fuzz smoke checks:
 
 ```bash
