@@ -88,7 +88,7 @@ The design is intentionally modular so individual components can be replaced wit
 - Locked-QC proposal and vote safety rules
 - Timeout certificates carrying high-QC
 - Three-chain finality decisions
-- Deterministic scenario and adversarial simulation helpers
+- Deterministic scenario and adversarial simulation helpers for offline minorities, offline majorities, weighted quorum, conflicting votes, timeout equivocation, unsafe forks, and split partitions
 - Transport message codec and reactor for proposal/vote/timeout routing
 - Deterministic proposer rotation by height and round
 - gRPC peer transport with optional mTLS, binary framing, persistent streams, seed bootstrap, peer exchange, protocol/network/chain/genesis/node-id/auth-token handshake validation, message-size limits, reconnect backoff, peer-limit eviction, subscriber backpressure drop accounting, and send retry after stale-session failures
@@ -329,6 +329,13 @@ Show CLI help and version:
 ```bash
 go run ./cmd/vexod help
 go run ./cmd/vexod version
+```
+
+Run consensus adversarial simulations:
+
+```bash
+go run ./cmd/vexod consensus adversarial
+go run ./cmd/vexod consensus adversarial --json
 ```
 
 Application modules can expose their own CLI commands, and enabled module commands appear in `vexod help`:

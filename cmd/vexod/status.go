@@ -40,6 +40,8 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "security.fuzz_targets: true\n")
 	fmt.Fprintf(writer, "security.strict_json_rpc: true\n")
 	fmt.Fprintf(writer, "security.forwarded_for_untrusted: true\n")
+	fmt.Fprintf(writer, "consensus.adversarial_simulation: true\n")
+	fmt.Fprintf(writer, "consensus.partition_safety_simulation: true\n")
 	fmt.Fprintf(writer, "addr_book.persistent: true\n")
 	fmt.Fprintf(writer, "addr_book.dial_failure_tracking: true\n")
 	fmt.Fprintf(writer, "addr_book.ban_eviction_policy: true\n")
@@ -180,6 +182,8 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"security_fuzz_targets":            true,
 			"security_strict_json_rpc":         true,
 			"security_forwarded_for_untrusted": true,
+			"consensus_adversarial_simulation": true,
+			"consensus_partition_safety":       true,
 			"deployment_audit":                 true,
 			"addr_book":                        true,
 			"addr_book_ban_evict":              true,

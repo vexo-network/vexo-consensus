@@ -29,7 +29,7 @@ func TestRunCommandHelpAndVersion(t *testing.T) {
 			t.Fatal(err)
 		}
 		output := stdout.String()
-		for _, expected := range []string{"Usage:", "init", "config paths", "start", "localnet", "snapshot", "doctor", "version", "Module Commands:", "bank tx mint", "bank query balance"} {
+		for _, expected := range []string{"Usage:", "init", "config paths", "start", "localnet", "consensus", "snapshot", "doctor", "version", "Module Commands:", "bank tx mint", "bank query balance"} {
 			if !strings.Contains(output, expected) {
 				t.Fatalf("expected help output to contain %q, got:\n%s", expected, output)
 			}
@@ -42,6 +42,37 @@ func TestRunCommandHelpAndVersion(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "vexod "+version) || !strings.Contains(stdout.String(), "commit: ") || !strings.Contains(stdout.String(), "build_date: ") {
 		t.Fatalf("unexpected version output: %q", stdout.String())
+	}
+}
+
+func TestRunConsensusAdversarial(t *testing.T) {
+	var output bytes.Buffer
+	if err := runConsensus(&output, []string{"adversarial"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"consensus adversarial simulation", "safety_ok: true", "scenario: offline_minority", "scenario: split_partition_no_dual_quorum"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected adversarial output to contain %q, got:\n%s", expected, output.String())
+		}
+	}
+}
+
+func TestRunConsensusAdversarialJSON(t *testing.T) {
+	var output bytes.Buffer
+	if err := runConsensus(&output, []string{"adversarial", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var report struct {
+		SafetyOK  bool `json:"safety_ok"`
+		Scenarios []struct {
+			Name string `json:"name"`
+		} `json:"scenarios"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if !report.SafetyOK || len(report.Scenarios) == 0 {
+		t.Fatalf("unexpected adversarial JSON report: %+v", report)
 	}
 }
 

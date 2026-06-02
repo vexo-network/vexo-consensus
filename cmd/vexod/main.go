@@ -66,6 +66,11 @@ func runCommand(stdout io.Writer, stderr io.Writer, args []string) error {
 			return writeCommandError(stderr, "localnet", err)
 		}
 		return nil
+	case "consensus":
+		if err := runConsensus(stdout, args[1:]); err != nil {
+			return writeCommandError(stderr, "consensus", err)
+		}
+		return nil
 	case "status":
 		if len(args) > 1 && args[1] == "--json" {
 			if err := writeStatusJSON(stdout, config.Default("vexo-local")); err != nil {
@@ -142,6 +147,7 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  keys show       show validator public key\n")
 	fmt.Fprintf(writer, "  start           validate files, prepare startup, or run node with --run; Ctrl+C shuts down gracefully\n")
 	fmt.Fprintf(writer, "  localnet        up, initialize, start, smoke-test, status-check, and stop local multi-node networks\n")
+	fmt.Fprintf(writer, "  consensus       run consensus simulations and diagnostics\n")
 	fmt.Fprintf(writer, "  snapshot        export, verify, fetch, sync, or restore latest persisted state snapshot\n")
 	fmt.Fprintf(writer, "  doctor          inspect config, keys, store, snapshot, and recovery readiness\n")
 	fmt.Fprintf(writer, "  status          print default node capability status\n")
