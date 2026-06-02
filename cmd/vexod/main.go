@@ -129,6 +129,7 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "Commands:\n")
 	fmt.Fprintf(writer, "  init            initialize config and genesis files\n")
 	fmt.Fprintf(writer, "  validate        validate config and genesis files\n")
+	fmt.Fprintf(writer, "  config audit    run deployment and production-readiness checks\n")
 	fmt.Fprintf(writer, "  config paths    print resolved config, genesis, key, and data paths\n")
 	fmt.Fprintf(writer, "  config show     print loaded chain config as JSON\n")
 	fmt.Fprintf(writer, "  keys gen        generate an Ed25519 validator key\n")

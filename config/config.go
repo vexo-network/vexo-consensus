@@ -119,6 +119,8 @@ func ApplyProfile(cfg *Config, profile Profile) error {
 		cfg.Committee.CommitteeSize = 64
 		cfg.Mempool.MaxTxBytes = 512 * 1024
 		cfg.Mempool.MaxTxs = 50000
+		cfg.Mempool.SeenTTL = 5 * time.Minute
+		cfg.Mempool.EnablePriority = true
 		cfg.P2P.MaxMessagesPerWindow = 500
 		cfg.P2P.MaxTotalMessagesPerWindow = 50000
 		cfg.P2P.BanDuration = 30 * time.Minute
@@ -128,6 +130,9 @@ func ApplyProfile(cfg *Config, profile Profile) error {
 		cfg.Committee.CommitteeSize = 256
 		cfg.Mempool.MaxTxBytes = 256 * 1024
 		cfg.Mempool.MaxTxs = 250000
+		cfg.Mempool.SeenTTL = 10 * time.Minute
+		cfg.Mempool.MinFee = 1
+		cfg.Mempool.EnablePriority = true
 		cfg.P2P.MaxMessagesPerWindow = 300
 		cfg.P2P.MaxTotalMessagesPerWindow = 250000
 		cfg.P2P.BanDuration = time.Hour
@@ -153,7 +158,9 @@ func (config Config) Validate() error {
 		config.Committee.CommitteeSize == 0 {
 		return ErrInvalidConfig
 	}
-	if config.Mempool.MaxTxBytes <= 0 || config.Mempool.MaxTxs <= 0 {
+	if config.Mempool.MaxTxBytes <= 0 ||
+		config.Mempool.MaxTxs <= 0 ||
+		config.Mempool.SeenTTL < 0 {
 		return ErrInvalidConfig
 	}
 	if config.Governance.QuorumPower == 0 ||

@@ -100,6 +100,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	p2pMaxMessageBytes := flags.Uint64("p2p-max-message-bytes", 0, "maximum P2P message bytes")
 	p2pMaxPeers := flags.Int("p2p-max-peers", 0, "maximum configured P2P peers")
 	p2pAuthToken := flags.String("p2p-auth-token", "", "shared P2P handshake auth token")
+	strictProduction := flags.Bool("strict-production", false, "fail startup when production-readiness checks fail")
 	logFormat := flags.String("log-format", "text", "operational log format: text or json")
 	peers := peerFlags{}
 	flags.Var(peers, "peer", "persistent peer in id=host:port form; may be repeated")
@@ -113,6 +114,37 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	if err != nil {
 		return err
 	}
+	runtimeConfig := startRuntimeConfig{
+		RPCEnabled:              *rpcEnabled,
+		RPCAddress:              *rpcAddress,
+		RPCAdminToken:           *rpcAdminToken,
+		RPCEnablePprof:          *rpcEnablePprof,
+		RPCRequestTimeout:       *rpcRequestTimeout,
+		RPCMaxRequestBytes:      *rpcMaxRequestBytes,
+		RPCRateLimitWindow:      *rpcRateLimitWindow,
+		RPCRateLimitMaxRequests: *rpcRateLimitMaxRequests,
+		LogFormat:               *logFormat,
+		ConsensusLoopEnabled:    *consensusLoopEnabled,
+		ConsensusLoop: vexonode.ConsensusLoopConfig{
+			Interval:      *consensusInterval,
+			RoundTimeout:  *roundTimeout,
+			MaxBlockBytes: *maxBlockBytes,
+		},
+		P2PEnabled:         *p2pEnabled,
+		P2PListenAddress:   *p2pListenAddress,
+		P2PNetworkID:       *p2pNetworkID,
+		P2PMaxMessageBytes: *p2pMaxMessageBytes,
+		P2PMaxPeers:        *p2pMaxPeers,
+		P2PAuthToken:       *p2pAuthToken,
+		P2PPeers:           peers,
+		P2PSeeds:           seeds,
+	}
+	if *strictProduction {
+		audit := auditDeployment(inputs, runtimeConfig, true)
+		if !audit.OK {
+			return fmt.Errorf("strict production checks failed with %d failed checks; run `vexod config audit --strict --json` for details", failedAuditChecks(audit.Checks))
+		}
+	}
 	plan := inputs.Plan
 	if *jsonOutput {
 		encoder := json.NewEncoder(writer)
@@ -122,31 +154,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	if *run {
 		runCtx, stopSignals := signal.NotifyContext(ctx, shutdownSignals()...)
 		defer stopSignals()
-		return runStartNode(runCtx, writer, inputs, startRuntimeConfig{
-			RPCEnabled:              *rpcEnabled,
-			RPCAddress:              *rpcAddress,
-			RPCAdminToken:           *rpcAdminToken,
-			RPCEnablePprof:          *rpcEnablePprof,
-			RPCRequestTimeout:       *rpcRequestTimeout,
-			RPCMaxRequestBytes:      *rpcMaxRequestBytes,
-			RPCRateLimitWindow:      *rpcRateLimitWindow,
-			RPCRateLimitMaxRequests: *rpcRateLimitMaxRequests,
-			LogFormat:               *logFormat,
-			ConsensusLoopEnabled:    *consensusLoopEnabled,
-			ConsensusLoop: vexonode.ConsensusLoopConfig{
-				Interval:      *consensusInterval,
-				RoundTimeout:  *roundTimeout,
-				MaxBlockBytes: *maxBlockBytes,
-			},
-			P2PEnabled:         *p2pEnabled,
-			P2PListenAddress:   *p2pListenAddress,
-			P2PNetworkID:       *p2pNetworkID,
-			P2PMaxMessageBytes: *p2pMaxMessageBytes,
-			P2PMaxPeers:        *p2pMaxPeers,
-			P2PAuthToken:       *p2pAuthToken,
-			P2PPeers:           peers,
-			P2PSeeds:           seeds,
-		})
+		return runStartNode(runCtx, writer, inputs, runtimeConfig)
 	}
 	if !plan.DryRun {
 		if _, err := buildStartNode(inputs); err != nil {

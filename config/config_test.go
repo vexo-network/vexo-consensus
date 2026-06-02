@@ -33,6 +33,12 @@ func TestConfigProfilesAreValidAndTightenOperations(t *testing.T) {
 	if mainnet.Committee.CommitteeSize <= dev.Committee.CommitteeSize {
 		t.Fatalf("expected mainnet larger committee, got %d <= %d", mainnet.Committee.CommitteeSize, dev.Committee.CommitteeSize)
 	}
+	if !testnet.Mempool.EnablePriority || testnet.Mempool.SeenTTL <= 0 {
+		t.Fatalf("expected testnet mempool hardening, got %+v", testnet.Mempool)
+	}
+	if !mainnet.Mempool.EnablePriority || mainnet.Mempool.MinFee == 0 || mainnet.Mempool.SeenTTL <= 0 {
+		t.Fatalf("expected mainnet mempool hardening, got %+v", mainnet.Mempool)
+	}
 	if _, err := WithProfile("vexo-test", "unknown"); !errors.Is(err, ErrUnknownProfile) {
 		t.Fatalf("expected unknown profile error, got %v", err)
 	}
@@ -82,6 +88,7 @@ func TestConfigValidateRejectsUnsafeSettings(t *testing.T) {
 		{name: "negative mempool tx bytes", mutate: func(cfg *Config) { cfg.Mempool.MaxTxBytes = -1 }},
 		{name: "zero mempool tx count", mutate: func(cfg *Config) { cfg.Mempool.MaxTxs = 0 }},
 		{name: "negative mempool tx count", mutate: func(cfg *Config) { cfg.Mempool.MaxTxs = -1 }},
+		{name: "negative mempool seen ttl", mutate: func(cfg *Config) { cfg.Mempool.SeenTTL = -time.Second }},
 		{name: "zero governance quorum", mutate: func(cfg *Config) { cfg.Governance.QuorumPower = 0 }},
 		{name: "zero governance yes threshold", mutate: func(cfg *Config) { cfg.Governance.YesThresholdPower = 0 }},
 		{name: "zero governance voting period", mutate: func(cfg *Config) { cfg.Governance.VotingPeriod = 0 }},

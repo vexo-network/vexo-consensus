@@ -170,6 +170,7 @@ The design is intentionally modular so individual components can be replaced wit
 - Admin-token protection for mutation endpoints
 - JSON or text startup logs
 - Config profiles for `dev`, `testnet`, and `mainnet`
+- Deployment audit checks for production readiness
 - Encrypted validator key files with passphrase-based loading
 - Remote signer key documents for KMS/HSM-backed validator signing
 - Snapshot export and restore commands
@@ -378,7 +379,20 @@ Inspect paths and startup readiness:
 
 ```bash
 go run ./cmd/vexod config paths --home .vexo --json
+go run ./cmd/vexod config audit --home .vexo --json
 go run ./cmd/vexod start --home .vexo --dry-run
+```
+
+Strict production checks can be enforced before startup:
+
+```bash
+go run ./cmd/vexod config audit --home .vexo --strict
+go run ./cmd/vexod start --home .vexo --run --strict-production \
+  --rpc-admin-token <token> \
+  --p2p-auth-token <token> \
+  --rpc-max-request-bytes 1048576 \
+  --rpc-rate-limit-max 100 \
+  --p2p-max-message-bytes 1048576
 ```
 
 Run a minimal block execution demo:

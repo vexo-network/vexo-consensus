@@ -129,6 +129,7 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"fair_ordering":       true,
 			"height_salted_order": true,
 			"data_availability":   true,
+			"deployment_audit":    true,
 			"leveldb_storage":     true,
 			"peer_scoring":        true,
 			"temporary_peer_bans": true,

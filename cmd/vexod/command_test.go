@@ -609,6 +609,67 @@ func TestRunConfigRejectsInvalidSubcommand(t *testing.T) {
 	}
 }
 
+func TestRunConfigAuditReportsProductionWarnings(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	if err := runConfig(&output, []string{"audit", "--home", home, "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var document auditDocument
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if !document.OK || document.Strict || !auditContains(document, "key_encrypted_or_remote", false) || !auditContains(document, "p2p_auth_token", false) {
+		t.Fatalf("unexpected non-strict audit document: %+v", document)
+	}
+}
+
+func TestRunConfigAuditStrictFailsUnsafeDeployment(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+		t.Fatal(err)
+	}
+
+	err := runConfig(&bytes.Buffer{}, []string{"audit", "--home", home, "--strict"})
+	if err == nil {
+		t.Fatal("expected strict audit to fail unsafe deployment")
+	}
+}
+
+func TestRunStartStrictProductionRejectsUnsafeDeployment(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+		t.Fatal(err)
+	}
+
+	err := runStart(&bytes.Buffer{}, []string{"--home", home, "--dry-run", "--strict-production"})
+	if err == nil {
+		t.Fatal("expected strict production start to fail unsafe deployment")
+	}
+}
+
+func auditContains(document auditDocument, name string, ok bool) bool {
+	for _, check := range document.Checks {
+		if check.Name == name && check.OK == ok {
+			return true
+		}
+	}
+	return false
+}
+
 func TestRunStartDryRun(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
