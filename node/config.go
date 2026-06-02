@@ -50,6 +50,10 @@ func (cfg Config) StoreDir() string {
 	return filepath.Join(cfg.DataDir, "store")
 }
 
+func (cfg Config) ConsensusWALPath() string {
+	return filepath.Join(cfg.DataDir, "consensus.wal")
+}
+
 func (genesis Genesis) Validate(chainID string) error {
 	if genesis.ChainID == "" {
 		return ErrMissingGenesis

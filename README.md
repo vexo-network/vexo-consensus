@@ -77,6 +77,8 @@ The design is intentionally modular so individual components can be replaced wit
 - Quorum certificate generation
 - Conflicting vote detection
 - Slashing evidence generation
+- Consensus WAL for local proposal/vote/timeout-vote persistence
+- Restart-safe local double-sign guard
 - Locked-QC proposal and vote safety rules
 - Timeout certificates carrying high-QC
 - Three-chain finality decisions

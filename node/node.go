@@ -57,6 +57,7 @@ type Node struct {
 	loopDone       chan struct{}
 	pending        map[types.Hash]consensus.Proposal
 	store          store.Store
+	consensusWAL   *consensus.WAL
 	running        bool
 }
 
@@ -119,6 +120,11 @@ func (node *Node) Start(ctx context.Context) error {
 		return err
 	}
 	consensusState.StartRound(startHeight, 0)
+	consensusWAL, err := consensus.OpenWAL(node.cfg.ConsensusWALPath())
+	if err != nil {
+		storage.Close()
+		return err
+	}
 	var reactor *consensus.TransportReactor
 	if node.wire != nil {
 		receiver := consensus.Reactor(consensusState)
@@ -128,6 +134,7 @@ func (node *Node) Start(ctx context.Context) error {
 				validatorID:        node.cfg.ValidatorID,
 				onProposalAccepted: node.cacheProposal,
 				onEvidence:         node.handleLocalEvidence,
+				wal:                consensusWAL,
 			}
 		}
 		reactor = consensus.NewTransportReactor(node.wire, receiver)
@@ -135,21 +142,25 @@ func (node *Node) Start(ctx context.Context) error {
 			voter.broadcastVote = reactor.BroadcastVote
 		}
 		if err := reactor.Start(ctx); err != nil {
+			consensusWAL.Close()
 			storage.Close()
 			return err
 		}
 		if err := node.startTxGossip(ctx); err != nil {
+			consensusWAL.Close()
 			reactor.Stop(ctx)
 			storage.Close()
 			return err
 		}
 		if err := node.startCommitGossip(ctx); err != nil {
+			consensusWAL.Close()
 			node.txCancel()
 			reactor.Stop(ctx)
 			storage.Close()
 			return err
 		}
 		if err := node.startEvidenceGossip(ctx); err != nil {
+			consensusWAL.Close()
 			node.commitCancel()
 			node.txCancel()
 			reactor.Stop(ctx)
@@ -160,6 +171,7 @@ func (node *Node) Start(ctx context.Context) error {
 
 	node.runtime = runtime
 	node.consensus = consensusState
+	node.consensusWAL = consensusWAL
 	node.reactor = reactor
 	node.pending = make(map[types.Hash]consensus.Proposal)
 	node.store = storage
@@ -228,9 +240,15 @@ func (node *Node) Stop(ctx context.Context) error {
 		}
 	}
 	err := node.store.Close()
+	if node.consensusWAL != nil {
+		if walErr := node.consensusWAL.Close(); err == nil {
+			err = walErr
+		}
+	}
 	node.running = false
 	node.runtime = nil
 	node.consensus = nil
+	node.consensusWAL = nil
 	node.reactor = nil
 	node.txCancel = nil
 	node.commitCancel = nil

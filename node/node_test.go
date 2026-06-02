@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
@@ -107,6 +108,33 @@ func TestNodePersistsRuntimeStore(t *testing.T) {
 	consensusStatus := machine.Status(context.Background())
 	if consensusStatus.Height != 3 {
 		t.Fatalf("expected consensus to resume at height 3, got %+v", consensusStatus)
+	}
+}
+
+func TestNodeConsensusWALPreventsDoubleSignAfterRestart(t *testing.T) {
+	dataDir := t.TempDir()
+	node := newTestNodeWithDataDir(t, dataDir)
+	node.cfg.ValidatorID = "alice"
+	if err := node.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	firstHash := types.Hash{1}
+	if err := node.recordConsensusVote(consensus.Vote{Height: 1, Round: 0, BlockHash: firstHash, ValidatorID: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := node.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted := newTestNodeWithDataDir(t, dataDir)
+	restarted.cfg.ValidatorID = "alice"
+	if err := restarted.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Stop(context.Background())
+	err := restarted.recordConsensusVote(consensus.Vote{Height: 1, Round: 0, BlockHash: types.Hash{2}, ValidatorID: "alice"})
+	if !errors.Is(err, consensus.ErrDoubleSignDetected) {
+		t.Fatalf("expected wal double-sign guard, got %v", err)
 	}
 }
 

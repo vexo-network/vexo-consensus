@@ -18,6 +18,7 @@ type autoVoteReactor struct {
 	broadcastVote      func(context.Context, consensus.Vote) error
 	onProposalAccepted func(consensus.Proposal, types.Hash)
 	onEvidence         func(context.Context, slashing.Evidence)
+	wal                *consensus.WAL
 }
 
 func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consensus.Proposal) error {
@@ -33,6 +34,11 @@ func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consens
 		Round:       proposal.Round,
 		BlockHash:   blockHash,
 		ValidatorID: reactor.validatorID,
+	}
+	if reactor.wal != nil {
+		if err := reactor.wal.RecordVote(vote); err != nil {
+			return err
+		}
 	}
 	if err := reactor.machine.OnVote(ctx, vote); err != nil {
 		return err
@@ -98,6 +104,9 @@ func (node *Node) ProposeBlock(ctx context.Context, block types.Block) (consensu
 	if err != nil {
 		return consensus.Proposal{}, types.Hash{}, err
 	}
+	if err := node.recordConsensusProposal(proposal); err != nil {
+		return consensus.Proposal{}, types.Hash{}, err
+	}
 	if err := machine.OnProposal(ctx, proposal); err != nil {
 		return consensus.Proposal{}, types.Hash{}, err
 	}
@@ -127,6 +136,9 @@ func (node *Node) VoteBlock(ctx context.Context, height types.Height, round type
 		Round:       round,
 		BlockHash:   blockHash,
 		ValidatorID: node.cfg.ValidatorID,
+	}
+	if err := node.recordConsensusVote(vote); err != nil {
+		return finality.QuorumCert{}, false, err
 	}
 	if err := machine.OnVote(ctx, vote); err != nil {
 		return finality.QuorumCert{}, false, err
@@ -164,9 +176,15 @@ func (node *Node) TimeoutRound(ctx context.Context) (finality.TimeoutCert, bool,
 		Round:       status.Round,
 		ValidatorID: node.cfg.ValidatorID,
 	}
-	timeoutCert, err := machine.OnTimeoutVote(ctx, vote)
-	if err != nil && !errors.Is(err, consensus.ErrNoQuorum) {
+	if err := node.recordConsensusTimeoutVote(vote); err != nil {
 		return finality.TimeoutCert{}, false, err
+	}
+	timeoutCert, err := machine.OnTimeoutVote(ctx, vote)
+	if err != nil && !errors.Is(err, consensus.ErrNoQuorum) && !errors.Is(err, consensus.ErrStaleTimeoutCert) {
+		return finality.TimeoutCert{}, false, err
+	}
+	if errors.Is(err, consensus.ErrStaleTimeoutCert) {
+		return finality.TimeoutCert{}, false, nil
 	}
 	if err := reactor.BroadcastTimeoutVote(ctx, vote); err != nil {
 		return finality.TimeoutCert{}, false, err
@@ -179,6 +197,36 @@ func (node *Node) TimeoutRound(ctx context.Context) (finality.TimeoutCert, bool,
 
 func (node *Node) CommitBlock(ctx context.Context, block types.Block, quorumCert finality.QuorumCert) (app.FinalizeBlockResponse, error) {
 	return node.commitBlock(ctx, block, quorumCert, true, true)
+}
+
+func (node *Node) recordConsensusProposal(proposal consensus.Proposal) error {
+	node.mu.Lock()
+	wal := node.consensusWAL
+	node.mu.Unlock()
+	if wal == nil {
+		return nil
+	}
+	return wal.RecordProposal(proposal)
+}
+
+func (node *Node) recordConsensusVote(vote consensus.Vote) error {
+	node.mu.Lock()
+	wal := node.consensusWAL
+	node.mu.Unlock()
+	if wal == nil {
+		return nil
+	}
+	return wal.RecordVote(vote)
+}
+
+func (node *Node) recordConsensusTimeoutVote(vote consensus.TimeoutVote) error {
+	node.mu.Lock()
+	wal := node.consensusWAL
+	node.mu.Unlock()
+	if wal == nil {
+		return nil
+	}
+	return wal.RecordTimeoutVote(vote)
 }
 
 func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert finality.QuorumCert, requireLocalQC bool, broadcast bool) (app.FinalizeBlockResponse, error) {
