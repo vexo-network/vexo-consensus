@@ -44,6 +44,50 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	}
 }
 
+func TestRunInitWritesLocalnetFiles(t *testing.T) {
+	home := t.TempDir()
+	var output bytes.Buffer
+	if err := runInit(&output, []string{"--home", home, "--chain-id", "vexo-test", "--validators", "4"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "initialized vexo localnet") || !strings.Contains(output.String(), "validators: 4") {
+		t.Fatalf("unexpected localnet output:\n%s", output.String())
+	}
+
+	for index := 1; index <= 4; index++ {
+		validatorID := localnetValidatorID(index)
+		nodeHome := filepath.Join(home, validatorID)
+		cfg, err := loadNodeConfig(filepath.Join(nodeHome, configFileName))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.ValidatorID != types.ValidatorID(validatorID) || cfg.DataDir != filepath.Join(nodeHome, "data") {
+			t.Fatalf("unexpected config for %s: %+v", validatorID, cfg)
+		}
+		genesis, err := loadGenesis(filepath.Join(nodeHome, genesisFileName))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(genesis.Validators) != 4 || genesis.Governance[types.Address(validatorID)] != 1 {
+			t.Fatalf("unexpected genesis for %s: %+v", validatorID, genesis)
+		}
+		validatorInfo := genesis.Validators[index-1]
+		if len(validatorInfo.PublicKey) == 0 || validatorInfo.Metadata["p2p_address"] != localnetP2PAddress(index) || validatorInfo.Metadata["rpc_address"] != localnetRPCAddress(index) {
+			t.Fatalf("unexpected validator metadata: %+v", validatorInfo)
+		}
+		if _, err := loadStartInputs(nodeHome, "", "", "", false); err != nil {
+			t.Fatalf("expected start inputs for %s: %v", validatorID, err)
+		}
+	}
+
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validators", "4"}); err == nil {
+		t.Fatal("expected localnet init to reject existing files")
+	}
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validators", "4", "--overwrite"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRunInitRejectsExistingFilesUnlessOverwrite(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home}); err != nil {

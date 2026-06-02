@@ -9,8 +9,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/vexo-network/vexo-consensus/config"
+	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
@@ -58,9 +60,23 @@ func runInit(writer io.Writer, args []string) error {
 	home := flags.String("home", defaultHomeDir, "node home directory")
 	chainID := flags.String("chain-id", defaultChainID, "chain id")
 	validatorID := flags.String("validator", defaultValidatorID, "local validator id")
+	validatorCount := flags.Int("validators", 1, "number of local validators to initialize")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing files")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if *validatorCount > 1 {
+		localnet, err := writeLocalnetFiles(*home, *chainID, *validatorCount, *overwrite)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(writer, "initialized vexo localnet\n")
+		fmt.Fprintf(writer, "home: %s\n", localnet.Home)
+		fmt.Fprintf(writer, "validators: %d\n", len(localnet.Nodes))
+		for _, localNode := range localnet.Nodes {
+			fmt.Fprintf(writer, "node: %s config=%s genesis=%s key=%s p2p=%s rpc=%s\n", localNode.ValidatorID, localNode.ConfigPath, localNode.GenesisPath, localNode.KeyPath, localNode.P2PAddress, localNode.RPCAddress)
+		}
+		return nil
 	}
 	configPath, genesisPath, err := writeInitFiles(*home, *chainID, *validatorID, *overwrite)
 	if err != nil {
@@ -71,6 +87,122 @@ func runInit(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "config: %s\n", configPath)
 	fmt.Fprintf(writer, "genesis: %s\n", genesisPath)
 	return nil
+}
+
+type localnetDocument struct {
+	Home  string
+	Nodes []localnetNodeDocument
+}
+
+type localnetNodeDocument struct {
+	ValidatorID string
+	Home        string
+	ConfigPath  string
+	GenesisPath string
+	KeyPath     string
+	P2PAddress  string
+	RPCAddress  string
+}
+
+func writeLocalnetFiles(home string, chainID string, validatorCount int, overwrite bool) (localnetDocument, error) {
+	if home == "" {
+		home = defaultHomeDir
+	}
+	if chainID == "" {
+		chainID = defaultChainID
+	}
+	if validatorCount <= 0 {
+		return localnetDocument{}, fmt.Errorf("validators must be positive")
+	}
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		return localnetDocument{}, err
+	}
+
+	validators := make([]validatorDocument, 0, validatorCount)
+	governance := make(map[string]uint64, validatorCount)
+	keys := make([]vexocrypto.KeyDocument, 0, validatorCount)
+	for index := 1; index <= validatorCount; index++ {
+		validatorID := localnetValidatorID(index)
+		keyDocument, err := vexocrypto.GenerateEd25519KeyDocument()
+		if err != nil {
+			return localnetDocument{}, err
+		}
+		keys = append(keys, keyDocument)
+		validators = append(validators, validatorDocument{
+			ID:          validatorID,
+			Address:     validatorID,
+			PublicKey:   keyDocument.PublicKey,
+			VotingPower: 1,
+			Stake:       1,
+			Metadata: map[string]string{
+				"p2p_address": localnetP2PAddress(index),
+				"rpc_address": localnetRPCAddress(index),
+			},
+		})
+		governance[validatorID] = 1
+	}
+	genesis := genesisDocument{
+		SchemaVersion: genesisSchemaVersion,
+		ChainID:       chainID,
+		Validators:    validators,
+		Governance:    governance,
+	}
+
+	localnet := localnetDocument{Home: home, Nodes: make([]localnetNodeDocument, 0, validatorCount)}
+	for index := 1; index <= validatorCount; index++ {
+		validatorID := localnetValidatorID(index)
+		nodeHome := filepath.Join(home, validatorID)
+		dataDir := filepath.Join(nodeHome, "data")
+		if err := os.MkdirAll(dataDir, 0o755); err != nil {
+			return localnetDocument{}, err
+		}
+		configPath := filepath.Join(nodeHome, configFileName)
+		genesisPath := filepath.Join(nodeHome, genesisFileName)
+		keyPath := filepath.Join(nodeHome, keyFileName)
+		if !overwrite {
+			for _, path := range []string{configPath, genesisPath, keyPath} {
+				if _, err := os.Stat(path); err == nil {
+					return localnetDocument{}, fmt.Errorf("%s already exists", path)
+				} else if !errors.Is(err, os.ErrNotExist) {
+					return localnetDocument{}, err
+				}
+			}
+		} else if err := os.Remove(keyPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return localnetDocument{}, err
+		}
+		cfg := defaultConfigDocument(chainID, dataDir, validatorID)
+		if err := writeJSONFile(configPath, cfg); err != nil {
+			return localnetDocument{}, err
+		}
+		if err := writeJSONFile(genesisPath, genesis); err != nil {
+			return localnetDocument{}, err
+		}
+		if err := vexocrypto.SaveKeyDocument(keyPath, keys[index-1]); err != nil {
+			return localnetDocument{}, err
+		}
+		localnet.Nodes = append(localnet.Nodes, localnetNodeDocument{
+			ValidatorID: validatorID,
+			Home:        nodeHome,
+			ConfigPath:  configPath,
+			GenesisPath: genesisPath,
+			KeyPath:     keyPath,
+			P2PAddress:  localnetP2PAddress(index),
+			RPCAddress:  localnetRPCAddress(index),
+		})
+	}
+	return localnet, nil
+}
+
+func localnetValidatorID(index int) string {
+	return "validator-" + strconv.Itoa(index)
+}
+
+func localnetP2PAddress(index int) string {
+	return "127.0.0.1:" + strconv.Itoa(26656+(index-1)*10)
+}
+
+func localnetRPCAddress(index int) string {
+	return "127.0.0.1:" + strconv.Itoa(26657+(index-1)*10)
 }
 
 func runValidate(writer io.Writer, args []string) error {

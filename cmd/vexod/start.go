@@ -20,7 +20,10 @@ import (
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
-const defaultRPCAddress = "127.0.0.1:26657"
+const (
+	defaultRPCAddress = "127.0.0.1:26657"
+	defaultP2PAddress = "127.0.0.1:26656"
+)
 
 type startPlanDocument struct {
 	ChainID     string `json:"chain_id"`
@@ -87,7 +90,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	roundTimeout := flags.Duration("consensus-round-timeout", 0, "local consensus loop timeout round duration")
 	maxBlockBytes := flags.Int64("consensus-max-block-bytes", 0, "maximum bytes to include when building a block")
 	p2pEnabled := flags.Bool("p2p", true, "run gRPC P2P transport with node")
-	p2pListenAddress := flags.String("p2p-listen", "127.0.0.1:26656", "gRPC P2P listen address")
+	p2pListenAddress := flags.String("p2p-listen", defaultP2PAddress, "gRPC P2P listen address")
 	p2pNetworkID := flags.String("p2p-network", "", "P2P network id; defaults to chain id")
 	p2pMaxMessageBytes := flags.Uint64("p2p-max-message-bytes", 0, "maximum P2P message bytes")
 	p2pMaxPeers := flags.Int("p2p-max-peers", 0, "maximum configured P2P peers")
@@ -152,6 +155,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 }
 
 func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, runtimeConfig startRuntimeConfig) error {
+	runtimeConfig = applyLocalnetRuntimeDefaults(inputs, runtimeConfig)
 	node, p2pWire, err := buildRuntimeNode(inputs, runtimeConfig)
 	if err != nil {
 		return err
@@ -295,6 +299,7 @@ func buildStartNode(inputs startInputs) (*vexonode.Node, error) {
 }
 
 func buildRuntimeNode(inputs startInputs, runtimeConfig startRuntimeConfig) (*vexonode.Node, *transport.GRPCTransport, error) {
+	runtimeConfig = applyLocalnetRuntimeDefaults(inputs, runtimeConfig)
 	application, err := appmodules.NewRuntime(inputs.Config.Chain.ChainID, inputs.Config.Chain.Application)
 	if err != nil {
 		return nil, nil, err
@@ -313,6 +318,48 @@ func buildRuntimeNode(inputs startInputs, runtimeConfig startRuntimeConfig) (*ve
 		return node, wire, nil
 	}
 	return node, nil, nil
+}
+
+func applyLocalnetRuntimeDefaults(inputs startInputs, runtimeConfig startRuntimeConfig) startRuntimeConfig {
+	if runtimeConfig.RPCAddress == "" || runtimeConfig.RPCAddress == defaultRPCAddress {
+		if address := validatorMetadata(inputs.Genesis, inputs.Config.ValidatorID, "rpc_address"); address != "" {
+			runtimeConfig.RPCAddress = address
+		}
+	}
+	if runtimeConfig.P2PListenAddress == "" || runtimeConfig.P2PListenAddress == defaultP2PAddress {
+		if address := validatorMetadata(inputs.Genesis, inputs.Config.ValidatorID, "p2p_address"); address != "" {
+			runtimeConfig.P2PListenAddress = address
+		}
+	}
+	if len(runtimeConfig.P2PPeers) == 0 {
+		runtimeConfig.P2PPeers = peersFromGenesis(inputs.Genesis, inputs.Config.ValidatorID)
+	}
+	return runtimeConfig
+}
+
+func validatorMetadata(genesis vexonode.Genesis, validatorID types.ValidatorID, key string) string {
+	for _, validatorInfo := range genesis.Validators {
+		if validatorInfo.ID != validatorID {
+			continue
+		}
+		return validatorInfo.Metadata[key]
+	}
+	return ""
+}
+
+func peersFromGenesis(genesis vexonode.Genesis, self types.ValidatorID) map[p2p.PeerID]string {
+	peers := make(map[p2p.PeerID]string)
+	for _, validatorInfo := range genesis.Validators {
+		if validatorInfo.ID == self {
+			continue
+		}
+		address := validatorInfo.Metadata["p2p_address"]
+		if address == "" {
+			continue
+		}
+		peers[p2p.PeerID(validatorInfo.ID)] = address
+	}
+	return peers
 }
 
 func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*transport.GRPCTransport, error) {

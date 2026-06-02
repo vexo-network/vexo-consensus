@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -284,6 +285,38 @@ func TestBuildRuntimeNodeConfiguresGRPCTransport(t *testing.T) {
 	}
 	if wire.Address() != "127.0.0.1:0" {
 		t.Fatalf("expected configured listen address before start, got %s", wire.Address())
+	}
+}
+
+func TestBuildRuntimeNodeDerivesLocalnetPeers(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validators", "3"}); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := loadStartInputs(filepath.Join(home, "validator-2"), "", "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeConfig := applyLocalnetRuntimeDefaults(inputs, startRuntimeConfig{P2PEnabled: true, RPCEnabled: true})
+	if runtimeConfig.P2PListenAddress != localnetP2PAddress(2) {
+		t.Fatalf("expected validator-2 p2p address, got %s", runtimeConfig.P2PListenAddress)
+	}
+	if runtimeConfig.RPCAddress != localnetRPCAddress(2) {
+		t.Fatalf("expected validator-2 rpc address, got %s", runtimeConfig.RPCAddress)
+	}
+	if len(runtimeConfig.P2PPeers) != 2 || runtimeConfig.P2PPeers["validator-1"] != localnetP2PAddress(1) || runtimeConfig.P2PPeers["validator-3"] != localnetP2PAddress(3) {
+		t.Fatalf("unexpected derived peers: %+v", runtimeConfig.P2PPeers)
+	}
+
+	startNode, wire, err := buildRuntimeNode(inputs, startRuntimeConfig{P2PEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if startNode == nil || wire == nil {
+		t.Fatal("expected localnet node and grpc wire")
+	}
+	if wire.Address() != localnetP2PAddress(2) {
+		t.Fatalf("expected localnet p2p listen address, got %s", wire.Address())
 	}
 }
 

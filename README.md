@@ -203,6 +203,13 @@ go run ./cmd/vexod start --home .vexo --run \
   --peer validator-2=127.0.0.1:26666
 ```
 
+Generate a 4-validator localnet:
+
+```bash
+go run ./cmd/vexod init --home .vexo-localnet --chain-id vexo-local --validators 4
+go run ./cmd/vexod start --home .vexo-localnet/validator-1 --run
+```
+
 Example output:
 
 ```text
