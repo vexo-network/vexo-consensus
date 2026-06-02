@@ -178,6 +178,7 @@ The design is intentionally modular so individual components can be replaced wit
 - Snapshot export and restore commands
 - Offline doctor command for config, key, store, snapshot, and index-recovery checks
 - Localnet lifecycle commands and built-binary E2E coverage
+- Persistent peer address book with dial-failure tracking, temporary bans, and non-permanent peer eviction
 
 ## Packages
 
@@ -242,11 +243,13 @@ go run ./cmd/vexod start --home .vexo --run \
   --p2p-auth-token shared-secret
 ```
 
-Learned P2P peers are saved to `.vexo/addrbook.json` by default:
+Learned P2P peers are saved to `.vexo/addrbook.json` by default. Repeatedly failing peers are temporarily banned and non-permanent banned peers can be evicted from the dial set:
 
 ```bash
 go run ./cmd/vexod config paths --home .vexo
-go run ./cmd/vexod start --home .vexo --run --addr-book .vexo/addrbook.json
+go run ./cmd/vexod start --home .vexo --run \
+  --addr-book .vexo/addrbook.json \
+  --addr-book-max-failures 3
 ```
 
 Run with structured JSON operational logs and pprof:

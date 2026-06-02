@@ -6,15 +6,18 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 )
 
 const AddrBookVersionV1 = "v1"
 
 type AddrBook struct {
-	path  string
-	peers map[PeerID]AddrBookPeer
-	now   func() time.Time
+	mu          sync.Mutex
+	path        string
+	maxFailures int
+	peers       map[PeerID]AddrBookPeer
+	now         func() time.Time
 }
 
 type AddrBookDocument struct {
@@ -23,18 +26,28 @@ type AddrBookDocument struct {
 }
 
 type AddrBookPeer struct {
-	ID        PeerID `json:"id"`
-	Address   string `json:"address"`
-	Source    string `json:"source,omitempty"`
-	LastSeen  string `json:"last_seen,omitempty"`
-	Permanent bool   `json:"permanent,omitempty"`
+	ID          PeerID `json:"id"`
+	Address     string `json:"address"`
+	Source      string `json:"source,omitempty"`
+	LastSeen    string `json:"last_seen,omitempty"`
+	LastAttempt string `json:"last_attempt,omitempty"`
+	LastFailure string `json:"last_failure,omitempty"`
+	Failures    uint64 `json:"failures,omitempty"`
+	Banned      bool   `json:"banned,omitempty"`
+	BannedUntil string `json:"banned_until,omitempty"`
+	Permanent   bool   `json:"permanent,omitempty"`
 }
 
 func OpenAddrBook(path string) (*AddrBook, error) {
+	return OpenAddrBookWithPolicy(path, 3)
+}
+
+func OpenAddrBookWithPolicy(path string, maxFailures int) (*AddrBook, error) {
 	book := &AddrBook{
-		path:  path,
-		peers: make(map[PeerID]AddrBookPeer),
-		now:   time.Now,
+		path:        path,
+		maxFailures: maxFailures,
+		peers:       make(map[PeerID]AddrBookPeer),
+		now:         time.Now,
 	}
 	if err := book.Load(); err != nil {
 		return nil, err
@@ -60,6 +73,8 @@ func (book *AddrBook) Load() error {
 	if document.SchemaVersion != "" && document.SchemaVersion != AddrBookVersionV1 {
 		return nil
 	}
+	book.mu.Lock()
+	defer book.mu.Unlock()
 	for _, peer := range document.Peers {
 		if peer.ID == "" || peer.Address == "" {
 			continue
@@ -78,7 +93,7 @@ func (book *AddrBook) Save() error {
 	}
 	document := AddrBookDocument{
 		SchemaVersion: AddrBookVersionV1,
-		Peers:         book.Peers(),
+		Peers:         book.peersSnapshot(),
 	}
 	data, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
@@ -91,25 +106,35 @@ func (book *AddrBook) Add(peerID PeerID, address string, source string, permanen
 	if peerID == "" || address == "" {
 		return
 	}
+	book.mu.Lock()
+	defer book.mu.Unlock()
 	peer := book.peers[peerID]
 	peer.ID = peerID
 	peer.Address = address
 	peer.Source = source
 	peer.LastSeen = book.now().UTC().Format(time.RFC3339Nano)
+	peer.Failures = 0
+	peer.LastFailure = ""
+	peer.Banned = false
+	peer.BannedUntil = ""
 	peer.Permanent = peer.Permanent || permanent
 	book.peers[peerID] = peer
 }
 
 func (book *AddrBook) Merge(peers map[PeerID]string, source string, permanent bool) {
+	book.mu.Lock()
+	defer book.mu.Unlock()
 	for peerID, address := range peers {
-		book.Add(peerID, address, source, permanent)
+		book.addLocked(peerID, address, source, permanent)
 	}
 }
 
 func (book *AddrBook) PeerMap(exclude PeerID) map[PeerID]string {
+	book.mu.Lock()
+	defer book.mu.Unlock()
 	peers := make(map[PeerID]string, len(book.peers))
 	for peerID, peer := range book.peers {
-		if peerID == exclude || peer.Address == "" {
+		if peerID == exclude || peer.Address == "" || book.peerBannedLocked(peer) {
 			continue
 		}
 		peers[peerID] = peer.Address
@@ -117,7 +142,129 @@ func (book *AddrBook) PeerMap(exclude PeerID) map[PeerID]string {
 	return peers
 }
 
+func (book *AddrBook) MarkAttempt(peerID PeerID) {
+	book.mu.Lock()
+	defer book.mu.Unlock()
+	peer := book.peers[peerID]
+	if peer.ID == "" {
+		return
+	}
+	peer.LastAttempt = book.now().UTC().Format(time.RFC3339Nano)
+	book.peers[peerID] = peer
+}
+
+func (book *AddrBook) MarkSuccess(peerID PeerID) {
+	book.mu.Lock()
+	defer book.mu.Unlock()
+	peer := book.peers[peerID]
+	if peer.ID == "" {
+		return
+	}
+	peer.LastSeen = book.now().UTC().Format(time.RFC3339Nano)
+	peer.Failures = 0
+	peer.LastFailure = ""
+	peer.Banned = false
+	peer.BannedUntil = ""
+	book.peers[peerID] = peer
+}
+
+func (book *AddrBook) MarkFailure(peerID PeerID, banDuration time.Duration) {
+	book.mu.Lock()
+	defer book.mu.Unlock()
+	peer := book.peers[peerID]
+	if peer.ID == "" {
+		return
+	}
+	now := book.now().UTC()
+	peer.LastFailure = now.Format(time.RFC3339Nano)
+	peer.Failures++
+	if book.maxFailures > 0 && int(peer.Failures) >= book.maxFailures {
+		peer.Banned = true
+		if banDuration > 0 {
+			peer.BannedUntil = now.Add(banDuration).Format(time.RFC3339Nano)
+		}
+	}
+	book.peers[peerID] = peer
+}
+
+func (book *AddrBook) Ban(peerID PeerID, banDuration time.Duration) {
+	book.mu.Lock()
+	defer book.mu.Unlock()
+	peer := book.peers[peerID]
+	if peer.ID == "" {
+		return
+	}
+	peer.Banned = true
+	if banDuration > 0 {
+		peer.BannedUntil = book.now().UTC().Add(banDuration).Format(time.RFC3339Nano)
+	}
+	book.peers[peerID] = peer
+}
+
+func (book *AddrBook) EvictBanned() int {
+	book.mu.Lock()
+	defer book.mu.Unlock()
+	evicted := 0
+	for peerID, peer := range book.peers {
+		if !book.peerBannedLocked(peer) || peer.Permanent {
+			continue
+		}
+		delete(book.peers, peerID)
+		evicted++
+	}
+	return evicted
+}
+
+func (book *AddrBook) peerBannedLocked(peer AddrBookPeer) bool {
+	if !peer.Banned {
+		return false
+	}
+	if peer.BannedUntil == "" {
+		return true
+	}
+	until, err := time.Parse(time.RFC3339Nano, peer.BannedUntil)
+	if err != nil {
+		return true
+	}
+	if book.now().Before(until) {
+		return true
+	}
+	peer.Banned = false
+	peer.BannedUntil = ""
+	book.peers[peer.ID] = peer
+	return false
+}
+
 func (book *AddrBook) Peers() []AddrBookPeer {
+	book.mu.Lock()
+	defer book.mu.Unlock()
+	return book.peersSnapshotLocked()
+}
+
+func (book *AddrBook) addLocked(peerID PeerID, address string, source string, permanent bool) {
+	if peerID == "" || address == "" {
+		return
+	}
+	peer := book.peers[peerID]
+	peer.ID = peerID
+	peer.Address = address
+	peer.Source = source
+	peer.LastSeen = book.now().UTC().Format(time.RFC3339Nano)
+	peer.Failures = 0
+	peer.LastFailure = ""
+	peer.Banned = false
+	peer.BannedUntil = ""
+	peer.Permanent = peer.Permanent || permanent
+	book.peers[peerID] = peer
+}
+
+func (book *AddrBook) peersSnapshot() []AddrBookPeer {
+	book.mu.Lock()
+	defer book.mu.Unlock()
+	return book.peersSnapshotLocked()
+}
+
+func (book *AddrBook) peersSnapshotLocked() []AddrBookPeer {
 	peerIDs := make([]string, 0, len(book.peers))
 	for peerID := range book.peers {
 		peerIDs = append(peerIDs, string(peerID))

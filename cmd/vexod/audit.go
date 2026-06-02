@@ -42,6 +42,7 @@ func runConfigAudit(writer io.Writer, args []string) error {
 	p2pListenAddress := flags.String("p2p-listen", defaultP2PAddress, "gRPC P2P listen address")
 	p2pAuthToken := flags.String("p2p-auth-token", "", "shared P2P handshake auth token")
 	p2pMaxMessageBytes := flags.Uint64("p2p-max-message-bytes", 0, "maximum P2P message bytes")
+	addrBookMaxFailures := flags.Int("addr-book-max-failures", 3, "failed dial attempts before addr book bans a peer")
 	strict := flags.Bool("strict", false, "return an error when production checks fail")
 	jsonOutput := flags.Bool("json", false, "write JSON output")
 	if err := flags.Parse(args); err != nil {
@@ -62,6 +63,7 @@ func runConfigAudit(writer io.Writer, args []string) error {
 		P2PListenAddress:        *p2pListenAddress,
 		P2PAuthToken:            *p2pAuthToken,
 		P2PMaxMessageBytes:      *p2pMaxMessageBytes,
+		AddrBookMaxFailures:     *addrBookMaxFailures,
 	}, *strict)
 	if *jsonOutput {
 		encoder := json.NewEncoder(writer)
@@ -101,6 +103,7 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 		document.addCheck("p2p_auth_token", strictSeverity(strict), runtimeConfig.P2PAuthToken != "", "set a P2P auth token to harden handshakes")
 		document.addCheck("p2p_message_limit", "warning", runtimeConfig.P2PMaxMessageBytes > 0, "set --p2p-max-message-bytes to bound peer payloads")
 		document.addCheck("p2p_peer_discovery", "warning", len(runtimeConfig.P2PPeers)+len(runtimeConfig.P2PSeeds) > 0, "configure peers or seeds for non-local networks")
+		document.addCheck("addr_book_failure_policy", "warning", runtimeConfig.AddrBookMaxFailures > 0, "keep addr book failure banning enabled to evict repeatedly failing peers")
 	}
 	document.addCheck("mempool_seen_ttl", "warning", inputs.Config.Chain.Mempool.SeenTTL > 0, "set mempool seen TTL to suppress replay gossip")
 	document.addCheck("mempool_min_fee", "warning", inputs.Config.Chain.Mempool.MinFee > 0, "set minimum fee for public networks")

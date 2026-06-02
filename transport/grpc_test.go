@@ -117,6 +117,37 @@ func TestGRPCTransportPeerLearnedHook(t *testing.T) {
 	}
 }
 
+func TestGRPCTransportPeerDialHooks(t *testing.T) {
+	attempts := make(map[p2p.PeerID]int)
+	results := make(map[p2p.PeerID]bool)
+	transport, err := NewGRPCTransport(GRPCConfig{
+		PeerID:            "alice",
+		ListenAddr:        "127.0.0.1:0",
+		Peers:             map[p2p.PeerID]string{"bob": "127.0.0.1:1"},
+		NetworkID:         "localnet",
+		ChainID:           "vexo-test",
+		GenesisHash:       GenesisHash([]byte("genesis")),
+		DialTimeout:       time.Millisecond,
+		ReconnectInterval: time.Hour,
+		PeerAttempted: func(peerID p2p.PeerID) {
+			attempts[peerID]++
+		},
+		PeerDialResult: func(peerID p2p.PeerID, success bool) {
+			results[peerID] = success
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport.reconnectConfiguredPeers(context.Background())
+	if attempts["bob"] != 1 {
+		t.Fatalf("expected bob attempt, got %+v", attempts)
+	}
+	if results["bob"] {
+		t.Fatalf("expected failed dial result, got %+v", results)
+	}
+}
+
 func TestGRPCTransportSendDeliversOnlyTargetPeer(t *testing.T) {
 	alice, bob, carol := newStartedGRPCPeers(t)
 	defer stopGRPCPeer(t, alice)

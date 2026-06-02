@@ -45,3 +45,46 @@ func TestAddrBookPeerMapExcludesSelf(t *testing.T) {
 		t.Fatalf("unexpected peer map: %+v", peers)
 	}
 }
+
+func TestAddrBookMarksFailureAndFiltersBannedPeers(t *testing.T) {
+	book, err := OpenAddrBookWithPolicy("", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(100, 0)
+	book.now = func() time.Time { return now }
+	book.Add("bob", "127.0.0.1:26666", "seed", false)
+	book.MarkAttempt("bob")
+	book.MarkFailure("bob", time.Minute)
+	book.MarkFailure("bob", time.Minute)
+	if !book.peers["bob"].Banned || book.peers["bob"].Failures != 2 {
+		t.Fatalf("expected bob banned with failures, got %+v", book.peers["bob"])
+	}
+	if len(book.PeerMap("")) != 0 {
+		t.Fatalf("expected banned peer filtered, got %+v", book.PeerMap(""))
+	}
+	now = now.Add(time.Minute + time.Second)
+	if book.PeerMap("")["bob"] != "127.0.0.1:26666" {
+		t.Fatalf("expected expired ban peer restored, got %+v", book.PeerMap(""))
+	}
+}
+
+func TestAddrBookEvictsOnlyNonPermanentBannedPeers(t *testing.T) {
+	book, err := OpenAddrBookWithPolicy("", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	book.Add("seed", "127.0.0.1:26656", "seed", true)
+	book.Add("bad", "127.0.0.1:26666", "handshake", false)
+	book.MarkFailure("seed", 0)
+	book.MarkFailure("bad", 0)
+	if evicted := book.EvictBanned(); evicted != 1 {
+		t.Fatalf("expected one evicted peer, got %d", evicted)
+	}
+	if _, found := book.peers["bad"]; found {
+		t.Fatalf("expected bad peer evicted: %+v", book.peers)
+	}
+	if _, found := book.peers["seed"]; !found {
+		t.Fatalf("expected permanent seed retained: %+v", book.peers)
+	}
+}

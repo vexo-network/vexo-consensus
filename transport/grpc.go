@@ -72,6 +72,8 @@ type GRPCConfig struct {
 	SubscriberBuffer  int
 	AuthToken         string
 	PeerLearned       func(p2p.PeerID, string)
+	PeerAttempted     func(p2p.PeerID)
+	PeerDialResult    func(p2p.PeerID, bool)
 }
 
 type GRPCTransport struct {
@@ -90,6 +92,8 @@ type GRPCTransport struct {
 	subscriberBuffer  int
 	authToken         string
 	peerLearned       func(p2p.PeerID, string)
+	peerAttempted     func(p2p.PeerID)
+	peerDialResult    func(p2p.PeerID, bool)
 
 	mu              sync.RWMutex
 	listener        net.Listener
@@ -402,6 +406,8 @@ func NewGRPCTransport(config GRPCConfig) (*GRPCTransport, error) {
 		subscriberBuffer:  config.SubscriberBuffer,
 		authToken:         config.AuthToken,
 		peerLearned:       config.PeerLearned,
+		peerAttempted:     config.PeerAttempted,
+		peerDialResult:    config.PeerDialResult,
 		peers:             peers,
 		peerOrder:         peerOrder,
 		connections:       make(map[p2p.PeerID]*grpc.ClientConn),
@@ -599,6 +605,13 @@ func (transport *GRPCTransport) SetPeerLearnedHook(hook func(p2p.PeerID, string)
 	transport.mu.Lock()
 	defer transport.mu.Unlock()
 	transport.peerLearned = hook
+}
+
+func (transport *GRPCTransport) SetPeerDialHooks(attempted func(p2p.PeerID), result func(p2p.PeerID, bool)) {
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	transport.peerAttempted = attempted
+	transport.peerDialResult = result
 }
 
 func (transport *GRPCTransport) KnownPeers() map[p2p.PeerID]string {
@@ -969,12 +982,37 @@ func (transport *GRPCTransport) reconnectConfiguredPeers(ctx context.Context) {
 		if err := transport.checkPeerBackoff(peerID); err != nil {
 			continue
 		}
+		transport.notifyPeerAttempted(peerID)
 		dialCtx, cancel := context.WithTimeout(ctx, transport.dialTimeout)
 		_, err := transport.peerSession(dialCtx, peerID, address)
 		cancel()
+		if err != nil {
+			transport.notifyPeerDialResult(peerID, false)
+		}
+		if err == nil {
+			transport.notifyPeerDialResult(peerID, true)
+		}
 		if err != nil && !errors.Is(err, ErrHandshakeFailed) && !errors.Is(err, ErrProtocolMismatch) && !errors.Is(err, ErrNetworkMismatch) && !errors.Is(err, ErrChainIDMismatch) && !errors.Is(err, ErrGenesisHashMismatch) && !errors.Is(err, ErrAuthTokenMismatch) {
 			transport.markPeerBackoff(peerID)
 		}
+	}
+}
+
+func (transport *GRPCTransport) notifyPeerAttempted(peerID p2p.PeerID) {
+	transport.mu.RLock()
+	hook := transport.peerAttempted
+	transport.mu.RUnlock()
+	if hook != nil {
+		hook(peerID)
+	}
+}
+
+func (transport *GRPCTransport) notifyPeerDialResult(peerID p2p.PeerID, success bool) {
+	transport.mu.RLock()
+	hook := transport.peerDialResult
+	transport.mu.RUnlock()
+	if hook != nil {
+		hook(peerID, success)
 	}
 }
 

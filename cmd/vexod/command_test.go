@@ -881,6 +881,43 @@ func TestBuildRuntimeNodePersistsAddrBookPeers(t *testing.T) {
 	}
 }
 
+func TestBuildRuntimeNodeFiltersBannedAddrBookPeers(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := loadStartInputs(home, "", "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addrBookPath := filepath.Join(home, "addrbook.json")
+	book, err := p2p.OpenAddrBookWithPolicy(addrBookPath, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	book.Add("bad", "127.0.0.1:26699", "handshake", false)
+	book.MarkFailure("bad", time.Hour)
+	if err := book.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, wire, err := buildRuntimeNode(inputs, startRuntimeConfig{
+		P2PEnabled:          true,
+		P2PListenAddress:    "127.0.0.1:0",
+		AddrBookPath:        addrBookPath,
+		AddrBookMaxFailures: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := wire.KnownPeers()["bad"]; found {
+		t.Fatalf("expected banned addrbook peer filtered, got %+v", wire.KnownPeers())
+	}
+}
+
 func TestBuildRuntimeNodeConfiguresGRPCTransport(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {

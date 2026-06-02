@@ -67,6 +67,7 @@ type startRuntimeConfig struct {
 	P2PMaxPeers             int
 	P2PAuthToken            string
 	AddrBookPath            string
+	AddrBookMaxFailures     int
 }
 
 type peerFlags map[p2p.PeerID]string
@@ -103,6 +104,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	p2pMaxPeers := flags.Int("p2p-max-peers", 0, "maximum configured P2P peers")
 	p2pAuthToken := flags.String("p2p-auth-token", "", "shared P2P handshake auth token")
 	addrBookPath := flags.String("addr-book", "", "P2P address book path; defaults to <home>/addrbook.json")
+	addrBookMaxFailures := flags.Int("addr-book-max-failures", 3, "failed dial attempts before addr book bans a peer")
 	strictProduction := flags.Bool("strict-production", false, "fail startup when production-readiness checks fail")
 	logFormat := flags.String("log-format", "text", "operational log format: text or json")
 	peers := peerFlags{}
@@ -133,15 +135,16 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 			RoundTimeout:  *roundTimeout,
 			MaxBlockBytes: *maxBlockBytes,
 		},
-		P2PEnabled:         *p2pEnabled,
-		P2PListenAddress:   *p2pListenAddress,
-		P2PNetworkID:       *p2pNetworkID,
-		P2PMaxMessageBytes: *p2pMaxMessageBytes,
-		P2PMaxPeers:        *p2pMaxPeers,
-		P2PAuthToken:       *p2pAuthToken,
-		AddrBookPath:       resolveAddrBookPath(*home, *addrBookPath),
-		P2PPeers:           peers,
-		P2PSeeds:           seeds,
+		P2PEnabled:          *p2pEnabled,
+		P2PListenAddress:    *p2pListenAddress,
+		P2PNetworkID:        *p2pNetworkID,
+		P2PMaxMessageBytes:  *p2pMaxMessageBytes,
+		P2PMaxPeers:         *p2pMaxPeers,
+		P2PAuthToken:        *p2pAuthToken,
+		AddrBookPath:        resolveAddrBookPath(*home, *addrBookPath),
+		AddrBookMaxFailures: *addrBookMaxFailures,
+		P2PPeers:            peers,
+		P2PSeeds:            seeds,
 	}
 	if *strictProduction {
 		audit := auditDeployment(inputs, runtimeConfig, true)
@@ -412,7 +415,7 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 	if networkID == "" {
 		networkID = inputs.Config.Chain.ChainID
 	}
-	addrBook, err := p2p.OpenAddrBook(runtimeConfig.AddrBookPath)
+	addrBook, err := p2p.OpenAddrBookWithPolicy(runtimeConfig.AddrBookPath, runtimeConfig.AddrBookMaxFailures)
 	if err != nil {
 		return nil, err
 	}
@@ -434,6 +437,19 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 		AuthToken:       runtimeConfig.P2PAuthToken,
 		PeerLearned: func(peerID p2p.PeerID, address string) {
 			addrBook.Add(peerID, address, "handshake", false)
+			_ = addrBook.Save()
+		},
+		PeerAttempted: func(peerID p2p.PeerID) {
+			addrBook.MarkAttempt(peerID)
+			_ = addrBook.Save()
+		},
+		PeerDialResult: func(peerID p2p.PeerID, success bool) {
+			if success {
+				addrBook.MarkSuccess(peerID)
+			} else {
+				addrBook.MarkFailure(peerID, inputs.Config.Chain.P2P.BanDuration)
+				_ = addrBook.EvictBanned()
+			}
 			_ = addrBook.Save()
 		},
 	})
