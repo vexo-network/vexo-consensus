@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -69,6 +70,12 @@ type PruneProvider interface {
 type ReplayProvider interface {
 	Replay(ctx context.Context, from types.Height, to types.Height) (vexoruntime.ReplayResult, error)
 	ReplayAll(ctx context.Context) (vexoruntime.ReplayResult, error)
+}
+
+type ConsensusLoopController interface {
+	StartConsensusLoop(ctx context.Context, cfg node.ConsensusLoopConfig) error
+	StopConsensusLoop(ctx context.Context) error
+	ConsensusLoopRunning() bool
 }
 
 type ValidatorQueryProvider interface {
@@ -246,6 +253,20 @@ type ReplayResponse struct {
 	ToHeight   uint64 `json:"to_height"`
 	LastHash   string `json:"last_hash"`
 	Blocks     uint64 `json:"blocks"`
+}
+
+type ConsensusLoopRequest struct {
+	IntervalMillis     uint64 `json:"interval_millis,omitempty"`
+	RoundTimeoutMillis uint64 `json:"round_timeout_millis,omitempty"`
+	MaxBlockBytes      int64  `json:"max_block_bytes,omitempty"`
+}
+
+type ConsensusLoopResponse struct {
+	Running            bool   `json:"running"`
+	Action             string `json:"action"`
+	IntervalMillis     uint64 `json:"interval_millis,omitempty"`
+	RoundTimeoutMillis uint64 `json:"round_timeout_millis,omitempty"`
+	MaxBlockBytes      int64  `json:"max_block_bytes,omitempty"`
 }
 
 type ValidatorSetResponse struct {
@@ -655,6 +676,47 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 			return
 		}
 		writeJSON(writer, http.StatusOK, replayResponse(result))
+	})
+	mux.HandleFunc("/consensus/start", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowPost(writer, request) {
+			return
+		}
+		if !allowAdmin(writer, request, cfg.AdminToken) {
+			return
+		}
+		controller, ok := provider.(ConsensusLoopController)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "consensus loop control is unavailable")
+			return
+		}
+		loopConfig, err := decodeConsensusLoopRequest(writer, request, cfg.MaxRequestBytes)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := controller.StartConsensusLoop(request.Context(), loopConfig); err != nil {
+			writeConsensusLoopError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, consensusLoopResponse("start", true, loopConfig))
+	})
+	mux.HandleFunc("/consensus/stop", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowPost(writer, request) {
+			return
+		}
+		if !allowAdmin(writer, request, cfg.AdminToken) {
+			return
+		}
+		controller, ok := provider.(ConsensusLoopController)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "consensus loop control is unavailable")
+			return
+		}
+		if err := controller.StopConsensusLoop(request.Context()); err != nil {
+			writeConsensusLoopError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, consensusLoopResponse("stop", controller.ConsensusLoopRunning(), node.ConsensusLoopConfig{}))
 	})
 	mux.HandleFunc("/validators/", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
@@ -1067,6 +1129,26 @@ func decodeReplayRequest(writer http.ResponseWriter, request *http.Request, maxR
 	return payload, nil
 }
 
+func decodeConsensusLoopRequest(writer http.ResponseWriter, request *http.Request, maxRequestBytes int64) (node.ConsensusLoopConfig, error) {
+	request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBytes)
+	defer request.Body.Close()
+
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var payload ConsensusLoopRequest
+	if err := decoder.Decode(&payload); err != nil {
+		if errors.Is(err, io.EOF) {
+			return node.ConsensusLoopConfig{}, nil
+		}
+		return node.ConsensusLoopConfig{}, fmt.Errorf("invalid consensus loop request: %w", err)
+	}
+	return node.ConsensusLoopConfig{
+		Interval:      time.Duration(payload.IntervalMillis) * time.Millisecond,
+		RoundTimeout:  time.Duration(payload.RoundTimeoutMillis) * time.Millisecond,
+		MaxBlockBytes: payload.MaxBlockBytes,
+	}, nil
+}
+
 func blockResponse(record store.BlockRecord) BlockResponse {
 	txs := make([]string, 0, len(record.Block.Txs))
 	for _, tx := range record.Block.Txs {
@@ -1146,6 +1228,26 @@ func replayResponse(result vexoruntime.ReplayResult) ReplayResponse {
 		LastHash:   hex.EncodeToString(result.LastHash[:]),
 		Blocks:     result.Blocks,
 	}
+}
+
+func consensusLoopResponse(action string, running bool, cfg node.ConsensusLoopConfig) ConsensusLoopResponse {
+	return ConsensusLoopResponse{
+		Running:            running,
+		Action:             action,
+		IntervalMillis:     uint64(cfg.Interval / time.Millisecond),
+		RoundTimeoutMillis: uint64(cfg.RoundTimeout / time.Millisecond),
+		MaxBlockBytes:      cfg.MaxBlockBytes,
+	}
+}
+
+func writeConsensusLoopError(writer http.ResponseWriter, err error) {
+	if errors.Is(err, node.ErrNodeNotRunning) ||
+		errors.Is(err, node.ErrLoopAlreadyRunning) ||
+		errors.Is(err, node.ErrLoopNotRunning) {
+		writeError(writer, http.StatusConflict, err.Error())
+		return
+	}
+	writeError(writer, http.StatusInternalServerError, err.Error())
 }
 
 func evidenceResponse(evidence slashing.Evidence, result consensus.SlashResult, applied bool) SubmitEvidenceResponse {

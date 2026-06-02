@@ -50,6 +50,10 @@ type fakeStatusProvider struct {
 	replayErr         error
 	replayAllCalled   bool
 	replayRanges      [][2]types.Height
+	loopStartErr      error
+	loopStopErr       error
+	loopRunning       bool
+	loopStartConfigs  []node.ConsensusLoopConfig
 	validators        validator.Set
 	committee         committee.Committee
 	validatorErr      error
@@ -167,6 +171,27 @@ func (provider *fakeStatusProvider) ReplayAll(ctx context.Context) (vexoruntime.
 	}
 	provider.replayAllCalled = true
 	return provider.replayResult, nil
+}
+
+func (provider *fakeStatusProvider) StartConsensusLoop(ctx context.Context, cfg node.ConsensusLoopConfig) error {
+	if provider.loopStartErr != nil {
+		return provider.loopStartErr
+	}
+	provider.loopStartConfigs = append(provider.loopStartConfigs, cfg)
+	provider.loopRunning = true
+	return nil
+}
+
+func (provider *fakeStatusProvider) StopConsensusLoop(ctx context.Context) error {
+	if provider.loopStopErr != nil {
+		return provider.loopStopErr
+	}
+	provider.loopRunning = false
+	return nil
+}
+
+func (provider *fakeStatusProvider) ConsensusLoopRunning() bool {
+	return provider.loopRunning
 }
 
 func (provider fakeStatusProvider) ValidatorSet(ctx context.Context, height types.Height) (validator.Set, error) {
@@ -1100,6 +1125,141 @@ func TestHandlerRejectsNonPOSTReplay(t *testing.T) {
 	}
 	if allow := response.Header().Get("Allow"); allow != http.MethodPost {
 		t.Fatalf("expected allow POST, got %q", allow)
+	}
+}
+
+func TestHandlerStartsConsensusLoop(t *testing.T) {
+	provider := &fakeStatusProvider{}
+	handler := NewHandler(provider)
+
+	var response ConsensusLoopResponse
+	postJSON(t, handler, "/consensus/start", `{"interval_millis":25,"round_timeout_millis":250,"max_block_bytes":4096}`, http.StatusOK, &response)
+
+	if !response.Running || response.Action != "start" || response.IntervalMillis != 25 || response.RoundTimeoutMillis != 250 || response.MaxBlockBytes != 4096 {
+		t.Fatalf("unexpected consensus start response: %+v", response)
+	}
+	if !provider.loopRunning || len(provider.loopStartConfigs) != 1 {
+		t.Fatalf("expected loop start to be recorded: running=%v configs=%+v", provider.loopRunning, provider.loopStartConfigs)
+	}
+	startConfig := provider.loopStartConfigs[0]
+	if startConfig.Interval != 25*time.Millisecond || startConfig.RoundTimeout != 250*time.Millisecond || startConfig.MaxBlockBytes != 4096 {
+		t.Fatalf("unexpected loop start config: %+v", startConfig)
+	}
+}
+
+func TestHandlerStartsConsensusLoopWithDefaults(t *testing.T) {
+	provider := &fakeStatusProvider{}
+	handler := NewHandler(provider)
+
+	var response ConsensusLoopResponse
+	postJSON(t, handler, "/consensus/start", ``, http.StatusOK, &response)
+
+	if !response.Running || response.Action != "start" {
+		t.Fatalf("unexpected default consensus start response: %+v", response)
+	}
+	if len(provider.loopStartConfigs) != 1 || provider.loopStartConfigs[0] != (node.ConsensusLoopConfig{}) {
+		t.Fatalf("expected zero config for node defaults, got %+v", provider.loopStartConfigs)
+	}
+}
+
+func TestHandlerStopsConsensusLoop(t *testing.T) {
+	provider := &fakeStatusProvider{loopRunning: true}
+	handler := NewHandler(provider)
+
+	var response ConsensusLoopResponse
+	postJSON(t, handler, "/consensus/stop", `{}`, http.StatusOK, &response)
+
+	if response.Running || response.Action != "stop" || provider.loopRunning {
+		t.Fatalf("unexpected consensus stop response: response=%+v running=%v", response, provider.loopRunning)
+	}
+}
+
+func TestHandlerRequiresAdminTokenForConsensusControl(t *testing.T) {
+	handler := NewHandlerWithConfig(&fakeStatusProvider{}, Config{AdminToken: "secret"})
+	for _, testCase := range []struct {
+		name           string
+		path           string
+		token          string
+		expectedStatus int
+	}{
+		{name: "start missing", path: "/consensus/start", expectedStatus: http.StatusUnauthorized},
+		{name: "start wrong", path: "/consensus/start", token: "wrong", expectedStatus: http.StatusForbidden},
+		{name: "stop missing", path: "/consensus/stop", expectedStatus: http.StatusUnauthorized},
+		{name: "stop wrong", path: "/consensus/stop", token: "wrong", expectedStatus: http.StatusForbidden},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			var response map[string]string
+			postJSONWithToken(t, handler, testCase.path, `{}`, testCase.token, testCase.expectedStatus, &response)
+			if response["error"] == "" {
+				t.Fatalf("expected admin auth error, got %+v", response)
+			}
+		})
+	}
+}
+
+func TestHandlerReportsConsensusControlErrors(t *testing.T) {
+	cases := []struct {
+		name           string
+		path           string
+		provider       *fakeStatusProvider
+		expectedStatus int
+	}{
+		{name: "start node stopped", path: "/consensus/start", provider: &fakeStatusProvider{loopStartErr: node.ErrNodeNotRunning}, expectedStatus: http.StatusConflict},
+		{name: "start already running", path: "/consensus/start", provider: &fakeStatusProvider{loopStartErr: node.ErrLoopAlreadyRunning}, expectedStatus: http.StatusConflict},
+		{name: "stop not running", path: "/consensus/stop", provider: &fakeStatusProvider{loopStopErr: node.ErrLoopNotRunning}, expectedStatus: http.StatusConflict},
+		{name: "start internal", path: "/consensus/start", provider: &fakeStatusProvider{loopStartErr: errors.New("start failed")}, expectedStatus: http.StatusInternalServerError},
+		{name: "stop internal", path: "/consensus/stop", provider: &fakeStatusProvider{loopStopErr: errors.New("stop failed")}, expectedStatus: http.StatusInternalServerError},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			var response map[string]string
+			postJSON(t, NewHandler(testCase.provider), testCase.path, `{}`, testCase.expectedStatus, &response)
+			if response["error"] == "" {
+				t.Fatalf("expected consensus control error, got %+v", response)
+			}
+		})
+	}
+}
+
+func TestHandlerRejectsInvalidConsensusStartRequests(t *testing.T) {
+	handler := NewHandler(&fakeStatusProvider{})
+	for _, body := range []string{
+		`{"interval_millis":1,"extra":true}`,
+		`{`,
+	} {
+		var response map[string]string
+		postJSON(t, handler, "/consensus/start", body, http.StatusBadRequest, &response)
+		if response["error"] == "" {
+			t.Fatalf("expected consensus start error for %s, got %+v", body, response)
+		}
+	}
+}
+
+func TestHandlerRejectsUnavailableConsensusController(t *testing.T) {
+	var response map[string]string
+	postJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/consensus/start", `{}`, http.StatusNotImplemented, &response)
+	if response["error"] == "" {
+		t.Fatalf("expected unavailable consensus start error, got %+v", response)
+	}
+	postJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/consensus/stop", `{}`, http.StatusNotImplemented, &response)
+	if response["error"] == "" {
+		t.Fatalf("expected unavailable consensus stop error, got %+v", response)
+	}
+}
+
+func TestHandlerRejectsNonPOSTConsensusControl(t *testing.T) {
+	for _, path := range []string{"/consensus/start", "/consensus/stop"} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		response := httptest.NewRecorder()
+
+		NewHandler(&fakeStatusProvider{}).ServeHTTP(response, request)
+
+		if response.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected 405 for %s, got %d", path, response.Code)
+		}
+		if allow := response.Header().Get("Allow"); allow != http.MethodPost {
+			t.Fatalf("expected allow POST for %s, got %q", path, allow)
+		}
 	}
 }
 
