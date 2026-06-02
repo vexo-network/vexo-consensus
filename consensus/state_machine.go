@@ -323,23 +323,34 @@ func (machine *StateMachine) buildQuorumCert(height types.Height, round types.Ro
 		return finality.QuorumCert{}, ErrNoQuorum
 	}
 
+	type signedVote struct {
+		validatorID types.ValidatorID
+		signature   types.Signature
+	}
 	var votingPower types.VotingPower
-	signers := make([]string, 0, len(blockVotes))
-	signatures := make([]types.Signature, 0, len(blockVotes))
+	votes := make([]signedVote, 0, len(blockVotes))
 	for validatorID, vote := range blockVotes {
 		validatorInfo, found := machine.validatorSet.Get(validatorID)
 		if !found {
 			continue
 		}
 		votingPower += validatorInfo.VotingPower
-		signers = append(signers, string(validatorID))
-		signatures = append(signatures, vote.Signature)
+		votes = append(votes, signedVote{validatorID: validatorID, signature: vote.Signature})
 	}
 
 	if !hasQuorum(votingPower, machine.validatorSet.TotalVotingPower()) {
 		return finality.QuorumCert{}, ErrNoQuorum
 	}
 
+	sort.Slice(votes, func(firstIndex int, secondIndex int) bool {
+		return votes[firstIndex].validatorID < votes[secondIndex].validatorID
+	})
+	signers := make([]string, 0, len(votes))
+	signatures := make([]types.Signature, 0, len(votes))
+	for _, vote := range votes {
+		signers = append(signers, string(vote.validatorID))
+		signatures = append(signatures, vote.signature)
+	}
 	aggregateSignature := types.AggregateSignature("placeholder-aggregate-signature")
 	if machine.aggregator != nil && allSignaturesPresent(signatures) {
 		signature, err := machine.aggregator.Aggregate(signatures)
@@ -348,8 +359,6 @@ func (machine *StateMachine) buildQuorumCert(height types.Height, round types.Ro
 		}
 		aggregateSignature = signature
 	}
-
-	sort.Strings(signers)
 	return finality.QuorumCert{
 		Height:      height,
 		Round:       round,

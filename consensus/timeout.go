@@ -61,18 +61,20 @@ func (collector *TimeoutCollector) BuildTimeoutCert(height types.Height, round t
 		return finality.TimeoutCert{}, ErrNoQuorum
 	}
 
+	type signedTimeoutVote struct {
+		validatorID types.ValidatorID
+		signature   types.Signature
+	}
 	var votingPower types.VotingPower
 	var highQC finality.QuorumCert
-	signers := make([]string, 0, len(roundVotes))
-	signatures := make([]types.Signature, 0, len(roundVotes))
+	votes := make([]signedTimeoutVote, 0, len(roundVotes))
 	for validatorID, vote := range roundVotes {
 		validatorInfo, found := collector.validatorSet.Get(validatorID)
 		if !found {
 			continue
 		}
 		votingPower += validatorInfo.VotingPower
-		signers = append(signers, string(validatorID))
-		signatures = append(signatures, vote.Signature)
+		votes = append(votes, signedTimeoutVote{validatorID: validatorID, signature: vote.Signature})
 		if isBetterQC(vote.HighQC, highQC) {
 			highQC = vote.HighQC
 		}
@@ -81,6 +83,15 @@ func (collector *TimeoutCollector) BuildTimeoutCert(height types.Height, round t
 		return finality.TimeoutCert{}, ErrNoQuorum
 	}
 
+	sort.Slice(votes, func(firstIndex int, secondIndex int) bool {
+		return votes[firstIndex].validatorID < votes[secondIndex].validatorID
+	})
+	signers := make([]string, 0, len(votes))
+	signatures := make([]types.Signature, 0, len(votes))
+	for _, vote := range votes {
+		signers = append(signers, string(vote.validatorID))
+		signatures = append(signatures, vote.signature)
+	}
 	aggregateSignature := types.AggregateSignature("placeholder-timeout-signature")
 	if collector.aggregator != nil && allSignaturesPresent(signatures) {
 		signature, err := collector.aggregator.Aggregate(signatures)
@@ -89,8 +100,6 @@ func (collector *TimeoutCollector) BuildTimeoutCert(height types.Height, round t
 		}
 		aggregateSignature = signature
 	}
-
-	sort.Strings(signers)
 	return finality.TimeoutCert{
 		Height:    height,
 		Round:     round,

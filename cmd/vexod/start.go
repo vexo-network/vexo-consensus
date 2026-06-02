@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os/signal"
+	"time"
 
 	appmodules "github.com/vexo-network/vexo-consensus/app/modules"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
@@ -39,8 +40,15 @@ type startInputs struct {
 }
 
 type startRuntimeConfig struct {
-	RPCEnabled bool
-	RPCAddress string
+	RPCEnabled              bool
+	RPCAddress              string
+	RPCAdminToken           string
+	RPCRequestTimeout       time.Duration
+	RPCMaxRequestBytes      int64
+	RPCRateLimitWindow      time.Duration
+	RPCRateLimitMaxRequests int
+	ConsensusLoopEnabled    bool
+	ConsensusLoop           vexonode.ConsensusLoopConfig
 }
 
 func runStart(writer io.Writer, args []string) error {
@@ -58,6 +66,15 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	run := flags.Bool("run", false, "start the node and block until context cancellation")
 	rpcEnabled := flags.Bool("rpc", true, "run HTTP RPC server with node")
 	rpcAddress := flags.String("rpc-address", defaultRPCAddress, "HTTP RPC listen address")
+	rpcAdminToken := flags.String("rpc-admin-token", "", "admin token required for protected RPC endpoints")
+	rpcRequestTimeout := flags.Duration("rpc-request-timeout", 0, "HTTP RPC request timeout")
+	rpcMaxRequestBytes := flags.Int64("rpc-max-request-bytes", 0, "maximum HTTP RPC request body bytes")
+	rpcRateLimitWindow := flags.Duration("rpc-rate-limit-window", 0, "HTTP RPC rate limit window")
+	rpcRateLimitMaxRequests := flags.Int("rpc-rate-limit-max", 0, "maximum HTTP RPC requests per client per window")
+	consensusLoopEnabled := flags.Bool("consensus-loop", true, "start local consensus loop with node")
+	consensusInterval := flags.Duration("consensus-interval", 0, "local consensus loop tick interval")
+	roundTimeout := flags.Duration("consensus-round-timeout", 0, "local consensus loop timeout round duration")
+	maxBlockBytes := flags.Int64("consensus-max-block-bytes", 0, "maximum bytes to include when building a block")
 	jsonOutput := flags.Bool("json", false, "write JSON output")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -76,8 +93,19 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 		runCtx, stopSignals := signal.NotifyContext(ctx, shutdownSignals()...)
 		defer stopSignals()
 		return runStartNode(runCtx, writer, inputs, startRuntimeConfig{
-			RPCEnabled: *rpcEnabled,
-			RPCAddress: *rpcAddress,
+			RPCEnabled:              *rpcEnabled,
+			RPCAddress:              *rpcAddress,
+			RPCAdminToken:           *rpcAdminToken,
+			RPCRequestTimeout:       *rpcRequestTimeout,
+			RPCMaxRequestBytes:      *rpcMaxRequestBytes,
+			RPCRateLimitWindow:      *rpcRateLimitWindow,
+			RPCRateLimitMaxRequests: *rpcRateLimitMaxRequests,
+			ConsensusLoopEnabled:    *consensusLoopEnabled,
+			ConsensusLoop: vexonode.ConsensusLoopConfig{
+				Interval:      *consensusInterval,
+				RoundTimeout:  *roundTimeout,
+				MaxBlockBytes: *maxBlockBytes,
+			},
 		})
 	}
 	if !plan.DryRun {
@@ -107,10 +135,25 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 	if err := node.Start(ctx); err != nil {
 		return err
 	}
+	consensusLoopStarted := false
+	if runtimeConfig.ConsensusLoopEnabled {
+		if err := node.StartConsensusLoop(ctx, runtimeConfig.ConsensusLoop); err != nil {
+			_ = node.Stop(context.Background())
+			return err
+		}
+		consensusLoopStarted = true
+		fmt.Fprintf(writer, "consensus loop running\n")
+	}
 	serverErr := make(chan error, 1)
 	rpcShutdown := func(context.Context) error { return nil }
 	if runtimeConfig.RPCEnabled {
-		address, shutdown, err := startRPCServer(node, runtimeConfig.RPCAddress, serverErr)
+		address, shutdown, err := startRPCServerWithConfig(node, runtimeConfig.RPCAddress, vexorpc.Config{
+			AdminToken:           runtimeConfig.RPCAdminToken,
+			RequestTimeout:       runtimeConfig.RPCRequestTimeout,
+			MaxRequestBytes:      runtimeConfig.RPCMaxRequestBytes,
+			RateLimitWindow:      runtimeConfig.RPCRateLimitWindow,
+			RateLimitMaxRequests: runtimeConfig.RPCRateLimitMaxRequests,
+		}, serverErr)
 		if err != nil {
 			_ = node.Stop(context.Background())
 			return err
@@ -130,6 +173,11 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 		return err
 	}
 	fmt.Fprintf(writer, "shutdown requested\n")
+	if consensusLoopStarted {
+		if err := node.StopConsensusLoop(context.Background()); err != nil && err != vexonode.ErrLoopNotRunning {
+			return err
+		}
+	}
 	if err := rpcShutdown(context.Background()); err != nil {
 		return err
 	}
@@ -141,6 +189,10 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 }
 
 func startRPCServer(provider vexorpc.StatusProvider, address string, serverErr chan<- error) (string, func(context.Context) error, error) {
+	return startRPCServerWithConfig(provider, address, vexorpc.Config{}, serverErr)
+}
+
+func startRPCServerWithConfig(provider vexorpc.StatusProvider, address string, cfg vexorpc.Config, serverErr chan<- error) (string, func(context.Context) error, error) {
 	if address == "" {
 		address = defaultRPCAddress
 	}
@@ -148,7 +200,8 @@ func startRPCServer(provider vexorpc.StatusProvider, address string, serverErr c
 	if err != nil {
 		return "", nil, err
 	}
-	server := vexorpc.NewServer(provider, vexorpc.Config{Address: address})
+	cfg.Address = address
+	server := vexorpc.NewServer(provider, cfg)
 	go func() {
 		serverErr <- server.Start(listener)
 	}()

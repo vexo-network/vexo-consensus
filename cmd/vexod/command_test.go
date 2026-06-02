@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"regexp"
@@ -211,13 +212,14 @@ func TestRunStartRunStartsAndStopsNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(output.String(), "rpc listening") ||
+		!strings.Contains(output.String(), "consensus loop running") ||
 		!strings.Contains(output.String(), "node running") ||
 		!strings.Contains(output.String(), "shutdown requested") ||
 		!strings.Contains(output.String(), "node stopped") {
 		t.Fatalf("unexpected run output:\n%s", output.String())
 	}
-	if !output.healthOK {
-		t.Fatalf("expected health check to pass, got:\n%s", output.String())
+	if !output.rpcOK {
+		t.Fatalf("expected RPC health and metrics checks to pass, got:\n%s", output.String())
 	}
 }
 
@@ -246,14 +248,14 @@ func TestRunStartRequiresKey(t *testing.T) {
 
 type rpcHealthCheckWriter struct {
 	bytes.Buffer
-	cancel   context.CancelFunc
-	client   http.Client
-	healthOK bool
+	cancel context.CancelFunc
+	client http.Client
+	rpcOK  bool
 }
 
 func (writer *rpcHealthCheckWriter) Write(data []byte) (int, error) {
 	count, err := writer.Buffer.Write(data)
-	if writer.healthOK {
+	if writer.rpcOK {
 		return count, err
 	}
 	match := regexp.MustCompile(`rpc_address: ([^\s]+)`).FindStringSubmatch(writer.Buffer.String())
@@ -261,14 +263,22 @@ func (writer *rpcHealthCheckWriter) Write(data []byte) (int, error) {
 		return count, err
 	}
 	response, requestErr := writer.client.Get("http://" + match[1] + "/healthz")
-	if requestErr == nil && response.StatusCode == http.StatusOK {
-		writer.healthOK = true
-		_ = response.Body.Close()
-		writer.cancel()
+	if requestErr != nil || response.StatusCode != http.StatusOK {
+		if response != nil {
+			_ = response.Body.Close()
+		}
 		return count, err
 	}
-	if response != nil {
-		_ = response.Body.Close()
+	_ = response.Body.Close()
+	metricsResponse, requestErr := writer.client.Get("http://" + match[1] + "/metrics")
+	if requestErr != nil {
+		return count, err
+	}
+	body, readErr := io.ReadAll(metricsResponse.Body)
+	_ = metricsResponse.Body.Close()
+	if readErr == nil && metricsResponse.StatusCode == http.StatusOK && strings.Contains(string(body), `"consensus_loop_running":true`) {
+		writer.rpcOK = true
+		writer.cancel()
 	}
 	return count, err
 }

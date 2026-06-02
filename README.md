@@ -189,6 +189,12 @@ The design is intentionally modular so individual components can be replaced wit
 go run ./cmd/vexod
 ```
 
+Run a local node with RPC and the consensus loop:
+
+```bash
+go run ./cmd/vexod start --home .vexo --run
+```
+
 Example output:
 
 ```text
