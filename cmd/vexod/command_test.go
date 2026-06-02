@@ -23,7 +23,7 @@ func TestRunCommandHelpAndVersion(t *testing.T) {
 			t.Fatal(err)
 		}
 		output := stdout.String()
-		for _, expected := range []string{"Usage:", "init", "config paths", "start", "version", "Module Commands:", "bank tx mint", "bank query balance"} {
+		for _, expected := range []string{"Usage:", "init", "config paths", "start", "localnet", "version", "Module Commands:", "bank tx mint", "bank query balance"} {
 			if !strings.Contains(output, expected) {
 				t.Fatalf("expected help output to contain %q, got:\n%s", expected, output)
 			}
@@ -93,6 +93,80 @@ func TestRunCommandRejectsUnknownCommand(t *testing.T) {
 	if !strings.Contains(stderr.String(), "unknown command") || !strings.Contains(stderr.String(), "vexod help") {
 		t.Fatalf("unexpected stderr: %s", stderr.String())
 	}
+}
+
+func TestRunLocalnetInitAndStartDryRun(t *testing.T) {
+	home := t.TempDir()
+	var initOutput bytes.Buffer
+	if err := runCommand(&initOutput, &bytes.Buffer{}, []string{"localnet", "init", "--home", home, "--chain-id", "vexo-test", "--validators", "3"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(initOutput.String(), "initialized vexo localnet") || !strings.Contains(initOutput.String(), "validators: 3") {
+		t.Fatalf("unexpected localnet init output:\n%s", initOutput.String())
+	}
+
+	var startOutput bytes.Buffer
+	if err := runCommand(&startOutput, &bytes.Buffer{}, []string{"localnet", "start", "--home", home, "--validators", "3", "--binary", "/bin/vexod", "--dry-run"}); err != nil {
+		t.Fatal(err)
+	}
+	output := startOutput.String()
+	for _, expected := range []string{"localnet start plan", "validator-1", "validator-2", "validator-3", "--rpc-address", "--p2p-listen"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("expected dry-run output to contain %q, got:\n%s", expected, output)
+		}
+	}
+}
+
+func TestLocalnetRuntimePlanAndPIDHelpers(t *testing.T) {
+	home := t.TempDir()
+	plan, err := buildLocalnetRuntimePlan(home, 2, "/bin/vexod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Binary != "/bin/vexod" || len(plan.Nodes) != 2 {
+		t.Fatalf("unexpected plan: %+v", plan)
+	}
+	if plan.Nodes[0].ValidatorID != "validator-1" || plan.Nodes[0].RPCAddress != localnetRPCAddress(1) || plan.Nodes[1].P2PAddress != localnetP2PAddress(2) {
+		t.Fatalf("unexpected nodes: %+v", plan.Nodes)
+	}
+	if _, err := buildLocalnetRuntimePlan(home, 0, "/bin/vexod"); err == nil {
+		t.Fatal("expected invalid validator count")
+	}
+	pidPath := filepath.Join(home, localnetPIDFileName)
+	if err := os.WriteFile(pidPath, []byte("12345"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pid, err := readLocalnetPID(pidPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pid != 12345 {
+		t.Fatalf("expected pid 12345, got %d", pid)
+	}
+}
+
+func TestLocalnetHealthOK(t *testing.T) {
+	client := http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path != "/healthz" {
+			return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader(""))}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}"))}, nil
+	})}
+	if !localnetHealthOK(context.Background(), client, "127.0.0.1:26657") {
+		t.Fatal("expected localnet health ok")
+	}
+	failingClient := http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: io.NopCloser(strings.NewReader(""))}, nil
+	})}
+	if localnetHealthOK(context.Background(), failingClient, "127.0.0.1:26657") {
+		t.Fatal("expected unreachable localnet health to fail")
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (roundTrip roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return roundTrip(request)
 }
 
 func TestRunConfigPathsAndShow(t *testing.T) {

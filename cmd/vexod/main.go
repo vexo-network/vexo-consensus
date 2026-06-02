@@ -57,6 +57,11 @@ func runCommand(stdout io.Writer, stderr io.Writer, args []string) error {
 			return writeCommandError(stderr, "start", err)
 		}
 		return nil
+	case "localnet":
+		if err := runLocalnet(stdout, args[1:]); err != nil {
+			return writeCommandError(stderr, "localnet", err)
+		}
+		return nil
 	case "status":
 		if len(args) > 1 && args[1] == "--json" {
 			if err := writeStatusJSON(stdout, config.Default("vexo-local")); err != nil {
@@ -119,6 +124,7 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  keys gen        generate an Ed25519 validator key\n")
 	fmt.Fprintf(writer, "  keys show       show validator public key\n")
 	fmt.Fprintf(writer, "  start           validate files, prepare startup, or run node with --run; Ctrl+C shuts down gracefully\n")
+	fmt.Fprintf(writer, "  localnet        initialize, start, status-check, and stop local multi-node networks\n")
 	fmt.Fprintf(writer, "  status          print default node capability status\n")
 	fmt.Fprintf(writer, "  demo            run an in-memory bank execution demo\n")
 	fmt.Fprintf(writer, "  store-demo      run a LevelDB-backed storage demo\n")
