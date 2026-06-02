@@ -250,6 +250,7 @@ rm -rf .gocache
 - **Modularity**: every major subsystem should be replaceable.
 - **Simple verification**: finality proofs should be light-client friendly.
 - **Configurable participation**: validator admission should support permissionless and restricted modes.
+- **Safe defaults**: invalid or dangerous runtime parameters should fail validation early.
 - **Accountable safety**: malicious behavior should produce evidence.
 - **DoS resistance**: networking should include scoring and rate limits.
 - **Governance safety**: parameter changes should use voting windows and timelocks.

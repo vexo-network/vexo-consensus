@@ -8,7 +8,6 @@ import (
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/config"
-	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
@@ -41,8 +40,8 @@ func TestRuntimeRejectsUnsupportedCryptoBackend(t *testing.T) {
 	cfg := config.Default("vexo-test")
 	cfg.Crypto.Backend = "unknown"
 	_, err := New(cfg, noopApp{}, nil, nil)
-	if !errors.Is(err, vexocrypto.ErrUnsupportedCryptoBackend) {
-		t.Fatalf("expected unsupported crypto backend, got %v", err)
+	if !errors.Is(err, config.ErrInvalidConfig) {
+		t.Fatalf("expected invalid config, got %v", err)
 	}
 }
 
@@ -50,8 +49,8 @@ func TestRuntimeRejectsUnsupportedCommitteeBackend(t *testing.T) {
 	cfg := config.Default("vexo-test")
 	cfg.Committee.Backend = "unknown"
 	_, err := New(cfg, noopApp{}, nil, nil)
-	if !errors.Is(err, committee.ErrUnsupportedCommitteeBackend) {
-		t.Fatalf("expected unsupported committee backend, got %v", err)
+	if !errors.Is(err, config.ErrInvalidConfig) {
+		t.Fatalf("expected invalid config, got %v", err)
 	}
 }
 

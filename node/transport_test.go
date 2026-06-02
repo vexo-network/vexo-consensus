@@ -871,7 +871,7 @@ func newScoredNode(t *testing.T, bus *transport.InMemoryBus, genesis Genesis, va
 	cfg.Chain.P2P.ValidMessageReward = 2
 	cfg.Chain.P2P.InvalidMessageCost = 1
 	cfg.Chain.P2P.BanThreshold = 0
-	cfg.Chain.P2P.WindowResetInterval = 0
+	cfg.Chain.P2P.WindowResetInterval = time.Hour
 	cfg.Chain.P2P.ScoreRecovery = 0
 	node, err := New(cfg, genesis, newTestApplication(t))
 	if err != nil {
@@ -913,7 +913,7 @@ func newRateLimitedNode(t *testing.T, bus *transport.InMemoryBus, genesis Genesi
 	cfg.Chain.P2P.RateLimitCost = 5
 	cfg.Chain.P2P.BanThreshold = 0
 	cfg.Chain.P2P.MaxMessagesPerWindow = 1
-	cfg.Chain.P2P.WindowResetInterval = 0
+	cfg.Chain.P2P.WindowResetInterval = time.Hour
 	node, err := New(cfg, genesis, newTestApplication(t))
 	if err != nil {
 		t.Fatal(err)

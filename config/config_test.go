@@ -42,26 +42,56 @@ func TestConfigValidateRejectsMissingCommitteeBackend(t *testing.T) {
 	}
 }
 
-func TestConfigValidateRejectsNegativeP2PWindowResetInterval(t *testing.T) {
-	cfg := Default("vexo-test")
-	cfg.P2P.WindowResetInterval = -time.Second
-	if err := cfg.Validate(); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("expected invalid config, got %v", err)
+func TestConfigValidateRejectsUnsafeSettings(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{name: "unknown crypto backend", mutate: func(cfg *Config) { cfg.Crypto.Backend = "unknown" }},
+		{name: "negative max validators", mutate: func(cfg *Config) { cfg.Validator.MaxValidators = -1 }},
+		{name: "unknown committee backend", mutate: func(cfg *Config) { cfg.Committee.Backend = "unknown" }},
+		{name: "zero committee epoch", mutate: func(cfg *Config) { cfg.Committee.EpochLength = 0 }},
+		{name: "zero committee size", mutate: func(cfg *Config) { cfg.Committee.CommitteeSize = 0 }},
+		{name: "zero mempool tx bytes", mutate: func(cfg *Config) { cfg.Mempool.MaxTxBytes = 0 }},
+		{name: "negative mempool tx bytes", mutate: func(cfg *Config) { cfg.Mempool.MaxTxBytes = -1 }},
+		{name: "zero mempool tx count", mutate: func(cfg *Config) { cfg.Mempool.MaxTxs = 0 }},
+		{name: "negative mempool tx count", mutate: func(cfg *Config) { cfg.Mempool.MaxTxs = -1 }},
+		{name: "zero governance quorum", mutate: func(cfg *Config) { cfg.Governance.QuorumPower = 0 }},
+		{name: "zero governance yes threshold", mutate: func(cfg *Config) { cfg.Governance.YesThresholdPower = 0 }},
+		{name: "zero governance voting period", mutate: func(cfg *Config) { cfg.Governance.VotingPeriod = 0 }},
+		{name: "zero governance timelock", mutate: func(cfg *Config) { cfg.Governance.Timelock = 0 }},
+		{name: "initial score at ban threshold", mutate: func(cfg *Config) { cfg.P2P.InitialScore = cfg.P2P.BanThreshold }},
+		{name: "initial score below ban threshold", mutate: func(cfg *Config) { cfg.P2P.InitialScore = cfg.P2P.BanThreshold - 1 }},
+		{name: "negative valid reward", mutate: func(cfg *Config) { cfg.P2P.ValidMessageReward = -1 }},
+		{name: "zero invalid cost", mutate: func(cfg *Config) { cfg.P2P.InvalidMessageCost = 0 }},
+		{name: "negative invalid cost", mutate: func(cfg *Config) { cfg.P2P.InvalidMessageCost = -1 }},
+		{name: "zero rate limit cost", mutate: func(cfg *Config) { cfg.P2P.RateLimitCost = 0 }},
+		{name: "negative rate limit cost", mutate: func(cfg *Config) { cfg.P2P.RateLimitCost = -1 }},
+		{name: "zero max messages window", mutate: func(cfg *Config) { cfg.P2P.MaxMessagesPerWindow = 0 }},
+		{name: "zero p2p window reset interval", mutate: func(cfg *Config) { cfg.P2P.WindowResetInterval = 0 }},
+		{name: "negative p2p window reset interval", mutate: func(cfg *Config) { cfg.P2P.WindowResetInterval = -time.Second }},
+		{name: "negative p2p ban duration", mutate: func(cfg *Config) { cfg.P2P.BanDuration = -time.Second }},
+		{name: "negative p2p score recovery", mutate: func(cfg *Config) { cfg.P2P.ScoreRecovery = -1 }},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			cfg := Default("vexo-test")
+			testCase.mutate(&cfg)
+			if err := cfg.Validate(); !errors.Is(err, ErrInvalidConfig) {
+				t.Fatalf("expected invalid config, got %v", err)
+			}
+		})
 	}
 }
 
-func TestConfigValidateRejectsNegativeP2PBanDuration(t *testing.T) {
+func TestConfigValidateAllowsOptionalSafetyKnobs(t *testing.T) {
 	cfg := Default("vexo-test")
-	cfg.P2P.BanDuration = -time.Second
-	if err := cfg.Validate(); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("expected invalid config, got %v", err)
-	}
-}
-
-func TestConfigValidateRejectsNegativeP2PScoreRecovery(t *testing.T) {
-	cfg := Default("vexo-test")
-	cfg.P2P.ScoreRecovery = -1
-	if err := cfg.Validate(); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatalf("expected invalid config, got %v", err)
+	cfg.Validator.MaxValidators = 0
+	cfg.Committee.MinVotingPower = 0
+	cfg.Governance.VetoPower = 0
+	cfg.P2P.ValidMessageReward = 0
+	cfg.P2P.BanDuration = 0
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected optional zero settings to be valid, got %v", err)
 	}
 }

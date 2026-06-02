@@ -86,20 +86,53 @@ func (config Config) Validate() error {
 	if config.ChainID == "" {
 		return ErrMissingChainID
 	}
-	if config.Crypto.Backend == "" {
+	if !validCryptoBackend(config.Crypto.Backend) {
 		return ErrInvalidConfig
 	}
-	if config.Committee.Backend == "" || config.Committee.EpochLength == 0 || config.Committee.CommitteeSize == 0 {
+	if config.Validator.MaxValidators < 0 {
 		return ErrInvalidConfig
 	}
-	if config.P2P.WindowResetInterval < 0 {
+	if !validCommitteeBackend(config.Committee.Backend) ||
+		config.Committee.EpochLength == 0 ||
+		config.Committee.CommitteeSize == 0 {
 		return ErrInvalidConfig
 	}
-	if config.P2P.ScoreRecovery < 0 {
+	if config.Mempool.MaxTxBytes <= 0 || config.Mempool.MaxTxs <= 0 {
 		return ErrInvalidConfig
 	}
-	if config.P2P.BanDuration < 0 {
+	if config.Governance.QuorumPower == 0 ||
+		config.Governance.YesThresholdPower == 0 ||
+		config.Governance.VotingPeriod == 0 ||
+		config.Governance.Timelock == 0 {
+		return ErrInvalidConfig
+	}
+	if config.P2P.InitialScore <= config.P2P.BanThreshold ||
+		config.P2P.ValidMessageReward < 0 ||
+		config.P2P.InvalidMessageCost <= 0 ||
+		config.P2P.RateLimitCost <= 0 ||
+		config.P2P.MaxMessagesPerWindow == 0 ||
+		config.P2P.WindowResetInterval <= 0 ||
+		config.P2P.ScoreRecovery < 0 ||
+		config.P2P.BanDuration < 0 {
 		return ErrInvalidConfig
 	}
 	return nil
+}
+
+func validCryptoBackend(backend CryptoBackend) bool {
+	switch backend {
+	case CryptoBackendDeterministic, CryptoBackendEd25519:
+		return true
+	default:
+		return false
+	}
+}
+
+func validCommitteeBackend(backend committee.Backend) bool {
+	switch backend {
+	case committee.BackendDeterministic, committee.BackendVRF:
+		return true
+	default:
+		return false
+	}
 }
