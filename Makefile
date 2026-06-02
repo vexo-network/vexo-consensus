@@ -9,8 +9,11 @@ COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS ?= -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)
 RELEASE_TARGETS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
+IMAGE ?= vexo-consensus
+IMAGE_TAG ?= $(VERSION)
+GPG ?= gpg
 
-.PHONY: all build test vet check fuzz-smoke ops-verify coverage release checksums clean init-demo keys-demo
+.PHONY: all build test vet check fuzz-smoke ops-verify coverage release checksums sbom release-manifest sign-release docker-image release-candidate clean init-demo keys-demo
 
 all: check build
 
@@ -62,9 +65,39 @@ release: check
 		GOOS=$$goos GOARCH=$$goarch CGO_ENABLED=0 $(GO) build $(GOFLAGS) -trimpath -ldflags "$(LDFLAGS)" -o "$$out" ./cmd/vexod; \
 	done
 	$(MAKE) checksums
+	$(MAKE) sbom
+	$(MAKE) release-manifest
 
 checksums:
 	cd $(DIST_DIR) && shasum -a 256 * > checksums.txt
+
+sbom:
+	mkdir -p $(DIST_DIR)
+	$(GO) version > $(DIST_DIR)/sbom-go-version.txt
+	@for artifact in $(DIST_DIR)/$(BINARY)-$(VERSION)-*; do \
+		if [ -f "$$artifact" ]; then $(GO) version -m "$$artifact" >> $(DIST_DIR)/sbom-go-version.txt 2>/dev/null || true; fi; \
+	done
+	$(GO) list -m -json all > $(DIST_DIR)/sbom-go-modules.json
+
+release-manifest:
+	mkdir -p $(DIST_DIR)
+	printf '{\n  "version": "$(VERSION)",\n  "commit": "$(COMMIT)",\n  "build_date": "$(BUILD_DATE)",\n  "binary": "$(BINARY)",\n  "targets": "$(RELEASE_TARGETS)",\n  "checksums": "checksums.txt",\n  "sbom": "sbom-go-modules.json"\n}\n' > $(DIST_DIR)/release-manifest.json
+
+sign-release:
+	test -f $(DIST_DIR)/checksums.txt
+	$(GPG) --batch --yes --armor --detach-sign --output $(DIST_DIR)/checksums.txt.asc $(DIST_DIR)/checksums.txt
+
+docker-image:
+	docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t $(IMAGE):$(IMAGE_TAG) .
+
+release-candidate: release ops-verify
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod localnet load --validators 4 --duration 10m --rate 25 --dry-run
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod localnet chaos-plan --validators 4 --duration 24h --regions 3
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod localnet longrun-plan --validators 4 --duration 168h --regions 3 --hosts 4
 
 clean:
 	rm -rf $(BUILD_DIR) $(DIST_DIR) $(GOCACHE_DIR) coverage.out coverage.html

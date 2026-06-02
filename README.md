@@ -233,6 +233,12 @@ SDK and extension guides:
 - [Custom Storage and Transport Guide](./docs/sdk/custom-storage-transport.md)
 - [RPC API Versioning](./docs/sdk/rpc-api-versioning.md)
 
+Security audit and release documents:
+
+- [Security Audit Readiness](./docs/security/audit-readiness.md)
+- [Release Pipeline](./docs/release/release-pipeline.md)
+- [Version Compatibility Matrix](./docs/release/version-compatibility.md)
+
 ## Quick Start
 
 ### Requirements
@@ -513,6 +519,14 @@ Build cross-platform release artifacts and checksums:
 ```bash
 make release VERSION=0.1.0
 ls dist/
+```
+
+Generate signed release metadata, SBOM, Docker image, and release-candidate evidence:
+
+```bash
+make sign-release VERSION=0.1.0
+make docker-image VERSION=0.1.0 IMAGE=vexo-consensus IMAGE_TAG=0.1.0
+make release-candidate VERSION=0.1.0-rc.1
 ```
 
 Run all checks:

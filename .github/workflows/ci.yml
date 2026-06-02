@@ -26,3 +26,6 @@ jobs:
 
       - name: Build
         run: make build
+
+      - name: Release candidate smoke
+        run: make release-candidate VERSION=ci
