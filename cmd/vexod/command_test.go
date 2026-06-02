@@ -14,7 +14,7 @@ func TestRunCommandHelpAndVersion(t *testing.T) {
 			t.Fatal(err)
 		}
 		output := stdout.String()
-		for _, expected := range []string{"Usage:", "init", "config paths", "start", "version"} {
+		for _, expected := range []string{"Usage:", "init", "config paths", "start", "version", "Module Commands:", "bank tx mint", "bank query balance"} {
 			if !strings.Contains(output, expected) {
 				t.Fatalf("expected help output to contain %q, got:\n%s", expected, output)
 			}
@@ -27,6 +27,26 @@ func TestRunCommandHelpAndVersion(t *testing.T) {
 	}
 	if strings.TrimSpace(stdout.String()) != "vexod "+version {
 		t.Fatalf("unexpected version output: %q", stdout.String())
+	}
+}
+
+func TestRunCommandDispatchesModuleCLI(t *testing.T) {
+	var stdout bytes.Buffer
+	if err := runCommand(&stdout, &bytes.Buffer{}, []string{"bank", "tx", "send", "alice", "bob", "25"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(stdout.String()) != "tx: bank:send:alice:bob:25" {
+		t.Fatalf("unexpected module cli output: %q", stdout.String())
+	}
+}
+
+func TestRunCommandReportsModuleCLIError(t *testing.T) {
+	var stderr bytes.Buffer
+	if err := runCommand(&bytes.Buffer{}, &stderr, []string{"bank", "tx", "mint", "alice", "0"}); err == nil {
+		t.Fatal("expected module cli error")
+	}
+	if !strings.Contains(stderr.String(), "bank failed") {
+		t.Fatalf("unexpected stderr: %s", stderr.String())
 	}
 }
 

@@ -219,6 +219,14 @@ go run ./cmd/vexod help
 go run ./cmd/vexod version
 ```
 
+Application modules can expose their own CLI commands, and enabled module commands appear in `vexod help`:
+
+```bash
+go run ./cmd/vexod bank tx mint alice 100
+go run ./cmd/vexod bank tx send alice bob 25
+go run ./cmd/vexod bank query balance alice
+```
+
 Initialize node files:
 
 ```bash

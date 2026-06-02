@@ -18,6 +18,16 @@ func TestBuildDefaultModules(t *testing.T) {
 	}
 }
 
+func TestBuildDefaultCLICommands(t *testing.T) {
+	commands, err := BuildCLICommands(config.Default("vexo-test").Application)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(commands) != 1 || commands[0].Name != "bank" || commands[0].Run == nil {
+		t.Fatalf("expected default bank cli command, got %+v", commands)
+	}
+}
+
 func TestBuildAllowsNoApplicationModules(t *testing.T) {
 	modules, err := Build(config.ApplicationConfig{})
 	if err != nil {

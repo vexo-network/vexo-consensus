@@ -51,6 +51,27 @@ func (registry Registry) Build(enabled []string) ([]Module, error) {
 	return modules, nil
 }
 
+func (registry Registry) BuildCLICommands(enabled []string) ([]CLICommand, error) {
+	modules, err := registry.Build(enabled)
+	if err != nil {
+		return nil, err
+	}
+	commands := make([]CLICommand, 0)
+	for _, module := range modules {
+		provider, ok := module.(CLICommandProvider)
+		if !ok {
+			continue
+		}
+		for _, command := range provider.CLICommands() {
+			if command.Name == "" || command.Run == nil {
+				continue
+			}
+			commands = append(commands, command)
+		}
+	}
+	return commands, nil
+}
+
 func (registry Registry) Names() []string {
 	names := make([]string, 0, len(registry.factories))
 	for name := range registry.factories {

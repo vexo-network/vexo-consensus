@@ -1,8 +1,10 @@
 package bank
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
@@ -147,6 +149,62 @@ func TestBankModuleWorksThroughAppRuntime(t *testing.T) {
 	query := runtime.Query(vexoapp.QueryRequest{Path: []string{"bank", "balance", "bob"}})
 	if query.Code != 0 || string(query.Value) != "40" {
 		t.Fatalf("unexpected runtime query: %+v", query)
+	}
+}
+
+func TestBankModuleCLICommands(t *testing.T) {
+	commands := NewModule().CLICommands()
+	if len(commands) != 1 || commands[0].Name != ModuleName || commands[0].Run == nil {
+		t.Fatalf("unexpected cli commands: %+v", commands)
+	}
+
+	cases := []struct {
+		name     string
+		args     []string
+		expected string
+	}{
+		{
+			name:     "mint transaction",
+			args:     []string{"tx", "mint", "alice", "100"},
+			expected: "tx: bank:mint:alice:100",
+		},
+		{
+			name:     "send transaction",
+			args:     []string{"tx", "send", "alice", "bob", "25"},
+			expected: "tx: bank:send:alice:bob:25",
+		},
+		{
+			name:     "balance query",
+			args:     []string{"query", "balance", "alice"},
+			expected: "query_path: bank/balance/alice",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var output bytes.Buffer
+			if err := commands[0].Run(&output, tc.args); err != nil {
+				t.Fatal(err)
+			}
+			if strings.TrimSpace(output.String()) != tc.expected {
+				t.Fatalf("expected %q, got %q", tc.expected, output.String())
+			}
+		})
+	}
+}
+
+func TestBankModuleCLIRejectsInvalidCommands(t *testing.T) {
+	command := NewModule().CLICommands()[0]
+	for _, args := range [][]string{
+		nil,
+		{"unknown"},
+		{"tx"},
+		{"tx", "mint", "alice", "0"},
+		{"tx", "send", "alice", "bob", "bad"},
+		{"query", "balance"},
+	} {
+		if err := command.Run(&bytes.Buffer{}, args); err == nil {
+			t.Fatalf("expected cli args %v to fail", args)
+		}
 	}
 }
 

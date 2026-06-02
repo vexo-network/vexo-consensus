@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
+	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	appmodules "github.com/vexo-network/vexo-consensus/app/modules"
 	"github.com/vexo-network/vexo-consensus/config"
 )
 
@@ -84,6 +86,12 @@ func runCommand(stdout io.Writer, stderr io.Writer, args []string) error {
 		}
 		return nil
 	default:
+		if handled, err := runModuleCommand(stdout, args); handled {
+			if err != nil {
+				return writeCommandError(stderr, args[0], err)
+			}
+			return nil
+		}
 		fmt.Fprintf(stderr, "unknown command %q\n", args[0])
 		fmt.Fprintf(stderr, "run `vexod help` for usage\n")
 		return fmt.Errorf("unknown command %q", args[0])
@@ -115,4 +123,37 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  demo            run an in-memory bank execution demo\n")
 	fmt.Fprintf(writer, "  store-demo      run a LevelDB-backed storage demo\n")
 	fmt.Fprintf(writer, "  version         print version\n")
+	writeModuleHelp(writer)
+}
+
+func moduleCLICommands() []vexoapp.CLICommand {
+	commands, err := appmodules.BuildCLICommands(config.Default("vexo-local").Application)
+	if err != nil {
+		return nil
+	}
+	return commands
+}
+
+func runModuleCommand(writer io.Writer, args []string) (bool, error) {
+	for _, command := range moduleCLICommands() {
+		if command.Name != args[0] {
+			continue
+		}
+		return true, command.Run(writer, args[1:])
+	}
+	return false, nil
+}
+
+func writeModuleHelp(writer io.Writer) {
+	commands := moduleCLICommands()
+	if len(commands) == 0 {
+		return
+	}
+	fmt.Fprintf(writer, "\nModule Commands:\n")
+	for _, command := range commands {
+		fmt.Fprintf(writer, "  %-14s %s\n", command.Name, command.Description)
+		if command.Usage != "" {
+			fmt.Fprintf(writer, "                  usage: %s\n", command.Usage)
+		}
+	}
 }
