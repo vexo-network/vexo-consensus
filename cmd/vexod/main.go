@@ -28,6 +28,13 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "keys" {
+		if err := runKeys(os.Stdout, os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "keys failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "status" {
 		if len(os.Args) > 2 && os.Args[2] == "--json" {
 			if err := writeStatusJSON(os.Stdout, config.Default("vexo-local")); err != nil {

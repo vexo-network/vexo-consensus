@@ -150,7 +150,7 @@ The design is intentionally modular so individual components can be replaced wit
 | `config` | Default chain configuration and validation |
 | `consensus` | Consensus state machine, votes, proposals, QC, conflict evidence |
 | `dataavailability` | Transaction data commitments and availability checks |
-| `crypto` | Deterministic test signer and aggregate signer |
+| `crypto` | Deterministic and Ed25519 signers, aggregate verification, and key files |
 | `fairordering` | Deterministic transaction ordering |
 | `finality` | Finality proofs and light-client verifier |
 | `governance` | Proposal, voting, quorum, veto, and timelock module |
@@ -219,6 +219,18 @@ Validate node files:
 
 ```bash
 go run ./cmd/vexod validate --home .vexo
+```
+
+Generate a validator key:
+
+```bash
+go run ./cmd/vexod keys gen --home .vexo
+```
+
+Show the public validator key without printing the private key:
+
+```bash
+go run ./cmd/vexod keys show --home .vexo --json
 ```
 
 Run a minimal block execution demo:
