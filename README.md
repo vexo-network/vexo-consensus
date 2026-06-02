@@ -82,7 +82,7 @@ The design is intentionally modular so individual components can be replaced wit
 - Three-chain finality decisions
 - Deterministic scenario and adversarial simulation helpers
 - Transport message codec and reactor for proposal/vote/timeout routing
-- gRPC peer transport with protocol, network, chain, genesis, and node-id handshake validation
+- gRPC peer transport with binary framing, persistent streams, and protocol/network/chain/genesis/node-id handshake validation
 
 ### Validator and Committee
 

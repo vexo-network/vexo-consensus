@@ -32,6 +32,43 @@ func TestGRPCTransportPublishBroadcastsToConfiguredPeers(t *testing.T) {
 	assertEnvelope(t, carolTxs, "alice", "", p2p.TopicTx, "tx")
 }
 
+func TestGRPCBinaryCodecRoundTrip(t *testing.T) {
+	codec := grpcBinaryCodec{}
+	original := &grpcStreamMessage{
+		Handshake: &Handshake{
+			ProtocolVersion: GRPCProtocolVersion,
+			NetworkID:       "localnet",
+			ChainID:         "vexo-test",
+			GenesisHash:     GenesisHash([]byte("genesis")),
+			NodeID:          "alice",
+			ListenAddr:      "127.0.0.1:26656",
+		},
+		Envelope: &grpcEnvelope{
+			Topic: p2p.TopicVote,
+			From:  "alice",
+			To:    "bob",
+			Data:  []byte("vote"),
+		},
+	}
+	data, err := codec.Marshal(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded grpcStreamMessage
+	if err := codec.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Handshake == nil || decoded.Envelope == nil {
+		t.Fatalf("expected decoded handshake and envelope: %+v", decoded)
+	}
+	if decoded.Handshake.NodeID != original.Handshake.NodeID || decoded.Handshake.ChainID != original.Handshake.ChainID {
+		t.Fatalf("unexpected decoded handshake: %+v", decoded.Handshake)
+	}
+	if decoded.Envelope.Topic != original.Envelope.Topic || decoded.Envelope.From != original.Envelope.From || decoded.Envelope.To != original.Envelope.To || string(decoded.Envelope.Data) != string(original.Envelope.Data) {
+		t.Fatalf("unexpected decoded envelope: %+v", decoded.Envelope)
+	}
+}
+
 func TestGRPCTransportSendDeliversOnlyTargetPeer(t *testing.T) {
 	alice, bob, carol := newStartedGRPCPeers(t)
 	defer stopGRPCPeer(t, alice)

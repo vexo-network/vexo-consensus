@@ -1,10 +1,11 @@
 package transport
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -21,7 +22,8 @@ import (
 
 const (
 	GRPCProtocolVersion    = "vexo-p2p/1"
-	grpcCodecName          = "vexo-json"
+	grpcCodecName          = "vexo-binary"
+	grpcCodecVersion       = byte(1)
 	defaultGRPCDialTimeout = 3 * time.Second
 )
 
@@ -90,20 +92,184 @@ type grpcStreamMessage struct {
 	Envelope  *grpcEnvelope `json:"envelope,omitempty"`
 }
 
-type grpcJSONCodec struct{}
+type grpcBinaryCodec struct{}
 
 func init() {
-	encoding.RegisterCodec(grpcJSONCodec{})
+	encoding.RegisterCodec(grpcBinaryCodec{})
 }
 
-func (grpcJSONCodec) Name() string { return grpcCodecName }
+func (grpcBinaryCodec) Name() string { return grpcCodecName }
 
-func (grpcJSONCodec) Marshal(value any) ([]byte, error) {
-	return json.Marshal(value)
+func (grpcBinaryCodec) Marshal(value any) ([]byte, error) {
+	switch message := value.(type) {
+	case *grpcStreamMessage:
+		return encodeGRPCStreamMessage(message)
+	case grpcStreamMessage:
+		return encodeGRPCStreamMessage(&message)
+	default:
+		return nil, fmt.Errorf("unsupported grpc codec value %T", value)
+	}
 }
 
-func (grpcJSONCodec) Unmarshal(data []byte, value any) error {
-	return json.Unmarshal(data, value)
+func (grpcBinaryCodec) Unmarshal(data []byte, value any) error {
+	message, ok := value.(*grpcStreamMessage)
+	if !ok {
+		return fmt.Errorf("unsupported grpc codec target %T", value)
+	}
+	decoded, err := decodeGRPCStreamMessage(data)
+	if err != nil {
+		return err
+	}
+	*message = *decoded
+	return nil
+}
+
+func encodeGRPCStreamMessage(message *grpcStreamMessage) ([]byte, error) {
+	var buffer bytes.Buffer
+	buffer.WriteByte(grpcCodecVersion)
+	if message != nil && message.Handshake != nil {
+		buffer.WriteByte(1)
+		writeBinaryString(&buffer, message.Handshake.ProtocolVersion)
+		writeBinaryString(&buffer, message.Handshake.NetworkID)
+		writeBinaryString(&buffer, message.Handshake.ChainID)
+		writeBinaryString(&buffer, message.Handshake.GenesisHash)
+		writeBinaryString(&buffer, string(message.Handshake.NodeID))
+		writeBinaryString(&buffer, message.Handshake.ListenAddr)
+	} else {
+		buffer.WriteByte(0)
+	}
+	if message != nil && message.Envelope != nil {
+		buffer.WriteByte(1)
+		writeBinaryString(&buffer, string(message.Envelope.Topic))
+		writeBinaryString(&buffer, string(message.Envelope.From))
+		writeBinaryString(&buffer, string(message.Envelope.To))
+		writeBinaryBytes(&buffer, message.Envelope.Data)
+	} else {
+		buffer.WriteByte(0)
+	}
+	return buffer.Bytes(), nil
+}
+
+func decodeGRPCStreamMessage(data []byte) (*grpcStreamMessage, error) {
+	reader := bytes.NewReader(data)
+	version, err := reader.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+	if version != grpcCodecVersion {
+		return nil, fmt.Errorf("unsupported grpc codec version %d", version)
+	}
+	message := &grpcStreamMessage{}
+	hasHandshake, err := reader.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+	switch hasHandshake {
+	case 0:
+	case 1:
+		protocolVersion, err := readBinaryString(reader)
+		if err != nil {
+			return nil, err
+		}
+		networkID, err := readBinaryString(reader)
+		if err != nil {
+			return nil, err
+		}
+		chainID, err := readBinaryString(reader)
+		if err != nil {
+			return nil, err
+		}
+		genesisHash, err := readBinaryString(reader)
+		if err != nil {
+			return nil, err
+		}
+		nodeID, err := readBinaryString(reader)
+		if err != nil {
+			return nil, err
+		}
+		listenAddr, err := readBinaryString(reader)
+		if err != nil {
+			return nil, err
+		}
+		message.Handshake = &Handshake{
+			ProtocolVersion: protocolVersion,
+			NetworkID:       networkID,
+			ChainID:         chainID,
+			GenesisHash:     genesisHash,
+			NodeID:          p2p.PeerID(nodeID),
+			ListenAddr:      listenAddr,
+		}
+	default:
+		return nil, fmt.Errorf("invalid handshake flag %d", hasHandshake)
+	}
+	hasEnvelope, err := reader.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+	switch hasEnvelope {
+	case 0:
+	case 1:
+		topic, err := readBinaryString(reader)
+		if err != nil {
+			return nil, err
+		}
+		from, err := readBinaryString(reader)
+		if err != nil {
+			return nil, err
+		}
+		to, err := readBinaryString(reader)
+		if err != nil {
+			return nil, err
+		}
+		payload, err := readBinaryBytes(reader)
+		if err != nil {
+			return nil, err
+		}
+		message.Envelope = &grpcEnvelope{
+			Topic: p2p.Topic(topic),
+			From:  p2p.PeerID(from),
+			To:    p2p.PeerID(to),
+			Data:  payload,
+		}
+	default:
+		return nil, fmt.Errorf("invalid envelope flag %d", hasEnvelope)
+	}
+	if reader.Len() != 0 {
+		return nil, errors.New("trailing grpc codec bytes")
+	}
+	return message, nil
+}
+
+func writeBinaryString(writer io.Writer, value string) {
+	writeBinaryBytes(writer, []byte(value))
+}
+
+func writeBinaryBytes(writer io.Writer, value []byte) {
+	var length [4]byte
+	binary.BigEndian.PutUint32(length[:], uint32(len(value)))
+	_, _ = writer.Write(length[:])
+	_, _ = writer.Write(value)
+}
+
+func readBinaryString(reader io.Reader) (string, error) {
+	value, err := readBinaryBytes(reader)
+	if err != nil {
+		return "", err
+	}
+	return string(value), nil
+}
+
+func readBinaryBytes(reader io.Reader) ([]byte, error) {
+	var lengthBytes [4]byte
+	if _, err := io.ReadFull(reader, lengthBytes[:]); err != nil {
+		return nil, err
+	}
+	length := binary.BigEndian.Uint32(lengthBytes[:])
+	value := make([]byte, int(length))
+	if _, err := io.ReadFull(reader, value); err != nil {
+		return nil, err
+	}
+	return value, nil
 }
 
 func NewGRPCTransport(config GRPCConfig) (*GRPCTransport, error) {
@@ -158,7 +324,7 @@ func (transport *GRPCTransport) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	server := grpc.NewServer(grpc.ForceServerCodec(grpcJSONCodec{}))
+	server := grpc.NewServer(grpc.ForceServerCodec(grpcBinaryCodec{}))
 	registerP2PTransportServer(server, transport)
 	transport.listener = listener
 	transport.server = server
@@ -361,7 +527,7 @@ func (transport *GRPCTransport) peerConnection(ctx context.Context, peerID p2p.P
 	}
 	connection, err := grpc.DialContext(ctx, address,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultCallOptions(grpc.ForceCodec(grpcJSONCodec{})),
+		grpc.WithDefaultCallOptions(grpc.ForceCodec(grpcBinaryCodec{})),
 		grpc.WithBlock(),
 	)
 	if err != nil {
