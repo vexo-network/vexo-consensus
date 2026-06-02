@@ -134,6 +134,7 @@ The design is intentionally modular so individual components can be replaced wit
 ### Storage and Runtime
 
 - ABCI-like application runtime
+- Config-driven application module registry and builder
 - Bank module with mint, send, balance query, and persisted state
 - Block executor
 - LevelDB block/state/state-root storage
@@ -148,6 +149,7 @@ The design is intentionally modular so individual components can be replaced wit
 |---|---|
 | `app` | ABCI-like application and module interfaces |
 | `app/bank` | Bank balances, mint/send transactions, and balance queries |
+| `app/modules` | Config-driven default application module registry |
 | `cmd/vexod` | CLI entrypoint |
 | `committee` | Committee selection and epoch rotation |
 | `config` | Default chain configuration and validation |
@@ -224,6 +226,18 @@ go run ./cmd/vexod init --home .vexo --chain-id vexo-local --validator validator
 ```
 
 This writes `.vexo/config.json`, `.vexo/genesis.json`, and `.vexo/data`.
+
+Application modules are selected in `.vexo/config.json`:
+
+```json
+{
+  "chain": {
+    "Application": {
+      "Modules": ["bank"]
+    }
+  }
+}
+```
 
 Validate node files:
 

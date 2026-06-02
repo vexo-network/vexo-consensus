@@ -17,6 +17,7 @@ func TestWriteStatus(t *testing.T) {
 	expectedParts := []string{
 		"vexo-consensus status",
 		"chain_id: vexo-test",
+		"application.modules: [bank]",
 		"validator.permissionless: true",
 		"committee.size: 128",
 		"fair_ordering.deterministic: true",
@@ -54,6 +55,9 @@ func TestWriteStatusJSON(t *testing.T) {
 	}
 	if document.SchemaVersion != "v1" || document.ChainID != "vexo-test" {
 		t.Fatalf("unexpected document identity: %+v", document)
+	}
+	if len(document.Application.Modules) != 1 || document.Application.Modules[0] != "bank" {
+		t.Fatalf("unexpected application status: %+v", document.Application)
 	}
 	if !document.Validator.Permissionless || document.Validator.MinStake != 1 {
 		t.Fatalf("unexpected validator status: %+v", document.Validator)

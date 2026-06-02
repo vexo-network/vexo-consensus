@@ -6,7 +6,7 @@ import (
 	"io"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
-	"github.com/vexo-network/vexo-consensus/app/bank"
+	appmodules "github.com/vexo-network/vexo-consensus/app/modules"
 	"github.com/vexo-network/vexo-consensus/config"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/store"
@@ -21,11 +21,12 @@ func writeStoreDemo(writer io.Writer, path string) error {
 	}
 	defer storage.Close()
 
-	application, err := vexoapp.NewRuntime("vexo-local", []vexoapp.Module{bank.NewModule()}, vexoapp.PrefixRouter{})
+	cfg := config.Default("vexo-local")
+	application, err := appmodules.NewRuntime("vexo-local", cfg.Application)
 	if err != nil {
 		return err
 	}
-	runtime, err := vexoruntime.NewWithStore(config.Default("vexo-local"), application, []validator.Validator{
+	runtime, err := vexoruntime.NewWithStore(cfg, application, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
 	}, map[types.Address]types.VotingPower{"alice": 1}, storage)
 	if err != nil {

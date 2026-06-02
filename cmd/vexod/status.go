@@ -12,6 +12,7 @@ import (
 func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "vexo-consensus status\n")
 	fmt.Fprintf(writer, "chain_id: %s\n", cfg.ChainID)
+	fmt.Fprintf(writer, "application.modules: %v\n", cfg.Application.Modules)
 	fmt.Fprintf(writer, "validator.permissionless: %t\n", cfg.Validator.Permissionless)
 	fmt.Fprintf(writer, "validator.min_stake: %d\n", cfg.Validator.MinStake)
 	fmt.Fprintf(writer, "committee.epoch_length: %d\n", cfg.Committee.EpochLength)
@@ -34,6 +35,7 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 type statusDocument struct {
 	SchemaVersion    string                 `json:"schema_version"`
 	ChainID          string                 `json:"chain_id"`
+	Application      applicationStatus      `json:"application"`
 	Validator        validatorStatus        `json:"validator"`
 	Committee        committeeStatus        `json:"committee"`
 	Mempool          mempoolStatus          `json:"mempool"`
@@ -41,6 +43,10 @@ type statusDocument struct {
 	Storage          storageStatus          `json:"storage"`
 	P2P              p2pStatus              `json:"p2p"`
 	OperationalHints operationalHintsStatus `json:"operational_hints"`
+}
+
+type applicationStatus struct {
+	Modules []string `json:"modules"`
 }
 
 type validatorStatus struct {
@@ -93,6 +99,9 @@ func newStatusDocument(cfg config.Config) statusDocument {
 	return statusDocument{
 		SchemaVersion: "v1",
 		ChainID:       cfg.ChainID,
+		Application: applicationStatus{
+			Modules: append([]string(nil), cfg.Application.Modules...),
+		},
 		Validator: validatorStatus{
 			Permissionless: cfg.Validator.Permissionless,
 			MinStake:       cfg.Validator.MinStake,

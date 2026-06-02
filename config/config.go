@@ -17,14 +17,19 @@ var (
 )
 
 type Config struct {
-	ChainID    string
-	Crypto     CryptoConfig
-	VRF        VRFConfig
-	Validator  validator.AdmissionConfig
-	Committee  committee.RotationPolicy
-	Mempool    mempool.FIFOConfig
-	Governance governance.TallyPolicy
-	P2P        p2p.ScoreConfig
+	ChainID     string
+	Application ApplicationConfig
+	Crypto      CryptoConfig
+	VRF         VRFConfig
+	Validator   validator.AdmissionConfig
+	Committee   committee.RotationPolicy
+	Mempool     mempool.FIFOConfig
+	Governance  governance.TallyPolicy
+	P2P         p2p.ScoreConfig
+}
+
+type ApplicationConfig struct {
+	Modules []string
 }
 
 type CryptoBackend string
@@ -45,6 +50,9 @@ type VRFConfig struct {
 func Default(chainID string) Config {
 	return Config{
 		ChainID: chainID,
+		Application: ApplicationConfig{
+			Modules: []string{"bank"},
+		},
 		Crypto: CryptoConfig{
 			Backend: CryptoBackendDeterministic,
 		},
