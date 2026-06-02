@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net"
@@ -14,21 +15,20 @@ import (
 	"testing"
 	"time"
 
-<<<<<<< HEAD
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/consensus"
-=======
->>>>>>> parent of 376bcc1 (feat: add rpc validator query endpoints)
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
+	"github.com/vexo-network/vexo-consensus/validator"
 )
 
 type fakeStatusProvider struct {
-<<<<<<< HEAD
 	status            node.Status
+	statusDeadline    chan bool
+	statusWaitCancel  chan struct{}
 	submitErr         error
 	submitted         []types.Tx
 	blocks            map[types.Height]store.BlockRecord
@@ -45,21 +45,17 @@ type fakeStatusProvider struct {
 	evidenceApplied   bool
 	evidenceErr       error
 	evidenceSubmitted []slashing.Evidence
-=======
-	status    node.Status
-	submitErr error
-	submitted []types.Tx
-	blocks    map[types.Height]store.BlockRecord
-	latest    types.Height
-	blockErr  error
-	index     store.BlockIndex
-	state     store.StateRecord
-	roots     map[string]store.StateRootRecord
-	stateErr  error
->>>>>>> parent of 376bcc1 (feat: add rpc validator query endpoints)
 }
 
 func (provider fakeStatusProvider) Status(ctx context.Context) node.Status {
+	if provider.statusDeadline != nil {
+		_, ok := ctx.Deadline()
+		provider.statusDeadline <- ok
+	}
+	if provider.statusWaitCancel != nil {
+		<-ctx.Done()
+		close(provider.statusWaitCancel)
+	}
 	return provider.status
 }
 
@@ -123,7 +119,6 @@ func (provider fakeStatusProvider) StateRoot(ctx context.Context, height types.H
 	return record, nil
 }
 
-<<<<<<< HEAD
 func (provider fakeStatusProvider) ValidatorSet(ctx context.Context, height types.Height) (validator.Set, error) {
 	if provider.validatorErr != nil {
 		return nil, provider.validatorErr
@@ -152,8 +147,6 @@ func (provider *fakeStatusProvider) SubmitEvidence(ctx context.Context, evidence
 	return provider.evidenceResult, provider.evidenceApplied, nil
 }
 
-=======
->>>>>>> parent of 376bcc1 (feat: add rpc validator query endpoints)
 func TestHandlerReportsHealthStatusAndPeers(t *testing.T) {
 	appHash := types.Hash{1, 2, 3}
 	bannedUntil := time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
@@ -213,6 +206,58 @@ func TestHandlerReportsNotReadyWhenNodeStopped(t *testing.T) {
 	if ready.OK {
 		t.Fatal("expected not ready")
 	}
+}
+
+func TestHandlerAppliesRequestTimeoutContext(t *testing.T) {
+	deadline := make(chan bool, 1)
+	cancelled := make(chan struct{})
+	handler := NewHandlerWithConfig(fakeStatusProvider{
+		statusDeadline:   deadline,
+		statusWaitCancel: cancelled,
+	}, Config{RequestTimeout: time.Nanosecond})
+
+	var ready HealthResponse
+	getJSON(t, handler, "/readyz", http.StatusServiceUnavailable, &ready)
+
+	if !<-deadline {
+		t.Fatal("expected status context deadline")
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for request context cancellation")
+	}
+}
+
+func TestHandlerRateLimitsRequests(t *testing.T) {
+	handler := NewHandlerWithConfig(fakeStatusProvider{status: node.Status{Running: true}}, Config{
+		RateLimitWindow:      time.Hour,
+		RateLimitMaxRequests: 2,
+	})
+
+	var health HealthResponse
+	getJSON(t, handler, "/healthz", http.StatusOK, &health)
+	getJSON(t, handler, "/healthz", http.StatusOK, &health)
+
+	var response map[string]string
+	getJSON(t, handler, "/healthz", http.StatusTooManyRequests, &response)
+	if response["error"] != "rate limit exceeded" {
+		t.Fatalf("unexpected rate limit response: %+v", response)
+	}
+}
+
+func TestHandlerRateLimitSeparatesClientIPs(t *testing.T) {
+	handler := NewHandlerWithConfig(fakeStatusProvider{status: node.Status{Running: true}}, Config{
+		RateLimitWindow:      time.Hour,
+		RateLimitMaxRequests: 1,
+	})
+
+	var health HealthResponse
+	requestJSON(t, handler, http.MethodGet, "/healthz", "", "10.0.0.1:1000", http.StatusOK, &health)
+
+	var response map[string]string
+	requestJSON(t, handler, http.MethodGet, "/healthz", "", "10.0.0.1:1001", http.StatusTooManyRequests, &response)
+	requestJSON(t, handler, http.MethodGet, "/healthz", "", "10.0.0.2:1000", http.StatusOK, &health)
 }
 
 func TestHandlerRejectsNonGET(t *testing.T) {
@@ -542,6 +587,83 @@ func TestHandlerReportsStateProviderErrors(t *testing.T) {
 	}
 }
 
+func TestHandlerReportsValidatorsAndCommittee(t *testing.T) {
+	validatorSet := newTestValidatorSet(t, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 10, Stake: 10, Metadata: map[string]string{"region": "ap"}},
+		{ID: "bob", Address: "bob", VotingPower: 20, Stake: 20},
+	})
+	seed := types.Hash{9}
+	handler := NewHandler(fakeStatusProvider{
+		validators: validatorSet,
+		committee: committee.Committee{
+			Epoch: 2,
+			Round: 3,
+			Seed:  seed,
+			Members: []committee.Member{
+				{Validator: validator.Validator{ID: "bob", Address: "bob", VotingPower: 20, Stake: 20}, Weight: 20, Proof: []byte{1, 2}},
+			},
+		},
+	})
+
+	var validators ValidatorSetResponse
+	getJSON(t, handler, "/validators/7", http.StatusOK, &validators)
+	if validators.Height != 7 || validators.TotalValidators != 2 || validators.TotalPower != 30 || validators.ValidatorSetHash == "" {
+		t.Fatalf("unexpected validator set: %+v", validators)
+	}
+	if validators.Validators[0].ID != "alice" || validators.Validators[0].Metadata["region"] != "ap" {
+		t.Fatalf("unexpected first validator: %+v", validators.Validators[0])
+	}
+
+	var committeeResponse CommitteeResponse
+	getJSON(t, handler, "/committee/7/3?seed="+hexHash(seed), http.StatusOK, &committeeResponse)
+	if committeeResponse.Height != 7 || committeeResponse.Epoch != 2 || committeeResponse.Round != 3 || committeeResponse.Seed != hexHash(seed) {
+		t.Fatalf("unexpected committee identity: %+v", committeeResponse)
+	}
+	if len(committeeResponse.Members) != 1 || committeeResponse.Members[0].Validator.ID != "bob" || committeeResponse.Members[0].Weight != 20 || committeeResponse.Members[0].Proof != "0102" {
+		t.Fatalf("unexpected committee members: %+v", committeeResponse.Members)
+	}
+}
+
+func TestHandlerRejectsInvalidValidatorRequests(t *testing.T) {
+	handler := NewHandler(fakeStatusProvider{validators: newTestValidatorSet(t, nil)})
+	cases := []string{
+		"/validators/0",
+		"/validators/not-num",
+		"/committee/0/1",
+		"/committee/1/not-num",
+		"/committee/1",
+		"/committee/1/0?seed=bad",
+	}
+	for _, path := range cases {
+		var response map[string]string
+		getJSON(t, handler, path, http.StatusBadRequest, &response)
+		if response["error"] == "" {
+			t.Fatalf("expected error for %s, got %+v", path, response)
+		}
+	}
+}
+
+func TestHandlerRejectsUnavailableValidatorQueryProvider(t *testing.T) {
+	handler := NewHandler(struct{ StatusProvider }{fakeStatusProvider{}})
+	for _, path := range []string{"/validators/1", "/committee/1/0"} {
+		var response map[string]string
+		getJSON(t, handler, path, http.StatusNotImplemented, &response)
+		if response["error"] == "" {
+			t.Fatalf("expected unavailable validator query error for %s, got %+v", path, response)
+		}
+	}
+}
+
+func TestHandlerReportsValidatorQueryErrors(t *testing.T) {
+	handler := NewHandler(fakeStatusProvider{validatorErr: errors.New("validator failed")})
+
+	var response map[string]string
+	getJSON(t, handler, "/validators/1", http.StatusInternalServerError, &response)
+	if response["error"] != "validator failed" {
+		t.Fatalf("unexpected validator error: %+v", response)
+	}
+}
+
 func assertBlockResponse(t *testing.T, response BlockResponse) {
 	t.Helper()
 	if response.Height != 2 || response.ChainID != "vexo-test" || response.TxCount != 2 {
@@ -560,6 +682,23 @@ func assertBlockResponse(t *testing.T, response BlockResponse) {
 
 func stateRootKey(height types.Height, namespace string) string {
 	return strconv.FormatUint(uint64(height), 10) + "/" + namespace
+}
+
+func newTestValidatorSet(t *testing.T, validators []validator.Validator) validator.Set {
+	t.Helper()
+	registry, err := validator.NewInMemoryRegistry(nil, validators)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := registry.ValidatorSet(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return set
+}
+
+func hexHash(hash types.Hash) string {
+	return hex.EncodeToString(hash[:])
 }
 
 func TestServerStartAndShutdown(t *testing.T) {
@@ -630,26 +769,21 @@ func (addr staticAddr) String() string {
 
 func getJSON(t *testing.T, handler http.Handler, path string, expectedStatus int, value any) {
 	t.Helper()
-	request := httptest.NewRequest(http.MethodGet, path, nil)
-	response := httptest.NewRecorder()
-
-	handler.ServeHTTP(response, request)
-
-	if response.Code != expectedStatus {
-		t.Fatalf("expected status %d, got %d body=%s", expectedStatus, response.Code, response.Body.String())
-	}
-	if contentType := response.Header().Get("Content-Type"); contentType != "application/json" {
-		t.Fatalf("expected application/json, got %q", contentType)
-	}
-	if err := json.NewDecoder(response.Body).Decode(value); err != nil {
-		t.Fatal(err)
-	}
+	requestJSON(t, handler, http.MethodGet, path, "", "192.0.2.1:1234", expectedStatus, value)
 }
 
 func postJSON(t *testing.T, handler http.Handler, path string, body string, expectedStatus int, value any) {
 	t.Helper()
-	request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
-	request.Header.Set("Content-Type", "application/json")
+	requestJSON(t, handler, http.MethodPost, path, body, "192.0.2.1:1234", expectedStatus, value)
+}
+
+func requestJSON(t *testing.T, handler http.Handler, method string, path string, body string, remoteAddr string, expectedStatus int, value any) {
+	t.Helper()
+	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	request.RemoteAddr = remoteAddr
+	if body != "" {
+		request.Header.Set("Content-Type", "application/json")
+	}
 	response := httptest.NewRecorder()
 
 	handler.ServeHTTP(response, request)

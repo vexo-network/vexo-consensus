@@ -11,19 +11,18 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
-<<<<<<< HEAD
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/consensus"
-=======
->>>>>>> parent of 376bcc1 (feat: add rpc validator query endpoints)
 	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
+	"github.com/vexo-network/vexo-consensus/validator"
 )
 
 const defaultReadHeaderTimeout = 5 * time.Second
@@ -53,10 +52,18 @@ type ChainQueryProvider interface {
 	StateRoot(ctx context.Context, height types.Height, namespace string) (store.StateRootRecord, error)
 }
 
+type ValidatorQueryProvider interface {
+	ValidatorSet(ctx context.Context, height types.Height) (validator.Set, error)
+	Committee(ctx context.Context, height types.Height, round types.Round, seed types.Hash) (committee.Committee, error)
+}
+
 type Config struct {
-	Address           string
-	ReadHeaderTimeout time.Duration
-	MaxRequestBytes   int64
+	Address              string
+	ReadHeaderTimeout    time.Duration
+	RequestTimeout       time.Duration
+	MaxRequestBytes      int64
+	RateLimitWindow      time.Duration
+	RateLimitMaxRequests int
 }
 
 type Server struct {
@@ -154,6 +161,49 @@ type StateResponse struct {
 	AppHash          string `json:"app_hash"`
 	LastBlockHash    string `json:"last_block_hash"`
 	ValidatorSetHash string `json:"validator_set_hash"`
+}
+
+type ValidatorSetResponse struct {
+	Height           uint64              `json:"height"`
+	TotalValidators  int                 `json:"total_validators"`
+	TotalPower       uint64              `json:"total_power"`
+	ValidatorSetHash string              `json:"validator_set_hash"`
+	Validators       []ValidatorResponse `json:"validators"`
+}
+
+type ValidatorResponse struct {
+	ID          string            `json:"id"`
+	Address     string            `json:"address"`
+	VotingPower uint64            `json:"voting_power"`
+	Stake       uint64            `json:"stake"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
+}
+
+type CommitteeResponse struct {
+	Height  uint64                    `json:"height"`
+	Epoch   uint64                    `json:"epoch"`
+	Round   uint64                    `json:"round"`
+	Seed    string                    `json:"seed"`
+	Members []CommitteeMemberResponse `json:"members"`
+}
+
+type CommitteeMemberResponse struct {
+	Validator ValidatorResponse `json:"validator"`
+	Weight    uint64            `json:"weight"`
+	Proof     string            `json:"proof,omitempty"`
+}
+
+type rateBucket struct {
+	WindowStart time.Time
+	Count       int
+}
+
+type rateLimiter struct {
+	mu      sync.Mutex
+	now     func() time.Time
+	window  time.Duration
+	max     int
+	buckets map[string]rateBucket
 }
 
 func NewServer(provider StatusProvider, cfg Config) *Server {
@@ -377,7 +427,125 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 		}
 		writeJSON(writer, http.StatusOK, stateRootResponse(root))
 	})
-	return mux
+	mux.HandleFunc("/validators/", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowGet(writer, request) {
+			return
+		}
+		queryProvider, ok := provider.(ValidatorQueryProvider)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "validator query is unavailable")
+			return
+		}
+		height, ok := parseHeightSelector(request.URL.Path, "/validators/")
+		if !ok {
+			writeError(writer, http.StatusBadRequest, "invalid validator set height")
+			return
+		}
+		validatorSet, err := queryProvider.ValidatorSet(request.Context(), height)
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(writer, http.StatusOK, validatorSetResponse(height, validatorSet))
+	})
+	mux.HandleFunc("/committee/", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowGet(writer, request) {
+			return
+		}
+		queryProvider, ok := provider.(ValidatorQueryProvider)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "committee query is unavailable")
+			return
+		}
+		height, round, ok := parseHeightRoundSelector(request.URL.Path, "/committee/")
+		if !ok {
+			writeError(writer, http.StatusBadRequest, "invalid committee selector")
+			return
+		}
+		seed, ok := parseSeed(request.URL.Query().Get("seed"))
+		if !ok {
+			writeError(writer, http.StatusBadRequest, "invalid committee seed")
+			return
+		}
+		committeeResult, err := queryProvider.Committee(request.Context(), height, round, seed)
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(writer, http.StatusOK, committeeResponse(height, seed, committeeResult))
+	})
+	return applyMiddleware(mux, cfg)
+}
+
+func applyMiddleware(handler http.Handler, cfg Config) http.Handler {
+	if cfg.RequestTimeout > 0 {
+		handler = requestTimeout(handler, cfg.RequestTimeout)
+	}
+	if cfg.RateLimitMaxRequests > 0 {
+		window := cfg.RateLimitWindow
+		if window <= 0 {
+			window = time.Second
+		}
+		handler = newRateLimiter(window, cfg.RateLimitMaxRequests).Handler(handler)
+	}
+	return handler
+}
+
+func requestTimeout(next http.Handler, timeout time.Duration) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		ctx, cancel := context.WithTimeout(request.Context(), timeout)
+		defer cancel()
+		next.ServeHTTP(writer, request.WithContext(ctx))
+	})
+}
+
+func newRateLimiter(window time.Duration, maxRequests int) *rateLimiter {
+	return &rateLimiter{
+		now:     time.Now,
+		window:  window,
+		max:     maxRequests,
+		buckets: make(map[string]rateBucket),
+	}
+}
+
+func (limiter *rateLimiter) Handler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if !limiter.Allow(request) {
+			writeJSON(writer, http.StatusTooManyRequests, map[string]string{"error": "rate limit exceeded"})
+			return
+		}
+		next.ServeHTTP(writer, request)
+	})
+}
+
+func (limiter *rateLimiter) Allow(request *http.Request) bool {
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+
+	now := limiter.now()
+	key := clientKey(request)
+	bucket := limiter.buckets[key]
+	if bucket.WindowStart.IsZero() || now.Sub(bucket.WindowStart) >= limiter.window {
+		limiter.buckets[key] = rateBucket{WindowStart: now, Count: 1}
+		return true
+	}
+	if bucket.Count >= limiter.max {
+		return false
+	}
+	bucket.Count++
+	limiter.buckets[key] = bucket
+	return true
+}
+
+func clientKey(request *http.Request) string {
+	host, _, err := net.SplitHostPort(request.RemoteAddr)
+	if err == nil && host != "" {
+		return host
+	}
+	if request.RemoteAddr != "" {
+		return request.RemoteAddr
+	}
+	return "unknown"
 }
 
 func allowGet(writer http.ResponseWriter, request *http.Request) bool {
@@ -584,6 +752,52 @@ func evidenceResponse(evidence slashing.Evidence, result consensus.SlashResult, 
 	return response
 }
 
+func validatorSetResponse(height types.Height, validatorSet validator.Set) ValidatorSetResponse {
+	validators := validatorSet.List()
+	responses := make([]ValidatorResponse, 0, len(validators))
+	var totalPower uint64
+	for _, validatorInfo := range validators {
+		totalPower += uint64(validatorInfo.VotingPower)
+		responses = append(responses, validatorResponse(validatorInfo))
+	}
+	hash := validatorSet.Hash()
+	return ValidatorSetResponse{
+		Height:           uint64(height),
+		TotalValidators:  len(responses),
+		TotalPower:       totalPower,
+		ValidatorSetHash: hex.EncodeToString(hash[:]),
+		Validators:       responses,
+	}
+}
+
+func validatorResponse(validatorInfo validator.Validator) ValidatorResponse {
+	return ValidatorResponse{
+		ID:          string(validatorInfo.ID),
+		Address:     string(validatorInfo.Address),
+		VotingPower: uint64(validatorInfo.VotingPower),
+		Stake:       validatorInfo.Stake,
+		Metadata:    validatorInfo.Metadata,
+	}
+}
+
+func committeeResponse(height types.Height, seed types.Hash, committeeResult committee.Committee) CommitteeResponse {
+	members := make([]CommitteeMemberResponse, 0, len(committeeResult.Members))
+	for _, member := range committeeResult.Members {
+		members = append(members, CommitteeMemberResponse{
+			Validator: validatorResponse(member.Validator),
+			Weight:    uint64(member.Weight),
+			Proof:     hex.EncodeToString(member.Proof),
+		})
+	}
+	return CommitteeResponse{
+		Height:  uint64(height),
+		Epoch:   committeeResult.Epoch,
+		Round:   uint64(committeeResult.Round),
+		Seed:    hex.EncodeToString(seed[:]),
+		Members: members,
+	}
+}
+
 func parseStateRootPath(path string) (types.Height, string, bool) {
 	selector := strings.TrimPrefix(path, "/state/")
 	parts := strings.Split(selector, "/")
@@ -595,6 +809,45 @@ func parseStateRootPath(path string) (types.Height, string, bool) {
 		return 0, "", false
 	}
 	return types.Height(height), parts[1], true
+}
+
+func parseHeightSelector(path string, prefix string) (types.Height, bool) {
+	selector := strings.TrimPrefix(path, prefix)
+	height, err := strconv.ParseUint(selector, 10, 64)
+	if err != nil || height == 0 {
+		return 0, false
+	}
+	return types.Height(height), true
+}
+
+func parseHeightRoundSelector(path string, prefix string) (types.Height, types.Round, bool) {
+	selector := strings.TrimPrefix(path, prefix)
+	parts := strings.Split(selector, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return 0, 0, false
+	}
+	height, err := strconv.ParseUint(parts[0], 10, 64)
+	if err != nil || height == 0 {
+		return 0, 0, false
+	}
+	round, err := strconv.ParseUint(parts[1], 10, 64)
+	if err != nil {
+		return 0, 0, false
+	}
+	return types.Height(height), types.Round(round), true
+}
+
+func parseSeed(value string) (types.Hash, bool) {
+	if value == "" {
+		return types.Hash{}, true
+	}
+	decoded, err := hex.DecodeString(value)
+	if err != nil || len(decoded) != len(types.Hash{}) {
+		return types.Hash{}, false
+	}
+	var seed types.Hash
+	copy(seed[:], decoded)
+	return seed, true
 }
 
 func writeError(writer http.ResponseWriter, statusCode int, message string) {
