@@ -755,6 +755,37 @@ func TestHandlerPrunesBlocksAndStateRoots(t *testing.T) {
 	}
 }
 
+func TestHandlerRequiresAdminTokenForPrune(t *testing.T) {
+	handler := NewHandlerWithConfig(&fakeStatusProvider{}, Config{AdminToken: "secret"})
+	for _, testCase := range []struct {
+		name           string
+		token          string
+		expectedStatus int
+	}{
+		{name: "missing", expectedStatus: http.StatusUnauthorized},
+		{name: "wrong", token: "wrong", expectedStatus: http.StatusForbidden},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			var response map[string]string
+			postJSONWithToken(t, handler, "/prune", `{"retain_from_height":3}`, testCase.token, testCase.expectedStatus, &response)
+			if response["error"] == "" {
+				t.Fatalf("expected admin auth error, got %+v", response)
+			}
+		})
+	}
+}
+
+func TestHandlerAcceptsAdminTokenForPrune(t *testing.T) {
+	provider := &fakeStatusProvider{pruneResult: store.PruneResult{RetainFromHeight: 3, PrunedBlocks: 1}}
+	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
+
+	var response PruneResponse
+	postJSONWithToken(t, handler, "/prune", `{"retain_from_height":3}`, "secret", http.StatusOK, &response)
+	if response.RetainFromHeight != 3 || len(provider.prunedHeights) != 1 {
+		t.Fatalf("unexpected authorized prune: response=%+v heights=%+v", response, provider.prunedHeights)
+	}
+}
+
 func TestHandlerRejectsInvalidPruneRequests(t *testing.T) {
 	handler := NewHandler(&fakeStatusProvider{})
 	cases := []string{
@@ -846,6 +877,37 @@ func TestHandlerReplaysAllStoredBlocks(t *testing.T) {
 
 	if !provider.replayAllCalled || response.FromHeight != 1 || response.ToHeight != 5 || response.Blocks != 5 {
 		t.Fatalf("unexpected replay all response: called=%v response=%+v", provider.replayAllCalled, response)
+	}
+}
+
+func TestHandlerRequiresAdminTokenForReplay(t *testing.T) {
+	handler := NewHandlerWithConfig(&fakeStatusProvider{}, Config{AdminToken: "secret"})
+	for _, testCase := range []struct {
+		name           string
+		token          string
+		expectedStatus int
+	}{
+		{name: "missing", expectedStatus: http.StatusUnauthorized},
+		{name: "wrong", token: "wrong", expectedStatus: http.StatusForbidden},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			var response map[string]string
+			postJSONWithToken(t, handler, "/replay", `{"all":true}`, testCase.token, testCase.expectedStatus, &response)
+			if response["error"] == "" {
+				t.Fatalf("expected admin auth error, got %+v", response)
+			}
+		})
+	}
+}
+
+func TestHandlerAcceptsAdminTokenForReplay(t *testing.T) {
+	provider := &fakeStatusProvider{replayResult: vexoruntime.ReplayResult{FromHeight: 1, ToHeight: 1, LastHash: types.Hash{1}, Blocks: 1}}
+	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
+
+	var response ReplayResponse
+	postJSONWithToken(t, handler, "/replay", `{"all":true}`, "secret", http.StatusOK, &response)
+	if !provider.replayAllCalled || response.Blocks != 1 {
+		t.Fatalf("unexpected authorized replay: called=%v response=%+v", provider.replayAllCalled, response)
 	}
 }
 
@@ -1099,12 +1161,29 @@ func postJSON(t *testing.T, handler http.Handler, path string, body string, expe
 	requestJSON(t, handler, http.MethodPost, path, body, "192.0.2.1:1234", expectedStatus, value)
 }
 
+func postJSONWithToken(t *testing.T, handler http.Handler, path string, body string, token string, expectedStatus int, value any) {
+	t.Helper()
+	headers := map[string]string{}
+	if token != "" {
+		headers["Authorization"] = "Bearer " + token
+	}
+	requestJSONWithHeaders(t, handler, http.MethodPost, path, body, "192.0.2.1:1234", headers, expectedStatus, value)
+}
+
 func requestJSON(t *testing.T, handler http.Handler, method string, path string, body string, remoteAddr string, expectedStatus int, value any) {
+	t.Helper()
+	requestJSONWithHeaders(t, handler, method, path, body, remoteAddr, nil, expectedStatus, value)
+}
+
+func requestJSONWithHeaders(t *testing.T, handler http.Handler, method string, path string, body string, remoteAddr string, headers map[string]string, expectedStatus int, value any) {
 	t.Helper()
 	request := httptest.NewRequest(method, path, strings.NewReader(body))
 	request.RemoteAddr = remoteAddr
 	if body != "" {
 		request.Header.Set("Content-Type", "application/json")
+	}
+	for key, value := range headers {
+		request.Header.Set(key, value)
 	}
 	response := httptest.NewRecorder()
 

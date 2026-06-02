@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -82,6 +83,7 @@ type Config struct {
 	MaxRequestBytes      int64
 	RateLimitWindow      time.Duration
 	RateLimitMaxRequests int
+	AdminToken           string
 }
 
 type Server struct {
@@ -538,6 +540,9 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 		if !allowPost(writer, request) {
 			return
 		}
+		if !allowAdmin(writer, request, cfg.AdminToken) {
+			return
+		}
 		pruner, ok := provider.(PruneProvider)
 		if !ok {
 			writeError(writer, http.StatusNotImplemented, "prune is unavailable")
@@ -565,6 +570,9 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 	})
 	mux.HandleFunc("/replay", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowPost(writer, request) {
+			return
+		}
+		if !allowAdmin(writer, request, cfg.AdminToken) {
 			return
 		}
 		replayer, ok := provider.(ReplayProvider)
@@ -742,6 +750,24 @@ func allowPost(writer http.ResponseWriter, request *http.Request) bool {
 	writer.Header().Set("Allow", http.MethodPost)
 	writeJSON(writer, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	return false
+}
+
+func allowAdmin(writer http.ResponseWriter, request *http.Request, adminToken string) bool {
+	if adminToken == "" {
+		return true
+	}
+	const prefix = "Bearer "
+	header := request.Header.Get("Authorization")
+	if !strings.HasPrefix(header, prefix) {
+		writeJSON(writer, http.StatusUnauthorized, map[string]string{"error": "admin authorization is required"})
+		return false
+	}
+	token := strings.TrimPrefix(header, prefix)
+	if subtle.ConstantTimeCompare([]byte(token), []byte(adminToken)) != 1 {
+		writeJSON(writer, http.StatusForbidden, map[string]string{"error": "admin authorization is invalid"})
+		return false
+	}
+	return true
 }
 
 func statusResponse(status node.Status) StatusResponse {
