@@ -6,7 +6,7 @@
 
 `vexo-consensus` is an experimental, modular consensus engine skeleton for building high-throughput Proof-of-Stake chains with a Tendermint/Cosmos SDK-style development model.
 
-It focuses on clean module boundaries for consensus, validator management, committee selection, mempool design, finality verification, slashing, governance, data availability, fair ordering, storage, and P2P defense.
+It focuses on clean module boundaries for consensus, validator management, committee selection, mempool design, finality verification, slashing, governance, data availability, fair ordering, storage, operations, and P2P defense.
 
 > This repository is an experimental consensus framework skeleton. It is not production consensus software.
 
@@ -49,7 +49,7 @@ The design is intentionally modular so individual components can be replaced wit
 ┌──────────────────────────────┐
 │      Application Modules      │
 └───────────────▲──────────────┘
-                │ ABCI-like API
+                │ modular app API
 ┌───────────────▼──────────────┐
 │          App Runtime          │
 └───────────────▲──────────────┘
@@ -80,7 +80,9 @@ The design is intentionally modular so individual components can be replaced wit
 - Domain-verified consensus proposal, vote, and timeout-vote signatures
 - Signed vote aggregation for quorum and timeout certificates
 - Validator keyring abstraction for active key rotation
+- Height-aware validator key activation windows
 - Slashing evidence generation
+- Accountable timeout-vote equivocation evidence
 - Consensus WAL for local proposal/vote/timeout-vote persistence
 - Restart-safe local double-sign guard
 - Locked-QC proposal and vote safety rules
@@ -88,7 +90,8 @@ The design is intentionally modular so individual components can be replaced wit
 - Three-chain finality decisions
 - Deterministic scenario and adversarial simulation helpers
 - Transport message codec and reactor for proposal/vote/timeout routing
-- gRPC peer transport with optional mTLS, binary framing, persistent streams, protocol/network/chain/genesis/node-id handshake validation, message-size limits, reconnect backoff, peer-limit eviction, subscriber backpressure drop accounting, and send retry after stale-session failures
+- Deterministic proposer rotation by height and round
+- gRPC peer transport with optional mTLS, binary framing, persistent streams, protocol/network/chain/genesis/node-id/auth-token handshake validation, message-size limits, reconnect backoff, peer-limit eviction, subscriber backpressure drop accounting, and send retry after stale-session failures
 
 ### Validator and Committee
 
@@ -136,30 +139,46 @@ The design is intentionally modular so individual components can be replaced wit
 - Governance quorum, veto, voting period, and timelock
 - P2P peer scoring
 - P2P rate-limit and ban threshold logic
+- Per-peer and global P2P flood limits
 - Flood, overflow, duplicate, and invalid-transaction regression tests
 
 ### Storage and Runtime
 
-- ABCI-like application runtime
+- Modular application runtime
 - Config-driven application module registry and builder
 - Bank module with mint, send, balance query, and persisted state
 - Block executor
-- LevelDB block/state/state-root storage
-- Recovery and replay helpers
+- LevelDB block/state/state-root/evidence storage
+- Versioned state lookup by height
+- Retention-based pruning
+- Index recovery after partial metadata loss
+- LevelDB compaction hook
+- Recovery, replay, snapshot, and restore helpers
 - Runtime validator update application
 - Node config, genesis, data directory, and lifecycle skeleton
 - Node-level transport reactor wiring for in-memory multi-node simulations
+
+### Operations
+
+- HTTP health, readiness, status, diagnostics, peer, block, state, validator, committee, and metrics endpoints
+- Prometheus-style text metrics
+- Optional `/debug/pprof` endpoints
+- Admin-token protection for mutation endpoints
+- JSON or text startup logs
+- Config profiles for `dev`, `testnet`, and `mainnet`
+- Snapshot export and restore commands
+- Localnet lifecycle commands and built-binary E2E coverage
 
 ## Packages
 
 | Package | Description |
 |---|---|
-| `app` | ABCI-like application and module interfaces |
+| `app` | Application and module interfaces |
 | `app/bank` | Bank balances, mint/send transactions, and balance queries |
 | `app/modules` | Config-driven default application module registry |
 | `cmd/vexod` | CLI entrypoint |
 | `committee` | Committee selection and epoch rotation |
-| `config` | Default chain configuration and validation |
+| `config` | Default chain configuration, profiles, and validation |
 | `consensus` | Consensus state machine, votes, proposals, QC, conflict evidence |
 | `dataavailability` | Transaction data commitments and availability checks |
 | `crypto` | Deterministic and Ed25519 signers, signature domain separation, aggregate verification, keyring rotation, and key files |
@@ -167,12 +186,12 @@ The design is intentionally modular so individual components can be replaced wit
 | `finality` | Finality proofs and light-client verifier |
 | `governance` | Proposal, voting, quorum, veto, and timelock module |
 | `mempool` | FIFO mempool and DAG batch graph |
-| `node` | Node config, genesis, lifecycle, runtime/store wiring |
-| `p2p` | Peer scoring and rate-limit defense |
-| `rpc` | HTTP health, readiness, status, and peer metrics endpoints |
+| `node` | Node config, genesis, lifecycle, runtime/store wiring, operations helpers |
+| `p2p` | Peer scoring, rate-limit, and flood defense |
+| `rpc` | HTTP health, readiness, status, metrics, admin, pprof, and query endpoints |
 | `runtime` | Module wiring, block execution, proof building, recovery, replay |
 | `slashing` | Evidence validation and penalty keeper |
-| `store` | LevelDB-backed block, state, state-root, and KV storage |
+| `store` | LevelDB-backed block, versioned state, state-root, evidence, KV, recovery, pruning, and compaction storage |
 | `transport` | In-memory, TCP, and gRPC message transport with pub/sub interfaces |
 | `types` | Shared primitive types |
 | `validator` | Validator registry and admission policy |
@@ -202,6 +221,12 @@ go run ./cmd/vexod start --home .vexo --run \
   --p2p-listen 0.0.0.0:26656 \
   --peer validator-2=127.0.0.1:26666 \
   --p2p-auth-token shared-secret
+```
+
+Run with structured JSON operational logs and pprof:
+
+```bash
+go run ./cmd/vexod start --home .vexo --run --log-format json --rpc-pprof
 ```
 
 Generate a 4-validator localnet:
@@ -272,10 +297,17 @@ go run ./cmd/vexod bank query balance alice
 Initialize node files:
 
 ```bash
-go run ./cmd/vexod init --home .vexo --chain-id vexo-local --validator validator-1
+go run ./cmd/vexod init --home .vexo --chain-id vexo-local --validator validator-1 --profile dev
 ```
 
 This writes `.vexo/config.json`, `.vexo/genesis.json`, and `.vexo/data`.
+
+Available config profiles are `dev`, `testnet`, and `mainnet`:
+
+```bash
+go run ./cmd/vexod init --home .vexo-testnet --chain-id vexo-testnet --profile testnet
+go run ./cmd/vexod init --home .vexo-mainnet --chain-id vexo-mainnet --profile mainnet
+```
 
 Application modules are selected in `.vexo/config.json`:
 
@@ -326,6 +358,13 @@ Run a LevelDB-backed storage demo:
 go run ./cmd/vexod store-demo
 ```
 
+Export and restore the latest persisted state snapshot:
+
+```bash
+go run ./cmd/vexod snapshot export --home .vexo --output snapshot.json
+go run ./cmd/vexod snapshot restore --home .vexo-restore --input snapshot.json
+```
+
 Build the node binary:
 
 ```bash
@@ -351,6 +390,8 @@ server := rpc.NewServer(node, rpc.Config{Address: "127.0.0.1:26657"})
 ```
 
 Available endpoints: `/healthz`, `/readyz`, `/status`, `/diagnostics`, `/metrics`, `/metrics/text`, `/peers`, `/tx`, `/evidence`, `/prune`, `/replay`, `/consensus/start`, `/consensus/stop`, `/snapshot/latest`, `/blocks`, `/blocks/latest`, `/blocks/{height}`, `/state/latest`, `/state/{height}/{namespace}`, `/validators/{height}`, `/committee/{height}/{round}`.
+
+When pprof is enabled, `/debug/pprof/*` is also available.
 
 Set `rpc.Config.AdminToken` to require `Authorization: Bearer <token>` for admin endpoints such as `/prune`, `/replay`, `/consensus/start`, and `/consensus/stop`.
 
