@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRunCommandHelpAndVersion(t *testing.T) {
@@ -200,17 +203,21 @@ func TestRunStartRunStartsAndStopsNode(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	output := &cancelOnNeedleWriter{
-		needle: "node running",
+	output := &rpcHealthCheckWriter{
 		cancel: cancel,
+		client: http.Client{Timeout: 5 * time.Second},
 	}
-	if err := runStartWithContext(ctx, output, []string{"--home", home, "--run"}); err != nil {
+	if err := runStartWithContext(ctx, output, []string{"--home", home, "--run", "--rpc-address", "127.0.0.1:0"}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "node running") ||
+	if !strings.Contains(output.String(), "rpc listening") ||
+		!strings.Contains(output.String(), "node running") ||
 		!strings.Contains(output.String(), "shutdown requested") ||
 		!strings.Contains(output.String(), "node stopped") {
 		t.Fatalf("unexpected run output:\n%s", output.String())
+	}
+	if !output.healthOK {
+		t.Fatalf("expected health check to pass, got:\n%s", output.String())
 	}
 }
 
@@ -237,16 +244,31 @@ func TestRunStartRequiresKey(t *testing.T) {
 	}
 }
 
-type cancelOnNeedleWriter struct {
+type rpcHealthCheckWriter struct {
 	bytes.Buffer
-	needle string
-	cancel context.CancelFunc
+	cancel   context.CancelFunc
+	client   http.Client
+	healthOK bool
 }
 
-func (writer *cancelOnNeedleWriter) Write(data []byte) (int, error) {
+func (writer *rpcHealthCheckWriter) Write(data []byte) (int, error) {
 	count, err := writer.Buffer.Write(data)
-	if strings.Contains(writer.Buffer.String(), writer.needle) {
+	if writer.healthOK {
+		return count, err
+	}
+	match := regexp.MustCompile(`rpc_address: ([^\s]+)`).FindStringSubmatch(writer.Buffer.String())
+	if len(match) != 2 {
+		return count, err
+	}
+	response, requestErr := writer.client.Get("http://" + match[1] + "/healthz")
+	if requestErr == nil && response.StatusCode == http.StatusOK {
+		writer.healthOK = true
+		_ = response.Body.Close()
 		writer.cancel()
+		return count, err
+	}
+	if response != nil {
+		_ = response.Body.Close()
 	}
 	return count, err
 }

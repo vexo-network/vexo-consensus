@@ -6,13 +6,17 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os/signal"
 
 	appmodules "github.com/vexo-network/vexo-consensus/app/modules"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	vexonode "github.com/vexo-network/vexo-consensus/node"
+	vexorpc "github.com/vexo-network/vexo-consensus/rpc"
 	"github.com/vexo-network/vexo-consensus/types"
 )
+
+const defaultRPCAddress = "127.0.0.1:26657"
 
 type startPlanDocument struct {
 	ChainID     string `json:"chain_id"`
@@ -34,6 +38,11 @@ type startInputs struct {
 	Plan    startPlanDocument
 }
 
+type startRuntimeConfig struct {
+	RPCEnabled bool
+	RPCAddress string
+}
+
 func runStart(writer io.Writer, args []string) error {
 	return runStartWithContext(context.Background(), writer, args)
 }
@@ -47,6 +56,8 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	keyPath := flags.String("key", "", "key file path")
 	dryRun := flags.Bool("dry-run", false, "validate startup inputs without running a node")
 	run := flags.Bool("run", false, "start the node and block until context cancellation")
+	rpcEnabled := flags.Bool("rpc", true, "run HTTP RPC server with node")
+	rpcAddress := flags.String("rpc-address", defaultRPCAddress, "HTTP RPC listen address")
 	jsonOutput := flags.Bool("json", false, "write JSON output")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -64,7 +75,10 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	if *run {
 		runCtx, stopSignals := signal.NotifyContext(ctx, shutdownSignals()...)
 		defer stopSignals()
-		return runStartNode(runCtx, writer, inputs)
+		return runStartNode(runCtx, writer, inputs, startRuntimeConfig{
+			RPCEnabled: *rpcEnabled,
+			RPCAddress: *rpcAddress,
+		})
 	}
 	if !plan.DryRun {
 		if _, err := buildStartNode(inputs); err != nil {
@@ -85,7 +99,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	return nil
 }
 
-func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs) error {
+func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, runtimeConfig startRuntimeConfig) error {
 	node, err := buildStartNode(inputs)
 	if err != nil {
 		return err
@@ -93,17 +107,52 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs) err
 	if err := node.Start(ctx); err != nil {
 		return err
 	}
+	serverErr := make(chan error, 1)
+	rpcShutdown := func(context.Context) error { return nil }
+	if runtimeConfig.RPCEnabled {
+		address, shutdown, err := startRPCServer(node, runtimeConfig.RPCAddress, serverErr)
+		if err != nil {
+			_ = node.Stop(context.Background())
+			return err
+		}
+		rpcShutdown = shutdown
+		fmt.Fprintf(writer, "rpc listening\n")
+		fmt.Fprintf(writer, "rpc_address: %s\n", address)
+	}
 	fmt.Fprintf(writer, "node running\n")
 	fmt.Fprintf(writer, "chain_id: %s\n", inputs.Plan.ChainID)
 	fmt.Fprintf(writer, "validator_id: %s\n", inputs.Plan.ValidatorID)
 	fmt.Fprintf(writer, "data_dir: %s\n", inputs.Plan.DataDir)
-	<-ctx.Done()
+	select {
+	case <-ctx.Done():
+	case err := <-serverErr:
+		_ = node.Stop(context.Background())
+		return err
+	}
 	fmt.Fprintf(writer, "shutdown requested\n")
+	if err := rpcShutdown(context.Background()); err != nil {
+		return err
+	}
 	if err := node.Stop(context.Background()); err != nil {
 		return err
 	}
 	fmt.Fprintf(writer, "node stopped\n")
 	return nil
+}
+
+func startRPCServer(provider vexorpc.StatusProvider, address string, serverErr chan<- error) (string, func(context.Context) error, error) {
+	if address == "" {
+		address = defaultRPCAddress
+	}
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return "", nil, err
+	}
+	server := vexorpc.NewServer(provider, vexorpc.Config{Address: address})
+	go func() {
+		serverErr <- server.Start(listener)
+	}()
+	return listener.Addr().String(), server.Shutdown, nil
 }
 
 func loadStartPlan(home string, configPath string, genesisPath string, keyPath string, dryRun bool) (startPlanDocument, error) {
