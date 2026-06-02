@@ -68,7 +68,14 @@ type GRPCTransport struct {
 	started     bool
 	peers       map[p2p.PeerID]string
 	connections map[p2p.PeerID]*grpc.ClientConn
+	sessions    map[p2p.PeerID]*grpcPeerSession
 	subscribers map[p2p.Topic][]chan Envelope
+}
+
+type grpcPeerSession struct {
+	stream grpc.BidiStreamingClient[grpcStreamMessage, grpcStreamMessage]
+	cancel context.CancelFunc
+	mu     sync.Mutex
 }
 
 type grpcEnvelope struct {
@@ -126,6 +133,7 @@ func NewGRPCTransport(config GRPCConfig) (*GRPCTransport, error) {
 		genesisHash:     config.GenesisHash,
 		peers:           peers,
 		connections:     make(map[p2p.PeerID]*grpc.ClientConn),
+		sessions:        make(map[p2p.PeerID]*grpcPeerSession),
 		subscribers:     make(map[p2p.Topic][]chan Envelope),
 	}, nil
 }
@@ -176,10 +184,12 @@ func (transport *GRPCTransport) Stop(ctx context.Context) error {
 	server := transport.server
 	listener := transport.listener
 	connections := transport.connections
+	sessions := transport.sessions
 	transport.server = nil
 	transport.listener = nil
 	transport.started = false
 	transport.connections = make(map[p2p.PeerID]*grpc.ClientConn)
+	transport.sessions = make(map[p2p.PeerID]*grpcPeerSession)
 	for _, subscribers := range transport.subscribers {
 		for _, subscriber := range subscribers {
 			close(subscriber)
@@ -197,6 +207,10 @@ func (transport *GRPCTransport) Stop(ctx context.Context) error {
 	}
 	for _, connection := range connections {
 		_ = connection.Close()
+	}
+	for _, session := range sessions {
+		_ = session.stream.CloseSend()
+		session.cancel()
 	}
 	return nil
 }
@@ -259,6 +273,7 @@ func (transport *GRPCTransport) SetPeer(peerID p2p.PeerID, address string) {
 	if peerID == "" || address == "" {
 		return
 	}
+	transport.closePeerSessionLocked(peerID)
 	if connection := transport.connections[peerID]; connection != nil {
 		_ = connection.Close()
 		delete(transport.connections, peerID)
@@ -324,35 +339,17 @@ func (transport *GRPCTransport) Gossip(stream grpc.BidiStreamingServer[grpcStrea
 func (transport *GRPCTransport) sendEnvelope(ctx context.Context, peerID p2p.PeerID, address string, envelope Envelope) error {
 	ctx, cancel := context.WithTimeout(ctx, transport.dialTimeout)
 	defer cancel()
-	connection, err := transport.peerConnection(ctx, peerID, address)
+	session, err := transport.peerSession(ctx, peerID, address)
 	if err != nil {
 		return err
 	}
-	client := newP2PTransportClient(connection)
-	stream, err := client.Gossip(ctx)
-	if err != nil {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if err := session.stream.Send(&grpcStreamMessage{Envelope: &grpcEnvelope{Topic: envelope.Topic, From: envelope.From, To: envelope.To, Data: append([]byte(nil), envelope.Data...)}}); err != nil {
+		transport.closePeerSession(peerID)
 		return err
 	}
-	if err := stream.Send(&grpcStreamMessage{Handshake: ptrHandshake(transport.LocalHandshake())}); err != nil {
-		return err
-	}
-	remote, err := stream.Recv()
-	if err != nil {
-		return normalizeGRPCError(err)
-	}
-	if remote.Handshake == nil {
-		return fmt.Errorf("%w: missing remote handshake", ErrHandshakeFailed)
-	}
-	if remote.Handshake.NodeID != peerID {
-		return fmt.Errorf("%w: expected peer %s got %s", ErrHandshakeFailed, peerID, remote.Handshake.NodeID)
-	}
-	if err := transport.validateHandshake(*remote.Handshake); err != nil {
-		return err
-	}
-	if err := stream.Send(&grpcStreamMessage{Envelope: &grpcEnvelope{Topic: envelope.Topic, From: envelope.From, To: envelope.To, Data: append([]byte(nil), envelope.Data...)}}); err != nil {
-		return err
-	}
-	return stream.CloseSend()
+	return nil
 }
 
 func (transport *GRPCTransport) peerConnection(ctx context.Context, peerID p2p.PeerID, address string) (*grpc.ClientConn, error) {
@@ -378,6 +375,73 @@ func (transport *GRPCTransport) peerConnection(ctx context.Context, peerID p2p.P
 	}
 	transport.connections[peerID] = connection
 	return connection, nil
+}
+
+func (transport *GRPCTransport) peerSession(ctx context.Context, peerID p2p.PeerID, address string) (*grpcPeerSession, error) {
+	transport.mu.RLock()
+	session := transport.sessions[peerID]
+	transport.mu.RUnlock()
+	if session != nil {
+		return session, nil
+	}
+	connection, err := transport.peerConnection(ctx, peerID, address)
+	if err != nil {
+		return nil, err
+	}
+	streamCtx, cancel := context.WithCancel(context.Background())
+	client := newP2PTransportClient(connection)
+	stream, err := client.Gossip(streamCtx)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	if err := stream.Send(&grpcStreamMessage{Handshake: ptrHandshake(transport.LocalHandshake())}); err != nil {
+		cancel()
+		return nil, err
+	}
+	remote, err := stream.Recv()
+	if err != nil {
+		cancel()
+		return nil, normalizeGRPCError(err)
+	}
+	if remote.Handshake == nil {
+		cancel()
+		return nil, fmt.Errorf("%w: missing remote handshake", ErrHandshakeFailed)
+	}
+	if remote.Handshake.NodeID != peerID {
+		cancel()
+		return nil, fmt.Errorf("%w: expected peer %s got %s", ErrHandshakeFailed, peerID, remote.Handshake.NodeID)
+	}
+	if err := transport.validateHandshake(*remote.Handshake); err != nil {
+		cancel()
+		return nil, err
+	}
+	session = &grpcPeerSession{stream: stream, cancel: cancel}
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	if existing := transport.sessions[peerID]; existing != nil {
+		_ = stream.CloseSend()
+		cancel()
+		return existing, nil
+	}
+	transport.sessions[peerID] = session
+	return session, nil
+}
+
+func (transport *GRPCTransport) closePeerSession(peerID p2p.PeerID) {
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	transport.closePeerSessionLocked(peerID)
+}
+
+func (transport *GRPCTransport) closePeerSessionLocked(peerID p2p.PeerID) {
+	session := transport.sessions[peerID]
+	if session == nil {
+		return
+	}
+	_ = session.stream.CloseSend()
+	session.cancel()
+	delete(transport.sessions, peerID)
 }
 
 func normalizeGRPCError(err error) error {

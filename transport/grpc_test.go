@@ -55,6 +55,28 @@ func TestGRPCTransportSendDeliversOnlyTargetPeer(t *testing.T) {
 	assertNoEnvelope(t, carolVotes)
 }
 
+func TestGRPCTransportReusesPeerStreamSession(t *testing.T) {
+	alice, bob, _ := newStartedGRPCPeers(t)
+	defer stopGRPCPeer(t, alice)
+	defer stopGRPCPeer(t, bob)
+
+	bobTxs, err := bob.Subscribe(context.Background(), p2p.TopicTx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, payload := range []string{"one", "two", "three"} {
+		if err := alice.Send(context.Background(), "bob", p2p.TopicTx, []byte(payload)); err != nil {
+			t.Fatal(err)
+		}
+		assertEnvelope(t, bobTxs, "alice", "bob", p2p.TopicTx, payload)
+	}
+
+	if sessions := grpcSessionCount(alice); sessions != 1 {
+		t.Fatalf("expected one cached grpc session, got %d", sessions)
+	}
+}
+
 func TestGRPCTransportRejectsHandshakeMismatch(t *testing.T) {
 	alice := newStartedGRPCPeer(t, "alice", GRPCConfig{ChainID: "vexo-a", GenesisHash: GenesisHash([]byte("genesis-a"))})
 	bob := newStartedGRPCPeer(t, "bob", GRPCConfig{ChainID: "vexo-b", GenesisHash: GenesisHash([]byte("genesis-a"))})
@@ -149,4 +171,10 @@ func stopGRPCPeer(t *testing.T, peer *GRPCTransport) {
 	if err := peer.Stop(context.Background()); err != nil && !errors.Is(err, ErrTransportClosed) {
 		t.Fatal(err)
 	}
+}
+
+func grpcSessionCount(peer *GRPCTransport) int {
+	peer.mu.RLock()
+	defer peer.mu.RUnlock()
+	return len(peer.sessions)
 }
