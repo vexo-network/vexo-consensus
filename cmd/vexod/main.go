@@ -118,7 +118,7 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  config show     print loaded chain config as JSON\n")
 	fmt.Fprintf(writer, "  keys gen        generate an Ed25519 validator key\n")
 	fmt.Fprintf(writer, "  keys show       show validator public key\n")
-	fmt.Fprintf(writer, "  start           validate files, prepare startup, or run node with --run\n")
+	fmt.Fprintf(writer, "  start           validate files, prepare startup, or run node with --run; Ctrl+C shuts down gracefully\n")
 	fmt.Fprintf(writer, "  status          print default node capability status\n")
 	fmt.Fprintf(writer, "  demo            run an in-memory bank execution demo\n")
 	fmt.Fprintf(writer, "  store-demo      run a LevelDB-backed storage demo\n")

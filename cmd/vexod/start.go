@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os/signal"
 
 	appmodules "github.com/vexo-network/vexo-consensus/app/modules"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
@@ -61,7 +62,9 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 		return encoder.Encode(plan)
 	}
 	if *run {
-		return runStartNode(ctx, writer, inputs)
+		runCtx, stopSignals := signal.NotifyContext(ctx, shutdownSignals()...)
+		defer stopSignals()
+		return runStartNode(runCtx, writer, inputs)
 	}
 	if !plan.DryRun {
 		if _, err := buildStartNode(inputs); err != nil {
@@ -95,6 +98,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs) err
 	fmt.Fprintf(writer, "validator_id: %s\n", inputs.Plan.ValidatorID)
 	fmt.Fprintf(writer, "data_dir: %s\n", inputs.Plan.DataDir)
 	<-ctx.Done()
+	fmt.Fprintf(writer, "shutdown requested\n")
 	if err := node.Stop(context.Background()); err != nil {
 		return err
 	}

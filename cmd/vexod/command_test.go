@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
@@ -206,9 +207,24 @@ func TestRunStartRunStartsAndStopsNode(t *testing.T) {
 	if err := runStartWithContext(ctx, output, []string{"--home", home, "--run"}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "node running") || !strings.Contains(output.String(), "node stopped") {
+	if !strings.Contains(output.String(), "node running") ||
+		!strings.Contains(output.String(), "shutdown requested") ||
+		!strings.Contains(output.String(), "node stopped") {
 		t.Fatalf("unexpected run output:\n%s", output.String())
 	}
+}
+
+func TestShutdownSignalsIncludeInterrupt(t *testing.T) {
+	signals := shutdownSignals()
+	if len(signals) == 0 {
+		t.Fatal("expected shutdown signals")
+	}
+	for _, signal := range signals {
+		if signal == os.Interrupt {
+			return
+		}
+	}
+	t.Fatalf("expected shutdown signals to include os.Interrupt, got %+v", signals)
 }
 
 func TestRunStartRequiresKey(t *testing.T) {
