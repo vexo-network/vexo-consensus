@@ -8,6 +8,7 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/consensus"
+	"github.com/vexo-network/vexo-consensus/p2p"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/transport"
@@ -32,6 +33,9 @@ type Status struct {
 	LatestHeight  types.Height
 	LatestAppHash types.Hash
 	DataDir       string
+	PeerCount     int
+	BannedPeers   int
+	Peers         []p2p.PeerSnapshot
 }
 
 type Node struct {
@@ -269,6 +273,18 @@ func (node *Node) Status(ctx context.Context) Status {
 	if err == nil {
 		status.LatestHeight = commit.Height
 		status.LatestAppHash = commit.AppHash
+	}
+	if node.runtime.P2PScore != nil {
+		peers, err := node.runtime.P2PScore.Snapshot(ctx)
+		if err == nil {
+			status.Peers = peers
+			status.PeerCount = len(peers)
+			for _, peer := range peers {
+				if peer.Banned {
+					status.BannedPeers++
+				}
+			}
+		}
 	}
 	return status
 }

@@ -590,6 +590,13 @@ func TestNodeReportsPeerScoreSnapshots(t *testing.T) {
 	if snapshot[1].Peer != "carol" || snapshot[1].Score != 1 || snapshot[1].Banned {
 		t.Fatalf("unexpected carol snapshot: %+v", snapshot[1])
 	}
+	status := alice.Status(context.Background())
+	if status.PeerCount != 2 || status.BannedPeers != 0 || len(status.Peers) != 2 {
+		t.Fatalf("unexpected peer status: %+v", status)
+	}
+	if status.Peers[0].Peer != "bob" || status.Peers[1].Peer != "carol" {
+		t.Fatalf("unexpected status peer ordering: %+v", status.Peers)
+	}
 }
 
 func TestNodeDropsRateLimitedPeerMessages(t *testing.T) {
