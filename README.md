@@ -133,6 +133,7 @@ The design is intentionally modular so individual components can be replaced wit
 ### Storage and Runtime
 
 - ABCI-like application runtime
+- Bank module with mint, send, balance query, and persisted state
 - Block executor
 - LevelDB block/state/state-root storage
 - Recovery and replay helpers
@@ -145,6 +146,7 @@ The design is intentionally modular so individual components can be replaced wit
 | Package | Description |
 |---|---|
 | `app` | ABCI-like application and module interfaces |
+| `app/bank` | Bank balances, mint/send transactions, and balance queries |
 | `cmd/vexod` | CLI entrypoint |
 | `committee` | Committee selection and epoch rotation |
 | `config` | Default chain configuration and validation |

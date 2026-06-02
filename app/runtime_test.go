@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/fairordering"
@@ -242,6 +243,35 @@ func TestRuntimeAppHashReflectsStateRoot(t *testing.T) {
 	}
 }
 
+func TestRuntimeRoutesQueriesToModules(t *testing.T) {
+	runtime, err := NewRuntime("vexo-test", []Module{&queryModule{name: "bank"}}, PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response := runtime.Query(QueryRequest{Path: []string{"bank", "balance", "alice"}, Data: []byte("payload")})
+	if response.Code != 0 || string(response.Value) != "balance/alice:payload" {
+		t.Fatalf("unexpected query response: %+v", response)
+	}
+}
+
+func TestRuntimeReportsQueryErrors(t *testing.T) {
+	runtime, err := NewRuntime("vexo-test", []Module{&recordingModule{name: "bank"}}, PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, req := range []QueryRequest{
+		{},
+		{Path: []string{"bank"}},
+		{Path: []string{"staking"}},
+	} {
+		response := runtime.Query(req)
+		if response.Code == 0 {
+			t.Fatalf("expected query error for %+v", req)
+		}
+	}
+}
+
 func TestRuntimeRequiresChainID(t *testing.T) {
 	_, err := NewRuntime("", nil, nil)
 	if !errors.Is(err, ErrEmptyChainID) {
@@ -349,4 +379,32 @@ func (module *statefulModule) DeliverTx(ctx Context, tx types.Tx) types.Result {
 
 func (module *statefulModule) EndBlock(ctx Context) error {
 	return nil
+}
+
+type queryModule struct {
+	name string
+}
+
+func (module *queryModule) Name() string {
+	return module.name
+}
+
+func (module *queryModule) InitGenesis(ctx Context, genesis GenesisState) error {
+	return nil
+}
+
+func (module *queryModule) BeginBlock(ctx Context, header types.Header) error {
+	return nil
+}
+
+func (module *queryModule) DeliverTx(ctx Context, tx types.Tx) types.Result {
+	return types.Result{}
+}
+
+func (module *queryModule) EndBlock(ctx Context) error {
+	return nil
+}
+
+func (module *queryModule) Query(ctx Context, req QueryRequest) QueryResponse {
+	return QueryResponse{Value: []byte(strings.Join(req.Path, "/") + ":" + string(req.Data))}
 }

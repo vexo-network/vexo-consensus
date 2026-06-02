@@ -6,6 +6,7 @@ import (
 	"io"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/app/bank"
 	"github.com/vexo-network/vexo-consensus/config"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/store"
@@ -20,7 +21,7 @@ func writeStoreDemo(writer io.Writer, path string) error {
 	}
 	defer storage.Close()
 
-	application, err := vexoapp.NewRuntime("vexo-local", []vexoapp.Module{demoModule{name: "bank"}}, vexoapp.PrefixRouter{})
+	application, err := vexoapp.NewRuntime("vexo-local", []vexoapp.Module{bank.NewModule()}, vexoapp.PrefixRouter{})
 	if err != nil {
 		return err
 	}
@@ -33,7 +34,10 @@ func writeStoreDemo(writer io.Writer, path string) error {
 
 	block := types.Block{
 		Header: types.Header{ChainID: "vexo-local", Height: 1},
-		Txs:    []types.Tx{[]byte("bank:send")},
+		Txs: []types.Tx{
+			[]byte("bank:mint:alice:100"),
+			[]byte("bank:send:alice:bob:25"),
+		},
 	}
 	if _, err := runtime.ExecuteBlock(context.Background(), block); err != nil {
 		return err
@@ -53,5 +57,6 @@ func writeStoreDemo(writer io.Writer, path string) error {
 	fmt.Fprintf(writer, "stored_block_hash: %x\n", storedBlock.Hash)
 	fmt.Fprintf(writer, "latest_state_height: %d\n", latestState.Height)
 	fmt.Fprintf(writer, "state_roots: %d\n", len(storedBlock.StateRoots))
+	fmt.Fprintf(writer, "bob_balance: %s\n", application.Query(vexoapp.QueryRequest{Path: []string{"bank", "balance", "bob"}}).Value)
 	return nil
 }

@@ -4,29 +4,45 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/app/bank"
 	"github.com/vexo-network/vexo-consensus/config"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
+	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
 
 func writeDemo(writer io.Writer) error {
-	application, err := vexoapp.NewRuntime("vexo-local", []vexoapp.Module{demoModule{name: "bank"}}, vexoapp.PrefixRouter{})
+	application, err := vexoapp.NewRuntime("vexo-local", []vexoapp.Module{bank.NewModule()}, vexoapp.PrefixRouter{})
 	if err != nil {
 		return err
 	}
-	runtime, err := vexoruntime.New(config.Default("vexo-local"), application, []validator.Validator{
+	dataDir, err := os.MkdirTemp("", "vexo-consensus-demo-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dataDir)
+	storage, err := store.OpenLevelDB(dataDir)
+	if err != nil {
+		return err
+	}
+	defer storage.Close()
+	runtime, err := vexoruntime.NewWithStore(config.Default("vexo-local"), application, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
-	}, map[types.Address]types.VotingPower{"alice": 1})
+	}, map[types.Address]types.VotingPower{"alice": 1}, storage)
 	if err != nil {
 		return err
 	}
 
 	block := types.Block{
 		Header: types.Header{ChainID: "vexo-local", Height: 1},
-		Txs:    []types.Tx{[]byte("bank:send")},
+		Txs: []types.Tx{
+			[]byte("bank:mint:alice:100"),
+			[]byte("bank:send:alice:bob:25"),
+		},
 	}
 	response, err := runtime.ExecuteBlock(context.Background(), block)
 	if err != nil {
@@ -40,30 +56,8 @@ func writeDemo(writer io.Writer) error {
 	fmt.Fprintf(writer, "vexo-consensus demo\n")
 	fmt.Fprintf(writer, "executed_height: %d\n", commit.Height)
 	fmt.Fprintf(writer, "tx_results: %d\n", len(response.Results))
+	fmt.Fprintf(writer, "alice_balance: %s\n", application.Query(vexoapp.QueryRequest{Path: []string{"bank", "balance", "alice"}}).Value)
+	fmt.Fprintf(writer, "bob_balance: %s\n", application.Query(vexoapp.QueryRequest{Path: []string{"bank", "balance", "bob"}}).Value)
 	fmt.Fprintf(writer, "app_hash: %x\n", commit.AppHash)
-	return nil
-}
-
-type demoModule struct {
-	name string
-}
-
-func (module demoModule) Name() string {
-	return module.name
-}
-
-func (module demoModule) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisState) error {
-	return nil
-}
-
-func (module demoModule) BeginBlock(ctx vexoapp.Context, header types.Header) error {
-	return nil
-}
-
-func (module demoModule) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
-	return types.Result{}
-}
-
-func (module demoModule) EndBlock(ctx vexoapp.Context) error {
 	return nil
 }

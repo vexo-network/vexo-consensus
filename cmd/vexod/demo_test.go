@@ -16,7 +16,9 @@ func TestWriteDemo(t *testing.T) {
 	expectedParts := []string{
 		"vexo-consensus demo",
 		"executed_height: 1",
-		"tx_results: 1",
+		"tx_results: 2",
+		"alice_balance: 75",
+		"bob_balance: 25",
 		"app_hash:",
 	}
 	for _, part := range expectedParts {

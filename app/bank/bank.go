@@ -1,0 +1,172 @@
+package bank
+
+import (
+	"context"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+
+	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	vexostore "github.com/vexo-network/vexo-consensus/store"
+	"github.com/vexo-network/vexo-consensus/types"
+)
+
+const ModuleName = "bank"
+
+var (
+	ErrInvalidGenesisBalance = errors.New("invalid genesis balance")
+	ErrInvalidBankTx         = errors.New("invalid bank transaction")
+	ErrInsufficientFunds     = errors.New("insufficient funds")
+)
+
+type Module struct{}
+
+func NewModule() Module {
+	return Module{}
+}
+
+func (Module) Name() string {
+	return ModuleName
+}
+
+func (Module) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisState) error {
+	if ctx.Store == nil {
+		return nil
+	}
+	for rawAddress, rawBalance := range genesis {
+		if !strings.HasPrefix(rawAddress, ModuleName+":") {
+			continue
+		}
+		address := strings.TrimPrefix(rawAddress, ModuleName+":")
+		balance, err := strconv.ParseUint(string(rawBalance), 10, 64)
+		if err != nil {
+			return fmt.Errorf("%w: %s", ErrInvalidGenesisBalance, rawAddress)
+		}
+		if err := setBalance(context.Background(), ctx.Store, types.Address(address), balance); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (Module) BeginBlock(ctx vexoapp.Context, header types.Header) error {
+	return nil
+}
+
+func (Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
+	if ctx.Store == nil {
+		return types.Result{Code: 1, Log: "missing bank store"}
+	}
+	parts := strings.Split(string(tx), ":")
+	if len(parts) == 0 || parts[0] != ModuleName {
+		return types.Result{Code: 2, Log: ErrInvalidBankTx.Error()}
+	}
+	switch {
+	case len(parts) == 4 && parts[1] == "mint":
+		amount, err := parseAmount(parts[3])
+		if err != nil {
+			return types.Result{Code: 3, Log: err.Error()}
+		}
+		if err := mint(context.Background(), ctx.Store, types.Address(parts[2]), amount); err != nil {
+			return types.Result{Code: 4, Log: err.Error()}
+		}
+		return types.Result{}
+	case len(parts) == 5 && parts[1] == "send":
+		amount, err := parseAmount(parts[4])
+		if err != nil {
+			return types.Result{Code: 3, Log: err.Error()}
+		}
+		if err := send(context.Background(), ctx.Store, types.Address(parts[2]), types.Address(parts[3]), amount); err != nil {
+			return types.Result{Code: 4, Log: err.Error()}
+		}
+		return types.Result{}
+	default:
+		return types.Result{Code: 2, Log: ErrInvalidBankTx.Error()}
+	}
+}
+
+func (Module) EndBlock(ctx vexoapp.Context) error {
+	return nil
+}
+
+func (Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoapp.QueryResponse {
+	if ctx.Store == nil {
+		return vexoapp.QueryResponse{Code: 1, Log: "missing bank store"}
+	}
+	if len(req.Path) != 2 || req.Path[0] != "balance" || req.Path[1] == "" {
+		return vexoapp.QueryResponse{Code: 2, Log: "invalid bank query"}
+	}
+	balance, err := Balance(context.Background(), ctx.Store, types.Address(req.Path[1]))
+	if err != nil {
+		return vexoapp.QueryResponse{Code: 3, Log: err.Error()}
+	}
+	return vexoapp.QueryResponse{Value: []byte(strconv.FormatUint(balance, 10))}
+}
+
+func Balance(ctx context.Context, store vexoapp.StateStore, address types.Address) (uint64, error) {
+	if store == nil {
+		return 0, errors.New("missing bank store")
+	}
+	value, err := store.Get(ctx, ModuleName, []byte(address))
+	if errors.Is(err, vexostore.ErrKeyNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if len(value) == 0 {
+		return 0, nil
+	}
+	if len(value) != 8 {
+		return 0, ErrInvalidGenesisBalance
+	}
+	return binary.BigEndian.Uint64(value), nil
+}
+
+func mint(ctx context.Context, store vexoapp.StateStore, to types.Address, amount uint64) error {
+	if to == "" || amount == 0 {
+		return ErrInvalidBankTx
+	}
+	balance, err := Balance(ctx, store, to)
+	if err != nil {
+		return err
+	}
+	return setBalance(ctx, store, to, balance+amount)
+}
+
+func send(ctx context.Context, store vexoapp.StateStore, from types.Address, to types.Address, amount uint64) error {
+	if from == "" || to == "" || amount == 0 {
+		return ErrInvalidBankTx
+	}
+	fromBalance, err := Balance(ctx, store, from)
+	if err != nil {
+		return err
+	}
+	if fromBalance < amount {
+		return ErrInsufficientFunds
+	}
+	toBalance, err := Balance(ctx, store, to)
+	if err != nil {
+		return err
+	}
+	if err := setBalance(ctx, store, from, fromBalance-amount); err != nil {
+		return err
+	}
+	return setBalance(ctx, store, to, toBalance+amount)
+}
+
+func setBalance(ctx context.Context, store vexoapp.StateStore, address types.Address, balance uint64) error {
+	var encoded [8]byte
+	binary.BigEndian.PutUint64(encoded[:], balance)
+	return store.Set(ctx, ModuleName, []byte(address), encoded[:])
+}
+
+func parseAmount(value string) (uint64, error) {
+	amount, err := strconv.ParseUint(value, 10, 64)
+	if err != nil || amount == 0 {
+		return 0, ErrInvalidBankTx
+	}
+	return amount, nil
+}

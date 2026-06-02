@@ -152,7 +152,24 @@ func (runtime *Runtime) Restore(height types.Height, appHash types.Hash) {
 }
 
 func (runtime *Runtime) Query(req QueryRequest) QueryResponse {
-	return QueryResponse{Code: 1, Log: "query is not implemented"}
+	if len(req.Path) == 0 || req.Path[0] == "" {
+		return QueryResponse{Code: 1, Log: "query module is required"}
+	}
+	ctx := Context{ChainID: runtime.chainID, Height: runtime.height, Store: runtime.store}
+	for _, module := range runtime.modules {
+		if module.Name() != req.Path[0] {
+			continue
+		}
+		handler, ok := module.(QueryHandler)
+		if !ok {
+			return QueryResponse{Code: 2, Log: "module query is unavailable"}
+		}
+		return handler.Query(ctx, QueryRequest{
+			Path: append([]string(nil), req.Path[1:]...),
+			Data: append([]byte(nil), req.Data...),
+		})
+	}
+	return QueryResponse{Code: 3, Log: "query module not found"}
 }
 
 func (runtime *Runtime) Modules() []Module {

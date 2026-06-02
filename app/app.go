@@ -38,6 +38,10 @@ type ValidatorUpdateProvider interface {
 	ValidatorUpdates(ctx Context) []types.ValidatorUpdate
 }
 
+type QueryHandler interface {
+	Query(ctx Context, req QueryRequest) QueryResponse
+}
+
 type InitChainRequest struct {
 	ChainID string
 	Genesis GenesisState

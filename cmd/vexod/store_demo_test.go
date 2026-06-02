@@ -19,6 +19,7 @@ func TestWriteStoreDemo(t *testing.T) {
 		"stored_block_hash:",
 		"latest_state_height: 1",
 		"state_roots:",
+		"bob_balance: 25",
 	}
 	for _, part := range expectedParts {
 		if !strings.Contains(output, part) {
