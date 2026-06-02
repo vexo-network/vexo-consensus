@@ -347,6 +347,99 @@ func TestHandlerReportsMetricsProviderErrors(t *testing.T) {
 	}
 }
 
+func TestHandlerReportsHealthyDiagnostics(t *testing.T) {
+	bannedUntil := time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
+	handler := NewHandler(fakeStatusProvider{
+		status: node.Status{
+			ChainID:       "vexo-test",
+			Running:       true,
+			LatestHeight:  9,
+			LatestAppHash: types.Hash{1, 2, 3},
+			DataDir:       "/tmp/vexo",
+			PeerCount:     2,
+			BannedPeers:   1,
+			Peers: []p2p.PeerSnapshot{
+				{Peer: "alice", Score: 10, WindowMessages: 3},
+				{Peer: "mallory", Score: -5, Banned: true, BannedUntil: bannedUntil, WindowMessages: 9},
+			},
+		},
+		metrics: node.Metrics{
+			ChainID:              "vexo-test",
+			Running:              true,
+			LatestHeight:         9,
+			TotalBlocks:          9,
+			ValidatorCount:       4,
+			TotalVotingPower:     100,
+			PeerCount:            2,
+			BannedPeers:          1,
+			PeerWindowMessages:   12,
+			ConsensusLoopRunning: true,
+		},
+		index: store.BlockIndex{EarliestHeight: 1, LatestHeight: 9, TotalBlocks: 9},
+	})
+
+	var diagnostics DiagnosticsResponse
+	getJSON(t, handler, "/diagnostics", http.StatusOK, &diagnostics)
+	if !diagnostics.OK || diagnostics.Status != "healthy" {
+		t.Fatalf("expected healthy diagnostics, got %+v", diagnostics)
+	}
+	if diagnostics.Node.ChainID != "vexo-test" || diagnostics.Node.LatestHeight != 9 {
+		t.Fatalf("unexpected node diagnostics: %+v", diagnostics.Node)
+	}
+	if diagnostics.Metrics == nil || diagnostics.Metrics.ValidatorCount != 4 || diagnostics.Metrics.TotalVotingPower != 100 {
+		t.Fatalf("unexpected metrics diagnostics: %+v", diagnostics.Metrics)
+	}
+	if diagnostics.Storage == nil || diagnostics.Storage.EarliestHeight != 1 || diagnostics.Storage.LatestHeight != 9 || diagnostics.Storage.TotalBlocks != 9 {
+		t.Fatalf("unexpected storage diagnostics: %+v", diagnostics.Storage)
+	}
+	if len(diagnostics.Peers) != 2 || diagnostics.Peers[1].Peer != "mallory" || !diagnostics.Peers[1].Banned {
+		t.Fatalf("unexpected peer diagnostics: %+v", diagnostics.Peers)
+	}
+	assertDiagnosticCheck(t, diagnostics.Checks, "status", true)
+	assertDiagnosticCheck(t, diagnostics.Checks, "ready", true)
+	assertDiagnosticCheck(t, diagnostics.Checks, "metrics", true)
+	assertDiagnosticCheck(t, diagnostics.Checks, "storage", true)
+}
+
+func TestHandlerReportsDegradedDiagnostics(t *testing.T) {
+	handler := NewHandler(fakeStatusProvider{
+		status:     node.Status{ChainID: "vexo-test", Running: true},
+		metricsErr: errors.New("metrics failed"),
+		blockErr:   errors.New("storage failed"),
+	})
+
+	var diagnostics DiagnosticsResponse
+	getJSON(t, handler, "/diagnostics", http.StatusServiceUnavailable, &diagnostics)
+	if diagnostics.OK || diagnostics.Status != "degraded" {
+		t.Fatalf("expected degraded diagnostics, got %+v", diagnostics)
+	}
+	assertDiagnosticCheck(t, diagnostics.Checks, "status", true)
+	assertDiagnosticCheck(t, diagnostics.Checks, "ready", true)
+	assertDiagnosticCheck(t, diagnostics.Checks, "metrics", false)
+	assertDiagnosticCheck(t, diagnostics.Checks, "storage", false)
+	if diagnostics.Metrics != nil || diagnostics.Storage != nil {
+		t.Fatalf("expected missing failed optional sections, got metrics=%+v storage=%+v", diagnostics.Metrics, diagnostics.Storage)
+	}
+}
+
+func TestHandlerReportsNotReadyDiagnostics(t *testing.T) {
+	handler := NewHandler(fakeStatusProvider{
+		status:  node.Status{ChainID: "vexo-test", Running: false},
+		metrics: node.Metrics{ChainID: "vexo-test", Running: false},
+		index:   store.BlockIndex{EarliestHeight: 1, LatestHeight: 1, TotalBlocks: 1},
+	})
+
+	var diagnostics DiagnosticsResponse
+	getJSON(t, handler, "/diagnostics", http.StatusServiceUnavailable, &diagnostics)
+	if diagnostics.OK || diagnostics.Status != "not_ready" {
+		t.Fatalf("expected not_ready diagnostics, got %+v", diagnostics)
+	}
+	assertDiagnosticCheck(t, diagnostics.Checks, "status", true)
+	assertDiagnosticCheck(t, diagnostics.Checks, "ready", false)
+	assertDiagnosticCheck(t, diagnostics.Checks, "metrics", true)
+	assertDiagnosticCheck(t, diagnostics.Checks, "storage", true)
+}
+
 func TestHandlerAppliesRequestTimeoutContext(t *testing.T) {
 	deadline := make(chan bool, 1)
 	cancelled := make(chan struct{})
@@ -1210,6 +1303,22 @@ func getText(t *testing.T, handler http.Handler, path string, expectedStatus int
 		t.Fatalf("expected text/plain, got %q", contentType)
 	}
 	return response.Body.String()
+}
+
+func assertDiagnosticCheck(t *testing.T, checks []DiagnosticCheckResponse, name string, ok bool) {
+	t.Helper()
+	for _, check := range checks {
+		if check.Name == name {
+			if check.OK != ok {
+				t.Fatalf("expected diagnostic check %q ok=%v, got %+v", name, ok, check)
+			}
+			if !ok && check.Error == "" {
+				t.Fatalf("expected diagnostic check %q to include error", name)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing diagnostic check %q in %+v", name, checks)
 }
 
 func postJSON(t *testing.T, handler http.Handler, path string, body string, expectedStatus int, value any) {

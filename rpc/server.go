@@ -123,6 +123,22 @@ type MetricsResponse struct {
 	ConsensusLoopRunning bool   `json:"consensus_loop_running"`
 }
 
+type DiagnosticsResponse struct {
+	OK      bool                      `json:"ok"`
+	Status  string                    `json:"status"`
+	Checks  []DiagnosticCheckResponse `json:"checks"`
+	Node    StatusResponse            `json:"node"`
+	Metrics *MetricsResponse          `json:"metrics,omitempty"`
+	Storage *BlockIndexResponse       `json:"storage,omitempty"`
+	Peers   []PeerResponse            `json:"peers"`
+}
+
+type DiagnosticCheckResponse struct {
+	Name  string `json:"name"`
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
 type PeerResponse struct {
 	Peer           string `json:"peer"`
 	Score          int64  `json:"score"`
@@ -336,6 +352,17 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 			return
 		}
 		writeJSON(writer, http.StatusOK, statusResponse(provider.Status(request.Context())))
+	})
+	mux.HandleFunc("/diagnostics", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowGet(writer, request) {
+			return
+		}
+		diagnostics := diagnosticsResponse(request.Context(), provider)
+		statusCode := http.StatusOK
+		if !diagnostics.OK {
+			statusCode = http.StatusServiceUnavailable
+		}
+		writeJSON(writer, statusCode, diagnostics)
 	})
 	mux.HandleFunc("/metrics/text", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
@@ -816,6 +843,64 @@ func metricsResponse(metrics node.Metrics) MetricsResponse {
 		PeerWindowMessages:   metrics.PeerWindowMessages,
 		ConsensusLoopRunning: metrics.ConsensusLoopRunning,
 	}
+}
+
+func diagnosticsResponse(ctx context.Context, provider StatusProvider) DiagnosticsResponse {
+	status := provider.Status(ctx)
+	response := DiagnosticsResponse{
+		OK:     true,
+		Status: "healthy",
+		Checks: []DiagnosticCheckResponse{
+			{Name: "status", OK: true},
+			{Name: "ready", OK: status.Running},
+		},
+		Node:  statusResponse(status),
+		Peers: peerResponses(status.Peers),
+	}
+	if !status.Running {
+		response.OK = false
+		response.Status = "not_ready"
+		response.Checks[1].Error = "node is not running"
+	}
+
+	if metricsProvider, ok := provider.(MetricsProvider); ok {
+		metrics, err := metricsProvider.Metrics(ctx)
+		if err != nil {
+			response.addDiagnosticFailure("metrics", err)
+		} else {
+			metricsResponse := metricsResponse(metrics)
+			response.Metrics = &metricsResponse
+			response.Checks = append(response.Checks, DiagnosticCheckResponse{Name: "metrics", OK: true})
+		}
+	} else {
+		response.addDiagnosticFailure("metrics", errors.New("metrics query is unavailable"))
+	}
+
+	if queryProvider, ok := provider.(ChainQueryProvider); ok {
+		index, err := queryProvider.BlockIndex(ctx)
+		if err != nil {
+			response.addDiagnosticFailure("storage", err)
+		} else {
+			storageResponse := blockIndexResponse(index)
+			response.Storage = &storageResponse
+			response.Checks = append(response.Checks, DiagnosticCheckResponse{Name: "storage", OK: true})
+		}
+	} else {
+		response.addDiagnosticFailure("storage", errors.New("block index query is unavailable"))
+	}
+	return response
+}
+
+func (response *DiagnosticsResponse) addDiagnosticFailure(name string, err error) {
+	response.OK = false
+	if response.Status == "healthy" {
+		response.Status = "degraded"
+	}
+	response.Checks = append(response.Checks, DiagnosticCheckResponse{
+		Name:  name,
+		OK:    false,
+		Error: err.Error(),
+	})
 }
 
 func metricsText(metrics node.Metrics) string {
