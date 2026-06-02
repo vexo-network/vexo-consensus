@@ -300,6 +300,8 @@ func TestHandlerReportsMetrics(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{metrics: node.Metrics{
 		ChainID:              "vexo-test",
 		Running:              true,
+		StartedAtUnix:        1710000000,
+		UptimeSeconds:        42,
 		DataDir:              "/tmp/vexo",
 		LatestHeight:         9,
 		LatestAppHash:        types.Hash{1, 2, 3},
@@ -317,7 +319,7 @@ func TestHandlerReportsMetrics(t *testing.T) {
 
 	var metrics MetricsResponse
 	getJSON(t, handler, "/metrics", http.StatusOK, &metrics)
-	if metrics.ChainID != "vexo-test" || !metrics.Running || metrics.LatestHeight != 9 || metrics.TotalBlocks != 9 {
+	if metrics.ChainID != "vexo-test" || !metrics.Running || metrics.StartedAtUnix != 1710000000 || metrics.UptimeSeconds != 42 || metrics.LatestHeight != 9 || metrics.TotalBlocks != 9 {
 		t.Fatalf("unexpected metrics identity: %+v", metrics)
 	}
 	if metrics.ValidatorCount != 4 || metrics.TotalVotingPower != 100 || metrics.PeerCount != 3 || metrics.BannedPeers != 1 || !metrics.ConsensusLoopRunning {
@@ -331,6 +333,8 @@ func TestHandlerReportsMetrics(t *testing.T) {
 func TestHandlerReportsMetricsText(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{metrics: node.Metrics{
 		Running:              true,
+		StartedAtUnix:        1710000000,
+		UptimeSeconds:        42,
 		LatestHeight:         9,
 		EarliestBlockHeight:  1,
 		LatestBlockHeight:    9,
@@ -347,6 +351,8 @@ func TestHandlerReportsMetricsText(t *testing.T) {
 	for _, expected := range []string{
 		"# TYPE vexo_node_running gauge",
 		"vexo_node_running 1",
+		"vexo_started_at_unix 1710000000",
+		"vexo_uptime_seconds 42",
 		"vexo_latest_height 9",
 		"vexo_total_blocks 9",
 		"vexo_validator_count 4",

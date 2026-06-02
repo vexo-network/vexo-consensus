@@ -40,7 +40,7 @@ func TestRunCommandHelpAndVersion(t *testing.T) {
 	if err := runCommand(&stdout, &bytes.Buffer{}, []string{"version"}); err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(stdout.String()) != "vexod "+version {
+	if !strings.Contains(stdout.String(), "vexod "+version) || !strings.Contains(stdout.String(), "commit: ") || !strings.Contains(stdout.String(), "build_date: ") {
 		t.Fatalf("unexpected version output: %q", stdout.String())
 	}
 }
@@ -214,14 +214,43 @@ func TestRunInitAppliesConfigProfile(t *testing.T) {
 	}
 }
 
+func TestRunConfigProfiles(t *testing.T) {
+	var output bytes.Buffer
+	if err := runConfig(&output, []string{"profiles"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"dev", "testnet", "mainnet", "committee:", "mempool:", "execution:", "p2p:"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected profiles output to contain %q, got:\n%s", expected, output.String())
+		}
+	}
+}
+
+func TestRunConfigProfilesJSON(t *testing.T) {
+	var output bytes.Buffer
+	if err := runConfig(&output, []string{"profiles", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var document profilesDocument
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if len(document.Profiles) != 3 {
+		t.Fatalf("expected 3 profiles, got %+v", document)
+	}
+	if document.Profiles[2].Name != "mainnet" || !document.Profiles[2].RequireSigned || document.Profiles[2].ExecutionMinFee == 0 {
+		t.Fatalf("unexpected mainnet profile: %+v", document.Profiles[2])
+	}
+}
+
 func TestWriteOperationalLogJSON(t *testing.T) {
 	var output bytes.Buffer
-	writeOperationalLog(&output, "json", "node_running", map[string]any{"chain_id": "vexo-test"})
+	writeOperationalLog(&output, "json", "info", "node_running", map[string]any{"chain_id": "vexo-test"})
 	var record map[string]any
 	if err := json.Unmarshal(output.Bytes(), &record); err != nil {
 		t.Fatal(err)
 	}
-	if record["event"] != "node_running" || record["chain_id"] != "vexo-test" || record["ts"] == "" {
+	if record["event"] != "node_running" || record["level"] != "info" || record["chain_id"] != "vexo-test" || record["version"] == "" || record["ts"] == "" {
 		t.Fatalf("unexpected structured log: %+v", record)
 	}
 }

@@ -168,12 +168,13 @@ The design is intentionally modular so individual components can be replaced wit
 ### Operations
 
 - HTTP health, readiness, status, diagnostics, peer, block, state, validator, committee, and metrics endpoints
-- Prometheus-style text metrics
+- Prometheus-style text metrics with uptime and process start timestamps
 - Optional `/debug/pprof` endpoints
 - Admin-token protection for mutation endpoints
-- JSON or text startup logs
+- JSON or text startup logs with level, version, pid, and Go runtime metadata
 - Config profiles for `dev`, `testnet`, and `mainnet`
 - Deployment audit checks for production readiness
+- Cross-platform release builds and checksum generation through `make release`
 - Encrypted validator key files with passphrase-based loading
 - Remote signer key documents for KMS/HSM-backed validator signing
 - Snapshot export and restore commands
@@ -259,7 +260,7 @@ go run ./cmd/vexod start --home .vexo --run \
 Run with structured JSON operational logs and pprof:
 
 ```bash
-go run ./cmd/vexod start --home .vexo --run --log-format json --rpc-pprof
+go run ./cmd/vexod start --home .vexo --run --log-format json --log-level info --rpc-pprof
 ```
 
 Generate a 4-validator localnet:
@@ -348,6 +349,8 @@ This writes `.vexo/config.json`, `.vexo/genesis.json`, and `.vexo/data`.
 Available config profiles are `dev`, `testnet`, and `mainnet`:
 
 ```bash
+go run ./cmd/vexod config profiles
+go run ./cmd/vexod config profiles --json
 go run ./cmd/vexod init --home .vexo-testnet --chain-id vexo-testnet --profile testnet
 go run ./cmd/vexod init --home .vexo-mainnet --chain-id vexo-mainnet --profile mainnet
 ```
@@ -463,6 +466,13 @@ Build the node binary:
 
 ```bash
 make build
+```
+
+Build cross-platform release artifacts and checksums:
+
+```bash
+make release VERSION=0.1.0
+ls dist/
 ```
 
 Run all checks:

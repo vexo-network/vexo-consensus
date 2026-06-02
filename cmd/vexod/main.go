@@ -12,7 +12,11 @@ import (
 	"github.com/vexo-network/vexo-consensus/config"
 )
 
-const version = "dev"
+var (
+	version   = "dev"
+	commit    = "unknown"
+	buildDate = "unknown"
+)
 
 func main() {
 	if err := runCommand(os.Stdout, os.Stderr, os.Args[1:]); err != nil {
@@ -30,7 +34,7 @@ func runCommand(stdout io.Writer, stderr io.Writer, args []string) error {
 		writeHelp(stdout)
 		return nil
 	case "version", "--version":
-		fmt.Fprintf(stdout, "vexod %s\n", version)
+		fmt.Fprintf(stdout, "vexod %s\ncommit: %s\nbuild_date: %s\n", version, commit, buildDate)
 		return nil
 	case "init":
 		if err := runInit(stdout, args[1:]); err != nil {
@@ -131,6 +135,7 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  validate        validate config and genesis files\n")
 	fmt.Fprintf(writer, "  config audit    run deployment and production-readiness checks\n")
 	fmt.Fprintf(writer, "  config paths    print resolved config, genesis, key, and data paths\n")
+	fmt.Fprintf(writer, "  config profiles print available config profiles and key operational values\n")
 	fmt.Fprintf(writer, "  config show     print loaded chain config as JSON\n")
 	fmt.Fprintf(writer, "  keys gen        generate an Ed25519 validator key\n")
 	fmt.Fprintf(writer, "  keys remote     register a remote KMS/HSM validator signer\n")

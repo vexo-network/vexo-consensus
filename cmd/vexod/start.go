@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -56,6 +58,7 @@ type startRuntimeConfig struct {
 	RPCRateLimitWindow      time.Duration
 	RPCRateLimitMaxRequests int
 	LogFormat               string
+	LogLevel                string
 	ConsensusLoopEnabled    bool
 	ConsensusLoop           vexonode.ConsensusLoopConfig
 	P2PEnabled              bool
@@ -107,6 +110,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	addrBookMaxFailures := flags.Int("addr-book-max-failures", 3, "failed dial attempts before addr book bans a peer")
 	strictProduction := flags.Bool("strict-production", false, "fail startup when production-readiness checks fail")
 	logFormat := flags.String("log-format", "text", "operational log format: text or json")
+	logLevel := flags.String("log-level", "info", "operational log level")
 	peers := peerFlags{}
 	flags.Var(peers, "peer", "persistent peer in id=host:port form; may be repeated")
 	seeds := peerFlags{}
@@ -129,6 +133,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 		RPCRateLimitWindow:      *rpcRateLimitWindow,
 		RPCRateLimitMaxRequests: *rpcRateLimitMaxRequests,
 		LogFormat:               *logFormat,
+		LogLevel:                *logLevel,
 		ConsensusLoopEnabled:    *consensusLoopEnabled,
 		ConsensusLoop: vexonode.ConsensusLoopConfig{
 			Interval:      *consensusInterval,
@@ -187,6 +192,9 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 	if runtimeConfig.LogFormat != "" && runtimeConfig.LogFormat != "text" && runtimeConfig.LogFormat != "json" {
 		return fmt.Errorf("unsupported log format %q", runtimeConfig.LogFormat)
 	}
+	if runtimeConfig.LogLevel == "" {
+		runtimeConfig.LogLevel = "info"
+	}
 	node, p2pWire, err := buildRuntimeNode(inputs, runtimeConfig)
 	if err != nil {
 		return err
@@ -201,7 +209,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			return err
 		}
 		consensusLoopStarted = true
-		writeOperationalLog(writer, runtimeConfig.LogFormat, "consensus_loop_running", map[string]any{"chain_id": inputs.Plan.ChainID})
+		writeOperationalLog(writer, runtimeConfig.LogFormat, runtimeConfig.LogLevel, "consensus_loop_running", map[string]any{"chain_id": inputs.Plan.ChainID})
 	}
 	serverErr := make(chan error, 1)
 	rpcShutdown := func(context.Context) error { return nil }
@@ -219,19 +227,19 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			return err
 		}
 		rpcShutdown = shutdown
-		writeOperationalLog(writer, runtimeConfig.LogFormat, "rpc_listening", map[string]any{"rpc_address": address, "pprof": runtimeConfig.RPCEnablePprof})
+		writeOperationalLog(writer, runtimeConfig.LogFormat, runtimeConfig.LogLevel, "rpc_listening", map[string]any{"rpc_address": address, "pprof": runtimeConfig.RPCEnablePprof})
 	}
 	if p2pWire != nil {
-		writeOperationalLog(writer, runtimeConfig.LogFormat, "p2p_listening", map[string]any{"p2p_address": p2pWire.Address(), "p2p_peers": len(runtimeConfig.P2PPeers), "p2p_seeds": len(runtimeConfig.P2PSeeds)})
+		writeOperationalLog(writer, runtimeConfig.LogFormat, runtimeConfig.LogLevel, "p2p_listening", map[string]any{"p2p_address": p2pWire.Address(), "p2p_peers": len(runtimeConfig.P2PPeers), "p2p_seeds": len(runtimeConfig.P2PSeeds)})
 	}
-	writeOperationalLog(writer, runtimeConfig.LogFormat, "node_running", map[string]any{"chain_id": inputs.Plan.ChainID, "validator_id": inputs.Plan.ValidatorID, "data_dir": inputs.Plan.DataDir})
+	writeOperationalLog(writer, runtimeConfig.LogFormat, runtimeConfig.LogLevel, "node_running", map[string]any{"chain_id": inputs.Plan.ChainID, "validator_id": inputs.Plan.ValidatorID, "data_dir": inputs.Plan.DataDir, "pid": os.Getpid(), "version": version, "go_version": runtime.Version()})
 	select {
 	case <-ctx.Done():
 	case err := <-serverErr:
 		_ = node.Stop(context.Background())
 		return err
 	}
-	writeOperationalLog(writer, runtimeConfig.LogFormat, "shutdown_requested", map[string]any{"chain_id": inputs.Plan.ChainID})
+	writeOperationalLog(writer, runtimeConfig.LogFormat, runtimeConfig.LogLevel, "shutdown_requested", map[string]any{"chain_id": inputs.Plan.ChainID})
 	if consensusLoopStarted {
 		if err := node.StopConsensusLoop(context.Background()); err != nil && err != vexonode.ErrLoopNotRunning {
 			return err
@@ -243,13 +251,21 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 	if err := node.Stop(context.Background()); err != nil {
 		return err
 	}
-	writeOperationalLog(writer, runtimeConfig.LogFormat, "node_stopped", map[string]any{"chain_id": inputs.Plan.ChainID})
+	writeOperationalLog(writer, runtimeConfig.LogFormat, runtimeConfig.LogLevel, "node_stopped", map[string]any{"chain_id": inputs.Plan.ChainID})
 	return nil
 }
 
-func writeOperationalLog(writer io.Writer, format string, event string, fields map[string]any) {
+func writeOperationalLog(writer io.Writer, format string, level string, event string, fields map[string]any) {
+	if level == "" {
+		level = "info"
+	}
 	if format == "json" {
-		record := map[string]any{"event": event, "ts": time.Now().UTC().Format(time.RFC3339Nano)}
+		record := map[string]any{
+			"event":   event,
+			"level":   level,
+			"ts":      time.Now().UTC().Format(time.RFC3339Nano),
+			"version": version,
+		}
 		for key, value := range fields {
 			record[key] = value
 		}
@@ -260,6 +276,7 @@ func writeOperationalLog(writer io.Writer, format string, event string, fields m
 		}
 	}
 	fmt.Fprintf(writer, "%s\n", strings.ReplaceAll(event, "_", " "))
+	fmt.Fprintf(writer, "level: %s\n", level)
 	for key, value := range fields {
 		fmt.Fprintf(writer, "%s: %v\n", key, value)
 	}

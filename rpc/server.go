@@ -111,6 +111,7 @@ type HealthResponse struct {
 type StatusResponse struct {
 	ChainID       string `json:"chain_id"`
 	Running       bool   `json:"running"`
+	StartedAtUnix int64  `json:"started_at_unix,omitempty"`
 	LatestHeight  uint64 `json:"latest_height"`
 	LatestAppHash string `json:"latest_app_hash"`
 	DataDir       string `json:"data_dir"`
@@ -121,6 +122,8 @@ type StatusResponse struct {
 type MetricsResponse struct {
 	ChainID              string `json:"chain_id"`
 	Running              bool   `json:"running"`
+	StartedAtUnix        int64  `json:"started_at_unix,omitempty"`
+	UptimeSeconds        uint64 `json:"uptime_seconds"`
 	DataDir              string `json:"data_dir"`
 	LatestHeight         uint64 `json:"latest_height"`
 	LatestAppHash        string `json:"latest_app_hash"`
@@ -968,9 +971,14 @@ func allowAdmin(writer http.ResponseWriter, request *http.Request, adminToken st
 }
 
 func statusResponse(status node.Status) StatusResponse {
+	startedAtUnix := int64(0)
+	if !status.StartedAt.IsZero() {
+		startedAtUnix = status.StartedAt.Unix()
+	}
 	return StatusResponse{
 		ChainID:       status.ChainID,
 		Running:       status.Running,
+		StartedAtUnix: startedAtUnix,
 		LatestHeight:  uint64(status.LatestHeight),
 		LatestAppHash: hex.EncodeToString(status.LatestAppHash[:]),
 		DataDir:       status.DataDir,
@@ -983,6 +991,8 @@ func metricsResponse(metrics node.Metrics) MetricsResponse {
 	return MetricsResponse{
 		ChainID:              metrics.ChainID,
 		Running:              metrics.Running,
+		StartedAtUnix:        metrics.StartedAtUnix,
+		UptimeSeconds:        metrics.UptimeSeconds,
 		DataDir:              metrics.DataDir,
 		LatestHeight:         uint64(metrics.LatestHeight),
 		LatestAppHash:        hex.EncodeToString(metrics.LatestAppHash[:]),
@@ -1065,6 +1075,8 @@ func metricsText(metrics node.Metrics) string {
 		fmt.Fprintf(&builder, "%s %d\n", name, value)
 	}
 	writeGauge("vexo_node_running", "Whether the node is running.", boolGauge(metrics.Running))
+	writeGauge("vexo_started_at_unix", "Node process start timestamp in unix seconds.", uint64(metrics.StartedAtUnix))
+	writeGauge("vexo_uptime_seconds", "Node uptime in seconds.", metrics.UptimeSeconds)
 	writeGauge("vexo_latest_height", "Latest committed application height.", uint64(metrics.LatestHeight))
 	writeGauge("vexo_earliest_block_height", "Earliest locally stored block height.", uint64(metrics.EarliestBlockHeight))
 	writeGauge("vexo_latest_block_height", "Latest locally stored block height.", uint64(metrics.LatestBlockHeight))

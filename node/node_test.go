@@ -243,6 +243,9 @@ func TestNodeMetricsReportsRuntimeSnapshot(t *testing.T) {
 	if !metrics.Running || metrics.ChainID != "vexo-test" || metrics.LatestHeight != 1 || metrics.LatestAppHash == (types.Hash{}) {
 		t.Fatalf("unexpected metrics identity: %+v", metrics)
 	}
+	if metrics.StartedAtUnix == 0 {
+		t.Fatalf("expected started_at metric, got %+v", metrics)
+	}
 	if metrics.EarliestBlockHeight != 1 || metrics.LatestBlockHeight != 1 || metrics.TotalBlocks != 1 {
 		t.Fatalf("unexpected block metrics: %+v", metrics)
 	}

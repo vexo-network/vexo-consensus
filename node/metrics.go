@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"time"
 
 	"github.com/vexo-network/vexo-consensus/p2p"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -10,6 +11,8 @@ import (
 type Metrics struct {
 	ChainID              string
 	Running              bool
+	StartedAtUnix        int64
+	UptimeSeconds        uint64
 	DataDir              string
 	LatestHeight         types.Height
 	LatestAppHash        types.Hash
@@ -36,6 +39,10 @@ func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
 		PeerCount:          status.PeerCount,
 		BannedPeers:        status.BannedPeers,
 		PeerWindowMessages: peerWindowMessages(status.Peers),
+	}
+	if !status.StartedAt.IsZero() {
+		metrics.StartedAtUnix = status.StartedAt.Unix()
+		metrics.UptimeSeconds = uint64(time.Since(status.StartedAt).Seconds())
 	}
 
 	node.mu.Lock()

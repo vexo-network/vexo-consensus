@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/consensus"
@@ -31,6 +32,7 @@ var (
 type Status struct {
 	ChainID       string
 	Running       bool
+	StartedAt     time.Time
 	LatestHeight  types.Height
 	LatestAppHash types.Hash
 	DataDir       string
@@ -61,6 +63,7 @@ type Node struct {
 	consensusWAL   *consensus.WAL
 	signer         vexocrypto.Signer
 	running        bool
+	startedAt      time.Time
 }
 
 func New(cfg Config, genesis Genesis, application app.Application) (*Node, error) {
@@ -192,6 +195,7 @@ func (node *Node) Start(ctx context.Context) error {
 	node.pending = make(map[types.Hash]consensus.Proposal)
 	node.store = storage
 	node.running = true
+	node.startedAt = time.Now().UTC()
 	node.startPeerScoreWindowReset(ctx)
 	return nil
 }
@@ -277,6 +281,7 @@ func (node *Node) Stop(ctx context.Context) error {
 	node.loopCancel = nil
 	node.loopDone = nil
 	node.store = nil
+	node.startedAt = time.Time{}
 	return err
 }
 
@@ -315,9 +320,10 @@ func (node *Node) Status(ctx context.Context) Status {
 	defer node.mu.Unlock()
 
 	status := Status{
-		ChainID: node.cfg.Chain.ChainID,
-		Running: node.running,
-		DataDir: node.cfg.DataDir,
+		ChainID:   node.cfg.Chain.ChainID,
+		Running:   node.running,
+		StartedAt: node.startedAt,
+		DataDir:   node.cfg.DataDir,
 	}
 	if !node.running || node.runtime == nil {
 		return status

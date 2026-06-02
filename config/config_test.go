@@ -47,6 +47,21 @@ func TestConfigProfilesAreValidAndTightenOperations(t *testing.T) {
 	}
 }
 
+func TestProfilesReturnsStableOperationalProfiles(t *testing.T) {
+	profiles := Profiles()
+	if len(profiles) != 3 {
+		t.Fatalf("expected 3 profiles, got %+v", profiles)
+	}
+	if profiles[0].Name != ProfileDev || profiles[1].Name != ProfileTestnet || profiles[2].Name != ProfileMainnet {
+		t.Fatalf("unexpected profile order: %+v", profiles)
+	}
+	for _, profile := range profiles {
+		if profile.Description == "" {
+			t.Fatalf("expected profile description: %+v", profile)
+		}
+	}
+}
+
 func TestConfigValidateRejectsMissingChainID(t *testing.T) {
 	if err := Default("").Validate(); !errors.Is(err, ErrMissingChainID) {
 		t.Fatalf("expected missing chain id, got %v", err)

@@ -26,6 +26,19 @@ const (
 	ProfileMainnet Profile = "mainnet"
 )
 
+type ProfileSpec struct {
+	Name        Profile
+	Description string
+}
+
+func Profiles() []ProfileSpec {
+	return []ProfileSpec{
+		{Name: ProfileDev, Description: "local development defaults with permissive fees and fast feedback"},
+		{Name: ProfileTestnet, Description: "public test network defaults with tighter peer limits and priority mempool"},
+		{Name: ProfileMainnet, Description: "production defaults requiring signed/nonced transactions and fee floors"},
+	}
+}
+
 type Config struct {
 	ChainID     string
 	Application ApplicationConfig
