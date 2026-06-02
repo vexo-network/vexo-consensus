@@ -10,6 +10,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/fairordering"
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/p2p"
+	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/transport"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
@@ -447,10 +448,7 @@ func TestNodeCommitGossipSyncsPeerThatMissedProposal(t *testing.T) {
 	}
 
 	waitForNodeHeight(t, bob, 1)
-	record, err := bob.runtime.BlockByHeight(context.Background(), 1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	record := waitForBlockByHeight(t, bob, 1)
 	if record.Hash != blockHash {
 		t.Fatalf("expected bob to store committed block %x, got %x", blockHash, record.Hash)
 	}
@@ -1027,6 +1025,23 @@ func waitForNodeHeight(t *testing.T, node *Node, height types.Height) {
 		return
 	}
 	t.Fatalf("timed out waiting for node height %d, got %+v", height, status)
+}
+
+func waitForBlockByHeight(t *testing.T, node *Node, height types.Height) store.BlockRecord {
+	t.Helper()
+	deadline := time.Now().Add(transportTestWaitTimeout)
+	for time.Now().Before(deadline) {
+		record, err := node.runtime.BlockByHeight(context.Background(), height)
+		if err == nil {
+			return record
+		}
+		time.Sleep(time.Millisecond)
+	}
+	record, err := node.runtime.BlockByHeight(context.Background(), height)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record
 }
 
 func waitForValidatorPower(t *testing.T, node *Node, validatorID types.ValidatorID, expected types.VotingPower) {

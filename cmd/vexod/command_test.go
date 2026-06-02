@@ -152,6 +152,42 @@ func TestRunStartDryRun(t *testing.T) {
 	}
 }
 
+func TestBuildStartNodeLoadsValidatorSigner(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+		t.Fatal(err)
+	}
+
+	inputs, err := loadStartInputs(home, "", "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inputs.Genesis.Validators) != 1 || len(inputs.Genesis.Validators[0].PublicKey) == 0 {
+		t.Fatalf("expected local validator public key to be patched from key file: %+v", inputs.Genesis.Validators)
+	}
+	if string(inputs.Genesis.Validators[0].PublicKey) != string(inputs.Signer.PublicKey()) {
+		t.Fatal("expected genesis public key to match loaded signer")
+	}
+	startNode, err := buildStartNode(inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if startNode == nil {
+		t.Fatal("expected start node")
+	}
+
+	var output bytes.Buffer
+	if err := runStart(&output, []string{"--home", home}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "validator signer loaded") {
+		t.Fatalf("expected signer loaded output, got:\n%s", output.String())
+	}
+}
+
 func TestRunStartRequiresKey(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home}); err != nil {

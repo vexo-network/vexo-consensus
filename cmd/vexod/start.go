@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"io"
 
+	appmodules "github.com/vexo-network/vexo-consensus/app/modules"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
+	vexonode "github.com/vexo-network/vexo-consensus/node"
+	"github.com/vexo-network/vexo-consensus/types"
 )
 
 type startPlanDocument struct {
@@ -22,6 +25,13 @@ type startPlanDocument struct {
 	DryRun      bool   `json:"dry_run"`
 }
 
+type startInputs struct {
+	Config  vexonode.Config
+	Genesis vexonode.Genesis
+	Signer  vexocrypto.Ed25519Signer
+	Plan    startPlanDocument
+}
+
 func runStart(writer io.Writer, args []string) error {
 	flags := flag.NewFlagSet("start", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -34,17 +44,22 @@ func runStart(writer io.Writer, args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	plan, err := loadStartPlan(*home, *configPath, *genesisPath, *keyPath, *dryRun)
+	inputs, err := loadStartInputs(*home, *configPath, *genesisPath, *keyPath, *dryRun)
 	if err != nil {
 		return err
 	}
+	plan := inputs.Plan
 	if *jsonOutput {
 		encoder := json.NewEncoder(writer)
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(plan)
 	}
 	if !plan.DryRun {
+		if _, err := buildStartNode(inputs); err != nil {
+			return err
+		}
 		fmt.Fprintf(writer, "startup inputs valid\n")
+		fmt.Fprintf(writer, "validator signer loaded\n")
 		fmt.Fprintf(writer, "start execution is not enabled yet; rerun with --dry-run for readiness checks\n")
 	} else {
 		fmt.Fprintf(writer, "startup dry-run valid\n")
@@ -59,28 +74,38 @@ func runStart(writer io.Writer, args []string) error {
 }
 
 func loadStartPlan(home string, configPath string, genesisPath string, keyPath string, dryRun bool) (startPlanDocument, error) {
+	inputs, err := loadStartInputs(home, configPath, genesisPath, keyPath, dryRun)
+	if err != nil {
+		return startPlanDocument{}, err
+	}
+	return inputs.Plan, nil
+}
+
+func loadStartInputs(home string, configPath string, genesisPath string, keyPath string, dryRun bool) (startInputs, error) {
 	resolvedConfigPath := resolveConfigPath(home, configPath)
 	resolvedGenesisPath := resolveGenesisPath(home, genesisPath)
 	resolvedKeyPath := resolveKeyPath(home, keyPath)
 	cfg, err := loadNodeConfig(resolvedConfigPath)
 	if err != nil {
-		return startPlanDocument{}, err
+		return startInputs{}, err
 	}
 	genesis, err := loadGenesis(resolvedGenesisPath)
 	if err != nil {
-		return startPlanDocument{}, err
+		return startInputs{}, err
 	}
 	if err := genesis.Validate(cfg.Chain.ChainID); err != nil {
-		return startPlanDocument{}, err
+		return startInputs{}, err
 	}
 	keyDocument, err := vexocrypto.LoadKeyDocument(resolvedKeyPath)
 	if err != nil {
-		return startPlanDocument{}, err
+		return startInputs{}, err
 	}
-	if _, err := keyDocument.Ed25519Signer(); err != nil {
-		return startPlanDocument{}, err
+	signer, err := keyDocument.Ed25519Signer()
+	if err != nil {
+		return startInputs{}, err
 	}
-	return startPlanDocument{
+	genesis = withLocalValidatorPublicKey(genesis, cfg.ValidatorID, signer.PublicKey())
+	plan := startPlanDocument{
 		ChainID:     cfg.Chain.ChainID,
 		ValidatorID: string(cfg.ValidatorID),
 		DataDir:     cfg.DataDir,
@@ -91,5 +116,32 @@ func loadStartPlan(home string, configPath string, genesisPath string, keyPath s
 		KeyType:     keyDocument.Type,
 		PublicKey:   keyDocument.PublicKey,
 		DryRun:      dryRun,
+	}
+	return startInputs{
+		Config:  cfg,
+		Genesis: genesis,
+		Signer:  signer,
+		Plan:    plan,
 	}, nil
+}
+
+func buildStartNode(inputs startInputs) (*vexonode.Node, error) {
+	application, err := appmodules.NewRuntime(inputs.Config.Chain.ChainID, inputs.Config.Chain.Application)
+	if err != nil {
+		return nil, err
+	}
+	node, err := vexonode.New(inputs.Config, inputs.Genesis, application)
+	if err != nil {
+		return nil, err
+	}
+	return node.WithSigner(inputs.Signer), nil
+}
+
+func withLocalValidatorPublicKey(genesis vexonode.Genesis, validatorID types.ValidatorID, publicKey types.PublicKey) vexonode.Genesis {
+	for index := range genesis.Validators {
+		if genesis.Validators[index].ID == validatorID && len(genesis.Validators[index].PublicKey) == 0 {
+			genesis.Validators[index].PublicKey = append(types.PublicKey(nil), publicKey...)
+		}
+	}
+	return genesis
 }
