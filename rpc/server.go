@@ -242,6 +242,7 @@ type SnapshotExportResponse struct {
 	SchemaVersion string                  `json:"schema_version"`
 	State         store.StateRecord       `json:"state"`
 	StateRoots    []store.StateRootRecord `json:"state_roots"`
+	KV            []store.KVPair          `json:"kv,omitempty"`
 }
 
 type RecoveryReportResponse struct {
@@ -1306,6 +1307,7 @@ func snapshotExportResponse(snapshot node.StateSnapshot) SnapshotExportResponse 
 			ValidatorSetHash: snapshot.ValidatorSetHash,
 		},
 		StateRoots: append([]store.StateRootRecord(nil), snapshot.StateRoots...),
+		KV:         append([]store.KVPair(nil), snapshot.KV...),
 	}
 }
 

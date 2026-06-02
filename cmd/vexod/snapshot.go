@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -9,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/store"
@@ -16,8 +20,12 @@ import (
 
 type snapshotDocument struct {
 	SchemaVersion string                  `json:"schema_version"`
+	ChainID       string                  `json:"chain_id,omitempty"`
+	Modules       []string                `json:"modules,omitempty"`
 	State         store.StateRecord       `json:"state"`
 	StateRoots    []store.StateRootRecord `json:"state_roots"`
+	KV            []store.KVPair          `json:"kv,omitempty"`
+	Checksum      string                  `json:"checksum,omitempty"`
 }
 
 func runSnapshot(writer io.Writer, args []string) error {
@@ -27,6 +35,8 @@ func runSnapshot(writer io.Writer, args []string) error {
 	switch args[0] {
 	case "export":
 		return runSnapshotExport(writer, args[1:])
+	case "verify":
+		return runSnapshotVerify(writer, args[1:])
 	case "restore":
 		return runSnapshotRestore(writer, args[1:])
 	case "fetch":
@@ -56,7 +66,7 @@ func runSnapshotExport(writer io.Writer, args []string) error {
 		return err
 	}
 	defer storage.Close()
-	document, err := buildSnapshotDocument(storage)
+	document, err := buildSnapshotDocument(storage, cfg.Chain.ChainID, snapshotNamespaces(cfg.Chain.Application.Modules))
 	if err != nil {
 		return err
 	}
@@ -74,6 +84,41 @@ func runSnapshotExport(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "snapshot exported\n")
 	fmt.Fprintf(writer, "path: %s\n", *outputPath)
 	fmt.Fprintf(writer, "height: %d\n", document.State.Height)
+	return nil
+}
+
+func runSnapshotVerify(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("snapshot verify", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", defaultHomeDir, "node home directory")
+	configPath := flags.String("config", "", "config file path")
+	inputPath := flags.String("input", "", "snapshot input path")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *inputPath == "" {
+		return errors.New("snapshot input path is required")
+	}
+	cfg, err := loadNodeConfig(resolveConfigPath(*home, *configPath))
+	if err != nil {
+		return err
+	}
+	document, err := readSnapshotDocument(*inputPath)
+	if err != nil {
+		return err
+	}
+	if err := validateSnapshotDocument(document, cfg.Chain.ChainID); err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "snapshot verified\n")
+	fmt.Fprintf(writer, "path: %s\n", *inputPath)
+	fmt.Fprintf(writer, "chain_id: %s\n", document.ChainID)
+	fmt.Fprintf(writer, "height: %d\n", document.State.Height)
+	fmt.Fprintf(writer, "modules: %v\n", document.Modules)
+	fmt.Fprintf(writer, "kv_pairs: %d\n", len(document.KV))
+	if document.Checksum != "" {
+		fmt.Fprintf(writer, "checksum: %s\n", document.Checksum)
+	}
 	return nil
 }
 
@@ -95,6 +140,9 @@ func runSnapshotRestore(writer io.Writer, args []string) error {
 	}
 	document, err := readSnapshotDocument(*inputPath)
 	if err != nil {
+		return err
+	}
+	if err := validateSnapshotDocument(document, cfg.Chain.ChainID); err != nil {
 		return err
 	}
 	storage, err := store.OpenLevelDB(cfg.StoreDir())
@@ -166,6 +214,9 @@ func runSnapshotSync(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := validateSnapshotDocument(document, cfg.Chain.ChainID); err != nil {
+		return err
+	}
 	storage, err := store.OpenLevelDB(cfg.StoreDir())
 	if err != nil {
 		return err
@@ -183,34 +234,59 @@ func runSnapshotSync(writer io.Writer, args []string) error {
 	return nil
 }
 
-func buildSnapshotDocument(storage store.Store) (snapshotDocument, error) {
+func buildSnapshotDocument(storage store.Store, chainID string, namespaces []string) (snapshotDocument, error) {
 	state, err := storage.LatestState(context.Background())
 	if err != nil {
 		return snapshotDocument{}, err
 	}
 	roots := make([]store.StateRootRecord, 0)
-	for _, namespace := range []string{"bank"} {
+	kv := make([]store.KVPair, 0)
+	exporter, canExportKV := storage.(store.SnapshotKVStore)
+	for _, namespace := range namespaces {
 		root, err := storage.StateRoot(context.Background(), state.Height, namespace)
 		if err == nil {
 			roots = append(roots, root)
 		} else if !errors.Is(err, store.ErrStateRootNotFound) {
 			return snapshotDocument{}, err
 		}
+		if canExportKV {
+			pairs, err := exporter.ExportNamespace(context.Background(), namespace)
+			if err != nil {
+				return snapshotDocument{}, err
+			}
+			kv = append(kv, pairs...)
+		}
 	}
-	return snapshotDocumentFromState(state, roots), nil
+	return snapshotDocumentFromState(chainID, namespaces, state, roots, kv), nil
 }
 
-func snapshotDocumentFromState(state store.StateRecord, roots []store.StateRootRecord) snapshotDocument {
-	return snapshotDocument{
+func snapshotDocumentFromState(chainID string, modules []string, state store.StateRecord, roots []store.StateRootRecord, kv []store.KVPair) snapshotDocument {
+	document := snapshotDocument{
 		SchemaVersion: "v1",
+		ChainID:       chainID,
+		Modules:       sortedStrings(modules),
 		State:         state,
-		StateRoots:    append([]store.StateRootRecord(nil), roots...),
+		StateRoots:    sortedStateRoots(roots),
+		KV:            sortedKVPairs(kv),
 	}
+	document.Checksum = snapshotChecksum(document)
+	return document
 }
 
 func restoreSnapshotDocument(storage store.Store, document snapshotDocument) error {
-	if document.SchemaVersion != "v1" {
-		return fmt.Errorf("unsupported snapshot schema %q", document.SchemaVersion)
+	if err := validateSnapshotDocument(document, ""); err != nil {
+		return err
+	}
+	importer, canImportKV := storage.(store.SnapshotKVStore)
+	if len(document.KV) > 0 && !canImportKV {
+		return errors.New("snapshot KV restore is unavailable")
+	}
+	if canImportKV {
+		for _, namespace := range document.Modules {
+			if err := importer.ImportNamespace(context.Background(), namespace, kvForNamespace(document.KV, namespace)); err != nil {
+				return err
+			}
+		}
 	}
 	if err := storage.SaveState(context.Background(), document.State); err != nil {
 		return err
@@ -218,6 +294,15 @@ func restoreSnapshotDocument(storage store.Store, document snapshotDocument) err
 	for _, root := range document.StateRoots {
 		if err := storage.SaveStateRoot(context.Background(), root); err != nil {
 			return err
+		}
+		if len(document.KV) > 0 {
+			actualRoot, err := storage.Root(context.Background(), root.Namespace)
+			if err != nil {
+				return err
+			}
+			if actualRoot != root.Root {
+				return fmt.Errorf("snapshot state root mismatch for namespace %q", root.Namespace)
+			}
 		}
 	}
 	return nil
@@ -245,6 +330,9 @@ func downloadSnapshotDocument(url string, timeout time.Duration) (snapshotDocume
 	if document.SchemaVersion != "v1" {
 		return snapshotDocument{}, fmt.Errorf("unsupported snapshot schema %q", document.SchemaVersion)
 	}
+	if err := validateSnapshotDocument(document, ""); err != nil {
+		return snapshotDocument{}, err
+	}
 	return document, nil
 }
 
@@ -266,5 +354,94 @@ func readSnapshotDocument(path string) (snapshotDocument, error) {
 	if err := decoder.Decode(&document); err != nil {
 		return snapshotDocument{}, err
 	}
+	if err := validateSnapshotDocument(document, ""); err != nil {
+		return snapshotDocument{}, err
+	}
 	return document, nil
+}
+
+func validateSnapshotDocument(document snapshotDocument, expectedChainID string) error {
+	if document.SchemaVersion != "v1" {
+		return fmt.Errorf("unsupported snapshot schema %q", document.SchemaVersion)
+	}
+	if expectedChainID != "" && document.ChainID != "" && document.ChainID != expectedChainID {
+		return fmt.Errorf("snapshot chain id mismatch: expected %s got %s", expectedChainID, document.ChainID)
+	}
+	if document.State.Height == 0 {
+		return store.ErrInvalidStateRecord
+	}
+	for _, root := range document.StateRoots {
+		if root.Height != document.State.Height {
+			return fmt.Errorf("snapshot root height mismatch: state=%d root=%d namespace=%s", document.State.Height, root.Height, root.Namespace)
+		}
+	}
+	if document.Checksum != "" && document.Checksum != snapshotChecksum(document) {
+		return errors.New("snapshot checksum mismatch")
+	}
+	return nil
+}
+
+func snapshotChecksum(document snapshotDocument) string {
+	document.Checksum = ""
+	document.Modules = sortedStrings(document.Modules)
+	document.StateRoots = sortedStateRoots(document.StateRoots)
+	document.KV = sortedKVPairs(document.KV)
+	data, _ := json.Marshal(document)
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func snapshotNamespaces(modules []string) []string {
+	namespaces := append([]string(nil), modules...)
+	namespaces = append(namespaces, "auth")
+	return sortedStrings(namespaces)
+}
+
+func sortedStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	sorted := make([]string, 0, len(values))
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, found := seen[value]; found {
+			continue
+		}
+		seen[value] = struct{}{}
+		sorted = append(sorted, value)
+	}
+	sort.Strings(sorted)
+	return sorted
+}
+
+func sortedStateRoots(roots []store.StateRootRecord) []store.StateRootRecord {
+	sorted := append([]store.StateRootRecord(nil), roots...)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].Height != sorted[j].Height {
+			return sorted[i].Height < sorted[j].Height
+		}
+		return sorted[i].Namespace < sorted[j].Namespace
+	})
+	return sorted
+}
+
+func sortedKVPairs(pairs []store.KVPair) []store.KVPair {
+	sorted := append([]store.KVPair(nil), pairs...)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].Namespace != sorted[j].Namespace {
+			return sorted[i].Namespace < sorted[j].Namespace
+		}
+		return bytes.Compare(sorted[i].Key, sorted[j].Key) < 0
+	})
+	return sorted
+}
+
+func kvForNamespace(pairs []store.KVPair, namespace string) []store.KVPair {
+	filtered := make([]store.KVPair, 0)
+	for _, pair := range pairs {
+		if pair.Namespace == namespace {
+			filtered = append(filtered, pair)
+		}
+	}
+	return filtered
 }

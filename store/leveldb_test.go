@@ -500,6 +500,54 @@ func TestLevelDBStoreRootReflectsNamespaceState(t *testing.T) {
 	}
 }
 
+func TestLevelDBStoreExportsAndImportsNamespace(t *testing.T) {
+	source := openTestStore(t)
+	defer closeStore(t, source)
+	if err := source.Set(context.Background(), "bank", []byte("alice"), []byte("100")); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.Set(context.Background(), "bank", []byte("bob"), []byte("25")); err != nil {
+		t.Fatal(err)
+	}
+	sourceRoot, err := source.Root(context.Background(), "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pairs, err := source.ExportNamespace(context.Background(), "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pairs) != 2 {
+		t.Fatalf("expected two exported pairs, got %+v", pairs)
+	}
+
+	target := openTestStore(t)
+	defer closeStore(t, target)
+	if err := target.Set(context.Background(), "bank", []byte("stale"), []byte("1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := target.ImportNamespace(context.Background(), "bank", pairs); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := target.Get(context.Background(), "bank", []byte("stale")); !errors.Is(err, ErrKeyNotFound) {
+		t.Fatalf("expected stale key removed, got %v", err)
+	}
+	value, err := target.Get(context.Background(), "bank", []byte("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(value) != "100" {
+		t.Fatalf("unexpected imported value %q", value)
+	}
+	targetRoot, err := target.Root(context.Background(), "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if targetRoot != sourceRoot {
+		t.Fatalf("expected root %x, got %x", sourceRoot, targetRoot)
+	}
+}
+
 func TestLevelDBStoreRootRejectsInvalidNamespace(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)

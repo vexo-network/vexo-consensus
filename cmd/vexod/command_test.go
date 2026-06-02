@@ -247,7 +247,14 @@ func TestRunSnapshotExportAndRestore(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := storage.SaveStateRoot(context.Background(), store.StateRootRecord{Height: 3, Namespace: "bank", Root: types.Hash{4}}); err != nil {
+	if err := storage.Set(context.Background(), "bank", []byte("alice"), []byte("100")); err != nil {
+		t.Fatal(err)
+	}
+	sourceRoot, err := storage.Root(context.Background(), "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.SaveStateRoot(context.Background(), store.StateRootRecord{Height: 3, Namespace: "bank", Root: sourceRoot}); err != nil {
 		t.Fatal(err)
 	}
 	if err := storage.Close(); err != nil {
@@ -261,6 +268,13 @@ func TestRunSnapshotExportAndRestore(t *testing.T) {
 	}
 	if !strings.Contains(exportOutput.String(), "snapshot exported") {
 		t.Fatalf("unexpected export output:\n%s", exportOutput.String())
+	}
+	var verifyOutput bytes.Buffer
+	if err := runSnapshot(&verifyOutput, []string{"verify", "--home", home, "--input", snapshotPath}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(verifyOutput.String(), "snapshot verified") || !strings.Contains(verifyOutput.String(), "kv_pairs: 1") {
+		t.Fatalf("unexpected verify output:\n%s", verifyOutput.String())
 	}
 
 	restoreHome := t.TempDir()
@@ -291,18 +305,67 @@ func TestRunSnapshotExportAndRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if root.Root != (types.Hash{4}) {
+	if root.Root != sourceRoot {
 		t.Fatalf("unexpected restored root: %+v", root)
+	}
+	value, err := restoredStore.Get(context.Background(), "bank", []byte("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(value) != "100" {
+		t.Fatalf("unexpected restored bank value %q", value)
+	}
+}
+
+func TestRunSnapshotVerifyRejectsChecksumMismatch(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	document := snapshotDocumentFromState("vexo-test", []string{"bank"}, store.StateRecord{
+		Height:           3,
+		AppHash:          types.Hash{1},
+		LastBlockHash:    types.Hash{2},
+		ValidatorSetHash: types.Hash{3},
+	}, nil, []store.KVPair{{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")}})
+	document.KV[0].Value = []byte("999")
+	path := filepath.Join(t.TempDir(), "corrupt-snapshot.json")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeSnapshotDocument(file, document); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := runSnapshot(&bytes.Buffer{}, []string{"verify", "--home", home, "--input", path}); err == nil {
+		t.Fatal("expected checksum mismatch")
 	}
 }
 
 func TestRunSnapshotFetchAndSyncFromRPCExport(t *testing.T) {
-	document := snapshotDocumentFromState(store.StateRecord{
+	sourceStore, err := store.OpenLevelDB(filepath.Join(t.TempDir(), "source-store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sourceStore.Set(context.Background(), "bank", []byte("alice"), []byte("100")); err != nil {
+		t.Fatal(err)
+	}
+	sourceRoot, err := sourceStore.Root(context.Background(), "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sourceStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	document := snapshotDocumentFromState("vexo-test", []string{"bank"}, store.StateRecord{
 		Height:           7,
 		AppHash:          types.Hash{7},
 		LastBlockHash:    types.Hash{8},
 		ValidatorSetHash: types.Hash{9},
-	}, []store.StateRootRecord{{Height: 7, Namespace: "bank", Root: types.Hash{10}}})
+	}, []store.StateRootRecord{{Height: 7, Namespace: "bank", Root: sourceRoot}}, []store.KVPair{{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")}})
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/snapshot/export" {
 			http.NotFound(writer, request)
@@ -353,8 +416,15 @@ func TestRunSnapshotFetchAndSyncFromRPCExport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.Height != 7 || root.Root != (types.Hash{10}) || !strings.Contains(syncOutput.String(), "snapshot synced") {
+	if state.Height != 7 || root.Root != sourceRoot || !strings.Contains(syncOutput.String(), "snapshot synced") {
 		t.Fatalf("unexpected synced snapshot state=%+v root=%+v output=%s", state, root, syncOutput.String())
+	}
+	value, err := storage.Get(context.Background(), "bank", []byte("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(value) != "100" {
+		t.Fatalf("unexpected synced bank value %q", value)
 	}
 }
 

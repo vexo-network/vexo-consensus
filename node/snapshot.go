@@ -13,6 +13,7 @@ type StateSnapshot struct {
 	LastBlockHash    types.Hash
 	ValidatorSetHash types.Hash
 	StateRoots       []store.StateRootRecord
+	KV               []store.KVPair
 }
 
 func (node *Node) StateSnapshot(ctx context.Context) (StateSnapshot, error) {
@@ -37,6 +38,13 @@ func (node *Node) StateSnapshot(ctx context.Context) (StateSnapshot, error) {
 			return StateSnapshot{}, err
 		}
 		snapshot.StateRoots = append(snapshot.StateRoots, root)
+		if exporter, ok := runtime.Store.(store.SnapshotKVStore); ok {
+			pairs, err := exporter.ExportNamespace(ctx, module.Name())
+			if err != nil {
+				return StateSnapshot{}, err
+			}
+			snapshot.KV = append(snapshot.KV, pairs...)
+		}
 	}
 	return snapshot, nil
 }

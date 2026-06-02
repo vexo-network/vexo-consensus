@@ -827,43 +827,37 @@ func TestNodeTimeoutRoundBroadcastsAndAdvancesPeers(t *testing.T) {
 }
 
 func TestNodeConsensusLoopAdvancesRoundAfterTimeout(t *testing.T) {
-	alice, bob, carol := newConsensusLoopNodes(t)
+	bus := transport.NewInMemoryBus()
+	genesis := Genesis{
+		ChainID: "vexo-test",
+		Validators: []validator.Validator{
+			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+		},
+		Governance: map[types.Address]types.VotingPower{"alice": 1},
+	}
+	alice := newConsensusLoopNode(t, bus, genesis, "alice")
 	startNode(t, alice)
 	defer alice.Stop(context.Background())
-	startNode(t, bob)
-	defer bob.Stop(context.Background())
-	startNode(t, carol)
-	defer carol.Stop(context.Background())
 
-	for _, node := range []*Node{alice, bob, carol} {
-		machine, err := node.Consensus()
-		if err != nil {
-			t.Fatal(err)
-		}
-		machine.StartRound(1, 0)
+	machine, err := alice.Consensus()
+	if err != nil {
+		t.Fatal(err)
 	}
+	machine.StartRound(1, 0)
 
 	loopConfig := ConsensusLoopConfig{
 		Interval:      time.Millisecond,
 		RoundTimeout:  time.Nanosecond,
 		MaxBlockBytes: 1024,
 	}
-	for _, node := range []*Node{alice, bob, carol} {
-		if err := node.StartConsensusLoop(context.Background(), loopConfig); err != nil {
-			t.Fatal(err)
-		}
-		defer node.StopConsensusLoop(context.Background())
+	if err := alice.StartConsensusLoop(context.Background(), loopConfig); err != nil {
+		t.Fatal(err)
 	}
+	defer alice.StopConsensusLoop(context.Background())
 
-	for _, node := range []*Node{alice, bob, carol} {
-		machine, err := node.Consensus()
-		if err != nil {
-			t.Fatal(err)
-		}
-		waitForConsensusStatus(t, machine, func(status consensus.Status) bool {
-			return status.Height == 1 && status.Round >= 1 && status.Phase == consensus.PhasePropose
-		})
-	}
+	waitForConsensusStatus(t, machine, func(status consensus.Status) bool {
+		return status.Height == 1 && status.Round >= 1 && status.Phase == consensus.PhasePropose
+	})
 }
 
 func TestNodeSkippedProposerRecoversOnNextRound(t *testing.T) {

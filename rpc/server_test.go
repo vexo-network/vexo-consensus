@@ -906,6 +906,7 @@ func TestHandlerExportsRestorableSnapshotDocument(t *testing.T) {
 		StateRoots: []store.StateRootRecord{
 			{Height: 5, Namespace: "bank", Root: types.Hash{4}},
 		},
+		KV: []store.KVPair{{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")}},
 	}})
 
 	var snapshot SnapshotExportResponse
@@ -915,6 +916,9 @@ func TestHandlerExportsRestorableSnapshotDocument(t *testing.T) {
 	}
 	if len(snapshot.StateRoots) != 1 || snapshot.StateRoots[0].Namespace != "bank" || snapshot.StateRoots[0].Root != (types.Hash{4}) {
 		t.Fatalf("unexpected snapshot export roots: %+v", snapshot.StateRoots)
+	}
+	if len(snapshot.KV) != 1 || snapshot.KV[0].Namespace != "bank" || string(snapshot.KV[0].Key) != "alice" {
+		t.Fatalf("unexpected snapshot export kv: %+v", snapshot.KV)
 	}
 }
 

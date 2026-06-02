@@ -30,6 +30,9 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "fair_ordering.height_salted: true\n")
 	fmt.Fprintf(writer, "data_availability.commitments: true\n")
 	fmt.Fprintf(writer, "storage.backend: leveldb\n")
+	fmt.Fprintf(writer, "state_sync.snapshot_kv: true\n")
+	fmt.Fprintf(writer, "state_sync.snapshot_checksum: true\n")
+	fmt.Fprintf(writer, "state_sync.snapshot_verify: true\n")
 	fmt.Fprintf(writer, "addr_book.persistent: true\n")
 	fmt.Fprintf(writer, "addr_book.dial_failure_tracking: true\n")
 	fmt.Fprintf(writer, "addr_book.ban_eviction_policy: true\n")
@@ -160,6 +163,9 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"fair_ordering":            true,
 			"height_salted_order":      true,
 			"data_availability":        true,
+			"state_sync_snapshot_kv":   true,
+			"state_sync_checksum":      true,
+			"state_sync_verify":        true,
 			"deployment_audit":         true,
 			"addr_book":                true,
 			"addr_book_ban_evict":      true,

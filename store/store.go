@@ -27,6 +27,12 @@ type StateRootRecord struct {
 	Root      types.Hash
 }
 
+type KVPair struct {
+	Namespace string
+	Key       []byte
+	Value     []byte
+}
+
 type BlockIndex struct {
 	EarliestHeight types.Height
 	LatestHeight   types.Height
@@ -84,4 +90,9 @@ type KVStore interface {
 	Get(ctx context.Context, namespace string, key []byte) ([]byte, error)
 	Delete(ctx context.Context, namespace string, key []byte) error
 	Root(ctx context.Context, namespace string) (types.Hash, error)
+}
+
+type SnapshotKVStore interface {
+	ExportNamespace(ctx context.Context, namespace string) ([]KVPair, error)
+	ImportNamespace(ctx context.Context, namespace string, pairs []KVPair) error
 }

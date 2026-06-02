@@ -160,6 +160,7 @@ The design is intentionally modular so individual components can be replaced wit
 - Index recovery after partial metadata loss
 - LevelDB compaction hook
 - Recovery, replay, snapshot, and restore helpers
+- State sync snapshots with module KV payloads, chain metadata, and checksum verification
 - Runtime validator update application
 - Node config, genesis, data directory, and lifecycle skeleton
 - Node-level transport reactor wiring for in-memory multi-node simulations
@@ -440,10 +441,11 @@ Export and restore the latest persisted state snapshot:
 
 ```bash
 go run ./cmd/vexod snapshot export --home .vexo --output snapshot.json
+go run ./cmd/vexod snapshot verify --home .vexo-restore --input snapshot.json
 go run ./cmd/vexod snapshot restore --home .vexo-restore --input snapshot.json
 ```
 
-Fetch or directly sync a new node from a peer's RPC snapshot export:
+Fetch or directly sync a new node from a peer's RPC snapshot export. Snapshot sync restores state metadata, module state roots, and exported module KV pairs:
 
 ```bash
 go run ./cmd/vexod snapshot fetch --url http://127.0.0.1:26657/snapshot/export --output snapshot.json

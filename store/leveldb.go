@@ -388,6 +388,78 @@ func (store *LevelDBStore) Root(ctx context.Context, namespace string) (types.Ha
 	return hash, nil
 }
 
+func (store *LevelDBStore) ExportNamespace(ctx context.Context, namespace string) ([]KVPair, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	if namespace == "" {
+		return nil, ErrInvalidNamespace
+	}
+	prefix := kvNamespacePrefix(namespace)
+	iterator := store.db.NewIterator(util.BytesPrefix(prefix), nil)
+	defer iterator.Release()
+
+	pairs := make([]KVPair, 0)
+	for iterator.Next() {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		rawKey := iterator.Key()
+		rawValue := iterator.Value()
+		pairs = append(pairs, KVPair{
+			Namespace: namespace,
+			Key:       append([]byte(nil), rawKey[len(prefix):]...),
+			Value:     append([]byte(nil), rawValue...),
+		})
+	}
+	if err := iterator.Error(); err != nil {
+		return nil, err
+	}
+	return pairs, nil
+}
+
+func (store *LevelDBStore) ImportNamespace(ctx context.Context, namespace string, pairs []KVPair) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	if namespace == "" {
+		return ErrInvalidNamespace
+	}
+	batch := new(leveldb.Batch)
+	prefix := kvNamespacePrefix(namespace)
+	iterator := store.db.NewIterator(util.BytesPrefix(prefix), nil)
+	for iterator.Next() {
+		select {
+		case <-ctx.Done():
+			iterator.Release()
+			return ctx.Err()
+		default:
+		}
+		batch.Delete(append([]byte(nil), iterator.Key()...))
+	}
+	if err := iterator.Error(); err != nil {
+		iterator.Release()
+		return err
+	}
+	iterator.Release()
+	for _, pair := range pairs {
+		if pair.Namespace != "" && pair.Namespace != namespace {
+			return ErrInvalidNamespace
+		}
+		if len(pair.Key) == 0 {
+			return ErrInvalidKey
+		}
+		batch.Put(kvKey(namespace, pair.Key), append([]byte(nil), pair.Value...))
+	}
+	return store.db.Write(batch, nil)
+}
+
 func (store *LevelDBStore) SaveEvidence(ctx context.Context, record EvidenceRecord) error {
 	select {
 	case <-ctx.Done():

@@ -138,7 +138,7 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  keys show       show validator public key\n")
 	fmt.Fprintf(writer, "  start           validate files, prepare startup, or run node with --run; Ctrl+C shuts down gracefully\n")
 	fmt.Fprintf(writer, "  localnet        up, initialize, start, smoke-test, status-check, and stop local multi-node networks\n")
-	fmt.Fprintf(writer, "  snapshot        export, fetch, sync, or restore latest persisted state snapshot\n")
+	fmt.Fprintf(writer, "  snapshot        export, verify, fetch, sync, or restore latest persisted state snapshot\n")
 	fmt.Fprintf(writer, "  doctor          inspect config, keys, store, snapshot, and recovery readiness\n")
 	fmt.Fprintf(writer, "  status          print default node capability status\n")
 	fmt.Fprintf(writer, "  demo            run an in-memory bank execution demo\n")

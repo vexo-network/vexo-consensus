@@ -29,6 +29,9 @@ func TestWriteStatus(t *testing.T) {
 		"fair_ordering.height_salted: true",
 		"data_availability.commitments: true",
 		"storage.backend: leveldb",
+		"state_sync.snapshot_kv: true",
+		"state_sync.snapshot_checksum: true",
+		"state_sync.snapshot_verify: true",
 		"addr_book.persistent: true",
 		"addr_book.dial_failure_tracking: true",
 		"addr_book.ban_eviction_policy: true",
@@ -81,7 +84,7 @@ func TestWriteStatusJSON(t *testing.T) {
 	if document.Mempool.MinFee != 0 || document.Mempool.EnablePriority {
 		t.Fatalf("unexpected mempool status: %+v", document.Mempool)
 	}
-	if document.Storage.Backend != "leveldb" || !document.Features["peer_scoring"] || !document.Features["height_salted_order"] || !document.Features["deployment_audit"] || !document.Features["addr_book"] || !document.Features["addr_book_ban_evict"] || !document.Features["peer_dial_tracking"] || !document.Features["transport_peer_gate"] || !document.Features["consensus_gossip_scoring"] || !document.Features["banned_peer_disconnect"] || !document.Features["peer_score_persistence"] {
+	if document.Storage.Backend != "leveldb" || !document.Features["peer_scoring"] || !document.Features["height_salted_order"] || !document.Features["deployment_audit"] || !document.Features["addr_book"] || !document.Features["addr_book_ban_evict"] || !document.Features["peer_dial_tracking"] || !document.Features["transport_peer_gate"] || !document.Features["consensus_gossip_scoring"] || !document.Features["banned_peer_disconnect"] || !document.Features["peer_score_persistence"] || !document.Features["state_sync_snapshot_kv"] || !document.Features["state_sync_checksum"] || !document.Features["state_sync_verify"] {
 		t.Fatalf("unexpected feature/storage status: %+v", document)
 	}
 	if document.P2P.InitialScore != 100 || document.P2P.InvalidMessageCost != 10 || !document.P2P.PeerSnapshotsEnabled {
