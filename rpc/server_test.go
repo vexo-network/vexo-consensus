@@ -503,6 +503,24 @@ func TestHandlerRateLimitsRequests(t *testing.T) {
 	}
 }
 
+func TestHandlerServesPprofWhenEnabled(t *testing.T) {
+	enabled := NewHandlerWithConfig(fakeStatusProvider{}, Config{EnablePprof: true})
+	request := httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil)
+	response := httptest.NewRecorder()
+	enabled.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected pprof enabled status 200, got %d", response.Code)
+	}
+
+	disabled := NewHandler(fakeStatusProvider{})
+	request = httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil)
+	response = httptest.NewRecorder()
+	disabled.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("expected pprof disabled status 404, got %d", response.Code)
+	}
+}
+
 func TestHandlerRateLimitSeparatesClientIPs(t *testing.T) {
 	handler := NewHandlerWithConfig(fakeStatusProvider{status: node.Status{Running: true}}, Config{
 		RateLimitWindow:      time.Hour,

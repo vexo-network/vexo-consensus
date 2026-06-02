@@ -49,10 +49,12 @@ type startRuntimeConfig struct {
 	RPCEnabled              bool
 	RPCAddress              string
 	RPCAdminToken           string
+	RPCEnablePprof          bool
 	RPCRequestTimeout       time.Duration
 	RPCMaxRequestBytes      int64
 	RPCRateLimitWindow      time.Duration
 	RPCRateLimitMaxRequests int
+	LogFormat               string
 	ConsensusLoopEnabled    bool
 	ConsensusLoop           vexonode.ConsensusLoopConfig
 	P2PEnabled              bool
@@ -82,6 +84,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	rpcEnabled := flags.Bool("rpc", true, "run HTTP RPC server with node")
 	rpcAddress := flags.String("rpc-address", defaultRPCAddress, "HTTP RPC listen address")
 	rpcAdminToken := flags.String("rpc-admin-token", "", "admin token required for protected RPC endpoints")
+	rpcEnablePprof := flags.Bool("rpc-pprof", false, "enable net/http/pprof endpoints under /debug/pprof")
 	rpcRequestTimeout := flags.Duration("rpc-request-timeout", 0, "HTTP RPC request timeout")
 	rpcMaxRequestBytes := flags.Int64("rpc-max-request-bytes", 0, "maximum HTTP RPC request body bytes")
 	rpcRateLimitWindow := flags.Duration("rpc-rate-limit-window", 0, "HTTP RPC rate limit window")
@@ -96,6 +99,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	p2pMaxMessageBytes := flags.Uint64("p2p-max-message-bytes", 0, "maximum P2P message bytes")
 	p2pMaxPeers := flags.Int("p2p-max-peers", 0, "maximum configured P2P peers")
 	p2pAuthToken := flags.String("p2p-auth-token", "", "shared P2P handshake auth token")
+	logFormat := flags.String("log-format", "text", "operational log format: text or json")
 	peers := peerFlags{}
 	flags.Var(peers, "peer", "persistent peer in id=host:port form; may be repeated")
 	jsonOutput := flags.Bool("json", false, "write JSON output")
@@ -119,10 +123,12 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 			RPCEnabled:              *rpcEnabled,
 			RPCAddress:              *rpcAddress,
 			RPCAdminToken:           *rpcAdminToken,
+			RPCEnablePprof:          *rpcEnablePprof,
 			RPCRequestTimeout:       *rpcRequestTimeout,
 			RPCMaxRequestBytes:      *rpcMaxRequestBytes,
 			RPCRateLimitWindow:      *rpcRateLimitWindow,
 			RPCRateLimitMaxRequests: *rpcRateLimitMaxRequests,
+			LogFormat:               *logFormat,
 			ConsensusLoopEnabled:    *consensusLoopEnabled,
 			ConsensusLoop: vexonode.ConsensusLoopConfig{
 				Interval:      *consensusInterval,
@@ -159,6 +165,9 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 
 func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, runtimeConfig startRuntimeConfig) error {
 	runtimeConfig = applyLocalnetRuntimeDefaults(inputs, runtimeConfig)
+	if runtimeConfig.LogFormat != "" && runtimeConfig.LogFormat != "text" && runtimeConfig.LogFormat != "json" {
+		return fmt.Errorf("unsupported log format %q", runtimeConfig.LogFormat)
+	}
 	node, p2pWire, err := buildRuntimeNode(inputs, runtimeConfig)
 	if err != nil {
 		return err
@@ -173,13 +182,14 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			return err
 		}
 		consensusLoopStarted = true
-		fmt.Fprintf(writer, "consensus loop running\n")
+		writeOperationalLog(writer, runtimeConfig.LogFormat, "consensus_loop_running", map[string]any{"chain_id": inputs.Plan.ChainID})
 	}
 	serverErr := make(chan error, 1)
 	rpcShutdown := func(context.Context) error { return nil }
 	if runtimeConfig.RPCEnabled {
 		address, shutdown, err := startRPCServerWithConfig(node, runtimeConfig.RPCAddress, vexorpc.Config{
 			AdminToken:           runtimeConfig.RPCAdminToken,
+			EnablePprof:          runtimeConfig.RPCEnablePprof,
 			RequestTimeout:       runtimeConfig.RPCRequestTimeout,
 			MaxRequestBytes:      runtimeConfig.RPCMaxRequestBytes,
 			RateLimitWindow:      runtimeConfig.RPCRateLimitWindow,
@@ -190,25 +200,19 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			return err
 		}
 		rpcShutdown = shutdown
-		fmt.Fprintf(writer, "rpc listening\n")
-		fmt.Fprintf(writer, "rpc_address: %s\n", address)
+		writeOperationalLog(writer, runtimeConfig.LogFormat, "rpc_listening", map[string]any{"rpc_address": address, "pprof": runtimeConfig.RPCEnablePprof})
 	}
 	if p2pWire != nil {
-		fmt.Fprintf(writer, "p2p listening\n")
-		fmt.Fprintf(writer, "p2p_address: %s\n", p2pWire.Address())
-		fmt.Fprintf(writer, "p2p_peers: %d\n", len(runtimeConfig.P2PPeers))
+		writeOperationalLog(writer, runtimeConfig.LogFormat, "p2p_listening", map[string]any{"p2p_address": p2pWire.Address(), "p2p_peers": len(runtimeConfig.P2PPeers)})
 	}
-	fmt.Fprintf(writer, "node running\n")
-	fmt.Fprintf(writer, "chain_id: %s\n", inputs.Plan.ChainID)
-	fmt.Fprintf(writer, "validator_id: %s\n", inputs.Plan.ValidatorID)
-	fmt.Fprintf(writer, "data_dir: %s\n", inputs.Plan.DataDir)
+	writeOperationalLog(writer, runtimeConfig.LogFormat, "node_running", map[string]any{"chain_id": inputs.Plan.ChainID, "validator_id": inputs.Plan.ValidatorID, "data_dir": inputs.Plan.DataDir})
 	select {
 	case <-ctx.Done():
 	case err := <-serverErr:
 		_ = node.Stop(context.Background())
 		return err
 	}
-	fmt.Fprintf(writer, "shutdown requested\n")
+	writeOperationalLog(writer, runtimeConfig.LogFormat, "shutdown_requested", map[string]any{"chain_id": inputs.Plan.ChainID})
 	if consensusLoopStarted {
 		if err := node.StopConsensusLoop(context.Background()); err != nil && err != vexonode.ErrLoopNotRunning {
 			return err
@@ -220,8 +224,26 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 	if err := node.Stop(context.Background()); err != nil {
 		return err
 	}
-	fmt.Fprintf(writer, "node stopped\n")
+	writeOperationalLog(writer, runtimeConfig.LogFormat, "node_stopped", map[string]any{"chain_id": inputs.Plan.ChainID})
 	return nil
+}
+
+func writeOperationalLog(writer io.Writer, format string, event string, fields map[string]any) {
+	if format == "json" {
+		record := map[string]any{"event": event, "ts": time.Now().UTC().Format(time.RFC3339Nano)}
+		for key, value := range fields {
+			record[key] = value
+		}
+		encoded, err := json.Marshal(record)
+		if err == nil {
+			fmt.Fprintf(writer, "%s\n", encoded)
+			return
+		}
+	}
+	fmt.Fprintf(writer, "%s\n", strings.ReplaceAll(event, "_", " "))
+	for key, value := range fields {
+		fmt.Fprintf(writer, "%s: %v\n", key, value)
+	}
 }
 
 func startRPCServer(provider vexorpc.StatusProvider, address string, serverErr chan<- error) (string, func(context.Context) error, error) {

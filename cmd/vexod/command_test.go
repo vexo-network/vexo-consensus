@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/p2p"
+	"github.com/vexo-network/vexo-consensus/store"
+	"github.com/vexo-network/vexo-consensus/types"
 )
 
 func TestRunCommandHelpAndVersion(t *testing.T) {
@@ -192,6 +194,102 @@ func TestRunInitWritesLocalnetFilesWithCustomPorts(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "p2p=127.0.0.1:27666") || !strings.Contains(output.String(), "rpc=127.0.0.1:27667") {
 		t.Fatalf("unexpected custom port output:\n%s", output.String())
+	}
+}
+
+func TestRunInitAppliesConfigProfile(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--profile", "mainnet"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Chain.Committee.CommitteeSize != 256 || cfg.Chain.Governance.Timelock != 100 {
+		t.Fatalf("expected mainnet profile config, got %+v", cfg.Chain)
+	}
+}
+
+func TestWriteOperationalLogJSON(t *testing.T) {
+	var output bytes.Buffer
+	writeOperationalLog(&output, "json", "node_running", map[string]any{"chain_id": "vexo-test"})
+	var record map[string]any
+	if err := json.Unmarshal(output.Bytes(), &record); err != nil {
+		t.Fatal(err)
+	}
+	if record["event"] != "node_running" || record["chain_id"] != "vexo-test" || record["ts"] == "" {
+		t.Fatalf("unexpected structured log: %+v", record)
+	}
+}
+
+func TestRunSnapshotExportAndRestore(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage, err := store.OpenLevelDB(cfg.StoreDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.SaveState(context.Background(), store.StateRecord{
+		Height:           3,
+		AppHash:          types.Hash{1},
+		LastBlockHash:    types.Hash{2},
+		ValidatorSetHash: types.Hash{3},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.SaveStateRoot(context.Background(), store.StateRootRecord{Height: 3, Namespace: "bank", Root: types.Hash{4}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshotPath := filepath.Join(t.TempDir(), "snapshot.json")
+	var exportOutput bytes.Buffer
+	if err := runSnapshot(&exportOutput, []string{"export", "--home", home, "--output", snapshotPath}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(exportOutput.String(), "snapshot exported") {
+		t.Fatalf("unexpected export output:\n%s", exportOutput.String())
+	}
+
+	restoreHome := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", restoreHome, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	var restoreOutput bytes.Buffer
+	if err := runSnapshot(&restoreOutput, []string{"restore", "--home", restoreHome, "--input", snapshotPath}); err != nil {
+		t.Fatal(err)
+	}
+	restoredConfig, err := loadNodeConfig(filepath.Join(restoreHome, configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredStore, err := store.OpenLevelDB(restoredConfig.StoreDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restoredStore.Close()
+	state, err := restoredStore.LatestState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Height != 3 || state.AppHash != (types.Hash{1}) {
+		t.Fatalf("unexpected restored state: %+v", state)
+	}
+	root, err := restoredStore.StateRoot(context.Background(), 3, "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root.Root != (types.Hash{4}) {
+		t.Fatalf("unexpected restored root: %+v", root)
 	}
 }
 

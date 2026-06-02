@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"strconv"
 	"strings"
 	"sync"
@@ -91,6 +92,7 @@ type Config struct {
 	RateLimitWindow      time.Duration
 	RateLimitMaxRequests int
 	AdminToken           string
+	EnablePprof          bool
 }
 
 type Server struct {
@@ -351,6 +353,9 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 		cfg.MaxRequestBytes = defaultMaxRequestBytes
 	}
 	mux := http.NewServeMux()
+	if cfg.EnablePprof {
+		registerPprofHandlers(mux)
+	}
 	mux.HandleFunc("/healthz", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
 			return
@@ -766,6 +771,14 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 		writeJSON(writer, http.StatusOK, committeeResponse(height, seed, committeeResult))
 	})
 	return applyMiddleware(mux, cfg)
+}
+
+func registerPprofHandlers(mux *http.ServeMux) {
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 }
 
 func applyMiddleware(handler http.Handler, cfg Config) http.Handler {

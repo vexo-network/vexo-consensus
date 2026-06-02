@@ -12,6 +12,32 @@ func TestDefaultConfigIsValid(t *testing.T) {
 	}
 }
 
+func TestConfigProfilesAreValidAndTightenOperations(t *testing.T) {
+	dev := Default("vexo-test")
+	testnet, err := WithProfile("vexo-test", ProfileTestnet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainnet, err := WithProfile("vexo-test", ProfileMainnet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cfg := range []Config{testnet, mainnet} {
+		if err := cfg.Validate(); err != nil {
+			t.Fatalf("expected profile config valid, got %v", err)
+		}
+	}
+	if testnet.P2P.MaxMessagesPerWindow >= dev.P2P.MaxMessagesPerWindow {
+		t.Fatalf("expected testnet to tighten peer window, got %d >= %d", testnet.P2P.MaxMessagesPerWindow, dev.P2P.MaxMessagesPerWindow)
+	}
+	if mainnet.Committee.CommitteeSize <= dev.Committee.CommitteeSize {
+		t.Fatalf("expected mainnet larger committee, got %d <= %d", mainnet.Committee.CommitteeSize, dev.Committee.CommitteeSize)
+	}
+	if _, err := WithProfile("vexo-test", "unknown"); !errors.Is(err, ErrUnknownProfile) {
+		t.Fatalf("expected unknown profile error, got %v", err)
+	}
+}
+
 func TestConfigValidateRejectsMissingChainID(t *testing.T) {
 	if err := Default("").Validate(); !errors.Is(err, ErrMissingChainID) {
 		t.Fatalf("expected missing chain id, got %v", err)

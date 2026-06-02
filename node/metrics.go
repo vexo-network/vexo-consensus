@@ -72,6 +72,12 @@ func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
 		metrics.ValidatorCount++
 		metrics.TotalVotingPower += uint64(validatorInfo.VotingPower)
 	}
+	if runtime.P2PScore != nil {
+		totalMessages, err := runtime.P2PScore.TotalWindowMessages(ctx)
+		if err == nil {
+			metrics.PeerWindowMessages = totalMessages
+		}
+	}
 	return metrics, nil
 }
 

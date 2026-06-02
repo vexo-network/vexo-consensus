@@ -65,12 +65,13 @@ func runInit(writer io.Writer, args []string) error {
 	validatorCount := flags.Int("validators", 1, "number of local validators to initialize")
 	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first localnet P2P port")
 	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first localnet RPC port")
+	profile := flags.String("profile", string(config.ProfileDev), "config profile: dev, testnet, or mainnet")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing files")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if *validatorCount > 1 {
-		localnet, err := writeLocalnetFilesWithPorts(*home, *chainID, *validatorCount, *overwrite, *p2pBasePort, *rpcBasePort)
+		localnet, err := writeLocalnetFilesWithPortsAndProfile(*home, *chainID, *validatorCount, *overwrite, *p2pBasePort, *rpcBasePort, config.Profile(*profile))
 		if err != nil {
 			return err
 		}
@@ -82,7 +83,7 @@ func runInit(writer io.Writer, args []string) error {
 		}
 		return nil
 	}
-	configPath, genesisPath, err := writeInitFiles(*home, *chainID, *validatorID, *overwrite)
+	configPath, genesisPath, err := writeInitFilesWithProfile(*home, *chainID, *validatorID, *overwrite, config.Profile(*profile))
 	if err != nil {
 		return err
 	}
@@ -113,6 +114,10 @@ func writeLocalnetFiles(home string, chainID string, validatorCount int, overwri
 }
 
 func writeLocalnetFilesWithPorts(home string, chainID string, validatorCount int, overwrite bool, p2pBasePort int, rpcBasePort int) (localnetDocument, error) {
+	return writeLocalnetFilesWithPortsAndProfile(home, chainID, validatorCount, overwrite, p2pBasePort, rpcBasePort, config.ProfileDev)
+}
+
+func writeLocalnetFilesWithPortsAndProfile(home string, chainID string, validatorCount int, overwrite bool, p2pBasePort int, rpcBasePort int, profile config.Profile) (localnetDocument, error) {
 	if home == "" {
 		home = defaultHomeDir
 	}
@@ -181,7 +186,10 @@ func writeLocalnetFilesWithPorts(home string, chainID string, validatorCount int
 		} else if err := os.Remove(keyPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return localnetDocument{}, err
 		}
-		cfg := defaultConfigDocument(chainID, dataDir, validatorID)
+		cfg, err := defaultConfigDocumentWithProfile(chainID, dataDir, validatorID, profile)
+		if err != nil {
+			return localnetDocument{}, err
+		}
 		if err := writeJSONFile(configPath, cfg); err != nil {
 			return localnetDocument{}, err
 		}
@@ -253,6 +261,10 @@ func runValidate(writer io.Writer, args []string) error {
 }
 
 func writeInitFiles(home string, chainID string, validatorID string, overwrite bool) (string, string, error) {
+	return writeInitFilesWithProfile(home, chainID, validatorID, overwrite, config.ProfileDev)
+}
+
+func writeInitFilesWithProfile(home string, chainID string, validatorID string, overwrite bool, profile config.Profile) (string, string, error) {
 	if home == "" {
 		home = defaultHomeDir
 	}
@@ -280,7 +292,10 @@ func writeInitFiles(home string, chainID string, validatorID string, overwrite b
 			}
 		}
 	}
-	cfg := defaultConfigDocument(chainID, dataDir, validatorID)
+	cfg, err := defaultConfigDocumentWithProfile(chainID, dataDir, validatorID, profile)
+	if err != nil {
+		return "", "", err
+	}
 	genesis := defaultGenesisDocument(chainID, validatorID)
 	if err := writeJSONFile(configPath, cfg); err != nil {
 		return "", "", err
@@ -352,12 +367,21 @@ func loadGenesis(path string) (node.Genesis, error) {
 }
 
 func defaultConfigDocument(chainID string, dataDir string, validatorID string) configDocument {
+	document, _ := defaultConfigDocumentWithProfile(chainID, dataDir, validatorID, config.ProfileDev)
+	return document
+}
+
+func defaultConfigDocumentWithProfile(chainID string, dataDir string, validatorID string, profile config.Profile) (configDocument, error) {
+	cfg, err := config.WithProfile(chainID, profile)
+	if err != nil {
+		return configDocument{}, err
+	}
 	return configDocument{
 		SchemaVersion: configSchemaVersion,
 		DataDir:       dataDir,
 		ValidatorID:   validatorID,
-		Chain:         config.Default(chainID),
-	}
+		Chain:         cfg,
+	}, nil
 }
 
 func defaultGenesisDocument(chainID string, validatorID string) genesisDocument {

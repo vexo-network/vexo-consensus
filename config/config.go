@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/committee"
@@ -14,6 +15,15 @@ import (
 var (
 	ErrMissingChainID = errors.New("chain id is required")
 	ErrInvalidConfig  = errors.New("invalid config")
+	ErrUnknownProfile = errors.New("unknown config profile")
+)
+
+type Profile string
+
+const (
+	ProfileDev     Profile = "dev"
+	ProfileTestnet Profile = "testnet"
+	ProfileMainnet Profile = "mainnet"
 )
 
 type Config struct {
@@ -88,6 +98,42 @@ func Default(chainID string) Config {
 			ScoreRecovery:             1,
 			BanDuration:               10 * time.Minute,
 		},
+	}
+}
+
+func WithProfile(chainID string, profile Profile) (Config, error) {
+	cfg := Default(chainID)
+	if err := ApplyProfile(&cfg, profile); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+func ApplyProfile(cfg *Config, profile Profile) error {
+	switch profile {
+	case "", ProfileDev:
+		return nil
+	case ProfileTestnet:
+		cfg.Committee.EpochLength = 50
+		cfg.Committee.CommitteeSize = 64
+		cfg.Mempool.MaxTxBytes = 512 * 1024
+		cfg.Mempool.MaxTxs = 50000
+		cfg.P2P.MaxMessagesPerWindow = 500
+		cfg.P2P.MaxTotalMessagesPerWindow = 50000
+		cfg.P2P.BanDuration = 30 * time.Minute
+		return nil
+	case ProfileMainnet:
+		cfg.Committee.EpochLength = 1000
+		cfg.Committee.CommitteeSize = 256
+		cfg.Mempool.MaxTxBytes = 256 * 1024
+		cfg.Mempool.MaxTxs = 250000
+		cfg.P2P.MaxMessagesPerWindow = 300
+		cfg.P2P.MaxTotalMessagesPerWindow = 250000
+		cfg.P2P.BanDuration = time.Hour
+		cfg.Governance.Timelock = 100
+		return nil
+	default:
+		return fmt.Errorf("%w: %s", ErrUnknownProfile, profile)
 	}
 }
 
