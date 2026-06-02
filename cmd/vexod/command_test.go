@@ -191,6 +191,41 @@ func TestRunLocalnetUpDryRun(t *testing.T) {
 	}
 }
 
+func TestRunLocalnetLoadAndChaosPlans(t *testing.T) {
+	home := t.TempDir()
+	var loadOutput bytes.Buffer
+	if err := runCommand(&loadOutput, &bytes.Buffer{}, []string{"localnet", "load", "--home", home, "--validators", "3", "--duration", "10s", "--rate", "7", "--timeout", "1s", "--dry-run"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"localnet load plan", "validators: 3", "rate: 7 tx/s", "estimated_transactions: 70"} {
+		if !strings.Contains(loadOutput.String(), expected) {
+			t.Fatalf("expected localnet load output to contain %q, got:\n%s", expected, loadOutput.String())
+		}
+	}
+
+	var chaosOutput bytes.Buffer
+	if err := runCommand(&chaosOutput, &bytes.Buffer{}, []string{"localnet", "chaos-plan", "--home", home, "--validators", "4", "--duration", "24h", "--regions", "2"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"localnet chaos plan", "regions: 2", "validator-1: region=1", "no conflicting finality"} {
+		if !strings.Contains(chaosOutput.String(), expected) {
+			t.Fatalf("expected localnet chaos output to contain %q, got:\n%s", expected, chaosOutput.String())
+		}
+	}
+}
+
+func TestRunLocalnetLongRunPlan(t *testing.T) {
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{"localnet", "longrun-plan", "--validators", "4", "--duration", "168h", "--regions", "3", "--hosts", "4"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"localnet longrun plan", "duration: 168h0m0s", "hosts: 4", "host=node-1 region=1", "state sync recovery"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected localnet longrun output to contain %q, got:\n%s", expected, output.String())
+		}
+	}
+}
+
 func TestParseLocalnetDurationUsesHumanUnits(t *testing.T) {
 	for _, testCase := range []struct {
 		value    string
@@ -210,6 +245,16 @@ func TestParseLocalnetDurationUsesHumanUnits(t *testing.T) {
 	}
 	if _, err := parseLocalnetDuration("0s"); err == nil {
 		t.Fatal("expected zero duration to fail")
+	}
+}
+
+func TestEstimatedLocalnetTransactionsUsesWallSeconds(t *testing.T) {
+	duration, err := parseLocalnetDuration("1h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actual := estimatedLocalnetTransactions(duration, 50); actual != 180_000 {
+		t.Fatalf("expected 180000 transactions for 1h at 50 tx/s, got %d", actual)
 	}
 }
 
@@ -744,6 +789,32 @@ func TestRunConfigAuditStrictFailsUnsafeDeployment(t *testing.T) {
 	err := runConfig(&bytes.Buffer{}, []string{"audit", "--home", home, "--strict"})
 	if err == nil {
 		t.Fatal("expected strict audit to fail unsafe deployment")
+	}
+}
+
+func TestRunConfigAuditPackAndMainnetTemplate(t *testing.T) {
+	var auditOutput bytes.Buffer
+	if err := runConfig(&auditOutput, []string{"audit-pack", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var auditPack auditPackDocument
+	if err := json.Unmarshal(auditOutput.Bytes(), &auditPack); err != nil {
+		t.Fatal(err)
+	}
+	if auditPack.SchemaVersion != "v1" || len(auditPack.Commands) == 0 || !strings.Contains(strings.Join(auditPack.Commands, "\n"), "localnet longrun-plan") {
+		t.Fatalf("unexpected audit pack: %+v", auditPack)
+	}
+
+	var mainnetOutput bytes.Buffer
+	if err := runConfig(&mainnetOutput, []string{"mainnet-template", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var mainnet mainnetTemplateDocument
+	if err := json.Unmarshal(mainnetOutput.Bytes(), &mainnet); err != nil {
+		t.Fatal(err)
+	}
+	if !mainnet.Chain.Execution.RequireSigned || !mainnet.Chain.Mempool.EnablePriority || !mainnet.Runtime.P2PAuthTokenRequired {
+		t.Fatalf("unexpected mainnet template: %+v", mainnet)
 	}
 }
 

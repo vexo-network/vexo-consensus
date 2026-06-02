@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,6 +136,43 @@ func TestRunKeysRemoteAndShow(t *testing.T) {
 	}
 	if info.Type != vexocrypto.KeyTypeRemote || info.RemoteURL != "http://127.0.0.1:9000/sign" || info.KeyID != "remote-1" {
 		t.Fatalf("unexpected remote key info: %+v", info)
+	}
+}
+
+func TestRunKeysVerifyRemote(t *testing.T) {
+	home := t.TempDir()
+	signer, err := vexocrypto.GenerateEd25519Signer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var payload struct {
+			Message string `json:"message"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		message, err := base64.StdEncoding.DecodeString(payload.Message)
+		if err != nil {
+			t.Fatal(err)
+		}
+		signature, err := signer.Sign(message)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]string{"signature": base64.StdEncoding.EncodeToString(signature)})
+	}))
+	defer server.Close()
+
+	if err := runKeys(&bytes.Buffer{}, []string{"remote", "--home", home, "--public-key", base64.StdEncoding.EncodeToString(signer.PublicKey()), "--url", server.URL}); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := runKeys(&output, []string{"verify-remote", "--home", home, "--challenge", "kms-check"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "remote signer verified") || !strings.Contains(output.String(), "signature:") {
+		t.Fatalf("unexpected verify remote output:\n%s", output.String())
 	}
 }
 

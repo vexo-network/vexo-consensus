@@ -25,6 +25,14 @@ type auditCheckDocument struct {
 	Message  string `json:"message"`
 }
 
+type auditPackDocument struct {
+	SchemaVersion string   `json:"schema_version"`
+	Scope         []string `json:"scope"`
+	Commands      []string `json:"commands"`
+	Evidence      []string `json:"evidence"`
+	ReviewerNotes []string `json:"reviewer_notes"`
+}
+
 func runConfigAudit(writer io.Writer, args []string) error {
 	flags := flag.NewFlagSet("config audit", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -78,6 +86,73 @@ func runConfigAudit(writer io.Writer, args []string) error {
 		return fmt.Errorf("production audit failed with %d failed checks", failedAuditChecks(document.Checks))
 	}
 	return nil
+}
+
+func runConfigAuditPack(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("config audit-pack", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	jsonOutput := flags.Bool("json", false, "write JSON output")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	document := buildAuditPackDocument()
+	if *jsonOutput {
+		encoder := json.NewEncoder(writer)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(document)
+	}
+	fmt.Fprintf(writer, "external security audit pack\n")
+	fmt.Fprintf(writer, "scope:\n")
+	for _, item := range document.Scope {
+		fmt.Fprintf(writer, "- %s\n", item)
+	}
+	fmt.Fprintf(writer, "commands:\n")
+	for _, command := range document.Commands {
+		fmt.Fprintf(writer, "- %s\n", command)
+	}
+	fmt.Fprintf(writer, "evidence:\n")
+	for _, item := range document.Evidence {
+		fmt.Fprintf(writer, "- %s\n", item)
+	}
+	return nil
+}
+
+func buildAuditPackDocument() auditPackDocument {
+	return auditPackDocument{
+		SchemaVersion: "v1",
+		Scope: []string{
+			"consensus safety, fork choice, timeout certificates, accountable evidence",
+			"p2p handshake, peer scoring, reconnect/backoff, rate-limit and ban behavior",
+			"RPC admin authorization, strict JSON decoding, request limits and pprof exposure",
+			"key management, local encrypted keys, remote signer/KMS documents and signing flow",
+			"state sync snapshot export/verify/restore and LevelDB recovery/pruning",
+			"fuzz targets for tx envelopes, wire messages, DA, fair ordering, mempool and RPC decoders",
+		},
+		Commands: []string{
+			"make check",
+			"make fuzz-smoke",
+			"go run ./cmd/vexod config audit --home .vexo --strict --json",
+			"go run ./cmd/vexod consensus adversarial --json",
+			"go run ./cmd/vexod config mainnet-template --json",
+			"go run ./cmd/vexod localnet longrun-plan --validators 4 --duration 168h --regions 3 --hosts 4",
+			"go run ./cmd/vexod localnet chaos-plan --validators 4 --duration 24h",
+			"go run ./cmd/vexod localnet load --validators 4 --duration 1h --rate 50 --dry-run",
+			"go run ./cmd/vexod keys verify-remote --home .vexo --challenge audit-challenge",
+		},
+		Evidence: []string{
+			"test output from make check and make fuzz-smoke",
+			"JSON output from config audit and consensus adversarial simulation",
+			"localnet logs, pids, health/status snapshots, metrics, and pprof captures",
+			"snapshot checksums and restore verification output",
+			"remote signer challenge signature verification output",
+			"multi-machine long-run plan with region and host assignment",
+		},
+		ReviewerNotes: []string{
+			"BLS adapter is intentionally unavailable until a production implementation is linked.",
+			"External auditors should treat deterministic crypto as non-production.",
+			"Long-running tests should be executed on independent hosts for network partition coverage.",
+		},
+	}
 }
 
 func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, strict bool) auditDocument {

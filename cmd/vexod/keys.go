@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
@@ -41,6 +43,8 @@ func runKeys(writer io.Writer, args []string) error {
 		return runKeysShow(writer, args[1:])
 	case "sign-tx":
 		return runKeysSignTx(writer, args[1:])
+	case "verify-remote":
+		return runKeysVerifyRemote(writer, args[1:])
 	default:
 		return fmt.Errorf("unknown keys subcommand %q", args[0])
 	}
@@ -226,6 +230,52 @@ func runKeysSignTx(writer io.Writer, args []string) error {
 		return err
 	}
 	fmt.Fprintf(writer, "tx: %s\n", signedTx)
+	return nil
+}
+
+func runKeysVerifyRemote(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("keys verify-remote", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", defaultHomeDir, "node home directory")
+	path := flags.String("path", "", "key file path")
+	challenge := flags.String("challenge", "vexo-remote-signer-check", "challenge message to sign")
+	jsonOutput := flags.Bool("json", false, "write JSON output")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	keyPath := resolveKeyPath(*home, *path)
+	document, err := vexocrypto.LoadKeyDocument(keyPath)
+	if err != nil {
+		return err
+	}
+	signer, err := document.RemoteSigner(5 * time.Second)
+	if err != nil {
+		return err
+	}
+	message := []byte(*challenge)
+	signature, err := signer.Sign(message)
+	if err != nil {
+		return err
+	}
+	verified := signer.Verify(signer.PublicKey(), message, signature)
+	if !verified {
+		return errors.New("remote signer signature verification failed")
+	}
+	result := map[string]any{
+		"ok":         true,
+		"path":       keyPath,
+		"remote_url": document.Metadata.RemoteURL,
+		"signature":  base64.StdEncoding.EncodeToString(signature),
+	}
+	if *jsonOutput {
+		encoder := json.NewEncoder(writer)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(result)
+	}
+	fmt.Fprintf(writer, "remote signer verified\n")
+	fmt.Fprintf(writer, "path: %s\n", keyPath)
+	fmt.Fprintf(writer, "remote_url: %s\n", document.Metadata.RemoteURL)
+	fmt.Fprintf(writer, "signature: %s\n", base64.StdEncoding.EncodeToString(signature))
 	return nil
 }
 

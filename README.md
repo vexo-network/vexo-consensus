@@ -284,6 +284,14 @@ go run ./cmd/vexod localnet status --home .vexo-localnet --validators 4
 go run ./cmd/vexod localnet stop --home .vexo-localnet --validators 4
 ```
 
+Plan sustained load, chaos, and multi-machine long-run validation:
+
+```bash
+go run ./cmd/vexod localnet load --validators 4 --duration 1h --rate 50 --dry-run
+go run ./cmd/vexod localnet chaos-plan --validators 4 --duration 24h --regions 3
+go run ./cmd/vexod localnet longrun-plan --validators 4 --duration 168h --regions 3 --hosts 4
+```
+
 Example output:
 
 ```text
@@ -407,12 +415,25 @@ go run ./cmd/vexod keys remote --home .vexo \
   --url http://127.0.0.1:9000/sign
 ```
 
+Verify a remote KMS/HSM signer with a challenge signature:
+
+```bash
+go run ./cmd/vexod keys verify-remote --home .vexo --challenge mainnet-kms --json
+```
+
 Inspect paths and startup readiness:
 
 ```bash
 go run ./cmd/vexod config paths --home .vexo --json
 go run ./cmd/vexod config audit --home .vexo --json
 go run ./cmd/vexod start --home .vexo --dry-run
+```
+
+Generate an external audit evidence checklist and mainnet parameter template:
+
+```bash
+go run ./cmd/vexod config audit-pack --json
+go run ./cmd/vexod config mainnet-template --json
 ```
 
 Strict production checks can be enforced before startup:
@@ -478,6 +499,12 @@ Run all checks:
 
 ```bash
 make check
+```
+
+Run operational verification commands:
+
+```bash
+make ops-verify
 ```
 
 Run short fuzz smoke checks:

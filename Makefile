@@ -10,7 +10,7 @@ BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS ?= -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)
 RELEASE_TARGETS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
-.PHONY: all build test vet check fuzz-smoke coverage release checksums clean init-demo keys-demo
+.PHONY: all build test vet check fuzz-smoke ops-verify coverage release checksums clean init-demo keys-demo
 
 all: check build
 
@@ -37,6 +37,14 @@ fuzz-smoke:
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./mempool -run '^$$' -fuzz=FuzzFIFOAddAndBuildBatch -fuzztime=1s
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./rpc -run '^$$' -fuzz=FuzzSubmitTxRequest -fuzztime=1s
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./rpc -run '^$$' -fuzz=FuzzSubmitEvidenceRequest -fuzztime=1s
+
+ops-verify: check fuzz-smoke
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod config audit-pack --json
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod config mainnet-template --json
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod consensus adversarial --json
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod localnet longrun-plan --validators 4 --duration 168h --regions 3 --hosts 4
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod localnet chaos-plan --validators 4 --duration 24h --regions 3
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod localnet load --validators 4 --duration 1h --rate 50 --dry-run
 
 coverage:
 	mkdir -p $(GOCACHE_DIR)

@@ -19,6 +19,7 @@ import (
 )
 
 const localnetPIDFileName = "vexod.pid"
+const localnetSecond = time.Duration(1_000_000_000)
 
 type localnetRuntimePlan struct {
 	Home        string
@@ -54,11 +55,126 @@ func runLocalnet(writer io.Writer, args []string) error {
 		return runLocalnetStatus(context.Background(), writer, args[1:])
 	case "smoke":
 		return runLocalnetSmoke(context.Background(), writer, args[1:])
+	case "load":
+		return runLocalnetLoad(context.Background(), writer, args[1:])
+	case "chaos-plan":
+		return runLocalnetChaosPlan(writer, args[1:])
+	case "longrun-plan":
+		return runLocalnetLongRunPlan(writer, args[1:])
 	case "stop":
 		return runLocalnetStop(writer, args[1:])
 	default:
 		return fmt.Errorf("unknown localnet subcommand %q", args[0])
 	}
+}
+
+type localnetLoadResult struct {
+	Submitted uint64
+	Failed    uint64
+	Duration  time.Duration
+}
+
+func runLocalnetLoad(ctx context.Context, writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("localnet load", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", ".vexo-localnet", "localnet home directory")
+	validators := flags.Int("validators", 4, "validator count")
+	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first localnet P2P port")
+	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first localnet RPC port")
+	durationValue := flags.String("duration", "30s", "load test duration")
+	rate := flags.Int("rate", 10, "transactions per second")
+	timeoutValue := flags.String("timeout", "2s", "per-request timeout")
+	txPrefix := flags.String("tx-prefix", "bank:mint:load", "transaction payload prefix")
+	dryRun := flags.Bool("dry-run", false, "print load plan without submitting transactions")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	duration, err := parseLocalnetDuration(*durationValue)
+	if err != nil {
+		return err
+	}
+	timeout, err := parseLocalnetDuration(*timeoutValue)
+	if err != nil {
+		return err
+	}
+	if *rate <= 0 {
+		return errors.New("rate must be positive")
+	}
+	plan, err := buildLocalnetRuntimePlanWithPorts(*home, *validators, "", *p2pBasePort, *rpcBasePort)
+	if err != nil {
+		return err
+	}
+	if *dryRun {
+		writeLocalnetLoadPlan(writer, plan, duration, *rate, timeout, *txPrefix)
+		return nil
+	}
+	loadCtx, cancel := context.WithTimeout(ctx, duration)
+	defer cancel()
+	client := http.Client{Timeout: timeout}
+	result := runLocalnetLoadPlan(loadCtx, client, plan, *rate, *txPrefix)
+	fmt.Fprintf(writer, "localnet load complete\n")
+	fmt.Fprintf(writer, "submitted: %d\n", result.Submitted)
+	fmt.Fprintf(writer, "failed: %d\n", result.Failed)
+	fmt.Fprintf(writer, "duration: %s\n", result.Duration)
+	return nil
+}
+
+func runLocalnetChaosPlan(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("localnet chaos-plan", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", ".vexo-localnet", "localnet home directory")
+	validators := flags.Int("validators", 4, "validator count")
+	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first localnet P2P port")
+	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first localnet RPC port")
+	durationValue := flags.String("duration", "24h", "target chaos run duration")
+	regionCount := flags.Int("regions", 3, "number of logical regions to spread validators across")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	duration, err := parseLocalnetDuration(*durationValue)
+	if err != nil {
+		return err
+	}
+	if *regionCount <= 0 {
+		return errors.New("regions must be positive")
+	}
+	plan, err := buildLocalnetRuntimePlanWithPorts(*home, *validators, "", *p2pBasePort, *rpcBasePort)
+	if err != nil {
+		return err
+	}
+	writeLocalnetChaosPlan(writer, plan, duration, *regionCount)
+	return nil
+}
+
+func runLocalnetLongRunPlan(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("localnet longrun-plan", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", ".vexo-localnet", "localnet home directory")
+	validators := flags.Int("validators", 4, "validator count")
+	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first localnet P2P port")
+	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first localnet RPC port")
+	durationValue := flags.String("duration", "168h", "target long-run duration")
+	regionCount := flags.Int("regions", 3, "number of logical regions")
+	hostCount := flags.Int("hosts", 4, "number of independent machines")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	duration, err := parseLocalnetDuration(*durationValue)
+	if err != nil {
+		return err
+	}
+	if *regionCount <= 0 {
+		return errors.New("regions must be positive")
+	}
+	if *hostCount <= 0 {
+		return errors.New("hosts must be positive")
+	}
+	plan, err := buildLocalnetRuntimePlanWithPorts(*home, *validators, "", *p2pBasePort, *rpcBasePort)
+	if err != nil {
+		return err
+	}
+	writeLocalnetLongRunPlan(writer, plan, duration, *regionCount, *hostCount)
+	return nil
 }
 
 type localnetSmokeResult struct {
@@ -377,6 +493,57 @@ func writeLocalnetUpPlan(writer io.Writer, plan localnetRuntimePlan, chainID str
 	fmt.Fprintf(writer, "4. localnet stop --home %s --validators %d --p2p-base-port %d --rpc-base-port %d\n", plan.Home, plan.Validators, plan.P2PBasePort, plan.RPCBasePort)
 }
 
+func writeLocalnetLoadPlan(writer io.Writer, plan localnetRuntimePlan, duration time.Duration, rate int, timeout time.Duration, txPrefix string) {
+	fmt.Fprintf(writer, "localnet load plan\n")
+	fmt.Fprintf(writer, "home: %s\n", plan.Home)
+	fmt.Fprintf(writer, "validators: %d\n", plan.Validators)
+	fmt.Fprintf(writer, "duration: %s\n", duration)
+	fmt.Fprintf(writer, "rate: %d tx/s\n", rate)
+	fmt.Fprintf(writer, "request_timeout: %s\n", timeout)
+	fmt.Fprintf(writer, "tx_prefix: %s\n", txPrefix)
+	fmt.Fprintf(writer, "target_rpc: %s\n", plan.Nodes[0].RPCAddress)
+	fmt.Fprintf(writer, "estimated_transactions: %d\n", estimatedLocalnetTransactions(duration, rate))
+}
+
+func writeLocalnetChaosPlan(writer io.Writer, plan localnetRuntimePlan, duration time.Duration, regions int) {
+	fmt.Fprintf(writer, "localnet chaos plan\n")
+	fmt.Fprintf(writer, "home: %s\n", plan.Home)
+	fmt.Fprintf(writer, "validators: %d\n", plan.Validators)
+	fmt.Fprintf(writer, "duration: %s\n", duration)
+	fmt.Fprintf(writer, "regions: %d\n", regions)
+	for index, localNode := range plan.Nodes {
+		region := (index % regions) + 1
+		fmt.Fprintf(writer, "%s: region=%d rpc=%s p2p=%s\n", localNode.ValidatorID, region, localNode.RPCAddress, localNode.P2PAddress)
+	}
+	fmt.Fprintf(writer, "steps:\n")
+	fmt.Fprintf(writer, "1. start localnet with --keep-running\n")
+	fmt.Fprintf(writer, "2. run localnet load during the full window\n")
+	fmt.Fprintf(writer, "3. stop one non-quorum validator and confirm height still increases\n")
+	fmt.Fprintf(writer, "4. stop quorum-sized partition and confirm no conflicting finality\n")
+	fmt.Fprintf(writer, "5. restart stopped validators and confirm state catches up\n")
+	fmt.Fprintf(writer, "6. run snapshot export/verify/restore from a surviving node\n")
+}
+
+func writeLocalnetLongRunPlan(writer io.Writer, plan localnetRuntimePlan, duration time.Duration, regions int, hosts int) {
+	fmt.Fprintf(writer, "localnet longrun plan\n")
+	fmt.Fprintf(writer, "home: %s\n", plan.Home)
+	fmt.Fprintf(writer, "validators: %d\n", plan.Validators)
+	fmt.Fprintf(writer, "duration: %s\n", duration)
+	fmt.Fprintf(writer, "regions: %d\n", regions)
+	fmt.Fprintf(writer, "hosts: %d\n", hosts)
+	for index, localNode := range plan.Nodes {
+		region := (index % regions) + 1
+		host := (index % hosts) + 1
+		fmt.Fprintf(writer, "%s: host=node-%d region=%d rpc=%s p2p=%s\n", localNode.ValidatorID, host, region, localNode.RPCAddress, localNode.P2PAddress)
+	}
+	fmt.Fprintf(writer, "phases:\n")
+	fmt.Fprintf(writer, "1. provision independent machines and copy matching genesis/config/key files\n")
+	fmt.Fprintf(writer, "2. start all validators and confirm peer connectivity plus height growth\n")
+	fmt.Fprintf(writer, "3. run sustained load for %s and collect metrics, logs, and pprof samples\n", duration)
+	fmt.Fprintf(writer, "4. inject restarts, packet loss, latency, and one-region isolation\n")
+	fmt.Fprintf(writer, "5. verify no conflicting finality, state sync recovery, snapshots, and KMS challenge signatures\n")
+}
+
 func parseLocalnetDuration(value string) (time.Duration, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -482,6 +649,41 @@ func runLocalnetSmokePlan(ctx context.Context, client http.Client, plan localnet
 		})
 	}
 	return results, nil
+}
+
+func runLocalnetLoadPlan(ctx context.Context, client http.Client, plan localnetRuntimePlan, rate int, txPrefix string) localnetLoadResult {
+	started := time.Now()
+	if len(plan.Nodes) == 0 {
+		return localnetLoadResult{Duration: time.Since(started), Failed: 1}
+	}
+	interval := localnetSecond / time.Duration(rate)
+	if interval <= 0 {
+		interval = time.Nanosecond
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	var result localnetLoadResult
+	for {
+		select {
+		case <-ctx.Done():
+			result.Duration = time.Since(started)
+			return result
+		case <-ticker.C:
+			payload := []byte(fmt.Sprintf("%s:%d", txPrefix, result.Submitted+result.Failed+1))
+			if err := submitLocalnetTx(ctx, client, plan.Nodes[0].RPCAddress, payload); err != nil {
+				result.Failed++
+				continue
+			}
+			result.Submitted++
+		}
+	}
+}
+
+func estimatedLocalnetTransactions(duration time.Duration, rate int) uint64 {
+	if duration <= 0 || rate <= 0 {
+		return 0
+	}
+	return uint64(duration/localnetSecond) * uint64(rate)
 }
 
 func waitLocalnetHealth(ctx context.Context, client http.Client, address string) error {
