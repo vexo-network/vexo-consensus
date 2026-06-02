@@ -27,4 +27,4 @@
 - Treat any `rollback_required` record as an operator stop condition until rollback is completed.
 - Run `make release-candidate`.
 - Sign checksums and publish SBOM.
-- Execute rollback drill before mainnet activation.
+- Execute rollback drill before deployment activation.

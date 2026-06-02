@@ -181,7 +181,7 @@ The design is intentionally modular so individual components can be replaced wit
 - Remote signer key documents for KMS/HSM-backed validator signing
 - Snapshot export and restore commands
 - Offline doctor command for config, key, store, snapshot, and index-recovery checks
-- Localnet lifecycle commands and built-binary E2E coverage
+- Network lifecycle commands and built-binary E2E coverage
 - Persistent peer address book with dial-failure tracking, temporary bans, and non-permanent peer eviction
 - Transport-level peer gate and consensus-gossip scoring for banned or malformed peer traffic
 - Immediate peer disconnect and dial-set removal when score or address-book policy bans a peer
@@ -290,34 +290,34 @@ Run with structured JSON operational logs and pprof:
 go run ./cmd/vexod start --home .vexo --run --log-format json --log-level info --rpc-pprof
 ```
 
-Generate a 4-validator localnet:
+Generate a 4-validator network:
 
 ```bash
-go run ./cmd/vexod init --home .vexo-localnet --chain-id vexo-local --validators 4
-go run ./cmd/vexod start --home .vexo-localnet/validator-1 --run
+go run ./cmd/vexod init --home .vexo-network --chain-id vexo-chain --validators 4
+go run ./cmd/vexod start --home .vexo-network/validator-1 --run
 ```
 
 Run and manage a local multi-node network:
 
 ```bash
-go run ./cmd/vexod localnet up --home .vexo-localnet --validators 4 --overwrite --keep-running
-go run ./cmd/vexod localnet up --home .vexo-testnet --validators 4 --p2p-base-port 27656 --rpc-base-port 27657 --overwrite
+go run ./cmd/vexod network up --home .vexo-network --validators 4 --overwrite --keep-running
+go run ./cmd/vexod network up --home .vexo-network --validators 4 --p2p-base-port 27656 --rpc-base-port 27657 --overwrite
 
-go run ./cmd/vexod localnet init --home .vexo-localnet --validators 4
-go run ./cmd/vexod localnet start --home .vexo-localnet --validators 4
-go run ./cmd/vexod localnet smoke --home .vexo-localnet --validators 4
-go run ./cmd/vexod localnet status --home .vexo-localnet --validators 4
-go run ./cmd/vexod localnet stop --home .vexo-localnet --validators 4
+go run ./cmd/vexod network init --home .vexo-network --validators 4
+go run ./cmd/vexod network start --home .vexo-network --validators 4
+go run ./cmd/vexod network smoke --home .vexo-network --validators 4
+go run ./cmd/vexod network status --home .vexo-network --validators 4
+go run ./cmd/vexod network stop --home .vexo-network --validators 4
 ```
 
 Plan sustained load, chaos, and multi-machine long-run validation:
 
 ```bash
-go run ./cmd/vexod localnet load --validators 4 --duration 1h --rate 50 --dry-run
-go run ./cmd/vexod localnet metrics --validators 4 --evaluate
-go run ./cmd/vexod localnet chaos --validators 4 --stop-index 3 --timeout 30s --dry-run
-go run ./cmd/vexod localnet chaos-plan --validators 4 --duration 24h --regions 3
-go run ./cmd/vexod localnet longrun-plan --validators 4 --duration 168h --regions 3 --hosts 4
+go run ./cmd/vexod network load --validators 4 --duration 1h --rate 50 --dry-run
+go run ./cmd/vexod network metrics --validators 4 --evaluate
+go run ./cmd/vexod network chaos --validators 4 --stop-index 3 --timeout 30s --dry-run
+go run ./cmd/vexod network chaos-plan --validators 4 --duration 24h --regions 3
+go run ./cmd/vexod network longrun-plan --validators 4 --duration 168h --regions 3 --hosts 4
 ```
 
 Evaluate a captured `/metrics` JSON sample against default operational thresholds:
@@ -330,7 +330,7 @@ Example output:
 
 ```text
 vexo-consensus status
-chain_id: vexo-local
+chain_id: vexo-chain
 application.modules: [bank]
 execution.min_fee: 0
 execution.min_gas: 0
@@ -398,7 +398,7 @@ go run ./cmd/vexod tx parse --tx 'bank:send:alice:bob:25:fee=1:gas=1000:signer=a
 Initialize node files:
 
 ```bash
-go run ./cmd/vexod init --home .vexo --chain-id vexo-local --validator validator-1
+go run ./cmd/vexod init --home .vexo --chain-id vexo-chain --validator validator-1
 ```
 
 This writes `.vexo/config.json`, `.vexo/genesis.json`, and `.vexo/data`.
@@ -444,7 +444,7 @@ Encrypted keys can be shown or loaded with `VEXO_KEY_PASSPHRASE` or `--passphras
 Sign a transaction envelope:
 
 ```bash
-go run ./cmd/vexod keys sign-tx --home .vexo --chain-id vexo-local \
+go run ./cmd/vexod keys sign-tx --home .vexo --chain-id vexo-chain \
   --tx 'bank:send:alice:bob:25:fee=1:gas=1000:signer=alice:nonce=1'
 ```
 
@@ -459,7 +459,7 @@ go run ./cmd/vexod keys remote --home .vexo \
 Verify a remote KMS/HSM signer with a challenge signature:
 
 ```bash
-go run ./cmd/vexod keys verify-remote --home .vexo --challenge mainnet-kms --json
+go run ./cmd/vexod keys verify-remote --home .vexo --challenge deployment-kms --json
 ```
 
 Inspect paths and startup readiness:
@@ -470,11 +470,11 @@ go run ./cmd/vexod config audit --home .vexo --json
 go run ./cmd/vexod start --home .vexo --dry-run
 ```
 
-Generate an external audit evidence checklist and mainnet parameter template:
+Generate an external audit evidence checklist and deployment parameter template:
 
 ```bash
 go run ./cmd/vexod config audit-pack --json
-go run ./cmd/vexod config mainnet-template --json
+go run ./cmd/vexod config deployment-template --json
 ```
 
 Strict production checks can be enforced before startup:
@@ -640,10 +640,10 @@ GOCACHE=$(pwd)/.gocache go test ./...
 rm -rf .gocache
 ```
 
-Run the built-binary 4-validator localnet E2E test:
+Run the built-binary 4-validator network E2E test:
 
 ```bash
-VEXO_LOCALNET_E2E=1 go test ./cmd/vexod -run TestLocalnetUpBuiltBinaryE2E -count=1 -v
+VEXO_NETWORK_E2E=1 go test ./cmd/vexod -run TestNetworkUpBuiltBinaryE2E -count=1 -v
 ```
 
 ## Design Principles

@@ -188,7 +188,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 }
 
 func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, runtimeConfig startRuntimeConfig) error {
-	runtimeConfig = applyLocalnetRuntimeDefaults(inputs, runtimeConfig)
+	runtimeConfig = applyNetworkRuntimeDefaults(inputs, runtimeConfig)
 	if runtimeConfig.LogFormat != "" && runtimeConfig.LogFormat != "text" && runtimeConfig.LogFormat != "json" {
 		return fmt.Errorf("unsupported log format %q", runtimeConfig.LogFormat)
 	}
@@ -364,7 +364,7 @@ func buildStartNode(inputs startInputs) (*vexonode.Node, error) {
 }
 
 func buildRuntimeNode(inputs startInputs, runtimeConfig startRuntimeConfig) (*vexonode.Node, *transport.GRPCTransport, error) {
-	runtimeConfig = applyLocalnetRuntimeDefaults(inputs, runtimeConfig)
+	runtimeConfig = applyNetworkRuntimeDefaults(inputs, runtimeConfig)
 	application, err := appmodules.NewRuntimeWithExecution(inputs.Config.Chain.ChainID, inputs.Config.Chain.Application, inputs.Config.Chain.Execution)
 	if err != nil {
 		return nil, nil, err
@@ -385,7 +385,7 @@ func buildRuntimeNode(inputs startInputs, runtimeConfig startRuntimeConfig) (*ve
 	return node, nil, nil
 }
 
-func applyLocalnetRuntimeDefaults(inputs startInputs, runtimeConfig startRuntimeConfig) startRuntimeConfig {
+func applyNetworkRuntimeDefaults(inputs startInputs, runtimeConfig startRuntimeConfig) startRuntimeConfig {
 	if runtimeConfig.RPCAddress == "" || runtimeConfig.RPCAddress == defaultRPCAddress {
 		if address := validatorMetadata(inputs.Genesis, inputs.Config.ValidatorID, "rpc_address"); address != "" {
 			runtimeConfig.RPCAddress = address

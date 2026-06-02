@@ -12,9 +12,9 @@ import (
 	"testing"
 )
 
-func TestLocalnetUpBuiltBinaryE2E(t *testing.T) {
-	if os.Getenv("VEXO_LOCALNET_E2E") != "1" {
-		t.Skip("set VEXO_LOCALNET_E2E=1 to run built-binary localnet e2e")
+func TestNetworkUpBuiltBinaryE2E(t *testing.T) {
+	if os.Getenv("VEXO_NETWORK_E2E") != "1" {
+		t.Skip("set VEXO_NETWORK_E2E=1 to run built-binary network e2e")
 	}
 
 	repoRoot := filepath.Clean(filepath.Join("..", ".."))
@@ -29,10 +29,10 @@ func TestLocalnetUpBuiltBinaryE2E(t *testing.T) {
 		t.Fatalf("build vexod: %v\n%s", err, buildOutput)
 	}
 
-	p2pBasePort, rpcBasePort := reserveLocalnetE2EPorts(t)
+	p2pBasePort, rpcBasePort := reserveNetworkE2EPorts(t)
 	home := t.TempDir()
 	run := exec.Command(binaryPath,
-		"localnet", "up",
+		"network", "up",
 		"--home", home,
 		"--validators", "4",
 		"--p2p-base-port", strconv.Itoa(p2pBasePort),
@@ -44,7 +44,7 @@ func TestLocalnetUpBuiltBinaryE2E(t *testing.T) {
 	run.Stdout = &output
 	run.Stderr = &output
 	if err := run.Run(); err != nil {
-		t.Fatalf("localnet up failed: %v\n%s", err, output.String())
+		t.Fatalf("network up failed: %v\n%s", err, output.String())
 	}
 	for validatorIndex := 1; validatorIndex <= 4; validatorIndex++ {
 		expected := fmt.Sprintf("validator-%d rpc=127.0.0.1:%d healthy=true height=1", validatorIndex, rpcBasePort+(validatorIndex-1)*10)
@@ -52,19 +52,19 @@ func TestLocalnetUpBuiltBinaryE2E(t *testing.T) {
 			t.Fatalf("expected output to contain %q, got:\n%s", expected, output.String())
 		}
 	}
-	if !strings.Contains(output.String(), "localnet up ok; stopping nodes") || !strings.Contains(output.String(), "stopped validator-4") {
-		t.Fatalf("expected localnet stop confirmation, got:\n%s", output.String())
+	if !strings.Contains(output.String(), "network up ok; stopping nodes") || !strings.Contains(output.String(), "stopped validator-4") {
+		t.Fatalf("expected network stop confirmation, got:\n%s", output.String())
 	}
 }
 
-func reserveLocalnetE2EPorts(t *testing.T) (int, int) {
+func reserveNetworkE2EPorts(t *testing.T) (int, int) {
 	t.Helper()
 	for basePort := 35056; basePort < 39000; basePort += 100 {
 		if portsAvailable(basePort, basePort+1, 4) {
 			return basePort, basePort + 1
 		}
 	}
-	t.Fatal("no free localnet e2e port range found")
+	t.Fatal("no free network e2e port range found")
 	return 0, 0
 }
 

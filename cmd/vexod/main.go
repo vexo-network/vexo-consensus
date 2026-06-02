@@ -26,7 +26,7 @@ func main() {
 
 func runCommand(stdout io.Writer, stderr io.Writer, args []string) error {
 	if len(args) == 0 {
-		writeStatus(stdout, config.Default("vexo-local"))
+		writeStatus(stdout, config.Default("vexo-chain"))
 		return nil
 	}
 	switch args[0] {
@@ -66,9 +66,9 @@ func runCommand(stdout io.Writer, stderr io.Writer, args []string) error {
 			return writeCommandError(stderr, "start", err)
 		}
 		return nil
-	case "localnet":
-		if err := runLocalnet(stdout, args[1:]); err != nil {
-			return writeCommandError(stderr, "localnet", err)
+	case "network":
+		if err := runNetwork(stdout, args[1:]); err != nil {
+			return writeCommandError(stderr, "network", err)
 		}
 		return nil
 	case "consensus":
@@ -78,15 +78,15 @@ func runCommand(stdout io.Writer, stderr io.Writer, args []string) error {
 		return nil
 	case "status":
 		if len(args) > 1 && args[1] == "--json" {
-			if err := writeStatusJSON(stdout, config.Default("vexo-local")); err != nil {
+			if err := writeStatusJSON(stdout, config.Default("vexo-chain")); err != nil {
 				return writeCommandError(stderr, "status", err)
 			}
 			return nil
 		}
-		writeStatus(stdout, config.Default("vexo-local"))
+		writeStatus(stdout, config.Default("vexo-chain"))
 		return nil
 	case "--json":
-		if err := writeStatusJSON(stdout, config.Default("vexo-local")); err != nil {
+		if err := writeStatusJSON(stdout, config.Default("vexo-chain")); err != nil {
 			return writeCommandError(stderr, "status", err)
 		}
 		return nil
@@ -160,7 +160,7 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  validate        validate config and genesis files\n")
 	fmt.Fprintf(writer, "  config audit    run deployment and production-readiness checks\n")
 	fmt.Fprintf(writer, "  config audit-pack generate external security audit evidence checklist\n")
-	fmt.Fprintf(writer, "  config mainnet-template print recommended mainnet parameters without profiles\n")
+	fmt.Fprintf(writer, "  config deployment-template print recommended deployment parameters\n")
 	fmt.Fprintf(writer, "  config paths    print resolved config, genesis, key, and data paths\n")
 	fmt.Fprintf(writer, "  config show     print loaded chain config as JSON\n")
 	fmt.Fprintf(writer, "  keys gen        generate an Ed25519 validator key\n")
@@ -170,7 +170,7 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  keys show       show validator public key\n")
 	fmt.Fprintf(writer, "  tx              build or parse canonical transaction payloads\n")
 	fmt.Fprintf(writer, "  start           validate files, prepare startup, or run node with --run; Ctrl+C shuts down gracefully\n")
-	fmt.Fprintf(writer, "  localnet        up, initialize, start, smoke, load, chaos, longrun, status, and stop local networks\n")
+	fmt.Fprintf(writer, "  network         up, initialize, start, smoke, load, chaos, longrun, status, and stop node networks\n")
 	fmt.Fprintf(writer, "  consensus       run consensus simulations and diagnostics\n")
 	fmt.Fprintf(writer, "  snapshot        export, verify, fetch, sync, or restore latest persisted state snapshot\n")
 	fmt.Fprintf(writer, "  doctor          inspect config, keys, store, snapshot, and recovery readiness\n")
@@ -185,7 +185,7 @@ func writeHelp(writer io.Writer) {
 }
 
 func moduleCLICommands() []vexoapp.CLICommand {
-	commands, err := appmodules.BuildCLICommands(config.Default("vexo-local").Application)
+	commands, err := appmodules.BuildCLICommands(config.Default("vexo-chain").Application)
 	if err != nil {
 		return nil
 	}

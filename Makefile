@@ -43,11 +43,11 @@ fuzz-smoke:
 
 ops-verify: check fuzz-smoke
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod config audit-pack --json
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod config mainnet-template --json
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod config deployment-template --json
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod consensus adversarial --json
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod localnet longrun-plan --validators 4 --duration 168h --regions 3 --hosts 4
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod localnet chaos-plan --validators 4 --duration 24h --regions 3
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod localnet load --validators 4 --duration 1h --rate 50 --dry-run
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network longrun-plan --validators 4 --duration 168h --regions 3 --hosts 4
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network chaos-plan --validators 4 --duration 24h --regions 3
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network load --validators 4 --duration 1h --rate 50 --dry-run
 
 coverage:
 	mkdir -p $(GOCACHE_DIR)
@@ -100,15 +100,15 @@ docker-image:
 		-t $(IMAGE):$(IMAGE_TAG) .
 
 release-candidate: release ops-verify
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod localnet load --validators 4 --duration 10m --rate 25 --dry-run
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod localnet chaos-plan --validators 4 --duration 24h --regions 3
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod localnet longrun-plan --validators 4 --duration 168h --regions 3 --hosts 4
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network load --validators 4 --duration 10m --rate 25 --dry-run
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network chaos-plan --validators 4 --duration 24h --regions 3
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network longrun-plan --validators 4 --duration 168h --regions 3 --hosts 4
 
 clean:
 	rm -rf $(BUILD_DIR) $(DIST_DIR) $(GOCACHE_DIR) coverage.out coverage.html
 
 init-demo: build
-	$(BUILD_DIR)/$(BINARY) init --home .vexo --chain-id vexo-local --validator validator-1 --overwrite
+	$(BUILD_DIR)/$(BINARY) init --home .vexo --chain-id vexo-chain --validator validator-1 --overwrite
 	$(BUILD_DIR)/$(BINARY) validate --home .vexo
 
 keys-demo: build

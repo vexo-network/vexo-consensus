@@ -98,7 +98,7 @@ The `release-candidate` target runs:
 - fuzz smoke tests
 - ops verification
 - adversarial simulation
-- localnet load dry-run
+- network load dry-run
 - chaos plan
 - 7-day multi-host longrun plan
 

@@ -26,8 +26,8 @@ func runConfig(writer io.Writer, args []string) error {
 		return runConfigAudit(writer, args[1:])
 	case "audit-pack":
 		return runConfigAuditPack(writer, args[1:])
-	case "mainnet-template":
-		return runConfigMainnetTemplate(writer, args[1:])
+	case "deployment-template":
+		return runConfigDeploymentTemplate(writer, args[1:])
 	case "paths":
 		return runConfigPaths(writer, args[1:])
 	case "show":

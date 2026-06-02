@@ -38,8 +38,8 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "ops.structured_logs: true\n")
 	fmt.Fprintf(writer, "ops.release_artifacts: true\n")
 	fmt.Fprintf(writer, "ops.external_audit_pack: true\n")
-	fmt.Fprintf(writer, "ops.mainnet_template: true\n")
-	fmt.Fprintf(writer, "ops.longrun_localnet_plan: true\n")
+	fmt.Fprintf(writer, "ops.deployment_template: true\n")
+	fmt.Fprintf(writer, "ops.longrun_network_plan: true\n")
 	fmt.Fprintf(writer, "security.fuzz_targets: true\n")
 	fmt.Fprintf(writer, "security.strict_json_rpc: true\n")
 	fmt.Fprintf(writer, "security.forwarded_for_untrusted: true\n")
@@ -185,8 +185,8 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"ops_structured_logs":               true,
 			"ops_release_artifacts":             true,
 			"ops_external_audit_pack":           true,
-			"ops_mainnet_template":              true,
-			"ops_longrun_localnet_plan":         true,
+			"ops_deployment_template":           true,
+			"ops_longrun_network_plan":          true,
 			"security_fuzz_targets":             true,
 			"security_strict_json_rpc":          true,
 			"security_forwarded_for_untrusted":  true,

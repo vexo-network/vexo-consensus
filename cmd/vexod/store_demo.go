@@ -22,8 +22,8 @@ func writeStoreDemo(writer io.Writer, path string) error {
 	}
 	defer storage.Close()
 
-	cfg := config.Default("vexo-local")
-	application, err := appmodules.NewRuntime("vexo-local", cfg.Application)
+	cfg := config.Default("vexo-chain")
+	application, err := appmodules.NewRuntime("vexo-chain", cfg.Application)
 	if err != nil {
 		return err
 	}
@@ -38,13 +38,13 @@ func writeStoreDemo(writer io.Writer, path string) error {
 	}
 
 	block := types.Block{
-		Header: types.Header{ChainID: "vexo-local", Height: 1},
+		Header: types.Header{ChainID: "vexo-chain", Height: 1},
 		Txs: fairordering.SortTxsWithSalt(
 			[]types.Tx{
 				[]byte("bank:send:alice:bob:25"),
 				[]byte("bank:mint:carol:7"),
 			},
-			fairordering.HeightSalt("vexo-local", 1),
+			fairordering.HeightSalt("vexo-chain", 1),
 		),
 	}
 	if _, err := runtime.ExecuteBlock(context.Background(), block); err != nil {

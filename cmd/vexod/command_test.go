@@ -29,7 +29,7 @@ func TestRunCommandHelpAndVersion(t *testing.T) {
 			t.Fatal(err)
 		}
 		output := stdout.String()
-		for _, expected := range []string{"Usage:", "init", "config paths", "start", "localnet", "consensus", "snapshot", "doctor", "version", "Module Commands:", "bank tx mint", "bank query balance"} {
+		for _, expected := range []string{"Usage:", "init", "config paths", "start", "network", "consensus", "snapshot", "doctor", "version", "Module Commands:", "bank tx mint", "bank query balance"} {
 			if !strings.Contains(output, expected) {
 				t.Fatalf("expected help output to contain %q, got:\n%s", expected, output)
 			}
@@ -348,33 +348,33 @@ func TestRunReleasePackCanRequireSignature(t *testing.T) {
 	}
 }
 
-func TestRunLocalnetInitAndStartDryRun(t *testing.T) {
+func TestRunNetworkInitAndStartDryRun(t *testing.T) {
 	home := t.TempDir()
 	var initOutput bytes.Buffer
-	if err := runCommand(&initOutput, &bytes.Buffer{}, []string{"localnet", "init", "--home", home, "--chain-id", "vexo-test", "--validators", "3"}); err != nil {
+	if err := runCommand(&initOutput, &bytes.Buffer{}, []string{"network", "init", "--home", home, "--chain-id", "vexo-test", "--validators", "3"}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(initOutput.String(), "initialized vexo localnet") || !strings.Contains(initOutput.String(), "validators: 3") {
-		t.Fatalf("unexpected localnet init output:\n%s", initOutput.String())
+	if !strings.Contains(initOutput.String(), "initialized vexo network") || !strings.Contains(initOutput.String(), "validators: 3") {
+		t.Fatalf("unexpected network init output:\n%s", initOutput.String())
 	}
 
 	var startOutput bytes.Buffer
-	if err := runCommand(&startOutput, &bytes.Buffer{}, []string{"localnet", "start", "--home", home, "--validators", "3", "--binary", "/bin/vexod", "--p2p-base-port", "27656", "--rpc-base-port", "27657", "--dry-run"}); err != nil {
+	if err := runCommand(&startOutput, &bytes.Buffer{}, []string{"network", "start", "--home", home, "--validators", "3", "--binary", "/bin/vexod", "--p2p-base-port", "27656", "--rpc-base-port", "27657", "--dry-run"}); err != nil {
 		t.Fatal(err)
 	}
 	output := startOutput.String()
-	for _, expected := range []string{"localnet start plan", "validator-1", "validator-2", "validator-3", "--rpc-address 127.0.0.1:27657", "--p2p-listen 127.0.0.1:27656"} {
+	for _, expected := range []string{"network start plan", "validator-1", "validator-2", "validator-3", "--rpc-address 127.0.0.1:27657", "--p2p-listen 127.0.0.1:27656"} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("expected dry-run output to contain %q, got:\n%s", expected, output)
 		}
 	}
 }
 
-func TestRunLocalnetUpDryRun(t *testing.T) {
+func TestRunNetworkUpDryRun(t *testing.T) {
 	home := t.TempDir()
 	var output bytes.Buffer
 	err := runCommand(&output, &bytes.Buffer{}, []string{
-		"localnet", "up",
+		"network", "up",
 		"--home", home,
 		"--chain-id", "vexo-test",
 		"--validators", "2",
@@ -390,69 +390,69 @@ func TestRunLocalnetUpDryRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
-		"localnet up plan",
+		"network up plan",
 		"chain-id: vexo-test",
 		"validators: 2",
 		"p2p-base-port: 28656",
 		"rpc-base-port: 28657",
-		"localnet init",
+		"network init",
 		"--overwrite",
-		"localnet start",
-		"localnet smoke",
-		"localnet stop",
+		"network start",
+		"network smoke",
+		"network stop",
 	} {
 		if !strings.Contains(output.String(), expected) {
-			t.Fatalf("expected localnet up dry-run output to contain %q, got:\n%s", expected, output.String())
+			t.Fatalf("expected network up dry-run output to contain %q, got:\n%s", expected, output.String())
 		}
 	}
 }
 
-func TestRunLocalnetLoadAndChaosPlans(t *testing.T) {
+func TestRunNetworkLoadAndChaosPlans(t *testing.T) {
 	home := t.TempDir()
 	var loadOutput bytes.Buffer
-	if err := runCommand(&loadOutput, &bytes.Buffer{}, []string{"localnet", "load", "--home", home, "--validators", "3", "--duration", "10s", "--rate", "7", "--timeout", "1s", "--dry-run"}); err != nil {
+	if err := runCommand(&loadOutput, &bytes.Buffer{}, []string{"network", "load", "--home", home, "--validators", "3", "--duration", "10s", "--rate", "7", "--timeout", "1s", "--dry-run"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"localnet load plan", "validators: 3", "rate: 7 tx/s", "estimated_transactions: 70"} {
+	for _, expected := range []string{"network load plan", "validators: 3", "rate: 7 tx/s", "estimated_transactions: 70"} {
 		if !strings.Contains(loadOutput.String(), expected) {
-			t.Fatalf("expected localnet load output to contain %q, got:\n%s", expected, loadOutput.String())
+			t.Fatalf("expected network load output to contain %q, got:\n%s", expected, loadOutput.String())
 		}
 	}
 
 	var chaosOutput bytes.Buffer
-	if err := runCommand(&chaosOutput, &bytes.Buffer{}, []string{"localnet", "chaos-plan", "--home", home, "--validators", "4", "--duration", "24h", "--regions", "2"}); err != nil {
+	if err := runCommand(&chaosOutput, &bytes.Buffer{}, []string{"network", "chaos-plan", "--home", home, "--validators", "4", "--duration", "24h", "--regions", "2"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"localnet chaos plan", "regions: 2", "validator-1: region=1", "no conflicting finality"} {
+	for _, expected := range []string{"network chaos plan", "regions: 2", "validator-1: region=1", "no conflicting finality"} {
 		if !strings.Contains(chaosOutput.String(), expected) {
-			t.Fatalf("expected localnet chaos output to contain %q, got:\n%s", expected, chaosOutput.String())
+			t.Fatalf("expected network chaos output to contain %q, got:\n%s", expected, chaosOutput.String())
 		}
 	}
 
 	var chaosRunOutput bytes.Buffer
-	if err := runCommand(&chaosRunOutput, &bytes.Buffer{}, []string{"localnet", "chaos", "--home", home, "--validators", "4", "--timeout", "10s", "--stop-index", "2", "--dry-run"}); err != nil {
+	if err := runCommand(&chaosRunOutput, &bytes.Buffer{}, []string{"network", "chaos", "--home", home, "--validators", "4", "--timeout", "10s", "--stop-index", "2", "--dry-run"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"localnet chaos run plan", "target: validator-3", "keep quorum online", "require height increase", "require catch-up"} {
+	for _, expected := range []string{"network chaos run plan", "target: validator-3", "keep quorum online", "require height increase", "require catch-up"} {
 		if !strings.Contains(chaosRunOutput.String(), expected) {
-			t.Fatalf("expected localnet chaos run output to contain %q, got:\n%s", expected, chaosRunOutput.String())
+			t.Fatalf("expected network chaos run output to contain %q, got:\n%s", expected, chaosRunOutput.String())
 		}
 	}
 }
 
-func TestRunLocalnetLongRunPlan(t *testing.T) {
+func TestRunNetworkLongRunPlan(t *testing.T) {
 	var output bytes.Buffer
-	if err := runCommand(&output, &bytes.Buffer{}, []string{"localnet", "longrun-plan", "--validators", "4", "--duration", "168h", "--regions", "3", "--hosts", "4"}); err != nil {
+	if err := runCommand(&output, &bytes.Buffer{}, []string{"network", "longrun-plan", "--validators", "4", "--duration", "168h", "--regions", "3", "--hosts", "4"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"localnet longrun plan", "duration: 168h0m0s", "hosts: 4", "host=node-1 region=1", "state sync recovery"} {
+	for _, expected := range []string{"network longrun plan", "duration: 168h0m0s", "hosts: 4", "host=node-1 region=1", "state sync recovery"} {
 		if !strings.Contains(output.String(), expected) {
-			t.Fatalf("expected localnet longrun output to contain %q, got:\n%s", expected, output.String())
+			t.Fatalf("expected network longrun output to contain %q, got:\n%s", expected, output.String())
 		}
 	}
 }
 
-func TestParseLocalnetDurationUsesHumanUnits(t *testing.T) {
+func TestParseNetworkDurationUsesHumanUnits(t *testing.T) {
 	for _, testCase := range []struct {
 		value    string
 		expected time.Duration
@@ -461,7 +461,7 @@ func TestParseLocalnetDurationUsesHumanUnits(t *testing.T) {
 		{value: "3s", expected: 3 * time.Duration(1_000_000_000)},
 		{value: "2m", expected: 2 * time.Duration(60_000_000_000)},
 	} {
-		actual, err := parseLocalnetDuration(testCase.value)
+		actual, err := parseNetworkDuration(testCase.value)
 		if err != nil {
 			t.Fatalf("expected %s to parse: %v", testCase.value, err)
 		}
@@ -469,29 +469,29 @@ func TestParseLocalnetDurationUsesHumanUnits(t *testing.T) {
 			t.Fatalf("expected %s to parse as %s, got %s", testCase.value, testCase.expected, actual)
 		}
 	}
-	if _, err := parseLocalnetDuration("0s"); err == nil {
+	if _, err := parseNetworkDuration("0s"); err == nil {
 		t.Fatal("expected zero duration to fail")
 	}
 }
 
-func TestEstimatedLocalnetTransactionsUsesWallSeconds(t *testing.T) {
-	duration, err := parseLocalnetDuration("1h")
+func TestEstimatedNetworkTransactionsUsesWallSeconds(t *testing.T) {
+	duration, err := parseNetworkDuration("1h")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if actual := estimatedLocalnetTransactions(duration, 50); actual != 180_000 {
+	if actual := estimatedNetworkTransactions(duration, 50); actual != 180_000 {
 		t.Fatalf("expected 180000 transactions for 1h at 50 tx/s, got %d", actual)
 	}
 }
 
-func TestLocalnetLoadPayloadUsesRealisticNonce(t *testing.T) {
-	payload := localnetLoadPayload("bank:send:alice:bob:1:fee=1:gas=1000:signer=alice:nonce", 7)
+func TestNetworkLoadPayloadUsesRealisticNonce(t *testing.T) {
+	payload := networkLoadPayload("bank:send:alice:bob:1:fee=1:gas=1000:signer=alice:nonce", 7)
 	if string(payload) != "bank:send:alice:bob:1:fee=1:gas=1000:signer=alice:nonce=7" {
 		t.Fatalf("unexpected load payload: %s", payload)
 	}
 }
 
-func TestRunInitWritesLocalnetFilesWithCustomPorts(t *testing.T) {
+func TestRunInitWritesNetworkFilesWithCustomPorts(t *testing.T) {
 	home := t.TempDir()
 	var output bytes.Buffer
 	if err := runInit(&output, []string{"--home", home, "--chain-id", "vexo-test", "--validators", "2", "--p2p-base-port", "27656", "--rpc-base-port", "27657"}); err != nil {
@@ -824,10 +824,10 @@ func TestRunDoctorReportsOperationalReadinessAndRepairsIndexes(t *testing.T) {
 	}
 }
 
-func TestRunLocalnetUpDryRunCanKeepRunning(t *testing.T) {
+func TestRunNetworkUpDryRunCanKeepRunning(t *testing.T) {
 	var output bytes.Buffer
 	err := runCommand(&output, &bytes.Buffer{}, []string{
-		"localnet", "up",
+		"network", "up",
 		"--home", t.TempDir(),
 		"--validators", "1",
 		"--binary", "/bin/vexod",
@@ -837,34 +837,34 @@ func TestRunLocalnetUpDryRunCanKeepRunning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "keep nodes running") || strings.Contains(output.String(), "localnet stop") {
+	if !strings.Contains(output.String(), "keep nodes running") || strings.Contains(output.String(), "network stop") {
 		t.Fatalf("expected keep-running dry-run to skip stop, got:\n%s", output.String())
 	}
 }
 
-func TestLocalnetRuntimePlanAndPIDHelpers(t *testing.T) {
+func TestNetworkRuntimePlanAndPIDHelpers(t *testing.T) {
 	home := t.TempDir()
-	plan, err := buildLocalnetRuntimePlan(home, 2, "/bin/vexod")
+	plan, err := buildNetworkRuntimePlan(home, 2, "/bin/vexod")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if plan.Binary != "/bin/vexod" || len(plan.Nodes) != 2 {
 		t.Fatalf("unexpected plan: %+v", plan)
 	}
-	if plan.Nodes[0].ValidatorID != "validator-1" || plan.Nodes[0].RPCAddress != localnetRPCAddress(1) || plan.Nodes[1].P2PAddress != localnetP2PAddress(2) {
+	if plan.Nodes[0].ValidatorID != "validator-1" || plan.Nodes[0].RPCAddress != networkRPCAddress(1) || plan.Nodes[1].P2PAddress != networkP2PAddress(2) {
 		t.Fatalf("unexpected nodes: %+v", plan.Nodes)
 	}
 	if plan.Nodes[0].LogPath != filepath.Join(home, "validator-1", "vexod.log") {
 		t.Fatalf("unexpected log path: %s", plan.Nodes[0].LogPath)
 	}
-	if _, err := buildLocalnetRuntimePlan(home, 0, "/bin/vexod"); err == nil {
+	if _, err := buildNetworkRuntimePlan(home, 0, "/bin/vexod"); err == nil {
 		t.Fatal("expected invalid validator count")
 	}
-	pidPath := filepath.Join(home, localnetPIDFileName)
+	pidPath := filepath.Join(home, networkPIDFileName)
 	if err := os.WriteFile(pidPath, []byte("12345"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	pid, err := readLocalnetPID(pidPath)
+	pid, err := readNetworkPID(pidPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -873,9 +873,9 @@ func TestLocalnetRuntimePlanAndPIDHelpers(t *testing.T) {
 	}
 }
 
-func TestLocalnetRuntimePlanWithCustomPorts(t *testing.T) {
+func TestNetworkRuntimePlanWithCustomPorts(t *testing.T) {
 	home := t.TempDir()
-	plan, err := buildLocalnetRuntimePlanWithPorts(home, 2, "/bin/vexod", 27656, 27657)
+	plan, err := buildNetworkRuntimePlanWithPorts(home, 2, "/bin/vexod", 27656, 27657)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -885,13 +885,13 @@ func TestLocalnetRuntimePlanWithCustomPorts(t *testing.T) {
 	if plan.Nodes[0].P2PAddress != "127.0.0.1:27656" || plan.Nodes[1].RPCAddress != "127.0.0.1:27667" {
 		t.Fatalf("unexpected custom addresses: %+v", plan.Nodes)
 	}
-	if _, err := buildLocalnetRuntimePlanWithPorts(home, 2, "/bin/vexod", 0, 27657); err == nil {
+	if _, err := buildNetworkRuntimePlanWithPorts(home, 2, "/bin/vexod", 0, 27657); err == nil {
 		t.Fatal("expected invalid custom port")
 	}
 }
 
-func TestStartLocalnetNodeRefusesExistingPIDFile(t *testing.T) {
-	plan, err := buildLocalnetRuntimePlan(t.TempDir(), 1, "/bin/vexod")
+func TestStartNetworkNodeRefusesExistingPIDFile(t *testing.T) {
+	plan, err := buildNetworkRuntimePlan(t.TempDir(), 1, "/bin/vexod")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -902,32 +902,32 @@ func TestStartLocalnetNodeRefusesExistingPIDFile(t *testing.T) {
 	if err := os.WriteFile(localNode.PIDPath, []byte("123"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err = startLocalnetNode("/bin/vexod", localNode)
+	err = startNetworkNode("/bin/vexod", localNode)
 	if err == nil || !strings.Contains(err.Error(), "already has pid file") {
 		t.Fatalf("expected existing pid file error, got %v", err)
 	}
 }
 
-func TestLocalnetHealthOK(t *testing.T) {
+func TestNetworkHealthOK(t *testing.T) {
 	client := http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		if request.URL.Path != "/healthz" {
 			return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader(""))}, nil
 		}
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("{}"))}, nil
 	})}
-	if !localnetHealthOK(context.Background(), client, "127.0.0.1:26657") {
-		t.Fatal("expected localnet health ok")
+	if !networkHealthOK(context.Background(), client, "127.0.0.1:26657") {
+		t.Fatal("expected network health ok")
 	}
 	failingClient := http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusServiceUnavailable, Body: io.NopCloser(strings.NewReader(""))}, nil
 	})}
-	if localnetHealthOK(context.Background(), failingClient, "127.0.0.1:26657") {
-		t.Fatal("expected unreachable localnet health to fail")
+	if networkHealthOK(context.Background(), failingClient, "127.0.0.1:26657") {
+		t.Fatal("expected unreachable network health to fail")
 	}
 }
 
-func TestRunLocalnetSmokePlanSubmitsTxAndWaitsForHeight(t *testing.T) {
-	plan, err := buildLocalnetRuntimePlan(t.TempDir(), 2, "/bin/vexod")
+func TestRunNetworkSmokePlanSubmitsTxAndWaitsForHeight(t *testing.T) {
+	plan, err := buildNetworkRuntimePlan(t.TempDir(), 2, "/bin/vexod")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -952,7 +952,7 @@ func TestRunLocalnetSmokePlanSubmitsTxAndWaitsForHeight(t *testing.T) {
 			return jsonHTTPResponse(http.StatusNotFound, `{}`), nil
 		}
 	})}
-	results, err := runLocalnetSmokePlan(context.Background(), client, plan, []byte("bank:smoke"))
+	results, err := runNetworkSmokePlan(context.Background(), client, plan, []byte("bank:smoke"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1053,7 +1053,7 @@ func TestRunConfigAuditStrictFailsUnsafeDeployment(t *testing.T) {
 	}
 }
 
-func TestRunConfigAuditPackAndMainnetTemplate(t *testing.T) {
+func TestRunConfigAuditPackAndDeploymentTemplate(t *testing.T) {
 	var auditOutput bytes.Buffer
 	if err := runConfig(&auditOutput, []string{"audit-pack", "--json"}); err != nil {
 		t.Fatal(err)
@@ -1062,20 +1062,20 @@ func TestRunConfigAuditPackAndMainnetTemplate(t *testing.T) {
 	if err := json.Unmarshal(auditOutput.Bytes(), &auditPack); err != nil {
 		t.Fatal(err)
 	}
-	if auditPack.SchemaVersion != "v1" || len(auditPack.Commands) == 0 || !strings.Contains(strings.Join(auditPack.Commands, "\n"), "localnet longrun-plan") {
+	if auditPack.SchemaVersion != "v1" || len(auditPack.Commands) == 0 || !strings.Contains(strings.Join(auditPack.Commands, "\n"), "network longrun-plan") {
 		t.Fatalf("unexpected audit pack: %+v", auditPack)
 	}
 
-	var mainnetOutput bytes.Buffer
-	if err := runConfig(&mainnetOutput, []string{"mainnet-template", "--json"}); err != nil {
+	var deploymentOutput bytes.Buffer
+	if err := runConfig(&deploymentOutput, []string{"deployment-template", "--json"}); err != nil {
 		t.Fatal(err)
 	}
-	var mainnet mainnetTemplateDocument
-	if err := json.Unmarshal(mainnetOutput.Bytes(), &mainnet); err != nil {
+	var deployment deploymentTemplateDocument
+	if err := json.Unmarshal(deploymentOutput.Bytes(), &deployment); err != nil {
 		t.Fatal(err)
 	}
-	if !mainnet.Chain.Execution.RequireSigned || !mainnet.Chain.Mempool.EnablePriority || !mainnet.Runtime.P2PAuthTokenRequired {
-		t.Fatalf("unexpected mainnet template: %+v", mainnet)
+	if !deployment.Chain.Execution.RequireSigned || !deployment.Chain.Mempool.EnablePriority || !deployment.Runtime.P2PAuthTokenRequired {
+		t.Fatalf("unexpected deployment template: %+v", deployment)
 	}
 }
 
@@ -1366,7 +1366,7 @@ func TestBuildRuntimeNodeConfiguresGRPCTransport(t *testing.T) {
 	startNode, wire, err := buildRuntimeNode(inputs, startRuntimeConfig{
 		P2PEnabled:       true,
 		P2PListenAddress: "127.0.0.1:0",
-		P2PNetworkID:     "localnet",
+		P2PNetworkID:     "network",
 		P2PPeers:         map[p2p.PeerID]string{"bob": "127.0.0.1:26657"},
 		P2PAuthToken:     "shared-secret",
 	})
@@ -1387,7 +1387,7 @@ func TestBuildRuntimeNodeConfiguresGRPCTransport(t *testing.T) {
 	}
 }
 
-func TestBuildRuntimeNodeDerivesLocalnetPeers(t *testing.T) {
+func TestBuildRuntimeNodeDerivesNetworkPeers(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validators", "3"}); err != nil {
 		t.Fatal(err)
@@ -1396,14 +1396,14 @@ func TestBuildRuntimeNodeDerivesLocalnetPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtimeConfig := applyLocalnetRuntimeDefaults(inputs, startRuntimeConfig{P2PEnabled: true, RPCEnabled: true})
-	if runtimeConfig.P2PListenAddress != localnetP2PAddress(2) {
+	runtimeConfig := applyNetworkRuntimeDefaults(inputs, startRuntimeConfig{P2PEnabled: true, RPCEnabled: true})
+	if runtimeConfig.P2PListenAddress != networkP2PAddress(2) {
 		t.Fatalf("expected validator-2 p2p address, got %s", runtimeConfig.P2PListenAddress)
 	}
-	if runtimeConfig.RPCAddress != localnetRPCAddress(2) {
+	if runtimeConfig.RPCAddress != networkRPCAddress(2) {
 		t.Fatalf("expected validator-2 rpc address, got %s", runtimeConfig.RPCAddress)
 	}
-	if len(runtimeConfig.P2PPeers) != 2 || runtimeConfig.P2PPeers["validator-1"] != localnetP2PAddress(1) || runtimeConfig.P2PPeers["validator-3"] != localnetP2PAddress(3) {
+	if len(runtimeConfig.P2PPeers) != 2 || runtimeConfig.P2PPeers["validator-1"] != networkP2PAddress(1) || runtimeConfig.P2PPeers["validator-3"] != networkP2PAddress(3) {
 		t.Fatalf("unexpected derived peers: %+v", runtimeConfig.P2PPeers)
 	}
 
@@ -1412,10 +1412,10 @@ func TestBuildRuntimeNodeDerivesLocalnetPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 	if startNode == nil || wire == nil {
-		t.Fatal("expected localnet node and grpc wire")
+		t.Fatal("expected network node and grpc wire")
 	}
-	if wire.Address() != localnetP2PAddress(2) {
-		t.Fatalf("expected localnet p2p listen address, got %s", wire.Address())
+	if wire.Address() != networkP2PAddress(2) {
+		t.Fatalf("expected network p2p listen address, got %s", wire.Address())
 	}
 }
 

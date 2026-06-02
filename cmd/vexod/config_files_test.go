@@ -44,18 +44,18 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	}
 }
 
-func TestRunInitWritesLocalnetFiles(t *testing.T) {
+func TestRunInitWritesNetworkFiles(t *testing.T) {
 	home := t.TempDir()
 	var output bytes.Buffer
 	if err := runInit(&output, []string{"--home", home, "--chain-id", "vexo-test", "--validators", "4"}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "initialized vexo localnet") || !strings.Contains(output.String(), "validators: 4") {
-		t.Fatalf("unexpected localnet output:\n%s", output.String())
+	if !strings.Contains(output.String(), "initialized vexo network") || !strings.Contains(output.String(), "validators: 4") {
+		t.Fatalf("unexpected network output:\n%s", output.String())
 	}
 
 	for index := 1; index <= 4; index++ {
-		validatorID := localnetValidatorID(index)
+		validatorID := networkValidatorID(index)
 		nodeHome := filepath.Join(home, validatorID)
 		cfg, err := loadNodeConfig(filepath.Join(nodeHome, configFileName))
 		if err != nil {
@@ -72,7 +72,7 @@ func TestRunInitWritesLocalnetFiles(t *testing.T) {
 			t.Fatalf("unexpected genesis for %s: %+v", validatorID, genesis)
 		}
 		validatorInfo := genesis.Validators[index-1]
-		if len(validatorInfo.PublicKey) == 0 || validatorInfo.Metadata["p2p_address"] != localnetP2PAddress(index) || validatorInfo.Metadata["rpc_address"] != localnetRPCAddress(index) {
+		if len(validatorInfo.PublicKey) == 0 || validatorInfo.Metadata["p2p_address"] != networkP2PAddress(index) || validatorInfo.Metadata["rpc_address"] != networkRPCAddress(index) {
 			t.Fatalf("unexpected validator metadata: %+v", validatorInfo)
 		}
 		if _, err := loadStartInputs(nodeHome, "", "", "", false); err != nil {
@@ -81,7 +81,7 @@ func TestRunInitWritesLocalnetFiles(t *testing.T) {
 	}
 
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validators", "4"}); err == nil {
-		t.Fatal("expected localnet init to reject existing files")
+		t.Fatal("expected network init to reject existing files")
 	}
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validators", "4", "--overwrite"}); err != nil {
 		t.Fatal(err)

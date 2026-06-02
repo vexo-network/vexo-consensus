@@ -133,12 +133,12 @@ func buildAuditPackDocument() auditPackDocument {
 			"make fuzz-smoke",
 			"go run ./cmd/vexod config audit --home .vexo --strict --json",
 			"go run ./cmd/vexod consensus adversarial --json",
-			"go run ./cmd/vexod config mainnet-template --json",
+			"go run ./cmd/vexod config deployment-template --json",
 			"go run ./cmd/vexod ops thresholds --json",
 			"go run ./cmd/vexod upgrade plan --json --name audit-upgrade --height 100",
-			"go run ./cmd/vexod localnet longrun-plan --validators 4 --duration 168h --regions 3 --hosts 4",
-			"go run ./cmd/vexod localnet chaos-plan --validators 4 --duration 24h",
-			"go run ./cmd/vexod localnet load --validators 4 --duration 1h --rate 50 --dry-run",
+			"go run ./cmd/vexod network longrun-plan --validators 4 --duration 168h --regions 3 --hosts 4",
+			"go run ./cmd/vexod network chaos-plan --validators 4 --duration 24h",
+			"go run ./cmd/vexod network load --validators 4 --duration 1h --rate 50 --dry-run",
 			"go run ./cmd/vexod keys verify-remote --home .vexo --challenge audit-challenge",
 			"make release VERSION=<version>",
 			"make sign-release VERSION=<version>",
@@ -147,7 +147,7 @@ func buildAuditPackDocument() auditPackDocument {
 			"test output from make check and make fuzz-smoke",
 			"JSON output from config audit and consensus adversarial simulation",
 			"threat model, known limitations, assumptions, and safety argument from docs/security/audit-readiness.md",
-			"localnet logs, pids, health/status snapshots, metrics, and pprof captures",
+			"network logs, pids, health/status snapshots, metrics, and pprof captures",
 			"snapshot checksums and restore verification output",
 			"remote signer challenge signature verification output",
 			"multi-machine long-run plan with region and host assignment",
@@ -162,7 +162,7 @@ func buildAuditPackDocument() auditPackDocument {
 }
 
 func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, strict bool) auditDocument {
-	runtimeConfig = applyLocalnetRuntimeDefaults(inputs, runtimeConfig)
+	runtimeConfig = applyNetworkRuntimeDefaults(inputs, runtimeConfig)
 	document := auditDocument{OK: true, Strict: strict}
 	keyDocument, keyErr := vexocrypto.LoadKeyDocument(inputs.Plan.KeyPath)
 	document.addCheck("config_valid", "error", inputs.Config.Chain.Validate() == nil, "chain config must pass validation")

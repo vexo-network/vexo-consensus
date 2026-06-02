@@ -44,7 +44,7 @@ func TestGRPCBinaryCodecRoundTrip(t *testing.T) {
 	original := &grpcStreamMessage{
 		Handshake: &Handshake{
 			ProtocolVersion: GRPCProtocolVersion,
-			NetworkID:       "localnet",
+			NetworkID:       "vexo-network",
 			ChainID:         "vexo-test",
 			GenesisHash:     GenesisHash([]byte("genesis")),
 			NodeID:          "alice",
@@ -89,7 +89,7 @@ func TestGRPCTransportPeerLearnedHook(t *testing.T) {
 	transport, err := NewGRPCTransport(GRPCConfig{
 		PeerID:      "alice",
 		ListenAddr:  "127.0.0.1:0",
-		NetworkID:   "localnet",
+		NetworkID:   "vexo-network",
 		ChainID:     "vexo-test",
 		GenesisHash: GenesisHash([]byte("genesis")),
 		PeerLearned: func(peerID p2p.PeerID, address string) {
@@ -124,7 +124,7 @@ func TestGRPCTransportPeerDialHooks(t *testing.T) {
 		PeerID:            "alice",
 		ListenAddr:        "127.0.0.1:0",
 		Peers:             map[p2p.PeerID]string{"bob": "127.0.0.1:1"},
-		NetworkID:         "localnet",
+		NetworkID:         "vexo-network",
 		ChainID:           "vexo-test",
 		GenesisHash:       GenesisHash([]byte("genesis")),
 		DialTimeout:       time.Millisecond,
@@ -296,7 +296,7 @@ func TestGRPCTransportReusesPeerStreamSession(t *testing.T) {
 
 func TestGRPCTransportRejectsOversizedMessage(t *testing.T) {
 	config := GRPCConfig{
-		NetworkID:       "localnet",
+		NetworkID:       "vexo-network",
 		ChainID:         "vexo-test",
 		GenesisHash:     GenesisHash([]byte("genesis")),
 		MaxMessageBytes: 4,
@@ -319,7 +319,7 @@ func TestGRPCTransportRejectsOversizedMessage(t *testing.T) {
 func TestGRPCTransportSupportsMutualTLS(t *testing.T) {
 	caCert, caKey, certPool := newTestCertificateAuthority(t)
 	config := GRPCConfig{
-		NetworkID:   "localnet",
+		NetworkID:   "vexo-network",
 		ChainID:     "vexo-test",
 		GenesisHash: GenesisHash([]byte("genesis")),
 		DialTimeout: 30 * time.Second,
@@ -348,7 +348,7 @@ func TestGRPCTransportRejectsUntrustedClientCertificate(t *testing.T) {
 	trustedCACert, trustedCAKey, trustedPool := newTestCertificateAuthority(t)
 	untrustedCACert, untrustedCAKey, _ := newTestCertificateAuthority(t)
 	config := GRPCConfig{
-		NetworkID:   "localnet",
+		NetworkID:   "vexo-network",
 		ChainID:     "vexo-test",
 		GenesisHash: GenesisHash([]byte("genesis")),
 		DialTimeout: 30 * time.Second,
@@ -422,7 +422,7 @@ func TestGRPCTransportReconnectLoopEstablishesPeerSession(t *testing.T) {
 
 func TestGRPCTransportDiscoversPeersFromHandshake(t *testing.T) {
 	base := GRPCConfig{
-		NetworkID:         "localnet",
+		NetworkID:         "vexo-network",
 		ChainID:           "vexo-test",
 		GenesisHash:       GenesisHash([]byte("genesis")),
 		ReconnectInterval: 10 * time.Millisecond,
@@ -459,7 +459,7 @@ func TestGRPCTransportDiscoversPeersFromHandshake(t *testing.T) {
 
 func TestGRPCTransportReconnectsAfterPeerRestart(t *testing.T) {
 	base := GRPCConfig{
-		NetworkID:         "localnet",
+		NetworkID:         "vexo-network",
 		ChainID:           "vexo-test",
 		GenesisHash:       GenesisHash([]byte("genesis")),
 		ReconnectInterval: 10 * time.Millisecond,
@@ -575,7 +575,7 @@ func TestGRPCTransportCountsSubscriberDrops(t *testing.T) {
 
 func newStartedGRPCPeers(t *testing.T) (*GRPCTransport, *GRPCTransport, *GRPCTransport) {
 	t.Helper()
-	base := GRPCConfig{NetworkID: "localnet", ChainID: "vexo-test", GenesisHash: GenesisHash([]byte("genesis"))}
+	base := GRPCConfig{NetworkID: "vexo-network", ChainID: "vexo-test", GenesisHash: GenesisHash([]byte("genesis"))}
 	alice := newStartedGRPCPeer(t, "alice", base)
 	bob := newStartedGRPCPeer(t, "bob", base)
 	carol := newStartedGRPCPeer(t, "carol", base)

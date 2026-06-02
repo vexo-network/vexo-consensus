@@ -7,6 +7,6 @@ import (
 	"syscall"
 )
 
-func configureLocalnetChildProcess(command *exec.Cmd) {
+func configureNetworkChildProcess(command *exec.Cmd) {
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
