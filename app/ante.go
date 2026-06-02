@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	"strconv"
-	"strings"
 
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	vexostore "github.com/vexo-network/vexo-consensus/store"
@@ -47,35 +45,28 @@ type AnteHandler interface {
 }
 
 type AnteKeeper struct {
-	config AnteConfig
+	config   AnteConfig
+	accounts AccountKeeper
 }
 
 func NewAnteKeeper(config AnteConfig) AnteKeeper {
-	return AnteKeeper{config: config}
+	return AnteKeeper{config: config, accounts: NewAccountKeeper()}
 }
 
 func ParseTxMeta(tx types.Tx) TxMeta {
-	tx = TxPayload(tx)
 	var meta TxMeta
-	for _, part := range strings.Split(string(tx), ":") {
-		key, value, found := strings.Cut(part, "=")
-		if !found {
-			continue
-		}
-		switch key {
-		case "signer":
-			meta.Signer = types.Address(value)
-		case "nonce":
-			nonce, err := strconv.ParseUint(value, 10, 64)
-			if err == nil {
-				meta.Nonce = nonce
-				meta.HasNonce = true
-			}
-		case "fee":
-			meta.Fee, _ = strconv.ParseUint(value, 10, 64)
-		case "gas":
-			meta.Gas, _ = strconv.ParseUint(value, 10, 64)
-		}
+	if signer, found := TxTag(tx, "signer"); found {
+		meta.Signer = types.Address(signer)
+	}
+	if nonce, found := TxUintTag(tx, "nonce"); found {
+		meta.Nonce = nonce
+		meta.HasNonce = true
+	}
+	if fee, found := TxUintTag(tx, "fee"); found {
+		meta.Fee = fee
+	}
+	if gas, found := TxUintTag(tx, "gas"); found {
+		meta.Gas = gas
 	}
 	return meta
 }
@@ -91,7 +82,7 @@ func (keeper AnteKeeper) CheckTx(ctx Context, tx types.Tx) error {
 	if ctx.Store == nil || meta.Signer == "" || !meta.HasNonce {
 		return nil
 	}
-	expected, err := keeper.nextNonce(context.Background(), ctx.Store, meta.Signer)
+	expected, err := keeper.accounts.NextSequence(context.Background(), ctx.Store, meta.Signer)
 	if err != nil {
 		return err
 	}
@@ -117,7 +108,7 @@ func (keeper AnteKeeper) CheckBlock(ctx Context, txs []types.Tx) error {
 		expected, found := nextBySigner[meta.Signer]
 		if !found {
 			var err error
-			expected, err = keeper.nextNonce(context.Background(), ctx.Store, meta.Signer)
+			expected, err = keeper.accounts.NextSequence(context.Background(), ctx.Store, meta.Signer)
 			if err != nil {
 				return err
 			}
@@ -145,7 +136,7 @@ func (keeper AnteKeeper) AfterTx(ctx Context, tx types.Tx) error {
 	if meta.Signer == "" || !meta.HasNonce {
 		return nil
 	}
-	return keeper.setNonce(context.Background(), ctx.Store, meta.Signer, meta.Nonce)
+	return keeper.accounts.SetSequence(context.Background(), ctx.Store, meta.Signer, meta.Nonce)
 }
 
 func (keeper AnteKeeper) GasUsed(tx types.Tx) uint64 {
@@ -174,30 +165,6 @@ func (keeper AnteKeeper) validateMeta(meta TxMeta) error {
 		return ErrMissingNonce
 	}
 	return nil
-}
-
-func (keeper AnteKeeper) nextNonce(ctx context.Context, store StateStore, signer types.Address) (uint64, error) {
-	value, err := store.Get(ctx, "auth", nonceKey(signer))
-	if errors.Is(err, vexostore.ErrKeyNotFound) {
-		return 1, nil
-	}
-	if err != nil {
-		return 0, err
-	}
-	if len(value) != 8 {
-		return 0, ErrInvalidNonce
-	}
-	return binary.BigEndian.Uint64(value) + 1, nil
-}
-
-func (keeper AnteKeeper) setNonce(ctx context.Context, store StateStore, signer types.Address, nonce uint64) error {
-	var encoded [8]byte
-	binary.BigEndian.PutUint64(encoded[:], nonce)
-	return store.Set(ctx, "auth", nonceKey(signer), encoded[:])
-}
-
-func nonceKey(signer types.Address) []byte {
-	return []byte("nonce/" + string(signer))
 }
 
 func (keeper AnteKeeper) collectFee(ctx context.Context, store StateStore, meta TxMeta) error {

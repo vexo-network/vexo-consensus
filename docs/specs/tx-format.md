@@ -4,15 +4,25 @@
 
 This spec defines Vexo transaction envelope requirements for public-network operation.
 
-## Raw Payload
+## Canonical Payload
 
-Current demo payloads are colon-delimited module commands:
+Canonical payloads are colon-delimited module commands:
 
 ```text
-bank:send:<from>:<to>:<amount>:fee=<fee>:gas=<gas>:signer=<address>:nonce=<nonce>
+<module>:<action>:<arg...>:fee=<fee>:gas=<gas>:signer=<address>:nonce=<nonce>:priority=<priority>
 ```
 
-Production modules may replace payload encoding, but must preserve the ante metadata model.
+The canonical tag order is:
+
+1. `fee`
+2. `gas`
+3. `signer`
+4. `nonce`
+5. `priority`
+6. any custom tags sorted lexicographically
+
+Application modules may define their own positional arguments, but should use the shared canonical
+transaction parser/builder for ante metadata.
 
 ## Signed Envelope
 
@@ -33,6 +43,10 @@ Public networks should require:
 - `nonce`
 - `fee`
 - `gas`
+
+Account sequence state is stored under the `auth` namespace and is advanced only after successful
+transaction delivery. The first valid nonce is `1`; after committing nonce `N`, the next accepted
+nonce is `N+1`.
 
 ## CheckTx Requirements
 
@@ -57,3 +71,10 @@ Public networks should require:
 ## Load Test Payloads
 
 Public-network load tests should use realistic signed `bank:send` payloads with fee, gas, signer, and incrementing nonce, not unrestricted mint payloads.
+
+## CLI Examples
+
+```bash
+vexod tx build --module bank --action send --args alice,bob,1 --tags fee=2,gas=100,signer=alice,nonce=7
+vexod tx parse --tx bank:send:alice:bob:1:fee=2:gas=100:signer=alice:nonce=7 --json
+```

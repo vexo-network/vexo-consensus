@@ -56,6 +56,11 @@ func runCommand(stdout io.Writer, stderr io.Writer, args []string) error {
 			return writeCommandError(stderr, "keys", err)
 		}
 		return nil
+	case "tx":
+		if err := runTx(stdout, args[1:]); err != nil {
+			return writeCommandError(stderr, "tx", err)
+		}
+		return nil
 	case "start":
 		if err := runStart(stdout, args[1:]); err != nil {
 			return writeCommandError(stderr, "start", err)
@@ -158,6 +163,7 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  keys verify-remote verify remote KMS/HSM challenge signing\n")
 	fmt.Fprintf(writer, "  keys sign-tx    sign a raw transaction payload\n")
 	fmt.Fprintf(writer, "  keys show       show validator public key\n")
+	fmt.Fprintf(writer, "  tx              build or parse canonical transaction payloads\n")
 	fmt.Fprintf(writer, "  start           validate files, prepare startup, or run node with --run; Ctrl+C shuts down gracefully\n")
 	fmt.Fprintf(writer, "  localnet        up, initialize, start, smoke, load, chaos, longrun, status, and stop local networks\n")
 	fmt.Fprintf(writer, "  consensus       run consensus simulations and diagnostics\n")

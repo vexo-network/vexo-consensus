@@ -253,6 +253,35 @@ func TestRunUpgradeApplyPersistsExecutionRecord(t *testing.T) {
 	}
 }
 
+func TestRunTxBuildAndParseCanonicalPayload(t *testing.T) {
+	var buildOutput bytes.Buffer
+	if err := runCommand(&buildOutput, &bytes.Buffer{}, []string{
+		"tx", "build",
+		"--module", "bank",
+		"--action", "send",
+		"--args", "alice,bob,1",
+		"--tags", "nonce=7,signer=alice,gas=100,fee=2",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	expectedTx := "tx: bank:send:alice:bob:1:fee=2:gas=100:signer=alice:nonce=7"
+	if strings.TrimSpace(buildOutput.String()) != expectedTx {
+		t.Fatalf("expected %q, got %q", expectedTx, strings.TrimSpace(buildOutput.String()))
+	}
+
+	var parseOutput bytes.Buffer
+	if err := runCommand(&parseOutput, &bytes.Buffer{}, []string{
+		"tx", "parse",
+		"--tx", strings.TrimPrefix(strings.TrimSpace(buildOutput.String()), "tx: "),
+		"--json",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(parseOutput.String(), `"module": "bank"`) || !strings.Contains(parseOutput.String(), `"nonce": "7"`) {
+		t.Fatalf("unexpected tx parse output:\n%s", parseOutput.String())
+	}
+}
+
 func TestRunLocalnetInitAndStartDryRun(t *testing.T) {
 	home := t.TempDir()
 	var initOutput bytes.Buffer

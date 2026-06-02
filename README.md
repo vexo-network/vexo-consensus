@@ -388,6 +388,13 @@ go run ./cmd/vexod bank tx send alice bob 25
 go run ./cmd/vexod bank query balance alice
 ```
 
+Build or inspect canonical transaction payloads directly:
+
+```bash
+go run ./cmd/vexod tx build --module bank --action send --args alice,bob,25 --tags fee=1,gas=1000,signer=alice,nonce=1
+go run ./cmd/vexod tx parse --tx 'bank:send:alice:bob:25:fee=1:gas=1000:signer=alice:nonce=1' --json
+```
+
 Initialize node files:
 
 ```bash
