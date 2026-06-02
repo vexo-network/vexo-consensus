@@ -23,7 +23,7 @@ func TestBuildDefaultCLICommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(commands) != 1 || commands[0].Name != "bank" || commands[0].Run == nil {
+	if len(commands) != 1 || commands[0].Name != "bank" || len(commands[0].Children) == 0 {
 		t.Fatalf("expected default bank cli command, got %+v", commands)
 	}
 }

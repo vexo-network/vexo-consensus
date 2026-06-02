@@ -63,7 +63,7 @@ func (registry Registry) BuildCLICommands(enabled []string) ([]CLICommand, error
 			continue
 		}
 		for _, command := range provider.CLICommands() {
-			if command.Name == "" || command.Run == nil {
+			if command.Name == "" || (command.Run == nil && len(command.Children) == 0) {
 				continue
 			}
 			commands = append(commands, command)

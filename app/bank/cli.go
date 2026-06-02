@@ -1,7 +1,6 @@
 package bank
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -10,87 +9,101 @@ import (
 )
 
 func (Module) CLICommands() []vexoapp.CLICommand {
-	return []vexoapp.CLICommand{
-		{
-			Name:        ModuleName,
-			Usage:       "bank tx mint <to> <amount> | bank tx send <from> <to> <amount> | bank query balance <address>",
-			Description: "build bank module transactions and query paths",
-			Run:         runBankCLI,
+	return []vexoapp.CLICommand{bankCLICommand()}
+}
+
+func bankCLICommand() vexoapp.CLICommand {
+	return vexoapp.CLICommand{
+		Name:        ModuleName,
+		Usage:       "bank <command>",
+		Description: "bank module commands for transactions and balance queries",
+		Examples: []string{
+			"bank tx mint alice 100",
+			"bank tx send alice bob 25",
+			"bank query balance alice",
+		},
+		Children: []vexoapp.CLICommand{
+			{
+				Name:        "tx",
+				Usage:       "bank tx <command>",
+				Description: "build bank transaction payloads",
+				Children: []vexoapp.CLICommand{
+					{
+						Name:        "mint",
+						Usage:       "bank tx mint <to> <amount>",
+						Description: "build a mint transaction payload",
+						Args: []vexoapp.CLIArg{
+							{Name: "to", Description: "recipient account address"},
+							{Name: "amount", Description: "positive integer amount to mint"},
+						},
+						Examples: []string{"bank tx mint alice 100"},
+						Run:      runBankMintCLI,
+					},
+					{
+						Name:        "send",
+						Usage:       "bank tx send <from> <to> <amount>",
+						Description: "build a send transaction payload",
+						Args: []vexoapp.CLIArg{
+							{Name: "from", Description: "sender account address"},
+							{Name: "to", Description: "recipient account address"},
+							{Name: "amount", Description: "positive integer amount to send"},
+						},
+						Examples: []string{"bank tx send alice bob 25"},
+						Run:      runBankSendCLI,
+					},
+				},
+			},
+			{
+				Name:        "query",
+				Usage:       "bank query <command>",
+				Description: "build bank query paths",
+				Children: []vexoapp.CLICommand{
+					{
+						Name:        "balance",
+						Usage:       "bank query balance <address>",
+						Description: "build a balance query path",
+						Args: []vexoapp.CLIArg{
+							{Name: "address", Description: "account address to query"},
+						},
+						Examples: []string{"bank query balance alice"},
+						Run:      runBankBalanceCLI,
+					},
+				},
+			},
 		},
 	}
 }
 
-func runBankCLI(writer io.Writer, args []string) error {
-	if len(args) == 0 || isCLIHelp(args[0]) {
-		writeBankCLIHelp(writer)
-		return nil
+func runBankMintCLI(writer io.Writer, args []string) error {
+	if len(args) != 2 {
+		return vexoapp.ErrCLIUsage("bank tx mint <to> <amount>")
 	}
-	switch args[0] {
-	case "tx":
-		return runBankTxCLI(writer, args[1:])
-	case "query":
-		return runBankQueryCLI(writer, args[1:])
-	default:
-		return fmt.Errorf("unknown bank subcommand %q", args[0])
+	amount, err := parseCLIAmount(args[1])
+	if err != nil {
+		return err
 	}
-}
-
-func runBankTxCLI(writer io.Writer, args []string) error {
-	if len(args) == 0 || isCLIHelp(args[0]) {
-		fmt.Fprintf(writer, "Usage:\n")
-		fmt.Fprintf(writer, "  bank tx mint <to> <amount>\n")
-		fmt.Fprintf(writer, "  bank tx send <from> <to> <amount>\n")
-		return nil
-	}
-	switch args[0] {
-	case "mint":
-		if len(args) != 3 {
-			return errors.New("usage: bank tx mint <to> <amount>")
-		}
-		amount, err := parseCLIAmount(args[2])
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(writer, "tx: %s:mint:%s:%d\n", ModuleName, args[1], amount)
-		return nil
-	case "send":
-		if len(args) != 4 {
-			return errors.New("usage: bank tx send <from> <to> <amount>")
-		}
-		amount, err := parseCLIAmount(args[3])
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(writer, "tx: %s:send:%s:%s:%d\n", ModuleName, args[1], args[2], amount)
-		return nil
-	default:
-		return fmt.Errorf("unknown bank tx subcommand %q", args[0])
-	}
-}
-
-func runBankQueryCLI(writer io.Writer, args []string) error {
-	if len(args) == 0 || isCLIHelp(args[0]) {
-		fmt.Fprintf(writer, "Usage:\n")
-		fmt.Fprintf(writer, "  bank query balance <address>\n")
-		return nil
-	}
-	if len(args) != 2 || args[0] != "balance" {
-		return errors.New("usage: bank query balance <address>")
-	}
-	fmt.Fprintf(writer, "query_path: %s/balance/%s\n", ModuleName, args[1])
+	fmt.Fprintf(writer, "tx: %s:mint:%s:%d\n", ModuleName, args[0], amount)
 	return nil
 }
 
-func writeBankCLIHelp(writer io.Writer) {
-	fmt.Fprintf(writer, "bank module\n\n")
-	fmt.Fprintf(writer, "Usage:\n")
-	fmt.Fprintf(writer, "  bank tx mint <to> <amount>\n")
-	fmt.Fprintf(writer, "  bank tx send <from> <to> <amount>\n")
-	fmt.Fprintf(writer, "  bank query balance <address>\n")
+func runBankSendCLI(writer io.Writer, args []string) error {
+	if len(args) != 3 {
+		return vexoapp.ErrCLIUsage("bank tx send <from> <to> <amount>")
+	}
+	amount, err := parseCLIAmount(args[2])
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "tx: %s:send:%s:%s:%d\n", ModuleName, args[0], args[1], amount)
+	return nil
 }
 
-func isCLIHelp(arg string) bool {
-	return arg == "help" || arg == "--help" || arg == "-h"
+func runBankBalanceCLI(writer io.Writer, args []string) error {
+	if len(args) != 1 {
+		return vexoapp.ErrCLIUsage("bank query balance <address>")
+	}
+	fmt.Fprintf(writer, "query_path: %s/balance/%s\n", ModuleName, args[0])
+	return nil
 }
 
 func parseCLIAmount(value string) (uint64, error) {

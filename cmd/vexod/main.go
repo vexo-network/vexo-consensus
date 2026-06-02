@@ -139,17 +139,9 @@ func runModuleCommand(writer io.Writer, args []string) (bool, error) {
 		if command.Name != args[0] {
 			continue
 		}
-		if len(args) > 1 && isHelpArg(args[1]) {
-			writeModuleCommandHelp(writer, command)
-			return true, nil
-		}
-		return true, command.Run(writer, args[1:])
+		return true, command.Execute(writer, args[1:])
 	}
 	return false, nil
-}
-
-func isHelpArg(arg string) bool {
-	return arg == "help" || arg == "--help" || arg == "-h"
 }
 
 func writeModuleHelp(writer io.Writer) {
@@ -163,13 +155,12 @@ func writeModuleHelp(writer io.Writer) {
 		if command.Usage != "" {
 			fmt.Fprintf(writer, "                  usage: %s\n", command.Usage)
 		}
+		for _, example := range command.Examples {
+			fmt.Fprintf(writer, "                  example: %s\n", example)
+		}
 	}
 }
 
 func writeModuleCommandHelp(writer io.Writer, command vexoapp.CLICommand) {
-	fmt.Fprintf(writer, "%s\n\n", command.Description)
-	if command.Usage != "" {
-		fmt.Fprintf(writer, "Usage:\n")
-		fmt.Fprintf(writer, "  %s\n", command.Usage)
-	}
+	command.WriteHelp(writer)
 }

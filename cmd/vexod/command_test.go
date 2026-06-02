@@ -46,9 +46,22 @@ func TestRunCommandShowsModuleHelp(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := stdout.String()
-	for _, expected := range []string{"build bank module transactions", "Usage:", "bank tx mint", "bank query balance"} {
+	for _, expected := range []string{"bank module commands", "Usage:", "Commands:", "tx", "query", "bank tx mint"} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("expected module help to contain %q, got:\n%s", expected, output)
+		}
+	}
+}
+
+func TestRunCommandShowsNestedModuleHelp(t *testing.T) {
+	var stdout bytes.Buffer
+	if err := runCommand(&stdout, &bytes.Buffer{}, []string{"bank", "tx", "mint", "--help"}); err != nil {
+		t.Fatal(err)
+	}
+	output := stdout.String()
+	for _, expected := range []string{"build a mint transaction payload", "Arguments:", "to", "amount", "bank tx mint <to> <amount>"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("expected nested module help to contain %q, got:\n%s", expected, output)
 		}
 	}
 }

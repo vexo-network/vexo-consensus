@@ -154,7 +154,7 @@ func TestBankModuleWorksThroughAppRuntime(t *testing.T) {
 
 func TestBankModuleCLICommands(t *testing.T) {
 	commands := NewModule().CLICommands()
-	if len(commands) != 1 || commands[0].Name != ModuleName || commands[0].Run == nil {
+	if len(commands) != 1 || commands[0].Name != ModuleName || len(commands[0].Children) != 2 {
 		t.Fatalf("unexpected cli commands: %+v", commands)
 	}
 
@@ -182,7 +182,7 @@ func TestBankModuleCLICommands(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var output bytes.Buffer
-			if err := commands[0].Run(&output, tc.args); err != nil {
+			if err := commands[0].Execute(&output, tc.args); err != nil {
 				t.Fatal(err)
 			}
 			if strings.TrimSpace(output.String()) != tc.expected {
@@ -198,10 +198,12 @@ func TestBankModuleCLIHelp(t *testing.T) {
 		nil,
 		{"--help"},
 		{"tx", "--help"},
+		{"tx", "mint", "--help"},
 		{"query", "--help"},
+		{"query", "balance", "--help"},
 	} {
 		var output bytes.Buffer
-		if err := command.Run(&output, args); err != nil {
+		if err := command.Execute(&output, args); err != nil {
 			t.Fatalf("expected help args %v to succeed: %v", args, err)
 		}
 		if !strings.Contains(output.String(), "Usage:") || !strings.Contains(output.String(), "bank") {
@@ -218,7 +220,7 @@ func TestBankModuleCLIRejectsInvalidCommands(t *testing.T) {
 		{"tx", "send", "alice", "bob", "bad"},
 		{"query", "balance", "alice", "extra"},
 	} {
-		if err := command.Run(&bytes.Buffer{}, args); err == nil {
+		if err := command.Execute(&bytes.Buffer{}, args); err == nil {
 			t.Fatalf("expected cli args %v to fail", args)
 		}
 	}
