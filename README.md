@@ -149,6 +149,7 @@ The design is intentionally modular so individual components can be replaced wit
 ### Storage and Runtime
 
 - Modular application runtime
+- Ante execution checks for fee, gas, and account nonce validation
 - Config-driven application module registry and builder
 - Bank module with mint, send, balance query, and persisted state
 - Block executor
@@ -183,7 +184,7 @@ The design is intentionally modular so individual components can be replaced wit
 |---|---|
 | `app` | Application and module interfaces |
 | `app/bank` | Bank balances, mint/send transactions, and balance queries |
-| `app/modules` | Config-driven default application module registry |
+| `app/modules` | Config-driven default application module registry and execution ante wiring |
 | `cmd/vexod` | CLI entrypoint |
 | `committee` | Committee selection and epoch rotation |
 | `config` | Default chain configuration, profiles, and validation |

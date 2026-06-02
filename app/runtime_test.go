@@ -196,6 +196,37 @@ func TestRuntimeRejectsFailedDeliverTx(t *testing.T) {
 	}
 }
 
+func TestRuntimeAnteRejectsReplayAndCommitsNonce(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	runtime, err := NewRuntime("vexo-test", []Module{&recordingModule{name: "bank"}}, PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.WithStore(storage).WithAnte(NewAnteKeeper(AnteConfig{MinFee: 1, RequireNonce: true}))
+
+	block := types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 1},
+		Txs: fairordering.SortTxsWithSalt(
+			[]types.Tx{[]byte("bank:send:fee=1:signer=alice:nonce=1")},
+			fairordering.HeightSalt("vexo-test", 1),
+		),
+	}
+	if _, err := runtime.FinalizeBlock(FinalizeBlockRequest{Block: block}); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.CheckTx([]byte("bank:send:fee=1:signer=alice:nonce=1")).Result.Code == 0 {
+		t.Fatal("expected committed nonce replay to be rejected")
+	}
+	if runtime.CheckTx([]byte("bank:send:fee=1:signer=alice:nonce=2")).Result.Code != 0 {
+		t.Fatal("expected next nonce to pass")
+	}
+}
+
 func TestRuntimePassesStateStoreToModules(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {

@@ -105,6 +105,9 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 	document.addCheck("mempool_seen_ttl", "warning", inputs.Config.Chain.Mempool.SeenTTL > 0, "set mempool seen TTL to suppress replay gossip")
 	document.addCheck("mempool_min_fee", "warning", inputs.Config.Chain.Mempool.MinFee > 0, "set minimum fee for public networks")
 	document.addCheck("mempool_priority", "warning", inputs.Config.Chain.Mempool.EnablePriority, "enable priority ordering when fee markets are active")
+	document.addCheck("execution_min_fee", "warning", inputs.Config.Chain.Execution.MinFee > 0, "set ante minimum fee for transaction execution")
+	document.addCheck("execution_gas_limit", "warning", inputs.Config.Chain.Execution.MaxGas > 0, "set ante gas bounds for transaction execution")
+	document.addCheck("execution_nonce_required", "warning", inputs.Config.Chain.Execution.RequireNonce, "require signer nonces to prevent replay")
 	return document
 }
 

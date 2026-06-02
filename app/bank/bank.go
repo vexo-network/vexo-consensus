@@ -60,7 +60,7 @@ func (Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 	if ctx.Store == nil {
 		return types.Result{Code: 1, Log: "missing bank store"}
 	}
-	parts := strings.Split(string(tx), ":")
+	parts := bankTxParts(tx)
 	if len(parts) == 0 || parts[0] != ModuleName {
 		return types.Result{Code: 2, Log: ErrInvalidBankTx.Error()}
 	}
@@ -176,4 +176,16 @@ func parseAmount(value string) (uint64, error) {
 		return 0, ErrInvalidBankTx
 	}
 	return amount, nil
+}
+
+func bankTxParts(tx types.Tx) []string {
+	rawParts := strings.Split(string(tx), ":")
+	parts := make([]string, 0, len(rawParts))
+	for _, part := range rawParts {
+		if strings.Contains(part, "=") {
+			continue
+		}
+		parts = append(parts, part)
+	}
+	return parts
 }

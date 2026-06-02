@@ -43,6 +43,24 @@ func TestBankModuleMintsAndSends(t *testing.T) {
 	assertBalance(t, storage, "bob", 35)
 }
 
+func TestBankModuleIgnoresExecutionTags(t *testing.T) {
+	storage := newBankStore(t)
+	module := NewModule()
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:mint:alice:100:fee=1:gas=10:signer=alice:nonce=1")); result.Code != 0 {
+		t.Fatalf("unexpected tagged mint result: %+v", result)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:send:alice:bob:25:fee=1:gas=10:signer=alice:nonce=2")); result.Code != 0 {
+		t.Fatalf("unexpected tagged send result: %+v", result)
+	}
+	balance, err := Balance(context.Background(), storage, "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != 25 {
+		t.Fatalf("expected bob balance 25, got %d", balance)
+	}
+}
+
 func TestBankModuleRejectsInvalidTransactions(t *testing.T) {
 	storage := newBankStore(t)
 	module := NewModule()
@@ -176,6 +194,11 @@ func TestBankModuleCLICommands(t *testing.T) {
 			name:     "send transaction",
 			args:     []string{"tx", "send", "alice", "bob", "25"},
 			expected: "tx: bank:send:alice:bob:25",
+		},
+		{
+			name:     "send transaction with execution tags",
+			args:     []string{"tx", "send", "alice", "bob", "25", "--fee", "1", "--gas", "1000", "--signer", "alice", "--nonce", "1"},
+			expected: "tx: bank:send:alice:bob:25:fee=1:gas=1000:signer=alice:nonce=1",
 		},
 		{
 			name:     "balance query",

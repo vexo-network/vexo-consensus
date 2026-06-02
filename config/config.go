@@ -29,6 +29,7 @@ const (
 type Config struct {
 	ChainID     string
 	Application ApplicationConfig
+	Execution   ExecutionConfig
 	Crypto      CryptoConfig
 	VRF         VRFConfig
 	Validator   validator.AdmissionConfig
@@ -40,6 +41,13 @@ type Config struct {
 
 type ApplicationConfig struct {
 	Modules []string
+}
+
+type ExecutionConfig struct {
+	MinFee       uint64
+	MinGas       uint64
+	MaxGas       uint64
+	RequireNonce bool
 }
 
 type CryptoBackend string
@@ -63,6 +71,9 @@ func Default(chainID string) Config {
 		ChainID: chainID,
 		Application: ApplicationConfig{
 			Modules: []string{"bank"},
+		},
+		Execution: ExecutionConfig{
+			MaxGas: 10_000_000,
 		},
 		Crypto: CryptoConfig{
 			Backend: CryptoBackendDeterministic,
@@ -121,6 +132,7 @@ func ApplyProfile(cfg *Config, profile Profile) error {
 		cfg.Mempool.MaxTxs = 50000
 		cfg.Mempool.SeenTTL = 5 * time.Minute
 		cfg.Mempool.EnablePriority = true
+		cfg.Execution.MinGas = 1
 		cfg.P2P.MaxMessagesPerWindow = 500
 		cfg.P2P.MaxTotalMessagesPerWindow = 50000
 		cfg.P2P.BanDuration = 30 * time.Minute
@@ -133,6 +145,9 @@ func ApplyProfile(cfg *Config, profile Profile) error {
 		cfg.Mempool.SeenTTL = 10 * time.Minute
 		cfg.Mempool.MinFee = 1
 		cfg.Mempool.EnablePriority = true
+		cfg.Execution.MinFee = 1
+		cfg.Execution.MinGas = 1
+		cfg.Execution.RequireNonce = true
 		cfg.P2P.MaxMessagesPerWindow = 300
 		cfg.P2P.MaxTotalMessagesPerWindow = 250000
 		cfg.P2P.BanDuration = time.Hour
@@ -148,6 +163,9 @@ func (config Config) Validate() error {
 		return ErrMissingChainID
 	}
 	if !validCryptoBackend(config.Crypto.Backend) {
+		return ErrInvalidConfig
+	}
+	if config.Execution.MaxGas > 0 && config.Execution.MinGas > config.Execution.MaxGas {
 		return ErrInvalidConfig
 	}
 	if config.Validator.MaxValidators < 0 {

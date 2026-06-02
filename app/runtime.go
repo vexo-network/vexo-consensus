@@ -23,6 +23,7 @@ type Runtime struct {
 	chainID string
 	modules []Module
 	router  ModuleRouter
+	ante    AnteHandler
 	store   StateStore
 	height  types.Height
 	appHash types.Hash
@@ -44,6 +45,11 @@ func NewRuntime(chainID string, modules []Module, router ModuleRouter) (*Runtime
 
 func (runtime *Runtime) WithStore(store StateStore) *Runtime {
 	runtime.store = store
+	return runtime
+}
+
+func (runtime *Runtime) WithAnte(ante AnteHandler) *Runtime {
+	runtime.ante = ante
 	return runtime
 }
 
@@ -69,6 +75,11 @@ func (runtime *Runtime) InitChain(req InitChainRequest) (InitChainResponse, erro
 
 func (runtime *Runtime) CheckTx(tx types.Tx) CheckTxResponse {
 	ctx := Context{ChainID: runtime.chainID, Height: runtime.height, Store: runtime.store}
+	if runtime.ante != nil {
+		if err := runtime.ante.CheckTx(ctx, tx); err != nil {
+			return CheckTxResponse{Result: types.Result{Code: 1, Log: err.Error()}}
+		}
+	}
 	_, err := runtime.router.RouteTx(ctx, tx, runtime.modules)
 	if err != nil {
 		return CheckTxResponse{Result: types.Result{Code: 1, Log: err.Error()}}
@@ -90,8 +101,15 @@ func (runtime *Runtime) ProcessProposal(req ProcessProposalRequest) ProcessPropo
 	if !fairordering.IsOrderedWithSalt(req.Block.Txs, runtime.orderingSalt(req.Block.Header.Height)) {
 		return ProcessProposalResponse{Accepted: false, Reason: "transaction ordering mismatch"}
 	}
+	if runtime.ante != nil {
+		ctx := Context{ChainID: runtime.chainID, Height: req.Block.Header.Height, Header: req.Block.Header, Store: runtime.store}
+		if err := runtime.ante.CheckBlock(ctx, req.Block.Txs); err != nil {
+			return ProcessProposalResponse{Accepted: false, Reason: err.Error()}
+		}
+	}
+	ctx := Context{ChainID: runtime.chainID, Height: req.Block.Header.Height, Header: req.Block.Header, Store: runtime.store}
 	for _, tx := range req.Block.Txs {
-		if runtime.CheckTx(tx).Result.Code != 0 {
+		if _, err := runtime.router.RouteTx(ctx, tx, runtime.modules); err != nil {
 			return ProcessProposalResponse{Accepted: false, Reason: "invalid transaction"}
 		}
 	}
@@ -119,6 +137,11 @@ func (runtime *Runtime) FinalizeBlock(req FinalizeBlockRequest) (FinalizeBlockRe
 
 	results := make([]types.Result, 0, len(req.Block.Txs))
 	for _, tx := range req.Block.Txs {
+		if runtime.ante != nil {
+			if err := runtime.ante.BeforeTx(ctx, tx); err != nil {
+				return FinalizeBlockResponse{}, err
+			}
+		}
 		module, err := runtime.router.RouteTx(ctx, tx, runtime.modules)
 		if err != nil {
 			return FinalizeBlockResponse{}, err
@@ -127,6 +150,11 @@ func (runtime *Runtime) FinalizeBlock(req FinalizeBlockRequest) (FinalizeBlockRe
 		results = append(results, result)
 		if result.Code != 0 {
 			return FinalizeBlockResponse{}, errors.New(result.Log)
+		}
+		if runtime.ante != nil {
+			if err := runtime.ante.AfterTx(ctx, tx); err != nil {
+				return FinalizeBlockResponse{}, err
+			}
 		}
 	}
 

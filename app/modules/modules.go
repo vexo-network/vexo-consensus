@@ -21,9 +21,25 @@ func BuildCLICommands(cfg config.ApplicationConfig) ([]vexoapp.CLICommand, error
 }
 
 func NewRuntime(chainID string, cfg config.ApplicationConfig) (*vexoapp.Runtime, error) {
+	return NewRuntimeWithExecution(chainID, cfg, config.ExecutionConfig{})
+}
+
+func NewRuntimeWithExecution(chainID string, cfg config.ApplicationConfig, execution config.ExecutionConfig) (*vexoapp.Runtime, error) {
 	modules, err := Build(cfg)
 	if err != nil {
 		return nil, err
 	}
-	return vexoapp.NewRuntime(chainID, modules, vexoapp.PrefixRouter{})
+	runtime, err := vexoapp.NewRuntime(chainID, modules, vexoapp.PrefixRouter{})
+	if err != nil {
+		return nil, err
+	}
+	if execution.MinFee > 0 || execution.MinGas > 0 || execution.MaxGas > 0 || execution.RequireNonce {
+		runtime.WithAnte(vexoapp.NewAnteKeeper(vexoapp.AnteConfig{
+			MinFee:       execution.MinFee,
+			MinGas:       execution.MinGas,
+			MaxGas:       execution.MaxGas,
+			RequireNonce: execution.RequireNonce,
+		}))
+	}
+	return runtime, nil
 }

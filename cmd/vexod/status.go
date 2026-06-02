@@ -39,6 +39,7 @@ type statusDocument struct {
 	SchemaVersion    string                 `json:"schema_version"`
 	ChainID          string                 `json:"chain_id"`
 	Application      applicationStatus      `json:"application"`
+	Execution        executionStatus        `json:"execution"`
 	Validator        validatorStatus        `json:"validator"`
 	Committee        committeeStatus        `json:"committee"`
 	Mempool          mempoolStatus          `json:"mempool"`
@@ -50,6 +51,13 @@ type statusDocument struct {
 
 type applicationStatus struct {
 	Modules []string `json:"modules"`
+}
+
+type executionStatus struct {
+	MinFee       uint64 `json:"min_fee"`
+	MinGas       uint64 `json:"min_gas"`
+	MaxGas       uint64 `json:"max_gas"`
+	RequireNonce bool   `json:"require_nonce"`
 }
 
 type validatorStatus struct {
@@ -107,6 +115,12 @@ func newStatusDocument(cfg config.Config) statusDocument {
 		ChainID:       cfg.ChainID,
 		Application: applicationStatus{
 			Modules: append([]string(nil), cfg.Application.Modules...),
+		},
+		Execution: executionStatus{
+			MinFee:       cfg.Execution.MinFee,
+			MinGas:       cfg.Execution.MinGas,
+			MaxGas:       cfg.Execution.MaxGas,
+			RequireNonce: cfg.Execution.RequireNonce,
 		},
 		Validator: validatorStatus{
 			Permissionless: cfg.Validator.Permissionless,

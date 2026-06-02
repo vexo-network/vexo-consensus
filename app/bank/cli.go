@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 )
@@ -36,7 +37,7 @@ func bankCLICommand() vexoapp.CLICommand {
 							{Name: "to", Description: "recipient account address"},
 							{Name: "amount", Description: "positive integer amount to mint"},
 						},
-						Examples: []string{"bank tx mint alice 100"},
+						Examples: []string{"bank tx mint alice 100", "bank tx mint alice 100 --fee 1 --gas 1000 --signer alice --nonce 1"},
 						Run:      runBankMintCLI,
 					},
 					{
@@ -48,7 +49,7 @@ func bankCLICommand() vexoapp.CLICommand {
 							{Name: "to", Description: "recipient account address"},
 							{Name: "amount", Description: "positive integer amount to send"},
 						},
-						Examples: []string{"bank tx send alice bob 25"},
+						Examples: []string{"bank tx send alice bob 25", "bank tx send alice bob 25 --fee 1 --gas 1000 --signer alice --nonce 1"},
 						Run:      runBankSendCLI,
 					},
 				},
@@ -75,6 +76,10 @@ func bankCLICommand() vexoapp.CLICommand {
 }
 
 func runBankMintCLI(writer io.Writer, args []string) error {
+	args, tags, err := splitExecutionTags(args)
+	if err != nil {
+		return err
+	}
 	if len(args) != 2 {
 		return vexoapp.ErrCLIUsage("bank tx mint <to> <amount>")
 	}
@@ -82,11 +87,15 @@ func runBankMintCLI(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(writer, "tx: %s:mint:%s:%d\n", ModuleName, args[0], amount)
+	fmt.Fprintf(writer, "tx: %s:mint:%s:%d%s\n", ModuleName, args[0], amount, tags)
 	return nil
 }
 
 func runBankSendCLI(writer io.Writer, args []string) error {
+	args, tags, err := splitExecutionTags(args)
+	if err != nil {
+		return err
+	}
 	if len(args) != 3 {
 		return vexoapp.ErrCLIUsage("bank tx send <from> <to> <amount>")
 	}
@@ -94,7 +103,7 @@ func runBankSendCLI(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(writer, "tx: %s:send:%s:%s:%d\n", ModuleName, args[0], args[1], amount)
+	fmt.Fprintf(writer, "tx: %s:send:%s:%s:%d%s\n", ModuleName, args[0], args[1], amount, tags)
 	return nil
 }
 
@@ -112,4 +121,31 @@ func parseCLIAmount(value string) (uint64, error) {
 		return 0, ErrInvalidBankTx
 	}
 	return amount, nil
+}
+
+func splitExecutionTags(args []string) ([]string, string, error) {
+	positional := make([]string, 0, len(args))
+	tags := make([]string, 0, 4)
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if !strings.HasPrefix(arg, "--") {
+			positional = append(positional, arg)
+			continue
+		}
+		key := strings.TrimPrefix(arg, "--")
+		switch key {
+		case "fee", "gas", "signer", "nonce":
+			if index+1 >= len(args) || strings.HasPrefix(args[index+1], "--") {
+				return nil, "", vexoapp.ErrCLIUsage("--" + key + " <value>")
+			}
+			tags = append(tags, key+"="+args[index+1])
+			index++
+		default:
+			return nil, "", vexoapp.ErrCLIUsage("unknown bank tx flag " + arg)
+		}
+	}
+	if len(tags) == 0 {
+		return positional, "", nil
+	}
+	return positional, ":" + strings.Join(tags, ":"), nil
 }
