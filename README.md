@@ -16,6 +16,7 @@ It focuses on clean module boundaries for consensus, validator management, commi
 - [Architecture](#architecture)
 - [Features](#features)
 - [Packages](#packages)
+- [Documentation](#documentation)
 - [Quick Start](#quick-start)
 - [Testing](#testing)
 - [Design Principles](#design-principles)
@@ -212,6 +213,25 @@ The design is intentionally modular so individual components can be replaced wit
 | `transport` | In-memory, TCP, and gRPC message transport with pub/sub interfaces |
 | `types` | Shared primitive types |
 | `validator` | Validator registry and admission policy |
+
+## Documentation
+
+Protocol specifications:
+
+- [Consensus Spec](./docs/specs/consensus-spec.md)
+- [Networking Spec](./docs/specs/networking-spec.md)
+- [Storage Schema](./docs/specs/storage-schema.md)
+- [Transaction Format](./docs/specs/tx-format.md)
+- [Validator Lifecycle](./docs/specs/validator-lifecycle.md)
+- [Finality Proof Format](./docs/specs/finality-proof-format.md)
+- [Consensus Protocol Notes](./docs/consensus-protocol.md)
+
+SDK and extension guides:
+
+- [App Module Guide](./docs/sdk/app-module-guide.md)
+- [Custom Crypto Backend Guide](./docs/sdk/custom-crypto-backend.md)
+- [Custom Storage and Transport Guide](./docs/sdk/custom-storage-transport.md)
+- [RPC API Versioning](./docs/sdk/rpc-api-versioning.md)
 
 ## Quick Start
 
@@ -593,7 +613,7 @@ VEXO_LOCALNET_E2E=1 go test ./cmd/vexod -run TestLocalnetUpBuiltBinaryE2E -count
 - **Governance safety**: parameter changes should use voting windows and timelocks.
 - **Crypto agility**: cryptographic implementations should be pluggable.
 
-Consensus protocol details, safety invariants, finality verification rules, crypto backend boundaries, remote signer policy, and recovery semantics are documented in [`docs/consensus-protocol.md`](./docs/consensus-protocol.md).
+Consensus protocol details, safety invariants, finality verification rules, crypto backend boundaries, remote signer policy, recovery semantics, and extension guides are documented in the [Documentation](#documentation) section.
 
 ## Security Notice
 

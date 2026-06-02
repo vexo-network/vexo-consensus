@@ -1,0 +1,81 @@
+# Storage Schema
+
+## Scope
+
+This spec defines durable storage records and recovery expectations.
+
+## Backend
+
+The default backend is LevelDB. Storage is accessed through the `store.Store` interface so custom backends can be added.
+
+## Records
+
+### Block Record
+
+Keyed by height and hash.
+
+Fields:
+
+- block header
+- transactions
+- block hash
+- app hash
+- module state roots
+
+### State Record
+
+Keyed by height and latest pointer.
+
+Fields:
+
+- height
+- app hash
+- last block hash
+- validator set hash
+
+### State Root Record
+
+Keyed by `(height, namespace)`.
+
+Fields:
+
+- height
+- module namespace
+- state root
+
+### Evidence Record
+
+Keyed by stable evidence key.
+
+Fields:
+
+- evidence type
+- validator
+- height
+- round
+- proof
+- applied flag
+- created timestamp
+
+### KV Namespace
+
+Module data is stored by namespace and key.
+
+## Indexes
+
+- block height index
+- block hash index
+- latest state pointer
+- state root index
+- evidence index
+
+## Recovery Rules
+
+- Last safe height is the latest height where block metadata and state record agree.
+- A block without state is not considered safely committed after crash.
+- State without block metadata is reported as inconsistent and recovery uses the lower safe height.
+- Indexes can be rebuilt from canonical records.
+
+## Schema Migration
+
+Store migrations must be height-gated through an upgrade plan and support rollback on failure.
