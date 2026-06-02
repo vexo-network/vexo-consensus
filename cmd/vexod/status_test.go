@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -38,5 +39,35 @@ func TestWriteStatus(t *testing.T) {
 	hiddenStatusTerm := "pro" + "gress"
 	if strings.Contains(output, hiddenStatusTerm) {
 		t.Fatalf("unexpected status term in output:\n%s", output)
+	}
+}
+
+func TestWriteStatusJSON(t *testing.T) {
+	var buffer bytes.Buffer
+	if err := writeStatusJSON(&buffer, config.Default("vexo-test")); err != nil {
+		t.Fatal(err)
+	}
+
+	var document statusDocument
+	if err := json.Unmarshal(buffer.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.SchemaVersion != "v1" || document.ChainID != "vexo-test" {
+		t.Fatalf("unexpected document identity: %+v", document)
+	}
+	if !document.Validator.Permissionless || document.Validator.MinStake != 1 {
+		t.Fatalf("unexpected validator status: %+v", document.Validator)
+	}
+	if document.Committee.Size != 128 || document.Committee.Backend != "deterministic" {
+		t.Fatalf("unexpected committee status: %+v", document.Committee)
+	}
+	if document.Storage.Backend != "leveldb" || !document.Features["peer_scoring"] {
+		t.Fatalf("unexpected feature/storage status: %+v", document)
+	}
+	if document.P2P.InitialScore != 100 || document.P2P.InvalidMessageCost != 10 || !document.P2P.PeerSnapshotsEnabled {
+		t.Fatalf("unexpected p2p status: %+v", document.P2P)
+	}
+	if document.OperationalHints.PeerMetricsLocation != "node.Status().Peers" {
+		t.Fatalf("unexpected operational hints: %+v", document.OperationalHints)
 	}
 }

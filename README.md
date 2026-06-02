@@ -189,7 +189,21 @@ mempool.max_txs: 100000
 fair_ordering.deterministic: true
 data_availability.commitments: true
 storage.backend: leveldb
+p2p.initial_score: 100
+p2p.valid_message_reward: 1
+p2p.invalid_message_cost: 10
+p2p.rate_limit_cost: 5
+p2p.ban_threshold: 0
 p2p.max_messages_per_window: 1000
+p2p.window_reset_interval: 1s
+p2p.score_recovery: 1
+p2p.ban_duration: 10m0s
+```
+
+Machine-readable status:
+
+```bash
+go run ./cmd/vexod status --json
 ```
 
 Run a minimal block execution demo:

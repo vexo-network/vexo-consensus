@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
 	"github.com/vexo-network/vexo-consensus/config"
+	"github.com/vexo-network/vexo-consensus/types"
 )
 
 func writeStatus(writer io.Writer, cfg config.Config) {
@@ -27,4 +29,109 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "p2p.window_reset_interval: %s\n", cfg.P2P.WindowResetInterval)
 	fmt.Fprintf(writer, "p2p.score_recovery: %d\n", cfg.P2P.ScoreRecovery)
 	fmt.Fprintf(writer, "p2p.ban_duration: %s\n", cfg.P2P.BanDuration)
+}
+
+type statusDocument struct {
+	SchemaVersion    string                 `json:"schema_version"`
+	ChainID          string                 `json:"chain_id"`
+	Validator        validatorStatus        `json:"validator"`
+	Committee        committeeStatus        `json:"committee"`
+	Mempool          mempoolStatus          `json:"mempool"`
+	Features         map[string]bool        `json:"features"`
+	Storage          storageStatus          `json:"storage"`
+	P2P              p2pStatus              `json:"p2p"`
+	OperationalHints operationalHintsStatus `json:"operational_hints"`
+}
+
+type validatorStatus struct {
+	Permissionless bool   `json:"permissionless"`
+	MinStake       uint64 `json:"min_stake"`
+}
+
+type committeeStatus struct {
+	EpochLength    uint64            `json:"epoch_length"`
+	Size           uint64            `json:"size"`
+	MinVotingPower types.VotingPower `json:"min_voting_power"`
+	Backend        string            `json:"backend"`
+}
+
+type mempoolStatus struct {
+	MaxTxBytes int64 `json:"max_tx_bytes"`
+	MaxTxs     int   `json:"max_txs"`
+}
+
+type storageStatus struct {
+	Backend string `json:"backend"`
+}
+
+type p2pStatus struct {
+	InitialScore          int64  `json:"initial_score"`
+	ValidMessageReward    int64  `json:"valid_message_reward"`
+	InvalidMessageCost    int64  `json:"invalid_message_cost"`
+	RateLimitCost         int64  `json:"rate_limit_cost"`
+	BanThreshold          int64  `json:"ban_threshold"`
+	MaxMessagesPerWindow  uint64 `json:"max_messages_per_window"`
+	WindowResetInterval   string `json:"window_reset_interval"`
+	ScoreRecovery         int64  `json:"score_recovery"`
+	BanDuration           string `json:"ban_duration"`
+	PeerSnapshotsEnabled  bool   `json:"peer_snapshots_enabled"`
+	NodeStatusPeerMetrics bool   `json:"node_status_peer_metrics"`
+}
+
+type operationalHintsStatus struct {
+	UseJSONStatus       string `json:"use_json_status"`
+	PeerMetricsLocation string `json:"peer_metrics_location"`
+}
+
+func writeStatusJSON(writer io.Writer, cfg config.Config) error {
+	encoder := json.NewEncoder(writer)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(newStatusDocument(cfg))
+}
+
+func newStatusDocument(cfg config.Config) statusDocument {
+	return statusDocument{
+		SchemaVersion: "v1",
+		ChainID:       cfg.ChainID,
+		Validator: validatorStatus{
+			Permissionless: cfg.Validator.Permissionless,
+			MinStake:       cfg.Validator.MinStake,
+		},
+		Committee: committeeStatus{
+			EpochLength:    cfg.Committee.EpochLength,
+			Size:           cfg.Committee.CommitteeSize,
+			MinVotingPower: cfg.Committee.MinVotingPower,
+			Backend:        string(cfg.Committee.Backend),
+		},
+		Mempool: mempoolStatus{
+			MaxTxBytes: cfg.Mempool.MaxTxBytes,
+			MaxTxs:     cfg.Mempool.MaxTxs,
+		},
+		Features: map[string]bool{
+			"fair_ordering":       true,
+			"data_availability":   true,
+			"leveldb_storage":     true,
+			"peer_scoring":        true,
+			"temporary_peer_bans": true,
+			"peer_score_recovery": true,
+		},
+		Storage: storageStatus{Backend: "leveldb"},
+		P2P: p2pStatus{
+			InitialScore:          cfg.P2P.InitialScore,
+			ValidMessageReward:    cfg.P2P.ValidMessageReward,
+			InvalidMessageCost:    cfg.P2P.InvalidMessageCost,
+			RateLimitCost:         cfg.P2P.RateLimitCost,
+			BanThreshold:          cfg.P2P.BanThreshold,
+			MaxMessagesPerWindow:  cfg.P2P.MaxMessagesPerWindow,
+			WindowResetInterval:   cfg.P2P.WindowResetInterval.String(),
+			ScoreRecovery:         cfg.P2P.ScoreRecovery,
+			BanDuration:           cfg.P2P.BanDuration.String(),
+			PeerSnapshotsEnabled:  true,
+			NodeStatusPeerMetrics: true,
+		},
+		OperationalHints: operationalHintsStatus{
+			UseJSONStatus:       "vexod status --json",
+			PeerMetricsLocation: "node.Status().Peers",
+		},
+	}
 }

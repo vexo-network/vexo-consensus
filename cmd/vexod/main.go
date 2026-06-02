@@ -9,6 +9,24 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "status" {
+		if len(os.Args) > 2 && os.Args[2] == "--json" {
+			if err := writeStatusJSON(os.Stdout, config.Default("vexo-local")); err != nil {
+				fmt.Fprintf(os.Stderr, "status failed: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		writeStatus(os.Stdout, config.Default("vexo-local"))
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "--json" {
+		if err := writeStatusJSON(os.Stdout, config.Default("vexo-local")); err != nil {
+			fmt.Fprintf(os.Stderr, "status failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "demo" {
 		if err := writeDemo(os.Stdout); err != nil {
 			fmt.Fprintf(os.Stderr, "demo failed: %v\n", err)
