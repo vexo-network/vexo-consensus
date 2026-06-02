@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net"
@@ -14,23 +15,28 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
+	"github.com/vexo-network/vexo-consensus/validator"
 )
 
 type fakeStatusProvider struct {
-	status    node.Status
-	submitErr error
-	submitted []types.Tx
-	blocks    map[types.Height]store.BlockRecord
-	latest    types.Height
-	blockErr  error
-	index     store.BlockIndex
-	state     store.StateRecord
-	roots     map[string]store.StateRootRecord
-	stateErr  error
+	status       node.Status
+	submitErr    error
+	submitted    []types.Tx
+	blocks       map[types.Height]store.BlockRecord
+	latest       types.Height
+	blockErr     error
+	index        store.BlockIndex
+	state        store.StateRecord
+	roots        map[string]store.StateRootRecord
+	stateErr     error
+	validators   validator.Set
+	committee    committee.Committee
+	validatorErr error
 }
 
 func (provider fakeStatusProvider) Status(ctx context.Context) node.Status {
@@ -95,6 +101,26 @@ func (provider fakeStatusProvider) StateRoot(ctx context.Context, height types.H
 		return store.StateRootRecord{}, store.ErrStateRootNotFound
 	}
 	return record, nil
+}
+
+func (provider fakeStatusProvider) ValidatorSet(ctx context.Context, height types.Height) (validator.Set, error) {
+	if provider.validatorErr != nil {
+		return nil, provider.validatorErr
+	}
+	if provider.validators == nil {
+		return nil, errors.New("validator set failed")
+	}
+	return provider.validators, nil
+}
+
+func (provider fakeStatusProvider) Committee(ctx context.Context, height types.Height, round types.Round, seed types.Hash) (committee.Committee, error) {
+	if provider.validatorErr != nil {
+		return committee.Committee{}, provider.validatorErr
+	}
+	if len(provider.committee.Members) == 0 {
+		return committee.Committee{}, errors.New("committee failed")
+	}
+	return provider.committee, nil
 }
 
 func TestHandlerReportsHealthStatusAndPeers(t *testing.T) {
@@ -392,6 +418,83 @@ func TestHandlerReportsStateProviderErrors(t *testing.T) {
 	}
 }
 
+func TestHandlerReportsValidatorsAndCommittee(t *testing.T) {
+	validatorSet := newTestValidatorSet(t, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 10, Stake: 10, Metadata: map[string]string{"region": "ap"}},
+		{ID: "bob", Address: "bob", VotingPower: 20, Stake: 20},
+	})
+	seed := types.Hash{9}
+	handler := NewHandler(fakeStatusProvider{
+		validators: validatorSet,
+		committee: committee.Committee{
+			Epoch: 2,
+			Round: 3,
+			Seed:  seed,
+			Members: []committee.Member{
+				{Validator: validator.Validator{ID: "bob", Address: "bob", VotingPower: 20, Stake: 20}, Weight: 20, Proof: []byte{1, 2}},
+			},
+		},
+	})
+
+	var validators ValidatorSetResponse
+	getJSON(t, handler, "/validators/7", http.StatusOK, &validators)
+	if validators.Height != 7 || validators.TotalValidators != 2 || validators.TotalPower != 30 || validators.ValidatorSetHash == "" {
+		t.Fatalf("unexpected validator set: %+v", validators)
+	}
+	if validators.Validators[0].ID != "alice" || validators.Validators[0].Metadata["region"] != "ap" {
+		t.Fatalf("unexpected first validator: %+v", validators.Validators[0])
+	}
+
+	var committeeResponse CommitteeResponse
+	getJSON(t, handler, "/committee/7/3?seed="+hexHash(seed), http.StatusOK, &committeeResponse)
+	if committeeResponse.Height != 7 || committeeResponse.Epoch != 2 || committeeResponse.Round != 3 || committeeResponse.Seed != hexHash(seed) {
+		t.Fatalf("unexpected committee identity: %+v", committeeResponse)
+	}
+	if len(committeeResponse.Members) != 1 || committeeResponse.Members[0].Validator.ID != "bob" || committeeResponse.Members[0].Weight != 20 || committeeResponse.Members[0].Proof != "0102" {
+		t.Fatalf("unexpected committee members: %+v", committeeResponse.Members)
+	}
+}
+
+func TestHandlerRejectsInvalidValidatorRequests(t *testing.T) {
+	handler := NewHandler(fakeStatusProvider{validators: newTestValidatorSet(t, nil)})
+	cases := []string{
+		"/validators/0",
+		"/validators/not-num",
+		"/committee/0/1",
+		"/committee/1/not-num",
+		"/committee/1",
+		"/committee/1/0?seed=bad",
+	}
+	for _, path := range cases {
+		var response map[string]string
+		getJSON(t, handler, path, http.StatusBadRequest, &response)
+		if response["error"] == "" {
+			t.Fatalf("expected error for %s, got %+v", path, response)
+		}
+	}
+}
+
+func TestHandlerRejectsUnavailableValidatorQueryProvider(t *testing.T) {
+	handler := NewHandler(struct{ StatusProvider }{fakeStatusProvider{}})
+	for _, path := range []string{"/validators/1", "/committee/1/0"} {
+		var response map[string]string
+		getJSON(t, handler, path, http.StatusNotImplemented, &response)
+		if response["error"] == "" {
+			t.Fatalf("expected unavailable validator query error for %s, got %+v", path, response)
+		}
+	}
+}
+
+func TestHandlerReportsValidatorQueryErrors(t *testing.T) {
+	handler := NewHandler(fakeStatusProvider{validatorErr: errors.New("validator failed")})
+
+	var response map[string]string
+	getJSON(t, handler, "/validators/1", http.StatusInternalServerError, &response)
+	if response["error"] != "validator failed" {
+		t.Fatalf("unexpected validator error: %+v", response)
+	}
+}
+
 func assertBlockResponse(t *testing.T, response BlockResponse) {
 	t.Helper()
 	if response.Height != 2 || response.ChainID != "vexo-test" || response.TxCount != 2 {
@@ -410,6 +513,23 @@ func assertBlockResponse(t *testing.T, response BlockResponse) {
 
 func stateRootKey(height types.Height, namespace string) string {
 	return strconv.FormatUint(uint64(height), 10) + "/" + namespace
+}
+
+func newTestValidatorSet(t *testing.T, validators []validator.Validator) validator.Set {
+	t.Helper()
+	registry, err := validator.NewInMemoryRegistry(nil, validators)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := registry.ValidatorSet(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return set
+}
+
+func hexHash(hash types.Hash) string {
+	return hex.EncodeToString(hash[:])
 }
 
 func TestServerStartAndShutdown(t *testing.T) {

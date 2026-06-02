@@ -156,6 +156,21 @@ func TestNodeQueriesBlocks(t *testing.T) {
 	if root.Height != 2 || root.Namespace != "bank" || root.Root == (types.Hash{}) {
 		t.Fatalf("unexpected state root: %+v", root)
 	}
+	validatorSet, err := node.ValidatorSet(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validators := validatorSet.List()
+	if len(validators) != 1 || validators[0].ID != "alice" {
+		t.Fatalf("unexpected validators: %+v", validators)
+	}
+	committeeResult, err := node.Committee(context.Background(), 2, 0, types.Hash{9})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(committeeResult.Members) != 1 || committeeResult.Members[0].Validator.ID != "alice" {
+		t.Fatalf("unexpected committee: %+v", committeeResult)
+	}
 }
 
 func TestNodeValidation(t *testing.T) {
