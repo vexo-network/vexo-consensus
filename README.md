@@ -369,6 +369,12 @@ GOCACHE=$(pwd)/.gocache go test ./...
 rm -rf .gocache
 ```
 
+Run the built-binary 4-validator localnet E2E test:
+
+```bash
+VEXO_LOCALNET_E2E=1 go test ./cmd/vexod -run TestLocalnetUpBuiltBinaryE2E -count=1 -v
+```
+
 ## Design Principles
 
 - **Modularity**: every major subsystem should be replaceable.

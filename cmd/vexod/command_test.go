@@ -155,6 +155,28 @@ func TestRunLocalnetUpDryRun(t *testing.T) {
 	}
 }
 
+func TestParseLocalnetDurationUsesHumanUnits(t *testing.T) {
+	for _, testCase := range []struct {
+		value    string
+		expected time.Duration
+	}{
+		{value: "250ms", expected: 250 * time.Duration(1_000_000)},
+		{value: "3s", expected: 3 * time.Duration(1_000_000_000)},
+		{value: "2m", expected: 2 * time.Duration(60_000_000_000)},
+	} {
+		actual, err := parseLocalnetDuration(testCase.value)
+		if err != nil {
+			t.Fatalf("expected %s to parse: %v", testCase.value, err)
+		}
+		if actual != testCase.expected {
+			t.Fatalf("expected %s to parse as %s, got %s", testCase.value, testCase.expected, actual)
+		}
+	}
+	if _, err := parseLocalnetDuration("0s"); err == nil {
+		t.Fatal("expected zero duration to fail")
+	}
+}
+
 func TestRunInitWritesLocalnetFilesWithCustomPorts(t *testing.T) {
 	home := t.TempDir()
 	var output bytes.Buffer

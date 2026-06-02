@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -80,12 +81,16 @@ func runLocalnetUp(ctx context.Context, writer io.Writer, args []string) error {
 	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first localnet P2P port")
 	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first localnet RPC port")
 	binaryPath := flags.String("binary", "", "vexod binary path; defaults to current executable")
-	timeout := flags.Duration("timeout", 20*time.Second, "startup and smoke test timeout")
-	tx := flags.String("tx", "bank:smoke", "transaction payload to submit")
+	timeoutValue := flags.String("timeout", "20s", "startup and smoke test timeout")
+	tx := flags.String("tx", "bank:mint:smoke:1", "transaction payload to submit")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing localnet files")
 	keepRunning := flags.Bool("keep-running", false, "leave nodes running after smoke test")
 	dryRun := flags.Bool("dry-run", false, "print orchestration plan without writing files or spawning processes")
 	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	timeout, err := parseLocalnetDuration(*timeoutValue)
+	if err != nil {
 		return err
 	}
 	plan, err := buildLocalnetRuntimePlanWithPorts(*home, *validators, *binaryPath, *p2pBasePort, *rpcBasePort)
@@ -93,7 +98,7 @@ func runLocalnetUp(ctx context.Context, writer io.Writer, args []string) error {
 		return err
 	}
 	if *dryRun {
-		writeLocalnetUpPlan(writer, plan, *chainID, *timeout, *tx, *overwrite, *keepRunning)
+		writeLocalnetUpPlan(writer, plan, *chainID, timeout, *tx, *overwrite, *keepRunning)
 		return nil
 	}
 	localnetFiles, err := writeLocalnetFilesWithPorts(*home, *chainID, *validators, *overwrite, *p2pBasePort, *rpcBasePort)
@@ -113,9 +118,9 @@ func runLocalnetUp(ctx context.Context, writer io.Writer, args []string) error {
 			}
 		}()
 	}
-	smokeCtx, cancel := context.WithTimeout(ctx, *timeout)
+	smokeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	client := http.Client{Timeout: *timeout}
+	client := http.Client{Timeout: timeout}
 	results, err := runLocalnetSmokePlan(smokeCtx, client, plan, []byte(*tx))
 	if err != nil {
 		return err
@@ -138,18 +143,22 @@ func runLocalnetSmoke(ctx context.Context, writer io.Writer, args []string) erro
 	validators := flags.Int("validators", 4, "validator count")
 	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first localnet P2P port")
 	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first localnet RPC port")
-	timeout := flags.Duration("timeout", 10*time.Second, "smoke test timeout")
-	tx := flags.String("tx", "bank:smoke", "transaction payload to submit")
+	timeoutValue := flags.String("timeout", "10s", "smoke test timeout")
+	tx := flags.String("tx", "bank:mint:smoke:1", "transaction payload to submit")
 	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	timeout, err := parseLocalnetDuration(*timeoutValue)
+	if err != nil {
 		return err
 	}
 	plan, err := buildLocalnetRuntimePlanWithPorts(*home, *validators, "", *p2pBasePort, *rpcBasePort)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(ctx, *timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	client := http.Client{Timeout: *timeout}
+	client := http.Client{Timeout: timeout}
 	results, err := runLocalnetSmokePlan(ctx, client, plan, []byte(*tx))
 	if err != nil {
 		return err
@@ -216,15 +225,19 @@ func runLocalnetStatus(ctx context.Context, writer io.Writer, args []string) err
 	validators := flags.Int("validators", 4, "validator count")
 	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first localnet P2P port")
 	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first localnet RPC port")
-	timeout := flags.Duration("timeout", 2*time.Second, "per-node health check timeout")
+	timeoutValue := flags.String("timeout", "2s", "per-node health check timeout")
 	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	timeout, err := parseLocalnetDuration(*timeoutValue)
+	if err != nil {
 		return err
 	}
 	plan, err := buildLocalnetRuntimePlanWithPorts(*home, *validators, "", *p2pBasePort, *rpcBasePort)
 	if err != nil {
 		return err
 	}
-	client := http.Client{Timeout: *timeout}
+	client := http.Client{Timeout: timeout}
 	for _, localNode := range plan.Nodes {
 		ok := localnetHealthOK(ctx, client, localNode.RPCAddress)
 		fmt.Fprintf(writer, "%s rpc=%s healthy=%t\n", localNode.ValidatorID, localNode.RPCAddress, ok)
@@ -364,6 +377,38 @@ func writeLocalnetUpPlan(writer io.Writer, plan localnetRuntimePlan, chainID str
 	fmt.Fprintf(writer, "4. localnet stop --home %s --validators %d --p2p-base-port %d --rpc-base-port %d\n", plan.Home, plan.Validators, plan.P2PBasePort, plan.RPCBasePort)
 }
 
+func parseLocalnetDuration(value string) (time.Duration, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, fmt.Errorf("duration is required")
+	}
+	units := []struct {
+		suffix string
+		scale  time.Duration
+	}{
+		{suffix: "ms", scale: time.Duration(1_000_000)},
+		{suffix: "s", scale: time.Duration(1_000_000_000)},
+		{suffix: "m", scale: time.Duration(60_000_000_000)},
+		{suffix: "h", scale: time.Duration(3_600_000_000_000)},
+	}
+	for _, unit := range units {
+		if !strings.HasSuffix(value, unit.suffix) {
+			continue
+		}
+		raw := strings.TrimSuffix(value, unit.suffix)
+		amount, err := strconv.ParseFloat(raw, 64)
+		if err != nil || amount <= 0 {
+			return 0, fmt.Errorf("invalid duration %q", value)
+		}
+		return time.Duration(amount * float64(unit.scale)), nil
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration <= 0 {
+		return 0, fmt.Errorf("invalid duration %q", value)
+	}
+	return duration, nil
+}
+
 func startLocalnetNode(binaryPath string, localNode localnetNodeRuntimePlan) error {
 	if err := os.MkdirAll(localNode.Home, 0o755); err != nil {
 		return err
@@ -381,6 +426,7 @@ func startLocalnetNode(binaryPath string, localNode localnetNodeRuntimePlan) err
 	command := exec.Command(binaryPath, localNode.Args...)
 	command.Stdout = logFile
 	command.Stderr = logFile
+	configureLocalnetChildProcess(command)
 	if err := command.Start(); err != nil {
 		return err
 	}
@@ -520,6 +566,9 @@ func stopLocalnetPID(pid int) error {
 		return err
 	}
 	if err := process.Signal(os.Interrupt); err != nil {
+		if errors.Is(err, os.ErrProcessDone) {
+			return nil
+		}
 		return process.Kill()
 	}
 	return nil

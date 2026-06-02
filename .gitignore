@@ -13,6 +13,7 @@ build/
 
 # Go workspace/cache artifacts
 .gocache/
+.gomodcache/
 .cover/
 coverage.out
 coverage.html

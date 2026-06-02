@@ -120,10 +120,33 @@ func (node *Node) ProposeBlock(ctx context.Context, block types.Block) (consensu
 	}
 	blockHash := consensus.HashBlock(proposal.Block)
 	node.cacheProposal(proposal, blockHash)
+	if err := node.voteLocalProposal(ctx, proposal, blockHash); err != nil {
+		return consensus.Proposal{}, types.Hash{}, err
+	}
 	if err := reactor.BroadcastProposal(ctx, proposal); err != nil {
 		return consensus.Proposal{}, types.Hash{}, err
 	}
 	return proposal, blockHash, nil
+}
+
+func (node *Node) voteLocalProposal(ctx context.Context, proposal consensus.Proposal, blockHash types.Hash) error {
+	vote := consensus.Vote{
+		Height:      proposal.Block.Header.Height,
+		Round:       proposal.Round,
+		BlockHash:   blockHash,
+		ValidatorID: node.cfg.ValidatorID,
+	}
+	if err := node.signConsensusVote(&vote); err != nil {
+		return err
+	}
+	if err := node.recordConsensusVote(vote); err != nil {
+		return err
+	}
+	machine, err := node.Consensus()
+	if err != nil {
+		return err
+	}
+	return machine.OnVote(ctx, vote)
 }
 
 func (node *Node) VoteBlock(ctx context.Context, height types.Height, round types.Round, blockHash types.Hash) (finality.QuorumCert, bool, error) {
