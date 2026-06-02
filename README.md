@@ -76,6 +76,8 @@ The design is intentionally modular so individual components can be replaced wit
 - Weighted voting-power quorum checks
 - Quorum certificate generation
 - Conflicting vote detection
+- Signature domain separation for consensus, timeout, and finality messages
+- Validator keyring abstraction for active key rotation
 - Slashing evidence generation
 - Consensus WAL for local proposal/vote/timeout-vote persistence
 - Restart-safe local double-sign guard
@@ -158,7 +160,7 @@ The design is intentionally modular so individual components can be replaced wit
 | `config` | Default chain configuration and validation |
 | `consensus` | Consensus state machine, votes, proposals, QC, conflict evidence |
 | `dataavailability` | Transaction data commitments and availability checks |
-| `crypto` | Deterministic and Ed25519 signers, aggregate verification, and key files |
+| `crypto` | Deterministic and Ed25519 signers, signature domain separation, aggregate verification, keyring rotation, and key files |
 | `fairordering` | Deterministic transaction ordering |
 | `finality` | Finality proofs and light-client verifier |
 | `governance` | Proposal, voting, quorum, veto, and timelock module |
