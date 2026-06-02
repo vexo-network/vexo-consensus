@@ -282,6 +282,72 @@ func TestRunTxBuildAndParseCanonicalPayload(t *testing.T) {
 	}
 }
 
+func TestRunReleasePackWritesAuditManifest(t *testing.T) {
+	dist := t.TempDir()
+	files := map[string]string{
+		"vexod-test-linux-amd64": "binary",
+		"checksums.txt":          "checksum",
+		"sbom-go-modules.json":   `{"Path":"github.com/vexo-network/vexo-consensus"}`,
+		"sbom-go-version.txt":    "go version test",
+		"release-manifest.json":  `{"version":"test"}`,
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dist, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	outputPath := filepath.Join(t.TempDir(), "release-audit-pack.json")
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"release", "pack",
+		"--dist", dist,
+		"--version", "test",
+		"--output", outputPath,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "release audit pack written") || !strings.Contains(output.String(), "ok: true") {
+		t.Fatalf("unexpected release pack output:\n%s", output.String())
+	}
+	data, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document releaseAuditPack
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.SchemaVersion != "v1" || !document.OK || len(document.Artifacts) != len(files) || len(document.Audit.Commands) == 0 {
+		t.Fatalf("unexpected release audit pack: %+v", document)
+	}
+}
+
+func TestRunReleasePackCanRequireSignature(t *testing.T) {
+	dist := t.TempDir()
+	for _, name := range []string{"checksums.txt", "sbom-go-modules.json", "sbom-go-version.txt", "release-manifest.json"} {
+		if err := os.WriteFile(filepath.Join(dist, name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"release", "pack",
+		"--dist", dist,
+		"--version", "test",
+		"--require-signature",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var document releaseAuditPack
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.OK || document.Required.SignatureFound {
+		t.Fatalf("expected unsigned release to fail signature check: %+v", document)
+	}
+}
+
 func TestRunLocalnetInitAndStartDryRun(t *testing.T) {
 	home := t.TempDir()
 	var initOutput bytes.Buffer

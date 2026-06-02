@@ -533,6 +533,7 @@ Build cross-platform release artifacts and checksums:
 
 ```bash
 make release VERSION=0.1.0
+go run ./cmd/vexod release pack --dist dist --version 0.1.0 --output dist/release-audit-pack.json
 ls dist/
 ```
 

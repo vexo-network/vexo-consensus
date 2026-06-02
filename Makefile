@@ -13,7 +13,7 @@ IMAGE ?= vexo-consensus
 IMAGE_TAG ?= $(VERSION)
 GPG ?= gpg
 
-.PHONY: all build test vet check fuzz-smoke ops-verify coverage release checksums sbom release-manifest sign-release docker-image release-candidate clean init-demo keys-demo
+.PHONY: all build test vet check fuzz-smoke ops-verify coverage release checksums sbom release-manifest release-audit-pack sign-release docker-image release-candidate clean init-demo keys-demo
 
 all: check build
 
@@ -67,6 +67,7 @@ release: check
 	$(MAKE) checksums
 	$(MAKE) sbom
 	$(MAKE) release-manifest
+	$(MAKE) release-audit-pack
 
 checksums:
 	cd $(DIST_DIR) && shasum -a 256 * > checksums.txt
@@ -82,6 +83,10 @@ sbom:
 release-manifest:
 	mkdir -p $(DIST_DIR)
 	printf '{\n  "version": "$(VERSION)",\n  "commit": "$(COMMIT)",\n  "build_date": "$(BUILD_DATE)",\n  "binary": "$(BINARY)",\n  "targets": "$(RELEASE_TARGETS)",\n  "checksums": "checksums.txt",\n  "sbom": "sbom-go-modules.json"\n}\n' > $(DIST_DIR)/release-manifest.json
+
+release-audit-pack:
+	mkdir -p $(DIST_DIR)
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod release pack --dist $(DIST_DIR) --version $(VERSION) --output $(DIST_DIR)/release-audit-pack.json
 
 sign-release:
 	test -f $(DIST_DIR)/checksums.txt

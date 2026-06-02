@@ -47,6 +47,7 @@ make release-candidate VERSION=0.1.0-rc.1
 - `sbom-go-modules.json`
 - `sbom-go-version.txt`
 - `release-manifest.json`
+- `release-audit-pack.json`
 
 ## Reproducibility Notes
 
@@ -77,6 +78,17 @@ cat dist/sbom-go-modules.json
 ```
 
 External pipelines may replace or augment it with SPDX/CycloneDX tools.
+
+## Audit Pack
+
+Package release artifacts and reviewer evidence metadata:
+
+```bash
+go run ./cmd/vexod release pack --dist dist --version 0.1.0 --output dist/release-audit-pack.json
+go run ./cmd/vexod release pack --dist dist --version 0.1.0 --require-signature
+```
+
+The generated pack lists artifact SHA-256 values, required release files, signature status, and the external audit checklist.
 
 ## Release Candidate Soak Test
 

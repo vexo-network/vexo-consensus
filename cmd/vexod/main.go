@@ -110,6 +110,11 @@ func runCommand(stdout io.Writer, stderr io.Writer, args []string) error {
 			return writeCommandError(stderr, "upgrade", err)
 		}
 		return nil
+	case "release":
+		if err := runRelease(stdout, args[1:]); err != nil {
+			return writeCommandError(stderr, "release", err)
+		}
+		return nil
 	case "demo":
 		if err := writeDemo(stdout); err != nil {
 			return writeCommandError(stderr, "demo", err)
@@ -171,6 +176,7 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  doctor          inspect config, keys, store, snapshot, and recovery readiness\n")
 	fmt.Fprintf(writer, "  ops             print alert thresholds or evaluate operational samples\n")
 	fmt.Fprintf(writer, "  upgrade         build and apply governance-driven upgrade and migration plans\n")
+	fmt.Fprintf(writer, "  release         package release and audit evidence manifests\n")
 	fmt.Fprintf(writer, "  status          print default node capability status\n")
 	fmt.Fprintf(writer, "  demo            run an in-memory bank execution demo\n")
 	fmt.Fprintf(writer, "  store-demo      run a LevelDB-backed storage demo\n")
