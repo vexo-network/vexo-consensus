@@ -19,6 +19,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/p2p"
+	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -43,6 +44,10 @@ type fakeStatusProvider struct {
 	pruneResult       store.PruneResult
 	pruneErr          error
 	prunedHeights     []types.Height
+	replayResult      vexoruntime.ReplayResult
+	replayErr         error
+	replayAllCalled   bool
+	replayRanges      [][2]types.Height
 	validators        validator.Set
 	committee         committee.Committee
 	validatorErr      error
@@ -137,6 +142,22 @@ func (provider *fakeStatusProvider) PruneBelow(ctx context.Context, retainFrom t
 	}
 	provider.prunedHeights = append(provider.prunedHeights, retainFrom)
 	return provider.pruneResult, nil
+}
+
+func (provider *fakeStatusProvider) Replay(ctx context.Context, from types.Height, to types.Height) (vexoruntime.ReplayResult, error) {
+	if provider.replayErr != nil {
+		return vexoruntime.ReplayResult{}, provider.replayErr
+	}
+	provider.replayRanges = append(provider.replayRanges, [2]types.Height{from, to})
+	return provider.replayResult, nil
+}
+
+func (provider *fakeStatusProvider) ReplayAll(ctx context.Context) (vexoruntime.ReplayResult, error) {
+	if provider.replayErr != nil {
+		return vexoruntime.ReplayResult{}, provider.replayErr
+	}
+	provider.replayAllCalled = true
+	return provider.replayResult, nil
 }
 
 func (provider fakeStatusProvider) ValidatorSet(ctx context.Context, height types.Height) (validator.Set, error) {
@@ -721,6 +742,103 @@ func TestHandlerReportsPruneErrors(t *testing.T) {
 
 func TestHandlerRejectsNonPOSTPrune(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/prune", nil)
+	response := httptest.NewRecorder()
+
+	NewHandler(&fakeStatusProvider{}).ServeHTTP(response, request)
+
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", response.Code)
+	}
+	if allow := response.Header().Get("Allow"); allow != http.MethodPost {
+		t.Fatalf("expected allow POST, got %q", allow)
+	}
+}
+
+func TestHandlerReplaysStoredBlocks(t *testing.T) {
+	provider := &fakeStatusProvider{replayResult: vexoruntime.ReplayResult{
+		FromHeight: 2,
+		ToHeight:   4,
+		LastHash:   types.Hash{9},
+		Blocks:     3,
+	}}
+	handler := NewHandler(provider)
+
+	var response ReplayResponse
+	postJSON(t, handler, "/replay", `{"from_height":2,"to_height":4}`, http.StatusOK, &response)
+
+	if response.FromHeight != 2 || response.ToHeight != 4 || response.Blocks != 3 || response.LastHash[:2] != "09" {
+		t.Fatalf("unexpected replay response: %+v", response)
+	}
+	if len(provider.replayRanges) != 1 || provider.replayRanges[0] != [2]types.Height{2, 4} {
+		t.Fatalf("unexpected replay ranges: %+v", provider.replayRanges)
+	}
+}
+
+func TestHandlerReplaysAllStoredBlocks(t *testing.T) {
+	provider := &fakeStatusProvider{replayResult: vexoruntime.ReplayResult{
+		FromHeight: 1,
+		ToHeight:   5,
+		LastHash:   types.Hash{7},
+		Blocks:     5,
+	}}
+	handler := NewHandler(provider)
+
+	var response ReplayResponse
+	postJSON(t, handler, "/replay", `{"all":true}`, http.StatusOK, &response)
+
+	if !provider.replayAllCalled || response.FromHeight != 1 || response.ToHeight != 5 || response.Blocks != 5 {
+		t.Fatalf("unexpected replay all response: called=%v response=%+v", provider.replayAllCalled, response)
+	}
+}
+
+func TestHandlerRejectsInvalidReplayRequests(t *testing.T) {
+	handler := NewHandler(&fakeStatusProvider{})
+	cases := []string{
+		`{"from_height":1}`,
+		`{"to_height":2}`,
+		`{"all":true,"from_height":1}`,
+		`{"from_height":1,"to_height":2,"extra":true}`,
+	}
+	for _, body := range cases {
+		var response map[string]string
+		postJSON(t, handler, "/replay", body, http.StatusBadRequest, &response)
+		if response["error"] == "" {
+			t.Fatalf("expected replay error for %s, got %+v", body, response)
+		}
+	}
+}
+
+func TestHandlerRejectsUnavailableReplayProvider(t *testing.T) {
+	var response map[string]string
+	postJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/replay", `{"all":true}`, http.StatusNotImplemented, &response)
+	if response["error"] == "" {
+		t.Fatalf("expected unavailable replay error, got %+v", response)
+	}
+}
+
+func TestHandlerReportsReplayErrors(t *testing.T) {
+	cases := []struct {
+		err            error
+		expectedStatus int
+	}{
+		{err: vexoruntime.ErrInvalidReplayRange, expectedStatus: http.StatusBadRequest},
+		{err: store.ErrBlockNotFound, expectedStatus: http.StatusNotFound},
+		{err: store.ErrBlockIndexNotFound, expectedStatus: http.StatusNotFound},
+		{err: vexoruntime.ErrReplayAppHashMismatch, expectedStatus: http.StatusConflict},
+		{err: errors.New("replay failed"), expectedStatus: http.StatusInternalServerError},
+	}
+	for _, testCase := range cases {
+		handler := NewHandler(&fakeStatusProvider{replayErr: testCase.err})
+		var response map[string]string
+		postJSON(t, handler, "/replay", `{"all":true}`, testCase.expectedStatus, &response)
+		if response["error"] == "" {
+			t.Fatalf("expected replay error for %v, got %+v", testCase.err, response)
+		}
+	}
+}
+
+func TestHandlerRejectsNonPOSTReplay(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/replay", nil)
 	response := httptest.NewRecorder()
 
 	NewHandler(&fakeStatusProvider{}).ServeHTTP(response, request)

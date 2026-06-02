@@ -284,6 +284,82 @@ func TestNodePruneBelowRequiresRunningNode(t *testing.T) {
 	}
 }
 
+func TestNodeReplayRangeRestoresLatestState(t *testing.T) {
+	node := newTestNode(t)
+	if err := node.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer node.Stop(context.Background())
+
+	runtime, err := node.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for height := types.Height(1); height <= 3; height++ {
+		if _, err := runtime.ExecuteBlock(context.Background(), types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: height},
+			Txs:    []types.Tx{[]byte("bank:send")},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := node.Replay(context.Background(), 1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FromHeight != 1 || result.ToHeight != 1 || result.Blocks != 1 || result.LastHash == (types.Hash{}) {
+		t.Fatalf("unexpected replay result: %+v", result)
+	}
+	status := node.Status(context.Background())
+	if status.LatestHeight != 3 || status.LatestAppHash == (types.Hash{}) {
+		t.Fatalf("expected replay to restore latest status, got %+v", status)
+	}
+}
+
+func TestNodeReplayAllAfterPrune(t *testing.T) {
+	node := newTestNode(t)
+	if err := node.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer node.Stop(context.Background())
+
+	runtime, err := node.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for height := types.Height(1); height <= 4; height++ {
+		if _, err := runtime.ExecuteBlock(context.Background(), types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: height},
+			Txs:    []types.Tx{[]byte("bank:send")},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := node.PruneBelow(context.Background(), 3); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := node.ReplayAll(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FromHeight != 3 || result.ToHeight != 4 || result.Blocks != 2 || result.LastHash == (types.Hash{}) {
+		t.Fatalf("unexpected replay all result after prune: %+v", result)
+	}
+}
+
+func TestNodeReplayRequiresRunningNode(t *testing.T) {
+	node := newTestNode(t)
+
+	if _, err := node.Replay(context.Background(), 1, 1); !errors.Is(err, ErrNodeNotRunning) {
+		t.Fatalf("expected not running replay error, got %v", err)
+	}
+	if _, err := node.ReplayAll(context.Background()); !errors.Is(err, ErrNodeNotRunning) {
+		t.Fatalf("expected not running replay all error, got %v", err)
+	}
+}
+
 func TestNodeRecoversAfterPruneAndRestart(t *testing.T) {
 	node := newTestNode(t)
 	if err := node.Start(context.Background()); err != nil {

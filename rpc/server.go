@@ -19,6 +19,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/p2p"
+	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -58,6 +59,11 @@ type ChainQueryProvider interface {
 
 type PruneProvider interface {
 	PruneBelow(ctx context.Context, retainFrom types.Height) (store.PruneResult, error)
+}
+
+type ReplayProvider interface {
+	Replay(ctx context.Context, from types.Height, to types.Height) (vexoruntime.ReplayResult, error)
+	ReplayAll(ctx context.Context) (vexoruntime.ReplayResult, error)
 }
 
 type ValidatorQueryProvider interface {
@@ -197,6 +203,19 @@ type PruneResponse struct {
 	RetainFromHeight uint64 `json:"retain_from_height"`
 	PrunedBlocks     uint64 `json:"pruned_blocks"`
 	PrunedStateRoots uint64 `json:"pruned_state_roots"`
+}
+
+type ReplayRequest struct {
+	All        bool   `json:"all,omitempty"`
+	FromHeight uint64 `json:"from_height,omitempty"`
+	ToHeight   uint64 `json:"to_height,omitempty"`
+}
+
+type ReplayResponse struct {
+	FromHeight uint64 `json:"from_height"`
+	ToHeight   uint64 `json:"to_height"`
+	LastHash   string `json:"last_hash"`
+	Blocks     uint64 `json:"blocks"`
 }
 
 type ValidatorSetResponse struct {
@@ -508,6 +527,48 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 		}
 		writeJSON(writer, http.StatusOK, pruneResponse(result))
 	})
+	mux.HandleFunc("/replay", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowPost(writer, request) {
+			return
+		}
+		replayer, ok := provider.(ReplayProvider)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "replay is unavailable")
+			return
+		}
+		payload, err := decodeReplayRequest(writer, request, cfg.MaxRequestBytes)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, err.Error())
+			return
+		}
+		var result vexoruntime.ReplayResult
+		if payload.All || (payload.FromHeight == 0 && payload.ToHeight == 0) {
+			result, err = replayer.ReplayAll(request.Context())
+		} else {
+			if payload.FromHeight == 0 || payload.ToHeight == 0 {
+				writeError(writer, http.StatusBadRequest, "from_height and to_height are required")
+				return
+			}
+			result, err = replayer.Replay(request.Context(), types.Height(payload.FromHeight), types.Height(payload.ToHeight))
+		}
+		if errors.Is(err, vexoruntime.ErrInvalidReplayRange) {
+			writeError(writer, http.StatusBadRequest, "invalid replay range")
+			return
+		}
+		if errors.Is(err, store.ErrBlockNotFound) || errors.Is(err, store.ErrBlockIndexNotFound) {
+			writeError(writer, http.StatusNotFound, "replay data not found")
+			return
+		}
+		if errors.Is(err, vexoruntime.ErrReplayAppHashMismatch) {
+			writeError(writer, http.StatusConflict, "replay app hash mismatch")
+			return
+		}
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(writer, http.StatusOK, replayResponse(result))
+	})
 	mux.HandleFunc("/validators/", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
 			return
@@ -799,6 +860,22 @@ func decodePruneRequest(writer http.ResponseWriter, request *http.Request, maxRe
 	return types.Height(payload.RetainFromHeight), nil
 }
 
+func decodeReplayRequest(writer http.ResponseWriter, request *http.Request, maxRequestBytes int64) (ReplayRequest, error) {
+	request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBytes)
+	defer request.Body.Close()
+
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var payload ReplayRequest
+	if err := decoder.Decode(&payload); err != nil {
+		return ReplayRequest{}, fmt.Errorf("invalid replay request: %w", err)
+	}
+	if payload.All && (payload.FromHeight != 0 || payload.ToHeight != 0) {
+		return ReplayRequest{}, errors.New("all cannot be combined with from_height or to_height")
+	}
+	return payload, nil
+}
+
 func blockResponse(record store.BlockRecord) BlockResponse {
 	txs := make([]string, 0, len(record.Block.Txs))
 	for _, tx := range record.Block.Txs {
@@ -854,6 +931,15 @@ func pruneResponse(result store.PruneResult) PruneResponse {
 		RetainFromHeight: uint64(result.RetainFromHeight),
 		PrunedBlocks:     result.PrunedBlocks,
 		PrunedStateRoots: result.PrunedStateRoots,
+	}
+}
+
+func replayResponse(result vexoruntime.ReplayResult) ReplayResponse {
+	return ReplayResponse{
+		FromHeight: uint64(result.FromHeight),
+		ToHeight:   uint64(result.ToHeight),
+		LastHash:   hex.EncodeToString(result.LastHash[:]),
+		Blocks:     result.Blocks,
 	}
 }
 

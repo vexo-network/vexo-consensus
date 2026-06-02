@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/vexo-network/vexo-consensus/committee"
+	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
@@ -60,6 +61,24 @@ func (node *Node) PruneBelow(ctx context.Context, retainFrom types.Height) (stor
 		return store.PruneResult{}, err
 	}
 	return runtime.PruneBelow(ctx, retainFrom)
+}
+
+func (node *Node) Replay(ctx context.Context, from types.Height, to types.Height) (vexoruntime.ReplayResult, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return vexoruntime.ReplayResult{}, err
+	}
+	defer runtime.Recover(context.Background())
+	return runtime.Replay(ctx, from, to)
+}
+
+func (node *Node) ReplayAll(ctx context.Context) (vexoruntime.ReplayResult, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return vexoruntime.ReplayResult{}, err
+	}
+	defer runtime.Recover(context.Background())
+	return runtime.ReplayAll(ctx)
 }
 
 func (node *Node) ValidatorSet(ctx context.Context, height types.Height) (validator.Set, error) {
