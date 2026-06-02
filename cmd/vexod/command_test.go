@@ -40,6 +40,19 @@ func TestRunCommandDispatchesModuleCLI(t *testing.T) {
 	}
 }
 
+func TestRunCommandShowsModuleHelp(t *testing.T) {
+	var stdout bytes.Buffer
+	if err := runCommand(&stdout, &bytes.Buffer{}, []string{"bank", "--help"}); err != nil {
+		t.Fatal(err)
+	}
+	output := stdout.String()
+	for _, expected := range []string{"build bank module transactions", "Usage:", "bank tx mint", "bank query balance"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("expected module help to contain %q, got:\n%s", expected, output)
+		}
+	}
+}
+
 func TestRunCommandReportsModuleCLIError(t *testing.T) {
 	var stderr bytes.Buffer
 	if err := runCommand(&bytes.Buffer{}, &stderr, []string{"bank", "tx", "mint", "alice", "0"}); err == nil {

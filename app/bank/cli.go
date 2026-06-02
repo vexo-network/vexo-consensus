@@ -21,8 +21,9 @@ func (Module) CLICommands() []vexoapp.CLICommand {
 }
 
 func runBankCLI(writer io.Writer, args []string) error {
-	if len(args) == 0 {
-		return errors.New("bank subcommand is required")
+	if len(args) == 0 || isCLIHelp(args[0]) {
+		writeBankCLIHelp(writer)
+		return nil
 	}
 	switch args[0] {
 	case "tx":
@@ -35,8 +36,11 @@ func runBankCLI(writer io.Writer, args []string) error {
 }
 
 func runBankTxCLI(writer io.Writer, args []string) error {
-	if len(args) == 0 {
-		return errors.New("bank tx subcommand is required")
+	if len(args) == 0 || isCLIHelp(args[0]) {
+		fmt.Fprintf(writer, "Usage:\n")
+		fmt.Fprintf(writer, "  bank tx mint <to> <amount>\n")
+		fmt.Fprintf(writer, "  bank tx send <from> <to> <amount>\n")
+		return nil
 	}
 	switch args[0] {
 	case "mint":
@@ -65,11 +69,28 @@ func runBankTxCLI(writer io.Writer, args []string) error {
 }
 
 func runBankQueryCLI(writer io.Writer, args []string) error {
+	if len(args) == 0 || isCLIHelp(args[0]) {
+		fmt.Fprintf(writer, "Usage:\n")
+		fmt.Fprintf(writer, "  bank query balance <address>\n")
+		return nil
+	}
 	if len(args) != 2 || args[0] != "balance" {
 		return errors.New("usage: bank query balance <address>")
 	}
 	fmt.Fprintf(writer, "query_path: %s/balance/%s\n", ModuleName, args[1])
 	return nil
+}
+
+func writeBankCLIHelp(writer io.Writer) {
+	fmt.Fprintf(writer, "bank module\n\n")
+	fmt.Fprintf(writer, "Usage:\n")
+	fmt.Fprintf(writer, "  bank tx mint <to> <amount>\n")
+	fmt.Fprintf(writer, "  bank tx send <from> <to> <amount>\n")
+	fmt.Fprintf(writer, "  bank query balance <address>\n")
+}
+
+func isCLIHelp(arg string) bool {
+	return arg == "help" || arg == "--help" || arg == "-h"
 }
 
 func parseCLIAmount(value string) (uint64, error) {

@@ -192,15 +192,31 @@ func TestBankModuleCLICommands(t *testing.T) {
 	}
 }
 
-func TestBankModuleCLIRejectsInvalidCommands(t *testing.T) {
+func TestBankModuleCLIHelp(t *testing.T) {
 	command := NewModule().CLICommands()[0]
 	for _, args := range [][]string{
 		nil,
+		{"--help"},
+		{"tx", "--help"},
+		{"query", "--help"},
+	} {
+		var output bytes.Buffer
+		if err := command.Run(&output, args); err != nil {
+			t.Fatalf("expected help args %v to succeed: %v", args, err)
+		}
+		if !strings.Contains(output.String(), "Usage:") || !strings.Contains(output.String(), "bank") {
+			t.Fatalf("unexpected help output for %v: %s", args, output.String())
+		}
+	}
+}
+
+func TestBankModuleCLIRejectsInvalidCommands(t *testing.T) {
+	command := NewModule().CLICommands()[0]
+	for _, args := range [][]string{
 		{"unknown"},
-		{"tx"},
 		{"tx", "mint", "alice", "0"},
 		{"tx", "send", "alice", "bob", "bad"},
-		{"query", "balance"},
+		{"query", "balance", "alice", "extra"},
 	} {
 		if err := command.Run(&bytes.Buffer{}, args); err == nil {
 			t.Fatalf("expected cli args %v to fail", args)
