@@ -49,6 +49,7 @@ func TestGRPCBinaryCodecRoundTrip(t *testing.T) {
 			GenesisHash:     GenesisHash([]byte("genesis")),
 			NodeID:          "alice",
 			ListenAddr:      "127.0.0.1:26656",
+			AuthToken:       "shared-secret",
 		},
 		Envelope: &grpcEnvelope{
 			Topic: p2p.TopicVote,
@@ -70,6 +71,9 @@ func TestGRPCBinaryCodecRoundTrip(t *testing.T) {
 	}
 	if decoded.Handshake.NodeID != original.Handshake.NodeID || decoded.Handshake.ChainID != original.Handshake.ChainID {
 		t.Fatalf("unexpected decoded handshake: %+v", decoded.Handshake)
+	}
+	if decoded.Handshake.AuthToken != original.Handshake.AuthToken {
+		t.Fatalf("unexpected decoded auth token: %+v", decoded.Handshake)
 	}
 	if decoded.Envelope.Topic != original.Envelope.Topic || decoded.Envelope.From != original.Envelope.From || decoded.Envelope.To != original.Envelope.To || string(decoded.Envelope.Data) != string(original.Envelope.Data) {
 		t.Fatalf("unexpected decoded envelope: %+v", decoded.Envelope)
@@ -109,15 +113,19 @@ func TestGRPCTransportReusesPeerStreamSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, payload := range []string{"one", "two", "three"} {
+	firstSessionCount := 0
+	for index, payload := range []string{"one", "two", "three"} {
 		if err := alice.Send(context.Background(), "bob", p2p.TopicTx, []byte(payload)); err != nil {
 			t.Fatal(err)
 		}
 		assertEnvelope(t, bobTxs, "alice", "bob", p2p.TopicTx, payload)
+		if index == 0 {
+			firstSessionCount = grpcSessionCount(alice)
+		}
 	}
 
-	if sessions := grpcSessionCount(alice); sessions != 1 {
-		t.Fatalf("expected one cached grpc session, got %d", sessions)
+	if sessions := grpcSessionCount(alice); sessions != firstSessionCount {
+		t.Fatalf("expected cached grpc sessions to be reused, got first=%d final=%d", firstSessionCount, sessions)
 	}
 }
 
@@ -219,6 +227,32 @@ func TestGRPCTransportRejectsGenesisHashMismatch(t *testing.T) {
 	if !errors.Is(err, ErrGenesisHashMismatch) {
 		t.Fatalf("expected genesis hash mismatch, got %v", err)
 	}
+}
+
+func TestGRPCTransportRejectsAuthTokenMismatch(t *testing.T) {
+	alice := newStartedGRPCPeer(t, "alice", GRPCConfig{AuthToken: "alice-token"})
+	bob := newStartedGRPCPeer(t, "bob", GRPCConfig{AuthToken: "bob-token"})
+	defer stopGRPCPeer(t, alice)
+	defer stopGRPCPeer(t, bob)
+	alice.SetPeer("bob", bob.Address())
+
+	err := alice.Send(context.Background(), "bob", p2p.TopicTx, []byte("tx"))
+	if !errors.Is(err, ErrAuthTokenMismatch) {
+		t.Fatalf("expected auth token mismatch, got %v", err)
+	}
+}
+
+func TestGRPCTransportReconnectLoopEstablishesPeerSession(t *testing.T) {
+	alice := newStartedGRPCPeer(t, "alice", GRPCConfig{
+		ReconnectInterval: 10 * time.Duration(1_000_000),
+		DialTimeout:       100 * time.Duration(1_000_000),
+	})
+	bob := newStartedGRPCPeer(t, "bob", GRPCConfig{})
+	defer stopGRPCPeer(t, alice)
+	defer stopGRPCPeer(t, bob)
+
+	alice.SetPeer("bob", bob.Address())
+	waitForGRPCSessionCount(t, alice, 1)
 }
 
 func TestGRPCTransportValidationAndContext(t *testing.T) {
@@ -347,6 +381,20 @@ func grpcSessionCount(peer *GRPCTransport) int {
 	peer.mu.RLock()
 	defer peer.mu.RUnlock()
 	return len(peer.sessions)
+}
+
+func waitForGRPCSessionCount(t *testing.T, peer *GRPCTransport, expected int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Duration(2_000_000_000))
+	for time.Now().Before(deadline) {
+		if grpcSessionCount(peer) == expected {
+			return
+		}
+		time.Sleep(10 * time.Duration(1_000_000))
+	}
+	if actual := grpcSessionCount(peer); actual != expected {
+		t.Fatalf("expected %d grpc sessions, got %d", expected, actual)
+	}
 }
 
 func newTestCertificateAuthority(t *testing.T) (*x509.Certificate, *rsa.PrivateKey, *x509.CertPool) {

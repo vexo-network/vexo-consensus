@@ -529,6 +529,7 @@ func TestBuildRuntimeNodeConfiguresGRPCTransport(t *testing.T) {
 		P2PListenAddress: "127.0.0.1:0",
 		P2PNetworkID:     "localnet",
 		P2PPeers:         map[p2p.PeerID]string{"bob": "127.0.0.1:26657"},
+		P2PAuthToken:     "shared-secret",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -541,6 +542,9 @@ func TestBuildRuntimeNodeConfiguresGRPCTransport(t *testing.T) {
 	}
 	if wire.Address() != "127.0.0.1:0" {
 		t.Fatalf("expected configured listen address before start, got %s", wire.Address())
+	}
+	if !wire.AuthTokenConfigured() {
+		t.Fatal("expected grpc wire auth token to be configured")
 	}
 }
 

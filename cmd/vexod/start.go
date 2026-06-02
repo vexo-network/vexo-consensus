@@ -61,6 +61,7 @@ type startRuntimeConfig struct {
 	P2PNetworkID            string
 	P2PMaxMessageBytes      uint64
 	P2PMaxPeers             int
+	P2PAuthToken            string
 }
 
 type peerFlags map[p2p.PeerID]string
@@ -94,6 +95,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	p2pNetworkID := flags.String("p2p-network", "", "P2P network id; defaults to chain id")
 	p2pMaxMessageBytes := flags.Uint64("p2p-max-message-bytes", 0, "maximum P2P message bytes")
 	p2pMaxPeers := flags.Int("p2p-max-peers", 0, "maximum configured P2P peers")
+	p2pAuthToken := flags.String("p2p-auth-token", "", "shared P2P handshake auth token")
 	peers := peerFlags{}
 	flags.Var(peers, "peer", "persistent peer in id=host:port form; may be repeated")
 	jsonOutput := flags.Bool("json", false, "write JSON output")
@@ -132,6 +134,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 			P2PNetworkID:       *p2pNetworkID,
 			P2PMaxMessageBytes: *p2pMaxMessageBytes,
 			P2PMaxPeers:        *p2pMaxPeers,
+			P2PAuthToken:       *p2pAuthToken,
 			P2PPeers:           peers,
 		})
 	}
@@ -376,6 +379,7 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 		GenesisHash:     genesisHash(inputs.Genesis),
 		MaxMessageBytes: runtimeConfig.P2PMaxMessageBytes,
 		MaxPeers:        runtimeConfig.P2PMaxPeers,
+		AuthToken:       runtimeConfig.P2PAuthToken,
 	})
 }
 
