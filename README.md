@@ -129,6 +129,7 @@ The design is intentionally modular so individual components can be replaced wit
 - Governance quorum, veto, voting period, and timelock
 - P2P peer scoring
 - P2P rate-limit and ban threshold logic
+- Flood, overflow, duplicate, and invalid-transaction regression tests
 
 ### Storage and Runtime
 

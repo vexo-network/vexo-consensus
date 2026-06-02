@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -266,6 +267,50 @@ func TestScoreKeeperUnknownPeerHasInitialScore(t *testing.T) {
 	}
 	if score != 5 {
 		t.Fatalf("expected initial score 5, got %d", score)
+	}
+}
+
+func TestScoreKeeperRateLimitIsIsolatedAcrossPeerFlood(t *testing.T) {
+	keeper := NewScoreKeeper(ScoreConfig{
+		InitialScore:         20,
+		ValidMessageReward:   1,
+		RateLimitCost:        7,
+		BanThreshold:         0,
+		MaxMessagesPerWindow: 2,
+	})
+
+	for i := 0; i < 128; i++ {
+		peer := PeerID("peer-" + strconv.Itoa(i))
+		if err := keeper.ObserveMessage(context.Background(), peer, true); err != nil {
+			t.Fatal(err)
+		}
+		if err := keeper.ObserveMessage(context.Background(), peer, true); err != nil {
+			t.Fatal(err)
+		}
+		if err := keeper.ObserveMessage(context.Background(), peer, true); !errors.Is(err, ErrRateLimitExceeded) {
+			t.Fatalf("expected rate limit for %s, got %v", peer, err)
+		}
+	}
+
+	if err := keeper.ObserveMessage(context.Background(), "honest-peer", true); err != nil {
+		t.Fatalf("expected honest peer unaffected by flood, got %v", err)
+	}
+	score, err := keeper.Score(context.Background(), "honest-peer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score != 21 {
+		t.Fatalf("expected honest peer score 21, got %d", score)
+	}
+	snapshot, err := keeper.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot) != 129 {
+		t.Fatalf("expected 129 peer snapshots, got %d", len(snapshot))
+	}
+	if snapshot[0].Peer != "honest-peer" {
+		t.Fatalf("expected sorted snapshot with honest-peer first, got %+v", snapshot[0])
 	}
 }
 

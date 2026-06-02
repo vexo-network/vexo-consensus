@@ -99,6 +99,33 @@ func TestFIFORejectsDuplicateWhenNotFull(t *testing.T) {
 	}
 }
 
+func TestFIFORejectsDuplicateFloodWithoutGrowing(t *testing.T) {
+	pool := NewFIFO(FIFOConfig{})
+	if err := pool.AddTx(context.Background(), []byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 1000; i++ {
+		if err := pool.AddTx(context.Background(), []byte("abc")); !errors.Is(err, ErrDuplicateTx) {
+			t.Fatalf("expected duplicate at attempt %d, got %v", i, err)
+		}
+	}
+	if pool.Len() != 1 {
+		t.Fatalf("expected duplicate flood not to grow pool, got len %d", pool.Len())
+	}
+}
+
+func TestFIFORejectsOversizedFloodWithoutGrowing(t *testing.T) {
+	pool := NewFIFO(FIFOConfig{MaxTxBytes: 4})
+	for i := 0; i < 1000; i++ {
+		if err := pool.AddTx(context.Background(), []byte("too-large")); !errors.Is(err, ErrTxTooLarge) {
+			t.Fatalf("expected oversized tx at attempt %d, got %v", i, err)
+		}
+	}
+	if pool.Len() != 0 {
+		t.Fatalf("expected oversized flood not to grow pool, got len %d", pool.Len())
+	}
+}
+
 func TestFIFOAllowsDuplicateWhenConfigured(t *testing.T) {
 	pool := NewFIFO(FIFOConfig{AllowDuplicate: true})
 	if err := pool.AddTx(context.Background(), []byte("abc")); err != nil {

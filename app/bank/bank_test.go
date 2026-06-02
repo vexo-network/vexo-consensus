@@ -58,6 +58,42 @@ func TestBankModuleRejectsInvalidTransactions(t *testing.T) {
 	}
 }
 
+func TestBankModuleRejectsBalanceOverflow(t *testing.T) {
+	storage := newBankStore(t)
+	module := NewModule()
+	maxUint := "18446744073709551615"
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, types.Tx("bank:mint:alice:"+maxUint)); result.Code != 0 {
+		t.Fatalf("unexpected max mint result: %+v", result)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:mint:alice:1")); result.Code == 0 || result.Log != ErrBalanceOverflow.Error() {
+		t.Fatalf("expected mint overflow, got %+v", result)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:mint:bob:1")); result.Code != 0 {
+		t.Fatalf("unexpected bob mint result: %+v", result)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:send:bob:alice:1")); result.Code == 0 || result.Log != ErrBalanceOverflow.Error() {
+		t.Fatalf("expected send overflow, got %+v", result)
+	}
+	assertBalance(t, storage, "alice", ^uint64(0))
+	assertBalance(t, storage, "bob", 1)
+}
+
+func TestBankModuleInvalidTxFloodDoesNotMutateState(t *testing.T) {
+	storage := newBankStore(t)
+	module := NewModule()
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:mint:alice:10")); result.Code != 0 {
+		t.Fatalf("unexpected mint result: %+v", result)
+	}
+	for i := 0; i < 1000; i++ {
+		result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:send:alice:bob:999999"))
+		if result.Code == 0 {
+			t.Fatalf("expected invalid flood tx %d to fail", i)
+		}
+	}
+	assertBalance(t, storage, "alice", 10)
+	assertBalance(t, storage, "bob", 0)
+}
+
 func TestBankModuleRejectsInvalidGenesis(t *testing.T) {
 	storage := newBankStore(t)
 	err := NewModule().InitGenesis(vexoapp.Context{Store: storage}, vexoapp.GenesisState{"bank:alice": []byte("bad")})

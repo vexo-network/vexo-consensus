@@ -19,6 +19,7 @@ var (
 	ErrInvalidGenesisBalance = errors.New("invalid genesis balance")
 	ErrInvalidBankTx         = errors.New("invalid bank transaction")
 	ErrInsufficientFunds     = errors.New("insufficient funds")
+	ErrBalanceOverflow       = errors.New("balance overflow")
 )
 
 type Module struct{}
@@ -133,6 +134,9 @@ func mint(ctx context.Context, store vexoapp.StateStore, to types.Address, amoun
 	if err != nil {
 		return err
 	}
+	if balance > ^uint64(0)-amount {
+		return ErrBalanceOverflow
+	}
 	return setBalance(ctx, store, to, balance+amount)
 }
 
@@ -150,6 +154,9 @@ func send(ctx context.Context, store vexoapp.StateStore, from types.Address, to 
 	toBalance, err := Balance(ctx, store, to)
 	if err != nil {
 		return err
+	}
+	if toBalance > ^uint64(0)-amount {
+		return ErrBalanceOverflow
 	}
 	if err := setBalance(ctx, store, from, fromBalance-amount); err != nil {
 		return err
