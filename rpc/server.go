@@ -36,6 +36,13 @@ type BlockProvider interface {
 	LatestBlock(ctx context.Context) (store.BlockRecord, error)
 }
 
+type ChainQueryProvider interface {
+	BlockProvider
+	BlockIndex(ctx context.Context) (store.BlockIndex, error)
+	LatestState(ctx context.Context) (store.StateRecord, error)
+	StateRoot(ctx context.Context, height types.Height, namespace string) (store.StateRootRecord, error)
+}
+
 type Config struct {
 	Address           string
 	ReadHeaderTimeout time.Duration
@@ -98,6 +105,19 @@ type StateRootResponse struct {
 	Height    uint64 `json:"height"`
 	Namespace string `json:"namespace"`
 	Root      string `json:"root"`
+}
+
+type BlockIndexResponse struct {
+	EarliestHeight uint64 `json:"earliest_height"`
+	LatestHeight   uint64 `json:"latest_height"`
+	TotalBlocks    uint64 `json:"total_blocks"`
+}
+
+type StateResponse struct {
+	Height           uint64 `json:"height"`
+	AppHash          string `json:"app_hash"`
+	LastBlockHash    string `json:"last_block_hash"`
+	ValidatorSetHash string `json:"validator_set_hash"`
 }
 
 func NewServer(provider StatusProvider, cfg Config) *Server {
@@ -193,6 +213,26 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 			TxHash:   hex.EncodeToString(hash[:]),
 		})
 	})
+	mux.HandleFunc("/blocks", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowGet(writer, request) {
+			return
+		}
+		queryProvider, ok := provider.(ChainQueryProvider)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "block index query is unavailable")
+			return
+		}
+		index, err := queryProvider.BlockIndex(request.Context())
+		if errors.Is(err, store.ErrBlockIndexNotFound) {
+			writeError(writer, http.StatusNotFound, "block index not found")
+			return
+		}
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(writer, http.StatusOK, blockIndexResponse(index))
+	})
 	mux.HandleFunc("/blocks/", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
 			return
@@ -230,6 +270,55 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 			return
 		}
 		writeJSON(writer, http.StatusOK, blockResponse(record))
+	})
+	mux.HandleFunc("/state/latest", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowGet(writer, request) {
+			return
+		}
+		queryProvider, ok := provider.(ChainQueryProvider)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "state query is unavailable")
+			return
+		}
+		state, err := queryProvider.LatestState(request.Context())
+		if errors.Is(err, store.ErrStateNotFound) {
+			writeError(writer, http.StatusNotFound, "state not found")
+			return
+		}
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(writer, http.StatusOK, stateResponse(state))
+	})
+	mux.HandleFunc("/state/", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowGet(writer, request) {
+			return
+		}
+		queryProvider, ok := provider.(ChainQueryProvider)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "state root query is unavailable")
+			return
+		}
+		height, namespace, ok := parseStateRootPath(request.URL.Path)
+		if !ok {
+			writeError(writer, http.StatusBadRequest, "invalid state root path")
+			return
+		}
+		root, err := queryProvider.StateRoot(request.Context(), height, namespace)
+		if errors.Is(err, store.ErrStateRootNotFound) {
+			writeError(writer, http.StatusNotFound, "state root not found")
+			return
+		}
+		if errors.Is(err, store.ErrInvalidStateRoot) {
+			writeError(writer, http.StatusBadRequest, "invalid state root request")
+			return
+		}
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(writer, http.StatusOK, stateRootResponse(root))
 	})
 	return mux
 }
@@ -340,6 +429,44 @@ func blockResponse(record store.BlockRecord) BlockResponse {
 		StateRoots:   stateRoots,
 		TimeUnixNano: record.Block.Header.TimeUnixNano,
 	}
+}
+
+func blockIndexResponse(index store.BlockIndex) BlockIndexResponse {
+	return BlockIndexResponse{
+		EarliestHeight: uint64(index.EarliestHeight),
+		LatestHeight:   uint64(index.LatestHeight),
+		TotalBlocks:    index.TotalBlocks,
+	}
+}
+
+func stateResponse(state store.StateRecord) StateResponse {
+	return StateResponse{
+		Height:           uint64(state.Height),
+		AppHash:          hex.EncodeToString(state.AppHash[:]),
+		LastBlockHash:    hex.EncodeToString(state.LastBlockHash[:]),
+		ValidatorSetHash: hex.EncodeToString(state.ValidatorSetHash[:]),
+	}
+}
+
+func stateRootResponse(root store.StateRootRecord) StateRootResponse {
+	return StateRootResponse{
+		Height:    uint64(root.Height),
+		Namespace: root.Namespace,
+		Root:      hex.EncodeToString(root.Root[:]),
+	}
+}
+
+func parseStateRootPath(path string) (types.Height, string, bool) {
+	selector := strings.TrimPrefix(path, "/state/")
+	parts := strings.Split(selector, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return 0, "", false
+	}
+	height, err := strconv.ParseUint(parts[0], 10, 64)
+	if err != nil || height == 0 {
+		return 0, "", false
+	}
+	return types.Height(height), parts[1], true
 }
 
 func writeError(writer http.ResponseWriter, statusCode int, message string) {

@@ -135,6 +135,27 @@ func TestNodeQueriesBlocks(t *testing.T) {
 	if latest.Block.Header.Height != 2 || len(latest.Block.Txs) != 1 {
 		t.Fatalf("unexpected latest block: %+v", latest)
 	}
+	index, err := node.BlockIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index.EarliestHeight != 1 || index.LatestHeight != 2 || index.TotalBlocks != 2 {
+		t.Fatalf("unexpected block index: %+v", index)
+	}
+	state, err := node.LatestState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Height != 2 || state.AppHash == (types.Hash{}) {
+		t.Fatalf("unexpected latest state: %+v", state)
+	}
+	root, err := node.StateRoot(context.Background(), 2, "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root.Height != 2 || root.Namespace != "bank" || root.Root == (types.Hash{}) {
+		t.Fatalf("unexpected state root: %+v", root)
+	}
 }
 
 func TestNodeValidation(t *testing.T) {
