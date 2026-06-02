@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -96,6 +97,42 @@ func TestRunKeysGenEncryptedAndShow(t *testing.T) {
 	}
 	if strings.Contains(buffer.String(), "private_key") {
 		t.Fatalf("key json output leaked private key:\n%s", buffer.String())
+	}
+}
+
+func TestRunKeysRemoteAndShow(t *testing.T) {
+	home := t.TempDir()
+	signer, err := vexocrypto.GenerateEd25519Signer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	encodedPublicKey := base64.StdEncoding.EncodeToString(signer.PublicKey())
+
+	var buffer bytes.Buffer
+	if err := runKeys(&buffer, []string{"remote", "--home", home, "--public-key", encodedPublicKey, "--url", "http://127.0.0.1:9000/sign", "--id", "remote-1", "--active-from", "10"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buffer.String(), "registered remote validator key") {
+		t.Fatalf("unexpected remote key output:\n%s", buffer.String())
+	}
+	document, err := vexocrypto.LoadKeyDocument(filepath.Join(home, keyFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.Type != vexocrypto.KeyTypeRemote || document.Metadata.RemoteURL == "" || document.Metadata.ActiveFrom != 10 {
+		t.Fatalf("unexpected remote key document: %+v", document)
+	}
+
+	buffer.Reset()
+	if err := runKeys(&buffer, []string{"show", "--home", home, "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var info keyInfoDocument
+	if err := json.Unmarshal(buffer.Bytes(), &info); err != nil {
+		t.Fatal(err)
+	}
+	if info.Type != vexocrypto.KeyTypeRemote || info.RemoteURL != "http://127.0.0.1:9000/sign" || info.KeyID != "remote-1" {
+		t.Fatalf("unexpected remote key info: %+v", info)
 	}
 }
 

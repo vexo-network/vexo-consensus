@@ -23,6 +23,7 @@ type keyInfoDocument struct {
 	KeyID         string `json:"key_id,omitempty"`
 	ActiveFrom    uint64 `json:"active_from,omitempty"`
 	ActiveUntil   uint64 `json:"active_until,omitempty"`
+	RemoteURL     string `json:"remote_url,omitempty"`
 }
 
 func runKeys(writer io.Writer, args []string) error {
@@ -32,6 +33,8 @@ func runKeys(writer io.Writer, args []string) error {
 	switch args[0] {
 	case "gen":
 		return runKeysGen(writer, args[1:])
+	case "remote":
+		return runKeysRemote(writer, args[1:])
 	case "show":
 		return runKeysShow(writer, args[1:])
 	default:
@@ -89,6 +92,60 @@ func runKeysGen(writer io.Writer, args []string) error {
 	return nil
 }
 
+func runKeysRemote(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("keys remote", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", defaultHomeDir, "node home directory")
+	path := flags.String("path", "", "key file path")
+	overwrite := flags.Bool("overwrite", false, "overwrite existing key")
+	publicKey := flags.String("public-key", "", "base64 encoded remote signer public key")
+	url := flags.String("url", "", "remote signer HTTP endpoint")
+	keyID := flags.String("id", "", "key id metadata")
+	activeFrom := flags.Uint64("active-from", 0, "first height where key is active")
+	activeUntil := flags.Uint64("active-until", 0, "last height where key is active; zero means no end")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *publicKey == "" {
+		return errors.New("remote public key is required")
+	}
+	if *url == "" {
+		return errors.New("remote signer URL is required")
+	}
+	keyPath := resolveKeyPath(*home, *path)
+	if err := os.MkdirAll(filepath.Dir(keyPath), 0o755); err != nil {
+		return err
+	}
+	if *overwrite {
+		if err := os.Remove(keyPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	document := vexocrypto.KeyDocument{
+		SchemaVersion: vexocrypto.KeyDocumentVersionV1,
+		Type:          vexocrypto.KeyTypeRemote,
+		PublicKey:     *publicKey,
+		Metadata: vexocrypto.KeyMetadata{
+			ID:          *keyID,
+			ActiveFrom:  *activeFrom,
+			ActiveUntil: *activeUntil,
+			RemoteURL:   *url,
+		},
+	}
+	if _, err := document.RemoteSigner(0); err != nil {
+		return err
+	}
+	if err := vexocrypto.SaveKeyDocument(keyPath, document); err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "registered remote validator key\n")
+	fmt.Fprintf(writer, "path: %s\n", keyPath)
+	fmt.Fprintf(writer, "type: %s\n", document.Type)
+	fmt.Fprintf(writer, "public_key: %s\n", document.PublicKey)
+	fmt.Fprintf(writer, "remote_url: %s\n", document.Metadata.RemoteURL)
+	return nil
+}
+
 func runKeysShow(writer io.Writer, args []string) error {
 	flags := flag.NewFlagSet("keys show", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -108,7 +165,7 @@ func runKeysShow(writer io.Writer, args []string) error {
 		if _, err := document.Ed25519SignerWithPassphrase(resolvePassphrase(*passphrase)); err != nil {
 			return err
 		}
-	} else if _, err := document.Ed25519Signer(); err != nil {
+	} else if _, err := document.SignerWithPassphrase(resolvePassphrase(*passphrase)); err != nil {
 		return err
 	}
 	info := keyInfoDocument{
@@ -120,6 +177,7 @@ func runKeysShow(writer io.Writer, args []string) error {
 		KeyID:         document.Metadata.ID,
 		ActiveFrom:    document.Metadata.ActiveFrom,
 		ActiveUntil:   document.Metadata.ActiveUntil,
+		RemoteURL:     document.Metadata.RemoteURL,
 	}
 	if *jsonOutput {
 		encoder := json.NewEncoder(writer)
@@ -131,6 +189,9 @@ func runKeysShow(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "type: %s\n", info.Type)
 	fmt.Fprintf(writer, "public_key: %s\n", info.PublicKey)
 	fmt.Fprintf(writer, "encrypted: %v\n", info.Encrypted)
+	if info.RemoteURL != "" {
+		fmt.Fprintf(writer, "remote_url: %s\n", info.RemoteURL)
+	}
 	return nil
 }
 

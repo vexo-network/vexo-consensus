@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -670,6 +672,31 @@ func TestBuildStartNodeLoadsValidatorSigner(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "validator signer loaded") {
 		t.Fatalf("expected signer loaded output, got:\n%s", output.String())
+	}
+}
+
+func TestBuildStartNodeLoadsRemoteValidatorSigner(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	signer, err := vexocrypto.GenerateEd25519Signer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"remote", "--home", home, "--public-key", base64.StdEncoding.EncodeToString(signer.PublicKey()), "--url", "http://127.0.0.1:9000/sign"}); err != nil {
+		t.Fatal(err)
+	}
+
+	inputs, err := loadStartInputs(home, "", "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(inputs.Signer.PublicKey()) != string(signer.PublicKey()) {
+		t.Fatal("expected remote signer public key")
+	}
+	if string(inputs.Genesis.Validators[0].PublicKey) != string(signer.PublicKey()) {
+		t.Fatal("expected genesis public key to be patched from remote signer")
 	}
 }
 

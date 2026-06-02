@@ -323,10 +323,7 @@ func loadStartInputs(home string, configPath string, genesisPath string, keyPath
 }
 
 func signerFromKeyDocument(document vexocrypto.KeyDocument) (vexocrypto.Signer, error) {
-	if document.Encryption != nil {
-		return document.Ed25519SignerWithPassphrase(resolvePassphrase(""))
-	}
-	return document.Ed25519Signer()
+	return document.SignerWithPassphrase(resolvePassphrase(""))
 }
 
 func buildStartNode(inputs startInputs) (*vexonode.Node, error) {

@@ -122,6 +122,29 @@ func TestEncryptedKeyDocumentRejectsMissingPassphrase(t *testing.T) {
 	}
 }
 
+func TestRemoteKeyDocumentBuildsRemoteSigner(t *testing.T) {
+	signer, err := GenerateEd25519Signer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := KeyDocument{
+		SchemaVersion: KeyDocumentVersionV1,
+		Type:          KeyTypeRemote,
+		PublicKey:     base64.StdEncoding.EncodeToString(signer.PublicKey()),
+		Metadata:      KeyMetadata{ID: "remote-1", RemoteURL: "http://127.0.0.1:9000/sign", ActiveFrom: 5},
+	}
+	record, err := document.KeyRecordWithPassphrase("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.ID != "remote-1" || record.ActiveFrom != 5 {
+		t.Fatalf("unexpected remote key record: %+v", record)
+	}
+	if string(record.Signer.PublicKey()) != string(signer.PublicKey()) {
+		t.Fatal("expected remote signer public key")
+	}
+}
+
 func TestKeyDocumentRejectsInvalidData(t *testing.T) {
 	document, err := GenerateEd25519KeyDocument()
 	if err != nil {

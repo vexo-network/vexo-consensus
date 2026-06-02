@@ -14,11 +14,13 @@ import (
 	"fmt"
 	"hash"
 	"os"
+	"time"
 )
 
 const (
 	KeyTypeEd25519       = "ed25519"
 	KeyTypeBLS           = "bls"
+	KeyTypeRemote        = "remote"
 	KeyDocumentVersionV1 = "v1"
 	KeyEncryptionAESGCM  = "aes-256-gcm"
 	KeyKDFPBKDF2SHA256   = "pbkdf2-sha256"
@@ -48,6 +50,7 @@ type KeyMetadata struct {
 	ActiveFrom  uint64 `json:"active_from,omitempty"`
 	ActiveUntil uint64 `json:"active_until,omitempty"`
 	CreatedAt   string `json:"created_at,omitempty"`
+	RemoteURL   string `json:"remote_url,omitempty"`
 }
 
 type KeyEncryption struct {
@@ -151,7 +154,7 @@ func (document KeyDocument) Decrypted(passphrase string) (KeyDocument, error) {
 }
 
 func (document KeyDocument) KeyRecordWithPassphrase(passphrase string) (KeyRecord, error) {
-	signer, err := document.Ed25519SignerWithPassphrase(passphrase)
+	signer, err := document.SignerWithPassphrase(passphrase)
 	if err != nil {
 		return KeyRecord{}, err
 	}
@@ -165,6 +168,42 @@ func (document KeyDocument) KeyRecordWithPassphrase(passphrase string) (KeyRecor
 		ActiveFrom:  document.Metadata.ActiveFrom,
 		ActiveUntil: document.Metadata.ActiveUntil,
 	}, nil
+}
+
+func (document KeyDocument) SignerWithPassphrase(passphrase string) (Signer, error) {
+	switch document.Type {
+	case KeyTypeEd25519:
+		if document.Encryption != nil {
+			signer, err := document.Ed25519SignerWithPassphrase(passphrase)
+			if err != nil {
+				return nil, err
+			}
+			return signer, nil
+		}
+		signer, err := document.Ed25519Signer()
+		if err != nil {
+			return nil, err
+		}
+		return signer, nil
+	case KeyTypeRemote:
+		return document.RemoteSigner(5 * time.Second)
+	default:
+		return nil, ErrUnsupportedKeyType
+	}
+}
+
+func (document KeyDocument) RemoteSigner(timeout time.Duration) (RemoteSigner, error) {
+	if document.SchemaVersion != KeyDocumentVersionV1 {
+		return RemoteSigner{}, ErrUnsupportedKeyVersion
+	}
+	if document.Type != KeyTypeRemote {
+		return RemoteSigner{}, ErrUnsupportedKeyType
+	}
+	publicKey, err := base64.StdEncoding.DecodeString(document.PublicKey)
+	if err != nil {
+		return RemoteSigner{}, fmt.Errorf("invalid public key: %w", err)
+	}
+	return NewRemoteSigner(document.Metadata.RemoteURL, publicKey, Ed25519Signer{}, timeout)
 }
 
 func SaveKeyDocument(path string, document KeyDocument) error {

@@ -1,6 +1,9 @@
 package crypto
 
-import "errors"
+import (
+	"errors"
+	"sort"
+)
 
 var (
 	ErrKeyNotFound      = errors.New("key not found")
@@ -78,7 +81,14 @@ func (keyRing *KeyRing) ActiveSignerAt(height uint64) (Signer, KeyID, error) {
 			return record.Signer, record.ID, nil
 		}
 	}
-	for id, record := range keyRing.keys {
+	ids := make([]string, 0, len(keyRing.keys))
+	for id := range keyRing.keys {
+		ids = append(ids, string(id))
+	}
+	sort.Strings(ids)
+	for _, rawID := range ids {
+		id := KeyID(rawID)
+		record := keyRing.keys[id]
 		if record.activeAt(height) {
 			return record.Signer, id, nil
 		}

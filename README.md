@@ -167,6 +167,7 @@ The design is intentionally modular so individual components can be replaced wit
 - JSON or text startup logs
 - Config profiles for `dev`, `testnet`, and `mainnet`
 - Encrypted validator key files with passphrase-based loading
+- Remote signer key documents for KMS/HSM-backed validator signing
 - Snapshot export and restore commands
 - Offline doctor command for config, key, store, snapshot, and index-recovery checks
 - Localnet lifecycle commands and built-binary E2E coverage
@@ -357,6 +358,14 @@ go run ./cmd/vexod keys show --home .vexo --json
 ```
 
 Encrypted keys can be shown or loaded with `VEXO_KEY_PASSPHRASE` or `--passphrase`.
+
+Register a remote KMS/HSM signer instead of storing local private key material:
+
+```bash
+go run ./cmd/vexod keys remote --home .vexo \
+  --public-key <base64-public-key> \
+  --url http://127.0.0.1:9000/sign
+```
 
 Inspect paths and startup readiness:
 
