@@ -45,3 +45,18 @@ This document defines the production-facing consensus model implemented by `vexo
 - If a block is executed but its state is not persisted, recovery uses the last persisted state height.
 - If state exists without matching block metadata, recovery reports a mismatch and uses the lower consistent height.
 - WAL replay is allowed only to rebuild consensus-local proposal/vote context; it must not create finalized state without persisted block and state records.
+
+## Operations and Upgrades
+
+- Operators should alert on height rate, round timeout frequency, proposal/vote latency, peer bans, mempool size, commit latency, snapshot/replay health, and validator signing failures.
+- Upgrade plans are height-gated and governance-driven; a plan binds binary version, config schema migration, store schema migration, app-state migration, and rollback metadata.
+- Failed migration requires rollback instead of partial launch continuation.
+- Public-network transactions should use signed envelopes, account nonce/sequence, minimum fee, gas bounds, size limits, and DoS-resistant `CheckTx`.
+
+## Slashing Lifecycle
+
+- Evidence must pass validation before gossip acceptance.
+- Duplicate evidence is rejected by stable evidence key.
+- Evidence has lifecycle states: submitted, applied, appealed, and expired.
+- Penalty application records previous power, remaining power, jail duration, and evidence metadata.
+- Incorrect slashing is a chain-trust failure; production deployments should pair slashing with appeal/expiration policy and durable evidence storage.

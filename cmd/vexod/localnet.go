@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/vexo-network/vexo-consensus/types"
 )
 
 const localnetPIDFileName = "vexod.pid"
@@ -84,7 +86,7 @@ func runLocalnetLoad(ctx context.Context, writer io.Writer, args []string) error
 	durationValue := flags.String("duration", "30s", "load test duration")
 	rate := flags.Int("rate", 10, "transactions per second")
 	timeoutValue := flags.String("timeout", "2s", "per-request timeout")
-	txPrefix := flags.String("tx-prefix", "bank:mint:load", "transaction payload prefix")
+	txPrefix := flags.String("tx-prefix", "bank:send:load-src:load-dst:1:fee=1:gas=1000:signer=load-src:nonce", "transaction payload prefix; nonce suffix is appended for realistic load")
 	dryRun := flags.Bool("dry-run", false, "print load plan without submitting transactions")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -669,7 +671,7 @@ func runLocalnetLoadPlan(ctx context.Context, client http.Client, plan localnetR
 			result.Duration = time.Since(started)
 			return result
 		case <-ticker.C:
-			payload := []byte(fmt.Sprintf("%s:%d", txPrefix, result.Submitted+result.Failed+1))
+			payload := localnetLoadPayload(txPrefix, result.Submitted+result.Failed+1)
 			if err := submitLocalnetTx(ctx, client, plan.Nodes[0].RPCAddress, payload); err != nil {
 				result.Failed++
 				continue
@@ -677,6 +679,13 @@ func runLocalnetLoadPlan(ctx context.Context, client http.Client, plan localnetR
 			result.Submitted++
 		}
 	}
+}
+
+func localnetLoadPayload(txPrefix string, sequence uint64) types.Tx {
+	if strings.Contains(txPrefix, "nonce") && !strings.Contains(txPrefix, "nonce=") {
+		return types.Tx(fmt.Sprintf("%s=%d", txPrefix, sequence))
+	}
+	return types.Tx(fmt.Sprintf("%s:%d", txPrefix, sequence))
 }
 
 func estimatedLocalnetTransactions(duration time.Duration, rate int) uint64 {

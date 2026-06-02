@@ -507,6 +507,35 @@ Run operational verification commands:
 make ops-verify
 ```
 
+Print operational alert thresholds or evaluate a metrics sample:
+
+```bash
+go run ./cmd/vexod ops thresholds --json
+go run ./cmd/vexod ops alerts \
+  --height-rate 0 \
+  --round-timeouts 10 \
+  --proposal-latency 1s \
+  --vote-latency 1s \
+  --peer-bans 1 \
+  --mempool-size 20000 \
+  --commit-latency 2s \
+  --signing-failures 1
+```
+
+Build a governance-driven binary/config/store/app-state migration plan:
+
+```bash
+go run ./cmd/vexod upgrade plan \
+  --name v0.2.0 \
+  --height 100000 \
+  --binary-version v0.2.0 \
+  --config-from 1 --config-to 2 \
+  --store-from 1 --store-to 2 \
+  --app-from 1 --app-to 2 \
+  --proposal 42 \
+  --rollback-binary v0.1.0
+```
+
 Run short fuzz smoke checks:
 
 ```bash

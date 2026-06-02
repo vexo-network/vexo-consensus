@@ -26,6 +26,15 @@ type Metrics struct {
 	BannedPeers          int
 	PeerWindowMessages   uint64
 	ConsensusLoopRunning bool
+	HeightRatePerMinute  float64
+	RoundTimeouts        uint64
+	ProposalLatencyNanos uint64
+	VoteLatencyNanos     uint64
+	MempoolSize          uint64
+	CommitLatencyNanos   uint64
+	SnapshotHealthy      bool
+	ReplayHealthy        bool
+	SigningFailures      uint64
 }
 
 func (node *Node) Metrics(ctx context.Context) (Metrics, error) {

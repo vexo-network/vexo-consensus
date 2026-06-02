@@ -120,23 +120,32 @@ type StatusResponse struct {
 }
 
 type MetricsResponse struct {
-	ChainID              string `json:"chain_id"`
-	Running              bool   `json:"running"`
-	StartedAtUnix        int64  `json:"started_at_unix,omitempty"`
-	UptimeSeconds        uint64 `json:"uptime_seconds"`
-	DataDir              string `json:"data_dir"`
-	LatestHeight         uint64 `json:"latest_height"`
-	LatestAppHash        string `json:"latest_app_hash"`
-	EarliestBlockHeight  uint64 `json:"earliest_block_height"`
-	LatestBlockHeight    uint64 `json:"latest_block_height"`
-	TotalBlocks          uint64 `json:"total_blocks"`
-	ValidatorCount       int    `json:"validator_count"`
-	TotalVotingPower     uint64 `json:"total_voting_power"`
-	ValidatorSetHash     string `json:"validator_set_hash"`
-	PeerCount            int    `json:"peer_count"`
-	BannedPeers          int    `json:"banned_peers"`
-	PeerWindowMessages   uint64 `json:"peer_window_messages"`
-	ConsensusLoopRunning bool   `json:"consensus_loop_running"`
+	ChainID              string  `json:"chain_id"`
+	Running              bool    `json:"running"`
+	StartedAtUnix        int64   `json:"started_at_unix,omitempty"`
+	UptimeSeconds        uint64  `json:"uptime_seconds"`
+	DataDir              string  `json:"data_dir"`
+	LatestHeight         uint64  `json:"latest_height"`
+	LatestAppHash        string  `json:"latest_app_hash"`
+	EarliestBlockHeight  uint64  `json:"earliest_block_height"`
+	LatestBlockHeight    uint64  `json:"latest_block_height"`
+	TotalBlocks          uint64  `json:"total_blocks"`
+	ValidatorCount       int     `json:"validator_count"`
+	TotalVotingPower     uint64  `json:"total_voting_power"`
+	ValidatorSetHash     string  `json:"validator_set_hash"`
+	PeerCount            int     `json:"peer_count"`
+	BannedPeers          int     `json:"banned_peers"`
+	PeerWindowMessages   uint64  `json:"peer_window_messages"`
+	ConsensusLoopRunning bool    `json:"consensus_loop_running"`
+	HeightRatePerMinute  float64 `json:"height_rate_per_minute"`
+	RoundTimeouts        uint64  `json:"round_timeouts"`
+	ProposalLatencyNanos uint64  `json:"proposal_latency_nanos"`
+	VoteLatencyNanos     uint64  `json:"vote_latency_nanos"`
+	MempoolSize          uint64  `json:"mempool_size"`
+	CommitLatencyNanos   uint64  `json:"commit_latency_nanos"`
+	SnapshotHealthy      bool    `json:"snapshot_healthy"`
+	ReplayHealthy        bool    `json:"replay_healthy"`
+	SigningFailures      uint64  `json:"validator_signing_failures"`
 }
 
 type DiagnosticsResponse struct {
@@ -253,6 +262,7 @@ type RecoveryReportResponse struct {
 	Running           bool                    `json:"running"`
 	LatestHeight      uint64                  `json:"latest_height"`
 	LatestStateHeight uint64                  `json:"latest_state_height"`
+	SafeHeight        uint64                  `json:"safe_height"`
 	EarliestBlock     uint64                  `json:"earliest_block"`
 	LatestBlock       uint64                  `json:"latest_block"`
 	TotalBlocks       uint64                  `json:"total_blocks"`
@@ -1006,6 +1016,15 @@ func metricsResponse(metrics node.Metrics) MetricsResponse {
 		BannedPeers:          metrics.BannedPeers,
 		PeerWindowMessages:   metrics.PeerWindowMessages,
 		ConsensusLoopRunning: metrics.ConsensusLoopRunning,
+		HeightRatePerMinute:  metrics.HeightRatePerMinute,
+		RoundTimeouts:        metrics.RoundTimeouts,
+		ProposalLatencyNanos: metrics.ProposalLatencyNanos,
+		VoteLatencyNanos:     metrics.VoteLatencyNanos,
+		MempoolSize:          metrics.MempoolSize,
+		CommitLatencyNanos:   metrics.CommitLatencyNanos,
+		SnapshotHealthy:      metrics.SnapshotHealthy,
+		ReplayHealthy:        metrics.ReplayHealthy,
+		SigningFailures:      metrics.SigningFailures,
 	}
 }
 
@@ -1087,6 +1106,17 @@ func metricsText(metrics node.Metrics) string {
 	writeGauge("vexo_banned_peers", "Banned peer count.", uint64(metrics.BannedPeers))
 	writeGauge("vexo_peer_window_messages", "Peer messages observed in the current score window.", metrics.PeerWindowMessages)
 	writeGauge("vexo_consensus_loop_running", "Whether the local consensus loop is running.", boolGauge(metrics.ConsensusLoopRunning))
+	writeGauge("vexo_round_timeouts", "Observed consensus round timeouts.", metrics.RoundTimeouts)
+	writeGauge("vexo_proposal_latency_nanos", "Observed proposal processing latency in nanoseconds.", metrics.ProposalLatencyNanos)
+	writeGauge("vexo_vote_latency_nanos", "Observed vote processing latency in nanoseconds.", metrics.VoteLatencyNanos)
+	writeGauge("vexo_mempool_size", "Current mempool size.", metrics.MempoolSize)
+	writeGauge("vexo_commit_latency_nanos", "Observed commit latency in nanoseconds.", metrics.CommitLatencyNanos)
+	writeGauge("vexo_snapshot_healthy", "Whether snapshot verification is healthy.", boolGauge(metrics.SnapshotHealthy))
+	writeGauge("vexo_replay_healthy", "Whether replay verification is healthy.", boolGauge(metrics.ReplayHealthy))
+	writeGauge("vexo_validator_signing_failures", "Validator signing failures.", metrics.SigningFailures)
+	fmt.Fprintf(&builder, "# HELP vexo_height_rate_per_minute Height increase rate per minute.\n")
+	fmt.Fprintf(&builder, "# TYPE vexo_height_rate_per_minute gauge\n")
+	fmt.Fprintf(&builder, "vexo_height_rate_per_minute %.6f\n", metrics.HeightRatePerMinute)
 	return builder.String()
 }
 
@@ -1336,6 +1366,7 @@ func recoveryReportResponse(report node.RecoveryReport) RecoveryReportResponse {
 		Running:           report.Running,
 		LatestHeight:      uint64(report.LatestHeight),
 		LatestStateHeight: uint64(report.LatestStateHeight),
+		SafeHeight:        uint64(report.SafeHeight),
 		EarliestBlock:     uint64(report.EarliestBlock),
 		LatestBlock:       uint64(report.LatestBlock),
 		TotalBlocks:       report.TotalBlocks,

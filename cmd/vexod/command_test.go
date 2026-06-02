@@ -132,6 +132,59 @@ func TestRunCommandRejectsUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestRunOpsThresholdsAndAlerts(t *testing.T) {
+	var thresholds bytes.Buffer
+	if err := runCommand(&thresholds, &bytes.Buffer{}, []string{"ops", "thresholds", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(thresholds.String(), "min_height_rate_per_minute") {
+		t.Fatalf("unexpected thresholds output:\n%s", thresholds.String())
+	}
+
+	var alerts bytes.Buffer
+	if err := runCommand(&alerts, &bytes.Buffer{}, []string{
+		"ops", "alerts",
+		"--height-rate", "0",
+		"--round-timeouts", "10",
+		"--proposal-latency", "1s",
+		"--vote-latency", "1s",
+		"--peer-bans", "1",
+		"--mempool-size", "20000",
+		"--commit-latency", "2s",
+		"--signing-failures", "1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(alerts.String(), "ops alerts alert") || !strings.Contains(alerts.String(), "height_rate") {
+		t.Fatalf("unexpected alerts output:\n%s", alerts.String())
+	}
+}
+
+func TestRunUpgradePlan(t *testing.T) {
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"upgrade", "plan",
+		"--name", "v0.2.0",
+		"--height", "100",
+		"--binary-version", "v0.2.0",
+		"--config-from", "1",
+		"--config-to", "2",
+		"--store-from", "1",
+		"--store-to", "2",
+		"--app-from", "1",
+		"--app-to", "2",
+		"--proposal", "42",
+		"--rollback-binary", "v0.1.0",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"upgrade plan", "height: 100", "config_schema: 1 -> 2", "governance_proposal: 42", "rollback_binary: v0.1.0"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected upgrade output to contain %q, got:\n%s", expected, output.String())
+		}
+	}
+}
+
 func TestRunLocalnetInitAndStartDryRun(t *testing.T) {
 	home := t.TempDir()
 	var initOutput bytes.Buffer
@@ -255,6 +308,13 @@ func TestEstimatedLocalnetTransactionsUsesWallSeconds(t *testing.T) {
 	}
 	if actual := estimatedLocalnetTransactions(duration, 50); actual != 180_000 {
 		t.Fatalf("expected 180000 transactions for 1h at 50 tx/s, got %d", actual)
+	}
+}
+
+func TestLocalnetLoadPayloadUsesRealisticNonce(t *testing.T) {
+	payload := localnetLoadPayload("bank:send:alice:bob:1:fee=1:gas=1000:signer=alice:nonce", 7)
+	if string(payload) != "bank:send:alice:bob:1:fee=1:gas=1000:signer=alice:nonce=7" {
+		t.Fatalf("unexpected load payload: %s", payload)
 	}
 }
 

@@ -18,6 +18,10 @@ func TestInMemoryKeeperSubmitEvidence(t *testing.T) {
 	if keeper.EvidenceCount() != 1 {
 		t.Fatalf("expected evidence count 1, got %d", keeper.EvidenceCount())
 	}
+	status, found := keeper.EvidenceLifecycle(evidence)
+	if !found || status != EvidenceStatusSubmitted {
+		t.Fatalf("expected submitted lifecycle, got %s found=%t", status, found)
+	}
 }
 
 func TestInMemoryKeeperRejectsDuplicateEvidence(t *testing.T) {
@@ -107,6 +111,53 @@ func TestInMemoryKeeperSubmitAndApplyRecordsReceipt(t *testing.T) {
 	}
 	if stored.Evidence.Validator != evidence.Validator || stored.Penalty.JailDuration != 20 {
 		t.Fatalf("unexpected stored receipt: %+v", stored)
+	}
+	status, found := keeper.EvidenceLifecycle(evidence)
+	if !found || status != EvidenceStatusApplied {
+		t.Fatalf("expected applied lifecycle, got %s found=%t", status, found)
+	}
+}
+
+func TestInMemoryKeeperEvidenceExpirationAndAppeal(t *testing.T) {
+	keeper := NewInMemoryKeeper(nil)
+	evidence := validEvidence(EvidenceDoubleSign)
+	if err := keeper.SubmitWithExpiration(context.Background(), evidence, 10); err != nil {
+		t.Fatal(err)
+	}
+	if !keeper.AppealEvidence(evidence) {
+		t.Fatal("expected evidence appeal")
+	}
+	status, found := keeper.EvidenceLifecycle(evidence)
+	if !found || status != EvidenceStatusAppealed {
+		t.Fatalf("expected appealed lifecycle, got %s found=%t", status, found)
+	}
+	if expired := keeper.ExpireEvidence(10); expired != 1 {
+		t.Fatalf("expected one expired evidence, got %d", expired)
+	}
+	status, _ = keeper.EvidenceLifecycle(evidence)
+	if status != EvidenceStatusExpired {
+		t.Fatalf("expected expired lifecycle, got %s", status)
+	}
+}
+
+func TestInMemoryKeeperAppliesStakeAccountingAndJail(t *testing.T) {
+	keeper := NewInMemoryKeeper(PenaltyPolicy{
+		EvidenceConflictingVote: {SlashFraction: "0.25", JailDuration: 30},
+	})
+	evidence := validEvidence(EvidenceConflictingVote)
+	if err := keeper.SubmitEvidence(context.Background(), evidence); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := keeper.ApplyPenaltyWithStake(context.Background(), evidence, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.PreviousPower != 100 || receipt.RemainingPower != 75 {
+		t.Fatalf("unexpected stake accounting: %+v", receipt)
+	}
+	jailUntil, found := keeper.JailUntil(evidence.Validator)
+	if !found || jailUntil != 31 {
+		t.Fatalf("unexpected jail height: %d found=%t", jailUntil, found)
 	}
 }
 

@@ -24,14 +24,25 @@ type Evidence struct {
 	Proof     []byte
 }
 
+type EvidenceStatus string
+
+const (
+	EvidenceStatusSubmitted EvidenceStatus = "submitted"
+	EvidenceStatusApplied   EvidenceStatus = "applied"
+	EvidenceStatusAppealed  EvidenceStatus = "appealed"
+	EvidenceStatusExpired   EvidenceStatus = "expired"
+)
+
 type Penalty struct {
 	SlashFraction string
 	JailDuration  uint64
 }
 
 type PenaltyReceipt struct {
-	Evidence Evidence
-	Penalty  Penalty
+	Evidence       Evidence
+	Penalty        Penalty
+	PreviousPower  types.VotingPower
+	RemainingPower types.VotingPower
 }
 
 type Keeper interface {

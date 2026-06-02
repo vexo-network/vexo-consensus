@@ -16,14 +16,18 @@ var (
 	ErrDuplicateEvidence    = errors.New("duplicate evidence")
 	ErrPenaltyNotConfigured = errors.New("penalty is not configured")
 	ErrInvalidSlashFraction = errors.New("invalid slash fraction")
+	ErrEvidenceExpired      = errors.New("evidence expired")
 )
 
 type PenaltyPolicy map[EvidenceType]Penalty
 
 type InMemoryKeeper struct {
-	policy    PenaltyPolicy
-	evidence  map[string]Evidence
-	penalties map[string]PenaltyReceipt
+	policy          PenaltyPolicy
+	evidence        map[string]Evidence
+	evidenceStatus  map[string]EvidenceStatus
+	evidenceExpires map[string]types.Height
+	penalties       map[string]PenaltyReceipt
+	jails           map[types.ValidatorID]types.Height
 }
 
 func NewInMemoryKeeper(policy PenaltyPolicy) *InMemoryKeeper {
@@ -31,9 +35,12 @@ func NewInMemoryKeeper(policy PenaltyPolicy) *InMemoryKeeper {
 		policy = DefaultPenaltyPolicy()
 	}
 	return &InMemoryKeeper{
-		policy:    policy,
-		evidence:  make(map[string]Evidence),
-		penalties: make(map[string]PenaltyReceipt),
+		policy:          policy,
+		evidence:        make(map[string]Evidence),
+		evidenceStatus:  make(map[string]EvidenceStatus),
+		evidenceExpires: make(map[string]types.Height),
+		penalties:       make(map[string]PenaltyReceipt),
+		jails:           make(map[types.ValidatorID]types.Height),
 	}
 }
 
@@ -62,6 +69,7 @@ func (keeper *InMemoryKeeper) SubmitEvidence(ctx context.Context, evidence Evide
 		return ErrDuplicateEvidence
 	}
 	keeper.evidence[key] = cloneEvidence(evidence)
+	keeper.evidenceStatus[key] = EvidenceStatusSubmitted
 	return nil
 }
 
@@ -116,8 +124,84 @@ func (keeper *InMemoryKeeper) SubmitAndApply(ctx context.Context, evidence Evide
 		Evidence: cloneEvidence(evidence),
 		Penalty:  penalty,
 	}
-	keeper.penalties[evidenceKey(evidence)] = receipt
+	key := evidenceKey(evidence)
+	keeper.penalties[key] = receipt
+	keeper.evidenceStatus[key] = EvidenceStatusApplied
 	return receipt, nil
+}
+
+func (keeper *InMemoryKeeper) SubmitWithExpiration(ctx context.Context, evidence Evidence, expiresAt types.Height) error {
+	if expiresAt != 0 && evidence.Height >= expiresAt {
+		return ErrEvidenceExpired
+	}
+	if err := keeper.SubmitEvidence(ctx, evidence); err != nil {
+		return err
+	}
+	if expiresAt != 0 {
+		keeper.evidenceExpires[evidenceKey(evidence)] = expiresAt
+	}
+	return nil
+}
+
+func (keeper *InMemoryKeeper) ExpireEvidence(currentHeight types.Height) uint64 {
+	var expired uint64
+	for key, expiresAt := range keeper.evidenceExpires {
+		if expiresAt == 0 || currentHeight < expiresAt {
+			continue
+		}
+		if keeper.evidenceStatus[key] == EvidenceStatusApplied {
+			continue
+		}
+		keeper.evidenceStatus[key] = EvidenceStatusExpired
+		expired++
+	}
+	return expired
+}
+
+func (keeper *InMemoryKeeper) AppealEvidence(evidence Evidence) bool {
+	key := evidenceKey(evidence)
+	if _, found := keeper.evidence[key]; !found {
+		return false
+	}
+	if keeper.evidenceStatus[key] == EvidenceStatusApplied {
+		return false
+	}
+	keeper.evidenceStatus[key] = EvidenceStatusAppealed
+	return true
+}
+
+func (keeper *InMemoryKeeper) EvidenceLifecycle(evidence Evidence) (EvidenceStatus, bool) {
+	status, found := keeper.evidenceStatus[evidenceKey(evidence)]
+	return status, found
+}
+
+func (keeper *InMemoryKeeper) ApplyPenaltyWithStake(ctx context.Context, evidence Evidence, currentPower types.VotingPower) (PenaltyReceipt, error) {
+	penalty, err := keeper.ApplyPenalty(ctx, evidence)
+	if err != nil {
+		return PenaltyReceipt{}, err
+	}
+	remaining, err := ApplySlash(currentPower, penalty)
+	if err != nil {
+		return PenaltyReceipt{}, err
+	}
+	receipt := PenaltyReceipt{
+		Evidence:       cloneEvidence(evidence),
+		Penalty:        penalty,
+		PreviousPower:  currentPower,
+		RemainingPower: remaining,
+	}
+	key := evidenceKey(evidence)
+	keeper.penalties[key] = receipt
+	keeper.evidenceStatus[key] = EvidenceStatusApplied
+	if penalty.JailDuration > 0 {
+		keeper.jails[evidence.Validator] = evidence.Height + types.Height(penalty.JailDuration)
+	}
+	return receipt, nil
+}
+
+func (keeper *InMemoryKeeper) JailUntil(validator types.ValidatorID) (types.Height, bool) {
+	height, found := keeper.jails[validator]
+	return height, found
 }
 
 func (keeper *InMemoryKeeper) EvidenceCount() int {
