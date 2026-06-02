@@ -181,6 +181,7 @@ The design is intentionally modular so individual components can be replaced wit
 - Persistent peer address book with dial-failure tracking, temporary bans, and non-permanent peer eviction
 - Transport-level peer gate and consensus-gossip scoring for banned or malformed peer traffic
 - Immediate peer disconnect and dial-set removal when score or address-book policy bans a peer
+- Persistent peer-score snapshots so bans and rate-limit state survive node restarts
 
 ## Packages
 

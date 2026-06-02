@@ -709,6 +709,45 @@ func TestNodeDisconnectsPeerWhenScoreBanApplies(t *testing.T) {
 	}
 }
 
+func TestNodePersistsPeerScoresAcrossRestart(t *testing.T) {
+	dataDir := t.TempDir()
+	cfg := DefaultConfig("vexo-test", dataDir)
+	cfg.ValidatorID = "alice"
+	cfg.Chain.P2P.InitialScore = 1
+	cfg.Chain.P2P.InvalidMessageCost = 2
+	cfg.Chain.P2P.BanThreshold = 0
+	cfg.Chain.P2P.BanDuration = time.Hour
+	first, err := New(cfg, validGenesis(), newTestApplication(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	startNode(t, first)
+	if first.observePeerMessage(context.Background(), "bob", false) {
+		t.Fatal("expected bob to be banned")
+	}
+	if err := first.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := New(cfg, validGenesis(), newTestApplication(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	startNode(t, second)
+	defer second.Stop(context.Background())
+	runtime, err := second.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	banned, err := runtime.P2PScore.IsBanned(context.Background(), "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !banned {
+		t.Fatal("expected restored bob ban")
+	}
+}
+
 func TestNodeBackgroundConsensusLoopCommitsAcrossPeers(t *testing.T) {
 	alice, bob, carol := newConsensusLoopNodes(t)
 	startNode(t, alice)

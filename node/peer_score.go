@@ -17,7 +17,9 @@ func (node *Node) observePeerMessage(ctx context.Context, peer p2p.PeerID, valid
 	if err != nil || runtime.P2PScore == nil {
 		return true
 	}
-	if err := runtime.P2PScore.ScoreMessage(ctx, peer, valid); errors.Is(err, p2p.ErrPeerBanned) {
+	err = runtime.P2PScore.ScoreMessage(ctx, peer, valid)
+	_ = node.persistPeerScores()
+	if errors.Is(err, p2p.ErrPeerBanned) {
 		node.disconnectPeer(peer)
 		return false
 	}
@@ -32,7 +34,9 @@ func (node *Node) admitPeerMessage(ctx context.Context, peer p2p.PeerID) bool {
 	if err != nil || runtime.P2PScore == nil {
 		return true
 	}
-	if err := runtime.P2PScore.AdmitMessage(ctx, peer); errors.Is(err, p2p.ErrPeerBanned) || errors.Is(err, p2p.ErrRateLimitExceeded) {
+	err = runtime.P2PScore.AdmitMessage(ctx, peer)
+	_ = node.persistPeerScores()
+	if errors.Is(err, p2p.ErrPeerBanned) || errors.Is(err, p2p.ErrRateLimitExceeded) {
 		if errors.Is(err, p2p.ErrPeerBanned) || node.peerBanned(ctx, peer) {
 			node.disconnectPeer(peer)
 		}
@@ -106,4 +110,23 @@ func (node *Node) disconnectPeer(peer p2p.PeerID) {
 		return
 	}
 	disconnecting.DisconnectPeer(peer)
+}
+
+func (node *Node) persistPeerScores() error {
+	node.mu.Lock()
+	runtime := node.runtime
+	path := node.cfg.PeerScorePath()
+	node.mu.Unlock()
+	return savePeerScores(runtime, path)
+}
+
+func (node *Node) persistPeerScoresLocked() error {
+	return savePeerScores(node.runtime, node.cfg.PeerScorePath())
+}
+
+func savePeerScores(runtime *vexoruntime.Runtime, path string) error {
+	if runtime == nil || runtime.P2PScore == nil {
+		return nil
+	}
+	return runtime.P2PScore.SaveFile(path)
 }

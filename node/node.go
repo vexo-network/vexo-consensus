@@ -117,6 +117,12 @@ func (node *Node) Start(ctx context.Context) error {
 		storage.Close()
 		return err
 	}
+	if runtime.P2PScore != nil {
+		if err := runtime.P2PScore.LoadFile(node.cfg.PeerScorePath()); err != nil {
+			storage.Close()
+			return err
+		}
+	}
 	startHeight, err := node.initializeRuntime(ctx, runtime, storage)
 	if err != nil {
 		return err
@@ -249,7 +255,10 @@ func (node *Node) Stop(ctx context.Context) error {
 			return err
 		}
 	}
-	err := node.store.Close()
+	err := node.persistPeerScoresLocked()
+	if closeErr := node.store.Close(); err == nil {
+		err = closeErr
+	}
 	if node.consensusWAL != nil {
 		if walErr := node.consensusWAL.Close(); err == nil {
 			err = walErr

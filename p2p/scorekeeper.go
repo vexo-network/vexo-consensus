@@ -2,11 +2,16 @@ package p2p
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
 )
+
+const ScoreKeeperVersionV1 = "v1"
 
 var (
 	ErrPeerBanned        = errors.New("peer is banned")
@@ -39,6 +44,20 @@ type PeerSnapshot struct {
 	Banned         bool
 	BannedUntil    time.Time
 	WindowMessages uint64
+}
+
+type ScoreDocument struct {
+	SchemaVersion       string            `json:"schema_version"`
+	TotalWindowMessages uint64            `json:"total_window_messages,omitempty"`
+	Peers               []PeerScoreRecord `json:"peers"`
+}
+
+type PeerScoreRecord struct {
+	Peer           PeerID `json:"peer"`
+	Score          int64  `json:"score"`
+	Banned         bool   `json:"banned,omitempty"`
+	BannedUntil    string `json:"banned_until,omitempty"`
+	WindowMessages uint64 `json:"window_messages,omitempty"`
 }
 
 type ScoreKeeper struct {
@@ -225,6 +244,102 @@ func (keeper *ScoreKeeper) Snapshot(ctx context.Context) ([]PeerSnapshot, error)
 		})
 	}
 	return snapshot, nil
+}
+
+func (keeper *ScoreKeeper) SaveFile(path string) error {
+	if path == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	document := keeper.document()
+	data, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o600)
+}
+
+func (keeper *ScoreKeeper) LoadFile(path string) error {
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var document ScoreDocument
+	if err := json.Unmarshal(data, &document); err != nil {
+		return err
+	}
+	if document.SchemaVersion != "" && document.SchemaVersion != ScoreKeeperVersionV1 {
+		return nil
+	}
+	keeper.restore(document)
+	return nil
+}
+
+func (keeper *ScoreKeeper) document() ScoreDocument {
+	keeper.mu.Lock()
+	defer keeper.mu.Unlock()
+
+	peers := make([]PeerID, 0, len(keeper.peers))
+	for peer := range keeper.peers {
+		peers = append(peers, peer)
+	}
+	sort.Slice(peers, func(i, j int) bool {
+		return peers[i] < peers[j]
+	})
+	records := make([]PeerScoreRecord, 0, len(peers))
+	for _, peer := range peers {
+		state := keeper.expireBan(keeper.peers[peer])
+		keeper.peers[peer] = state
+		record := PeerScoreRecord{
+			Peer:           peer,
+			Score:          state.Score,
+			Banned:         state.Banned,
+			WindowMessages: state.WindowMessages,
+		}
+		if !state.BannedUntil.IsZero() {
+			record.BannedUntil = state.BannedUntil.UTC().Format(time.RFC3339Nano)
+		}
+		records = append(records, record)
+	}
+	return ScoreDocument{
+		SchemaVersion:       ScoreKeeperVersionV1,
+		TotalWindowMessages: keeper.totalWindowMessages,
+		Peers:               records,
+	}
+}
+
+func (keeper *ScoreKeeper) restore(document ScoreDocument) {
+	keeper.mu.Lock()
+	defer keeper.mu.Unlock()
+
+	peers := make(map[PeerID]PeerState, len(document.Peers))
+	for _, record := range document.Peers {
+		if record.Peer == "" {
+			continue
+		}
+		state := PeerState{
+			Score:          record.Score,
+			Banned:         record.Banned,
+			WindowMessages: record.WindowMessages,
+		}
+		if record.BannedUntil != "" {
+			if bannedUntil, err := time.Parse(time.RFC3339Nano, record.BannedUntil); err == nil {
+				state.BannedUntil = bannedUntil
+			}
+		}
+		state = keeper.expireBan(state)
+		peers[record.Peer] = state
+	}
+	keeper.peers = peers
+	keeper.totalWindowMessages = document.TotalWindowMessages
 }
 
 func (keeper *ScoreKeeper) state(peer PeerID) PeerState {

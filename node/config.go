@@ -54,6 +54,10 @@ func (cfg Config) ConsensusWALPath() string {
 	return filepath.Join(cfg.DataDir, "consensus.wal")
 }
 
+func (cfg Config) PeerScorePath() string {
+	return filepath.Join(cfg.DataDir, "peer_scores.json")
+}
+
 func (genesis Genesis) Validate(chainID string) error {
 	if genesis.ChainID == "" {
 		return ErrMissingGenesis

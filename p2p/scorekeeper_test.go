@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -233,6 +234,47 @@ func TestScoreKeeperSnapshotReturnsSortedPeerStates(t *testing.T) {
 		if snapshot[i].WindowMessages != 1 {
 			t.Fatalf("expected peer %s window messages 1, got %d", snapshot[i].Peer, snapshot[i].WindowMessages)
 		}
+	}
+}
+
+func TestScoreKeeperPersistsAndRestoresPeerStates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "peer_scores.json")
+	keeper := NewScoreKeeper(ScoreConfig{
+		InitialScore:       10,
+		InvalidMessageCost: 3,
+		BanThreshold:       4,
+		BanDuration:        time.Hour,
+	})
+	if err := keeper.ObserveMessage(context.Background(), "bob", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.ObserveMessage(context.Background(), "bob", false); !errors.Is(err, ErrPeerBanned) {
+		t.Fatalf("expected bob banned, got %v", err)
+	}
+	if err := keeper.ObserveMessage(context.Background(), "alice", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.SaveFile(path); err != nil {
+		t.Fatal(err)
+	}
+
+	restored := NewScoreKeeper(ScoreConfig{InitialScore: 10, BanThreshold: 4})
+	if err := restored.LoadFile(path); err != nil {
+		t.Fatal(err)
+	}
+	banned, err := restored.IsBanned(context.Background(), "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !banned {
+		t.Fatal("expected restored bob ban")
+	}
+	score, err := restored.Score(context.Background(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score != 10 {
+		t.Fatalf("expected alice score restored at 10, got %d", score)
 	}
 }
 

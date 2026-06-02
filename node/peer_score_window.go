@@ -31,6 +31,7 @@ func (node *Node) startPeerScoreWindowReset(ctx context.Context) {
 				if err := runtime.P2PScore.ResetWindow(runCtx); err != nil {
 					return
 				}
+				_ = runtime.P2PScore.SaveFile(node.cfg.PeerScorePath())
 			}
 		}
 	}()
