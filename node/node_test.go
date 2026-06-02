@@ -96,6 +96,18 @@ func TestNodePersistsRuntimeStore(t *testing.T) {
 	if record.Block.Header.Height != 2 {
 		t.Fatalf("expected stored block height 2, got %+v", record)
 	}
+	status := restarted.Status(context.Background())
+	if status.LatestHeight != 2 || status.LatestAppHash == (types.Hash{}) {
+		t.Fatalf("expected recovered status at height 2, got %+v", status)
+	}
+	machine, err := restarted.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	consensusStatus := machine.Status(context.Background())
+	if consensusStatus.Height != 3 {
+		t.Fatalf("expected consensus to resume at height 3, got %+v", consensusStatus)
+	}
 }
 
 func TestNodeQueriesBlocks(t *testing.T) {
@@ -269,6 +281,60 @@ func TestNodePruneBelowRequiresRunningNode(t *testing.T) {
 
 	if _, err := node.PruneBelow(context.Background(), 1); !errors.Is(err, ErrNodeNotRunning) {
 		t.Fatalf("expected not running prune error, got %v", err)
+	}
+}
+
+func TestNodeRecoversAfterPruneAndRestart(t *testing.T) {
+	node := newTestNode(t)
+	if err := node.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := node.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for height := types.Height(1); height <= 4; height++ {
+		if _, err := runtime.ExecuteBlock(context.Background(), types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: height},
+			Txs:    []types.Tx{[]byte("bank:send")},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := node.PruneBelow(context.Background(), 3); err != nil {
+		t.Fatal(err)
+	}
+	dataDir := node.cfg.DataDir
+	if err := node.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted := newTestNodeWithDataDir(t, dataDir)
+	if err := restarted.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Stop(context.Background())
+
+	status := restarted.Status(context.Background())
+	if status.LatestHeight != 4 || status.LatestAppHash == (types.Hash{}) {
+		t.Fatalf("unexpected recovered status after prune: %+v", status)
+	}
+	if _, err := restarted.BlockByHeight(context.Background(), 1); !errors.Is(err, store.ErrBlockNotFound) {
+		t.Fatalf("expected pruned block not found after restart, got %v", err)
+	}
+	index, err := restarted.BlockIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index.EarliestHeight != 3 || index.LatestHeight != 4 || index.TotalBlocks != 2 {
+		t.Fatalf("unexpected recovered index after prune: %+v", index)
+	}
+	machine, err := restarted.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if consensusStatus := machine.Status(context.Background()); consensusStatus.Height != 5 {
+		t.Fatalf("expected consensus to resume at height 5, got %+v", consensusStatus)
 	}
 }
 

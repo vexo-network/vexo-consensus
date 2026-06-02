@@ -109,19 +109,16 @@ func (node *Node) Start(ctx context.Context) error {
 		storage.Close()
 		return err
 	}
-	if _, err := node.app.InitChain(app.InitChainRequest{
-		ChainID: node.genesis.ChainID,
-		Genesis: node.genesis.AppState,
-	}); err != nil {
-		storage.Close()
+	startHeight, err := node.initializeRuntime(ctx, runtime, storage)
+	if err != nil {
 		return err
 	}
-	consensusState, err := runtime.NewConsensusStateMachine(ctx, 1)
+	consensusState, err := runtime.NewConsensusStateMachine(ctx, startHeight)
 	if err != nil {
 		storage.Close()
 		return err
 	}
-	consensusState.StartRound(1, 0)
+	consensusState.StartRound(startHeight, 0)
 	var reactor *consensus.TransportReactor
 	if node.wire != nil {
 		receiver := consensus.Reactor(consensusState)
@@ -169,6 +166,25 @@ func (node *Node) Start(ctx context.Context) error {
 	node.running = true
 	node.startPeerScoreWindowReset(ctx)
 	return nil
+}
+
+func (node *Node) initializeRuntime(ctx context.Context, runtime *vexoruntime.Runtime, storage store.Store) (types.Height, error) {
+	state, err := runtime.Recover(ctx)
+	if err == nil {
+		return state.Height + 1, nil
+	}
+	if !errors.Is(err, store.ErrStateNotFound) {
+		storage.Close()
+		return 0, err
+	}
+	if _, err := node.app.InitChain(app.InitChainRequest{
+		ChainID: node.genesis.ChainID,
+		Genesis: node.genesis.AppState,
+	}); err != nil {
+		storage.Close()
+		return 0, err
+	}
+	return 1, nil
 }
 
 func (node *Node) Stop(ctx context.Context) error {
