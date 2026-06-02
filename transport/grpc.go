@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/p2p"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/encoding"
 )
@@ -56,6 +58,7 @@ type GRPCConfig struct {
 	ChainID         string
 	GenesisHash     string
 	MaxMessageBytes uint64
+	TLSConfig       *tls.Config
 }
 
 type GRPCTransport struct {
@@ -67,6 +70,7 @@ type GRPCTransport struct {
 	chainID         string
 	genesisHash     string
 	maxMessageBytes uint64
+	tlsConfig       *tls.Config
 
 	mu          sync.RWMutex
 	listener    net.Listener
@@ -289,6 +293,7 @@ func NewGRPCTransport(config GRPCConfig) (*GRPCTransport, error) {
 	if config.MaxMessageBytes == 0 {
 		config.MaxMessageBytes = defaultMaxMessageBytes
 	}
+	tlsConfig := cloneGRPCTLSConfig(config.TLSConfig)
 	peers := make(map[p2p.PeerID]string, len(config.Peers))
 	for peerID, address := range config.Peers {
 		if peerID == "" || address == "" {
@@ -305,6 +310,7 @@ func NewGRPCTransport(config GRPCConfig) (*GRPCTransport, error) {
 		chainID:         config.ChainID,
 		genesisHash:     config.GenesisHash,
 		maxMessageBytes: config.MaxMessageBytes,
+		tlsConfig:       tlsConfig,
 		peers:           peers,
 		connections:     make(map[p2p.PeerID]*grpc.ClientConn),
 		sessions:        make(map[p2p.PeerID]*grpcPeerSession),
@@ -332,11 +338,15 @@ func (transport *GRPCTransport) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	server := grpc.NewServer(
+	serverOptions := []grpc.ServerOption{
 		grpc.ForceServerCodec(grpcBinaryCodec{}),
 		grpc.MaxRecvMsgSize(int(transport.maxMessageBytes)),
 		grpc.MaxSendMsgSize(int(transport.maxMessageBytes)),
-	)
+	}
+	if transport.tlsConfig != nil {
+		serverOptions = append(serverOptions, grpc.Creds(credentials.NewTLS(transport.tlsConfig.Clone())))
+	}
+	server := grpc.NewServer(serverOptions...)
 	registerP2PTransportServer(server, transport)
 	transport.listener = listener
 	transport.server = server
@@ -558,7 +568,7 @@ func (transport *GRPCTransport) peerConnection(ctx context.Context, peerID p2p.P
 		return connection, nil
 	}
 	connection, err := grpc.DialContext(ctx, address,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(transport.transportCredentials()),
 		grpc.WithDefaultCallOptions(grpc.ForceCodec(grpcBinaryCodec{})),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(int(transport.maxMessageBytes))),
 		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(int(transport.maxMessageBytes))),
@@ -575,6 +585,24 @@ func (transport *GRPCTransport) peerConnection(ctx context.Context, peerID p2p.P
 	}
 	transport.connections[peerID] = connection
 	return connection, nil
+}
+
+func (transport *GRPCTransport) transportCredentials() credentials.TransportCredentials {
+	if transport.tlsConfig == nil {
+		return insecure.NewCredentials()
+	}
+	return credentials.NewTLS(transport.tlsConfig.Clone())
+}
+
+func cloneGRPCTLSConfig(config *tls.Config) *tls.Config {
+	if config == nil {
+		return nil
+	}
+	cloned := config.Clone()
+	if cloned.MinVersion == 0 {
+		cloned.MinVersion = tls.VersionTLS13
+	}
+	return cloned
 }
 
 func (transport *GRPCTransport) peerSession(ctx context.Context, peerID p2p.PeerID, address string) (*grpcPeerSession, error) {

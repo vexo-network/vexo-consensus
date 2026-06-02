@@ -2,7 +2,14 @@ package transport
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"errors"
+	"math/big"
+	"net"
 	"testing"
 	"time"
 
@@ -136,6 +143,58 @@ func TestGRPCTransportRejectsOversizedMessage(t *testing.T) {
 	}
 }
 
+func TestGRPCTransportSupportsMutualTLS(t *testing.T) {
+	caCert, caKey, certPool := newTestCertificateAuthority(t)
+	config := GRPCConfig{
+		NetworkID:   "localnet",
+		ChainID:     "vexo-test",
+		GenesisHash: GenesisHash([]byte("genesis")),
+		DialTimeout: 30 * time.Second,
+	}
+	aliceConfig := config
+	aliceConfig.TLSConfig = newTestPeerTLSConfig(t, caCert, caKey, certPool, "alice")
+	bobConfig := config
+	bobConfig.TLSConfig = newTestPeerTLSConfig(t, caCert, caKey, certPool, "bob")
+	alice := newStartedGRPCPeer(t, "alice", aliceConfig)
+	bob := newStartedGRPCPeer(t, "bob", bobConfig)
+	defer stopGRPCPeer(t, alice)
+	defer stopGRPCPeer(t, bob)
+
+	bobTxs, err := bob.Subscribe(context.Background(), p2p.TopicTx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alice.SetPeer("bob", bob.Address())
+	if err := alice.Send(context.Background(), "bob", p2p.TopicTx, []byte("secure")); err != nil {
+		t.Fatal(err)
+	}
+	assertEnvelope(t, bobTxs, "alice", "bob", p2p.TopicTx, "secure")
+}
+
+func TestGRPCTransportRejectsUntrustedClientCertificate(t *testing.T) {
+	trustedCACert, trustedCAKey, trustedPool := newTestCertificateAuthority(t)
+	untrustedCACert, untrustedCAKey, _ := newTestCertificateAuthority(t)
+	config := GRPCConfig{
+		NetworkID:   "localnet",
+		ChainID:     "vexo-test",
+		GenesisHash: GenesisHash([]byte("genesis")),
+		DialTimeout: 30 * time.Second,
+	}
+	aliceConfig := config
+	aliceConfig.TLSConfig = newTestPeerTLSConfig(t, untrustedCACert, untrustedCAKey, trustedPool, "alice")
+	bobConfig := config
+	bobConfig.TLSConfig = newTestPeerTLSConfig(t, trustedCACert, trustedCAKey, trustedPool, "bob")
+	alice := newStartedGRPCPeer(t, "alice", aliceConfig)
+	bob := newStartedGRPCPeer(t, "bob", bobConfig)
+	defer stopGRPCPeer(t, alice)
+	defer stopGRPCPeer(t, bob)
+	alice.SetPeer("bob", bob.Address())
+
+	if err := alice.Send(context.Background(), "bob", p2p.TopicTx, []byte("blocked")); err == nil {
+		t.Fatal("expected untrusted client certificate to fail")
+	}
+}
+
 func TestGRPCTransportRejectsHandshakeMismatch(t *testing.T) {
 	alice := newStartedGRPCPeer(t, "alice", GRPCConfig{ChainID: "vexo-a", GenesisHash: GenesisHash([]byte("genesis-a"))})
 	bob := newStartedGRPCPeer(t, "bob", GRPCConfig{ChainID: "vexo-b", GenesisHash: GenesisHash([]byte("genesis-a"))})
@@ -236,4 +295,60 @@ func grpcSessionCount(peer *GRPCTransport) int {
 	peer.mu.RLock()
 	defer peer.mu.RUnlock()
 	return len(peer.sessions)
+}
+
+func newTestCertificateAuthority(t *testing.T) (*x509.Certificate, *rsa.PrivateKey, *x509.CertPool) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(time.Now().UnixNano()),
+		Subject:               pkix.Name{CommonName: "vexo-test-ca"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	pool.AddCert(cert)
+	return cert, key, pool
+}
+
+func newTestPeerTLSConfig(t *testing.T, caCert *x509.Certificate, caKey *rsa.PrivateKey, certPool *x509.CertPool, commonName string) *tls.Config {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(time.Now().UnixNano()),
+		Subject:      pkix.Name{CommonName: commonName},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, caCert, &key.PublicKey, caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &tls.Config{
+		Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}},
+		RootCAs:      certPool,
+		ClientCAs:    certPool,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		MinVersion:   tls.VersionTLS13,
+	}
 }
