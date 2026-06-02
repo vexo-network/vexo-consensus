@@ -25,6 +25,7 @@ const (
 	grpcCodecName          = "vexo-binary"
 	grpcCodecVersion       = byte(1)
 	defaultGRPCDialTimeout = 3 * time.Second
+	defaultMaxMessageBytes = 4 * 1024 * 1024
 )
 
 var (
@@ -33,6 +34,7 @@ var (
 	ErrNetworkMismatch     = errors.New("network id mismatch")
 	ErrChainIDMismatch     = errors.New("chain id mismatch")
 	ErrGenesisHashMismatch = errors.New("genesis hash mismatch")
+	ErrMessageTooLarge     = errors.New("p2p message too large")
 )
 
 type Handshake struct {
@@ -53,6 +55,7 @@ type GRPCConfig struct {
 	NetworkID       string
 	ChainID         string
 	GenesisHash     string
+	MaxMessageBytes uint64
 }
 
 type GRPCTransport struct {
@@ -63,6 +66,7 @@ type GRPCTransport struct {
 	networkID       string
 	chainID         string
 	genesisHash     string
+	maxMessageBytes uint64
 
 	mu          sync.RWMutex
 	listener    net.Listener
@@ -282,6 +286,9 @@ func NewGRPCTransport(config GRPCConfig) (*GRPCTransport, error) {
 	if config.ProtocolVersion == "" {
 		config.ProtocolVersion = GRPCProtocolVersion
 	}
+	if config.MaxMessageBytes == 0 {
+		config.MaxMessageBytes = defaultMaxMessageBytes
+	}
 	peers := make(map[p2p.PeerID]string, len(config.Peers))
 	for peerID, address := range config.Peers {
 		if peerID == "" || address == "" {
@@ -297,6 +304,7 @@ func NewGRPCTransport(config GRPCConfig) (*GRPCTransport, error) {
 		networkID:       config.NetworkID,
 		chainID:         config.ChainID,
 		genesisHash:     config.GenesisHash,
+		maxMessageBytes: config.MaxMessageBytes,
 		peers:           peers,
 		connections:     make(map[p2p.PeerID]*grpc.ClientConn),
 		sessions:        make(map[p2p.PeerID]*grpcPeerSession),
@@ -324,7 +332,11 @@ func (transport *GRPCTransport) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	server := grpc.NewServer(grpc.ForceServerCodec(grpcBinaryCodec{}))
+	server := grpc.NewServer(
+		grpc.ForceServerCodec(grpcBinaryCodec{}),
+		grpc.MaxRecvMsgSize(int(transport.maxMessageBytes)),
+		grpc.MaxSendMsgSize(int(transport.maxMessageBytes)),
+	)
 	registerP2PTransportServer(server, transport)
 	transport.listener = listener
 	transport.server = server
@@ -385,6 +397,9 @@ func (transport *GRPCTransport) Publish(ctx context.Context, topic p2p.Topic, da
 	if err := transport.ensureStarted(); err != nil {
 		return err
 	}
+	if err := transport.validatePayloadSize(data); err != nil {
+		return err
+	}
 	peers := transport.peerAddresses()
 	for peerID, address := range peers {
 		if err := transport.sendEnvelope(ctx, peerID, address, Envelope{Topic: topic, From: transport.peerID, Data: append([]byte(nil), data...)}); err != nil {
@@ -396,6 +411,9 @@ func (transport *GRPCTransport) Publish(ctx context.Context, topic p2p.Topic, da
 
 func (transport *GRPCTransport) Send(ctx context.Context, to p2p.PeerID, topic p2p.Topic, data []byte) error {
 	if err := transport.ensureStarted(); err != nil {
+		return err
+	}
+	if err := transport.validatePayloadSize(data); err != nil {
 		return err
 	}
 	address, ok := transport.peerAddress(to)
@@ -492,6 +510,9 @@ func (transport *GRPCTransport) Gossip(stream grpc.BidiStreamingServer[grpcStrea
 			To:    message.Envelope.To,
 			Data:  append([]byte(nil), message.Envelope.Data...),
 		}
+		if err := transport.validatePayloadSize(envelope.Data); err != nil {
+			return err
+		}
 		if envelope.From == transport.peerID {
 			continue
 		}
@@ -505,6 +526,17 @@ func (transport *GRPCTransport) Gossip(stream grpc.BidiStreamingServer[grpcStrea
 func (transport *GRPCTransport) sendEnvelope(ctx context.Context, peerID p2p.PeerID, address string, envelope Envelope) error {
 	ctx, cancel := context.WithTimeout(ctx, transport.dialTimeout)
 	defer cancel()
+	if err := transport.sendEnvelopeOnce(ctx, peerID, address, envelope); err != nil {
+		if errors.Is(err, ErrMessageTooLarge) || errors.Is(err, ErrHandshakeFailed) || errors.Is(err, ErrProtocolMismatch) || errors.Is(err, ErrNetworkMismatch) || errors.Is(err, ErrChainIDMismatch) || errors.Is(err, ErrGenesisHashMismatch) {
+			return err
+		}
+		transport.closePeerSession(peerID)
+		return transport.sendEnvelopeOnce(ctx, peerID, address, envelope)
+	}
+	return nil
+}
+
+func (transport *GRPCTransport) sendEnvelopeOnce(ctx context.Context, peerID p2p.PeerID, address string, envelope Envelope) error {
 	session, err := transport.peerSession(ctx, peerID, address)
 	if err != nil {
 		return err
@@ -528,6 +560,8 @@ func (transport *GRPCTransport) peerConnection(ctx context.Context, peerID p2p.P
 	connection, err := grpc.DialContext(ctx, address,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(grpc.ForceCodec(grpcBinaryCodec{})),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(int(transport.maxMessageBytes))),
+		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(int(transport.maxMessageBytes))),
 		grpc.WithBlock(),
 	)
 	if err != nil {
@@ -646,6 +680,16 @@ func (transport *GRPCTransport) validateHandshake(handshake Handshake) error {
 	}
 	if handshake.NodeID == "" {
 		return fmt.Errorf("%w: missing node id", ErrHandshakeFailed)
+	}
+	return nil
+}
+
+func (transport *GRPCTransport) validatePayloadSize(data []byte) error {
+	if transport.maxMessageBytes == 0 {
+		return nil
+	}
+	if uint64(len(data)) > transport.maxMessageBytes {
+		return fmt.Errorf("%w: size=%d limit=%d", ErrMessageTooLarge, len(data), transport.maxMessageBytes)
 	}
 	return nil
 }

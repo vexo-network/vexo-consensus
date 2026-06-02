@@ -114,6 +114,28 @@ func TestGRPCTransportReusesPeerStreamSession(t *testing.T) {
 	}
 }
 
+func TestGRPCTransportRejectsOversizedMessage(t *testing.T) {
+	config := GRPCConfig{
+		NetworkID:       "localnet",
+		ChainID:         "vexo-test",
+		GenesisHash:     GenesisHash([]byte("genesis")),
+		MaxMessageBytes: 4,
+	}
+	alice := newStartedGRPCPeer(t, "alice", config)
+	bob := newStartedGRPCPeer(t, "bob", config)
+	defer stopGRPCPeer(t, alice)
+	defer stopGRPCPeer(t, bob)
+	alice.SetPeer("bob", bob.Address())
+
+	err := alice.Send(context.Background(), "bob", p2p.TopicTx, []byte("12345"))
+	if !errors.Is(err, ErrMessageTooLarge) {
+		t.Fatalf("expected message too large, got %v", err)
+	}
+	if sessions := grpcSessionCount(alice); sessions != 0 {
+		t.Fatalf("expected oversized message to avoid session creation, got %d sessions", sessions)
+	}
+}
+
 func TestGRPCTransportRejectsHandshakeMismatch(t *testing.T) {
 	alice := newStartedGRPCPeer(t, "alice", GRPCConfig{ChainID: "vexo-a", GenesisHash: GenesisHash([]byte("genesis-a"))})
 	bob := newStartedGRPCPeer(t, "bob", GRPCConfig{ChainID: "vexo-b", GenesisHash: GenesisHash([]byte("genesis-a"))})
