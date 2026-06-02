@@ -802,6 +802,52 @@ func TestNodeConsensusLoopAdvancesRoundAfterTimeout(t *testing.T) {
 	}
 }
 
+func TestNodeSkippedProposerRecoversOnNextRound(t *testing.T) {
+	alice, bob, carol := newConsensusLoopNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+	startNode(t, carol)
+	defer carol.Stop(context.Background())
+
+	if err := bob.SubmitTx(context.Background(), []byte("bank:recover-after-skip")); err != nil {
+		t.Fatal(err)
+	}
+	bobMachine, err := bob.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobMachine.StartRound(1, 0)
+	if _, _, proposed, err := bob.TickConsensus(context.Background(), 1024); err != nil || proposed {
+		t.Fatalf("expected bob not to propose in round 0, proposed=%v err=%v", proposed, err)
+	}
+
+	for _, node := range []*Node{alice, bob, carol} {
+		machine, err := node.Consensus()
+		if err != nil {
+			t.Fatal(err)
+		}
+		machine.StartRound(1, 0)
+	}
+	for _, node := range []*Node{alice, bob, carol} {
+		if _, _, err := node.TimeoutRound(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitForConsensusStatus(t, bobMachine, func(status consensus.Status) bool {
+		return status.Height == 1 && status.Round >= 1 && status.Phase == consensus.PhasePropose
+	})
+
+	proposal, blockHash, proposed, err := bob.TickConsensus(context.Background(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !proposed || proposal.Round != 1 || blockHash == (types.Hash{}) {
+		t.Fatalf("expected bob to recover liveness as round 1 proposer, proposed=%v proposal=%+v hash=%x", proposed, proposal, blockHash)
+	}
+}
+
 func newTransportNodes(t *testing.T) (*Node, *Node) {
 	t.Helper()
 	bus := transport.NewInMemoryBus()

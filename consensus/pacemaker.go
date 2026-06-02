@@ -27,7 +27,15 @@ func (pacemaker *Pacemaker) Round() types.Round {
 }
 
 func (pacemaker *Pacemaker) AdvanceRound(timeoutCert finality.TimeoutCert) error {
-	if timeoutCert.Height != pacemaker.height || timeoutCert.Round < pacemaker.round {
+	if timeoutCert.Height < pacemaker.height {
+		return ErrStaleTimeoutCert
+	}
+	if timeoutCert.Height > pacemaker.height {
+		pacemaker.height = timeoutCert.Height
+		pacemaker.round = timeoutCert.Round + 1
+		return nil
+	}
+	if timeoutCert.Round < pacemaker.round {
 		return ErrStaleTimeoutCert
 	}
 	pacemaker.round = timeoutCert.Round + 1

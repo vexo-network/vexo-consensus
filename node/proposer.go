@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"errors"
+	"sort"
 
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -13,11 +14,20 @@ func SelectProposer(validators []validator.Validator, height types.Height, round
 	if height == 0 {
 		height = 1
 	}
-	if len(validators) == 0 {
+	activeValidators := make([]validator.Validator, 0, len(validators))
+	for _, validatorInfo := range validators {
+		if validatorInfo.VotingPower > 0 {
+			activeValidators = append(activeValidators, validatorInfo)
+		}
+	}
+	if len(activeValidators) == 0 {
 		return "", ErrMissingValidators
 	}
-	index := (uint64(height) - 1 + uint64(round)) % uint64(len(validators))
-	return validators[index].ID, nil
+	sort.Slice(activeValidators, func(left, right int) bool {
+		return activeValidators[left].ID < activeValidators[right].ID
+	})
+	index := (uint64(height) - 1 + uint64(round)) % uint64(len(activeValidators))
+	return activeValidators[index].ID, nil
 }
 
 func ProposerSchedule(validators []validator.Validator, height types.Height, rounds uint64) ([]types.ValidatorID, error) {

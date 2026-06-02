@@ -62,3 +62,27 @@ func TestSelectProposerRejectsEmptyValidatorSet(t *testing.T) {
 		t.Fatalf("expected missing validators, got %v", err)
 	}
 }
+
+func TestProposerScheduleSortsAndSkipsZeroPowerValidators(t *testing.T) {
+	validators := []validator.Validator{
+		{ID: "carol", VotingPower: 1},
+		{ID: "alice", VotingPower: 1},
+		{ID: "bob", VotingPower: 0},
+	}
+
+	schedule, err := ProposerSchedule(validators, 1, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := []types.ValidatorID{"alice", "carol", "alice", "carol"}
+	if !reflect.DeepEqual(schedule, expected) {
+		t.Fatalf("expected %v, got %v", expected, schedule)
+	}
+}
+
+func TestSelectProposerRejectsOnlyZeroPowerValidators(t *testing.T) {
+	_, err := SelectProposer([]validator.Validator{{ID: "alice", VotingPower: 0}}, 1, 0)
+	if !errors.Is(err, ErrMissingValidators) {
+		t.Fatalf("expected missing validators, got %v", err)
+	}
+}
