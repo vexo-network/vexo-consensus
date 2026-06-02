@@ -118,6 +118,57 @@ func TestRunLocalnetInitAndStartDryRun(t *testing.T) {
 	}
 }
 
+func TestRunLocalnetUpDryRun(t *testing.T) {
+	home := t.TempDir()
+	var output bytes.Buffer
+	err := runCommand(&output, &bytes.Buffer{}, []string{
+		"localnet", "up",
+		"--home", home,
+		"--chain-id", "vexo-test",
+		"--validators", "2",
+		"--binary", "/bin/vexod",
+		"--timeout", "3s",
+		"--tx", "bank:dry-run",
+		"--overwrite",
+		"--dry-run",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"localnet up plan",
+		"chain-id: vexo-test",
+		"validators: 2",
+		"localnet init",
+		"--overwrite",
+		"localnet start",
+		"localnet smoke",
+		"localnet stop",
+	} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected localnet up dry-run output to contain %q, got:\n%s", expected, output.String())
+		}
+	}
+}
+
+func TestRunLocalnetUpDryRunCanKeepRunning(t *testing.T) {
+	var output bytes.Buffer
+	err := runCommand(&output, &bytes.Buffer{}, []string{
+		"localnet", "up",
+		"--home", t.TempDir(),
+		"--validators", "1",
+		"--binary", "/bin/vexod",
+		"--keep-running",
+		"--dry-run",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "keep nodes running") || strings.Contains(output.String(), "localnet stop") {
+		t.Fatalf("expected keep-running dry-run to skip stop, got:\n%s", output.String())
+	}
+}
+
 func TestLocalnetRuntimePlanAndPIDHelpers(t *testing.T) {
 	home := t.TempDir()
 	plan, err := buildLocalnetRuntimePlan(home, 2, "/bin/vexod")
@@ -129,6 +180,9 @@ func TestLocalnetRuntimePlanAndPIDHelpers(t *testing.T) {
 	}
 	if plan.Nodes[0].ValidatorID != "validator-1" || plan.Nodes[0].RPCAddress != localnetRPCAddress(1) || plan.Nodes[1].P2PAddress != localnetP2PAddress(2) {
 		t.Fatalf("unexpected nodes: %+v", plan.Nodes)
+	}
+	if plan.Nodes[0].LogPath != filepath.Join(home, "validator-1", "vexod.log") {
+		t.Fatalf("unexpected log path: %s", plan.Nodes[0].LogPath)
 	}
 	if _, err := buildLocalnetRuntimePlan(home, 0, "/bin/vexod"); err == nil {
 		t.Fatal("expected invalid validator count")
@@ -143,6 +197,24 @@ func TestLocalnetRuntimePlanAndPIDHelpers(t *testing.T) {
 	}
 	if pid != 12345 {
 		t.Fatalf("expected pid 12345, got %d", pid)
+	}
+}
+
+func TestStartLocalnetNodeRefusesExistingPIDFile(t *testing.T) {
+	plan, err := buildLocalnetRuntimePlan(t.TempDir(), 1, "/bin/vexod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	localNode := plan.Nodes[0]
+	if err := os.MkdirAll(localNode.Home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(localNode.PIDPath, []byte("123"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err = startLocalnetNode("/bin/vexod", localNode)
+	if err == nil || !strings.Contains(err.Error(), "already has pid file") {
+		t.Fatalf("expected existing pid file error, got %v", err)
 	}
 }
 

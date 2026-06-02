@@ -210,9 +210,11 @@ go run ./cmd/vexod init --home .vexo-localnet --chain-id vexo-local --validators
 go run ./cmd/vexod start --home .vexo-localnet/validator-1 --run
 ```
 
-Manage a local multi-node network:
+Run and manage a local multi-node network:
 
 ```bash
+go run ./cmd/vexod localnet up --home .vexo-localnet --validators 4 --overwrite --keep-running
+
 go run ./cmd/vexod localnet init --home .vexo-localnet --validators 4
 go run ./cmd/vexod localnet start --home .vexo-localnet --validators 4
 go run ./cmd/vexod localnet smoke --home .vexo-localnet --validators 4

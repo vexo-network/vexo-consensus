@@ -32,6 +32,7 @@ type localnetNodeRuntimePlan struct {
 	RPCAddress  string
 	P2PAddress  string
 	PIDPath     string
+	LogPath     string
 	Args        []string
 }
 
@@ -40,6 +41,8 @@ func runLocalnet(writer io.Writer, args []string) error {
 		return errors.New("localnet subcommand is required")
 	}
 	switch args[0] {
+	case "up":
+		return runLocalnetUp(context.Background(), writer, args[1:])
 	case "init":
 		return runLocalnetInit(writer, args[1:])
 	case "start":
@@ -64,6 +67,64 @@ type localnetSmokeResult struct {
 
 type localnetStatusResponse struct {
 	LatestHeight uint64 `json:"latest_height"`
+}
+
+func runLocalnetUp(ctx context.Context, writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("localnet up", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", ".vexo-localnet", "localnet home directory")
+	chainID := flags.String("chain-id", defaultChainID, "chain id")
+	validators := flags.Int("validators", 4, "validator count")
+	binaryPath := flags.String("binary", "", "vexod binary path; defaults to current executable")
+	timeout := flags.Duration("timeout", 20*time.Second, "startup and smoke test timeout")
+	tx := flags.String("tx", "bank:smoke", "transaction payload to submit")
+	overwrite := flags.Bool("overwrite", false, "overwrite existing localnet files")
+	keepRunning := flags.Bool("keep-running", false, "leave nodes running after smoke test")
+	dryRun := flags.Bool("dry-run", false, "print orchestration plan without writing files or spawning processes")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	plan, err := buildLocalnetRuntimePlan(*home, *validators, *binaryPath)
+	if err != nil {
+		return err
+	}
+	if *dryRun {
+		writeLocalnetUpPlan(writer, plan, *chainID, *timeout, *tx, *overwrite, *keepRunning)
+		return nil
+	}
+	localnetFiles, err := writeLocalnetFiles(*home, *chainID, *validators, *overwrite)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "initialized vexo localnet home=%s validators=%d\n", localnetFiles.Home, len(localnetFiles.Nodes))
+	nodesStarted := false
+	if err := startLocalnetPlan(writer, plan); err != nil {
+		return err
+	}
+	nodesStarted = true
+	if !*keepRunning {
+		defer func() {
+			if nodesStarted {
+				_ = stopLocalnetPlan(writer, plan)
+			}
+		}()
+	}
+	smokeCtx, cancel := context.WithTimeout(ctx, *timeout)
+	defer cancel()
+	client := http.Client{Timeout: *timeout}
+	results, err := runLocalnetSmokePlan(smokeCtx, client, plan, []byte(*tx))
+	if err != nil {
+		return err
+	}
+	for _, result := range results {
+		fmt.Fprintf(writer, "%s rpc=%s healthy=%t height=%d\n", result.ValidatorID, result.RPCAddress, result.Healthy, result.Height)
+	}
+	if *keepRunning {
+		fmt.Fprintf(writer, "localnet up ok; nodes are running\n")
+		return nil
+	}
+	fmt.Fprintf(writer, "localnet up ok; stopping nodes\n")
+	return nil
 }
 
 func runLocalnetSmoke(ctx context.Context, writer io.Writer, args []string) error {
@@ -133,13 +194,7 @@ func runLocalnetStart(writer io.Writer, args []string) error {
 		writeLocalnetPlan(writer, plan)
 		return nil
 	}
-	for _, localNode := range plan.Nodes {
-		if err := startLocalnetNode(plan.Binary, localNode); err != nil {
-			return err
-		}
-		fmt.Fprintf(writer, "started %s pid=%s rpc=%s p2p=%s\n", localNode.ValidatorID, localNode.PIDPath, localNode.RPCAddress, localNode.P2PAddress)
-	}
-	return nil
+	return startLocalnetPlan(writer, plan)
 }
 
 func runLocalnetStatus(ctx context.Context, writer io.Writer, args []string) error {
@@ -175,6 +230,23 @@ func runLocalnetStop(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
+	return stopLocalnetPlan(writer, plan)
+}
+
+func startLocalnetPlan(writer io.Writer, plan localnetRuntimePlan) error {
+	started := localnetRuntimePlan{Nodes: make([]localnetNodeRuntimePlan, 0, len(plan.Nodes))}
+	for _, localNode := range plan.Nodes {
+		if err := startLocalnetNode(plan.Binary, localNode); err != nil {
+			_ = stopLocalnetPlan(io.Discard, started)
+			return err
+		}
+		started.Nodes = append(started.Nodes, localNode)
+		fmt.Fprintf(writer, "started %s pid=%s log=%s rpc=%s p2p=%s\n", localNode.ValidatorID, localNode.PIDPath, localNode.LogPath, localNode.RPCAddress, localNode.P2PAddress)
+	}
+	return nil
+}
+
+func stopLocalnetPlan(writer io.Writer, plan localnetRuntimePlan) error {
 	for _, localNode := range plan.Nodes {
 		pid, err := readLocalnetPID(localNode.PIDPath)
 		if err != nil {
@@ -226,6 +298,7 @@ func buildLocalnetRuntimePlan(home string, validators int, binaryPath string) (l
 			RPCAddress:  localnetRPCAddress(index),
 			P2PAddress:  localnetP2PAddress(index),
 			PIDPath:     filepath.Join(nodeHome, localnetPIDFileName),
+			LogPath:     filepath.Join(nodeHome, "vexod.log"),
 			Args:        args,
 		})
 	}
@@ -237,17 +310,48 @@ func writeLocalnetPlan(writer io.Writer, plan localnetRuntimePlan) {
 	fmt.Fprintf(writer, "home: %s\n", plan.Home)
 	fmt.Fprintf(writer, "validators: %d\n", plan.Validators)
 	for _, localNode := range plan.Nodes {
-		fmt.Fprintf(writer, "%s: %s %s\n", localNode.ValidatorID, plan.Binary, joinArgs(localNode.Args))
+		fmt.Fprintf(writer, "%s: %s %s # log=%s pid=%s\n", localNode.ValidatorID, plan.Binary, joinArgs(localNode.Args), localNode.LogPath, localNode.PIDPath)
 	}
+}
+
+func writeLocalnetUpPlan(writer io.Writer, plan localnetRuntimePlan, chainID string, timeout time.Duration, tx string, overwrite bool, keepRunning bool) {
+	fmt.Fprintf(writer, "localnet up plan\n")
+	fmt.Fprintf(writer, "home: %s\n", plan.Home)
+	fmt.Fprintf(writer, "chain-id: %s\n", chainID)
+	fmt.Fprintf(writer, "validators: %d\n", plan.Validators)
+	fmt.Fprintf(writer, "timeout: %s\n", timeout)
+	fmt.Fprintf(writer, "tx: %s\n", tx)
+	initCommand := fmt.Sprintf("localnet init --home %s --chain-id %s --validators %d", plan.Home, chainID, plan.Validators)
+	if overwrite {
+		initCommand += " --overwrite"
+	}
+	fmt.Fprintf(writer, "1. %s\n", initCommand)
+	fmt.Fprintf(writer, "2. localnet start --home %s --validators %d --binary %s\n", plan.Home, plan.Validators, plan.Binary)
+	fmt.Fprintf(writer, "3. localnet smoke --home %s --validators %d --timeout %s --tx %s\n", plan.Home, plan.Validators, timeout, tx)
+	if keepRunning {
+		fmt.Fprintf(writer, "4. keep nodes running\n")
+		return
+	}
+	fmt.Fprintf(writer, "4. localnet stop --home %s --validators %d\n", plan.Home, plan.Validators)
 }
 
 func startLocalnetNode(binaryPath string, localNode localnetNodeRuntimePlan) error {
 	if err := os.MkdirAll(localNode.Home, 0o755); err != nil {
 		return err
 	}
+	if _, err := os.Stat(localNode.PIDPath); err == nil {
+		return fmt.Errorf("%s already has pid file %s", localNode.ValidatorID, localNode.PIDPath)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	logFile, err := os.OpenFile(localNode.LogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	defer logFile.Close()
 	command := exec.Command(binaryPath, localNode.Args...)
-	command.Stdout = nil
-	command.Stderr = nil
+	command.Stdout = logFile
+	command.Stderr = logFile
 	if err := command.Start(); err != nil {
 		return err
 	}
