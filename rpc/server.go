@@ -1118,10 +1118,8 @@ func decodeSubmitTxRequest(writer http.ResponseWriter, request *http.Request, ma
 	request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBytes)
 	defer request.Body.Close()
 
-	decoder := json.NewDecoder(request.Body)
-	decoder.DisallowUnknownFields()
 	var payload SubmitTxRequest
-	if err := decoder.Decode(&payload); err != nil {
+	if err := decodeStrictJSON(request.Body, &payload); err != nil {
 		return nil, fmt.Errorf("invalid transaction request: %w", err)
 	}
 	if payload.Tx == "" {
@@ -1154,10 +1152,8 @@ func decodeSubmitEvidenceRequest(writer http.ResponseWriter, request *http.Reque
 	request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBytes)
 	defer request.Body.Close()
 
-	decoder := json.NewDecoder(request.Body)
-	decoder.DisallowUnknownFields()
 	var payload SubmitEvidenceRequest
-	if err := decoder.Decode(&payload); err != nil {
+	if err := decodeStrictJSON(request.Body, &payload); err != nil {
 		return slashing.Evidence{}, fmt.Errorf("invalid evidence request: %w", err)
 	}
 	if payload.Type == "" {
@@ -1205,10 +1201,8 @@ func decodePruneRequest(writer http.ResponseWriter, request *http.Request, maxRe
 	request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBytes)
 	defer request.Body.Close()
 
-	decoder := json.NewDecoder(request.Body)
-	decoder.DisallowUnknownFields()
 	var payload PruneRequest
-	if err := decoder.Decode(&payload); err != nil {
+	if err := decodeStrictJSON(request.Body, &payload); err != nil {
 		return 0, fmt.Errorf("invalid prune request: %w", err)
 	}
 	if payload.RetainFromHeight == 0 {
@@ -1221,10 +1215,8 @@ func decodeReplayRequest(writer http.ResponseWriter, request *http.Request, maxR
 	request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBytes)
 	defer request.Body.Close()
 
-	decoder := json.NewDecoder(request.Body)
-	decoder.DisallowUnknownFields()
 	var payload ReplayRequest
-	if err := decoder.Decode(&payload); err != nil {
+	if err := decodeStrictJSON(request.Body, &payload); err != nil {
 		return ReplayRequest{}, fmt.Errorf("invalid replay request: %w", err)
 	}
 	if payload.All && (payload.FromHeight != 0 || payload.ToHeight != 0) {
@@ -1246,11 +1238,26 @@ func decodeConsensusLoopRequest(writer http.ResponseWriter, request *http.Reques
 		}
 		return node.ConsensusLoopConfig{}, fmt.Errorf("invalid consensus loop request: %w", err)
 	}
+	if decoder.Decode(&struct{}{}) != io.EOF {
+		return node.ConsensusLoopConfig{}, errors.New("invalid consensus loop request: trailing JSON data")
+	}
 	return node.ConsensusLoopConfig{
 		Interval:      time.Duration(payload.IntervalMillis) * time.Millisecond,
 		RoundTimeout:  time.Duration(payload.RoundTimeoutMillis) * time.Millisecond,
 		MaxBlockBytes: payload.MaxBlockBytes,
 	}, nil
+}
+
+func decodeStrictJSON(reader io.Reader, value any) error {
+	decoder := json.NewDecoder(reader)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(value); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return errors.New("trailing JSON data")
+	}
+	return nil
 }
 
 func blockResponse(record store.BlockRecord) BlockResponse {

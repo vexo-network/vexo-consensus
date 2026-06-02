@@ -10,7 +10,7 @@ BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS ?= -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)
 RELEASE_TARGETS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
-.PHONY: all build test vet check coverage release checksums clean init-demo keys-demo
+.PHONY: all build test vet check fuzz-smoke coverage release checksums clean init-demo keys-demo
 
 all: check build
 
@@ -27,6 +27,16 @@ vet:
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) vet ./...
 
 check: test vet
+
+fuzz-smoke:
+	mkdir -p $(GOCACHE_DIR)
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./app -run '^$$' -fuzz=FuzzDecodeSignedTx -fuzztime=1s
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./consensus -run '^$$' -fuzz=FuzzDecodeWireMessage -fuzztime=1s
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./dataavailability -run '^$$' -fuzz=FuzzVerify -fuzztime=1s
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./fairordering -run '^$$' -fuzz=FuzzSortTxsWithSalt -fuzztime=1s
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./mempool -run '^$$' -fuzz=FuzzFIFOAddAndBuildBatch -fuzztime=1s
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./rpc -run '^$$' -fuzz=FuzzSubmitTxRequest -fuzztime=1s
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./rpc -run '^$$' -fuzz=FuzzSubmitEvidenceRequest -fuzztime=1s
 
 coverage:
 	mkdir -p $(GOCACHE_DIR)

@@ -37,6 +37,9 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "ops.pprof_optional: true\n")
 	fmt.Fprintf(writer, "ops.structured_logs: true\n")
 	fmt.Fprintf(writer, "ops.release_artifacts: true\n")
+	fmt.Fprintf(writer, "security.fuzz_targets: true\n")
+	fmt.Fprintf(writer, "security.strict_json_rpc: true\n")
+	fmt.Fprintf(writer, "security.forwarded_for_untrusted: true\n")
 	fmt.Fprintf(writer, "addr_book.persistent: true\n")
 	fmt.Fprintf(writer, "addr_book.dial_failure_tracking: true\n")
 	fmt.Fprintf(writer, "addr_book.ban_eviction_policy: true\n")
@@ -164,28 +167,31 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			EnablePriority: cfg.Mempool.EnablePriority,
 		},
 		Features: map[string]bool{
-			"fair_ordering":            true,
-			"height_salted_order":      true,
-			"data_availability":        true,
-			"state_sync_snapshot_kv":   true,
-			"state_sync_checksum":      true,
-			"state_sync_verify":        true,
-			"ops_metrics_uptime":       true,
-			"ops_pprof_optional":       true,
-			"ops_structured_logs":      true,
-			"ops_release_artifacts":    true,
-			"deployment_audit":         true,
-			"addr_book":                true,
-			"addr_book_ban_evict":      true,
-			"peer_dial_tracking":       true,
-			"transport_peer_gate":      true,
-			"consensus_gossip_scoring": true,
-			"banned_peer_disconnect":   true,
-			"peer_score_persistence":   true,
-			"leveldb_storage":          true,
-			"peer_scoring":             true,
-			"temporary_peer_bans":      true,
-			"peer_score_recovery":      true,
+			"fair_ordering":                    true,
+			"height_salted_order":              true,
+			"data_availability":                true,
+			"state_sync_snapshot_kv":           true,
+			"state_sync_checksum":              true,
+			"state_sync_verify":                true,
+			"ops_metrics_uptime":               true,
+			"ops_pprof_optional":               true,
+			"ops_structured_logs":              true,
+			"ops_release_artifacts":            true,
+			"security_fuzz_targets":            true,
+			"security_strict_json_rpc":         true,
+			"security_forwarded_for_untrusted": true,
+			"deployment_audit":                 true,
+			"addr_book":                        true,
+			"addr_book_ban_evict":              true,
+			"peer_dial_tracking":               true,
+			"transport_peer_gate":              true,
+			"consensus_gossip_scoring":         true,
+			"banned_peer_disconnect":           true,
+			"peer_score_persistence":           true,
+			"leveldb_storage":                  true,
+			"peer_scoring":                     true,
+			"temporary_peer_bans":              true,
+			"peer_score_recovery":              true,
 		},
 		Storage: storageStatus{Backend: "leveldb"},
 		P2P: p2pStatus{

@@ -554,6 +554,22 @@ func TestHandlerRateLimitSeparatesClientIPs(t *testing.T) {
 	requestJSON(t, handler, http.MethodGet, "/healthz", "", "10.0.0.2:1000", http.StatusOK, &health)
 }
 
+func TestHandlerRateLimitIgnoresForwardedForHeader(t *testing.T) {
+	handler := NewHandlerWithConfig(fakeStatusProvider{status: node.Status{Running: true}}, Config{
+		RateLimitWindow:      time.Hour,
+		RateLimitMaxRequests: 1,
+	})
+
+	var health HealthResponse
+	requestJSONWithHeaders(t, handler, http.MethodGet, "/healthz", "", "10.0.0.1:1000", map[string]string{"X-Forwarded-For": "203.0.113.1"}, http.StatusOK, &health)
+
+	var response map[string]string
+	requestJSONWithHeaders(t, handler, http.MethodGet, "/healthz", "", "10.0.0.1:1001", map[string]string{"X-Forwarded-For": "203.0.113.2"}, http.StatusTooManyRequests, &response)
+	if response["error"] != "rate limit exceeded" {
+		t.Fatalf("unexpected rate limit response: %+v", response)
+	}
+}
+
 func TestHandlerRejectsNonGET(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/status", nil)
 	response := httptest.NewRecorder()
@@ -611,6 +627,7 @@ func TestHandlerRejectsInvalidTransactionRequests(t *testing.T) {
 		`{"tx":"not-base64"}`,
 		`{"tx":"bank:send","encoding":"unknown"}`,
 		`{"tx":"YmFuaw==","extra":true}`,
+		`{"tx":"YmFuaw=="} {"tx":"YmFuaw=="}`,
 	}
 	for _, body := range cases {
 		var response map[string]string
@@ -714,6 +731,7 @@ func TestHandlerRejectsInvalidEvidenceRequests(t *testing.T) {
 		`{"type":"double_sign","validator":"","height":1,"proof":"cHJvb2Y="}`,
 		`{"type":"double_sign","validator":"alice","height":0,"proof":"cHJvb2Y="}`,
 		`{"type":"double_sign","validator":"alice","height":1,"proof":"cHJvb2Y=","extra":true}`,
+		`{"type":"double_sign","validator":"alice","height":1,"proof":"cHJvb2Y="} {"type":"double_sign","validator":"alice","height":1,"proof":"cHJvb2Y="}`,
 	}
 	for _, body := range cases {
 		var response map[string]string
@@ -1048,6 +1066,19 @@ func TestHandlerRequiresAdminTokenForPrune(t *testing.T) {
 	}
 }
 
+func TestHandlerRejectsMalformedAdminAuthorizationScheme(t *testing.T) {
+	handler := NewHandlerWithConfig(&fakeStatusProvider{}, Config{AdminToken: "secret"})
+	request := httptest.NewRequest(http.MethodPost, "/prune", strings.NewReader(`{"retain_from_height":3}`))
+	request.Header.Set("Authorization", "Basic secret")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("expected malformed admin scheme to be unauthorized, got %d", response.Code)
+	}
+}
+
 func TestHandlerAcceptsAdminTokenForPrune(t *testing.T) {
 	provider := &fakeStatusProvider{pruneResult: store.PruneResult{RetainFromHeight: 3, PrunedBlocks: 1}}
 	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
@@ -1065,6 +1096,7 @@ func TestHandlerRejectsInvalidPruneRequests(t *testing.T) {
 		`{}`,
 		`{"retain_from_height":0}`,
 		`{"retain_from_height":1,"extra":true}`,
+		`{"retain_from_height":1} {"retain_from_height":2}`,
 	}
 	for _, body := range cases {
 		var response map[string]string
@@ -1191,6 +1223,7 @@ func TestHandlerRejectsInvalidReplayRequests(t *testing.T) {
 		`{"to_height":2}`,
 		`{"all":true,"from_height":1}`,
 		`{"from_height":1,"to_height":2,"extra":true}`,
+		`{"all":true} {"all":true}`,
 	}
 	for _, body := range cases {
 		var response map[string]string
@@ -1341,6 +1374,7 @@ func TestHandlerRejectsInvalidConsensusStartRequests(t *testing.T) {
 	handler := NewHandler(&fakeStatusProvider{})
 	for _, body := range []string{
 		`{"interval_millis":1,"extra":true}`,
+		`{"interval_millis":1} {"interval_millis":2}`,
 		`{`,
 	} {
 		var response map[string]string

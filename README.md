@@ -146,6 +146,8 @@ The design is intentionally modular so individual components can be replaced wit
 - P2P rate-limit and ban threshold logic
 - Per-peer and global P2P flood limits
 - Flood, overflow, duplicate, and invalid-transaction regression tests
+- Strict single-document JSON decoding for RPC mutation endpoints
+- Fuzz targets for signed transactions, consensus wire messages, data availability, fair ordering, mempool batching, and RPC request decoders
 
 ### Storage and Runtime
 
@@ -469,6 +471,12 @@ Run all checks:
 
 ```bash
 make check
+```
+
+Run short fuzz smoke checks:
+
+```bash
+make fuzz-smoke
 ```
 
 Build a container image:
