@@ -53,6 +53,7 @@ type Status struct {
 	Phase            Phase
 	LastFinalized    types.Hash
 	ValidatorSetHash types.Hash
+	LastTimeoutCert  finality.TimeoutCert
 }
 
 type Reactor interface {

@@ -39,10 +39,11 @@ func NewInMemoryKeeper(policy PenaltyPolicy) *InMemoryKeeper {
 
 func DefaultPenaltyPolicy() PenaltyPolicy {
 	return PenaltyPolicy{
-		EvidenceDoubleSign:      {SlashFraction: "0.05", JailDuration: 1209600},
-		EvidenceConflictingVote: {SlashFraction: "0.05", JailDuration: 1209600},
-		EvidenceInvalidProposal: {SlashFraction: "0.01", JailDuration: 86400},
-		EvidenceUnavailableData: {SlashFraction: "0.02", JailDuration: 604800},
+		EvidenceDoubleSign:             {SlashFraction: "0.05", JailDuration: 1209600},
+		EvidenceConflictingVote:        {SlashFraction: "0.05", JailDuration: 1209600},
+		EvidenceConflictingTimeoutVote: {SlashFraction: "0.05", JailDuration: 1209600},
+		EvidenceInvalidProposal:        {SlashFraction: "0.01", JailDuration: 86400},
+		EvidenceUnavailableData:        {SlashFraction: "0.02", JailDuration: 604800},
 	}
 }
 

@@ -293,7 +293,13 @@ func (machine *StateMachine) OnTimeoutVote(ctx context.Context, vote TimeoutVote
 	if err := machine.verifyTimeoutVoteSignature(vote); err != nil {
 		return finality.TimeoutCert{}, err
 	}
+	previous, conflicting := machine.timeouts.ConflictingVote(vote)
 	if err := machine.timeouts.AddVote(vote); err != nil {
+		if conflicting && errors.Is(err, ErrConflictingTimeoutVote) {
+			if evidence, evidenceErr := NewConflictingTimeoutVoteEvidence(previous, vote); evidenceErr == nil {
+				machine.evidence = append(machine.evidence, evidence)
+			}
+		}
 		return finality.TimeoutCert{}, err
 	}
 	timeoutCert, err := machine.timeouts.BuildTimeoutCert(vote.Height, vote.Round)
@@ -307,6 +313,7 @@ func (machine *StateMachine) OnTimeoutVote(ctx context.Context, vote TimeoutVote
 	machine.status.Height = machine.pacemaker.Height()
 	machine.status.Round = machine.pacemaker.Round()
 	machine.status.Phase = PhasePropose
+	machine.status.LastTimeoutCert = timeoutCert
 	return timeoutCert, nil
 }
 

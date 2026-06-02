@@ -912,6 +912,42 @@ func TestStateMachineAdvancesRoundOnTimeoutQuorum(t *testing.T) {
 	if status.Round != 1 || status.Phase != PhasePropose {
 		t.Fatalf("expected round 1 propose, got %+v", status)
 	}
+	if status.LastTimeoutCert.Height != 1 || status.LastTimeoutCert.Round != 0 {
+		t.Fatalf("expected last timeout cert in status, got %+v", status.LastTimeoutCert)
+	}
+}
+
+func TestStateMachineRecordsConflictingTimeoutVoteEvidence(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+		{ID: "c", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(1, 0)
+
+	first := TimeoutVote{Height: 1, Round: 0, ValidatorID: "a", HighQC: finality.QuorumCert{Height: 1, Round: 0, BlockHash: types.Hash{1}}}
+	second := TimeoutVote{Height: 1, Round: 0, ValidatorID: "a", HighQC: finality.QuorumCert{Height: 1, Round: 0, BlockHash: types.Hash{2}}}
+	if _, err := machine.OnTimeoutVote(context.Background(), first); !errors.Is(err, ErrNoQuorum) {
+		t.Fatalf("expected no quorum, got %v", err)
+	}
+	if _, err := machine.OnTimeoutVote(context.Background(), second); !errors.Is(err, ErrConflictingTimeoutVote) {
+		t.Fatalf("expected conflicting timeout vote, got %v", err)
+	}
+
+	evidence := machine.Evidence()
+	if len(evidence) != 1 {
+		t.Fatalf("expected one evidence, got %d", len(evidence))
+	}
+	if err := VerifyConflictingTimeoutVoteEvidence(evidence[0]); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestStateMachineRejectsStaleTimeoutVote(t *testing.T) {

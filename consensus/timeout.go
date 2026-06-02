@@ -55,6 +55,18 @@ func (collector *TimeoutCollector) AddVote(vote TimeoutVote) error {
 	return nil
 }
 
+func (collector *TimeoutCollector) ConflictingVote(vote TimeoutVote) (TimeoutVote, bool) {
+	roundVotes := collector.votesForRound(vote.Height, vote.Round)
+	if roundVotes == nil {
+		return TimeoutVote{}, false
+	}
+	previous, found := roundVotes[vote.ValidatorID]
+	if !found || sameQC(previous.HighQC, vote.HighQC) {
+		return TimeoutVote{}, false
+	}
+	return previous, true
+}
+
 func (collector *TimeoutCollector) BuildTimeoutCert(height types.Height, round types.Round) (finality.TimeoutCert, error) {
 	roundVotes := collector.votesForRound(height, round)
 	if len(roundVotes) == 0 {

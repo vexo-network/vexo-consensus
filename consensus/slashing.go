@@ -53,6 +53,8 @@ func verifyConsensusEvidence(evidence slashing.Evidence) error {
 	switch evidence.Type {
 	case slashing.EvidenceConflictingVote:
 		return VerifyConflictingVoteEvidence(evidence)
+	case slashing.EvidenceConflictingTimeoutVote:
+		return VerifyConflictingTimeoutVoteEvidence(evidence)
 	default:
 		return nil
 	}

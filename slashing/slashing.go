@@ -9,10 +9,11 @@ import (
 type EvidenceType string
 
 const (
-	EvidenceDoubleSign      EvidenceType = "double_sign"
-	EvidenceConflictingVote EvidenceType = "conflicting_vote"
-	EvidenceInvalidProposal EvidenceType = "invalid_proposal"
-	EvidenceUnavailableData EvidenceType = "unavailable_data"
+	EvidenceDoubleSign             EvidenceType = "double_sign"
+	EvidenceConflictingVote        EvidenceType = "conflicting_vote"
+	EvidenceConflictingTimeoutVote EvidenceType = "conflicting_timeout_vote"
+	EvidenceInvalidProposal        EvidenceType = "invalid_proposal"
+	EvidenceUnavailableData        EvidenceType = "unavailable_data"
 )
 
 type Evidence struct {

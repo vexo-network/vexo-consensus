@@ -132,6 +132,13 @@ func TestTimeoutCollectorRejectsConflictingTimeoutVote(t *testing.T) {
 	if err := collector.AddVote(second); !errors.Is(err, ErrConflictingTimeoutVote) {
 		t.Fatalf("expected conflicting timeout vote, got %v", err)
 	}
+	previous, found := collector.ConflictingVote(second)
+	if !found {
+		t.Fatal("expected conflicting previous vote")
+	}
+	if previous.HighQC.BlockHash != first.HighQC.BlockHash {
+		t.Fatalf("unexpected previous timeout vote: %+v", previous)
+	}
 }
 
 func TestTimeoutCollectorAllowsRepeatedSameTimeoutVote(t *testing.T) {

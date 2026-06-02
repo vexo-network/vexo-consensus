@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
@@ -119,5 +120,32 @@ func TestSubmitEvidenceForSlashingRejectsDuplicateEvidence(t *testing.T) {
 	}
 	if _, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, evidence); !errors.Is(err, slashing.ErrDuplicateEvidence) {
 		t.Fatalf("expected duplicate evidence, got %v", err)
+	}
+}
+
+func TestSubmitTimeoutEvidenceForSlashingReducesValidatorPower(t *testing.T) {
+	registry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{
+		{ID: "a", Address: "a", VotingPower: 100, Stake: 100},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keeper := slashing.NewInMemoryKeeper(slashing.PenaltyPolicy{
+		slashing.EvidenceConflictingTimeoutVote: {SlashFraction: "0.25", JailDuration: 30},
+	})
+	evidence, err := NewConflictingTimeoutVoteEvidence(
+		TimeoutVote{Height: 1, Round: 0, ValidatorID: "a", HighQC: finality.QuorumCert{Height: 1, Round: 0, BlockHash: types.Hash{1}}},
+		TimeoutVote{Height: 1, Round: 0, ValidatorID: "a", HighQC: finality.QuorumCert{Height: 1, Round: 0, BlockHash: types.Hash{2}}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PreviousPower != 100 || result.RemainingPower != 75 {
+		t.Fatalf("unexpected slash result: %+v", result)
 	}
 }
