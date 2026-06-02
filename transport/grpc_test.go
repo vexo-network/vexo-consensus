@@ -247,6 +247,58 @@ func TestGRPCTransportRejectsUnknownPeer(t *testing.T) {
 	}
 }
 
+func TestGRPCTransportAppliesReconnectBackoff(t *testing.T) {
+	alice := newStartedGRPCPeer(t, "alice", GRPCConfig{
+		DialTimeout:      25 * time.Millisecond,
+		ReconnectBackoff: time.Minute,
+	})
+	defer stopGRPCPeer(t, alice)
+	alice.SetPeer("bob", "127.0.0.1:1")
+
+	if err := alice.Send(context.Background(), "bob", p2p.TopicTx, []byte("tx")); err == nil {
+		t.Fatal("expected first send to unavailable peer to fail")
+	}
+	if err := alice.Send(context.Background(), "bob", p2p.TopicTx, []byte("tx")); !errors.Is(err, ErrPeerBackoffActive) {
+		t.Fatalf("expected reconnect backoff, got %v", err)
+	}
+}
+
+func TestGRPCTransportEvictsOldestPeerWhenLimitExceeded(t *testing.T) {
+	peer, err := NewGRPCTransport(GRPCConfig{PeerID: "alice", MaxPeers: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer.SetPeer("bob", "127.0.0.1:10001")
+	peer.SetPeer("carol", "127.0.0.1:10002")
+	peer.SetPeer("dave", "127.0.0.1:10003")
+
+	if _, ok := peer.peerAddress("bob"); ok {
+		t.Fatal("expected oldest peer bob to be evicted")
+	}
+	if _, ok := peer.peerAddress("carol"); !ok {
+		t.Fatal("expected carol to remain")
+	}
+	if _, ok := peer.peerAddress("dave"); !ok {
+		t.Fatal("expected dave to be added")
+	}
+}
+
+func TestGRPCTransportCountsSubscriberDrops(t *testing.T) {
+	peer := newStartedGRPCPeer(t, "alice", GRPCConfig{SubscriberBuffer: 1})
+	defer stopGRPCPeer(t, peer)
+	if _, err := peer.Subscribe(context.Background(), p2p.TopicTx); err != nil {
+		t.Fatal(err)
+	}
+
+	peer.deliver(Envelope{Topic: p2p.TopicTx, From: "bob", Data: []byte("one")})
+	peer.deliver(Envelope{Topic: p2p.TopicTx, From: "bob", Data: []byte("two")})
+	peer.deliver(Envelope{Topic: p2p.TopicTx, From: "bob", Data: []byte("three")})
+
+	if drops := peer.DroppedMessages(); drops == 0 {
+		t.Fatal("expected subscriber drops to be counted")
+	}
+}
+
 func newStartedGRPCPeers(t *testing.T) (*GRPCTransport, *GRPCTransport, *GRPCTransport) {
 	t.Helper()
 	base := GRPCConfig{NetworkID: "localnet", ChainID: "vexo-test", GenesisHash: GenesisHash([]byte("genesis"))}
