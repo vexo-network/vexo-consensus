@@ -332,8 +332,20 @@ func TestNodeRecoveryReportSummarizesStoreAndRepair(t *testing.T) {
 	if !report.OK || !report.Running || !report.SnapshotAvailable || !report.Repaired {
 		t.Fatalf("unexpected recovery status: %+v", report)
 	}
-	if report.LatestStateHeight != 2 || report.LatestBlock != 2 || report.TotalBlocks != 1 || report.RecoverResult.BlockIndexKeys != 1 {
+	if report.LatestStateHeight != 2 || report.LatestBlock != 2 || report.SafeHeight != 2 || report.TotalBlocks != 1 || report.RecoverResult.BlockIndexKeys != 1 {
 		t.Fatalf("unexpected recovery heights: %+v", report)
+	}
+}
+
+func TestSafeRecoveryHeightUsesLastConsistentState(t *testing.T) {
+	if got := safeRecoveryHeight(10, 12); got != 10 {
+		t.Fatalf("expected safe state height 10, got %d", got)
+	}
+	if got := safeRecoveryHeight(12, 10); got != 10 {
+		t.Fatalf("expected safe block height 10, got %d", got)
+	}
+	if got := safeRecoveryHeight(0, 10); got != 0 {
+		t.Fatalf("expected zero without state, got %d", got)
 	}
 }
 

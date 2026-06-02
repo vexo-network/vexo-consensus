@@ -564,6 +564,8 @@ VEXO_LOCALNET_E2E=1 go test ./cmd/vexod -run TestLocalnetUpBuiltBinaryE2E -count
 - **Governance safety**: parameter changes should use voting windows and timelocks.
 - **Crypto agility**: cryptographic implementations should be pluggable.
 
+Consensus protocol details, safety invariants, finality verification rules, crypto backend boundaries, remote signer policy, and recovery semantics are documented in [`docs/consensus-protocol.md`](./docs/consensus-protocol.md).
+
 ## Security Notice
 
 `vexo-consensus` is experimental software.

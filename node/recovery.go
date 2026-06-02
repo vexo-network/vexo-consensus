@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -13,6 +14,7 @@ type RecoveryReport struct {
 	Running           bool
 	LatestHeight      types.Height
 	LatestStateHeight types.Height
+	SafeHeight        types.Height
 	EarliestBlock     types.Height
 	LatestBlock       types.Height
 	TotalBlocks       uint64
@@ -67,10 +69,24 @@ func (node *Node) RecoveryReport(ctx context.Context, repairIndexes bool) (Recov
 	} else {
 		report.SnapshotAvailable = true
 	}
+	report.SafeHeight = safeRecoveryHeight(report.LatestStateHeight, report.LatestBlock)
+	if report.LatestStateHeight > 0 && report.LatestBlock > 0 && report.LatestStateHeight != report.LatestBlock {
+		report.addProblem(fmt.Errorf("recovery height mismatch: state=%d block=%d safe=%d", report.LatestStateHeight, report.LatestBlock, report.SafeHeight))
+	}
 	return report, nil
 }
 
 func (report *RecoveryReport) addProblem(err error) {
 	report.OK = false
 	report.Problems = append(report.Problems, err.Error())
+}
+
+func safeRecoveryHeight(stateHeight types.Height, blockHeight types.Height) types.Height {
+	if stateHeight == 0 {
+		return 0
+	}
+	if blockHeight == 0 || blockHeight > stateHeight {
+		return stateHeight
+	}
+	return blockHeight
 }

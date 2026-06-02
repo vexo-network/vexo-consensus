@@ -45,6 +45,17 @@ func TestVerifierRejectsBlockHashMismatch(t *testing.T) {
 	}
 }
 
+func TestVerifierRejectsHeightMismatch(t *testing.T) {
+	set := testValidatorSet(t, []validator.Validator{{ID: "a", VotingPower: 1}})
+	proof := validProof(set, []types.ValidatorID{"a"})
+	proof.QuorumCert.Height = proof.Header.Height + 1
+
+	err := NewVerifier(set, nil).VerifyFinalityProof(proof)
+	if !errors.Is(err, ErrHeightMismatch) {
+		t.Fatalf("expected height mismatch, got %v", err)
+	}
+}
+
 func TestVerifierRejectsMissingSignature(t *testing.T) {
 	set := testValidatorSet(t, []validator.Validator{{ID: "a", VotingPower: 1}})
 	proof := validProof(set, []types.ValidatorID{"a"})
@@ -77,6 +88,35 @@ func TestVerifierRejectsUnknownSigner(t *testing.T) {
 	err := NewVerifier(set, nil).VerifyFinalityProof(proof)
 	if !errors.Is(err, ErrUnknownSigner) {
 		t.Fatalf("expected unknown signer, got %v", err)
+	}
+}
+
+func TestVerifierRejectsDuplicateSigner(t *testing.T) {
+	set := testValidatorSet(t, []validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+		{ID: "c", VotingPower: 1},
+	})
+	proof := validProof(set, []types.ValidatorID{"a", "a", "b"})
+
+	err := NewVerifier(set, nil).VerifyFinalityProof(proof)
+	if !errors.Is(err, ErrDuplicateSigner) {
+		t.Fatalf("expected duplicate signer, got %v", err)
+	}
+}
+
+func TestVerifierRejectsVotingPowerMismatch(t *testing.T) {
+	set := testValidatorSet(t, []validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+		{ID: "c", VotingPower: 1},
+	})
+	proof := validProof(set, []types.ValidatorID{"a", "b"})
+	proof.QuorumCert.VotingPower = 3
+
+	err := NewVerifier(set, nil).VerifyFinalityProof(proof)
+	if !errors.Is(err, ErrVotingPowerMismatch) {
+		t.Fatalf("expected voting power mismatch, got %v", err)
 	}
 }
 
@@ -135,14 +175,16 @@ func validProof(set validator.Set, signers []types.ValidatorID) Proof {
 		ValidatorSetHash: set.Hash(),
 	}
 	proof := Proof{
-		Header:           header,
-		ValidatorSetHash: set.Hash(),
+		Header:             header,
+		ValidatorSetHeight: header.Height,
+		ValidatorSetHash:   set.Hash(),
 	}
 	proof.QuorumCert = QuorumCert{
-		Height:    header.Height,
-		Round:     0,
-		Signers:   EncodeSigners(signers),
-		Signature: types.AggregateSignature("signature"),
+		Height:      header.Height,
+		Round:       0,
+		Signers:     EncodeSigners(signers),
+		Signature:   types.AggregateSignature("signature"),
+		VotingPower: types.VotingPower(len(signers)),
 	}
 	proof.QuorumCert.BlockHash = proof.HeaderHash()
 	return proof

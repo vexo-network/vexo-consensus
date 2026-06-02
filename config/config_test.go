@@ -101,3 +101,32 @@ func TestConfigValidateAllowsOptionalSafetyKnobs(t *testing.T) {
 		t.Fatalf("expected optional zero settings to be valid, got %v", err)
 	}
 }
+
+func TestValidateProductionRejectsDeterministicCrypto(t *testing.T) {
+	cfg := Default("vexo-test")
+	cfg.Execution.RequireSigned = true
+	cfg.Execution.RequireNonce = true
+	cfg.Execution.MinFee = 1
+	cfg.Execution.MinGas = 1
+	cfg.Mempool.MinFee = 1
+	cfg.Mempool.EnablePriority = true
+
+	if err := cfg.ValidateProduction(); !errors.Is(err, ErrUnsafeProductionConfig) {
+		t.Fatalf("expected unsafe production config, got %v", err)
+	}
+}
+
+func TestValidateProductionAcceptsHardenedEd25519Config(t *testing.T) {
+	cfg := Default("vexo-test")
+	cfg.Crypto.Backend = CryptoBackendEd25519
+	cfg.Execution.RequireSigned = true
+	cfg.Execution.RequireNonce = true
+	cfg.Execution.MinFee = 1
+	cfg.Execution.MinGas = 1
+	cfg.Mempool.MinFee = 1
+	cfg.Mempool.EnablePriority = true
+
+	if err := cfg.ValidateProduction(); err != nil {
+		t.Fatalf("expected hardened ed25519 config to pass, got %v", err)
+	}
+}

@@ -160,6 +160,7 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 	document := auditDocument{OK: true, Strict: strict}
 	keyDocument, keyErr := vexocrypto.LoadKeyDocument(inputs.Plan.KeyPath)
 	document.addCheck("config_valid", "error", inputs.Config.Chain.Validate() == nil, "chain config must pass validation")
+	document.addCheck("production_config", strictSeverity(strict), inputs.Config.Chain.ValidateProduction() == nil, "production config must use non-dev crypto, signed/nonced txs, fees, gas floor, and priority mempool")
 	document.addCheck("genesis_valid", "error", inputs.Genesis.Validate(inputs.Config.Chain.ChainID) == nil, "genesis must match chain id and validator set")
 	document.addCheck("key_loadable", "error", keyErr == nil, "validator key document must be loadable")
 

@@ -12,8 +12,9 @@ import (
 )
 
 var (
-	ErrMissingChainID = errors.New("chain id is required")
-	ErrInvalidConfig  = errors.New("invalid config")
+	ErrMissingChainID         = errors.New("chain id is required")
+	ErrInvalidConfig          = errors.New("invalid config")
+	ErrUnsafeProductionConfig = errors.New("unsafe production config")
 )
 
 type Config struct {
@@ -145,6 +146,28 @@ func (config Config) Validate() error {
 		config.P2P.ScoreRecovery < 0 ||
 		config.P2P.BanDuration < 0 {
 		return ErrInvalidConfig
+	}
+	return nil
+}
+
+func (config Config) ValidateProduction() error {
+	if err := config.Validate(); err != nil {
+		return err
+	}
+	if config.Crypto.Backend == CryptoBackendDeterministic {
+		return ErrUnsafeProductionConfig
+	}
+	if config.Crypto.Backend == CryptoBackendBLS {
+		return ErrUnsafeProductionConfig
+	}
+	if !config.Execution.RequireSigned || !config.Execution.RequireNonce {
+		return ErrUnsafeProductionConfig
+	}
+	if config.Execution.MinFee == 0 || config.Execution.MinGas == 0 {
+		return ErrUnsafeProductionConfig
+	}
+	if config.Mempool.MinFee == 0 || !config.Mempool.EnablePriority {
+		return ErrUnsafeProductionConfig
 	}
 	return nil
 }

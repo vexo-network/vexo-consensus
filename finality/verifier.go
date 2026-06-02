@@ -11,9 +11,12 @@ import (
 var (
 	ErrValidatorSetMismatch = errors.New("validator set hash mismatch")
 	ErrBlockHashMismatch    = errors.New("quorum certificate block hash mismatch")
+	ErrHeightMismatch       = errors.New("finality proof height mismatch")
 	ErrInsufficientQuorum   = errors.New("insufficient quorum voting power")
+	ErrVotingPowerMismatch  = errors.New("quorum certificate voting power mismatch")
 	ErrMissingQCSignature   = errors.New("quorum certificate signature is missing")
 	ErrUnknownSigner        = errors.New("quorum certificate contains unknown signer")
+	ErrDuplicateSigner      = errors.New("quorum certificate contains duplicate signer")
 )
 
 type SignatureVerifier interface {
@@ -46,6 +49,12 @@ func (verifier Verifier) VerifyFinalityProofWithContext(ctx context.Context, pro
 	if proof.ValidatorSetHash != verifier.validatorSet.Hash() || proof.Header.ValidatorSetHash != verifier.validatorSet.Hash() {
 		return ErrValidatorSetMismatch
 	}
+	if proof.ValidatorSetHeight != 0 && proof.ValidatorSetHeight != proof.Header.Height {
+		return ErrHeightMismatch
+	}
+	if proof.QuorumCert.Height != proof.Header.Height {
+		return ErrHeightMismatch
+	}
 	if proof.QuorumCert.BlockHash != proof.HeaderHash() {
 		return ErrBlockHashMismatch
 	}
@@ -60,7 +69,12 @@ func (verifier Verifier) VerifyFinalityProofWithContext(ctx context.Context, pro
 
 	var votingPower types.VotingPower
 	publicKeys := make([]types.PublicKey, 0, len(signers))
+	seen := make(map[types.ValidatorID]struct{}, len(signers))
 	for _, signer := range signers {
+		if _, found := seen[signer]; found {
+			return ErrDuplicateSigner
+		}
+		seen[signer] = struct{}{}
 		validatorInfo, found := verifier.validatorSet.Get(signer)
 		if !found {
 			return ErrUnknownSigner
@@ -70,6 +84,9 @@ func (verifier Verifier) VerifyFinalityProofWithContext(ctx context.Context, pro
 	}
 	if !HasQuorum(votingPower, verifier.validatorSet.TotalVotingPower()) {
 		return ErrInsufficientQuorum
+	}
+	if proof.QuorumCert.VotingPower != 0 && proof.QuorumCert.VotingPower != votingPower {
+		return ErrVotingPowerMismatch
 	}
 	if verifier.signatures != nil && !verifier.signatures.VerifyAggregate(publicKeys, proof.SignBytes(), proof.QuorumCert.Signature) {
 		return ErrMissingQCSignature

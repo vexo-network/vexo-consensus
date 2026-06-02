@@ -20,9 +20,10 @@ type TimeoutCert struct {
 }
 
 type Proof struct {
-	Header           types.Header
-	QuorumCert       QuorumCert
-	ValidatorSetHash types.Hash
+	Header             types.Header
+	QuorumCert         QuorumCert
+	ValidatorSetHeight types.Height
+	ValidatorSetHash   types.Hash
 }
 
 type LightVerifier interface {
