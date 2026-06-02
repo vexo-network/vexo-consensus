@@ -15,6 +15,7 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/p2p"
+	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -22,6 +23,9 @@ type fakeStatusProvider struct {
 	status    node.Status
 	submitErr error
 	submitted []types.Tx
+	blocks    map[types.Height]store.BlockRecord
+	latest    types.Height
+	blockErr  error
 }
 
 func (provider fakeStatusProvider) Status(ctx context.Context) node.Status {
@@ -34,6 +38,27 @@ func (provider *fakeStatusProvider) SubmitTx(ctx context.Context, tx types.Tx) e
 	}
 	provider.submitted = append(provider.submitted, append(types.Tx(nil), tx...))
 	return nil
+}
+
+func (provider fakeStatusProvider) BlockByHeight(ctx context.Context, height types.Height) (store.BlockRecord, error) {
+	if provider.blockErr != nil {
+		return store.BlockRecord{}, provider.blockErr
+	}
+	record, ok := provider.blocks[height]
+	if !ok {
+		return store.BlockRecord{}, store.ErrBlockNotFound
+	}
+	return record, nil
+}
+
+func (provider fakeStatusProvider) LatestBlock(ctx context.Context) (store.BlockRecord, error) {
+	if provider.blockErr != nil {
+		return store.BlockRecord{}, provider.blockErr
+	}
+	if provider.latest == 0 {
+		return store.BlockRecord{}, store.ErrBlockIndexNotFound
+	}
+	return provider.BlockByHeight(ctx, provider.latest)
 }
 
 func TestHandlerReportsHealthStatusAndPeers(t *testing.T) {
@@ -195,6 +220,83 @@ func TestHandlerRejectsNonPOSTTx(t *testing.T) {
 	}
 	if allow := response.Header().Get("Allow"); allow != http.MethodPost {
 		t.Fatalf("expected allow POST, got %q", allow)
+	}
+}
+
+func TestHandlerReportsBlocksByHeightAndLatest(t *testing.T) {
+	record := store.BlockRecord{
+		Block: types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: 2, TimeUnixNano: 42},
+			Txs:    []types.Tx{[]byte("bank:first"), []byte("bank:second")},
+		},
+		Hash:    types.Hash{2},
+		AppHash: types.Hash{3},
+		StateRoots: []store.StateRootRecord{
+			{Height: 2, Namespace: "bank", Root: types.Hash{4}},
+		},
+	}
+	handler := NewHandler(fakeStatusProvider{
+		blocks: map[types.Height]store.BlockRecord{2: record},
+		latest: 2,
+	})
+
+	var byHeight BlockResponse
+	getJSON(t, handler, "/blocks/2", http.StatusOK, &byHeight)
+	assertBlockResponse(t, byHeight)
+
+	var latest BlockResponse
+	getJSON(t, handler, "/blocks/latest", http.StatusOK, &latest)
+	assertBlockResponse(t, latest)
+}
+
+func TestHandlerRejectsInvalidBlockRequests(t *testing.T) {
+	handler := NewHandler(fakeStatusProvider{blocks: map[types.Height]store.BlockRecord{}})
+	cases := map[string]int{
+		"/blocks/0":       http.StatusBadRequest,
+		"/blocks/not-num": http.StatusBadRequest,
+		"/blocks/9":       http.StatusNotFound,
+		"/blocks/latest":  http.StatusNotFound,
+	}
+	for path, expectedStatus := range cases {
+		var response map[string]string
+		getJSON(t, handler, path, expectedStatus, &response)
+		if response["error"] == "" {
+			t.Fatalf("expected error for %s, got %+v", path, response)
+		}
+	}
+}
+
+func TestHandlerRejectsUnavailableBlockProvider(t *testing.T) {
+	var response map[string]string
+	getJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/blocks/latest", http.StatusNotImplemented, &response)
+	if response["error"] == "" {
+		t.Fatalf("expected unavailable block error, got %+v", response)
+	}
+}
+
+func TestHandlerReportsBlockProviderErrors(t *testing.T) {
+	handler := NewHandler(fakeStatusProvider{blockErr: errors.New("store failed")})
+
+	var response map[string]string
+	getJSON(t, handler, "/blocks/latest", http.StatusInternalServerError, &response)
+	if response["error"] != "store failed" {
+		t.Fatalf("unexpected block error: %+v", response)
+	}
+}
+
+func assertBlockResponse(t *testing.T, response BlockResponse) {
+	t.Helper()
+	if response.Height != 2 || response.ChainID != "vexo-test" || response.TxCount != 2 {
+		t.Fatalf("unexpected block response: %+v", response)
+	}
+	if response.Hash[:2] != "02" || response.AppHash[:2] != "03" {
+		t.Fatalf("unexpected block hashes: %+v", response)
+	}
+	if len(response.Txs) != 2 || response.Txs[0] != base64.StdEncoding.EncodeToString([]byte("bank:first")) {
+		t.Fatalf("unexpected txs: %+v", response.Txs)
+	}
+	if len(response.StateRoots) != 1 || response.StateRoots[0].Namespace != "bank" || response.StateRoots[0].Root[:2] != "04" {
+		t.Fatalf("unexpected state roots: %+v", response.StateRoots)
 	}
 }
 

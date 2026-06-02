@@ -9,11 +9,14 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/p2p"
+	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -26,6 +29,11 @@ type StatusProvider interface {
 
 type TxSubmitter interface {
 	SubmitTx(ctx context.Context, tx types.Tx) error
+}
+
+type BlockProvider interface {
+	BlockByHeight(ctx context.Context, height types.Height) (store.BlockRecord, error)
+	LatestBlock(ctx context.Context) (store.BlockRecord, error)
 }
 
 type Config struct {
@@ -73,6 +81,23 @@ type SubmitTxRequest struct {
 type SubmitTxResponse struct {
 	Accepted bool   `json:"accepted"`
 	TxHash   string `json:"tx_hash"`
+}
+
+type BlockResponse struct {
+	Height       uint64              `json:"height"`
+	Hash         string              `json:"hash"`
+	AppHash      string              `json:"app_hash"`
+	ChainID      string              `json:"chain_id"`
+	TxCount      int                 `json:"tx_count"`
+	Txs          []string            `json:"txs"`
+	StateRoots   []StateRootResponse `json:"state_roots"`
+	TimeUnixNano int64               `json:"time_unix_nano"`
+}
+
+type StateRootResponse struct {
+	Height    uint64 `json:"height"`
+	Namespace string `json:"namespace"`
+	Root      string `json:"root"`
 }
 
 func NewServer(provider StatusProvider, cfg Config) *Server {
@@ -168,6 +193,44 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 			TxHash:   hex.EncodeToString(hash[:]),
 		})
 	})
+	mux.HandleFunc("/blocks/", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowGet(writer, request) {
+			return
+		}
+		blockProvider, ok := provider.(BlockProvider)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "block query is unavailable")
+			return
+		}
+		selector := strings.TrimPrefix(request.URL.Path, "/blocks/")
+		if selector == "" {
+			writeError(writer, http.StatusNotFound, "block selector is required")
+			return
+		}
+		var (
+			record store.BlockRecord
+			err    error
+		)
+		if selector == "latest" {
+			record, err = blockProvider.LatestBlock(request.Context())
+		} else {
+			height, parseErr := strconv.ParseUint(selector, 10, 64)
+			if parseErr != nil || height == 0 {
+				writeError(writer, http.StatusBadRequest, "invalid block height")
+				return
+			}
+			record, err = blockProvider.BlockByHeight(request.Context(), types.Height(height))
+		}
+		if errors.Is(err, store.ErrBlockNotFound) || errors.Is(err, store.ErrBlockIndexNotFound) {
+			writeError(writer, http.StatusNotFound, "block not found")
+			return
+		}
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(writer, http.StatusOK, blockResponse(record))
+	})
 	return mux
 }
 
@@ -252,6 +315,31 @@ func decodeSubmitTxRequest(writer http.ResponseWriter, request *http.Request, ma
 		return nil, errors.New("transaction is empty")
 	}
 	return types.Tx(tx), nil
+}
+
+func blockResponse(record store.BlockRecord) BlockResponse {
+	txs := make([]string, 0, len(record.Block.Txs))
+	for _, tx := range record.Block.Txs {
+		txs = append(txs, base64.StdEncoding.EncodeToString(tx))
+	}
+	stateRoots := make([]StateRootResponse, 0, len(record.StateRoots))
+	for _, root := range record.StateRoots {
+		stateRoots = append(stateRoots, StateRootResponse{
+			Height:    uint64(root.Height),
+			Namespace: root.Namespace,
+			Root:      hex.EncodeToString(root.Root[:]),
+		})
+	}
+	return BlockResponse{
+		Height:       uint64(record.Block.Header.Height),
+		Hash:         hex.EncodeToString(record.Hash[:]),
+		AppHash:      hex.EncodeToString(record.AppHash[:]),
+		ChainID:      record.Block.Header.ChainID,
+		TxCount:      len(record.Block.Txs),
+		Txs:          txs,
+		StateRoots:   stateRoots,
+		TimeUnixNano: record.Block.Header.TimeUnixNano,
+	}
 }
 
 func writeError(writer http.ResponseWriter, statusCode int, message string) {

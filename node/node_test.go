@@ -97,6 +97,46 @@ func TestNodePersistsRuntimeStore(t *testing.T) {
 	}
 }
 
+func TestNodeQueriesBlocks(t *testing.T) {
+	node := newTestNode(t)
+	if err := node.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer node.Stop(context.Background())
+
+	runtime, err := node.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ExecuteBlock(context.Background(), types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 1},
+		Txs:    []types.Tx{[]byte("bank:first")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ExecuteBlock(context.Background(), types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 2},
+		Txs:    []types.Tx{[]byte("bank:second")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := node.BlockByHeight(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Block.Header.Height != 1 || len(first.Block.Txs) != 1 {
+		t.Fatalf("unexpected first block: %+v", first)
+	}
+	latest, err := node.LatestBlock(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.Block.Header.Height != 2 || len(latest.Block.Txs) != 1 {
+		t.Fatalf("unexpected latest block: %+v", latest)
+	}
+}
+
 func TestNodeValidation(t *testing.T) {
 	application := newTestApplication(t)
 	_, err := New(DefaultConfig("vexo-test", ""), validGenesis(), application)
