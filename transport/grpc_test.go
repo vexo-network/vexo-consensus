@@ -84,6 +84,39 @@ func TestGRPCBinaryCodecRoundTrip(t *testing.T) {
 	}
 }
 
+func TestGRPCTransportPeerLearnedHook(t *testing.T) {
+	learned := make(map[p2p.PeerID]string)
+	transport, err := NewGRPCTransport(GRPCConfig{
+		PeerID:      "alice",
+		ListenAddr:  "127.0.0.1:0",
+		NetworkID:   "localnet",
+		ChainID:     "vexo-test",
+		GenesisHash: GenesisHash([]byte("genesis")),
+		PeerLearned: func(peerID p2p.PeerID, address string) {
+			learned[peerID] = address
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	transport.learnHandshakePeers(Handshake{
+		NodeID:     "bob",
+		ListenAddr: "127.0.0.1:26666",
+		KnownPeers: map[p2p.PeerID]string{
+			"carol": "127.0.0.1:26676",
+			"alice": "127.0.0.1:26656",
+		},
+	})
+
+	if learned["bob"] != "127.0.0.1:26666" || learned["carol"] != "127.0.0.1:26676" {
+		t.Fatalf("expected learned peers, got %+v", learned)
+	}
+	if _, found := learned["alice"]; found {
+		t.Fatalf("did not expect self peer to be learned: %+v", learned)
+	}
+}
+
 func TestGRPCTransportSendDeliversOnlyTargetPeer(t *testing.T) {
 	alice, bob, carol := newStartedGRPCPeers(t)
 	defer stopGRPCPeer(t, alice)

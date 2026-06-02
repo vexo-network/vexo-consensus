@@ -92,6 +92,7 @@ The design is intentionally modular so individual components can be replaced wit
 - Transport message codec and reactor for proposal/vote/timeout routing
 - Deterministic proposer rotation by height and round
 - gRPC peer transport with optional mTLS, binary framing, persistent streams, seed bootstrap, peer exchange, protocol/network/chain/genesis/node-id/auth-token handshake validation, message-size limits, reconnect backoff, peer-limit eviction, subscriber backpressure drop accounting, and send retry after stale-session failures
+- File-backed P2P address book for persistent peer discovery across restarts
 
 ### Validator and Committee
 
@@ -196,7 +197,7 @@ The design is intentionally modular so individual components can be replaced wit
 | `governance` | Proposal, voting, quorum, veto, and timelock module |
 | `mempool` | FIFO mempool, fee/priority policy, duplicate suppression, and DAG batch graph |
 | `node` | Node config, genesis, lifecycle, runtime/store wiring, operations helpers |
-| `p2p` | Peer scoring, rate-limit, and flood defense |
+| `p2p` | Peer scoring, rate-limit, flood defense, and persistent address book |
 | `rpc` | HTTP health, readiness, status, metrics, admin, pprof, and query endpoints |
 | `runtime` | Module wiring, block execution, proof building, recovery, replay |
 | `slashing` | Evidence validation and penalty keeper |
@@ -239,6 +240,13 @@ go run ./cmd/vexod start --home .vexo --run \
   --p2p-listen 0.0.0.0:26656 \
   --seed seed-1=127.0.0.1:36656 \
   --p2p-auth-token shared-secret
+```
+
+Learned P2P peers are saved to `.vexo/addrbook.json` by default:
+
+```bash
+go run ./cmd/vexod config paths --home .vexo
+go run ./cmd/vexod start --home .vexo --run --addr-book .vexo/addrbook.json
 ```
 
 Run with structured JSON operational logs and pprof:

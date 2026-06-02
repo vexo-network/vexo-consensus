@@ -71,6 +71,7 @@ type GRPCConfig struct {
 	ReconnectInterval time.Duration
 	SubscriberBuffer  int
 	AuthToken         string
+	PeerLearned       func(p2p.PeerID, string)
 }
 
 type GRPCTransport struct {
@@ -88,6 +89,7 @@ type GRPCTransport struct {
 	reconnectInterval time.Duration
 	subscriberBuffer  int
 	authToken         string
+	peerLearned       func(p2p.PeerID, string)
 
 	mu              sync.RWMutex
 	listener        net.Listener
@@ -399,6 +401,7 @@ func NewGRPCTransport(config GRPCConfig) (*GRPCTransport, error) {
 		reconnectInterval: config.ReconnectInterval,
 		subscriberBuffer:  config.SubscriberBuffer,
 		authToken:         config.AuthToken,
+		peerLearned:       config.PeerLearned,
 		peers:             peers,
 		peerOrder:         peerOrder,
 		connections:       make(map[p2p.PeerID]*grpc.ClientConn),
@@ -590,6 +593,12 @@ func (transport *GRPCTransport) SetPeer(peerID p2p.PeerID, address string) {
 	}
 	delete(transport.backoffUntil, peerID)
 	transport.peers[peerID] = address
+}
+
+func (transport *GRPCTransport) SetPeerLearnedHook(hook func(p2p.PeerID, string)) {
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	transport.peerLearned = hook
 }
 
 func (transport *GRPCTransport) KnownPeers() map[p2p.PeerID]string {
@@ -867,8 +876,8 @@ func (transport *GRPCTransport) learnHandshakePeers(handshake Handshake) {
 			discovered[peerID] = address
 		}
 	}
+	learned := make(map[p2p.PeerID]string)
 	transport.mu.Lock()
-	defer transport.mu.Unlock()
 	for peerID, address := range discovered {
 		if peerID == "" || peerID == transport.peerID || address == "" {
 			continue
@@ -881,6 +890,15 @@ func (transport *GRPCTransport) learnHandshakePeers(handshake Handshake) {
 		}
 		transport.peers[peerID] = address
 		transport.peerOrder = append(transport.peerOrder, peerID)
+		learned[peerID] = address
+	}
+	hook := transport.peerLearned
+	transport.mu.Unlock()
+	if hook == nil {
+		return
+	}
+	for peerID, address := range learned {
+		hook(peerID, address)
 	}
 }
 

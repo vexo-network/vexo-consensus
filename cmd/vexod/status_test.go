@@ -74,7 +74,7 @@ func TestWriteStatusJSON(t *testing.T) {
 	if document.Mempool.MinFee != 0 || document.Mempool.EnablePriority {
 		t.Fatalf("unexpected mempool status: %+v", document.Mempool)
 	}
-	if document.Storage.Backend != "leveldb" || !document.Features["peer_scoring"] || !document.Features["height_salted_order"] || !document.Features["deployment_audit"] {
+	if document.Storage.Backend != "leveldb" || !document.Features["peer_scoring"] || !document.Features["height_salted_order"] || !document.Features["deployment_audit"] || !document.Features["addr_book"] {
 		t.Fatalf("unexpected feature/storage status: %+v", document)
 	}
 	if document.P2P.InitialScore != 100 || document.P2P.InvalidMessageCost != 10 || !document.P2P.PeerSnapshotsEnabled {

@@ -9,11 +9,12 @@ import (
 )
 
 type pathDocument struct {
-	Home    string `json:"home"`
-	Config  string `json:"config"`
-	Genesis string `json:"genesis"`
-	Key     string `json:"key"`
-	DataDir string `json:"data_dir,omitempty"`
+	Home     string `json:"home"`
+	Config   string `json:"config"`
+	Genesis  string `json:"genesis"`
+	Key      string `json:"key"`
+	AddrBook string `json:"addr_book"`
+	DataDir  string `json:"data_dir,omitempty"`
 }
 
 func runConfig(writer io.Writer, args []string) error {
@@ -44,10 +45,11 @@ func runConfigPaths(writer io.Writer, args []string) error {
 		return err
 	}
 	document := pathDocument{
-		Home:    *home,
-		Config:  resolveConfigPath(*home, *configPath),
-		Genesis: resolveGenesisPath(*home, *genesisPath),
-		Key:     resolveKeyPath(*home, *keyPath),
+		Home:     *home,
+		Config:   resolveConfigPath(*home, *configPath),
+		Genesis:  resolveGenesisPath(*home, *genesisPath),
+		Key:      resolveKeyPath(*home, *keyPath),
+		AddrBook: resolveAddrBookPath(*home, ""),
 	}
 	if cfg, err := loadNodeConfig(document.Config); err == nil {
 		document.DataDir = cfg.DataDir
@@ -61,6 +63,7 @@ func runConfigPaths(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "config: %s\n", document.Config)
 	fmt.Fprintf(writer, "genesis: %s\n", document.Genesis)
 	fmt.Fprintf(writer, "key: %s\n", document.Key)
+	fmt.Fprintf(writer, "addr_book: %s\n", document.AddrBook)
 	if document.DataDir != "" {
 		fmt.Fprintf(writer, "data_dir: %s\n", document.DataDir)
 	}

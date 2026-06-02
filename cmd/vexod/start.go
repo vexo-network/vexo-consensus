@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -65,6 +66,7 @@ type startRuntimeConfig struct {
 	P2PMaxMessageBytes      uint64
 	P2PMaxPeers             int
 	P2PAuthToken            string
+	AddrBookPath            string
 }
 
 type peerFlags map[p2p.PeerID]string
@@ -100,6 +102,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	p2pMaxMessageBytes := flags.Uint64("p2p-max-message-bytes", 0, "maximum P2P message bytes")
 	p2pMaxPeers := flags.Int("p2p-max-peers", 0, "maximum configured P2P peers")
 	p2pAuthToken := flags.String("p2p-auth-token", "", "shared P2P handshake auth token")
+	addrBookPath := flags.String("addr-book", "", "P2P address book path; defaults to <home>/addrbook.json")
 	strictProduction := flags.Bool("strict-production", false, "fail startup when production-readiness checks fail")
 	logFormat := flags.String("log-format", "text", "operational log format: text or json")
 	peers := peerFlags{}
@@ -136,6 +139,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 		P2PMaxMessageBytes: *p2pMaxMessageBytes,
 		P2PMaxPeers:        *p2pMaxPeers,
 		P2PAuthToken:       *p2pAuthToken,
+		AddrBookPath:       resolveAddrBookPath(*home, *addrBookPath),
 		P2PPeers:           peers,
 		P2PSeeds:           seeds,
 	}
@@ -408,7 +412,16 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 	if networkID == "" {
 		networkID = inputs.Config.Chain.ChainID
 	}
-	peers := mergePeerMaps(runtimeConfig.P2PPeers, runtimeConfig.P2PSeeds)
+	addrBook, err := p2p.OpenAddrBook(runtimeConfig.AddrBookPath)
+	if err != nil {
+		return nil, err
+	}
+	addrBook.Merge(runtimeConfig.P2PPeers, "cli-peer", true)
+	addrBook.Merge(runtimeConfig.P2PSeeds, "cli-seed", true)
+	if err := addrBook.Save(); err != nil {
+		return nil, err
+	}
+	peers := mergePeerMaps(addrBook.PeerMap(p2p.PeerID(inputs.Config.ValidatorID)), runtimeConfig.P2PPeers, runtimeConfig.P2PSeeds)
 	return transport.NewGRPCTransport(transport.GRPCConfig{
 		PeerID:          p2p.PeerID(inputs.Config.ValidatorID),
 		ListenAddr:      runtimeConfig.P2PListenAddress,
@@ -419,6 +432,10 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 		MaxMessageBytes: runtimeConfig.P2PMaxMessageBytes,
 		MaxPeers:        runtimeConfig.P2PMaxPeers,
 		AuthToken:       runtimeConfig.P2PAuthToken,
+		PeerLearned: func(peerID p2p.PeerID, address string) {
+			addrBook.Add(peerID, address, "handshake", false)
+			_ = addrBook.Save()
+		},
 	})
 }
 
@@ -433,6 +450,16 @@ func mergePeerMaps(peerMaps ...map[p2p.PeerID]string) map[p2p.PeerID]string {
 		}
 	}
 	return merged
+}
+
+func resolveAddrBookPath(home string, path string) string {
+	if path != "" {
+		return path
+	}
+	if home == "" {
+		home = defaultHomeDir
+	}
+	return filepath.Join(home, "addrbook.json")
 }
 
 func genesisHash(genesis vexonode.Genesis) string {

@@ -847,6 +847,40 @@ func TestStartSeedFlagsMergeIntoGRPCPeers(t *testing.T) {
 	}
 }
 
+func TestBuildRuntimeNodePersistsAddrBookPeers(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := loadStartInputs(home, "", "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addrBookPath := filepath.Join(home, "addrbook.json")
+	_, wire, err := buildRuntimeNode(inputs, startRuntimeConfig{
+		P2PEnabled:       true,
+		P2PListenAddress: "127.0.0.1:0",
+		P2PPeers:         map[p2p.PeerID]string{"bob": "127.0.0.1:26657"},
+		AddrBookPath:     addrBookPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wire.KnownPeers()["bob"] != "127.0.0.1:26657" {
+		t.Fatalf("expected bob configured in wire, got %+v", wire.KnownPeers())
+	}
+	book, err := p2p.OpenAddrBook(addrBookPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if book.PeerMap("")["bob"] != "127.0.0.1:26657" {
+		t.Fatalf("expected bob persisted in addrbook, got %+v", book.PeerMap(""))
+	}
+}
+
 func TestBuildRuntimeNodeConfiguresGRPCTransport(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
