@@ -248,6 +248,24 @@ Run a LevelDB-backed storage demo:
 go run ./cmd/vexod store-demo
 ```
 
+Build the node binary:
+
+```bash
+make build
+```
+
+Run all checks:
+
+```bash
+make check
+```
+
+Build a container image:
+
+```bash
+docker build -t vexo-consensus .
+```
+
 Expose operational status over HTTP from an embedded node:
 
 ```go

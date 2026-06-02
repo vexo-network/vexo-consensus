@@ -1,0 +1,12 @@
+.git
+.github
+.gocache
+.vexo
+bin
+build
+dist
+coverage.out
+coverage.html
+*.log
+tmp
+temp
