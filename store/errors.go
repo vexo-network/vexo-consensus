@@ -7,6 +7,7 @@ var (
 	ErrBlockIndexNotFound = errors.New("block index not found")
 	ErrStateNotFound      = errors.New("state not found")
 	ErrStateRootNotFound  = errors.New("state root not found")
+	ErrEvidenceNotFound   = errors.New("evidence not found")
 	ErrKeyNotFound        = errors.New("key not found")
 	ErrInvalidBlockRecord = errors.New("invalid block record")
 	ErrInvalidStateRecord = errors.New("invalid state record")

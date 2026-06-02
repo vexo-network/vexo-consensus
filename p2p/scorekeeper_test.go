@@ -314,6 +314,47 @@ func TestScoreKeeperRateLimitIsIsolatedAcrossPeerFlood(t *testing.T) {
 	}
 }
 
+func TestScoreKeeperGlobalRateLimitStopsManyPeerFlood(t *testing.T) {
+	keeper := NewScoreKeeper(ScoreConfig{
+		InitialScore:              20,
+		ValidMessageReward:        1,
+		RateLimitCost:             7,
+		BanThreshold:              0,
+		MaxMessagesPerWindow:      10,
+		MaxTotalMessagesPerWindow: 3,
+	})
+
+	for i := 0; i < 3; i++ {
+		peer := PeerID("peer-" + strconv.Itoa(i))
+		if err := keeper.ObserveMessage(context.Background(), peer, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := keeper.ObserveMessage(context.Background(), "peer-overflow", true); !errors.Is(err, ErrRateLimitExceeded) {
+		t.Fatalf("expected global rate limit, got %v", err)
+	}
+	total, err := keeper.TotalWindowMessages(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 4 {
+		t.Fatalf("expected total window messages 4, got %d", total)
+	}
+	if err := keeper.ResetWindow(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	total, err = keeper.TotalWindowMessages(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 0 {
+		t.Fatalf("expected reset total window messages, got %d", total)
+	}
+	if err := keeper.ObserveMessage(context.Background(), "honest-peer", true); err != nil {
+		t.Fatalf("expected honest peer admitted after reset, got %v", err)
+	}
+}
+
 func TestScoreKeeperContextCancellation(t *testing.T) {
 	keeper := NewScoreKeeper(ScoreConfig{})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -333,6 +374,9 @@ func TestScoreKeeperContextCancellation(t *testing.T) {
 	}
 	if _, err := keeper.WindowMessages(ctx, "peer-a"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected window messages canceled, got %v", err)
+	}
+	if _, err := keeper.TotalWindowMessages(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected total window messages canceled, got %v", err)
 	}
 	if _, err := keeper.Snapshot(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected snapshot canceled, got %v", err)

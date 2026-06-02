@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 
+	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -38,6 +39,12 @@ type PruneResult struct {
 	PrunedStateRoots uint64
 }
 
+type EvidenceRecord struct {
+	Evidence  slashing.Evidence
+	Applied   bool
+	CreatedAt int64
+}
+
 type Store interface {
 	KVStore
 	SaveBlock(ctx context.Context, record BlockRecord) error
@@ -49,6 +56,9 @@ type Store interface {
 	LatestState(ctx context.Context) (StateRecord, error)
 	SaveStateRoot(ctx context.Context, record StateRootRecord) error
 	StateRoot(ctx context.Context, height types.Height, namespace string) (StateRootRecord, error)
+	SaveEvidence(ctx context.Context, record EvidenceRecord) error
+	EvidenceByKey(ctx context.Context, key string) (EvidenceRecord, error)
+	EvidenceIndex(ctx context.Context) ([]string, error)
 	Close() error
 }
 

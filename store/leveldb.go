@@ -4,11 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strconv"
 
 	"github.com/syndtr/goleveldb/leveldb"
 	leveldberrors "github.com/syndtr/goleveldb/leveldb/errors"
+	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -16,6 +19,8 @@ var (
 	blockHeightPrefix = []byte("block:height:")
 	blockHashPrefix   = []byte("block:hash:")
 	blockIndexKey     = []byte("block:index")
+	evidencePrefix    = []byte("evidence:")
+	evidenceIndexKey  = []byte("evidence:index")
 	kvPrefix          = []byte("kv:")
 	stateLatestKey    = []byte("state:latest")
 	stateRootPrefix   = []byte("state:root:")
@@ -330,6 +335,80 @@ func (store *LevelDBStore) Root(ctx context.Context, namespace string) (types.Ha
 	return hash, nil
 }
 
+func (store *LevelDBStore) SaveEvidence(ctx context.Context, record EvidenceRecord) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	key := evidenceRecordKey(record.Evidence)
+	if key == "" {
+		return ErrInvalidKey
+	}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	index, err := store.EvidenceIndex(ctx)
+	if err != nil && !errors.Is(err, ErrEvidenceNotFound) {
+		return err
+	}
+	if !stringSliceContains(index, key) {
+		index = append(index, key)
+	}
+	encodedIndex, err := json.Marshal(index)
+	if err != nil {
+		return err
+	}
+	batch := new(leveldb.Batch)
+	batch.Put(evidenceKey(key), encoded)
+	batch.Put(evidenceIndexKey, encodedIndex)
+	return store.db.Write(batch, nil)
+}
+
+func (store *LevelDBStore) EvidenceByKey(ctx context.Context, key string) (EvidenceRecord, error) {
+	select {
+	case <-ctx.Done():
+		return EvidenceRecord{}, ctx.Err()
+	default:
+	}
+	if key == "" {
+		return EvidenceRecord{}, ErrInvalidKey
+	}
+	encoded, err := store.db.Get(evidenceKey(key), nil)
+	if err != nil {
+		if errors.Is(err, leveldberrors.ErrNotFound) {
+			return EvidenceRecord{}, ErrEvidenceNotFound
+		}
+		return EvidenceRecord{}, err
+	}
+	var record EvidenceRecord
+	if err := json.Unmarshal(encoded, &record); err != nil {
+		return EvidenceRecord{}, err
+	}
+	return record, nil
+}
+
+func (store *LevelDBStore) EvidenceIndex(ctx context.Context) ([]string, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	encoded, err := store.db.Get(evidenceIndexKey, nil)
+	if err != nil {
+		if errors.Is(err, leveldberrors.ErrNotFound) {
+			return nil, ErrEvidenceNotFound
+		}
+		return nil, err
+	}
+	var index []string
+	if err := json.Unmarshal(encoded, &index); err != nil {
+		return nil, err
+	}
+	return append([]string(nil), index...), nil
+}
+
 func (store *LevelDBStore) Close() error {
 	return store.db.Close()
 }
@@ -467,6 +546,28 @@ func kvNamespacePrefix(namespace string) []byte {
 	dbKey := append([]byte(nil), kvPrefix...)
 	dbKey = append(dbKey, []byte(namespace)...)
 	return append(dbKey, ':')
+}
+
+func evidenceKey(key string) []byte {
+	dbKey := append([]byte(nil), evidencePrefix...)
+	return append(dbKey, []byte(key)...)
+}
+
+func evidenceRecordKey(evidence slashing.Evidence) string {
+	if evidence.Type == "" || evidence.Validator == "" || evidence.Height == 0 || len(evidence.Proof) == 0 {
+		return ""
+	}
+	hash := sha256.Sum256(evidence.Proof)
+	return string(evidence.Type) + ":" + string(evidence.Validator) + ":" + strconv.FormatUint(uint64(evidence.Height), 10) + ":" + strconv.FormatUint(uint64(evidence.Round), 10) + ":" + hex.EncodeToString(hash[:])
+}
+
+func stringSliceContains(items []string, target string) bool {
+	for _, item := range items {
+		if item == target {
+			return true
+		}
+	}
+	return false
 }
 
 func writeUint64(writer byteWriter, value uint64) {

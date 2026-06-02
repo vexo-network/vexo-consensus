@@ -14,15 +14,16 @@ var (
 )
 
 type ScoreConfig struct {
-	InitialScore         int64
-	ValidMessageReward   int64
-	InvalidMessageCost   int64
-	RateLimitCost        int64
-	BanThreshold         int64
-	MaxMessagesPerWindow uint64
-	WindowResetInterval  time.Duration
-	ScoreRecovery        int64
-	BanDuration          time.Duration
+	InitialScore              int64
+	ValidMessageReward        int64
+	InvalidMessageCost        int64
+	RateLimitCost             int64
+	BanThreshold              int64
+	MaxMessagesPerWindow      uint64
+	MaxTotalMessagesPerWindow uint64
+	WindowResetInterval       time.Duration
+	ScoreRecovery             int64
+	BanDuration               time.Duration
 }
 
 type PeerState struct {
@@ -41,9 +42,10 @@ type PeerSnapshot struct {
 }
 
 type ScoreKeeper struct {
-	mu     sync.Mutex
-	config ScoreConfig
-	peers  map[PeerID]PeerState
+	mu                  sync.Mutex
+	config              ScoreConfig
+	peers               map[PeerID]PeerState
+	totalWindowMessages uint64
 }
 
 func NewScoreKeeper(config ScoreConfig) *ScoreKeeper {
@@ -83,6 +85,13 @@ func (keeper *ScoreKeeper) AdmitMessage(ctx context.Context, peer PeerID) error 
 	}
 	state.WindowMessages++
 	if keeper.config.MaxMessagesPerWindow > 0 && state.WindowMessages > keeper.config.MaxMessagesPerWindow {
+		state.Score -= keeper.config.RateLimitCost
+		state = keeper.applyBan(state)
+		keeper.peers[peer] = state
+		return ErrRateLimitExceeded
+	}
+	keeper.totalWindowMessages++
+	if keeper.config.MaxTotalMessagesPerWindow > 0 && keeper.totalWindowMessages > keeper.config.MaxTotalMessagesPerWindow {
 		state.Score -= keeper.config.RateLimitCost
 		state = keeper.applyBan(state)
 		keeper.peers[peer] = state
@@ -136,6 +145,7 @@ func (keeper *ScoreKeeper) ResetWindow(ctx context.Context) error {
 		state = keeper.recoverScore(state)
 		keeper.peers[peer] = state
 	}
+	keeper.totalWindowMessages = 0
 	return nil
 }
 
@@ -172,6 +182,17 @@ func (keeper *ScoreKeeper) WindowMessages(ctx context.Context, peer PeerID) (uin
 	keeper.mu.Lock()
 	defer keeper.mu.Unlock()
 	return keeper.state(peer).WindowMessages, nil
+}
+
+func (keeper *ScoreKeeper) TotalWindowMessages(ctx context.Context) (uint64, error) {
+	select {
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	default:
+	}
+	keeper.mu.Lock()
+	defer keeper.mu.Unlock()
+	return keeper.totalWindowMessages, nil
 }
 
 func (keeper *ScoreKeeper) Snapshot(ctx context.Context) ([]PeerSnapshot, error) {

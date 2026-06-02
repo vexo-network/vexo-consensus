@@ -77,15 +77,16 @@ func Default(chainID string) Config {
 			Timelock:          10,
 		},
 		P2P: p2p.ScoreConfig{
-			InitialScore:         100,
-			ValidMessageReward:   1,
-			InvalidMessageCost:   10,
-			RateLimitCost:        5,
-			BanThreshold:         0,
-			MaxMessagesPerWindow: 1000,
-			WindowResetInterval:  time.Second,
-			ScoreRecovery:        1,
-			BanDuration:          10 * time.Minute,
+			InitialScore:              100,
+			ValidMessageReward:        1,
+			InvalidMessageCost:        10,
+			RateLimitCost:             5,
+			BanThreshold:              0,
+			MaxMessagesPerWindow:      1000,
+			MaxTotalMessagesPerWindow: 100000,
+			WindowResetInterval:       time.Second,
+			ScoreRecovery:             1,
+			BanDuration:               10 * time.Minute,
 		},
 	}
 }
@@ -119,6 +120,7 @@ func (config Config) Validate() error {
 		config.P2P.InvalidMessageCost <= 0 ||
 		config.P2P.RateLimitCost <= 0 ||
 		config.P2P.MaxMessagesPerWindow == 0 ||
+		config.P2P.MaxTotalMessagesPerWindow == 0 ||
 		config.P2P.WindowResetInterval <= 0 ||
 		config.P2P.ScoreRecovery < 0 ||
 		config.P2P.BanDuration < 0 {

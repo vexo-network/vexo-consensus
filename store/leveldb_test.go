@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -448,6 +449,68 @@ func TestLevelDBStoreKVRejectsInvalidNamespaceAndKey(t *testing.T) {
 	}
 	if err := store.Delete(context.Background(), "bank", nil); !errors.Is(err, ErrInvalidKey) {
 		t.Fatalf("expected invalid key, got %v", err)
+	}
+}
+
+func TestLevelDBStoreSavesAndLoadsEvidence(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	record := EvidenceRecord{
+		Evidence: slashing.Evidence{
+			Type:      slashing.EvidenceConflictingVote,
+			Validator: "alice",
+			Height:    7,
+			Round:     2,
+			Proof:     []byte("proof"),
+		},
+		Applied:   true,
+		CreatedAt: 123,
+	}
+	if err := store.SaveEvidence(context.Background(), record); err != nil {
+		t.Fatal(err)
+	}
+	index, err := store.EvidenceIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(index) != 1 {
+		t.Fatalf("expected one evidence index entry, got %d", len(index))
+	}
+	loaded, err := store.EvidenceByKey(context.Background(), index[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Evidence.Validator != "alice" || !loaded.Applied || loaded.CreatedAt != 123 {
+		t.Fatalf("unexpected evidence record: %+v", loaded)
+	}
+	if err := store.SaveEvidence(context.Background(), record); err != nil {
+		t.Fatal(err)
+	}
+	index, err = store.EvidenceIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(index) != 1 {
+		t.Fatalf("expected idempotent evidence index, got %d", len(index))
+	}
+}
+
+func TestLevelDBStoreRejectsInvalidEvidenceRecord(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	if err := store.SaveEvidence(context.Background(), EvidenceRecord{}); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("expected invalid key, got %v", err)
+	}
+	if _, err := store.EvidenceByKey(context.Background(), ""); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("expected invalid key, got %v", err)
+	}
+	if _, err := store.EvidenceByKey(context.Background(), "missing"); !errors.Is(err, ErrEvidenceNotFound) {
+		t.Fatalf("expected evidence not found, got %v", err)
+	}
+	if _, err := store.EvidenceIndex(context.Background()); !errors.Is(err, ErrEvidenceNotFound) {
+		t.Fatalf("expected evidence index not found, got %v", err)
 	}
 }
 

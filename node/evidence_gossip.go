@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	"github.com/vexo-network/vexo-consensus/slashing"
+	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/transport"
 )
 
@@ -47,6 +49,13 @@ func (node *Node) applyEvidence(ctx context.Context, evidence slashing.Evidence)
 		return consensus.SlashResult{}, false, nil
 	}
 	if err != nil {
+		return consensus.SlashResult{}, false, err
+	}
+	if err := runtime.Store.SaveEvidence(ctx, store.EvidenceRecord{
+		Evidence:  evidence,
+		Applied:   true,
+		CreatedAt: time.Now().Unix(),
+	}); err != nil {
 		return consensus.SlashResult{}, false, err
 	}
 	machine, err := node.Consensus()

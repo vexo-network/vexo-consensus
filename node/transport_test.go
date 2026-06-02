@@ -514,6 +514,24 @@ func TestNodeGossipsConflictingVoteEvidenceAndSlashesValidator(t *testing.T) {
 	waitForValidatorPower(t, alice, "bob", 95)
 	waitForValidatorPower(t, bob, "bob", 95)
 	waitForValidatorPower(t, carol, "bob", 95)
+	runtime, err := alice.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	index, err := runtime.Store.EvidenceIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(index) != 1 {
+		t.Fatalf("expected persisted evidence index, got %d", len(index))
+	}
+	record, err := runtime.Store.EvidenceByKey(context.Background(), index[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Evidence.Validator != "bob" || !record.Applied {
+		t.Fatalf("unexpected persisted evidence: %+v", record)
+	}
 }
 
 func TestNodePenalizesAndBansInvalidPeerMessages(t *testing.T) {

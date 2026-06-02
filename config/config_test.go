@@ -68,6 +68,7 @@ func TestConfigValidateRejectsUnsafeSettings(t *testing.T) {
 		{name: "zero rate limit cost", mutate: func(cfg *Config) { cfg.P2P.RateLimitCost = 0 }},
 		{name: "negative rate limit cost", mutate: func(cfg *Config) { cfg.P2P.RateLimitCost = -1 }},
 		{name: "zero max messages window", mutate: func(cfg *Config) { cfg.P2P.MaxMessagesPerWindow = 0 }},
+		{name: "zero total max messages window", mutate: func(cfg *Config) { cfg.P2P.MaxTotalMessagesPerWindow = 0 }},
 		{name: "zero p2p window reset interval", mutate: func(cfg *Config) { cfg.P2P.WindowResetInterval = 0 }},
 		{name: "negative p2p window reset interval", mutate: func(cfg *Config) { cfg.P2P.WindowResetInterval = -time.Second }},
 		{name: "negative p2p ban duration", mutate: func(cfg *Config) { cfg.P2P.BanDuration = -time.Second }},

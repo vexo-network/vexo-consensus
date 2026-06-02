@@ -7,6 +7,8 @@ var (
 	ErrKeyAlreadyExists = errors.New("key already exists")
 	ErrEmptyKeyID       = errors.New("key id is empty")
 	ErrNilSigner        = errors.New("signer is nil")
+	ErrInactiveKey      = errors.New("key is not active at height")
+	ErrInvalidKeyWindow = errors.New("invalid key activation window")
 )
 
 type KeyID string
@@ -43,6 +45,9 @@ func (keyRing *KeyRing) Add(record KeyRecord) error {
 	if record.Signer == nil {
 		return ErrNilSigner
 	}
+	if record.ActiveUntil > 0 && record.ActiveUntil < record.ActiveFrom {
+		return ErrInvalidKeyWindow
+	}
 	if _, exists := keyRing.keys[record.ID]; exists {
 		return ErrKeyAlreadyExists
 	}
@@ -66,6 +71,21 @@ func (keyRing *KeyRing) ActiveSigner() (Signer, error) {
 	return keyRing.Signer(keyRing.active)
 }
 
+func (keyRing *KeyRing) ActiveSignerAt(height uint64) (Signer, KeyID, error) {
+	if keyRing.active != "" {
+		record, exists := keyRing.keys[keyRing.active]
+		if exists && record.activeAt(height) {
+			return record.Signer, record.ID, nil
+		}
+	}
+	for id, record := range keyRing.keys {
+		if record.activeAt(height) {
+			return record.Signer, id, nil
+		}
+	}
+	return nil, "", ErrInactiveKey
+}
+
 func (keyRing *KeyRing) Signer(id KeyID) (Signer, error) {
 	record, exists := keyRing.keys[id]
 	if !exists {
@@ -80,4 +100,11 @@ func (keyRing *KeyRing) Record(id KeyID) (KeyRecord, error) {
 		return KeyRecord{}, ErrKeyNotFound
 	}
 	return record, nil
+}
+
+func (record KeyRecord) activeAt(height uint64) bool {
+	if height < record.ActiveFrom {
+		return false
+	}
+	return record.ActiveUntil == 0 || height <= record.ActiveUntil
 }
