@@ -24,12 +24,18 @@ type TimeoutVote struct {
 
 type TimeoutCollector struct {
 	validatorSet validator.Set
+	aggregator   aggregateSigner
 	votes        map[types.Height]map[types.Round]map[types.ValidatorID]TimeoutVote
 }
 
 func NewTimeoutCollector(validatorSet validator.Set) *TimeoutCollector {
+	return NewTimeoutCollectorWithAggregator(validatorSet, nil)
+}
+
+func NewTimeoutCollectorWithAggregator(validatorSet validator.Set, aggregator aggregateSigner) *TimeoutCollector {
 	return &TimeoutCollector{
 		validatorSet: validatorSet,
+		aggregator:   aggregator,
 		votes:        make(map[types.Height]map[types.Round]map[types.ValidatorID]TimeoutVote),
 	}
 }
@@ -58,6 +64,7 @@ func (collector *TimeoutCollector) BuildTimeoutCert(height types.Height, round t
 	var votingPower types.VotingPower
 	var highQC finality.QuorumCert
 	signers := make([]string, 0, len(roundVotes))
+	signatures := make([]types.Signature, 0, len(roundVotes))
 	for validatorID, vote := range roundVotes {
 		validatorInfo, found := collector.validatorSet.Get(validatorID)
 		if !found {
@@ -65,6 +72,7 @@ func (collector *TimeoutCollector) BuildTimeoutCert(height types.Height, round t
 		}
 		votingPower += validatorInfo.VotingPower
 		signers = append(signers, string(validatorID))
+		signatures = append(signatures, vote.Signature)
 		if isBetterQC(vote.HighQC, highQC) {
 			highQC = vote.HighQC
 		}
@@ -73,13 +81,22 @@ func (collector *TimeoutCollector) BuildTimeoutCert(height types.Height, round t
 		return finality.TimeoutCert{}, ErrNoQuorum
 	}
 
+	aggregateSignature := types.AggregateSignature("placeholder-timeout-signature")
+	if collector.aggregator != nil && allSignaturesPresent(signatures) {
+		signature, err := collector.aggregator.Aggregate(signatures)
+		if err != nil {
+			return finality.TimeoutCert{}, err
+		}
+		aggregateSignature = signature
+	}
+
 	sort.Strings(signers)
 	return finality.TimeoutCert{
 		Height:    height,
 		Round:     round,
 		HighQC:    highQC,
 		Signers:   types.Bitmap(strings.Join(signers, ",")),
-		Signature: types.AggregateSignature("placeholder-timeout-signature"),
+		Signature: aggregateSignature,
 	}, nil
 }
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/dataavailability"
 	"github.com/vexo-network/vexo-consensus/fairordering"
 	"github.com/vexo-network/vexo-consensus/finality"
@@ -32,6 +33,8 @@ type StateMachineConfig struct {
 	ChainID      string
 	ValidatorSet validator.Set
 	HashBlock    func(types.Block) types.Hash
+	Signatures   signatureVerifier
+	Aggregator   aggregateSigner
 }
 
 type StateMachine struct {
@@ -39,6 +42,8 @@ type StateMachine struct {
 	chainID      string
 	validatorSet validator.Set
 	hashBlock    func(types.Block) types.Hash
+	signatures   signatureVerifier
+	aggregator   aggregateSigner
 	status       Status
 	votes        map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote
 	votedBlocks  map[types.Height]map[types.Round]map[types.ValidatorID]types.Hash
@@ -68,6 +73,8 @@ func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
 		chainID:      config.ChainID,
 		validatorSet: config.ValidatorSet,
 		hashBlock:    hashBlock,
+		signatures:   config.Signatures,
+		aggregator:   config.Aggregator,
 		status: Status{
 			ChainID:          config.ChainID,
 			Phase:            PhasePropose,
@@ -76,7 +83,7 @@ func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
 		votes:        make(map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote),
 		votedBlocks:  make(map[types.Height]map[types.Round]map[types.ValidatorID]types.Hash),
 		evidence:     make([]slashing.Evidence, 0),
-		timeouts:     NewTimeoutCollector(config.ValidatorSet),
+		timeouts:     NewTimeoutCollectorWithAggregator(config.ValidatorSet, config.Aggregator),
 		pacemaker:    NewPacemaker(0, 0),
 		blockTree:    NewBlockTree(),
 		commitRule:   ThreeChainCommitRule{},
@@ -104,7 +111,7 @@ func (machine *StateMachine) UpdateValidatorSet(validatorSet validator.Set) erro
 	}
 	machine.validatorSet = validatorSet
 	machine.status.ValidatorSetHash = validatorSet.Hash()
-	machine.timeouts = NewTimeoutCollector(validatorSet)
+	machine.timeouts = NewTimeoutCollectorWithAggregator(validatorSet, machine.aggregator)
 	return nil
 }
 
@@ -156,6 +163,9 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 
 	if _, found := machine.validatorSet.Get(proposal.Proposer); !found {
 		return ErrUnknownValidator
+	}
+	if err := machine.verifyProposalSignature(proposal); err != nil {
+		return err
 	}
 	if proposal.Block.Header.ChainID != machine.chainID {
 		return fmt.Errorf("proposal chain id mismatch: %s", proposal.Block.Header.ChainID)
@@ -243,6 +253,9 @@ func (machine *StateMachine) validateVote(vote Vote) error {
 	if vote.BlockHash == (types.Hash{}) {
 		return fmt.Errorf("%w: missing block hash", ErrInvalidVote)
 	}
+	if err := machine.verifyVoteSignature(vote); err != nil {
+		return err
+	}
 	if machine.status.Height > 0 && vote.Height < machine.status.Height {
 		return ErrStaleVote
 	}
@@ -277,6 +290,9 @@ func (machine *StateMachine) OnTimeoutVote(ctx context.Context, vote TimeoutVote
 	machine.mu.Lock()
 	defer machine.mu.Unlock()
 
+	if err := machine.verifyTimeoutVoteSignature(vote); err != nil {
+		return finality.TimeoutCert{}, err
+	}
 	if err := machine.timeouts.AddVote(vote); err != nil {
 		return finality.TimeoutCert{}, err
 	}
@@ -309,17 +325,28 @@ func (machine *StateMachine) buildQuorumCert(height types.Height, round types.Ro
 
 	var votingPower types.VotingPower
 	signers := make([]string, 0, len(blockVotes))
-	for validatorID := range blockVotes {
+	signatures := make([]types.Signature, 0, len(blockVotes))
+	for validatorID, vote := range blockVotes {
 		validatorInfo, found := machine.validatorSet.Get(validatorID)
 		if !found {
 			continue
 		}
 		votingPower += validatorInfo.VotingPower
 		signers = append(signers, string(validatorID))
+		signatures = append(signatures, vote.Signature)
 	}
 
 	if !hasQuorum(votingPower, machine.validatorSet.TotalVotingPower()) {
 		return finality.QuorumCert{}, ErrNoQuorum
+	}
+
+	aggregateSignature := types.AggregateSignature("placeholder-aggregate-signature")
+	if machine.aggregator != nil && allSignaturesPresent(signatures) {
+		signature, err := machine.aggregator.Aggregate(signatures)
+		if err != nil {
+			return finality.QuorumCert{}, err
+		}
+		aggregateSignature = signature
 	}
 
 	sort.Strings(signers)
@@ -328,7 +355,7 @@ func (machine *StateMachine) buildQuorumCert(height types.Height, round types.Ro
 		Round:       round,
 		BlockHash:   blockHash,
 		Signers:     types.Bitmap(strings.Join(signers, ",")),
-		Signature:   types.AggregateSignature("placeholder-aggregate-signature"),
+		Signature:   aggregateSignature,
 		VotingPower: votingPower,
 	}, nil
 }
@@ -353,6 +380,69 @@ func (machine *StateMachine) Evidence() []slashing.Evidence {
 	defer machine.mu.Unlock()
 
 	return append([]slashing.Evidence(nil), machine.evidence...)
+}
+
+func (machine *StateMachine) verifyProposalSignature(proposal Proposal) error {
+	if machine.signatures == nil {
+		return nil
+	}
+	if len(proposal.Signature) == 0 {
+		return fmt.Errorf("%w: missing proposal signature", ErrInvalidProposal)
+	}
+	validatorInfo, found := machine.validatorSet.Get(proposal.Proposer)
+	if !found {
+		return ErrUnknownValidator
+	}
+	message, err := vexocrypto.DomainMessage(vexocrypto.DomainConsensusProposal, ProposalSignBytes(proposal))
+	if err != nil {
+		return err
+	}
+	if !machine.signatures.Verify(validatorInfo.PublicKey, message, proposal.Signature) {
+		return fmt.Errorf("%w: invalid proposal signature", ErrInvalidProposal)
+	}
+	return nil
+}
+
+func (machine *StateMachine) verifyVoteSignature(vote Vote) error {
+	if machine.signatures == nil {
+		return nil
+	}
+	if len(vote.Signature) == 0 {
+		return fmt.Errorf("%w: missing vote signature", ErrInvalidVote)
+	}
+	validatorInfo, found := machine.validatorSet.Get(vote.ValidatorID)
+	if !found {
+		return ErrUnknownValidator
+	}
+	message, err := vexocrypto.DomainMessage(vexocrypto.DomainConsensusVote, VoteSignBytes(vote))
+	if err != nil {
+		return err
+	}
+	if !machine.signatures.Verify(validatorInfo.PublicKey, message, vote.Signature) {
+		return fmt.Errorf("%w: invalid vote signature", ErrInvalidVote)
+	}
+	return nil
+}
+
+func (machine *StateMachine) verifyTimeoutVoteSignature(vote TimeoutVote) error {
+	if machine.signatures == nil {
+		return nil
+	}
+	if len(vote.Signature) == 0 {
+		return fmt.Errorf("%w: missing timeout vote signature", ErrInvalidVote)
+	}
+	validatorInfo, found := machine.validatorSet.Get(vote.ValidatorID)
+	if !found {
+		return ErrUnknownValidator
+	}
+	message, err := vexocrypto.DomainMessage(vexocrypto.DomainConsensusTimeoutVote, TimeoutVoteSignBytes(vote))
+	if err != nil {
+		return err
+	}
+	if !machine.signatures.Verify(validatorInfo.PublicKey, message, vote.Signature) {
+		return fmt.Errorf("%w: invalid timeout vote signature", ErrInvalidVote)
+	}
+	return nil
 }
 
 func (machine *StateMachine) CommitDecisions() []CommitDecision {
@@ -462,4 +552,16 @@ func hasQuorum(power types.VotingPower, total types.VotingPower) bool {
 		return false
 	}
 	return power*3 >= total*2
+}
+
+func allSignaturesPresent(signatures []types.Signature) bool {
+	if len(signatures) == 0 {
+		return false
+	}
+	for _, signature := range signatures {
+		if len(signature) == 0 {
+			return false
+		}
+	}
+	return true
 }

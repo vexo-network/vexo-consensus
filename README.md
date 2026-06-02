@@ -77,6 +77,8 @@ The design is intentionally modular so individual components can be replaced wit
 - Quorum certificate generation
 - Conflicting vote detection
 - Signature domain separation for consensus, timeout, and finality messages
+- Domain-verified consensus proposal, vote, and timeout-vote signatures
+- Signed vote aggregation for quorum and timeout certificates
 - Validator keyring abstraction for active key rotation
 - Slashing evidence generation
 - Consensus WAL for local proposal/vote/timeout-vote persistence

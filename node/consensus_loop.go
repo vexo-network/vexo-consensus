@@ -7,6 +7,7 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/consensus"
+	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -15,6 +16,7 @@ import (
 type autoVoteReactor struct {
 	machine            *consensus.StateMachine
 	validatorID        types.ValidatorID
+	signer             vexocrypto.Signer
 	broadcastVote      func(context.Context, consensus.Vote) error
 	onProposalAccepted func(consensus.Proposal, types.Hash)
 	onEvidence         func(context.Context, slashing.Evidence)
@@ -34,6 +36,9 @@ func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consens
 		Round:       proposal.Round,
 		BlockHash:   blockHash,
 		ValidatorID: reactor.validatorID,
+	}
+	if err := signConsensusVote(reactor.signer, &vote); err != nil {
+		return err
 	}
 	if reactor.wal != nil {
 		if err := reactor.wal.RecordVote(vote); err != nil {
@@ -104,6 +109,9 @@ func (node *Node) ProposeBlock(ctx context.Context, block types.Block) (consensu
 	if err != nil {
 		return consensus.Proposal{}, types.Hash{}, err
 	}
+	if err := node.signConsensusProposal(&proposal); err != nil {
+		return consensus.Proposal{}, types.Hash{}, err
+	}
 	if err := node.recordConsensusProposal(proposal); err != nil {
 		return consensus.Proposal{}, types.Hash{}, err
 	}
@@ -136,6 +144,9 @@ func (node *Node) VoteBlock(ctx context.Context, height types.Height, round type
 		Round:       round,
 		BlockHash:   blockHash,
 		ValidatorID: node.cfg.ValidatorID,
+	}
+	if err := node.signConsensusVote(&vote); err != nil {
+		return finality.QuorumCert{}, false, err
 	}
 	if err := node.recordConsensusVote(vote); err != nil {
 		return finality.QuorumCert{}, false, err
@@ -176,6 +187,9 @@ func (node *Node) TimeoutRound(ctx context.Context) (finality.TimeoutCert, bool,
 		Round:       status.Round,
 		ValidatorID: node.cfg.ValidatorID,
 	}
+	if err := node.signConsensusTimeoutVote(&vote); err != nil {
+		return finality.TimeoutCert{}, false, err
+	}
 	if err := node.recordConsensusTimeoutVote(vote); err != nil {
 		return finality.TimeoutCert{}, false, err
 	}
@@ -207,6 +221,55 @@ func (node *Node) recordConsensusProposal(proposal consensus.Proposal) error {
 		return nil
 	}
 	return wal.RecordProposal(proposal)
+}
+
+func (node *Node) signConsensusProposal(proposal *consensus.Proposal) error {
+	node.mu.Lock()
+	signer := node.signer
+	node.mu.Unlock()
+	if signer == nil {
+		return nil
+	}
+	signature, err := vexocrypto.SignWithDomain(signer, vexocrypto.DomainConsensusProposal, consensus.ProposalSignBytes(*proposal))
+	if err != nil {
+		return err
+	}
+	proposal.Signature = signature
+	return nil
+}
+
+func (node *Node) signConsensusVote(vote *consensus.Vote) error {
+	node.mu.Lock()
+	signer := node.signer
+	node.mu.Unlock()
+	return signConsensusVote(signer, vote)
+}
+
+func signConsensusVote(signer vexocrypto.Signer, vote *consensus.Vote) error {
+	if signer == nil {
+		return nil
+	}
+	signature, err := vexocrypto.SignWithDomain(signer, vexocrypto.DomainConsensusVote, consensus.VoteSignBytes(*vote))
+	if err != nil {
+		return err
+	}
+	vote.Signature = signature
+	return nil
+}
+
+func (node *Node) signConsensusTimeoutVote(vote *consensus.TimeoutVote) error {
+	node.mu.Lock()
+	signer := node.signer
+	node.mu.Unlock()
+	if signer == nil {
+		return nil
+	}
+	signature, err := vexocrypto.SignWithDomain(signer, vexocrypto.DomainConsensusTimeoutVote, consensus.TimeoutVoteSignBytes(*vote))
+	if err != nil {
+		return err
+	}
+	vote.Signature = signature
+	return nil
 }
 
 func (node *Node) recordConsensusVote(vote consensus.Vote) error {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/consensus"
+	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/store"
@@ -58,6 +59,7 @@ type Node struct {
 	pending        map[types.Hash]consensus.Proposal
 	store          store.Store
 	consensusWAL   *consensus.WAL
+	signer         vexocrypto.Signer
 	running        bool
 }
 
@@ -81,6 +83,11 @@ func New(cfg Config, genesis Genesis, application app.Application) (*Node, error
 
 func (node *Node) WithTransport(wire transport.Transport) *Node {
 	node.wire = wire
+	return node
+}
+
+func (node *Node) WithSigner(signer vexocrypto.Signer) *Node {
+	node.signer = signer
 	return node
 }
 
@@ -114,7 +121,7 @@ func (node *Node) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	consensusState, err := runtime.NewConsensusStateMachine(ctx, startHeight)
+	consensusState, err := runtime.NewConsensusStateMachineWithSignatures(ctx, startHeight, node.signer)
 	if err != nil {
 		storage.Close()
 		return err
@@ -132,6 +139,7 @@ func (node *Node) Start(ctx context.Context) error {
 			receiver = &autoVoteReactor{
 				machine:            consensusState,
 				validatorID:        node.cfg.ValidatorID,
+				signer:             node.signer,
 				onProposalAccepted: node.cacheProposal,
 				onEvidence:         node.handleLocalEvidence,
 				wal:                consensusWAL,

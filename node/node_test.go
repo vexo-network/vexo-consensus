@@ -7,6 +7,7 @@ import (
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/consensus"
+	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
@@ -497,6 +498,54 @@ func TestNodeValidation(t *testing.T) {
 	_, err = New(DefaultConfig("vexo-test", t.TempDir()), validGenesis(), nil)
 	if !errors.Is(err, ErrMissingApplication) {
 		t.Fatalf("expected missing application, got %v", err)
+	}
+}
+
+func TestNodeSignsConsensusMessagesWithDomains(t *testing.T) {
+	signer, err := vexocrypto.NewDeterministicSigner([]byte("alice-key"))
+	if err != nil {
+		t.Fatalf("new signer: %v", err)
+	}
+	node := newTestNode(t).WithSigner(signer)
+
+	proposal := consensus.Proposal{
+		Block:    types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1}},
+		Round:    0,
+		Proposer: "alice",
+	}
+	if err := node.signConsensusProposal(&proposal); err != nil {
+		t.Fatalf("sign proposal: %v", err)
+	}
+	proposalVerifier, err := vexocrypto.NewDomainSigner(signer, vexocrypto.DomainConsensusProposal)
+	if err != nil {
+		t.Fatalf("new proposal verifier: %v", err)
+	}
+	if !proposalVerifier.Verify(signer.PublicKey(), consensus.ProposalSignBytes(proposal), proposal.Signature) {
+		t.Fatal("expected proposal signature to verify")
+	}
+
+	vote := consensus.Vote{Height: 1, Round: 0, BlockHash: types.Hash{1}, ValidatorID: "alice"}
+	if err := node.signConsensusVote(&vote); err != nil {
+		t.Fatalf("sign vote: %v", err)
+	}
+	voteVerifier, err := vexocrypto.NewDomainSigner(signer, vexocrypto.DomainConsensusVote)
+	if err != nil {
+		t.Fatalf("new vote verifier: %v", err)
+	}
+	if !voteVerifier.Verify(signer.PublicKey(), consensus.VoteSignBytes(vote), vote.Signature) {
+		t.Fatal("expected vote signature to verify")
+	}
+
+	timeoutVote := consensus.TimeoutVote{Height: 1, Round: 0, ValidatorID: "alice"}
+	if err := node.signConsensusTimeoutVote(&timeoutVote); err != nil {
+		t.Fatalf("sign timeout vote: %v", err)
+	}
+	timeoutVerifier, err := vexocrypto.NewDomainSigner(signer, vexocrypto.DomainConsensusTimeoutVote)
+	if err != nil {
+		t.Fatalf("new timeout verifier: %v", err)
+	}
+	if !timeoutVerifier.Verify(signer.PublicKey(), consensus.TimeoutVoteSignBytes(timeoutVote), timeoutVote.Signature) {
+		t.Fatal("expected timeout vote signature to verify")
 	}
 }
 

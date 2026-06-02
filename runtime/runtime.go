@@ -201,6 +201,12 @@ func (runtime *Runtime) AppModules() []app.Module {
 }
 
 func (runtime *Runtime) NewConsensusStateMachine(ctx context.Context, height types.Height) (*consensus.StateMachine, error) {
+	return runtime.NewConsensusStateMachineWithSignatures(ctx, height, nil)
+}
+
+func (runtime *Runtime) NewConsensusStateMachineWithSignatures(ctx context.Context, height types.Height, signatures interface {
+	Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool
+}) (*consensus.StateMachine, error) {
 	validatorSet, err := runtime.Validators.ValidatorSet(ctx, height)
 	if err != nil {
 		return nil, err
@@ -208,6 +214,8 @@ func (runtime *Runtime) NewConsensusStateMachine(ctx context.Context, height typ
 	return consensus.NewStateMachine(consensus.StateMachineConfig{
 		ChainID:      runtime.Config.ChainID,
 		ValidatorSet: validatorSet,
+		Signatures:   signatures,
+		Aggregator:   runtime.Crypto.ConsensusAggregator,
 	})
 }
 

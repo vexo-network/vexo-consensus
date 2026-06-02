@@ -66,6 +66,12 @@ func (signer Ed25519Signer) Verify(publicKey types.PublicKey, message []byte, si
 
 type Ed25519MultiVerifier struct{}
 
+type Ed25519SignatureAggregator struct{}
+
+func (Ed25519SignatureAggregator) Aggregate(signatures []types.Signature) (types.AggregateSignature, error) {
+	return CombineEd25519Signatures(signatures)
+}
+
 func (Ed25519MultiVerifier) VerifyAggregate(publicKeys []types.PublicKey, message []byte, signature types.AggregateSignature) bool {
 	if len(publicKeys) == 0 {
 		return false

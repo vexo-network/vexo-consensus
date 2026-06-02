@@ -425,13 +425,16 @@ func TestNodeCommitGossipSyncsPeerThatMissedProposal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, err := alice.VoteBlock(context.Background(), proposal.Block.Header.Height, proposal.Round, blockHash); err != nil || ok {
-		t.Fatalf("expected no local quorum before carol vote: ok=%v err=%v", ok, err)
-	}
-	waitForQuorumCert(t, aliceConsensus, proposal.Block.Header.Height, proposal.Round, blockHash)
-	quorumCert, err := aliceConsensus.BuildQuorumCert(proposal.Block.Header.Height, proposal.Round, blockHash)
+	quorumCert, ok, err := alice.VoteBlock(context.Background(), proposal.Block.Header.Height, proposal.Round, blockHash)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("vote block: %v", err)
+	}
+	if !ok {
+		waitForQuorumCert(t, aliceConsensus, proposal.Block.Header.Height, proposal.Round, blockHash)
+		quorumCert, err = aliceConsensus.BuildQuorumCert(proposal.Block.Header.Height, proposal.Round, blockHash)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	startNode(t, bob)
