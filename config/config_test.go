@@ -12,56 +12,6 @@ func TestDefaultConfigIsValid(t *testing.T) {
 	}
 }
 
-func TestConfigProfilesAreValidAndTightenOperations(t *testing.T) {
-	dev := Default("vexo-test")
-	testnet, err := WithProfile("vexo-test", ProfileTestnet)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mainnet, err := WithProfile("vexo-test", ProfileMainnet)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, cfg := range []Config{testnet, mainnet} {
-		if err := cfg.Validate(); err != nil {
-			t.Fatalf("expected profile config valid, got %v", err)
-		}
-	}
-	if testnet.P2P.MaxMessagesPerWindow >= dev.P2P.MaxMessagesPerWindow {
-		t.Fatalf("expected testnet to tighten peer window, got %d >= %d", testnet.P2P.MaxMessagesPerWindow, dev.P2P.MaxMessagesPerWindow)
-	}
-	if mainnet.Committee.CommitteeSize <= dev.Committee.CommitteeSize {
-		t.Fatalf("expected mainnet larger committee, got %d <= %d", mainnet.Committee.CommitteeSize, dev.Committee.CommitteeSize)
-	}
-	if !testnet.Mempool.EnablePriority || testnet.Mempool.SeenTTL <= 0 {
-		t.Fatalf("expected testnet mempool hardening, got %+v", testnet.Mempool)
-	}
-	if !mainnet.Mempool.EnablePriority || mainnet.Mempool.MinFee == 0 || mainnet.Mempool.SeenTTL <= 0 {
-		t.Fatalf("expected mainnet mempool hardening, got %+v", mainnet.Mempool)
-	}
-	if !mainnet.Execution.RequireNonce || !mainnet.Execution.RequireSigned || mainnet.Execution.MinFee == 0 || mainnet.Execution.MinGas == 0 {
-		t.Fatalf("expected mainnet execution hardening, got %+v", mainnet.Execution)
-	}
-	if _, err := WithProfile("vexo-test", "unknown"); !errors.Is(err, ErrUnknownProfile) {
-		t.Fatalf("expected unknown profile error, got %v", err)
-	}
-}
-
-func TestProfilesReturnsStableOperationalProfiles(t *testing.T) {
-	profiles := Profiles()
-	if len(profiles) != 3 {
-		t.Fatalf("expected 3 profiles, got %+v", profiles)
-	}
-	if profiles[0].Name != ProfileDev || profiles[1].Name != ProfileTestnet || profiles[2].Name != ProfileMainnet {
-		t.Fatalf("unexpected profile order: %+v", profiles)
-	}
-	for _, profile := range profiles {
-		if profile.Description == "" {
-			t.Fatalf("expected profile description: %+v", profile)
-		}
-	}
-}
-
 func TestConfigValidateRejectsMissingChainID(t *testing.T) {
 	if err := Default("").Validate(); !errors.Is(err, ErrMissingChainID) {
 		t.Fatalf("expected missing chain id, got %v", err)

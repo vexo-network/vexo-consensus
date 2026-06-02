@@ -37,7 +37,6 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "ops.pprof_optional: true\n")
 	fmt.Fprintf(writer, "ops.structured_logs: true\n")
 	fmt.Fprintf(writer, "ops.release_artifacts: true\n")
-	fmt.Fprintf(writer, "ops.config_profiles: true\n")
 	fmt.Fprintf(writer, "addr_book.persistent: true\n")
 	fmt.Fprintf(writer, "addr_book.dial_failure_tracking: true\n")
 	fmt.Fprintf(writer, "addr_book.ban_eviction_policy: true\n")
@@ -175,7 +174,6 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"ops_pprof_optional":       true,
 			"ops_structured_logs":      true,
 			"ops_release_artifacts":    true,
-			"ops_config_profiles":      true,
 			"deployment_audit":         true,
 			"addr_book":                true,
 			"addr_book_ban_evict":      true,

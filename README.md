@@ -172,7 +172,6 @@ The design is intentionally modular so individual components can be replaced wit
 - Optional `/debug/pprof` endpoints
 - Admin-token protection for mutation endpoints
 - JSON or text startup logs with level, version, pid, and Go runtime metadata
-- Config profiles for `dev`, `testnet`, and `mainnet`
 - Deployment audit checks for production readiness
 - Cross-platform release builds and checksum generation through `make release`
 - Encrypted validator key files with passphrase-based loading
@@ -194,7 +193,7 @@ The design is intentionally modular so individual components can be replaced wit
 | `app/modules` | Config-driven default application module registry and execution ante wiring |
 | `cmd/vexod` | CLI entrypoint |
 | `committee` | Committee selection and epoch rotation |
-| `config` | Default chain configuration, profiles, and validation |
+| `config` | Default chain configuration and validation |
 | `consensus` | Consensus state machine, votes, proposals, QC, conflict evidence |
 | `dataavailability` | Transaction data commitments and availability checks |
 | `crypto` | Deterministic and Ed25519 signers, signature domain separation, aggregate verification, keyring rotation, and key files |
@@ -341,19 +340,10 @@ go run ./cmd/vexod bank query balance alice
 Initialize node files:
 
 ```bash
-go run ./cmd/vexod init --home .vexo --chain-id vexo-local --validator validator-1 --profile dev
+go run ./cmd/vexod init --home .vexo --chain-id vexo-local --validator validator-1
 ```
 
 This writes `.vexo/config.json`, `.vexo/genesis.json`, and `.vexo/data`.
-
-Available config profiles are `dev`, `testnet`, and `mainnet`:
-
-```bash
-go run ./cmd/vexod config profiles
-go run ./cmd/vexod config profiles --json
-go run ./cmd/vexod init --home .vexo-testnet --chain-id vexo-testnet --profile testnet
-go run ./cmd/vexod init --home .vexo-mainnet --chain-id vexo-mainnet --profile mainnet
-```
 
 Application modules are selected in `.vexo/config.json`:
 

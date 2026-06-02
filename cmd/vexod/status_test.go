@@ -36,7 +36,6 @@ func TestWriteStatus(t *testing.T) {
 		"ops.pprof_optional: true",
 		"ops.structured_logs: true",
 		"ops.release_artifacts: true",
-		"ops.config_profiles: true",
 		"addr_book.persistent: true",
 		"addr_book.dial_failure_tracking: true",
 		"addr_book.ban_eviction_policy: true",
@@ -89,7 +88,7 @@ func TestWriteStatusJSON(t *testing.T) {
 	if document.Mempool.MinFee != 0 || document.Mempool.EnablePriority {
 		t.Fatalf("unexpected mempool status: %+v", document.Mempool)
 	}
-	if document.Storage.Backend != "leveldb" || !document.Features["peer_scoring"] || !document.Features["height_salted_order"] || !document.Features["deployment_audit"] || !document.Features["addr_book"] || !document.Features["addr_book_ban_evict"] || !document.Features["peer_dial_tracking"] || !document.Features["transport_peer_gate"] || !document.Features["consensus_gossip_scoring"] || !document.Features["banned_peer_disconnect"] || !document.Features["peer_score_persistence"] || !document.Features["state_sync_snapshot_kv"] || !document.Features["state_sync_checksum"] || !document.Features["state_sync_verify"] || !document.Features["ops_metrics_uptime"] || !document.Features["ops_pprof_optional"] || !document.Features["ops_structured_logs"] || !document.Features["ops_release_artifacts"] || !document.Features["ops_config_profiles"] {
+	if document.Storage.Backend != "leveldb" || !document.Features["peer_scoring"] || !document.Features["height_salted_order"] || !document.Features["deployment_audit"] || !document.Features["addr_book"] || !document.Features["addr_book_ban_evict"] || !document.Features["peer_dial_tracking"] || !document.Features["transport_peer_gate"] || !document.Features["consensus_gossip_scoring"] || !document.Features["banned_peer_disconnect"] || !document.Features["peer_score_persistence"] || !document.Features["state_sync_snapshot_kv"] || !document.Features["state_sync_checksum"] || !document.Features["state_sync_verify"] || !document.Features["ops_metrics_uptime"] || !document.Features["ops_pprof_optional"] || !document.Features["ops_structured_logs"] || !document.Features["ops_release_artifacts"] {
 		t.Fatalf("unexpected feature/storage status: %+v", document)
 	}
 	if document.P2P.InitialScore != 100 || document.P2P.InvalidMessageCost != 10 || !document.P2P.PeerSnapshotsEnabled {

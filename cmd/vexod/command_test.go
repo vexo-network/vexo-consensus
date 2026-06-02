@@ -200,46 +200,17 @@ func TestRunInitWritesLocalnetFilesWithCustomPorts(t *testing.T) {
 	}
 }
 
-func TestRunInitAppliesConfigProfile(t *testing.T) {
+func TestRunInitWritesDefaultConfig(t *testing.T) {
 	home := t.TempDir()
-	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--profile", "mainnet"}); err != nil {
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Chain.Committee.CommitteeSize != 256 || cfg.Chain.Governance.Timelock != 100 {
-		t.Fatalf("expected mainnet profile config, got %+v", cfg.Chain)
-	}
-}
-
-func TestRunConfigProfiles(t *testing.T) {
-	var output bytes.Buffer
-	if err := runConfig(&output, []string{"profiles"}); err != nil {
-		t.Fatal(err)
-	}
-	for _, expected := range []string{"dev", "testnet", "mainnet", "committee:", "mempool:", "execution:", "p2p:"} {
-		if !strings.Contains(output.String(), expected) {
-			t.Fatalf("expected profiles output to contain %q, got:\n%s", expected, output.String())
-		}
-	}
-}
-
-func TestRunConfigProfilesJSON(t *testing.T) {
-	var output bytes.Buffer
-	if err := runConfig(&output, []string{"profiles", "--json"}); err != nil {
-		t.Fatal(err)
-	}
-	var document profilesDocument
-	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
-		t.Fatal(err)
-	}
-	if len(document.Profiles) != 3 {
-		t.Fatalf("expected 3 profiles, got %+v", document)
-	}
-	if document.Profiles[2].Name != "mainnet" || !document.Profiles[2].RequireSigned || document.Profiles[2].ExecutionMinFee == 0 {
-		t.Fatalf("unexpected mainnet profile: %+v", document.Profiles[2])
+	if cfg.Chain.Committee.CommitteeSize != 128 || cfg.Chain.Governance.Timelock != 10 {
+		t.Fatalf("expected default config, got %+v", cfg.Chain)
 	}
 }
 
