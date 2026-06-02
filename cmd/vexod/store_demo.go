@@ -8,6 +8,7 @@ import (
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	appmodules "github.com/vexo-network/vexo-consensus/app/modules"
 	"github.com/vexo-network/vexo-consensus/config"
+	"github.com/vexo-network/vexo-consensus/fairordering"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -32,13 +33,19 @@ func writeStoreDemo(writer io.Writer, path string) error {
 	if err != nil {
 		return err
 	}
+	if _, err := application.InitChain(vexoapp.InitChainRequest{Genesis: vexoapp.GenesisState{"bank:alice": []byte("100")}}); err != nil {
+		return err
+	}
 
 	block := types.Block{
 		Header: types.Header{ChainID: "vexo-local", Height: 1},
-		Txs: []types.Tx{
-			[]byte("bank:mint:alice:100"),
-			[]byte("bank:send:alice:bob:25"),
-		},
+		Txs: fairordering.SortTxsWithSalt(
+			[]types.Tx{
+				[]byte("bank:send:alice:bob:25"),
+				[]byte("bank:mint:carol:7"),
+			},
+			fairordering.HeightSalt("vexo-local", 1),
+		),
 	}
 	if _, err := runtime.ExecuteBlock(context.Background(), block); err != nil {
 		return err

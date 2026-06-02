@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/fairordering"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -133,10 +134,13 @@ func TestBankModuleWorksThroughAppRuntime(t *testing.T) {
 	response, err := runtime.FinalizeBlock(vexoapp.FinalizeBlockRequest{
 		Block: types.Block{
 			Header: types.Header{ChainID: "vexo-test", Height: 1},
-			Txs: []types.Tx{
-				[]byte("bank:send:alice:bob:40"),
-				[]byte("bank:mint:carol:7"),
-			},
+			Txs: fairordering.SortTxsWithSalt(
+				[]types.Tx{
+					[]byte("bank:send:alice:bob:40"),
+					[]byte("bank:mint:carol:7"),
+				},
+				fairordering.HeightSalt("vexo-test", 1),
+			),
 		},
 	})
 	if err != nil {

@@ -36,3 +36,39 @@ func TestIsOrderedRejectsReorderedTxs(t *testing.T) {
 		t.Fatalf("expected reordered txs rejected: %q", reordered)
 	}
 }
+
+func TestSortTxsWithSaltIsDeterministicAndSaltSensitive(t *testing.T) {
+	txs := []types.Tx{[]byte("alpha"), []byte("bravo"), []byte("charlie"), []byte("delta")}
+	first := SortTxsWithSalt(txs, HeightSalt("vexo-test", 1))
+	second := SortTxsWithSalt(txs, HeightSalt("vexo-test", 1))
+	if !equalTxs(first, second) {
+		t.Fatalf("expected deterministic salted order: %q != %q", first, second)
+	}
+	if !IsOrderedWithSalt(first, HeightSalt("vexo-test", 1)) {
+		t.Fatalf("expected salted order to verify: %q", first)
+	}
+
+	saltSensitive := false
+	for height := types.Height(2); height < 64; height++ {
+		candidate := SortTxsWithSalt(txs, HeightSalt("vexo-test", height))
+		if !equalTxs(first, candidate) {
+			saltSensitive = true
+			break
+		}
+	}
+	if !saltSensitive {
+		t.Fatal("expected at least one height salt to change transaction order")
+	}
+}
+
+func equalTxs(left []types.Tx, right []types.Tx) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if !bytes.Equal(left[index], right[index]) {
+			return false
+		}
+	}
+	return true
+}

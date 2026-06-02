@@ -136,7 +136,7 @@ func (machine *StateMachine) CreateProposal(block types.Block, round types.Round
 	}
 	block.Header.ChainID = machine.chainID
 	block.Header.ValidatorSetHash = machine.validatorSet.Hash()
-	block.Txs = fairordering.SortTxs(block.Txs)
+	block.Txs = fairordering.SortTxsWithSalt(block.Txs, machine.orderingSalt(block.Header.Height))
 	if block.Header.ConsensusHash == (types.Hash{}) && len(block.Txs) > 0 {
 		block = dataavailability.AttachCommitment(block)
 	}
@@ -176,7 +176,7 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 	if proposal.Block.Header.ValidatorSetHash != machine.validatorSet.Hash() {
 		return fmt.Errorf("%w: validator set hash mismatch", ErrInvalidProposal)
 	}
-	if !fairordering.IsOrdered(proposal.Block.Txs) {
+	if !fairordering.IsOrderedWithSalt(proposal.Block.Txs, machine.orderingSalt(proposal.Block.Header.Height)) {
 		return fmt.Errorf("%w: transaction ordering mismatch", ErrInvalidProposal)
 	}
 	if err := dataavailability.Verify(proposal.Block.Header, proposal.Block.Txs); err != nil {
@@ -210,6 +210,10 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 	machine.status.Round = proposal.Round
 	machine.status.Phase = PhaseVote
 	return nil
+}
+
+func (machine *StateMachine) orderingSalt(height types.Height) []byte {
+	return fairordering.HeightSalt(machine.chainID, height)
 }
 
 func (machine *StateMachine) OnVote(ctx context.Context, vote Vote) error {

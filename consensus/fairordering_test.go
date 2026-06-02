@@ -28,7 +28,7 @@ func TestStateMachineCreateProposalSortsTxsForFairOrdering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !fairordering.IsOrdered(proposal.Block.Txs) {
+	if !fairordering.IsOrderedWithSalt(proposal.Block.Txs, fairordering.HeightSalt("vexo-test", 1)) {
 		t.Fatalf("expected ordered proposal txs, got %q", proposal.Block.Txs)
 	}
 	if proposal.Block.Header.ConsensusHash != dataavailability.Commitment(proposal.Block.Txs) {
@@ -46,7 +46,10 @@ func TestStateMachineRejectsReorderedProposalTxs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ordered := fairordering.SortTxs([]types.Tx{[]byte("charlie"), []byte("alpha"), []byte("bravo")})
+	ordered := fairordering.SortTxsWithSalt(
+		[]types.Tx{[]byte("charlie"), []byte("alpha"), []byte("bravo")},
+		fairordering.HeightSalt("vexo-test", 1),
+	)
 	reordered := []types.Tx{ordered[1], ordered[0], ordered[2]}
 	err = machine.OnProposal(context.Background(), Proposal{
 		Block: dataavailability.AttachCommitment(types.Block{

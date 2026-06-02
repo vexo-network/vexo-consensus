@@ -18,7 +18,10 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "committee.epoch_length: %d\n", cfg.Committee.EpochLength)
 	fmt.Fprintf(writer, "committee.size: %d\n", cfg.Committee.CommitteeSize)
 	fmt.Fprintf(writer, "mempool.max_txs: %d\n", cfg.Mempool.MaxTxs)
+	fmt.Fprintf(writer, "mempool.min_fee: %d\n", cfg.Mempool.MinFee)
+	fmt.Fprintf(writer, "mempool.priority_enabled: %t\n", cfg.Mempool.EnablePriority)
 	fmt.Fprintf(writer, "fair_ordering.deterministic: true\n")
+	fmt.Fprintf(writer, "fair_ordering.height_salted: true\n")
 	fmt.Fprintf(writer, "data_availability.commitments: true\n")
 	fmt.Fprintf(writer, "storage.backend: leveldb\n")
 	fmt.Fprintf(writer, "p2p.initial_score: %d\n", cfg.P2P.InitialScore)
@@ -62,8 +65,11 @@ type committeeStatus struct {
 }
 
 type mempoolStatus struct {
-	MaxTxBytes int64 `json:"max_tx_bytes"`
-	MaxTxs     int   `json:"max_txs"`
+	MaxTxBytes     int64  `json:"max_tx_bytes"`
+	MaxTxs         int    `json:"max_txs"`
+	SeenTTL        string `json:"seen_ttl"`
+	MinFee         uint64 `json:"min_fee"`
+	EnablePriority bool   `json:"enable_priority"`
 }
 
 type storageStatus struct {
@@ -113,11 +119,15 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			Backend:        string(cfg.Committee.Backend),
 		},
 		Mempool: mempoolStatus{
-			MaxTxBytes: cfg.Mempool.MaxTxBytes,
-			MaxTxs:     cfg.Mempool.MaxTxs,
+			MaxTxBytes:     cfg.Mempool.MaxTxBytes,
+			MaxTxs:         cfg.Mempool.MaxTxs,
+			SeenTTL:        cfg.Mempool.SeenTTL.String(),
+			MinFee:         cfg.Mempool.MinFee,
+			EnablePriority: cfg.Mempool.EnablePriority,
 		},
 		Features: map[string]bool{
 			"fair_ordering":       true,
+			"height_salted_order": true,
 			"data_availability":   true,
 			"leveldb_storage":     true,
 			"peer_scoring":        true,

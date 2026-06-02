@@ -26,10 +26,13 @@ func TestRuntimeExecutesBlockThroughModules(t *testing.T) {
 
 	block := types.Block{
 		Header: types.Header{ChainID: "vexo-test", Height: 1},
-		Txs: []types.Tx{
-			[]byte("bank:send"),
-			[]byte("staking:delegate"),
-		},
+		Txs: fairordering.SortTxsWithSalt(
+			[]types.Tx{
+				[]byte("bank:send"),
+				[]byte("staking:delegate"),
+			},
+			fairordering.HeightSalt("vexo-test", 1),
+		),
 	}
 	response, err := runtime.FinalizeBlock(FinalizeBlockRequest{Block: block})
 	if err != nil {
@@ -97,8 +100,30 @@ func TestRuntimePrepareProposalSortsAcceptedTxs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !fairordering.IsOrdered(response.Txs) {
+	if !fairordering.IsOrderedWithSalt(response.Txs, fairordering.HeightSalt("vexo-test", 1)) {
 		t.Fatalf("expected ordered txs, got %q", response.Txs)
+	}
+}
+
+func TestRuntimeProcessProposalRejectsMismatchedOrdering(t *testing.T) {
+	runtime, err := NewRuntime("vexo-test", []Module{&recordingModule{name: "bank"}}, PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ordered := fairordering.SortTxsWithSalt(
+		[]types.Tx{[]byte("bank:charlie"), []byte("bank:alpha"), []byte("bank:bravo")},
+		fairordering.HeightSalt("vexo-test", 1),
+	)
+	reordered := []types.Tx{ordered[1], ordered[0], ordered[2]}
+
+	response := runtime.ProcessProposal(ProcessProposalRequest{
+		Block: types.Block{
+			Header: types.Header{Height: 1},
+			Txs:    reordered,
+		},
+	})
+	if response.Accepted {
+		t.Fatal("expected proposal rejection for ordering mismatch")
 	}
 }
 

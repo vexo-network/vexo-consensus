@@ -20,7 +20,10 @@ func TestWriteStatus(t *testing.T) {
 		"application.modules: [bank]",
 		"validator.permissionless: true",
 		"committee.size: 128",
+		"mempool.min_fee: 0",
+		"mempool.priority_enabled: false",
 		"fair_ordering.deterministic: true",
+		"fair_ordering.height_salted: true",
 		"data_availability.commitments: true",
 		"storage.backend: leveldb",
 		"p2p.initial_score: 100",
@@ -65,7 +68,10 @@ func TestWriteStatusJSON(t *testing.T) {
 	if document.Committee.Size != 128 || document.Committee.Backend != "deterministic" {
 		t.Fatalf("unexpected committee status: %+v", document.Committee)
 	}
-	if document.Storage.Backend != "leveldb" || !document.Features["peer_scoring"] {
+	if document.Mempool.MinFee != 0 || document.Mempool.EnablePriority {
+		t.Fatalf("unexpected mempool status: %+v", document.Mempool)
+	}
+	if document.Storage.Backend != "leveldb" || !document.Features["peer_scoring"] || !document.Features["height_salted_order"] {
 		t.Fatalf("unexpected feature/storage status: %+v", document)
 	}
 	if document.P2P.InitialScore != 100 || document.P2P.InvalidMessageCost != 10 || !document.P2P.PeerSnapshotsEnabled {

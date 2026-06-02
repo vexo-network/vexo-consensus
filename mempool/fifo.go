@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"sort"
+	"time"
 
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -14,6 +16,7 @@ var (
 	ErrTxTooLarge      = errors.New("transaction exceeds maximum size")
 	ErrMempoolFull     = errors.New("mempool is full")
 	ErrInvalidMaxBytes = errors.New("max bytes must be greater than zero")
+	ErrInsufficientFee = errors.New("transaction fee is below minimum")
 )
 
 type FIFOConfig struct {
@@ -21,18 +24,25 @@ type FIFOConfig struct {
 	MaxTxBytes     int64
 	MaxTxs         int
 	AllowDuplicate bool
+	SeenTTL        time.Duration
+	MinFee         uint64
+	EnablePriority bool
 }
 
 type FIFO struct {
 	config FIFOConfig
 	txs    []types.Tx
 	index  map[types.Hash]int
+	seen   map[types.Hash]time.Time
+	now    func() time.Time
 }
 
 func NewFIFO(config FIFOConfig) *FIFO {
 	return &FIFO{
 		config: config,
 		index:  make(map[types.Hash]int),
+		seen:   make(map[types.Hash]time.Time),
+		now:    time.Now,
 	}
 }
 
@@ -52,10 +62,17 @@ func (pool *FIFO) CheckTx(ctx context.Context, tx types.Tx) error {
 	if pool.config.MaxTxs > 0 && len(pool.txs) >= pool.config.MaxTxs {
 		return ErrMempoolFull
 	}
+	hash := HashTx(tx)
 	if !pool.config.AllowDuplicate {
-		if _, found := pool.index[HashTx(tx)]; found {
+		if _, found := pool.index[hash]; found {
 			return ErrDuplicateTx
 		}
+		if pool.seenRecently(hash) {
+			return ErrDuplicateTx
+		}
+	}
+	if pool.config.MinFee > 0 && TxFee(tx) < pool.config.MinFee {
+		return ErrInsufficientFee
 	}
 	return nil
 }
@@ -66,7 +83,9 @@ func (pool *FIFO) AddTx(ctx context.Context, tx types.Tx) error {
 	}
 
 	copied := append(types.Tx(nil), tx...)
-	pool.index[HashTx(copied)] = len(pool.txs)
+	hash := HashTx(copied)
+	pool.index[hash] = len(pool.txs)
+	pool.markSeen(hash)
 	pool.txs = append(pool.txs, copied)
 	return nil
 }
@@ -87,7 +106,8 @@ func (pool *FIFO) BuildBatch(ctx context.Context, maxBytes int64) (Batch, error)
 		Txs:    make([]types.Tx, 0, len(pool.txs)),
 	}
 
-	for _, tx := range pool.txs {
+	txs := pool.orderedTxs()
+	for _, tx := range txs {
 		txSize := int64(len(tx))
 		if len(batch.Txs) > 0 && totalBytes+txSize > maxBytes {
 			break
@@ -116,7 +136,9 @@ func (pool *FIFO) MarkCommitted(ctx context.Context, committed []types.Tx) error
 	remaining := make([]types.Tx, 0, len(pool.txs))
 	for _, tx := range pool.txs {
 		if containsTx(committed, tx) {
-			delete(pool.index, HashTx(tx))
+			hash := HashTx(tx)
+			delete(pool.index, hash)
+			pool.markSeen(hash)
 			continue
 		}
 		remaining = append(remaining, tx)
@@ -125,6 +147,54 @@ func (pool *FIFO) MarkCommitted(ctx context.Context, committed []types.Tx) error
 	pool.txs = remaining
 	pool.rebuildIndex()
 	return nil
+}
+
+func (pool *FIFO) orderedTxs() []types.Tx {
+	ordered := make([]types.Tx, 0, len(pool.txs))
+	for _, tx := range pool.txs {
+		ordered = append(ordered, append(types.Tx(nil), tx...))
+	}
+	if !pool.config.EnablePriority {
+		return ordered
+	}
+	sort.SliceStable(ordered, func(left, right int) bool {
+		leftPriority := TxPriority(ordered[left])
+		rightPriority := TxPriority(ordered[right])
+		if leftPriority != rightPriority {
+			return leftPriority > rightPriority
+		}
+		leftFee := TxFee(ordered[left])
+		rightFee := TxFee(ordered[right])
+		if leftFee != rightFee {
+			return leftFee > rightFee
+		}
+		leftHash := HashTx(ordered[left])
+		rightHash := HashTx(ordered[right])
+		return bytes.Compare(leftHash[:], rightHash[:]) < 0
+	})
+	return ordered
+}
+
+func (pool *FIFO) seenRecently(hash types.Hash) bool {
+	if pool.config.SeenTTL <= 0 {
+		return false
+	}
+	seenAt, found := pool.seen[hash]
+	if !found {
+		return false
+	}
+	if pool.now().Sub(seenAt) > pool.config.SeenTTL {
+		delete(pool.seen, hash)
+		return false
+	}
+	return true
+}
+
+func (pool *FIFO) markSeen(hash types.Hash) {
+	if pool.config.SeenTTL <= 0 {
+		return
+	}
+	pool.seen[hash] = pool.now()
 }
 
 func (pool *FIFO) Len() int {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -162,6 +163,75 @@ func TestFIFOMarkCommittedRemovesTxsAndAllowsReadd(t *testing.T) {
 	}
 	if err := pool.AddTx(context.Background(), []byte("b")); err != nil {
 		t.Fatalf("expected committed tx to be re-addable, got %v", err)
+	}
+}
+
+func TestFIFORejectsRecentlySeenCommittedTx(t *testing.T) {
+	pool := NewFIFO(FIFOConfig{SeenTTL: time.Minute})
+	now := time.Unix(100, 0)
+	pool.now = func() time.Time { return now }
+
+	if err := pool.AddTx(context.Background(), []byte("b")); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.MarkCommitted(context.Background(), []types.Tx{[]byte("b")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.AddTx(context.Background(), []byte("b")); !errors.Is(err, ErrDuplicateTx) {
+		t.Fatalf("expected recently seen tx to be rejected, got %v", err)
+	}
+
+	now = now.Add(time.Minute + time.Second)
+	if err := pool.AddTx(context.Background(), []byte("b")); err != nil {
+		t.Fatalf("expected seen tx to be accepted after ttl, got %v", err)
+	}
+}
+
+func TestFIFORejectsInsufficientFee(t *testing.T) {
+	pool := NewFIFO(FIFOConfig{MinFee: 10})
+	if err := pool.AddTx(context.Background(), []byte("bank:send:fee=9")); !errors.Is(err, ErrInsufficientFee) {
+		t.Fatalf("expected insufficient fee, got %v", err)
+	}
+	if err := pool.AddTx(context.Background(), []byte("bank:send:fee=10")); err != nil {
+		t.Fatalf("expected minimum fee tx to pass, got %v", err)
+	}
+}
+
+func TestFIFOBuildBatchPrioritizesPriorityThenFee(t *testing.T) {
+	pool := NewFIFO(FIFOConfig{EnablePriority: true})
+	for _, tx := range []types.Tx{
+		[]byte("tx:low:fee=100:priority=1"),
+		[]byte("tx:high-fee:fee=200:priority=5"),
+		[]byte("tx:high-priority:fee=1:priority=10"),
+		[]byte("tx:tie:fee=100:priority=5"),
+	} {
+		if err := pool.AddTx(context.Background(), tx); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	batch, err := pool.BuildBatch(context.Background(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := []types.Tx{
+		[]byte("tx:high-priority:fee=1:priority=10"),
+		[]byte("tx:high-fee:fee=200:priority=5"),
+		[]byte("tx:tie:fee=100:priority=5"),
+		[]byte("tx:low:fee=100:priority=1"),
+	}
+	if !reflect.DeepEqual(batch.Txs, expected) {
+		t.Fatalf("unexpected priority order: %q", batch.Txs)
+	}
+}
+
+func TestTxFeeAndPriorityParseTags(t *testing.T) {
+	tx := types.Tx("bank:send:fee=42:priority=7")
+	if TxFee(tx) != 42 {
+		t.Fatalf("expected fee 42, got %d", TxFee(tx))
+	}
+	if TxPriority(tx) != 7 {
+		t.Fatalf("expected priority 7, got %d", TxPriority(tx))
 	}
 }
 

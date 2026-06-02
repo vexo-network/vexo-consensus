@@ -83,10 +83,13 @@ func (runtime *Runtime) PrepareProposal(req PrepareProposalRequest) (PrepareProp
 			accepted = append(accepted, append(types.Tx(nil), tx...))
 		}
 	}
-	return PrepareProposalResponse{Txs: fairordering.SortTxs(accepted)}, nil
+	return PrepareProposalResponse{Txs: fairordering.SortTxsWithSalt(accepted, runtime.orderingSalt(req.Height))}, nil
 }
 
 func (runtime *Runtime) ProcessProposal(req ProcessProposalRequest) ProcessProposalResponse {
+	if !fairordering.IsOrderedWithSalt(req.Block.Txs, runtime.orderingSalt(req.Block.Header.Height)) {
+		return ProcessProposalResponse{Accepted: false, Reason: "transaction ordering mismatch"}
+	}
 	for _, tx := range req.Block.Txs {
 		if runtime.CheckTx(tx).Result.Code != 0 {
 			return ProcessProposalResponse{Accepted: false, Reason: "invalid transaction"}
@@ -188,6 +191,10 @@ func (runtime *Runtime) collectValidatorUpdates(ctx Context) []types.ValidatorUp
 		}
 	}
 	return updates
+}
+
+func (runtime *Runtime) orderingSalt(height types.Height) []byte {
+	return fairordering.HeightSalt(runtime.chainID, height)
 }
 
 func cloneValidatorUpdate(update types.ValidatorUpdate) types.ValidatorUpdate {

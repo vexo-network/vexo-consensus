@@ -108,14 +108,18 @@ The design is intentionally modular so individual components can be replaced wit
 
 - FIFO transaction pool
 - Transaction validation boundaries
+- Recently-seen transaction TTL for duplicate-gossip suppression
+- Configurable minimum-fee admission
+- Optional priority and fee-aware batch construction
 - Batch construction
 - DAG batch parent/tip tracking
 - Duplicate batch and unknown parent rejection
 
 ### Ordering and Data Availability
 
-- Deterministic transaction ordering
+- Height-salted deterministic transaction ordering
 - Proposal-level transaction reordering rejection
+- Lightweight MEV-resistant fair ordering hook
 - Transaction data commitments
 - Data availability proof metadata
 - Missing or mismatched data commitment rejection
@@ -185,10 +189,10 @@ The design is intentionally modular so individual components can be replaced wit
 | `consensus` | Consensus state machine, votes, proposals, QC, conflict evidence |
 | `dataavailability` | Transaction data commitments and availability checks |
 | `crypto` | Deterministic and Ed25519 signers, signature domain separation, aggregate verification, keyring rotation, and key files |
-| `fairordering` | Deterministic transaction ordering |
+| `fairordering` | Height-salted deterministic transaction ordering |
 | `finality` | Finality proofs and light-client verifier |
 | `governance` | Proposal, voting, quorum, veto, and timelock module |
-| `mempool` | FIFO mempool and DAG batch graph |
+| `mempool` | FIFO mempool, fee/priority policy, duplicate suppression, and DAG batch graph |
 | `node` | Node config, genesis, lifecycle, runtime/store wiring, operations helpers |
 | `p2p` | Peer scoring, rate-limit, and flood defense |
 | `rpc` | HTTP health, readiness, status, metrics, admin, pprof, and query endpoints |
@@ -271,7 +275,10 @@ validator.min_stake: 1
 committee.epoch_length: 100
 committee.size: 128
 mempool.max_txs: 100000
+mempool.min_fee: 0
+mempool.priority_enabled: false
 fair_ordering.deterministic: true
+fair_ordering.height_salted: true
 data_availability.commitments: true
 storage.backend: leveldb
 p2p.initial_score: 100
