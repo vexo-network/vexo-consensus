@@ -29,6 +29,8 @@ type fakeStatusProvider struct {
 	status            node.Status
 	statusDeadline    chan bool
 	statusWaitCancel  chan struct{}
+	metrics           node.Metrics
+	metricsErr        error
 	submitErr         error
 	submitted         []types.Tx
 	blocks            map[types.Height]store.BlockRecord
@@ -57,6 +59,13 @@ func (provider fakeStatusProvider) Status(ctx context.Context) node.Status {
 		close(provider.statusWaitCancel)
 	}
 	return provider.status
+}
+
+func (provider fakeStatusProvider) Metrics(ctx context.Context) (node.Metrics, error) {
+	if provider.metricsErr != nil {
+		return node.Metrics{}, provider.metricsErr
+	}
+	return provider.metrics, nil
 }
 
 func (provider *fakeStatusProvider) SubmitTx(ctx context.Context, tx types.Tx) error {
@@ -205,6 +214,56 @@ func TestHandlerReportsNotReadyWhenNodeStopped(t *testing.T) {
 	getJSON(t, handler, "/readyz", http.StatusServiceUnavailable, &ready)
 	if ready.OK {
 		t.Fatal("expected not ready")
+	}
+}
+
+func TestHandlerReportsMetrics(t *testing.T) {
+	handler := NewHandler(fakeStatusProvider{metrics: node.Metrics{
+		ChainID:              "vexo-test",
+		Running:              true,
+		DataDir:              "/tmp/vexo",
+		LatestHeight:         9,
+		LatestAppHash:        types.Hash{1, 2, 3},
+		EarliestBlockHeight:  1,
+		LatestBlockHeight:    9,
+		TotalBlocks:          9,
+		ValidatorCount:       4,
+		TotalVotingPower:     100,
+		ValidatorSetHash:     types.Hash{4, 5, 6},
+		PeerCount:            3,
+		BannedPeers:          1,
+		PeerWindowMessages:   12,
+		ConsensusLoopRunning: true,
+	}})
+
+	var metrics MetricsResponse
+	getJSON(t, handler, "/metrics", http.StatusOK, &metrics)
+	if metrics.ChainID != "vexo-test" || !metrics.Running || metrics.LatestHeight != 9 || metrics.TotalBlocks != 9 {
+		t.Fatalf("unexpected metrics identity: %+v", metrics)
+	}
+	if metrics.ValidatorCount != 4 || metrics.TotalVotingPower != 100 || metrics.PeerCount != 3 || metrics.BannedPeers != 1 || !metrics.ConsensusLoopRunning {
+		t.Fatalf("unexpected metrics counters: %+v", metrics)
+	}
+	if metrics.LatestAppHash[:6] != "010203" || metrics.ValidatorSetHash[:6] != "040506" {
+		t.Fatalf("unexpected metrics hashes: %+v", metrics)
+	}
+}
+
+func TestHandlerRejectsUnavailableMetricsProvider(t *testing.T) {
+	var response map[string]string
+	getJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/metrics", http.StatusNotImplemented, &response)
+	if response["error"] == "" {
+		t.Fatalf("expected unavailable metrics error, got %+v", response)
+	}
+}
+
+func TestHandlerReportsMetricsProviderErrors(t *testing.T) {
+	handler := NewHandler(fakeStatusProvider{metricsErr: errors.New("metrics failed")})
+
+	var response map[string]string
+	getJSON(t, handler, "/metrics", http.StatusInternalServerError, &response)
+	if response["error"] != "metrics failed" {
+		t.Fatalf("unexpected metrics error: %+v", response)
 	}
 }
 

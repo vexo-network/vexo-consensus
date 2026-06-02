@@ -156,6 +156,72 @@ func TestNodeQueriesBlocks(t *testing.T) {
 	if root.Height != 2 || root.Namespace != "bank" || root.Root == (types.Hash{}) {
 		t.Fatalf("unexpected state root: %+v", root)
 	}
+	validatorSet, err := node.ValidatorSet(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validators := validatorSet.List()
+	if len(validators) != 1 || validators[0].ID != "alice" {
+		t.Fatalf("unexpected validators: %+v", validators)
+	}
+	committeeResult, err := node.Committee(context.Background(), 2, 0, types.Hash{9})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(committeeResult.Members) != 1 || committeeResult.Members[0].Validator.ID != "alice" {
+		t.Fatalf("unexpected committee: %+v", committeeResult)
+	}
+}
+
+func TestNodeMetricsReportsRuntimeSnapshot(t *testing.T) {
+	node := newTestNode(t)
+	if err := node.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer node.Stop(context.Background())
+
+	runtime, err := node.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.P2PScore.ObserveMessage(context.Background(), "peer-a", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ExecuteBlock(context.Background(), types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 1},
+		Txs:    []types.Tx{[]byte("bank:send")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	metrics, err := node.Metrics(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !metrics.Running || metrics.ChainID != "vexo-test" || metrics.LatestHeight != 1 || metrics.LatestAppHash == (types.Hash{}) {
+		t.Fatalf("unexpected metrics identity: %+v", metrics)
+	}
+	if metrics.EarliestBlockHeight != 1 || metrics.LatestBlockHeight != 1 || metrics.TotalBlocks != 1 {
+		t.Fatalf("unexpected block metrics: %+v", metrics)
+	}
+	if metrics.ValidatorCount != 1 || metrics.TotalVotingPower != 1 || metrics.ValidatorSetHash == (types.Hash{}) {
+		t.Fatalf("unexpected validator metrics: %+v", metrics)
+	}
+	if metrics.PeerCount != 1 || metrics.PeerWindowMessages != 1 {
+		t.Fatalf("unexpected peer metrics: %+v", metrics)
+	}
+}
+
+func TestNodeMetricsReportsStoppedSnapshot(t *testing.T) {
+	node := newTestNode(t)
+
+	metrics, err := node.Metrics(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.Running || metrics.ChainID != "vexo-test" || metrics.DataDir == "" {
+		t.Fatalf("unexpected stopped metrics: %+v", metrics)
+	}
 }
 
 func TestNodeValidation(t *testing.T) {

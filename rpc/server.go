@@ -32,6 +32,10 @@ type StatusProvider interface {
 	Status(ctx context.Context) node.Status
 }
 
+type MetricsProvider interface {
+	Metrics(ctx context.Context) (node.Metrics, error)
+}
+
 type TxSubmitter interface {
 	SubmitTx(ctx context.Context, tx types.Tx) error
 }
@@ -83,6 +87,24 @@ type StatusResponse struct {
 	DataDir       string `json:"data_dir"`
 	PeerCount     int    `json:"peer_count"`
 	BannedPeers   int    `json:"banned_peers"`
+}
+
+type MetricsResponse struct {
+	ChainID              string `json:"chain_id"`
+	Running              bool   `json:"running"`
+	DataDir              string `json:"data_dir"`
+	LatestHeight         uint64 `json:"latest_height"`
+	LatestAppHash        string `json:"latest_app_hash"`
+	EarliestBlockHeight  uint64 `json:"earliest_block_height"`
+	LatestBlockHeight    uint64 `json:"latest_block_height"`
+	TotalBlocks          uint64 `json:"total_blocks"`
+	ValidatorCount       int    `json:"validator_count"`
+	TotalVotingPower     uint64 `json:"total_voting_power"`
+	ValidatorSetHash     string `json:"validator_set_hash"`
+	PeerCount            int    `json:"peer_count"`
+	BannedPeers          int    `json:"banned_peers"`
+	PeerWindowMessages   uint64 `json:"peer_window_messages"`
+	ConsensusLoopRunning bool   `json:"consensus_loop_running"`
 }
 
 type PeerResponse struct {
@@ -267,6 +289,22 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 			return
 		}
 		writeJSON(writer, http.StatusOK, statusResponse(provider.Status(request.Context())))
+	})
+	mux.HandleFunc("/metrics", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowGet(writer, request) {
+			return
+		}
+		metricsProvider, ok := provider.(MetricsProvider)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "metrics query is unavailable")
+			return
+		}
+		metrics, err := metricsProvider.Metrics(request.Context())
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(writer, http.StatusOK, metricsResponse(metrics))
 	})
 	mux.HandleFunc("/peers", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
@@ -575,6 +613,26 @@ func statusResponse(status node.Status) StatusResponse {
 		DataDir:       status.DataDir,
 		PeerCount:     status.PeerCount,
 		BannedPeers:   status.BannedPeers,
+	}
+}
+
+func metricsResponse(metrics node.Metrics) MetricsResponse {
+	return MetricsResponse{
+		ChainID:              metrics.ChainID,
+		Running:              metrics.Running,
+		DataDir:              metrics.DataDir,
+		LatestHeight:         uint64(metrics.LatestHeight),
+		LatestAppHash:        hex.EncodeToString(metrics.LatestAppHash[:]),
+		EarliestBlockHeight:  uint64(metrics.EarliestBlockHeight),
+		LatestBlockHeight:    uint64(metrics.LatestBlockHeight),
+		TotalBlocks:          metrics.TotalBlocks,
+		ValidatorCount:       metrics.ValidatorCount,
+		TotalVotingPower:     metrics.TotalVotingPower,
+		ValidatorSetHash:     hex.EncodeToString(metrics.ValidatorSetHash[:]),
+		PeerCount:            metrics.PeerCount,
+		BannedPeers:          metrics.BannedPeers,
+		PeerWindowMessages:   metrics.PeerWindowMessages,
+		ConsensusLoopRunning: metrics.ConsensusLoopRunning,
 	}
 }
 

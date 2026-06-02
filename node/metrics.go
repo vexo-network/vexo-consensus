@@ -1,0 +1,84 @@
+package node
+
+import (
+	"context"
+
+	"github.com/vexo-network/vexo-consensus/p2p"
+	"github.com/vexo-network/vexo-consensus/types"
+)
+
+type Metrics struct {
+	ChainID              string
+	Running              bool
+	DataDir              string
+	LatestHeight         types.Height
+	LatestAppHash        types.Hash
+	EarliestBlockHeight  types.Height
+	LatestBlockHeight    types.Height
+	TotalBlocks          uint64
+	ValidatorCount       int
+	TotalVotingPower     uint64
+	ValidatorSetHash     types.Hash
+	PeerCount            int
+	BannedPeers          int
+	PeerWindowMessages   uint64
+	ConsensusLoopRunning bool
+}
+
+func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
+	status := node.Status(ctx)
+	metrics := Metrics{
+		ChainID:            status.ChainID,
+		Running:            status.Running,
+		DataDir:            status.DataDir,
+		LatestHeight:       status.LatestHeight,
+		LatestAppHash:      status.LatestAppHash,
+		PeerCount:          status.PeerCount,
+		BannedPeers:        status.BannedPeers,
+		PeerWindowMessages: peerWindowMessages(status.Peers),
+	}
+
+	node.mu.Lock()
+	metrics.ConsensusLoopRunning = node.loopCancel != nil
+	node.mu.Unlock()
+
+	if !status.Running {
+		return metrics, nil
+	}
+	runtime, err := node.Runtime()
+	if err != nil {
+		return Metrics{}, err
+	}
+	index, err := runtime.BlockIndex(ctx)
+	if err == nil {
+		metrics.EarliestBlockHeight = index.EarliestHeight
+		metrics.LatestBlockHeight = index.LatestHeight
+		metrics.TotalBlocks = index.TotalBlocks
+	} else if !ignoreMissingMetricsError(err) {
+		return Metrics{}, err
+	}
+
+	validatorHeight := metrics.LatestHeight
+	if validatorHeight == 0 {
+		validatorHeight = 1
+	}
+	validatorSet, err := runtime.Validators.ValidatorSet(ctx, validatorHeight)
+	if err != nil {
+		return Metrics{}, err
+	}
+	hash := validatorSet.Hash()
+	metrics.ValidatorSetHash = hash
+	for _, validatorInfo := range validatorSet.List() {
+		metrics.ValidatorCount++
+		metrics.TotalVotingPower += uint64(validatorInfo.VotingPower)
+	}
+	return metrics, nil
+}
+
+func peerWindowMessages(peers []p2p.PeerSnapshot) uint64 {
+	var total uint64
+	for _, peer := range peers {
+		total += peer.WindowMessages
+	}
+	return total
+}
