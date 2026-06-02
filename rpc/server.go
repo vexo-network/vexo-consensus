@@ -56,6 +56,10 @@ type ChainQueryProvider interface {
 	StateRoot(ctx context.Context, height types.Height, namespace string) (store.StateRootRecord, error)
 }
 
+type PruneProvider interface {
+	PruneBelow(ctx context.Context, retainFrom types.Height) (store.PruneResult, error)
+}
+
 type ValidatorQueryProvider interface {
 	ValidatorSet(ctx context.Context, height types.Height) (validator.Set, error)
 	Committee(ctx context.Context, height types.Height, round types.Round, seed types.Hash) (committee.Committee, error)
@@ -183,6 +187,16 @@ type StateResponse struct {
 	AppHash          string `json:"app_hash"`
 	LastBlockHash    string `json:"last_block_hash"`
 	ValidatorSetHash string `json:"validator_set_hash"`
+}
+
+type PruneRequest struct {
+	RetainFromHeight uint64 `json:"retain_from_height"`
+}
+
+type PruneResponse struct {
+	RetainFromHeight uint64 `json:"retain_from_height"`
+	PrunedBlocks     uint64 `json:"pruned_blocks"`
+	PrunedStateRoots uint64 `json:"pruned_state_roots"`
 }
 
 type ValidatorSetResponse struct {
@@ -465,6 +479,35 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 		}
 		writeJSON(writer, http.StatusOK, stateRootResponse(root))
 	})
+	mux.HandleFunc("/prune", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowPost(writer, request) {
+			return
+		}
+		pruner, ok := provider.(PruneProvider)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "prune is unavailable")
+			return
+		}
+		retainFrom, err := decodePruneRequest(writer, request, cfg.MaxRequestBytes)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, err.Error())
+			return
+		}
+		result, err := pruner.PruneBelow(request.Context(), retainFrom)
+		if errors.Is(err, store.ErrInvalidPruneHeight) {
+			writeError(writer, http.StatusBadRequest, "invalid prune height")
+			return
+		}
+		if errors.Is(err, store.ErrBlockIndexNotFound) {
+			writeError(writer, http.StatusNotFound, "block index not found")
+			return
+		}
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(writer, http.StatusOK, pruneResponse(result))
+	})
 	mux.HandleFunc("/validators/", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
 			return
@@ -740,6 +783,22 @@ func decodeSubmitEvidenceRequest(writer http.ResponseWriter, request *http.Reque
 	}, nil
 }
 
+func decodePruneRequest(writer http.ResponseWriter, request *http.Request, maxRequestBytes int64) (types.Height, error) {
+	request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBytes)
+	defer request.Body.Close()
+
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var payload PruneRequest
+	if err := decoder.Decode(&payload); err != nil {
+		return 0, fmt.Errorf("invalid prune request: %w", err)
+	}
+	if payload.RetainFromHeight == 0 {
+		return 0, errors.New("retain_from_height is required")
+	}
+	return types.Height(payload.RetainFromHeight), nil
+}
+
 func blockResponse(record store.BlockRecord) BlockResponse {
 	txs := make([]string, 0, len(record.Block.Txs))
 	for _, tx := range record.Block.Txs {
@@ -787,6 +846,14 @@ func stateRootResponse(root store.StateRootRecord) StateRootResponse {
 		Height:    uint64(root.Height),
 		Namespace: root.Namespace,
 		Root:      hex.EncodeToString(root.Root[:]),
+	}
+}
+
+func pruneResponse(result store.PruneResult) PruneResponse {
+	return PruneResponse{
+		RetainFromHeight: uint64(result.RetainFromHeight),
+		PrunedBlocks:     result.PrunedBlocks,
+		PrunedStateRoots: result.PrunedStateRoots,
 	}
 }
 

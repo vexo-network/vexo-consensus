@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
@@ -221,6 +222,53 @@ func TestNodeMetricsReportsStoppedSnapshot(t *testing.T) {
 	}
 	if metrics.Running || metrics.ChainID != "vexo-test" || metrics.DataDir == "" {
 		t.Fatalf("unexpected stopped metrics: %+v", metrics)
+	}
+}
+
+func TestNodePruneBelowRemovesOldBlocks(t *testing.T) {
+	node := newTestNode(t)
+	if err := node.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer node.Stop(context.Background())
+
+	runtime, err := node.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for height := types.Height(1); height <= 4; height++ {
+		if _, err := runtime.ExecuteBlock(context.Background(), types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: height},
+			Txs:    []types.Tx{[]byte("bank:send")},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := node.PruneBelow(context.Background(), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RetainFromHeight != 3 || result.PrunedBlocks != 2 {
+		t.Fatalf("unexpected prune result: %+v", result)
+	}
+	if _, err := node.BlockByHeight(context.Background(), 1); !errors.Is(err, store.ErrBlockNotFound) {
+		t.Fatalf("expected pruned block not found, got %v", err)
+	}
+	index, err := node.BlockIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if index.EarliestHeight != 3 || index.LatestHeight != 4 || index.TotalBlocks != 2 {
+		t.Fatalf("unexpected index after prune: %+v", index)
+	}
+}
+
+func TestNodePruneBelowRequiresRunningNode(t *testing.T) {
+	node := newTestNode(t)
+
+	if _, err := node.PruneBelow(context.Background(), 1); !errors.Is(err, ErrNodeNotRunning) {
+		t.Fatalf("expected not running prune error, got %v", err)
 	}
 }
 

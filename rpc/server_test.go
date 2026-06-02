@@ -40,6 +40,9 @@ type fakeStatusProvider struct {
 	state             store.StateRecord
 	roots             map[string]store.StateRootRecord
 	stateErr          error
+	pruneResult       store.PruneResult
+	pruneErr          error
+	prunedHeights     []types.Height
 	validators        validator.Set
 	committee         committee.Committee
 	validatorErr      error
@@ -126,6 +129,14 @@ func (provider fakeStatusProvider) StateRoot(ctx context.Context, height types.H
 		return store.StateRootRecord{}, store.ErrStateRootNotFound
 	}
 	return record, nil
+}
+
+func (provider *fakeStatusProvider) PruneBelow(ctx context.Context, retainFrom types.Height) (store.PruneResult, error) {
+	if provider.pruneErr != nil {
+		return store.PruneResult{}, provider.pruneErr
+	}
+	provider.prunedHeights = append(provider.prunedHeights, retainFrom)
+	return provider.pruneResult, nil
 }
 
 func (provider fakeStatusProvider) ValidatorSet(ctx context.Context, height types.Height) (validator.Set, error) {
@@ -643,6 +654,82 @@ func TestHandlerReportsStateProviderErrors(t *testing.T) {
 	getJSON(t, handler, "/state/latest", http.StatusInternalServerError, &response)
 	if response["error"] != "state failed" {
 		t.Fatalf("unexpected state error: %+v", response)
+	}
+}
+
+func TestHandlerPrunesBlocksAndStateRoots(t *testing.T) {
+	provider := &fakeStatusProvider{pruneResult: store.PruneResult{
+		RetainFromHeight: 3,
+		PrunedBlocks:     2,
+		PrunedStateRoots: 4,
+	}}
+	handler := NewHandler(provider)
+
+	var response PruneResponse
+	postJSON(t, handler, "/prune", `{"retain_from_height":3}`, http.StatusOK, &response)
+
+	if response.RetainFromHeight != 3 || response.PrunedBlocks != 2 || response.PrunedStateRoots != 4 {
+		t.Fatalf("unexpected prune response: %+v", response)
+	}
+	if len(provider.prunedHeights) != 1 || provider.prunedHeights[0] != 3 {
+		t.Fatalf("unexpected prune heights: %+v", provider.prunedHeights)
+	}
+}
+
+func TestHandlerRejectsInvalidPruneRequests(t *testing.T) {
+	handler := NewHandler(&fakeStatusProvider{})
+	cases := []string{
+		`{}`,
+		`{"retain_from_height":0}`,
+		`{"retain_from_height":1,"extra":true}`,
+	}
+	for _, body := range cases {
+		var response map[string]string
+		postJSON(t, handler, "/prune", body, http.StatusBadRequest, &response)
+		if response["error"] == "" {
+			t.Fatalf("expected prune error for %s, got %+v", body, response)
+		}
+	}
+}
+
+func TestHandlerRejectsUnavailablePruneProvider(t *testing.T) {
+	var response map[string]string
+	postJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/prune", `{"retain_from_height":2}`, http.StatusNotImplemented, &response)
+	if response["error"] == "" {
+		t.Fatalf("expected unavailable prune error, got %+v", response)
+	}
+}
+
+func TestHandlerReportsPruneErrors(t *testing.T) {
+	cases := []struct {
+		err            error
+		expectedStatus int
+	}{
+		{err: store.ErrInvalidPruneHeight, expectedStatus: http.StatusBadRequest},
+		{err: store.ErrBlockIndexNotFound, expectedStatus: http.StatusNotFound},
+		{err: errors.New("prune failed"), expectedStatus: http.StatusInternalServerError},
+	}
+	for _, testCase := range cases {
+		handler := NewHandler(&fakeStatusProvider{pruneErr: testCase.err})
+		var response map[string]string
+		postJSON(t, handler, "/prune", `{"retain_from_height":2}`, testCase.expectedStatus, &response)
+		if response["error"] == "" {
+			t.Fatalf("expected prune error for %v, got %+v", testCase.err, response)
+		}
+	}
+}
+
+func TestHandlerRejectsNonPOSTPrune(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/prune", nil)
+	response := httptest.NewRecorder()
+
+	NewHandler(&fakeStatusProvider{}).ServeHTTP(response, request)
+
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", response.Code)
+	}
+	if allow := response.Header().Get("Allow"); allow != http.MethodPost {
+		t.Fatalf("expected allow POST, got %q", allow)
 	}
 }
 

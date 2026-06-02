@@ -54,6 +54,14 @@ func (node *Node) StateRoot(ctx context.Context, height types.Height, namespace 
 	return runtime.StateRoot(ctx, height, namespace)
 }
 
+func (node *Node) PruneBelow(ctx context.Context, retainFrom types.Height) (store.PruneResult, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return store.PruneResult{}, err
+	}
+	return runtime.PruneBelow(ctx, retainFrom)
+}
+
 func (node *Node) ValidatorSet(ctx context.Context, height types.Height) (validator.Set, error) {
 	runtime, err := node.Runtime()
 	if err != nil {
