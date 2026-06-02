@@ -58,6 +58,70 @@ func TestSaveAndLoadKeyDocument(t *testing.T) {
 	}
 }
 
+func TestEncryptedKeyDocumentRoundTrip(t *testing.T) {
+	document, err := GenerateEd25519KeyDocument()
+	if err != nil {
+		t.Fatal(err)
+	}
+	document.Metadata = KeyMetadata{ID: "validator-key", ActiveFrom: 10, ActiveUntil: 20}
+	encrypted, err := document.Encrypted("secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if encrypted.PrivateKey != "" || encrypted.Encryption == nil {
+		t.Fatalf("expected encrypted document without plaintext key: %+v", encrypted)
+	}
+	if _, err := encrypted.Ed25519Signer(); !errors.Is(err, ErrEncryptedKey) {
+		t.Fatalf("expected encrypted key error, got %v", err)
+	}
+	signer, err := encrypted.Ed25519SignerWithPassphrase("secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := []byte("vote")
+	signature, err := signer.Sign(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !signer.Verify(signer.PublicKey(), message, signature) {
+		t.Fatal("expected decrypted signer to verify")
+	}
+	if _, err := encrypted.Ed25519SignerWithPassphrase("wrong"); err == nil {
+		t.Fatal("expected wrong passphrase to fail")
+	}
+	record, err := encrypted.KeyRecordWithPassphrase("secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.ID != "validator-key" || record.ActiveFrom != 10 || record.ActiveUntil != 20 {
+		t.Fatalf("unexpected key record: %+v", record)
+	}
+	decrypted, err := encrypted.Decrypted("secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decrypted.PrivateKey == "" || decrypted.Encryption != nil {
+		t.Fatalf("expected decrypted document with plaintext key: %+v", decrypted)
+	}
+}
+
+func TestEncryptedKeyDocumentRejectsMissingPassphrase(t *testing.T) {
+	document, err := GenerateEd25519KeyDocument()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := document.Encrypted(""); !errors.Is(err, ErrMissingPassphrase) {
+		t.Fatalf("expected missing passphrase, got %v", err)
+	}
+	encrypted, err := document.Encrypted("secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := encrypted.Ed25519SignerWithPassphrase(""); !errors.Is(err, ErrMissingPassphrase) {
+		t.Fatalf("expected missing passphrase, got %v", err)
+	}
+}
+
 func TestKeyDocumentRejectsInvalidData(t *testing.T) {
 	document, err := GenerateEd25519KeyDocument()
 	if err != nil {

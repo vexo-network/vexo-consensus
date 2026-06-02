@@ -27,6 +27,13 @@ func TestNewRuntimeSuiteEd25519(t *testing.T) {
 	}
 }
 
+func TestNewRuntimeSuiteBLSRequiresProductionAdapter(t *testing.T) {
+	_, err := NewRuntimeSuite(config.CryptoConfig{Backend: config.CryptoBackendBLS})
+	if !errors.Is(err, ErrBLSBackendUnavailable) {
+		t.Fatalf("expected bls unavailable, got %v", err)
+	}
+}
+
 func TestNewRuntimeSuiteRejectsUnsupportedBackend(t *testing.T) {
 	_, err := NewRuntimeSuite(config.CryptoConfig{Backend: "unknown"})
 	if !errors.Is(err, ErrUnsupportedCryptoBackend) {

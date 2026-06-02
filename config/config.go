@@ -47,6 +47,7 @@ type CryptoBackend string
 const (
 	CryptoBackendDeterministic CryptoBackend = "deterministic"
 	CryptoBackendEd25519       CryptoBackend = "ed25519"
+	CryptoBackendBLS           CryptoBackend = "bls"
 )
 
 type CryptoConfig struct {
@@ -177,7 +178,7 @@ func (config Config) Validate() error {
 
 func validCryptoBackend(backend CryptoBackend) bool {
 	switch backend {
-	case CryptoBackendDeterministic, CryptoBackendEd25519:
+	case CryptoBackendDeterministic, CryptoBackendEd25519, CryptoBackendBLS:
 		return true
 	default:
 		return false

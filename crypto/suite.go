@@ -8,6 +8,7 @@ import (
 )
 
 var ErrUnsupportedCryptoBackend = errors.New("unsupported crypto backend")
+var ErrBLSBackendUnavailable = errors.New("bls backend is unavailable: build with a production bls adapter")
 
 type RuntimeSuite struct {
 	FinalityVerifier interface {
@@ -24,6 +25,8 @@ func NewRuntimeSuite(cfg config.CryptoConfig) (RuntimeSuite, error) {
 		return RuntimeSuite{FinalityVerifier: DeterministicAggregateSigner{}, ConsensusAggregator: DeterministicAggregateSigner{}}, nil
 	case config.CryptoBackendEd25519:
 		return RuntimeSuite{FinalityVerifier: Ed25519MultiVerifier{}, ConsensusAggregator: Ed25519SignatureAggregator{}}, nil
+	case config.CryptoBackendBLS:
+		return RuntimeSuite{}, ErrBLSBackendUnavailable
 	default:
 		return RuntimeSuite{}, ErrUnsupportedCryptoBackend
 	}

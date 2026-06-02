@@ -67,6 +67,48 @@ func TestRunKeysShowJSON(t *testing.T) {
 	}
 }
 
+func TestRunKeysGenEncryptedAndShow(t *testing.T) {
+	home := t.TempDir()
+	var buffer bytes.Buffer
+	if err := runKeys(&buffer, []string{"gen", "--home", home, "--encrypt", "--passphrase", "secret", "--id", "key-1", "--active-from", "10", "--active-until", "20"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buffer.String(), "encrypted: true") {
+		t.Fatalf("expected encrypted output, got:\n%s", buffer.String())
+	}
+	document, err := vexocrypto.LoadKeyDocument(filepath.Join(home, keyFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.PrivateKey != "" || document.Encryption == nil {
+		t.Fatalf("expected encrypted key on disk: %+v", document)
+	}
+	buffer.Reset()
+	if err := runKeys(&buffer, []string{"show", "--home", home, "--passphrase", "secret", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var info keyInfoDocument
+	if err := json.Unmarshal(buffer.Bytes(), &info); err != nil {
+		t.Fatal(err)
+	}
+	if !info.Encrypted || info.KeyID != "key-1" || info.ActiveFrom != 10 || info.ActiveUntil != 20 {
+		t.Fatalf("unexpected encrypted key info: %+v", info)
+	}
+	if strings.Contains(buffer.String(), "private_key") {
+		t.Fatalf("key json output leaked private key:\n%s", buffer.String())
+	}
+}
+
+func TestRunKeysShowEncryptedRejectsWrongPassphrase(t *testing.T) {
+	home := t.TempDir()
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--encrypt", "--passphrase", "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"show", "--home", home, "--passphrase", "wrong"}); err == nil {
+		t.Fatal("expected wrong passphrase error")
+	}
+}
+
 func TestRunKeysGenRejectsExistingUnlessOverwrite(t *testing.T) {
 	home := t.TempDir()
 	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {

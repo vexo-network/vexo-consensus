@@ -41,7 +41,7 @@ type startPlanDocument struct {
 type startInputs struct {
 	Config  vexonode.Config
 	Genesis vexonode.Genesis
-	Signer  vexocrypto.Ed25519Signer
+	Signer  vexocrypto.Signer
 	Plan    startPlanDocument
 }
 
@@ -293,7 +293,7 @@ func loadStartInputs(home string, configPath string, genesisPath string, keyPath
 	if err != nil {
 		return startInputs{}, err
 	}
-	signer, err := keyDocument.Ed25519Signer()
+	signer, err := signerFromKeyDocument(keyDocument)
 	if err != nil {
 		return startInputs{}, err
 	}
@@ -316,6 +316,13 @@ func loadStartInputs(home string, configPath string, genesisPath string, keyPath
 		Signer:  signer,
 		Plan:    plan,
 	}, nil
+}
+
+func signerFromKeyDocument(document vexocrypto.KeyDocument) (vexocrypto.Signer, error) {
+	if document.Encryption != nil {
+		return document.Ed25519SignerWithPassphrase(resolvePassphrase(""))
+	}
+	return document.Ed25519Signer()
 }
 
 func buildStartNode(inputs startInputs) (*vexonode.Node, error) {

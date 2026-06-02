@@ -166,6 +166,7 @@ The design is intentionally modular so individual components can be replaced wit
 - Admin-token protection for mutation endpoints
 - JSON or text startup logs
 - Config profiles for `dev`, `testnet`, and `mainnet`
+- Encrypted validator key files with passphrase-based loading
 - Snapshot export and restore commands
 - Localnet lifecycle commands and built-binary E2E coverage
 
@@ -333,11 +334,19 @@ Generate a validator key:
 go run ./cmd/vexod keys gen --home .vexo
 ```
 
+Generate an encrypted validator key:
+
+```bash
+VEXO_KEY_PASSPHRASE='change-me' go run ./cmd/vexod keys gen --home .vexo --encrypt --id validator-key-1 --active-from 1
+```
+
 Show the public validator key without printing the private key:
 
 ```bash
 go run ./cmd/vexod keys show --home .vexo --json
 ```
+
+Encrypted keys can be shown or loaded with `VEXO_KEY_PASSPHRASE` or `--passphrase`.
 
 Inspect paths and startup readiness:
 
