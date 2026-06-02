@@ -3,10 +3,8 @@ package node
 import (
 	"context"
 
-	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
-	"github.com/vexo-network/vexo-consensus/validator"
 )
 
 func (node *Node) BlockByHeight(ctx context.Context, height types.Height) (store.BlockRecord, error) {
@@ -51,28 +49,4 @@ func (node *Node) StateRoot(ctx context.Context, height types.Height, namespace 
 		return store.StateRootRecord{}, err
 	}
 	return runtime.StateRoot(ctx, height, namespace)
-}
-
-func (node *Node) ValidatorSet(ctx context.Context, height types.Height) (validator.Set, error) {
-	runtime, err := node.Runtime()
-	if err != nil {
-		return nil, err
-	}
-	return runtime.Validators.ValidatorSet(ctx, height)
-}
-
-func (node *Node) Committee(ctx context.Context, height types.Height, round types.Round, seed types.Hash) (committee.Committee, error) {
-	runtime, err := node.Runtime()
-	if err != nil {
-		return committee.Committee{}, err
-	}
-	validatorSet, err := runtime.Validators.ValidatorSet(ctx, height)
-	if err != nil {
-		return committee.Committee{}, err
-	}
-	epoch := uint64(0)
-	if runtime.Config.Committee.EpochLength > 0 && height > 0 {
-		epoch = (uint64(height) - 1) / runtime.Config.Committee.EpochLength
-	}
-	return runtime.Committee.Select(ctx, epoch, round, seed, validatorSet)
 }
