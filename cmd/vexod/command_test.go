@@ -26,7 +26,7 @@ func TestRunCommandHelpAndVersion(t *testing.T) {
 			t.Fatal(err)
 		}
 		output := stdout.String()
-		for _, expected := range []string{"Usage:", "init", "config paths", "start", "localnet", "version", "Module Commands:", "bank tx mint", "bank query balance"} {
+		for _, expected := range []string{"Usage:", "init", "config paths", "start", "localnet", "snapshot", "doctor", "version", "Module Commands:", "bank tx mint", "bank query balance"} {
 			if !strings.Contains(output, expected) {
 				t.Fatalf("expected help output to contain %q, got:\n%s", expected, output)
 			}
@@ -290,6 +290,65 @@ func TestRunSnapshotExportAndRestore(t *testing.T) {
 	}
 	if root.Root != (types.Hash{4}) {
 		t.Fatalf("unexpected restored root: %+v", root)
+	}
+}
+
+func TestRunDoctorReportsOperationalReadinessAndRepairsIndexes(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage, err := store.OpenLevelDB(cfg.StoreDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.SaveBlock(context.Background(), store.BlockRecord{
+		Block:   types.Block{Header: types.Header{Height: 3, ChainID: "vexo-test"}},
+		Hash:    types.Hash{3},
+		AppHash: types.Hash{4},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.SaveState(context.Background(), store.StateRecord{
+		Height:           3,
+		AppHash:          types.Hash{4},
+		LastBlockHash:    types.Hash{3},
+		ValidatorSetHash: types.Hash{5},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.SaveStateRoot(context.Background(), store.StateRootRecord{Height: 3, Namespace: "bank", Root: types.Hash{6}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	if err := runDoctor(&output, []string{"--home", home, "--repair-indexes", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var document doctorDocument
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if !document.OK || document.RecoverResult == nil || document.RecoverResult.BlockIndexKeys != 1 || document.RecoverResult.RecoveredIndexes == 0 {
+		t.Fatalf("unexpected doctor document: %+v", document)
+	}
+
+	output.Reset()
+	if err := runCommand(&output, &bytes.Buffer{}, []string{"doctor", "--home", home}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "doctor ok") || !strings.Contains(output.String(), "check snapshot: ok") {
+		t.Fatalf("unexpected doctor output:\n%s", output.String())
 	}
 }
 

@@ -34,6 +34,9 @@ type fakeStatusProvider struct {
 	metricsErr        error
 	snapshot          node.StateSnapshot
 	snapshotErr       error
+	recoveryReport    node.RecoveryReport
+	recoveryErr       error
+	recoveryRepairs   int
 	submitErr         error
 	submitted         []types.Tx
 	blocks            map[types.Height]store.BlockRecord
@@ -87,6 +90,16 @@ func (provider fakeStatusProvider) StateSnapshot(ctx context.Context) (node.Stat
 		return node.StateSnapshot{}, provider.snapshotErr
 	}
 	return provider.snapshot, nil
+}
+
+func (provider *fakeStatusProvider) RecoveryReport(ctx context.Context, repairIndexes bool) (node.RecoveryReport, error) {
+	if repairIndexes {
+		provider.recoveryRepairs++
+	}
+	if provider.recoveryErr != nil {
+		return provider.recoveryReport, provider.recoveryErr
+	}
+	return provider.recoveryReport, nil
 }
 
 func (provider *fakeStatusProvider) SubmitTx(ctx context.Context, tx types.Tx) error {
@@ -908,6 +921,59 @@ func TestHandlerReportsSnapshotErrors(t *testing.T) {
 		if response["error"] == "" {
 			t.Fatalf("expected snapshot error for %v, got %+v", testCase.err, response)
 		}
+	}
+}
+
+func TestHandlerReportsRecoveryAndRepairsIndexes(t *testing.T) {
+	provider := &fakeStatusProvider{recoveryReport: node.RecoveryReport{
+		OK:                true,
+		Running:           true,
+		LatestHeight:      9,
+		LatestStateHeight: 9,
+		EarliestBlock:     3,
+		LatestBlock:       9,
+		TotalBlocks:       7,
+		SnapshotAvailable: true,
+		Repaired:          true,
+		RecoverResult: store.RecoverResult{
+			BlockIndexKeys:   7,
+			EvidenceKeys:     2,
+			EarliestHeight:   3,
+			LatestHeight:     9,
+			RecoveredIndexes: 2,
+		},
+	}}
+	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
+
+	var response RecoveryReportResponse
+	requestJSON(t, handler, http.MethodPost, "/recovery", ``, "127.0.0.1:1", http.StatusUnauthorized, &map[string]string{})
+	postJSONWithToken(t, handler, "/recovery", ``, "secret", http.StatusOK, &response)
+	if provider.recoveryRepairs != 1 {
+		t.Fatalf("expected one repair request, got %d", provider.recoveryRepairs)
+	}
+	if !response.OK || !response.SnapshotAvailable || !response.Repaired || response.TotalBlocks != 7 || response.RecoverResult == nil || response.RecoverResult.RecoveredIndexes != 2 {
+		t.Fatalf("unexpected recovery response: %+v", response)
+	}
+}
+
+func TestHandlerReportsDegradedRecovery(t *testing.T) {
+	handler := NewHandler(&fakeStatusProvider{recoveryReport: node.RecoveryReport{
+		OK:       false,
+		Problems: []string{"block index not found"},
+	}})
+
+	var response RecoveryReportResponse
+	getJSON(t, handler, "/recovery", http.StatusServiceUnavailable, &response)
+	if response.OK || len(response.Problems) != 1 {
+		t.Fatalf("expected degraded recovery response, got %+v", response)
+	}
+}
+
+func TestHandlerRejectsUnavailableRecoveryProvider(t *testing.T) {
+	var response map[string]string
+	getJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/recovery", http.StatusNotImplemented, &response)
+	if response["error"] == "" {
+		t.Fatalf("expected unavailable recovery error, got %+v", response)
 	}
 }
 

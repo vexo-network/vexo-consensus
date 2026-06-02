@@ -304,6 +304,36 @@ func TestNodeStateSnapshotRequiresRunningNode(t *testing.T) {
 	}
 }
 
+func TestNodeRecoveryReportSummarizesStoreAndRepair(t *testing.T) {
+	node := newTestNode(t)
+	if err := node.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer node.Stop(context.Background())
+
+	runtime, err := node.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ExecuteBlock(context.Background(), types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 2},
+		Txs:    []types.Tx{[]byte("bank:send")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := node.RecoveryReport(context.Background(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.OK || !report.Running || !report.SnapshotAvailable || !report.Repaired {
+		t.Fatalf("unexpected recovery status: %+v", report)
+	}
+	if report.LatestStateHeight != 2 || report.LatestBlock != 2 || report.TotalBlocks != 1 || report.RecoverResult.BlockIndexKeys != 1 {
+		t.Fatalf("unexpected recovery heights: %+v", report)
+	}
+}
+
 func TestNodePruneBelowRemovesOldBlocks(t *testing.T) {
 	node := newTestNode(t)
 	if err := node.Start(context.Background()); err != nil {

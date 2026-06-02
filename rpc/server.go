@@ -44,6 +44,10 @@ type SnapshotProvider interface {
 	StateSnapshot(ctx context.Context) (node.StateSnapshot, error)
 }
 
+type RecoveryProvider interface {
+	RecoveryReport(ctx context.Context, repairIndexes bool) (node.RecoveryReport, error)
+}
+
 type TxSubmitter interface {
 	SubmitTx(ctx context.Context, tx types.Tx) error
 }
@@ -232,6 +236,28 @@ type StateSnapshotResponse struct {
 	LastBlockHash    string              `json:"last_block_hash"`
 	ValidatorSetHash string              `json:"validator_set_hash"`
 	StateRoots       []StateRootResponse `json:"state_roots"`
+}
+
+type RecoveryReportResponse struct {
+	OK                bool                    `json:"ok"`
+	Running           bool                    `json:"running"`
+	LatestHeight      uint64                  `json:"latest_height"`
+	LatestStateHeight uint64                  `json:"latest_state_height"`
+	EarliestBlock     uint64                  `json:"earliest_block"`
+	LatestBlock       uint64                  `json:"latest_block"`
+	TotalBlocks       uint64                  `json:"total_blocks"`
+	SnapshotAvailable bool                    `json:"snapshot_available"`
+	Repaired          bool                    `json:"repaired"`
+	RecoverResult     *RecoverIndexesResponse `json:"recover_result,omitempty"`
+	Problems          []string                `json:"problems,omitempty"`
+}
+
+type RecoverIndexesResponse struct {
+	BlockIndexKeys   uint64 `json:"block_index_keys"`
+	EvidenceKeys     uint64 `json:"evidence_keys"`
+	EarliestHeight   uint64 `json:"earliest_height"`
+	LatestHeight     uint64 `json:"latest_height"`
+	RecoveredIndexes uint64 `json:"recovered_indexes"`
 }
 
 type PruneRequest struct {
@@ -576,6 +602,27 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 			return
 		}
 		writeJSON(writer, http.StatusOK, stateSnapshotResponse(snapshot))
+	})
+	mux.HandleFunc("/recovery", func(writer http.ResponseWriter, request *http.Request) {
+		recoveryProvider, ok := provider.(RecoveryProvider)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "recovery report is unavailable")
+			return
+		}
+		switch request.Method {
+		case http.MethodGet:
+			report, err := recoveryProvider.RecoveryReport(request.Context(), false)
+			writeRecoveryReport(writer, report, err)
+		case http.MethodPost:
+			if !allowAdmin(writer, request, cfg.AdminToken) {
+				return
+			}
+			report, err := recoveryProvider.RecoveryReport(request.Context(), true)
+			writeRecoveryReport(writer, report, err)
+		default:
+			writer.Header().Set("Allow", strings.Join([]string{http.MethodGet, http.MethodPost}, ", "))
+			writeJSON(writer, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		}
 	})
 	mux.HandleFunc("/state/", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
@@ -1217,6 +1264,48 @@ func stateSnapshotResponse(snapshot node.StateSnapshot) StateSnapshotResponse {
 		ValidatorSetHash: hex.EncodeToString(snapshot.ValidatorSetHash[:]),
 		StateRoots:       roots,
 	}
+}
+
+func recoveryReportResponse(report node.RecoveryReport) RecoveryReportResponse {
+	response := RecoveryReportResponse{
+		OK:                report.OK,
+		Running:           report.Running,
+		LatestHeight:      uint64(report.LatestHeight),
+		LatestStateHeight: uint64(report.LatestStateHeight),
+		EarliestBlock:     uint64(report.EarliestBlock),
+		LatestBlock:       uint64(report.LatestBlock),
+		TotalBlocks:       report.TotalBlocks,
+		SnapshotAvailable: report.SnapshotAvailable,
+		Repaired:          report.Repaired,
+		Problems:          append([]string(nil), report.Problems...),
+	}
+	if report.Repaired {
+		recoverResult := recoverIndexesResponse(report.RecoverResult)
+		response.RecoverResult = &recoverResult
+	}
+	return response
+}
+
+func recoverIndexesResponse(result store.RecoverResult) RecoverIndexesResponse {
+	return RecoverIndexesResponse{
+		BlockIndexKeys:   result.BlockIndexKeys,
+		EvidenceKeys:     result.EvidenceKeys,
+		EarliestHeight:   uint64(result.EarliestHeight),
+		LatestHeight:     uint64(result.LatestHeight),
+		RecoveredIndexes: result.RecoveredIndexes,
+	}
+}
+
+func writeRecoveryReport(writer http.ResponseWriter, report node.RecoveryReport, err error) {
+	if err != nil && len(report.Problems) == 0 {
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	statusCode := http.StatusOK
+	if !report.OK {
+		statusCode = http.StatusServiceUnavailable
+	}
+	writeJSON(writer, statusCode, recoveryReportResponse(report))
 }
 
 func stateRootResponse(root store.StateRootRecord) StateRootResponse {

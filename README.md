@@ -168,6 +168,7 @@ The design is intentionally modular so individual components can be replaced wit
 - Config profiles for `dev`, `testnet`, and `mainnet`
 - Encrypted validator key files with passphrase-based loading
 - Snapshot export and restore commands
+- Offline doctor command for config, key, store, snapshot, and index-recovery checks
 - Localnet lifecycle commands and built-binary E2E coverage
 
 ## Packages
@@ -383,6 +384,13 @@ go run ./cmd/vexod snapshot export --home .vexo --output snapshot.json
 go run ./cmd/vexod snapshot restore --home .vexo-restore --input snapshot.json
 ```
 
+Run an offline operational readiness check, optionally rebuilding LevelDB block/evidence indexes:
+
+```bash
+go run ./cmd/vexod doctor --home .vexo
+go run ./cmd/vexod doctor --home .vexo --repair-indexes --json
+```
+
 Build the node binary:
 
 ```bash
@@ -407,7 +415,7 @@ Expose operational status over HTTP from an embedded node:
 server := rpc.NewServer(node, rpc.Config{Address: "127.0.0.1:26657"})
 ```
 
-Available endpoints: `/healthz`, `/readyz`, `/status`, `/diagnostics`, `/metrics`, `/metrics/text`, `/peers`, `/tx`, `/evidence`, `/prune`, `/replay`, `/consensus/start`, `/consensus/stop`, `/snapshot/latest`, `/blocks`, `/blocks/latest`, `/blocks/{height}`, `/state/latest`, `/state/{height}/{namespace}`, `/validators/{height}`, `/committee/{height}/{round}`.
+Available endpoints: `/healthz`, `/readyz`, `/status`, `/diagnostics`, `/recovery`, `/metrics`, `/metrics/text`, `/peers`, `/tx`, `/evidence`, `/prune`, `/replay`, `/consensus/start`, `/consensus/stop`, `/snapshot/latest`, `/blocks`, `/blocks/latest`, `/blocks/{height}`, `/state/latest`, `/state/{height}/{namespace}`, `/validators/{height}`, `/committee/{height}/{round}`.
 
 When pprof is enabled, `/debug/pprof/*` is also available.
 
