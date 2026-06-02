@@ -201,6 +201,16 @@ func (book *AddrBook) Ban(peerID PeerID, banDuration time.Duration) {
 	book.peers[peerID] = peer
 }
 
+func (book *AddrBook) IsBanned(peerID PeerID) bool {
+	book.mu.Lock()
+	defer book.mu.Unlock()
+	peer := book.peers[peerID]
+	if peer.ID == "" {
+		return false
+	}
+	return book.peerBannedLocked(peer)
+}
+
 func (book *AddrBook) EvictBanned() int {
 	book.mu.Lock()
 	defer book.mu.Unlock()

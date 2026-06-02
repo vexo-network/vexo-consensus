@@ -95,7 +95,7 @@ type GRPCTransport struct {
 	peerLearned       func(p2p.PeerID, string)
 	peerAttempted     func(p2p.PeerID)
 	peerDialResult    func(p2p.PeerID, bool)
-	peerGate          func(context.Context, p2p.PeerID) error
+	peerGates         []func(context.Context, p2p.PeerID) error
 
 	mu              sync.RWMutex
 	listener        net.Listener
@@ -410,7 +410,7 @@ func NewGRPCTransport(config GRPCConfig) (*GRPCTransport, error) {
 		peerLearned:       config.PeerLearned,
 		peerAttempted:     config.PeerAttempted,
 		peerDialResult:    config.PeerDialResult,
-		peerGate:          config.PeerGate,
+		peerGates:         compactPeerGates(config.PeerGate),
 		peers:             peers,
 		peerOrder:         peerOrder,
 		connections:       make(map[p2p.PeerID]*grpc.ClientConn),
@@ -599,10 +599,7 @@ func (transport *GRPCTransport) SetPeer(peerID p2p.PeerID, address string) {
 		transport.peerOrder = append(transport.peerOrder, peerID)
 	}
 	transport.closePeerSessionLocked(peerID)
-	if connection := transport.connections[peerID]; connection != nil {
-		_ = connection.Close()
-		delete(transport.connections, peerID)
-	}
+	transport.closePeerConnectionLocked(peerID)
 	delete(transport.backoffUntil, peerID)
 	transport.peers[peerID] = address
 }
@@ -623,7 +620,29 @@ func (transport *GRPCTransport) SetPeerDialHooks(attempted func(p2p.PeerID), res
 func (transport *GRPCTransport) SetPeerGate(gate func(context.Context, p2p.PeerID) error) {
 	transport.mu.Lock()
 	defer transport.mu.Unlock()
-	transport.peerGate = gate
+	transport.peerGates = compactPeerGates(gate)
+}
+
+func (transport *GRPCTransport) AddPeerGate(gate func(context.Context, p2p.PeerID) error) {
+	if gate == nil {
+		return
+	}
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	transport.peerGates = append(transport.peerGates, gate)
+}
+
+func (transport *GRPCTransport) DisconnectPeer(peerID p2p.PeerID) {
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	transport.closePeerSessionLocked(peerID)
+	transport.closePeerConnectionLocked(peerID)
+}
+
+func (transport *GRPCTransport) RemovePeer(peerID p2p.PeerID) {
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	transport.evictPeerLocked(peerID)
 }
 
 func (transport *GRPCTransport) KnownPeers() map[p2p.PeerID]string {
@@ -876,6 +895,13 @@ func (transport *GRPCTransport) closePeerSessionLocked(peerID p2p.PeerID) {
 	delete(transport.sessions, peerID)
 }
 
+func (transport *GRPCTransport) closePeerConnectionLocked(peerID p2p.PeerID) {
+	if connection := transport.connections[peerID]; connection != nil {
+		_ = connection.Close()
+		delete(transport.connections, peerID)
+	}
+}
+
 func (transport *GRPCTransport) checkPeerBackoff(peerID p2p.PeerID) error {
 	transport.mu.RLock()
 	until := transport.backoffUntil[peerID]
@@ -891,15 +917,24 @@ func (transport *GRPCTransport) checkPeerGate(ctx context.Context, peerID p2p.Pe
 		return nil
 	}
 	transport.mu.RLock()
-	gate := transport.peerGate
+	gates := append([]func(context.Context, p2p.PeerID) error(nil), transport.peerGates...)
 	transport.mu.RUnlock()
-	if gate == nil {
-		return nil
-	}
-	if err := gate(ctx, peerID); err != nil {
-		return fmt.Errorf("%w: peer=%s: %v", ErrPeerRejected, peerID, err)
+	for _, gate := range gates {
+		if err := gate(ctx, peerID); err != nil {
+			return fmt.Errorf("%w: peer=%s: %v", ErrPeerRejected, peerID, err)
+		}
 	}
 	return nil
+}
+
+func compactPeerGates(gates ...func(context.Context, p2p.PeerID) error) []func(context.Context, p2p.PeerID) error {
+	compacted := make([]func(context.Context, p2p.PeerID) error, 0, len(gates))
+	for _, gate := range gates {
+		if gate != nil {
+			compacted = append(compacted, gate)
+		}
+	}
+	return compacted
 }
 
 func (transport *GRPCTransport) markPeerBackoff(peerID p2p.PeerID) {
@@ -913,10 +948,7 @@ func (transport *GRPCTransport) markPeerBackoff(peerID p2p.PeerID) {
 
 func (transport *GRPCTransport) evictPeerLocked(peerID p2p.PeerID) {
 	transport.closePeerSessionLocked(peerID)
-	if connection := transport.connections[peerID]; connection != nil {
-		_ = connection.Close()
-		delete(transport.connections, peerID)
-	}
+	transport.closePeerConnectionLocked(peerID)
 	delete(transport.peers, peerID)
 	delete(transport.backoffUntil, peerID)
 	for index, existing := range transport.peerOrder {

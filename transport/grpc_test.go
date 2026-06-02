@@ -189,6 +189,62 @@ func TestGRPCTransportPeerGateRejectsInboundHandshake(t *testing.T) {
 	}
 }
 
+func TestGRPCTransportChainsPeerGates(t *testing.T) {
+	peer, err := NewGRPCTransport(GRPCConfig{
+		PeerID: "alice",
+		PeerGate: func(ctx context.Context, peerID p2p.PeerID) error {
+			if peerID == "bob" {
+				return p2p.ErrPeerBanned
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer.AddPeerGate(func(ctx context.Context, peerID p2p.PeerID) error {
+		if peerID == "carol" {
+			return p2p.ErrPeerBanned
+		}
+		return nil
+	})
+	if err := peer.checkPeerGate(context.Background(), "bob"); !errors.Is(err, ErrPeerRejected) {
+		t.Fatalf("expected bob rejected, got %v", err)
+	}
+	if err := peer.checkPeerGate(context.Background(), "carol"); !errors.Is(err, ErrPeerRejected) {
+		t.Fatalf("expected carol rejected, got %v", err)
+	}
+	if err := peer.checkPeerGate(context.Background(), "dave"); err != nil {
+		t.Fatalf("expected dave accepted, got %v", err)
+	}
+}
+
+func TestGRPCTransportRemovePeerClosesSessionAndConnection(t *testing.T) {
+	alice := newStartedGRPCPeer(t, "alice", GRPCConfig{})
+	bob := newStartedGRPCPeer(t, "bob", GRPCConfig{})
+	defer stopGRPCPeer(t, alice)
+	defer stopGRPCPeer(t, bob)
+	alice.SetPeer("bob", bob.Address())
+	bobTxs, err := bob.Subscribe(context.Background(), p2p.TopicTx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := alice.Send(context.Background(), "bob", p2p.TopicTx, []byte("before-remove")); err != nil {
+		t.Fatal(err)
+	}
+	assertEnvelope(t, bobTxs, "alice", "bob", p2p.TopicTx, "before-remove")
+	alice.RemovePeer("bob")
+	if _, found := alice.KnownPeers()["bob"]; found {
+		t.Fatalf("expected bob removed from peers: %+v", alice.KnownPeers())
+	}
+	if sessions := grpcSessionCount(alice); sessions != 0 {
+		t.Fatalf("expected sessions closed, got %d", sessions)
+	}
+	if err := alice.Send(context.Background(), "bob", p2p.TopicTx, []byte("after-remove")); !errors.Is(err, ErrPeerNotFound) {
+		t.Fatalf("expected peer not found after remove, got %v", err)
+	}
+}
+
 func TestGRPCTransportSendDeliversOnlyTargetPeer(t *testing.T) {
 	alice, bob, carol := newStartedGRPCPeers(t)
 	defer stopGRPCPeer(t, alice)

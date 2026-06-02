@@ -425,7 +425,8 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 		return nil, err
 	}
 	peers := mergePeerMaps(addrBook.PeerMap(p2p.PeerID(inputs.Config.ValidatorID)), runtimeConfig.P2PPeers, runtimeConfig.P2PSeeds)
-	return transport.NewGRPCTransport(transport.GRPCConfig{
+	var grpcTransport *transport.GRPCTransport
+	grpcTransport, err = transport.NewGRPCTransport(transport.GRPCConfig{
 		PeerID:          p2p.PeerID(inputs.Config.ValidatorID),
 		ListenAddr:      runtimeConfig.P2PListenAddress,
 		Peers:           peers,
@@ -448,11 +449,23 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 				addrBook.MarkSuccess(peerID)
 			} else {
 				addrBook.MarkFailure(peerID, inputs.Config.Chain.P2P.BanDuration)
-				_ = addrBook.EvictBanned()
+				if addrBook.EvictBanned() > 0 && grpcTransport != nil {
+					grpcTransport.RemovePeer(peerID)
+				}
 			}
 			_ = addrBook.Save()
 		},
+		PeerGate: func(ctx context.Context, peerID p2p.PeerID) error {
+			if addrBook.IsBanned(peerID) {
+				return p2p.ErrPeerBanned
+			}
+			return nil
+		},
 	})
+	if err != nil {
+		return nil, err
+	}
+	return grpcTransport, nil
 }
 
 func mergePeerMaps(peerMaps ...map[p2p.PeerID]string) map[p2p.PeerID]string {

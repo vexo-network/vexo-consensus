@@ -34,6 +34,18 @@ type PeerGateTransport interface {
 	SetPeerGate(func(context.Context, p2p.PeerID) error)
 }
 
+type PeerGateChainTransport interface {
+	AddPeerGate(func(context.Context, p2p.PeerID) error)
+}
+
+type PeerDisconnectTransport interface {
+	DisconnectPeer(p2p.PeerID)
+}
+
+type PeerRemoveTransport interface {
+	RemovePeer(p2p.PeerID)
+}
+
 type InMemoryBus struct {
 	mu          sync.RWMutex
 	subscribers map[p2p.Topic]map[p2p.PeerID][]chan Envelope

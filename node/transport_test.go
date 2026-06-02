@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -684,6 +685,30 @@ func TestNodeResetsPeerRateLimitWindow(t *testing.T) {
 	waitForMempoolLen(t, alice, 2)
 }
 
+func TestNodeDisconnectsPeerWhenScoreBanApplies(t *testing.T) {
+	wire := newDisconnectRecordingTransport("alice")
+	cfg := DefaultConfig("vexo-test", t.TempDir())
+	cfg.ValidatorID = "alice"
+	cfg.Chain.P2P.InitialScore = 1
+	cfg.Chain.P2P.InvalidMessageCost = 2
+	cfg.Chain.P2P.BanThreshold = 0
+	cfg.Chain.P2P.BanDuration = time.Hour
+	node, err := New(cfg, validGenesis(), newTestApplication(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	node.WithTransport(wire)
+	startNode(t, node)
+	defer node.Stop(context.Background())
+
+	if node.observePeerMessage(context.Background(), "bob", false) {
+		t.Fatal("expected banned peer observation to return false")
+	}
+	if !wire.disconnectedPeer("bob") {
+		t.Fatalf("expected bob disconnected, got %+v", wire.disconnected)
+	}
+}
+
 func TestNodeBackgroundConsensusLoopCommitsAcrossPeers(t *testing.T) {
 	alice, bob, carol := newConsensusLoopNodes(t)
 	startNode(t, alice)
@@ -1227,4 +1252,79 @@ func waitForPeerWindowReset(t *testing.T, node *Node, peer p2p.PeerID) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for peer %s score window reset", peer)
+}
+
+type disconnectRecordingTransport struct {
+	peerID       p2p.PeerID
+	mu           sync.Mutex
+	started      bool
+	disconnected map[p2p.PeerID]bool
+	gates        []func(context.Context, p2p.PeerID) error
+}
+
+func newDisconnectRecordingTransport(peerID p2p.PeerID) *disconnectRecordingTransport {
+	return &disconnectRecordingTransport{
+		peerID:       peerID,
+		disconnected: make(map[p2p.PeerID]bool),
+	}
+}
+
+func (wire *disconnectRecordingTransport) Start(ctx context.Context) error {
+	wire.mu.Lock()
+	defer wire.mu.Unlock()
+	wire.started = true
+	return nil
+}
+
+func (wire *disconnectRecordingTransport) Stop(ctx context.Context) error {
+	wire.mu.Lock()
+	defer wire.mu.Unlock()
+	wire.started = false
+	return nil
+}
+
+func (wire *disconnectRecordingTransport) Publish(ctx context.Context, topic p2p.Topic, data []byte) error {
+	return nil
+}
+
+func (wire *disconnectRecordingTransport) Send(ctx context.Context, to p2p.PeerID, topic p2p.Topic, data []byte) error {
+	return nil
+}
+
+func (wire *disconnectRecordingTransport) Subscribe(ctx context.Context, topic p2p.Topic) (<-chan transport.Envelope, error) {
+	return make(chan transport.Envelope), nil
+}
+
+func (wire *disconnectRecordingTransport) PeerID() p2p.PeerID {
+	return wire.peerID
+}
+
+func (wire *disconnectRecordingTransport) DisconnectPeer(peerID p2p.PeerID) {
+	wire.mu.Lock()
+	defer wire.mu.Unlock()
+	wire.disconnected[peerID] = true
+}
+
+func (wire *disconnectRecordingTransport) SetPeerGate(gate func(context.Context, p2p.PeerID) error) {
+	wire.mu.Lock()
+	defer wire.mu.Unlock()
+	wire.gates = nil
+	if gate != nil {
+		wire.gates = append(wire.gates, gate)
+	}
+}
+
+func (wire *disconnectRecordingTransport) AddPeerGate(gate func(context.Context, p2p.PeerID) error) {
+	if gate == nil {
+		return
+	}
+	wire.mu.Lock()
+	defer wire.mu.Unlock()
+	wire.gates = append(wire.gates, gate)
+}
+
+func (wire *disconnectRecordingTransport) disconnectedPeer(peerID p2p.PeerID) bool {
+	wire.mu.Lock()
+	defer wire.mu.Unlock()
+	return wire.disconnected[peerID]
 }

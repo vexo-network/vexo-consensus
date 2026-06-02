@@ -88,3 +88,21 @@ func TestAddrBookEvictsOnlyNonPermanentBannedPeers(t *testing.T) {
 		t.Fatalf("expected permanent seed retained: %+v", book.peers)
 	}
 }
+
+func TestAddrBookIsBannedExpiresTemporaryBan(t *testing.T) {
+	book, err := OpenAddrBookWithPolicy("", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(200, 0)
+	book.now = func() time.Time { return now }
+	book.Add("bob", "127.0.0.1:26666", "seed", false)
+	book.MarkFailure("bob", time.Minute)
+	if !book.IsBanned("bob") {
+		t.Fatal("expected bob banned")
+	}
+	now = now.Add(time.Minute + time.Second)
+	if book.IsBanned("bob") {
+		t.Fatal("expected bob ban to expire")
+	}
+}

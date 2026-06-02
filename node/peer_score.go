@@ -18,6 +18,7 @@ func (node *Node) observePeerMessage(ctx context.Context, peer p2p.PeerID, valid
 		return true
 	}
 	if err := runtime.P2PScore.ScoreMessage(ctx, peer, valid); errors.Is(err, p2p.ErrPeerBanned) {
+		node.disconnectPeer(peer)
 		return false
 	}
 	return true
@@ -32,6 +33,9 @@ func (node *Node) admitPeerMessage(ctx context.Context, peer p2p.PeerID) bool {
 		return true
 	}
 	if err := runtime.P2PScore.AdmitMessage(ctx, peer); errors.Is(err, p2p.ErrPeerBanned) || errors.Is(err, p2p.ErrRateLimitExceeded) {
+		if errors.Is(err, p2p.ErrPeerBanned) || node.peerBanned(ctx, peer) {
+			node.disconnectPeer(peer)
+		}
 		return false
 	}
 	return true
@@ -69,11 +73,7 @@ func (node *Node) configureTransportPeerGate(runtime *vexoruntime.Runtime) {
 	if runtime == nil || runtime.P2PScore == nil || node.wire == nil {
 		return
 	}
-	gated, ok := node.wire.(transport.PeerGateTransport)
-	if !ok {
-		return
-	}
-	gated.SetPeerGate(func(ctx context.Context, peer p2p.PeerID) error {
+	gate := func(ctx context.Context, peer p2p.PeerID) error {
 		banned, err := runtime.P2PScore.IsBanned(ctx, peer)
 		if err != nil {
 			return err
@@ -82,5 +82,28 @@ func (node *Node) configureTransportPeerGate(runtime *vexoruntime.Runtime) {
 			return p2p.ErrPeerBanned
 		}
 		return nil
-	})
+	}
+	if chained, ok := node.wire.(transport.PeerGateChainTransport); ok {
+		chained.AddPeerGate(gate)
+		return
+	}
+	gated, ok := node.wire.(transport.PeerGateTransport)
+	if !ok {
+		return
+	}
+	gated.SetPeerGate(gate)
+}
+
+func (node *Node) disconnectPeer(peer p2p.PeerID) {
+	if peer == "" {
+		return
+	}
+	node.mu.Lock()
+	wire := node.wire
+	node.mu.Unlock()
+	disconnecting, ok := wire.(transport.PeerDisconnectTransport)
+	if !ok {
+		return
+	}
+	disconnecting.DisconnectPeer(peer)
 }
