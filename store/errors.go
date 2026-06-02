@@ -13,6 +13,7 @@ var (
 	ErrInvalidStateRecord = errors.New("invalid state record")
 	ErrInvalidStateRoot   = errors.New("invalid state root record")
 	ErrInvalidPruneHeight = errors.New("invalid prune height")
+	ErrInvalidRetention   = errors.New("invalid retention policy")
 	ErrInvalidNamespace   = errors.New("namespace is required")
 	ErrInvalidKey         = errors.New("key is required")
 )

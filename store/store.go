@@ -36,7 +36,20 @@ type BlockIndex struct {
 type PruneResult struct {
 	RetainFromHeight types.Height
 	PrunedBlocks     uint64
+	PrunedStates     uint64
 	PrunedStateRoots uint64
+}
+
+type RetentionPolicy struct {
+	RetainRecent uint64
+}
+
+type RecoverResult struct {
+	BlockIndexKeys   uint64
+	EvidenceKeys     uint64
+	EarliestHeight   types.Height
+	LatestHeight     types.Height
+	RecoveredIndexes uint64
 }
 
 type EvidenceRecord struct {
@@ -52,13 +65,17 @@ type Store interface {
 	BlockByHash(ctx context.Context, hash types.Hash) (BlockRecord, error)
 	BlockIndex(ctx context.Context) (BlockIndex, error)
 	PruneBelow(ctx context.Context, retainFrom types.Height) (PruneResult, error)
+	PruneByRetention(ctx context.Context, policy RetentionPolicy) (PruneResult, error)
 	SaveState(ctx context.Context, state StateRecord) error
 	LatestState(ctx context.Context) (StateRecord, error)
+	StateByHeight(ctx context.Context, height types.Height) (StateRecord, error)
 	SaveStateRoot(ctx context.Context, record StateRootRecord) error
 	StateRoot(ctx context.Context, height types.Height, namespace string) (StateRootRecord, error)
 	SaveEvidence(ctx context.Context, record EvidenceRecord) error
 	EvidenceByKey(ctx context.Context, key string) (EvidenceRecord, error)
 	EvidenceIndex(ctx context.Context) ([]string, error)
+	RecoverIndexes(ctx context.Context) (RecoverResult, error)
+	Compact(ctx context.Context) error
 	Close() error
 }
 

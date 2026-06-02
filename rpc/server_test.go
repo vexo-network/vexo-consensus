@@ -915,6 +915,7 @@ func TestHandlerPrunesBlocksAndStateRoots(t *testing.T) {
 	provider := &fakeStatusProvider{pruneResult: store.PruneResult{
 		RetainFromHeight: 3,
 		PrunedBlocks:     2,
+		PrunedStates:     1,
 		PrunedStateRoots: 4,
 	}}
 	handler := NewHandler(provider)
@@ -922,7 +923,7 @@ func TestHandlerPrunesBlocksAndStateRoots(t *testing.T) {
 	var response PruneResponse
 	postJSON(t, handler, "/prune", `{"retain_from_height":3}`, http.StatusOK, &response)
 
-	if response.RetainFromHeight != 3 || response.PrunedBlocks != 2 || response.PrunedStateRoots != 4 {
+	if response.RetainFromHeight != 3 || response.PrunedBlocks != 2 || response.PrunedStates != 1 || response.PrunedStateRoots != 4 {
 		t.Fatalf("unexpected prune response: %+v", response)
 	}
 	if len(provider.prunedHeights) != 1 || provider.prunedHeights[0] != 3 {

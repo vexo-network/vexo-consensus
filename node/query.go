@@ -47,6 +47,14 @@ func (node *Node) LatestState(ctx context.Context) (store.StateRecord, error) {
 	return runtime.LatestState(ctx)
 }
 
+func (node *Node) StateByHeight(ctx context.Context, height types.Height) (store.StateRecord, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return store.StateRecord{}, err
+	}
+	return runtime.StateByHeight(ctx, height)
+}
+
 func (node *Node) StateRoot(ctx context.Context, height types.Height, namespace string) (store.StateRootRecord, error) {
 	runtime, err := node.Runtime()
 	if err != nil {
@@ -61,6 +69,30 @@ func (node *Node) PruneBelow(ctx context.Context, retainFrom types.Height) (stor
 		return store.PruneResult{}, err
 	}
 	return runtime.PruneBelow(ctx, retainFrom)
+}
+
+func (node *Node) PruneByRetention(ctx context.Context, policy store.RetentionPolicy) (store.PruneResult, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return store.PruneResult{}, err
+	}
+	return runtime.PruneByRetention(ctx, policy)
+}
+
+func (node *Node) RecoverIndexes(ctx context.Context) (store.RecoverResult, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return store.RecoverResult{}, err
+	}
+	return runtime.RecoverIndexes(ctx)
+}
+
+func (node *Node) Compact(ctx context.Context) error {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return err
+	}
+	return runtime.Compact(ctx)
 }
 
 func (node *Node) Replay(ctx context.Context, from types.Height, to types.Height) (vexoruntime.ReplayResult, error) {

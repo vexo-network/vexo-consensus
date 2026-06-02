@@ -241,6 +241,7 @@ type PruneRequest struct {
 type PruneResponse struct {
 	RetainFromHeight uint64 `json:"retain_from_height"`
 	PrunedBlocks     uint64 `json:"pruned_blocks"`
+	PrunedStates     uint64 `json:"pruned_states"`
 	PrunedStateRoots uint64 `json:"pruned_state_roots"`
 }
 
@@ -1230,6 +1231,7 @@ func pruneResponse(result store.PruneResult) PruneResponse {
 	return PruneResponse{
 		RetainFromHeight: uint64(result.RetainFromHeight),
 		PrunedBlocks:     result.PrunedBlocks,
+		PrunedStates:     result.PrunedStates,
 		PrunedStateRoots: result.PrunedStateRoots,
 	}
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/syndtr/goleveldb/leveldb"
 	leveldberrors "github.com/syndtr/goleveldb/leveldb/errors"
+	"github.com/syndtr/goleveldb/leveldb/util"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -23,6 +24,7 @@ var (
 	evidenceIndexKey  = []byte("evidence:index")
 	kvPrefix          = []byte("kv:")
 	stateLatestKey    = []byte("state:latest")
+	stateHeightPrefix = []byte("state:height:")
 	stateRootPrefix   = []byte("state:root:")
 )
 
@@ -141,6 +143,11 @@ func (store *LevelDBStore) PruneBelow(ctx context.Context, retainFrom types.Heig
 	if err != nil {
 		return PruneResult{}, err
 	}
+	prunedStates, err := store.pruneStatesBelow(ctx, batch, retainFrom)
+	if err != nil {
+		return PruneResult{}, err
+	}
+	result.PrunedStates = prunedStates
 	result.PrunedStateRoots = prunedRoots
 
 	newIndex, err := store.indexAfterPrune(ctx, retainFrom, index.LatestHeight)
@@ -162,6 +169,26 @@ func (store *LevelDBStore) PruneBelow(ctx context.Context, retainFrom types.Heig
 	return result, nil
 }
 
+func (store *LevelDBStore) PruneByRetention(ctx context.Context, policy RetentionPolicy) (PruneResult, error) {
+	select {
+	case <-ctx.Done():
+		return PruneResult{}, ctx.Err()
+	default:
+	}
+	if policy.RetainRecent == 0 {
+		return PruneResult{}, ErrInvalidRetention
+	}
+	index, err := store.BlockIndex(ctx)
+	if err != nil {
+		return PruneResult{}, err
+	}
+	if index.TotalBlocks <= policy.RetainRecent {
+		return PruneResult{RetainFromHeight: index.EarliestHeight}, nil
+	}
+	retainFrom := index.LatestHeight - types.Height(policy.RetainRecent) + 1
+	return store.PruneBelow(ctx, retainFrom)
+}
+
 func (store *LevelDBStore) SaveState(ctx context.Context, state StateRecord) error {
 	select {
 	case <-ctx.Done():
@@ -176,7 +203,10 @@ func (store *LevelDBStore) SaveState(ctx context.Context, state StateRecord) err
 	if err != nil {
 		return err
 	}
-	return store.db.Put(stateLatestKey, encoded, nil)
+	batch := new(leveldb.Batch)
+	batch.Put(stateLatestKey, encoded)
+	batch.Put(stateHeightKey(state.Height), encoded)
+	return store.db.Write(batch, nil)
 }
 
 func (store *LevelDBStore) LatestState(ctx context.Context) (StateRecord, error) {
@@ -194,6 +224,29 @@ func (store *LevelDBStore) LatestState(ctx context.Context) (StateRecord, error)
 		return StateRecord{}, err
 	}
 
+	var state StateRecord
+	if err := json.Unmarshal(encoded, &state); err != nil {
+		return StateRecord{}, err
+	}
+	return state, nil
+}
+
+func (store *LevelDBStore) StateByHeight(ctx context.Context, height types.Height) (StateRecord, error) {
+	select {
+	case <-ctx.Done():
+		return StateRecord{}, ctx.Err()
+	default:
+	}
+	if height == 0 {
+		return StateRecord{}, ErrInvalidStateRecord
+	}
+	encoded, err := store.db.Get(stateHeightKey(height), nil)
+	if err != nil {
+		if errors.Is(err, leveldberrors.ErrNotFound) {
+			return StateRecord{}, ErrStateNotFound
+		}
+		return StateRecord{}, err
+	}
 	var state StateRecord
 	if err := json.Unmarshal(encoded, &state); err != nil {
 		return StateRecord{}, err
@@ -409,6 +462,61 @@ func (store *LevelDBStore) EvidenceIndex(ctx context.Context) ([]string, error) 
 	return append([]string(nil), index...), nil
 }
 
+func (store *LevelDBStore) RecoverIndexes(ctx context.Context) (RecoverResult, error) {
+	select {
+	case <-ctx.Done():
+		return RecoverResult{}, ctx.Err()
+	default:
+	}
+	var result RecoverResult
+	blockIndex, err := store.rebuildBlockIndex(ctx)
+	if err != nil {
+		return RecoverResult{}, err
+	}
+	evidenceIndex, err := store.rebuildEvidenceIndex(ctx)
+	if err != nil {
+		return RecoverResult{}, err
+	}
+	batch := new(leveldb.Batch)
+	if blockIndex.TotalBlocks == 0 {
+		batch.Delete(blockIndexKey)
+	} else {
+		encoded, err := json.Marshal(blockIndex)
+		if err != nil {
+			return RecoverResult{}, err
+		}
+		batch.Put(blockIndexKey, encoded)
+		result.RecoveredIndexes++
+	}
+	if len(evidenceIndex) == 0 {
+		batch.Delete(evidenceIndexKey)
+	} else {
+		encoded, err := json.Marshal(evidenceIndex)
+		if err != nil {
+			return RecoverResult{}, err
+		}
+		batch.Put(evidenceIndexKey, encoded)
+		result.RecoveredIndexes++
+	}
+	if err := store.db.Write(batch, nil); err != nil {
+		return RecoverResult{}, err
+	}
+	result.BlockIndexKeys = blockIndex.TotalBlocks
+	result.EvidenceKeys = uint64(len(evidenceIndex))
+	result.EarliestHeight = blockIndex.EarliestHeight
+	result.LatestHeight = blockIndex.LatestHeight
+	return result, nil
+}
+
+func (store *LevelDBStore) Compact(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	return store.db.CompactRange(util.Range{})
+}
+
 func (store *LevelDBStore) Close() error {
 	return store.db.Close()
 }
@@ -450,6 +558,32 @@ func (store *LevelDBStore) pruneStateRootsBelow(ctx context.Context, batch *leve
 		}
 		if height < retainFrom {
 			batch.Delete(append([]byte(nil), key...))
+			pruned++
+		}
+	}
+	if err := iterator.Error(); err != nil {
+		return 0, err
+	}
+	return pruned, nil
+}
+
+func (store *LevelDBStore) pruneStatesBelow(ctx context.Context, batch *leveldb.Batch, retainFrom types.Height) (uint64, error) {
+	iterator := store.db.NewIterator(util.BytesPrefix(stateHeightPrefix), nil)
+	defer iterator.Release()
+
+	var pruned uint64
+	for ok := iterator.First(); ok; ok = iterator.Next() {
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		default:
+		}
+		height, ok := stateHeightFromKey(iterator.Key())
+		if !ok {
+			continue
+		}
+		if height < retainFrom {
+			batch.Delete(append([]byte(nil), iterator.Key()...))
 			pruned++
 		}
 	}
@@ -548,9 +682,30 @@ func kvNamespacePrefix(namespace string) []byte {
 	return append(dbKey, ':')
 }
 
+func stateHeightKey(height types.Height) []byte {
+	key := append([]byte(nil), stateHeightPrefix...)
+	var buffer [8]byte
+	binary.BigEndian.PutUint64(buffer[:], uint64(height))
+	return append(key, buffer[:]...)
+}
+
+func stateHeightFromKey(key []byte) (types.Height, bool) {
+	if len(key) < len(stateHeightPrefix)+8 {
+		return 0, false
+	}
+	return types.Height(binary.BigEndian.Uint64(key[len(stateHeightPrefix) : len(stateHeightPrefix)+8])), true
+}
+
 func evidenceKey(key string) []byte {
 	dbKey := append([]byte(nil), evidencePrefix...)
 	return append(dbKey, []byte(key)...)
+}
+
+func evidenceKeyString(key []byte) string {
+	if len(key) <= len(evidencePrefix) {
+		return ""
+	}
+	return string(key[len(evidencePrefix):])
 }
 
 func evidenceRecordKey(evidence slashing.Evidence) string {
@@ -559,6 +714,60 @@ func evidenceRecordKey(evidence slashing.Evidence) string {
 	}
 	hash := sha256.Sum256(evidence.Proof)
 	return string(evidence.Type) + ":" + string(evidence.Validator) + ":" + strconv.FormatUint(uint64(evidence.Height), 10) + ":" + strconv.FormatUint(uint64(evidence.Round), 10) + ":" + hex.EncodeToString(hash[:])
+}
+
+func (store *LevelDBStore) rebuildBlockIndex(ctx context.Context) (BlockIndex, error) {
+	iterator := store.db.NewIterator(util.BytesPrefix(blockHeightPrefix), nil)
+	defer iterator.Release()
+	var index BlockIndex
+	for ok := iterator.First(); ok; ok = iterator.Next() {
+		select {
+		case <-ctx.Done():
+			return BlockIndex{}, ctx.Err()
+		default:
+		}
+		var record BlockRecord
+		if err := json.Unmarshal(iterator.Value(), &record); err != nil {
+			return BlockIndex{}, err
+		}
+		height := record.Block.Header.Height
+		if height == 0 {
+			continue
+		}
+		if index.TotalBlocks == 0 || height < index.EarliestHeight {
+			index.EarliestHeight = height
+		}
+		if height > index.LatestHeight {
+			index.LatestHeight = height
+		}
+		index.TotalBlocks++
+	}
+	if err := iterator.Error(); err != nil {
+		return BlockIndex{}, err
+	}
+	return index, nil
+}
+
+func (store *LevelDBStore) rebuildEvidenceIndex(ctx context.Context) ([]string, error) {
+	iterator := store.db.NewIterator(util.BytesPrefix(evidencePrefix), nil)
+	defer iterator.Release()
+	index := make([]string, 0)
+	for ok := iterator.First(); ok; ok = iterator.Next() {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		key := evidenceKeyString(iterator.Key())
+		if key == "" || key == "index" {
+			continue
+		}
+		index = append(index, key)
+	}
+	if err := iterator.Error(); err != nil {
+		return nil, err
+	}
+	return index, nil
 }
 
 func stringSliceContains(items []string, target string) bool {

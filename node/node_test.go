@@ -349,6 +349,47 @@ func TestNodePruneBelowRequiresRunningNode(t *testing.T) {
 	if _, err := node.PruneBelow(context.Background(), 1); !errors.Is(err, ErrNodeNotRunning) {
 		t.Fatalf("expected not running prune error, got %v", err)
 	}
+	if _, err := node.PruneByRetention(context.Background(), store.RetentionPolicy{RetainRecent: 1}); !errors.Is(err, ErrNodeNotRunning) {
+		t.Fatalf("expected not running retention prune error, got %v", err)
+	}
+}
+
+func TestNodePruneByRetentionRecoverIndexesAndCompact(t *testing.T) {
+	node := newTestNode(t)
+	if err := node.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer node.Stop(context.Background())
+
+	runtime, err := node.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for height := types.Height(1); height <= 5; height++ {
+		if _, err := runtime.ExecuteBlock(context.Background(), types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: height},
+			Txs:    []types.Tx{[]byte("bank:send")},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := node.PruneByRetention(context.Background(), store.RetentionPolicy{RetainRecent: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RetainFromHeight != 4 || result.PrunedBlocks != 3 {
+		t.Fatalf("unexpected retention prune result: %+v", result)
+	}
+	recoverResult, err := node.RecoverIndexes(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recoverResult.BlockIndexKeys != 2 || recoverResult.LatestHeight != 5 {
+		t.Fatalf("unexpected recover result: %+v", recoverResult)
+	}
+	if err := node.Compact(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestNodeReplayRangeRestoresLatestState(t *testing.T) {
