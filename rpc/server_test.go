@@ -897,6 +897,27 @@ func TestHandlerReportsLatestSnapshot(t *testing.T) {
 	}
 }
 
+func TestHandlerExportsRestorableSnapshotDocument(t *testing.T) {
+	handler := NewHandler(fakeStatusProvider{snapshot: node.StateSnapshot{
+		Height:           5,
+		AppHash:          types.Hash{1},
+		LastBlockHash:    types.Hash{2},
+		ValidatorSetHash: types.Hash{3},
+		StateRoots: []store.StateRootRecord{
+			{Height: 5, Namespace: "bank", Root: types.Hash{4}},
+		},
+	}})
+
+	var snapshot SnapshotExportResponse
+	getJSON(t, handler, "/snapshot/export", http.StatusOK, &snapshot)
+	if snapshot.SchemaVersion != "v1" || snapshot.State.Height != 5 || snapshot.State.AppHash != (types.Hash{1}) {
+		t.Fatalf("unexpected snapshot export identity: %+v", snapshot)
+	}
+	if len(snapshot.StateRoots) != 1 || snapshot.StateRoots[0].Namespace != "bank" || snapshot.StateRoots[0].Root != (types.Hash{4}) {
+		t.Fatalf("unexpected snapshot export roots: %+v", snapshot.StateRoots)
+	}
+}
+
 func TestHandlerRejectsUnavailableSnapshotProvider(t *testing.T) {
 	var response map[string]string
 	getJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/snapshot/latest", http.StatusNotImplemented, &response)

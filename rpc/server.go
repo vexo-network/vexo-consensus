@@ -238,6 +238,12 @@ type StateSnapshotResponse struct {
 	StateRoots       []StateRootResponse `json:"state_roots"`
 }
 
+type SnapshotExportResponse struct {
+	SchemaVersion string                  `json:"schema_version"`
+	State         store.StateRecord       `json:"state"`
+	StateRoots    []store.StateRootRecord `json:"state_roots"`
+}
+
 type RecoveryReportResponse struct {
 	OK                bool                    `json:"ok"`
 	Running           bool                    `json:"running"`
@@ -602,6 +608,30 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 			return
 		}
 		writeJSON(writer, http.StatusOK, stateSnapshotResponse(snapshot))
+	})
+	mux.HandleFunc("/snapshot/export", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowGet(writer, request) {
+			return
+		}
+		snapshotProvider, ok := provider.(SnapshotProvider)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "snapshot export is unavailable")
+			return
+		}
+		snapshot, err := snapshotProvider.StateSnapshot(request.Context())
+		if errors.Is(err, store.ErrStateNotFound) {
+			writeError(writer, http.StatusNotFound, "snapshot not found")
+			return
+		}
+		if errors.Is(err, store.ErrStateRootNotFound) {
+			writeError(writer, http.StatusNotFound, "snapshot state root not found")
+			return
+		}
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(writer, http.StatusOK, snapshotExportResponse(snapshot))
 	})
 	mux.HandleFunc("/recovery", func(writer http.ResponseWriter, request *http.Request) {
 		recoveryProvider, ok := provider.(RecoveryProvider)
@@ -1263,6 +1293,19 @@ func stateSnapshotResponse(snapshot node.StateSnapshot) StateSnapshotResponse {
 		LastBlockHash:    hex.EncodeToString(snapshot.LastBlockHash[:]),
 		ValidatorSetHash: hex.EncodeToString(snapshot.ValidatorSetHash[:]),
 		StateRoots:       roots,
+	}
+}
+
+func snapshotExportResponse(snapshot node.StateSnapshot) SnapshotExportResponse {
+	return SnapshotExportResponse{
+		SchemaVersion: "v1",
+		State: store.StateRecord{
+			Height:           snapshot.Height,
+			AppHash:          snapshot.AppHash,
+			LastBlockHash:    snapshot.LastBlockHash,
+			ValidatorSetHash: snapshot.ValidatorSetHash,
+		},
+		StateRoots: append([]store.StateRootRecord(nil), snapshot.StateRoots...),
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -290,6 +291,68 @@ func TestRunSnapshotExportAndRestore(t *testing.T) {
 	}
 	if root.Root != (types.Hash{4}) {
 		t.Fatalf("unexpected restored root: %+v", root)
+	}
+}
+
+func TestRunSnapshotFetchAndSyncFromRPCExport(t *testing.T) {
+	document := snapshotDocumentFromState(store.StateRecord{
+		Height:           7,
+		AppHash:          types.Hash{7},
+		LastBlockHash:    types.Hash{8},
+		ValidatorSetHash: types.Hash{9},
+	}, []store.StateRootRecord{{Height: 7, Namespace: "bank", Root: types.Hash{10}}})
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/snapshot/export" {
+			http.NotFound(writer, request)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		if err := writeSnapshotDocument(writer, document); err != nil {
+			t.Fatal(err)
+		}
+	}))
+	defer server.Close()
+
+	snapshotPath := filepath.Join(t.TempDir(), "remote-snapshot.json")
+	var fetchOutput bytes.Buffer
+	if err := runSnapshot(&fetchOutput, []string{"fetch", "--url", server.URL + "/snapshot/export", "--output", snapshotPath}); err != nil {
+		t.Fatal(err)
+	}
+	fetched, err := readSnapshotDocument(snapshotPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fetched.State.Height != 7 || len(fetched.StateRoots) != 1 {
+		t.Fatalf("unexpected fetched snapshot: %+v", fetched)
+	}
+
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	var syncOutput bytes.Buffer
+	if err := runSnapshot(&syncOutput, []string{"sync", "--home", home, "--url", server.URL + "/snapshot/export"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage, err := store.OpenLevelDB(cfg.StoreDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	state, err := storage.LatestState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := storage.StateRoot(context.Background(), 7, "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Height != 7 || root.Root != (types.Hash{10}) || !strings.Contains(syncOutput.String(), "snapshot synced") {
+		t.Fatalf("unexpected synced snapshot state=%+v root=%+v output=%s", state, root, syncOutput.String())
 	}
 }
 

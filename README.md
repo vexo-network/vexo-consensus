@@ -384,6 +384,13 @@ go run ./cmd/vexod snapshot export --home .vexo --output snapshot.json
 go run ./cmd/vexod snapshot restore --home .vexo-restore --input snapshot.json
 ```
 
+Fetch or directly sync a new node from a peer's RPC snapshot export:
+
+```bash
+go run ./cmd/vexod snapshot fetch --url http://127.0.0.1:26657/snapshot/export --output snapshot.json
+go run ./cmd/vexod snapshot sync --home .vexo-new --url http://127.0.0.1:26657/snapshot/export
+```
+
 Run an offline operational readiness check, optionally rebuilding LevelDB block/evidence indexes:
 
 ```bash

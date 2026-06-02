@@ -7,7 +7,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/vexo-network/vexo-consensus/store"
 )
@@ -27,6 +29,10 @@ func runSnapshot(writer io.Writer, args []string) error {
 		return runSnapshotExport(writer, args[1:])
 	case "restore":
 		return runSnapshotRestore(writer, args[1:])
+	case "fetch":
+		return runSnapshotFetch(writer, args[1:])
+	case "sync":
+		return runSnapshotSync(writer, args[1:])
 	default:
 		return fmt.Errorf("unknown snapshot subcommand %q", args[0])
 	}
@@ -105,6 +111,78 @@ func runSnapshotRestore(writer io.Writer, args []string) error {
 	return nil
 }
 
+func runSnapshotFetch(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("snapshot fetch", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	url := flags.String("url", "", "snapshot export URL")
+	outputPath := flags.String("output", "", "snapshot output path")
+	timeout := flags.Duration("timeout", 10*time.Second, "snapshot download timeout")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *url == "" {
+		return errors.New("snapshot URL is required")
+	}
+	if *outputPath == "" {
+		return errors.New("snapshot output path is required")
+	}
+	document, err := downloadSnapshotDocument(*url, *timeout)
+	if err != nil {
+		return err
+	}
+	file, err := os.OpenFile(*outputPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	if err := writeSnapshotDocument(file, document); err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "snapshot fetched\n")
+	fmt.Fprintf(writer, "url: %s\n", *url)
+	fmt.Fprintf(writer, "path: %s\n", *outputPath)
+	fmt.Fprintf(writer, "height: %d\n", document.State.Height)
+	return nil
+}
+
+func runSnapshotSync(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("snapshot sync", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", defaultHomeDir, "node home directory")
+	configPath := flags.String("config", "", "config file path")
+	url := flags.String("url", "", "snapshot export URL")
+	timeout := flags.Duration("timeout", 10*time.Second, "snapshot download timeout")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *url == "" {
+		return errors.New("snapshot URL is required")
+	}
+	cfg, err := loadNodeConfig(resolveConfigPath(*home, *configPath))
+	if err != nil {
+		return err
+	}
+	document, err := downloadSnapshotDocument(*url, *timeout)
+	if err != nil {
+		return err
+	}
+	storage, err := store.OpenLevelDB(cfg.StoreDir())
+	if err != nil {
+		return err
+	}
+	defer storage.Close()
+	if err := restoreSnapshotDocument(storage, document); err != nil {
+		return err
+	}
+	if _, err := storage.RecoverIndexes(context.Background()); err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "snapshot synced\n")
+	fmt.Fprintf(writer, "url: %s\n", *url)
+	fmt.Fprintf(writer, "height: %d\n", document.State.Height)
+	return nil
+}
+
 func buildSnapshotDocument(storage store.Store) (snapshotDocument, error) {
 	state, err := storage.LatestState(context.Background())
 	if err != nil {
@@ -119,7 +197,15 @@ func buildSnapshotDocument(storage store.Store) (snapshotDocument, error) {
 			return snapshotDocument{}, err
 		}
 	}
-	return snapshotDocument{SchemaVersion: "v1", State: state, StateRoots: roots}, nil
+	return snapshotDocumentFromState(state, roots), nil
+}
+
+func snapshotDocumentFromState(state store.StateRecord, roots []store.StateRootRecord) snapshotDocument {
+	return snapshotDocument{
+		SchemaVersion: "v1",
+		State:         state,
+		StateRoots:    append([]store.StateRootRecord(nil), roots...),
+	}
 }
 
 func restoreSnapshotDocument(storage store.Store, document snapshotDocument) error {
@@ -135,6 +221,31 @@ func restoreSnapshotDocument(storage store.Store, document snapshotDocument) err
 		}
 	}
 	return nil
+}
+
+func downloadSnapshotDocument(url string, timeout time.Duration) (snapshotDocument, error) {
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	client := http.Client{Timeout: timeout}
+	response, err := client.Get(url)
+	if err != nil {
+		return snapshotDocument{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return snapshotDocument{}, fmt.Errorf("snapshot download failed: status %d", response.StatusCode)
+	}
+	var document snapshotDocument
+	decoder := json.NewDecoder(io.LimitReader(response.Body, 32*1024*1024))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&document); err != nil {
+		return snapshotDocument{}, err
+	}
+	if document.SchemaVersion != "v1" {
+		return snapshotDocument{}, fmt.Errorf("unsupported snapshot schema %q", document.SchemaVersion)
+	}
+	return document, nil
 }
 
 func writeSnapshotDocument(writer io.Writer, document snapshotDocument) error {
