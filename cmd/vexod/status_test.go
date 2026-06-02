@@ -21,6 +21,14 @@ func TestWriteStatus(t *testing.T) {
 		"fair_ordering.deterministic: true",
 		"data_availability.commitments: true",
 		"storage.backend: leveldb",
+		"p2p.initial_score: 100",
+		"p2p.invalid_message_cost: 10",
+		"p2p.rate_limit_cost: 5",
+		"p2p.ban_threshold: 0",
+		"p2p.max_messages_per_window: 1000",
+		"p2p.window_reset_interval:",
+		"p2p.score_recovery: 1",
+		"p2p.ban_duration:",
 	}
 	for _, part := range expectedParts {
 		if !strings.Contains(output, part) {
