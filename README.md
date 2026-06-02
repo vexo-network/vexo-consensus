@@ -214,6 +214,7 @@ Run and manage a local multi-node network:
 
 ```bash
 go run ./cmd/vexod localnet up --home .vexo-localnet --validators 4 --overwrite --keep-running
+go run ./cmd/vexod localnet up --home .vexo-testnet --validators 4 --p2p-base-port 27656 --rpc-base-port 27657 --overwrite
 
 go run ./cmd/vexod localnet init --home .vexo-localnet --validators 4
 go run ./cmd/vexod localnet start --home .vexo-localnet --validators 4

@@ -20,10 +20,12 @@ import (
 const localnetPIDFileName = "vexod.pid"
 
 type localnetRuntimePlan struct {
-	Home       string
-	Binary     string
-	Validators int
-	Nodes      []localnetNodeRuntimePlan
+	Home        string
+	Binary      string
+	Validators  int
+	P2PBasePort int
+	RPCBasePort int
+	Nodes       []localnetNodeRuntimePlan
 }
 
 type localnetNodeRuntimePlan struct {
@@ -75,6 +77,8 @@ func runLocalnetUp(ctx context.Context, writer io.Writer, args []string) error {
 	home := flags.String("home", ".vexo-localnet", "localnet home directory")
 	chainID := flags.String("chain-id", defaultChainID, "chain id")
 	validators := flags.Int("validators", 4, "validator count")
+	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first localnet P2P port")
+	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first localnet RPC port")
 	binaryPath := flags.String("binary", "", "vexod binary path; defaults to current executable")
 	timeout := flags.Duration("timeout", 20*time.Second, "startup and smoke test timeout")
 	tx := flags.String("tx", "bank:smoke", "transaction payload to submit")
@@ -84,7 +88,7 @@ func runLocalnetUp(ctx context.Context, writer io.Writer, args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	plan, err := buildLocalnetRuntimePlan(*home, *validators, *binaryPath)
+	plan, err := buildLocalnetRuntimePlanWithPorts(*home, *validators, *binaryPath, *p2pBasePort, *rpcBasePort)
 	if err != nil {
 		return err
 	}
@@ -92,7 +96,7 @@ func runLocalnetUp(ctx context.Context, writer io.Writer, args []string) error {
 		writeLocalnetUpPlan(writer, plan, *chainID, *timeout, *tx, *overwrite, *keepRunning)
 		return nil
 	}
-	localnetFiles, err := writeLocalnetFiles(*home, *chainID, *validators, *overwrite)
+	localnetFiles, err := writeLocalnetFilesWithPorts(*home, *chainID, *validators, *overwrite, *p2pBasePort, *rpcBasePort)
 	if err != nil {
 		return err
 	}
@@ -132,12 +136,14 @@ func runLocalnetSmoke(ctx context.Context, writer io.Writer, args []string) erro
 	flags.SetOutput(io.Discard)
 	home := flags.String("home", ".vexo-localnet", "localnet home directory")
 	validators := flags.Int("validators", 4, "validator count")
+	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first localnet P2P port")
+	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first localnet RPC port")
 	timeout := flags.Duration("timeout", 10*time.Second, "smoke test timeout")
 	tx := flags.String("tx", "bank:smoke", "transaction payload to submit")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	plan, err := buildLocalnetRuntimePlan(*home, *validators, "")
+	plan, err := buildLocalnetRuntimePlanWithPorts(*home, *validators, "", *p2pBasePort, *rpcBasePort)
 	if err != nil {
 		return err
 	}
@@ -161,6 +167,8 @@ func runLocalnetInit(writer io.Writer, args []string) error {
 	home := flags.String("home", ".vexo-localnet", "localnet home directory")
 	chainID := flags.String("chain-id", defaultChainID, "chain id")
 	validators := flags.Int("validators", 4, "validator count")
+	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first localnet P2P port")
+	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first localnet RPC port")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing localnet files")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -169,6 +177,8 @@ func runLocalnetInit(writer io.Writer, args []string) error {
 		"--home", *home,
 		"--chain-id", *chainID,
 		"--validators", strconv.Itoa(*validators),
+		"--p2p-base-port", strconv.Itoa(*p2pBasePort),
+		"--rpc-base-port", strconv.Itoa(*rpcBasePort),
 	}
 	if *overwrite {
 		initArgs = append(initArgs, "--overwrite")
@@ -181,12 +191,14 @@ func runLocalnetStart(writer io.Writer, args []string) error {
 	flags.SetOutput(io.Discard)
 	home := flags.String("home", ".vexo-localnet", "localnet home directory")
 	validators := flags.Int("validators", 4, "validator count")
+	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first localnet P2P port")
+	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first localnet RPC port")
 	binaryPath := flags.String("binary", "", "vexod binary path; defaults to current executable")
 	dryRun := flags.Bool("dry-run", false, "print node start commands without spawning processes")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	plan, err := buildLocalnetRuntimePlan(*home, *validators, *binaryPath)
+	plan, err := buildLocalnetRuntimePlanWithPorts(*home, *validators, *binaryPath, *p2pBasePort, *rpcBasePort)
 	if err != nil {
 		return err
 	}
@@ -202,11 +214,13 @@ func runLocalnetStatus(ctx context.Context, writer io.Writer, args []string) err
 	flags.SetOutput(io.Discard)
 	home := flags.String("home", ".vexo-localnet", "localnet home directory")
 	validators := flags.Int("validators", 4, "validator count")
+	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first localnet P2P port")
+	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first localnet RPC port")
 	timeout := flags.Duration("timeout", 2*time.Second, "per-node health check timeout")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	plan, err := buildLocalnetRuntimePlan(*home, *validators, "")
+	plan, err := buildLocalnetRuntimePlanWithPorts(*home, *validators, "", *p2pBasePort, *rpcBasePort)
 	if err != nil {
 		return err
 	}
@@ -223,10 +237,12 @@ func runLocalnetStop(writer io.Writer, args []string) error {
 	flags.SetOutput(io.Discard)
 	home := flags.String("home", ".vexo-localnet", "localnet home directory")
 	validators := flags.Int("validators", 4, "validator count")
+	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first localnet P2P port")
+	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first localnet RPC port")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	plan, err := buildLocalnetRuntimePlan(*home, *validators, "")
+	plan, err := buildLocalnetRuntimePlanWithPorts(*home, *validators, "", *p2pBasePort, *rpcBasePort)
 	if err != nil {
 		return err
 	}
@@ -263,8 +279,15 @@ func stopLocalnetPlan(writer io.Writer, plan localnetRuntimePlan) error {
 }
 
 func buildLocalnetRuntimePlan(home string, validators int, binaryPath string) (localnetRuntimePlan, error) {
+	return buildLocalnetRuntimePlanWithPorts(home, validators, binaryPath, defaultP2PBasePort, defaultRPCBasePort)
+}
+
+func buildLocalnetRuntimePlanWithPorts(home string, validators int, binaryPath string, p2pBasePort int, rpcBasePort int) (localnetRuntimePlan, error) {
 	if validators <= 0 {
 		return localnetRuntimePlan{}, fmt.Errorf("validators must be positive")
+	}
+	if p2pBasePort <= 0 || rpcBasePort <= 0 {
+		return localnetRuntimePlan{}, fmt.Errorf("base ports must be positive")
 	}
 	if home == "" {
 		home = ".vexo-localnet"
@@ -277,10 +300,12 @@ func buildLocalnetRuntimePlan(home string, validators int, binaryPath string) (l
 		binaryPath = executable
 	}
 	plan := localnetRuntimePlan{
-		Home:       home,
-		Binary:     binaryPath,
-		Validators: validators,
-		Nodes:      make([]localnetNodeRuntimePlan, 0, validators),
+		Home:        home,
+		Binary:      binaryPath,
+		Validators:  validators,
+		P2PBasePort: p2pBasePort,
+		RPCBasePort: rpcBasePort,
+		Nodes:       make([]localnetNodeRuntimePlan, 0, validators),
 	}
 	for index := 1; index <= validators; index++ {
 		validatorID := localnetValidatorID(index)
@@ -289,14 +314,14 @@ func buildLocalnetRuntimePlan(home string, validators int, binaryPath string) (l
 			"start",
 			"--home", nodeHome,
 			"--run",
-			"--rpc-address", localnetRPCAddress(index),
-			"--p2p-listen", localnetP2PAddress(index),
+			"--rpc-address", localnetRPCAddressWithBasePort(index, rpcBasePort),
+			"--p2p-listen", localnetP2PAddressWithBasePort(index, p2pBasePort),
 		}
 		plan.Nodes = append(plan.Nodes, localnetNodeRuntimePlan{
 			ValidatorID: validatorID,
 			Home:        nodeHome,
-			RPCAddress:  localnetRPCAddress(index),
-			P2PAddress:  localnetP2PAddress(index),
+			RPCAddress:  localnetRPCAddressWithBasePort(index, rpcBasePort),
+			P2PAddress:  localnetP2PAddressWithBasePort(index, p2pBasePort),
 			PIDPath:     filepath.Join(nodeHome, localnetPIDFileName),
 			LogPath:     filepath.Join(nodeHome, "vexod.log"),
 			Args:        args,
@@ -309,6 +334,8 @@ func writeLocalnetPlan(writer io.Writer, plan localnetRuntimePlan) {
 	fmt.Fprintf(writer, "localnet start plan\n")
 	fmt.Fprintf(writer, "home: %s\n", plan.Home)
 	fmt.Fprintf(writer, "validators: %d\n", plan.Validators)
+	fmt.Fprintf(writer, "p2p-base-port: %d\n", plan.P2PBasePort)
+	fmt.Fprintf(writer, "rpc-base-port: %d\n", plan.RPCBasePort)
 	for _, localNode := range plan.Nodes {
 		fmt.Fprintf(writer, "%s: %s %s # log=%s pid=%s\n", localNode.ValidatorID, plan.Binary, joinArgs(localNode.Args), localNode.LogPath, localNode.PIDPath)
 	}
@@ -319,20 +346,22 @@ func writeLocalnetUpPlan(writer io.Writer, plan localnetRuntimePlan, chainID str
 	fmt.Fprintf(writer, "home: %s\n", plan.Home)
 	fmt.Fprintf(writer, "chain-id: %s\n", chainID)
 	fmt.Fprintf(writer, "validators: %d\n", plan.Validators)
+	fmt.Fprintf(writer, "p2p-base-port: %d\n", plan.P2PBasePort)
+	fmt.Fprintf(writer, "rpc-base-port: %d\n", plan.RPCBasePort)
 	fmt.Fprintf(writer, "timeout: %s\n", timeout)
 	fmt.Fprintf(writer, "tx: %s\n", tx)
-	initCommand := fmt.Sprintf("localnet init --home %s --chain-id %s --validators %d", plan.Home, chainID, plan.Validators)
+	initCommand := fmt.Sprintf("localnet init --home %s --chain-id %s --validators %d --p2p-base-port %d --rpc-base-port %d", plan.Home, chainID, plan.Validators, plan.P2PBasePort, plan.RPCBasePort)
 	if overwrite {
 		initCommand += " --overwrite"
 	}
 	fmt.Fprintf(writer, "1. %s\n", initCommand)
-	fmt.Fprintf(writer, "2. localnet start --home %s --validators %d --binary %s\n", plan.Home, plan.Validators, plan.Binary)
-	fmt.Fprintf(writer, "3. localnet smoke --home %s --validators %d --timeout %s --tx %s\n", plan.Home, plan.Validators, timeout, tx)
+	fmt.Fprintf(writer, "2. localnet start --home %s --validators %d --p2p-base-port %d --rpc-base-port %d --binary %s\n", plan.Home, plan.Validators, plan.P2PBasePort, plan.RPCBasePort, plan.Binary)
+	fmt.Fprintf(writer, "3. localnet smoke --home %s --validators %d --p2p-base-port %d --rpc-base-port %d --timeout %s --tx %s\n", plan.Home, plan.Validators, plan.P2PBasePort, plan.RPCBasePort, timeout, tx)
 	if keepRunning {
 		fmt.Fprintf(writer, "4. keep nodes running\n")
 		return
 	}
-	fmt.Fprintf(writer, "4. localnet stop --home %s --validators %d\n", plan.Home, plan.Validators)
+	fmt.Fprintf(writer, "4. localnet stop --home %s --validators %d --p2p-base-port %d --rpc-base-port %d\n", plan.Home, plan.Validators, plan.P2PBasePort, plan.RPCBasePort)
 }
 
 func startLocalnetNode(binaryPath string, localNode localnetNodeRuntimePlan) error {

@@ -22,6 +22,8 @@ const (
 	defaultHomeDir       = ".vexo"
 	defaultChainID       = "vexo-local"
 	defaultValidatorID   = "validator-1"
+	defaultP2PBasePort   = 26656
+	defaultRPCBasePort   = 26657
 	configFileName       = "config.json"
 	genesisFileName      = "genesis.json"
 	configSchemaVersion  = "v1"
@@ -61,12 +63,14 @@ func runInit(writer io.Writer, args []string) error {
 	chainID := flags.String("chain-id", defaultChainID, "chain id")
 	validatorID := flags.String("validator", defaultValidatorID, "local validator id")
 	validatorCount := flags.Int("validators", 1, "number of local validators to initialize")
+	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first localnet P2P port")
+	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first localnet RPC port")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing files")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if *validatorCount > 1 {
-		localnet, err := writeLocalnetFiles(*home, *chainID, *validatorCount, *overwrite)
+		localnet, err := writeLocalnetFilesWithPorts(*home, *chainID, *validatorCount, *overwrite, *p2pBasePort, *rpcBasePort)
 		if err != nil {
 			return err
 		}
@@ -105,6 +109,10 @@ type localnetNodeDocument struct {
 }
 
 func writeLocalnetFiles(home string, chainID string, validatorCount int, overwrite bool) (localnetDocument, error) {
+	return writeLocalnetFilesWithPorts(home, chainID, validatorCount, overwrite, defaultP2PBasePort, defaultRPCBasePort)
+}
+
+func writeLocalnetFilesWithPorts(home string, chainID string, validatorCount int, overwrite bool, p2pBasePort int, rpcBasePort int) (localnetDocument, error) {
 	if home == "" {
 		home = defaultHomeDir
 	}
@@ -113,6 +121,9 @@ func writeLocalnetFiles(home string, chainID string, validatorCount int, overwri
 	}
 	if validatorCount <= 0 {
 		return localnetDocument{}, fmt.Errorf("validators must be positive")
+	}
+	if p2pBasePort <= 0 || rpcBasePort <= 0 {
+		return localnetDocument{}, fmt.Errorf("base ports must be positive")
 	}
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		return localnetDocument{}, err
@@ -135,8 +146,8 @@ func writeLocalnetFiles(home string, chainID string, validatorCount int, overwri
 			VotingPower: 1,
 			Stake:       1,
 			Metadata: map[string]string{
-				"p2p_address": localnetP2PAddress(index),
-				"rpc_address": localnetRPCAddress(index),
+				"p2p_address": localnetP2PAddressWithBasePort(index, p2pBasePort),
+				"rpc_address": localnetRPCAddressWithBasePort(index, rpcBasePort),
 			},
 		})
 		governance[validatorID] = 1
@@ -186,8 +197,8 @@ func writeLocalnetFiles(home string, chainID string, validatorCount int, overwri
 			ConfigPath:  configPath,
 			GenesisPath: genesisPath,
 			KeyPath:     keyPath,
-			P2PAddress:  localnetP2PAddress(index),
-			RPCAddress:  localnetRPCAddress(index),
+			P2PAddress:  localnetP2PAddressWithBasePort(index, p2pBasePort),
+			RPCAddress:  localnetRPCAddressWithBasePort(index, rpcBasePort),
 		})
 	}
 	return localnet, nil
@@ -198,11 +209,19 @@ func localnetValidatorID(index int) string {
 }
 
 func localnetP2PAddress(index int) string {
-	return "127.0.0.1:" + strconv.Itoa(26656+(index-1)*10)
+	return localnetP2PAddressWithBasePort(index, defaultP2PBasePort)
 }
 
 func localnetRPCAddress(index int) string {
-	return "127.0.0.1:" + strconv.Itoa(26657+(index-1)*10)
+	return localnetRPCAddressWithBasePort(index, defaultRPCBasePort)
+}
+
+func localnetP2PAddressWithBasePort(index int, basePort int) string {
+	return "127.0.0.1:" + strconv.Itoa(basePort+(index-1)*10)
+}
+
+func localnetRPCAddressWithBasePort(index int, basePort int) string {
+	return "127.0.0.1:" + strconv.Itoa(basePort+(index-1)*10)
 }
 
 func runValidate(writer io.Writer, args []string) error {

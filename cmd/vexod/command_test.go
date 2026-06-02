@@ -107,11 +107,11 @@ func TestRunLocalnetInitAndStartDryRun(t *testing.T) {
 	}
 
 	var startOutput bytes.Buffer
-	if err := runCommand(&startOutput, &bytes.Buffer{}, []string{"localnet", "start", "--home", home, "--validators", "3", "--binary", "/bin/vexod", "--dry-run"}); err != nil {
+	if err := runCommand(&startOutput, &bytes.Buffer{}, []string{"localnet", "start", "--home", home, "--validators", "3", "--binary", "/bin/vexod", "--p2p-base-port", "27656", "--rpc-base-port", "27657", "--dry-run"}); err != nil {
 		t.Fatal(err)
 	}
 	output := startOutput.String()
-	for _, expected := range []string{"localnet start plan", "validator-1", "validator-2", "validator-3", "--rpc-address", "--p2p-listen"} {
+	for _, expected := range []string{"localnet start plan", "validator-1", "validator-2", "validator-3", "--rpc-address 127.0.0.1:27657", "--p2p-listen 127.0.0.1:27656"} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("expected dry-run output to contain %q, got:\n%s", expected, output)
 		}
@@ -127,6 +127,8 @@ func TestRunLocalnetUpDryRun(t *testing.T) {
 		"--chain-id", "vexo-test",
 		"--validators", "2",
 		"--binary", "/bin/vexod",
+		"--p2p-base-port", "28656",
+		"--rpc-base-port", "28657",
 		"--timeout", "3s",
 		"--tx", "bank:dry-run",
 		"--overwrite",
@@ -139,6 +141,8 @@ func TestRunLocalnetUpDryRun(t *testing.T) {
 		"localnet up plan",
 		"chain-id: vexo-test",
 		"validators: 2",
+		"p2p-base-port: 28656",
+		"rpc-base-port: 28657",
 		"localnet init",
 		"--overwrite",
 		"localnet start",
@@ -148,6 +152,24 @@ func TestRunLocalnetUpDryRun(t *testing.T) {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("expected localnet up dry-run output to contain %q, got:\n%s", expected, output.String())
 		}
+	}
+}
+
+func TestRunInitWritesLocalnetFilesWithCustomPorts(t *testing.T) {
+	home := t.TempDir()
+	var output bytes.Buffer
+	if err := runInit(&output, []string{"--home", home, "--chain-id", "vexo-test", "--validators", "2", "--p2p-base-port", "27656", "--rpc-base-port", "27657"}); err != nil {
+		t.Fatal(err)
+	}
+	genesis, err := loadGenesis(filepath.Join(home, "validator-2", genesisFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if genesis.Validators[0].Metadata["p2p_address"] != "127.0.0.1:27656" || genesis.Validators[1].Metadata["rpc_address"] != "127.0.0.1:27667" {
+		t.Fatalf("unexpected custom port metadata: %+v", genesis.Validators)
+	}
+	if !strings.Contains(output.String(), "p2p=127.0.0.1:27666") || !strings.Contains(output.String(), "rpc=127.0.0.1:27667") {
+		t.Fatalf("unexpected custom port output:\n%s", output.String())
 	}
 }
 
@@ -197,6 +219,23 @@ func TestLocalnetRuntimePlanAndPIDHelpers(t *testing.T) {
 	}
 	if pid != 12345 {
 		t.Fatalf("expected pid 12345, got %d", pid)
+	}
+}
+
+func TestLocalnetRuntimePlanWithCustomPorts(t *testing.T) {
+	home := t.TempDir()
+	plan, err := buildLocalnetRuntimePlanWithPorts(home, 2, "/bin/vexod", 27656, 27657)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.P2PBasePort != 27656 || plan.RPCBasePort != 27657 {
+		t.Fatalf("unexpected base ports: %+v", plan)
+	}
+	if plan.Nodes[0].P2PAddress != "127.0.0.1:27656" || plan.Nodes[1].RPCAddress != "127.0.0.1:27667" {
+		t.Fatalf("unexpected custom addresses: %+v", plan.Nodes)
+	}
+	if _, err := buildLocalnetRuntimePlanWithPorts(home, 2, "/bin/vexod", 0, 27657); err == nil {
+		t.Fatal("expected invalid custom port")
 	}
 }
 
