@@ -14,6 +14,8 @@ var ErrReactorAlreadyRunning = errors.New("consensus reactor already running")
 type TransportReactor struct {
 	transport transport.Transport
 	reactor   Reactor
+	admit     func(context.Context, p2p.PeerID) bool
+	observe   func(context.Context, p2p.PeerID, bool) bool
 
 	mu      sync.Mutex
 	cancel  context.CancelFunc
@@ -25,6 +27,13 @@ func NewTransportReactor(transport transport.Transport, reactor Reactor) *Transp
 		transport: transport,
 		reactor:   reactor,
 	}
+}
+
+func (reactor *TransportReactor) SetPeerScoring(admit func(context.Context, p2p.PeerID) bool, observe func(context.Context, p2p.PeerID, bool) bool) {
+	reactor.mu.Lock()
+	defer reactor.mu.Unlock()
+	reactor.admit = admit
+	reactor.observe = observe
 }
 
 func (reactor *TransportReactor) Start(ctx context.Context) error {
@@ -104,16 +113,55 @@ func (reactor *TransportReactor) consume(ctx context.Context, events <-chan tran
 }
 
 func (reactor *TransportReactor) handleEnvelope(ctx context.Context, envelope transport.Envelope) {
-	message, err := DecodeWireMessage(envelope.Data)
-	if err != nil {
+	if !reactor.admitPeer(ctx, envelope.From) {
 		return
 	}
+	message, err := DecodeWireMessage(envelope.Data)
+	if err != nil {
+		reactor.observePeer(ctx, envelope.From, false)
+		return
+	}
+	valid := true
 	switch message.Type {
 	case MessageProposal:
-		_ = reactor.reactor.OnProposal(ctx, *message.Proposal)
+		if err := reactor.reactor.OnProposal(ctx, *message.Proposal); err != nil {
+			valid = isMaliciousConsensusError(err) == false
+		}
 	case MessageVote:
-		_ = reactor.reactor.OnVote(ctx, *message.Vote)
+		if err := reactor.reactor.OnVote(ctx, *message.Vote); err != nil {
+			valid = isMaliciousConsensusError(err) == false
+		}
 	case MessageTimeoutVote:
-		_, _ = reactor.reactor.OnTimeoutVote(ctx, *message.TimeoutVote)
+		if _, err := reactor.reactor.OnTimeoutVote(ctx, *message.TimeoutVote); err != nil {
+			valid = isMaliciousConsensusError(err) == false
+		}
+	default:
+		valid = false
 	}
+	reactor.observePeer(ctx, envelope.From, valid)
+}
+
+func (reactor *TransportReactor) admitPeer(ctx context.Context, peer p2p.PeerID) bool {
+	reactor.mu.Lock()
+	admit := reactor.admit
+	reactor.mu.Unlock()
+	return admit == nil || admit(ctx, peer)
+}
+
+func (reactor *TransportReactor) observePeer(ctx context.Context, peer p2p.PeerID, valid bool) bool {
+	reactor.mu.Lock()
+	observe := reactor.observe
+	reactor.mu.Unlock()
+	return observe == nil || observe(ctx, peer, valid)
+}
+
+func isMaliciousConsensusError(err error) bool {
+	return errors.Is(err, ErrUnknownValidator) ||
+		errors.Is(err, ErrConflictingVote) ||
+		errors.Is(err, ErrInvalidProposal) ||
+		errors.Is(err, ErrInvalidVote) ||
+		errors.Is(err, ErrUnsafeProposal) ||
+		errors.Is(err, ErrUnsafeVote) ||
+		errors.Is(err, ErrUnknownConsensusMessage) ||
+		errors.Is(err, ErrConflictingTimeoutVote)
 }

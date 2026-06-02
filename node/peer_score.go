@@ -5,6 +5,8 @@ import (
 	"errors"
 
 	"github.com/vexo-network/vexo-consensus/p2p"
+	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
+	"github.com/vexo-network/vexo-consensus/transport"
 )
 
 func (node *Node) observePeerMessage(ctx context.Context, peer p2p.PeerID, valid bool) bool {
@@ -61,4 +63,24 @@ func (node *Node) PeerScores(ctx context.Context) ([]p2p.PeerSnapshot, error) {
 		return nil, err
 	}
 	return runtime.P2PScore.Snapshot(ctx)
+}
+
+func (node *Node) configureTransportPeerGate(runtime *vexoruntime.Runtime) {
+	if runtime == nil || runtime.P2PScore == nil || node.wire == nil {
+		return
+	}
+	gated, ok := node.wire.(transport.PeerGateTransport)
+	if !ok {
+		return
+	}
+	gated.SetPeerGate(func(ctx context.Context, peer p2p.PeerID) error {
+		banned, err := runtime.P2PScore.IsBanned(ctx, peer)
+		if err != nil {
+			return err
+		}
+		if banned {
+			return p2p.ErrPeerBanned
+		}
+		return nil
+	})
 }

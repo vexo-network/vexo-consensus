@@ -33,6 +33,8 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "addr_book.persistent: true\n")
 	fmt.Fprintf(writer, "addr_book.dial_failure_tracking: true\n")
 	fmt.Fprintf(writer, "addr_book.ban_eviction_policy: true\n")
+	fmt.Fprintf(writer, "p2p.transport_peer_gate: true\n")
+	fmt.Fprintf(writer, "p2p.consensus_gossip_scoring: true\n")
 	fmt.Fprintf(writer, "p2p.initial_score: %d\n", cfg.P2P.InitialScore)
 	fmt.Fprintf(writer, "p2p.valid_message_reward: %d\n", cfg.P2P.ValidMessageReward)
 	fmt.Fprintf(writer, "p2p.invalid_message_cost: %d\n", cfg.P2P.InvalidMessageCost)
@@ -153,17 +155,19 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			EnablePriority: cfg.Mempool.EnablePriority,
 		},
 		Features: map[string]bool{
-			"fair_ordering":       true,
-			"height_salted_order": true,
-			"data_availability":   true,
-			"deployment_audit":    true,
-			"addr_book":           true,
-			"addr_book_ban_evict": true,
-			"peer_dial_tracking":  true,
-			"leveldb_storage":     true,
-			"peer_scoring":        true,
-			"temporary_peer_bans": true,
-			"peer_score_recovery": true,
+			"fair_ordering":            true,
+			"height_salted_order":      true,
+			"data_availability":        true,
+			"deployment_audit":         true,
+			"addr_book":                true,
+			"addr_book_ban_evict":      true,
+			"peer_dial_tracking":       true,
+			"transport_peer_gate":      true,
+			"consensus_gossip_scoring": true,
+			"leveldb_storage":          true,
+			"peer_scoring":             true,
+			"temporary_peer_bans":      true,
+			"peer_score_recovery":      true,
 		},
 		Storage: storageStatus{Backend: "leveldb"},
 		P2P: p2pStatus{

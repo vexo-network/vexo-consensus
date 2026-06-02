@@ -146,6 +146,8 @@ func (node *Node) Start(ctx context.Context) error {
 			}
 		}
 		reactor = consensus.NewTransportReactor(node.wire, receiver)
+		reactor.SetPeerScoring(node.admitPeerMessage, node.observePeerMessage)
+		node.configureTransportPeerGate(runtime)
 		if voter, ok := receiver.(*autoVoteReactor); ok {
 			voter.broadcastVote = reactor.BroadcastVote
 		}

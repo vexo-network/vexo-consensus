@@ -179,6 +179,7 @@ The design is intentionally modular so individual components can be replaced wit
 - Offline doctor command for config, key, store, snapshot, and index-recovery checks
 - Localnet lifecycle commands and built-binary E2E coverage
 - Persistent peer address book with dial-failure tracking, temporary bans, and non-permanent peer eviction
+- Transport-level peer gate and consensus-gossip scoring for banned or malformed peer traffic
 
 ## Packages
 

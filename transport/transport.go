@@ -11,6 +11,7 @@ import (
 var (
 	ErrTransportClosed = errors.New("transport is closed")
 	ErrPeerIDRequired  = errors.New("peer id is required")
+	ErrPeerRejected    = errors.New("peer rejected by transport gate")
 )
 
 type Envelope struct {
@@ -27,6 +28,10 @@ type Transport interface {
 	Send(ctx context.Context, to p2p.PeerID, topic p2p.Topic, data []byte) error
 	Subscribe(ctx context.Context, topic p2p.Topic) (<-chan Envelope, error)
 	PeerID() p2p.PeerID
+}
+
+type PeerGateTransport interface {
+	SetPeerGate(func(context.Context, p2p.PeerID) error)
 }
 
 type InMemoryBus struct {

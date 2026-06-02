@@ -148,6 +148,47 @@ func TestGRPCTransportPeerDialHooks(t *testing.T) {
 	}
 }
 
+func TestGRPCTransportPeerGateRejectsOutboundSend(t *testing.T) {
+	alice := newStartedGRPCPeer(t, "alice", GRPCConfig{
+		PeerGate: func(ctx context.Context, peerID p2p.PeerID) error {
+			if peerID == "bob" {
+				return p2p.ErrPeerBanned
+			}
+			return nil
+		},
+	})
+	bob := newStartedGRPCPeer(t, "bob", GRPCConfig{})
+	defer stopGRPCPeer(t, alice)
+	defer stopGRPCPeer(t, bob)
+	alice.SetPeer("bob", bob.Address())
+
+	if err := alice.Send(context.Background(), "bob", p2p.TopicTx, []byte("blocked")); !errors.Is(err, ErrPeerRejected) {
+		t.Fatalf("expected peer rejected, got %v", err)
+	}
+	if sessions := grpcSessionCount(alice); sessions != 0 {
+		t.Fatalf("expected rejected send to avoid session creation, got %d sessions", sessions)
+	}
+}
+
+func TestGRPCTransportPeerGateRejectsInboundHandshake(t *testing.T) {
+	alice := newStartedGRPCPeer(t, "alice", GRPCConfig{})
+	bob := newStartedGRPCPeer(t, "bob", GRPCConfig{
+		PeerGate: func(ctx context.Context, peerID p2p.PeerID) error {
+			if peerID == "alice" {
+				return p2p.ErrPeerBanned
+			}
+			return nil
+		},
+	})
+	defer stopGRPCPeer(t, alice)
+	defer stopGRPCPeer(t, bob)
+	alice.SetPeer("bob", bob.Address())
+
+	if err := alice.Send(context.Background(), "bob", p2p.TopicTx, []byte("blocked")); !errors.Is(err, ErrPeerRejected) {
+		t.Fatalf("expected peer rejected, got %v", err)
+	}
+}
+
 func TestGRPCTransportSendDeliversOnlyTargetPeer(t *testing.T) {
 	alice, bob, carol := newStartedGRPCPeers(t)
 	defer stopGRPCPeer(t, alice)
