@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -43,11 +46,52 @@ func runLocalnet(writer io.Writer, args []string) error {
 		return runLocalnetStart(writer, args[1:])
 	case "status":
 		return runLocalnetStatus(context.Background(), writer, args[1:])
+	case "smoke":
+		return runLocalnetSmoke(context.Background(), writer, args[1:])
 	case "stop":
 		return runLocalnetStop(writer, args[1:])
 	default:
 		return fmt.Errorf("unknown localnet subcommand %q", args[0])
 	}
+}
+
+type localnetSmokeResult struct {
+	ValidatorID string
+	RPCAddress  string
+	Healthy     bool
+	Height      uint64
+}
+
+type localnetStatusResponse struct {
+	LatestHeight uint64 `json:"latest_height"`
+}
+
+func runLocalnetSmoke(ctx context.Context, writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("localnet smoke", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", ".vexo-localnet", "localnet home directory")
+	validators := flags.Int("validators", 4, "validator count")
+	timeout := flags.Duration("timeout", 10*time.Second, "smoke test timeout")
+	tx := flags.String("tx", "bank:smoke", "transaction payload to submit")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	plan, err := buildLocalnetRuntimePlan(*home, *validators, "")
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, *timeout)
+	defer cancel()
+	client := http.Client{Timeout: *timeout}
+	results, err := runLocalnetSmokePlan(ctx, client, plan, []byte(*tx))
+	if err != nil {
+		return err
+	}
+	for _, result := range results {
+		fmt.Fprintf(writer, "%s rpc=%s healthy=%t height=%d\n", result.ValidatorID, result.RPCAddress, result.Healthy, result.Height)
+	}
+	fmt.Fprintf(writer, "localnet smoke ok\n")
+	return nil
 }
 
 func runLocalnetInit(writer io.Writer, args []string) error {
@@ -225,6 +269,108 @@ func localnetHealthOK(ctx context.Context, client http.Client, address string) b
 	}
 	defer response.Body.Close()
 	return response.StatusCode == http.StatusOK
+}
+
+func runLocalnetSmokePlan(ctx context.Context, client http.Client, plan localnetRuntimePlan, tx []byte) ([]localnetSmokeResult, error) {
+	if len(plan.Nodes) == 0 {
+		return nil, errors.New("localnet has no nodes")
+	}
+	for _, localNode := range plan.Nodes {
+		if err := waitLocalnetHealth(ctx, client, localNode.RPCAddress); err != nil {
+			return nil, fmt.Errorf("%s health: %w", localNode.ValidatorID, err)
+		}
+	}
+	firstNode := plan.Nodes[0]
+	statusBefore, err := localnetStatus(ctx, client, firstNode.RPCAddress)
+	if err != nil {
+		return nil, err
+	}
+	if err := submitLocalnetTx(ctx, client, firstNode.RPCAddress, tx); err != nil {
+		return nil, err
+	}
+	targetHeight := statusBefore.LatestHeight + 1
+	results := make([]localnetSmokeResult, 0, len(plan.Nodes))
+	for _, localNode := range plan.Nodes {
+		status, err := waitLocalnetHeight(ctx, client, localNode.RPCAddress, targetHeight)
+		if err != nil {
+			return nil, fmt.Errorf("%s height: %w", localNode.ValidatorID, err)
+		}
+		results = append(results, localnetSmokeResult{
+			ValidatorID: localNode.ValidatorID,
+			RPCAddress:  localNode.RPCAddress,
+			Healthy:     true,
+			Height:      status.LatestHeight,
+		})
+	}
+	return results, nil
+}
+
+func waitLocalnetHealth(ctx context.Context, client http.Client, address string) error {
+	for {
+		if localnetHealthOK(ctx, client, address) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+
+func waitLocalnetHeight(ctx context.Context, client http.Client, address string, targetHeight uint64) (localnetStatusResponse, error) {
+	for {
+		status, err := localnetStatus(ctx, client, address)
+		if err == nil && status.LatestHeight >= targetHeight {
+			return status, nil
+		}
+		select {
+		case <-ctx.Done():
+			if err != nil {
+				return localnetStatusResponse{}, err
+			}
+			return localnetStatusResponse{}, ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+
+func localnetStatus(ctx context.Context, client http.Client, address string) (localnetStatusResponse, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+address+"/status", nil)
+	if err != nil {
+		return localnetStatusResponse{}, err
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return localnetStatusResponse{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return localnetStatusResponse{}, fmt.Errorf("status returned HTTP %d", response.StatusCode)
+	}
+	var status localnetStatusResponse
+	return status, json.NewDecoder(response.Body).Decode(&status)
+}
+
+func submitLocalnetTx(ctx context.Context, client http.Client, address string, tx []byte) error {
+	body, err := json.Marshal(map[string]string{"tx": base64.StdEncoding.EncodeToString(tx)})
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+address+"/tx", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusAccepted {
+		return fmt.Errorf("tx returned HTTP %d", response.StatusCode)
+	}
+	return nil
 }
 
 func readLocalnetPID(path string) (int, error) {

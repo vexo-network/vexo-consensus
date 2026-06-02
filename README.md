@@ -215,6 +215,7 @@ Manage a local multi-node network:
 ```bash
 go run ./cmd/vexod localnet init --home .vexo-localnet --validators 4
 go run ./cmd/vexod localnet start --home .vexo-localnet --validators 4
+go run ./cmd/vexod localnet smoke --home .vexo-localnet --validators 4
 go run ./cmd/vexod localnet status --home .vexo-localnet --validators 4
 go run ./cmd/vexod localnet stop --home .vexo-localnet --validators 4
 ```

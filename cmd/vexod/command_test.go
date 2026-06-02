@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -160,6 +161,54 @@ func TestLocalnetHealthOK(t *testing.T) {
 	})}
 	if localnetHealthOK(context.Background(), failingClient, "127.0.0.1:26657") {
 		t.Fatal("expected unreachable localnet health to fail")
+	}
+}
+
+func TestRunLocalnetSmokePlanSubmitsTxAndWaitsForHeight(t *testing.T) {
+	plan, err := buildLocalnetRuntimePlan(t.TempDir(), 2, "/bin/vexod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	heights := map[string]uint64{
+		plan.Nodes[0].RPCAddress: 7,
+		plan.Nodes[1].RPCAddress: 7,
+	}
+	txSubmitted := false
+	client := http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		address := request.URL.Host
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/healthz":
+			return jsonHTTPResponse(http.StatusOK, `{"ok":true}`), nil
+		case request.Method == http.MethodGet && request.URL.Path == "/status":
+			return jsonHTTPResponse(http.StatusOK, `{"chain_id":"vexo-test","running":true,"latest_height":`+strconv.FormatUint(heights[address], 10)+`}`), nil
+		case request.Method == http.MethodPost && request.URL.Path == "/tx":
+			txSubmitted = true
+			heights[plan.Nodes[0].RPCAddress] = 8
+			heights[plan.Nodes[1].RPCAddress] = 8
+			return jsonHTTPResponse(http.StatusAccepted, `{"accepted":true}`), nil
+		default:
+			return jsonHTTPResponse(http.StatusNotFound, `{}`), nil
+		}
+	})}
+	results, err := runLocalnetSmokePlan(context.Background(), client, plan, []byte("bank:smoke"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !txSubmitted || len(results) != 2 {
+		t.Fatalf("expected tx submitted and two results: submitted=%t results=%+v", txSubmitted, results)
+	}
+	for _, result := range results {
+		if !result.Healthy || result.Height != 8 {
+			t.Fatalf("unexpected smoke result: %+v", result)
+		}
+	}
+}
+
+func jsonHTTPResponse(statusCode int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: statusCode,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     make(http.Header),
 	}
 }
 
