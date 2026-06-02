@@ -161,7 +161,7 @@ The design is intentionally modular so individual components can be replaced wit
 | `runtime` | Module wiring, block execution, proof building, recovery, replay |
 | `slashing` | Evidence validation and penalty keeper |
 | `store` | LevelDB-backed block, state, state-root, and KV storage |
-| `transport` | In-memory message transport and pub/sub interfaces |
+| `transport` | In-memory and TCP message transport with pub/sub interfaces |
 | `types` | Shared primitive types |
 | `validator` | Validator registry and admission policy |
 
