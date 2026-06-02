@@ -16,27 +16,33 @@ import (
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/committee"
+	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/p2p"
+	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
 
 type fakeStatusProvider struct {
-	status       node.Status
-	submitErr    error
-	submitted    []types.Tx
-	blocks       map[types.Height]store.BlockRecord
-	latest       types.Height
-	blockErr     error
-	index        store.BlockIndex
-	state        store.StateRecord
-	roots        map[string]store.StateRootRecord
-	stateErr     error
-	validators   validator.Set
-	committee    committee.Committee
-	validatorErr error
+	status            node.Status
+	submitErr         error
+	submitted         []types.Tx
+	blocks            map[types.Height]store.BlockRecord
+	latest            types.Height
+	blockErr          error
+	index             store.BlockIndex
+	state             store.StateRecord
+	roots             map[string]store.StateRootRecord
+	stateErr          error
+	validators        validator.Set
+	committee         committee.Committee
+	validatorErr      error
+	evidenceResult    consensus.SlashResult
+	evidenceApplied   bool
+	evidenceErr       error
+	evidenceSubmitted []slashing.Evidence
 }
 
 func (provider fakeStatusProvider) Status(ctx context.Context) node.Status {
@@ -121,6 +127,14 @@ func (provider fakeStatusProvider) Committee(ctx context.Context, height types.H
 		return committee.Committee{}, errors.New("committee failed")
 	}
 	return provider.committee, nil
+}
+
+func (provider *fakeStatusProvider) SubmitEvidence(ctx context.Context, evidence slashing.Evidence) (consensus.SlashResult, bool, error) {
+	if provider.evidenceErr != nil {
+		return consensus.SlashResult{}, false, provider.evidenceErr
+	}
+	provider.evidenceSubmitted = append(provider.evidenceSubmitted, evidence)
+	return provider.evidenceResult, provider.evidenceApplied, nil
 }
 
 func TestHandlerReportsHealthStatusAndPeers(t *testing.T) {
@@ -273,6 +287,99 @@ func TestHandlerReportsSubmitTxError(t *testing.T) {
 
 func TestHandlerRejectsNonPOSTTx(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/tx", nil)
+	response := httptest.NewRecorder()
+
+	NewHandler(&fakeStatusProvider{}).ServeHTTP(response, request)
+
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", response.Code)
+	}
+	if allow := response.Header().Get("Allow"); allow != http.MethodPost {
+		t.Fatalf("expected allow POST, got %q", allow)
+	}
+}
+
+func TestHandlerAcceptsEvidenceSubmission(t *testing.T) {
+	provider := &fakeStatusProvider{
+		evidenceApplied: true,
+		evidenceResult: consensus.SlashResult{
+			Receipt: slashing.PenaltyReceipt{
+				Penalty: slashing.Penalty{SlashFraction: "0.05", JailDuration: 120},
+			},
+			PreviousPower:  100,
+			RemainingPower: 95,
+		},
+	}
+	handler := NewHandler(provider)
+
+	var response SubmitEvidenceResponse
+	postJSON(t, handler, "/evidence", `{"type":"invalid_proposal","validator":"alice","height":7,"round":2,"proof":"cHJvb2Y="}`, http.StatusAccepted, &response)
+
+	if !response.Accepted || !response.Applied || response.Type != "invalid_proposal" || response.Validator != "alice" || response.Height != 7 || response.Round != 2 {
+		t.Fatalf("unexpected evidence response: %+v", response)
+	}
+	if response.PreviousPower != 100 || response.RemainingPower != 95 || response.Penalty.SlashFraction != "0.05" || response.Penalty.JailDuration != 120 {
+		t.Fatalf("unexpected slashing result: %+v", response)
+	}
+	if len(provider.evidenceSubmitted) != 1 || string(provider.evidenceSubmitted[0].Proof) != "proof" {
+		t.Fatalf("unexpected submitted evidence: %+v", provider.evidenceSubmitted)
+	}
+}
+
+func TestHandlerAcceptsDuplicateEvidenceAsNotApplied(t *testing.T) {
+	provider := &fakeStatusProvider{evidenceApplied: false}
+	handler := NewHandler(provider)
+
+	var response SubmitEvidenceResponse
+	postJSON(t, handler, "/evidence", `{"type":"double_sign","validator":"alice","height":7,"proof":"plain-proof","encoding":"plain"}`, http.StatusAccepted, &response)
+
+	if !response.Accepted || response.Applied || response.PreviousPower != 0 || response.Penalty.SlashFraction != "" {
+		t.Fatalf("unexpected duplicate evidence response: %+v", response)
+	}
+	if len(provider.evidenceSubmitted) != 1 || string(provider.evidenceSubmitted[0].Proof) != "plain-proof" {
+		t.Fatalf("unexpected submitted duplicate evidence: %+v", provider.evidenceSubmitted)
+	}
+}
+
+func TestHandlerRejectsUnavailableEvidenceSubmitter(t *testing.T) {
+	var response map[string]string
+	postJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/evidence", `{"type":"double_sign","validator":"alice","height":1,"proof":"cHJvb2Y="}`, http.StatusNotImplemented, &response)
+	if response["error"] == "" {
+		t.Fatalf("expected unavailable evidence error, got %+v", response)
+	}
+}
+
+func TestHandlerRejectsInvalidEvidenceRequests(t *testing.T) {
+	handler := NewHandler(&fakeStatusProvider{})
+	cases := []string{
+		`{}`,
+		`{"type":"double_sign","validator":"alice","height":1,"proof":"bad-base64"}`,
+		`{"type":"double_sign","validator":"alice","height":1,"proof":"cHJvb2Y=","encoding":"unknown"}`,
+		`{"type":"double_sign","validator":"","height":1,"proof":"cHJvb2Y="}`,
+		`{"type":"double_sign","validator":"alice","height":0,"proof":"cHJvb2Y="}`,
+		`{"type":"double_sign","validator":"alice","height":1,"proof":"cHJvb2Y=","extra":true}`,
+	}
+	for _, body := range cases {
+		var response map[string]string
+		postJSON(t, handler, "/evidence", body, http.StatusBadRequest, &response)
+		if response["error"] == "" {
+			t.Fatalf("expected evidence error for %s, got %+v", body, response)
+		}
+	}
+}
+
+func TestHandlerReportsSubmitEvidenceError(t *testing.T) {
+	handler := NewHandler(&fakeStatusProvider{evidenceErr: errors.New("invalid evidence")})
+
+	var response map[string]string
+	postJSON(t, handler, "/evidence", `{"type":"double_sign","validator":"alice","height":1,"proof":"cHJvb2Y="}`, http.StatusBadRequest, &response)
+	if response["error"] != "invalid evidence" {
+		t.Fatalf("unexpected evidence error: %+v", response)
+	}
+}
+
+func TestHandlerRejectsNonPOSTEvidence(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/evidence", nil)
 	response := httptest.NewRecorder()
 
 	NewHandler(&fakeStatusProvider{}).ServeHTTP(response, request)

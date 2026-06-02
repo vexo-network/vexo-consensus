@@ -14,9 +14,11 @@ import (
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/committee"
+	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/p2p"
+	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
@@ -31,6 +33,10 @@ type StatusProvider interface {
 
 type TxSubmitter interface {
 	SubmitTx(ctx context.Context, tx types.Tx) error
+}
+
+type EvidenceSubmitter interface {
+	SubmitEvidence(ctx context.Context, evidence slashing.Evidence) (consensus.SlashResult, bool, error)
 }
 
 type BlockProvider interface {
@@ -95,6 +101,32 @@ type SubmitTxRequest struct {
 type SubmitTxResponse struct {
 	Accepted bool   `json:"accepted"`
 	TxHash   string `json:"tx_hash"`
+}
+
+type SubmitEvidenceRequest struct {
+	Type      string `json:"type"`
+	Validator string `json:"validator"`
+	Height    uint64 `json:"height"`
+	Round     uint64 `json:"round,omitempty"`
+	Proof     string `json:"proof"`
+	Encoding  string `json:"encoding,omitempty"`
+}
+
+type SubmitEvidenceResponse struct {
+	Accepted       bool            `json:"accepted"`
+	Applied        bool            `json:"applied"`
+	Type           string          `json:"type"`
+	Validator      string          `json:"validator"`
+	Height         uint64          `json:"height"`
+	Round          uint64          `json:"round"`
+	PreviousPower  uint64          `json:"previous_power,omitempty"`
+	RemainingPower uint64          `json:"remaining_power,omitempty"`
+	Penalty        PenaltyResponse `json:"penalty,omitempty"`
+}
+
+type PenaltyResponse struct {
+	SlashFraction string `json:"slash_fraction,omitempty"`
+	JailDuration  uint64 `json:"jail_duration,omitempty"`
 }
 
 type BlockResponse struct {
@@ -249,6 +281,27 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 			Accepted: true,
 			TxHash:   hex.EncodeToString(hash[:]),
 		})
+	})
+	mux.HandleFunc("/evidence", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowPost(writer, request) {
+			return
+		}
+		submitter, ok := provider.(EvidenceSubmitter)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "evidence submission is unavailable")
+			return
+		}
+		evidence, err := decodeSubmitEvidenceRequest(writer, request, cfg.MaxRequestBytes)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, err.Error())
+			return
+		}
+		result, applied, err := submitter.SubmitEvidence(request.Context(), evidence)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(writer, http.StatusAccepted, evidenceResponse(evidence, result, applied))
 	})
 	mux.HandleFunc("/blocks", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
@@ -490,6 +543,57 @@ func decodeSubmitTxRequest(writer http.ResponseWriter, request *http.Request, ma
 	return types.Tx(tx), nil
 }
 
+func decodeSubmitEvidenceRequest(writer http.ResponseWriter, request *http.Request, maxRequestBytes int64) (slashing.Evidence, error) {
+	request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBytes)
+	defer request.Body.Close()
+
+	decoder := json.NewDecoder(request.Body)
+	decoder.DisallowUnknownFields()
+	var payload SubmitEvidenceRequest
+	if err := decoder.Decode(&payload); err != nil {
+		return slashing.Evidence{}, fmt.Errorf("invalid evidence request: %w", err)
+	}
+	if payload.Type == "" {
+		return slashing.Evidence{}, errors.New("evidence type is required")
+	}
+	if payload.Validator == "" {
+		return slashing.Evidence{}, errors.New("evidence validator is required")
+	}
+	if payload.Height == 0 {
+		return slashing.Evidence{}, errors.New("evidence height is required")
+	}
+	if payload.Proof == "" {
+		return slashing.Evidence{}, errors.New("evidence proof is required")
+	}
+	encoding := payload.Encoding
+	if encoding == "" {
+		encoding = "base64"
+	}
+	var proof []byte
+	switch encoding {
+	case "base64":
+		decoded, err := base64.StdEncoding.DecodeString(payload.Proof)
+		if err != nil {
+			return slashing.Evidence{}, fmt.Errorf("invalid base64 evidence proof: %w", err)
+		}
+		proof = decoded
+	case "plain":
+		proof = []byte(payload.Proof)
+	default:
+		return slashing.Evidence{}, fmt.Errorf("unsupported evidence proof encoding %q", payload.Encoding)
+	}
+	if len(proof) == 0 {
+		return slashing.Evidence{}, errors.New("evidence proof is empty")
+	}
+	return slashing.Evidence{
+		Type:      slashing.EvidenceType(payload.Type),
+		Validator: types.ValidatorID(payload.Validator),
+		Height:    types.Height(payload.Height),
+		Round:     types.Round(payload.Round),
+		Proof:     proof,
+	}, nil
+}
+
 func blockResponse(record store.BlockRecord) BlockResponse {
 	txs := make([]string, 0, len(record.Block.Txs))
 	for _, tx := range record.Block.Txs {
@@ -538,6 +642,26 @@ func stateRootResponse(root store.StateRootRecord) StateRootResponse {
 		Namespace: root.Namespace,
 		Root:      hex.EncodeToString(root.Root[:]),
 	}
+}
+
+func evidenceResponse(evidence slashing.Evidence, result consensus.SlashResult, applied bool) SubmitEvidenceResponse {
+	response := SubmitEvidenceResponse{
+		Accepted:  true,
+		Applied:   applied,
+		Type:      string(evidence.Type),
+		Validator: string(evidence.Validator),
+		Height:    uint64(evidence.Height),
+		Round:     uint64(evidence.Round),
+	}
+	if applied {
+		response.PreviousPower = uint64(result.PreviousPower)
+		response.RemainingPower = uint64(result.RemainingPower)
+		response.Penalty = PenaltyResponse{
+			SlashFraction: result.Receipt.Penalty.SlashFraction,
+			JailDuration:  result.Receipt.Penalty.JailDuration,
+		}
+	}
+	return response
 }
 
 func parseStateRootPath(path string) (types.Height, string, bool) {
