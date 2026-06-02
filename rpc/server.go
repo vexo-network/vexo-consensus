@@ -337,6 +337,22 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 		}
 		writeJSON(writer, http.StatusOK, statusResponse(provider.Status(request.Context())))
 	})
+	mux.HandleFunc("/metrics/text", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowGet(writer, request) {
+			return
+		}
+		metricsProvider, ok := provider.(MetricsProvider)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "metrics query is unavailable")
+			return
+		}
+		metrics, err := metricsProvider.Metrics(request.Context())
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeText(writer, http.StatusOK, metricsText(metrics))
+	})
 	mux.HandleFunc("/metrics", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
 			return
@@ -802,6 +818,34 @@ func metricsResponse(metrics node.Metrics) MetricsResponse {
 	}
 }
 
+func metricsText(metrics node.Metrics) string {
+	var builder strings.Builder
+	writeGauge := func(name string, help string, value uint64) {
+		fmt.Fprintf(&builder, "# HELP %s %s\n", name, help)
+		fmt.Fprintf(&builder, "# TYPE %s gauge\n", name)
+		fmt.Fprintf(&builder, "%s %d\n", name, value)
+	}
+	writeGauge("vexo_node_running", "Whether the node is running.", boolGauge(metrics.Running))
+	writeGauge("vexo_latest_height", "Latest committed application height.", uint64(metrics.LatestHeight))
+	writeGauge("vexo_earliest_block_height", "Earliest locally stored block height.", uint64(metrics.EarliestBlockHeight))
+	writeGauge("vexo_latest_block_height", "Latest locally stored block height.", uint64(metrics.LatestBlockHeight))
+	writeGauge("vexo_total_blocks", "Total locally stored blocks.", metrics.TotalBlocks)
+	writeGauge("vexo_validator_count", "Current validator count.", uint64(metrics.ValidatorCount))
+	writeGauge("vexo_total_voting_power", "Current total validator voting power.", metrics.TotalVotingPower)
+	writeGauge("vexo_peer_count", "Known peer count.", uint64(metrics.PeerCount))
+	writeGauge("vexo_banned_peers", "Banned peer count.", uint64(metrics.BannedPeers))
+	writeGauge("vexo_peer_window_messages", "Peer messages observed in the current score window.", metrics.PeerWindowMessages)
+	writeGauge("vexo_consensus_loop_running", "Whether the local consensus loop is running.", boolGauge(metrics.ConsensusLoopRunning))
+	return builder.String()
+}
+
+func boolGauge(value bool) uint64 {
+	if value {
+		return 1
+	}
+	return 0
+}
+
 func peerResponses(peers []p2p.PeerSnapshot) []PeerResponse {
 	responses := make([]PeerResponse, 0, len(peers))
 	for _, peer := range peers {
@@ -1145,4 +1189,10 @@ func writeJSON(writer http.ResponseWriter, statusCode int, value any) {
 	writer.Header().Set("Content-Type", "application/json")
 	writer.WriteHeader(statusCode)
 	_ = json.NewEncoder(writer).Encode(value)
+}
+
+func writeText(writer http.ResponseWriter, statusCode int, value string) {
+	writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	writer.WriteHeader(statusCode)
+	_, _ = writer.Write([]byte(value))
 }

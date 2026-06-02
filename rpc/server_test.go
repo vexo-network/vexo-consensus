@@ -290,6 +290,40 @@ func TestHandlerReportsMetrics(t *testing.T) {
 	}
 }
 
+func TestHandlerReportsMetricsText(t *testing.T) {
+	handler := NewHandler(fakeStatusProvider{metrics: node.Metrics{
+		Running:              true,
+		LatestHeight:         9,
+		EarliestBlockHeight:  1,
+		LatestBlockHeight:    9,
+		TotalBlocks:          9,
+		ValidatorCount:       4,
+		TotalVotingPower:     100,
+		PeerCount:            3,
+		BannedPeers:          1,
+		PeerWindowMessages:   12,
+		ConsensusLoopRunning: true,
+	}})
+
+	body := getText(t, handler, "/metrics/text", http.StatusOK)
+	for _, expected := range []string{
+		"# TYPE vexo_node_running gauge",
+		"vexo_node_running 1",
+		"vexo_latest_height 9",
+		"vexo_total_blocks 9",
+		"vexo_validator_count 4",
+		"vexo_total_voting_power 100",
+		"vexo_peer_count 3",
+		"vexo_banned_peers 1",
+		"vexo_peer_window_messages 12",
+		"vexo_consensus_loop_running 1",
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("expected metrics text to contain %q, got:\n%s", expected, body)
+		}
+	}
+}
+
 func TestHandlerRejectsUnavailableMetricsProvider(t *testing.T) {
 	var response map[string]string
 	getJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/metrics", http.StatusNotImplemented, &response)
@@ -305,6 +339,11 @@ func TestHandlerReportsMetricsProviderErrors(t *testing.T) {
 	getJSON(t, handler, "/metrics", http.StatusInternalServerError, &response)
 	if response["error"] != "metrics failed" {
 		t.Fatalf("unexpected metrics error: %+v", response)
+	}
+
+	getJSON(t, handler, "/metrics/text", http.StatusInternalServerError, &response)
+	if response["error"] != "metrics failed" {
+		t.Fatalf("unexpected metrics text error: %+v", response)
 	}
 }
 
@@ -1154,6 +1193,23 @@ func (addr staticAddr) String() string {
 func getJSON(t *testing.T, handler http.Handler, path string, expectedStatus int, value any) {
 	t.Helper()
 	requestJSON(t, handler, http.MethodGet, path, "", "192.0.2.1:1234", expectedStatus, value)
+}
+
+func getText(t *testing.T, handler http.Handler, path string, expectedStatus int) string {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodGet, path, nil)
+	request.RemoteAddr = "192.0.2.1:1234"
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != expectedStatus {
+		t.Fatalf("expected status %d, got %d body=%s", expectedStatus, response.Code, response.Body.String())
+	}
+	if contentType := response.Header().Get("Content-Type"); contentType != "text/plain; charset=utf-8" {
+		t.Fatalf("expected text/plain, got %q", contentType)
+	}
+	return response.Body.String()
 }
 
 func postJSON(t *testing.T, handler http.Handler, path string, body string, expectedStatus int, value any) {
