@@ -76,6 +76,13 @@ Module data is stored by namespace and key.
 - State without block metadata is reported as inconsistent and recovery uses the lower safe height.
 - Indexes can be rebuilt from canonical records.
 
+## Snapshot Validation
+
+- Snapshot documents include only active namespaces that have state roots or exported KV.
+- Every declared namespace must have exactly one state root at the snapshot height.
+- KV entries must belong to declared namespaces and must have non-empty keys.
+- Snapshot checksum covers chain ID, state metadata, state roots, and sorted KV pairs.
+
 ## Schema Migration
 
 Store migrations must be height-gated through an upgrade plan and support rollback on failure.

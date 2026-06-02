@@ -56,6 +56,56 @@ func TestVerifierRejectsHeightMismatch(t *testing.T) {
 	}
 }
 
+func TestVerifierRejectsMissingValidatorSetHeight(t *testing.T) {
+	set := testValidatorSet(t, []validator.Validator{{ID: "a", VotingPower: 1}})
+	proof := validProof(set, []types.ValidatorID{"a"})
+	proof.ValidatorSetHeight = 0
+
+	err := NewVerifier(set, nil).VerifyFinalityProof(proof)
+	if !errors.Is(err, ErrHeightMismatch) {
+		t.Fatalf("expected height mismatch, got %v", err)
+	}
+}
+
+func TestRegistryVerifierLoadsValidatorSetAtProofHeight(t *testing.T) {
+	registry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{
+		{ID: "a", VotingPower: 1, PublicKey: []byte("a-pub")},
+		{ID: "b", VotingPower: 1, PublicKey: []byte("b-pub")},
+		{ID: "c", VotingPower: 1, PublicKey: []byte("c-pub")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := registry.ValidatorSet(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof := validProof(set, []types.ValidatorID{"a", "b"})
+
+	if err := NewRegistryVerifier(registry, acceptSignatureVerifier{}).VerifyFinalityProof(proof); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRegistryVerifierRejectsWrongHeightValidatorSet(t *testing.T) {
+	correctSet := testValidatorSet(t, []validator.Validator{
+		{ID: "a", VotingPower: 1, PublicKey: []byte("a-pub")},
+		{ID: "b", VotingPower: 1, PublicKey: []byte("b-pub")},
+		{ID: "c", VotingPower: 1, PublicKey: []byte("c-pub")},
+	})
+	wrongSet := testValidatorSet(t, []validator.Validator{
+		{ID: "a", VotingPower: 10, PublicKey: []byte("a-pub")},
+		{ID: "b", VotingPower: 1, PublicKey: []byte("b-pub")},
+		{ID: "c", VotingPower: 1, PublicKey: []byte("c-pub")},
+	})
+	proof := validProof(correctSet, []types.ValidatorID{"a", "b"})
+
+	err := NewRegistryVerifier(staticRegistry{set: wrongSet}, acceptSignatureVerifier{}).VerifyFinalityProof(proof)
+	if !errors.Is(err, ErrValidatorSetMismatch) {
+		t.Fatalf("expected validator set mismatch, got %v", err)
+	}
+}
+
 func TestVerifierRejectsMissingSignature(t *testing.T) {
 	set := testValidatorSet(t, []validator.Validator{{ID: "a", VotingPower: 1}})
 	proof := validProof(set, []types.ValidatorID{"a"})
@@ -213,4 +263,24 @@ type rejectSignatureVerifier struct{}
 
 func (rejectSignatureVerifier) VerifyAggregate(publicKeys []types.PublicKey, message []byte, signature types.AggregateSignature) bool {
 	return false
+}
+
+type staticRegistry struct {
+	set validator.Set
+}
+
+func (registry staticRegistry) ValidatorSet(ctx context.Context, height types.Height) (validator.Set, error) {
+	return registry.set, nil
+}
+
+func (registry staticRegistry) ApplyJoin(ctx context.Context, candidate validator.Candidate) (validator.Validator, error) {
+	return validator.Validator{}, nil
+}
+
+func (registry staticRegistry) ApplyLeave(ctx context.Context, id types.ValidatorID) error {
+	return nil
+}
+
+func (registry staticRegistry) UpdateVotingPower(ctx context.Context, id types.ValidatorID, power types.VotingPower) error {
+	return nil
 }

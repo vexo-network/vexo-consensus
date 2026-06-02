@@ -570,7 +570,7 @@ func TestRunSnapshotVerifyRejectsChecksumMismatch(t *testing.T) {
 		AppHash:          types.Hash{1},
 		LastBlockHash:    types.Hash{2},
 		ValidatorSetHash: types.Hash{3},
-	}, nil, []store.KVPair{{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")}})
+	}, []store.StateRootRecord{{Height: 3, Namespace: "bank", Root: types.Hash{4}}}, []store.KVPair{{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")}})
 	document.KV[0].Value = []byte("999")
 	path := filepath.Join(t.TempDir(), "corrupt-snapshot.json")
 	file, err := os.Create(path)
@@ -585,6 +585,34 @@ func TestRunSnapshotVerifyRejectsChecksumMismatch(t *testing.T) {
 	}
 	if err := runSnapshot(&bytes.Buffer{}, []string{"verify", "--home", home, "--input", path}); err == nil {
 		t.Fatal("expected checksum mismatch")
+	}
+}
+
+func TestValidateSnapshotRejectsMissingRootAndUnknownKVNamespace(t *testing.T) {
+	document := snapshotDocument{
+		SchemaVersion: "v1",
+		ChainID:       "vexo-test",
+		Modules:       []string{"bank"},
+		State: store.StateRecord{
+			Height:           3,
+			AppHash:          types.Hash{1},
+			LastBlockHash:    types.Hash{2},
+			ValidatorSetHash: types.Hash{3},
+		},
+	}
+	document.Checksum = snapshotChecksum(document)
+	if err := validateSnapshotDocument(document, "vexo-test"); err == nil {
+		t.Fatal("expected missing root rejection")
+	}
+
+	document = snapshotDocumentFromState("vexo-test", []string{"bank"}, store.StateRecord{
+		Height:           3,
+		AppHash:          types.Hash{1},
+		LastBlockHash:    types.Hash{2},
+		ValidatorSetHash: types.Hash{3},
+	}, []store.StateRootRecord{{Height: 3, Namespace: "bank", Root: types.Hash{4}}}, []store.KVPair{{Namespace: "evil", Key: []byte("alice"), Value: []byte("100")}})
+	if err := validateSnapshotDocument(document, "vexo-test"); err == nil {
+		t.Fatal("expected unknown KV namespace rejection")
 	}
 }
 

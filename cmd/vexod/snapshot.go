@@ -264,7 +264,7 @@ func snapshotDocumentFromState(chainID string, modules []string, state store.Sta
 	document := snapshotDocument{
 		SchemaVersion: "v1",
 		ChainID:       chainID,
-		Modules:       sortedStrings(modules),
+		Modules:       activeSnapshotNamespaces(modules, roots, kv),
 		State:         state,
 		StateRoots:    sortedStateRoots(roots),
 		KV:            sortedKVPairs(kv),
@@ -370,9 +370,38 @@ func validateSnapshotDocument(document snapshotDocument, expectedChainID string)
 	if document.State.Height == 0 {
 		return store.ErrInvalidStateRecord
 	}
+	modules := sortedStrings(document.Modules)
+	rootNamespaces := make(map[string]struct{}, len(document.StateRoots))
 	for _, root := range document.StateRoots {
 		if root.Height != document.State.Height {
 			return fmt.Errorf("snapshot root height mismatch: state=%d root=%d namespace=%s", document.State.Height, root.Height, root.Namespace)
+		}
+		if root.Namespace == "" {
+			return store.ErrInvalidNamespace
+		}
+		if _, found := rootNamespaces[root.Namespace]; found {
+			return fmt.Errorf("snapshot duplicate state root namespace %q", root.Namespace)
+		}
+		rootNamespaces[root.Namespace] = struct{}{}
+	}
+	for _, namespace := range modules {
+		if _, found := rootNamespaces[namespace]; !found {
+			return fmt.Errorf("snapshot missing state root for namespace %q", namespace)
+		}
+	}
+	moduleSet := make(map[string]struct{}, len(modules))
+	for _, namespace := range modules {
+		moduleSet[namespace] = struct{}{}
+	}
+	for _, pair := range document.KV {
+		if pair.Namespace == "" {
+			return store.ErrInvalidNamespace
+		}
+		if len(pair.Key) == 0 {
+			return store.ErrInvalidKey
+		}
+		if _, found := moduleSet[pair.Namespace]; !found {
+			return fmt.Errorf("snapshot KV namespace %q is not declared", pair.Namespace)
 		}
 	}
 	if document.Checksum != "" && document.Checksum != snapshotChecksum(document) {
@@ -395,6 +424,31 @@ func snapshotNamespaces(modules []string) []string {
 	namespaces := append([]string(nil), modules...)
 	namespaces = append(namespaces, "auth")
 	return sortedStrings(namespaces)
+}
+
+func activeSnapshotNamespaces(namespaces []string, roots []store.StateRootRecord, kv []store.KVPair) []string {
+	allowed := make(map[string]struct{}, len(namespaces))
+	for _, namespace := range namespaces {
+		if namespace != "" {
+			allowed[namespace] = struct{}{}
+		}
+	}
+	active := make(map[string]struct{}, len(roots)+len(kv))
+	for _, root := range roots {
+		if _, found := allowed[root.Namespace]; found {
+			active[root.Namespace] = struct{}{}
+		}
+	}
+	for _, pair := range kv {
+		if _, found := allowed[pair.Namespace]; found {
+			active[pair.Namespace] = struct{}{}
+		}
+	}
+	values := make([]string, 0, len(active))
+	for namespace := range active {
+		values = append(values, namespace)
+	}
+	return sortedStrings(values)
 }
 
 func sortedStrings(values []string) []string {

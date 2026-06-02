@@ -36,15 +36,17 @@ The header hash covers:
 
 ## Verification Algorithm
 
-1. Load validator set for `ValidatorSetHeight`.
-2. Verify `Proof.ValidatorSetHash == loaded_set.Hash()`.
-3. Verify `Header.ValidatorSetHash == loaded_set.Hash()`.
-4. Verify `QuorumCert.Height == Header.Height`.
-5. Verify `QuorumCert.BlockHash == HeaderHash(Header)`.
-6. Parse signer bitmap and reject unknown or duplicate signers.
-7. Recompute signer voting power and require quorum.
-8. If QC voting power is present, require it to match recomputed voting power.
-9. Verify aggregate/multisignature over finality sign bytes.
+1. Reject proofs without an explicit `ValidatorSetHeight`.
+2. Load validator set for `ValidatorSetHeight`.
+3. Verify `Proof.ValidatorSetHeight == Header.Height`.
+4. Verify `Proof.ValidatorSetHash == loaded_set.Hash()`.
+5. Verify `Header.ValidatorSetHash == loaded_set.Hash()`.
+6. Verify `QuorumCert.Height == Header.Height`.
+7. Verify `QuorumCert.BlockHash == HeaderHash(Header)`.
+8. Parse signer bitmap and reject unknown or duplicate signers.
+9. Recompute signer voting power and require quorum.
+10. If QC voting power is present, require it to match recomputed voting power.
+11. Verify aggregate/multisignature over finality sign bytes.
 
 ## Ed25519 Model
 

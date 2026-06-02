@@ -28,6 +28,11 @@ type Verifier struct {
 	signatures   SignatureVerifier
 }
 
+type RegistryVerifier struct {
+	registry   validator.Registry
+	signatures SignatureVerifier
+}
+
 func NewVerifier(validatorSet validator.Set, signatures SignatureVerifier) Verifier {
 	return Verifier{
 		validatorSet: validatorSet,
@@ -35,8 +40,36 @@ func NewVerifier(validatorSet validator.Set, signatures SignatureVerifier) Verif
 	}
 }
 
+func NewRegistryVerifier(registry validator.Registry, signatures SignatureVerifier) RegistryVerifier {
+	return RegistryVerifier{registry: registry, signatures: signatures}
+}
+
 func (verifier Verifier) VerifyFinalityProof(proof Proof) error {
 	return verifier.VerifyFinalityProofWithContext(context.Background(), proof)
+}
+
+func (verifier RegistryVerifier) VerifyFinalityProof(proof Proof) error {
+	return verifier.VerifyFinalityProofWithContext(context.Background(), proof)
+}
+
+func (verifier RegistryVerifier) VerifyFinalityProofWithContext(ctx context.Context, proof Proof) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	if verifier.registry == nil {
+		return ErrValidatorSetMismatch
+	}
+	validatorSetHeight := proof.ValidatorSetHeight
+	if validatorSetHeight == 0 {
+		validatorSetHeight = proof.Header.Height
+	}
+	validatorSet, err := verifier.registry.ValidatorSet(ctx, validatorSetHeight)
+	if err != nil {
+		return err
+	}
+	return NewVerifier(validatorSet, verifier.signatures).VerifyFinalityProofWithContext(ctx, proof)
 }
 
 func (verifier Verifier) VerifyFinalityProofWithContext(ctx context.Context, proof Proof) error {
@@ -49,7 +82,7 @@ func (verifier Verifier) VerifyFinalityProofWithContext(ctx context.Context, pro
 	if proof.ValidatorSetHash != verifier.validatorSet.Hash() || proof.Header.ValidatorSetHash != verifier.validatorSet.Hash() {
 		return ErrValidatorSetMismatch
 	}
-	if proof.ValidatorSetHeight != 0 && proof.ValidatorSetHeight != proof.Header.Height {
+	if proof.ValidatorSetHeight == 0 || proof.ValidatorSetHeight != proof.Header.Height {
 		return ErrHeightMismatch
 	}
 	if proof.QuorumCert.Height != proof.Header.Height {
