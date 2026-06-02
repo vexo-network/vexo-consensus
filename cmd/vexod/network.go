@@ -942,7 +942,7 @@ func waitNetworkHeight(ctx context.Context, client http.Client, address string, 
 }
 
 func networkStatus(ctx context.Context, client http.Client, address string) (networkStatusResponse, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+address+"/status", nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+address+"/v1/status", nil)
 	if err != nil {
 		return networkStatusResponse{}, err
 	}
@@ -959,7 +959,7 @@ func networkStatus(ctx context.Context, client http.Client, address string) (net
 }
 
 func networkMetrics(ctx context.Context, client http.Client, address string) (ops.MetricsSnapshot, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+address+"/metrics", nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+address+"/v1/metrics", nil)
 	if err != nil {
 		return ops.MetricsSnapshot{}, err
 	}
@@ -980,7 +980,7 @@ func submitNetworkTx(ctx context.Context, client http.Client, address string, tx
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+address+"/tx", bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+address+"/v1/tx", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

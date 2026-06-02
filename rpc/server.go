@@ -31,6 +31,7 @@ import (
 
 const defaultReadHeaderTimeout = 5 * time.Second
 const defaultMaxRequestBytes = 1024 * 1024
+const stableAPIPrefix = "/v1"
 
 type StatusProvider interface {
 	Status(ctx context.Context) node.Status
@@ -862,7 +863,25 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 		}
 		writeJSON(writer, http.StatusOK, committeeResponse(height, seed, committeeResult))
 	})
-	return applyMiddleware(mux, cfg)
+	return applyMiddleware(versionedHandler(mux), cfg)
+}
+
+func versionedHandler(handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == stableAPIPrefix {
+			writeError(writer, http.StatusNotFound, "endpoint not found")
+			return
+		}
+		if strings.HasPrefix(request.URL.Path, stableAPIPrefix+"/") {
+			versionedRequest := request.Clone(request.Context())
+			versionedRequest.URL.Path = strings.TrimPrefix(request.URL.Path, stableAPIPrefix)
+			versionedRequest.URL.RawPath = ""
+			writer.Header().Set("X-Vexo-RPC-Version", "v1")
+			handler.ServeHTTP(writer, versionedRequest)
+			return
+		}
+		handler.ServeHTTP(writer, request)
+	})
 }
 
 func registerPprofHandlers(mux *http.ServeMux) {

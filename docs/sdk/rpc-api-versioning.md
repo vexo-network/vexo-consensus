@@ -4,36 +4,36 @@
 
 Vexo RPC should be stable enough for operators, wallets, dashboards, and automation harnesses.
 
-## Current Base API
+## Current Stable API
 
-Current endpoints are unversioned but should be treated as `v1` semantics:
+Stable endpoints are exposed under `/v1`. The unversioned paths remain compatibility aliases.
 
-- `/healthz`
-- `/readyz`
-- `/status`
-- `/diagnostics`
-- `/metrics`
-- `/metrics/text`
-- `/peers`
-- `/tx`
-- `/evidence`
-- `/recovery`
-- `/snapshot/latest`
-- `/snapshot/export`
-- `/blocks`
-- `/blocks/latest`
-- `/blocks/{height}`
-- `/state/latest`
-- `/state/{height}/{namespace}`
-- `/validators/{height}`
-- `/committee/{height}/{round}`
+- `/v1/healthz`
+- `/v1/readyz`
+- `/v1/status`
+- `/v1/diagnostics`
+- `/v1/metrics`
+- `/v1/metrics/text`
+- `/v1/peers`
+- `/v1/tx`
+- `/v1/evidence`
+- `/v1/recovery`
+- `/v1/snapshot/latest`
+- `/v1/snapshot/export`
+- `/v1/blocks`
+- `/v1/blocks/latest`
+- `/v1/blocks/{height}`
+- `/v1/state/latest`
+- `/v1/state/{height}/{namespace}`
+- `/v1/validators/{height}`
+- `/v1/committee/{height}/{round}`
 
 Admin endpoints:
 
-- `/prune`
-- `/replay`
-- `/consensus/start`
-- `/consensus/stop`
+- `/v1/prune`
+- `/v1/replay`
+- `/v1/consensus/start`
+- `/v1/consensus/stop`
 
 ## Versioning Rules
 
@@ -43,19 +43,11 @@ Admin endpoints:
 - Mutating endpoints must remain admin-token protected.
 - JSON decoders for public endpoints should reject unknown fields where request safety matters.
 
-## Recommended Future Layout
+## Compatibility Aliases
 
-Future stable APIs should expose:
+Unversioned paths such as `/status`, `/tx`, and `/blocks/latest` are compatibility aliases for `/v1/status`, `/v1/tx`, and `/v1/blocks/latest`.
 
-```text
-/v1/status
-/v1/metrics
-/v1/tx
-/v1/evidence
-/v1/blocks/{height}
-```
-
-The unversioned API can remain as a compatibility alias during the deprecation window.
+New clients should use `/v1/*`. Future breaking API changes should use a new prefix such as `/v2/*`.
 
 ## Error Format
 

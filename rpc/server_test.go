@@ -286,6 +286,43 @@ func TestHandlerReportsHealthStatusAndPeers(t *testing.T) {
 	}
 }
 
+func TestHandlerExposesStableV1Routes(t *testing.T) {
+	record := store.BlockRecord{
+		Block: types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: 2, TimeUnixNano: 42},
+			Txs:    []types.Tx{[]byte("bank:first"), []byte("bank:second")},
+		},
+		Hash:    types.Hash{2},
+		AppHash: types.Hash{3},
+		StateRoots: []store.StateRootRecord{
+			{Height: 2, Namespace: "bank", Root: types.Hash{4}},
+		},
+	}
+	handler := NewHandler(fakeStatusProvider{
+		status: node.Status{ChainID: "vexo-test", Running: true, LatestHeight: 2},
+		blocks: map[types.Height]store.BlockRecord{2: record},
+		latest: 2,
+		index:  store.BlockIndex{EarliestHeight: 1, LatestHeight: 2, TotalBlocks: 2},
+	})
+
+	var status StatusResponse
+	getJSON(t, handler, "/v1/status", http.StatusOK, &status)
+	if status.ChainID != "vexo-test" || status.LatestHeight != 2 {
+		t.Fatalf("unexpected v1 status: %+v", status)
+	}
+
+	var latest BlockResponse
+	getJSON(t, handler, "/v1/blocks/latest", http.StatusOK, &latest)
+	assertBlockResponse(t, latest)
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Header().Get("X-Vexo-RPC-Version") != "v1" {
+		t.Fatalf("expected v1 response header, got %q", response.Header().Get("X-Vexo-RPC-Version"))
+	}
+}
+
 func TestHandlerReportsNotReadyWhenNodeStopped(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{status: node.Status{ChainID: "vexo-test"}})
 

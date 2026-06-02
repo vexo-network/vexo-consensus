@@ -941,9 +941,9 @@ func TestRunNetworkSmokePlanSubmitsTxAndWaitsForHeight(t *testing.T) {
 		switch {
 		case request.Method == http.MethodGet && request.URL.Path == "/healthz":
 			return jsonHTTPResponse(http.StatusOK, `{"ok":true}`), nil
-		case request.Method == http.MethodGet && request.URL.Path == "/status":
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/status":
 			return jsonHTTPResponse(http.StatusOK, `{"chain_id":"vexo-test","running":true,"latest_height":`+strconv.FormatUint(heights[address], 10)+`}`), nil
-		case request.Method == http.MethodPost && request.URL.Path == "/tx":
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/tx":
 			txSubmitted = true
 			heights[plan.Nodes[0].RPCAddress] = 8
 			heights[plan.Nodes[1].RPCAddress] = 8

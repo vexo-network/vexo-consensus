@@ -618,7 +618,9 @@ Expose operational status over HTTP from an embedded node:
 server := rpc.NewServer(node, rpc.Config{Address: "127.0.0.1:26657"})
 ```
 
-Available endpoints: `/healthz`, `/readyz`, `/status`, `/diagnostics`, `/recovery`, `/metrics`, `/metrics/text`, `/peers`, `/tx`, `/evidence`, `/prune`, `/replay`, `/consensus/start`, `/consensus/stop`, `/snapshot/latest`, `/blocks`, `/blocks/latest`, `/blocks/{height}`, `/state/latest`, `/state/{height}/{namespace}`, `/validators/{height}`, `/committee/{height}/{round}`.
+Stable endpoints are exposed under `/v1`: `/v1/healthz`, `/v1/readyz`, `/v1/status`, `/v1/diagnostics`, `/v1/recovery`, `/v1/metrics`, `/v1/metrics/text`, `/v1/peers`, `/v1/tx`, `/v1/evidence`, `/v1/prune`, `/v1/replay`, `/v1/consensus/start`, `/v1/consensus/stop`, `/v1/snapshot/latest`, `/v1/blocks`, `/v1/blocks/latest`, `/v1/blocks/{height}`, `/v1/state/latest`, `/v1/state/{height}/{namespace}`, `/v1/validators/{height}`, `/v1/committee/{height}/{round}`.
+
+Unversioned paths such as `/status`, `/tx`, and `/blocks/latest` remain compatibility aliases.
 
 When pprof is enabled, `/debug/pprof/*` is also available.
 
