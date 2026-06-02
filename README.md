@@ -210,6 +210,13 @@ Machine-readable status:
 go run ./cmd/vexod status --json
 ```
 
+Show CLI help and version:
+
+```bash
+go run ./cmd/vexod help
+go run ./cmd/vexod version
+```
+
 Initialize node files:
 
 ```bash
@@ -234,6 +241,13 @@ Show the public validator key without printing the private key:
 
 ```bash
 go run ./cmd/vexod keys show --home .vexo --json
+```
+
+Inspect paths and startup readiness:
+
+```bash
+go run ./cmd/vexod config paths --home .vexo --json
+go run ./cmd/vexod start --home .vexo --dry-run
 ```
 
 Run a minimal block execution demo:
