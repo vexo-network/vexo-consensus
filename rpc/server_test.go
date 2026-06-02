@@ -32,6 +32,8 @@ type fakeStatusProvider struct {
 	statusWaitCancel  chan struct{}
 	metrics           node.Metrics
 	metricsErr        error
+	snapshot          node.StateSnapshot
+	snapshotErr       error
 	submitErr         error
 	submitted         []types.Tx
 	blocks            map[types.Height]store.BlockRecord
@@ -74,6 +76,13 @@ func (provider fakeStatusProvider) Metrics(ctx context.Context) (node.Metrics, e
 		return node.Metrics{}, provider.metricsErr
 	}
 	return provider.metrics, nil
+}
+
+func (provider fakeStatusProvider) StateSnapshot(ctx context.Context) (node.StateSnapshot, error) {
+	if provider.snapshotErr != nil {
+		return node.StateSnapshot{}, provider.snapshotErr
+	}
+	return provider.snapshot, nil
 }
 
 func (provider *fakeStatusProvider) SubmitTx(ctx context.Context, tx types.Tx) error {
@@ -675,6 +684,55 @@ func TestHandlerReportsStateProviderErrors(t *testing.T) {
 	getJSON(t, handler, "/state/latest", http.StatusInternalServerError, &response)
 	if response["error"] != "state failed" {
 		t.Fatalf("unexpected state error: %+v", response)
+	}
+}
+
+func TestHandlerReportsLatestSnapshot(t *testing.T) {
+	handler := NewHandler(fakeStatusProvider{snapshot: node.StateSnapshot{
+		Height:           5,
+		AppHash:          types.Hash{1},
+		LastBlockHash:    types.Hash{2},
+		ValidatorSetHash: types.Hash{3},
+		StateRoots: []store.StateRootRecord{
+			{Height: 5, Namespace: "bank", Root: types.Hash{4}},
+			{Height: 5, Namespace: "staking", Root: types.Hash{5}},
+		},
+	}})
+
+	var snapshot StateSnapshotResponse
+	getJSON(t, handler, "/snapshot/latest", http.StatusOK, &snapshot)
+	if snapshot.Height != 5 || snapshot.AppHash[:2] != "01" || snapshot.LastBlockHash[:2] != "02" || snapshot.ValidatorSetHash[:2] != "03" {
+		t.Fatalf("unexpected snapshot identity: %+v", snapshot)
+	}
+	if len(snapshot.StateRoots) != 2 || snapshot.StateRoots[0].Namespace != "bank" || snapshot.StateRoots[0].Root[:2] != "04" {
+		t.Fatalf("unexpected snapshot roots: %+v", snapshot.StateRoots)
+	}
+}
+
+func TestHandlerRejectsUnavailableSnapshotProvider(t *testing.T) {
+	var response map[string]string
+	getJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/snapshot/latest", http.StatusNotImplemented, &response)
+	if response["error"] == "" {
+		t.Fatalf("expected unavailable snapshot error, got %+v", response)
+	}
+}
+
+func TestHandlerReportsSnapshotErrors(t *testing.T) {
+	cases := []struct {
+		err            error
+		expectedStatus int
+	}{
+		{err: store.ErrStateNotFound, expectedStatus: http.StatusNotFound},
+		{err: store.ErrStateRootNotFound, expectedStatus: http.StatusNotFound},
+		{err: errors.New("snapshot failed"), expectedStatus: http.StatusInternalServerError},
+	}
+	for _, testCase := range cases {
+		handler := NewHandler(fakeStatusProvider{snapshotErr: testCase.err})
+		var response map[string]string
+		getJSON(t, handler, "/snapshot/latest", testCase.expectedStatus, &response)
+		if response["error"] == "" {
+			t.Fatalf("expected snapshot error for %v, got %+v", testCase.err, response)
+		}
 	}
 }
 

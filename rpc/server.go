@@ -37,6 +37,10 @@ type MetricsProvider interface {
 	Metrics(ctx context.Context) (node.Metrics, error)
 }
 
+type SnapshotProvider interface {
+	StateSnapshot(ctx context.Context) (node.StateSnapshot, error)
+}
+
 type TxSubmitter interface {
 	SubmitTx(ctx context.Context, tx types.Tx) error
 }
@@ -193,6 +197,14 @@ type StateResponse struct {
 	AppHash          string `json:"app_hash"`
 	LastBlockHash    string `json:"last_block_hash"`
 	ValidatorSetHash string `json:"validator_set_hash"`
+}
+
+type StateSnapshotResponse struct {
+	Height           uint64              `json:"height"`
+	AppHash          string              `json:"app_hash"`
+	LastBlockHash    string              `json:"last_block_hash"`
+	ValidatorSetHash string              `json:"validator_set_hash"`
+	StateRoots       []StateRootResponse `json:"state_roots"`
 }
 
 type PruneRequest struct {
@@ -468,6 +480,30 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 			return
 		}
 		writeJSON(writer, http.StatusOK, stateResponse(state))
+	})
+	mux.HandleFunc("/snapshot/latest", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowGet(writer, request) {
+			return
+		}
+		snapshotProvider, ok := provider.(SnapshotProvider)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "snapshot query is unavailable")
+			return
+		}
+		snapshot, err := snapshotProvider.StateSnapshot(request.Context())
+		if errors.Is(err, store.ErrStateNotFound) {
+			writeError(writer, http.StatusNotFound, "snapshot not found")
+			return
+		}
+		if errors.Is(err, store.ErrStateRootNotFound) {
+			writeError(writer, http.StatusNotFound, "snapshot state root not found")
+			return
+		}
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(writer, http.StatusOK, stateSnapshotResponse(snapshot))
 	})
 	mux.HandleFunc("/state/", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
@@ -915,6 +951,20 @@ func stateResponse(state store.StateRecord) StateResponse {
 		AppHash:          hex.EncodeToString(state.AppHash[:]),
 		LastBlockHash:    hex.EncodeToString(state.LastBlockHash[:]),
 		ValidatorSetHash: hex.EncodeToString(state.ValidatorSetHash[:]),
+	}
+}
+
+func stateSnapshotResponse(snapshot node.StateSnapshot) StateSnapshotResponse {
+	roots := make([]StateRootResponse, 0, len(snapshot.StateRoots))
+	for _, root := range snapshot.StateRoots {
+		roots = append(roots, stateRootResponse(root))
+	}
+	return StateSnapshotResponse{
+		Height:           uint64(snapshot.Height),
+		AppHash:          hex.EncodeToString(snapshot.AppHash[:]),
+		LastBlockHash:    hex.EncodeToString(snapshot.LastBlockHash[:]),
+		ValidatorSetHash: hex.EncodeToString(snapshot.ValidatorSetHash[:]),
+		StateRoots:       roots,
 	}
 }
 

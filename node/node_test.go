@@ -237,6 +237,44 @@ func TestNodeMetricsReportsStoppedSnapshot(t *testing.T) {
 	}
 }
 
+func TestNodeStateSnapshotReportsLatestStateRoots(t *testing.T) {
+	node := newTestNode(t)
+	if err := node.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer node.Stop(context.Background())
+
+	runtime, err := node.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ExecuteBlock(context.Background(), types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 2},
+		Txs:    []types.Tx{[]byte("bank:send")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := node.StateSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Height != 2 || snapshot.AppHash == (types.Hash{}) || snapshot.LastBlockHash == (types.Hash{}) {
+		t.Fatalf("unexpected snapshot identity: %+v", snapshot)
+	}
+	if len(snapshot.StateRoots) != 1 || snapshot.StateRoots[0].Namespace != "bank" || snapshot.StateRoots[0].Root == (types.Hash{}) {
+		t.Fatalf("unexpected snapshot state roots: %+v", snapshot.StateRoots)
+	}
+}
+
+func TestNodeStateSnapshotRequiresRunningNode(t *testing.T) {
+	node := newTestNode(t)
+
+	if _, err := node.StateSnapshot(context.Background()); !errors.Is(err, ErrNodeNotRunning) {
+		t.Fatalf("expected not running snapshot error, got %v", err)
+	}
+}
+
 func TestNodePruneBelowRemovesOldBlocks(t *testing.T) {
 	node := newTestNode(t)
 	if err := node.Start(context.Background()); err != nil {
