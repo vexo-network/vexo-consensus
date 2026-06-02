@@ -19,6 +19,7 @@ func TestWriteStatus(t *testing.T) {
 		"chain_id: vexo-test",
 		"application.modules: [bank]",
 		"execution.max_gas: 10000000",
+		"execution.require_signed: false",
 		"execution.fee_collector: fee_collector",
 		"validator.permissionless: true",
 		"committee.size: 128",

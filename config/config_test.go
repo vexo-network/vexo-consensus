@@ -39,7 +39,7 @@ func TestConfigProfilesAreValidAndTightenOperations(t *testing.T) {
 	if !mainnet.Mempool.EnablePriority || mainnet.Mempool.MinFee == 0 || mainnet.Mempool.SeenTTL <= 0 {
 		t.Fatalf("expected mainnet mempool hardening, got %+v", mainnet.Mempool)
 	}
-	if !mainnet.Execution.RequireNonce || mainnet.Execution.MinFee == 0 || mainnet.Execution.MinGas == 0 {
+	if !mainnet.Execution.RequireNonce || !mainnet.Execution.RequireSigned || mainnet.Execution.MinFee == 0 || mainnet.Execution.MinGas == 0 {
 		t.Fatalf("expected mainnet execution hardening, got %+v", mainnet.Execution)
 	}
 	if _, err := WithProfile("vexo-test", "unknown"); !errors.Is(err, ErrUnknownProfile) {

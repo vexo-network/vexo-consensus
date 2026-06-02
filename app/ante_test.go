@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -29,6 +30,25 @@ func TestAnteKeeperRejectsFeeGasAndNonceFailures(t *testing.T) {
 				t.Fatalf("expected %v, got %v", testCase.err, err)
 			}
 		})
+	}
+}
+
+func TestAnteKeeperRequiresAndVerifiesSignedTx(t *testing.T) {
+	signer, err := vexocrypto.GenerateEd25519Signer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	keeper := NewAnteKeeper(AnteConfig{RequireSigned: true})
+	raw := types.Tx("bank:send:alice:bob:1")
+	if err := keeper.CheckTx(Context{ChainID: "vexo-test"}, raw); !errors.Is(err, ErrInvalidSignedTx) {
+		t.Fatalf("expected unsigned tx rejection, got %v", err)
+	}
+	signedTx, err := SignTx("vexo-test", raw, signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.CheckTx(Context{ChainID: "vexo-test"}, signedTx); err != nil {
+		t.Fatal(err)
 	}
 }
 

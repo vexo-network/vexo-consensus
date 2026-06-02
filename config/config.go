@@ -44,11 +44,12 @@ type ApplicationConfig struct {
 }
 
 type ExecutionConfig struct {
-	MinFee       uint64
-	MinGas       uint64
-	MaxGas       uint64
-	RequireNonce bool
-	FeeCollector string
+	MinFee        uint64
+	MinGas        uint64
+	MaxGas        uint64
+	RequireNonce  bool
+	RequireSigned bool
+	FeeCollector  string
 }
 
 type CryptoBackend string
@@ -150,6 +151,7 @@ func ApplyProfile(cfg *Config, profile Profile) error {
 		cfg.Execution.MinFee = 1
 		cfg.Execution.MinGas = 1
 		cfg.Execution.RequireNonce = true
+		cfg.Execution.RequireSigned = true
 		cfg.P2P.MaxMessagesPerWindow = 300
 		cfg.P2P.MaxTotalMessagesPerWindow = 250000
 		cfg.P2P.BanDuration = time.Hour

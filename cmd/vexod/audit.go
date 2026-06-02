@@ -108,6 +108,7 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 	document.addCheck("execution_min_fee", "warning", inputs.Config.Chain.Execution.MinFee > 0, "set ante minimum fee for transaction execution")
 	document.addCheck("execution_gas_limit", "warning", inputs.Config.Chain.Execution.MaxGas > 0, "set ante gas bounds for transaction execution")
 	document.addCheck("execution_nonce_required", "warning", inputs.Config.Chain.Execution.RequireNonce, "require signer nonces to prevent replay")
+	document.addCheck("execution_signed_required", "warning", inputs.Config.Chain.Execution.RequireSigned, "require signed transaction envelopes on public networks")
 	return document
 }
 

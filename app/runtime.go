@@ -81,7 +81,7 @@ func (runtime *Runtime) CheckTx(tx types.Tx) CheckTxResponse {
 			return CheckTxResponse{Result: types.Result{Code: 1, Log: err.Error()}}
 		}
 	}
-	_, err := runtime.router.RouteTx(ctx, tx, runtime.modules)
+	_, err := runtime.router.RouteTx(ctx, TxPayload(tx), runtime.modules)
 	if err != nil {
 		return CheckTxResponse{Result: types.Result{Code: 1, Log: err.Error()}}
 	}
@@ -110,7 +110,7 @@ func (runtime *Runtime) ProcessProposal(req ProcessProposalRequest) ProcessPropo
 	}
 	ctx := Context{ChainID: runtime.chainID, Height: req.Block.Header.Height, Header: req.Block.Header, Store: runtime.store}
 	for _, tx := range req.Block.Txs {
-		if _, err := runtime.router.RouteTx(ctx, tx, runtime.modules); err != nil {
+		if _, err := runtime.router.RouteTx(ctx, TxPayload(tx), runtime.modules); err != nil {
 			return ProcessProposalResponse{Accepted: false, Reason: "invalid transaction"}
 		}
 	}
@@ -143,11 +143,12 @@ func (runtime *Runtime) FinalizeBlock(req FinalizeBlockRequest) (FinalizeBlockRe
 				return FinalizeBlockResponse{}, err
 			}
 		}
-		module, err := runtime.router.RouteTx(ctx, tx, runtime.modules)
+		payload := TxPayload(tx)
+		module, err := runtime.router.RouteTx(ctx, payload, runtime.modules)
 		if err != nil {
 			return FinalizeBlockResponse{}, err
 		}
-		result := module.DeliverTx(ctx, tx)
+		result := module.DeliverTx(ctx, payload)
 		if result.Code != 0 {
 			return FinalizeBlockResponse{}, errors.New(result.Log)
 		}

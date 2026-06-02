@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 
+	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
+	"github.com/vexo-network/vexo-consensus/types"
 )
 
 const keyFileName = "validator.key.json"
@@ -37,6 +39,8 @@ func runKeys(writer io.Writer, args []string) error {
 		return runKeysRemote(writer, args[1:])
 	case "show":
 		return runKeysShow(writer, args[1:])
+	case "sign-tx":
+		return runKeysSignTx(writer, args[1:])
 	default:
 		return fmt.Errorf("unknown keys subcommand %q", args[0])
 	}
@@ -192,6 +196,36 @@ func runKeysShow(writer io.Writer, args []string) error {
 	if info.RemoteURL != "" {
 		fmt.Fprintf(writer, "remote_url: %s\n", info.RemoteURL)
 	}
+	return nil
+}
+
+func runKeysSignTx(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("keys sign-tx", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", defaultHomeDir, "node home directory")
+	path := flags.String("path", "", "key file path")
+	chainID := flags.String("chain-id", defaultChainID, "chain id for signed transaction domain")
+	tx := flags.String("tx", "", "raw transaction payload to sign")
+	passphrase := flags.String("passphrase", "", "key decryption passphrase; prefer VEXO_KEY_PASSPHRASE")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *tx == "" {
+		return errors.New("transaction payload is required")
+	}
+	document, err := vexocrypto.LoadKeyDocument(resolveKeyPath(*home, *path))
+	if err != nil {
+		return err
+	}
+	signer, err := document.SignerWithPassphrase(resolvePassphrase(*passphrase))
+	if err != nil {
+		return err
+	}
+	signedTx, err := vexoapp.SignTx(*chainID, types.Tx(*tx), signer)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "tx: %s\n", signedTx)
 	return nil
 }
 

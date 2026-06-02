@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	vexostore "github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -20,11 +21,12 @@ var (
 )
 
 type AnteConfig struct {
-	MinFee       uint64
-	MinGas       uint64
-	MaxGas       uint64
-	RequireNonce bool
-	FeeCollector string
+	MinFee        uint64
+	MinGas        uint64
+	MaxGas        uint64
+	RequireNonce  bool
+	FeeCollector  string
+	RequireSigned bool
 }
 
 type TxMeta struct {
@@ -53,6 +55,7 @@ func NewAnteKeeper(config AnteConfig) AnteKeeper {
 }
 
 func ParseTxMeta(tx types.Tx) TxMeta {
+	tx = TxPayload(tx)
 	var meta TxMeta
 	for _, part := range strings.Split(string(tx), ":") {
 		key, value, found := strings.Cut(part, "=")
@@ -78,6 +81,9 @@ func ParseTxMeta(tx types.Tx) TxMeta {
 }
 
 func (keeper AnteKeeper) CheckTx(ctx Context, tx types.Tx) error {
+	if err := keeper.verifySignature(ctx, tx); err != nil {
+		return err
+	}
 	meta := ParseTxMeta(tx)
 	if err := keeper.validateMeta(meta); err != nil {
 		return err
@@ -98,6 +104,9 @@ func (keeper AnteKeeper) CheckTx(ctx Context, tx types.Tx) error {
 func (keeper AnteKeeper) CheckBlock(ctx Context, txs []types.Tx) error {
 	nextBySigner := make(map[types.Address]uint64)
 	for _, tx := range txs {
+		if err := keeper.verifySignature(ctx, tx); err != nil {
+			return err
+		}
 		meta := ParseTxMeta(tx)
 		if err := keeper.validateMeta(meta); err != nil {
 			return err
@@ -220,6 +229,20 @@ func (keeper AnteKeeper) collectFee(ctx context.Context, store StateStore, meta 
 		return err
 	}
 	return setBankBalance(ctx, store, collector, collectorBalance+meta.Fee)
+}
+
+func (keeper AnteKeeper) verifySignature(ctx Context, tx types.Tx) error {
+	if !IsSignedTx(tx) {
+		if keeper.config.RequireSigned {
+			return ErrInvalidSignedTx
+		}
+		return nil
+	}
+	return VerifySignedTx(ctx.ChainID, tx, keeper.signatureVerifier())
+}
+
+func (keeper AnteKeeper) signatureVerifier() vexocrypto.Signer {
+	return vexocrypto.Ed25519Signer{}
 }
 
 func bankBalance(ctx context.Context, store StateStore, address types.Address) (uint64, error) {

@@ -33,13 +33,14 @@ func NewRuntimeWithExecution(chainID string, cfg config.ApplicationConfig, execu
 	if err != nil {
 		return nil, err
 	}
-	if execution.MinFee > 0 || execution.MinGas > 0 || execution.MaxGas > 0 || execution.RequireNonce {
+	if execution.MinFee > 0 || execution.MinGas > 0 || execution.MaxGas > 0 || execution.RequireNonce || execution.RequireSigned {
 		runtime.WithAnte(vexoapp.NewAnteKeeper(vexoapp.AnteConfig{
-			MinFee:       execution.MinFee,
-			MinGas:       execution.MinGas,
-			MaxGas:       execution.MaxGas,
-			RequireNonce: execution.RequireNonce,
-			FeeCollector: execution.FeeCollector,
+			MinFee:        execution.MinFee,
+			MinGas:        execution.MinGas,
+			MaxGas:        execution.MaxGas,
+			RequireNonce:  execution.RequireNonce,
+			RequireSigned: execution.RequireSigned,
+			FeeCollector:  execution.FeeCollector,
 		}))
 	}
 	return runtime, nil

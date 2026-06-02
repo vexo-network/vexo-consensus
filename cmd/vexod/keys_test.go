@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 )
 
@@ -181,6 +182,24 @@ func TestRunKeysSupportsExplicitPath(t *testing.T) {
 	}
 	if !strings.Contains(buffer.String(), path) {
 		t.Fatalf("expected explicit path in output:\n%s", buffer.String())
+	}
+}
+
+func TestRunKeysSignTx(t *testing.T) {
+	home := t.TempDir()
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := runKeys(&output, []string{"sign-tx", "--home", home, "--chain-id", "vexo-test", "--tx", "bank:send:alice:bob:1:fee=1:gas=1:signer=alice:nonce=1"}); err != nil {
+		t.Fatal(err)
+	}
+	signedTx := strings.TrimSpace(strings.TrimPrefix(output.String(), "tx: "))
+	if !vexoapp.IsSignedTx([]byte(signedTx)) {
+		t.Fatalf("expected signed tx output, got %s", output.String())
+	}
+	if err := vexoapp.VerifySignedTx("vexo-test", []byte(signedTx), vexocrypto.Ed25519Signer{}); err != nil {
+		t.Fatal(err)
 	}
 }
 

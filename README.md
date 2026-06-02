@@ -149,7 +149,7 @@ The design is intentionally modular so individual components can be replaced wit
 ### Storage and Runtime
 
 - Modular application runtime
-- Ante execution checks for fee, gas, account nonce validation, fee collection, and gas-used result metadata
+- Signed transaction envelopes with ante checks for fee, gas, account nonce validation, fee collection, and gas-used result metadata
 - Config-driven application module registry and builder
 - Bank module with mint, send, balance query, and persisted state
 - Block executor
@@ -277,6 +277,7 @@ execution.min_fee: 0
 execution.min_gas: 0
 execution.max_gas: 10000000
 execution.require_nonce: false
+execution.require_signed: false
 execution.fee_collector: fee_collector
 validator.permissionless: true
 validator.min_stake: 1
@@ -373,6 +374,13 @@ go run ./cmd/vexod keys show --home .vexo --json
 ```
 
 Encrypted keys can be shown or loaded with `VEXO_KEY_PASSPHRASE` or `--passphrase`.
+
+Sign a transaction envelope:
+
+```bash
+go run ./cmd/vexod keys sign-tx --home .vexo --chain-id vexo-local \
+  --tx 'bank:send:alice:bob:25:fee=1:gas=1000:signer=alice:nonce=1'
+```
 
 Register a remote KMS/HSM signer instead of storing local private key material:
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/fairordering"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -243,6 +244,37 @@ func TestRuntimeAnteRejectsReplayCommitsNonceAndCollectsFee(t *testing.T) {
 	}
 	if runtime.CheckTx([]byte("bank:send:fee=1:signer=alice:nonce=2")).Result.Code != 0 {
 		t.Fatal("expected next nonce to pass")
+	}
+}
+
+func TestRuntimeDeliversSignedTxPayload(t *testing.T) {
+	signer, err := vexocrypto.GenerateEd25519Signer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	module := &recordingModule{name: "bank"}
+	runtime, err := NewRuntime("vexo-test", []Module{module}, PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.WithAnte(NewAnteKeeper(AnteConfig{RequireSigned: true}))
+	payload := types.Tx("bank:send")
+	signedTx, err := SignTx("vexo-test", payload, signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 1},
+		Txs: fairordering.SortTxsWithSalt(
+			[]types.Tx{signedTx},
+			fairordering.HeightSalt("vexo-test", 1),
+		),
+	}
+	if _, err := runtime.FinalizeBlock(FinalizeBlockRequest{Block: block}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(module.delivered, []string{"bank:send"}) {
+		t.Fatalf("expected payload delivery, got %v", module.delivered)
 	}
 }
 

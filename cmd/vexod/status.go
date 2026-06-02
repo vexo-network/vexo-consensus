@@ -17,6 +17,7 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "execution.min_gas: %d\n", cfg.Execution.MinGas)
 	fmt.Fprintf(writer, "execution.max_gas: %d\n", cfg.Execution.MaxGas)
 	fmt.Fprintf(writer, "execution.require_nonce: %t\n", cfg.Execution.RequireNonce)
+	fmt.Fprintf(writer, "execution.require_signed: %t\n", cfg.Execution.RequireSigned)
 	fmt.Fprintf(writer, "execution.fee_collector: %s\n", cfg.Execution.FeeCollector)
 	fmt.Fprintf(writer, "validator.permissionless: %t\n", cfg.Validator.Permissionless)
 	fmt.Fprintf(writer, "validator.min_stake: %d\n", cfg.Validator.MinStake)
@@ -59,11 +60,12 @@ type applicationStatus struct {
 }
 
 type executionStatus struct {
-	MinFee       uint64 `json:"min_fee"`
-	MinGas       uint64 `json:"min_gas"`
-	MaxGas       uint64 `json:"max_gas"`
-	RequireNonce bool   `json:"require_nonce"`
-	FeeCollector string `json:"fee_collector"`
+	MinFee        uint64 `json:"min_fee"`
+	MinGas        uint64 `json:"min_gas"`
+	MaxGas        uint64 `json:"max_gas"`
+	RequireNonce  bool   `json:"require_nonce"`
+	RequireSigned bool   `json:"require_signed"`
+	FeeCollector  string `json:"fee_collector"`
 }
 
 type validatorStatus struct {
@@ -123,11 +125,12 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			Modules: append([]string(nil), cfg.Application.Modules...),
 		},
 		Execution: executionStatus{
-			MinFee:       cfg.Execution.MinFee,
-			MinGas:       cfg.Execution.MinGas,
-			MaxGas:       cfg.Execution.MaxGas,
-			RequireNonce: cfg.Execution.RequireNonce,
-			FeeCollector: cfg.Execution.FeeCollector,
+			MinFee:        cfg.Execution.MinFee,
+			MinGas:        cfg.Execution.MinGas,
+			MaxGas:        cfg.Execution.MaxGas,
+			RequireNonce:  cfg.Execution.RequireNonce,
+			RequireSigned: cfg.Execution.RequireSigned,
+			FeeCollector:  cfg.Execution.FeeCollector,
 		},
 		Validator: validatorStatus{
 			Permissionless: cfg.Validator.Permissionless,
