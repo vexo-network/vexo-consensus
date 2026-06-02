@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"reflect"
 	"strings"
@@ -196,28 +197,46 @@ func TestRuntimeRejectsFailedDeliverTx(t *testing.T) {
 	}
 }
 
-func TestRuntimeAnteRejectsReplayAndCommitsNonce(t *testing.T) {
+func TestRuntimeAnteRejectsReplayCommitsNonceAndCollectsFee(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer storage.Close()
+	if err := storage.Set(context.Background(), "bank", []byte("alice"), encodeTestBalance(100)); err != nil {
+		t.Fatal(err)
+	}
 
 	runtime, err := NewRuntime("vexo-test", []Module{&recordingModule{name: "bank"}}, PrefixRouter{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime.WithStore(storage).WithAnte(NewAnteKeeper(AnteConfig{MinFee: 1, RequireNonce: true}))
+	runtime.WithStore(storage).WithAnte(NewAnteKeeper(AnteConfig{MinFee: 1, RequireNonce: true, FeeCollector: "treasury"}))
 
 	block := types.Block{
 		Header: types.Header{ChainID: "vexo-test", Height: 1},
 		Txs: fairordering.SortTxsWithSalt(
-			[]types.Tx{[]byte("bank:send:fee=1:signer=alice:nonce=1")},
+			[]types.Tx{[]byte("bank:send:fee=7:gas=55:signer=alice:nonce=1")},
 			fairordering.HeightSalt("vexo-test", 1),
 		),
 	}
-	if _, err := runtime.FinalizeBlock(FinalizeBlockRequest{Block: block}); err != nil {
+	response, err := runtime.FinalizeBlock(FinalizeBlockRequest{Block: block})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if len(response.Results) != 1 || string(response.Results[0].Data) != "gas_used=55 fee_paid=7" {
+		t.Fatalf("unexpected execution result metadata: %+v", response.Results)
+	}
+	alice, err := storage.Get(context.Background(), "bank", []byte("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	treasury, err := storage.Get(context.Background(), "bank", []byte("treasury"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decodeTestBalance(alice) != 93 || decodeTestBalance(treasury) != 7 {
+		t.Fatalf("unexpected fee balances: alice=%d treasury=%d", decodeTestBalance(alice), decodeTestBalance(treasury))
 	}
 	if runtime.CheckTx([]byte("bank:send:fee=1:signer=alice:nonce=1")).Result.Code == 0 {
 		t.Fatal("expected committed nonce replay to be rejected")
@@ -463,4 +482,14 @@ func (module *queryModule) EndBlock(ctx Context) error {
 
 func (module *queryModule) Query(ctx Context, req QueryRequest) QueryResponse {
 	return QueryResponse{Value: []byte(strings.Join(req.Path, "/") + ":" + string(req.Data))}
+}
+
+func encodeTestBalance(balance uint64) []byte {
+	var encoded [8]byte
+	binary.BigEndian.PutUint64(encoded[:], balance)
+	return encoded[:]
+}
+
+func decodeTestBalance(value []byte) uint64 {
+	return binary.BigEndian.Uint64(value)
 }

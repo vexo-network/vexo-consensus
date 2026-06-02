@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"fmt"
 
 	"github.com/vexo-network/vexo-consensus/fairordering"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -147,7 +148,6 @@ func (runtime *Runtime) FinalizeBlock(req FinalizeBlockRequest) (FinalizeBlockRe
 			return FinalizeBlockResponse{}, err
 		}
 		result := module.DeliverTx(ctx, tx)
-		results = append(results, result)
 		if result.Code != 0 {
 			return FinalizeBlockResponse{}, errors.New(result.Log)
 		}
@@ -155,7 +155,11 @@ func (runtime *Runtime) FinalizeBlock(req FinalizeBlockRequest) (FinalizeBlockRe
 			if err := runtime.ante.AfterTx(ctx, tx); err != nil {
 				return FinalizeBlockResponse{}, err
 			}
+			if len(result.Data) == 0 {
+				result.Data = []byte(fmt.Sprintf("gas_used=%d fee_paid=%d", runtime.ante.GasUsed(tx), runtime.ante.FeePaid(tx)))
+			}
 		}
+		results = append(results, result)
 	}
 
 	for _, module := range runtime.modules {

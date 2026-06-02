@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -52,6 +53,51 @@ func TestAnteKeeperTracksNonceAcrossCommittedTxs(t *testing.T) {
 	}
 	if err := keeper.CheckTx(ctx, []byte("bank:send:signer=alice:nonce=2")); err != nil {
 		t.Fatalf("expected next nonce to pass, got %v", err)
+	}
+}
+
+func TestAnteKeeperCollectsFeeAndReportsGas(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	if err := setBankBalance(context.Background(), storage, "alice", 100); err != nil {
+		t.Fatal(err)
+	}
+
+	keeper := NewAnteKeeper(AnteConfig{MinFee: 1, FeeCollector: "treasury"})
+	tx := types.Tx("bank:send:signer=alice:nonce=1:fee=7:gas=99")
+	if err := keeper.AfterTx(Context{Store: storage}, tx); err != nil {
+		t.Fatal(err)
+	}
+	alice, err := bankBalance(context.Background(), storage, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	treasury, err := bankBalance(context.Background(), storage, "treasury")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alice != 93 || treasury != 7 {
+		t.Fatalf("unexpected fee balances: alice=%d treasury=%d", alice, treasury)
+	}
+	if keeper.GasUsed(tx) != 99 || keeper.FeePaid(tx) != 7 {
+		t.Fatalf("unexpected gas/fee metadata: gas=%d fee=%d", keeper.GasUsed(tx), keeper.FeePaid(tx))
+	}
+}
+
+func TestAnteKeeperRejectsFeeCollectionWithoutBalance(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	keeper := NewAnteKeeper(AnteConfig{MinFee: 1})
+	err = keeper.AfterTx(Context{Store: storage}, []byte("bank:send:signer=alice:nonce=1:fee=7"))
+	if !errors.Is(err, ErrInsufficientFeeBalance) {
+		t.Fatalf("expected insufficient fee balance, got %v", err)
 	}
 }
 

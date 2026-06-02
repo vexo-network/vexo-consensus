@@ -12,10 +12,11 @@ import (
 )
 
 var (
-	ErrInsufficientFee = errors.New("insufficient transaction fee")
-	ErrInvalidGas      = errors.New("invalid transaction gas")
-	ErrMissingNonce    = errors.New("missing transaction nonce")
-	ErrInvalidNonce    = errors.New("invalid transaction nonce")
+	ErrInsufficientFee        = errors.New("insufficient transaction fee")
+	ErrInsufficientFeeBalance = errors.New("insufficient fee balance")
+	ErrInvalidGas             = errors.New("invalid transaction gas")
+	ErrMissingNonce           = errors.New("missing transaction nonce")
+	ErrInvalidNonce           = errors.New("invalid transaction nonce")
 )
 
 type AnteConfig struct {
@@ -23,6 +24,7 @@ type AnteConfig struct {
 	MinGas       uint64
 	MaxGas       uint64
 	RequireNonce bool
+	FeeCollector string
 }
 
 type TxMeta struct {
@@ -38,6 +40,8 @@ type AnteHandler interface {
 	CheckBlock(ctx Context, txs []types.Tx) error
 	BeforeTx(ctx Context, tx types.Tx) error
 	AfterTx(ctx Context, tx types.Tx) error
+	GasUsed(tx types.Tx) uint64
+	FeePaid(tx types.Tx) uint64
 }
 
 type AnteKeeper struct {
@@ -123,10 +127,28 @@ func (keeper AnteKeeper) BeforeTx(ctx Context, tx types.Tx) error {
 
 func (keeper AnteKeeper) AfterTx(ctx Context, tx types.Tx) error {
 	meta := ParseTxMeta(tx)
-	if ctx.Store == nil || meta.Signer == "" || !meta.HasNonce {
+	if ctx.Store == nil {
+		return nil
+	}
+	if err := keeper.collectFee(context.Background(), ctx.Store, meta); err != nil {
+		return err
+	}
+	if meta.Signer == "" || !meta.HasNonce {
 		return nil
 	}
 	return keeper.setNonce(context.Background(), ctx.Store, meta.Signer, meta.Nonce)
+}
+
+func (keeper AnteKeeper) GasUsed(tx types.Tx) uint64 {
+	meta := ParseTxMeta(tx)
+	if meta.Gas > 0 {
+		return meta.Gas
+	}
+	return uint64(len(tx))
+}
+
+func (keeper AnteKeeper) FeePaid(tx types.Tx) uint64 {
+	return ParseTxMeta(tx).Fee
 }
 
 func (keeper AnteKeeper) validateMeta(meta TxMeta) error {
@@ -167,4 +189,58 @@ func (keeper AnteKeeper) setNonce(ctx context.Context, store StateStore, signer 
 
 func nonceKey(signer types.Address) []byte {
 	return []byte("nonce/" + string(signer))
+}
+
+func (keeper AnteKeeper) collectFee(ctx context.Context, store StateStore, meta TxMeta) error {
+	if meta.Fee == 0 {
+		return nil
+	}
+	if meta.Signer == "" {
+		return ErrMissingNonce
+	}
+	collector := types.Address(keeper.config.FeeCollector)
+	if collector == "" {
+		collector = "fee_collector"
+	}
+	balance, err := bankBalance(ctx, store, meta.Signer)
+	if err != nil {
+		return err
+	}
+	if balance < meta.Fee {
+		return ErrInsufficientFeeBalance
+	}
+	collectorBalance, err := bankBalance(ctx, store, collector)
+	if err != nil {
+		return err
+	}
+	if collectorBalance > ^uint64(0)-meta.Fee {
+		return ErrInsufficientFeeBalance
+	}
+	if err := setBankBalance(ctx, store, meta.Signer, balance-meta.Fee); err != nil {
+		return err
+	}
+	return setBankBalance(ctx, store, collector, collectorBalance+meta.Fee)
+}
+
+func bankBalance(ctx context.Context, store StateStore, address types.Address) (uint64, error) {
+	value, err := store.Get(ctx, "bank", []byte(address))
+	if errors.Is(err, vexostore.ErrKeyNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if len(value) == 0 {
+		return 0, nil
+	}
+	if len(value) != 8 {
+		return 0, ErrInsufficientFeeBalance
+	}
+	return binary.BigEndian.Uint64(value), nil
+}
+
+func setBankBalance(ctx context.Context, store StateStore, address types.Address, balance uint64) error {
+	var encoded [8]byte
+	binary.BigEndian.PutUint64(encoded[:], balance)
+	return store.Set(ctx, "bank", []byte(address), encoded[:])
 }

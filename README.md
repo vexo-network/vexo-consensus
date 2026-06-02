@@ -149,7 +149,7 @@ The design is intentionally modular so individual components can be replaced wit
 ### Storage and Runtime
 
 - Modular application runtime
-- Ante execution checks for fee, gas, and account nonce validation
+- Ante execution checks for fee, gas, account nonce validation, fee collection, and gas-used result metadata
 - Config-driven application module registry and builder
 - Bank module with mint, send, balance query, and persisted state
 - Block executor
@@ -272,6 +272,12 @@ Example output:
 ```text
 vexo-consensus status
 chain_id: vexo-local
+application.modules: [bank]
+execution.min_fee: 0
+execution.min_gas: 0
+execution.max_gas: 10000000
+execution.require_nonce: false
+execution.fee_collector: fee_collector
 validator.permissionless: true
 validator.min_stake: 1
 committee.epoch_length: 100

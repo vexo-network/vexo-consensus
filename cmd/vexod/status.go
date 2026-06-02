@@ -13,6 +13,11 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "vexo-consensus status\n")
 	fmt.Fprintf(writer, "chain_id: %s\n", cfg.ChainID)
 	fmt.Fprintf(writer, "application.modules: %v\n", cfg.Application.Modules)
+	fmt.Fprintf(writer, "execution.min_fee: %d\n", cfg.Execution.MinFee)
+	fmt.Fprintf(writer, "execution.min_gas: %d\n", cfg.Execution.MinGas)
+	fmt.Fprintf(writer, "execution.max_gas: %d\n", cfg.Execution.MaxGas)
+	fmt.Fprintf(writer, "execution.require_nonce: %t\n", cfg.Execution.RequireNonce)
+	fmt.Fprintf(writer, "execution.fee_collector: %s\n", cfg.Execution.FeeCollector)
 	fmt.Fprintf(writer, "validator.permissionless: %t\n", cfg.Validator.Permissionless)
 	fmt.Fprintf(writer, "validator.min_stake: %d\n", cfg.Validator.MinStake)
 	fmt.Fprintf(writer, "committee.epoch_length: %d\n", cfg.Committee.EpochLength)
@@ -58,6 +63,7 @@ type executionStatus struct {
 	MinGas       uint64 `json:"min_gas"`
 	MaxGas       uint64 `json:"max_gas"`
 	RequireNonce bool   `json:"require_nonce"`
+	FeeCollector string `json:"fee_collector"`
 }
 
 type validatorStatus struct {
@@ -121,6 +127,7 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			MinGas:       cfg.Execution.MinGas,
 			MaxGas:       cfg.Execution.MaxGas,
 			RequireNonce: cfg.Execution.RequireNonce,
+			FeeCollector: cfg.Execution.FeeCollector,
 		},
 		Validator: validatorStatus{
 			Permissionless: cfg.Validator.Permissionless,

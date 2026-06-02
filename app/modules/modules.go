@@ -39,6 +39,7 @@ func NewRuntimeWithExecution(chainID string, cfg config.ApplicationConfig, execu
 			MinGas:       execution.MinGas,
 			MaxGas:       execution.MaxGas,
 			RequireNonce: execution.RequireNonce,
+			FeeCollector: execution.FeeCollector,
 		}))
 	}
 	return runtime, nil

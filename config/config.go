@@ -48,6 +48,7 @@ type ExecutionConfig struct {
 	MinGas       uint64
 	MaxGas       uint64
 	RequireNonce bool
+	FeeCollector string
 }
 
 type CryptoBackend string
@@ -73,7 +74,8 @@ func Default(chainID string) Config {
 			Modules: []string{"bank"},
 		},
 		Execution: ExecutionConfig{
-			MaxGas: 10_000_000,
+			MaxGas:       10_000_000,
+			FeeCollector: "fee_collector",
 		},
 		Crypto: CryptoConfig{
 			Backend: CryptoBackendDeterministic,
