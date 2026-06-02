@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -188,6 +189,28 @@ func TestBuildStartNodeLoadsValidatorSigner(t *testing.T) {
 	}
 }
 
+func TestRunStartRunStartsAndStopsNode(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	output := &cancelOnNeedleWriter{
+		needle: "node running",
+		cancel: cancel,
+	}
+	if err := runStartWithContext(ctx, output, []string{"--home", home, "--run"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "node running") || !strings.Contains(output.String(), "node stopped") {
+		t.Fatalf("unexpected run output:\n%s", output.String())
+	}
+}
+
 func TestRunStartRequiresKey(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home}); err != nil {
@@ -196,4 +219,18 @@ func TestRunStartRequiresKey(t *testing.T) {
 	if err := runStart(&bytes.Buffer{}, []string{"--home", home, "--dry-run"}); err == nil {
 		t.Fatal("expected missing key error")
 	}
+}
+
+type cancelOnNeedleWriter struct {
+	bytes.Buffer
+	needle string
+	cancel context.CancelFunc
+}
+
+func (writer *cancelOnNeedleWriter) Write(data []byte) (int, error) {
+	count, err := writer.Buffer.Write(data)
+	if strings.Contains(writer.Buffer.String(), writer.needle) {
+		writer.cancel()
+	}
+	return count, err
 }

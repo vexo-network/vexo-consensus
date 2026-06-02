@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -33,6 +34,10 @@ type startInputs struct {
 }
 
 func runStart(writer io.Writer, args []string) error {
+	return runStartWithContext(context.Background(), writer, args)
+}
+
+func runStartWithContext(ctx context.Context, writer io.Writer, args []string) error {
 	flags := flag.NewFlagSet("start", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	home := flags.String("home", defaultHomeDir, "node home directory")
@@ -40,6 +45,7 @@ func runStart(writer io.Writer, args []string) error {
 	genesisPath := flags.String("genesis", "", "genesis file path")
 	keyPath := flags.String("key", "", "key file path")
 	dryRun := flags.Bool("dry-run", false, "validate startup inputs without running a node")
+	run := flags.Bool("run", false, "start the node and block until context cancellation")
 	jsonOutput := flags.Bool("json", false, "write JSON output")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -53,6 +59,9 @@ func runStart(writer io.Writer, args []string) error {
 		encoder := json.NewEncoder(writer)
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(plan)
+	}
+	if *run {
+		return runStartNode(ctx, writer, inputs)
 	}
 	if !plan.DryRun {
 		if _, err := buildStartNode(inputs); err != nil {
@@ -70,6 +79,26 @@ func runStart(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "data_dir: %s\n", plan.DataDir)
 	fmt.Fprintf(writer, "key_type: %s\n", plan.KeyType)
 	fmt.Fprintf(writer, "public_key: %s\n", plan.PublicKey)
+	return nil
+}
+
+func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs) error {
+	node, err := buildStartNode(inputs)
+	if err != nil {
+		return err
+	}
+	if err := node.Start(ctx); err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "node running\n")
+	fmt.Fprintf(writer, "chain_id: %s\n", inputs.Plan.ChainID)
+	fmt.Fprintf(writer, "validator_id: %s\n", inputs.Plan.ValidatorID)
+	fmt.Fprintf(writer, "data_dir: %s\n", inputs.Plan.DataDir)
+	<-ctx.Done()
+	if err := node.Stop(context.Background()); err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "node stopped\n")
 	return nil
 }
 
