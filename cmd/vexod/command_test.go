@@ -610,6 +610,33 @@ func TestStartPeerFlagsParsePersistentPeers(t *testing.T) {
 	}
 }
 
+func TestStartSeedFlagsMergeIntoGRPCPeers(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := loadStartInputs(home, "", "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, wire, err := buildRuntimeNode(inputs, startRuntimeConfig{
+		P2PEnabled:       true,
+		P2PListenAddress: "127.0.0.1:0",
+		P2PPeers:         map[p2p.PeerID]string{"bob": "127.0.0.1:26657"},
+		P2PSeeds:         map[p2p.PeerID]string{"seed-1": "127.0.0.1:36657"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	known := wire.KnownPeers()
+	if known["bob"] != "127.0.0.1:26657" || known["seed-1"] != "127.0.0.1:36657" {
+		t.Fatalf("expected peers and seeds to be configured, got %+v", known)
+	}
+}
+
 func TestBuildRuntimeNodeConfiguresGRPCTransport(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {

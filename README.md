@@ -91,7 +91,7 @@ The design is intentionally modular so individual components can be replaced wit
 - Deterministic scenario and adversarial simulation helpers
 - Transport message codec and reactor for proposal/vote/timeout routing
 - Deterministic proposer rotation by height and round
-- gRPC peer transport with optional mTLS, binary framing, persistent streams, protocol/network/chain/genesis/node-id/auth-token handshake validation, message-size limits, reconnect backoff, peer-limit eviction, subscriber backpressure drop accounting, and send retry after stale-session failures
+- gRPC peer transport with optional mTLS, binary framing, persistent streams, seed bootstrap, peer exchange, protocol/network/chain/genesis/node-id/auth-token handshake validation, message-size limits, reconnect backoff, peer-limit eviction, subscriber backpressure drop accounting, and send retry after stale-session failures
 
 ### Validator and Committee
 
@@ -221,6 +221,15 @@ Run with gRPC P2P enabled and persistent peers:
 go run ./cmd/vexod start --home .vexo --run \
   --p2p-listen 0.0.0.0:26656 \
   --peer validator-2=127.0.0.1:26666 \
+  --p2p-auth-token shared-secret
+```
+
+Bootstrap from a seed peer and learn additional peers through the gRPC handshake:
+
+```bash
+go run ./cmd/vexod start --home .vexo --run \
+  --p2p-listen 0.0.0.0:26656 \
+  --seed seed-1=127.0.0.1:36656 \
   --p2p-auth-token shared-secret
 ```
 

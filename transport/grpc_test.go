@@ -50,6 +50,7 @@ func TestGRPCBinaryCodecRoundTrip(t *testing.T) {
 			NodeID:          "alice",
 			ListenAddr:      "127.0.0.1:26656",
 			AuthToken:       "shared-secret",
+			KnownPeers:      map[p2p.PeerID]string{"bob": "127.0.0.1:26657"},
 		},
 		Envelope: &grpcEnvelope{
 			Topic: p2p.TopicVote,
@@ -74,6 +75,9 @@ func TestGRPCBinaryCodecRoundTrip(t *testing.T) {
 	}
 	if decoded.Handshake.AuthToken != original.Handshake.AuthToken {
 		t.Fatalf("unexpected decoded auth token: %+v", decoded.Handshake)
+	}
+	if decoded.Handshake.KnownPeers["bob"] != "127.0.0.1:26657" {
+		t.Fatalf("unexpected decoded known peers: %+v", decoded.Handshake.KnownPeers)
 	}
 	if decoded.Envelope.Topic != original.Envelope.Topic || decoded.Envelope.From != original.Envelope.From || decoded.Envelope.To != original.Envelope.To || string(decoded.Envelope.Data) != string(original.Envelope.Data) {
 		t.Fatalf("unexpected decoded envelope: %+v", decoded.Envelope)
@@ -255,6 +259,81 @@ func TestGRPCTransportReconnectLoopEstablishesPeerSession(t *testing.T) {
 	waitForGRPCSessionCount(t, alice, 1)
 }
 
+func TestGRPCTransportDiscoversPeersFromHandshake(t *testing.T) {
+	base := GRPCConfig{
+		NetworkID:         "localnet",
+		ChainID:           "vexo-test",
+		GenesisHash:       GenesisHash([]byte("genesis")),
+		ReconnectInterval: 10 * time.Millisecond,
+		DialTimeout:       250 * time.Millisecond,
+	}
+	alice := newStartedGRPCPeer(t, "alice", base)
+	bob := newStartedGRPCPeer(t, "bob", base)
+	carol := newStartedGRPCPeer(t, "carol", base)
+	defer stopGRPCPeer(t, alice)
+	defer stopGRPCPeer(t, bob)
+	defer stopGRPCPeer(t, carol)
+
+	bob.SetPeer("carol", carol.Address())
+	alice.SetPeer("bob", bob.Address())
+	bobTxs, err := bob.Subscribe(context.Background(), p2p.TopicTx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := alice.Send(context.Background(), "bob", p2p.TopicTx, []byte("bootstrap")); err != nil {
+		t.Fatal(err)
+	}
+	assertEnvelope(t, bobTxs, "alice", "bob", p2p.TopicTx, "bootstrap")
+	waitForKnownPeer(t, alice, "carol")
+
+	carolTxs, err := carol.Subscribe(context.Background(), p2p.TopicTx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := alice.Send(context.Background(), "carol", p2p.TopicTx, []byte("discovered")); err != nil {
+		t.Fatal(err)
+	}
+	assertEnvelope(t, carolTxs, "alice", "carol", p2p.TopicTx, "discovered")
+}
+
+func TestGRPCTransportReconnectsAfterPeerRestart(t *testing.T) {
+	base := GRPCConfig{
+		NetworkID:         "localnet",
+		ChainID:           "vexo-test",
+		GenesisHash:       GenesisHash([]byte("genesis")),
+		ReconnectInterval: 10 * time.Millisecond,
+		ReconnectBackoff:  20 * time.Millisecond,
+		DialTimeout:       100 * time.Millisecond,
+	}
+	alice := newStartedGRPCPeer(t, "alice", base)
+	bob := newStartedGRPCPeer(t, "bob", base)
+	defer stopGRPCPeer(t, alice)
+	alice.SetPeer("bob", bob.Address())
+	waitForGRPCSessionCount(t, alice, 1)
+	bobAddress := bob.Address()
+
+	stopGRPCPeer(t, bob)
+	if err := alice.Send(context.Background(), "bob", p2p.TopicTx, []byte("during-restart")); err == nil {
+		t.Fatal("expected send to stopped peer to fail")
+	}
+	waitForGRPCSessionCount(t, alice, 0)
+
+	restartedConfig := base
+	restartedConfig.ListenAddr = bobAddress
+	bob = newStartedGRPCPeer(t, "bob", restartedConfig)
+	defer stopGRPCPeer(t, bob)
+	waitForGRPCSessionCount(t, alice, 1)
+
+	bobTxs, err := bob.Subscribe(context.Background(), p2p.TopicTx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := alice.Send(context.Background(), "bob", p2p.TopicTx, []byte("after-restart")); err != nil {
+		t.Fatal(err)
+	}
+	assertEnvelope(t, bobTxs, "alice", "bob", p2p.TopicTx, "after-restart")
+}
+
 func TestGRPCTransportValidationAndContext(t *testing.T) {
 	if _, err := NewGRPCTransport(GRPCConfig{}); !errors.Is(err, ErrPeerIDRequired) {
 		t.Fatalf("expected peer id required, got %v", err)
@@ -395,6 +474,18 @@ func waitForGRPCSessionCount(t *testing.T, peer *GRPCTransport, expected int) {
 	if actual := grpcSessionCount(peer); actual != expected {
 		t.Fatalf("expected %d grpc sessions, got %d", expected, actual)
 	}
+}
+
+func waitForKnownPeer(t *testing.T, peer *GRPCTransport, expected p2p.PeerID) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if address := peer.KnownPeers()[expected]; address != "" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("expected peer %s to be discovered, got %+v", expected, peer.KnownPeers())
 }
 
 func newTestCertificateAuthority(t *testing.T) (*x509.Certificate, *rsa.PrivateKey, *x509.CertPool) {

@@ -60,6 +60,7 @@ type startRuntimeConfig struct {
 	P2PEnabled              bool
 	P2PListenAddress        string
 	P2PPeers                map[p2p.PeerID]string
+	P2PSeeds                map[p2p.PeerID]string
 	P2PNetworkID            string
 	P2PMaxMessageBytes      uint64
 	P2PMaxPeers             int
@@ -102,6 +103,8 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	logFormat := flags.String("log-format", "text", "operational log format: text or json")
 	peers := peerFlags{}
 	flags.Var(peers, "peer", "persistent peer in id=host:port form; may be repeated")
+	seeds := peerFlags{}
+	flags.Var(seeds, "seed", "seed peer used for bootstrap discovery in id=host:port form; may be repeated")
 	jsonOutput := flags.Bool("json", false, "write JSON output")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -142,6 +145,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 			P2PMaxPeers:        *p2pMaxPeers,
 			P2PAuthToken:       *p2pAuthToken,
 			P2PPeers:           peers,
+			P2PSeeds:           seeds,
 		})
 	}
 	if !plan.DryRun {
@@ -203,7 +207,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 		writeOperationalLog(writer, runtimeConfig.LogFormat, "rpc_listening", map[string]any{"rpc_address": address, "pprof": runtimeConfig.RPCEnablePprof})
 	}
 	if p2pWire != nil {
-		writeOperationalLog(writer, runtimeConfig.LogFormat, "p2p_listening", map[string]any{"p2p_address": p2pWire.Address(), "p2p_peers": len(runtimeConfig.P2PPeers)})
+		writeOperationalLog(writer, runtimeConfig.LogFormat, "p2p_listening", map[string]any{"p2p_address": p2pWire.Address(), "p2p_peers": len(runtimeConfig.P2PPeers), "p2p_seeds": len(runtimeConfig.P2PSeeds)})
 	}
 	writeOperationalLog(writer, runtimeConfig.LogFormat, "node_running", map[string]any{"chain_id": inputs.Plan.ChainID, "validator_id": inputs.Plan.ValidatorID, "data_dir": inputs.Plan.DataDir})
 	select {
@@ -399,10 +403,11 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 	if networkID == "" {
 		networkID = inputs.Config.Chain.ChainID
 	}
+	peers := mergePeerMaps(runtimeConfig.P2PPeers, runtimeConfig.P2PSeeds)
 	return transport.NewGRPCTransport(transport.GRPCConfig{
 		PeerID:          p2p.PeerID(inputs.Config.ValidatorID),
 		ListenAddr:      runtimeConfig.P2PListenAddress,
-		Peers:           runtimeConfig.P2PPeers,
+		Peers:           peers,
 		NetworkID:       networkID,
 		ChainID:         inputs.Config.Chain.ChainID,
 		GenesisHash:     genesisHash(inputs.Genesis),
@@ -410,6 +415,19 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 		MaxPeers:        runtimeConfig.P2PMaxPeers,
 		AuthToken:       runtimeConfig.P2PAuthToken,
 	})
+}
+
+func mergePeerMaps(peerMaps ...map[p2p.PeerID]string) map[p2p.PeerID]string {
+	merged := make(map[p2p.PeerID]string)
+	for _, peers := range peerMaps {
+		for peerID, address := range peers {
+			if peerID == "" || address == "" {
+				continue
+			}
+			merged[peerID] = address
+		}
+	}
+	return merged
 }
 
 func genesisHash(genesis vexonode.Genesis) string {

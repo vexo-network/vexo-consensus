@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -44,13 +45,14 @@ var (
 )
 
 type Handshake struct {
-	ProtocolVersion string     `json:"protocol_version"`
-	NetworkID       string     `json:"network_id"`
-	ChainID         string     `json:"chain_id"`
-	GenesisHash     string     `json:"genesis_hash"`
-	NodeID          p2p.PeerID `json:"node_id"`
-	ListenAddr      string     `json:"listen_addr,omitempty"`
-	AuthToken       string     `json:"auth_token,omitempty"`
+	ProtocolVersion string                `json:"protocol_version"`
+	NetworkID       string                `json:"network_id"`
+	ChainID         string                `json:"chain_id"`
+	GenesisHash     string                `json:"genesis_hash"`
+	NodeID          p2p.PeerID            `json:"node_id"`
+	ListenAddr      string                `json:"listen_addr,omitempty"`
+	AuthToken       string                `json:"auth_token,omitempty"`
+	KnownPeers      map[p2p.PeerID]string `json:"known_peers,omitempty"`
 }
 
 type GRPCConfig struct {
@@ -164,6 +166,7 @@ func encodeGRPCStreamMessage(message *grpcStreamMessage) ([]byte, error) {
 		writeBinaryString(&buffer, string(message.Handshake.NodeID))
 		writeBinaryString(&buffer, message.Handshake.ListenAddr)
 		writeBinaryString(&buffer, message.Handshake.AuthToken)
+		writeBinaryPeerMap(&buffer, message.Handshake.KnownPeers)
 	} else {
 		buffer.WriteByte(0)
 	}
@@ -224,6 +227,10 @@ func decodeGRPCStreamMessage(data []byte) (*grpcStreamMessage, error) {
 		if err != nil {
 			return nil, err
 		}
+		knownPeers, err := readBinaryPeerMap(reader)
+		if err != nil {
+			return nil, err
+		}
 		message.Handshake = &Handshake{
 			ProtocolVersion: protocolVersion,
 			NetworkID:       networkID,
@@ -232,6 +239,7 @@ func decodeGRPCStreamMessage(data []byte) (*grpcStreamMessage, error) {
 			NodeID:          p2p.PeerID(nodeID),
 			ListenAddr:      listenAddr,
 			AuthToken:       authToken,
+			KnownPeers:      knownPeers,
 		}
 	default:
 		return nil, fmt.Errorf("invalid handshake flag %d", hasHandshake)
@@ -285,12 +293,50 @@ func writeBinaryBytes(writer io.Writer, value []byte) {
 	_, _ = writer.Write(value)
 }
 
+func writeBinaryPeerMap(writer io.Writer, peers map[p2p.PeerID]string) {
+	var count [4]byte
+	binary.BigEndian.PutUint32(count[:], uint32(len(peers)))
+	_, _ = writer.Write(count[:])
+	peerIDs := make([]string, 0, len(peers))
+	for peerID := range peers {
+		peerIDs = append(peerIDs, string(peerID))
+	}
+	sort.Strings(peerIDs)
+	for _, peerID := range peerIDs {
+		writeBinaryString(writer, peerID)
+		writeBinaryString(writer, peers[p2p.PeerID(peerID)])
+	}
+}
+
 func readBinaryString(reader io.Reader) (string, error) {
 	value, err := readBinaryBytes(reader)
 	if err != nil {
 		return "", err
 	}
 	return string(value), nil
+}
+
+func readBinaryPeerMap(reader io.Reader) (map[p2p.PeerID]string, error) {
+	var countBytes [4]byte
+	if _, err := io.ReadFull(reader, countBytes[:]); err != nil {
+		return nil, err
+	}
+	count := binary.BigEndian.Uint32(countBytes[:])
+	peers := make(map[p2p.PeerID]string, int(count))
+	for index := uint32(0); index < count; index++ {
+		peerID, err := readBinaryString(reader)
+		if err != nil {
+			return nil, err
+		}
+		address, err := readBinaryString(reader)
+		if err != nil {
+			return nil, err
+		}
+		if peerID != "" && address != "" {
+			peers[p2p.PeerID(peerID)] = address
+		}
+	}
+	return peers, nil
 }
 
 func readBinaryBytes(reader io.Reader) ([]byte, error) {
@@ -546,6 +592,10 @@ func (transport *GRPCTransport) SetPeer(peerID p2p.PeerID, address string) {
 	transport.peers[peerID] = address
 }
 
+func (transport *GRPCTransport) KnownPeers() map[p2p.PeerID]string {
+	return transport.peerAddresses()
+}
+
 func (transport *GRPCTransport) DroppedMessages() uint64 {
 	transport.mu.RLock()
 	defer transport.mu.RUnlock()
@@ -561,6 +611,13 @@ func (transport *GRPCTransport) AuthTokenConfigured() bool {
 func (transport *GRPCTransport) LocalHandshake() Handshake {
 	transport.mu.RLock()
 	listenAddr := transport.listenAddr
+	knownPeers := make(map[p2p.PeerID]string, len(transport.peers)+1)
+	for peerID, address := range transport.peers {
+		knownPeers[peerID] = address
+	}
+	if listenAddr != "" {
+		knownPeers[transport.peerID] = listenAddr
+	}
 	transport.mu.RUnlock()
 	return Handshake{
 		ProtocolVersion: transport.protocolVersion,
@@ -570,6 +627,7 @@ func (transport *GRPCTransport) LocalHandshake() Handshake {
 		NodeID:          transport.peerID,
 		ListenAddr:      listenAddr,
 		AuthToken:       transport.authToken,
+		KnownPeers:      knownPeers,
 	}
 }
 
@@ -584,6 +642,7 @@ func (transport *GRPCTransport) Gossip(stream grpc.BidiStreamingServer[grpcStrea
 	if err := transport.validateHandshake(*first.Handshake); err != nil {
 		return err
 	}
+	transport.learnHandshakePeers(*first.Handshake)
 	if err := stream.Send(&grpcStreamMessage{Handshake: ptrHandshake(transport.LocalHandshake())}); err != nil {
 		return err
 	}
@@ -734,6 +793,7 @@ func (transport *GRPCTransport) peerSession(ctx context.Context, peerID p2p.Peer
 		cancel()
 		return nil, err
 	}
+	transport.learnHandshakePeers(*remote.Handshake)
 	session = &grpcPeerSession{stream: stream, cancel: cancel}
 	transport.mu.Lock()
 	defer transport.mu.Unlock()
@@ -794,6 +854,33 @@ func (transport *GRPCTransport) evictPeerLocked(peerID p2p.PeerID) {
 			transport.peerOrder = append(transport.peerOrder[:index], transport.peerOrder[index+1:]...)
 			return
 		}
+	}
+}
+
+func (transport *GRPCTransport) learnHandshakePeers(handshake Handshake) {
+	discovered := make(map[p2p.PeerID]string, len(handshake.KnownPeers)+1)
+	if handshake.NodeID != "" && handshake.ListenAddr != "" {
+		discovered[handshake.NodeID] = handshake.ListenAddr
+	}
+	for peerID, address := range handshake.KnownPeers {
+		if peerID != "" && address != "" {
+			discovered[peerID] = address
+		}
+	}
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	for peerID, address := range discovered {
+		if peerID == "" || peerID == transport.peerID || address == "" {
+			continue
+		}
+		if _, exists := transport.peers[peerID]; exists {
+			continue
+		}
+		if transport.maxPeers > 0 && len(transport.peers) >= transport.maxPeers {
+			transport.evictPeerLocked(transport.peerOrder[0])
+		}
+		transport.peers[peerID] = address
+		transport.peerOrder = append(transport.peerOrder, peerID)
 	}
 }
 

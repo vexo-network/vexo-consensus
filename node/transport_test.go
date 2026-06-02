@@ -560,6 +560,33 @@ func TestNodePenalizesAndBansInvalidPeerMessages(t *testing.T) {
 	waitForMempoolLen(t, alice, 0)
 }
 
+func TestNodeBansMaliciousFloodWithoutBlockingHonestPeer(t *testing.T) {
+	alice, bob, carol := newScoredNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+	startNode(t, carol)
+	defer carol.Stop(context.Background())
+
+	bobWire, ok := bob.wire.(transport.Transport)
+	if !ok {
+		t.Fatal("expected bob transport")
+	}
+	for index := 0; index < 4; index++ {
+		if err := bobWire.Publish(context.Background(), p2p.TopicEvidence, []byte("{malicious-flood")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitForPeerBanned(t, alice, "bob")
+
+	if err := carol.SubmitTx(context.Background(), []byte("bank:honest-after-flood")); err != nil {
+		t.Fatal(err)
+	}
+	waitForMempoolLen(t, alice, 1)
+	waitForPeerScore(t, alice, "carol", 4)
+}
+
 func TestNodeRewardsValidPeerMessages(t *testing.T) {
 	alice, bob, _ := newScoredNodes(t)
 	startNode(t, alice)
