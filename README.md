@@ -157,6 +157,7 @@ The design is intentionally modular so individual components can be replaced wit
 | `mempool` | FIFO mempool and DAG batch graph |
 | `node` | Node config, genesis, lifecycle, runtime/store wiring |
 | `p2p` | Peer scoring and rate-limit defense |
+| `rpc` | HTTP health, readiness, status, and peer metrics endpoints |
 | `runtime` | Module wiring, block execution, proof building, recovery, replay |
 | `slashing` | Evidence validation and penalty keeper |
 | `store` | LevelDB-backed block, state, state-root, and KV storage |
@@ -217,6 +218,14 @@ Run a LevelDB-backed storage demo:
 ```bash
 go run ./cmd/vexod store-demo
 ```
+
+Expose operational status over HTTP from an embedded node:
+
+```go
+server := rpc.NewServer(node, rpc.Config{Address: "127.0.0.1:26657"})
+```
+
+Available endpoints: `/healthz`, `/readyz`, `/status`, `/peers`.
 
 ## Testing
 
