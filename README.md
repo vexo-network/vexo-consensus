@@ -195,6 +195,14 @@ Run a local node with RPC and the consensus loop:
 go run ./cmd/vexod start --home .vexo --run
 ```
 
+Run with gRPC P2P enabled and persistent peers:
+
+```bash
+go run ./cmd/vexod start --home .vexo --run \
+  --p2p-listen 0.0.0.0:26656 \
+  --peer validator-2=127.0.0.1:26666
+```
+
 Example output:
 
 ```text

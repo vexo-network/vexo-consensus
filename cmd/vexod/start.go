@@ -8,12 +8,15 @@ import (
 	"io"
 	"net"
 	"os/signal"
+	"strings"
 	"time"
 
 	appmodules "github.com/vexo-network/vexo-consensus/app/modules"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	vexonode "github.com/vexo-network/vexo-consensus/node"
+	"github.com/vexo-network/vexo-consensus/p2p"
 	vexorpc "github.com/vexo-network/vexo-consensus/rpc"
+	"github.com/vexo-network/vexo-consensus/transport"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -49,7 +52,15 @@ type startRuntimeConfig struct {
 	RPCRateLimitMaxRequests int
 	ConsensusLoopEnabled    bool
 	ConsensusLoop           vexonode.ConsensusLoopConfig
+	P2PEnabled              bool
+	P2PListenAddress        string
+	P2PPeers                map[p2p.PeerID]string
+	P2PNetworkID            string
+	P2PMaxMessageBytes      uint64
+	P2PMaxPeers             int
 }
+
+type peerFlags map[p2p.PeerID]string
 
 func runStart(writer io.Writer, args []string) error {
 	return runStartWithContext(context.Background(), writer, args)
@@ -75,6 +86,13 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	consensusInterval := flags.Duration("consensus-interval", 0, "local consensus loop tick interval")
 	roundTimeout := flags.Duration("consensus-round-timeout", 0, "local consensus loop timeout round duration")
 	maxBlockBytes := flags.Int64("consensus-max-block-bytes", 0, "maximum bytes to include when building a block")
+	p2pEnabled := flags.Bool("p2p", true, "run gRPC P2P transport with node")
+	p2pListenAddress := flags.String("p2p-listen", "127.0.0.1:26656", "gRPC P2P listen address")
+	p2pNetworkID := flags.String("p2p-network", "", "P2P network id; defaults to chain id")
+	p2pMaxMessageBytes := flags.Uint64("p2p-max-message-bytes", 0, "maximum P2P message bytes")
+	p2pMaxPeers := flags.Int("p2p-max-peers", 0, "maximum configured P2P peers")
+	peers := peerFlags{}
+	flags.Var(peers, "peer", "persistent peer in id=host:port form; may be repeated")
 	jsonOutput := flags.Bool("json", false, "write JSON output")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -106,6 +124,12 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 				RoundTimeout:  *roundTimeout,
 				MaxBlockBytes: *maxBlockBytes,
 			},
+			P2PEnabled:         *p2pEnabled,
+			P2PListenAddress:   *p2pListenAddress,
+			P2PNetworkID:       *p2pNetworkID,
+			P2PMaxMessageBytes: *p2pMaxMessageBytes,
+			P2PMaxPeers:        *p2pMaxPeers,
+			P2PPeers:           peers,
 		})
 	}
 	if !plan.DryRun {
@@ -128,7 +152,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 }
 
 func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, runtimeConfig startRuntimeConfig) error {
-	node, err := buildStartNode(inputs)
+	node, p2pWire, err := buildRuntimeNode(inputs, runtimeConfig)
 	if err != nil {
 		return err
 	}
@@ -161,6 +185,11 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 		rpcShutdown = shutdown
 		fmt.Fprintf(writer, "rpc listening\n")
 		fmt.Fprintf(writer, "rpc_address: %s\n", address)
+	}
+	if p2pWire != nil {
+		fmt.Fprintf(writer, "p2p listening\n")
+		fmt.Fprintf(writer, "p2p_address: %s\n", p2pWire.Address())
+		fmt.Fprintf(writer, "p2p_peers: %d\n", len(runtimeConfig.P2PPeers))
 	}
 	fmt.Fprintf(writer, "node running\n")
 	fmt.Fprintf(writer, "chain_id: %s\n", inputs.Plan.ChainID)
@@ -261,15 +290,54 @@ func loadStartInputs(home string, configPath string, genesisPath string, keyPath
 }
 
 func buildStartNode(inputs startInputs) (*vexonode.Node, error) {
+	node, _, err := buildRuntimeNode(inputs, startRuntimeConfig{})
+	return node, err
+}
+
+func buildRuntimeNode(inputs startInputs, runtimeConfig startRuntimeConfig) (*vexonode.Node, *transport.GRPCTransport, error) {
 	application, err := appmodules.NewRuntime(inputs.Config.Chain.ChainID, inputs.Config.Chain.Application)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	node, err := vexonode.New(inputs.Config, inputs.Genesis, application)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return node.WithSigner(inputs.Signer), nil
+	node.WithSigner(inputs.Signer)
+	if runtimeConfig.P2PEnabled {
+		wire, err := buildGRPCTransport(inputs, runtimeConfig)
+		if err != nil {
+			return nil, nil, err
+		}
+		node.WithTransport(wire)
+		return node, wire, nil
+	}
+	return node, nil, nil
+}
+
+func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*transport.GRPCTransport, error) {
+	networkID := runtimeConfig.P2PNetworkID
+	if networkID == "" {
+		networkID = inputs.Config.Chain.ChainID
+	}
+	return transport.NewGRPCTransport(transport.GRPCConfig{
+		PeerID:          p2p.PeerID(inputs.Config.ValidatorID),
+		ListenAddr:      runtimeConfig.P2PListenAddress,
+		Peers:           runtimeConfig.P2PPeers,
+		NetworkID:       networkID,
+		ChainID:         inputs.Config.Chain.ChainID,
+		GenesisHash:     genesisHash(inputs.Genesis),
+		MaxMessageBytes: runtimeConfig.P2PMaxMessageBytes,
+		MaxPeers:        runtimeConfig.P2PMaxPeers,
+	})
+}
+
+func genesisHash(genesis vexonode.Genesis) string {
+	data, err := json.Marshal(genesis)
+	if err != nil {
+		return transport.GenesisHash([]byte(genesis.ChainID))
+	}
+	return transport.GenesisHash(data)
 }
 
 func withLocalValidatorPublicKey(genesis vexonode.Genesis, validatorID types.ValidatorID, publicKey types.PublicKey) vexonode.Genesis {
@@ -279,4 +347,24 @@ func withLocalValidatorPublicKey(genesis vexonode.Genesis, validatorID types.Val
 		}
 	}
 	return genesis
+}
+
+func (flags peerFlags) String() string {
+	if len(flags) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(flags))
+	for peerID, address := range flags {
+		parts = append(parts, string(peerID)+"="+address)
+	}
+	return strings.Join(parts, ",")
+}
+
+func (flags peerFlags) Set(value string) error {
+	peerID, address, found := strings.Cut(value, "=")
+	if !found || peerID == "" || address == "" {
+		return fmt.Errorf("invalid peer %q: expected id=host:port", value)
+	}
+	flags[p2p.PeerID(peerID)] = address
+	return nil
 }

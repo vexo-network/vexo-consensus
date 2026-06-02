@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/vexo-network/vexo-consensus/p2p"
 )
 
 func TestRunCommandHelpAndVersion(t *testing.T) {
@@ -208,10 +210,11 @@ func TestRunStartRunStartsAndStopsNode(t *testing.T) {
 		cancel: cancel,
 		client: http.Client{Timeout: 5 * time.Second},
 	}
-	if err := runStartWithContext(ctx, output, []string{"--home", home, "--run", "--rpc-address", "127.0.0.1:0"}); err != nil {
+	if err := runStartWithContext(ctx, output, []string{"--home", home, "--run", "--rpc-address", "127.0.0.1:0", "--p2p-listen", "127.0.0.1:0"}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(output.String(), "rpc listening") ||
+		!strings.Contains(output.String(), "p2p listening") ||
 		!strings.Contains(output.String(), "consensus loop running") ||
 		!strings.Contains(output.String(), "node running") ||
 		!strings.Contains(output.String(), "shutdown requested") ||
@@ -234,6 +237,54 @@ func TestShutdownSignalsIncludeInterrupt(t *testing.T) {
 		}
 	}
 	t.Fatalf("expected shutdown signals to include os.Interrupt, got %+v", signals)
+}
+
+func TestStartPeerFlagsParsePersistentPeers(t *testing.T) {
+	peers := peerFlags{}
+	if err := peers.Set("bob=127.0.0.1:26657"); err != nil {
+		t.Fatal(err)
+	}
+	if err := peers.Set("carol=127.0.0.1:26658"); err != nil {
+		t.Fatal(err)
+	}
+	if peers["bob"] != "127.0.0.1:26657" || peers["carol"] != "127.0.0.1:26658" {
+		t.Fatalf("unexpected peers: %+v", peers)
+	}
+	if err := peers.Set("bad"); err == nil {
+		t.Fatal("expected invalid peer format error")
+	}
+}
+
+func TestBuildRuntimeNodeConfiguresGRPCTransport(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := loadStartInputs(home, "", "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startNode, wire, err := buildRuntimeNode(inputs, startRuntimeConfig{
+		P2PEnabled:       true,
+		P2PListenAddress: "127.0.0.1:0",
+		P2PNetworkID:     "localnet",
+		P2PPeers:         map[p2p.PeerID]string{"bob": "127.0.0.1:26657"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if startNode == nil || wire == nil {
+		t.Fatal("expected node and grpc wire")
+	}
+	if wire.PeerID() != "alice" {
+		t.Fatalf("expected peer id alice, got %s", wire.PeerID())
+	}
+	if wire.Address() != "127.0.0.1:0" {
+		t.Fatalf("expected configured listen address before start, got %s", wire.Address())
+	}
 }
 
 func TestRunStartRequiresKey(t *testing.T) {
