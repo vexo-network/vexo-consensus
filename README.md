@@ -225,7 +225,7 @@ Expose operational status over HTTP from an embedded node:
 server := rpc.NewServer(node, rpc.Config{Address: "127.0.0.1:26657"})
 ```
 
-Available endpoints: `/healthz`, `/readyz`, `/status`, `/peers`.
+Available endpoints: `/healthz`, `/readyz`, `/status`, `/peers`, `/tx`.
 
 ## Testing
 

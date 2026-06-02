@@ -2,10 +2,13 @@ package rpc
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -16,11 +19,21 @@ import (
 )
 
 type fakeStatusProvider struct {
-	status node.Status
+	status    node.Status
+	submitErr error
+	submitted []types.Tx
 }
 
 func (provider fakeStatusProvider) Status(ctx context.Context) node.Status {
 	return provider.status
+}
+
+func (provider *fakeStatusProvider) SubmitTx(ctx context.Context, tx types.Tx) error {
+	if provider.submitErr != nil {
+		return provider.submitErr
+	}
+	provider.submitted = append(provider.submitted, append(types.Tx(nil), tx...))
+	return nil
 }
 
 func TestHandlerReportsHealthStatusAndPeers(t *testing.T) {
@@ -98,6 +111,93 @@ func TestHandlerRejectsNonGET(t *testing.T) {
 	}
 }
 
+func TestHandlerSubmitsBase64Transaction(t *testing.T) {
+	provider := &fakeStatusProvider{status: node.Status{Running: true}}
+	handler := NewHandler(provider)
+
+	var response SubmitTxResponse
+	body := `{"tx":"` + base64.StdEncoding.EncodeToString([]byte("bank:send")) + `"}`
+	postJSON(t, handler, "/tx", body, http.StatusAccepted, &response)
+
+	if !response.Accepted || response.TxHash == "" {
+		t.Fatalf("unexpected response: %+v", response)
+	}
+	if len(provider.submitted) != 1 || string(provider.submitted[0]) != "bank:send" {
+		t.Fatalf("unexpected submitted txs: %+v", provider.submitted)
+	}
+}
+
+func TestHandlerSubmitsPlainTransaction(t *testing.T) {
+	provider := &fakeStatusProvider{status: node.Status{Running: true}}
+	handler := NewHandler(provider)
+
+	var response SubmitTxResponse
+	postJSON(t, handler, "/tx", `{"tx":"bank:plain","encoding":"plain"}`, http.StatusAccepted, &response)
+
+	if !response.Accepted || len(provider.submitted) != 1 || string(provider.submitted[0]) != "bank:plain" {
+		t.Fatalf("unexpected plain submit: response=%+v txs=%+v", response, provider.submitted)
+	}
+}
+
+func TestHandlerRejectsUnavailableTxSubmitter(t *testing.T) {
+	var response map[string]string
+	postJSON(t, NewHandler(fakeStatusProvider{}), "/tx", `{"tx":"YmFuaw=="}`, http.StatusNotImplemented, &response)
+	if response["error"] == "" {
+		t.Fatalf("expected error response, got %+v", response)
+	}
+}
+
+func TestHandlerRejectsInvalidTransactionRequests(t *testing.T) {
+	handler := NewHandler(&fakeStatusProvider{status: node.Status{Running: true}})
+	cases := []string{
+		`{}`,
+		`{"tx":"not-base64"}`,
+		`{"tx":"bank:send","encoding":"unknown"}`,
+		`{"tx":"YmFuaw==","extra":true}`,
+	}
+	for _, body := range cases {
+		var response map[string]string
+		postJSON(t, handler, "/tx", body, http.StatusBadRequest, &response)
+		if response["error"] == "" {
+			t.Fatalf("expected error for %s, got %+v", body, response)
+		}
+	}
+}
+
+func TestHandlerRejectsOversizedTransactionRequest(t *testing.T) {
+	handler := NewHandlerWithConfig(&fakeStatusProvider{status: node.Status{Running: true}}, Config{MaxRequestBytes: 8})
+
+	var response map[string]string
+	postJSON(t, handler, "/tx", `{"tx":"YmFuaw=="}`, http.StatusBadRequest, &response)
+	if response["error"] == "" {
+		t.Fatalf("expected oversized error, got %+v", response)
+	}
+}
+
+func TestHandlerReportsSubmitTxError(t *testing.T) {
+	handler := NewHandler(&fakeStatusProvider{status: node.Status{Running: true}, submitErr: errors.New("mempool full")})
+
+	var response map[string]string
+	postJSON(t, handler, "/tx", `{"tx":"YmFuaw=="}`, http.StatusBadRequest, &response)
+	if response["error"] != "mempool full" {
+		t.Fatalf("unexpected submit error: %+v", response)
+	}
+}
+
+func TestHandlerRejectsNonPOSTTx(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/tx", nil)
+	response := httptest.NewRecorder()
+
+	NewHandler(&fakeStatusProvider{}).ServeHTTP(response, request)
+
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405, got %d", response.Code)
+	}
+	if allow := response.Header().Get("Allow"); allow != http.MethodPost {
+		t.Fatalf("expected allow POST, got %q", allow)
+	}
+}
+
 func TestServerStartAndShutdown(t *testing.T) {
 	listener := newBlockingListener()
 	server := NewServer(fakeStatusProvider{status: node.Status{Running: true}}, Config{})
@@ -167,6 +267,25 @@ func (addr staticAddr) String() string {
 func getJSON(t *testing.T, handler http.Handler, path string, expectedStatus int, value any) {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodGet, path, nil)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != expectedStatus {
+		t.Fatalf("expected status %d, got %d body=%s", expectedStatus, response.Code, response.Body.String())
+	}
+	if contentType := response.Header().Get("Content-Type"); contentType != "application/json" {
+		t.Fatalf("expected application/json, got %q", contentType)
+	}
+	if err := json.NewDecoder(response.Body).Decode(value); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func postJSON(t *testing.T, handler http.Handler, path string, body string, expectedStatus int, value any) {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 
 	handler.ServeHTTP(response, request)
