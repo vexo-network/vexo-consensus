@@ -452,6 +452,54 @@ func TestRunNetworkLongRunPlan(t *testing.T) {
 	}
 }
 
+func TestRunNetworkLongRunDryRun(t *testing.T) {
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{"network", "longrun", "--validators", "4", "--duration", "10m", "--rate", "25", "--output", "evidence.json", "--dry-run"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"network longrun harness plan", "duration: 10m0s", "rate: 25 tx/s", "evidence_output: evidence.json", "emit machine-readable long-run evidence JSON"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected network longrun dry-run output to contain %q, got:\n%s", expected, output.String())
+		}
+	}
+}
+
+func TestRunNetworkLongRunEvidenceEvaluatesMetrics(t *testing.T) {
+	plan, err := buildNetworkRuntimePlan(t.TempDir(), 2, "/bin/vexod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	metricsCalls := make(map[string]int)
+	txSubmitted := uint64(0)
+	client := http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		address := request.URL.Host
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/metrics":
+			metricsCalls[address]++
+			height := uint64(10)
+			if metricsCalls[address] > 1 {
+				height = 12
+			}
+			return jsonHTTPResponse(http.StatusOK, `{"latest_height":`+strconv.FormatUint(height, 10)+`,"snapshot_healthy":true,"replay_healthy":true}`), nil
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/tx":
+			txSubmitted++
+			return jsonHTTPResponse(http.StatusAccepted, `{"accepted":true}`), nil
+		default:
+			return jsonHTTPResponse(http.StatusNotFound, `{}`), nil
+		}
+	})}
+
+	evidence := runNetworkLongRunEvidence(context.Background(), client, plan, 100*time.Millisecond, 20, "bank:send:alice:bob:1:fee=1:gas=1000:signer=alice:nonce")
+	if !evidence.OK || evidence.SchemaVersion != "v1" || evidence.Load.Submitted == 0 || txSubmitted == 0 || len(evidence.Nodes) != 2 {
+		t.Fatalf("unexpected longrun evidence: %+v", evidence)
+	}
+	for _, node := range evidence.Nodes {
+		if node.Sample.HeightRatePerMinute <= 0 || !node.Report.OK {
+			t.Fatalf("expected healthy node evidence, got %+v", node)
+		}
+	}
+}
+
 func TestParseNetworkDurationUsesHumanUnits(t *testing.T) {
 	for _, testCase := range []struct {
 		value    string

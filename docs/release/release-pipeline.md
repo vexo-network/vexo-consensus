@@ -101,5 +101,6 @@ The `release-candidate` target runs:
 - network load dry-run
 - chaos plan
 - 7-day multi-host longrun plan
+- longrun harness evidence dry-run
 
-Real release candidates should additionally run the longrun plan on independent machines and attach metrics, logs, pprof, snapshot, replay, and KMS signing evidence.
+Real release candidates should run `network longrun` on independent machines and attach the generated evidence JSON plus metrics, logs, pprof, snapshot, replay, and KMS signing evidence.

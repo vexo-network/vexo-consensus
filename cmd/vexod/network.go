@@ -68,6 +68,8 @@ func runNetwork(writer io.Writer, args []string) error {
 		return runNetworkChaosPlan(writer, args[1:])
 	case "longrun-plan":
 		return runNetworkLongRunPlan(writer, args[1:])
+	case "longrun":
+		return runNetworkLongRun(context.Background(), writer, args[1:])
 	case "stop":
 		return runNetworkStop(writer, args[1:])
 	default:
@@ -79,6 +81,35 @@ type networkLoadResult struct {
 	Submitted uint64
 	Failed    uint64
 	Duration  time.Duration
+}
+
+type networkLongRunEvidence struct {
+	SchemaVersion string                       `json:"schema_version"`
+	OK            bool                         `json:"ok"`
+	Home          string                       `json:"home"`
+	Validators    int                          `json:"validators"`
+	Duration      string                       `json:"duration"`
+	Rate          int                          `json:"rate"`
+	StartedAtUnix int64                        `json:"started_at_unix"`
+	EndedAtUnix   int64                        `json:"ended_at_unix"`
+	Load          networkLongRunLoadEvidence   `json:"load"`
+	Nodes         []networkLongRunNodeEvidence `json:"nodes"`
+}
+
+type networkLongRunLoadEvidence struct {
+	Submitted uint64 `json:"submitted"`
+	Failed    uint64 `json:"failed"`
+	Duration  string `json:"duration"`
+}
+
+type networkLongRunNodeEvidence struct {
+	ValidatorID string              `json:"validator_id"`
+	RPCAddress  string              `json:"rpc_address"`
+	Before      ops.MetricsSnapshot `json:"before,omitempty"`
+	After       ops.MetricsSnapshot `json:"after,omitempty"`
+	Sample      ops.Sample          `json:"sample,omitempty"`
+	Report      ops.Report          `json:"report,omitempty"`
+	Error       string              `json:"error,omitempty"`
 }
 
 func runNetworkLoad(ctx context.Context, writer io.Writer, args []string) error {
@@ -181,6 +212,85 @@ func runNetworkLongRunPlan(writer io.Writer, args []string) error {
 		return err
 	}
 	writeNetworkLongRunPlan(writer, plan, duration, *regionCount, *hostCount)
+	return nil
+}
+
+func runNetworkLongRun(ctx context.Context, writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("network longrun", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", ".vexo-network", "network home directory")
+	validators := flags.Int("validators", 4, "validator count")
+	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first network P2P port")
+	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first network RPC port")
+	durationValue := flags.String("duration", "1h", "long-run execution duration")
+	timeoutValue := flags.String("timeout", "2s", "per-request timeout")
+	rate := flags.Int("rate", 10, "transactions per second during long-run")
+	txPrefix := flags.String("tx-prefix", "bank:send:load-src:load-dst:1:fee=1:gas=1000:signer=load-src:nonce", "transaction payload prefix; nonce suffix is appended")
+	outputPath := flags.String("output", "", "optional JSON evidence output path")
+	jsonOutput := flags.Bool("json", false, "write JSON evidence to stdout")
+	dryRun := flags.Bool("dry-run", false, "print long-run harness plan without querying or submitting")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	duration, err := parseNetworkDuration(*durationValue)
+	if err != nil {
+		return err
+	}
+	timeout, err := parseNetworkDuration(*timeoutValue)
+	if err != nil {
+		return err
+	}
+	if *rate <= 0 {
+		return errors.New("rate must be positive")
+	}
+	plan, err := buildNetworkRuntimePlanWithPorts(*home, *validators, "", *p2pBasePort, *rpcBasePort)
+	if err != nil {
+		return err
+	}
+	if *dryRun {
+		writeNetworkLongRunHarnessPlan(writer, plan, duration, timeout, *rate, *txPrefix, *outputPath)
+		return nil
+	}
+	client := http.Client{Timeout: timeout}
+	evidence := runNetworkLongRunEvidence(ctx, client, plan, duration, *rate, *txPrefix)
+	if *outputPath != "" {
+		encoded, err := json.MarshalIndent(evidence, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(*outputPath, append(encoded, '\n'), 0o644); err != nil {
+			return err
+		}
+	}
+	if *jsonOutput {
+		encoder := json.NewEncoder(writer)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(evidence)
+	}
+	status := "ok"
+	if !evidence.OK {
+		status = "alert"
+	}
+	fmt.Fprintf(writer, "network longrun %s\n", status)
+	fmt.Fprintf(writer, "home: %s\n", evidence.Home)
+	fmt.Fprintf(writer, "validators: %d\n", evidence.Validators)
+	fmt.Fprintf(writer, "duration: %s\n", evidence.Duration)
+	fmt.Fprintf(writer, "submitted: %d\n", evidence.Load.Submitted)
+	fmt.Fprintf(writer, "failed: %d\n", evidence.Load.Failed)
+	if *outputPath != "" {
+		fmt.Fprintf(writer, "evidence: %s\n", *outputPath)
+	}
+	for _, node := range evidence.Nodes {
+		if node.Error != "" {
+			fmt.Fprintf(writer, "%s rpc=%s error=%s\n", node.ValidatorID, node.RPCAddress, node.Error)
+			continue
+		}
+		nodeStatus := "ok"
+		if !node.Report.OK {
+			nodeStatus = "alert"
+		}
+		fmt.Fprintf(writer, "%s rpc=%s height_before=%d height_after=%d rate=%.2f/min status=%s\n", node.ValidatorID, node.RPCAddress, node.Before.LatestHeight, node.After.LatestHeight, node.Sample.HeightRatePerMinute, nodeStatus)
+	}
 	return nil
 }
 
@@ -671,6 +781,25 @@ func writeNetworkLongRunPlan(writer io.Writer, plan networkRuntimePlan, duration
 	fmt.Fprintf(writer, "5. verify no conflicting finality, state sync recovery, snapshots, and KMS challenge signatures\n")
 }
 
+func writeNetworkLongRunHarnessPlan(writer io.Writer, plan networkRuntimePlan, duration time.Duration, timeout time.Duration, rate int, txPrefix string, outputPath string) {
+	fmt.Fprintf(writer, "network longrun harness plan\n")
+	fmt.Fprintf(writer, "home: %s\n", plan.Home)
+	fmt.Fprintf(writer, "validators: %d\n", plan.Validators)
+	fmt.Fprintf(writer, "duration: %s\n", duration)
+	fmt.Fprintf(writer, "request_timeout: %s\n", timeout)
+	fmt.Fprintf(writer, "rate: %d tx/s\n", rate)
+	fmt.Fprintf(writer, "tx_prefix: %s\n", txPrefix)
+	if outputPath != "" {
+		fmt.Fprintf(writer, "evidence_output: %s\n", outputPath)
+	}
+	fmt.Fprintf(writer, "steps:\n")
+	fmt.Fprintf(writer, "1. collect baseline /v1/metrics from all validators\n")
+	fmt.Fprintf(writer, "2. submit realistic signed-shape load payloads for %s\n", duration)
+	fmt.Fprintf(writer, "3. collect final /v1/metrics from all validators\n")
+	fmt.Fprintf(writer, "4. evaluate height rate, round timeouts, latency, bans, mempool, snapshot, replay, and signer failures\n")
+	fmt.Fprintf(writer, "5. emit machine-readable long-run evidence JSON\n")
+}
+
 func parseNetworkDuration(value string) (time.Duration, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -860,6 +989,85 @@ func collectNetworkMetrics(ctx context.Context, client http.Client, plan network
 		results = append(results, result)
 	}
 	return results
+}
+
+func runNetworkLongRunEvidence(ctx context.Context, client http.Client, plan networkRuntimePlan, duration time.Duration, rate int, txPrefix string) networkLongRunEvidence {
+	started := time.Now()
+	before := collectNetworkMetrics(ctx, client, plan, false)
+	loadCtx, cancel := context.WithTimeout(ctx, duration)
+	load := runNetworkLoadPlan(loadCtx, client, plan, rate, txPrefix)
+	cancel()
+	after := collectNetworkMetrics(ctx, client, plan, false)
+	evidence := networkLongRunEvidence{
+		SchemaVersion: "v1",
+		OK:            true,
+		Home:          plan.Home,
+		Validators:    plan.Validators,
+		Duration:      duration.String(),
+		Rate:          rate,
+		StartedAtUnix: started.Unix(),
+		EndedAtUnix:   time.Now().Unix(),
+		Load: networkLongRunLoadEvidence{
+			Submitted: load.Submitted,
+			Failed:    load.Failed,
+			Duration:  load.Duration.String(),
+		},
+		Nodes: make([]networkLongRunNodeEvidence, 0, len(plan.Nodes)),
+	}
+	beforeByValidator := make(map[string]networkMetricsResponse, len(before))
+	for _, result := range before {
+		beforeByValidator[result.ValidatorID] = result
+	}
+	afterByValidator := make(map[string]networkMetricsResponse, len(after))
+	for _, result := range after {
+		afterByValidator[result.ValidatorID] = result
+	}
+	for _, localNode := range plan.Nodes {
+		nodeEvidence := networkLongRunNodeEvidence{
+			ValidatorID: localNode.ValidatorID,
+			RPCAddress:  localNode.RPCAddress,
+		}
+		beforeResult := beforeByValidator[localNode.ValidatorID]
+		afterResult := afterByValidator[localNode.ValidatorID]
+		if beforeResult.Error != "" {
+			nodeEvidence.Error = "before metrics: " + beforeResult.Error
+			evidence.OK = false
+			evidence.Nodes = append(evidence.Nodes, nodeEvidence)
+			continue
+		}
+		if afterResult.Error != "" {
+			nodeEvidence.Error = "after metrics: " + afterResult.Error
+			evidence.OK = false
+			evidence.Nodes = append(evidence.Nodes, nodeEvidence)
+			continue
+		}
+		nodeEvidence.Before = beforeResult.Metrics
+		nodeEvidence.After = afterResult.Metrics
+		sample, err := ops.SampleFromMetricsSnapshot(&beforeResult.Metrics, afterResult.Metrics, duration)
+		if err != nil {
+			nodeEvidence.Error = err.Error()
+			evidence.OK = false
+			evidence.Nodes = append(evidence.Nodes, nodeEvidence)
+			continue
+		}
+		report, err := ops.Evaluate(sample, ops.DefaultThresholds())
+		if err != nil {
+			nodeEvidence.Error = err.Error()
+			evidence.OK = false
+			evidence.Nodes = append(evidence.Nodes, nodeEvidence)
+			continue
+		}
+		nodeEvidence.Sample = sample
+		nodeEvidence.Report = report
+		if !report.OK {
+			evidence.OK = false
+		}
+		evidence.Nodes = append(evidence.Nodes, nodeEvidence)
+	}
+	if load.Failed > 0 {
+		evidence.OK = false
+	}
+	return evidence
 }
 
 func runNetworkLoadPlan(ctx context.Context, client http.Client, plan networkRuntimePlan, rate int, txPrefix string) networkLoadResult {

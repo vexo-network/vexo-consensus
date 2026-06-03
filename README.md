@@ -318,6 +318,7 @@ go run ./cmd/vexod network metrics --validators 4 --evaluate
 go run ./cmd/vexod network chaos --validators 4 --stop-index 3 --timeout 30s --dry-run
 go run ./cmd/vexod network chaos-plan --validators 4 --duration 24h --regions 3
 go run ./cmd/vexod network longrun-plan --validators 4 --duration 168h --regions 3 --hosts 4
+go run ./cmd/vexod network longrun --validators 4 --duration 1h --rate 50 --output longrun-evidence.json
 ```
 
 Evaluate a captured `/metrics` JSON sample against default operational thresholds:
