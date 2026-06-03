@@ -488,6 +488,69 @@ func TestRunNetworkLoadAndChaosPlans(t *testing.T) {
 	}
 }
 
+func TestRunNetworkScalePlan(t *testing.T) {
+	home := t.TempDir()
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{"network", "scale-plan", "--home", home, "--validators", "64", "--regions", "4", "--hosts", "8", "--duration", "1m", "--rate", "60", "--inbound-peers", "128", "--outbound-peers", "64"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"network scale plan",
+		"validators: 64",
+		"regions: 4",
+		"hosts: 8",
+		"estimated_transactions: 3600",
+		"fault_tolerance: 21",
+		"quorum_power: 43",
+		"full_mesh_connections: 2016",
+		"peer_budget: inbound=128 outbound=64",
+		"validator-64:",
+		"rotate validators during load",
+	} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected network scale output to contain %q, got:\n%s", expected, output.String())
+		}
+	}
+}
+
+func TestRunNetworkScalePlanJSON(t *testing.T) {
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{"network", "scale-plan", "--validators", "7", "--regions", "2", "--hosts", "3", "--duration", "10s", "--rate", "5", "--inbound-peers", "2", "--outbound-peers", "1", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var plan networkScalePlan
+	if err := json.Unmarshal(output.Bytes(), &plan); err != nil {
+		t.Fatal(err)
+	}
+	if plan.SchemaVersion != "v1" || plan.Validators != 7 || plan.FaultTolerance != 2 || plan.QuorumPower != 5 || plan.FullMeshConnections != 21 {
+		t.Fatalf("unexpected scale plan summary: %+v", plan)
+	}
+	if plan.EstimatedTransactions != 50 || len(plan.Nodes) != 7 {
+		t.Fatalf("unexpected scale plan load/nodes: %+v", plan)
+	}
+	if !plan.Nodes[0].Seed || !plan.Nodes[1].Seed || !plan.Nodes[2].Seed || plan.Nodes[3].Seed {
+		t.Fatalf("unexpected seed assignment: %+v", plan.Nodes[:4])
+	}
+	if len(plan.Warnings) == 0 {
+		t.Fatalf("expected peer budget warning")
+	}
+}
+
+func TestRunNetworkScalePlanRejectsInvalidInputs(t *testing.T) {
+	for _, args := range [][]string{
+		{"network", "scale-plan", "--validators", "0"},
+		{"network", "scale-plan", "--regions", "0"},
+		{"network", "scale-plan", "--hosts", "0"},
+		{"network", "scale-plan", "--rate", "0"},
+		{"network", "scale-plan", "--inbound-peers", "-1"},
+	} {
+		var output bytes.Buffer
+		if err := runCommand(&output, &bytes.Buffer{}, args); err == nil {
+			t.Fatalf("expected error for args %v", args)
+		}
+	}
+}
+
 func TestRunNetworkLongRunPlan(t *testing.T) {
 	var output bytes.Buffer
 	if err := runCommand(&output, &bytes.Buffer{}, []string{"network", "longrun-plan", "--validators", "4", "--duration", "168h", "--regions", "3", "--hosts", "4"}); err != nil {

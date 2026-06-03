@@ -60,6 +60,8 @@ func runNetwork(writer io.Writer, args []string) error {
 		return runNetworkSmoke(context.Background(), writer, args[1:])
 	case "load":
 		return runNetworkLoad(context.Background(), writer, args[1:])
+	case "scale-plan":
+		return runNetworkScalePlan(writer, args[1:])
 	case "metrics":
 		return runNetworkMetrics(context.Background(), writer, args[1:])
 	case "chaos":
@@ -112,6 +114,34 @@ type networkLongRunNodeEvidence struct {
 	Error       string              `json:"error,omitempty"`
 }
 
+type networkScalePlan struct {
+	SchemaVersion             string                 `json:"schema_version"`
+	Home                      string                 `json:"home"`
+	Validators                int                    `json:"validators"`
+	Regions                   int                    `json:"regions"`
+	Hosts                     int                    `json:"hosts"`
+	Duration                  string                 `json:"duration"`
+	Rate                      int                    `json:"rate"`
+	EstimatedTransactions     uint64                 `json:"estimated_transactions"`
+	FaultTolerance            int                    `json:"fault_tolerance"`
+	QuorumPower               int                    `json:"quorum_power"`
+	TotalPeers                int                    `json:"total_peers"`
+	FullMeshConnections       int                    `json:"full_mesh_connections"`
+	PerNodeInboundPeerBudget  int                    `json:"per_node_inbound_peer_budget"`
+	PerNodeOutboundPeerBudget int                    `json:"per_node_outbound_peer_budget"`
+	Nodes                     []networkScaleNodePlan `json:"nodes"`
+	Warnings                  []string               `json:"warnings,omitempty"`
+}
+
+type networkScaleNodePlan struct {
+	ValidatorID string `json:"validator_id"`
+	Host        string `json:"host"`
+	Region      string `json:"region"`
+	RPCAddress  string `json:"rpc_address"`
+	P2PAddress  string `json:"p2p_address"`
+	Seed        bool   `json:"seed"`
+}
+
 func runNetworkLoad(ctx context.Context, writer io.Writer, args []string) error {
 	flags := flag.NewFlagSet("network load", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -154,6 +184,53 @@ func runNetworkLoad(ctx context.Context, writer io.Writer, args []string) error 
 	fmt.Fprintf(writer, "submitted: %d\n", result.Submitted)
 	fmt.Fprintf(writer, "failed: %d\n", result.Failed)
 	fmt.Fprintf(writer, "duration: %s\n", result.Duration)
+	return nil
+}
+
+func runNetworkScalePlan(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("network scale-plan", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", ".vexo-network", "network home directory")
+	validators := flags.Int("validators", 64, "validator count")
+	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first network P2P port")
+	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first network RPC port")
+	durationValue := flags.String("duration", "24h", "target scale validation duration")
+	rate := flags.Int("rate", 50, "target transactions per second")
+	regionCount := flags.Int("regions", 3, "number of logical regions")
+	hostCount := flags.Int("hosts", 8, "number of independent machines")
+	inboundPeers := flags.Int("inbound-peers", 128, "per-node inbound peer budget")
+	outboundPeers := flags.Int("outbound-peers", 64, "per-node outbound peer budget")
+	jsonOutput := flags.Bool("json", false, "write JSON output")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	duration, err := parseNetworkDuration(*durationValue)
+	if err != nil {
+		return err
+	}
+	if *rate <= 0 {
+		return errors.New("rate must be positive")
+	}
+	if *regionCount <= 0 {
+		return errors.New("regions must be positive")
+	}
+	if *hostCount <= 0 {
+		return errors.New("hosts must be positive")
+	}
+	if *inboundPeers < 0 || *outboundPeers < 0 {
+		return errors.New("peer budgets must not be negative")
+	}
+	plan, err := buildNetworkRuntimePlanWithPorts(*home, *validators, "", *p2pBasePort, *rpcBasePort)
+	if err != nil {
+		return err
+	}
+	scalePlan := buildNetworkScalePlan(plan, duration, *rate, *regionCount, *hostCount, *inboundPeers, *outboundPeers)
+	if *jsonOutput {
+		encoder := json.NewEncoder(writer)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(scalePlan)
+	}
+	writeNetworkScalePlan(writer, scalePlan)
 	return nil
 }
 
@@ -718,6 +795,111 @@ func writeNetworkLoadPlan(writer io.Writer, plan networkRuntimePlan, duration ti
 	fmt.Fprintf(writer, "tx_prefix: %s\n", txPrefix)
 	fmt.Fprintf(writer, "target_rpc: %s\n", plan.Nodes[0].RPCAddress)
 	fmt.Fprintf(writer, "estimated_transactions: %d\n", estimatedNetworkTransactions(duration, rate))
+}
+
+func buildNetworkScalePlan(plan networkRuntimePlan, duration time.Duration, rate int, regions int, hosts int, inboundPeers int, outboundPeers int) networkScalePlan {
+	scalePlan := networkScalePlan{
+		SchemaVersion:             "v1",
+		Home:                      plan.Home,
+		Validators:                plan.Validators,
+		Regions:                   regions,
+		Hosts:                     hosts,
+		Duration:                  duration.String(),
+		Rate:                      rate,
+		EstimatedTransactions:     estimatedNetworkTransactions(duration, rate),
+		FaultTolerance:            networkFaultTolerance(plan.Validators),
+		QuorumPower:               networkQuorumPower(plan.Validators),
+		TotalPeers:                plan.Validators,
+		FullMeshConnections:       networkFullMeshConnections(plan.Validators),
+		PerNodeInboundPeerBudget:  inboundPeers,
+		PerNodeOutboundPeerBudget: outboundPeers,
+		Nodes:                     make([]networkScaleNodePlan, 0, len(plan.Nodes)),
+	}
+	seedLimit := 3
+	if seedLimit > len(plan.Nodes) {
+		seedLimit = len(plan.Nodes)
+	}
+	for index, localNode := range plan.Nodes {
+		scalePlan.Nodes = append(scalePlan.Nodes, networkScaleNodePlan{
+			ValidatorID: localNode.ValidatorID,
+			Host:        fmt.Sprintf("node-%d", (index%hosts)+1),
+			Region:      fmt.Sprintf("region-%d", (index%regions)+1),
+			RPCAddress:  localNode.RPCAddress,
+			P2PAddress:  localNode.P2PAddress,
+			Seed:        index < seedLimit,
+		})
+	}
+	scalePlan.Warnings = networkScaleWarnings(scalePlan)
+	return scalePlan
+}
+
+func writeNetworkScalePlan(writer io.Writer, plan networkScalePlan) {
+	fmt.Fprintf(writer, "network scale plan\n")
+	fmt.Fprintf(writer, "home: %s\n", plan.Home)
+	fmt.Fprintf(writer, "validators: %d\n", plan.Validators)
+	fmt.Fprintf(writer, "regions: %d\n", plan.Regions)
+	fmt.Fprintf(writer, "hosts: %d\n", plan.Hosts)
+	fmt.Fprintf(writer, "duration: %s\n", plan.Duration)
+	fmt.Fprintf(writer, "rate: %d tx/s\n", plan.Rate)
+	fmt.Fprintf(writer, "estimated_transactions: %d\n", plan.EstimatedTransactions)
+	fmt.Fprintf(writer, "fault_tolerance: %d\n", plan.FaultTolerance)
+	fmt.Fprintf(writer, "quorum_power: %d\n", plan.QuorumPower)
+	fmt.Fprintf(writer, "full_mesh_connections: %d\n", plan.FullMeshConnections)
+	fmt.Fprintf(writer, "peer_budget: inbound=%d outbound=%d\n", plan.PerNodeInboundPeerBudget, plan.PerNodeOutboundPeerBudget)
+	for _, localNode := range plan.Nodes {
+		fmt.Fprintf(writer, "%s: host=%s region=%s seed=%t rpc=%s p2p=%s\n", localNode.ValidatorID, localNode.Host, localNode.Region, localNode.Seed, localNode.RPCAddress, localNode.P2PAddress)
+	}
+	fmt.Fprintf(writer, "checks:\n")
+	fmt.Fprintf(writer, "1. run network init/start with matching ports and copied genesis files\n")
+	fmt.Fprintf(writer, "2. require at least %d live validators before accepting finality\n", plan.QuorumPower)
+	fmt.Fprintf(writer, "3. sustain %d tx/s for %s and submit about %d txs\n", plan.Rate, plan.Duration, plan.EstimatedTransactions)
+	fmt.Fprintf(writer, "4. collect metrics for commit latency, round timeouts, peer bans, mempool, signer failures, snapshots, and replay\n")
+	fmt.Fprintf(writer, "5. isolate up to %d faulty validators and require no conflicting finality\n", plan.FaultTolerance)
+	fmt.Fprintf(writer, "6. rotate validators during load and verify light-client finality proofs by height-specific validator set\n")
+	if len(plan.Warnings) > 0 {
+		fmt.Fprintf(writer, "warnings:\n")
+		for _, warning := range plan.Warnings {
+			fmt.Fprintf(writer, "- %s\n", warning)
+		}
+	}
+}
+
+func networkScaleWarnings(plan networkScalePlan) []string {
+	warnings := make([]string, 0)
+	if plan.Validators < 4 {
+		warnings = append(warnings, "fewer than 4 validators cannot tolerate one Byzantine validator with 2f+1 quorum")
+	}
+	if plan.Hosts > plan.Validators {
+		warnings = append(warnings, "hosts exceed validators; some hosts will be unused")
+	}
+	if plan.PerNodeInboundPeerBudget+plan.PerNodeOutboundPeerBudget < plan.Validators-1 {
+		warnings = append(warnings, "peer budget is below full mesh; verify gossip fanout and seed coverage")
+	}
+	if plan.EstimatedTransactions == 0 {
+		warnings = append(warnings, "estimated transaction count is zero; increase duration or rate")
+	}
+	return warnings
+}
+
+func networkFaultTolerance(validators int) int {
+	if validators <= 0 {
+		return 0
+	}
+	return (validators - 1) / 3
+}
+
+func networkQuorumPower(validators int) int {
+	if validators <= 0 {
+		return 0
+	}
+	return ((validators * 2) / 3) + 1
+}
+
+func networkFullMeshConnections(validators int) int {
+	if validators <= 1 {
+		return 0
+	}
+	return validators * (validators - 1) / 2
 }
 
 func writeNetworkChaosPlan(writer io.Writer, plan networkRuntimePlan, duration time.Duration, regions int) {

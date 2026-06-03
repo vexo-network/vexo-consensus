@@ -171,7 +171,7 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  keys show       show validator public key\n")
 	fmt.Fprintf(writer, "  tx              build or parse canonical transaction payloads\n")
 	fmt.Fprintf(writer, "  start           validate files, prepare startup, or run node with --run; Ctrl+C shuts down gracefully\n")
-	fmt.Fprintf(writer, "  network         up, initialize, start, smoke, load, chaos, longrun, status, and stop node networks\n")
+	fmt.Fprintf(writer, "  network         up, initialize, start, smoke, load, scale-plan, chaos, longrun, status, and stop node networks\n")
 	fmt.Fprintf(writer, "  consensus       run consensus simulations and diagnostics\n")
 	fmt.Fprintf(writer, "  snapshot        export, verify, fetch, sync, or restore latest persisted state snapshot\n")
 	fmt.Fprintf(writer, "  doctor          inspect config, keys, store, snapshot, and recovery readiness\n")
