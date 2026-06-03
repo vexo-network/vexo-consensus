@@ -1,0 +1,10 @@
+{
+  "p2p_base_port": 26656,
+  "rpc_base_port": 26657,
+  "p2p_port_step": 0,
+  "rpc_port_step": 0,
+  "p2p_host_template": "validator-%d",
+  "rpc_host_template": "validator-%d",
+  "p2p_listen_host": "0.0.0.0",
+  "rpc_listen_host": "0.0.0.0"
+}

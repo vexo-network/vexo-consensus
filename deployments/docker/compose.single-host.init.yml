@@ -12,25 +12,12 @@ services:
       - ${VEXO_CHAIN_ID:-vexo-chain}
       - --validators
       - ${VEXO_VALIDATORS:-4}
-      - --p2p-base-port
-      - "26656"
-      - --rpc-base-port
-      - "26657"
-      - --p2p-port-step
-      - "0"
-      - --rpc-port-step
-      - "0"
-      - --p2p-host-template
-      - validator-%d
-      - --rpc-host-template
-      - validator-%d
-      - --p2p-listen-host
-      - 0.0.0.0
-      - --rpc-listen-host
-      - 0.0.0.0
+      - --network-config
+      - /etc/vexo/topology.json
       - --overwrite
     volumes:
       - vexo-single-data:/var/lib/vexo
+      - ./topology.single-host.json:/etc/vexo/topology.json:ro
 
 volumes:
   vexo-single-data:

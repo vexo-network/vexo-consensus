@@ -10,9 +10,7 @@ The exact admission path depends on the chain's staking and governance policy. A
 vexod init validator \
   --home .vexo-validator-new \
   --chain-id vexo-chain \
-  --validator validator-new \
-  --p2p-listen 0.0.0.0:26656 \
-  --rpc-address 0.0.0.0:26657
+  --validator validator-new
 ```
 
 Archive the generated public key:
@@ -21,9 +19,9 @@ Archive the generated public key:
 vexod keys show --home .vexo-validator-new --json
 ```
 
-## 2. Configure Persistent Peers
+## 2. Configure Listen Addresses and Peers
 
-Edit `.vexo-validator-new/config.json` and set `runtime.p2p.peers`:
+Edit `.vexo-validator-new/config.json` and set `runtime.rpc.address`, `runtime.p2p.listen_address`, and `runtime.p2p.peers`:
 
 ```json
 {
@@ -40,7 +38,7 @@ Edit `.vexo-validator-new/config.json` and set `runtime.p2p.peers`:
 }
 ```
 
-Do not rely on long-lived `vexod start --peer ...` flags for production validators.
+Do not rely on long-lived command-line networking overrides for production validators. Keep persistent node addresses in `config.json`.
 
 ## 3. Submit Validator Admission
 

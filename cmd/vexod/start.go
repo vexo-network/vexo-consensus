@@ -89,7 +89,6 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	dryRun := flags.Bool("dry-run", false, "validate startup inputs without running a node")
 	run := flags.Bool("run", false, "start the node and block until context cancellation")
 	rpcEnabled := flags.Bool("rpc", true, "run HTTP RPC server with node")
-	rpcAddress := flags.String("rpc-address", defaultRPCAddress, "HTTP RPC listen address")
 	rpcAdminToken := flags.String("rpc-admin-token", "", "admin token required for protected RPC endpoints")
 	rpcEnablePprof := flags.Bool("rpc-pprof", false, "enable net/http/pprof endpoints under /debug/pprof")
 	rpcRequestTimeout := flags.Duration("rpc-request-timeout", 0, "HTTP RPC request timeout")
@@ -101,7 +100,6 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	roundTimeout := flags.Duration("consensus-round-timeout", 0, "local consensus loop timeout round duration")
 	maxBlockBytes := flags.Int64("consensus-max-block-bytes", 0, "maximum bytes to include when building a block")
 	p2pEnabled := flags.Bool("p2p", true, "run gRPC P2P transport with node")
-	p2pListenAddress := flags.String("p2p-listen", defaultP2PAddress, "gRPC P2P listen address")
 	p2pNetworkID := flags.String("p2p-network", "", "P2P network id; defaults to chain id")
 	p2pMaxMessageBytes := flags.Uint64("p2p-max-message-bytes", 0, "maximum P2P message bytes")
 	p2pMaxPeers := flags.Int("p2p-max-peers", 0, "maximum configured P2P peers")
@@ -134,7 +132,6 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	}
 	applyStartFlagOverrides(&runtimeConfig, visited, startFlagValues{
 		rpcEnabled:              *rpcEnabled,
-		rpcAddress:              *rpcAddress,
 		rpcAdminToken:           *rpcAdminToken,
 		rpcEnablePprof:          *rpcEnablePprof,
 		rpcRequestTimeout:       *rpcRequestTimeout,
@@ -148,7 +145,6 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 		roundTimeout:            *roundTimeout,
 		maxBlockBytes:           *maxBlockBytes,
 		p2pEnabled:              *p2pEnabled,
-		p2pListenAddress:        *p2pListenAddress,
 		p2pNetworkID:            *p2pNetworkID,
 		p2pMaxMessageBytes:      *p2pMaxMessageBytes,
 		p2pMaxPeers:             *p2pMaxPeers,
@@ -200,7 +196,6 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 
 type startFlagValues struct {
 	rpcEnabled              bool
-	rpcAddress              string
 	rpcAdminToken           string
 	rpcEnablePprof          bool
 	rpcRequestTimeout       time.Duration
@@ -214,7 +209,6 @@ type startFlagValues struct {
 	roundTimeout            time.Duration
 	maxBlockBytes           int64
 	p2pEnabled              bool
-	p2pListenAddress        string
 	p2pNetworkID            string
 	p2pMaxMessageBytes      uint64
 	p2pMaxPeers             int
@@ -236,9 +230,6 @@ func visitedFlags(flags *flag.FlagSet) map[string]bool {
 func applyStartFlagOverrides(cfg *startRuntimeConfig, visited map[string]bool, values startFlagValues) {
 	if visited["rpc"] {
 		cfg.RPCEnabled = values.rpcEnabled
-	}
-	if visited["rpc-address"] {
-		cfg.RPCAddress = values.rpcAddress
 	}
 	if visited["rpc-admin-token"] {
 		cfg.RPCAdminToken = values.rpcAdminToken
@@ -278,9 +269,6 @@ func applyStartFlagOverrides(cfg *startRuntimeConfig, visited map[string]bool, v
 	}
 	if visited["p2p"] {
 		cfg.P2PEnabled = values.p2pEnabled
-	}
-	if visited["p2p-listen"] {
-		cfg.P2PListenAddress = values.p2pListenAddress
 	}
 	if visited["p2p-network"] {
 		cfg.P2PNetworkID = values.p2pNetworkID

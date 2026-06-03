@@ -498,10 +498,7 @@ func runNetworkInit(writer io.Writer, args []string) error {
 	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first network RPC port")
 	p2pPortStep := flags.Int("p2p-port-step", 10, "P2P port increment per validator")
 	rpcPortStep := flags.Int("rpc-port-step", 10, "RPC port increment per validator")
-	p2pHostTemplate := flags.String("p2p-host-template", "127.0.0.1", "P2P host template; supports %d validator index")
-	rpcHostTemplate := flags.String("rpc-host-template", "127.0.0.1", "RPC host template; supports %d validator index")
-	p2pListenHost := flags.String("p2p-listen-host", "", "P2P listen host stored in config; defaults to p2p host")
-	rpcListenHost := flags.String("rpc-listen-host", "", "RPC listen host stored in config; defaults to rpc host")
+	networkConfigPath := flags.String("network-config", "", "network topology config file for generated validator addresses")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing network files")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -510,18 +507,16 @@ func runNetworkInit(writer io.Writer, args []string) error {
 		"--home", *home,
 		"--chain-id", *chainID,
 		"--validators", strconv.Itoa(*validators),
-		"--p2p-base-port", strconv.Itoa(*p2pBasePort),
-		"--rpc-base-port", strconv.Itoa(*rpcBasePort),
-		"--p2p-port-step", strconv.Itoa(*p2pPortStep),
-		"--rpc-port-step", strconv.Itoa(*rpcPortStep),
-		"--p2p-host-template", *p2pHostTemplate,
-		"--rpc-host-template", *rpcHostTemplate,
 	}
-	if *p2pListenHost != "" {
-		initArgs = append(initArgs, "--p2p-listen-host", *p2pListenHost)
-	}
-	if *rpcListenHost != "" {
-		initArgs = append(initArgs, "--rpc-listen-host", *rpcListenHost)
+	if *networkConfigPath != "" {
+		initArgs = append(initArgs, "--network-config", *networkConfigPath)
+	} else {
+		initArgs = append(initArgs,
+			"--p2p-base-port", strconv.Itoa(*p2pBasePort),
+			"--rpc-base-port", strconv.Itoa(*rpcBasePort),
+			"--p2p-port-step", strconv.Itoa(*p2pPortStep),
+			"--rpc-port-step", strconv.Itoa(*rpcPortStep),
+		)
 	}
 	if *overwrite {
 		initArgs = append(initArgs, "--overwrite")
@@ -747,18 +742,26 @@ func buildNetworkRuntimePlanWithPorts(home string, validators int, binaryPath st
 	for index := 1; index <= validators; index++ {
 		validatorID := networkValidatorID(index)
 		nodeHome := filepath.Join(home, validatorID)
+		rpcAddress := networkRPCAddressWithBasePort(index, rpcBasePort)
+		p2pAddress := networkP2PAddressWithBasePort(index, p2pBasePort)
+		if document, err := readConfigDocument(filepath.Join(nodeHome, configFileName)); err == nil {
+			if document.Runtime.RPC.Address != "" {
+				rpcAddress = document.Runtime.RPC.Address
+			}
+			if document.Runtime.P2P.ListenAddress != "" {
+				p2pAddress = document.Runtime.P2P.ListenAddress
+			}
+		}
 		args := []string{
 			"start",
 			"--home", nodeHome,
 			"--run",
-			"--rpc-address", networkRPCAddressWithBasePort(index, rpcBasePort),
-			"--p2p-listen", networkP2PAddressWithBasePort(index, p2pBasePort),
 		}
 		plan.Nodes = append(plan.Nodes, networkNodeRuntimePlan{
 			ValidatorID: validatorID,
 			Home:        nodeHome,
-			RPCAddress:  networkRPCAddressWithBasePort(index, rpcBasePort),
-			P2PAddress:  networkP2PAddressWithBasePort(index, p2pBasePort),
+			RPCAddress:  rpcAddress,
+			P2PAddress:  p2pAddress,
 			PIDPath:     filepath.Join(nodeHome, networkPIDFileName),
 			LogPath:     filepath.Join(nodeHome, "vexod.log"),
 			Args:        args,

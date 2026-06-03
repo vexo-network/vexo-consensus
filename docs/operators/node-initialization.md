@@ -12,9 +12,7 @@ Use `init validator` when the node will propose, vote, sign consensus messages, 
 vexod init validator \
   --home .vexo-validator-1 \
   --chain-id vexo-chain \
-  --validator validator-1 \
-  --p2p-listen 0.0.0.0:26656 \
-  --rpc-address 0.0.0.0:26657
+  --validator validator-1
 ```
 
 This creates:
@@ -38,9 +36,7 @@ Use `init archive` when the node should keep chain data, expose RPC, sync from p
 vexod init archive \
   --home .vexo-archive-1 \
   --chain-id vexo-chain \
-  --bootstrap-peer validator-1=seed-1.example.com:26656 \
-  --p2p-listen 0.0.0.0:26656 \
-  --rpc-address 0.0.0.0:26657
+  --bootstrap-peer validator-1=seed-1.example.com:26656
 ```
 
 This creates:
@@ -73,7 +69,7 @@ Archive config has:
 
 ## Config-Based Peers
 
-Peer addresses live in `config.json`:
+Peer and listen addresses live in `config.json`:
 
 ```json
 {
@@ -101,6 +97,8 @@ vexod start --home .vexo-archive-1 --run
 
 Command-line `--peer` and `--seed` remain available for temporary debugging, but production homes should store persistent peers in `config.json`.
 
+Do not put long-lived host or `host:port` settings on the `vexod start` command line. Edit `runtime.rpc.address`, `runtime.p2p.listen_address`, `runtime.p2p.peers`, and `runtime.p2p.seeds` in `config.json` instead.
+
 ## Multi-Validator Local Network
 
 For a generated local network:
@@ -118,17 +116,27 @@ Each generated validator home receives:
 - a shared `genesis.json`
 - config-level peer entries for the other validators
 
-For containerized single-host networks, generate service-name peers and same internal ports:
+For containerized or multi-host networks, put topology values in a JSON file:
+
+```json
+{
+  "p2p_base_port": 26656,
+  "rpc_base_port": 26657,
+  "p2p_port_step": 0,
+  "rpc_port_step": 0,
+  "p2p_host_template": "validator-%d",
+  "rpc_host_template": "validator-%d",
+  "p2p_listen_host": "0.0.0.0",
+  "rpc_listen_host": "0.0.0.0"
+}
+```
+
+Then generate node homes from that file:
 
 ```bash
 vexod network init \
   --home .vexo-network \
   --chain-id vexo-chain \
   --validators 4 \
-  --p2p-port-step 0 \
-  --rpc-port-step 0 \
-  --p2p-host-template 'validator-%d' \
-  --rpc-host-template 'validator-%d' \
-  --p2p-listen-host 0.0.0.0 \
-  --rpc-listen-host 0.0.0.0
+  --network-config ./topology.json
 ```

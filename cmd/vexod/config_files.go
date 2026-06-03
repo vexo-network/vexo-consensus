@@ -121,25 +121,26 @@ func runInit(writer io.Writer, args []string) error {
 	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first network RPC port")
 	p2pPortStep := flags.Int("p2p-port-step", 10, "P2P port increment per validator")
 	rpcPortStep := flags.Int("rpc-port-step", 10, "RPC port increment per validator")
-	p2pHostTemplate := flags.String("p2p-host-template", "127.0.0.1", "P2P host template; supports %d validator index")
-	rpcHostTemplate := flags.String("rpc-host-template", "127.0.0.1", "RPC host template; supports %d validator index")
-	p2pListenHost := flags.String("p2p-listen-host", "", "P2P listen host stored in config; defaults to p2p host")
-	rpcListenHost := flags.String("rpc-listen-host", "", "RPC listen host stored in config; defaults to rpc host")
+	networkConfigPath := flags.String("network-config", "", "network topology config file for generated validator addresses")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing files")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if *validatorCount > 1 {
-		network, err := writeNetworkFilesWithOptions(*home, *chainID, *validatorCount, *overwrite, networkAddressOptions{
-			P2PBasePort:     *p2pBasePort,
-			RPCBasePort:     *rpcBasePort,
-			P2PPortStep:     *p2pPortStep,
-			RPCPortStep:     *rpcPortStep,
-			P2PHostTemplate: *p2pHostTemplate,
-			RPCHostTemplate: *rpcHostTemplate,
-			P2PListenHost:   *p2pListenHost,
-			RPCListenHost:   *rpcListenHost,
-		})
+		options := networkAddressOptions{
+			P2PBasePort: *p2pBasePort,
+			RPCBasePort: *rpcBasePort,
+			P2PPortStep: *p2pPortStep,
+			RPCPortStep: *rpcPortStep,
+		}
+		if *networkConfigPath != "" {
+			loadedOptions, err := readNetworkAddressOptions(*networkConfigPath)
+			if err != nil {
+				return err
+			}
+			options = loadedOptions
+		}
+		network, err := writeNetworkFilesWithOptions(*home, *chainID, *validatorCount, *overwrite, options)
 		if err != nil {
 			return err
 		}
@@ -168,13 +169,11 @@ func runInitValidator(writer io.Writer, args []string) error {
 	home := flags.String("home", defaultHomeDir, "validator node home directory")
 	chainID := flags.String("chain-id", defaultChainID, "chain id")
 	validatorID := flags.String("validator", defaultValidatorID, "local validator id")
-	p2pAddress := flags.String("p2p-listen", defaultP2PAddress, "validator P2P listen address stored in config")
-	rpcAddress := flags.String("rpc-address", defaultRPCAddress, "validator RPC listen address stored in config")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing files")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	configPath, genesisPath, keyPath, err := writeValidatorInitFiles(*home, *chainID, *validatorID, *p2pAddress, *rpcAddress, *overwrite)
+	configPath, genesisPath, keyPath, err := writeValidatorInitFiles(*home, *chainID, *validatorID, defaultP2PAddress, defaultRPCAddress, *overwrite)
 	if err != nil {
 		return err
 	}
@@ -191,14 +190,12 @@ func runInitArchive(writer io.Writer, args []string) error {
 	flags.SetOutput(io.Discard)
 	home := flags.String("home", defaultHomeDir, "archive node home directory")
 	chainID := flags.String("chain-id", defaultChainID, "chain id")
-	p2pAddress := flags.String("p2p-listen", defaultP2PAddress, "archive P2P listen address stored in config")
-	rpcAddress := flags.String("rpc-address", defaultRPCAddress, "archive RPC listen address stored in config")
 	bootstrapPeer := flags.String("bootstrap-peer", "", "optional bootstrap peer id=host:port stored in config")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing files")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	configPath, genesisPath, err := writeArchiveInitFiles(*home, *chainID, *p2pAddress, *rpcAddress, *bootstrapPeer, *overwrite)
+	configPath, genesisPath, err := writeArchiveInitFiles(*home, *chainID, defaultP2PAddress, defaultRPCAddress, *bootstrapPeer, *overwrite)
 	if err != nil {
 		return err
 	}
@@ -248,6 +245,51 @@ type networkAddressOptions struct {
 	RPCHostTemplate string
 	P2PListenHost   string
 	RPCListenHost   string
+}
+
+type networkAddressConfig struct {
+	P2PBasePort     *int   `json:"p2p_base_port,omitempty"`
+	RPCBasePort     *int   `json:"rpc_base_port,omitempty"`
+	P2PPortStep     *int   `json:"p2p_port_step,omitempty"`
+	RPCPortStep     *int   `json:"rpc_port_step,omitempty"`
+	P2PHostTemplate string `json:"p2p_host_template,omitempty"`
+	RPCHostTemplate string `json:"rpc_host_template,omitempty"`
+	P2PListenHost   string `json:"p2p_listen_host,omitempty"`
+	RPCListenHost   string `json:"rpc_listen_host,omitempty"`
+}
+
+func readNetworkAddressOptions(path string) (networkAddressOptions, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return networkAddressOptions{}, err
+	}
+	var document networkAddressConfig
+	if err := json.Unmarshal(data, &document); err != nil {
+		return networkAddressOptions{}, err
+	}
+	options := networkAddressOptions{
+		P2PHostTemplate: document.P2PHostTemplate,
+		RPCHostTemplate: document.RPCHostTemplate,
+		P2PListenHost:   document.P2PListenHost,
+		RPCListenHost:   document.RPCListenHost,
+	}
+	if document.P2PBasePort != nil {
+		options.P2PBasePort = *document.P2PBasePort
+	}
+	if document.RPCBasePort != nil {
+		options.RPCBasePort = *document.RPCBasePort
+	}
+	if document.P2PPortStep != nil {
+		options.P2PPortStep = *document.P2PPortStep
+	} else {
+		options.P2PPortStep = 10
+	}
+	if document.RPCPortStep != nil {
+		options.RPCPortStep = *document.RPCPortStep
+	} else {
+		options.RPCPortStep = 10
+	}
+	return normalizeNetworkAddressOptions(options), nil
 }
 
 func writeNetworkFilesWithOptions(home string, chainID string, validatorCount int, overwrite bool, options networkAddressOptions) (networkDocument, error) {

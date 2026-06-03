@@ -659,9 +659,14 @@ func TestRunNetworkInitAndStartDryRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := startOutput.String()
-	for _, expected := range []string{"network start plan", "validator-1", "validator-2", "validator-3", "--rpc-address 127.0.0.1:27657", "--p2p-listen 127.0.0.1:27656"} {
+	for _, expected := range []string{"network start plan", "validator-1", "validator-2", "validator-3", "start --home"} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("expected dry-run output to contain %q, got:\n%s", expected, output)
+		}
+	}
+	for _, forbidden := range []string{"--rpc-address", "--p2p-listen"} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("expected dry-run output to avoid %q, got:\n%s", forbidden, output)
 		}
 	}
 }
@@ -918,19 +923,25 @@ func TestRunInitWritesNetworkFilesWithCustomPorts(t *testing.T) {
 
 func TestRunInitWritesNetworkConfigPeers(t *testing.T) {
 	home := t.TempDir()
+	topologyPath := filepath.Join(t.TempDir(), "topology.json")
+	if err := os.WriteFile(topologyPath, []byte(`{
+  "p2p_base_port": 26656,
+  "rpc_base_port": 26657,
+  "p2p_port_step": 0,
+  "rpc_port_step": 0,
+  "p2p_host_template": "validator-%d",
+  "rpc_host_template": "validator-%d",
+  "p2p_listen_host": "0.0.0.0",
+  "rpc_listen_host": "0.0.0.0"
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	var output bytes.Buffer
 	if err := runInit(&output, []string{
 		"--home", home,
 		"--chain-id", "vexo-test",
 		"--validators", "2",
-		"--p2p-base-port", "26656",
-		"--rpc-base-port", "26657",
-		"--p2p-port-step", "0",
-		"--rpc-port-step", "0",
-		"--p2p-host-template", "validator-%d",
-		"--rpc-host-template", "validator-%d",
-		"--p2p-listen-host", "0.0.0.0",
-		"--rpc-listen-host", "0.0.0.0",
+		"--network-config", topologyPath,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1728,13 +1739,23 @@ func TestRunStartRunStartsAndStopsNode(t *testing.T) {
 	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
 		t.Fatal(err)
 	}
+	configPath := filepath.Join(home, configFileName)
+	document, err := readConfigDocument(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document.Runtime.RPC.Address = "127.0.0.1:0"
+	document.Runtime.P2P.ListenAddress = "127.0.0.1:0"
+	if err := writeJSONFile(configPath, document); err != nil {
+		t.Fatal(err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	output := &rpcHealthCheckWriter{
 		cancel: cancel,
 		client: http.Client{Timeout: 5 * time.Second},
 	}
-	if err := runStartWithContext(ctx, output, []string{"--home", home, "--run", "--rpc-address", "127.0.0.1:0", "--p2p-listen", "127.0.0.1:0"}); err != nil {
+	if err := runStartWithContext(ctx, output, []string{"--home", home, "--run"}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(output.String(), "rpc listening") ||
