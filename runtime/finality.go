@@ -23,7 +23,8 @@ func (runtime *Runtime) FinalityProof(ctx context.Context, height types.Height, 
 	}
 
 	proof := finality.NewProof(record.Block.Header, quorumCert)
-	if quorumCert.BlockHash != proof.HeaderHash() {
+	proof.BlockHash = record.Hash
+	if quorumCert.BlockHash != record.Hash {
 		return finality.Proof{}, ErrFinalityProofBlockMismatch
 	}
 	return proof, nil

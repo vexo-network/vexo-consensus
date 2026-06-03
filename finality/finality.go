@@ -21,6 +21,7 @@ type TimeoutCert struct {
 
 type Proof struct {
 	Header             types.Header
+	BlockHash          types.Hash
 	QuorumCert         QuorumCert
 	ValidatorSetHeight types.Height
 	ValidatorSetHash   types.Hash

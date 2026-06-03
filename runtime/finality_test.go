@@ -7,6 +7,7 @@ import (
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/config"
+	"github.com/vexo-network/vexo-consensus/consensus"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/store"
@@ -49,7 +50,7 @@ func TestRuntimeBuildsAndVerifiesStoredFinalityProof(t *testing.T) {
 	qc := finality.QuorumCert{
 		Height:      1,
 		Round:       0,
-		BlockHash:   finality.HeaderHash(block.Header),
+		BlockHash:   consensus.HashBlock(block),
 		Signers:     finality.EncodeSigners([]types.ValidatorID{"a", "b"}),
 		VotingPower: 2,
 	}
@@ -135,8 +136,16 @@ func newFinalityRuntime(t *testing.T, validators []validator.Validator) *Runtime
 
 func signRuntimeProof(t *testing.T, proof finality.Proof, signers ...vexocrypto.DeterministicSigner) types.AggregateSignature {
 	t.Helper()
-	signatures := make([]types.Signature, 0, len(signers))
+	domainSigners := make([]vexocrypto.DomainSigner, 0, len(signers))
 	for _, signer := range signers {
+		domainSigner, err := vexocrypto.NewDomainSigner(signer, vexocrypto.DomainConsensusVote)
+		if err != nil {
+			t.Fatal(err)
+		}
+		domainSigners = append(domainSigners, domainSigner)
+	}
+	signatures := make([]types.Signature, 0, len(signers))
+	for _, signer := range domainSigners {
 		signature, err := signer.Sign(proof.SignBytes())
 		if err != nil {
 			t.Fatal(err)

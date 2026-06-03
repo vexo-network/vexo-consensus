@@ -31,6 +31,7 @@ type BLSAdapterMetadata struct {
 	Version               string
 	Audited               bool
 	AuditReport           string
+	DependencyAudit       string
 	DomainSeparation      bool
 	PublicKeyValidation   bool
 	SubgroupChecks        bool

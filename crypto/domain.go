@@ -58,6 +58,13 @@ type DomainAggregateSigner struct {
 	domain Domain
 }
 
+type DomainAggregateVerifier struct {
+	verifier interface {
+		VerifyAggregate(publicKeys []types.PublicKey, message []byte, signature types.AggregateSignature) bool
+	}
+	domain Domain
+}
+
 func NewDomainAggregateSigner(signer AggregateSigner, domain Domain) (DomainAggregateSigner, error) {
 	if signer == nil {
 		return DomainAggregateSigner{}, ErrKeyNotFound
@@ -66,6 +73,18 @@ func NewDomainAggregateSigner(signer AggregateSigner, domain Domain) (DomainAggr
 		return DomainAggregateSigner{}, ErrEmptyDomain
 	}
 	return DomainAggregateSigner{signer: signer, domain: domain}, nil
+}
+
+func NewDomainAggregateVerifier(verifier interface {
+	VerifyAggregate(publicKeys []types.PublicKey, message []byte, signature types.AggregateSignature) bool
+}, domain Domain) (DomainAggregateVerifier, error) {
+	if verifier == nil {
+		return DomainAggregateVerifier{}, ErrKeyNotFound
+	}
+	if domain == "" {
+		return DomainAggregateVerifier{}, ErrEmptyDomain
+	}
+	return DomainAggregateVerifier{verifier: verifier, domain: domain}, nil
 }
 
 func (signer DomainAggregateSigner) Aggregate(signatures []types.Signature) (types.AggregateSignature, error) {
@@ -78,6 +97,14 @@ func (signer DomainAggregateSigner) VerifyAggregate(publicKeys []types.PublicKey
 		return false
 	}
 	return signer.signer.VerifyAggregate(publicKeys, domainMessage, signature)
+}
+
+func (verifier DomainAggregateVerifier) VerifyAggregate(publicKeys []types.PublicKey, message []byte, signature types.AggregateSignature) bool {
+	domainMessage, err := DomainMessage(verifier.domain, message)
+	if err != nil {
+		return false
+	}
+	return verifier.verifier.VerifyAggregate(publicKeys, domainMessage, signature)
 }
 
 func SignWithDomain(signer Signer, domain Domain, message []byte) (types.Signature, error) {

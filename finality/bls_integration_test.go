@@ -103,6 +103,7 @@ func (finalityBLSAdapter) Metadata() vexocrypto.BLSAdapterMetadata {
 		Version:               "v1",
 		Audited:               true,
 		AuditReport:           "test-audit",
+		DependencyAudit:       "test-dependency-audit",
 		DomainSeparation:      true,
 		PublicKeyValidation:   true,
 		SubgroupChecks:        true,

@@ -45,6 +45,18 @@ func TestVerifierRejectsBlockHashMismatch(t *testing.T) {
 	}
 }
 
+func TestVerifierAcceptsExplicitConsensusBlockHash(t *testing.T) {
+	set := testValidatorSet(t, []validator.Validator{{ID: "a", VotingPower: 1, PublicKey: []byte("a-pub")}})
+	proof := validProof(set, []types.ValidatorID{"a"})
+	proof.BlockHash = types.Hash{7}
+	proof.QuorumCert.BlockHash = proof.BlockHash
+
+	err := NewVerifier(set, acceptSignatureVerifier{}).VerifyFinalityProof(proof)
+	if err != nil {
+		t.Fatalf("expected explicit block hash proof to verify, got %v", err)
+	}
+}
+
 func TestVerifierRejectsHeightMismatch(t *testing.T) {
 	set := testValidatorSet(t, []validator.Validator{{ID: "a", VotingPower: 1}})
 	proof := validProof(set, []types.ValidatorID{"a"})
@@ -237,6 +249,7 @@ func validProof(set validator.Set, signers []types.ValidatorID) Proof {
 		VotingPower: types.VotingPower(len(signers)),
 	}
 	proof.QuorumCert.BlockHash = proof.HeaderHash()
+	proof.BlockHash = proof.QuorumCert.BlockHash
 	return proof
 }
 

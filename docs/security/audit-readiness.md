@@ -47,11 +47,11 @@ This package is intended for independent reviewers evaluating Vexo consensus, ne
 
 ## Known Limitations
 
-- BLS backend is intentionally unavailable until an audited adapter is linked.
+- BLS backend is intentionally unavailable until an audited adapter with dependency audit evidence is linked.
 - Ed25519 finality is ordered multisignature concatenation, not cryptographic aggregation.
-- Validator registry and slashing keeper have durable store-backed implementations; full production stake custody, unbonding queues, and reward accounting remain chain-specific integration work.
-- Multi-region long-running tests are planned through network/longrun plans but must be executed on real machines.
-- Governance upgrade execution records applied, pending, and rollback-required outcomes; production chains still need operator-specific rollback runbooks and release governance policy.
+- Runtime defaults to durable slashing when a store is configured; full production stake custody, rewards, commission, tombstone, jail/unbonding authority, and staking/slashing accounting remain chain-specific integration work.
+- Multi-region long-running and chaos tests are planned through network/longrun plans but must be executed on independent real machines.
+- Governance upgrade execution records applied, pending, and rollback-required outcomes; durable chain-specific governance state, execution authority, rollback runbooks, and release governance policy remain production integration work.
 - The current RPC API exposes `/v1/*` stable routes while retaining unversioned compatibility aliases.
 
 ## Formal-ish Safety Argument

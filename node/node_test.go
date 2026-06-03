@@ -8,6 +8,7 @@ import (
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/consensus"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
+	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
@@ -635,6 +636,72 @@ func TestNodeSignsConsensusMessagesWithDomains(t *testing.T) {
 	}
 }
 
+func TestNodeRejectsCommitGossipWithInvalidAggregateSignature(t *testing.T) {
+	signer, err := vexocrypto.NewDeterministicSigner([]byte("alice-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := newTestNodeWithSigner(t, signer)
+	if err := node.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer node.Stop(context.Background())
+
+	block := testCommitBlock(t, node, 1)
+	blockHash := consensus.HashBlock(block)
+	qc := finality.QuorumCert{
+		Height:      block.Header.Height,
+		Round:       0,
+		BlockHash:   blockHash,
+		Signers:     finality.EncodeSigners([]types.ValidatorID{"alice"}),
+		Signature:   types.AggregateSignature("bad-signature"),
+		VotingPower: 1,
+	}
+	err = node.verifyCommitCertificate(context.Background(), block, qc)
+	if !errors.Is(err, finality.ErrMissingQCSignature) {
+		t.Fatalf("expected invalid aggregate signature rejection, got %v", err)
+	}
+}
+
+func TestNodeAcceptsCommitGossipWithConsensusVoteQC(t *testing.T) {
+	signer, err := vexocrypto.NewDeterministicSigner([]byte("alice-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := newTestNodeWithSigner(t, signer)
+	if err := node.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer node.Stop(context.Background())
+
+	block := testCommitBlock(t, node, 1)
+	blockHash := consensus.HashBlock(block)
+	vote := consensus.Vote{Height: block.Header.Height, Round: 0, BlockHash: blockHash, ValidatorID: "alice"}
+	domainSigner, err := vexocrypto.NewDomainSigner(signer, vexocrypto.DomainConsensusVote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature, err := domainSigner.Sign(consensus.VoteSignBytes(vote))
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregate, err := (vexocrypto.DeterministicAggregateSigner{}).Aggregate([]types.Signature{signature})
+	if err != nil {
+		t.Fatal(err)
+	}
+	qc := finality.QuorumCert{
+		Height:      block.Header.Height,
+		Round:       0,
+		BlockHash:   blockHash,
+		Signers:     finality.EncodeSigners([]types.ValidatorID{"alice"}),
+		Signature:   aggregate,
+		VotingPower: 1,
+	}
+	if err := node.verifyCommitCertificate(context.Background(), block, qc); err != nil {
+		t.Fatalf("expected consensus vote QC to verify, got %v", err)
+	}
+}
+
 func TestNodeUsesPolicySignerForConsensusMessages(t *testing.T) {
 	baseSigner, err := vexocrypto.NewDeterministicSigner([]byte("alice-key"))
 	if err != nil {
@@ -676,6 +743,40 @@ func TestNodeUsesPolicySignerForConsensusMessages(t *testing.T) {
 	}
 }
 
+func newTestNodeWithSigner(t *testing.T, signer vexocrypto.Signer) *Node {
+	t.Helper()
+	genesis := Genesis{
+		ChainID: "vexo-test",
+		Validators: []validator.Validator{
+			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: signer.PublicKey()},
+		},
+		Governance: map[types.Address]types.VotingPower{"alice": 1},
+	}
+	node, err := New(DefaultConfig("vexo-test", t.TempDir()), genesis, newTestApplication(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	node.cfg.ValidatorID = "alice"
+	return node.WithSigner(signer)
+}
+
+func testCommitBlock(t *testing.T, node *Node, height types.Height) types.Block {
+	t.Helper()
+	runtime, err := node.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	validatorSet, err := runtime.Validators.ValidatorSet(context.Background(), height)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return types.Block{Header: types.Header{
+		ChainID:          "vexo-test",
+		Height:           height,
+		ValidatorSetHash: validatorSet.Hash(),
+	}}
+}
+
 type recordingPolicySigner struct {
 	vexocrypto.Signer
 	policies []vexocrypto.SignPolicy
@@ -697,17 +798,29 @@ func newTestNodeWithDataDir(t *testing.T, dataDir string) *Node {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return node
+	return node.WithSigner(deterministicSignerForID("alice"))
 }
 
 func validGenesis() Genesis {
 	return Genesis{
 		ChainID: "vexo-test",
 		Validators: []validator.Validator{
-			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("alice")},
 		},
 		Governance: map[types.Address]types.VotingPower{"alice": 1},
 	}
+}
+
+func deterministicSignerForID(validatorID types.ValidatorID) vexocrypto.DeterministicSigner {
+	signer, err := vexocrypto.NewDeterministicSigner([]byte(string(validatorID) + "-key"))
+	if err != nil {
+		panic(err)
+	}
+	return signer
+}
+
+func deterministicPublicKeyForID(validatorID types.ValidatorID) types.PublicKey {
+	return deterministicSignerForID(validatorID).PublicKey()
 }
 
 func newTestApplication(t *testing.T) vexoapp.Application {

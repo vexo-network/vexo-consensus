@@ -27,14 +27,21 @@ func (proof Proof) HeaderHash() types.Hash {
 }
 
 func (proof Proof) SignBytes() []byte {
-	headerHash := proof.HeaderHash()
-	message := make([]byte, 0, len(headerHash)+16)
-	message = append(message, headerHash[:]...)
+	blockHash := proof.BlockHash
+	if blockHash == (types.Hash{}) {
+		blockHash = proof.QuorumCert.BlockHash
+	}
+	if blockHash == (types.Hash{}) {
+		blockHash = proof.HeaderHash()
+	}
+	message := make([]byte, 0, len(blockHash)+20)
+	message = append(message, []byte("vote")...)
 
 	var buffer [16]byte
 	binary.BigEndian.PutUint64(buffer[:8], uint64(proof.QuorumCert.Height))
 	binary.BigEndian.PutUint64(buffer[8:], uint64(proof.QuorumCert.Round))
 	message = append(message, buffer[:]...)
+	message = append(message, blockHash[:]...)
 	return message
 }
 

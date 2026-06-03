@@ -137,6 +137,7 @@ func (adapter testBLSAdapter) Metadata() BLSAdapterMetadata {
 		Version:               "v1",
 		Audited:               true,
 		AuditReport:           "audit-report-id",
+		DependencyAudit:       "go-mod-audit-id",
 		DomainSeparation:      true,
 		PublicKeyValidation:   true,
 		SubgroupChecks:        true,

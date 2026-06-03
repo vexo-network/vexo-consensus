@@ -61,11 +61,12 @@ type launchChecklistPhase struct {
 }
 
 type productionReadinessDocument struct {
-	SchemaVersion string                     `json:"schema_version"`
-	Checks        []productionReadinessCheck `json:"checks"`
-	Commands      []string                   `json:"commands"`
-	Documents     []string                   `json:"documents"`
-	OK            bool                       `json:"ok"`
+	SchemaVersion    string                     `json:"schema_version"`
+	Checks           []productionReadinessCheck `json:"checks"`
+	Commands         []string                   `json:"commands"`
+	Documents        []string                   `json:"documents"`
+	ExternalRequired []string                   `json:"external_required,omitempty"`
+	OK               bool                       `json:"ok"`
 }
 
 type productionReadinessCheck struct {
@@ -179,6 +180,12 @@ func runReleaseReadiness(writer io.Writer, args []string) error {
 	for _, documentPath := range document.Documents {
 		fmt.Fprintf(writer, "- %s\n", documentPath)
 	}
+	if len(document.ExternalRequired) > 0 {
+		fmt.Fprintf(writer, "external required:\n")
+		for _, requirement := range document.ExternalRequired {
+			fmt.Fprintf(writer, "- %s\n", requirement)
+		}
+	}
 	return nil
 }
 
@@ -207,6 +214,15 @@ func buildProductionReadinessDocument() productionReadinessDocument {
 			"docs/release/launch-runbook.md",
 			"docs/release/release-pipeline.md",
 			"docs/release/version-compatibility.md",
+		},
+		ExternalRequired: []string{
+			"external security audit with signed finding disposition",
+			"audited production BLS backend with dependency audit, subgroup checks, rogue-key defense, proof-of-possession, and malformed-input fuzz evidence",
+			"multi-host multi-region longrun evidence on independent machines",
+			"chaos evidence for peer loss, signer failure, snapshot restore, replay, and network partition recovery",
+			"KMS or remote signer evidence proving height/round/type sign policy and double-sign guard enforcement",
+			"chain-specific staking custody, rewards, commission, tombstone, jail, unbonding, and slashing accounting review",
+			"chain-specific durable governance state, proposal execution authority, rollback, and failed-upgrade recovery review",
 		},
 	}
 	for _, check := range []productionReadinessCheck{

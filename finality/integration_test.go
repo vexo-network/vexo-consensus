@@ -64,7 +64,7 @@ func TestVerifierRejectsDeterministicAggregateWithWrongSignerSet(t *testing.T) {
 	}
 }
 
-func TestVerifierRejectsDeterministicAggregateAfterHeaderMutation(t *testing.T) {
+func TestVerifierRejectsDeterministicAggregateAfterBlockHashMutation(t *testing.T) {
 	firstSigner, err := vexocrypto.NewDeterministicSigner([]byte("first"))
 	if err != nil {
 		t.Fatal(err)
@@ -85,11 +85,12 @@ func TestVerifierRejectsDeterministicAggregateAfterHeaderMutation(t *testing.T) 
 	})
 	proof := validProof(set, []types.ValidatorID{"a", "b"})
 	proof.QuorumCert.Signature = signProof(t, proof, firstSigner, secondSigner)
-	proof.Header.AppHash = types.Hash{9}
+	proof.BlockHash = types.Hash{9}
+	proof.QuorumCert.BlockHash = proof.BlockHash
 
 	verifier := NewVerifier(set, vexocrypto.DeterministicAggregateSigner{})
 	if err := verifier.VerifyFinalityProof(proof); err == nil {
-		t.Fatal("expected mutated header to be rejected")
+		t.Fatal("expected mutated block hash to be rejected")
 	}
 }
 

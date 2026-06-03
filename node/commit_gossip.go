@@ -106,36 +106,21 @@ func (node *Node) verifyCommitCertificate(ctx context.Context, block types.Block
 	if quorumCert.Height != block.Header.Height {
 		return ErrInvalidCommitQC
 	}
-	if quorumCert.BlockHash != consensus.HashBlock(block) {
+	blockHash := consensus.HashBlock(block)
+	if quorumCert.BlockHash != blockHash {
 		return ErrInvalidCommitQC
-	}
-	if len(quorumCert.Signature) == 0 {
-		return finality.ErrMissingQCSignature
 	}
 	runtime, err := node.Runtime()
 	if err != nil {
 		return err
 	}
-	validatorSet, err := runtime.Validators.ValidatorSet(ctx, block.Header.Height)
+	verifier, err := runtime.NewFinalityVerifier(ctx, block.Header.Height)
 	if err != nil {
 		return err
 	}
-	signers, err := finality.ParseSigners(quorumCert.Signers)
-	if err != nil {
-		return err
-	}
-	var votingPower types.VotingPower
-	for _, signer := range signers {
-		validatorInfo, found := validatorSet.Get(signer)
-		if !found {
-			return finality.ErrUnknownSigner
-		}
-		votingPower += validatorInfo.VotingPower
-	}
-	if !finality.HasQuorum(votingPower, validatorSet.TotalVotingPower()) {
-		return finality.ErrInsufficientQuorum
-	}
-	return nil
+	proof := finality.NewProof(block.Header, quorumCert)
+	proof.BlockHash = blockHash
+	return verifier.VerifyFinalityProofWithContext(ctx, proof)
 }
 
 func (node *Node) hasCommitted(ctx context.Context, height types.Height) bool {

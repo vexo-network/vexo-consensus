@@ -84,6 +84,7 @@ func ValidateBLSAdapter(adapter BLSAdapter) error {
 		metadata.Version == "" ||
 		!metadata.Audited ||
 		metadata.AuditReport == "" ||
+		metadata.DependencyAudit == "" ||
 		!metadata.DomainSeparation ||
 		!metadata.PublicKeyValidation ||
 		!metadata.SubgroupChecks ||

@@ -8,6 +8,8 @@ import (
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/config"
+	"github.com/vexo-network/vexo-consensus/slashing"
+	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
@@ -111,6 +113,48 @@ func TestRuntimeBuildsFinalityVerifier(t *testing.T) {
 
 	if _, err := runtime.NewFinalityVerifier(context.Background(), 1); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRuntimeWithStoreUsesDurableSlashingKeeper(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := storage.Close(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	runtime, err := NewWithStore(config.Default("vexo-test"), noopApp{}, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 100, Stake: 100},
+	}, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keeper, ok := runtime.Slashing.(*slashing.StoreKeeper)
+	if !ok {
+		t.Fatalf("expected durable slashing keeper, got %T", runtime.Slashing)
+	}
+
+	evidence := slashing.Evidence{Type: slashing.EvidenceDoubleSign, Validator: "alice", Height: 1, Round: 0, Proof: []byte("proof")}
+	if err := keeper.SubmitEvidence(context.Background(), evidence); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := keeper.ApplyPenaltyWithStake(context.Background(), evidence, 100); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := slashing.NewStoreKeeper(storage, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, found, err := reopened.PenaltyReceipt(context.Background(), evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || receipt.RemainingPower >= receipt.PreviousPower {
+		t.Fatalf("expected persisted slashing receipt, got found=%t receipt=%+v", found, receipt)
 	}
 }
 

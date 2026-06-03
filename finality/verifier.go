@@ -88,7 +88,11 @@ func (verifier Verifier) VerifyFinalityProofWithContext(ctx context.Context, pro
 	if proof.QuorumCert.Height != proof.Header.Height {
 		return ErrHeightMismatch
 	}
-	if proof.QuorumCert.BlockHash != proof.HeaderHash() {
+	blockHash := proof.BlockHash
+	if blockHash == (types.Hash{}) {
+		blockHash = proof.HeaderHash()
+	}
+	if proof.QuorumCert.BlockHash != blockHash {
 		return ErrBlockHashMismatch
 	}
 	if len(proof.QuorumCert.Signature) == 0 {

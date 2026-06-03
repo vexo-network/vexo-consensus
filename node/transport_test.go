@@ -35,6 +35,9 @@ func TestNodeTransportReactorRoutesProposalBetweenNodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := alice.signConsensusProposal(&proposal); err != nil {
+		t.Fatal(err)
+	}
 	aliceReactor, err := alice.ConsensusReactor()
 	if err != nil {
 		t.Fatal(err)
@@ -74,6 +77,9 @@ func TestNodeTransportReactorRoutesVoteBetweenNodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := alice.signConsensusProposal(&proposal); err != nil {
+		t.Fatal(err)
+	}
 	if err := aliceConsensus.OnProposal(context.Background(), proposal); err != nil {
 		t.Fatal(err)
 	}
@@ -86,12 +92,16 @@ func TestNodeTransportReactorRoutesVoteBetweenNodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := aliceReactor.BroadcastVote(context.Background(), consensus.Vote{
+	vote := consensus.Vote{
 		Height:      1,
 		Round:       0,
 		BlockHash:   blockHash,
 		ValidatorID: "alice",
-	}); err != nil {
+	}
+	if err := alice.signConsensusVote(&vote); err != nil {
+		t.Fatal(err)
+	}
+	if err := aliceReactor.BroadcastVote(context.Background(), vote); err != nil {
 		t.Fatal(err)
 	}
 
@@ -475,6 +485,9 @@ func TestNodeGossipsConflictingVoteEvidenceAndSlashesValidator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := alice.signConsensusProposal(&firstProposal); err != nil {
+		t.Fatal(err)
+	}
 	if err := aliceConsensus.OnProposal(context.Background(), firstProposal); err != nil {
 		t.Fatal(err)
 	}
@@ -483,6 +496,9 @@ func TestNodeGossipsConflictingVoteEvidenceAndSlashesValidator(t *testing.T) {
 		Txs:    []types.Tx{[]byte("bank:second-conflict-target")},
 	}, 0, "alice", finality.QuorumCert{})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := alice.signConsensusProposal(&secondProposal); err != nil {
 		t.Fatal(err)
 	}
 	if err := aliceConsensus.OnProposal(context.Background(), secondProposal); err != nil {
@@ -495,20 +511,28 @@ func TestNodeGossipsConflictingVoteEvidenceAndSlashesValidator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := bobReactor.BroadcastVote(context.Background(), consensus.Vote{
+	firstVote := consensus.Vote{
 		Height:      1,
 		Round:       0,
 		BlockHash:   firstHash,
 		ValidatorID: "bob",
-	}); err != nil {
+	}
+	if err := bob.signConsensusVote(&firstVote); err != nil {
 		t.Fatal(err)
 	}
-	if err := bobReactor.BroadcastVote(context.Background(), consensus.Vote{
+	if err := bobReactor.BroadcastVote(context.Background(), firstVote); err != nil {
+		t.Fatal(err)
+	}
+	secondVote := consensus.Vote{
 		Height:      1,
 		Round:       0,
 		BlockHash:   secondHash,
 		ValidatorID: "bob",
-	}); err != nil {
+	}
+	if err := bob.signConsensusVote(&secondVote); err != nil {
+		t.Fatal(err)
+	}
+	if err := bobReactor.BroadcastVote(context.Background(), secondVote); err != nil {
 		t.Fatal(err)
 	}
 
@@ -831,7 +855,7 @@ func TestNodeConsensusLoopAdvancesRoundAfterTimeout(t *testing.T) {
 	genesis := Genesis{
 		ChainID: "vexo-test",
 		Validators: []validator.Validator{
-			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("alice")},
 		},
 		Governance: map[types.Address]types.VotingPower{"alice": 1},
 	}
@@ -920,9 +944,9 @@ func newTransportNodes(t *testing.T) (*Node, *Node) {
 	genesis := Genesis{
 		ChainID: "vexo-test",
 		Validators: []validator.Validator{
-			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
-			{ID: "bob", Address: "bob", VotingPower: 1, Stake: 1},
-			{ID: "carol", Address: "carol", VotingPower: 1, Stake: 1},
+			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("alice")},
+			{ID: "bob", Address: "bob", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("bob")},
+			{ID: "carol", Address: "carol", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("carol")},
 		},
 		Governance: map[types.Address]types.VotingPower{"alice": 1, "bob": 1, "carol": 1},
 	}
@@ -935,7 +959,9 @@ func newTransportNodes(t *testing.T) (*Node, *Node) {
 		t.Fatal(err)
 	}
 	alice.WithTransport(aliceWire)
+	alice.WithSigner(deterministicSignerForID("alice"))
 	bob.WithTransport(bobWire)
+	bob.WithSigner(deterministicSignerForID("bob"))
 	return alice, bob
 }
 
@@ -945,9 +971,9 @@ func newConsensusLoopNodes(t *testing.T) (*Node, *Node, *Node) {
 	genesis := Genesis{
 		ChainID: "vexo-test",
 		Validators: []validator.Validator{
-			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
-			{ID: "bob", Address: "bob", VotingPower: 1, Stake: 1},
-			{ID: "carol", Address: "carol", VotingPower: 1, Stake: 1},
+			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("alice")},
+			{ID: "bob", Address: "bob", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("bob")},
+			{ID: "carol", Address: "carol", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("carol")},
 		},
 		Governance: map[types.Address]types.VotingPower{"alice": 1, "bob": 1, "carol": 1},
 	}
@@ -970,6 +996,7 @@ func newConsensusLoopNode(t *testing.T, bus *transport.InMemoryBus, genesis Gene
 		t.Fatal(err)
 	}
 	node.WithTransport(wire)
+	node.WithSigner(deterministicSignerForID(validatorID))
 	return node
 }
 
@@ -979,9 +1006,9 @@ func newSlashingNodes(t *testing.T) (*Node, *Node, *Node) {
 	genesis := Genesis{
 		ChainID: "vexo-test",
 		Validators: []validator.Validator{
-			{ID: "alice", Address: "alice", VotingPower: 100, Stake: 100},
-			{ID: "bob", Address: "bob", VotingPower: 100, Stake: 100},
-			{ID: "carol", Address: "carol", VotingPower: 100, Stake: 100},
+			{ID: "alice", Address: "alice", VotingPower: 100, Stake: 100, PublicKey: deterministicPublicKeyForID("alice")},
+			{ID: "bob", Address: "bob", VotingPower: 100, Stake: 100, PublicKey: deterministicPublicKeyForID("bob")},
+			{ID: "carol", Address: "carol", VotingPower: 100, Stake: 100, PublicKey: deterministicPublicKeyForID("carol")},
 		},
 		Governance: map[types.Address]types.VotingPower{"alice": 100, "bob": 100, "carol": 100},
 	}
@@ -997,9 +1024,9 @@ func newScoredNodes(t *testing.T) (*Node, *Node, *Node) {
 	genesis := Genesis{
 		ChainID: "vexo-test",
 		Validators: []validator.Validator{
-			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
-			{ID: "bob", Address: "bob", VotingPower: 1, Stake: 1},
-			{ID: "carol", Address: "carol", VotingPower: 1, Stake: 1},
+			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("alice")},
+			{ID: "bob", Address: "bob", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("bob")},
+			{ID: "carol", Address: "carol", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("carol")},
 		},
 		Governance: map[types.Address]types.VotingPower{"alice": 1, "bob": 1, "carol": 1},
 	}
@@ -1028,6 +1055,7 @@ func newScoredNode(t *testing.T, bus *transport.InMemoryBus, genesis Genesis, va
 		t.Fatal(err)
 	}
 	node.WithTransport(wire)
+	node.WithSigner(deterministicSignerForID(validatorID))
 	return node
 }
 
@@ -1037,9 +1065,9 @@ func newRateLimitedNodes(t *testing.T) (*Node, *Node, *Node) {
 	genesis := Genesis{
 		ChainID: "vexo-test",
 		Validators: []validator.Validator{
-			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
-			{ID: "bob", Address: "bob", VotingPower: 1, Stake: 1},
-			{ID: "carol", Address: "carol", VotingPower: 1, Stake: 1},
+			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("alice")},
+			{ID: "bob", Address: "bob", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("bob")},
+			{ID: "carol", Address: "carol", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("carol")},
 		},
 		Governance: map[types.Address]types.VotingPower{"alice": 1, "bob": 1, "carol": 1},
 	}
@@ -1069,6 +1097,7 @@ func newRateLimitedNode(t *testing.T, bus *transport.InMemoryBus, genesis Genesi
 		t.Fatal(err)
 	}
 	node.WithTransport(wire)
+	node.WithSigner(deterministicSignerForID(validatorID))
 	return node
 }
 
@@ -1107,13 +1136,17 @@ func waitForConsensusStatus(t *testing.T, machine *consensus.StateMachine, match
 func waitForQuorumInput(t *testing.T, machine *consensus.StateMachine, blockHash types.Hash) {
 	t.Helper()
 	deadline := time.Now().Add(transportTestWaitTimeout)
+	vote := consensus.Vote{
+		Height:      1,
+		Round:       0,
+		BlockHash:   blockHash,
+		ValidatorID: "bob",
+	}
+	if err := signConsensusVote("vexo-test", deterministicSignerForID("bob"), &vote); err != nil {
+		t.Fatal(err)
+	}
 	for time.Now().Before(deadline) {
-		_ = machine.OnVote(context.Background(), consensus.Vote{
-			Height:      1,
-			Round:       0,
-			BlockHash:   blockHash,
-			ValidatorID: "bob",
-		})
+		_ = machine.OnVote(context.Background(), vote)
 		if _, err := machine.BuildQuorumCert(1, 0, blockHash); err == nil {
 			return
 		}

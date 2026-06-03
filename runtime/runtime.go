@@ -25,7 +25,7 @@ type Runtime struct {
 	Validators *validator.InMemoryRegistry
 	Committee  committee.Selector
 	Mempool    *mempool.DAG
-	Slashing   *slashing.InMemoryKeeper
+	Slashing   consensus.SlashingKeeper
 	Governance *governance.InMemoryKeeper
 	P2PScore   *p2p.ScoreKeeper
 	Crypto     crypto.RuntimeSuite
@@ -65,6 +65,14 @@ func NewWithStore(cfg config.Config, application app.Application, initialValidat
 			appRuntime.WithStore(storage)
 		}
 	}
+	slashingKeeper := consensus.SlashingKeeper(slashing.NewInMemoryKeeper(nil))
+	if storage != nil {
+		storeKeeper, err := slashing.NewStoreKeeper(storage, nil)
+		if err != nil {
+			return nil, err
+		}
+		slashingKeeper = storeKeeper
+	}
 
 	return &Runtime{
 		Config:     cfg,
@@ -73,7 +81,7 @@ func NewWithStore(cfg config.Config, application app.Application, initialValidat
 		Validators: registry,
 		Committee:  selector,
 		Mempool:    mempool.NewDAG(mempool.NewFIFO(fifoConfig)),
-		Slashing:   slashing.NewInMemoryKeeper(nil),
+		Slashing:   slashingKeeper,
 		Governance: governance.NewInMemoryKeeper(cfg.Governance, governancePower),
 		P2PScore:   p2p.NewScoreKeeper(cfg.P2P),
 		Crypto:     cryptoSuite,
@@ -231,7 +239,11 @@ func (runtime *Runtime) NewFinalityVerifier(ctx context.Context, height types.He
 	if err != nil {
 		return finality.Verifier{}, err
 	}
-	return finality.NewVerifier(validatorSet, runtime.Crypto.FinalityVerifier), nil
+	verifier, err := crypto.NewDomainAggregateVerifier(runtime.Crypto.FinalityVerifier, crypto.DomainConsensusVote)
+	if err != nil {
+		return finality.Verifier{}, err
+	}
+	return finality.NewVerifier(validatorSet, verifier), nil
 }
 
 func (runtime *Runtime) Recover(ctx context.Context) (store.StateRecord, error) {
