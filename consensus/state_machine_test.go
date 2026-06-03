@@ -98,6 +98,9 @@ func TestStateMachineStoresVoteQuorumCertInBlockTree(t *testing.T) {
 	if node.QuorumCert.BlockHash != blockHash || node.QuorumCert.VotingPower != 2 {
 		t.Fatalf("expected stored quorum cert, got %+v", node.QuorumCert)
 	}
+	if highQC := machine.HighQC(context.Background()); highQC.BlockHash != blockHash || highQC.Height != 1 {
+		t.Fatalf("expected highQC to track vote quorum cert, got %+v", highQC)
+	}
 }
 
 func TestStateMachineCreateProposalUsesHighQC(t *testing.T) {
@@ -456,6 +459,9 @@ func TestStateMachineRejectsUnknownVoteTarget(t *testing.T) {
 	err = machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: types.Hash{1}, ValidatorID: "a"})
 	if !errors.Is(err, ErrInvalidVote) {
 		t.Fatalf("expected invalid vote, got %v", err)
+	}
+	if !errors.Is(err, ErrUnknownVoteBlock) {
+		t.Fatalf("expected unknown vote block, got %v", err)
 	}
 }
 

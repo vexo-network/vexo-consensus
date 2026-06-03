@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"errors"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -106,6 +107,65 @@ func TestNodeTransportReactorRoutesVoteBetweenNodes(t *testing.T) {
 	}
 
 	waitForQuorumInput(t, bobConsensus, blockHash)
+}
+
+func TestNodeTransportReactorReplaysVoteThatArrivesBeforeProposal(t *testing.T) {
+	alice, bob, carol := newConsensusLoopNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+	startNode(t, carol)
+	defer carol.Stop(context.Background())
+
+	aliceConsensus, err := alice.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobConsensus, err := bob.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceConsensus.StartRound(1, 0)
+	bobConsensus.StartRound(1, 0)
+
+	proposal, err := aliceConsensus.CreateProposal(types.Block{Header: types.Header{Height: 1}}, 0, "alice", finality.QuorumCert{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := alice.signConsensusProposal(&proposal); err != nil {
+		t.Fatal(err)
+	}
+	if err := aliceConsensus.OnProposal(context.Background(), proposal); err != nil {
+		t.Fatal(err)
+	}
+	blockHash := consensus.HashBlock(proposal.Block)
+
+	aliceReactor, err := alice.ConsensusReactor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	vote := consensus.Vote{
+		Height:      1,
+		Round:       0,
+		BlockHash:   blockHash,
+		ValidatorID: "alice",
+	}
+	if err := alice.signConsensusVote(&vote); err != nil {
+		t.Fatal(err)
+	}
+	if err := aliceReactor.BroadcastVote(context.Background(), vote); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	if _, err := bobConsensus.BuildQuorumCert(1, 0, blockHash); err == nil {
+		t.Fatal("expected no quorum before target proposal is known")
+	}
+
+	if err := aliceReactor.BroadcastProposal(context.Background(), proposal); err != nil {
+		t.Fatal(err)
+	}
+	waitForQuorumCert(t, bobConsensus, 1, 0, blockHash)
 }
 
 func TestNodeConsensusLoopBroadcastsProposalAndCollectsVotes(t *testing.T) {
@@ -308,6 +368,97 @@ func TestNodeTickConsensusOnlyProposerBuildsMempoolProposal(t *testing.T) {
 	})
 }
 
+func TestNodeTickConsensusDoesNotReproposeSameRound(t *testing.T) {
+	alice, bob, carol := newConsensusLoopNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+	startNode(t, carol)
+	defer carol.Stop(context.Background())
+
+	for _, node := range []*Node{alice, bob, carol} {
+		machine, err := node.Consensus()
+		if err != nil {
+			t.Fatal(err)
+		}
+		machine.StartRound(1, 0)
+	}
+
+	firstProposal, firstHash, proposed, err := alice.TickConsensus(context.Background(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !proposed || firstProposal.Proposer != "alice" || firstHash == (types.Hash{}) {
+		t.Fatalf("expected first proposal from alice, proposed=%v proposal=%+v hash=%x", proposed, firstProposal, firstHash)
+	}
+	secondProposal, secondHash, proposed, err := alice.TickConsensus(context.Background(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposed || secondHash != (types.Hash{}) || secondProposal.Proposer != "" {
+		t.Fatalf("expected same round reproposal to be suppressed, proposed=%v proposal=%+v hash=%x", proposed, secondProposal, secondHash)
+	}
+
+	for _, node := range []*Node{alice, bob, carol} {
+		if _, _, err := node.TimeoutRound(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, _, proposed, err = alice.TickConsensus(context.Background(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposed {
+		t.Fatal("expected alice not to propose after round rotation moves proposer to bob")
+	}
+	nextProposal, nextHash, proposed, err := bob.TickConsensus(context.Background(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !proposed || nextProposal.Proposer != "bob" || nextProposal.Round != 1 || nextHash == (types.Hash{}) {
+		t.Fatalf("expected bob to propose after round rotation, proposed=%v proposal=%+v hash=%x", proposed, nextProposal, nextHash)
+	}
+}
+
+func TestNodeTickConsensusSuppressesReproposalAfterLocalVoteFailure(t *testing.T) {
+	alice, bob, carol := newConsensusLoopNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+	startNode(t, carol)
+	defer carol.Stop(context.Background())
+
+	for _, node := range []*Node{alice, bob, carol} {
+		machine, err := node.Consensus()
+		if err != nil {
+			t.Fatal(err)
+		}
+		machine.StartRound(1, 0)
+	}
+	if err := alice.recordConsensusVote(consensus.Vote{
+		Height:      1,
+		Round:       0,
+		BlockHash:   types.Hash{9},
+		ValidatorID: "alice",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, _, err := alice.TickConsensus(context.Background(), 1024)
+	if !errors.Is(err, consensus.ErrDoubleSignDetected) {
+		t.Fatalf("expected local vote failure from WAL guard, got %v", err)
+	}
+	_, _, proposed, err := alice.TickConsensus(context.Background(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposed {
+		t.Fatal("expected reproposal suppressed after local vote failure")
+	}
+}
+
 func TestNodeCommitsReadyCachedProposalAfterQC(t *testing.T) {
 	alice, bob, carol := newConsensusLoopNodes(t)
 	startNode(t, alice)
@@ -465,6 +616,16 @@ func TestNodeCommitGossipSyncsPeerThatMissedProposal(t *testing.T) {
 	record := waitForBlockByHeight(t, bob, 1)
 	if record.Hash != blockHash {
 		t.Fatalf("expected bob to store committed block %x, got %x", blockHash, record.Hash)
+	}
+	nextProposal, _, proposed, err := bob.TickConsensus(context.Background(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !proposed || nextProposal.Block.Header.Height != 2 {
+		t.Fatalf("expected bob to propose next height after commit gossip, proposed=%v proposal=%+v", proposed, nextProposal)
+	}
+	if nextProposal.JustifyQC.Height != quorumCert.Height || nextProposal.JustifyQC.BlockHash != quorumCert.BlockHash {
+		t.Fatalf("expected commit gossip QC to seed next proposal highQC, got %+v want %+v", nextProposal.JustifyQC, quorumCert)
 	}
 }
 
@@ -737,6 +898,83 @@ func TestNodeDisconnectsPeerWhenScoreBanApplies(t *testing.T) {
 	}
 }
 
+func TestNodeTreatsFutureCommitGossipAsValidRace(t *testing.T) {
+	cfg := DefaultConfig("vexo-test", t.TempDir())
+	cfg.ValidatorID = "alice"
+	cfg.Chain.P2P.InitialScore = 2
+	cfg.Chain.P2P.ValidMessageReward = 2
+	cfg.Chain.P2P.InvalidMessageCost = 5
+	cfg.Chain.P2P.BanThreshold = 0
+	node, err := New(cfg, validGenesis(), newTestApplication(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	node.WithSigner(deterministicSignerForID("alice"))
+	startNode(t, node)
+	defer node.Stop(context.Background())
+
+	block := testCommitBlock(t, node, 2)
+	blockHash := consensus.HashBlock(block)
+	data, err := encodeCommitMessage(block, finality.QuorumCert{
+		Height:    2,
+		Round:     0,
+		BlockHash: blockHash,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	node.acceptCommitMessage(context.Background(), "bob", data)
+
+	score, err := node.PeerScore(context.Background(), "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score != 4 {
+		t.Fatalf("expected future commit race to be rewarded as valid, got score %d", score)
+	}
+	if status := node.Status(context.Background()); status.LatestHeight != 0 {
+		t.Fatalf("future commit must not mutate local state, got %+v", status)
+	}
+}
+
+func TestNodeTreatsInvalidCommitProofAsNonBanningRace(t *testing.T) {
+	cfg := DefaultConfig("vexo-test", t.TempDir())
+	cfg.ValidatorID = "alice"
+	cfg.Chain.P2P.InitialScore = 2
+	cfg.Chain.P2P.ValidMessageReward = 2
+	cfg.Chain.P2P.InvalidMessageCost = 5
+	cfg.Chain.P2P.BanThreshold = 0
+	node, err := New(cfg, validGenesis(), newTestApplication(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	node.WithSigner(deterministicSignerForID("alice"))
+	startNode(t, node)
+	defer node.Stop(context.Background())
+
+	block := testCommitBlock(t, node, 1)
+	data, err := encodeCommitMessage(block, finality.QuorumCert{
+		Height:    1,
+		Round:     0,
+		BlockHash: types.Hash{9},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	node.acceptCommitMessage(context.Background(), "bob", data)
+
+	score, err := node.PeerScore(context.Background(), "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score != 4 {
+		t.Fatalf("expected invalid commit proof to avoid peer ban, got score %d", score)
+	}
+	if status := node.Status(context.Background()); status.LatestHeight != 0 {
+		t.Fatalf("invalid commit proof must not mutate local state, got %+v", status)
+	}
+}
+
 func TestNodePersistsPeerScoresAcrossRestart(t *testing.T) {
 	dataDir := t.TempDir()
 	cfg := DefaultConfig("vexo-test", dataDir)
@@ -787,7 +1025,7 @@ func TestNodeBackgroundConsensusLoopCommitsAcrossPeers(t *testing.T) {
 	startNode(t, carol)
 	defer carol.Stop(context.Background())
 
-	loopConfig := ConsensusLoopConfig{Interval: time.Millisecond, RoundTimeout: time.Hour, MaxBlockBytes: 1024}
+	loopConfig := ConsensusLoopConfig{Interval: 10 * time.Millisecond, RoundTimeout: time.Hour, MaxBlockBytes: 1024}
 	for _, node := range []*Node{alice, bob, carol} {
 		if err := node.StartConsensusLoop(context.Background(), loopConfig); err != nil {
 			t.Fatal(err)
@@ -849,6 +1087,36 @@ func TestNodeTimeoutRoundBroadcastsAndAdvancesPeers(t *testing.T) {
 		waitForConsensusStatus(t, machine, func(status consensus.Status) bool {
 			return status.Height == 1 && status.Round >= 1
 		})
+	}
+}
+
+func TestNodeTimeoutRoundRebroadcastsCachedVoteWithoutDuplicateWAL(t *testing.T) {
+	alice, _, _ := newConsensusLoopNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+
+	machine, err := alice.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(1, 0)
+
+	if _, _, err := alice.TimeoutRound(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	firstWAL, err := os.ReadFile(alice.cfg.ConsensusWALPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := alice.TimeoutRound(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	secondWAL, err := os.ReadFile(alice.cfg.ConsensusWALPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(firstWAL) != string(secondWAL) {
+		t.Fatal("expected cached timeout vote rebroadcast without duplicate WAL append")
 	}
 }
 

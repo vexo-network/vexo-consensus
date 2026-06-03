@@ -25,6 +25,7 @@ var (
 	ErrInvalidProposal   = errors.New("invalid proposal")
 	ErrStaleProposal     = errors.New("stale proposal")
 	ErrInvalidVote       = errors.New("invalid vote")
+	ErrUnknownVoteBlock  = errors.New("vote target block not found")
 	ErrStaleVote         = errors.New("stale vote")
 	ErrUnsafeProposal    = errors.New("unsafe proposal")
 	ErrUnsafeVote        = errors.New("unsafe vote")
@@ -267,21 +268,21 @@ func (machine *StateMachine) validateVote(vote Vote) error {
 	if machine.status.Height > 0 && vote.Height < machine.status.Height {
 		return ErrStaleVote
 	}
-	if machine.status.Height > 0 && vote.Height > machine.status.Height {
-		return fmt.Errorf("%w: future height", ErrInvalidVote)
-	}
 	if vote.Height == machine.status.Height && vote.Round < machine.status.Round {
 		return ErrStaleVote
 	}
-	if vote.Height == machine.status.Height && vote.Round > machine.status.Round {
-		return fmt.Errorf("%w: future round", ErrInvalidVote)
-	}
 	node, found := machine.blockTree.Get(vote.BlockHash)
 	if !found {
-		return fmt.Errorf("%w: target block not found", ErrInvalidVote)
+		return fmt.Errorf("%w: %w", ErrInvalidVote, ErrUnknownVoteBlock)
 	}
 	if node.Block.Header.Height != vote.Height {
 		return fmt.Errorf("%w: target height mismatch", ErrInvalidVote)
+	}
+	if machine.status.Height > 0 && vote.Height > machine.status.Height {
+		return fmt.Errorf("%w: future height", ErrInvalidVote)
+	}
+	if vote.Height == machine.status.Height && vote.Round > machine.status.Round {
+		return fmt.Errorf("%w: future round", ErrInvalidVote)
 	}
 	if !machine.isSafeVoteTarget(node) {
 		return ErrUnsafeVote
@@ -330,6 +331,39 @@ func (machine *StateMachine) BuildQuorumCert(height types.Height, round types.Ro
 	defer machine.mu.Unlock()
 
 	return machine.buildQuorumCert(height, round, blockHash)
+}
+
+func (machine *StateMachine) HighQC(ctx context.Context) finality.QuorumCert {
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
+
+	if ctx == nil {
+		return machine.blockTree.HighQC()
+	}
+	select {
+	case <-ctx.Done():
+		return finality.QuorumCert{}
+	default:
+		return machine.blockTree.HighQC()
+	}
+}
+
+func (machine *StateMachine) ObserveCommittedBlock(block types.Block, quorumCert finality.QuorumCert) error {
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
+
+	blockHash := machine.hashBlock(block)
+	if quorumCert.Height != block.Header.Height || quorumCert.BlockHash != blockHash {
+		return ErrInvalidBlockCert
+	}
+	if _, found := machine.blockTree.Get(blockHash); !found {
+		machine.blockTree.Insert(block, blockHash, finality.QuorumCert{})
+	}
+	if err := machine.blockTree.SetQuorumCert(quorumCert); err != nil {
+		return err
+	}
+	machine.updateLockedQC(quorumCert)
+	return nil
 }
 
 func (machine *StateMachine) buildQuorumCert(height types.Height, round types.Round, blockHash types.Hash) (finality.QuorumCert, error) {

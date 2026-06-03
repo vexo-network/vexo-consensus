@@ -1145,12 +1145,20 @@ func (transport *GRPCTransport) deliver(envelope Envelope) {
 	transport.mu.RUnlock()
 	for _, subscriber := range subscribers {
 		message := cloneEnvelope(envelope)
+		if isReliableTopic(envelope.Topic) {
+			subscriber <- message
+			continue
+		}
 		select {
 		case subscriber <- message:
 		default:
 			transport.recordDroppedMessage()
 		}
 	}
+}
+
+func isReliableTopic(topic p2p.Topic) bool {
+	return topic == p2p.TopicProposal || topic == p2p.TopicVote || topic == p2p.TopicTimeout
 }
 
 func (transport *GRPCTransport) recordDroppedMessage() {

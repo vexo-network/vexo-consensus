@@ -79,6 +79,9 @@ func (node *Node) TickConsensus(ctx context.Context, maxBytes int64) (consensus.
 	if !isProposer {
 		return consensus.Proposal{}, types.Hash{}, false, nil
 	}
+	if node.hasProposed(height, status.Round) {
+		return consensus.Proposal{}, types.Hash{}, false, nil
+	}
 	proposal, blockHash, err := node.ProposeFromMempool(ctx, maxBytes)
 	if errors.Is(err, ErrEmptyProposal) {
 		return consensus.Proposal{}, types.Hash{}, false, nil
@@ -86,5 +89,6 @@ func (node *Node) TickConsensus(ctx context.Context, maxBytes int64) (consensus.
 	if err != nil {
 		return consensus.Proposal{}, types.Hash{}, false, err
 	}
+	node.markProposed(proposal.Block.Header.Height, proposal.Round)
 	return proposal, blockHash, true, nil
 }

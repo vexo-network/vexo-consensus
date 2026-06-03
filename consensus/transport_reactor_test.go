@@ -218,6 +218,86 @@ func TestTransportReactorTreatsNoQuorumAsValidProgress(t *testing.T) {
 	}
 }
 
+func TestTransportReactorTreatsRacyInvalidVoteAsNonMalicious(t *testing.T) {
+	bus := transport.NewInMemoryBus()
+	aliceTransport, err := bus.NewPeer("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobTransport, err := bus.NewPeer("bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobReactor := NewTransportReactor(bobTransport, &errorReactor{voteErr: ErrInvalidVote})
+	observed := make(chan bool, 1)
+	bobReactor.SetPeerScoring(nil, func(ctx context.Context, peer p2p.PeerID, valid bool) bool {
+		if peer == "alice" {
+			observed <- valid
+		}
+		return true
+	})
+	if err := aliceTransport.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer aliceTransport.Stop(context.Background())
+	if err := bobReactor.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer bobReactor.Stop(context.Background())
+
+	if err := aliceTransport.Publish(context.Background(), p2p.TopicVote, mustEncodeVote(t, Vote{Height: 2, Round: 1, BlockHash: types.Hash{1}, ValidatorID: "alice"})); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case valid := <-observed:
+		if !valid {
+			t.Fatal("expected racy invalid vote to avoid peer penalty")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for peer score observation")
+	}
+}
+
+func TestTransportReactorTreatsConflictingVoteAsEvidenceNotPeerBan(t *testing.T) {
+	bus := transport.NewInMemoryBus()
+	aliceTransport, err := bus.NewPeer("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobTransport, err := bus.NewPeer("bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobReactor := NewTransportReactor(bobTransport, &errorReactor{voteErr: ErrConflictingVote})
+	observed := make(chan bool, 1)
+	bobReactor.SetPeerScoring(nil, func(ctx context.Context, peer p2p.PeerID, valid bool) bool {
+		if peer == "alice" {
+			observed <- valid
+		}
+		return true
+	})
+	if err := aliceTransport.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer aliceTransport.Stop(context.Background())
+	if err := bobReactor.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer bobReactor.Stop(context.Background())
+
+	if err := aliceTransport.Publish(context.Background(), p2p.TopicVote, mustEncodeVote(t, Vote{Height: 2, Round: 1, BlockHash: types.Hash{1}, ValidatorID: "alice"})); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case valid := <-observed:
+		if !valid {
+			t.Fatal("expected conflicting vote evidence to avoid peer penalty")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for peer score observation")
+	}
+}
+
 type recordingReactor struct {
 	mu        sync.Mutex
 	proposals int

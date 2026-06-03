@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/config"
@@ -222,6 +223,7 @@ func TestNodeQueriesBlocks(t *testing.T) {
 
 func TestNodeMetricsReportsRuntimeSnapshot(t *testing.T) {
 	node := newTestNode(t)
+	node.cfg.Chain.P2P.WindowResetInterval = time.Hour
 	if err := node.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/consensus"
@@ -11,6 +12,11 @@ import (
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/types"
+)
+
+const (
+	maxPendingVoteBlocks    = 256
+	maxPendingVotesPerBlock = 1024
 )
 
 type autoVoteReactor struct {
@@ -22,9 +28,12 @@ type autoVoteReactor struct {
 	onProposalAccepted func(consensus.Proposal, types.Hash)
 	onEvidence         func(context.Context, slashing.Evidence)
 	wal                *consensus.WAL
+	mu                 sync.Mutex
+	pendingVotes       map[types.Hash][]consensus.Vote
 }
 
 func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consensus.Proposal) error {
+	before := len(reactor.machine.Evidence())
 	if err := reactor.machine.OnProposal(ctx, proposal); err != nil {
 		return err
 	}
@@ -49,6 +58,8 @@ func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consens
 	if err := reactor.machine.OnVote(ctx, vote); err != nil {
 		return err
 	}
+	reactor.replayPendingVotes(ctx, blockHash)
+	reactor.publishNewEvidence(ctx, before)
 	if reactor.broadcastVote == nil {
 		return nil
 	}
@@ -58,8 +69,53 @@ func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consens
 func (reactor *autoVoteReactor) OnVote(ctx context.Context, vote consensus.Vote) error {
 	before := len(reactor.machine.Evidence())
 	err := reactor.machine.OnVote(ctx, vote)
+	if errors.Is(err, consensus.ErrUnknownVoteBlock) {
+		reactor.cachePendingVote(vote)
+		return nil
+	}
 	reactor.publishNewEvidence(ctx, before)
 	return err
+}
+
+func (reactor *autoVoteReactor) cachePendingVote(vote consensus.Vote) {
+	reactor.mu.Lock()
+	defer reactor.mu.Unlock()
+	if reactor.pendingVotes == nil {
+		reactor.pendingVotes = make(map[types.Hash][]consensus.Vote)
+	}
+	if len(reactor.pendingVotes) >= maxPendingVoteBlocks && len(reactor.pendingVotes[vote.BlockHash]) == 0 {
+		return
+	}
+	votes := reactor.pendingVotes[vote.BlockHash]
+	if len(votes) >= maxPendingVotesPerBlock {
+		return
+	}
+	for _, existing := range votes {
+		if existing.ValidatorID == vote.ValidatorID && existing.Height == vote.Height && existing.Round == vote.Round {
+			return
+		}
+	}
+	reactor.pendingVotes[vote.BlockHash] = append(votes, vote)
+}
+
+func (reactor *autoVoteReactor) replayPendingVotes(ctx context.Context, blockHash types.Hash) {
+	votes := reactor.takePendingVotes(blockHash)
+	for _, vote := range votes {
+		before := len(reactor.machine.Evidence())
+		_ = reactor.machine.OnVote(ctx, vote)
+		reactor.publishNewEvidence(ctx, before)
+	}
+}
+
+func (reactor *autoVoteReactor) takePendingVotes(blockHash types.Hash) []consensus.Vote {
+	reactor.mu.Lock()
+	defer reactor.mu.Unlock()
+	votes := reactor.pendingVotes[blockHash]
+	if len(votes) == 0 {
+		return nil
+	}
+	delete(reactor.pendingVotes, blockHash)
+	return append([]consensus.Vote(nil), votes...)
 }
 
 func (reactor *autoVoteReactor) OnTimeoutVote(ctx context.Context, vote consensus.TimeoutVote) (finality.TimeoutCert, error) {
@@ -120,17 +176,22 @@ func (node *Node) ProposeBlock(ctx context.Context, block types.Block) (consensu
 		return consensus.Proposal{}, types.Hash{}, err
 	}
 	blockHash := consensus.HashBlock(proposal.Block)
+	node.markProposed(proposal.Block.Header.Height, proposal.Round)
 	node.cacheProposal(proposal, blockHash)
-	if err := node.voteLocalProposal(ctx, proposal, blockHash); err != nil {
+	vote, err := node.voteLocalProposal(ctx, proposal, blockHash)
+	if err != nil {
 		return consensus.Proposal{}, types.Hash{}, err
 	}
 	if err := reactor.BroadcastProposal(ctx, proposal); err != nil {
 		return consensus.Proposal{}, types.Hash{}, err
 	}
+	if err := reactor.BroadcastVote(ctx, vote); err != nil {
+		return consensus.Proposal{}, types.Hash{}, err
+	}
 	return proposal, blockHash, nil
 }
 
-func (node *Node) voteLocalProposal(ctx context.Context, proposal consensus.Proposal, blockHash types.Hash) error {
+func (node *Node) voteLocalProposal(ctx context.Context, proposal consensus.Proposal, blockHash types.Hash) (consensus.Vote, error) {
 	vote := consensus.Vote{
 		Height:      proposal.Block.Header.Height,
 		Round:       proposal.Round,
@@ -138,16 +199,19 @@ func (node *Node) voteLocalProposal(ctx context.Context, proposal consensus.Prop
 		ValidatorID: node.cfg.ValidatorID,
 	}
 	if err := node.signConsensusVote(&vote); err != nil {
-		return err
+		return consensus.Vote{}, err
 	}
 	if err := node.recordConsensusVote(vote); err != nil {
-		return err
+		return consensus.Vote{}, err
 	}
 	machine, err := node.Consensus()
 	if err != nil {
-		return err
+		return consensus.Vote{}, err
 	}
-	return machine.OnVote(ctx, vote)
+	if err := machine.OnVote(ctx, vote); err != nil {
+		return consensus.Vote{}, err
+	}
+	return vote, nil
 }
 
 func (node *Node) VoteBlock(ctx context.Context, height types.Height, round types.Round, blockHash types.Hash) (finality.QuorumCert, bool, error) {
@@ -206,10 +270,17 @@ func (node *Node) TimeoutRound(ctx context.Context) (finality.TimeoutCert, bool,
 		machine.StartRound(1, status.Round)
 		status = machine.Status(ctx)
 	}
+	if vote, ok := node.cachedTimeoutVote(status.Height, status.Round); ok {
+		if err := reactor.BroadcastTimeoutVote(ctx, vote); err != nil {
+			return finality.TimeoutCert{}, false, err
+		}
+		return finality.TimeoutCert{}, false, nil
+	}
 	vote := consensus.TimeoutVote{
 		Height:      status.Height,
 		Round:       status.Round,
 		ValidatorID: node.cfg.ValidatorID,
+		HighQC:      machine.HighQC(ctx),
 	}
 	if err := node.signConsensusTimeoutVote(&vote); err != nil {
 		return finality.TimeoutCert{}, false, err
@@ -217,6 +288,7 @@ func (node *Node) TimeoutRound(ctx context.Context) (finality.TimeoutCert, bool,
 	if err := node.recordConsensusTimeoutVote(vote); err != nil {
 		return finality.TimeoutCert{}, false, err
 	}
+	node.cacheTimeoutVote(vote)
 	timeoutCert, err := machine.OnTimeoutVote(ctx, vote)
 	if err != nil && !errors.Is(err, consensus.ErrNoQuorum) && !errors.Is(err, consensus.ErrStaleTimeoutCert) {
 		return finality.TimeoutCert{}, false, err
@@ -383,12 +455,17 @@ func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert
 	if err := runtime.Mempool.MarkCommitted(ctx, block.Txs); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
+	if err := machine.ObserveCommittedBlock(block, quorumCert); err != nil {
+		return app.FinalizeBlockResponse{}, err
+	}
 	nextHeight := block.Header.Height + 1
 	if err := machine.UpdateValidatorSetFromRegistry(ctx, runtime.Validators, nextHeight); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
 	machine.StartRound(nextHeight, 0)
-	node.removePending(blockHash)
+	node.removePendingAtOrBelow(block.Header.Height)
+	node.removeProposedAtOrBelow(block.Header.Height)
+	node.removeTimeoutVotesAtOrBelow(block.Header.Height)
 	if broadcast {
 		if err := node.broadcastCommit(ctx, block, quorumCert); err != nil {
 			return app.FinalizeBlockResponse{}, err
@@ -409,7 +486,15 @@ func (node *Node) CommitReadyBlock(ctx context.Context) (CommitReadyResult, bool
 	if err != nil {
 		return CommitReadyResult{}, false, err
 	}
+	status := machine.Status(ctx)
 	for blockHash, proposal := range node.pendingProposals() {
+		if proposal.Block.Header.Height < status.Height {
+			node.removePending(blockHash)
+			continue
+		}
+		if proposal.Block.Header.Height > status.Height {
+			continue
+		}
 		qc, err := machine.BuildQuorumCert(proposal.Block.Header.Height, proposal.Round, blockHash)
 		if err != nil {
 			continue
@@ -441,6 +526,68 @@ func (node *Node) removePending(blockHash types.Hash) {
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	delete(node.pending, blockHash)
+}
+
+func (node *Node) removePendingAtOrBelow(height types.Height) {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	for blockHash, proposal := range node.pending {
+		if proposal.Block.Header.Height <= height {
+			delete(node.pending, blockHash)
+		}
+	}
+}
+
+func (node *Node) hasProposed(height types.Height, round types.Round) bool {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	_, ok := node.proposed[proposalRound{height: height, round: round}]
+	return ok
+}
+
+func (node *Node) markProposed(height types.Height, round types.Round) {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	if node.proposed == nil {
+		node.proposed = make(map[proposalRound]struct{})
+	}
+	node.proposed[proposalRound{height: height, round: round}] = struct{}{}
+}
+
+func (node *Node) removeProposedAtOrBelow(height types.Height) {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	for key := range node.proposed {
+		if key.height <= height {
+			delete(node.proposed, key)
+		}
+	}
+}
+
+func (node *Node) cachedTimeoutVote(height types.Height, round types.Round) (consensus.TimeoutVote, bool) {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	vote, ok := node.timeoutVotes[proposalRound{height: height, round: round}]
+	return vote, ok
+}
+
+func (node *Node) cacheTimeoutVote(vote consensus.TimeoutVote) {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	if node.timeoutVotes == nil {
+		node.timeoutVotes = make(map[proposalRound]consensus.TimeoutVote)
+	}
+	node.timeoutVotes[proposalRound{height: vote.Height, round: vote.Round}] = vote
+}
+
+func (node *Node) removeTimeoutVotesAtOrBelow(height types.Height) {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	for key := range node.timeoutVotes {
+		if key.height <= height {
+			delete(node.timeoutVotes, key)
+		}
+	}
 }
 
 func (node *Node) pendingProposals() map[types.Hash]consensus.Proposal {

@@ -75,16 +75,25 @@ func (node *Node) acceptCommitMessage(ctx context.Context, from p2p.PeerID, data
 		node.observePeerMessage(ctx, from, false)
 		return
 	}
-	if node.hasCommitted(ctx, message.Block.Header.Height) {
+	commitHeight, ok := node.currentCommitHeight(ctx)
+	if !ok {
+		node.observePeerMessage(ctx, from, true)
+		return
+	}
+	if message.Block.Header.Height <= commitHeight {
+		node.observePeerMessage(ctx, from, true)
+		return
+	}
+	if message.Block.Header.Height > commitHeight+1 {
 		node.observePeerMessage(ctx, from, true)
 		return
 	}
 	if err := node.verifyCommitCertificate(ctx, message.Block, message.QuorumCert); err != nil {
-		node.observePeerMessage(ctx, from, false)
+		node.observePeerMessage(ctx, from, true)
 		return
 	}
 	if _, err := node.commitBlock(ctx, message.Block, message.QuorumCert, false, false); err != nil {
-		node.observePeerMessage(ctx, from, false)
+		node.observePeerMessage(ctx, from, true)
 		return
 	}
 	node.observePeerMessage(ctx, from, true)
@@ -124,13 +133,18 @@ func (node *Node) verifyCommitCertificate(ctx context.Context, block types.Block
 }
 
 func (node *Node) hasCommitted(ctx context.Context, height types.Height) bool {
+	commitHeight, ok := node.currentCommitHeight(ctx)
+	return ok && commitHeight >= height
+}
+
+func (node *Node) currentCommitHeight(ctx context.Context) (types.Height, bool) {
 	runtime, err := node.Runtime()
 	if err != nil {
-		return false
+		return 0, false
 	}
 	commit, err := runtime.App.Commit()
 	if err != nil {
-		return false
+		return 0, false
 	}
-	return commit.Height >= height
+	return commit.Height, true
 }

@@ -88,6 +88,40 @@ func TestRunInitWritesNetworkFiles(t *testing.T) {
 	}
 }
 
+func TestRunInitOverwriteClearsRuntimeArtifacts(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validators", "2"}); err != nil {
+		t.Fatal(err)
+	}
+	runtimeArtifacts := []string{
+		filepath.Join(home, "validator-1", "data", "consensus.wal"),
+		filepath.Join(home, "validator-1", "data", "peer_scores.json"),
+		filepath.Join(home, "validator-1", "data", "store", "LOCK"),
+		filepath.Join(home, "validator-1", networkPIDFileName),
+		filepath.Join(home, "validator-1", "vexod.log"),
+	}
+	for _, path := range runtimeArtifacts {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("stale"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validators", "2", "--overwrite"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range runtimeArtifacts {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("expected stale runtime artifact removed %s, got %v", path, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, "validator-1", "data")); err != nil {
+		t.Fatalf("expected data directory recreated: %v", err)
+	}
+}
+
 func TestRunInitRejectsExistingFilesUnlessOverwrite(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home}); err != nil {

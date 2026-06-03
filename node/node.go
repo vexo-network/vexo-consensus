@@ -59,11 +59,18 @@ type Node struct {
 	loopCancel     context.CancelFunc
 	loopDone       chan struct{}
 	pending        map[types.Hash]consensus.Proposal
+	proposed       map[proposalRound]struct{}
+	timeoutVotes   map[proposalRound]consensus.TimeoutVote
 	store          store.Store
 	consensusWAL   *consensus.WAL
 	signer         vexocrypto.Signer
 	running        bool
 	startedAt      time.Time
+}
+
+type proposalRound struct {
+	height types.Height
+	round  types.Round
 }
 
 func New(cfg Config, genesis Genesis, application app.Application) (*Node, error) {
@@ -77,10 +84,12 @@ func New(cfg Config, genesis Genesis, application app.Application) (*Node, error
 		return nil, err
 	}
 	return &Node{
-		cfg:     cfg,
-		genesis: genesis,
-		app:     application,
-		pending: make(map[types.Hash]consensus.Proposal),
+		cfg:          cfg,
+		genesis:      genesis,
+		app:          application,
+		pending:      make(map[types.Hash]consensus.Proposal),
+		proposed:     make(map[proposalRound]struct{}),
+		timeoutVotes: make(map[proposalRound]consensus.TimeoutVote),
 	}, nil
 }
 
@@ -209,6 +218,7 @@ func (node *Node) Start(ctx context.Context) error {
 	node.consensusWAL = consensusWAL
 	node.reactor = reactor
 	node.pending = make(map[types.Hash]consensus.Proposal)
+	node.proposed = make(map[proposalRound]struct{})
 	node.store = storage
 	node.running = true
 	node.startedAt = time.Now().UTC()

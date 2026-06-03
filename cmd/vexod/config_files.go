@@ -348,6 +348,16 @@ func writeNetworkFilesWithOptions(home string, chainID string, validatorCount in
 		validatorID := networkValidatorID(index)
 		nodeHome := filepath.Join(home, validatorID)
 		dataDir := filepath.Join(nodeHome, "data")
+		if overwrite {
+			if err := os.RemoveAll(dataDir); err != nil {
+				return networkDocument{}, err
+			}
+			for _, path := range []string{filepath.Join(nodeHome, networkPIDFileName), filepath.Join(nodeHome, "vexod.log")} {
+				if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return networkDocument{}, err
+				}
+			}
+		}
 		if err := os.MkdirAll(dataDir, 0o755); err != nil {
 			return networkDocument{}, err
 		}
@@ -515,6 +525,11 @@ func writeInitFiles(home string, chainID string, validatorID string, overwrite b
 		return "", "", err
 	}
 	dataDir := filepath.Join(home, "data")
+	if overwrite {
+		if err := os.RemoveAll(dataDir); err != nil {
+			return "", "", err
+		}
+	}
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return "", "", err
 	}

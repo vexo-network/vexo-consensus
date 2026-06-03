@@ -156,12 +156,5 @@ func (reactor *TransportReactor) observePeer(ctx context.Context, peer p2p.PeerI
 }
 
 func isMaliciousConsensusError(err error) bool {
-	return errors.Is(err, ErrUnknownValidator) ||
-		errors.Is(err, ErrConflictingVote) ||
-		errors.Is(err, ErrInvalidProposal) ||
-		errors.Is(err, ErrInvalidVote) ||
-		errors.Is(err, ErrUnsafeProposal) ||
-		errors.Is(err, ErrUnsafeVote) ||
-		errors.Is(err, ErrUnknownConsensusMessage) ||
-		errors.Is(err, ErrConflictingTimeoutVote)
+	return errors.Is(err, ErrUnknownConsensusMessage)
 }

@@ -576,6 +576,35 @@ func TestGRPCTransportCountsSubscriberDrops(t *testing.T) {
 	}
 }
 
+func TestGRPCTransportDoesNotDropConsensusTopics(t *testing.T) {
+	peer := newStartedGRPCPeer(t, "alice", GRPCConfig{SubscriberBuffer: 1})
+	defer stopGRPCPeer(t, peer)
+	votes, err := peer.Subscribe(context.Background(), p2p.TopicVote)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for index := 0; index < 3; index++ {
+			<-votes
+		}
+	}()
+
+	peer.deliver(Envelope{Topic: p2p.TopicVote, From: "bob", Data: []byte("one")})
+	peer.deliver(Envelope{Topic: p2p.TopicVote, From: "bob", Data: []byte("two")})
+	peer.deliver(Envelope{Topic: p2p.TopicVote, From: "bob", Data: []byte("three")})
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for reliable consensus deliveries")
+	}
+	if drops := peer.DroppedMessages(); drops != 0 {
+		t.Fatalf("expected no consensus drops, got %d", drops)
+	}
+}
+
 func newStartedGRPCPeers(t *testing.T) (*GRPCTransport, *GRPCTransport, *GRPCTransport) {
 	t.Helper()
 	base := GRPCConfig{NetworkID: "vexo-network", ChainID: "vexo-test", GenesisHash: GenesisHash([]byte("genesis"))}
