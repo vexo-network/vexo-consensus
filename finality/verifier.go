@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
@@ -34,6 +35,18 @@ type RegistryVerifier struct {
 }
 
 func NewVerifier(validatorSet validator.Set, signatures SignatureVerifier) Verifier {
+	if signatures != nil {
+		if wrapped, err := vexocrypto.NewDomainAggregateVerifier(signatures, vexocrypto.DomainConsensusVote); err == nil {
+			signatures = wrapped
+		}
+	}
+	return Verifier{
+		validatorSet: validatorSet,
+		signatures:   signatures,
+	}
+}
+
+func NewRawVerifier(validatorSet validator.Set, signatures SignatureVerifier) Verifier {
 	return Verifier{
 		validatorSet: validatorSet,
 		signatures:   signatures,

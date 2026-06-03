@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 
 	"github.com/vexo-network/vexo-consensus/finality"
+	"github.com/vexo-network/vexo-consensus/signbytes"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -21,12 +22,7 @@ func ProposalSignBytes(proposal Proposal) []byte {
 }
 
 func VoteSignBytes(vote Vote) []byte {
-	message := make([]byte, 0, 80)
-	message = append(message, []byte("vote")...)
-	message = appendUint64(message, uint64(vote.Height))
-	message = appendUint64(message, uint64(vote.Round))
-	message = append(message, vote.BlockHash[:]...)
-	return message
+	return signbytes.Vote(vote.Height, vote.Round, vote.BlockHash)
 }
 
 func TimeoutVoteSignBytes(vote TimeoutVote) []byte {

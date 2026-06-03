@@ -20,18 +20,21 @@ var (
 )
 
 type Module struct {
-	keeper *vexogov.InMemoryKeeper
+	keeper       vexogov.OperationalKeeper
+	policy       vexogov.TallyPolicy
+	useStorePath bool
 }
 
 func NewModule() *Module {
-	return NewModuleWithKeeper(vexogov.NewInMemoryKeeper(vexogov.TallyPolicy{
+	policy := vexogov.TallyPolicy{
 		QuorumPower:       1,
 		YesThresholdPower: 1,
 		VotingPeriod:      1,
-	}, nil))
+	}
+	return &Module{keeper: vexogov.NewInMemoryKeeper(policy, nil), policy: policy, useStorePath: true}
 }
 
-func NewModuleWithKeeper(keeper *vexogov.InMemoryKeeper) *Module {
+func NewModuleWithKeeper(keeper vexogov.OperationalKeeper) *Module {
 	return &Module{keeper: keeper}
 }
 
@@ -40,6 +43,13 @@ func (module *Module) Name() string {
 }
 
 func (module *Module) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisState) error {
+	if module.useStorePath && ctx.Store != nil {
+		keeper, err := vexogov.NewStoreKeeper(ctx.Store, module.policy, nil)
+		if err != nil {
+			return err
+		}
+		module.keeper = keeper
+	}
 	return nil
 }
 

@@ -44,7 +44,7 @@ func (node *Node) applyEvidence(ctx context.Context, evidence slashing.Evidence)
 	if err != nil {
 		return consensus.SlashResult{}, false, err
 	}
-	result, err := consensus.SubmitEvidenceForSlashing(ctx, runtime.Slashing, runtime.Validators, evidence)
+	result, err := consensus.SubmitEvidenceForSlashing(ctx, runtime.Slashing, runtime.Validators, runtime.Crypto.ConsensusVerifier, evidence)
 	if errors.Is(err, slashing.ErrDuplicateEvidence) {
 		return consensus.SlashResult{}, false, nil
 	}

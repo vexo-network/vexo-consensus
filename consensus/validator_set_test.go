@@ -5,14 +5,16 @@ import (
 	"errors"
 	"testing"
 
+	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
 
 func TestStateMachineUpdatesValidatorSetFromRegistryAfterSlashing(t *testing.T) {
+	signer := testEvidenceSigner(t, "a")
 	registry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{
-		{ID: "a", Address: "a", VotingPower: 100, Stake: 100},
+		{ID: "a", Address: "a", VotingPower: 100, Stake: 100, PublicKey: signer.PublicKey()},
 		{ID: "b", Address: "b", VotingPower: 100, Stake: 100},
 	})
 	if err != nil {
@@ -32,8 +34,8 @@ func TestStateMachineUpdatesValidatorSetFromRegistryAfterSlashing(t *testing.T) 
 	initialHash := machine.Status(context.Background()).ValidatorSetHash
 
 	evidence, err := NewConflictingVoteEvidence(
-		testVote("a", 1, 0, types.Hash{1}),
-		testVote("a", 1, 0, types.Hash{2}),
+		signedTestVote(t, signer, "a", 1, 0, types.Hash{1}),
+		signedTestVote(t, signer, "a", 1, 0, types.Hash{2}),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +43,7 @@ func TestStateMachineUpdatesValidatorSetFromRegistryAfterSlashing(t *testing.T) 
 	keeper := slashing.NewInMemoryKeeper(slashing.PenaltyPolicy{
 		slashing.EvidenceConflictingVote: {SlashFraction: "0.50", JailDuration: 10},
 	})
-	if _, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, evidence); err != nil {
+	if _, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, evidence); err != nil {
 		t.Fatal(err)
 	}
 	if err := machine.UpdateValidatorSetFromRegistry(context.Background(), registry, 2); err != nil {

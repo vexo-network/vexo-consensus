@@ -24,6 +24,7 @@ type StoreRegistry struct {
 	store           KVStore
 	policy          AdmissionPolicy
 	effectiveHeight types.Height
+	events          []RotationEvent
 }
 
 type validatorSetDocument struct {
@@ -72,9 +73,17 @@ func (registry *StoreRegistry) ValidatorSet(ctx context.Context, height types.He
 }
 
 func (registry *StoreRegistry) ApplyJoin(ctx context.Context, candidate Candidate) (Validator, error) {
+	return registry.ApplyJoinAt(ctx, registry.effectiveHeight, candidate)
+}
+
+func (registry *StoreRegistry) ApplyJoinAt(ctx context.Context, height types.Height, candidate Candidate) (Validator, error) {
 	if candidate.Address == "" {
 		return Validator{}, ErrMissingCandidateID
 	}
+	if height == 0 {
+		height = registry.effectiveHeight
+	}
+	registry.SetEffectiveHeight(height)
 	validators, err := registry.currentValidators(ctx)
 	if err != nil {
 		return Validator{}, err
@@ -100,13 +109,22 @@ func (registry *StoreRegistry) ApplyJoin(ctx context.Context, candidate Candidat
 		return Validator{}, ErrZeroVotingPower
 	}
 	validators[validatorID] = validatorInfo
-	if err := registry.saveSnapshot(ctx, registry.effectiveHeight, sortedValidatorMap(validators)); err != nil {
+	if err := registry.saveSnapshot(ctx, height, sortedValidatorMap(validators)); err != nil {
 		return Validator{}, err
 	}
+	registry.recordEvent(ctx, height, RotationEventJoin, validatorID, validatorInfo.VotingPower)
 	return validatorInfo, nil
 }
 
 func (registry *StoreRegistry) ApplyLeave(ctx context.Context, id types.ValidatorID) error {
+	return registry.ApplyLeaveAt(ctx, registry.effectiveHeight, id)
+}
+
+func (registry *StoreRegistry) ApplyLeaveAt(ctx context.Context, height types.Height, id types.ValidatorID) error {
+	if height == 0 {
+		height = registry.effectiveHeight
+	}
+	registry.SetEffectiveHeight(height)
 	validators, err := registry.currentValidators(ctx)
 	if err != nil {
 		return err
@@ -115,13 +133,25 @@ func (registry *StoreRegistry) ApplyLeave(ctx context.Context, id types.Validato
 		return ErrValidatorNotFound
 	}
 	delete(validators, id)
-	return registry.saveSnapshot(ctx, registry.effectiveHeight, sortedValidatorMap(validators))
+	if err := registry.saveSnapshot(ctx, height, sortedValidatorMap(validators)); err != nil {
+		return err
+	}
+	registry.recordEvent(ctx, height, RotationEventLeave, id, 0)
+	return nil
 }
 
 func (registry *StoreRegistry) UpdateVotingPower(ctx context.Context, id types.ValidatorID, power types.VotingPower) error {
+	return registry.UpdateVotingPowerAt(ctx, registry.effectiveHeight, id, power)
+}
+
+func (registry *StoreRegistry) UpdateVotingPowerAt(ctx context.Context, height types.Height, id types.ValidatorID, power types.VotingPower) error {
 	if power == 0 {
 		return ErrZeroVotingPower
 	}
+	if height == 0 {
+		height = registry.effectiveHeight
+	}
+	registry.SetEffectiveHeight(height)
 	validators, err := registry.currentValidators(ctx)
 	if err != nil {
 		return err
@@ -132,7 +162,29 @@ func (registry *StoreRegistry) UpdateVotingPower(ctx context.Context, id types.V
 	}
 	validatorInfo.VotingPower = power
 	validators[id] = validatorInfo
-	return registry.saveSnapshot(ctx, registry.effectiveHeight, sortedValidatorMap(validators))
+	if err := registry.saveSnapshot(ctx, height, sortedValidatorMap(validators)); err != nil {
+		return err
+	}
+	registry.recordEvent(ctx, height, RotationEventPowerChange, id, power)
+	return nil
+}
+
+func (registry *StoreRegistry) RotationEvents() []RotationEvent {
+	return append([]RotationEvent(nil), registry.events...)
+}
+
+func (registry *StoreRegistry) recordEvent(ctx context.Context, height types.Height, eventType RotationEventType, validatorID types.ValidatorID, power types.VotingPower) {
+	set, err := registry.ValidatorSet(ctx, height)
+	if err != nil {
+		return
+	}
+	registry.events = append(registry.events, RotationEvent{
+		Height:           height,
+		Type:             eventType,
+		ValidatorID:      validatorID,
+		VotingPower:      power,
+		ValidatorSetHash: set.Hash(),
+	})
 }
 
 func (registry *StoreRegistry) currentValidators(ctx context.Context) (map[types.ValidatorID]Validator, error) {

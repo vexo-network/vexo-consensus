@@ -158,6 +158,42 @@ func TestRuntimeWithStoreUsesDurableSlashingKeeper(t *testing.T) {
 	}
 }
 
+func TestRuntimeWithStoreUsesDurableValidatorRegistry(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := storage.Close(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	runtime, err := NewWithStore(config.Default("vexo-test"), noopApp{}, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 100, Stake: 100},
+	}, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := runtime.Validators.(*validator.StoreRegistry); !ok {
+		t.Fatalf("expected store-backed validator registry, got %T", runtime.Validators)
+	}
+	if err := runtime.ApplyValidatorUpdatesAt(context.Background(), 2, []types.ValidatorUpdate{{ID: "alice", Address: "alice", VotingPower: 75, Stake: 75}}); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := validator.NewStoreRegistry(context.Background(), storage, nil, 2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := reopened.ValidatorSet(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alice, found := set.Get("alice")
+	if !found || alice.VotingPower != 75 {
+		t.Fatalf("expected persisted alice power 75, got %+v found=%t", alice, found)
+	}
+}
+
 func TestRuntimeBuildsEd25519FinalityVerifier(t *testing.T) {
 	cfg := config.Default("vexo-test")
 	cfg.Crypto.Backend = config.CryptoBackendEd25519

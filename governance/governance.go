@@ -34,3 +34,12 @@ type Keeper interface {
 	Vote(ctx context.Context, proposalID uint64, voter types.Address, option VoteOption) error
 	Execute(ctx context.Context, proposalID uint64) error
 }
+
+type OperationalKeeper interface {
+	Keeper
+	SetTime(now uint64)
+	SetVotingPower(voter types.Address, power types.VotingPower)
+	Proposal(proposalID uint64) (ProposalState, bool)
+	AppliedChanges() []ParameterChange
+	Tally(proposalID uint64) (TallyResult, bool)
+}

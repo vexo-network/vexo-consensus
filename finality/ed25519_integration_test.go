@@ -29,11 +29,11 @@ func TestVerifierAcceptsEd25519MultiSignature(t *testing.T) {
 	})
 	proof := validProof(set, []types.ValidatorID{"a", "b"})
 
-	firstSignature, err := firstSigner.Sign(proof.SignBytes())
+	firstSignature, err := vexocrypto.SignWithDomain(firstSigner, vexocrypto.DomainConsensusVote, proof.SignBytes())
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondSignature, err := secondSigner.Sign(proof.SignBytes())
+	secondSignature, err := vexocrypto.SignWithDomain(secondSigner, vexocrypto.DomainConsensusVote, proof.SignBytes())
 	if err != nil {
 		t.Fatal(err)
 	}

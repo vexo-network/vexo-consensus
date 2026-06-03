@@ -23,6 +23,15 @@ type InMemoryRegistry struct {
 	events          []RotationEvent
 }
 
+type VersionedRegistry interface {
+	Registry
+	SetEffectiveHeight(height types.Height)
+	ApplyJoinAt(ctx context.Context, height types.Height, candidate Candidate) (Validator, error)
+	ApplyLeaveAt(ctx context.Context, height types.Height, id types.ValidatorID) error
+	UpdateVotingPowerAt(ctx context.Context, height types.Height, id types.ValidatorID, power types.VotingPower) error
+	RotationEvents() []RotationEvent
+}
+
 type RotationEventType string
 
 const (

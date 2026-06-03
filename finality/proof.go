@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/vexo-network/vexo-consensus/signbytes"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -34,15 +35,7 @@ func (proof Proof) SignBytes() []byte {
 	if blockHash == (types.Hash{}) {
 		blockHash = proof.HeaderHash()
 	}
-	message := make([]byte, 0, len(blockHash)+20)
-	message = append(message, []byte("vote")...)
-
-	var buffer [16]byte
-	binary.BigEndian.PutUint64(buffer[:8], uint64(proof.QuorumCert.Height))
-	binary.BigEndian.PutUint64(buffer[8:], uint64(proof.QuorumCert.Round))
-	message = append(message, buffer[:]...)
-	message = append(message, blockHash[:]...)
-	return message
+	return signbytes.Vote(proof.QuorumCert.Height, proof.QuorumCert.Round, blockHash)
 }
 
 func EncodeSigners(signers []types.ValidatorID) types.Bitmap {

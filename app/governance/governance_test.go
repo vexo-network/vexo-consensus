@@ -9,6 +9,7 @@ import (
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/fairordering"
 	vexogov "github.com/vexo-network/vexo-consensus/governance"
+	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -48,6 +49,42 @@ func TestGovernanceModuleLifecycleThroughRuntime(t *testing.T) {
 	applied := runtime.Query(vexoapp.QueryRequest{Path: []string{"governance", "applied"}})
 	if applied.Code != 0 || !strings.Contains(string(applied.Value), `"Module":"execution"`) {
 		t.Fatalf("unexpected applied query: %+v", applied)
+	}
+}
+
+func TestGovernanceModulePersistsStateWithRuntimeStore(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	runtime, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{NewModule()}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.WithStore(storage)
+	if _, err := runtime.InitChain(vexoapp.InitChainRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	finalizeGovernanceBlock(t, runtime, 1, []types.Tx{[]byte("governance:submit:alice:title:execution:max_gas:20000000")})
+	finalizeGovernanceBlock(t, runtime, 2, []types.Tx{[]byte("governance:vote:1:alice:yes:1")})
+
+	recovered, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{NewModule()}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered.WithStore(storage)
+	if _, err := recovered.InitChain(vexoapp.InitChainRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	proposal := recovered.Query(vexoapp.QueryRequest{Path: []string{"governance", "proposal", "1"}})
+	if proposal.Code != 0 || !strings.Contains(string(proposal.Value), `"ID":1`) {
+		t.Fatalf("expected persisted proposal, got %+v", proposal)
+	}
+	tally := recovered.Query(vexoapp.QueryRequest{Path: []string{"governance", "tally", "1"}})
+	if tally.Code != 0 || !strings.Contains(string(tally.Value), `"Passed":true`) {
+		t.Fatalf("expected persisted tally, got %+v", tally)
 	}
 }
 

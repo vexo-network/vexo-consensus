@@ -46,7 +46,7 @@ type StateMachine struct {
 	aggregator   aggregateSigner
 	status       Status
 	votes        map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote
-	votedBlocks  map[types.Height]map[types.Round]map[types.ValidatorID]types.Hash
+	votedVotes   map[types.Height]map[types.Round]map[types.ValidatorID]Vote
 	evidence     []slashing.Evidence
 	timeouts     *TimeoutCollector
 	pacemaker    *Pacemaker
@@ -81,7 +81,7 @@ func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
 			ValidatorSetHash: config.ValidatorSet.Hash(),
 		},
 		votes:        make(map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote),
-		votedBlocks:  make(map[types.Height]map[types.Round]map[types.ValidatorID]types.Hash),
+		votedVotes:   make(map[types.Height]map[types.Round]map[types.ValidatorID]Vote),
 		evidence:     make([]slashing.Evidence, 0),
 		timeouts:     NewTimeoutCollectorWithAggregator(config.ValidatorSet, config.Aggregator),
 		pacemaker:    NewPacemaker(0, 0),
@@ -525,15 +525,15 @@ func (machine *StateMachine) updateLockedQC(qc finality.QuorumCert) {
 func (machine *StateMachine) recordVote(vote Vote) error {
 	machine.ensureVoteMaps(vote.Height, vote.Round, vote.BlockHash)
 
-	if previousBlock, found := machine.votedBlocks[vote.Height][vote.Round][vote.ValidatorID]; found && previousBlock != vote.BlockHash {
-		evidence, err := VoteConflictFromPrevious(previousBlock, vote)
+	if previousVote, found := machine.votedVotes[vote.Height][vote.Round][vote.ValidatorID]; found && previousVote.BlockHash != vote.BlockHash {
+		evidence, err := NewConflictingVoteEvidence(previousVote, vote)
 		if err == nil {
 			machine.evidence = append(machine.evidence, evidence)
 		}
 		return ErrConflictingVote
 	}
 
-	machine.votedBlocks[vote.Height][vote.Round][vote.ValidatorID] = vote.BlockHash
+	machine.votedVotes[vote.Height][vote.Round][vote.ValidatorID] = vote
 	machine.votes[vote.Height][vote.Round][vote.BlockHash][vote.ValidatorID] = vote
 	return nil
 }
@@ -559,11 +559,11 @@ func (machine *StateMachine) ensureVoteMaps(height types.Height, round types.Rou
 		machine.votes[height][round][blockHash] = make(map[types.ValidatorID]Vote)
 	}
 
-	if _, found := machine.votedBlocks[height]; !found {
-		machine.votedBlocks[height] = make(map[types.Round]map[types.ValidatorID]types.Hash)
+	if _, found := machine.votedVotes[height]; !found {
+		machine.votedVotes[height] = make(map[types.Round]map[types.ValidatorID]Vote)
 	}
-	if _, found := machine.votedBlocks[height][round]; !found {
-		machine.votedBlocks[height][round] = make(map[types.ValidatorID]types.Hash)
+	if _, found := machine.votedVotes[height][round]; !found {
+		machine.votedVotes[height][round] = make(map[types.ValidatorID]Vote)
 	}
 }
 

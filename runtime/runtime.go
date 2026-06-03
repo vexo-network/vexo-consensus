@@ -22,11 +22,11 @@ type Runtime struct {
 	Config     config.Config
 	App        app.Application
 	Executor   consensus.ApplicationBlockExecutor
-	Validators *validator.InMemoryRegistry
+	Validators validator.VersionedRegistry
 	Committee  committee.Selector
 	Mempool    *mempool.DAG
 	Slashing   consensus.SlashingKeeper
-	Governance *governance.InMemoryKeeper
+	Governance governance.OperationalKeeper
 	P2PScore   *p2p.ScoreKeeper
 	Crypto     crypto.RuntimeSuite
 	Store      store.Store
@@ -42,9 +42,19 @@ func NewWithStore(cfg config.Config, application app.Application, initialValidat
 	}
 
 	admission := validator.NewConfigurableAdmissionPolicy(cfg.Validator)
-	registry, err := validator.NewInMemoryRegistry(admission, initialValidators)
-	if err != nil {
-		return nil, err
+	var registry validator.VersionedRegistry
+	if storage != nil {
+		storeRegistry, err := validator.NewStoreRegistry(context.Background(), storage, admission, 1, initialValidators)
+		if err != nil {
+			return nil, err
+		}
+		registry = storeRegistry
+	} else {
+		memoryRegistry, err := validator.NewInMemoryRegistry(admission, initialValidators)
+		if err != nil {
+			return nil, err
+		}
+		registry = memoryRegistry
 	}
 
 	selector, err := committee.NewSelector(cfg.Committee, crypto.NewDeterministicVRF(cfg.VRF.Keys))
@@ -73,6 +83,14 @@ func NewWithStore(cfg config.Config, application app.Application, initialValidat
 		}
 		slashingKeeper = storeKeeper
 	}
+	governanceKeeper := governance.OperationalKeeper(governance.NewInMemoryKeeper(cfg.Governance, governancePower))
+	if storage != nil {
+		storeKeeper, err := governance.NewStoreKeeper(storage, cfg.Governance, governancePower)
+		if err != nil {
+			return nil, err
+		}
+		governanceKeeper = storeKeeper
+	}
 
 	return &Runtime{
 		Config:     cfg,
@@ -82,7 +100,7 @@ func NewWithStore(cfg config.Config, application app.Application, initialValidat
 		Committee:  selector,
 		Mempool:    mempool.NewDAG(mempool.NewFIFO(fifoConfig)),
 		Slashing:   slashingKeeper,
-		Governance: governance.NewInMemoryKeeper(cfg.Governance, governancePower),
+		Governance: governanceKeeper,
 		P2PScore:   p2p.NewScoreKeeper(cfg.P2P),
 		Crypto:     cryptoSuite,
 		Store:      storage,
@@ -239,11 +257,7 @@ func (runtime *Runtime) NewFinalityVerifier(ctx context.Context, height types.He
 	if err != nil {
 		return finality.Verifier{}, err
 	}
-	verifier, err := crypto.NewDomainAggregateVerifier(runtime.Crypto.FinalityVerifier, crypto.DomainConsensusVote)
-	if err != nil {
-		return finality.Verifier{}, err
-	}
-	return finality.NewVerifier(validatorSet, verifier), nil
+	return finality.NewVerifier(validatorSet, runtime.Crypto.FinalityVerifier), nil
 }
 
 func (runtime *Runtime) Recover(ctx context.Context) (store.StateRecord, error) {

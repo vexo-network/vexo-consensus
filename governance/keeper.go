@@ -234,8 +234,9 @@ func (keeper *InMemoryKeeper) passesTally(result TallyResult) bool {
 
 func cloneProposalState(state ProposalState) ProposalState {
 	state.Proposal.Changes = append([]ParameterChange(nil), state.Proposal.Changes...)
+	votes := state.Votes
 	state.Votes = make(map[types.Address]VoteRecord, len(state.Votes))
-	for voter, vote := range state.Votes {
+	for voter, vote := range votes {
 		state.Votes[voter] = vote
 	}
 	state.ExecutedChanges = append([]ParameterChange(nil), state.ExecutedChanges...)

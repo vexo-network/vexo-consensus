@@ -39,6 +39,9 @@ type RuntimeSuite struct {
 	ConsensusAggregator interface {
 		Aggregate(signatures []types.Signature) (types.AggregateSignature, error)
 	}
+	ConsensusVerifier interface {
+		Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool
+	}
 }
 
 func NewRuntimeSuite(cfg config.CryptoConfig) (RuntimeSuite, error) {
@@ -48,9 +51,9 @@ func NewRuntimeSuite(cfg config.CryptoConfig) (RuntimeSuite, error) {
 func (registry RuntimeSuiteRegistry) NewRuntimeSuite(cfg config.CryptoConfig) (RuntimeSuite, error) {
 	switch cfg.Backend {
 	case config.CryptoBackendDeterministic:
-		return RuntimeSuite{FinalityVerifier: DeterministicAggregateSigner{}, ConsensusAggregator: DeterministicAggregateSigner{}}, nil
+		return RuntimeSuite{FinalityVerifier: DeterministicAggregateSigner{}, ConsensusAggregator: DeterministicAggregateSigner{}, ConsensusVerifier: DeterministicSigner{}}, nil
 	case config.CryptoBackendEd25519:
-		return RuntimeSuite{FinalityVerifier: Ed25519MultiVerifier{}, ConsensusAggregator: Ed25519SignatureAggregator{}}, nil
+		return RuntimeSuite{FinalityVerifier: Ed25519MultiVerifier{}, ConsensusAggregator: Ed25519SignatureAggregator{}, ConsensusVerifier: Ed25519Signer{}}, nil
 	case config.CryptoBackendBLS:
 		if registry.blsFactory == nil {
 			return RuntimeSuite{}, ErrBLSBackendUnavailable
@@ -67,9 +70,9 @@ func (registry RuntimeSuiteRegistry) NewRuntimeSuite(cfg config.CryptoConfig) (R
 			if err != nil {
 				return RuntimeSuite{}, err
 			}
-			return RuntimeSuite{FinalityVerifier: verifier, ConsensusAggregator: adapter}, nil
+			return RuntimeSuite{FinalityVerifier: verifier, ConsensusAggregator: adapter, ConsensusVerifier: adapter}, nil
 		}
-		return RuntimeSuite{FinalityVerifier: adapter, ConsensusAggregator: adapter}, nil
+		return RuntimeSuite{FinalityVerifier: adapter, ConsensusAggregator: adapter, ConsensusVerifier: adapter}, nil
 	default:
 		return RuntimeSuite{}, ErrUnsupportedCryptoBackend
 	}

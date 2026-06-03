@@ -99,7 +99,7 @@ func signProof(t *testing.T, proof Proof, signers ...vexocrypto.DeterministicSig
 
 	signatures := make([]types.Signature, 0, len(signers))
 	for _, signer := range signers {
-		signature, err := signer.Sign(proof.SignBytes())
+		signature, err := vexocrypto.SignWithDomain(signer, vexocrypto.DomainConsensusVote, proof.SignBytes())
 		if err != nil {
 			t.Fatal(err)
 		}
