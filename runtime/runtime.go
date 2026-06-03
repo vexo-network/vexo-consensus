@@ -88,7 +88,7 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 	}
 	validatorSetHash := block.Header.ValidatorSetHash
 	if len(response.ValidatorUpdates) > 0 {
-		if err := runtime.ApplyValidatorUpdates(ctx, response.ValidatorUpdates); err != nil {
+		if err := runtime.ApplyValidatorUpdatesAt(ctx, block.Header.Height+1, response.ValidatorUpdates); err != nil {
 			return app.FinalizeBlockResponse{}, err
 		}
 		validatorSet, err := runtime.Validators.ValidatorSet(ctx, block.Header.Height+1)
@@ -126,6 +126,13 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 }
 
 func (runtime *Runtime) ApplyValidatorUpdates(ctx context.Context, updates []types.ValidatorUpdate) error {
+	return runtime.ApplyValidatorUpdatesAt(ctx, 0, updates)
+}
+
+func (runtime *Runtime) ApplyValidatorUpdatesAt(ctx context.Context, height types.Height, updates []types.ValidatorUpdate) error {
+	if height > 0 {
+		runtime.Validators.SetEffectiveHeight(height)
+	}
 	for _, update := range updates {
 		if update.ID == "" {
 			update.ID = types.ValidatorID(update.Address)
@@ -134,13 +141,13 @@ func (runtime *Runtime) ApplyValidatorUpdates(ctx context.Context, updates []typ
 			update.Address = types.Address(update.ID)
 		}
 		if update.VotingPower == 0 {
-			if err := runtime.Validators.ApplyLeave(ctx, update.ID); err != nil {
+			if err := runtime.Validators.ApplyLeaveAt(ctx, height, update.ID); err != nil {
 				return err
 			}
 			continue
 		}
 		if _, found := runtime.validatorByID(ctx, update.ID); found {
-			if err := runtime.Validators.UpdateVotingPower(ctx, update.ID, update.VotingPower); err != nil {
+			if err := runtime.Validators.UpdateVotingPowerAt(ctx, height, update.ID, update.VotingPower); err != nil {
 				return err
 			}
 			continue
@@ -149,7 +156,7 @@ func (runtime *Runtime) ApplyValidatorUpdates(ctx context.Context, updates []typ
 		if stake == 0 {
 			stake = uint64(update.VotingPower)
 		}
-		if _, err := runtime.Validators.ApplyJoin(ctx, validator.Candidate{
+		if _, err := runtime.Validators.ApplyJoinAt(ctx, height, validator.Candidate{
 			Address:   update.Address,
 			PublicKey: update.PublicKey,
 			Stake:     stake,

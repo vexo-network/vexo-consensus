@@ -101,9 +101,10 @@ The design is intentionally modular so individual components can be replaced wit
 - Permissionless or whitelist-style admission policy
 - Minimum stake policy
 - Maximum validator count policy
+- Optional validator public-key requirement for admission
 - Deterministic committee selection by seed, epoch, and round
 - Epoch calculation and rotation policy
-- Validator set update and rotation support
+- Height-versioned validator set update and rotation event support
 - Persistent slashing lifecycle with evidence status, penalty receipts, jailing, and slashing-driven voting-power updates
 
 ### Mempool

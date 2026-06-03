@@ -155,6 +155,13 @@ func TestRuntimeExecuteBlockAppliesValidatorUpdates(t *testing.T) {
 	if len(response.ValidatorUpdates) != 2 {
 		t.Fatalf("expected two validator updates, got %d", len(response.ValidatorUpdates))
 	}
+	previousSet, err := runtime.Validators.ValidatorSet(context.Background(), 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := previousSet.Get("bob"); found {
+		t.Fatal("bob must not exist until next validator-set height")
+	}
 
 	updatedSet, err := runtime.Validators.ValidatorSet(context.Background(), 6)
 	if err != nil {
@@ -174,6 +181,10 @@ func TestRuntimeExecuteBlockAppliesValidatorUpdates(t *testing.T) {
 	}
 	if state.ValidatorSetHash != updatedSet.Hash() {
 		t.Fatal("expected persisted state to use updated validator set hash")
+	}
+	events := runtime.Validators.RotationEvents()
+	if len(events) != 2 || events[0].Height != 6 || events[1].Height != 6 {
+		t.Fatalf("expected validator update events at height 6, got %+v", events)
 	}
 }
 

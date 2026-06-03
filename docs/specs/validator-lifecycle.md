@@ -11,6 +11,7 @@ Validator admission can be:
 - permissionless with minimum stake
 - restricted by configuration
 - capped by maximum validator count
+- optionally requiring a non-empty validator public key
 
 Candidates must satisfy the configured admission policy before joining.
 
@@ -21,12 +22,16 @@ Each height has a validator set hash. Consensus proposals and finality proofs bi
 Validator updates are applied through app/runtime output and become effective for the next height.
 
 Implementations may use the in-memory registry for tests or the store-backed registry for durable chains.
-The store-backed registry persists sorted validator-set snapshots by height and serves historical lookups
-from the latest snapshot at or below the requested height.
+Both registries serve historical lookups from the latest snapshot at or below the requested height.
+The in-memory registry records rotation events for joins, leaves, and voting-power changes; the
+store-backed registry persists sorted validator-set snapshots by height.
 
 ## Rotation
 
 Committee/proposer rotation is height and round dependent. Deterministic rotation is the default; VRF-backed rotation can be configured.
+
+Runtime validator updates produced while executing height `H` are written for height `H + 1`. This avoids
+mid-block validator-set ambiguity and keeps finality proofs bound to a single validator set per height.
 
 ## Evidence Lifecycle
 

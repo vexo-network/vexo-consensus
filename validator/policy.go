@@ -7,16 +7,18 @@ import (
 )
 
 var (
-	ErrInsufficientStake = errors.New("insufficient stake")
-	ErrValidatorSetFull  = errors.New("validator set full")
-	ErrCandidateDenied   = errors.New("candidate denied")
+	ErrInsufficientStake   = errors.New("insufficient stake")
+	ErrValidatorSetFull    = errors.New("validator set full")
+	ErrCandidateDenied     = errors.New("candidate denied")
+	ErrMissingCandidateKey = errors.New("candidate public key is required")
 )
 
 type AdmissionConfig struct {
-	Permissionless bool
-	MinStake       uint64
-	MaxValidators  int
-	Whitelist      map[string]bool
+	Permissionless   bool
+	MinStake         uint64
+	MaxValidators    int
+	Whitelist        map[string]bool
+	RequirePublicKey bool
 }
 
 type ConfigurableAdmissionPolicy struct {
@@ -39,6 +41,9 @@ func (policy ConfigurableAdmissionPolicy) CanJoin(ctx context.Context, candidate
 	}
 	if candidate.Stake < policy.config.MinStake {
 		return ErrInsufficientStake
+	}
+	if policy.config.RequirePublicKey && len(candidate.PublicKey) == 0 {
+		return ErrMissingCandidateKey
 	}
 	if policy.config.Permissionless {
 		return nil

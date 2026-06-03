@@ -139,6 +139,79 @@ func TestInMemoryRegistryLeaveAndUpdatePower(t *testing.T) {
 	}
 }
 
+func TestInMemoryRegistryKeepsHeightVersionedSetsAndEvents(t *testing.T) {
+	registry, err := NewInMemoryRegistry(nil, []Validator{{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.ApplyJoinAt(context.Background(), 5, Candidate{Address: "bob", Stake: 2, PublicKey: []byte("bob-pub")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.UpdateVotingPowerAt(context.Background(), 7, "alice", 3); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.ApplyLeaveAt(context.Background(), 9, "bob"); err != nil {
+		t.Fatal(err)
+	}
+
+	set4, err := registry.ValidatorSet(context.Background(), 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := set4.Get("bob"); found {
+		t.Fatal("bob must not exist before height 5")
+	}
+	set5, err := registry.ValidatorSet(context.Background(), 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, found := set5.Get("bob")
+	if !found || bob.VotingPower != 2 {
+		t.Fatalf("expected bob at height 5, got %+v found=%t", bob, found)
+	}
+	set7, err := registry.ValidatorSet(context.Background(), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alice, found := set7.Get("alice")
+	if !found || alice.VotingPower != 3 {
+		t.Fatalf("expected alice power 3 at height 7, got %+v found=%t", alice, found)
+	}
+	set9, err := registry.ValidatorSet(context.Background(), 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := set9.Get("bob"); found {
+		t.Fatal("bob must be removed at height 9")
+	}
+
+	events := registry.RotationEvents()
+	if len(events) != 3 ||
+		events[0].Type != RotationEventJoin ||
+		events[1].Type != RotationEventPowerChange ||
+		events[2].Type != RotationEventLeave ||
+		events[2].ValidatorSetHash == (types.Hash{}) {
+		t.Fatalf("unexpected rotation events: %+v", events)
+	}
+}
+
+func TestAdmissionPolicyCanRequirePublicKey(t *testing.T) {
+	registry, err := NewInMemoryRegistry(NewConfigurableAdmissionPolicy(AdmissionConfig{
+		Permissionless:   true,
+		MinStake:         1,
+		RequirePublicKey: true,
+	}), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.ApplyJoin(context.Background(), Candidate{Address: "alice", Stake: 1}); !errors.Is(err, ErrMissingCandidateKey) {
+		t.Fatalf("expected missing public key, got %v", err)
+	}
+	if _, err := registry.ApplyJoin(context.Background(), Candidate{Address: "alice", Stake: 1, PublicKey: []byte("alice-pub")}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestInMemoryRegistrySnapshotIsImmutable(t *testing.T) {
 	registry, err := NewInMemoryRegistry(nil, []Validator{{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1}})
 	if err != nil {
