@@ -48,9 +48,6 @@ func (node *Node) ProposeFromMempool(ctx context.Context, maxBytes int64) (conse
 	if err != nil {
 		return consensus.Proposal{}, types.Hash{}, err
 	}
-	if len(batch.Txs) == 0 {
-		return consensus.Proposal{}, types.Hash{}, ErrEmptyProposal
-	}
 
 	status := machine.Status(ctx)
 	height := status.Height
@@ -64,7 +61,7 @@ func (node *Node) ProposeFromMempool(ctx context.Context, maxBytes int64) (conse
 	if err != nil {
 		return consensus.Proposal{}, types.Hash{}, err
 	}
-	if len(proposalResponse.Txs) == 0 {
+	if len(batch.Txs) > 0 && len(proposalResponse.Txs) == 0 {
 		return consensus.Proposal{}, types.Hash{}, ErrEmptyProposal
 	}
 

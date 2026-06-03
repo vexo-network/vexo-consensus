@@ -408,12 +408,15 @@ func TestNodeStepConsensusProposesThenCommitsReadyBlock(t *testing.T) {
 	if status.LatestHeight != 1 {
 		t.Fatalf("expected bob committed height 1, got %+v", status)
 	}
-	emptyStep, err := bob.StepConsensus(context.Background(), 1024)
+	emptyProposalStep, err := bob.StepConsensus(context.Background(), 1024)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if emptyStep.Committed || emptyStep.Proposed {
-		t.Fatalf("expected idle step after commit, got %+v", emptyStep)
+	if emptyProposalStep.Committed || !emptyProposalStep.Proposed {
+		t.Fatalf("expected next-height empty proposal after commit, got %+v", emptyProposalStep)
+	}
+	if len(emptyProposalStep.Proposal.Block.Txs) != 0 || emptyProposalStep.Proposal.Block.Header.Height != 2 {
+		t.Fatalf("unexpected empty proposal after commit: %+v", emptyProposalStep.Proposal.Block)
 	}
 }
 
@@ -795,10 +798,6 @@ func TestNodeBackgroundConsensusLoopCommitsAcrossPeers(t *testing.T) {
 		}
 	}
 
-	if err := alice.SubmitTx(context.Background(), []byte("bank:background-loop")); err != nil {
-		t.Fatal(err)
-	}
-
 	waitForNodeHeight(t, alice, 1)
 	waitForNodeHeight(t, bob, 1)
 	waitForNodeHeight(t, carol, 1)
@@ -853,7 +852,7 @@ func TestNodeTimeoutRoundBroadcastsAndAdvancesPeers(t *testing.T) {
 	}
 }
 
-func TestNodeConsensusLoopAdvancesRoundAfterTimeout(t *testing.T) {
+func TestNodeConsensusLoopCommitsEmptyBlocks(t *testing.T) {
 	bus := transport.NewInMemoryBus()
 	genesis := Genesis{
 		ChainID: "vexo-test",
@@ -872,19 +871,17 @@ func TestNodeConsensusLoopAdvancesRoundAfterTimeout(t *testing.T) {
 	}
 	machine.StartRound(1, 0)
 
-	loopConfig := ConsensusLoopConfig{
-		Interval:      time.Millisecond,
-		RoundTimeout:  time.Nanosecond,
-		MaxBlockBytes: 1024,
-	}
+	loopConfig := ConsensusLoopConfig{Interval: time.Millisecond, RoundTimeout: time.Hour, MaxBlockBytes: 1024}
 	if err := alice.StartConsensusLoop(context.Background(), loopConfig); err != nil {
 		t.Fatal(err)
 	}
 	defer alice.StopConsensusLoop(context.Background())
 
-	waitForConsensusStatus(t, machine, func(status consensus.Status) bool {
-		return status.Height == 1 && status.Round >= 1 && status.Phase == consensus.PhasePropose
-	})
+	waitForNodeHeight(t, alice, 1)
+	status := alice.Status(context.Background())
+	if status.LatestHeight < 1 {
+		t.Fatalf("expected empty block commit, got %+v", status)
+	}
 }
 
 func TestNodeSkippedProposerRecoversOnNextRound(t *testing.T) {
