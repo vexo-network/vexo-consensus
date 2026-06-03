@@ -13,9 +13,13 @@ import (
 	"strings"
 
 	"github.com/vexo-network/vexo-consensus/address"
+	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/config"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
+	"github.com/vexo-network/vexo-consensus/governance"
+	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/node"
+	"github.com/vexo-network/vexo-consensus/p2p"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
@@ -27,20 +31,51 @@ const (
 	defaultP2PBasePort   = 26656
 	defaultRPCBasePort   = 26657
 	configFileName       = "config.json"
+	moduleConfigFileName = "module_config.json"
 	genesisFileName      = "genesis.json"
 	configSchemaVersion  = "v1"
 	genesisSchemaVersion = "v1"
+	moduleSchemaVersion  = "v1"
 )
 
 var errValidationFailed = errors.New("validation failed")
 
 type configDocument struct {
-	SchemaVersion string        `json:"schema_version"`
-	NodeMode      string        `json:"node_mode,omitempty"`
-	DataDir       string        `json:"data_dir"`
-	ValidatorID   string        `json:"validator_id,omitempty"`
-	Runtime       runtimeConfig `json:"runtime,omitempty"`
-	Chain         config.Config `json:"chain"`
+	SchemaVersion    string               `json:"schema_version"`
+	NodeMode         string               `json:"node_mode,omitempty"`
+	DataDir          string               `json:"data_dir"`
+	ValidatorID      string               `json:"validator_id,omitempty"`
+	ModuleConfigPath string               `json:"module_config_path,omitempty"`
+	Runtime          runtimeConfig        `json:"runtime,omitempty"`
+	Chain            chainConfigDocument  `json:"chain"`
+	LegacyModule     moduleConfigDocument `json:"-"`
+}
+
+type chainConfigDocument struct {
+	ChainID   string                    `json:"ChainID"`
+	Crypto    config.CryptoConfig       `json:"Crypto"`
+	VRF       config.VRFConfig          `json:"VRF"`
+	Validator validator.AdmissionConfig `json:"Validator"`
+	Committee committee.RotationPolicy  `json:"Committee"`
+	Mempool   mempool.FIFOConfig        `json:"Mempool"`
+	P2P       p2p.ScoreConfig           `json:"P2P"`
+}
+
+type legacyConfigDocument struct {
+	SchemaVersion    string        `json:"schema_version"`
+	NodeMode         string        `json:"node_mode,omitempty"`
+	DataDir          string        `json:"data_dir"`
+	ValidatorID      string        `json:"validator_id,omitempty"`
+	ModuleConfigPath string        `json:"module_config_path,omitempty"`
+	Runtime          runtimeConfig `json:"runtime,omitempty"`
+	Chain            config.Config `json:"chain"`
+}
+
+type moduleConfigDocument struct {
+	SchemaVersion string                   `json:"schema_version"`
+	Application   config.ApplicationConfig `json:"application"`
+	Execution     config.ExecutionConfig   `json:"execution"`
+	Governance    governance.TallyPolicy   `json:"governance"`
 }
 
 type runtimeConfig struct {
@@ -156,7 +191,7 @@ func runInit(writer io.Writer, args []string) error {
 		fmt.Fprintf(writer, "home: %s\n", network.Home)
 		fmt.Fprintf(writer, "validators: %d\n", len(network.Nodes))
 		for _, localNode := range network.Nodes {
-			fmt.Fprintf(writer, "node: %s config=%s genesis=%s key=%s p2p=%s rpc=%s\n", localNode.ValidatorID, localNode.ConfigPath, localNode.GenesisPath, localNode.KeyPath, localNode.P2PAddress, localNode.RPCAddress)
+			fmt.Fprintf(writer, "node: %s config=%s module_config=%s genesis=%s key=%s p2p=%s rpc=%s\n", localNode.ValidatorID, localNode.ConfigPath, resolveModuleConfigPath(localNode.Home, ""), localNode.GenesisPath, localNode.KeyPath, localNode.P2PAddress, localNode.RPCAddress)
 		}
 		return nil
 	}
@@ -167,6 +202,7 @@ func runInit(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "initialized vexo node\n")
 	fmt.Fprintf(writer, "home: %s\n", *home)
 	fmt.Fprintf(writer, "config: %s\n", configPath)
+	fmt.Fprintf(writer, "module_config: %s\n", resolveModuleConfigPath(*home, ""))
 	fmt.Fprintf(writer, "genesis: %s\n", genesisPath)
 	return nil
 }
@@ -188,6 +224,7 @@ func runInitValidator(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "initialized vexo validator node\n")
 	fmt.Fprintf(writer, "home: %s\n", *home)
 	fmt.Fprintf(writer, "config: %s\n", configPath)
+	fmt.Fprintf(writer, "module_config: %s\n", resolveModuleConfigPath(*home, ""))
 	fmt.Fprintf(writer, "genesis: %s\n", genesisPath)
 	fmt.Fprintf(writer, "key: %s\n", keyPath)
 	return nil
@@ -210,6 +247,7 @@ func runInitArchive(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "initialized vexo archive node\n")
 	fmt.Fprintf(writer, "home: %s\n", *home)
 	fmt.Fprintf(writer, "config: %s\n", configPath)
+	fmt.Fprintf(writer, "module_config: %s\n", resolveModuleConfigPath(*home, ""))
 	fmt.Fprintf(writer, "genesis: %s\n", genesisPath)
 	return nil
 }
@@ -389,10 +427,11 @@ func writeNetworkFilesWithOptions(home string, chainID string, validatorCount in
 			return networkDocument{}, err
 		}
 		configPath := filepath.Join(nodeHome, configFileName)
+		moduleConfigPath := filepath.Join(nodeHome, moduleConfigFileName)
 		genesisPath := filepath.Join(nodeHome, genesisFileName)
 		keyPath := filepath.Join(nodeHome, keyFileName)
 		if !overwrite {
-			for _, path := range []string{configPath, genesisPath, keyPath} {
+			for _, path := range []string{configPath, moduleConfigPath, genesisPath, keyPath} {
 				if _, err := os.Stat(path); err == nil {
 					return networkDocument{}, fmt.Errorf("%s already exists", path)
 				} else if !errors.Is(err, os.ErrNotExist) {
@@ -403,10 +442,14 @@ func writeNetworkFilesWithOptions(home string, chainID string, validatorCount in
 			return networkDocument{}, err
 		}
 		cfg := defaultConfigDocument(chainID, dataDir, validatorID, "validator")
+		moduleCfg := defaultModuleConfigDocument(chainID)
 		cfg.Runtime.RPC.Address = networkRPCListenAddressWithOptions(index, options)
 		cfg.Runtime.P2P.ListenAddress = networkP2PListenAddressWithOptions(index, options)
 		cfg.Runtime.P2P.Peers = networkConfigPeers(validators, validatorID)
 		if err := writeJSONFile(configPath, cfg); err != nil {
+			return networkDocument{}, err
+		}
+		if err := writeJSONFile(moduleConfigPath, moduleCfg); err != nil {
 			return networkDocument{}, err
 		}
 		if err := writeJSONFile(genesisPath, genesis); err != nil {
@@ -561,9 +604,10 @@ func writeInitFiles(home string, chainID string, validatorID string, overwrite b
 		return "", "", err
 	}
 	configPath := filepath.Join(home, configFileName)
+	moduleConfigPath := filepath.Join(home, moduleConfigFileName)
 	genesisPath := filepath.Join(home, genesisFileName)
 	if !overwrite {
-		for _, path := range []string{configPath, genesisPath} {
+		for _, path := range []string{configPath, moduleConfigPath, genesisPath} {
 			if _, err := os.Stat(path); err == nil {
 				return "", "", fmt.Errorf("%s already exists", path)
 			} else if !errors.Is(err, os.ErrNotExist) {
@@ -572,8 +616,12 @@ func writeInitFiles(home string, chainID string, validatorID string, overwrite b
 		}
 	}
 	cfg := defaultConfigDocument(chainID, dataDir, validatorID, "validator")
+	moduleCfg := defaultModuleConfigDocument(chainID)
 	genesis := defaultGenesisDocument(chainID, validatorID)
 	if err := writeJSONFile(configPath, cfg); err != nil {
+		return "", "", err
+	}
+	if err := writeJSONFile(moduleConfigPath, moduleCfg); err != nil {
 		return "", "", err
 	}
 	if err := writeJSONFile(genesisPath, genesis); err != nil {
@@ -692,9 +740,10 @@ func writeArchiveInitFiles(home string, chainID string, p2pAddress string, rpcAd
 		return "", "", err
 	}
 	configPath := filepath.Join(home, configFileName)
+	moduleConfigPath := filepath.Join(home, moduleConfigFileName)
 	genesisPath := filepath.Join(home, genesisFileName)
 	if !overwrite {
-		for _, path := range []string{configPath, genesisPath} {
+		for _, path := range []string{configPath, moduleConfigPath, genesisPath} {
 			if _, err := os.Stat(path); err == nil {
 				return "", "", fmt.Errorf("%s already exists", path)
 			} else if !errors.Is(err, os.ErrNotExist) {
@@ -703,6 +752,7 @@ func writeArchiveInitFiles(home string, chainID string, p2pAddress string, rpcAd
 		}
 	}
 	document := defaultConfigDocument(chainID, filepath.Join(home, "data"), "", "archive")
+	moduleDocument := defaultModuleConfigDocument(chainID)
 	document.Runtime.RPC.Address = p2pOrDefault(rpcAddress, defaultRPCAddress)
 	document.Runtime.P2P.ListenAddress = p2pOrDefault(p2pAddress, defaultP2PAddress)
 	if bootstrapPeer != "" {
@@ -713,6 +763,9 @@ func writeArchiveInitFiles(home string, chainID string, p2pAddress string, rpcAd
 		document.Runtime.P2P.Peers[string(peerID)] = address
 	}
 	if err := writeJSONFile(configPath, document); err != nil {
+		return "", "", err
+	}
+	if err := writeJSONFile(moduleConfigPath, moduleDocument); err != nil {
 		return "", "", err
 	}
 	if err := writeJSONFile(genesisPath, defaultGenesisDocument(chainID, defaultValidatorID)); err != nil {
@@ -729,12 +782,32 @@ func p2pOrDefault(value string, fallback string) string {
 }
 
 func readConfigDocument(path string) (configDocument, error) {
-	var document configDocument
-	if err := readJSONFile(path, &document); err != nil {
+	var legacy legacyConfigDocument
+	if err := readJSONFile(path, &legacy); err != nil {
 		return configDocument{}, err
 	}
-	if document.SchemaVersion != configSchemaVersion {
-		return configDocument{}, fmt.Errorf("unsupported config schema %q", document.SchemaVersion)
+	if legacy.SchemaVersion != configSchemaVersion {
+		return configDocument{}, fmt.Errorf("unsupported config schema %q", legacy.SchemaVersion)
+	}
+	return configDocument{
+		SchemaVersion:    legacy.SchemaVersion,
+		NodeMode:         legacy.NodeMode,
+		DataDir:          legacy.DataDir,
+		ValidatorID:      legacy.ValidatorID,
+		ModuleConfigPath: legacy.ModuleConfigPath,
+		Runtime:          legacy.Runtime,
+		Chain:            chainConfigFromConfig(legacy.Chain),
+		LegacyModule:     moduleConfigFromConfig(legacy.Chain),
+	}, nil
+}
+
+func readModuleConfigDocument(path string) (moduleConfigDocument, error) {
+	var document moduleConfigDocument
+	if err := readJSONFile(path, &document); err != nil {
+		return moduleConfigDocument{}, err
+	}
+	if document.SchemaVersion != moduleSchemaVersion {
+		return moduleConfigDocument{}, fmt.Errorf("unsupported module config schema %q", document.SchemaVersion)
 	}
 	return document, nil
 }
@@ -744,8 +817,13 @@ func loadNodeConfig(path string) (node.Config, error) {
 	if err != nil {
 		return node.Config{}, err
 	}
+	moduleDocument, err := loadModuleConfigForConfig(path, document)
+	if err != nil {
+		return node.Config{}, err
+	}
+	chain := configFromConfigDocuments(document.Chain, moduleDocument)
 	cfg := node.Config{
-		Chain:       document.Chain,
+		Chain:       chain,
 		DataDir:     document.DataDir,
 		ValidatorID: types.ValidatorID(document.ValidatorID),
 	}
@@ -753,6 +831,34 @@ func loadNodeConfig(path string) (node.Config, error) {
 		return node.Config{}, err
 	}
 	return cfg, nil
+}
+
+func loadModuleConfigForConfig(configPath string, document configDocument) (moduleConfigDocument, error) {
+	modulePath := resolveModuleConfigPath(filepath.Dir(configPath), document.ModuleConfigPath)
+	moduleDocument, err := readModuleConfigDocument(modulePath)
+	if err == nil {
+		return moduleDocument, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		if hasLegacyModuleConfig(document.LegacyModule) {
+			return document.LegacyModule, nil
+		}
+		return defaultModuleConfigDocument(document.Chain.ChainID), nil
+	}
+	return moduleConfigDocument{}, err
+}
+
+func hasLegacyModuleConfig(document moduleConfigDocument) bool {
+	if document.SchemaVersion == "" {
+		return false
+	}
+	if len(document.Application.Modules) > 0 {
+		return true
+	}
+	if document.Execution != (config.ExecutionConfig{}) {
+		return true
+	}
+	return document.Governance != (governance.TallyPolicy{})
 }
 
 func loadGenesis(path string) (node.Genesis, error) {
@@ -814,10 +920,11 @@ func defaultConfigDocument(chainID string, dataDir string, validatorID string, m
 		mode = modes[0]
 	}
 	return configDocument{
-		SchemaVersion: configSchemaVersion,
-		NodeMode:      mode,
-		DataDir:       dataDir,
-		ValidatorID:   validatorID,
+		SchemaVersion:    configSchemaVersion,
+		NodeMode:         mode,
+		DataDir:          dataDir,
+		ValidatorID:      validatorID,
+		ModuleConfigPath: moduleConfigFileName,
 		Runtime: runtimeConfig{
 			RPC: runtimeRPCConfig{
 				Enabled: true,
@@ -847,8 +954,58 @@ func defaultConfigDocument(chainID string, dataDir string, validatorID string, m
 				PeerEvents:   boolPtr(true),
 			},
 		},
-		Chain: cfg,
+		Chain: chainConfigFromConfig(cfg),
 	}
+}
+
+func defaultModuleConfigDocument(chainID string) moduleConfigDocument {
+	cfg := config.Default(chainID)
+	return moduleConfigFromConfig(cfg)
+}
+
+func chainConfigFromConfig(cfg config.Config) chainConfigDocument {
+	return chainConfigDocument{
+		ChainID:   cfg.ChainID,
+		Crypto:    cfg.Crypto,
+		VRF:       cfg.VRF,
+		Validator: cfg.Validator,
+		Committee: cfg.Committee,
+		Mempool:   cfg.Mempool,
+		P2P:       cfg.P2P,
+	}
+}
+
+func configFromChainConfigDocument(document chainConfigDocument) config.Config {
+	cfg := config.Default(document.ChainID)
+	cfg.ChainID = document.ChainID
+	cfg.Crypto = document.Crypto
+	cfg.VRF = document.VRF
+	cfg.Validator = document.Validator
+	cfg.Committee = document.Committee
+	cfg.Mempool = document.Mempool
+	cfg.P2P = document.P2P
+	return cfg
+}
+
+func moduleConfigFromConfig(cfg config.Config) moduleConfigDocument {
+	return moduleConfigDocument{
+		SchemaVersion: moduleSchemaVersion,
+		Application:   cfg.Application,
+		Execution:     cfg.Execution,
+		Governance:    cfg.Governance,
+	}
+}
+
+func configFromConfigDocuments(chainDocument chainConfigDocument, moduleDocument moduleConfigDocument) config.Config {
+	cfg := configFromChainConfigDocument(chainDocument)
+	if moduleDocument.Application.Modules != nil {
+		cfg.Application = moduleDocument.Application
+	}
+	cfg.Execution = moduleDocument.Execution
+	if moduleDocument.Governance != (governance.TallyPolicy{}) {
+		cfg.Governance = moduleDocument.Governance
+	}
+	return cfg
 }
 
 func boolPtr(value bool) *bool {
@@ -889,6 +1046,22 @@ func resolveGenesisPath(home string, path string) string {
 		home = defaultHomeDir
 	}
 	return filepath.Join(home, genesisFileName)
+}
+
+func resolveModuleConfigPath(home string, path string) string {
+	if path != "" {
+		if filepath.IsAbs(path) {
+			return path
+		}
+		if home == "" {
+			home = defaultHomeDir
+		}
+		return filepath.Join(home, path)
+	}
+	if home == "" {
+		home = defaultHomeDir
+	}
+	return filepath.Join(home, moduleConfigFileName)
 }
 
 func writeJSONFile(path string, value any) error {

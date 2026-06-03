@@ -6,15 +6,17 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"path/filepath"
 )
 
 type pathDocument struct {
-	Home     string `json:"home"`
-	Config   string `json:"config"`
-	Genesis  string `json:"genesis"`
-	Key      string `json:"key"`
-	AddrBook string `json:"addr_book"`
-	DataDir  string `json:"data_dir,omitempty"`
+	Home         string `json:"home"`
+	Config       string `json:"config"`
+	ModuleConfig string `json:"module_config"`
+	Genesis      string `json:"genesis"`
+	Key          string `json:"key"`
+	AddrBook     string `json:"addr_book"`
+	DataDir      string `json:"data_dir,omitempty"`
 }
 
 func runConfig(writer io.Writer, args []string) error {
@@ -50,12 +52,18 @@ func runConfigPaths(writer io.Writer, args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
+	resolvedConfigPath := resolveConfigPath(*home, *configPath)
+	moduleConfigPath := resolveModuleConfigPath(*home, "")
+	if configDocument, err := readConfigDocument(resolvedConfigPath); err == nil {
+		moduleConfigPath = resolveModuleConfigPath(filepath.Dir(resolvedConfigPath), configDocument.ModuleConfigPath)
+	}
 	document := pathDocument{
-		Home:     *home,
-		Config:   resolveConfigPath(*home, *configPath),
-		Genesis:  resolveGenesisPath(*home, *genesisPath),
-		Key:      resolveKeyPath(*home, *keyPath),
-		AddrBook: resolveAddrBookPath(*home, ""),
+		Home:         *home,
+		Config:       resolvedConfigPath,
+		ModuleConfig: moduleConfigPath,
+		Genesis:      resolveGenesisPath(*home, *genesisPath),
+		Key:          resolveKeyPath(*home, *keyPath),
+		AddrBook:     resolveAddrBookPath(*home, ""),
 	}
 	if cfg, err := loadNodeConfig(document.Config); err == nil {
 		document.DataDir = cfg.DataDir
@@ -67,6 +75,7 @@ func runConfigPaths(writer io.Writer, args []string) error {
 	}
 	fmt.Fprintf(writer, "home: %s\n", document.Home)
 	fmt.Fprintf(writer, "config: %s\n", document.Config)
+	fmt.Fprintf(writer, "module_config: %s\n", document.ModuleConfig)
 	fmt.Fprintf(writer, "genesis: %s\n", document.Genesis)
 	fmt.Fprintf(writer, "key: %s\n", document.Key)
 	fmt.Fprintf(writer, "addr_book: %s\n", document.AddrBook)

@@ -15,6 +15,7 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 - HotStuff-style BFT core with proposals, votes, quorum certificates, timeout certificates, locked-QC safety, and three-chain finality.
 - Height-versioned validator registry with validator-set hash binding for consensus and light-client verification.
 - Modular application runtime with pluggable modules and module-owned CLI commands.
+- Split node/module configuration through `config.json` and `module_config.json`.
 - Durable LevelDB storage for blocks, state, state roots, evidence, KV state, schema metadata, pruning, recovery, and snapshots.
 - Signed transaction envelopes with nonce, fee, gas, and ante validation paths.
 - Slashing evidence lifecycle with penalty receipts, jailing, unbonding checks, and restart-aware recovery.

@@ -34,6 +34,21 @@ The default production routing model is prefix-based:
 
 A module named `bank` receives payloads beginning with `bank:`.
 
+## Module Configuration
+
+Enabled modules are configured in the node home's `module_config.json`, not in `config.json`:
+
+```json
+{
+  "schema_version": "v1",
+  "application": {
+    "Modules": ["bank", "staking", "governance"]
+  }
+}
+```
+
+`config.json` may point to a custom module file through `module_config_path`. Keep module defaults, module enablement, execution policy, and governance policy in `module_config.json` so application developers can change module behavior without touching runtime networking or consensus settings.
+
 ## State
 
 Modules receive `app.Context.Store`, a namespaced KV store. Use the module name as namespace unless a module has a stronger reason not to.

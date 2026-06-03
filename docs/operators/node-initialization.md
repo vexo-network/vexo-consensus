@@ -18,6 +18,7 @@ vexod init validator \
 This creates:
 
 - `config.json`
+- `module_config.json`
 - `genesis.json`
 - `validator.key.json`
 - `data/`
@@ -42,6 +43,7 @@ vexod init archive \
 This creates:
 
 - `config.json`
+- `module_config.json`
 - `genesis.json`
 - `data/`
 
@@ -52,6 +54,53 @@ Start it with:
 ```bash
 vexod start --home .vexo-archive-1 --run
 ```
+
+## Split Configuration Files
+
+Node homes use separate config files so operators can edit runtime/network settings without mixing them with application module settings:
+
+- `config.json` contains node mode, data paths, runtime RPC/P2P, consensus timing, crypto, validator admission, committee, mempool, and peer-scoring settings.
+- `module_config.json` contains application module selection, execution/ante policy, and module-level governance policy.
+- `genesis.json` contains immutable genesis validators, validator metadata, and genesis module state.
+
+`config.json` points to the module config through `module_config_path`:
+
+```json
+{
+  "schema_version": "v1",
+  "module_config_path": "module_config.json"
+}
+```
+
+The path may be absolute or relative to the node home. If it is omitted, `vexod` uses `<home>/module_config.json`.
+
+Example `module_config.json`:
+
+```json
+{
+  "schema_version": "v1",
+  "application": {
+    "Modules": ["bank", "staking", "governance"]
+  },
+  "execution": {
+    "RequireSigned": true,
+    "RequireNonce": true,
+    "MinFee": 1,
+    "MinGas": 1,
+    "MaxGas": 10000000,
+    "FeeCollector": "fee_collector"
+  },
+  "governance": {
+    "QuorumPower": 1,
+    "YesThresholdPower": 1,
+    "VetoPower": 1,
+    "VotingPeriod": 10,
+    "Timelock": 10
+  }
+}
+```
+
+Use `vexod config paths --home <home>` to inspect resolved paths, including `module_config`.
 
 Archive config has:
 
@@ -142,6 +191,7 @@ vexod network init \
 Each generated validator home receives:
 
 - its own `validator.key.json`
+- its own `module_config.json`
 - a shared `genesis.json`
 - config-level peer entries for the other validators
 

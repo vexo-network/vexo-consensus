@@ -8,6 +8,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -24,7 +25,8 @@ const (
 	KeyDocumentVersionV1 = "v1"
 	KeyEncryptionAESGCM  = "aes-256-gcm"
 	KeyKDFPBKDF2SHA256   = "pbkdf2-sha256"
-	defaultKDFIterations = 100_000
+	KeyKDFPBKDF2SHA512   = "pbkdf2-sha512"
+	defaultKDFIterations = 600_000
 )
 
 var (
@@ -243,7 +245,7 @@ func encryptKeyMaterial(privateKey []byte, passphrase string) (KeyEncryption, er
 	if passphrase == "" {
 		return KeyEncryption{}, ErrMissingPassphrase
 	}
-	salt := make([]byte, 16)
+	salt := make([]byte, 32)
 	nonce := make([]byte, 12)
 	if _, err := rand.Read(salt); err != nil {
 		return KeyEncryption{}, err
@@ -251,7 +253,7 @@ func encryptKeyMaterial(privateKey []byte, passphrase string) (KeyEncryption, er
 	if _, err := rand.Read(nonce); err != nil {
 		return KeyEncryption{}, err
 	}
-	key := pbkdf2Key([]byte(passphrase), salt, defaultKDFIterations, 32, sha256.New)
+	key := pbkdf2Key([]byte(passphrase), salt, defaultKDFIterations, 32, sha512.New)
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return KeyEncryption{}, err
@@ -263,7 +265,7 @@ func encryptKeyMaterial(privateKey []byte, passphrase string) (KeyEncryption, er
 	ciphertext := aead.Seal(nil, nonce, privateKey, nil)
 	return KeyEncryption{
 		Algorithm:  KeyEncryptionAESGCM,
-		KDF:        KeyKDFPBKDF2SHA256,
+		KDF:        KeyKDFPBKDF2SHA512,
 		Iterations: defaultKDFIterations,
 		Salt:       base64.StdEncoding.EncodeToString(salt),
 		Nonce:      base64.StdEncoding.EncodeToString(nonce),
@@ -275,7 +277,7 @@ func decryptKeyMaterial(encryption KeyEncryption, passphrase string) ([]byte, er
 	if passphrase == "" {
 		return nil, ErrMissingPassphrase
 	}
-	if encryption.Algorithm != KeyEncryptionAESGCM || encryption.KDF != KeyKDFPBKDF2SHA256 || encryption.Iterations <= 0 {
+	if encryption.Algorithm != KeyEncryptionAESGCM || encryption.Iterations <= 0 {
 		return nil, ErrInvalidKeyEncryption
 	}
 	salt, err := base64.StdEncoding.DecodeString(encryption.Salt)
@@ -290,7 +292,11 @@ func decryptKeyMaterial(encryption KeyEncryption, passphrase string) ([]byte, er
 	if err != nil {
 		return nil, ErrInvalidKeyEncryption
 	}
-	key := pbkdf2Key([]byte(passphrase), salt, encryption.Iterations, 32, sha256.New)
+	hashFunc, err := keyDerivationHash(encryption.KDF)
+	if err != nil {
+		return nil, err
+	}
+	key := pbkdf2Key([]byte(passphrase), salt, encryption.Iterations, 32, hashFunc)
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
@@ -300,6 +306,17 @@ func decryptKeyMaterial(encryption KeyEncryption, passphrase string) ([]byte, er
 		return nil, err
 	}
 	return aead.Open(nil, nonce, ciphertext, nil)
+}
+
+func keyDerivationHash(kdf string) (func() hash.Hash, error) {
+	switch kdf {
+	case KeyKDFPBKDF2SHA256:
+		return sha256.New, nil
+	case KeyKDFPBKDF2SHA512:
+		return sha512.New, nil
+	default:
+		return nil, ErrInvalidKeyEncryption
+	}
 }
 
 func pbkdf2Key(password []byte, salt []byte, iterations int, keyLen int, hashFunc func() hash.Hash) []byte {

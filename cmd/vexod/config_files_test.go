@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vexo-network/vexo-consensus/config"
+	"github.com/vexo-network/vexo-consensus/governance"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -42,6 +44,25 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	}
 	if len(genesis.Validators) != 1 || genesis.Validators[0].ID != "alice" || genesis.Validators[0].Address == "" || genesis.Governance[genesis.Validators[0].Address] != 1 {
 		t.Fatalf("unexpected loaded genesis: %+v", genesis)
+	}
+	if _, err := os.Stat(filepath.Join(home, moduleConfigFileName)); err != nil {
+		t.Fatalf("expected module config file: %v", err)
+	}
+	configBytes, err := os.ReadFile(filepath.Join(home, configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(configBytes), `"Application"`) ||
+		strings.Contains(string(configBytes), `"Execution"`) ||
+		strings.Contains(string(configBytes), `"Governance"`) {
+		t.Fatalf("expected module settings to be split out of config.json:\n%s", configBytes)
+	}
+	moduleDocument, err := readModuleConfigDocument(filepath.Join(home, moduleConfigFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(moduleDocument.Application.Modules) != 3 || moduleDocument.Execution.MaxGas == 0 || moduleDocument.Governance.Timelock == 0 {
+		t.Fatalf("unexpected module config: %+v", moduleDocument)
 	}
 }
 
@@ -78,6 +99,9 @@ func TestRunInitWritesNetworkFiles(t *testing.T) {
 		}
 		if _, err := loadStartInputs(nodeHome, "", "", "", false); err != nil {
 			t.Fatalf("expected start inputs for %s: %v", validatorID, err)
+		}
+		if _, err := os.Stat(filepath.Join(nodeHome, moduleConfigFileName)); err != nil {
+			t.Fatalf("expected network module config for %s: %v", validatorID, err)
 		}
 	}
 
@@ -148,6 +172,77 @@ func TestRunValidateAcceptsGeneratedFiles(t *testing.T) {
 	}
 	if !strings.Contains(buffer.String(), "configuration valid") {
 		t.Fatalf("unexpected validate output:\n%s", buffer.String())
+	}
+}
+
+func TestLoadNodeConfigMergesModuleConfig(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	moduleDocument := moduleConfigDocument{
+		SchemaVersion: moduleSchemaVersion,
+		Application:   config.ApplicationConfig{Modules: []string{"bank"}},
+		Execution:     config.ExecutionConfig{RequireSigned: true, RequireNonce: true, MinFee: 7, MinGas: 3, MaxGas: 99, FeeCollector: "collector"},
+		Governance:    governance.TallyPolicy{QuorumPower: 2, YesThresholdPower: 2, VotingPeriod: 9, Timelock: 4, VetoPower: 1},
+	}
+	writeTestJSON(t, filepath.Join(home, moduleConfigFileName), moduleDocument)
+
+	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Chain.Application.Modules) != 1 || cfg.Chain.Application.Modules[0] != "bank" {
+		t.Fatalf("expected module config override, got %+v", cfg.Chain.Application)
+	}
+	if !cfg.Chain.Execution.RequireSigned || cfg.Chain.Execution.MinFee != 7 || cfg.Chain.Execution.FeeCollector != "collector" {
+		t.Fatalf("expected execution config override, got %+v", cfg.Chain.Execution)
+	}
+	if cfg.Chain.Governance.Timelock != 4 {
+		t.Fatalf("expected governance config override, got %+v", cfg.Chain.Governance)
+	}
+}
+
+func TestLoadNodeConfigUsesDefaultModuleConfigWhenSplitFileMissing(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(home, moduleConfigFileName)); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Chain.Application.Modules) != 3 || cfg.Chain.Execution.MaxGas == 0 || cfg.Chain.Governance.Timelock == 0 {
+		t.Fatalf("expected default module config fallback, got %+v", cfg.Chain)
+	}
+}
+
+func TestRunConfigPathsReportsCustomModuleConfig(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	document, err := readConfigDocument(filepath.Join(home, configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	document.ModuleConfigPath = "modules/custom.json"
+	if err := os.MkdirAll(filepath.Join(home, "modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestJSON(t, filepath.Join(home, "modules", "custom.json"), defaultModuleConfigDocument("vexo-test"))
+	writeTestJSON(t, filepath.Join(home, configFileName), document)
+
+	var output bytes.Buffer
+	if err := runConfig(&output, []string{"paths", "--home", home}); err != nil {
+		t.Fatal(err)
+	}
+	expected := filepath.Join(home, "modules", "custom.json")
+	if !strings.Contains(output.String(), "module_config: "+expected) {
+		t.Fatalf("expected custom module config path %q in output:\n%s", expected, output.String())
 	}
 }
 
