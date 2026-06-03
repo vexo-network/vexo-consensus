@@ -193,6 +193,7 @@ The design is intentionally modular so individual components can be replaced wit
 |---|---|
 | `app` | Application and module interfaces |
 | `app/bank` | Bank balances, mint/send transactions, and balance queries |
+| `app/staking` | Delegation, undelegation, unjail transactions, unbonding release tracking, and validator updates |
 | `app/modules` | Config-driven default application module registry and execution ante wiring |
 | `cmd/vexod` | CLI entrypoint |
 | `committee` | Committee selection and epoch rotation |
@@ -332,7 +333,7 @@ Example output:
 ```text
 vexo-consensus status
 chain_id: vexo-chain
-application.modules: [bank]
+application.modules: [bank staking]
 execution.min_fee: 0
 execution.min_gas: 0
 execution.max_gas: 10000000
@@ -387,6 +388,9 @@ Application modules can expose their own CLI commands, and enabled module comman
 go run ./cmd/vexod bank tx mint alice 100
 go run ./cmd/vexod bank tx send alice bob 25
 go run ./cmd/vexod bank query balance alice
+go run ./cmd/vexod staking tx delegate alice validator-1 100 <base64-public-key>
+go run ./cmd/vexod staking tx undelegate alice validator-1 50
+go run ./cmd/vexod staking query validator validator-1
 ```
 
 Build or inspect canonical transaction payloads directly:
@@ -410,7 +414,7 @@ Application modules are selected in `.vexo/config.json`:
 {
   "chain": {
     "Application": {
-      "Modules": ["bank"]
+      "Modules": ["bank", "staking"]
     }
   }
 }

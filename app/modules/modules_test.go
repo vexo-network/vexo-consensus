@@ -13,7 +13,7 @@ func TestBuildDefaultModules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(modules) != 1 || modules[0].Name() != "bank" {
+	if len(modules) != 2 || modules[0].Name() != "bank" || modules[1].Name() != "staking" {
 		t.Fatalf("expected default bank module, got %+v", modules)
 	}
 }
@@ -23,7 +23,7 @@ func TestBuildDefaultCLICommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(commands) != 1 || commands[0].Name != "bank" || len(commands[0].Children) == 0 {
+	if len(commands) != 2 || commands[0].Name != "bank" || commands[1].Name != "staking" || len(commands[0].Children) == 0 || len(commands[1].Children) == 0 {
 		t.Fatalf("expected default bank cli command, got %+v", commands)
 	}
 }
@@ -51,7 +51,7 @@ func TestNewRuntimeUsesConfiguredModules(t *testing.T) {
 		t.Fatal(err)
 	}
 	modules := runtime.Modules()
-	if len(modules) != 1 || modules[0].Name() != "bank" {
+	if len(modules) != 2 || modules[0].Name() != "bank" || modules[1].Name() != "staking" {
 		t.Fatalf("unexpected runtime modules: %+v", modules)
 	}
 }
