@@ -74,6 +74,15 @@ Initialize and validate a demo home:
 ./bin/vexod validate --home .vexo
 ```
 
+The generated home uses split subsystem config files:
+
+- `.vexo/config.json` for node identity, chain ID, data path, and split config pointers
+- `.vexo/module_config.json` for application modules, execution policy, and governance policy
+- `.vexo/network_config.json` for RPC/P2P listen addresses, peers, seeds, and peer scoring
+- `.vexo/consensus_config.json` for consensus timing, crypto, validator admission, and committee policy
+- `.vexo/mempool_config.json` for mempool limits, fees, priority, and WAL policy
+- `.vexo/log_config.json` for log format, level, and operational event logging
+
 Run an in-memory application demo:
 
 ```bash

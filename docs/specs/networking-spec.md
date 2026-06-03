@@ -34,6 +34,16 @@ A production handshake should bind:
 
 Peers failing handshake authentication are rejected before gossip admission.
 
+## Address Roles
+
+Vexo separates local bind addresses, peer dial addresses, and public advertised addresses:
+
+- Local bind addresses live in `network_config.json` as `rpc.address` and `p2p.listen_address`.
+- Peer dial addresses live in `network_config.json` under `p2p.peers` and `p2p.seeds`.
+- Public advertised addresses live in validator metadata as `p2p_address` and `rpc_address`.
+
+Container-only names such as Docker service names may be valid peer dial targets inside a private bridge network, but they should not be written as public validator metadata for a public network. Public validator metadata should use stable DNS names or public IP addresses that external peers can resolve.
+
 ## Peer Scoring
 
 Peers are scored by:
@@ -44,8 +54,12 @@ Peers are scored by:
 - invalid consensus/evidence payloads
 - repeated dial failures
 
-Score below ban threshold causes temporary ban and disconnect.
-Score above max score is capped, and score arithmetic uses saturating operations so long-running honest gossip cannot overflow integer score state.
+Score behavior:
+
+- Score below `BanThreshold` causes temporary ban and disconnect.
+- Score above `MaxScore` is capped.
+- Score arithmetic uses saturating operations so long-running honest gossip cannot overflow integer score state.
+- Existing persisted scores above `MaxScore` are capped when peer score state is restored.
 
 ## Reconnect and Backoff
 

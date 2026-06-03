@@ -19,26 +19,41 @@ Archive the generated public key:
 vexod keys show --home .vexo-validator-new --json
 ```
 
-## 2. Configure Listen Addresses and Peers
+## 2. Configure Network Addresses and Peers
 
-Edit `.vexo-validator-new/config.json` and set `runtime.rpc.address`, `runtime.p2p.listen_address`, and `runtime.p2p.peers`:
+Edit `.vexo-validator-new/network_config.json` and set local listen addresses plus persistent peers:
 
 ```json
 {
-  "runtime": {
-    "p2p": {
-      "listen_address": "0.0.0.0:26656",
-      "peers": {
-        "validator-1": "validator-1.example.com:26656",
-        "validator-2": "validator-2.example.com:26656",
-        "validator-3": "validator-3.example.com:26656"
-      }
+  "schema_version": "v1",
+  "rpc": {
+    "enabled": true,
+    "address": "0.0.0.0:26657"
+  },
+  "p2p": {
+    "enabled": true,
+    "listen_address": "0.0.0.0:26656",
+    "peers": {
+      "validator-1": "validator-1.example.com:26656",
+      "validator-2": "validator-2.example.com:26656",
+      "validator-3": "validator-3.example.com:26656"
     }
+  },
+  "peer_scoring": {
+    "InitialScore": 100,
+    "MaxScore": 1000,
+    "BanThreshold": 0
   }
 }
 ```
 
-Do not rely on long-lived command-line networking overrides for production validators. Keep persistent node addresses in `config.json`.
+Do not rely on long-lived command-line networking overrides for production validators. Keep persistent peer addresses in `network_config.json`.
+
+Use separate address roles:
+
+- `p2p.listen_address` and `rpc.address` are local bind addresses for this machine or container.
+- `p2p.peers` contains dial targets this node uses to reach other peers.
+- validator metadata `p2p_address` and `rpc_address` should contain public advertised addresses, not Docker-only service names, unless the network is intentionally private.
 
 ## 3. Submit Validator Admission
 
@@ -54,8 +69,8 @@ The production admission transaction should include:
 - validator address
 - consensus public key
 - voting power or stake reference
-- P2P address metadata
-- RPC address metadata, if public
+- public P2P address metadata
+- public RPC address metadata, if public
 - BLS proof-of-possession metadata when BLS is enabled
 
 The validator update must become effective at a specific height and produce a new validator-set hash.

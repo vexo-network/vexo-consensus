@@ -4,7 +4,7 @@
 |---|---|
 | Consensus wire schema | Breaking changes require protocol version bump |
 | RPC API | Additive fields are compatible; removals require new API version |
-| Config schema | Migrations must be captured in an upgrade plan |
+| Config schema | Migrations for `config.json`, `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json`, and `log_config.json` must be captured in an upgrade plan |
 | Store schema | Migrations must be height-gated and rollback-aware |
 | App module state | Module migrations must be deterministic and replay-safe |
 | Finality proof format | Breaking changes require light-client compatibility plan |
@@ -21,7 +21,7 @@
 
 - Define governance-approved upgrade height.
 - Define target binary version.
-- Define config/store/app-state schema from/to versions.
+- Define config/store/app-state schema from/to versions, including every split config file.
 - Generate upgrade plan with `vexod upgrade plan --json`.
 - Execute the plan with `vexod upgrade apply` at the approved height and persist the execution record.
 - Treat any `rollback_required` record as an operator stop condition until rollback is completed.

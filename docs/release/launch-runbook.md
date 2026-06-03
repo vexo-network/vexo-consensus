@@ -108,6 +108,7 @@ Halt the launch if:
 - signer policy rejects valid consensus messages
 - snapshot verification or replay recovery diverges
 - peer bans spike across multiple regions
+- peer scores unexpectedly pin at `MaxScore` while invalid-message, reconnect, or ban metrics also increase
 - commit latency remains above the configured alert threshold
 
 ## Postlaunch Archive
@@ -117,7 +118,7 @@ Archive:
 - final genesis and config files
 - validator set and validator set hash evidence
 - release pack and signed checksums
-- launch metrics, logs, pprof samples, and peer score snapshots
+- launch metrics, logs, pprof samples, peer score snapshots, and final split config files
 - long-run, chaos, adversarial, fuzz, snapshot, replay, and signer evidence
 
 After launch, schedule:
