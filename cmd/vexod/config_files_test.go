@@ -13,7 +13,9 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/governance"
+	vexonode "github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/types"
+	"github.com/vexo-network/vexo-consensus/validator"
 )
 
 func TestRunInitWritesConfigAndGenesis(t *testing.T) {
@@ -453,6 +455,33 @@ func TestLoadStartRuntimeConfigParsesConsensusTimeoutsAndEmptyBlocks(t *testing.
 		cfg.ConsensusLoop.TimeoutCommit != 250*time.Millisecond ||
 		!cfg.ConsensusLoop.CreateEmptyBlocks {
 		t.Fatalf("unexpected consensus runtime config: %+v", cfg.ConsensusLoop)
+	}
+}
+
+func TestNetworkRuntimeDefaultsDoNotBindAdvertisedAddress(t *testing.T) {
+	inputs := startInputs{
+		Config: vexonode.Config{
+			Chain:       config.Default("vexo-test"),
+			ValidatorID: "alice",
+		},
+		Genesis: vexonode.Genesis{
+			Validators: []validator.Validator{
+				{
+					ID: "alice",
+					Metadata: map[string]string{
+						"p2p_address": "public-validator.example.com:26656",
+						"rpc_address": "public-rpc.example.com:26657",
+					},
+				},
+			},
+		},
+	}
+	runtimeConfig := applyNetworkRuntimeDefaults(inputs, startRuntimeConfig{
+		RPCAddress:       defaultRPCAddress,
+		P2PListenAddress: defaultP2PAddress,
+	})
+	if runtimeConfig.RPCAddress != defaultRPCAddress || runtimeConfig.P2PListenAddress != defaultP2PAddress {
+		t.Fatalf("advertised metadata must not become listen addresses: %+v", runtimeConfig)
 	}
 }
 

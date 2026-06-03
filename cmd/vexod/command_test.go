@@ -932,6 +932,8 @@ func TestRunInitWritesNetworkConfigPeers(t *testing.T) {
   "rpc_port_step": 0,
   "p2p_host_template": "validator-%d",
   "rpc_host_template": "validator-%d",
+  "p2p_advertise_host_template": "public-validator-%d.example.com",
+  "rpc_advertise_host_template": "public-rpc-%d.example.com",
   "p2p_listen_host": "0.0.0.0",
   "rpc_listen_host": "0.0.0.0"
 }`), 0o644); err != nil {
@@ -960,7 +962,7 @@ func TestRunInitWritesNetworkConfigPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if genesis.Validators[0].Metadata["p2p_address"] != "validator-1:26656" || genesis.Validators[1].Metadata["rpc_address"] != "validator-2:26657" {
+	if genesis.Validators[0].Metadata["p2p_address"] != "public-validator-1.example.com:26656" || genesis.Validators[1].Metadata["rpc_address"] != "public-rpc-2.example.com:26657" {
 		t.Fatalf("unexpected advertised metadata: %+v", genesis.Validators)
 	}
 }
@@ -1956,7 +1958,10 @@ func TestBuildRuntimeNodeDerivesNetworkPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtimeConfig := applyNetworkRuntimeDefaults(inputs, startRuntimeConfig{P2PEnabled: true, RPCEnabled: true})
+	runtimeConfig, err := loadStartRuntimeConfig(filepath.Join(home, "validator-2"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if runtimeConfig.P2PListenAddress != networkP2PAddress(2) {
 		t.Fatalf("expected validator-2 p2p address, got %s", runtimeConfig.P2PListenAddress)
 	}
@@ -1967,7 +1972,7 @@ func TestBuildRuntimeNodeDerivesNetworkPeers(t *testing.T) {
 		t.Fatalf("unexpected derived peers: %+v", runtimeConfig.P2PPeers)
 	}
 
-	startNode, wire, err := buildRuntimeNode(inputs, startRuntimeConfig{P2PEnabled: true})
+	startNode, wire, err := buildRuntimeNode(inputs, runtimeConfig)
 	if err != nil {
 		t.Fatal(err)
 	}

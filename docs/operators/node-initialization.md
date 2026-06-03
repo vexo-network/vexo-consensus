@@ -264,10 +264,17 @@ For containerized or multi-host networks, put topology values in a JSON file:
   "rpc_port_step": 0,
   "p2p_host_template": "validator-%d",
   "rpc_host_template": "validator-%d",
+  "p2p_advertise_host_template": "validator-%d.public.example.com",
+  "rpc_advertise_host_template": "rpc-%d.public.example.com",
   "p2p_listen_host": "0.0.0.0",
   "rpc_listen_host": "0.0.0.0"
 }
 ```
+
+- `p2p_host_template` and `rpc_host_template` are dial targets written into each node's `network_config.json` peer list. In Docker, these can be service names such as `validator-%d`.
+- `p2p_advertise_host_template` and `rpc_advertise_host_template` are public addresses written into validator metadata in `genesis.json`. Use DNS names or public IPs here for public networks.
+- `p2p_listen_host` and `rpc_listen_host` are local bind hosts. Use `0.0.0.0` for containers or servers that should listen on all interfaces.
+- Do not reuse Docker-only service names as advertised public addresses unless the network is intentionally private.
 
 Then generate node homes from that file:
 

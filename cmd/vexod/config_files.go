@@ -348,25 +348,29 @@ func writeNetworkFilesWithPorts(home string, chainID string, validatorCount int,
 }
 
 type networkAddressOptions struct {
-	P2PBasePort     int
-	RPCBasePort     int
-	P2PPortStep     int
-	RPCPortStep     int
-	P2PHostTemplate string
-	RPCHostTemplate string
-	P2PListenHost   string
-	RPCListenHost   string
+	P2PBasePort              int
+	RPCBasePort              int
+	P2PPortStep              int
+	RPCPortStep              int
+	P2PHostTemplate          string
+	RPCHostTemplate          string
+	P2PAdvertiseHostTemplate string
+	RPCAdvertiseHostTemplate string
+	P2PListenHost            string
+	RPCListenHost            string
 }
 
 type networkAddressConfig struct {
-	P2PBasePort     *int   `json:"p2p_base_port,omitempty"`
-	RPCBasePort     *int   `json:"rpc_base_port,omitempty"`
-	P2PPortStep     *int   `json:"p2p_port_step,omitempty"`
-	RPCPortStep     *int   `json:"rpc_port_step,omitempty"`
-	P2PHostTemplate string `json:"p2p_host_template,omitempty"`
-	RPCHostTemplate string `json:"rpc_host_template,omitempty"`
-	P2PListenHost   string `json:"p2p_listen_host,omitempty"`
-	RPCListenHost   string `json:"rpc_listen_host,omitempty"`
+	P2PBasePort              *int   `json:"p2p_base_port,omitempty"`
+	RPCBasePort              *int   `json:"rpc_base_port,omitempty"`
+	P2PPortStep              *int   `json:"p2p_port_step,omitempty"`
+	RPCPortStep              *int   `json:"rpc_port_step,omitempty"`
+	P2PHostTemplate          string `json:"p2p_host_template,omitempty"`
+	RPCHostTemplate          string `json:"rpc_host_template,omitempty"`
+	P2PAdvertiseHostTemplate string `json:"p2p_advertise_host_template,omitempty"`
+	RPCAdvertiseHostTemplate string `json:"rpc_advertise_host_template,omitempty"`
+	P2PListenHost            string `json:"p2p_listen_host,omitempty"`
+	RPCListenHost            string `json:"rpc_listen_host,omitempty"`
 }
 
 func readNetworkAddressOptions(path string) (networkAddressOptions, error) {
@@ -379,10 +383,12 @@ func readNetworkAddressOptions(path string) (networkAddressOptions, error) {
 		return networkAddressOptions{}, err
 	}
 	options := networkAddressOptions{
-		P2PHostTemplate: document.P2PHostTemplate,
-		RPCHostTemplate: document.RPCHostTemplate,
-		P2PListenHost:   document.P2PListenHost,
-		RPCListenHost:   document.RPCListenHost,
+		P2PHostTemplate:          document.P2PHostTemplate,
+		RPCHostTemplate:          document.RPCHostTemplate,
+		P2PAdvertiseHostTemplate: document.P2PAdvertiseHostTemplate,
+		RPCAdvertiseHostTemplate: document.RPCAdvertiseHostTemplate,
+		P2PListenHost:            document.P2PListenHost,
+		RPCListenHost:            document.RPCListenHost,
 	}
 	if document.P2PBasePort != nil {
 		options.P2PBasePort = *document.P2PBasePort
@@ -460,8 +466,8 @@ func writeNetworkFilesWithOptions(home string, chainID string, validatorCount in
 				"account_address":   string(accountAddress),
 				"consensus_address": string(consensusAddress),
 				"operator_address":  string(operatorAddress),
-				"p2p_address":       networkP2PAddressWithOptions(index, options),
-				"rpc_address":       networkRPCAddressWithOptions(index, options),
+				"p2p_address":       networkP2PAdvertiseAddressWithOptions(index, options),
+				"rpc_address":       networkRPCAdvertiseAddressWithOptions(index, options),
 			},
 		})
 		governance[string(operatorAddress)] = 1
@@ -518,7 +524,7 @@ func writeNetworkFilesWithOptions(home string, chainID string, validatorCount in
 		logCfg := defaultLogConfigDocument(chainID, dataDir, validatorID, "validator")
 		networkCfg.RPC.Address = networkRPCListenAddressWithOptions(index, options)
 		networkCfg.P2P.ListenAddress = networkP2PListenAddressWithOptions(index, options)
-		networkCfg.P2P.Peers = networkConfigPeers(validators, validatorID)
+		networkCfg.P2P.Peers = networkConfigPeers(validators, validatorID, options)
 		if err := writeJSONFile(configPath, cfg); err != nil {
 			return networkDocument{}, err
 		}
@@ -554,8 +560,8 @@ func writeNetworkFilesWithOptions(home string, chainID string, validatorCount in
 			LogConfigPath:       logConfigPath,
 			GenesisPath:         genesisPath,
 			KeyPath:             keyPath,
-			P2PAddress:          networkP2PAddressWithOptions(index, options),
-			RPCAddress:          networkRPCAddressWithOptions(index, options),
+			P2PAddress:          networkP2PAdvertiseAddressWithOptions(index, options),
+			RPCAddress:          networkRPCAdvertiseAddressWithOptions(index, options),
 		})
 	}
 	return network, nil
@@ -605,6 +611,22 @@ func networkRPCAddressWithOptions(index int, options networkAddressOptions) stri
 	return networkAddress(index, options.RPCHostTemplate, options.RPCBasePort, options.RPCPortStep)
 }
 
+func networkP2PAdvertiseAddressWithOptions(index int, options networkAddressOptions) string {
+	host := options.P2PAdvertiseHostTemplate
+	if host == "" {
+		host = options.P2PHostTemplate
+	}
+	return networkAddress(index, host, options.P2PBasePort, options.P2PPortStep)
+}
+
+func networkRPCAdvertiseAddressWithOptions(index int, options networkAddressOptions) string {
+	host := options.RPCAdvertiseHostTemplate
+	if host == "" {
+		host = options.RPCHostTemplate
+	}
+	return networkAddress(index, host, options.RPCBasePort, options.RPCPortStep)
+}
+
 func networkP2PListenAddressWithOptions(index int, options networkAddressOptions) string {
 	host := options.P2PListenHost
 	if host == "" {
@@ -629,13 +651,13 @@ func networkAddress(index int, hostTemplate string, basePort int, portStep int) 
 	return host + ":" + strconv.Itoa(basePort+(index-1)*portStep)
 }
 
-func networkConfigPeers(validators []validatorDocument, self string) map[string]string {
+func networkConfigPeers(validators []validatorDocument, self string, options networkAddressOptions) map[string]string {
 	peers := make(map[string]string)
-	for _, validatorInfo := range validators {
+	for index, validatorInfo := range validators {
 		if validatorInfo.ID == self {
 			continue
 		}
-		address := validatorInfo.Metadata["p2p_address"]
+		address := networkP2PAddressWithOptions(index+1, options)
 		if address != "" {
 			peers[validatorInfo.ID] = address
 		}

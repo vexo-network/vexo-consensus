@@ -749,12 +749,12 @@ func buildRuntimeNode(inputs startInputs, runtimeConfig startRuntimeConfig) (*ve
 
 func applyNetworkRuntimeDefaults(inputs startInputs, runtimeConfig startRuntimeConfig) startRuntimeConfig {
 	if runtimeConfig.RPCAddress == "" || runtimeConfig.RPCAddress == defaultRPCAddress {
-		if address := validatorMetadata(inputs.Genesis, inputs.Config.ValidatorID, "rpc_address"); address != "" {
+		if address := validatorMetadata(inputs.Genesis, inputs.Config.ValidatorID, "rpc_listen_address"); address != "" {
 			runtimeConfig.RPCAddress = address
 		}
 	}
 	if runtimeConfig.P2PListenAddress == "" || runtimeConfig.P2PListenAddress == defaultP2PAddress {
-		if address := validatorMetadata(inputs.Genesis, inputs.Config.ValidatorID, "p2p_address"); address != "" {
+		if address := validatorMetadata(inputs.Genesis, inputs.Config.ValidatorID, "p2p_listen_address"); address != "" {
 			runtimeConfig.P2PListenAddress = address
 		}
 	}
