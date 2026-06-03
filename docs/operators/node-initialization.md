@@ -132,6 +132,11 @@ Example `network_config.json`:
     "peers": {
       "validator-1": "seed-1.example.com:26656"
     }
+  },
+  "peer_scoring": {
+    "InitialScore": 100,
+    "MaxScore": 1000,
+    "BanThreshold": 0
   }
 }
 ```

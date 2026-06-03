@@ -45,6 +45,7 @@ Peers are scored by:
 - repeated dial failures
 
 Score below ban threshold causes temporary ban and disconnect.
+Score above max score is capped, and score arithmetic uses saturating operations so long-running honest gossip cannot overflow integer score state.
 
 ## Reconnect and Backoff
 

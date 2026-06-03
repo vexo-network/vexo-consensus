@@ -3,6 +3,7 @@ package p2p
 import (
 	"context"
 	"errors"
+	"math"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -25,6 +26,60 @@ func TestScoreKeeperRewardsValidMessages(t *testing.T) {
 	}
 	if score != 12 {
 		t.Fatalf("expected score 12, got %d", score)
+	}
+}
+
+func TestScoreKeeperCapsValidMessageRewards(t *testing.T) {
+	keeper := NewScoreKeeper(ScoreConfig{
+		InitialScore:       10,
+		MaxScore:           12,
+		ValidMessageReward: 5,
+		BanThreshold:       0,
+	})
+
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", true); err != nil {
+		t.Fatal(err)
+	}
+	score, err := keeper.Score(context.Background(), "peer-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score != 12 {
+		t.Fatalf("expected capped score 12, got %d", score)
+	}
+}
+
+func TestScoreKeeperSaturatesScoreArithmetic(t *testing.T) {
+	keeper := NewScoreKeeper(ScoreConfig{
+		InitialScore:       math.MaxInt64 - 1,
+		MaxScore:           math.MaxInt64,
+		ValidMessageReward: 10,
+		InvalidMessageCost: math.MaxInt64,
+		BanThreshold:       math.MinInt64,
+	})
+
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", true); err != nil {
+		t.Fatal(err)
+	}
+	score, err := keeper.Score(context.Background(), "peer-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score != math.MaxInt64 {
+		t.Fatalf("expected max int score, got %d", score)
+	}
+	if err := keeper.ObserveMessage(context.Background(), "peer-a", false); err != nil {
+		t.Fatal(err)
+	}
+	score, err = keeper.Score(context.Background(), "peer-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score != 0 {
+		t.Fatalf("expected saturated subtraction to zero from max int, got %d", score)
 	}
 }
 

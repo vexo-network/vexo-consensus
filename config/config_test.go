@@ -69,6 +69,7 @@ func TestConfigValidateRejectsUnsafeSettings(t *testing.T) {
 		{name: "zero governance timelock", mutate: func(cfg *Config) { cfg.Governance.Timelock = 0 }},
 		{name: "initial score at ban threshold", mutate: func(cfg *Config) { cfg.P2P.InitialScore = cfg.P2P.BanThreshold }},
 		{name: "initial score below ban threshold", mutate: func(cfg *Config) { cfg.P2P.InitialScore = cfg.P2P.BanThreshold - 1 }},
+		{name: "max score below initial score", mutate: func(cfg *Config) { cfg.P2P.MaxScore = cfg.P2P.InitialScore - 1 }},
 		{name: "negative valid reward", mutate: func(cfg *Config) { cfg.P2P.ValidMessageReward = -1 }},
 		{name: "zero invalid cost", mutate: func(cfg *Config) { cfg.P2P.InvalidMessageCost = 0 }},
 		{name: "negative invalid cost", mutate: func(cfg *Config) { cfg.P2P.InvalidMessageCost = -1 }},

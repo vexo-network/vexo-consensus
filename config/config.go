@@ -95,6 +95,7 @@ func Default(chainID string) Config {
 		},
 		P2P: p2p.ScoreConfig{
 			InitialScore:              100,
+			MaxScore:                  1000,
 			ValidMessageReward:        1,
 			InvalidMessageCost:        10,
 			RateLimitCost:             5,
@@ -138,6 +139,7 @@ func (config Config) Validate() error {
 		return ErrInvalidConfig
 	}
 	if config.P2P.InitialScore <= config.P2P.BanThreshold ||
+		(config.P2P.MaxScore > 0 && config.P2P.MaxScore < config.P2P.InitialScore) ||
 		config.P2P.ValidMessageReward < 0 ||
 		config.P2P.InvalidMessageCost <= 0 ||
 		config.P2P.RateLimitCost <= 0 ||

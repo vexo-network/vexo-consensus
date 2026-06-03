@@ -58,6 +58,7 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "p2p.banned_peer_disconnect: true\n")
 	fmt.Fprintf(writer, "p2p.peer_score_persistence: true\n")
 	fmt.Fprintf(writer, "p2p.initial_score: %d\n", cfg.P2P.InitialScore)
+	fmt.Fprintf(writer, "p2p.max_score: %d\n", cfg.P2P.MaxScore)
 	fmt.Fprintf(writer, "p2p.valid_message_reward: %d\n", cfg.P2P.ValidMessageReward)
 	fmt.Fprintf(writer, "p2p.invalid_message_cost: %d\n", cfg.P2P.InvalidMessageCost)
 	fmt.Fprintf(writer, "p2p.rate_limit_cost: %d\n", cfg.P2P.RateLimitCost)
@@ -122,6 +123,7 @@ type storageStatus struct {
 
 type p2pStatus struct {
 	InitialScore          int64  `json:"initial_score"`
+	MaxScore              int64  `json:"max_score"`
 	ValidMessageReward    int64  `json:"valid_message_reward"`
 	InvalidMessageCost    int64  `json:"invalid_message_cost"`
 	RateLimitCost         int64  `json:"rate_limit_cost"`
@@ -217,6 +219,7 @@ func newStatusDocument(cfg config.Config) statusDocument {
 		Storage: storageStatus{Backend: "leveldb"},
 		P2P: p2pStatus{
 			InitialScore:          cfg.P2P.InitialScore,
+			MaxScore:              cfg.P2P.MaxScore,
 			ValidMessageReward:    cfg.P2P.ValidMessageReward,
 			InvalidMessageCost:    cfg.P2P.InvalidMessageCost,
 			RateLimitCost:         cfg.P2P.RateLimitCost,

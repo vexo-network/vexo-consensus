@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -20,6 +21,7 @@ var (
 
 type ScoreConfig struct {
 	InitialScore              int64
+	MaxScore                  int64
 	ValidMessageReward        int64
 	InvalidMessageCost        int64
 	RateLimitCost             int64
@@ -68,6 +70,12 @@ type ScoreKeeper struct {
 }
 
 func NewScoreKeeper(config ScoreConfig) *ScoreKeeper {
+	if config.MaxScore <= 0 {
+		config.MaxScore = math.MaxInt64
+	}
+	if config.InitialScore > config.MaxScore {
+		config.InitialScore = config.MaxScore
+	}
 	if config.InvalidMessageCost == 0 {
 		config.InvalidMessageCost = 1
 	}
@@ -104,14 +112,14 @@ func (keeper *ScoreKeeper) AdmitMessage(ctx context.Context, peer PeerID) error 
 	}
 	state.WindowMessages++
 	if keeper.config.MaxMessagesPerWindow > 0 && state.WindowMessages > keeper.config.MaxMessagesPerWindow {
-		state.Score -= keeper.config.RateLimitCost
+		state.Score = subtractScore(state.Score, keeper.config.RateLimitCost)
 		state = keeper.applyBan(state)
 		keeper.peers[peer] = state
 		return ErrRateLimitExceeded
 	}
 	keeper.totalWindowMessages++
 	if keeper.config.MaxTotalMessagesPerWindow > 0 && keeper.totalWindowMessages > keeper.config.MaxTotalMessagesPerWindow {
-		state.Score -= keeper.config.RateLimitCost
+		state.Score = subtractScore(state.Score, keeper.config.RateLimitCost)
 		state = keeper.applyBan(state)
 		keeper.peers[peer] = state
 		return ErrRateLimitExceeded
@@ -136,9 +144,9 @@ func (keeper *ScoreKeeper) ScoreMessage(ctx context.Context, peer PeerID, valid 
 		return ErrPeerBanned
 	}
 	if valid {
-		state.Score += keeper.config.ValidMessageReward
+		state.Score = addScore(state.Score, keeper.config.ValidMessageReward, keeper.config.MaxScore)
 	} else {
-		state.Score -= keeper.config.InvalidMessageCost
+		state.Score = subtractScore(state.Score, keeper.config.InvalidMessageCost)
 	}
 	state = keeper.applyBan(state)
 	keeper.peers[peer] = state
@@ -325,8 +333,12 @@ func (keeper *ScoreKeeper) restore(document ScoreDocument) {
 		if record.Peer == "" {
 			continue
 		}
+		score := record.Score
+		if score > keeper.config.MaxScore {
+			score = keeper.config.MaxScore
+		}
 		state := PeerState{
-			Score:          record.Score,
+			Score:          score,
 			Banned:         record.Banned,
 			WindowMessages: record.WindowMessages,
 		}
@@ -382,9 +394,32 @@ func (keeper *ScoreKeeper) recoverScore(state PeerState) PeerState {
 	if state.Banned || keeper.config.ScoreRecovery <= 0 || state.Score >= keeper.config.InitialScore {
 		return state
 	}
-	state.Score += keeper.config.ScoreRecovery
+	state.Score = addScore(state.Score, keeper.config.ScoreRecovery, keeper.config.InitialScore)
 	if state.Score > keeper.config.InitialScore {
 		state.Score = keeper.config.InitialScore
 	}
 	return state
+}
+
+func addScore(score int64, delta int64, maxScore int64) int64 {
+	if delta <= 0 {
+		return score
+	}
+	if maxScore <= 0 {
+		maxScore = math.MaxInt64
+	}
+	if score >= maxScore || score > maxScore-delta {
+		return maxScore
+	}
+	return score + delta
+}
+
+func subtractScore(score int64, delta int64) int64 {
+	if delta <= 0 {
+		return score
+	}
+	if score < math.MinInt64+delta {
+		return math.MinInt64
+	}
+	return score - delta
 }
