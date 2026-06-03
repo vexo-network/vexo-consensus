@@ -946,15 +946,15 @@ func TestRunInitWritesNetworkConfigPeers(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	document, err := readConfigDocument(filepath.Join(home, "validator-1", configFileName))
+	networkDocument, err := readNetworkConfigDocument(filepath.Join(home, "validator-1", networkConfigFileName))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if document.Runtime.P2P.ListenAddress != "0.0.0.0:26656" || document.Runtime.RPC.Address != "0.0.0.0:26657" {
-		t.Fatalf("unexpected listen config: %+v", document.Runtime)
+	if networkDocument.P2P.ListenAddress != "0.0.0.0:26656" || networkDocument.RPC.Address != "0.0.0.0:26657" {
+		t.Fatalf("unexpected listen config: %+v", networkDocument)
 	}
-	if document.Runtime.P2P.Peers["validator-2"] != "validator-2:26656" {
-		t.Fatalf("expected config peer address, got %+v", document.Runtime.P2P.Peers)
+	if networkDocument.P2P.Peers["validator-2"] != "validator-2:26656" {
+		t.Fatalf("expected config peer address, got %+v", networkDocument.P2P.Peers)
 	}
 	genesis, err := loadGenesis(filepath.Join(home, "validator-2", genesisFileName))
 	if err != nil {
@@ -989,8 +989,12 @@ func TestRunInitValidatorAndArchiveModes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if validatorDocument.NodeMode != "validator" || validatorDocument.ValidatorID != "alice" || !validatorDocument.Runtime.Consensus.LoopEnabled {
-		t.Fatalf("unexpected validator config: %+v", validatorDocument)
+	validatorConsensus, err := readConsensusConfigDocument(filepath.Join(validatorHome, consensusConfigFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validatorDocument.NodeMode != "validator" || validatorDocument.ValidatorID != "alice" || !validatorConsensus.Consensus.LoopEnabled {
+		t.Fatalf("unexpected validator config: %+v consensus=%+v", validatorDocument, validatorConsensus)
 	}
 	if _, err := os.Stat(filepath.Join(validatorHome, keyFileName)); err != nil {
 		t.Fatalf("expected validator key: %v", err)
@@ -1005,11 +1009,19 @@ func TestRunInitValidatorAndArchiveModes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if archiveDocument.NodeMode != "archive" || archiveDocument.ValidatorID != "" || archiveDocument.Runtime.Consensus.LoopEnabled {
-		t.Fatalf("unexpected archive config: %+v", archiveDocument)
+	archiveConsensus, err := readConsensusConfigDocument(filepath.Join(archiveHome, consensusConfigFileName))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if archiveDocument.Runtime.P2P.Peers["validator-1"] != "seed.example.com:26656" {
-		t.Fatalf("expected bootstrap peer in config, got %+v", archiveDocument.Runtime.P2P.Peers)
+	if archiveDocument.NodeMode != "archive" || archiveDocument.ValidatorID != "" || archiveConsensus.Consensus.LoopEnabled {
+		t.Fatalf("unexpected archive config: %+v consensus=%+v", archiveDocument, archiveConsensus)
+	}
+	archiveNetwork, err := readNetworkConfigDocument(filepath.Join(archiveHome, networkConfigFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archiveNetwork.P2P.Peers["validator-1"] != "seed.example.com:26656" {
+		t.Fatalf("expected bootstrap peer in config, got %+v", archiveNetwork.P2P.Peers)
 	}
 	if _, err := os.Stat(filepath.Join(archiveHome, keyFileName)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("archive init must not create validator key, got %v", err)
@@ -1740,14 +1752,14 @@ func TestRunStartRunStartsAndStopsNode(t *testing.T) {
 	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
 		t.Fatal(err)
 	}
-	configPath := filepath.Join(home, configFileName)
-	document, err := readConfigDocument(configPath)
+	networkPath := filepath.Join(home, networkConfigFileName)
+	networkDocument, err := readNetworkConfigDocument(networkPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	document.Runtime.RPC.Address = "127.0.0.1:0"
-	document.Runtime.P2P.ListenAddress = "127.0.0.1:0"
-	if err := writeJSONFile(configPath, document); err != nil {
+	networkDocument.RPC.Address = "127.0.0.1:0"
+	networkDocument.P2P.ListenAddress = "127.0.0.1:0"
+	if err := writeJSONFile(networkPath, networkDocument); err != nil {
 		t.Fatal(err)
 	}
 

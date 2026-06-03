@@ -36,7 +36,7 @@ If you are new to the project, read the documents in this order.
 
 | Document | Purpose |
 |---|---|
-| [Node Initialization](./operators/node-initialization.md) | Initialize validator/archive nodes and manage split `config.json` / `module_config.json` settings |
+| [Node Initialization](./operators/node-initialization.md) | Initialize validator/archive nodes and manage split subsystem config files |
 | [Adding a Validator](./operators/add-validator.md) | Operator flow for adding a validator and verifying height-specific validator-set updates |
 | [Launch Runbook](./release/launch-runbook.md) | Operator launch flow, halt criteria, monitoring, and postlaunch archive requirements |
 | [Release Pipeline](./release/release-pipeline.md) | Build, sign, package, and gate release artifacts |

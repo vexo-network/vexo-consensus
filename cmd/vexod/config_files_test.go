@@ -45,8 +45,10 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	if len(genesis.Validators) != 1 || genesis.Validators[0].ID != "alice" || genesis.Validators[0].Address == "" || genesis.Governance[genesis.Validators[0].Address] != 1 {
 		t.Fatalf("unexpected loaded genesis: %+v", genesis)
 	}
-	if _, err := os.Stat(filepath.Join(home, moduleConfigFileName)); err != nil {
-		t.Fatalf("expected module config file: %v", err)
+	for _, fileName := range []string{moduleConfigFileName, networkConfigFileName, consensusConfigFileName, mempoolConfigFileName, logConfigFileName} {
+		if _, err := os.Stat(filepath.Join(home, fileName)); err != nil {
+			t.Fatalf("expected split config file %s: %v", fileName, err)
+		}
 	}
 	configBytes, err := os.ReadFile(filepath.Join(home, configFileName))
 	if err != nil {
@@ -54,8 +56,10 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	}
 	if strings.Contains(string(configBytes), `"Application"`) ||
 		strings.Contains(string(configBytes), `"Execution"`) ||
-		strings.Contains(string(configBytes), `"Governance"`) {
-		t.Fatalf("expected module settings to be split out of config.json:\n%s", configBytes)
+		strings.Contains(string(configBytes), `"Governance"`) ||
+		strings.Contains(string(configBytes), `"runtime"`) ||
+		strings.Contains(string(configBytes), `"chain"`) {
+		t.Fatalf("expected runtime, chain, and module settings to be split out of config.json:\n%s", configBytes)
 	}
 	moduleDocument, err := readModuleConfigDocument(filepath.Join(home, moduleConfigFileName))
 	if err != nil {
@@ -63,6 +67,20 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	}
 	if len(moduleDocument.Application.Modules) != 3 || moduleDocument.Execution.MaxGas == 0 || moduleDocument.Governance.Timelock == 0 {
 		t.Fatalf("unexpected module config: %+v", moduleDocument)
+	}
+	networkDocument, err := readNetworkConfigDocument(filepath.Join(home, networkConfigFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !networkDocument.RPC.Enabled || !networkDocument.P2P.Enabled || networkDocument.PeerScoring.InitialScore == 0 {
+		t.Fatalf("unexpected network config: %+v", networkDocument)
+	}
+	consensusDocument, err := readConsensusConfigDocument(filepath.Join(home, consensusConfigFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !consensusDocument.Consensus.LoopEnabled || consensusDocument.Committee.CommitteeSize == 0 {
+		t.Fatalf("unexpected consensus config: %+v", consensusDocument)
 	}
 }
 
@@ -100,8 +118,10 @@ func TestRunInitWritesNetworkFiles(t *testing.T) {
 		if _, err := loadStartInputs(nodeHome, "", "", "", false); err != nil {
 			t.Fatalf("expected start inputs for %s: %v", validatorID, err)
 		}
-		if _, err := os.Stat(filepath.Join(nodeHome, moduleConfigFileName)); err != nil {
-			t.Fatalf("expected network module config for %s: %v", validatorID, err)
+		for _, fileName := range []string{moduleConfigFileName, networkConfigFileName, consensusConfigFileName, mempoolConfigFileName, logConfigFileName} {
+			if _, err := os.Stat(filepath.Join(nodeHome, fileName)); err != nil {
+				t.Fatalf("expected network split config %s for %s: %v", fileName, validatorID, err)
+			}
 		}
 	}
 
@@ -203,6 +223,39 @@ func TestLoadNodeConfigMergesModuleConfig(t *testing.T) {
 	}
 }
 
+func TestLoadNodeConfigMergesSplitConfigFiles(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	networkDocument, err := readNetworkConfigDocument(filepath.Join(home, networkConfigFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	networkDocument.PeerScoring.InitialScore = 777
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+	consensusDocument, err := readConsensusConfigDocument(filepath.Join(home, consensusConfigFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	consensusDocument.Committee.CommitteeSize = 9
+	writeTestJSON(t, filepath.Join(home, consensusConfigFileName), consensusDocument)
+	mempoolDocument, err := readMempoolConfigDocument(filepath.Join(home, mempoolConfigFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mempoolDocument.Mempool.MaxTxs = 123
+	writeTestJSON(t, filepath.Join(home, mempoolConfigFileName), mempoolDocument)
+
+	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Chain.P2P.InitialScore != 777 || cfg.Chain.Committee.CommitteeSize != 9 || cfg.Chain.Mempool.MaxTxs != 123 {
+		t.Fatalf("expected split config overrides, got %+v", cfg.Chain)
+	}
+}
+
 func TestLoadNodeConfigUsesDefaultModuleConfigWhenSplitFileMissing(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
@@ -230,19 +283,34 @@ func TestRunConfigPathsReportsCustomModuleConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	document.ModuleConfigPath = "modules/custom.json"
+	document.NetworkConfigPath = "modules/network.json"
+	document.ConsensusConfigPath = "modules/consensus.json"
+	document.MempoolConfigPath = "modules/mempool.json"
+	document.LogConfigPath = "modules/log.json"
 	if err := os.MkdirAll(filepath.Join(home, "modules"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	writeTestJSON(t, filepath.Join(home, "modules", "custom.json"), defaultModuleConfigDocument("vexo-test"))
+	writeTestJSON(t, filepath.Join(home, "modules", "network.json"), defaultNetworkConfigDocument("vexo-test", filepath.Join(home, "data"), "validator-1"))
+	writeTestJSON(t, filepath.Join(home, "modules", "consensus.json"), defaultConsensusConfigDocument("vexo-test", filepath.Join(home, "data"), "validator-1"))
+	writeTestJSON(t, filepath.Join(home, "modules", "mempool.json"), defaultMempoolConfigDocument("vexo-test"))
+	writeTestJSON(t, filepath.Join(home, "modules", "log.json"), defaultLogConfigDocument("vexo-test", filepath.Join(home, "data"), "validator-1"))
 	writeTestJSON(t, filepath.Join(home, configFileName), document)
 
 	var output bytes.Buffer
 	if err := runConfig(&output, []string{"paths", "--home", home}); err != nil {
 		t.Fatal(err)
 	}
-	expected := filepath.Join(home, "modules", "custom.json")
-	if !strings.Contains(output.String(), "module_config: "+expected) {
-		t.Fatalf("expected custom module config path %q in output:\n%s", expected, output.String())
+	for label, expected := range map[string]string{
+		"module_config":    filepath.Join(home, "modules", "custom.json"),
+		"network_config":   filepath.Join(home, "modules", "network.json"),
+		"consensus_config": filepath.Join(home, "modules", "consensus.json"),
+		"mempool_config":   filepath.Join(home, "modules", "mempool.json"),
+		"log_config":       filepath.Join(home, "modules", "log.json"),
+	} {
+		if !strings.Contains(output.String(), label+": "+expected) {
+			t.Fatalf("expected custom %s path %q in output:\n%s", label, expected, output.String())
+		}
 	}
 }
 
@@ -320,18 +388,18 @@ func TestLoadNodeConfigRejectsInvalidSchemaAndConfig(t *testing.T) {
 }
 
 func TestDefaultConfigEnablesOperationalEventLogs(t *testing.T) {
-	document := defaultConfigDocument("vexo-test", t.TempDir(), "alice")
-	if document.Runtime.Log.CommitEvents == nil || !*document.Runtime.Log.CommitEvents {
-		t.Fatalf("expected commit event logging enabled by default: %+v", document.Runtime.Log)
+	document := defaultLogConfigDocument("vexo-test", t.TempDir(), "alice")
+	if document.Log.CommitEvents == nil || !*document.Log.CommitEvents {
+		t.Fatalf("expected commit event logging enabled by default: %+v", document.Log)
 	}
-	if document.Runtime.Log.PeerEvents == nil || !*document.Runtime.Log.PeerEvents {
-		t.Fatalf("expected peer event logging enabled by default: %+v", document.Runtime.Log)
+	if document.Log.PeerEvents == nil || !*document.Log.PeerEvents {
+		t.Fatalf("expected peer event logging enabled by default: %+v", document.Log)
 	}
 }
 
 func TestDefaultConfigWritesTendermintStyleConsensusTimeouts(t *testing.T) {
-	document := defaultConfigDocument("vexo-test", t.TempDir(), "alice")
-	consensus := document.Runtime.Consensus
+	document := defaultConsensusConfigDocument("vexo-test", t.TempDir(), "alice")
+	consensus := document.Consensus
 	if consensus.TimeoutPropose != "3s" ||
 		consensus.TimeoutPrevote != "1s" ||
 		consensus.TimeoutPrecommit != "1s" ||
@@ -347,9 +415,11 @@ func TestLoadStartRuntimeConfigAllowsDisablingOperationalEventLogs(t *testing.T)
 	home := t.TempDir()
 	path := filepath.Join(home, configFileName)
 	document := defaultConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
-	document.Runtime.Log.CommitEvents = boolPtr(false)
-	document.Runtime.Log.PeerEvents = boolPtr(false)
+	logDocument := defaultLogConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	logDocument.Log.CommitEvents = boolPtr(false)
+	logDocument.Log.PeerEvents = boolPtr(false)
 	writeTestJSON(t, path, document)
+	writeTestJSON(t, filepath.Join(home, logConfigFileName), logDocument)
 
 	cfg, err := loadStartRuntimeConfig(home, path)
 	if err != nil {
@@ -364,12 +434,14 @@ func TestLoadStartRuntimeConfigParsesConsensusTimeoutsAndEmptyBlocks(t *testing.
 	home := t.TempDir()
 	path := filepath.Join(home, configFileName)
 	document := defaultConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
-	document.Runtime.Consensus.TimeoutPropose = "4s"
-	document.Runtime.Consensus.TimeoutPrevote = "1500ms"
-	document.Runtime.Consensus.TimeoutPrecommit = "2s"
-	document.Runtime.Consensus.TimeoutCommit = "250ms"
-	document.Runtime.Consensus.CreateEmptyBlocks = true
+	consensusDocument := defaultConsensusConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	consensusDocument.Consensus.TimeoutPropose = "4s"
+	consensusDocument.Consensus.TimeoutPrevote = "1500ms"
+	consensusDocument.Consensus.TimeoutPrecommit = "2s"
+	consensusDocument.Consensus.TimeoutCommit = "250ms"
+	consensusDocument.Consensus.CreateEmptyBlocks = true
 	writeTestJSON(t, path, document)
+	writeTestJSON(t, filepath.Join(home, consensusConfigFileName), consensusDocument)
 
 	cfg, err := loadStartRuntimeConfig(home, path)
 	if err != nil {

@@ -47,7 +47,7 @@ Enabled modules are configured in the node home's `module_config.json`, not in `
 }
 ```
 
-`config.json` may point to a custom module file through `module_config_path`. Keep module defaults, module enablement, execution policy, and governance policy in `module_config.json` so application developers can change module behavior without touching runtime networking or consensus settings.
+`config.json` may point to a custom module file through `module_config_path`. Keep module defaults, module enablement, execution policy, and governance policy in `module_config.json` so application developers can change module behavior without touching `network_config.json`, `consensus_config.json`, `mempool_config.json`, or `log_config.json`.
 
 ## State
 

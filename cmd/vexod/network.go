@@ -744,12 +744,15 @@ func buildNetworkRuntimePlanWithPorts(home string, validators int, binaryPath st
 		nodeHome := filepath.Join(home, validatorID)
 		rpcAddress := networkRPCAddressWithBasePort(index, rpcBasePort)
 		p2pAddress := networkP2PAddressWithBasePort(index, p2pBasePort)
-		if document, err := readConfigDocument(filepath.Join(nodeHome, configFileName)); err == nil {
-			if document.Runtime.RPC.Address != "" {
-				rpcAddress = document.Runtime.RPC.Address
-			}
-			if document.Runtime.P2P.ListenAddress != "" {
-				p2pAddress = document.Runtime.P2P.ListenAddress
+		configPath := filepath.Join(nodeHome, configFileName)
+		if document, err := readConfigDocument(configPath); err == nil {
+			if networkDocument, err := loadNetworkConfigForConfig(configPath, document); err == nil {
+				if networkDocument.RPC.Address != "" {
+					rpcAddress = networkDocument.RPC.Address
+				}
+				if networkDocument.P2P.ListenAddress != "" {
+					p2pAddress = networkDocument.P2P.ListenAddress
+				}
 			}
 		}
 		args := []string{

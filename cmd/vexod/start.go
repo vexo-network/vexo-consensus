@@ -554,13 +554,34 @@ func loadStartRuntimeConfig(home string, configPath string) (startRuntimeConfig,
 	if err != nil {
 		return startRuntimeConfig{}, err
 	}
-	return runtimeConfigFromDocument(home, document)
+	networkDocument, err := loadNetworkConfigForConfig(resolvedConfigPath, document)
+	if err != nil {
+		return startRuntimeConfig{}, err
+	}
+	consensusDocument, err := loadConsensusConfigForConfig(resolvedConfigPath, document)
+	if err != nil {
+		return startRuntimeConfig{}, err
+	}
+	logDocument, err := loadLogConfigForConfig(resolvedConfigPath, document)
+	if err != nil {
+		return startRuntimeConfig{}, err
+	}
+	return runtimeConfigFromDocuments(home, document, networkDocument, consensusDocument, logDocument)
 }
 
 func runtimeConfigFromDocument(home string, document configDocument) (startRuntimeConfig, error) {
-	runtime := document.Runtime
+	return runtimeConfigFromDocuments(home, document, document.LegacyNetwork, document.LegacyConsensus, document.LegacyLog)
+}
+
+func runtimeConfigFromDocuments(home string, document configDocument, networkDocument networkConfigDocument, consensusDocument consensusConfigDocument, logDocument logConfigDocument) (startRuntimeConfig, error) {
+	runtime := runtimeConfig{
+		RPC:       networkDocument.RPC,
+		P2P:       networkDocument.P2P,
+		Consensus: consensusDocument.Consensus,
+		Log:       logDocument.Log,
+	}
 	if runtimeConfigIsZero(runtime) {
-		runtime = defaultConfigDocument(document.Chain.ChainID, document.DataDir, document.ValidatorID, document.NodeMode).Runtime
+		runtime = defaultRuntimeConfig(document.ValidatorID, document.NodeMode)
 	}
 	cfg := startRuntimeConfig{
 		RPCEnabled:           runtime.RPC.Enabled,

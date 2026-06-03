@@ -10,13 +10,17 @@ import (
 )
 
 type pathDocument struct {
-	Home         string `json:"home"`
-	Config       string `json:"config"`
-	ModuleConfig string `json:"module_config"`
-	Genesis      string `json:"genesis"`
-	Key          string `json:"key"`
-	AddrBook     string `json:"addr_book"`
-	DataDir      string `json:"data_dir,omitempty"`
+	Home            string `json:"home"`
+	Config          string `json:"config"`
+	ModuleConfig    string `json:"module_config"`
+	NetworkConfig   string `json:"network_config"`
+	ConsensusConfig string `json:"consensus_config"`
+	MempoolConfig   string `json:"mempool_config"`
+	LogConfig       string `json:"log_config"`
+	Genesis         string `json:"genesis"`
+	Key             string `json:"key"`
+	AddrBook        string `json:"addr_book"`
+	DataDir         string `json:"data_dir,omitempty"`
 }
 
 func runConfig(writer io.Writer, args []string) error {
@@ -54,16 +58,28 @@ func runConfigPaths(writer io.Writer, args []string) error {
 	}
 	resolvedConfigPath := resolveConfigPath(*home, *configPath)
 	moduleConfigPath := resolveModuleConfigPath(*home, "")
+	networkConfigPath := resolveNetworkConfigPath(*home, "")
+	consensusConfigPath := resolveConsensusConfigPath(*home, "")
+	mempoolConfigPath := resolveMempoolConfigPath(*home, "")
+	logConfigPath := resolveLogConfigPath(*home, "")
 	if configDocument, err := readConfigDocument(resolvedConfigPath); err == nil {
 		moduleConfigPath = resolveModuleConfigPath(filepath.Dir(resolvedConfigPath), configDocument.ModuleConfigPath)
+		networkConfigPath = resolveNetworkConfigPath(filepath.Dir(resolvedConfigPath), configDocument.NetworkConfigPath)
+		consensusConfigPath = resolveConsensusConfigPath(filepath.Dir(resolvedConfigPath), configDocument.ConsensusConfigPath)
+		mempoolConfigPath = resolveMempoolConfigPath(filepath.Dir(resolvedConfigPath), configDocument.MempoolConfigPath)
+		logConfigPath = resolveLogConfigPath(filepath.Dir(resolvedConfigPath), configDocument.LogConfigPath)
 	}
 	document := pathDocument{
-		Home:         *home,
-		Config:       resolvedConfigPath,
-		ModuleConfig: moduleConfigPath,
-		Genesis:      resolveGenesisPath(*home, *genesisPath),
-		Key:          resolveKeyPath(*home, *keyPath),
-		AddrBook:     resolveAddrBookPath(*home, ""),
+		Home:            *home,
+		Config:          resolvedConfigPath,
+		ModuleConfig:    moduleConfigPath,
+		NetworkConfig:   networkConfigPath,
+		ConsensusConfig: consensusConfigPath,
+		MempoolConfig:   mempoolConfigPath,
+		LogConfig:       logConfigPath,
+		Genesis:         resolveGenesisPath(*home, *genesisPath),
+		Key:             resolveKeyPath(*home, *keyPath),
+		AddrBook:        resolveAddrBookPath(*home, ""),
 	}
 	if cfg, err := loadNodeConfig(document.Config); err == nil {
 		document.DataDir = cfg.DataDir
@@ -76,6 +92,10 @@ func runConfigPaths(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "home: %s\n", document.Home)
 	fmt.Fprintf(writer, "config: %s\n", document.Config)
 	fmt.Fprintf(writer, "module_config: %s\n", document.ModuleConfig)
+	fmt.Fprintf(writer, "network_config: %s\n", document.NetworkConfig)
+	fmt.Fprintf(writer, "consensus_config: %s\n", document.ConsensusConfig)
+	fmt.Fprintf(writer, "mempool_config: %s\n", document.MempoolConfig)
+	fmt.Fprintf(writer, "log_config: %s\n", document.LogConfig)
 	fmt.Fprintf(writer, "genesis: %s\n", document.Genesis)
 	fmt.Fprintf(writer, "key: %s\n", document.Key)
 	fmt.Fprintf(writer, "addr_book: %s\n", document.AddrBook)
