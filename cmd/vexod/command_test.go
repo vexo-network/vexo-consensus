@@ -179,6 +179,19 @@ func TestRunOpsThresholdsAndAlerts(t *testing.T) {
 	if !strings.Contains(metricsAlerts.String(), "ops alerts ok") {
 		t.Fatalf("unexpected metrics-file alerts output:\n%s", metricsAlerts.String())
 	}
+
+	var incident bytes.Buffer
+	if err := runCommand(&incident, &bytes.Buffer{}, []string{
+		"ops", "incident",
+		"--metrics-file", currentMetrics,
+		"--previous-metrics-file", previousMetrics,
+		"--window", "1m",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(incident.String(), "ops incident report") || !strings.Contains(incident.String(), "severity: none") {
+		t.Fatalf("unexpected incident output:\n%s", incident.String())
+	}
 }
 
 func TestRunUpgradePlan(t *testing.T) {
@@ -356,6 +369,30 @@ func TestRunUpgradeRollbackPlanJSONWarnsOnUnsafeInputs(t *testing.T) {
 	}
 }
 
+func TestRunSlashingLifecyclePlan(t *testing.T) {
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{"slashing", "lifecycle-plan", "--type", "double_sign", "--validator", "validator-1", "--height", "10", "--current-height", "200", "--current-power", "100"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"slashing lifecycle plan", "type: double_sign", "validator: validator-1", "power: 100 -> 95", "appeal_window ok=true", "stake slash"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected slashing lifecycle output to contain %q, got:\n%s", expected, output.String())
+		}
+	}
+
+	var jsonOutput bytes.Buffer
+	if err := runCommand(&jsonOutput, &bytes.Buffer{}, []string{"slashing", "lifecycle-plan", "--type", "double_sign", "--validator", "validator-1", "--height", "10", "--current-height", "11", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var document slashingLifecyclePlanDocument
+	if err := json.Unmarshal(jsonOutput.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.SchemaVersion != "v1" || len(document.Warnings) == 0 {
+		t.Fatalf("expected early penalty warning, got %+v", document)
+	}
+}
+
 func TestRunReleasePackWritesAuditManifest(t *testing.T) {
 	dist := t.TempDir()
 	files := map[string]string{
@@ -487,6 +524,30 @@ func TestRunReleaseLaunchChecklistJSON(t *testing.T) {
 	}
 	if document.Phases[0].Name != "prelaunch" || !strings.Contains(strings.Join(document.Phases[0].Items, "\n"), "network scale-plan") {
 		t.Fatalf("unexpected prelaunch phase: %+v", document.Phases[0])
+	}
+}
+
+func TestRunReleaseReadiness(t *testing.T) {
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{"release", "readiness"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"release readiness sweep", "ok: true", "state_sync_drill", "slashing_lifecycle", "observability_incident"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected readiness output to contain %q, got:\n%s", expected, output.String())
+		}
+	}
+
+	var jsonOutput bytes.Buffer
+	if err := runCommand(&jsonOutput, &bytes.Buffer{}, []string{"release", "readiness", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var document productionReadinessDocument
+	if err := json.Unmarshal(jsonOutput.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if !document.OK || len(document.Commands) == 0 || len(document.Documents) == 0 {
+		t.Fatalf("unexpected readiness document: %+v", document)
 	}
 }
 
@@ -846,6 +907,15 @@ func TestRunSnapshotExportAndRestore(t *testing.T) {
 	}
 	if !strings.Contains(verifyOutput.String(), "snapshot verified") || !strings.Contains(verifyOutput.String(), "kv_pairs: 1") {
 		t.Fatalf("unexpected verify output:\n%s", verifyOutput.String())
+	}
+	var drillOutput bytes.Buffer
+	if err := runSnapshot(&drillOutput, []string{"drill-plan", "--input", snapshotPath, "--chain-id", "vexo-test", "--min-height", "3"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"snapshot drill plan", "height: 3", "kv_pairs: 1", "checksum ok=true", "height catch-up"} {
+		if !strings.Contains(drillOutput.String(), expected) {
+			t.Fatalf("expected snapshot drill output to contain %q, got:\n%s", expected, drillOutput.String())
+		}
 	}
 
 	restoreHome := t.TempDir()

@@ -28,6 +28,25 @@ type snapshotDocument struct {
 	Checksum      string                  `json:"checksum,omitempty"`
 }
 
+type snapshotDrillPlanDocument struct {
+	SchemaVersion string                   `json:"schema_version"`
+	Input         string                   `json:"input"`
+	ChainID       string                   `json:"chain_id"`
+	Height        uint64                   `json:"height"`
+	Modules       []string                 `json:"modules"`
+	KVPairCount   int                      `json:"kv_pair_count"`
+	Checksum      string                   `json:"checksum"`
+	Checks        []snapshotDrillPlanCheck `json:"checks"`
+	Steps         []string                 `json:"steps"`
+	Warnings      []string                 `json:"warnings,omitempty"`
+}
+
+type snapshotDrillPlanCheck struct {
+	Name    string `json:"name"`
+	OK      bool   `json:"ok"`
+	Message string `json:"message"`
+}
+
 func runSnapshot(writer io.Writer, args []string) error {
 	if len(args) == 0 {
 		return errors.New("snapshot subcommand is required")
@@ -43,6 +62,8 @@ func runSnapshot(writer io.Writer, args []string) error {
 		return runSnapshotFetch(writer, args[1:])
 	case "sync":
 		return runSnapshotSync(writer, args[1:])
+	case "drill-plan":
+		return runSnapshotDrillPlan(writer, args[1:])
 	default:
 		return fmt.Errorf("unknown snapshot subcommand %q", args[0])
 	}
@@ -232,6 +253,109 @@ func runSnapshotSync(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "url: %s\n", *url)
 	fmt.Fprintf(writer, "height: %d\n", document.State.Height)
 	return nil
+}
+
+func runSnapshotDrillPlan(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("snapshot drill-plan", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	inputPath := flags.String("input", "", "snapshot input path")
+	expectedChainID := flags.String("chain-id", "", "expected chain id")
+	minHeight := flags.Uint64("min-height", 1, "minimum acceptable snapshot height")
+	requireKV := flags.Bool("require-kv", true, "require module KV payloads for state sync")
+	jsonOutput := flags.Bool("json", false, "write JSON output")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *inputPath == "" {
+		return errors.New("snapshot input path is required")
+	}
+	document, err := readSnapshotDocument(*inputPath)
+	if err != nil {
+		return err
+	}
+	plan := buildSnapshotDrillPlanDocument(*inputPath, document, *expectedChainID, *minHeight, *requireKV)
+	if *jsonOutput {
+		encoder := json.NewEncoder(writer)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(plan)
+	}
+	writeSnapshotDrillPlan(writer, plan)
+	return nil
+}
+
+func buildSnapshotDrillPlanDocument(inputPath string, document snapshotDocument, expectedChainID string, minHeight uint64, requireKV bool) snapshotDrillPlanDocument {
+	plan := snapshotDrillPlanDocument{
+		SchemaVersion: "v1",
+		Input:         inputPath,
+		ChainID:       document.ChainID,
+		Height:        uint64(document.State.Height),
+		Modules:       append([]string(nil), document.Modules...),
+		KVPairCount:   len(document.KV),
+		Checksum:      document.Checksum,
+		Steps: []string{
+			"verify snapshot checksum before copying to a new node",
+			"restore snapshot into an empty node home",
+			"run snapshot verify against the restored home",
+			"run doctor and require snapshot, store, and recovery checks to pass",
+			"start the node and verify replay health plus height catch-up",
+			"archive snapshot checksum, restore logs, and recovered state height",
+		},
+	}
+	plan.Checks = append(plan.Checks, snapshotDrillPlanCheck{
+		Name:    "height",
+		OK:      plan.Height >= minHeight,
+		Message: fmt.Sprintf("snapshot height must be at least %d", minHeight),
+	})
+	plan.Checks = append(plan.Checks, snapshotDrillPlanCheck{
+		Name:    "chain_id",
+		OK:      expectedChainID == "" || plan.ChainID == expectedChainID,
+		Message: "snapshot chain id must match the target chain",
+	})
+	plan.Checks = append(plan.Checks, snapshotDrillPlanCheck{
+		Name:    "state_roots",
+		OK:      len(document.StateRoots) >= len(document.Modules),
+		Message: "snapshot must include state roots for all declared modules",
+	})
+	plan.Checks = append(plan.Checks, snapshotDrillPlanCheck{
+		Name:    "kv_payload",
+		OK:      !requireKV || len(document.KV) > 0,
+		Message: "state sync restore should include module KV payloads",
+	})
+	plan.Checks = append(plan.Checks, snapshotDrillPlanCheck{
+		Name:    "checksum",
+		OK:      document.Checksum != "" && document.Checksum == snapshotChecksum(document),
+		Message: "snapshot checksum must be present and valid",
+	})
+	for _, check := range plan.Checks {
+		if !check.OK {
+			plan.Warnings = append(plan.Warnings, check.Message)
+		}
+	}
+	return plan
+}
+
+func writeSnapshotDrillPlan(writer io.Writer, plan snapshotDrillPlanDocument) {
+	fmt.Fprintf(writer, "snapshot drill plan\n")
+	fmt.Fprintf(writer, "input: %s\n", plan.Input)
+	fmt.Fprintf(writer, "chain_id: %s\n", plan.ChainID)
+	fmt.Fprintf(writer, "height: %d\n", plan.Height)
+	fmt.Fprintf(writer, "modules: %v\n", plan.Modules)
+	fmt.Fprintf(writer, "kv_pairs: %d\n", plan.KVPairCount)
+	fmt.Fprintf(writer, "checksum: %s\n", plan.Checksum)
+	fmt.Fprintf(writer, "checks:\n")
+	for _, check := range plan.Checks {
+		fmt.Fprintf(writer, "- %s ok=%t %s\n", check.Name, check.OK, check.Message)
+	}
+	fmt.Fprintf(writer, "steps:\n")
+	for index, step := range plan.Steps {
+		fmt.Fprintf(writer, "%d. %s\n", index+1, step)
+	}
+	if len(plan.Warnings) > 0 {
+		fmt.Fprintf(writer, "warnings:\n")
+		for _, warning := range plan.Warnings {
+			fmt.Fprintf(writer, "- %s\n", warning)
+		}
+	}
 }
 
 func buildSnapshotDocument(storage store.Store, chainID string, namespaces []string) (snapshotDocument, error) {

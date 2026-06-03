@@ -21,9 +21,20 @@ func runOps(writer io.Writer, args []string) error {
 		return runOpsThresholds(writer, args[1:])
 	case "alerts":
 		return runOpsAlerts(writer, args[1:])
+	case "incident":
+		return runOpsIncident(writer, args[1:])
 	default:
 		return fmt.Errorf("unknown ops subcommand %q", args[0])
 	}
+}
+
+type opsIncidentDocument struct {
+	SchemaVersion string     `json:"schema_version"`
+	Title         string     `json:"title"`
+	Severity      string     `json:"severity"`
+	Report        ops.Report `json:"report"`
+	Summary       []string   `json:"summary"`
+	Actions       []string   `json:"actions"`
 }
 
 func runOpsThresholds(writer io.Writer, args []string) error {
@@ -110,6 +121,85 @@ func runOpsAlerts(writer io.Writer, args []string) error {
 		fmt.Fprintf(writer, "%s [%s] value=%s threshold=%s %s\n", alert.Name, alert.Severity, alert.Value, alert.Threshold, alert.Message)
 	}
 	return nil
+}
+
+func runOpsIncident(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("ops incident", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	title := flags.String("title", "vexo operational incident", "incident title")
+	metricsFile := flags.String("metrics-file", "", "current /metrics JSON file to evaluate")
+	previousMetricsFile := flags.String("previous-metrics-file", "", "previous /metrics JSON file for rate deltas")
+	windowValue := flags.String("window", "1m", "elapsed time between previous and current metrics files")
+	jsonOutput := flags.Bool("json", false, "write JSON output")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *metricsFile == "" {
+		return errors.New("metrics-file is required")
+	}
+	sample, err := readOpsMetricsSample(*metricsFile, *previousMetricsFile, *windowValue)
+	if err != nil {
+		return err
+	}
+	report, err := ops.Evaluate(sample, ops.DefaultThresholds())
+	if err != nil {
+		return err
+	}
+	document := buildOpsIncidentDocument(*title, report)
+	if *jsonOutput {
+		encoder := json.NewEncoder(writer)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(document)
+	}
+	writeOpsIncident(writer, document)
+	return nil
+}
+
+func buildOpsIncidentDocument(title string, report ops.Report) opsIncidentDocument {
+	severity := "none"
+	if !report.OK {
+		severity = "warning"
+		for _, alert := range report.Alerts {
+			if alert.Severity == ops.SeverityCritical {
+				severity = "critical"
+				break
+			}
+		}
+	}
+	document := opsIncidentDocument{
+		SchemaVersion: "v1",
+		Title:         title,
+		Severity:      severity,
+		Report:        report,
+		Actions: []string{
+			"freeze deploys and preserve current logs, metrics, pprof, and config files",
+			"check quorum, finality, signer failures, peer bans, mempool, snapshot, and replay health",
+			"if finality or replay is unsafe, halt validators and use the last safe height recovery procedure",
+			"attach incident report to release/launch audit evidence",
+		},
+	}
+	if report.OK {
+		document.Summary = append(document.Summary, "no alert thresholds exceeded")
+		return document
+	}
+	for _, alert := range report.Alerts {
+		document.Summary = append(document.Summary, fmt.Sprintf("%s severity=%s value=%s threshold=%s", alert.Name, alert.Severity, alert.Value, alert.Threshold))
+	}
+	return document
+}
+
+func writeOpsIncident(writer io.Writer, document opsIncidentDocument) {
+	fmt.Fprintf(writer, "ops incident report\n")
+	fmt.Fprintf(writer, "title: %s\n", document.Title)
+	fmt.Fprintf(writer, "severity: %s\n", document.Severity)
+	fmt.Fprintf(writer, "alerts: %d\n", len(document.Report.Alerts))
+	for _, summary := range document.Summary {
+		fmt.Fprintf(writer, "- %s\n", summary)
+	}
+	fmt.Fprintf(writer, "actions:\n")
+	for index, action := range document.Actions {
+		fmt.Fprintf(writer, "%d. %s\n", index+1, action)
+	}
 }
 
 func durationOrZero(duration time.Duration) time.Duration {

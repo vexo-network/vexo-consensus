@@ -536,6 +536,7 @@ Export and restore the latest persisted state snapshot:
 go run ./cmd/vexod snapshot export --home .vexo --output snapshot.json
 go run ./cmd/vexod snapshot verify --home .vexo-restore --input snapshot.json
 go run ./cmd/vexod snapshot restore --home .vexo-restore --input snapshot.json
+go run ./cmd/vexod snapshot drill-plan --input snapshot.json --chain-id vexo-chain --json
 ```
 
 Fetch or directly sync a new node from a peer's RPC snapshot export. Snapshot sync restores state metadata, module state roots, and exported module KV pairs:
@@ -573,6 +574,7 @@ make sign-release VERSION=0.1.0
 make docker-image VERSION=0.1.0 IMAGE=vexo-consensus IMAGE_TAG=0.1.0
 make release-candidate VERSION=0.1.0-rc.1
 go run ./cmd/vexod release launch-checklist
+go run ./cmd/vexod release readiness --json
 ```
 
 Run all checks:
@@ -600,6 +602,8 @@ go run ./cmd/vexod ops alerts \
   --mempool-size 20000 \
   --commit-latency 2s \
   --signing-failures 1
+go run ./cmd/vexod ops incident --metrics-file current-metrics.json --previous-metrics-file previous-metrics.json --window 1m --json
+go run ./cmd/vexod slashing lifecycle-plan --type double_sign --validator validator-1 --height 100 --current-height 250 --json
 ```
 
 Build a governance-driven binary/config/store/app-state migration plan:
