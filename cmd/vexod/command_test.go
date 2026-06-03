@@ -551,8 +551,90 @@ func TestRunReleaseReadiness(t *testing.T) {
 	}
 }
 
+func TestRunReleaseGateRequiresOperationalEvidence(t *testing.T) {
+	dist := t.TempDir()
+	for _, name := range []string{"checksums.txt", "checksums.txt.asc", "sbom-go-modules.json", "sbom-go-version.txt", "release-manifest.json"} {
+		if err := os.WriteFile(filepath.Join(dist, name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"release", "gate",
+		"--dist", dist,
+		"--version", "test",
+		"--json",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var document releaseGateDocument
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.OK || releaseReadinessCheckOK(document.Checks, "chaos_evidence") {
+		t.Fatalf("expected release gate to fail missing evidence: %+v", document)
+	}
+}
+
+func TestRunReleaseGatePassesWithEvidence(t *testing.T) {
+	dist := t.TempDir()
+	required := []string{
+		"checksums.txt",
+		"checksums.txt.asc",
+		"sbom-go-modules.json",
+		"sbom-go-version.txt",
+		"release-manifest.json",
+		"longrun-evidence.json",
+		"adversarial-evidence.json",
+		"fuzz-evidence.txt",
+		"chaos-evidence.json",
+		"kms-evidence.json",
+		"snapshot-replay-evidence.json",
+		"external-audit.pdf",
+		"bls-audit.pdf",
+	}
+	for _, name := range required {
+		if err := os.WriteFile(filepath.Join(dist, name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"release", "gate",
+		"--dist", dist,
+		"--version", "test",
+		"--longrun-evidence", filepath.Join(dist, "longrun-evidence.json"),
+		"--chaos-evidence", filepath.Join(dist, "chaos-evidence.json"),
+		"--adversarial-evidence", filepath.Join(dist, "adversarial-evidence.json"),
+		"--fuzz-evidence", filepath.Join(dist, "fuzz-evidence.txt"),
+		"--kms-evidence", filepath.Join(dist, "kms-evidence.json"),
+		"--snapshot-evidence", filepath.Join(dist, "snapshot-replay-evidence.json"),
+		"--external-audit", filepath.Join(dist, "external-audit.pdf"),
+		"--bls-audit", filepath.Join(dist, "bls-audit.pdf"),
+		"--json",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var document releaseGateDocument
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if !document.OK || !releaseReadinessCheckOK(document.Checks, "external_security_audit") || !releaseReadinessCheckOK(document.Checks, "bls_adapter_audit") {
+		t.Fatalf("expected release gate to pass: %+v", document)
+	}
+}
+
 func releaseCheckOK(document releaseAuditPack, name string) bool {
 	for _, check := range document.Checks {
+		if check.Name == name {
+			return check.OK
+		}
+	}
+	return false
+}
+
+func releaseReadinessCheckOK(checks []productionReadinessCheck, name string) bool {
+	for _, check := range checks {
 		if check.Name == name {
 			return check.OK
 		}

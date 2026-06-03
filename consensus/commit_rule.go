@@ -18,6 +18,7 @@ type CommitCandidate struct {
 }
 
 type CommitDecision struct {
+	CommittedHeight    types.Height
 	CommittedBlockHash types.Hash
 	CommitQC           finality.QuorumCert
 }
@@ -43,6 +44,7 @@ func (ThreeChainCommitRule) Decide(candidate CommitCandidate) (CommitDecision, e
 		return CommitDecision{}, ErrCommitRuleNotSatisfied
 	}
 	return CommitDecision{
+		CommittedHeight:    candidate.ParentQC.Height,
 		CommittedBlockHash: candidate.GrandparentHash,
 		CommitQC:           candidate.ParentQC,
 	}, nil

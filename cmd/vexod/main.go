@@ -183,7 +183,7 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  doctor          inspect config, keys, store, snapshot, and recovery readiness\n")
 	fmt.Fprintf(writer, "  ops             print thresholds, evaluate samples, or build incident reports\n")
 	fmt.Fprintf(writer, "  upgrade         build, apply, and rollback-drill governance upgrade plans\n")
-	fmt.Fprintf(writer, "  release         package release manifests, checklists, and readiness sweeps\n")
+	fmt.Fprintf(writer, "  release         package release manifests, checklists, readiness sweeps, and release gates\n")
 	fmt.Fprintf(writer, "  status          print default node capability status\n")
 	fmt.Fprintf(writer, "  demo            run an in-memory bank execution demo\n")
 	fmt.Fprintf(writer, "  store-demo      run a LevelDB-backed storage demo\n")

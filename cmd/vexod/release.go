@@ -75,6 +75,14 @@ type productionReadinessCheck struct {
 	Message string `json:"message"`
 }
 
+type releaseGateDocument struct {
+	SchemaVersion string                     `json:"schema_version"`
+	OK            bool                       `json:"ok"`
+	Version       string                     `json:"version"`
+	Checks        []productionReadinessCheck `json:"checks"`
+	NextActions   []string                   `json:"next_actions,omitempty"`
+}
+
 func runRelease(writer io.Writer, args []string) error {
 	if len(args) == 0 {
 		return errors.New("release subcommand is required")
@@ -86,6 +94,8 @@ func runRelease(writer io.Writer, args []string) error {
 		return runReleaseLaunchChecklist(writer, args[1:])
 	case "readiness":
 		return runReleaseReadiness(writer, args[1:])
+	case "gate":
+		return runReleaseGate(writer, args[1:])
 	default:
 		return fmt.Errorf("unknown release subcommand %q", args[0])
 	}
@@ -189,6 +199,61 @@ func runReleaseReadiness(writer io.Writer, args []string) error {
 	return nil
 }
 
+func runReleaseGate(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("release gate", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	versionValue := flags.String("version", version, "release version label")
+	distDir := flags.String("dist", "dist", "release dist directory")
+	requireSignature := flags.Bool("require-signature", true, "require signed checksums")
+	longRunEvidence := flags.String("longrun-evidence", "", "multi-host longrun evidence JSON path")
+	chaosEvidence := flags.String("chaos-evidence", "", "chaos test evidence JSON path")
+	adversarialEvidence := flags.String("adversarial-evidence", "", "consensus adversarial evidence JSON path")
+	fuzzEvidence := flags.String("fuzz-evidence", "", "fuzz/property evidence output path")
+	kmsEvidence := flags.String("kms-evidence", "", "KMS/remote signer policy evidence path")
+	snapshotEvidence := flags.String("snapshot-evidence", "", "snapshot/replay restore evidence path")
+	externalAudit := flags.String("external-audit", "", "external security audit report or disposition path")
+	blsAudit := flags.String("bls-audit", "", "audited BLS adapter/dependency audit evidence path")
+	allowExternalPending := flags.Bool("allow-external-pending", false, "allow external audit/BLS audit to remain pending for non-mainnet release candidates")
+	jsonOutput := flags.Bool("json", false, "write JSON output")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	pack, err := buildReleaseAuditPackWithEvidence(*distDir, *versionValue, *requireSignature, releaseEvidenceInputs{
+		LongRun:     *longRunEvidence,
+		Adversarial: *adversarialEvidence,
+		Fuzz:        *fuzzEvidence,
+	})
+	if err != nil {
+		return err
+	}
+	document := buildReleaseGateDocument(*versionValue, pack, releaseGateInputs{
+		Chaos:                *chaosEvidence,
+		KMS:                  *kmsEvidence,
+		Snapshot:             *snapshotEvidence,
+		ExternalAudit:        *externalAudit,
+		BLSAudit:             *blsAudit,
+		AllowExternalPending: *allowExternalPending,
+	})
+	if *jsonOutput {
+		encoder := json.NewEncoder(writer)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(document)
+	}
+	fmt.Fprintf(writer, "release gate\n")
+	fmt.Fprintf(writer, "version: %s\n", document.Version)
+	fmt.Fprintf(writer, "ok: %t\n", document.OK)
+	for _, check := range document.Checks {
+		fmt.Fprintf(writer, "- %s ok=%t %s\n", check.Name, check.OK, check.Message)
+	}
+	if len(document.NextActions) > 0 {
+		fmt.Fprintf(writer, "next actions:\n")
+		for _, action := range document.NextActions {
+			fmt.Fprintf(writer, "- %s\n", action)
+		}
+	}
+	return nil
+}
+
 func buildProductionReadinessDocument() productionReadinessDocument {
 	document := productionReadinessDocument{
 		SchemaVersion: "v1",
@@ -198,6 +263,7 @@ func buildProductionReadinessDocument() productionReadinessDocument {
 			"make ops-verify",
 			"go run ./cmd/vexod release launch-checklist --json",
 			"go run ./cmd/vexod release readiness --json",
+			"go run ./cmd/vexod release gate --dist dist --version <version> --longrun-evidence dist/longrun-evidence.json --chaos-evidence dist/chaos-evidence.json --adversarial-evidence dist/adversarial-evidence.json --fuzz-evidence dist/fuzz-evidence.txt --kms-evidence dist/kms-evidence.json --snapshot-evidence dist/snapshot-replay-evidence.json --external-audit dist/external-audit.pdf --bls-audit dist/bls-audit.pdf",
 			"go run ./cmd/vexod network scale-plan --validators <n> --regions <r> --hosts <h> --json",
 			"go run ./cmd/vexod snapshot drill-plan --input snapshot.json --chain-id <chain-id> --json",
 			"go run ./cmd/vexod slashing lifecycle-plan --type conflicting_vote --validator <id> --height <h> --current-height <h> --json",
@@ -240,6 +306,59 @@ func buildProductionReadinessDocument() productionReadinessDocument {
 		}
 	}
 	return document
+}
+
+type releaseGateInputs struct {
+	Chaos                string
+	KMS                  string
+	Snapshot             string
+	ExternalAudit        string
+	BLSAudit             string
+	AllowExternalPending bool
+}
+
+func buildReleaseGateDocument(versionValue string, pack releaseAuditPack, inputs releaseGateInputs) releaseGateDocument {
+	document := releaseGateDocument{
+		SchemaVersion: "v1",
+		OK:            true,
+		Version:       versionValue,
+	}
+	document.addGateCheck("release_pack", pack.OK, "release pack must include manifest, checksums, SBOM, signature when required, and core RC evidence")
+	for _, check := range pack.Checks {
+		document.addGateCheck("pack_"+check.Name, check.OK, check.Message)
+	}
+	document.addGateFileCheck("chaos_evidence", inputs.Chaos, "chaos test evidence must exist")
+	document.addGateFileCheck("kms_signer_evidence", inputs.KMS, "KMS/remote signer policy and double-sign guard evidence must exist")
+	document.addGateFileCheck("snapshot_replay_evidence", inputs.Snapshot, "snapshot restore and replay consistency evidence must exist")
+	document.addGateExternalCheck("external_security_audit", inputs.ExternalAudit, inputs.AllowExternalPending, "external audit disposition must exist before public production release")
+	document.addGateExternalCheck("bls_adapter_audit", inputs.BLSAudit, inputs.AllowExternalPending, "audited BLS adapter and dependency audit evidence must exist when BLS is enabled")
+	if !document.OK {
+		document.NextActions = []string{
+			"collect missing evidence artifacts and rerun release gate",
+			"do not publish production release artifacts until all required checks pass",
+			"use --allow-external-pending only for private release candidates, never public mainnet launch",
+		}
+	}
+	return document
+}
+
+func (document *releaseGateDocument) addGateCheck(name string, ok bool, message string) {
+	if !ok {
+		document.OK = false
+	}
+	document.Checks = append(document.Checks, productionReadinessCheck{Name: name, OK: ok, Message: message})
+}
+
+func (document *releaseGateDocument) addGateFileCheck(name string, path string, message string) {
+	document.addGateCheck(name, path != "" && fileExists(path), message)
+}
+
+func (document *releaseGateDocument) addGateExternalCheck(name string, path string, allowPending bool, message string) {
+	if path != "" && fileExists(path) {
+		document.addGateCheck(name, true, message)
+		return
+	}
+	document.addGateCheck(name, allowPending, message)
 }
 
 func buildLaunchChecklistDocument() launchChecklistDocument {

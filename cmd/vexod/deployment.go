@@ -35,6 +35,7 @@ type deploymentMempoolTemplate struct {
 	EnablePriority bool   `json:"enable_priority"`
 	MaxTxs         int    `json:"max_txs"`
 	SeenTTL        string `json:"seen_ttl"`
+	WALPath        string `json:"wal_path"`
 }
 
 type deploymentValidatorTemplate struct {
@@ -78,7 +79,7 @@ func runConfigDeploymentTemplate(writer io.Writer, args []string) error {
 	}
 	fmt.Fprintf(writer, "deployment parameter template\n")
 	fmt.Fprintf(writer, "execution: require_signed=%t require_nonce=%t min_fee=%d min_gas=%d max_gas=%d\n", document.Chain.Execution.RequireSigned, document.Chain.Execution.RequireNonce, document.Chain.Execution.MinFee, document.Chain.Execution.MinGas, document.Chain.Execution.MaxGas)
-	fmt.Fprintf(writer, "mempool: min_fee=%d priority=%t max_txs=%d seen_ttl=%s\n", document.Chain.Mempool.MinFee, document.Chain.Mempool.EnablePriority, document.Chain.Mempool.MaxTxs, document.Chain.Mempool.SeenTTL)
+	fmt.Fprintf(writer, "mempool: min_fee=%d priority=%t max_txs=%d seen_ttl=%s wal_path=%s\n", document.Chain.Mempool.MinFee, document.Chain.Mempool.EnablePriority, document.Chain.Mempool.MaxTxs, document.Chain.Mempool.SeenTTL, document.Chain.Mempool.WALPath)
 	fmt.Fprintf(writer, "validator: permissionless=%t min_stake=%d remote_signer=%t\n", document.Chain.Validator.Permissionless, document.Chain.Validator.MinStake, document.Chain.Validator.RemoteSigner)
 	fmt.Fprintf(writer, "committee: size=%d epoch_length=%d regions=%d\n", document.Chain.Committee.Size, document.Chain.Committee.EpochLength, document.Chain.Committee.Regions)
 	fmt.Fprintf(writer, "runtime: rpc_max_request_bytes=%d rpc_rate_limit_max=%d p2p_max_message_bytes=%d\n", document.Runtime.RPCMaxRequestBytes, document.Runtime.RPCRateLimitMaxRequests, document.Runtime.P2PMaxMessageBytes)
@@ -108,6 +109,7 @@ func buildDeploymentTemplateDocument() deploymentTemplateDocument {
 				EnablePriority: true,
 				MaxTxs:         50_000,
 				SeenTTL:        "10m0s",
+				WALPath:        "data/mempool.wal",
 			},
 			Validator: deploymentValidatorTemplate{
 				Permissionless: true,

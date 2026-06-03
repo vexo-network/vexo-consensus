@@ -22,6 +22,9 @@ func TestThreeChainCommitRuleCommitsGrandparent(t *testing.T) {
 	if decision.CommittedBlockHash != (types.Hash{1}) {
 		t.Fatalf("expected grandparent committed, got %x", decision.CommittedBlockHash)
 	}
+	if decision.CommittedHeight != 2 {
+		t.Fatalf("expected committed height 2, got %d", decision.CommittedHeight)
+	}
 }
 
 func TestThreeChainCommitRuleRejectsInvalidCandidates(t *testing.T) {

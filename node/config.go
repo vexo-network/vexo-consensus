@@ -15,7 +15,7 @@ var (
 	ErrGenesisChainID    = errors.New("genesis chain id mismatch")
 	ErrMissingValidators = errors.New("genesis validators are required")
 	ErrMissingSigner     = errors.New("validator signer is required")
-	ErrMissingBLSPoP     = errors.New("validator bls proof-of-popession metadata is required")
+	ErrMissingBLSPoP     = errors.New("validator bls proof-of-possession metadata is required")
 )
 
 type Config struct {

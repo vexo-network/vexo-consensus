@@ -699,6 +699,43 @@ func TestStateMachineAutoCommitsThreeChainOnProposal(t *testing.T) {
 	}
 }
 
+func TestStateMachineRejectsConflictingCommitAtSameHeight(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first := CommitCandidate{
+		BlockHash:       types.Hash{3},
+		ParentHash:      types.Hash{2},
+		GrandparentHash: types.Hash{1},
+		BlockQC:         finality.QuorumCert{Height: 3, BlockHash: types.Hash{2}},
+		ParentQC:        finality.QuorumCert{Height: 2, BlockHash: types.Hash{1}},
+	}
+	if _, err := machine.ApplyCommitRule(first); err != nil {
+		t.Fatal(err)
+	}
+	second := CommitCandidate{
+		BlockHash:       types.Hash{6},
+		ParentHash:      types.Hash{5},
+		GrandparentHash: types.Hash{4},
+		BlockQC:         finality.QuorumCert{Height: 3, BlockHash: types.Hash{5}},
+		ParentQC:        finality.QuorumCert{Height: 2, BlockHash: types.Hash{4}},
+	}
+	if _, err := machine.ApplyCommitRule(second); !errors.Is(err, ErrConflictingCommit) {
+		t.Fatalf("expected conflicting commit, got %v", err)
+	}
+	if len(machine.CommitDecisions()) != 1 {
+		t.Fatalf("expected only first commit decision, got %+v", machine.CommitDecisions())
+	}
+}
+
 func TestStateMachineRejectsProposalWithMismatchedJustifyQCParent(t *testing.T) {
 	set := newTestValidatorSet([]validator.Validator{
 		{ID: "a", VotingPower: 1},

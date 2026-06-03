@@ -18,15 +18,16 @@ import (
 )
 
 var (
-	ErrUnknownValidator = errors.New("unknown validator")
-	ErrConflictingVote  = errors.New("conflicting vote")
-	ErrNoQuorum         = errors.New("not enough voting power for quorum")
-	ErrInvalidProposal  = errors.New("invalid proposal")
-	ErrStaleProposal    = errors.New("stale proposal")
-	ErrInvalidVote      = errors.New("invalid vote")
-	ErrStaleVote        = errors.New("stale vote")
-	ErrUnsafeProposal   = errors.New("unsafe proposal")
-	ErrUnsafeVote       = errors.New("unsafe vote")
+	ErrUnknownValidator  = errors.New("unknown validator")
+	ErrConflictingVote   = errors.New("conflicting vote")
+	ErrNoQuorum          = errors.New("not enough voting power for quorum")
+	ErrInvalidProposal   = errors.New("invalid proposal")
+	ErrStaleProposal     = errors.New("stale proposal")
+	ErrInvalidVote       = errors.New("invalid vote")
+	ErrStaleVote         = errors.New("stale vote")
+	ErrUnsafeProposal    = errors.New("unsafe proposal")
+	ErrUnsafeVote        = errors.New("unsafe vote")
+	ErrConflictingCommit = errors.New("conflicting commit decision")
 )
 
 type StateMachineConfig struct {
@@ -38,23 +39,24 @@ type StateMachineConfig struct {
 }
 
 type StateMachine struct {
-	mu           sync.Mutex
-	chainID      string
-	validatorSet validator.Set
-	hashBlock    func(types.Block) types.Hash
-	signatures   signatureVerifier
-	aggregator   aggregateSigner
-	status       Status
-	votes        map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote
-	votedVotes   map[types.Height]map[types.Round]map[types.ValidatorID]Vote
-	evidence     []slashing.Evidence
-	timeouts     *TimeoutCollector
-	pacemaker    *Pacemaker
-	blockTree    *BlockTree
-	lockedQC     finality.QuorumCert
-	commitRule   ThreeChainCommitRule
-	committed    []CommitDecision
-	committedSet map[types.Hash]struct{}
+	mu               sync.Mutex
+	chainID          string
+	validatorSet     validator.Set
+	hashBlock        func(types.Block) types.Hash
+	signatures       signatureVerifier
+	aggregator       aggregateSigner
+	status           Status
+	votes            map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote
+	votedVotes       map[types.Height]map[types.Round]map[types.ValidatorID]Vote
+	evidence         []slashing.Evidence
+	timeouts         *TimeoutCollector
+	pacemaker        *Pacemaker
+	blockTree        *BlockTree
+	lockedQC         finality.QuorumCert
+	commitRule       ThreeChainCommitRule
+	committed        []CommitDecision
+	committedSet     map[types.Hash]struct{}
+	committedHeights map[types.Height]types.Hash
 }
 
 func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
@@ -80,15 +82,16 @@ func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
 			Phase:            PhasePropose,
 			ValidatorSetHash: config.ValidatorSet.Hash(),
 		},
-		votes:        make(map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote),
-		votedVotes:   make(map[types.Height]map[types.Round]map[types.ValidatorID]Vote),
-		evidence:     make([]slashing.Evidence, 0),
-		timeouts:     NewTimeoutCollectorWithAggregator(config.ValidatorSet, config.Aggregator),
-		pacemaker:    NewPacemaker(0, 0),
-		blockTree:    NewBlockTree(),
-		commitRule:   ThreeChainCommitRule{},
-		committed:    make([]CommitDecision, 0),
-		committedSet: make(map[types.Hash]struct{}),
+		votes:            make(map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote),
+		votedVotes:       make(map[types.Height]map[types.Round]map[types.ValidatorID]Vote),
+		evidence:         make([]slashing.Evidence, 0),
+		timeouts:         NewTimeoutCollectorWithAggregator(config.ValidatorSet, config.Aggregator),
+		pacemaker:        NewPacemaker(0, 0),
+		blockTree:        NewBlockTree(),
+		commitRule:       ThreeChainCommitRule{},
+		committed:        make([]CommitDecision, 0),
+		committedSet:     make(map[types.Hash]struct{}),
+		committedHeights: make(map[types.Height]types.Hash),
 	}, nil
 }
 
@@ -485,9 +488,13 @@ func (machine *StateMachine) applyCommitRule(candidate CommitCandidate) (CommitD
 		return CommitDecision{}, err
 	}
 	machine.status.LastFinalized = decision.CommittedBlockHash
+	if existing, found := machine.committedHeights[decision.CommittedHeight]; found && existing != decision.CommittedBlockHash {
+		return CommitDecision{}, ErrConflictingCommit
+	}
 	if _, found := machine.committedSet[decision.CommittedBlockHash]; !found {
 		machine.committed = append(machine.committed, decision)
 		machine.committedSet[decision.CommittedBlockHash] = struct{}{}
+		machine.committedHeights[decision.CommittedHeight] = decision.CommittedBlockHash
 	}
 	return decision, nil
 }

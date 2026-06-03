@@ -10,6 +10,7 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/config"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
+	"github.com/vexo-network/vexo-consensus/validator"
 )
 
 type auditDocument struct {
@@ -174,6 +175,10 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 	document.addCheck("key_loadable", "error", keyErr == nil, "validator key document must be loadable")
 
 	document.addCheck("crypto_backend", strictSeverity(strict), inputs.Config.Chain.Crypto.Backend != config.CryptoBackendDeterministic, "use ed25519, bls, or remote signer in non-dev deployments")
+	if inputs.Config.Chain.Crypto.Backend == config.CryptoBackendBLS {
+		document.addCheck("bls_production_adapter", strictSeverity(strict), inputs.Config.Chain.Crypto.ProductionAdapter, "BLS requires an audited production adapter with dependency audit metadata")
+		document.addCheck("bls_genesis_pop", strictSeverity(strict), genesisHasBLSPoP(inputs.Genesis.Validators), "every genesis validator must include bls_pop proof-of-possession metadata")
+	}
 	if keyErr == nil {
 		document.addCheck("key_encrypted_or_remote", strictSeverity(strict), keyDocument.Type == vexocrypto.KeyTypeRemote || keyDocument.Encryption != nil, "avoid unencrypted local private keys in production")
 		if keyDocument.Type == vexocrypto.KeyTypeRemote {
@@ -204,6 +209,18 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 	document.addCheck("execution_nonce_required", "warning", inputs.Config.Chain.Execution.RequireNonce, "require signer nonces to prevent replay")
 	document.addCheck("execution_signed_required", "warning", inputs.Config.Chain.Execution.RequireSigned, "require signed transaction envelopes on public networks")
 	return document
+}
+
+func genesisHasBLSPoP(validators []validator.Validator) bool {
+	if len(validators) == 0 {
+		return false
+	}
+	for _, validatorInfo := range validators {
+		if validatorInfo.Metadata["bls_pop"] == "" {
+			return false
+		}
+	}
+	return true
 }
 
 func (document *auditDocument) addCheck(name string, severity string, ok bool, message string) {
