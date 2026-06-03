@@ -43,6 +43,7 @@ type AnteHandler interface {
 	BeforeTx(ctx Context, tx types.Tx) error
 	AfterTx(ctx Context, tx types.Tx) error
 	GasUsed(tx types.Tx) uint64
+	GasLimit(tx types.Tx) uint64
 	FeePaid(tx types.Tx) uint64
 }
 
@@ -144,6 +145,10 @@ func (keeper AnteKeeper) AfterTx(ctx Context, tx types.Tx) error {
 }
 
 func (keeper AnteKeeper) GasUsed(tx types.Tx) uint64 {
+	return keeper.GasLimit(tx)
+}
+
+func (keeper AnteKeeper) GasLimit(tx types.Tx) uint64 {
 	meta := ParseTxMeta(tx)
 	if meta.Gas > 0 {
 		return meta.Gas

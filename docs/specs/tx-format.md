@@ -88,6 +88,7 @@ nonce is `N+1`.
 - `fee` accepts raw atomic values or suffixed units: `avxo`, `gvxo`, and `vexo`.
 - `gas` is bounded by configured min/max gas. `gas_limit` is accepted as an alias.
 - `base_fee` is configured per gas unit; required fee is `max(min_fee, base_fee * gas)`.
+- Built-in modules expose estimated gas costs and consume gas during `DeliverTx`; under-gas transactions are rejected during `CheckTx`, `ProcessProposal`, and execution.
 - Result metadata should expose gas used and fee paid.
 
 ## Load Test Payloads

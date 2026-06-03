@@ -16,6 +16,12 @@ import (
 )
 
 const ModuleName = "staking"
+
+const (
+	delegateGasCost   uint64 = 50
+	undelegateGasCost uint64 = 40
+	unjailGasCost     uint64 = 20
+)
 const bankNamespace = "bank"
 const defaultUnbondingDelay types.Height = 1209600
 
@@ -90,6 +96,9 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 	}
 	switch {
 	case len(parts) == 6 && parts[1] == "delegate":
+		if err := ctx.ConsumeGas(delegateGasCost); err != nil {
+			return types.Result{Code: 5, Log: err.Error()}
+		}
 		amount, err := parseAmount(parts[4])
 		if err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
@@ -105,6 +114,9 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		module.pending = append(module.pending, update)
 		return types.Result{}
 	case len(parts) == 5 && parts[1] == "undelegate":
+		if err := ctx.ConsumeGas(undelegateGasCost); err != nil {
+			return types.Result{Code: 5, Log: err.Error()}
+		}
 		amount, err := parseAmount(parts[4])
 		if err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
@@ -116,6 +128,9 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		module.pending = append(module.pending, update)
 		return types.Result{}
 	case len(parts) == 3 && parts[1] == "unjail":
+		if err := ctx.ConsumeGas(unjailGasCost); err != nil {
+			return types.Result{Code: 5, Log: err.Error()}
+		}
 		if err := ctx.Store.Delete(context.Background(), ModuleName, jailKey(types.ValidatorID(parts[2]))); err != nil {
 			return types.Result{Code: 4, Log: err.Error()}
 		}
@@ -127,6 +142,20 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 
 func (module *Module) EndBlock(ctx vexoapp.Context) error {
 	return nil
+}
+
+func (module *Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
+	parts := stakingTxParts(tx)
+	switch {
+	case len(parts) == 6 && parts[1] == "delegate":
+		return delegateGasCost, nil
+	case len(parts) == 5 && parts[1] == "undelegate":
+		return undelegateGasCost, nil
+	case len(parts) == 3 && parts[1] == "unjail":
+		return unjailGasCost, nil
+	default:
+		return 0, ErrInvalidStakingTx
+	}
 }
 
 func (module *Module) ValidatorUpdates(ctx vexoapp.Context) []types.ValidatorUpdate {

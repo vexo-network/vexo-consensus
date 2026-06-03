@@ -14,6 +14,12 @@ import (
 
 const ModuleName = "governance"
 
+const (
+	submitGasCost  uint64 = 60
+	voteGasCost    uint64 = 25
+	executeGasCost uint64 = 80
+)
+
 var (
 	ErrInvalidGovernanceTx = errors.New("invalid governance transaction")
 	ErrGovernanceRequired  = errors.New("missing governance keeper")
@@ -89,17 +95,26 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 	}
 	switch {
 	case len(parts) == 7 && parts[1] == "submit":
+		if err := ctx.ConsumeGas(submitGasCost); err != nil {
+			return types.Result{Code: 5, Log: err.Error()}
+		}
 		id, err := module.submit(goCtx, parts)
 		if err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
 		return types.Result{Data: []byte(strconv.FormatUint(id, 10))}
 	case len(parts) == 6 && parts[1] == "vote":
+		if err := ctx.ConsumeGas(voteGasCost); err != nil {
+			return types.Result{Code: 5, Log: err.Error()}
+		}
 		if err := module.vote(goCtx, parts); err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
 		return types.Result{}
 	case len(parts) == 3 && parts[1] == "execute":
+		if err := ctx.ConsumeGas(executeGasCost); err != nil {
+			return types.Result{Code: 5, Log: err.Error()}
+		}
 		proposalID, err := parseProposalID(parts[2])
 		if err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
@@ -115,6 +130,20 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 
 func (module *Module) EndBlock(ctx vexoapp.Context) error {
 	return nil
+}
+
+func (module *Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
+	parts := governanceTxParts(tx)
+	switch {
+	case len(parts) == 7 && parts[1] == "submit":
+		return submitGasCost, nil
+	case len(parts) == 6 && parts[1] == "vote":
+		return voteGasCost, nil
+	case len(parts) == 3 && parts[1] == "execute":
+		return executeGasCost, nil
+	default:
+		return 0, ErrInvalidGovernanceTx
+	}
 }
 
 func (module *Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoapp.QueryResponse {

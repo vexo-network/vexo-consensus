@@ -174,6 +174,56 @@ func TestBankModuleWorksThroughAppRuntime(t *testing.T) {
 	}
 }
 
+func TestBankRuntimeEnforcesEstimatedAndConsumedGas(t *testing.T) {
+	storage := newBankStore(t)
+	runtime, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{NewModule()}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.WithStore(storage).WithAnte(vexoapp.NewAnteKeeper(vexoapp.AnteConfig{
+		MinFee:       1,
+		BaseFee:      1,
+		RequireNonce: true,
+	}))
+	if _, err := runtime.InitChain(vexoapp.InitChainRequest{Genesis: vexoapp.GenesisState{"bank:alice": []byte("100")}}); err != nil {
+		t.Fatal(err)
+	}
+	underGas := types.Tx("bank:send:alice:bob:40:fee=9:gas=9:signer=alice:nonce=1")
+	if response := runtime.CheckTx(underGas); response.Result.Code == 0 {
+		t.Fatalf("expected under-gas tx to be rejected")
+	}
+	accepted := runtime.ProcessProposal(vexoapp.ProcessProposalRequest{
+		Block: types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: 1},
+			Txs:    []types.Tx{underGas},
+		},
+	})
+	if accepted.Accepted {
+		t.Fatalf("expected under-gas proposal to be rejected")
+	}
+
+	validTx := types.Tx("bank:send:alice:bob:40:fee=10:gas=10:signer=alice:nonce=1")
+	response, err := runtime.FinalizeBlock(vexoapp.FinalizeBlockRequest{
+		Block: types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: 1},
+			Txs: fairordering.SortTxsWithSalt(
+				[]types.Tx{validTx},
+				fairordering.HeightSalt("vexo-test", 1),
+			),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Results) != 1 || string(response.Results[0].Data) != "gas_used=10 fee_paid=10" {
+		t.Fatalf("unexpected gas result: %+v", response.Results)
+	}
+	query := runtime.Query(vexoapp.QueryRequest{Path: []string{"bank", "balance", "alice"}})
+	if query.Code != 0 || string(query.Value) != "50" {
+		t.Fatalf("unexpected fee-adjusted alice balance: %+v", query)
+	}
+}
+
 func TestBankModuleCLICommands(t *testing.T) {
 	commands := NewModule().CLICommands()
 	if len(commands) != 1 || commands[0].Name != ModuleName || len(commands[0].Children) != 2 {

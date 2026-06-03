@@ -16,6 +16,11 @@ import (
 
 const ModuleName = "bank"
 
+const (
+	mintGasCost uint64 = 10
+	sendGasCost uint64 = 10
+)
+
 var (
 	ErrInvalidGenesisBalance = errors.New("invalid genesis balance")
 	ErrInvalidBankTx         = errors.New("invalid bank transaction")
@@ -78,6 +83,9 @@ func (module Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 	}
 	switch {
 	case len(parts) == 4 && parts[1] == "mint":
+		if err := ctx.ConsumeGas(mintGasCost); err != nil {
+			return types.Result{Code: 5, Log: err.Error()}
+		}
 		amount, err := parseAmount(parts[3])
 		if err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
@@ -90,6 +98,9 @@ func (module Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		}
 		return types.Result{}
 	case len(parts) == 5 && parts[1] == "send":
+		if err := ctx.ConsumeGas(sendGasCost); err != nil {
+			return types.Result{Code: 5, Log: err.Error()}
+		}
 		amount, err := parseAmount(parts[4])
 		if err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
@@ -105,6 +116,18 @@ func (module Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 
 func (Module) EndBlock(ctx vexoapp.Context) error {
 	return nil
+}
+
+func (Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
+	parts := bankTxParts(tx)
+	switch {
+	case len(parts) == 4 && parts[1] == "mint":
+		return mintGasCost, nil
+	case len(parts) == 5 && parts[1] == "send":
+		return sendGasCost, nil
+	default:
+		return 0, ErrInvalidBankTx
+	}
 }
 
 func (module Module) authorizeMint(tx types.Tx) error {

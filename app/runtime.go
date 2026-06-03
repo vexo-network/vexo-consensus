@@ -113,8 +113,12 @@ func (runtime *Runtime) CheckTx(tx types.Tx) CheckTxResponse {
 			return CheckTxResponse{Result: types.Result{Code: 1, Log: err.Error()}}
 		}
 	}
-	_, err := runtime.router.RouteTx(ctx, TxPayload(tx), runtime.modules)
+	payload := TxPayload(tx)
+	module, err := runtime.router.RouteTx(ctx, payload, runtime.modules)
 	if err != nil {
+		return CheckTxResponse{Result: types.Result{Code: 1, Log: err.Error()}}
+	}
+	if err := runtime.checkEstimatedGas(ctx, tx, payload, module); err != nil {
 		return CheckTxResponse{Result: types.Result{Code: 1, Log: err.Error()}}
 	}
 	return CheckTxResponse{Result: types.Result{}}
@@ -141,8 +145,13 @@ func (runtime *Runtime) ProcessProposal(req ProcessProposalRequest) ProcessPropo
 		}
 	}
 	for _, tx := range req.Block.Txs {
-		if _, err := runtime.router.RouteTx(ctx, TxPayload(tx), runtime.modules); err != nil {
+		payload := TxPayload(tx)
+		module, err := runtime.router.RouteTx(ctx, payload, runtime.modules)
+		if err != nil {
 			return ProcessProposalResponse{Accepted: false, Reason: "invalid transaction"}
+		}
+		if err := runtime.checkEstimatedGas(ctx, tx, payload, module); err != nil {
+			return ProcessProposalResponse{Accepted: false, Reason: err.Error()}
 		}
 	}
 	return ProcessProposalResponse{Accepted: true}
@@ -164,26 +173,35 @@ func (runtime *Runtime) FinalizeBlock(req FinalizeBlockRequest) (FinalizeBlockRe
 
 	results := make([]types.Result, 0, len(req.Block.Txs))
 	for _, tx := range req.Block.Txs {
+		txCtx := ctx
 		if runtime.ante != nil {
 			if err := runtime.ante.BeforeTx(ctx, tx); err != nil {
 				return FinalizeBlockResponse{}, err
 			}
+			txCtx = ctx.WithGasMeter(NewGasMeter(runtime.ante.GasLimit(tx)))
 		}
 		payload := TxPayload(tx)
-		module, err := runtime.router.RouteTx(ctx, payload, runtime.modules)
+		module, err := runtime.router.RouteTx(txCtx, payload, runtime.modules)
 		if err != nil {
 			return FinalizeBlockResponse{}, err
 		}
-		result := module.DeliverTx(ctx, payload)
+		if err := runtime.checkEstimatedGas(txCtx, tx, payload, module); err != nil {
+			return FinalizeBlockResponse{}, err
+		}
+		result := module.DeliverTx(txCtx, payload)
 		if result.Code != 0 {
 			return FinalizeBlockResponse{}, errors.New(result.Log)
 		}
 		if runtime.ante != nil {
-			if err := runtime.ante.AfterTx(ctx, tx); err != nil {
+			if err := runtime.ante.AfterTx(txCtx, tx); err != nil {
 				return FinalizeBlockResponse{}, err
 			}
 			if len(result.Data) == 0 {
-				result.Data = []byte(fmt.Sprintf("gas_used=%d fee_paid=%d", runtime.ante.GasUsed(tx), runtime.ante.FeePaid(tx)))
+				gasUsed := txCtx.GasUsed()
+				if gasUsed == 0 {
+					gasUsed = runtime.ante.GasUsed(tx)
+				}
+				result.Data = []byte(fmt.Sprintf("gas_used=%d fee_paid=%d", gasUsed, runtime.ante.FeePaid(tx)))
 			}
 		}
 		results = append(results, result)
@@ -202,6 +220,25 @@ func (runtime *Runtime) FinalizeBlock(req FinalizeBlockRequest) (FinalizeBlockRe
 		AppHash:          runtime.appHash,
 		ValidatorUpdates: runtime.collectValidatorUpdates(ctx),
 	}, nil
+}
+
+func (runtime *Runtime) checkEstimatedGas(ctx Context, tx types.Tx, payload types.Tx, module Module) error {
+	if runtime.ante == nil {
+		return nil
+	}
+	estimator, ok := module.(GasEstimator)
+	if !ok {
+		return nil
+	}
+	required, err := estimator.EstimateGas(ctx, payload)
+	if err != nil {
+		return err
+	}
+	limit := runtime.ante.GasLimit(tx)
+	if limit > 0 && required > limit {
+		return ErrOutOfGas
+	}
+	return nil
 }
 
 func (runtime *Runtime) Commit() (CommitResponse, error) {

@@ -12,6 +12,7 @@ type Context struct {
 	Height  types.Height
 	Header  types.Header
 	Store   StateStore
+	Gas     *GasMeter
 }
 
 func (ctx Context) GoContext() context.Context {
@@ -19,6 +20,26 @@ func (ctx Context) GoContext() context.Context {
 		return ctx.Ctx
 	}
 	return context.Background()
+}
+
+func (ctx Context) WithGasMeter(meter *GasMeter) Context {
+	ctx.Gas = meter
+	return ctx
+}
+
+func (ctx Context) ConsumeGas(amount uint64) error {
+	if ctx.Gas == nil {
+		return nil
+	}
+	return ctx.Gas.Consume(amount)
+}
+
+func (ctx Context) GasUsed() uint64 {
+	return ctx.Gas.Used()
+}
+
+func (ctx Context) GasLimit() uint64 {
+	return ctx.Gas.Limit()
 }
 
 type StateStore interface {
@@ -56,6 +77,10 @@ type ValidatorUpdateProvider interface {
 
 type QueryHandler interface {
 	Query(ctx Context, req QueryRequest) QueryResponse
+}
+
+type GasEstimator interface {
+	EstimateGas(ctx Context, tx types.Tx) (uint64, error)
 }
 
 type InitChainRequest struct {
