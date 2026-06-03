@@ -35,7 +35,14 @@ func (command CLICommand) WriteHelp(writer io.Writer) {
 }
 
 func (command CLICommand) execute(writer io.Writer, path []string, args []string) error {
-	if len(args) == 0 || isCLIHelp(args[0]) {
+	if len(args) == 0 {
+		if command.Run != nil {
+			return command.Run(writer, args)
+		}
+		command.writeHelp(writer, path)
+		return nil
+	}
+	if isCLIHelp(args[0]) {
 		command.writeHelp(writer, path)
 		return nil
 	}

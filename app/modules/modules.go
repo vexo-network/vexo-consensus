@@ -3,6 +3,7 @@ package modules
 import (
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/app/bank"
+	appgovernance "github.com/vexo-network/vexo-consensus/app/governance"
 	"github.com/vexo-network/vexo-consensus/app/staking"
 	"github.com/vexo-network/vexo-consensus/config"
 )
@@ -11,6 +12,7 @@ func DefaultRegistry() vexoapp.Registry {
 	registry := vexoapp.NewRegistry()
 	_ = registry.Register(bank.ModuleName, func() vexoapp.Module { return bank.NewModule() })
 	_ = registry.Register(staking.ModuleName, func() vexoapp.Module { return staking.NewModule() })
+	_ = registry.Register(appgovernance.ModuleName, func() vexoapp.Module { return appgovernance.NewModule() })
 	return registry
 }
 

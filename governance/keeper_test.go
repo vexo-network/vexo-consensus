@@ -74,6 +74,18 @@ func TestInMemoryKeeperRejectsDuplicateVote(t *testing.T) {
 	}
 }
 
+func TestInMemoryKeeperRejectsInvalidVote(t *testing.T) {
+	keeper := newTestKeeper()
+	id := submitTestProposal(t, keeper)
+
+	if err := keeper.Vote(context.Background(), id, "", VoteYes); !errors.Is(err, ErrMissingVoter) {
+		t.Fatalf("expected missing voter, got %v", err)
+	}
+	if err := keeper.Vote(context.Background(), id, "alice", VoteOption("maybe")); !errors.Is(err, ErrInvalidVoteOption) {
+		t.Fatalf("expected invalid option, got %v", err)
+	}
+}
+
 func TestInMemoryKeeperRejectsUnknownProposal(t *testing.T) {
 	keeper := newTestKeeper()
 
@@ -186,6 +198,31 @@ func TestInMemoryKeeperProposalReturnsCopy(t *testing.T) {
 	}
 	if string(again.Proposal.Changes[0].Value) == "mutated" {
 		t.Fatal("proposal state mutated through copy")
+	}
+}
+
+func TestInMemoryKeeperTallyAndVotingPowerUpdate(t *testing.T) {
+	keeper := newTestKeeper()
+	keeper.SetVotingPower("dave", 3)
+	id := submitTestProposal(t, keeper)
+
+	if err := keeper.Vote(context.Background(), id, "alice", VoteYes); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.Vote(context.Background(), id, "dave", VoteAbstain); err != nil {
+		t.Fatal(err)
+	}
+
+	tally, found := keeper.Tally(id)
+	if !found {
+		t.Fatal("expected tally")
+	}
+	if tally.Yes != 1 || tally.Abstain != 3 || tally.Total != 4 || tally.Passed {
+		t.Fatalf("unexpected tally: %+v", tally)
+	}
+
+	if _, found := keeper.Tally(999); found {
+		t.Fatal("unexpected unknown proposal tally")
 	}
 }
 

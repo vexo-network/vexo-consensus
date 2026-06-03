@@ -17,6 +17,8 @@ var (
 	ErrTimelockActive       = errors.New("proposal timelock is active")
 	ErrProposalRejected     = errors.New("proposal rejected")
 	ErrProposalExecuted     = errors.New("proposal already executed")
+	ErrMissingVoter         = errors.New("proposal voter is required")
+	ErrInvalidVoteOption    = errors.New("invalid vote option")
 )
 
 type TallyPolicy struct {
@@ -31,6 +33,15 @@ type VoteRecord struct {
 	Voter  types.Address
 	Option VoteOption
 	Power  types.VotingPower
+}
+
+type TallyResult struct {
+	Yes     types.VotingPower
+	No      types.VotingPower
+	Abstain types.VotingPower
+	Veto    types.VotingPower
+	Total   types.VotingPower
+	Passed  bool
 }
 
 type ProposalState struct {
@@ -67,6 +78,13 @@ func NewInMemoryKeeper(policy TallyPolicy, votingPower map[types.Address]types.V
 
 func (keeper *InMemoryKeeper) SetTime(now uint64) {
 	keeper.now = now
+}
+
+func (keeper *InMemoryKeeper) SetVotingPower(voter types.Address, power types.VotingPower) {
+	if voter == "" {
+		return
+	}
+	keeper.powers[voter] = power
 }
 
 func (keeper *InMemoryKeeper) SubmitProposal(ctx context.Context, proposal Proposal) (uint64, error) {
@@ -108,6 +126,12 @@ func (keeper *InMemoryKeeper) Vote(ctx context.Context, proposalID uint64, voter
 	state, found := keeper.proposals[proposalID]
 	if !found {
 		return ErrProposalNotFound
+	}
+	if voter == "" {
+		return ErrMissingVoter
+	}
+	if !isValidVoteOption(option) {
+		return ErrInvalidVoteOption
 	}
 	if _, found := state.Votes[voter]; found {
 		return ErrDuplicateVote
@@ -163,35 +187,49 @@ func (keeper *InMemoryKeeper) AppliedChanges() []ParameterChange {
 	return append([]ParameterChange(nil), keeper.applied...)
 }
 
-func (keeper *InMemoryKeeper) passes(state *ProposalState) bool {
-	var yesPower types.VotingPower
-	var noPower types.VotingPower
-	var vetoPower types.VotingPower
-	var totalPower types.VotingPower
+func (keeper *InMemoryKeeper) Tally(proposalID uint64) (TallyResult, bool) {
+	state, found := keeper.proposals[proposalID]
+	if !found {
+		return TallyResult{}, false
+	}
+	result := keeper.tally(state)
+	result.Passed = keeper.passesTally(result)
+	return result, true
+}
 
+func (keeper *InMemoryKeeper) passes(state *ProposalState) bool {
+	return keeper.passesTally(keeper.tally(state))
+}
+
+func (keeper *InMemoryKeeper) tally(state *ProposalState) TallyResult {
+	var result TallyResult
 	for _, vote := range state.Votes {
-		totalPower += vote.Power
+		result.Total += vote.Power
 		switch vote.Option {
 		case VoteYes:
-			yesPower += vote.Power
+			result.Yes += vote.Power
 		case VoteNo:
-			noPower += vote.Power
+			result.No += vote.Power
 		case VoteVeto:
-			vetoPower += vote.Power
+			result.Veto += vote.Power
 		case VoteAbstain:
+			result.Abstain += vote.Power
 		}
 	}
+	return result
+}
 
-	if keeper.policy.QuorumPower > 0 && totalPower < keeper.policy.QuorumPower {
+func (keeper *InMemoryKeeper) passesTally(result TallyResult) bool {
+	if keeper.policy.QuorumPower > 0 && result.Total < keeper.policy.QuorumPower {
 		return false
 	}
-	if keeper.policy.VetoPower > 0 && vetoPower >= keeper.policy.VetoPower {
+	if keeper.policy.VetoPower > 0 && result.Veto >= keeper.policy.VetoPower {
 		return false
 	}
 	if keeper.policy.YesThresholdPower > 0 {
-		return yesPower >= keeper.policy.YesThresholdPower
+		return result.Yes >= keeper.policy.YesThresholdPower
 	}
-	return yesPower > noPower
+	return result.Yes > result.No
 }
 
 func cloneProposalState(state ProposalState) ProposalState {
@@ -202,4 +240,13 @@ func cloneProposalState(state ProposalState) ProposalState {
 	}
 	state.ExecutedChanges = append([]ParameterChange(nil), state.ExecutedChanges...)
 	return state
+}
+
+func isValidVoteOption(option VoteOption) bool {
+	switch option {
+	case VoteYes, VoteNo, VoteAbstain, VoteVeto:
+		return true
+	default:
+		return false
+	}
 }
