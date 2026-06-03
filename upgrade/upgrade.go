@@ -285,7 +285,35 @@ func (recorder JSONFileRecorder) Save(ctx context.Context, record ExecutionRecor
 	if err := os.MkdirAll(filepath.Dir(recorder.Path), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(recorder.Path, data, 0o644)
+	return atomicWriteFile(recorder.Path, append(data, '\n'), 0o644)
+}
+
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	tempPath := path + ".tmp"
+	file, err := os.OpenFile(tempPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return err
+	}
+	dir, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return nil
+	}
+	defer dir.Close()
+	return dir.Sync()
 }
 
 func (recorder JSONFileRecorder) loadAll(ctx context.Context) (map[string]ExecutionRecord, error) {

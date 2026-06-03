@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/kvbatch"
 	vexostore "github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -63,7 +64,7 @@ func (module *Module) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisSt
 		if err != nil {
 			return fmt.Errorf("%w: %s", ErrInvalidStakeRecord, rawKey)
 		}
-		if err := setStake(context.Background(), ctx.Store, types.Address(parts[2]), types.ValidatorID(parts[3]), amount); err != nil {
+		if err := setStake(ctx.GoContext(), ctx.Store, types.Address(parts[2]), types.ValidatorID(parts[3]), amount); err != nil {
 			return err
 		}
 	}
@@ -93,7 +94,7 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		if err != nil || len(publicKey) == 0 {
 			return types.Result{Code: 3, Log: ErrMissingValidatorKey.Error()}
 		}
-		update, err := module.delegate(context.Background(), ctx.Store, types.Address(parts[2]), types.ValidatorID(parts[3]), amount, types.PublicKey(publicKey))
+		update, err := module.delegate(ctx.GoContext(), ctx.Store, types.Address(parts[2]), types.ValidatorID(parts[3]), amount, types.PublicKey(publicKey))
 		if err != nil {
 			return types.Result{Code: 4, Log: err.Error()}
 		}
@@ -104,7 +105,7 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		if err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
-		update, err := module.undelegate(context.Background(), ctx.Store, ctx.Height, types.Address(parts[2]), types.ValidatorID(parts[3]), amount)
+		update, err := module.undelegate(ctx.GoContext(), ctx.Store, ctx.Height, types.Address(parts[2]), types.ValidatorID(parts[3]), amount)
 		if err != nil {
 			return types.Result{Code: 4, Log: err.Error()}
 		}
@@ -133,21 +134,21 @@ func (module *Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoa
 		return vexoapp.QueryResponse{Code: 1, Log: ErrStakingStoreRequired.Error()}
 	}
 	if len(req.Path) == 3 && req.Path[0] == "stake" {
-		amount, err := Stake(context.Background(), ctx.Store, types.Address(req.Path[1]), types.ValidatorID(req.Path[2]))
+		amount, err := Stake(ctx.GoContext(), ctx.Store, types.Address(req.Path[1]), types.ValidatorID(req.Path[2]))
 		if err != nil {
 			return vexoapp.QueryResponse{Code: 3, Log: err.Error()}
 		}
 		return vexoapp.QueryResponse{Value: []byte(strconv.FormatUint(amount, 10))}
 	}
 	if len(req.Path) == 2 && req.Path[0] == "validator" {
-		power, err := ValidatorPower(context.Background(), ctx.Store, types.ValidatorID(req.Path[1]))
+		power, err := ValidatorPower(ctx.GoContext(), ctx.Store, types.ValidatorID(req.Path[1]))
 		if err != nil {
 			return vexoapp.QueryResponse{Code: 3, Log: err.Error()}
 		}
 		return vexoapp.QueryResponse{Value: []byte(strconv.FormatUint(power, 10))}
 	}
 	if len(req.Path) == 3 && req.Path[0] == "unbonding" {
-		releaseHeight, err := UnbondingReleaseHeight(context.Background(), ctx.Store, types.Address(req.Path[1]), types.ValidatorID(req.Path[2]))
+		releaseHeight, err := UnbondingReleaseHeight(ctx.GoContext(), ctx.Store, types.Address(req.Path[1]), types.ValidatorID(req.Path[2]))
 		if err != nil {
 			return vexoapp.QueryResponse{Code: 3, Log: err.Error()}
 		}
@@ -167,9 +168,6 @@ func (module *Module) delegate(ctx context.Context, store vexoapp.StateStore, de
 	if balance < amount {
 		return types.ValidatorUpdate{}, ErrInsufficientBalance
 	}
-	if err := setBankBalance(ctx, store, delegator, balance-amount); err != nil {
-		return types.ValidatorUpdate{}, err
-	}
 	currentStake, err := Stake(ctx, store, delegator, validatorID)
 	if err != nil {
 		return types.ValidatorUpdate{}, err
@@ -182,11 +180,28 @@ func (module *Module) delegate(ctx context.Context, store vexoapp.StateStore, de
 		return types.ValidatorUpdate{}, err
 	}
 	newPower := currentPower + amount
-	if err := setValidatorPower(ctx, store, validatorID, newPower); err != nil {
-		return types.ValidatorUpdate{}, err
-	}
-	if err := store.Set(ctx, ModuleName, validatorKeyKey(validatorID), publicKey); err != nil {
-		return types.ValidatorUpdate{}, err
+	if batchStore, ok := store.(kvbatch.BatchKVStore); ok {
+		if err := batchStore.SetBatch(ctx, []kvbatch.KVWrite{
+			{Namespace: bankNamespace, Key: []byte(delegator), Value: encodeUint64(balance - amount)},
+			{Namespace: ModuleName, Key: stakeKey(delegator, validatorID), Value: encodeUint64(currentStake + amount)},
+			{Namespace: ModuleName, Key: validatorPowerKey(validatorID), Value: encodeUint64(newPower)},
+			{Namespace: ModuleName, Key: validatorKeyKey(validatorID), Value: append([]byte(nil), publicKey...)},
+		}); err != nil {
+			return types.ValidatorUpdate{}, err
+		}
+	} else {
+		if err := setBankBalance(ctx, store, delegator, balance-amount); err != nil {
+			return types.ValidatorUpdate{}, err
+		}
+		if err := setStake(ctx, store, delegator, validatorID, currentStake+amount); err != nil {
+			return types.ValidatorUpdate{}, err
+		}
+		if err := setValidatorPower(ctx, store, validatorID, newPower); err != nil {
+			return types.ValidatorUpdate{}, err
+		}
+		if err := store.Set(ctx, ModuleName, validatorKeyKey(validatorID), publicKey); err != nil {
+			return types.ValidatorUpdate{}, err
+		}
 	}
 	return types.ValidatorUpdate{
 		ID:          validatorID,
@@ -209,19 +224,30 @@ func (module *Module) undelegate(ctx context.Context, store vexoapp.StateStore, 
 	if currentStake < amount {
 		return types.ValidatorUpdate{}, ErrInsufficientStake
 	}
-	if err := setStake(ctx, store, delegator, validatorID, currentStake-amount); err != nil {
-		return types.ValidatorUpdate{}, err
-	}
 	currentPower, err := ValidatorPower(ctx, store, validatorID)
 	if err != nil {
 		return types.ValidatorUpdate{}, err
 	}
 	newPower := currentPower - amount
-	if err := setValidatorPower(ctx, store, validatorID, newPower); err != nil {
-		return types.ValidatorUpdate{}, err
-	}
-	if err := setUnbondingReleaseHeight(ctx, store, delegator, validatorID, height+module.unbondingDelay); err != nil {
-		return types.ValidatorUpdate{}, err
+	releaseHeight := height + module.unbondingDelay
+	if batchStore, ok := store.(kvbatch.BatchKVStore); ok {
+		if err := batchStore.SetBatch(ctx, []kvbatch.KVWrite{
+			{Namespace: ModuleName, Key: stakeKey(delegator, validatorID), Value: encodeUint64(currentStake - amount)},
+			{Namespace: ModuleName, Key: validatorPowerKey(validatorID), Value: encodeUint64(newPower)},
+			{Namespace: ModuleName, Key: unbondingKey(delegator, validatorID), Value: encodeUint64(uint64(releaseHeight))},
+		}); err != nil {
+			return types.ValidatorUpdate{}, err
+		}
+	} else {
+		if err := setStake(ctx, store, delegator, validatorID, currentStake-amount); err != nil {
+			return types.ValidatorUpdate{}, err
+		}
+		if err := setValidatorPower(ctx, store, validatorID, newPower); err != nil {
+			return types.ValidatorUpdate{}, err
+		}
+		if err := setUnbondingReleaseHeight(ctx, store, delegator, validatorID, releaseHeight); err != nil {
+			return types.ValidatorUpdate{}, err
+		}
 	}
 	publicKey, _ := store.Get(ctx, ModuleName, validatorKeyKey(validatorID))
 	return types.ValidatorUpdate{
@@ -298,9 +324,13 @@ func getUint64(ctx context.Context, store vexoapp.StateStore, key []byte) (uint6
 }
 
 func setUint64(ctx context.Context, store vexoapp.StateStore, namespace string, key []byte, amount uint64) error {
-	var encoded [8]byte
-	binary.BigEndian.PutUint64(encoded[:], amount)
-	return store.Set(ctx, namespace, key, encoded[:])
+	return store.Set(ctx, namespace, key, encodeUint64(amount))
+}
+
+func encodeUint64(amount uint64) []byte {
+	encoded := make([]byte, 8)
+	binary.BigEndian.PutUint64(encoded, amount)
+	return encoded
 }
 
 func parseAmount(value string) (uint64, error) {

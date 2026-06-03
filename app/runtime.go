@@ -51,7 +51,7 @@ func (runtime *Runtime) WithStore(store StateStore) *Runtime {
 }
 
 func (runtime *Runtime) BindStore() error {
-	return runtime.bindStoreWithContext(Context{ChainID: runtime.chainID, Height: runtime.height, Store: runtime.store})
+	return runtime.bindStoreWithContext(Context{Ctx: context.Background(), ChainID: runtime.chainID, Height: runtime.height, Store: runtime.store})
 }
 
 func (runtime *Runtime) WithAnte(ante AnteHandler) *Runtime {
@@ -69,7 +69,7 @@ func (runtime *Runtime) InitChain(req InitChainRequest) (InitChainResponse, erro
 	}
 	runtime.chainID = chainID
 
-	ctx := Context{ChainID: runtime.chainID, Store: runtime.store}
+	ctx := Context{Ctx: context.Background(), ChainID: runtime.chainID, Store: runtime.store}
 	if err := runtime.bindStoreWithContext(ctx); err != nil {
 		return InitChainResponse{}, err
 	}
@@ -83,7 +83,7 @@ func (runtime *Runtime) InitChain(req InitChainRequest) (InitChainResponse, erro
 }
 
 func (runtime *Runtime) CheckTx(tx types.Tx) CheckTxResponse {
-	ctx := Context{ChainID: runtime.chainID, Height: runtime.height, Store: runtime.store}
+	ctx := Context{Ctx: context.Background(), ChainID: runtime.chainID, Height: runtime.height, Store: runtime.store}
 	if runtime.ante != nil {
 		if err := runtime.ante.CheckTx(ctx, tx); err != nil {
 			return CheckTxResponse{Result: types.Result{Code: 1, Log: err.Error()}}
@@ -111,12 +111,12 @@ func (runtime *Runtime) ProcessProposal(req ProcessProposalRequest) ProcessPropo
 		return ProcessProposalResponse{Accepted: false, Reason: "transaction ordering mismatch"}
 	}
 	if runtime.ante != nil {
-		ctx := Context{ChainID: runtime.chainID, Height: req.Block.Header.Height, Header: req.Block.Header, Store: runtime.store}
+		ctx := Context{Ctx: context.Background(), ChainID: runtime.chainID, Height: req.Block.Header.Height, Header: req.Block.Header, Store: runtime.store}
 		if err := runtime.ante.CheckBlock(ctx, req.Block.Txs); err != nil {
 			return ProcessProposalResponse{Accepted: false, Reason: err.Error()}
 		}
 	}
-	ctx := Context{ChainID: runtime.chainID, Height: req.Block.Header.Height, Header: req.Block.Header, Store: runtime.store}
+	ctx := Context{Ctx: context.Background(), ChainID: runtime.chainID, Height: req.Block.Header.Height, Header: req.Block.Header, Store: runtime.store}
 	for _, tx := range req.Block.Txs {
 		if _, err := runtime.router.RouteTx(ctx, TxPayload(tx), runtime.modules); err != nil {
 			return ProcessProposalResponse{Accepted: false, Reason: "invalid transaction"}
@@ -132,6 +132,7 @@ func (runtime *Runtime) FinalizeBlock(req FinalizeBlockRequest) (FinalizeBlockRe
 	}
 
 	ctx := Context{
+		Ctx:     context.Background(),
 		ChainID: runtime.chainID,
 		Height:  req.Block.Header.Height,
 		Header:  req.Block.Header,
@@ -197,7 +198,7 @@ func (runtime *Runtime) Restore(height types.Height, appHash types.Hash) {
 }
 
 func (runtime *Runtime) bindStore() {
-	_ = runtime.bindStoreWithContext(Context{ChainID: runtime.chainID, Height: runtime.height, Store: runtime.store})
+	_ = runtime.bindStoreWithContext(Context{Ctx: context.Background(), ChainID: runtime.chainID, Height: runtime.height, Store: runtime.store})
 }
 
 func (runtime *Runtime) bindStoreWithContext(ctx Context) error {
@@ -220,7 +221,7 @@ func (runtime *Runtime) Query(req QueryRequest) QueryResponse {
 	if len(req.Path) == 0 || req.Path[0] == "" {
 		return QueryResponse{Code: 1, Log: "query module is required"}
 	}
-	ctx := Context{ChainID: runtime.chainID, Height: runtime.height, Store: runtime.store}
+	ctx := Context{Ctx: context.Background(), ChainID: runtime.chainID, Height: runtime.height, Store: runtime.store}
 	for _, module := range runtime.modules {
 		if module.Name() != req.Path[0] {
 			continue

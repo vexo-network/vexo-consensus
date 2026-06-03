@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -46,6 +47,55 @@ func TestRemoteSignerSignsThroughHTTPAdapter(t *testing.T) {
 	}
 	if !remoteSigner.Verify(baseSigner.PublicKey(), message, signature) {
 		t.Fatal("expected remote signature to verify")
+	}
+}
+
+func TestRemoteSignerUsesCallerContext(t *testing.T) {
+	baseSigner, err := GenerateEd25519Signer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		<-request.Context().Done()
+	}))
+	defer server.Close()
+
+	remoteSigner, err := NewRemoteSigner(server.URL, baseSigner.PublicKey(), Ed25519Signer{}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := remoteSigner.SignWithContext(ctx, []byte("remote-sign")); err == nil {
+		t.Fatal("expected canceled context to abort remote signer request")
+	}
+}
+
+func TestRemoteSignerServiceRequiresAuthToken(t *testing.T) {
+	baseSigner, err := GenerateEd25519Signer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewRemoteSignerService(baseSigner, RemoteSignerPolicy{AuthToken: "secret"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(service)
+	defer server.Close()
+
+	unauthenticated, err := NewRemoteSigner(server.URL, baseSigner.PublicKey(), Ed25519Signer{}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := unauthenticated.Sign([]byte("message")); !errors.Is(err, ErrRemoteSignerRejected) {
+		t.Fatalf("expected unauthenticated remote signer rejection, got %v", err)
+	}
+	authenticated, err := NewRemoteSignerWithAuth(server.URL, baseSigner.PublicKey(), Ed25519Signer{}, 0, nil, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := authenticated.Sign([]byte("message")); err != nil {
+		t.Fatal(err)
 	}
 }
 

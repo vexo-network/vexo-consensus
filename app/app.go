@@ -7,10 +7,18 @@ import (
 )
 
 type Context struct {
+	Ctx     context.Context
 	ChainID string
 	Height  types.Height
 	Header  types.Header
 	Store   StateStore
+}
+
+func (ctx Context) GoContext() context.Context {
+	if ctx.Ctx != nil {
+		return ctx.Ctx
+	}
+	return context.Background()
 }
 
 type StateStore interface {

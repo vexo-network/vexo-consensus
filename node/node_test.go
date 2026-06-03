@@ -592,6 +592,27 @@ func TestNodeValidation(t *testing.T) {
 	}
 }
 
+func TestNodeProductionModeRejectsUnsafeConfig(t *testing.T) {
+	cfg := DefaultConfig("vexo-test", t.TempDir())
+	cfg.Production = true
+	_, err := New(cfg, validGenesis(), newTestApplication(t))
+	if !errors.Is(err, config.ErrUnsafeProductionConfig) {
+		t.Fatalf("expected unsafe production config rejection, got %v", err)
+	}
+}
+
+func TestNodeValidatorModeRequiresSigner(t *testing.T) {
+	cfg := DefaultConfig("vexo-test", t.TempDir())
+	cfg.ValidatorID = "alice"
+	node, err := New(cfg, validGenesis(), newTestApplication(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := node.Start(context.Background()); !errors.Is(err, ErrMissingSigner) {
+		t.Fatalf("expected missing signer rejection, got %v", err)
+	}
+}
+
 func TestNodeSignsConsensusMessagesWithDomains(t *testing.T) {
 	signer, err := vexocrypto.NewDeterministicSigner([]byte("alice-key"))
 	if err != nil {

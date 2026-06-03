@@ -3,8 +3,10 @@ package crypto
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -59,12 +62,15 @@ type RemoteSignerPolicy struct {
 	MaxHeight     types.Height
 	AllowedTypes  []SignType
 	RequirePolicy bool
+	AuthToken     string
 }
 
 type RemoteSignerService struct {
-	signer typesSigner
-	policy RemoteSignerPolicy
-	guard  *DoubleSignGuard
+	signer     typesSigner
+	policy     RemoteSignerPolicy
+	guard      *DoubleSignGuard
+	mu         sync.Mutex
+	seenNonces map[string]struct{}
 }
 
 type typesSigner interface {
@@ -77,12 +83,14 @@ type RemoteSigner struct {
 	client    *http.Client
 	verifier  Signer
 	guard     *DoubleSignGuard
+	authToken string
 }
 
 type remoteSignRequest struct {
 	PublicKey string      `json:"public_key"`
 	Message   string      `json:"message"`
 	Policy    *SignPolicy `json:"policy,omitempty"`
+	Nonce     string      `json:"nonce,omitempty"`
 }
 
 type remoteSignResponse struct {
@@ -117,15 +125,32 @@ func NewRemoteSignerWithGuard(url string, publicKey types.PublicKey, verifier Si
 	}, nil
 }
 
+func NewRemoteSignerWithAuth(url string, publicKey types.PublicKey, verifier Signer, timeout time.Duration, guard *DoubleSignGuard, authToken string) (RemoteSigner, error) {
+	signer, err := NewRemoteSignerWithGuard(url, publicKey, verifier, timeout, guard)
+	if err != nil {
+		return RemoteSigner{}, err
+	}
+	signer.authToken = authToken
+	return signer, nil
+}
+
 func (signer RemoteSigner) PublicKey() types.PublicKey {
 	return append(types.PublicKey(nil), signer.publicKey...)
 }
 
 func (signer RemoteSigner) Sign(message []byte) (types.Signature, error) {
-	return signer.signWithPolicy(message, nil)
+	return signer.SignWithContext(context.Background(), message)
+}
+
+func (signer RemoteSigner) SignWithContext(ctx context.Context, message []byte) (types.Signature, error) {
+	return signer.signWithPolicy(ctx, message, nil)
 }
 
 func (signer RemoteSigner) SignWithPolicy(policy SignPolicy, message []byte) (types.Signature, error) {
+	return signer.SignWithPolicyContext(context.Background(), policy, message)
+}
+
+func (signer RemoteSigner) SignWithPolicyContext(ctx context.Context, policy SignPolicy, message []byte) (types.Signature, error) {
 	if err := policy.Validate(); err != nil {
 		return nil, err
 	}
@@ -134,24 +159,31 @@ func (signer RemoteSigner) SignWithPolicy(policy SignPolicy, message []byte) (ty
 			return nil, err
 		}
 	}
-	return signer.signWithPolicy(message, &policy)
+	return signer.signWithPolicy(ctx, message, &policy)
 }
 
-func (signer RemoteSigner) signWithPolicy(message []byte, policy *SignPolicy) (types.Signature, error) {
+func (signer RemoteSigner) signWithPolicy(ctx context.Context, message []byte, policy *SignPolicy) (types.Signature, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	payload := remoteSignRequest{
 		PublicKey: base64.StdEncoding.EncodeToString(signer.publicKey),
 		Message:   base64.StdEncoding.EncodeToString(message),
 		Policy:    policy,
+		Nonce:     newRemoteSignerNonce(),
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
-	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, signer.url, bytes.NewReader(encoded))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, signer.url, bytes.NewReader(encoded))
 	if err != nil {
 		return nil, err
 	}
 	request.Header.Set("Content-Type", "application/json")
+	if signer.authToken != "" {
+		request.Header.Set("Authorization", "Bearer "+signer.authToken)
+	}
 	response, err := signer.client.Do(request)
 	if err != nil {
 		return nil, err
@@ -344,7 +376,7 @@ func NewRemoteSignerService(signer Signer, policy RemoteSignerPolicy, guard *Dou
 	if policy.RequirePolicy || policy.ChainID != "" || len(policy.AllowedTypes) > 0 || policy.MinHeight > 0 || policy.MaxHeight > 0 {
 		policy.RequirePolicy = true
 	}
-	return &RemoteSignerService{signer: signer, policy: policy, guard: guard}, nil
+	return &RemoteSignerService{signer: signer, policy: policy, guard: guard, seenNonces: make(map[string]struct{})}, nil
 }
 
 func (service *RemoteSignerService) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -352,12 +384,24 @@ func (service *RemoteSignerService) ServeHTTP(writer http.ResponseWriter, reques
 		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if service.policy.AuthToken != "" {
+		if request.Header.Get("Authorization") != "Bearer "+service.policy.AuthToken {
+			http.Error(writer, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
 	var payload remoteSignRequest
 	decoder := json.NewDecoder(io.LimitReader(request.Body, 64*1024))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&payload); err != nil {
 		http.Error(writer, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if service.policy.AuthToken != "" {
+		if payload.Nonce == "" || service.seenNonce(payload.Nonce) {
+			http.Error(writer, "remote signer replay nonce rejected", http.StatusForbidden)
+			return
+		}
 	}
 	publicKey, err := base64.StdEncoding.DecodeString(payload.PublicKey)
 	if err != nil || !bytes.Equal(publicKey, service.signer.PublicKey()) {
@@ -386,6 +430,24 @@ func (service *RemoteSignerService) ServeHTTP(writer http.ResponseWriter, reques
 	}
 	writer.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(writer).Encode(remoteSignResponse{Signature: base64.StdEncoding.EncodeToString(signature)})
+}
+
+func (service *RemoteSignerService) seenNonce(nonce string) bool {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if _, found := service.seenNonces[nonce]; found {
+		return true
+	}
+	service.seenNonces[nonce] = struct{}{}
+	return false
+}
+
+func newRemoteSignerNonce() string {
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 10)
+	}
+	return hex.EncodeToString(nonce[:])
 }
 
 func (policy RemoteSignerPolicy) Validate(signPolicy *SignPolicy) error {

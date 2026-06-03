@@ -109,6 +109,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	addrBookPath := flags.String("addr-book", "", "P2P address book path; defaults to <home>/addrbook.json")
 	addrBookMaxFailures := flags.Int("addr-book-max-failures", 3, "failed dial attempts before addr book bans a peer")
 	strictProduction := flags.Bool("strict-production", false, "fail startup when production-readiness checks fail")
+	production := flags.Bool("production", false, "enable node-level production safety gates before startup")
 	logFormat := flags.String("log-format", "text", "operational log format: text or json")
 	logLevel := flags.String("log-level", "info", "operational log level")
 	peers := peerFlags{}
@@ -122,6 +123,9 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	inputs, err := loadStartInputs(*home, *configPath, *genesisPath, *keyPath, *dryRun)
 	if err != nil {
 		return err
+	}
+	if *production {
+		inputs.Config.Production = true
 	}
 	runtimeConfig := startRuntimeConfig{
 		RPCEnabled:              *rpcEnabled,

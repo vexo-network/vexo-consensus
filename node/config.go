@@ -14,12 +14,14 @@ var (
 	ErrMissingGenesis    = errors.New("genesis is required")
 	ErrGenesisChainID    = errors.New("genesis chain id mismatch")
 	ErrMissingValidators = errors.New("genesis validators are required")
+	ErrMissingSigner     = errors.New("validator signer is required")
 )
 
 type Config struct {
 	Chain       config.Config
 	DataDir     string
 	ValidatorID types.ValidatorID
+	Production  bool
 }
 
 type Genesis struct {
@@ -42,6 +44,9 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.DataDir == "" {
 		return ErrMissingDataDir
+	}
+	if cfg.Production {
+		return cfg.Chain.ValidateProduction()
 	}
 	return nil
 }

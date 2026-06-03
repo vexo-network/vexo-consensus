@@ -82,7 +82,7 @@ func (keeper AnteKeeper) CheckTx(ctx Context, tx types.Tx) error {
 	if ctx.Store == nil || meta.Signer == "" || !meta.HasNonce {
 		return nil
 	}
-	expected, err := keeper.accounts.NextSequence(context.Background(), ctx.Store, meta.Signer)
+	expected, err := keeper.accounts.NextSequence(ctx.GoContext(), ctx.Store, meta.Signer)
 	if err != nil {
 		return err
 	}
@@ -108,7 +108,7 @@ func (keeper AnteKeeper) CheckBlock(ctx Context, txs []types.Tx) error {
 		expected, found := nextBySigner[meta.Signer]
 		if !found {
 			var err error
-			expected, err = keeper.accounts.NextSequence(context.Background(), ctx.Store, meta.Signer)
+			expected, err = keeper.accounts.NextSequence(ctx.GoContext(), ctx.Store, meta.Signer)
 			if err != nil {
 				return err
 			}
@@ -130,13 +130,13 @@ func (keeper AnteKeeper) AfterTx(ctx Context, tx types.Tx) error {
 	if ctx.Store == nil {
 		return nil
 	}
-	if err := keeper.collectFee(context.Background(), ctx.Store, meta); err != nil {
+	if err := keeper.collectFee(ctx.GoContext(), ctx.Store, meta); err != nil {
 		return err
 	}
 	if meta.Signer == "" || !meta.HasNonce {
 		return nil
 	}
-	return keeper.accounts.SetSequence(context.Background(), ctx.Store, meta.Signer, meta.Nonce)
+	return keeper.accounts.SetSequence(ctx.GoContext(), ctx.Store, meta.Signer, meta.Nonce)
 }
 
 func (keeper AnteKeeper) GasUsed(tx types.Tx) uint64 {

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/kvbatch"
 	vexostore "github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -20,12 +21,19 @@ var (
 	ErrInvalidBankTx         = errors.New("invalid bank transaction")
 	ErrInsufficientFunds     = errors.New("insufficient funds")
 	ErrBalanceOverflow       = errors.New("balance overflow")
+	ErrUnauthorizedMint      = errors.New("unauthorized mint")
 )
 
-type Module struct{}
+type Module struct {
+	mintAuthority types.Address
+}
 
 func NewModule() Module {
 	return Module{}
+}
+
+func NewModuleWithMintAuthority(authority types.Address) Module {
+	return Module{mintAuthority: authority}
 }
 
 func (Module) Name() string {
@@ -56,7 +64,7 @@ func (Module) BeginBlock(ctx vexoapp.Context, header types.Header) error {
 	return nil
 }
 
-func (Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
+func (module Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 	if ctx.Store == nil {
 		return types.Result{Code: 1, Log: "missing bank store"}
 	}
@@ -70,7 +78,10 @@ func (Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		if err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
-		if err := mint(context.Background(), ctx.Store, types.Address(parts[2]), amount); err != nil {
+		if err := module.authorizeMint(tx); err != nil {
+			return types.Result{Code: 4, Log: err.Error()}
+		}
+		if err := mint(ctx.GoContext(), ctx.Store, types.Address(parts[2]), amount); err != nil {
 			return types.Result{Code: 4, Log: err.Error()}
 		}
 		return types.Result{}
@@ -79,7 +90,7 @@ func (Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		if err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
-		if err := send(context.Background(), ctx.Store, types.Address(parts[2]), types.Address(parts[3]), amount); err != nil {
+		if err := send(ctx.GoContext(), ctx.Store, types.Address(parts[2]), types.Address(parts[3]), amount); err != nil {
 			return types.Result{Code: 4, Log: err.Error()}
 		}
 		return types.Result{}
@@ -92,6 +103,17 @@ func (Module) EndBlock(ctx vexoapp.Context) error {
 	return nil
 }
 
+func (module Module) authorizeMint(tx types.Tx) error {
+	if module.mintAuthority == "" {
+		return nil
+	}
+	signer, found := vexoapp.TxTag(tx, "signer")
+	if !found || types.Address(signer) != module.mintAuthority {
+		return ErrUnauthorizedMint
+	}
+	return nil
+}
+
 func (Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoapp.QueryResponse {
 	if ctx.Store == nil {
 		return vexoapp.QueryResponse{Code: 1, Log: "missing bank store"}
@@ -99,7 +121,7 @@ func (Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoapp.Query
 	if len(req.Path) != 2 || req.Path[0] != "balance" || req.Path[1] == "" {
 		return vexoapp.QueryResponse{Code: 2, Log: "invalid bank query"}
 	}
-	balance, err := Balance(context.Background(), ctx.Store, types.Address(req.Path[1]))
+	balance, err := Balance(ctx.GoContext(), ctx.Store, types.Address(req.Path[1]))
 	if err != nil {
 		return vexoapp.QueryResponse{Code: 3, Log: err.Error()}
 	}
@@ -158,6 +180,12 @@ func send(ctx context.Context, store vexoapp.StateStore, from types.Address, to 
 	if toBalance > ^uint64(0)-amount {
 		return ErrBalanceOverflow
 	}
+	if batchStore, ok := store.(kvbatch.BatchKVStore); ok {
+		return batchStore.SetBatch(ctx, []kvbatch.KVWrite{
+			{Namespace: ModuleName, Key: []byte(from), Value: encodeBalance(fromBalance - amount)},
+			{Namespace: ModuleName, Key: []byte(to), Value: encodeBalance(toBalance + amount)},
+		})
+	}
 	if err := setBalance(ctx, store, from, fromBalance-amount); err != nil {
 		return err
 	}
@@ -165,9 +193,13 @@ func send(ctx context.Context, store vexoapp.StateStore, from types.Address, to 
 }
 
 func setBalance(ctx context.Context, store vexoapp.StateStore, address types.Address, balance uint64) error {
-	var encoded [8]byte
-	binary.BigEndian.PutUint64(encoded[:], balance)
-	return store.Set(ctx, ModuleName, []byte(address), encoded[:])
+	return store.Set(ctx, ModuleName, []byte(address), encodeBalance(balance))
+}
+
+func encodeBalance(balance uint64) []byte {
+	encoded := make([]byte, 8)
+	binary.BigEndian.PutUint64(encoded, balance)
+	return encoded
 }
 
 func parseAmount(value string) (uint64, error) {

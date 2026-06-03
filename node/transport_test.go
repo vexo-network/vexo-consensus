@@ -721,6 +721,7 @@ func TestNodeDisconnectsPeerWhenScoreBanApplies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	node.WithSigner(deterministicSignerForID("alice"))
 	node.WithTransport(wire)
 	startNode(t, node)
 	defer node.Stop(context.Background())
@@ -745,6 +746,7 @@ func TestNodePersistsPeerScoresAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	first.WithSigner(deterministicSignerForID("alice"))
 	startNode(t, first)
 	if first.observePeerMessage(context.Background(), "bob", false) {
 		t.Fatal("expected bob to be banned")
@@ -757,6 +759,7 @@ func TestNodePersistsPeerScoresAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	second.WithSigner(deterministicSignerForID("alice"))
 	startNode(t, second)
 	defer second.Stop(context.Background())
 	runtime, err := second.Runtime()

@@ -37,6 +37,10 @@ func New(cfg config.Config, application app.Application, initialValidators []val
 }
 
 func NewWithStore(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower, storage store.Store) (*Runtime, error) {
+	return NewWithStoreAndCryptoRegistry(cfg, application, initialValidators, governancePower, storage, crypto.NewRuntimeSuiteRegistry())
+}
+
+func NewWithStoreAndCryptoRegistry(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower, storage store.Store, cryptoRegistry crypto.RuntimeSuiteRegistry) (*Runtime, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -61,7 +65,7 @@ func NewWithStore(cfg config.Config, application app.Application, initialValidat
 	if err != nil {
 		return nil, err
 	}
-	cryptoSuite, err := crypto.NewRuntimeSuite(cfg.Crypto)
+	cryptoSuite, err := cryptoRegistry.NewRuntimeSuite(cfg.Crypto)
 	if err != nil {
 		return nil, err
 	}
