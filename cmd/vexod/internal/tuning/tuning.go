@@ -66,6 +66,7 @@ type MempoolTuning struct {
 	MaxTxs        int    `json:"max_txs"`
 	MaxTxBytes    int64  `json:"max_tx_bytes"`
 	MinFee        uint64 `json:"min_fee"`
+	BaseFee       uint64 `json:"base_fee"`
 	MinGas        uint64 `json:"min_gas"`
 	SeenTTL       string `json:"seen_ttl"`
 	EnableWAL     bool   `json:"enable_wal"`
@@ -146,6 +147,7 @@ func Recommend(inputs Inputs) Recommendation {
 			MaxTxs:        maxTxs,
 			MaxTxBytes:    minInt64(normalized.BlockBytes/8, 256_000),
 			MinFee:        uint64(clampInt(normalized.TargetTPS/10_000+1, 1, 100)),
+			BaseFee:       uint64(clampInt(normalized.TargetTPS/20_000+1, 1, 100)),
 			MinGas:        1,
 			SeenTTL:       (blockTime * 120).String(),
 			EnableWAL:     true,

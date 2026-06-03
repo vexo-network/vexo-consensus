@@ -8,7 +8,7 @@
 
 It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a Tendermint or CometBFT compatibility layer. The goal is to provide clean building blocks for consensus, validator management, finality verification, slashing, application modules, storage, networking, and release operations.
 
-> **Maturity:** this is a pre-production framework. It includes production-oriented safety gates, durable storage paths, adversarial tests, release tooling, and operational checks, but it must not be used to secure real funds or public validator infrastructure without an audited crypto backend, independent security review, and multi-machine long-run evidence.
+> **Maturity:** this framework includes durable storage paths, adversarial tests, release tooling, and network safety audits, but it must not be used to secure real funds or public validator infrastructure without an audited crypto backend, independent security review, and multi-machine long-run evidence.
 
 ## Highlights
 
@@ -17,7 +17,7 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 - Modular application runtime with pluggable modules and module-owned CLI commands.
 - Split subsystem configuration through `config.json`, `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json`, and `log_config.json`.
 - Durable LevelDB storage for blocks, state, state roots, evidence, KV state, schema metadata, pruning, recovery, and snapshots.
-- Signed transaction envelopes with nonce, fee, gas, and ante validation paths.
+- Signed transaction envelopes with nonce, fee units, base fee, gas, and ante validation paths.
 - Slashing evidence lifecycle with penalty receipts, jailing, unbonding checks, and restart-aware recovery.
 - gRPC/TCP/in-memory transport abstractions with peer handshake validation, scoring, bans, backoff, and rate limits.
 - Operations tooling for config audit, release gates, audit packs, snapshot drills, adversarial simulations, and parameter tuning.
@@ -104,7 +104,7 @@ vexod config show --home .vexo
 vexod config audit --home .vexo --strict
 vexod config tune --validators 64 --tps 5000 --regions 4 --latency 120ms --json
 vexod keys gen --home .vexo
-vexod tx build --module bank --action send --args alice,bob,25 --tags fee=1,gas=1000,signer=alice,nonce=1
+vexod tx build --module bank --action send --args alice,bob,25 --tags fee=1gvxo,gas=1000,signer=alice,nonce=1
 vexod consensus adversarial --json
 vexod snapshot drill-plan --input snapshot.json --chain-id vexo-chain --json
 vexod release readiness --json

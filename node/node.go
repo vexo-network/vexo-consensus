@@ -121,14 +121,6 @@ func (node *Node) Start(ctx context.Context) error {
 	if node.running {
 		return ErrNodeAlreadyRunning
 	}
-	if node.cfg.Production {
-		if err := node.cfg.Chain.ValidateProduction(); err != nil {
-			return err
-		}
-		if err := node.genesis.ValidateProduction(node.cfg.Chain); err != nil {
-			return err
-		}
-	}
 	if node.cfg.ValidatorID != "" && node.signer == nil {
 		return ErrMissingSigner
 	}

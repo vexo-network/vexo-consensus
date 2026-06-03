@@ -63,6 +63,8 @@ func TestConfigValidateRejectsUnsafeSettings(t *testing.T) {
 			cfg.Execution.MinGas = 2
 			cfg.Execution.MaxGas = 1
 		}},
+		{name: "unknown fee denom", mutate: func(cfg *Config) { cfg.Execution.FeeDenom = "unknown" }},
+		{name: "missing gas denom", mutate: func(cfg *Config) { cfg.Execution.GasDenom = "" }},
 		{name: "zero governance quorum", mutate: func(cfg *Config) { cfg.Governance.QuorumPower = 0 }},
 		{name: "zero governance yes threshold", mutate: func(cfg *Config) { cfg.Governance.YesThresholdPower = 0 }},
 		{name: "zero governance voting period", mutate: func(cfg *Config) { cfg.Governance.VotingPeriod = 0 }},
@@ -105,33 +107,35 @@ func TestConfigValidateAllowsOptionalSafetyKnobs(t *testing.T) {
 	}
 }
 
-func TestValidateProductionRejectsDeterministicCrypto(t *testing.T) {
+func TestValidateNetworkSafetyRejectsDeterministicCrypto(t *testing.T) {
 	cfg := Default("vexo-test")
 	cfg.Execution.RequireSigned = true
 	cfg.Execution.RequireNonce = true
 	cfg.Execution.MinFee = 1
+	cfg.Execution.BaseFee = 1
 	cfg.Execution.MinGas = 1
 	cfg.Mempool.MinFee = 1
 	cfg.Mempool.EnablePriority = true
 
-	if err := cfg.ValidateProduction(); !errors.Is(err, ErrUnsafeProductionConfig) {
-		t.Fatalf("expected unsafe production config, got %v", err)
+	if err := cfg.ValidateNetworkSafety(); !errors.Is(err, ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected unsafe network config, got %v", err)
 	}
 }
 
-func TestValidateProductionAcceptsHardenedEd25519Config(t *testing.T) {
+func TestValidateNetworkSafetyAcceptsHardenedEd25519Config(t *testing.T) {
 	cfg := Default("vexo-test")
 	cfg.Crypto.Backend = CryptoBackendEd25519
 	cfg.Committee.Backend = committee.BackendVRF
 	cfg.Execution.RequireSigned = true
 	cfg.Execution.RequireNonce = true
 	cfg.Execution.MinFee = 1
+	cfg.Execution.BaseFee = 1
 	cfg.Execution.MinGas = 1
 	cfg.Mempool.MinFee = 1
 	cfg.Mempool.EnablePriority = true
 	cfg.Mempool.WALPath = "mempool.wal"
 
-	if err := cfg.ValidateProduction(); err != nil {
+	if err := cfg.ValidateNetworkSafety(); err != nil {
 		t.Fatalf("expected hardened ed25519 config to pass, got %v", err)
 	}
 }

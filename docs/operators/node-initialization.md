@@ -103,9 +103,14 @@ Example `module_config.json`:
     "RequireSigned": true,
     "RequireNonce": true,
     "MinFee": 1,
+    "BaseFee": 1,
     "MinGas": 1,
     "MaxGas": 10000000,
-    "FeeCollector": "fee_collector"
+    "FeeCollector": "fee_collector",
+    "FeeDenom": "avxo",
+    "DisplayDenom": "vexo",
+    "DisplayExponent": 18,
+    "GasDenom": "gas"
   },
   "governance": {
     "QuorumPower": 1,

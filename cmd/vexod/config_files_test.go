@@ -67,7 +67,7 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(moduleDocument.Application.Modules) != 3 || moduleDocument.Execution.MaxGas == 0 || moduleDocument.Governance.Timelock == 0 {
+	if len(moduleDocument.Application.Modules) != 3 || moduleDocument.Execution.MaxGas == 0 || moduleDocument.Execution.FeeDenom != "avxo" || moduleDocument.Execution.DisplayDenom != "vexo" || moduleDocument.Execution.GasDenom != "gas" || moduleDocument.Governance.Timelock == 0 {
 		t.Fatalf("unexpected module config: %+v", moduleDocument)
 	}
 	networkDocument, err := readNetworkConfigDocument(filepath.Join(home, networkConfigFileName))
@@ -217,7 +217,7 @@ func TestLoadNodeConfigMergesModuleConfig(t *testing.T) {
 	if len(cfg.Chain.Application.Modules) != 1 || cfg.Chain.Application.Modules[0] != "bank" {
 		t.Fatalf("expected module config override, got %+v", cfg.Chain.Application)
 	}
-	if !cfg.Chain.Execution.RequireSigned || cfg.Chain.Execution.MinFee != 7 || cfg.Chain.Execution.FeeCollector != "collector" {
+	if !cfg.Chain.Execution.RequireSigned || cfg.Chain.Execution.MinFee != 7 || cfg.Chain.Execution.FeeCollector != "collector" || cfg.Chain.Execution.FeeDenom != "avxo" {
 		t.Fatalf("expected execution config override, got %+v", cfg.Chain.Execution)
 	}
 	if cfg.Chain.Governance.Timelock != 4 {

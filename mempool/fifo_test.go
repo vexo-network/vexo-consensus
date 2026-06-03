@@ -197,6 +197,9 @@ func TestFIFORejectsInsufficientFee(t *testing.T) {
 	if err := pool.AddTx(context.Background(), []byte("bank:send:fee=10")); err != nil {
 		t.Fatalf("expected minimum fee tx to pass, got %v", err)
 	}
+	if err := pool.AddTx(context.Background(), []byte("bank:send:fee=1gvxo")); err != nil {
+		t.Fatalf("expected unit-denominated fee tx to pass, got %v", err)
+	}
 }
 
 func TestFIFOBuildBatchPrioritizesPriorityThenFee(t *testing.T) {
@@ -231,6 +234,9 @@ func TestTxFeeAndPriorityParseTags(t *testing.T) {
 	tx := types.Tx("bank:send:fee=42:priority=7")
 	if TxFee(tx) != 42 {
 		t.Fatalf("expected fee 42, got %d", TxFee(tx))
+	}
+	if TxFee(types.Tx("bank:send:fee=1gvxo")) != 1_000_000_000 {
+		t.Fatalf("expected unit-denominated fee, got %d", TxFee(types.Tx("bank:send:fee=1gvxo")))
 	}
 	if TxPriority(tx) != 7 {
 		t.Fatalf("expected priority 7, got %d", TxPriority(tx))

@@ -30,8 +30,8 @@ Safety depends on:
 
 ## Crypto Boundary
 
-- `deterministic` is development-only and fails production validation.
-- `ed25519` is supported for production-style testing and launch preparation.
+- `deterministic` is test-only and fails network safety validation.
+- `ed25519` is supported for public-network testing and launch preparation.
 - `bls` requires an audited adapter, proof-of-possession or equivalent rogue-key defense, subgroup checks, public-key validation, dependency audit evidence, and release-gate evidence.
 
 ## Operational Boundary

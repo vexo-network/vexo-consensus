@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vexo-network/vexo-consensus/economics"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -98,12 +99,23 @@ func TxUintTag(tx types.Tx, key string) (uint64, bool) {
 	return parsed, err == nil
 }
 
+func TxAmountTag(tx types.Tx, key string) (uint64, bool) {
+	value, found := TxTag(tx, key)
+	if !found {
+		return 0, false
+	}
+	parsed, err := economics.ParseAmount(value)
+	return parsed, err == nil
+}
+
 func tagSortRank(key string) int {
 	switch key {
 	case "fee":
 		return 10
 	case "gas":
 		return 20
+	case "gas_limit":
+		return 21
 	case "signer":
 		return 30
 	case "nonce":

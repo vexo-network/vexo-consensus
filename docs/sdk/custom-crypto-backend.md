@@ -86,4 +86,4 @@ Valid sign type and domain pairs are:
 
 ## Development Backends
 
-`deterministic` is development-only. It must not pass `ValidateProduction()` and must not be used for value-bearing deployments.
+`deterministic` is test-only. It must not pass network safety validation and must not be used for value-bearing deployments.

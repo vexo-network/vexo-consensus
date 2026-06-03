@@ -33,6 +33,23 @@ func TestAnteKeeperRejectsFeeGasAndNonceFailures(t *testing.T) {
 	}
 }
 
+func TestAnteKeeperChecksBaseFeeAndAmountUnits(t *testing.T) {
+	keeper := NewAnteKeeper(AnteConfig{BaseFee: 2, MaxGas: 100})
+	ctx := Context{}
+	if err := keeper.CheckTx(ctx, types.Tx("bank:send:fee=10avxo:gas=5")); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.CheckTx(ctx, types.Tx("bank:send:fee=1gvxo:gas_limit=5")); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.CheckTx(ctx, types.Tx("bank:send:fee=9avxo:gas=5")); !errors.Is(err, ErrInsufficientFee) {
+		t.Fatalf("expected insufficient base fee, got %v", err)
+	}
+	if err := keeper.CheckTx(ctx, types.Tx("bank:send:fee=10avxo")); !errors.Is(err, ErrInvalidGas) {
+		t.Fatalf("expected missing gas rejection with base fee, got %v", err)
+	}
+}
+
 func TestAnteKeeperRequiresAndVerifiesSignedTx(t *testing.T) {
 	signer, err := vexocrypto.GenerateEd25519Signer()
 	if err != nil {

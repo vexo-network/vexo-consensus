@@ -93,10 +93,11 @@ Check:
 ## 5. Start Validator
 
 ```bash
-vexod start --home .vexo-validator-new --run --production --strict-production
+vexod config audit --home .vexo-validator-new --strict
+vexod start --home .vexo-validator-new --run
 ```
 
-For release candidates or private test networks, omit production flags only when the deployment intentionally uses pre-production safety assumptions.
+Startup has no network mode switch. Use `config audit --strict` before startup when the network is expected to satisfy public-network safety assumptions.
 
 ## 6. Monitor
 

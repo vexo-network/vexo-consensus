@@ -594,15 +594,6 @@ func TestNodeValidation(t *testing.T) {
 	}
 }
 
-func TestNodeProductionModeRejectsUnsafeConfig(t *testing.T) {
-	cfg := DefaultConfig("vexo-test", t.TempDir())
-	cfg.Production = true
-	_, err := New(cfg, validGenesis(), newTestApplication(t))
-	if !errors.Is(err, config.ErrUnsafeProductionConfig) {
-		t.Fatalf("expected unsafe production config rejection, got %v", err)
-	}
-}
-
 func TestNodeValidatorModeRequiresSigner(t *testing.T) {
 	cfg := DefaultConfig("vexo-test", t.TempDir())
 	cfg.ValidatorID = "alice"

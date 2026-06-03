@@ -1447,6 +1447,7 @@ func configFromConfigDocuments(document configDocument, moduleDocument moduleCon
 		cfg.Application = moduleDocument.Application
 	}
 	cfg.Execution = moduleDocument.Execution
+	cfg.Execution = normalizeExecutionConfig(cfg.Execution)
 	if moduleDocument.Governance != (governance.TallyPolicy{}) {
 		cfg.Governance = moduleDocument.Governance
 	}
@@ -1457,6 +1458,26 @@ func configFromConfigDocuments(document configDocument, moduleDocument moduleCon
 	cfg.Committee = consensusDocument.Committee
 	cfg.Mempool = mempoolDocument.Mempool
 	return cfg
+}
+
+func normalizeExecutionConfig(execution config.ExecutionConfig) config.ExecutionConfig {
+	defaults := config.Default(defaultChainID).Execution
+	if execution.FeeCollector == "" {
+		execution.FeeCollector = defaults.FeeCollector
+	}
+	if execution.FeeDenom == "" {
+		execution.FeeDenom = defaults.FeeDenom
+	}
+	if execution.DisplayDenom == "" {
+		execution.DisplayDenom = defaults.DisplayDenom
+	}
+	if execution.DisplayExponent == 0 {
+		execution.DisplayExponent = defaults.DisplayExponent
+	}
+	if execution.GasDenom == "" {
+		execution.GasDenom = defaults.GasDenom
+	}
+	return execution
 }
 
 func boolPtr(value bool) *bool {

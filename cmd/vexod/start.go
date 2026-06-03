@@ -114,8 +114,6 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	p2pAuthToken := flags.String("p2p-auth-token", "", "shared P2P handshake auth token")
 	addrBookPath := flags.String("addr-book", "", "P2P address book path; defaults to <home>/addrbook.json")
 	addrBookMaxFailures := flags.Int("addr-book-max-failures", 3, "failed dial attempts before addr book bans a peer")
-	strictProduction := flags.Bool("strict-production", false, "fail startup when production-readiness checks fail")
-	production := flags.Bool("production", false, "enable node-level production safety gates before startup")
 	logFormat := flags.String("log-format", "text", "operational log format: text or json")
 	logLevel := flags.String("log-level", "info", "operational log level")
 	logCommitEvents := flags.Bool("log-commit-events", true, "log committed block events")
@@ -132,9 +130,6 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	inputs, err := loadStartInputs(*home, *configPath, *genesisPath, *keyPath, *dryRun)
 	if err != nil {
 		return err
-	}
-	if *production {
-		inputs.Config.Production = true
 	}
 	runtimeConfig, err := loadStartRuntimeConfig(*home, *configPath)
 	if err != nil {
@@ -171,12 +166,6 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 		peers:                   peers,
 		seeds:                   seeds,
 	})
-	if *strictProduction {
-		audit := auditDeployment(inputs, runtimeConfig, true)
-		if !audit.OK {
-			return fmt.Errorf("strict production checks failed with %d failed checks; run `vexod config audit --strict --json` for details", failedAuditChecks(audit.Checks))
-		}
-	}
 	plan := inputs.Plan
 	if *jsonOutput {
 		encoder := json.NewEncoder(writer)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"math"
 
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	vexostore "github.com/vexo-network/vexo-consensus/store"
@@ -20,6 +21,7 @@ var (
 
 type AnteConfig struct {
 	MinFee        uint64
+	BaseFee       uint64
 	MinGas        uint64
 	MaxGas        uint64
 	RequireNonce  bool
@@ -62,11 +64,13 @@ func ParseTxMeta(tx types.Tx) TxMeta {
 		meta.Nonce = nonce
 		meta.HasNonce = true
 	}
-	if fee, found := TxUintTag(tx, "fee"); found {
+	if fee, found := TxAmountTag(tx, "fee"); found {
 		meta.Fee = fee
 	}
 	if gas, found := TxUintTag(tx, "gas"); found {
 		meta.Gas = gas
+	} else if gasLimit, found := TxUintTag(tx, "gas_limit"); found {
+		meta.Gas = gasLimit
 	}
 	return meta
 }
@@ -155,6 +159,15 @@ func (keeper AnteKeeper) validateMeta(meta TxMeta) error {
 	if keeper.config.MinFee > 0 && meta.Fee < keeper.config.MinFee {
 		return ErrInsufficientFee
 	}
+	if keeper.config.BaseFee > 0 {
+		if meta.Gas == 0 {
+			return ErrInvalidGas
+		}
+		requiredFee, ok := multiplyGasPrice(meta.Gas, keeper.config.BaseFee)
+		if !ok || meta.Fee < requiredFee {
+			return ErrInsufficientFee
+		}
+	}
 	if keeper.config.MinGas > 0 && meta.Gas < keeper.config.MinGas {
 		return ErrInvalidGas
 	}
@@ -165,6 +178,16 @@ func (keeper AnteKeeper) validateMeta(meta TxMeta) error {
 		return ErrMissingNonce
 	}
 	return nil
+}
+
+func multiplyGasPrice(gas uint64, baseFee uint64) (uint64, bool) {
+	if gas == 0 || baseFee == 0 {
+		return 0, true
+	}
+	if gas > math.MaxUint64/baseFee {
+		return 0, false
+	}
+	return gas * baseFee, true
 }
 
 func (keeper AnteKeeper) collectFee(ctx context.Context, store StateStore, meta TxMeta) error {

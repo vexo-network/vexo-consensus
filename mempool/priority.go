@@ -6,11 +6,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vexo-network/vexo-consensus/economics"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
 func TxFee(tx types.Tx) uint64 {
-	return txNumericTag(tx, "fee")
+	return txAmountTag(tx, "fee")
 }
 
 func TxPriority(tx types.Tx) uint64 {
@@ -25,6 +26,22 @@ func txNumericTag(tx types.Tx, key string) uint64 {
 			continue
 		}
 		value, err := strconv.ParseUint(tagValue, 10, 64)
+		if err != nil {
+			return 0
+		}
+		return value
+	}
+	return 0
+}
+
+func txAmountTag(tx types.Tx, key string) uint64 {
+	payload := mempoolTxPayload(tx)
+	for _, part := range strings.Split(string(payload), ":") {
+		tagKey, tagValue, found := strings.Cut(part, "=")
+		if !found || tagKey != key {
+			continue
+		}
+		value, err := economics.ParseAmount(tagValue)
 		if err != nil {
 			return 0
 		}

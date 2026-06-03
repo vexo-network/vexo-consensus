@@ -22,7 +22,6 @@ type Config struct {
 	Chain       config.Config
 	DataDir     string
 	ValidatorID types.ValidatorID
-	Production  bool
 }
 
 type Genesis struct {
@@ -45,9 +44,6 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.DataDir == "" {
 		return ErrMissingDataDir
-	}
-	if cfg.Production {
-		return cfg.Chain.ValidateProduction()
 	}
 	return nil
 }
@@ -77,7 +73,7 @@ func (genesis Genesis) Validate(chainID string) error {
 	return nil
 }
 
-func (genesis Genesis) ValidateProduction(cfg config.Config) error {
+func (genesis Genesis) ValidateNetworkSafety(cfg config.Config) error {
 	if err := genesis.Validate(cfg.ChainID); err != nil {
 		return err
 	}

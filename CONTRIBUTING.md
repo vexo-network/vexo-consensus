@@ -28,7 +28,7 @@ make ops-verify
 
 - Keep changes small, focused, and testable.
 - Prefer explicit interfaces over hidden global state.
-- Keep deterministic crypto clearly development-only.
+- Keep deterministic crypto clearly test-only.
 - Do not add production crypto claims without an audited implementation and evidence.
 - Preserve height/version semantics for consensus, validator sets, finality proofs, storage, and upgrades.
 - Update documentation when CLI behavior, protocol behavior, storage schema, release flow, or extension interfaces change.

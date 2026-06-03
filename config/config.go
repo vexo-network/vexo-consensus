@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/committee"
+	"github.com/vexo-network/vexo-consensus/economics"
 	"github.com/vexo-network/vexo-consensus/governance"
 	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/p2p"
@@ -12,9 +13,9 @@ import (
 )
 
 var (
-	ErrMissingChainID         = errors.New("chain id is required")
-	ErrInvalidConfig          = errors.New("invalid config")
-	ErrUnsafeProductionConfig = errors.New("unsafe production config")
+	ErrMissingChainID      = errors.New("chain id is required")
+	ErrInvalidConfig       = errors.New("invalid config")
+	ErrUnsafeNetworkConfig = errors.New("unsafe network config")
 )
 
 type Config struct {
@@ -35,12 +36,17 @@ type ApplicationConfig struct {
 }
 
 type ExecutionConfig struct {
-	MinFee        uint64
-	MinGas        uint64
-	MaxGas        uint64
-	RequireNonce  bool
-	RequireSigned bool
-	FeeCollector  string
+	MinFee          uint64
+	BaseFee         uint64
+	MinGas          uint64
+	MaxGas          uint64
+	RequireNonce    bool
+	RequireSigned   bool
+	FeeCollector    string
+	FeeDenom        string
+	DisplayDenom    string
+	DisplayExponent uint8
+	GasDenom        string
 }
 
 type CryptoBackend string
@@ -67,8 +73,12 @@ func Default(chainID string) Config {
 			Modules: []string{"bank", "staking", "governance"},
 		},
 		Execution: ExecutionConfig{
-			MaxGas:       10_000_000,
-			FeeCollector: "fee_collector",
+			MaxGas:          10_000_000,
+			FeeCollector:    "fee_collector",
+			FeeDenom:        economics.AtomicDenom,
+			DisplayDenom:    economics.DisplayDenom,
+			DisplayExponent: 18,
+			GasDenom:        "gas",
 		},
 		Crypto: CryptoConfig{
 			Backend: CryptoBackendDeterministic,
@@ -119,6 +129,14 @@ func (config Config) Validate() error {
 	if config.Execution.MaxGas > 0 && config.Execution.MinGas > config.Execution.MaxGas {
 		return ErrInvalidConfig
 	}
+	if _, ok := economics.DenomFactor(config.Execution.FeeDenom); !ok {
+		return ErrInvalidConfig
+	}
+	if config.Execution.DisplayDenom != economics.DisplayDenom ||
+		config.Execution.DisplayExponent != 18 ||
+		config.Execution.GasDenom == "" {
+		return ErrInvalidConfig
+	}
 	if config.Validator.MaxValidators < 0 {
 		return ErrInvalidConfig
 	}
@@ -153,30 +171,30 @@ func (config Config) Validate() error {
 	return nil
 }
 
-func (config Config) ValidateProduction() error {
+func (config Config) ValidateNetworkSafety() error {
 	if err := config.Validate(); err != nil {
 		return err
 	}
 	if config.Crypto.Backend == CryptoBackendDeterministic {
-		return ErrUnsafeProductionConfig
+		return ErrUnsafeNetworkConfig
 	}
 	if config.Crypto.Backend == CryptoBackendBLS && !config.Crypto.ProductionAdapter {
-		return ErrUnsafeProductionConfig
+		return ErrUnsafeNetworkConfig
 	}
 	if config.Committee.Backend != committee.BackendVRF {
-		return ErrUnsafeProductionConfig
+		return ErrUnsafeNetworkConfig
 	}
 	if !config.Execution.RequireSigned || !config.Execution.RequireNonce {
-		return ErrUnsafeProductionConfig
+		return ErrUnsafeNetworkConfig
 	}
-	if config.Execution.MinFee == 0 || config.Execution.MinGas == 0 {
-		return ErrUnsafeProductionConfig
+	if config.Execution.MinFee == 0 || config.Execution.BaseFee == 0 || config.Execution.MinGas == 0 {
+		return ErrUnsafeNetworkConfig
 	}
 	if config.Mempool.MinFee == 0 || !config.Mempool.EnablePriority {
-		return ErrUnsafeProductionConfig
+		return ErrUnsafeNetworkConfig
 	}
 	if config.Mempool.WALPath == "" {
-		return ErrUnsafeProductionConfig
+		return ErrUnsafeNetworkConfig
 	}
 	return nil
 }

@@ -16,9 +16,10 @@ The canonical tag order is:
 
 1. `fee`
 2. `gas`
-3. `signer`
-4. `nonce`
-5. `priority`
+3. `gas_limit`
+4. `signer`
+5. `nonce`
+6. `priority`
 6. any custom tags sorted lexicographically
 
 Application modules may define their own positional arguments, but should use the shared canonical
@@ -84,7 +85,9 @@ nonce is `N+1`.
 ## Fee and Gas
 
 - `fee` is used for mempool admission and fee collection.
-- `gas` is bounded by configured min/max gas.
+- `fee` accepts raw atomic values or suffixed units: `avxo`, `gvxo`, and `vexo`.
+- `gas` is bounded by configured min/max gas. `gas_limit` is accepted as an alias.
+- `base_fee` is configured per gas unit; required fee is `max(min_fee, base_fee * gas)`.
 - Result metadata should expose gas used and fee paid.
 
 ## Load Test Payloads
@@ -95,6 +98,6 @@ Public-network load tests should use realistic signed `bank:send` payloads with 
 
 ```bash
 vexod keys show --home .vexo
-vexod tx build --module bank --action send --args vexo1...,vexo1...,1 --tags fee=2,gas=100,signer=vexo1...,nonce=7
-vexod tx parse --tx bank:send:vexo1...:vexo1...:1:fee=2:gas=100:signer=vexo1...:nonce=7 --json
+vexod tx build --module bank --action send --args vexo1...,vexo1...,1 --tags fee=1gvxo,gas=100,signer=vexo1...,nonce=7
+vexod tx parse --tx bank:send:vexo1...:vexo1...:1:fee=1gvxo:gas=100:signer=vexo1...:nonce=7 --json
 ```

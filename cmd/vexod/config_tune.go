@@ -42,11 +42,11 @@ func runConfigTune(writer io.Writer, args []string) error {
 }
 
 func writeTuningRecommendation(writer io.Writer, document tuning.Recommendation) {
-	fmt.Fprintf(writer, "mainnet tuning recommendation\n")
+	fmt.Fprintf(writer, "network tuning recommendation\n")
 	fmt.Fprintf(writer, "inputs: validators=%d tps=%d regions=%d latency=%s block_bytes=%d fault_percent=%d\n", document.Inputs.Validators, document.Inputs.TargetTPS, document.Inputs.Regions, document.Inputs.AverageLatency, document.Inputs.BlockBytes, document.Inputs.FaultPercentage)
 	fmt.Fprintf(writer, "consensus: block_time=%s proposal_timeout=%s vote_timeout=%s commit_timeout=%s committee_size=%d epoch_length=%d\n", document.Consensus.TargetBlockTime, document.Consensus.ProposalTimeout, document.Consensus.VoteTimeout, document.Consensus.CommitTimeout, document.Consensus.CommitteeSize, document.Consensus.EpochLength)
 	fmt.Fprintf(writer, "networking: outbound_peers=%d inbound_budget=%d max_message_bytes=%d rate_limit_per_peer=%d ban_threshold=%d\n", document.Networking.OutboundPeers, document.Networking.InboundPeerBudget, document.Networking.MaxMessageBytes, document.Networking.RateLimitPerPeer, document.Networking.BanThreshold)
-	fmt.Fprintf(writer, "mempool: max_txs=%d max_tx_bytes=%d min_fee=%d seen_ttl=%s wal=%t recheck=%t\n", document.Mempool.MaxTxs, document.Mempool.MaxTxBytes, document.Mempool.MinFee, document.Mempool.SeenTTL, document.Mempool.EnableWAL, document.Mempool.EnableRecheck)
+	fmt.Fprintf(writer, "mempool: max_txs=%d max_tx_bytes=%d min_fee=%d base_fee=%d seen_ttl=%s wal=%t recheck=%t\n", document.Mempool.MaxTxs, document.Mempool.MaxTxBytes, document.Mempool.MinFee, document.Mempool.BaseFee, document.Mempool.SeenTTL, document.Mempool.EnableWAL, document.Mempool.EnableRecheck)
 	fmt.Fprintf(writer, "economics: min_validator_stake=%d slash_fraction_bps=%d jail=%s unbonding=%s\n", document.Economics.MinValidatorStake, document.Economics.SlashFractionBps, document.Economics.JailDuration, document.Economics.UnbondingPeriod)
 	fmt.Fprintf(writer, "alerts: min_height_rate_per_minute=%d max_round_timeouts=%d max_commit_latency=%s max_mempool_size=%d max_peer_bans_per_hour=%d signer_failures=%d\n", document.Alerts.MinHeightRatePerMinute, document.Alerts.MaxRoundTimeouts, document.Alerts.MaxCommitLatency, document.Alerts.MaxMempoolSize, document.Alerts.MaxPeerBansPerHour, document.Alerts.MaxSignerFailures)
 	fmt.Fprintf(writer, "validation:\n")

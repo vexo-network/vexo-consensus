@@ -59,7 +59,7 @@ Modules receive `app.Context.Store`, a namespaced KV store. Use the module name 
 
 ## Ante Handling
 
-Modules should not reimplement fee, nonce, gas, or signature checks. Those belong to the ante layer.
+Modules should not reimplement fee units, base fee, nonce, gas, or signature checks. Those belong to the ante layer.
 
 ## CLI Commands
 
