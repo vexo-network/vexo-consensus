@@ -56,29 +56,41 @@ func SubmitEvidenceForSlashing(ctx context.Context, keeper SlashingKeeper, regis
 	if err := verifyConsensusEvidence(evidence, validatorInfo, verifier); err != nil {
 		return SlashResult{}, err
 	}
-	applySet, err := registry.ValidatorSet(ctx, applyHeight)
+	receipt, receiptFound, err := penaltyReceipt(ctx, keeper, evidence)
 	if err != nil {
 		return SlashResult{}, err
 	}
-	applyValidatorInfo, found := applySet.Get(evidence.Validator)
-	if !found {
-		return SlashResult{}, ErrEvidenceValidatorNotFound
+	applySet, err := registry.ValidatorSet(ctx, applyHeight)
+	if err != nil && !receiptFound {
+		return SlashResult{}, err
+	}
+	applyValidatorInfo, applyFound := validator.Validator{}, false
+	if err == nil {
+		applyValidatorInfo, applyFound = applySet.Get(evidence.Validator)
 	}
 	if err := keeper.SubmitEvidence(ctx, evidence); err != nil && !errors.Is(err, slashing.ErrDuplicateEvidence) {
 		return SlashResult{}, err
 	}
-	receipt, found, err := penaltyReceipt(ctx, keeper, evidence)
+	if !receiptFound {
+		basePower := validatorInfo.VotingPower
+		if applyFound {
+			basePower = applyValidatorInfo.VotingPower
+		}
+		receipt, err = keeper.ApplyPenaltyWithStake(ctx, evidence, basePower)
+	}
 	if err != nil {
 		return SlashResult{}, err
 	}
-	if !found {
-		receipt, err = keeper.ApplyPenaltyWithStake(ctx, evidence, applyValidatorInfo.VotingPower)
-	}
-	if err != nil {
-		return SlashResult{}, err
-	}
-	if err := registry.UpdateVotingPowerAt(ctx, applyHeight, evidence.Validator, receipt.RemainingPower); err != nil {
-		return SlashResult{}, err
+	if applyFound {
+		if receipt.RemainingPower == 0 {
+			if err := registry.ApplyLeaveAt(ctx, applyHeight, evidence.Validator); err != nil {
+				return SlashResult{}, err
+			}
+		} else if applyValidatorInfo.VotingPower != receipt.RemainingPower {
+			if err := registry.UpdateVotingPowerAt(ctx, applyHeight, evidence.Validator, receipt.RemainingPower); err != nil {
+				return SlashResult{}, err
+			}
+		}
 	}
 
 	return SlashResult{
@@ -136,9 +148,37 @@ func verifyConsensusEvidence(evidence slashing.Evidence, validatorInfo validator
 			return ErrInvalidEvidenceTimeoutSignature
 		}
 		return nil
+	case slashing.EvidenceInvalidProposal:
+		if err := VerifyInvalidProposalEvidence(evidence); err != nil {
+			return err
+		}
+		decoded, err := DecodeInvalidProposalProof(evidence.Proof)
+		if err != nil {
+			return err
+		}
+		return verifyProposalEvidenceSignature(decoded.Proposal, validatorInfo, verifier)
+	case slashing.EvidenceUnavailableData:
+		if err := VerifyUnavailableDataEvidence(evidence); err != nil {
+			return err
+		}
+		decoded, err := DecodeUnavailableDataProof(evidence.Proof)
+		if err != nil {
+			return err
+		}
+		return verifyProposalEvidenceSignature(decoded.Proposal, validatorInfo, verifier)
 	default:
 		return ErrUnsupportedEvidenceProof
 	}
+}
+
+func verifyProposalEvidenceSignature(proposal Proposal, validatorInfo validator.Validator, verifier EvidenceSignatureVerifier) error {
+	if verifier == nil {
+		return ErrEvidenceSignatureVerifier
+	}
+	if !verifyDomainSignature(verifier, validatorInfo.PublicKey, vexocrypto.DomainConsensusProposal, ProposalSignBytes(proposal), proposal.Signature) {
+		return ErrInvalidProposal
+	}
+	return nil
 }
 
 func verifyDomainSignature(verifier EvidenceSignatureVerifier, publicKey types.PublicKey, domain vexocrypto.Domain, message []byte, signature types.Signature) bool {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/vexo-network/vexo-consensus/dataavailability"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -23,6 +24,16 @@ type ConflictingVoteProof struct {
 type ConflictingTimeoutVoteProof struct {
 	First  TimeoutVote `json:"first"`
 	Second TimeoutVote `json:"second"`
+}
+
+type InvalidProposalProof struct {
+	Proposal Proposal `json:"proposal"`
+	Reason   string   `json:"reason"`
+}
+
+type UnavailableDataProof struct {
+	Proposal Proposal `json:"proposal"`
+	Reason   string   `json:"reason"`
 }
 
 func NewConflictingVoteEvidence(first Vote, second Vote) (slashing.Evidence, error) {
@@ -75,6 +86,46 @@ func NewConflictingTimeoutVoteEvidence(first TimeoutVote, second TimeoutVote) (s
 	}, nil
 }
 
+func NewInvalidProposalEvidence(proposal Proposal, reason string) (slashing.Evidence, error) {
+	if proposal.Proposer == "" || proposal.Block.Header.Height == 0 || reason == "" {
+		return slashing.Evidence{}, slashing.ErrMissingValidator
+	}
+	if err := dataavailability.Verify(proposal.Block.Header, proposal.Block.Txs); err == nil {
+		return slashing.Evidence{}, ErrInvalidProposal
+	}
+	proof, err := json.Marshal(InvalidProposalProof{Proposal: proposal, Reason: reason})
+	if err != nil {
+		return slashing.Evidence{}, err
+	}
+	return slashing.Evidence{
+		Type:      slashing.EvidenceInvalidProposal,
+		Validator: proposal.Proposer,
+		Height:    proposal.Block.Header.Height,
+		Round:     proposal.Round,
+		Proof:     proof,
+	}, nil
+}
+
+func NewUnavailableDataEvidence(proposal Proposal, reason string) (slashing.Evidence, error) {
+	if proposal.Proposer == "" || proposal.Block.Header.Height == 0 || reason == "" {
+		return slashing.Evidence{}, slashing.ErrMissingValidator
+	}
+	if !errors.Is(dataavailability.Verify(proposal.Block.Header, proposal.Block.Txs), dataavailability.ErrMissingData) {
+		return slashing.Evidence{}, dataavailability.ErrMissingData
+	}
+	proof, err := json.Marshal(UnavailableDataProof{Proposal: proposal, Reason: reason})
+	if err != nil {
+		return slashing.Evidence{}, err
+	}
+	return slashing.Evidence{
+		Type:      slashing.EvidenceUnavailableData,
+		Validator: proposal.Proposer,
+		Height:    proposal.Block.Header.Height,
+		Round:     proposal.Round,
+		Proof:     proof,
+	}, nil
+}
+
 func DecodeConflictingVoteProof(proof []byte) (ConflictingVoteProof, error) {
 	var decoded ConflictingVoteProof
 	if err := json.Unmarshal(proof, &decoded); err != nil {
@@ -87,6 +138,22 @@ func DecodeConflictingTimeoutVoteProof(proof []byte) (ConflictingTimeoutVoteProo
 	var decoded ConflictingTimeoutVoteProof
 	if err := json.Unmarshal(proof, &decoded); err != nil {
 		return ConflictingTimeoutVoteProof{}, err
+	}
+	return decoded, nil
+}
+
+func DecodeInvalidProposalProof(proof []byte) (InvalidProposalProof, error) {
+	var decoded InvalidProposalProof
+	if err := json.Unmarshal(proof, &decoded); err != nil {
+		return InvalidProposalProof{}, err
+	}
+	return decoded, nil
+}
+
+func DecodeUnavailableDataProof(proof []byte) (UnavailableDataProof, error) {
+	var decoded UnavailableDataProof
+	if err := json.Unmarshal(proof, &decoded); err != nil {
+		return UnavailableDataProof{}, err
 	}
 	return decoded, nil
 }
@@ -135,6 +202,46 @@ func VerifyConflictingTimeoutVoteEvidence(evidence slashing.Evidence) error {
 	}
 	if sameQC(decoded.First.HighQC, decoded.Second.HighQC) {
 		return ErrTimeoutVotesDoNotConflict
+	}
+	return nil
+}
+
+func VerifyInvalidProposalEvidence(evidence slashing.Evidence) error {
+	if evidence.Type != slashing.EvidenceInvalidProposal {
+		return slashing.ErrUnknownEvidenceType
+	}
+	decoded, err := DecodeInvalidProposalProof(evidence.Proof)
+	if err != nil {
+		return err
+	}
+	if decoded.Reason == "" ||
+		decoded.Proposal.Proposer != evidence.Validator ||
+		decoded.Proposal.Block.Header.Height != evidence.Height ||
+		decoded.Proposal.Round != evidence.Round {
+		return ErrVotePairMismatch
+	}
+	if err := dataavailability.Verify(decoded.Proposal.Block.Header, decoded.Proposal.Block.Txs); err == nil {
+		return ErrInvalidProposal
+	}
+	return nil
+}
+
+func VerifyUnavailableDataEvidence(evidence slashing.Evidence) error {
+	if evidence.Type != slashing.EvidenceUnavailableData {
+		return slashing.ErrUnknownEvidenceType
+	}
+	decoded, err := DecodeUnavailableDataProof(evidence.Proof)
+	if err != nil {
+		return err
+	}
+	if decoded.Reason == "" ||
+		decoded.Proposal.Proposer != evidence.Validator ||
+		decoded.Proposal.Block.Header.Height != evidence.Height ||
+		decoded.Proposal.Round != evidence.Round {
+		return ErrVotePairMismatch
+	}
+	if !errors.Is(dataavailability.Verify(decoded.Proposal.Block.Header, decoded.Proposal.Block.Txs), dataavailability.ErrMissingData) {
+		return dataavailability.ErrMissingData
 	}
 	return nil
 }

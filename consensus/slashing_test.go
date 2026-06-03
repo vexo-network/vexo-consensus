@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
+	"github.com/vexo-network/vexo-consensus/dataavailability"
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/store"
@@ -425,6 +426,93 @@ func TestSubmitEvidenceForSlashingResumesPenaltyOnlyEvidence(t *testing.T) {
 	}
 }
 
+func TestSubmitEvidenceForSlashingAccountsForInactiveValidator(t *testing.T) {
+	signer := testEvidenceSigner(t, "a")
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	registry, err := validator.NewStoreRegistry(context.Background(), storage, nil, 1, []validator.Validator{
+		{ID: "a", Address: "a", VotingPower: 100, Stake: 100, PublicKey: signer.PublicKey()},
+		{ID: "b", Address: "b", VotingPower: 1, Stake: 1, PublicKey: []byte("b-pub")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.ApplyLeaveAt(context.Background(), 5, "a"); err != nil {
+		t.Fatal(err)
+	}
+	keeper, err := slashing.NewStoreKeeper(storage, slashing.PenaltyPolicy{
+		slashing.EvidenceConflictingVote: {SlashFraction: "0.25", JailDuration: 30},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := NewConflictingVoteEvidence(
+		signedTestVote(t, signer, "a", 1, 0, types.Hash{1}),
+		signedTestVote(t, signer, "a", 1, 0, types.Hash{2}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 10, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PreviousPower != 100 || result.RemainingPower != 75 {
+		t.Fatalf("expected inactive slash accounting from evidence power, got %+v", result)
+	}
+	if receipt, found, err := keeper.PenaltyReceipt(context.Background(), evidence); err != nil || !found || receipt.RemainingPower != 75 {
+		t.Fatalf("expected durable inactive penalty receipt, found=%t receipt=%+v err=%v", found, receipt, err)
+	}
+	setAtApplyHeight, err := registry.ValidatorSet(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := setAtApplyHeight.Get("a"); found {
+		t.Fatal("inactive validator must not be reintroduced into active set")
+	}
+}
+
+func TestSubmitEvidenceForSlashingFullSlashRemovesValidator(t *testing.T) {
+	signer := testEvidenceSigner(t, "a")
+	registry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{
+		{ID: "a", Address: "a", VotingPower: 100, Stake: 100, PublicKey: signer.PublicKey()},
+		{ID: "b", Address: "b", VotingPower: 1, Stake: 1, PublicKey: []byte("b-pub")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keeper := slashing.NewInMemoryKeeper(slashing.PenaltyPolicy{
+		slashing.EvidenceConflictingVote: {SlashFraction: "1.0", JailDuration: 30},
+	})
+	evidence, err := NewConflictingVoteEvidence(
+		signedTestVote(t, signer, "a", 1, 0, types.Hash{1}),
+		signedTestVote(t, signer, "a", 1, 0, types.Hash{2}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 2, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RemainingPower != 0 {
+		t.Fatalf("expected full slash to zero power, got %+v", result)
+	}
+	setAtApplyHeight, err := registry.ValidatorSet(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := setAtApplyHeight.Get("a"); found {
+		t.Fatal("fully slashed validator must leave active set")
+	}
+}
+
 func TestSubmitDoubleSignEvidenceForSlashingUsesConflictingVoteProof(t *testing.T) {
 	signer := testEvidenceSigner(t, "a")
 	registry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{
@@ -451,6 +539,66 @@ func TestSubmitDoubleSignEvidenceForSlashingUsesConflictingVoteProof(t *testing.
 	}
 	if result.PreviousPower != 100 || result.RemainingPower != 75 {
 		t.Fatalf("unexpected double-sign slash result: %+v", result)
+	}
+}
+
+func TestSubmitInvalidProposalEvidenceForSlashing(t *testing.T) {
+	signer := testEvidenceSigner(t, "a")
+	registry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{
+		{ID: "a", Address: "a", VotingPower: 100, Stake: 100, PublicKey: signer.PublicKey()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keeper := slashing.NewInMemoryKeeper(slashing.PenaltyPolicy{
+		slashing.EvidenceInvalidProposal: {SlashFraction: "0.25", JailDuration: 30},
+	})
+	proposal := signedTestProposal(t, signer, Proposal{
+		Block:    types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ConsensusHash: dataavailability.Commitment([]types.Tx{[]byte("other")})}, Txs: []types.Tx{[]byte("tx")}},
+		Round:    0,
+		Proposer: "a",
+	})
+	evidence, err := NewInvalidProposalEvidence(proposal, "data availability commitment mismatch")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PreviousPower != 100 || result.RemainingPower != 75 {
+		t.Fatalf("unexpected invalid proposal slash result: %+v", result)
+	}
+}
+
+func TestSubmitUnavailableDataEvidenceForSlashing(t *testing.T) {
+	signer := testEvidenceSigner(t, "a")
+	registry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{
+		{ID: "a", Address: "a", VotingPower: 100, Stake: 100, PublicKey: signer.PublicKey()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keeper := slashing.NewInMemoryKeeper(slashing.PenaltyPolicy{
+		slashing.EvidenceUnavailableData: {SlashFraction: "0.25", JailDuration: 30},
+	})
+	proposal := signedTestProposal(t, signer, Proposal{
+		Block:    types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1}, Txs: []types.Tx{[]byte("tx")}},
+		Round:    0,
+		Proposer: "a",
+	})
+	evidence, err := NewUnavailableDataEvidence(proposal, "missing data availability commitment")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PreviousPower != 100 || result.RemainingPower != 75 {
+		t.Fatalf("unexpected unavailable data slash result: %+v", result)
 	}
 }
 
@@ -486,7 +634,7 @@ func TestSubmitEvidenceForSlashingRejectsUnsupportedProofType(t *testing.T) {
 		t.Fatal(err)
 	}
 	keeper := slashing.NewInMemoryKeeper(nil)
-	evidence := slashing.Evidence{Type: slashing.EvidenceInvalidProposal, Validator: "a", Height: 1, Proof: []byte("opaque")}
+	evidence := slashing.Evidence{Type: slashing.EvidenceType("opaque"), Validator: "a", Height: 1, Proof: []byte("opaque")}
 
 	_, err = SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence)
 	if !errors.Is(err, ErrUnsupportedEvidenceProof) {
@@ -522,4 +670,14 @@ func signedTestTimeoutVote(t *testing.T, signer vexocrypto.Signer, vote TimeoutV
 	}
 	vote.Signature = signature
 	return vote
+}
+
+func signedTestProposal(t *testing.T, signer vexocrypto.Signer, proposal Proposal) Proposal {
+	t.Helper()
+	signature, err := vexocrypto.SignWithDomain(signer, vexocrypto.DomainConsensusProposal, ProposalSignBytes(proposal))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal.Signature = signature
+	return proposal
 }

@@ -120,7 +120,9 @@ func buildSlashingLifecyclePlanDocument(evidenceType slashing.EvidenceType, vali
 func supportsRuntimeSlashing(evidenceType slashing.EvidenceType) bool {
 	return evidenceType == slashing.EvidenceDoubleSign ||
 		evidenceType == slashing.EvidenceConflictingVote ||
-		evidenceType == slashing.EvidenceConflictingTimeoutVote
+		evidenceType == slashing.EvidenceConflictingTimeoutVote ||
+		evidenceType == slashing.EvidenceInvalidProposal ||
+		evidenceType == slashing.EvidenceUnavailableData
 }
 
 func writeSlashingLifecyclePlan(writer io.Writer, document slashingLifecyclePlanDocument) {

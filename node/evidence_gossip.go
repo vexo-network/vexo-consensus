@@ -57,19 +57,18 @@ func (node *Node) applyEvidence(ctx context.Context, evidence slashing.Evidence)
 		if key == "" {
 			return consensus.SlashResult{}, false, store.ErrInvalidKey
 		}
-		existing, err := runtime.Store.EvidenceByKey(ctx, key)
-		if err == nil && existing.Applied {
-			return consensus.SlashResult{}, false, nil
-		}
+		_, err := runtime.Store.EvidenceByKey(ctx, key)
 		if err != nil && !errors.Is(err, store.ErrEvidenceNotFound) {
 			return consensus.SlashResult{}, false, err
 		}
-		if err := runtime.Store.SaveEvidence(ctx, store.EvidenceRecord{
-			Evidence:  evidence,
-			Applied:   false,
-			CreatedAt: time.Now().Unix(),
-		}); err != nil {
-			return consensus.SlashResult{}, false, err
+		if errors.Is(err, store.ErrEvidenceNotFound) {
+			if err := runtime.Store.SaveEvidence(ctx, store.EvidenceRecord{
+				Evidence:  evidence,
+				Applied:   false,
+				CreatedAt: time.Now().Unix(),
+			}); err != nil {
+				return consensus.SlashResult{}, false, err
+			}
 		}
 	}
 	result, err := consensus.SubmitEvidenceForSlashing(ctx, runtime.Slashing, runtime.Validators, runtime.Crypto.ConsensusVerifier, applyHeight, evidence)
@@ -136,9 +135,6 @@ func (node *Node) reconcileEvidence(ctx context.Context, runtime *vexoruntime.Ru
 		record, err := runtime.Store.EvidenceByKey(ctx, key)
 		if err != nil {
 			return err
-		}
-		if record.Applied {
-			continue
 		}
 		applyHeight := record.Evidence.Height
 		if latestHeight > applyHeight {
