@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vexo-network/vexo-consensus/cmd/vexod/internal/releasegate"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	"github.com/vexo-network/vexo-consensus/store"
@@ -633,7 +634,7 @@ func releaseCheckOK(document releaseAuditPack, name string) bool {
 	return false
 }
 
-func releaseReadinessCheckOK(checks []productionReadinessCheck, name string) bool {
+func releaseReadinessCheckOK(checks []releasegate.Check, name string) bool {
 	for _, check := range checks {
 		if check.Name == name {
 			return check.OK

@@ -1,62 +1,48 @@
-# Vexo Consensus Protocol
+# Consensus Protocol Overview
 
-This document defines the production-facing consensus model implemented by `vexo-consensus`.
+This page is the high-level entry point for Vexo consensus documentation.
+
+For normative details, use the spec files:
+
+- [Consensus Spec](./specs/consensus-spec.md)
+- [Finality Proof Format](./specs/finality-proof-format.md)
+- [Validator Lifecycle](./specs/validator-lifecycle.md)
+- [Storage Schema](./specs/storage-schema.md)
+- [Networking Spec](./specs/networking-spec.md)
+- [Transaction Format](./specs/tx-format.md)
 
 ## Model
 
-- Vexo uses a HotStuff-style BFT core with proposal, vote, quorum certificate, timeout certificate, and three-chain finality.
-- A block is safe to vote for only when it extends the locked QC or carries a justify QC at least as new as the lock.
-- A block becomes finalized through the three-chain rule: if block `B3` has a QC for parent `B2`, and `B2` has a QC for grandparent `B1`, then `B1` is finalized.
-- Accountable safety depends on evidence for conflicting votes or conflicting timeout votes at the same height, round, and validator.
+Vexo uses a HotStuff-style BFT core with proposals, votes, quorum certificates, timeout certificates, locked-QC safety, and three-chain finality.
 
-## Safety Invariants
+A block is safe to vote for only when it extends the locked QC or carries a justify QC at least as new as the lock. A block becomes finalized when the three-chain rule proves a safe parent/grandparent chain extension.
 
-- A validator must not sign two different proposals, votes, or timeout votes for the same `(chain_id, height, round, type)`.
-- A QC must contain unique known signers only.
-- A QC voting-power field, when present, must equal the voting power recomputed from the validator set.
-- A finality proof must bind the block header, block hash, QC height, validator-set height, and validator-set hash.
-- A light client verifies a proof with the validator set for the proof height; using any other set must fail by validator-set hash mismatch.
+## Safety Boundary
 
-## Finality Verification
+Safety depends on:
 
-- `finality.Proof.Header` is the finalized block header being verified.
-- `finality.Proof.ValidatorSetHeight` identifies the height whose validator set is used for verification.
-- `finality.Proof.ValidatorSetHash` and `Header.ValidatorSetHash` must both match the verifier's validator set hash.
-- `QuorumCert.Height` must equal `Header.Height`, and `QuorumCert.BlockHash` must equal the canonical header hash.
-- Ed25519 finality uses ordered multisignature concatenation, not cryptographic aggregation. The signer bitmap order defines the public-key/signature order.
-- BLS finality must only be enabled through an audited production adapter with domain separation, public-key validation, proof-of-possession or equivalent rogue-key defense, and subgroup checks.
+- less than one-third Byzantine voting power
+- domain-separated proposal, vote, timeout-vote, and finality signatures
+- validator-set hash binding at the relevant proof height
+- unique known signers in QCs and finality proofs
+- accountable evidence for validator equivocation
+- rejection of conflicting commit decisions at the same finalized height
 
-## Crypto Backends
+## Crypto Boundary
 
-- `deterministic` is development-only and must not pass production validation.
-- `ed25519` is valid for production-style testing and launch preparation, but its finality proof is a multisignature model.
-- `bls` is intentionally unavailable until a production adapter is linked and audited.
-- All consensus signatures use explicit domain separation for proposal, vote, timeout vote, and finality messages.
+- `deterministic` is development-only and fails production validation.
+- `ed25519` is supported for production-style testing and launch preparation.
+- `bls` requires an audited adapter, proof-of-possession or equivalent rogue-key defense, subgroup checks, public-key validation, dependency audit evidence, and release-gate evidence.
 
-## Remote Signer Policy
+## Operational Boundary
 
-- Remote signers receive the raw message plus a policy tuple: `chain_id`, `height`, `round`, `type`, and `domain`.
-- A production signer must keep its own double-sign guard and reject conflicting messages for the same policy tuple.
-- Local node-side checks are not enough; KMS/HSM policy must protect against compromised or restarted node processes.
+The code includes production-oriented checks, but public deployments still require:
 
-## Recovery Semantics
+- strict config audit for every validator home
+- release-gate evidence
+- external security review
+- multi-host long-run and chaos evidence
+- signer/KMS policy evidence
+- chain-specific economic and governance policy review
 
-- The last safe recovery height is the latest height where committed block metadata and app state are mutually consistent.
-- If a block is executed but its state is not persisted, recovery uses the last persisted state height.
-- If state exists without matching block metadata, recovery reports a mismatch and uses the lower consistent height.
-- WAL replay is allowed only to rebuild consensus-local proposal/vote context; it must not create finalized state without persisted block and state records.
-
-## Operations and Upgrades
-
-- Operators should alert on height rate, round timeout frequency, proposal/vote latency, peer bans, mempool size, commit latency, snapshot/replay health, and validator signing failures.
-- Upgrade plans are height-gated and governance-driven; a plan binds binary version, config schema migration, store schema migration, app-state migration, and rollback metadata.
-- Failed migration requires rollback instead of partial launch continuation.
-- Public-network transactions should use signed envelopes, account nonce/sequence, minimum fee, gas bounds, size limits, and DoS-resistant `CheckTx`.
-
-## Slashing Lifecycle
-
-- Evidence must pass validation before gossip acceptance.
-- Duplicate evidence is rejected by stable evidence key.
-- Evidence has lifecycle states: submitted, applied, appealed, and expired.
-- Penalty application records previous power, remaining power, jail duration, and evidence metadata.
-- Incorrect slashing is a chain-trust failure; production deployments should pair slashing with appeal/expiration policy and durable evidence storage.
+See [Security Audit Readiness](./security/audit-readiness.md) and [Release Pipeline](./release/release-pipeline.md) before treating a release as production-ready.

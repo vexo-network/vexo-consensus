@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/vexo-network/vexo-consensus/cmd/vexod/internal/releasegate"
 )
 
 type releaseAuditPack struct {
@@ -75,13 +77,7 @@ type productionReadinessCheck struct {
 	Message string `json:"message"`
 }
 
-type releaseGateDocument struct {
-	SchemaVersion string                     `json:"schema_version"`
-	OK            bool                       `json:"ok"`
-	Version       string                     `json:"version"`
-	Checks        []productionReadinessCheck `json:"checks"`
-	NextActions   []string                   `json:"next_actions,omitempty"`
-}
+type releaseGateDocument = releasegate.Document
 
 func runRelease(writer io.Writer, args []string) error {
 	if len(args) == 0 {
@@ -318,47 +314,26 @@ type releaseGateInputs struct {
 }
 
 func buildReleaseGateDocument(versionValue string, pack releaseAuditPack, inputs releaseGateInputs) releaseGateDocument {
-	document := releaseGateDocument{
-		SchemaVersion: "v1",
-		OK:            true,
-		Version:       versionValue,
-	}
-	document.addGateCheck("release_pack", pack.OK, "release pack must include manifest, checksums, SBOM, signature when required, and core RC evidence")
+	gateChecks := make([]releasegate.PackCheck, 0, len(pack.Checks))
 	for _, check := range pack.Checks {
-		document.addGateCheck("pack_"+check.Name, check.OK, check.Message)
+		gateChecks = append(gateChecks, releasegate.PackCheck{
+			Name:    check.Name,
+			OK:      check.OK,
+			Message: check.Message,
+		})
 	}
-	document.addGateFileCheck("chaos_evidence", inputs.Chaos, "chaos test evidence must exist")
-	document.addGateFileCheck("kms_signer_evidence", inputs.KMS, "KMS/remote signer policy and double-sign guard evidence must exist")
-	document.addGateFileCheck("snapshot_replay_evidence", inputs.Snapshot, "snapshot restore and replay consistency evidence must exist")
-	document.addGateExternalCheck("external_security_audit", inputs.ExternalAudit, inputs.AllowExternalPending, "external audit disposition must exist before public production release")
-	document.addGateExternalCheck("bls_adapter_audit", inputs.BLSAudit, inputs.AllowExternalPending, "audited BLS adapter and dependency audit evidence must exist when BLS is enabled")
-	if !document.OK {
-		document.NextActions = []string{
-			"collect missing evidence artifacts and rerun release gate",
-			"do not publish production release artifacts until all required checks pass",
-			"use --allow-external-pending only for private release candidates, never public mainnet launch",
-		}
-	}
-	return document
-}
-
-func (document *releaseGateDocument) addGateCheck(name string, ok bool, message string) {
-	if !ok {
-		document.OK = false
-	}
-	document.Checks = append(document.Checks, productionReadinessCheck{Name: name, OK: ok, Message: message})
-}
-
-func (document *releaseGateDocument) addGateFileCheck(name string, path string, message string) {
-	document.addGateCheck(name, path != "" && fileExists(path), message)
-}
-
-func (document *releaseGateDocument) addGateExternalCheck(name string, path string, allowPending bool, message string) {
-	if path != "" && fileExists(path) {
-		document.addGateCheck(name, true, message)
-		return
-	}
-	document.addGateCheck(name, allowPending, message)
+	return releasegate.Build(versionValue, releasegate.Pack{
+		OK:     pack.OK,
+		Checks: gateChecks,
+	}, releasegate.Evidence{
+		Chaos:                inputs.Chaos,
+		KMS:                  inputs.KMS,
+		Snapshot:             inputs.Snapshot,
+		ExternalAudit:        inputs.ExternalAudit,
+		BLSAudit:             inputs.BLSAudit,
+		AllowExternalPending: inputs.AllowExternalPending,
+		Exists:               fileExists,
+	})
 }
 
 func buildLaunchChecklistDocument() launchChecklistDocument {

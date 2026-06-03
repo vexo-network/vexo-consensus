@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/vexo-network/vexo-consensus/consensus/internal/safety"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/dataavailability"
 	"github.com/vexo-network/vexo-consensus/fairordering"
@@ -27,7 +28,7 @@ var (
 	ErrStaleVote         = errors.New("stale vote")
 	ErrUnsafeProposal    = errors.New("unsafe proposal")
 	ErrUnsafeVote        = errors.New("unsafe vote")
-	ErrConflictingCommit = errors.New("conflicting commit decision")
+	ErrConflictingCommit = safety.ErrConflictingCommit
 )
 
 type StateMachineConfig struct {
@@ -39,24 +40,24 @@ type StateMachineConfig struct {
 }
 
 type StateMachine struct {
-	mu               sync.Mutex
-	chainID          string
-	validatorSet     validator.Set
-	hashBlock        func(types.Block) types.Hash
-	signatures       signatureVerifier
-	aggregator       aggregateSigner
-	status           Status
-	votes            map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote
-	votedVotes       map[types.Height]map[types.Round]map[types.ValidatorID]Vote
-	evidence         []slashing.Evidence
-	timeouts         *TimeoutCollector
-	pacemaker        *Pacemaker
-	blockTree        *BlockTree
-	lockedQC         finality.QuorumCert
-	commitRule       ThreeChainCommitRule
-	committed        []CommitDecision
-	committedSet     map[types.Hash]struct{}
-	committedHeights map[types.Height]types.Hash
+	mu           sync.Mutex
+	chainID      string
+	validatorSet validator.Set
+	hashBlock    func(types.Block) types.Hash
+	signatures   signatureVerifier
+	aggregator   aggregateSigner
+	status       Status
+	votes        map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote
+	votedVotes   map[types.Height]map[types.Round]map[types.ValidatorID]Vote
+	evidence     []slashing.Evidence
+	timeouts     *TimeoutCollector
+	pacemaker    *Pacemaker
+	blockTree    *BlockTree
+	lockedQC     finality.QuorumCert
+	commitRule   ThreeChainCommitRule
+	committed    []CommitDecision
+	committedSet map[types.Hash]struct{}
+	commitIndex  safety.CommitIndex
 }
 
 func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
@@ -82,16 +83,16 @@ func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
 			Phase:            PhasePropose,
 			ValidatorSetHash: config.ValidatorSet.Hash(),
 		},
-		votes:            make(map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote),
-		votedVotes:       make(map[types.Height]map[types.Round]map[types.ValidatorID]Vote),
-		evidence:         make([]slashing.Evidence, 0),
-		timeouts:         NewTimeoutCollectorWithAggregator(config.ValidatorSet, config.Aggregator),
-		pacemaker:        NewPacemaker(0, 0),
-		blockTree:        NewBlockTree(),
-		commitRule:       ThreeChainCommitRule{},
-		committed:        make([]CommitDecision, 0),
-		committedSet:     make(map[types.Hash]struct{}),
-		committedHeights: make(map[types.Height]types.Hash),
+		votes:        make(map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote),
+		votedVotes:   make(map[types.Height]map[types.Round]map[types.ValidatorID]Vote),
+		evidence:     make([]slashing.Evidence, 0),
+		timeouts:     NewTimeoutCollectorWithAggregator(config.ValidatorSet, config.Aggregator),
+		pacemaker:    NewPacemaker(0, 0),
+		blockTree:    NewBlockTree(),
+		commitRule:   ThreeChainCommitRule{},
+		committed:    make([]CommitDecision, 0),
+		committedSet: make(map[types.Hash]struct{}),
+		commitIndex:  safety.NewCommitIndex(),
 	}, nil
 }
 
@@ -487,14 +488,13 @@ func (machine *StateMachine) applyCommitRule(candidate CommitCandidate) (CommitD
 	if err != nil {
 		return CommitDecision{}, err
 	}
-	if existing, found := machine.committedHeights[decision.CommittedHeight]; found && existing != decision.CommittedBlockHash {
-		return CommitDecision{}, ErrConflictingCommit
+	if err := machine.commitIndex.Record(decision.CommittedHeight, decision.CommittedBlockHash); err != nil {
+		return CommitDecision{}, err
 	}
 	machine.status.LastFinalized = decision.CommittedBlockHash
 	if _, found := machine.committedSet[decision.CommittedBlockHash]; !found {
 		machine.committed = append(machine.committed, decision)
 		machine.committedSet[decision.CommittedBlockHash] = struct{}{}
-		machine.committedHeights[decision.CommittedHeight] = decision.CommittedBlockHash
 	}
 	return decision, nil
 }
