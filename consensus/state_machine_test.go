@@ -731,6 +731,9 @@ func TestStateMachineRejectsConflictingCommitAtSameHeight(t *testing.T) {
 	if _, err := machine.ApplyCommitRule(second); !errors.Is(err, ErrConflictingCommit) {
 		t.Fatalf("expected conflicting commit, got %v", err)
 	}
+	if machine.Status(context.Background()).LastFinalized != (types.Hash{1}) {
+		t.Fatalf("expected last finalized to remain first commit, got %x", machine.Status(context.Background()).LastFinalized)
+	}
 	if len(machine.CommitDecisions()) != 1 {
 		t.Fatalf("expected only first commit decision, got %+v", machine.CommitDecisions())
 	}

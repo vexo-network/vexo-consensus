@@ -487,10 +487,10 @@ func (machine *StateMachine) applyCommitRule(candidate CommitCandidate) (CommitD
 	if err != nil {
 		return CommitDecision{}, err
 	}
-	machine.status.LastFinalized = decision.CommittedBlockHash
 	if existing, found := machine.committedHeights[decision.CommittedHeight]; found && existing != decision.CommittedBlockHash {
 		return CommitDecision{}, ErrConflictingCommit
 	}
+	machine.status.LastFinalized = decision.CommittedBlockHash
 	if _, found := machine.committedSet[decision.CommittedBlockHash]; !found {
 		machine.committed = append(machine.committed, decision)
 		machine.committedSet[decision.CommittedBlockHash] = struct{}{}

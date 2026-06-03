@@ -167,6 +167,24 @@ func TestGovernanceModulePropagatesStoreWriteErrors(t *testing.T) {
 	}
 }
 
+func TestGovernanceModuleUsesCallerContext(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	if err := module.InitGenesis(vexoapp.Context{Store: storage}, nil); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result := module.DeliverTx(vexoapp.Context{Ctx: ctx, Height: 1, Store: storage}, []byte("governance:submit:alice:title:execution:max_gas:20000000"))
+	if result.Code == 0 || !strings.Contains(result.Log, context.Canceled.Error()) {
+		t.Fatalf("expected canceled context to abort governance tx, got %+v", result)
+	}
+}
+
 func TestGovernanceCLICommands(t *testing.T) {
 	command := governanceCLICommand()
 	if command.Name != ModuleName || len(command.Children) != 2 {

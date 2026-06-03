@@ -72,14 +72,15 @@ func (module *Module) BeginBlock(ctx vexoapp.Context, header types.Header) error
 	if module.keeper == nil {
 		return ErrGovernanceRequired
 	}
-	return module.setTime(context.Background(), uint64(header.Height))
+	return module.setTime(ctx.GoContext(), uint64(header.Height))
 }
 
 func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 	if module.keeper == nil {
 		return types.Result{Code: 1, Log: ErrGovernanceRequired.Error()}
 	}
-	if err := module.setTime(context.Background(), uint64(ctx.Height)); err != nil {
+	goCtx := ctx.GoContext()
+	if err := module.setTime(goCtx, uint64(ctx.Height)); err != nil {
 		return types.Result{Code: 1, Log: err.Error()}
 	}
 	parts := governanceTxParts(tx)
@@ -88,13 +89,13 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 	}
 	switch {
 	case len(parts) == 7 && parts[1] == "submit":
-		id, err := module.submit(context.Background(), parts)
+		id, err := module.submit(goCtx, parts)
 		if err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
 		return types.Result{Data: []byte(strconv.FormatUint(id, 10))}
 	case len(parts) == 6 && parts[1] == "vote":
-		if err := module.vote(context.Background(), parts); err != nil {
+		if err := module.vote(goCtx, parts); err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
 		return types.Result{}
@@ -103,7 +104,7 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		if err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
-		if err := module.keeper.Execute(context.Background(), proposalID); err != nil {
+		if err := module.keeper.Execute(goCtx, proposalID); err != nil {
 			return types.Result{Code: 4, Log: err.Error()}
 		}
 		return types.Result{}
