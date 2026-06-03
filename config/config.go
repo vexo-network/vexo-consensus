@@ -52,7 +52,8 @@ const (
 )
 
 type CryptoConfig struct {
-	Backend CryptoBackend
+	Backend           CryptoBackend
+	ProductionAdapter bool
 }
 
 type VRFConfig struct {
@@ -157,7 +158,10 @@ func (config Config) ValidateProduction() error {
 	if config.Crypto.Backend == CryptoBackendDeterministic {
 		return ErrUnsafeProductionConfig
 	}
-	if config.Crypto.Backend == CryptoBackendBLS {
+	if config.Crypto.Backend == CryptoBackendBLS && !config.Crypto.ProductionAdapter {
+		return ErrUnsafeProductionConfig
+	}
+	if config.Committee.Backend != committee.BackendVRF {
 		return ErrUnsafeProductionConfig
 	}
 	if !config.Execution.RequireSigned || !config.Execution.RequireNonce {

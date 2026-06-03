@@ -3,9 +3,11 @@ package staking
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"testing"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/kvbatch"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -76,6 +78,35 @@ func TestStakingModuleUndelegatesAndRecordsUnbonding(t *testing.T) {
 	}
 }
 
+func TestStakingDelegateBatchFailureDoesNotMutateState(t *testing.T) {
+	base := newStakingStore(t)
+	storage := failingBatchStore{Store: base, err: errors.New("batch failed")}
+	module := NewModuleWithUnbondingDelay(10)
+	if err := setBankBalance(context.Background(), storage, "alice", 100); err != nil {
+		t.Fatal(err)
+	}
+	publicKey := base64.StdEncoding.EncodeToString([]byte("validator-key"))
+	result := module.DeliverTx(vexoapp.Context{Height: 7, Store: storage}, types.Tx("staking:delegate:alice:validator-1:40:"+publicKey))
+	if result.Code == 0 {
+		t.Fatalf("expected delegate batch failure, got %+v", result)
+	}
+	stake, err := Stake(context.Background(), storage, "alice", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	balance, err := bankBalance(context.Background(), storage, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	power, err := ValidatorPower(context.Background(), storage, "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stake != 0 || balance != 100 || power != 0 {
+		t.Fatalf("expected unchanged state after batch failure, stake=%d balance=%d power=%d", stake, balance, power)
+	}
+}
+
 func TestStakingModuleQueries(t *testing.T) {
 	storage := newStakingStore(t)
 	module := NewModule()
@@ -110,4 +141,13 @@ func newStakingStore(t *testing.T) store.Store {
 	}
 	t.Cleanup(func() { _ = storage.Close() })
 	return storage
+}
+
+type failingBatchStore struct {
+	store.Store
+	err error
+}
+
+func (storage failingBatchStore) SetBatch(ctx context.Context, writes []kvbatch.KVWrite) error {
+	return storage.err
 }

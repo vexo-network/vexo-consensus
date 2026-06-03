@@ -172,9 +172,6 @@ func (module *Module) delegate(ctx context.Context, store vexoapp.StateStore, de
 	if err != nil {
 		return types.ValidatorUpdate{}, err
 	}
-	if err := setStake(ctx, store, delegator, validatorID, currentStake+amount); err != nil {
-		return types.ValidatorUpdate{}, err
-	}
 	currentPower, err := ValidatorPower(ctx, store, validatorID)
 	if err != nil {
 		return types.ValidatorUpdate{}, err

@@ -46,11 +46,14 @@ type KeyDocument struct {
 }
 
 type KeyMetadata struct {
-	ID          string `json:"id,omitempty"`
-	ActiveFrom  uint64 `json:"active_from,omitempty"`
-	ActiveUntil uint64 `json:"active_until,omitempty"`
-	CreatedAt   string `json:"created_at,omitempty"`
-	RemoteURL   string `json:"remote_url,omitempty"`
+	ID            string `json:"id,omitempty"`
+	ActiveFrom    uint64 `json:"active_from,omitempty"`
+	ActiveUntil   uint64 `json:"active_until,omitempty"`
+	CreatedAt     string `json:"created_at,omitempty"`
+	RemoteURL     string `json:"remote_url,omitempty"`
+	AuthTokenEnv  string `json:"auth_token_env,omitempty"`
+	RequirePolicy bool   `json:"require_policy,omitempty"`
+	GuardPath     string `json:"guard_path,omitempty"`
 }
 
 type KeyEncryption struct {
@@ -203,7 +206,11 @@ func (document KeyDocument) RemoteSigner(timeout time.Duration) (RemoteSigner, e
 	if err != nil {
 		return RemoteSigner{}, fmt.Errorf("invalid public key: %w", err)
 	}
-	return NewRemoteSigner(document.Metadata.RemoteURL, publicKey, Ed25519Signer{}, timeout)
+	authToken := ""
+	if document.Metadata.AuthTokenEnv != "" {
+		authToken = os.Getenv(document.Metadata.AuthTokenEnv)
+	}
+	return NewRemoteSignerWithAuth(document.Metadata.RemoteURL, publicKey, Ed25519Signer{}, timeout, nil, authToken)
 }
 
 func SaveKeyDocument(path string, document KeyDocument) error {

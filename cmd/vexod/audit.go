@@ -176,6 +176,11 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 	document.addCheck("crypto_backend", strictSeverity(strict), inputs.Config.Chain.Crypto.Backend != config.CryptoBackendDeterministic, "use ed25519, bls, or remote signer in non-dev deployments")
 	if keyErr == nil {
 		document.addCheck("key_encrypted_or_remote", strictSeverity(strict), keyDocument.Type == vexocrypto.KeyTypeRemote || keyDocument.Encryption != nil, "avoid unencrypted local private keys in production")
+		if keyDocument.Type == vexocrypto.KeyTypeRemote {
+			document.addCheck("remote_signer_auth", strictSeverity(strict), keyDocument.Metadata.AuthTokenEnv != "", "remote signer key metadata should reference an auth token environment variable")
+			document.addCheck("remote_signer_policy", strictSeverity(strict), keyDocument.Metadata.RequirePolicy, "remote signer should require height/round/type/domain sign policy")
+			document.addCheck("remote_signer_guard", strictSeverity(strict), keyDocument.Metadata.GuardPath != "", "remote signer should use a durable double-sign guard path")
+		}
 	}
 	if runtimeConfig.RPCEnabled {
 		document.addCheck("rpc_admin_token", strictSeverity(strict), runtimeConfig.RPCAdminToken != "", "protect admin RPC endpoints with an admin token")

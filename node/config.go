@@ -15,6 +15,7 @@ var (
 	ErrGenesisChainID    = errors.New("genesis chain id mismatch")
 	ErrMissingValidators = errors.New("genesis validators are required")
 	ErrMissingSigner     = errors.New("validator signer is required")
+	ErrMissingBLSPoP     = errors.New("validator bls proof-of-popession metadata is required")
 )
 
 type Config struct {
@@ -72,6 +73,20 @@ func (genesis Genesis) Validate(chainID string) error {
 	}
 	if len(genesis.Validators) == 0 {
 		return ErrMissingValidators
+	}
+	return nil
+}
+
+func (genesis Genesis) ValidateProduction(cfg config.Config) error {
+	if err := genesis.Validate(cfg.ChainID); err != nil {
+		return err
+	}
+	if cfg.Crypto.Backend == config.CryptoBackendBLS {
+		for _, validatorInfo := range genesis.Validators {
+			if validatorInfo.Metadata["bls_pop"] == "" {
+				return ErrMissingBLSPoP
+			}
+		}
 	}
 	return nil
 }

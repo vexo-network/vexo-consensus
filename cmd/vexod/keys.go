@@ -114,6 +114,8 @@ func runKeysRemote(writer io.Writer, args []string) error {
 	keyID := flags.String("id", "", "key id metadata")
 	activeFrom := flags.Uint64("active-from", 0, "first height where key is active")
 	activeUntil := flags.Uint64("active-until", 0, "last height where key is active; zero means no end")
+	authTokenEnv := flags.String("auth-token-env", "", "environment variable containing remote signer bearer token")
+	guardPath := flags.String("guard-path", "", "expected remote signer double-sign guard path metadata")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -137,10 +139,13 @@ func runKeysRemote(writer io.Writer, args []string) error {
 		Type:          vexocrypto.KeyTypeRemote,
 		PublicKey:     *publicKey,
 		Metadata: vexocrypto.KeyMetadata{
-			ID:          *keyID,
-			ActiveFrom:  *activeFrom,
-			ActiveUntil: *activeUntil,
-			RemoteURL:   *url,
+			ID:            *keyID,
+			ActiveFrom:    *activeFrom,
+			ActiveUntil:   *activeUntil,
+			RemoteURL:     *url,
+			AuthTokenEnv:  *authTokenEnv,
+			RequirePolicy: true,
+			GuardPath:     *guardPath,
 		},
 	}
 	if _, err := document.RemoteSigner(0); err != nil {
@@ -154,6 +159,9 @@ func runKeysRemote(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "type: %s\n", document.Type)
 	fmt.Fprintf(writer, "public_key: %s\n", document.PublicKey)
 	fmt.Fprintf(writer, "remote_url: %s\n", document.Metadata.RemoteURL)
+	if document.Metadata.AuthTokenEnv != "" {
+		fmt.Fprintf(writer, "auth_token_env: %s\n", document.Metadata.AuthTokenEnv)
+	}
 	return nil
 }
 
@@ -306,12 +314,18 @@ func runKeysServeRemote(writer io.Writer, args []string) error {
 	minHeight := flags.Uint64("min-height", 0, "minimum allowed signing height")
 	maxHeight := flags.Uint64("max-height", 0, "maximum allowed signing height; zero means no limit")
 	guardPath := flags.String("guard-path", "", "double-sign guard file path")
+	authToken := flags.String("auth-token", "", "required bearer token for remote signing requests")
+	authTokenEnv := flags.String("auth-token-env", "", "environment variable containing required bearer token")
 	passphrase := flags.String("passphrase", "", "key decryption passphrase; prefer VEXO_KEY_PASSPHRASE")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if *guardPath == "" {
 		*guardPath = filepath.Join(*home, "remote-signer.guard.json")
+	}
+	resolvedAuthToken := *authToken
+	if resolvedAuthToken == "" && *authTokenEnv != "" {
+		resolvedAuthToken = os.Getenv(*authTokenEnv)
 	}
 	document, err := vexocrypto.LoadKeyDocument(resolveKeyPath(*home, *path))
 	if err != nil {
@@ -331,6 +345,7 @@ func runKeysServeRemote(writer io.Writer, args []string) error {
 		MaxHeight:     types.Height(*maxHeight),
 		AllowedTypes:  []vexocrypto.SignType{vexocrypto.SignTypeConsensusProposal, vexocrypto.SignTypeConsensusVote, vexocrypto.SignTypeConsensusTimeoutVote, vexocrypto.SignTypeFinalityProof},
 		RequirePolicy: true,
+		AuthToken:     resolvedAuthToken,
 	}, guard)
 	if err != nil {
 		return err
@@ -344,6 +359,7 @@ func runKeysServeRemote(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "listen: %s\n", *listen)
 	fmt.Fprintf(writer, "chain_id: %s\n", *chainID)
 	fmt.Fprintf(writer, "guard_path: %s\n", *guardPath)
+	fmt.Fprintf(writer, "auth_required: %t\n", resolvedAuthToken != "")
 	return server.ListenAndServe()
 }
 

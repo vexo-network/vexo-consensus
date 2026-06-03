@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/vexo-network/vexo-consensus/committee"
 )
 
 func TestDefaultConfigIsValid(t *testing.T) {
@@ -119,6 +121,7 @@ func TestValidateProductionRejectsDeterministicCrypto(t *testing.T) {
 func TestValidateProductionAcceptsHardenedEd25519Config(t *testing.T) {
 	cfg := Default("vexo-test")
 	cfg.Crypto.Backend = CryptoBackendEd25519
+	cfg.Committee.Backend = committee.BackendVRF
 	cfg.Execution.RequireSigned = true
 	cfg.Execution.RequireNonce = true
 	cfg.Execution.MinFee = 1
