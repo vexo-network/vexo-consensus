@@ -33,6 +33,19 @@ func (registry SignerRegistry) Register(backend config.CryptoBackend, factory Si
 	return registry
 }
 
+func (registry SignerRegistry) RegisterBLSAdapter(factory BLSAdapterFactory) SignerRegistry {
+	return registry.Register(config.CryptoBackendBLS, func() (Signer, error) {
+		adapter, err := factory()
+		if err != nil {
+			return nil, err
+		}
+		if err := ValidateBLSAdapter(adapter); err != nil {
+			return nil, err
+		}
+		return adapter, nil
+	})
+}
+
 func (registry SignerRegistry) Generate(backend config.CryptoBackend) (Signer, error) {
 	factory, found := registry.factories[backend]
 	if !found {

@@ -9,6 +9,22 @@ import (
 
 var ErrUnsupportedCryptoBackend = errors.New("unsupported crypto backend")
 var ErrBLSBackendUnavailable = errors.New("bls backend is unavailable: build with a production bls adapter")
+var ErrBLSAdapterUnsafe = errors.New("bls adapter does not satisfy production safety requirements")
+
+type BLSAdapterFactory func() (BLSAdapter, error)
+
+type RuntimeSuiteRegistry struct {
+	blsFactory BLSAdapterFactory
+}
+
+func NewRuntimeSuiteRegistry() RuntimeSuiteRegistry {
+	return RuntimeSuiteRegistry{}
+}
+
+func (registry RuntimeSuiteRegistry) RegisterBLS(factory BLSAdapterFactory) RuntimeSuiteRegistry {
+	registry.blsFactory = factory
+	return registry
+}
 
 type RuntimeSuite struct {
 	FinalityVerifier interface {
@@ -20,14 +36,49 @@ type RuntimeSuite struct {
 }
 
 func NewRuntimeSuite(cfg config.CryptoConfig) (RuntimeSuite, error) {
+	return NewRuntimeSuiteRegistry().NewRuntimeSuite(cfg)
+}
+
+func (registry RuntimeSuiteRegistry) NewRuntimeSuite(cfg config.CryptoConfig) (RuntimeSuite, error) {
 	switch cfg.Backend {
 	case config.CryptoBackendDeterministic:
 		return RuntimeSuite{FinalityVerifier: DeterministicAggregateSigner{}, ConsensusAggregator: DeterministicAggregateSigner{}}, nil
 	case config.CryptoBackendEd25519:
 		return RuntimeSuite{FinalityVerifier: Ed25519MultiVerifier{}, ConsensusAggregator: Ed25519SignatureAggregator{}}, nil
 	case config.CryptoBackendBLS:
-		return RuntimeSuite{}, ErrBLSBackendUnavailable
+		if registry.blsFactory == nil {
+			return RuntimeSuite{}, ErrBLSBackendUnavailable
+		}
+		adapter, err := registry.blsFactory()
+		if err != nil {
+			return RuntimeSuite{}, err
+		}
+		if err := ValidateBLSAdapter(adapter); err != nil {
+			return RuntimeSuite{}, err
+		}
+		return RuntimeSuite{FinalityVerifier: adapter, ConsensusAggregator: adapter}, nil
 	default:
 		return RuntimeSuite{}, ErrUnsupportedCryptoBackend
 	}
+}
+
+func ValidateBLSAdapter(adapter BLSAdapter) error {
+	if adapter == nil {
+		return ErrBLSBackendUnavailable
+	}
+	metadata := adapter.Metadata()
+	if metadata.Name == "" ||
+		metadata.Version == "" ||
+		!metadata.Audited ||
+		metadata.AuditReport == "" ||
+		!metadata.DomainSeparation ||
+		!metadata.PublicKeyValidation ||
+		!metadata.SubgroupChecks ||
+		!metadata.RogueKeyDefense ||
+		!metadata.DeterministicEncoding ||
+		!metadata.MalformedInputFuzzed ||
+		!metadata.ProofOfPossession {
+		return ErrBLSAdapterUnsafe
+	}
+	return nil
 }

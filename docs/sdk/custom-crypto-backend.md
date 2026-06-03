@@ -56,6 +56,8 @@ A BLS adapter must include:
 - test vectors
 - fuzz tests for malformed keys/signatures
 
+Production BLS is registered through `BLSAdapter` and must pass `ValidateBLSAdapter` before it can be used as a signer or runtime finality backend. Adapter metadata must declare audit status, audit report identity, public-key validation, subgroup checks, rogue-key defense, deterministic encoding, malformed-input fuzz coverage, and proof-of-possession support.
+
 ## Remote Signer Requirements
 
 Remote signers must enforce their own policy tuple:

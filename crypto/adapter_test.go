@@ -45,3 +45,24 @@ func TestSignerRegistrySupportsCustomAdapter(t *testing.T) {
 		t.Fatal("expected custom signer")
 	}
 }
+
+func TestSignerRegistrySupportsSafeBLSAdapter(t *testing.T) {
+	signer, err := NewSignerRegistry().
+		RegisterBLSAdapter(func() (BLSAdapter, error) { return testBLSAdapter{safe: true}, nil }).
+		Generate(config.CryptoBackendBLS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(signer.PublicKey()) != "bls-public" {
+		t.Fatalf("unexpected bls public key: %q", signer.PublicKey())
+	}
+}
+
+func TestSignerRegistryRejectsUnsafeBLSAdapter(t *testing.T) {
+	_, err := NewSignerRegistry().
+		RegisterBLSAdapter(func() (BLSAdapter, error) { return testBLSAdapter{}, nil }).
+		Generate(config.CryptoBackendBLS)
+	if !errors.Is(err, ErrBLSAdapterUnsafe) {
+		t.Fatalf("expected unsafe bls adapter, got %v", err)
+	}
+}
