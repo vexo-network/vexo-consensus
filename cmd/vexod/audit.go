@@ -137,10 +137,12 @@ func buildAuditPackDocument() auditPackDocument {
 			"go run ./cmd/vexod ops thresholds --json",
 			"go run ./cmd/vexod upgrade plan --json --name audit-upgrade --height 100",
 			"go run ./cmd/vexod network longrun-plan --validators 4 --duration 168h --regions 3 --hosts 4",
+			"go run ./cmd/vexod network longrun --validators 4 --duration 1h --rate 50 --output dist/longrun-evidence.json",
 			"go run ./cmd/vexod network chaos-plan --validators 4 --duration 24h",
 			"go run ./cmd/vexod network load --validators 4 --duration 1h --rate 50 --dry-run",
 			"go run ./cmd/vexod keys verify-remote --home .vexo --challenge audit-challenge --height 1 --type consensus_vote --domain vexo.consensus.vote.v1",
 			"make release VERSION=<version>",
+			"go run ./cmd/vexod release pack --dist dist --version <version> --longrun-evidence dist/longrun-evidence.json --adversarial-evidence dist/adversarial-evidence.json --fuzz-evidence dist/fuzz-evidence.txt",
 			"make sign-release VERSION=<version>",
 		},
 		Evidence: []string{
@@ -150,7 +152,8 @@ func buildAuditPackDocument() auditPackDocument {
 			"network logs, pids, health/status snapshots, metrics, and pprof captures",
 			"snapshot checksums and restore verification output",
 			"remote signer policy-bound challenge signature verification output",
-			"multi-machine long-run plan with region and host assignment",
+			"multi-machine long-run plan with region and host assignment plus generated longrun evidence JSON",
+			"adversarial simulation and fuzz/property evidence files",
 			"release checksums, signed checksums, SBOM, release manifest, and Docker image metadata",
 		},
 		ReviewerNotes: []string{

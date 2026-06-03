@@ -86,9 +86,13 @@ Package release artifacts and reviewer evidence metadata:
 ```bash
 go run ./cmd/vexod release pack --dist dist --version 0.1.0 --output dist/release-audit-pack.json
 go run ./cmd/vexod release pack --dist dist --version 0.1.0 --require-signature
+go run ./cmd/vexod release pack --dist dist --version 0.1.0 \
+  --longrun-evidence dist/longrun-evidence.json \
+  --adversarial-evidence dist/adversarial-evidence.json \
+  --fuzz-evidence dist/fuzz-evidence.txt
 ```
 
-The generated pack lists artifact SHA-256 values, required release files, signature status, and the external audit checklist.
+The generated pack lists artifact SHA-256 values, required release files, signature status, attached long-run/adversarial/fuzz evidence, and the external audit checklist.
 
 ## Release Candidate Soak Test
 

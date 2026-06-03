@@ -348,6 +348,54 @@ func TestRunReleasePackCanRequireSignature(t *testing.T) {
 	}
 }
 
+func TestRunReleasePackIncludesEvidenceFiles(t *testing.T) {
+	dist := t.TempDir()
+	for _, name := range []string{"checksums.txt", "sbom-go-modules.json", "sbom-go-version.txt", "release-manifest.json"} {
+		if err := os.WriteFile(filepath.Join(dist, name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	longrun := filepath.Join(dist, "longrun-evidence.json")
+	adversarial := filepath.Join(dist, "adversarial-evidence.json")
+	fuzz := filepath.Join(dist, "fuzz-evidence.txt")
+	for _, path := range []string{longrun, adversarial, fuzz} {
+		if err := os.WriteFile(path, []byte("evidence"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"release", "pack",
+		"--dist", dist,
+		"--version", "test",
+		"--longrun-evidence", longrun,
+		"--adversarial-evidence", adversarial,
+		"--fuzz-evidence", fuzz,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var document releaseAuditPack
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if !document.OK || document.Required.LongRunEvidence != "longrun-evidence.json" || document.Required.AdversarialEvidence != "adversarial-evidence.json" || document.Required.FuzzEvidence != "fuzz-evidence.txt" {
+		t.Fatalf("unexpected release evidence pack: %+v", document)
+	}
+	if !releaseCheckOK(document, "longrun_evidence") || !releaseCheckOK(document, "adversarial_evidence") || !releaseCheckOK(document, "fuzz_evidence") {
+		t.Fatalf("expected evidence checks ok: %+v", document.Checks)
+	}
+}
+
+func releaseCheckOK(document releaseAuditPack, name string) bool {
+	for _, check := range document.Checks {
+		if check.Name == name {
+			return check.OK
+		}
+	}
+	return false
+}
+
 func TestRunNetworkInitAndStartDryRun(t *testing.T) {
 	home := t.TempDir()
 	var initOutput bytes.Buffer

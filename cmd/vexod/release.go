@@ -33,12 +33,15 @@ type releaseArtifact struct {
 }
 
 type releaseRequiredFiles struct {
-	Manifest       string `json:"manifest"`
-	Checksums      string `json:"checksums"`
-	SBOMModules    string `json:"sbom_modules"`
-	SBOMGoVersion  string `json:"sbom_go_version"`
-	Signature      string `json:"signature,omitempty"`
-	SignatureFound bool   `json:"signature_found"`
+	Manifest            string `json:"manifest"`
+	Checksums           string `json:"checksums"`
+	SBOMModules         string `json:"sbom_modules"`
+	SBOMGoVersion       string `json:"sbom_go_version"`
+	Signature           string `json:"signature,omitempty"`
+	SignatureFound      bool   `json:"signature_found"`
+	LongRunEvidence     string `json:"longrun_evidence,omitempty"`
+	AdversarialEvidence string `json:"adversarial_evidence,omitempty"`
+	FuzzEvidence        string `json:"fuzz_evidence,omitempty"`
 }
 
 type releasePackageCheck struct {
@@ -66,10 +69,17 @@ func runReleasePack(writer io.Writer, args []string) error {
 	outputPath := flags.String("output", "", "output JSON path; stdout when empty")
 	versionValue := flags.String("version", version, "release version label")
 	requireSignature := flags.Bool("require-signature", false, "require checksums.txt.asc")
+	longRunEvidence := flags.String("longrun-evidence", "", "long-run harness evidence JSON path")
+	adversarialEvidence := flags.String("adversarial-evidence", "", "consensus adversarial simulation evidence JSON path")
+	fuzzEvidence := flags.String("fuzz-evidence", "", "fuzz/property test output evidence path")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	document, err := buildReleaseAuditPack(*distDir, *versionValue, *requireSignature)
+	document, err := buildReleaseAuditPackWithEvidence(*distDir, *versionValue, *requireSignature, releaseEvidenceInputs{
+		LongRun:     *longRunEvidence,
+		Adversarial: *adversarialEvidence,
+		Fuzz:        *fuzzEvidence,
+	})
 	if err != nil {
 		return err
 	}
@@ -91,17 +101,30 @@ func runReleasePack(writer io.Writer, args []string) error {
 	return nil
 }
 
+type releaseEvidenceInputs struct {
+	LongRun     string
+	Adversarial string
+	Fuzz        string
+}
+
 func buildReleaseAuditPack(distDir string, versionValue string, requireSignature bool) (releaseAuditPack, error) {
+	return buildReleaseAuditPackWithEvidence(distDir, versionValue, requireSignature, releaseEvidenceInputs{})
+}
+
+func buildReleaseAuditPackWithEvidence(distDir string, versionValue string, requireSignature bool, evidence releaseEvidenceInputs) (releaseAuditPack, error) {
 	artifacts, err := releaseArtifacts(distDir)
 	if err != nil {
 		return releaseAuditPack{}, err
 	}
 	required := releaseRequiredFiles{
-		Manifest:      "release-manifest.json",
-		Checksums:     "checksums.txt",
-		SBOMModules:   "sbom-go-modules.json",
-		SBOMGoVersion: "sbom-go-version.txt",
-		Signature:     "checksums.txt.asc",
+		Manifest:            "release-manifest.json",
+		Checksums:           "checksums.txt",
+		SBOMModules:         "sbom-go-modules.json",
+		SBOMGoVersion:       "sbom-go-version.txt",
+		Signature:           "checksums.txt.asc",
+		LongRunEvidence:     filepath.Base(evidence.LongRun),
+		AdversarialEvidence: filepath.Base(evidence.Adversarial),
+		FuzzEvidence:        filepath.Base(evidence.Fuzz),
 	}
 	required.SignatureFound = fileExists(filepath.Join(distDir, required.Signature))
 	document := releaseAuditPack{
@@ -121,6 +144,9 @@ func buildReleaseAuditPack(distDir string, versionValue string, requireSignature
 	if requireSignature {
 		document.addCheck("signed_checksums", required.SignatureFound, "checksums signature must exist")
 	}
+	document.addEvidenceCheck("longrun_evidence", evidence.LongRun, "longrun harness evidence JSON should be attached for release candidates")
+	document.addEvidenceCheck("adversarial_evidence", evidence.Adversarial, "consensus adversarial simulation evidence should be attached for release candidates")
+	document.addEvidenceCheck("fuzz_evidence", evidence.Fuzz, "fuzz/property test output should be attached for release candidates")
 	return document, nil
 }
 
@@ -129,6 +155,14 @@ func (document *releaseAuditPack) addCheck(name string, ok bool, message string)
 		document.OK = false
 	}
 	document.Checks = append(document.Checks, releasePackageCheck{Name: name, OK: ok, Message: message})
+}
+
+func (document *releaseAuditPack) addEvidenceCheck(name string, path string, message string) {
+	if path == "" {
+		document.Checks = append(document.Checks, releasePackageCheck{Name: name, OK: true, Message: message + " (not provided)"})
+		return
+	}
+	document.addCheck(name, fileExists(path), message)
 }
 
 func releaseArtifacts(distDir string) ([]releaseArtifact, error) {
