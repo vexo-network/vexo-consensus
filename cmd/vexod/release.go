@@ -50,6 +50,16 @@ type releasePackageCheck struct {
 	Message string `json:"message"`
 }
 
+type launchChecklistDocument struct {
+	SchemaVersion string                 `json:"schema_version"`
+	Phases        []launchChecklistPhase `json:"phases"`
+}
+
+type launchChecklistPhase struct {
+	Name  string   `json:"name"`
+	Items []string `json:"items"`
+}
+
 func runRelease(writer io.Writer, args []string) error {
 	if len(args) == 0 {
 		return errors.New("release subcommand is required")
@@ -57,6 +67,8 @@ func runRelease(writer io.Writer, args []string) error {
 	switch args[0] {
 	case "pack":
 		return runReleasePack(writer, args[1:])
+	case "launch-checklist":
+		return runReleaseLaunchChecklist(writer, args[1:])
 	default:
 		return fmt.Errorf("unknown release subcommand %q", args[0])
 	}
@@ -99,6 +111,83 @@ func runReleasePack(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "artifacts: %d\n", len(document.Artifacts))
 	fmt.Fprintf(writer, "ok: %t\n", document.OK)
 	return nil
+}
+
+func runReleaseLaunchChecklist(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("release launch-checklist", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	jsonOutput := flags.Bool("json", false, "write JSON output")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	document := buildLaunchChecklistDocument()
+	if *jsonOutput {
+		encoder := json.NewEncoder(writer)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(document)
+	}
+	fmt.Fprintf(writer, "release launch checklist\n")
+	for _, phase := range document.Phases {
+		fmt.Fprintf(writer, "\n%s:\n", phase.Name)
+		for _, item := range phase.Items {
+			fmt.Fprintf(writer, "- %s\n", item)
+		}
+	}
+	return nil
+}
+
+func buildLaunchChecklistDocument() launchChecklistDocument {
+	return launchChecklistDocument{
+		SchemaVersion: "v1",
+		Phases: []launchChecklistPhase{
+			{
+				Name: "prelaunch",
+				Items: []string{
+					"run make check and make ops-verify on a clean checkout",
+					"run config audit --strict against every validator home",
+					"verify deterministic crypto is disabled outside development",
+					"verify remote signer double-sign guard and height/round/type sign policy",
+					"generate network scale-plan for the target validator count and region layout",
+				},
+			},
+			{
+				Name: "release-candidate",
+				Items: []string{
+					"build release artifacts with make release VERSION=<version>",
+					"sign checksums and verify checksums before distribution",
+					"attach release pack, SBOM, fuzz evidence, adversarial evidence, and longrun evidence",
+					"run multi-host longrun with metrics, logs, pprof, snapshot, replay, and signer evidence",
+				},
+			},
+			{
+				Name: "genesis",
+				Items: []string{
+					"freeze chain-id, validator set, validator set hash, and initial app state",
+					"distribute identical genesis/config files to all validators",
+					"verify validator keys, BLS proof-of-possession when enabled, and remote signer reachability",
+					"record rollback-safe last safe height policy before public start",
+				},
+			},
+			{
+				Name: "launch-window",
+				Items: []string{
+					"start seed validators first, then remaining validators in regional waves",
+					"watch height rate, round timeout frequency, proposal/vote latency, peer bans, mempool size, commit latency, snapshot/replay health, and signer failures",
+					"halt launch if quorum is unstable, conflicting finality appears, signer policy fails, or snapshot/replay diverges",
+					"submit signed low-rate smoke transactions before increasing public traffic",
+				},
+			},
+			{
+				Name: "postlaunch",
+				Items: []string{
+					"publish signed release metadata and compatibility matrix",
+					"archive launch metrics, logs, release pack, final genesis, and validator set evidence",
+					"confirm slashing evidence lifecycle, jail/unbonding accounting, and governance upgrade scheduling",
+					"schedule external audit review and long-duration multi-region soak follow-up",
+				},
+			},
+		},
+	}
 }
 
 type releaseEvidenceInputs struct {

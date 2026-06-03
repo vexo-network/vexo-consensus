@@ -239,6 +239,7 @@ SDK and extension guides:
 Security audit and release documents:
 
 - [Security Audit Readiness](./docs/security/audit-readiness.md)
+- [Launch Runbook](./docs/release/launch-runbook.md)
 - [Release Pipeline](./docs/release/release-pipeline.md)
 - [Version Compatibility Matrix](./docs/release/version-compatibility.md)
 
@@ -571,6 +572,7 @@ Generate signed release metadata, SBOM, Docker image, and release-candidate evid
 make sign-release VERSION=0.1.0
 make docker-image VERSION=0.1.0 IMAGE=vexo-consensus IMAGE_TAG=0.1.0
 make release-candidate VERSION=0.1.0-rc.1
+go run ./cmd/vexod release launch-checklist
 ```
 
 Run all checks:

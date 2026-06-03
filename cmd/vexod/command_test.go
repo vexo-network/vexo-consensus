@@ -387,6 +387,35 @@ func TestRunReleasePackIncludesEvidenceFiles(t *testing.T) {
 	}
 }
 
+func TestRunReleaseLaunchChecklist(t *testing.T) {
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{"release", "launch-checklist"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"release launch checklist", "prelaunch:", "release-candidate:", "genesis:", "launch-window:", "postlaunch:", "remote signer double-sign guard"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected launch checklist output to contain %q, got:\n%s", expected, output.String())
+		}
+	}
+}
+
+func TestRunReleaseLaunchChecklistJSON(t *testing.T) {
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{"release", "launch-checklist", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var document launchChecklistDocument
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.SchemaVersion != "v1" || len(document.Phases) != 5 {
+		t.Fatalf("unexpected launch checklist document: %+v", document)
+	}
+	if document.Phases[0].Name != "prelaunch" || !strings.Contains(strings.Join(document.Phases[0].Items, "\n"), "network scale-plan") {
+		t.Fatalf("unexpected prelaunch phase: %+v", document.Phases[0])
+	}
+}
+
 func releaseCheckOK(document releaseAuditPack, name string) bool {
 	for _, check := range document.Checks {
 		if check.Name == name {

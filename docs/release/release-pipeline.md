@@ -37,6 +37,13 @@ Run release candidate verification:
 make release-candidate VERSION=0.1.0-rc.1
 ```
 
+Print the operator launch checklist:
+
+```bash
+go run ./cmd/vexod release launch-checklist
+go run ./cmd/vexod release launch-checklist --json
+```
+
 ## Artifacts
 
 `dist/` contains:
@@ -108,3 +115,7 @@ The `release-candidate` target runs:
 - longrun harness evidence dry-run
 
 Real release candidates should run `network longrun` on independent machines and attach the generated evidence JSON plus metrics, logs, pprof, snapshot, replay, and KMS signing evidence.
+
+## Launch Runbook
+
+Use [Launch Runbook](./launch-runbook.md) for the prelaunch gate, release-candidate gate, genesis gate, launch-window monitoring, halt criteria, and postlaunch archive requirements.
