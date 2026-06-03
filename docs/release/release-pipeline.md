@@ -44,6 +44,25 @@ go run ./cmd/vexod release launch-checklist
 go run ./cmd/vexod release launch-checklist --json
 ```
 
+Run the release gate before publishing a release candidate:
+
+```bash
+go run ./cmd/vexod release gate \
+  --dist dist \
+  --version 0.1.0-rc.1 \
+  --longrun-evidence dist/longrun-evidence.json \
+  --chaos-evidence dist/chaos-evidence.json \
+  --adversarial-evidence dist/adversarial-evidence.json \
+  --fuzz-evidence dist/fuzz-evidence.txt \
+  --kms-evidence dist/kms-evidence.json \
+  --snapshot-evidence dist/snapshot-replay-evidence.json \
+  --external-audit dist/external-audit.pdf \
+  --bls-audit dist/bls-audit.pdf \
+  --json
+```
+
+`release gate` fails closed when required evidence is missing. `--allow-external-pending` is acceptable for private release candidates only; do not use it for public production launch gates.
+
 ## Artifacts
 
 `dist/` contains:
@@ -55,6 +74,7 @@ go run ./cmd/vexod release launch-checklist --json
 - `sbom-go-version.txt`
 - `release-manifest.json`
 - `release-audit-pack.json`
+- long-run, chaos, adversarial, fuzz, signer, snapshot/replay, external-audit, and BLS-audit evidence files when preparing a release candidate
 
 ## Reproducibility Notes
 
@@ -99,7 +119,7 @@ go run ./cmd/vexod release pack --dist dist --version 0.1.0 \
   --fuzz-evidence dist/fuzz-evidence.txt
 ```
 
-The generated pack lists artifact SHA-256 values, required release files, signature status, attached long-run/adversarial/fuzz evidence, and the external audit checklist.
+The generated pack lists artifact SHA-256 values, required release files, signature status, attached long-run/adversarial/fuzz evidence, and the external audit checklist. `release gate` adds the stricter publish/no-publish decision by requiring chaos, signer, snapshot/replay, external audit, and BLS audit evidence.
 
 ## Release Candidate Soak Test
 

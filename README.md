@@ -4,11 +4,27 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Tests](https://img.shields.io/badge/tests-go%20test%20./...-brightgreen)](#testing)
 
-`vexo-consensus` is an experimental, modular consensus engine skeleton for building high-throughput Proof-of-Stake chains with a Tendermint/Cosmos SDK-style development model.
+`vexo-consensus` is an experimental, modular consensus engine for building high-throughput Proof-of-Stake chains with a Tendermint/Cosmos SDK-style development model.
 
 It focuses on clean module boundaries for consensus, validator management, committee selection, mempool design, finality verification, slashing, governance, data availability, fair ordering, storage, operations, and P2P defense.
 
-> This repository is an experimental consensus framework skeleton. It is not production consensus software.
+> **Maturity:** this repository is a pre-production consensus framework. It includes production-oriented safety gates, durable storage paths, release tooling, and adversarial tests, but it is **not ready to secure real funds or public validator infrastructure** without an audited crypto backend, independent security review, and multi-machine long-run evidence.
+
+## What is implemented?
+
+- Modular application runtime with pluggable app modules.
+- HotStuff-style proposal/vote/QC state machine with locked-QC safety and three-chain finality.
+- Height-versioned validator registry, slashing evidence lifecycle, governance, staking, bank, mempool, P2P scoring, state sync snapshots, release gates, and operations tooling.
+- LevelDB-backed block/state/state-root/evidence/KV storage with pruning, recovery, atomic block/state commit, and schema metadata.
+- CLI-first workflow through `vexod`, including local networks, snapshot drills, release packaging, release gates, audit packs, remote signer checks, and operational alerts.
+
+## What is not included?
+
+- An audited production BLS implementation. The code defines the adapter contract and rejects unsafe adapters, but does not vendor one.
+- External security audit results.
+- Real multi-host/multi-region long-run evidence.
+- Chain-specific economic policy such as reward distribution, commission, custody, and mainnet parameter tuning.
+- A guarantee that the project is safe for value-bearing production networks.
 
 ## Table of Contents
 
@@ -19,6 +35,7 @@ It focuses on clean module boundaries for consensus, validator management, commi
 - [Documentation](#documentation)
 - [Quick Start](#quick-start)
 - [Testing](#testing)
+- [Production Readiness](#production-readiness)
 - [Design Principles](#design-principles)
 - [Security Notice](#security-notice)
 - [Contributing](#contributing)
@@ -73,7 +90,7 @@ The design is intentionally modular so individual components can be replaced wit
 
 ### Consensus
 
-- HotStuff-style proposal/vote skeleton
+- HotStuff-style proposal/vote state machine
 - Weighted voting-power quorum checks
 - Quorum certificate generation
 - Conflicting vote detection
@@ -114,6 +131,7 @@ The design is intentionally modular so individual components can be replaced wit
 - Recently-seen transaction TTL for duplicate-gossip suppression
 - Configurable minimum-fee admission
 - Optional priority and fee-aware batch construction
+- Durable mempool WAL for pending transaction replay across restarts
 - Batch construction
 - DAG batch parent/tip tracking
 - Duplicate batch and unknown parent rejection
@@ -159,6 +177,7 @@ The design is intentionally modular so individual components can be replaced wit
 - Bank module with mint, send, balance query, and persisted state
 - Block executor
 - LevelDB block/state/state-root/evidence storage
+- Atomic block/state/state-root commit path for LevelDB
 - Versioned state lookup by height
 - Retention-based pruning
 - Index recovery after partial metadata loss
@@ -166,7 +185,7 @@ The design is intentionally modular so individual components can be replaced wit
 - Recovery, replay, snapshot, and restore helpers
 - State sync snapshots with module KV payloads, chain metadata, and checksum verification
 - Runtime validator update application
-- Node config, genesis, data directory, and lifecycle skeleton
+- Node config, genesis, data directory, and lifecycle wiring
 - Node-level transport reactor wiring for in-memory multi-node simulations
 
 ### Operations
@@ -177,6 +196,7 @@ The design is intentionally modular so individual components can be replaced wit
 - Admin-token protection for mutation endpoints
 - JSON or text startup logs with level, version, pid, and Go runtime metadata
 - Deployment audit checks for production readiness
+- Release gate command that requires signed artifacts plus long-run, chaos, adversarial, fuzz, signer, snapshot/replay, external audit, and BLS audit evidence
 - Cross-platform release builds and checksum generation through `make release`
 - Encrypted validator key files with passphrase-based loading
 - Remote signer key documents for KMS/HSM-backed validator signing
@@ -197,7 +217,7 @@ The design is intentionally modular so individual components can be replaced wit
 | `app/governance` | Configurable proposal, vote, execute, tally, and applied-change application module |
 | `app/staking` | Delegation, undelegation, unjail transactions, unbonding release tracking, and validator updates |
 | `app/modules` | Config-driven default application module registry and execution ante wiring |
-| `cmd/vexod` | CLI entrypoint |
+| `cmd/vexod` | CLI entrypoint, local network runner, audit tooling, and release gates |
 | `committee` | Committee selection and epoch rotation |
 | `config` | Default chain configuration and validation |
 | `consensus` | Consensus state machine, votes, proposals, QC, conflict evidence |
@@ -206,13 +226,13 @@ The design is intentionally modular so individual components can be replaced wit
 | `fairordering` | Height-salted deterministic transaction ordering |
 | `finality` | Finality proofs and light-client verifier |
 | `governance` | Proposal, voting, quorum, veto, and timelock module |
-| `mempool` | FIFO mempool, fee/priority policy, duplicate suppression, and DAG batch graph |
+| `mempool` | FIFO mempool, fee/priority policy, duplicate suppression, durable WAL, and DAG batch graph |
 | `node` | Node config, genesis, lifecycle, runtime/store wiring, operations helpers |
 | `p2p` | Peer scoring, rate-limit, flood defense, and persistent address book |
 | `rpc` | HTTP health, readiness, status, metrics, admin, pprof, and query endpoints |
 | `runtime` | Module wiring, block execution, proof building, recovery, replay |
 | `slashing` | Evidence validation, lifecycle tracking, penalty receipts, and keeper implementations |
-| `store` | LevelDB-backed block, versioned state, state-root, evidence, KV, recovery, pruning, and compaction storage |
+| `store` | LevelDB-backed block, versioned state, state-root, evidence, KV, atomic commit, schema metadata, recovery, pruning, and compaction storage |
 | `transport` | In-memory, TCP, and gRPC message transport with pub/sub interfaces |
 | `types` | Shared primitive types |
 | `validator` | In-memory and store-backed validator registries with admission policy |
@@ -575,6 +595,17 @@ make docker-image VERSION=0.1.0 IMAGE=vexo-consensus IMAGE_TAG=0.1.0
 make release-candidate VERSION=0.1.0-rc.1
 go run ./cmd/vexod release launch-checklist
 go run ./cmd/vexod release readiness --json
+go run ./cmd/vexod release gate \
+  --dist dist \
+  --version 0.1.0-rc.1 \
+  --longrun-evidence dist/longrun-evidence.json \
+  --chaos-evidence dist/chaos-evidence.json \
+  --adversarial-evidence dist/adversarial-evidence.json \
+  --fuzz-evidence dist/fuzz-evidence.txt \
+  --kms-evidence dist/kms-evidence.json \
+  --snapshot-evidence dist/snapshot-replay-evidence.json \
+  --external-audit dist/external-audit.pdf \
+  --bls-audit dist/bls-audit.pdf
 ```
 
 Run all checks:
@@ -687,6 +718,19 @@ Run the built-binary 4-validator network E2E test:
 VEXO_NETWORK_E2E=1 go test ./cmd/vexod -run TestNetworkUpBuiltBinaryE2E -count=1 -v
 ```
 
+## Production Readiness
+
+The repository contains code-level production gates, but those gates are intentionally strict. A public, value-bearing network should not launch until all of the following are available:
+
+- `make check`, `make fuzz-smoke`, and `make ops-verify` output from a clean checkout.
+- `vexod config audit --strict --json` output for every validator home.
+- `vexod release gate --json` output with signed release artifacts and attached long-run, chaos, adversarial, fuzz, KMS/signer, snapshot/replay, external-audit, and BLS-audit evidence.
+- Independent external security audit results and finding disposition.
+- Real multi-host/multi-region long-run evidence with metrics, logs, peer score snapshots, pprof samples, snapshot restore, replay, and signer policy evidence.
+- An audited production crypto adapter when using BLS. Deterministic crypto is development-only.
+
+For private release candidates, `release gate --allow-external-pending` can be used to document missing external audit/BLS audit evidence. Do not use that flag for public production launches.
+
 ## Design Principles
 
 - **Modularity**: every major subsystem should be replaceable.
@@ -704,7 +748,7 @@ Consensus protocol details, safety invariants, finality verification rules, cryp
 
 `vexo-consensus` is experimental software.
 
-Do not use it to secure real funds, production validator infrastructure, or critical systems without independent review, production cryptography, persistent state, real networking, and protocol-level audits.
+Do not use it to secure real funds, production validator infrastructure, or critical systems without independent review, production cryptography, release-gate evidence, multi-machine operational validation, and protocol-level audits.
 
 ## Contributing
 
@@ -713,6 +757,8 @@ Contributions are welcome.
 Before opening a change, keep the current design rule in mind:
 
 > Prefer small, testable modules over clever monoliths.
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development rules, required checks, and documentation expectations.
 
 ## License
 

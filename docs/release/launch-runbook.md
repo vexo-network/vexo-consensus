@@ -21,6 +21,7 @@ Do not launch if:
 - remote signer policy or double-sign guard is not verified
 - release artifacts, checksums, SBOM, or audit pack are missing
 - long-run, adversarial, fuzz, snapshot, replay, or signer evidence is missing for a release candidate
+- `release gate` fails without an explicitly documented private-RC exception
 
 ## Release Candidate Gate
 
@@ -33,8 +34,13 @@ Required artifacts:
 - `release-manifest.json`
 - `release-audit-pack.json`
 - long-run network evidence
+- chaos test evidence
 - consensus adversarial simulation evidence
 - fuzz or property test evidence
+- KMS or remote signer policy evidence
+- snapshot/replay restore evidence
+- external audit disposition for public releases
+- BLS adapter audit evidence when BLS is enabled
 
 Recommended commands:
 
@@ -49,6 +55,17 @@ go run ./cmd/vexod release pack \
   --adversarial-evidence dist/adversarial-evidence.json \
   --fuzz-evidence dist/fuzz-evidence.txt \
   --output dist/release-audit-pack.json
+go run ./cmd/vexod release gate \
+  --dist dist \
+  --version <version> \
+  --longrun-evidence dist/longrun-evidence.json \
+  --chaos-evidence dist/chaos-evidence.json \
+  --adversarial-evidence dist/adversarial-evidence.json \
+  --fuzz-evidence dist/fuzz-evidence.txt \
+  --kms-evidence dist/kms-evidence.json \
+  --snapshot-evidence dist/snapshot-replay-evidence.json \
+  --external-audit dist/external-audit.pdf \
+  --bls-audit dist/bls-audit.pdf
 ```
 
 ## Genesis Gate

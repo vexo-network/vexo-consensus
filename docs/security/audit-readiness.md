@@ -77,6 +77,18 @@ go run ./cmd/vexod config audit-pack --json
 go run ./cmd/vexod ops thresholds --json
 go run ./cmd/vexod upgrade plan --json --name audit-upgrade --height 100
 go run ./cmd/vexod network longrun --validators 4 --duration 1h --rate 50 --output dist/longrun-evidence.json
+go run ./cmd/vexod release gate \
+  --dist dist \
+  --version <version> \
+  --longrun-evidence dist/longrun-evidence.json \
+  --chaos-evidence dist/chaos-evidence.json \
+  --adversarial-evidence dist/adversarial-evidence.json \
+  --fuzz-evidence dist/fuzz-evidence.txt \
+  --kms-evidence dist/kms-evidence.json \
+  --snapshot-evidence dist/snapshot-replay-evidence.json \
+  --external-audit dist/external-audit.pdf \
+  --bls-audit dist/bls-audit.pdf \
+  --json
 ```
 
 Attach release artifacts from:
