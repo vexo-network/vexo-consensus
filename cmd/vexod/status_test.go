@@ -44,6 +44,8 @@ func TestWriteStatus(t *testing.T) {
 		"security.forwarded_for_untrusted: true",
 		"consensus.adversarial_simulation: true",
 		"consensus.partition_safety_simulation: true",
+		"consensus.tendermint_style_timeouts: true",
+		"consensus.empty_block_control: true",
 		"crypto.remote_signer_verification: true",
 		"crypto.bls_adapter_required: true",
 		"addr_book.persistent: true",
@@ -101,7 +103,7 @@ func TestWriteStatusJSON(t *testing.T) {
 	if document.Mempool.MinFee != 0 || document.Mempool.EnablePriority {
 		t.Fatalf("unexpected mempool status: %+v", document.Mempool)
 	}
-	if document.Storage.Backend != "leveldb" || !document.Features["peer_scoring"] || !document.Features["height_salted_order"] || !document.Features["deployment_audit"] || !document.Features["addr_book"] || !document.Features["addr_book_ban_evict"] || !document.Features["peer_dial_tracking"] || !document.Features["transport_peer_gate"] || !document.Features["consensus_gossip_scoring"] || !document.Features["banned_peer_disconnect"] || !document.Features["peer_score_persistence"] || !document.Features["state_sync_snapshot_kv"] || !document.Features["state_sync_checksum"] || !document.Features["state_sync_verify"] || !document.Features["ops_metrics_uptime"] || !document.Features["ops_pprof_optional"] || !document.Features["ops_structured_logs"] || !document.Features["ops_release_artifacts"] || !document.Features["ops_external_audit_pack"] || !document.Features["ops_deployment_template"] || !document.Features["ops_longrun_network_plan"] || !document.Features["security_fuzz_targets"] || !document.Features["security_strict_json_rpc"] || !document.Features["security_forwarded_for_untrusted"] || !document.Features["consensus_adversarial_simulation"] || !document.Features["consensus_partition_safety"] || !document.Features["crypto_remote_signer_verification"] || !document.Features["crypto_bls_adapter_required"] {
+	if document.Storage.Backend != "leveldb" || !document.Features["peer_scoring"] || !document.Features["height_salted_order"] || !document.Features["deployment_audit"] || !document.Features["addr_book"] || !document.Features["addr_book_ban_evict"] || !document.Features["peer_dial_tracking"] || !document.Features["transport_peer_gate"] || !document.Features["consensus_gossip_scoring"] || !document.Features["banned_peer_disconnect"] || !document.Features["peer_score_persistence"] || !document.Features["state_sync_snapshot_kv"] || !document.Features["state_sync_checksum"] || !document.Features["state_sync_verify"] || !document.Features["ops_metrics_uptime"] || !document.Features["ops_pprof_optional"] || !document.Features["ops_structured_logs"] || !document.Features["ops_release_artifacts"] || !document.Features["ops_external_audit_pack"] || !document.Features["ops_deployment_template"] || !document.Features["ops_longrun_network_plan"] || !document.Features["security_fuzz_targets"] || !document.Features["security_strict_json_rpc"] || !document.Features["security_forwarded_for_untrusted"] || !document.Features["consensus_adversarial_simulation"] || !document.Features["consensus_partition_safety"] || !document.Features["consensus_tendermint_timeouts"] || !document.Features["consensus_empty_block_control"] || !document.Features["crypto_remote_signer_verification"] || !document.Features["crypto_bls_adapter_required"] {
 		t.Fatalf("unexpected feature/storage status: %+v", document)
 	}
 	if document.P2P.InitialScore != 100 || document.P2P.InvalidMessageCost != 10 || !document.P2P.PeerSnapshotsEnabled {

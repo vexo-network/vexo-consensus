@@ -74,10 +74,15 @@ type runtimeP2PConfig struct {
 }
 
 type runtimeConsensusConfig struct {
-	LoopEnabled   bool   `json:"loop_enabled"`
-	Interval      string `json:"interval,omitempty"`
-	RoundTimeout  string `json:"round_timeout,omitempty"`
-	MaxBlockBytes int64  `json:"max_block_bytes,omitempty"`
+	LoopEnabled       bool   `json:"loop_enabled"`
+	Interval          string `json:"interval,omitempty"`
+	TimeoutPropose    string `json:"timeout_propose,omitempty"`
+	TimeoutPrevote    string `json:"timeout_prevote,omitempty"`
+	TimeoutPrecommit  string `json:"timeout_precommit,omitempty"`
+	TimeoutCommit     string `json:"timeout_commit,omitempty"`
+	RoundTimeout      string `json:"round_timeout,omitempty"`
+	MaxBlockBytes     int64  `json:"max_block_bytes,omitempty"`
+	CreateEmptyBlocks bool   `json:"create_empty_blocks"`
 }
 
 type runtimeLogConfig struct {
@@ -732,7 +737,14 @@ func defaultConfigDocument(chainID string, dataDir string, validatorID string, m
 				Seeds:            map[string]string{},
 			},
 			Consensus: runtimeConsensusConfig{
-				LoopEnabled: loopEnabled,
+				LoopEnabled:       loopEnabled,
+				Interval:          "50ms",
+				TimeoutPropose:    "3s",
+				TimeoutPrevote:    "1s",
+				TimeoutPrecommit:  "1s",
+				TimeoutCommit:     "1s",
+				MaxBlockBytes:     1024 * 1024,
+				CreateEmptyBlocks: false,
 			},
 			Log: runtimeLogConfig{
 				Format:       "text",

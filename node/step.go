@@ -16,6 +16,14 @@ type ConsensusStepResult struct {
 }
 
 func (node *Node) StepConsensus(ctx context.Context, maxBytes int64) (ConsensusStepResult, error) {
+	return node.StepConsensusWithConfig(ctx, ConsensusLoopConfig{
+		MaxBlockBytes:     maxBytes,
+		CreateEmptyBlocks: true,
+	})
+}
+
+func (node *Node) StepConsensusWithConfig(ctx context.Context, cfg ConsensusLoopConfig) (ConsensusStepResult, error) {
+	cfg = normalizeConsensusLoopConfig(cfg)
 	commit, committed, err := node.CommitReadyBlock(ctx)
 	if err != nil {
 		return ConsensusStepResult{}, err
@@ -27,7 +35,7 @@ func (node *Node) StepConsensus(ctx context.Context, maxBytes int64) (ConsensusS
 		}, nil
 	}
 
-	proposal, blockHash, proposed, err := node.TickConsensus(ctx, maxBytes)
+	proposal, blockHash, proposed, err := node.TickConsensusWithConfig(ctx, cfg)
 	if err != nil {
 		return ConsensusStepResult{}, err
 	}

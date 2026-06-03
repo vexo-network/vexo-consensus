@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -233,6 +234,20 @@ func TestDefaultConfigEnablesOperationalEventLogs(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigWritesTendermintStyleConsensusTimeouts(t *testing.T) {
+	document := defaultConfigDocument("vexo-test", t.TempDir(), "alice")
+	consensus := document.Runtime.Consensus
+	if consensus.TimeoutPropose != "3s" ||
+		consensus.TimeoutPrevote != "1s" ||
+		consensus.TimeoutPrecommit != "1s" ||
+		consensus.TimeoutCommit != "1s" {
+		t.Fatalf("unexpected consensus timeouts: %+v", consensus)
+	}
+	if consensus.CreateEmptyBlocks {
+		t.Fatalf("expected empty block creation disabled by default: %+v", consensus)
+	}
+}
+
 func TestLoadStartRuntimeConfigAllowsDisablingOperationalEventLogs(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, configFileName)
@@ -247,6 +262,30 @@ func TestLoadStartRuntimeConfigAllowsDisablingOperationalEventLogs(t *testing.T)
 	}
 	if cfg.LogCommitEvents || cfg.LogPeerEvents {
 		t.Fatalf("expected operational event logs disabled, got commit=%t peer=%t", cfg.LogCommitEvents, cfg.LogPeerEvents)
+	}
+}
+
+func TestLoadStartRuntimeConfigParsesConsensusTimeoutsAndEmptyBlocks(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, configFileName)
+	document := defaultConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	document.Runtime.Consensus.TimeoutPropose = "4s"
+	document.Runtime.Consensus.TimeoutPrevote = "1500ms"
+	document.Runtime.Consensus.TimeoutPrecommit = "2s"
+	document.Runtime.Consensus.TimeoutCommit = "250ms"
+	document.Runtime.Consensus.CreateEmptyBlocks = true
+	writeTestJSON(t, path, document)
+
+	cfg, err := loadStartRuntimeConfig(home, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ConsensusLoop.TimeoutPropose != 4*time.Second ||
+		cfg.ConsensusLoop.TimeoutPrevote != 1500*time.Millisecond ||
+		cfg.ConsensusLoop.TimeoutPrecommit != 2*time.Second ||
+		cfg.ConsensusLoop.TimeoutCommit != 250*time.Millisecond ||
+		!cfg.ConsensusLoop.CreateEmptyBlocks {
+		t.Fatalf("unexpected consensus runtime config: %+v", cfg.ConsensusLoop)
 	}
 }
 

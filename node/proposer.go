@@ -63,6 +63,14 @@ func (node *Node) IsProposer(ctx context.Context, height types.Height, round typ
 }
 
 func (node *Node) TickConsensus(ctx context.Context, maxBytes int64) (consensus.Proposal, types.Hash, bool, error) {
+	return node.TickConsensusWithConfig(ctx, ConsensusLoopConfig{
+		MaxBlockBytes:     maxBytes,
+		CreateEmptyBlocks: true,
+	})
+}
+
+func (node *Node) TickConsensusWithConfig(ctx context.Context, cfg ConsensusLoopConfig) (consensus.Proposal, types.Hash, bool, error) {
+	cfg = normalizeConsensusLoopConfig(cfg)
 	machine, err := node.Consensus()
 	if err != nil {
 		return consensus.Proposal{}, types.Hash{}, false, err
@@ -82,7 +90,7 @@ func (node *Node) TickConsensus(ctx context.Context, maxBytes int64) (consensus.
 	if node.hasProposed(height, status.Round) {
 		return consensus.Proposal{}, types.Hash{}, false, nil
 	}
-	proposal, blockHash, err := node.ProposeFromMempool(ctx, maxBytes)
+	proposal, blockHash, err := node.ProposeFromMempoolWithOptions(ctx, cfg.MaxBlockBytes, ProposalOptions{AllowEmpty: cfg.CreateEmptyBlocks})
 	if errors.Is(err, ErrEmptyProposal) {
 		return consensus.Proposal{}, types.Hash{}, false, nil
 	}

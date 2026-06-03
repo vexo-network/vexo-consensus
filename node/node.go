@@ -58,6 +58,7 @@ type Node struct {
 	scoreDone      chan struct{}
 	loopCancel     context.CancelFunc
 	loopDone       chan struct{}
+	loopConfig     ConsensusLoopConfig
 	pending        map[types.Hash]consensus.Proposal
 	proposed       map[proposalRound]struct{}
 	timeoutVotes   map[proposalRound]consensus.TimeoutVote

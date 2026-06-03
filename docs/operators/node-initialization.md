@@ -99,9 +99,38 @@ Command-line `--peer` and `--seed` remain available for temporary debugging, but
 
 Do not put long-lived host or `host:port` settings on the `vexod start` command line. Edit `runtime.rpc.address`, `runtime.p2p.listen_address`, `runtime.p2p.peers`, and `runtime.p2p.seeds` in `config.json` instead.
 
-## Multi-Validator Local Network
+## Consensus Timing
 
-For a generated local network:
+Consensus loop timing also lives in `config.json`:
+
+```json
+{
+  "runtime": {
+    "consensus": {
+      "loop_enabled": true,
+      "interval": "50ms",
+      "timeout_propose": "3s",
+      "timeout_prevote": "1s",
+      "timeout_precommit": "1s",
+      "timeout_commit": "1s",
+      "max_block_bytes": 1048576,
+      "create_empty_blocks": false
+    }
+  }
+}
+```
+
+- `timeout_propose` controls how long a round waits for a proposal.
+- `timeout_prevote` controls the vote collection window.
+- `timeout_precommit` controls the commit-certificate collection window.
+- `timeout_commit` controls the minimum delay after a committed block.
+- `create_empty_blocks: false` means the node only proposes when transactions are available.
+
+`round_timeout` is kept only as a compatibility aggregate. Prefer the Tendermint-style timeout fields above.
+
+## Multi-Validator Network
+
+For a generated network:
 
 ```bash
 vexod network init \

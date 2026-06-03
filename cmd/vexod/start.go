@@ -100,8 +100,13 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	rpcRateLimitMaxRequests := flags.Int("rpc-rate-limit-max", 0, "maximum HTTP RPC requests per client per window")
 	consensusLoopEnabled := flags.Bool("consensus-loop", true, "start local consensus loop with node")
 	consensusInterval := flags.Duration("consensus-interval", 0, "local consensus loop tick interval")
-	roundTimeout := flags.Duration("consensus-round-timeout", 0, "local consensus loop timeout round duration")
+	timeoutPropose := flags.Duration("timeout-propose", 0, "consensus proposal timeout")
+	timeoutPrevote := flags.Duration("timeout-prevote", 0, "consensus prevote timeout")
+	timeoutPrecommit := flags.Duration("timeout-precommit", 0, "consensus precommit timeout")
+	timeoutCommit := flags.Duration("timeout-commit", 0, "minimum delay after each committed block")
+	roundTimeout := flags.Duration("consensus-round-timeout", 0, "deprecated aggregate round timeout")
 	maxBlockBytes := flags.Int64("consensus-max-block-bytes", 0, "maximum bytes to include when building a block")
+	createEmptyBlocks := flags.Bool("create-empty-blocks", false, "create blocks even when the mempool is empty")
 	p2pEnabled := flags.Bool("p2p", true, "run gRPC P2P transport with node")
 	p2pNetworkID := flags.String("p2p-network", "", "P2P network id; defaults to chain id")
 	p2pMaxMessageBytes := flags.Uint64("p2p-max-message-bytes", 0, "maximum P2P message bytes")
@@ -149,8 +154,13 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 		logPeerEvents:           *logPeerEvents,
 		consensusLoopEnabled:    *consensusLoopEnabled,
 		consensusInterval:       *consensusInterval,
+		timeoutPropose:          *timeoutPropose,
+		timeoutPrevote:          *timeoutPrevote,
+		timeoutPrecommit:        *timeoutPrecommit,
+		timeoutCommit:           *timeoutCommit,
 		roundTimeout:            *roundTimeout,
 		maxBlockBytes:           *maxBlockBytes,
+		createEmptyBlocks:       *createEmptyBlocks,
 		p2pEnabled:              *p2pEnabled,
 		p2pNetworkID:            *p2pNetworkID,
 		p2pMaxMessageBytes:      *p2pMaxMessageBytes,
@@ -215,8 +225,13 @@ type startFlagValues struct {
 	logPeerEvents           bool
 	consensusLoopEnabled    bool
 	consensusInterval       time.Duration
+	timeoutPropose          time.Duration
+	timeoutPrevote          time.Duration
+	timeoutPrecommit        time.Duration
+	timeoutCommit           time.Duration
 	roundTimeout            time.Duration
 	maxBlockBytes           int64
+	createEmptyBlocks       bool
 	p2pEnabled              bool
 	p2pNetworkID            string
 	p2pMaxMessageBytes      uint64
@@ -276,11 +291,26 @@ func applyStartFlagOverrides(cfg *startRuntimeConfig, visited map[string]bool, v
 	if visited["consensus-interval"] {
 		cfg.ConsensusLoop.Interval = values.consensusInterval
 	}
+	if visited["timeout-propose"] {
+		cfg.ConsensusLoop.TimeoutPropose = values.timeoutPropose
+	}
+	if visited["timeout-prevote"] {
+		cfg.ConsensusLoop.TimeoutPrevote = values.timeoutPrevote
+	}
+	if visited["timeout-precommit"] {
+		cfg.ConsensusLoop.TimeoutPrecommit = values.timeoutPrecommit
+	}
+	if visited["timeout-commit"] {
+		cfg.ConsensusLoop.TimeoutCommit = values.timeoutCommit
+	}
 	if visited["consensus-round-timeout"] {
 		cfg.ConsensusLoop.RoundTimeout = values.roundTimeout
 	}
 	if visited["consensus-max-block-bytes"] {
 		cfg.ConsensusLoop.MaxBlockBytes = values.maxBlockBytes
+	}
+	if visited["create-empty-blocks"] {
+		cfg.ConsensusLoop.CreateEmptyBlocks = values.createEmptyBlocks
 	}
 	if visited["p2p"] {
 		cfg.P2PEnabled = values.p2pEnabled
@@ -550,7 +580,8 @@ func runtimeConfigFromDocument(home string, document configDocument) (startRunti
 		P2PSeeds:             stringPeerMap(runtime.P2P.Seeds),
 		ConsensusLoopEnabled: runtime.Consensus.LoopEnabled,
 		ConsensusLoop: vexonode.ConsensusLoopConfig{
-			MaxBlockBytes: runtime.Consensus.MaxBlockBytes,
+			MaxBlockBytes:     runtime.Consensus.MaxBlockBytes,
+			CreateEmptyBlocks: runtime.Consensus.CreateEmptyBlocks,
 		},
 		LogFormat: runtime.Log.Format,
 		LogLevel:  runtime.Log.Level,
@@ -598,6 +629,34 @@ func runtimeConfigFromDocument(home string, document configDocument) (startRunti
 			return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.interval: %w", err)
 		}
 		cfg.ConsensusLoop.Interval = duration
+	}
+	if runtime.Consensus.TimeoutPropose != "" {
+		duration, err := time.ParseDuration(runtime.Consensus.TimeoutPropose)
+		if err != nil {
+			return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.timeout_propose: %w", err)
+		}
+		cfg.ConsensusLoop.TimeoutPropose = duration
+	}
+	if runtime.Consensus.TimeoutPrevote != "" {
+		duration, err := time.ParseDuration(runtime.Consensus.TimeoutPrevote)
+		if err != nil {
+			return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.timeout_prevote: %w", err)
+		}
+		cfg.ConsensusLoop.TimeoutPrevote = duration
+	}
+	if runtime.Consensus.TimeoutPrecommit != "" {
+		duration, err := time.ParseDuration(runtime.Consensus.TimeoutPrecommit)
+		if err != nil {
+			return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.timeout_precommit: %w", err)
+		}
+		cfg.ConsensusLoop.TimeoutPrecommit = duration
+	}
+	if runtime.Consensus.TimeoutCommit != "" {
+		duration, err := time.ParseDuration(runtime.Consensus.TimeoutCommit)
+		if err != nil {
+			return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.timeout_commit: %w", err)
+		}
+		cfg.ConsensusLoop.TimeoutCommit = duration
 	}
 	if runtime.Consensus.RoundTimeout != "" {
 		duration, err := time.ParseDuration(runtime.Consensus.RoundTimeout)

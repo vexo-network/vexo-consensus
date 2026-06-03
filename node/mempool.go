@@ -35,6 +35,14 @@ func (node *Node) SubmitTx(ctx context.Context, tx types.Tx) error {
 }
 
 func (node *Node) ProposeFromMempool(ctx context.Context, maxBytes int64) (consensus.Proposal, types.Hash, error) {
+	return node.ProposeFromMempoolWithOptions(ctx, maxBytes, ProposalOptions{AllowEmpty: true})
+}
+
+type ProposalOptions struct {
+	AllowEmpty bool
+}
+
+func (node *Node) ProposeFromMempoolWithOptions(ctx context.Context, maxBytes int64, options ProposalOptions) (consensus.Proposal, types.Hash, error) {
 	runtime, err := node.Runtime()
 	if err != nil {
 		return consensus.Proposal{}, types.Hash{}, err
@@ -47,6 +55,9 @@ func (node *Node) ProposeFromMempool(ctx context.Context, maxBytes int64) (conse
 	batch, err := runtime.Mempool.BuildBatch(ctx, maxBytes)
 	if err != nil {
 		return consensus.Proposal{}, types.Hash{}, err
+	}
+	if !options.AllowEmpty && len(batch.Txs) == 0 {
+		return consensus.Proposal{}, types.Hash{}, ErrEmptyProposal
 	}
 
 	status := machine.Status(ctx)
@@ -146,5 +157,8 @@ func (node *Node) wakeConsensus(ctx context.Context) {
 	if !node.ConsensusLoopRunning() {
 		return
 	}
-	_, _ = node.StepConsensus(ctx, defaultConsensusMaxBytes)
+	node.mu.Lock()
+	cfg := node.loopConfig
+	node.mu.Unlock()
+	_, _ = node.StepConsensusWithConfig(ctx, cfg)
 }

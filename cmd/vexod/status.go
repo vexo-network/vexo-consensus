@@ -46,6 +46,8 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "security.forwarded_for_untrusted: true\n")
 	fmt.Fprintf(writer, "consensus.adversarial_simulation: true\n")
 	fmt.Fprintf(writer, "consensus.partition_safety_simulation: true\n")
+	fmt.Fprintf(writer, "consensus.tendermint_style_timeouts: true\n")
+	fmt.Fprintf(writer, "consensus.empty_block_control: true\n")
 	fmt.Fprintf(writer, "crypto.remote_signer_verification: true\n")
 	fmt.Fprintf(writer, "crypto.bls_adapter_required: true\n")
 	fmt.Fprintf(writer, "addr_book.persistent: true\n")
@@ -195,6 +197,8 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"security_forwarded_for_untrusted":  true,
 			"consensus_adversarial_simulation":  true,
 			"consensus_partition_safety":        true,
+			"consensus_tendermint_timeouts":     true,
+			"consensus_empty_block_control":     true,
 			"crypto_remote_signer_verification": true,
 			"crypto_bls_adapter_required":       true,
 			"deployment_audit":                  true,

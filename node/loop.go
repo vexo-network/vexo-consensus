@@ -7,22 +7,34 @@ import (
 )
 
 const (
-	defaultConsensusLoopInterval = 50 * time.Millisecond
-	defaultConsensusRoundTimeout = 500 * time.Millisecond
-	defaultConsensusMaxBytes     = 1024 * 1024
+	defaultConsensusLoopInterval     = 50 * time.Millisecond
+	defaultConsensusTimeoutPropose   = 3 * time.Second
+	defaultConsensusTimeoutPrevote   = time.Second
+	defaultConsensusTimeoutPrecommit = time.Second
+	defaultConsensusTimeoutCommit    = time.Second
+	defaultConsensusMaxBytes         = 1024 * 1024
 )
 
 type ConsensusLoopConfig struct {
-	Interval      time.Duration
-	RoundTimeout  time.Duration
-	MaxBlockBytes int64
+	Interval          time.Duration
+	TimeoutPropose    time.Duration
+	TimeoutPrevote    time.Duration
+	TimeoutPrecommit  time.Duration
+	TimeoutCommit     time.Duration
+	RoundTimeout      time.Duration
+	MaxBlockBytes     int64
+	CreateEmptyBlocks bool
 }
 
 func DefaultConsensusLoopConfig() ConsensusLoopConfig {
 	return ConsensusLoopConfig{
-		Interval:      defaultConsensusLoopInterval,
-		RoundTimeout:  defaultConsensusRoundTimeout,
-		MaxBlockBytes: defaultConsensusMaxBytes,
+		Interval:          defaultConsensusLoopInterval,
+		TimeoutPropose:    defaultConsensusTimeoutPropose,
+		TimeoutPrevote:    defaultConsensusTimeoutPrevote,
+		TimeoutPrecommit:  defaultConsensusTimeoutPrecommit,
+		TimeoutCommit:     defaultConsensusTimeoutCommit,
+		MaxBlockBytes:     defaultConsensusMaxBytes,
+		CreateEmptyBlocks: false,
 	}
 }
 
@@ -42,6 +54,7 @@ func (node *Node) StartConsensusLoop(ctx context.Context, cfg ConsensusLoopConfi
 	done := make(chan struct{})
 	node.loopCancel = cancel
 	node.loopDone = done
+	node.loopConfig = cfg
 	node.mu.Unlock()
 
 	go node.runConsensusLoop(runCtx, cfg, done)
@@ -58,6 +71,7 @@ func (node *Node) StopConsensusLoop(ctx context.Context) error {
 	}
 	node.loopCancel = nil
 	node.loopDone = nil
+	node.loopConfig = ConsensusLoopConfig{}
 	node.mu.Unlock()
 
 	cancel()
@@ -77,8 +91,16 @@ func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig,
 	ticker := time.NewTicker(cfg.Interval)
 	defer ticker.Stop()
 	lastTimeout := time.Now()
+	lastCommit := time.Time{}
 	for {
-		result, err := node.StepConsensus(ctx, cfg.MaxBlockBytes)
+		if !lastCommit.IsZero() && cfg.TimeoutCommit > 0 {
+			if remaining := cfg.TimeoutCommit - time.Since(lastCommit); remaining > 0 {
+				if !sleepConsensusLoop(ctx, remaining) {
+					return
+				}
+			}
+		}
+		result, err := node.StepConsensusWithConfig(ctx, cfg)
 		if err != nil {
 			if errors.Is(err, ErrNodeNotRunning) {
 				return
@@ -87,7 +109,10 @@ func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig,
 		if result.Committed || result.Proposed {
 			lastTimeout = time.Now()
 		}
-		if !result.Committed && !result.Proposed && time.Since(lastTimeout) >= cfg.RoundTimeout {
+		if result.Committed {
+			lastCommit = time.Now()
+		}
+		if !result.Committed && !result.Proposed && time.Since(lastTimeout) >= cfg.roundTimeout() {
 			if _, _, err := node.TimeoutRound(ctx); err != nil && errors.Is(err, ErrNodeNotRunning) {
 				return
 			}
@@ -110,19 +135,51 @@ func (node *Node) clearConsensusLoop(done chan struct{}) {
 	}
 	node.loopCancel = nil
 	node.loopDone = nil
+	node.loopConfig = ConsensusLoopConfig{}
 }
 
 func normalizeConsensusLoopConfig(cfg ConsensusLoopConfig) ConsensusLoopConfig {
+	defaults := DefaultConsensusLoopConfig()
 	if cfg.Interval <= 0 {
-		cfg.Interval = defaultConsensusLoopInterval
+		cfg.Interval = defaults.Interval
+	}
+	if cfg.TimeoutPropose <= 0 {
+		cfg.TimeoutPropose = defaults.TimeoutPropose
+	}
+	if cfg.TimeoutPrevote <= 0 {
+		cfg.TimeoutPrevote = defaults.TimeoutPrevote
+	}
+	if cfg.TimeoutPrecommit <= 0 {
+		cfg.TimeoutPrecommit = defaults.TimeoutPrecommit
+	}
+	if cfg.TimeoutCommit <= 0 {
+		cfg.TimeoutCommit = defaults.TimeoutCommit
 	}
 	if cfg.RoundTimeout <= 0 {
-		cfg.RoundTimeout = defaultConsensusRoundTimeout
+		cfg.RoundTimeout = cfg.roundTimeout()
 	}
 	if cfg.MaxBlockBytes <= 0 {
-		cfg.MaxBlockBytes = defaultConsensusMaxBytes
+		cfg.MaxBlockBytes = defaults.MaxBlockBytes
 	}
 	return cfg
+}
+
+func (cfg ConsensusLoopConfig) roundTimeout() time.Duration {
+	if cfg.RoundTimeout > 0 {
+		return cfg.RoundTimeout
+	}
+	return cfg.TimeoutPropose + cfg.TimeoutPrevote + cfg.TimeoutPrecommit
+}
+
+func sleepConsensusLoop(ctx context.Context, duration time.Duration) bool {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 func waitLoopDone(ctx context.Context, done <-chan struct{}) error {
