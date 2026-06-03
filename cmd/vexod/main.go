@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
-	appmodules "github.com/vexo-network/vexo-consensus/app/modules"
 	"github.com/vexo-network/vexo-consensus/cmd/vexod/internal/commandset"
 	"github.com/vexo-network/vexo-consensus/config"
+	appmodules "github.com/vexo-network/vexo-consensus/modules"
 )
 
 var (

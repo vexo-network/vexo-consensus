@@ -213,10 +213,10 @@ The design is intentionally modular so individual components can be replaced wit
 | Package | Description |
 |---|---|
 | `app` | Application and module interfaces |
-| `app/bank` | Bank balances, mint/send transactions, and balance queries |
-| `app/governance` | Configurable proposal, vote, execute, tally, and applied-change application module |
-| `app/staking` | Delegation, undelegation, unjail transactions, unbonding release tracking, and validator updates |
-| `app/modules` | Config-driven default application module registry and execution ante wiring |
+| `modules/bank` | Bank balances, mint/send transactions, and balance queries |
+| `modules/governance` | Configurable proposal, vote, execute, tally, and applied-change application module |
+| `modules/staking` | Delegation, undelegation, unjail transactions, unbonding release tracking, and validator updates |
+| `modules` | Config-driven default application module registry and execution ante wiring |
 | `cmd/vexod` | CLI entrypoint, local network runner, audit tooling, and release gates |
 | `committee` | Committee selection and epoch rotation |
 | `config` | Default chain configuration and validation |

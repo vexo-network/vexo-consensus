@@ -2,10 +2,10 @@ package modules
 
 import (
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
-	"github.com/vexo-network/vexo-consensus/app/bank"
-	appgovernance "github.com/vexo-network/vexo-consensus/app/governance"
-	"github.com/vexo-network/vexo-consensus/app/staking"
 	"github.com/vexo-network/vexo-consensus/config"
+	"github.com/vexo-network/vexo-consensus/modules/bank"
+	appgovernance "github.com/vexo-network/vexo-consensus/modules/governance"
+	"github.com/vexo-network/vexo-consensus/modules/staking"
 )
 
 func DefaultRegistry() vexoapp.Registry {

@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	appmodules "github.com/vexo-network/vexo-consensus/app/modules"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
+	appmodules "github.com/vexo-network/vexo-consensus/modules"
 	vexonode "github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	vexorpc "github.com/vexo-network/vexo-consensus/rpc"

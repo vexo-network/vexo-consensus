@@ -7,9 +7,9 @@ import (
 	"os"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
-	appmodules "github.com/vexo-network/vexo-consensus/app/modules"
 	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/fairordering"
+	appmodules "github.com/vexo-network/vexo-consensus/modules"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
