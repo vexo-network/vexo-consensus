@@ -11,6 +11,7 @@ make check
 make ops-verify
 go run ./cmd/vexod release launch-checklist --json
 go run ./cmd/vexod config audit --home .vexo --strict
+go run ./cmd/vexod config tune --validators 64 --tps 5000 --regions 4 --latency 120ms --json
 go run ./cmd/vexod network scale-plan --validators 64 --regions 4 --hosts 8 --duration 24h --rate 100
 ```
 
@@ -19,6 +20,7 @@ Do not launch if:
 - deterministic crypto is enabled outside development
 - validator homes fail strict config audit
 - remote signer policy or double-sign guard is not verified
+- parameter tuning output is missing or has failed validation checks
 - release artifacts, checksums, SBOM, or audit pack are missing
 - long-run, adversarial, fuzz, snapshot, replay, or signer evidence is missing for a release candidate
 - `release gate` fails without an explicitly documented private-RC exception

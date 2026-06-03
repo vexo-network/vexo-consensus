@@ -32,6 +32,8 @@ func runConfig(writer io.Writer, args []string) error {
 		return runConfigPaths(writer, args[1:])
 	case "show":
 		return runConfigShow(writer, args[1:])
+	case "tune":
+		return runConfigTune(writer, args[1:])
 	default:
 		return fmt.Errorf("unknown config subcommand %q", args[0])
 	}

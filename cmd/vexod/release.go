@@ -259,6 +259,7 @@ func buildProductionReadinessDocument() productionReadinessDocument {
 			"make ops-verify",
 			"go run ./cmd/vexod release launch-checklist --json",
 			"go run ./cmd/vexod release readiness --json",
+			"go run ./cmd/vexod config tune --validators <n> --tps <target> --regions <r> --latency <duration> --json",
 			"go run ./cmd/vexod release gate --dist dist --version <version> --longrun-evidence dist/longrun-evidence.json --chaos-evidence dist/chaos-evidence.json --adversarial-evidence dist/adversarial-evidence.json --fuzz-evidence dist/fuzz-evidence.txt --kms-evidence dist/kms-evidence.json --snapshot-evidence dist/snapshot-replay-evidence.json --external-audit dist/external-audit.pdf --bls-audit dist/bls-audit.pdf",
 			"go run ./cmd/vexod network scale-plan --validators <n> --regions <r> --hosts <h> --json",
 			"go run ./cmd/vexod snapshot drill-plan --input snapshot.json --chain-id <chain-id> --json",

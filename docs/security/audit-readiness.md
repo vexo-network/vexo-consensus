@@ -74,6 +74,7 @@ make check
 make fuzz-smoke
 go run ./cmd/vexod consensus adversarial --json
 go run ./cmd/vexod config audit-pack --json
+go run ./cmd/vexod config tune --validators <n> --tps <target> --regions <r> --latency <duration> --json
 go run ./cmd/vexod ops thresholds --json
 go run ./cmd/vexod upgrade plan --json --name audit-upgrade --height 100
 go run ./cmd/vexod network longrun --validators 4 --duration 1h --rate 50 --output dist/longrun-evidence.json

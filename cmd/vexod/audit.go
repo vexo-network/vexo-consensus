@@ -135,6 +135,7 @@ func buildAuditPackDocument() auditPackDocument {
 			"go run ./cmd/vexod config audit --home .vexo --strict --json",
 			"go run ./cmd/vexod consensus adversarial --json",
 			"go run ./cmd/vexod config deployment-template --json",
+			"go run ./cmd/vexod config tune --validators <n> --tps <target> --regions <r> --latency <duration> --json",
 			"go run ./cmd/vexod ops thresholds --json",
 			"go run ./cmd/vexod upgrade plan --json --name audit-upgrade --height 100",
 			"go run ./cmd/vexod network longrun-plan --validators 4 --duration 168h --regions 3 --hosts 4",
@@ -149,6 +150,7 @@ func buildAuditPackDocument() auditPackDocument {
 		Evidence: []string{
 			"test output from make check and make fuzz-smoke",
 			"JSON output from config audit and consensus adversarial simulation",
+			"JSON output from config tune with target validator count, TPS, regions, and measured latency assumptions",
 			"threat model, known limitations, assumptions, and safety argument from docs/security/audit-readiness.md",
 			"network logs, pids, health/status snapshots, metrics, and pprof captures",
 			"snapshot checksums and restore verification output",

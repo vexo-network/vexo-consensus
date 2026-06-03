@@ -37,6 +37,12 @@ Run release candidate verification:
 make release-candidate VERSION=0.1.0-rc.1
 ```
 
+Generate launch parameter recommendations for the target network:
+
+```bash
+go run ./cmd/vexod config tune --validators 64 --tps 5000 --regions 4 --latency 120ms --json
+```
+
 Print the operator launch checklist:
 
 ```bash

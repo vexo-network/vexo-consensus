@@ -44,6 +44,7 @@ fuzz-smoke:
 ops-verify: check fuzz-smoke
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod config audit-pack --json
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod config deployment-template --json
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod config tune --validators 64 --tps 5000 --regions 4 --latency 120ms --json
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod release launch-checklist --json
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod release readiness --json
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod consensus adversarial --json

@@ -524,6 +524,7 @@ Generate an external audit evidence checklist and deployment parameter template:
 ```bash
 go run ./cmd/vexod config audit-pack --json
 go run ./cmd/vexod config deployment-template --json
+go run ./cmd/vexod config tune --validators 100 --tps 5000 --regions 3 --latency 120ms --json
 ```
 
 Strict production checks can be enforced before startup:

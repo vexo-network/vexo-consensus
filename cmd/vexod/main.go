@@ -125,6 +125,7 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  config deployment-template print recommended deployment parameters\n")
 	fmt.Fprintf(writer, "  config paths    print resolved config, genesis, key, and data paths\n")
 	fmt.Fprintf(writer, "  config show     print loaded chain config as JSON\n")
+	fmt.Fprintf(writer, "  config tune     recommend launch-safe consensus, network, mempool, fee, and alert parameters\n")
 	fmt.Fprintf(writer, "\nCommon Subcommands:\n")
 	fmt.Fprintf(writer, "  keys gen        generate an Ed25519 validator key\n")
 	fmt.Fprintf(writer, "  keys remote     register a remote KMS/HSM validator signer\n")

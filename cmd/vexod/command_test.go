@@ -1477,7 +1477,7 @@ func TestRunConfigAuditPackAndDeploymentTemplate(t *testing.T) {
 	if err := json.Unmarshal(auditOutput.Bytes(), &auditPack); err != nil {
 		t.Fatal(err)
 	}
-	if auditPack.SchemaVersion != "v1" || len(auditPack.Commands) == 0 || !strings.Contains(strings.Join(auditPack.Commands, "\n"), "network longrun-plan") {
+	if auditPack.SchemaVersion != "v1" || len(auditPack.Commands) == 0 || !strings.Contains(strings.Join(auditPack.Commands, "\n"), "network longrun-plan") || !strings.Contains(strings.Join(auditPack.Commands, "\n"), "config tune") {
 		t.Fatalf("unexpected audit pack: %+v", auditPack)
 	}
 
@@ -1491,6 +1491,35 @@ func TestRunConfigAuditPackAndDeploymentTemplate(t *testing.T) {
 	}
 	if !deployment.Chain.Execution.RequireSigned || !deployment.Chain.Mempool.EnablePriority || !deployment.Runtime.P2PAuthTokenRequired {
 		t.Fatalf("unexpected deployment template: %+v", deployment)
+	}
+}
+
+func TestRunConfigTune(t *testing.T) {
+	var output bytes.Buffer
+	if err := runConfig(&output, []string{"tune", "--validators", "100", "--tps", "5000", "--regions", "3", "--latency", "120ms", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		SchemaVersion string `json:"schema_version"`
+		Inputs        struct {
+			Validators        int `json:"validators"`
+			QuorumVotingPower int `json:"quorum_voting_power"`
+		} `json:"inputs"`
+		Consensus struct {
+			CommitteeSize int `json:"committee_size"`
+		} `json:"consensus"`
+		Mempool struct {
+			MaxTxs int `json:"max_txs"`
+		} `json:"mempool"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.SchemaVersion != "v1" || document.Inputs.Validators != 100 || document.Inputs.QuorumVotingPower != 67 {
+		t.Fatalf("unexpected tuning document: %+v", document)
+	}
+	if document.Consensus.CommitteeSize < 64 || document.Mempool.MaxTxs == 0 {
+		t.Fatalf("unexpected tuning recommendation: %+v", document)
 	}
 }
 
