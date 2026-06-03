@@ -1,12 +1,15 @@
 .git
 .github
 .gocache
+.gomodcache
 .vexo
+.vexo-network
 bin
 build
 dist
 coverage.out
 coverage.html
+longrun-evidence.json
 *.log
 tmp
 temp

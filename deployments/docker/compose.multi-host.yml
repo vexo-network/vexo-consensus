@@ -1,0 +1,28 @@
+name: vexo-multi
+
+services:
+  validator:
+    image: ${VEXO_IMAGE:-vexo-consensus:dev}
+    restart: unless-stopped
+    command:
+      - start
+      - --home
+      - /var/lib/vexo/${VEXO_VALIDATOR_ID:?set VEXO_VALIDATOR_ID}
+      - --run
+      - --rpc-address
+      - 0.0.0.0:26657
+      - --p2p-listen
+      - 0.0.0.0:26656
+      - --peer
+      - ${VEXO_PEER_1:?set VEXO_PEER_1}
+      - --peer
+      - ${VEXO_PEER_2:?set VEXO_PEER_2}
+      - --peer
+      - ${VEXO_PEER_3:?set VEXO_PEER_3}
+      - --log-format
+      - json
+    volumes:
+      - ${VEXO_VALIDATOR_HOME:?set VEXO_VALIDATOR_HOME}:/var/lib/vexo/${VEXO_VALIDATOR_ID}
+    ports:
+      - "${VEXO_RPC_PORT:-26657}:26657"
+      - "${VEXO_P2P_PORT:-26656}:26656"

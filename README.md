@@ -137,6 +137,7 @@ Operations and release:
 - [Launch Runbook](./docs/release/launch-runbook.md)
 - [Release Pipeline](./docs/release/release-pipeline.md)
 - [Version Compatibility Matrix](./docs/release/version-compatibility.md)
+- [Docker Deployment](./deployments/docker/README.md)
 
 ## Development
 

@@ -1,0 +1,110 @@
+name: vexo-single
+
+x-vexo-node: &vexo-node
+  image: ${VEXO_IMAGE:-vexo-consensus:dev}
+  restart: unless-stopped
+  volumes:
+    - vexo-single-data:/var/lib/vexo
+  networks:
+    - vexo-single
+
+services:
+  validator-1:
+    <<: *vexo-node
+    command:
+      - start
+      - --home
+      - /var/lib/vexo/network/validator-1
+      - --run
+      - --rpc-address
+      - 0.0.0.0:26657
+      - --p2p-listen
+      - 0.0.0.0:26656
+      - --peer
+      - validator-2=validator-2:26656
+      - --peer
+      - validator-3=validator-3:26656
+      - --peer
+      - validator-4=validator-4:26656
+      - --log-format
+      - json
+    ports:
+      - "28657:26657"
+      - "28656:26656"
+
+  validator-2:
+    <<: *vexo-node
+    command:
+      - start
+      - --home
+      - /var/lib/vexo/network/validator-2
+      - --run
+      - --rpc-address
+      - 0.0.0.0:26657
+      - --p2p-listen
+      - 0.0.0.0:26656
+      - --peer
+      - validator-1=validator-1:26656
+      - --peer
+      - validator-3=validator-3:26656
+      - --peer
+      - validator-4=validator-4:26656
+      - --log-format
+      - json
+    ports:
+      - "28667:26657"
+      - "28666:26656"
+
+  validator-3:
+    <<: *vexo-node
+    command:
+      - start
+      - --home
+      - /var/lib/vexo/network/validator-3
+      - --run
+      - --rpc-address
+      - 0.0.0.0:26657
+      - --p2p-listen
+      - 0.0.0.0:26656
+      - --peer
+      - validator-1=validator-1:26656
+      - --peer
+      - validator-2=validator-2:26656
+      - --peer
+      - validator-4=validator-4:26656
+      - --log-format
+      - json
+    ports:
+      - "28677:26657"
+      - "28676:26656"
+
+  validator-4:
+    <<: *vexo-node
+    command:
+      - start
+      - --home
+      - /var/lib/vexo/network/validator-4
+      - --run
+      - --rpc-address
+      - 0.0.0.0:26657
+      - --p2p-listen
+      - 0.0.0.0:26656
+      - --peer
+      - validator-1=validator-1:26656
+      - --peer
+      - validator-2=validator-2:26656
+      - --peer
+      - validator-3=validator-3:26656
+      - --log-format
+      - json
+    ports:
+      - "28687:26657"
+      - "28686:26656"
+
+networks:
+  vexo-single:
+
+volumes:
+  vexo-single-data:
+    name: vexo-single-data
+    external: true

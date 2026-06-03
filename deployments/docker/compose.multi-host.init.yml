@@ -1,0 +1,21 @@
+name: vexo-multi-init
+
+services:
+  init:
+    image: ${VEXO_IMAGE:-vexo-consensus:dev}
+    command:
+      - network
+      - init
+      - --home
+      - /var/lib/vexo/network
+      - --chain-id
+      - ${VEXO_CHAIN_ID:-vexo-chain}
+      - --validators
+      - ${VEXO_VALIDATORS:-4}
+      - --p2p-base-port
+      - "26656"
+      - --rpc-base-port
+      - "26657"
+      - --overwrite
+    volumes:
+      - ${VEXO_NETWORK_DIR:-./.vexo-network}:/var/lib/vexo/network
