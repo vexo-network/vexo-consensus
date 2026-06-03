@@ -97,6 +97,73 @@ func TestDoubleSignGuardRejectsConflictingMessage(t *testing.T) {
 	}
 }
 
+func TestDoubleSignGuardSeparatesDomainsAndRestoresSnapshot(t *testing.T) {
+	guard := NewDoubleSignGuard()
+	votePolicy := SignPolicy{ChainID: "vexo-test", Height: 1, Round: 0, Type: SignTypeConsensusVote, Domain: DomainConsensusVote}
+	timeoutPolicy := SignPolicy{ChainID: "vexo-test", Height: 1, Round: 0, Type: SignTypeConsensusTimeoutVote, Domain: DomainConsensusTimeoutVote}
+	if err := guard.CheckAndRemember(votePolicy, []byte("block-a")); err != nil {
+		t.Fatal(err)
+	}
+	if err := guard.CheckAndRemember(timeoutPolicy, []byte("timeout-a")); err != nil {
+		t.Fatal(err)
+	}
+
+	restored, err := NewDoubleSignGuardFromSnapshot(guard.Snapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restored.CheckAndRemember(votePolicy, []byte("block-b")); !errors.Is(err, ErrDoubleSign) {
+		t.Fatalf("expected restored guard double-sign rejection, got %v", err)
+	}
+}
+
+func TestRemoteSignerGuardRejectsBeforeHTTP(t *testing.T) {
+	baseSigner, err := GenerateEd25519Signer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests++
+		var payload remoteSignRequest
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		message, err := base64.StdEncoding.DecodeString(payload.Message)
+		if err != nil {
+			t.Fatal(err)
+		}
+		signature, err := baseSigner.Sign(message)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(writer).Encode(remoteSignResponse{Signature: base64.StdEncoding.EncodeToString(signature)})
+	}))
+	defer server.Close()
+
+	remoteSigner, err := NewRemoteSignerWithGuard(server.URL, baseSigner.PublicKey(), Ed25519Signer{}, 0, NewDoubleSignGuard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := SignPolicy{ChainID: "vexo-test", Height: 1, Round: 0, Type: SignTypeConsensusVote, Domain: DomainConsensusVote}
+	if _, err := remoteSigner.SignWithPolicy(policy, []byte("block-a")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := remoteSigner.SignWithPolicy(policy, []byte("block-b")); !errors.Is(err, ErrDoubleSign) {
+		t.Fatalf("expected local double-sign guard rejection, got %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("expected only first request to reach remote signer, got %d", requests)
+	}
+}
+
+func TestSignPolicyRejectsTypeDomainMismatch(t *testing.T) {
+	policy := SignPolicy{ChainID: "vexo-test", Height: 1, Type: SignTypeConsensusVote, Domain: DomainConsensusProposal}
+	if err := policy.Validate(); !errors.Is(err, ErrInvalidSignPolicy) {
+		t.Fatalf("expected invalid sign policy, got %v", err)
+	}
+}
+
 func TestRemoteSignerRejectsInvalidConfig(t *testing.T) {
 	if _, err := NewRemoteSigner("", []byte("public"), Ed25519Signer{}, 0); err != ErrMissingRemoteSignerURL {
 		t.Fatalf("expected missing url, got %v", err)

@@ -239,6 +239,11 @@ func runKeysVerifyRemote(writer io.Writer, args []string) error {
 	home := flags.String("home", defaultHomeDir, "node home directory")
 	path := flags.String("path", "", "key file path")
 	challenge := flags.String("challenge", "vexo-remote-signer-check", "challenge message to sign")
+	chainID := flags.String("chain-id", defaultChainID, "chain id for remote signer policy")
+	height := flags.Uint64("height", 1, "height for remote signer policy")
+	round := flags.Uint64("round", 0, "round for remote signer policy")
+	signType := flags.String("type", string(vexocrypto.SignTypeConsensusVote), "sign type for remote signer policy")
+	domain := flags.String("domain", string(vexocrypto.DomainConsensusVote), "signature domain for remote signer policy")
 	jsonOutput := flags.Bool("json", false, "write JSON output")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -253,7 +258,14 @@ func runKeysVerifyRemote(writer io.Writer, args []string) error {
 		return err
 	}
 	message := []byte(*challenge)
-	signature, err := signer.Sign(message)
+	policy := vexocrypto.SignPolicy{
+		ChainID: *chainID,
+		Height:  types.Height(*height),
+		Round:   types.Round(*round),
+		Type:    vexocrypto.SignType(*signType),
+		Domain:  vexocrypto.Domain(*domain),
+	}
+	signature, err := signer.SignWithPolicy(policy, message)
 	if err != nil {
 		return err
 	}
@@ -266,6 +278,7 @@ func runKeysVerifyRemote(writer io.Writer, args []string) error {
 		"path":       keyPath,
 		"remote_url": document.Metadata.RemoteURL,
 		"signature":  base64.StdEncoding.EncodeToString(signature),
+		"policy":     policy,
 	}
 	if *jsonOutput {
 		encoder := json.NewEncoder(writer)
@@ -275,6 +288,7 @@ func runKeysVerifyRemote(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "remote signer verified\n")
 	fmt.Fprintf(writer, "path: %s\n", keyPath)
 	fmt.Fprintf(writer, "remote_url: %s\n", document.Metadata.RemoteURL)
+	fmt.Fprintf(writer, "policy: %s\n", policy.GuardKey())
 	fmt.Fprintf(writer, "signature: %s\n", base64.StdEncoding.EncodeToString(signature))
 	return nil
 }

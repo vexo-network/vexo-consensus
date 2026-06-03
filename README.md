@@ -456,10 +456,17 @@ go run ./cmd/vexod keys remote --home .vexo \
   --url http://127.0.0.1:9000/sign
 ```
 
-Verify a remote KMS/HSM signer with a challenge signature:
+Verify a remote KMS/HSM signer with a policy-bound challenge signature:
 
 ```bash
-go run ./cmd/vexod keys verify-remote --home .vexo --challenge deployment-kms --json
+go run ./cmd/vexod keys verify-remote --home .vexo \
+  --challenge deployment-kms \
+  --chain-id vexo-chain \
+  --height 1 \
+  --round 0 \
+  --type consensus_vote \
+  --domain vexo.consensus.vote.v1 \
+  --json
 ```
 
 Inspect paths and startup readiness:

@@ -19,6 +19,7 @@ var (
 	ErrMissingRemotePublicKey = errors.New("remote signer public key is required")
 	ErrRemoteSignerRejected   = errors.New("remote signer rejected request")
 	ErrMissingSignPolicy      = errors.New("remote signer sign policy is required")
+	ErrInvalidSignPolicy      = errors.New("remote signer sign policy is invalid")
 	ErrDoubleSign             = errors.New("remote signer double-sign guard rejected conflicting request")
 )
 
@@ -48,6 +49,7 @@ type RemoteSigner struct {
 	publicKey types.PublicKey
 	client    *http.Client
 	verifier  Signer
+	guard     *DoubleSignGuard
 }
 
 type remoteSignRequest struct {
@@ -61,6 +63,10 @@ type remoteSignResponse struct {
 }
 
 func NewRemoteSigner(url string, publicKey types.PublicKey, verifier Signer, timeout time.Duration) (RemoteSigner, error) {
+	return NewRemoteSignerWithGuard(url, publicKey, verifier, timeout, nil)
+}
+
+func NewRemoteSignerWithGuard(url string, publicKey types.PublicKey, verifier Signer, timeout time.Duration, guard *DoubleSignGuard) (RemoteSigner, error) {
 	if url == "" {
 		return RemoteSigner{}, ErrMissingRemoteSignerURL
 	}
@@ -75,6 +81,7 @@ func NewRemoteSigner(url string, publicKey types.PublicKey, verifier Signer, tim
 		publicKey: append(types.PublicKey(nil), publicKey...),
 		client:    &http.Client{Timeout: timeout},
 		verifier:  verifier,
+		guard:     guard,
 	}, nil
 }
 
@@ -89,6 +96,11 @@ func (signer RemoteSigner) Sign(message []byte) (types.Signature, error) {
 func (signer RemoteSigner) SignWithPolicy(policy SignPolicy, message []byte) (types.Signature, error) {
 	if err := policy.Validate(); err != nil {
 		return nil, err
+	}
+	if signer.guard != nil {
+		if err := signer.guard.CheckAndRemember(policy, message); err != nil {
+			return nil, err
+		}
 	}
 	return signer.signWithPolicy(message, &policy)
 }
@@ -140,11 +152,39 @@ func (policy SignPolicy) Validate() error {
 	if policy.ChainID == "" || policy.Height == 0 || policy.Type == "" || policy.Domain == "" {
 		return ErrMissingSignPolicy
 	}
+	expected, ok := signTypeDomains[policy.Type]
+	if !ok || expected != policy.Domain {
+		return ErrInvalidSignPolicy
+	}
 	return nil
+}
+
+var signTypeDomains = map[SignType]Domain{
+	SignTypeConsensusProposal:    DomainConsensusProposal,
+	SignTypeConsensusVote:        DomainConsensusVote,
+	SignTypeConsensusTimeoutVote: DomainConsensusTimeoutVote,
+	SignTypeFinalityProof:        DomainFinalityProof,
 }
 
 func NewDoubleSignGuard() *DoubleSignGuard {
 	return &DoubleSignGuard{seen: make(map[string][32]byte)}
+}
+
+func NewDoubleSignGuardFromSnapshot(snapshot map[string]string) (*DoubleSignGuard, error) {
+	guard := NewDoubleSignGuard()
+	for key, encodedDigest := range snapshot {
+		digest, err := base64.StdEncoding.DecodeString(encodedDigest)
+		if err != nil {
+			return nil, err
+		}
+		if len(digest) != sha256.Size {
+			return nil, ErrDoubleSign
+		}
+		var fixed [32]byte
+		copy(fixed[:], digest)
+		guard.seen[key] = fixed
+	}
+	return guard, nil
 }
 
 func (guard *DoubleSignGuard) CheckAndRemember(policy SignPolicy, message []byte) error {
@@ -154,11 +194,23 @@ func (guard *DoubleSignGuard) CheckAndRemember(policy SignPolicy, message []byte
 	if guard.seen == nil {
 		guard.seen = make(map[string][32]byte)
 	}
-	key := fmt.Sprintf("%s/%d/%d/%s", policy.ChainID, policy.Height, policy.Round, policy.Type)
+	key := policy.GuardKey()
 	digest := sha256.Sum256(message)
 	if previous, found := guard.seen[key]; found && previous != digest {
 		return ErrDoubleSign
 	}
 	guard.seen[key] = digest
 	return nil
+}
+
+func (guard *DoubleSignGuard) Snapshot() map[string]string {
+	snapshot := make(map[string]string, len(guard.seen))
+	for key, digest := range guard.seen {
+		snapshot[key] = base64.StdEncoding.EncodeToString(digest[:])
+	}
+	return snapshot
+}
+
+func (policy SignPolicy) GuardKey() string {
+	return fmt.Sprintf("%s/%d/%d/%s/%s", policy.ChainID, policy.Height, policy.Round, policy.Type, policy.Domain)
 }

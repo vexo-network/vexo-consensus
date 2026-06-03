@@ -66,6 +66,19 @@ Remote signers must enforce their own policy tuple:
 
 They must reject conflicting messages for the same tuple even if the node process restarts or is compromised.
 
+`vexo-consensus` also provides a node-side `DoubleSignGuard` helper, but production KMS/HSM implementations must keep their own durable policy database. The guard key includes domain separation:
+
+```text
+chain_id/height/round/type/domain
+```
+
+Valid sign type and domain pairs are:
+
+- `consensus_proposal` → `vexo.consensus.proposal.v1`
+- `consensus_vote` → `vexo.consensus.vote.v1`
+- `consensus_timeout_vote` → `vexo.consensus.timeout_vote.v1`
+- `finality_proof` → `vexo.finality.proof.v1`
+
 ## Development Backends
 
 `deterministic` is development-only. It must not pass `ValidateProduction()` and must not be used for value-bearing deployments.
