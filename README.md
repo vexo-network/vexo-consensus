@@ -17,7 +17,7 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 - Modular application runtime with pluggable modules and module-owned CLI commands.
 - Split subsystem configuration through `config.json`, `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json`, and `log_config.json`.
 - Durable LevelDB storage for blocks, state, state roots, evidence, KV state, schema metadata, pruning, recovery, and snapshots.
-- Signed transaction envelopes with nonce, fee units, base fee, gas, and ante validation paths.
+- Signed transaction envelopes with nonce, fee units, dynamic base fee, gas metering, and ante validation paths.
 - Slashing evidence lifecycle with penalty receipts, jailing, unbonding checks, and restart-aware recovery.
 - gRPC/TCP/in-memory transport abstractions with peer handshake validation, scoring, bans, backoff, and rate limits.
 - Operations tooling for config audit, release gates, audit packs, snapshot drills, adversarial simulations, and parameter tuning.

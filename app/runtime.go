@@ -31,6 +31,10 @@ type Runtime struct {
 	appHash types.Hash
 }
 
+type BaseFeeSetter interface {
+	SetBaseFee(baseFee uint64)
+}
+
 func NewRuntime(chainID string, modules []Module, router ModuleRouter) (*Runtime, error) {
 	if chainID == "" {
 		return nil, ErrEmptyChainID
@@ -58,6 +62,14 @@ func (runtime *Runtime) BindStore() error {
 func (runtime *Runtime) WithAnte(ante AnteHandler) *Runtime {
 	runtime.ante = ante
 	return runtime
+}
+
+func (runtime *Runtime) SetBaseFee(baseFee uint64) {
+	setter, ok := runtime.ante.(BaseFeeSetter)
+	if !ok {
+		return
+	}
+	setter.SetBaseFee(baseFee)
 }
 
 func (runtime *Runtime) NewReplayApp(store StateStore) (Application, error) {
@@ -196,12 +208,14 @@ func (runtime *Runtime) FinalizeBlock(req FinalizeBlockRequest) (FinalizeBlockRe
 			if err := runtime.ante.AfterTx(txCtx, tx); err != nil {
 				return FinalizeBlockResponse{}, err
 			}
+			gasUsed := txCtx.GasUsed()
+			if gasUsed == 0 {
+				gasUsed = runtime.ante.GasUsed(tx)
+			}
+			result.GasUsed = gasUsed
+			result.FeePaid = runtime.ante.FeePaid(tx)
 			if len(result.Data) == 0 {
-				gasUsed := txCtx.GasUsed()
-				if gasUsed == 0 {
-					gasUsed = runtime.ante.GasUsed(tx)
-				}
-				result.Data = []byte(fmt.Sprintf("gas_used=%d fee_paid=%d", gasUsed, runtime.ante.FeePaid(tx)))
+				result.Data = []byte(fmt.Sprintf("gas_used=%d fee_paid=%d", result.GasUsed, result.FeePaid))
 			}
 		}
 		results = append(results, result)

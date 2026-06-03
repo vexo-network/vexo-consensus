@@ -36,17 +36,22 @@ type ApplicationConfig struct {
 }
 
 type ExecutionConfig struct {
-	MinFee          uint64
-	BaseFee         uint64
-	MinGas          uint64
-	MaxGas          uint64
-	RequireNonce    bool
-	RequireSigned   bool
-	FeeCollector    string
-	FeeDenom        string
-	DisplayDenom    string
-	DisplayExponent uint8
-	GasDenom        string
+	MinFee                   uint64
+	BaseFee                  uint64
+	DynamicBaseFee           bool
+	TargetGas                uint64
+	BaseFeeChangeDenominator uint64
+	MinBaseFee               uint64
+	MaxBaseFee               uint64
+	MinGas                   uint64
+	MaxGas                   uint64
+	RequireNonce             bool
+	RequireSigned            bool
+	FeeCollector             string
+	FeeDenom                 string
+	DisplayDenom             string
+	DisplayExponent          uint8
+	GasDenom                 string
 }
 
 type CryptoBackend string
@@ -73,12 +78,14 @@ func Default(chainID string) Config {
 			Modules: []string{"bank", "staking", "governance"},
 		},
 		Execution: ExecutionConfig{
-			MaxGas:          10_000_000,
-			FeeCollector:    "fee_collector",
-			FeeDenom:        economics.AtomicDenom,
-			DisplayDenom:    economics.DisplayDenom,
-			DisplayExponent: 18,
-			GasDenom:        "gas",
+			MaxGas:                   10_000_000,
+			TargetGas:                5_000_000,
+			BaseFeeChangeDenominator: 8,
+			FeeCollector:             "fee_collector",
+			FeeDenom:                 economics.AtomicDenom,
+			DisplayDenom:             economics.DisplayDenom,
+			DisplayExponent:          18,
+			GasDenom:                 "gas",
 		},
 		Crypto: CryptoConfig{
 			Backend: CryptoBackendDeterministic,
@@ -127,6 +134,13 @@ func (config Config) Validate() error {
 		return ErrInvalidConfig
 	}
 	if config.Execution.MaxGas > 0 && config.Execution.MinGas > config.Execution.MaxGas {
+		return ErrInvalidConfig
+	}
+	if config.Execution.DynamicBaseFee &&
+		(config.Execution.BaseFee == 0 ||
+			config.Execution.TargetGas == 0 ||
+			config.Execution.BaseFeeChangeDenominator == 0 ||
+			(config.Execution.MaxBaseFee > 0 && config.Execution.MinBaseFee > config.Execution.MaxBaseFee)) {
 		return ErrInvalidConfig
 	}
 	if _, ok := economics.DenomFactor(config.Execution.FeeDenom); !ok {

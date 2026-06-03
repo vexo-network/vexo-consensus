@@ -15,6 +15,11 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "application.modules: %v\n", cfg.Application.Modules)
 	fmt.Fprintf(writer, "execution.min_fee: %d\n", cfg.Execution.MinFee)
 	fmt.Fprintf(writer, "execution.base_fee: %d\n", cfg.Execution.BaseFee)
+	fmt.Fprintf(writer, "execution.dynamic_base_fee: %t\n", cfg.Execution.DynamicBaseFee)
+	fmt.Fprintf(writer, "execution.target_gas: %d\n", cfg.Execution.TargetGas)
+	fmt.Fprintf(writer, "execution.base_fee_change_denominator: %d\n", cfg.Execution.BaseFeeChangeDenominator)
+	fmt.Fprintf(writer, "execution.min_base_fee: %d\n", cfg.Execution.MinBaseFee)
+	fmt.Fprintf(writer, "execution.max_base_fee: %d\n", cfg.Execution.MaxBaseFee)
 	fmt.Fprintf(writer, "execution.min_gas: %d\n", cfg.Execution.MinGas)
 	fmt.Fprintf(writer, "execution.max_gas: %d\n", cfg.Execution.MaxGas)
 	fmt.Fprintf(writer, "execution.require_nonce: %t\n", cfg.Execution.RequireNonce)
@@ -93,17 +98,22 @@ type applicationStatus struct {
 }
 
 type executionStatus struct {
-	MinFee          uint64 `json:"min_fee"`
-	BaseFee         uint64 `json:"base_fee"`
-	MinGas          uint64 `json:"min_gas"`
-	MaxGas          uint64 `json:"max_gas"`
-	RequireNonce    bool   `json:"require_nonce"`
-	RequireSigned   bool   `json:"require_signed"`
-	FeeCollector    string `json:"fee_collector"`
-	FeeDenom        string `json:"fee_denom"`
-	DisplayDenom    string `json:"display_denom"`
-	DisplayExponent uint8  `json:"display_exponent"`
-	GasDenom        string `json:"gas_denom"`
+	MinFee                   uint64 `json:"min_fee"`
+	BaseFee                  uint64 `json:"base_fee"`
+	DynamicBaseFee           bool   `json:"dynamic_base_fee"`
+	TargetGas                uint64 `json:"target_gas"`
+	BaseFeeChangeDenominator uint64 `json:"base_fee_change_denominator"`
+	MinBaseFee               uint64 `json:"min_base_fee"`
+	MaxBaseFee               uint64 `json:"max_base_fee"`
+	MinGas                   uint64 `json:"min_gas"`
+	MaxGas                   uint64 `json:"max_gas"`
+	RequireNonce             bool   `json:"require_nonce"`
+	RequireSigned            bool   `json:"require_signed"`
+	FeeCollector             string `json:"fee_collector"`
+	FeeDenom                 string `json:"fee_denom"`
+	DisplayDenom             string `json:"display_denom"`
+	DisplayExponent          uint8  `json:"display_exponent"`
+	GasDenom                 string `json:"gas_denom"`
 }
 
 type validatorStatus struct {
@@ -165,17 +175,22 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			Modules: append([]string(nil), cfg.Application.Modules...),
 		},
 		Execution: executionStatus{
-			MinFee:          cfg.Execution.MinFee,
-			BaseFee:         cfg.Execution.BaseFee,
-			MinGas:          cfg.Execution.MinGas,
-			MaxGas:          cfg.Execution.MaxGas,
-			RequireNonce:    cfg.Execution.RequireNonce,
-			RequireSigned:   cfg.Execution.RequireSigned,
-			FeeCollector:    cfg.Execution.FeeCollector,
-			FeeDenom:        cfg.Execution.FeeDenom,
-			DisplayDenom:    cfg.Execution.DisplayDenom,
-			DisplayExponent: cfg.Execution.DisplayExponent,
-			GasDenom:        cfg.Execution.GasDenom,
+			MinFee:                   cfg.Execution.MinFee,
+			BaseFee:                  cfg.Execution.BaseFee,
+			DynamicBaseFee:           cfg.Execution.DynamicBaseFee,
+			TargetGas:                cfg.Execution.TargetGas,
+			BaseFeeChangeDenominator: cfg.Execution.BaseFeeChangeDenominator,
+			MinBaseFee:               cfg.Execution.MinBaseFee,
+			MaxBaseFee:               cfg.Execution.MaxBaseFee,
+			MinGas:                   cfg.Execution.MinGas,
+			MaxGas:                   cfg.Execution.MaxGas,
+			RequireNonce:             cfg.Execution.RequireNonce,
+			RequireSigned:            cfg.Execution.RequireSigned,
+			FeeCollector:             cfg.Execution.FeeCollector,
+			FeeDenom:                 cfg.Execution.FeeDenom,
+			DisplayDenom:             cfg.Execution.DisplayDenom,
+			DisplayExponent:          cfg.Execution.DisplayExponent,
+			GasDenom:                 cfg.Execution.GasDenom,
 		},
 		Validator: validatorStatus{
 			Permissionless: cfg.Validator.Permissionless,

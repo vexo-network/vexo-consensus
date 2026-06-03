@@ -8,6 +8,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/crypto"
+	"github.com/vexo-network/vexo-consensus/economics"
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/governance"
 	"github.com/vexo-network/vexo-consensus/mempool"
@@ -35,6 +36,7 @@ type Runtime struct {
 	UpgradeExecutor upgrade.Executor
 	UpgradeState    upgrade.State
 	UpgradeHalted   bool
+	currentBaseFee  uint64
 }
 
 func New(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower) (*Runtime, error) {
@@ -110,17 +112,18 @@ func NewWithStoreAndCryptoRegistry(cfg config.Config, application app.Applicatio
 	}
 
 	return &Runtime{
-		Config:     cfg,
-		App:        application,
-		Executor:   consensus.ApplicationBlockExecutor{},
-		Validators: registry,
-		Committee:  selector,
-		Mempool:    dag,
-		Slashing:   slashingKeeper,
-		Governance: governanceKeeper,
-		P2PScore:   p2p.NewScoreKeeper(cfg.P2P),
-		Crypto:     cryptoSuite,
-		Store:      storage,
+		Config:         cfg,
+		App:            application,
+		Executor:       consensus.ApplicationBlockExecutor{},
+		Validators:     registry,
+		Committee:      selector,
+		Mempool:        dag,
+		Slashing:       slashingKeeper,
+		Governance:     governanceKeeper,
+		P2PScore:       p2p.NewScoreKeeper(cfg.P2P),
+		Crypto:         cryptoSuite,
+		Store:          storage,
+		currentBaseFee: cfg.Execution.BaseFee,
 	}, nil
 }
 
@@ -135,10 +138,14 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 	if err := runtime.applyUpgradeHook(ctx, block.Header.Height); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
+	baseFee := runtime.CurrentBaseFee()
+	runtime.setApplicationBaseFee(baseFee)
 	response, err := runtime.Executor.Execute(ctx, runtime.App, block)
 	if err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
+	nextBaseFee := runtime.NextBaseFee(response)
+	runtime.currentBaseFee = nextBaseFee
 	validatorSetHash := block.Header.ValidatorSetHash
 	if len(response.ValidatorUpdates) > 0 {
 		if err := runtime.ApplyValidatorUpdatesAt(ctx, block.Header.Height+1, response.ValidatorUpdates); err != nil {
@@ -170,6 +177,8 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 		AppHash:          response.AppHash,
 		LastBlockHash:    blockHash,
 		ValidatorSetHash: validatorSetHash,
+		BaseFee:          baseFee,
+		NextBaseFee:      nextBaseFee,
 	}
 	if commitStore, ok := runtime.Store.(store.BlockCommitStore); ok {
 		if err := commitStore.CommitBlockState(ctx, blockRecord, stateRecord, stateRoots); err != nil {
@@ -189,6 +198,47 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 		return app.FinalizeBlockResponse{}, err
 	}
 	return response, nil
+}
+
+func (runtime *Runtime) CurrentBaseFee() uint64 {
+	if runtime.currentBaseFee > 0 {
+		return runtime.currentBaseFee
+	}
+	return runtime.Config.Execution.BaseFee
+}
+
+func (runtime *Runtime) NextBaseFee(response app.FinalizeBlockResponse) uint64 {
+	current := runtime.CurrentBaseFee()
+	if !runtime.Config.Execution.DynamicBaseFee {
+		return current
+	}
+	return economics.NextBaseFee(economics.BaseFeeParams{
+		CurrentBaseFee:    current,
+		GasUsed:           totalGasUsed(response),
+		TargetGas:         runtime.Config.Execution.TargetGas,
+		ChangeDenominator: runtime.Config.Execution.BaseFeeChangeDenominator,
+		MinBaseFee:        runtime.Config.Execution.MinBaseFee,
+		MaxBaseFee:        runtime.Config.Execution.MaxBaseFee,
+	})
+}
+
+func (runtime *Runtime) setApplicationBaseFee(baseFee uint64) {
+	setter, ok := runtime.App.(interface{ SetBaseFee(uint64) })
+	if !ok {
+		return
+	}
+	setter.SetBaseFee(baseFee)
+}
+
+func totalGasUsed(response app.FinalizeBlockResponse) uint64 {
+	var total uint64
+	for _, result := range response.Results {
+		if total > ^uint64(0)-result.GasUsed {
+			return ^uint64(0)
+		}
+		total += result.GasUsed
+	}
+	return total
 }
 
 func (runtime *Runtime) applyUpgradeHook(ctx context.Context, height types.Height) error {
@@ -348,6 +398,11 @@ func (runtime *Runtime) Recover(ctx context.Context) (store.StateRecord, error) 
 		if err := appRuntime.BindStore(); err != nil {
 			return store.StateRecord{}, err
 		}
+	}
+	if state.NextBaseFee > 0 {
+		runtime.currentBaseFee = state.NextBaseFee
+	} else if state.BaseFee > 0 {
+		runtime.currentBaseFee = state.BaseFee
 	}
 	return state, nil
 }

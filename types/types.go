@@ -47,7 +47,9 @@ type Block struct {
 }
 
 type Result struct {
-	Code uint32
-	Log  string
-	Data []byte
+	Code    uint32
+	Log     string
+	Data    []byte
+	GasUsed uint64
+	FeePaid uint64
 }

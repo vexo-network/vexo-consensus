@@ -23,16 +23,21 @@ type deploymentChainTemplate struct {
 }
 
 type deploymentExecutionTemplate struct {
-	RequireSigned   bool   `json:"require_signed"`
-	RequireNonce    bool   `json:"require_nonce"`
-	MinFee          uint64 `json:"min_fee"`
-	BaseFee         uint64 `json:"base_fee"`
-	MinGas          uint64 `json:"min_gas"`
-	MaxGas          uint64 `json:"max_gas"`
-	FeeDenom        string `json:"fee_denom"`
-	DisplayDenom    string `json:"display_denom"`
-	DisplayExponent uint8  `json:"display_exponent"`
-	GasDenom        string `json:"gas_denom"`
+	RequireSigned            bool   `json:"require_signed"`
+	RequireNonce             bool   `json:"require_nonce"`
+	MinFee                   uint64 `json:"min_fee"`
+	BaseFee                  uint64 `json:"base_fee"`
+	DynamicBaseFee           bool   `json:"dynamic_base_fee"`
+	TargetGas                uint64 `json:"target_gas"`
+	BaseFeeChangeDenominator uint64 `json:"base_fee_change_denominator"`
+	MinBaseFee               uint64 `json:"min_base_fee"`
+	MaxBaseFee               uint64 `json:"max_base_fee"`
+	MinGas                   uint64 `json:"min_gas"`
+	MaxGas                   uint64 `json:"max_gas"`
+	FeeDenom                 string `json:"fee_denom"`
+	DisplayDenom             string `json:"display_denom"`
+	DisplayExponent          uint8  `json:"display_exponent"`
+	GasDenom                 string `json:"gas_denom"`
 }
 
 type deploymentMempoolTemplate struct {
@@ -83,7 +88,7 @@ func runConfigDeploymentTemplate(writer io.Writer, args []string) error {
 		return encoder.Encode(document)
 	}
 	fmt.Fprintf(writer, "deployment parameter template\n")
-	fmt.Fprintf(writer, "execution: require_signed=%t require_nonce=%t min_fee=%d base_fee=%d min_gas=%d max_gas=%d fee_denom=%s gas_denom=%s\n", document.Chain.Execution.RequireSigned, document.Chain.Execution.RequireNonce, document.Chain.Execution.MinFee, document.Chain.Execution.BaseFee, document.Chain.Execution.MinGas, document.Chain.Execution.MaxGas, document.Chain.Execution.FeeDenom, document.Chain.Execution.GasDenom)
+	fmt.Fprintf(writer, "execution: require_signed=%t require_nonce=%t min_fee=%d base_fee=%d dynamic_base_fee=%t target_gas=%d min_gas=%d max_gas=%d fee_denom=%s gas_denom=%s\n", document.Chain.Execution.RequireSigned, document.Chain.Execution.RequireNonce, document.Chain.Execution.MinFee, document.Chain.Execution.BaseFee, document.Chain.Execution.DynamicBaseFee, document.Chain.Execution.TargetGas, document.Chain.Execution.MinGas, document.Chain.Execution.MaxGas, document.Chain.Execution.FeeDenom, document.Chain.Execution.GasDenom)
 	fmt.Fprintf(writer, "mempool: min_fee=%d priority=%t max_txs=%d seen_ttl=%s wal_path=%s\n", document.Chain.Mempool.MinFee, document.Chain.Mempool.EnablePriority, document.Chain.Mempool.MaxTxs, document.Chain.Mempool.SeenTTL, document.Chain.Mempool.WALPath)
 	fmt.Fprintf(writer, "validator: permissionless=%t min_stake=%d remote_signer=%t\n", document.Chain.Validator.Permissionless, document.Chain.Validator.MinStake, document.Chain.Validator.RemoteSigner)
 	fmt.Fprintf(writer, "committee: size=%d epoch_length=%d regions=%d\n", document.Chain.Committee.Size, document.Chain.Committee.EpochLength, document.Chain.Committee.Regions)
@@ -103,16 +108,20 @@ func buildDeploymentTemplateDocument() deploymentTemplateDocument {
 		SchemaVersion: "v1",
 		Chain: deploymentChainTemplate{
 			Execution: deploymentExecutionTemplate{
-				RequireSigned:   true,
-				RequireNonce:    true,
-				MinFee:          1,
-				BaseFee:         1,
-				MinGas:          1,
-				MaxGas:          10_000_000,
-				FeeDenom:        "avxo",
-				DisplayDenom:    "vexo",
-				DisplayExponent: 18,
-				GasDenom:        "gas",
+				RequireSigned:            true,
+				RequireNonce:             true,
+				MinFee:                   1,
+				BaseFee:                  1,
+				DynamicBaseFee:           true,
+				TargetGas:                5_000_000,
+				BaseFeeChangeDenominator: 8,
+				MinBaseFee:               1,
+				MinGas:                   1,
+				MaxGas:                   10_000_000,
+				FeeDenom:                 "avxo",
+				DisplayDenom:             "vexo",
+				DisplayExponent:          18,
+				GasDenom:                 "gas",
 			},
 			Mempool: deploymentMempoolTemplate{
 				MinFee:         1,

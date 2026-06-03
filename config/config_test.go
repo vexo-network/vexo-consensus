@@ -65,6 +65,21 @@ func TestConfigValidateRejectsUnsafeSettings(t *testing.T) {
 		}},
 		{name: "unknown fee denom", mutate: func(cfg *Config) { cfg.Execution.FeeDenom = "unknown" }},
 		{name: "missing gas denom", mutate: func(cfg *Config) { cfg.Execution.GasDenom = "" }},
+		{name: "dynamic base fee without base fee", mutate: func(cfg *Config) {
+			cfg.Execution.DynamicBaseFee = true
+			cfg.Execution.BaseFee = 0
+		}},
+		{name: "dynamic base fee without target gas", mutate: func(cfg *Config) {
+			cfg.Execution.DynamicBaseFee = true
+			cfg.Execution.BaseFee = 1
+			cfg.Execution.TargetGas = 0
+		}},
+		{name: "dynamic base fee invalid bounds", mutate: func(cfg *Config) {
+			cfg.Execution.DynamicBaseFee = true
+			cfg.Execution.BaseFee = 1
+			cfg.Execution.MinBaseFee = 10
+			cfg.Execution.MaxBaseFee = 5
+		}},
 		{name: "zero governance quorum", mutate: func(cfg *Config) { cfg.Governance.QuorumPower = 0 }},
 		{name: "zero governance yes threshold", mutate: func(cfg *Config) { cfg.Governance.YesThresholdPower = 0 }},
 		{name: "zero governance voting period", mutate: func(cfg *Config) { cfg.Governance.VotingPeriod = 0 }},

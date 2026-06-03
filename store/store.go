@@ -24,6 +24,8 @@ type StateRecord struct {
 	AppHash          types.Hash
 	LastBlockHash    types.Hash
 	ValidatorSetHash types.Hash
+	BaseFee          uint64
+	NextBaseFee      uint64
 }
 
 type StateRootRecord struct {

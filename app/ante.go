@@ -52,8 +52,8 @@ type AnteKeeper struct {
 	accounts AccountKeeper
 }
 
-func NewAnteKeeper(config AnteConfig) AnteKeeper {
-	return AnteKeeper{config: config, accounts: NewAccountKeeper()}
+func NewAnteKeeper(config AnteConfig) *AnteKeeper {
+	return &AnteKeeper{config: config, accounts: NewAccountKeeper()}
 }
 
 func ParseTxMeta(tx types.Tx) TxMeta {
@@ -158,6 +158,13 @@ func (keeper AnteKeeper) GasLimit(tx types.Tx) uint64 {
 
 func (keeper AnteKeeper) FeePaid(tx types.Tx) uint64 {
 	return ParseTxMeta(tx).Fee
+}
+
+func (keeper *AnteKeeper) SetBaseFee(baseFee uint64) {
+	if keeper == nil {
+		return
+	}
+	keeper.config.BaseFee = baseFee
 }
 
 func (keeper AnteKeeper) validateMeta(meta TxMeta) error {

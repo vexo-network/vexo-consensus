@@ -6,6 +6,8 @@ import (
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/config"
+	"github.com/vexo-network/vexo-consensus/fairordering"
+	"github.com/vexo-network/vexo-consensus/modules/bank"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
@@ -39,6 +41,84 @@ func TestRuntimeExecuteBlockUsesConfiguredApplication(t *testing.T) {
 	}
 	if commit.Height != 1 {
 		t.Fatalf("expected app committed height 1, got %d", commit.Height)
+	}
+}
+
+func TestRuntimeUpdatesAndRecoversDynamicBaseFee(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	cfg := config.Default("vexo-test")
+	cfg.Execution.BaseFee = 100
+	cfg.Execution.DynamicBaseFee = true
+	cfg.Execution.TargetGas = 10
+	cfg.Execution.BaseFeeChangeDenominator = 8
+	cfg.Execution.MinBaseFee = 1
+	cfg.Execution.RequireNonce = true
+	cfg.Execution.MinFee = 1
+
+	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{bank.NewModule()}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	application.WithAnte(vexoapp.NewAnteKeeper(vexoapp.AnteConfig{
+		BaseFee:      cfg.Execution.BaseFee,
+		RequireNonce: true,
+	}))
+	application.WithStore(storage)
+	if _, err := application.InitChain(vexoapp.InitChainRequest{Genesis: vexoapp.GenesisState{"bank:alice": []byte("10000")}}); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := NewWithStore(cfg, application, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+	}, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	block := types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 1},
+		Txs: fairordering.SortTxsWithSalt([]types.Tx{
+			[]byte("bank:send:alice:bob:1:fee=1000:gas=10:signer=alice:nonce=1"),
+			[]byte("bank:send:alice:bob:1:fee=1000:gas=10:signer=alice:nonce=2"),
+		}, fairordering.HeightSalt("vexo-test", 1)),
+	}
+	if _, err := runtime.ExecuteBlock(context.Background(), block); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.CurrentBaseFee() != 112 {
+		t.Fatalf("expected next base fee 112, got %d", runtime.CurrentBaseFee())
+	}
+	state, err := storage.LatestState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.BaseFee != 100 || state.NextBaseFee != 112 {
+		t.Fatalf("unexpected persisted fee market state: %+v", state)
+	}
+
+	recoveredApplication, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{bank.NewModule()}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveredApplication.WithAnte(vexoapp.NewAnteKeeper(vexoapp.AnteConfig{
+		BaseFee:      cfg.Execution.BaseFee,
+		RequireNonce: true,
+	}))
+	recovered, err := NewWithStore(cfg, recoveredApplication, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+	}, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := recovered.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if recovered.CurrentBaseFee() != 112 {
+		t.Fatalf("expected recovered base fee 112, got %d", recovered.CurrentBaseFee())
 	}
 }
 
