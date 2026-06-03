@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -293,6 +294,92 @@ func TestLevelDBStoreSavesAndLoadsLatestState(t *testing.T) {
 	}
 	if loaded.Height != 3 || loaded.AppHash != state.AppHash || loaded.LastBlockHash != state.LastBlockHash {
 		t.Fatalf("unexpected latest state: %+v", loaded)
+	}
+}
+
+func TestLevelDBStoreRejectsTamperedBlockRecordHeight(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	record := BlockRecord{
+		Block: types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1}},
+		Hash:  types.Hash{1},
+	}
+	if err := store.SaveBlock(context.Background(), record); err != nil {
+		t.Fatal(err)
+	}
+	record.Block.Header.Height = 2
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Put(blockHeightKey(1), encoded, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := store.BlockByHeight(context.Background(), 1); !errors.Is(err, ErrInvalidBlockRecord) {
+		t.Fatalf("expected invalid block record after tamper, got %v", err)
+	}
+	if _, err := store.RecoverIndexes(context.Background()); !errors.Is(err, ErrInvalidBlockRecord) {
+		t.Fatalf("expected index recovery to reject tampered block, got %v", err)
+	}
+}
+
+func TestLevelDBStoreRejectsTamperedBlockRecordHash(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	record := BlockRecord{
+		Block: types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1}},
+		Hash:  types.Hash{1},
+	}
+	if err := store.SaveBlock(context.Background(), record); err != nil {
+		t.Fatal(err)
+	}
+	record.Hash = types.Hash{2}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Put(blockHashKey(types.Hash{1}), encoded, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := store.BlockByHash(context.Background(), types.Hash{1}); !errors.Is(err, ErrInvalidBlockRecord) {
+		t.Fatalf("expected invalid block hash record after tamper, got %v", err)
+	}
+}
+
+func TestLevelDBStoreRejectsTamperedStateAndRootRecords(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	if err := store.SaveState(context.Background(), StateRecord{Height: 1, AppHash: types.Hash{1}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveStateRoot(context.Background(), StateRootRecord{Height: 1, Namespace: "bank", Root: types.Hash{2}}); err != nil {
+		t.Fatal(err)
+	}
+	encodedState, err := json.Marshal(StateRecord{Height: 2, AppHash: types.Hash{1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Put(stateHeightKey(1), encodedState, nil); err != nil {
+		t.Fatal(err)
+	}
+	encodedRoot, err := json.Marshal(StateRootRecord{Height: 1, Namespace: "staking", Root: types.Hash{2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Put(stateRootKey(1, "bank"), encodedRoot, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := store.StateByHeight(context.Background(), 1); !errors.Is(err, ErrInvalidStateRecord) {
+		t.Fatalf("expected invalid state after tamper, got %v", err)
+	}
+	if _, err := store.StateRoot(context.Background(), 1, "bank"); !errors.Is(err, ErrInvalidStateRoot) {
+		t.Fatalf("expected invalid state root after tamper, got %v", err)
 	}
 }
 

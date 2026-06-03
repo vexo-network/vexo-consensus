@@ -13,6 +13,13 @@ func blockHeightKey(height types.Height) []byte {
 	return append(key, buffer[:]...)
 }
 
+func blockHeightFromKey(key []byte) (types.Height, bool) {
+	if len(key) < len(blockHeightPrefix)+8 {
+		return 0, false
+	}
+	return types.Height(binary.BigEndian.Uint64(key[len(blockHeightPrefix) : len(blockHeightPrefix)+8])), true
+}
+
 func blockHashKey(hash types.Hash) []byte {
 	key := append([]byte(nil), blockHashPrefix...)
 	return append(key, hash[:]...)

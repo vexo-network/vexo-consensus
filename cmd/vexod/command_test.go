@@ -21,6 +21,7 @@ import (
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	"github.com/vexo-network/vexo-consensus/store"
+	"github.com/vexo-network/vexo-consensus/transport"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -1963,6 +1964,62 @@ func TestBuildRuntimeNodeDerivesNetworkPeers(t *testing.T) {
 	}
 	if wire.Address() != networkP2PAddress(2) {
 		t.Fatalf("expected network p2p listen address, got %s", wire.Address())
+	}
+}
+
+func TestConfigBackedPeersRejectDifferentGenesisHash(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validators", "2"}); err != nil {
+		t.Fatal(err)
+	}
+	secondGenesisPath := filepath.Join(home, "validator-2", genesisFileName)
+	document, err := readGenesisDocument(secondGenesisPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.AppState == nil {
+		document.AppState = map[string]string{}
+	}
+	document.AppState["tampered"] = base64.StdEncoding.EncodeToString([]byte("unexpected"))
+	writeTestJSON(t, secondGenesisPath, document)
+
+	firstInputs, err := loadStartInputs(filepath.Join(home, "validator-1"), "", "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondInputs, err := loadStartInputs(filepath.Join(home, "validator-2"), "", "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstWire, err := buildGRPCTransport(firstInputs, startRuntimeConfig{
+		P2PEnabled:       true,
+		P2PListenAddress: "127.0.0.1:0",
+		AddrBookPath:     filepath.Join(t.TempDir(), "addrbook-1.json"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondWire, err := buildGRPCTransport(secondInputs, startRuntimeConfig{
+		P2PEnabled:       true,
+		P2PListenAddress: "127.0.0.1:0",
+		AddrBookPath:     filepath.Join(t.TempDir(), "addrbook-2.json"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := firstWire.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer firstWire.Stop(context.Background())
+	if err := secondWire.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer secondWire.Stop(context.Background())
+
+	firstWire.SetPeer("validator-2", secondWire.Address())
+	err = firstWire.Send(context.Background(), "validator-2", p2p.TopicTx, []byte("tx"))
+	if !errors.Is(err, transport.ErrGenesisHashMismatch) {
+		t.Fatalf("expected genesis hash mismatch, got %v", err)
 	}
 }
 

@@ -73,7 +73,14 @@ func (store *LevelDBStore) BlockByHeight(ctx context.Context, height types.Heigh
 		return BlockRecord{}, ctx.Err()
 	default:
 	}
-	return store.getBlock(blockHeightKey(height))
+	record, err := store.getBlock(blockHeightKey(height))
+	if err != nil {
+		return BlockRecord{}, err
+	}
+	if record.Block.Header.Height != height {
+		return BlockRecord{}, ErrInvalidBlockRecord
+	}
+	return record, nil
 }
 
 func (store *LevelDBStore) BlockByHash(ctx context.Context, hash types.Hash) (BlockRecord, error) {
@@ -82,7 +89,14 @@ func (store *LevelDBStore) BlockByHash(ctx context.Context, hash types.Hash) (Bl
 		return BlockRecord{}, ctx.Err()
 	default:
 	}
-	return store.getBlock(blockHashKey(hash))
+	record, err := store.getBlock(blockHashKey(hash))
+	if err != nil {
+		return BlockRecord{}, err
+	}
+	if record.Hash != hash {
+		return BlockRecord{}, ErrInvalidBlockRecord
+	}
+	return record, nil
 }
 
 func (store *LevelDBStore) BlockIndex(ctx context.Context) (BlockIndex, error) {
@@ -259,6 +273,9 @@ func (store *LevelDBStore) LatestState(ctx context.Context) (StateRecord, error)
 	if err := json.Unmarshal(encoded, &state); err != nil {
 		return StateRecord{}, err
 	}
+	if state.Height == 0 {
+		return StateRecord{}, ErrInvalidStateRecord
+	}
 	return state, nil
 }
 
@@ -281,6 +298,9 @@ func (store *LevelDBStore) StateByHeight(ctx context.Context, height types.Heigh
 	var state StateRecord
 	if err := json.Unmarshal(encoded, &state); err != nil {
 		return StateRecord{}, err
+	}
+	if state.Height != height {
+		return StateRecord{}, ErrInvalidStateRecord
 	}
 	return state, nil
 }
@@ -374,6 +394,9 @@ func (store *LevelDBStore) StateRoot(ctx context.Context, height types.Height, n
 	var record StateRootRecord
 	if err := json.Unmarshal(encoded, &record); err != nil {
 		return StateRootRecord{}, err
+	}
+	if record.Height != height || record.Namespace != namespace {
+		return StateRootRecord{}, ErrInvalidStateRoot
 	}
 	return record, nil
 }
@@ -639,6 +662,9 @@ func (store *LevelDBStore) getBlock(key []byte) (BlockRecord, error) {
 	if err := json.Unmarshal(encoded, &record); err != nil {
 		return BlockRecord{}, err
 	}
+	if record.Block.Header.Height == 0 || record.Hash == (types.Hash{}) {
+		return BlockRecord{}, ErrInvalidBlockRecord
+	}
 	return record, nil
 }
 
@@ -763,8 +789,12 @@ func (store *LevelDBStore) rebuildBlockIndex(ctx context.Context) (BlockIndex, e
 			return BlockIndex{}, err
 		}
 		height := record.Block.Header.Height
-		if height == 0 {
-			continue
+		if height == 0 || record.Hash == (types.Hash{}) {
+			return BlockIndex{}, ErrInvalidBlockRecord
+		}
+		keyHeight, ok := blockHeightFromKey(iterator.Key())
+		if !ok || keyHeight != height {
+			return BlockIndex{}, ErrInvalidBlockRecord
 		}
 		if index.TotalBlocks == 0 || height < index.EarliestHeight {
 			index.EarliestHeight = height
