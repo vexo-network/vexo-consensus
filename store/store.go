@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"strconv"
 
+	"github.com/vexo-network/vexo-consensus/kvbatch"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -35,6 +36,8 @@ type KVPair struct {
 	Key       []byte
 	Value     []byte
 }
+
+type KVWrite = kvbatch.KVWrite
 
 type BlockIndex struct {
 	EarliestHeight types.Height
@@ -102,6 +105,8 @@ type KVStore interface {
 	Delete(ctx context.Context, namespace string, key []byte) error
 	Root(ctx context.Context, namespace string) (types.Hash, error)
 }
+
+type BatchKVStore = kvbatch.BatchKVStore
 
 type SnapshotKVStore interface {
 	ExportNamespace(ctx context.Context, namespace string) ([]KVPair, error)

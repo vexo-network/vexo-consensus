@@ -374,7 +374,7 @@ func TestRunSlashingLifecyclePlan(t *testing.T) {
 	if err := runCommand(&output, &bytes.Buffer{}, []string{"slashing", "lifecycle-plan", "--type", "double_sign", "--validator", "validator-1", "--height", "10", "--current-height", "200", "--current-power", "100"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"slashing lifecycle plan", "type: double_sign", "plan_only: true", "validator: validator-1", "power: 100 -> 95", "runtime_proof_verifier ok=false", "stake slash"} {
+	for _, expected := range []string{"slashing lifecycle plan", "type: double_sign", "plan_only: false", "validator: validator-1", "power: 100 -> 95", "runtime_proof_verifier ok=true", "stake slash"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("expected slashing lifecycle output to contain %q, got:\n%s", expected, output.String())
 		}
@@ -388,7 +388,7 @@ func TestRunSlashingLifecyclePlan(t *testing.T) {
 	if err := json.Unmarshal(jsonOutput.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if document.SchemaVersion != "v1" || !document.PlanOnly || len(document.Warnings) == 0 {
+	if document.SchemaVersion != "v1" || document.PlanOnly || len(document.Warnings) == 0 {
 		t.Fatalf("expected early penalty warning, got %+v", document)
 	}
 }

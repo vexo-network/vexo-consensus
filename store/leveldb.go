@@ -345,6 +345,30 @@ func (store *LevelDBStore) Delete(ctx context.Context, namespace string, key []b
 	return store.db.Delete(kvKey(namespace, key), nil)
 }
 
+func (store *LevelDBStore) SetBatch(ctx context.Context, writes []KVWrite) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	batch := new(leveldb.Batch)
+	for _, write := range writes {
+		if write.Namespace == "" {
+			return ErrInvalidNamespace
+		}
+		if len(write.Key) == 0 {
+			return ErrInvalidKey
+		}
+		key := kvKey(write.Namespace, write.Key)
+		if write.Delete {
+			batch.Delete(key)
+			continue
+		}
+		batch.Put(key, append([]byte(nil), write.Value...))
+	}
+	return store.db.Write(batch, nil)
+}
+
 func (store *LevelDBStore) Root(ctx context.Context, namespace string) (types.Hash, error) {
 	select {
 	case <-ctx.Done():

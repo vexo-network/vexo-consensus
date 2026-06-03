@@ -2,7 +2,9 @@ package governance
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -150,6 +152,21 @@ func TestGovernanceModuleQueryRejectsInvalidRequests(t *testing.T) {
 	}
 }
 
+func TestGovernanceModulePropagatesStoreWriteErrors(t *testing.T) {
+	expected := errors.New("store write failed")
+	module := NewModuleWithKeeper(failingContextKeeper{
+		InMemoryKeeper: vexogov.NewInMemoryKeeper(vexogov.TallyPolicy{}, nil),
+		err:            expected,
+	})
+	if err := module.BeginBlock(vexoapp.Context{}, types.Header{Height: 1}); !errors.Is(err, expected) {
+		t.Fatalf("expected BeginBlock write error, got %v", err)
+	}
+	result := module.DeliverTx(vexoapp.Context{Height: 1}, []byte("governance:submit:alice:title:execution:max_gas:20000000"))
+	if result.Code == 0 || !strings.Contains(result.Log, expected.Error()) {
+		t.Fatalf("expected DeliverTx write error, got %+v", result)
+	}
+}
+
 func TestGovernanceCLICommands(t *testing.T) {
 	command := governanceCLICommand()
 	if command.Name != ModuleName || len(command.Children) != 2 {
@@ -237,4 +254,17 @@ func finalizeGovernanceBlock(t *testing.T, runtime *vexoapp.Runtime, height type
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+type failingContextKeeper struct {
+	*vexogov.InMemoryKeeper
+	err error
+}
+
+func (keeper failingContextKeeper) SetTimeContext(ctx context.Context, now uint64) error {
+	return keeper.err
+}
+
+func (keeper failingContextKeeper) SetVotingPowerContext(ctx context.Context, voter types.Address, power types.VotingPower) error {
+	return keeper.err
 }

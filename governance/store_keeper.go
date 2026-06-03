@@ -58,21 +58,29 @@ func NewStoreKeeper(store KVStore, policy TallyPolicy, votingPower map[types.Add
 }
 
 func (keeper *StoreKeeper) SetTime(now uint64) {
-	document, err := keeper.load(context.Background())
+	_ = keeper.SetTimeContext(context.Background(), now)
+}
+
+func (keeper *StoreKeeper) SetTimeContext(ctx context.Context, now uint64) error {
+	document, err := keeper.load(ctx)
 	if err != nil {
-		return
+		return err
 	}
 	document.Now = now
-	_ = keeper.save(context.Background(), document)
+	return keeper.save(ctx, document)
 }
 
 func (keeper *StoreKeeper) SetVotingPower(voter types.Address, power types.VotingPower) {
+	_ = keeper.SetVotingPowerContext(context.Background(), voter, power)
+}
+
+func (keeper *StoreKeeper) SetVotingPowerContext(ctx context.Context, voter types.Address, power types.VotingPower) error {
 	if voter == "" {
-		return
+		return nil
 	}
-	document, err := keeper.load(context.Background())
+	document, err := keeper.load(ctx)
 	if err != nil {
-		return
+		return err
 	}
 	if document.Powers == nil {
 		document.Powers = make(map[types.Address]types.VotingPower)
@@ -82,7 +90,7 @@ func (keeper *StoreKeeper) SetVotingPower(voter types.Address, power types.Votin
 		keeper.powers = make(map[types.Address]types.VotingPower)
 	}
 	keeper.powers[voter] = power
-	_ = keeper.save(context.Background(), document)
+	return keeper.save(ctx, document)
 }
 
 func (keeper *StoreKeeper) SubmitProposal(ctx context.Context, proposal Proposal) (uint64, error) {

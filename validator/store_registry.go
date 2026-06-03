@@ -210,16 +210,27 @@ func (registry *StoreRegistry) saveSnapshot(ctx context.Context, height types.He
 	if err != nil {
 		return err
 	}
-	if err := registry.store.Set(ctx, validatorRegistryNamespace, validatorSetKey(height), encoded); err != nil {
+	heights, err := registry.loadHeights(ctx)
+	if errors.Is(err, ErrValidatorSetNotFound) {
+		heights = nil
+	} else if err != nil {
 		return err
 	}
-	heights, _ := registry.loadHeights(ctx)
 	if !containsHeight(heights, height) {
 		heights = append(heights, height)
 		sort.Slice(heights, func(left int, right int) bool { return heights[left] < heights[right] })
 	}
 	encodedHeights, err := json.Marshal(heights)
 	if err != nil {
+		return err
+	}
+	if batchStore, ok := registry.store.(vexostore.BatchKVStore); ok {
+		return batchStore.SetBatch(ctx, []vexostore.KVWrite{
+			{Namespace: validatorRegistryNamespace, Key: validatorSetKey(height), Value: encoded},
+			{Namespace: validatorRegistryNamespace, Key: []byte("heights"), Value: encodedHeights},
+		})
+	}
+	if err := registry.store.Set(ctx, validatorRegistryNamespace, validatorSetKey(height), encoded); err != nil {
 		return err
 	}
 	return registry.store.Set(ctx, validatorRegistryNamespace, []byte("heights"), encodedHeights)

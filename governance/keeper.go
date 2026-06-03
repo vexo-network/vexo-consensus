@@ -80,11 +80,31 @@ func (keeper *InMemoryKeeper) SetTime(now uint64) {
 	keeper.now = now
 }
 
+func (keeper *InMemoryKeeper) SetTimeContext(ctx context.Context, now uint64) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	keeper.SetTime(now)
+	return nil
+}
+
 func (keeper *InMemoryKeeper) SetVotingPower(voter types.Address, power types.VotingPower) {
 	if voter == "" {
 		return
 	}
 	keeper.powers[voter] = power
+}
+
+func (keeper *InMemoryKeeper) SetVotingPowerContext(ctx context.Context, voter types.Address, power types.VotingPower) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	keeper.SetVotingPower(voter, power)
+	return nil
 }
 
 func (keeper *InMemoryKeeper) SubmitProposal(ctx context.Context, proposal Proposal) (uint64, error) {

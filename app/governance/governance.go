@@ -61,15 +61,16 @@ func (module *Module) BeginBlock(ctx vexoapp.Context, header types.Header) error
 	if module.keeper == nil {
 		return ErrGovernanceRequired
 	}
-	module.keeper.SetTime(uint64(header.Height))
-	return nil
+	return module.setTime(context.Background(), uint64(header.Height))
 }
 
 func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 	if module.keeper == nil {
 		return types.Result{Code: 1, Log: ErrGovernanceRequired.Error()}
 	}
-	module.keeper.SetTime(uint64(ctx.Height))
+	if err := module.setTime(context.Background(), uint64(ctx.Height)); err != nil {
+		return types.Result{Code: 1, Log: err.Error()}
+	}
 	parts := governanceTxParts(tx)
 	if len(parts) == 0 || parts[0] != ModuleName {
 		return types.Result{Code: 2, Log: ErrInvalidGovernanceTx.Error()}
@@ -155,8 +156,26 @@ func (module *Module) vote(ctx context.Context, parts []string) error {
 	if err != nil {
 		return err
 	}
-	module.keeper.SetVotingPower(types.Address(parts[3]), power)
+	if err := module.setVotingPower(ctx, types.Address(parts[3]), power); err != nil {
+		return err
+	}
 	return module.keeper.Vote(ctx, proposalID, types.Address(parts[3]), vexogov.VoteOption(parts[4]))
+}
+
+func (module *Module) setTime(ctx context.Context, now uint64) error {
+	if keeper, ok := module.keeper.(vexogov.ContextOperationalKeeper); ok {
+		return keeper.SetTimeContext(ctx, now)
+	}
+	module.keeper.SetTime(now)
+	return nil
+}
+
+func (module *Module) setVotingPower(ctx context.Context, voter types.Address, power types.VotingPower) error {
+	if keeper, ok := module.keeper.(vexogov.ContextOperationalKeeper); ok {
+		return keeper.SetVotingPowerContext(ctx, voter, power)
+	}
+	module.keeper.SetVotingPower(voter, power)
+	return nil
 }
 
 type proposalView struct {

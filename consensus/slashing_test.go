@@ -125,8 +125,12 @@ func TestSubmitEvidenceForSlashingRejectsDuplicateEvidence(t *testing.T) {
 	if _, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence); !errors.Is(err, slashing.ErrDuplicateEvidence) {
-		t.Fatalf("expected duplicate evidence, got %v", err)
+	result, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence)
+	if err != nil {
+		t.Fatalf("expected duplicate evidence to resume idempotently, got %v", err)
+	}
+	if result.PreviousPower != 100 || result.RemainingPower != 95 {
+		t.Fatalf("expected existing receipt, got %+v", result)
 	}
 }
 
@@ -263,6 +267,193 @@ func TestSubmitEvidenceForSlashingAppliesAtExplicitHeight(t *testing.T) {
 	}
 }
 
+func TestSubmitEvidenceForSlashingUsesApplyHeightCurrentPower(t *testing.T) {
+	signer := testEvidenceSigner(t, "a")
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	registry, err := validator.NewStoreRegistry(context.Background(), storage, nil, 1, []validator.Validator{
+		{ID: "a", Address: "a", VotingPower: 100, Stake: 100, PublicKey: signer.PublicKey()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.UpdateVotingPowerAt(context.Background(), 5, "a", 200); err != nil {
+		t.Fatal(err)
+	}
+	keeper, err := slashing.NewStoreKeeper(storage, slashing.PenaltyPolicy{
+		slashing.EvidenceConflictingVote: {SlashFraction: "0.25", JailDuration: 30},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := NewConflictingVoteEvidence(
+		signedTestVote(t, signer, "a", 1, 0, types.Hash{1}),
+		signedTestVote(t, signer, "a", 1, 0, types.Hash{2}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 10, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PreviousPower != 200 || result.RemainingPower != 150 {
+		t.Fatalf("expected slash from apply-height current power, got %+v", result)
+	}
+	setAtEvidenceHeight, err := registry.ValidatorSet(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, found := setAtEvidenceHeight.Get("a")
+	if !found || original.VotingPower != 100 {
+		t.Fatalf("expected evidence-height power preserved, got %+v found=%t", original, found)
+	}
+	setAtApplyHeight, err := registry.ValidatorSet(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slashed, found := setAtApplyHeight.Get("a")
+	if !found || slashed.VotingPower != 150 {
+		t.Fatalf("expected apply-height power 150, got %+v found=%t", slashed, found)
+	}
+}
+
+func TestSubmitEvidenceForSlashingResumesSubmittedOnlyEvidence(t *testing.T) {
+	signer := testEvidenceSigner(t, "a")
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	registry, err := validator.NewStoreRegistry(context.Background(), storage, nil, 1, []validator.Validator{
+		{ID: "a", Address: "a", VotingPower: 100, Stake: 100, PublicKey: signer.PublicKey()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keeper, err := slashing.NewStoreKeeper(storage, slashing.PenaltyPolicy{
+		slashing.EvidenceConflictingVote: {SlashFraction: "0.25", JailDuration: 30},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := NewConflictingVoteEvidence(
+		signedTestVote(t, signer, "a", 1, 0, types.Hash{1}),
+		signedTestVote(t, signer, "a", 1, 0, types.Hash{2}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.SubmitEvidence(context.Background(), evidence); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 10, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PreviousPower != 100 || result.RemainingPower != 75 {
+		t.Fatalf("expected resumed slash result, got %+v", result)
+	}
+	setAtApplyHeight, err := registry.ValidatorSet(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slashed, found := setAtApplyHeight.Get("a")
+	if !found || slashed.VotingPower != 75 {
+		t.Fatalf("expected registry update after resume, got %+v found=%t", slashed, found)
+	}
+}
+
+func TestSubmitEvidenceForSlashingResumesPenaltyOnlyEvidence(t *testing.T) {
+	signer := testEvidenceSigner(t, "a")
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	registry, err := validator.NewStoreRegistry(context.Background(), storage, nil, 1, []validator.Validator{
+		{ID: "a", Address: "a", VotingPower: 100, Stake: 100, PublicKey: signer.PublicKey()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.UpdateVotingPowerAt(context.Background(), 5, "a", 200); err != nil {
+		t.Fatal(err)
+	}
+	keeper, err := slashing.NewStoreKeeper(storage, slashing.PenaltyPolicy{
+		slashing.EvidenceConflictingVote: {SlashFraction: "0.25", JailDuration: 30},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := NewConflictingVoteEvidence(
+		signedTestVote(t, signer, "a", 1, 0, types.Hash{1}),
+		signedTestVote(t, signer, "a", 1, 0, types.Hash{2}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.SubmitEvidence(context.Background(), evidence); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := keeper.ApplyPenaltyWithStake(context.Background(), evidence, 200); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 10, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PreviousPower != 200 || result.RemainingPower != 150 {
+		t.Fatalf("expected existing penalty receipt to be reused, got %+v", result)
+	}
+	setAtApplyHeight, err := registry.ValidatorSet(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slashed, found := setAtApplyHeight.Get("a")
+	if !found || slashed.VotingPower != 150 {
+		t.Fatalf("expected registry update from existing receipt, got %+v found=%t", slashed, found)
+	}
+}
+
+func TestSubmitDoubleSignEvidenceForSlashingUsesConflictingVoteProof(t *testing.T) {
+	signer := testEvidenceSigner(t, "a")
+	registry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{
+		{ID: "a", Address: "a", VotingPower: 100, Stake: 100, PublicKey: signer.PublicKey()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keeper := slashing.NewInMemoryKeeper(slashing.PenaltyPolicy{
+		slashing.EvidenceDoubleSign: {SlashFraction: "0.25", JailDuration: 30},
+	})
+	evidence, err := NewConflictingVoteEvidence(
+		signedTestVote(t, signer, "a", 1, 0, types.Hash{1}),
+		signedTestVote(t, signer, "a", 1, 0, types.Hash{2}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence.Type = slashing.EvidenceDoubleSign
+
+	result, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PreviousPower != 100 || result.RemainingPower != 75 {
+		t.Fatalf("unexpected double-sign slash result: %+v", result)
+	}
+}
+
 func TestSubmitEvidenceForSlashingRejectsUnsignedProof(t *testing.T) {
 	signer := testEvidenceSigner(t, "a")
 	registry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{
@@ -295,7 +486,7 @@ func TestSubmitEvidenceForSlashingRejectsUnsupportedProofType(t *testing.T) {
 		t.Fatal(err)
 	}
 	keeper := slashing.NewInMemoryKeeper(nil)
-	evidence := slashing.Evidence{Type: slashing.EvidenceDoubleSign, Validator: "a", Height: 1, Proof: []byte("opaque")}
+	evidence := slashing.Evidence{Type: slashing.EvidenceInvalidProposal, Validator: "a", Height: 1, Proof: []byte("opaque")}
 
 	_, err = SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence)
 	if !errors.Is(err, ErrUnsupportedEvidenceProof) {

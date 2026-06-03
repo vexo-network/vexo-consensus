@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/vexo-network/vexo-consensus/kvbatch"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -119,6 +120,15 @@ func (keeper *StoreKeeper) ApplyPenaltyWithStake(ctx context.Context, evidence E
 	if err != nil {
 		return PenaltyReceipt{}, err
 	}
+	if receipt, found, err := keeper.PenaltyReceipt(ctx, evidence); err != nil {
+		return PenaltyReceipt{}, err
+	} else if found {
+		document.Status = EvidenceStatusApplied
+		if err := keeper.savePenaltyBundle(ctx, receipt, document); err != nil {
+			return PenaltyReceipt{}, err
+		}
+		return receipt, nil
+	}
 	if document.Status == EvidenceStatusExpired {
 		return PenaltyReceipt{}, ErrEvidenceExpired
 	}
@@ -139,28 +149,60 @@ func (keeper *StoreKeeper) ApplyPenaltyWithStake(ctx context.Context, evidence E
 		PreviousPower:  currentPower,
 		RemainingPower: remaining,
 	}
-	encoded, err := json.Marshal(receipt)
-	if err != nil {
-		return PenaltyReceipt{}, err
-	}
-	if err := keeper.store.Set(ctx, slashingNamespace, penaltyKey(evidence), encoded); err != nil {
-		return PenaltyReceipt{}, err
-	}
 	document.Status = EvidenceStatusApplied
-	if err := keeper.saveEvidence(ctx, document); err != nil {
+	if err := keeper.savePenaltyBundle(ctx, receipt, document); err != nil {
 		return PenaltyReceipt{}, err
 	}
-	if penalty.JailDuration > 0 {
-		if err := keeper.saveJail(ctx, evidence.Validator, evidence.Height+types.Height(penalty.JailDuration)); err != nil {
-			return PenaltyReceipt{}, err
+	return receipt, nil
+}
+
+func (keeper *StoreKeeper) savePenaltyBundle(ctx context.Context, receipt PenaltyReceipt, document evidenceDocument) error {
+	encodedReceipt, err := json.Marshal(receipt)
+	if err != nil {
+		return err
+	}
+	encodedEvidence, err := json.Marshal(document)
+	if err != nil {
+		return err
+	}
+	writes := []kvbatch.KVWrite{
+		{Namespace: slashingNamespace, Key: penaltyKey(receipt.Evidence), Value: encodedReceipt},
+		{Namespace: slashingNamespace, Key: evidenceDocumentKey(document.Evidence), Value: encodedEvidence},
+	}
+	if receipt.Penalty.JailDuration > 0 {
+		encodedJail, err := json.Marshal(jailDocument{Validator: receipt.Evidence.Validator, Until: receipt.Evidence.Height + types.Height(receipt.Penalty.JailDuration)})
+		if err != nil {
+			return err
+		}
+		writes = append(writes, kvbatch.KVWrite{Namespace: slashingNamespace, Key: jailKey(receipt.Evidence.Validator), Value: encodedJail})
+	}
+	if keeper.lifecyclePolicy.UnbondingDelay > 0 {
+		encodedUnbonding, err := json.Marshal(unbondingDocument{Validator: receipt.Evidence.Validator, ReleaseHeight: receipt.Evidence.Height + keeper.lifecyclePolicy.UnbondingDelay})
+		if err != nil {
+			return err
+		}
+		writes = append(writes, kvbatch.KVWrite{Namespace: slashingNamespace, Key: unbondingKey(receipt.Evidence.Validator), Value: encodedUnbonding})
+	}
+	if batchStore, ok := keeper.store.(kvbatch.BatchKVStore); ok {
+		return batchStore.SetBatch(ctx, writes)
+	}
+	if err := keeper.store.Set(ctx, slashingNamespace, penaltyKey(receipt.Evidence), encodedReceipt); err != nil {
+		return err
+	}
+	if err := keeper.saveEvidence(ctx, document); err != nil {
+		return err
+	}
+	if receipt.Penalty.JailDuration > 0 {
+		if err := keeper.saveJail(ctx, receipt.Evidence.Validator, receipt.Evidence.Height+types.Height(receipt.Penalty.JailDuration)); err != nil {
+			return err
 		}
 	}
 	if keeper.lifecyclePolicy.UnbondingDelay > 0 {
-		if err := keeper.saveUnbonding(ctx, evidence.Validator, evidence.Height+keeper.lifecyclePolicy.UnbondingDelay); err != nil {
-			return PenaltyReceipt{}, err
+		if err := keeper.saveUnbonding(ctx, receipt.Evidence.Validator, receipt.Evidence.Height+keeper.lifecyclePolicy.UnbondingDelay); err != nil {
+			return err
 		}
 	}
-	return receipt, nil
+	return nil
 }
 
 func (keeper *StoreKeeper) AppealEvidence(ctx context.Context, evidence Evidence) (bool, error) {

@@ -198,6 +198,17 @@ func (keeper *InMemoryKeeper) EvidenceLifecycle(evidence Evidence) (EvidenceStat
 
 func (keeper *InMemoryKeeper) ApplyPenaltyWithStake(ctx context.Context, evidence Evidence, currentPower types.VotingPower) (PenaltyReceipt, error) {
 	key := evidenceKey(evidence)
+	if receipt, found := keeper.penalties[key]; found {
+		keeper.evidenceStatus[key] = EvidenceStatusApplied
+		if receipt.Penalty.JailDuration > 0 {
+			keeper.jails[evidence.Validator] = evidence.Height + types.Height(receipt.Penalty.JailDuration)
+		}
+		if keeper.lifecyclePolicy.UnbondingDelay > 0 {
+			keeper.unbonding[evidence.Validator] = evidence.Height + keeper.lifecyclePolicy.UnbondingDelay
+		}
+		receipt.Evidence = cloneEvidence(receipt.Evidence)
+		return receipt, nil
+	}
 	if status, found := keeper.evidenceStatus[key]; found {
 		switch status {
 		case EvidenceStatusExpired:

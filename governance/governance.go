@@ -43,3 +43,9 @@ type OperationalKeeper interface {
 	AppliedChanges() []ParameterChange
 	Tally(proposalID uint64) (TallyResult, bool)
 }
+
+type ContextOperationalKeeper interface {
+	OperationalKeeper
+	SetTimeContext(ctx context.Context, now uint64) error
+	SetVotingPowerContext(ctx context.Context, voter types.Address, power types.VotingPower) error
+}
