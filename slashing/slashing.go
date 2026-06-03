@@ -38,6 +38,12 @@ type Penalty struct {
 	JailDuration  uint64
 }
 
+type LifecyclePolicy struct {
+	EvidenceMaxAge types.Height
+	AppealWindow   types.Height
+	UnbondingDelay types.Height
+}
+
 type PenaltyReceipt struct {
 	Evidence       Evidence
 	Penalty        Penalty

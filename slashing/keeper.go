@@ -17,30 +17,40 @@ var (
 	ErrPenaltyNotConfigured = errors.New("penalty is not configured")
 	ErrInvalidSlashFraction = errors.New("invalid slash fraction")
 	ErrEvidenceExpired      = errors.New("evidence expired")
+	ErrEvidenceAppealed     = errors.New("evidence is under appeal")
 )
 
 type PenaltyPolicy map[EvidenceType]Penalty
 
 type InMemoryKeeper struct {
 	policy          PenaltyPolicy
+	lifecyclePolicy LifecyclePolicy
 	evidence        map[string]Evidence
 	evidenceStatus  map[string]EvidenceStatus
 	evidenceExpires map[string]types.Height
 	penalties       map[string]PenaltyReceipt
 	jails           map[types.ValidatorID]types.Height
+	unbonding       map[types.ValidatorID]types.Height
 }
 
 func NewInMemoryKeeper(policy PenaltyPolicy) *InMemoryKeeper {
+	return NewInMemoryKeeperWithLifecycle(policy, DefaultLifecyclePolicy())
+}
+
+func NewInMemoryKeeperWithLifecycle(policy PenaltyPolicy, lifecyclePolicy LifecyclePolicy) *InMemoryKeeper {
 	if policy == nil {
 		policy = DefaultPenaltyPolicy()
 	}
+	lifecyclePolicy = normalizeLifecyclePolicy(lifecyclePolicy)
 	return &InMemoryKeeper{
 		policy:          policy,
+		lifecyclePolicy: lifecyclePolicy,
 		evidence:        make(map[string]Evidence),
 		evidenceStatus:  make(map[string]EvidenceStatus),
 		evidenceExpires: make(map[string]types.Height),
 		penalties:       make(map[string]PenaltyReceipt),
 		jails:           make(map[types.ValidatorID]types.Height),
+		unbonding:       make(map[types.ValidatorID]types.Height),
 	}
 }
 
@@ -51,6 +61,14 @@ func DefaultPenaltyPolicy() PenaltyPolicy {
 		EvidenceConflictingTimeoutVote: {SlashFraction: "0.05", JailDuration: 1209600},
 		EvidenceInvalidProposal:        {SlashFraction: "0.01", JailDuration: 86400},
 		EvidenceUnavailableData:        {SlashFraction: "0.02", JailDuration: 604800},
+	}
+}
+
+func DefaultLifecyclePolicy() LifecyclePolicy {
+	return LifecyclePolicy{
+		EvidenceMaxAge: 1209600,
+		AppealWindow:   100,
+		UnbondingDelay: 1209600,
 	}
 }
 
@@ -70,6 +88,9 @@ func (keeper *InMemoryKeeper) SubmitEvidence(ctx context.Context, evidence Evide
 	}
 	keeper.evidence[key] = cloneEvidence(evidence)
 	keeper.evidenceStatus[key] = EvidenceStatusSubmitted
+	if keeper.lifecyclePolicy.EvidenceMaxAge > 0 {
+		keeper.evidenceExpires[key] = evidence.Height + keeper.lifecyclePolicy.EvidenceMaxAge
+	}
 	return nil
 }
 
@@ -176,6 +197,18 @@ func (keeper *InMemoryKeeper) EvidenceLifecycle(evidence Evidence) (EvidenceStat
 }
 
 func (keeper *InMemoryKeeper) ApplyPenaltyWithStake(ctx context.Context, evidence Evidence, currentPower types.VotingPower) (PenaltyReceipt, error) {
+	key := evidenceKey(evidence)
+	if status, found := keeper.evidenceStatus[key]; found {
+		switch status {
+		case EvidenceStatusExpired:
+			return PenaltyReceipt{}, ErrEvidenceExpired
+		case EvidenceStatusAppealed:
+			return PenaltyReceipt{}, ErrEvidenceAppealed
+		}
+	}
+	if expiresAt := keeper.evidenceExpires[key]; expiresAt != 0 && evidence.Height >= expiresAt {
+		return PenaltyReceipt{}, ErrEvidenceExpired
+	}
 	penalty, err := keeper.ApplyPenalty(ctx, evidence)
 	if err != nil {
 		return PenaltyReceipt{}, err
@@ -190,11 +223,13 @@ func (keeper *InMemoryKeeper) ApplyPenaltyWithStake(ctx context.Context, evidenc
 		PreviousPower:  currentPower,
 		RemainingPower: remaining,
 	}
-	key := evidenceKey(evidence)
 	keeper.penalties[key] = receipt
 	keeper.evidenceStatus[key] = EvidenceStatusApplied
 	if penalty.JailDuration > 0 {
 		keeper.jails[evidence.Validator] = evidence.Height + types.Height(penalty.JailDuration)
+	}
+	if keeper.lifecyclePolicy.UnbondingDelay > 0 {
+		keeper.unbonding[evidence.Validator] = evidence.Height + keeper.lifecyclePolicy.UnbondingDelay
 	}
 	return receipt, nil
 }
@@ -202,6 +237,21 @@ func (keeper *InMemoryKeeper) ApplyPenaltyWithStake(ctx context.Context, evidenc
 func (keeper *InMemoryKeeper) JailUntil(validator types.ValidatorID) (types.Height, bool) {
 	height, found := keeper.jails[validator]
 	return height, found
+}
+
+func (keeper *InMemoryKeeper) IsJailed(validator types.ValidatorID, currentHeight types.Height) bool {
+	height, found := keeper.JailUntil(validator)
+	return found && currentHeight < height
+}
+
+func (keeper *InMemoryKeeper) UnbondingReleaseHeight(validator types.ValidatorID) (types.Height, bool) {
+	height, found := keeper.unbonding[validator]
+	return height, found
+}
+
+func (keeper *InMemoryKeeper) CanUnbond(validator types.ValidatorID, currentHeight types.Height) bool {
+	height, found := keeper.UnbondingReleaseHeight(validator)
+	return !found || currentHeight >= height
 }
 
 func (keeper *InMemoryKeeper) EvidenceCount() int {
@@ -243,4 +293,18 @@ func evidenceKey(evidence Evidence) string {
 func cloneEvidence(evidence Evidence) Evidence {
 	evidence.Proof = append([]byte(nil), evidence.Proof...)
 	return evidence
+}
+
+func normalizeLifecyclePolicy(policy LifecyclePolicy) LifecyclePolicy {
+	defaults := DefaultLifecyclePolicy()
+	if policy.EvidenceMaxAge == 0 {
+		policy.EvidenceMaxAge = defaults.EvidenceMaxAge
+	}
+	if policy.AppealWindow == 0 {
+		policy.AppealWindow = defaults.AppealWindow
+	}
+	if policy.UnbondingDelay == 0 {
+		policy.UnbondingDelay = defaults.UnbondingDelay
+	}
+	return policy
 }

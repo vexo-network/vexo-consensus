@@ -2,15 +2,18 @@ package slashing
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
 func TestStoreKeeperPersistsEvidenceLifecycleAndPenalty(t *testing.T) {
 	storage := newMemoryKV()
 
-	keeper, err := NewStoreKeeper(storage, PenaltyPolicy{
-		EvidenceConflictingVote: {SlashFraction: "0.25", JailDuration: 30},
-	})
+	keeper, err := NewStoreKeeperWithLifecycle(
+		storage,
+		PenaltyPolicy{EvidenceConflictingVote: {SlashFraction: "0.25", JailDuration: 30}},
+		LifecyclePolicy{EvidenceMaxAge: 100, AppealWindow: 5, UnbondingDelay: 40},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,10 +42,33 @@ func TestStoreKeeperPersistsEvidenceLifecycleAndPenalty(t *testing.T) {
 	if !found || jailUntil != 31 {
 		t.Fatalf("unexpected jail: %d found=%t", jailUntil, found)
 	}
+	jailed, err := keeper.IsJailed(context.Background(), evidence.Validator, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !jailed {
+		t.Fatal("expected validator jailed before jail-until height")
+	}
+	canUnbond, err := keeper.CanUnbond(context.Background(), evidence.Validator, 40)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if canUnbond {
+		t.Fatal("expected unbonding blocked before release height")
+	}
+	releaseHeight, found, err := keeper.UnbondingReleaseHeight(context.Background(), evidence.Validator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || releaseHeight != 41 {
+		t.Fatalf("unexpected unbonding release height: %d found=%t", releaseHeight, found)
+	}
 
-	reopened, err := NewStoreKeeper(storage, PenaltyPolicy{
-		EvidenceConflictingVote: {SlashFraction: "0.25", JailDuration: 30},
-	})
+	reopened, err := NewStoreKeeperWithLifecycle(
+		storage,
+		PenaltyPolicy{EvidenceConflictingVote: {SlashFraction: "0.25", JailDuration: 30}},
+		LifecyclePolicy{EvidenceMaxAge: 100, AppealWindow: 5, UnbondingDelay: 40},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,6 +78,13 @@ func TestStoreKeeperPersistsEvidenceLifecycleAndPenalty(t *testing.T) {
 	}
 	if !found || stored.RemainingPower != 75 {
 		t.Fatalf("expected persisted receipt, got %+v found=%t", stored, found)
+	}
+	reopenedCanUnbond, err := reopened.CanUnbond(context.Background(), evidence.Validator, 41)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reopenedCanUnbond {
+		t.Fatal("expected persisted unbonding release to allow exit")
 	}
 }
 
@@ -86,6 +119,25 @@ func TestStoreKeeperAppealAndExpire(t *testing.T) {
 	}
 	if !found || status != EvidenceStatusExpired {
 		t.Fatalf("expected expired, got %s found=%t", status, found)
+	}
+}
+
+func TestStoreKeeperRejectsAppealedPenaltyApplication(t *testing.T) {
+	storage := newMemoryKV()
+
+	keeper, err := NewStoreKeeper(storage, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence := validEvidence(EvidenceDoubleSign)
+	if err := keeper.SubmitEvidence(context.Background(), evidence); err != nil {
+		t.Fatal(err)
+	}
+	if appealed, err := keeper.AppealEvidence(context.Background(), evidence); err != nil || !appealed {
+		t.Fatalf("expected appeal, appealed=%t err=%v", appealed, err)
+	}
+	if _, err := keeper.ApplyPenaltyWithStake(context.Background(), evidence, 100); !errors.Is(err, ErrEvidenceAppealed) {
+		t.Fatalf("expected appealed evidence error, got %v", err)
 	}
 }
 

@@ -39,9 +39,17 @@ Evidence states:
 
 Evidence must be validated, deduplicated, persisted, and only then applied.
 
-Durable keepers persist evidence lifecycle, penalty receipts, and jail-until heights. Consensus slashing
+Durable keepers persist evidence lifecycle, penalty receipts, jail-until heights, and unbonding release heights. Consensus slashing
 first validates evidence, then records it, applies a stake-aware penalty, and finally writes the resulting
 validator voting-power update through the registry.
+
+Lifecycle policy includes:
+
+- evidence max age
+- appeal window
+- unbonding delay
+
+Appealed or expired evidence must not be applied.
 
 ## Slashing
 
@@ -53,10 +61,10 @@ Slashing records:
 - remaining voting power
 - jail duration
 
-Incorrect slashing is a critical chain-trust failure, so production deployments need appeal and expiration policy.
+Incorrect slashing is a critical chain-trust failure, so slashing policy includes appeal and expiration handling.
 
 ## Jail and Unbonding
 
-- Jailed validators should be excluded or power-reduced according to policy.
-- Unbonding should prevent immediate stake exit after accountable evidence windows.
+- Jailed validators are tracked by validator ID and jail-until height.
+- Unbonding is blocked until the recorded release height.
 - Production stake accounting should be durable and auditable.

@@ -17,8 +17,9 @@ type KVStore interface {
 }
 
 type StoreKeeper struct {
-	store  KVStore
-	policy PenaltyPolicy
+	store           KVStore
+	policy          PenaltyPolicy
+	lifecyclePolicy LifecyclePolicy
 }
 
 type evidenceDocument struct {
@@ -32,14 +33,24 @@ type jailDocument struct {
 	Until     types.Height      `json:"until"`
 }
 
+type unbondingDocument struct {
+	Validator     types.ValidatorID `json:"validator"`
+	ReleaseHeight types.Height      `json:"release_height"`
+}
+
 func NewStoreKeeper(store KVStore, policy PenaltyPolicy) (*StoreKeeper, error) {
+	return NewStoreKeeperWithLifecycle(store, policy, DefaultLifecyclePolicy())
+}
+
+func NewStoreKeeperWithLifecycle(store KVStore, policy PenaltyPolicy, lifecyclePolicy LifecyclePolicy) (*StoreKeeper, error) {
 	if store == nil {
 		return nil, errors.New("slashing store is required")
 	}
 	if policy == nil {
 		policy = DefaultPenaltyPolicy()
 	}
-	return &StoreKeeper{store: store, policy: policy}, nil
+	lifecyclePolicy = normalizeLifecyclePolicy(lifecyclePolicy)
+	return &StoreKeeper{store: store, policy: policy, lifecyclePolicy: lifecyclePolicy}, nil
 }
 
 func (keeper *StoreKeeper) SubmitEvidence(ctx context.Context, evidence Evidence) error {
@@ -50,6 +61,9 @@ func (keeper *StoreKeeper) SubmitEvidence(ctx context.Context, evidence Evidence
 		return ErrDuplicateEvidence
 	}
 	document := evidenceDocument{Evidence: cloneEvidence(evidence), Status: EvidenceStatusSubmitted}
+	if keeper.lifecyclePolicy.EvidenceMaxAge > 0 {
+		document.ExpiresAt = evidence.Height + keeper.lifecyclePolicy.EvidenceMaxAge
+	}
 	return keeper.saveEvidence(ctx, document)
 }
 
@@ -108,6 +122,9 @@ func (keeper *StoreKeeper) ApplyPenaltyWithStake(ctx context.Context, evidence E
 	if document.Status == EvidenceStatusExpired {
 		return PenaltyReceipt{}, ErrEvidenceExpired
 	}
+	if document.Status == EvidenceStatusAppealed {
+		return PenaltyReceipt{}, ErrEvidenceAppealed
+	}
 	penalty, err := keeper.ApplyPenalty(ctx, evidence)
 	if err != nil {
 		return PenaltyReceipt{}, err
@@ -135,6 +152,11 @@ func (keeper *StoreKeeper) ApplyPenaltyWithStake(ctx context.Context, evidence E
 	}
 	if penalty.JailDuration > 0 {
 		if err := keeper.saveJail(ctx, evidence.Validator, evidence.Height+types.Height(penalty.JailDuration)); err != nil {
+			return PenaltyReceipt{}, err
+		}
+	}
+	if keeper.lifecyclePolicy.UnbondingDelay > 0 {
+		if err := keeper.saveUnbonding(ctx, evidence.Validator, evidence.Height+keeper.lifecyclePolicy.UnbondingDelay); err != nil {
 			return PenaltyReceipt{}, err
 		}
 	}
@@ -204,6 +226,34 @@ func (keeper *StoreKeeper) JailUntil(ctx context.Context, validator types.Valida
 	return document.Until, true, nil
 }
 
+func (keeper *StoreKeeper) IsJailed(ctx context.Context, validator types.ValidatorID, currentHeight types.Height) (bool, error) {
+	until, found, err := keeper.JailUntil(ctx, validator)
+	if err != nil {
+		return false, err
+	}
+	return found && currentHeight < until, nil
+}
+
+func (keeper *StoreKeeper) UnbondingReleaseHeight(ctx context.Context, validator types.ValidatorID) (types.Height, bool, error) {
+	encoded, err := keeper.store.Get(ctx, slashingNamespace, unbondingKey(validator))
+	if err != nil {
+		return 0, false, nil
+	}
+	var document unbondingDocument
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		return 0, false, err
+	}
+	return document.ReleaseHeight, true, nil
+}
+
+func (keeper *StoreKeeper) CanUnbond(ctx context.Context, validator types.ValidatorID, currentHeight types.Height) (bool, error) {
+	releaseHeight, found, err := keeper.UnbondingReleaseHeight(ctx, validator)
+	if err != nil {
+		return false, err
+	}
+	return !found || currentHeight >= releaseHeight, nil
+}
+
 func (keeper *StoreKeeper) loadEvidence(ctx context.Context, evidence Evidence) (evidenceDocument, error) {
 	encoded, err := keeper.store.Get(ctx, slashingNamespace, evidenceDocumentKey(evidence))
 	if err != nil {
@@ -233,6 +283,14 @@ func (keeper *StoreKeeper) saveJail(ctx context.Context, validator types.Validat
 	return keeper.store.Set(ctx, slashingNamespace, jailKey(validator), encoded)
 }
 
+func (keeper *StoreKeeper) saveUnbonding(ctx context.Context, validator types.ValidatorID, releaseHeight types.Height) error {
+	encoded, err := json.Marshal(unbondingDocument{Validator: validator, ReleaseHeight: releaseHeight})
+	if err != nil {
+		return err
+	}
+	return keeper.store.Set(ctx, slashingNamespace, unbondingKey(validator), encoded)
+}
+
 func evidenceDocumentKey(evidence Evidence) []byte {
 	return []byte("evidence/" + evidenceKey(evidence))
 }
@@ -243,4 +301,8 @@ func penaltyKey(evidence Evidence) []byte {
 
 func jailKey(validator types.ValidatorID) []byte {
 	return []byte("jail/" + string(validator))
+}
+
+func unbondingKey(validator types.ValidatorID) []byte {
+	return []byte("unbonding/" + string(validator))
 }

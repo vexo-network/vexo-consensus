@@ -141,9 +141,10 @@ func TestInMemoryKeeperEvidenceExpirationAndAppeal(t *testing.T) {
 }
 
 func TestInMemoryKeeperAppliesStakeAccountingAndJail(t *testing.T) {
-	keeper := NewInMemoryKeeper(PenaltyPolicy{
-		EvidenceConflictingVote: {SlashFraction: "0.25", JailDuration: 30},
-	})
+	keeper := NewInMemoryKeeperWithLifecycle(
+		PenaltyPolicy{EvidenceConflictingVote: {SlashFraction: "0.25", JailDuration: 30}},
+		LifecyclePolicy{EvidenceMaxAge: 100, AppealWindow: 5, UnbondingDelay: 40},
+	)
 	evidence := validEvidence(EvidenceConflictingVote)
 	if err := keeper.SubmitEvidence(context.Background(), evidence); err != nil {
 		t.Fatal(err)
@@ -158,6 +159,30 @@ func TestInMemoryKeeperAppliesStakeAccountingAndJail(t *testing.T) {
 	jailUntil, found := keeper.JailUntil(evidence.Validator)
 	if !found || jailUntil != 31 {
 		t.Fatalf("unexpected jail height: %d found=%t", jailUntil, found)
+	}
+	if !keeper.IsJailed(evidence.Validator, 30) || keeper.IsJailed(evidence.Validator, 31) {
+		t.Fatal("expected jail status to clear at jail-until height")
+	}
+	releaseHeight, found := keeper.UnbondingReleaseHeight(evidence.Validator)
+	if !found || releaseHeight != 41 {
+		t.Fatalf("unexpected unbonding release height: %d found=%t", releaseHeight, found)
+	}
+	if keeper.CanUnbond(evidence.Validator, 40) || !keeper.CanUnbond(evidence.Validator, 41) {
+		t.Fatal("expected unbonding to be blocked until release height")
+	}
+}
+
+func TestInMemoryKeeperRejectsAppealedPenaltyApplication(t *testing.T) {
+	keeper := NewInMemoryKeeper(nil)
+	evidence := validEvidence(EvidenceDoubleSign)
+	if err := keeper.SubmitEvidence(context.Background(), evidence); err != nil {
+		t.Fatal(err)
+	}
+	if !keeper.AppealEvidence(evidence) {
+		t.Fatal("expected appeal")
+	}
+	if _, err := keeper.ApplyPenaltyWithStake(context.Background(), evidence, 100); !errors.Is(err, ErrEvidenceAppealed) {
+		t.Fatalf("expected appealed evidence error, got %v", err)
 	}
 }
 
