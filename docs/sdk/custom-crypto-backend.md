@@ -68,7 +68,7 @@ Remote signers must enforce their own policy tuple:
 
 They must reject conflicting messages for the same tuple even if the node process restarts or is compromised.
 
-`vexo-consensus` also provides a node-side `DoubleSignGuard` helper, but production KMS/HSM implementations must keep their own durable policy database. The guard key includes domain separation:
+`vexo-consensus` also provides a node-side and HTTP KMS/HSM `DoubleSignGuard` helper. For built-in serving, run `vexod keys serve-remote` with a durable `--guard-path`; external production KMS/HSM implementations must keep an equivalent durable policy database. The guard key includes domain separation:
 
 ```text
 chain_id/height/round/type/domain

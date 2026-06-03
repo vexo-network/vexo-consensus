@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 )
 
@@ -154,6 +155,65 @@ func TestRemoteSignerGuardRejectsBeforeHTTP(t *testing.T) {
 	}
 	if requests != 1 {
 		t.Fatalf("expected only first request to reach remote signer, got %d", requests)
+	}
+}
+
+func TestRemoteSignerServiceEnforcesPolicyAndDoubleSignGuard(t *testing.T) {
+	baseSigner, err := GenerateEd25519Signer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewRemoteSignerService(baseSigner, RemoteSignerPolicy{
+		ChainID:       "vexo-test",
+		AllowedTypes:  []SignType{SignTypeConsensusVote},
+		RequirePolicy: true,
+	}, NewDoubleSignGuard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(service)
+	defer server.Close()
+
+	remoteSigner, err := NewRemoteSigner(server.URL, baseSigner.PublicKey(), Ed25519Signer{}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := SignPolicy{ChainID: "vexo-test", Height: 1, Round: 0, Type: SignTypeConsensusVote, Domain: DomainConsensusVote}
+	if _, err := remoteSigner.SignWithPolicy(policy, []byte("block-a")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := remoteSigner.SignWithPolicy(policy, []byte("block-b")); !errors.Is(err, ErrRemoteSignerRejected) {
+		t.Fatalf("expected remote double-sign rejection, got %v", err)
+	}
+	wrongChain := policy
+	wrongChain.ChainID = "other"
+	if _, err := remoteSigner.SignWithPolicy(wrongChain, []byte("block-c")); !errors.Is(err, ErrRemoteSignerRejected) {
+		t.Fatalf("expected remote policy rejection, got %v", err)
+	}
+	if _, err := remoteSigner.Sign([]byte("no-policy")); !errors.Is(err, ErrRemoteSignerRejected) {
+		t.Fatalf("expected missing policy rejection, got %v", err)
+	}
+}
+
+func TestFileBackedDoubleSignGuardPersistsSnapshot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "guard.json")
+	guard, err := NewFileBackedDoubleSignGuard(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := SignPolicy{ChainID: "vexo-test", Height: 2, Round: 1, Type: SignTypeConsensusVote, Domain: DomainConsensusVote}
+	if err := guard.CheckAndRemember(policy, []byte("block-a")); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := NewFileBackedDoubleSignGuard(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restored.CheckAndRemember(policy, []byte("block-b")); !errors.Is(err, ErrDoubleSign) {
+		t.Fatalf("expected persisted double-sign rejection, got %v", err)
+	}
+	if err := restored.CheckAndRemember(policy, []byte("block-a")); err != nil {
+		t.Fatalf("expected same payload to be allowed, got %v", err)
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 
 type autoVoteReactor struct {
 	machine            *consensus.StateMachine
+	chainID            string
 	validatorID        types.ValidatorID
 	signer             vexocrypto.Signer
 	broadcastVote      func(context.Context, consensus.Vote) error
@@ -37,7 +38,7 @@ func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consens
 		BlockHash:   blockHash,
 		ValidatorID: reactor.validatorID,
 	}
-	if err := signConsensusVote(reactor.signer, &vote); err != nil {
+	if err := signConsensusVote(reactor.chainID, reactor.signer, &vote); err != nil {
 		return err
 	}
 	if reactor.wal != nil {
@@ -253,7 +254,13 @@ func (node *Node) signConsensusProposal(proposal *consensus.Proposal) error {
 	if signer == nil {
 		return nil
 	}
-	signature, err := vexocrypto.SignWithDomain(signer, vexocrypto.DomainConsensusProposal, consensus.ProposalSignBytes(*proposal))
+	signature, err := signWithConsensusPolicy(signer, vexocrypto.SignPolicy{
+		ChainID: proposal.Block.Header.ChainID,
+		Height:  proposal.Block.Header.Height,
+		Round:   proposal.Round,
+		Type:    vexocrypto.SignTypeConsensusProposal,
+		Domain:  vexocrypto.DomainConsensusProposal,
+	}, consensus.ProposalSignBytes(*proposal))
 	if err != nil {
 		return err
 	}
@@ -264,15 +271,22 @@ func (node *Node) signConsensusProposal(proposal *consensus.Proposal) error {
 func (node *Node) signConsensusVote(vote *consensus.Vote) error {
 	node.mu.Lock()
 	signer := node.signer
+	chainID := node.cfg.Chain.ChainID
 	node.mu.Unlock()
-	return signConsensusVote(signer, vote)
+	return signConsensusVote(chainID, signer, vote)
 }
 
-func signConsensusVote(signer vexocrypto.Signer, vote *consensus.Vote) error {
+func signConsensusVote(chainID string, signer vexocrypto.Signer, vote *consensus.Vote) error {
 	if signer == nil {
 		return nil
 	}
-	signature, err := vexocrypto.SignWithDomain(signer, vexocrypto.DomainConsensusVote, consensus.VoteSignBytes(*vote))
+	signature, err := signWithConsensusPolicy(signer, vexocrypto.SignPolicy{
+		ChainID: chainID,
+		Height:  vote.Height,
+		Round:   vote.Round,
+		Type:    vexocrypto.SignTypeConsensusVote,
+		Domain:  vexocrypto.DomainConsensusVote,
+	}, consensus.VoteSignBytes(*vote))
 	if err != nil {
 		return err
 	}
@@ -283,11 +297,18 @@ func signConsensusVote(signer vexocrypto.Signer, vote *consensus.Vote) error {
 func (node *Node) signConsensusTimeoutVote(vote *consensus.TimeoutVote) error {
 	node.mu.Lock()
 	signer := node.signer
+	chainID := node.cfg.Chain.ChainID
 	node.mu.Unlock()
 	if signer == nil {
 		return nil
 	}
-	signature, err := vexocrypto.SignWithDomain(signer, vexocrypto.DomainConsensusTimeoutVote, consensus.TimeoutVoteSignBytes(*vote))
+	signature, err := signWithConsensusPolicy(signer, vexocrypto.SignPolicy{
+		ChainID: chainID,
+		Height:  vote.Height,
+		Round:   vote.Round,
+		Type:    vexocrypto.SignTypeConsensusTimeoutVote,
+		Domain:  vexocrypto.DomainConsensusTimeoutVote,
+	}, consensus.TimeoutVoteSignBytes(*vote))
 	if err != nil {
 		return err
 	}
@@ -303,6 +324,21 @@ func (node *Node) recordConsensusVote(vote consensus.Vote) error {
 		return nil
 	}
 	return wal.RecordVote(vote)
+}
+
+func signWithConsensusPolicy(signer vexocrypto.Signer, policy vexocrypto.SignPolicy, signBytes []byte) (types.Signature, error) {
+	if policy.ChainID == "" {
+		return vexocrypto.SignWithDomain(signer, policy.Domain, signBytes)
+	}
+	policySigner, ok := signer.(vexocrypto.PolicySigner)
+	if !ok {
+		return vexocrypto.SignWithDomain(signer, policy.Domain, signBytes)
+	}
+	message, err := vexocrypto.DomainMessage(policy.Domain, signBytes)
+	if err != nil {
+		return nil, err
+	}
+	return policySigner.SignWithPolicy(policy, message)
 }
 
 func (node *Node) recordConsensusTimeoutVote(vote consensus.TimeoutVote) error {

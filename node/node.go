@@ -147,6 +147,7 @@ func (node *Node) Start(ctx context.Context) error {
 		if node.cfg.ValidatorID != "" {
 			receiver = &autoVoteReactor{
 				machine:            consensusState,
+				chainID:            node.cfg.Chain.ChainID,
 				validatorID:        node.cfg.ValidatorID,
 				signer:             node.signer,
 				onProposalAccepted: node.cacheProposal,

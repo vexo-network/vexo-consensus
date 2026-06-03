@@ -635,6 +635,57 @@ func TestNodeSignsConsensusMessagesWithDomains(t *testing.T) {
 	}
 }
 
+func TestNodeUsesPolicySignerForConsensusMessages(t *testing.T) {
+	baseSigner, err := vexocrypto.NewDeterministicSigner([]byte("alice-key"))
+	if err != nil {
+		t.Fatalf("new signer: %v", err)
+	}
+	policySigner := &recordingPolicySigner{Signer: baseSigner}
+	node := newTestNode(t).WithSigner(policySigner)
+
+	proposal := consensus.Proposal{
+		Block:    types.Block{Header: types.Header{ChainID: "vexo-test", Height: 3}},
+		Round:    2,
+		Proposer: "alice",
+	}
+	if err := node.signConsensusProposal(&proposal); err != nil {
+		t.Fatalf("sign proposal: %v", err)
+	}
+	vote := consensus.Vote{Height: 3, Round: 2, BlockHash: types.Hash{1}, ValidatorID: "alice"}
+	if err := node.signConsensusVote(&vote); err != nil {
+		t.Fatalf("sign vote: %v", err)
+	}
+	timeoutVote := consensus.TimeoutVote{Height: 3, Round: 2, ValidatorID: "alice"}
+	if err := node.signConsensusTimeoutVote(&timeoutVote); err != nil {
+		t.Fatalf("sign timeout vote: %v", err)
+	}
+
+	if len(policySigner.policies) != 3 {
+		t.Fatalf("expected 3 policy signatures, got %+v", policySigner.policies)
+	}
+	expectedTypes := []vexocrypto.SignType{
+		vexocrypto.SignTypeConsensusProposal,
+		vexocrypto.SignTypeConsensusVote,
+		vexocrypto.SignTypeConsensusTimeoutVote,
+	}
+	for index, expectedType := range expectedTypes {
+		policy := policySigner.policies[index]
+		if policy.ChainID != "vexo-test" || policy.Height != 3 || policy.Round != 2 || policy.Type != expectedType {
+			t.Fatalf("unexpected policy[%d]: %+v", index, policy)
+		}
+	}
+}
+
+type recordingPolicySigner struct {
+	vexocrypto.Signer
+	policies []vexocrypto.SignPolicy
+}
+
+func (signer *recordingPolicySigner) SignWithPolicy(policy vexocrypto.SignPolicy, message []byte) (types.Signature, error) {
+	signer.policies = append(signer.policies, policy)
+	return signer.Signer.Sign(message)
+}
+
 func newTestNode(t *testing.T) *Node {
 	t.Helper()
 	return newTestNodeWithDataDir(t, t.TempDir())

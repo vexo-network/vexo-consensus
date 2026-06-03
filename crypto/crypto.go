@@ -8,6 +8,11 @@ type Signer interface {
 	Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool
 }
 
+type PolicySigner interface {
+	Signer
+	SignWithPolicy(policy SignPolicy, message []byte) (types.Signature, error)
+}
+
 type AggregateSigner interface {
 	Aggregate(signatures []types.Signature) (types.AggregateSignature, error)
 	VerifyAggregate(publicKeys []types.PublicKey, message []byte, signature types.AggregateSignature) bool

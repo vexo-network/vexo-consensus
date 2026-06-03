@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -45,6 +46,8 @@ func runKeys(writer io.Writer, args []string) error {
 		return runKeysSignTx(writer, args[1:])
 	case "verify-remote":
 		return runKeysVerifyRemote(writer, args[1:])
+	case "serve-remote":
+		return runKeysServeRemote(writer, args[1:])
 	default:
 		return fmt.Errorf("unknown keys subcommand %q", args[0])
 	}
@@ -291,6 +294,57 @@ func runKeysVerifyRemote(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "policy: %s\n", policy.GuardKey())
 	fmt.Fprintf(writer, "signature: %s\n", base64.StdEncoding.EncodeToString(signature))
 	return nil
+}
+
+func runKeysServeRemote(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("keys serve-remote", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", defaultHomeDir, "node home directory")
+	path := flags.String("path", "", "local validator key file path")
+	listen := flags.String("listen", "127.0.0.1:9000", "HTTP listen address")
+	chainID := flags.String("chain-id", defaultChainID, "allowed chain id")
+	minHeight := flags.Uint64("min-height", 0, "minimum allowed signing height")
+	maxHeight := flags.Uint64("max-height", 0, "maximum allowed signing height; zero means no limit")
+	guardPath := flags.String("guard-path", "", "double-sign guard file path")
+	passphrase := flags.String("passphrase", "", "key decryption passphrase; prefer VEXO_KEY_PASSPHRASE")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *guardPath == "" {
+		*guardPath = filepath.Join(*home, "remote-signer.guard.json")
+	}
+	document, err := vexocrypto.LoadKeyDocument(resolveKeyPath(*home, *path))
+	if err != nil {
+		return err
+	}
+	signer, err := document.SignerWithPassphrase(resolvePassphrase(*passphrase))
+	if err != nil {
+		return err
+	}
+	guard, err := vexocrypto.NewFileBackedDoubleSignGuard(*guardPath)
+	if err != nil {
+		return err
+	}
+	service, err := vexocrypto.NewRemoteSignerService(signer, vexocrypto.RemoteSignerPolicy{
+		ChainID:       *chainID,
+		MinHeight:     types.Height(*minHeight),
+		MaxHeight:     types.Height(*maxHeight),
+		AllowedTypes:  []vexocrypto.SignType{vexocrypto.SignTypeConsensusProposal, vexocrypto.SignTypeConsensusVote, vexocrypto.SignTypeConsensusTimeoutVote, vexocrypto.SignTypeFinalityProof},
+		RequirePolicy: true,
+	}, guard)
+	if err != nil {
+		return err
+	}
+	server := &http.Server{
+		Addr:              *listen,
+		Handler:           service,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	fmt.Fprintf(writer, "remote signer serving\n")
+	fmt.Fprintf(writer, "listen: %s\n", *listen)
+	fmt.Fprintf(writer, "chain_id: %s\n", *chainID)
+	fmt.Fprintf(writer, "guard_path: %s\n", *guardPath)
+	return server.ListenAndServe()
 }
 
 func resolvePassphrase(passphrase string) string {

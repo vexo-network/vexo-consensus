@@ -466,6 +466,15 @@ go run ./cmd/vexod keys remote --home .vexo \
   --url http://127.0.0.1:9000/sign
 ```
 
+Serve a policy-enforced remote signer from a local encrypted or unencrypted key:
+
+```bash
+go run ./cmd/vexod keys serve-remote --home .vexo \
+  --listen 127.0.0.1:9000 \
+  --chain-id vexo-chain \
+  --guard-path .vexo/remote-signer.guard.json
+```
+
 Verify a remote KMS/HSM signer with a policy-bound challenge signature:
 
 ```bash
