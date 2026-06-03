@@ -88,6 +88,35 @@ func TestGovernanceModulePersistsStateWithRuntimeStore(t *testing.T) {
 	}
 }
 
+func TestGovernanceModuleRebindsStoreAfterRecoverWithoutInitChain(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	runtime, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{NewModule()}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.WithStore(storage)
+	if _, err := runtime.InitChain(vexoapp.InitChainRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	finalizeGovernanceBlock(t, runtime, 1, []types.Tx{[]byte("governance:submit:alice:title:execution:max_gas:20000000")})
+
+	recovered, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{NewModule()}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered.WithStore(storage)
+	recovered.Restore(1, types.Hash{1})
+	proposal := recovered.Query(vexoapp.QueryRequest{Path: []string{"governance", "proposal", "1"}})
+	if proposal.Code != 0 || !strings.Contains(string(proposal.Value), `"ID":1`) {
+		t.Fatalf("expected recover rebind proposal query, got %+v", proposal)
+	}
+}
+
 func TestGovernanceModuleRejectsInvalidTransactions(t *testing.T) {
 	module := NewModule()
 	for _, tx := range []types.Tx{

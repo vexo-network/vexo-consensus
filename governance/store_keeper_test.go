@@ -2,6 +2,7 @@ package governance
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/store"
@@ -43,5 +44,21 @@ func TestStoreKeeperPersistsVotesAndTally(t *testing.T) {
 	tally, found := reopened.Tally(proposalID)
 	if !found || tally.Yes != types.VotingPower(1) || !tally.Passed {
 		t.Fatalf("expected persisted yes tally, found=%t tally=%+v", found, tally)
+	}
+}
+
+func TestStoreKeeperRejectsCorruptExistingState(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	if err := storage.Set(context.Background(), governanceNamespace, []byte("state"), []byte("{")); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = NewStoreKeeper(storage, TallyPolicy{}, nil)
+	if err == nil || errors.Is(err, store.ErrKeyNotFound) {
+		t.Fatalf("expected corrupt governance state to fail startup, got %v", err)
 	}
 }

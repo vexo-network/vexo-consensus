@@ -32,7 +32,7 @@ func TestSubmitEvidenceForSlashingReducesValidatorPower(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, evidence)
+	result, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestSubmitEvidenceForSlashingRejectsTamperedEvidence(t *testing.T) {
 	}
 	evidence.Validator = "b"
 
-	_, err = SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, evidence)
+	_, err = SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence)
 	if !errors.Is(err, ErrEvidenceValidatorNotFound) {
 		t.Fatalf("expected validator lookup rejection, got %v", err)
 	}
@@ -100,7 +100,7 @@ func TestSubmitEvidenceForSlashingRejectsUnknownValidator(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, evidence)
+	_, err = SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence)
 	if !errors.Is(err, ErrEvidenceValidatorNotFound) {
 		t.Fatalf("expected unknown evidence validator, got %v", err)
 	}
@@ -122,10 +122,10 @@ func TestSubmitEvidenceForSlashingRejectsDuplicateEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, evidence); err != nil {
+	if _, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, evidence); !errors.Is(err, slashing.ErrDuplicateEvidence) {
+	if _, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence); !errors.Is(err, slashing.ErrDuplicateEvidence) {
 		t.Fatalf("expected duplicate evidence, got %v", err)
 	}
 }
@@ -149,7 +149,7 @@ func TestSubmitTimeoutEvidenceForSlashingReducesValidatorPower(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, evidence)
+	result, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestSubmitEvidenceForSlashingSupportsStoreBackedState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, evidence)
+	result, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,6 +214,55 @@ func TestSubmitEvidenceForSlashingSupportsStoreBackedState(t *testing.T) {
 	}
 }
 
+func TestSubmitEvidenceForSlashingAppliesAtExplicitHeight(t *testing.T) {
+	signer := testEvidenceSigner(t, "a")
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	registry, err := validator.NewStoreRegistry(context.Background(), storage, nil, 1, []validator.Validator{
+		{ID: "a", Address: "a", VotingPower: 100, Stake: 100, PublicKey: signer.PublicKey()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keeper, err := slashing.NewStoreKeeper(storage, slashing.PenaltyPolicy{
+		slashing.EvidenceConflictingVote: {SlashFraction: "0.25", JailDuration: 30},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := NewConflictingVoteEvidence(
+		signedTestVote(t, signer, "a", 1, 0, types.Hash{1}),
+		signedTestVote(t, signer, "a", 1, 0, types.Hash{2}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 10, evidence); err != nil {
+		t.Fatal(err)
+	}
+	setAtEvidenceHeight, err := registry.ValidatorSet(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, found := setAtEvidenceHeight.Get("a")
+	if !found || original.VotingPower != 100 {
+		t.Fatalf("expected height 1 power preserved, got %+v found=%t", original, found)
+	}
+	setAtApplyHeight, err := registry.ValidatorSet(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slashed, found := setAtApplyHeight.Get("a")
+	if !found || slashed.VotingPower != 75 {
+		t.Fatalf("expected height 10 power slashed, got %+v found=%t", slashed, found)
+	}
+}
+
 func TestSubmitEvidenceForSlashingRejectsUnsignedProof(t *testing.T) {
 	signer := testEvidenceSigner(t, "a")
 	registry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{
@@ -231,7 +280,7 @@ func TestSubmitEvidenceForSlashingRejectsUnsignedProof(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, evidence)
+	_, err = SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence)
 	if !errors.Is(err, ErrInvalidEvidenceVoteSignature) {
 		t.Fatalf("expected invalid vote signature, got %v", err)
 	}
@@ -248,7 +297,7 @@ func TestSubmitEvidenceForSlashingRejectsUnsupportedProofType(t *testing.T) {
 	keeper := slashing.NewInMemoryKeeper(nil)
 	evidence := slashing.Evidence{Type: slashing.EvidenceDoubleSign, Validator: "a", Height: 1, Proof: []byte("opaque")}
 
-	_, err = SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, evidence)
+	_, err = SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence)
 	if !errors.Is(err, ErrUnsupportedEvidenceProof) {
 		t.Fatalf("expected unsupported proof, got %v", err)
 	}

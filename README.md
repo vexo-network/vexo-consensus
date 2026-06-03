@@ -603,7 +603,7 @@ go run ./cmd/vexod ops alerts \
   --commit-latency 2s \
   --signing-failures 1
 go run ./cmd/vexod ops incident --metrics-file current-metrics.json --previous-metrics-file previous-metrics.json --window 1m --json
-go run ./cmd/vexod slashing lifecycle-plan --type double_sign --validator validator-1 --height 100 --current-height 250 --json
+go run ./cmd/vexod slashing lifecycle-plan --type conflicting_vote --validator validator-1 --height 100 --current-height 250 --json
 ```
 
 Build a governance-driven binary/config/store/app-state migration plan:

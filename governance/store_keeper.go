@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	vexostore "github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -42,6 +43,9 @@ func NewStoreKeeper(store KVStore, policy TallyPolicy, votingPower map[types.Add
 	}
 	keeper := &StoreKeeper{store: store, policy: policy, powers: powers}
 	if _, err := keeper.load(context.Background()); err != nil {
+		if !errors.Is(err, vexostore.ErrKeyNotFound) {
+			return nil, err
+		}
 		if err := keeper.save(context.Background(), storeDocument{
 			NextID:    1,
 			Proposals: make(map[uint64]ProposalState),

@@ -33,7 +33,10 @@ type EvidenceSignatureVerifier interface {
 	Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool
 }
 
-func SubmitEvidenceForSlashing(ctx context.Context, keeper SlashingKeeper, registry validator.Registry, verifier EvidenceSignatureVerifier, evidence slashing.Evidence) (SlashResult, error) {
+func SubmitEvidenceForSlashing(ctx context.Context, keeper SlashingKeeper, registry validator.VersionedRegistry, verifier EvidenceSignatureVerifier, applyHeight types.Height, evidence slashing.Evidence) (SlashResult, error) {
+	if applyHeight == 0 {
+		applyHeight = evidence.Height
+	}
 	set, err := registry.ValidatorSet(ctx, evidence.Height)
 	if err != nil {
 		return SlashResult{}, err
@@ -52,7 +55,7 @@ func SubmitEvidenceForSlashing(ctx context.Context, keeper SlashingKeeper, regis
 	if err != nil {
 		return SlashResult{}, err
 	}
-	if err := registry.UpdateVotingPower(ctx, evidence.Validator, receipt.RemainingPower); err != nil {
+	if err := registry.UpdateVotingPowerAt(ctx, applyHeight, evidence.Validator, receipt.RemainingPower); err != nil {
 		return SlashResult{}, err
 	}
 

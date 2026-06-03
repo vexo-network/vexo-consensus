@@ -8,9 +8,11 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/p2p"
+	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/transport"
+	"github.com/vexo-network/vexo-consensus/types"
 )
 
 func encodeEvidenceMessage(evidence slashing.Evidence) ([]byte, error) {
@@ -44,19 +46,59 @@ func (node *Node) applyEvidence(ctx context.Context, evidence slashing.Evidence)
 	if err != nil {
 		return consensus.SlashResult{}, false, err
 	}
-	result, err := consensus.SubmitEvidenceForSlashing(ctx, runtime.Slashing, runtime.Validators, runtime.Crypto.ConsensusVerifier, evidence)
+	applyHeight := evidence.Height
+	if machine, err := node.Consensus(); err == nil {
+		if status := machine.Status(ctx); status.Height > applyHeight {
+			applyHeight = status.Height
+		}
+	}
+	if runtime.Store != nil {
+		key := store.EvidenceKey(evidence)
+		if key == "" {
+			return consensus.SlashResult{}, false, store.ErrInvalidKey
+		}
+		existing, err := runtime.Store.EvidenceByKey(ctx, key)
+		if err == nil && existing.Applied {
+			return consensus.SlashResult{}, false, nil
+		}
+		if err != nil && !errors.Is(err, store.ErrEvidenceNotFound) {
+			return consensus.SlashResult{}, false, err
+		}
+		if err := runtime.Store.SaveEvidence(ctx, store.EvidenceRecord{
+			Evidence:  evidence,
+			Applied:   false,
+			CreatedAt: time.Now().Unix(),
+		}); err != nil {
+			return consensus.SlashResult{}, false, err
+		}
+	}
+	result, err := consensus.SubmitEvidenceForSlashing(ctx, runtime.Slashing, runtime.Validators, runtime.Crypto.ConsensusVerifier, applyHeight, evidence)
 	if errors.Is(err, slashing.ErrDuplicateEvidence) {
+		if runtime.Store != nil {
+			key := store.EvidenceKey(evidence)
+			if key != "" {
+				existing, loadErr := runtime.Store.EvidenceByKey(ctx, key)
+				if loadErr == nil && !existing.Applied {
+					existing.Applied = true
+					if saveErr := runtime.Store.SaveEvidence(ctx, existing); saveErr != nil {
+						return consensus.SlashResult{}, false, saveErr
+					}
+				}
+			}
+		}
 		return consensus.SlashResult{}, false, nil
 	}
 	if err != nil {
 		return consensus.SlashResult{}, false, err
 	}
-	if err := runtime.Store.SaveEvidence(ctx, store.EvidenceRecord{
-		Evidence:  evidence,
-		Applied:   true,
-		CreatedAt: time.Now().Unix(),
-	}); err != nil {
-		return consensus.SlashResult{}, false, err
+	if runtime.Store != nil {
+		if err := runtime.Store.SaveEvidence(ctx, store.EvidenceRecord{
+			Evidence:  evidence,
+			Applied:   true,
+			CreatedAt: time.Now().Unix(),
+		}); err != nil {
+			return consensus.SlashResult{}, false, err
+		}
 	}
 	machine, err := node.Consensus()
 	if err != nil {
@@ -71,6 +113,50 @@ func (node *Node) applyEvidence(ctx context.Context, evidence slashing.Evidence)
 		return consensus.SlashResult{}, false, err
 	}
 	return result, true, nil
+}
+
+func (node *Node) reconcileEvidence(ctx context.Context, runtime *vexoruntime.Runtime) error {
+	if runtime.Store == nil {
+		return nil
+	}
+	index, err := runtime.Store.EvidenceIndex(ctx)
+	if errors.Is(err, store.ErrEvidenceNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	latestHeight := types.Height(0)
+	if state, err := runtime.Store.LatestState(ctx); err == nil {
+		latestHeight = state.Height
+	} else if !errors.Is(err, store.ErrStateNotFound) {
+		return err
+	}
+	for _, key := range index {
+		record, err := runtime.Store.EvidenceByKey(ctx, key)
+		if err != nil {
+			return err
+		}
+		if record.Applied {
+			continue
+		}
+		applyHeight := record.Evidence.Height
+		if latestHeight > applyHeight {
+			applyHeight = latestHeight
+		}
+		_, err = consensus.SubmitEvidenceForSlashing(ctx, runtime.Slashing, runtime.Validators, runtime.Crypto.ConsensusVerifier, applyHeight, record.Evidence)
+		if err != nil && !errors.Is(err, slashing.ErrDuplicateEvidence) {
+			return err
+		}
+		record.Applied = true
+		if record.CreatedAt == 0 {
+			record.CreatedAt = time.Now().Unix()
+		}
+		if err := runtime.Store.SaveEvidence(ctx, record); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (node *Node) handleLocalEvidence(ctx context.Context, evidence slashing.Evidence) {

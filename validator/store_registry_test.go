@@ -2,6 +2,7 @@ package validator
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/store"
@@ -63,6 +64,22 @@ func TestStoreRegistryPersistsHeightVersionedSets(t *testing.T) {
 	}
 	if reopenedSet.Hash() != set3.Hash() {
 		t.Fatal("expected persisted validator set hash")
+	}
+}
+
+func TestStoreRegistryRejectsCorruptExistingState(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	if err := storage.Set(context.Background(), validatorRegistryNamespace, []byte("heights"), []byte("{")); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = NewStoreRegistry(context.Background(), storage, nil, 1, []Validator{{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1}})
+	if err == nil || errors.Is(err, ErrValidatorSetNotFound) {
+		t.Fatalf("expected corrupt validator registry to fail startup, got %v", err)
 	}
 }
 

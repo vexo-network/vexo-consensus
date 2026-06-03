@@ -7,6 +7,7 @@ import (
 	"errors"
 	"sort"
 
+	vexostore "github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -42,6 +43,8 @@ func NewStoreRegistry(ctx context.Context, store KVStore, policy AdmissionPolicy
 	registry := &StoreRegistry{store: store, policy: policy, effectiveHeight: initialHeight}
 	if _, err := registry.loadLatest(ctx, initialHeight); err == nil {
 		return registry, nil
+	} else if !errors.Is(err, ErrValidatorSetNotFound) {
+		return nil, err
 	}
 	for _, validatorInfo := range initialValidators {
 		if validatorInfo.VotingPower == 0 {
@@ -250,7 +253,10 @@ func (registry *StoreRegistry) loadLatest(ctx context.Context, height types.Heig
 func (registry *StoreRegistry) loadHeights(ctx context.Context) ([]types.Height, error) {
 	encoded, err := registry.store.Get(ctx, validatorRegistryNamespace, []byte("heights"))
 	if err != nil {
-		return nil, ErrValidatorSetNotFound
+		if errors.Is(err, vexostore.ErrKeyNotFound) {
+			return nil, ErrValidatorSetNotFound
+		}
+		return nil, err
 	}
 	var heights []types.Height
 	if err := json.Unmarshal(encoded, &heights); err != nil {

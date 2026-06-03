@@ -200,7 +200,7 @@ func buildProductionReadinessDocument() productionReadinessDocument {
 			"go run ./cmd/vexod release readiness --json",
 			"go run ./cmd/vexod network scale-plan --validators <n> --regions <r> --hosts <h> --json",
 			"go run ./cmd/vexod snapshot drill-plan --input snapshot.json --chain-id <chain-id> --json",
-			"go run ./cmd/vexod slashing lifecycle-plan --type double_sign --validator <id> --height <h> --current-height <h> --json",
+			"go run ./cmd/vexod slashing lifecycle-plan --type conflicting_vote --validator <id> --height <h> --current-height <h> --json",
 			"go run ./cmd/vexod ops incident --metrics-file current-metrics.json --previous-metrics-file previous-metrics.json --json",
 		},
 		Documents: []string{

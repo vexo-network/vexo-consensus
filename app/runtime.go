@@ -46,7 +46,12 @@ func NewRuntime(chainID string, modules []Module, router ModuleRouter) (*Runtime
 
 func (runtime *Runtime) WithStore(store StateStore) *Runtime {
 	runtime.store = store
+	runtime.bindStore()
 	return runtime
+}
+
+func (runtime *Runtime) BindStore() error {
+	return runtime.bindStoreWithContext(Context{ChainID: runtime.chainID, Height: runtime.height, Store: runtime.store})
 }
 
 func (runtime *Runtime) WithAnte(ante AnteHandler) *Runtime {
@@ -65,6 +70,9 @@ func (runtime *Runtime) InitChain(req InitChainRequest) (InitChainResponse, erro
 	runtime.chainID = chainID
 
 	ctx := Context{ChainID: runtime.chainID, Store: runtime.store}
+	if err := runtime.bindStoreWithContext(ctx); err != nil {
+		return InitChainResponse{}, err
+	}
 	for _, module := range runtime.modules {
 		if err := module.InitGenesis(ctx, req.Genesis); err != nil {
 			return InitChainResponse{}, err
@@ -185,6 +193,27 @@ func (runtime *Runtime) Commit() (CommitResponse, error) {
 func (runtime *Runtime) Restore(height types.Height, appHash types.Hash) {
 	runtime.height = height
 	runtime.appHash = appHash
+	runtime.bindStore()
+}
+
+func (runtime *Runtime) bindStore() {
+	_ = runtime.bindStoreWithContext(Context{ChainID: runtime.chainID, Height: runtime.height, Store: runtime.store})
+}
+
+func (runtime *Runtime) bindStoreWithContext(ctx Context) error {
+	if ctx.Store == nil {
+		return nil
+	}
+	for _, module := range runtime.modules {
+		binder, ok := module.(StoreBinder)
+		if !ok {
+			continue
+		}
+		if err := binder.BindStore(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (runtime *Runtime) Query(req QueryRequest) QueryResponse {

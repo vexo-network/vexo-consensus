@@ -14,6 +14,7 @@ import (
 type slashingLifecyclePlanDocument struct {
 	SchemaVersion  string                   `json:"schema_version"`
 	EvidenceType   slashing.EvidenceType    `json:"evidence_type"`
+	PlanOnly       bool                     `json:"plan_only"`
 	Validator      types.ValidatorID        `json:"validator"`
 	EvidenceHeight types.Height             `json:"evidence_height"`
 	CurrentHeight  types.Height             `json:"current_height"`
@@ -48,7 +49,7 @@ func runSlashing(writer io.Writer, args []string) error {
 func runSlashingLifecyclePlan(writer io.Writer, args []string) error {
 	flags := flag.NewFlagSet("slashing lifecycle-plan", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	evidenceType := flags.String("type", string(slashing.EvidenceDoubleSign), "evidence type")
+	evidenceType := flags.String("type", string(slashing.EvidenceConflictingVote), "evidence type")
 	validator := flags.String("validator", "validator-1", "validator id")
 	height := flags.Uint64("height", 1, "evidence height")
 	currentHeight := flags.Uint64("current-height", 1, "current chain height")
@@ -84,6 +85,7 @@ func buildSlashingLifecyclePlanDocument(evidenceType slashing.EvidenceType, vali
 	document := slashingLifecyclePlanDocument{
 		SchemaVersion:  "v1",
 		EvidenceType:   evidenceType,
+		PlanOnly:       !supportsRuntimeSlashing(evidenceType),
 		Validator:      validator,
 		EvidenceHeight: evidenceHeight,
 		CurrentHeight:  currentHeight,
@@ -106,6 +108,7 @@ func buildSlashingLifecyclePlanDocument(evidenceType slashing.EvidenceType, vali
 	document.Checks = append(document.Checks, slashingLifecycleCheck{Name: "not_expired", OK: currentHeight < document.ExpiresAt, Message: "evidence must not be expired before penalty"})
 	document.Checks = append(document.Checks, slashingLifecycleCheck{Name: "appeal_window", OK: currentHeight >= document.AppealDeadline, Message: "appeal window should close before penalty is final"})
 	document.Checks = append(document.Checks, slashingLifecycleCheck{Name: "stake_accounting", OK: remainingPower <= currentPower, Message: "remaining power must not exceed current power"})
+	document.Checks = append(document.Checks, slashingLifecycleCheck{Name: "runtime_proof_verifier", OK: !document.PlanOnly, Message: "unsupported evidence types are plan-only until concrete proof decoder and verifier are implemented"})
 	for _, check := range document.Checks {
 		if !check.OK {
 			document.Warnings = append(document.Warnings, check.Message)
@@ -114,9 +117,14 @@ func buildSlashingLifecyclePlanDocument(evidenceType slashing.EvidenceType, vali
 	return document, nil
 }
 
+func supportsRuntimeSlashing(evidenceType slashing.EvidenceType) bool {
+	return evidenceType == slashing.EvidenceConflictingVote || evidenceType == slashing.EvidenceConflictingTimeoutVote
+}
+
 func writeSlashingLifecyclePlan(writer io.Writer, document slashingLifecyclePlanDocument) {
 	fmt.Fprintf(writer, "slashing lifecycle plan\n")
 	fmt.Fprintf(writer, "type: %s\n", document.EvidenceType)
+	fmt.Fprintf(writer, "plan_only: %t\n", document.PlanOnly)
 	fmt.Fprintf(writer, "validator: %s\n", document.Validator)
 	fmt.Fprintf(writer, "height: %d\n", document.EvidenceHeight)
 	fmt.Fprintf(writer, "current_height: %d\n", document.CurrentHeight)

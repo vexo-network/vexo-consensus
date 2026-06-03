@@ -51,7 +51,7 @@ ops-verify: check fuzz-smoke
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod upgrade rollback-plan --plan-file /tmp/vexo-upgrade-plan.json --last-safe-height 99 --snapshot /tmp/vexo-snapshot.json --json
 	printf '{"schema_version":"v1","chain_id":"vexo-chain","state":{"Height":10,"AppHash":[1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"LastBlockHash":[2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"ValidatorSetHash":[3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},"state_roots":[{"Height":10,"Namespace":"bank","Root":[4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}],"modules":["bank"],"kv":[{"Namespace":"bank","Key":"YQ==","Value":"Yg=="}]}' > /tmp/vexo-snapshot-drill.json
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod snapshot drill-plan --input /tmp/vexo-snapshot-drill.json --chain-id vexo-chain --json
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod slashing lifecycle-plan --type double_sign --validator validator-1 --height 1 --current-height 101 --json
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod slashing lifecycle-plan --type conflicting_vote --validator validator-1 --height 1 --current-height 101 --json
 	printf '{"latest_height":10,"round_timeouts":0,"snapshot_healthy":true,"replay_healthy":true}' > /tmp/vexo-metrics-prev.json
 	printf '{"latest_height":15,"round_timeouts":0,"snapshot_healthy":true,"replay_healthy":true}' > /tmp/vexo-metrics-current.json
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod ops incident --metrics-file /tmp/vexo-metrics-current.json --previous-metrics-file /tmp/vexo-metrics-prev.json --window 1m --json

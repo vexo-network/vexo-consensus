@@ -130,6 +130,10 @@ func (node *Node) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := node.reconcileEvidence(ctx, runtime); err != nil {
+		storage.Close()
+		return err
+	}
 	consensusState, err := runtime.NewConsensusStateMachineWithSignatures(ctx, startHeight, node.signer)
 	if err != nil {
 		storage.Close()

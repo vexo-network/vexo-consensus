@@ -4,15 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"strconv"
 
 	"github.com/syndtr/goleveldb/leveldb"
 	leveldberrors "github.com/syndtr/goleveldb/leveldb/errors"
 	"github.com/syndtr/goleveldb/leveldb/util"
-	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -466,7 +463,7 @@ func (store *LevelDBStore) SaveEvidence(ctx context.Context, record EvidenceReco
 		return ctx.Err()
 	default:
 	}
-	key := evidenceRecordKey(record.Evidence)
+	key := EvidenceKey(record.Evidence)
 	if key == "" {
 		return ErrInvalidKey
 	}
@@ -778,14 +775,6 @@ func evidenceKeyString(key []byte) string {
 		return ""
 	}
 	return string(key[len(evidencePrefix):])
-}
-
-func evidenceRecordKey(evidence slashing.Evidence) string {
-	if evidence.Type == "" || evidence.Validator == "" || evidence.Height == 0 || len(evidence.Proof) == 0 {
-		return ""
-	}
-	hash := sha256.Sum256(evidence.Proof)
-	return string(evidence.Type) + ":" + string(evidence.Validator) + ":" + strconv.FormatUint(uint64(evidence.Height), 10) + ":" + strconv.FormatUint(uint64(evidence.Round), 10) + ":" + hex.EncodeToString(hash[:])
 }
 
 func (store *LevelDBStore) rebuildBlockIndex(ctx context.Context) (BlockIndex, error) {

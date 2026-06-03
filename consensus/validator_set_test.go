@@ -43,7 +43,7 @@ func TestStateMachineUpdatesValidatorSetFromRegistryAfterSlashing(t *testing.T) 
 	keeper := slashing.NewInMemoryKeeper(slashing.PenaltyPolicy{
 		slashing.EvidenceConflictingVote: {SlashFraction: "0.50", JailDuration: 10},
 	})
-	if _, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, evidence); err != nil {
+	if _, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence); err != nil {
 		t.Fatal(err)
 	}
 	if err := machine.UpdateValidatorSetFromRegistry(context.Background(), registry, 2); err != nil {

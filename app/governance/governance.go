@@ -43,6 +43,10 @@ func (module *Module) Name() string {
 }
 
 func (module *Module) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisState) error {
+	return module.BindStore(ctx)
+}
+
+func (module *Module) BindStore(ctx vexoapp.Context) error {
 	if module.useStorePath && ctx.Store != nil {
 		keeper, err := vexogov.NewStoreKeeper(ctx.Store, module.policy, nil)
 		if err != nil {

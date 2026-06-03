@@ -2,6 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"strconv"
 
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -62,6 +65,14 @@ type EvidenceRecord struct {
 	Evidence  slashing.Evidence
 	Applied   bool
 	CreatedAt int64
+}
+
+func EvidenceKey(evidence slashing.Evidence) string {
+	if evidence.Type == "" || evidence.Validator == "" || evidence.Height == 0 || len(evidence.Proof) == 0 {
+		return ""
+	}
+	hash := sha256.Sum256(evidence.Proof)
+	return string(evidence.Type) + ":" + string(evidence.Validator) + ":" + strconv.FormatUint(uint64(evidence.Height), 10) + ":" + strconv.FormatUint(uint64(evidence.Round), 10) + ":" + hex.EncodeToString(hash[:])
 }
 
 type Store interface {

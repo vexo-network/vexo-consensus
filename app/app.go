@@ -34,6 +34,10 @@ type Module interface {
 	EndBlock(ctx Context) error
 }
 
+type StoreBinder interface {
+	BindStore(ctx Context) error
+}
+
 type ValidatorUpdateProvider interface {
 	ValidatorUpdates(ctx Context) []types.ValidatorUpdate
 }

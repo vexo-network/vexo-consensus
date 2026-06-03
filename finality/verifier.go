@@ -46,13 +46,6 @@ func NewVerifier(validatorSet validator.Set, signatures SignatureVerifier) Verif
 	}
 }
 
-func NewRawVerifier(validatorSet validator.Set, signatures SignatureVerifier) Verifier {
-	return Verifier{
-		validatorSet: validatorSet,
-		signatures:   signatures,
-	}
-}
-
 func NewRegistryVerifier(registry validator.Registry, signatures SignatureVerifier) RegistryVerifier {
 	return RegistryVerifier{registry: registry, signatures: signatures}
 }

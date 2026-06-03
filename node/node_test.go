@@ -6,9 +6,11 @@ import (
 	"testing"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/consensus"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/finality"
+	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
@@ -741,6 +743,80 @@ func TestNodeUsesPolicySignerForConsensusMessages(t *testing.T) {
 			t.Fatalf("unexpected policy[%d]: %+v", index, policy)
 		}
 	}
+}
+
+func TestNodeReconcilesPendingEvidenceAfterRestart(t *testing.T) {
+	ctx := context.Background()
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	signer := deterministicSignerForID("alice")
+	validators := []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 100, Stake: 100, PublicKey: signer.PublicKey()},
+	}
+	runtime, err := vexoruntime.NewWithStore(config.Default("vexo-test"), newTestApplication(t), validators, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := consensus.NewConflictingVoteEvidence(
+		signedNodeTestVote(t, signer, "alice", 1, 0, types.Hash{1}),
+		signedNodeTestVote(t, signer, "alice", 1, 0, types.Hash{2}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.SaveState(ctx, store.StateRecord{Height: 10}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.SaveEvidence(ctx, store.EvidenceRecord{Evidence: evidence, Applied: false, CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := (&Node{}).reconcileEvidence(ctx, runtime); err != nil {
+		t.Fatal(err)
+	}
+	key := store.EvidenceKey(evidence)
+	record, err := storage.EvidenceByKey(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !record.Applied {
+		t.Fatal("expected pending evidence to be marked applied")
+	}
+	set1, err := runtime.Validators.ValidatorSet(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceAtEvidenceHeight, found := set1.Get("alice")
+	if !found || aliceAtEvidenceHeight.VotingPower != 100 {
+		t.Fatalf("evidence height set must stay intact, got %+v found=%t", aliceAtEvidenceHeight, found)
+	}
+	set10, err := runtime.Validators.ValidatorSet(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceAtApplyHeight, found := set10.Get("alice")
+	if !found || aliceAtApplyHeight.VotingPower != 95 {
+		t.Fatalf("expected slash at apply height, got %+v found=%t", aliceAtApplyHeight, found)
+	}
+}
+
+func signedNodeTestVote(t *testing.T, signer vexocrypto.Signer, validatorID types.ValidatorID, height types.Height, round types.Round, blockHash types.Hash) consensus.Vote {
+	t.Helper()
+	vote := consensus.Vote{Height: height, Round: round, BlockHash: blockHash, ValidatorID: validatorID}
+	domainSigner, err := vexocrypto.NewDomainSigner(signer, vexocrypto.DomainConsensusVote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature, err := domainSigner.Sign(consensus.VoteSignBytes(vote))
+	if err != nil {
+		t.Fatal(err)
+	}
+	vote.Signature = signature
+	return vote
 }
 
 func newTestNodeWithSigner(t *testing.T, signer vexocrypto.Signer) *Node {

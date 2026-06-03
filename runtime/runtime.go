@@ -270,6 +270,9 @@ func (runtime *Runtime) Recover(ctx context.Context) (store.StateRecord, error) 
 	}
 	if appRuntime, ok := runtime.App.(*app.Runtime); ok {
 		appRuntime.Restore(state.Height, state.AppHash)
+		if err := appRuntime.BindStore(); err != nil {
+			return store.StateRecord{}, err
+		}
 	}
 	return state, nil
 }
