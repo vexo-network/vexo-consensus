@@ -11,6 +11,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
+	"github.com/vexo-network/vexo-consensus/upgrade"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
 
@@ -113,6 +114,53 @@ func TestRuntimeBuildsFinalityVerifier(t *testing.T) {
 
 	if _, err := runtime.NewFinalityVerifier(context.Background(), 1); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRuntimeAppliesUpgradeHookAndPersistsSchemaState(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	runtime, err := NewWithStore(config.Default("vexo-test"), noopApp{}, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+	}, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := upgrade.NewRegistry()
+	registry.RegisterConfig(upgrade.Migration{From: 1, To: 2})
+	registry.RegisterStore(upgrade.Migration{From: 1, To: 2})
+	registry.RegisterAppState(upgrade.Migration{From: 1, To: 2})
+	runtime.WithUpgrade(upgrade.Plan{
+		Name:               "v2",
+		Height:             2,
+		BinaryVersion:      "v2.0.0",
+		ConfigSchemaFrom:   1,
+		ConfigSchemaTo:     2,
+		StoreSchemaFrom:    1,
+		StoreSchemaTo:      2,
+		AppStateSchemaFrom: 1,
+		AppStateSchemaTo:   2,
+	}, upgrade.State{
+		Height:              1,
+		BinaryVersion:       "v1.0.0",
+		ConfigSchemaVersion: 1,
+		StoreSchemaVersion:  1,
+		AppStateVersion:     1,
+	}, upgrade.NewExecutor(registry, upgrade.NewMemoryRecorder()))
+
+	if _, err := runtime.ExecuteBlock(context.Background(), types.Block{Header: types.Header{ChainID: "vexo-test", Height: 2}}); err != nil {
+		t.Fatal(err)
+	}
+	schemaState, err := storage.SchemaState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if schemaState.BinaryVersion != "v2.0.0" || schemaState.StoreSchemaVersion != 2 || schemaState.AppStateVersion != 2 {
+		t.Fatalf("unexpected schema state: %+v", schemaState)
 	}
 }
 

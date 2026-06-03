@@ -18,6 +18,7 @@ type DAG struct {
 	batches  map[types.Hash]Batch
 	children map[types.Hash]map[types.Hash]bool
 	tips     map[types.Hash]bool
+	wal      *WAL
 }
 
 func NewDAG(base *FIFO) *DAG {
@@ -37,7 +38,15 @@ func (dag *DAG) CheckTx(ctx context.Context, tx types.Tx) error {
 }
 
 func (dag *DAG) AddTx(ctx context.Context, tx types.Tx) error {
-	return dag.base.AddTx(ctx, tx)
+	if err := dag.base.CheckTx(ctx, tx); err != nil {
+		return err
+	}
+	if dag.wal != nil {
+		if err := dag.wal.AppendAddTx(ctx, tx); err != nil {
+			return err
+		}
+	}
+	return dag.base.addTxUnchecked(tx)
 }
 
 func (dag *DAG) BuildBatch(ctx context.Context, maxBytes int64) (Batch, error) {
@@ -52,6 +61,11 @@ func (dag *DAG) BuildBatch(ctx context.Context, maxBytes int64) (Batch, error) {
 }
 
 func (dag *DAG) MarkCommitted(ctx context.Context, txs []types.Tx) error {
+	if dag.wal != nil {
+		if err := dag.wal.AppendMarkCommitted(ctx, txs); err != nil {
+			return err
+		}
+	}
 	return dag.base.MarkCommitted(ctx, txs)
 }
 
@@ -74,6 +88,20 @@ func (dag *DAG) AddBatch(ctx context.Context, batch Batch) error {
 		}
 	}
 
+	if dag.wal != nil {
+		if err := dag.wal.AppendAddBatch(ctx, batch); err != nil {
+			return err
+		}
+	}
+	dag.addBatchUnchecked(batch)
+	return nil
+}
+
+func (dag *DAG) AttachWAL(wal *WAL) {
+	dag.wal = wal
+}
+
+func (dag *DAG) addBatchUnchecked(batch Batch) {
 	copied := cloneBatch(batch)
 	dag.batches[copied.ID] = copied
 	dag.tips[copied.ID] = true
@@ -85,7 +113,6 @@ func (dag *DAG) AddBatch(ctx context.Context, batch Batch) error {
 		}
 		dag.children[parent][copied.ID] = true
 	}
-	return nil
 }
 
 func (dag *DAG) GetBatch(ctx context.Context, id types.Hash) (Batch, error) {

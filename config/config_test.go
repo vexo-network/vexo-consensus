@@ -128,6 +128,7 @@ func TestValidateProductionAcceptsHardenedEd25519Config(t *testing.T) {
 	cfg.Execution.MinGas = 1
 	cfg.Mempool.MinFee = 1
 	cfg.Mempool.EnablePriority = true
+	cfg.Mempool.WALPath = "mempool.wal"
 
 	if err := cfg.ValidateProduction(); err != nil {
 		t.Fatalf("expected hardened ed25519 config to pass, got %v", err)

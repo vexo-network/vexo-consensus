@@ -9,6 +9,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/kvbatch"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/types"
+	"github.com/vexo-network/vexo-consensus/upgrade"
 )
 
 type BlockRecord struct {
@@ -97,6 +98,15 @@ type Store interface {
 	RecoverIndexes(ctx context.Context) (RecoverResult, error)
 	Compact(ctx context.Context) error
 	Close() error
+}
+
+type BlockCommitStore interface {
+	CommitBlockState(ctx context.Context, block BlockRecord, state StateRecord, roots []StateRootRecord) error
+}
+
+type SchemaStateStore interface {
+	SaveSchemaState(ctx context.Context, state upgrade.State) error
+	SchemaState(ctx context.Context) (upgrade.State, error)
 }
 
 type KVStore interface {

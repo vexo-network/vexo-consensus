@@ -44,6 +44,10 @@ func NewModuleWithUnbondingDelay(delay types.Height) *Module {
 	return &Module{unbondingDelay: delay}
 }
 
+func (module *Module) CloneModule() vexoapp.Module {
+	return &Module{unbondingDelay: module.unbondingDelay}
+}
+
 func (module *Module) Name() string {
 	return ModuleName
 }

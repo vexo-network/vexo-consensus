@@ -26,6 +26,7 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "mempool.max_txs: %d\n", cfg.Mempool.MaxTxs)
 	fmt.Fprintf(writer, "mempool.min_fee: %d\n", cfg.Mempool.MinFee)
 	fmt.Fprintf(writer, "mempool.priority_enabled: %t\n", cfg.Mempool.EnablePriority)
+	fmt.Fprintf(writer, "mempool.wal_path: %s\n", cfg.Mempool.WALPath)
 	fmt.Fprintf(writer, "fair_ordering.deterministic: true\n")
 	fmt.Fprintf(writer, "fair_ordering.height_salted: true\n")
 	fmt.Fprintf(writer, "data_availability.commitments: true\n")
@@ -110,6 +111,7 @@ type mempoolStatus struct {
 	SeenTTL        string `json:"seen_ttl"`
 	MinFee         uint64 `json:"min_fee"`
 	EnablePriority bool   `json:"enable_priority"`
+	WALPath        string `json:"wal_path"`
 }
 
 type storageStatus struct {
@@ -172,6 +174,7 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			SeenTTL:        cfg.Mempool.SeenTTL.String(),
 			MinFee:         cfg.Mempool.MinFee,
 			EnablePriority: cfg.Mempool.EnablePriority,
+			WALPath:        cfg.Mempool.WALPath,
 		},
 		Features: map[string]bool{
 			"fair_ordering":                     true,

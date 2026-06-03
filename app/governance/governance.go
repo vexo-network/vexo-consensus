@@ -38,6 +38,17 @@ func NewModuleWithKeeper(keeper vexogov.OperationalKeeper) *Module {
 	return &Module{keeper: keeper}
 }
 
+func (module *Module) CloneModule() vexoapp.Module {
+	clone := &Module{
+		policy:       module.policy,
+		useStorePath: module.useStorePath,
+	}
+	if !module.useStorePath {
+		clone.keeper = module.keeper
+	}
+	return clone
+}
+
 func (module *Module) Name() string {
 	return ModuleName
 }

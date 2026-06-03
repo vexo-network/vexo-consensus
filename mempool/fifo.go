@@ -27,6 +27,7 @@ type FIFOConfig struct {
 	SeenTTL        time.Duration
 	MinFee         uint64
 	EnablePriority bool
+	WALPath        string
 }
 
 type FIFO struct {
@@ -82,6 +83,10 @@ func (pool *FIFO) AddTx(ctx context.Context, tx types.Tx) error {
 		return err
 	}
 
+	return pool.addTxUnchecked(tx)
+}
+
+func (pool *FIFO) addTxUnchecked(tx types.Tx) error {
 	copied := append(types.Tx(nil), tx...)
 	hash := HashTx(copied)
 	pool.index[hash] = len(pool.txs)

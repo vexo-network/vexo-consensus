@@ -61,8 +61,8 @@ func TestRuntimeReplayStoredBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if commit.Height != 2 {
-		t.Fatalf("expected replayed commit height 2, got %d", commit.Height)
+	if commit.Height != 0 {
+		t.Fatalf("expected live replay app to remain untouched, got height %d", commit.Height)
 	}
 
 	index, err := replayRuntime.BlockIndex(context.Background())

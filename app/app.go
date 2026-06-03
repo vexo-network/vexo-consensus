@@ -42,6 +42,10 @@ type Module interface {
 	EndBlock(ctx Context) error
 }
 
+type ModuleCloner interface {
+	CloneModule() Module
+}
+
 type StoreBinder interface {
 	BindStore(ctx Context) error
 }

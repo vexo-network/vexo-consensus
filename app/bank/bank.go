@@ -36,6 +36,10 @@ func NewModuleWithMintAuthority(authority types.Address) Module {
 	return Module{mintAuthority: authority}
 }
 
+func (module Module) CloneModule() vexoapp.Module {
+	return Module{mintAuthority: module.mintAuthority}
+}
+
 func (Module) Name() string {
 	return ModuleName
 }

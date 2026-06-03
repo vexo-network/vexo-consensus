@@ -11,6 +11,7 @@ import (
 	leveldberrors "github.com/syndtr/goleveldb/leveldb/errors"
 	"github.com/syndtr/goleveldb/leveldb/util"
 	"github.com/vexo-network/vexo-consensus/types"
+	"github.com/vexo-network/vexo-consensus/upgrade"
 )
 
 var (
@@ -20,6 +21,7 @@ var (
 	evidencePrefix    = []byte("evidence:")
 	evidenceIndexKey  = []byte("evidence:index")
 	kvPrefix          = []byte("kv:")
+	schemaStateKey    = []byte("schema:state")
 	stateLatestKey    = []byte("state:latest")
 	stateHeightPrefix = []byte("state:height:")
 	stateRootPrefix   = []byte("state:root:")
@@ -206,6 +208,39 @@ func (store *LevelDBStore) SaveState(ctx context.Context, state StateRecord) err
 	return store.db.Write(batch, nil)
 }
 
+func (store *LevelDBStore) SaveSchemaState(ctx context.Context, state upgrade.State) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	encoded, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	return store.db.Put(schemaStateKey, encoded, nil)
+}
+
+func (store *LevelDBStore) SchemaState(ctx context.Context) (upgrade.State, error) {
+	select {
+	case <-ctx.Done():
+		return upgrade.State{}, ctx.Err()
+	default:
+	}
+	encoded, err := store.db.Get(schemaStateKey, nil)
+	if err != nil {
+		if errors.Is(err, leveldberrors.ErrNotFound) {
+			return upgrade.State{}, ErrStateNotFound
+		}
+		return upgrade.State{}, err
+	}
+	var state upgrade.State
+	if err := json.Unmarshal(encoded, &state); err != nil {
+		return upgrade.State{}, err
+	}
+	return state, nil
+}
+
 func (store *LevelDBStore) LatestState(ctx context.Context) (StateRecord, error) {
 	select {
 	case <-ctx.Done():
@@ -265,6 +300,58 @@ func (store *LevelDBStore) SaveStateRoot(ctx context.Context, record StateRootRe
 		return err
 	}
 	return store.db.Put(stateRootKey(record.Height, record.Namespace), encoded, nil)
+}
+
+func (store *LevelDBStore) CommitBlockState(ctx context.Context, block BlockRecord, state StateRecord, roots []StateRootRecord) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	if block.Block.Header.Height == 0 || block.Hash == (types.Hash{}) {
+		return ErrInvalidBlockRecord
+	}
+	if state.Height == 0 {
+		return ErrInvalidStateRecord
+	}
+	for _, root := range roots {
+		if root.Height == 0 || root.Namespace == "" {
+			return ErrInvalidStateRoot
+		}
+	}
+
+	block.StateRoots = append([]StateRootRecord(nil), roots...)
+	encodedBlock, err := json.Marshal(block)
+	if err != nil {
+		return err
+	}
+	index, err := store.nextBlockIndex(block.Block.Header.Height)
+	if err != nil {
+		return err
+	}
+	encodedIndex, err := json.Marshal(index)
+	if err != nil {
+		return err
+	}
+	encodedState, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+
+	batch := new(leveldb.Batch)
+	batch.Put(blockHeightKey(block.Block.Header.Height), encodedBlock)
+	batch.Put(blockHashKey(block.Hash), encodedBlock)
+	batch.Put(blockIndexKey, encodedIndex)
+	batch.Put(stateLatestKey, encodedState)
+	batch.Put(stateHeightKey(state.Height), encodedState)
+	for _, root := range roots {
+		encodedRoot, err := json.Marshal(root)
+		if err != nil {
+			return err
+		}
+		batch.Put(stateRootKey(root.Height, root.Namespace), encodedRoot)
+	}
+	return store.db.Write(batch, nil)
 }
 
 func (store *LevelDBStore) StateRoot(ctx context.Context, height types.Height, namespace string) (StateRootRecord, error) {

@@ -169,7 +169,7 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 	document := auditDocument{OK: true, Strict: strict}
 	keyDocument, keyErr := vexocrypto.LoadKeyDocument(inputs.Plan.KeyPath)
 	document.addCheck("config_valid", "error", inputs.Config.Chain.Validate() == nil, "chain config must pass validation")
-	document.addCheck("production_config", strictSeverity(strict), inputs.Config.Chain.ValidateProduction() == nil, "production config must use non-dev crypto, signed/nonced txs, fees, gas floor, and priority mempool")
+	document.addCheck("production_config", strictSeverity(strict), inputs.Config.Chain.ValidateProduction() == nil, "production config must use non-dev crypto, signed/nonced txs, fees, gas floor, priority mempool, and durable mempool WAL")
 	document.addCheck("genesis_valid", "error", inputs.Genesis.Validate(inputs.Config.Chain.ChainID) == nil, "genesis must match chain id and validator set")
 	document.addCheck("key_loadable", "error", keyErr == nil, "validator key document must be loadable")
 
@@ -198,6 +198,7 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 	document.addCheck("mempool_seen_ttl", "warning", inputs.Config.Chain.Mempool.SeenTTL > 0, "set mempool seen TTL to suppress replay gossip")
 	document.addCheck("mempool_min_fee", "warning", inputs.Config.Chain.Mempool.MinFee > 0, "set minimum fee for public networks")
 	document.addCheck("mempool_priority", "warning", inputs.Config.Chain.Mempool.EnablePriority, "enable priority ordering when fee markets are active")
+	document.addCheck("mempool_wal", "warning", inputs.Config.Chain.Mempool.WALPath != "", "set mempool WAL path so pending transactions survive restart")
 	document.addCheck("execution_min_fee", "warning", inputs.Config.Chain.Execution.MinFee > 0, "set ante minimum fee for transaction execution")
 	document.addCheck("execution_gas_limit", "warning", inputs.Config.Chain.Execution.MaxGas > 0, "set ante gas bounds for transaction execution")
 	document.addCheck("execution_nonce_required", "warning", inputs.Config.Chain.Execution.RequireNonce, "require signer nonces to prevent replay")

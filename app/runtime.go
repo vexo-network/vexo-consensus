@@ -12,8 +12,9 @@ import (
 )
 
 var (
-	ErrEmptyChainID     = errors.New("chain id is required")
-	ErrProposalRejected = errors.New("proposal rejected")
+	ErrEmptyChainID           = errors.New("chain id is required")
+	ErrProposalRejected       = errors.New("proposal rejected")
+	ErrReplayCloneUnavailable = errors.New("replay clone unavailable")
 )
 
 type ModuleRouter interface {
@@ -57,6 +58,29 @@ func (runtime *Runtime) BindStore() error {
 func (runtime *Runtime) WithAnte(ante AnteHandler) *Runtime {
 	runtime.ante = ante
 	return runtime
+}
+
+func (runtime *Runtime) NewReplayApp(store StateStore) (Application, error) {
+	modules := make([]Module, 0, len(runtime.modules))
+	for _, module := range runtime.modules {
+		if cloner, ok := module.(ModuleCloner); ok {
+			modules = append(modules, cloner.CloneModule())
+			continue
+		}
+		if _, requiresBinding := module.(StoreBinder); requiresBinding {
+			return nil, ErrReplayCloneUnavailable
+		}
+		modules = append(modules, module)
+	}
+	replayRuntime, err := NewRuntime(runtime.chainID, modules, runtime.router)
+	if err != nil {
+		return nil, err
+	}
+	replayRuntime.ante = runtime.ante
+	if store != nil {
+		replayRuntime.WithStore(store)
+	}
+	return replayRuntime, nil
 }
 
 func (runtime *Runtime) InitChain(req InitChainRequest) (InitChainResponse, error) {

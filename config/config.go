@@ -173,6 +173,9 @@ func (config Config) ValidateProduction() error {
 	if config.Mempool.MinFee == 0 || !config.Mempool.EnablePriority {
 		return ErrUnsafeProductionConfig
 	}
+	if config.Mempool.WALPath == "" {
+		return ErrUnsafeProductionConfig
+	}
 	return nil
 }
 

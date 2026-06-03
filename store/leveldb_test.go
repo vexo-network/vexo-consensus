@@ -7,6 +7,7 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/types"
+	"github.com/vexo-network/vexo-consensus/upgrade"
 )
 
 func TestLevelDBStoreSavesAndLoadsBlockByHeightAndHash(t *testing.T) {
@@ -54,6 +55,72 @@ func TestLevelDBStoreSavesAndLoadsBlockByHeightAndHash(t *testing.T) {
 	}
 	if index.EarliestHeight != 1 || index.LatestHeight != 1 || index.TotalBlocks != 1 {
 		t.Fatalf("unexpected block index: %+v", index)
+	}
+}
+
+func TestLevelDBStoreCommitBlockStatePersistsBlockStateAndRootsAtomically(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	block := BlockRecord{
+		Block:   types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1}},
+		Hash:    types.Hash{1},
+		AppHash: types.Hash{2},
+	}
+	state := StateRecord{
+		Height:           1,
+		AppHash:          types.Hash{2},
+		LastBlockHash:    types.Hash{1},
+		ValidatorSetHash: types.Hash{3},
+	}
+	roots := []StateRootRecord{{Height: 1, Namespace: "bank", Root: types.Hash{4}}}
+
+	if err := store.CommitBlockState(context.Background(), block, state, roots); err != nil {
+		t.Fatal(err)
+	}
+	savedBlock, err := store.BlockByHeight(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if savedBlock.Hash != block.Hash || savedBlock.AppHash != block.AppHash || len(savedBlock.StateRoots) != 1 {
+		t.Fatalf("unexpected block record: %+v", savedBlock)
+	}
+	savedState, err := store.LatestState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if savedState.AppHash != state.AppHash || savedState.ValidatorSetHash != state.ValidatorSetHash {
+		t.Fatalf("unexpected state record: %+v", savedState)
+	}
+	savedRoot, err := store.StateRoot(context.Background(), 1, "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if savedRoot.Root != roots[0].Root {
+		t.Fatalf("unexpected state root: %+v", savedRoot)
+	}
+}
+
+func TestLevelDBStorePersistsSchemaState(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	state := upgrade.State{
+		Height:              10,
+		BinaryVersion:       "v1.2.3",
+		ConfigSchemaVersion: 2,
+		StoreSchemaVersion:  3,
+		AppStateVersion:     4,
+	}
+	if err := store.SaveSchemaState(context.Background(), state); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.SchemaState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded != state {
+		t.Fatalf("unexpected schema state: %+v", loaded)
 	}
 }
 

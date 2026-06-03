@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"os"
 
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/store"
@@ -10,8 +11,10 @@ import (
 )
 
 var (
-	ErrInvalidReplayRange    = errors.New("invalid replay range")
-	ErrReplayAppHashMismatch = errors.New("replayed app hash does not match stored app hash")
+	ErrInvalidReplayRange         = errors.New("invalid replay range")
+	ErrReplayAppHashMismatch      = errors.New("replayed app hash does not match stored app hash")
+	ErrReplayRequiresIsolatedApp  = errors.New("replay requires isolated app factory")
+	ErrReplayRequiresGenesisStart = errors.New("isolated replay requires genesis start")
 )
 
 type ReplayResult struct {
@@ -21,7 +24,78 @@ type ReplayResult struct {
 	Blocks     uint64
 }
 
+type IsolatedReplayAppFactory interface {
+	NewReplayApp(store app.StateStore) (app.Application, error)
+}
+
 func (runtime *Runtime) Replay(ctx context.Context, from types.Height, to types.Height) (ReplayResult, error) {
+	if runtime.Store == nil {
+		return ReplayResult{}, store.ErrBlockNotFound
+	}
+	if from == 0 || to == 0 || from > to {
+		return ReplayResult{}, ErrInvalidReplayRange
+	}
+	return runtime.ReplayIsolated(ctx, from, to)
+}
+
+func (runtime *Runtime) ReplayIsolated(ctx context.Context, from types.Height, to types.Height) (ReplayResult, error) {
+	if runtime.Store == nil {
+		return ReplayResult{}, store.ErrBlockNotFound
+	}
+	if from == 0 || to == 0 || from > to {
+		return ReplayResult{}, ErrInvalidReplayRange
+	}
+	if from != 1 {
+		return runtime.ReplayStoredRange(ctx, from, to)
+	}
+	factory, ok := runtime.App.(IsolatedReplayAppFactory)
+	if !ok {
+		return ReplayResult{}, ErrReplayRequiresIsolatedApp
+	}
+	tempDir, err := os.MkdirTemp("", "vexo-replay-*")
+	if err != nil {
+		return ReplayResult{}, err
+	}
+	defer os.RemoveAll(tempDir)
+	replayStore, err := store.OpenLevelDB(tempDir)
+	if err != nil {
+		return ReplayResult{}, err
+	}
+	defer replayStore.Close()
+	replayApp, err := factory.NewReplayApp(replayStore)
+	if err != nil {
+		return ReplayResult{}, err
+	}
+	return runtime.ReplayWithApp(ctx, from, to, replayApp)
+}
+
+func (runtime *Runtime) ReplayStoredRange(ctx context.Context, from types.Height, to types.Height) (ReplayResult, error) {
+	if runtime.Store == nil {
+		return ReplayResult{}, store.ErrBlockNotFound
+	}
+	if from == 0 || to == 0 || from > to {
+		return ReplayResult{}, ErrInvalidReplayRange
+	}
+	result := ReplayResult{FromHeight: from, ToHeight: to}
+	for height := from; height <= to; height++ {
+		record, err := runtime.Store.BlockByHeight(ctx, height)
+		if err != nil {
+			return ReplayResult{}, err
+		}
+		state, err := runtime.Store.StateByHeight(ctx, height)
+		if err != nil {
+			return ReplayResult{}, err
+		}
+		if state.AppHash != record.AppHash {
+			return ReplayResult{}, ErrReplayAppHashMismatch
+		}
+		result.LastHash = record.AppHash
+		result.Blocks++
+	}
+	return result, nil
+}
+
+func (runtime *Runtime) ReplayWithApp(ctx context.Context, from types.Height, to types.Height, replayApp app.Application) (ReplayResult, error) {
 	if runtime.Store == nil {
 		return ReplayResult{}, store.ErrBlockNotFound
 	}
@@ -35,14 +109,14 @@ func (runtime *Runtime) Replay(ctx context.Context, from types.Height, to types.
 		if err != nil {
 			return ReplayResult{}, err
 		}
-		response, err := runtime.Executor.Execute(ctx, runtime.App, record.Block)
+		response, err := runtime.Executor.Execute(ctx, replayApp, record.Block)
 		if err != nil {
 			return ReplayResult{}, err
 		}
 		if response.AppHash != record.AppHash {
 			return ReplayResult{}, ErrReplayAppHashMismatch
 		}
-		if appRuntime, ok := runtime.App.(*app.Runtime); ok {
+		if appRuntime, ok := replayApp.(*app.Runtime); ok {
 			appRuntime.Restore(height, response.AppHash)
 		}
 		result.LastHash = response.AppHash

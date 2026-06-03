@@ -15,21 +15,26 @@ import (
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
+	"github.com/vexo-network/vexo-consensus/upgrade"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
 
 type Runtime struct {
-	Config     config.Config
-	App        app.Application
-	Executor   consensus.ApplicationBlockExecutor
-	Validators validator.VersionedRegistry
-	Committee  committee.Selector
-	Mempool    *mempool.DAG
-	Slashing   consensus.SlashingKeeper
-	Governance governance.OperationalKeeper
-	P2PScore   *p2p.ScoreKeeper
-	Crypto     crypto.RuntimeSuite
-	Store      store.Store
+	Config          config.Config
+	App             app.Application
+	Executor        consensus.ApplicationBlockExecutor
+	Validators      validator.VersionedRegistry
+	Committee       committee.Selector
+	Mempool         *mempool.DAG
+	Slashing        consensus.SlashingKeeper
+	Governance      governance.OperationalKeeper
+	P2PScore        *p2p.ScoreKeeper
+	Crypto          crypto.RuntimeSuite
+	Store           store.Store
+	UpgradePlan     *upgrade.Plan
+	UpgradeExecutor upgrade.Executor
+	UpgradeState    upgrade.State
+	UpgradeHalted   bool
 }
 
 func New(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower) (*Runtime, error) {
@@ -74,6 +79,14 @@ func NewWithStoreAndCryptoRegistry(cfg config.Config, application app.Applicatio
 	if fifoConfig.Author == "" && len(initialValidators) > 0 {
 		fifoConfig.Author = initialValidators[0].ID
 	}
+	dag := mempool.NewDAG(mempool.NewFIFO(fifoConfig))
+	if fifoConfig.WALPath != "" {
+		durableDAG, err := mempool.OpenDurableDAG(context.Background(), fifoConfig.WALPath, mempool.NewFIFO(fifoConfig))
+		if err != nil {
+			return nil, err
+		}
+		dag = durableDAG
+	}
 	if storage != nil {
 		if appRuntime, ok := application.(*app.Runtime); ok {
 			appRuntime.WithStore(storage)
@@ -102,7 +115,7 @@ func NewWithStoreAndCryptoRegistry(cfg config.Config, application app.Applicatio
 		Executor:   consensus.ApplicationBlockExecutor{},
 		Validators: registry,
 		Committee:  selector,
-		Mempool:    mempool.NewDAG(mempool.NewFIFO(fifoConfig)),
+		Mempool:    dag,
 		Slashing:   slashingKeeper,
 		Governance: governanceKeeper,
 		P2PScore:   p2p.NewScoreKeeper(cfg.P2P),
@@ -111,7 +124,17 @@ func NewWithStoreAndCryptoRegistry(cfg config.Config, application app.Applicatio
 	}, nil
 }
 
+func (runtime *Runtime) WithUpgrade(plan upgrade.Plan, state upgrade.State, executor upgrade.Executor) *Runtime {
+	runtime.UpgradePlan = &plan
+	runtime.UpgradeState = state
+	runtime.UpgradeExecutor = executor
+	return runtime
+}
+
 func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (app.FinalizeBlockResponse, error) {
+	if err := runtime.applyUpgradeHook(ctx, block.Header.Height); err != nil {
+		return app.FinalizeBlockResponse{}, err
+	}
 	response, err := runtime.Executor.Execute(ctx, runtime.App, block)
 	if err != nil {
 		return app.FinalizeBlockResponse{}, err
@@ -136,23 +159,74 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 	if err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
-	if err := runtime.Store.SaveBlock(ctx, store.BlockRecord{
+	blockRecord := store.BlockRecord{
 		Block:      block,
 		Hash:       blockHash,
 		AppHash:    response.AppHash,
 		StateRoots: stateRoots,
-	}); err != nil {
-		return app.FinalizeBlockResponse{}, err
 	}
-	if err := runtime.Store.SaveState(ctx, store.StateRecord{
+	stateRecord := store.StateRecord{
 		Height:           block.Header.Height,
 		AppHash:          response.AppHash,
 		LastBlockHash:    blockHash,
 		ValidatorSetHash: validatorSetHash,
-	}); err != nil {
+	}
+	if commitStore, ok := runtime.Store.(store.BlockCommitStore); ok {
+		if err := commitStore.CommitBlockState(ctx, blockRecord, stateRecord, stateRoots); err != nil {
+			return app.FinalizeBlockResponse{}, err
+		}
+		return response, nil
+	}
+	for _, record := range stateRoots {
+		if err := runtime.Store.SaveStateRoot(ctx, record); err != nil {
+			return app.FinalizeBlockResponse{}, err
+		}
+	}
+	if err := runtime.Store.SaveBlock(ctx, blockRecord); err != nil {
+		return app.FinalizeBlockResponse{}, err
+	}
+	if err := runtime.Store.SaveState(ctx, stateRecord); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
 	return response, nil
+}
+
+func (runtime *Runtime) applyUpgradeHook(ctx context.Context, height types.Height) error {
+	if runtime.UpgradeHalted {
+		return upgrade.ErrRollbackRequired
+	}
+	if runtime.UpgradePlan == nil || height < runtime.UpgradePlan.Height {
+		return nil
+	}
+	if runtime.UpgradeState.Height < height {
+		runtime.UpgradeState.Height = height
+	}
+	record, err := runtime.UpgradeExecutor.Execute(ctx, runtime.UpgradeState, *runtime.UpgradePlan)
+	if err != nil {
+		if record.Status == upgrade.ExecutionRollbackRequired {
+			runtime.UpgradeHalted = true
+		}
+		return err
+	}
+	if record.Status == upgrade.ExecutionRollbackRequired {
+		runtime.UpgradeHalted = true
+		return upgrade.ErrRollbackRequired
+	}
+	if record.Status == upgrade.ExecutionApplied {
+		runtime.UpgradeState = upgrade.State{
+			Height:              record.Result.Height,
+			BinaryVersion:       record.Result.BinaryVersion,
+			ConfigSchemaVersion: record.Result.ConfigSchemaVersion,
+			StoreSchemaVersion:  record.Result.StoreSchemaVersion,
+			AppStateVersion:     record.Result.AppStateVersion,
+		}
+		if schemaStore, ok := runtime.Store.(store.SchemaStateStore); ok {
+			if err := schemaStore.SaveSchemaState(ctx, runtime.UpgradeState); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (runtime *Runtime) ApplyValidatorUpdates(ctx context.Context, updates []types.ValidatorUpdate) error {
@@ -220,9 +294,6 @@ func (runtime *Runtime) moduleStateRoots(ctx context.Context, height types.Heigh
 			Height:    height,
 			Namespace: module.Name(),
 			Root:      root,
-		}
-		if err := runtime.Store.SaveStateRoot(ctx, record); err != nil {
-			return nil, err
 		}
 		roots = append(roots, record)
 	}
