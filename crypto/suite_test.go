@@ -48,6 +48,24 @@ func TestRuntimeSuiteRegistryAcceptsSafeBLSAdapter(t *testing.T) {
 	}
 }
 
+func TestRuntimeSuiteRegistryWrapsBLSFinalityWithValidatedCredentials(t *testing.T) {
+	suite, err := NewRuntimeSuiteRegistry().
+		RegisterBLS(func() (BLSAdapter, error) { return testBLSAdapter{safe: true}, nil }).
+		RegisterBLSValidatorCredentials([]BLSValidatorCredential{
+			{ValidatorID: "alice", PublicKey: []byte("alice-bls"), ProofOfPossession: []byte("alice-pop")},
+		}).
+		NewRuntimeSuite(config.CryptoConfig{Backend: config.CryptoBackendBLS})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !suite.FinalityVerifier.VerifyAggregate([]types.PublicKey{[]byte("alice-bls")}, []byte("message"), []byte("aggregate")) {
+		t.Fatal("expected registered bls key to verify")
+	}
+	if suite.FinalityVerifier.VerifyAggregate([]types.PublicKey{[]byte("mallory-bls")}, []byte("message"), []byte("aggregate")) {
+		t.Fatal("expected unregistered bls key to fail")
+	}
+}
+
 func TestRuntimeSuiteRegistryRejectsUnsafeBLSAdapter(t *testing.T) {
 	_, err := NewRuntimeSuiteRegistry().
 		RegisterBLS(func() (BLSAdapter, error) { return testBLSAdapter{}, nil }).
@@ -65,7 +83,9 @@ func TestNewRuntimeSuiteRejectsUnsupportedBackend(t *testing.T) {
 }
 
 type testBLSAdapter struct {
-	safe bool
+	safe            bool
+	rejectPublicKey bool
+	rejectProof     bool
 }
 
 func (adapter testBLSAdapter) PublicKey() types.PublicKey {
@@ -92,6 +112,9 @@ func (adapter testBLSAdapter) VerifyAggregate(publicKeys []types.PublicKey, mess
 }
 
 func (adapter testBLSAdapter) ValidatePublicKey(publicKey types.PublicKey) error {
+	if adapter.rejectPublicKey {
+		return ErrInvalidBLSPublicKey
+	}
 	if len(publicKey) == 0 {
 		return ErrMissingRemotePublicKey
 	}
@@ -99,6 +122,9 @@ func (adapter testBLSAdapter) ValidatePublicKey(publicKey types.PublicKey) error
 }
 
 func (adapter testBLSAdapter) VerifyProofOfPossession(publicKey types.PublicKey, proof types.Signature) bool {
+	if adapter.rejectProof {
+		return false
+	}
 	return len(publicKey) > 0 && len(proof) > 0
 }
 

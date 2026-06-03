@@ -14,7 +14,8 @@ var ErrBLSAdapterUnsafe = errors.New("bls adapter does not satisfy production sa
 type BLSAdapterFactory func() (BLSAdapter, error)
 
 type RuntimeSuiteRegistry struct {
-	blsFactory BLSAdapterFactory
+	blsFactory     BLSAdapterFactory
+	blsCredentials []BLSValidatorCredential
 }
 
 func NewRuntimeSuiteRegistry() RuntimeSuiteRegistry {
@@ -23,6 +24,11 @@ func NewRuntimeSuiteRegistry() RuntimeSuiteRegistry {
 
 func (registry RuntimeSuiteRegistry) RegisterBLS(factory BLSAdapterFactory) RuntimeSuiteRegistry {
 	registry.blsFactory = factory
+	return registry
+}
+
+func (registry RuntimeSuiteRegistry) RegisterBLSValidatorCredentials(credentials []BLSValidatorCredential) RuntimeSuiteRegistry {
+	registry.blsCredentials = append([]BLSValidatorCredential(nil), credentials...)
 	return registry
 }
 
@@ -55,6 +61,13 @@ func (registry RuntimeSuiteRegistry) NewRuntimeSuite(cfg config.CryptoConfig) (R
 		}
 		if err := ValidateBLSAdapter(adapter); err != nil {
 			return RuntimeSuite{}, err
+		}
+		if len(registry.blsCredentials) > 0 {
+			verifier, err := NewBLSAggregateVerifier(adapter, registry.blsCredentials)
+			if err != nil {
+				return RuntimeSuite{}, err
+			}
+			return RuntimeSuite{FinalityVerifier: verifier, ConsensusAggregator: adapter}, nil
 		}
 		return RuntimeSuite{FinalityVerifier: adapter, ConsensusAggregator: adapter}, nil
 	default:
