@@ -9,6 +9,7 @@ import (
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	appmodules "github.com/vexo-network/vexo-consensus/app/modules"
+	"github.com/vexo-network/vexo-consensus/cmd/vexod/internal/commandset"
 	"github.com/vexo-network/vexo-consensus/config"
 )
 
@@ -36,46 +37,6 @@ func runCommand(stdout io.Writer, stderr io.Writer, args []string) error {
 	case "version", "--version":
 		fmt.Fprintf(stdout, "vexod %s\ncommit: %s\nbuild_date: %s\n", version, commit, buildDate)
 		return nil
-	case "init":
-		if err := runInit(stdout, args[1:]); err != nil {
-			return writeCommandError(stderr, "init", err)
-		}
-		return nil
-	case "validate":
-		if err := runValidate(stdout, args[1:]); err != nil {
-			return writeCommandError(stderr, "validate", err)
-		}
-		return nil
-	case "config":
-		if err := runConfig(stdout, args[1:]); err != nil {
-			return writeCommandError(stderr, "config", err)
-		}
-		return nil
-	case "keys":
-		if err := runKeys(stdout, args[1:]); err != nil {
-			return writeCommandError(stderr, "keys", err)
-		}
-		return nil
-	case "tx":
-		if err := runTx(stdout, args[1:]); err != nil {
-			return writeCommandError(stderr, "tx", err)
-		}
-		return nil
-	case "start":
-		if err := runStart(stdout, args[1:]); err != nil {
-			return writeCommandError(stderr, "start", err)
-		}
-		return nil
-	case "network":
-		if err := runNetwork(stdout, args[1:]); err != nil {
-			return writeCommandError(stderr, "network", err)
-		}
-		return nil
-	case "consensus":
-		if err := runConsensus(stdout, args[1:]); err != nil {
-			return writeCommandError(stderr, "consensus", err)
-		}
-		return nil
 	case "status":
 		if len(args) > 1 && args[1] == "--json" {
 			if err := writeStatusJSON(stdout, config.Default("vexo-chain")); err != nil {
@@ -88,36 +49,6 @@ func runCommand(stdout io.Writer, stderr io.Writer, args []string) error {
 	case "--json":
 		if err := writeStatusJSON(stdout, config.Default("vexo-chain")); err != nil {
 			return writeCommandError(stderr, "status", err)
-		}
-		return nil
-	case "snapshot":
-		if err := runSnapshot(stdout, args[1:]); err != nil {
-			return writeCommandError(stderr, "snapshot", err)
-		}
-		return nil
-	case "slashing":
-		if err := runSlashing(stdout, args[1:]); err != nil {
-			return writeCommandError(stderr, "slashing", err)
-		}
-		return nil
-	case "doctor":
-		if err := runDoctor(stdout, args[1:]); err != nil {
-			return writeCommandError(stderr, "doctor", err)
-		}
-		return nil
-	case "ops":
-		if err := runOps(stdout, args[1:]); err != nil {
-			return writeCommandError(stderr, "ops", err)
-		}
-		return nil
-	case "upgrade":
-		if err := runUpgrade(stdout, args[1:]); err != nil {
-			return writeCommandError(stderr, "upgrade", err)
-		}
-		return nil
-	case "release":
-		if err := runRelease(stdout, args[1:]); err != nil {
-			return writeCommandError(stderr, "release", err)
 		}
 		return nil
 	case "demo":
@@ -135,6 +66,12 @@ func runCommand(stdout io.Writer, stderr io.Writer, args []string) error {
 		}
 		return nil
 	default:
+		if handled, err := coreCommands().Run(args[0], stdout, args[1:]); handled {
+			if err != nil {
+				return writeCommandError(stderr, args[0], err)
+			}
+			return nil
+		}
 		if handled, err := runModuleCommand(stdout, args); handled {
 			if err != nil {
 				return writeCommandError(stderr, args[0], err)
@@ -145,6 +82,25 @@ func runCommand(stdout io.Writer, stderr io.Writer, args []string) error {
 		fmt.Fprintf(stderr, "run `vexod help` for usage\n")
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func coreCommands() commandset.Registry {
+	return commandset.New([]commandset.Command{
+		{Name: "init", Description: "initialize config and genesis files", Handler: runInit},
+		{Name: "validate", Description: "validate config and genesis files", Handler: runValidate},
+		{Name: "config", Description: "audit, inspect, and generate config files", Handler: runConfig},
+		{Name: "keys", Description: "manage local and remote validator keys", Handler: runKeys},
+		{Name: "tx", Description: "build or parse canonical transaction payloads", Handler: runTx},
+		{Name: "start", Description: "validate files, prepare startup, or run a node", Handler: runStart},
+		{Name: "network", Description: "manage node networks and local execution harnesses", Handler: runNetwork},
+		{Name: "consensus", Description: "run consensus simulations and diagnostics", Handler: runConsensus},
+		{Name: "snapshot", Description: "export, verify, fetch, sync, restore, or drill snapshots", Handler: runSnapshot},
+		{Name: "slashing", Description: "plan evidence lifecycle and penalty operations", Handler: runSlashing},
+		{Name: "doctor", Description: "inspect config, keys, store, snapshot, and recovery readiness", Handler: runDoctor},
+		{Name: "ops", Description: "print thresholds, evaluate samples, or build incident reports", Handler: runOps},
+		{Name: "upgrade", Description: "build, apply, and rollback-drill upgrade plans", Handler: runUpgrade},
+		{Name: "release", Description: "package releases and evaluate release gates", Handler: runRelease},
+	})
 }
 
 func writeCommandError(writer io.Writer, command string, err error) error {
@@ -161,29 +117,21 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "Usage:\n")
 	fmt.Fprintf(writer, "  vexod <command> [flags]\n\n")
 	fmt.Fprintf(writer, "Commands:\n")
-	fmt.Fprintf(writer, "  init            initialize config and genesis files\n")
-	fmt.Fprintf(writer, "  validate        validate config and genesis files\n")
+	for _, command := range coreCommands().Commands() {
+		fmt.Fprintf(writer, "  %-15s %s\n", command.Name, command.Description)
+	}
 	fmt.Fprintf(writer, "  config audit    run deployment and production-readiness checks\n")
 	fmt.Fprintf(writer, "  config audit-pack generate external security audit evidence checklist\n")
 	fmt.Fprintf(writer, "  config deployment-template print recommended deployment parameters\n")
 	fmt.Fprintf(writer, "  config paths    print resolved config, genesis, key, and data paths\n")
 	fmt.Fprintf(writer, "  config show     print loaded chain config as JSON\n")
+	fmt.Fprintf(writer, "\nCommon Subcommands:\n")
 	fmt.Fprintf(writer, "  keys gen        generate an Ed25519 validator key\n")
 	fmt.Fprintf(writer, "  keys remote     register a remote KMS/HSM validator signer\n")
 	fmt.Fprintf(writer, "  keys serve-remote serve a policy-enforced KMS/HSM signer endpoint\n")
 	fmt.Fprintf(writer, "  keys verify-remote verify remote KMS/HSM challenge signing\n")
 	fmt.Fprintf(writer, "  keys sign-tx    sign a raw transaction payload\n")
 	fmt.Fprintf(writer, "  keys show       show validator public key\n")
-	fmt.Fprintf(writer, "  tx              build or parse canonical transaction payloads\n")
-	fmt.Fprintf(writer, "  start           validate files, prepare startup, or run node with --run; Ctrl+C shuts down gracefully\n")
-	fmt.Fprintf(writer, "  network         up, initialize, start, smoke, load, scale-plan, chaos, longrun, status, and stop node networks\n")
-	fmt.Fprintf(writer, "  consensus       run consensus simulations and diagnostics\n")
-	fmt.Fprintf(writer, "  snapshot        export, verify, fetch, sync, restore, or drill state snapshots\n")
-	fmt.Fprintf(writer, "  slashing        plan evidence lifecycle, appeals, jail, and penalty operations\n")
-	fmt.Fprintf(writer, "  doctor          inspect config, keys, store, snapshot, and recovery readiness\n")
-	fmt.Fprintf(writer, "  ops             print thresholds, evaluate samples, or build incident reports\n")
-	fmt.Fprintf(writer, "  upgrade         build, apply, and rollback-drill governance upgrade plans\n")
-	fmt.Fprintf(writer, "  release         package release manifests, checklists, readiness sweeps, and release gates\n")
 	fmt.Fprintf(writer, "  status          print default node capability status\n")
 	fmt.Fprintf(writer, "  demo            run an in-memory bank execution demo\n")
 	fmt.Fprintf(writer, "  store-demo      run a LevelDB-backed storage demo\n")

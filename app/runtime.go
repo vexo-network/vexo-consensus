@@ -52,7 +52,7 @@ func (runtime *Runtime) WithStore(store StateStore) *Runtime {
 }
 
 func (runtime *Runtime) BindStore() error {
-	return runtime.bindStoreWithContext(Context{Ctx: context.Background(), ChainID: runtime.chainID, Height: runtime.height, Store: runtime.store})
+	return runtime.bindStoreWithContext(runtime.newContext(runtime.height, types.Header{}))
 }
 
 func (runtime *Runtime) WithAnte(ante AnteHandler) *Runtime {
@@ -93,7 +93,7 @@ func (runtime *Runtime) InitChain(req InitChainRequest) (InitChainResponse, erro
 	}
 	runtime.chainID = chainID
 
-	ctx := Context{Ctx: context.Background(), ChainID: runtime.chainID, Store: runtime.store}
+	ctx := runtime.newContext(0, types.Header{})
 	if err := runtime.bindStoreWithContext(ctx); err != nil {
 		return InitChainResponse{}, err
 	}
@@ -107,7 +107,7 @@ func (runtime *Runtime) InitChain(req InitChainRequest) (InitChainResponse, erro
 }
 
 func (runtime *Runtime) CheckTx(tx types.Tx) CheckTxResponse {
-	ctx := Context{Ctx: context.Background(), ChainID: runtime.chainID, Height: runtime.height, Store: runtime.store}
+	ctx := runtime.newContext(runtime.height, types.Header{})
 	if runtime.ante != nil {
 		if err := runtime.ante.CheckTx(ctx, tx); err != nil {
 			return CheckTxResponse{Result: types.Result{Code: 1, Log: err.Error()}}
@@ -134,13 +134,12 @@ func (runtime *Runtime) ProcessProposal(req ProcessProposalRequest) ProcessPropo
 	if !fairordering.IsOrderedWithSalt(req.Block.Txs, runtime.orderingSalt(req.Block.Header.Height)) {
 		return ProcessProposalResponse{Accepted: false, Reason: "transaction ordering mismatch"}
 	}
+	ctx := runtime.newContext(req.Block.Header.Height, req.Block.Header)
 	if runtime.ante != nil {
-		ctx := Context{Ctx: context.Background(), ChainID: runtime.chainID, Height: req.Block.Header.Height, Header: req.Block.Header, Store: runtime.store}
 		if err := runtime.ante.CheckBlock(ctx, req.Block.Txs); err != nil {
 			return ProcessProposalResponse{Accepted: false, Reason: err.Error()}
 		}
 	}
-	ctx := Context{Ctx: context.Background(), ChainID: runtime.chainID, Height: req.Block.Header.Height, Header: req.Block.Header, Store: runtime.store}
 	for _, tx := range req.Block.Txs {
 		if _, err := runtime.router.RouteTx(ctx, TxPayload(tx), runtime.modules); err != nil {
 			return ProcessProposalResponse{Accepted: false, Reason: "invalid transaction"}
@@ -155,13 +154,7 @@ func (runtime *Runtime) FinalizeBlock(req FinalizeBlockRequest) (FinalizeBlockRe
 		return FinalizeBlockResponse{}, ErrProposalRejected
 	}
 
-	ctx := Context{
-		Ctx:     context.Background(),
-		ChainID: runtime.chainID,
-		Height:  req.Block.Header.Height,
-		Header:  req.Block.Header,
-		Store:   runtime.store,
-	}
+	ctx := runtime.newContext(req.Block.Header.Height, req.Block.Header)
 
 	for _, module := range runtime.modules {
 		if err := module.BeginBlock(ctx, req.Block.Header); err != nil {
@@ -222,7 +215,7 @@ func (runtime *Runtime) Restore(height types.Height, appHash types.Hash) {
 }
 
 func (runtime *Runtime) bindStore() {
-	_ = runtime.bindStoreWithContext(Context{Ctx: context.Background(), ChainID: runtime.chainID, Height: runtime.height, Store: runtime.store})
+	_ = runtime.bindStoreWithContext(runtime.newContext(runtime.height, types.Header{}))
 }
 
 func (runtime *Runtime) bindStoreWithContext(ctx Context) error {
@@ -245,7 +238,7 @@ func (runtime *Runtime) Query(req QueryRequest) QueryResponse {
 	if len(req.Path) == 0 || req.Path[0] == "" {
 		return QueryResponse{Code: 1, Log: "query module is required"}
 	}
-	ctx := Context{Ctx: context.Background(), ChainID: runtime.chainID, Height: runtime.height, Store: runtime.store}
+	ctx := runtime.newContext(runtime.height, types.Header{})
 	for _, module := range runtime.modules {
 		if module.Name() != req.Path[0] {
 			continue
@@ -260,6 +253,16 @@ func (runtime *Runtime) Query(req QueryRequest) QueryResponse {
 		})
 	}
 	return QueryResponse{Code: 3, Log: "query module not found"}
+}
+
+func (runtime *Runtime) newContext(height types.Height, header types.Header) Context {
+	return Context{
+		Ctx:     context.Background(),
+		ChainID: runtime.chainID,
+		Height:  height,
+		Header:  header,
+		Store:   runtime.store,
+	}
 }
 
 func (runtime *Runtime) Modules() []Module {
