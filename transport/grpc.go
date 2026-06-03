@@ -834,7 +834,19 @@ func (transport *GRPCTransport) peerSession(ctx context.Context, peerID p2p.Peer
 	if err != nil {
 		return nil, err
 	}
-	streamCtx, cancel := context.WithCancel(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	streamCtx, cancel := context.WithCancel(context.Background())
+	handshakeDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			cancel()
+		case <-handshakeDone:
+		}
+	}()
+	defer close(handshakeDone)
 	client := newP2PTransportClient(connection)
 	stream, err := client.Gossip(streamCtx)
 	if err != nil {
@@ -876,12 +888,31 @@ func (transport *GRPCTransport) peerSession(ctx context.Context, peerID p2p.Peer
 		return existing, nil
 	}
 	transport.sessions[peerID] = session
+	go transport.monitorPeerSession(peerID, session)
 	return session, nil
+}
+
+func (transport *GRPCTransport) monitorPeerSession(peerID p2p.PeerID, session *grpcPeerSession) {
+	for {
+		if _, err := session.stream.Recv(); err != nil {
+			transport.closePeerSessionIfCurrent(peerID, session)
+			return
+		}
+	}
 }
 
 func (transport *GRPCTransport) closePeerSession(peerID p2p.PeerID) {
 	transport.mu.Lock()
 	defer transport.mu.Unlock()
+	transport.closePeerSessionLocked(peerID)
+}
+
+func (transport *GRPCTransport) closePeerSessionIfCurrent(peerID p2p.PeerID, session *grpcPeerSession) {
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	if transport.sessions[peerID] != session {
+		return
+	}
 	transport.closePeerSessionLocked(peerID)
 }
 

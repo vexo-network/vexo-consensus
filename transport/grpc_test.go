@@ -278,19 +278,22 @@ func TestGRPCTransportReusesPeerStreamSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	firstSessionCount := 0
+	var firstSession *grpcPeerSession
 	for index, payload := range []string{"one", "two", "three"} {
 		if err := alice.Send(context.Background(), "bob", p2p.TopicTx, []byte(payload)); err != nil {
 			t.Fatal(err)
 		}
 		assertEnvelope(t, bobTxs, "alice", "bob", p2p.TopicTx, payload)
 		if index == 0 {
-			firstSessionCount = grpcSessionCount(alice)
+			firstSession = grpcSessionFor(alice, "bob")
+			if firstSession == nil {
+				t.Fatal("expected bob grpc session to be cached")
+			}
+			continue
 		}
-	}
-
-	if sessions := grpcSessionCount(alice); sessions != firstSessionCount {
-		t.Fatalf("expected cached grpc sessions to be reused, got first=%d final=%d", firstSessionCount, sessions)
+		if session := grpcSessionFor(alice, "bob"); session != firstSession {
+			t.Fatalf("expected bob grpc stream session to be reused")
+		}
 	}
 }
 
@@ -474,10 +477,10 @@ func TestGRPCTransportReconnectsAfterPeerRestart(t *testing.T) {
 	bobAddress := bob.Address()
 
 	stopGRPCPeer(t, bob)
+	waitForGRPCSessionCount(t, alice, 0)
 	if err := alice.Send(context.Background(), "bob", p2p.TopicTx, []byte("during-restart")); err == nil {
 		t.Fatal("expected send to stopped peer to fail")
 	}
-	waitForGRPCSessionCount(t, alice, 0)
 
 	restartedConfig := base
 	restartedConfig.ListenAddr = bobAddress
@@ -621,6 +624,12 @@ func grpcSessionCount(peer *GRPCTransport) int {
 	peer.mu.RLock()
 	defer peer.mu.RUnlock()
 	return len(peer.sessions)
+}
+
+func grpcSessionFor(peer *GRPCTransport, peerID p2p.PeerID) *grpcPeerSession {
+	peer.mu.RLock()
+	defer peer.mu.RUnlock()
+	return peer.sessions[peerID]
 }
 
 func waitForGRPCSessionCount(t *testing.T, peer *GRPCTransport, expected int) {
