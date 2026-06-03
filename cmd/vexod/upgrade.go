@@ -23,9 +23,31 @@ func runUpgrade(writer io.Writer, args []string) error {
 		return runUpgradePlan(writer, args[1:])
 	case "apply":
 		return runUpgradeApply(writer, args[1:])
+	case "rollback-plan":
+		return runUpgradeRollbackPlan(writer, args[1:])
 	default:
 		return fmt.Errorf("unknown upgrade subcommand %q", args[0])
 	}
+}
+
+type upgradeRollbackPlanDocument struct {
+	SchemaVersion  string                     `json:"schema_version"`
+	PlanName       string                     `json:"plan_name"`
+	UpgradeHeight  types.Height               `json:"upgrade_height"`
+	CurrentStatus  upgrade.ExecutionStatus    `json:"current_status"`
+	RollbackBinary string                     `json:"rollback_binary"`
+	LastSafeHeight types.Height               `json:"last_safe_height"`
+	SnapshotPath   string                     `json:"snapshot_path,omitempty"`
+	RecordFile     string                     `json:"record_file,omitempty"`
+	Checks         []upgradeRollbackPlanCheck `json:"checks"`
+	Steps          []string                   `json:"steps"`
+	Warnings       []string                   `json:"warnings,omitempty"`
+}
+
+type upgradeRollbackPlanCheck struct {
+	Name    string `json:"name"`
+	OK      bool   `json:"ok"`
+	Message string `json:"message"`
 }
 
 func runUpgradePlan(writer io.Writer, args []string) error {
@@ -141,6 +163,125 @@ func runUpgradeApply(writer io.Writer, args []string) error {
 		return err
 	}
 	return nil
+}
+
+func runUpgradeRollbackPlan(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("upgrade rollback-plan", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	planFile := flags.String("plan-file", "", "upgrade plan JSON file")
+	recordFile := flags.String("record-file", filepath.Join(".vexo", "upgrade-records.json"), "durable upgrade execution record file")
+	lastSafeHeight := flags.Uint64("last-safe-height", 0, "last height known safe for rollback")
+	snapshotPath := flags.String("snapshot", "", "snapshot path to restore during rollback")
+	jsonOutput := flags.Bool("json", false, "write JSON output")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *planFile == "" {
+		return errors.New("plan-file is required")
+	}
+	plan, err := readUpgradePlanFile(*planFile)
+	if err != nil {
+		return err
+	}
+	document := buildUpgradeRollbackPlanDocument(plan, *recordFile, types.Height(*lastSafeHeight), *snapshotPath)
+	if *recordFile != "" {
+		record, found, err := upgrade.JSONFileRecorder{Path: *recordFile}.Load(context.Background(), plan.Name)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if found {
+			document.CurrentStatus = record.Status
+		}
+	}
+	document.Checks = append(document.Checks, upgradeRollbackPlanCheck{
+		Name:    "rollback_binary",
+		OK:      document.RollbackBinary != "",
+		Message: "rollback binary or artifact must be declared in the upgrade plan",
+	})
+	document.Checks = append(document.Checks, upgradeRollbackPlanCheck{
+		Name:    "last_safe_height",
+		OK:      document.LastSafeHeight > 0 && document.LastSafeHeight < document.UpgradeHeight,
+		Message: "last safe height must be greater than zero and lower than the upgrade height",
+	})
+	document.Checks = append(document.Checks, upgradeRollbackPlanCheck{
+		Name:    "snapshot",
+		OK:      document.SnapshotPath != "",
+		Message: "snapshot path should be attached for restore drill evidence",
+	})
+	document.Warnings = upgradeRollbackPlanWarnings(document)
+	if *jsonOutput {
+		encoder := json.NewEncoder(writer)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(document)
+	}
+	writeUpgradeRollbackPlan(writer, document)
+	return nil
+}
+
+func buildUpgradeRollbackPlanDocument(plan upgrade.Plan, recordFile string, lastSafeHeight types.Height, snapshotPath string) upgradeRollbackPlanDocument {
+	return upgradeRollbackPlanDocument{
+		SchemaVersion:  "v1",
+		PlanName:       plan.Name,
+		UpgradeHeight:  plan.Height,
+		CurrentStatus:  upgrade.ExecutionPending,
+		RollbackBinary: plan.RollbackBinary,
+		LastSafeHeight: lastSafeHeight,
+		SnapshotPath:   snapshotPath,
+		RecordFile:     recordFile,
+		Steps: []string{
+			"halt validators and public traffic before attempting rollback",
+			"confirm no conflicting finality exists above the last safe height",
+			"restore state snapshot at or before the last safe height",
+			"restart validators with the rollback binary and identical config/genesis inputs",
+			"verify height growth, replay health, validator signing policy, and light-client finality proofs",
+			"archive rollback evidence and keep the failed upgrade record for audit review",
+		},
+	}
+}
+
+func upgradeRollbackPlanWarnings(document upgradeRollbackPlanDocument) []string {
+	warnings := make([]string, 0)
+	for _, check := range document.Checks {
+		if !check.OK {
+			warnings = append(warnings, check.Message)
+		}
+	}
+	if document.CurrentStatus == upgrade.ExecutionApplied {
+		warnings = append(warnings, "upgrade record is already applied; rollback requires governance/operator emergency approval")
+	}
+	if document.CurrentStatus == upgrade.ExecutionRollbackRequired {
+		warnings = append(warnings, "upgrade record is rollback_required; operators must not retry apply until rollback is completed")
+	}
+	return warnings
+}
+
+func writeUpgradeRollbackPlan(writer io.Writer, document upgradeRollbackPlanDocument) {
+	fmt.Fprintf(writer, "upgrade rollback plan\n")
+	fmt.Fprintf(writer, "name: %s\n", document.PlanName)
+	fmt.Fprintf(writer, "upgrade_height: %d\n", document.UpgradeHeight)
+	fmt.Fprintf(writer, "current_status: %s\n", document.CurrentStatus)
+	fmt.Fprintf(writer, "rollback_binary: %s\n", document.RollbackBinary)
+	fmt.Fprintf(writer, "last_safe_height: %d\n", document.LastSafeHeight)
+	if document.SnapshotPath != "" {
+		fmt.Fprintf(writer, "snapshot: %s\n", document.SnapshotPath)
+	}
+	if document.RecordFile != "" {
+		fmt.Fprintf(writer, "record_file: %s\n", document.RecordFile)
+	}
+	fmt.Fprintf(writer, "checks:\n")
+	for _, check := range document.Checks {
+		fmt.Fprintf(writer, "- %s ok=%t %s\n", check.Name, check.OK, check.Message)
+	}
+	fmt.Fprintf(writer, "steps:\n")
+	for index, step := range document.Steps {
+		fmt.Fprintf(writer, "%d. %s\n", index+1, step)
+	}
+	if len(document.Warnings) > 0 {
+		fmt.Fprintf(writer, "warnings:\n")
+		for _, warning := range document.Warnings {
+			fmt.Fprintf(writer, "- %s\n", warning)
+		}
+	}
 }
 
 func readUpgradePlanFile(path string) (upgrade.Plan, error) {

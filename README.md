@@ -628,6 +628,11 @@ go run ./cmd/vexod upgrade apply \
   --store-version 1 \
   --app-version 1 \
   --allow-empty-migrations
+go run ./cmd/vexod upgrade rollback-plan \
+  --plan-file upgrade-plan.json \
+  --record-file .vexo/upgrade-records.json \
+  --last-safe-height 99999 \
+  --snapshot .vexo/snapshots/height-99999.json
 ```
 
 Run short fuzz smoke checks:

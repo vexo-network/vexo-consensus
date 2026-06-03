@@ -28,3 +28,24 @@
 - Run `make release-candidate`.
 - Sign checksums and publish SBOM.
 - Execute rollback drill before deployment activation.
+
+## Rollback Drill
+
+Generate a rollback drill plan before activating an upgrade:
+
+```bash
+go run ./cmd/vexod upgrade rollback-plan \
+  --plan-file upgrade-plan.json \
+  --record-file .vexo/upgrade-records.json \
+  --last-safe-height <upgrade-height-minus-one> \
+  --snapshot .vexo/snapshots/<safe-height>.json
+```
+
+The drill must verify:
+
+- rollback binary or artifact is declared
+- last safe height is lower than the upgrade height
+- restore snapshot evidence is attached
+- failed `rollback_required` records block retry until rollback is completed
+- validators restart from identical genesis/config inputs
+- replay, signer policy, height growth, and light-client finality proofs remain valid after rollback

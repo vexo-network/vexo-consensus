@@ -282,6 +282,80 @@ func TestRunTxBuildAndParseCanonicalPayload(t *testing.T) {
 	}
 }
 
+func TestRunUpgradeRollbackPlan(t *testing.T) {
+	home := t.TempDir()
+	planFile := filepath.Join(home, "plan.json")
+	plan := []byte(`{
+		"name":"v0.2.0",
+		"height":100,
+		"binary_version":"v0.2.0",
+		"config_schema_from":1,
+		"config_schema_to":2,
+		"store_schema_from":1,
+		"store_schema_to":2,
+		"app_state_schema_from":1,
+		"app_state_schema_to":2,
+		"rollback_binary":"v0.1.0"
+	}`)
+	if err := os.WriteFile(planFile, plan, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"upgrade", "rollback-plan",
+		"--plan-file", planFile,
+		"--last-safe-height", "99",
+		"--snapshot", filepath.Join(home, "snapshot.json"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"upgrade rollback plan", "upgrade_height: 100", "rollback_binary: v0.1.0", "last_safe_height: 99", "rollback_binary ok=true", "restore state snapshot", "light-client finality proofs"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected rollback plan output to contain %q, got:\n%s", expected, output.String())
+		}
+	}
+}
+
+func TestRunUpgradeRollbackPlanJSONWarnsOnUnsafeInputs(t *testing.T) {
+	home := t.TempDir()
+	planFile := filepath.Join(home, "plan.json")
+	plan := []byte(`{
+		"name":"unsafe-upgrade",
+		"height":100,
+		"binary_version":"v0.2.0",
+		"config_schema_from":1,
+		"config_schema_to":1,
+		"store_schema_from":1,
+		"store_schema_to":1,
+		"app_state_schema_from":1,
+		"app_state_schema_to":1
+	}`)
+	if err := os.WriteFile(planFile, plan, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"upgrade", "rollback-plan",
+		"--plan-file", planFile,
+		"--last-safe-height", "100",
+		"--json",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var document upgradeRollbackPlanDocument
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.SchemaVersion != "v1" || document.PlanName != "unsafe-upgrade" || len(document.Warnings) < 3 {
+		t.Fatalf("unexpected rollback document: %+v", document)
+	}
+	if document.Checks[0].OK || document.Checks[1].OK || document.Checks[2].OK {
+		t.Fatalf("expected unsafe rollback checks to fail: %+v", document.Checks)
+	}
+}
+
 func TestRunReleasePackWritesAuditManifest(t *testing.T) {
 	dist := t.TempDir()
 	files := map[string]string{
