@@ -1,6 +1,6 @@
 # Consensus Protocol Overview
 
-This page is the high-level entry point for Vexo consensus documentation.
+This page is the high-level entry point for Vexo consensus documentation. For a broader documentation map, see [Documentation](./README.md).
 
 For normative details, use the spec files:
 
