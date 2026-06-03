@@ -133,6 +133,8 @@ SDK and extension guides:
 
 Operations and release:
 
+- [Node Initialization](./docs/operators/node-initialization.md)
+- [Adding a Validator](./docs/operators/add-validator.md)
 - [Security Audit Readiness](./docs/security/audit-readiness.md)
 - [Launch Runbook](./docs/release/launch-runbook.md)
 - [Release Pipeline](./docs/release/release-pipeline.md)

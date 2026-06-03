@@ -16,6 +16,18 @@ services:
       - "26656"
       - --rpc-base-port
       - "26657"
+      - --p2p-port-step
+      - "0"
+      - --rpc-port-step
+      - "0"
+      - --p2p-host-template
+      - validator-%d
+      - --rpc-host-template
+      - validator-%d
+      - --p2p-listen-host
+      - 0.0.0.0
+      - --rpc-listen-host
+      - 0.0.0.0
       - --overwrite
     volumes:
       - vexo-single-data:/var/lib/vexo

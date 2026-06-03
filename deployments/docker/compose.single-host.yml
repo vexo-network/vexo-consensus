@@ -16,16 +16,6 @@ services:
       - --home
       - /var/lib/vexo/network/validator-1
       - --run
-      - --rpc-address
-      - 0.0.0.0:26657
-      - --p2p-listen
-      - 0.0.0.0:26656
-      - --peer
-      - validator-2=validator-2:26656
-      - --peer
-      - validator-3=validator-3:26656
-      - --peer
-      - validator-4=validator-4:26656
       - --log-format
       - json
     ports:
@@ -39,16 +29,6 @@ services:
       - --home
       - /var/lib/vexo/network/validator-2
       - --run
-      - --rpc-address
-      - 0.0.0.0:26657
-      - --p2p-listen
-      - 0.0.0.0:26656
-      - --peer
-      - validator-1=validator-1:26656
-      - --peer
-      - validator-3=validator-3:26656
-      - --peer
-      - validator-4=validator-4:26656
       - --log-format
       - json
     ports:
@@ -62,16 +42,6 @@ services:
       - --home
       - /var/lib/vexo/network/validator-3
       - --run
-      - --rpc-address
-      - 0.0.0.0:26657
-      - --p2p-listen
-      - 0.0.0.0:26656
-      - --peer
-      - validator-1=validator-1:26656
-      - --peer
-      - validator-2=validator-2:26656
-      - --peer
-      - validator-4=validator-4:26656
       - --log-format
       - json
     ports:
@@ -85,16 +55,6 @@ services:
       - --home
       - /var/lib/vexo/network/validator-4
       - --run
-      - --rpc-address
-      - 0.0.0.0:26657
-      - --p2p-listen
-      - 0.0.0.0:26656
-      - --peer
-      - validator-1=validator-1:26656
-      - --peer
-      - validator-2=validator-2:26656
-      - --peer
-      - validator-3=validator-3:26656
       - --log-format
       - json
     ports:

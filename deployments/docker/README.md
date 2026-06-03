@@ -35,6 +35,8 @@ Run the validators:
 docker compose -f deployments/docker/compose.single-host.yml up
 ```
 
+The init compose writes peer addresses into each validator's `config.json`. The run compose does not pass `--peer` flags.
+
 Query validator RPC endpoints from the host:
 
 ```bash
@@ -62,6 +64,8 @@ Generate all validator homes once on a trusted machine:
 
 ```bash
 VEXO_NETWORK_DIR=./.vexo-network \
+VEXO_P2P_HOST_TEMPLATE='host-%d.example.com' \
+VEXO_RPC_HOST_TEMPLATE='host-%d.example.com' \
 docker compose -f deployments/docker/compose.multi-host.init.yml run --rm init
 ```
 
@@ -79,9 +83,6 @@ Run one validator per host. Example for validator 1:
 ```bash
 export VEXO_VALIDATOR_ID=validator-1
 export VEXO_VALIDATOR_HOME=/srv/vexo/validator-1
-export VEXO_PEER_1=validator-2=host-2.example.com:26656
-export VEXO_PEER_2=validator-3=host-3.example.com:26656
-export VEXO_PEER_3=validator-4=host-4.example.com:26656
 docker compose -f deployments/docker/compose.multi-host.yml up
 ```
 
@@ -90,9 +91,6 @@ For validator 2, set:
 ```bash
 export VEXO_VALIDATOR_ID=validator-2
 export VEXO_VALIDATOR_HOME=/srv/vexo/validator-2
-export VEXO_PEER_1=validator-1=host-1.example.com:26656
-export VEXO_PEER_2=validator-3=host-3.example.com:26656
-export VEXO_PEER_3=validator-4=host-4.example.com:26656
 ```
 
 Repeat the same pattern for validators 3 and 4.
@@ -100,6 +98,6 @@ Repeat the same pattern for validators 3 and 4.
 ## Notes
 
 - The single-host compose file uses Docker service names for peer dialing.
-- The multi-host template expects routable hostnames or IP addresses in `VEXO_PEER_*`.
+- The multi-host template writes routable hostnames into `config.json` during init through `VEXO_P2P_HOST_TEMPLATE`.
 - The generated network uses Ed25519 key documents and pre-production defaults.
 - Do not use these compose files as a public mainnet launch recipe without production config audit, external security review, signer/KMS validation, and long-run evidence.

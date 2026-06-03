@@ -496,6 +496,12 @@ func runNetworkInit(writer io.Writer, args []string) error {
 	validators := flags.Int("validators", 4, "validator count")
 	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first network P2P port")
 	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first network RPC port")
+	p2pPortStep := flags.Int("p2p-port-step", 10, "P2P port increment per validator")
+	rpcPortStep := flags.Int("rpc-port-step", 10, "RPC port increment per validator")
+	p2pHostTemplate := flags.String("p2p-host-template", "127.0.0.1", "P2P host template; supports %d validator index")
+	rpcHostTemplate := flags.String("rpc-host-template", "127.0.0.1", "RPC host template; supports %d validator index")
+	p2pListenHost := flags.String("p2p-listen-host", "", "P2P listen host stored in config; defaults to p2p host")
+	rpcListenHost := flags.String("rpc-listen-host", "", "RPC listen host stored in config; defaults to rpc host")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing network files")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -506,6 +512,16 @@ func runNetworkInit(writer io.Writer, args []string) error {
 		"--validators", strconv.Itoa(*validators),
 		"--p2p-base-port", strconv.Itoa(*p2pBasePort),
 		"--rpc-base-port", strconv.Itoa(*rpcBasePort),
+		"--p2p-port-step", strconv.Itoa(*p2pPortStep),
+		"--rpc-port-step", strconv.Itoa(*rpcPortStep),
+		"--p2p-host-template", *p2pHostTemplate,
+		"--rpc-host-template", *rpcHostTemplate,
+	}
+	if *p2pListenHost != "" {
+		initArgs = append(initArgs, "--p2p-listen-host", *p2pListenHost)
+	}
+	if *rpcListenHost != "" {
+		initArgs = append(initArgs, "--rpc-listen-host", *rpcListenHost)
 	}
 	if *overwrite {
 		initArgs = append(initArgs, "--overwrite")

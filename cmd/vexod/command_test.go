@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -915,6 +916,43 @@ func TestRunInitWritesNetworkFilesWithCustomPorts(t *testing.T) {
 	}
 }
 
+func TestRunInitWritesNetworkConfigPeers(t *testing.T) {
+	home := t.TempDir()
+	var output bytes.Buffer
+	if err := runInit(&output, []string{
+		"--home", home,
+		"--chain-id", "vexo-test",
+		"--validators", "2",
+		"--p2p-base-port", "26656",
+		"--rpc-base-port", "26657",
+		"--p2p-port-step", "0",
+		"--rpc-port-step", "0",
+		"--p2p-host-template", "validator-%d",
+		"--rpc-host-template", "validator-%d",
+		"--p2p-listen-host", "0.0.0.0",
+		"--rpc-listen-host", "0.0.0.0",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	document, err := readConfigDocument(filepath.Join(home, "validator-1", configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.Runtime.P2P.ListenAddress != "0.0.0.0:26656" || document.Runtime.RPC.Address != "0.0.0.0:26657" {
+		t.Fatalf("unexpected listen config: %+v", document.Runtime)
+	}
+	if document.Runtime.P2P.Peers["validator-2"] != "validator-2:26656" {
+		t.Fatalf("expected config peer address, got %+v", document.Runtime.P2P.Peers)
+	}
+	genesis, err := loadGenesis(filepath.Join(home, "validator-2", genesisFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if genesis.Validators[0].Metadata["p2p_address"] != "validator-1:26656" || genesis.Validators[1].Metadata["rpc_address"] != "validator-2:26657" {
+		t.Fatalf("unexpected advertised metadata: %+v", genesis.Validators)
+	}
+}
+
 func TestRunInitWritesDefaultConfig(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
@@ -926,6 +964,50 @@ func TestRunInitWritesDefaultConfig(t *testing.T) {
 	}
 	if cfg.Chain.Committee.CommitteeSize != 128 || cfg.Chain.Governance.Timelock != 10 {
 		t.Fatalf("expected default config, got %+v", cfg.Chain)
+	}
+}
+
+func TestRunInitValidatorAndArchiveModes(t *testing.T) {
+	validatorHome := t.TempDir()
+	var validatorOutput bytes.Buffer
+	if err := runInit(&validatorOutput, []string{"validator", "--home", validatorHome, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	validatorDocument, err := readConfigDocument(filepath.Join(validatorHome, configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validatorDocument.NodeMode != "validator" || validatorDocument.ValidatorID != "alice" || !validatorDocument.Runtime.Consensus.LoopEnabled {
+		t.Fatalf("unexpected validator config: %+v", validatorDocument)
+	}
+	if _, err := os.Stat(filepath.Join(validatorHome, keyFileName)); err != nil {
+		t.Fatalf("expected validator key: %v", err)
+	}
+
+	archiveHome := t.TempDir()
+	var archiveOutput bytes.Buffer
+	if err := runInit(&archiveOutput, []string{"archive", "--home", archiveHome, "--chain-id", "vexo-test", "--bootstrap-peer", "validator-1=seed.example.com:26656"}); err != nil {
+		t.Fatal(err)
+	}
+	archiveDocument, err := readConfigDocument(filepath.Join(archiveHome, configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archiveDocument.NodeMode != "archive" || archiveDocument.ValidatorID != "" || archiveDocument.Runtime.Consensus.LoopEnabled {
+		t.Fatalf("unexpected archive config: %+v", archiveDocument)
+	}
+	if archiveDocument.Runtime.P2P.Peers["validator-1"] != "seed.example.com:26656" {
+		t.Fatalf("expected bootstrap peer in config, got %+v", archiveDocument.Runtime.P2P.Peers)
+	}
+	if _, err := os.Stat(filepath.Join(archiveHome, keyFileName)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("archive init must not create validator key, got %v", err)
+	}
+	inputs, err := loadStartInputs(archiveHome, "", "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inputs.Signer != nil || inputs.Config.ValidatorID != "" {
+		t.Fatalf("expected archive start inputs without signer: %+v", inputs)
 	}
 }
 

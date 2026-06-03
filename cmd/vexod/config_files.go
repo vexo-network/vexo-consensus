@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/vexo-network/vexo-consensus/config"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
@@ -34,9 +35,54 @@ var errValidationFailed = errors.New("validation failed")
 
 type configDocument struct {
 	SchemaVersion string        `json:"schema_version"`
+	NodeMode      string        `json:"node_mode,omitempty"`
 	DataDir       string        `json:"data_dir"`
 	ValidatorID   string        `json:"validator_id,omitempty"`
+	Runtime       runtimeConfig `json:"runtime,omitempty"`
 	Chain         config.Config `json:"chain"`
+}
+
+type runtimeConfig struct {
+	RPC       runtimeRPCConfig       `json:"rpc,omitempty"`
+	P2P       runtimeP2PConfig       `json:"p2p,omitempty"`
+	Consensus runtimeConsensusConfig `json:"consensus,omitempty"`
+	Log       runtimeLogConfig       `json:"log,omitempty"`
+}
+
+type runtimeRPCConfig struct {
+	Enabled              bool   `json:"enabled"`
+	Address              string `json:"address,omitempty"`
+	AdminToken           string `json:"admin_token,omitempty"`
+	EnablePprof          bool   `json:"enable_pprof,omitempty"`
+	RequestTimeout       string `json:"request_timeout,omitempty"`
+	MaxRequestBytes      int64  `json:"max_request_bytes,omitempty"`
+	RateLimitWindow      string `json:"rate_limit_window,omitempty"`
+	RateLimitMaxRequests int    `json:"rate_limit_max_requests,omitempty"`
+}
+
+type runtimeP2PConfig struct {
+	Enabled          bool              `json:"enabled"`
+	ListenAddress    string            `json:"listen_address,omitempty"`
+	NetworkID        string            `json:"network_id,omitempty"`
+	MaxMessageBytes  uint64            `json:"max_message_bytes,omitempty"`
+	MaxPeers         int               `json:"max_peers,omitempty"`
+	AuthToken        string            `json:"auth_token,omitempty"`
+	AddrBookPath     string            `json:"addr_book_path,omitempty"`
+	AddrBookMaxFails int               `json:"addr_book_max_failures,omitempty"`
+	Peers            map[string]string `json:"peers,omitempty"`
+	Seeds            map[string]string `json:"seeds,omitempty"`
+}
+
+type runtimeConsensusConfig struct {
+	LoopEnabled   bool   `json:"loop_enabled"`
+	Interval      string `json:"interval,omitempty"`
+	RoundTimeout  string `json:"round_timeout,omitempty"`
+	MaxBlockBytes int64  `json:"max_block_bytes,omitempty"`
+}
+
+type runtimeLogConfig struct {
+	Format string `json:"format,omitempty"`
+	Level  string `json:"level,omitempty"`
 }
 
 type genesisDocument struct {
@@ -57,6 +103,14 @@ type validatorDocument struct {
 }
 
 func runInit(writer io.Writer, args []string) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "validator":
+			return runInitValidator(writer, args[1:])
+		case "archive":
+			return runInitArchive(writer, args[1:])
+		}
+	}
 	flags := flag.NewFlagSet("init", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	home := flags.String("home", defaultHomeDir, "node home directory")
@@ -65,12 +119,27 @@ func runInit(writer io.Writer, args []string) error {
 	validatorCount := flags.Int("validators", 1, "number of local validators to initialize")
 	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first network P2P port")
 	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first network RPC port")
+	p2pPortStep := flags.Int("p2p-port-step", 10, "P2P port increment per validator")
+	rpcPortStep := flags.Int("rpc-port-step", 10, "RPC port increment per validator")
+	p2pHostTemplate := flags.String("p2p-host-template", "127.0.0.1", "P2P host template; supports %d validator index")
+	rpcHostTemplate := flags.String("rpc-host-template", "127.0.0.1", "RPC host template; supports %d validator index")
+	p2pListenHost := flags.String("p2p-listen-host", "", "P2P listen host stored in config; defaults to p2p host")
+	rpcListenHost := flags.String("rpc-listen-host", "", "RPC listen host stored in config; defaults to rpc host")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing files")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if *validatorCount > 1 {
-		network, err := writeNetworkFilesWithPorts(*home, *chainID, *validatorCount, *overwrite, *p2pBasePort, *rpcBasePort)
+		network, err := writeNetworkFilesWithOptions(*home, *chainID, *validatorCount, *overwrite, networkAddressOptions{
+			P2PBasePort:     *p2pBasePort,
+			RPCBasePort:     *rpcBasePort,
+			P2PPortStep:     *p2pPortStep,
+			RPCPortStep:     *rpcPortStep,
+			P2PHostTemplate: *p2pHostTemplate,
+			RPCHostTemplate: *rpcHostTemplate,
+			P2PListenHost:   *p2pListenHost,
+			RPCListenHost:   *rpcListenHost,
+		})
 		if err != nil {
 			return err
 		}
@@ -87,6 +156,53 @@ func runInit(writer io.Writer, args []string) error {
 		return err
 	}
 	fmt.Fprintf(writer, "initialized vexo node\n")
+	fmt.Fprintf(writer, "home: %s\n", *home)
+	fmt.Fprintf(writer, "config: %s\n", configPath)
+	fmt.Fprintf(writer, "genesis: %s\n", genesisPath)
+	return nil
+}
+
+func runInitValidator(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("init validator", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", defaultHomeDir, "validator node home directory")
+	chainID := flags.String("chain-id", defaultChainID, "chain id")
+	validatorID := flags.String("validator", defaultValidatorID, "local validator id")
+	p2pAddress := flags.String("p2p-listen", defaultP2PAddress, "validator P2P listen address stored in config")
+	rpcAddress := flags.String("rpc-address", defaultRPCAddress, "validator RPC listen address stored in config")
+	overwrite := flags.Bool("overwrite", false, "overwrite existing files")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	configPath, genesisPath, keyPath, err := writeValidatorInitFiles(*home, *chainID, *validatorID, *p2pAddress, *rpcAddress, *overwrite)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "initialized vexo validator node\n")
+	fmt.Fprintf(writer, "home: %s\n", *home)
+	fmt.Fprintf(writer, "config: %s\n", configPath)
+	fmt.Fprintf(writer, "genesis: %s\n", genesisPath)
+	fmt.Fprintf(writer, "key: %s\n", keyPath)
+	return nil
+}
+
+func runInitArchive(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("init archive", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", defaultHomeDir, "archive node home directory")
+	chainID := flags.String("chain-id", defaultChainID, "chain id")
+	p2pAddress := flags.String("p2p-listen", defaultP2PAddress, "archive P2P listen address stored in config")
+	rpcAddress := flags.String("rpc-address", defaultRPCAddress, "archive RPC listen address stored in config")
+	bootstrapPeer := flags.String("bootstrap-peer", "", "optional bootstrap peer id=host:port stored in config")
+	overwrite := flags.Bool("overwrite", false, "overwrite existing files")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	configPath, genesisPath, err := writeArchiveInitFiles(*home, *chainID, *p2pAddress, *rpcAddress, *bootstrapPeer, *overwrite)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "initialized vexo archive node\n")
 	fmt.Fprintf(writer, "home: %s\n", *home)
 	fmt.Fprintf(writer, "config: %s\n", configPath)
 	fmt.Fprintf(writer, "genesis: %s\n", genesisPath)
@@ -113,6 +229,28 @@ func writeNetworkFiles(home string, chainID string, validatorCount int, overwrit
 }
 
 func writeNetworkFilesWithPorts(home string, chainID string, validatorCount int, overwrite bool, p2pBasePort int, rpcBasePort int) (networkDocument, error) {
+	return writeNetworkFilesWithOptions(home, chainID, validatorCount, overwrite, networkAddressOptions{
+		P2PBasePort:     p2pBasePort,
+		RPCBasePort:     rpcBasePort,
+		P2PPortStep:     10,
+		RPCPortStep:     10,
+		P2PHostTemplate: "127.0.0.1",
+		RPCHostTemplate: "127.0.0.1",
+	})
+}
+
+type networkAddressOptions struct {
+	P2PBasePort     int
+	RPCBasePort     int
+	P2PPortStep     int
+	RPCPortStep     int
+	P2PHostTemplate string
+	RPCHostTemplate string
+	P2PListenHost   string
+	RPCListenHost   string
+}
+
+func writeNetworkFilesWithOptions(home string, chainID string, validatorCount int, overwrite bool, options networkAddressOptions) (networkDocument, error) {
 	if home == "" {
 		home = defaultHomeDir
 	}
@@ -122,8 +260,12 @@ func writeNetworkFilesWithPorts(home string, chainID string, validatorCount int,
 	if validatorCount <= 0 {
 		return networkDocument{}, fmt.Errorf("validators must be positive")
 	}
-	if p2pBasePort <= 0 || rpcBasePort <= 0 {
+	options = normalizeNetworkAddressOptions(options)
+	if options.P2PBasePort <= 0 || options.RPCBasePort <= 0 {
 		return networkDocument{}, fmt.Errorf("base ports must be positive")
+	}
+	if options.P2PPortStep < 0 || options.RPCPortStep < 0 {
+		return networkDocument{}, fmt.Errorf("port steps must not be negative")
 	}
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		return networkDocument{}, err
@@ -146,8 +288,8 @@ func writeNetworkFilesWithPorts(home string, chainID string, validatorCount int,
 			VotingPower: 1,
 			Stake:       1,
 			Metadata: map[string]string{
-				"p2p_address": networkP2PAddressWithBasePort(index, p2pBasePort),
-				"rpc_address": networkRPCAddressWithBasePort(index, rpcBasePort),
+				"p2p_address": networkP2PAddressWithOptions(index, options),
+				"rpc_address": networkRPCAddressWithOptions(index, options),
 			},
 		})
 		governance[validatorID] = 1
@@ -181,7 +323,10 @@ func writeNetworkFilesWithPorts(home string, chainID string, validatorCount int,
 		} else if err := os.Remove(keyPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return networkDocument{}, err
 		}
-		cfg := defaultConfigDocument(chainID, dataDir, validatorID)
+		cfg := defaultConfigDocument(chainID, dataDir, validatorID, "validator")
+		cfg.Runtime.RPC.Address = networkRPCListenAddressWithOptions(index, options)
+		cfg.Runtime.P2P.ListenAddress = networkP2PListenAddressWithOptions(index, options)
+		cfg.Runtime.P2P.Peers = networkConfigPeers(validators, validatorID)
 		if err := writeJSONFile(configPath, cfg); err != nil {
 			return networkDocument{}, err
 		}
@@ -197,11 +342,27 @@ func writeNetworkFilesWithPorts(home string, chainID string, validatorCount int,
 			ConfigPath:  configPath,
 			GenesisPath: genesisPath,
 			KeyPath:     keyPath,
-			P2PAddress:  networkP2PAddressWithBasePort(index, p2pBasePort),
-			RPCAddress:  networkRPCAddressWithBasePort(index, rpcBasePort),
+			P2PAddress:  networkP2PAddressWithOptions(index, options),
+			RPCAddress:  networkRPCAddressWithOptions(index, options),
 		})
 	}
 	return network, nil
+}
+
+func normalizeNetworkAddressOptions(options networkAddressOptions) networkAddressOptions {
+	if options.P2PBasePort == 0 {
+		options.P2PBasePort = defaultP2PBasePort
+	}
+	if options.RPCBasePort == 0 {
+		options.RPCBasePort = defaultRPCBasePort
+	}
+	if options.P2PHostTemplate == "" {
+		options.P2PHostTemplate = "127.0.0.1"
+	}
+	if options.RPCHostTemplate == "" {
+		options.RPCHostTemplate = "127.0.0.1"
+	}
+	return options
 }
 
 func networkValidatorID(index int) string {
@@ -217,11 +378,57 @@ func networkRPCAddress(index int) string {
 }
 
 func networkP2PAddressWithBasePort(index int, basePort int) string {
-	return "127.0.0.1:" + strconv.Itoa(basePort+(index-1)*10)
+	return networkAddress(index, "127.0.0.1", basePort, 10)
 }
 
 func networkRPCAddressWithBasePort(index int, basePort int) string {
-	return "127.0.0.1:" + strconv.Itoa(basePort+(index-1)*10)
+	return networkAddress(index, "127.0.0.1", basePort, 10)
+}
+
+func networkP2PAddressWithOptions(index int, options networkAddressOptions) string {
+	return networkAddress(index, options.P2PHostTemplate, options.P2PBasePort, options.P2PPortStep)
+}
+
+func networkRPCAddressWithOptions(index int, options networkAddressOptions) string {
+	return networkAddress(index, options.RPCHostTemplate, options.RPCBasePort, options.RPCPortStep)
+}
+
+func networkP2PListenAddressWithOptions(index int, options networkAddressOptions) string {
+	host := options.P2PListenHost
+	if host == "" {
+		host = options.P2PHostTemplate
+	}
+	return networkAddress(index, host, options.P2PBasePort, options.P2PPortStep)
+}
+
+func networkRPCListenAddressWithOptions(index int, options networkAddressOptions) string {
+	host := options.RPCListenHost
+	if host == "" {
+		host = options.RPCHostTemplate
+	}
+	return networkAddress(index, host, options.RPCBasePort, options.RPCPortStep)
+}
+
+func networkAddress(index int, hostTemplate string, basePort int, portStep int) string {
+	host := hostTemplate
+	if strings.Contains(hostTemplate, "%d") {
+		host = fmt.Sprintf(hostTemplate, index)
+	}
+	return host + ":" + strconv.Itoa(basePort+(index-1)*portStep)
+}
+
+func networkConfigPeers(validators []validatorDocument, self string) map[string]string {
+	peers := make(map[string]string)
+	for _, validatorInfo := range validators {
+		if validatorInfo.ID == self {
+			continue
+		}
+		address := validatorInfo.Metadata["p2p_address"]
+		if address != "" {
+			peers[validatorInfo.ID] = address
+		}
+	}
+	return peers
 }
 
 func runValidate(writer io.Writer, args []string) error {
@@ -280,7 +487,7 @@ func writeInitFiles(home string, chainID string, validatorID string, overwrite b
 			}
 		}
 	}
-	cfg := defaultConfigDocument(chainID, dataDir, validatorID)
+	cfg := defaultConfigDocument(chainID, dataDir, validatorID, "validator")
 	genesis := defaultGenesisDocument(chainID, validatorID)
 	if err := writeJSONFile(configPath, cfg); err != nil {
 		return "", "", err
@@ -291,13 +498,103 @@ func writeInitFiles(home string, chainID string, validatorID string, overwrite b
 	return configPath, genesisPath, nil
 }
 
-func loadNodeConfig(path string) (node.Config, error) {
+func writeValidatorInitFiles(home string, chainID string, validatorID string, p2pAddress string, rpcAddress string, overwrite bool) (string, string, string, error) {
+	configPath, genesisPath, err := writeInitFiles(home, chainID, validatorID, overwrite)
+	if err != nil {
+		return "", "", "", err
+	}
+	keyPath := resolveKeyPath(home, "")
+	if !overwrite {
+		if _, err := os.Stat(keyPath); err == nil {
+			return "", "", "", fmt.Errorf("%s already exists", keyPath)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", "", "", err
+		}
+	} else if err := os.Remove(keyPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", "", "", err
+	}
+	keyDocument, err := vexocrypto.GenerateEd25519KeyDocument()
+	if err != nil {
+		return "", "", "", err
+	}
+	if err := vexocrypto.SaveKeyDocument(keyPath, keyDocument); err != nil {
+		return "", "", "", err
+	}
+	document, err := readConfigDocument(configPath)
+	if err != nil {
+		return "", "", "", err
+	}
+	document.NodeMode = "validator"
+	document.Runtime.RPC.Address = p2pOrDefault(rpcAddress, defaultRPCAddress)
+	document.Runtime.P2P.ListenAddress = p2pOrDefault(p2pAddress, defaultP2PAddress)
+	if err := writeJSONFile(configPath, document); err != nil {
+		return "", "", "", err
+	}
+	return configPath, genesisPath, keyPath, nil
+}
+
+func writeArchiveInitFiles(home string, chainID string, p2pAddress string, rpcAddress string, bootstrapPeer string, overwrite bool) (string, string, error) {
+	if home == "" {
+		home = defaultHomeDir
+	}
+	if chainID == "" {
+		chainID = defaultChainID
+	}
+	if err := os.MkdirAll(filepath.Join(home, "data"), 0o755); err != nil {
+		return "", "", err
+	}
+	configPath := filepath.Join(home, configFileName)
+	genesisPath := filepath.Join(home, genesisFileName)
+	if !overwrite {
+		for _, path := range []string{configPath, genesisPath} {
+			if _, err := os.Stat(path); err == nil {
+				return "", "", fmt.Errorf("%s already exists", path)
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return "", "", err
+			}
+		}
+	}
+	document := defaultConfigDocument(chainID, filepath.Join(home, "data"), "", "archive")
+	document.Runtime.RPC.Address = p2pOrDefault(rpcAddress, defaultRPCAddress)
+	document.Runtime.P2P.ListenAddress = p2pOrDefault(p2pAddress, defaultP2PAddress)
+	if bootstrapPeer != "" {
+		peerID, address, err := parsePeerAssignment(bootstrapPeer)
+		if err != nil {
+			return "", "", err
+		}
+		document.Runtime.P2P.Peers[string(peerID)] = address
+	}
+	if err := writeJSONFile(configPath, document); err != nil {
+		return "", "", err
+	}
+	if err := writeJSONFile(genesisPath, defaultGenesisDocument(chainID, defaultValidatorID)); err != nil {
+		return "", "", err
+	}
+	return configPath, genesisPath, nil
+}
+
+func p2pOrDefault(value string, fallback string) string {
+	if value != "" {
+		return value
+	}
+	return fallback
+}
+
+func readConfigDocument(path string) (configDocument, error) {
 	var document configDocument
 	if err := readJSONFile(path, &document); err != nil {
-		return node.Config{}, err
+		return configDocument{}, err
 	}
 	if document.SchemaVersion != configSchemaVersion {
-		return node.Config{}, fmt.Errorf("unsupported config schema %q", document.SchemaVersion)
+		return configDocument{}, fmt.Errorf("unsupported config schema %q", document.SchemaVersion)
+	}
+	return document, nil
+}
+
+func loadNodeConfig(path string) (node.Config, error) {
+	document, err := readConfigDocument(path)
+	if err != nil {
+		return node.Config{}, err
 	}
 	cfg := node.Config{
 		Chain:       document.Chain,
@@ -351,13 +648,39 @@ func loadGenesis(path string) (node.Genesis, error) {
 	return genesis, nil
 }
 
-func defaultConfigDocument(chainID string, dataDir string, validatorID string) configDocument {
+func defaultConfigDocument(chainID string, dataDir string, validatorID string, modes ...string) configDocument {
 	cfg := config.Default(chainID)
+	loopEnabled := validatorID != ""
+	mode := "validator"
+	if len(modes) > 0 && modes[0] != "" {
+		mode = modes[0]
+	}
 	return configDocument{
 		SchemaVersion: configSchemaVersion,
+		NodeMode:      mode,
 		DataDir:       dataDir,
 		ValidatorID:   validatorID,
-		Chain:         cfg,
+		Runtime: runtimeConfig{
+			RPC: runtimeRPCConfig{
+				Enabled: true,
+				Address: defaultRPCAddress,
+			},
+			P2P: runtimeP2PConfig{
+				Enabled:          true,
+				ListenAddress:    defaultP2PAddress,
+				AddrBookMaxFails: 3,
+				Peers:            map[string]string{},
+				Seeds:            map[string]string{},
+			},
+			Consensus: runtimeConsensusConfig{
+				LoopEnabled: loopEnabled,
+			},
+			Log: runtimeLogConfig{
+				Format: "text",
+				Level:  "info",
+			},
+		},
+		Chain: cfg,
 	}
 }
 

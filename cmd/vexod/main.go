@@ -120,6 +120,8 @@ func writeHelp(writer io.Writer) {
 	for _, command := range coreCommands().Commands() {
 		fmt.Fprintf(writer, "  %-15s %s\n", command.Name, command.Description)
 	}
+	fmt.Fprintf(writer, "  init validator  initialize a validator node home and key\n")
+	fmt.Fprintf(writer, "  init archive    initialize a non-validator archive node home\n")
 	fmt.Fprintf(writer, "  config audit    run deployment and production-readiness checks\n")
 	fmt.Fprintf(writer, "  config audit-pack generate external security audit evidence checklist\n")
 	fmt.Fprintf(writer, "  config deployment-template print recommended deployment parameters\n")

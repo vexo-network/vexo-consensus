@@ -120,6 +120,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
+	visited := visitedFlags(flags)
 	inputs, err := loadStartInputs(*home, *configPath, *genesisPath, *keyPath, *dryRun)
 	if err != nil {
 		return err
@@ -127,34 +128,36 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	if *production {
 		inputs.Config.Production = true
 	}
-	runtimeConfig := startRuntimeConfig{
-		RPCEnabled:              *rpcEnabled,
-		RPCAddress:              *rpcAddress,
-		RPCAdminToken:           *rpcAdminToken,
-		RPCEnablePprof:          *rpcEnablePprof,
-		RPCRequestTimeout:       *rpcRequestTimeout,
-		RPCMaxRequestBytes:      *rpcMaxRequestBytes,
-		RPCRateLimitWindow:      *rpcRateLimitWindow,
-		RPCRateLimitMaxRequests: *rpcRateLimitMaxRequests,
-		LogFormat:               *logFormat,
-		LogLevel:                *logLevel,
-		ConsensusLoopEnabled:    *consensusLoopEnabled,
-		ConsensusLoop: vexonode.ConsensusLoopConfig{
-			Interval:      *consensusInterval,
-			RoundTimeout:  *roundTimeout,
-			MaxBlockBytes: *maxBlockBytes,
-		},
-		P2PEnabled:          *p2pEnabled,
-		P2PListenAddress:    *p2pListenAddress,
-		P2PNetworkID:        *p2pNetworkID,
-		P2PMaxMessageBytes:  *p2pMaxMessageBytes,
-		P2PMaxPeers:         *p2pMaxPeers,
-		P2PAuthToken:        *p2pAuthToken,
-		AddrBookPath:        resolveAddrBookPath(*home, *addrBookPath),
-		AddrBookMaxFailures: *addrBookMaxFailures,
-		P2PPeers:            peers,
-		P2PSeeds:            seeds,
+	runtimeConfig, err := loadStartRuntimeConfig(*home, *configPath)
+	if err != nil {
+		return err
 	}
+	applyStartFlagOverrides(&runtimeConfig, visited, startFlagValues{
+		rpcEnabled:              *rpcEnabled,
+		rpcAddress:              *rpcAddress,
+		rpcAdminToken:           *rpcAdminToken,
+		rpcEnablePprof:          *rpcEnablePprof,
+		rpcRequestTimeout:       *rpcRequestTimeout,
+		rpcMaxRequestBytes:      *rpcMaxRequestBytes,
+		rpcRateLimitWindow:      *rpcRateLimitWindow,
+		rpcRateLimitMaxRequests: *rpcRateLimitMaxRequests,
+		logFormat:               *logFormat,
+		logLevel:                *logLevel,
+		consensusLoopEnabled:    *consensusLoopEnabled,
+		consensusInterval:       *consensusInterval,
+		roundTimeout:            *roundTimeout,
+		maxBlockBytes:           *maxBlockBytes,
+		p2pEnabled:              *p2pEnabled,
+		p2pListenAddress:        *p2pListenAddress,
+		p2pNetworkID:            *p2pNetworkID,
+		p2pMaxMessageBytes:      *p2pMaxMessageBytes,
+		p2pMaxPeers:             *p2pMaxPeers,
+		p2pAuthToken:            *p2pAuthToken,
+		addrBookPath:            resolveAddrBookPath(*home, *addrBookPath),
+		addrBookMaxFailures:     *addrBookMaxFailures,
+		peers:                   peers,
+		seeds:                   seeds,
+	})
 	if *strictProduction {
 		audit := auditDeployment(inputs, runtimeConfig, true)
 		if !audit.OK {
@@ -177,7 +180,11 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 			return err
 		}
 		fmt.Fprintf(writer, "startup inputs valid\n")
-		fmt.Fprintf(writer, "validator signer loaded\n")
+		if inputs.Config.ValidatorID != "" {
+			fmt.Fprintf(writer, "validator signer loaded\n")
+		} else {
+			fmt.Fprintf(writer, "archive node mode\n")
+		}
 		fmt.Fprintf(writer, "start execution is not enabled yet; rerun with --dry-run for readiness checks\n")
 	} else {
 		fmt.Fprintf(writer, "startup dry-run valid\n")
@@ -189,6 +196,116 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	fmt.Fprintf(writer, "key_type: %s\n", plan.KeyType)
 	fmt.Fprintf(writer, "public_key: %s\n", plan.PublicKey)
 	return nil
+}
+
+type startFlagValues struct {
+	rpcEnabled              bool
+	rpcAddress              string
+	rpcAdminToken           string
+	rpcEnablePprof          bool
+	rpcRequestTimeout       time.Duration
+	rpcMaxRequestBytes      int64
+	rpcRateLimitWindow      time.Duration
+	rpcRateLimitMaxRequests int
+	logFormat               string
+	logLevel                string
+	consensusLoopEnabled    bool
+	consensusInterval       time.Duration
+	roundTimeout            time.Duration
+	maxBlockBytes           int64
+	p2pEnabled              bool
+	p2pListenAddress        string
+	p2pNetworkID            string
+	p2pMaxMessageBytes      uint64
+	p2pMaxPeers             int
+	p2pAuthToken            string
+	addrBookPath            string
+	addrBookMaxFailures     int
+	peers                   peerFlags
+	seeds                   peerFlags
+}
+
+func visitedFlags(flags *flag.FlagSet) map[string]bool {
+	visited := make(map[string]bool)
+	flags.Visit(func(flagInfo *flag.Flag) {
+		visited[flagInfo.Name] = true
+	})
+	return visited
+}
+
+func applyStartFlagOverrides(cfg *startRuntimeConfig, visited map[string]bool, values startFlagValues) {
+	if visited["rpc"] {
+		cfg.RPCEnabled = values.rpcEnabled
+	}
+	if visited["rpc-address"] {
+		cfg.RPCAddress = values.rpcAddress
+	}
+	if visited["rpc-admin-token"] {
+		cfg.RPCAdminToken = values.rpcAdminToken
+	}
+	if visited["rpc-pprof"] {
+		cfg.RPCEnablePprof = values.rpcEnablePprof
+	}
+	if visited["rpc-request-timeout"] {
+		cfg.RPCRequestTimeout = values.rpcRequestTimeout
+	}
+	if visited["rpc-max-request-bytes"] {
+		cfg.RPCMaxRequestBytes = values.rpcMaxRequestBytes
+	}
+	if visited["rpc-rate-limit-window"] {
+		cfg.RPCRateLimitWindow = values.rpcRateLimitWindow
+	}
+	if visited["rpc-rate-limit-max"] {
+		cfg.RPCRateLimitMaxRequests = values.rpcRateLimitMaxRequests
+	}
+	if visited["log-format"] {
+		cfg.LogFormat = values.logFormat
+	}
+	if visited["log-level"] {
+		cfg.LogLevel = values.logLevel
+	}
+	if visited["consensus-loop"] {
+		cfg.ConsensusLoopEnabled = values.consensusLoopEnabled
+	}
+	if visited["consensus-interval"] {
+		cfg.ConsensusLoop.Interval = values.consensusInterval
+	}
+	if visited["consensus-round-timeout"] {
+		cfg.ConsensusLoop.RoundTimeout = values.roundTimeout
+	}
+	if visited["consensus-max-block-bytes"] {
+		cfg.ConsensusLoop.MaxBlockBytes = values.maxBlockBytes
+	}
+	if visited["p2p"] {
+		cfg.P2PEnabled = values.p2pEnabled
+	}
+	if visited["p2p-listen"] {
+		cfg.P2PListenAddress = values.p2pListenAddress
+	}
+	if visited["p2p-network"] {
+		cfg.P2PNetworkID = values.p2pNetworkID
+	}
+	if visited["p2p-max-message-bytes"] {
+		cfg.P2PMaxMessageBytes = values.p2pMaxMessageBytes
+	}
+	if visited["p2p-max-peers"] {
+		cfg.P2PMaxPeers = values.p2pMaxPeers
+	}
+	if visited["p2p-auth-token"] {
+		cfg.P2PAuthToken = values.p2pAuthToken
+	}
+	if visited["addr-book"] {
+		cfg.AddrBookPath = values.addrBookPath
+	}
+	if visited["addr-book-max-failures"] {
+		cfg.AddrBookMaxFailures = values.addrBookMaxFailures
+	}
+	if visited["peer"] {
+		cfg.P2PPeers = values.peers
+	}
+	if visited["seed"] {
+		cfg.P2PSeeds = values.seeds
+	}
 }
 
 func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, runtimeConfig startRuntimeConfig) error {
@@ -317,7 +434,6 @@ func loadStartPlan(home string, configPath string, genesisPath string, keyPath s
 func loadStartInputs(home string, configPath string, genesisPath string, keyPath string, dryRun bool) (startInputs, error) {
 	resolvedConfigPath := resolveConfigPath(home, configPath)
 	resolvedGenesisPath := resolveGenesisPath(home, genesisPath)
-	resolvedKeyPath := resolveKeyPath(home, keyPath)
 	cfg, err := loadNodeConfig(resolvedConfigPath)
 	if err != nil {
 		return startInputs{}, err
@@ -329,15 +445,25 @@ func loadStartInputs(home string, configPath string, genesisPath string, keyPath
 	if err := genesis.Validate(cfg.Chain.ChainID); err != nil {
 		return startInputs{}, err
 	}
-	keyDocument, err := vexocrypto.LoadKeyDocument(resolvedKeyPath)
-	if err != nil {
-		return startInputs{}, err
+	var resolvedKeyPath string
+	var keyType string
+	var publicKey string
+	var signer vexocrypto.Signer
+	if cfg.ValidatorID != "" {
+		resolvedKeyPath = resolveKeyPath(home, keyPath)
+		keyDocument, err := vexocrypto.LoadKeyDocument(resolvedKeyPath)
+		if err != nil {
+			return startInputs{}, err
+		}
+		loadedSigner, err := signerFromKeyDocument(keyDocument)
+		if err != nil {
+			return startInputs{}, err
+		}
+		signer = loadedSigner
+		keyType = keyDocument.Type
+		publicKey = keyDocument.PublicKey
+		genesis = withLocalValidatorPublicKey(genesis, cfg.ValidatorID, signer.PublicKey())
 	}
-	signer, err := signerFromKeyDocument(keyDocument)
-	if err != nil {
-		return startInputs{}, err
-	}
-	genesis = withLocalValidatorPublicKey(genesis, cfg.ValidatorID, signer.PublicKey())
 	plan := startPlanDocument{
 		ChainID:     cfg.Chain.ChainID,
 		ValidatorID: string(cfg.ValidatorID),
@@ -346,8 +472,8 @@ func loadStartInputs(home string, configPath string, genesisPath string, keyPath
 		GenesisPath: resolvedGenesisPath,
 		KeyPath:     resolvedKeyPath,
 		ValidatorN:  len(genesis.Validators),
-		KeyType:     keyDocument.Type,
-		PublicKey:   keyDocument.PublicKey,
+		KeyType:     keyType,
+		PublicKey:   publicKey,
 		DryRun:      dryRun,
 	}
 	return startInputs{
@@ -356,6 +482,116 @@ func loadStartInputs(home string, configPath string, genesisPath string, keyPath
 		Signer:  signer,
 		Plan:    plan,
 	}, nil
+}
+
+func loadStartRuntimeConfig(home string, configPath string) (startRuntimeConfig, error) {
+	resolvedConfigPath := resolveConfigPath(home, configPath)
+	document, err := readConfigDocument(resolvedConfigPath)
+	if err != nil {
+		return startRuntimeConfig{}, err
+	}
+	return runtimeConfigFromDocument(home, document)
+}
+
+func runtimeConfigFromDocument(home string, document configDocument) (startRuntimeConfig, error) {
+	runtime := document.Runtime
+	if runtimeConfigIsZero(runtime) {
+		runtime = defaultConfigDocument(document.Chain.ChainID, document.DataDir, document.ValidatorID, document.NodeMode).Runtime
+	}
+	cfg := startRuntimeConfig{
+		RPCEnabled:           runtime.RPC.Enabled,
+		RPCAddress:           runtime.RPC.Address,
+		RPCAdminToken:        runtime.RPC.AdminToken,
+		RPCEnablePprof:       runtime.RPC.EnablePprof,
+		RPCMaxRequestBytes:   runtime.RPC.MaxRequestBytes,
+		P2PEnabled:           runtime.P2P.Enabled,
+		P2PListenAddress:     runtime.P2P.ListenAddress,
+		P2PNetworkID:         runtime.P2P.NetworkID,
+		P2PMaxMessageBytes:   runtime.P2P.MaxMessageBytes,
+		P2PMaxPeers:          runtime.P2P.MaxPeers,
+		P2PAuthToken:         runtime.P2P.AuthToken,
+		AddrBookPath:         resolveAddrBookPath(home, runtime.P2P.AddrBookPath),
+		AddrBookMaxFailures:  runtime.P2P.AddrBookMaxFails,
+		P2PPeers:             stringPeerMap(runtime.P2P.Peers),
+		P2PSeeds:             stringPeerMap(runtime.P2P.Seeds),
+		ConsensusLoopEnabled: runtime.Consensus.LoopEnabled,
+		ConsensusLoop: vexonode.ConsensusLoopConfig{
+			MaxBlockBytes: runtime.Consensus.MaxBlockBytes,
+		},
+		LogFormat: runtime.Log.Format,
+		LogLevel:  runtime.Log.Level,
+	}
+	if cfg.RPCAddress == "" {
+		cfg.RPCAddress = defaultRPCAddress
+	}
+	if cfg.P2PListenAddress == "" {
+		cfg.P2PListenAddress = defaultP2PAddress
+	}
+	if cfg.AddrBookMaxFailures == 0 {
+		cfg.AddrBookMaxFailures = 3
+	}
+	if cfg.LogFormat == "" {
+		cfg.LogFormat = "text"
+	}
+	if cfg.LogLevel == "" {
+		cfg.LogLevel = "info"
+	}
+	if runtime.RPC.RequestTimeout != "" {
+		duration, err := time.ParseDuration(runtime.RPC.RequestTimeout)
+		if err != nil {
+			return startRuntimeConfig{}, fmt.Errorf("runtime.rpc.request_timeout: %w", err)
+		}
+		cfg.RPCRequestTimeout = duration
+	}
+	if runtime.RPC.RateLimitWindow != "" {
+		duration, err := time.ParseDuration(runtime.RPC.RateLimitWindow)
+		if err != nil {
+			return startRuntimeConfig{}, fmt.Errorf("runtime.rpc.rate_limit_window: %w", err)
+		}
+		cfg.RPCRateLimitWindow = duration
+	}
+	if runtime.Consensus.Interval != "" {
+		duration, err := time.ParseDuration(runtime.Consensus.Interval)
+		if err != nil {
+			return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.interval: %w", err)
+		}
+		cfg.ConsensusLoop.Interval = duration
+	}
+	if runtime.Consensus.RoundTimeout != "" {
+		duration, err := time.ParseDuration(runtime.Consensus.RoundTimeout)
+		if err != nil {
+			return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.round_timeout: %w", err)
+		}
+		cfg.ConsensusLoop.RoundTimeout = duration
+	}
+	return cfg, nil
+}
+
+func runtimeConfigIsZero(runtime runtimeConfig) bool {
+	return runtime.RPC == (runtimeRPCConfig{}) &&
+		runtime.P2P.Enabled == false &&
+		runtime.P2P.ListenAddress == "" &&
+		runtime.P2P.NetworkID == "" &&
+		runtime.P2P.MaxMessageBytes == 0 &&
+		runtime.P2P.MaxPeers == 0 &&
+		runtime.P2P.AuthToken == "" &&
+		runtime.P2P.AddrBookPath == "" &&
+		runtime.P2P.AddrBookMaxFails == 0 &&
+		len(runtime.P2P.Peers) == 0 &&
+		len(runtime.P2P.Seeds) == 0 &&
+		runtime.Consensus == (runtimeConsensusConfig{}) &&
+		runtime.Log == (runtimeLogConfig{})
+}
+
+func stringPeerMap(peers map[string]string) map[p2p.PeerID]string {
+	if len(peers) == 0 {
+		return nil
+	}
+	out := make(map[p2p.PeerID]string, len(peers))
+	for peerID, address := range peers {
+		out[p2p.PeerID(peerID)] = address
+	}
+	return out
 }
 
 func signerFromKeyDocument(document vexocrypto.KeyDocument) (vexocrypto.Signer, error) {
@@ -541,10 +777,18 @@ func (flags peerFlags) String() string {
 }
 
 func (flags peerFlags) Set(value string) error {
+	peerID, address, err := parsePeerAssignment(value)
+	if err != nil {
+		return err
+	}
+	flags[peerID] = address
+	return nil
+}
+
+func parsePeerAssignment(value string) (p2p.PeerID, string, error) {
 	peerID, address, found := strings.Cut(value, "=")
 	if !found || peerID == "" || address == "" {
-		return fmt.Errorf("invalid peer %q: expected id=host:port", value)
+		return "", "", fmt.Errorf("invalid peer %q: expected id=host:port", value)
 	}
-	flags[p2p.PeerID(peerID)] = address
-	return nil
+	return p2p.PeerID(peerID), address, nil
 }

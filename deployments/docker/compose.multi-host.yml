@@ -9,16 +9,6 @@ services:
       - --home
       - /var/lib/vexo/${VEXO_VALIDATOR_ID:?set VEXO_VALIDATOR_ID}
       - --run
-      - --rpc-address
-      - 0.0.0.0:26657
-      - --p2p-listen
-      - 0.0.0.0:26656
-      - --peer
-      - ${VEXO_PEER_1:?set VEXO_PEER_1}
-      - --peer
-      - ${VEXO_PEER_2:?set VEXO_PEER_2}
-      - --peer
-      - ${VEXO_PEER_3:?set VEXO_PEER_3}
       - --log-format
       - json
     volumes:
