@@ -40,7 +40,7 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	if err := genesis.Validate(cfg.Chain.ChainID); err != nil {
 		t.Fatal(err)
 	}
-	if len(genesis.Validators) != 1 || genesis.Validators[0].ID != "alice" || genesis.Governance["alice"] != 1 {
+	if len(genesis.Validators) != 1 || genesis.Validators[0].ID != "alice" || genesis.Validators[0].Address == "" || genesis.Governance[genesis.Validators[0].Address] != 1 {
 		t.Fatalf("unexpected loaded genesis: %+v", genesis)
 	}
 }
@@ -69,7 +69,7 @@ func TestRunInitWritesNetworkFiles(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(genesis.Validators) != 4 || genesis.Governance[types.Address(validatorID)] != 1 {
+		if len(genesis.Validators) != 4 || genesis.Governance[genesis.Validators[index-1].Address] != 1 {
 			t.Fatalf("unexpected genesis for %s: %+v", validatorID, genesis)
 		}
 		validatorInfo := genesis.Validators[index-1]

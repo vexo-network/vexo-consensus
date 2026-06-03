@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/vexo-network/vexo-consensus/address"
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -22,6 +23,7 @@ const keyFileName = "validator.key.json"
 type keyInfoDocument struct {
 	SchemaVersion string `json:"schema_version"`
 	Type          string `json:"type"`
+	Address       string `json:"address"`
 	PublicKey     string `json:"public_key"`
 	Path          string `json:"path"`
 	Encrypted     bool   `json:"encrypted"`
@@ -95,9 +97,14 @@ func runKeysGen(writer io.Writer, args []string) error {
 	if err := vexocrypto.SaveKeyDocument(keyPath, document); err != nil {
 		return err
 	}
+	accountAddress, err := keyDocumentAccountAddress(document)
+	if err != nil {
+		return err
+	}
 	fmt.Fprintf(writer, "generated validator key\n")
 	fmt.Fprintf(writer, "path: %s\n", keyPath)
 	fmt.Fprintf(writer, "type: %s\n", document.Type)
+	fmt.Fprintf(writer, "address: %s\n", accountAddress)
 	fmt.Fprintf(writer, "public_key: %s\n", document.PublicKey)
 	fmt.Fprintf(writer, "encrypted: %v\n", document.Encryption != nil)
 	return nil
@@ -154,9 +161,14 @@ func runKeysRemote(writer io.Writer, args []string) error {
 	if err := vexocrypto.SaveKeyDocument(keyPath, document); err != nil {
 		return err
 	}
+	accountAddress, err := keyDocumentAccountAddress(document)
+	if err != nil {
+		return err
+	}
 	fmt.Fprintf(writer, "registered remote validator key\n")
 	fmt.Fprintf(writer, "path: %s\n", keyPath)
 	fmt.Fprintf(writer, "type: %s\n", document.Type)
+	fmt.Fprintf(writer, "address: %s\n", accountAddress)
 	fmt.Fprintf(writer, "public_key: %s\n", document.PublicKey)
 	fmt.Fprintf(writer, "remote_url: %s\n", document.Metadata.RemoteURL)
 	if document.Metadata.AuthTokenEnv != "" {
@@ -190,6 +202,7 @@ func runKeysShow(writer io.Writer, args []string) error {
 	info := keyInfoDocument{
 		SchemaVersion: document.SchemaVersion,
 		Type:          document.Type,
+		Address:       "",
 		PublicKey:     document.PublicKey,
 		Path:          keyPath,
 		Encrypted:     document.Encryption != nil,
@@ -198,6 +211,11 @@ func runKeysShow(writer io.Writer, args []string) error {
 		ActiveUntil:   document.Metadata.ActiveUntil,
 		RemoteURL:     document.Metadata.RemoteURL,
 	}
+	accountAddress, err := keyDocumentAccountAddress(document)
+	if err != nil {
+		return err
+	}
+	info.Address = string(accountAddress)
 	if *jsonOutput {
 		encoder := json.NewEncoder(writer)
 		encoder.SetIndent("", "  ")
@@ -206,12 +224,21 @@ func runKeysShow(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "validator key\n")
 	fmt.Fprintf(writer, "path: %s\n", info.Path)
 	fmt.Fprintf(writer, "type: %s\n", info.Type)
+	fmt.Fprintf(writer, "address: %s\n", info.Address)
 	fmt.Fprintf(writer, "public_key: %s\n", info.PublicKey)
 	fmt.Fprintf(writer, "encrypted: %v\n", info.Encrypted)
 	if info.RemoteURL != "" {
 		fmt.Fprintf(writer, "remote_url: %s\n", info.RemoteURL)
 	}
 	return nil
+}
+
+func keyDocumentAccountAddress(document vexocrypto.KeyDocument) (types.Address, error) {
+	publicKey, err := decodeOptionalBase64(document.PublicKey)
+	if err != nil {
+		return "", err
+	}
+	return address.AccountFromPublicKey(publicKey)
 }
 
 func runKeysSignTx(writer io.Writer, args []string) error {

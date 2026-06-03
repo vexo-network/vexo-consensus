@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vexo-network/vexo-consensus/address"
 	"github.com/vexo-network/vexo-consensus/config"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/node"
@@ -330,18 +331,37 @@ func writeNetworkFilesWithOptions(home string, chainID string, validatorCount in
 			return networkDocument{}, err
 		}
 		keys = append(keys, keyDocument)
+		publicKey, err := decodeOptionalBase64(keyDocument.PublicKey)
+		if err != nil {
+			return networkDocument{}, err
+		}
+		operatorAddress, err := address.ValidatorOperatorFromPublicKey(publicKey)
+		if err != nil {
+			return networkDocument{}, err
+		}
+		accountAddress, err := address.AccountFromPublicKey(publicKey)
+		if err != nil {
+			return networkDocument{}, err
+		}
+		consensusAddress, err := address.ValidatorConsensusFromPublicKey(publicKey)
+		if err != nil {
+			return networkDocument{}, err
+		}
 		validators = append(validators, validatorDocument{
 			ID:          validatorID,
-			Address:     validatorID,
+			Address:     string(operatorAddress),
 			PublicKey:   keyDocument.PublicKey,
 			VotingPower: 1,
 			Stake:       1,
 			Metadata: map[string]string{
-				"p2p_address": networkP2PAddressWithOptions(index, options),
-				"rpc_address": networkRPCAddressWithOptions(index, options),
+				"account_address":   string(accountAddress),
+				"consensus_address": string(consensusAddress),
+				"operator_address":  string(operatorAddress),
+				"p2p_address":       networkP2PAddressWithOptions(index, options),
+				"rpc_address":       networkRPCAddressWithOptions(index, options),
 			},
 		})
-		governance[validatorID] = 1
+		governance[string(operatorAddress)] = 1
 	}
 	genesis := genesisDocument{
 		SchemaVersion: genesisSchemaVersion,
@@ -584,6 +604,16 @@ func writeValidatorInitFiles(home string, chainID string, validatorID string, p2
 	if err := vexocrypto.SaveKeyDocument(keyPath, keyDocument); err != nil {
 		return "", "", "", err
 	}
+	genesisDocument, err := readGenesisDocument(genesisPath)
+	if err != nil {
+		return "", "", "", err
+	}
+	if err := applyValidatorKeyToGenesisDocument(&genesisDocument, validatorID, keyDocument); err != nil {
+		return "", "", "", err
+	}
+	if err := writeJSONFile(genesisPath, genesisDocument); err != nil {
+		return "", "", "", err
+	}
 	document, err := readConfigDocument(configPath)
 	if err != nil {
 		return "", "", "", err
@@ -595,6 +625,60 @@ func writeValidatorInitFiles(home string, chainID string, validatorID string, p2
 		return "", "", "", err
 	}
 	return configPath, genesisPath, keyPath, nil
+}
+
+func readGenesisDocument(path string) (genesisDocument, error) {
+	var document genesisDocument
+	if err := readJSONFile(path, &document); err != nil {
+		return genesisDocument{}, err
+	}
+	if document.SchemaVersion != genesisSchemaVersion {
+		return genesisDocument{}, fmt.Errorf("unsupported genesis schema %q", document.SchemaVersion)
+	}
+	return document, nil
+}
+
+func applyValidatorKeyToGenesisDocument(document *genesisDocument, validatorID string, keyDocument vexocrypto.KeyDocument) error {
+	publicKey, err := decodeOptionalBase64(keyDocument.PublicKey)
+	if err != nil {
+		return err
+	}
+	operatorAddress, err := address.ValidatorOperatorFromPublicKey(publicKey)
+	if err != nil {
+		return err
+	}
+	accountAddress, err := address.AccountFromPublicKey(publicKey)
+	if err != nil {
+		return err
+	}
+	consensusAddress, err := address.ValidatorConsensusFromPublicKey(publicKey)
+	if err != nil {
+		return err
+	}
+	for index := range document.Validators {
+		if document.Validators[index].ID != validatorID {
+			continue
+		}
+		document.Validators[index].Address = string(operatorAddress)
+		document.Validators[index].PublicKey = keyDocument.PublicKey
+		if document.Validators[index].Metadata == nil {
+			document.Validators[index].Metadata = map[string]string{}
+		}
+		document.Validators[index].Metadata["account_address"] = string(accountAddress)
+		document.Validators[index].Metadata["consensus_address"] = string(consensusAddress)
+		document.Validators[index].Metadata["operator_address"] = string(operatorAddress)
+		if document.Governance == nil {
+			document.Governance = map[string]uint64{}
+		}
+		power := document.Governance[validatorID]
+		if power == 0 {
+			power = document.Validators[index].VotingPower
+		}
+		delete(document.Governance, validatorID)
+		document.Governance[string(operatorAddress)] = power
+		return nil
+	}
+	return fmt.Errorf("validator %q not found in genesis", validatorID)
 }
 
 func writeArchiveInitFiles(home string, chainID string, p2pAddress string, rpcAddress string, bootstrapPeer string, overwrite bool) (string, string, error) {
@@ -672,12 +756,9 @@ func loadNodeConfig(path string) (node.Config, error) {
 }
 
 func loadGenesis(path string) (node.Genesis, error) {
-	var document genesisDocument
-	if err := readJSONFile(path, &document); err != nil {
+	document, err := readGenesisDocument(path)
+	if err != nil {
 		return node.Genesis{}, err
-	}
-	if document.SchemaVersion != genesisSchemaVersion {
-		return node.Genesis{}, fmt.Errorf("unsupported genesis schema %q", document.SchemaVersion)
 	}
 	genesis := node.Genesis{
 		ChainID:    document.ChainID,
@@ -689,6 +770,9 @@ func loadGenesis(path string) (node.Genesis, error) {
 		publicKey, err := decodeOptionalBase64(validatorInfo.PublicKey)
 		if err != nil {
 			return node.Genesis{}, fmt.Errorf("validator %q public key: %w", validatorInfo.ID, err)
+		}
+		if err := validateValidatorDocumentAddress(validatorInfo, publicKey); err != nil {
+			return node.Genesis{}, fmt.Errorf("validator %q address: %w", validatorInfo.ID, err)
 		}
 		genesis.Validators = append(genesis.Validators, validator.Validator{
 			ID:          types.ValidatorID(validatorInfo.ID),
@@ -710,6 +794,16 @@ func loadGenesis(path string) (node.Genesis, error) {
 		genesis.Governance[types.Address(address)] = types.VotingPower(power)
 	}
 	return genesis, nil
+}
+
+func validateValidatorDocumentAddress(validatorInfo validatorDocument, publicKey types.PublicKey) error {
+	if validatorInfo.Address == "" || len(publicKey) == 0 {
+		return nil
+	}
+	if !strings.HasPrefix(validatorInfo.Address, address.ValidatorOperatorHRP+"1") {
+		return nil
+	}
+	return address.MatchesPublicKey(types.Address(validatorInfo.Address), address.ValidatorOperatorHRP, publicKey)
 }
 
 func defaultConfigDocument(chainID string, dataDir string, validatorID string, modes ...string) configDocument {

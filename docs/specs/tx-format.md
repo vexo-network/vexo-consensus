@@ -24,6 +24,24 @@ The canonical tag order is:
 Application modules may define their own positional arguments, but should use the shared canonical
 transaction parser/builder for ante metadata.
 
+## Address Format
+
+Account and validator addresses are derived from public keys:
+
+```text
+payload = first20bytes(SHA256("vexo.address.v1:<hrp>:" || public_key || "\n"))
+address = bech32(hrp, payload)
+```
+
+The built-in human-readable prefixes are:
+
+- `vexo` for account addresses used in transaction `signer` tags.
+- `vexovaloper` for validator operator addresses stored in genesis validator records.
+- `vexovalcons` for validator consensus-key addresses stored as validator metadata.
+
+Signed transactions that include `signer=<address>` must use the `vexo` address derived from the
+envelope public key. A signed transaction with a mismatched signer address is invalid.
+
 ## Signed Envelope
 
 Signed transactions use an envelope over the raw payload:
@@ -33,7 +51,8 @@ Signed transactions use an envelope over the raw payload:
 - public key
 - signature
 
-The signature is domain-separated by chain ID.
+The signature is domain-separated by chain ID. The envelope public key is also used to verify the
+payload signer address when the `signer` tag is present.
 
 ## Required Ante Metadata
 
@@ -75,6 +94,7 @@ Public-network load tests should use realistic signed `bank:send` payloads with 
 ## CLI Examples
 
 ```bash
-vexod tx build --module bank --action send --args alice,bob,1 --tags fee=2,gas=100,signer=alice,nonce=7
-vexod tx parse --tx bank:send:alice:bob:1:fee=2:gas=100:signer=alice:nonce=7 --json
+vexod keys show --home .vexo
+vexod tx build --module bank --action send --args vexo1...,vexo1...,1 --tags fee=2,gas=100,signer=vexo1...,nonce=7
+vexod tx parse --tx bank:send:vexo1...:vexo1...:1:fee=2:gas=100:signer=vexo1...:nonce=7 --json
 ```

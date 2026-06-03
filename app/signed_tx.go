@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/vexo-network/vexo-consensus/address"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -13,8 +14,9 @@ import (
 const signedTxPrefix = "signed:"
 
 var (
-	ErrInvalidSignedTx    = errors.New("invalid signed transaction")
-	ErrInvalidTxSignature = errors.New("invalid transaction signature")
+	ErrInvalidSignedTx       = errors.New("invalid signed transaction")
+	ErrInvalidTxSignature    = errors.New("invalid transaction signature")
+	ErrSignerAddressMismatch = errors.New("signer address does not match transaction public key")
 )
 
 type SignedTxEnvelope struct {
@@ -26,6 +28,9 @@ type SignedTxEnvelope struct {
 }
 
 func SignTx(chainID string, payload types.Tx, signer vexocrypto.Signer) (types.Tx, error) {
+	if err := validatePayloadSignerAddress(payload, signer.PublicKey()); err != nil {
+		return nil, err
+	}
 	signature, err := signer.Sign(SignedTxSignBytes(chainID, payload))
 	if err != nil {
 		return nil, err
@@ -62,6 +67,9 @@ func VerifySignedTx(chainID string, tx types.Tx, verifier vexocrypto.Signer) err
 	}
 	if !verifier.Verify(publicKey, SignedTxSignBytes(chainID, payload), signature) {
 		return ErrInvalidTxSignature
+	}
+	if err := validatePayloadSignerAddress(payload, publicKey); err != nil {
+		return err
 	}
 	return nil
 }
@@ -108,4 +116,19 @@ func SignedTxSignBytes(chainID string, payload types.Tx) []byte {
 	signBytes = append(signBytes, '\n')
 	signBytes = append(signBytes, payload...)
 	return signBytes
+}
+
+func validatePayloadSignerAddress(payload types.Tx, publicKey types.PublicKey) error {
+	signer, found := TxTag(payload, "signer")
+	if !found || signer == "" {
+		return nil
+	}
+	expected, err := address.AccountFromPublicKey(publicKey)
+	if err != nil {
+		return err
+	}
+	if signer != string(expected) {
+		return ErrSignerAddressMismatch
+	}
+	return nil
 }

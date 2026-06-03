@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vexo-network/vexo-consensus/address"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -14,7 +15,11 @@ func TestSignedTxRoundTripAndVerify(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload := types.Tx("bank:send:alice:bob:1:fee=1:gas=1:signer=alice:nonce=1")
+	signerAddress, err := address.AccountFromPublicKey(signer.PublicKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := types.Tx("bank:send:" + string(signerAddress) + ":bob:1:fee=1:gas=1:signer=" + string(signerAddress) + ":nonce=1")
 	signedTx, err := SignTx("vexo-test", payload, signer)
 	if err != nil {
 		t.Fatal(err)
@@ -27,6 +32,17 @@ func TestSignedTxRoundTripAndVerify(t *testing.T) {
 	}
 	if err := VerifySignedTx("vexo-test", signedTx, vexocrypto.Ed25519Signer{}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSignedTxRejectsSignerAddressMismatch(t *testing.T) {
+	signer, err := vexocrypto.GenerateEd25519Signer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = SignTx("vexo-test", types.Tx("bank:send:alice:bob:1:signer=alice"), signer)
+	if !errors.Is(err, ErrSignerAddressMismatch) {
+		t.Fatalf("expected signer address mismatch, got %v", err)
 	}
 }
 

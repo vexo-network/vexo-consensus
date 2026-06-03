@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vexo-network/vexo-consensus/address"
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 )
@@ -235,8 +236,20 @@ func TestRunKeysSignTx(t *testing.T) {
 	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
 		t.Fatal(err)
 	}
+	document, err := vexocrypto.LoadKeyDocument(resolveKeyPath(home, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKey, err := decodeOptionalBase64(document.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accountAddress, err := address.AccountFromPublicKey(publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var output bytes.Buffer
-	if err := runKeys(&output, []string{"sign-tx", "--home", home, "--chain-id", "vexo-test", "--tx", "bank:send:alice:bob:1:fee=1:gas=1:signer=alice:nonce=1"}); err != nil {
+	if err := runKeys(&output, []string{"sign-tx", "--home", home, "--chain-id", "vexo-test", "--tx", "bank:send:" + string(accountAddress) + ":bob:1:fee=1:gas=1:signer=" + string(accountAddress) + ":nonce=1"}); err != nil {
 		t.Fatal(err)
 	}
 	signedTx := strings.TrimSpace(strings.TrimPrefix(output.String(), "tx: "))

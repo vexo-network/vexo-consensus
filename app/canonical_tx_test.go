@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/vexo-network/vexo-consensus/address"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -38,7 +39,11 @@ func TestParseCanonicalTxUnwrapsSignedPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload := types.Tx("bank:send:alice:bob:1:fee=2:gas=100:signer=alice:nonce=7")
+	signerAddress, err := address.AccountFromPublicKey(signer.PublicKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := types.Tx("bank:send:" + string(signerAddress) + ":bob:1:fee=2:gas=100:signer=" + string(signerAddress) + ":nonce=7")
 	signedTx, err := SignTx("vexo-test", payload, signer)
 	if err != nil {
 		t.Fatal(err)
@@ -47,7 +52,7 @@ func TestParseCanonicalTxUnwrapsSignedPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parsed.Module != "bank" || parsed.Action != "send" || parsed.Tags["signer"] != "alice" {
+	if parsed.Module != "bank" || parsed.Action != "send" || parsed.Tags["signer"] != string(signerAddress) {
 		t.Fatalf("unexpected parsed tx: %+v", parsed)
 	}
 	if fee, found := TxUintTag(signedTx, "fee"); !found || fee != 2 {

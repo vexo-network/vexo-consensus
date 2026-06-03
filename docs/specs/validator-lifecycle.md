@@ -21,6 +21,12 @@ Each height has a validator set hash. Consensus proposals and finality proofs bi
 
 Validator updates are applied through app/runtime output and become effective for the next height.
 
+Validator records use three address namespaces derived from the validator key:
+
+- `vexovaloper...` operator address in the validator record `address` field.
+- `vexovalcons...` consensus address in validator metadata.
+- `vexo...` account address in validator metadata for account-level transactions.
+
 Implementations may use the in-memory registry for tests or the store-backed registry for durable chains.
 Both registries serve historical lookups from the latest snapshot at or below the requested height.
 The in-memory registry records rotation events for joins, leaves, and voting-power changes; the
