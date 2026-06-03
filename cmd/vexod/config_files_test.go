@@ -223,6 +223,33 @@ func TestLoadNodeConfigRejectsInvalidSchemaAndConfig(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigEnablesOperationalEventLogs(t *testing.T) {
+	document := defaultConfigDocument("vexo-test", t.TempDir(), "alice")
+	if document.Runtime.Log.CommitEvents == nil || !*document.Runtime.Log.CommitEvents {
+		t.Fatalf("expected commit event logging enabled by default: %+v", document.Runtime.Log)
+	}
+	if document.Runtime.Log.PeerEvents == nil || !*document.Runtime.Log.PeerEvents {
+		t.Fatalf("expected peer event logging enabled by default: %+v", document.Runtime.Log)
+	}
+}
+
+func TestLoadStartRuntimeConfigAllowsDisablingOperationalEventLogs(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, configFileName)
+	document := defaultConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	document.Runtime.Log.CommitEvents = boolPtr(false)
+	document.Runtime.Log.PeerEvents = boolPtr(false)
+	writeTestJSON(t, path, document)
+
+	cfg, err := loadStartRuntimeConfig(home, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LogCommitEvents || cfg.LogPeerEvents {
+		t.Fatalf("expected operational event logs disabled, got commit=%t peer=%t", cfg.LogCommitEvents, cfg.LogPeerEvents)
+	}
+}
+
 func TestLoadGenesisRejectsInvalidSchemaAndBase64(t *testing.T) {
 	path := filepath.Join(t.TempDir(), genesisFileName)
 	document := defaultGenesisDocument("vexo-test", "alice")

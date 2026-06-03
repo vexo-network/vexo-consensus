@@ -463,6 +463,14 @@ func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert
 		return app.FinalizeBlockResponse{}, err
 	}
 	machine.StartRound(nextHeight, 0)
+	node.logEvent("block_committed", map[string]any{
+		"chain_id":   block.Header.ChainID,
+		"height":     block.Header.Height,
+		"round":      quorumCert.Round,
+		"block_hash": fmt.Sprintf("%x", consensus.HashBlock(block)),
+		"app_hash":   fmt.Sprintf("%x", response.AppHash),
+		"tx_count":   len(block.Txs),
+	})
 	node.removePendingAtOrBelow(block.Header.Height)
 	node.removeProposedAtOrBelow(block.Header.Height)
 	node.removeTimeoutVotesAtOrBelow(block.Header.Height)
@@ -587,6 +595,15 @@ func (node *Node) removeTimeoutVotesAtOrBelow(height types.Height) {
 		if key.height <= height {
 			delete(node.timeoutVotes, key)
 		}
+	}
+}
+
+func (node *Node) logEvent(event string, fields map[string]any) {
+	node.mu.Lock()
+	logger := node.eventLogger
+	node.mu.Unlock()
+	if logger != nil {
+		logger(event, fields)
 	}
 }
 

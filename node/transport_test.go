@@ -629,6 +629,59 @@ func TestNodeCommitGossipSyncsPeerThatMissedProposal(t *testing.T) {
 	}
 }
 
+func TestNodeLogsCommittedBlockWithRound(t *testing.T) {
+	signer := deterministicSignerForID("alice")
+	alice := newTestNodeWithSigner(t, signer)
+	events := make(chan map[string]any, 1)
+	alice.WithEventLogger(func(event string, fields map[string]any) {
+		if event == "block_committed" {
+			events <- fields
+		}
+	})
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+
+	machine, err := alice.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(1, 0)
+	block := testCommitBlock(t, alice, 1)
+	block.Txs = []types.Tx{[]byte("bank:commit-log")}
+	proposal, err := machine.CreateProposal(block, 0, "alice", finality.QuorumCert{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal = signedNodeTestProposal(t, signer, proposal)
+	if err := machine.OnProposal(context.Background(), proposal); err != nil {
+		t.Fatal(err)
+	}
+	blockHash := consensus.HashBlock(proposal.Block)
+	vote := signedNodeTestVote(t, signer, "alice", 1, 0, blockHash)
+	if err := machine.OnVote(context.Background(), vote); err != nil {
+		t.Fatal(err)
+	}
+	quorumCert, err := machine.BuildQuorumCert(1, 0, blockHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := alice.CommitBlock(context.Background(), proposal.Block, quorumCert); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case fields := <-events:
+		if fields["height"] != types.Height(1) || fields["round"] != types.Round(0) || fields["tx_count"] != 1 {
+			t.Fatalf("unexpected commit log fields: %+v", fields)
+		}
+		if fields["block_hash"] == "" || fields["app_hash"] == "" {
+			t.Fatalf("expected block/app hash fields: %+v", fields)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for block commit log")
+	}
+}
+
 func TestNodeGossipsConflictingVoteEvidenceAndSlashesValidator(t *testing.T) {
 	alice, bob, carol := newSlashingNodes(t)
 	startNode(t, alice)

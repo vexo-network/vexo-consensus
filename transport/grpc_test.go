@@ -16,6 +16,36 @@ import (
 	"github.com/vexo-network/vexo-consensus/p2p"
 )
 
+func TestGRPCTransportEmitsPeerConfigurationEvents(t *testing.T) {
+	events := make(chan PeerEvent, 4)
+	peer, err := NewGRPCTransport(GRPCConfig{
+		PeerID: "alice",
+		PeerEvent: func(event PeerEvent) {
+			events <- event
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	peer.SetPeer("bob", "127.0.0.1:26656")
+	peer.DisconnectPeer("bob")
+	peer.RemovePeer("bob")
+
+	first := <-events
+	if first.Type != "peer_configured" || first.PeerID != "bob" || first.Address != "127.0.0.1:26656" {
+		t.Fatalf("unexpected configured event: %+v", first)
+	}
+	second := <-events
+	if second.Type != "peer_disconnected" || second.PeerID != "bob" || second.Reason != "disconnect_requested" {
+		t.Fatalf("unexpected disconnect event: %+v", second)
+	}
+	third := <-events
+	if third.Type != "peer_removed" || third.PeerID != "bob" {
+		t.Fatalf("unexpected removed event: %+v", third)
+	}
+}
+
 func TestGRPCTransportPublishBroadcastsToConfiguredPeers(t *testing.T) {
 	alice, bob, carol := newStartedGRPCPeers(t)
 	defer stopGRPCPeer(t, alice)

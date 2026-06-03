@@ -64,6 +64,7 @@ type Node struct {
 	store          store.Store
 	consensusWAL   *consensus.WAL
 	signer         vexocrypto.Signer
+	eventLogger    EventLogger
 	running        bool
 	startedAt      time.Time
 }
@@ -72,6 +73,8 @@ type proposalRound struct {
 	height types.Height
 	round  types.Round
 }
+
+type EventLogger func(event string, fields map[string]any)
 
 func New(cfg Config, genesis Genesis, application app.Application) (*Node, error) {
 	if application == nil {
@@ -100,6 +103,13 @@ func (node *Node) WithTransport(wire transport.Transport) *Node {
 
 func (node *Node) WithSigner(signer vexocrypto.Signer) *Node {
 	node.signer = signer
+	return node
+}
+
+func (node *Node) WithEventLogger(logger EventLogger) *Node {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	node.eventLogger = logger
 	return node
 }
 

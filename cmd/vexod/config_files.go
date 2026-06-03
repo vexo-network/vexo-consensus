@@ -81,8 +81,10 @@ type runtimeConsensusConfig struct {
 }
 
 type runtimeLogConfig struct {
-	Format string `json:"format,omitempty"`
-	Level  string `json:"level,omitempty"`
+	Format       string `json:"format,omitempty"`
+	Level        string `json:"level,omitempty"`
+	CommitEvents *bool  `json:"commit_events,omitempty"`
+	PeerEvents   *bool  `json:"peer_events,omitempty"`
 }
 
 type genesisDocument struct {
@@ -733,12 +735,18 @@ func defaultConfigDocument(chainID string, dataDir string, validatorID string, m
 				LoopEnabled: loopEnabled,
 			},
 			Log: runtimeLogConfig{
-				Format: "text",
-				Level:  "info",
+				Format:       "text",
+				Level:        "info",
+				CommitEvents: boolPtr(true),
+				PeerEvents:   boolPtr(true),
 			},
 		},
 		Chain: cfg,
 	}
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }
 
 func defaultGenesisDocument(chainID string, validatorID string) genesisDocument {

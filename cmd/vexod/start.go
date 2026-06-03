@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
@@ -59,6 +60,8 @@ type startRuntimeConfig struct {
 	RPCRateLimitMaxRequests int
 	LogFormat               string
 	LogLevel                string
+	LogCommitEvents         bool
+	LogPeerEvents           bool
 	ConsensusLoopEnabled    bool
 	ConsensusLoop           vexonode.ConsensusLoopConfig
 	P2PEnabled              bool
@@ -110,6 +113,8 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	production := flags.Bool("production", false, "enable node-level production safety gates before startup")
 	logFormat := flags.String("log-format", "text", "operational log format: text or json")
 	logLevel := flags.String("log-level", "info", "operational log level")
+	logCommitEvents := flags.Bool("log-commit-events", true, "log committed block events")
+	logPeerEvents := flags.Bool("log-peer-events", true, "log P2P peer connection events")
 	peers := peerFlags{}
 	flags.Var(peers, "peer", "persistent peer in id=host:port form; may be repeated")
 	seeds := peerFlags{}
@@ -140,6 +145,8 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 		rpcRateLimitMaxRequests: *rpcRateLimitMaxRequests,
 		logFormat:               *logFormat,
 		logLevel:                *logLevel,
+		logCommitEvents:         *logCommitEvents,
+		logPeerEvents:           *logPeerEvents,
 		consensusLoopEnabled:    *consensusLoopEnabled,
 		consensusInterval:       *consensusInterval,
 		roundTimeout:            *roundTimeout,
@@ -204,6 +211,8 @@ type startFlagValues struct {
 	rpcRateLimitMaxRequests int
 	logFormat               string
 	logLevel                string
+	logCommitEvents         bool
+	logPeerEvents           bool
 	consensusLoopEnabled    bool
 	consensusInterval       time.Duration
 	roundTimeout            time.Duration
@@ -255,6 +264,12 @@ func applyStartFlagOverrides(cfg *startRuntimeConfig, visited map[string]bool, v
 	if visited["log-level"] {
 		cfg.LogLevel = values.logLevel
 	}
+	if visited["log-commit-events"] {
+		cfg.LogCommitEvents = values.logCommitEvents
+	}
+	if visited["log-peer-events"] {
+		cfg.LogPeerEvents = values.logPeerEvents
+	}
 	if visited["consensus-loop"] {
 		cfg.ConsensusLoopEnabled = values.consensusLoopEnabled
 	}
@@ -304,9 +319,31 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 	if runtimeConfig.LogLevel == "" {
 		runtimeConfig.LogLevel = "info"
 	}
+	logEvent := newOperationalLogger(writer, runtimeConfig.LogFormat, runtimeConfig.LogLevel)
 	node, p2pWire, err := buildRuntimeNode(inputs, runtimeConfig)
 	if err != nil {
 		return err
+	}
+	if runtimeConfig.LogCommitEvents {
+		node.WithEventLogger(logEvent)
+	}
+	if runtimeConfig.LogPeerEvents && p2pWire != nil {
+		p2pWire.SetPeerEventHook(func(event transport.PeerEvent) {
+			fields := map[string]any{
+				"peer_id":   event.PeerID,
+				"direction": event.Direction,
+			}
+			if event.Address != "" {
+				fields["address"] = event.Address
+			}
+			if event.Reason != "" {
+				fields["reason"] = event.Reason
+			}
+			if !event.BackoffUntil.IsZero() {
+				fields["backoff_until"] = event.BackoffUntil.UTC().Format(time.RFC3339Nano)
+			}
+			logEvent(event.Type, fields)
+		})
 	}
 	if err := node.Start(ctx); err != nil {
 		return err
@@ -318,7 +355,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			return err
 		}
 		consensusLoopStarted = true
-		writeOperationalLog(writer, runtimeConfig.LogFormat, runtimeConfig.LogLevel, "consensus_loop_running", map[string]any{"chain_id": inputs.Plan.ChainID})
+		logEvent("consensus_loop_running", map[string]any{"chain_id": inputs.Plan.ChainID})
 	}
 	serverErr := make(chan error, 1)
 	rpcShutdown := func(context.Context) error { return nil }
@@ -336,19 +373,19 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			return err
 		}
 		rpcShutdown = shutdown
-		writeOperationalLog(writer, runtimeConfig.LogFormat, runtimeConfig.LogLevel, "rpc_listening", map[string]any{"rpc_address": address, "pprof": runtimeConfig.RPCEnablePprof})
+		logEvent("rpc_listening", map[string]any{"rpc_address": address, "pprof": runtimeConfig.RPCEnablePprof})
 	}
 	if p2pWire != nil {
-		writeOperationalLog(writer, runtimeConfig.LogFormat, runtimeConfig.LogLevel, "p2p_listening", map[string]any{"p2p_address": p2pWire.Address(), "p2p_peers": len(runtimeConfig.P2PPeers), "p2p_seeds": len(runtimeConfig.P2PSeeds)})
+		logEvent("p2p_listening", map[string]any{"p2p_address": p2pWire.Address(), "p2p_peers": len(runtimeConfig.P2PPeers), "p2p_seeds": len(runtimeConfig.P2PSeeds)})
 	}
-	writeOperationalLog(writer, runtimeConfig.LogFormat, runtimeConfig.LogLevel, "node_running", map[string]any{"chain_id": inputs.Plan.ChainID, "validator_id": inputs.Plan.ValidatorID, "data_dir": inputs.Plan.DataDir, "pid": os.Getpid(), "version": version, "go_version": runtime.Version()})
+	logEvent("node_running", map[string]any{"chain_id": inputs.Plan.ChainID, "validator_id": inputs.Plan.ValidatorID, "data_dir": inputs.Plan.DataDir, "pid": os.Getpid(), "version": version, "go_version": runtime.Version()})
 	select {
 	case <-ctx.Done():
 	case err := <-serverErr:
 		_ = node.Stop(context.Background())
 		return err
 	}
-	writeOperationalLog(writer, runtimeConfig.LogFormat, runtimeConfig.LogLevel, "shutdown_requested", map[string]any{"chain_id": inputs.Plan.ChainID})
+	logEvent("shutdown_requested", map[string]any{"chain_id": inputs.Plan.ChainID})
 	if consensusLoopStarted {
 		if err := node.StopConsensusLoop(context.Background()); err != nil && err != vexonode.ErrLoopNotRunning {
 			return err
@@ -360,8 +397,17 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 	if err := node.Stop(context.Background()); err != nil {
 		return err
 	}
-	writeOperationalLog(writer, runtimeConfig.LogFormat, runtimeConfig.LogLevel, "node_stopped", map[string]any{"chain_id": inputs.Plan.ChainID})
+	logEvent("node_stopped", map[string]any{"chain_id": inputs.Plan.ChainID})
 	return nil
+}
+
+func newOperationalLogger(writer io.Writer, format string, level string) vexonode.EventLogger {
+	var mutex sync.Mutex
+	return func(event string, fields map[string]any) {
+		mutex.Lock()
+		defer mutex.Unlock()
+		writeOperationalLog(writer, format, level, event, fields)
+	}
 }
 
 func writeOperationalLog(writer io.Writer, format string, level string, event string, fields map[string]any) {
@@ -508,6 +554,14 @@ func runtimeConfigFromDocument(home string, document configDocument) (startRunti
 		},
 		LogFormat: runtime.Log.Format,
 		LogLevel:  runtime.Log.Level,
+	}
+	cfg.LogCommitEvents = true
+	if runtime.Log.CommitEvents != nil {
+		cfg.LogCommitEvents = *runtime.Log.CommitEvents
+	}
+	cfg.LogPeerEvents = true
+	if runtime.Log.PeerEvents != nil {
+		cfg.LogPeerEvents = *runtime.Log.PeerEvents
 	}
 	if cfg.RPCAddress == "" {
 		cfg.RPCAddress = defaultRPCAddress

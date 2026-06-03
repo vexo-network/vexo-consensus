@@ -74,7 +74,17 @@ type GRPCConfig struct {
 	PeerLearned       func(p2p.PeerID, string)
 	PeerAttempted     func(p2p.PeerID)
 	PeerDialResult    func(p2p.PeerID, bool)
+	PeerEvent         func(PeerEvent)
 	PeerGate          func(context.Context, p2p.PeerID) error
+}
+
+type PeerEvent struct {
+	Type         string
+	PeerID       p2p.PeerID
+	Address      string
+	Direction    string
+	Reason       string
+	BackoffUntil time.Time
 }
 
 type GRPCTransport struct {
@@ -95,6 +105,7 @@ type GRPCTransport struct {
 	peerLearned       func(p2p.PeerID, string)
 	peerAttempted     func(p2p.PeerID)
 	peerDialResult    func(p2p.PeerID, bool)
+	peerEvent         func(PeerEvent)
 	peerGates         []func(context.Context, p2p.PeerID) error
 
 	mu              sync.RWMutex
@@ -410,6 +421,7 @@ func NewGRPCTransport(config GRPCConfig) (*GRPCTransport, error) {
 		peerLearned:       config.PeerLearned,
 		peerAttempted:     config.PeerAttempted,
 		peerDialResult:    config.PeerDialResult,
+		peerEvent:         config.PeerEvent,
 		peerGates:         compactPeerGates(config.PeerGate),
 		peers:             peers,
 		peerOrder:         peerOrder,
@@ -602,6 +614,7 @@ func (transport *GRPCTransport) SetPeer(peerID p2p.PeerID, address string) {
 	transport.closePeerConnectionLocked(peerID)
 	delete(transport.backoffUntil, peerID)
 	transport.peers[peerID] = address
+	transport.emitPeerEventLocked(PeerEvent{Type: "peer_configured", PeerID: peerID, Address: address})
 }
 
 func (transport *GRPCTransport) SetPeerLearnedHook(hook func(p2p.PeerID, string)) {
@@ -615,6 +628,12 @@ func (transport *GRPCTransport) SetPeerDialHooks(attempted func(p2p.PeerID), res
 	defer transport.mu.Unlock()
 	transport.peerAttempted = attempted
 	transport.peerDialResult = result
+}
+
+func (transport *GRPCTransport) SetPeerEventHook(hook func(PeerEvent)) {
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	transport.peerEvent = hook
 }
 
 func (transport *GRPCTransport) SetPeerGate(gate func(context.Context, p2p.PeerID) error) {
@@ -637,6 +656,7 @@ func (transport *GRPCTransport) DisconnectPeer(peerID p2p.PeerID) {
 	defer transport.mu.Unlock()
 	transport.closePeerSessionLocked(peerID)
 	transport.closePeerConnectionLocked(peerID)
+	transport.emitPeerEventLocked(PeerEvent{Type: "peer_disconnected", PeerID: peerID, Reason: "disconnect_requested"})
 }
 
 func (transport *GRPCTransport) RemovePeer(peerID p2p.PeerID) {
@@ -703,6 +723,7 @@ func (transport *GRPCTransport) Gossip(stream grpc.BidiStreamingServer[grpcStrea
 	if err := stream.Send(&grpcStreamMessage{Handshake: ptrHandshake(transport.LocalHandshake())}); err != nil {
 		return err
 	}
+	transport.emitPeerEvent(PeerEvent{Type: "peer_connected", PeerID: remotePeerID, Address: first.Handshake.ListenAddr, Direction: "inbound"})
 	for {
 		message, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
@@ -799,6 +820,7 @@ func (transport *GRPCTransport) peerConnection(ctx context.Context, peerID p2p.P
 		return existing, nil
 	}
 	transport.connections[peerID] = connection
+	transport.emitPeerEventLocked(PeerEvent{Type: "peer_connection_opened", PeerID: peerID, Address: address, Direction: "outbound"})
 	return connection, nil
 }
 
@@ -888,6 +910,7 @@ func (transport *GRPCTransport) peerSession(ctx context.Context, peerID p2p.Peer
 		return existing, nil
 	}
 	transport.sessions[peerID] = session
+	transport.emitPeerEventLocked(PeerEvent{Type: "peer_connected", PeerID: peerID, Address: address, Direction: "outbound"})
 	go transport.monitorPeerSession(peerID, session)
 	return session, nil
 }
@@ -924,6 +947,7 @@ func (transport *GRPCTransport) closePeerSessionLocked(peerID p2p.PeerID) {
 	_ = session.stream.CloseSend()
 	session.cancel()
 	delete(transport.sessions, peerID)
+	transport.emitPeerEventLocked(PeerEvent{Type: "peer_disconnected", PeerID: peerID})
 }
 
 func (transport *GRPCTransport) closePeerConnectionLocked(peerID p2p.PeerID) {
@@ -974,7 +998,9 @@ func (transport *GRPCTransport) markPeerBackoff(peerID p2p.PeerID) {
 	}
 	transport.mu.Lock()
 	defer transport.mu.Unlock()
-	transport.backoffUntil[peerID] = time.Now().Add(transport.reconnectBackoff)
+	until := time.Now().Add(transport.reconnectBackoff)
+	transport.backoffUntil[peerID] = until
+	transport.emitPeerEventLocked(PeerEvent{Type: "peer_backoff", PeerID: peerID, BackoffUntil: until})
 }
 
 func (transport *GRPCTransport) evictPeerLocked(peerID p2p.PeerID) {
@@ -982,11 +1008,27 @@ func (transport *GRPCTransport) evictPeerLocked(peerID p2p.PeerID) {
 	transport.closePeerConnectionLocked(peerID)
 	delete(transport.peers, peerID)
 	delete(transport.backoffUntil, peerID)
+	transport.emitPeerEventLocked(PeerEvent{Type: "peer_removed", PeerID: peerID})
 	for index, existing := range transport.peerOrder {
 		if existing == peerID {
 			transport.peerOrder = append(transport.peerOrder[:index], transport.peerOrder[index+1:]...)
 			return
 		}
+	}
+}
+
+func (transport *GRPCTransport) emitPeerEvent(event PeerEvent) {
+	transport.mu.RLock()
+	hook := transport.peerEvent
+	transport.mu.RUnlock()
+	if hook != nil {
+		hook(event)
+	}
+}
+
+func (transport *GRPCTransport) emitPeerEventLocked(event PeerEvent) {
+	if transport.peerEvent != nil {
+		transport.peerEvent(event)
 	}
 }
 
