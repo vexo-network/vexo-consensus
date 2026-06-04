@@ -92,6 +92,7 @@ func coreCommands() commandset.Registry {
 		{Name: "keys", Description: "manage local and remote validator keys", Handler: runKeys},
 		{Name: "tx", Description: "build or parse canonical transaction payloads", Handler: runTx},
 		{Name: "proof", Description: "build and verify state query proofs", Handler: runProof},
+		{Name: "relayer", Description: "build, prove, and submit IBC relayer transactions", Handler: runRelayer},
 		{Name: "start", Description: "validate files, prepare startup, or run a node", Handler: runStart},
 		{Name: "network", Description: "manage node networks and local execution harnesses", Handler: runNetwork},
 		{Name: "consensus", Description: "run consensus simulations and diagnostics", Handler: runConsensus},
@@ -139,6 +140,8 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  proof query     build a state-root-bound query proof\n")
 	fmt.Fprintf(writer, "  proof verify    verify a query proof envelope\n")
 	fmt.Fprintf(writer, "  proof verify-ibc verify a proof against a trusted IBC client\n")
+	fmt.Fprintf(writer, "  relayer packet-proof fetch an IBC packet proof from RPC\n")
+	fmt.Fprintf(writer, "  relayer packet-ack build or submit an IBC packet acknowledgement\n")
 	fmt.Fprintf(writer, "  ibc tx client-update update a trusted IBC client height/root\n")
 	fmt.Fprintf(writer, "  ibc tx connection-open-init start an IBC connection handshake\n")
 	fmt.Fprintf(writer, "  ibc tx channel-open-init start an IBC channel handshake\n")

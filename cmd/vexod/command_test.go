@@ -840,6 +840,115 @@ func TestRunIBCPacketSendCommand(t *testing.T) {
 	}
 }
 
+func TestRunRelayerBuildsFetchesAndSubmitsIBCTx(t *testing.T) {
+	submitted := false
+	proofPath := ""
+	proofBody, err := json.Marshal(map[string]queryproof.Proof{
+		"proof": {
+			SchemaVersion: queryproof.SchemaVersionV1,
+			ChainID:       "counterparty",
+			Height:        9,
+			Namespace:     "ibc",
+			Key:           []byte("packets"),
+			Exists:        true,
+			StateRoot:     types.Hash{1},
+			LeafHash:      types.Hash{2},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		switch {
+		case request.Method == http.MethodGet && strings.HasPrefix(request.URL.Path, "/v1/ibc/proof/packet/"):
+			proofPath = request.URL.Path
+			return jsonHTTPResponse(http.StatusOK, string(proofBody)), nil
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/tx":
+			submitted = true
+			var payload map[string]string
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				return nil, err
+			}
+			decoded, err := base64.StdEncoding.DecodeString(payload["tx"])
+			if err != nil {
+				return nil, err
+			}
+			if !strings.Contains(string(decoded), "ibc:packet-ack:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA:YWNr") {
+				t.Fatalf("unexpected submitted tx: %s", decoded)
+			}
+			return jsonHTTPResponse(http.StatusAccepted, `{"accepted":true}`), nil
+		default:
+			return jsonHTTPResponse(http.StatusNotFound, `{}`), nil
+		}
+	})}
+
+	var output bytes.Buffer
+	err = runRelayerPacketAck(&output, []string{
+		"--rpc", "http://dest.example",
+		"--proof-rpc", "http://source.example",
+		"--sequence", "1",
+		"--source-port", "transfer",
+		"--source-channel", "channel-0",
+		"--destination-port", "transfer",
+		"--destination-channel", "channel-1",
+		"--data", "payload",
+		"--ack", "ack",
+		"--fee", "1",
+		"--gas", "1000",
+		"--signer", "relayer",
+		"--nonce", "2",
+		"--submit",
+	}, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !submitted || proofPath != "/v1/ibc/proof/packet/1/transfer/channel-0/transfer/channel-1" {
+		t.Fatalf("expected proof fetch and tx submit, submitted=%t proofPath=%s", submitted, proofPath)
+	}
+	for _, expected := range []string{"proof_height: 9", "tx: ibc:packet-ack", "submitted: true"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected %q in relayer output:\n%s", expected, output.String())
+		}
+	}
+}
+
+func TestRunRelayerClientUpdateAndPacketTimeoutDryRun(t *testing.T) {
+	client := http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		t.Fatalf("dry-run relayer command should not call HTTP: %s", request.URL.String())
+		return nil, nil
+	})}
+	var output bytes.Buffer
+	err := runRelayerClientUpdate(&output, []string{
+		"--client-id", "07-vexo-0",
+		"--height", "9",
+		"--validator-set-hash", strings.Repeat("01", 32),
+		"--state-root", strings.Repeat("02", 32),
+		"--fee", "1",
+	}, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "tx: ibc:client-update:07-vexo-0:9:") {
+		t.Fatalf("unexpected client update output: %s", output.String())
+	}
+	output.Reset()
+	err = runRelayerPacketTimeout(&output, []string{
+		"--sequence", "1",
+		"--source-port", "transfer",
+		"--source-channel", "channel-0",
+		"--destination-port", "transfer",
+		"--destination-channel", "channel-1",
+		"--data", "payload",
+		"--timeout-height", "100",
+	}, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "tx: ibc:packet-timeout:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA:100") {
+		t.Fatalf("unexpected timeout output: %s", output.String())
+	}
+}
+
 func TestRunNetworkInitAndStartDryRun(t *testing.T) {
 	home := t.TempDir()
 	var initOutput bytes.Buffer
