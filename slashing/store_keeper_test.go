@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"testing/iotest"
 )
 
 func TestStoreKeeperPersistsEvidenceLifecycleAndPenalty(t *testing.T) {
@@ -141,8 +142,48 @@ func TestStoreKeeperRejectsAppealedPenaltyApplication(t *testing.T) {
 	}
 }
 
+func TestStoreKeeperPropagatesCorruptPenaltyReceipt(t *testing.T) {
+	storage := newMemoryKV()
+	keeper, err := NewStoreKeeper(storage, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence := validEvidence(EvidenceDoubleSign)
+	storage.values[slashingNamespace+"/"+string(penaltyKey(evidence))] = []byte("{")
+
+	if _, _, err := keeper.PenaltyReceipt(context.Background(), evidence); err == nil {
+		t.Fatal("expected corrupt receipt decode error")
+	}
+}
+
+func TestStoreKeeperPropagatesReadErrors(t *testing.T) {
+	storage := newMemoryKV()
+	storage.readErr = iotest.ErrTimeout
+	keeper, err := NewStoreKeeper(storage, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := keeper.PenaltyReceipt(context.Background(), validEvidence(EvidenceDoubleSign)); !errors.Is(err, iotest.ErrTimeout) {
+		t.Fatalf("expected read timeout, got %v", err)
+	}
+	if _, _, err := keeper.JailUntil(context.Background(), "alice"); !errors.Is(err, iotest.ErrTimeout) {
+		t.Fatalf("expected jail read timeout, got %v", err)
+	}
+	if _, _, err := keeper.UnbondingReleaseHeight(context.Background(), "alice"); !errors.Is(err, iotest.ErrTimeout) {
+		t.Fatalf("expected unbonding read timeout, got %v", err)
+	}
+	if _, _, err := keeper.EvidenceLifecycle(context.Background(), validEvidence(EvidenceDoubleSign)); !errors.Is(err, iotest.ErrTimeout) {
+		t.Fatalf("expected lifecycle read timeout, got %v", err)
+	}
+	if err := keeper.SubmitEvidence(context.Background(), validEvidence(EvidenceDoubleSign)); !errors.Is(err, iotest.ErrTimeout) {
+		t.Fatalf("expected submit read timeout, got %v", err)
+	}
+}
+
 type memoryKV struct {
-	values map[string][]byte
+	values  map[string][]byte
+	readErr error
 }
 
 func newMemoryKV() *memoryKV {
@@ -155,6 +196,9 @@ func (store *memoryKV) Set(ctx context.Context, namespace string, key []byte, va
 }
 
 func (store *memoryKV) Get(ctx context.Context, namespace string, key []byte) ([]byte, error) {
+	if store.readErr != nil {
+		return nil, store.readErr
+	}
 	value, found := store.values[namespace+"/"+string(key)]
 	if !found {
 		return nil, errMemoryKVNotFound{}
@@ -171,4 +215,9 @@ type errMemoryKVNotFound struct{}
 
 func (errMemoryKVNotFound) Error() string {
 	return "not found"
+}
+
+func (store *memoryKV) IsNotFound(err error) bool {
+	var notFound errMemoryKVNotFound
+	return errors.As(err, &notFound)
 }

@@ -17,6 +17,10 @@ type KVStore interface {
 	Delete(ctx context.Context, namespace string, key []byte) error
 }
 
+type NotFoundClassifier interface {
+	IsNotFound(error) bool
+}
+
 type StoreKeeper struct {
 	store           KVStore
 	policy          PenaltyPolicy
@@ -60,6 +64,8 @@ func (keeper *StoreKeeper) SubmitEvidence(ctx context.Context, evidence Evidence
 	}
 	if _, err := keeper.loadEvidence(ctx, evidence); err == nil {
 		return ErrDuplicateEvidence
+	} else if !keeper.isNotFound(err) {
+		return err
 	}
 	document := evidenceDocument{Evidence: cloneEvidence(evidence), Status: EvidenceStatusSubmitted}
 	if keeper.lifecyclePolicy.EvidenceMaxAge > 0 {
@@ -238,7 +244,10 @@ func (keeper *StoreKeeper) ExpireEvidence(ctx context.Context, evidence Evidence
 func (keeper *StoreKeeper) EvidenceLifecycle(ctx context.Context, evidence Evidence) (EvidenceStatus, bool, error) {
 	document, err := keeper.loadEvidence(ctx, evidence)
 	if err != nil {
-		return "", false, nil
+		if keeper.isNotFound(err) {
+			return "", false, nil
+		}
+		return "", false, err
 	}
 	return document.Status, true, nil
 }
@@ -246,7 +255,10 @@ func (keeper *StoreKeeper) EvidenceLifecycle(ctx context.Context, evidence Evide
 func (keeper *StoreKeeper) PenaltyReceipt(ctx context.Context, evidence Evidence) (PenaltyReceipt, bool, error) {
 	encoded, err := keeper.store.Get(ctx, slashingNamespace, penaltyKey(evidence))
 	if err != nil {
-		return PenaltyReceipt{}, false, nil
+		if keeper.isNotFound(err) {
+			return PenaltyReceipt{}, false, nil
+		}
+		return PenaltyReceipt{}, false, err
 	}
 	var receipt PenaltyReceipt
 	if err := json.Unmarshal(encoded, &receipt); err != nil {
@@ -259,7 +271,10 @@ func (keeper *StoreKeeper) PenaltyReceipt(ctx context.Context, evidence Evidence
 func (keeper *StoreKeeper) JailUntil(ctx context.Context, validator types.ValidatorID) (types.Height, bool, error) {
 	encoded, err := keeper.store.Get(ctx, slashingNamespace, jailKey(validator))
 	if err != nil {
-		return 0, false, nil
+		if keeper.isNotFound(err) {
+			return 0, false, nil
+		}
+		return 0, false, err
 	}
 	var document jailDocument
 	if err := json.Unmarshal(encoded, &document); err != nil {
@@ -279,7 +294,10 @@ func (keeper *StoreKeeper) IsJailed(ctx context.Context, validator types.Validat
 func (keeper *StoreKeeper) UnbondingReleaseHeight(ctx context.Context, validator types.ValidatorID) (types.Height, bool, error) {
 	encoded, err := keeper.store.Get(ctx, slashingNamespace, unbondingKey(validator))
 	if err != nil {
-		return 0, false, nil
+		if keeper.isNotFound(err) {
+			return 0, false, nil
+		}
+		return 0, false, err
 	}
 	var document unbondingDocument
 	if err := json.Unmarshal(encoded, &document); err != nil {
@@ -331,6 +349,14 @@ func (keeper *StoreKeeper) saveUnbonding(ctx context.Context, validator types.Va
 		return err
 	}
 	return keeper.store.Set(ctx, slashingNamespace, unbondingKey(validator), encoded)
+}
+
+func (keeper *StoreKeeper) isNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	classifier, ok := keeper.store.(NotFoundClassifier)
+	return ok && classifier.IsNotFound(err)
 }
 
 func evidenceDocumentKey(evidence Evidence) []byte {

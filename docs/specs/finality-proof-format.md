@@ -48,6 +48,28 @@ The header hash covers:
 10. If QC voting power is present, require it to match recomputed voting power.
 11. Verify aggregate/multisignature over finality sign bytes.
 
+## Accountable Safety Detection
+
+Light clients and operators should retain the first valid finality proof seen for each height. If another valid proof for the same height carries a different block hash, the node can deterministically derive accountable safety evidence:
+
+1. Verify both finality proofs with the validator set at `ValidatorSetHeight`.
+2. Require both proofs to use the same height and validator-set hash.
+3. Compare the finalized block hashes.
+4. If hashes differ, intersect both QC signer sets.
+5. Sum the overlapping validator voting power from the height-specific validator set.
+6. Treat the overlapping signers as double-finality signers.
+
+`finality.AttackDetector` implements this flow in-process. The CLI exposes the same check for incident response:
+
+```bash
+vexod proof detect-finality-conflict \
+  --first first-finality-proof.json \
+  --second second-finality-proof.json \
+  --validator-set validator-set-at-height.json
+```
+
+If `--validator-set` is omitted, the command loads validators from the resolved genesis file. For validator-set changes after genesis, pass the exact validator set for the proof height.
+
 ## Ed25519 Model
 
 Ed25519 uses ordered multisignature concatenation. It is not cryptographic aggregation.

@@ -39,6 +39,10 @@ func OpenLevelDB(path string) (*LevelDBStore, error) {
 	return &LevelDBStore{db: db}, nil
 }
 
+func (store *LevelDBStore) IsNotFound(err error) bool {
+	return errors.Is(err, ErrKeyNotFound)
+}
+
 func (store *LevelDBStore) SaveBlock(ctx context.Context, record BlockRecord) error {
 	select {
 	case <-ctx.Done():

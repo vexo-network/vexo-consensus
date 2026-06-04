@@ -91,7 +91,7 @@ func coreCommands() commandset.Registry {
 		{Name: "config", Description: "audit, inspect, and generate config files", Handler: runConfig},
 		{Name: "keys", Description: "manage local and remote validator keys", Handler: runKeys},
 		{Name: "tx", Description: "build or parse canonical transaction payloads", Handler: runTx},
-		{Name: "proof", Description: "build and verify state query proofs", Handler: runProof},
+		{Name: "proof", Description: "build and verify state, IBC, and finality proofs", Handler: runProof},
 		{Name: "relayer", Description: "build, prove, and submit IBC relayer transactions", Handler: runRelayer},
 		{Name: "start", Description: "validate files, prepare startup, or run a node", Handler: runStart},
 		{Name: "network", Description: "manage node networks and local execution harnesses", Handler: runNetwork},
@@ -140,6 +140,7 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  proof query     build a state-root-bound query proof\n")
 	fmt.Fprintf(writer, "  proof verify    verify a query proof envelope\n")
 	fmt.Fprintf(writer, "  proof verify-ibc verify a proof against a trusted IBC client\n")
+	fmt.Fprintf(writer, "  proof detect-finality-conflict detect accountable conflicting finality proofs\n")
 	fmt.Fprintf(writer, "  relayer packet-proof fetch an IBC packet proof from RPC\n")
 	fmt.Fprintf(writer, "  relayer discover find IBC packets from indexed RPC events\n")
 	fmt.Fprintf(writer, "  relayer packet-ack build or submit an IBC packet acknowledgement\n")
