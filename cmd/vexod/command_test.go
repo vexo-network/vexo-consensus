@@ -950,6 +950,58 @@ func TestRunRelayerClientUpdateAndPacketTimeoutDryRun(t *testing.T) {
 	}
 }
 
+func TestRunRelayerDiscoverFindsIndexedPackets(t *testing.T) {
+	client := http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet || request.URL.Path != "/v1/events" {
+			return jsonHTTPResponse(http.StatusNotFound, `{}`), nil
+		}
+		if request.URL.Query().Get("key") != "ibc_packet_event" || request.URL.Query().Get("value") != "send" {
+			t.Fatalf("unexpected event query: %s", request.URL.RawQuery)
+		}
+		return jsonHTTPResponse(http.StatusOK, `{
+			"key":"ibc_packet_event",
+			"value":"send",
+			"records":[{
+				"height":7,
+				"tx_index":0,
+				"event":{
+					"type":"ibc_packet-send",
+					"attributes":[
+						{"key":"ibc_packet_event","value":"send","index":true},
+						{"key":"ibc_sequence","value":"2","index":true},
+						{"key":"ibc_source_port","value":"transfer","index":true},
+						{"key":"ibc_source_channel","value":"channel-0","index":true},
+						{"key":"ibc_destination_port","value":"transfer","index":true},
+						{"key":"ibc_destination_channel","value":"channel-1","index":true},
+						{"key":"ibc_data","value":"cGF5bG9hZA"},
+						{"key":"ibc_timeout_height","value":"10","index":true}
+					]
+				}
+			}]
+		}`), nil
+	})}
+	var output bytes.Buffer
+	if err := runRelayerDiscover(&output, []string{"--rpc", "http://source.example"}, client); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"height: 7", "sequence: 2", "source: transfer/channel-0", "destination: transfer/channel-1", "data: payload", "timeout_height: 10"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected %q in discover output:\n%s", expected, output.String())
+		}
+	}
+	output.Reset()
+	if err := runRelayerDiscover(&output, []string{"--rpc", "http://source.example", "--json"}, client); err != nil {
+		t.Fatal(err)
+	}
+	var packets []relayerDiscoveredPacket
+	if err := json.Unmarshal(output.Bytes(), &packets); err != nil {
+		t.Fatal(err)
+	}
+	if len(packets) != 1 || packets[0].Sequence != 2 || packets[0].TimeoutHeight != 10 {
+		t.Fatalf("unexpected discovered packets: %+v", packets)
+	}
+}
+
 func TestRunRelayerLoopRetriesProofAndSubmits(t *testing.T) {
 	proofBody, err := json.Marshal(map[string]queryproof.Proof{
 		"proof": {

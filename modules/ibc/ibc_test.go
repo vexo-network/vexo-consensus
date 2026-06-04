@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/events"
 	ibckeeper "github.com/vexo-network/vexo-consensus/ibc"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -56,6 +57,39 @@ func TestModuleStoresClientChannelAndPacket(t *testing.T) {
 	query := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"packet", "1", "transfer", "channel-0", "transfer", "channel-1"}})
 	if query.Code != 0 || !strings.Contains(string(query.Value), `"commit_height":7`) {
 		t.Fatalf("unexpected query response: %+v", query)
+	}
+}
+
+func TestModuleEmitsIndexedPacketEvents(t *testing.T) {
+	module := NewModule()
+	ctx := vexoapp.Context{Ctx: context.Background(), Height: 7}
+	result := types.Result{}
+	tx := types.Tx("ibc:packet-send:2:transfer:channel-0:transfer:channel-1:cGF5bG9hZA:10")
+	emitted := module.Events(ctx, tx, result)
+	if len(emitted) != 1 || emitted[0].Type != "ibc_packet-send" {
+		t.Fatalf("unexpected events: %+v", emitted)
+	}
+	attributes := map[string]events.Attribute{}
+	for _, attribute := range emitted[0].Attributes {
+		attributes[attribute.Key] = attribute
+	}
+	for key, value := range map[string]string{
+		"ibc_packet_event":        "send",
+		"ibc_packet_id":           "transfer/channel-0/2",
+		"ibc_sequence":            "2",
+		"ibc_source_port":         "transfer",
+		"ibc_source_channel":      "channel-0",
+		"ibc_destination_port":    "transfer",
+		"ibc_destination_channel": "channel-1",
+		"ibc_data":                "cGF5bG9hZA",
+		"ibc_timeout_height":      "10",
+	} {
+		if attributes[key].Value != value {
+			t.Fatalf("expected %s=%s, got %+v", key, value, attributes[key])
+		}
+	}
+	if !attributes["ibc_packet_event"].Index || !attributes["ibc_packet_id"].Index || attributes["ibc_data"].Index {
+		t.Fatalf("unexpected index flags: %+v", attributes)
 	}
 }
 

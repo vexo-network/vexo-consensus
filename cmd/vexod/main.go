@@ -141,6 +141,7 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  proof verify    verify a query proof envelope\n")
 	fmt.Fprintf(writer, "  proof verify-ibc verify a proof against a trusted IBC client\n")
 	fmt.Fprintf(writer, "  relayer packet-proof fetch an IBC packet proof from RPC\n")
+	fmt.Fprintf(writer, "  relayer discover find IBC packets from indexed RPC events\n")
 	fmt.Fprintf(writer, "  relayer packet-ack build or submit an IBC packet acknowledgement\n")
 	fmt.Fprintf(writer, "  relayer loop poll packet proofs and submit relay transactions\n")
 	fmt.Fprintf(writer, "  relayer run execute relayer jobs from a config file\n")

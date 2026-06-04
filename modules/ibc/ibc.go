@@ -330,7 +330,51 @@ func (Module) Events(ctx vexoapp.Context, tx types.Tx, result types.Result) []ev
 	if len(canonical.Args) > 0 {
 		attributes = append(attributes, events.Attribute{Key: "id", Value: canonical.Args[0], Index: true})
 	}
+	if packetAttributes, ok := packetEventAttributes(canonical.Action, canonical.Args); ok {
+		attributes = append(attributes, packetAttributes...)
+	}
 	return []events.Event{{Type: "ibc_" + canonical.Action, Attributes: attributes}}
+}
+
+func packetEventAttributes(action string, args []string) ([]events.Attribute, bool) {
+	var packet ibckeeper.Packet
+	var ack []byte
+	var err error
+	packetEvent := ""
+	switch action {
+	case "packet-send":
+		packet, err = packetFromArgs(args)
+		packetEvent = "send"
+	case "packet-ack":
+		packet, ack, err = packetAckFromArgs(args)
+		packetEvent = "ack"
+	case "packet-timeout":
+		packet, err = packetFromArgs(args)
+		packetEvent = "timeout"
+	default:
+		return nil, false
+	}
+	if err != nil {
+		return nil, false
+	}
+	packetID := packet.SourcePort + "/" + packet.SourceChannel + "/" + strconv.FormatUint(packet.Sequence, 10)
+	attributes := []events.Attribute{
+		{Key: "ibc_packet_event", Value: packetEvent, Index: true},
+		{Key: "ibc_packet_id", Value: packetID, Index: true},
+		{Key: "ibc_sequence", Value: strconv.FormatUint(packet.Sequence, 10), Index: true},
+		{Key: "ibc_source_port", Value: packet.SourcePort, Index: true},
+		{Key: "ibc_source_channel", Value: packet.SourceChannel, Index: true},
+		{Key: "ibc_destination_port", Value: packet.DestinationPort, Index: true},
+		{Key: "ibc_destination_channel", Value: packet.DestinationChannel, Index: true},
+		{Key: "ibc_data", Value: base64.RawStdEncoding.EncodeToString(packet.Data), Index: false},
+	}
+	if packet.TimeoutHeight > 0 {
+		attributes = append(attributes, events.Attribute{Key: "ibc_timeout_height", Value: strconv.FormatUint(packet.TimeoutHeight, 10), Index: true})
+	}
+	if len(ack) > 0 {
+		attributes = append(attributes, events.Attribute{Key: "ibc_ack", Value: base64.RawStdEncoding.EncodeToString(ack), Index: false})
+	}
+	return attributes, true
 }
 
 func resultFromError(err error) types.Result {

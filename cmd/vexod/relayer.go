@@ -37,6 +37,8 @@ func runRelayer(writer io.Writer, args []string) error {
 		return runRelayerPacketTimeout(writer, args[1:], client)
 	case "packet-proof":
 		return runRelayerPacketProof(writer, args[1:], client)
+	case "discover":
+		return runRelayerDiscover(writer, args[1:], client)
 	case "loop":
 		return runRelayerLoop(writer, args[1:], client)
 	case "run":
@@ -158,6 +160,47 @@ func runRelayerPacketProof(writer io.Writer, args []string, client http.Client) 
 	return encoder.Encode(proof)
 }
 
+func runRelayerDiscover(writer io.Writer, args []string, client http.Client) error {
+	flags := flag.NewFlagSet("relayer discover", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	rpcAddress := flags.String("rpc", "", "source RPC base URL used to query indexed packet events")
+	eventKey := flags.String("event-key", "ibc_packet_event", "indexed event key")
+	eventValue := flags.String("event-value", "send", "indexed event value")
+	jsonOutput := flags.Bool("json", false, "write discovered packets as JSON")
+	limit := flags.Uint64("limit", 0, "maximum packets to print; 0 means all")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *rpcAddress == "" {
+		return errors.New("rpc is required")
+	}
+	packets, err := fetchRelayerDiscoveredPackets(context.Background(), client, *rpcAddress, *eventKey, *eventValue)
+	if err != nil {
+		return err
+	}
+	if *limit > 0 && uint64(len(packets)) > *limit {
+		packets = packets[:*limit]
+	}
+	if *jsonOutput {
+		encoder := json.NewEncoder(writer)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(packets)
+	}
+	for _, packet := range packets {
+		fmt.Fprintf(writer, "height: %d\n", packet.Height)
+		fmt.Fprintf(writer, "tx_index: %d\n", packet.TxIndex)
+		fmt.Fprintf(writer, "sequence: %d\n", packet.Sequence)
+		fmt.Fprintf(writer, "source: %s/%s\n", packet.SourcePort, packet.SourceChannel)
+		fmt.Fprintf(writer, "destination: %s/%s\n", packet.DestinationPort, packet.DestinationChannel)
+		fmt.Fprintf(writer, "data: %s\n", packet.Data)
+		if packet.TimeoutHeight > 0 {
+			fmt.Fprintf(writer, "timeout_height: %d\n", packet.TimeoutHeight)
+		}
+		fmt.Fprintln(writer, "---")
+	}
+	return nil
+}
+
 func runRelayerLoop(writer io.Writer, args []string, client http.Client) error {
 	flags := flag.NewFlagSet("relayer loop", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -255,6 +298,18 @@ type relayerJobConfig struct {
 }
 
 type relayerPacketConfig struct {
+	Sequence           uint64 `json:"sequence"`
+	SourcePort         string `json:"source_port"`
+	SourceChannel      string `json:"source_channel"`
+	DestinationPort    string `json:"destination_port"`
+	DestinationChannel string `json:"destination_channel"`
+	Data               string `json:"data"`
+	TimeoutHeight      uint64 `json:"timeout_height,omitempty"`
+}
+
+type relayerDiscoveredPacket struct {
+	Height             uint64 `json:"height"`
+	TxIndex            int    `json:"tx_index"`
 	Sequence           uint64 `json:"sequence"`
 	SourcePort         string `json:"source_port"`
 	SourceChannel      string `json:"source_channel"`
@@ -805,6 +860,110 @@ func fetchRelayerPacketProof(ctx context.Context, client http.Client, rpcAddress
 		return queryproof.Proof{}, errors.New("IBC packet proof response is missing proof")
 	}
 	return envelope.Proof, nil
+}
+
+func fetchRelayerDiscoveredPackets(ctx context.Context, client http.Client, rpcAddress string, eventKey string, eventValue string) ([]relayerDiscoveredPacket, error) {
+	if eventKey == "" || eventValue == "" {
+		return nil, errors.New("event key and value are required")
+	}
+	endpoint, err := joinRelayerURL(rpcAddress, "/v1/events")
+	if err != nil {
+		return nil, err
+	}
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	query := parsed.Query()
+	query.Set("key", eventKey)
+	query.Set("value", eventValue)
+	parsed.RawQuery = query.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("relayer event query returned HTTP %d", response.StatusCode)
+	}
+	var envelope relayerEventsEnvelope
+	if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
+		return nil, err
+	}
+	packets := make([]relayerDiscoveredPacket, 0, len(envelope.Records))
+	for _, record := range envelope.Records {
+		packet, ok := discoveredPacketFromEvent(record)
+		if ok {
+			packets = append(packets, packet)
+		}
+	}
+	return packets, nil
+}
+
+type relayerEventsEnvelope struct {
+	Records []relayerEventRecord `json:"records"`
+}
+
+type relayerEventRecord struct {
+	Height  uint64       `json:"height"`
+	TxIndex int          `json:"tx_index"`
+	Event   relayerEvent `json:"event"`
+}
+
+type relayerEvent struct {
+	Type       string                  `json:"type"`
+	Attributes []relayerEventAttribute `json:"attributes"`
+}
+
+type relayerEventAttribute struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+func discoveredPacketFromEvent(record relayerEventRecord) (relayerDiscoveredPacket, bool) {
+	attributes := map[string]string{}
+	for _, attribute := range record.Event.Attributes {
+		if attribute.Key != "" {
+			attributes[attribute.Key] = attribute.Value
+		}
+	}
+	sequence, err := strconv.ParseUint(attributes["ibc_sequence"], 10, 64)
+	if err != nil || sequence == 0 {
+		return relayerDiscoveredPacket{}, false
+	}
+	data := attributes["ibc_data"]
+	if data == "" {
+		return relayerDiscoveredPacket{}, false
+	}
+	decodedData, err := base64.RawStdEncoding.DecodeString(data)
+	if err != nil {
+		return relayerDiscoveredPacket{}, false
+	}
+	packet := relayerDiscoveredPacket{
+		Height:             record.Height,
+		TxIndex:            record.TxIndex,
+		Sequence:           sequence,
+		SourcePort:         attributes["ibc_source_port"],
+		SourceChannel:      attributes["ibc_source_channel"],
+		DestinationPort:    attributes["ibc_destination_port"],
+		DestinationChannel: attributes["ibc_destination_channel"],
+		Data:               string(decodedData),
+	}
+	if packet.SourcePort == "" || packet.SourceChannel == "" || packet.DestinationPort == "" || packet.DestinationChannel == "" {
+		return relayerDiscoveredPacket{}, false
+	}
+	if rawTimeoutHeight := attributes["ibc_timeout_height"]; rawTimeoutHeight != "" {
+		timeoutHeight, err := strconv.ParseUint(rawTimeoutHeight, 10, 64)
+		if err != nil {
+			return relayerDiscoveredPacket{}, false
+		}
+		packet.TimeoutHeight = timeoutHeight
+	}
+	return packet, true
 }
 
 func joinRelayerURL(baseURL string, path string) (string, error) {
