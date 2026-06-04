@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -168,6 +169,7 @@ func runRelayerLoop(writer io.Writer, args []string, client http.Client) error {
 	maxIterations := flags.Uint64("max-iterations", 0, "maximum poll iterations; 0 means run until interrupted")
 	continueOnError := flags.Bool("continue-on-error", false, "continue polling after proof fetch or submit errors")
 	submit := flags.Bool("submit", false, "submit the built transaction to --rpc")
+	statePath := flags.String("state", "", "optional checkpoint JSON path used to avoid duplicate submissions")
 	tags := relayerTxTagFlags(flags)
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -191,6 +193,10 @@ func runRelayerLoop(writer io.Writer, args []string, client http.Client) error {
 	if *mode == "timeout" && options.timeoutHeight == 0 {
 		return errors.New("timeout-height is required when mode is timeout")
 	}
+	checkpoint, err := openRelayerCheckpointStore(*statePath)
+	if err != nil {
+		return err
+	}
 	return runRelayerPollingLoop(context.Background(), writer, client, relayerLoopConfig{
 		Mode:            *mode,
 		RPCAddress:      options.rpcAddress,
@@ -202,6 +208,7 @@ func runRelayerLoop(writer io.Writer, args []string, client http.Client) error {
 		Interval:        *interval,
 		MaxIterations:   *maxIterations,
 		ContinueOnError: *continueOnError,
+		Checkpoint:      checkpoint,
 	})
 }
 
@@ -241,6 +248,7 @@ type relayerJobConfig struct {
 	Signer          string              `json:"signer,omitempty"`
 	Nonce           string              `json:"nonce,omitempty"`
 	Submit          bool                `json:"submit,omitempty"`
+	StatePath       string              `json:"state_path,omitempty"`
 	Interval        string              `json:"interval,omitempty"`
 	MaxIterations   uint64              `json:"max_iterations,omitempty"`
 	ContinueOnError bool                `json:"continue_on_error,omitempty"`
@@ -275,6 +283,10 @@ func readRelayerConfigDocument(path string) (relayerConfigDocument, error) {
 		if job.Name == "" {
 			return relayerConfigDocument{}, fmt.Errorf("relayer job %d missing name", index)
 		}
+		if job.StatePath != "" && !filepath.IsAbs(job.StatePath) {
+			document.Jobs[index].StatePath = filepath.Join(filepath.Dir(path), job.StatePath)
+			job.StatePath = document.Jobs[index].StatePath
+		}
 		if _, err := relayerLoopConfigFromJob(job); err != nil {
 			return relayerConfigDocument{}, fmt.Errorf("relayer job %q: %w", job.Name, err)
 		}
@@ -288,11 +300,23 @@ func runRelayerConfig(ctx context.Context, writer io.Writer, client http.Client,
 	var outputMu sync.Mutex
 	var waitGroup sync.WaitGroup
 	errCh := make(chan error, len(document.Jobs))
+	checkpoints := map[string]*relayerCheckpointStore{}
 	for _, job := range document.Jobs {
 		job := job
 		cfg, err := relayerLoopConfigFromJob(job)
 		if err != nil {
 			return err
+		}
+		if job.StatePath != "" {
+			checkpoint, ok := checkpoints[job.StatePath]
+			if !ok {
+				checkpoint, err = openRelayerCheckpointStore(job.StatePath)
+				if err != nil {
+					return err
+				}
+				checkpoints[job.StatePath] = checkpoint
+			}
+			cfg.Checkpoint = checkpoint
 		}
 		waitGroup.Add(1)
 		go func() {
@@ -405,10 +429,23 @@ type relayerLoopConfig struct {
 	Interval        time.Duration
 	MaxIterations   uint64
 	ContinueOnError bool
+	Checkpoint      *relayerCheckpointStore
 }
 
 func runRelayerPollingLoop(ctx context.Context, writer io.Writer, client http.Client, cfg relayerLoopConfig) error {
+	checkpointKey := relayerCheckpointKey(cfg)
 	for iteration := uint64(1); ; iteration++ {
+		if cfg.Checkpoint != nil {
+			done, err := cfg.Checkpoint.IsCompleted(checkpointKey)
+			if err != nil {
+				return err
+			}
+			if done {
+				fmt.Fprintf(writer, "checkpoint_skipped: true\n")
+				fmt.Fprintf(writer, "checkpoint_key: %s\n", checkpointKey)
+				return nil
+			}
+		}
 		proof, err := fetchRelayerPacketProof(ctx, client, cfg.ProofRPC, cfg.PacketArgs)
 		if err != nil {
 			fmt.Fprintf(writer, "iteration: %d\n", iteration)
@@ -440,6 +477,20 @@ func runRelayerPollingLoop(ctx context.Context, writer io.Writer, client http.Cl
 				}
 			} else {
 				fmt.Fprintf(writer, "submitted: true\n")
+				if cfg.Checkpoint != nil {
+					if err := cfg.Checkpoint.MarkCompleted(checkpointKey, relayerCheckpointEntry{
+						Mode:            cfg.Mode,
+						PacketArgs:      append([]string(nil), cfg.PacketArgs...),
+						ProofHeight:     uint64(proof.Height),
+						ProofNamespace:  proof.Namespace,
+						CompletedAtUnix: time.Now().Unix(),
+					}); err != nil {
+						return err
+					}
+					fmt.Fprintf(writer, "checkpoint_saved: true\n")
+					fmt.Fprintf(writer, "checkpoint_key: %s\n", checkpointKey)
+					return nil
+				}
 			}
 		}
 		if cfg.MaxIterations > 0 && iteration >= cfg.MaxIterations {
@@ -449,6 +500,127 @@ func runRelayerPollingLoop(ctx context.Context, writer io.Writer, client http.Cl
 			return err
 		}
 	}
+}
+
+const relayerCheckpointSchemaVersion = "v1"
+
+type relayerCheckpointStore struct {
+	path string
+	mu   sync.Mutex
+}
+
+type relayerCheckpointDocument struct {
+	SchemaVersion string                            `json:"schema_version"`
+	Completed     map[string]relayerCheckpointEntry `json:"completed"`
+}
+
+type relayerCheckpointEntry struct {
+	Mode            string   `json:"mode"`
+	PacketArgs      []string `json:"packet_args"`
+	ProofHeight     uint64   `json:"proof_height"`
+	ProofNamespace  string   `json:"proof_namespace"`
+	CompletedAtUnix int64    `json:"completed_at_unix"`
+}
+
+func openRelayerCheckpointStore(path string) (*relayerCheckpointStore, error) {
+	if path == "" {
+		return nil, nil
+	}
+	store := &relayerCheckpointStore{path: path}
+	if _, err := store.read(); err != nil {
+		return nil, err
+	}
+	return store, nil
+}
+
+func (store *relayerCheckpointStore) IsCompleted(key string) (bool, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	document, err := store.read()
+	if err != nil {
+		return false, err
+	}
+	_, ok := document.Completed[key]
+	return ok, nil
+}
+
+func (store *relayerCheckpointStore) MarkCompleted(key string, entry relayerCheckpointEntry) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	document, err := store.read()
+	if err != nil {
+		return err
+	}
+	document.Completed[key] = entry
+	return store.write(document)
+}
+
+func (store *relayerCheckpointStore) read() (relayerCheckpointDocument, error) {
+	data, err := os.ReadFile(store.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return relayerCheckpointDocument{
+			SchemaVersion: relayerCheckpointSchemaVersion,
+			Completed:     map[string]relayerCheckpointEntry{},
+		}, nil
+	}
+	if err != nil {
+		return relayerCheckpointDocument{}, err
+	}
+	var document relayerCheckpointDocument
+	if err := json.Unmarshal(data, &document); err != nil {
+		return relayerCheckpointDocument{}, err
+	}
+	if document.SchemaVersion != relayerCheckpointSchemaVersion {
+		return relayerCheckpointDocument{}, fmt.Errorf("unsupported relayer checkpoint schema %q", document.SchemaVersion)
+	}
+	if document.Completed == nil {
+		document.Completed = map[string]relayerCheckpointEntry{}
+	}
+	return document, nil
+}
+
+func (store *relayerCheckpointStore) write(document relayerCheckpointDocument) error {
+	if document.Completed == nil {
+		document.Completed = map[string]relayerCheckpointEntry{}
+	}
+	data, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	if err := os.MkdirAll(filepath.Dir(store.path), 0o700); err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp(filepath.Dir(store.path), ".relayer-checkpoint-*.tmp")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
+	if _, err := temp.Write(data); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Chmod(0o600); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Sync(); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tempPath, store.path)
+}
+
+func relayerCheckpointKey(cfg relayerLoopConfig) string {
+	parts := append([]string{cfg.Mode}, cfg.PacketArgs...)
+	if cfg.Mode == "ack" {
+		parts = append(parts, base64.RawStdEncoding.EncodeToString([]byte(cfg.Ack)))
+	}
+	return strings.Join(parts, ":")
 }
 
 func buildRelayerLoopTx(cfg relayerLoopConfig) (types.Tx, error) {

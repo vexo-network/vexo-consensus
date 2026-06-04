@@ -115,7 +115,7 @@ vexod ibc tx packet-ack 1 transfer channel-0 transfer channel-1 payload ack --fe
 vexod ibc tx packet-timeout 1 transfer channel-0 transfer channel-1 payload 100 --fee 1 --gas 1000 --signer relayer --nonce 3
 vexod proof verify-ibc --home .vexo --client-id 07-vexo-0 --input ibc-proof.json
 vexod relayer packet-ack --rpc 127.0.0.1:26657 --proof-rpc 127.0.0.1:26657 --sequence 1 --source-port transfer --source-channel channel-0 --destination-port transfer --destination-channel channel-1 --data payload --ack ack --fee 1 --gas 1000 --signer relayer --nonce 2 --submit
-vexod relayer loop --mode timeout --rpc 127.0.0.1:26657 --proof-rpc 127.0.0.1:26657 --sequence 1 --source-port transfer --source-channel channel-0 --destination-port transfer --destination-channel channel-1 --data payload --timeout-height 100 --interval 5s --continue-on-error --submit
+vexod relayer loop --mode timeout --rpc 127.0.0.1:26657 --proof-rpc 127.0.0.1:26657 --sequence 1 --source-port transfer --source-channel channel-0 --destination-port transfer --destination-channel channel-1 --data payload --timeout-height 100 --interval 5s --continue-on-error --state relayer_state.json --submit
 vexod relayer run --config relayer_config.json
 vexod ibc packet send \
   --sequence 1 \
@@ -138,6 +138,7 @@ Minimal `relayer_config.json`:
       "rpc": "127.0.0.1:26657",
       "proof_rpc": "127.0.0.1:26657",
       "submit": true,
+      "state_path": "relayer_state.json",
       "interval": "5s",
       "continue_on_error": true,
       "packet": {
@@ -162,7 +163,7 @@ curl 'http://127.0.0.1:26657/v1/ibc/packet/1/transfer/channel-0/transfer/channel
 curl 'http://127.0.0.1:26657/v1/ibc/proof/packet/1/transfer/channel-0/transfer/channel-1'
 ```
 
-IBC clients can be updated with the counterparty latest height, validator-set hash, and state root. Connections and channels support init/try/ack/confirm handshake states before packet flow. Packet receipts carry acknowledgement and timeout lifecycle fields, so relayers can submit packet-send, observe receipt state, submit packet-ack or packet-timeout, fetch an IBC namespace proof for the packet commitment key, verify that proof against the trusted local IBC client, optionally submit the built relayer transaction through RPC, run a bounded or continuous polling loop, and manage multiple relay jobs from a JSON config file.
+IBC clients can be updated with the counterparty latest height, validator-set hash, and state root. Connections and channels support init/try/ack/confirm handshake states before packet flow. Packet receipts carry acknowledgement and timeout lifecycle fields, so relayers can submit packet-send, observe receipt state, submit packet-ack or packet-timeout, fetch an IBC namespace proof for the packet commitment key, verify that proof against the trusted local IBC client, optionally submit the built relayer transaction through RPC, run a bounded or continuous polling loop, persist relay checkpoints to avoid duplicate submissions after restart, and manage multiple relay jobs from a JSON config file.
 
 The `contract` package provides a VM registry and invocation boundary for future EVM/WASM-compatible modules. VM implementations plug in behind `contract.VM` and must enforce their own gas/account/state semantics.
 

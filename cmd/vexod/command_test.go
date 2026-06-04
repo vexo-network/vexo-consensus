@@ -1024,6 +1024,77 @@ func TestRunRelayerLoopRetriesProofAndSubmits(t *testing.T) {
 	}
 }
 
+func TestRunRelayerLoopCheckpointSkipsDuplicateSubmit(t *testing.T) {
+	proofBody, err := json.Marshal(map[string]queryproof.Proof{
+		"proof": {
+			SchemaVersion: queryproof.SchemaVersionV1,
+			ChainID:       "counterparty",
+			Height:        11,
+			Namespace:     "ibc",
+			Key:           []byte("packets"),
+			Exists:        true,
+			StateRoot:     types.Hash{1},
+			LeafHash:      types.Hash{2},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proofCalls := 0
+	submitCalls := 0
+	client := http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		switch {
+		case request.Method == http.MethodGet && strings.HasPrefix(request.URL.Path, "/v1/ibc/proof/packet/"):
+			proofCalls++
+			return jsonHTTPResponse(http.StatusOK, string(proofBody)), nil
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/tx":
+			submitCalls++
+			return jsonHTTPResponse(http.StatusAccepted, `{"accepted":true}`), nil
+		default:
+			return jsonHTTPResponse(http.StatusNotFound, `{}`), nil
+		}
+	})}
+	statePath := filepath.Join(t.TempDir(), "relayer_state.json")
+	args := []string{
+		"--mode", "timeout",
+		"--rpc", "http://dest.example",
+		"--proof-rpc", "http://source.example",
+		"--sequence", "1",
+		"--source-port", "transfer",
+		"--source-channel", "channel-0",
+		"--destination-port", "transfer",
+		"--destination-channel", "channel-1",
+		"--data", "payload",
+		"--timeout-height", "100",
+		"--interval", "0s",
+		"--max-iterations", "1",
+		"--submit",
+		"--state", statePath,
+	}
+	var output bytes.Buffer
+	if err := runRelayerLoop(&output, args, client); err != nil {
+		t.Fatal(err)
+	}
+	if proofCalls != 1 || submitCalls != 1 {
+		t.Fatalf("expected first run to fetch proof and submit once, proofCalls=%d submitCalls=%d", proofCalls, submitCalls)
+	}
+	for _, expected := range []string{"submitted: true", "checkpoint_saved: true"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected %q in first output:\n%s", expected, output.String())
+		}
+	}
+	output.Reset()
+	if err := runRelayerLoop(&output, args, client); err != nil {
+		t.Fatal(err)
+	}
+	if proofCalls != 1 || submitCalls != 1 {
+		t.Fatalf("expected second run to skip without network calls, proofCalls=%d submitCalls=%d", proofCalls, submitCalls)
+	}
+	if !strings.Contains(output.String(), "checkpoint_skipped: true") {
+		t.Fatalf("expected checkpoint skip output:\n%s", output.String())
+	}
+}
+
 func TestRunRelayerConfigRunsMultipleJobs(t *testing.T) {
 	proofBody, err := json.Marshal(map[string]queryproof.Proof{
 		"proof": {
@@ -1073,6 +1144,7 @@ func TestRunRelayerConfigRunsMultipleJobs(t *testing.T) {
 				ProofRPC:        "source.example",
 				Ack:             "ack",
 				Submit:          true,
+				StatePath:       filepath.Join(t.TempDir(), "ack_state.json"),
 				Interval:        "0s",
 				MaxIterations:   1,
 				ContinueOnError: true,
@@ -1092,6 +1164,7 @@ func TestRunRelayerConfigRunsMultipleJobs(t *testing.T) {
 				RPC:             "dest.example",
 				ProofRPC:        "source.example",
 				Submit:          true,
+				StatePath:       filepath.Join(t.TempDir(), "timeout_state.json"),
 				Interval:        "0s",
 				MaxIterations:   1,
 				ContinueOnError: true,
@@ -1124,7 +1197,8 @@ func TestRunRelayerConfigRunsMultipleJobs(t *testing.T) {
 }
 
 func TestReadRelayerConfigDocument(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "relayer_config.json")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "relayer_config.json")
 	writeTestJSON(t, path, relayerConfigDocument{
 		SchemaVersion: relayerConfigSchemaVersion,
 		Jobs: []relayerJobConfig{{
@@ -1133,6 +1207,7 @@ func TestReadRelayerConfigDocument(t *testing.T) {
 			RPC:           "dest.example",
 			ProofRPC:      "source.example",
 			Submit:        true,
+			StatePath:     "relayer_state.json",
 			Interval:      "0s",
 			MaxIterations: 1,
 			Packet: relayerPacketConfig{
@@ -1152,6 +1227,9 @@ func TestReadRelayerConfigDocument(t *testing.T) {
 	}
 	if len(document.Jobs) != 1 || document.Jobs[0].Name != "timeout-transfer" {
 		t.Fatalf("unexpected document: %+v", document)
+	}
+	if document.Jobs[0].StatePath != filepath.Join(dir, "relayer_state.json") {
+		t.Fatalf("expected state path relative to config dir, got %q", document.Jobs[0].StatePath)
 	}
 }
 
