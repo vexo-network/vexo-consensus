@@ -704,6 +704,17 @@ func TestRunProofVerifyCommand(t *testing.T) {
 func TestRunIBCPacketSendCommand(t *testing.T) {
 	var output bytes.Buffer
 	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"ibc", "tx", "packet-send",
+		"1", "transfer", "channel-0", "transfer", "channel-1", "payload",
+		"--fee", "1", "--gas", "1000", "--signer", "relayer", "--nonce", "1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "tx: ibc:packet-send:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA:fee=1:gas=1000:signer=relayer:nonce=1") {
+		t.Fatalf("unexpected ibc tx output: %s", output.String())
+	}
+	output.Reset()
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
 		"ibc", "packet", "send",
 		"--sequence", "1",
 		"--source-port", "transfer",

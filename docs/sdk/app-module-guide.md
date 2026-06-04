@@ -43,7 +43,7 @@ Enabled modules are configured in the node home's `module_config.json`, not in `
 {
   "schema_version": "v1",
   "application": {
-    "Modules": ["bank", "staking", "governance", "params"]
+    "Modules": ["bank", "staking", "governance", "params", "ibc"]
   }
 }
 ```
@@ -105,6 +105,7 @@ The `ibc` package provides client, connection, channel, packet commitment, ackno
 Packet scaffolds can be generated from the CLI while chain-specific IBC modules wire packet commitments into state:
 
 ```bash
+vexod ibc tx packet-send 1 transfer channel-0 transfer channel-1 payload --fee 1 --gas 1000 --signer relayer --nonce 1
 vexod ibc packet send \
   --sequence 1 \
   --source-port transfer \

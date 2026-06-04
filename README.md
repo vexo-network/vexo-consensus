@@ -35,7 +35,7 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 |---|---|
 | `cmd/vexod` | CLI entrypoint, node startup flow, diagnostics, release tooling, and local harnesses |
 | `app` | Application runtime interfaces, ante handling, transaction envelopes, and module contracts |
-| `modules` | Built-in bank, staking, governance, and params application modules |
+| `modules` | Built-in bank, staking, governance, params, and IBC application modules |
 | `params` | Cosmos-style module parameter keeper and parameter transaction/query module |
 | `events` | Event indexing primitives for block/tx attributes |
 | `ibc` | IBC client, connection, channel, and packet lifecycle primitives |
@@ -114,6 +114,7 @@ VEXO_KEY_PASSPHRASE='change-me' vexod keys gen --home .vexo-vrf --type vrf --enc
 vexod tx build --module bank --action send --args alice,bob,25 --tags fee=1gvxo,gas=1000,signer=alice,nonce=1
 vexod proof query --home .vexo --namespace bank --key alice
 vexod proof verify --input proof.json --chain-id vexo-chain --height 10
+vexod ibc tx packet-send 1 transfer channel-0 transfer channel-1 payload --fee 1 --gas 1000 --signer relayer --nonce 1
 vexod ibc packet send --sequence 1 --source-port transfer --source-channel channel-0 --destination-port transfer --destination-channel channel-1 --data payload
 vexod consensus adversarial --json
 vexod snapshot drill-plan --input snapshot.json --chain-id vexo-chain --json

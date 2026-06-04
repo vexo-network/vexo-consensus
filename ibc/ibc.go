@@ -63,11 +63,16 @@ type PacketReceipt struct {
 	Ack          []byte       `json:"ack,omitempty"`
 }
 
-type Keeper struct {
-	store store.KVStore
+type KVStore interface {
+	Get(ctx context.Context, namespace string, key []byte) ([]byte, error)
+	Set(ctx context.Context, namespace string, key []byte, value []byte) error
 }
 
-func NewKeeper(store store.KVStore) *Keeper {
+type Keeper struct {
+	store KVStore
+}
+
+func NewKeeper(store KVStore) *Keeper {
 	return &Keeper{store: store}
 }
 
@@ -91,11 +96,23 @@ func (keeper *Keeper) SetConnection(ctx context.Context, connection ConnectionSt
 	return keeper.setJSON(ctx, connectionKey(connection.ConnectionID), connection)
 }
 
+func (keeper *Keeper) Connection(ctx context.Context, connectionID string) (ConnectionState, bool, error) {
+	var connection ConnectionState
+	found, err := keeper.getJSON(ctx, connectionKey(connectionID), &connection)
+	return connection, found, err
+}
+
 func (keeper *Keeper) SetChannel(ctx context.Context, channel ChannelState) error {
 	if channel.PortID == "" || channel.ChannelID == "" || channel.ConnectionID == "" || channel.Counterparty == "" || channel.Ordering == "" || channel.State == "" {
 		return ErrInvalidChannel
 	}
 	return keeper.setJSON(ctx, channelKey(channel.PortID, channel.ChannelID), channel)
+}
+
+func (keeper *Keeper) Channel(ctx context.Context, portID string, channelID string) (ChannelState, bool, error) {
+	var channel ChannelState
+	found, err := keeper.getJSON(ctx, channelKey(portID, channelID), &channel)
+	return channel, found, err
 }
 
 func (keeper *Keeper) SendPacket(ctx context.Context, height types.Height, packet Packet) error {

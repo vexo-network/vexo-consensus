@@ -181,12 +181,15 @@ func (node *Node) startEvidenceGossip(ctx context.Context) error {
 		cancel()
 		return err
 	}
+	done := make(chan struct{})
 	node.evidenceCancel = cancel
-	go node.consumeEvidenceGossip(runCtx, events)
+	node.evidenceDone = done
+	go node.consumeEvidenceGossip(runCtx, events, done)
 	return nil
 }
 
-func (node *Node) consumeEvidenceGossip(ctx context.Context, events <-chan transport.Envelope) {
+func (node *Node) consumeEvidenceGossip(ctx context.Context, events <-chan transport.Envelope, done chan struct{}) {
+	defer close(done)
 	for {
 		select {
 		case <-ctx.Done():

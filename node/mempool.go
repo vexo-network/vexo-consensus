@@ -102,12 +102,15 @@ func (node *Node) startTxGossip(ctx context.Context) error {
 		cancel()
 		return err
 	}
+	done := make(chan struct{})
 	node.txCancel = cancel
-	go node.consumeTxGossip(runCtx, events)
+	node.txDone = done
+	go node.consumeTxGossip(runCtx, events, done)
 	return nil
 }
 
-func (node *Node) consumeTxGossip(ctx context.Context, events <-chan transport.Envelope) {
+func (node *Node) consumeTxGossip(ctx context.Context, events <-chan transport.Envelope, done chan struct{}) {
+	defer close(done)
 	for {
 		select {
 		case <-ctx.Done():

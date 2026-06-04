@@ -52,8 +52,11 @@ type Node struct {
 	consensus      *consensus.StateMachine
 	reactor        *consensus.TransportReactor
 	txCancel       context.CancelFunc
+	txDone         chan struct{}
 	commitCancel   context.CancelFunc
+	commitDone     chan struct{}
 	evidenceCancel context.CancelFunc
+	evidenceDone   chan struct{}
 	scoreCancel    context.CancelFunc
 	scoreDone      chan struct{}
 	loopCancel     context.CancelFunc
@@ -271,12 +274,24 @@ func (node *Node) Stop(ctx context.Context) error {
 	}
 	if node.txCancel != nil {
 		node.txCancel()
+		txDone := node.txDone
+		node.mu.Unlock()
+		waitLoopDone(ctx, txDone)
+		node.mu.Lock()
 	}
 	if node.commitCancel != nil {
 		node.commitCancel()
+		commitDone := node.commitDone
+		node.mu.Unlock()
+		waitLoopDone(ctx, commitDone)
+		node.mu.Lock()
 	}
 	if node.evidenceCancel != nil {
 		node.evidenceCancel()
+		evidenceDone := node.evidenceDone
+		node.mu.Unlock()
+		waitLoopDone(ctx, evidenceDone)
+		node.mu.Lock()
 	}
 	if node.scoreCancel != nil {
 		node.scoreCancel()
@@ -312,8 +327,11 @@ func (node *Node) Stop(ctx context.Context) error {
 	node.consensusWAL = nil
 	node.reactor = nil
 	node.txCancel = nil
+	node.txDone = nil
 	node.commitCancel = nil
+	node.commitDone = nil
 	node.evidenceCancel = nil
+	node.evidenceDone = nil
 	node.scoreCancel = nil
 	node.scoreDone = nil
 	node.loopCancel = nil

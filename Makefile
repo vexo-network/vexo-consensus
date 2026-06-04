@@ -23,7 +23,7 @@ build:
 
 test:
 	mkdir -p $(GOCACHE_DIR)
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test -timeout=30000s ./...
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test -p 1 -timeout=30000s ./...
 
 vet:
 	mkdir -p $(GOCACHE_DIR)
@@ -64,7 +64,7 @@ ops-verify: check fuzz-smoke
 
 coverage:
 	mkdir -p $(GOCACHE_DIR)
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test -timeout=30000s -coverprofile=coverage.out ./...
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test -p 1 -timeout=30000s -coverprofile=coverage.out ./...
 	$(GO) tool cover -html=coverage.out -o coverage.html
 
 release: check

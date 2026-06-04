@@ -69,7 +69,7 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(moduleDocument.Application.Modules) != 4 || moduleDocument.Execution.MaxGas == 0 || moduleDocument.Execution.FeeDenom != "avxo" || moduleDocument.Execution.DisplayDenom != "vexo" || moduleDocument.Execution.GasDenom != "gas" || moduleDocument.Governance.Timelock == 0 {
+	if len(moduleDocument.Application.Modules) != 5 || moduleDocument.Execution.MaxGas == 0 || moduleDocument.Execution.FeeDenom != "avxo" || moduleDocument.Execution.DisplayDenom != "vexo" || moduleDocument.Execution.GasDenom != "gas" || moduleDocument.Governance.Timelock == 0 {
 		t.Fatalf("unexpected module config: %+v", moduleDocument)
 	}
 	networkDocument, err := readNetworkConfigDocument(filepath.Join(home, networkConfigFileName))
@@ -298,7 +298,7 @@ func TestLoadNodeConfigUsesDefaultModuleConfigWhenSplitFileMissing(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Chain.Application.Modules) != 4 || cfg.Chain.Execution.MaxGas == 0 || cfg.Chain.Governance.Timelock == 0 {
+	if len(cfg.Chain.Application.Modules) != 5 || cfg.Chain.Execution.MaxGas == 0 || cfg.Chain.Governance.Timelock == 0 {
 		t.Fatalf("expected default module config fallback, got %+v", cfg.Chain)
 	}
 }

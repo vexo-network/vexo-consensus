@@ -47,12 +47,15 @@ func (node *Node) startCommitGossip(ctx context.Context) error {
 		cancel()
 		return err
 	}
+	done := make(chan struct{})
 	node.commitCancel = cancel
-	go node.consumeCommitGossip(runCtx, events)
+	node.commitDone = done
+	go node.consumeCommitGossip(runCtx, events, done)
 	return nil
 }
 
-func (node *Node) consumeCommitGossip(ctx context.Context, events <-chan transport.Envelope) {
+func (node *Node) consumeCommitGossip(ctx context.Context, events <-chan transport.Envelope, done chan struct{}) {
+	defer close(done)
 	for {
 		select {
 		case <-ctx.Done():

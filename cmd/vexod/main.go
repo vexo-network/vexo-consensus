@@ -92,7 +92,6 @@ func coreCommands() commandset.Registry {
 		{Name: "keys", Description: "manage local and remote validator keys", Handler: runKeys},
 		{Name: "tx", Description: "build or parse canonical transaction payloads", Handler: runTx},
 		{Name: "proof", Description: "build and verify state query proofs", Handler: runProof},
-		{Name: "ibc", Description: "build IBC client, channel, and packet scaffolds", Handler: runIBC},
 		{Name: "start", Description: "validate files, prepare startup, or run a node", Handler: runStart},
 		{Name: "network", Description: "manage node networks and local execution harnesses", Handler: runNetwork},
 		{Name: "consensus", Description: "run consensus simulations and diagnostics", Handler: runConsensus},

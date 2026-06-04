@@ -5,6 +5,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/modules/bank"
 	appgovernance "github.com/vexo-network/vexo-consensus/modules/governance"
+	appibc "github.com/vexo-network/vexo-consensus/modules/ibc"
 	"github.com/vexo-network/vexo-consensus/modules/staking"
 	"github.com/vexo-network/vexo-consensus/params"
 )
@@ -15,6 +16,7 @@ func DefaultRegistry() vexoapp.Registry {
 	_ = registry.Register(staking.ModuleName, func() vexoapp.Module { return staking.NewModule() })
 	_ = registry.Register(appgovernance.ModuleName, func() vexoapp.Module { return appgovernance.NewModule() })
 	_ = registry.Register(params.Namespace, func() vexoapp.Module { return params.NewModule(nil) })
+	_ = registry.Register(appibc.ModuleName, func() vexoapp.Module { return appibc.NewModule() })
 	return registry
 }
 
