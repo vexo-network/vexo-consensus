@@ -103,7 +103,9 @@ vexod status --json
 vexod config show --home .vexo
 vexod config audit --home .vexo --strict
 vexod config tune --validators 64 --tps 5000 --regions 4 --latency 120ms --json
-vexod keys gen --home .vexo
+vexod keys gen --home .vexo --type ed25519
+vexod keys gen --home .vexo-bls --type bls
+vexod keys gen --home .vexo-vrf --type vrf
 vexod tx build --module bank --action send --args alice,bob,25 --tags fee=1gvxo,gas=1000,signer=alice,nonce=1
 vexod consensus adversarial --json
 vexod snapshot drill-plan --input snapshot.json --chain-id vexo-chain --json

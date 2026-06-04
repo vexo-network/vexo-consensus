@@ -1037,6 +1037,27 @@ func TestRunInitValidatorAndArchiveRoles(t *testing.T) {
 	}
 }
 
+func TestRunInitValidatorBLSWritesProofOfPossession(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"validator", "--home", home, "--chain-id", "vexo-test", "--validator", "alice", "--key-type", "bls"}); err != nil {
+		t.Fatal(err)
+	}
+	genesis, err := loadGenesis(filepath.Join(home, genesisFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(genesis.Validators) != 1 || genesis.Validators[0].Metadata[vexocrypto.BLSProofOfPossessionMetadataKey] == "" {
+		t.Fatalf("expected BLS proof in genesis: %+v", genesis.Validators)
+	}
+	keyDocument, err := vexocrypto.LoadKeyDocument(filepath.Join(home, keyFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keyDocument.Type != vexocrypto.KeyTypeBLS {
+		t.Fatalf("expected BLS key document: %+v", keyDocument)
+	}
+}
+
 func TestWriteOperationalLogJSON(t *testing.T) {
 	var output bytes.Buffer
 	writeOperationalLog(&output, "json", "info", "node_running", map[string]any{"chain_id": "vexo-test"})

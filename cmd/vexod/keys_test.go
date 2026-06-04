@@ -81,6 +81,36 @@ func TestRunKeysGenBLS(t *testing.T) {
 	}
 }
 
+func TestRunKeysGenVRF(t *testing.T) {
+	home := t.TempDir()
+	var buffer bytes.Buffer
+	if err := runKeys(&buffer, []string{"gen", "--home", home, "--type", "vrf"}); err != nil {
+		t.Fatal(err)
+	}
+	output := buffer.String()
+	if !strings.Contains(output, "type: vrf") || strings.Contains(output, "private_key") {
+		t.Fatalf("unexpected VRF key output:\n%s", output)
+	}
+	document, err := vexocrypto.LoadKeyDocument(filepath.Join(home, keyFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.Type != vexocrypto.KeyTypeVRF || document.Metadata.VRFAdapter != vexocrypto.VRFAdapterECVRFP256Name {
+		t.Fatalf("unexpected VRF key document: %+v", document)
+	}
+	privateKey, err := document.ECVRFP256PrivateKeyWithPassphrase("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKey, err := vexocrypto.ECVRFP256PublicKeyFromPrivateKey(privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.PublicKey != base64.StdEncoding.EncodeToString(publicKey) {
+		t.Fatalf("unexpected VRF public key: %s", document.PublicKey)
+	}
+}
+
 func TestRunKeysShowJSON(t *testing.T) {
 	home := t.TempDir()
 	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {

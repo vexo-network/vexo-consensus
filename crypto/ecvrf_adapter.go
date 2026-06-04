@@ -4,8 +4,10 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/hmac"
+	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"math/big"
 
 	ecvrf "github.com/vechain/go-ecvrf"
@@ -30,6 +32,51 @@ type ECVRFP256Adapter struct {
 
 func init() {
 	RegisterVRFAdapter(VRFAdapterECVRFP256Name, NewECVRFP256Adapter)
+}
+
+func GenerateECVRFP256KeyDocument() (KeyDocument, error) {
+	privateKeyBytes, err := generateECVRFP256PrivateKeyBytes()
+	if err != nil {
+		return KeyDocument{}, err
+	}
+	publicKey, err := ECVRFP256PublicKeyFromPrivateKey(privateKeyBytes)
+	if err != nil {
+		return KeyDocument{}, err
+	}
+	return KeyDocument{
+		SchemaVersion: KeyDocumentVersionV1,
+		Type:          KeyTypeVRF,
+		PublicKey:     base64.StdEncoding.EncodeToString(publicKey),
+		PrivateKey:    base64.StdEncoding.EncodeToString(privateKeyBytes),
+		Metadata: KeyMetadata{
+			VRFAdapter: VRFAdapterECVRFP256Name,
+		},
+	}, nil
+}
+
+func (document KeyDocument) ECVRFP256PrivateKeyWithPassphrase(passphrase string) ([]byte, error) {
+	if document.SchemaVersion != KeyDocumentVersionV1 {
+		return nil, ErrUnsupportedKeyVersion
+	}
+	if document.Type != KeyTypeVRF {
+		return nil, ErrUnsupportedKeyType
+	}
+	privateKeyBytes, err := document.privateKeyMaterial(passphrase)
+	if err != nil {
+		return nil, err
+	}
+	publicKey, err := ECVRFP256PublicKeyFromPrivateKey(privateKeyBytes)
+	if err != nil {
+		return nil, err
+	}
+	documentPublicKey, err := base64.StdEncoding.DecodeString(document.PublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid public key: %w", err)
+	}
+	if !hmac.Equal(publicKey, documentPublicKey) {
+		return nil, ErrInvalidECVRFKey
+	}
+	return privateKeyBytes, nil
 }
 
 func NewECVRFP256Adapter(cfg config.VRFConfig) (VRFAdapter, error) {
@@ -108,6 +155,19 @@ func ECVRFP256PublicKeyFromPrivateKey(privateKeyBytes []byte) (types.PublicKey, 
 		return nil, err
 	}
 	return elliptic.Marshal(elliptic.P256(), privateKey.PublicKey.X, privateKey.PublicKey.Y), nil
+}
+
+func generateECVRFP256PrivateKeyBytes() ([]byte, error) {
+	curveOrder := elliptic.P256().Params().N
+	for {
+		d, err := rand.Int(rand.Reader, curveOrder)
+		if err != nil {
+			return nil, err
+		}
+		if d.Sign() > 0 {
+			return d.FillBytes(make([]byte, 32)), nil
+		}
+	}
 }
 
 func ecvrfP256PrivateKey(privateKeyBytes []byte) (*ecdsa.PrivateKey, error) {

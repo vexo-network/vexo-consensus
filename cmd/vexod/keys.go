@@ -60,7 +60,7 @@ func runKeysGen(writer io.Writer, args []string) error {
 	flags.SetOutput(io.Discard)
 	home := flags.String("home", defaultHomeDir, "node home directory")
 	path := flags.String("path", "", "key file path")
-	keyType := flags.String("type", vexocrypto.KeyTypeEd25519, "key type: ed25519 or bls")
+	keyType := flags.String("type", vexocrypto.KeyTypeEd25519, "key type: ed25519, bls, or vrf")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing key")
 	encrypt := flags.Bool("encrypt", false, "encrypt private key material")
 	passphrase := flags.String("passphrase", "", "key encryption passphrase; prefer VEXO_KEY_PASSPHRASE")
@@ -119,6 +119,8 @@ func generateKeyDocument(keyType string) (vexocrypto.KeyDocument, error) {
 			return vexocrypto.KeyDocument{}, err
 		}
 		return vexocrypto.NewCIRCLBLSKeyDocument(adapter)
+	case vexocrypto.KeyTypeVRF:
+		return vexocrypto.GenerateECVRFP256KeyDocument()
 	default:
 		return vexocrypto.KeyDocument{}, vexocrypto.ErrUnsupportedKeyType
 	}
@@ -206,7 +208,7 @@ func runKeysShow(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := document.SignerWithPassphrase(resolvePassphrase(*passphrase)); err != nil {
+	if err := validateKeyDocumentForShow(document, resolvePassphrase(*passphrase)); err != nil {
 		return err
 	}
 	info := keyInfoDocument{
@@ -241,6 +243,17 @@ func runKeysShow(writer io.Writer, args []string) error {
 		fmt.Fprintf(writer, "remote_url: %s\n", info.RemoteURL)
 	}
 	return nil
+}
+
+func validateKeyDocumentForShow(document vexocrypto.KeyDocument, passphrase string) error {
+	switch document.Type {
+	case vexocrypto.KeyTypeVRF:
+		_, err := document.ECVRFP256PrivateKeyWithPassphrase(passphrase)
+		return err
+	default:
+		_, err := document.SignerWithPassphrase(passphrase)
+		return err
+	}
 }
 
 func keyDocumentAccountAddress(document vexocrypto.KeyDocument) (types.Address, error) {

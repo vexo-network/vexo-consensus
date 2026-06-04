@@ -17,6 +17,18 @@ vexod init validator \
   --validator validator-1
 ```
 
+For a BLS consensus key:
+
+```bash
+vexod init validator \
+  --home .vexo-validator-1 \
+  --chain-id vexo-chain \
+  --validator validator-1 \
+  --key-type bls
+```
+
+`--key-type bls` writes a BLS key document and copies the proof-of-possession into `genesis.json` validator metadata as `bls_pop`.
+
 This creates:
 
 - `config.json`
@@ -76,6 +88,18 @@ Node homes use separate config files so operators can edit one subsystem without
 - `mempool_config.json` contains mempool size, fee, priority, WAL, duplicate, and TTL policy.
 - `log_config.json` contains log format, level, block commit event logging, and peer event logging.
 - `genesis.json` contains immutable genesis validators, validator metadata, and genesis module state.
+
+## Key Types
+
+Validator init supports `--key-type ed25519` and `--key-type bls`. Standalone key generation also supports VRF keys:
+
+```bash
+vexod keys gen --home .vexo-ed25519 --type ed25519
+vexod keys gen --home .vexo-bls --type bls
+vexod keys gen --home .vexo-vrf --type vrf
+```
+
+VRF keys are not consensus signers. They are used for VRF-backed committee selection and must be referenced from `consensus_config.json` plus validator metadata key `vrf_public_key` when that backend is enabled.
 
 `config.json` points to the split config files:
 

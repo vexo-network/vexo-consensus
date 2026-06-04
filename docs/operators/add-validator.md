@@ -13,6 +13,18 @@ vexod init validator \
   --validator validator-new
 ```
 
+For a BLS validator key:
+
+```bash
+vexod init validator \
+  --home .vexo-validator-new \
+  --chain-id vexo-chain \
+  --validator validator-new \
+  --key-type bls
+```
+
+When admitting a BLS validator to an existing chain, include the generated `bls_pop` metadata in the validator update proposal.
+
 Archive the generated public key:
 
 ```bash

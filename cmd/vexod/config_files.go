@@ -208,6 +208,7 @@ func runInit(writer io.Writer, args []string) error {
 	chainID := flags.String("chain-id", defaultChainID, "chain id")
 	validatorID := flags.String("validator", defaultValidatorID, "local validator id")
 	validatorCount := flags.Int("validators", 1, "number of local validators to initialize")
+	keyType := flags.String("key-type", vexocrypto.KeyTypeEd25519, "validator key type: ed25519 or bls")
 	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first network P2P port")
 	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first network RPC port")
 	p2pPortStep := flags.Int("p2p-port-step", 10, "P2P port increment per validator")
@@ -231,7 +232,7 @@ func runInit(writer io.Writer, args []string) error {
 			}
 			options = loadedOptions
 		}
-		network, err := writeNetworkFilesWithOptions(*home, *chainID, *validatorCount, *overwrite, options)
+		network, err := writeNetworkFilesWithOptionsAndKeyType(*home, *chainID, *validatorCount, *overwrite, options, *keyType)
 		if err != nil {
 			return err
 		}
@@ -265,11 +266,12 @@ func runInitValidator(writer io.Writer, args []string) error {
 	home := flags.String("home", defaultHomeDir, "validator node home directory")
 	chainID := flags.String("chain-id", defaultChainID, "chain id")
 	validatorID := flags.String("validator", defaultValidatorID, "local validator id")
+	keyType := flags.String("key-type", vexocrypto.KeyTypeEd25519, "validator key type: ed25519 or bls")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing files")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	configPath, genesisPath, keyPath, err := writeValidatorInitFiles(*home, *chainID, *validatorID, defaultP2PAddress, defaultRPCAddress, *overwrite)
+	configPath, genesisPath, keyPath, err := writeValidatorInitFilesWithKeyType(*home, *chainID, *validatorID, defaultP2PAddress, defaultRPCAddress, *overwrite, *keyType)
 	if err != nil {
 		return err
 	}
@@ -410,6 +412,10 @@ func readNetworkAddressOptions(path string) (networkAddressOptions, error) {
 }
 
 func writeNetworkFilesWithOptions(home string, chainID string, validatorCount int, overwrite bool, options networkAddressOptions) (networkDocument, error) {
+	return writeNetworkFilesWithOptionsAndKeyType(home, chainID, validatorCount, overwrite, options, vexocrypto.KeyTypeEd25519)
+}
+
+func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validatorCount int, overwrite bool, options networkAddressOptions, keyType string) (networkDocument, error) {
 	if home == "" {
 		home = defaultHomeDir
 	}
@@ -435,7 +441,7 @@ func writeNetworkFilesWithOptions(home string, chainID string, validatorCount in
 	keys := make([]vexocrypto.KeyDocument, 0, validatorCount)
 	for index := 1; index <= validatorCount; index++ {
 		validatorID := networkValidatorID(index)
-		keyDocument, err := vexocrypto.GenerateEd25519KeyDocument()
+		keyDocument, err := generateConsensusKeyDocument(keyType)
 		if err != nil {
 			return networkDocument{}, err
 		}
@@ -456,19 +462,21 @@ func writeNetworkFilesWithOptions(home string, chainID string, validatorCount in
 		if err != nil {
 			return networkDocument{}, err
 		}
+		metadata := map[string]string{
+			"account_address":   string(accountAddress),
+			"consensus_address": string(consensusAddress),
+			"operator_address":  string(operatorAddress),
+			"p2p_address":       networkP2PAdvertiseAddressWithOptions(index, options),
+			"rpc_address":       networkRPCAdvertiseAddressWithOptions(index, options),
+		}
+		copyKeyDocumentValidatorMetadata(metadata, keyDocument)
 		validators = append(validators, validatorDocument{
 			ID:          validatorID,
 			Address:     string(operatorAddress),
 			PublicKey:   keyDocument.PublicKey,
 			VotingPower: 1,
 			Stake:       1,
-			Metadata: map[string]string{
-				"account_address":   string(accountAddress),
-				"consensus_address": string(consensusAddress),
-				"operator_address":  string(operatorAddress),
-				"p2p_address":       networkP2PAdvertiseAddressWithOptions(index, options),
-				"rpc_address":       networkRPCAdvertiseAddressWithOptions(index, options),
-			},
+			Metadata:    metadata,
 		})
 		governance[string(operatorAddress)] = 1
 	}
@@ -763,6 +771,10 @@ func writeInitFiles(home string, chainID string, validatorID string, overwrite b
 }
 
 func writeValidatorInitFiles(home string, chainID string, validatorID string, p2pAddress string, rpcAddress string, overwrite bool) (string, string, string, error) {
+	return writeValidatorInitFilesWithKeyType(home, chainID, validatorID, p2pAddress, rpcAddress, overwrite, vexocrypto.KeyTypeEd25519)
+}
+
+func writeValidatorInitFilesWithKeyType(home string, chainID string, validatorID string, p2pAddress string, rpcAddress string, overwrite bool, keyType string) (string, string, string, error) {
 	configPath, genesisPath, err := writeInitFiles(home, chainID, validatorID, overwrite)
 	if err != nil {
 		return "", "", "", err
@@ -777,7 +789,7 @@ func writeValidatorInitFiles(home string, chainID string, validatorID string, p2
 	} else if err := os.Remove(keyPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", "", "", err
 	}
-	keyDocument, err := vexocrypto.GenerateEd25519KeyDocument()
+	keyDocument, err := generateConsensusKeyDocument(keyType)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -808,6 +820,15 @@ func writeValidatorInitFiles(home string, chainID string, validatorID string, p2
 		return "", "", "", err
 	}
 	return configPath, genesisPath, keyPath, nil
+}
+
+func generateConsensusKeyDocument(keyType string) (vexocrypto.KeyDocument, error) {
+	switch keyType {
+	case vexocrypto.KeyTypeEd25519, vexocrypto.KeyTypeBLS:
+		return generateKeyDocument(keyType)
+	default:
+		return vexocrypto.KeyDocument{}, vexocrypto.ErrUnsupportedKeyType
+	}
 }
 
 func readGenesisDocument(path string) (genesisDocument, error) {
@@ -850,6 +871,7 @@ func applyValidatorKeyToGenesisDocument(document *genesisDocument, validatorID s
 		document.Validators[index].Metadata["account_address"] = string(accountAddress)
 		document.Validators[index].Metadata["consensus_address"] = string(consensusAddress)
 		document.Validators[index].Metadata["operator_address"] = string(operatorAddress)
+		copyKeyDocumentValidatorMetadata(document.Validators[index].Metadata, keyDocument)
 		if document.Governance == nil {
 			document.Governance = map[string]uint64{}
 		}
@@ -862,6 +884,15 @@ func applyValidatorKeyToGenesisDocument(document *genesisDocument, validatorID s
 		return nil
 	}
 	return fmt.Errorf("validator %q not found in genesis", validatorID)
+}
+
+func copyKeyDocumentValidatorMetadata(metadata map[string]string, keyDocument vexocrypto.KeyDocument) {
+	if keyDocument.Metadata.BLSProofOfPossession != "" {
+		metadata[vexocrypto.BLSProofOfPossessionMetadataKey] = keyDocument.Metadata.BLSProofOfPossession
+	}
+	if keyDocument.Metadata.BLSAdapter != "" {
+		metadata["bls_adapter"] = keyDocument.Metadata.BLSAdapter
+	}
 }
 
 func writeArchiveInitFiles(home string, chainID string, p2pAddress string, rpcAddress string, bootstrapPeer string, overwrite bool) (string, string, error) {

@@ -21,6 +21,7 @@ import (
 const (
 	KeyTypeEd25519       = "ed25519"
 	KeyTypeBLS           = "bls"
+	KeyTypeVRF           = "vrf"
 	KeyTypeRemote        = "remote"
 	KeyDocumentVersionV1 = "v1"
 	KeyEncryptionAESGCM  = "aes-256-gcm"
@@ -58,6 +59,7 @@ type KeyMetadata struct {
 	GuardPath            string `json:"guard_path,omitempty"`
 	BLSProofOfPossession string `json:"bls_proof_of_possession,omitempty"`
 	BLSAdapter           string `json:"bls_adapter,omitempty"`
+	VRFAdapter           string `json:"vrf_adapter,omitempty"`
 }
 
 type KeyEncryption struct {
@@ -134,7 +136,7 @@ func (document KeyDocument) Encrypted(passphrase string) (KeyDocument, error) {
 	if passphrase == "" {
 		return KeyDocument{}, ErrMissingPassphrase
 	}
-	privateKey, err := base64.StdEncoding.DecodeString(document.PrivateKey)
+	privateKey, err := document.privateKeyMaterial("")
 	if err != nil {
 		return KeyDocument{}, fmt.Errorf("invalid private key: %w", err)
 	}
@@ -203,6 +205,17 @@ func (document KeyDocument) SignerWithPassphrase(passphrase string) (Signer, err
 	default:
 		return nil, ErrUnsupportedKeyType
 	}
+}
+
+func (document KeyDocument) privateKeyMaterial(passphrase string) ([]byte, error) {
+	if document.Encryption != nil {
+		return decryptKeyMaterial(*document.Encryption, passphrase)
+	}
+	privateKey, err := base64.StdEncoding.DecodeString(document.PrivateKey)
+	if err != nil {
+		return nil, err
+	}
+	return privateKey, nil
 }
 
 func (document KeyDocument) RemoteSigner(timeout time.Duration) (RemoteSigner, error) {

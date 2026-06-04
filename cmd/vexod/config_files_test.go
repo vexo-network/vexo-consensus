@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/config"
+	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/governance"
 	vexonode "github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -132,6 +133,32 @@ func TestRunInitWritesNetworkFiles(t *testing.T) {
 	}
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validators", "4", "--overwrite"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRunInitNetworkBLSWritesProofOfPossession(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validators", "2", "--key-type", "bls"}); err != nil {
+		t.Fatal(err)
+	}
+	genesis, err := loadGenesis(filepath.Join(home, "validator-1", genesisFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(genesis.Validators) != 2 {
+		t.Fatalf("unexpected validators: %+v", genesis.Validators)
+	}
+	for _, validatorInfo := range genesis.Validators {
+		if validatorInfo.Metadata[vexocrypto.BLSProofOfPossessionMetadataKey] == "" || validatorInfo.Metadata["bls_adapter"] != vexocrypto.BLSAdapterCIRCLName {
+			t.Fatalf("expected BLS metadata, got %+v", validatorInfo.Metadata)
+		}
+	}
+	keyDocument, err := vexocrypto.LoadKeyDocument(filepath.Join(home, "validator-1", keyFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keyDocument.Type != vexocrypto.KeyTypeBLS || keyDocument.Metadata.BLSProofOfPossession == "" {
+		t.Fatalf("unexpected BLS key document: %+v", keyDocument)
 	}
 }
 

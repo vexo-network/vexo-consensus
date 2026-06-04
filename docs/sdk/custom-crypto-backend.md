@@ -79,6 +79,15 @@ Validator public keys should be admitted through `BLSValidatorCredential` record
 
 The built-in CIRCL adapter is registered as `circl-bls12381-g1sigg2-basic-v1`. It provides BLS12-381 basic signatures, aggregate verification, compressed deterministic encoding, public-key validation, and proof-of-possession helpers. `NewCIRCLBLSKeyDocument` writes `bls_proof_of_possession` metadata so validator genesis metadata can carry the rogue-key defense proof.
 
+CLI helpers:
+
+```bash
+vexod keys gen --home .vexo-bls --type bls
+vexod init validator --home .vexo-validator --validator validator-1 --key-type bls
+```
+
+The init flow copies `bls_proof_of_possession` from the key document into genesis metadata key `bls_pop`.
+
 ## Production VRF Requirements
 
 VRF-backed committee selection uses the same registration pattern:
@@ -94,6 +103,12 @@ func init() {
 `vrf.adapter_name`, `vrf.audit_report`, and `vrf.key_source` must match the adapter metadata. When `committee.backend` is `vrf`, runtime startup fails if no matching adapter is linked instead of silently falling back to deterministic VRF. When committee selection is deterministic, runtime does not load a VRF adapter.
 
 The built-in ECVRF adapter is registered as `ecvrf-p256-sha256-tai-v1`. It uses P-256/SHA-256 try-and-increment ECVRF proofs. `vrf.keys` maps a base64-encoded VRF public key to its private scalar bytes, and validators may put a base64 VRF public key in metadata key `vrf_public_key`; otherwise committee selection falls back to the validator consensus public key. For public networks, keep VRF private material in a signer/KMS boundary rather than plain config files.
+
+Generate a VRF key document with:
+
+```bash
+vexod keys gen --home .vexo-vrf --type vrf
+```
 
 ## Remote Signer Requirements
 
