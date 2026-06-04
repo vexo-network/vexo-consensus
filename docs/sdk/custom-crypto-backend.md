@@ -2,7 +2,9 @@
 
 ## Goal
 
-This guide explains how to add a custom crypto backend, including production BLS.
+This guide explains how to add a custom crypto backend, including audited BLS and VRF adapters.
+
+`vexo-consensus` ships the adapter contracts, registry hooks, metadata validation, and runtime wiring. It does not ship an audited BLS or VRF implementation. A chain binary that wants those backends must link an external audited adapter package and register it before node startup.
 
 ## Interfaces
 
@@ -59,6 +61,8 @@ A BLS adapter must include:
 
 Production BLS is registered through `BLSAdapter` and must pass `ValidateBLSAdapter` before it can be used as a signer or runtime finality backend. Adapter metadata must declare audit status, audit report identity, dependency audit identity, public-key validation, subgroup checks, rogue-key defense, deterministic encoding, malformed-input fuzz coverage, and proof-of-possession support.
 
+Registering metadata is not a substitute for a real audited implementation. The adapter package must perform the actual subgroup checks, key validation, proof-of-possession verification, signature verification, aggregate verification, and malformed-input rejection.
+
 Adapter packages should register audited implementations from `init()`:
 
 ```go
@@ -86,6 +90,8 @@ func init() {
 ```
 
 `vrf.adapter_name`, `vrf.audit_report`, and `vrf.key_source` must match the adapter metadata. When `committee.backend` is `vrf`, runtime startup fails if no matching adapter is linked instead of silently falling back to deterministic VRF. When committee selection is deterministic, runtime does not load a VRF adapter.
+
+As with BLS, the framework only provides the registry and validation boundary. The linked VRF adapter must provide the cryptographic proof generation, proof verification, key management boundary, and audit evidence.
 
 ## Remote Signer Requirements
 

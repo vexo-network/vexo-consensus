@@ -50,7 +50,9 @@ This package is intended for independent reviewers evaluating Vexo consensus, ne
 ## Known Limitations
 
 - BLS backend is intentionally unavailable until an audited adapter with dependency audit evidence is linked.
+- VRF-backed committee selection requires an externally linked and audited VRF adapter; the framework provides registry/wiring and rejects missing adapters, but does not certify a VRF implementation.
 - Ed25519 finality is ordered multisignature concatenation, not cryptographic aggregation.
+- Invalid-proposal evidence supports reason-specific mismatch verification, but it is not a complete light-client Merkle/state-proof framework for every possible invalid proposal claim.
 - Runtime defaults to durable slashing when a store is configured; full production stake custody, rewards, commission, tombstone, jail/unbonding authority, and staking/slashing accounting remain chain-specific integration work.
 - Multi-region long-running and chaos tests are planned through network/longrun plans but must be executed on independent real machines.
 - Governance upgrade execution records applied, pending, and rollback-required outcomes; durable chain-specific governance state, execution authority, rollback runbooks, and release governance policy remain production integration work.

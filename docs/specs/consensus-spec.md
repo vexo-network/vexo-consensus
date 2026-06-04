@@ -75,3 +75,5 @@ Invalid proposal evidence is reason-specific:
 - timestamp proofs must bind `actual_time_unix_nano` to the proposed header timestamp when the header timestamp is present.
 - tx-validity proofs must include deterministic expected/actual result hashes plus a verifier message.
 - proposer-signature proofs still pass normal proposal envelope checks, then fail domain-separated proposer signature verification during slashing validation.
+
+Current invalid-proposal evidence is a runtime-verifiable mismatch proof format. For several reasons, such as validator-set hash, app hash, state root, timestamp, and transaction validity, the proof binds an expected value, an actual proposal/header value, and a deterministic verifier message. It is not a full light-client Merkle/state-proof system. Chains that require slashing from independently verifiable state membership or non-membership proofs must add reason-specific Merkle/state proof verification before applying penalties for those reasons.
