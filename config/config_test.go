@@ -94,6 +94,7 @@ func TestConfigValidateRejectsUnsafeSettings(t *testing.T) {
 		{name: "negative rate limit cost", mutate: func(cfg *Config) { cfg.P2P.RateLimitCost = -1 }},
 		{name: "zero max messages window", mutate: func(cfg *Config) { cfg.P2P.MaxMessagesPerWindow = 0 }},
 		{name: "zero total max messages window", mutate: func(cfg *Config) { cfg.P2P.MaxTotalMessagesPerWindow = 0 }},
+		{name: "total max messages below per peer window", mutate: func(cfg *Config) { cfg.P2P.MaxTotalMessagesPerWindow = cfg.P2P.MaxMessagesPerWindow - 1 }},
 		{name: "zero p2p window reset interval", mutate: func(cfg *Config) { cfg.P2P.WindowResetInterval = 0 }},
 		{name: "negative p2p window reset interval", mutate: func(cfg *Config) { cfg.P2P.WindowResetInterval = -time.Second }},
 		{name: "negative p2p ban duration", mutate: func(cfg *Config) { cfg.P2P.BanDuration = -time.Second }},
@@ -131,6 +132,7 @@ func TestValidateNetworkSafetyRejectsDeterministicCrypto(t *testing.T) {
 	cfg.Execution.MinGas = 1
 	cfg.Mempool.MinFee = 1
 	cfg.Mempool.EnablePriority = true
+	cfg.Mempool.SeenTTL = time.Hour
 
 	if err := cfg.ValidateNetworkSafety(); !errors.Is(err, ErrUnsafeNetworkConfig) {
 		t.Fatalf("expected unsafe network config, got %v", err)
@@ -153,6 +155,7 @@ func TestValidateNetworkSafetyAcceptsHardenedEd25519Config(t *testing.T) {
 	cfg.Mempool.MinFee = 1
 	cfg.Mempool.EnablePriority = true
 	cfg.Mempool.WALPath = "mempool.wal"
+	cfg.Mempool.SeenTTL = time.Hour
 
 	if err := cfg.ValidateNetworkSafety(); err != nil {
 		t.Fatalf("expected hardened ed25519 config to pass, got %v", err)

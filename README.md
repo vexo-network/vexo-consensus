@@ -150,6 +150,7 @@ Operations and release:
 - [Security Audit Readiness](./docs/security/audit-readiness.md)
 - [Launch Runbook](./docs/release/launch-runbook.md)
 - [Release Pipeline](./docs/release/release-pipeline.md)
+- [Cosmos/Tendermint Comparison Gate](./docs/release/cosmos-comparison-gate.md)
 - [Version Compatibility Matrix](./docs/release/version-compatibility.md)
 - [Docker Deployment](./deployments/docker/README.md)
 

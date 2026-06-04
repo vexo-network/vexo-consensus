@@ -156,6 +156,12 @@ func buildAuditPackDocument() auditPackDocument {
 			"snapshot checksums and restore verification output",
 			"remote signer policy-bound challenge signature verification output",
 			"multi-machine long-run plan with region and host assignment plus generated longrun evidence JSON",
+			"P2P scale evidence for discovery, reconnect, NAT, seed, addrbook, ban eviction, and backpressure",
+			"state-sync/light-client evidence for validator-set hash binding, snapshot restore, replay, and finality proofs",
+			"validator economics evidence for custody, rewards, commission, jail, tombstone, unbonding, and slashing accounting",
+			"governance upgrade evidence for proposal approval, migration execution, halt, rollback, and failed-upgrade recovery",
+			"MEV/fee-market evidence for base fee, fair ordering, censorship-resistance, spam cost, and mempool WAL replay",
+			"SDK conformance evidence for app modules, custom crypto, custom storage, custom transport, RPC versioning, and upgrade hooks",
 			"adversarial simulation and fuzz/property evidence files",
 			"release checksums, signed checksums, SBOM, release manifest, and Docker image metadata",
 		},
@@ -202,7 +208,10 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 		document.addCheck("p2p_peer_discovery", "warning", len(runtimeConfig.P2PPeers)+len(runtimeConfig.P2PSeeds) > 0, "configure peers or seeds for non-local networks")
 		document.addCheck("addr_book_failure_policy", "warning", runtimeConfig.AddrBookMaxFailures > 0, "keep addr book failure banning enabled to evict repeatedly failing peers")
 	}
-	document.addCheck("mempool_seen_ttl", "warning", inputs.Config.Chain.Mempool.SeenTTL > 0, "set mempool seen TTL to suppress replay gossip")
+	document.addCheck("p2p_score_cap", strictSeverity(strict), inputs.Config.Chain.P2P.MaxScore > 0, "cap peer scores to prevent unbounded score growth")
+	document.addCheck("p2p_backpressure", strictSeverity(strict), inputs.Config.Chain.P2P.MaxTotalMessagesPerWindow > inputs.Config.Chain.P2P.MaxMessagesPerWindow, "set total-window backpressure above per-peer rate limits")
+	document.addCheck("p2p_ban_recovery", strictSeverity(strict), inputs.Config.Chain.P2P.BanDuration > 0 && inputs.Config.Chain.P2P.ScoreRecovery > 0, "set ban duration and score recovery for stable peer rehabilitation")
+	document.addCheck("mempool_seen_ttl", strictSeverity(strict), inputs.Config.Chain.Mempool.SeenTTL > 0, "set mempool seen TTL to suppress replay gossip")
 	document.addCheck("mempool_min_fee", "warning", inputs.Config.Chain.Mempool.MinFee > 0, "set minimum fee for public networks")
 	document.addCheck("mempool_priority", "warning", inputs.Config.Chain.Mempool.EnablePriority, "enable priority ordering when fee markets are active")
 	document.addCheck("mempool_wal", "warning", inputs.Config.Chain.Mempool.WALPath != "", "set mempool WAL path so pending transactions survive restart")

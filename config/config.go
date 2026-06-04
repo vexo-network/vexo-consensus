@@ -184,6 +184,7 @@ func (config Config) Validate() error {
 		config.P2P.RateLimitCost <= 0 ||
 		config.P2P.MaxMessagesPerWindow == 0 ||
 		config.P2P.MaxTotalMessagesPerWindow == 0 ||
+		config.P2P.MaxTotalMessagesPerWindow < config.P2P.MaxMessagesPerWindow ||
 		config.P2P.WindowResetInterval <= 0 ||
 		config.P2P.ScoreRecovery < 0 ||
 		config.P2P.BanDuration < 0 {
@@ -222,6 +223,15 @@ func (config Config) ValidateNetworkSafety() error {
 		return ErrUnsafeNetworkConfig
 	}
 	if config.Mempool.WALPath == "" {
+		return ErrUnsafeNetworkConfig
+	}
+	if config.Mempool.SeenTTL <= 0 {
+		return ErrUnsafeNetworkConfig
+	}
+	if config.P2P.MaxScore <= 0 ||
+		config.P2P.MaxTotalMessagesPerWindow <= config.P2P.MaxMessagesPerWindow ||
+		config.P2P.BanDuration <= 0 ||
+		config.P2P.ScoreRecovery <= 0 {
 		return ErrUnsafeNetworkConfig
 	}
 	return nil

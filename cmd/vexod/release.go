@@ -207,6 +207,14 @@ func runReleaseGate(writer io.Writer, args []string) error {
 	fuzzEvidence := flags.String("fuzz-evidence", "", "fuzz/property evidence output path")
 	kmsEvidence := flags.String("kms-evidence", "", "KMS/remote signer policy evidence path")
 	snapshotEvidence := flags.String("snapshot-evidence", "", "snapshot/replay restore evidence path")
+	p2pScaleEvidence := flags.String("p2p-scale-evidence", "", "large-validator P2P scale evidence path")
+	stateSyncLightClientEvidence := flags.String("state-sync-light-client-evidence", "", "state sync and light-client proof evidence path")
+	validatorEconomicsEvidence := flags.String("validator-economics-evidence", "", "staking/slashing/rewards economics evidence path")
+	upgradeGovernanceEvidence := flags.String("upgrade-governance-evidence", "", "governance upgrade lifecycle evidence path")
+	mevFeeMarketEvidence := flags.String("mev-fee-market-evidence", "", "MEV, fair ordering, fee-market, and mempool evidence path")
+	opsRunbookEvidence := flags.String("ops-runbook-evidence", "", "operator runbook, alert threshold, and incident drill evidence path")
+	formalSafetyEvidence := flags.String("formal-safety-evidence", "", "formal safety argument, invariant, and adversarial evidence path")
+	sdkConformanceEvidence := flags.String("sdk-conformance-evidence", "", "SDK/API module, storage, crypto, transport, and RPC conformance evidence path")
 	externalAudit := flags.String("external-audit", "", "external security audit report or disposition path")
 	blsAudit := flags.String("bls-audit", "", "audited BLS adapter/dependency audit evidence path")
 	allowExternalPending := flags.Bool("allow-external-pending", false, "allow external audit/BLS audit to remain pending for non-mainnet release candidates")
@@ -226,6 +234,14 @@ func runReleaseGate(writer io.Writer, args []string) error {
 		Chaos:                *chaosEvidence,
 		KMS:                  *kmsEvidence,
 		Snapshot:             *snapshotEvidence,
+		P2PScale:             *p2pScaleEvidence,
+		StateSyncLightClient: *stateSyncLightClientEvidence,
+		ValidatorEconomics:   *validatorEconomicsEvidence,
+		UpgradeGovernance:    *upgradeGovernanceEvidence,
+		MEVFeeMarket:         *mevFeeMarketEvidence,
+		OpsRunbook:           *opsRunbookEvidence,
+		FormalSafety:         *formalSafetyEvidence,
+		SDKConformance:       *sdkConformanceEvidence,
 		ExternalAudit:        *externalAudit,
 		BLSAudit:             *blsAudit,
 		AllowExternalPending: *allowExternalPending,
@@ -260,7 +276,7 @@ func buildProductionReadinessDocument() productionReadinessDocument {
 			"go run ./cmd/vexod release launch-checklist --json",
 			"go run ./cmd/vexod release readiness --json",
 			"go run ./cmd/vexod config tune --validators <n> --tps <target> --regions <r> --latency <duration> --json",
-			"go run ./cmd/vexod release gate --dist dist --version <version> --longrun-evidence dist/longrun-evidence.json --chaos-evidence dist/chaos-evidence.json --adversarial-evidence dist/adversarial-evidence.json --fuzz-evidence dist/fuzz-evidence.txt --kms-evidence dist/kms-evidence.json --snapshot-evidence dist/snapshot-replay-evidence.json --external-audit dist/external-audit.pdf --bls-audit dist/bls-audit.pdf",
+			"go run ./cmd/vexod release gate --dist dist --version <version> --longrun-evidence dist/longrun-evidence.json --chaos-evidence dist/chaos-evidence.json --adversarial-evidence dist/adversarial-evidence.json --fuzz-evidence dist/fuzz-evidence.txt --kms-evidence dist/kms-evidence.json --snapshot-evidence dist/snapshot-replay-evidence.json --p2p-scale-evidence dist/p2p-scale-evidence.json --state-sync-light-client-evidence dist/state-sync-light-client-evidence.json --validator-economics-evidence dist/validator-economics-evidence.json --upgrade-governance-evidence dist/upgrade-governance-evidence.json --mev-fee-market-evidence dist/mev-fee-market-evidence.json --ops-runbook-evidence dist/ops-runbook-evidence.json --formal-safety-evidence dist/formal-safety-evidence.json --sdk-conformance-evidence dist/sdk-conformance-evidence.json --external-audit dist/external-audit.pdf --bls-audit dist/bls-audit.pdf",
 			"go run ./cmd/vexod network scale-plan --validators <n> --regions <r> --hosts <h> --json",
 			"go run ./cmd/vexod snapshot drill-plan --input snapshot.json --chain-id <chain-id> --json",
 			"go run ./cmd/vexod slashing lifecycle-plan --type conflicting_vote --validator <id> --height <h> --current-height <h> --json",
@@ -282,19 +298,28 @@ func buildProductionReadinessDocument() productionReadinessDocument {
 			"external security audit with signed finding disposition",
 			"audited production BLS backend with dependency audit, subgroup checks, rogue-key defense, proof-of-possession, and malformed-input fuzz evidence",
 			"multi-host multi-region longrun evidence on independent machines",
+			"large-validator P2P evidence covering discovery, reconnect, backpressure, NAT, seeds, addrbook persistence, and ban eviction",
+			"state-sync and light-client evidence covering validator-set hash binding, finality proofs, snapshot restore, and replay consistency",
 			"chaos evidence for peer loss, signer failure, snapshot restore, replay, and network partition recovery",
 			"KMS or remote signer evidence proving height/round/type sign policy and double-sign guard enforcement",
 			"chain-specific staking custody, rewards, commission, tombstone, jail, unbonding, and slashing accounting review",
 			"chain-specific durable governance state, proposal execution authority, rollback, and failed-upgrade recovery review",
+			"fee-market and MEV mitigation evidence covering base fee, fair ordering, spam cost, mempool durability, and censorship-resistance drills",
+			"SDK/API conformance evidence for module, storage, crypto, transport, RPC versioning, and upgrade extension points",
 		},
 	}
 	for _, check := range []productionReadinessCheck{
 		{Name: "protocol_specs", OK: true, Message: "consensus, networking, storage, tx, validator, and finality specs are documented"},
 		{Name: "crypto_boundaries", OK: true, Message: "deterministic crypto is dev-only and production adapters have explicit activation boundaries"},
+		{Name: "p2p_scale_gate", OK: true, Message: "release gate requires large-validator P2P discovery, reconnect, backpressure, NAT, and addrbook evidence"},
 		{Name: "state_sync_drill", OK: true, Message: "snapshot drill-plan verifies checksum, roots, KV payloads, and restore steps"},
+		{Name: "light_client_gate", OK: true, Message: "release gate requires light-client finality proof and validator-set-hash evidence"},
 		{Name: "slashing_lifecycle", OK: true, Message: "slashing lifecycle-plan captures appeal, expiration, jail, unbonding, and stake accounting"},
+		{Name: "validator_economics_gate", OK: true, Message: "release gate requires staking, rewards, commission, tombstone, unbonding, and slashing accounting evidence"},
+		{Name: "mev_fee_market_gate", OK: true, Message: "release gate requires base-fee, fair-ordering, spam-cost, mempool durability, and MEV mitigation evidence"},
 		{Name: "observability_incident", OK: true, Message: "ops incident reports convert metrics threshold breaches into operator actions"},
 		{Name: "upgrade_rollback", OK: true, Message: "upgrade rollback-plan captures last safe height, snapshot evidence, and retry blockers"},
+		{Name: "sdk_conformance_gate", OK: true, Message: "release gate requires extension-point conformance evidence for SDK/API stability"},
 		{Name: "release_artifacts", OK: true, Message: "release pack, signed checksums, SBOM, and RC evidence are available"},
 	} {
 		document.Checks = append(document.Checks, check)
@@ -309,6 +334,14 @@ type releaseGateInputs struct {
 	Chaos                string
 	KMS                  string
 	Snapshot             string
+	P2PScale             string
+	StateSyncLightClient string
+	ValidatorEconomics   string
+	UpgradeGovernance    string
+	MEVFeeMarket         string
+	OpsRunbook           string
+	FormalSafety         string
+	SDKConformance       string
 	ExternalAudit        string
 	BLSAudit             string
 	AllowExternalPending bool
@@ -330,6 +363,14 @@ func buildReleaseGateDocument(versionValue string, pack releaseAuditPack, inputs
 		Chaos:                inputs.Chaos,
 		KMS:                  inputs.KMS,
 		Snapshot:             inputs.Snapshot,
+		P2PScale:             inputs.P2PScale,
+		StateSyncLightClient: inputs.StateSyncLightClient,
+		ValidatorEconomics:   inputs.ValidatorEconomics,
+		UpgradeGovernance:    inputs.UpgradeGovernance,
+		MEVFeeMarket:         inputs.MEVFeeMarket,
+		OpsRunbook:           inputs.OpsRunbook,
+		FormalSafety:         inputs.FormalSafety,
+		SDKConformance:       inputs.SDKConformance,
 		ExternalAudit:        inputs.ExternalAudit,
 		BLSAudit:             inputs.BLSAudit,
 		AllowExternalPending: inputs.AllowExternalPending,
@@ -349,6 +390,7 @@ func buildLaunchChecklistDocument() launchChecklistDocument {
 					"verify deterministic crypto is disabled outside development",
 					"verify remote signer double-sign guard and height/round/type sign policy",
 					"generate network scale-plan for the target validator count and region layout",
+					"prepare P2P scale, state-sync/light-client, validator economics, MEV/fee-market, SDK conformance, and formal safety evidence",
 				},
 			},
 			{
@@ -356,8 +398,8 @@ func buildLaunchChecklistDocument() launchChecklistDocument {
 				Items: []string{
 					"build release artifacts with make release VERSION=<version>",
 					"sign checksums and verify checksums before distribution",
-					"attach release pack, SBOM, fuzz evidence, adversarial evidence, and longrun evidence",
-					"run multi-host longrun with metrics, logs, pprof, snapshot, replay, and signer evidence",
+					"attach release pack, SBOM, fuzz evidence, adversarial evidence, longrun evidence, P2P scale evidence, and economics evidence",
+					"run multi-host longrun with metrics, logs, pprof, snapshot, replay, signer, mempool, light-client, and governance-upgrade evidence",
 				},
 			},
 			{
@@ -375,6 +417,7 @@ func buildLaunchChecklistDocument() launchChecklistDocument {
 					"start seed validators first, then remaining validators in regional waves",
 					"watch height rate, round timeout frequency, proposal/vote latency, peer bans, mempool size, commit latency, snapshot/replay health, and signer failures",
 					"halt launch if quorum is unstable, conflicting finality appears, signer policy fails, or snapshot/replay diverges",
+					"halt launch if fee-market, fair-ordering, or peer backpressure thresholds fail under load",
 					"submit signed low-rate smoke transactions before increasing public traffic",
 				},
 			},

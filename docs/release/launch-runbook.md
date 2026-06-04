@@ -26,6 +26,7 @@ Do not launch if:
 - parameter tuning output is missing or has failed validation checks
 - release artifacts, checksums, SBOM, or audit pack are missing
 - long-run, adversarial, fuzz, snapshot, replay, or signer evidence is missing for a release candidate
+- P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, or SDK conformance evidence is missing for a public release candidate
 - `release gate` fails without an explicitly documented private-RC exception
 
 ## Release Candidate Gate
@@ -44,6 +45,14 @@ Required artifacts:
 - fuzz or property test evidence
 - KMS or remote signer policy evidence
 - snapshot/replay restore evidence
+- P2P scale evidence covering discovery, reconnect, NAT, seed, addrbook, ban eviction, and backpressure
+- state-sync and light-client evidence covering validator-set hash binding, snapshot restore, replay, and finality proof verification
+- validator economics evidence covering custody, rewards, commission, jail, tombstone, unbonding, and slashing accounting
+- upgrade governance evidence covering proposal approval, migration execution, halt, rollback, and failed-upgrade recovery
+- MEV/fee-market evidence covering base fee, fair ordering, censorship-resistance, spam cost, and mempool WAL replay
+- ops runbook evidence covering alert thresholds, incident drills, multi-region observability, and archive requirements
+- formal safety evidence covering invariants, adversarial simulation output, and property/fuzz output
+- SDK conformance evidence covering app modules, custom crypto, custom storage, custom transport, RPC versioning, and upgrade hooks
 - external audit disposition for public releases
 - BLS adapter audit evidence when BLS is enabled
 
@@ -69,6 +78,14 @@ go run ./cmd/vexod release gate \
   --fuzz-evidence dist/fuzz-evidence.txt \
   --kms-evidence dist/kms-evidence.json \
   --snapshot-evidence dist/snapshot-replay-evidence.json \
+  --p2p-scale-evidence dist/p2p-scale-evidence.json \
+  --state-sync-light-client-evidence dist/state-sync-light-client-evidence.json \
+  --validator-economics-evidence dist/validator-economics-evidence.json \
+  --upgrade-governance-evidence dist/upgrade-governance-evidence.json \
+  --mev-fee-market-evidence dist/mev-fee-market-evidence.json \
+  --ops-runbook-evidence dist/ops-runbook-evidence.json \
+  --formal-safety-evidence dist/formal-safety-evidence.json \
+  --sdk-conformance-evidence dist/sdk-conformance-evidence.json \
   --external-audit dist/external-audit.pdf \
   --bls-audit dist/bls-audit.pdf
 ```
@@ -103,6 +120,10 @@ Monitor these values continuously:
 - commit latency
 - snapshot and replay health
 - validator signing failures
+- peer backpressure saturation and reconnect churn
+- light-client proof verification success rate
+- base-fee movement, mempool WAL compaction, and fair-ordering consistency
+- governance-upgrade plan, halt, apply, and rollback status
 
 Halt the launch if:
 
@@ -113,6 +134,9 @@ Halt the launch if:
 - peer bans spike across multiple regions
 - peer scores unexpectedly pin at `MaxScore` while invalid-message, reconnect, or ban metrics also increase
 - commit latency remains above the configured alert threshold
+- light-client proof verification or validator-set hash binding fails
+- base fee, fair ordering, or mempool replay behaves non-deterministically across nodes
+- governance-upgrade migration enters rollback-required state without a verified last safe height
 
 ## Postlaunch Archive
 
@@ -122,7 +146,7 @@ Archive:
 - validator set and validator set hash evidence
 - release pack and signed checksums
 - launch metrics, logs, pprof samples, peer score snapshots, and final split config files
-- long-run, chaos, adversarial, fuzz, snapshot, replay, and signer evidence
+- long-run, chaos, adversarial, fuzz, snapshot, replay, signer, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, ops runbook, formal safety, and SDK conformance evidence
 
 After launch, schedule:
 

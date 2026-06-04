@@ -62,6 +62,14 @@ go run ./cmd/vexod release gate \
   --fuzz-evidence dist/fuzz-evidence.txt \
   --kms-evidence dist/kms-evidence.json \
   --snapshot-evidence dist/snapshot-replay-evidence.json \
+  --p2p-scale-evidence dist/p2p-scale-evidence.json \
+  --state-sync-light-client-evidence dist/state-sync-light-client-evidence.json \
+  --validator-economics-evidence dist/validator-economics-evidence.json \
+  --upgrade-governance-evidence dist/upgrade-governance-evidence.json \
+  --mev-fee-market-evidence dist/mev-fee-market-evidence.json \
+  --ops-runbook-evidence dist/ops-runbook-evidence.json \
+  --formal-safety-evidence dist/formal-safety-evidence.json \
+  --sdk-conformance-evidence dist/sdk-conformance-evidence.json \
   --external-audit dist/external-audit.pdf \
   --bls-audit dist/bls-audit.pdf \
   --json
@@ -80,7 +88,7 @@ go run ./cmd/vexod release gate \
 - `sbom-go-version.txt`
 - `release-manifest.json`
 - `release-audit-pack.json`
-- long-run, chaos, adversarial, fuzz, signer, snapshot/replay, external-audit, and BLS-audit evidence files when preparing a release candidate
+- long-run, chaos, adversarial, fuzz, signer, snapshot/replay, P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, SDK conformance, external-audit, and BLS-audit evidence files when preparing a release candidate
 
 ## Reproducibility Notes
 
@@ -125,7 +133,7 @@ go run ./cmd/vexod release pack --dist dist --version 0.1.0 \
   --fuzz-evidence dist/fuzz-evidence.txt
 ```
 
-The generated pack lists artifact SHA-256 values, required release files, signature status, attached long-run/adversarial/fuzz evidence, and the external audit checklist. `release gate` adds the stricter publish/no-publish decision by requiring chaos, signer, snapshot/replay, external audit, and BLS audit evidence.
+The generated pack lists artifact SHA-256 values, required release files, signature status, attached long-run/adversarial/fuzz evidence, and the external audit checklist. `release gate` adds the stricter publish/no-publish decision by requiring chaos, signer, snapshot/replay, P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, SDK conformance, external audit, and BLS audit evidence.
 
 ## Release Candidate Soak Test
 
@@ -140,7 +148,7 @@ The `release-candidate` target runs:
 - 7-day multi-host longrun plan
 - longrun harness evidence dry-run
 
-Real release candidates should run `network longrun` on independent machines and attach the generated evidence JSON plus metrics, logs, pprof, snapshot, replay, and KMS signing evidence.
+Real release candidates should run `network longrun` on independent machines and attach the generated evidence JSON plus metrics, logs, pprof, snapshot, replay, KMS signing, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, and SDK conformance evidence.
 
 ## Launch Runbook
 
