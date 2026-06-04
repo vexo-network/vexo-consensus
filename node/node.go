@@ -87,6 +87,14 @@ func New(cfg Config, genesis Genesis, application app.Application) (*Node, error
 	if err := genesis.Validate(cfg.Chain.ChainID); err != nil {
 		return nil, err
 	}
+	if cfg.RequireNetworkSafety {
+		if err := cfg.Chain.ValidateNetworkSafety(); err != nil {
+			return nil, err
+		}
+		if err := genesis.ValidateNetworkSafety(cfg.Chain); err != nil {
+			return nil, err
+		}
+	}
 	return &Node{
 		cfg:          cfg,
 		genesis:      genesis,
@@ -178,6 +186,7 @@ func (node *Node) Start(ctx context.Context) error {
 				validatorID:        node.cfg.ValidatorID,
 				signer:             node.signer,
 				onProposalAccepted: node.cacheProposal,
+				onVoteAccepted:     node.wakeConsensus,
 				onEvidence:         node.handleLocalEvidence,
 				wal:                consensusWAL,
 			}

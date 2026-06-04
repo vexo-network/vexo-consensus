@@ -97,6 +97,11 @@ func (limiter *rateLimiter) Allow(request *http.Request) bool {
 
 	now := limiter.now()
 	key := clientKey(request)
+	for bucketKey, bucket := range limiter.buckets {
+		if !bucket.WindowStart.IsZero() && now.Sub(bucket.WindowStart) >= limiter.window {
+			delete(limiter.buckets, bucketKey)
+		}
+	}
 	bucket := limiter.buckets[key]
 	if bucket.WindowStart.IsZero() || now.Sub(bucket.WindowStart) >= limiter.window {
 		limiter.buckets[key] = rateBucket{WindowStart: now, Count: 1}
@@ -141,7 +146,8 @@ func allowPost(writer http.ResponseWriter, request *http.Request) bool {
 
 func allowAdmin(writer http.ResponseWriter, request *http.Request, adminToken string) bool {
 	if adminToken == "" {
-		return true
+		writeJSON(writer, http.StatusUnauthorized, map[string]string{"error": "admin authorization is not configured"})
+		return false
 	}
 	const prefix = "Bearer "
 	header := request.Header.Get("Authorization")

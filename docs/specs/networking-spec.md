@@ -29,10 +29,10 @@ A production handshake should bind:
 - node ID
 - supported protocol version
 - transport protocol version
-- optional auth token or stronger peer authentication
+- optional P2P auth proof or stronger peer authentication
 - advertised listen address
 
-Peers failing handshake authentication are rejected before gossip admission.
+Peers failing handshake authentication are rejected before gossip admission. When a shared P2P auth secret is configured, Vexo handshakes send a derived HMAC proof over the protocol/network/chain/genesis/node tuple rather than the raw secret.
 
 ## Address Roles
 

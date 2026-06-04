@@ -570,7 +570,7 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 		Log:       logDocument.Log,
 	}
 	if runtimeConfigIsZero(runtime) {
-		runtime = defaultRuntimeConfig(document.ValidatorID, document.NodeMode)
+		runtime = defaultRuntimeConfig(document.ValidatorID)
 	}
 	cfg := startRuntimeConfig{
 		RPCEnabled:           runtime.RPC.Enabled,

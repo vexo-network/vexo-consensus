@@ -1070,10 +1070,10 @@ func TestHandlerPrunesBlocksAndStateRoots(t *testing.T) {
 		PrunedStates:     1,
 		PrunedStateRoots: 4,
 	}}
-	handler := NewHandler(provider)
+	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
 
 	var response PruneResponse
-	postJSON(t, handler, "/prune", `{"retain_from_height":3}`, http.StatusOK, &response)
+	postJSONWithToken(t, handler, "/prune", `{"retain_from_height":3}`, "secret", http.StatusOK, &response)
 
 	if response.RetainFromHeight != 3 || response.PrunedBlocks != 2 || response.PrunedStates != 1 || response.PrunedStateRoots != 4 {
 		t.Fatalf("unexpected prune response: %+v", response)
@@ -1128,7 +1128,7 @@ func TestHandlerAcceptsAdminTokenForPrune(t *testing.T) {
 }
 
 func TestHandlerRejectsInvalidPruneRequests(t *testing.T) {
-	handler := NewHandler(&fakeStatusProvider{})
+	handler := NewHandlerWithConfig(&fakeStatusProvider{}, Config{AdminToken: "secret"})
 	cases := []string{
 		`{}`,
 		`{"retain_from_height":0}`,
@@ -1137,7 +1137,7 @@ func TestHandlerRejectsInvalidPruneRequests(t *testing.T) {
 	}
 	for _, body := range cases {
 		var response map[string]string
-		postJSON(t, handler, "/prune", body, http.StatusBadRequest, &response)
+		postJSONWithToken(t, handler, "/prune", body, "secret", http.StatusBadRequest, &response)
 		if response["error"] == "" {
 			t.Fatalf("expected prune error for %s, got %+v", body, response)
 		}
@@ -1146,7 +1146,7 @@ func TestHandlerRejectsInvalidPruneRequests(t *testing.T) {
 
 func TestHandlerRejectsUnavailablePruneProvider(t *testing.T) {
 	var response map[string]string
-	postJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/prune", `{"retain_from_height":2}`, http.StatusNotImplemented, &response)
+	postJSONWithToken(t, NewHandlerWithConfig(struct{ StatusProvider }{fakeStatusProvider{}}, Config{AdminToken: "secret"}), "/prune", `{"retain_from_height":2}`, "secret", http.StatusNotImplemented, &response)
 	if response["error"] == "" {
 		t.Fatalf("expected unavailable prune error, got %+v", response)
 	}
@@ -1162,9 +1162,9 @@ func TestHandlerReportsPruneErrors(t *testing.T) {
 		{err: errors.New("prune failed"), expectedStatus: http.StatusInternalServerError},
 	}
 	for _, testCase := range cases {
-		handler := NewHandler(&fakeStatusProvider{pruneErr: testCase.err})
+		handler := NewHandlerWithConfig(&fakeStatusProvider{pruneErr: testCase.err}, Config{AdminToken: "secret"})
 		var response map[string]string
-		postJSON(t, handler, "/prune", `{"retain_from_height":2}`, testCase.expectedStatus, &response)
+		postJSONWithToken(t, handler, "/prune", `{"retain_from_height":2}`, "secret", testCase.expectedStatus, &response)
 		if response["error"] == "" {
 			t.Fatalf("expected prune error for %v, got %+v", testCase.err, response)
 		}
@@ -1192,10 +1192,10 @@ func TestHandlerReplaysStoredBlocks(t *testing.T) {
 		LastHash:   types.Hash{9},
 		Blocks:     3,
 	}}
-	handler := NewHandler(provider)
+	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
 
 	var response ReplayResponse
-	postJSON(t, handler, "/replay", `{"from_height":2,"to_height":4}`, http.StatusOK, &response)
+	postJSONWithToken(t, handler, "/replay", `{"from_height":2,"to_height":4}`, "secret", http.StatusOK, &response)
 
 	if response.FromHeight != 2 || response.ToHeight != 4 || response.Blocks != 3 || response.LastHash[:2] != "09" {
 		t.Fatalf("unexpected replay response: %+v", response)
@@ -1212,10 +1212,10 @@ func TestHandlerReplaysAllStoredBlocks(t *testing.T) {
 		LastHash:   types.Hash{7},
 		Blocks:     5,
 	}}
-	handler := NewHandler(provider)
+	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
 
 	var response ReplayResponse
-	postJSON(t, handler, "/replay", `{"all":true}`, http.StatusOK, &response)
+	postJSONWithToken(t, handler, "/replay", `{"all":true}`, "secret", http.StatusOK, &response)
 
 	if !provider.replayAllCalled || response.FromHeight != 1 || response.ToHeight != 5 || response.Blocks != 5 {
 		t.Fatalf("unexpected replay all response: called=%v response=%+v", provider.replayAllCalled, response)
@@ -1254,7 +1254,7 @@ func TestHandlerAcceptsAdminTokenForReplay(t *testing.T) {
 }
 
 func TestHandlerRejectsInvalidReplayRequests(t *testing.T) {
-	handler := NewHandler(&fakeStatusProvider{})
+	handler := NewHandlerWithConfig(&fakeStatusProvider{}, Config{AdminToken: "secret"})
 	cases := []string{
 		`{"from_height":1}`,
 		`{"to_height":2}`,
@@ -1264,7 +1264,7 @@ func TestHandlerRejectsInvalidReplayRequests(t *testing.T) {
 	}
 	for _, body := range cases {
 		var response map[string]string
-		postJSON(t, handler, "/replay", body, http.StatusBadRequest, &response)
+		postJSONWithToken(t, handler, "/replay", body, "secret", http.StatusBadRequest, &response)
 		if response["error"] == "" {
 			t.Fatalf("expected replay error for %s, got %+v", body, response)
 		}
@@ -1273,7 +1273,7 @@ func TestHandlerRejectsInvalidReplayRequests(t *testing.T) {
 
 func TestHandlerRejectsUnavailableReplayProvider(t *testing.T) {
 	var response map[string]string
-	postJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/replay", `{"all":true}`, http.StatusNotImplemented, &response)
+	postJSONWithToken(t, NewHandlerWithConfig(struct{ StatusProvider }{fakeStatusProvider{}}, Config{AdminToken: "secret"}), "/replay", `{"all":true}`, "secret", http.StatusNotImplemented, &response)
 	if response["error"] == "" {
 		t.Fatalf("expected unavailable replay error, got %+v", response)
 	}
@@ -1291,9 +1291,9 @@ func TestHandlerReportsReplayErrors(t *testing.T) {
 		{err: errors.New("replay failed"), expectedStatus: http.StatusInternalServerError},
 	}
 	for _, testCase := range cases {
-		handler := NewHandler(&fakeStatusProvider{replayErr: testCase.err})
+		handler := NewHandlerWithConfig(&fakeStatusProvider{replayErr: testCase.err}, Config{AdminToken: "secret"})
 		var response map[string]string
-		postJSON(t, handler, "/replay", `{"all":true}`, testCase.expectedStatus, &response)
+		postJSONWithToken(t, handler, "/replay", `{"all":true}`, "secret", testCase.expectedStatus, &response)
 		if response["error"] == "" {
 			t.Fatalf("expected replay error for %v, got %+v", testCase.err, response)
 		}
@@ -1316,10 +1316,10 @@ func TestHandlerRejectsNonPOSTReplay(t *testing.T) {
 
 func TestHandlerStartsConsensusLoop(t *testing.T) {
 	provider := &fakeStatusProvider{}
-	handler := NewHandler(provider)
+	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
 
 	var response ConsensusLoopResponse
-	postJSON(t, handler, "/consensus/start", `{"interval_millis":25,"round_timeout_millis":250,"max_block_bytes":4096}`, http.StatusOK, &response)
+	postJSONWithToken(t, handler, "/consensus/start", `{"interval_millis":25,"round_timeout_millis":250,"max_block_bytes":4096}`, "secret", http.StatusOK, &response)
 
 	if !response.Running || response.Action != "start" || response.IntervalMillis != 25 || response.RoundTimeoutMillis != 250 || response.MaxBlockBytes != 4096 {
 		t.Fatalf("unexpected consensus start response: %+v", response)
@@ -1335,10 +1335,10 @@ func TestHandlerStartsConsensusLoop(t *testing.T) {
 
 func TestHandlerStartsConsensusLoopWithDefaults(t *testing.T) {
 	provider := &fakeStatusProvider{}
-	handler := NewHandler(provider)
+	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
 
 	var response ConsensusLoopResponse
-	postJSON(t, handler, "/consensus/start", ``, http.StatusOK, &response)
+	postJSONWithToken(t, handler, "/consensus/start", ``, "secret", http.StatusOK, &response)
 
 	if !response.Running || response.Action != "start" {
 		t.Fatalf("unexpected default consensus start response: %+v", response)
@@ -1350,10 +1350,10 @@ func TestHandlerStartsConsensusLoopWithDefaults(t *testing.T) {
 
 func TestHandlerStopsConsensusLoop(t *testing.T) {
 	provider := &fakeStatusProvider{loopRunning: true}
-	handler := NewHandler(provider)
+	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
 
 	var response ConsensusLoopResponse
-	postJSON(t, handler, "/consensus/stop", `{}`, http.StatusOK, &response)
+	postJSONWithToken(t, handler, "/consensus/stop", `{}`, "secret", http.StatusOK, &response)
 
 	if response.Running || response.Action != "stop" || provider.loopRunning {
 		t.Fatalf("unexpected consensus stop response: response=%+v running=%v", response, provider.loopRunning)
@@ -1399,7 +1399,7 @@ func TestHandlerReportsConsensusControlErrors(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			var response map[string]string
-			postJSON(t, NewHandler(testCase.provider), testCase.path, `{}`, testCase.expectedStatus, &response)
+			postJSONWithToken(t, NewHandlerWithConfig(testCase.provider, Config{AdminToken: "secret"}), testCase.path, `{}`, "secret", testCase.expectedStatus, &response)
 			if response["error"] == "" {
 				t.Fatalf("expected consensus control error, got %+v", response)
 			}
@@ -1408,14 +1408,14 @@ func TestHandlerReportsConsensusControlErrors(t *testing.T) {
 }
 
 func TestHandlerRejectsInvalidConsensusStartRequests(t *testing.T) {
-	handler := NewHandler(&fakeStatusProvider{})
+	handler := NewHandlerWithConfig(&fakeStatusProvider{}, Config{AdminToken: "secret"})
 	for _, body := range []string{
 		`{"interval_millis":1,"extra":true}`,
 		`{"interval_millis":1} {"interval_millis":2}`,
 		`{`,
 	} {
 		var response map[string]string
-		postJSON(t, handler, "/consensus/start", body, http.StatusBadRequest, &response)
+		postJSONWithToken(t, handler, "/consensus/start", body, "secret", http.StatusBadRequest, &response)
 		if response["error"] == "" {
 			t.Fatalf("expected consensus start error for %s, got %+v", body, response)
 		}
@@ -1424,11 +1424,11 @@ func TestHandlerRejectsInvalidConsensusStartRequests(t *testing.T) {
 
 func TestHandlerRejectsUnavailableConsensusController(t *testing.T) {
 	var response map[string]string
-	postJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/consensus/start", `{}`, http.StatusNotImplemented, &response)
+	postJSONWithToken(t, NewHandlerWithConfig(struct{ StatusProvider }{fakeStatusProvider{}}, Config{AdminToken: "secret"}), "/consensus/start", `{}`, "secret", http.StatusNotImplemented, &response)
 	if response["error"] == "" {
 		t.Fatalf("expected unavailable consensus start error, got %+v", response)
 	}
-	postJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/consensus/stop", `{}`, http.StatusNotImplemented, &response)
+	postJSONWithToken(t, NewHandlerWithConfig(struct{ StatusProvider }{fakeStatusProvider{}}, Config{AdminToken: "secret"}), "/consensus/stop", `{}`, "secret", http.StatusNotImplemented, &response)
 	if response["error"] == "" {
 		t.Fatalf("expected unavailable consensus stop error, got %+v", response)
 	}

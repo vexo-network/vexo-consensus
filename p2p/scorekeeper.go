@@ -15,8 +15,9 @@ import (
 const ScoreKeeperVersionV1 = "v1"
 
 var (
-	ErrPeerBanned        = errors.New("peer is banned")
-	ErrRateLimitExceeded = errors.New("peer rate limit exceeded")
+	ErrPeerBanned               = errors.New("peer is banned")
+	ErrRateLimitExceeded        = errors.New("peer rate limit exceeded")
+	ErrUnsupportedScoreDocument = errors.New("unsupported peer score document")
 )
 
 type ScoreConfig struct {
@@ -266,7 +267,7 @@ func (keeper *ScoreKeeper) SaveFile(path string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(data, '\n'), 0o600)
+	return writeFileAtomic(path, append(data, '\n'), 0o600)
 }
 
 func (keeper *ScoreKeeper) LoadFile(path string) error {
@@ -285,9 +286,48 @@ func (keeper *ScoreKeeper) LoadFile(path string) error {
 		return err
 	}
 	if document.SchemaVersion != "" && document.SchemaVersion != ScoreKeeperVersionV1 {
-		return nil
+		return ErrUnsupportedScoreDocument
 	}
 	keeper.restore(document)
+	return nil
+}
+
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	if path == "" {
+		return nil
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
+	if err := temp.Chmod(perm); err != nil {
+		_ = temp.Close()
+		return err
+	}
+	if _, err := temp.Write(data); err != nil {
+		_ = temp.Close()
+		return err
+	}
+	if err := temp.Sync(); err != nil {
+		_ = temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return err
+	}
+	if dirFile, err := os.Open(dir); err == nil {
+		_ = dirFile.Sync()
+		_ = dirFile.Close()
+	}
 	return nil
 }
 

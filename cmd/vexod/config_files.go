@@ -49,23 +49,23 @@ const (
 var errValidationFailed = errors.New("validation failed")
 
 type configDocument struct {
-	SchemaVersion       string                  `json:"schema_version"`
-	NodeMode            string                  `json:"node_mode,omitempty"`
-	DataDir             string                  `json:"data_dir"`
-	ValidatorID         string                  `json:"validator_id,omitempty"`
-	ChainID             string                  `json:"chain_id"`
-	ModuleConfigPath    string                  `json:"module_config_path,omitempty"`
-	NetworkConfigPath   string                  `json:"network_config_path,omitempty"`
-	ConsensusConfigPath string                  `json:"consensus_config_path,omitempty"`
-	MempoolConfigPath   string                  `json:"mempool_config_path,omitempty"`
-	LogConfigPath       string                  `json:"log_config_path,omitempty"`
-	Runtime             runtimeConfig           `json:"-"`
-	Chain               chainConfigDocument     `json:"-"`
-	LegacyModule        moduleConfigDocument    `json:"-"`
-	LegacyNetwork       networkConfigDocument   `json:"-"`
-	LegacyConsensus     consensusConfigDocument `json:"-"`
-	LegacyMempool       mempoolConfigDocument   `json:"-"`
-	LegacyLog           logConfigDocument       `json:"-"`
+	SchemaVersion        string                  `json:"schema_version"`
+	RequireNetworkSafety bool                    `json:"require_network_safety,omitempty"`
+	DataDir              string                  `json:"data_dir"`
+	ValidatorID          string                  `json:"validator_id,omitempty"`
+	ChainID              string                  `json:"chain_id"`
+	ModuleConfigPath     string                  `json:"module_config_path,omitempty"`
+	NetworkConfigPath    string                  `json:"network_config_path,omitempty"`
+	ConsensusConfigPath  string                  `json:"consensus_config_path,omitempty"`
+	MempoolConfigPath    string                  `json:"mempool_config_path,omitempty"`
+	LogConfigPath        string                  `json:"log_config_path,omitempty"`
+	Runtime              runtimeConfig           `json:"-"`
+	Chain                chainConfigDocument     `json:"-"`
+	LegacyModule         moduleConfigDocument    `json:"-"`
+	LegacyNetwork        networkConfigDocument   `json:"-"`
+	LegacyConsensus      consensusConfigDocument `json:"-"`
+	LegacyMempool        mempoolConfigDocument   `json:"-"`
+	LegacyLog            logConfigDocument       `json:"-"`
 }
 
 type chainConfigDocument struct {
@@ -79,18 +79,18 @@ type chainConfigDocument struct {
 }
 
 type legacyConfigDocument struct {
-	SchemaVersion       string        `json:"schema_version"`
-	NodeMode            string        `json:"node_mode,omitempty"`
-	DataDir             string        `json:"data_dir"`
-	ValidatorID         string        `json:"validator_id,omitempty"`
-	ChainID             string        `json:"chain_id,omitempty"`
-	ModuleConfigPath    string        `json:"module_config_path,omitempty"`
-	NetworkConfigPath   string        `json:"network_config_path,omitempty"`
-	ConsensusConfigPath string        `json:"consensus_config_path,omitempty"`
-	MempoolConfigPath   string        `json:"mempool_config_path,omitempty"`
-	LogConfigPath       string        `json:"log_config_path,omitempty"`
-	Runtime             runtimeConfig `json:"runtime,omitempty"`
-	Chain               config.Config `json:"chain,omitempty"`
+	SchemaVersion        string        `json:"schema_version"`
+	RequireNetworkSafety bool          `json:"require_network_safety,omitempty"`
+	DataDir              string        `json:"data_dir"`
+	ValidatorID          string        `json:"validator_id,omitempty"`
+	ChainID              string        `json:"chain_id,omitempty"`
+	ModuleConfigPath     string        `json:"module_config_path,omitempty"`
+	NetworkConfigPath    string        `json:"network_config_path,omitempty"`
+	ConsensusConfigPath  string        `json:"consensus_config_path,omitempty"`
+	MempoolConfigPath    string        `json:"mempool_config_path,omitempty"`
+	LogConfigPath        string        `json:"log_config_path,omitempty"`
+	Runtime              runtimeConfig `json:"runtime,omitempty"`
+	Chain                config.Config `json:"chain,omitempty"`
 }
 
 type moduleConfigDocument struct {
@@ -516,12 +516,12 @@ func writeNetworkFilesWithOptions(home string, chainID string, validatorCount in
 		} else if err := os.Remove(keyPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return networkDocument{}, err
 		}
-		cfg := defaultConfigDocument(chainID, dataDir, validatorID, "validator")
+		cfg := defaultConfigDocument(chainID, dataDir, validatorID)
 		moduleCfg := defaultModuleConfigDocument(chainID)
-		networkCfg := defaultNetworkConfigDocument(chainID, dataDir, validatorID, "validator")
-		consensusCfg := defaultConsensusConfigDocument(chainID, dataDir, validatorID, "validator")
+		networkCfg := defaultNetworkConfigDocument(chainID, dataDir, validatorID)
+		consensusCfg := defaultConsensusConfigDocument(chainID, dataDir, validatorID)
 		mempoolCfg := defaultMempoolConfigDocument(chainID)
-		logCfg := defaultLogConfigDocument(chainID, dataDir, validatorID, "validator")
+		logCfg := defaultLogConfigDocument(chainID, dataDir, validatorID)
 		networkCfg.RPC.Address = networkRPCListenAddressWithOptions(index, options)
 		networkCfg.P2P.ListenAddress = networkP2PListenAddressWithOptions(index, options)
 		networkCfg.P2P.Peers = networkConfigPeers(validators, validatorID, options)
@@ -731,12 +731,12 @@ func writeInitFiles(home string, chainID string, validatorID string, overwrite b
 			}
 		}
 	}
-	cfg := defaultConfigDocument(chainID, dataDir, validatorID, "validator")
+	cfg := defaultConfigDocument(chainID, dataDir, validatorID)
 	moduleCfg := defaultModuleConfigDocument(chainID)
-	networkCfg := defaultNetworkConfigDocument(chainID, dataDir, validatorID, "validator")
-	consensusCfg := defaultConsensusConfigDocument(chainID, dataDir, validatorID, "validator")
+	networkCfg := defaultNetworkConfigDocument(chainID, dataDir, validatorID)
+	consensusCfg := defaultConsensusConfigDocument(chainID, dataDir, validatorID)
 	mempoolCfg := defaultMempoolConfigDocument(chainID)
-	logCfg := defaultLogConfigDocument(chainID, dataDir, validatorID, "validator")
+	logCfg := defaultLogConfigDocument(chainID, dataDir, validatorID)
 	genesis := defaultGenesisDocument(chainID, validatorID)
 	if err := writeJSONFile(configPath, cfg); err != nil {
 		return "", "", err
@@ -796,10 +796,6 @@ func writeValidatorInitFiles(home string, chainID string, validatorID string, p2
 	}
 	document, err := readConfigDocument(configPath)
 	if err != nil {
-		return "", "", "", err
-	}
-	document.NodeMode = "validator"
-	if err := writeJSONFile(configPath, document); err != nil {
 		return "", "", "", err
 	}
 	networkDocument, err := readNetworkConfigDocument(resolveNetworkConfigPath(home, document.NetworkConfigPath))
@@ -894,12 +890,12 @@ func writeArchiveInitFiles(home string, chainID string, p2pAddress string, rpcAd
 			}
 		}
 	}
-	document := defaultConfigDocument(chainID, filepath.Join(home, "data"), "", "archive")
+	document := defaultConfigDocument(chainID, filepath.Join(home, "data"), "")
 	moduleDocument := defaultModuleConfigDocument(chainID)
-	networkDocument := defaultNetworkConfigDocument(chainID, filepath.Join(home, "data"), "", "archive")
-	consensusDocument := defaultConsensusConfigDocument(chainID, filepath.Join(home, "data"), "", "archive")
+	networkDocument := defaultNetworkConfigDocument(chainID, filepath.Join(home, "data"), "")
+	consensusDocument := defaultConsensusConfigDocument(chainID, filepath.Join(home, "data"), "")
 	mempoolDocument := defaultMempoolConfigDocument(chainID)
-	logDocument := defaultLogConfigDocument(chainID, filepath.Join(home, "data"), "", "archive")
+	logDocument := defaultLogConfigDocument(chainID, filepath.Join(home, "data"), "")
 	networkDocument.RPC.Address = p2pOrDefault(rpcAddress, defaultRPCAddress)
 	networkDocument.P2P.ListenAddress = p2pOrDefault(p2pAddress, defaultP2PAddress)
 	if bootstrapPeer != "" {
@@ -953,23 +949,23 @@ func readConfigDocument(path string) (configDocument, error) {
 		chainID = legacy.Chain.ChainID
 	}
 	return configDocument{
-		SchemaVersion:       legacy.SchemaVersion,
-		NodeMode:            legacy.NodeMode,
-		DataDir:             legacy.DataDir,
-		ValidatorID:         legacy.ValidatorID,
-		ChainID:             chainID,
-		ModuleConfigPath:    legacy.ModuleConfigPath,
-		NetworkConfigPath:   legacy.NetworkConfigPath,
-		ConsensusConfigPath: legacy.ConsensusConfigPath,
-		MempoolConfigPath:   legacy.MempoolConfigPath,
-		LogConfigPath:       legacy.LogConfigPath,
-		Runtime:             legacy.Runtime,
-		Chain:               chainConfigFromConfig(legacy.Chain),
-		LegacyModule:        moduleConfigFromConfig(legacy.Chain),
-		LegacyNetwork:       networkConfigFromConfig(legacy.Chain, legacy.Runtime),
-		LegacyConsensus:     consensusConfigFromConfig(legacy.Chain, legacy.Runtime),
-		LegacyMempool:       mempoolConfigFromConfig(legacy.Chain),
-		LegacyLog:           logConfigFromRuntime(legacy.Runtime),
+		SchemaVersion:        legacy.SchemaVersion,
+		RequireNetworkSafety: legacy.RequireNetworkSafety,
+		DataDir:              legacy.DataDir,
+		ValidatorID:          legacy.ValidatorID,
+		ChainID:              chainID,
+		ModuleConfigPath:     legacy.ModuleConfigPath,
+		NetworkConfigPath:    legacy.NetworkConfigPath,
+		ConsensusConfigPath:  legacy.ConsensusConfigPath,
+		MempoolConfigPath:    legacy.MempoolConfigPath,
+		LogConfigPath:        legacy.LogConfigPath,
+		Runtime:              legacy.Runtime,
+		Chain:                chainConfigFromConfig(legacy.Chain),
+		LegacyModule:         moduleConfigFromConfig(legacy.Chain),
+		LegacyNetwork:        networkConfigFromConfig(legacy.Chain, legacy.Runtime),
+		LegacyConsensus:      consensusConfigFromConfig(legacy.Chain, legacy.Runtime),
+		LegacyMempool:        mempoolConfigFromConfig(legacy.Chain),
+		LegacyLog:            logConfigFromRuntime(legacy.Runtime),
 	}, nil
 }
 
@@ -1051,9 +1047,10 @@ func loadNodeConfig(path string) (node.Config, error) {
 	}
 	chain := configFromConfigDocuments(document, moduleDocument, networkDocument, consensusDocument, mempoolDocument)
 	cfg := node.Config{
-		Chain:       chain,
-		DataDir:     document.DataDir,
-		ValidatorID: types.ValidatorID(document.ValidatorID),
+		Chain:                chain,
+		DataDir:              document.DataDir,
+		ValidatorID:          types.ValidatorID(document.ValidatorID),
+		RequireNetworkSafety: document.RequireNetworkSafety,
 	}
 	if err := cfg.Validate(); err != nil {
 		return node.Config{}, err
@@ -1086,7 +1083,7 @@ func loadNetworkConfigForConfig(configPath string, document configDocument) (net
 		if hasLegacyNetworkConfig(document.LegacyNetwork) {
 			return document.LegacyNetwork, nil
 		}
-		return defaultNetworkConfigDocument(documentChainID(document), document.DataDir, document.ValidatorID, document.NodeMode), nil
+		return defaultNetworkConfigDocument(documentChainID(document), document.DataDir, document.ValidatorID), nil
 	}
 	return networkConfigDocument{}, err
 }
@@ -1101,7 +1098,7 @@ func loadConsensusConfigForConfig(configPath string, document configDocument) (c
 		if hasLegacyConsensusConfig(document.LegacyConsensus) {
 			return document.LegacyConsensus, nil
 		}
-		return defaultConsensusConfigDocument(documentChainID(document), document.DataDir, document.ValidatorID, document.NodeMode), nil
+		return defaultConsensusConfigDocument(documentChainID(document), document.DataDir, document.ValidatorID), nil
 	}
 	return consensusConfigDocument{}, err
 }
@@ -1131,7 +1128,7 @@ func loadLogConfigForConfig(configPath string, document configDocument) (logConf
 		if hasLegacyLogConfig(document.LegacyLog) {
 			return document.LegacyLog, nil
 		}
-		return defaultLogConfigDocument(documentChainID(document), document.DataDir, document.ValidatorID, document.NodeMode), nil
+		return defaultLogConfigDocument(documentChainID(document), document.DataDir, document.ValidatorID), nil
 	}
 	return logConfigDocument{}, err
 }
@@ -1270,22 +1267,18 @@ func validateValidatorDocumentAddress(validatorInfo validatorDocument, publicKey
 	return address.MatchesPublicKey(types.Address(validatorInfo.Address), address.ValidatorOperatorHRP, publicKey)
 }
 
-func defaultConfigDocument(chainID string, dataDir string, validatorID string, modes ...string) configDocument {
-	mode := "validator"
-	if len(modes) > 0 && modes[0] != "" {
-		mode = modes[0]
-	}
+func defaultConfigDocument(chainID string, dataDir string, validatorID string) configDocument {
 	return configDocument{
-		SchemaVersion:       configSchemaVersion,
-		NodeMode:            mode,
-		DataDir:             dataDir,
-		ValidatorID:         validatorID,
-		ChainID:             chainID,
-		ModuleConfigPath:    moduleConfigFileName,
-		NetworkConfigPath:   networkConfigFileName,
-		ConsensusConfigPath: consensusConfigFileName,
-		MempoolConfigPath:   mempoolConfigFileName,
-		LogConfigPath:       logConfigFileName,
+		SchemaVersion:        configSchemaVersion,
+		RequireNetworkSafety: false,
+		DataDir:              dataDir,
+		ValidatorID:          validatorID,
+		ChainID:              chainID,
+		ModuleConfigPath:     moduleConfigFileName,
+		NetworkConfigPath:    networkConfigFileName,
+		ConsensusConfigPath:  consensusConfigFileName,
+		MempoolConfigPath:    mempoolConfigFileName,
+		LogConfigPath:        logConfigFileName,
 	}
 }
 
@@ -1294,9 +1287,9 @@ func defaultModuleConfigDocument(chainID string) moduleConfigDocument {
 	return moduleConfigFromConfig(cfg)
 }
 
-func defaultNetworkConfigDocument(chainID string, dataDir string, validatorID string, modes ...string) networkConfigDocument {
+func defaultNetworkConfigDocument(chainID string, dataDir string, validatorID string) networkConfigDocument {
 	cfg := config.Default(chainID)
-	runtime := defaultRuntimeConfig(validatorID, modes...)
+	runtime := defaultRuntimeConfig(validatorID)
 	return networkConfigDocument{
 		SchemaVersion: networkSchemaVersion,
 		RPC:           runtime.RPC,
@@ -1305,9 +1298,9 @@ func defaultNetworkConfigDocument(chainID string, dataDir string, validatorID st
 	}
 }
 
-func defaultConsensusConfigDocument(chainID string, dataDir string, validatorID string, modes ...string) consensusConfigDocument {
+func defaultConsensusConfigDocument(chainID string, dataDir string, validatorID string) consensusConfigDocument {
 	cfg := config.Default(chainID)
-	runtime := defaultRuntimeConfig(validatorID, modes...)
+	runtime := defaultRuntimeConfig(validatorID)
 	return consensusConfigDocument{
 		SchemaVersion: consensusSchemaVersion,
 		Consensus:     runtime.Consensus,
@@ -1326,19 +1319,16 @@ func defaultMempoolConfigDocument(chainID string) mempoolConfigDocument {
 	}
 }
 
-func defaultLogConfigDocument(chainID string, dataDir string, validatorID string, modes ...string) logConfigDocument {
-	runtime := defaultRuntimeConfig(validatorID, modes...)
+func defaultLogConfigDocument(chainID string, dataDir string, validatorID string) logConfigDocument {
+	runtime := defaultRuntimeConfig(validatorID)
 	return logConfigDocument{
 		SchemaVersion: logSchemaVersion,
 		Log:           runtime.Log,
 	}
 }
 
-func defaultRuntimeConfig(validatorID string, modes ...string) runtimeConfig {
+func defaultRuntimeConfig(validatorID string) runtimeConfig {
 	loopEnabled := validatorID != ""
-	if len(modes) > 0 && modes[0] == "archive" {
-		loopEnabled = false
-	}
 	return runtimeConfig{
 		RPC: runtimeRPCConfig{
 			Enabled: true,

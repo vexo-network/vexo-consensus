@@ -43,7 +43,7 @@ This package is intended for independent reviewers evaluating Vexo consensus, ne
 - Production deployments use Ed25519 or an audited BLS adapter, never deterministic crypto.
 - Local encrypted key documents use AES-256-GCM with PBKDF2-SHA512, 600,000 iterations, and a 32-byte salt; production operators should still prefer a remote signer/KMS for validator signing.
 - Remote signer/KMS enforces its own height/round/type/domain double-sign guard.
-- Operators configure RPC admin tokens, P2P auth, request limits, peer scoring, `MaxScore`, and ban thresholds.
+- Operators configure RPC admin tokens, P2P auth proofs, request limits, peer scoring, `MaxScore`, and ban thresholds. Admin RPC endpoints are expected to be unusable unless an admin token is configured.
 - Storage backend preserves block/state/evidence durability or clearly reports recovery mismatch.
 
 ## Known Limitations

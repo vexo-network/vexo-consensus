@@ -26,6 +26,7 @@ type autoVoteReactor struct {
 	signer             vexocrypto.Signer
 	broadcastVote      func(context.Context, consensus.Vote) error
 	onProposalAccepted func(consensus.Proposal, types.Hash)
+	onVoteAccepted     func(context.Context)
 	onEvidence         func(context.Context, slashing.Evidence)
 	wal                *consensus.WAL
 	mu                 sync.Mutex
@@ -74,6 +75,9 @@ func (reactor *autoVoteReactor) OnVote(ctx context.Context, vote consensus.Vote)
 		return nil
 	}
 	reactor.publishNewEvidence(ctx, before)
+	if err == nil && reactor.onVoteAccepted != nil {
+		reactor.onVoteAccepted(ctx)
+	}
 	return err
 }
 
@@ -102,8 +106,11 @@ func (reactor *autoVoteReactor) replayPendingVotes(ctx context.Context, blockHas
 	votes := reactor.takePendingVotes(blockHash)
 	for _, vote := range votes {
 		before := len(reactor.machine.Evidence())
-		_ = reactor.machine.OnVote(ctx, vote)
+		err := reactor.machine.OnVote(ctx, vote)
 		reactor.publishNewEvidence(ctx, before)
+		if err == nil && reactor.onVoteAccepted != nil {
+			reactor.onVoteAccepted(ctx)
+		}
 	}
 }
 

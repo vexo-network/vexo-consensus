@@ -981,7 +981,7 @@ func TestRunInitWritesDefaultConfig(t *testing.T) {
 	}
 }
 
-func TestRunInitValidatorAndArchiveModes(t *testing.T) {
+func TestRunInitValidatorAndArchiveRoles(t *testing.T) {
 	validatorHome := t.TempDir()
 	var validatorOutput bytes.Buffer
 	if err := runInit(&validatorOutput, []string{"validator", "--home", validatorHome, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
@@ -995,7 +995,7 @@ func TestRunInitValidatorAndArchiveModes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if validatorDocument.NodeMode != "validator" || validatorDocument.ValidatorID != "alice" || !validatorConsensus.Consensus.LoopEnabled {
+	if validatorDocument.ValidatorID != "alice" || !validatorConsensus.Consensus.LoopEnabled {
 		t.Fatalf("unexpected validator config: %+v consensus=%+v", validatorDocument, validatorConsensus)
 	}
 	if _, err := os.Stat(filepath.Join(validatorHome, keyFileName)); err != nil {
@@ -1015,7 +1015,7 @@ func TestRunInitValidatorAndArchiveModes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if archiveDocument.NodeMode != "archive" || archiveDocument.ValidatorID != "" || archiveConsensus.Consensus.LoopEnabled {
+	if archiveDocument.ValidatorID != "" || archiveConsensus.Consensus.LoopEnabled {
 		t.Fatalf("unexpected archive config: %+v consensus=%+v", archiveDocument, archiveConsensus)
 	}
 	archiveNetwork, err := readNetworkConfigDocument(filepath.Join(archiveHome, networkConfigFileName))

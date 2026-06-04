@@ -23,6 +23,7 @@ func (node *Node) startPeerScoreWindowReset(ctx context.Context) {
 		defer close(done)
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
+		lastSaved := time.Time{}
 		for {
 			select {
 			case <-runCtx.Done():
@@ -31,7 +32,11 @@ func (node *Node) startPeerScoreWindowReset(ctx context.Context) {
 				if err := runtime.P2PScore.ResetWindow(runCtx); err != nil {
 					return
 				}
-				_ = runtime.P2PScore.SaveFile(node.cfg.PeerScorePath())
+				now := time.Now()
+				if lastSaved.IsZero() || now.Sub(lastSaved) >= time.Second {
+					_ = runtime.P2PScore.SaveFile(node.cfg.PeerScorePath())
+					lastSaved = now
+				}
 			}
 		}
 	}()

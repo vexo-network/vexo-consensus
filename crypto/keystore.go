@@ -212,7 +212,19 @@ func (document KeyDocument) RemoteSigner(timeout time.Duration) (RemoteSigner, e
 	if document.Metadata.AuthTokenEnv != "" {
 		authToken = os.Getenv(document.Metadata.AuthTokenEnv)
 	}
-	return NewRemoteSignerWithAuth(document.Metadata.RemoteURL, publicKey, Ed25519Signer{}, timeout, nil, authToken)
+	var guard *DoubleSignGuard
+	if document.Metadata.GuardPath != "" {
+		guard, err = NewFileBackedDoubleSignGuard(document.Metadata.GuardPath)
+		if err != nil {
+			return RemoteSigner{}, err
+		}
+	}
+	signer, err := NewRemoteSignerWithAuth(document.Metadata.RemoteURL, publicKey, Ed25519Signer{}, timeout, guard, authToken)
+	if err != nil {
+		return RemoteSigner{}, err
+	}
+	signer.requirePolicy = document.Metadata.RequirePolicy
+	return signer, nil
 }
 
 func SaveKeyDocument(path string, document KeyDocument) error {

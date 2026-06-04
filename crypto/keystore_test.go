@@ -155,6 +155,35 @@ func TestRemoteKeyDocumentBuildsRemoteSigner(t *testing.T) {
 	}
 }
 
+func TestRemoteKeyDocumentAppliesPolicyAndGuardMetadata(t *testing.T) {
+	signer, err := GenerateEd25519Signer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	guardPath := filepath.Join(t.TempDir(), "remote_guard.json")
+	document := KeyDocument{
+		SchemaVersion: KeyDocumentVersionV1,
+		Type:          KeyTypeRemote,
+		PublicKey:     base64.StdEncoding.EncodeToString(signer.PublicKey()),
+		Metadata: KeyMetadata{
+			ID:            "remote-guarded",
+			RemoteURL:     "http://127.0.0.1:9000/sign",
+			RequirePolicy: true,
+			GuardPath:     guardPath,
+		},
+	}
+	remoteSigner, err := document.RemoteSigner(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := remoteSigner.Sign([]byte("raw-message")); !errors.Is(err, ErrMissingSignPolicy) {
+		t.Fatalf("expected raw signing to require policy, got %v", err)
+	}
+	if remoteSigner.guard == nil || remoteSigner.guard.snapshotPath != guardPath {
+		t.Fatalf("expected file-backed guard from metadata, got %+v", remoteSigner.guard)
+	}
+}
+
 func TestKeyDocumentRejectsInvalidData(t *testing.T) {
 	document, err := GenerateEd25519KeyDocument()
 	if err != nil {

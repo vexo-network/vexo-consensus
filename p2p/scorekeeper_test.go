@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -477,6 +478,17 @@ func TestScoreKeeperContextCancellation(t *testing.T) {
 	}
 	if _, err := keeper.Snapshot(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected snapshot canceled, got %v", err)
+	}
+}
+
+func TestScoreKeeperRejectsUnsupportedPersistedSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "peer_scores.json")
+	if err := os.WriteFile(path, []byte(`{"schema_version":"v999","peers":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	keeper := NewScoreKeeper(ScoreConfig{})
+	if err := keeper.LoadFile(path); !errors.Is(err, ErrUnsupportedScoreDocument) {
+		t.Fatalf("expected unsupported score document error, got %v", err)
 	}
 }
 

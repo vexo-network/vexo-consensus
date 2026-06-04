@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"errors"
+	goruntime "runtime"
 	"time"
 )
 
@@ -57,7 +58,30 @@ func (node *Node) StartConsensusLoop(ctx context.Context, cfg ConsensusLoopConfi
 	node.loopConfig = cfg
 	node.mu.Unlock()
 
+	if err := node.runConsensusStartupBurst(ctx, cfg); err != nil {
+		cancel()
+		node.mu.Lock()
+		if node.loopDone == done {
+			node.loopCancel = nil
+			node.loopDone = nil
+			node.loopConfig = ConsensusLoopConfig{}
+		}
+		node.mu.Unlock()
+		close(done)
+		return err
+	}
+
 	go node.runConsensusLoop(runCtx, cfg, done)
+	return nil
+}
+
+func (node *Node) runConsensusStartupBurst(ctx context.Context, cfg ConsensusLoopConfig) error {
+	for attempt := 0; attempt < 4; attempt++ {
+		if _, err := node.StepConsensusWithConfig(ctx, cfg); err != nil {
+			return err
+		}
+		goruntime.Gosched()
+	}
 	return nil
 }
 

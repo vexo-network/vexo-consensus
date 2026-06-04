@@ -46,6 +46,14 @@ func TestNodeStartStopLifecycle(t *testing.T) {
 	}
 }
 
+func TestNodeRejectsUnsafeConfigWhenNetworkSafetyRequired(t *testing.T) {
+	cfg := DefaultConfig("vexo-test", t.TempDir())
+	cfg.RequireNetworkSafety = true
+	if _, err := New(cfg, validGenesis(), newTestApplication(t)); !errors.Is(err, config.ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected unsafe network config error, got %v", err)
+	}
+}
+
 func TestNodeExecutesBlockThroughRuntime(t *testing.T) {
 	node := newTestNode(t)
 	if err := node.Start(context.Background()); err != nil {

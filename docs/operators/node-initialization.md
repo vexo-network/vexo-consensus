@@ -176,7 +176,6 @@ Archive config has:
 ```json
 {
   "schema_version": "v1",
-  "node_mode": "archive",
   "validator_id": "",
   "chain_id": "vexo-chain",
   "consensus_config_path": "consensus_config.json"
@@ -193,6 +192,8 @@ Archive `consensus_config.json` disables the local consensus loop:
   }
 }
 ```
+
+Set `"require_network_safety": true` in `config.json` when a node must refuse unsafe launch settings. This is not a mode; it is a startup safety gate that rejects deterministic crypto, unsigned/nonced-off transactions, missing fee/gas floors, missing durable mempool WAL, and unsafe committee randomness.
 
 ## Config-Based Peers
 

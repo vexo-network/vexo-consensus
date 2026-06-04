@@ -71,6 +71,7 @@ type RemoteSignerService struct {
 	guard      *DoubleSignGuard
 	mu         sync.Mutex
 	seenNonces map[string]struct{}
+	nonceOrder []string
 }
 
 type typesSigner interface {
@@ -78,12 +79,13 @@ type typesSigner interface {
 }
 
 type RemoteSigner struct {
-	url       string
-	publicKey types.PublicKey
-	client    *http.Client
-	verifier  Signer
-	guard     *DoubleSignGuard
-	authToken string
+	url           string
+	publicKey     types.PublicKey
+	client        *http.Client
+	verifier      Signer
+	guard         *DoubleSignGuard
+	authToken     string
+	requirePolicy bool
 }
 
 type remoteSignRequest struct {
@@ -165,6 +167,9 @@ func (signer RemoteSigner) SignWithPolicyContext(ctx context.Context, policy Sig
 func (signer RemoteSigner) signWithPolicy(ctx context.Context, message []byte, policy *SignPolicy) (types.Signature, error) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if signer.requirePolicy && policy == nil {
+		return nil, ErrMissingSignPolicy
 	}
 	payload := remoteSignRequest{
 		PublicKey: base64.StdEncoding.EncodeToString(signer.publicKey),
@@ -360,10 +365,29 @@ func (guard *DoubleSignGuard) saveLocked(path string) error {
 		return err
 	}
 	tempPath := path + ".tmp"
-	if err := os.WriteFile(tempPath, append(encoded, '\n'), 0o600); err != nil {
+	file, err := os.OpenFile(tempPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
 		return err
 	}
-	return os.Rename(tempPath, path)
+	if _, err := file.Write(append(encoded, '\n')); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return err
+	}
+	if dirFile, err := os.Open(filepath.Dir(path)); err == nil {
+		_ = dirFile.Sync()
+		_ = dirFile.Close()
+	}
+	return nil
 }
 
 func NewRemoteSignerService(signer Signer, policy RemoteSignerPolicy, guard *DoubleSignGuard) (*RemoteSignerService, error) {
@@ -433,12 +457,20 @@ func (service *RemoteSignerService) ServeHTTP(writer http.ResponseWriter, reques
 }
 
 func (service *RemoteSignerService) seenNonce(nonce string) bool {
+	const maxSeenNonces = 4096
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	if _, found := service.seenNonces[nonce]; found {
 		return true
 	}
 	service.seenNonces[nonce] = struct{}{}
+	service.nonceOrder = append(service.nonceOrder, nonce)
+	if len(service.nonceOrder) > maxSeenNonces {
+		oldest := service.nonceOrder[0]
+		copy(service.nonceOrder, service.nonceOrder[1:])
+		service.nonceOrder = service.nonceOrder[:len(service.nonceOrder)-1]
+		delete(service.seenNonces, oldest)
+	}
 	return false
 }
 

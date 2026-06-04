@@ -32,6 +32,7 @@ var (
 	ErrInvalidStakeRecord   = errors.New("invalid stake record")
 	ErrMissingValidatorKey  = errors.New("validator public key is required")
 	ErrStakingStoreRequired = errors.New("missing staking store")
+	ErrStakeOverflow        = errors.New("staking amount overflow")
 )
 
 type Module struct {
@@ -131,7 +132,7 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		if err := ctx.ConsumeGas(unjailGasCost); err != nil {
 			return types.Result{Code: 5, Log: err.Error()}
 		}
-		if err := ctx.Store.Delete(context.Background(), ModuleName, jailKey(types.ValidatorID(parts[2]))); err != nil {
+		if err := ctx.Store.Delete(ctx.GoContext(), ModuleName, jailKey(types.ValidatorID(parts[2]))); err != nil {
 			return types.Result{Code: 4, Log: err.Error()}
 		}
 		return types.Result{}
@@ -209,6 +210,9 @@ func (module *Module) delegate(ctx context.Context, store vexoapp.StateStore, de
 	if err != nil {
 		return types.ValidatorUpdate{}, err
 	}
+	if currentPower > ^uint64(0)-amount || currentStake > ^uint64(0)-amount {
+		return types.ValidatorUpdate{}, ErrStakeOverflow
+	}
 	newPower := currentPower + amount
 	if batchStore, ok := store.(kvbatch.BatchKVStore); ok {
 		if err := batchStore.SetBatch(ctx, []kvbatch.KVWrite{
@@ -259,6 +263,9 @@ func (module *Module) undelegate(ctx context.Context, store vexoapp.StateStore, 
 		return types.ValidatorUpdate{}, err
 	}
 	newPower := currentPower - amount
+	if uint64(height) > ^uint64(0)-uint64(module.unbondingDelay) {
+		return types.ValidatorUpdate{}, ErrStakeOverflow
+	}
 	releaseHeight := height + module.unbondingDelay
 	if batchStore, ok := store.(kvbatch.BatchKVStore); ok {
 		if err := batchStore.SetBatch(ctx, []kvbatch.KVWrite{
@@ -279,7 +286,10 @@ func (module *Module) undelegate(ctx context.Context, store vexoapp.StateStore, 
 			return types.ValidatorUpdate{}, err
 		}
 	}
-	publicKey, _ := store.Get(ctx, ModuleName, validatorKeyKey(validatorID))
+	publicKey, err := store.Get(ctx, ModuleName, validatorKeyKey(validatorID))
+	if err != nil && !errors.Is(err, vexostore.ErrKeyNotFound) {
+		return types.ValidatorUpdate{}, err
+	}
 	return types.ValidatorUpdate{
 		ID:          validatorID,
 		Address:     types.Address(validatorID),

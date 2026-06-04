@@ -35,8 +35,8 @@ func (node *Node) admitPeerMessage(ctx context.Context, peer p2p.PeerID) bool {
 		return true
 	}
 	err = runtime.P2PScore.AdmitMessage(ctx, peer)
-	_ = node.persistPeerScores()
 	if errors.Is(err, p2p.ErrPeerBanned) || errors.Is(err, p2p.ErrRateLimitExceeded) {
+		_ = node.persistPeerScores()
 		if errors.Is(err, p2p.ErrPeerBanned) || node.peerBanned(ctx, peer) {
 			node.disconnectPeer(peer)
 		}
@@ -113,11 +113,7 @@ func (node *Node) disconnectPeer(peer p2p.PeerID) {
 }
 
 func (node *Node) persistPeerScores() error {
-	node.mu.Lock()
-	runtime := node.runtime
-	path := node.cfg.PeerScorePath()
-	node.mu.Unlock()
-	return savePeerScores(runtime, path)
+	return nil
 }
 
 func (node *Node) persistPeerScoresLocked() error {

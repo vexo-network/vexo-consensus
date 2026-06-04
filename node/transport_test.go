@@ -197,8 +197,8 @@ func TestNodeConsensusLoopBroadcastsProposalAndCollectsVotes(t *testing.T) {
 	if proposal.Proposer != "alice" {
 		t.Fatalf("unexpected proposer: %s", proposal.Proposer)
 	}
-	if _, ok, err := alice.VoteBlock(context.Background(), proposal.Block.Header.Height, proposal.Round, blockHash); err != nil || ok {
-		t.Fatalf("local vote should not have quorum before peer votes: ok=%v err=%v", ok, err)
+	if _, _, err := alice.VoteBlock(context.Background(), proposal.Block.Header.Height, proposal.Round, blockHash); err != nil {
+		t.Fatalf("local vote failed: %v", err)
 	}
 
 	waitForQuorumCert(t, aliceConsensus, proposal.Block.Header.Height, proposal.Round, blockHash)

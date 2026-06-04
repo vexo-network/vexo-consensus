@@ -19,9 +19,10 @@ var (
 )
 
 type Config struct {
-	Chain       config.Config
-	DataDir     string
-	ValidatorID types.ValidatorID
+	Chain                config.Config
+	DataDir              string
+	ValidatorID          types.ValidatorID
+	RequireNetworkSafety bool
 }
 
 type Genesis struct {

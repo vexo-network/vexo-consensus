@@ -3,6 +3,7 @@ package transport
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/binary"
@@ -545,15 +546,16 @@ func (transport *GRPCTransport) Publish(ctx context.Context, topic p2p.Topic, da
 		return err
 	}
 	peers := transport.peerAddresses()
+	var publishErrs []error
 	for peerID, address := range peers {
 		if err := transport.sendEnvelope(ctx, peerID, address, Envelope{Topic: topic, From: transport.peerID, Data: append([]byte(nil), data...)}); err != nil {
 			if errors.Is(err, ErrPeerRejected) {
 				continue
 			}
-			return err
+			publishErrs = append(publishErrs, err)
 		}
 	}
-	return nil
+	return errors.Join(publishErrs...)
 }
 
 func (transport *GRPCTransport) Send(ctx context.Context, to p2p.PeerID, topic p2p.Topic, data []byte) error {
@@ -699,7 +701,7 @@ func (transport *GRPCTransport) LocalHandshake() Handshake {
 		GenesisHash:     transport.genesisHash,
 		NodeID:          transport.peerID,
 		ListenAddr:      listenAddr,
-		AuthToken:       transport.authToken,
+		AuthToken:       transport.authProof(transport.peerID),
 		KnownPeers:      knownPeers,
 	}
 }
@@ -1107,7 +1109,7 @@ func (transport *GRPCTransport) validateHandshake(handshake Handshake) error {
 		return fmt.Errorf("%w: local=%s remote=%s", ErrGenesisHashMismatch, transport.genesisHash, handshake.GenesisHash)
 	}
 	if transport.authToken != "" || handshake.AuthToken != "" {
-		if handshake.AuthToken != transport.authToken {
+		if transport.authToken == "" || handshake.AuthToken == "" || handshake.AuthToken != transport.authProof(handshake.NodeID) {
 			return ErrAuthTokenMismatch
 		}
 	}
@@ -1115,6 +1117,23 @@ func (transport *GRPCTransport) validateHandshake(handshake Handshake) error {
 		return fmt.Errorf("%w: missing node id", ErrHandshakeFailed)
 	}
 	return nil
+}
+
+func (transport *GRPCTransport) authProof(nodeID p2p.PeerID) string {
+	if transport.authToken == "" {
+		return ""
+	}
+	mac := hmac.New(sha256.New, []byte(transport.authToken))
+	mac.Write([]byte(transport.protocolVersion))
+	mac.Write([]byte{0})
+	mac.Write([]byte(transport.networkID))
+	mac.Write([]byte{0})
+	mac.Write([]byte(transport.chainID))
+	mac.Write([]byte{0})
+	mac.Write([]byte(transport.genesisHash))
+	mac.Write([]byte{0})
+	mac.Write([]byte(nodeID))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 func (transport *GRPCTransport) runReconnectLoop(ctx context.Context, done chan<- struct{}) {
