@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"sort"
 
 	"github.com/syndtr/goleveldb/leveldb"
 	leveldberrors "github.com/syndtr/goleveldb/leveldb/errors"
@@ -322,6 +323,14 @@ func (store *LevelDBStore) SaveStateRoot(ctx context.Context, record StateRootRe
 }
 
 func (store *LevelDBStore) CommitBlockState(ctx context.Context, block BlockRecord, state StateRecord, roots []StateRootRecord) error {
+	return store.commitBlockStateBatch(ctx, nil, block, state, roots)
+}
+
+func (store *LevelDBStore) CommitBlockStateWithWrites(ctx context.Context, writes []KVWrite, block BlockRecord, state StateRecord, roots []StateRootRecord) error {
+	return store.commitBlockStateBatch(ctx, writes, block, state, roots)
+}
+
+func (store *LevelDBStore) commitBlockStateBatch(ctx context.Context, writes []KVWrite, block BlockRecord, state StateRecord, roots []StateRootRecord) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -336,6 +345,14 @@ func (store *LevelDBStore) CommitBlockState(ctx context.Context, block BlockReco
 	for _, root := range roots {
 		if root.Height == 0 || root.Namespace == "" {
 			return ErrInvalidStateRoot
+		}
+	}
+	for _, write := range writes {
+		if write.Namespace == "" {
+			return ErrInvalidNamespace
+		}
+		if len(write.Key) == 0 {
+			return ErrInvalidKey
 		}
 	}
 
@@ -358,6 +375,14 @@ func (store *LevelDBStore) CommitBlockState(ctx context.Context, block BlockReco
 	}
 
 	batch := new(leveldb.Batch)
+	for _, write := range writes {
+		key := kvKey(write.Namespace, write.Key)
+		if write.Delete {
+			batch.Delete(key)
+			continue
+		}
+		batch.Put(key, append([]byte(nil), write.Value...))
+	}
 	batch.Put(blockHeightKey(block.Block.Header.Height), encodedBlock)
 	batch.Put(blockHashKey(block.Hash), encodedBlock)
 	batch.Put(blockIndexKey, encodedIndex)
@@ -511,6 +536,60 @@ func (store *LevelDBStore) Root(ctx context.Context, namespace string) (types.Ha
 	}
 	if err := iterator.Error(); err != nil {
 		return types.Hash{}, err
+	}
+
+	var hash types.Hash
+	copy(hash[:], hasher.Sum(nil))
+	return hash, nil
+}
+
+func (store *LevelDBStore) RootWithWrites(ctx context.Context, namespace string, writes []KVWrite) (types.Hash, error) {
+	select {
+	case <-ctx.Done():
+		return types.Hash{}, ctx.Err()
+	default:
+	}
+	if namespace == "" {
+		return types.Hash{}, ErrInvalidNamespace
+	}
+
+	pairs, err := store.ExportNamespace(ctx, namespace)
+	if err != nil {
+		return types.Hash{}, err
+	}
+	values := make(map[string][]byte, len(pairs)+len(writes))
+	for _, pair := range pairs {
+		values[string(pair.Key)] = append([]byte(nil), pair.Value...)
+	}
+	for _, write := range writes {
+		if write.Namespace != namespace {
+			continue
+		}
+		if len(write.Key) == 0 {
+			return types.Hash{}, ErrInvalidKey
+		}
+		key := string(write.Key)
+		if write.Delete {
+			delete(values, key)
+			continue
+		}
+		values[key] = append([]byte(nil), write.Value...)
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	prefix := kvNamespacePrefix(namespace)
+	hasher := sha256.New()
+	for _, rawKey := range keys {
+		key := append(append([]byte(nil), prefix...), []byte(rawKey)...)
+		value := values[rawKey]
+		writeUint64(hasher, uint64(len(key)))
+		hasher.Write(key)
+		writeUint64(hasher, uint64(len(value)))
+		hasher.Write(value)
 	}
 
 	var hash types.Hash

@@ -102,6 +102,53 @@ func TestLevelDBStoreCommitBlockStatePersistsBlockStateAndRootsAtomically(t *tes
 	}
 }
 
+func TestLevelDBStoreCommitBlockStateWithWritesPersistsKVAndMetadataAtomically(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+	block := BlockRecord{
+		Block:   types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1}},
+		Hash:    types.Hash{1},
+		AppHash: types.Hash{2},
+	}
+	state := StateRecord{
+		Height:        1,
+		AppHash:       types.Hash{2},
+		LastBlockHash: types.Hash{1},
+		BaseFee:       10,
+		NextBaseFee:   11,
+	}
+	writes := []KVWrite{{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")}}
+	root, err := store.RootWithWrites(context.Background(), "bank", writes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := []StateRootRecord{{Height: 1, Namespace: "bank", Root: root}}
+	if err := store.CommitBlockStateWithWrites(context.Background(), writes, block, state, roots); err != nil {
+		t.Fatal(err)
+	}
+	value, err := store.Get(context.Background(), "bank", []byte("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(value) != "100" {
+		t.Fatalf("unexpected committed value %q", value)
+	}
+	savedState, err := store.LatestState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if savedState.BaseFee != 10 || savedState.NextBaseFee != 11 {
+		t.Fatalf("unexpected fee market state: %+v", savedState)
+	}
+	savedRoot, err := store.StateRoot(context.Background(), 1, "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if savedRoot.Root != root {
+		t.Fatalf("unexpected staged root: %+v want %x", savedRoot, root)
+	}
+}
+
 func TestLevelDBStorePersistsSchemaState(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)

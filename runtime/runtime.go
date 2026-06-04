@@ -140,12 +140,16 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 	}
 	baseFee := runtime.CurrentBaseFee()
 	runtime.setApplicationBaseFee(baseFee)
+	if appRuntime, ok := runtime.App.(*app.Runtime); ok && runtime.Store != nil {
+		if commitStore, ok := runtime.Store.(store.AppBlockCommitStore); ok {
+			return runtime.executeBlockStaged(ctx, block, appRuntime, commitStore, baseFee)
+		}
+	}
 	response, err := runtime.Executor.Execute(ctx, runtime.App, block)
 	if err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
 	nextBaseFee := runtime.NextBaseFee(response)
-	runtime.currentBaseFee = nextBaseFee
 	validatorSetHash := block.Header.ValidatorSetHash
 	if len(response.ValidatorUpdates) > 0 {
 		if err := runtime.ApplyValidatorUpdatesAt(ctx, block.Header.Height+1, response.ValidatorUpdates); err != nil {
@@ -184,6 +188,7 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 		if err := commitStore.CommitBlockState(ctx, blockRecord, stateRecord, stateRoots); err != nil {
 			return app.FinalizeBlockResponse{}, err
 		}
+		runtime.currentBaseFee = nextBaseFee
 		return response, nil
 	}
 	for _, record := range stateRoots {
@@ -197,6 +202,51 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 	if err := runtime.Store.SaveState(ctx, stateRecord); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
+	runtime.currentBaseFee = nextBaseFee
+	return response, nil
+}
+
+func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Block, application *app.Runtime, commitStore store.AppBlockCommitStore, baseFee uint64) (app.FinalizeBlockResponse, error) {
+	response, writes, err := application.FinalizeBlockStaged(app.FinalizeBlockRequest{Block: block})
+	if err != nil {
+		return app.FinalizeBlockResponse{}, err
+	}
+	nextBaseFee := runtime.NextBaseFee(response)
+	validatorSetHash := block.Header.ValidatorSetHash
+	if len(response.ValidatorUpdates) > 0 {
+		if err := runtime.ApplyValidatorUpdatesAt(ctx, block.Header.Height+1, response.ValidatorUpdates); err != nil {
+			return app.FinalizeBlockResponse{}, err
+		}
+		validatorSet, err := runtime.Validators.ValidatorSet(ctx, block.Header.Height+1)
+		if err != nil {
+			return app.FinalizeBlockResponse{}, err
+		}
+		validatorSetHash = validatorSet.Hash()
+	}
+	blockHash := consensus.HashBlock(block)
+	stateRoots, err := runtime.moduleStateRootsWithWrites(ctx, block.Header.Height, writes)
+	if err != nil {
+		return app.FinalizeBlockResponse{}, err
+	}
+	blockRecord := store.BlockRecord{
+		Block:      block,
+		Hash:       blockHash,
+		AppHash:    response.AppHash,
+		StateRoots: stateRoots,
+	}
+	stateRecord := store.StateRecord{
+		Height:           block.Header.Height,
+		AppHash:          response.AppHash,
+		LastBlockHash:    blockHash,
+		ValidatorSetHash: validatorSetHash,
+		BaseFee:          baseFee,
+		NextBaseFee:      nextBaseFee,
+	}
+	if err := commitStore.CommitBlockStateWithWrites(ctx, writes, blockRecord, stateRecord, stateRoots); err != nil {
+		return app.FinalizeBlockResponse{}, err
+	}
+	application.CommitStagedBlock(block.Header.Height, response.AppHash)
+	runtime.currentBaseFee = nextBaseFee
 	return response, nil
 }
 
@@ -346,6 +396,29 @@ func (runtime *Runtime) moduleStateRoots(ctx context.Context, height types.Heigh
 			Root:      root,
 		}
 		roots = append(roots, record)
+	}
+	return roots, nil
+}
+
+func (runtime *Runtime) moduleStateRootsWithWrites(ctx context.Context, height types.Height, writes []store.KVWrite) ([]store.StateRootRecord, error) {
+	if runtime.Store == nil {
+		return nil, nil
+	}
+	rootStore, ok := runtime.Store.(store.RootWithWritesStore)
+	if !ok {
+		return runtime.moduleStateRoots(ctx, height)
+	}
+	roots := make([]store.StateRootRecord, 0)
+	for _, module := range runtime.AppModules() {
+		root, err := rootStore.RootWithWrites(ctx, module.Name(), writes)
+		if err != nil {
+			return nil, err
+		}
+		roots = append(roots, store.StateRootRecord{
+			Height:    height,
+			Namespace: module.Name(),
+			Root:      root,
+		})
 	}
 	return roots, nil
 }

@@ -17,6 +17,17 @@ Vexo uses a HotStuff-style BFT core with proposals, votes, quorum certificates, 
 
 A block is safe to vote for only when it extends the locked QC or carries a justify QC at least as new as the lock. A block becomes finalized when the three-chain rule proves a safe parent/grandparent chain extension.
 
+## Execution Terms
+
+Vexo uses these terms consistently:
+
+- **QC certified**: a block has enough votes to form a quorum certificate.
+- **Finalized**: the HotStuff three-chain rule finalizes an ancestor block.
+- **Executed**: the application has run `FinalizeBlock` for a block.
+- **State committed**: application KV writes, block record, state record, and module state roots have been durably committed.
+
+The node execution path currently executes a QC-certified block and persists its state through an atomic app/block/state commit when the application runtime and store support staged execution. Finality proofs still describe consensus finality, not merely local execution.
+
 ## Safety Boundary
 
 Safety depends on:
@@ -33,6 +44,7 @@ Safety depends on:
 - `deterministic` is test-only and fails network safety validation.
 - `ed25519` is supported for public-network testing and launch preparation.
 - `bls` requires an audited adapter, proof-of-possession or equivalent rogue-key defense, subgroup checks, public-key validation, dependency audit evidence, and release-gate evidence.
+- Network safety validation requires VRF adapter metadata for VRF committee selection. The deterministic VRF implementation is test-only and should not be used for value-bearing networks.
 
 ## Operational Boundary
 

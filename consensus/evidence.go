@@ -14,7 +14,34 @@ var (
 	ErrVotesDoNotConflict        = errors.New("votes do not conflict")
 	ErrTimeoutVotesDoNotConflict = errors.New("timeout votes do not conflict")
 	ErrVotePairMismatch          = errors.New("votes are not from the same validator height and round")
+	ErrUnsupportedProposalReason = errors.New("unsupported invalid proposal reason")
 )
+
+type InvalidProposalReason string
+
+const (
+	InvalidProposalReasonDAMismatch        InvalidProposalReason = "da_mismatch"
+	InvalidProposalReasonMissingData       InvalidProposalReason = "missing_data"
+	InvalidProposalReasonValidatorSetHash  InvalidProposalReason = "validator_set_hash"
+	InvalidProposalReasonAppHash           InvalidProposalReason = "app_hash"
+	InvalidProposalReasonTimestamp         InvalidProposalReason = "timestamp"
+	InvalidProposalReasonStateRoot         InvalidProposalReason = "state_root"
+	InvalidProposalReasonTxValidity        InvalidProposalReason = "tx_validity"
+	InvalidProposalReasonProposerSignature InvalidProposalReason = "proposer_signature"
+)
+
+func SupportedInvalidProposalReasons() []InvalidProposalReason {
+	return []InvalidProposalReason{
+		InvalidProposalReasonDAMismatch,
+		InvalidProposalReasonMissingData,
+		InvalidProposalReasonValidatorSetHash,
+		InvalidProposalReasonAppHash,
+		InvalidProposalReasonTimestamp,
+		InvalidProposalReasonStateRoot,
+		InvalidProposalReasonTxValidity,
+		InvalidProposalReasonProposerSignature,
+	}
+}
 
 type ConflictingVoteProof struct {
 	First  Vote `json:"first"`
@@ -27,8 +54,8 @@ type ConflictingTimeoutVoteProof struct {
 }
 
 type InvalidProposalProof struct {
-	Proposal Proposal `json:"proposal"`
-	Reason   string   `json:"reason"`
+	Proposal Proposal              `json:"proposal"`
+	Reason   InvalidProposalReason `json:"reason"`
 }
 
 type UnavailableDataProof struct {
@@ -90,10 +117,14 @@ func NewInvalidProposalEvidence(proposal Proposal, reason string) (slashing.Evid
 	if proposal.Proposer == "" || proposal.Block.Header.Height == 0 || reason == "" {
 		return slashing.Evidence{}, slashing.ErrMissingValidator
 	}
+	proposalReason := InvalidProposalReason(reason)
+	if !validInvalidProposalReason(proposalReason) {
+		return slashing.Evidence{}, ErrUnsupportedProposalReason
+	}
 	if err := dataavailability.Verify(proposal.Block.Header, proposal.Block.Txs); err == nil {
 		return slashing.Evidence{}, ErrInvalidProposal
 	}
-	proof, err := json.Marshal(InvalidProposalProof{Proposal: proposal, Reason: reason})
+	proof, err := json.Marshal(InvalidProposalProof{Proposal: proposal, Reason: proposalReason})
 	if err != nil {
 		return slashing.Evidence{}, err
 	}
@@ -215,6 +246,7 @@ func VerifyInvalidProposalEvidence(evidence slashing.Evidence) error {
 		return err
 	}
 	if decoded.Reason == "" ||
+		!validInvalidProposalReason(decoded.Reason) ||
 		decoded.Proposal.Proposer != evidence.Validator ||
 		decoded.Proposal.Block.Header.Height != evidence.Height ||
 		decoded.Proposal.Round != evidence.Round {
@@ -224,6 +256,15 @@ func VerifyInvalidProposalEvidence(evidence slashing.Evidence) error {
 		return ErrInvalidProposal
 	}
 	return nil
+}
+
+func validInvalidProposalReason(reason InvalidProposalReason) bool {
+	for _, supported := range SupportedInvalidProposalReasons() {
+		if reason == supported {
+			return true
+		}
+	}
+	return false
 }
 
 func VerifyUnavailableDataEvidence(evidence slashing.Evidence) error {

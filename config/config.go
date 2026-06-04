@@ -65,10 +65,17 @@ const (
 type CryptoConfig struct {
 	Backend           CryptoBackend
 	ProductionAdapter bool
+	AdapterName       string
+	AuditReport       string
+	DependencyAudit   string
 }
 
 type VRFConfig struct {
-	Keys map[string][]byte
+	Keys              map[string][]byte
+	ProductionAdapter bool
+	AdapterName       string
+	AuditReport       string
+	KeySource         string
 }
 
 func Default(chainID string) Config {
@@ -195,7 +202,14 @@ func (config Config) ValidateNetworkSafety() error {
 	if config.Crypto.Backend == CryptoBackendBLS && !config.Crypto.ProductionAdapter {
 		return ErrUnsafeNetworkConfig
 	}
+	if config.Crypto.Backend == CryptoBackendBLS &&
+		(config.Crypto.AdapterName == "" || config.Crypto.AuditReport == "" || config.Crypto.DependencyAudit == "") {
+		return ErrUnsafeNetworkConfig
+	}
 	if config.Committee.Backend != committee.BackendVRF {
+		return ErrUnsafeNetworkConfig
+	}
+	if !config.VRF.ProductionAdapter || config.VRF.AdapterName == "" || config.VRF.AuditReport == "" || config.VRF.KeySource == "" {
 		return ErrUnsafeNetworkConfig
 	}
 	if !config.Execution.RequireSigned || !config.Execution.RequireNonce {

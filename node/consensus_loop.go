@@ -455,6 +455,11 @@ func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert
 	if err := runtime.Mempool.MarkCommitted(ctx, block.Txs); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
+	if len(block.Txs) > 0 {
+		if err := runtime.Mempool.CompactWAL(ctx); err != nil {
+			return app.FinalizeBlockResponse{}, err
+		}
+	}
 	if err := machine.ObserveCommittedBlock(block, quorumCert); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}

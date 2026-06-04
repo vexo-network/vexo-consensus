@@ -69,6 +69,13 @@ func (dag *DAG) MarkCommitted(ctx context.Context, txs []types.Tx) error {
 	return dag.base.MarkCommitted(ctx, txs)
 }
 
+func (dag *DAG) CompactWAL(ctx context.Context) error {
+	if dag == nil || dag.wal == nil {
+		return nil
+	}
+	return dag.wal.Compact(ctx, dag)
+}
+
 func (dag *DAG) AddBatch(ctx context.Context, batch Batch) error {
 	select {
 	case <-ctx.Done():

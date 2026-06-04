@@ -32,6 +32,8 @@ Fields:
 - app hash
 - last block hash
 - validator set hash
+- base fee used for the block
+- next base fee derived from the block gas usage
 
 ### State Root Record
 
@@ -60,6 +62,8 @@ Fields:
 ### KV Namespace
 
 Module data is stored by namespace and key.
+
+When staged execution is available, module KV writes, block records, state records, and state roots are committed in one backend batch. If that batch fails, module KV writes are not applied.
 
 ## Indexes
 

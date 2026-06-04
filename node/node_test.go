@@ -890,7 +890,7 @@ func TestNodeAppliesInvalidProposalEvidence(t *testing.T) {
 		Round:    0,
 		Proposer: "alice",
 	})
-	evidence, err := consensus.NewInvalidProposalEvidence(proposal, "data availability commitment mismatch")
+	evidence, err := consensus.NewInvalidProposalEvidence(proposal, string(consensus.InvalidProposalReasonDAMismatch))
 	if err != nil {
 		t.Fatal(err)
 	}

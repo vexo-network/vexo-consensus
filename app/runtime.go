@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/vexo-network/vexo-consensus/fairordering"
+	"github.com/vexo-network/vexo-consensus/kvbatch"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -170,12 +171,35 @@ func (runtime *Runtime) ProcessProposal(req ProcessProposalRequest) ProcessPropo
 }
 
 func (runtime *Runtime) FinalizeBlock(req FinalizeBlockRequest) (FinalizeBlockResponse, error) {
+	return runtime.finalizeBlockWithStore(req, runtime.store, true)
+}
+
+func (runtime *Runtime) FinalizeBlockStaged(req FinalizeBlockRequest) (FinalizeBlockResponse, []kvbatch.KVWrite, error) {
+	if runtime.store == nil {
+		response, err := runtime.finalizeBlockWithStore(req, nil, true)
+		return response, nil, err
+	}
+	staged := NewStagedStore(runtime.store)
+	response, err := runtime.finalizeBlockWithStore(req, staged, false)
+	if err != nil {
+		return FinalizeBlockResponse{}, nil, err
+	}
+	return response, staged.Writes(), nil
+}
+
+func (runtime *Runtime) CommitStagedBlock(height types.Height, appHash types.Hash) {
+	runtime.height = height
+	runtime.appHash = appHash
+}
+
+func (runtime *Runtime) finalizeBlockWithStore(req FinalizeBlockRequest, executionStore StateStore, updateRuntime bool) (FinalizeBlockResponse, error) {
 	proposalResponse := runtime.ProcessProposal(ProcessProposalRequest{Block: req.Block})
 	if !proposalResponse.Accepted {
 		return FinalizeBlockResponse{}, ErrProposalRejected
 	}
 
 	ctx := runtime.newContext(req.Block.Header.Height, req.Block.Header)
+	ctx.Store = executionStore
 
 	for _, module := range runtime.modules {
 		if err := module.BeginBlock(ctx, req.Block.Header); err != nil {
@@ -227,11 +251,14 @@ func (runtime *Runtime) FinalizeBlock(req FinalizeBlockRequest) (FinalizeBlockRe
 		}
 	}
 
-	runtime.height = req.Block.Header.Height
-	runtime.appHash = runtime.computeAppHash()
+	appHash := runtime.computeAppHashWithStore(executionStore)
+	if updateRuntime {
+		runtime.height = req.Block.Header.Height
+		runtime.appHash = appHash
+	}
 	return FinalizeBlockResponse{
 		Results:          results,
-		AppHash:          runtime.appHash,
+		AppHash:          appHash,
 		ValidatorUpdates: runtime.collectValidatorUpdates(ctx),
 	}, nil
 }
@@ -351,6 +378,10 @@ func cloneValidatorUpdate(update types.ValidatorUpdate) types.ValidatorUpdate {
 }
 
 func (runtime *Runtime) computeAppHash() types.Hash {
+	return runtime.computeAppHashWithStore(runtime.store)
+}
+
+func (runtime *Runtime) computeAppHashWithStore(stateStore StateStore) types.Hash {
 	hasher := sha256.New()
 	hasher.Write([]byte(runtime.chainID))
 
@@ -358,7 +389,7 @@ func (runtime *Runtime) computeAppHash() types.Hash {
 	binary.BigEndian.PutUint64(heightBuffer[:], uint64(runtime.height))
 	hasher.Write(heightBuffer[:])
 
-	rootStore, ok := runtime.store.(StateRootStore)
+	rootStore, ok := stateStore.(StateRootStore)
 	if ok {
 		for _, module := range runtime.modules {
 			root, err := rootStore.Root(context.Background(), module.Name())

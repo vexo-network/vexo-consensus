@@ -106,6 +106,14 @@ type BlockCommitStore interface {
 	CommitBlockState(ctx context.Context, block BlockRecord, state StateRecord, roots []StateRootRecord) error
 }
 
+type AppBlockCommitStore interface {
+	CommitBlockStateWithWrites(ctx context.Context, writes []KVWrite, block BlockRecord, state StateRecord, roots []StateRootRecord) error
+}
+
+type RootWithWritesStore interface {
+	RootWithWrites(ctx context.Context, namespace string, writes []KVWrite) (types.Hash, error)
+}
+
 type SchemaStateStore interface {
 	SaveSchemaState(ctx context.Context, state upgrade.State) error
 	SchemaState(ctx context.Context) (upgrade.State, error)

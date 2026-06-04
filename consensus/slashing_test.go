@@ -558,7 +558,7 @@ func TestSubmitInvalidProposalEvidenceForSlashing(t *testing.T) {
 		Round:    0,
 		Proposer: "a",
 	})
-	evidence, err := NewInvalidProposalEvidence(proposal, "data availability commitment mismatch")
+	evidence, err := NewInvalidProposalEvidence(proposal, string(InvalidProposalReasonDAMismatch))
 	if err != nil {
 		t.Fatal(err)
 	}
