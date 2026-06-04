@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -52,6 +53,7 @@ func runRelayerClientUpdate(writer io.Writer, args []string, client http.Client)
 	flags := flag.NewFlagSet("relayer client-update", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	rpcAddress := flags.String("rpc", "", "destination RPC base URL used when --submit is set")
+	sourceRPC := flags.String("source-rpc", "", "counterparty RPC base URL used to fetch /v1/state/latest")
 	clientID := flags.String("client-id", "", "IBC client id")
 	height := flags.Uint64("height", 0, "counterparty latest height")
 	validatorSetHash := flags.String("validator-set-hash", "", "counterparty validator set hash hex")
@@ -61,8 +63,32 @@ func runRelayerClientUpdate(writer io.Writer, args []string, client http.Client)
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
+	if *sourceRPC != "" && (*height == 0 || *validatorSetHash == "" || *stateRoot == "") {
+		state, err := fetchRelayerLatestState(context.Background(), client, *sourceRPC)
+		if err != nil {
+			return err
+		}
+		if *height == 0 {
+			*height = state.Height
+		}
+		if *validatorSetHash == "" {
+			*validatorSetHash = state.ValidatorSetHash
+		}
+		if *stateRoot == "" {
+			*stateRoot = state.AppHash
+		}
+		fmt.Fprintf(writer, "source_height: %d\n", state.Height)
+		fmt.Fprintf(writer, "source_validator_set_hash: %s\n", state.ValidatorSetHash)
+		fmt.Fprintf(writer, "source_state_root: %s\n", state.AppHash)
+	}
 	if *clientID == "" || *height == 0 || *validatorSetHash == "" || *stateRoot == "" {
-		return errors.New("client-id, height, validator-set-hash, and state-root are required")
+		return errors.New("client-id and either source-rpc or explicit height, validator-set-hash, and state-root are required")
+	}
+	if err := validateRelayerHexHash(*validatorSetHash); err != nil {
+		return fmt.Errorf("validator-set-hash: %w", err)
+	}
+	if err := validateRelayerHexHash(*stateRoot); err != nil {
+		return fmt.Errorf("state-root: %w", err)
 	}
 	tx, err := buildRelayerTx("client-update", []string{*clientID, strconv.FormatUint(*height, 10), *validatorSetHash, *stateRoot}, tags)
 	if err != nil {
@@ -317,6 +343,12 @@ type relayerDiscoveredPacket struct {
 	DestinationChannel string `json:"destination_channel"`
 	Data               string `json:"data"`
 	TimeoutHeight      uint64 `json:"timeout_height,omitempty"`
+}
+
+type relayerLatestState struct {
+	Height           uint64 `json:"height"`
+	AppHash          string `json:"app_hash"`
+	ValidatorSetHash string `json:"validator_set_hash"`
 }
 
 func readRelayerConfigDocument(path string) (relayerConfigDocument, error) {
@@ -902,6 +934,50 @@ func fetchRelayerDiscoveredPackets(ctx context.Context, client http.Client, rpcA
 		}
 	}
 	return packets, nil
+}
+
+func fetchRelayerLatestState(ctx context.Context, client http.Client, rpcAddress string) (relayerLatestState, error) {
+	endpoint, err := joinRelayerURL(rpcAddress, "/v1/state/latest")
+	if err != nil {
+		return relayerLatestState{}, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return relayerLatestState{}, err
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return relayerLatestState{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return relayerLatestState{}, fmt.Errorf("relayer source state returned HTTP %d", response.StatusCode)
+	}
+	var state relayerLatestState
+	if err := json.NewDecoder(response.Body).Decode(&state); err != nil {
+		return relayerLatestState{}, err
+	}
+	if state.Height == 0 || state.AppHash == "" || state.ValidatorSetHash == "" {
+		return relayerLatestState{}, errors.New("relayer source state response is missing height, app_hash, or validator_set_hash")
+	}
+	if err := validateRelayerHexHash(state.AppHash); err != nil {
+		return relayerLatestState{}, fmt.Errorf("source app_hash: %w", err)
+	}
+	if err := validateRelayerHexHash(state.ValidatorSetHash); err != nil {
+		return relayerLatestState{}, fmt.Errorf("source validator_set_hash: %w", err)
+	}
+	return state, nil
+}
+
+func validateRelayerHexHash(value string) error {
+	decoded, err := hex.DecodeString(value)
+	if err != nil {
+		return err
+	}
+	if len(decoded) != len(types.Hash{}) {
+		return fmt.Errorf("expected %d bytes, got %d", len(types.Hash{}), len(decoded))
+	}
+	return nil
 }
 
 type relayerEventsEnvelope struct {

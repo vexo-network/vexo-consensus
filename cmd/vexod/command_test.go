@@ -950,6 +950,54 @@ func TestRunRelayerClientUpdateAndPacketTimeoutDryRun(t *testing.T) {
 	}
 }
 
+func TestRunRelayerClientUpdateFetchesSourceStateAndSubmits(t *testing.T) {
+	hash := strings.Repeat("01", 32)
+	root := strings.Repeat("02", 32)
+	submitted := false
+	client := http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/state/latest":
+			return jsonHTTPResponse(http.StatusOK, `{"height":12,"app_hash":"`+root+`","validator_set_hash":"`+hash+`"}`), nil
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/tx":
+			submitted = true
+			var payload map[string]string
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				return nil, err
+			}
+			decoded, err := base64.StdEncoding.DecodeString(payload["tx"])
+			if err != nil {
+				return nil, err
+			}
+			expected := "ibc:client-update:07-vexo-0:12:" + hash + ":" + root + ":fee=1"
+			if string(decoded) != expected {
+				t.Fatalf("unexpected client update tx: %s", decoded)
+			}
+			return jsonHTTPResponse(http.StatusAccepted, `{"accepted":true}`), nil
+		default:
+			return jsonHTTPResponse(http.StatusNotFound, `{}`), nil
+		}
+	})}
+	var output bytes.Buffer
+	err := runRelayerClientUpdate(&output, []string{
+		"--source-rpc", "http://source.example",
+		"--rpc", "http://dest.example",
+		"--client-id", "07-vexo-0",
+		"--fee", "1",
+		"--submit",
+	}, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !submitted {
+		t.Fatal("expected client update submit")
+	}
+	for _, expected := range []string{"source_height: 12", "source_validator_set_hash: " + hash, "source_state_root: " + root, "submitted: true"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected %q in output:\n%s", expected, output.String())
+		}
+	}
+}
+
 func TestRunRelayerDiscoverFindsIndexedPackets(t *testing.T) {
 	client := http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		if request.Method != http.MethodGet || request.URL.Path != "/v1/events" {

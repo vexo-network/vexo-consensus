@@ -106,6 +106,7 @@ Packet scaffolds can be generated from the CLI while chain-specific IBC modules 
 
 ```bash
 vexod ibc tx client-update 07-vexo-0 11 <validator-set-hash> <state-root> --fee 1 --gas 1000 --signer relayer --nonce 1
+vexod relayer client-update --source-rpc 127.0.0.1:26657 --rpc 127.0.0.1:27657 --client-id 07-vexo-0 --fee 1 --gas 1000 --signer relayer --nonce 1 --submit
 vexod ibc tx connection-open-init connection-0 07-vexo-0 connection-1 --fee 1 --gas 1000 --signer relayer --nonce 1
 vexod ibc tx connection-open-ack connection-0 --fee 1 --gas 1000 --signer relayer --nonce 2
 vexod ibc tx channel-open-init transfer channel-0 connection-0 channel-1 ordered --fee 1 --gas 1000 --signer relayer --nonce 3
@@ -164,7 +165,7 @@ curl 'http://127.0.0.1:26657/v1/ibc/packet/1/transfer/channel-0/transfer/channel
 curl 'http://127.0.0.1:26657/v1/ibc/proof/packet/1/transfer/channel-0/transfer/channel-1'
 ```
 
-IBC clients can be updated with the counterparty latest height, validator-set hash, and state root. Connections and channels support init/try/ack/confirm handshake states before packet flow. Packet receipts carry acknowledgement and timeout lifecycle fields, so relayers can submit packet-send, observe receipt state, discover packet-send events from the RPC event index, submit packet-ack or packet-timeout, fetch an IBC namespace proof for the packet commitment key, verify that proof against the trusted local IBC client, optionally submit the built relayer transaction through RPC, run a bounded or continuous polling loop, persist relay checkpoints to avoid duplicate submissions after restart, and manage multiple relay jobs from a JSON config file.
+IBC clients can be updated with the counterparty latest height, validator-set hash, and state root. Relayers can fetch those fields from the counterparty `/v1/state/latest` endpoint with `relayer client-update --source-rpc`, then submit the generated update to the destination chain. Connections and channels support init/try/ack/confirm handshake states before packet flow. Packet receipts carry acknowledgement and timeout lifecycle fields, so relayers can submit packet-send, observe receipt state, discover packet-send events from the RPC event index, submit packet-ack or packet-timeout, fetch an IBC namespace proof for the packet commitment key, verify that proof against the trusted local IBC client, optionally submit the built relayer transaction through RPC, run a bounded or continuous polling loop, persist relay checkpoints to avoid duplicate submissions after restart, and manage multiple relay jobs from a JSON config file.
 
 The `contract` package provides a VM registry and invocation boundary for future EVM/WASM-compatible modules. VM implementations plug in behind `contract.VM` and must enforce their own gas/account/state semantics.
 
