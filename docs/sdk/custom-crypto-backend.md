@@ -102,13 +102,29 @@ func init() {
 
 `vrf.adapter_name`, `vrf.audit_report`, and `vrf.key_source` must match the adapter metadata. When `committee.backend` is `vrf`, runtime startup fails if no matching adapter is linked instead of silently falling back to deterministic VRF. When committee selection is deterministic, runtime does not load a VRF adapter.
 
-The built-in ECVRF adapter is registered as `ecvrf-p256-sha256-tai-v1`. It uses P-256/SHA-256 try-and-increment ECVRF proofs. `vrf.keys` maps a base64-encoded VRF public key to its private scalar bytes, and validators may put a base64 VRF public key in metadata key `vrf_public_key`; otherwise committee selection falls back to the validator consensus public key. For public networks, keep VRF private material in a signer/KMS boundary rather than plain config files.
+The built-in ECVRF adapter is registered as `ecvrf-p256-sha256-tai-v1`. It uses P-256/SHA-256 try-and-increment ECVRF proofs. Validators may put a base64 VRF public key in metadata key `vrf_public_key`; otherwise committee selection falls back to the validator consensus public key.
 
-Generate a VRF key document with:
+Prefer encrypted VRF key documents referenced from `consensus_config.json`:
+
+```json
+{
+  "vrf_key_paths": ["validator.vrf.key.json"],
+  "vrf": {
+    "adapter_name": "ecvrf-p256-sha256-tai-v1",
+    "audit_report": "operator-audit-reference",
+    "key_source": "config.vrf.keys",
+    "production_adapter": true
+  }
+}
+```
+
+Generate an encrypted VRF key document with:
 
 ```bash
-vexod keys gen --home .vexo-vrf --type vrf
+VEXO_KEY_PASSPHRASE='change-me' vexod keys gen --home .vexo-vrf --type vrf --encrypt
 ```
+
+At startup, `vexod` resolves relative `vrf_key_paths` from the directory containing `consensus_config.json`, decrypts encrypted key documents through `VEXO_KEY_PASSPHRASE`, and injects the private key into the runtime VRF adapter. Direct `vrf.keys` remains available for tests or custom loaders, but operators should avoid storing raw private scalars in config files. For public value-bearing networks, a remote signer/KMS-backed VRF prover is still preferred over local key custody.
 
 ## Remote Signer Requirements
 

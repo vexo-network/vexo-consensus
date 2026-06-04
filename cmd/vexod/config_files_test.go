@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/config"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/governance"
@@ -437,6 +438,62 @@ func TestDefaultConfigWritesTendermintStyleConsensusTimeouts(t *testing.T) {
 	}
 	if consensus.CreateEmptyBlocks {
 		t.Fatalf("expected empty block creation disabled by default: %+v", consensus)
+	}
+}
+
+func TestLoadNodeConfigLoadsEncryptedVRFKeyDocuments(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("VEXO_KEY_PASSPHRASE", "secret")
+	consensusDir := filepath.Join(home, "modules")
+	if err := os.MkdirAll(consensusDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	keyDocument, err := vexocrypto.GenerateECVRFP256KeyDocument()
+	if err != nil {
+		t.Fatal(err)
+	}
+	encryptedKeyDocument, err := keyDocument.Encrypted("secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vrfKeyPath := filepath.Join(consensusDir, "validator.vrf.key.json")
+	if err := vexocrypto.SaveKeyDocument(vrfKeyPath, encryptedKeyDocument); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(home, configFileName)
+	configDocument := defaultConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	configDocument.ConsensusConfigPath = filepath.Join("modules", "consensus.json")
+	writeTestJSON(t, configPath, configDocument)
+	consensusDocument := defaultConsensusConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	consensusDocument.Committee.Backend = committee.BackendVRF
+	consensusDocument.VRF.ProductionAdapter = true
+	consensusDocument.VRF.AdapterName = vexocrypto.VRFAdapterECVRFP256Name
+	consensusDocument.VRF.AuditReport = "ecvrf-test-audit"
+	consensusDocument.VRF.KeySource = "config.vrf.keys"
+	consensusDocument.VRFKeyPaths = []string{"validator.vrf.key.json"}
+	writeTestJSON(t, filepath.Join(consensusDir, "consensus.json"), consensusDocument)
+
+	cfg, err := loadNodeConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKey, err := base64.StdEncoding.DecodeString(keyDocument.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Chain.VRF.Keys[string(publicKey)]) == 0 {
+		t.Fatalf("expected VRF key loaded from key document, got %+v", cfg.Chain.VRF.Keys)
+	}
+	vrf, err := vexocrypto.NewVRF(cfg.Chain.VRF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, proof, err := vrf.Prove(publicKey, []byte("seed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !vrf.Verify(publicKey, []byte("seed"), output, proof) {
+		t.Fatal("expected loaded VRF key to prove and verify")
 	}
 }
 

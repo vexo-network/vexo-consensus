@@ -112,6 +112,7 @@ type consensusConfigDocument struct {
 	Consensus     runtimeConsensusConfig    `json:"consensus"`
 	Crypto        config.CryptoConfig       `json:"crypto"`
 	VRF           config.VRFConfig          `json:"vrf"`
+	VRFKeyPaths   []string                  `json:"vrf_key_paths,omitempty"`
 	Validator     validator.AdmissionConfig `json:"validator"`
 	Committee     committee.RotationPolicy  `json:"committee"`
 }
@@ -1123,15 +1124,58 @@ func loadConsensusConfigForConfig(configPath string, document configDocument) (c
 	consensusPath := resolveConsensusConfigPath(filepath.Dir(configPath), document.ConsensusConfigPath)
 	consensusDocument, err := readConsensusConfigDocument(consensusPath)
 	if err == nil {
+		if err := loadVRFKeyDocuments(filepath.Dir(consensusPath), &consensusDocument); err != nil {
+			return consensusConfigDocument{}, err
+		}
 		return consensusDocument, nil
 	}
 	if errors.Is(err, os.ErrNotExist) {
 		if hasLegacyConsensusConfig(document.LegacyConsensus) {
+			if err := loadVRFKeyDocuments(filepath.Dir(configPath), &document.LegacyConsensus); err != nil {
+				return consensusConfigDocument{}, err
+			}
 			return document.LegacyConsensus, nil
 		}
 		return defaultConsensusConfigDocument(documentChainID(document), document.DataDir, document.ValidatorID), nil
 	}
 	return consensusConfigDocument{}, err
+}
+
+func loadVRFKeyDocuments(configDir string, document *consensusConfigDocument) error {
+	if len(document.VRFKeyPaths) == 0 {
+		return nil
+	}
+	keys := cloneVRFKeys(document.VRF.Keys)
+	for _, configuredPath := range document.VRFKeyPaths {
+		keyPath := configuredPath
+		if !filepath.IsAbs(keyPath) {
+			keyPath = filepath.Join(configDir, configuredPath)
+		}
+		keyDocument, err := vexocrypto.LoadKeyDocument(keyPath)
+		if err != nil {
+			return fmt.Errorf("vrf key %q: %w", configuredPath, err)
+		}
+		privateKey, err := keyDocument.ECVRFP256PrivateKeyWithPassphrase(resolvePassphrase(""))
+		if err != nil {
+			return fmt.Errorf("vrf key %q: %w", configuredPath, err)
+		}
+		publicKey, err := decodeOptionalBase64(keyDocument.PublicKey)
+		if err != nil {
+			return fmt.Errorf("vrf key %q public key: %w", configuredPath, err)
+		}
+		keys[string(publicKey)] = privateKey
+		keys[keyDocument.PublicKey] = privateKey
+	}
+	document.VRF.Keys = keys
+	return nil
+}
+
+func cloneVRFKeys(keys map[string][]byte) map[string][]byte {
+	copied := make(map[string][]byte, len(keys))
+	for publicKey, privateKey := range keys {
+		copied[publicKey] = append([]byte(nil), privateKey...)
+	}
+	return copied
 }
 
 func loadMempoolConfigForConfig(configPath string, document configDocument) (mempoolConfigDocument, error) {
@@ -1200,6 +1244,7 @@ func hasLegacyConsensusConfig(document consensusConfigDocument) bool {
 	return document.Consensus != (runtimeConsensusConfig{}) ||
 		document.Crypto != (config.CryptoConfig{}) ||
 		document.VRF.Keys != nil ||
+		len(document.VRFKeyPaths) > 0 ||
 		validatorAdmissionConfigSet(document.Validator) ||
 		committeeRotationPolicySet(document.Committee)
 }

@@ -96,10 +96,10 @@ Validator init supports `--key-type ed25519` and `--key-type bls`. Standalone ke
 ```bash
 vexod keys gen --home .vexo-ed25519 --type ed25519
 vexod keys gen --home .vexo-bls --type bls
-vexod keys gen --home .vexo-vrf --type vrf
+VEXO_KEY_PASSPHRASE='change-me' vexod keys gen --home .vexo-vrf --type vrf --encrypt
 ```
 
-VRF keys are not consensus signers. They are used for VRF-backed committee selection and must be referenced from `consensus_config.json` plus validator metadata key `vrf_public_key` when that backend is enabled.
+VRF keys are not consensus signers. They are used for VRF-backed committee selection and should be referenced from `consensus_config.json` through `vrf_key_paths` plus validator metadata key `vrf_public_key` when that backend is enabled.
 
 `config.json` points to the split config files:
 
@@ -191,9 +191,12 @@ Example `consensus_config.json`:
     "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false
-  }
+  },
+  "vrf_key_paths": ["validator.vrf.key.json"]
 }
 ```
+
+`vrf_key_paths` are resolved relative to the directory containing `consensus_config.json`. Use encrypted key documents and provide `VEXO_KEY_PASSPHRASE` to the node process when local VRF key custody is unavoidable. Do not put raw VRF private scalars directly in `consensus_config.json` for operator-run networks.
 
 Use `vexod config paths --home <home>` to inspect all resolved paths.
 
