@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/events"
 	"github.com/vexo-network/vexo-consensus/queryproof"
 	"github.com/vexo-network/vexo-consensus/store"
@@ -11,6 +12,7 @@ import (
 )
 
 var ErrHistoricalQueryProofUnsupported = errors.New("historical query proof is unsupported without historical KV snapshots")
+var ErrAppQueryUnavailable = errors.New("application query is unavailable")
 
 func (runtime *Runtime) BlockByHeight(ctx context.Context, height types.Height) (store.BlockRecord, error) {
 	if runtime.Store == nil {
@@ -76,6 +78,24 @@ func (runtime *Runtime) QueryProof(ctx context.Context, height types.Height, nam
 		return queryproof.Proof{}, ErrHistoricalQueryProofUnsupported
 	}
 	return queryproof.Build(ctx, runtime.Store, runtime.Config.ChainID, state.Height, namespace, key)
+}
+
+func (runtime *Runtime) IBCQuery(ctx context.Context, path []string) (app.QueryResponse, error) {
+	if runtime.App == nil {
+		return app.QueryResponse{}, ErrAppQueryUnavailable
+	}
+	select {
+	case <-ctx.Done():
+		return app.QueryResponse{}, ctx.Err()
+	default:
+	}
+	queryPath := append([]string{"ibc"}, path...)
+	response := runtime.App.Query(app.QueryRequest{Path: queryPath})
+	return app.QueryResponse{
+		Code:  response.Code,
+		Value: append([]byte(nil), response.Value...),
+		Log:   response.Log,
+	}, nil
 }
 
 func (runtime *Runtime) PruneBelow(ctx context.Context, retainFrom types.Height) (store.PruneResult, error) {

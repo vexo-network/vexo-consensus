@@ -127,6 +127,7 @@ Common RPC reads:
 curl 'http://127.0.0.1:26657/v1/status'
 curl 'http://127.0.0.1:26657/v1/events?key=sender&value=alice'
 curl 'http://127.0.0.1:26657/v1/proof?namespace=bank&key=alice'
+curl 'http://127.0.0.1:26657/v1/ibc/client/07-vexo-0'
 ```
 
 Module commands are contributed by application modules:

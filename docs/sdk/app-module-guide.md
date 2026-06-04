@@ -115,6 +115,13 @@ vexod ibc packet send \
   --data payload
 ```
 
+Relayer-facing reads are available through RPC:
+
+```bash
+curl 'http://127.0.0.1:26657/v1/ibc/client/07-vexo-0'
+curl 'http://127.0.0.1:26657/v1/ibc/packet/1/transfer/channel-0/transfer/channel-1'
+```
+
 The `contract` package provides a VM registry and invocation boundary for future EVM/WASM-compatible modules. VM implementations plug in behind `contract.VM` and must enforce their own gas/account/state semantics.
 
 ## Genesis

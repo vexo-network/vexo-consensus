@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/events"
 	"github.com/vexo-network/vexo-consensus/queryproof"
@@ -79,6 +80,14 @@ func (node *Node) QueryProof(ctx context.Context, height types.Height, namespace
 		return queryproof.Proof{}, err
 	}
 	return runtime.QueryProof(ctx, height, namespace, key)
+}
+
+func (node *Node) IBCQuery(ctx context.Context, path []string) (vexoapp.QueryResponse, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return vexoapp.QueryResponse{}, err
+	}
+	return runtime.IBCQuery(ctx, path)
 }
 
 func (node *Node) PruneBelow(ctx context.Context, retainFrom types.Height) (store.PruneResult, error) {

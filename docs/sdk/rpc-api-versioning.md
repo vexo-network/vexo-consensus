@@ -28,6 +28,10 @@ Stable endpoints are exposed under `/v1`. The unversioned paths remain compatibi
 - `/v1/events?key={attribute_key}&value={attribute_value}`
 - `/v1/proof?namespace={namespace}&key={key}`
 - `/v1/proof?namespace={namespace}&key={key}&height=latest`
+- `/v1/ibc/client/{client_id}`
+- `/v1/ibc/connection/{connection_id}`
+- `/v1/ibc/channel/{port_id}/{channel_id}`
+- `/v1/ibc/packet/{sequence}/{source_port}/{source_channel}/{destination_port}/{destination_channel}`
 - `/v1/validators/{height}`
 - `/v1/committee/{height}/{round}`
 
@@ -84,6 +88,19 @@ curl 'http://127.0.0.1:26657/v1/events?key=sender&value=alice'
 ```
 
 Only attributes emitted with `Index: true` are queryable. Modules must keep event emission deterministic.
+
+## IBC Queries
+
+The IBC module exposes relayer-facing read endpoints:
+
+```bash
+curl 'http://127.0.0.1:26657/v1/ibc/client/07-vexo-0'
+curl 'http://127.0.0.1:26657/v1/ibc/connection/connection-0'
+curl 'http://127.0.0.1:26657/v1/ibc/channel/transfer/channel-0'
+curl 'http://127.0.0.1:26657/v1/ibc/packet/1/transfer/channel-0/transfer/channel-1'
+```
+
+Responses wrap the module JSON state in `{ "path": [...], "value": ... }`. Missing IBC state returns `404`.
 
 ## Operational Compatibility
 

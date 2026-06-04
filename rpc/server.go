@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/events"
 	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/node"
@@ -203,6 +204,11 @@ type EventsResponse struct {
 
 type QueryProofResponse struct {
 	Proof queryproof.Proof `json:"proof"`
+}
+
+type IBCQueryResponse struct {
+	Path  []string        `json:"path"`
+	Value json.RawMessage `json:"value"`
 }
 
 type StateSnapshotResponse struct {
@@ -614,6 +620,35 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 		}
 		writeJSON(writer, http.StatusOK, QueryProofResponse{Proof: proof})
 	})
+	mux.HandleFunc("/ibc/", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowGet(writer, request) {
+			return
+		}
+		queryProvider, ok := provider.(IBCQueryProvider)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "IBC query is unavailable")
+			return
+		}
+		path, ok := parseIBCQueryPath(request.URL.Path)
+		if !ok {
+			writeError(writer, http.StatusBadRequest, "invalid IBC query path")
+			return
+		}
+		response, err := queryProvider.IBCQuery(request.Context(), path)
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if response.Code != 0 {
+			writeIBCQueryError(writer, response)
+			return
+		}
+		if !json.Valid(response.Value) {
+			writeError(writer, http.StatusInternalServerError, "IBC query returned invalid JSON")
+			return
+		}
+		writeJSON(writer, http.StatusOK, IBCQueryResponse{Path: path, Value: append(json.RawMessage(nil), response.Value...)})
+	})
 	mux.HandleFunc("/snapshot/latest", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
 			return
@@ -902,6 +937,44 @@ func parseOptionalHeight(value string) (types.Height, bool) {
 		return 0, false
 	}
 	return types.Height(height), true
+}
+
+func parseIBCQueryPath(path string) ([]string, bool) {
+	selector := strings.TrimPrefix(path, "/ibc/")
+	if selector == "" || selector == path {
+		return nil, false
+	}
+	parts := strings.Split(selector, "/")
+	for _, part := range parts {
+		if part == "" {
+			return nil, false
+		}
+	}
+	switch parts[0] {
+	case "client", "connection":
+		return parts, len(parts) == 2
+	case "channel":
+		return parts, len(parts) == 3
+	case "packet":
+		return parts, len(parts) == 6
+	default:
+		return nil, false
+	}
+}
+
+func writeIBCQueryError(writer http.ResponseWriter, response vexoapp.QueryResponse) {
+	message := response.Log
+	if message == "" {
+		message = "IBC query failed"
+	}
+	switch response.Code {
+	case 2:
+		writeError(writer, http.StatusBadRequest, message)
+	case 3:
+		writeError(writer, http.StatusNotFound, message)
+	default:
+		writeError(writer, http.StatusInternalServerError, message)
+	}
 }
 
 func parseHeightSelector(path string, prefix string) (types.Height, bool) {

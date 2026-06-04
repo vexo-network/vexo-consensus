@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 
+	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/events"
@@ -57,6 +58,10 @@ type EventQueryProvider interface {
 
 type QueryProofProvider interface {
 	QueryProof(ctx context.Context, height types.Height, namespace string, key []byte) (queryproof.Proof, error)
+}
+
+type IBCQueryProvider interface {
+	IBCQuery(ctx context.Context, path []string) (vexoapp.QueryResponse, error)
 }
 
 type PruneProvider interface {

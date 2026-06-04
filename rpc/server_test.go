@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/events"
@@ -52,6 +53,9 @@ type fakeStatusProvider struct {
 	eventErr          error
 	queryProof        queryproof.Proof
 	queryProofErr     error
+	ibcQueryResponse  vexoapp.QueryResponse
+	ibcQueryErr       error
+	ibcQueryPath      []string
 	pruneResult       store.PruneResult
 	pruneErr          error
 	prunedHeights     []types.Height
@@ -180,6 +184,14 @@ func (provider fakeStatusProvider) QueryProof(ctx context.Context, height types.
 		return queryproof.Proof{}, provider.queryProofErr
 	}
 	return provider.queryProof, nil
+}
+
+func (provider *fakeStatusProvider) IBCQuery(ctx context.Context, path []string) (vexoapp.QueryResponse, error) {
+	provider.ibcQueryPath = append([]string(nil), path...)
+	if provider.ibcQueryErr != nil {
+		return vexoapp.QueryResponse{}, provider.ibcQueryErr
+	}
+	return provider.ibcQueryResponse, nil
 }
 
 func (provider *fakeStatusProvider) PruneBelow(ctx context.Context, retainFrom types.Height) (store.PruneResult, error) {
@@ -959,6 +971,46 @@ func TestHandlerReportsEventsAndQueryProof(t *testing.T) {
 	getJSON(t, handler, "/v1/proof?namespace=bank&key=alice&height=9", http.StatusOK, &proofResponse)
 	if proofResponse.Proof.ChainID != "vexo-test" || proofResponse.Proof.Height != 9 || string(proofResponse.Proof.Key) != "alice" {
 		t.Fatalf("unexpected proof response: %+v", proofResponse)
+	}
+}
+
+func TestHandlerReportsIBCQueries(t *testing.T) {
+	provider := &fakeStatusProvider{
+		ibcQueryResponse: vexoapp.QueryResponse{Value: []byte(`{"client_id":"07-vexo-0","chain_id":"counterparty"}`)},
+	}
+	handler := NewHandler(provider)
+
+	var response IBCQueryResponse
+	getJSON(t, handler, "/v1/ibc/client/07-vexo-0", http.StatusOK, &response)
+	if strings.Join(response.Path, "/") != "client/07-vexo-0" || string(response.Value) != `{"client_id":"07-vexo-0","chain_id":"counterparty"}` {
+		t.Fatalf("unexpected IBC response: %+v", response)
+	}
+	if strings.Join(provider.ibcQueryPath, "/") != "client/07-vexo-0" {
+		t.Fatalf("unexpected provider path: %v", provider.ibcQueryPath)
+	}
+}
+
+func TestHandlerRejectsInvalidIBCQueries(t *testing.T) {
+	handler := NewHandler(&fakeStatusProvider{})
+	cases := map[string]int{
+		"/ibc/unknown/value":               http.StatusBadRequest,
+		"/ibc/client":                      http.StatusBadRequest,
+		"/ibc/channel/transfer":            http.StatusBadRequest,
+		"/ibc/packet/1/transfer/channel-0": http.StatusBadRequest,
+		"/ibc/client/07-vexo-0/extra":      http.StatusBadRequest,
+	}
+	for path, expectedStatus := range cases {
+		var response map[string]string
+		getJSON(t, handler, path, expectedStatus, &response)
+		if response["error"] == "" {
+			t.Fatalf("expected error for %s, got %+v", path, response)
+		}
+	}
+	notFoundHandler := NewHandler(&fakeStatusProvider{ibcQueryResponse: vexoapp.QueryResponse{Code: 3, Log: "IBC state not found"}})
+	var response map[string]string
+	getJSON(t, notFoundHandler, "/ibc/client/missing", http.StatusNotFound, &response)
+	if response["error"] != "IBC state not found" {
+		t.Fatalf("unexpected not found response: %+v", response)
 	}
 }
 
