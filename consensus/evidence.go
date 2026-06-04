@@ -54,8 +54,13 @@ type ConflictingTimeoutVoteProof struct {
 }
 
 type InvalidProposalProof struct {
-	Proposal Proposal              `json:"proposal"`
-	Reason   InvalidProposalReason `json:"reason"`
+	Proposal             Proposal              `json:"proposal"`
+	Reason               InvalidProposalReason `json:"reason"`
+	ExpectedHash         types.Hash            `json:"expected_hash,omitempty"`
+	ActualHash           types.Hash            `json:"actual_hash,omitempty"`
+	ExpectedTimeUnixNano int64                 `json:"expected_time_unix_nano,omitempty"`
+	ActualTimeUnixNano   int64                 `json:"actual_time_unix_nano,omitempty"`
+	VerificationMessage  string                `json:"verification_message,omitempty"`
 }
 
 type UnavailableDataProof struct {
@@ -121,8 +126,11 @@ func NewInvalidProposalEvidence(proposal Proposal, reason string) (slashing.Evid
 	if !validInvalidProposalReason(proposalReason) {
 		return slashing.Evidence{}, ErrUnsupportedProposalReason
 	}
-	if err := dataavailability.Verify(proposal.Block.Header, proposal.Block.Txs); err == nil {
-		return slashing.Evidence{}, ErrInvalidProposal
+	if proposalReason != InvalidProposalReasonDAMismatch && proposalReason != InvalidProposalReasonMissingData {
+		return slashing.Evidence{}, ErrUnsupportedProposalReason
+	}
+	if err := verifyInvalidProposalByReason(InvalidProposalProof{Proposal: proposal, Reason: proposalReason}); err != nil {
+		return slashing.Evidence{}, err
 	}
 	proof, err := json.Marshal(InvalidProposalProof{Proposal: proposal, Reason: proposalReason})
 	if err != nil {
@@ -135,6 +143,165 @@ func NewInvalidProposalEvidence(proposal Proposal, reason string) (slashing.Evid
 		Round:     proposal.Round,
 		Proof:     proof,
 	}, nil
+}
+
+func NewInvalidProposalHashEvidence(proposal Proposal, reason string, expected types.Hash, actual types.Hash) (slashing.Evidence, error) {
+	if proposal.Proposer == "" || proposal.Block.Header.Height == 0 || reason == "" {
+		return slashing.Evidence{}, slashing.ErrMissingValidator
+	}
+	proposalReason := InvalidProposalReason(reason)
+	proof := InvalidProposalProof{
+		Proposal:     proposal,
+		Reason:       proposalReason,
+		ExpectedHash: expected,
+		ActualHash:   actual,
+	}
+	if err := verifyInvalidProposalEnvelope(proof, proposal.Proposer, proposal.Block.Header.Height, proposal.Round); err != nil {
+		return slashing.Evidence{}, err
+	}
+	if err := verifyInvalidProposalByReason(proof); err != nil {
+		return slashing.Evidence{}, err
+	}
+	encoded, err := json.Marshal(proof)
+	if err != nil {
+		return slashing.Evidence{}, err
+	}
+	return slashing.Evidence{
+		Type:      slashing.EvidenceInvalidProposal,
+		Validator: proposal.Proposer,
+		Height:    proposal.Block.Header.Height,
+		Round:     proposal.Round,
+		Proof:     encoded,
+	}, nil
+}
+
+func NewInvalidProposalTimestampEvidence(proposal Proposal, expected int64, actual int64) (slashing.Evidence, error) {
+	if proposal.Proposer == "" || proposal.Block.Header.Height == 0 {
+		return slashing.Evidence{}, slashing.ErrMissingValidator
+	}
+	proof := InvalidProposalProof{
+		Proposal:             proposal,
+		Reason:               InvalidProposalReasonTimestamp,
+		ExpectedTimeUnixNano: expected,
+		ActualTimeUnixNano:   actual,
+	}
+	if err := verifyInvalidProposalByReason(proof); err != nil {
+		return slashing.Evidence{}, err
+	}
+	encoded, err := json.Marshal(proof)
+	if err != nil {
+		return slashing.Evidence{}, err
+	}
+	return slashing.Evidence{
+		Type:      slashing.EvidenceInvalidProposal,
+		Validator: proposal.Proposer,
+		Height:    proposal.Block.Header.Height,
+		Round:     proposal.Round,
+		Proof:     encoded,
+	}, nil
+}
+
+func NewInvalidProposalSignatureEvidence(proposal Proposal, message string) (slashing.Evidence, error) {
+	if proposal.Proposer == "" || proposal.Block.Header.Height == 0 {
+		return slashing.Evidence{}, slashing.ErrMissingValidator
+	}
+	proof := InvalidProposalProof{
+		Proposal:            proposal,
+		Reason:              InvalidProposalReasonProposerSignature,
+		VerificationMessage: message,
+	}
+	if err := verifyInvalidProposalByReason(proof); err != nil {
+		return slashing.Evidence{}, err
+	}
+	encoded, err := json.Marshal(proof)
+	if err != nil {
+		return slashing.Evidence{}, err
+	}
+	return slashing.Evidence{
+		Type:      slashing.EvidenceInvalidProposal,
+		Validator: proposal.Proposer,
+		Height:    proposal.Block.Header.Height,
+		Round:     proposal.Round,
+		Proof:     encoded,
+	}, nil
+}
+
+func newInvalidProposalEvidenceFromProof(proof InvalidProposalProof) (slashing.Evidence, error) {
+	if proof.Proposal.Proposer == "" || proof.Proposal.Block.Header.Height == 0 {
+		return slashing.Evidence{}, slashing.ErrMissingValidator
+	}
+	if err := verifyInvalidProposalEnvelope(proof, proof.Proposal.Proposer, proof.Proposal.Block.Header.Height, proof.Proposal.Round); err != nil {
+		return slashing.Evidence{}, err
+	}
+	if err := verifyInvalidProposalByReason(proof); err != nil {
+		return slashing.Evidence{}, err
+	}
+	encoded, err := json.Marshal(proof)
+	if err != nil {
+		return slashing.Evidence{}, err
+	}
+	return slashing.Evidence{
+		Type:      slashing.EvidenceInvalidProposal,
+		Validator: proof.Proposal.Proposer,
+		Height:    proof.Proposal.Block.Header.Height,
+		Round:     proof.Proposal.Round,
+		Proof:     encoded,
+	}, nil
+}
+
+func verifyInvalidProposalEnvelope(decoded InvalidProposalProof, validatorID types.ValidatorID, height types.Height, round types.Round) error {
+	if decoded.Reason == "" ||
+		!validInvalidProposalReason(decoded.Reason) ||
+		decoded.Proposal.Proposer != validatorID ||
+		decoded.Proposal.Block.Header.Height != height ||
+		decoded.Proposal.Round != round {
+		return ErrVotePairMismatch
+	}
+	return nil
+}
+
+func verifyInvalidProposalByReason(decoded InvalidProposalProof) error {
+	switch decoded.Reason {
+	case InvalidProposalReasonDAMismatch:
+		err := dataavailability.Verify(decoded.Proposal.Block.Header, decoded.Proposal.Block.Txs)
+		if !errors.Is(err, dataavailability.ErrCommitmentMismatch) {
+			if err == nil {
+				return ErrInvalidProposal
+			}
+			return err
+		}
+		return nil
+	case InvalidProposalReasonMissingData:
+		err := dataavailability.Verify(decoded.Proposal.Block.Header, decoded.Proposal.Block.Txs)
+		if !errors.Is(err, dataavailability.ErrMissingData) {
+			if err == nil {
+				return ErrInvalidProposal
+			}
+			return err
+		}
+		return nil
+	case InvalidProposalReasonValidatorSetHash, InvalidProposalReasonAppHash, InvalidProposalReasonStateRoot, InvalidProposalReasonTxValidity:
+		if decoded.ExpectedHash == (types.Hash{}) ||
+			decoded.ActualHash == (types.Hash{}) ||
+			decoded.ExpectedHash == decoded.ActualHash {
+			return ErrInvalidProposal
+		}
+		return nil
+	case InvalidProposalReasonTimestamp:
+		if decoded.ExpectedTimeUnixNano == 0 ||
+			decoded.ActualTimeUnixNano == 0 ||
+			decoded.ExpectedTimeUnixNano == decoded.ActualTimeUnixNano {
+			return ErrInvalidProposal
+		}
+		return nil
+	case InvalidProposalReasonProposerSignature:
+		if decoded.VerificationMessage == "" {
+			return ErrInvalidProposal
+		}
+		return nil
+	default:
+		return ErrUnsupportedProposalReason
+	}
 }
 
 func NewUnavailableDataEvidence(proposal Proposal, reason string) (slashing.Evidence, error) {
@@ -245,17 +412,10 @@ func VerifyInvalidProposalEvidence(evidence slashing.Evidence) error {
 	if err != nil {
 		return err
 	}
-	if decoded.Reason == "" ||
-		!validInvalidProposalReason(decoded.Reason) ||
-		decoded.Proposal.Proposer != evidence.Validator ||
-		decoded.Proposal.Block.Header.Height != evidence.Height ||
-		decoded.Proposal.Round != evidence.Round {
-		return ErrVotePairMismatch
+	if err := verifyInvalidProposalEnvelope(decoded, evidence.Validator, evidence.Height, evidence.Round); err != nil {
+		return err
 	}
-	if err := dataavailability.Verify(decoded.Proposal.Block.Header, decoded.Proposal.Block.Txs); err == nil {
-		return ErrInvalidProposal
-	}
-	return nil
+	return verifyInvalidProposalByReason(decoded)
 }
 
 func validInvalidProposalReason(reason InvalidProposalReason) bool {

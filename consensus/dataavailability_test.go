@@ -83,3 +83,40 @@ func TestStateMachineRejectsProposalWithWrongDataCommitment(t *testing.T) {
 		t.Fatalf("expected invalid proposal, got %v", err)
 	}
 }
+
+func TestInvalidProposalHashEvidenceVerifiesReasonSpecificProof(t *testing.T) {
+	proposal := Proposal{
+		Block: types.Block{
+			Header: types.Header{
+				ChainID:       "vexo-test",
+				Height:        7,
+				ConsensusHash: dataavailability.Commitment([]types.Tx{[]byte("tx")}),
+			},
+			Txs: []types.Tx{[]byte("tx")},
+		},
+		Round:    2,
+		Proposer: "validator-1",
+	}
+
+	evidence, err := NewInvalidProposalHashEvidence(proposal, string(InvalidProposalReasonValidatorSetHash), types.Hash{1}, types.Hash{2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyInvalidProposalEvidence(evidence); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInvalidProposalHashEvidenceRejectsMissingMismatch(t *testing.T) {
+	proposal := Proposal{
+		Block: types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: 7},
+		},
+		Proposer: "validator-1",
+	}
+
+	_, err := NewInvalidProposalHashEvidence(proposal, string(InvalidProposalReasonAppHash), types.Hash{1}, types.Hash{1})
+	if !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected invalid proposal proof, got %v", err)
+	}
+}

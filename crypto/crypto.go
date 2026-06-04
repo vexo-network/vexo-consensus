@@ -42,7 +42,7 @@ type BLSAdapterMetadata struct {
 }
 
 type VRF interface {
-	Prove(seed []byte) (output []byte, proof []byte, err error)
+	Prove(publicKey types.PublicKey, seed []byte) (output []byte, proof []byte, err error)
 	Verify(publicKey types.PublicKey, seed []byte, output []byte, proof []byte) bool
 }
 

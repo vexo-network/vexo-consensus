@@ -55,12 +55,20 @@ func (registry RuntimeSuiteRegistry) NewRuntimeSuite(cfg config.CryptoConfig) (R
 	case config.CryptoBackendEd25519:
 		return RuntimeSuite{FinalityVerifier: Ed25519MultiVerifier{}, ConsensusAggregator: Ed25519SignatureAggregator{}, ConsensusVerifier: Ed25519Signer{}}, nil
 	case config.CryptoBackendBLS:
+		if registry.blsFactory == nil && cfg.AdapterName != "" {
+			if factory, found := registeredBLSAdapter(cfg.AdapterName); found {
+				registry.blsFactory = factory
+			}
+		}
 		if registry.blsFactory == nil {
 			return RuntimeSuite{}, ErrBLSBackendUnavailable
 		}
 		adapter, err := registry.blsFactory()
 		if err != nil {
 			return RuntimeSuite{}, err
+		}
+		if cfg.AdapterName != "" && adapter.Metadata().Name != cfg.AdapterName {
+			return RuntimeSuite{}, ErrBLSAdapterUnsafe
 		}
 		if err := ValidateBLSAdapter(adapter); err != nil {
 			return RuntimeSuite{}, err

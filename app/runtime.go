@@ -251,7 +251,7 @@ func (runtime *Runtime) finalizeBlockWithStore(req FinalizeBlockRequest, executi
 		}
 	}
 
-	appHash := runtime.computeAppHashWithStore(executionStore)
+	appHash := runtime.computeAppHashAtHeight(req.Block.Header.Height, executionStore)
 	if updateRuntime {
 		runtime.height = req.Block.Header.Height
 		runtime.appHash = appHash
@@ -378,15 +378,15 @@ func cloneValidatorUpdate(update types.ValidatorUpdate) types.ValidatorUpdate {
 }
 
 func (runtime *Runtime) computeAppHash() types.Hash {
-	return runtime.computeAppHashWithStore(runtime.store)
+	return runtime.computeAppHashAtHeight(runtime.height, runtime.store)
 }
 
-func (runtime *Runtime) computeAppHashWithStore(stateStore StateStore) types.Hash {
+func (runtime *Runtime) computeAppHashAtHeight(height types.Height, stateStore StateStore) types.Hash {
 	hasher := sha256.New()
 	hasher.Write([]byte(runtime.chainID))
 
 	var heightBuffer [8]byte
-	binary.BigEndian.PutUint64(heightBuffer[:], uint64(runtime.height))
+	binary.BigEndian.PutUint64(heightBuffer[:], uint64(height))
 	hasher.Write(heightBuffer[:])
 
 	rootStore, ok := stateStore.(StateRootStore)

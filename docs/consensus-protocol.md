@@ -26,7 +26,12 @@ Vexo uses these terms consistently:
 - **Executed**: the application has run `FinalizeBlock` for a block.
 - **State committed**: application KV writes, block record, state record, and module state roots have been durably committed.
 
-The node execution path currently executes a QC-certified block and persists its state through an atomic app/block/state commit when the application runtime and store support staged execution. Finality proofs still describe consensus finality, not merely local execution.
+The node execution path uses two separate boundaries:
+
+- **Execution commit boundary**: a QC-certified block can be executed and atomically persisted as app writes + block record + state record + state roots.
+- **Consensus finality boundary**: the three-chain rule finalizes an ancestor and is the only source for light-client finality proofs.
+
+Operators and SDK users should treat `block_committed` logs as state-commit events, not as proof that the same height is three-chain finalized. Finality proofs describe consensus finality at their validator-set height.
 
 ## Safety Boundary
 

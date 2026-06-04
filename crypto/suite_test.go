@@ -75,6 +75,37 @@ func TestRuntimeSuiteRegistryRejectsUnsafeBLSAdapter(t *testing.T) {
 	}
 }
 
+func TestRuntimeSuiteLoadsRegisteredBLSAdapterByName(t *testing.T) {
+	RegisterBLSAdapter("global-test-bls", func() (BLSAdapter, error) {
+		return namedTestBLSAdapter{name: "global-test-bls"}, nil
+	})
+
+	suite, err := NewRuntimeSuite(config.CryptoConfig{
+		Backend:     config.CryptoBackendBLS,
+		AdapterName: "global-test-bls",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if suite.FinalityVerifier == nil || suite.ConsensusVerifier == nil {
+		t.Fatal("expected registered bls adapter to be wired")
+	}
+}
+
+func TestRuntimeSuiteRejectsRegisteredBLSAdapterNameMismatch(t *testing.T) {
+	RegisterBLSAdapter("global-test-bls-mismatch", func() (BLSAdapter, error) {
+		return namedTestBLSAdapter{name: "other-bls"}, nil
+	})
+
+	_, err := NewRuntimeSuite(config.CryptoConfig{
+		Backend:     config.CryptoBackendBLS,
+		AdapterName: "global-test-bls-mismatch",
+	})
+	if !errors.Is(err, ErrBLSAdapterUnsafe) {
+		t.Fatalf("expected bls name mismatch to be unsafe, got %v", err)
+	}
+}
+
 func TestNewRuntimeSuiteRejectsUnsupportedBackend(t *testing.T) {
 	_, err := NewRuntimeSuite(config.CryptoConfig{Backend: "unknown"})
 	if !errors.Is(err, ErrUnsupportedCryptoBackend) {
@@ -146,4 +177,15 @@ func (adapter testBLSAdapter) Metadata() BLSAdapterMetadata {
 		MalformedInputFuzzed:  true,
 		ProofOfPossession:     true,
 	}
+}
+
+type namedTestBLSAdapter struct {
+	testBLSAdapter
+	name string
+}
+
+func (adapter namedTestBLSAdapter) Metadata() BLSAdapterMetadata {
+	metadata := testBLSAdapter{safe: true}.Metadata()
+	metadata.Name = adapter.name
+	return metadata
 }

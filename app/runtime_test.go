@@ -350,6 +350,33 @@ func TestRuntimeAppHashReflectsStateRoot(t *testing.T) {
 	}
 }
 
+func TestRuntimeStagedAppHashUsesBlockHeight(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	runtime, err := NewRuntime("vexo-test", []Module{&statefulModule{name: "bank"}}, PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.WithStore(storage)
+
+	response, _, err := runtime.FinalizeBlockStaged(FinalizeBlockRequest{
+		Block: types.Block{Header: types.Header{Height: 5}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.AppHash == runtime.computeAppHashAtHeight(0, storage) {
+		t.Fatal("expected staged app hash to include block height, not previous runtime height")
+	}
+	if response.AppHash != runtime.computeAppHashAtHeight(5, storage) {
+		t.Fatal("expected staged app hash to match the finalized block height")
+	}
+}
+
 func TestRuntimeRoutesQueriesToModules(t *testing.T) {
 	runtime, err := NewRuntime("vexo-test", []Module{&queryModule{name: "bank"}}, PrefixRouter{})
 	if err != nil {

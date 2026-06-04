@@ -65,6 +65,8 @@ Module data is stored by namespace and key.
 
 When staged execution is available, module KV writes, block records, state records, and state roots are committed in one backend batch. If that batch fails, module KV writes are not applied.
 
+Runtime compaction includes both backend store compaction and mempool WAL compaction. WAL compaction rewrites pending transactions after committed transactions are removed, preventing long-running nodes from retaining stale append-only mempool records indefinitely.
+
 ## Indexes
 
 - block height index

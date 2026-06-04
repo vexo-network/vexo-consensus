@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -47,5 +48,66 @@ func TestDeterministicVRFRejectsUnknownProver(t *testing.T) {
 	_, _, err := vrf.Prove(types.PublicKey("alice"), []byte("seed"))
 	if !errors.Is(err, ErrInvalidVRFKey) {
 		t.Fatalf("expected invalid vrf key, got %v", err)
+	}
+}
+
+func TestNewVRFLoadsRegisteredProductionAdapter(t *testing.T) {
+	RegisterVRFAdapter("global-test-vrf", func(cfg config.VRFConfig) (VRFAdapter, error) {
+		return testVRFAdapter{name: "global-test-vrf", auditReport: cfg.AuditReport, keySource: cfg.KeySource}, nil
+	})
+
+	vrf, err := NewVRF(config.VRFConfig{
+		ProductionAdapter: true,
+		AdapterName:       "global-test-vrf",
+		AuditReport:       "audit-2026",
+		KeySource:         "kms",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, proof, err := vrf.Prove(types.PublicKey("alice"), []byte("seed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !vrf.Verify(types.PublicKey("alice"), []byte("seed"), output, proof) {
+		t.Fatal("expected registered vrf proof to verify")
+	}
+}
+
+func TestNewVRFRequiresRegisteredProductionAdapter(t *testing.T) {
+	_, err := NewVRF(config.VRFConfig{ProductionAdapter: true, AdapterName: "missing-vrf"})
+	if !errors.Is(err, ErrVRFBackendUnavailable) {
+		t.Fatalf("expected missing production vrf adapter, got %v", err)
+	}
+}
+
+type testVRFAdapter struct {
+	name        string
+	auditReport string
+	keySource   string
+}
+
+func (adapter testVRFAdapter) Prove(publicKey types.PublicKey, seed []byte) (output []byte, proof []byte, err error) {
+	output = vrfOutput(append([]byte(publicKey), []byte(":vrf")...), seed)
+	proof = append([]byte(nil), output...)
+	return output, proof, nil
+}
+
+func (adapter testVRFAdapter) Verify(publicKey types.PublicKey, seed []byte, output []byte, proof []byte) bool {
+	expected := vrfOutput(append([]byte(publicKey), []byte(":vrf")...), seed)
+	return string(expected) == string(output) && string(expected) == string(proof)
+}
+
+func (adapter testVRFAdapter) Metadata() VRFAdapterMetadata {
+	return VRFAdapterMetadata{
+		Name:                 adapter.name,
+		Version:              "v1",
+		Audited:              true,
+		AuditReport:          adapter.auditReport,
+		KeySource:            adapter.keySource,
+		DomainSeparation:     true,
+		ProofVerification:    true,
+		DeterministicOutput:  true,
+		MalformedInputFuzzed: true,
 	}
 }

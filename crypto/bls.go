@@ -64,7 +64,17 @@ func ValidateBLSValidatorSet(adapter BLSAdapter, validatorSet validator.Set) ([]
 	if validatorSet == nil {
 		return nil, ErrMissingBLSPublicKey
 	}
-	validators := validatorSet.List()
+	credentials, err := BLSValidatorCredentialsFromValidators(validatorSet.List())
+	if err != nil {
+		return nil, err
+	}
+	if _, err := ValidateBLSValidatorCredentials(adapter, credentials); err != nil {
+		return nil, err
+	}
+	return credentials, nil
+}
+
+func BLSValidatorCredentialsFromValidators(validators []validator.Validator) ([]BLSValidatorCredential, error) {
 	credentials := make([]BLSValidatorCredential, 0, len(validators))
 	for _, validatorInfo := range validators {
 		proof, err := BLSProofOfPossessionFromMetadata(validatorInfo.Metadata)
@@ -76,9 +86,6 @@ func ValidateBLSValidatorSet(adapter BLSAdapter, validatorSet validator.Set) ([]
 			PublicKey:         append(types.PublicKey(nil), validatorInfo.PublicKey...),
 			ProofOfPossession: proof,
 		})
-	}
-	if _, err := ValidateBLSValidatorCredentials(adapter, credentials); err != nil {
-		return nil, err
 	}
 	return credentials, nil
 }

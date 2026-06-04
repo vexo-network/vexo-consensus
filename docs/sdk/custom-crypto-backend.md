@@ -59,7 +59,33 @@ A BLS adapter must include:
 
 Production BLS is registered through `BLSAdapter` and must pass `ValidateBLSAdapter` before it can be used as a signer or runtime finality backend. Adapter metadata must declare audit status, audit report identity, dependency audit identity, public-key validation, subgroup checks, rogue-key defense, deterministic encoding, malformed-input fuzz coverage, and proof-of-possession support.
 
+Adapter packages should register audited implementations from `init()`:
+
+```go
+func init() {
+    crypto.RegisterBLSAdapter("audited-bls-v1", func() (crypto.BLSAdapter, error) {
+        return NewAuditedBLSAdapter()
+    })
+}
+```
+
+`crypto.adapter_name` must match `BLSAdapter.Metadata().Name`; otherwise runtime startup fails. This prevents config-only “BLS enabled” states where no audited implementation is actually linked into the binary.
+
 Validator public keys should be admitted through `BLSValidatorCredential` records or validator metadata key `bls_pop`. `ValidateBLSValidatorCredentials` rejects missing IDs, missing keys, duplicate public keys, invalid keys, and invalid proof-of-possession values. `NewBLSAggregateVerifier` wraps the audited adapter so finality verification only accepts registered validator keys.
+
+## Production VRF Requirements
+
+VRF-backed committee selection uses the same registration pattern:
+
+```go
+func init() {
+    crypto.RegisterVRFAdapter("audited-vrf-v1", func(cfg config.VRFConfig) (crypto.VRFAdapter, error) {
+        return NewAuditedVRFAdapter(cfg)
+    })
+}
+```
+
+`vrf.adapter_name`, `vrf.audit_report`, and `vrf.key_source` must match the adapter metadata. If no registered adapter is linked, runtime startup fails instead of silently falling back to deterministic VRF.
 
 ## Remote Signer Requirements
 

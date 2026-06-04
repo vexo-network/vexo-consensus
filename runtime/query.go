@@ -71,7 +71,17 @@ func (runtime *Runtime) RecoverIndexes(ctx context.Context) (store.RecoverResult
 }
 
 func (runtime *Runtime) Compact(ctx context.Context) error {
+	compacted := false
+	if runtime.Mempool != nil {
+		if err := runtime.Mempool.CompactWAL(ctx); err != nil {
+			return err
+		}
+		compacted = true
+	}
 	if runtime.Store == nil {
+		if compacted {
+			return nil
+		}
 		return store.ErrBlockIndexNotFound
 	}
 	return runtime.Store.Compact(ctx)

@@ -68,9 +68,20 @@ func NewWithStoreAndCryptoRegistry(cfg config.Config, application app.Applicatio
 		registry = memoryRegistry
 	}
 
-	selector, err := committee.NewSelector(cfg.Committee, crypto.NewDeterministicVRF(cfg.VRF.Keys))
+	vrf, err := crypto.NewVRF(cfg.VRF)
 	if err != nil {
 		return nil, err
+	}
+	selector, err := committee.NewSelector(cfg.Committee, vrf)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Crypto.Backend == config.CryptoBackendBLS && len(initialValidators) > 0 {
+		credentials, err := crypto.BLSValidatorCredentialsFromValidators(initialValidators)
+		if err != nil {
+			return nil, err
+		}
+		cryptoRegistry = cryptoRegistry.RegisterBLSValidatorCredentials(credentials)
 	}
 	cryptoSuite, err := cryptoRegistry.NewRuntimeSuite(cfg.Crypto)
 	if err != nil {
