@@ -123,6 +123,7 @@ vexod ibc tx packet-ack 1 transfer channel-0 transfer channel-1 payload ack --fe
 vexod ibc tx packet-timeout 1 transfer channel-0 transfer channel-1 payload 100 --fee 1 --gas 1000 --signer relayer --nonce 3
 vexod relayer packet-ack --rpc 127.0.0.1:26657 --proof-rpc 127.0.0.1:26657 --sequence 1 --source-port transfer --source-channel channel-0 --destination-port transfer --destination-channel channel-1 --data payload --ack ack --fee 1 --gas 1000 --signer relayer --nonce 2 --submit
 vexod relayer loop --mode timeout --rpc 127.0.0.1:26657 --proof-rpc 127.0.0.1:26657 --sequence 1 --source-port transfer --source-channel channel-0 --destination-port transfer --destination-channel channel-1 --data payload --timeout-height 100 --interval 5s --continue-on-error --submit
+vexod relayer run --config relayer_config.json
 vexod ibc packet send --sequence 1 --source-port transfer --source-channel channel-0 --destination-port transfer --destination-channel channel-1 --data payload
 vexod consensus adversarial --json
 vexod snapshot drill-plan --input snapshot.json --chain-id vexo-chain --json

@@ -11,8 +11,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
@@ -36,6 +38,8 @@ func runRelayer(writer io.Writer, args []string) error {
 		return runRelayerPacketProof(writer, args[1:], client)
 	case "loop":
 		return runRelayerLoop(writer, args[1:], client)
+	case "run":
+		return runRelayerRun(writer, args[1:], client)
 	default:
 		return fmt.Errorf("unknown relayer subcommand %q", args[0])
 	}
@@ -199,6 +203,195 @@ func runRelayerLoop(writer io.Writer, args []string, client http.Client) error {
 		MaxIterations:   *maxIterations,
 		ContinueOnError: *continueOnError,
 	})
+}
+
+func runRelayerRun(writer io.Writer, args []string, client http.Client) error {
+	flags := flag.NewFlagSet("relayer run", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	configPath := flags.String("config", "", "relayer config JSON path")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *configPath == "" {
+		return errors.New("config path is required")
+	}
+	document, err := readRelayerConfigDocument(*configPath)
+	if err != nil {
+		return err
+	}
+	return runRelayerConfig(context.Background(), writer, client, document)
+}
+
+const relayerConfigSchemaVersion = "v1"
+
+type relayerConfigDocument struct {
+	SchemaVersion string             `json:"schema_version"`
+	Jobs          []relayerJobConfig `json:"jobs"`
+}
+
+type relayerJobConfig struct {
+	Name            string              `json:"name"`
+	Mode            string              `json:"mode"`
+	RPC             string              `json:"rpc"`
+	ProofRPC        string              `json:"proof_rpc"`
+	Packet          relayerPacketConfig `json:"packet"`
+	Ack             string              `json:"ack,omitempty"`
+	Fee             string              `json:"fee,omitempty"`
+	Gas             string              `json:"gas,omitempty"`
+	Signer          string              `json:"signer,omitempty"`
+	Nonce           string              `json:"nonce,omitempty"`
+	Submit          bool                `json:"submit,omitempty"`
+	Interval        string              `json:"interval,omitempty"`
+	MaxIterations   uint64              `json:"max_iterations,omitempty"`
+	ContinueOnError bool                `json:"continue_on_error,omitempty"`
+}
+
+type relayerPacketConfig struct {
+	Sequence           uint64 `json:"sequence"`
+	SourcePort         string `json:"source_port"`
+	SourceChannel      string `json:"source_channel"`
+	DestinationPort    string `json:"destination_port"`
+	DestinationChannel string `json:"destination_channel"`
+	Data               string `json:"data"`
+	TimeoutHeight      uint64 `json:"timeout_height,omitempty"`
+}
+
+func readRelayerConfigDocument(path string) (relayerConfigDocument, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return relayerConfigDocument{}, err
+	}
+	var document relayerConfigDocument
+	if err := json.Unmarshal(data, &document); err != nil {
+		return relayerConfigDocument{}, err
+	}
+	if document.SchemaVersion != relayerConfigSchemaVersion {
+		return relayerConfigDocument{}, fmt.Errorf("unsupported relayer config schema %q", document.SchemaVersion)
+	}
+	if len(document.Jobs) == 0 {
+		return relayerConfigDocument{}, errors.New("relayer config must include at least one job")
+	}
+	for index, job := range document.Jobs {
+		if job.Name == "" {
+			return relayerConfigDocument{}, fmt.Errorf("relayer job %d missing name", index)
+		}
+		if _, err := relayerLoopConfigFromJob(job); err != nil {
+			return relayerConfigDocument{}, fmt.Errorf("relayer job %q: %w", job.Name, err)
+		}
+	}
+	return document, nil
+}
+
+func runRelayerConfig(ctx context.Context, writer io.Writer, client http.Client, document relayerConfigDocument) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var outputMu sync.Mutex
+	var waitGroup sync.WaitGroup
+	errCh := make(chan error, len(document.Jobs))
+	for _, job := range document.Jobs {
+		job := job
+		cfg, err := relayerLoopConfigFromJob(job)
+		if err != nil {
+			return err
+		}
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			jobWriter := relayerJobWriter{writer: writer, mu: &outputMu, name: job.Name}
+			if err := runRelayerPollingLoop(ctx, jobWriter, client, cfg); err != nil {
+				errCh <- fmt.Errorf("%s: %w", job.Name, err)
+				cancel()
+			}
+		}()
+	}
+	waitGroup.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func relayerLoopConfigFromJob(job relayerJobConfig) (relayerLoopConfig, error) {
+	interval := 5 * time.Second
+	if job.Interval != "" {
+		parsed, err := time.ParseDuration(job.Interval)
+		if err != nil {
+			return relayerLoopConfig{}, err
+		}
+		interval = parsed
+	}
+	if interval < 0 {
+		return relayerLoopConfig{}, errors.New("interval must be non-negative")
+	}
+	packetArgs, err := relayerPacketOptions{
+		rpcAddress:         job.RPC,
+		sequence:           job.Packet.Sequence,
+		sourcePort:         job.Packet.SourcePort,
+		sourceChannel:      job.Packet.SourceChannel,
+		destinationPort:    job.Packet.DestinationPort,
+		destinationChannel: job.Packet.DestinationChannel,
+		data:               job.Packet.Data,
+		timeoutHeight:      job.Packet.TimeoutHeight,
+	}.packetArgs()
+	if err != nil {
+		return relayerLoopConfig{}, err
+	}
+	if job.Mode != "ack" && job.Mode != "timeout" {
+		return relayerLoopConfig{}, errors.New("mode must be ack or timeout")
+	}
+	if job.Mode == "ack" && job.Ack == "" {
+		return relayerLoopConfig{}, errors.New("ack is required when mode is ack")
+	}
+	if job.Mode == "timeout" && job.Packet.TimeoutHeight == 0 {
+		return relayerLoopConfig{}, errors.New("timeout_height is required when mode is timeout")
+	}
+	if job.ProofRPC == "" {
+		return relayerLoopConfig{}, errors.New("proof_rpc is required")
+	}
+	if job.Submit && job.RPC == "" {
+		return relayerLoopConfig{}, errors.New("rpc is required when submit is enabled")
+	}
+	return relayerLoopConfig{
+		Mode:       job.Mode,
+		RPCAddress: job.RPC,
+		ProofRPC:   job.ProofRPC,
+		PacketArgs: packetArgs,
+		Ack:        job.Ack,
+		Tags: &relayerTxTags{
+			fee:    job.Fee,
+			gas:    job.Gas,
+			signer: job.Signer,
+			nonce:  job.Nonce,
+		},
+		Submit:          job.Submit,
+		Interval:        interval,
+		MaxIterations:   job.MaxIterations,
+		ContinueOnError: job.ContinueOnError,
+	}, nil
+}
+
+type relayerJobWriter struct {
+	writer io.Writer
+	mu     *sync.Mutex
+	name   string
+}
+
+func (writer relayerJobWriter) Write(data []byte) (int, error) {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	lines := strings.SplitAfter(string(data), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		if _, err := fmt.Fprintf(writer.writer, "job=%s %s", writer.name, line); err != nil {
+			return 0, err
+		}
+	}
+	return len(data), nil
 }
 
 type relayerLoopConfig struct {

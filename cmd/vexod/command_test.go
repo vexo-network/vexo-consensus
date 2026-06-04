@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1020,6 +1021,137 @@ func TestRunRelayerLoopRetriesProofAndSubmits(t *testing.T) {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("expected %q in relayer loop output:\n%s", expected, output.String())
 		}
+	}
+}
+
+func TestRunRelayerConfigRunsMultipleJobs(t *testing.T) {
+	proofBody, err := json.Marshal(map[string]queryproof.Proof{
+		"proof": {
+			SchemaVersion: queryproof.SchemaVersionV1,
+			ChainID:       "counterparty",
+			Height:        12,
+			Namespace:     "ibc",
+			Key:           []byte("packets"),
+			Exists:        true,
+			StateRoot:     types.Hash{1},
+			LeafHash:      types.Hash{2},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	submitted := map[string]int{}
+	var submittedMu sync.Mutex
+	client := http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		switch {
+		case request.Method == http.MethodGet && strings.HasPrefix(request.URL.Path, "/v1/ibc/proof/packet/"):
+			return jsonHTTPResponse(http.StatusOK, string(proofBody)), nil
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/tx":
+			var payload map[string]string
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				return nil, err
+			}
+			decoded, err := base64.StdEncoding.DecodeString(payload["tx"])
+			if err != nil {
+				return nil, err
+			}
+			submittedMu.Lock()
+			submitted[string(decoded)]++
+			submittedMu.Unlock()
+			return jsonHTTPResponse(http.StatusAccepted, `{"accepted":true}`), nil
+		default:
+			return jsonHTTPResponse(http.StatusNotFound, `{}`), nil
+		}
+	})}
+	document := relayerConfigDocument{
+		SchemaVersion: relayerConfigSchemaVersion,
+		Jobs: []relayerJobConfig{
+			{
+				Name:            "ack-transfer",
+				Mode:            "ack",
+				RPC:             "dest.example",
+				ProofRPC:        "source.example",
+				Ack:             "ack",
+				Submit:          true,
+				Interval:        "0s",
+				MaxIterations:   1,
+				ContinueOnError: true,
+				Fee:             "1",
+				Packet: relayerPacketConfig{
+					Sequence:           1,
+					SourcePort:         "transfer",
+					SourceChannel:      "channel-0",
+					DestinationPort:    "transfer",
+					DestinationChannel: "channel-1",
+					Data:               "payload",
+				},
+			},
+			{
+				Name:            "timeout-transfer",
+				Mode:            "timeout",
+				RPC:             "dest.example",
+				ProofRPC:        "source.example",
+				Submit:          true,
+				Interval:        "0s",
+				MaxIterations:   1,
+				ContinueOnError: true,
+				Packet: relayerPacketConfig{
+					Sequence:           2,
+					SourcePort:         "transfer",
+					SourceChannel:      "channel-0",
+					DestinationPort:    "transfer",
+					DestinationChannel: "channel-1",
+					Data:               "payload",
+					TimeoutHeight:      100,
+				},
+			},
+		},
+	}
+	var output bytes.Buffer
+	if err := runRelayerConfig(context.Background(), &output, client, document); err != nil {
+		t.Fatal(err)
+	}
+	submittedMu.Lock()
+	defer submittedMu.Unlock()
+	if len(submitted) != 2 {
+		t.Fatalf("expected two submitted txs, got %+v", submitted)
+	}
+	for _, expected := range []string{"job=ack-transfer submitted: true", "job=timeout-transfer submitted: true"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected %q in output:\n%s", expected, output.String())
+		}
+	}
+}
+
+func TestReadRelayerConfigDocument(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "relayer_config.json")
+	writeTestJSON(t, path, relayerConfigDocument{
+		SchemaVersion: relayerConfigSchemaVersion,
+		Jobs: []relayerJobConfig{{
+			Name:          "timeout-transfer",
+			Mode:          "timeout",
+			RPC:           "dest.example",
+			ProofRPC:      "source.example",
+			Submit:        true,
+			Interval:      "0s",
+			MaxIterations: 1,
+			Packet: relayerPacketConfig{
+				Sequence:           2,
+				SourcePort:         "transfer",
+				SourceChannel:      "channel-0",
+				DestinationPort:    "transfer",
+				DestinationChannel: "channel-1",
+				Data:               "payload",
+				TimeoutHeight:      100,
+			},
+		}},
+	})
+	document, err := readRelayerConfigDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(document.Jobs) != 1 || document.Jobs[0].Name != "timeout-transfer" {
+		t.Fatalf("unexpected document: %+v", document)
 	}
 }
 
