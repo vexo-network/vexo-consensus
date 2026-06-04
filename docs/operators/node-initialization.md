@@ -4,6 +4,8 @@ This guide explains how to initialize validator and archive node homes.
 
 Peer connectivity should be configured in `network_config.json`, not passed repeatedly on the `start` command line.
 
+There is no separate `dev`, `localnet`, `mainnet`, or `production` node mode. A node home is defined by its config files, genesis, key material, and whether `validator_id` plus a signer are present.
+
 ## Validator Node
 
 Use `init validator` when the node will propose, vote, sign consensus messages, and participate in validator rotation.
@@ -194,6 +196,14 @@ Archive `consensus_config.json` disables the local consensus loop:
 ```
 
 Set `"require_network_safety": true` in `config.json` when a node must refuse unsafe launch settings. This is not a mode; it is a startup safety gate that rejects deterministic crypto, unsigned/nonced-off transactions, missing fee/gas floors, missing durable mempool WAL, and unsafe committee randomness.
+
+When `require_network_safety` is enabled, run:
+
+```bash
+vexod config audit --home <home> --strict
+```
+
+before starting the node. The audit should pass for every validator and archive home that participates in the same network.
 
 ## Config-Based Peers
 

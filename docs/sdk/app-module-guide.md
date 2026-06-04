@@ -26,7 +26,7 @@ Optional interfaces:
 
 ## Transaction Routing
 
-The default production routing model is prefix-based:
+The default routing model is prefix-based:
 
 ```text
 <module>:<action>:<args...>:fee=<fee>:gas=<gas>:signer=<signer>:nonce=<nonce>

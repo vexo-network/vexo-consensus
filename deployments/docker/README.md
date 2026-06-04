@@ -1,6 +1,6 @@
 # Docker Deployment
 
-This directory contains Docker Compose files for local release-candidate validation.
+This directory contains Docker Compose files for release-candidate style validation on Docker.
 
 The files intentionally split initialization from execution:
 
@@ -35,9 +35,9 @@ Run the validators:
 docker compose -f deployments/docker/compose.single-host.yml up
 ```
 
-The init compose writes peer addresses into each validator's `config.json`. The run compose does not pass `--peer` flags.
+The init compose writes peer, listen, and advertised addresses into each validator home's split config files. The run compose does not pass `--peer`, `--seed`, `--rpc-address`, or `--p2p-listen` flags.
 
-Single-host listen and peer hosts are defined in `topology.single-host.json`; edit that file instead of adding host flags to compose commands.
+Single-host listen and peer hosts are defined in `topology.single-host.json`; edit that file before initialization instead of adding host flags to compose commands. Runtime peer lists live in each node's `network_config.json`.
 
 Query validator RPC endpoints from the host:
 
@@ -68,7 +68,7 @@ Generate all validator homes once on a trusted machine:
 docker compose -f deployments/docker/compose.multi-host.init.yml run --rm init
 ```
 
-Before running init, edit `deployments/docker/topology.multi-host.json` so `p2p_host_template` and `rpc_host_template` match routable hostnames for your machines. To use a different topology file:
+Before running init, edit `deployments/docker/topology.multi-host.json` so `p2p_host_template` and `rpc_host_template` match dialable hostnames for the machines that will run the validators. `p2p_advertise_host_template` and `rpc_advertise_host_template` should be stable public DNS names or public IP addresses if external peers need to discover the validators. To use a different topology file:
 
 ```bash
 VEXO_TOPOLOGY_CONFIG="$PWD/my-topology.json" \
@@ -104,6 +104,6 @@ Repeat the same pattern for validators 3 and 4.
 ## Notes
 
 - The single-host compose file uses Docker service names for peer dialing.
-- The multi-host template writes routable hostnames into `config.json` during init from `topology.multi-host.json`.
-- The generated network uses Ed25519 key documents and pre-production defaults.
-- Do not use these compose files as a public mainnet launch recipe without production config audit, external security review, signer/KMS validation, and long-run evidence.
+- The multi-host template writes dial targets into `network_config.json` and advertised validator metadata into `genesis.json` during init from `topology.multi-host.json`.
+- The generated network uses Ed25519 key documents and conservative example defaults. Audit and tune the generated `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json`, and `log_config.json` before relying on it.
+- Do not use these compose files as a public launch recipe without strict config audit, external security review, signer/KMS validation, and long-run evidence.

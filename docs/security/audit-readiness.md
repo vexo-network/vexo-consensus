@@ -33,17 +33,18 @@ This package is intended for independent reviewers evaluating Vexo consensus, ne
 - deterministic validator-set hash binding at proof height
 - no replayed transaction accepted in signed/nonce mode
 - evidence validation before penalty application
-- production configs reject deterministic crypto
+- network-safety-gated configs reject deterministic crypto and unsafe transaction policy
 - release artifacts are reproducible enough for independent verification
 
 ## Security Assumptions
 
 - Less than one-third of voting power is Byzantine for safety and liveness under partial synchrony.
 - Validator private keys or remote signer policies are not all compromised.
-- Production deployments use Ed25519 or an audited BLS adapter, never deterministic crypto.
+- Value-bearing or public-validator networks use Ed25519 or an audited BLS adapter, never deterministic crypto.
 - Local encrypted key documents use AES-256-GCM with PBKDF2-SHA512, 600,000 iterations, and a 32-byte salt; production operators should still prefer a remote signer/KMS for validator signing.
 - Remote signer/KMS enforces its own height/round/type/domain double-sign guard.
 - Operators configure RPC admin tokens, P2P auth proofs, request limits, peer scoring, `MaxScore`, and ban thresholds. Admin RPC endpoints are expected to be unusable unless an admin token is configured.
+- Operators keep Docker-only service names out of public validator metadata unless the network is intentionally private and all peers resolve those names.
 - Storage backend preserves block/state/evidence durability or clearly reports recovery mismatch.
 
 ## Known Limitations

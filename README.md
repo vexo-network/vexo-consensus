@@ -67,10 +67,10 @@ Run the test suite:
 make check
 ```
 
-Initialize and validate a demo home:
+Initialize and validate a validator home:
 
 ```bash
-./bin/vexod init --home .vexo --chain-id vexo-chain --validator validator-1 --overwrite
+./bin/vexod init validator --home .vexo --chain-id vexo-chain --validator validator-1 --overwrite
 ./bin/vexod validate --home .vexo
 ```
 

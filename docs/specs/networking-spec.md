@@ -56,10 +56,13 @@ Peers are scored by:
 
 Score behavior:
 
-- Score below `BanThreshold` causes temporary ban and disconnect.
+- Score at or below `BanThreshold` causes temporary ban and disconnect.
 - Score above `MaxScore` is capped.
 - Score arithmetic uses saturating operations so long-running honest gossip cannot overflow integer score state.
 - Existing persisted scores above `MaxScore` are capped when peer score state is restored.
+- Persisted peer-score documents carry a schema version; unsupported schema versions must fail startup or operator recovery rather than being silently ignored.
+
+Score persistence should not be on the consensus hot path. Implementations should persist on shutdown, periodic score-window maintenance, or explicit operator snapshot paths.
 
 ## Reconnect and Backoff
 
@@ -76,6 +79,8 @@ Score behavior:
 - invalid-message penalties
 - peer bans and disconnects
 - admin-token protection for mutating RPC endpoints
+
+Admin RPC endpoints must fail closed when no admin token is configured.
 
 ## Operational Signals
 

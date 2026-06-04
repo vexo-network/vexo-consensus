@@ -35,12 +35,15 @@ Admin endpoints:
 - `/v1/consensus/start`
 - `/v1/consensus/stop`
 
+Admin endpoints require a configured admin token. If no token is configured, the endpoint returns `401` instead of treating the empty token as an operator bypass.
+
 ## Versioning Rules
 
 - Additive response fields are minor-compatible.
 - Removing or renaming fields requires a new version.
 - Changing error semantics requires a new version or explicit compatibility flag.
 - Mutating endpoints must remain admin-token protected.
+- Admin-token checks must fail closed when token configuration is absent.
 - JSON decoders for public endpoints should reject unknown fields where request safety matters.
 
 ## Compatibility Aliases
