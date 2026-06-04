@@ -11,8 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vexo-network/vexo-consensus/events"
 	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/node"
+	"github.com/vexo-network/vexo-consensus/queryproof"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -174,6 +176,33 @@ type StateResponse struct {
 	AppHash          string `json:"app_hash"`
 	LastBlockHash    string `json:"last_block_hash"`
 	ValidatorSetHash string `json:"validator_set_hash"`
+}
+
+type EventAttributeResponse struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+	Index bool   `json:"index,omitempty"`
+}
+
+type EventResponse struct {
+	Type       string                   `json:"type"`
+	Attributes []EventAttributeResponse `json:"attributes,omitempty"`
+}
+
+type EventRecordResponse struct {
+	Height  uint64        `json:"height"`
+	TxIndex int           `json:"tx_index"`
+	Event   EventResponse `json:"event"`
+}
+
+type EventsResponse struct {
+	Key     string                `json:"key"`
+	Value   string                `json:"value"`
+	Records []EventRecordResponse `json:"records"`
+}
+
+type QueryProofResponse struct {
+	Proof queryproof.Proof `json:"proof"`
 }
 
 type StateSnapshotResponse struct {
@@ -520,6 +549,71 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 		}
 		writeJSON(writer, http.StatusOK, stateResponse(state))
 	})
+	mux.HandleFunc("/events", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowGet(writer, request) {
+			return
+		}
+		queryProvider, ok := provider.(EventQueryProvider)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "event query is unavailable")
+			return
+		}
+		key := request.URL.Query().Get("key")
+		value := request.URL.Query().Get("value")
+		if key == "" || value == "" {
+			writeError(writer, http.StatusBadRequest, "event key and value are required")
+			return
+		}
+		records, err := queryProvider.QueryEvents(request.Context(), key, value)
+		if errors.Is(err, events.ErrStoreMissing) {
+			writeError(writer, http.StatusNotImplemented, "event query is unavailable")
+			return
+		}
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(writer, http.StatusOK, eventsResponse(key, value, records))
+	})
+	mux.HandleFunc("/proof", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowGet(writer, request) {
+			return
+		}
+		queryProvider, ok := provider.(QueryProofProvider)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "query proof is unavailable")
+			return
+		}
+		namespace := request.URL.Query().Get("namespace")
+		key := request.URL.Query().Get("key")
+		if namespace == "" || key == "" {
+			writeError(writer, http.StatusBadRequest, "namespace and key are required")
+			return
+		}
+		height, ok := parseOptionalHeight(request.URL.Query().Get("height"))
+		if !ok {
+			writeError(writer, http.StatusBadRequest, "invalid proof height")
+			return
+		}
+		proof, err := queryProvider.QueryProof(request.Context(), height, namespace, []byte(key))
+		if errors.Is(err, queryproof.ErrInvalidProof) {
+			writeError(writer, http.StatusBadRequest, "invalid query proof request")
+			return
+		}
+		if errors.Is(err, vexoruntime.ErrHistoricalQueryProofUnsupported) {
+			writeError(writer, http.StatusBadRequest, err.Error())
+			return
+		}
+		if errors.Is(err, store.ErrStateNotFound) {
+			writeError(writer, http.StatusNotFound, "state not found")
+			return
+		}
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(writer, http.StatusOK, QueryProofResponse{Proof: proof})
+	})
 	mux.HandleFunc("/snapshot/latest", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
 			return
@@ -797,6 +891,17 @@ func parseStateRootPath(path string) (types.Height, string, bool) {
 		return 0, "", false
 	}
 	return types.Height(height), parts[1], true
+}
+
+func parseOptionalHeight(value string) (types.Height, bool) {
+	if value == "" || value == "latest" {
+		return 0, true
+	}
+	height, err := strconv.ParseUint(value, 10, 64)
+	if err != nil || height == 0 {
+		return 0, false
+	}
+	return types.Height(height), true
 }
 
 func parseHeightSelector(path string, prefix string) (types.Height, bool) {

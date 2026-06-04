@@ -12,6 +12,7 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/consensus"
+	"github.com/vexo-network/vexo-consensus/events"
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
@@ -224,6 +225,33 @@ func stateResponse(state store.StateRecord) StateResponse {
 		AppHash:          hex.EncodeToString(state.AppHash[:]),
 		LastBlockHash:    hex.EncodeToString(state.LastBlockHash[:]),
 		ValidatorSetHash: hex.EncodeToString(state.ValidatorSetHash[:]),
+	}
+}
+
+func eventsResponse(key string, value string, records []events.Record) EventsResponse {
+	responses := make([]EventRecordResponse, 0, len(records))
+	for _, record := range records {
+		attributes := make([]EventAttributeResponse, 0, len(record.Event.Attributes))
+		for _, attribute := range record.Event.Attributes {
+			attributes = append(attributes, EventAttributeResponse{
+				Key:   attribute.Key,
+				Value: attribute.Value,
+				Index: attribute.Index,
+			})
+		}
+		responses = append(responses, EventRecordResponse{
+			Height:  record.Height,
+			TxIndex: record.TxIndex,
+			Event: EventResponse{
+				Type:       record.Event.Type,
+				Attributes: attributes,
+			},
+		})
+	}
+	return EventsResponse{
+		Key:     key,
+		Value:   value,
+		Records: responses,
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"strconv"
 
 	"github.com/vexo-network/vexo-consensus/queryproof"
+	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -53,12 +54,15 @@ func runProofQuery(writer io.Writer, args []string) error {
 	}
 	defer storage.Close()
 	proofHeight := types.Height(*height)
+	state, err := storage.LatestState(context.Background())
+	if err != nil {
+		return err
+	}
 	if proofHeight == 0 {
-		state, err := storage.LatestState(context.Background())
-		if err != nil {
-			return err
-		}
 		proofHeight = state.Height
+	}
+	if proofHeight != state.Height {
+		return vexoruntime.ErrHistoricalQueryProofUnsupported
 	}
 	proof, err := queryproof.Build(context.Background(), storage, cfg.Chain.ChainID, proofHeight, *namespace, []byte(*key))
 	if err != nil {

@@ -17,8 +17,10 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/consensus"
+	"github.com/vexo-network/vexo-consensus/events"
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/p2p"
+	"github.com/vexo-network/vexo-consensus/queryproof"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/store"
@@ -46,6 +48,10 @@ type fakeStatusProvider struct {
 	state             store.StateRecord
 	roots             map[string]store.StateRootRecord
 	stateErr          error
+	eventRecords      []events.Record
+	eventErr          error
+	queryProof        queryproof.Proof
+	queryProofErr     error
 	pruneResult       store.PruneResult
 	pruneErr          error
 	prunedHeights     []types.Height
@@ -160,6 +166,20 @@ func (provider fakeStatusProvider) StateRoot(ctx context.Context, height types.H
 		return store.StateRootRecord{}, store.ErrStateRootNotFound
 	}
 	return record, nil
+}
+
+func (provider fakeStatusProvider) QueryEvents(ctx context.Context, key string, value string) ([]events.Record, error) {
+	if provider.eventErr != nil {
+		return nil, provider.eventErr
+	}
+	return append([]events.Record(nil), provider.eventRecords...), nil
+}
+
+func (provider fakeStatusProvider) QueryProof(ctx context.Context, height types.Height, namespace string, key []byte) (queryproof.Proof, error) {
+	if provider.queryProofErr != nil {
+		return queryproof.Proof{}, provider.queryProofErr
+	}
+	return provider.queryProof, nil
 }
 
 func (provider *fakeStatusProvider) PruneBelow(ctx context.Context, retainFrom types.Height) (store.PruneResult, error) {
@@ -894,6 +914,75 @@ func TestHandlerReportsLatestStateAndStateRoot(t *testing.T) {
 	getJSON(t, handler, "/state/3/bank", http.StatusOK, &root)
 	if root.Height != 3 || root.Namespace != "bank" || root.Root[:2] != "06" {
 		t.Fatalf("unexpected state root response: %+v", root)
+	}
+}
+
+func TestHandlerReportsEventsAndQueryProof(t *testing.T) {
+	proof := queryproof.Proof{
+		SchemaVersion: queryproof.SchemaVersionV1,
+		ChainID:       "vexo-test",
+		Height:        9,
+		Namespace:     "bank",
+		Key:           []byte("alice"),
+		Value:         []byte("100"),
+		Exists:        true,
+		StateRoot:     types.Hash{9},
+		LeafHash:      types.Hash{8},
+	}
+	handler := NewHandler(fakeStatusProvider{
+		eventRecords: []events.Record{
+			{
+				Height:  9,
+				TxIndex: 1,
+				Event: events.Event{
+					Type: "transfer",
+					Attributes: []events.Attribute{
+						{Key: "sender", Value: "alice", Index: true},
+						{Key: "recipient", Value: "bob", Index: true},
+					},
+				},
+			},
+		},
+		queryProof: proof,
+	})
+
+	var eventsResponse EventsResponse
+	getJSON(t, handler, "/v1/events?key=sender&value=alice", http.StatusOK, &eventsResponse)
+	if eventsResponse.Key != "sender" || eventsResponse.Value != "alice" || len(eventsResponse.Records) != 1 {
+		t.Fatalf("unexpected events response: %+v", eventsResponse)
+	}
+	if eventsResponse.Records[0].Height != 9 || eventsResponse.Records[0].Event.Type != "transfer" {
+		t.Fatalf("unexpected event record: %+v", eventsResponse.Records[0])
+	}
+
+	var proofResponse QueryProofResponse
+	getJSON(t, handler, "/v1/proof?namespace=bank&key=alice&height=9", http.StatusOK, &proofResponse)
+	if proofResponse.Proof.ChainID != "vexo-test" || proofResponse.Proof.Height != 9 || string(proofResponse.Proof.Key) != "alice" {
+		t.Fatalf("unexpected proof response: %+v", proofResponse)
+	}
+}
+
+func TestHandlerRejectsInvalidEventAndProofRequests(t *testing.T) {
+	handler := NewHandler(fakeStatusProvider{})
+	cases := map[string]int{
+		"/events":               http.StatusBadRequest,
+		"/events?key=sender":    http.StatusBadRequest,
+		"/proof":                http.StatusBadRequest,
+		"/proof?namespace=bank": http.StatusBadRequest,
+		"/proof?namespace=bank&key=alice&height=bad": http.StatusBadRequest,
+	}
+	for path, expectedStatus := range cases {
+		var response map[string]string
+		getJSON(t, handler, path, expectedStatus, &response)
+		if response["error"] == "" {
+			t.Fatalf("expected error for %s, got %+v", path, response)
+		}
+	}
+	proofHandler := NewHandler(fakeStatusProvider{queryProofErr: store.ErrStateNotFound})
+	var response map[string]string
+	getJSON(t, proofHandler, "/proof?namespace=bank&key=alice", http.StatusNotFound, &response)
+	if response["error"] == "" {
+		t.Fatalf("expected proof not found error, got %+v", response)
 	}
 }
 

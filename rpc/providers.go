@@ -5,7 +5,9 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/consensus"
+	"github.com/vexo-network/vexo-consensus/events"
 	"github.com/vexo-network/vexo-consensus/node"
+	"github.com/vexo-network/vexo-consensus/queryproof"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/store"
@@ -47,6 +49,14 @@ type ChainQueryProvider interface {
 	BlockIndex(ctx context.Context) (store.BlockIndex, error)
 	LatestState(ctx context.Context) (store.StateRecord, error)
 	StateRoot(ctx context.Context, height types.Height, namespace string) (store.StateRootRecord, error)
+}
+
+type EventQueryProvider interface {
+	QueryEvents(ctx context.Context, key string, value string) ([]events.Record, error)
+}
+
+type QueryProofProvider interface {
+	QueryProof(ctx context.Context, height types.Height, namespace string, key []byte) (queryproof.Proof, error)
 }
 
 type PruneProvider interface {

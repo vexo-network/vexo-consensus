@@ -25,6 +25,9 @@ Stable endpoints are exposed under `/v1`. The unversioned paths remain compatibi
 - `/v1/blocks/{height}`
 - `/v1/state/latest`
 - `/v1/state/{height}/{namespace}`
+- `/v1/events?key={attribute_key}&value={attribute_value}`
+- `/v1/proof?namespace={namespace}&key={key}`
+- `/v1/proof?namespace={namespace}&key={key}&height=latest`
 - `/v1/validators/{height}`
 - `/v1/committee/{height}/{round}`
 
@@ -61,6 +64,26 @@ Errors should use:
 ```
 
 Do not leak private key material, auth token values, or internal file contents in RPC errors.
+
+## Query Proofs
+
+`/v1/proof` returns a state-root-bound query-proof envelope for the latest KV state:
+
+```bash
+curl 'http://127.0.0.1:26657/v1/proof?namespace=bank&key=alice'
+```
+
+Historical query proofs are rejected unless a chain integrates historical KV snapshots. This prevents nodes from returning a latest-value proof while pretending it belongs to an older height.
+
+## Event Queries
+
+`/v1/events` queries indexed transaction events by attribute key/value:
+
+```bash
+curl 'http://127.0.0.1:26657/v1/events?key=sender&value=alice'
+```
+
+Only attributes emitted with `Index: true` are queryable. Modules must keep event emission deterministic.
 
 ## Operational Compatibility
 

@@ -5,6 +5,8 @@ import (
 	"errors"
 
 	"github.com/vexo-network/vexo-consensus/committee"
+	"github.com/vexo-network/vexo-consensus/events"
+	"github.com/vexo-network/vexo-consensus/queryproof"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -61,6 +63,22 @@ func (node *Node) StateRoot(ctx context.Context, height types.Height, namespace 
 		return store.StateRootRecord{}, err
 	}
 	return runtime.StateRoot(ctx, height, namespace)
+}
+
+func (node *Node) QueryEvents(ctx context.Context, key string, value string) ([]events.Record, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return nil, err
+	}
+	return runtime.QueryEvents(ctx, key, value)
+}
+
+func (node *Node) QueryProof(ctx context.Context, height types.Height, namespace string, key []byte) (queryproof.Proof, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return queryproof.Proof{}, err
+	}
+	return runtime.QueryProof(ctx, height, namespace, key)
 }
 
 func (node *Node) PruneBelow(ctx context.Context, retainFrom types.Height) (store.PruneResult, error) {

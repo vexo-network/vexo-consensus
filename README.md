@@ -120,6 +120,14 @@ vexod snapshot drill-plan --input snapshot.json --chain-id vexo-chain --json
 vexod release readiness --json
 ```
 
+Common RPC reads:
+
+```bash
+curl 'http://127.0.0.1:26657/v1/status'
+curl 'http://127.0.0.1:26657/v1/events?key=sender&value=alice'
+curl 'http://127.0.0.1:26657/v1/proof?namespace=bank&key=alice'
+```
+
 Module commands are contributed by application modules:
 
 ```bash
