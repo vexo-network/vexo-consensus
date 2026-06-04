@@ -768,6 +768,28 @@ func TestRunIBCPacketSendCommand(t *testing.T) {
 	}
 	output.Reset()
 	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"ibc", "tx", "connection-open-init",
+		"connection-0", "07-vexo-0", "connection-1",
+		"--fee", "1", "--gas", "1000", "--signer", "relayer", "--nonce", "1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "tx: ibc:connection-open-init:connection-0:07-vexo-0:connection-1:fee=1:gas=1000:signer=relayer:nonce=1") {
+		t.Fatalf("unexpected ibc connection init output: %s", output.String())
+	}
+	output.Reset()
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"ibc", "tx", "channel-open-confirm",
+		"transfer", "channel-0",
+		"--fee", "1", "--gas", "1000", "--signer", "relayer", "--nonce", "1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "tx: ibc:channel-open-confirm:transfer:channel-0:fee=1:gas=1000:signer=relayer:nonce=1") {
+		t.Fatalf("unexpected ibc channel confirm output: %s", output.String())
+	}
+	output.Reset()
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
 		"ibc", "tx", "packet-send",
 		"1", "transfer", "channel-0", "transfer", "channel-1", "payload",
 		"--fee", "1", "--gas", "1000", "--signer", "relayer", "--nonce", "1",

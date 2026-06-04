@@ -23,7 +23,9 @@ const (
 	clientCreateGasCost   uint64 = 20
 	clientUpdateGasCost   uint64 = 20
 	connectionOpenGasCost uint64 = 15
+	connectionAckGasCost  uint64 = 10
 	channelOpenGasCost    uint64 = 15
+	channelAckGasCost     uint64 = 10
 	packetSendGasCost     uint64 = 25
 	packetAckGasCost      uint64 = 20
 	packetTimeoutGasCost  uint64 = 20
@@ -154,6 +156,14 @@ func (Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 			State:        "open",
 		})
 		return resultFromError(err)
+	case "connection-open-init":
+		return deliverConnectionOpen(ctx, keeper, canonical.Args, ibckeeper.StateInit)
+	case "connection-open-try":
+		return deliverConnectionOpen(ctx, keeper, canonical.Args, ibckeeper.StateTryOpen)
+	case "connection-open-ack":
+		return deliverConnectionTransition(ctx, keeper, canonical.Args, ibckeeper.StateInit, ibckeeper.StateOpen)
+	case "connection-open-confirm":
+		return deliverConnectionTransition(ctx, keeper, canonical.Args, ibckeeper.StateTryOpen, ibckeeper.StateOpen)
 	case "channel-open":
 		if err := ctx.ConsumeGas(channelOpenGasCost); err != nil {
 			return types.Result{Code: 6, Log: err.Error()}
@@ -170,6 +180,14 @@ func (Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 			State:        "open",
 		})
 		return resultFromError(err)
+	case "channel-open-init":
+		return deliverChannelOpen(ctx, keeper, canonical.Args, ibckeeper.StateInit)
+	case "channel-open-try":
+		return deliverChannelOpen(ctx, keeper, canonical.Args, ibckeeper.StateTryOpen)
+	case "channel-open-ack":
+		return deliverChannelTransition(ctx, keeper, canonical.Args, ibckeeper.StateInit, ibckeeper.StateOpen)
+	case "channel-open-confirm":
+		return deliverChannelTransition(ctx, keeper, canonical.Args, ibckeeper.StateTryOpen, ibckeeper.StateOpen)
 	case "packet-send":
 		if err := ctx.ConsumeGas(packetSendGasCost); err != nil {
 			return types.Result{Code: 6, Log: err.Error()}
@@ -219,8 +237,16 @@ func (Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
 		return clientUpdateGasCost, nil
 	case "connection-open":
 		return connectionOpenGasCost, nil
+	case "connection-open-init", "connection-open-try":
+		return connectionOpenGasCost, nil
+	case "connection-open-ack", "connection-open-confirm":
+		return connectionAckGasCost, nil
 	case "channel-open":
 		return channelOpenGasCost, nil
+	case "channel-open-init", "channel-open-try":
+		return channelOpenGasCost, nil
+	case "channel-open-ack", "channel-open-confirm":
+		return channelAckGasCost, nil
 	case "packet-send":
 		return packetSendGasCost, nil
 	case "packet-ack":
@@ -312,6 +338,60 @@ func resultFromError(err error) types.Result {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
 	return types.Result{}
+}
+
+func deliverConnectionOpen(ctx vexoapp.Context, keeper *ibckeeper.Keeper, args []string, state string) types.Result {
+	if err := ctx.ConsumeGas(connectionOpenGasCost); err != nil {
+		return types.Result{Code: 6, Log: err.Error()}
+	}
+	if len(args) != 3 {
+		return types.Result{Code: 2, Log: ErrInvalidIBCTx.Error()}
+	}
+	err := keeper.SetConnection(ctx.GoContext(), ibckeeper.ConnectionState{
+		ConnectionID: args[0],
+		ClientID:     args[1],
+		Counterparty: args[2],
+		State:        state,
+	})
+	return resultFromError(err)
+}
+
+func deliverConnectionTransition(ctx vexoapp.Context, keeper *ibckeeper.Keeper, args []string, expectedState string, nextState string) types.Result {
+	if err := ctx.ConsumeGas(connectionAckGasCost); err != nil {
+		return types.Result{Code: 6, Log: err.Error()}
+	}
+	if len(args) != 1 {
+		return types.Result{Code: 2, Log: ErrInvalidIBCTx.Error()}
+	}
+	return resultFromError(keeper.UpdateConnectionState(ctx.GoContext(), args[0], expectedState, nextState))
+}
+
+func deliverChannelOpen(ctx vexoapp.Context, keeper *ibckeeper.Keeper, args []string, state string) types.Result {
+	if err := ctx.ConsumeGas(channelOpenGasCost); err != nil {
+		return types.Result{Code: 6, Log: err.Error()}
+	}
+	if len(args) != 5 {
+		return types.Result{Code: 2, Log: ErrInvalidIBCTx.Error()}
+	}
+	err := keeper.SetChannel(ctx.GoContext(), ibckeeper.ChannelState{
+		PortID:       args[0],
+		ChannelID:    args[1],
+		ConnectionID: args[2],
+		Counterparty: args[3],
+		Ordering:     args[4],
+		State:        state,
+	})
+	return resultFromError(err)
+}
+
+func deliverChannelTransition(ctx vexoapp.Context, keeper *ibckeeper.Keeper, args []string, expectedState string, nextState string) types.Result {
+	if err := ctx.ConsumeGas(channelAckGasCost); err != nil {
+		return types.Result{Code: 6, Log: err.Error()}
+	}
+	if len(args) != 2 {
+		return types.Result{Code: 2, Log: ErrInvalidIBCTx.Error()}
+	}
+	return resultFromError(keeper.UpdateChannelState(ctx.GoContext(), args[0], args[1], expectedState, nextState))
 }
 
 func parseHeight(value string) (types.Height, error) {
@@ -407,6 +487,14 @@ func UpdateClient(ctx context.Context, store vexoapp.StateStore, clientID string
 
 func VerifyClientProof(ctx context.Context, store vexoapp.StateStore, clientID string, proof queryproof.Proof) error {
 	return ibckeeper.NewKeeper(store).VerifyClientProof(ctx, clientID, proof)
+}
+
+func UpdateConnectionState(ctx context.Context, store vexoapp.StateStore, connectionID string, expectedState string, nextState string) error {
+	return ibckeeper.NewKeeper(store).UpdateConnectionState(ctx, connectionID, expectedState, nextState)
+}
+
+func UpdateChannelState(ctx context.Context, store vexoapp.StateStore, portID string, channelID string, expectedState string, nextState string) error {
+	return ibckeeper.NewKeeper(store).UpdateChannelState(ctx, portID, channelID, expectedState, nextState)
 }
 
 func AcknowledgePacket(ctx context.Context, store vexoapp.StateStore, height types.Height, packet ibckeeper.Packet, ack []byte) error {

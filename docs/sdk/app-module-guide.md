@@ -106,6 +106,10 @@ Packet scaffolds can be generated from the CLI while chain-specific IBC modules 
 
 ```bash
 vexod ibc tx client-update 07-vexo-0 11 <validator-set-hash> <state-root> --fee 1 --gas 1000 --signer relayer --nonce 1
+vexod ibc tx connection-open-init connection-0 07-vexo-0 connection-1 --fee 1 --gas 1000 --signer relayer --nonce 1
+vexod ibc tx connection-open-ack connection-0 --fee 1 --gas 1000 --signer relayer --nonce 2
+vexod ibc tx channel-open-init transfer channel-0 connection-0 channel-1 ordered --fee 1 --gas 1000 --signer relayer --nonce 3
+vexod ibc tx channel-open-ack transfer channel-0 --fee 1 --gas 1000 --signer relayer --nonce 4
 vexod ibc tx packet-send 1 transfer channel-0 transfer channel-1 payload --fee 1 --gas 1000 --signer relayer --nonce 1
 vexod ibc tx packet-ack 1 transfer channel-0 transfer channel-1 payload ack --fee 1 --gas 1000 --signer relayer --nonce 2
 vexod ibc tx packet-timeout 1 transfer channel-0 transfer channel-1 payload 100 --fee 1 --gas 1000 --signer relayer --nonce 3
@@ -127,7 +131,7 @@ curl 'http://127.0.0.1:26657/v1/ibc/packet/1/transfer/channel-0/transfer/channel
 curl 'http://127.0.0.1:26657/v1/ibc/proof/packet/1/transfer/channel-0/transfer/channel-1'
 ```
 
-IBC clients can be updated with the counterparty latest height, validator-set hash, and state root. Packet receipts carry acknowledgement and timeout lifecycle fields, so relayers can submit packet-send, observe receipt state, submit packet-ack or packet-timeout, fetch an IBC namespace proof for the packet commitment key, and verify that proof against the trusted local IBC client.
+IBC clients can be updated with the counterparty latest height, validator-set hash, and state root. Connections and channels support init/try/ack/confirm handshake states before packet flow. Packet receipts carry acknowledgement and timeout lifecycle fields, so relayers can submit packet-send, observe receipt state, submit packet-ack or packet-timeout, fetch an IBC namespace proof for the packet commitment key, and verify that proof against the trusted local IBC client.
 
 The `contract` package provides a VM registry and invocation boundary for future EVM/WASM-compatible modules. VM implementations plug in behind `contract.VM` and must enforce their own gas/account/state semantics.
 

@@ -24,6 +24,8 @@ func ibcCLICommand() vexoapp.CLICommand {
 		Examples: []string{
 			"ibc tx client-create 07-vexo-0 counterparty 10 <validator-set-hash>",
 			"ibc tx client-update 07-vexo-0 11 <validator-set-hash> <state-root>",
+			"ibc tx connection-open-init connection-0 07-vexo-0 connection-1",
+			"ibc tx channel-open-init transfer channel-0 connection-0 channel-1 ordered",
 			"ibc tx packet-send 1 transfer channel-0 transfer channel-1 payload",
 			"ibc tx packet-ack 1 transfer channel-0 transfer channel-1 payload ack",
 			"ibc tx packet-timeout 1 transfer channel-0 transfer channel-1 payload 100",
@@ -63,7 +65,7 @@ func ibcCLICommand() vexoapp.CLICommand {
 					{
 						Name:        "connection-open",
 						Usage:       "ibc tx connection-open <connection_id> <client_id> <counterparty>",
-						Description: "build an IBC connection open transaction",
+						Description: "build a compatibility IBC connection open transaction",
 						Args: []vexoapp.CLIArg{
 							{Name: "connection_id", Description: "local connection id"},
 							{Name: "client_id", Description: "client id bound to this connection"},
@@ -72,9 +74,33 @@ func ibcCLICommand() vexoapp.CLICommand {
 						Run: runConnectionOpenCLI,
 					},
 					{
+						Name:        "connection-open-init",
+						Usage:       "ibc tx connection-open-init <connection_id> <client_id> <counterparty>",
+						Description: "build an IBC connection open-init transaction",
+						Run:         runConnectionOpenInitCLI,
+					},
+					{
+						Name:        "connection-open-try",
+						Usage:       "ibc tx connection-open-try <connection_id> <client_id> <counterparty>",
+						Description: "build an IBC connection open-try transaction",
+						Run:         runConnectionOpenTryCLI,
+					},
+					{
+						Name:        "connection-open-ack",
+						Usage:       "ibc tx connection-open-ack <connection_id>",
+						Description: "build an IBC connection open-ack transaction",
+						Run:         runConnectionOpenAckCLI,
+					},
+					{
+						Name:        "connection-open-confirm",
+						Usage:       "ibc tx connection-open-confirm <connection_id>",
+						Description: "build an IBC connection open-confirm transaction",
+						Run:         runConnectionOpenConfirmCLI,
+					},
+					{
 						Name:        "channel-open",
 						Usage:       "ibc tx channel-open <port_id> <channel_id> <connection_id> <counterparty> <ordering>",
-						Description: "build an IBC channel open transaction",
+						Description: "build a compatibility IBC channel open transaction",
 						Args: []vexoapp.CLIArg{
 							{Name: "port_id", Description: "local port id"},
 							{Name: "channel_id", Description: "local channel id"},
@@ -83,6 +109,30 @@ func ibcCLICommand() vexoapp.CLICommand {
 							{Name: "ordering", Description: "ordered or unordered"},
 						},
 						Run: runChannelOpenCLI,
+					},
+					{
+						Name:        "channel-open-init",
+						Usage:       "ibc tx channel-open-init <port_id> <channel_id> <connection_id> <counterparty> <ordering>",
+						Description: "build an IBC channel open-init transaction",
+						Run:         runChannelOpenInitCLI,
+					},
+					{
+						Name:        "channel-open-try",
+						Usage:       "ibc tx channel-open-try <port_id> <channel_id> <connection_id> <counterparty> <ordering>",
+						Description: "build an IBC channel open-try transaction",
+						Run:         runChannelOpenTryCLI,
+					},
+					{
+						Name:        "channel-open-ack",
+						Usage:       "ibc tx channel-open-ack <port_id> <channel_id>",
+						Description: "build an IBC channel open-ack transaction",
+						Run:         runChannelOpenAckCLI,
+					},
+					{
+						Name:        "channel-open-confirm",
+						Usage:       "ibc tx channel-open-confirm <port_id> <channel_id>",
+						Description: "build an IBC channel open-confirm transaction",
+						Run:         runChannelOpenConfirmCLI,
 					},
 					{
 						Name:        "packet-send",
@@ -188,14 +238,50 @@ func runClientUpdateCLI(writer io.Writer, args []string) error {
 }
 
 func runConnectionOpenCLI(writer io.Writer, args []string) error {
+	return runThreeArgTxCLI(writer, args, "connection-open", "ibc tx connection-open <connection_id> <client_id> <counterparty>")
+}
+
+func runConnectionOpenInitCLI(writer io.Writer, args []string) error {
+	return runThreeArgTxCLI(writer, args, "connection-open-init", "ibc tx connection-open-init <connection_id> <client_id> <counterparty>")
+}
+
+func runConnectionOpenTryCLI(writer io.Writer, args []string) error {
+	return runThreeArgTxCLI(writer, args, "connection-open-try", "ibc tx connection-open-try <connection_id> <client_id> <counterparty>")
+}
+
+func runConnectionOpenAckCLI(writer io.Writer, args []string) error {
+	return runOneArgTxCLI(writer, args, "connection-open-ack", "ibc tx connection-open-ack <connection_id>")
+}
+
+func runConnectionOpenConfirmCLI(writer io.Writer, args []string) error {
+	return runOneArgTxCLI(writer, args, "connection-open-confirm", "ibc tx connection-open-confirm <connection_id>")
+}
+
+func runThreeArgTxCLI(writer io.Writer, args []string, action string, usage string) error {
 	args, tags, err := splitExecutionTags(args)
 	if err != nil {
 		return err
 	}
 	if len(args) != 3 {
-		return vexoapp.ErrCLIUsage("ibc tx connection-open <connection_id> <client_id> <counterparty>")
+		return vexoapp.ErrCLIUsage(usage)
 	}
-	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: "connection-open", Args: args, Tags: tags})
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: action, Args: args, Tags: tags})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "tx: %s\n", tx)
+	return nil
+}
+
+func runOneArgTxCLI(writer io.Writer, args []string, action string, usage string) error {
+	args, tags, err := splitExecutionTags(args)
+	if err != nil {
+		return err
+	}
+	if len(args) != 1 {
+		return vexoapp.ErrCLIUsage(usage)
+	}
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: action, Args: args, Tags: tags})
 	if err != nil {
 		return err
 	}
@@ -204,14 +290,50 @@ func runConnectionOpenCLI(writer io.Writer, args []string) error {
 }
 
 func runChannelOpenCLI(writer io.Writer, args []string) error {
+	return runChannelOpenActionCLI(writer, args, "channel-open", "ibc tx channel-open <port_id> <channel_id> <connection_id> <counterparty> <ordering>")
+}
+
+func runChannelOpenInitCLI(writer io.Writer, args []string) error {
+	return runChannelOpenActionCLI(writer, args, "channel-open-init", "ibc tx channel-open-init <port_id> <channel_id> <connection_id> <counterparty> <ordering>")
+}
+
+func runChannelOpenTryCLI(writer io.Writer, args []string) error {
+	return runChannelOpenActionCLI(writer, args, "channel-open-try", "ibc tx channel-open-try <port_id> <channel_id> <connection_id> <counterparty> <ordering>")
+}
+
+func runChannelOpenAckCLI(writer io.Writer, args []string) error {
+	return runTwoArgTxCLI(writer, args, "channel-open-ack", "ibc tx channel-open-ack <port_id> <channel_id>")
+}
+
+func runChannelOpenConfirmCLI(writer io.Writer, args []string) error {
+	return runTwoArgTxCLI(writer, args, "channel-open-confirm", "ibc tx channel-open-confirm <port_id> <channel_id>")
+}
+
+func runChannelOpenActionCLI(writer io.Writer, args []string, action string, usage string) error {
 	args, tags, err := splitExecutionTags(args)
 	if err != nil {
 		return err
 	}
 	if len(args) != 5 {
-		return vexoapp.ErrCLIUsage("ibc tx channel-open <port_id> <channel_id> <connection_id> <counterparty> <ordering>")
+		return vexoapp.ErrCLIUsage(usage)
 	}
-	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: "channel-open", Args: args, Tags: tags})
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: action, Args: args, Tags: tags})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "tx: %s\n", tx)
+	return nil
+}
+
+func runTwoArgTxCLI(writer io.Writer, args []string, action string, usage string) error {
+	args, tags, err := splitExecutionTags(args)
+	if err != nil {
+		return err
+	}
+	if len(args) != 2 {
+		return vexoapp.ErrCLIUsage(usage)
+	}
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: action, Args: args, Tags: tags})
 	if err != nil {
 		return err
 	}

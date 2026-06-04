@@ -14,10 +14,17 @@ import (
 
 const Namespace = "ibc"
 
+const (
+	StateInit    = "init"
+	StateTryOpen = "tryopen"
+	StateOpen    = "open"
+)
+
 var (
 	ErrInvalidClient     = errors.New("invalid IBC client")
 	ErrInvalidConnection = errors.New("invalid IBC connection")
 	ErrInvalidChannel    = errors.New("invalid IBC channel")
+	ErrInvalidTransition = errors.New("invalid IBC state transition")
 	ErrInvalidPacket     = errors.New("invalid IBC packet")
 	ErrInvalidAck        = errors.New("invalid IBC acknowledgement")
 	ErrInvalidProof      = errors.New("invalid IBC proof")
@@ -122,7 +129,7 @@ func (keeper *Keeper) UpdateClient(ctx context.Context, clientID string, latestH
 }
 
 func (keeper *Keeper) SetConnection(ctx context.Context, connection ConnectionState) error {
-	if connection.ConnectionID == "" || connection.ClientID == "" || connection.Counterparty == "" || connection.State == "" {
+	if connection.ConnectionID == "" || connection.ClientID == "" || connection.Counterparty == "" || !validHandshakeState(connection.State) {
 		return ErrInvalidConnection
 	}
 	return keeper.setJSON(ctx, connectionKey(connection.ConnectionID), connection)
@@ -134,8 +141,26 @@ func (keeper *Keeper) Connection(ctx context.Context, connectionID string) (Conn
 	return connection, found, err
 }
 
+func (keeper *Keeper) UpdateConnectionState(ctx context.Context, connectionID string, expectedState string, nextState string) error {
+	if connectionID == "" || !validHandshakeState(expectedState) || !validHandshakeState(nextState) {
+		return ErrInvalidConnection
+	}
+	connection, found, err := keeper.Connection(ctx, connectionID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return store.ErrKeyNotFound
+	}
+	if connection.State != expectedState || !validTransition(expectedState, nextState) {
+		return ErrInvalidTransition
+	}
+	connection.State = nextState
+	return keeper.SetConnection(ctx, connection)
+}
+
 func (keeper *Keeper) SetChannel(ctx context.Context, channel ChannelState) error {
-	if channel.PortID == "" || channel.ChannelID == "" || channel.ConnectionID == "" || channel.Counterparty == "" || channel.Ordering == "" || channel.State == "" {
+	if channel.PortID == "" || channel.ChannelID == "" || channel.ConnectionID == "" || channel.Counterparty == "" || channel.Ordering == "" || !validHandshakeState(channel.State) {
 		return ErrInvalidChannel
 	}
 	return keeper.setJSON(ctx, channelKey(channel.PortID, channel.ChannelID), channel)
@@ -145,6 +170,24 @@ func (keeper *Keeper) Channel(ctx context.Context, portID string, channelID stri
 	var channel ChannelState
 	found, err := keeper.getJSON(ctx, channelKey(portID, channelID), &channel)
 	return channel, found, err
+}
+
+func (keeper *Keeper) UpdateChannelState(ctx context.Context, portID string, channelID string, expectedState string, nextState string) error {
+	if portID == "" || channelID == "" || !validHandshakeState(expectedState) || !validHandshakeState(nextState) {
+		return ErrInvalidChannel
+	}
+	channel, found, err := keeper.Channel(ctx, portID, channelID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return store.ErrKeyNotFound
+	}
+	if channel.State != expectedState || !validTransition(expectedState, nextState) {
+		return ErrInvalidTransition
+	}
+	channel.State = nextState
+	return keeper.SetChannel(ctx, channel)
 }
 
 func (keeper *Keeper) SendPacket(ctx context.Context, height types.Height, packet Packet) error {
@@ -287,6 +330,26 @@ func validatePacket(packet Packet) error {
 		return ErrInvalidPacket
 	}
 	return nil
+}
+
+func validHandshakeState(state string) bool {
+	switch state {
+	case StateInit, StateTryOpen, StateOpen:
+		return true
+	default:
+		return false
+	}
+}
+
+func validTransition(from string, to string) bool {
+	switch from {
+	case StateInit:
+		return to == StateOpen
+	case StateTryOpen:
+		return to == StateOpen
+	default:
+		return false
+	}
 }
 
 func ValidatePacket(packet Packet) error {

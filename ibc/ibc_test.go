@@ -96,6 +96,42 @@ func TestKeeperUpdatesClientAndVerifiesProof(t *testing.T) {
 	}
 }
 
+func TestKeeperConnectionAndChannelHandshakeTransitions(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	keeper := NewKeeper(storage)
+	ctx := context.Background()
+	if err := keeper.SetConnection(ctx, ConnectionState{ConnectionID: "connection-0", ClientID: "07-vexo-0", Counterparty: "connection-1", State: StateInit}); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.UpdateConnectionState(ctx, "connection-0", StateTryOpen, StateOpen); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("expected invalid connection transition, got %v", err)
+	}
+	if err := keeper.UpdateConnectionState(ctx, "connection-0", StateInit, StateOpen); err != nil {
+		t.Fatal(err)
+	}
+	connection, found, err := keeper.Connection(ctx, "connection-0")
+	if err != nil || !found || connection.State != StateOpen {
+		t.Fatalf("unexpected connection found=%t connection=%+v err=%v", found, connection, err)
+	}
+	if err := keeper.SetChannel(ctx, ChannelState{PortID: "transfer", ChannelID: "channel-0", ConnectionID: "connection-0", Counterparty: "channel-1", Ordering: "ordered", State: StateTryOpen}); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.UpdateChannelState(ctx, "transfer", "channel-0", StateInit, StateOpen); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("expected invalid channel transition, got %v", err)
+	}
+	if err := keeper.UpdateChannelState(ctx, "transfer", "channel-0", StateTryOpen, StateOpen); err != nil {
+		t.Fatal(err)
+	}
+	channel, found, err := keeper.Channel(ctx, "transfer", "channel-0")
+	if err != nil || !found || channel.State != StateOpen {
+		t.Fatalf("unexpected channel found=%t channel=%+v err=%v", found, channel, err)
+	}
+}
+
 func TestKeeperPacketTimeoutLifecycle(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {

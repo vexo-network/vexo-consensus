@@ -94,6 +94,42 @@ func TestModuleTimeoutsPackets(t *testing.T) {
 	}
 }
 
+func TestModuleConnectionAndChannelHandshake(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	ctx := vexoapp.Context{Ctx: context.Background(), Height: 7, Store: storage}
+	for _, tx := range []types.Tx{
+		types.Tx("ibc:connection-open-init:connection-0:07-vexo-0:connection-1"),
+		types.Tx("ibc:connection-open-ack:connection-0"),
+		types.Tx("ibc:connection-open-try:connection-2:07-vexo-0:connection-3"),
+		types.Tx("ibc:connection-open-confirm:connection-2"),
+		types.Tx("ibc:channel-open-init:transfer:channel-0:connection-0:channel-1:ordered"),
+		types.Tx("ibc:channel-open-ack:transfer:channel-0"),
+		types.Tx("ibc:channel-open-try:transfer:channel-2:connection-2:channel-3:unordered"),
+		types.Tx("ibc:channel-open-confirm:transfer:channel-2"),
+	} {
+		if result := module.DeliverTx(ctx, tx); result.Code != 0 {
+			t.Fatalf("deliver %q failed: %+v", tx, result)
+		}
+	}
+	keeper := ibckeeper.NewKeeper(storage)
+	connection, found, err := keeper.Connection(context.Background(), "connection-0")
+	if err != nil || !found || connection.State != ibckeeper.StateOpen {
+		t.Fatalf("unexpected connection found=%t connection=%+v err=%v", found, connection, err)
+	}
+	channel, found, err := keeper.Channel(context.Background(), "transfer", "channel-2")
+	if err != nil || !found || channel.State != ibckeeper.StateOpen {
+		t.Fatalf("unexpected channel found=%t channel=%+v err=%v", found, channel, err)
+	}
+	if result := module.DeliverTx(ctx, types.Tx("ibc:channel-open-confirm:transfer:channel-0")); result.Code == 0 {
+		t.Fatalf("expected invalid confirm transition")
+	}
+}
+
 func TestModuleIBCEventsAndGas(t *testing.T) {
 	module := NewModule()
 	gas, err := module.EstimateGas(vexoapp.Context{}, types.Tx("ibc:packet-send:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA"))
@@ -107,6 +143,10 @@ func TestModuleIBCEventsAndGas(t *testing.T) {
 	gas, err = module.EstimateGas(vexoapp.Context{}, types.Tx("ibc:client-update:07-vexo-0:6:"+strings.Repeat("01", 32)+":"+strings.Repeat("02", 32)))
 	if err != nil || gas != clientUpdateGasCost {
 		t.Fatalf("unexpected client update gas %d err=%v", gas, err)
+	}
+	gas, err = module.EstimateGas(vexoapp.Context{}, types.Tx("ibc:connection-open-ack:connection-0"))
+	if err != nil || gas != connectionAckGasCost {
+		t.Fatalf("unexpected connection ack gas %d err=%v", gas, err)
 	}
 	events := module.Events(vexoapp.Context{}, types.Tx("ibc:packet-send:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA"), types.Result{})
 	if len(events) != 1 || events[0].Type != "ibc_packet-send" {
@@ -129,6 +169,20 @@ func TestIBCModuleCLICommands(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "tx: ibc:client-update:07-vexo-0:6:"+strings.Repeat("01", 32)+":"+strings.Repeat("02", 32)) {
 		t.Fatalf("unexpected client update output: %s", output.String())
+	}
+	output.Reset()
+	if err := command.Execute(&output, []string{"tx", "connection-open-init", "connection-0", "07-vexo-0", "connection-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "tx: ibc:connection-open-init:connection-0:07-vexo-0:connection-1") {
+		t.Fatalf("unexpected connection init output: %s", output.String())
+	}
+	output.Reset()
+	if err := command.Execute(&output, []string{"tx", "channel-open-ack", "transfer", "channel-0"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "tx: ibc:channel-open-ack:transfer:channel-0") {
+		t.Fatalf("unexpected channel ack output: %s", output.String())
 	}
 	output.Reset()
 	if err := command.Execute(&output, []string{"tx", "packet-ack", "1", "transfer", "channel-0", "transfer", "channel-1", "payload", "ack"}); err != nil {
