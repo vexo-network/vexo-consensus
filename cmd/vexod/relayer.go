@@ -34,6 +34,8 @@ func runRelayer(writer io.Writer, args []string) error {
 		return runRelayerPacketTimeout(writer, args[1:], client)
 	case "packet-proof":
 		return runRelayerPacketProof(writer, args[1:], client)
+	case "loop":
+		return runRelayerLoop(writer, args[1:], client)
 	default:
 		return fmt.Errorf("unknown relayer subcommand %q", args[0])
 	}
@@ -149,6 +151,137 @@ func runRelayerPacketProof(writer io.Writer, args []string, client http.Client) 
 	encoder := json.NewEncoder(writer)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(proof)
+}
+
+func runRelayerLoop(writer io.Writer, args []string, client http.Client) error {
+	flags := flag.NewFlagSet("relayer loop", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	options := packetRelayerFlags(flags)
+	mode := flags.String("mode", "", "packet relay mode: ack or timeout")
+	ack := flags.String("ack", "", "acknowledgement bytes as plain text when --mode ack")
+	proofRPC := flags.String("proof-rpc", "", "source RPC base URL used to poll packet proofs")
+	interval := flags.Duration("interval", 5*time.Second, "poll interval")
+	maxIterations := flags.Uint64("max-iterations", 0, "maximum poll iterations; 0 means run until interrupted")
+	continueOnError := flags.Bool("continue-on-error", false, "continue polling after proof fetch or submit errors")
+	submit := flags.Bool("submit", false, "submit the built transaction to --rpc")
+	tags := relayerTxTagFlags(flags)
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *mode != "ack" && *mode != "timeout" {
+		return errors.New("mode must be ack or timeout")
+	}
+	if *proofRPC == "" {
+		return errors.New("proof-rpc is required")
+	}
+	if *interval < 0 {
+		return errors.New("interval must be non-negative")
+	}
+	packetArgs, err := options.packetArgs()
+	if err != nil {
+		return err
+	}
+	if *mode == "ack" && *ack == "" {
+		return errors.New("ack is required when mode is ack")
+	}
+	if *mode == "timeout" && options.timeoutHeight == 0 {
+		return errors.New("timeout-height is required when mode is timeout")
+	}
+	return runRelayerPollingLoop(context.Background(), writer, client, relayerLoopConfig{
+		Mode:            *mode,
+		RPCAddress:      options.rpcAddress,
+		ProofRPC:        *proofRPC,
+		PacketArgs:      packetArgs,
+		Ack:             *ack,
+		Tags:            tags,
+		Submit:          *submit,
+		Interval:        *interval,
+		MaxIterations:   *maxIterations,
+		ContinueOnError: *continueOnError,
+	})
+}
+
+type relayerLoopConfig struct {
+	Mode            string
+	RPCAddress      string
+	ProofRPC        string
+	PacketArgs      []string
+	Ack             string
+	Tags            *relayerTxTags
+	Submit          bool
+	Interval        time.Duration
+	MaxIterations   uint64
+	ContinueOnError bool
+}
+
+func runRelayerPollingLoop(ctx context.Context, writer io.Writer, client http.Client, cfg relayerLoopConfig) error {
+	for iteration := uint64(1); ; iteration++ {
+		proof, err := fetchRelayerPacketProof(ctx, client, cfg.ProofRPC, cfg.PacketArgs)
+		if err != nil {
+			fmt.Fprintf(writer, "iteration: %d\n", iteration)
+			fmt.Fprintf(writer, "proof_error: %v\n", err)
+			if !cfg.ContinueOnError {
+				return err
+			}
+			if cfg.MaxIterations > 0 && iteration >= cfg.MaxIterations {
+				return nil
+			}
+			if err := waitRelayerLoopInterval(ctx, cfg.Interval); err != nil {
+				return err
+			}
+			continue
+		}
+		fmt.Fprintf(writer, "iteration: %d\n", iteration)
+		fmt.Fprintf(writer, "proof_height: %d\n", proof.Height)
+		fmt.Fprintf(writer, "proof_namespace: %s\n", proof.Namespace)
+		tx, err := buildRelayerLoopTx(cfg)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(writer, "tx: %s\n", tx)
+		if cfg.Submit {
+			if err := submitRelayerTx(ctx, client, cfg.RPCAddress, tx); err != nil {
+				fmt.Fprintf(writer, "submit_error: %v\n", err)
+				if !cfg.ContinueOnError {
+					return err
+				}
+			} else {
+				fmt.Fprintf(writer, "submitted: true\n")
+			}
+		}
+		if cfg.MaxIterations > 0 && iteration >= cfg.MaxIterations {
+			return nil
+		}
+		if err := waitRelayerLoopInterval(ctx, cfg.Interval); err != nil {
+			return err
+		}
+	}
+}
+
+func buildRelayerLoopTx(cfg relayerLoopConfig) (types.Tx, error) {
+	switch cfg.Mode {
+	case "ack":
+		txArgs := append(append([]string(nil), cfg.PacketArgs...), base64.RawStdEncoding.EncodeToString([]byte(cfg.Ack)))
+		return buildRelayerTx("packet-ack", txArgs, cfg.Tags)
+	case "timeout":
+		return buildRelayerTx("packet-timeout", cfg.PacketArgs, cfg.Tags)
+	default:
+		return nil, errors.New("mode must be ack or timeout")
+	}
+}
+
+func waitRelayerLoopInterval(ctx context.Context, interval time.Duration) error {
+	if interval <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 type relayerPacketOptions struct {

@@ -142,6 +142,7 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  proof verify-ibc verify a proof against a trusted IBC client\n")
 	fmt.Fprintf(writer, "  relayer packet-proof fetch an IBC packet proof from RPC\n")
 	fmt.Fprintf(writer, "  relayer packet-ack build or submit an IBC packet acknowledgement\n")
+	fmt.Fprintf(writer, "  relayer loop poll packet proofs and submit relay transactions\n")
 	fmt.Fprintf(writer, "  ibc tx client-update update a trusted IBC client height/root\n")
 	fmt.Fprintf(writer, "  ibc tx connection-open-init start an IBC connection handshake\n")
 	fmt.Fprintf(writer, "  ibc tx channel-open-init start an IBC channel handshake\n")

@@ -949,6 +949,80 @@ func TestRunRelayerClientUpdateAndPacketTimeoutDryRun(t *testing.T) {
 	}
 }
 
+func TestRunRelayerLoopRetriesProofAndSubmits(t *testing.T) {
+	proofBody, err := json.Marshal(map[string]queryproof.Proof{
+		"proof": {
+			SchemaVersion: queryproof.SchemaVersionV1,
+			ChainID:       "counterparty",
+			Height:        11,
+			Namespace:     "ibc",
+			Key:           []byte("packets"),
+			Exists:        true,
+			StateRoot:     types.Hash{1},
+			LeafHash:      types.Hash{2},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proofCalls := 0
+	submitCalls := 0
+	client := http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		switch {
+		case request.Method == http.MethodGet && strings.HasPrefix(request.URL.Path, "/v1/ibc/proof/packet/"):
+			proofCalls++
+			if proofCalls == 1 {
+				return jsonHTTPResponse(http.StatusNotFound, `{"error":"not ready"}`), nil
+			}
+			return jsonHTTPResponse(http.StatusOK, string(proofBody)), nil
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/tx":
+			submitCalls++
+			var payload map[string]string
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				return nil, err
+			}
+			decoded, err := base64.StdEncoding.DecodeString(payload["tx"])
+			if err != nil {
+				return nil, err
+			}
+			if !strings.Contains(string(decoded), "ibc:packet-timeout:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA:100") {
+				t.Fatalf("unexpected loop tx: %s", decoded)
+			}
+			return jsonHTTPResponse(http.StatusAccepted, `{"accepted":true}`), nil
+		default:
+			return jsonHTTPResponse(http.StatusNotFound, `{}`), nil
+		}
+	})}
+	var output bytes.Buffer
+	err = runRelayerLoop(&output, []string{
+		"--mode", "timeout",
+		"--rpc", "http://dest.example",
+		"--proof-rpc", "http://source.example",
+		"--sequence", "1",
+		"--source-port", "transfer",
+		"--source-channel", "channel-0",
+		"--destination-port", "transfer",
+		"--destination-channel", "channel-1",
+		"--data", "payload",
+		"--timeout-height", "100",
+		"--interval", "0s",
+		"--max-iterations", "2",
+		"--continue-on-error",
+		"--submit",
+	}, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proofCalls != 2 || submitCalls != 1 {
+		t.Fatalf("expected two proof polls and one submit, proofCalls=%d submitCalls=%d", proofCalls, submitCalls)
+	}
+	for _, expected := range []string{"proof_error:", "proof_height: 11", "submitted: true"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected %q in relayer loop output:\n%s", expected, output.String())
+		}
+	}
+}
+
 func TestRunNetworkInitAndStartDryRun(t *testing.T) {
 	home := t.TempDir()
 	var initOutput bytes.Buffer
