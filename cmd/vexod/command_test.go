@@ -20,6 +20,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/cmd/vexod/internal/releasegate"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/p2p"
+	"github.com/vexo-network/vexo-consensus/queryproof"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/transport"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -659,6 +660,65 @@ func releaseReadinessCheckOK(checks []releasegate.Check, name string) bool {
 		}
 	}
 	return false
+}
+
+func TestRunProofVerifyCommand(t *testing.T) {
+	proof := queryproof.Proof{
+		SchemaVersion: queryproof.SchemaVersionV1,
+		ChainID:       "vexo-test",
+		Height:        7,
+		Namespace:     "bank",
+		Key:           []byte("alice"),
+		Value:         []byte("100"),
+		Exists:        true,
+	}
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	if err := storage.Set(context.Background(), proof.Namespace, proof.Key, proof.Value); err != nil {
+		t.Fatal(err)
+	}
+	built, err := queryproof.Build(context.Background(), storage, proof.ChainID, proof.Height, proof.Namespace, proof.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "proof.json")
+	encoded, err := json.Marshal(built)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, encoded, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{"proof", "verify", "--input", path, "--chain-id", "vexo-test", "--height", "7"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "query proof verified") {
+		t.Fatalf("unexpected proof output: %s", output.String())
+	}
+}
+
+func TestRunIBCPacketSendCommand(t *testing.T) {
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"ibc", "packet", "send",
+		"--sequence", "1",
+		"--source-port", "transfer",
+		"--source-channel", "channel-0",
+		"--destination-port", "transfer",
+		"--destination-channel", "channel-1",
+		"--data", "payload",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"ibc_packet:", "sequence: 1", "source: transfer/channel-0", "destination: transfer/channel-1"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected %q in output:\n%s", expected, output.String())
+		}
+	}
 }
 
 func TestRunNetworkInitAndStartDryRun(t *testing.T) {

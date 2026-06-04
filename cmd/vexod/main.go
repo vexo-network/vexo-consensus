@@ -91,6 +91,8 @@ func coreCommands() commandset.Registry {
 		{Name: "config", Description: "audit, inspect, and generate config files", Handler: runConfig},
 		{Name: "keys", Description: "manage local and remote validator keys", Handler: runKeys},
 		{Name: "tx", Description: "build or parse canonical transaction payloads", Handler: runTx},
+		{Name: "proof", Description: "build and verify state query proofs", Handler: runProof},
+		{Name: "ibc", Description: "build IBC client, channel, and packet scaffolds", Handler: runIBC},
 		{Name: "start", Description: "validate files, prepare startup, or run a node", Handler: runStart},
 		{Name: "network", Description: "manage node networks and local execution harnesses", Handler: runNetwork},
 		{Name: "consensus", Description: "run consensus simulations and diagnostics", Handler: runConsensus},
@@ -135,6 +137,9 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  keys verify-remote verify remote KMS/HSM challenge signing\n")
 	fmt.Fprintf(writer, "  keys sign-tx    sign a raw transaction payload\n")
 	fmt.Fprintf(writer, "  keys show       show validator public key\n")
+	fmt.Fprintf(writer, "  proof query     build a state-root-bound query proof\n")
+	fmt.Fprintf(writer, "  proof verify    verify a query proof envelope\n")
+	fmt.Fprintf(writer, "  ibc packet send build an IBC packet scaffold\n")
 	fmt.Fprintf(writer, "  status          print default node capability status\n")
 	fmt.Fprintf(writer, "  demo            run an in-memory bank execution demo\n")
 	fmt.Fprintf(writer, "  store-demo      run a LevelDB-backed storage demo\n")

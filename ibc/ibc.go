@@ -181,6 +181,10 @@ func validatePacket(packet Packet) error {
 	return nil
 }
 
+func ValidatePacket(packet Packet) error {
+	return validatePacket(packet)
+}
+
 func clientKey(clientID string) []byte { return []byte("clients/" + clientID) }
 
 func connectionKey(connectionID string) []byte { return []byte("connections/" + connectionID) }

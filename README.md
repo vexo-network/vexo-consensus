@@ -112,6 +112,9 @@ vexod keys gen --home .vexo --type ed25519
 vexod keys gen --home .vexo-bls --type bls
 VEXO_KEY_PASSPHRASE='change-me' vexod keys gen --home .vexo-vrf --type vrf --encrypt
 vexod tx build --module bank --action send --args alice,bob,25 --tags fee=1gvxo,gas=1000,signer=alice,nonce=1
+vexod proof query --home .vexo --namespace bank --key alice
+vexod proof verify --input proof.json --chain-id vexo-chain --height 10
+vexod ibc packet send --sequence 1 --source-port transfer --source-channel channel-0 --destination-port transfer --destination-channel channel-1 --data payload
 vexod consensus adversarial --json
 vexod snapshot drill-plan --input snapshot.json --chain-id vexo-chain --json
 vexod release readiness --json

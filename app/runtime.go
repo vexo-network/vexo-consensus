@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/vexo-network/vexo-consensus/events"
 	"github.com/vexo-network/vexo-consensus/fairordering"
 	"github.com/vexo-network/vexo-consensus/kvbatch"
+	vexostore "github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -208,6 +210,7 @@ func (runtime *Runtime) finalizeBlockWithStore(req FinalizeBlockRequest, executi
 	}
 
 	results := make([]types.Result, 0, len(req.Block.Txs))
+	txEvents := make([][]events.Event, 0, len(req.Block.Txs))
 	for _, tx := range req.Block.Txs {
 		txCtx := ctx
 		if runtime.ante != nil {
@@ -242,11 +245,18 @@ func (runtime *Runtime) finalizeBlockWithStore(req FinalizeBlockRequest, executi
 				result.Data = []byte(fmt.Sprintf("gas_used=%d fee_paid=%d", result.GasUsed, result.FeePaid))
 			}
 		}
+		txEvents = append(txEvents, runtime.collectTxEvents(txCtx, module, payload, result))
 		results = append(results, result)
 	}
 
 	for _, module := range runtime.modules {
 		if err := module.EndBlock(ctx); err != nil {
+			return FinalizeBlockResponse{}, err
+		}
+	}
+
+	if kvStore, ok := executionStore.(vexostore.KVStore); ok {
+		if err := events.NewIndexer(kvStore).IndexBlock(ctx.GoContext(), req.Block.Header.Height, txEvents); err != nil {
 			return FinalizeBlockResponse{}, err
 		}
 	}
@@ -258,9 +268,24 @@ func (runtime *Runtime) finalizeBlockWithStore(req FinalizeBlockRequest, executi
 	}
 	return FinalizeBlockResponse{
 		Results:          results,
+		TxEvents:         txEvents,
 		AppHash:          appHash,
 		ValidatorUpdates: runtime.collectValidatorUpdates(ctx),
 	}, nil
+}
+
+func (runtime *Runtime) collectTxEvents(ctx Context, module Module, tx types.Tx, result types.Result) []events.Event {
+	emitter, ok := module.(TxEventEmitter)
+	if !ok {
+		return nil
+	}
+	emitted := emitter.Events(ctx, tx, result)
+	copied := make([]events.Event, 0, len(emitted))
+	for _, event := range emitted {
+		event.Attributes = append([]events.Attribute(nil), event.Attributes...)
+		copied = append(copied, event)
+	}
+	return copied
 }
 
 func (runtime *Runtime) checkEstimatedGas(ctx Context, tx types.Tx, payload types.Tx, module Module) error {

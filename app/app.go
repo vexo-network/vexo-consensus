@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 
+	"github.com/vexo-network/vexo-consensus/events"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -83,6 +84,10 @@ type GasEstimator interface {
 	EstimateGas(ctx Context, tx types.Tx) (uint64, error)
 }
 
+type TxEventEmitter interface {
+	Events(ctx Context, tx types.Tx, result types.Result) []events.Event
+}
+
 type InitChainRequest struct {
 	ChainID string
 	Genesis GenesisState
@@ -120,6 +125,7 @@ type FinalizeBlockRequest struct {
 
 type FinalizeBlockResponse struct {
 	Results          []types.Result
+	TxEvents         [][]events.Event
 	AppHash          types.Hash
 	ValidatorUpdates []types.ValidatorUpdate
 }

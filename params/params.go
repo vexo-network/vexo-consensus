@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/events"
 	"github.com/vexo-network/vexo-consensus/kvbatch"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -235,6 +236,26 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 }
 
 func (module *Module) EndBlock(ctx vexoapp.Context) error { return nil }
+
+func (module *Module) Events(ctx vexoapp.Context, tx types.Tx, result types.Result) []events.Event {
+	if result.Code != 0 {
+		return nil
+	}
+	parts := strings.Split(string(tx), ":")
+	if len(parts) != 6 || parts[0] != Namespace || parts[1] != "set" {
+		return nil
+	}
+	return []events.Event{
+		{
+			Type: "param_set",
+			Attributes: []events.Attribute{
+				{Key: "module", Value: parts[3], Index: true},
+				{Key: "key", Value: parts[4], Index: true},
+				{Key: "authority", Value: parts[2], Index: true},
+			},
+		},
+	}
+}
 
 func (module *Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoapp.QueryResponse {
 	if ctx.Store == nil {

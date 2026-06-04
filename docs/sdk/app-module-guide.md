@@ -22,6 +22,7 @@ Optional interfaces:
 
 - `app.QueryHandler` for module queries
 - `app.ValidatorUpdateProvider` for validator set updates
+- `app.TxEventEmitter` for deterministic transaction event emission
 - module CLI command provider through the app CLI command tree
 
 ## Transaction Routing
@@ -69,13 +70,49 @@ The built-in `params` module supports `params:set:<authority>:<module>:<key>:<ba
 
 ## Events and Query Proofs
 
-Modules can emit indexable events using the `events.Event` shape. Node integrations may persist those through `events.Indexer` so operators and explorers can query by indexed attributes.
+Modules can emit indexable events by implementing `app.TxEventEmitter`. The runtime calls it after a successful module execution result is produced, copies the emitted events, and persists indexed attributes through `events.Indexer` when the runtime is backed by a KV store.
+
+```go
+func (module Module) Events(ctx app.Context, tx types.Tx, result types.Result) []events.Event {
+    if result.Code != 0 {
+        return nil
+    }
+    return []events.Event{{
+        Type: "transfer",
+        Attributes: []events.Attribute{
+            {Key: "sender", Value: "alice", Index: true},
+            {Key: "recipient", Value: "bob", Index: true},
+        },
+    }}
+}
+```
+
+Keep events deterministic: the same block and transaction must emit the same event type, attributes, and index flags on every node.
 
 For state-root-bound queries, use `queryproof.Build` and `queryproof.Verify` to wrap a namespace/key/value lookup with chain ID, height, state root, and deterministic leaf hash. This is a query-proof envelope, not a full Cosmos IAVL proof.
+
+The CLI exposes the same query-proof envelope:
+
+```bash
+vexod proof query --home .vexo --namespace bank --key alice > proof.json
+vexod proof verify --input proof.json --chain-id vexo-chain --height 10
+```
 
 ## IBC and Contract Extension Points
 
 The `ibc` package provides client, connection, channel, packet commitment, acknowledgement, and receipt primitives for building an IBC-compatible module. Full relayer/light-client protocol compatibility is chain integration work.
+
+Packet scaffolds can be generated from the CLI while chain-specific IBC modules wire packet commitments into state:
+
+```bash
+vexod ibc packet send \
+  --sequence 1 \
+  --source-port transfer \
+  --source-channel channel-0 \
+  --destination-port transfer \
+  --destination-channel channel-1 \
+  --data payload
+```
 
 The `contract` package provides a VM registry and invocation boundary for future EVM/WASM-compatible modules. VM implementations plug in behind `contract.VM` and must enforce their own gas/account/state semantics.
 

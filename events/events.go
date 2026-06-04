@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strconv"
 
-	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/kvbatch"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -40,10 +39,6 @@ type Record struct {
 
 type Sink interface {
 	Emit(event Event) error
-}
-
-type EventEmitter interface {
-	Events(ctx vexoapp.Context) []Event
 }
 
 type Indexer struct {
