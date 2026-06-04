@@ -115,6 +115,8 @@ vexod tx build --module bank --action send --args alice,bob,25 --tags fee=1gvxo,
 vexod proof query --home .vexo --namespace bank --key alice
 vexod proof verify --input proof.json --chain-id vexo-chain --height 10
 vexod ibc tx packet-send 1 transfer channel-0 transfer channel-1 payload --fee 1 --gas 1000 --signer relayer --nonce 1
+vexod ibc tx packet-ack 1 transfer channel-0 transfer channel-1 payload ack --fee 1 --gas 1000 --signer relayer --nonce 2
+vexod ibc tx packet-timeout 1 transfer channel-0 transfer channel-1 payload 100 --fee 1 --gas 1000 --signer relayer --nonce 3
 vexod ibc packet send --sequence 1 --source-port transfer --source-channel channel-0 --destination-port transfer --destination-channel channel-1 --data payload
 vexod consensus adversarial --json
 vexod snapshot drill-plan --input snapshot.json --chain-id vexo-chain --json
@@ -128,6 +130,7 @@ curl 'http://127.0.0.1:26657/v1/status'
 curl 'http://127.0.0.1:26657/v1/events?key=sender&value=alice'
 curl 'http://127.0.0.1:26657/v1/proof?namespace=bank&key=alice'
 curl 'http://127.0.0.1:26657/v1/ibc/client/07-vexo-0'
+curl 'http://127.0.0.1:26657/v1/ibc/proof/packet/1/transfer/channel-0/transfer/channel-1'
 ```
 
 Module commands are contributed by application modules:

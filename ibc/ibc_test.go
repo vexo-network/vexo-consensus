@@ -2,6 +2,7 @@ package ibc
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/store"
@@ -35,15 +36,53 @@ func TestKeeperPacketLifecycle(t *testing.T) {
 	if err := keeper.SetChannel(ctx, ChannelState{PortID: "transfer", ChannelID: "channel-0", ConnectionID: "connection-0", Counterparty: "channel-1", Ordering: "ordered", State: "open"}); err != nil {
 		t.Fatal(err)
 	}
-	packet := Packet{Sequence: 1, SourcePort: "transfer", SourceChannel: "channel-0", DestinationPort: "transfer", DestinationChannel: "channel-1", Data: []byte("payload")}
+	packet := Packet{Sequence: 1, SourcePort: "transfer", SourceChannel: "channel-0", DestinationPort: "transfer", DestinationChannel: "channel-1", Data: []byte("payload"), TimeoutHeight: 13}
 	if err := keeper.SendPacket(ctx, 11, packet); err != nil {
 		t.Fatal(err)
 	}
-	if err := keeper.AcknowledgePacket(ctx, packet, []byte("ack")); err != nil {
+	if err := keeper.AcknowledgePacket(ctx, 12, packet, []byte("ack")); err != nil {
 		t.Fatal(err)
 	}
 	receipt, found, err := keeper.PacketReceipt(ctx, packet)
-	if err != nil || !found || !receipt.Acknowledged || string(receipt.Ack) != "ack" {
+	if err != nil || !found || !receipt.Acknowledged || string(receipt.Ack) != "ack" || receipt.AckHeight != 12 {
 		t.Fatalf("unexpected receipt found=%t receipt=%+v err=%v", found, receipt, err)
+	}
+	if err := keeper.TimeoutPacket(ctx, 13, packet); !errors.Is(err, ErrPacketAcked) {
+		t.Fatalf("expected acked packet timeout rejection, got %v", err)
+	}
+}
+
+func TestKeeperPacketTimeoutLifecycle(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	keeper := NewKeeper(storage)
+	ctx := context.Background()
+	packet := Packet{
+		Sequence:           7,
+		SourcePort:         "transfer",
+		SourceChannel:      "channel-0",
+		DestinationPort:    "transfer",
+		DestinationChannel: "channel-1",
+		Data:               []byte("payload"),
+		TimeoutHeight:      20,
+	}
+	if err := keeper.SendPacket(ctx, 11, packet); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.TimeoutPacket(ctx, 19, packet); !errors.Is(err, ErrPacketNotTimedOut) {
+		t.Fatalf("expected not-timed-out error, got %v", err)
+	}
+	if err := keeper.TimeoutPacket(ctx, 20, packet); err != nil {
+		t.Fatal(err)
+	}
+	receipt, found, err := keeper.PacketReceipt(ctx, packet)
+	if err != nil || !found || !receipt.TimedOut || receipt.TimeoutAt != 20 {
+		t.Fatalf("unexpected timeout receipt found=%t receipt=%+v err=%v", found, receipt, err)
+	}
+	if err := keeper.AcknowledgePacket(ctx, 21, packet, []byte("ack")); !errors.Is(err, ErrPacketTimedOut) {
+		t.Fatalf("expected timed-out ack rejection, got %v", err)
 	}
 }

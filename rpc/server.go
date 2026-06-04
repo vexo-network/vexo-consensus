@@ -13,6 +13,7 @@ import (
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/events"
+	ibckeeper "github.com/vexo-network/vexo-consensus/ibc"
 	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/queryproof"
@@ -624,6 +625,42 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 		if !allowGet(writer, request) {
 			return
 		}
+		if strings.HasPrefix(request.URL.Path, "/ibc/proof/") {
+			queryProvider, ok := provider.(QueryProofProvider)
+			if !ok {
+				writeError(writer, http.StatusNotImplemented, "IBC proof query is unavailable")
+				return
+			}
+			packet, ok := parseIBCPacketProofPath(request.URL.Path)
+			if !ok {
+				writeError(writer, http.StatusBadRequest, "invalid IBC proof path")
+				return
+			}
+			height, ok := parseOptionalHeight(request.URL.Query().Get("height"))
+			if !ok {
+				writeError(writer, http.StatusBadRequest, "invalid proof height")
+				return
+			}
+			proof, err := queryProvider.QueryProof(request.Context(), height, ibckeeper.Namespace, ibckeeper.PacketCommitmentKey(packet))
+			if errors.Is(err, queryproof.ErrInvalidProof) {
+				writeError(writer, http.StatusBadRequest, "invalid IBC proof request")
+				return
+			}
+			if errors.Is(err, vexoruntime.ErrHistoricalQueryProofUnsupported) {
+				writeError(writer, http.StatusBadRequest, err.Error())
+				return
+			}
+			if errors.Is(err, store.ErrStateNotFound) {
+				writeError(writer, http.StatusNotFound, "IBC proof state not found")
+				return
+			}
+			if err != nil {
+				writeError(writer, http.StatusInternalServerError, err.Error())
+				return
+			}
+			writeJSON(writer, http.StatusOK, QueryProofResponse{Proof: proof})
+			return
+		}
 		queryProvider, ok := provider.(IBCQueryProvider)
 		if !ok {
 			writeError(writer, http.StatusNotImplemented, "IBC query is unavailable")
@@ -960,6 +997,34 @@ func parseIBCQueryPath(path string) ([]string, bool) {
 	default:
 		return nil, false
 	}
+}
+
+func parseIBCPacketProofPath(path string) (ibckeeper.Packet, bool) {
+	selector := strings.TrimPrefix(path, "/ibc/proof/packet/")
+	if selector == "" || selector == path {
+		return ibckeeper.Packet{}, false
+	}
+	parts := strings.Split(selector, "/")
+	if len(parts) != 5 {
+		return ibckeeper.Packet{}, false
+	}
+	for _, part := range parts {
+		if part == "" {
+			return ibckeeper.Packet{}, false
+		}
+	}
+	sequence, err := strconv.ParseUint(parts[0], 10, 64)
+	if err != nil || sequence == 0 {
+		return ibckeeper.Packet{}, false
+	}
+	return ibckeeper.Packet{
+		Sequence:           sequence,
+		SourcePort:         parts[1],
+		SourceChannel:      parts[2],
+		DestinationPort:    parts[3],
+		DestinationChannel: parts[4],
+		Data:               []byte("proof"),
+	}, true
 }
 
 func writeIBCQueryError(writer http.ResponseWriter, response vexoapp.QueryResponse) {

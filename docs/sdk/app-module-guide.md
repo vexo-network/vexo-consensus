@@ -106,6 +106,8 @@ Packet scaffolds can be generated from the CLI while chain-specific IBC modules 
 
 ```bash
 vexod ibc tx packet-send 1 transfer channel-0 transfer channel-1 payload --fee 1 --gas 1000 --signer relayer --nonce 1
+vexod ibc tx packet-ack 1 transfer channel-0 transfer channel-1 payload ack --fee 1 --gas 1000 --signer relayer --nonce 2
+vexod ibc tx packet-timeout 1 transfer channel-0 transfer channel-1 payload 100 --fee 1 --gas 1000 --signer relayer --nonce 3
 vexod ibc packet send \
   --sequence 1 \
   --source-port transfer \
@@ -120,7 +122,10 @@ Relayer-facing reads are available through RPC:
 ```bash
 curl 'http://127.0.0.1:26657/v1/ibc/client/07-vexo-0'
 curl 'http://127.0.0.1:26657/v1/ibc/packet/1/transfer/channel-0/transfer/channel-1'
+curl 'http://127.0.0.1:26657/v1/ibc/proof/packet/1/transfer/channel-0/transfer/channel-1'
 ```
+
+Packet receipts carry acknowledgement and timeout lifecycle fields, so relayers can submit packet-send, observe receipt state, submit packet-ack or packet-timeout, and fetch an IBC namespace proof for the packet commitment key.
 
 The `contract` package provides a VM registry and invocation boundary for future EVM/WASM-compatible modules. VM implementations plug in behind `contract.VM` and must enforce their own gas/account/state semantics.
 

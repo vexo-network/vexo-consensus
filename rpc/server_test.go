@@ -990,6 +990,27 @@ func TestHandlerReportsIBCQueries(t *testing.T) {
 	}
 }
 
+func TestHandlerReportsIBCPacketProof(t *testing.T) {
+	proof := queryproof.Proof{
+		SchemaVersion: queryproof.SchemaVersionV1,
+		ChainID:       "vexo-test",
+		Height:        12,
+		Namespace:     "ibc",
+		Key:           []byte("packets/transfer/channel-0/1"),
+		Value:         []byte(`{"acknowledged":true}`),
+		Exists:        true,
+		StateRoot:     types.Hash{9},
+		LeafHash:      types.Hash{8},
+	}
+	handler := NewHandler(fakeStatusProvider{queryProof: proof})
+
+	var response QueryProofResponse
+	getJSON(t, handler, "/v1/ibc/proof/packet/1/transfer/channel-0/transfer/channel-1", http.StatusOK, &response)
+	if response.Proof.Namespace != "ibc" || string(response.Proof.Key) != "packets/transfer/channel-0/1" {
+		t.Fatalf("unexpected IBC proof response: %+v", response)
+	}
+}
+
 func TestHandlerRejectsInvalidIBCQueries(t *testing.T) {
 	handler := NewHandler(&fakeStatusProvider{})
 	cases := map[string]int{
@@ -1011,6 +1032,11 @@ func TestHandlerRejectsInvalidIBCQueries(t *testing.T) {
 	getJSON(t, notFoundHandler, "/ibc/client/missing", http.StatusNotFound, &response)
 	if response["error"] != "IBC state not found" {
 		t.Fatalf("unexpected not found response: %+v", response)
+	}
+	var proofResponse map[string]string
+	getJSON(t, handler, "/ibc/proof/packet/0/transfer/channel-0/transfer/channel-1", http.StatusBadRequest, &proofResponse)
+	if proofResponse["error"] == "" {
+		t.Fatalf("expected proof path error, got %+v", proofResponse)
 	}
 }
 

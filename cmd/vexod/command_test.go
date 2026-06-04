@@ -715,6 +715,28 @@ func TestRunIBCPacketSendCommand(t *testing.T) {
 	}
 	output.Reset()
 	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"ibc", "tx", "packet-ack",
+		"1", "transfer", "channel-0", "transfer", "channel-1", "payload", "ack",
+		"--fee", "1", "--gas", "1000", "--signer", "relayer", "--nonce", "2",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "tx: ibc:packet-ack:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA:YWNr:fee=1:gas=1000:signer=relayer:nonce=2") {
+		t.Fatalf("unexpected ibc ack output: %s", output.String())
+	}
+	output.Reset()
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"ibc", "tx", "packet-timeout",
+		"1", "transfer", "channel-0", "transfer", "channel-1", "payload", "10",
+		"--fee", "1", "--gas", "1000", "--signer", "relayer", "--nonce", "3",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "tx: ibc:packet-timeout:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA:10:fee=1:gas=1000:signer=relayer:nonce=3") {
+		t.Fatalf("unexpected ibc timeout output: %s", output.String())
+	}
+	output.Reset()
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
 		"ibc", "packet", "send",
 		"--sequence", "1",
 		"--source-port", "transfer",

@@ -23,6 +23,8 @@ const (
 	connectionOpenGasCost uint64 = 15
 	channelOpenGasCost    uint64 = 15
 	packetSendGasCost     uint64 = 25
+	packetAckGasCost      uint64 = 20
+	packetTimeoutGasCost  uint64 = 20
 )
 
 var (
@@ -147,6 +149,26 @@ func (Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		}
 		err = keeper.SendPacket(ctx.GoContext(), ctx.Height, packet)
 		return resultFromError(err)
+	case "packet-ack":
+		if err := ctx.ConsumeGas(packetAckGasCost); err != nil {
+			return types.Result{Code: 6, Log: err.Error()}
+		}
+		packet, ack, err := packetAckFromArgs(canonical.Args)
+		if err != nil {
+			return types.Result{Code: 3, Log: err.Error()}
+		}
+		err = keeper.AcknowledgePacket(ctx.GoContext(), ctx.Height, packet, ack)
+		return resultFromError(err)
+	case "packet-timeout":
+		if err := ctx.ConsumeGas(packetTimeoutGasCost); err != nil {
+			return types.Result{Code: 6, Log: err.Error()}
+		}
+		packet, err := packetFromArgs(canonical.Args)
+		if err != nil {
+			return types.Result{Code: 3, Log: err.Error()}
+		}
+		err = keeper.TimeoutPacket(ctx.GoContext(), ctx.Height, packet)
+		return resultFromError(err)
 	default:
 		return types.Result{Code: 2, Log: ErrInvalidIBCTx.Error()}
 	}
@@ -168,6 +190,10 @@ func (Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
 		return channelOpenGasCost, nil
 	case "packet-send":
 		return packetSendGasCost, nil
+	case "packet-ack":
+		return packetAckGasCost, nil
+	case "packet-timeout":
+		return packetTimeoutGasCost, nil
 	default:
 		return 0, ErrInvalidIBCTx
 	}
@@ -307,6 +333,21 @@ func packetFromArgs(args []string) (ibckeeper.Packet, error) {
 	return packet, nil
 }
 
+func packetAckFromArgs(args []string) (ibckeeper.Packet, []byte, error) {
+	if len(args) != 7 && len(args) != 8 {
+		return ibckeeper.Packet{}, nil, ErrInvalidIBCTx
+	}
+	packet, err := packetFromArgs(args[:len(args)-1])
+	if err != nil {
+		return ibckeeper.Packet{}, nil, err
+	}
+	ack, err := decodePacketData(args[len(args)-1])
+	if err != nil || len(ack) == 0 {
+		return ibckeeper.Packet{}, nil, ibckeeper.ErrInvalidAck
+	}
+	return packet, ack, nil
+}
+
 func decodePacketData(value string) ([]byte, error) {
 	data, err := base64.RawStdEncoding.DecodeString(value)
 	if err == nil {
@@ -325,4 +366,12 @@ func NewKeeper(store vexoapp.StateStore) *ibckeeper.Keeper {
 
 func SendPacket(ctx context.Context, store vexoapp.StateStore, height types.Height, packet ibckeeper.Packet) error {
 	return ibckeeper.NewKeeper(store).SendPacket(ctx, height, packet)
+}
+
+func AcknowledgePacket(ctx context.Context, store vexoapp.StateStore, height types.Height, packet ibckeeper.Packet, ack []byte) error {
+	return ibckeeper.NewKeeper(store).AcknowledgePacket(ctx, height, packet, ack)
+}
+
+func TimeoutPacket(ctx context.Context, store vexoapp.StateStore, height types.Height, packet ibckeeper.Packet) error {
+	return ibckeeper.NewKeeper(store).TimeoutPacket(ctx, height, packet)
 }

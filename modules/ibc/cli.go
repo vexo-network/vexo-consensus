@@ -24,6 +24,8 @@ func ibcCLICommand() vexoapp.CLICommand {
 		Examples: []string{
 			"ibc tx client-create 07-vexo-0 counterparty 10 <validator-set-hash>",
 			"ibc tx packet-send 1 transfer channel-0 transfer channel-1 payload",
+			"ibc tx packet-ack 1 transfer channel-0 transfer channel-1 payload ack",
+			"ibc tx packet-timeout 1 transfer channel-0 transfer channel-1 payload 100",
 			"ibc query packet 1 transfer channel-0 transfer channel-1",
 		},
 		Children: []vexoapp.CLICommand{
@@ -82,6 +84,37 @@ func ibcCLICommand() vexoapp.CLICommand {
 							{Name: "timeout_height", Description: "optional timeout height"},
 						},
 						Run: runPacketSendTxCLI,
+					},
+					{
+						Name:        "packet-ack",
+						Usage:       "ibc tx packet-ack <sequence> <source_port> <source_channel> <destination_port> <destination_channel> <data> [timeout_height] <ack>",
+						Description: "build an IBC packet acknowledgement transaction",
+						Args: []vexoapp.CLIArg{
+							{Name: "sequence", Description: "packet sequence"},
+							{Name: "source_port", Description: "source port"},
+							{Name: "source_channel", Description: "source channel"},
+							{Name: "destination_port", Description: "destination port"},
+							{Name: "destination_channel", Description: "destination channel"},
+							{Name: "data", Description: "original packet data as plain text"},
+							{Name: "timeout_height", Description: "optional original timeout height"},
+							{Name: "ack", Description: "acknowledgement bytes as plain text"},
+						},
+						Run: runPacketAckTxCLI,
+					},
+					{
+						Name:        "packet-timeout",
+						Usage:       "ibc tx packet-timeout <sequence> <source_port> <source_channel> <destination_port> <destination_channel> <data> <timeout_height>",
+						Description: "build an IBC packet timeout transaction",
+						Args: []vexoapp.CLIArg{
+							{Name: "sequence", Description: "packet sequence"},
+							{Name: "source_port", Description: "source port"},
+							{Name: "source_channel", Description: "source channel"},
+							{Name: "destination_port", Description: "destination port"},
+							{Name: "destination_channel", Description: "destination channel"},
+							{Name: "data", Description: "original packet data as plain text"},
+							{Name: "timeout_height", Description: "original timeout height"},
+						},
+						Run: runPacketTimeoutTxCLI,
 					},
 				},
 			},
@@ -167,6 +200,45 @@ func runPacketSendTxCLI(writer io.Writer, args []string) error {
 	txArgs := append([]string(nil), args...)
 	txArgs[5] = base64.RawStdEncoding.EncodeToString([]byte(args[5]))
 	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: "packet-send", Args: txArgs, Tags: tags})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "tx: %s\n", tx)
+	return nil
+}
+
+func runPacketAckTxCLI(writer io.Writer, args []string) error {
+	args, tags, err := splitExecutionTags(args)
+	if err != nil {
+		return err
+	}
+	if len(args) != 7 && len(args) != 8 {
+		return vexoapp.ErrCLIUsage("ibc tx packet-ack <sequence> <source_port> <source_channel> <destination_port> <destination_channel> <data> [timeout_height] <ack>")
+	}
+	txArgs := append([]string(nil), args...)
+	dataIndex := 5
+	ackIndex := len(txArgs) - 1
+	txArgs[dataIndex] = base64.RawStdEncoding.EncodeToString([]byte(args[dataIndex]))
+	txArgs[ackIndex] = base64.RawStdEncoding.EncodeToString([]byte(args[ackIndex]))
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: "packet-ack", Args: txArgs, Tags: tags})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "tx: %s\n", tx)
+	return nil
+}
+
+func runPacketTimeoutTxCLI(writer io.Writer, args []string) error {
+	args, tags, err := splitExecutionTags(args)
+	if err != nil {
+		return err
+	}
+	if len(args) != 7 {
+		return vexoapp.ErrCLIUsage("ibc tx packet-timeout <sequence> <source_port> <source_channel> <destination_port> <destination_channel> <data> <timeout_height>")
+	}
+	txArgs := append([]string(nil), args...)
+	txArgs[5] = base64.RawStdEncoding.EncodeToString([]byte(args[5]))
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: "packet-timeout", Args: txArgs, Tags: tags})
 	if err != nil {
 		return err
 	}

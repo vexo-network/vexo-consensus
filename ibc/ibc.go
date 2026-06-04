@@ -18,6 +18,10 @@ var (
 	ErrInvalidConnection = errors.New("invalid IBC connection")
 	ErrInvalidChannel    = errors.New("invalid IBC channel")
 	ErrInvalidPacket     = errors.New("invalid IBC packet")
+	ErrInvalidAck        = errors.New("invalid IBC acknowledgement")
+	ErrPacketAcked       = errors.New("IBC packet already acknowledged")
+	ErrPacketTimedOut    = errors.New("IBC packet already timed out")
+	ErrPacketNotTimedOut = errors.New("IBC packet timeout height has not elapsed")
 	ErrStoreMissing      = errors.New("IBC store is required")
 )
 
@@ -61,6 +65,9 @@ type PacketReceipt struct {
 	CommitHeight types.Height `json:"commit_height"`
 	Acknowledged bool         `json:"acknowledged,omitempty"`
 	Ack          []byte       `json:"ack,omitempty"`
+	AckHeight    types.Height `json:"ack_height,omitempty"`
+	TimedOut     bool         `json:"timed_out,omitempty"`
+	TimeoutAt    types.Height `json:"timeout_at,omitempty"`
 }
 
 type KVStore interface {
@@ -139,7 +146,13 @@ func (keeper *Keeper) SendPacket(ctx context.Context, height types.Height, packe
 	return nil
 }
 
-func (keeper *Keeper) AcknowledgePacket(ctx context.Context, packet Packet, ack []byte) error {
+func (keeper *Keeper) AcknowledgePacket(ctx context.Context, height types.Height, packet Packet, ack []byte) error {
+	if err := validatePacket(packet); err != nil {
+		return err
+	}
+	if len(ack) == 0 {
+		return ErrInvalidAck
+	}
 	var receipt PacketReceipt
 	found, err := keeper.getJSON(ctx, packetCommitmentKey(packet), &receipt)
 	if err != nil {
@@ -148,8 +161,41 @@ func (keeper *Keeper) AcknowledgePacket(ctx context.Context, packet Packet, ack 
 	if !found {
 		return store.ErrKeyNotFound
 	}
+	if receipt.TimedOut {
+		return ErrPacketTimedOut
+	}
+	if receipt.Acknowledged {
+		return ErrPacketAcked
+	}
 	receipt.Acknowledged = true
 	receipt.Ack = append([]byte(nil), ack...)
+	receipt.AckHeight = height
+	return keeper.setJSON(ctx, packetCommitmentKey(packet), receipt)
+}
+
+func (keeper *Keeper) TimeoutPacket(ctx context.Context, height types.Height, packet Packet) error {
+	if err := validatePacket(packet); err != nil {
+		return err
+	}
+	if packet.TimeoutHeight == 0 || uint64(height) < packet.TimeoutHeight {
+		return ErrPacketNotTimedOut
+	}
+	var receipt PacketReceipt
+	found, err := keeper.getJSON(ctx, packetCommitmentKey(packet), &receipt)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return store.ErrKeyNotFound
+	}
+	if receipt.Acknowledged {
+		return ErrPacketAcked
+	}
+	if receipt.TimedOut {
+		return ErrPacketTimedOut
+	}
+	receipt.TimedOut = true
+	receipt.TimeoutAt = height
 	return keeper.setJSON(ctx, packetCommitmentKey(packet), receipt)
 }
 
@@ -216,6 +262,10 @@ func nextSequenceKey(portID string, channelID string) []byte {
 
 func packetCommitmentKey(packet Packet) []byte {
 	return []byte("packets/" + packet.SourcePort + "/" + packet.SourceChannel + "/" + strconv.FormatUint(packet.Sequence, 10))
+}
+
+func PacketCommitmentKey(packet Packet) []byte {
+	return append([]byte(nil), packetCommitmentKey(packet)...)
 }
 
 func clonePacket(packet Packet) Packet {

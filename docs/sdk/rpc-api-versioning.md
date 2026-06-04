@@ -32,6 +32,7 @@ Stable endpoints are exposed under `/v1`. The unversioned paths remain compatibi
 - `/v1/ibc/connection/{connection_id}`
 - `/v1/ibc/channel/{port_id}/{channel_id}`
 - `/v1/ibc/packet/{sequence}/{source_port}/{source_channel}/{destination_port}/{destination_channel}`
+- `/v1/ibc/proof/packet/{sequence}/{source_port}/{source_channel}/{destination_port}/{destination_channel}`
 - `/v1/validators/{height}`
 - `/v1/committee/{height}/{round}`
 
@@ -98,9 +99,12 @@ curl 'http://127.0.0.1:26657/v1/ibc/client/07-vexo-0'
 curl 'http://127.0.0.1:26657/v1/ibc/connection/connection-0'
 curl 'http://127.0.0.1:26657/v1/ibc/channel/transfer/channel-0'
 curl 'http://127.0.0.1:26657/v1/ibc/packet/1/transfer/channel-0/transfer/channel-1'
+curl 'http://127.0.0.1:26657/v1/ibc/proof/packet/1/transfer/channel-0/transfer/channel-1'
 ```
 
 Responses wrap the module JSON state in `{ "path": [...], "value": ... }`. Missing IBC state returns `404`.
+
+Packet proof responses reuse the standard query-proof envelope with namespace `ibc` and packet commitment key `packets/{source_port}/{source_channel}/{sequence}`. Relayers can use this endpoint to prove sent, acknowledged, or timed-out packet receipt state at the latest height.
 
 ## Operational Compatibility
 
