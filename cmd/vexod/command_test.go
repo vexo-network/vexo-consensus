@@ -19,6 +19,7 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/cmd/vexod/internal/releasegate"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
+	ibckeeper "github.com/vexo-network/vexo-consensus/ibc"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	"github.com/vexo-network/vexo-consensus/queryproof"
 	"github.com/vexo-network/vexo-consensus/store"
@@ -701,8 +702,71 @@ func TestRunProofVerifyCommand(t *testing.T) {
 	}
 }
 
+func TestRunProofVerifyIBCCommand(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadNodeConfig(resolveConfigPath(home, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage, err := store.OpenLevelDB(cfg.StoreDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Set(context.Background(), "bank", []byte("alice"), []byte("100")); err != nil {
+		t.Fatal(err)
+	}
+	proof, err := queryproof.Build(context.Background(), storage, "counterparty", 9, "bank", []byte("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ibckeeper.NewKeeper(storage).SetClient(context.Background(), ibckeeper.ClientState{
+		ClientID:         "07-vexo-0",
+		ChainID:          "counterparty",
+		LatestHeight:     9,
+		ValidatorSetHash: types.Hash{1},
+		LatestStateRoot:  proof.StateRoot,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Close(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "ibc-proof.json")
+	encoded, err := json.Marshal(proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, encoded, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{"proof", "verify-ibc", "--home", home, "--client-id", "07-vexo-0", "--input", path}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "IBC proof verified") || !strings.Contains(output.String(), "client_id: 07-vexo-0") {
+		t.Fatalf("unexpected IBC proof output: %s", output.String())
+	}
+}
+
 func TestRunIBCPacketSendCommand(t *testing.T) {
 	var output bytes.Buffer
+	hash := strings.Repeat("01", 32)
+	root := strings.Repeat("02", 32)
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"ibc", "tx", "client-update",
+		"07-vexo-0", "6", hash, root,
+		"--fee", "1", "--gas", "1000", "--signer", "relayer", "--nonce", "1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "tx: ibc:client-update:07-vexo-0:6:"+hash+":"+root+":fee=1:gas=1000:signer=relayer:nonce=1") {
+		t.Fatalf("unexpected ibc client update output: %s", output.String())
+	}
+	output.Reset()
 	if err := runCommand(&output, &bytes.Buffer{}, []string{
 		"ibc", "tx", "packet-send",
 		"1", "transfer", "channel-0", "transfer", "channel-1", "payload",

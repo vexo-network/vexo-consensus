@@ -12,6 +12,7 @@ import (
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/events"
 	ibckeeper "github.com/vexo-network/vexo-consensus/ibc"
+	"github.com/vexo-network/vexo-consensus/queryproof"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -20,6 +21,7 @@ const ModuleName = "ibc"
 
 const (
 	clientCreateGasCost   uint64 = 20
+	clientUpdateGasCost   uint64 = 20
 	connectionOpenGasCost uint64 = 15
 	channelOpenGasCost    uint64 = 15
 	packetSendGasCost     uint64 = 25
@@ -91,7 +93,7 @@ func (Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		if err := ctx.ConsumeGas(clientCreateGasCost); err != nil {
 			return types.Result{Code: 6, Log: err.Error()}
 		}
-		if len(canonical.Args) != 4 {
+		if len(canonical.Args) != 4 && len(canonical.Args) != 5 {
 			return types.Result{Code: 2, Log: ErrInvalidIBCTx.Error()}
 		}
 		height, err := parseHeight(canonical.Args[2])
@@ -102,12 +104,41 @@ func (Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		if err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
+		stateRoot := types.Hash{}
+		if len(canonical.Args) == 5 {
+			stateRoot, err = parseHash(canonical.Args[4])
+			if err != nil {
+				return types.Result{Code: 3, Log: err.Error()}
+			}
+		}
 		err = keeper.SetClient(ctx.GoContext(), ibckeeper.ClientState{
 			ClientID:         canonical.Args[0],
 			ChainID:          canonical.Args[1],
 			LatestHeight:     height,
 			ValidatorSetHash: hash,
+			LatestStateRoot:  stateRoot,
 		})
+		return resultFromError(err)
+	case "client-update":
+		if err := ctx.ConsumeGas(clientUpdateGasCost); err != nil {
+			return types.Result{Code: 6, Log: err.Error()}
+		}
+		if len(canonical.Args) != 4 {
+			return types.Result{Code: 2, Log: ErrInvalidIBCTx.Error()}
+		}
+		height, err := parseHeight(canonical.Args[1])
+		if err != nil {
+			return types.Result{Code: 3, Log: err.Error()}
+		}
+		validatorSetHash, err := parseHash(canonical.Args[2])
+		if err != nil {
+			return types.Result{Code: 3, Log: err.Error()}
+		}
+		stateRoot, err := parseHash(canonical.Args[3])
+		if err != nil {
+			return types.Result{Code: 3, Log: err.Error()}
+		}
+		err = keeper.UpdateClient(ctx.GoContext(), canonical.Args[0], height, validatorSetHash, stateRoot)
 		return resultFromError(err)
 	case "connection-open":
 		if err := ctx.ConsumeGas(connectionOpenGasCost); err != nil {
@@ -184,6 +215,8 @@ func (Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
 	switch canonical.Action {
 	case "client-create":
 		return clientCreateGasCost, nil
+	case "client-update":
+		return clientUpdateGasCost, nil
 	case "connection-open":
 		return connectionOpenGasCost, nil
 	case "channel-open":
@@ -366,6 +399,14 @@ func NewKeeper(store vexoapp.StateStore) *ibckeeper.Keeper {
 
 func SendPacket(ctx context.Context, store vexoapp.StateStore, height types.Height, packet ibckeeper.Packet) error {
 	return ibckeeper.NewKeeper(store).SendPacket(ctx, height, packet)
+}
+
+func UpdateClient(ctx context.Context, store vexoapp.StateStore, clientID string, latestHeight types.Height, validatorSetHash types.Hash, latestStateRoot types.Hash) error {
+	return ibckeeper.NewKeeper(store).UpdateClient(ctx, clientID, latestHeight, validatorSetHash, latestStateRoot)
+}
+
+func VerifyClientProof(ctx context.Context, store vexoapp.StateStore, clientID string, proof queryproof.Proof) error {
+	return ibckeeper.NewKeeper(store).VerifyClientProof(ctx, clientID, proof)
 }
 
 func AcknowledgePacket(ctx context.Context, store vexoapp.StateStore, height types.Height, packet ibckeeper.Packet, ack []byte) error {

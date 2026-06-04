@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/vexo-network/vexo-consensus/queryproof"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -49,6 +50,49 @@ func TestKeeperPacketLifecycle(t *testing.T) {
 	}
 	if err := keeper.TimeoutPacket(ctx, 13, packet); !errors.Is(err, ErrPacketAcked) {
 		t.Fatalf("expected acked packet timeout rejection, got %v", err)
+	}
+}
+
+func TestKeeperUpdatesClientAndVerifiesProof(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	keeper := NewKeeper(storage)
+	client := ClientState{
+		ClientID:         "07-vexo-0",
+		ChainID:          "counterparty",
+		LatestHeight:     10,
+		ValidatorSetHash: types.Hash{1},
+	}
+	if err := keeper.SetClient(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Set(ctx, "bank", []byte("alice"), []byte("100")); err != nil {
+		t.Fatal(err)
+	}
+	proof, err := queryproof.Build(ctx, storage, "counterparty", 11, "bank", []byte("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.UpdateClient(ctx, client.ClientID, 11, types.Hash{2}, proof.StateRoot); err != nil {
+		t.Fatal(err)
+	}
+	updated, found, err := keeper.Client(ctx, client.ClientID)
+	if err != nil || !found || updated.LatestHeight != 11 || updated.LatestStateRoot != proof.StateRoot {
+		t.Fatalf("unexpected updated client found=%t client=%+v err=%v", found, updated, err)
+	}
+	if err := keeper.UpdateClient(ctx, client.ClientID, 10, types.Hash{3}, proof.StateRoot); !errors.Is(err, ErrStaleClientUpdate) {
+		t.Fatalf("expected stale update rejection, got %v", err)
+	}
+	if err := keeper.VerifyClientProof(ctx, client.ClientID, proof); err != nil {
+		t.Fatal(err)
+	}
+	proof.Value = []byte("200")
+	if err := keeper.VerifyClientProof(ctx, client.ClientID, proof); !errors.Is(err, ErrInvalidProof) {
+		t.Fatalf("expected invalid proof rejection, got %v", err)
 	}
 }
 

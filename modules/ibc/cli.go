@@ -23,6 +23,7 @@ func ibcCLICommand() vexoapp.CLICommand {
 		Description: "IBC module commands for clients, connections, channels, and packets",
 		Examples: []string{
 			"ibc tx client-create 07-vexo-0 counterparty 10 <validator-set-hash>",
+			"ibc tx client-update 07-vexo-0 11 <validator-set-hash> <state-root>",
 			"ibc tx packet-send 1 transfer channel-0 transfer channel-1 payload",
 			"ibc tx packet-ack 1 transfer channel-0 transfer channel-1 payload ack",
 			"ibc tx packet-timeout 1 transfer channel-0 transfer channel-1 payload 100",
@@ -36,15 +37,28 @@ func ibcCLICommand() vexoapp.CLICommand {
 				Children: []vexoapp.CLICommand{
 					{
 						Name:        "client-create",
-						Usage:       "ibc tx client-create <client_id> <chain_id> <latest_height> <validator_set_hash_hex>",
+						Usage:       "ibc tx client-create <client_id> <chain_id> <latest_height> <validator_set_hash_hex> [state_root_hex]",
 						Description: "build an IBC client creation transaction",
 						Args: []vexoapp.CLIArg{
 							{Name: "client_id", Description: "local client identifier"},
 							{Name: "chain_id", Description: "counterparty chain id"},
 							{Name: "latest_height", Description: "counterparty latest trusted height"},
 							{Name: "validator_set_hash_hex", Description: "32-byte validator set hash"},
+							{Name: "state_root_hex", Description: "optional trusted counterparty state root"},
 						},
 						Run: runClientCreateCLI,
+					},
+					{
+						Name:        "client-update",
+						Usage:       "ibc tx client-update <client_id> <latest_height> <validator_set_hash_hex> <state_root_hex>",
+						Description: "build an IBC client update transaction",
+						Args: []vexoapp.CLIArg{
+							{Name: "client_id", Description: "local client identifier"},
+							{Name: "latest_height", Description: "counterparty latest trusted height"},
+							{Name: "validator_set_hash_hex", Description: "32-byte validator set hash"},
+							{Name: "state_root_hex", Description: "32-byte counterparty state root"},
+						},
+						Run: runClientUpdateCLI,
 					},
 					{
 						Name:        "connection-open",
@@ -146,10 +160,26 @@ func runClientCreateCLI(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(args) != 4 {
-		return vexoapp.ErrCLIUsage("ibc tx client-create <client_id> <chain_id> <latest_height> <validator_set_hash_hex>")
+	if len(args) != 4 && len(args) != 5 {
+		return vexoapp.ErrCLIUsage("ibc tx client-create <client_id> <chain_id> <latest_height> <validator_set_hash_hex> [state_root_hex]")
 	}
 	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: "client-create", Args: args, Tags: tags})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "tx: %s\n", tx)
+	return nil
+}
+
+func runClientUpdateCLI(writer io.Writer, args []string) error {
+	args, tags, err := splitExecutionTags(args)
+	if err != nil {
+		return err
+	}
+	if len(args) != 4 {
+		return vexoapp.ErrCLIUsage("ibc tx client-update <client_id> <latest_height> <validator_set_hash_hex> <state_root_hex>")
+	}
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: "client-update", Args: args, Tags: tags})
 	if err != nil {
 		return err
 	}

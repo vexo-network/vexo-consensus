@@ -19,9 +19,11 @@ func TestModuleStoresClientChannelAndPacket(t *testing.T) {
 	defer storage.Close()
 	module := NewModule()
 	hash := strings.Repeat("01", 32)
+	root := strings.Repeat("02", 32)
 	ctx := vexoapp.Context{Ctx: context.Background(), Height: 7, Store: storage}
 	for _, tx := range []types.Tx{
 		types.Tx("ibc:client-create:07-vexo-0:counterparty:5:" + hash),
+		types.Tx("ibc:client-update:07-vexo-0:6:" + hash + ":" + root),
 		types.Tx("ibc:connection-open:connection-0:07-vexo-0:connection-1"),
 		types.Tx("ibc:channel-open:transfer:channel-0:connection-0:channel-1:ordered"),
 		types.Tx("ibc:packet-send:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA"),
@@ -33,7 +35,7 @@ func TestModuleStoresClientChannelAndPacket(t *testing.T) {
 	}
 	keeper := ibckeeper.NewKeeper(storage)
 	client, found, err := keeper.Client(context.Background(), "07-vexo-0")
-	if err != nil || !found || client.ChainID != "counterparty" {
+	if err != nil || !found || client.ChainID != "counterparty" || client.LatestHeight != 6 {
 		t.Fatalf("unexpected client found=%t client=%+v err=%v", found, client, err)
 	}
 	channel, found, err := keeper.Channel(context.Background(), "transfer", "channel-0")
@@ -102,6 +104,10 @@ func TestModuleIBCEventsAndGas(t *testing.T) {
 	if err != nil || gas != packetAckGasCost {
 		t.Fatalf("unexpected ack gas %d err=%v", gas, err)
 	}
+	gas, err = module.EstimateGas(vexoapp.Context{}, types.Tx("ibc:client-update:07-vexo-0:6:"+strings.Repeat("01", 32)+":"+strings.Repeat("02", 32)))
+	if err != nil || gas != clientUpdateGasCost {
+		t.Fatalf("unexpected client update gas %d err=%v", gas, err)
+	}
 	events := module.Events(vexoapp.Context{}, types.Tx("ibc:packet-send:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA"), types.Result{})
 	if len(events) != 1 || events[0].Type != "ibc_packet-send" {
 		t.Fatalf("unexpected events: %+v", events)
@@ -116,6 +122,13 @@ func TestIBCModuleCLICommands(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "tx: ibc:packet-send:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA") {
 		t.Fatalf("unexpected tx output: %s", output.String())
+	}
+	output.Reset()
+	if err := command.Execute(&output, []string{"tx", "client-update", "07-vexo-0", "6", strings.Repeat("01", 32), strings.Repeat("02", 32)}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "tx: ibc:client-update:07-vexo-0:6:"+strings.Repeat("01", 32)+":"+strings.Repeat("02", 32)) {
+		t.Fatalf("unexpected client update output: %s", output.String())
 	}
 	output.Reset()
 	if err := command.Execute(&output, []string{"tx", "packet-ack", "1", "transfer", "channel-0", "transfer", "channel-1", "payload", "ack"}); err != nil {

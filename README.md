@@ -114,6 +114,8 @@ VEXO_KEY_PASSPHRASE='change-me' vexod keys gen --home .vexo-vrf --type vrf --enc
 vexod tx build --module bank --action send --args alice,bob,25 --tags fee=1gvxo,gas=1000,signer=alice,nonce=1
 vexod proof query --home .vexo --namespace bank --key alice
 vexod proof verify --input proof.json --chain-id vexo-chain --height 10
+vexod proof verify-ibc --home .vexo --client-id 07-vexo-0 --input ibc-proof.json
+vexod ibc tx client-update 07-vexo-0 11 <validator-set-hash> <state-root> --fee 1 --gas 1000 --signer relayer --nonce 1
 vexod ibc tx packet-send 1 transfer channel-0 transfer channel-1 payload --fee 1 --gas 1000 --signer relayer --nonce 1
 vexod ibc tx packet-ack 1 transfer channel-0 transfer channel-1 payload ack --fee 1 --gas 1000 --signer relayer --nonce 2
 vexod ibc tx packet-timeout 1 transfer channel-0 transfer channel-1 payload 100 --fee 1 --gas 1000 --signer relayer --nonce 3

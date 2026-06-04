@@ -138,6 +138,8 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  keys show       show validator public key\n")
 	fmt.Fprintf(writer, "  proof query     build a state-root-bound query proof\n")
 	fmt.Fprintf(writer, "  proof verify    verify a query proof envelope\n")
+	fmt.Fprintf(writer, "  proof verify-ibc verify a proof against a trusted IBC client\n")
+	fmt.Fprintf(writer, "  ibc tx client-update update a trusted IBC client height/root\n")
 	fmt.Fprintf(writer, "  ibc tx packet-send build an IBC packet send transaction\n")
 	fmt.Fprintf(writer, "  ibc tx packet-ack build an IBC packet acknowledgement transaction\n")
 	fmt.Fprintf(writer, "  ibc tx packet-timeout build an IBC packet timeout transaction\n")

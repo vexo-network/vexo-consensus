@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/vexo-network/vexo-consensus/kvbatch"
+	"github.com/vexo-network/vexo-consensus/queryproof"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -19,6 +20,9 @@ var (
 	ErrInvalidChannel    = errors.New("invalid IBC channel")
 	ErrInvalidPacket     = errors.New("invalid IBC packet")
 	ErrInvalidAck        = errors.New("invalid IBC acknowledgement")
+	ErrInvalidProof      = errors.New("invalid IBC proof")
+	ErrClientNotFound    = errors.New("IBC client not found")
+	ErrStaleClientUpdate = errors.New("stale IBC client update")
 	ErrPacketAcked       = errors.New("IBC packet already acknowledged")
 	ErrPacketTimedOut    = errors.New("IBC packet already timed out")
 	ErrPacketNotTimedOut = errors.New("IBC packet timeout height has not elapsed")
@@ -30,6 +34,7 @@ type ClientState struct {
 	ChainID              string       `json:"chain_id"`
 	LatestHeight         types.Height `json:"latest_height"`
 	ValidatorSetHash     types.Hash   `json:"validator_set_hash"`
+	LatestStateRoot      types.Hash   `json:"latest_state_root,omitempty"`
 	Frozen               bool         `json:"frozen,omitempty"`
 	TrustingPeriodHeight uint64       `json:"trusting_period_height,omitempty"`
 }
@@ -94,6 +99,26 @@ func (keeper *Keeper) Client(ctx context.Context, clientID string) (ClientState,
 	var client ClientState
 	found, err := keeper.getJSON(ctx, clientKey(clientID), &client)
 	return client, found, err
+}
+
+func (keeper *Keeper) UpdateClient(ctx context.Context, clientID string, latestHeight types.Height, validatorSetHash types.Hash, latestStateRoot types.Hash) error {
+	if clientID == "" || latestHeight == 0 || validatorSetHash == (types.Hash{}) || latestStateRoot == (types.Hash{}) {
+		return ErrInvalidClient
+	}
+	client, found, err := keeper.Client(ctx, clientID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return ErrClientNotFound
+	}
+	if latestHeight <= client.LatestHeight {
+		return ErrStaleClientUpdate
+	}
+	client.LatestHeight = latestHeight
+	client.ValidatorSetHash = validatorSetHash
+	client.LatestStateRoot = latestStateRoot
+	return keeper.SetClient(ctx, client)
 }
 
 func (keeper *Keeper) SetConnection(ctx context.Context, connection ConnectionState) error {
@@ -203,6 +228,26 @@ func (keeper *Keeper) PacketReceipt(ctx context.Context, packet Packet) (PacketR
 	var receipt PacketReceipt
 	found, err := keeper.getJSON(ctx, packetCommitmentKey(packet), &receipt)
 	return receipt, found, err
+}
+
+func (keeper *Keeper) VerifyClientProof(ctx context.Context, clientID string, proof queryproof.Proof) error {
+	client, found, err := keeper.Client(ctx, clientID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return ErrClientNotFound
+	}
+	if client.LatestStateRoot == (types.Hash{}) {
+		return ErrInvalidProof
+	}
+	if proof.Height != client.LatestHeight {
+		return ErrInvalidProof
+	}
+	if err := queryproof.Verify(proof, client.ChainID, client.LatestHeight, client.LatestStateRoot); err != nil {
+		return errors.Join(ErrInvalidProof, err)
+	}
+	return nil
 }
 
 func (keeper *Keeper) setJSON(ctx context.Context, key []byte, value any) error {

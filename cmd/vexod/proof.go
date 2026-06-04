@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 
+	ibckeeper "github.com/vexo-network/vexo-consensus/ibc"
 	"github.com/vexo-network/vexo-consensus/queryproof"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/store"
@@ -26,6 +27,8 @@ func runProof(writer io.Writer, args []string) error {
 		return runProofQuery(writer, args[1:])
 	case "verify":
 		return runProofVerify(writer, args[1:])
+	case "verify-ibc":
+		return runProofVerifyIBC(writer, args[1:])
 	default:
 		return fmt.Errorf("unknown proof subcommand %q", args[0])
 	}
@@ -102,6 +105,48 @@ func runProofVerify(writer io.Writer, args []string) error {
 		return err
 	}
 	fmt.Fprintf(writer, "query proof verified\n")
+	fmt.Fprintf(writer, "chain_id: %s\n", proof.ChainID)
+	fmt.Fprintf(writer, "height: %d\n", proof.Height)
+	fmt.Fprintf(writer, "namespace: %s\n", proof.Namespace)
+	fmt.Fprintf(writer, "key: %s\n", proof.Key)
+	fmt.Fprintf(writer, "exists: %t\n", proof.Exists)
+	return nil
+}
+
+func runProofVerifyIBC(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("proof verify-ibc", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", defaultHomeDir, "node home directory")
+	inputPath := flags.String("input", "", "proof JSON path")
+	clientID := flags.String("client-id", "", "IBC client id")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *inputPath == "" || *clientID == "" {
+		return errors.New("proof input path and client id are required")
+	}
+	cfg, err := loadNodeConfig(resolveConfigPath(*home, ""))
+	if err != nil {
+		return err
+	}
+	storage, err := store.OpenLevelDB(cfg.StoreDir())
+	if err != nil {
+		return err
+	}
+	defer storage.Close()
+	data, err := readProofFile(*inputPath)
+	if err != nil {
+		return err
+	}
+	proof, err := queryproof.Decode(data)
+	if err != nil {
+		return err
+	}
+	if err := ibckeeper.NewKeeper(storage).VerifyClientProof(context.Background(), *clientID, proof); err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "IBC proof verified\n")
+	fmt.Fprintf(writer, "client_id: %s\n", *clientID)
 	fmt.Fprintf(writer, "chain_id: %s\n", proof.ChainID)
 	fmt.Fprintf(writer, "height: %d\n", proof.Height)
 	fmt.Fprintf(writer, "namespace: %s\n", proof.Namespace)
