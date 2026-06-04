@@ -82,7 +82,7 @@ func Default(chainID string) Config {
 	return Config{
 		ChainID: chainID,
 		Application: ApplicationConfig{
-			Modules: []string{"bank", "staking", "governance"},
+			Modules: []string{"bank", "staking", "governance", "params"},
 		},
 		Execution: ExecutionConfig{
 			MaxGas:                   10_000_000,

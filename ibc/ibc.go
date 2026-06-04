@@ -1,0 +1,203 @@
+package ibc
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strconv"
+
+	"github.com/vexo-network/vexo-consensus/kvbatch"
+	"github.com/vexo-network/vexo-consensus/store"
+	"github.com/vexo-network/vexo-consensus/types"
+)
+
+const Namespace = "ibc"
+
+var (
+	ErrInvalidClient     = errors.New("invalid IBC client")
+	ErrInvalidConnection = errors.New("invalid IBC connection")
+	ErrInvalidChannel    = errors.New("invalid IBC channel")
+	ErrInvalidPacket     = errors.New("invalid IBC packet")
+	ErrStoreMissing      = errors.New("IBC store is required")
+)
+
+type ClientState struct {
+	ClientID             string       `json:"client_id"`
+	ChainID              string       `json:"chain_id"`
+	LatestHeight         types.Height `json:"latest_height"`
+	ValidatorSetHash     types.Hash   `json:"validator_set_hash"`
+	Frozen               bool         `json:"frozen,omitempty"`
+	TrustingPeriodHeight uint64       `json:"trusting_period_height,omitempty"`
+}
+
+type ConnectionState struct {
+	ConnectionID string `json:"connection_id"`
+	ClientID     string `json:"client_id"`
+	Counterparty string `json:"counterparty"`
+	State        string `json:"state"`
+}
+
+type ChannelState struct {
+	PortID       string `json:"port_id"`
+	ChannelID    string `json:"channel_id"`
+	ConnectionID string `json:"connection_id"`
+	Counterparty string `json:"counterparty"`
+	Ordering     string `json:"ordering"`
+	State        string `json:"state"`
+}
+
+type Packet struct {
+	Sequence           uint64 `json:"sequence"`
+	SourcePort         string `json:"source_port"`
+	SourceChannel      string `json:"source_channel"`
+	DestinationPort    string `json:"destination_port"`
+	DestinationChannel string `json:"destination_channel"`
+	Data               []byte `json:"data"`
+	TimeoutHeight      uint64 `json:"timeout_height,omitempty"`
+}
+
+type PacketReceipt struct {
+	Packet       Packet       `json:"packet"`
+	CommitHeight types.Height `json:"commit_height"`
+	Acknowledged bool         `json:"acknowledged,omitempty"`
+	Ack          []byte       `json:"ack,omitempty"`
+}
+
+type Keeper struct {
+	store store.KVStore
+}
+
+func NewKeeper(store store.KVStore) *Keeper {
+	return &Keeper{store: store}
+}
+
+func (keeper *Keeper) SetClient(ctx context.Context, client ClientState) error {
+	if err := validateClient(client); err != nil {
+		return err
+	}
+	return keeper.setJSON(ctx, clientKey(client.ClientID), client)
+}
+
+func (keeper *Keeper) Client(ctx context.Context, clientID string) (ClientState, bool, error) {
+	var client ClientState
+	found, err := keeper.getJSON(ctx, clientKey(clientID), &client)
+	return client, found, err
+}
+
+func (keeper *Keeper) SetConnection(ctx context.Context, connection ConnectionState) error {
+	if connection.ConnectionID == "" || connection.ClientID == "" || connection.Counterparty == "" || connection.State == "" {
+		return ErrInvalidConnection
+	}
+	return keeper.setJSON(ctx, connectionKey(connection.ConnectionID), connection)
+}
+
+func (keeper *Keeper) SetChannel(ctx context.Context, channel ChannelState) error {
+	if channel.PortID == "" || channel.ChannelID == "" || channel.ConnectionID == "" || channel.Counterparty == "" || channel.Ordering == "" || channel.State == "" {
+		return ErrInvalidChannel
+	}
+	return keeper.setJSON(ctx, channelKey(channel.PortID, channel.ChannelID), channel)
+}
+
+func (keeper *Keeper) SendPacket(ctx context.Context, height types.Height, packet Packet) error {
+	if err := validatePacket(packet); err != nil {
+		return err
+	}
+	receipt := PacketReceipt{Packet: clonePacket(packet), CommitHeight: height}
+	encoded, err := json.Marshal(receipt)
+	if err != nil {
+		return err
+	}
+	writes := []kvbatch.KVWrite{
+		{Namespace: Namespace, Key: packetCommitmentKey(packet), Value: encoded},
+		{Namespace: Namespace, Key: nextSequenceKey(packet.SourcePort, packet.SourceChannel), Value: []byte(strconv.FormatUint(packet.Sequence+1, 10))},
+	}
+	if batch, ok := keeper.store.(kvbatch.BatchKVStore); ok {
+		return batch.SetBatch(ctx, writes)
+	}
+	for _, write := range writes {
+		if err := keeper.store.Set(ctx, write.Namespace, write.Key, write.Value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (keeper *Keeper) AcknowledgePacket(ctx context.Context, packet Packet, ack []byte) error {
+	var receipt PacketReceipt
+	found, err := keeper.getJSON(ctx, packetCommitmentKey(packet), &receipt)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return store.ErrKeyNotFound
+	}
+	receipt.Acknowledged = true
+	receipt.Ack = append([]byte(nil), ack...)
+	return keeper.setJSON(ctx, packetCommitmentKey(packet), receipt)
+}
+
+func (keeper *Keeper) PacketReceipt(ctx context.Context, packet Packet) (PacketReceipt, bool, error) {
+	var receipt PacketReceipt
+	found, err := keeper.getJSON(ctx, packetCommitmentKey(packet), &receipt)
+	return receipt, found, err
+}
+
+func (keeper *Keeper) setJSON(ctx context.Context, key []byte, value any) error {
+	if keeper == nil || keeper.store == nil {
+		return ErrStoreMissing
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return keeper.store.Set(ctx, Namespace, key, encoded)
+}
+
+func (keeper *Keeper) getJSON(ctx context.Context, key []byte, value any) (bool, error) {
+	if keeper == nil || keeper.store == nil {
+		return false, ErrStoreMissing
+	}
+	encoded, err := keeper.store.Get(ctx, Namespace, key)
+	if errors.Is(err, store.ErrKeyNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, json.Unmarshal(encoded, value)
+}
+
+func validateClient(client ClientState) error {
+	if client.ClientID == "" || client.ChainID == "" || client.LatestHeight == 0 || client.ValidatorSetHash == (types.Hash{}) {
+		return ErrInvalidClient
+	}
+	return nil
+}
+
+func validatePacket(packet Packet) error {
+	if packet.Sequence == 0 || packet.SourcePort == "" || packet.SourceChannel == "" || packet.DestinationPort == "" || packet.DestinationChannel == "" || len(packet.Data) == 0 {
+		return ErrInvalidPacket
+	}
+	return nil
+}
+
+func clientKey(clientID string) []byte { return []byte("clients/" + clientID) }
+
+func connectionKey(connectionID string) []byte { return []byte("connections/" + connectionID) }
+
+func channelKey(portID string, channelID string) []byte {
+	return []byte("channels/" + portID + "/" + channelID)
+}
+
+func nextSequenceKey(portID string, channelID string) []byte {
+	return []byte("next-sequence/" + portID + "/" + channelID)
+}
+
+func packetCommitmentKey(packet Packet) []byte {
+	return []byte("packets/" + packet.SourcePort + "/" + packet.SourceChannel + "/" + strconv.FormatUint(packet.Sequence, 10))
+}
+
+func clonePacket(packet Packet) Packet {
+	packet.Data = append([]byte(nil), packet.Data...)
+	return packet
+}

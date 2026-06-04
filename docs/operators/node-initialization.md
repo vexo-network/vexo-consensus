@@ -123,7 +123,7 @@ Example `module_config.json`:
 {
   "schema_version": "v1",
   "application": {
-    "Modules": ["bank", "staking", "governance"]
+    "Modules": ["bank", "staking", "governance", "params"]
   },
   "execution": {
     "RequireSigned": true,

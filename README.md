@@ -35,7 +35,12 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 |---|---|
 | `cmd/vexod` | CLI entrypoint, node startup flow, diagnostics, release tooling, and local harnesses |
 | `app` | Application runtime interfaces, ante handling, transaction envelopes, and module contracts |
-| `modules` | Built-in bank, staking, and governance application modules |
+| `modules` | Built-in bank, staking, governance, and params application modules |
+| `params` | Cosmos-style module parameter keeper and parameter transaction/query module |
+| `events` | Event indexing primitives for block/tx attributes |
+| `ibc` | IBC client, connection, channel, and packet lifecycle primitives |
+| `queryproof` | Query proof envelope for namespace/key state-root binding |
+| `contract` | VM registry boundary for future EVM/WASM-compatible modules |
 | `consensus` | Consensus state machine, certificates, evidence, safety checks, and adversarial simulations |
 | `finality` | Finality proof construction and verifier API |
 | `validator` | Height-versioned validator registry and validator-set hashing |

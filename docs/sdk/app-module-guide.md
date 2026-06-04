@@ -42,7 +42,7 @@ Enabled modules are configured in the node home's `module_config.json`, not in `
 {
   "schema_version": "v1",
   "application": {
-    "Modules": ["bank", "staking", "governance"]
+    "Modules": ["bank", "staking", "governance", "params"]
   }
 }
 ```
@@ -52,6 +52,32 @@ Enabled modules are configured in the node home's `module_config.json`, not in `
 ## State
 
 Modules receive `app.Context.Store`, a namespaced KV store. Use the module name as namespace unless a module has a stronger reason not to.
+
+For chain-wide module parameters, prefer the `params` keeper instead of ad-hoc module keys:
+
+```go
+keeper := params.NewKeeper(ctx.Store)
+_, err := keeper.Set(ctx.GoContext(), params.Change{
+    Authority: "governance",
+    Module: "staking",
+    Key: "max_validators",
+    Value: []byte("100"),
+})
+```
+
+The built-in `params` module supports `params:set:<authority>:<module>:<key>:<base64-value>` transactions and `params/param/<module>/<key>` queries.
+
+## Events and Query Proofs
+
+Modules can emit indexable events using the `events.Event` shape. Node integrations may persist those through `events.Indexer` so operators and explorers can query by indexed attributes.
+
+For state-root-bound queries, use `queryproof.Build` and `queryproof.Verify` to wrap a namespace/key/value lookup with chain ID, height, state root, and deterministic leaf hash. This is a query-proof envelope, not a full Cosmos IAVL proof.
+
+## IBC and Contract Extension Points
+
+The `ibc` package provides client, connection, channel, packet commitment, acknowledgement, and receipt primitives for building an IBC-compatible module. Full relayer/light-client protocol compatibility is chain integration work.
+
+The `contract` package provides a VM registry and invocation boundary for future EVM/WASM-compatible modules. VM implementations plug in behind `contract.VM` and must enforce their own gas/account/state semantics.
 
 ## Genesis
 
