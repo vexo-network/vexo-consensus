@@ -81,6 +81,10 @@ func (runtime *Runtime) QueryProof(ctx context.Context, height types.Height, nam
 }
 
 func (runtime *Runtime) IBCQuery(ctx context.Context, path []string) (app.QueryResponse, error) {
+	return runtime.AppQuery(ctx, append([]string{"ibc"}, path...), nil)
+}
+
+func (runtime *Runtime) AppQuery(ctx context.Context, path []string, data []byte) (app.QueryResponse, error) {
 	if runtime.App == nil {
 		return app.QueryResponse{}, ErrAppQueryUnavailable
 	}
@@ -89,8 +93,7 @@ func (runtime *Runtime) IBCQuery(ctx context.Context, path []string) (app.QueryR
 		return app.QueryResponse{}, ctx.Err()
 	default:
 	}
-	queryPath := append([]string{"ibc"}, path...)
-	response := runtime.App.Query(app.QueryRequest{Path: queryPath})
+	response := runtime.App.Query(app.QueryRequest{Path: append([]string(nil), path...), Data: append([]byte(nil), data...)})
 	return app.QueryResponse{
 		Code:  response.Code,
 		Value: append([]byte(nil), response.Value...),

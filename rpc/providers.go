@@ -64,6 +64,10 @@ type IBCQueryProvider interface {
 	IBCQuery(ctx context.Context, path []string) (vexoapp.QueryResponse, error)
 }
 
+type AppQueryProvider interface {
+	AppQuery(ctx context.Context, path []string, data []byte) (vexoapp.QueryResponse, error)
+}
+
 type PruneProvider interface {
 	PruneBelow(ctx context.Context, retainFrom types.Height) (store.PruneResult, error)
 }

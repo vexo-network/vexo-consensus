@@ -119,6 +119,8 @@ vexod relayer discover --rpc 127.0.0.1:26657 --json
 vexod relayer packet-ack --rpc 127.0.0.1:26657 --proof-rpc 127.0.0.1:26657 --sequence 1 --source-port transfer --source-channel channel-0 --destination-port transfer --destination-channel channel-1 --data payload --ack ack --fee 1 --gas 1000 --signer relayer --nonce 2 --submit
 vexod relayer loop --mode timeout --rpc 127.0.0.1:26657 --proof-rpc 127.0.0.1:26657 --sequence 1 --source-port transfer --source-channel channel-0 --destination-port transfer --destination-channel channel-1 --data payload --timeout-height 100 --interval 5s --continue-on-error --state relayer_state.json --submit
 vexod relayer run --config relayer_config.json
+vexod evm tx call evm 0xaaaa 0xbbbb transfer aabb 100000 --fee 1 --gas 100000 --signer 0xaaaa --nonce 1
+curl -s -X POST http://127.0.0.1:26657/ -d '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}'
 vexod ibc packet send \
   --sequence 1 \
   --source-port transfer \
@@ -167,7 +169,7 @@ curl 'http://127.0.0.1:26657/v1/ibc/proof/packet/1/transfer/channel-0/transfer/c
 
 IBC clients can be updated with the counterparty latest height, validator-set hash, and state root. Relayers can fetch those fields from the counterparty `/v1/state/latest` endpoint with `relayer client-update --source-rpc`, then submit the generated update to the destination chain. Connections and channels support init/try/ack/confirm handshake states before packet flow. Packet receipts carry acknowledgement and timeout lifecycle fields, so relayers can submit packet-send, observe receipt state, discover packet-send events from the RPC event index, submit packet-ack or packet-timeout, fetch an IBC namespace proof for the packet commitment key, verify that proof against the trusted local IBC client, optionally submit the built relayer transaction through RPC, run a bounded or continuous polling loop, persist relay checkpoints to avoid duplicate submissions after restart, and manage multiple relay jobs from a JSON config file.
 
-The `contract` package provides a VM registry and invocation boundary for future EVM/WASM-compatible modules. VM implementations plug in behind `contract.VM` and must enforce their own gas/account/state semantics.
+The `contract` package provides a VM registry and invocation boundary for EVM/WASM-compatible modules. The `evm` module stores contract code, execution receipts, and logs, and the RPC server exposes Web3 JSON-RPC methods such as `eth_chainId`, `eth_blockNumber`, `eth_sendRawTransaction`, `eth_getTransactionReceipt`, `eth_getLogs`, `eth_call`, and `eth_estimateGas`. A chain should register a vetted `contract.VM` adapter named `evm` to execute real EVM bytecode.
 
 ## Genesis
 

@@ -1,0 +1,144 @@
+package evm
+
+import (
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
+
+	vexoapp "github.com/vexo-network/vexo-consensus/app"
+)
+
+func (Module) CLICommands() []vexoapp.CLICommand {
+	return []vexoapp.CLICommand{evmCLICommand()}
+}
+
+func evmCLICommand() vexoapp.CLICommand {
+	return vexoapp.CLICommand{
+		Name:        ModuleName,
+		Usage:       "evm <command>",
+		Description: "EVM/Web3 compatibility module commands",
+		Examples: []string{
+			"evm tx call evm 0xalice 0xcontract transfer aabbcc 100000",
+			"evm tx deploy evm 0xalice 60016000 salt1",
+			"evm query receipt <tx_hash>",
+		},
+		Children: []vexoapp.CLICommand{
+			{
+				Name:        "tx",
+				Usage:       "evm tx <command>",
+				Description: "build EVM transaction payloads",
+				Children: []vexoapp.CLICommand{
+					{Name: "call", Usage: "evm tx call <vm> <from> <to> <method> <input_hex> <gas_limit> [value]", Description: "build an EVM contract call transaction", Run: runEVMCallCLI},
+					{Name: "deploy", Usage: "evm tx deploy <vm> <from> <code_hex> <salt> [value]", Description: "build an EVM contract deployment transaction", Run: runEVMDeployCLI},
+				},
+			},
+			{
+				Name:        "query",
+				Usage:       "evm query <command>",
+				Description: "build EVM query paths",
+				Children: []vexoapp.CLICommand{
+					{Name: "receipt", Usage: "evm query receipt <tx_hash>", Description: "build an EVM receipt query path", Run: runEVMReceiptQueryCLI},
+					{Name: "code", Usage: "evm query code <address>", Description: "build an EVM code query path", Run: runEVMCodeQueryCLI},
+					{Name: "logs", Usage: "evm query logs <address>", Description: "build an EVM logs query path", Run: runEVMLogsQueryCLI},
+				},
+			},
+		},
+	}
+}
+
+func runEVMCallCLI(writer io.Writer, args []string) error {
+	args, tags, err := splitExecutionTags(args)
+	if err != nil {
+		return err
+	}
+	if len(args) != 6 && len(args) != 7 {
+		return vexoapp.ErrCLIUsage("evm tx call <vm> <from> <to> <method> <input_hex> <gas_limit> [value]")
+	}
+	if _, err := strconv.ParseUint(args[5], 10, 64); err != nil {
+		return ErrInvalidEVMTx
+	}
+	if len(args) == 7 {
+		if _, err := strconv.ParseUint(args[6], 10, 64); err != nil {
+			return ErrInvalidEVMTx
+		}
+	}
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: "call", Args: args, Tags: tags})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "tx: %s\n", tx)
+	return nil
+}
+
+func runEVMDeployCLI(writer io.Writer, args []string) error {
+	args, tags, err := splitExecutionTags(args)
+	if err != nil {
+		return err
+	}
+	if len(args) != 4 && len(args) != 5 {
+		return vexoapp.ErrCLIUsage("evm tx deploy <vm> <from> <code_hex> <salt> [value]")
+	}
+	if len(args) == 5 {
+		if _, err := strconv.ParseUint(args[4], 10, 64); err != nil {
+			return ErrInvalidEVMTx
+		}
+	}
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: "deploy", Args: args, Tags: tags})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "tx: %s\n", tx)
+	return nil
+}
+
+func runEVMReceiptQueryCLI(writer io.Writer, args []string) error {
+	if len(args) != 1 {
+		return vexoapp.ErrCLIUsage("evm query receipt <tx_hash>")
+	}
+	fmt.Fprintf(writer, "query_path: %s/receipt/%s\n", ModuleName, args[0])
+	return nil
+}
+
+func runEVMCodeQueryCLI(writer io.Writer, args []string) error {
+	if len(args) != 1 {
+		return vexoapp.ErrCLIUsage("evm query code <address>")
+	}
+	fmt.Fprintf(writer, "query_path: %s/code/%s\n", ModuleName, args[0])
+	return nil
+}
+
+func runEVMLogsQueryCLI(writer io.Writer, args []string) error {
+	if len(args) != 1 {
+		return vexoapp.ErrCLIUsage("evm query logs <address>")
+	}
+	fmt.Fprintf(writer, "query_path: %s/logs/%s\n", ModuleName, args[0])
+	return nil
+}
+
+func splitExecutionTags(args []string) ([]string, map[string]string, error) {
+	tags := map[string]string{}
+	cleaned := make([]string, 0, len(args))
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if !strings.HasPrefix(arg, "--") {
+			cleaned = append(cleaned, arg)
+			continue
+		}
+		key := strings.TrimPrefix(arg, "--")
+		switch key {
+		case "fee", "gas", "signer", "nonce":
+			if index+1 >= len(args) {
+				return nil, nil, vexoapp.ErrCLIUsage("missing value for --" + key)
+			}
+			tags[key] = args[index+1]
+			index++
+		default:
+			return nil, nil, vexoapp.ErrCLIUsage("unknown evm flag " + arg)
+		}
+	}
+	if len(tags) == 0 {
+		tags = nil
+	}
+	return cleaned, tags, nil
+}

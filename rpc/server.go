@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"hash/fnv"
 	"net"
 	"net/http"
 	"strconv"
@@ -316,6 +318,25 @@ type CommitteeMemberResponse struct {
 	Validator ValidatorResponse `json:"validator"`
 	Weight    uint64            `json:"weight"`
 	Proof     string            `json:"proof,omitempty"`
+}
+
+type JSONRPCRequest struct {
+	JSONRPC string            `json:"jsonrpc"`
+	ID      json.RawMessage   `json:"id,omitempty"`
+	Method  string            `json:"method"`
+	Params  []json.RawMessage `json:"params,omitempty"`
+}
+
+type JSONRPCResponse struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id,omitempty"`
+	Result  any             `json:"result"`
+	Error   *JSONRPCError   `json:"error,omitempty"`
+}
+
+type JSONRPCError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
 }
 
 func NewServer(provider StatusProvider, cfg Config) *Server {
@@ -949,7 +970,309 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 		}
 		writeJSON(writer, http.StatusOK, committeeResponse(height, seed, committeeResult))
 	})
+	mux.HandleFunc("/web3", func(writer http.ResponseWriter, request *http.Request) {
+		handleWeb3JSONRPC(writer, request, provider, cfg)
+	})
+	mux.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/" {
+			writeError(writer, http.StatusNotFound, "endpoint not found")
+			return
+		}
+		handleWeb3JSONRPC(writer, request, provider, cfg)
+	})
 	return applyMiddleware(versionedHandler(mux), cfg)
+}
+
+func handleWeb3JSONRPC(writer http.ResponseWriter, request *http.Request, provider StatusProvider, cfg Config) {
+	if !allowPost(writer, request) {
+		return
+	}
+	request.Body = http.MaxBytesReader(writer, request.Body, cfg.MaxRequestBytes)
+	defer request.Body.Close()
+	var payload JSONRPCRequest
+	if err := decodeStrictJSON(request.Body, &payload); err != nil {
+		writeJSONRPC(writer, json.RawMessage("null"), nil, &JSONRPCError{Code: -32700, Message: "parse error"})
+		return
+	}
+	if payload.JSONRPC != "" && payload.JSONRPC != "2.0" {
+		writeJSONRPC(writer, payload.ID, nil, &JSONRPCError{Code: -32600, Message: "invalid JSON-RPC version"})
+		return
+	}
+	result, rpcErr := executeWeb3Method(request.Context(), provider, payload.Method, payload.Params)
+	writeJSONRPC(writer, payload.ID, result, rpcErr)
+}
+
+func executeWeb3Method(ctx context.Context, provider StatusProvider, method string, params []json.RawMessage) (any, *JSONRPCError) {
+	switch method {
+	case "web3_clientVersion":
+		return "vexo-consensus/web3", nil
+	case "net_version":
+		return strconv.FormatUint(chainNumericID(provider.Status(ctx).ChainID), 10), nil
+	case "eth_chainId":
+		return hexQuantity(chainNumericID(provider.Status(ctx).ChainID)), nil
+	case "eth_blockNumber":
+		return hexQuantity(uint64(provider.Status(ctx).LatestHeight)), nil
+	case "eth_sendRawTransaction":
+		submitter, ok := provider.(TxSubmitter)
+		if !ok {
+			return nil, &JSONRPCError{Code: -32000, Message: "transaction submission is unavailable"}
+		}
+		if len(params) != 1 {
+			return nil, &JSONRPCError{Code: -32602, Message: "eth_sendRawTransaction requires one raw transaction parameter"}
+		}
+		rawTx, err := jsonRPCStringParam(params[0])
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+		}
+		tx, err := hexBytes(rawTx)
+		if err != nil || len(tx) == 0 {
+			return nil, &JSONRPCError{Code: -32602, Message: "invalid raw transaction hex"}
+		}
+		if err := submitter.SubmitTx(ctx, types.Tx(tx)); err != nil {
+			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
+		hash := mempool.HashTx(types.Tx(tx))
+		return "0x" + hex.EncodeToString(hash[:]), nil
+	case "eth_getTransactionReceipt":
+		query, ok := provider.(AppQueryProvider)
+		if !ok {
+			return nil, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
+		}
+		if len(params) != 1 {
+			return nil, &JSONRPCError{Code: -32602, Message: "eth_getTransactionReceipt requires one transaction hash"}
+		}
+		hash, err := jsonRPCStringParam(params[0])
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+		}
+		response, err := query.AppQuery(ctx, []string{"evm", "receipt", hash}, nil)
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
+		if response.Code == 3 {
+			return nil, nil
+		}
+		if response.Code != 0 {
+			return nil, &JSONRPCError{Code: -32000, Message: response.Log}
+		}
+		return rawJSONObject(response.Value)
+	case "eth_getLogs":
+		query, ok := provider.(AppQueryProvider)
+		if !ok {
+			return nil, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
+		}
+		address, rpcErr := logAddressParam(params)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		response, err := query.AppQuery(ctx, []string{"evm", "logs", address}, nil)
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
+		if response.Code == 3 {
+			return []any{}, nil
+		}
+		if response.Code != 0 {
+			return nil, &JSONRPCError{Code: -32000, Message: response.Log}
+		}
+		return rawJSONObject(response.Value)
+	case "eth_call":
+		query, ok := provider.(AppQueryProvider)
+		if !ok {
+			return nil, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
+		}
+		call, rpcErr := evmCallParam(params)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		encoded, _ := json.Marshal(call)
+		response, err := query.AppQuery(ctx, []string{"evm", "call"}, encoded)
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
+		if response.Code != 0 {
+			return nil, &JSONRPCError{Code: -32000, Message: response.Log}
+		}
+		var callResponse struct {
+			Output string `json:"output"`
+		}
+		if err := json.Unmarshal(response.Value, &callResponse); err != nil {
+			return nil, &JSONRPCError{Code: -32000, Message: "invalid EVM call response"}
+		}
+		return callResponse.Output, nil
+	case "eth_estimateGas":
+		call, rpcErr := evmCallParam(params)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		if call.GasLimit > 0 {
+			return hexQuantity(call.GasLimit), nil
+		}
+		return hexQuantity(21_000), nil
+	default:
+		return nil, &JSONRPCError{Code: -32601, Message: "method not found"}
+	}
+}
+
+func writeJSONRPC(writer http.ResponseWriter, id json.RawMessage, result any, rpcErr *JSONRPCError) {
+	if len(id) == 0 {
+		id = json.RawMessage("null")
+	}
+	writeJSON(writer, http.StatusOK, JSONRPCResponse{JSONRPC: "2.0", ID: id, Result: result, Error: rpcErr})
+}
+
+type web3CallRequest struct {
+	VM       string `json:"vm"`
+	From     string `json:"from"`
+	To       string `json:"to"`
+	Method   string `json:"method"`
+	Input    string `json:"input,omitempty"`
+	GasLimit uint64 `json:"gas_limit,omitempty"`
+	Value    uint64 `json:"value,omitempty"`
+}
+
+type web3TransactionCall struct {
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Data   string `json:"data"`
+	Gas    string `json:"gas"`
+	Value  string `json:"value"`
+	VM     string `json:"vm"`
+	Method string `json:"method"`
+}
+
+func evmCallParam(params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
+	if len(params) == 0 {
+		return web3CallRequest{}, &JSONRPCError{Code: -32602, Message: "call object is required"}
+	}
+	var payload web3TransactionCall
+	if err := json.Unmarshal(params[0], &payload); err != nil {
+		return web3CallRequest{}, &JSONRPCError{Code: -32602, Message: "invalid call object"}
+	}
+	if payload.VM == "" {
+		payload.VM = "evm"
+	}
+	if payload.Method == "" {
+		payload.Method = "call"
+	}
+	if payload.From == "" {
+		payload.From = "0x0000000000000000000000000000000000000000"
+	}
+	if payload.To == "" {
+		return web3CallRequest{}, &JSONRPCError{Code: -32602, Message: "to address is required"}
+	}
+	gasLimit := uint64(0)
+	if payload.Gas != "" {
+		value, err := parseHexQuantity(payload.Gas)
+		if err != nil {
+			return web3CallRequest{}, &JSONRPCError{Code: -32602, Message: "invalid gas quantity"}
+		}
+		gasLimit = value
+	}
+	callValue := uint64(0)
+	if payload.Value != "" {
+		value, err := parseHexQuantity(payload.Value)
+		if err != nil {
+			return web3CallRequest{}, &JSONRPCError{Code: -32602, Message: "invalid value quantity"}
+		}
+		callValue = value
+	}
+	if payload.Data == "" {
+		payload.Data = "0x"
+	}
+	if _, err := hexBytes(payload.Data); err != nil {
+		return web3CallRequest{}, &JSONRPCError{Code: -32602, Message: "invalid data hex"}
+	}
+	return web3CallRequest{
+		VM:       payload.VM,
+		From:     payload.From,
+		To:       payload.To,
+		Method:   payload.Method,
+		Input:    payload.Data,
+		GasLimit: gasLimit,
+		Value:    callValue,
+	}, nil
+}
+
+func logAddressParam(params []json.RawMessage) (string, *JSONRPCError) {
+	if len(params) != 1 {
+		return "", &JSONRPCError{Code: -32602, Message: "filter object is required"}
+	}
+	var filter struct {
+		Address any `json:"address"`
+	}
+	if err := json.Unmarshal(params[0], &filter); err != nil {
+		return "", &JSONRPCError{Code: -32602, Message: "invalid filter object"}
+	}
+	switch address := filter.Address.(type) {
+	case string:
+		if address == "" {
+			return "", &JSONRPCError{Code: -32602, Message: "address is required"}
+		}
+		return address, nil
+	case []any:
+		if len(address) == 0 {
+			return "", &JSONRPCError{Code: -32602, Message: "address is required"}
+		}
+		first, ok := address[0].(string)
+		if !ok || first == "" {
+			return "", &JSONRPCError{Code: -32602, Message: "address is required"}
+		}
+		return first, nil
+	default:
+		return "", &JSONRPCError{Code: -32602, Message: "address is required"}
+	}
+}
+
+func jsonRPCStringParam(raw json.RawMessage) (string, error) {
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", fmt.Errorf("string parameter is required")
+	}
+	if value == "" {
+		return "", fmt.Errorf("string parameter is empty")
+	}
+	return value, nil
+}
+
+func rawJSONObject(value []byte) (json.RawMessage, *JSONRPCError) {
+	if !json.Valid(value) {
+		return nil, &JSONRPCError{Code: -32000, Message: "invalid application JSON"}
+	}
+	return append(json.RawMessage(nil), value...), nil
+}
+
+func hexBytes(value string) ([]byte, error) {
+	value = strings.TrimPrefix(value, "0x")
+	if len(value)%2 == 1 {
+		value = "0" + value
+	}
+	return hex.DecodeString(value)
+}
+
+func parseHexQuantity(value string) (uint64, error) {
+	if !strings.HasPrefix(value, "0x") {
+		return 0, fmt.Errorf("quantity must use 0x prefix")
+	}
+	trimmed := strings.TrimPrefix(value, "0x")
+	if trimmed == "" {
+		return 0, fmt.Errorf("empty quantity")
+	}
+	return strconv.ParseUint(trimmed, 16, 64)
+}
+
+func hexQuantity(value uint64) string {
+	return "0x" + strconv.FormatUint(value, 16)
+}
+
+func chainNumericID(chainID string) uint64 {
+	hash := fnv.New64a()
+	_, _ = hash.Write([]byte(chainID))
+	value := hash.Sum64()
+	if value == 0 {
+		return 1
+	}
+	return value
 }
 
 func parseStateRootPath(path string) (types.Height, string, bool) {

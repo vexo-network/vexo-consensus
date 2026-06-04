@@ -90,6 +90,14 @@ func (node *Node) IBCQuery(ctx context.Context, path []string) (vexoapp.QueryRes
 	return runtime.IBCQuery(ctx, path)
 }
 
+func (node *Node) AppQuery(ctx context.Context, path []string, data []byte) (vexoapp.QueryResponse, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return vexoapp.QueryResponse{}, err
+	}
+	return runtime.AppQuery(ctx, path, data)
+}
+
 func (node *Node) PruneBelow(ctx context.Context, retainFrom types.Height) (store.PruneResult, error) {
 	runtime, err := node.Runtime()
 	if err != nil {

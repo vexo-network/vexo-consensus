@@ -56,6 +56,10 @@ type fakeStatusProvider struct {
 	ibcQueryResponse  vexoapp.QueryResponse
 	ibcQueryErr       error
 	ibcQueryPath      []string
+	appQueryResponse  vexoapp.QueryResponse
+	appQueryErr       error
+	appQueryPath      []string
+	appQueryData      []byte
 	pruneResult       store.PruneResult
 	pruneErr          error
 	prunedHeights     []types.Height
@@ -192,6 +196,15 @@ func (provider *fakeStatusProvider) IBCQuery(ctx context.Context, path []string)
 		return vexoapp.QueryResponse{}, provider.ibcQueryErr
 	}
 	return provider.ibcQueryResponse, nil
+}
+
+func (provider *fakeStatusProvider) AppQuery(ctx context.Context, path []string, data []byte) (vexoapp.QueryResponse, error) {
+	provider.appQueryPath = append([]string(nil), path...)
+	provider.appQueryData = append([]byte(nil), data...)
+	if provider.appQueryErr != nil {
+		return vexoapp.QueryResponse{}, provider.appQueryErr
+	}
+	return provider.appQueryResponse, nil
 }
 
 func (provider *fakeStatusProvider) PruneBelow(ctx context.Context, retainFrom types.Height) (store.PruneResult, error) {
@@ -666,6 +679,54 @@ func TestHandlerSubmitsBase64Transaction(t *testing.T) {
 	}
 	if len(provider.submitted) != 1 || string(provider.submitted[0]) != "bank:send" {
 		t.Fatalf("unexpected submitted txs: %+v", provider.submitted)
+	}
+}
+
+func TestHandlerServesWeb3JSONRPC(t *testing.T) {
+	provider := &fakeStatusProvider{
+		status:           node.Status{ChainID: "vexo-chain", LatestHeight: 12},
+		appQueryResponse: vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"0xabc","status":1,"gas_used":7,"logs":[{"address":"0xcontract","data":"0x01"}]}`)},
+	}
+	handler := NewHandler(provider)
+
+	var blockNumber JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}`, http.StatusOK, &blockNumber)
+	if blockNumber.Error != nil || blockNumber.Result != "0xc" {
+		t.Fatalf("unexpected block number response: %+v", blockNumber)
+	}
+
+	var sendRaw JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":2,"method":"eth_sendRawTransaction","params":["0x62616e6b3a73656e64"]}`, http.StatusOK, &sendRaw)
+	if sendRaw.Error != nil || len(provider.submitted) != 1 || string(provider.submitted[0]) != "bank:send" {
+		t.Fatalf("unexpected sendRaw response=%+v submitted=%q", sendRaw, provider.submitted)
+	}
+	if result, ok := sendRaw.Result.(string); !ok || !strings.HasPrefix(result, "0x") {
+		t.Fatalf("expected tx hash result, got %+v", sendRaw.Result)
+	}
+
+	var receipt JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":3,"method":"eth_getTransactionReceipt","params":["0xabc"]}`, http.StatusOK, &receipt)
+	if receipt.Error != nil {
+		t.Fatalf("unexpected receipt error: %+v", receipt)
+	}
+	if provider.appQueryPath[0] != "evm" || provider.appQueryPath[1] != "receipt" || provider.appQueryPath[2] != "0xabc" {
+		t.Fatalf("unexpected app query path: %+v", provider.appQueryPath)
+	}
+
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x1234","gas_used":9}`)}
+	var call JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":4,"method":"eth_call","params":[{"from":"0xaaaa","to":"0xbbbb","data":"0x1234","gas":"0x5208"},"latest"]}`, http.StatusOK, &call)
+	if call.Error != nil || call.Result != "0x1234" {
+		t.Fatalf("unexpected eth_call response: %+v", call)
+	}
+	if !strings.Contains(string(provider.appQueryData), `"input":"0x1234"`) {
+		t.Fatalf("unexpected call query data: %s", provider.appQueryData)
+	}
+
+	var estimate JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":5,"method":"eth_estimateGas","params":[{"to":"0xbbbb","gas":"0x100"}]}`, http.StatusOK, &estimate)
+	if estimate.Error != nil || estimate.Result != "0x100" {
+		t.Fatalf("unexpected estimate response: %+v", estimate)
 	}
 }
 
