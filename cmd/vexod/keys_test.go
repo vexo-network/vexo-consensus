@@ -51,6 +51,36 @@ func TestRunKeysGenAndShow(t *testing.T) {
 	}
 }
 
+func TestRunKeysGenBLS(t *testing.T) {
+	home := t.TempDir()
+	var buffer bytes.Buffer
+	if err := runKeys(&buffer, []string{"gen", "--home", home, "--type", "bls"}); err != nil {
+		t.Fatal(err)
+	}
+	output := buffer.String()
+	if !strings.Contains(output, "type: bls") || strings.Contains(output, "private_key") {
+		t.Fatalf("unexpected BLS key output:\n%s", output)
+	}
+	document, err := vexocrypto.LoadKeyDocument(filepath.Join(home, keyFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.Type != vexocrypto.KeyTypeBLS || document.Metadata.BLSProofOfPossession == "" || document.Metadata.BLSAdapter == "" {
+		t.Fatalf("unexpected BLS key document: %+v", document)
+	}
+	signer, err := document.CIRCLBLSSigner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := base64.StdEncoding.DecodeString(document.Metadata.BLSProofOfPossession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !signer.VerifyProofOfPossession(signer.PublicKey(), proof) {
+		t.Fatal("expected BLS proof of possession to verify")
+	}
+}
+
 func TestRunKeysShowJSON(t *testing.T) {
 	home := t.TempDir()
 	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {

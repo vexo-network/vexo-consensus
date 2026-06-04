@@ -79,6 +79,7 @@ func (selector DeterministicSelector) Select(ctx context.Context, epoch uint64, 
 		members = append(members, Member{
 			Validator: candidate.validator,
 			Weight:    candidate.validator.VotingPower,
+			Output:    candidate.proof,
 			Proof:     candidate.proof,
 		})
 	}

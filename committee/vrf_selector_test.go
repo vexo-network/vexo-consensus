@@ -43,6 +43,9 @@ func TestVRFSelectorSelectsAndVerifiesMembers(t *testing.T) {
 		if len(member.Proof) == 0 {
 			t.Fatal("expected member proof")
 		}
+		if len(member.Output) == 0 {
+			t.Fatal("expected member output")
+		}
 		if !selector.VerifyMember(committee.Epoch, committee.Round, committee.Seed, member) {
 			t.Fatal("expected member proof to verify")
 		}

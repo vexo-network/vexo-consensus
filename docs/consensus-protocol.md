@@ -48,8 +48,8 @@ Safety depends on:
 
 - `deterministic` is test-only and fails network safety validation.
 - `ed25519` is supported for public-network testing and launch preparation.
-- `bls` requires an audited adapter, proof-of-possession or equivalent rogue-key defense, subgroup checks, public-key validation, dependency audit evidence, and release-gate evidence.
-- Network safety validation requires VRF adapter metadata for VRF committee selection. The deterministic VRF implementation is test-only and should not be used for value-bearing networks.
+- `bls` requires proof-of-possession or equivalent rogue-key defense, subgroup checks, public-key validation, dependency audit evidence, and release-gate evidence. The built-in CIRCL adapter can satisfy the runtime interface; operators still need deployment audit evidence.
+- Network safety validation requires VRF adapter metadata for VRF committee selection. The built-in ECVRF adapter can satisfy the runtime interface; deterministic VRF remains test-only and should not be used for value-bearing networks.
 
 ## Operational Boundary
 

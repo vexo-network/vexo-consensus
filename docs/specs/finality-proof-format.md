@@ -64,4 +64,4 @@ BLS requires an audited adapter with:
 
 The runtime rejects BLS until an adapter satisfying the `BLSAdapter` contract is registered. This keeps aggregate-finality verification explicit: the verifier must know the validator-set public keys at the proof height, validate those keys, verify proof-of-possession or equivalent rogue-key defense, and verify the aggregate signature under the `vexo.finality.proof.v1` domain. The production wrapper rejects aggregate verification for public keys that were not admitted through validated BLS credentials.
 
-The framework does not include an audited BLS implementation. A chain binary must link and register one, and operators must keep adapter audit evidence with the release artifacts.
+The framework includes a CIRCL-backed BLS12-381 adapter and still allows custom adapter registration. Operators must keep adapter audit evidence, dependency audit evidence, proof-of-possession metadata, and release artifacts together for value-bearing deployments.

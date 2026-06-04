@@ -17,6 +17,7 @@ const (
 type Member struct {
 	Validator validator.Validator
 	Weight    types.VotingPower
+	Output    []byte
 	Proof     []byte
 }
 

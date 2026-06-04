@@ -48,14 +48,16 @@ type KeyDocument struct {
 }
 
 type KeyMetadata struct {
-	ID            string `json:"id,omitempty"`
-	ActiveFrom    uint64 `json:"active_from,omitempty"`
-	ActiveUntil   uint64 `json:"active_until,omitempty"`
-	CreatedAt     string `json:"created_at,omitempty"`
-	RemoteURL     string `json:"remote_url,omitempty"`
-	AuthTokenEnv  string `json:"auth_token_env,omitempty"`
-	RequirePolicy bool   `json:"require_policy,omitempty"`
-	GuardPath     string `json:"guard_path,omitempty"`
+	ID                   string `json:"id,omitempty"`
+	ActiveFrom           uint64 `json:"active_from,omitempty"`
+	ActiveUntil          uint64 `json:"active_until,omitempty"`
+	CreatedAt            string `json:"created_at,omitempty"`
+	RemoteURL            string `json:"remote_url,omitempty"`
+	AuthTokenEnv         string `json:"auth_token_env,omitempty"`
+	RequirePolicy        bool   `json:"require_policy,omitempty"`
+	GuardPath            string `json:"guard_path,omitempty"`
+	BLSProofOfPossession string `json:"bls_proof_of_possession,omitempty"`
+	BLSAdapter           string `json:"bls_adapter,omitempty"`
 }
 
 type KeyEncryption struct {
@@ -186,6 +188,12 @@ func (document KeyDocument) SignerWithPassphrase(passphrase string) (Signer, err
 			return signer, nil
 		}
 		signer, err := document.Ed25519Signer()
+		if err != nil {
+			return nil, err
+		}
+		return signer, nil
+	case KeyTypeBLS:
+		signer, err := document.CIRCLBLSSignerWithPassphrase(passphrase)
 		if err != nil {
 			return nil, err
 		}

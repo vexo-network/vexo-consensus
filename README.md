@@ -25,7 +25,7 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 ## Non-Goals
 
 - This project does not provide ABCI compatibility.
-- This project provides BLS/VRF adapter interfaces and validation gates, but does not vendor or certify an audited BLS or VRF implementation. Operators must link/register audited adapters in their own binary.
+- This project includes BLS12-381 and ECVRF adapter wiring, but operators are still responsible for audit evidence, key custody, and release-gate validation before value-bearing deployment.
 - This project does not claim mainnet safety without external audit and real multi-host operational evidence.
 - Chain-specific economics such as rewards, custody, commission policy, and governance authority remain integration responsibilities.
 

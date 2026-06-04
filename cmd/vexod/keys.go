@@ -60,6 +60,7 @@ func runKeysGen(writer io.Writer, args []string) error {
 	flags.SetOutput(io.Discard)
 	home := flags.String("home", defaultHomeDir, "node home directory")
 	path := flags.String("path", "", "key file path")
+	keyType := flags.String("type", vexocrypto.KeyTypeEd25519, "key type: ed25519 or bls")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing key")
 	encrypt := flags.Bool("encrypt", false, "encrypt private key material")
 	passphrase := flags.String("passphrase", "", "key encryption passphrase; prefer VEXO_KEY_PASSPHRASE")
@@ -78,15 +79,13 @@ func runKeysGen(writer io.Writer, args []string) error {
 			return err
 		}
 	}
-	document, err := vexocrypto.GenerateEd25519KeyDocument()
+	document, err := generateKeyDocument(*keyType)
 	if err != nil {
 		return err
 	}
-	document.Metadata = vexocrypto.KeyMetadata{
-		ID:          *keyID,
-		ActiveFrom:  *activeFrom,
-		ActiveUntil: *activeUntil,
-	}
+	document.Metadata.ID = *keyID
+	document.Metadata.ActiveFrom = *activeFrom
+	document.Metadata.ActiveUntil = *activeUntil
 	if *encrypt {
 		encrypted, err := document.Encrypted(resolvePassphrase(*passphrase))
 		if err != nil {
@@ -108,6 +107,21 @@ func runKeysGen(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "public_key: %s\n", document.PublicKey)
 	fmt.Fprintf(writer, "encrypted: %v\n", document.Encryption != nil)
 	return nil
+}
+
+func generateKeyDocument(keyType string) (vexocrypto.KeyDocument, error) {
+	switch keyType {
+	case vexocrypto.KeyTypeEd25519:
+		return vexocrypto.GenerateEd25519KeyDocument()
+	case vexocrypto.KeyTypeBLS:
+		adapter, err := vexocrypto.GenerateCIRCLBLSAdapter()
+		if err != nil {
+			return vexocrypto.KeyDocument{}, err
+		}
+		return vexocrypto.NewCIRCLBLSKeyDocument(adapter)
+	default:
+		return vexocrypto.KeyDocument{}, vexocrypto.ErrUnsupportedKeyType
+	}
 }
 
 func runKeysRemote(writer io.Writer, args []string) error {
@@ -192,11 +206,7 @@ func runKeysShow(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	if document.Encryption != nil {
-		if _, err := document.Ed25519SignerWithPassphrase(resolvePassphrase(*passphrase)); err != nil {
-			return err
-		}
-	} else if _, err := document.SignerWithPassphrase(resolvePassphrase(*passphrase)); err != nil {
+	if _, err := document.SignerWithPassphrase(resolvePassphrase(*passphrase)); err != nil {
 		return err
 	}
 	info := keyInfoDocument{

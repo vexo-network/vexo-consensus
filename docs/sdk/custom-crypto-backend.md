@@ -4,7 +4,7 @@
 
 This guide explains how to add a custom crypto backend, including audited BLS and VRF adapters.
 
-`vexo-consensus` ships the adapter contracts, registry hooks, metadata validation, and runtime wiring. It does not ship an audited BLS or VRF implementation. A chain binary that wants those backends must link an external audited adapter package and register it before node startup.
+`vexo-consensus` ships adapter contracts, registry hooks, metadata validation, runtime wiring, a CIRCL-backed BLS12-381 adapter, and an ECVRF P-256 adapter. Operators can use the built-ins or register their own adapters, but audit evidence, key custody, and release-gate validation remain deployment responsibilities.
 
 ## Interfaces
 
@@ -63,7 +63,7 @@ Production BLS is registered through `BLSAdapter` and must pass `ValidateBLSAdap
 
 Registering metadata is not a substitute for a real audited implementation. The adapter package must perform the actual subgroup checks, key validation, proof-of-possession verification, signature verification, aggregate verification, and malformed-input rejection.
 
-Adapter packages should register audited implementations from `init()`:
+Adapter packages should register implementations from `init()`:
 
 ```go
 func init() {
@@ -76,6 +76,8 @@ func init() {
 `crypto.adapter_name` must match `BLSAdapter.Metadata().Name`; otherwise runtime startup fails. This prevents config-only “BLS enabled” states where no audited implementation is actually linked into the binary.
 
 Validator public keys should be admitted through `BLSValidatorCredential` records or validator metadata key `bls_pop`. `ValidateBLSValidatorCredentials` rejects missing IDs, missing keys, duplicate public keys, invalid keys, and invalid proof-of-possession values. `NewBLSAggregateVerifier` wraps the audited adapter so finality verification only accepts registered validator keys.
+
+The built-in CIRCL adapter is registered as `circl-bls12381-g1sigg2-basic-v1`. It provides BLS12-381 basic signatures, aggregate verification, compressed deterministic encoding, public-key validation, and proof-of-possession helpers. `NewCIRCLBLSKeyDocument` writes `bls_proof_of_possession` metadata so validator genesis metadata can carry the rogue-key defense proof.
 
 ## Production VRF Requirements
 
@@ -91,7 +93,7 @@ func init() {
 
 `vrf.adapter_name`, `vrf.audit_report`, and `vrf.key_source` must match the adapter metadata. When `committee.backend` is `vrf`, runtime startup fails if no matching adapter is linked instead of silently falling back to deterministic VRF. When committee selection is deterministic, runtime does not load a VRF adapter.
 
-As with BLS, the framework only provides the registry and validation boundary. The linked VRF adapter must provide the cryptographic proof generation, proof verification, key management boundary, and audit evidence.
+The built-in ECVRF adapter is registered as `ecvrf-p256-sha256-tai-v1`. It uses P-256/SHA-256 try-and-increment ECVRF proofs. `vrf.keys` maps a base64-encoded VRF public key to its private scalar bytes, and validators may put a base64 VRF public key in metadata key `vrf_public_key`; otherwise committee selection falls back to the validator consensus public key. For public networks, keep VRF private material in a signer/KMS boundary rather than plain config files.
 
 ## Remote Signer Requirements
 

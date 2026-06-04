@@ -3,6 +3,7 @@ package committee
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"sort"
@@ -12,6 +13,8 @@ import (
 )
 
 var ErrMissingVRF = errors.New("vrf is required")
+
+const ValidatorMetadataVRFPublicKey = "vrf_public_key"
 
 type VRF interface {
 	Prove(publicKey types.PublicKey, seed []byte) (output []byte, proof []byte, err error)
@@ -51,11 +54,12 @@ func (selector VRFSelector) Select(ctx context.Context, epoch uint64, round type
 	selectionSeed := vrfSeed(seed, epoch, round)
 	candidates := make([]vrfCandidate, 0, len(validators))
 	for _, validatorInfo := range validators {
-		output, proof, err := selector.vrf.Prove(validatorInfo.PublicKey, selectionSeed)
+		vrfPublicKey := validatorVRFPublicKey(validatorInfo)
+		output, proof, err := selector.vrf.Prove(vrfPublicKey, selectionSeed)
 		if err != nil {
 			return Committee{}, err
 		}
-		if !selector.vrf.Verify(validatorInfo.PublicKey, selectionSeed, output, proof) {
+		if !selector.vrf.Verify(vrfPublicKey, selectionSeed, output, proof) {
 			return Committee{}, ErrMissingVRF
 		}
 		candidates = append(candidates, vrfCandidate{
@@ -83,6 +87,7 @@ func (selector VRFSelector) Select(ctx context.Context, epoch uint64, round type
 		members = append(members, Member{
 			Validator: candidate.validator,
 			Weight:    candidate.validator.VotingPower,
+			Output:    candidate.output,
 			Proof:     candidate.proof,
 		})
 	}
@@ -97,7 +102,11 @@ func (selector VRFSelector) Select(ctx context.Context, epoch uint64, round type
 
 func (selector VRFSelector) VerifyMember(epoch uint64, round types.Round, seed types.Hash, member Member) bool {
 	selectionSeed := vrfSeed(seed, epoch, round)
-	return selector.vrf.Verify(member.Validator.PublicKey, selectionSeed, member.Proof, member.Proof)
+	output := member.Output
+	if len(output) == 0 {
+		output = member.Proof
+	}
+	return selector.vrf.Verify(validatorVRFPublicKey(member.Validator), selectionSeed, output, member.Proof)
 }
 
 type vrfCandidate struct {
@@ -113,4 +122,16 @@ func vrfSeed(seed types.Hash, epoch uint64, round types.Round) []byte {
 	binary.BigEndian.PutUint64(encoded[:8], epoch)
 	binary.BigEndian.PutUint64(encoded[8:], uint64(round))
 	return append(buffer, encoded[:]...)
+}
+
+func validatorVRFPublicKey(validatorInfo validator.Validator) types.PublicKey {
+	if validatorInfo.Metadata != nil {
+		if encoded := validatorInfo.Metadata[ValidatorMetadataVRFPublicKey]; encoded != "" {
+			if decoded, err := base64.StdEncoding.DecodeString(encoded); err == nil {
+				return types.PublicKey(decoded)
+			}
+			return types.PublicKey(encoded)
+		}
+	}
+	return validatorInfo.PublicKey
 }

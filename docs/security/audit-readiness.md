@@ -49,8 +49,8 @@ This package is intended for independent reviewers evaluating Vexo consensus, ne
 
 ## Known Limitations
 
-- BLS backend is intentionally unavailable until an audited adapter with dependency audit evidence is linked.
-- VRF-backed committee selection requires an externally linked and audited VRF adapter; the framework provides registry/wiring and rejects missing adapters, but does not certify a VRF implementation.
+- BLS backend requires an adapter with dependency audit evidence, proof-of-possession validation, subgroup/key checks, and release evidence; the built-in CIRCL adapter provides the implementation boundary but does not replace an external audit.
+- VRF-backed committee selection requires an adapter with proof verification and key-source evidence; the built-in ECVRF P-256 adapter provides the implementation boundary but private key custody and deployment audit remain operator responsibilities.
 - Ed25519 finality is ordered multisignature concatenation, not cryptographic aggregation.
 - Invalid-proposal evidence supports reason-specific mismatch verification, but it is not a complete light-client Merkle/state-proof framework for every possible invalid proposal claim.
 - Runtime defaults to durable slashing when a store is configured; full production stake custody, rewards, commission, tombstone, jail/unbonding authority, and staking/slashing accounting remain chain-specific integration work.
