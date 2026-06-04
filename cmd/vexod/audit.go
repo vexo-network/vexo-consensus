@@ -57,7 +57,7 @@ func runConfigAudit(writer io.Writer, args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	inputs, err := loadStartInputs(*home, *configPath, *genesisPath, *keyPath, true)
+	inputs, err := loadStartInputs(*home, *configPath, *genesisPath, *keyPath, nil, true)
 	if err != nil {
 		return err
 	}

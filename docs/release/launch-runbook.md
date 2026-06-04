@@ -61,6 +61,7 @@ Recommended commands:
 ```bash
 make release VERSION=<version>
 make sign-release VERSION=<version>
+go run ./cmd/vexod ops conformance --home .vexo --json > dist/ops-conformance.json
 go run ./cmd/vexod release pack \
   --dist dist \
   --version <version> \

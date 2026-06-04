@@ -1047,7 +1047,7 @@ func (transport *GRPCTransport) learnHandshakePeers(handshake Handshake) {
 	learned := make(map[p2p.PeerID]string)
 	transport.mu.Lock()
 	for peerID, address := range discovered {
-		if peerID == "" || peerID == transport.peerID || address == "" {
+		if peerID == "" || peerID == transport.peerID || !p2p.ValidPeerAddress(address) {
 			continue
 		}
 		if _, exists := transport.peers[peerID]; exists {

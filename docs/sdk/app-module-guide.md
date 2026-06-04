@@ -171,6 +171,15 @@ IBC clients can be updated with the counterparty latest height, validator-set ha
 
 The `contract` package provides a VM registry and invocation boundary for EVM/WASM-compatible modules. The `evm` module stores contract code, execution receipts, and logs, and the RPC server exposes Web3 JSON-RPC methods such as `eth_chainId`, `eth_blockNumber`, `eth_sendRawTransaction`, `eth_getTransactionReceipt`, `eth_getLogs`, `eth_call`, and `eth_estimateGas`. A chain should register a vetted `contract.VM` adapter named `evm` to execute real EVM bytecode.
 
+The built-in staking module includes delegation, undelegation, unjail, validator commission, fee reward distribution, reward queries, and reward claiming. Fees collected by the ante layer into the configured fee collector are distributed at end block by validator power, then by delegator stake after validator commission.
+
+```bash
+vexod staking tx set-commission validator-1 500 --signer validator-1
+vexod staking query commission validator-1
+vexod staking query rewards alice validator-1
+vexod staking tx claim-rewards alice validator-1 --fee 1 --gas 1000 --signer alice --nonce 2
+```
+
 ## Genesis
 
 `InitGenesis` receives module-specific genesis values in `app.GenesisState`. Existing bank genesis keys use `bank:<address>`.

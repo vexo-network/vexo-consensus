@@ -110,6 +110,48 @@ func TestKeyRingSelectsActiveSignerAtHeight(t *testing.T) {
 	}
 }
 
+func TestKeyRingPolicySignerUsesPolicyHeight(t *testing.T) {
+	firstSigner, err := NewDeterministicSigner([]byte("first-validator-key"))
+	if err != nil {
+		t.Fatalf("new first signer: %v", err)
+	}
+	secondSigner, err := NewDeterministicSigner([]byte("second-validator-key"))
+	if err != nil {
+		t.Fatalf("new second signer: %v", err)
+	}
+	keyRingSigner, err := NewKeyRingPolicySigner(
+		KeyRecord{ID: "key-1", Signer: firstSigner, ActiveFrom: 1, ActiveUntil: 10},
+		KeyRecord{ID: "key-2", Signer: secondSigner, ActiveFrom: 11},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := []byte("domain-wrapped-message")
+	signature, err := keyRingSigner.SignWithPolicy(SignPolicy{
+		ChainID: "vexo-test",
+		Height:  11,
+		Round:   0,
+		Type:    SignTypeConsensusVote,
+		Domain:  DomainConsensusVote,
+	}, message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !secondSigner.Verify(secondSigner.PublicKey(), message, signature) {
+		t.Fatal("expected rotated key to verify signature")
+	}
+	if firstSigner.Verify(firstSigner.PublicKey(), message, signature) {
+		t.Fatal("expected previous key to reject rotated signature")
+	}
+	publicKey, keyID, err := keyRingSigner.PublicKeyAt(11)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keyID != "key-2" || string(publicKey) != string(secondSigner.PublicKey()) {
+		t.Fatalf("unexpected active public key id=%s public=%x", keyID, publicKey)
+	}
+}
+
 func TestKeyRingRejectsInactiveHeight(t *testing.T) {
 	signer, err := NewDeterministicSigner([]byte("validator-key"))
 	if err != nil {

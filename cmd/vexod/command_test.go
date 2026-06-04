@@ -1716,7 +1716,7 @@ func TestRunInitValidatorAndArchiveRoles(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(archiveHome, keyFileName)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("archive init must not create validator key, got %v", err)
 	}
-	inputs, err := loadStartInputs(archiveHome, "", "", "", false)
+	inputs, err := loadStartInputs(archiveHome, "", "", "", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2379,6 +2379,136 @@ func TestRunStartDryRun(t *testing.T) {
 	}
 }
 
+func TestRunStartDryRunWithRotationKeys(t *testing.T) {
+	home := t.TempDir()
+	rotationKeyPath := filepath.Join(home, "rotation.key.json")
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--id", "key-1", "--active-from", "1", "--active-until", "10"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--path", rotationKeyPath, "--id", "key-2", "--active-from", "11"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	if err := runStart(&output, []string{"--home", home, "--rotation-key", rotationKeyPath, "--dry-run", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var plan startPlanDocument
+	if err := json.Unmarshal(output.Bytes(), &plan); err != nil {
+		t.Fatal(err)
+	}
+	if plan.KeyType != "keyring" || len(plan.RotationKeyPaths) != 1 || !strings.HasSuffix(plan.RotationKeyPaths[0], "rotation.key.json") {
+		t.Fatalf("unexpected rotation start plan: %+v", plan)
+	}
+	inputs, err := loadStartInputs(home, "", "", "", []string{rotationKeyPath}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policySigner, ok := inputs.Signer.(vexocrypto.PolicySigner)
+	if !ok {
+		t.Fatalf("expected policy signer, got %T", inputs.Signer)
+	}
+	message := []byte("rotation-signing-check")
+	signature, err := policySigner.SignWithPolicy(vexocrypto.SignPolicy{
+		ChainID: "vexo-test",
+		Height:  11,
+		Round:   0,
+		Type:    vexocrypto.SignTypeConsensusVote,
+		Domain:  vexocrypto.DomainConsensusVote,
+	}, message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondDocument, err := vexocrypto.LoadKeyDocument(rotationKeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondPublicKey, err := base64.StdEncoding.DecodeString(secondDocument.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !inputs.Signer.Verify(secondPublicKey, message, signature) {
+		t.Fatal("expected height 11 signature to verify against rotated key")
+	}
+}
+
+func TestKeysRotationPlanDetectsContiguousWindows(t *testing.T) {
+	home := t.TempDir()
+	firstKeyPath := filepath.Join(home, "key-1.json")
+	secondKeyPath := filepath.Join(home, "key-2.json")
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--path", firstKeyPath, "--id", "key-1", "--active-from", "1", "--active-until", "10"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--path", secondKeyPath, "--id", "key-2", "--active-from", "11"}); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := runKeys(&output, []string{"rotation-plan", "--home", home, "--key", firstKeyPath, "--key", secondKeyPath, "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var plan keyRotationPlanDocument
+	if err := json.Unmarshal(output.Bytes(), &plan); err != nil {
+		t.Fatal(err)
+	}
+	if !plan.OK || len(plan.Keys) != 2 || len(plan.Gaps) != 0 || len(plan.Overlaps) != 0 {
+		t.Fatalf("unexpected rotation plan: %+v", plan)
+	}
+}
+
+func TestKeysRotationPlanReportsGapsAndOverlaps(t *testing.T) {
+	home := t.TempDir()
+	firstKeyPath := filepath.Join(home, "key-1.json")
+	secondKeyPath := filepath.Join(home, "key-2.json")
+	thirdKeyPath := filepath.Join(home, "key-3.json")
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--path", firstKeyPath, "--id", "key-1", "--active-from", "1", "--active-until", "10"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--path", secondKeyPath, "--id", "key-2", "--active-from", "12", "--active-until", "20"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--path", thirdKeyPath, "--id", "key-3", "--active-from", "20"}); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := buildKeyRotationPlan(home, []string{firstKeyPath, secondKeyPath, thirdKeyPath}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.OK || len(plan.Gaps) != 1 || len(plan.Overlaps) != 1 {
+		t.Fatalf("expected gap and overlap, got %+v", plan)
+	}
+}
+
+func TestOpsConformanceIncludesAuditAndRotationPlan(t *testing.T) {
+	home := t.TempDir()
+	rotationKeyPath := filepath.Join(home, "rotation.key.json")
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--id", "key-1", "--active-from", "1", "--active-until", "10"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--path", rotationKeyPath, "--id", "key-2", "--active-from", "11"}); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := runOps(&output, []string{"conformance", "--home", home, "--rotation-key", rotationKeyPath, "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var document opsConformanceDocument
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if !document.OK || document.StartPlan.ValidatorID != "alice" || document.RotationPlan == nil || !document.RotationPlan.OK {
+		t.Fatalf("unexpected conformance document: %+v", document)
+	}
+	if len(document.Audit.Checks) == 0 || len(document.Checks) == 0 {
+		t.Fatalf("expected audit and conformance checks: %+v", document)
+	}
+}
+
 func TestBuildStartNodeLoadsValidatorSigner(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
@@ -2388,7 +2518,7 @@ func TestBuildStartNodeLoadsValidatorSigner(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	inputs, err := loadStartInputs(home, "", "", "", false)
+	inputs, err := loadStartInputs(home, "", "", "", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2428,7 +2558,7 @@ func TestBuildStartNodeLoadsRemoteValidatorSigner(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	inputs, err := loadStartInputs(home, "", "", "", false)
+	inputs, err := loadStartInputs(home, "", "", "", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2507,6 +2637,9 @@ func TestStartPeerFlagsParsePersistentPeers(t *testing.T) {
 	if err := peers.Set("bad"); err == nil {
 		t.Fatal("expected invalid peer format error")
 	}
+	if err := peers.Set("bad=0.0.0.0:26656"); err == nil {
+		t.Fatal("expected invalid advertised peer address error")
+	}
 }
 
 func TestStartSeedFlagsMergeIntoGRPCPeers(t *testing.T) {
@@ -2517,7 +2650,7 @@ func TestStartSeedFlagsMergeIntoGRPCPeers(t *testing.T) {
 	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
 		t.Fatal(err)
 	}
-	inputs, err := loadStartInputs(home, "", "", "", false)
+	inputs, err := loadStartInputs(home, "", "", "", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2544,7 +2677,7 @@ func TestBuildRuntimeNodePersistsAddrBookPeers(t *testing.T) {
 	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
 		t.Fatal(err)
 	}
-	inputs, err := loadStartInputs(home, "", "", "", false)
+	inputs, err := loadStartInputs(home, "", "", "", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2578,7 +2711,7 @@ func TestBuildRuntimeNodeFiltersBannedAddrBookPeers(t *testing.T) {
 	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
 		t.Fatal(err)
 	}
-	inputs, err := loadStartInputs(home, "", "", "", false)
+	inputs, err := loadStartInputs(home, "", "", "", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2615,7 +2748,7 @@ func TestBuildRuntimeNodeConfiguresGRPCTransport(t *testing.T) {
 	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
 		t.Fatal(err)
 	}
-	inputs, err := loadStartInputs(home, "", "", "", false)
+	inputs, err := loadStartInputs(home, "", "", "", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2648,7 +2781,7 @@ func TestBuildRuntimeNodeDerivesNetworkPeers(t *testing.T) {
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validators", "3"}); err != nil {
 		t.Fatal(err)
 	}
-	inputs, err := loadStartInputs(filepath.Join(home, "validator-2"), "", "", "", false)
+	inputs, err := loadStartInputs(filepath.Join(home, "validator-2"), "", "", "", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2694,11 +2827,11 @@ func TestConfigBackedPeersRejectDifferentGenesisHash(t *testing.T) {
 	document.AppState["tampered"] = base64.StdEncoding.EncodeToString([]byte("unexpected"))
 	writeTestJSON(t, secondGenesisPath, document)
 
-	firstInputs, err := loadStartInputs(filepath.Join(home, "validator-1"), "", "", "", false)
+	firstInputs, err := loadStartInputs(filepath.Join(home, "validator-1"), "", "", "", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondInputs, err := loadStartInputs(filepath.Join(home, "validator-2"), "", "", "", false)
+	secondInputs, err := loadStartInputs(filepath.Join(home, "validator-2"), "", "", "", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -30,16 +31,17 @@ const (
 )
 
 type startPlanDocument struct {
-	ChainID     string `json:"chain_id"`
-	ValidatorID string `json:"validator_id,omitempty"`
-	DataDir     string `json:"data_dir"`
-	ConfigPath  string `json:"config_path"`
-	GenesisPath string `json:"genesis_path"`
-	KeyPath     string `json:"key_path"`
-	ValidatorN  int    `json:"validator_count"`
-	KeyType     string `json:"key_type,omitempty"`
-	PublicKey   string `json:"public_key,omitempty"`
-	DryRun      bool   `json:"dry_run"`
+	ChainID          string   `json:"chain_id"`
+	ValidatorID      string   `json:"validator_id,omitempty"`
+	DataDir          string   `json:"data_dir"`
+	ConfigPath       string   `json:"config_path"`
+	GenesisPath      string   `json:"genesis_path"`
+	KeyPath          string   `json:"key_path"`
+	RotationKeyPaths []string `json:"rotation_key_paths,omitempty"`
+	ValidatorN       int      `json:"validator_count"`
+	KeyType          string   `json:"key_type,omitempty"`
+	PublicKey        string   `json:"public_key,omitempty"`
+	DryRun           bool     `json:"dry_run"`
 }
 
 type startInputs struct {
@@ -78,6 +80,8 @@ type startRuntimeConfig struct {
 
 type peerFlags map[p2p.PeerID]string
 
+type stringListFlags []string
+
 func runStart(writer io.Writer, args []string) error {
 	return runStartWithContext(context.Background(), writer, args)
 }
@@ -89,6 +93,8 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	configPath := flags.String("config", "", "config file path")
 	genesisPath := flags.String("genesis", "", "genesis file path")
 	keyPath := flags.String("key", "", "key file path")
+	rotationKeys := stringListFlags{}
+	flags.Var(&rotationKeys, "rotation-key", "additional validator key file path with active-from/active-until metadata; may be repeated")
 	dryRun := flags.Bool("dry-run", false, "validate startup inputs without running a node")
 	run := flags.Bool("run", false, "start the node and block until context cancellation")
 	rpcEnabled := flags.Bool("rpc", true, "run HTTP RPC server with node")
@@ -127,7 +133,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 		return err
 	}
 	visited := visitedFlags(flags)
-	inputs, err := loadStartInputs(*home, *configPath, *genesisPath, *keyPath, *dryRun)
+	inputs, err := loadStartInputs(*home, *configPath, *genesisPath, *keyPath, []string(rotationKeys), *dryRun)
 	if err != nil {
 		return err
 	}
@@ -477,14 +483,14 @@ func startRPCServerWithConfig(provider vexorpc.StatusProvider, address string, c
 }
 
 func loadStartPlan(home string, configPath string, genesisPath string, keyPath string, dryRun bool) (startPlanDocument, error) {
-	inputs, err := loadStartInputs(home, configPath, genesisPath, keyPath, dryRun)
+	inputs, err := loadStartInputs(home, configPath, genesisPath, keyPath, nil, dryRun)
 	if err != nil {
 		return startPlanDocument{}, err
 	}
 	return inputs.Plan, nil
 }
 
-func loadStartInputs(home string, configPath string, genesisPath string, keyPath string, dryRun bool) (startInputs, error) {
+func loadStartInputs(home string, configPath string, genesisPath string, keyPath string, rotationKeyPaths []string, dryRun bool) (startInputs, error) {
 	resolvedConfigPath := resolveConfigPath(home, configPath)
 	resolvedGenesisPath := resolveGenesisPath(home, genesisPath)
 	cfg, err := loadNodeConfig(resolvedConfigPath)
@@ -499,6 +505,7 @@ func loadStartInputs(home string, configPath string, genesisPath string, keyPath
 		return startInputs{}, err
 	}
 	var resolvedKeyPath string
+	var resolvedRotationKeyPaths []string
 	var keyType string
 	var publicKey string
 	var signer vexocrypto.Signer
@@ -508,26 +515,40 @@ func loadStartInputs(home string, configPath string, genesisPath string, keyPath
 		if err != nil {
 			return startInputs{}, err
 		}
-		loadedSigner, err := signerFromKeyDocument(keyDocument)
+		rotationDocuments := []vexocrypto.KeyDocument{keyDocument}
+		for _, rotationKeyPath := range rotationKeyPaths {
+			resolvedRotationKeyPath := resolveRotationKeyPath(home, rotationKeyPath)
+			rotationDocument, err := vexocrypto.LoadKeyDocument(resolvedRotationKeyPath)
+			if err != nil {
+				return startInputs{}, err
+			}
+			rotationDocuments = append(rotationDocuments, rotationDocument)
+			resolvedRotationKeyPaths = append(resolvedRotationKeyPaths, resolvedRotationKeyPath)
+		}
+		loadedSigner, err := signerFromKeyDocuments(rotationDocuments)
 		if err != nil {
 			return startInputs{}, err
 		}
 		signer = loadedSigner
 		keyType = keyDocument.Type
+		if len(rotationDocuments) > 1 {
+			keyType = "keyring"
+		}
 		publicKey = keyDocument.PublicKey
 		genesis = withLocalValidatorPublicKey(genesis, cfg.ValidatorID, signer.PublicKey())
 	}
 	plan := startPlanDocument{
-		ChainID:     cfg.Chain.ChainID,
-		ValidatorID: string(cfg.ValidatorID),
-		DataDir:     cfg.DataDir,
-		ConfigPath:  resolvedConfigPath,
-		GenesisPath: resolvedGenesisPath,
-		KeyPath:     resolvedKeyPath,
-		ValidatorN:  len(genesis.Validators),
-		KeyType:     keyType,
-		PublicKey:   publicKey,
-		DryRun:      dryRun,
+		ChainID:          cfg.Chain.ChainID,
+		ValidatorID:      string(cfg.ValidatorID),
+		DataDir:          cfg.DataDir,
+		ConfigPath:       resolvedConfigPath,
+		GenesisPath:      resolvedGenesisPath,
+		KeyPath:          resolvedKeyPath,
+		RotationKeyPaths: resolvedRotationKeyPaths,
+		ValidatorN:       len(genesis.Validators),
+		KeyType:          keyType,
+		PublicKey:        publicKey,
+		DryRun:           dryRun,
 	}
 	return startInputs{
 		Config:  cfg,
@@ -705,8 +726,21 @@ func stringPeerMap(peers map[string]string) map[p2p.PeerID]string {
 	return out
 }
 
-func signerFromKeyDocument(document vexocrypto.KeyDocument) (vexocrypto.Signer, error) {
-	return document.SignerWithPassphrase(resolvePassphrase(""))
+func signerFromKeyDocuments(documents []vexocrypto.KeyDocument) (vexocrypto.Signer, error) {
+	if len(documents) == 1 {
+		return documents[0].SignerWithPassphrase(resolvePassphrase(""))
+	}
+	return vexocrypto.NewKeyRingPolicySignerFromDocuments(resolvePassphrase(""), documents...)
+}
+
+func resolveRotationKeyPath(home string, path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	if home == "" {
+		home = defaultHomeDir
+	}
+	return filepath.Join(home, path)
 }
 
 func buildStartNode(inputs startInputs) (*vexonode.Node, error) {
@@ -896,10 +930,28 @@ func (flags peerFlags) Set(value string) error {
 	return nil
 }
 
+func (flags *stringListFlags) String() string {
+	if flags == nil || len(*flags) == 0 {
+		return ""
+	}
+	return strings.Join(*flags, ",")
+}
+
+func (flags *stringListFlags) Set(value string) error {
+	if value == "" {
+		return errors.New("value is required")
+	}
+	*flags = append(*flags, value)
+	return nil
+}
+
 func parsePeerAssignment(value string) (p2p.PeerID, string, error) {
 	peerID, address, found := strings.Cut(value, "=")
 	if !found || peerID == "" || address == "" {
 		return "", "", fmt.Errorf("invalid peer %q: expected id=host:port", value)
+	}
+	if err := p2p.ValidatePeerAddress(address); err != nil {
+		return "", "", fmt.Errorf("invalid peer %q: %w", value, err)
 	}
 	return p2p.PeerID(peerID), address, nil
 }

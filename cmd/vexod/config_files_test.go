@@ -119,7 +119,7 @@ func TestRunInitWritesNetworkFiles(t *testing.T) {
 		if len(validatorInfo.PublicKey) == 0 || validatorInfo.Metadata["p2p_address"] != networkP2PAddress(index) || validatorInfo.Metadata["rpc_address"] != networkRPCAddress(index) {
 			t.Fatalf("unexpected validator metadata: %+v", validatorInfo)
 		}
-		if _, err := loadStartInputs(nodeHome, "", "", "", false); err != nil {
+		if _, err := loadStartInputs(nodeHome, "", "", "", nil, false); err != nil {
 			t.Fatalf("expected start inputs for %s: %v", validatorID, err)
 		}
 		for _, fileName := range []string{moduleConfigFileName, networkConfigFileName, consensusConfigFileName, mempoolConfigFileName, logConfigFileName} {

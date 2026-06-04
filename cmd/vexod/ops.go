@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/ops"
+	"github.com/vexo-network/vexo-consensus/p2p"
 )
 
 func runOps(writer io.Writer, args []string) error {
@@ -23,6 +24,8 @@ func runOps(writer io.Writer, args []string) error {
 		return runOpsAlerts(writer, args[1:])
 	case "incident":
 		return runOpsIncident(writer, args[1:])
+	case "conformance":
+		return runOpsConformance(writer, args[1:])
 	default:
 		return fmt.Errorf("unknown ops subcommand %q", args[0])
 	}
@@ -35,6 +38,16 @@ type opsIncidentDocument struct {
 	Report        ops.Report `json:"report"`
 	Summary       []string   `json:"summary"`
 	Actions       []string   `json:"actions"`
+}
+
+type opsConformanceDocument struct {
+	SchemaVersion string                   `json:"schema_version"`
+	OK            bool                     `json:"ok"`
+	StartPlan     startPlanDocument        `json:"start_plan"`
+	Audit         auditDocument            `json:"audit"`
+	RotationPlan  *keyRotationPlanDocument `json:"rotation_plan,omitempty"`
+	Metrics       *ops.Report              `json:"metrics,omitempty"`
+	Checks        []auditCheckDocument     `json:"checks"`
 }
 
 func runOpsThresholds(writer io.Writer, args []string) error {
@@ -61,6 +74,82 @@ func runOpsThresholds(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "snapshot_required: %t\n", thresholds.SnapshotRequired)
 	fmt.Fprintf(writer, "replay_healthy_required: %t\n", thresholds.ReplayHealthyRequired)
 	fmt.Fprintf(writer, "validator_signing_failures <= %d\n", thresholds.MaxValidatorSigningFailures)
+	return nil
+}
+
+func runOpsConformance(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("ops conformance", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", defaultHomeDir, "node home directory")
+	configPath := flags.String("config", "", "config file path")
+	genesisPath := flags.String("genesis", "", "genesis file path")
+	keyPath := flags.String("key", "", "key file path")
+	metricsFile := flags.String("metrics-file", "", "current /metrics JSON file to evaluate")
+	previousMetricsFile := flags.String("previous-metrics-file", "", "previous /metrics JSON file for rate deltas")
+	windowValue := flags.String("window", "1m", "elapsed time between previous and current metrics files")
+	strict := flags.Bool("strict", false, "use strict network-safety audit severities")
+	jsonOutput := flags.Bool("json", false, "write JSON output")
+	rotationKeys := stringListFlags{}
+	flags.Var(&rotationKeys, "rotation-key", "additional validator key file path with active-from/active-until metadata; may be repeated")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	inputs, err := loadStartInputs(*home, *configPath, *genesisPath, *keyPath, []string(rotationKeys), true)
+	if err != nil {
+		return err
+	}
+	runtimeConfig, err := loadStartRuntimeConfig(*home, *configPath)
+	if err != nil {
+		return err
+	}
+	runtimeConfig = applyNetworkRuntimeDefaults(inputs, runtimeConfig)
+	document := opsConformanceDocument{
+		SchemaVersion: "v1",
+		OK:            true,
+		StartPlan:     inputs.Plan,
+		Audit:         auditDeployment(inputs, runtimeConfig, *strict),
+	}
+	document.addCheck("start_inputs", "error", true, "config, genesis, and validator signer inputs are loadable")
+	for _, check := range validateConformancePeerAddresses("peer", runtimeConfig.P2PPeers) {
+		document.addCheck(check.Name, check.Severity, check.OK, check.Message)
+	}
+	for _, check := range validateConformancePeerAddresses("seed", runtimeConfig.P2PSeeds) {
+		document.addCheck(check.Name, check.Severity, check.OK, check.Message)
+	}
+	if len(rotationKeys) > 0 {
+		rotationPaths := append([]string{inputs.Plan.KeyPath}, []string(rotationKeys)...)
+		rotationPlan, err := buildKeyRotationPlan(*home, rotationPaths, resolvePassphrase(""))
+		if err != nil {
+			return err
+		}
+		document.RotationPlan = &rotationPlan
+		document.addCheck("key_rotation_windows", "error", rotationPlan.OK, "validator key active windows must be contiguous and non-overlapping")
+	}
+	if *metricsFile != "" {
+		sample, err := readOpsMetricsSample(*metricsFile, *previousMetricsFile, *windowValue)
+		if err != nil {
+			return err
+		}
+		report, err := ops.Evaluate(sample, ops.DefaultThresholds())
+		if err != nil {
+			return err
+		}
+		document.Metrics = &report
+		document.addCheck("metrics_thresholds", "warning", report.OK, "operator metrics should stay within alert thresholds")
+	}
+	document.OK = document.Audit.OK && conformanceChecksOK(document.Checks)
+	if document.RotationPlan != nil {
+		document.OK = document.OK && document.RotationPlan.OK
+	}
+	if document.Metrics != nil {
+		document.OK = document.OK && document.Metrics.OK
+	}
+	if *jsonOutput {
+		encoder := json.NewEncoder(writer)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(document)
+	}
+	writeOpsConformance(writer, document)
 	return nil
 }
 
@@ -121,6 +210,52 @@ func runOpsAlerts(writer io.Writer, args []string) error {
 		fmt.Fprintf(writer, "%s [%s] value=%s threshold=%s %s\n", alert.Name, alert.Severity, alert.Value, alert.Threshold, alert.Message)
 	}
 	return nil
+}
+
+func (document *opsConformanceDocument) addCheck(name string, severity string, ok bool, message string) {
+	document.Checks = append(document.Checks, auditCheckDocument{Name: name, Severity: severity, OK: ok, Message: message})
+}
+
+func validateConformancePeerAddresses(prefix string, peers map[p2p.PeerID]string) []auditCheckDocument {
+	checks := make([]auditCheckDocument, 0, len(peers))
+	for peerID, address := range peers {
+		err := p2p.ValidatePeerAddress(address)
+		checks = append(checks, auditCheckDocument{
+			Name:     prefix + "_address_" + string(peerID),
+			Severity: "error",
+			OK:       err == nil,
+			Message:  fmt.Sprintf("%s %s advertised address must be dialable host:port", prefix, peerID),
+		})
+	}
+	return checks
+}
+
+func conformanceChecksOK(checks []auditCheckDocument) bool {
+	for _, check := range checks {
+		if !check.OK && check.Severity == "error" {
+			return false
+		}
+	}
+	return true
+}
+
+func writeOpsConformance(writer io.Writer, document opsConformanceDocument) {
+	status := "ok"
+	if !document.OK {
+		status = "failed"
+	}
+	fmt.Fprintf(writer, "ops conformance %s\n", status)
+	fmt.Fprintf(writer, "chain_id: %s\n", document.StartPlan.ChainID)
+	fmt.Fprintf(writer, "validator_id: %s\n", document.StartPlan.ValidatorID)
+	for _, check := range document.Checks {
+		fmt.Fprintf(writer, "%s [%s] ok=%t %s\n", check.Name, check.Severity, check.OK, check.Message)
+	}
+	if document.RotationPlan != nil {
+		fmt.Fprintf(writer, "key_rotation_ok: %t\n", document.RotationPlan.OK)
+	}
+	if document.Metrics != nil {
+		fmt.Fprintf(writer, "metrics_ok: %t\n", document.Metrics.OK)
+	}
 }
 
 func runOpsIncident(writer io.Writer, args []string) error {

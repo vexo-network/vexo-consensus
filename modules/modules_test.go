@@ -6,6 +6,7 @@ import (
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/config"
+	"github.com/vexo-network/vexo-consensus/modules/staking"
 )
 
 func TestBuildDefaultModules(t *testing.T) {
@@ -52,6 +53,20 @@ func TestBuildRejectsUnknownModule(t *testing.T) {
 	_, err := Build(config.ApplicationConfig{Modules: []string{"unknown"}})
 	if !errors.Is(err, vexoapp.ErrModuleNotFound) {
 		t.Fatalf("expected unknown module error, got %v", err)
+	}
+}
+
+func TestBuildWithExecutionInjectsStakingFeeCollector(t *testing.T) {
+	modules, err := BuildWithExecution(config.ApplicationConfig{Modules: []string{"staking"}}, config.ExecutionConfig{FeeCollector: "treasury"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stakingModule, ok := modules[0].(*staking.Module)
+	if !ok {
+		t.Fatalf("expected staking module, got %T", modules[0])
+	}
+	if stakingModule.FeeCollector() != "treasury" {
+		t.Fatalf("expected treasury fee collector, got %s", stakingModule.FeeCollector())
 	}
 }
 

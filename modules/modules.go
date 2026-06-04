@@ -9,6 +9,7 @@ import (
 	appibc "github.com/vexo-network/vexo-consensus/modules/ibc"
 	"github.com/vexo-network/vexo-consensus/modules/staking"
 	"github.com/vexo-network/vexo-consensus/params"
+	"github.com/vexo-network/vexo-consensus/types"
 )
 
 func DefaultRegistry() vexoapp.Registry {
@@ -26,6 +27,19 @@ func Build(cfg config.ApplicationConfig) ([]vexoapp.Module, error) {
 	return DefaultRegistry().Build(cfg.Modules)
 }
 
+func BuildWithExecution(cfg config.ApplicationConfig, execution config.ExecutionConfig) ([]vexoapp.Module, error) {
+	registry := vexoapp.NewRegistry()
+	_ = registry.Register(bank.ModuleName, func() vexoapp.Module { return bank.NewModule() })
+	_ = registry.Register(staking.ModuleName, func() vexoapp.Module {
+		return staking.NewModuleWithFeeCollector(types.Address(execution.FeeCollector))
+	})
+	_ = registry.Register(appgovernance.ModuleName, func() vexoapp.Module { return appgovernance.NewModule() })
+	_ = registry.Register(params.Namespace, func() vexoapp.Module { return params.NewModule(nil) })
+	_ = registry.Register(appibc.ModuleName, func() vexoapp.Module { return appibc.NewModule() })
+	_ = registry.Register(appevm.ModuleName, func() vexoapp.Module { return appevm.NewModule() })
+	return registry.Build(cfg.Modules)
+}
+
 func BuildCLICommands(cfg config.ApplicationConfig) ([]vexoapp.CLICommand, error) {
 	return DefaultRegistry().BuildCLICommands(cfg.Modules)
 }
@@ -35,7 +49,7 @@ func NewRuntime(chainID string, cfg config.ApplicationConfig) (*vexoapp.Runtime,
 }
 
 func NewRuntimeWithExecution(chainID string, cfg config.ApplicationConfig, execution config.ExecutionConfig) (*vexoapp.Runtime, error) {
-	modules, err := Build(cfg)
+	modules, err := BuildWithExecution(cfg, execution)
 	if err != nil {
 		return nil, err
 	}

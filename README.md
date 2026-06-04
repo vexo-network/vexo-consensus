@@ -27,7 +27,7 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 - This project does not provide ABCI compatibility.
 - This project includes BLS12-381 and ECVRF adapter wiring, but operators are still responsible for audit evidence, key custody, and release-gate validation before value-bearing deployment.
 - This project does not claim mainnet safety without external audit and real multi-host operational evidence.
-- Chain-specific economics such as rewards, custody, commission policy, and governance authority remain integration responsibilities.
+- Chain-specific economics such as token custody, reward policy tuning, commission caps, and governance authority remain integration responsibilities.
 
 ## Repository Layout
 
@@ -111,6 +111,8 @@ vexod config tune --validators 64 --tps 5000 --regions 4 --latency 120ms --json
 vexod keys gen --home .vexo --type ed25519
 vexod keys gen --home .vexo-bls --type bls
 VEXO_KEY_PASSPHRASE='change-me' vexod keys gen --home .vexo-vrf --type vrf --encrypt
+vexod keys rotation-plan --home .vexo --key validator.key.json --key next-validator.key.json
+vexod start --home .vexo --rotation-key next-validator.key.json --dry-run
 vexod tx build --module bank --action send --args alice,bob,25 --tags fee=1gvxo,gas=1000,signer=alice,nonce=1
 vexod proof query --home .vexo --namespace bank --key alice
 vexod proof verify --input proof.json --chain-id vexo-chain --height 10
@@ -127,10 +129,14 @@ vexod relayer packet-ack --rpc 127.0.0.1:26657 --proof-rpc 127.0.0.1:26657 --seq
 vexod relayer loop --mode timeout --rpc 127.0.0.1:26657 --proof-rpc 127.0.0.1:26657 --sequence 1 --source-port transfer --source-channel channel-0 --destination-port transfer --destination-channel channel-1 --data payload --timeout-height 100 --interval 5s --continue-on-error --state relayer_state.json --submit
 vexod relayer run --config relayer_config.json
 vexod evm tx call evm 0xaaaa 0xbbbb transfer aabb 100000 --fee 1 --gas 100000 --signer 0xaaaa --nonce 1
+vexod staking tx set-commission validator-1 500 --signer validator-1
+vexod staking query rewards alice validator-1
+vexod staking tx claim-rewards alice validator-1 --fee 1 --gas 1000 --signer alice --nonce 2
 curl -s -X POST http://127.0.0.1:26657/ -d '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}'
 vexod ibc packet send --sequence 1 --source-port transfer --source-channel channel-0 --destination-port transfer --destination-channel channel-1 --data payload
 vexod consensus adversarial --json
 vexod snapshot drill-plan --input snapshot.json --chain-id vexo-chain --json
+vexod ops conformance --home .vexo --json
 vexod release readiness --json
 ```
 

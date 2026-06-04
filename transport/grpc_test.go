@@ -147,6 +147,42 @@ func TestGRPCTransportPeerLearnedHook(t *testing.T) {
 	}
 }
 
+func TestGRPCTransportIgnoresInvalidDiscoveredPeerAddresses(t *testing.T) {
+	learned := make(map[p2p.PeerID]string)
+	transport, err := NewGRPCTransport(GRPCConfig{
+		PeerID:      "alice",
+		ListenAddr:  "127.0.0.1:0",
+		NetworkID:   "vexo-network",
+		ChainID:     "vexo-test",
+		GenesisHash: GenesisHash([]byte("genesis")),
+		PeerLearned: func(peerID p2p.PeerID, address string) {
+			learned[peerID] = address
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	transport.learnHandshakePeers(Handshake{
+		NodeID:     "bob",
+		ListenAddr: "0.0.0.0:26666",
+		KnownPeers: map[p2p.PeerID]string{
+			"carol": "validator-3.example.com:26676",
+			"dave":  "bad/address:26686",
+		},
+	})
+
+	if _, found := learned["bob"]; found {
+		t.Fatalf("did not expect unspecified bind address to be learned: %+v", learned)
+	}
+	if _, found := learned["dave"]; found {
+		t.Fatalf("did not expect malformed address to be learned: %+v", learned)
+	}
+	if learned["carol"] != "validator-3.example.com:26676" {
+		t.Fatalf("expected valid discovered hostname, got %+v", learned)
+	}
+}
+
 func TestGRPCTransportPeerDialHooks(t *testing.T) {
 	attempts := make(map[p2p.PeerID]int)
 	results := make(map[p2p.PeerID]bool)

@@ -44,6 +44,8 @@ Vexo separates local bind addresses, peer dial addresses, and public advertised 
 
 Container-only names such as Docker service names may be valid peer dial targets inside a private bridge network, but they should not be written as public validator metadata for a public network. Public validator metadata should use stable DNS names or public IP addresses that external peers can resolve.
 
+Peer dial and discovered addresses must be dialable `host:port` values. Address-book and handshake discovery reject unspecified bind addresses such as `0.0.0.0:26656` or `[::]:26656`, malformed host strings, and port `0`. This prevents one node's local bind config from poisoning other nodes' peer books.
+
 ## Peer Scoring
 
 Peers are scored by:

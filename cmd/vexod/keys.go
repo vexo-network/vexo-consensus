@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/address"
@@ -33,6 +34,25 @@ type keyInfoDocument struct {
 	RemoteURL     string `json:"remote_url,omitempty"`
 }
 
+type keyRotationPlanDocument struct {
+	SchemaVersion string                `json:"schema_version"`
+	OK            bool                  `json:"ok"`
+	Keys          []keyRotationPlanItem `json:"keys"`
+	Gaps          []string              `json:"gaps,omitempty"`
+	Overlaps      []string              `json:"overlaps,omitempty"`
+}
+
+type keyRotationPlanItem struct {
+	Path        string `json:"path"`
+	KeyID       string `json:"key_id"`
+	Type        string `json:"type"`
+	Address     string `json:"address"`
+	PublicKey   string `json:"public_key"`
+	ActiveFrom  uint64 `json:"active_from"`
+	ActiveUntil uint64 `json:"active_until,omitempty"`
+	RemoteURL   string `json:"remote_url,omitempty"`
+}
+
 func runKeys(writer io.Writer, args []string) error {
 	if len(args) == 0 {
 		return errors.New("keys subcommand is required")
@@ -50,6 +70,8 @@ func runKeys(writer io.Writer, args []string) error {
 		return runKeysVerifyRemote(writer, args[1:])
 	case "serve-remote":
 		return runKeysServeRemote(writer, args[1:])
+	case "rotation-plan":
+		return runKeysRotationPlan(writer, args[1:])
 	default:
 		return fmt.Errorf("unknown keys subcommand %q", args[0])
 	}
@@ -411,6 +433,97 @@ func runKeysServeRemote(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "guard_path: %s\n", *guardPath)
 	fmt.Fprintf(writer, "auth_required: %t\n", resolvedAuthToken != "")
 	return server.ListenAndServe()
+}
+
+func runKeysRotationPlan(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("keys rotation-plan", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", defaultHomeDir, "node home directory")
+	passphrase := flags.String("passphrase", "", "key decryption passphrase; prefer VEXO_KEY_PASSPHRASE")
+	jsonOutput := flags.Bool("json", false, "write JSON output")
+	keyPaths := stringListFlags{}
+	flags.Var(&keyPaths, "key", "key file path; may be repeated")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if len(keyPaths) == 0 {
+		keyPaths = append(keyPaths, resolveKeyPath(*home, ""))
+	}
+	plan, err := buildKeyRotationPlan(*home, []string(keyPaths), resolvePassphrase(*passphrase))
+	if err != nil {
+		return err
+	}
+	if *jsonOutput {
+		encoder := json.NewEncoder(writer)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(plan)
+	}
+	fmt.Fprintf(writer, "key rotation plan\n")
+	fmt.Fprintf(writer, "ok: %t\n", plan.OK)
+	for _, item := range plan.Keys {
+		fmt.Fprintf(writer, "- %s id=%s type=%s active_from=%d active_until=%d address=%s\n", item.Path, item.KeyID, item.Type, item.ActiveFrom, item.ActiveUntil, item.Address)
+	}
+	for _, gap := range plan.Gaps {
+		fmt.Fprintf(writer, "gap: %s\n", gap)
+	}
+	for _, overlap := range plan.Overlaps {
+		fmt.Fprintf(writer, "overlap: %s\n", overlap)
+	}
+	return nil
+}
+
+func buildKeyRotationPlan(home string, keyPaths []string, passphrase string) (keyRotationPlanDocument, error) {
+	items := make([]keyRotationPlanItem, 0, len(keyPaths))
+	for _, keyPath := range keyPaths {
+		resolvedPath := resolveRotationKeyPath(home, keyPath)
+		document, err := vexocrypto.LoadKeyDocument(resolvedPath)
+		if err != nil {
+			return keyRotationPlanDocument{}, err
+		}
+		record, err := document.KeyRecordWithPassphrase(passphrase)
+		if err != nil {
+			return keyRotationPlanDocument{}, err
+		}
+		accountAddress, err := keyDocumentAccountAddress(document)
+		if err != nil {
+			return keyRotationPlanDocument{}, err
+		}
+		items = append(items, keyRotationPlanItem{
+			Path:        resolvedPath,
+			KeyID:       string(record.ID),
+			Type:        document.Type,
+			Address:     string(accountAddress),
+			PublicKey:   document.PublicKey,
+			ActiveFrom:  record.ActiveFrom,
+			ActiveUntil: record.ActiveUntil,
+			RemoteURL:   document.Metadata.RemoteURL,
+		})
+	}
+	sort.Slice(items, func(left, right int) bool {
+		if items[left].ActiveFrom == items[right].ActiveFrom {
+			return items[left].KeyID < items[right].KeyID
+		}
+		return items[left].ActiveFrom < items[right].ActiveFrom
+	})
+	plan := keyRotationPlanDocument{
+		SchemaVersion: vexocrypto.KeyDocumentVersionV1,
+		OK:            true,
+		Keys:          items,
+	}
+	for index := 1; index < len(items); index++ {
+		previous := items[index-1]
+		current := items[index]
+		switch {
+		case previous.ActiveUntil == 0:
+			plan.Overlaps = append(plan.Overlaps, fmt.Sprintf("%s has no active_until before %s starts at %d", previous.KeyID, current.KeyID, current.ActiveFrom))
+		case current.ActiveFrom <= previous.ActiveUntil:
+			plan.Overlaps = append(plan.Overlaps, fmt.Sprintf("%s starts at %d before %s ends at %d", current.KeyID, current.ActiveFrom, previous.KeyID, previous.ActiveUntil))
+		case previous.ActiveUntil+1 < current.ActiveFrom:
+			plan.Gaps = append(plan.Gaps, fmt.Sprintf("no active key between heights %d and %d", previous.ActiveUntil+1, current.ActiveFrom-1))
+		}
+	}
+	plan.OK = len(plan.Gaps) == 0 && len(plan.Overlaps) == 0
+	return plan, nil
 }
 
 func resolvePassphrase(passphrase string) string {

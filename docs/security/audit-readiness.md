@@ -54,7 +54,7 @@ This package is intended for independent reviewers evaluating Vexo consensus, ne
 - VRF-backed committee selection requires an adapter with proof verification and key-source evidence; the built-in ECVRF P-256 adapter provides the implementation boundary but private key custody and deployment audit remain operator responsibilities.
 - Ed25519 finality is ordered multisignature concatenation, not cryptographic aggregation.
 - Invalid-proposal evidence supports reason-specific mismatch verification, but it is not a complete light-client Merkle/state-proof framework for every possible invalid proposal claim.
-- Runtime defaults to durable slashing when a store is configured; full production stake custody, rewards, commission, tombstone, jail/unbonding authority, and staking/slashing accounting remain chain-specific integration work.
+- Runtime defaults to durable slashing when a store is configured; staking includes delegation, commission, fee reward distribution, reward claiming, jail, and unbonding state, while token custody policy, commission caps, reward-policy tuning, tombstone authority, and full economic audit remain chain-specific integration work.
 - Multi-region long-running and chaos tests are planned through network/longrun plans but must be executed on independent real machines.
 - Governance upgrade execution records applied, pending, and rollback-required outcomes; durable chain-specific governance state, execution authority, rollback runbooks, and release governance policy remain production integration work.
 - The current RPC API exposes `/v1/*` stable routes while retaining unversioned compatibility aliases.

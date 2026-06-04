@@ -81,11 +81,19 @@ The production admission transaction should include:
 - validator address
 - consensus public key
 - voting power or stake reference
+- validator commission basis points, if the chain allows self-service commission updates
 - public P2P address metadata
 - public RPC address metadata, if public
 - BLS proof-of-possession metadata when BLS is enabled
 
 The validator update must become effective at a specific height and produce a new validator-set hash.
+
+After the validator is active, operators can expose reward state through the staking module:
+
+```bash
+vexod staking query commission validator-1
+vexod staking query rewards alice validator-1
+```
 
 ## 4. Verify Validator Set Update
 
@@ -102,7 +110,19 @@ Check:
 - validator-set hash changed as expected
 - finality proofs reference the correct validator-set height
 
-## 5. Start Validator
+## 5. Plan Validator Key Rotation
+
+Validator keys can be rotated by preparing a next key document with non-overlapping `active_from` and `active_until` metadata, then starting the node with the extra rotation key:
+
+```bash
+vexod keys gen --home .vexo-validator-new --path next-validator.key.json --id key-2 --active-from 1001
+vexod keys rotation-plan --home .vexo-validator-new --key validator.key.json --key next-validator.key.json
+vexod start --home .vexo-validator-new --rotation-key next-validator.key.json --dry-run
+```
+
+At signing time, the node uses the key whose active window contains the consensus height. Remote signer key documents keep the same policy, auth-token, and double-sign guard requirements.
+
+## 6. Start Validator
 
 ```bash
 vexod config audit --home .vexo-validator-new --strict
@@ -111,7 +131,7 @@ vexod start --home .vexo-validator-new --run
 
 Startup has no network mode switch. Use `config audit --strict` before startup when the network is expected to satisfy public-network safety assumptions.
 
-## 6. Monitor
+## 7. Monitor
 
 Watch:
 

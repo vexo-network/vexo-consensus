@@ -20,7 +20,10 @@ func stakingCLICommand() vexoapp.CLICommand {
 		Examples: []string{
 			"staking tx delegate alice validator-1 100 <base64-public-key>",
 			"staking tx undelegate alice validator-1 50",
+			"staking tx claim-rewards alice validator-1",
+			"staking tx set-commission validator-1 500 --signer validator-1",
 			"staking query validator validator-1",
+			"staking query rewards alice validator-1",
 		},
 		Children: []vexoapp.CLICommand{
 			{
@@ -60,6 +63,26 @@ func stakingCLICommand() vexoapp.CLICommand {
 						},
 						Run: runUnjailCLI,
 					},
+					{
+						Name:        "claim-rewards",
+						Usage:       "staking tx claim-rewards <delegator> <validator>",
+						Description: "build a staking reward claim transaction payload",
+						Args: []vexoapp.CLIArg{
+							{Name: "delegator", Description: "delegator account address"},
+							{Name: "validator", Description: "validator id that accrued the reward"},
+						},
+						Run: runClaimRewardsCLI,
+					},
+					{
+						Name:        "set-commission",
+						Usage:       "staking tx set-commission <validator> <bps> --signer <validator>",
+						Description: "build a validator commission update transaction payload",
+						Args: []vexoapp.CLIArg{
+							{Name: "validator", Description: "validator id"},
+							{Name: "bps", Description: "commission in basis points, 10000 = 100%"},
+						},
+						Run: runSetCommissionCLI,
+					},
 				},
 			},
 			{
@@ -95,6 +118,25 @@ func stakingCLICommand() vexoapp.CLICommand {
 							{Name: "validator", Description: "validator id"},
 						},
 						Run: runUnbondingQueryCLI,
+					},
+					{
+						Name:        "rewards",
+						Usage:       "staking query rewards <delegator> <validator>",
+						Description: "build a pending staking rewards query path",
+						Args: []vexoapp.CLIArg{
+							{Name: "delegator", Description: "delegator account address"},
+							{Name: "validator", Description: "validator id"},
+						},
+						Run: runRewardsQueryCLI,
+					},
+					{
+						Name:        "commission",
+						Usage:       "staking query commission <validator>",
+						Description: "build a validator commission query path",
+						Args: []vexoapp.CLIArg{
+							{Name: "validator", Description: "validator id"},
+						},
+						Run: runCommissionQueryCLI,
 					},
 				},
 			},
@@ -173,6 +215,52 @@ func runUnjailCLI(writer io.Writer, args []string) error {
 	return nil
 }
 
+func runClaimRewardsCLI(writer io.Writer, args []string) error {
+	args, tags, err := splitExecutionTags(args)
+	if err != nil {
+		return err
+	}
+	if len(args) != 2 {
+		return vexoapp.ErrCLIUsage("staking tx claim-rewards <delegator> <validator>")
+	}
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
+		Module: ModuleName,
+		Action: "claim-rewards",
+		Args:   []string{args[0], args[1]},
+		Tags:   tags,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "tx: %s\n", tx)
+	return nil
+}
+
+func runSetCommissionCLI(writer io.Writer, args []string) error {
+	args, tags, err := splitExecutionTags(args)
+	if err != nil {
+		return err
+	}
+	if len(args) != 2 {
+		return vexoapp.ErrCLIUsage("staking tx set-commission <validator> <bps> --signer <validator>")
+	}
+	commissionBPS, err := strconv.ParseUint(args[1], 10, 64)
+	if err != nil || commissionBPS > maxCommissionBPS {
+		return ErrInvalidCommission
+	}
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
+		Module: ModuleName,
+		Action: "set-commission",
+		Args:   []string{args[0], strconv.FormatUint(commissionBPS, 10)},
+		Tags:   tags,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "tx: %s\n", tx)
+	return nil
+}
+
 func runStakeQueryCLI(writer io.Writer, args []string) error {
 	if len(args) != 2 {
 		return vexoapp.ErrCLIUsage("staking query stake <delegator> <validator>")
@@ -194,6 +282,22 @@ func runUnbondingQueryCLI(writer io.Writer, args []string) error {
 		return vexoapp.ErrCLIUsage("staking query unbonding <delegator> <validator>")
 	}
 	fmt.Fprintf(writer, "query_path: %s/unbonding/%s/%s\n", ModuleName, args[0], args[1])
+	return nil
+}
+
+func runRewardsQueryCLI(writer io.Writer, args []string) error {
+	if len(args) != 2 {
+		return vexoapp.ErrCLIUsage("staking query rewards <delegator> <validator>")
+	}
+	fmt.Fprintf(writer, "query_path: %s/rewards/%s/%s\n", ModuleName, args[0], args[1])
+	return nil
+}
+
+func runCommissionQueryCLI(writer io.Writer, args []string) error {
+	if len(args) != 1 {
+		return vexoapp.ErrCLIUsage("staking query commission <validator>")
+	}
+	fmt.Fprintf(writer, "query_path: %s/commission/%s\n", ModuleName, args[0])
 	return nil
 }
 

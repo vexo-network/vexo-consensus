@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math/bits"
 	"strconv"
 	"strings"
 
@@ -18,12 +19,16 @@ import (
 const ModuleName = "staking"
 
 const (
-	delegateGasCost   uint64 = 50
-	undelegateGasCost uint64 = 40
-	unjailGasCost     uint64 = 20
+	delegateGasCost      uint64 = 50
+	undelegateGasCost    uint64 = 40
+	unjailGasCost        uint64 = 20
+	claimRewardsGasCost  uint64 = 20
+	setCommissionGasCost uint64 = 20
 )
 const bankNamespace = "bank"
+const defaultFeeCollector types.Address = "fee_collector"
 const defaultUnbondingDelay types.Height = 1209600
+const maxCommissionBPS uint64 = 10000
 
 var (
 	ErrInvalidStakingTx     = errors.New("invalid staking transaction")
@@ -33,30 +38,45 @@ var (
 	ErrMissingValidatorKey  = errors.New("validator public key is required")
 	ErrStakingStoreRequired = errors.New("missing staking store")
 	ErrStakeOverflow        = errors.New("staking amount overflow")
+	ErrNoRewards            = errors.New("no staking rewards available")
+	ErrInvalidCommission    = errors.New("invalid validator commission")
+	ErrUnauthorizedStaking  = errors.New("unauthorized staking transaction")
 )
 
 type Module struct {
 	unbondingDelay types.Height
+	feeCollector   types.Address
 	pending        []types.ValidatorUpdate
 }
 
 func NewModule() *Module {
-	return &Module{unbondingDelay: defaultUnbondingDelay}
+	return &Module{unbondingDelay: defaultUnbondingDelay, feeCollector: defaultFeeCollector}
 }
 
 func NewModuleWithUnbondingDelay(delay types.Height) *Module {
 	if delay == 0 {
 		delay = defaultUnbondingDelay
 	}
-	return &Module{unbondingDelay: delay}
+	return &Module{unbondingDelay: delay, feeCollector: defaultFeeCollector}
+}
+
+func NewModuleWithFeeCollector(collector types.Address) *Module {
+	if collector == "" {
+		collector = defaultFeeCollector
+	}
+	return &Module{unbondingDelay: defaultUnbondingDelay, feeCollector: collector}
 }
 
 func (module *Module) CloneModule() vexoapp.Module {
-	return &Module{unbondingDelay: module.unbondingDelay}
+	return &Module{unbondingDelay: module.unbondingDelay, feeCollector: module.feeCollector}
 }
 
 func (module *Module) Name() string {
 	return ModuleName
+}
+
+func (module *Module) FeeCollector() types.Address {
+	return module.feeCollector
 }
 
 func (module *Module) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisState) error {
@@ -136,13 +156,36 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 			return types.Result{Code: 4, Log: err.Error()}
 		}
 		return types.Result{}
+	case len(parts) == 4 && parts[1] == "claim-rewards":
+		if err := ctx.ConsumeGas(claimRewardsGasCost); err != nil {
+			return types.Result{Code: 5, Log: err.Error()}
+		}
+		if err := module.claimRewards(ctx.GoContext(), ctx.Store, types.Address(parts[2]), types.ValidatorID(parts[3])); err != nil {
+			return types.Result{Code: 4, Log: err.Error()}
+		}
+		return types.Result{}
+	case len(parts) == 4 && parts[1] == "set-commission":
+		if err := ctx.ConsumeGas(setCommissionGasCost); err != nil {
+			return types.Result{Code: 5, Log: err.Error()}
+		}
+		commissionBPS, err := strconv.ParseUint(parts[3], 10, 64)
+		if err != nil {
+			return types.Result{Code: 3, Log: ErrInvalidCommission.Error()}
+		}
+		if err := module.setCommission(ctx.GoContext(), ctx.Store, tx, types.ValidatorID(parts[2]), commissionBPS); err != nil {
+			return types.Result{Code: 4, Log: err.Error()}
+		}
+		return types.Result{}
 	default:
 		return types.Result{Code: 2, Log: ErrInvalidStakingTx.Error()}
 	}
 }
 
 func (module *Module) EndBlock(ctx vexoapp.Context) error {
-	return nil
+	if ctx.Store == nil {
+		return nil
+	}
+	return module.distributeFees(ctx.GoContext(), ctx.Store)
 }
 
 func (module *Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
@@ -154,6 +197,10 @@ func (module *Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, err
 		return undelegateGasCost, nil
 	case len(parts) == 3 && parts[1] == "unjail":
 		return unjailGasCost, nil
+	case len(parts) == 4 && parts[1] == "claim-rewards":
+		return claimRewardsGasCost, nil
+	case len(parts) == 4 && parts[1] == "set-commission":
+		return setCommissionGasCost, nil
 	default:
 		return 0, ErrInvalidStakingTx
 	}
@@ -187,6 +234,20 @@ func (module *Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoa
 			return vexoapp.QueryResponse{Code: 3, Log: err.Error()}
 		}
 		return vexoapp.QueryResponse{Value: []byte(strconv.FormatUint(uint64(releaseHeight), 10))}
+	}
+	if len(req.Path) == 3 && req.Path[0] == "rewards" {
+		amount, err := Rewards(ctx.GoContext(), ctx.Store, types.Address(req.Path[1]), types.ValidatorID(req.Path[2]))
+		if err != nil {
+			return vexoapp.QueryResponse{Code: 3, Log: err.Error()}
+		}
+		return vexoapp.QueryResponse{Value: []byte(strconv.FormatUint(amount, 10))}
+	}
+	if len(req.Path) == 2 && req.Path[0] == "commission" {
+		commissionBPS, err := Commission(ctx.GoContext(), ctx.Store, types.ValidatorID(req.Path[1]))
+		if err != nil {
+			return vexoapp.QueryResponse{Code: 3, Log: err.Error()}
+		}
+		return vexoapp.QueryResponse{Value: []byte(strconv.FormatUint(commissionBPS, 10))}
 	}
 	return vexoapp.QueryResponse{Code: 2, Log: "invalid staking query"}
 }
@@ -313,6 +374,179 @@ func UnbondingReleaseHeight(ctx context.Context, store vexoapp.StateStore, deleg
 	return types.Height(value), err
 }
 
+func Rewards(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) (uint64, error) {
+	return getUint64(ctx, store, rewardKey(delegator, validatorID))
+}
+
+func Commission(ctx context.Context, store vexoapp.StateStore, validatorID types.ValidatorID) (uint64, error) {
+	return getUint64(ctx, store, commissionKey(validatorID))
+}
+
+func (module *Module) setCommission(ctx context.Context, store vexoapp.StateStore, tx types.Tx, validatorID types.ValidatorID, commissionBPS uint64) error {
+	if validatorID == "" || commissionBPS > maxCommissionBPS {
+		return ErrInvalidCommission
+	}
+	signer, found := vexoapp.TxTag(tx, "signer")
+	if !found || types.ValidatorID(signer) != validatorID {
+		return ErrUnauthorizedStaking
+	}
+	return setUint64(ctx, store, ModuleName, commissionKey(validatorID), commissionBPS)
+}
+
+func (module *Module) claimRewards(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) error {
+	if delegator == "" || validatorID == "" {
+		return ErrInvalidStakingTx
+	}
+	reward, err := Rewards(ctx, store, delegator, validatorID)
+	if err != nil {
+		return err
+	}
+	if reward == 0 {
+		return ErrNoRewards
+	}
+	balance, err := bankBalance(ctx, store, delegator)
+	if err != nil {
+		return err
+	}
+	if balance > ^uint64(0)-reward {
+		return ErrStakeOverflow
+	}
+	writes := []kvbatch.KVWrite{
+		{Namespace: bankNamespace, Key: []byte(delegator), Value: encodeUint64(balance + reward)},
+		{Namespace: ModuleName, Key: rewardKey(delegator, validatorID), Value: encodeUint64(0)},
+	}
+	if batchStore, ok := store.(kvbatch.BatchKVStore); ok {
+		return batchStore.SetBatch(ctx, writes)
+	}
+	for _, write := range writes {
+		if err := store.Set(ctx, write.Namespace, write.Key, write.Value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type validatorPowerRecord struct {
+	validatorID types.ValidatorID
+	power       uint64
+}
+
+type delegationRecord struct {
+	delegator   types.Address
+	validatorID types.ValidatorID
+	stake       uint64
+}
+
+func (module *Module) distributeFees(ctx context.Context, store vexoapp.StateStore) error {
+	snapshot, ok := store.(vexostore.SnapshotKVStore)
+	if !ok {
+		return nil
+	}
+	collectorBalance, err := bankBalance(ctx, store, module.feeCollector)
+	if err != nil || collectorBalance == 0 {
+		return err
+	}
+	pairs, err := snapshot.ExportNamespace(ctx, ModuleName)
+	if err != nil {
+		return err
+	}
+	validators, delegations, err := stakingRewardInputs(pairs)
+	if err != nil {
+		return err
+	}
+	totalPower, err := totalValidatorPower(validators)
+	if err != nil || totalPower == 0 {
+		return err
+	}
+	delegationsByValidator := make(map[types.ValidatorID][]delegationRecord)
+	stakeByValidator := make(map[types.ValidatorID]uint64)
+	for _, delegation := range delegations {
+		delegationsByValidator[delegation.validatorID] = append(delegationsByValidator[delegation.validatorID], delegation)
+		if stakeByValidator[delegation.validatorID] > ^uint64(0)-delegation.stake {
+			return ErrStakeOverflow
+		}
+		stakeByValidator[delegation.validatorID] += delegation.stake
+	}
+	rewards := make(map[string]uint64)
+	distributed := uint64(0)
+	for _, validator := range validators {
+		validatorFee := proportionalShare(collectorBalance, validator.power, totalPower)
+		if validatorFee == 0 {
+			continue
+		}
+		commissionBPS, err := Commission(ctx, store, validator.validatorID)
+		if err != nil {
+			return err
+		}
+		commission := proportionalShare(validatorFee, commissionBPS, maxCommissionBPS)
+		if commission > 0 {
+			if err := addReward(rewards, types.Address(validator.validatorID), validator.validatorID, commission); err != nil {
+				return err
+			}
+		}
+		validatorDistributed := commission
+		distributionPool := validatorFee - commission
+		validatorDelegations := delegationsByValidator[validator.validatorID]
+		totalStake := stakeByValidator[validator.validatorID]
+		if distributionPool > 0 && (len(validatorDelegations) == 0 || totalStake == 0) {
+			if err := addReward(rewards, types.Address(validator.validatorID), validator.validatorID, distributionPool); err != nil {
+				return err
+			}
+			validatorDistributed += distributionPool
+		}
+		for _, delegation := range validatorDelegations {
+			share := proportionalShare(distributionPool, delegation.stake, totalStake)
+			if share == 0 {
+				continue
+			}
+			if err := addReward(rewards, delegation.delegator, delegation.validatorID, share); err != nil {
+				return err
+			}
+			validatorDistributed += share
+		}
+		if validatorDistributed < validatorFee {
+			remainder := validatorFee - validatorDistributed
+			if err := addReward(rewards, types.Address(validator.validatorID), validator.validatorID, remainder); err != nil {
+				return err
+			}
+		}
+		if distributed > ^uint64(0)-validatorFee {
+			return ErrStakeOverflow
+		}
+		distributed += validatorFee
+	}
+	if distributed == 0 {
+		return nil
+	}
+	writes := []kvbatch.KVWrite{
+		{Namespace: bankNamespace, Key: []byte(module.feeCollector), Value: encodeUint64(collectorBalance - distributed)},
+	}
+	for encodedKey, amount := range rewards {
+		delegator, validatorID := splitRewardMapKey(encodedKey)
+		current, err := Rewards(ctx, store, delegator, validatorID)
+		if err != nil {
+			return err
+		}
+		if current > ^uint64(0)-amount {
+			return ErrStakeOverflow
+		}
+		writes = append(writes, kvbatch.KVWrite{
+			Namespace: ModuleName,
+			Key:       rewardKey(delegator, validatorID),
+			Value:     encodeUint64(current + amount),
+		})
+	}
+	if batchStore, ok := store.(kvbatch.BatchKVStore); ok {
+		return batchStore.SetBatch(ctx, writes)
+	}
+	for _, write := range writes {
+		if err := store.Set(ctx, write.Namespace, write.Key, write.Value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func bankBalance(ctx context.Context, store vexoapp.StateStore, address types.Address) (uint64, error) {
 	value, err := store.Get(ctx, bankNamespace, []byte(address))
 	if errors.Is(err, vexostore.ErrKeyNotFound) {
@@ -346,6 +580,96 @@ func setUnbondingReleaseHeight(ctx context.Context, store vexoapp.StateStore, de
 	return setUint64(ctx, store, ModuleName, unbondingKey(delegator, validatorID), uint64(releaseHeight))
 }
 
+func stakingRewardInputs(pairs []vexostore.KVPair) ([]validatorPowerRecord, []delegationRecord, error) {
+	validators := make([]validatorPowerRecord, 0)
+	delegations := make([]delegationRecord, 0)
+	for _, pair := range pairs {
+		key := string(pair.Key)
+		if strings.HasPrefix(key, "validator/") && strings.HasSuffix(key, "/power") {
+			validatorID, ok := parseValidatorPowerKey(key)
+			if !ok {
+				continue
+			}
+			power, err := decodeUint64(pair.Value)
+			if err != nil {
+				return nil, nil, err
+			}
+			if power > 0 {
+				validators = append(validators, validatorPowerRecord{validatorID: validatorID, power: power})
+			}
+			continue
+		}
+		if strings.HasPrefix(key, "stake/") {
+			delegator, validatorID, ok := parseStakeKey(key)
+			if !ok {
+				continue
+			}
+			stake, err := decodeUint64(pair.Value)
+			if err != nil {
+				return nil, nil, err
+			}
+			if stake > 0 {
+				delegations = append(delegations, delegationRecord{delegator: delegator, validatorID: validatorID, stake: stake})
+			}
+		}
+	}
+	return validators, delegations, nil
+}
+
+func totalValidatorPower(validators []validatorPowerRecord) (uint64, error) {
+	var total uint64
+	for _, validator := range validators {
+		if total > ^uint64(0)-validator.power {
+			return 0, ErrStakeOverflow
+		}
+		total += validator.power
+	}
+	return total, nil
+}
+
+func parseValidatorPowerKey(key string) (types.ValidatorID, bool) {
+	parts := strings.Split(key, "/")
+	if len(parts) != 3 || parts[0] != "validator" || parts[1] == "" || parts[2] != "power" {
+		return "", false
+	}
+	return types.ValidatorID(parts[1]), true
+}
+
+func parseStakeKey(key string) (types.Address, types.ValidatorID, bool) {
+	parts := strings.Split(key, "/")
+	if len(parts) != 3 || parts[0] != "stake" || parts[1] == "" || parts[2] == "" {
+		return "", "", false
+	}
+	return types.Address(parts[1]), types.ValidatorID(parts[2]), true
+}
+
+func addReward(rewards map[string]uint64, delegator types.Address, validatorID types.ValidatorID, amount uint64) error {
+	key := rewardMapKey(delegator, validatorID)
+	if rewards[key] > ^uint64(0)-amount {
+		return ErrStakeOverflow
+	}
+	rewards[key] += amount
+	return nil
+}
+
+func rewardMapKey(delegator types.Address, validatorID types.ValidatorID) string {
+	return string(delegator) + "\x00" + string(validatorID)
+}
+
+func splitRewardMapKey(key string) (types.Address, types.ValidatorID) {
+	parts := strings.SplitN(key, "\x00", 2)
+	return types.Address(parts[0]), types.ValidatorID(parts[1])
+}
+
+func proportionalShare(total uint64, part uint64, whole uint64) uint64 {
+	if total == 0 || part == 0 || whole == 0 {
+		return 0
+	}
+	high, low := bits.Mul64(total, part)
+	share, _ := bits.Div64(high, low, whole)
+	return share
+}
+
 func getUint64(ctx context.Context, store vexoapp.StateStore, key []byte) (uint64, error) {
 	value, err := store.Get(ctx, ModuleName, key)
 	if errors.Is(err, vexostore.ErrKeyNotFound) {
@@ -354,6 +678,16 @@ func getUint64(ctx context.Context, store vexoapp.StateStore, key []byte) (uint6
 	if err != nil {
 		return 0, err
 	}
+	if len(value) == 0 {
+		return 0, nil
+	}
+	if len(value) != 8 {
+		return 0, ErrInvalidStakeRecord
+	}
+	return binary.BigEndian.Uint64(value), nil
+}
+
+func decodeUint64(value []byte) (uint64, error) {
 	if len(value) == 0 {
 		return 0, nil
 	}
@@ -418,4 +752,12 @@ func jailKey(validatorID types.ValidatorID) []byte {
 
 func unbondingKey(delegator types.Address, validatorID types.ValidatorID) []byte {
 	return []byte("unbonding/" + string(delegator) + "/" + string(validatorID))
+}
+
+func rewardKey(delegator types.Address, validatorID types.ValidatorID) []byte {
+	return []byte("rewards/" + string(delegator) + "/" + string(validatorID))
+}
+
+func commissionKey(validatorID types.ValidatorID) []byte {
+	return []byte("validator/" + string(validatorID) + "/commission_bps")
 }

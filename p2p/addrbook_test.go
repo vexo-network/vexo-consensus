@@ -46,6 +46,23 @@ func TestAddrBookPeerMapExcludesSelf(t *testing.T) {
 	}
 }
 
+func TestAddrBookRejectsInvalidAdvertisedAddresses(t *testing.T) {
+	book, err := OpenAddrBook("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, address := range []string{"0.0.0.0:26656", "[::]:26656", "127.0.0.1", "bad/address:26656", "127.0.0.1:0"} {
+		book.Add(PeerID(address), address, "handshake", false)
+	}
+	if len(book.Peers()) != 0 {
+		t.Fatalf("expected invalid addresses rejected, got %+v", book.Peers())
+	}
+	book.Add("bob", "validator-2.example.com:26656", "seed", true)
+	if peers := book.PeerMap(""); peers["bob"] != "validator-2.example.com:26656" {
+		t.Fatalf("expected hostname peer accepted, got %+v", peers)
+	}
+}
+
 func TestAddrBookMarksFailureAndFiltersBannedPeers(t *testing.T) {
 	book, err := OpenAddrBookWithPolicy("", 2)
 	if err != nil {

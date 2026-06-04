@@ -68,6 +68,7 @@ Common framework namespaces:
 - `events`: indexed transaction event records and attribute indexes
 - `ibc`: client, connection, channel, packet commitment, and receipt records
 - `params`: chain-wide module parameter values and metadata
+- `staking`: delegated stake, validator power, validator public keys, commission basis points, unbonding release heights, jail flags, and pending reward balances
 
 When staged execution is available, module KV writes, block records, state records, and state roots are committed in one backend batch. If that batch fails, module KV writes are not applied.
 

@@ -3,14 +3,19 @@ package p2p
 import (
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
 
 const AddrBookVersionV1 = "v1"
+
+var ErrInvalidPeerAddress = errors.New("invalid peer address")
 
 type AddrBook struct {
 	mu          sync.Mutex
@@ -76,7 +81,7 @@ func (book *AddrBook) Load() error {
 	book.mu.Lock()
 	defer book.mu.Unlock()
 	for _, peer := range document.Peers {
-		if peer.ID == "" || peer.Address == "" {
+		if peer.ID == "" || !ValidPeerAddress(peer.Address) {
 			continue
 		}
 		book.peers[peer.ID] = peer
@@ -103,7 +108,7 @@ func (book *AddrBook) Save() error {
 }
 
 func (book *AddrBook) Add(peerID PeerID, address string, source string, permanent bool) {
-	if peerID == "" || address == "" {
+	if peerID == "" || !ValidPeerAddress(address) {
 		return
 	}
 	book.mu.Lock()
@@ -252,7 +257,7 @@ func (book *AddrBook) Peers() []AddrBookPeer {
 }
 
 func (book *AddrBook) addLocked(peerID PeerID, address string, source string, permanent bool) {
-	if peerID == "" || address == "" {
+	if peerID == "" || !ValidPeerAddress(address) {
 		return
 	}
 	peer := book.peers[peerID]
@@ -266,6 +271,28 @@ func (book *AddrBook) addLocked(peerID PeerID, address string, source string, pe
 	peer.BannedUntil = ""
 	peer.Permanent = peer.Permanent || permanent
 	book.peers[peerID] = peer
+}
+
+func ValidPeerAddress(address string) bool {
+	return ValidatePeerAddress(address) == nil
+}
+
+func ValidatePeerAddress(address string) error {
+	host, portValue, err := net.SplitHostPort(address)
+	if err != nil || host == "" || portValue == "" {
+		return ErrInvalidPeerAddress
+	}
+	port, err := strconv.ParseUint(portValue, 10, 16)
+	if err != nil || port == 0 {
+		return ErrInvalidPeerAddress
+	}
+	if strings.ContainsAny(host, " \t\r\n/") {
+		return ErrInvalidPeerAddress
+	}
+	if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil && ip.IsUnspecified() {
+		return ErrInvalidPeerAddress
+	}
+	return nil
 }
 
 func (book *AddrBook) peersSnapshot() []AddrBookPeer {

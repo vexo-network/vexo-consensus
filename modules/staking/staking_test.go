@@ -1,9 +1,11 @@
 package staking
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
+	"strings"
 	"testing"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
@@ -124,12 +126,223 @@ func TestStakingModuleQueries(t *testing.T) {
 	if response.Code != 0 || string(response.Value) != "75" {
 		t.Fatalf("unexpected validator query: %+v", response)
 	}
+	if err := setUint64(context.Background(), storage, ModuleName, rewardKey("alice", "validator-1"), 11); err != nil {
+		t.Fatal(err)
+	}
+	if err := setUint64(context.Background(), storage, ModuleName, commissionKey("validator-1"), 500); err != nil {
+		t.Fatal(err)
+	}
+	response = module.Query(vexoapp.Context{Store: storage}, vexoapp.QueryRequest{Path: []string{"rewards", "alice", "validator-1"}})
+	if response.Code != 0 || string(response.Value) != "11" {
+		t.Fatalf("unexpected rewards query: %+v", response)
+	}
+	response = module.Query(vexoapp.Context{Store: storage}, vexoapp.QueryRequest{Path: []string{"commission", "validator-1"}})
+	if response.Code != 0 || string(response.Value) != "500" {
+		t.Fatalf("unexpected commission query: %+v", response)
+	}
+}
+
+func TestStakingModuleDistributesFeesAndClaimsRewards(t *testing.T) {
+	storage := newStakingStore(t)
+	module := NewModule()
+	publicKey := base64.StdEncoding.EncodeToString([]byte("validator-key"))
+	if err := setBankBalance(context.Background(), storage, "alice", 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := setBankBalance(context.Background(), storage, "bob", 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := setBankBalance(context.Background(), storage, defaultFeeCollector, 30); err != nil {
+		t.Fatal(err)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 1, Store: storage}, types.Tx("staking:delegate:alice:validator-1:40:"+publicKey)); result.Code != 0 {
+		t.Fatalf("unexpected alice delegate result: %+v", result)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 1, Store: storage}, types.Tx("staking:delegate:bob:validator-2:60:"+publicKey)); result.Code != 0 {
+		t.Fatalf("unexpected bob delegate result: %+v", result)
+	}
+	if err := module.EndBlock(vexoapp.Context{Height: 1, Store: storage}); err != nil {
+		t.Fatal(err)
+	}
+	aliceRewards, err := Rewards(context.Background(), storage, "alice", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobRewards, err := Rewards(context.Background(), storage, "bob", "validator-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	collectorBalance, err := bankBalance(context.Background(), storage, defaultFeeCollector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aliceRewards != 12 || bobRewards != 18 || collectorBalance != 0 {
+		t.Fatalf("unexpected rewards alice=%d bob=%d collector=%d", aliceRewards, bobRewards, collectorBalance)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 2, Store: storage}, types.Tx("staking:claim-rewards:alice:validator-1")); result.Code != 0 {
+		t.Fatalf("unexpected claim result: %+v", result)
+	}
+	aliceBalance, err := bankBalance(context.Background(), storage, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceRewards, err = Rewards(context.Background(), storage, "alice", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aliceBalance != 72 || aliceRewards != 0 {
+		t.Fatalf("unexpected claim accounting balance=%d rewards=%d", aliceBalance, aliceRewards)
+	}
+}
+
+func TestStakingModuleUsesConfiguredFeeCollector(t *testing.T) {
+	storage := newStakingStore(t)
+	module := NewModuleWithFeeCollector("treasury")
+	publicKey := base64.StdEncoding.EncodeToString([]byte("validator-key"))
+	if err := setBankBalance(context.Background(), storage, "alice", 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := setBankBalance(context.Background(), storage, "treasury", 10); err != nil {
+		t.Fatal(err)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 1, Store: storage}, types.Tx("staking:delegate:alice:validator-1:100:"+publicKey)); result.Code != 0 {
+		t.Fatalf("unexpected delegate result: %+v", result)
+	}
+	if err := module.EndBlock(vexoapp.Context{Height: 1, Store: storage}); err != nil {
+		t.Fatal(err)
+	}
+	rewards, err := Rewards(context.Background(), storage, "alice", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	treasuryBalance, err := bankBalance(context.Background(), storage, "treasury")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rewards != 10 || treasuryBalance != 0 {
+		t.Fatalf("expected configured collector rewards=10 treasury=0, got rewards=%d treasury=%d", rewards, treasuryBalance)
+	}
+}
+
+func TestStakingModuleDistributesValidatorCommission(t *testing.T) {
+	storage := newStakingStore(t)
+	module := NewModule()
+	publicKey := base64.StdEncoding.EncodeToString([]byte("validator-key"))
+	if err := setBankBalance(context.Background(), storage, "alice", 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := setBankBalance(context.Background(), storage, defaultFeeCollector, 100); err != nil {
+		t.Fatal(err)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 1, Store: storage}, types.Tx("staking:delegate:alice:validator-1:100:"+publicKey)); result.Code != 0 {
+		t.Fatalf("unexpected delegate result: %+v", result)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 1, Store: storage}, types.Tx("staking:set-commission:validator-1:1000:signer=validator-1")); result.Code != 0 {
+		t.Fatalf("unexpected commission result: %+v", result)
+	}
+	if err := module.EndBlock(vexoapp.Context{Height: 1, Store: storage}); err != nil {
+		t.Fatal(err)
+	}
+	validatorRewards, err := Rewards(context.Background(), storage, "validator-1", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceRewards, err := Rewards(context.Background(), storage, "alice", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validatorRewards != 10 || aliceRewards != 90 {
+		t.Fatalf("unexpected commission accounting validator=%d alice=%d", validatorRewards, aliceRewards)
+	}
+}
+
+func TestStakingModuleAssignsRewardRoundingRemainderToValidator(t *testing.T) {
+	storage := newStakingStore(t)
+	module := NewModule()
+	publicKey := base64.StdEncoding.EncodeToString([]byte("validator-key"))
+	if err := setBankBalance(context.Background(), storage, "alice", 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := setBankBalance(context.Background(), storage, "bob", 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := setBankBalance(context.Background(), storage, defaultFeeCollector, 1); err != nil {
+		t.Fatal(err)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 1, Store: storage}, types.Tx("staking:delegate:alice:validator-1:1:"+publicKey)); result.Code != 0 {
+		t.Fatalf("unexpected alice delegate result: %+v", result)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 1, Store: storage}, types.Tx("staking:delegate:bob:validator-1:1:"+publicKey)); result.Code != 0 {
+		t.Fatalf("unexpected bob delegate result: %+v", result)
+	}
+	if err := module.EndBlock(vexoapp.Context{Height: 1, Store: storage}); err != nil {
+		t.Fatal(err)
+	}
+	validatorRewards, err := Rewards(context.Background(), storage, "validator-1", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	collectorBalance, err := bankBalance(context.Background(), storage, defaultFeeCollector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validatorRewards != 1 || collectorBalance != 0 {
+		t.Fatalf("expected validator dust reward and empty collector, reward=%d collector=%d", validatorRewards, collectorBalance)
+	}
+}
+
+func TestStakingClaimRewardsBatchFailureDoesNotMutateState(t *testing.T) {
+	base := newStakingStore(t)
+	storage := failingBatchStore{Store: base, err: errors.New("batch failed")}
+	module := NewModule()
+	if err := setBankBalance(context.Background(), storage, "alice", 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := setUint64(context.Background(), storage, ModuleName, rewardKey("alice", "validator-1"), 5); err != nil {
+		t.Fatal(err)
+	}
+	result := module.DeliverTx(vexoapp.Context{Height: 1, Store: storage}, types.Tx("staking:claim-rewards:alice:validator-1"))
+	if result.Code == 0 {
+		t.Fatalf("expected claim batch failure, got %+v", result)
+	}
+	balance, err := bankBalance(context.Background(), storage, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rewards, err := Rewards(context.Background(), storage, "alice", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != 10 || rewards != 5 {
+		t.Fatalf("expected unchanged state after claim failure, balance=%d rewards=%d", balance, rewards)
+	}
 }
 
 func TestStakingCLICommands(t *testing.T) {
 	command := stakingCLICommand()
 	if command.Name != ModuleName || len(command.Children) != 2 {
 		t.Fatalf("unexpected staking command: %+v", command)
+	}
+	var output bytes.Buffer
+	if err := runClaimRewardsCLI(&output, []string{"alice", "validator-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "staking:claim-rewards:alice:validator-1") {
+		t.Fatalf("unexpected claim cli output: %s", output.String())
+	}
+	output.Reset()
+	if err := runSetCommissionCLI(&output, []string{"validator-1", "500", "--signer", "validator-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "staking:set-commission:validator-1:500:signer=validator-1") {
+		t.Fatalf("unexpected commission cli output: %s", output.String())
+	}
+	output.Reset()
+	if err := runRewardsQueryCLI(&output, []string{"alice", "validator-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(output.String()) != "query_path: staking/rewards/alice/validator-1" {
+		t.Fatalf("unexpected rewards query cli output: %s", output.String())
 	}
 }
 

@@ -3,6 +3,8 @@ package crypto
 import (
 	"errors"
 	"sort"
+
+	"github.com/vexo-network/vexo-consensus/types"
 )
 
 var (
@@ -28,6 +30,10 @@ type KeyRing struct {
 	active KeyID
 }
 
+type KeyRingPolicySigner struct {
+	keyRing *KeyRing
+}
+
 func NewKeyRing(records ...KeyRecord) (*KeyRing, error) {
 	keyRing := &KeyRing{keys: make(map[KeyID]KeyRecord)}
 	for _, record := range records {
@@ -39,6 +45,26 @@ func NewKeyRing(records ...KeyRecord) (*KeyRing, error) {
 		}
 	}
 	return keyRing, nil
+}
+
+func NewKeyRingPolicySigner(records ...KeyRecord) (KeyRingPolicySigner, error) {
+	keyRing, err := NewKeyRing(records...)
+	if err != nil {
+		return KeyRingPolicySigner{}, err
+	}
+	return KeyRingPolicySigner{keyRing: keyRing}, nil
+}
+
+func NewKeyRingPolicySignerFromDocuments(passphrase string, documents ...KeyDocument) (KeyRingPolicySigner, error) {
+	records := make([]KeyRecord, 0, len(documents))
+	for _, document := range documents {
+		record, err := document.KeyRecordWithPassphrase(passphrase)
+		if err != nil {
+			return KeyRingPolicySigner{}, err
+		}
+		records = append(records, record)
+	}
+	return NewKeyRingPolicySigner(records...)
 }
 
 func (keyRing *KeyRing) Add(record KeyRecord) error {
@@ -117,4 +143,51 @@ func (record KeyRecord) activeAt(height uint64) bool {
 		return false
 	}
 	return record.ActiveUntil == 0 || height <= record.ActiveUntil
+}
+
+func (signer KeyRingPolicySigner) PublicKey() types.PublicKey {
+	activeSigner, err := signer.keyRing.ActiveSigner()
+	if err != nil {
+		return nil
+	}
+	return activeSigner.PublicKey()
+}
+
+func (signer KeyRingPolicySigner) PublicKeyAt(height uint64) (types.PublicKey, KeyID, error) {
+	activeSigner, keyID, err := signer.keyRing.ActiveSignerAt(height)
+	if err != nil {
+		return nil, "", err
+	}
+	return activeSigner.PublicKey(), keyID, nil
+}
+
+func (signer KeyRingPolicySigner) Sign(message []byte) (types.Signature, error) {
+	activeSigner, err := signer.keyRing.ActiveSigner()
+	if err != nil {
+		return nil, err
+	}
+	return activeSigner.Sign(message)
+}
+
+func (signer KeyRingPolicySigner) SignWithPolicy(policy SignPolicy, message []byte) (types.Signature, error) {
+	if err := policy.Validate(); err != nil {
+		return nil, err
+	}
+	activeSigner, _, err := signer.keyRing.ActiveSignerAt(uint64(policy.Height))
+	if err != nil {
+		return nil, err
+	}
+	if policySigner, ok := activeSigner.(PolicySigner); ok {
+		return policySigner.SignWithPolicy(policy, message)
+	}
+	return activeSigner.Sign(message)
+}
+
+func (signer KeyRingPolicySigner) Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool {
+	for _, record := range signer.keyRing.keys {
+		if record.Signer.Verify(publicKey, message, signature) {
+			return true
+		}
+	}
+	return false
 }
