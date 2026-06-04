@@ -68,9 +68,13 @@ func NewWithStoreAndCryptoRegistry(cfg config.Config, application app.Applicatio
 		registry = memoryRegistry
 	}
 
-	vrf, err := crypto.NewVRF(cfg.VRF)
-	if err != nil {
-		return nil, err
+	var vrf committee.VRF
+	if cfg.Committee.Backend == committee.BackendVRF {
+		loadedVRF, err := crypto.NewVRF(cfg.VRF)
+		if err != nil {
+			return nil, err
+		}
+		vrf = loadedVRF
 	}
 	selector, err := committee.NewSelector(cfg.Committee, vrf)
 	if err != nil {

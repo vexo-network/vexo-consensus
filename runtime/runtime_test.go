@@ -83,6 +83,19 @@ func TestRuntimeBuildsVRFCommitteeSelector(t *testing.T) {
 	}
 }
 
+func TestRuntimeDoesNotLoadVRFAdapterForDeterministicCommittee(t *testing.T) {
+	cfg := config.Default("vexo-test")
+	cfg.Committee.Backend = committee.BackendDeterministic
+	cfg.VRF.ProductionAdapter = true
+	cfg.VRF.AdapterName = "missing-vrf"
+
+	if _, err := New(cfg, noopApp{}, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: []byte("alice-pub")},
+	}, nil); err != nil {
+		t.Fatalf("deterministic committee must not require VRF adapter: %v", err)
+	}
+}
+
 func TestRuntimeBuildsConsensusStateMachine(t *testing.T) {
 	cfg := config.Default("vexo-test")
 	runtime, err := New(cfg, noopApp{}, []validator.Validator{

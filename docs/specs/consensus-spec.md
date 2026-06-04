@@ -66,3 +66,12 @@ Consensus evidence includes:
 - unavailable data evidence
 
 Evidence must be validated before application, persisted, and deduplicated by stable evidence key.
+
+Invalid proposal evidence is reason-specific:
+
+- data-availability mismatch proofs must show a commitment mismatch.
+- missing-data proofs must show missing data for a non-empty proposal.
+- validator-set-hash and app-hash proofs must bind `actual_hash` to the proposed header field and include a different expected hash.
+- timestamp proofs must bind `actual_time_unix_nano` to the proposed header timestamp when the header timestamp is present.
+- tx-validity proofs must include deterministic expected/actual result hashes plus a verifier message.
+- proposer-signature proofs still pass normal proposal envelope checks, then fail domain-separated proposer signature verification during slashing validation.

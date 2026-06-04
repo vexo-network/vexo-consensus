@@ -150,6 +150,11 @@ func NewInvalidProposalHashEvidence(proposal Proposal, reason string, expected t
 		return slashing.Evidence{}, slashing.ErrMissingValidator
 	}
 	proposalReason := InvalidProposalReason(reason)
+	switch proposalReason {
+	case InvalidProposalReasonValidatorSetHash, InvalidProposalReasonAppHash, InvalidProposalReasonStateRoot:
+	default:
+		return slashing.Evidence{}, ErrUnsupportedProposalReason
+	}
 	proof := InvalidProposalProof{
 		Proposal:     proposal,
 		Reason:       proposalReason,
@@ -173,6 +178,20 @@ func NewInvalidProposalHashEvidence(proposal Proposal, reason string, expected t
 		Round:     proposal.Round,
 		Proof:     encoded,
 	}, nil
+}
+
+func NewInvalidProposalTxValidityEvidence(proposal Proposal, expected types.Hash, actual types.Hash, message string) (slashing.Evidence, error) {
+	if proposal.Proposer == "" || proposal.Block.Header.Height == 0 {
+		return slashing.Evidence{}, slashing.ErrMissingValidator
+	}
+	proof := InvalidProposalProof{
+		Proposal:            proposal,
+		Reason:              InvalidProposalReasonTxValidity,
+		ExpectedHash:        expected,
+		ActualHash:          actual,
+		VerificationMessage: message,
+	}
+	return newInvalidProposalEvidenceFromProof(proof)
 }
 
 func NewInvalidProposalTimestampEvidence(proposal Proposal, expected int64, actual int64) (slashing.Evidence, error) {
@@ -280,17 +299,34 @@ func verifyInvalidProposalByReason(decoded InvalidProposalProof) error {
 			return err
 		}
 		return nil
-	case InvalidProposalReasonValidatorSetHash, InvalidProposalReasonAppHash, InvalidProposalReasonStateRoot, InvalidProposalReasonTxValidity:
-		if decoded.ExpectedHash == (types.Hash{}) ||
-			decoded.ActualHash == (types.Hash{}) ||
-			decoded.ExpectedHash == decoded.ActualHash {
+	case InvalidProposalReasonValidatorSetHash:
+		if err := verifyHashMismatch(decoded, decoded.Proposal.Block.Header.ValidatorSetHash); err != nil {
+			return err
+		}
+		return nil
+	case InvalidProposalReasonAppHash:
+		if err := verifyHashMismatch(decoded, decoded.Proposal.Block.Header.AppHash); err != nil {
+			return err
+		}
+		return nil
+	case InvalidProposalReasonStateRoot:
+		if err := verifyHashMismatch(decoded, types.Hash{}); err != nil {
+			return err
+		}
+		return nil
+	case InvalidProposalReasonTxValidity:
+		if decoded.VerificationMessage == "" {
 			return ErrInvalidProposal
+		}
+		if err := verifyHashMismatch(decoded, types.Hash{}); err != nil {
+			return err
 		}
 		return nil
 	case InvalidProposalReasonTimestamp:
 		if decoded.ExpectedTimeUnixNano == 0 ||
 			decoded.ActualTimeUnixNano == 0 ||
-			decoded.ExpectedTimeUnixNano == decoded.ActualTimeUnixNano {
+			decoded.ExpectedTimeUnixNano == decoded.ActualTimeUnixNano ||
+			(decoded.Proposal.Block.Header.TimeUnixNano != 0 && decoded.ActualTimeUnixNano != decoded.Proposal.Block.Header.TimeUnixNano) {
 			return ErrInvalidProposal
 		}
 		return nil
@@ -302,6 +338,18 @@ func verifyInvalidProposalByReason(decoded InvalidProposalProof) error {
 	default:
 		return ErrUnsupportedProposalReason
 	}
+}
+
+func verifyHashMismatch(decoded InvalidProposalProof, proposalActual types.Hash) error {
+	if decoded.ExpectedHash == (types.Hash{}) ||
+		decoded.ActualHash == (types.Hash{}) ||
+		decoded.ExpectedHash == decoded.ActualHash {
+		return ErrInvalidProposal
+	}
+	if proposalActual != (types.Hash{}) && decoded.ActualHash != proposalActual {
+		return ErrInvalidProposal
+	}
+	return nil
 }
 
 func NewUnavailableDataEvidence(proposal Proposal, reason string) (slashing.Evidence, error) {

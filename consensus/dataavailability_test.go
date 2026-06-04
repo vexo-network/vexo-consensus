@@ -88,9 +88,10 @@ func TestInvalidProposalHashEvidenceVerifiesReasonSpecificProof(t *testing.T) {
 	proposal := Proposal{
 		Block: types.Block{
 			Header: types.Header{
-				ChainID:       "vexo-test",
-				Height:        7,
-				ConsensusHash: dataavailability.Commitment([]types.Tx{[]byte("tx")}),
+				ChainID:          "vexo-test",
+				Height:           7,
+				ValidatorSetHash: types.Hash{2},
+				ConsensusHash:    dataavailability.Commitment([]types.Tx{[]byte("tx")}),
 			},
 			Txs: []types.Tx{[]byte("tx")},
 		},
@@ -107,6 +108,27 @@ func TestInvalidProposalHashEvidenceVerifiesReasonSpecificProof(t *testing.T) {
 	}
 }
 
+func TestInvalidProposalHashEvidenceRejectsActualHashNotInProposal(t *testing.T) {
+	proposal := Proposal{
+		Block: types.Block{
+			Header: types.Header{
+				ChainID:          "vexo-test",
+				Height:           7,
+				ValidatorSetHash: types.Hash{9},
+				ConsensusHash:    dataavailability.Commitment([]types.Tx{[]byte("tx")}),
+			},
+			Txs: []types.Tx{[]byte("tx")},
+		},
+		Round:    2,
+		Proposer: "validator-1",
+	}
+
+	_, err := NewInvalidProposalHashEvidence(proposal, string(InvalidProposalReasonValidatorSetHash), types.Hash{1}, types.Hash{2})
+	if !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected invalid proposal proof, got %v", err)
+	}
+}
+
 func TestInvalidProposalHashEvidenceRejectsMissingMismatch(t *testing.T) {
 	proposal := Proposal{
 		Block: types.Block{
@@ -118,5 +140,44 @@ func TestInvalidProposalHashEvidenceRejectsMissingMismatch(t *testing.T) {
 	_, err := NewInvalidProposalHashEvidence(proposal, string(InvalidProposalReasonAppHash), types.Hash{1}, types.Hash{1})
 	if !errors.Is(err, ErrInvalidProposal) {
 		t.Fatalf("expected invalid proposal proof, got %v", err)
+	}
+}
+
+func TestInvalidProposalTxValidityEvidenceRequiresDeterministicMismatch(t *testing.T) {
+	proposal := Proposal{
+		Block: types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: 7},
+		},
+		Proposer: "validator-1",
+	}
+
+	_, err := NewInvalidProposalTxValidityEvidence(proposal, types.Hash{1}, types.Hash{2}, "ante rejected tx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = NewInvalidProposalTxValidityEvidence(proposal, types.Hash{1}, types.Hash{1}, "ante rejected tx")
+	if !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected invalid matching tx validity proof, got %v", err)
+	}
+	_, err = NewInvalidProposalTxValidityEvidence(proposal, types.Hash{1}, types.Hash{2}, "")
+	if !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected invalid missing verification message, got %v", err)
+	}
+}
+
+func TestInvalidProposalTimestampEvidenceBindsActualToProposal(t *testing.T) {
+	proposal := Proposal{
+		Block: types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: 7, TimeUnixNano: 200},
+		},
+		Proposer: "validator-1",
+	}
+
+	_, err := NewInvalidProposalTimestampEvidence(proposal, 100, 300)
+	if !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected timestamp proof to bind actual proposal time, got %v", err)
+	}
+	if _, err := NewInvalidProposalTimestampEvidence(proposal, 100, 200); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -85,7 +85,7 @@ func init() {
 }
 ```
 
-`vrf.adapter_name`, `vrf.audit_report`, and `vrf.key_source` must match the adapter metadata. If no registered adapter is linked, runtime startup fails instead of silently falling back to deterministic VRF.
+`vrf.adapter_name`, `vrf.audit_report`, and `vrf.key_source` must match the adapter metadata. When `committee.backend` is `vrf`, runtime startup fails if no matching adapter is linked instead of silently falling back to deterministic VRF. When committee selection is deterministic, runtime does not load a VRF adapter.
 
 ## Remote Signer Requirements
 
