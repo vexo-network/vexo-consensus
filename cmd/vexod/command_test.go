@@ -744,6 +744,7 @@ func TestRunProofDataAvailabilityCommands(t *testing.T) {
 		"--tx-hex", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		"--chunk-size", "16",
 		"--data-shards", "4",
+		"--parity-shards", "2",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -759,7 +760,7 @@ func TestRunProofDataAvailabilityCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	var recoverOutput bytes.Buffer
-	if err := runCommand(&recoverOutput, &bytes.Buffer{}, []string{"proof", "da-recover", "--input", bundlePath, "--drop", "1"}); err != nil {
+	if err := runCommand(&recoverOutput, &bytes.Buffer{}, []string{"proof", "da-recover", "--input", bundlePath, "--drop", "1", "--drop", "3"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{

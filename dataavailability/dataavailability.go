@@ -10,30 +10,34 @@ import (
 )
 
 var (
-	ErrCommitmentMismatch = errors.New("data availability commitment mismatch")
-	ErrMissingData        = errors.New("data availability data is missing")
-	ErrInvalidChunkSize   = errors.New("invalid data availability chunk size")
-	ErrInvalidDataShards  = errors.New("invalid data availability data shards")
-	ErrInvalidChunkProof  = errors.New("invalid data availability chunk proof")
-	ErrInsufficientChunks = errors.New("insufficient data availability chunks")
-	ErrTooManyMissing     = errors.New("too many missing data availability chunks")
-	ErrInvalidEncoding    = errors.New("invalid data availability transaction encoding")
+	ErrCommitmentMismatch  = errors.New("data availability commitment mismatch")
+	ErrMissingData         = errors.New("data availability data is missing")
+	ErrInvalidChunkSize    = errors.New("invalid data availability chunk size")
+	ErrInvalidDataShards   = errors.New("invalid data availability data shards")
+	ErrInvalidParityShards = errors.New("invalid data availability parity shards")
+	ErrInvalidChunkProof   = errors.New("invalid data availability chunk proof")
+	ErrInsufficientChunks  = errors.New("insufficient data availability chunks")
+	ErrTooManyMissing      = errors.New("too many missing data availability chunks")
+	ErrInvalidEncoding     = errors.New("invalid data availability transaction encoding")
 )
 
 const (
-	DefaultChunkSize  uint64 = 1024
-	DefaultDataShards uint64 = 8
+	DefaultChunkSize    uint64 = 1024
+	DefaultDataShards   uint64 = 8
+	DefaultParityShards uint64 = 2
+	maxErasureShards    uint64 = 255
 )
 
 type Proof struct {
-	Commitment  types.Hash
-	TxCount     uint64
-	TotalBytes  uint64
-	EncodedSize uint64
-	ChunkSize   uint64
-	ChunkCount  uint64
-	DataShards  uint64
-	ParityCount uint64
+	Commitment   types.Hash
+	TxCount      uint64
+	TotalBytes   uint64
+	EncodedSize  uint64
+	ChunkSize    uint64
+	ChunkCount   uint64
+	DataShards   uint64
+	ParityShards uint64
+	ParityCount  uint64
 }
 
 type Chunk struct {
@@ -61,8 +65,15 @@ func BuildProof(txs []types.Tx) Proof {
 }
 
 func BuildProofWithOptions(txs []types.Tx, chunkSize uint64, dataShards uint64) (Proof, error) {
-	if dataShards == 0 {
+	return BuildProofWithErasureOptions(txs, chunkSize, dataShards, DefaultParityShards)
+}
+
+func BuildProofWithErasureOptions(txs []types.Tx, chunkSize uint64, dataShards uint64, parityShards uint64) (Proof, error) {
+	if dataShards == 0 || dataShards > maxErasureShards {
 		return Proof{}, ErrInvalidDataShards
+	}
+	if parityShards == 0 || parityShards > maxErasureShards {
+		return Proof{}, ErrInvalidParityShards
 	}
 	var totalBytes uint64
 	for _, tx := range txs {
@@ -74,14 +85,15 @@ func BuildProofWithOptions(txs []types.Tx, chunkSize uint64, dataShards uint64) 
 		return Proof{}, err
 	}
 	return Proof{
-		Commitment:  chunkRoot(chunks),
-		TxCount:     uint64(len(txs)),
-		TotalBytes:  totalBytes,
-		EncodedSize: uint64(len(encoded)),
-		ChunkSize:   chunkSize,
-		ChunkCount:  uint64(len(chunks)),
-		DataShards:  dataShards,
-		ParityCount: parityCount(uint64(len(chunks)), dataShards),
+		Commitment:   chunkRoot(chunks),
+		TxCount:      uint64(len(txs)),
+		TotalBytes:   totalBytes,
+		EncodedSize:  uint64(len(encoded)),
+		ChunkSize:    chunkSize,
+		ChunkCount:   uint64(len(chunks)),
+		DataShards:   dataShards,
+		ParityShards: parityShards,
+		ParityCount:  parityGroupCount(uint64(len(chunks)), dataShards) * parityShards,
 	}, nil
 }
 
@@ -95,14 +107,21 @@ func BuildChunks(txs []types.Tx, chunkSize uint64) ([]Chunk, error) {
 }
 
 func BuildParityChunks(txs []types.Tx, chunkSize uint64, dataShards uint64) ([]Chunk, error) {
-	if dataShards == 0 {
+	return BuildParityChunksWithOptions(txs, chunkSize, dataShards, DefaultParityShards)
+}
+
+func BuildParityChunksWithOptions(txs []types.Tx, chunkSize uint64, dataShards uint64, parityShards uint64) ([]Chunk, error) {
+	if dataShards == 0 || dataShards > maxErasureShards {
 		return nil, ErrInvalidDataShards
+	}
+	if parityShards == 0 || parityShards > maxErasureShards {
+		return nil, ErrInvalidParityShards
 	}
 	chunks, err := BuildChunks(txs, chunkSize)
 	if err != nil {
 		return nil, err
 	}
-	return parityChunks(chunks, chunkSize, dataShards), nil
+	return reedSolomonParityChunks(chunks, chunkSize, dataShards, parityShards), nil
 }
 
 func BuildChunkProof(txs []types.Tx, chunkSize uint64, index uint64) (ChunkProof, error) {
@@ -152,10 +171,21 @@ func RecoverTransactions(proof Proof, chunks []Chunk, parity []Chunk) ([]types.T
 }
 
 func RecoverData(proof Proof, chunks []Chunk, parity []Chunk) ([]byte, error) {
-	if proof.ChunkSize == 0 || proof.ChunkCount == 0 || proof.DataShards == 0 || proof.EncodedSize == 0 {
+	parityShards := proof.ParityShards
+	if parityShards == 0 {
+		parityShards = 1
+	}
+	if proof.ChunkSize == 0 || proof.ChunkCount == 0 || proof.DataShards == 0 || proof.EncodedSize == 0 || parityShards == 0 {
+		return nil, ErrInvalidChunkProof
+	}
+	if proof.DataShards > maxErasureShards || parityShards > maxErasureShards {
 		return nil, ErrInvalidChunkProof
 	}
 	if proof.EncodedSize > proof.ChunkSize*proof.ChunkCount {
+		return nil, ErrInvalidChunkProof
+	}
+	groupCount := parityGroupCount(proof.ChunkCount, proof.DataShards)
+	if proof.ParityCount != 0 && proof.ParityCount != groupCount*parityShards {
 		return nil, ErrInvalidChunkProof
 	}
 	dataByIndex := make(map[uint64][]byte, len(chunks))
@@ -163,16 +193,29 @@ func RecoverData(proof Proof, chunks []Chunk, parity []Chunk) ([]byte, error) {
 		if chunk.Index >= proof.ChunkCount || uint64(len(chunk.Data)) > proof.ChunkSize {
 			return nil, ErrInvalidChunkProof
 		}
+		if _, found := dataByIndex[chunk.Index]; found {
+			return nil, ErrInvalidChunkProof
+		}
 		dataByIndex[chunk.Index] = append([]byte(nil), chunk.Data...)
 	}
-	parityByGroup := make(map[uint64][]byte, len(parity))
+	parityByGroup := make(map[uint64]map[uint64][]byte, len(parity))
 	for _, chunk := range parity {
 		if uint64(len(chunk.Data)) != proof.ChunkSize {
 			return nil, ErrInvalidChunkProof
 		}
-		parityByGroup[chunk.Index] = append([]byte(nil), chunk.Data...)
+		group := chunk.Index / parityShards
+		shard := chunk.Index % parityShards
+		if group >= parityGroupCount(proof.ChunkCount, proof.DataShards) {
+			return nil, ErrInvalidChunkProof
+		}
+		if parityByGroup[group] == nil {
+			parityByGroup[group] = make(map[uint64][]byte)
+		}
+		if _, found := parityByGroup[group][shard]; found {
+			return nil, ErrInvalidChunkProof
+		}
+		parityByGroup[group][shard] = append([]byte(nil), chunk.Data...)
 	}
-	groupCount := parityCount(proof.ChunkCount, proof.DataShards)
 	for group := uint64(0); group < groupCount; group++ {
 		start := group * proof.DataShards
 		end := start + proof.DataShards
@@ -188,26 +231,20 @@ func RecoverData(proof Proof, chunks []Chunk, parity []Chunk) ([]byte, error) {
 		if len(missing) == 0 {
 			continue
 		}
-		if len(missing) > 1 {
+		if uint64(len(missing)) > parityShards {
 			return nil, ErrTooManyMissing
 		}
-		parityData, found := parityByGroup[group]
-		if !found {
+		paritySet := parityByGroup[group]
+		if len(paritySet) < len(missing) {
 			return nil, ErrInsufficientChunks
 		}
-		recovered := append([]byte(nil), parityData...)
-		for index := start; index < end; index++ {
-			if index == missing[0] {
-				continue
-			}
-			chunkData, found := dataByIndex[index]
-			if !found {
-				return nil, ErrTooManyMissing
-			}
-			xorInto(recovered, paddedChunk(chunkData, proof.ChunkSize))
+		recovered, err := recoverMissingGroupChunks(start, end, proof.ChunkSize, missing, dataByIndex, paritySet)
+		if err != nil {
+			return nil, err
 		}
-		recovered = trimRecoveredChunk(recovered, missing[0], proof)
-		dataByIndex[missing[0]] = recovered
+		for index, data := range recovered {
+			dataByIndex[index] = trimRecoveredChunk(data, index, proof)
+		}
 	}
 	ordered := make([]Chunk, 0, proof.ChunkCount)
 	for index := uint64(0); index < proof.ChunkCount; index++ {
@@ -305,23 +342,27 @@ func splitChunks(data []byte, chunkSize uint64) ([]Chunk, error) {
 	return chunks, nil
 }
 
-func parityChunks(chunks []Chunk, chunkSize uint64, dataShards uint64) []Chunk {
-	if len(chunks) == 0 || dataShards == 0 {
+func reedSolomonParityChunks(chunks []Chunk, chunkSize uint64, dataShards uint64, parityShards uint64) []Chunk {
+	if len(chunks) == 0 || dataShards == 0 || parityShards == 0 {
 		return nil
 	}
-	groupCount := parityCount(uint64(len(chunks)), dataShards)
-	parity := make([]Chunk, 0, groupCount)
+	groupCount := parityGroupCount(uint64(len(chunks)), dataShards)
+	parity := make([]Chunk, 0, groupCount*parityShards)
 	for group := uint64(0); group < groupCount; group++ {
 		start := group * dataShards
 		end := start + dataShards
 		if end > uint64(len(chunks)) {
 			end = uint64(len(chunks))
 		}
-		buffer := make([]byte, chunkSize)
-		for index := start; index < end; index++ {
-			xorInto(buffer, paddedChunk(chunks[index].Data, chunkSize))
+		for parityShard := uint64(0); parityShard < parityShards; parityShard++ {
+			buffer := make([]byte, chunkSize)
+			x := byte(parityShard + 1)
+			for index := start; index < end; index++ {
+				coefficient := gfPow(x, index-start)
+				xorMulInto(buffer, paddedChunk(chunks[index].Data, chunkSize), coefficient)
+			}
+			parity = append(parity, Chunk{Index: group*parityShards + parityShard, Data: buffer})
 		}
-		parity = append(parity, Chunk{Index: group, Data: buffer})
 	}
 	return parity
 }
@@ -423,6 +464,19 @@ func xorInto(target []byte, source []byte) {
 	}
 }
 
+func xorMulInto(target []byte, source []byte, coefficient byte) {
+	if coefficient == 0 {
+		return
+	}
+	if coefficient == 1 {
+		xorInto(target, source)
+		return
+	}
+	for index := range target {
+		target[index] ^= gfMul(source[index], coefficient)
+	}
+}
+
 func trimRecoveredChunk(data []byte, index uint64, proof Proof) []byte {
 	expected := proof.ChunkSize
 	if index == proof.ChunkCount-1 {
@@ -434,11 +488,120 @@ func trimRecoveredChunk(data []byte, index uint64, proof Proof) []byte {
 	return append([]byte(nil), data[:expected]...)
 }
 
-func parityCount(chunkCount uint64, dataShards uint64) uint64 {
+func parityGroupCount(chunkCount uint64, dataShards uint64) uint64 {
 	if chunkCount == 0 || dataShards == 0 {
 		return 0
 	}
 	return (chunkCount + dataShards - 1) / dataShards
+}
+
+func recoverMissingGroupChunks(start uint64, end uint64, chunkSize uint64, missing []uint64, dataByIndex map[uint64][]byte, paritySet map[uint64][]byte) (map[uint64][]byte, error) {
+	equationShards := sortedParityShards(paritySet)
+	if len(equationShards) < len(missing) {
+		return nil, ErrInsufficientChunks
+	}
+	equationShards = equationShards[:len(missing)]
+	matrix := make([][]byte, len(missing))
+	right := make([][]byte, len(missing))
+	for row, parityShard := range equationShards {
+		x := byte(parityShard + 1)
+		adjusted := append([]byte(nil), paritySet[parityShard]...)
+		for index := start; index < end; index++ {
+			if containsMissing(missing, index) {
+				continue
+			}
+			data, found := dataByIndex[index]
+			if !found {
+				return nil, ErrTooManyMissing
+			}
+			coefficient := gfPow(x, index-start)
+			xorMulInto(adjusted, paddedChunk(data, chunkSize), coefficient)
+		}
+		matrix[row] = make([]byte, len(missing))
+		for column, missingIndex := range missing {
+			matrix[row][column] = gfPow(x, missingIndex-start)
+		}
+		right[row] = adjusted
+	}
+	inverse, err := invertMatrix(matrix)
+	if err != nil {
+		return nil, ErrInsufficientChunks
+	}
+	recovered := make(map[uint64][]byte, len(missing))
+	for column, missingIndex := range missing {
+		data := make([]byte, chunkSize)
+		for row := range right {
+			xorMulInto(data, right[row], inverse[column][row])
+		}
+		recovered[missingIndex] = data
+	}
+	return recovered, nil
+}
+
+func sortedParityShards(paritySet map[uint64][]byte) []uint64 {
+	shards := make([]uint64, 0, len(paritySet))
+	for shard := range paritySet {
+		shards = append(shards, shard)
+	}
+	sort.Slice(shards, func(first int, second int) bool {
+		return shards[first] < shards[second]
+	})
+	return shards
+}
+
+func containsMissing(missing []uint64, value uint64) bool {
+	for _, candidate := range missing {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
+}
+
+func invertMatrix(matrix [][]byte) ([][]byte, error) {
+	size := len(matrix)
+	if size == 0 {
+		return nil, ErrInsufficientChunks
+	}
+	augmented := make([][]byte, size)
+	for row := 0; row < size; row++ {
+		if len(matrix[row]) != size {
+			return nil, ErrInsufficientChunks
+		}
+		augmented[row] = make([]byte, size*2)
+		copy(augmented[row], matrix[row])
+		augmented[row][size+row] = 1
+	}
+	for column := 0; column < size; column++ {
+		pivot := column
+		for pivot < size && augmented[pivot][column] == 0 {
+			pivot++
+		}
+		if pivot == size {
+			return nil, ErrInsufficientChunks
+		}
+		if pivot != column {
+			augmented[pivot], augmented[column] = augmented[column], augmented[pivot]
+		}
+		inversePivot := gfInv(augmented[column][column])
+		for index := range augmented[column] {
+			augmented[column][index] = gfMul(augmented[column][index], inversePivot)
+		}
+		for row := 0; row < size; row++ {
+			if row == column || augmented[row][column] == 0 {
+				continue
+			}
+			factor := augmented[row][column]
+			for index := range augmented[row] {
+				augmented[row][index] ^= gfMul(factor, augmented[column][index])
+			}
+		}
+	}
+	inverse := make([][]byte, size)
+	for row := 0; row < size; row++ {
+		inverse[row] = append([]byte(nil), augmented[row][size:]...)
+	}
+	return inverse, nil
 }
 
 func appendUint64(buffer []byte, value uint64) []byte {
@@ -455,4 +618,49 @@ func writeUint64(writer byteWriter, value uint64) {
 	var buffer [8]byte
 	binary.BigEndian.PutUint64(buffer[:], value)
 	writer.Write(buffer[:])
+}
+
+var gfExpTable, gfLogTable = buildGFTables()
+
+func buildGFTables() ([512]byte, [256]byte) {
+	var exp [512]byte
+	var log [256]byte
+	value := 1
+	for index := 0; index < 255; index++ {
+		exp[index] = byte(value)
+		log[byte(value)] = byte(index)
+		value <<= 1
+		if value&0x100 != 0 {
+			value ^= 0x11d
+		}
+	}
+	for index := 255; index < len(exp); index++ {
+		exp[index] = exp[index-255]
+	}
+	return exp, log
+}
+
+func gfMul(left byte, right byte) byte {
+	if left == 0 || right == 0 {
+		return 0
+	}
+	return gfExpTable[int(gfLogTable[left])+int(gfLogTable[right])]
+}
+
+func gfPow(value byte, power uint64) byte {
+	if power == 0 {
+		return 1
+	}
+	if value == 0 {
+		return 0
+	}
+	logValue := uint64(gfLogTable[value])
+	return gfExpTable[(logValue*(power%255))%255]
+}
+
+func gfInv(value byte) byte {
+	if value == 0 {
+		return 0
+	}
+	return gfExpTable[255-int(gfLogTable[value])]
 }

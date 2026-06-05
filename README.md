@@ -118,10 +118,10 @@ vexod tx build --module bank --action send --args alice,bob,25 --tags fee=1gvxo,
 vexod proof query --home .vexo --namespace bank --key alice
 vexod proof verify --input proof.json --chain-id vexo-chain --height 10
 vexod proof verify-ibc --home .vexo --client-id 07-vexo-0 --input ibc-proof.json
-vexod proof da-export --tx-hex 68656c6c6f --tx-hex 776f726c64 > da-bundle.json
+vexod proof da-export --tx-hex 68656c6c6f --tx-hex 776f726c64 --data-shards 4 --parity-shards 2 > da-bundle.json
 vexod proof da-proof --tx-hex 68656c6c6f --tx-hex 776f726c64 --index 0 > da-proof.json
 vexod proof da-verify --input da-proof.json
-vexod proof da-recover --input da-bundle.json --drop 0
+vexod proof da-recover --input da-bundle.json --drop 0 --drop 1
 vexod ibc tx client-update 07-vexo-0 11 <validator-set-hash> <state-root> --fee 1 --gas 1000 --signer relayer --nonce 1
 vexod relayer client-update --source-rpc 127.0.0.1:26657 --rpc 127.0.0.1:27657 --client-id 07-vexo-0 --fee 1 --gas 1000 --signer relayer --nonce 1 --submit
 vexod ibc tx connection-open-init connection-0 07-vexo-0 connection-1 --fee 1 --gas 1000 --signer relayer --nonce 1

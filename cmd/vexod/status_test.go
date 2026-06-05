@@ -33,6 +33,7 @@ func TestWriteStatus(t *testing.T) {
 		"fair_ordering.deterministic: true",
 		"fair_ordering.height_salted: true",
 		"data_availability.commitments: true",
+		"data_availability.reed_solomon_recovery: true",
 		"storage.backend: leveldb",
 		"state_sync.snapshot_kv: true",
 		"state_sync.snapshot_checksum: true",
@@ -122,8 +123,59 @@ func TestWriteStatusJSON(t *testing.T) {
 	if document.Execution.FeeDenom != "avxo" || document.Execution.DisplayDenom != "vexo" || document.Execution.DisplayExponent != 18 || document.Execution.GasDenom != "gas" {
 		t.Fatalf("unexpected execution status: %+v", document.Execution)
 	}
-	if document.Storage.Backend != "leveldb" || !document.Features["peer_scoring"] || !document.Features["height_salted_order"] || !document.Features["deployment_audit"] || !document.Features["addr_book"] || !document.Features["addr_book_ban_evict"] || !document.Features["peer_dial_tracking"] || !document.Features["transport_peer_gate"] || !document.Features["consensus_gossip_scoring"] || !document.Features["banned_peer_disconnect"] || !document.Features["peer_score_persistence"] || !document.Features["data_availability_chunk_proofs"] || !document.Features["data_availability_parity_recovery"] || !document.Features["state_sync_snapshot_kv"] || !document.Features["state_sync_checksum"] || !document.Features["state_sync_verify"] || !document.Features["state_sync_snapshot_chunks"] || !document.Features["state_sync_historical_replay"] || !document.Features["web3_receipt_roots"] || !document.Features["web3_global_log_filters"] || !document.Features["web3_prefix_log_index"] || !document.Features["web3_filter_limit"] || !document.Features["evm_storage_writes"] || !document.Features["validator_update_atomic_commit"] || !document.Features["staking_slashing_ledger"] || !document.Features["mempool_seen_cache_pruning"] || !document.Features["ops_metrics_uptime"] || !document.Features["ops_pprof_optional"] || !document.Features["ops_structured_logs"] || !document.Features["ops_release_artifacts"] || !document.Features["ops_external_audit_pack"] || !document.Features["ops_deployment_template"] || !document.Features["ops_longrun_network_plan"] || !document.Features["security_fuzz_targets"] || !document.Features["security_strict_json_rpc"] || !document.Features["security_forwarded_for_untrusted"] || !document.Features["consensus_adversarial_simulation"] || !document.Features["consensus_partition_safety"] || !document.Features["consensus_tendermint_timeouts"] || !document.Features["consensus_empty_block_control"] || !document.Features["consensus_app_hash_evidence"] || !document.Features["consensus_tx_validity_evidence"] || !document.Features["crypto_remote_signer_verification"] || !document.Features["crypto_bls_adapter_required"] {
-		t.Fatalf("unexpected feature/storage status: %+v", document)
+	if document.Storage.Backend != "leveldb" {
+		t.Fatalf("unexpected storage status: %+v", document.Storage)
+	}
+	expectedFeatures := []string{
+		"peer_scoring",
+		"height_salted_order",
+		"deployment_audit",
+		"addr_book",
+		"addr_book_ban_evict",
+		"peer_dial_tracking",
+		"transport_peer_gate",
+		"consensus_gossip_scoring",
+		"banned_peer_disconnect",
+		"peer_score_persistence",
+		"data_availability_chunk_proofs",
+		"data_availability_parity_recovery",
+		"data_availability_reed_solomon_recovery",
+		"state_sync_snapshot_kv",
+		"state_sync_checksum",
+		"state_sync_verify",
+		"state_sync_snapshot_chunks",
+		"state_sync_historical_replay",
+		"web3_receipt_roots",
+		"web3_global_log_filters",
+		"web3_prefix_log_index",
+		"web3_filter_limit",
+		"evm_storage_writes",
+		"validator_update_atomic_commit",
+		"staking_slashing_ledger",
+		"mempool_seen_cache_pruning",
+		"ops_metrics_uptime",
+		"ops_pprof_optional",
+		"ops_structured_logs",
+		"ops_release_artifacts",
+		"ops_external_audit_pack",
+		"ops_deployment_template",
+		"ops_longrun_network_plan",
+		"security_fuzz_targets",
+		"security_strict_json_rpc",
+		"security_forwarded_for_untrusted",
+		"consensus_adversarial_simulation",
+		"consensus_partition_safety",
+		"consensus_tendermint_timeouts",
+		"consensus_empty_block_control",
+		"consensus_app_hash_evidence",
+		"consensus_tx_validity_evidence",
+		"crypto_remote_signer_verification",
+		"crypto_bls_adapter_required",
+	}
+	for _, feature := range expectedFeatures {
+		if !document.Features[feature] {
+			t.Fatalf("expected feature %q in status document: %+v", feature, document.Features)
+		}
 	}
 	if document.P2P.InitialScore != 100 || document.P2P.MaxScore != 1000 || document.P2P.InvalidMessageCost != 10 || !document.P2P.PeerSnapshotsEnabled {
 		t.Fatalf("unexpected p2p status: %+v", document.P2P)

@@ -82,8 +82,10 @@ Invalid proposal evidence is reason-specific:
 Current invalid-proposal evidence is a runtime-verifiable mismatch proof format. Validator-set-hash evidence is checked against the height-specific validator set. App-hash evidence can be applied when the node has the committed state record for the evidence height and can inject that expected app hash into the slashing verifier. Timestamp evidence likewise requires an explicit expected timestamp context. Transaction-validity evidence is fail-closed: it must bind the proposed transaction-set hash and an independently computed deterministic transaction-result hash before slashing can apply.
 
 The consensus/data-availability hash is the Merkle root of canonical length-prefixed transaction chunks.
-Nodes can verify individual chunk samples against that root and can recover one missing chunk per parity group
-from XOR parity chunks. This is deterministic recovery for bounded missing data; chains that need stronger
-availability sampling against many missing chunks should add a Reed-Solomon or 2D erasure-coding backend.
+Nodes can verify individual chunk samples against that root and recover bounded missing chunks with the
+built-in GF(256) Reed-Solomon-style parity backend. The proof records the configured data-shard and
+parity-shard counts, and recovery can tolerate up to `parity_shards` missing data chunks per shard group.
+Chains that need probabilistic large-network DA sampling should add a 2D sampling policy on top of this
+deterministic recovery layer.
 
 It is not a full light-client Merkle/state-proof system. Chains that require slashing from independently verifiable state membership or non-membership proofs must add reason-specific Merkle/state proof verification before applying penalties for those reasons.

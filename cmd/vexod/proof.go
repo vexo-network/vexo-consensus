@@ -59,6 +59,28 @@ func (values *stringListFlag) Set(value string) error {
 	return nil
 }
 
+type uint64ListFlag []uint64
+
+func (values *uint64ListFlag) String() string {
+	if values == nil {
+		return ""
+	}
+	parts := make([]string, 0, len(*values))
+	for _, value := range *values {
+		parts = append(parts, strconv.FormatUint(value, 10))
+	}
+	return strings.Join(parts, ",")
+}
+
+func (values *uint64ListFlag) Set(value string) error {
+	parsed, err := strconv.ParseUint(value, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid uint64 value %q: %w", value, err)
+	}
+	*values = append(*values, parsed)
+	return nil
+}
+
 type dataAvailabilityBundle struct {
 	Proof  dataavailability.Proof   `json:"proof"`
 	Chunks []dataavailability.Chunk `json:"chunks"`
@@ -76,6 +98,7 @@ func runProofDAExport(writer io.Writer, args []string) error {
 	flags.Var(&txHexValues, "tx-hex", "hex-encoded transaction payload; repeat for multiple transactions")
 	chunkSize := flags.Uint64("chunk-size", dataavailability.DefaultChunkSize, "data availability chunk size")
 	dataShards := flags.Uint64("data-shards", dataavailability.DefaultDataShards, "data chunks covered by each parity chunk")
+	parityShards := flags.Uint64("parity-shards", dataavailability.DefaultParityShards, "Reed-Solomon parity chunks per data shard group")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -83,7 +106,7 @@ func runProofDAExport(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	proof, err := dataavailability.BuildProofWithOptions(txs, *chunkSize, *dataShards)
+	proof, err := dataavailability.BuildProofWithErasureOptions(txs, *chunkSize, *dataShards, *parityShards)
 	if err != nil {
 		return err
 	}
@@ -91,7 +114,7 @@ func runProofDAExport(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	parity, err := dataavailability.BuildParityChunks(txs, *chunkSize, *dataShards)
+	parity, err := dataavailability.BuildParityChunksWithOptions(txs, *chunkSize, *dataShards, *parityShards)
 	if err != nil {
 		return err
 	}
@@ -152,7 +175,8 @@ func runProofDARecover(writer io.Writer, args []string) error {
 	flags := flag.NewFlagSet("proof da-recover", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	inputPath := flags.String("input", "", "data availability bundle JSON path")
-	dropIndex := flags.Uint64("drop", ^uint64(0), "optional chunk index to drop before recovery")
+	var dropIndexes uint64ListFlag
+	flags.Var(&dropIndexes, "drop", "optional chunk index to drop before recovery; repeat to simulate multiple missing chunks")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -168,10 +192,14 @@ func runProofDARecover(writer io.Writer, args []string) error {
 		return err
 	}
 	chunks := bundle.Chunks
-	if *dropIndex != ^uint64(0) {
+	if len(dropIndexes) > 0 {
+		dropped := make(map[uint64]struct{}, len(dropIndexes))
+		for _, index := range dropIndexes {
+			dropped[index] = struct{}{}
+		}
 		filtered := make([]dataavailability.Chunk, 0, len(chunks))
 		for _, chunk := range chunks {
-			if chunk.Index != *dropIndex {
+			if _, ok := dropped[chunk.Index]; !ok {
 				filtered = append(filtered, chunk)
 			}
 		}

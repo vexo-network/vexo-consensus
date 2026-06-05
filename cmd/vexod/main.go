@@ -141,7 +141,7 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  proof verify    verify a query proof envelope\n")
 	fmt.Fprintf(writer, "  proof verify-ibc verify a proof against a trusted IBC client\n")
 	fmt.Fprintf(writer, "  proof detect-finality-conflict detect accountable conflicting finality proofs\n")
-	fmt.Fprintf(writer, "  proof da-export export data availability chunks and parity\n")
+	fmt.Fprintf(writer, "  proof da-export export data availability chunks and Reed-Solomon parity\n")
 	fmt.Fprintf(writer, "  proof da-proof  build a data availability chunk proof\n")
 	fmt.Fprintf(writer, "  proof da-verify verify a data availability chunk proof\n")
 	fmt.Fprintf(writer, "  proof da-recover recover transactions from a DA bundle\n")
