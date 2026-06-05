@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -380,8 +381,13 @@ type web3FilterStore struct {
 type web3Filter struct {
 	Type        string
 	Address     string
+	Addresses   []string
+	Topics      [][]string
+	FromBlock   uint64
+	ToBlock     uint64
 	LastHeight  uint64
 	SeenPending map[string]bool
+	SeenLogs    map[string]bool
 }
 
 func NewServer(provider StatusProvider, cfg Config) *Server {
@@ -1260,25 +1266,11 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		}
 		return web3TransactionFromReceipt(response.Value)
 	case "eth_getLogs":
-		query, ok := provider.(AppQueryProvider)
-		if !ok {
-			return nil, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
-		}
-		address, rpcErr := logAddressParam(params)
+		filter, rpcErr := web3LogFilterParam(ctx, provider, params)
 		if rpcErr != nil {
 			return nil, rpcErr
 		}
-		response, err := query.AppQuery(ctx, []string{"evm", "logs", address}, nil)
-		if err != nil {
-			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
-		}
-		if response.Code == 3 {
-			return []any{}, nil
-		}
-		if response.Code != 0 {
-			return nil, &JSONRPCError{Code: -32000, Message: response.Log}
-		}
-		return rawJSONObject(response.Value)
+		return web3LogsForFilter(ctx, provider, filter)
 	case "eth_newBlockFilter":
 		if filters == nil {
 			return nil, &JSONRPCError{Code: -32000, Message: "filter store is unavailable"}
@@ -1307,11 +1299,15 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		if filters == nil {
 			return nil, &JSONRPCError{Code: -32000, Message: "filter store is unavailable"}
 		}
-		address, rpcErr := logAddressParam(params)
+		filter, rpcErr := web3LogFilterParam(ctx, provider, params)
 		if rpcErr != nil {
 			return nil, rpcErr
 		}
-		return filters.add(address, uint64(provider.Status(ctx).LatestHeight)), nil
+		logs, rpcErr := web3LogsForFilter(ctx, provider, filter)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		return filters.addLog(filter, logs, uint64(provider.Status(ctx).LatestHeight)), nil
 	case "eth_getFilterChanges", "eth_getFilterLogs":
 		if filters == nil {
 			return nil, &JSONRPCError{Code: -32000, Message: "filter store is unavailable"}
@@ -1342,7 +1338,17 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 			return nil, rpcErr
 		}
 		if method == "eth_getFilterChanges" {
-			filters.mark(filterID, uint64(provider.Status(ctx).LatestHeight))
+			if filter.Type == "log" {
+				currentLogs, rpcErr := web3LogsForFilter(ctx, provider, filter)
+				if rpcErr != nil {
+					return nil, rpcErr
+				}
+				filter.SeenLogs = web3SeenLogSet(currentLogs)
+				filter.LastHeight = uint64(provider.Status(ctx).LatestHeight)
+				filters.replace(filterID, filter)
+			} else {
+				filters.mark(filterID, uint64(provider.Status(ctx).LatestHeight))
+			}
 		}
 		return changes, nil
 	case "eth_uninstallFilter":
@@ -1549,7 +1555,7 @@ func web3BlockFromRecord(record store.BlockRecord, fullTransactions bool) any {
 		"nonce":            "0x0000000000000000",
 		"sha3Uncles":       "0x0000000000000000000000000000000000000000000000000000000000000000",
 		"logsBloom":        "0x" + strings.Repeat("00", 256),
-		"transactionsRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"transactionsRoot": web3TransactionsRoot(record.Block.Txs),
 		"stateRoot":        "0x" + hex.EncodeToString(record.AppHash[:]),
 		"receiptsRoot":     "0x0000000000000000000000000000000000000000000000000000000000000000",
 		"miner":            "0x0000000000000000000000000000000000000000",
@@ -1634,7 +1640,7 @@ func web3StorageAt(ctx context.Context, provider StatusProvider, params []json.R
 	return "0x" + strings.TrimPrefix(payload.Value, "0x"), nil
 }
 
-func web3LogsForAddress(ctx context.Context, provider StatusProvider, address string) (any, *JSONRPCError) {
+func web3LogsForAddress(ctx context.Context, provider StatusProvider, address string) ([]any, *JSONRPCError) {
 	query, ok := provider.(AppQueryProvider)
 	if !ok {
 		return nil, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
@@ -1649,7 +1655,27 @@ func web3LogsForAddress(ctx context.Context, provider StatusProvider, address st
 	if response.Code != 0 {
 		return nil, &JSONRPCError{Code: -32000, Message: response.Log}
 	}
-	return rawJSONObject(response.Value)
+	logs, rpcErr := rawJSONObject(response.Value)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	return web3LogArray(logs), nil
+}
+
+func web3LogsForFilter(ctx context.Context, provider StatusProvider, filter web3Filter) ([]any, *JSONRPCError) {
+	results := make([]any, 0)
+	for _, address := range filter.Addresses {
+		logs, rpcErr := web3LogsForAddress(ctx, provider, address)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		for _, log := range logs {
+			if web3LogMatchesFilter(log, filter) {
+				results = append(results, web3NormalizeLog(log))
+			}
+		}
+	}
+	return results, nil
 }
 
 func web3FilterChanges(ctx context.Context, provider StatusProvider, filter web3Filter, onlyChanges bool) (any, *JSONRPCError) {
@@ -1657,7 +1683,22 @@ func web3FilterChanges(ctx context.Context, provider StatusProvider, filter web3
 	case "block":
 		return web3BlockFilterChanges(ctx, provider, filter, onlyChanges)
 	default:
-		return web3LogsForAddress(ctx, provider, filter.Address)
+		logs, rpcErr := web3LogsForFilter(ctx, provider, filter)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		if !onlyChanges {
+			return logs, nil
+		}
+		changes := make([]any, 0, len(logs))
+		for _, log := range logs {
+			id := web3LogID(log)
+			if id == "" || filter.SeenLogs[id] {
+				continue
+			}
+			changes = append(changes, log)
+		}
+		return changes, nil
 	}
 }
 
@@ -1791,34 +1832,112 @@ func evmCallParam(params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
 	}, nil
 }
 
-func logAddressParam(params []json.RawMessage) (string, *JSONRPCError) {
+func web3LogFilterParam(ctx context.Context, provider StatusProvider, params []json.RawMessage) (web3Filter, *JSONRPCError) {
 	if len(params) != 1 {
-		return "", &JSONRPCError{Code: -32602, Message: "filter object is required"}
+		return web3Filter{}, &JSONRPCError{Code: -32602, Message: "filter object is required"}
 	}
-	var filter struct {
-		Address any `json:"address"`
+	var payload struct {
+		Address   any             `json:"address"`
+		FromBlock string          `json:"fromBlock"`
+		ToBlock   string          `json:"toBlock"`
+		Topics    json.RawMessage `json:"topics"`
 	}
-	if err := json.Unmarshal(params[0], &filter); err != nil {
-		return "", &JSONRPCError{Code: -32602, Message: "invalid filter object"}
+	if err := json.Unmarshal(params[0], &payload); err != nil {
+		return web3Filter{}, &JSONRPCError{Code: -32602, Message: "invalid filter object"}
 	}
-	switch address := filter.Address.(type) {
+	addresses, rpcErr := web3LogAddresses(payload.Address)
+	if rpcErr != nil {
+		return web3Filter{}, rpcErr
+	}
+	latest := uint64(provider.Status(ctx).LatestHeight)
+	fromBlock, rpcErr := web3LogBlockBound(payload.FromBlock, latest, 0)
+	if rpcErr != nil {
+		return web3Filter{}, rpcErr
+	}
+	toBlock, rpcErr := web3LogBlockBound(payload.ToBlock, latest, ^uint64(0))
+	if rpcErr != nil {
+		return web3Filter{}, rpcErr
+	}
+	topics, rpcErr := web3LogTopics(payload.Topics)
+	if rpcErr != nil {
+		return web3Filter{}, rpcErr
+	}
+	return web3Filter{Type: "log", Addresses: addresses, FromBlock: fromBlock, ToBlock: toBlock, Topics: topics}, nil
+}
+
+func web3LogAddresses(value any) ([]string, *JSONRPCError) {
+	switch address := value.(type) {
 	case string:
 		if address == "" {
-			return "", &JSONRPCError{Code: -32602, Message: "address is required"}
+			return nil, &JSONRPCError{Code: -32602, Message: "address is required"}
 		}
-		return address, nil
+		return []string{address}, nil
 	case []any:
 		if len(address) == 0 {
-			return "", &JSONRPCError{Code: -32602, Message: "address is required"}
+			return nil, &JSONRPCError{Code: -32602, Message: "address is required"}
 		}
-		first, ok := address[0].(string)
-		if !ok || first == "" {
-			return "", &JSONRPCError{Code: -32602, Message: "address is required"}
+		addresses := make([]string, 0, len(address))
+		for _, item := range address {
+			text, ok := item.(string)
+			if !ok || text == "" {
+				return nil, &JSONRPCError{Code: -32602, Message: "address is required"}
+			}
+			addresses = append(addresses, text)
 		}
-		return first, nil
+		return addresses, nil
 	default:
-		return "", &JSONRPCError{Code: -32602, Message: "address is required"}
+		return nil, &JSONRPCError{Code: -32602, Message: "address is required"}
 	}
+}
+
+func web3LogBlockBound(tag string, latest uint64, empty uint64) (uint64, *JSONRPCError) {
+	if tag == "" {
+		return empty, nil
+	}
+	switch tag {
+	case "latest", "pending":
+		return latest, nil
+	case "earliest":
+		return 0, nil
+	default:
+		height, err := parseHexQuantity(tag)
+		if err != nil {
+			return 0, &JSONRPCError{Code: -32602, Message: "invalid log block tag"}
+		}
+		return height, nil
+	}
+}
+
+func web3LogTopics(raw json.RawMessage) ([][]string, *JSONRPCError) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var values []any
+	if err := json.Unmarshal(raw, &values); err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: "invalid log topics"}
+	}
+	topics := make([][]string, 0, len(values))
+	for _, value := range values {
+		switch item := value.(type) {
+		case nil:
+			topics = append(topics, nil)
+		case string:
+			topics = append(topics, []string{strings.ToLower(item)})
+		case []any:
+			options := make([]string, 0, len(item))
+			for _, option := range item {
+				text, ok := option.(string)
+				if !ok || text == "" {
+					return nil, &JSONRPCError{Code: -32602, Message: "invalid log topic option"}
+				}
+				options = append(options, strings.ToLower(text))
+			}
+			topics = append(topics, options)
+		default:
+			return nil, &JSONRPCError{Code: -32602, Message: "invalid log topic"}
+		}
+	}
+	return topics, nil
 }
 
 func jsonRPCStringParam(raw json.RawMessage) (string, error) {
@@ -1871,6 +1990,161 @@ func parseHexHash(value string) (types.Hash, error) {
 	return hash, nil
 }
 
+func web3TransactionsRoot(txs []types.Tx) string {
+	if len(txs) == 0 {
+		return "0x0000000000000000000000000000000000000000000000000000000000000000"
+	}
+	hasher := sha256.New()
+	for _, tx := range txs {
+		hash := mempool.HashTx(tx)
+		_, _ = hasher.Write(hash[:])
+	}
+	return "0x" + hex.EncodeToString(hasher.Sum(nil))
+}
+
+func web3LogMatchesFilter(value any, filter web3Filter) bool {
+	log, ok := value.(map[string]any)
+	if !ok {
+		return false
+	}
+	blockNumber := web3LogBlockNumber(log)
+	if blockNumber < filter.FromBlock || blockNumber > filter.ToBlock {
+		return false
+	}
+	if len(filter.Topics) == 0 {
+		return true
+	}
+	topics := web3LogTopicValues(log)
+	for index, accepted := range filter.Topics {
+		if len(accepted) == 0 {
+			continue
+		}
+		if index >= len(topics) {
+			return false
+		}
+		found := false
+		actual := strings.ToLower(topics[index])
+		for _, topic := range accepted {
+			if actual == topic {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+func web3NormalizeLog(value any) any {
+	log, ok := value.(map[string]any)
+	if !ok {
+		return value
+	}
+	normalized := make(map[string]any, len(log)+3)
+	for key, item := range log {
+		normalized[key] = item
+	}
+	if blockNumber := web3LogBlockNumber(log); blockNumber > 0 {
+		normalized["blockNumber"] = hexQuantity(blockNumber)
+	}
+	if txHash := web3LogString(log, "transaction_hash", "transactionHash", "tx_hash"); txHash != "" {
+		normalized["transactionHash"] = txHash
+	}
+	if logIndex := web3LogUint(log, "log_index", "logIndex"); logIndex > 0 {
+		normalized["logIndex"] = hexQuantity(logIndex)
+	}
+	return normalized
+}
+
+func web3LogBlockNumber(log map[string]any) uint64 {
+	return web3LogUint(log, "block_number", "blockNumber", "height")
+}
+
+func web3LogTopicValues(log map[string]any) []string {
+	raw, found := log["topics"]
+	if !found {
+		return nil
+	}
+	items, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	topics := make([]string, 0, len(items))
+	for _, item := range items {
+		text, ok := item.(string)
+		if !ok {
+			continue
+		}
+		topics = append(topics, text)
+	}
+	return topics
+}
+
+func web3LogString(log map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value, ok := log[key].(string)
+		if ok {
+			return value
+		}
+	}
+	return ""
+}
+
+func web3LogUint(log map[string]any, keys ...string) uint64 {
+	for _, key := range keys {
+		value, found := log[key]
+		if !found {
+			continue
+		}
+		switch typed := value.(type) {
+		case float64:
+			if typed >= 0 {
+				return uint64(typed)
+			}
+		case uint64:
+			return typed
+		case string:
+			if strings.HasPrefix(typed, "0x") {
+				parsed, err := parseHexQuantity(typed)
+				if err == nil {
+					return parsed
+				}
+				continue
+			}
+			parsed, err := strconv.ParseUint(typed, 10, 64)
+			if err == nil {
+				return parsed
+			}
+		}
+	}
+	return 0
+}
+
+func web3SeenLogSet(logs []any) map[string]bool {
+	seen := make(map[string]bool, len(logs))
+	for _, log := range logs {
+		id := web3LogID(log)
+		if id != "" {
+			seen[id] = true
+		}
+	}
+	return seen
+}
+
+func web3LogID(value any) string {
+	log, ok := value.(map[string]any)
+	if !ok {
+		return ""
+	}
+	txHash := web3LogString(log, "transactionHash", "transaction_hash", "tx_hash")
+	if txHash == "" {
+		return ""
+	}
+	return txHash + ":" + strconv.FormatUint(web3LogUint(log, "logIndex", "log_index"), 10)
+}
+
 func hexQuantity(value uint64) string {
 	return "0x" + strconv.FormatUint(value, 16)
 }
@@ -1889,12 +2163,15 @@ func newWeb3FilterStore() *web3FilterStore {
 	return &web3FilterStore{filters: make(map[string]web3Filter)}
 }
 
-func (store *web3FilterStore) add(address string, latestHeight uint64) string {
+func (store *web3FilterStore) addLog(filter web3Filter, logs []any, latestHeight uint64) string {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	store.nextID++
 	id := hexQuantity(store.nextID)
-	store.filters[id] = web3Filter{Type: "log", Address: address, LastHeight: latestHeight}
+	filter.Type = "log"
+	filter.LastHeight = latestHeight
+	filter.SeenLogs = web3SeenLogSet(logs)
+	store.filters[id] = filter
 	return id
 }
 

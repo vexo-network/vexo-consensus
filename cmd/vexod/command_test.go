@@ -2871,7 +2871,17 @@ func TestConfigBackedPeersRejectDifferentGenesisHash(t *testing.T) {
 	defer secondWire.Stop(context.Background())
 
 	firstWire.SetPeer("validator-2", secondWire.Address())
-	err = firstWire.Send(context.Background(), "validator-2", p2p.TopicTx, []byte("tx"))
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		err = firstWire.Send(context.Background(), "validator-2", p2p.TopicTx, []byte("tx"))
+		if errors.Is(err, transport.ErrGenesisHashMismatch) {
+			break
+		}
+		if !errors.Is(err, context.DeadlineExceeded) || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	if !errors.Is(err, transport.ErrGenesisHashMismatch) {
 		t.Fatalf("expected genesis hash mismatch, got %v", err)
 	}

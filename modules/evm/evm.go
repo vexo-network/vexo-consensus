@@ -48,10 +48,13 @@ type Receipt struct {
 }
 
 type Log struct {
-	Address string            `json:"address"`
-	Topics  []string          `json:"topics,omitempty"`
-	Data    string            `json:"data,omitempty"`
-	Meta    map[string]string `json:"meta,omitempty"`
+	Address         string            `json:"address"`
+	Topics          []string          `json:"topics,omitempty"`
+	Data            string            `json:"data,omitempty"`
+	BlockNumber     uint64            `json:"block_number,omitempty"`
+	TransactionHash string            `json:"transaction_hash,omitempty"`
+	LogIndex        uint64            `json:"log_index,omitempty"`
+	Meta            map[string]string `json:"meta,omitempty"`
 }
 
 type CallRequest struct {
@@ -372,12 +375,15 @@ func receiptFromResult(tx types.Tx, height types.Height, invocation contract.Inv
 		Output:          "0x" + hex.EncodeToString(result.Output),
 		Logs:            make([]Log, 0, len(result.Logs)),
 	}
-	for _, log := range result.Logs {
+	for index, log := range result.Logs {
 		receipt.Logs = append(receipt.Logs, Log{
-			Address: string(log.Address),
-			Topics:  append([]string(nil), log.Topics...),
-			Data:    "0x" + hex.EncodeToString(log.Data),
-			Meta:    cloneMap(log.Meta),
+			Address:         string(log.Address),
+			Topics:          append([]string(nil), log.Topics...),
+			Data:            "0x" + hex.EncodeToString(log.Data),
+			BlockNumber:     uint64(height),
+			TransactionHash: txHash(tx),
+			LogIndex:        uint64(index),
+			Meta:            cloneMap(log.Meta),
 		})
 	}
 	return receipt

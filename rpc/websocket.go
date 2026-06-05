@@ -3,10 +3,12 @@ package rpc
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +24,7 @@ type web3Subscription struct {
 	ID           string
 	Type         string
 	Address      string
+	Filter       web3Filter
 	LastHeight   uint64
 	LastLogIndex int
 	SeenPending  map[string]bool
@@ -109,13 +112,13 @@ func (session *web3SubscriptionSession) subscribe(params []json.RawMessage) (str
 	switch subscriptionType {
 	case "newHeads":
 	case "logs":
-		address, rpcErr := logAddressParam(params[1:])
+		filter, rpcErr := web3LogFilterParam(session.ctx, session.provider, params[1:])
 		if rpcErr != nil {
 			return "", rpcErr
 		}
-		subscription.Address = address
-		if logs, rpcErr := web3LogsForAddress(session.ctx, session.provider, address); rpcErr == nil {
-			subscription.LastLogIndex = len(web3LogArray(logs))
+		subscription.Filter = filter
+		if logs, rpcErr := web3LogsForFilter(session.ctx, session.provider, filter); rpcErr == nil {
+			subscription.LastLogIndex = len(logs)
 		}
 	case "newPendingTransactions":
 		pendingProvider, ok := session.provider.(PendingTxProvider)
@@ -221,15 +224,14 @@ func (session *web3SubscriptionSession) publishHeads(subscription web3Subscripti
 }
 
 func (session *web3SubscriptionSession) publishLogs(subscription web3Subscription) web3Subscription {
-	logs, rpcErr := web3LogsForAddress(session.ctx, session.provider, subscription.Address)
+	logs, rpcErr := web3LogsForFilter(session.ctx, session.provider, subscription.Filter)
 	if rpcErr != nil {
 		return subscription
 	}
-	items := web3LogArray(logs)
-	for index := subscription.LastLogIndex; index < len(items); index++ {
-		session.sendSubscription(subscription.ID, items[index])
+	for index := subscription.LastLogIndex; index < len(logs); index++ {
+		session.sendSubscription(subscription.ID, logs[index])
 	}
-	subscription.LastLogIndex = len(items)
+	subscription.LastLogIndex = len(logs)
 	subscription.LastHeight = uint64(session.provider.Status(session.ctx).LatestHeight)
 	return subscription
 }
@@ -292,7 +294,7 @@ func web3BlockHeader(record store.BlockRecord) map[string]any {
 		"nonce":            "0x0000000000000000",
 		"sha3Uncles":       "0x0000000000000000000000000000000000000000000000000000000000000000",
 		"logsBloom":        "0x" + strings.Repeat("00", 256),
-		"transactionsRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"transactionsRoot": web3TransactionsRoot(record.Block.Txs),
 		"stateRoot":        "0x" + hex.EncodeToString(record.AppHash[:]),
 		"receiptsRoot":     "0x0000000000000000000000000000000000000000000000000000000000000000",
 		"miner":            "0x0000000000000000000000000000000000000000",
@@ -322,6 +324,9 @@ func web3LogArray(value any) []any {
 
 func randomSubscriptionID() string {
 	var bytes [16]byte
-	_, _ = rand.Read(bytes[:])
+	if _, err := rand.Read(bytes[:]); err != nil {
+		sum := sha256.Sum256([]byte(strconv.FormatInt(time.Now().UnixNano(), 10)))
+		copy(bytes[:], sum[:len(bytes)])
+	}
 	return "0x" + hex.EncodeToString(bytes[:])
 }

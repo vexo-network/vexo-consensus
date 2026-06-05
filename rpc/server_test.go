@@ -787,6 +787,9 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if !ok || blockResult["number"] != "0xc" || blockResult["hash"] != "0xab00000000000000000000000000000000000000000000000000000000000000" {
 		t.Fatalf("unexpected block by number response: %+v", blockByNumber.Result)
 	}
+	if blockResult["transactionsRoot"] == "0x0000000000000000000000000000000000000000000000000000000000000000" {
+		t.Fatalf("expected non-zero transactions root for block with txs: %+v", blockResult)
+	}
 
 	var blockByHash JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":7,"method":"eth_getBlockByHash","params":["0xab00000000000000000000000000000000000000000000000000000000000000",false]}`, http.StatusOK, &blockByHash)
@@ -845,6 +848,21 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("unexpected app query path: %+v", provider.appQueryPath)
 	}
 
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`[
+		{"address":"0xcontract","topics":["0xaaa","0xbbb"],"data":"0x01","block_number":13,"transaction_hash":"0xabc","log_index":0},
+		{"address":"0xcontract","topics":["0xccc"],"data":"0x02","block_number":13,"transaction_hash":"0xdef","log_index":1}
+	]`)}
+	var getLogs JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":41,"method":"eth_getLogs","params":[{"address":["0xcontract"],"fromBlock":"0xd","toBlock":"0xd","topics":["0xaaa"]}]}`, http.StatusOK, &getLogs)
+	filteredLogs, ok := getLogs.Result.([]any)
+	if getLogs.Error != nil || !ok || len(filteredLogs) != 1 {
+		t.Fatalf("unexpected filtered logs: %+v", getLogs)
+	}
+	filteredLog, ok := filteredLogs[0].(map[string]any)
+	if !ok || filteredLog["blockNumber"] != "0xd" || filteredLog["transactionHash"] != "0xabc" {
+		t.Fatalf("unexpected normalized log: %+v", filteredLogs[0])
+	}
+
 	var filterID JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":8,"method":"eth_newFilter","params":[{"address":"0xcontract"}]}`, http.StatusOK, &filterID)
 	filterText, ok := filterID.Result.(string)
@@ -855,6 +873,16 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":9,"method":"eth_getFilterLogs","params":["`+filterText+`"]}`, http.StatusOK, &filterLogs)
 	if filterLogs.Error != nil {
 		t.Fatalf("unexpected filter logs: %+v", filterLogs)
+	}
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`[
+		{"address":"0xcontract","topics":["0xaaa"],"data":"0x01","block_number":13,"transaction_hash":"0xabc","log_index":0},
+		{"address":"0xcontract","topics":["0xddd"],"data":"0x03","block_number":14,"transaction_hash":"0xghi","log_index":2}
+	]`)}
+	var logChanges JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":42,"method":"eth_getFilterChanges","params":["`+filterText+`"]}`, http.StatusOK, &logChanges)
+	changedLogs, ok := logChanges.Result.([]any)
+	if logChanges.Error != nil || !ok || len(changedLogs) != 1 {
+		t.Fatalf("unexpected log filter changes: %+v", logChanges)
 	}
 	var uninstall JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":10,"method":"eth_uninstallFilter","params":["`+filterText+`"]}`, http.StatusOK, &uninstall)
