@@ -64,14 +64,14 @@ func TestBuildAndVerifyNonMembershipQueryProof(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if proof.Exists || len(proof.NamespaceLeaves) != 2 {
-		t.Fatalf("expected full namespace non-membership proof, got %+v", proof)
+	if proof.Exists || proof.AbsenceLeft == nil || proof.AbsenceRight != nil || len(proof.NamespaceLeaves) != 0 {
+		t.Fatalf("expected compact non-membership proof, got %+v", proof)
 	}
 	if err := Verify(proof, "vexo-test", 3, proof.StateRoot); err != nil {
 		t.Fatal(err)
 	}
-	proof.NamespaceLeaves = append(proof.NamespaceLeaves, proof.NamespaceLeaves[0])
+	proof.AbsenceLeft.Key = []byte("zara")
 	if err := Verify(proof, "vexo-test", 3, proof.StateRoot); err != ErrInvalidProof {
-		t.Fatalf("expected duplicate/tampered absence proof rejection, got %v", err)
+		t.Fatalf("expected tampered absence proof rejection, got %v", err)
 	}
 }

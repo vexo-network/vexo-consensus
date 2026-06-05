@@ -72,7 +72,7 @@ Common framework namespaces:
 
 When staged execution is available, module KV writes, block records, state records, and state roots are committed in one backend batch. If that batch fails, module KV writes are not applied.
 
-LevelDB also writes height-versioned KV history records for each atomic block write. Historical query proofs rebuild the namespace at the requested height from those records, then verify membership with a compact Merkle path or non-membership with a namespace absence witness.
+LevelDB also writes height-versioned KV history records for each atomic block write. Historical query proofs rebuild the namespace at the requested height from those records, then verify membership with a compact Merkle path or non-membership with compact adjacent-neighbor absence proofs. Verifiers still accept legacy full namespace absence witnesses for compatibility.
 
 Runtime compaction includes both backend store compaction and mempool WAL compaction. WAL compaction rewrites pending transactions after committed transactions are removed, preventing long-running nodes from retaining stale append-only mempool records indefinitely.
 

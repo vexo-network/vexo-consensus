@@ -7,6 +7,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/events"
+	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/queryproof"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
@@ -42,6 +43,7 @@ type EvidenceSubmitter interface {
 
 type BlockProvider interface {
 	BlockByHeight(ctx context.Context, height types.Height) (store.BlockRecord, error)
+	BlockByHash(ctx context.Context, hash types.Hash) (store.BlockRecord, error)
 	LatestBlock(ctx context.Context) (store.BlockRecord, error)
 }
 
@@ -66,6 +68,15 @@ type IBCQueryProvider interface {
 
 type AppQueryProvider interface {
 	AppQuery(ctx context.Context, path []string, data []byte) (vexoapp.QueryResponse, error)
+}
+
+type AccountQueryProvider interface {
+	AccountSequence(ctx context.Context, address types.Address) (uint64, error)
+}
+
+type FinalityProvider interface {
+	FinalityProof(ctx context.Context, height types.Height) (finality.Proof, error)
+	LatestFinalityProof(ctx context.Context) (finality.Proof, error)
 }
 
 type PruneProvider interface {

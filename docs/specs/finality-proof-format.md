@@ -13,6 +13,8 @@ This spec defines the proof format verified by light clients and full nodes.
 - `ValidatorSetHeight`: height whose validator set is used for verification
 - `ValidatorSetHash`: hash of the validator set used for verification
 
+Full nodes expose the latest live finality proof at `/v1/finality/latest` and height-specific live proofs at `/v1/finality/{height}`. These proofs are consensus-finality artifacts, while `/v1/status.latest_height` reports application state commit height.
+
 ## Header Fields
 
 The header hash covers:

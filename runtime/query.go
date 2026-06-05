@@ -113,6 +113,13 @@ func (runtime *Runtime) AppQuery(ctx context.Context, path []string, data []byte
 	}, nil
 }
 
+func (runtime *Runtime) AccountSequence(ctx context.Context, address types.Address) (uint64, error) {
+	if runtime.Store == nil {
+		return 0, store.ErrStateNotFound
+	}
+	return app.NewAccountKeeper().Sequence(ctx, runtime.Store, address)
+}
+
 func (runtime *Runtime) PruneBelow(ctx context.Context, retainFrom types.Height) (store.PruneResult, error) {
 	if runtime.Store == nil {
 		return store.PruneResult{}, store.ErrBlockIndexNotFound

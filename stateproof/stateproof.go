@@ -26,6 +26,14 @@ type Step struct {
 	Hash types.Hash `json:"hash"`
 }
 
+type AbsenceNeighbor struct {
+	Key       []byte `json:"key"`
+	Value     []byte `json:"value,omitempty"`
+	Index     uint64 `json:"index"`
+	LeafCount uint64 `json:"leaf_count"`
+	Path      []Step `json:"path,omitempty"`
+}
+
 func Root(namespace string, pairs []Pair) (types.Hash, error) {
 	leaves, err := sortedLeaves(namespace, pairs)
 	if err != nil {
@@ -68,6 +76,39 @@ func BuildMembership(namespace string, pairs []Pair, key []byte) (types.Hash, []
 	return merkleRoot(hashes), value, true, merklePath(hashes, targetIndex), nil
 }
 
+func BuildNonMembership(namespace string, pairs []Pair, key []byte) (types.Hash, *AbsenceNeighbor, *AbsenceNeighbor, bool, error) {
+	if len(key) == 0 {
+		return types.Hash{}, nil, nil, false, ErrInvalidKey
+	}
+	leaves, err := sortedLeaves(namespace, pairs)
+	if err != nil {
+		return types.Hash{}, nil, nil, false, err
+	}
+	if len(leaves) == 0 {
+		return emptyRoot(namespace), nil, nil, false, nil
+	}
+	hashes := make([]types.Hash, 0, len(leaves))
+	for _, leaf := range leaves {
+		hashes = append(hashes, LeafHash(namespace, leaf.Key, leaf.Value))
+	}
+	position := sort.Search(len(leaves), func(index int) bool {
+		return bytes.Compare(leaves[index].Key, key) >= 0
+	})
+	root := merkleRoot(hashes)
+	if position < len(leaves) && bytes.Equal(leaves[position].Key, key) {
+		return root, nil, nil, true, nil
+	}
+	var left *AbsenceNeighbor
+	var right *AbsenceNeighbor
+	if position > 0 {
+		left = absenceNeighbor(leaves[position-1], position-1, len(leaves), hashes)
+	}
+	if position < len(leaves) {
+		right = absenceNeighbor(leaves[position], position, len(leaves), hashes)
+	}
+	return root, left, right, false, nil
+}
+
 func VerifyMembership(namespace string, key []byte, value []byte, path []Step, expectedRoot types.Hash) bool {
 	if namespace == "" || len(key) == 0 || expectedRoot == (types.Hash{}) {
 		return false
@@ -99,6 +140,33 @@ func VerifyNonMembership(namespace string, pairs []Pair, key []byte, expectedRoo
 	return err == nil && root == expectedRoot
 }
 
+func VerifyNonMembershipCompact(namespace string, key []byte, expectedRoot types.Hash, left *AbsenceNeighbor, right *AbsenceNeighbor) bool {
+	if namespace == "" || len(key) == 0 || expectedRoot == (types.Hash{}) {
+		return false
+	}
+	if left == nil && right == nil {
+		return expectedRoot == emptyRoot(namespace)
+	}
+	if left != nil {
+		if bytes.Compare(left.Key, key) >= 0 || !verifyNeighbor(namespace, left, expectedRoot) {
+			return false
+		}
+	}
+	if right != nil {
+		if bytes.Compare(right.Key, key) <= 0 || !verifyNeighbor(namespace, right, expectedRoot) {
+			return false
+		}
+	}
+	switch {
+	case left == nil:
+		return right.Index == 0
+	case right == nil:
+		return left.Index+1 == left.LeafCount
+	default:
+		return left.LeafCount == right.LeafCount && left.Index+1 == right.Index
+	}
+}
+
 func Contains(pairs []Pair, key []byte) bool {
 	for _, pair := range pairs {
 		if bytes.Equal(pair.Key, key) {
@@ -106,6 +174,23 @@ func Contains(pairs []Pair, key []byte) bool {
 		}
 	}
 	return false
+}
+
+func absenceNeighbor(pair Pair, index int, leafCount int, hashes []types.Hash) *AbsenceNeighbor {
+	return &AbsenceNeighbor{
+		Key:       append([]byte(nil), pair.Key...),
+		Value:     append([]byte(nil), pair.Value...),
+		Index:     uint64(index),
+		LeafCount: uint64(leafCount),
+		Path:      merklePath(hashes, index),
+	}
+}
+
+func verifyNeighbor(namespace string, neighbor *AbsenceNeighbor, expectedRoot types.Hash) bool {
+	if neighbor == nil || len(neighbor.Key) == 0 || neighbor.LeafCount == 0 || neighbor.Index >= neighbor.LeafCount {
+		return false
+	}
+	return VerifyMembership(namespace, neighbor.Key, neighbor.Value, neighbor.Path, expectedRoot)
 }
 
 func LeafHash(namespace string, key []byte, value []byte) types.Hash {

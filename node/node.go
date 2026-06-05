@@ -27,18 +27,21 @@ var (
 	ErrEmptyProposal      = errors.New("proposal has no transactions")
 	ErrLoopAlreadyRunning = errors.New("consensus loop already running")
 	ErrLoopNotRunning     = errors.New("consensus loop is not running")
+	ErrFinalityNotFound   = errors.New("finality proof not found")
 )
 
 type Status struct {
-	ChainID       string
-	Running       bool
-	StartedAt     time.Time
-	LatestHeight  types.Height
-	LatestAppHash types.Hash
-	DataDir       string
-	PeerCount     int
-	BannedPeers   int
-	Peers         []p2p.PeerSnapshot
+	ChainID               string
+	Running               bool
+	StartedAt             time.Time
+	LatestHeight          types.Height
+	LatestAppHash         types.Hash
+	LatestFinalizedHeight types.Height
+	LatestFinalizedHash   types.Hash
+	DataDir               string
+	PeerCount             int
+	BannedPeers           int
+	Peers                 []p2p.PeerSnapshot
 }
 
 type Node struct {
@@ -399,6 +402,14 @@ func (node *Node) Status(ctx context.Context) Status {
 					status.BannedPeers++
 				}
 			}
+		}
+	}
+	if node.consensus != nil {
+		decisions := node.consensus.CommitDecisions()
+		if len(decisions) > 0 {
+			latest := decisions[len(decisions)-1]
+			status.LatestFinalizedHeight = latest.CommittedHeight
+			status.LatestFinalizedHash = latest.CommittedBlockHash
 		}
 	}
 	return status

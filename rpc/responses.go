@@ -13,6 +13,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/events"
+	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
@@ -27,7 +28,7 @@ func statusResponse(status node.Status) StatusResponse {
 	if !status.StartedAt.IsZero() {
 		startedAtUnix = status.StartedAt.Unix()
 	}
-	return StatusResponse{
+	response := StatusResponse{
 		ChainID:       status.ChainID,
 		Running:       status.Running,
 		StartedAtUnix: startedAtUnix,
@@ -37,6 +38,11 @@ func statusResponse(status node.Status) StatusResponse {
 		PeerCount:     status.PeerCount,
 		BannedPeers:   status.BannedPeers,
 	}
+	if status.LatestFinalizedHeight > 0 {
+		response.LatestFinalizedHeight = uint64(status.LatestFinalizedHeight)
+		response.LatestFinalizedHash = hex.EncodeToString(status.LatestFinalizedHash[:])
+	}
+	return response
 }
 
 func metricsResponse(metrics node.Metrics) MetricsResponse {
@@ -225,6 +231,40 @@ func stateResponse(state store.StateRecord) StateResponse {
 		AppHash:          hex.EncodeToString(state.AppHash[:]),
 		LastBlockHash:    hex.EncodeToString(state.LastBlockHash[:]),
 		ValidatorSetHash: hex.EncodeToString(state.ValidatorSetHash[:]),
+	}
+}
+
+func finalityProofResponse(proof finality.Proof) FinalityProofResponse {
+	return FinalityProofResponse{
+		Height:             uint64(proof.Header.Height),
+		BlockHash:          hex.EncodeToString(proof.BlockHash[:]),
+		ValidatorSetHeight: uint64(proof.ValidatorSetHeight),
+		ValidatorSetHash:   hex.EncodeToString(proof.ValidatorSetHash[:]),
+		Header:             headerResponse(proof.Header),
+		QuorumCert:         quorumCertResponse(proof.QuorumCert),
+	}
+}
+
+func headerResponse(header types.Header) HeaderResponse {
+	return HeaderResponse{
+		ChainID:           header.ChainID,
+		Height:            uint64(header.Height),
+		TimeUnixNano:      header.TimeUnixNano,
+		PreviousBlockHash: hex.EncodeToString(header.PreviousBlockHash[:]),
+		AppHash:           hex.EncodeToString(header.AppHash[:]),
+		ValidatorSetHash:  hex.EncodeToString(header.ValidatorSetHash[:]),
+		ConsensusHash:     hex.EncodeToString(header.ConsensusHash[:]),
+	}
+}
+
+func quorumCertResponse(cert finality.QuorumCert) QuorumCertResponse {
+	return QuorumCertResponse{
+		Height:      uint64(cert.Height),
+		Round:       uint64(cert.Round),
+		BlockHash:   hex.EncodeToString(cert.BlockHash[:]),
+		Signers:     hex.EncodeToString(cert.Signers),
+		Signature:   hex.EncodeToString(cert.Signature),
+		VotingPower: uint64(cert.VotingPower),
 	}
 }
 

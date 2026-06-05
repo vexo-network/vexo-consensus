@@ -7,6 +7,7 @@ import (
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/events"
+	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/queryproof"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/store"
@@ -20,6 +21,14 @@ func (node *Node) BlockByHeight(ctx context.Context, height types.Height) (store
 		return store.BlockRecord{}, err
 	}
 	return runtime.BlockByHeight(ctx, height)
+}
+
+func (node *Node) BlockByHash(ctx context.Context, hash types.Hash) (store.BlockRecord, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return store.BlockRecord{}, err
+	}
+	return runtime.BlockByHash(ctx, hash)
 }
 
 func (node *Node) LatestBlock(ctx context.Context) (store.BlockRecord, error) {
@@ -96,6 +105,52 @@ func (node *Node) AppQuery(ctx context.Context, path []string, data []byte) (vex
 		return vexoapp.QueryResponse{}, err
 	}
 	return runtime.AppQuery(ctx, path, data)
+}
+
+func (node *Node) AccountSequence(ctx context.Context, address types.Address) (uint64, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return 0, err
+	}
+	return runtime.AccountSequence(ctx, address)
+}
+
+func (node *Node) LatestFinalityProof(ctx context.Context) (finality.Proof, error) {
+	return node.finalityProof(ctx, 0)
+}
+
+func (node *Node) FinalityProof(ctx context.Context, height types.Height) (finality.Proof, error) {
+	return node.finalityProof(ctx, height)
+}
+
+func (node *Node) finalityProof(ctx context.Context, height types.Height) (finality.Proof, error) {
+	machine, err := node.Consensus()
+	if err != nil {
+		return finality.Proof{}, err
+	}
+	decisions := machine.CommitDecisions()
+	if len(decisions) == 0 {
+		return finality.Proof{}, ErrFinalityNotFound
+	}
+	decision := decisions[len(decisions)-1]
+	if height != 0 {
+		found := false
+		for _, candidate := range decisions {
+			if candidate.CommittedHeight == height {
+				decision = candidate
+				found = true
+				break
+			}
+		}
+		if !found {
+			return finality.Proof{}, ErrFinalityNotFound
+		}
+	}
+	runtime, err := node.Runtime()
+	if err != nil {
+		return finality.Proof{}, err
+	}
+	return runtime.FinalityProof(ctx, decision.CommittedHeight, decision.CommitQC)
 }
 
 func (node *Node) PruneBelow(ctx context.Context, retainFrom types.Height) (store.PruneResult, error) {

@@ -11,10 +11,12 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/events"
+	"github.com/vexo-network/vexo-consensus/finality"
 	ibckeeper "github.com/vexo-network/vexo-consensus/ibc"
 	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/node"
@@ -49,14 +51,16 @@ type HealthResponse struct {
 }
 
 type StatusResponse struct {
-	ChainID       string `json:"chain_id"`
-	Running       bool   `json:"running"`
-	StartedAtUnix int64  `json:"started_at_unix,omitempty"`
-	LatestHeight  uint64 `json:"latest_height"`
-	LatestAppHash string `json:"latest_app_hash"`
-	DataDir       string `json:"data_dir"`
-	PeerCount     int    `json:"peer_count"`
-	BannedPeers   int    `json:"banned_peers"`
+	ChainID               string `json:"chain_id"`
+	Running               bool   `json:"running"`
+	StartedAtUnix         int64  `json:"started_at_unix,omitempty"`
+	LatestHeight          uint64 `json:"latest_height"`
+	LatestAppHash         string `json:"latest_app_hash"`
+	LatestFinalizedHeight uint64 `json:"latest_finalized_height,omitempty"`
+	LatestFinalizedHash   string `json:"latest_finalized_hash,omitempty"`
+	DataDir               string `json:"data_dir"`
+	PeerCount             int    `json:"peer_count"`
+	BannedPeers           int    `json:"banned_peers"`
 }
 
 type MetricsResponse struct {
@@ -180,6 +184,34 @@ type StateResponse struct {
 	AppHash          string `json:"app_hash"`
 	LastBlockHash    string `json:"last_block_hash"`
 	ValidatorSetHash string `json:"validator_set_hash"`
+}
+
+type HeaderResponse struct {
+	ChainID           string `json:"chain_id"`
+	Height            uint64 `json:"height"`
+	TimeUnixNano      int64  `json:"time_unix_nano"`
+	PreviousBlockHash string `json:"previous_block_hash"`
+	AppHash           string `json:"app_hash"`
+	ValidatorSetHash  string `json:"validator_set_hash"`
+	ConsensusHash     string `json:"consensus_hash"`
+}
+
+type QuorumCertResponse struct {
+	Height      uint64 `json:"height"`
+	Round       uint64 `json:"round"`
+	BlockHash   string `json:"block_hash"`
+	Signers     string `json:"signers"`
+	Signature   string `json:"signature"`
+	VotingPower uint64 `json:"voting_power"`
+}
+
+type FinalityProofResponse struct {
+	Height             uint64             `json:"height"`
+	BlockHash          string             `json:"block_hash"`
+	ValidatorSetHeight uint64             `json:"validator_set_height"`
+	ValidatorSetHash   string             `json:"validator_set_hash"`
+	Header             HeaderResponse     `json:"header"`
+	QuorumCert         QuorumCertResponse `json:"quorum_cert"`
 }
 
 type EventAttributeResponse struct {
@@ -339,6 +371,17 @@ type JSONRPCError struct {
 	Message string `json:"message"`
 }
 
+type web3FilterStore struct {
+	mu      sync.Mutex
+	nextID  uint64
+	filters map[string]web3Filter
+}
+
+type web3Filter struct {
+	Address    string
+	LastHeight uint64
+}
+
 func NewServer(provider StatusProvider, cfg Config) *Server {
 	if cfg.ReadHeaderTimeout <= 0 {
 		cfg.ReadHeaderTimeout = defaultReadHeaderTimeout
@@ -377,6 +420,7 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 	if cfg.MaxRequestBytes <= 0 {
 		cfg.MaxRequestBytes = defaultMaxRequestBytes
 	}
+	filters := newWeb3FilterStore()
 	mux := http.NewServeMux()
 	if cfg.EnablePprof {
 		registerPprofHandlers(mux)
@@ -576,6 +620,35 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 			return
 		}
 		writeJSON(writer, http.StatusOK, stateResponse(state))
+	})
+	mux.HandleFunc("/finality/latest", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowGet(writer, request) {
+			return
+		}
+		finalityProvider, ok := provider.(FinalityProvider)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "finality proof query is unavailable")
+			return
+		}
+		proof, err := finalityProvider.LatestFinalityProof(request.Context())
+		writeFinalityProof(writer, proof, err)
+	})
+	mux.HandleFunc("/finality/", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowGet(writer, request) {
+			return
+		}
+		finalityProvider, ok := provider.(FinalityProvider)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "finality proof query is unavailable")
+			return
+		}
+		height, ok := parseHeightSelector(request.URL.Path, "/finality/")
+		if !ok {
+			writeError(writer, http.StatusBadRequest, "invalid finality height")
+			return
+		}
+		proof, err := finalityProvider.FinalityProof(request.Context(), height)
+		writeFinalityProof(writer, proof, err)
 	})
 	mux.HandleFunc("/events", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
@@ -971,19 +1044,19 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 		writeJSON(writer, http.StatusOK, committeeResponse(height, seed, committeeResult))
 	})
 	mux.HandleFunc("/web3", func(writer http.ResponseWriter, request *http.Request) {
-		handleWeb3JSONRPC(writer, request, provider, cfg)
+		handleWeb3JSONRPC(writer, request, provider, cfg, filters)
 	})
 	mux.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/" {
 			writeError(writer, http.StatusNotFound, "endpoint not found")
 			return
 		}
-		handleWeb3JSONRPC(writer, request, provider, cfg)
+		handleWeb3JSONRPC(writer, request, provider, cfg, filters)
 	})
 	return applyMiddleware(versionedHandler(mux), cfg)
 }
 
-func handleWeb3JSONRPC(writer http.ResponseWriter, request *http.Request, provider StatusProvider, cfg Config) {
+func handleWeb3JSONRPC(writer http.ResponseWriter, request *http.Request, provider StatusProvider, cfg Config, filters *web3FilterStore) {
 	if !allowPost(writer, request) {
 		return
 	}
@@ -998,11 +1071,30 @@ func handleWeb3JSONRPC(writer http.ResponseWriter, request *http.Request, provid
 		writeJSONRPC(writer, payload.ID, nil, &JSONRPCError{Code: -32600, Message: "invalid JSON-RPC version"})
 		return
 	}
-	result, rpcErr := executeWeb3Method(request.Context(), provider, payload.Method, payload.Params)
+	result, rpcErr := executeWeb3Method(request.Context(), provider, filters, payload.Method, payload.Params)
 	writeJSONRPC(writer, payload.ID, result, rpcErr)
 }
 
-func executeWeb3Method(ctx context.Context, provider StatusProvider, method string, params []json.RawMessage) (any, *JSONRPCError) {
+func writeFinalityProof(writer http.ResponseWriter, proof finality.Proof, err error) {
+	if errors.Is(err, node.ErrFinalityNotFound) ||
+		errors.Is(err, store.ErrBlockNotFound) ||
+		errors.Is(err, store.ErrBlockIndexNotFound) {
+		writeError(writer, http.StatusNotFound, "finality proof not found")
+		return
+	}
+	if errors.Is(err, vexoruntime.ErrFinalityProofHeightMismatch) ||
+		errors.Is(err, vexoruntime.ErrFinalityProofBlockMismatch) {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, finalityProofResponse(proof))
+}
+
+func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *web3FilterStore, method string, params []json.RawMessage) (any, *JSONRPCError) {
 	switch method {
 	case "web3_clientVersion":
 		return "vexo-consensus/web3", nil
@@ -1012,6 +1104,20 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, method stri
 		return hexQuantity(chainNumericID(provider.Status(ctx).ChainID)), nil
 	case "eth_blockNumber":
 		return hexQuantity(uint64(provider.Status(ctx).LatestHeight)), nil
+	case "eth_getBlockByNumber":
+		record, rpcErr := web3BlockByNumber(ctx, provider, params)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		fullTx := web3FullTransactionParam(params, 1)
+		return web3BlockFromRecord(record, fullTx), nil
+	case "eth_getBlockByHash":
+		record, rpcErr := web3BlockByHash(ctx, provider, params)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		fullTx := web3FullTransactionParam(params, 1)
+		return web3BlockFromRecord(record, fullTx), nil
 	case "eth_gasPrice":
 		if query, ok := provider.(ChainQueryProvider); ok {
 			state, err := query.LatestState(ctx)
@@ -1047,6 +1153,35 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, method stri
 			return nil, &JSONRPCError{Code: -32000, Message: "invalid balance response"}
 		}
 		return hexQuantity(balance), nil
+	case "eth_getTransactionCount":
+		accountProvider, ok := provider.(AccountQueryProvider)
+		if !ok {
+			return nil, &JSONRPCError{Code: -32000, Message: "account sequence query is unavailable"}
+		}
+		if len(params) == 0 || len(params) > 2 {
+			return nil, &JSONRPCError{Code: -32602, Message: "eth_getTransactionCount requires address and optional block tag"}
+		}
+		address, err := jsonRPCStringParam(params[0])
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+		}
+		sequence, err := accountProvider.AccountSequence(ctx, types.Address(address))
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
+		return hexQuantity(sequence), nil
+	case "eth_getCode":
+		code, rpcErr := web3Code(ctx, provider, params)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		return code, nil
+	case "eth_getStorageAt":
+		value, rpcErr := web3StorageAt(ctx, provider, params)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		return value, nil
 	case "eth_sendRawTransaction":
 		submitter, ok := provider.(TxSubmitter)
 		if !ok {
@@ -1134,6 +1269,50 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, method stri
 			return nil, &JSONRPCError{Code: -32000, Message: response.Log}
 		}
 		return rawJSONObject(response.Value)
+	case "eth_newFilter":
+		if filters == nil {
+			return nil, &JSONRPCError{Code: -32000, Message: "filter store is unavailable"}
+		}
+		address, rpcErr := logAddressParam(params)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		return filters.add(address, uint64(provider.Status(ctx).LatestHeight)), nil
+	case "eth_getFilterChanges", "eth_getFilterLogs":
+		if filters == nil {
+			return nil, &JSONRPCError{Code: -32000, Message: "filter store is unavailable"}
+		}
+		if len(params) != 1 {
+			return nil, &JSONRPCError{Code: -32602, Message: method + " requires filter id"}
+		}
+		filterID, err := jsonRPCStringParam(params[0])
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+		}
+		filter, found := filters.get(filterID)
+		if !found {
+			return nil, &JSONRPCError{Code: -32000, Message: "filter not found"}
+		}
+		logs, rpcErr := web3LogsForAddress(ctx, provider, filter.Address)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		if method == "eth_getFilterChanges" {
+			filters.mark(filterID, uint64(provider.Status(ctx).LatestHeight))
+		}
+		return logs, nil
+	case "eth_uninstallFilter":
+		if filters == nil {
+			return nil, &JSONRPCError{Code: -32000, Message: "filter store is unavailable"}
+		}
+		if len(params) != 1 {
+			return nil, &JSONRPCError{Code: -32602, Message: "eth_uninstallFilter requires filter id"}
+		}
+		filterID, err := jsonRPCStringParam(params[0])
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+		}
+		return filters.remove(filterID), nil
 	case "eth_call":
 		query, ok := provider.(AppQueryProvider)
 		if !ok {
@@ -1208,6 +1387,223 @@ type web3Receipt struct {
 	ContractAddress string `json:"contract_address,omitempty"`
 	GasUsed         uint64 `json:"gas_used"`
 	Output          string `json:"output,omitempty"`
+}
+
+func web3BlockByNumber(ctx context.Context, provider StatusProvider, params []json.RawMessage) (store.BlockRecord, *JSONRPCError) {
+	blockProvider, ok := provider.(BlockProvider)
+	if !ok {
+		return store.BlockRecord{}, &JSONRPCError{Code: -32000, Message: "block query is unavailable"}
+	}
+	if len(params) == 0 || len(params) > 2 {
+		return store.BlockRecord{}, &JSONRPCError{Code: -32602, Message: "eth_getBlockByNumber requires block tag and optional full transaction flag"}
+	}
+	tag, err := jsonRPCStringParam(params[0])
+	if err != nil {
+		return store.BlockRecord{}, &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	var (
+		record   store.BlockRecord
+		queryErr error
+	)
+	switch tag {
+	case "latest", "pending":
+		record, queryErr = blockProvider.LatestBlock(ctx)
+	case "earliest":
+		queryProvider, ok := provider.(ChainQueryProvider)
+		if !ok {
+			return store.BlockRecord{}, &JSONRPCError{Code: -32000, Message: "block index query is unavailable"}
+		}
+		index, err := queryProvider.BlockIndex(ctx)
+		if err != nil {
+			queryErr = err
+			break
+		}
+		record, queryErr = blockProvider.BlockByHeight(ctx, index.EarliestHeight)
+	default:
+		height, err := parseHexQuantity(tag)
+		if err != nil || height == 0 {
+			return store.BlockRecord{}, &JSONRPCError{Code: -32602, Message: "invalid block number tag"}
+		}
+		record, queryErr = blockProvider.BlockByHeight(ctx, types.Height(height))
+	}
+	if errors.Is(queryErr, store.ErrBlockNotFound) || errors.Is(queryErr, store.ErrBlockIndexNotFound) {
+		return store.BlockRecord{}, nil
+	}
+	if queryErr != nil {
+		return store.BlockRecord{}, &JSONRPCError{Code: -32000, Message: queryErr.Error()}
+	}
+	return record, nil
+}
+
+func web3BlockByHash(ctx context.Context, provider StatusProvider, params []json.RawMessage) (store.BlockRecord, *JSONRPCError) {
+	blockProvider, ok := provider.(BlockProvider)
+	if !ok {
+		return store.BlockRecord{}, &JSONRPCError{Code: -32000, Message: "block query is unavailable"}
+	}
+	if len(params) == 0 || len(params) > 2 {
+		return store.BlockRecord{}, &JSONRPCError{Code: -32602, Message: "eth_getBlockByHash requires block hash and optional full transaction flag"}
+	}
+	hashText, err := jsonRPCStringParam(params[0])
+	if err != nil {
+		return store.BlockRecord{}, &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	hash, err := parseHexHash(hashText)
+	if err != nil {
+		return store.BlockRecord{}, &JSONRPCError{Code: -32602, Message: "invalid block hash"}
+	}
+	record, err := blockProvider.BlockByHash(ctx, hash)
+	if errors.Is(err, store.ErrBlockNotFound) {
+		return store.BlockRecord{}, nil
+	}
+	if err != nil {
+		return store.BlockRecord{}, &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	return record, nil
+}
+
+func web3FullTransactionParam(params []json.RawMessage, index int) bool {
+	if len(params) <= index {
+		return false
+	}
+	var full bool
+	_ = json.Unmarshal(params[index], &full)
+	return full
+}
+
+func web3BlockFromRecord(record store.BlockRecord, fullTransactions bool) any {
+	if record.Block.Header.Height == 0 {
+		return nil
+	}
+	transactions := make([]any, 0, len(record.Block.Txs))
+	for index, tx := range record.Block.Txs {
+		hash := mempool.HashTx(tx)
+		hashText := "0x" + hex.EncodeToString(hash[:])
+		if !fullTransactions {
+			transactions = append(transactions, hashText)
+			continue
+		}
+		transactions = append(transactions, map[string]any{
+			"hash":             hashText,
+			"nonce":            "0x0",
+			"blockHash":        "0x" + hex.EncodeToString(record.Hash[:]),
+			"blockNumber":      hexQuantity(uint64(record.Block.Header.Height)),
+			"transactionIndex": hexQuantity(uint64(index)),
+			"from":             nil,
+			"to":               nil,
+			"value":            "0x0",
+			"gas":              "0x0",
+			"gasPrice":         "0x0",
+			"input":            "0x" + hex.EncodeToString(tx),
+		})
+	}
+	return map[string]any{
+		"number":           hexQuantity(uint64(record.Block.Header.Height)),
+		"hash":             "0x" + hex.EncodeToString(record.Hash[:]),
+		"parentHash":       "0x" + hex.EncodeToString(record.Block.Header.PreviousBlockHash[:]),
+		"nonce":            "0x0000000000000000",
+		"sha3Uncles":       "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"logsBloom":        "0x" + strings.Repeat("00", 256),
+		"transactionsRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"stateRoot":        "0x" + hex.EncodeToString(record.AppHash[:]),
+		"receiptsRoot":     "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"miner":            "0x0000000000000000000000000000000000000000",
+		"difficulty":       "0x0",
+		"totalDifficulty":  "0x0",
+		"extraData":        "0x",
+		"size":             hexQuantity(uint64(len(record.Block.Txs))),
+		"gasLimit":         "0x0",
+		"gasUsed":          "0x0",
+		"timestamp":        hexQuantity(uint64(record.Block.Header.TimeUnixNano / int64(time.Second))),
+		"transactions":     transactions,
+		"uncles":           []any{},
+	}
+}
+
+func web3Code(ctx context.Context, provider StatusProvider, params []json.RawMessage) (string, *JSONRPCError) {
+	query, ok := provider.(AppQueryProvider)
+	if !ok {
+		return "", &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
+	}
+	if len(params) == 0 || len(params) > 2 {
+		return "", &JSONRPCError{Code: -32602, Message: "eth_getCode requires address and optional block tag"}
+	}
+	address, err := jsonRPCStringParam(params[0])
+	if err != nil {
+		return "", &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	response, err := query.AppQuery(ctx, []string{"evm", "code", address}, nil)
+	if err != nil {
+		return "", &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	if response.Code == 3 {
+		return "0x", nil
+	}
+	if response.Code != 0 {
+		return "", &JSONRPCError{Code: -32000, Message: response.Log}
+	}
+	var payload struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(response.Value, &payload); err != nil {
+		return "", &JSONRPCError{Code: -32000, Message: "invalid EVM code response"}
+	}
+	return "0x" + strings.TrimPrefix(payload.Code, "0x"), nil
+}
+
+func web3StorageAt(ctx context.Context, provider StatusProvider, params []json.RawMessage) (string, *JSONRPCError) {
+	query, ok := provider.(AppQueryProvider)
+	if !ok {
+		return "", &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
+	}
+	if len(params) < 2 || len(params) > 3 {
+		return "", &JSONRPCError{Code: -32602, Message: "eth_getStorageAt requires address, slot, and optional block tag"}
+	}
+	address, err := jsonRPCStringParam(params[0])
+	if err != nil {
+		return "", &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	slot, err := jsonRPCStringParam(params[1])
+	if err != nil {
+		return "", &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	response, err := query.AppQuery(ctx, []string{"evm", "storage", address, slot}, nil)
+	if err != nil {
+		return "", &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	if response.Code == 3 {
+		return "0x0", nil
+	}
+	if response.Code != 0 {
+		return "", &JSONRPCError{Code: -32000, Message: response.Log}
+	}
+	var payload struct {
+		Value string `json:"value"`
+	}
+	if err := json.Unmarshal(response.Value, &payload); err != nil {
+		return "", &JSONRPCError{Code: -32000, Message: "invalid EVM storage response"}
+	}
+	if payload.Value == "" {
+		return "0x0", nil
+	}
+	return "0x" + strings.TrimPrefix(payload.Value, "0x"), nil
+}
+
+func web3LogsForAddress(ctx context.Context, provider StatusProvider, address string) (any, *JSONRPCError) {
+	query, ok := provider.(AppQueryProvider)
+	if !ok {
+		return nil, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
+	}
+	response, err := query.AppQuery(ctx, []string{"evm", "logs", address}, nil)
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	if response.Code == 3 {
+		return []any{}, nil
+	}
+	if response.Code != 0 {
+		return nil, &JSONRPCError{Code: -32000, Message: response.Log}
+	}
+	return rawJSONObject(response.Value)
 }
 
 func web3TransactionFromReceipt(value []byte) (any, *JSONRPCError) {
@@ -1357,6 +1753,19 @@ func parseHexQuantity(value string) (uint64, error) {
 	return strconv.ParseUint(trimmed, 16, 64)
 }
 
+func parseHexHash(value string) (types.Hash, error) {
+	var hash types.Hash
+	decoded, err := hexBytes(value)
+	if err != nil {
+		return hash, err
+	}
+	if len(decoded) != len(hash) {
+		return hash, fmt.Errorf("hash must be 32 bytes")
+	}
+	copy(hash[:], decoded)
+	return hash, nil
+}
+
 func hexQuantity(value uint64) string {
 	return "0x" + strconv.FormatUint(value, 16)
 }
@@ -1369,6 +1778,47 @@ func chainNumericID(chainID string) uint64 {
 		return 1
 	}
 	return value
+}
+
+func newWeb3FilterStore() *web3FilterStore {
+	return &web3FilterStore{filters: make(map[string]web3Filter)}
+}
+
+func (store *web3FilterStore) add(address string, latestHeight uint64) string {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.nextID++
+	id := hexQuantity(store.nextID)
+	store.filters[id] = web3Filter{Address: address, LastHeight: latestHeight}
+	return id
+}
+
+func (store *web3FilterStore) get(id string) (web3Filter, bool) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	filter, found := store.filters[id]
+	return filter, found
+}
+
+func (store *web3FilterStore) mark(id string, height uint64) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	filter, found := store.filters[id]
+	if !found {
+		return
+	}
+	filter.LastHeight = height
+	store.filters[id] = filter
+}
+
+func (store *web3FilterStore) remove(id string) bool {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if _, found := store.filters[id]; !found {
+		return false
+	}
+	delete(store.filters, id)
+	return true
 }
 
 func parseStateRootPath(path string) (types.Height, string, bool) {

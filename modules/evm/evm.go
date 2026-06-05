@@ -177,6 +177,23 @@ func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoap
 		}
 		encoded, _ := json.Marshal(map[string]string{"address": req.Path[1], "code": hex.EncodeToString(code)})
 		return vexoapp.QueryResponse{Value: encoded}
+	case "storage":
+		if len(req.Path) != 3 {
+			return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
+		}
+		value, err := ctx.Store.Get(ctx.GoContext(), ModuleName, storageKey(types.Address(req.Path[1]), req.Path[2]))
+		if errors.Is(err, vexostore.ErrKeyNotFound) {
+			return vexoapp.QueryResponse{Code: 3, Log: "EVM storage not found"}
+		}
+		if err != nil {
+			return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+		}
+		encoded, _ := json.Marshal(map[string]string{
+			"address": req.Path[1],
+			"slot":    req.Path[2],
+			"value":   "0x" + hex.EncodeToString(value),
+		})
+		return vexoapp.QueryResponse{Value: encoded}
 	case "logs":
 		if len(req.Path) != 2 {
 			return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
@@ -432,6 +449,10 @@ func codeKey(address types.Address) []byte {
 
 func logsKey(address types.Address) []byte {
 	return []byte("logs/" + string(address))
+}
+
+func storageKey(address types.Address, slot string) []byte {
+	return []byte("storage/" + string(address) + "/" + strings.TrimPrefix(slot, "0x"))
 }
 
 func cloneMap(value map[string]string) map[string]string {

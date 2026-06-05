@@ -19,6 +19,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/events"
+	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	"github.com/vexo-network/vexo-consensus/queryproof"
@@ -43,6 +44,7 @@ type fakeStatusProvider struct {
 	submitErr         error
 	submitted         []types.Tx
 	blocks            map[types.Height]store.BlockRecord
+	blocksByHash      map[types.Hash]store.BlockRecord
 	latest            types.Height
 	blockErr          error
 	index             store.BlockIndex
@@ -78,6 +80,12 @@ type fakeStatusProvider struct {
 	evidenceApplied   bool
 	evidenceErr       error
 	evidenceSubmitted []slashing.Evidence
+	accountSequence   uint64
+	accountErr        error
+	accountAddress    types.Address
+	finalityProof     finality.Proof
+	finalityErr       error
+	finalityHeight    types.Height
 }
 
 func (provider fakeStatusProvider) Status(ctx context.Context) node.Status {
@@ -129,6 +137,17 @@ func (provider fakeStatusProvider) BlockByHeight(ctx context.Context, height typ
 		return store.BlockRecord{}, provider.blockErr
 	}
 	record, ok := provider.blocks[height]
+	if !ok {
+		return store.BlockRecord{}, store.ErrBlockNotFound
+	}
+	return record, nil
+}
+
+func (provider fakeStatusProvider) BlockByHash(ctx context.Context, hash types.Hash) (store.BlockRecord, error) {
+	if provider.blockErr != nil {
+		return store.BlockRecord{}, provider.blockErr
+	}
+	record, ok := provider.blocksByHash[hash]
 	if !ok {
 		return store.BlockRecord{}, store.ErrBlockNotFound
 	}
@@ -205,6 +224,29 @@ func (provider *fakeStatusProvider) AppQuery(ctx context.Context, path []string,
 		return vexoapp.QueryResponse{}, provider.appQueryErr
 	}
 	return provider.appQueryResponse, nil
+}
+
+func (provider *fakeStatusProvider) AccountSequence(ctx context.Context, address types.Address) (uint64, error) {
+	provider.accountAddress = address
+	if provider.accountErr != nil {
+		return 0, provider.accountErr
+	}
+	return provider.accountSequence, nil
+}
+
+func (provider *fakeStatusProvider) FinalityProof(ctx context.Context, height types.Height) (finality.Proof, error) {
+	provider.finalityHeight = height
+	if provider.finalityErr != nil {
+		return finality.Proof{}, provider.finalityErr
+	}
+	return provider.finalityProof, nil
+}
+
+func (provider *fakeStatusProvider) LatestFinalityProof(ctx context.Context) (finality.Proof, error) {
+	if provider.finalityErr != nil {
+		return finality.Proof{}, provider.finalityErr
+	}
+	return provider.finalityProof, nil
 }
 
 func (provider *fakeStatusProvider) PruneBelow(ctx context.Context, retainFrom types.Height) (store.PruneResult, error) {
@@ -683,10 +725,25 @@ func TestHandlerSubmitsBase64Transaction(t *testing.T) {
 }
 
 func TestHandlerServesWeb3JSONRPC(t *testing.T) {
+	blockHash := types.Hash{0xab}
+	parentHash := types.Hash{0xcd}
+	block := store.BlockRecord{
+		Block: types.Block{
+			Header: types.Header{ChainID: "vexo-chain", Height: 12, PreviousBlockHash: parentHash, TimeUnixNano: int64(1700000000 * time.Second)},
+			Txs:    []types.Tx{[]byte("bank:send")},
+		},
+		Hash:    blockHash,
+		AppHash: types.Hash{0xef},
+	}
 	provider := &fakeStatusProvider{
 		status:           node.Status{ChainID: "vexo-chain", LatestHeight: 12},
 		state:            store.StateRecord{Height: 12, BaseFee: 9, NextBaseFee: 11},
 		appQueryResponse: vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"0xabc","status":1,"gas_used":7,"logs":[{"address":"0xcontract","data":"0x01"}]}`)},
+		blocks:           map[types.Height]store.BlockRecord{12: block},
+		blocksByHash:     map[types.Hash]store.BlockRecord{blockHash: block},
+		latest:           12,
+		index:            store.BlockIndex{EarliestHeight: 12, LatestHeight: 12, TotalBlocks: 1},
+		accountSequence:  7,
 	}
 	handler := NewHandler(provider)
 
@@ -711,6 +768,22 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("unexpected gas price response: %+v", gasPrice)
 	}
 
+	var blockByNumber JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":6,"method":"eth_getBlockByNumber","params":["latest",true]}`, http.StatusOK, &blockByNumber)
+	if blockByNumber.Error != nil {
+		t.Fatalf("unexpected block by number error: %+v", blockByNumber)
+	}
+	blockResult, ok := blockByNumber.Result.(map[string]any)
+	if !ok || blockResult["number"] != "0xc" || blockResult["hash"] != "0xab00000000000000000000000000000000000000000000000000000000000000" {
+		t.Fatalf("unexpected block by number response: %+v", blockByNumber.Result)
+	}
+
+	var blockByHash JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":7,"method":"eth_getBlockByHash","params":["0xab00000000000000000000000000000000000000000000000000000000000000",false]}`, http.StatusOK, &blockByHash)
+	if blockByHash.Error != nil {
+		t.Fatalf("unexpected block by hash error: %+v", blockByHash)
+	}
+
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`123`)}
 	var balance JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":31,"method":"eth_getBalance","params":["0xaaaa","latest"]}`, http.StatusOK, &balance)
@@ -719,6 +792,26 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	}
 	if provider.appQueryPath[0] != "bank" || provider.appQueryPath[1] != "balance" || provider.appQueryPath[2] != "0xaaaa" {
 		t.Fatalf("unexpected balance query path: %+v", provider.appQueryPath)
+	}
+
+	var txCount JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":33,"method":"eth_getTransactionCount","params":["0xaaaa","latest"]}`, http.StatusOK, &txCount)
+	if txCount.Error != nil || txCount.Result != "0x7" || provider.accountAddress != "0xaaaa" {
+		t.Fatalf("unexpected transaction count response: %+v address=%s", txCount, provider.accountAddress)
+	}
+
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"address":"0xbbbb","code":"60016002"}`)}
+	var code JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":34,"method":"eth_getCode","params":["0xbbbb","latest"]}`, http.StatusOK, &code)
+	if code.Error != nil || code.Result != "0x60016002" {
+		t.Fatalf("unexpected code response: %+v", code)
+	}
+
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"address":"0xbbbb","slot":"0x0","value":"0x01"}`)}
+	var storageAt JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":35,"method":"eth_getStorageAt","params":["0xbbbb","0x0","latest"]}`, http.StatusOK, &storageAt)
+	if storageAt.Error != nil || storageAt.Result != "0x01" {
+		t.Fatalf("unexpected storage response: %+v", storageAt)
 	}
 
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"0xabc","height":12,"status":1,"from":"0xaaaa","to":"0xbbbb","gas_used":7,"output":"0x1234"}`)}
@@ -740,6 +833,23 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	}
 	if provider.appQueryPath[0] != "evm" || provider.appQueryPath[1] != "receipt" || provider.appQueryPath[2] != "0xabc" {
 		t.Fatalf("unexpected app query path: %+v", provider.appQueryPath)
+	}
+
+	var filterID JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":8,"method":"eth_newFilter","params":[{"address":"0xcontract"}]}`, http.StatusOK, &filterID)
+	filterText, ok := filterID.Result.(string)
+	if filterID.Error != nil || !ok || filterText == "" {
+		t.Fatalf("unexpected filter id: %+v", filterID)
+	}
+	var filterLogs JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":9,"method":"eth_getFilterLogs","params":["`+filterText+`"]}`, http.StatusOK, &filterLogs)
+	if filterLogs.Error != nil {
+		t.Fatalf("unexpected filter logs: %+v", filterLogs)
+	}
+	var uninstall JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":10,"method":"eth_uninstallFilter","params":["`+filterText+`"]}`, http.StatusOK, &uninstall)
+	if uninstall.Error != nil || uninstall.Result != true {
+		t.Fatalf("unexpected uninstall response: %+v", uninstall)
 	}
 
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x1234","gas_used":9}`)}
@@ -1016,6 +1126,56 @@ func TestHandlerReportsLatestStateAndStateRoot(t *testing.T) {
 	getJSON(t, handler, "/state/3/bank", http.StatusOK, &root)
 	if root.Height != 3 || root.Namespace != "bank" || root.Root[:2] != "06" {
 		t.Fatalf("unexpected state root response: %+v", root)
+	}
+}
+
+func TestHandlerReportsFinalityProof(t *testing.T) {
+	proof := finality.Proof{
+		Header: types.Header{
+			ChainID:          "vexo-test",
+			Height:           7,
+			ValidatorSetHash: types.Hash{3},
+		},
+		BlockHash:          types.Hash{1},
+		ValidatorSetHeight: 7,
+		ValidatorSetHash:   types.Hash{3},
+		QuorumCert: finality.QuorumCert{
+			Height:      7,
+			Round:       2,
+			BlockHash:   types.Hash{1},
+			Signers:     []byte{0x03},
+			Signature:   []byte{0x04},
+			VotingPower: 20,
+		},
+	}
+	provider := &fakeStatusProvider{
+		status: node.Status{
+			ChainID:               "vexo-test",
+			Running:               true,
+			LatestHeight:          9,
+			LatestFinalizedHeight: 7,
+			LatestFinalizedHash:   types.Hash{1},
+		},
+		finalityProof: proof,
+	}
+	handler := NewHandler(provider)
+
+	var status StatusResponse
+	getJSON(t, handler, "/v1/status", http.StatusOK, &status)
+	if status.LatestFinalizedHeight != 7 || status.LatestFinalizedHash[:2] != "01" {
+		t.Fatalf("unexpected finalized status: %+v", status)
+	}
+
+	var latest FinalityProofResponse
+	getJSON(t, handler, "/v1/finality/latest", http.StatusOK, &latest)
+	if latest.Height != 7 || latest.BlockHash[:2] != "01" || latest.QuorumCert.Round != 2 {
+		t.Fatalf("unexpected latest finality proof: %+v", latest)
+	}
+
+	var byHeight FinalityProofResponse
+	getJSON(t, handler, "/v1/finality/7", http.StatusOK, &byHeight)
+	if provider.finalityHeight != 7 || byHeight.ValidatorSetHash[:2] != "03" {
+		t.Fatalf("unexpected finality by height: proof=%+v requested=%d", byHeight, provider.finalityHeight)
 	}
 }
 

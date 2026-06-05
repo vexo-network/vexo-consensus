@@ -28,6 +28,8 @@ Stable endpoints are exposed under `/v1`. The unversioned paths remain compatibi
 - `/v1/events?key={attribute_key}&value={attribute_value}`
 - `/v1/proof?namespace={namespace}&key={key}`
 - `/v1/proof?namespace={namespace}&key={key}&height=latest`
+- `/v1/finality/latest`
+- `/v1/finality/{height}`
 - `/v1/ibc/client/{client_id}`
 - `/v1/ibc/connection/{connection_id}`
 - `/v1/ibc/channel/{port_id}/{channel_id}`
@@ -79,7 +81,9 @@ curl 'http://127.0.0.1:26657/v1/proof?namespace=bank&key=alice'
 curl 'http://127.0.0.1:26657/v1/proof?height=10&namespace=bank&key=alice'
 ```
 
-LevelDB stores height-versioned KV writes during atomic block commits, so historical proofs rebuild the namespace snapshot at the requested height and bind membership or non-membership to the state root saved for that height. Existing-key proofs include a compact Merkle path. Missing-key proofs include a full namespace absence witness so verifiers can recompute the root and confirm the key is absent. Stores that do not implement historical namespace reads must reject historical proof requests instead of returning latest values for older heights.
+LevelDB stores height-versioned KV writes during atomic block commits, so historical proofs rebuild the namespace snapshot at the requested height and bind membership or non-membership to the state root saved for that height. Existing-key proofs include a compact Merkle path. Missing-key proofs include compact left/right neighbor absence proofs; legacy full namespace absence witnesses remain verifier-compatible. Stores that do not implement historical namespace reads must reject historical proof requests instead of returning latest values for older heights.
+
+`/v1/finality/latest` and `/v1/finality/{height}` return the latest or height-specific three-chain finality proof known by the live consensus state. These endpoints expose consensus finality, while `/v1/status.latest_height` reports application state commit height.
 
 ## Event Queries
 
@@ -106,6 +110,8 @@ curl 'http://127.0.0.1:26657/v1/ibc/proof/packet/1/transfer/channel-0/transfer/c
 Responses wrap the module JSON state in `{ "path": [...], "value": ... }`. Missing IBC state returns `404`.
 
 Packet proof responses reuse the standard Merkle query-proof envelope with namespace `ibc` and packet commitment key `packets/{source_port}/{source_channel}/{sequence}`. Relayers can use this endpoint to prove sent, acknowledged, or timed-out packet receipt state at a specific height. The keeper validates client chain ID, trusted height, trusted state root, namespace, key, existence, Merkle proof, and decoded packet receipt before accepting a packet commitment proof.
+
+The Web3 JSON-RPC compatibility surface includes block, fee, account, code, storage, transaction, receipt, log, call, estimate, and HTTP polling-filter methods: `web3_clientVersion`, `net_version`, `eth_chainId`, `eth_blockNumber`, `eth_getBlockByNumber`, `eth_getBlockByHash`, `eth_gasPrice`, `eth_getBalance`, `eth_getTransactionCount`, `eth_getCode`, `eth_getStorageAt`, `eth_sendRawTransaction`, `eth_getTransactionReceipt`, `eth_getTransactionByHash`, `eth_getLogs`, `eth_newFilter`, `eth_getFilterChanges`, `eth_getFilterLogs`, `eth_uninstallFilter`, `eth_call`, and `eth_estimateGas`.
 
 ## Operational Compatibility
 

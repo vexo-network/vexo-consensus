@@ -19,17 +19,19 @@ var (
 )
 
 type Proof struct {
-	SchemaVersion   string            `json:"schema_version"`
-	ChainID         string            `json:"chain_id"`
-	Height          types.Height      `json:"height"`
-	Namespace       string            `json:"namespace"`
-	Key             []byte            `json:"key"`
-	Value           []byte            `json:"value,omitempty"`
-	Exists          bool              `json:"exists"`
-	StateRoot       types.Hash        `json:"state_root"`
-	LeafHash        types.Hash        `json:"leaf_hash"`
-	MerklePath      []stateproof.Step `json:"merkle_path,omitempty"`
-	NamespaceLeaves []stateproof.Pair `json:"namespace_leaves,omitempty"`
+	SchemaVersion   string                      `json:"schema_version"`
+	ChainID         string                      `json:"chain_id"`
+	Height          types.Height                `json:"height"`
+	Namespace       string                      `json:"namespace"`
+	Key             []byte                      `json:"key"`
+	Value           []byte                      `json:"value,omitempty"`
+	Exists          bool                        `json:"exists"`
+	StateRoot       types.Hash                  `json:"state_root"`
+	LeafHash        types.Hash                  `json:"leaf_hash"`
+	MerklePath      []stateproof.Step           `json:"merkle_path,omitempty"`
+	NamespaceLeaves []stateproof.Pair           `json:"namespace_leaves,omitempty"`
+	AbsenceLeft     *stateproof.AbsenceNeighbor `json:"absence_left,omitempty"`
+	AbsenceRight    *stateproof.AbsenceNeighbor `json:"absence_right,omitempty"`
 }
 
 func Build(ctx context.Context, kv store.KVStore, chainID string, height types.Height, namespace string, key []byte) (Proof, error) {
@@ -67,8 +69,18 @@ func BuildFromPairs(chainID string, height types.Height, namespace string, key [
 		return Proof{}, ErrRootMismatch
 	}
 	proofPairs := []stateproof.Pair(nil)
+	var absenceLeft *stateproof.AbsenceNeighbor
+	var absenceRight *stateproof.AbsenceNeighbor
 	if !exists {
-		proofPairs = cloneProofPairs(pairs)
+		absenceRoot, left, right, absenceExists, err := stateproof.BuildNonMembership(namespace, pairs, key)
+		if err != nil {
+			return Proof{}, err
+		}
+		if absenceExists || absenceRoot != stateRoot {
+			return Proof{}, ErrInvalidProof
+		}
+		absenceLeft = left
+		absenceRight = right
 	}
 	return Proof{
 		SchemaVersion:   SchemaVersionV1,
@@ -82,6 +94,8 @@ func BuildFromPairs(chainID string, height types.Height, namespace string, key [
 		LeafHash:        leafHash(namespace, key, value),
 		MerklePath:      append([]stateproof.Step(nil), path...),
 		NamespaceLeaves: proofPairs,
+		AbsenceLeft:     absenceLeft,
+		AbsenceRight:    absenceRight,
 	}, nil
 }
 
@@ -107,6 +121,12 @@ func Verify(proof Proof, expectedChainID string, expectedHeight types.Height, ex
 	}
 	if proof.Exists {
 		if !stateproof.VerifyMembership(proof.Namespace, proof.Key, proof.Value, proof.MerklePath, proof.StateRoot) {
+			return ErrInvalidProof
+		}
+		return nil
+	}
+	if proof.AbsenceLeft != nil || proof.AbsenceRight != nil {
+		if !stateproof.VerifyNonMembershipCompact(proof.Namespace, proof.Key, proof.StateRoot, proof.AbsenceLeft, proof.AbsenceRight) {
 			return ErrInvalidProof
 		}
 		return nil
@@ -146,15 +166,4 @@ func storePairsToProofPairs(pairs []store.KVPair) []stateproof.Pair {
 		})
 	}
 	return proofPairs
-}
-
-func cloneProofPairs(pairs []stateproof.Pair) []stateproof.Pair {
-	cloned := make([]stateproof.Pair, 0, len(pairs))
-	for _, pair := range pairs {
-		cloned = append(cloned, stateproof.Pair{
-			Key:   append([]byte(nil), pair.Key...),
-			Value: append([]byte(nil), pair.Value...),
-		})
-	}
-	return cloned
 }
