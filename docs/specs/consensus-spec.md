@@ -72,7 +72,7 @@ Finality conflict evidence contains two independently valid finality proofs for 
 
 Invalid proposal evidence is reason-specific:
 
-- data-availability mismatch proofs must show a commitment mismatch.
+- data-availability mismatch proofs must show a chunk-root commitment mismatch.
 - missing-data proofs must show missing data for a non-empty proposal.
 - validator-set-hash and app-hash proofs must bind `actual_hash` to the proposed header field and include a different expected hash.
 - timestamp proofs must bind `actual_time_unix_nano` to the proposed header timestamp when the header timestamp is present.
@@ -80,5 +80,10 @@ Invalid proposal evidence is reason-specific:
 - proposer-signature proofs still pass normal proposal envelope checks, then fail domain-separated proposer signature verification during slashing validation.
 
 Current invalid-proposal evidence is a runtime-verifiable mismatch proof format. Validator-set-hash evidence is checked against the height-specific validator set. App-hash evidence can be applied when the node has the committed state record for the evidence height and can inject that expected app hash into the slashing verifier. Timestamp evidence likewise requires an explicit expected timestamp context. Transaction-validity evidence remains a deterministic mismatch envelope and should not be slashed unless the chain wires a reason-specific deterministic execution verifier.
+
+The consensus/data-availability hash is the Merkle root of canonical length-prefixed transaction chunks.
+Nodes can verify individual chunk samples against that root and can recover one missing chunk per parity group
+from XOR parity chunks. This is deterministic recovery for bounded missing data; chains that need stronger
+availability sampling against many missing chunks should add a Reed-Solomon or 2D erasure-coding backend.
 
 It is not a full light-client Merkle/state-proof system. Chains that require slashing from independently verifiable state membership or non-membership proofs must add reason-specific Merkle/state proof verification before applying penalties for those reasons.

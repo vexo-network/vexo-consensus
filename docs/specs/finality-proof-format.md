@@ -25,7 +25,7 @@ The header hash covers:
 - previous block hash
 - app hash
 - validator set hash
-- consensus/data availability hash
+- consensus/data availability chunk root
 
 ## Quorum Certificate Fields
 

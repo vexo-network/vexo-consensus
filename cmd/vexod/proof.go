@@ -10,8 +10,10 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
+	"github.com/vexo-network/vexo-consensus/dataavailability"
 	"github.com/vexo-network/vexo-consensus/finality"
 	ibckeeper "github.com/vexo-network/vexo-consensus/ibc"
 	"github.com/vexo-network/vexo-consensus/queryproof"
@@ -33,9 +35,157 @@ func runProof(writer io.Writer, args []string) error {
 		return runProofVerifyIBC(writer, args[1:])
 	case "detect-finality-conflict":
 		return runProofDetectFinalityConflict(writer, args[1:])
+	case "da-export":
+		return runProofDAExport(writer, args[1:])
+	case "da-proof":
+		return runProofDAProof(writer, args[1:])
+	case "da-verify":
+		return runProofDAVerify(writer, args[1:])
+	case "da-recover":
+		return runProofDARecover(writer, args[1:])
 	default:
 		return fmt.Errorf("unknown proof subcommand %q", args[0])
 	}
+}
+
+type stringListFlag []string
+
+func (values *stringListFlag) String() string {
+	return strings.Join(*values, ",")
+}
+
+func (values *stringListFlag) Set(value string) error {
+	*values = append(*values, value)
+	return nil
+}
+
+type dataAvailabilityBundle struct {
+	Proof  dataavailability.Proof   `json:"proof"`
+	Chunks []dataavailability.Chunk `json:"chunks"`
+	Parity []dataavailability.Chunk `json:"parity"`
+}
+
+type dataAvailabilityRecoverResult struct {
+	TxsHex []string `json:"txs_hex"`
+}
+
+func runProofDAExport(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("proof da-export", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	var txHexValues stringListFlag
+	flags.Var(&txHexValues, "tx-hex", "hex-encoded transaction payload; repeat for multiple transactions")
+	chunkSize := flags.Uint64("chunk-size", dataavailability.DefaultChunkSize, "data availability chunk size")
+	dataShards := flags.Uint64("data-shards", dataavailability.DefaultDataShards, "data chunks covered by each parity chunk")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	txs, err := txsFromHexFlags(txHexValues)
+	if err != nil {
+		return err
+	}
+	proof, err := dataavailability.BuildProofWithOptions(txs, *chunkSize, *dataShards)
+	if err != nil {
+		return err
+	}
+	chunks, err := dataavailability.BuildChunks(txs, *chunkSize)
+	if err != nil {
+		return err
+	}
+	parity, err := dataavailability.BuildParityChunks(txs, *chunkSize, *dataShards)
+	if err != nil {
+		return err
+	}
+	return writeIndentedJSON(writer, dataAvailabilityBundle{Proof: proof, Chunks: chunks, Parity: parity})
+}
+
+func runProofDAProof(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("proof da-proof", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	var txHexValues stringListFlag
+	flags.Var(&txHexValues, "tx-hex", "hex-encoded transaction payload; repeat for multiple transactions")
+	chunkSize := flags.Uint64("chunk-size", dataavailability.DefaultChunkSize, "data availability chunk size")
+	index := flags.Uint64("index", 0, "chunk index to prove")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	txs, err := txsFromHexFlags(txHexValues)
+	if err != nil {
+		return err
+	}
+	proof, err := dataavailability.BuildChunkProof(txs, *chunkSize, *index)
+	if err != nil {
+		return err
+	}
+	return writeIndentedJSON(writer, proof)
+}
+
+func runProofDAVerify(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("proof da-verify", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	inputPath := flags.String("input", "", "data availability chunk proof JSON path")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *inputPath == "" {
+		return errors.New("data availability proof input path is required")
+	}
+	data, err := readProofFile(*inputPath)
+	if err != nil {
+		return err
+	}
+	var proof dataavailability.ChunkProof
+	if err := json.Unmarshal(data, &proof); err != nil {
+		return err
+	}
+	if err := dataavailability.VerifyChunkProof(proof); err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "data availability chunk proof verified\n")
+	fmt.Fprintf(writer, "commitment: %s\n", hex.EncodeToString(proof.Commitment[:]))
+	fmt.Fprintf(writer, "chunk_index: %d\n", proof.Index)
+	fmt.Fprintf(writer, "chunk_count: %d\n", proof.ChunkCount)
+	fmt.Fprintf(writer, "chunk_size: %d\n", proof.ChunkSize)
+	return nil
+}
+
+func runProofDARecover(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("proof da-recover", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	inputPath := flags.String("input", "", "data availability bundle JSON path")
+	dropIndex := flags.Uint64("drop", ^uint64(0), "optional chunk index to drop before recovery")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *inputPath == "" {
+		return errors.New("data availability bundle input path is required")
+	}
+	data, err := readProofFile(*inputPath)
+	if err != nil {
+		return err
+	}
+	var bundle dataAvailabilityBundle
+	if err := json.Unmarshal(data, &bundle); err != nil {
+		return err
+	}
+	chunks := bundle.Chunks
+	if *dropIndex != ^uint64(0) {
+		filtered := make([]dataavailability.Chunk, 0, len(chunks))
+		for _, chunk := range chunks {
+			if chunk.Index != *dropIndex {
+				filtered = append(filtered, chunk)
+			}
+		}
+		chunks = filtered
+	}
+	txs, err := dataavailability.RecoverTransactions(bundle.Proof, chunks, bundle.Parity)
+	if err != nil {
+		return err
+	}
+	result := dataAvailabilityRecoverResult{TxsHex: make([]string, 0, len(txs))}
+	for _, tx := range txs {
+		result.TxsHex = append(result.TxsHex, hex.EncodeToString(tx))
+	}
+	return writeIndentedJSON(writer, result)
 }
 
 func runProofQuery(writer io.Writer, args []string) error {
@@ -222,6 +372,28 @@ func runProofVerifyIBC(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "key: %s\n", proof.Key)
 	fmt.Fprintf(writer, "exists: %t\n", proof.Exists)
 	return nil
+}
+
+func txsFromHexFlags(values []string) ([]types.Tx, error) {
+	if len(values) == 0 {
+		return nil, errors.New("at least one --tx-hex value is required")
+	}
+	txs := make([]types.Tx, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimPrefix(strings.TrimSpace(value), "0x")
+		decoded, err := hex.DecodeString(trimmed)
+		if err != nil {
+			return nil, fmt.Errorf("decode --tx-hex: %w", err)
+		}
+		txs = append(txs, types.Tx(decoded))
+	}
+	return txs, nil
+}
+
+func writeIndentedJSON(writer io.Writer, value any) error {
+	encoder := json.NewEncoder(writer)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(value)
 }
 
 func parseOptionalHash(value string) (types.Hash, error) {

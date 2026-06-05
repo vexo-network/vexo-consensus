@@ -713,6 +713,65 @@ func TestRunProofVerifyCommand(t *testing.T) {
 	}
 }
 
+func TestRunProofDataAvailabilityCommands(t *testing.T) {
+	tempDir := t.TempDir()
+	var chunkProof bytes.Buffer
+	if err := runCommand(&chunkProof, &bytes.Buffer{}, []string{
+		"proof", "da-proof",
+		"--tx-hex", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"--tx-hex", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		"--chunk-size", "16",
+		"--index", "1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	chunkProofPath := filepath.Join(tempDir, "da-chunk-proof.json")
+	if err := os.WriteFile(chunkProofPath, chunkProof.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var verifyOutput bytes.Buffer
+	if err := runCommand(&verifyOutput, &bytes.Buffer{}, []string{"proof", "da-verify", "--input", chunkProofPath}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(verifyOutput.String(), "data availability chunk proof verified") {
+		t.Fatalf("unexpected DA verify output: %s", verifyOutput.String())
+	}
+
+	var bundle bytes.Buffer
+	if err := runCommand(&bundle, &bytes.Buffer{}, []string{
+		"proof", "da-export",
+		"--tx-hex", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"--tx-hex", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		"--chunk-size", "16",
+		"--data-shards", "4",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var decoded dataAvailabilityBundle
+	if err := json.Unmarshal(bundle.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Proof.ChunkCount < 2 || len(decoded.Chunks) != int(decoded.Proof.ChunkCount) || len(decoded.Parity) != int(decoded.Proof.ParityCount) {
+		t.Fatalf("unexpected DA bundle: %+v", decoded)
+	}
+	bundlePath := filepath.Join(tempDir, "da-bundle.json")
+	if err := os.WriteFile(bundlePath, bundle.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var recoverOutput bytes.Buffer
+	if err := runCommand(&recoverOutput, &bytes.Buffer{}, []string{"proof", "da-recover", "--input", bundlePath, "--drop", "1"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	} {
+		if !strings.Contains(recoverOutput.String(), expected) {
+			t.Fatalf("expected recovered output to contain %q, got %s", expected, recoverOutput.String())
+		}
+	}
+}
+
 func TestRunProofVerifyIBCCommand(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {

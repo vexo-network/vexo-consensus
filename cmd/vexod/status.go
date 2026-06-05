@@ -45,6 +45,8 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "fair_ordering.deterministic: true\n")
 	fmt.Fprintf(writer, "fair_ordering.height_salted: true\n")
 	fmt.Fprintf(writer, "data_availability.commitments: true\n")
+	fmt.Fprintf(writer, "data_availability.chunk_proofs: true\n")
+	fmt.Fprintf(writer, "data_availability.parity_recovery: true\n")
 	fmt.Fprintf(writer, "storage.backend: leveldb\n")
 	fmt.Fprintf(writer, "state_sync.snapshot_kv: true\n")
 	fmt.Fprintf(writer, "state_sync.snapshot_checksum: true\n")
@@ -233,6 +235,8 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"fair_ordering":                     true,
 			"height_salted_order":               true,
 			"data_availability":                 true,
+			"data_availability_chunk_proofs":    true,
+			"data_availability_parity_recovery": true,
 			"state_sync_snapshot_kv":            true,
 			"state_sync_checksum":               true,
 			"state_sync_verify":                 true,

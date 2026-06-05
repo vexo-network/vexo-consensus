@@ -98,6 +98,15 @@ vexod proof query --home .vexo --namespace bank --key alice > proof.json
 vexod proof verify --input proof.json --chain-id vexo-chain --height 10
 ```
 
+Data availability commitments use canonical transaction chunks. Operators and module test harnesses can export a DA bundle, verify an individual chunk proof, and test one-missing-chunk recovery:
+
+```bash
+vexod proof da-export --tx-hex 68656c6c6f --tx-hex 776f726c64 > da-bundle.json
+vexod proof da-proof --tx-hex 68656c6c6f --tx-hex 776f726c64 --index 0 > da-proof.json
+vexod proof da-verify --input da-proof.json
+vexod proof da-recover --input da-bundle.json --drop 0
+```
+
 ## IBC and Contract Extension Points
 
 The `ibc` package provides client, connection, channel, packet commitment, acknowledgement, and receipt primitives for building an IBC-compatible module. Full relayer/light-client protocol compatibility is chain integration work.
