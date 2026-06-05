@@ -20,6 +20,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/events"
 	"github.com/vexo-network/vexo-consensus/finality"
+	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	"github.com/vexo-network/vexo-consensus/queryproof"
@@ -736,15 +737,18 @@ func TestHandlerSubmitsBase64Transaction(t *testing.T) {
 func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	blockHash := types.Hash{0xab}
 	parentHash := types.Hash{0xcd}
+	blockTx := types.Tx("bank:send:fee=14:gas=7")
+	blockTxHash := mempool.HashTx(blockTx)
+	blockTxHashText := "0x" + hex.EncodeToString(blockTxHash[:])
 	block := store.BlockRecord{
 		Block: types.Block{
 			Header: types.Header{ChainID: "vexo-chain", Height: 12, PreviousBlockHash: parentHash, TimeUnixNano: int64(1700000000 * time.Second)},
-			Txs:    []types.Tx{[]byte("bank:send")},
+			Txs:    []types.Tx{blockTx},
 		},
 		Hash:    blockHash,
 		AppHash: types.Hash{0xef},
 		TxResults: []types.Result{
-			{GasUsed: 7, Data: []byte(`{"tx_hash":"0xabc","height":12,"status":1,"from":"0xaaaa","to":"0xbbbb","gas_used":7,"output":"0x1234"}`)},
+			{GasUsed: 7, Data: []byte(`{"tx_hash":"` + blockTxHashText + `","height":12,"status":1,"from":"0xaaaa","to":"0xbbbb","gas_used":7,"output":"0x1234"}`)},
 		},
 	}
 	provider := &fakeStatusProvider{
@@ -801,7 +805,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("expected full transaction response: %+v", blockResult["transactions"])
 	}
 	fullTx, ok := fullTxs[0].(map[string]any)
-	if !ok || fullTx["from"] != "0xaaaa" || fullTx["to"] != "0xbbbb" || fullTx["gas"] != "0x7" {
+	if !ok || fullTx["from"] != "0xaaaa" || fullTx["to"] != "0xbbbb" || fullTx["gas"] != "0x7" || fullTx["gasPrice"] != "0x2" {
 		t.Fatalf("expected receipt-backed transaction fields: %+v", fullTxs[0])
 	}
 
@@ -841,14 +845,14 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("unexpected storage response: %+v", storageAt)
 	}
 
-	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"0xabc","height":12,"status":1,"from":"0xaaaa","to":"0xbbbb","gas_used":7,"output":"0x1234"}`)}
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"` + blockTxHashText + `","height":12,"status":1,"from":"0xaaaa","to":"0xbbbb","gas_used":7,"output":"0x1234"}`)}
 	var txByHash JSONRPCResponse
-	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":32,"method":"eth_getTransactionByHash","params":["0xabc"]}`, http.StatusOK, &txByHash)
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":32,"method":"eth_getTransactionByHash","params":["`+blockTxHashText+`"]}`, http.StatusOK, &txByHash)
 	if txByHash.Error != nil {
 		t.Fatalf("unexpected transaction error: %+v", txByHash)
 	}
 	txResult, ok := txByHash.Result.(map[string]any)
-	if !ok || txResult["hash"] != "0xabc" || txResult["blockNumber"] != "0xc" {
+	if !ok || txResult["hash"] != blockTxHashText || txResult["blockNumber"] != "0xc" || txResult["gasPrice"] != "0x2" {
 		t.Fatalf("unexpected transaction response: %+v", txByHash.Result)
 	}
 
@@ -972,6 +976,24 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":5,"method":"eth_estimateGas","params":[{"to":"0xbbbb","gas":"0x100"}]}`, http.StatusOK, &estimate)
 	if estimate.Error != nil || estimate.Result != "0x100" {
 		t.Fatalf("unexpected estimate response: %+v", estimate)
+	}
+}
+
+func TestWeb3FilterStoreEvictsOldestFilters(t *testing.T) {
+	filters := newWeb3FilterStore()
+	filters.max = 2
+	first := filters.addBlock(1)
+	second := filters.addPending(nil)
+	third := filters.addLog(web3Filter{}, nil, 3)
+
+	if _, found := filters.get(first); found {
+		t.Fatalf("expected oldest filter %s to be evicted", first)
+	}
+	if _, found := filters.get(second); !found {
+		t.Fatalf("expected second filter %s to remain", second)
+	}
+	if _, found := filters.get(third); !found {
+		t.Fatalf("expected third filter %s to remain", third)
 	}
 }
 

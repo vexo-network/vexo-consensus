@@ -29,6 +29,7 @@ import (
 
 const defaultReadHeaderTimeout = 5 * time.Second
 const defaultMaxRequestBytes = 1024 * 1024
+const defaultMaxWeb3Filters = 1024
 const stableAPIPrefix = "/v1"
 
 type Config struct {
@@ -387,6 +388,8 @@ type JSONRPCError struct {
 type web3FilterStore struct {
 	mu      sync.Mutex
 	nextID  uint64
+	max     int
+	order   []string
 	filters map[string]web3Filter
 }
 
@@ -1820,7 +1823,11 @@ func web3TransactionFromReceipt(ctx context.Context, provider StatusProvider, va
 	if receipt.TxHash == "" {
 		return nil, &JSONRPCError{Code: -32000, Message: "missing EVM receipt hash"}
 	}
-	blockHash, txIndex := web3ReceiptBlockLocation(ctx, provider, receipt)
+	blockHash, txIndex, tx, foundTx := web3ReceiptBlockLocation(ctx, provider, receipt)
+	gasPrice := uint64(0)
+	if foundTx {
+		gasPrice = web3EffectiveGasPrice(tx)
+	}
 	to := receipt.To
 	if to == "" && receipt.ContractAddress != "" {
 		to = receipt.ContractAddress
@@ -1835,7 +1842,7 @@ func web3TransactionFromReceipt(ctx context.Context, provider StatusProvider, va
 		"to":               to,
 		"value":            "0x0",
 		"gas":              hexQuantity(receipt.GasUsed),
-		"gasPrice":         "0x0",
+		"gasPrice":         hexQuantity(gasPrice),
 		"input":            receipt.Output,
 	}, nil
 }
@@ -1848,7 +1855,7 @@ func web3ReceiptObject(ctx context.Context, provider StatusProvider, value []byt
 	if receipt.TxHash == "" {
 		return nil, &JSONRPCError{Code: -32000, Message: "missing EVM receipt hash"}
 	}
-	blockHash, txIndex := web3ReceiptBlockLocation(ctx, provider, receipt)
+	blockHash, txIndex, _, _ := web3ReceiptBlockLocation(ctx, provider, receipt)
 	to := any(receipt.To)
 	if receipt.To == "" {
 		to = nil
@@ -1888,7 +1895,7 @@ func web3TransactionFromBlockRecord(record store.BlockRecord, index int, hashTex
 		"to":               nil,
 		"value":            "0x0",
 		"gas":              "0x0",
-		"gasPrice":         "0x0",
+		"gasPrice":         hexQuantity(web3EffectiveGasPrice(tx)),
 		"input":            "0x" + hex.EncodeToString(tx),
 	}
 	if index >= len(record.TxResults) {
@@ -1910,6 +1917,14 @@ func web3TransactionFromBlockRecord(record store.BlockRecord, index int, hashTex
 	return transaction
 }
 
+func web3EffectiveGasPrice(tx types.Tx) uint64 {
+	meta := vexoapp.ParseTxMeta(tx)
+	if meta.Fee == 0 || meta.Gas == 0 {
+		return 0
+	}
+	return meta.Fee / meta.Gas
+}
+
 func web3ReceiptFromResult(result types.Result) (web3Receipt, bool) {
 	if len(result.Data) == 0 {
 		return web3Receipt{}, false
@@ -1921,25 +1936,25 @@ func web3ReceiptFromResult(result types.Result) (web3Receipt, bool) {
 	return receipt, true
 }
 
-func web3ReceiptBlockLocation(ctx context.Context, provider StatusProvider, receipt web3Receipt) (any, uint64) {
+func web3ReceiptBlockLocation(ctx context.Context, provider StatusProvider, receipt web3Receipt) (any, uint64, types.Tx, bool) {
 	blockProvider, ok := provider.(BlockProvider)
 	if !ok || receipt.Height == 0 {
-		return nil, 0
+		return nil, 0, nil, false
 	}
 	record, err := blockProvider.BlockByHeight(ctx, types.Height(receipt.Height))
 	if err != nil {
-		return nil, 0
+		return nil, 0, nil, false
 	}
 	for index, tx := range record.Block.Txs {
 		hash := mempool.HashTx(tx)
 		if "0x"+hex.EncodeToString(hash[:]) == receipt.TxHash {
-			return "0x" + hex.EncodeToString(record.Hash[:]), uint64(index)
+			return "0x" + hex.EncodeToString(record.Hash[:]), uint64(index), append(types.Tx(nil), tx...), true
 		}
 	}
 	if record.Hash != (types.Hash{}) {
-		return "0x" + hex.EncodeToString(record.Hash[:]), 0
+		return "0x" + hex.EncodeToString(record.Hash[:]), 0, nil, false
 	}
-	return nil, 0
+	return nil, 0, nil, false
 }
 
 func web3ReceiptsRoot(results []types.Result) string {
@@ -2354,7 +2369,7 @@ func chainNumericID(chainID string) uint64 {
 }
 
 func newWeb3FilterStore() *web3FilterStore {
-	return &web3FilterStore{filters: make(map[string]web3Filter)}
+	return &web3FilterStore{max: defaultMaxWeb3Filters, filters: make(map[string]web3Filter)}
 }
 
 func (store *web3FilterStore) addLog(filter web3Filter, logs []any, latestHeight uint64) string {
@@ -2365,7 +2380,7 @@ func (store *web3FilterStore) addLog(filter web3Filter, logs []any, latestHeight
 	filter.Type = "log"
 	filter.LastHeight = latestHeight
 	filter.SeenLogs = web3SeenLogSet(logs)
-	store.filters[id] = filter
+	store.addLocked(id, filter)
 	return id
 }
 
@@ -2374,7 +2389,7 @@ func (store *web3FilterStore) addBlock(latestHeight uint64) string {
 	defer store.mu.Unlock()
 	store.nextID++
 	id := hexQuantity(store.nextID)
-	store.filters[id] = web3Filter{Type: "block", LastHeight: latestHeight}
+	store.addLocked(id, web3Filter{Type: "block", LastHeight: latestHeight})
 	return id
 }
 
@@ -2387,7 +2402,7 @@ func (store *web3FilterStore) addPending(hashes []types.Hash) string {
 	for _, hash := range hashes {
 		seen[web3HashString(hash)] = true
 	}
-	store.filters[id] = web3Filter{Type: "pending", SeenPending: seen}
+	store.addLocked(id, web3Filter{Type: "pending", SeenPending: seen})
 	return id
 }
 
@@ -2424,8 +2439,32 @@ func (store *web3FilterStore) remove(id string) bool {
 	if _, found := store.filters[id]; !found {
 		return false
 	}
-	delete(store.filters, id)
+	store.removeLocked(id)
 	return true
+}
+
+func (store *web3FilterStore) addLocked(id string, filter web3Filter) {
+	if _, found := store.filters[id]; !found {
+		store.order = append(store.order, id)
+	}
+	store.filters[id] = filter
+	limit := store.max
+	if limit <= 0 {
+		limit = defaultMaxWeb3Filters
+	}
+	for len(store.filters) > limit && len(store.order) > 0 {
+		store.removeLocked(store.order[0])
+	}
+}
+
+func (store *web3FilterStore) removeLocked(id string) {
+	delete(store.filters, id)
+	for index, current := range store.order {
+		if current == id {
+			store.order = append(store.order[:index], store.order[index+1:]...)
+			return
+		}
+	}
 }
 
 func parseStateRootPath(path string) (types.Height, string, bool) {

@@ -39,6 +39,11 @@ type Runtime struct {
 	currentBaseFee  uint64
 }
 
+type stagedValidatorUpdateRegistry interface {
+	StageValidatorUpdatesAt(ctx context.Context, height types.Height, updates []types.ValidatorUpdate) (validator.Set, []store.KVWrite, error)
+	CommitStagedValidatorUpdates(ctx context.Context, height types.Height, updates []types.ValidatorUpdate) error
+}
+
 func New(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower) (*Runtime, error) {
 	return NewWithStore(cfg, application, initialValidators, governancePower, nil)
 }
@@ -229,15 +234,27 @@ func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Bloc
 	}
 	nextBaseFee := runtime.NextBaseFee(response)
 	validatorSetHash := block.Header.ValidatorSetHash
+	validatorUpdateHeight := block.Header.Height + 1
+	var stagedValidatorRegistry stagedValidatorUpdateRegistry
 	if len(response.ValidatorUpdates) > 0 {
-		if err := runtime.ApplyValidatorUpdatesAt(ctx, block.Header.Height+1, response.ValidatorUpdates); err != nil {
-			return app.FinalizeBlockResponse{}, err
+		if registry, ok := runtime.Validators.(stagedValidatorUpdateRegistry); ok {
+			validatorSet, validatorWrites, err := registry.StageValidatorUpdatesAt(ctx, validatorUpdateHeight, response.ValidatorUpdates)
+			if err != nil {
+				return app.FinalizeBlockResponse{}, err
+			}
+			writes = append(writes, validatorWrites...)
+			validatorSetHash = validatorSet.Hash()
+			stagedValidatorRegistry = registry
+		} else {
+			if err := runtime.ApplyValidatorUpdatesAt(ctx, validatorUpdateHeight, response.ValidatorUpdates); err != nil {
+				return app.FinalizeBlockResponse{}, err
+			}
+			validatorSet, err := runtime.Validators.ValidatorSet(ctx, validatorUpdateHeight)
+			if err != nil {
+				return app.FinalizeBlockResponse{}, err
+			}
+			validatorSetHash = validatorSet.Hash()
 		}
-		validatorSet, err := runtime.Validators.ValidatorSet(ctx, block.Header.Height+1)
-		if err != nil {
-			return app.FinalizeBlockResponse{}, err
-		}
-		validatorSetHash = validatorSet.Hash()
 	}
 	blockHash := consensus.HashBlock(block)
 	stateRoots, err := runtime.moduleStateRootsWithWrites(ctx, block.Header.Height, writes)
@@ -261,6 +278,11 @@ func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Bloc
 	}
 	if err := commitStore.CommitBlockStateWithWrites(ctx, writes, blockRecord, stateRecord, stateRoots); err != nil {
 		return app.FinalizeBlockResponse{}, err
+	}
+	if stagedValidatorRegistry != nil {
+		if err := stagedValidatorRegistry.CommitStagedValidatorUpdates(ctx, validatorUpdateHeight, response.ValidatorUpdates); err != nil {
+			return app.FinalizeBlockResponse{}, err
+		}
 	}
 	application.CommitStagedBlock(block.Header.Height, response.AppHash)
 	runtime.currentBaseFee = nextBaseFee

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
@@ -12,6 +13,8 @@ import (
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
+
+var errRuntimeCommitFailed = errors.New("runtime commit failed")
 
 func TestRuntimeExecuteBlockUsesConfiguredApplication(t *testing.T) {
 	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{&runtimeModule{name: "bank"}}, vexoapp.PrefixRouter{})
@@ -268,6 +271,61 @@ func TestRuntimeExecuteBlockAppliesValidatorUpdates(t *testing.T) {
 	}
 }
 
+func TestRuntimeStagedValidatorUpdatesRollbackWhenCommitFails(t *testing.T) {
+	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{&validatorUpdateModule{
+		runtimeModule: runtimeModule{name: "staking"},
+		updates: []types.ValidatorUpdate{
+			{ID: "alice", Address: "alice", VotingPower: 2},
+			{ID: "bob", Address: "bob", VotingPower: 1, Stake: 1},
+		},
+	}}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	failingStore := failingAppCommitStore{LevelDBStore: storage}
+	runtime, err := NewWithStore(config.Default("vexo-test"), application, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+	}, nil, failingStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialSet, err := runtime.Validators.ValidatorSet(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = runtime.ExecuteBlock(context.Background(), types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 5, ValidatorSetHash: initialSet.Hash()},
+		Txs:    []types.Tx{[]byte("staking:update")},
+	})
+	if !errors.Is(err, errRuntimeCommitFailed) {
+		t.Fatalf("expected commit failure, got %v", err)
+	}
+	reopened, err := validator.NewStoreRegistry(context.Background(), storage, nil, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := reopened.ValidatorSet(context.Background(), 6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bob, found := set.Get("bob"); found {
+		t.Fatalf("validator update must not persist when block commit fails, got bob=%+v", bob)
+	}
+	alice, found := set.Get("alice")
+	if !found || alice.VotingPower != 1 {
+		t.Fatalf("expected alice power to remain 1, got %+v found=%v", alice, found)
+	}
+	if _, err := storage.StateByHeight(context.Background(), 5); !errors.Is(err, store.ErrStateNotFound) {
+		t.Fatalf("expected block state rollback too, got %v", err)
+	}
+}
+
 func TestRuntimeExecuteBlockRemovesValidatorFromUpdates(t *testing.T) {
 	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{&validatorUpdateModule{
 		runtimeModule: runtimeModule{name: "staking"},
@@ -460,4 +518,12 @@ type validatorUpdateModule struct {
 
 func (module *validatorUpdateModule) ValidatorUpdates(ctx vexoapp.Context) []types.ValidatorUpdate {
 	return module.updates
+}
+
+type failingAppCommitStore struct {
+	*store.LevelDBStore
+}
+
+func (failingAppCommitStore) CommitBlockStateWithWrites(ctx context.Context, writes []store.KVWrite, block store.BlockRecord, state store.StateRecord, roots []store.StateRootRecord) error {
+	return errRuntimeCommitFailed
 }

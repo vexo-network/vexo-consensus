@@ -216,6 +216,29 @@ func TestFIFORejectsRecentlySeenCommittedTx(t *testing.T) {
 	}
 }
 
+func TestFIFOPrunesExpiredSeenCache(t *testing.T) {
+	pool := NewFIFO(FIFOConfig{SeenTTL: time.Minute})
+	now := time.Unix(100, 0)
+	pool.now = func() time.Time { return now }
+
+	if err := pool.AddTx(context.Background(), []byte("a")); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.MarkCommitted(context.Background(), []types.Tx{[]byte("a")}); err != nil {
+		t.Fatal(err)
+	}
+	if len(pool.seen) != 1 {
+		t.Fatalf("expected seen cache entry, got %d", len(pool.seen))
+	}
+	now = now.Add(time.Minute + time.Second)
+	if err := pool.CheckTx(context.Background(), []byte("b")); err != nil {
+		t.Fatal(err)
+	}
+	if len(pool.seen) != 0 {
+		t.Fatalf("expected expired seen cache to be pruned, got %d", len(pool.seen))
+	}
+}
+
 func TestFIFORejectsInsufficientFee(t *testing.T) {
 	pool := NewFIFO(FIFOConfig{MinFee: 10})
 	if err := pool.AddTx(context.Background(), []byte("bank:send:fee=9")); !errors.Is(err, ErrInsufficientFee) {

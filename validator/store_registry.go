@@ -172,6 +172,117 @@ func (registry *StoreRegistry) UpdateVotingPowerAt(ctx context.Context, height t
 	return nil
 }
 
+func (registry *StoreRegistry) StageValidatorUpdatesAt(ctx context.Context, height types.Height, updates []types.ValidatorUpdate) (Set, []vexostore.KVWrite, error) {
+	if height == 0 {
+		height = registry.effectiveHeight
+	}
+	validators, err := registry.validatorsAt(ctx, height)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, update := range updates {
+		if update.ID == "" {
+			update.ID = types.ValidatorID(update.Address)
+		}
+		if update.Address == "" {
+			update.Address = types.Address(update.ID)
+		}
+		if update.ID == "" {
+			return nil, nil, ErrMissingCandidateID
+		}
+		if update.VotingPower == 0 {
+			if _, found := validators[update.ID]; !found {
+				return nil, nil, ErrValidatorNotFound
+			}
+			delete(validators, update.ID)
+			continue
+		}
+		if validatorInfo, found := validators[update.ID]; found {
+			validatorInfo.VotingPower = update.VotingPower
+			if update.Stake > 0 {
+				validatorInfo.Stake = update.Stake
+			}
+			if len(update.PublicKey) > 0 {
+				validatorInfo.PublicKey = append(types.PublicKey(nil), update.PublicKey...)
+			}
+			if update.Metadata != nil {
+				validatorInfo.Metadata = cloneMetadata(update.Metadata)
+			}
+			validators[update.ID] = validatorInfo
+			continue
+		}
+		stake := update.Stake
+		if stake == 0 {
+			stake = uint64(update.VotingPower)
+		}
+		candidate := Candidate{
+			Address:   update.Address,
+			PublicKey: update.PublicKey,
+			Stake:     stake,
+			Metadata:  update.Metadata,
+		}
+		if registry.policy != nil {
+			if err := registry.policy.CanJoin(ctx, candidate, newSetSnapshot(sortedValidatorMap(validators))); err != nil {
+				return nil, nil, err
+			}
+		}
+		validatorInfo := Validator{
+			ID:          update.ID,
+			Address:     update.Address,
+			PublicKey:   append(types.PublicKey(nil), update.PublicKey...),
+			VotingPower: update.VotingPower,
+			Stake:       stake,
+			Metadata:    cloneMetadata(update.Metadata),
+		}
+		if validatorInfo.VotingPower == 0 {
+			return nil, nil, ErrZeroVotingPower
+		}
+		validators[update.ID] = validatorInfo
+	}
+	set := newSetSnapshot(sortedValidatorMap(validators))
+	writes, err := registry.snapshotWrites(ctx, height, set.List())
+	if err != nil {
+		return nil, nil, err
+	}
+	return set, writes, nil
+}
+
+func (registry *StoreRegistry) CommitStagedValidatorUpdates(ctx context.Context, height types.Height, updates []types.ValidatorUpdate) error {
+	if height == 0 {
+		height = registry.effectiveHeight
+	}
+	previous := Set(newSetSnapshot(nil))
+	if height > 1 {
+		if set, err := registry.ValidatorSet(ctx, height-1); err == nil {
+			previous = set
+		}
+	}
+	current, err := registry.ValidatorSet(ctx, height)
+	if err != nil {
+		return err
+	}
+	registry.SetEffectiveHeight(height)
+	for _, update := range updates {
+		if update.ID == "" {
+			update.ID = types.ValidatorID(update.Address)
+		}
+		if update.ID == "" {
+			continue
+		}
+		currentValidator, currentFound := current.Get(update.ID)
+		_, previousFound := previous.Get(update.ID)
+		switch {
+		case !currentFound && previousFound:
+			registry.recordEvent(ctx, height, RotationEventLeave, update.ID, 0)
+		case currentFound && !previousFound:
+			registry.recordEvent(ctx, height, RotationEventJoin, update.ID, currentValidator.VotingPower)
+		case currentFound && previousFound:
+			registry.recordEvent(ctx, height, RotationEventPowerChange, update.ID, currentValidator.VotingPower)
+		}
+	}
+	return nil
+}
+
 func (registry *StoreRegistry) RotationEvents() []RotationEvent {
 	return append([]RotationEvent(nil), registry.events...)
 }
@@ -191,7 +302,11 @@ func (registry *StoreRegistry) recordEvent(ctx context.Context, height types.Hei
 }
 
 func (registry *StoreRegistry) currentValidators(ctx context.Context) (map[types.ValidatorID]Validator, error) {
-	document, err := registry.loadLatest(ctx, registry.effectiveHeight)
+	return registry.validatorsAt(ctx, registry.effectiveHeight)
+}
+
+func (registry *StoreRegistry) validatorsAt(ctx context.Context, height types.Height) (map[types.ValidatorID]Validator, error) {
+	document, err := registry.loadLatest(ctx, height)
 	if err != nil {
 		return nil, err
 	}
@@ -205,16 +320,32 @@ func (registry *StoreRegistry) currentValidators(ctx context.Context) (map[types
 }
 
 func (registry *StoreRegistry) saveSnapshot(ctx context.Context, height types.Height, validators []Validator) error {
+	writes, err := registry.snapshotWrites(ctx, height, validators)
+	if err != nil {
+		return err
+	}
+	if batchStore, ok := registry.store.(vexostore.BatchKVStore); ok {
+		return batchStore.SetBatch(ctx, writes)
+	}
+	for _, write := range writes {
+		if err := registry.store.Set(ctx, write.Namespace, write.Key, write.Value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (registry *StoreRegistry) snapshotWrites(ctx context.Context, height types.Height, validators []Validator) ([]vexostore.KVWrite, error) {
 	document := validatorSetDocument{Height: height, Validators: sortedValidators(validators)}
 	encoded, err := json.Marshal(document)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	heights, err := registry.loadHeights(ctx)
 	if errors.Is(err, ErrValidatorSetNotFound) {
 		heights = nil
 	} else if err != nil {
-		return err
+		return nil, err
 	}
 	if !containsHeight(heights, height) {
 		heights = append(heights, height)
@@ -222,18 +353,12 @@ func (registry *StoreRegistry) saveSnapshot(ctx context.Context, height types.He
 	}
 	encodedHeights, err := json.Marshal(heights)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if batchStore, ok := registry.store.(vexostore.BatchKVStore); ok {
-		return batchStore.SetBatch(ctx, []vexostore.KVWrite{
-			{Namespace: validatorRegistryNamespace, Key: validatorSetKey(height), Value: encoded},
-			{Namespace: validatorRegistryNamespace, Key: []byte("heights"), Value: encodedHeights},
-		})
-	}
-	if err := registry.store.Set(ctx, validatorRegistryNamespace, validatorSetKey(height), encoded); err != nil {
-		return err
-	}
-	return registry.store.Set(ctx, validatorRegistryNamespace, []byte("heights"), encodedHeights)
+	return []vexostore.KVWrite{
+		{Namespace: validatorRegistryNamespace, Key: validatorSetKey(height), Value: encoded},
+		{Namespace: validatorRegistryNamespace, Key: []byte("heights"), Value: encodedHeights},
+	}, nil
 }
 
 func (registry *StoreRegistry) loadLatest(ctx context.Context, height types.Height) (validatorSetDocument, error) {

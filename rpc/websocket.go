@@ -296,13 +296,13 @@ func web3BlockHeader(record store.BlockRecord) map[string]any {
 		"logsBloom":        "0x" + strings.Repeat("00", 256),
 		"transactionsRoot": web3TransactionsRoot(record.Block.Txs),
 		"stateRoot":        "0x" + hex.EncodeToString(record.AppHash[:]),
-		"receiptsRoot":     "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"receiptsRoot":     web3ReceiptsRoot(record.TxResults),
 		"miner":            "0x0000000000000000000000000000000000000000",
 		"difficulty":       "0x0",
 		"totalDifficulty":  "0x0",
 		"extraData":        "0x",
 		"gasLimit":         "0x0",
-		"gasUsed":          "0x0",
+		"gasUsed":          hexQuantity(web3BlockGasUsed(record.TxResults)),
 		"timestamp":        hexQuantity(uint64(record.Block.Header.TimeUnixNano / int64(time.Second))),
 	}
 }

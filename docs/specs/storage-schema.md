@@ -75,7 +75,9 @@ When staged execution is available, module KV writes, block records, state recor
 
 LevelDB also writes height-versioned KV history records for each atomic block write. Historical query proofs rebuild the namespace at the requested height from those records, then verify membership with a compact Merkle path or non-membership with compact adjacent-neighbor absence proofs. Verifiers still accept legacy full namespace absence witnesses for compatibility.
 
-Runtime compaction includes both backend store compaction and mempool WAL compaction. WAL compaction rewrites pending transactions after committed transactions are removed, preventing long-running nodes from retaining stale append-only mempool records indefinitely.
+When an app block produces validator updates, the store-backed validator registry stages the height `H + 1` validator-set snapshot as KV writes and commits those writes in the same LevelDB batch as app writes, block metadata, state metadata, and state roots. If the block commit fails, the future validator-set snapshot is not persisted.
+
+Runtime compaction includes both backend store compaction and mempool WAL compaction. WAL compaction rewrites pending transactions after committed transactions are removed, preventing long-running nodes from retaining stale append-only mempool records indefinitely. The in-memory mempool seen-cache also prunes expired entries on admission and commit paths when `seen_ttl` is enabled.
 
 ## Indexes
 

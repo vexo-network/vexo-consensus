@@ -64,6 +64,7 @@ func (pool *FIFO) CheckTx(ctx context.Context, tx types.Tx) error {
 		return ErrMempoolFull
 	}
 	hash := HashTx(tx)
+	pool.pruneSeenExpired()
 	if !pool.config.AllowDuplicate {
 		if _, found := pool.index[hash]; found {
 			return ErrDuplicateTx
@@ -147,6 +148,7 @@ func (pool *FIFO) MarkCommitted(ctx context.Context, committed []types.Tx) error
 	if len(committed) == 0 {
 		return nil
 	}
+	pool.pruneSeenExpired()
 
 	remaining := make([]types.Tx, 0, len(pool.txs))
 	for _, tx := range pool.txs {
@@ -203,6 +205,18 @@ func (pool *FIFO) seenRecently(hash types.Hash) bool {
 		return false
 	}
 	return true
+}
+
+func (pool *FIFO) pruneSeenExpired() {
+	if pool.config.SeenTTL <= 0 || len(pool.seen) == 0 {
+		return
+	}
+	now := pool.now()
+	for hash, seenAt := range pool.seen {
+		if now.Sub(seenAt) > pool.config.SeenTTL {
+			delete(pool.seen, hash)
+		}
+	}
 }
 
 func (pool *FIFO) markSeen(hash types.Hash) {
