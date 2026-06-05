@@ -233,6 +233,44 @@ func TestLevelDBStorePersistsSchemaState(t *testing.T) {
 	}
 }
 
+func TestLevelDBStorePersistsUpgradePlansByHeightAndName(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	plan := upgrade.Plan{
+		Name:               "v2",
+		Height:             12,
+		BinaryVersion:      "v2.0.0",
+		ConfigSchemaFrom:   1,
+		ConfigSchemaTo:     2,
+		StoreSchemaFrom:    1,
+		StoreSchemaTo:      2,
+		AppStateSchemaFrom: 1,
+		AppStateSchemaTo:   2,
+		GovernanceProposal: "42",
+	}
+	if err := store.SaveUpgradePlan(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	byHeight, found, err := store.UpgradePlanByHeight(context.Background(), 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || byHeight != plan {
+		t.Fatalf("unexpected height plan found=%t plan=%+v", found, byHeight)
+	}
+	byName, found, err := store.UpgradePlanByName(context.Background(), "v2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || byName != plan {
+		t.Fatalf("unexpected name plan found=%t plan=%+v", found, byName)
+	}
+	if _, found, err := store.UpgradePlanByHeight(context.Background(), 13); err != nil || found {
+		t.Fatalf("expected no missing height plan, found=%t err=%v", found, err)
+	}
+}
+
 func TestLevelDBStoreBlockIndexTracksRangeAndUniqueBlocks(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)

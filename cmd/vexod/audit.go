@@ -166,8 +166,8 @@ func buildAuditPackDocument() auditPackDocument {
 			"release checksums, signed checksums, SBOM, release manifest, and Docker image metadata",
 		},
 		ReviewerNotes: []string{
-			"BLS adapter is intentionally unavailable until a production implementation is linked.",
-			"External auditors should treat deterministic crypto as non-production.",
+			"BLS has a built-in CIRCL-backed adapter path and custom adapter hooks; auditors should still verify dependency, subgroup, rogue-key, and proof-of-possession evidence.",
+			"External auditors should treat deterministic crypto as unsafe for public value-bearing networks.",
 			"Long-running tests should be executed on independent hosts for network partition coverage.",
 		},
 	}
@@ -182,7 +182,7 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 	document.addCheck("genesis_valid", "error", inputs.Genesis.Validate(inputs.Config.Chain.ChainID) == nil, "genesis must match chain id and validator set")
 	document.addCheck("key_loadable", "error", keyErr == nil, "validator key document must be loadable")
 
-	document.addCheck("crypto_backend", strictSeverity(strict), inputs.Config.Chain.Crypto.Backend != config.CryptoBackendDeterministic, "use ed25519, bls, or remote signer in non-dev deployments")
+	document.addCheck("crypto_backend", strictSeverity(strict), inputs.Config.Chain.Crypto.Backend != config.CryptoBackendDeterministic, "use ed25519, bls, or remote signer for public value-bearing networks")
 	if inputs.Config.Chain.Crypto.Backend == config.CryptoBackendBLS {
 		document.addCheck("bls_production_adapter", strictSeverity(strict), inputs.Config.Chain.Crypto.ProductionAdapter, "BLS requires an audited production adapter with dependency audit metadata")
 		document.addCheck("bls_genesis_pop", strictSeverity(strict), genesisHasBLSPoP(inputs.Genesis.Validators), "every genesis validator must include bls_pop proof-of-possession metadata")

@@ -310,6 +310,17 @@ func (runtime *Runtime) applyUpgradeHook(ctx context.Context, height types.Heigh
 	if runtime.UpgradeHalted {
 		return upgrade.ErrRollbackRequired
 	}
+	if runtime.UpgradePlan == nil {
+		if planStore, ok := runtime.Store.(upgrade.PlanStore); ok {
+			plan, found, err := planStore.UpgradePlanByHeight(ctx, height)
+			if err != nil {
+				return err
+			}
+			if found {
+				runtime.UpgradePlan = &plan
+			}
+		}
+	}
 	if runtime.UpgradePlan == nil || height < runtime.UpgradePlan.Height {
 		return nil
 	}

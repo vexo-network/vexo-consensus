@@ -208,6 +208,16 @@ func (Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		}
 		err = keeper.AcknowledgePacket(ctx.GoContext(), ctx.Height, packet, ack)
 		return resultFromError(err)
+	case "packet-ack-proof":
+		if err := ctx.ConsumeGas(packetAckGasCost); err != nil {
+			return types.Result{Code: 6, Log: err.Error()}
+		}
+		packet, ack, clientID, proof, err := packetAckProofFromArgs(canonical.Args)
+		if err != nil {
+			return types.Result{Code: 3, Log: err.Error()}
+		}
+		err = keeper.AcknowledgePacketWithProof(ctx.GoContext(), ctx.Height, clientID, packet, proof, ack)
+		return resultFromError(err)
 	case "packet-timeout":
 		if err := ctx.ConsumeGas(packetTimeoutGasCost); err != nil {
 			return types.Result{Code: 6, Log: err.Error()}
@@ -217,6 +227,16 @@ func (Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
 		err = keeper.TimeoutPacket(ctx.GoContext(), ctx.Height, packet)
+		return resultFromError(err)
+	case "packet-timeout-proof":
+		if err := ctx.ConsumeGas(packetTimeoutGasCost); err != nil {
+			return types.Result{Code: 6, Log: err.Error()}
+		}
+		packet, clientID, proof, err := packetTimeoutProofFromArgs(canonical.Args)
+		if err != nil {
+			return types.Result{Code: 3, Log: err.Error()}
+		}
+		err = keeper.TimeoutPacketWithProof(ctx.GoContext(), ctx.Height, clientID, packet, proof)
 		return resultFromError(err)
 	default:
 		return types.Result{Code: 2, Log: ErrInvalidIBCTx.Error()}
@@ -249,9 +269,9 @@ func (Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
 		return channelAckGasCost, nil
 	case "packet-send":
 		return packetSendGasCost, nil
-	case "packet-ack":
+	case "packet-ack", "packet-ack-proof":
 		return packetAckGasCost, nil
-	case "packet-timeout":
+	case "packet-timeout", "packet-timeout-proof":
 		return packetTimeoutGasCost, nil
 	default:
 		return 0, ErrInvalidIBCTx
@@ -348,8 +368,14 @@ func packetEventAttributes(action string, args []string) ([]events.Attribute, bo
 	case "packet-ack":
 		packet, ack, err = packetAckFromArgs(args)
 		packetEvent = "ack"
+	case "packet-ack-proof":
+		packet, ack, _, _, err = packetAckProofFromArgs(args)
+		packetEvent = "ack"
 	case "packet-timeout":
 		packet, err = packetFromArgs(args)
+		packetEvent = "timeout"
+	case "packet-timeout-proof":
+		packet, _, _, err = packetTimeoutProofFromArgs(args)
 		packetEvent = "timeout"
 	default:
 		return nil, false
@@ -505,12 +531,65 @@ func packetAckFromArgs(args []string) (ibckeeper.Packet, []byte, error) {
 	return packet, ack, nil
 }
 
+func packetAckProofFromArgs(args []string) (ibckeeper.Packet, []byte, string, queryproof.Proof, error) {
+	if len(args) != 9 && len(args) != 10 {
+		return ibckeeper.Packet{}, nil, "", queryproof.Proof{}, ErrInvalidIBCTx
+	}
+	packet, ack, err := packetAckFromArgs(args[:len(args)-2])
+	if err != nil {
+		return ibckeeper.Packet{}, nil, "", queryproof.Proof{}, err
+	}
+	clientID := args[len(args)-2]
+	if clientID == "" {
+		return ibckeeper.Packet{}, nil, "", queryproof.Proof{}, ibckeeper.ErrInvalidClient
+	}
+	proof, err := decodeProofData(args[len(args)-1])
+	if err != nil {
+		return ibckeeper.Packet{}, nil, "", queryproof.Proof{}, err
+	}
+	return packet, ack, clientID, proof, nil
+}
+
+func packetTimeoutProofFromArgs(args []string) (ibckeeper.Packet, string, queryproof.Proof, error) {
+	if len(args) != 9 {
+		return ibckeeper.Packet{}, "", queryproof.Proof{}, ErrInvalidIBCTx
+	}
+	packet, err := packetFromArgs(args[:len(args)-2])
+	if err != nil {
+		return ibckeeper.Packet{}, "", queryproof.Proof{}, err
+	}
+	clientID := args[len(args)-2]
+	if clientID == "" {
+		return ibckeeper.Packet{}, "", queryproof.Proof{}, ibckeeper.ErrInvalidClient
+	}
+	proof, err := decodeProofData(args[len(args)-1])
+	if err != nil {
+		return ibckeeper.Packet{}, "", queryproof.Proof{}, err
+	}
+	return packet, clientID, proof, nil
+}
+
 func decodePacketData(value string) ([]byte, error) {
 	data, err := base64.RawStdEncoding.DecodeString(value)
 	if err == nil {
 		return data, nil
 	}
 	return base64.StdEncoding.DecodeString(value)
+}
+
+func decodeProofData(value string) (queryproof.Proof, error) {
+	data, err := base64.RawStdEncoding.DecodeString(value)
+	if err != nil {
+		data, err = base64.StdEncoding.DecodeString(value)
+	}
+	if err != nil {
+		return queryproof.Proof{}, err
+	}
+	var proof queryproof.Proof
+	if err := json.Unmarshal(data, &proof); err != nil {
+		return queryproof.Proof{}, err
+	}
+	return proof, nil
 }
 
 func PacketQueryPath(packet ibckeeper.Packet) string {
@@ -545,6 +624,14 @@ func AcknowledgePacket(ctx context.Context, store vexoapp.StateStore, height typ
 	return ibckeeper.NewKeeper(store).AcknowledgePacket(ctx, height, packet, ack)
 }
 
+func AcknowledgePacketWithProof(ctx context.Context, store vexoapp.StateStore, height types.Height, clientID string, packet ibckeeper.Packet, proof queryproof.Proof, ack []byte) error {
+	return ibckeeper.NewKeeper(store).AcknowledgePacketWithProof(ctx, height, clientID, packet, proof, ack)
+}
+
 func TimeoutPacket(ctx context.Context, store vexoapp.StateStore, height types.Height, packet ibckeeper.Packet) error {
 	return ibckeeper.NewKeeper(store).TimeoutPacket(ctx, height, packet)
+}
+
+func TimeoutPacketWithProof(ctx context.Context, store vexoapp.StateStore, height types.Height, clientID string, packet ibckeeper.Packet, proof queryproof.Proof) error {
+	return ibckeeper.NewKeeper(store).TimeoutPacketWithProof(ctx, height, clientID, packet, proof)
 }

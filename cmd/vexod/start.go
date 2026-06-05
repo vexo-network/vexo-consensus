@@ -191,7 +191,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 		if inputs.Config.ValidatorID != "" {
 			fmt.Fprintf(writer, "validator signer loaded\n")
 		} else {
-			fmt.Fprintf(writer, "archive node mode\n")
+			fmt.Fprintf(writer, "non-validator archive node\n")
 		}
 		fmt.Fprintf(writer, "start execution is not enabled yet; rerun with --dry-run for readiness checks\n")
 	} else {

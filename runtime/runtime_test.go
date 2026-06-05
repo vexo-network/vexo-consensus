@@ -177,6 +177,61 @@ func TestRuntimeAppliesUpgradeHookAndPersistsSchemaState(t *testing.T) {
 	}
 }
 
+func TestRuntimeLoadsUpgradePlanFromStoreByHeight(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	plan := upgrade.Plan{
+		Name:               "v2",
+		Height:             2,
+		BinaryVersion:      "v2.0.0",
+		ConfigSchemaFrom:   1,
+		ConfigSchemaTo:     2,
+		StoreSchemaFrom:    1,
+		StoreSchemaTo:      2,
+		AppStateSchemaFrom: 1,
+		AppStateSchemaTo:   2,
+	}
+	if err := storage.SaveUpgradePlan(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := NewWithStore(config.Default("vexo-test"), noopApp{}, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+	}, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := upgrade.NewRegistry()
+	registry.RegisterConfig(upgrade.Migration{From: 1, To: 2})
+	registry.RegisterStore(upgrade.Migration{From: 1, To: 2})
+	registry.RegisterAppState(upgrade.Migration{From: 1, To: 2})
+	runtime.UpgradeExecutor = upgrade.NewExecutor(registry, upgrade.NewMemoryRecorder())
+	runtime.UpgradeState = upgrade.State{
+		Height:              1,
+		BinaryVersion:       "v1.0.0",
+		ConfigSchemaVersion: 1,
+		StoreSchemaVersion:  1,
+		AppStateVersion:     1,
+	}
+
+	if _, err := runtime.ExecuteBlock(context.Background(), types.Block{Header: types.Header{ChainID: "vexo-test", Height: 2}}); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.UpgradePlan == nil || runtime.UpgradePlan.Name != plan.Name {
+		t.Fatalf("expected runtime to load upgrade plan, got %+v", runtime.UpgradePlan)
+	}
+	schemaState, err := storage.SchemaState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if schemaState.BinaryVersion != "v2.0.0" || schemaState.StoreSchemaVersion != 2 || schemaState.AppStateVersion != 2 {
+		t.Fatalf("unexpected schema state: %+v", schemaState)
+	}
+}
+
 func TestRuntimeWithStoreUsesDurableSlashingKeeper(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {

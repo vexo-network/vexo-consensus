@@ -7,6 +7,7 @@ import (
 
 	vexostore "github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
+	"github.com/vexo-network/vexo-consensus/upgrade"
 )
 
 const governanceNamespace = "governance"
@@ -17,6 +18,10 @@ type KVStore interface {
 	Set(ctx context.Context, namespace string, key []byte, value []byte) error
 	Get(ctx context.Context, namespace string, key []byte) ([]byte, error)
 	Delete(ctx context.Context, namespace string, key []byte) error
+}
+
+type atomicUpgradePlanStore interface {
+	SetWithUpgradePlans(ctx context.Context, namespace string, key []byte, value []byte, plans []upgrade.Plan) error
 }
 
 type StoreKeeper struct {
@@ -141,11 +146,63 @@ func (keeper *StoreKeeper) Execute(ctx context.Context, proposalID uint64) error
 	if err != nil {
 		return err
 	}
+	appliedBefore := len(document.Applied)
 	memory := keeper.memory(document)
 	if err := memory.Execute(ctx, proposalID); err != nil {
 		return err
 	}
-	return keeper.save(ctx, documentFromMemory(memory))
+	updated := documentFromMemory(memory)
+	plans, err := keeper.upgradePlansFromChanges(updated.Applied[appliedBefore:])
+	if err != nil {
+		return err
+	}
+	if len(plans) > 0 {
+		if atomicStore, ok := keeper.store.(atomicUpgradePlanStore); ok {
+			encoded, err := json.Marshal(updated)
+			if err != nil {
+				return err
+			}
+			return atomicStore.SetWithUpgradePlans(ctx, governanceNamespace, []byte("state"), encoded, plans)
+		}
+	}
+	if err := keeper.save(ctx, updated); err != nil {
+		return err
+	}
+	return keeper.persistUpgradePlans(ctx, plans)
+}
+
+func (keeper *StoreKeeper) upgradePlansFromChanges(changes []ParameterChange) ([]upgrade.Plan, error) {
+	plans := make([]upgrade.Plan, 0)
+	for _, change := range changes {
+		if change.Module != "upgrade" || change.Key != "plan" {
+			continue
+		}
+		var plan upgrade.Plan
+		if err := json.Unmarshal(change.Value, &plan); err != nil {
+			return nil, err
+		}
+		if err := upgrade.ValidatePlan(plan); err != nil {
+			return nil, err
+		}
+		plans = append(plans, plan)
+	}
+	return plans, nil
+}
+
+func (keeper *StoreKeeper) persistUpgradePlans(ctx context.Context, plans []upgrade.Plan) error {
+	if len(plans) == 0 {
+		return nil
+	}
+	planStore, ok := keeper.store.(upgrade.PlanStore)
+	if !ok {
+		return nil
+	}
+	for _, plan := range plans {
+		if err := planStore.SaveUpgradePlan(ctx, plan); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (keeper *StoreKeeper) Proposal(proposalID uint64) (ProposalState, bool) {

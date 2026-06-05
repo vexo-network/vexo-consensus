@@ -2,12 +2,16 @@ package ibc
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"testing"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/events"
 	ibckeeper "github.com/vexo-network/vexo-consensus/ibc"
+	"github.com/vexo-network/vexo-consensus/queryproof"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -136,6 +140,100 @@ func TestModuleTimeoutsPackets(t *testing.T) {
 	if err != nil || !found || !receipt.TimedOut || receipt.TimeoutAt != 10 {
 		t.Fatalf("unexpected timeout receipt found=%t receipt=%+v err=%v", found, receipt, err)
 	}
+}
+
+func TestModuleAcknowledgesPacketWithProof(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	hash := strings.Repeat("01", 32)
+	ctx := vexoapp.Context{Ctx: context.Background(), Height: 7, Store: storage}
+	for _, tx := range []types.Tx{
+		types.Tx("ibc:client-create:07-vexo-0:counterparty:5:" + hash),
+		types.Tx("ibc:connection-open:connection-0:07-vexo-0:connection-1"),
+		types.Tx("ibc:channel-open:transfer:channel-0:connection-0:channel-1:ordered"),
+		types.Tx("ibc:packet-send:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA"),
+	} {
+		if result := module.DeliverTx(ctx, tx); result.Code != 0 {
+			t.Fatalf("deliver %q failed: %+v", tx, result)
+		}
+	}
+	packet := ibckeeper.Packet{Sequence: 1, SourcePort: "transfer", SourceChannel: "channel-0", DestinationPort: "transfer", DestinationChannel: "channel-1", Data: []byte("payload")}
+	proof, err := queryproof.Build(context.Background(), storage, "counterparty", 8, ibckeeper.Namespace, ibckeeper.PacketCommitmentKey(packet))
+	if err != nil {
+		t.Fatal(err)
+	}
+	update := types.Tx("ibc:client-update:07-vexo-0:8:" + hash + ":" + hex.EncodeToString(proof.StateRoot[:]))
+	if result := module.DeliverTx(vexoapp.Context{Ctx: context.Background(), Height: 8, Store: storage}, update); result.Code != 0 {
+		t.Fatalf("client update failed: %+v", result)
+	}
+	proofArg := encodeProofForTest(t, proof)
+	badProofArg := encodeProofForTest(t, queryproof.Proof{ChainID: proof.ChainID, Height: proof.Height, Namespace: proof.Namespace, Key: proof.Key, Exists: true, Value: []byte("tampered"), StateRoot: proof.StateRoot})
+	badTx := types.Tx("ibc:packet-ack-proof:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA:YWNr:07-vexo-0:" + badProofArg)
+	if result := module.DeliverTx(vexoapp.Context{Ctx: context.Background(), Height: 9, Store: storage}, badTx); result.Code == 0 {
+		t.Fatalf("expected tampered proof rejection")
+	}
+	tx := types.Tx("ibc:packet-ack-proof:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA:YWNr:07-vexo-0:" + proofArg)
+	if result := module.DeliverTx(vexoapp.Context{Ctx: context.Background(), Height: 9, Store: storage}, tx); result.Code != 0 {
+		t.Fatalf("ack proof failed: %+v", result)
+	}
+	receipt, found, err := ibckeeper.NewKeeper(storage).PacketReceipt(context.Background(), packet)
+	if err != nil || !found || !receipt.Acknowledged || string(receipt.Ack) != "ack" {
+		t.Fatalf("unexpected receipt found=%t receipt=%+v err=%v", found, receipt, err)
+	}
+}
+
+func TestModuleTimesOutPacketWithProof(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	hash := strings.Repeat("01", 32)
+	ctx := vexoapp.Context{Ctx: context.Background(), Height: 7, Store: storage}
+	for _, tx := range []types.Tx{
+		types.Tx("ibc:client-create:07-vexo-0:counterparty:5:" + hash),
+		types.Tx("ibc:connection-open:connection-0:07-vexo-0:connection-1"),
+		types.Tx("ibc:channel-open:transfer:channel-0:connection-0:channel-1:ordered"),
+		types.Tx("ibc:packet-send:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA:10"),
+	} {
+		if result := module.DeliverTx(ctx, tx); result.Code != 0 {
+			t.Fatalf("deliver %q failed: %+v", tx, result)
+		}
+	}
+	packet := ibckeeper.Packet{Sequence: 1, SourcePort: "transfer", SourceChannel: "channel-0", DestinationPort: "transfer", DestinationChannel: "channel-1", Data: []byte("payload"), TimeoutHeight: 10}
+	proof, err := queryproof.Build(context.Background(), storage, "counterparty", 8, ibckeeper.Namespace, ibckeeper.PacketCommitmentKey(packet))
+	if err != nil {
+		t.Fatal(err)
+	}
+	update := types.Tx("ibc:client-update:07-vexo-0:8:" + hash + ":" + hex.EncodeToString(proof.StateRoot[:]))
+	if result := module.DeliverTx(vexoapp.Context{Ctx: context.Background(), Height: 8, Store: storage}, update); result.Code != 0 {
+		t.Fatalf("client update failed: %+v", result)
+	}
+	tx := types.Tx("ibc:packet-timeout-proof:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA:10:07-vexo-0:" + encodeProofForTest(t, proof))
+	if result := module.DeliverTx(vexoapp.Context{Ctx: context.Background(), Height: 9, Store: storage}, tx); result.Code == 0 {
+		t.Fatalf("expected early timeout rejection")
+	}
+	if result := module.DeliverTx(vexoapp.Context{Ctx: context.Background(), Height: 10, Store: storage}, tx); result.Code != 0 {
+		t.Fatalf("timeout proof failed: %+v", result)
+	}
+	receipt, found, err := ibckeeper.NewKeeper(storage).PacketReceipt(context.Background(), packet)
+	if err != nil || !found || !receipt.TimedOut {
+		t.Fatalf("unexpected timeout receipt found=%t receipt=%+v err=%v", found, receipt, err)
+	}
+}
+
+func encodeProofForTest(t *testing.T, proof queryproof.Proof) string {
+	t.Helper()
+	encoded, err := json.Marshal(proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.RawStdEncoding.EncodeToString(encoded)
 }
 
 func TestModuleConnectionAndChannelHandshake(t *testing.T) {

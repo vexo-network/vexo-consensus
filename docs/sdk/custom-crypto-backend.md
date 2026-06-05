@@ -149,6 +149,6 @@ Valid sign type and domain pairs are:
 - `consensus_timeout_vote` → `vexo.consensus.timeout_vote.v1`
 - `finality_proof` → `vexo.finality.proof.v1`
 
-## Development Backends
+## Test Backends
 
 `deterministic` is test-only. It must not pass network safety validation and must not be used for value-bearing deployments.

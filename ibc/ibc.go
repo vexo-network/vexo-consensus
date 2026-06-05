@@ -264,6 +264,16 @@ func (keeper *Keeper) AcknowledgePacket(ctx context.Context, height types.Height
 	return keeper.setJSON(ctx, packetCommitmentKey(packet), receipt)
 }
 
+func (keeper *Keeper) AcknowledgePacketWithProof(ctx context.Context, height types.Height, clientID string, packet Packet, proof queryproof.Proof, ack []byte) error {
+	if clientID == "" {
+		return ErrInvalidClient
+	}
+	if err := keeper.VerifyPacketCommitmentProof(ctx, clientID, packet, proof); err != nil {
+		return err
+	}
+	return keeper.AcknowledgePacket(ctx, height, packet, ack)
+}
+
 func (keeper *Keeper) TimeoutPacket(ctx context.Context, height types.Height, packet Packet) error {
 	if err := validatePacket(packet); err != nil {
 		return err
@@ -291,6 +301,16 @@ func (keeper *Keeper) TimeoutPacket(ctx context.Context, height types.Height, pa
 	receipt.TimedOut = true
 	receipt.TimeoutAt = height
 	return keeper.setJSON(ctx, packetCommitmentKey(packet), receipt)
+}
+
+func (keeper *Keeper) TimeoutPacketWithProof(ctx context.Context, height types.Height, clientID string, packet Packet, proof queryproof.Proof) error {
+	if clientID == "" {
+		return ErrInvalidClient
+	}
+	if err := keeper.VerifyPacketCommitmentProof(ctx, clientID, packet, proof); err != nil {
+		return err
+	}
+	return keeper.TimeoutPacket(ctx, height, packet)
 }
 
 func (keeper *Keeper) PacketReceipt(ctx context.Context, packet Packet) (PacketReceipt, bool, error) {

@@ -194,7 +194,7 @@ Operations and release:
 - [Version Compatibility Matrix](./docs/release/version-compatibility.md)
 - [Docker Deployment](./deployments/docker/README.md)
 
-## Development
+## Contributing
 
 Run the standard checks:
 

@@ -124,7 +124,7 @@ func writeHelp(writer io.Writer) {
 	}
 	fmt.Fprintf(writer, "  init validator  initialize a validator node home and key\n")
 	fmt.Fprintf(writer, "  init archive    initialize a non-validator archive node home\n")
-	fmt.Fprintf(writer, "  config audit    run deployment and production-readiness checks\n")
+	fmt.Fprintf(writer, "  config audit    run deployment and release-safety checks\n")
 	fmt.Fprintf(writer, "  config audit-pack generate external security audit evidence checklist\n")
 	fmt.Fprintf(writer, "  config deployment-template print recommended deployment parameters\n")
 	fmt.Fprintf(writer, "  config paths    print resolved config, genesis, key, and data paths\n")

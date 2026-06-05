@@ -17,7 +17,7 @@ ARG COMMIT=unknown
 ARG BUILD_DATE=unknown
 
 LABEL org.opencontainers.image.title="vexo-consensus"
-LABEL org.opencontainers.image.description="Experimental modular consensus engine skeleton"
+LABEL org.opencontainers.image.description="Modular consensus engine for building configurable validator networks"
 LABEL org.opencontainers.image.version="${VERSION}"
 LABEL org.opencontainers.image.revision="${COMMIT}"
 LABEL org.opencontainers.image.created="${BUILD_DATE}"

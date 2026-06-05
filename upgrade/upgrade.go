@@ -88,6 +88,12 @@ type Recorder interface {
 	Save(ctx context.Context, record ExecutionRecord) error
 }
 
+type PlanStore interface {
+	SaveUpgradePlan(ctx context.Context, plan Plan) error
+	UpgradePlanByHeight(ctx context.Context, height types.Height) (Plan, bool, error)
+	UpgradePlanByName(ctx context.Context, name string) (Plan, bool, error)
+}
+
 type Executor struct {
 	Registry *Registry
 	Recorder Recorder

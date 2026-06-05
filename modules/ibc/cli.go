@@ -28,7 +28,9 @@ func ibcCLICommand() vexoapp.CLICommand {
 			"ibc tx channel-open-init transfer channel-0 connection-0 channel-1 ordered",
 			"ibc tx packet-send 1 transfer channel-0 transfer channel-1 payload",
 			"ibc tx packet-ack 1 transfer channel-0 transfer channel-1 payload ack",
+			"ibc tx packet-ack-proof 1 transfer channel-0 transfer channel-1 payload ack 07-vexo-0 <proof_json_base64>",
 			"ibc tx packet-timeout 1 transfer channel-0 transfer channel-1 payload 100",
+			"ibc tx packet-timeout-proof 1 transfer channel-0 transfer channel-1 payload 100 07-vexo-0 <proof_json_base64>",
 			"ibc query packet 1 transfer channel-0 transfer channel-1",
 		},
 		Children: []vexoapp.CLICommand{
@@ -166,6 +168,24 @@ func ibcCLICommand() vexoapp.CLICommand {
 						Run: runPacketAckTxCLI,
 					},
 					{
+						Name:        "packet-ack-proof",
+						Usage:       "ibc tx packet-ack-proof <sequence> <source_port> <source_channel> <destination_port> <destination_channel> <data> [timeout_height] <ack> <client_id> <proof_json_base64>",
+						Description: "build an IBC packet acknowledgement transaction that verifies a counterparty packet commitment proof",
+						Args: []vexoapp.CLIArg{
+							{Name: "sequence", Description: "packet sequence"},
+							{Name: "source_port", Description: "source port"},
+							{Name: "source_channel", Description: "source channel"},
+							{Name: "destination_port", Description: "destination port"},
+							{Name: "destination_channel", Description: "destination channel"},
+							{Name: "data", Description: "original packet data as plain text"},
+							{Name: "timeout_height", Description: "optional original timeout height"},
+							{Name: "ack", Description: "acknowledgement bytes as plain text"},
+							{Name: "client_id", Description: "trusted IBC client id used to verify the proof"},
+							{Name: "proof_json_base64", Description: "base64 encoded query proof JSON"},
+						},
+						Run: runPacketAckProofTxCLI,
+					},
+					{
 						Name:        "packet-timeout",
 						Usage:       "ibc tx packet-timeout <sequence> <source_port> <source_channel> <destination_port> <destination_channel> <data> <timeout_height>",
 						Description: "build an IBC packet timeout transaction",
@@ -179,6 +199,23 @@ func ibcCLICommand() vexoapp.CLICommand {
 							{Name: "timeout_height", Description: "original timeout height"},
 						},
 						Run: runPacketTimeoutTxCLI,
+					},
+					{
+						Name:        "packet-timeout-proof",
+						Usage:       "ibc tx packet-timeout-proof <sequence> <source_port> <source_channel> <destination_port> <destination_channel> <data> <timeout_height> <client_id> <proof_json_base64>",
+						Description: "build an IBC packet timeout transaction that verifies a counterparty packet commitment proof",
+						Args: []vexoapp.CLIArg{
+							{Name: "sequence", Description: "packet sequence"},
+							{Name: "source_port", Description: "source port"},
+							{Name: "source_channel", Description: "source channel"},
+							{Name: "destination_port", Description: "destination port"},
+							{Name: "destination_channel", Description: "destination channel"},
+							{Name: "data", Description: "original packet data as plain text"},
+							{Name: "timeout_height", Description: "original timeout height"},
+							{Name: "client_id", Description: "trusted IBC client id used to verify the proof"},
+							{Name: "proof_json_base64", Description: "base64 encoded query proof JSON"},
+						},
+						Run: runPacketTimeoutProofTxCLI,
 					},
 				},
 			},
@@ -380,6 +417,27 @@ func runPacketAckTxCLI(writer io.Writer, args []string) error {
 	return nil
 }
 
+func runPacketAckProofTxCLI(writer io.Writer, args []string) error {
+	args, tags, err := splitExecutionTags(args)
+	if err != nil {
+		return err
+	}
+	if len(args) != 9 && len(args) != 10 {
+		return vexoapp.ErrCLIUsage("ibc tx packet-ack-proof <sequence> <source_port> <source_channel> <destination_port> <destination_channel> <data> [timeout_height] <ack> <client_id> <proof_json_base64>")
+	}
+	txArgs := append([]string(nil), args...)
+	dataIndex := 5
+	ackIndex := len(txArgs) - 3
+	txArgs[dataIndex] = base64.RawStdEncoding.EncodeToString([]byte(args[dataIndex]))
+	txArgs[ackIndex] = base64.RawStdEncoding.EncodeToString([]byte(args[ackIndex]))
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: "packet-ack-proof", Args: txArgs, Tags: tags})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "tx: %s\n", tx)
+	return nil
+}
+
 func runPacketTimeoutTxCLI(writer io.Writer, args []string) error {
 	args, tags, err := splitExecutionTags(args)
 	if err != nil {
@@ -391,6 +449,24 @@ func runPacketTimeoutTxCLI(writer io.Writer, args []string) error {
 	txArgs := append([]string(nil), args...)
 	txArgs[5] = base64.RawStdEncoding.EncodeToString([]byte(args[5]))
 	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: "packet-timeout", Args: txArgs, Tags: tags})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "tx: %s\n", tx)
+	return nil
+}
+
+func runPacketTimeoutProofTxCLI(writer io.Writer, args []string) error {
+	args, tags, err := splitExecutionTags(args)
+	if err != nil {
+		return err
+	}
+	if len(args) != 9 {
+		return vexoapp.ErrCLIUsage("ibc tx packet-timeout-proof <sequence> <source_port> <source_channel> <destination_port> <destination_channel> <data> <timeout_height> <client_id> <proof_json_base64>")
+	}
+	txArgs := append([]string(nil), args...)
+	txArgs[5] = base64.RawStdEncoding.EncodeToString([]byte(args[5]))
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: "packet-timeout-proof", Args: txArgs, Tags: tags})
 	if err != nil {
 		return err
 	}

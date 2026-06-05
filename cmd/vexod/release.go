@@ -310,7 +310,7 @@ func buildProductionReadinessDocument() productionReadinessDocument {
 	}
 	for _, check := range []productionReadinessCheck{
 		{Name: "protocol_specs", OK: true, Message: "consensus, networking, storage, tx, validator, and finality specs are documented"},
-		{Name: "crypto_boundaries", OK: true, Message: "deterministic crypto is dev-only and production adapters have explicit activation boundaries"},
+		{Name: "crypto_boundaries", OK: true, Message: "deterministic crypto is unsafe for public value-bearing networks and audited adapters have explicit activation boundaries"},
 		{Name: "p2p_scale_gate", OK: true, Message: "release gate requires large-validator P2P discovery, reconnect, backpressure, NAT, and addrbook evidence"},
 		{Name: "state_sync_drill", OK: true, Message: "snapshot drill-plan verifies checksum, roots, KV payloads, and restore steps"},
 		{Name: "light_client_gate", OK: true, Message: "release gate requires light-client finality proof and validator-set-hash evidence"},
@@ -387,7 +387,7 @@ func buildLaunchChecklistDocument() launchChecklistDocument {
 				Items: []string{
 					"run make check and make ops-verify on a clean checkout",
 					"run config audit --strict against every validator home",
-					"verify deterministic crypto is disabled outside development",
+					"verify deterministic crypto is disabled for public value-bearing networks",
 					"verify remote signer double-sign guard and height/round/type sign policy",
 					"generate network scale-plan for the target validator count and region layout",
 					"prepare P2P scale, state-sync/light-client, validator economics, MEV/fee-market, SDK conformance, and formal safety evidence",

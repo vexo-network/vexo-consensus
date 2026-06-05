@@ -15,7 +15,7 @@
 
 | Version | RPC | Config Schema | Store Schema | App State Schema | Notes |
 |---|---|---:|---:|---:|---|
-| dev / alpha | `/v1/*` stable paths, unversioned aliases | 1 | 1 | 1 | Experimental; not for production funds |
+| pre-audit | `/v1/*` stable paths, unversioned aliases | 1 | 1 | 1 | Requires release-gate evidence before value-bearing launch |
 
 ## Upgrade Compatibility Checklist
 

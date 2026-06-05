@@ -49,6 +49,18 @@ func finalityHeightKey(height types.Height) []byte {
 	return append(key, buffer[:]...)
 }
 
+func upgradePlanHeightKey(height types.Height) []byte {
+	key := append([]byte(nil), upgradePlanHeightPrefix...)
+	var buffer [8]byte
+	binary.BigEndian.PutUint64(buffer[:], uint64(height))
+	return append(key, buffer[:]...)
+}
+
+func upgradePlanNameKey(name string) []byte {
+	key := append([]byte(nil), upgradePlanNamePrefix...)
+	return append(key, []byte(name)...)
+}
+
 func kvKey(namespace string, key []byte) []byte {
 	dbKey := kvNamespacePrefix(namespace)
 	return append(dbKey, key...)

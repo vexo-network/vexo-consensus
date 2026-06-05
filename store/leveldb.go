@@ -14,19 +14,21 @@ import (
 )
 
 var (
-	blockHeightPrefix = []byte("block:height:")
-	blockHashPrefix   = []byte("block:hash:")
-	blockIndexKey     = []byte("block:index")
-	evidencePrefix    = []byte("evidence:")
-	evidenceIndexKey  = []byte("evidence:index")
-	finalityPrefix    = []byte("finality:height:")
-	finalityLatestKey = []byte("finality:latest")
-	kvPrefix          = []byte("kv:")
-	kvHistoryPrefix   = []byte("kvh:")
-	schemaStateKey    = []byte("schema:state")
-	stateLatestKey    = []byte("state:latest")
-	stateHeightPrefix = []byte("state:height:")
-	stateRootPrefix   = []byte("state:root:")
+	blockHeightPrefix       = []byte("block:height:")
+	blockHashPrefix         = []byte("block:hash:")
+	blockIndexKey           = []byte("block:index")
+	evidencePrefix          = []byte("evidence:")
+	evidenceIndexKey        = []byte("evidence:index")
+	finalityPrefix          = []byte("finality:height:")
+	finalityLatestKey       = []byte("finality:latest")
+	kvPrefix                = []byte("kv:")
+	kvHistoryPrefix         = []byte("kvh:")
+	schemaStateKey          = []byte("schema:state")
+	stateLatestKey          = []byte("state:latest")
+	stateHeightPrefix       = []byte("state:height:")
+	stateRootPrefix         = []byte("state:root:")
+	upgradePlanHeightPrefix = []byte("upgrade:plan:height:")
+	upgradePlanNamePrefix   = []byte("upgrade:plan:name:")
 )
 
 type LevelDBStore struct {
@@ -267,6 +269,67 @@ func (store *LevelDBStore) SchemaState(ctx context.Context) (upgrade.State, erro
 		return upgrade.State{}, err
 	}
 	return state, nil
+}
+
+func (store *LevelDBStore) SaveUpgradePlan(ctx context.Context, plan upgrade.Plan) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	if err := upgrade.ValidatePlan(plan); err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(plan)
+	if err != nil {
+		return err
+	}
+	batch := new(leveldb.Batch)
+	batch.Put(upgradePlanHeightKey(plan.Height), encoded)
+	batch.Put(upgradePlanNameKey(plan.Name), encoded)
+	return store.db.Write(batch, nil)
+}
+
+func (store *LevelDBStore) UpgradePlanByHeight(ctx context.Context, height types.Height) (upgrade.Plan, bool, error) {
+	select {
+	case <-ctx.Done():
+		return upgrade.Plan{}, false, ctx.Err()
+	default:
+	}
+	if height == 0 {
+		return upgrade.Plan{}, false, ErrUpgradePlanNotFound
+	}
+	return store.upgradePlan(upgradePlanHeightKey(height))
+}
+
+func (store *LevelDBStore) UpgradePlanByName(ctx context.Context, name string) (upgrade.Plan, bool, error) {
+	select {
+	case <-ctx.Done():
+		return upgrade.Plan{}, false, ctx.Err()
+	default:
+	}
+	if name == "" {
+		return upgrade.Plan{}, false, ErrUpgradePlanNotFound
+	}
+	return store.upgradePlan(upgradePlanNameKey(name))
+}
+
+func (store *LevelDBStore) upgradePlan(key []byte) (upgrade.Plan, bool, error) {
+	encoded, err := store.db.Get(key, nil)
+	if err != nil {
+		if errors.Is(err, leveldberrors.ErrNotFound) {
+			return upgrade.Plan{}, false, nil
+		}
+		return upgrade.Plan{}, false, err
+	}
+	var plan upgrade.Plan
+	if err := json.Unmarshal(encoded, &plan); err != nil {
+		return upgrade.Plan{}, false, err
+	}
+	if err := upgrade.ValidatePlan(plan); err != nil {
+		return upgrade.Plan{}, false, err
+	}
+	return plan, true, nil
 }
 
 func (store *LevelDBStore) LatestState(ctx context.Context) (StateRecord, error) {
@@ -533,6 +596,38 @@ func (store *LevelDBStore) Set(ctx context.Context, namespace string, key []byte
 		return ErrInvalidKey
 	}
 	return store.db.Put(kvKey(namespace, key), append([]byte(nil), value...), nil)
+}
+
+func (store *LevelDBStore) SetWithUpgradePlans(ctx context.Context, namespace string, key []byte, value []byte, plans []upgrade.Plan) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	if namespace == "" {
+		return ErrInvalidNamespace
+	}
+	if len(key) == 0 {
+		return ErrInvalidKey
+	}
+	encodedPlans := make([][]byte, 0, len(plans))
+	for _, plan := range plans {
+		if err := upgrade.ValidatePlan(plan); err != nil {
+			return err
+		}
+		encoded, err := json.Marshal(plan)
+		if err != nil {
+			return err
+		}
+		encodedPlans = append(encodedPlans, encoded)
+	}
+	batch := new(leveldb.Batch)
+	batch.Put(kvKey(namespace, key), append([]byte(nil), value...))
+	for index, plan := range plans {
+		batch.Put(upgradePlanHeightKey(plan.Height), encodedPlans[index])
+		batch.Put(upgradePlanNameKey(plan.Name), encodedPlans[index])
+	}
+	return store.db.Write(batch, nil)
 }
 
 func (store *LevelDBStore) Get(ctx context.Context, namespace string, key []byte) ([]byte, error) {
