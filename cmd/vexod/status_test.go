@@ -149,6 +149,7 @@ func TestWriteStatusJSON(t *testing.T) {
 		"web3_global_log_filters",
 		"web3_prefix_log_index",
 		"web3_filter_limit",
+		"evm_geth_vm_adapter",
 		"evm_storage_writes",
 		"validator_update_atomic_commit",
 		"staking_slashing_ledger",

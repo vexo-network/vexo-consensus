@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 
+	gethcommon "github.com/ethereum/go-ethereum/common"
+	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/contract"
 	"github.com/vexo-network/vexo-consensus/events"
@@ -74,7 +76,9 @@ type CallResponse struct {
 }
 
 func NewModule() Module {
-	return Module{registry: contract.NewRegistry()}
+	registry := contract.NewRegistry()
+	_ = registry.Register(NewGethVM())
+	return Module{registry: registry}
 }
 
 func NewModuleWithRegistry(registry *contract.Registry) Module {
@@ -244,6 +248,16 @@ func (module Module) deliverCall(ctx vexoapp.Context, tx types.Tx, args []string
 	if err != nil {
 		return types.Result{Code: 3, Log: err.Error()}
 	}
+	code, err := loadCode(ctx.GoContext(), ctx.Store, invocation.Contract)
+	if err != nil {
+		return types.Result{Code: 4, Log: err.Error()}
+	}
+	invocation.Code = code
+	invocation.State = evmStateReader{store: ctx.Store}
+	invocation.BlockNumber = uint64(ctx.Height)
+	invocation.Timestamp = headerUnixSeconds(ctx.Header)
+	invocation.GasPrice = 0
+	invocation.BaseFee = 0
 	result, err := module.registry.Execute(ctx.GoContext(), invocation)
 	if err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
@@ -277,21 +291,30 @@ func (module Module) deliverDeploy(ctx vexoapp.Context, tx types.Tx, args []stri
 			return types.Result{Code: 3, Log: ErrInvalidEVMTx.Error()}
 		}
 	}
-	contractAddress := createAddress(types.Address(args[1]), code, args[3], ctx.Height)
+	salt := create2Salt(args[3])
+	contractAddress := createAddress(types.Address(args[1]), code, salt)
 	invocation := contract.Invocation{
-		VM:       args[0],
-		Caller:   types.Address(args[1]),
-		Contract: contractAddress,
-		Method:   "deploy",
-		Input:    code,
-		GasLimit: ctx.GasLimit(),
-		Value:    value,
+		VM:          args[0],
+		Caller:      types.Address(args[1]),
+		Contract:    contractAddress,
+		Method:      "deploy",
+		Input:       code,
+		GasLimit:    ctx.GasLimit(),
+		Value:       value,
+		Salt:        salt[:],
+		State:       evmStateReader{store: ctx.Store},
+		BlockNumber: uint64(ctx.Height),
+		Timestamp:   headerUnixSeconds(ctx.Header),
 	}
 	result, err := module.registry.Execute(ctx.GoContext(), invocation)
 	if err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
-	if err := ctx.Store.Set(ctx.GoContext(), ModuleName, codeKey(contractAddress), code); err != nil {
+	deployedCode := result.DeployedCode
+	if len(deployedCode) == 0 {
+		deployedCode = code
+	}
+	if err := ctx.Store.Set(ctx.GoContext(), ModuleName, codeKey(contractAddress), deployedCode); err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
 	if err := persistStorageWrites(ctx.GoContext(), ctx.Store, invocation.Contract, result.StorageWrites); err != nil {
@@ -320,14 +343,29 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 	if err != nil {
 		return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
 	}
+	var code []byte
+	var state contract.StateReader
+	if ctx.Store != nil {
+		var err error
+		code, err = loadCode(ctx.GoContext(), ctx.Store, types.Address(request.To))
+		if err != nil {
+			return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+		}
+		state = evmStateReader{store: ctx.Store}
+	}
 	result, err := module.registry.Execute(ctx.GoContext(), contract.Invocation{
-		VM:       request.VM,
-		Caller:   types.Address(request.From),
-		Contract: types.Address(request.To),
-		Method:   request.Method,
-		Input:    input,
-		GasLimit: request.GasLimit,
-		Value:    request.Value,
+		VM:          request.VM,
+		Caller:      types.Address(request.From),
+		Contract:    types.Address(request.To),
+		Method:      request.Method,
+		Input:       input,
+		GasLimit:    request.GasLimit,
+		Value:       request.Value,
+		Code:        code,
+		State:       state,
+		ReadOnly:    true,
+		BlockNumber: uint64(ctx.Height),
+		Timestamp:   headerUnixSeconds(ctx.Header),
 	})
 	if err != nil {
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
@@ -496,10 +534,13 @@ func queryLogs(ctx vexoapp.Context, prefix []byte, legacyKey []byte) vexoapp.Que
 	return vexoapp.QueryResponse{Value: append([]byte(nil), value...)}
 }
 
-func createAddress(caller types.Address, code []byte, salt string, height types.Height) types.Address {
-	seed := append([]byte(string(caller)+":"+salt+":"+strconv.FormatUint(uint64(height), 10)+":"), code...)
-	hash := sha256.Sum256(seed)
-	return types.Address("0x" + hex.EncodeToString(hash[len(hash)-20:]))
+func createAddress(caller types.Address, code []byte, salt [32]byte) types.Address {
+	codeHash := gethcrypto.Keccak256Hash(code)
+	seed := append([]byte{0xff}, gethAddress(caller).Bytes()...)
+	seed = append(seed, salt[:]...)
+	seed = append(seed, codeHash.Bytes()...)
+	final := gethcrypto.Keccak256(seed)
+	return types.Address(gethcommon.BytesToAddress(final[12:]).Hex())
 }
 
 func txHash(tx types.Tx) string {
@@ -544,7 +585,79 @@ func logOrderKey(log Log) string {
 }
 
 func storageKey(address types.Address, slot string) []byte {
-	return []byte("storage/" + string(address) + "/" + strings.TrimPrefix(slot, "0x"))
+	return []byte("storage/" + string(address) + "/" + strings.TrimPrefix(normalizeSlot(slot), "0x"))
+}
+
+func headerUnixSeconds(header types.Header) uint64 {
+	if header.TimeUnixNano <= 0 {
+		return 0
+	}
+	return uint64(header.TimeUnixNano / 1_000_000_000)
+}
+
+func loadCode(ctx context.Context, store vexoapp.StateStore, address types.Address) ([]byte, error) {
+	if store == nil {
+		return nil, ErrStoreMissing
+	}
+	code, err := store.Get(ctx, ModuleName, codeKey(address))
+	if errors.Is(err, vexostore.ErrKeyNotFound) {
+		return nil, ErrInvalidEVMTx
+	}
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte(nil), code...), nil
+}
+
+type evmStateReader struct {
+	store vexoapp.StateStore
+}
+
+func (reader evmStateReader) Code(ctx context.Context, address types.Address) ([]byte, error) {
+	if reader.store == nil {
+		return nil, ErrStoreMissing
+	}
+	code, err := reader.store.Get(ctx, ModuleName, codeKey(address))
+	if errors.Is(err, vexostore.ErrKeyNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte(nil), code...), nil
+}
+
+func (reader evmStateReader) Storage(ctx context.Context, address types.Address, slot string) ([]byte, error) {
+	if reader.store == nil {
+		return nil, ErrStoreMissing
+	}
+	value, err := reader.store.Get(ctx, ModuleName, storageKey(address, slot))
+	if errors.Is(err, vexostore.ErrKeyNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte(nil), value...), nil
+}
+
+func create2Salt(raw string) [32]byte {
+	clean := strings.TrimPrefix(raw, "0x")
+	decoded, err := hex.DecodeString(clean)
+	if err == nil && len(decoded) <= 32 {
+		var salt [32]byte
+		copy(salt[32-len(decoded):], decoded)
+		return salt
+	}
+	return gethcrypto.Keccak256Hash([]byte(raw))
+}
+
+func gethAddress(address types.Address) gethcommon.Address {
+	return gethcommon.HexToAddress(string(address))
+}
+
+func normalizeSlot(slot string) string {
+	return gethcommon.HexToHash(slot).Hex()
 }
 
 func cloneMap(value map[string]string) map[string]string {

@@ -114,3 +114,71 @@ func TestModuleQueryCallExecutesReadOnly(t *testing.T) {
 		t.Fatalf("unexpected call query: %+v", response)
 	}
 }
+
+func TestDefaultModuleRunsGethEVMBytecode(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	ctx := vexoapp.Context{Ctx: context.Background(), Height: 7, Store: storage}
+
+	initCode := "600a600c600039600a6000f3602a60005260206000f3"
+	deployTx := types.Tx("evm:deploy:evm:0x000000000000000000000000000000000000aaaa:" + initCode + ":01")
+	result := module.DeliverTx(ctx, deployTx)
+	if result.Code != 0 {
+		t.Fatalf("deploy failed: %+v", result)
+	}
+	var deployReceipt Receipt
+	if err := json.Unmarshal(result.Data, &deployReceipt); err != nil {
+		t.Fatal(err)
+	}
+	codeQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"code", deployReceipt.ContractAddress}})
+	if codeQuery.Code != 0 || !strings.Contains(string(codeQuery.Value), `"code":"602a60005260206000f3"`) {
+		t.Fatalf("expected runtime code, got %+v", codeQuery)
+	}
+
+	callTx := types.Tx("evm:call:evm:0x000000000000000000000000000000000000aaaa:" + deployReceipt.ContractAddress + ":call:00:100000")
+	result = module.DeliverTx(ctx, callTx)
+	if result.Code != 0 {
+		t.Fatalf("call failed: %+v", result)
+	}
+	var callReceipt Receipt
+	if err := json.Unmarshal(result.Data, &callReceipt); err != nil {
+		t.Fatal(err)
+	}
+	if callReceipt.Output != "0x000000000000000000000000000000000000000000000000000000000000002a" {
+		t.Fatalf("unexpected EVM output: %+v", callReceipt)
+	}
+}
+
+func TestDefaultModulePersistsGethEVMStorageWrites(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	ctx := vexoapp.Context{Ctx: context.Background(), Height: 8, Store: storage}
+
+	initCode := "6006600c60003960066000f3600160005500"
+	deployTx := types.Tx("evm:deploy:evm:0x000000000000000000000000000000000000aaaa:" + initCode + ":02")
+	result := module.DeliverTx(ctx, deployTx)
+	if result.Code != 0 {
+		t.Fatalf("deploy failed: %+v", result)
+	}
+	var deployReceipt Receipt
+	if err := json.Unmarshal(result.Data, &deployReceipt); err != nil {
+		t.Fatal(err)
+	}
+	callTx := types.Tx("evm:call:evm:0x000000000000000000000000000000000000aaaa:" + deployReceipt.ContractAddress + ":call:00:100000")
+	result = module.DeliverTx(ctx, callTx)
+	if result.Code != 0 {
+		t.Fatalf("call failed: %+v", result)
+	}
+	storageQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"storage", deployReceipt.ContractAddress, "0x0"}})
+	if storageQuery.Code != 0 || !strings.Contains(string(storageQuery.Value), `"value":"0x0000000000000000000000000000000000000000000000000000000000000001"`) {
+		t.Fatalf("expected EVM SSTORE value, got %+v", storageQuery)
+	}
+}

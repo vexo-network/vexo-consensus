@@ -22,11 +22,21 @@ type Invocation struct {
 	Input    []byte        `json:"input,omitempty"`
 	GasLimit uint64        `json:"gas_limit,omitempty"`
 	Value    uint64        `json:"value,omitempty"`
+	Code     []byte        `json:"-"`
+	Salt     []byte        `json:"-"`
+	State    StateReader   `json:"-"`
+	ReadOnly bool          `json:"-"`
+
+	BlockNumber uint64 `json:"-"`
+	Timestamp   uint64 `json:"-"`
+	BaseFee     uint64 `json:"-"`
+	GasPrice    uint64 `json:"-"`
 }
 
 type Result struct {
 	Output        []byte         `json:"output,omitempty"`
 	GasUsed       uint64         `json:"gas_used,omitempty"`
+	DeployedCode  []byte         `json:"deployed_code,omitempty"`
 	Logs          []Log          `json:"logs,omitempty"`
 	StorageWrites []StorageWrite `json:"storage_writes,omitempty"`
 }
@@ -48,6 +58,11 @@ type StorageWrite struct {
 type VM interface {
 	Name() string
 	Execute(ctx context.Context, invocation Invocation) (Result, error)
+}
+
+type StateReader interface {
+	Code(ctx context.Context, address types.Address) ([]byte, error)
+	Storage(ctx context.Context, address types.Address, slot string) ([]byte, error)
 }
 
 type Registry struct {
@@ -97,5 +112,7 @@ func (registry *Registry) Names() []string {
 
 func cloneInvocation(invocation Invocation) Invocation {
 	invocation.Input = append([]byte(nil), invocation.Input...)
+	invocation.Code = append([]byte(nil), invocation.Code...)
+	invocation.Salt = append([]byte(nil), invocation.Salt...)
 	return invocation
 }

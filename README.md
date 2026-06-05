@@ -41,7 +41,7 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 | `ibc` | IBC client, connection, channel, and packet lifecycle primitives |
 | `queryproof` | Latest and historical Merkle query proofs for namespace/key state-root binding |
 | `stateproof` | Deterministic namespace Merkle tree and proof verification helpers |
-| `contract` | VM registry boundary for future EVM/WASM-compatible modules |
+| `contract` | VM registry boundary used by the built-in geth-backed EVM adapter and custom WASM-compatible modules |
 | `consensus` | Consensus state machine, certificates, evidence, safety checks, and adversarial simulations |
 | `finality` | Finality proof construction and verifier API |
 | `validator` | Height-versioned validator registry and validator-set hashing |
