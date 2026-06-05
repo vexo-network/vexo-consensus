@@ -66,6 +66,7 @@ Module data is stored by namespace and key.
 Common framework namespaces:
 
 - `events`: indexed transaction event records and attribute indexes
+- `evm`: contract VM code, storage slots, receipts, global log index, and address log index
 - `ibc`: client, connection, channel, packet commitment, and receipt records
 - `params`: chain-wide module parameter values and metadata
 - `staking`: delegated stake, validator power, validator public keys, commission basis points, unbonding release heights, jail flags, and pending reward balances
@@ -85,6 +86,18 @@ Runtime compaction includes both backend store compaction and mempool WAL compac
 - height-versioned KV history index
 - evidence index
 - event attribute index
+- EVM global log index by height/transaction/log index
+- EVM address log index by address/height/transaction/log index
+
+## EVM Records
+
+- `code/{address}`: deployed contract bytecode.
+- `storage/{address}/{slot}`: VM-returned storage slot value.
+- `receipts/{tx_hash}`: committed transaction receipt.
+- `logs/by_height/{height}/{tx_hash}/{log_index}`: global log index.
+- `logs/by_address/{address}/{height}/{tx_hash}/{log_index}`: address-scoped log index.
+
+Legacy array-style `logs` and `logs/{address}` values remain query-compatible, but new writes use prefix indexes for bounded incremental scans.
 
 ## Recovery Rules
 

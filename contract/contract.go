@@ -25,9 +25,10 @@ type Invocation struct {
 }
 
 type Result struct {
-	Output  []byte `json:"output,omitempty"`
-	GasUsed uint64 `json:"gas_used,omitempty"`
-	Logs    []Log  `json:"logs,omitempty"`
+	Output        []byte         `json:"output,omitempty"`
+	GasUsed       uint64         `json:"gas_used,omitempty"`
+	Logs          []Log          `json:"logs,omitempty"`
+	StorageWrites []StorageWrite `json:"storage_writes,omitempty"`
 }
 
 type Log struct {
@@ -35,6 +36,13 @@ type Log struct {
 	Topics  []string          `json:"topics,omitempty"`
 	Data    []byte            `json:"data,omitempty"`
 	Meta    map[string]string `json:"meta,omitempty"`
+}
+
+type StorageWrite struct {
+	Address types.Address `json:"address,omitempty"`
+	Slot    string        `json:"slot"`
+	Value   []byte        `json:"value,omitempty"`
+	Delete  bool          `json:"delete,omitempty"`
 }
 
 type VM interface {

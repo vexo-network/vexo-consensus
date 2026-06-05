@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -199,12 +200,13 @@ func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoap
 		return vexoapp.QueryResponse{Value: encoded}
 	case "logs":
 		if len(req.Path) == 1 {
-			return queryJSON(ctx, globalLogsKey())
+			return queryLogs(ctx, globalLogPrefix(), globalLogsKey())
 		}
 		if len(req.Path) != 2 {
 			return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
 		}
-		return queryJSON(ctx, logsKey(types.Address(req.Path[1])))
+		address := types.Address(req.Path[1])
+		return queryLogs(ctx, addressLogPrefix(address), logsKey(address))
 	default:
 		return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
 	}
@@ -244,6 +246,9 @@ func (module Module) deliverCall(ctx vexoapp.Context, tx types.Tx, args []string
 	}
 	result, err := module.registry.Execute(ctx.GoContext(), invocation)
 	if err != nil {
+		return types.Result{Code: 4, Log: err.Error()}
+	}
+	if err := persistStorageWrites(ctx.GoContext(), ctx.Store, invocation.Contract, result.StorageWrites); err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
 	receipt := receiptFromResult(tx, ctx.Height, invocation, "", result)
@@ -287,6 +292,9 @@ func (module Module) deliverDeploy(ctx vexoapp.Context, tx types.Tx, args []stri
 		return types.Result{Code: 4, Log: err.Error()}
 	}
 	if err := ctx.Store.Set(ctx.GoContext(), ModuleName, codeKey(contractAddress), code); err != nil {
+		return types.Result{Code: 4, Log: err.Error()}
+	}
+	if err := persistStorageWrites(ctx.GoContext(), ctx.Store, invocation.Contract, result.StorageWrites); err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
 	receipt := receiptFromResult(tx, ctx.Height, invocation, string(contractAddress), result)
@@ -400,46 +408,87 @@ func persistReceipt(ctx context.Context, store vexoapp.StateStore, receipt Recei
 	if err := store.Set(ctx, ModuleName, receiptKey(receipt.TxHash), encoded); err != nil {
 		return err
 	}
-	if err := appendLogs(ctx, store, globalLogsKey(), receipt.Logs); err != nil {
-		return err
-	}
 	for _, log := range receipt.Logs {
-		if log.Address == "" {
-			continue
-		}
-		if err := appendLogs(ctx, store, logsKey(types.Address(log.Address)), []Log{log}); err != nil {
+		if err := persistLog(ctx, store, log); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func appendLogs(ctx context.Context, store vexoapp.StateStore, key []byte, additions []Log) error {
-	if len(additions) == 0 {
-		return nil
-	}
-	logs := []Log{}
-	raw, err := store.Get(ctx, ModuleName, key)
-	if err != nil && !errors.Is(err, vexostore.ErrKeyNotFound) {
-		return err
-	}
-	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &logs); err != nil {
+func persistStorageWrites(ctx context.Context, store vexoapp.StateStore, defaultAddress types.Address, writes []contract.StorageWrite) error {
+	for _, write := range writes {
+		address := write.Address
+		if address == "" {
+			address = defaultAddress
+		}
+		if address == "" || write.Slot == "" {
+			return ErrInvalidEVMTx
+		}
+		key := storageKey(address, write.Slot)
+		if write.Delete {
+			if err := store.Delete(ctx, ModuleName, key); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := store.Set(ctx, ModuleName, key, append([]byte(nil), write.Value...)); err != nil {
 			return err
 		}
 	}
-	logs = append(logs, additions...)
-	encodedLogs, err := json.Marshal(logs)
+	return nil
+}
+
+func persistLog(ctx context.Context, store vexoapp.StateStore, log Log) error {
+	if log.Address == "" {
+		return nil
+	}
+	encoded, err := json.Marshal(log)
 	if err != nil {
 		return err
 	}
-	return store.Set(ctx, ModuleName, key, encodedLogs)
+	if err := store.Set(ctx, ModuleName, globalLogKey(log), encoded); err != nil {
+		return err
+	}
+	return store.Set(ctx, ModuleName, addressLogKey(log), encoded)
 }
 
 func queryJSON(ctx vexoapp.Context, key []byte) vexoapp.QueryResponse {
 	value, err := ctx.Store.Get(ctx.GoContext(), ModuleName, key)
 	if errors.Is(err, vexostore.ErrKeyNotFound) {
 		return vexoapp.QueryResponse{Code: 3, Log: "EVM state not found"}
+	}
+	if err != nil {
+		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+	}
+	return vexoapp.QueryResponse{Value: append([]byte(nil), value...)}
+}
+
+func queryLogs(ctx vexoapp.Context, prefix []byte, legacyKey []byte) vexoapp.QueryResponse {
+	if prefixStore, ok := ctx.Store.(vexostore.PrefixKVStore); ok {
+		pairs, err := prefixStore.ExportPrefix(ctx.GoContext(), ModuleName, prefix)
+		if err != nil {
+			return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+		}
+		if len(pairs) > 0 {
+			logs := make([]Log, 0, len(pairs))
+			for _, pair := range pairs {
+				var log Log
+				if err := json.Unmarshal(pair.Value, &log); err != nil {
+					return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+				}
+				logs = append(logs, log)
+			}
+			encoded, err := json.Marshal(logs)
+			if err != nil {
+				return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+			}
+			return vexoapp.QueryResponse{Value: encoded}
+		}
+	}
+	value, err := ctx.Store.Get(ctx.GoContext(), ModuleName, legacyKey)
+	if errors.Is(err, vexostore.ErrKeyNotFound) {
+		return vexoapp.QueryResponse{Value: []byte("[]")}
 	}
 	if err != nil {
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
@@ -472,6 +521,26 @@ func logsKey(address types.Address) []byte {
 
 func globalLogsKey() []byte {
 	return []byte("logs")
+}
+
+func globalLogPrefix() []byte {
+	return []byte("logs/by_height/")
+}
+
+func addressLogPrefix(address types.Address) []byte {
+	return []byte("logs/by_address/" + string(address) + "/")
+}
+
+func globalLogKey(log Log) []byte {
+	return append(globalLogPrefix(), []byte(logOrderKey(log))...)
+}
+
+func addressLogKey(log Log) []byte {
+	return append(addressLogPrefix(types.Address(log.Address)), []byte(logOrderKey(log))...)
+}
+
+func logOrderKey(log Log) string {
+	return fmt.Sprintf("%020d/%s/%020d", log.BlockNumber, strings.TrimPrefix(log.TransactionHash, "0x"), log.LogIndex)
 }
 
 func storageKey(address types.Address, slot string) []byte {

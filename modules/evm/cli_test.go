@@ -30,6 +30,13 @@ func TestCLICommandsBuildEVMTransactionsAndQueries(t *testing.T) {
 		t.Fatalf("unexpected query output: %s", output.String())
 	}
 	output.Reset()
+	if err := command.Execute(&output, []string{"query", "storage", "0xcontract", "0x0"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(output.String()) != "query_path: evm/storage/0xcontract/0x0" {
+		t.Fatalf("unexpected storage query output: %s", output.String())
+	}
+	output.Reset()
 	if err := command.Execute(&output, []string{"query", "logs"}); err != nil {
 		t.Fatal(err)
 	}

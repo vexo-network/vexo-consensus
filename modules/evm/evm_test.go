@@ -20,6 +20,10 @@ func (testVM) Execute(ctx context.Context, invocation contract.Invocation) (cont
 	return contract.Result{
 		Output:  append([]byte("out:"), invocation.Input...),
 		GasUsed: 7,
+		StorageWrites: []contract.StorageWrite{{
+			Slot:  "0x0",
+			Value: []byte("stored:" + invocation.Method),
+		}},
 		Logs: []contract.Log{{
 			Address: invocation.Contract,
 			Topics:  []string{"0x01"},
@@ -77,6 +81,14 @@ func TestModuleExecutesAndPersistsReceiptsCodeAndLogs(t *testing.T) {
 	allLogsQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"logs"}})
 	if allLogsQuery.Code != 0 || !strings.Contains(string(allLogsQuery.Value), deployReceipt.ContractAddress) || !strings.Contains(string(allLogsQuery.Value), callReceipt.TxHash) {
 		t.Fatalf("unexpected global logs query: %+v", allLogsQuery)
+	}
+	missingLogsQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"logs", "0xmissing"}})
+	if missingLogsQuery.Code != 0 || strings.TrimSpace(string(missingLogsQuery.Value)) != "[]" {
+		t.Fatalf("unexpected missing logs query: %+v", missingLogsQuery)
+	}
+	storageQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"storage", deployReceipt.ContractAddress, "0x0"}})
+	if storageQuery.Code != 0 || !strings.Contains(string(storageQuery.Value), `"value":"0x73746f7265643a7472616e73666572"`) {
+		t.Fatalf("unexpected storage query: %+v", storageQuery)
 	}
 }
 

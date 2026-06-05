@@ -40,6 +40,7 @@ func evmCLICommand() vexoapp.CLICommand {
 				Children: []vexoapp.CLICommand{
 					{Name: "receipt", Usage: "evm query receipt <tx_hash>", Description: "build a contract VM receipt query path", Run: runEVMReceiptQueryCLI},
 					{Name: "code", Usage: "evm query code <address>", Description: "build a contract VM code query path", Run: runEVMCodeQueryCLI},
+					{Name: "storage", Usage: "evm query storage <address> <slot>", Description: "build a contract VM storage query path", Run: runEVMStorageQueryCLI},
 					{Name: "logs", Usage: "evm query logs [address]", Description: "build a contract VM logs query path", Run: runEVMLogsQueryCLI},
 				},
 			},
@@ -105,6 +106,14 @@ func runEVMCodeQueryCLI(writer io.Writer, args []string) error {
 		return vexoapp.ErrCLIUsage("evm query code <address>")
 	}
 	fmt.Fprintf(writer, "query_path: %s/code/%s\n", ModuleName, args[0])
+	return nil
+}
+
+func runEVMStorageQueryCLI(writer io.Writer, args []string) error {
+	if len(args) != 2 {
+		return vexoapp.ErrCLIUsage("evm query storage <address> <slot>")
+	}
+	fmt.Fprintf(writer, "query_path: %s/storage/%s/%s\n", ModuleName, args[0], args[1])
 	return nil
 }
 
