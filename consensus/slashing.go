@@ -52,6 +52,10 @@ type EvidenceVerifierBundle struct {
 	Finality   EvidenceAggregateVerifier
 }
 
+type EvidenceVerificationContext struct {
+	InvalidProposal InvalidProposalVerificationContext
+}
+
 func NewEvidenceVerifier(signatures EvidenceSignatureVerifier, finalityVerifier EvidenceAggregateVerifier) EvidenceVerifierBundle {
 	return EvidenceVerifierBundle{Signatures: signatures, Finality: finalityVerifier}
 }
@@ -65,6 +69,10 @@ func (verifier EvidenceVerifierBundle) VerifyAggregate(publicKeys []types.Public
 }
 
 func SubmitEvidenceForSlashing(ctx context.Context, keeper SlashingKeeper, registry validator.VersionedRegistry, verifier EvidenceSignatureVerifier, applyHeight types.Height, evidence slashing.Evidence) (SlashResult, error) {
+	return SubmitEvidenceForSlashingWithContext(ctx, keeper, registry, verifier, applyHeight, evidence, EvidenceVerificationContext{})
+}
+
+func SubmitEvidenceForSlashingWithContext(ctx context.Context, keeper SlashingKeeper, registry validator.VersionedRegistry, verifier EvidenceSignatureVerifier, applyHeight types.Height, evidence slashing.Evidence, verificationContext EvidenceVerificationContext) (SlashResult, error) {
 	if applyHeight == 0 {
 		applyHeight = evidence.Height
 	}
@@ -76,7 +84,7 @@ func SubmitEvidenceForSlashing(ctx context.Context, keeper SlashingKeeper, regis
 	if !found {
 		return SlashResult{}, ErrEvidenceValidatorNotFound
 	}
-	if err := verifyConsensusEvidence(evidence, set, validatorInfo, verifier); err != nil {
+	if err := verifyConsensusEvidence(evidence, set, validatorInfo, verifier, verificationContext); err != nil {
 		return SlashResult{}, err
 	}
 	receipt, receiptFound, err := penaltyReceipt(ctx, keeper, evidence)
@@ -134,7 +142,7 @@ func penaltyReceipt(ctx context.Context, keeper SlashingKeeper, evidence slashin
 	return slashing.PenaltyReceipt{}, false, nil
 }
 
-func verifyConsensusEvidence(evidence slashing.Evidence, validatorSet validator.Set, validatorInfo validator.Validator, verifier EvidenceSignatureVerifier) error {
+func verifyConsensusEvidence(evidence slashing.Evidence, validatorSet validator.Set, validatorInfo validator.Validator, verifier EvidenceSignatureVerifier, verificationContext EvidenceVerificationContext) error {
 	switch evidence.Type {
 	case slashing.EvidenceDoubleSign, slashing.EvidenceConflictingVote:
 		if evidence.Type == slashing.EvidenceDoubleSign {
@@ -183,6 +191,14 @@ func verifyConsensusEvidence(evidence slashing.Evidence, validatorSet validator.
 			}
 		case InvalidProposalReasonValidatorSetHash:
 			if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedValidatorSetHash: validatorSet.Hash()}); err != nil {
+				return err
+			}
+		case InvalidProposalReasonAppHash:
+			if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedAppHash: verificationContext.InvalidProposal.ExpectedAppHash}); err != nil {
+				return err
+			}
+		case InvalidProposalReasonTimestamp:
+			if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedTimeUnixNano: verificationContext.InvalidProposal.ExpectedTimeUnixNano}); err != nil {
 				return err
 			}
 		default:

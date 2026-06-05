@@ -198,6 +198,9 @@ func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoap
 		})
 		return vexoapp.QueryResponse{Value: encoded}
 	case "logs":
+		if len(req.Path) == 1 {
+			return queryJSON(ctx, globalLogsKey())
+		}
 		if len(req.Path) != 2 {
 			return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
 		}
@@ -397,30 +400,40 @@ func persistReceipt(ctx context.Context, store vexoapp.StateStore, receipt Recei
 	if err := store.Set(ctx, ModuleName, receiptKey(receipt.TxHash), encoded); err != nil {
 		return err
 	}
+	if err := appendLogs(ctx, store, globalLogsKey(), receipt.Logs); err != nil {
+		return err
+	}
 	for _, log := range receipt.Logs {
 		if log.Address == "" {
 			continue
 		}
-		logs := []Log{}
-		raw, err := store.Get(ctx, ModuleName, logsKey(types.Address(log.Address)))
-		if err != nil && !errors.Is(err, vexostore.ErrKeyNotFound) {
-			return err
-		}
-		if len(raw) > 0 {
-			if err := json.Unmarshal(raw, &logs); err != nil {
-				return err
-			}
-		}
-		logs = append(logs, log)
-		encodedLogs, err := json.Marshal(logs)
-		if err != nil {
-			return err
-		}
-		if err := store.Set(ctx, ModuleName, logsKey(types.Address(log.Address)), encodedLogs); err != nil {
+		if err := appendLogs(ctx, store, logsKey(types.Address(log.Address)), []Log{log}); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func appendLogs(ctx context.Context, store vexoapp.StateStore, key []byte, additions []Log) error {
+	if len(additions) == 0 {
+		return nil
+	}
+	logs := []Log{}
+	raw, err := store.Get(ctx, ModuleName, key)
+	if err != nil && !errors.Is(err, vexostore.ErrKeyNotFound) {
+		return err
+	}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &logs); err != nil {
+			return err
+		}
+	}
+	logs = append(logs, additions...)
+	encodedLogs, err := json.Marshal(logs)
+	if err != nil {
+		return err
+	}
+	return store.Set(ctx, ModuleName, key, encodedLogs)
 }
 
 func queryJSON(ctx vexoapp.Context, key []byte) vexoapp.QueryResponse {
@@ -455,6 +468,10 @@ func codeKey(address types.Address) []byte {
 
 func logsKey(address types.Address) []byte {
 	return []byte("logs/" + string(address))
+}
+
+func globalLogsKey() []byte {
+	return []byte("logs")
 }
 
 func storageKey(address types.Address, slot string) []byte {

@@ -572,6 +572,49 @@ func TestSubmitInvalidProposalEvidenceForSlashing(t *testing.T) {
 	}
 }
 
+func TestSubmitInvalidProposalAppHashEvidenceRequiresContext(t *testing.T) {
+	signer := testEvidenceSigner(t, "a")
+	registry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{
+		{ID: "a", Address: "a", VotingPower: 100, Stake: 100, PublicKey: signer.PublicKey()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keeper := slashing.NewInMemoryKeeper(slashing.PenaltyPolicy{
+		slashing.EvidenceInvalidProposal: {SlashFraction: "0.25", JailDuration: 30},
+	})
+	expectedAppHash := types.Hash{9}
+	actualAppHash := types.Hash{1}
+	proposal := signedTestProposal(t, signer, Proposal{
+		Block:    types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, AppHash: actualAppHash}},
+		Round:    0,
+		Proposer: "a",
+	})
+	evidence, err := NewInvalidProposalHashEvidence(proposal, string(InvalidProposalReasonAppHash), expectedAppHash, actualAppHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence); !errors.Is(err, ErrInvalidProposalContext) {
+		t.Fatalf("expected context error, got %v", err)
+	}
+
+	result, err := SubmitEvidenceForSlashingWithContext(
+		context.Background(),
+		keeper,
+		registry,
+		vexocrypto.DeterministicSigner{},
+		0,
+		evidence,
+		EvidenceVerificationContext{InvalidProposal: InvalidProposalVerificationContext{ExpectedAppHash: expectedAppHash}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PreviousPower != 100 || result.RemainingPower != 75 {
+		t.Fatalf("unexpected app-hash invalid proposal slash result: %+v", result)
+	}
+}
+
 func TestSubmitUnavailableDataEvidenceForSlashing(t *testing.T) {
 	signer := testEvidenceSigner(t, "a")
 	registry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{

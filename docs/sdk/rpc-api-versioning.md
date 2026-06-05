@@ -112,7 +112,11 @@ Responses wrap the module JSON state in `{ "path": [...], "value": ... }`. Missi
 
 Packet proof responses reuse the standard Merkle query-proof envelope with namespace `ibc` and packet commitment key `packets/{source_port}/{source_channel}/{sequence}`. Relayers can use this endpoint to prove sent, acknowledged, or timed-out packet receipt state at a specific height. The keeper validates client chain ID, trusted height, trusted state root, namespace, key, existence, Merkle proof, and decoded packet receipt before accepting a packet commitment proof.
 
-The Web3 JSON-RPC bridge includes block, fee, account, code, storage, transaction, receipt, log, call, estimate, and HTTP polling-filter methods: `web3_clientVersion`, `net_version`, `eth_chainId`, `eth_blockNumber`, `eth_getBlockByNumber`, `eth_getBlockByHash`, `eth_gasPrice`, `eth_getBalance`, `eth_getTransactionCount`, `eth_getCode`, `eth_getStorageAt`, `eth_sendRawTransaction`, `eth_getTransactionReceipt`, `eth_getTransactionByHash`, `eth_getLogs`, `eth_newFilter`, `eth_getFilterChanges`, `eth_getFilterLogs`, `eth_uninstallFilter`, `eth_call`, and `eth_estimateGas`. Bytecode semantics come from the registered `contract.VM` adapter; chains that need Ethereum-equivalent execution must register and audit an Ethereum-compatible VM adapter.
+The Web3 JSON-RPC bridge includes block, fee, account, code, storage, transaction, receipt, log, call, estimate, and HTTP polling-filter methods: `web3_clientVersion`, `net_version`, `eth_chainId`, `eth_blockNumber`, `eth_getBlockByNumber`, `eth_getBlockByHash`, `eth_gasPrice`, `eth_getBalance`, `eth_getTransactionCount`, `eth_getCode`, `eth_getStorageAt`, `eth_sendRawTransaction`, `eth_getTransactionReceipt`, `eth_getTransactionByHash`, `eth_getLogs`, `eth_newFilter`, `eth_getFilterChanges`, `eth_getFilterLogs`, `eth_uninstallFilter`, `eth_call`, and `eth_estimateGas`.
+
+Committed block records persist transaction execution results. Web3 block responses derive `receiptsRoot`, `gasUsed`, and full transaction `from`/`to`/`gas` fields from those committed results when the transaction produced an EVM receipt. `eth_getTransactionReceipt` returns Ethereum-shaped receipt fields, and `eth_getLogs` supports both address-scoped filters and global log filters when no address is supplied.
+
+Bytecode semantics come from the registered `contract.VM` adapter; chains that need Ethereum-equivalent execution must register and audit an Ethereum-compatible VM adapter.
 
 ## Operational Compatibility
 

@@ -17,6 +17,7 @@ type BlockRecord struct {
 	Hash       types.Hash
 	AppHash    types.Hash
 	StateRoots []StateRootRecord
+	TxResults  []types.Result
 }
 
 type StateRecord struct {

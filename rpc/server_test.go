@@ -743,6 +743,9 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		},
 		Hash:    blockHash,
 		AppHash: types.Hash{0xef},
+		TxResults: []types.Result{
+			{GasUsed: 7, Data: []byte(`{"tx_hash":"0xabc","height":12,"status":1,"from":"0xaaaa","to":"0xbbbb","gas_used":7,"output":"0x1234"}`)},
+		},
 	}
 	provider := &fakeStatusProvider{
 		status:           node.Status{ChainID: "vexo-chain", LatestHeight: 12},
@@ -789,6 +792,17 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	}
 	if blockResult["transactionsRoot"] == "0x0000000000000000000000000000000000000000000000000000000000000000" {
 		t.Fatalf("expected non-zero transactions root for block with txs: %+v", blockResult)
+	}
+	if blockResult["receiptsRoot"] == "0x0000000000000000000000000000000000000000000000000000000000000000" || blockResult["gasUsed"] != "0x7" {
+		t.Fatalf("expected execution-backed receipts root and gas used: %+v", blockResult)
+	}
+	fullTxs, ok := blockResult["transactions"].([]any)
+	if !ok || len(fullTxs) != 1 {
+		t.Fatalf("expected full transaction response: %+v", blockResult["transactions"])
+	}
+	fullTx, ok := fullTxs[0].(map[string]any)
+	if !ok || fullTx["from"] != "0xaaaa" || fullTx["to"] != "0xbbbb" || fullTx["gas"] != "0x7" {
+		t.Fatalf("expected receipt-backed transaction fields: %+v", fullTxs[0])
 	}
 
 	var blockByHash JSONRPCResponse
@@ -844,6 +858,10 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if receipt.Error != nil {
 		t.Fatalf("unexpected receipt error: %+v", receipt)
 	}
+	receiptResult, ok := receipt.Result.(map[string]any)
+	if !ok || receiptResult["transactionHash"] != "0xabc" || receiptResult["status"] != "0x1" || receiptResult["gasUsed"] != "0x7" {
+		t.Fatalf("unexpected web3 receipt: %+v", receipt.Result)
+	}
 	if provider.appQueryPath[0] != "evm" || provider.appQueryPath[1] != "receipt" || provider.appQueryPath[2] != "0xabc" {
 		t.Fatalf("unexpected app query path: %+v", provider.appQueryPath)
 	}
@@ -861,6 +879,15 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	filteredLog, ok := filteredLogs[0].(map[string]any)
 	if !ok || filteredLog["blockNumber"] != "0xd" || filteredLog["transactionHash"] != "0xabc" {
 		t.Fatalf("unexpected normalized log: %+v", filteredLogs[0])
+	}
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`[
+		{"address":"0xcontract","topics":["0xaaa"],"data":"0x01","block_number":13,"transaction_hash":"0xabc","log_index":0}
+	]`)}
+	var allLogs JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":43,"method":"eth_getLogs","params":[{}]}`, http.StatusOK, &allLogs)
+	allLogItems, ok := allLogs.Result.([]any)
+	if allLogs.Error != nil || !ok || len(allLogItems) != 1 || len(provider.appQueryPath) != 2 || provider.appQueryPath[0] != "evm" || provider.appQueryPath[1] != "logs" {
+		t.Fatalf("unexpected global logs response=%+v path=%+v", allLogs, provider.appQueryPath)
 	}
 
 	var filterID JSONRPCResponse

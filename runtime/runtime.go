@@ -190,6 +190,7 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 		Hash:       blockHash,
 		AppHash:    response.AppHash,
 		StateRoots: stateRoots,
+		TxResults:  cloneTxResults(response.Results),
 	}
 	stateRecord := store.StateRecord{
 		Height:           block.Header.Height,
@@ -248,6 +249,7 @@ func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Bloc
 		Hash:       blockHash,
 		AppHash:    response.AppHash,
 		StateRoots: stateRoots,
+		TxResults:  cloneTxResults(response.Results),
 	}
 	stateRecord := store.StateRecord{
 		Height:           block.Header.Height,
@@ -304,6 +306,18 @@ func totalGasUsed(response app.FinalizeBlockResponse) uint64 {
 		total += result.GasUsed
 	}
 	return total
+}
+
+func cloneTxResults(results []types.Result) []types.Result {
+	if len(results) == 0 {
+		return nil
+	}
+	cloned := make([]types.Result, len(results))
+	for index, result := range results {
+		cloned[index] = result
+		cloned[index].Data = append([]byte(nil), result.Data...)
+	}
+	return cloned
 }
 
 func (runtime *Runtime) applyUpgradeHook(ctx context.Context, height types.Height) error {

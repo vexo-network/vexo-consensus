@@ -29,4 +29,11 @@ func TestCLICommandsBuildEVMTransactionsAndQueries(t *testing.T) {
 	if strings.TrimSpace(output.String()) != "query_path: evm/receipt/0xhash" {
 		t.Fatalf("unexpected query output: %s", output.String())
 	}
+	output.Reset()
+	if err := command.Execute(&output, []string{"query", "logs"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(output.String()) != "query_path: evm/logs" {
+		t.Fatalf("unexpected global logs query output: %s", output.String())
+	}
 }

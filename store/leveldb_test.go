@@ -68,6 +68,9 @@ func TestLevelDBStoreCommitBlockStatePersistsBlockStateAndRootsAtomically(t *tes
 		Block:   types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1}},
 		Hash:    types.Hash{1},
 		AppHash: types.Hash{2},
+		TxResults: []types.Result{
+			{Code: 0, GasUsed: 21_000, Data: []byte(`{"tx_hash":"0xabc"}`)},
+		},
 	}
 	state := StateRecord{
 		Height:           1,
@@ -86,6 +89,9 @@ func TestLevelDBStoreCommitBlockStatePersistsBlockStateAndRootsAtomically(t *tes
 	}
 	if savedBlock.Hash != block.Hash || savedBlock.AppHash != block.AppHash || len(savedBlock.StateRoots) != 1 {
 		t.Fatalf("unexpected block record: %+v", savedBlock)
+	}
+	if len(savedBlock.TxResults) != 1 || savedBlock.TxResults[0].GasUsed != 21_000 || string(savedBlock.TxResults[0].Data) != `{"tx_hash":"0xabc"}` {
+		t.Fatalf("unexpected persisted tx results: %+v", savedBlock.TxResults)
 	}
 	savedState, err := store.LatestState(context.Background())
 	if err != nil {

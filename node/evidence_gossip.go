@@ -72,7 +72,11 @@ func (node *Node) applyEvidence(ctx context.Context, evidence slashing.Evidence)
 		}
 	}
 	verifier := consensus.NewEvidenceVerifier(runtime.Crypto.ConsensusVerifier, runtime.Crypto.FinalityVerifier)
-	result, err := consensus.SubmitEvidenceForSlashing(ctx, runtime.Slashing, runtime.Validators, verifier, applyHeight, evidence)
+	verificationContext, err := node.evidenceVerificationContext(ctx, runtime, evidence)
+	if err != nil {
+		return consensus.SlashResult{}, false, err
+	}
+	result, err := consensus.SubmitEvidenceForSlashingWithContext(ctx, runtime.Slashing, runtime.Validators, verifier, applyHeight, evidence, verificationContext)
 	if errors.Is(err, slashing.ErrDuplicateEvidence) {
 		if runtime.Store != nil {
 			key := store.EvidenceKey(evidence)
@@ -142,7 +146,11 @@ func (node *Node) reconcileEvidence(ctx context.Context, runtime *vexoruntime.Ru
 			applyHeight = latestHeight
 		}
 		verifier := consensus.NewEvidenceVerifier(runtime.Crypto.ConsensusVerifier, runtime.Crypto.FinalityVerifier)
-		_, err = consensus.SubmitEvidenceForSlashing(ctx, runtime.Slashing, runtime.Validators, verifier, applyHeight, record.Evidence)
+		verificationContext, err := node.evidenceVerificationContext(ctx, runtime, record.Evidence)
+		if err != nil {
+			return err
+		}
+		_, err = consensus.SubmitEvidenceForSlashingWithContext(ctx, runtime.Slashing, runtime.Validators, verifier, applyHeight, record.Evidence, verificationContext)
 		if err != nil && !errors.Is(err, slashing.ErrDuplicateEvidence) {
 			return err
 		}
@@ -155,6 +163,22 @@ func (node *Node) reconcileEvidence(ctx context.Context, runtime *vexoruntime.Ru
 		}
 	}
 	return nil
+}
+
+func (node *Node) evidenceVerificationContext(ctx context.Context, runtime *vexoruntime.Runtime, evidence slashing.Evidence) (consensus.EvidenceVerificationContext, error) {
+	verificationContext := consensus.EvidenceVerificationContext{}
+	if runtime == nil || runtime.Store == nil || evidence.Type != slashing.EvidenceInvalidProposal {
+		return verificationContext, nil
+	}
+	state, err := runtime.Store.StateByHeight(ctx, evidence.Height)
+	if errors.Is(err, store.ErrStateNotFound) {
+		return verificationContext, nil
+	}
+	if err != nil {
+		return consensus.EvidenceVerificationContext{}, err
+	}
+	verificationContext.InvalidProposal.ExpectedAppHash = state.AppHash
+	return verificationContext, nil
 }
 
 func (node *Node) handleLocalEvidence(ctx context.Context, evidence slashing.Evidence) {

@@ -74,6 +74,10 @@ func TestModuleExecutesAndPersistsReceiptsCodeAndLogs(t *testing.T) {
 	if logsQuery.Code != 0 || !strings.Contains(string(logsQuery.Value), `"topics":["0x01"]`) {
 		t.Fatalf("unexpected logs query: %+v", logsQuery)
 	}
+	allLogsQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"logs"}})
+	if allLogsQuery.Code != 0 || !strings.Contains(string(allLogsQuery.Value), deployReceipt.ContractAddress) || !strings.Contains(string(allLogsQuery.Value), callReceipt.TxHash) {
+		t.Fatalf("unexpected global logs query: %+v", allLogsQuery)
+	}
 }
 
 func TestModuleQueryCallExecutesReadOnly(t *testing.T) {

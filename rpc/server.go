@@ -1296,7 +1296,7 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		if response.Code != 0 {
 			return nil, &JSONRPCError{Code: -32000, Message: response.Log}
 		}
-		return rawJSONObject(response.Value)
+		return web3ReceiptObject(ctx, provider, response.Value)
 	case "eth_getTransactionByHash":
 		query, ok := provider.(AppQueryProvider)
 		if !ok {
@@ -1319,7 +1319,7 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		if response.Code != 0 {
 			return nil, &JSONRPCError{Code: -32000, Message: response.Log}
 		}
-		return web3TransactionFromReceipt(response.Value)
+		return web3TransactionFromReceipt(ctx, provider, response.Value)
 	case "eth_getLogs":
 		filter, rpcErr := web3LogFilterParam(ctx, provider, params)
 		if rpcErr != nil {
@@ -1494,6 +1494,7 @@ type web3Receipt struct {
 	ContractAddress string `json:"contract_address,omitempty"`
 	GasUsed         uint64 `json:"gas_used"`
 	Output          string `json:"output,omitempty"`
+	Logs            []any  `json:"logs,omitempty"`
 }
 
 func web3BlockByNumber(ctx context.Context, provider StatusProvider, params []json.RawMessage) (store.BlockRecord, *JSONRPCError) {
@@ -1589,19 +1590,7 @@ func web3BlockFromRecord(record store.BlockRecord, fullTransactions bool) any {
 			transactions = append(transactions, hashText)
 			continue
 		}
-		transactions = append(transactions, map[string]any{
-			"hash":             hashText,
-			"nonce":            "0x0",
-			"blockHash":        "0x" + hex.EncodeToString(record.Hash[:]),
-			"blockNumber":      hexQuantity(uint64(record.Block.Header.Height)),
-			"transactionIndex": hexQuantity(uint64(index)),
-			"from":             nil,
-			"to":               nil,
-			"value":            "0x0",
-			"gas":              "0x0",
-			"gasPrice":         "0x0",
-			"input":            "0x" + hex.EncodeToString(tx),
-		})
+		transactions = append(transactions, web3TransactionFromBlockRecord(record, index, hashText, tx))
 	}
 	return map[string]any{
 		"number":           hexQuantity(uint64(record.Block.Header.Height)),
@@ -1612,14 +1601,14 @@ func web3BlockFromRecord(record store.BlockRecord, fullTransactions bool) any {
 		"logsBloom":        "0x" + strings.Repeat("00", 256),
 		"transactionsRoot": web3TransactionsRoot(record.Block.Txs),
 		"stateRoot":        "0x" + hex.EncodeToString(record.AppHash[:]),
-		"receiptsRoot":     "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"receiptsRoot":     web3ReceiptsRoot(record.TxResults),
 		"miner":            "0x0000000000000000000000000000000000000000",
 		"difficulty":       "0x0",
 		"totalDifficulty":  "0x0",
 		"extraData":        "0x",
 		"size":             hexQuantity(uint64(len(record.Block.Txs))),
 		"gasLimit":         "0x0",
-		"gasUsed":          "0x0",
+		"gasUsed":          hexQuantity(web3BlockGasUsed(record.TxResults)),
 		"timestamp":        hexQuantity(uint64(record.Block.Header.TimeUnixNano / int64(time.Second))),
 		"transactions":     transactions,
 		"uncles":           []any{},
@@ -1700,7 +1689,11 @@ func web3LogsForAddress(ctx context.Context, provider StatusProvider, address st
 	if !ok {
 		return nil, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
 	}
-	response, err := query.AppQuery(ctx, []string{"evm", "logs", address}, nil)
+	path := []string{"evm", "logs"}
+	if address != "" {
+		path = append(path, address)
+	}
+	response, err := query.AppQuery(ctx, path, nil)
 	if err != nil {
 		return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
 	}
@@ -1719,6 +1712,18 @@ func web3LogsForAddress(ctx context.Context, provider StatusProvider, address st
 
 func web3LogsForFilter(ctx context.Context, provider StatusProvider, filter web3Filter) ([]any, *JSONRPCError) {
 	results := make([]any, 0)
+	if len(filter.Addresses) == 0 {
+		logs, rpcErr := web3LogsForAddress(ctx, provider, "")
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		for _, log := range logs {
+			if web3LogMatchesFilter(log, filter) {
+				results = append(results, web3NormalizeLog(log))
+			}
+		}
+		return results, nil
+	}
 	for _, address := range filter.Addresses {
 		logs, rpcErr := web3LogsForAddress(ctx, provider, address)
 		if rpcErr != nil {
@@ -1807,7 +1812,7 @@ func web3BlockFilterChanges(ctx context.Context, provider StatusProvider, filter
 	return hashes, nil
 }
 
-func web3TransactionFromReceipt(value []byte) (any, *JSONRPCError) {
+func web3TransactionFromReceipt(ctx context.Context, provider StatusProvider, value []byte) (any, *JSONRPCError) {
 	var receipt web3Receipt
 	if err := json.Unmarshal(value, &receipt); err != nil {
 		return nil, &JSONRPCError{Code: -32000, Message: "invalid EVM receipt response"}
@@ -1815,6 +1820,7 @@ func web3TransactionFromReceipt(value []byte) (any, *JSONRPCError) {
 	if receipt.TxHash == "" {
 		return nil, &JSONRPCError{Code: -32000, Message: "missing EVM receipt hash"}
 	}
+	blockHash, txIndex := web3ReceiptBlockLocation(ctx, provider, receipt)
 	to := receipt.To
 	if to == "" && receipt.ContractAddress != "" {
 		to = receipt.ContractAddress
@@ -1822,9 +1828,9 @@ func web3TransactionFromReceipt(value []byte) (any, *JSONRPCError) {
 	return map[string]any{
 		"hash":             receipt.TxHash,
 		"nonce":            "0x0",
-		"blockHash":        nil,
+		"blockHash":        blockHash,
 		"blockNumber":      hexQuantity(receipt.Height),
-		"transactionIndex": "0x0",
+		"transactionIndex": hexQuantity(txIndex),
 		"from":             receipt.From,
 		"to":               to,
 		"value":            "0x0",
@@ -1832,6 +1838,137 @@ func web3TransactionFromReceipt(value []byte) (any, *JSONRPCError) {
 		"gasPrice":         "0x0",
 		"input":            receipt.Output,
 	}, nil
+}
+
+func web3ReceiptObject(ctx context.Context, provider StatusProvider, value []byte) (any, *JSONRPCError) {
+	var receipt web3Receipt
+	if err := json.Unmarshal(value, &receipt); err != nil {
+		return nil, &JSONRPCError{Code: -32000, Message: "invalid EVM receipt response"}
+	}
+	if receipt.TxHash == "" {
+		return nil, &JSONRPCError{Code: -32000, Message: "missing EVM receipt hash"}
+	}
+	blockHash, txIndex := web3ReceiptBlockLocation(ctx, provider, receipt)
+	to := any(receipt.To)
+	if receipt.To == "" {
+		to = nil
+	}
+	contractAddress := any(nil)
+	if receipt.ContractAddress != "" {
+		contractAddress = receipt.ContractAddress
+	}
+	logs := make([]any, 0, len(receipt.Logs))
+	for _, log := range receipt.Logs {
+		logs = append(logs, web3NormalizeLog(log))
+	}
+	return map[string]any{
+		"transactionHash":   receipt.TxHash,
+		"transactionIndex":  hexQuantity(txIndex),
+		"blockHash":         blockHash,
+		"blockNumber":       hexQuantity(receipt.Height),
+		"from":              receipt.From,
+		"to":                to,
+		"cumulativeGasUsed": hexQuantity(receipt.GasUsed),
+		"gasUsed":           hexQuantity(receipt.GasUsed),
+		"contractAddress":   contractAddress,
+		"logs":              logs,
+		"logsBloom":         "0x" + strings.Repeat("00", 256),
+		"status":            hexQuantity(uint64(receipt.Status)),
+	}, nil
+}
+
+func web3TransactionFromBlockRecord(record store.BlockRecord, index int, hashText string, tx types.Tx) any {
+	transaction := map[string]any{
+		"hash":             hashText,
+		"nonce":            "0x0",
+		"blockHash":        "0x" + hex.EncodeToString(record.Hash[:]),
+		"blockNumber":      hexQuantity(uint64(record.Block.Header.Height)),
+		"transactionIndex": hexQuantity(uint64(index)),
+		"from":             nil,
+		"to":               nil,
+		"value":            "0x0",
+		"gas":              "0x0",
+		"gasPrice":         "0x0",
+		"input":            "0x" + hex.EncodeToString(tx),
+	}
+	if index >= len(record.TxResults) {
+		return transaction
+	}
+	receipt, ok := web3ReceiptFromResult(record.TxResults[index])
+	if !ok {
+		transaction["gas"] = hexQuantity(record.TxResults[index].GasUsed)
+		return transaction
+	}
+	to := receipt.To
+	if to == "" && receipt.ContractAddress != "" {
+		to = receipt.ContractAddress
+	}
+	transaction["from"] = receipt.From
+	transaction["to"] = to
+	transaction["gas"] = hexQuantity(receipt.GasUsed)
+	transaction["input"] = receipt.Output
+	return transaction
+}
+
+func web3ReceiptFromResult(result types.Result) (web3Receipt, bool) {
+	if len(result.Data) == 0 {
+		return web3Receipt{}, false
+	}
+	var receipt web3Receipt
+	if err := json.Unmarshal(result.Data, &receipt); err != nil || receipt.TxHash == "" {
+		return web3Receipt{}, false
+	}
+	return receipt, true
+}
+
+func web3ReceiptBlockLocation(ctx context.Context, provider StatusProvider, receipt web3Receipt) (any, uint64) {
+	blockProvider, ok := provider.(BlockProvider)
+	if !ok || receipt.Height == 0 {
+		return nil, 0
+	}
+	record, err := blockProvider.BlockByHeight(ctx, types.Height(receipt.Height))
+	if err != nil {
+		return nil, 0
+	}
+	for index, tx := range record.Block.Txs {
+		hash := mempool.HashTx(tx)
+		if "0x"+hex.EncodeToString(hash[:]) == receipt.TxHash {
+			return "0x" + hex.EncodeToString(record.Hash[:]), uint64(index)
+		}
+	}
+	if record.Hash != (types.Hash{}) {
+		return "0x" + hex.EncodeToString(record.Hash[:]), 0
+	}
+	return nil, 0
+}
+
+func web3ReceiptsRoot(results []types.Result) string {
+	hasher := sha256.New()
+	for _, result := range results {
+		code := make([]byte, 4)
+		code[0] = byte(result.Code >> 24)
+		code[1] = byte(result.Code >> 16)
+		code[2] = byte(result.Code >> 8)
+		code[3] = byte(result.Code)
+		_, _ = hasher.Write(code)
+		_, _ = hasher.Write(result.Data)
+		gas := strconv.FormatUint(result.GasUsed, 10)
+		_, _ = hasher.Write([]byte(gas))
+		_, _ = hasher.Write([]byte{0})
+	}
+	sum := hasher.Sum(nil)
+	return "0x" + hex.EncodeToString(sum)
+}
+
+func web3BlockGasUsed(results []types.Result) uint64 {
+	var total uint64
+	for _, result := range results {
+		if total > ^uint64(0)-result.GasUsed {
+			return ^uint64(0)
+		}
+		total += result.GasUsed
+	}
+	return total
 }
 
 func evmCallParam(params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
@@ -1922,6 +2059,8 @@ func web3LogFilterParam(ctx context.Context, provider StatusProvider, params []j
 
 func web3LogAddresses(value any) ([]string, *JSONRPCError) {
 	switch address := value.(type) {
+	case nil:
+		return nil, nil
 	case string:
 		if address == "" {
 			return nil, &JSONRPCError{Code: -32602, Message: "address is required"}
@@ -1929,7 +2068,7 @@ func web3LogAddresses(value any) ([]string, *JSONRPCError) {
 		return []string{address}, nil
 	case []any:
 		if len(address) == 0 {
-			return nil, &JSONRPCError{Code: -32602, Message: "address is required"}
+			return nil, nil
 		}
 		addresses := make([]string, 0, len(address))
 		for _, item := range address {
