@@ -174,20 +174,19 @@ func TestInvalidProposalTxValidityEvidenceRequiresDeterministicMismatch(t *testi
 	}
 }
 
-func TestInvalidProposalRejectsUnsupportedStateRootAndSignatureReasons(t *testing.T) {
-	proposal := Proposal{
-		Block: types.Block{
-			Header: types.Header{ChainID: "vexo-test", Height: 7},
-		},
-		Proposer: "validator-1",
-	}
-	_, err := NewInvalidProposalHashEvidence(proposal, string(InvalidProposalReasonStateRoot), types.Hash{1}, types.Hash{2})
-	if !errors.Is(err, ErrUnsupportedProposalReason) {
-		t.Fatalf("expected unsupported state root reason, got %v", err)
-	}
-	_, err = NewInvalidProposalSignatureEvidence(proposal, "invalid signature")
-	if !errors.Is(err, ErrUnsupportedProposalReason) {
-		t.Fatalf("expected unsupported proposer signature reason, got %v", err)
+func TestSupportedInvalidProposalReasonsExposeOnlyVerifiableReasons(t *testing.T) {
+	reasons := SupportedInvalidProposalReasons()
+	for _, reason := range reasons {
+		switch reason {
+		case InvalidProposalReasonDAMismatch,
+			InvalidProposalReasonMissingData,
+			InvalidProposalReasonValidatorSetHash,
+			InvalidProposalReasonAppHash,
+			InvalidProposalReasonTxValidity,
+			InvalidProposalReasonTimestamp:
+		default:
+			t.Fatalf("unexpected unsupported reason exposed: %s", reason)
+		}
 	}
 }
 

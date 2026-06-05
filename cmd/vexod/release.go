@@ -217,7 +217,7 @@ func runReleaseGate(writer io.Writer, args []string) error {
 	sdkConformanceEvidence := flags.String("sdk-conformance-evidence", "", "SDK/API module, storage, crypto, transport, and RPC conformance evidence path")
 	externalAudit := flags.String("external-audit", "", "external security audit report or disposition path")
 	blsAudit := flags.String("bls-audit", "", "audited BLS adapter/dependency audit evidence path")
-	allowExternalPending := flags.Bool("allow-external-pending", false, "allow external audit/BLS audit to remain pending for non-mainnet release candidates")
+	allowExternalPending := flags.Bool("allow-external-pending", false, "allow external audit/BLS audit to remain pending for private release candidates")
 	jsonOutput := flags.Bool("json", false, "write JSON output")
 	if err := flags.Parse(args); err != nil {
 		return err

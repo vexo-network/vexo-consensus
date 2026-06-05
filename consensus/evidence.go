@@ -21,14 +21,12 @@ var (
 type InvalidProposalReason string
 
 const (
-	InvalidProposalReasonDAMismatch        InvalidProposalReason = "da_mismatch"
-	InvalidProposalReasonMissingData       InvalidProposalReason = "missing_data"
-	InvalidProposalReasonValidatorSetHash  InvalidProposalReason = "validator_set_hash"
-	InvalidProposalReasonAppHash           InvalidProposalReason = "app_hash"
-	InvalidProposalReasonTimestamp         InvalidProposalReason = "timestamp"
-	InvalidProposalReasonStateRoot         InvalidProposalReason = "state_root"
-	InvalidProposalReasonTxValidity        InvalidProposalReason = "tx_validity"
-	InvalidProposalReasonProposerSignature InvalidProposalReason = "proposer_signature"
+	InvalidProposalReasonDAMismatch       InvalidProposalReason = "da_mismatch"
+	InvalidProposalReasonMissingData      InvalidProposalReason = "missing_data"
+	InvalidProposalReasonValidatorSetHash InvalidProposalReason = "validator_set_hash"
+	InvalidProposalReasonAppHash          InvalidProposalReason = "app_hash"
+	InvalidProposalReasonTimestamp        InvalidProposalReason = "timestamp"
+	InvalidProposalReasonTxValidity       InvalidProposalReason = "tx_validity"
 )
 
 func SupportedInvalidProposalReasons() []InvalidProposalReason {
@@ -217,10 +215,6 @@ func NewInvalidProposalTimestampEvidence(proposal Proposal, expected int64, actu
 		Round:     proposal.Round,
 		Proof:     encoded,
 	}, nil
-}
-
-func NewInvalidProposalSignatureEvidence(proposal Proposal, message string) (slashing.Evidence, error) {
-	return slashing.Evidence{}, ErrUnsupportedProposalReason
 }
 
 func newInvalidProposalEvidenceFromProof(proof InvalidProposalProof) (slashing.Evidence, error) {

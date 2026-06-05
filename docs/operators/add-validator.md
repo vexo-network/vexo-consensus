@@ -69,13 +69,13 @@ Use separate address roles:
 
 ## 3. Submit Validator Admission
 
-For demo staking flows, build a staking transaction:
+For example staking flows, build a staking transaction:
 
 ```bash
 vexod staking --help
 ```
 
-The production admission transaction should include:
+The validator admission transaction should include:
 
 - validator ID
 - validator address

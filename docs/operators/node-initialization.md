@@ -4,7 +4,7 @@ This guide explains how to initialize validator and archive node homes.
 
 Peer connectivity should be configured in `network_config.json`, not passed repeatedly on the `start` command line.
 
-There is no separate `dev`, `localnet`, `mainnet`, or `production` node mode. A node home is defined by its config files, genesis, key material, and whether `validator_id` plus a signer are present.
+There is no node-mode switch. A node home is defined by its config files, genesis, key material, and whether `validator_id` plus a signer are present.
 
 ## Validator Node
 

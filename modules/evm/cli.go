@@ -17,7 +17,7 @@ func evmCLICommand() vexoapp.CLICommand {
 	return vexoapp.CLICommand{
 		Name:        ModuleName,
 		Usage:       "evm <command>",
-		Description: "EVM/Web3 compatibility module commands",
+		Description: "contract VM and Web3 bridge module commands",
 		Examples: []string{
 			"evm tx call evm 0xalice 0xcontract transfer aabbcc 100000",
 			"evm tx deploy evm 0xalice 60016000 salt1",
@@ -27,20 +27,20 @@ func evmCLICommand() vexoapp.CLICommand {
 			{
 				Name:        "tx",
 				Usage:       "evm tx <command>",
-				Description: "build EVM transaction payloads",
+				Description: "build contract VM transaction payloads",
 				Children: []vexoapp.CLICommand{
-					{Name: "call", Usage: "evm tx call <vm> <from> <to> <method> <input_hex> <gas_limit> [value]", Description: "build an EVM contract call transaction", Run: runEVMCallCLI},
-					{Name: "deploy", Usage: "evm tx deploy <vm> <from> <code_hex> <salt> [value]", Description: "build an EVM contract deployment transaction", Run: runEVMDeployCLI},
+					{Name: "call", Usage: "evm tx call <vm> <from> <to> <method> <input_hex> <gas_limit> [value]", Description: "build a contract VM call transaction", Run: runEVMCallCLI},
+					{Name: "deploy", Usage: "evm tx deploy <vm> <from> <code_hex> <salt> [value]", Description: "build a contract VM deployment transaction", Run: runEVMDeployCLI},
 				},
 			},
 			{
 				Name:        "query",
 				Usage:       "evm query <command>",
-				Description: "build EVM query paths",
+				Description: "build contract VM query paths",
 				Children: []vexoapp.CLICommand{
-					{Name: "receipt", Usage: "evm query receipt <tx_hash>", Description: "build an EVM receipt query path", Run: runEVMReceiptQueryCLI},
-					{Name: "code", Usage: "evm query code <address>", Description: "build an EVM code query path", Run: runEVMCodeQueryCLI},
-					{Name: "logs", Usage: "evm query logs <address>", Description: "build an EVM logs query path", Run: runEVMLogsQueryCLI},
+					{Name: "receipt", Usage: "evm query receipt <tx_hash>", Description: "build a contract VM receipt query path", Run: runEVMReceiptQueryCLI},
+					{Name: "code", Usage: "evm query code <address>", Description: "build a contract VM code query path", Run: runEVMCodeQueryCLI},
+					{Name: "logs", Usage: "evm query logs <address>", Description: "build a contract VM logs query path", Run: runEVMLogsQueryCLI},
 				},
 			},
 		},

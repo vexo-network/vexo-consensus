@@ -154,8 +154,8 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  ibc tx packet-timeout build an IBC packet timeout transaction\n")
 	fmt.Fprintf(writer, "  ibc packet send build an IBC packet scaffold\n")
 	fmt.Fprintf(writer, "  status          print default node capability status\n")
-	fmt.Fprintf(writer, "  demo            run an in-memory bank execution demo\n")
-	fmt.Fprintf(writer, "  store-demo      run a LevelDB-backed storage demo\n")
+	fmt.Fprintf(writer, "  demo            run an in-memory bank execution example\n")
+	fmt.Fprintf(writer, "  store-demo      run a LevelDB-backed storage example\n")
 	fmt.Fprintf(writer, "  version         print version\n")
 	writeModuleHelp(writer)
 }

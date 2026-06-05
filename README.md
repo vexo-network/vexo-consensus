@@ -26,7 +26,7 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 
 - This project does not provide ABCI compatibility.
 - This project includes BLS12-381 and ECVRF adapter wiring, but operators are still responsible for audit evidence, key custody, and release-gate validation before value-bearing deployment.
-- This project does not claim mainnet safety without external audit and real multi-host operational evidence.
+- This project does not claim public value-bearing network safety without external audit and real multi-host operational evidence.
 - Chain-specific economics such as token custody, reward policy tuning, commission caps, and governance authority remain integration responsibilities.
 
 ## Repository Layout
@@ -89,13 +89,13 @@ The generated home uses split subsystem config files:
 - `.vexo/mempool_config.json` for mempool limits, fees, priority, and WAL policy
 - `.vexo/log_config.json` for log format, level, and operational event logging
 
-Run an in-memory application demo:
+Run an in-memory application example:
 
 ```bash
 ./bin/vexod demo
 ```
 
-Run a LevelDB-backed storage demo:
+Run a LevelDB-backed storage example:
 
 ```bash
 ./bin/vexod store-demo
