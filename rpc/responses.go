@@ -1,12 +1,16 @@
 package rpc
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -310,7 +314,7 @@ func stateSnapshotResponse(snapshot node.StateSnapshot) StateSnapshotResponse {
 }
 
 func snapshotExportResponse(snapshot node.StateSnapshot) SnapshotExportResponse {
-	return SnapshotExportResponse{
+	response := SnapshotExportResponse{
 		SchemaVersion: "v1",
 		State: store.StateRecord{
 			Height:           snapshot.Height,
@@ -318,9 +322,42 @@ func snapshotExportResponse(snapshot node.StateSnapshot) SnapshotExportResponse 
 			LastBlockHash:    snapshot.LastBlockHash,
 			ValidatorSetHash: snapshot.ValidatorSetHash,
 		},
-		StateRoots: append([]store.StateRootRecord(nil), snapshot.StateRoots...),
-		KV:         append([]store.KVPair(nil), snapshot.KV...),
+		StateRoots: sortedStateRoots(snapshot.StateRoots),
+		KV:         sortedKVPairs(snapshot.KV),
 	}
+	response.Checksum = snapshotChecksum(response)
+	return response
+}
+
+func snapshotChunkResponse(snapshot node.StateSnapshot, index uint64, size uint64) (SnapshotChunkResponse, error) {
+	export := snapshotExportResponse(snapshot)
+	kv := sortedKVPairs(export.KV)
+	chunkCount := uint64(1)
+	if len(kv) > 0 {
+		chunkCount = uint64((len(kv) + int(size) - 1) / int(size))
+	}
+	if index >= chunkCount {
+		return SnapshotChunkResponse{}, fmt.Errorf("snapshot chunk index out of range: %d/%d", index, chunkCount)
+	}
+	start := int(index * size)
+	end := start + int(size)
+	if start > len(kv) {
+		start = len(kv)
+	}
+	if end > len(kv) {
+		end = len(kv)
+	}
+	chunk := SnapshotChunkResponse{
+		SchemaVersion:    "v1",
+		State:            export.State,
+		StateRoots:       append([]store.StateRootRecord(nil), export.StateRoots...),
+		KV:               sortedKVPairs(kv[start:end]),
+		ChunkIndex:       index,
+		ChunkCount:       chunkCount,
+		SnapshotChecksum: export.Checksum,
+	}
+	chunk.ChunkChecksum = snapshotChunkChecksum(chunk)
+	return chunk, nil
 }
 
 func recoveryReportResponse(report node.RecoveryReport) RecoveryReportResponse {
@@ -372,6 +409,46 @@ func stateRootResponse(root store.StateRootRecord) StateRootResponse {
 		Namespace: root.Namespace,
 		Root:      hex.EncodeToString(root.Root[:]),
 	}
+}
+
+func snapshotChecksum(response SnapshotExportResponse) string {
+	response.Checksum = ""
+	response.StateRoots = sortedStateRoots(response.StateRoots)
+	response.KV = sortedKVPairs(response.KV)
+	data, _ := json.Marshal(response)
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func snapshotChunkChecksum(response SnapshotChunkResponse) string {
+	response.ChunkChecksum = ""
+	response.StateRoots = sortedStateRoots(response.StateRoots)
+	response.KV = sortedKVPairs(response.KV)
+	data, _ := json.Marshal(response)
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func sortedStateRoots(roots []store.StateRootRecord) []store.StateRootRecord {
+	sorted := append([]store.StateRootRecord(nil), roots...)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].Height != sorted[j].Height {
+			return sorted[i].Height < sorted[j].Height
+		}
+		return sorted[i].Namespace < sorted[j].Namespace
+	})
+	return sorted
+}
+
+func sortedKVPairs(pairs []store.KVPair) []store.KVPair {
+	sorted := append([]store.KVPair(nil), pairs...)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].Namespace != sorted[j].Namespace {
+			return sorted[i].Namespace < sorted[j].Namespace
+		}
+		return bytes.Compare(sorted[i].Key, sorted[j].Key) < 0
+	})
+	return sorted
 }
 
 func pruneResponse(result store.PruneResult) PruneResponse {

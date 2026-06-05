@@ -1868,6 +1868,140 @@ func TestRunSnapshotExportAndRestore(t *testing.T) {
 	}
 }
 
+func TestRunSnapshotChunkExportRestore(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage, err := store.OpenLevelDB(cfg.StoreDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for account, balance := range map[string]string{"alice": "100", "bob": "70", "carol": "30"} {
+		if err := storage.Set(context.Background(), "bank", []byte(account), []byte(balance)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root, err := storage.Root(context.Background(), "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.SaveState(context.Background(), store.StateRecord{
+		Height:           11,
+		AppHash:          types.Hash{11},
+		LastBlockHash:    types.Hash{12},
+		ValidatorSetHash: types.Hash{13},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.SaveStateRoot(context.Background(), store.StateRootRecord{Height: 11, Namespace: "bank", Root: root}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	chunkDir := filepath.Join(t.TempDir(), "chunks")
+	var exportOutput bytes.Buffer
+	if err := runSnapshot(&exportOutput, []string{"chunk-export", "--home", home, "--output-dir", chunkDir, "--chunk-size", "2"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(exportOutput.String(), "chunks: 2") {
+		t.Fatalf("unexpected chunk export output:\n%s", exportOutput.String())
+	}
+
+	restoreHome := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", restoreHome, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	var restoreOutput bytes.Buffer
+	if err := runSnapshot(&restoreOutput, []string{"chunk-restore", "--home", restoreHome, "--input-dir", chunkDir}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(restoreOutput.String(), "snapshot chunks restored") || !strings.Contains(restoreOutput.String(), "chunks: 2") {
+		t.Fatalf("unexpected chunk restore output:\n%s", restoreOutput.String())
+	}
+	restoredConfig, err := loadNodeConfig(filepath.Join(restoreHome, configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredStore, err := store.OpenLevelDB(restoredConfig.StoreDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restoredStore.Close()
+	state, err := restoredStore.LatestState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredRoot, err := restoredStore.StateRoot(context.Background(), 11, "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Height != 11 || restoredRoot.Root != root {
+		t.Fatalf("unexpected restored chunk state=%+v root=%+v", state, restoredRoot)
+	}
+	value, err := restoredStore.Get(context.Background(), "bank", []byte("bob"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(value) != "70" {
+		t.Fatalf("unexpected restored bank value %q", value)
+	}
+}
+
+func TestSnapshotChunksRejectTamperingAndMissingChunks(t *testing.T) {
+	sourceStore, err := store.OpenLevelDB(filepath.Join(t.TempDir(), "source-store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for account, balance := range map[string]string{"alice": "100", "bob": "70", "carol": "30"} {
+		if err := sourceStore.Set(context.Background(), "bank", []byte(account), []byte(balance)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root, err := sourceStore.Root(context.Background(), "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sourceStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	document := snapshotDocumentFromState("vexo-test", []string{"bank"}, store.StateRecord{
+		Height:           7,
+		AppHash:          types.Hash{7},
+		LastBlockHash:    types.Hash{8},
+		ValidatorSetHash: types.Hash{9},
+	}, []store.StateRootRecord{{Height: 7, Namespace: "bank", Root: root}}, []store.KVPair{
+		{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")},
+		{Namespace: "bank", Key: []byte("bob"), Value: []byte("70")},
+		{Namespace: "bank", Key: []byte("carol"), Value: []byte("30")},
+	})
+	chunks, err := snapshotChunks(document, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rebuilt, err := snapshotDocumentFromChunks(chunks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rebuilt.Checksum != document.Checksum || len(rebuilt.KV) != 3 {
+		t.Fatalf("unexpected rebuilt snapshot checksum=%s kv=%d", rebuilt.Checksum, len(rebuilt.KV))
+	}
+	if _, err := snapshotDocumentFromChunks(chunks[:1]); err == nil {
+		t.Fatal("expected missing chunk rejection")
+	}
+	tampered := append([]snapshotChunkDocument(nil), chunks...)
+	tampered[0].KV[0].Value = []byte("999")
+	if _, err := snapshotDocumentFromChunks(tampered); err == nil {
+		t.Fatal("expected tampered chunk rejection")
+	}
+}
+
 func TestRunSnapshotVerifyRejectsChecksumMismatch(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {

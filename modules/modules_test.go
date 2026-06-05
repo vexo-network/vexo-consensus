@@ -6,6 +6,7 @@ import (
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/config"
+	"github.com/vexo-network/vexo-consensus/modules/bank"
 	"github.com/vexo-network/vexo-consensus/modules/staking"
 )
 
@@ -67,6 +68,43 @@ func TestBuildWithExecutionInjectsStakingFeeCollector(t *testing.T) {
 	}
 	if stakingModule.FeeCollector() != "treasury" {
 		t.Fatalf("expected treasury fee collector, got %s", stakingModule.FeeCollector())
+	}
+}
+
+func TestBuildWithChainConfigInjectsStakingPolicy(t *testing.T) {
+	cfg := config.Default("vexo-test")
+	cfg.Application.Modules = []string{"staking"}
+	cfg.Execution.FeeCollector = "treasury"
+	cfg.Staking.UnbondingDelay = 42
+	cfg.Staking.MaxCommissionBPS = 750
+	modules, err := BuildWithChainConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stakingModule, ok := modules[0].(*staking.Module)
+	if !ok {
+		t.Fatalf("expected staking module, got %T", modules[0])
+	}
+	policy := stakingModule.Policy()
+	if policy.FeeCollector != "treasury" || policy.UnbondingDelay != 42 || policy.MaxCommissionBPS != 750 {
+		t.Fatalf("unexpected staking policy: %+v", policy)
+	}
+}
+
+func TestBuildWithChainConfigInjectsBankMintAuthority(t *testing.T) {
+	cfg := config.Default("vexo-test")
+	cfg.Application.Modules = []string{"bank"}
+	cfg.Bank.MintAuthority = "governance"
+	modules, err := BuildWithChainConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bankModule, ok := modules[0].(bank.Module)
+	if !ok {
+		t.Fatalf("expected bank module, got %T", modules[0])
+	}
+	if bankModule.MintAuthority() != "governance" {
+		t.Fatalf("expected governance mint authority, got %s", bankModule.MintAuthority())
 	}
 }
 

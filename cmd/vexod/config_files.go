@@ -97,6 +97,8 @@ type moduleConfigDocument struct {
 	SchemaVersion string                   `json:"schema_version"`
 	Application   config.ApplicationConfig `json:"application"`
 	Execution     config.ExecutionConfig   `json:"execution"`
+	Bank          config.BankConfig        `json:"bank"`
+	Staking       config.StakingConfig     `json:"staking"`
 	Governance    governance.TallyPolicy   `json:"governance"`
 }
 
@@ -1225,6 +1227,12 @@ func hasLegacyModuleConfig(document moduleConfigDocument) bool {
 	if document.Execution != (config.ExecutionConfig{}) {
 		return true
 	}
+	if document.Bank != (config.BankConfig{}) {
+		return true
+	}
+	if document.Staking != (config.StakingConfig{}) {
+		return true
+	}
 	return document.Governance != (governance.TallyPolicy{})
 }
 
@@ -1465,6 +1473,8 @@ func moduleConfigFromConfig(cfg config.Config) moduleConfigDocument {
 		SchemaVersion: moduleSchemaVersion,
 		Application:   cfg.Application,
 		Execution:     cfg.Execution,
+		Bank:          cfg.Bank,
+		Staking:       cfg.Staking,
 		Governance:    cfg.Governance,
 	}
 }
@@ -1514,6 +1524,10 @@ func configFromConfigDocuments(document configDocument, moduleDocument moduleCon
 	}
 	cfg.Execution = moduleDocument.Execution
 	cfg.Execution = normalizeExecutionConfig(cfg.Execution)
+	cfg.Bank = moduleDocument.Bank
+	if moduleDocument.Staking != (config.StakingConfig{}) {
+		cfg.Staking = moduleDocument.Staking
+	}
 	if moduleDocument.Governance != (governance.TallyPolicy{}) {
 		cfg.Governance = moduleDocument.Governance
 	}

@@ -49,6 +49,10 @@ func (Module) Name() string {
 	return ModuleName
 }
 
+func (module Module) MintAuthority() types.Address {
+	return module.mintAuthority
+}
+
 func (Module) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisState) error {
 	if ctx.Store == nil {
 		return nil

@@ -109,6 +109,15 @@ func TestInvalidProposalHashEvidenceVerifiesReasonSpecificProof(t *testing.T) {
 	if err := VerifyInvalidProposalEvidence(evidence); err != nil {
 		t.Fatal(err)
 	}
+	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedValidatorSetHash: types.Hash{1}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedValidatorSetHash: types.Hash{9}}); !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected context mismatch rejection, got %v", err)
+	}
+	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{}); !errors.Is(err, ErrInvalidProposalContext) {
+		t.Fatalf("expected missing context rejection, got %v", err)
+	}
 }
 
 func TestInvalidProposalHashEvidenceRejectsActualHashNotInProposal(t *testing.T) {

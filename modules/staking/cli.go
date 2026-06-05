@@ -245,7 +245,7 @@ func runSetCommissionCLI(writer io.Writer, args []string) error {
 		return vexoapp.ErrCLIUsage("staking tx set-commission <validator> <bps> --signer <validator>")
 	}
 	commissionBPS, err := strconv.ParseUint(args[1], 10, 64)
-	if err != nil || commissionBPS > maxCommissionBPS {
+	if err != nil || commissionBPS > commissionDenominatorBPS {
 		return ErrInvalidCommission
 	}
 	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{

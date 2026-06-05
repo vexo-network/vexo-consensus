@@ -220,6 +220,7 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 	document.addCheck("execution_gas_limit", "warning", inputs.Config.Chain.Execution.MaxGas > 0, "set ante gas bounds for transaction execution")
 	document.addCheck("execution_nonce_required", "warning", inputs.Config.Chain.Execution.RequireNonce, "require signer nonces to prevent replay")
 	document.addCheck("execution_signed_required", "warning", inputs.Config.Chain.Execution.RequireSigned, "require signed transaction envelopes on public networks")
+	document.addCheck("bank_mint_authority", strictSeverity(strict), inputs.Config.Chain.Bank.MintAuthority != "", "set bank mint authority to prevent permissionless supply creation")
 	return document
 }
 

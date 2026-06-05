@@ -187,6 +187,10 @@ func (transport *TCPTransport) SetPeer(peerID p2p.PeerID, address string) {
 	transport.peers[peerID] = address
 }
 
+func (transport *TCPTransport) KnownPeers() map[p2p.PeerID]string {
+	return transport.peerAddresses()
+}
+
 func (transport *TCPTransport) acceptLoop(listener net.Listener) {
 	for {
 		connection, err := listener.Accept()

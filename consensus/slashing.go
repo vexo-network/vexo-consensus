@@ -172,12 +172,21 @@ func verifyConsensusEvidence(evidence slashing.Evidence, validatorSet validator.
 		}
 		return nil
 	case slashing.EvidenceInvalidProposal:
-		if err := VerifyInvalidProposalEvidence(evidence); err != nil {
-			return err
-		}
 		decoded, err := DecodeInvalidProposalProof(evidence.Proof)
 		if err != nil {
 			return err
+		}
+		switch decoded.Reason {
+		case InvalidProposalReasonDAMismatch, InvalidProposalReasonMissingData:
+			if err := VerifyInvalidProposalEvidence(evidence); err != nil {
+				return err
+			}
+		case InvalidProposalReasonValidatorSetHash:
+			if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedValidatorSetHash: validatorSet.Hash()}); err != nil {
+				return err
+			}
+		default:
+			return ErrInvalidProposalContext
 		}
 		return verifyProposalEvidenceSignature(decoded.Proposal, validatorInfo, verifier)
 	case slashing.EvidenceUnavailableData:

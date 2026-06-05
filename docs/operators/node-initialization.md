@@ -143,6 +143,13 @@ Example `module_config.json`:
     "DisplayExponent": 18,
     "GasDenom": "gas"
   },
+  "bank": {
+    "MintAuthority": "governance"
+  },
+  "staking": {
+    "UnbondingDelay": 1209600,
+    "MaxCommissionBPS": 10000
+  },
   "governance": {
     "QuorumPower": 1,
     "YesThresholdPower": 1,

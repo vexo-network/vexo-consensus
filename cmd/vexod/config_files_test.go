@@ -234,6 +234,7 @@ func TestLoadNodeConfigMergesModuleConfig(t *testing.T) {
 		SchemaVersion: moduleSchemaVersion,
 		Application:   config.ApplicationConfig{Modules: []string{"bank"}},
 		Execution:     config.ExecutionConfig{RequireSigned: true, RequireNonce: true, MinFee: 7, MinGas: 3, MaxGas: 99, FeeCollector: "collector"},
+		Bank:          config.BankConfig{MintAuthority: "governance"},
 		Governance:    governance.TallyPolicy{QuorumPower: 2, YesThresholdPower: 2, VotingPeriod: 9, Timelock: 4, VetoPower: 1},
 	}
 	writeTestJSON(t, filepath.Join(home, moduleConfigFileName), moduleDocument)
@@ -247,6 +248,9 @@ func TestLoadNodeConfigMergesModuleConfig(t *testing.T) {
 	}
 	if !cfg.Chain.Execution.RequireSigned || cfg.Chain.Execution.MinFee != 7 || cfg.Chain.Execution.FeeCollector != "collector" || cfg.Chain.Execution.FeeDenom != "avxo" {
 		t.Fatalf("expected execution config override, got %+v", cfg.Chain.Execution)
+	}
+	if cfg.Chain.Bank.MintAuthority != "governance" {
+		t.Fatalf("expected bank config override, got %+v", cfg.Chain.Bank)
 	}
 	if cfg.Chain.Governance.Timelock != 4 {
 		t.Fatalf("expected governance config override, got %+v", cfg.Chain.Governance)

@@ -28,7 +28,7 @@ const (
 const bankNamespace = "bank"
 const defaultFeeCollector types.Address = "fee_collector"
 const defaultUnbondingDelay types.Height = 1209600
-const maxCommissionBPS uint64 = 10000
+const commissionDenominatorBPS uint64 = 10000
 
 var (
 	ErrInvalidStakingTx     = errors.New("invalid staking transaction")
@@ -44,31 +44,52 @@ var (
 )
 
 type Module struct {
-	unbondingDelay types.Height
-	feeCollector   types.Address
-	pending        []types.ValidatorUpdate
+	unbondingDelay   types.Height
+	feeCollector     types.Address
+	maxCommissionBPS uint64
+	pending          []types.ValidatorUpdate
+}
+
+type Policy struct {
+	UnbondingDelay   types.Height
+	FeeCollector     types.Address
+	MaxCommissionBPS uint64
 }
 
 func NewModule() *Module {
-	return &Module{unbondingDelay: defaultUnbondingDelay, feeCollector: defaultFeeCollector}
+	return NewModuleWithPolicy(Policy{})
 }
 
 func NewModuleWithUnbondingDelay(delay types.Height) *Module {
-	if delay == 0 {
-		delay = defaultUnbondingDelay
-	}
-	return &Module{unbondingDelay: delay, feeCollector: defaultFeeCollector}
+	return NewModuleWithPolicy(Policy{UnbondingDelay: delay})
 }
 
 func NewModuleWithFeeCollector(collector types.Address) *Module {
-	if collector == "" {
-		collector = defaultFeeCollector
+	return NewModuleWithPolicy(Policy{FeeCollector: collector})
+}
+
+func NewModuleWithPolicy(policy Policy) *Module {
+	if policy.UnbondingDelay == 0 {
+		policy.UnbondingDelay = defaultUnbondingDelay
 	}
-	return &Module{unbondingDelay: defaultUnbondingDelay, feeCollector: collector}
+	if policy.FeeCollector == "" {
+		policy.FeeCollector = defaultFeeCollector
+	}
+	if policy.MaxCommissionBPS == 0 {
+		policy.MaxCommissionBPS = commissionDenominatorBPS
+	}
+	if policy.MaxCommissionBPS > commissionDenominatorBPS {
+		policy.MaxCommissionBPS = commissionDenominatorBPS
+	}
+	return &Module{
+		unbondingDelay:   policy.UnbondingDelay,
+		feeCollector:     policy.FeeCollector,
+		maxCommissionBPS: policy.MaxCommissionBPS,
+	}
 }
 
 func (module *Module) CloneModule() vexoapp.Module {
-	return &Module{unbondingDelay: module.unbondingDelay, feeCollector: module.feeCollector}
+	return NewModuleWithPolicy(module.Policy())
 }
 
 func (module *Module) Name() string {
@@ -77,6 +98,14 @@ func (module *Module) Name() string {
 
 func (module *Module) FeeCollector() types.Address {
 	return module.feeCollector
+}
+
+func (module *Module) Policy() Policy {
+	return Policy{
+		UnbondingDelay:   module.unbondingDelay,
+		FeeCollector:     module.feeCollector,
+		MaxCommissionBPS: module.maxCommissionBPS,
+	}
 }
 
 func (module *Module) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisState) error {
@@ -383,7 +412,7 @@ func Commission(ctx context.Context, store vexoapp.StateStore, validatorID types
 }
 
 func (module *Module) setCommission(ctx context.Context, store vexoapp.StateStore, tx types.Tx, validatorID types.ValidatorID, commissionBPS uint64) error {
-	if validatorID == "" || commissionBPS > maxCommissionBPS {
+	if validatorID == "" || commissionBPS > module.maxCommissionBPS {
 		return ErrInvalidCommission
 	}
 	signer, found := vexoapp.TxTag(tx, "signer")
@@ -478,7 +507,7 @@ func (module *Module) distributeFees(ctx context.Context, store vexoapp.StateSto
 		if err != nil {
 			return err
 		}
-		commission := proportionalShare(validatorFee, commissionBPS, maxCommissionBPS)
+		commission := proportionalShare(validatorFee, commissionBPS, commissionDenominatorBPS)
 		if commission > 0 {
 			if err := addReward(rewards, types.Address(validator.validatorID), validator.validatorID, commission); err != nil {
 				return err

@@ -29,6 +29,7 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "execution.display_denom: %s\n", cfg.Execution.DisplayDenom)
 	fmt.Fprintf(writer, "execution.display_exponent: %d\n", cfg.Execution.DisplayExponent)
 	fmt.Fprintf(writer, "execution.gas_denom: %s\n", cfg.Execution.GasDenom)
+	fmt.Fprintf(writer, "bank.mint_authority: %s\n", cfg.Bank.MintAuthority)
 	fmt.Fprintf(writer, "validator.permissionless: %t\n", cfg.Validator.Permissionless)
 	fmt.Fprintf(writer, "validator.min_stake: %d\n", cfg.Validator.MinStake)
 	fmt.Fprintf(writer, "committee.epoch_length: %d\n", cfg.Committee.EpochLength)
@@ -48,6 +49,7 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "state_sync.snapshot_kv: true\n")
 	fmt.Fprintf(writer, "state_sync.snapshot_checksum: true\n")
 	fmt.Fprintf(writer, "state_sync.snapshot_verify: true\n")
+	fmt.Fprintf(writer, "state_sync.snapshot_chunks: true\n")
 	fmt.Fprintf(writer, "ops.metrics_uptime: true\n")
 	fmt.Fprintf(writer, "ops.pprof_optional: true\n")
 	fmt.Fprintf(writer, "ops.structured_logs: true\n")
@@ -92,6 +94,7 @@ type statusDocument struct {
 	ChainID          string                 `json:"chain_id"`
 	Application      applicationStatus      `json:"application"`
 	Execution        executionStatus        `json:"execution"`
+	Bank             bankStatus             `json:"bank"`
 	Validator        validatorStatus        `json:"validator"`
 	Committee        committeeStatus        `json:"committee"`
 	Mempool          mempoolStatus          `json:"mempool"`
@@ -122,6 +125,10 @@ type executionStatus struct {
 	DisplayDenom             string `json:"display_denom"`
 	DisplayExponent          uint8  `json:"display_exponent"`
 	GasDenom                 string `json:"gas_denom"`
+}
+
+type bankStatus struct {
+	MintAuthority string `json:"mint_authority,omitempty"`
 }
 
 type validatorStatus struct {
@@ -200,6 +207,9 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			DisplayExponent:          cfg.Execution.DisplayExponent,
 			GasDenom:                 cfg.Execution.GasDenom,
 		},
+		Bank: bankStatus{
+			MintAuthority: cfg.Bank.MintAuthority,
+		},
 		Validator: validatorStatus{
 			Permissionless: cfg.Validator.Permissionless,
 			MinStake:       cfg.Validator.MinStake,
@@ -225,6 +235,7 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"state_sync_snapshot_kv":            true,
 			"state_sync_checksum":               true,
 			"state_sync_verify":                 true,
+			"state_sync_snapshot_chunks":        true,
 			"ops_metrics_uptime":                true,
 			"ops_pprof_optional":                true,
 			"ops_structured_logs":               true,

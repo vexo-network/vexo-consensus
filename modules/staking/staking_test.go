@@ -256,6 +256,41 @@ func TestStakingModuleDistributesValidatorCommission(t *testing.T) {
 	}
 }
 
+func TestStakingModuleEnforcesPolicyCommissionCap(t *testing.T) {
+	storage := newStakingStore(t)
+	module := NewModuleWithPolicy(Policy{MaxCommissionBPS: 500})
+	publicKey := base64.StdEncoding.EncodeToString([]byte("validator-key"))
+	if err := setBankBalance(context.Background(), storage, "alice", 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := setBankBalance(context.Background(), storage, defaultFeeCollector, 100); err != nil {
+		t.Fatal(err)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 1, Store: storage}, types.Tx("staking:delegate:alice:validator-1:100:"+publicKey)); result.Code != 0 {
+		t.Fatalf("unexpected delegate result: %+v", result)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 1, Store: storage}, types.Tx("staking:set-commission:validator-1:600:signer=validator-1")); result.Code == 0 {
+		t.Fatalf("expected commission cap rejection, got %+v", result)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 1, Store: storage}, types.Tx("staking:set-commission:validator-1:500:signer=validator-1")); result.Code != 0 {
+		t.Fatalf("unexpected capped commission result: %+v", result)
+	}
+	if err := module.EndBlock(vexoapp.Context{Height: 1, Store: storage}); err != nil {
+		t.Fatal(err)
+	}
+	validatorRewards, err := Rewards(context.Background(), storage, "validator-1", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceRewards, err := Rewards(context.Background(), storage, "alice", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validatorRewards != 5 || aliceRewards != 95 {
+		t.Fatalf("expected 5%% commission with 500bps cap, validator=%d alice=%d", validatorRewards, aliceRewards)
+	}
+}
+
 func TestStakingModuleAssignsRewardRoundingRemainderToValidator(t *testing.T) {
 	storage := newStakingStore(t)
 	module := NewModule()

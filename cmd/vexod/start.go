@@ -750,7 +750,7 @@ func buildStartNode(inputs startInputs) (*vexonode.Node, error) {
 
 func buildRuntimeNode(inputs startInputs, runtimeConfig startRuntimeConfig) (*vexonode.Node, *transport.GRPCTransport, error) {
 	runtimeConfig = applyNetworkRuntimeDefaults(inputs, runtimeConfig)
-	application, err := appmodules.NewRuntimeWithExecution(inputs.Config.Chain.ChainID, inputs.Config.Chain.Application, inputs.Config.Chain.Execution)
+	application, err := appmodules.NewRuntimeWithChainConfig(inputs.Config.Chain.ChainID, inputs.Config.Chain)
 	if err != nil {
 		return nil, nil, err
 	}

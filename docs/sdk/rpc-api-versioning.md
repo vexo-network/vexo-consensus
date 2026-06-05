@@ -20,6 +20,7 @@ Stable endpoints are exposed under `/v1`. The unversioned paths remain compatibi
 - `/v1/recovery`
 - `/v1/snapshot/latest`
 - `/v1/snapshot/export`
+- `/v1/snapshot/chunk?index=0&size=10000`
 - `/v1/blocks`
 - `/v1/blocks/latest`
 - `/v1/blocks/{height}`

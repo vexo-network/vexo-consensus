@@ -260,6 +260,18 @@ type SnapshotExportResponse struct {
 	State         store.StateRecord       `json:"state"`
 	StateRoots    []store.StateRootRecord `json:"state_roots"`
 	KV            []store.KVPair          `json:"kv,omitempty"`
+	Checksum      string                  `json:"checksum,omitempty"`
+}
+
+type SnapshotChunkResponse struct {
+	SchemaVersion    string                  `json:"schema_version"`
+	State            store.StateRecord       `json:"state"`
+	StateRoots       []store.StateRootRecord `json:"state_roots"`
+	KV               []store.KVPair          `json:"kv,omitempty"`
+	ChunkIndex       uint64                  `json:"chunk_index"`
+	ChunkCount       uint64                  `json:"chunk_count"`
+	SnapshotChecksum string                  `json:"snapshot_checksum"`
+	ChunkChecksum    string                  `json:"chunk_checksum,omitempty"`
 }
 
 type RecoveryReportResponse struct {
@@ -835,6 +847,49 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 			return
 		}
 		writeJSON(writer, http.StatusOK, snapshotExportResponse(snapshot))
+	})
+	mux.HandleFunc("/snapshot/chunk", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowGet(writer, request) {
+			return
+		}
+		snapshotProvider, ok := provider.(SnapshotProvider)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "snapshot chunk export is unavailable")
+			return
+		}
+		index, err := parseOptionalUintQuery(request, "index", 0)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, err.Error())
+			return
+		}
+		size, err := parseOptionalUintQuery(request, "size", 10000)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, err.Error())
+			return
+		}
+		if size == 0 {
+			writeError(writer, http.StatusBadRequest, "snapshot chunk size must be positive")
+			return
+		}
+		snapshot, err := snapshotProvider.StateSnapshot(request.Context())
+		if errors.Is(err, store.ErrStateNotFound) {
+			writeError(writer, http.StatusNotFound, "snapshot not found")
+			return
+		}
+		if errors.Is(err, store.ErrStateRootNotFound) {
+			writeError(writer, http.StatusNotFound, "snapshot state root not found")
+			return
+		}
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, err.Error())
+			return
+		}
+		chunk, err := snapshotChunkResponse(snapshot, index, size)
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(writer, http.StatusOK, chunk)
 	})
 	mux.HandleFunc("/recovery", func(writer http.ResponseWriter, request *http.Request) {
 		recoveryProvider, ok := provider.(RecoveryProvider)
@@ -2256,6 +2311,18 @@ func parseOptionalHeight(value string) (types.Height, bool) {
 		return 0, false
 	}
 	return types.Height(height), true
+}
+
+func parseOptionalUintQuery(request *http.Request, key string, fallback uint64) (uint64, error) {
+	value := request.URL.Query().Get(key)
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseUint(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s query", key)
+	}
+	return parsed, nil
 }
 
 func parseIBCQueryPath(path string) ([]string, bool) {

@@ -1615,6 +1615,67 @@ func TestHandlerExportsRestorableSnapshotDocument(t *testing.T) {
 	if len(snapshot.KV) != 1 || snapshot.KV[0].Namespace != "bank" || string(snapshot.KV[0].Key) != "alice" {
 		t.Fatalf("unexpected snapshot export kv: %+v", snapshot.KV)
 	}
+	if snapshot.Checksum == "" {
+		t.Fatal("expected snapshot checksum")
+	}
+}
+
+func TestHandlerExportsSnapshotChunks(t *testing.T) {
+	handler := NewHandler(fakeStatusProvider{snapshot: node.StateSnapshot{
+		Height:           5,
+		AppHash:          types.Hash{1},
+		LastBlockHash:    types.Hash{2},
+		ValidatorSetHash: types.Hash{3},
+		StateRoots: []store.StateRootRecord{
+			{Height: 5, Namespace: "bank", Root: types.Hash{4}},
+		},
+		KV: []store.KVPair{
+			{Namespace: "bank", Key: []byte("carol"), Value: []byte("30")},
+			{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")},
+			{Namespace: "bank", Key: []byte("bob"), Value: []byte("70")},
+		},
+	}})
+
+	var first SnapshotChunkResponse
+	getJSON(t, handler, "/snapshot/chunk?index=0&size=2", http.StatusOK, &first)
+	if first.SchemaVersion != "v1" || first.ChunkIndex != 0 || first.ChunkCount != 2 || len(first.KV) != 2 {
+		t.Fatalf("unexpected first chunk: %+v", first)
+	}
+	if first.SnapshotChecksum == "" || first.ChunkChecksum == "" {
+		t.Fatalf("expected chunk checksums: %+v", first)
+	}
+	if string(first.KV[0].Key) != "alice" || string(first.KV[1].Key) != "bob" {
+		t.Fatalf("expected deterministic chunk ordering, got %+v", first.KV)
+	}
+
+	var second SnapshotChunkResponse
+	getJSON(t, handler, "/snapshot/chunk?index=1&size=2", http.StatusOK, &second)
+	if second.ChunkIndex != 1 || second.ChunkCount != 2 || len(second.KV) != 1 || string(second.KV[0].Key) != "carol" {
+		t.Fatalf("unexpected second chunk: %+v", second)
+	}
+	if second.SnapshotChecksum != first.SnapshotChecksum {
+		t.Fatalf("expected same snapshot checksum, first=%s second=%s", first.SnapshotChecksum, second.SnapshotChecksum)
+	}
+}
+
+func TestHandlerRejectsInvalidSnapshotChunkQuery(t *testing.T) {
+	handler := NewHandler(fakeStatusProvider{snapshot: node.StateSnapshot{
+		Height:           5,
+		AppHash:          types.Hash{1},
+		LastBlockHash:    types.Hash{2},
+		ValidatorSetHash: types.Hash{3},
+		StateRoots:       []store.StateRootRecord{{Height: 5, Namespace: "bank", Root: types.Hash{4}}},
+	}})
+
+	var response map[string]string
+	getJSON(t, handler, "/snapshot/chunk?index=0&size=0", http.StatusBadRequest, &response)
+	if response["error"] == "" {
+		t.Fatalf("expected invalid size error, got %+v", response)
+	}
+	getJSON(t, handler, "/snapshot/chunk?index=1&size=10", http.StatusBadRequest, &response)
+	if response["error"] == "" {
+		t.Fatalf("expected out of range error, got %+v", response)
+	}
 }
 
 func TestHandlerRejectsUnavailableSnapshotProvider(t *testing.T) {

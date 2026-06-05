@@ -96,7 +96,7 @@ func coreCommands() commandset.Registry {
 		{Name: "start", Description: "validate files, prepare startup, or run a node", Handler: runStart},
 		{Name: "network", Description: "manage node networks and local execution harnesses", Handler: runNetwork},
 		{Name: "consensus", Description: "run consensus simulations and diagnostics", Handler: runConsensus},
-		{Name: "snapshot", Description: "export, verify, fetch, sync, restore, or drill snapshots", Handler: runSnapshot},
+		{Name: "snapshot", Description: "export, chunk, verify, fetch, sync, restore, or drill snapshots", Handler: runSnapshot},
 		{Name: "slashing", Description: "plan evidence lifecycle and penalty operations", Handler: runSlashing},
 		{Name: "doctor", Description: "inspect config, keys, store, snapshot, and recovery readiness", Handler: runDoctor},
 		{Name: "ops", Description: "print thresholds, evaluate samples, or build incident reports", Handler: runOps},

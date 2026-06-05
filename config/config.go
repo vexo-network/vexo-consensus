@@ -27,6 +27,8 @@ type Config struct {
 	Validator   validator.AdmissionConfig
 	Committee   committee.RotationPolicy
 	Mempool     mempool.FIFOConfig
+	Bank        BankConfig
+	Staking     StakingConfig
 	Governance  governance.TallyPolicy
 	P2P         p2p.ScoreConfig
 }
@@ -52,6 +54,15 @@ type ExecutionConfig struct {
 	DisplayDenom             string
 	DisplayExponent          uint8
 	GasDenom                 string
+}
+
+type StakingConfig struct {
+	UnbondingDelay   uint64
+	MaxCommissionBPS uint64
+}
+
+type BankConfig struct {
+	MintAuthority string
 }
 
 type CryptoBackend string
@@ -111,6 +122,11 @@ func Default(chainID string) Config {
 			MaxTxBytes: 1024 * 1024,
 			MaxTxs:     100000,
 		},
+		Bank: BankConfig{},
+		Staking: StakingConfig{
+			UnbondingDelay:   1209600,
+			MaxCommissionBPS: 10000,
+		},
 		Governance: governance.TallyPolicy{
 			QuorumPower:       1,
 			YesThresholdPower: 1,
@@ -169,6 +185,14 @@ func (config Config) Validate() error {
 	if config.Mempool.MaxTxBytes <= 0 ||
 		config.Mempool.MaxTxs <= 0 ||
 		config.Mempool.SeenTTL < 0 {
+		return ErrInvalidConfig
+	}
+	if config.Bank.MintAuthority == "" && config.Execution.RequireSigned {
+		return ErrInvalidConfig
+	}
+	if config.Staking.UnbondingDelay == 0 ||
+		config.Staking.MaxCommissionBPS == 0 ||
+		config.Staking.MaxCommissionBPS > 10000 {
 		return ErrInvalidConfig
 	}
 	if config.Governance.QuorumPower == 0 ||

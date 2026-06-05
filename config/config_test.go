@@ -59,6 +59,10 @@ func TestConfigValidateRejectsUnsafeSettings(t *testing.T) {
 		{name: "zero mempool tx count", mutate: func(cfg *Config) { cfg.Mempool.MaxTxs = 0 }},
 		{name: "negative mempool tx count", mutate: func(cfg *Config) { cfg.Mempool.MaxTxs = -1 }},
 		{name: "negative mempool seen ttl", mutate: func(cfg *Config) { cfg.Mempool.SeenTTL = -time.Second }},
+		{name: "signed execution without mint authority", mutate: func(cfg *Config) { cfg.Execution.RequireSigned = true }},
+		{name: "zero staking unbonding delay", mutate: func(cfg *Config) { cfg.Staking.UnbondingDelay = 0 }},
+		{name: "zero staking commission cap", mutate: func(cfg *Config) { cfg.Staking.MaxCommissionBPS = 0 }},
+		{name: "staking commission cap above denominator", mutate: func(cfg *Config) { cfg.Staking.MaxCommissionBPS = 10001 }},
 		{name: "execution min gas greater than max", mutate: func(cfg *Config) {
 			cfg.Execution.MinGas = 2
 			cfg.Execution.MaxGas = 1
@@ -126,6 +130,7 @@ func TestConfigValidateAllowsOptionalSafetyKnobs(t *testing.T) {
 func TestValidateNetworkSafetyRejectsDeterministicCrypto(t *testing.T) {
 	cfg := Default("vexo-test")
 	cfg.Execution.RequireSigned = true
+	cfg.Bank.MintAuthority = "governance"
 	cfg.Execution.RequireNonce = true
 	cfg.Execution.MinFee = 1
 	cfg.Execution.BaseFee = 1
@@ -148,6 +153,7 @@ func TestValidateNetworkSafetyAcceptsHardenedEd25519Config(t *testing.T) {
 	cfg.VRF.AuditReport = "vrf-audit-2026"
 	cfg.VRF.KeySource = "remote-signer"
 	cfg.Execution.RequireSigned = true
+	cfg.Bank.MintAuthority = "governance"
 	cfg.Execution.RequireNonce = true
 	cfg.Execution.MinFee = 1
 	cfg.Execution.BaseFee = 1

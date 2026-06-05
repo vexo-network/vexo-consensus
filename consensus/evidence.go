@@ -16,6 +16,7 @@ var (
 	ErrTimeoutVotesDoNotConflict = errors.New("timeout votes do not conflict")
 	ErrVotePairMismatch          = errors.New("votes are not from the same validator height and round")
 	ErrUnsupportedProposalReason = errors.New("unsupported invalid proposal reason")
+	ErrInvalidProposalContext    = errors.New("invalid proposal verification context is required")
 )
 
 type InvalidProposalReason string
@@ -58,6 +59,12 @@ type InvalidProposalProof struct {
 	ExpectedTimeUnixNano int64                 `json:"expected_time_unix_nano,omitempty"`
 	ActualTimeUnixNano   int64                 `json:"actual_time_unix_nano,omitempty"`
 	VerificationMessage  string                `json:"verification_message,omitempty"`
+}
+
+type InvalidProposalVerificationContext struct {
+	ExpectedValidatorSetHash types.Hash
+	ExpectedAppHash          types.Hash
+	ExpectedTimeUnixNano     int64
 }
 
 type UnavailableDataProof struct {
@@ -435,6 +442,43 @@ func VerifyInvalidProposalEvidence(evidence slashing.Evidence) error {
 	}
 	if err := verifyInvalidProposalEnvelope(decoded, evidence.Validator, evidence.Height, evidence.Round); err != nil {
 		return err
+	}
+	return verifyInvalidProposalByReason(decoded)
+}
+
+func VerifyInvalidProposalEvidenceWithContext(evidence slashing.Evidence, context InvalidProposalVerificationContext) error {
+	if evidence.Type != slashing.EvidenceInvalidProposal {
+		return slashing.ErrUnknownEvidenceType
+	}
+	decoded, err := DecodeInvalidProposalProof(evidence.Proof)
+	if err != nil {
+		return err
+	}
+	if err := verifyInvalidProposalEnvelope(decoded, evidence.Validator, evidence.Height, evidence.Round); err != nil {
+		return err
+	}
+	switch decoded.Reason {
+	case InvalidProposalReasonValidatorSetHash:
+		if context.ExpectedValidatorSetHash == (types.Hash{}) {
+			return ErrInvalidProposalContext
+		}
+		if decoded.ExpectedHash != context.ExpectedValidatorSetHash {
+			return ErrInvalidProposal
+		}
+	case InvalidProposalReasonAppHash:
+		if context.ExpectedAppHash == (types.Hash{}) {
+			return ErrInvalidProposalContext
+		}
+		if decoded.ExpectedHash != context.ExpectedAppHash {
+			return ErrInvalidProposal
+		}
+	case InvalidProposalReasonTimestamp:
+		if context.ExpectedTimeUnixNano == 0 {
+			return ErrInvalidProposalContext
+		}
+		if decoded.ExpectedTimeUnixNano != context.ExpectedTimeUnixNano {
+			return ErrInvalidProposal
+		}
 	}
 	return verifyInvalidProposalByReason(decoded)
 }

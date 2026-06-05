@@ -27,7 +27,7 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 - This project does not provide ABCI compatibility.
 - This project includes BLS12-381 and ECVRF adapter wiring, but operators are still responsible for audit evidence, key custody, and release-gate validation before value-bearing deployment.
 - This project does not claim public value-bearing network safety without external audit and real multi-host operational evidence.
-- Chain-specific economics such as token custody, reward policy tuning, commission caps, and governance authority remain integration responsibilities.
+- Chain-specific economics such as token custody, reward policy tuning, and governance authority remain integration responsibilities.
 
 ## Repository Layout
 
@@ -136,6 +136,8 @@ vexod staking tx claim-rewards alice validator-1 --fee 1 --gas 1000 --signer ali
 curl -s -X POST http://127.0.0.1:26657/ -d '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}'
 vexod ibc packet send --sequence 1 --source-port transfer --source-channel channel-0 --destination-port transfer --destination-channel channel-1 --data payload
 vexod consensus adversarial --json
+vexod snapshot chunk-export --home .vexo --output-dir snapshot-chunks --chunk-size 10000
+vexod snapshot chunk-restore --home .vexo-restore --input-dir snapshot-chunks
 vexod snapshot drill-plan --input snapshot.json --chain-id vexo-chain --json
 vexod ops conformance --home .vexo --json
 vexod release readiness --json

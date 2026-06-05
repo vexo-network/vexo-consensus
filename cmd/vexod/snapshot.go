@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -26,6 +27,19 @@ type snapshotDocument struct {
 	StateRoots    []store.StateRootRecord `json:"state_roots"`
 	KV            []store.KVPair          `json:"kv,omitempty"`
 	Checksum      string                  `json:"checksum,omitempty"`
+}
+
+type snapshotChunkDocument struct {
+	SchemaVersion    string                  `json:"schema_version"`
+	ChainID          string                  `json:"chain_id,omitempty"`
+	Modules          []string                `json:"modules,omitempty"`
+	State            store.StateRecord       `json:"state"`
+	StateRoots       []store.StateRootRecord `json:"state_roots"`
+	KV               []store.KVPair          `json:"kv,omitempty"`
+	ChunkIndex       uint64                  `json:"chunk_index"`
+	ChunkCount       uint64                  `json:"chunk_count"`
+	SnapshotChecksum string                  `json:"snapshot_checksum"`
+	ChunkChecksum    string                  `json:"chunk_checksum,omitempty"`
 }
 
 type snapshotDrillPlanDocument struct {
@@ -54,10 +68,14 @@ func runSnapshot(writer io.Writer, args []string) error {
 	switch args[0] {
 	case "export":
 		return runSnapshotExport(writer, args[1:])
+	case "chunk-export":
+		return runSnapshotChunkExport(writer, args[1:])
 	case "verify":
 		return runSnapshotVerify(writer, args[1:])
 	case "restore":
 		return runSnapshotRestore(writer, args[1:])
+	case "chunk-restore":
+		return runSnapshotChunkRestore(writer, args[1:])
 	case "fetch":
 		return runSnapshotFetch(writer, args[1:])
 	case "sync":
@@ -105,6 +123,64 @@ func runSnapshotExport(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "snapshot exported\n")
 	fmt.Fprintf(writer, "path: %s\n", *outputPath)
 	fmt.Fprintf(writer, "height: %d\n", document.State.Height)
+	return nil
+}
+
+func runSnapshotChunkExport(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("snapshot chunk-export", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", defaultHomeDir, "node home directory")
+	configPath := flags.String("config", "", "config file path")
+	outputDir := flags.String("output-dir", "", "snapshot chunk output directory")
+	chunkSize := flags.Int("chunk-size", 10000, "maximum KV pairs per chunk")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *outputDir == "" {
+		return errors.New("snapshot chunk output directory is required")
+	}
+	if *chunkSize <= 0 {
+		return errors.New("snapshot chunk size must be positive")
+	}
+	cfg, err := loadNodeConfig(resolveConfigPath(*home, *configPath))
+	if err != nil {
+		return err
+	}
+	storage, err := store.OpenLevelDB(cfg.StoreDir())
+	if err != nil {
+		return err
+	}
+	defer storage.Close()
+	document, err := buildSnapshotDocument(storage, cfg.Chain.ChainID, snapshotNamespaces(cfg.Chain.Application.Modules))
+	if err != nil {
+		return err
+	}
+	chunks, err := snapshotChunks(document, *chunkSize)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(*outputDir, 0o755); err != nil {
+		return err
+	}
+	for _, chunk := range chunks {
+		path := filepath.Join(*outputDir, snapshotChunkFileName(chunk.ChunkIndex, chunk.ChunkCount))
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+		if err != nil {
+			return err
+		}
+		if err := writeSnapshotChunkDocument(file, chunk); err != nil {
+			file.Close()
+			return err
+		}
+		if err := file.Close(); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(writer, "snapshot chunks exported\n")
+	fmt.Fprintf(writer, "output_dir: %s\n", *outputDir)
+	fmt.Fprintf(writer, "height: %d\n", document.State.Height)
+	fmt.Fprintf(writer, "chunks: %d\n", len(chunks))
+	fmt.Fprintf(writer, "checksum: %s\n", document.Checksum)
 	return nil
 }
 
@@ -177,6 +253,57 @@ func runSnapshotRestore(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "snapshot restored\n")
 	fmt.Fprintf(writer, "path: %s\n", *inputPath)
 	fmt.Fprintf(writer, "height: %d\n", document.State.Height)
+	return nil
+}
+
+func runSnapshotChunkRestore(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("snapshot chunk-restore", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", defaultHomeDir, "node home directory")
+	configPath := flags.String("config", "", "config file path")
+	inputDir := flags.String("input-dir", "", "snapshot chunk input directory")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *inputDir == "" {
+		return errors.New("snapshot chunk input directory is required")
+	}
+	cfg, err := loadNodeConfig(resolveConfigPath(*home, *configPath))
+	if err != nil {
+		return err
+	}
+	chunks, err := readSnapshotChunksFromDir(*inputDir)
+	if err != nil {
+		return err
+	}
+	for _, chunk := range chunks {
+		if err := validateSnapshotChunk(chunk, cfg.Chain.ChainID); err != nil {
+			return err
+		}
+	}
+	document, err := snapshotDocumentFromChunks(chunks)
+	if err != nil {
+		return err
+	}
+	if err := validateSnapshotDocument(document, cfg.Chain.ChainID); err != nil {
+		return err
+	}
+	storage, err := store.OpenLevelDB(cfg.StoreDir())
+	if err != nil {
+		return err
+	}
+	defer storage.Close()
+	if err := restoreSnapshotDocument(storage, document); err != nil {
+		return err
+	}
+	if _, err := storage.RecoverIndexes(context.Background()); err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "snapshot chunks restored\n")
+	fmt.Fprintf(writer, "input_dir: %s\n", *inputDir)
+	fmt.Fprintf(writer, "height: %d\n", document.State.Height)
+	fmt.Fprintf(writer, "chunks: %d\n", len(chunks))
+	fmt.Fprintf(writer, "checksum: %s\n", document.Checksum)
 	return nil
 }
 
@@ -397,6 +524,104 @@ func snapshotDocumentFromState(chainID string, modules []string, state store.Sta
 	return document
 }
 
+func snapshotChunks(document snapshotDocument, chunkSize int) ([]snapshotChunkDocument, error) {
+	if err := validateSnapshotDocument(document, ""); err != nil {
+		return nil, err
+	}
+	if chunkSize <= 0 {
+		return nil, errors.New("snapshot chunk size must be positive")
+	}
+	kv := sortedKVPairs(document.KV)
+	chunkCount := uint64(1)
+	if len(kv) > 0 {
+		chunkCount = uint64((len(kv) + chunkSize - 1) / chunkSize)
+	}
+	chunks := make([]snapshotChunkDocument, 0, chunkCount)
+	for index := uint64(0); index < chunkCount; index++ {
+		start := int(index) * chunkSize
+		end := start + chunkSize
+		if start > len(kv) {
+			start = len(kv)
+		}
+		if end > len(kv) {
+			end = len(kv)
+		}
+		chunk := snapshotChunkDocument{
+			SchemaVersion:    "v1",
+			ChainID:          document.ChainID,
+			Modules:          sortedStrings(document.Modules),
+			State:            document.State,
+			StateRoots:       sortedStateRoots(document.StateRoots),
+			KV:               sortedKVPairs(kv[start:end]),
+			ChunkIndex:       index,
+			ChunkCount:       chunkCount,
+			SnapshotChecksum: document.Checksum,
+		}
+		chunk.ChunkChecksum = snapshotChunkChecksum(chunk)
+		chunks = append(chunks, chunk)
+	}
+	return chunks, nil
+}
+
+func snapshotDocumentFromChunks(chunks []snapshotChunkDocument) (snapshotDocument, error) {
+	if len(chunks) == 0 {
+		return snapshotDocument{}, errors.New("snapshot chunks are required")
+	}
+	ordered := make([]snapshotChunkDocument, len(chunks))
+	seen := make(map[uint64]struct{}, len(chunks))
+	var chunkCount uint64
+	for _, chunk := range chunks {
+		if err := validateSnapshotChunk(chunk, ""); err != nil {
+			return snapshotDocument{}, err
+		}
+		if chunkCount == 0 {
+			chunkCount = chunk.ChunkCount
+			if int(chunkCount) != len(chunks) {
+				return snapshotDocument{}, fmt.Errorf("snapshot chunk count mismatch: expected %d got %d", chunkCount, len(chunks))
+			}
+		}
+		if chunk.ChunkCount != chunkCount {
+			return snapshotDocument{}, errors.New("snapshot chunks disagree on chunk count")
+		}
+		if chunk.ChunkIndex >= chunkCount {
+			return snapshotDocument{}, fmt.Errorf("snapshot chunk index out of range: %d/%d", chunk.ChunkIndex, chunkCount)
+		}
+		if _, found := seen[chunk.ChunkIndex]; found {
+			return snapshotDocument{}, fmt.Errorf("duplicate snapshot chunk index %d", chunk.ChunkIndex)
+		}
+		seen[chunk.ChunkIndex] = struct{}{}
+		ordered[chunk.ChunkIndex] = chunk
+	}
+	first := ordered[0]
+	kv := make([]store.KVPair, 0)
+	for _, chunk := range ordered {
+		if chunk.SchemaVersion != first.SchemaVersion ||
+			chunk.ChainID != first.ChainID ||
+			chunk.State.Height != first.State.Height ||
+			chunk.State.AppHash != first.State.AppHash ||
+			chunk.SnapshotChecksum != first.SnapshotChecksum {
+			return snapshotDocument{}, errors.New("snapshot chunks belong to different snapshots")
+		}
+		if !sameStringSet(chunk.Modules, first.Modules) || !sameStateRoots(chunk.StateRoots, first.StateRoots) {
+			return snapshotDocument{}, errors.New("snapshot chunks disagree on module roots")
+		}
+		kv = append(kv, chunk.KV...)
+	}
+	document := snapshotDocument{
+		SchemaVersion: first.SchemaVersion,
+		ChainID:       first.ChainID,
+		Modules:       sortedStrings(first.Modules),
+		State:         first.State,
+		StateRoots:    sortedStateRoots(first.StateRoots),
+		KV:            sortedKVPairs(kv),
+		Checksum:      first.SnapshotChecksum,
+	}
+	if err := validateSnapshotDocument(document, ""); err != nil {
+		return snapshotDocument{}, err
+	}
+	return document, nil
+}
+
 func restoreSnapshotDocument(storage store.Store, document snapshotDocument) error {
 	if err := validateSnapshotDocument(document, ""); err != nil {
 		return err
@@ -466,6 +691,12 @@ func writeSnapshotDocument(writer io.Writer, document snapshotDocument) error {
 	return encoder.Encode(document)
 }
 
+func writeSnapshotChunkDocument(writer io.Writer, document snapshotChunkDocument) error {
+	encoder := json.NewEncoder(writer)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(document)
+}
+
 func readSnapshotDocument(path string) (snapshotDocument, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -482,6 +713,44 @@ func readSnapshotDocument(path string) (snapshotDocument, error) {
 		return snapshotDocument{}, err
 	}
 	return document, nil
+}
+
+func readSnapshotChunkDocument(path string) (snapshotChunkDocument, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return snapshotChunkDocument{}, err
+	}
+	defer file.Close()
+	var document snapshotChunkDocument
+	decoder := json.NewDecoder(file)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&document); err != nil {
+		return snapshotChunkDocument{}, err
+	}
+	if err := validateSnapshotChunk(document, ""); err != nil {
+		return snapshotChunkDocument{}, err
+	}
+	return document, nil
+}
+
+func readSnapshotChunksFromDir(inputDir string) ([]snapshotChunkDocument, error) {
+	paths, err := filepath.Glob(filepath.Join(inputDir, "snapshot-chunk-*.json"))
+	if err != nil {
+		return nil, err
+	}
+	if len(paths) == 0 {
+		return nil, errors.New("snapshot chunk files not found")
+	}
+	sort.Strings(paths)
+	chunks := make([]snapshotChunkDocument, 0, len(paths))
+	for _, path := range paths {
+		chunk, err := readSnapshotChunkDocument(path)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		chunks = append(chunks, chunk)
+	}
+	return chunks, nil
 }
 
 func validateSnapshotDocument(document snapshotDocument, expectedChainID string) error {
@@ -534,6 +803,81 @@ func validateSnapshotDocument(document snapshotDocument, expectedChainID string)
 	return nil
 }
 
+func validateSnapshotChunk(document snapshotChunkDocument, expectedChainID string) error {
+	if document.SchemaVersion != "v1" {
+		return fmt.Errorf("unsupported snapshot chunk schema %q", document.SchemaVersion)
+	}
+	if expectedChainID != "" && document.ChainID != "" && document.ChainID != expectedChainID {
+		return fmt.Errorf("snapshot chunk chain id mismatch: expected %s got %s", expectedChainID, document.ChainID)
+	}
+	if document.ChunkCount == 0 {
+		return errors.New("snapshot chunk count must be positive")
+	}
+	if document.ChunkIndex >= document.ChunkCount {
+		return fmt.Errorf("snapshot chunk index out of range: %d/%d", document.ChunkIndex, document.ChunkCount)
+	}
+	if document.SnapshotChecksum == "" {
+		return errors.New("snapshot chunk is missing snapshot checksum")
+	}
+	if document.ChunkChecksum == "" {
+		return errors.New("snapshot chunk is missing chunk checksum")
+	}
+	if document.ChunkChecksum != snapshotChunkChecksum(document) {
+		return errors.New("snapshot chunk checksum mismatch")
+	}
+	candidate := snapshotDocument{
+		SchemaVersion: document.SchemaVersion,
+		ChainID:       document.ChainID,
+		Modules:       sortedStrings(document.Modules),
+		State:         document.State,
+		StateRoots:    sortedStateRoots(document.StateRoots),
+		KV:            sortedKVPairs(document.KV),
+	}
+	if candidate.State.Height == 0 {
+		return store.ErrInvalidStateRecord
+	}
+	if err := validateSnapshotChunkPayload(candidate); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateSnapshotChunkPayload(document snapshotDocument) error {
+	if document.SchemaVersion != "v1" {
+		return fmt.Errorf("unsupported snapshot schema %q", document.SchemaVersion)
+	}
+	modules := sortedStrings(document.Modules)
+	rootNamespaces := make(map[string]struct{}, len(document.StateRoots))
+	for _, root := range document.StateRoots {
+		if root.Height != document.State.Height {
+			return fmt.Errorf("snapshot root height mismatch: state=%d root=%d namespace=%s", document.State.Height, root.Height, root.Namespace)
+		}
+		if root.Namespace == "" {
+			return store.ErrInvalidNamespace
+		}
+		rootNamespaces[root.Namespace] = struct{}{}
+	}
+	moduleSet := make(map[string]struct{}, len(modules))
+	for _, namespace := range modules {
+		if _, found := rootNamespaces[namespace]; !found {
+			return fmt.Errorf("snapshot missing state root for namespace %q", namespace)
+		}
+		moduleSet[namespace] = struct{}{}
+	}
+	for _, pair := range document.KV {
+		if pair.Namespace == "" {
+			return store.ErrInvalidNamespace
+		}
+		if len(pair.Key) == 0 {
+			return store.ErrInvalidKey
+		}
+		if _, found := moduleSet[pair.Namespace]; !found {
+			return fmt.Errorf("snapshot KV namespace %q is not declared", pair.Namespace)
+		}
+	}
+	return nil
+}
+
 func snapshotChecksum(document snapshotDocument) string {
 	document.Checksum = ""
 	document.Modules = sortedStrings(document.Modules)
@@ -542,6 +886,48 @@ func snapshotChecksum(document snapshotDocument) string {
 	data, _ := json.Marshal(document)
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+func snapshotChunkChecksum(document snapshotChunkDocument) string {
+	document.ChunkChecksum = ""
+	document.Modules = sortedStrings(document.Modules)
+	document.StateRoots = sortedStateRoots(document.StateRoots)
+	document.KV = sortedKVPairs(document.KV)
+	data, _ := json.Marshal(document)
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func snapshotChunkFileName(index uint64, count uint64) string {
+	return fmt.Sprintf("snapshot-chunk-%06d-of-%06d.json", index+1, count)
+}
+
+func sameStringSet(left []string, right []string) bool {
+	left = sortedStrings(left)
+	right = sortedStrings(right)
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func sameStateRoots(left []store.StateRootRecord, right []store.StateRootRecord) bool {
+	left = sortedStateRoots(left)
+	right = sortedStateRoots(right)
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func snapshotNamespaces(modules []string) []string {

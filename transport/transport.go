@@ -46,6 +46,11 @@ type PeerRemoveTransport interface {
 	RemovePeer(p2p.PeerID)
 }
 
+type PeerExchangeTransport interface {
+	SetPeer(p2p.PeerID, string)
+	KnownPeers() map[p2p.PeerID]string
+}
+
 type InMemoryBus struct {
 	mu          sync.RWMutex
 	subscribers map[p2p.Topic]map[p2p.PeerID][]chan Envelope
