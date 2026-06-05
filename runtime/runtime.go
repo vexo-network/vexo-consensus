@@ -44,6 +44,10 @@ type stagedValidatorUpdateRegistry interface {
 	CommitStagedValidatorUpdates(ctx context.Context, height types.Height, updates []types.ValidatorUpdate) error
 }
 
+type stakingPenaltyApplier interface {
+	ApplySlashingPenalty(ctx context.Context, store app.StateStore, receipt slashing.PenaltyReceipt) error
+}
+
 func New(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower) (*Runtime, error) {
 	return NewWithStore(cfg, application, initialValidators, governancePower, nil)
 }
@@ -428,6 +432,22 @@ func (runtime *Runtime) ApplyValidatorUpdatesAt(ctx context.Context, height type
 			Stake:     stake,
 			Metadata:  update.Metadata,
 		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (runtime *Runtime) ApplyStakingSlashingPenalty(ctx context.Context, receipt slashing.PenaltyReceipt) error {
+	if runtime.Store == nil || receipt.Evidence.Validator == "" {
+		return nil
+	}
+	for _, module := range runtime.AppModules() {
+		applier, ok := module.(stakingPenaltyApplier)
+		if !ok {
+			continue
+		}
+		if err := applier.ApplySlashingPenalty(ctx, runtime.Store, receipt); err != nil {
 			return err
 		}
 	}

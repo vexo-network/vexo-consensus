@@ -54,6 +54,10 @@ Durable keepers persist evidence lifecycle, penalty receipts, jail-until heights
 first validates evidence, then records it, applies a stake-aware penalty, and finally writes the resulting
 validator voting-power update through the registry.
 
+When the staking module is enabled, the node runtime also applies the same penalty receipt to staking state.
+Delegations to the slashed validator are reduced proportionally, the staking validator-power key is updated to
+the remaining power, and an evidence-derived slash marker makes restart reconciliation idempotent.
+
 Store-backed keepers distinguish missing records from corrupt or failed reads. Missing evidence, receipts, jail state, or unbonding state can be treated as absent; corrupt JSON and storage read errors must abort startup, reconciliation, or penalty execution instead of silently resetting state.
 
 Lifecycle policy includes:
@@ -76,6 +80,7 @@ Slashing records:
 - jail duration
 
 Incorrect slashing is a critical chain-trust failure, so slashing policy includes appeal and expiration handling.
+Penalty application must keep slashing receipts, validator registry power, and staking delegation power aligned.
 
 ## Jail and Unbonding
 

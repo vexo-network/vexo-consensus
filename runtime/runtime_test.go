@@ -2,12 +2,15 @@ package runtime
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/config"
+	"github.com/vexo-network/vexo-consensus/modules/staking"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -274,6 +277,64 @@ func TestRuntimeWithStoreUsesDurableSlashingKeeper(t *testing.T) {
 	}
 }
 
+func TestRuntimeAppliesStakingSlashingPenalty(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := storage.Close(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	stakingModule := staking.NewModule()
+	application, err := app.NewRuntime("vexo-test", []app.Module{stakingModule}, app.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := NewWithStore(config.Default("vexo-test"), application, []validator.Validator{
+		{ID: "validator-1", Address: "validator-1", VotingPower: 100, Stake: 100},
+	}, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Set(context.Background(), "bank", []byte("alice"), encodeRuntimeTestUint64(100)); err != nil {
+		t.Fatal(err)
+	}
+	publicKey := base64.StdEncoding.EncodeToString([]byte("validator-key"))
+	result := stakingModule.DeliverTx(app.Context{Ctx: context.Background(), Height: 1, Store: storage}, types.Tx("staking:delegate:alice:validator-1:100:"+publicKey))
+	if result.Code != 0 {
+		t.Fatalf("unexpected delegate result: %+v", result)
+	}
+	receipt := slashing.PenaltyReceipt{
+		Evidence: slashing.Evidence{
+			Type:      slashing.EvidenceConflictingVote,
+			Validator: "validator-1",
+			Height:    1,
+			Proof:     []byte("runtime-proof"),
+		},
+		PreviousPower:  100,
+		RemainingPower: 75,
+	}
+	if err := runtime.ApplyStakingSlashingPenalty(context.Background(), receipt); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.ApplyStakingSlashingPenalty(context.Background(), receipt); err != nil {
+		t.Fatal(err)
+	}
+	stake, err := staking.Stake(context.Background(), storage, "alice", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	power, err := staking.ValidatorPower(context.Background(), storage, "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stake != 75 || power != 75 {
+		t.Fatalf("expected runtime staking slash to 75, stake=%d power=%d", stake, power)
+	}
+}
+
 func TestRuntimeWithStoreUsesDurableValidatorRegistry(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
@@ -372,4 +433,10 @@ func (noopApp) Commit() (app.CommitResponse, error) {
 
 func (noopApp) Query(req app.QueryRequest) app.QueryResponse {
 	return app.QueryResponse{}
+}
+
+func encodeRuntimeTestUint64(value uint64) []byte {
+	encoded := make([]byte, 8)
+	binary.BigEndian.PutUint64(encoded, value)
+	return encoded
 }

@@ -10,6 +10,7 @@ import (
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/kvbatch"
+	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -109,6 +110,109 @@ func TestStakingDelegateBatchFailureDoesNotMutateState(t *testing.T) {
 	}
 }
 
+func TestStakingAppliesSlashingPenaltyToDelegationLedger(t *testing.T) {
+	storage := newStakingStore(t)
+	module := NewModule()
+	if err := setStake(context.Background(), storage, "alice", "validator-1", 40); err != nil {
+		t.Fatal(err)
+	}
+	if err := setStake(context.Background(), storage, "bob", "validator-1", 60); err != nil {
+		t.Fatal(err)
+	}
+	if err := setValidatorPower(context.Background(), storage, "validator-1", 100); err != nil {
+		t.Fatal(err)
+	}
+	receipt := testSlashReceipt("validator-1", 100, 75)
+	if err := module.ApplySlashingPenalty(context.Background(), storage, receipt); err != nil {
+		t.Fatal(err)
+	}
+	aliceStake, err := Stake(context.Background(), storage, "alice", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobStake, err := Stake(context.Background(), storage, "bob", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	power, err := ValidatorPower(context.Background(), storage, "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aliceStake != 30 || bobStake != 45 || power != 75 {
+		t.Fatalf("unexpected slash ledger alice=%d bob=%d power=%d", aliceStake, bobStake, power)
+	}
+}
+
+func TestStakingSlashingPenaltyIsIdempotent(t *testing.T) {
+	storage := newStakingStore(t)
+	module := NewModule()
+	if err := setStake(context.Background(), storage, "alice", "validator-1", 100); err != nil {
+		t.Fatal(err)
+	}
+	receipt := testSlashReceipt("validator-1", 100, 50)
+	if err := module.ApplySlashingPenalty(context.Background(), storage, receipt); err != nil {
+		t.Fatal(err)
+	}
+	if err := module.ApplySlashingPenalty(context.Background(), storage, receipt); err != nil {
+		t.Fatal(err)
+	}
+	stake, err := Stake(context.Background(), storage, "alice", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stake != 50 {
+		t.Fatalf("expected idempotent stake 50, got %d", stake)
+	}
+}
+
+func TestStakingFullSlashRemovesDelegations(t *testing.T) {
+	storage := newStakingStore(t)
+	module := NewModule()
+	if err := setStake(context.Background(), storage, "alice", "validator-1", 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := module.ApplySlashingPenalty(context.Background(), storage, testSlashReceipt("validator-1", 100, 0)); err != nil {
+		t.Fatal(err)
+	}
+	stake, err := Stake(context.Background(), storage, "alice", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	power, err := ValidatorPower(context.Background(), storage, "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stake != 0 || power != 0 {
+		t.Fatalf("expected full slash to zero ledger, stake=%d power=%d", stake, power)
+	}
+}
+
+func TestStakingSlashingBatchFailureDoesNotMutateState(t *testing.T) {
+	base := newStakingStore(t)
+	storage := failingBatchStore{Store: base, err: errors.New("batch failed")}
+	module := NewModule()
+	if err := setStake(context.Background(), storage, "alice", "validator-1", 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := setValidatorPower(context.Background(), storage, "validator-1", 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := module.ApplySlashingPenalty(context.Background(), storage, testSlashReceipt("validator-1", 100, 50)); err == nil {
+		t.Fatal("expected slashing batch failure")
+	}
+	stake, err := Stake(context.Background(), storage, "alice", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	power, err := ValidatorPower(context.Background(), storage, "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stake != 100 || power != 100 {
+		t.Fatalf("expected unchanged slash state, stake=%d power=%d", stake, power)
+	}
+}
+
 func TestStakingModuleQueries(t *testing.T) {
 	storage := newStakingStore(t)
 	module := NewModule()
@@ -139,6 +243,19 @@ func TestStakingModuleQueries(t *testing.T) {
 	response = module.Query(vexoapp.Context{Store: storage}, vexoapp.QueryRequest{Path: []string{"commission", "validator-1"}})
 	if response.Code != 0 || string(response.Value) != "500" {
 		t.Fatalf("unexpected commission query: %+v", response)
+	}
+}
+
+func testSlashReceipt(validatorID types.ValidatorID, previousPower types.VotingPower, remainingPower types.VotingPower) slashing.PenaltyReceipt {
+	return slashing.PenaltyReceipt{
+		Evidence: slashing.Evidence{
+			Type:      slashing.EvidenceConflictingVote,
+			Validator: validatorID,
+			Height:    1,
+			Proof:     []byte("proof-" + string(validatorID)),
+		},
+		PreviousPower:  previousPower,
+		RemainingPower: remainingPower,
 	}
 }
 

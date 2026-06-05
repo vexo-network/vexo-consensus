@@ -2,6 +2,8 @@ package node
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"testing"
 	"time"
@@ -12,6 +14,7 @@ import (
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/dataavailability"
 	"github.com/vexo-network/vexo-consensus/finality"
+	appstaking "github.com/vexo-network/vexo-consensus/modules/staking"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/store"
@@ -878,6 +881,81 @@ func TestNodeReconcilesLegacyAppliedEvidenceAfterRestart(t *testing.T) {
 	}
 }
 
+func TestNodeEvidenceSlashesStakingLedger(t *testing.T) {
+	ctx := context.Background()
+	signer := deterministicSignerForID("alice")
+	stakingModule := appstaking.NewModule()
+	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{stakingModule}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	genesis := Genesis{
+		ChainID: "vexo-test",
+		Validators: []validator.Validator{
+			{ID: "alice", Address: "alice", VotingPower: 100, Stake: 100, PublicKey: signer.PublicKey()},
+		},
+		Governance: map[types.Address]types.VotingPower{"alice": 100},
+	}
+	node, err := New(DefaultConfig("vexo-test", t.TempDir()), genesis, application)
+	if err != nil {
+		t.Fatal(err)
+	}
+	node.cfg.ValidatorID = "alice"
+	node.WithSigner(signer)
+	if err := node.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer node.Stop(ctx)
+
+	runtime, err := node.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.Store.Set(ctx, "bank", []byte("alice"), encodeNodeTestUint64(100)); err != nil {
+		t.Fatal(err)
+	}
+	publicKey := base64.StdEncoding.EncodeToString(signer.PublicKey())
+	result := stakingModule.DeliverTx(vexoapp.Context{Ctx: ctx, Height: 1, Store: runtime.Store}, types.Tx("staking:delegate:alice:alice:100:"+publicKey))
+	if result.Code != 0 {
+		t.Fatalf("unexpected delegate result: %+v", result)
+	}
+	evidence, err := consensus.NewConflictingVoteEvidence(
+		signedNodeTestVote(t, signer, "alice", 1, 0, types.Hash{1}),
+		signedNodeTestVote(t, signer, "alice", 1, 0, types.Hash{2}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slashResult, applied, err := node.SubmitEvidence(ctx, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied || slashResult.RemainingPower != 95 {
+		t.Fatalf("expected evidence slash to 95, applied=%t result=%+v", applied, slashResult)
+	}
+	stake, err := appstaking.Stake(ctx, runtime.Store, "alice", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	power, err := appstaking.ValidatorPower(ctx, runtime.Store, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stake != 95 || power != 95 {
+		t.Fatalf("expected staking ledger slashed once, stake=%d power=%d", stake, power)
+	}
+	if _, _, err := node.SubmitEvidence(ctx, evidence); err != nil {
+		t.Fatal(err)
+	}
+	stake, err = appstaking.Stake(ctx, runtime.Store, "alice", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stake != 95 {
+		t.Fatalf("expected duplicate evidence not to slash staking twice, stake=%d", stake)
+	}
+}
+
 func TestNodeAppliesInvalidProposalEvidence(t *testing.T) {
 	signer := deterministicSignerForID("alice")
 	node := newTestNodeWithSigner(t, signer)
@@ -1103,4 +1181,10 @@ func (module testModule) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Resul
 
 func (module testModule) EndBlock(ctx vexoapp.Context) error {
 	return nil
+}
+
+func encodeNodeTestUint64(value uint64) []byte {
+	encoded := make([]byte, 8)
+	binary.BigEndian.PutUint64(encoded, value)
+	return encoded
 }

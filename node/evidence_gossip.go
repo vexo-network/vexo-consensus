@@ -95,6 +95,9 @@ func (node *Node) applyEvidence(ctx context.Context, evidence slashing.Evidence)
 	if err != nil {
 		return consensus.SlashResult{}, false, err
 	}
+	if err := runtime.ApplyStakingSlashingPenalty(ctx, result.Receipt); err != nil {
+		return consensus.SlashResult{}, false, err
+	}
 	if runtime.Store != nil {
 		if err := runtime.Store.SaveEvidence(ctx, store.EvidenceRecord{
 			Evidence:  evidence,
@@ -154,6 +157,17 @@ func (node *Node) reconcileEvidence(ctx context.Context, runtime *vexoruntime.Ru
 		if err != nil && !errors.Is(err, slashing.ErrDuplicateEvidence) {
 			return err
 		}
+		if err == nil {
+			receipt, found, receiptErr := penaltyReceiptForRuntime(ctx, runtime, record.Evidence)
+			if receiptErr != nil {
+				return receiptErr
+			}
+			if found {
+				if err := runtime.ApplyStakingSlashingPenalty(ctx, receipt); err != nil {
+					return err
+				}
+			}
+		}
 		record.Applied = true
 		if record.CreatedAt == 0 {
 			record.CreatedAt = time.Now().Unix()
@@ -163,6 +177,23 @@ func (node *Node) reconcileEvidence(ctx context.Context, runtime *vexoruntime.Ru
 		}
 	}
 	return nil
+}
+
+func penaltyReceiptForRuntime(ctx context.Context, runtime *vexoruntime.Runtime, evidence slashing.Evidence) (slashing.PenaltyReceipt, bool, error) {
+	reader, ok := runtime.Slashing.(interface {
+		PenaltyReceipt(context.Context, slashing.Evidence) (slashing.PenaltyReceipt, bool, error)
+	})
+	if ok {
+		return reader.PenaltyReceipt(ctx, evidence)
+	}
+	memoryReader, ok := runtime.Slashing.(interface {
+		PenaltyReceipt(slashing.Evidence) (slashing.PenaltyReceipt, bool)
+	})
+	if ok {
+		receipt, found := memoryReader.PenaltyReceipt(evidence)
+		return receipt, found, nil
+	}
+	return slashing.PenaltyReceipt{}, false, nil
 }
 
 func (node *Node) evidenceVerificationContext(ctx context.Context, runtime *vexoruntime.Runtime, evidence slashing.Evidence) (consensus.EvidenceVerificationContext, error) {

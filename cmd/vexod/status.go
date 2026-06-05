@@ -50,6 +50,7 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "state_sync.snapshot_checksum: true\n")
 	fmt.Fprintf(writer, "state_sync.snapshot_verify: true\n")
 	fmt.Fprintf(writer, "state_sync.snapshot_chunks: true\n")
+	fmt.Fprintf(writer, "staking.slashing_ledger: true\n")
 	fmt.Fprintf(writer, "ops.metrics_uptime: true\n")
 	fmt.Fprintf(writer, "ops.pprof_optional: true\n")
 	fmt.Fprintf(writer, "ops.structured_logs: true\n")
@@ -243,6 +244,7 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"web3_filter_limit":                 true,
 			"evm_storage_writes":                true,
 			"validator_update_atomic_commit":    true,
+			"staking_slashing_ledger":           true,
 			"mempool_seen_cache_pruning":        true,
 			"ops_metrics_uptime":                true,
 			"ops_pprof_optional":                true,

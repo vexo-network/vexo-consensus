@@ -12,6 +12,7 @@ import (
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/kvbatch"
+	"github.com/vexo-network/vexo-consensus/slashing"
 	vexostore "github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -41,6 +42,7 @@ var (
 	ErrNoRewards            = errors.New("no staking rewards available")
 	ErrInvalidCommission    = errors.New("invalid validator commission")
 	ErrUnauthorizedStaking  = errors.New("unauthorized staking transaction")
+	ErrInvalidSlashReceipt  = errors.New("invalid staking slash receipt")
 )
 
 type Module struct {
@@ -390,6 +392,64 @@ func (module *Module) undelegate(ctx context.Context, store vexoapp.StateStore, 
 	}, nil
 }
 
+func (module *Module) ApplySlashingPenalty(ctx context.Context, store vexoapp.StateStore, receipt slashing.PenaltyReceipt) error {
+	if store == nil {
+		return ErrStakingStoreRequired
+	}
+	if receipt.Evidence.Validator == "" || receipt.PreviousPower == 0 || receipt.RemainingPower > receipt.PreviousPower {
+		return ErrInvalidSlashReceipt
+	}
+	markerKey := stakingSlashKey(receipt.Evidence)
+	if len(markerKey) == 0 {
+		return ErrInvalidSlashReceipt
+	}
+	if _, err := store.Get(ctx, ModuleName, markerKey); err == nil {
+		return nil
+	} else if err != nil && !errors.Is(err, vexostore.ErrKeyNotFound) {
+		return err
+	}
+
+	writes := []kvbatch.KVWrite{
+		{Namespace: ModuleName, Key: validatorPowerKey(receipt.Evidence.Validator), Value: encodeUint64(uint64(receipt.RemainingPower))},
+		{Namespace: ModuleName, Key: markerKey, Value: encodeSlashMarker(receipt)},
+	}
+	snapshot, ok := store.(vexostore.SnapshotKVStore)
+	if ok {
+		pairs, err := snapshot.ExportNamespace(ctx, ModuleName)
+		if err != nil {
+			return err
+		}
+		for _, delegation := range delegationsForValidator(pairs, receipt.Evidence.Validator) {
+			nextStake := proportionalShare(delegation.stake, uint64(receipt.RemainingPower), uint64(receipt.PreviousPower))
+			write := kvbatch.KVWrite{
+				Namespace: ModuleName,
+				Key:       stakeKey(delegation.delegator, delegation.validatorID),
+				Value:     encodeUint64(nextStake),
+			}
+			if nextStake == 0 {
+				write.Delete = true
+				write.Value = nil
+			}
+			writes = append(writes, write)
+		}
+	}
+	if batchStore, ok := store.(kvbatch.BatchKVStore); ok {
+		return batchStore.SetBatch(ctx, writes)
+	}
+	for _, write := range writes {
+		if write.Delete {
+			if err := store.Delete(ctx, write.Namespace, write.Key); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := store.Set(ctx, write.Namespace, write.Key, write.Value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func Stake(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) (uint64, error) {
 	return getUint64(ctx, store, stakeKey(delegator, validatorID))
 }
@@ -645,6 +705,30 @@ func stakingRewardInputs(pairs []vexostore.KVPair) ([]validatorPowerRecord, []de
 	return validators, delegations, nil
 }
 
+func delegationsForValidator(pairs []vexostore.KVPair, validatorID types.ValidatorID) []delegationRecord {
+	delegations := make([]delegationRecord, 0)
+	for _, pair := range pairs {
+		key := string(pair.Key)
+		if !strings.HasPrefix(key, "stake/") {
+			continue
+		}
+		delegator, parsedValidatorID, ok := parseStakeKey(key)
+		if !ok || parsedValidatorID != validatorID {
+			continue
+		}
+		stake, err := decodeUint64(pair.Value)
+		if err != nil || stake == 0 {
+			continue
+		}
+		delegations = append(delegations, delegationRecord{
+			delegator:   delegator,
+			validatorID: parsedValidatorID,
+			stake:       stake,
+		})
+	}
+	return delegations
+}
+
 func totalValidatorPower(validators []validatorPowerRecord) (uint64, error) {
 	var total uint64
 	for _, validator := range validators {
@@ -734,6 +818,21 @@ func encodeUint64(amount uint64) []byte {
 	encoded := make([]byte, 8)
 	binary.BigEndian.PutUint64(encoded, amount)
 	return encoded
+}
+
+func encodeSlashMarker(receipt slashing.PenaltyReceipt) []byte {
+	encoded := make([]byte, 16)
+	binary.BigEndian.PutUint64(encoded[:8], uint64(receipt.PreviousPower))
+	binary.BigEndian.PutUint64(encoded[8:], uint64(receipt.RemainingPower))
+	return encoded
+}
+
+func stakingSlashKey(evidence slashing.Evidence) []byte {
+	key := vexostore.EvidenceKey(evidence)
+	if key == "" {
+		return nil
+	}
+	return []byte("slash/" + key)
 }
 
 func parseAmount(value string) (uint64, error) {
