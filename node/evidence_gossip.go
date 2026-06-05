@@ -209,6 +209,20 @@ func (node *Node) evidenceVerificationContext(ctx context.Context, runtime *vexo
 		return consensus.EvidenceVerificationContext{}, err
 	}
 	verificationContext.InvalidProposal.ExpectedAppHash = state.AppHash
+	proof, err := consensus.DecodeInvalidProposalProof(evidence.Proof)
+	if err != nil {
+		return consensus.EvidenceVerificationContext{}, err
+	}
+	if proof.Reason == consensus.InvalidProposalReasonTxValidity {
+		blockRecord, err := runtime.Store.BlockByHeight(ctx, evidence.Height)
+		if errors.Is(err, store.ErrBlockNotFound) {
+			return verificationContext, nil
+		}
+		if err != nil {
+			return consensus.EvidenceVerificationContext{}, err
+		}
+		verificationContext.InvalidProposal.ExpectedTxResultsHash = consensus.HashTxResults(blockRecord.TxResults)
+	}
 	return verificationContext, nil
 }
 

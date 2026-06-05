@@ -1001,6 +1001,49 @@ func TestNodeAppliesInvalidProposalEvidence(t *testing.T) {
 	}
 }
 
+func TestNodeBuildsTxValidityEvidenceContextFromStoredBlockResults(t *testing.T) {
+	ctx := context.Background()
+	signer := deterministicSignerForID("alice")
+	node := newTestNodeWithSigner(t, signer)
+	if err := node.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer node.Stop(ctx)
+	runtime, err := node.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 1},
+		Txs:    []types.Tx{[]byte("bank:send")},
+	}
+	response, err := runtime.ExecuteBlock(ctx, block)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal := signedNodeTestProposal(t, signer, consensus.Proposal{
+		Block:    block,
+		Round:    0,
+		Proposer: "alice",
+	})
+	evidence, err := consensus.NewInvalidProposalTxValidityEvidence(
+		proposal,
+		consensus.HashTxResults(response.Results),
+		consensus.TxSetHashForEvidence(proposal.Block.Txs),
+		"deterministic execution mismatch",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verificationContext, err := node.evidenceVerificationContext(ctx, runtime, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verificationContext.InvalidProposal.ExpectedTxResultsHash != consensus.HashTxResults(response.Results) {
+		t.Fatalf("expected tx result hash context, got %+v", verificationContext.InvalidProposal.ExpectedTxResultsHash)
+	}
+}
+
 func TestNodeReadsDurableFinalityProofWithoutLiveDecision(t *testing.T) {
 	ctx := context.Background()
 	storage, err := store.OpenLevelDB(t.TempDir())

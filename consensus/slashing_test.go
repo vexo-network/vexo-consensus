@@ -615,6 +615,59 @@ func TestSubmitInvalidProposalAppHashEvidenceRequiresContext(t *testing.T) {
 	}
 }
 
+func TestSubmitInvalidProposalTxValidityEvidenceRequiresContext(t *testing.T) {
+	signer := testEvidenceSigner(t, "a")
+	registry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{
+		{ID: "a", Address: "a", VotingPower: 100, Stake: 100, PublicKey: signer.PublicKey()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keeper := slashing.NewInMemoryKeeper(slashing.PenaltyPolicy{
+		slashing.EvidenceInvalidProposal: {SlashFraction: "0.25", JailDuration: 30},
+	})
+	proposal := signedTestProposal(t, signer, Proposal{
+		Block:    types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1}, Txs: []types.Tx{[]byte("bad-tx")}},
+		Round:    0,
+		Proposer: "a",
+	})
+	expectedResultsHash := HashTxResults([]types.Result{{Code: 1, Log: "ante rejected tx"}})
+	evidence, err := NewInvalidProposalTxValidityEvidence(proposal, expectedResultsHash, txSetHash(proposal.Block.Txs), "ante rejected tx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence); !errors.Is(err, ErrInvalidProposalContext) {
+		t.Fatalf("expected context error, got %v", err)
+	}
+	if _, err := SubmitEvidenceForSlashingWithContext(
+		context.Background(),
+		keeper,
+		registry,
+		vexocrypto.DeterministicSigner{},
+		0,
+		evidence,
+		EvidenceVerificationContext{InvalidProposal: InvalidProposalVerificationContext{ExpectedTxResultsHash: types.Hash{9}}},
+	); !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected tx result hash mismatch, got %v", err)
+	}
+
+	result, err := SubmitEvidenceForSlashingWithContext(
+		context.Background(),
+		keeper,
+		registry,
+		vexocrypto.DeterministicSigner{},
+		0,
+		evidence,
+		EvidenceVerificationContext{InvalidProposal: InvalidProposalVerificationContext{ExpectedTxResultsHash: expectedResultsHash}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PreviousPower != 100 || result.RemainingPower != 75 {
+		t.Fatalf("unexpected tx-validity invalid proposal slash result: %+v", result)
+	}
+}
+
 func TestSubmitUnavailableDataEvidenceForSlashing(t *testing.T) {
 	signer := testEvidenceSigner(t, "a")
 	registry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{

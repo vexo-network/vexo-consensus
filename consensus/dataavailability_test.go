@@ -183,6 +183,34 @@ func TestInvalidProposalTxValidityEvidenceRequiresDeterministicMismatch(t *testi
 	}
 }
 
+func TestInvalidProposalTxValidityEvidenceRequiresResultHashContext(t *testing.T) {
+	proposal := Proposal{
+		Block: types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: 7},
+			Txs:    []types.Tx{[]byte("bad-tx")},
+		},
+		Round:    1,
+		Proposer: "validator-1",
+	}
+	expected := HashTxResults([]types.Result{{Code: 1, Log: "ante rejected tx"}})
+	evidence, err := NewInvalidProposalTxValidityEvidence(proposal, expected, txSetHash(proposal.Block.Txs), "ante rejected tx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyInvalidProposalEvidence(evidence); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{}); !errors.Is(err, ErrInvalidProposalContext) {
+		t.Fatalf("expected missing context rejection, got %v", err)
+	}
+	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedTxResultsHash: types.Hash{9}}); !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected context mismatch rejection, got %v", err)
+	}
+	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedTxResultsHash: expected}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSupportedInvalidProposalReasonsExposeOnlyVerifiableReasons(t *testing.T) {
 	reasons := SupportedInvalidProposalReasons()
 	for _, reason := range reasons {

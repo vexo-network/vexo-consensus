@@ -67,6 +67,7 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "consensus.partition_safety_simulation: true\n")
 	fmt.Fprintf(writer, "consensus.tendermint_style_timeouts: true\n")
 	fmt.Fprintf(writer, "consensus.empty_block_control: true\n")
+	fmt.Fprintf(writer, "consensus.tx_validity_evidence: true\n")
 	fmt.Fprintf(writer, "crypto.backend: %s\n", cfg.Crypto.Backend)
 	fmt.Fprintf(writer, "crypto.production_adapter: %t\n", cfg.Crypto.ProductionAdapter)
 	fmt.Fprintf(writer, "crypto.remote_signer_verification: true\n")
@@ -265,6 +266,7 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"consensus_tendermint_timeouts":     true,
 			"consensus_empty_block_control":     true,
 			"consensus_app_hash_evidence":       true,
+			"consensus_tx_validity_evidence":    true,
 			"crypto_remote_signer_verification": true,
 			"crypto_bls_adapter_required":       true,
 			"deployment_audit":                  true,

@@ -201,6 +201,10 @@ func verifyConsensusEvidence(evidence slashing.Evidence, validatorSet validator.
 			if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedTimeUnixNano: verificationContext.InvalidProposal.ExpectedTimeUnixNano}); err != nil {
 				return err
 			}
+		case InvalidProposalReasonTxValidity:
+			if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedTxResultsHash: verificationContext.InvalidProposal.ExpectedTxResultsHash}); err != nil {
+				return err
+			}
 		default:
 			return ErrInvalidProposalContext
 		}

@@ -3,6 +3,7 @@ package consensus
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 
@@ -64,6 +65,7 @@ type InvalidProposalProof struct {
 type InvalidProposalVerificationContext struct {
 	ExpectedValidatorSetHash types.Hash
 	ExpectedAppHash          types.Hash
+	ExpectedTxResultsHash    types.Hash
 	ExpectedTimeUnixNano     int64
 }
 
@@ -332,6 +334,10 @@ func txSetHash(txs []types.Tx) types.Hash {
 	return out
 }
 
+func TxSetHashForEvidence(txs []types.Tx) types.Hash {
+	return txSetHash(txs)
+}
+
 func NewUnavailableDataEvidence(proposal Proposal, reason string) (slashing.Evidence, error) {
 	if proposal.Proposer == "" || proposal.Block.Header.Height == 0 || reason == "" {
 		return slashing.Evidence{}, slashing.ErrMissingValidator
@@ -479,8 +485,41 @@ func VerifyInvalidProposalEvidenceWithContext(evidence slashing.Evidence, contex
 		if decoded.ExpectedTimeUnixNano != context.ExpectedTimeUnixNano {
 			return ErrInvalidProposal
 		}
+	case InvalidProposalReasonTxValidity:
+		if context.ExpectedTxResultsHash == (types.Hash{}) {
+			return ErrInvalidProposalContext
+		}
+		if decoded.ExpectedHash != context.ExpectedTxResultsHash {
+			return ErrInvalidProposal
+		}
 	}
 	return verifyInvalidProposalByReason(decoded)
+}
+
+func HashTxResults(results []types.Result) types.Hash {
+	hasher := sha256.New()
+	writeResultUint64(hasher, uint64(len(results)))
+	for _, result := range results {
+		writeResultUint64(hasher, uint64(result.Code))
+		writeResultBytes(hasher, []byte(result.Log))
+		writeResultBytes(hasher, result.Data)
+		writeResultUint64(hasher, result.GasUsed)
+		writeResultUint64(hasher, result.FeePaid)
+	}
+	var out types.Hash
+	copy(out[:], hasher.Sum(nil))
+	return out
+}
+
+func writeResultBytes(hasher interface{ Write([]byte) (int, error) }, data []byte) {
+	writeResultUint64(hasher, uint64(len(data)))
+	_, _ = hasher.Write(data)
+}
+
+func writeResultUint64(hasher interface{ Write([]byte) (int, error) }, value uint64) {
+	var buffer [8]byte
+	binary.BigEndian.PutUint64(buffer[:], value)
+	_, _ = hasher.Write(buffer[:])
 }
 
 func validInvalidProposalReason(reason InvalidProposalReason) bool {

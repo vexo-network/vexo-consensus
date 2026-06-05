@@ -76,10 +76,10 @@ Invalid proposal evidence is reason-specific:
 - missing-data proofs must show missing data for a non-empty proposal.
 - validator-set-hash and app-hash proofs must bind `actual_hash` to the proposed header field and include a different expected hash.
 - timestamp proofs must bind `actual_time_unix_nano` to the proposed header timestamp when the header timestamp is present.
-- tx-validity proofs must include deterministic expected/actual result hashes plus a verifier message.
+- tx-validity proofs must include the deterministic expected transaction-result hash, the proposed transaction-set hash, and a verifier message.
 - proposer-signature proofs still pass normal proposal envelope checks, then fail domain-separated proposer signature verification during slashing validation.
 
-Current invalid-proposal evidence is a runtime-verifiable mismatch proof format. Validator-set-hash evidence is checked against the height-specific validator set. App-hash evidence can be applied when the node has the committed state record for the evidence height and can inject that expected app hash into the slashing verifier. Timestamp evidence likewise requires an explicit expected timestamp context. Transaction-validity evidence remains a deterministic mismatch envelope and should not be slashed unless the chain wires a reason-specific deterministic execution verifier.
+Current invalid-proposal evidence is a runtime-verifiable mismatch proof format. Validator-set-hash evidence is checked against the height-specific validator set. App-hash evidence can be applied when the node has the committed state record for the evidence height and can inject that expected app hash into the slashing verifier. Timestamp evidence likewise requires an explicit expected timestamp context. Transaction-validity evidence is fail-closed: it must bind the proposed transaction-set hash and an independently computed deterministic transaction-result hash before slashing can apply.
 
 The consensus/data-availability hash is the Merkle root of canonical length-prefixed transaction chunks.
 Nodes can verify individual chunk samples against that root and can recover one missing chunk per parity group
