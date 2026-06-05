@@ -602,6 +602,60 @@ func TestSubmitUnavailableDataEvidenceForSlashing(t *testing.T) {
 	}
 }
 
+func TestSubmitFinalityConflictEvidenceForSlashing(t *testing.T) {
+	signers := map[types.ValidatorID]vexocrypto.DeterministicSigner{
+		"a": testEvidenceSigner(t, "a"),
+		"b": testEvidenceSigner(t, "b"),
+		"c": testEvidenceSigner(t, "c"),
+		"d": testEvidenceSigner(t, "d"),
+	}
+	registry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{
+		{ID: "a", Address: "a", VotingPower: 100, Stake: 100, PublicKey: signers["a"].PublicKey()},
+		{ID: "b", Address: "b", VotingPower: 100, Stake: 100, PublicKey: signers["b"].PublicKey()},
+		{ID: "c", Address: "c", VotingPower: 100, Stake: 100, PublicKey: signers["c"].PublicKey()},
+		{ID: "d", Address: "d", VotingPower: 100, Stake: 100, PublicKey: signers["d"].PublicKey()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := registry.ValidatorSet(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := signedFinalityConflictProof(t, set, signers, types.Hash{1}, []types.ValidatorID{"a", "b", "c"})
+	second := signedFinalityConflictProof(t, set, signers, types.Hash{2}, []types.ValidatorID{"a", "b", "d"})
+	evidence, err := finality.NewConflictEvidence(set, first, second, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keeper := slashing.NewInMemoryKeeper(slashing.PenaltyPolicy{
+		slashing.EvidenceFinalityConflict: {SlashFraction: "0.25", JailDuration: 30},
+	})
+
+	result, err := SubmitEvidenceForSlashing(
+		context.Background(),
+		keeper,
+		registry,
+		NewEvidenceVerifier(vexocrypto.DeterministicSigner{}, vexocrypto.DeterministicAggregateSigner{}),
+		0,
+		evidence,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PreviousPower != 100 || result.RemainingPower != 75 {
+		t.Fatalf("unexpected finality conflict slash result: %+v", result)
+	}
+	updatedSet, err := registry.ValidatorSet(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validatorInfo, found := updatedSet.Get("a")
+	if !found || validatorInfo.VotingPower != 75 {
+		t.Fatalf("expected validator a power 75, got %+v found=%t", validatorInfo, found)
+	}
+}
+
 func TestSubmitEvidenceForSlashingRejectsUnsignedProof(t *testing.T) {
 	signer := testEvidenceSigner(t, "a")
 	registry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{
@@ -680,4 +734,47 @@ func signedTestProposal(t *testing.T, signer vexocrypto.Signer, proposal Proposa
 	}
 	proposal.Signature = signature
 	return proposal
+}
+
+func signedFinalityConflictProof(t *testing.T, set validator.Set, signers map[types.ValidatorID]vexocrypto.DeterministicSigner, blockHash types.Hash, signerIDs []types.ValidatorID) finality.Proof {
+	t.Helper()
+	header := types.Header{
+		ChainID:          "vexo-test",
+		Height:           1,
+		AppHash:          blockHash,
+		ConsensusHash:    blockHash,
+		ValidatorSetHash: set.Hash(),
+	}
+	proof := finality.Proof{
+		Header:             header,
+		BlockHash:          blockHash,
+		ValidatorSetHeight: header.Height,
+		ValidatorSetHash:   set.Hash(),
+		QuorumCert: finality.QuorumCert{
+			Height:    header.Height,
+			Round:     0,
+			BlockHash: blockHash,
+			Signers:   finality.EncodeSigners(signerIDs),
+		},
+	}
+	signatures := make([]types.Signature, 0, len(signerIDs))
+	for _, signerID := range signerIDs {
+		signer := signers[signerID]
+		signature, err := vexocrypto.SignWithDomain(signer, vexocrypto.DomainConsensusVote, proof.SignBytes())
+		if err != nil {
+			t.Fatal(err)
+		}
+		signatures = append(signatures, signature)
+		validatorInfo, found := set.Get(signerID)
+		if !found {
+			t.Fatalf("missing validator %s", signerID)
+		}
+		proof.QuorumCert.VotingPower += validatorInfo.VotingPower
+	}
+	aggregate, err := vexocrypto.DeterministicAggregateSigner{}.Aggregate(signatures)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof.QuorumCert.Signature = aggregate
+	return proof
 }

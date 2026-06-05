@@ -14,6 +14,7 @@ const (
 	EvidenceConflictingTimeoutVote EvidenceType = "conflicting_timeout_vote"
 	EvidenceInvalidProposal        EvidenceType = "invalid_proposal"
 	EvidenceUnavailableData        EvidenceType = "unavailable_data"
+	EvidenceFinalityConflict       EvidenceType = "finality_conflict"
 )
 
 type Evidence struct {

@@ -64,8 +64,11 @@ Consensus evidence includes:
 - conflicting timeout votes
 - invalid proposal evidence
 - unavailable data evidence
+- finality conflict evidence
 
 Evidence must be validated before application, persisted, and deduplicated by stable evidence key.
+
+Finality conflict evidence contains two independently valid finality proofs for the same height and validator set but different finalized block hashes. The verifier checks both QCs with the height-specific validator set, intersects both signer sets, and only slashes validators that are present in the overlapping accountable signer set.
 
 Invalid proposal evidence is reason-specific:
 

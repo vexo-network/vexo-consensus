@@ -397,6 +397,16 @@ func TestRunSlashingLifecyclePlan(t *testing.T) {
 	if document.SchemaVersion != "v1" || document.PlanOnly || len(document.Warnings) == 0 {
 		t.Fatalf("expected early penalty warning, got %+v", document)
 	}
+
+	var finalityOutput bytes.Buffer
+	if err := runCommand(&finalityOutput, &bytes.Buffer{}, []string{"slashing", "lifecycle-plan", "--type", "finality_conflict", "--validator", "validator-1", "--height", "10", "--current-height", "200", "--current-power", "100"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"type: finality_conflict", "plan_only: false", "runtime_proof_verifier ok=true"} {
+		if !strings.Contains(finalityOutput.String(), expected) {
+			t.Fatalf("expected finality slashing output to contain %q, got:\n%s", expected, finalityOutput.String())
+		}
+	}
 }
 
 func TestRunReleasePackWritesAuditManifest(t *testing.T) {

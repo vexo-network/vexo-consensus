@@ -139,6 +139,31 @@ func TestRegistryAttackDetectorLoadsHeightSpecificSet(t *testing.T) {
 	}
 }
 
+func TestNewConflictEvidenceRequiresAccountableSigner(t *testing.T) {
+	set := testValidatorSet(t, []validator.Validator{
+		{ID: "a", VotingPower: 1, PublicKey: []byte("a-pub")},
+		{ID: "b", VotingPower: 1, PublicKey: []byte("b-pub")},
+		{ID: "c", VotingPower: 1, PublicKey: []byte("c-pub")},
+		{ID: "d", VotingPower: 1, PublicKey: []byte("d-pub")},
+	})
+	first := validProof(set, []types.ValidatorID{"a", "b", "c"})
+	second := conflictingProof(set, first, types.Hash{2}, []types.ValidatorID{"a", "b", "d"})
+
+	evidence, err := NewConflictEvidence(set, first, second, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evidence.Type != "finality_conflict" || evidence.Validator != "a" || evidence.Height != 1 {
+		t.Fatalf("unexpected evidence: %+v", evidence)
+	}
+	if _, err := VerifyConflictEvidence(set, acceptSignatureVerifier{}, evidence); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewConflictEvidence(set, first, second, "c"); !errors.Is(err, ErrValidatorNotInFinalityConflict) {
+		t.Fatalf("expected non-overlapping signer rejection, got %v", err)
+	}
+}
+
 func conflictingProof(set validator.Set, base Proof, blockHash types.Hash, signers []types.ValidatorID) Proof {
 	proof := base
 	proof.Header.AppHash = types.Hash{7}

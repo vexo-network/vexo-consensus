@@ -108,7 +108,7 @@ func buildSlashingLifecyclePlanDocument(evidenceType slashing.EvidenceType, vali
 	document.Checks = append(document.Checks, slashingLifecycleCheck{Name: "not_expired", OK: currentHeight < document.ExpiresAt, Message: "evidence must not be expired before penalty"})
 	document.Checks = append(document.Checks, slashingLifecycleCheck{Name: "appeal_window", OK: currentHeight >= document.AppealDeadline, Message: "appeal window should close before penalty is final"})
 	document.Checks = append(document.Checks, slashingLifecycleCheck{Name: "stake_accounting", OK: remainingPower <= currentPower, Message: "remaining power must not exceed current power"})
-	document.Checks = append(document.Checks, slashingLifecycleCheck{Name: "runtime_proof_verifier", OK: !document.PlanOnly, Message: "unsupported evidence types are plan-only until concrete proof decoder and verifier are implemented"})
+	document.Checks = append(document.Checks, slashingLifecycleCheck{Name: "runtime_proof_verifier", OK: !document.PlanOnly, Message: "evidence type has a concrete runtime proof decoder and verifier"})
 	for _, check := range document.Checks {
 		if !check.OK {
 			document.Warnings = append(document.Warnings, check.Message)
@@ -122,7 +122,8 @@ func supportsRuntimeSlashing(evidenceType slashing.EvidenceType) bool {
 		evidenceType == slashing.EvidenceConflictingVote ||
 		evidenceType == slashing.EvidenceConflictingTimeoutVote ||
 		evidenceType == slashing.EvidenceInvalidProposal ||
-		evidenceType == slashing.EvidenceUnavailableData
+		evidenceType == slashing.EvidenceUnavailableData ||
+		evidenceType == slashing.EvidenceFinalityConflict
 }
 
 func writeSlashingLifecyclePlan(writer io.Writer, document slashingLifecyclePlanDocument) {

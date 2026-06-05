@@ -61,6 +61,7 @@ func DefaultPenaltyPolicy() PenaltyPolicy {
 		EvidenceConflictingTimeoutVote: {SlashFraction: "0.05", JailDuration: 1209600},
 		EvidenceInvalidProposal:        {SlashFraction: "0.01", JailDuration: 86400},
 		EvidenceUnavailableData:        {SlashFraction: "0.02", JailDuration: 604800},
+		EvidenceFinalityConflict:       {SlashFraction: "0.05", JailDuration: 1209600},
 	}
 }
 

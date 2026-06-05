@@ -71,7 +71,8 @@ func (node *Node) applyEvidence(ctx context.Context, evidence slashing.Evidence)
 			}
 		}
 	}
-	result, err := consensus.SubmitEvidenceForSlashing(ctx, runtime.Slashing, runtime.Validators, runtime.Crypto.ConsensusVerifier, applyHeight, evidence)
+	verifier := consensus.NewEvidenceVerifier(runtime.Crypto.ConsensusVerifier, runtime.Crypto.FinalityVerifier)
+	result, err := consensus.SubmitEvidenceForSlashing(ctx, runtime.Slashing, runtime.Validators, verifier, applyHeight, evidence)
 	if errors.Is(err, slashing.ErrDuplicateEvidence) {
 		if runtime.Store != nil {
 			key := store.EvidenceKey(evidence)
@@ -140,7 +141,8 @@ func (node *Node) reconcileEvidence(ctx context.Context, runtime *vexoruntime.Ru
 		if latestHeight > applyHeight {
 			applyHeight = latestHeight
 		}
-		_, err = consensus.SubmitEvidenceForSlashing(ctx, runtime.Slashing, runtime.Validators, runtime.Crypto.ConsensusVerifier, applyHeight, record.Evidence)
+		verifier := consensus.NewEvidenceVerifier(runtime.Crypto.ConsensusVerifier, runtime.Crypto.FinalityVerifier)
+		_, err = consensus.SubmitEvidenceForSlashing(ctx, runtime.Slashing, runtime.Validators, verifier, applyHeight, record.Evidence)
 		if err != nil && !errors.Is(err, slashing.ErrDuplicateEvidence) {
 			return err
 		}

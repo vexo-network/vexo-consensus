@@ -54,6 +54,8 @@ Durable keepers persist evidence lifecycle, penalty receipts, jail-until heights
 first validates evidence, then records it, applies a stake-aware penalty, and finally writes the resulting
 validator voting-power update through the registry.
 
+Store-backed keepers distinguish missing records from corrupt or failed reads. Missing evidence, receipts, jail state, or unbonding state can be treated as absent; corrupt JSON and storage read errors must abort startup, reconciliation, or penalty execution instead of silently resetting state.
+
 Lifecycle policy includes:
 
 - evidence max age
@@ -67,6 +69,7 @@ Appealed or expired evidence must not be applied.
 Slashing records:
 
 - evidence metadata
+- evidence proof type, including vote conflicts, timeout conflicts, invalid proposals, unavailable data, and finality conflicts
 - penalty policy
 - previous voting power
 - remaining voting power

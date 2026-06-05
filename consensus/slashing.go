@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
+	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
@@ -13,6 +14,7 @@ import (
 var (
 	ErrEvidenceValidatorNotFound       = errors.New("evidence validator not found")
 	ErrEvidenceSignatureVerifier       = errors.New("evidence signature verifier is required")
+	ErrEvidenceFinalityVerifier        = errors.New("evidence finality verifier is required")
 	ErrUnsupportedEvidenceProof        = errors.New("unsupported evidence proof")
 	ErrInvalidEvidenceVoteSignature    = errors.New("invalid evidence vote signature")
 	ErrInvalidEvidenceTimeoutSignature = errors.New("invalid evidence timeout vote signature")
@@ -41,6 +43,27 @@ type EvidenceSignatureVerifier interface {
 	Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool
 }
 
+type EvidenceAggregateVerifier interface {
+	VerifyAggregate(publicKeys []types.PublicKey, message []byte, signature types.AggregateSignature) bool
+}
+
+type EvidenceVerifierBundle struct {
+	Signatures EvidenceSignatureVerifier
+	Finality   EvidenceAggregateVerifier
+}
+
+func NewEvidenceVerifier(signatures EvidenceSignatureVerifier, finalityVerifier EvidenceAggregateVerifier) EvidenceVerifierBundle {
+	return EvidenceVerifierBundle{Signatures: signatures, Finality: finalityVerifier}
+}
+
+func (verifier EvidenceVerifierBundle) Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool {
+	return verifier.Signatures != nil && verifier.Signatures.Verify(publicKey, message, signature)
+}
+
+func (verifier EvidenceVerifierBundle) VerifyAggregate(publicKeys []types.PublicKey, message []byte, signature types.AggregateSignature) bool {
+	return verifier.Finality != nil && verifier.Finality.VerifyAggregate(publicKeys, message, signature)
+}
+
 func SubmitEvidenceForSlashing(ctx context.Context, keeper SlashingKeeper, registry validator.VersionedRegistry, verifier EvidenceSignatureVerifier, applyHeight types.Height, evidence slashing.Evidence) (SlashResult, error) {
 	if applyHeight == 0 {
 		applyHeight = evidence.Height
@@ -53,7 +76,7 @@ func SubmitEvidenceForSlashing(ctx context.Context, keeper SlashingKeeper, regis
 	if !found {
 		return SlashResult{}, ErrEvidenceValidatorNotFound
 	}
-	if err := verifyConsensusEvidence(evidence, validatorInfo, verifier); err != nil {
+	if err := verifyConsensusEvidence(evidence, set, validatorInfo, verifier); err != nil {
 		return SlashResult{}, err
 	}
 	receipt, receiptFound, err := penaltyReceipt(ctx, keeper, evidence)
@@ -111,7 +134,7 @@ func penaltyReceipt(ctx context.Context, keeper SlashingKeeper, evidence slashin
 	return slashing.PenaltyReceipt{}, false, nil
 }
 
-func verifyConsensusEvidence(evidence slashing.Evidence, validatorInfo validator.Validator, verifier EvidenceSignatureVerifier) error {
+func verifyConsensusEvidence(evidence slashing.Evidence, validatorSet validator.Set, validatorInfo validator.Validator, verifier EvidenceSignatureVerifier) error {
 	switch evidence.Type {
 	case slashing.EvidenceDoubleSign, slashing.EvidenceConflictingVote:
 		if evidence.Type == slashing.EvidenceDoubleSign {
@@ -166,9 +189,23 @@ func verifyConsensusEvidence(evidence slashing.Evidence, validatorInfo validator
 			return err
 		}
 		return verifyProposalEvidenceSignature(decoded.Proposal, validatorInfo, verifier)
+	case slashing.EvidenceFinalityConflict:
+		aggregateVerifier, ok := verifier.(EvidenceAggregateVerifier)
+		if !ok || aggregateVerifier == nil {
+			return ErrEvidenceFinalityVerifier
+		}
+		return verifyFinalityConflictEvidence(evidence, validatorSet, aggregateVerifier)
 	default:
 		return ErrUnsupportedEvidenceProof
 	}
+}
+
+func verifyFinalityConflictEvidence(evidence slashing.Evidence, validatorSet validator.Set, verifier EvidenceAggregateVerifier) error {
+	if verifier == nil {
+		return ErrEvidenceFinalityVerifier
+	}
+	_, err := finality.VerifyConflictEvidence(validatorSet, verifier, evidence)
+	return err
 }
 
 func verifyProposalEvidenceSignature(proposal Proposal, validatorInfo validator.Validator, verifier EvidenceSignatureVerifier) error {

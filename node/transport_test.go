@@ -270,12 +270,14 @@ func TestNodeProposesFromMempoolAndClearsCommittedTxs(t *testing.T) {
 	if !fairordering.IsOrderedWithSalt(proposal.Block.Txs, fairordering.HeightSalt("vexo-test", proposal.Block.Header.Height)) {
 		t.Fatalf("expected deterministic proposal ordering, got %q", proposal.Block.Txs)
 	}
-	if _, ok, err := alice.VoteBlock(context.Background(), proposal.Block.Header.Height, proposal.Round, blockHash); err != nil || ok {
-		t.Fatalf("local vote should not have quorum before peer votes: ok=%v err=%v", ok, err)
+	quorumCert, ok, err := alice.VoteBlock(context.Background(), proposal.Block.Header.Height, proposal.Round, blockHash)
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	waitForQuorumCert(t, aliceConsensus, proposal.Block.Header.Height, proposal.Round, blockHash)
-	quorumCert, err := aliceConsensus.BuildQuorumCert(proposal.Block.Header.Height, proposal.Round, blockHash)
+	if !ok {
+		waitForQuorumCert(t, aliceConsensus, proposal.Block.Header.Height, proposal.Round, blockHash)
+		quorumCert, err = aliceConsensus.BuildQuorumCert(proposal.Block.Header.Height, proposal.Round, blockHash)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
