@@ -37,6 +37,10 @@ type TxSubmitter interface {
 	SubmitTx(ctx context.Context, tx types.Tx) error
 }
 
+type PendingTxProvider interface {
+	PendingTxHashes(ctx context.Context) ([]types.Hash, error)
+}
+
 type EvidenceSubmitter interface {
 	SubmitEvidence(ctx context.Context, evidence slashing.Evidence) (consensus.SlashResult, bool, error)
 }

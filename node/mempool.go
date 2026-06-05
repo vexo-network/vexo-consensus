@@ -34,6 +34,22 @@ func (node *Node) SubmitTx(ctx context.Context, tx types.Tx) error {
 	return nil
 }
 
+func (node *Node) PendingTxHashes(ctx context.Context) ([]types.Hash, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return nil, err
+	}
+	txs, err := runtime.Mempool.PendingTxs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	hashes := make([]types.Hash, 0, len(txs))
+	for _, tx := range txs {
+		hashes = append(hashes, mempool.HashTx(tx))
+	}
+	return hashes, nil
+}
+
 func (node *Node) ProposeFromMempool(ctx context.Context, maxBytes int64) (consensus.Proposal, types.Hash, error) {
 	return node.ProposeFromMempoolWithOptions(ctx, maxBytes, ProposalOptions{AllowEmpty: true})
 }

@@ -378,9 +378,10 @@ type web3FilterStore struct {
 }
 
 type web3Filter struct {
-	Type       string
-	Address    string
-	LastHeight uint64
+	Type        string
+	Address     string
+	LastHeight  uint64
+	SeenPending map[string]bool
 }
 
 func NewServer(provider StatusProvider, cfg Config) *Server {
@@ -1045,11 +1046,19 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 		writeJSON(writer, http.StatusOK, committeeResponse(height, seed, committeeResult))
 	})
 	mux.HandleFunc("/web3", func(writer http.ResponseWriter, request *http.Request) {
+		if isWebSocketUpgrade(request) {
+			handleWeb3WebSocket(writer, request, provider, filters)
+			return
+		}
 		handleWeb3JSONRPC(writer, request, provider, cfg, filters)
 	})
 	mux.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/" {
 			writeError(writer, http.StatusNotFound, "endpoint not found")
+			return
+		}
+		if isWebSocketUpgrade(request) {
+			handleWeb3WebSocket(writer, request, provider, filters)
 			return
 		}
 		handleWeb3JSONRPC(writer, request, provider, cfg, filters)
@@ -1282,10 +1291,18 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		if filters == nil {
 			return nil, &JSONRPCError{Code: -32000, Message: "filter store is unavailable"}
 		}
+		pendingProvider, ok := provider.(PendingTxProvider)
+		if !ok {
+			return nil, &JSONRPCError{Code: -32000, Message: "pending transaction query is unavailable"}
+		}
 		if len(params) != 0 {
 			return nil, &JSONRPCError{Code: -32602, Message: "eth_newPendingTransactionFilter does not accept parameters"}
 		}
-		return filters.addPending(uint64(provider.Status(ctx).LatestHeight)), nil
+		hashes, err := pendingProvider.PendingTxHashes(ctx)
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
+		return filters.addPending(hashes), nil
 	case "eth_newFilter":
 		if filters == nil {
 			return nil, &JSONRPCError{Code: -32000, Message: "filter store is unavailable"}
@@ -1309,6 +1326,16 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		filter, found := filters.get(filterID)
 		if !found {
 			return nil, &JSONRPCError{Code: -32000, Message: "filter not found"}
+		}
+		if filter.Type == "pending" {
+			changes, updated, rpcErr := web3PendingFilterChanges(ctx, provider, filter, method == "eth_getFilterChanges")
+			if rpcErr != nil {
+				return nil, rpcErr
+			}
+			if method == "eth_getFilterChanges" {
+				filters.replace(filterID, updated)
+			}
+			return changes, nil
 		}
 		changes, rpcErr := web3FilterChanges(ctx, provider, filter, method == "eth_getFilterChanges")
 		if rpcErr != nil {
@@ -1629,11 +1656,32 @@ func web3FilterChanges(ctx context.Context, provider StatusProvider, filter web3
 	switch filter.Type {
 	case "block":
 		return web3BlockFilterChanges(ctx, provider, filter, onlyChanges)
-	case "pending":
-		return []any{}, nil
 	default:
 		return web3LogsForAddress(ctx, provider, filter.Address)
 	}
+}
+
+func web3PendingFilterChanges(ctx context.Context, provider StatusProvider, filter web3Filter, onlyChanges bool) ([]string, web3Filter, *JSONRPCError) {
+	pendingProvider, ok := provider.(PendingTxProvider)
+	if !ok {
+		return nil, filter, &JSONRPCError{Code: -32000, Message: "pending transaction query is unavailable"}
+	}
+	hashes, err := pendingProvider.PendingTxHashes(ctx)
+	if err != nil {
+		return nil, filter, &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	items := make([]string, 0, len(hashes))
+	nextSeen := make(map[string]bool, len(hashes))
+	for _, hash := range hashes {
+		encoded := web3HashString(hash)
+		nextSeen[encoded] = true
+		if onlyChanges && filter.SeenPending[encoded] {
+			continue
+		}
+		items = append(items, encoded)
+	}
+	filter.SeenPending = nextSeen
+	return items, filter, nil
 }
 
 func web3BlockFilterChanges(ctx context.Context, provider StatusProvider, filter web3Filter, onlyChanges bool) ([]string, *JSONRPCError) {
@@ -1859,12 +1907,16 @@ func (store *web3FilterStore) addBlock(latestHeight uint64) string {
 	return id
 }
 
-func (store *web3FilterStore) addPending(latestHeight uint64) string {
+func (store *web3FilterStore) addPending(hashes []types.Hash) string {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	store.nextID++
 	id := hexQuantity(store.nextID)
-	store.filters[id] = web3Filter{Type: "pending", LastHeight: latestHeight}
+	seen := make(map[string]bool, len(hashes))
+	for _, hash := range hashes {
+		seen[web3HashString(hash)] = true
+	}
+	store.filters[id] = web3Filter{Type: "pending", SeenPending: seen}
 	return id
 }
 
@@ -1883,6 +1935,15 @@ func (store *web3FilterStore) mark(id string, height uint64) {
 		return
 	}
 	filter.LastHeight = height
+	store.filters[id] = filter
+}
+
+func (store *web3FilterStore) replace(id string, filter web3Filter) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if _, found := store.filters[id]; !found {
+		return
+	}
 	store.filters[id] = filter
 }
 

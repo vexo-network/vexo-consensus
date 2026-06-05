@@ -86,6 +86,8 @@ type fakeStatusProvider struct {
 	finalityProof     finality.Proof
 	finalityErr       error
 	finalityHeight    types.Height
+	pendingHashes     []types.Hash
+	pendingErr        error
 }
 
 func (provider fakeStatusProvider) Status(ctx context.Context) node.Status {
@@ -130,6 +132,13 @@ func (provider *fakeStatusProvider) SubmitTx(ctx context.Context, tx types.Tx) e
 	}
 	provider.submitted = append(provider.submitted, append(types.Tx(nil), tx...))
 	return nil
+}
+
+func (provider *fakeStatusProvider) PendingTxHashes(ctx context.Context) ([]types.Hash, error) {
+	if provider.pendingErr != nil {
+		return nil, provider.pendingErr
+	}
+	return append([]types.Hash(nil), provider.pendingHashes...), nil
 }
 
 func (provider fakeStatusProvider) BlockByHeight(ctx context.Context, height types.Height) (store.BlockRecord, error) {
@@ -744,6 +753,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		latest:           12,
 		index:            store.BlockIndex{EarliestHeight: 12, LatestHeight: 12, TotalBlocks: 1},
 		accountSequence:  7,
+		pendingHashes:    []types.Hash{{0xfa}},
 	}
 	handler := NewHandler(provider)
 
@@ -873,6 +883,20 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("unexpected block filter changes: %+v", blockChanges)
 	}
 
+	var pendingFilterID JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":39,"method":"eth_newPendingTransactionFilter","params":[]}`, http.StatusOK, &pendingFilterID)
+	pendingFilterText, ok := pendingFilterID.Result.(string)
+	if pendingFilterID.Error != nil || !ok || pendingFilterText == "" {
+		t.Fatalf("unexpected pending filter id: %+v", pendingFilterID)
+	}
+	provider.pendingHashes = []types.Hash{{0xfa}, {0xfb}}
+	var pendingChanges JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":40,"method":"eth_getFilterChanges","params":["`+pendingFilterText+`"]}`, http.StatusOK, &pendingChanges)
+	pending, ok := pendingChanges.Result.([]any)
+	if pendingChanges.Error != nil || !ok || len(pending) != 1 || pending[0] != "0xfb00000000000000000000000000000000000000000000000000000000000000" {
+		t.Fatalf("unexpected pending filter changes: %+v", pendingChanges)
+	}
+
 	var subscribe JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":38,"method":"eth_subscribe","params":["newHeads"]}`, http.StatusOK, &subscribe)
 	if subscribe.Error == nil || !strings.Contains(subscribe.Error.Message, "WebSocket") {
@@ -893,6 +917,144 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":5,"method":"eth_estimateGas","params":[{"to":"0xbbbb","gas":"0x100"}]}`, http.StatusOK, &estimate)
 	if estimate.Error != nil || estimate.Result != "0x100" {
 		t.Fatalf("unexpected estimate response: %+v", estimate)
+	}
+}
+
+func TestHandlerServesWeb3WebSocketNewHeads(t *testing.T) {
+	firstHash := types.Hash{0x01}
+	secondHash := types.Hash{0x02}
+	provider := &fakeStatusProvider{
+		status: node.Status{ChainID: "vexo-chain", LatestHeight: 1},
+		blocks: map[types.Height]store.BlockRecord{
+			1: {
+				Block: types.Block{Header: types.Header{ChainID: "vexo-chain", Height: 1}},
+				Hash:  firstHash,
+			},
+			2: {
+				Block: types.Block{Header: types.Header{ChainID: "vexo-chain", Height: 2}},
+				Hash:  secondHash,
+			},
+		},
+		latest: 1,
+	}
+	sent := make([]any, 0)
+	session := &web3SubscriptionSession{
+		provider: provider,
+		ctx:      context.Background(),
+		subs:     map[string]web3Subscription{},
+		send:     func(value any) { sent = append(sent, value) },
+	}
+	subscriptionID, rpcErr := session.subscribe([]json.RawMessage{json.RawMessage(`"newHeads"`)})
+	if rpcErr != nil || subscriptionID == "" {
+		t.Fatalf("unexpected subscription response id=%q err=%+v", subscriptionID, rpcErr)
+	}
+
+	provider.status.LatestHeight = 2
+	provider.latest = 2
+	session.publish()
+	if len(sent) != 1 {
+		t.Fatalf("expected one notification, got %+v", sent)
+	}
+	notification, ok := sent[0].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected notification type: %+v", sent[0])
+	}
+	if notification["method"] != "eth_subscription" {
+		t.Fatalf("unexpected notification: %+v", notification)
+	}
+	params, ok := notification["params"].(map[string]any)
+	if !ok || params["subscription"] != subscriptionID {
+		t.Fatalf("unexpected subscription params: %+v", notification)
+	}
+	result, ok := params["result"].(map[string]any)
+	if !ok || result["number"] != "0x2" || result["hash"] != "0x0200000000000000000000000000000000000000000000000000000000000000" {
+		t.Fatalf("unexpected head result: %+v", result)
+	}
+}
+
+func TestHandlerServesWeb3WebSocketLogSubscriptions(t *testing.T) {
+	provider := &fakeStatusProvider{
+		status:           node.Status{ChainID: "vexo-chain", LatestHeight: 1},
+		appQueryResponse: vexoapp.QueryResponse{Value: []byte(`[]`)},
+	}
+	sent := make([]any, 0)
+	session := &web3SubscriptionSession{
+		provider: provider,
+		ctx:      context.Background(),
+		subs:     map[string]web3Subscription{},
+		send:     func(value any) { sent = append(sent, value) },
+	}
+	subscriptionID, rpcErr := session.subscribe([]json.RawMessage{
+		json.RawMessage(`"logs"`),
+		json.RawMessage(`{"address":"0xcontract"}`),
+	})
+	if rpcErr != nil || subscriptionID == "" {
+		t.Fatalf("unexpected log subscription response id=%q err=%+v", subscriptionID, rpcErr)
+	}
+
+	provider.status.LatestHeight = 2
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`[{"address":"0xcontract","data":"0x01"}]`)}
+	session.publish()
+	if len(sent) != 1 {
+		t.Fatalf("expected one log notification, got %+v", sent)
+	}
+	notification, ok := sent[0].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected notification type: %+v", sent[0])
+	}
+	params, ok := notification["params"].(map[string]any)
+	if notification["method"] != "eth_subscription" || !ok || params["subscription"] != subscriptionID {
+		t.Fatalf("unexpected log notification: %+v", notification)
+	}
+	result, ok := params["result"].(map[string]any)
+	if !ok || result["address"] != "0xcontract" || result["data"] != "0x01" {
+		t.Fatalf("unexpected log result: %+v", params["result"])
+	}
+}
+
+func TestHandlerServesWeb3WebSocketPendingTransactionSubscriptions(t *testing.T) {
+	firstHash := types.Hash{0x01}
+	secondHash := types.Hash{0x02}
+	provider := &fakeStatusProvider{
+		status:        node.Status{ChainID: "vexo-chain", LatestHeight: 1},
+		pendingHashes: []types.Hash{firstHash},
+	}
+	sent := make([]any, 0)
+	session := &web3SubscriptionSession{
+		provider: provider,
+		ctx:      context.Background(),
+		subs:     map[string]web3Subscription{},
+		send:     func(value any) { sent = append(sent, value) },
+	}
+	subscriptionID, rpcErr := session.subscribe([]json.RawMessage{json.RawMessage(`"newPendingTransactions"`)})
+	if rpcErr != nil || subscriptionID == "" {
+		t.Fatalf("unexpected pending subscription response id=%q err=%+v", subscriptionID, rpcErr)
+	}
+
+	provider.pendingHashes = []types.Hash{firstHash, secondHash}
+	session.publish()
+	if len(sent) != 1 {
+		t.Fatalf("expected one pending tx notification, got %+v", sent)
+	}
+	notification, ok := sent[0].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected notification type: %+v", sent[0])
+	}
+	params, ok := notification["params"].(map[string]any)
+	if notification["method"] != "eth_subscription" || !ok || params["subscription"] != subscriptionID {
+		t.Fatalf("unexpected pending notification: %+v", notification)
+	}
+	if params["result"] != "0x0200000000000000000000000000000000000000000000000000000000000000" {
+		t.Fatalf("unexpected pending hash: %+v", params["result"])
+	}
+}
+
+func TestHandlerDetectsWebSocketUpgrade(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/web3", nil)
+	request.Header.Set("Upgrade", "websocket")
+	request.Header.Set("Connection", "keep-alive, Upgrade")
+	if !isWebSocketUpgrade(request) {
+		t.Fatal("expected websocket upgrade to be detected")
 	}
 }
 

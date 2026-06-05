@@ -35,6 +35,33 @@ func TestFIFOAddAndBuildBatchInOrder(t *testing.T) {
 	}
 }
 
+func TestFIFOPendingTxsReturnsOrderedCopy(t *testing.T) {
+	pool := NewFIFO(FIFOConfig{})
+	if err := pool.AddTx(context.Background(), []byte("a")); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.AddTx(context.Background(), []byte("b")); err != nil {
+		t.Fatal(err)
+	}
+
+	pending, err := pool.PendingTxs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(pending, []types.Tx{[]byte("a"), []byte("b")}) {
+		t.Fatalf("unexpected pending txs: %q", pending)
+	}
+	pending[0][0] = 'z'
+
+	next, err := pool.PendingTxs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(next[0]) != "a" {
+		t.Fatalf("pending tx snapshot mutated pool state: %q", next)
+	}
+}
+
 func TestFIFOBuildBatchRespectsMaxBytes(t *testing.T) {
 	pool := NewFIFO(FIFOConfig{})
 	for _, tx := range []types.Tx{[]byte("aa"), []byte("bbb"), []byte("c")} {

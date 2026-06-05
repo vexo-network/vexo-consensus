@@ -19,6 +19,7 @@ type Mempool interface {
 	AddTx(ctx context.Context, tx types.Tx) error
 	BuildBatch(ctx context.Context, maxBytes int64) (Batch, error)
 	MarkCommitted(ctx context.Context, txs []types.Tx) error
+	PendingTxs(ctx context.Context) ([]types.Tx, error)
 }
 
 type DAGMempool interface {

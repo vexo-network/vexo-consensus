@@ -60,6 +60,10 @@ func (dag *DAG) BuildBatch(ctx context.Context, maxBytes int64) (Batch, error) {
 	return batch, nil
 }
 
+func (dag *DAG) PendingTxs(ctx context.Context) ([]types.Tx, error) {
+	return dag.base.PendingTxs(ctx)
+}
+
 func (dag *DAG) MarkCommitted(ctx context.Context, txs []types.Tx) error {
 	if dag.wal != nil {
 		if err := dag.wal.AppendMarkCommitted(ctx, txs); err != nil {

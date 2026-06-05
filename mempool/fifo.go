@@ -128,6 +128,16 @@ func (pool *FIFO) BuildBatch(ctx context.Context, maxBytes int64) (Batch, error)
 	return batch, nil
 }
 
+func (pool *FIFO) PendingTxs(ctx context.Context) ([]types.Tx, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	return pool.orderedTxs(), nil
+}
+
 func (pool *FIFO) MarkCommitted(ctx context.Context, committed []types.Tx) error {
 	select {
 	case <-ctx.Done():
