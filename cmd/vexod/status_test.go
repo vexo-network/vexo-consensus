@@ -23,7 +23,11 @@ func TestWriteStatus(t *testing.T) {
 		"execution.fee_collector: fee_collector",
 		"validator.permissionless: true",
 		"committee.size: 128",
+		"committee.min_voting_power: 1",
+		"committee.backend: deterministic",
+		"mempool.max_tx_bytes: 1048576",
 		"mempool.min_fee: 0",
+		"mempool.seen_ttl:",
 		"mempool.priority_enabled: false",
 		"fair_ordering.deterministic: true",
 		"fair_ordering.height_salted: true",
@@ -46,6 +50,8 @@ func TestWriteStatus(t *testing.T) {
 		"consensus.partition_safety_simulation: true",
 		"consensus.tendermint_style_timeouts: true",
 		"consensus.empty_block_control: true",
+		"crypto.backend: deterministic",
+		"crypto.production_adapter: false",
 		"crypto.remote_signer_verification: true",
 		"crypto.bls_adapter_required: true",
 		"addr_book.persistent: true",
@@ -64,6 +70,8 @@ func TestWriteStatus(t *testing.T) {
 		"p2p.window_reset_interval:",
 		"p2p.score_recovery: 1",
 		"p2p.ban_duration:",
+		"p2p.peer_snapshots_enabled: true",
+		"p2p.node_status_peer_metrics: true",
 	}
 	for _, part := range expectedParts {
 		if !strings.Contains(output, part) {

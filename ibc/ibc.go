@@ -22,19 +22,23 @@ const (
 )
 
 var (
-	ErrInvalidClient     = errors.New("invalid IBC client")
-	ErrInvalidConnection = errors.New("invalid IBC connection")
-	ErrInvalidChannel    = errors.New("invalid IBC channel")
-	ErrInvalidTransition = errors.New("invalid IBC state transition")
-	ErrInvalidPacket     = errors.New("invalid IBC packet")
-	ErrInvalidAck        = errors.New("invalid IBC acknowledgement")
-	ErrInvalidProof      = errors.New("invalid IBC proof")
-	ErrClientNotFound    = errors.New("IBC client not found")
-	ErrStaleClientUpdate = errors.New("stale IBC client update")
-	ErrPacketAcked       = errors.New("IBC packet already acknowledged")
-	ErrPacketTimedOut    = errors.New("IBC packet already timed out")
-	ErrPacketNotTimedOut = errors.New("IBC packet timeout height has not elapsed")
-	ErrStoreMissing      = errors.New("IBC store is required")
+	ErrInvalidClient            = errors.New("invalid IBC client")
+	ErrInvalidConnection        = errors.New("invalid IBC connection")
+	ErrInvalidChannel           = errors.New("invalid IBC channel")
+	ErrInvalidTransition        = errors.New("invalid IBC state transition")
+	ErrInvalidPacket            = errors.New("invalid IBC packet")
+	ErrInvalidAck               = errors.New("invalid IBC acknowledgement")
+	ErrInvalidProof             = errors.New("invalid IBC proof")
+	ErrClientNotFound           = errors.New("IBC client not found")
+	ErrStaleClientUpdate        = errors.New("stale IBC client update")
+	ErrChannelNotOpen           = errors.New("IBC channel is not open")
+	ErrConnectionNotOpen        = errors.New("IBC connection is not open")
+	ErrUnexpectedPacketSequence = errors.New("unexpected IBC packet sequence")
+	ErrPacketAlreadyExists      = errors.New("IBC packet commitment already exists")
+	ErrPacketAcked              = errors.New("IBC packet already acknowledged")
+	ErrPacketTimedOut           = errors.New("IBC packet already timed out")
+	ErrPacketNotTimedOut        = errors.New("IBC packet timeout height has not elapsed")
+	ErrStoreMissing             = errors.New("IBC store is required")
 )
 
 type ClientState struct {
@@ -195,6 +199,21 @@ func (keeper *Keeper) SendPacket(ctx context.Context, height types.Height, packe
 	if err := validatePacket(packet); err != nil {
 		return err
 	}
+	if err := keeper.validatePacketPath(ctx, packet); err != nil {
+		return err
+	}
+	if _, found, err := keeper.PacketReceipt(ctx, packet); err != nil {
+		return err
+	} else if found {
+		return ErrPacketAlreadyExists
+	}
+	expectedSequence, err := keeper.nextSequence(ctx, packet.SourcePort, packet.SourceChannel)
+	if err != nil {
+		return err
+	}
+	if packet.Sequence != expectedSequence {
+		return ErrUnexpectedPacketSequence
+	}
 	receipt := PacketReceipt{Packet: clonePacket(packet), CommitHeight: height}
 	encoded, err := json.Marshal(receipt)
 	if err != nil {
@@ -217,6 +236,9 @@ func (keeper *Keeper) SendPacket(ctx context.Context, height types.Height, packe
 
 func (keeper *Keeper) AcknowledgePacket(ctx context.Context, height types.Height, packet Packet, ack []byte) error {
 	if err := validatePacket(packet); err != nil {
+		return err
+	}
+	if err := keeper.validatePacketPath(ctx, packet); err != nil {
 		return err
 	}
 	if len(ack) == 0 {
@@ -244,6 +266,9 @@ func (keeper *Keeper) AcknowledgePacket(ctx context.Context, height types.Height
 
 func (keeper *Keeper) TimeoutPacket(ctx context.Context, height types.Height, packet Packet) error {
 	if err := validatePacket(packet); err != nil {
+		return err
+	}
+	if err := keeper.validatePacketPath(ctx, packet); err != nil {
 		return err
 	}
 	if packet.TimeoutHeight == 0 || uint64(height) < packet.TimeoutHeight {
@@ -312,6 +337,56 @@ func (keeper *Keeper) VerifyPacketCommitmentProof(ctx context.Context, clientID 
 		return ErrInvalidProof
 	}
 	return nil
+}
+
+func (keeper *Keeper) validatePacketPath(ctx context.Context, packet Packet) error {
+	channel, found, err := keeper.Channel(ctx, packet.SourcePort, packet.SourceChannel)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return ErrInvalidChannel
+	}
+	if channel.State != StateOpen {
+		return ErrChannelNotOpen
+	}
+	if channel.Counterparty != packet.DestinationChannel {
+		return ErrInvalidChannel
+	}
+	connection, found, err := keeper.Connection(ctx, channel.ConnectionID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return ErrInvalidConnection
+	}
+	if connection.State != StateOpen {
+		return ErrConnectionNotOpen
+	}
+	if _, found, err := keeper.Client(ctx, connection.ClientID); err != nil {
+		return err
+	} else if !found {
+		return ErrClientNotFound
+	}
+	return nil
+}
+
+func (keeper *Keeper) nextSequence(ctx context.Context, portID string, channelID string) (uint64, error) {
+	if keeper == nil || keeper.store == nil {
+		return 0, ErrStoreMissing
+	}
+	encoded, err := keeper.store.Get(ctx, Namespace, nextSequenceKey(portID, channelID))
+	if errors.Is(err, store.ErrKeyNotFound) {
+		return 1, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	sequence, err := strconv.ParseUint(string(encoded), 10, 64)
+	if err != nil || sequence == 0 {
+		return 0, ErrUnexpectedPacketSequence
+	}
+	return sequence, nil
 }
 
 func (keeper *Keeper) setJSON(ctx context.Context, key []byte, value any) error {

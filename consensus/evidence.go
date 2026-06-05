@@ -2,6 +2,7 @@ package consensus
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 
@@ -36,10 +37,8 @@ func SupportedInvalidProposalReasons() []InvalidProposalReason {
 		InvalidProposalReasonMissingData,
 		InvalidProposalReasonValidatorSetHash,
 		InvalidProposalReasonAppHash,
-		InvalidProposalReasonTimestamp,
-		InvalidProposalReasonStateRoot,
 		InvalidProposalReasonTxValidity,
-		InvalidProposalReasonProposerSignature,
+		InvalidProposalReasonTimestamp,
 	}
 }
 
@@ -151,7 +150,7 @@ func NewInvalidProposalHashEvidence(proposal Proposal, reason string, expected t
 	}
 	proposalReason := InvalidProposalReason(reason)
 	switch proposalReason {
-	case InvalidProposalReasonValidatorSetHash, InvalidProposalReasonAppHash, InvalidProposalReasonStateRoot:
+	case InvalidProposalReasonValidatorSetHash, InvalidProposalReasonAppHash:
 	default:
 		return slashing.Evidence{}, ErrUnsupportedProposalReason
 	}
@@ -221,28 +220,7 @@ func NewInvalidProposalTimestampEvidence(proposal Proposal, expected int64, actu
 }
 
 func NewInvalidProposalSignatureEvidence(proposal Proposal, message string) (slashing.Evidence, error) {
-	if proposal.Proposer == "" || proposal.Block.Header.Height == 0 {
-		return slashing.Evidence{}, slashing.ErrMissingValidator
-	}
-	proof := InvalidProposalProof{
-		Proposal:            proposal,
-		Reason:              InvalidProposalReasonProposerSignature,
-		VerificationMessage: message,
-	}
-	if err := verifyInvalidProposalByReason(proof); err != nil {
-		return slashing.Evidence{}, err
-	}
-	encoded, err := json.Marshal(proof)
-	if err != nil {
-		return slashing.Evidence{}, err
-	}
-	return slashing.Evidence{
-		Type:      slashing.EvidenceInvalidProposal,
-		Validator: proposal.Proposer,
-		Height:    proposal.Block.Header.Height,
-		Round:     proposal.Round,
-		Proof:     encoded,
-	}, nil
+	return slashing.Evidence{}, ErrUnsupportedProposalReason
 }
 
 func newInvalidProposalEvidenceFromProof(proof InvalidProposalProof) (slashing.Evidence, error) {
@@ -309,16 +287,11 @@ func verifyInvalidProposalByReason(decoded InvalidProposalProof) error {
 			return err
 		}
 		return nil
-	case InvalidProposalReasonStateRoot:
-		if err := verifyHashMismatch(decoded, types.Hash{}); err != nil {
-			return err
-		}
-		return nil
 	case InvalidProposalReasonTxValidity:
 		if decoded.VerificationMessage == "" {
 			return ErrInvalidProposal
 		}
-		if err := verifyHashMismatch(decoded, types.Hash{}); err != nil {
+		if err := verifyHashMismatch(decoded, txSetHash(decoded.Proposal.Block.Txs)); err != nil {
 			return err
 		}
 		return nil
@@ -327,11 +300,6 @@ func verifyInvalidProposalByReason(decoded InvalidProposalProof) error {
 			decoded.ActualTimeUnixNano == 0 ||
 			decoded.ExpectedTimeUnixNano == decoded.ActualTimeUnixNano ||
 			(decoded.Proposal.Block.Header.TimeUnixNano != 0 && decoded.ActualTimeUnixNano != decoded.Proposal.Block.Header.TimeUnixNano) {
-			return ErrInvalidProposal
-		}
-		return nil
-	case InvalidProposalReasonProposerSignature:
-		if decoded.VerificationMessage == "" {
 			return ErrInvalidProposal
 		}
 		return nil
@@ -350,6 +318,17 @@ func verifyHashMismatch(decoded InvalidProposalProof, proposalActual types.Hash)
 		return ErrInvalidProposal
 	}
 	return nil
+}
+
+func txSetHash(txs []types.Tx) types.Hash {
+	hasher := sha256.New()
+	for _, tx := range txs {
+		hash := sha256.Sum256(tx)
+		_, _ = hasher.Write(hash[:])
+	}
+	var out types.Hash
+	copy(out[:], hasher.Sum(nil))
+	return out
 }
 
 func NewUnavailableDataEvidence(proposal Proposal, reason string) (slashing.Evidence, error) {

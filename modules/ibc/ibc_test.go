@@ -100,22 +100,32 @@ func TestModuleTimeoutsPackets(t *testing.T) {
 	}
 	defer storage.Close()
 	module := NewModule()
-	packetTx := types.Tx("ibc:packet-send:2:transfer:channel-0:transfer:channel-1:cGF5bG9hZA:10")
+	hash := strings.Repeat("01", 32)
 	sendCtx := vexoapp.Context{Ctx: context.Background(), Height: 7, Store: storage}
+	for _, tx := range []types.Tx{
+		types.Tx("ibc:client-create:07-vexo-0:counterparty:5:" + hash),
+		types.Tx("ibc:connection-open:connection-0:07-vexo-0:connection-1"),
+		types.Tx("ibc:channel-open:transfer:channel-0:connection-0:channel-1:ordered"),
+	} {
+		if result := module.DeliverTx(sendCtx, tx); result.Code != 0 {
+			t.Fatalf("setup %q failed: %+v", tx, result)
+		}
+	}
+	packetTx := types.Tx("ibc:packet-send:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA:10")
 	if result := module.DeliverTx(sendCtx, packetTx); result.Code != 0 {
 		t.Fatalf("send failed: %+v", result)
 	}
 	earlyCtx := vexoapp.Context{Ctx: context.Background(), Height: 9, Store: storage}
-	if result := module.DeliverTx(earlyCtx, types.Tx("ibc:packet-timeout:2:transfer:channel-0:transfer:channel-1:cGF5bG9hZA:10")); result.Code == 0 {
+	if result := module.DeliverTx(earlyCtx, types.Tx("ibc:packet-timeout:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA:10")); result.Code == 0 {
 		t.Fatalf("expected early timeout failure")
 	}
 	timeoutCtx := vexoapp.Context{Ctx: context.Background(), Height: 10, Store: storage}
-	if result := module.DeliverTx(timeoutCtx, types.Tx("ibc:packet-timeout:2:transfer:channel-0:transfer:channel-1:cGF5bG9hZA:10")); result.Code != 0 {
+	if result := module.DeliverTx(timeoutCtx, types.Tx("ibc:packet-timeout:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA:10")); result.Code != 0 {
 		t.Fatalf("timeout failed: %+v", result)
 	}
 	keeper := ibckeeper.NewKeeper(storage)
 	receipt, found, err := keeper.PacketReceipt(context.Background(), ibckeeper.Packet{
-		Sequence:           2,
+		Sequence:           1,
 		SourcePort:         "transfer",
 		SourceChannel:      "channel-0",
 		DestinationPort:    "transfer",

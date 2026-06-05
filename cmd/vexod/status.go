@@ -33,7 +33,11 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "validator.min_stake: %d\n", cfg.Validator.MinStake)
 	fmt.Fprintf(writer, "committee.epoch_length: %d\n", cfg.Committee.EpochLength)
 	fmt.Fprintf(writer, "committee.size: %d\n", cfg.Committee.CommitteeSize)
+	fmt.Fprintf(writer, "committee.min_voting_power: %d\n", cfg.Committee.MinVotingPower)
+	fmt.Fprintf(writer, "committee.backend: %s\n", cfg.Committee.Backend)
+	fmt.Fprintf(writer, "mempool.max_tx_bytes: %d\n", cfg.Mempool.MaxTxBytes)
 	fmt.Fprintf(writer, "mempool.max_txs: %d\n", cfg.Mempool.MaxTxs)
+	fmt.Fprintf(writer, "mempool.seen_ttl: %s\n", cfg.Mempool.SeenTTL)
 	fmt.Fprintf(writer, "mempool.min_fee: %d\n", cfg.Mempool.MinFee)
 	fmt.Fprintf(writer, "mempool.priority_enabled: %t\n", cfg.Mempool.EnablePriority)
 	fmt.Fprintf(writer, "mempool.wal_path: %s\n", cfg.Mempool.WALPath)
@@ -58,6 +62,8 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "consensus.partition_safety_simulation: true\n")
 	fmt.Fprintf(writer, "consensus.tendermint_style_timeouts: true\n")
 	fmt.Fprintf(writer, "consensus.empty_block_control: true\n")
+	fmt.Fprintf(writer, "crypto.backend: %s\n", cfg.Crypto.Backend)
+	fmt.Fprintf(writer, "crypto.production_adapter: %t\n", cfg.Crypto.ProductionAdapter)
 	fmt.Fprintf(writer, "crypto.remote_signer_verification: true\n")
 	fmt.Fprintf(writer, "crypto.bls_adapter_required: true\n")
 	fmt.Fprintf(writer, "addr_book.persistent: true\n")
@@ -77,6 +83,8 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "p2p.window_reset_interval: %s\n", cfg.P2P.WindowResetInterval)
 	fmt.Fprintf(writer, "p2p.score_recovery: %d\n", cfg.P2P.ScoreRecovery)
 	fmt.Fprintf(writer, "p2p.ban_duration: %s\n", cfg.P2P.BanDuration)
+	fmt.Fprintf(writer, "p2p.peer_snapshots_enabled: true\n")
+	fmt.Fprintf(writer, "p2p.node_status_peer_metrics: true\n")
 }
 
 type statusDocument struct {

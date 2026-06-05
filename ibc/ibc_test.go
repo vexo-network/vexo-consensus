@@ -10,6 +10,26 @@ import (
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
+func setupOpenIBCPath(t *testing.T, ctx context.Context, keeper *Keeper, latestHeight types.Height) ClientState {
+	t.Helper()
+	client := ClientState{
+		ClientID:         "07-vexo-0",
+		ChainID:          "counterparty",
+		LatestHeight:     latestHeight,
+		ValidatorSetHash: types.Hash{1},
+	}
+	if err := keeper.SetClient(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.SetConnection(ctx, ConnectionState{ConnectionID: "connection-0", ClientID: client.ClientID, Counterparty: "connection-1", State: StateOpen}); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.SetChannel(ctx, ChannelState{PortID: "transfer", ChannelID: "channel-0", ConnectionID: "connection-0", Counterparty: "channel-1", Ordering: "ordered", State: StateOpen}); err != nil {
+		t.Fatal(err)
+	}
+	return client
+}
+
 func TestKeeperPacketLifecycle(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
@@ -18,24 +38,10 @@ func TestKeeperPacketLifecycle(t *testing.T) {
 	defer storage.Close()
 	keeper := NewKeeper(storage)
 	ctx := context.Background()
-	client := ClientState{
-		ClientID:         "07-vexo-0",
-		ChainID:          "counterparty",
-		LatestHeight:     10,
-		ValidatorSetHash: types.Hash{1},
-	}
-	if err := keeper.SetClient(ctx, client); err != nil {
-		t.Fatal(err)
-	}
+	client := setupOpenIBCPath(t, ctx, keeper, 10)
 	loaded, found, err := keeper.Client(ctx, client.ClientID)
 	if err != nil || !found || loaded.ChainID != "counterparty" {
 		t.Fatalf("unexpected client found=%t client=%+v err=%v", found, loaded, err)
-	}
-	if err := keeper.SetConnection(ctx, ConnectionState{ConnectionID: "connection-0", ClientID: client.ClientID, Counterparty: "connection-1", State: "open"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := keeper.SetChannel(ctx, ChannelState{PortID: "transfer", ChannelID: "channel-0", ConnectionID: "connection-0", Counterparty: "channel-1", Ordering: "ordered", State: "open"}); err != nil {
-		t.Fatal(err)
 	}
 	packet := Packet{Sequence: 1, SourcePort: "transfer", SourceChannel: "channel-0", DestinationPort: "transfer", DestinationChannel: "channel-1", Data: []byte("payload"), TimeoutHeight: 13}
 	if err := keeper.SendPacket(ctx, 11, packet); err != nil {
@@ -104,15 +110,7 @@ func TestKeeperVerifiesPacketCommitmentProof(t *testing.T) {
 	defer storage.Close()
 	ctx := context.Background()
 	keeper := NewKeeper(storage)
-	client := ClientState{
-		ClientID:         "07-vexo-0",
-		ChainID:          "counterparty",
-		LatestHeight:     11,
-		ValidatorSetHash: types.Hash{1},
-	}
-	if err := keeper.SetClient(ctx, client); err != nil {
-		t.Fatal(err)
-	}
+	client := setupOpenIBCPath(t, ctx, keeper, 11)
 	packet := Packet{Sequence: 1, SourcePort: "transfer", SourceChannel: "channel-0", DestinationPort: "transfer", DestinationChannel: "channel-1", Data: []byte("payload")}
 	if err := keeper.SendPacket(ctx, 11, packet); err != nil {
 		t.Fatal(err)
@@ -186,8 +184,9 @@ func TestKeeperPacketTimeoutLifecycle(t *testing.T) {
 	defer storage.Close()
 	keeper := NewKeeper(storage)
 	ctx := context.Background()
+	setupOpenIBCPath(t, ctx, keeper, 10)
 	packet := Packet{
-		Sequence:           7,
+		Sequence:           1,
 		SourcePort:         "transfer",
 		SourceChannel:      "channel-0",
 		DestinationPort:    "transfer",
@@ -210,5 +209,46 @@ func TestKeeperPacketTimeoutLifecycle(t *testing.T) {
 	}
 	if err := keeper.AcknowledgePacket(ctx, 21, packet, []byte("ack")); !errors.Is(err, ErrPacketTimedOut) {
 		t.Fatalf("expected timed-out ack rejection, got %v", err)
+	}
+}
+
+func TestKeeperRejectsInvalidPacketPathAndSequence(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	keeper := NewKeeper(storage)
+	ctx := context.Background()
+	packet := Packet{Sequence: 1, SourcePort: "transfer", SourceChannel: "channel-0", DestinationPort: "transfer", DestinationChannel: "channel-1", Data: []byte("payload")}
+	if err := keeper.SendPacket(ctx, 11, packet); !errors.Is(err, ErrInvalidChannel) {
+		t.Fatalf("expected missing channel rejection, got %v", err)
+	}
+	client := ClientState{ClientID: "07-vexo-0", ChainID: "counterparty", LatestHeight: 10, ValidatorSetHash: types.Hash{1}}
+	if err := keeper.SetClient(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.SetConnection(ctx, ConnectionState{ConnectionID: "connection-0", ClientID: client.ClientID, Counterparty: "connection-1", State: StateOpen}); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.SetChannel(ctx, ChannelState{PortID: "transfer", ChannelID: "channel-0", ConnectionID: "connection-0", Counterparty: "channel-1", Ordering: "ordered", State: StateInit}); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.SendPacket(ctx, 11, packet); !errors.Is(err, ErrChannelNotOpen) {
+		t.Fatalf("expected closed channel rejection, got %v", err)
+	}
+	if err := keeper.UpdateChannelState(ctx, "transfer", "channel-0", StateInit, StateOpen); err != nil {
+		t.Fatal(err)
+	}
+	gapPacket := packet
+	gapPacket.Sequence = 2
+	if err := keeper.SendPacket(ctx, 11, gapPacket); !errors.Is(err, ErrUnexpectedPacketSequence) {
+		t.Fatalf("expected sequence gap rejection, got %v", err)
+	}
+	if err := keeper.SendPacket(ctx, 11, packet); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.SendPacket(ctx, 11, packet); !errors.Is(err, ErrPacketAlreadyExists) {
+		t.Fatalf("expected duplicate packet rejection, got %v", err)
 	}
 }

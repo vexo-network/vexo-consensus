@@ -150,21 +150,44 @@ func TestInvalidProposalTxValidityEvidenceRequiresDeterministicMismatch(t *testi
 	proposal := Proposal{
 		Block: types.Block{
 			Header: types.Header{ChainID: "vexo-test", Height: 7},
+			Txs:    []types.Tx{[]byte("bad-tx")},
 		},
 		Proposer: "validator-1",
 	}
+	actual := txSetHash(proposal.Block.Txs)
 
-	_, err := NewInvalidProposalTxValidityEvidence(proposal, types.Hash{1}, types.Hash{2}, "ante rejected tx")
+	_, err := NewInvalidProposalTxValidityEvidence(proposal, types.Hash{1}, actual, "ante rejected tx")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = NewInvalidProposalTxValidityEvidence(proposal, types.Hash{1}, types.Hash{1}, "ante rejected tx")
+	_, err = NewInvalidProposalTxValidityEvidence(proposal, actual, actual, "ante rejected tx")
 	if !errors.Is(err, ErrInvalidProposal) {
 		t.Fatalf("expected invalid matching tx validity proof, got %v", err)
 	}
-	_, err = NewInvalidProposalTxValidityEvidence(proposal, types.Hash{1}, types.Hash{2}, "")
+	_, err = NewInvalidProposalTxValidityEvidence(proposal, types.Hash{1}, actual, "")
 	if !errors.Is(err, ErrInvalidProposal) {
 		t.Fatalf("expected invalid missing verification message, got %v", err)
+	}
+	_, err = NewInvalidProposalTxValidityEvidence(proposal, types.Hash{1}, types.Hash{2}, "wrong actual tx set hash")
+	if !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected invalid unbound tx set hash, got %v", err)
+	}
+}
+
+func TestInvalidProposalRejectsUnsupportedStateRootAndSignatureReasons(t *testing.T) {
+	proposal := Proposal{
+		Block: types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: 7},
+		},
+		Proposer: "validator-1",
+	}
+	_, err := NewInvalidProposalHashEvidence(proposal, string(InvalidProposalReasonStateRoot), types.Hash{1}, types.Hash{2})
+	if !errors.Is(err, ErrUnsupportedProposalReason) {
+		t.Fatalf("expected unsupported state root reason, got %v", err)
+	}
+	_, err = NewInvalidProposalSignatureEvidence(proposal, "invalid signature")
+	if !errors.Is(err, ErrUnsupportedProposalReason) {
+		t.Fatalf("expected unsupported proposer signature reason, got %v", err)
 	}
 }
 
