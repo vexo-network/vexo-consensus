@@ -10,7 +10,9 @@ import (
 	"github.com/vexo-network/vexo-consensus/consensus"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/finality"
+	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/slashing"
+	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -470,6 +472,9 @@ func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert
 	if err := machine.ObserveCommittedBlock(block, quorumCert); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
+	if err := node.persistFinalityDecisions(ctx, runtime, machine); err != nil {
+		return app.FinalizeBlockResponse{}, err
+	}
 	nextHeight := block.Header.Height + 1
 	if err := machine.UpdateValidatorSetFromRegistry(ctx, runtime.Validators, nextHeight); err != nil {
 		return app.FinalizeBlockResponse{}, err
@@ -492,6 +497,26 @@ func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert
 		}
 	}
 	return response, nil
+}
+
+func (node *Node) persistFinalityDecisions(ctx context.Context, runtime *vexoruntime.Runtime, machine *consensus.StateMachine) error {
+	proofStore, ok := runtime.Store.(store.FinalityProofStore)
+	if !ok || proofStore == nil {
+		return nil
+	}
+	for _, decision := range machine.CommitDecisions() {
+		proof, err := runtime.FinalityProof(ctx, decision.CommittedHeight, decision.CommitQC)
+		if errors.Is(err, store.ErrFinalityNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if err := proofStore.SaveFinalityProof(ctx, finalityProofRecord(proof)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type CommitReadyResult struct {

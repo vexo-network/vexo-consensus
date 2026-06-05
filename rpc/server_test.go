@@ -852,6 +852,33 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("unexpected uninstall response: %+v", uninstall)
 	}
 
+	var blockFilterID JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":36,"method":"eth_newBlockFilter","params":[]}`, http.StatusOK, &blockFilterID)
+	blockFilterText, ok := blockFilterID.Result.(string)
+	if blockFilterID.Error != nil || !ok || blockFilterText == "" {
+		t.Fatalf("unexpected block filter id: %+v", blockFilterID)
+	}
+	nextBlockHash := types.Hash{0xac}
+	provider.status.LatestHeight = 13
+	provider.latest = 13
+	provider.blocks[13] = store.BlockRecord{
+		Block:   types.Block{Header: types.Header{ChainID: "vexo-chain", Height: 13}},
+		Hash:    nextBlockHash,
+		AppHash: types.Hash{0xee},
+	}
+	var blockChanges JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":37,"method":"eth_getFilterChanges","params":["`+blockFilterText+`"]}`, http.StatusOK, &blockChanges)
+	changes, ok := blockChanges.Result.([]any)
+	if blockChanges.Error != nil || !ok || len(changes) != 1 || changes[0] != "0xac00000000000000000000000000000000000000000000000000000000000000" {
+		t.Fatalf("unexpected block filter changes: %+v", blockChanges)
+	}
+
+	var subscribe JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":38,"method":"eth_subscribe","params":["newHeads"]}`, http.StatusOK, &subscribe)
+	if subscribe.Error == nil || !strings.Contains(subscribe.Error.Message, "WebSocket") {
+		t.Fatalf("expected WebSocket transport error, got %+v", subscribe)
+	}
+
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x1234","gas_used":9}`)}
 	var call JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":4,"method":"eth_call","params":[{"from":"0xaaaa","to":"0xbbbb","data":"0x1234","gas":"0x5208"},"latest"]}`, http.StatusOK, &call)

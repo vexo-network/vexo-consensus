@@ -16,6 +16,7 @@ import (
 const AddrBookVersionV1 = "v1"
 
 var ErrInvalidPeerAddress = errors.New("invalid peer address")
+var ErrUnsupportedAddrBookSchema = errors.New("unsupported addrbook schema")
 
 type AddrBook struct {
 	mu          sync.Mutex
@@ -76,7 +77,7 @@ func (book *AddrBook) Load() error {
 		return err
 	}
 	if document.SchemaVersion != "" && document.SchemaVersion != AddrBookVersionV1 {
-		return nil
+		return ErrUnsupportedAddrBookSchema
 	}
 	book.mu.Lock()
 	defer book.mu.Unlock()
@@ -104,7 +105,7 @@ func (book *AddrBook) Save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(book.path, append(data, '\n'), 0o600)
+	return writeFileAtomic(book.path, append(data, '\n'), 0o600)
 }
 
 func (book *AddrBook) Add(peerID PeerID, address string, source string, permanent bool) {

@@ -412,5 +412,13 @@ func (node *Node) Status(ctx context.Context) Status {
 			status.LatestFinalizedHash = latest.CommittedBlockHash
 		}
 	}
+	if status.LatestFinalizedHeight == 0 {
+		if proofStore, ok := node.runtime.Store.(store.FinalityProofStore); ok && proofStore != nil {
+			if proof, err := proofStore.LatestFinalityProof(ctx); err == nil {
+				status.LatestFinalizedHeight = proof.Header.Height
+				status.LatestFinalizedHash = proof.BlockHash
+			}
+		}
+	}
 	return status
 }

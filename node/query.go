@@ -116,11 +116,55 @@ func (node *Node) AccountSequence(ctx context.Context, address types.Address) (u
 }
 
 func (node *Node) LatestFinalityProof(ctx context.Context) (finality.Proof, error) {
+	if proof, found, err := node.storedLatestFinalityProof(ctx); found || err != nil {
+		return proof, err
+	}
 	return node.finalityProof(ctx, 0)
 }
 
 func (node *Node) FinalityProof(ctx context.Context, height types.Height) (finality.Proof, error) {
+	if proof, found, err := node.storedFinalityProof(ctx, height); found || err != nil {
+		return proof, err
+	}
 	return node.finalityProof(ctx, height)
+}
+
+func (node *Node) storedLatestFinalityProof(ctx context.Context) (finality.Proof, bool, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return finality.Proof{}, false, err
+	}
+	proofStore, ok := runtime.Store.(store.FinalityProofStore)
+	if !ok || proofStore == nil {
+		return finality.Proof{}, false, nil
+	}
+	proof, err := proofStore.LatestFinalityProof(ctx)
+	if errors.Is(err, store.ErrFinalityNotFound) {
+		return finality.Proof{}, false, nil
+	}
+	if err != nil {
+		return finality.Proof{}, false, err
+	}
+	return finalityProofFromRecord(proof), true, nil
+}
+
+func (node *Node) storedFinalityProof(ctx context.Context, height types.Height) (finality.Proof, bool, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return finality.Proof{}, false, err
+	}
+	proofStore, ok := runtime.Store.(store.FinalityProofStore)
+	if !ok || proofStore == nil {
+		return finality.Proof{}, false, nil
+	}
+	proof, err := proofStore.FinalityProof(ctx, height)
+	if errors.Is(err, store.ErrFinalityNotFound) {
+		return finality.Proof{}, false, nil
+	}
+	if err != nil {
+		return finality.Proof{}, false, err
+	}
+	return finalityProofFromRecord(proof), true, nil
 }
 
 func (node *Node) finalityProof(ctx context.Context, height types.Height) (finality.Proof, error) {
@@ -151,6 +195,40 @@ func (node *Node) finalityProof(ctx context.Context, height types.Height) (final
 		return finality.Proof{}, err
 	}
 	return runtime.FinalityProof(ctx, decision.CommittedHeight, decision.CommitQC)
+}
+
+func finalityProofFromRecord(record store.FinalityProofRecord) finality.Proof {
+	return finality.Proof{
+		Header:    record.Header,
+		BlockHash: record.BlockHash,
+		QuorumCert: finality.QuorumCert{
+			Height:      record.QuorumCert.Height,
+			Round:       record.QuorumCert.Round,
+			BlockHash:   record.QuorumCert.BlockHash,
+			Signers:     record.QuorumCert.Signers,
+			Signature:   record.QuorumCert.Signature,
+			VotingPower: record.QuorumCert.VotingPower,
+		},
+		ValidatorSetHeight: record.ValidatorSetHeight,
+		ValidatorSetHash:   record.ValidatorSetHash,
+	}
+}
+
+func finalityProofRecord(proof finality.Proof) store.FinalityProofRecord {
+	return store.FinalityProofRecord{
+		Header:    proof.Header,
+		BlockHash: proof.BlockHash,
+		QuorumCert: store.QuorumCertRecord{
+			Height:      proof.QuorumCert.Height,
+			Round:       proof.QuorumCert.Round,
+			BlockHash:   proof.QuorumCert.BlockHash,
+			Signers:     proof.QuorumCert.Signers,
+			Signature:   proof.QuorumCert.Signature,
+			VotingPower: proof.QuorumCert.VotingPower,
+		},
+		ValidatorSetHeight: proof.ValidatorSetHeight,
+		ValidatorSetHash:   proof.ValidatorSetHash,
+	}
 }
 
 func (node *Node) PruneBelow(ctx context.Context, retainFrom types.Height) (store.PruneResult, error) {

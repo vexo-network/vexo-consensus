@@ -42,6 +42,13 @@ func stateRootHeightFromKey(key []byte) (types.Height, bool) {
 	return types.Height(binary.BigEndian.Uint64(key[len(stateRootPrefix) : len(stateRootPrefix)+8])), true
 }
 
+func finalityHeightKey(height types.Height) []byte {
+	key := append([]byte(nil), finalityPrefix...)
+	var buffer [8]byte
+	binary.BigEndian.PutUint64(buffer[:], uint64(height))
+	return append(key, buffer[:]...)
+}
+
 func kvKey(namespace string, key []byte) []byte {
 	dbKey := kvNamespacePrefix(namespace)
 	return append(dbKey, key...)

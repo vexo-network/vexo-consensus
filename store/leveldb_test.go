@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -809,6 +810,33 @@ func TestLevelDBStoreExportsAndImportsNamespace(t *testing.T) {
 	}
 }
 
+func TestLevelDBStoreExportsPrefix(t *testing.T) {
+	storage := openTestStore(t)
+	defer closeStore(t, storage)
+
+	if err := storage.Set(context.Background(), "events", []byte("attr2/a/1"), []byte("one")); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Set(context.Background(), "events", []byte("attr2/a/2"), []byte("two")); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Set(context.Background(), "events", []byte("attr2/b/1"), []byte("other")); err != nil {
+		t.Fatal(err)
+	}
+	pairs, err := storage.ExportPrefix(context.Background(), "events", []byte("attr2/a/"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pairs) != 2 {
+		t.Fatalf("expected two prefix pairs, got %+v", pairs)
+	}
+	for _, pair := range pairs {
+		if pair.Namespace != "events" || !bytes.HasPrefix(pair.Key, []byte("attr2/a/")) {
+			t.Fatalf("unexpected prefix pair: %+v", pair)
+		}
+	}
+}
+
 func TestLevelDBStoreRootRejectsInvalidNamespace(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
@@ -901,6 +929,68 @@ func TestLevelDBStoreRejectsInvalidEvidenceRecord(t *testing.T) {
 	}
 	if _, err := store.EvidenceIndex(context.Background()); !errors.Is(err, ErrEvidenceNotFound) {
 		t.Fatalf("expected evidence index not found, got %v", err)
+	}
+}
+
+func TestLevelDBStorePersistsFinalityProofs(t *testing.T) {
+	path := t.TempDir()
+	storage, err := OpenLevelDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof := FinalityProofRecord{
+		Header:    types.Header{ChainID: "vexo-test", Height: 7},
+		BlockHash: types.Hash{7},
+		QuorumCert: QuorumCertRecord{
+			Height:    7,
+			Round:     2,
+			BlockHash: types.Hash{7},
+			Signers:   types.Bitmap("alice"),
+		},
+	}
+	if err := storage.SaveFinalityProof(context.Background(), proof); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := OpenLevelDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, reopened)
+	loaded, err := reopened.FinalityProof(context.Background(), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Header.Height != 7 || loaded.QuorumCert.Round != 2 || loaded.BlockHash != (types.Hash{7}) {
+		t.Fatalf("unexpected finality proof: %+v", loaded)
+	}
+	latest, err := reopened.LatestFinalityProof(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.Header.Height != 7 {
+		t.Fatalf("unexpected latest finality proof: %+v", latest)
+	}
+}
+
+func TestLevelDBStoreRejectsInvalidFinalityProof(t *testing.T) {
+	storage := openTestStore(t)
+	defer closeStore(t, storage)
+
+	if err := storage.SaveFinalityProof(context.Background(), FinalityProofRecord{}); !errors.Is(err, ErrInvalidFinality) {
+		t.Fatalf("expected invalid finality, got %v", err)
+	}
+	if _, err := storage.FinalityProof(context.Background(), 0); !errors.Is(err, ErrInvalidFinality) {
+		t.Fatalf("expected invalid finality height, got %v", err)
+	}
+	if _, err := storage.FinalityProof(context.Background(), 99); !errors.Is(err, ErrFinalityNotFound) {
+		t.Fatalf("expected missing finality proof, got %v", err)
+	}
+	if _, err := storage.LatestFinalityProof(context.Background()); !errors.Is(err, ErrFinalityNotFound) {
+		t.Fatalf("expected missing latest finality proof, got %v", err)
 	}
 }
 

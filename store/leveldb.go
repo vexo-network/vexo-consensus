@@ -19,6 +19,8 @@ var (
 	blockIndexKey     = []byte("block:index")
 	evidencePrefix    = []byte("evidence:")
 	evidenceIndexKey  = []byte("evidence:index")
+	finalityPrefix    = []byte("finality:height:")
+	finalityLatestKey = []byte("finality:latest")
 	kvPrefix          = []byte("kv:")
 	kvHistoryPrefix   = []byte("kvh:")
 	schemaStateKey    = []byte("schema:state")
@@ -450,6 +452,74 @@ func (store *LevelDBStore) StateRoot(ctx context.Context, height types.Height, n
 	return record, nil
 }
 
+func (store *LevelDBStore) SaveFinalityProof(ctx context.Context, proof FinalityProofRecord) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	if proof.Header.Height == 0 ||
+		proof.QuorumCert.Height == 0 ||
+		proof.Header.Height != proof.QuorumCert.Height ||
+		proof.BlockHash == (types.Hash{}) ||
+		proof.QuorumCert.BlockHash != proof.BlockHash {
+		return ErrInvalidFinality
+	}
+	encoded, err := json.Marshal(proof)
+	if err != nil {
+		return err
+	}
+	batch := new(leveldb.Batch)
+	batch.Put(finalityHeightKey(proof.Header.Height), encoded)
+	batch.Put(finalityLatestKey, encoded)
+	return store.db.Write(batch, nil)
+}
+
+func (store *LevelDBStore) FinalityProof(ctx context.Context, height types.Height) (FinalityProofRecord, error) {
+	select {
+	case <-ctx.Done():
+		return FinalityProofRecord{}, ctx.Err()
+	default:
+	}
+	if height == 0 {
+		return FinalityProofRecord{}, ErrInvalidFinality
+	}
+	return store.getFinalityProof(finalityHeightKey(height), height)
+}
+
+func (store *LevelDBStore) LatestFinalityProof(ctx context.Context) (FinalityProofRecord, error) {
+	select {
+	case <-ctx.Done():
+		return FinalityProofRecord{}, ctx.Err()
+	default:
+	}
+	return store.getFinalityProof(finalityLatestKey, 0)
+}
+
+func (store *LevelDBStore) getFinalityProof(key []byte, expectedHeight types.Height) (FinalityProofRecord, error) {
+	encoded, err := store.db.Get(key, nil)
+	if err != nil {
+		if errors.Is(err, leveldberrors.ErrNotFound) {
+			return FinalityProofRecord{}, ErrFinalityNotFound
+		}
+		return FinalityProofRecord{}, err
+	}
+	var proof FinalityProofRecord
+	if err := json.Unmarshal(encoded, &proof); err != nil {
+		return FinalityProofRecord{}, err
+	}
+	if proof.Header.Height == 0 ||
+		proof.QuorumCert.Height != proof.Header.Height ||
+		proof.BlockHash == (types.Hash{}) ||
+		proof.QuorumCert.BlockHash != proof.BlockHash {
+		return FinalityProofRecord{}, ErrInvalidFinality
+	}
+	if expectedHeight != 0 && proof.Header.Height != expectedHeight {
+		return FinalityProofRecord{}, ErrInvalidFinality
+	}
+	return proof, nil
+}
+
 func (store *LevelDBStore) Set(ctx context.Context, namespace string, key []byte, value []byte) error {
 	select {
 	case <-ctx.Done():
@@ -652,6 +722,41 @@ func (store *LevelDBStore) ExportNamespace(ctx context.Context, namespace string
 		pairs = append(pairs, KVPair{
 			Namespace: namespace,
 			Key:       append([]byte(nil), rawKey[len(prefix):]...),
+			Value:     append([]byte(nil), rawValue...),
+		})
+	}
+	if err := iterator.Error(); err != nil {
+		return nil, err
+	}
+	return pairs, nil
+}
+
+func (store *LevelDBStore) ExportPrefix(ctx context.Context, namespace string, keyPrefix []byte) ([]KVPair, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	if namespace == "" {
+		return nil, ErrInvalidNamespace
+	}
+	prefix := append(kvNamespacePrefix(namespace), keyPrefix...)
+	iterator := store.db.NewIterator(util.BytesPrefix(prefix), nil)
+	defer iterator.Release()
+
+	namespacePrefix := kvNamespacePrefix(namespace)
+	pairs := make([]KVPair, 0)
+	for iterator.Next() {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		rawKey := iterator.Key()
+		rawValue := iterator.Value()
+		pairs = append(pairs, KVPair{
+			Namespace: namespace,
+			Key:       append([]byte(nil), rawKey[len(namespacePrefix):]...),
 			Value:     append([]byte(nil), rawValue...),
 		})
 	}

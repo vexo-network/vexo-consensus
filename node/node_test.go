@@ -923,6 +923,50 @@ func TestNodeAppliesInvalidProposalEvidence(t *testing.T) {
 	}
 }
 
+func TestNodeReadsDurableFinalityProofWithoutLiveDecision(t *testing.T) {
+	ctx := context.Background()
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	block := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 3}}
+	blockHash := consensus.HashBlock(block)
+	if err := storage.SaveBlock(ctx, store.BlockRecord{Block: block, Hash: blockHash}); err != nil {
+		t.Fatal(err)
+	}
+	proof := finality.NewProof(block.Header, finality.QuorumCert{
+		Height:    3,
+		Round:     1,
+		BlockHash: blockHash,
+		Signers:   finality.EncodeSigners([]types.ValidatorID{"alice"}),
+	})
+	if err := storage.SaveFinalityProof(ctx, finalityProofRecord(proof)); err != nil {
+		t.Fatal(err)
+	}
+
+	runtime, err := vexoruntime.NewWithStore(config.Default("vexo-test"), newTestApplication(t), validGenesis().Validators, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := &Node{runtime: runtime, running: true}
+	loaded, err := node.FinalityProof(ctx, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Header.Height != 3 || loaded.QuorumCert.Round != 1 {
+		t.Fatalf("unexpected durable proof: %+v", loaded)
+	}
+	latest, err := node.LatestFinalityProof(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.Header.Height != 3 {
+		t.Fatalf("unexpected latest durable proof: %+v", latest)
+	}
+}
+
 func signedNodeTestVote(t *testing.T, signer vexocrypto.Signer, validatorID types.ValidatorID, height types.Height, round types.Round, blockHash types.Hash) consensus.Vote {
 	t.Helper()
 	vote := consensus.Vote{Height: height, Round: round, BlockHash: blockHash, ValidatorID: validatorID}

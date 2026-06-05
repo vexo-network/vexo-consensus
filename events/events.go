@@ -3,6 +3,7 @@ package events
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"sort"
@@ -70,6 +71,7 @@ func (indexer *Indexer) IndexBlock(ctx context.Context, height types.Height, txE
 					continue
 				}
 				writes = append(writes, kvbatch.KVWrite{Namespace: Namespace, Key: attributeKey(attribute.Key, attribute.Value, height, txIndex, event.Type), Value: encoded})
+				writes = append(writes, kvbatch.KVWrite{Namespace: Namespace, Key: legacyAttributeKey(attribute.Key, attribute.Value, height, txIndex, event.Type), Value: encoded})
 			}
 		}
 	}
@@ -91,6 +93,25 @@ func (indexer *Indexer) Query(ctx context.Context, key string, value string) ([]
 	if indexer == nil || indexer.store == nil {
 		return nil, ErrStoreMissing
 	}
+	prefixStore, ok := indexer.store.(store.PrefixKVStore)
+	if !ok {
+		return indexer.queryLegacy(ctx, key, value)
+	}
+	pairs, err := prefixStore.ExportPrefix(ctx, Namespace, attributePrefix(key, value))
+	if err != nil {
+		return nil, err
+	}
+	records, err := decodeRecords(pairs)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) > 0 {
+		return records, nil
+	}
+	return indexer.queryLegacy(ctx, key, value)
+}
+
+func (indexer *Indexer) queryLegacy(ctx context.Context, key string, value string) ([]Record, error) {
 	snapshot, ok := indexer.store.(store.SnapshotKVStore)
 	if !ok {
 		return nil, ErrStoreMissing
@@ -100,12 +121,19 @@ func (indexer *Indexer) Query(ctx context.Context, key string, value string) ([]
 	if err != nil {
 		return nil, err
 	}
+	filtered := make([]store.KVPair, 0)
+	for _, pair := range pairs {
+		if bytes.HasPrefix(pair.Key, prefix) {
+			filtered = append(filtered, pair)
+		}
+	}
+	return decodeRecords(filtered)
+}
+
+func decodeRecords(pairs []store.KVPair) ([]Record, error) {
 	records := make([]Record, 0, len(pairs))
 	seen := make(map[string]struct{}, len(pairs))
 	for _, pair := range pairs {
-		if !bytes.HasPrefix(pair.Key, prefix) {
-			continue
-		}
 		if _, found := seen[string(pair.Value)]; found {
 			continue
 		}
@@ -130,6 +158,25 @@ func eventKey(height types.Height, txIndex int, eventType string, sequence int) 
 }
 
 func attributeKey(key string, value string, height types.Height, txIndex int, eventType string) []byte {
+	var buffer bytes.Buffer
+	buffer.WriteString("attr2/")
+	buffer.WriteString(hex.EncodeToString([]byte(key)))
+	buffer.WriteByte('/')
+	buffer.WriteString(hex.EncodeToString([]byte(value)))
+	buffer.WriteByte('/')
+	buffer.WriteString(strconv.FormatUint(uint64(height), 10))
+	buffer.WriteByte('/')
+	buffer.WriteString(strconv.Itoa(txIndex))
+	buffer.WriteByte('/')
+	buffer.WriteString(hex.EncodeToString([]byte(eventType)))
+	return buffer.Bytes()
+}
+
+func attributePrefix(key string, value string) []byte {
+	return []byte("attr2/" + hex.EncodeToString([]byte(key)) + "/" + hex.EncodeToString([]byte(value)) + "/")
+}
+
+func legacyAttributeKey(key string, value string, height types.Height, txIndex int, eventType string) []byte {
 	var buffer bytes.Buffer
 	buffer.WriteString("attr/")
 	buffer.WriteString(key)

@@ -73,6 +73,23 @@ type EvidenceRecord struct {
 	CreatedAt int64
 }
 
+type FinalityProofRecord struct {
+	Header             types.Header
+	BlockHash          types.Hash
+	QuorumCert         QuorumCertRecord
+	ValidatorSetHeight types.Height
+	ValidatorSetHash   types.Hash
+}
+
+type QuorumCertRecord struct {
+	Height      types.Height
+	Round       types.Round
+	BlockHash   types.Hash
+	Signers     types.Bitmap
+	Signature   types.AggregateSignature
+	VotingPower types.VotingPower
+}
+
 func EvidenceKey(evidence slashing.Evidence) string {
 	if evidence.Type == "" || evidence.Validator == "" || evidence.Height == 0 || len(evidence.Proof) == 0 {
 		return ""
@@ -104,6 +121,12 @@ type Store interface {
 
 type BlockCommitStore interface {
 	CommitBlockState(ctx context.Context, block BlockRecord, state StateRecord, roots []StateRootRecord) error
+}
+
+type FinalityProofStore interface {
+	SaveFinalityProof(ctx context.Context, proof FinalityProofRecord) error
+	FinalityProof(ctx context.Context, height types.Height) (FinalityProofRecord, error)
+	LatestFinalityProof(ctx context.Context) (FinalityProofRecord, error)
 }
 
 type AppBlockCommitStore interface {
@@ -139,4 +162,8 @@ type BatchKVStore = kvbatch.BatchKVStore
 type SnapshotKVStore interface {
 	ExportNamespace(ctx context.Context, namespace string) ([]KVPair, error)
 	ImportNamespace(ctx context.Context, namespace string, pairs []KVPair) error
+}
+
+type PrefixKVStore interface {
+	ExportPrefix(ctx context.Context, namespace string, prefix []byte) ([]KVPair, error)
 }

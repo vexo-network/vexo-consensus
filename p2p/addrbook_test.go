@@ -1,6 +1,8 @@
 package p2p
 
 import (
+	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -30,6 +32,16 @@ func TestAddrBookPersistsPeers(t *testing.T) {
 	}
 	if !loaded.peers["bob"].Permanent || loaded.peers["bob"].LastSeen == "" {
 		t.Fatalf("unexpected bob peer metadata: %+v", loaded.peers["bob"])
+	}
+}
+
+func TestAddrBookRejectsUnsupportedSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "addrbook.json")
+	if err := os.WriteFile(path, []byte(`{"schema_version":"v999","peers":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenAddrBook(path); !errors.Is(err, ErrUnsupportedAddrBookSchema) {
+		t.Fatalf("expected unsupported schema error, got %v", err)
 	}
 }
 

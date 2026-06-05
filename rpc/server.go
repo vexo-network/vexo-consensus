@@ -378,6 +378,7 @@ type web3FilterStore struct {
 }
 
 type web3Filter struct {
+	Type       string
 	Address    string
 	LastHeight uint64
 }
@@ -1269,6 +1270,22 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 			return nil, &JSONRPCError{Code: -32000, Message: response.Log}
 		}
 		return rawJSONObject(response.Value)
+	case "eth_newBlockFilter":
+		if filters == nil {
+			return nil, &JSONRPCError{Code: -32000, Message: "filter store is unavailable"}
+		}
+		if len(params) != 0 {
+			return nil, &JSONRPCError{Code: -32602, Message: "eth_newBlockFilter does not accept parameters"}
+		}
+		return filters.addBlock(uint64(provider.Status(ctx).LatestHeight)), nil
+	case "eth_newPendingTransactionFilter":
+		if filters == nil {
+			return nil, &JSONRPCError{Code: -32000, Message: "filter store is unavailable"}
+		}
+		if len(params) != 0 {
+			return nil, &JSONRPCError{Code: -32602, Message: "eth_newPendingTransactionFilter does not accept parameters"}
+		}
+		return filters.addPending(uint64(provider.Status(ctx).LatestHeight)), nil
 	case "eth_newFilter":
 		if filters == nil {
 			return nil, &JSONRPCError{Code: -32000, Message: "filter store is unavailable"}
@@ -1293,14 +1310,14 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		if !found {
 			return nil, &JSONRPCError{Code: -32000, Message: "filter not found"}
 		}
-		logs, rpcErr := web3LogsForAddress(ctx, provider, filter.Address)
+		changes, rpcErr := web3FilterChanges(ctx, provider, filter, method == "eth_getFilterChanges")
 		if rpcErr != nil {
 			return nil, rpcErr
 		}
 		if method == "eth_getFilterChanges" {
 			filters.mark(filterID, uint64(provider.Status(ctx).LatestHeight))
 		}
-		return logs, nil
+		return changes, nil
 	case "eth_uninstallFilter":
 		if filters == nil {
 			return nil, &JSONRPCError{Code: -32000, Message: "filter store is unavailable"}
@@ -1346,6 +1363,8 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 			return hexQuantity(call.GasLimit), nil
 		}
 		return hexQuantity(21_000), nil
+	case "eth_subscribe", "eth_unsubscribe":
+		return nil, &JSONRPCError{Code: -32000, Message: method + " requires a WebSocket transport"}
 	default:
 		return nil, &JSONRPCError{Code: -32601, Message: "method not found"}
 	}
@@ -1606,6 +1625,44 @@ func web3LogsForAddress(ctx context.Context, provider StatusProvider, address st
 	return rawJSONObject(response.Value)
 }
 
+func web3FilterChanges(ctx context.Context, provider StatusProvider, filter web3Filter, onlyChanges bool) (any, *JSONRPCError) {
+	switch filter.Type {
+	case "block":
+		return web3BlockFilterChanges(ctx, provider, filter, onlyChanges)
+	case "pending":
+		return []any{}, nil
+	default:
+		return web3LogsForAddress(ctx, provider, filter.Address)
+	}
+}
+
+func web3BlockFilterChanges(ctx context.Context, provider StatusProvider, filter web3Filter, onlyChanges bool) ([]string, *JSONRPCError) {
+	blockProvider, ok := provider.(BlockProvider)
+	if !ok {
+		return nil, &JSONRPCError{Code: -32000, Message: "block query is unavailable"}
+	}
+	latest := uint64(provider.Status(ctx).LatestHeight)
+	from := uint64(1)
+	if onlyChanges {
+		from = filter.LastHeight + 1
+	}
+	if from > latest {
+		return []string{}, nil
+	}
+	hashes := make([]string, 0, latest-from+1)
+	for height := from; height <= latest; height++ {
+		record, err := blockProvider.BlockByHeight(ctx, types.Height(height))
+		if errors.Is(err, store.ErrBlockNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
+		hashes = append(hashes, "0x"+hex.EncodeToString(record.Hash[:]))
+	}
+	return hashes, nil
+}
+
 func web3TransactionFromReceipt(value []byte) (any, *JSONRPCError) {
 	var receipt web3Receipt
 	if err := json.Unmarshal(value, &receipt); err != nil {
@@ -1789,7 +1846,25 @@ func (store *web3FilterStore) add(address string, latestHeight uint64) string {
 	defer store.mu.Unlock()
 	store.nextID++
 	id := hexQuantity(store.nextID)
-	store.filters[id] = web3Filter{Address: address, LastHeight: latestHeight}
+	store.filters[id] = web3Filter{Type: "log", Address: address, LastHeight: latestHeight}
+	return id
+}
+
+func (store *web3FilterStore) addBlock(latestHeight uint64) string {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.nextID++
+	id := hexQuantity(store.nextID)
+	store.filters[id] = web3Filter{Type: "block", LastHeight: latestHeight}
+	return id
+}
+
+func (store *web3FilterStore) addPending(latestHeight uint64) string {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.nextID++
+	id := hexQuantity(store.nextID)
+	store.filters[id] = web3Filter{Type: "pending", LastHeight: latestHeight}
 	return id
 }
 
