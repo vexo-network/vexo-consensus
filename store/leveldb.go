@@ -2,14 +2,13 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"sort"
 
 	"github.com/syndtr/goleveldb/leveldb"
 	leveldberrors "github.com/syndtr/goleveldb/leveldb/errors"
 	"github.com/syndtr/goleveldb/leveldb/util"
+	"github.com/vexo-network/vexo-consensus/stateproof"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/upgrade"
 )
@@ -582,43 +581,11 @@ func (store *LevelDBStore) SetBatch(ctx context.Context, writes []KVWrite) error
 }
 
 func (store *LevelDBStore) Root(ctx context.Context, namespace string) (types.Hash, error) {
-	select {
-	case <-ctx.Done():
-		return types.Hash{}, ctx.Err()
-	default:
-	}
-	if namespace == "" {
-		return types.Hash{}, ErrInvalidNamespace
-	}
-
-	prefix := kvNamespacePrefix(namespace)
-	iterator := store.db.NewIterator(nil, nil)
-	defer iterator.Release()
-
-	hasher := sha256.New()
-	for ok := iterator.Seek(prefix); ok; ok = iterator.Next() {
-		select {
-		case <-ctx.Done():
-			return types.Hash{}, ctx.Err()
-		default:
-		}
-		key := iterator.Key()
-		if len(key) < len(prefix) || string(key[:len(prefix)]) != string(prefix) {
-			break
-		}
-		value := iterator.Value()
-		writeUint64(hasher, uint64(len(key)))
-		hasher.Write(key)
-		writeUint64(hasher, uint64(len(value)))
-		hasher.Write(value)
-	}
-	if err := iterator.Error(); err != nil {
+	pairs, err := store.ExportNamespace(ctx, namespace)
+	if err != nil {
 		return types.Hash{}, err
 	}
-
-	var hash types.Hash
-	copy(hash[:], hasher.Sum(nil))
-	return hash, nil
+	return stateproof.Root(namespace, stateProofPairs(pairs))
 }
 
 func (store *LevelDBStore) RootWithWrites(ctx context.Context, namespace string, writes []KVWrite) (types.Hash, error) {
@@ -653,26 +620,11 @@ func (store *LevelDBStore) RootWithWrites(ctx context.Context, namespace string,
 		}
 		values[key] = append([]byte(nil), write.Value...)
 	}
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
+	merged := make([]KVPair, 0, len(values))
+	for rawKey, value := range values {
+		merged = append(merged, KVPair{Namespace: namespace, Key: []byte(rawKey), Value: value})
 	}
-	sort.Strings(keys)
-
-	prefix := kvNamespacePrefix(namespace)
-	hasher := sha256.New()
-	for _, rawKey := range keys {
-		key := append(append([]byte(nil), prefix...), []byte(rawKey)...)
-		value := values[rawKey]
-		writeUint64(hasher, uint64(len(key)))
-		hasher.Write(key)
-		writeUint64(hasher, uint64(len(value)))
-		hasher.Write(value)
-	}
-
-	var hash types.Hash
-	copy(hash[:], hasher.Sum(nil))
-	return hash, nil
+	return stateproof.Root(namespace, stateProofPairs(merged))
 }
 
 func (store *LevelDBStore) ExportNamespace(ctx context.Context, namespace string) ([]KVPair, error) {
@@ -705,6 +657,60 @@ func (store *LevelDBStore) ExportNamespace(ctx context.Context, namespace string
 	}
 	if err := iterator.Error(); err != nil {
 		return nil, err
+	}
+	return pairs, nil
+}
+
+func (store *LevelDBStore) ExportNamespaceAt(ctx context.Context, height types.Height, namespace string) ([]KVPair, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	if height == 0 {
+		return nil, ErrStateNotFound
+	}
+	if namespace == "" {
+		return nil, ErrInvalidNamespace
+	}
+	prefix := append([]byte(nil), kvHistoryPrefix...)
+	prefix = append(prefix, []byte(namespace)...)
+	prefix = append(prefix, ':')
+	iterator := store.db.NewIterator(util.BytesPrefix(prefix), nil)
+	defer iterator.Release()
+
+	selected := make(map[string]kvHistoryRecord)
+	for iterator.Next() {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		var record kvHistoryRecord
+		if err := json.Unmarshal(iterator.Value(), &record); err != nil {
+			return nil, err
+		}
+		if record.Namespace != namespace || record.Height == 0 || record.Height > height || len(record.Key) == 0 {
+			continue
+		}
+		key := string(record.Key)
+		if previous, found := selected[key]; !found || record.Height > previous.Height {
+			selected[key] = record
+		}
+	}
+	if err := iterator.Error(); err != nil {
+		return nil, err
+	}
+	pairs := make([]KVPair, 0, len(selected))
+	for _, record := range selected {
+		if record.Deleted {
+			continue
+		}
+		pairs = append(pairs, KVPair{
+			Namespace: namespace,
+			Key:       append([]byte(nil), record.Key...),
+			Value:     append([]byte(nil), record.Value...),
+		})
 	}
 	return pairs, nil
 }
@@ -965,4 +971,15 @@ func (store *LevelDBStore) rebuildBlockIndex(ctx context.Context) (BlockIndex, e
 		return BlockIndex{}, err
 	}
 	return index, nil
+}
+
+func stateProofPairs(pairs []KVPair) []stateproof.Pair {
+	proofPairs := make([]stateproof.Pair, 0, len(pairs))
+	for _, pair := range pairs {
+		proofPairs = append(proofPairs, stateproof.Pair{
+			Key:   append([]byte(nil), pair.Key...),
+			Value: append([]byte(nil), pair.Value...),
+		})
+	}
+	return proofPairs
 }

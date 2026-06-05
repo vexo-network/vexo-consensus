@@ -3,10 +3,10 @@ package queryproof
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 
+	"github.com/vexo-network/vexo-consensus/stateproof"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -19,57 +19,69 @@ var (
 )
 
 type Proof struct {
-	SchemaVersion string       `json:"schema_version"`
-	ChainID       string       `json:"chain_id"`
-	Height        types.Height `json:"height"`
-	Namespace     string       `json:"namespace"`
-	Key           []byte       `json:"key"`
-	Value         []byte       `json:"value,omitempty"`
-	Exists        bool         `json:"exists"`
-	StateRoot     types.Hash   `json:"state_root"`
-	LeafHash      types.Hash   `json:"leaf_hash"`
+	SchemaVersion   string            `json:"schema_version"`
+	ChainID         string            `json:"chain_id"`
+	Height          types.Height      `json:"height"`
+	Namespace       string            `json:"namespace"`
+	Key             []byte            `json:"key"`
+	Value           []byte            `json:"value,omitempty"`
+	Exists          bool              `json:"exists"`
+	StateRoot       types.Hash        `json:"state_root"`
+	LeafHash        types.Hash        `json:"leaf_hash"`
+	MerklePath      []stateproof.Step `json:"merkle_path,omitempty"`
+	NamespaceLeaves []stateproof.Pair `json:"namespace_leaves,omitempty"`
 }
 
 func Build(ctx context.Context, kv store.KVStore, chainID string, height types.Height, namespace string, key []byte) (Proof, error) {
 	if kv == nil || chainID == "" || height == 0 || namespace == "" || len(key) == 0 {
 		return Proof{}, ErrInvalidProof
 	}
-	value, err := kv.Get(ctx, namespace, key)
-	exists := err == nil
-	if err != nil && !errors.Is(err, store.ErrKeyNotFound) {
+	snapshot, ok := kv.(store.SnapshotKVStore)
+	if !ok {
+		return Proof{}, ErrInvalidProof
+	}
+	pairs, err := snapshot.ExportNamespace(ctx, namespace)
+	if err != nil {
 		return Proof{}, err
 	}
 	root, err := kv.Root(ctx, namespace)
 	if err != nil {
 		return Proof{}, err
 	}
-	return Proof{
-		SchemaVersion: SchemaVersionV1,
-		ChainID:       chainID,
-		Height:        height,
-		Namespace:     namespace,
-		Key:           append([]byte(nil), key...),
-		Value:         append([]byte(nil), value...),
-		Exists:        exists,
-		StateRoot:     root,
-		LeafHash:      leafHash(namespace, key, value, exists),
-	}, nil
+	return BuildFromKVPairs(chainID, height, namespace, key, pairs, root)
 }
 
-func BuildFromValue(chainID string, height types.Height, namespace string, key []byte, value []byte, exists bool, stateRoot types.Hash) (Proof, error) {
+func BuildFromKVPairs(chainID string, height types.Height, namespace string, key []byte, pairs []store.KVPair, stateRoot types.Hash) (Proof, error) {
+	return BuildFromPairs(chainID, height, namespace, key, storePairsToProofPairs(pairs), stateRoot)
+}
+
+func BuildFromPairs(chainID string, height types.Height, namespace string, key []byte, pairs []stateproof.Pair, stateRoot types.Hash) (Proof, error) {
 	if chainID == "" || height == 0 || namespace == "" || len(key) == 0 || stateRoot == (types.Hash{}) {
 		return Proof{}, ErrInvalidProof
 	}
+	root, value, exists, path, err := stateproof.BuildMembership(namespace, pairs, key)
+	if err != nil {
+		return Proof{}, err
+	}
+	if root != stateRoot {
+		return Proof{}, ErrRootMismatch
+	}
+	proofPairs := []stateproof.Pair(nil)
+	if !exists {
+		proofPairs = cloneProofPairs(pairs)
+	}
 	return Proof{
-		SchemaVersion: SchemaVersionV1,
-		ChainID:       chainID,
-		Height:        height,
-		Namespace:     namespace,
-		Key:           append([]byte(nil), key...),
-		Value:         append([]byte(nil), value...),
-		Exists:        exists,
-		StateRoot:     stateRoot,
-		LeafHash:      leafHash(namespace, key, value, exists),
+		SchemaVersion:   SchemaVersionV1,
+		ChainID:         chainID,
+		Height:          height,
+		Namespace:       namespace,
+		Key:             append([]byte(nil), key...),
+		Value:           append([]byte(nil), value...),
+		Exists:          exists,
+		StateRoot:       stateRoot,
+		LeafHash:        leafHash(namespace, key, value),
+		MerklePath:      append([]stateproof.Step(nil), path...),
+		NamespaceLeaves: proofPairs,
 	}, nil
 }
 
@@ -90,7 +102,16 @@ func Verify(proof Proof, expectedChainID string, expectedHeight types.Height, ex
 	if expectedRoot != (types.Hash{}) && proof.StateRoot != expectedRoot {
 		return ErrRootMismatch
 	}
-	if proof.LeafHash != leafHash(proof.Namespace, proof.Key, proof.Value, proof.Exists) {
+	if proof.LeafHash != leafHash(proof.Namespace, proof.Key, proof.Value) {
+		return ErrInvalidProof
+	}
+	if proof.Exists {
+		if !stateproof.VerifyMembership(proof.Namespace, proof.Key, proof.Value, proof.MerklePath, proof.StateRoot) {
+			return ErrInvalidProof
+		}
+		return nil
+	}
+	if !stateproof.VerifyNonMembership(proof.Namespace, proof.NamespaceLeaves, proof.Key, proof.StateRoot) {
 		return ErrInvalidProof
 	}
 	return nil
@@ -108,24 +129,32 @@ func Decode(data []byte) (Proof, error) {
 	return proof, nil
 }
 
-func leafHash(namespace string, key []byte, value []byte, exists bool) types.Hash {
-	hasher := sha256.New()
-	hasher.Write([]byte(namespace))
-	hasher.Write([]byte{0})
-	hasher.Write(key)
-	hasher.Write([]byte{0})
-	if exists {
-		hasher.Write([]byte{1})
-	} else {
-		hasher.Write([]byte{0})
-	}
-	hasher.Write([]byte{0})
-	hasher.Write(value)
-	var hash types.Hash
-	copy(hash[:], hasher.Sum(nil))
-	return hash
+func leafHash(namespace string, key []byte, value []byte) types.Hash {
+	return stateproof.LeafHash(namespace, key, value)
 }
 
 func EqualValue(proof Proof, value []byte) bool {
 	return bytes.Equal(proof.Value, value)
+}
+
+func storePairsToProofPairs(pairs []store.KVPair) []stateproof.Pair {
+	proofPairs := make([]stateproof.Pair, 0, len(pairs))
+	for _, pair := range pairs {
+		proofPairs = append(proofPairs, stateproof.Pair{
+			Key:   append([]byte(nil), pair.Key...),
+			Value: append([]byte(nil), pair.Value...),
+		})
+	}
+	return proofPairs
+}
+
+func cloneProofPairs(pairs []stateproof.Pair) []stateproof.Pair {
+	cloned := make([]stateproof.Pair, 0, len(pairs))
+	for _, pair := range pairs {
+		cloned = append(cloned, stateproof.Pair{
+			Key:   append([]byte(nil), pair.Key...),
+			Value: append([]byte(nil), pair.Value...),
+		})
+	}
+	return cloned
 }

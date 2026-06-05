@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/config"
+	"github.com/vexo-network/vexo-consensus/queryproof"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -62,12 +63,18 @@ func TestRuntimeQueryProofSupportsHistoricalHeight(t *testing.T) {
 	if proof.ChainID != "vexo-test" || proof.Height != 2 || !proof.Exists || string(proof.Value) != "200" {
 		t.Fatalf("unexpected proof: %+v", proof)
 	}
+	if err := queryproof.Verify(proof, "vexo-test", 2, proof.StateRoot); err != nil {
+		t.Fatal(err)
+	}
 	historicalProof, err := runtime.QueryProof(ctx, 1, "bank", []byte("alice"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if historicalProof.Height != 1 || !historicalProof.Exists || string(historicalProof.Value) != "100" {
 		t.Fatalf("unexpected historical proof: %+v", historicalProof)
+	}
+	if err := queryproof.Verify(historicalProof, "vexo-test", 1, historicalProof.StateRoot); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -15,7 +15,6 @@ import (
 	"github.com/vexo-network/vexo-consensus/finality"
 	ibckeeper "github.com/vexo-network/vexo-consensus/ibc"
 	"github.com/vexo-network/vexo-consensus/queryproof"
-	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
@@ -69,10 +68,20 @@ func runProofQuery(writer io.Writer, args []string) error {
 	if proofHeight == 0 {
 		proofHeight = state.Height
 	}
-	if proofHeight != state.Height {
-		return vexoruntime.ErrHistoricalQueryProofUnsupported
+	var proof queryproof.Proof
+	if proofHeight == state.Height {
+		proof, err = queryproof.Build(context.Background(), storage, cfg.Chain.ChainID, proofHeight, *namespace, []byte(*key))
+	} else {
+		root, rootErr := storage.StateRoot(context.Background(), proofHeight, *namespace)
+		if rootErr != nil {
+			return rootErr
+		}
+		pairs, pairsErr := storage.ExportNamespaceAt(context.Background(), proofHeight, *namespace)
+		if pairsErr != nil {
+			return pairsErr
+		}
+		proof, err = queryproof.BuildFromKVPairs(cfg.Chain.ChainID, proofHeight, *namespace, []byte(*key), pairs, root.Root)
 	}
-	proof, err := queryproof.Build(context.Background(), storage, cfg.Chain.ChainID, proofHeight, *namespace, []byte(*key))
 	if err != nil {
 		return err
 	}

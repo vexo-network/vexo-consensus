@@ -170,10 +170,24 @@ func TestLevelDBStoreGetAtReadsVersionedKVHistory(t *testing.T) {
 	if string(value) != "200" {
 		t.Fatalf("unexpected latest historical value %q", value)
 	}
+	pairs, err := store.ExportNamespaceAt(ctx, 1, "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pairs) != 1 || string(pairs[0].Key) != "alice" || string(pairs[0].Value) != "100" {
+		t.Fatalf("unexpected height 1 namespace snapshot: %+v", pairs)
+	}
 
 	commitVersionedKVForTest(t, store, 3, nil, true)
 	if _, err := store.GetAt(ctx, 3, "bank", []byte("alice")); !errors.Is(err, ErrKeyNotFound) {
 		t.Fatalf("expected deleted key not found, got %v", err)
+	}
+	pairs, err = store.ExportNamespaceAt(ctx, 3, "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pairs) != 0 {
+		t.Fatalf("expected deleted key to disappear from historical snapshot, got %+v", pairs)
 	}
 }
 

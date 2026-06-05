@@ -77,7 +77,7 @@ func (runtime *Runtime) QueryProof(ctx context.Context, height types.Height, nam
 	if height == state.Height {
 		return queryproof.Build(ctx, runtime.Store, runtime.Config.ChainID, state.Height, namespace, key)
 	}
-	historicalStore, ok := runtime.Store.(store.HistoricalKVStore)
+	historicalStore, ok := runtime.Store.(store.HistoricalSnapshotKVStore)
 	if !ok {
 		return queryproof.Proof{}, ErrHistoricalQueryProofUnsupported
 	}
@@ -85,12 +85,11 @@ func (runtime *Runtime) QueryProof(ctx context.Context, height types.Height, nam
 	if err != nil {
 		return queryproof.Proof{}, err
 	}
-	value, err := historicalStore.GetAt(ctx, height, namespace, key)
-	exists := err == nil
-	if err != nil && !errors.Is(err, store.ErrKeyNotFound) {
+	pairs, err := historicalStore.ExportNamespaceAt(ctx, height, namespace)
+	if err != nil {
 		return queryproof.Proof{}, err
 	}
-	return queryproof.BuildFromValue(runtime.Config.ChainID, height, namespace, key, value, exists, rootRecord.Root)
+	return queryproof.BuildFromKVPairs(runtime.Config.ChainID, height, namespace, key, pairs, rootRecord.Root)
 }
 
 func (runtime *Runtime) IBCQuery(ctx context.Context, path []string) (app.QueryResponse, error) {

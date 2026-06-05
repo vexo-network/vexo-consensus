@@ -16,7 +16,7 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 - Height-versioned validator registry with validator-set hash binding for consensus and light-client verification.
 - Modular application runtime with pluggable modules and module-owned CLI commands.
 - Split subsystem configuration through `config.json`, `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json`, and `log_config.json`.
-- Durable LevelDB storage for blocks, state, state roots, evidence, KV state, schema metadata, pruning, recovery, and snapshots.
+- Durable LevelDB storage for blocks, state, Merkle state roots, evidence, KV state, schema metadata, pruning, recovery, and snapshots.
 - Signed transaction envelopes with nonce, fee units, dynamic base fee, gas metering, and ante validation paths.
 - Slashing evidence lifecycle with penalty receipts, jailing, unbonding checks, and restart-aware recovery.
 - gRPC/TCP/in-memory transport abstractions with peer handshake validation, scoring, bans, backoff, and rate limits.
@@ -39,7 +39,8 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 | `params` | Cosmos-style module parameter keeper and parameter transaction/query module |
 | `events` | Event indexing primitives for block/tx attributes |
 | `ibc` | IBC client, connection, channel, and packet lifecycle primitives |
-| `queryproof` | Latest and historical query proof envelope for namespace/key state-root binding |
+| `queryproof` | Latest and historical Merkle query proofs for namespace/key state-root binding |
+| `stateproof` | Deterministic namespace Merkle tree and proof verification helpers |
 | `contract` | VM registry boundary for future EVM/WASM-compatible modules |
 | `consensus` | Consensus state machine, certificates, evidence, safety checks, and adversarial simulations |
 | `finality` | Finality proof construction and verifier API |

@@ -72,14 +72,14 @@ Do not leak private key material, auth token values, or internal file contents i
 
 ## Query Proofs
 
-`/v1/proof` returns a state-root-bound query-proof envelope for KV state. If `height` is omitted, the latest committed height is used:
+`/v1/proof` returns a state-root-bound Merkle query-proof envelope for KV state. If `height` is omitted, the latest committed height is used:
 
 ```bash
 curl 'http://127.0.0.1:26657/v1/proof?namespace=bank&key=alice'
 curl 'http://127.0.0.1:26657/v1/proof?height=10&namespace=bank&key=alice'
 ```
 
-LevelDB stores height-versioned KV writes during atomic block commits, so historical proofs read the latest key version at or below the requested height and bind it to the state root saved for that height. Stores that do not implement historical KV reads must reject historical proof requests instead of returning latest values for older heights.
+LevelDB stores height-versioned KV writes during atomic block commits, so historical proofs rebuild the namespace snapshot at the requested height and bind membership or non-membership to the state root saved for that height. Existing-key proofs include a compact Merkle path. Missing-key proofs include a full namespace absence witness so verifiers can recompute the root and confirm the key is absent. Stores that do not implement historical namespace reads must reject historical proof requests instead of returning latest values for older heights.
 
 ## Event Queries
 
@@ -105,7 +105,7 @@ curl 'http://127.0.0.1:26657/v1/ibc/proof/packet/1/transfer/channel-0/transfer/c
 
 Responses wrap the module JSON state in `{ "path": [...], "value": ... }`. Missing IBC state returns `404`.
 
-Packet proof responses reuse the standard query-proof envelope with namespace `ibc` and packet commitment key `packets/{source_port}/{source_channel}/{sequence}`. Relayers can use this endpoint to prove sent, acknowledged, or timed-out packet receipt state at a specific height. The keeper validates client chain ID, trusted height, trusted state root, namespace, key, existence, and decoded packet receipt before accepting a packet commitment proof.
+Packet proof responses reuse the standard Merkle query-proof envelope with namespace `ibc` and packet commitment key `packets/{source_port}/{source_channel}/{sequence}`. Relayers can use this endpoint to prove sent, acknowledged, or timed-out packet receipt state at a specific height. The keeper validates client chain ID, trusted height, trusted state root, namespace, key, existence, Merkle proof, and decoded packet receipt before accepting a packet commitment proof.
 
 ## Operational Compatibility
 

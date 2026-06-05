@@ -130,6 +130,10 @@ type HistoricalKVStore interface {
 	GetAt(ctx context.Context, height types.Height, namespace string, key []byte) ([]byte, error)
 }
 
+type HistoricalSnapshotKVStore interface {
+	ExportNamespaceAt(ctx context.Context, height types.Height, namespace string) ([]KVPair, error)
+}
+
 type BatchKVStore = kvbatch.BatchKVStore
 
 type SnapshotKVStore interface {

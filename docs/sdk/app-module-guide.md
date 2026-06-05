@@ -89,9 +89,9 @@ func (module Module) Events(ctx app.Context, tx types.Tx, result types.Result) [
 
 Keep events deterministic: the same block and transaction must emit the same event type, attributes, and index flags on every node.
 
-For state-root-bound queries, use `queryproof.Build` and `queryproof.Verify` to wrap a namespace/key/value lookup with chain ID, height, state root, and deterministic leaf hash. This is a query-proof envelope, not a full Cosmos IAVL proof.
+For state-root-bound queries, use `queryproof.Build` and `queryproof.Verify` to wrap a namespace/key/value lookup with chain ID, height, Merkle state root, deterministic leaf hash, and either a compact membership path or a namespace absence witness. This is Vexo's native state proof format, not Cosmos IAVL.
 
-The CLI exposes the same query-proof envelope:
+The CLI exposes the same Merkle query-proof envelope:
 
 ```bash
 vexod proof query --home .vexo --namespace bank --key alice > proof.json
