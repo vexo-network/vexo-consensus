@@ -82,6 +82,7 @@ func TestStateMachineApplyCommitRule(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)

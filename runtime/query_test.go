@@ -42,7 +42,7 @@ func TestRuntimeQueriesReturnNotFoundWithoutStore(t *testing.T) {
 	}
 }
 
-func TestRuntimeQueryProofUsesLatestHeightOnly(t *testing.T) {
+func TestRuntimeQueryProofSupportsHistoricalHeight(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -53,20 +53,39 @@ func TestRuntimeQueryProofUsesLatestHeightOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if err := storage.Set(ctx, "bank", []byte("alice"), []byte("100")); err != nil {
-		t.Fatal(err)
-	}
-	if err := storage.SaveState(ctx, store.StateRecord{Height: 3, AppHash: types.Hash{3}}); err != nil {
-		t.Fatal(err)
-	}
+	commitQueryProofState(t, storage, 1, []byte("100"))
+	commitQueryProofState(t, storage, 2, []byte("200"))
 	proof, err := runtime.QueryProof(ctx, 0, "bank", []byte("alice"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if proof.ChainID != "vexo-test" || proof.Height != 3 || !proof.Exists {
+	if proof.ChainID != "vexo-test" || proof.Height != 2 || !proof.Exists || string(proof.Value) != "200" {
 		t.Fatalf("unexpected proof: %+v", proof)
 	}
-	if _, err := runtime.QueryProof(ctx, 2, "bank", []byte("alice")); !errors.Is(err, ErrHistoricalQueryProofUnsupported) {
-		t.Fatalf("expected historical proof rejection, got %v", err)
+	historicalProof, err := runtime.QueryProof(ctx, 1, "bank", []byte("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if historicalProof.Height != 1 || !historicalProof.Exists || string(historicalProof.Value) != "100" {
+		t.Fatalf("unexpected historical proof: %+v", historicalProof)
+	}
+}
+
+func commitQueryProofState(t *testing.T, storage *store.LevelDBStore, height types.Height, value []byte) {
+	t.Helper()
+	ctx := context.Background()
+	writes := []store.KVWrite{{Namespace: "bank", Key: []byte("alice"), Value: value}}
+	root, err := storage.RootWithWrites(ctx, "bank", writes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.CommitBlockStateWithWrites(
+		ctx,
+		writes,
+		store.BlockRecord{Block: types.Block{Header: types.Header{ChainID: "vexo-test", Height: height}}, Hash: types.Hash{byte(height)}, AppHash: types.Hash{byte(height)}},
+		store.StateRecord{Height: height, AppHash: types.Hash{byte(height)}, LastBlockHash: types.Hash{byte(height)}},
+		[]store.StateRootRecord{{Height: height, Namespace: "bank", Root: root}},
+	); err != nil {
+		t.Fatal(err)
 	}
 }

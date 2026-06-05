@@ -2,6 +2,7 @@ package consensus
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sort"
@@ -29,6 +30,8 @@ var (
 	ErrStaleVote         = errors.New("stale vote")
 	ErrUnsafeProposal    = errors.New("unsafe proposal")
 	ErrUnsafeVote        = errors.New("unsafe vote")
+	ErrAggregateRequired = errors.New("aggregate signer is required")
+	ErrMissingSignature  = errors.New("vote signature is required")
 	ErrConflictingCommit = safety.ErrConflictingCommit
 )
 
@@ -233,6 +236,7 @@ func (machine *StateMachine) OnVote(ctx context.Context, vote Vote) error {
 	if _, found := machine.validatorSet.Get(vote.ValidatorID); !found {
 		return ErrUnknownValidator
 	}
+	machine.ensureVoteSignature(&vote)
 	if err := machine.validateVote(vote); err != nil {
 		return err
 	}
@@ -299,6 +303,7 @@ func (machine *StateMachine) OnTimeoutVote(ctx context.Context, vote TimeoutVote
 	machine.mu.Lock()
 	defer machine.mu.Unlock()
 
+	machine.ensureTimeoutVoteSignature(&vote)
 	if err := machine.verifyTimeoutVoteSignature(vote); err != nil {
 		return finality.TimeoutCert{}, err
 	}
@@ -400,13 +405,15 @@ func (machine *StateMachine) buildQuorumCert(height types.Height, round types.Ro
 		signers = append(signers, string(vote.validatorID))
 		signatures = append(signatures, vote.signature)
 	}
-	aggregateSignature := types.AggregateSignature("placeholder-aggregate-signature")
-	if machine.aggregator != nil && allSignaturesPresent(signatures) {
-		signature, err := machine.aggregator.Aggregate(signatures)
-		if err != nil {
-			return finality.QuorumCert{}, err
-		}
-		aggregateSignature = signature
+	if machine.aggregator == nil {
+		return finality.QuorumCert{}, ErrAggregateRequired
+	}
+	if !allSignaturesPresent(signatures) {
+		return finality.QuorumCert{}, ErrMissingSignature
+	}
+	aggregateSignature, err := machine.aggregator.Aggregate(signatures)
+	if err != nil {
+		return finality.QuorumCert{}, err
 	}
 	return finality.QuorumCert{
 		Height:      height,
@@ -482,6 +489,13 @@ func (machine *StateMachine) verifyVoteSignature(vote Vote) error {
 	return nil
 }
 
+func (machine *StateMachine) ensureVoteSignature(vote *Vote) {
+	if machine.signatures != nil || len(vote.Signature) > 0 {
+		return
+	}
+	vote.Signature = unsignedConsensusSignature("unsigned-vote", vote.ValidatorID, VoteSignBytes(*vote))
+}
+
 func (machine *StateMachine) verifyTimeoutVoteSignature(vote TimeoutVote) error {
 	if machine.signatures == nil {
 		return nil
@@ -501,6 +515,23 @@ func (machine *StateMachine) verifyTimeoutVoteSignature(vote TimeoutVote) error 
 		return fmt.Errorf("%w: invalid timeout vote signature", ErrInvalidVote)
 	}
 	return nil
+}
+
+func (machine *StateMachine) ensureTimeoutVoteSignature(vote *TimeoutVote) {
+	if machine.signatures != nil || len(vote.Signature) > 0 {
+		return
+	}
+	vote.Signature = unsignedConsensusSignature("unsigned-timeout-vote", vote.ValidatorID, TimeoutVoteSignBytes(*vote))
+}
+
+func unsignedConsensusSignature(kind string, validatorID types.ValidatorID, signBytes []byte) types.Signature {
+	hasher := sha256.New()
+	hasher.Write([]byte(kind))
+	hasher.Write([]byte{0})
+	hasher.Write([]byte(validatorID))
+	hasher.Write([]byte{0})
+	hasher.Write(signBytes)
+	return types.Signature(hasher.Sum(nil))
 }
 
 func (machine *StateMachine) CommitDecisions() []CommitDecision {

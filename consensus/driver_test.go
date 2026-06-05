@@ -113,6 +113,7 @@ func TestStepDriverReturnsNoQuorumWithInsufficientPower(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -146,6 +147,7 @@ func newTestDriver(t *testing.T) (*StateMachine, *StepDriver) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)

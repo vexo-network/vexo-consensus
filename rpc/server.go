@@ -1012,6 +1012,41 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, method stri
 		return hexQuantity(chainNumericID(provider.Status(ctx).ChainID)), nil
 	case "eth_blockNumber":
 		return hexQuantity(uint64(provider.Status(ctx).LatestHeight)), nil
+	case "eth_gasPrice":
+		if query, ok := provider.(ChainQueryProvider); ok {
+			state, err := query.LatestState(ctx)
+			if err == nil {
+				if state.NextBaseFee > 0 {
+					return hexQuantity(state.NextBaseFee), nil
+				}
+				return hexQuantity(state.BaseFee), nil
+			}
+		}
+		return hexQuantity(0), nil
+	case "eth_getBalance":
+		query, ok := provider.(AppQueryProvider)
+		if !ok {
+			return nil, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
+		}
+		if len(params) == 0 || len(params) > 2 {
+			return nil, &JSONRPCError{Code: -32602, Message: "eth_getBalance requires address and optional block tag"}
+		}
+		address, err := jsonRPCStringParam(params[0])
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+		}
+		response, err := query.AppQuery(ctx, []string{"bank", "balance", address}, nil)
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
+		if response.Code != 0 {
+			return nil, &JSONRPCError{Code: -32000, Message: response.Log}
+		}
+		balance, err := strconv.ParseUint(string(response.Value), 10, 64)
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32000, Message: "invalid balance response"}
+		}
+		return hexQuantity(balance), nil
 	case "eth_sendRawTransaction":
 		submitter, ok := provider.(TxSubmitter)
 		if !ok {
@@ -1056,6 +1091,29 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, method stri
 			return nil, &JSONRPCError{Code: -32000, Message: response.Log}
 		}
 		return rawJSONObject(response.Value)
+	case "eth_getTransactionByHash":
+		query, ok := provider.(AppQueryProvider)
+		if !ok {
+			return nil, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
+		}
+		if len(params) != 1 {
+			return nil, &JSONRPCError{Code: -32602, Message: "eth_getTransactionByHash requires one transaction hash"}
+		}
+		hash, err := jsonRPCStringParam(params[0])
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+		}
+		response, err := query.AppQuery(ctx, []string{"evm", "receipt", hash}, nil)
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
+		if response.Code == 3 {
+			return nil, nil
+		}
+		if response.Code != 0 {
+			return nil, &JSONRPCError{Code: -32000, Message: response.Log}
+		}
+		return web3TransactionFromReceipt(response.Value)
 	case "eth_getLogs":
 		query, ok := provider.(AppQueryProvider)
 		if !ok {
@@ -1139,6 +1197,44 @@ type web3TransactionCall struct {
 	Value  string `json:"value"`
 	VM     string `json:"vm"`
 	Method string `json:"method"`
+}
+
+type web3Receipt struct {
+	TxHash          string `json:"tx_hash"`
+	Height          uint64 `json:"height"`
+	Status          uint32 `json:"status"`
+	From            string `json:"from"`
+	To              string `json:"to,omitempty"`
+	ContractAddress string `json:"contract_address,omitempty"`
+	GasUsed         uint64 `json:"gas_used"`
+	Output          string `json:"output,omitempty"`
+}
+
+func web3TransactionFromReceipt(value []byte) (any, *JSONRPCError) {
+	var receipt web3Receipt
+	if err := json.Unmarshal(value, &receipt); err != nil {
+		return nil, &JSONRPCError{Code: -32000, Message: "invalid EVM receipt response"}
+	}
+	if receipt.TxHash == "" {
+		return nil, &JSONRPCError{Code: -32000, Message: "missing EVM receipt hash"}
+	}
+	to := receipt.To
+	if to == "" && receipt.ContractAddress != "" {
+		to = receipt.ContractAddress
+	}
+	return map[string]any{
+		"hash":             receipt.TxHash,
+		"nonce":            "0x0",
+		"blockHash":        nil,
+		"blockNumber":      hexQuantity(receipt.Height),
+		"transactionIndex": "0x0",
+		"from":             receipt.From,
+		"to":               to,
+		"value":            "0x0",
+		"gas":              hexQuantity(receipt.GasUsed),
+		"gasPrice":         "0x0",
+		"input":            receipt.Output,
+	}, nil
 }
 
 func evmCallParam(params []json.RawMessage) (web3CallRequest, *JSONRPCError) {

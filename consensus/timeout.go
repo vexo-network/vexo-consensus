@@ -104,13 +104,15 @@ func (collector *TimeoutCollector) BuildTimeoutCert(height types.Height, round t
 		signers = append(signers, string(vote.validatorID))
 		signatures = append(signatures, vote.signature)
 	}
-	aggregateSignature := types.AggregateSignature("placeholder-timeout-signature")
-	if collector.aggregator != nil && allSignaturesPresent(signatures) {
-		signature, err := collector.aggregator.Aggregate(signatures)
-		if err != nil {
-			return finality.TimeoutCert{}, err
-		}
-		aggregateSignature = signature
+	if collector.aggregator == nil {
+		return finality.TimeoutCert{}, ErrAggregateRequired
+	}
+	if !allSignaturesPresent(signatures) {
+		return finality.TimeoutCert{}, ErrMissingSignature
+	}
+	aggregateSignature, err := collector.aggregator.Aggregate(signatures)
+	if err != nil {
+		return finality.TimeoutCert{}, err
 	}
 	return finality.TimeoutCert{
 		Height:    height,

@@ -15,15 +15,15 @@ func TestTimeoutCollectorBuildsTimeoutCert(t *testing.T) {
 		{ID: "b", VotingPower: 1},
 		{ID: "c", VotingPower: 1},
 	})
-	collector := NewTimeoutCollector(set)
+	collector := NewTimeoutCollectorWithAggregator(set, testAggregateSigner{})
 
-	if err := collector.AddVote(TimeoutVote{Height: 1, Round: 2, ValidatorID: "a"}); err != nil {
+	if err := collector.AddVote(testCollectorTimeoutVote(1, 2, "a", finality.QuorumCert{})); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := collector.BuildTimeoutCert(1, 2); !errors.Is(err, ErrNoQuorum) {
 		t.Fatalf("expected no quorum, got %v", err)
 	}
-	if err := collector.AddVote(TimeoutVote{Height: 1, Round: 2, ValidatorID: "b"}); err != nil {
+	if err := collector.AddVote(testCollectorTimeoutVote(1, 2, "b", finality.QuorumCert{})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -42,14 +42,14 @@ func TestTimeoutCollectorSelectsHighestQC(t *testing.T) {
 		{ID: "b", VotingPower: 1},
 		{ID: "c", VotingPower: 1},
 	})
-	collector := NewTimeoutCollector(set)
+	collector := NewTimeoutCollectorWithAggregator(set, testAggregateSigner{})
 
 	lowerQC := finality.QuorumCert{Height: 2, Round: 3, BlockHash: types.Hash{2}}
 	higherQC := finality.QuorumCert{Height: 3, Round: 0, BlockHash: types.Hash{3}}
-	if err := collector.AddVote(TimeoutVote{Height: 4, Round: 1, ValidatorID: "a", HighQC: lowerQC}); err != nil {
+	if err := collector.AddVote(testCollectorTimeoutVote(4, 1, "a", lowerQC)); err != nil {
 		t.Fatal(err)
 	}
-	if err := collector.AddVote(TimeoutVote{Height: 4, Round: 1, ValidatorID: "b", HighQC: higherQC}); err != nil {
+	if err := collector.AddVote(testCollectorTimeoutVote(4, 1, "b", higherQC)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -68,14 +68,14 @@ func TestTimeoutCollectorUsesRoundTieBreakerForHighestQC(t *testing.T) {
 		{ID: "b", VotingPower: 1},
 		{ID: "c", VotingPower: 1},
 	})
-	collector := NewTimeoutCollector(set)
+	collector := NewTimeoutCollectorWithAggregator(set, testAggregateSigner{})
 
 	lowerRound := finality.QuorumCert{Height: 2, Round: 1, BlockHash: types.Hash{1}}
 	higherRound := finality.QuorumCert{Height: 2, Round: 2, BlockHash: types.Hash{2}}
-	if err := collector.AddVote(TimeoutVote{Height: 3, Round: 1, ValidatorID: "a", HighQC: lowerRound}); err != nil {
+	if err := collector.AddVote(testCollectorTimeoutVote(3, 1, "a", lowerRound)); err != nil {
 		t.Fatal(err)
 	}
-	if err := collector.AddVote(TimeoutVote{Height: 3, Round: 1, ValidatorID: "b", HighQC: higherRound}); err != nil {
+	if err := collector.AddVote(testCollectorTimeoutVote(3, 1, "b", higherRound)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -94,15 +94,15 @@ func TestTimeoutCollectorWeightedQuorum(t *testing.T) {
 		{ID: "b", VotingPower: 2},
 		{ID: "c", VotingPower: 1},
 	})
-	collector := NewTimeoutCollector(set)
+	collector := NewTimeoutCollectorWithAggregator(set, testAggregateSigner{})
 
-	if err := collector.AddVote(TimeoutVote{Height: 1, Round: 0, ValidatorID: "a"}); err != nil {
+	if err := collector.AddVote(testCollectorTimeoutVote(1, 0, "a", finality.QuorumCert{})); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := collector.BuildTimeoutCert(1, 0); !errors.Is(err, ErrNoQuorum) {
 		t.Fatalf("expected no quorum, got %v", err)
 	}
-	if err := collector.AddVote(TimeoutVote{Height: 1, Round: 0, ValidatorID: "b"}); err != nil {
+	if err := collector.AddVote(testCollectorTimeoutVote(1, 0, "b", finality.QuorumCert{})); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := collector.BuildTimeoutCert(1, 0); err != nil {
@@ -112,7 +112,7 @@ func TestTimeoutCollectorWeightedQuorum(t *testing.T) {
 
 func TestTimeoutCollectorRejectsUnknownValidator(t *testing.T) {
 	set := newTestValidatorSet([]validator.Validator{{ID: "a", VotingPower: 1}})
-	collector := NewTimeoutCollector(set)
+	collector := NewTimeoutCollectorWithAggregator(set, testAggregateSigner{})
 
 	err := collector.AddVote(TimeoutVote{Height: 1, Round: 0, ValidatorID: "unknown"})
 	if !errors.Is(err, ErrUnknownValidator) {
@@ -122,7 +122,7 @@ func TestTimeoutCollectorRejectsUnknownValidator(t *testing.T) {
 
 func TestTimeoutCollectorRejectsConflictingTimeoutVote(t *testing.T) {
 	set := newTestValidatorSet([]validator.Validator{{ID: "a", VotingPower: 1}})
-	collector := NewTimeoutCollector(set)
+	collector := NewTimeoutCollectorWithAggregator(set, testAggregateSigner{})
 
 	first := TimeoutVote{Height: 1, Round: 0, ValidatorID: "a", HighQC: finality.QuorumCert{BlockHash: types.Hash{1}}}
 	second := TimeoutVote{Height: 1, Round: 0, ValidatorID: "a", HighQC: finality.QuorumCert{BlockHash: types.Hash{2}}}
@@ -143,7 +143,7 @@ func TestTimeoutCollectorRejectsConflictingTimeoutVote(t *testing.T) {
 
 func TestTimeoutCollectorAllowsRepeatedSameTimeoutVote(t *testing.T) {
 	set := newTestValidatorSet([]validator.Validator{{ID: "a", VotingPower: 1}})
-	collector := NewTimeoutCollector(set)
+	collector := NewTimeoutCollectorWithAggregator(set, testAggregateSigner{})
 
 	vote := TimeoutVote{Height: 1, Round: 0, ValidatorID: "a", HighQC: finality.QuorumCert{Height: 1, Round: 1, BlockHash: types.Hash{1}}}
 	if err := collector.AddVote(vote); err != nil {
@@ -178,4 +178,10 @@ func TestPacemakerRejectsStaleTimeoutCert(t *testing.T) {
 	if !errors.Is(err, ErrStaleTimeoutCert) {
 		t.Fatalf("expected stale timeout cert by round, got %v", err)
 	}
+}
+
+func testCollectorTimeoutVote(height types.Height, round types.Round, validatorID types.ValidatorID, highQC finality.QuorumCert) TimeoutVote {
+	vote := TimeoutVote{Height: height, Round: round, ValidatorID: validatorID, HighQC: highQC}
+	vote.Signature = unsignedConsensusSignature("test-timeout-vote", validatorID, TimeoutVoteSignBytes(vote))
+	return vote
 }

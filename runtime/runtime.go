@@ -447,7 +447,7 @@ func (runtime *Runtime) AppModules() []app.Module {
 }
 
 func (runtime *Runtime) NewConsensusStateMachine(ctx context.Context, height types.Height) (*consensus.StateMachine, error) {
-	return runtime.NewConsensusStateMachineWithSignatures(ctx, height, nil)
+	return runtime.NewConsensusStateMachineWithSignatures(ctx, height, runtime.Crypto.ConsensusVerifier)
 }
 
 func (runtime *Runtime) NewConsensusStateMachineWithSignatures(ctx context.Context, height types.Height, signatures interface {

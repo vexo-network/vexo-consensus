@@ -149,6 +149,52 @@ func TestLevelDBStoreCommitBlockStateWithWritesPersistsKVAndMetadataAtomically(t
 	}
 }
 
+func TestLevelDBStoreGetAtReadsVersionedKVHistory(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+	ctx := context.Background()
+
+	commitVersionedKVForTest(t, store, 1, []byte("100"), false)
+	commitVersionedKVForTest(t, store, 2, []byte("200"), false)
+	value, err := store.GetAt(ctx, 1, "bank", []byte("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(value) != "100" {
+		t.Fatalf("unexpected historical value %q", value)
+	}
+	value, err = store.GetAt(ctx, 2, "bank", []byte("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(value) != "200" {
+		t.Fatalf("unexpected latest historical value %q", value)
+	}
+
+	commitVersionedKVForTest(t, store, 3, nil, true)
+	if _, err := store.GetAt(ctx, 3, "bank", []byte("alice")); !errors.Is(err, ErrKeyNotFound) {
+		t.Fatalf("expected deleted key not found, got %v", err)
+	}
+}
+
+func commitVersionedKVForTest(t *testing.T, store *LevelDBStore, height types.Height, value []byte, deleted bool) {
+	t.Helper()
+	write := KVWrite{Namespace: "bank", Key: []byte("alice"), Value: value, Delete: deleted}
+	root, err := store.RootWithWrites(context.Background(), "bank", []KVWrite{write})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CommitBlockStateWithWrites(
+		context.Background(),
+		[]KVWrite{write},
+		BlockRecord{Block: types.Block{Header: types.Header{Height: height}}, Hash: types.Hash{byte(height)}, AppHash: types.Hash{byte(height)}},
+		StateRecord{Height: height, AppHash: types.Hash{byte(height)}, LastBlockHash: types.Hash{byte(height)}},
+		[]StateRootRecord{{Height: height, Namespace: "bank", Root: root}},
+	); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestLevelDBStorePersistsSchemaState(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)

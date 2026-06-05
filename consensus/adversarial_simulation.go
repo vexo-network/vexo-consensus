@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -225,6 +226,7 @@ func simulationRunner(validators []validator.Validator) (*StateMachine, *Adversa
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   vexocrypto.DeterministicAggregateSigner{},
 	})
 	if err != nil {
 		return nil, nil, err

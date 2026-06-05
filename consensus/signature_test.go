@@ -90,8 +90,8 @@ func TestStateMachineVerifiesProposalAndVoteDomains(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build qc: %v", err)
 	}
-	if string(quorumCert.Signature) == "placeholder-aggregate-signature" {
-		t.Fatal("expected real aggregate signature")
+	if len(quorumCert.Signature) == 0 {
+		t.Fatal("expected aggregate signature")
 	}
 	voteAggregate, err := vexocrypto.NewDomainAggregateSigner(vexocrypto.DeterministicAggregateSigner{}, vexocrypto.DomainConsensusVote)
 	if err != nil {
@@ -151,8 +151,8 @@ func TestStateMachineVerifiesTimeoutVoteDomain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second timeout vote: %v", err)
 	}
-	if string(timeoutCert.Signature) == "placeholder-timeout-signature" {
-		t.Fatal("expected real timeout aggregate signature")
+	if len(timeoutCert.Signature) == 0 {
+		t.Fatal("expected timeout aggregate signature")
 	}
 }
 

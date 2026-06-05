@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -50,6 +51,28 @@ func kvNamespacePrefix(namespace string) []byte {
 	dbKey := append([]byte(nil), kvPrefix...)
 	dbKey = append(dbKey, []byte(namespace)...)
 	return append(dbKey, ':')
+}
+
+func kvHistoryPrefixKey(namespace string, key []byte) []byte {
+	dbKey := append([]byte(nil), kvHistoryPrefix...)
+	dbKey = append(dbKey, []byte(namespace)...)
+	dbKey = append(dbKey, ':')
+	dbKey = append(dbKey, []byte(hex.EncodeToString(key))...)
+	return append(dbKey, ':')
+}
+
+func kvHistoryKey(height types.Height, namespace string, key []byte) []byte {
+	dbKey := kvHistoryPrefixKey(namespace, key)
+	var buffer [8]byte
+	binary.BigEndian.PutUint64(buffer[:], uint64(height))
+	return append(dbKey, buffer[:]...)
+}
+
+func kvHistoryHeightFromKey(prefix []byte, key []byte) (types.Height, bool) {
+	if len(key) != len(prefix)+8 || string(key[:len(prefix)]) != string(prefix) {
+		return 0, false
+	}
+	return types.Height(binary.BigEndian.Uint64(key[len(prefix):])), true
 }
 
 func stateHeightKey(height types.Height) []byte {

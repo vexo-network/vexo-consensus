@@ -685,6 +685,7 @@ func TestHandlerSubmitsBase64Transaction(t *testing.T) {
 func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	provider := &fakeStatusProvider{
 		status:           node.Status{ChainID: "vexo-chain", LatestHeight: 12},
+		state:            store.StateRecord{Height: 12, BaseFee: 9, NextBaseFee: 11},
 		appQueryResponse: vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"0xabc","status":1,"gas_used":7,"logs":[{"address":"0xcontract","data":"0x01"}]}`)},
 	}
 	handler := NewHandler(provider)
@@ -704,6 +705,34 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("expected tx hash result, got %+v", sendRaw.Result)
 	}
 
+	var gasPrice JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":30,"method":"eth_gasPrice","params":[]}`, http.StatusOK, &gasPrice)
+	if gasPrice.Error != nil || gasPrice.Result != "0xb" {
+		t.Fatalf("unexpected gas price response: %+v", gasPrice)
+	}
+
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`123`)}
+	var balance JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":31,"method":"eth_getBalance","params":["0xaaaa","latest"]}`, http.StatusOK, &balance)
+	if balance.Error != nil || balance.Result != "0x7b" {
+		t.Fatalf("unexpected balance response: %+v", balance)
+	}
+	if provider.appQueryPath[0] != "bank" || provider.appQueryPath[1] != "balance" || provider.appQueryPath[2] != "0xaaaa" {
+		t.Fatalf("unexpected balance query path: %+v", provider.appQueryPath)
+	}
+
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"0xabc","height":12,"status":1,"from":"0xaaaa","to":"0xbbbb","gas_used":7,"output":"0x1234"}`)}
+	var txByHash JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":32,"method":"eth_getTransactionByHash","params":["0xabc"]}`, http.StatusOK, &txByHash)
+	if txByHash.Error != nil {
+		t.Fatalf("unexpected transaction error: %+v", txByHash)
+	}
+	txResult, ok := txByHash.Result.(map[string]any)
+	if !ok || txResult["hash"] != "0xabc" || txResult["blockNumber"] != "0xc" {
+		t.Fatalf("unexpected transaction response: %+v", txByHash.Result)
+	}
+
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"0xabc","status":1,"gas_used":7,"logs":[{"address":"0xcontract","data":"0x01"}]}`)}
 	var receipt JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":3,"method":"eth_getTransactionReceipt","params":["0xabc"]}`, http.StatusOK, &receipt)
 	if receipt.Error != nil {

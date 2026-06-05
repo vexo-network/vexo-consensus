@@ -21,6 +21,7 @@ var (
 	evidencePrefix    = []byte("evidence:")
 	evidenceIndexKey  = []byte("evidence:index")
 	kvPrefix          = []byte("kv:")
+	kvHistoryPrefix   = []byte("kvh:")
 	schemaStateKey    = []byte("schema:state")
 	stateLatestKey    = []byte("state:latest")
 	stateHeightPrefix = []byte("state:height:")
@@ -29,6 +30,14 @@ var (
 
 type LevelDBStore struct {
 	db *leveldb.DB
+}
+
+type kvHistoryRecord struct {
+	Height    types.Height `json:"height"`
+	Namespace string       `json:"namespace"`
+	Key       []byte       `json:"key"`
+	Value     []byte       `json:"value,omitempty"`
+	Deleted   bool         `json:"deleted,omitempty"`
 }
 
 func OpenLevelDB(path string) (*LevelDBStore, error) {
@@ -381,6 +390,18 @@ func (store *LevelDBStore) commitBlockStateBatch(ctx context.Context, writes []K
 	batch := new(leveldb.Batch)
 	for _, write := range writes {
 		key := kvKey(write.Namespace, write.Key)
+		history := kvHistoryRecord{
+			Height:    state.Height,
+			Namespace: write.Namespace,
+			Key:       append([]byte(nil), write.Key...),
+			Value:     append([]byte(nil), write.Value...),
+			Deleted:   write.Delete,
+		}
+		encodedHistory, err := json.Marshal(history)
+		if err != nil {
+			return err
+		}
+		batch.Put(kvHistoryKey(state.Height, write.Namespace, write.Key), encodedHistory)
 		if write.Delete {
 			batch.Delete(key)
 			continue
@@ -466,6 +487,59 @@ func (store *LevelDBStore) Get(ctx context.Context, namespace string, key []byte
 		return nil, err
 	}
 	return append([]byte(nil), value...), nil
+}
+
+func (store *LevelDBStore) GetAt(ctx context.Context, height types.Height, namespace string, key []byte) ([]byte, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	if height == 0 {
+		return nil, ErrStateNotFound
+	}
+	if namespace == "" {
+		return nil, ErrInvalidNamespace
+	}
+	if len(key) == 0 {
+		return nil, ErrInvalidKey
+	}
+
+	prefix := kvHistoryPrefixKey(namespace, key)
+	iterator := store.db.NewIterator(util.BytesPrefix(prefix), nil)
+	defer iterator.Release()
+
+	var selected kvHistoryRecord
+	var found bool
+	for iterator.Next() {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		recordHeight, ok := kvHistoryHeightFromKey(prefix, iterator.Key())
+		if !ok || recordHeight > height {
+			continue
+		}
+		var record kvHistoryRecord
+		if err := json.Unmarshal(iterator.Value(), &record); err != nil {
+			return nil, err
+		}
+		if record.Height != recordHeight || record.Namespace != namespace || string(record.Key) != string(key) {
+			return nil, ErrInvalidStateRecord
+		}
+		if !found || record.Height > selected.Height {
+			selected = record
+			found = true
+		}
+	}
+	if err := iterator.Error(); err != nil {
+		return nil, err
+	}
+	if !found || selected.Deleted {
+		return nil, ErrKeyNotFound
+	}
+	return append([]byte(nil), selected.Value...), nil
 }
 
 func (store *LevelDBStore) Delete(ctx context.Context, namespace string, key []byte) error {

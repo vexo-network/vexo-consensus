@@ -1,6 +1,7 @@
 package ibc
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -293,6 +294,26 @@ func (keeper *Keeper) VerifyClientProof(ctx context.Context, clientID string, pr
 	return nil
 }
 
+func (keeper *Keeper) VerifyPacketCommitmentProof(ctx context.Context, clientID string, packet Packet, proof queryproof.Proof) error {
+	if err := validatePacket(packet); err != nil {
+		return err
+	}
+	if err := keeper.VerifyClientProof(ctx, clientID, proof); err != nil {
+		return err
+	}
+	if proof.Namespace != Namespace || !bytes.Equal(proof.Key, packetCommitmentKey(packet)) || !proof.Exists {
+		return ErrInvalidProof
+	}
+	var receipt PacketReceipt
+	if err := json.Unmarshal(proof.Value, &receipt); err != nil {
+		return errors.Join(ErrInvalidProof, err)
+	}
+	if !samePacket(receipt.Packet, packet) || receipt.CommitHeight == 0 {
+		return ErrInvalidProof
+	}
+	return nil
+}
+
 func (keeper *Keeper) setJSON(ctx context.Context, key []byte, value any) error {
 	if keeper == nil || keeper.store == nil {
 		return ErrStoreMissing
@@ -379,4 +400,14 @@ func PacketCommitmentKey(packet Packet) []byte {
 func clonePacket(packet Packet) Packet {
 	packet.Data = append([]byte(nil), packet.Data...)
 	return packet
+}
+
+func samePacket(left Packet, right Packet) bool {
+	return left.Sequence == right.Sequence &&
+		left.SourcePort == right.SourcePort &&
+		left.SourceChannel == right.SourceChannel &&
+		left.DestinationPort == right.DestinationPort &&
+		left.DestinationChannel == right.DestinationChannel &&
+		bytes.Equal(left.Data, right.Data) &&
+		left.TimeoutHeight == right.TimeoutHeight
 }

@@ -151,6 +151,7 @@ func newAdversarialRunner(t *testing.T, validators []validator.Validator) (*Stat
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: newTestValidatorSet(validators),
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -56,6 +56,23 @@ func Build(ctx context.Context, kv store.KVStore, chainID string, height types.H
 	}, nil
 }
 
+func BuildFromValue(chainID string, height types.Height, namespace string, key []byte, value []byte, exists bool, stateRoot types.Hash) (Proof, error) {
+	if chainID == "" || height == 0 || namespace == "" || len(key) == 0 || stateRoot == (types.Hash{}) {
+		return Proof{}, ErrInvalidProof
+	}
+	return Proof{
+		SchemaVersion: SchemaVersionV1,
+		ChainID:       chainID,
+		Height:        height,
+		Namespace:     namespace,
+		Key:           append([]byte(nil), key...),
+		Value:         append([]byte(nil), value...),
+		Exists:        exists,
+		StateRoot:     stateRoot,
+		LeafHash:      leafHash(namespace, key, value, exists),
+	}, nil
+}
+
 func Verify(proof Proof, expectedChainID string, expectedHeight types.Height, expectedRoot types.Hash) error {
 	if proof.SchemaVersion != SchemaVersionV1 ||
 		proof.ChainID == "" ||

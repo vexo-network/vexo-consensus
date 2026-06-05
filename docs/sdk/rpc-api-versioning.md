@@ -72,13 +72,14 @@ Do not leak private key material, auth token values, or internal file contents i
 
 ## Query Proofs
 
-`/v1/proof` returns a state-root-bound query-proof envelope for the latest KV state:
+`/v1/proof` returns a state-root-bound query-proof envelope for KV state. If `height` is omitted, the latest committed height is used:
 
 ```bash
 curl 'http://127.0.0.1:26657/v1/proof?namespace=bank&key=alice'
+curl 'http://127.0.0.1:26657/v1/proof?height=10&namespace=bank&key=alice'
 ```
 
-Historical query proofs are rejected unless a chain integrates historical KV snapshots. This prevents nodes from returning a latest-value proof while pretending it belongs to an older height.
+LevelDB stores height-versioned KV writes during atomic block commits, so historical proofs read the latest key version at or below the requested height and bind it to the state root saved for that height. Stores that do not implement historical KV reads must reject historical proof requests instead of returning latest values for older heights.
 
 ## Event Queries
 
@@ -104,7 +105,7 @@ curl 'http://127.0.0.1:26657/v1/ibc/proof/packet/1/transfer/channel-0/transfer/c
 
 Responses wrap the module JSON state in `{ "path": [...], "value": ... }`. Missing IBC state returns `404`.
 
-Packet proof responses reuse the standard query-proof envelope with namespace `ibc` and packet commitment key `packets/{source_port}/{source_channel}/{sequence}`. Relayers can use this endpoint to prove sent, acknowledged, or timed-out packet receipt state at the latest height.
+Packet proof responses reuse the standard query-proof envelope with namespace `ibc` and packet commitment key `packets/{source_port}/{source_channel}/{sequence}`. Relayers can use this endpoint to prove sent, acknowledged, or timed-out packet receipt state at a specific height. The keeper validates client chain ID, trusted height, trusted state root, namespace, key, existence, and decoded packet receipt before accepting a packet commitment proof.
 
 ## Operational Compatibility
 

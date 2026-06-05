@@ -39,7 +39,7 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 | `params` | Cosmos-style module parameter keeper and parameter transaction/query module |
 | `events` | Event indexing primitives for block/tx attributes |
 | `ibc` | IBC client, connection, channel, and packet lifecycle primitives |
-| `queryproof` | Query proof envelope for namespace/key state-root binding |
+| `queryproof` | Latest and historical query proof envelope for namespace/key state-root binding |
 | `contract` | VM registry boundary for future EVM/WASM-compatible modules |
 | `consensus` | Consensus state machine, certificates, evidence, safety checks, and adversarial simulations |
 | `finality` | Finality proof construction and verifier API |

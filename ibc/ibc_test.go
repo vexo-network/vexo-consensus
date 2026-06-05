@@ -96,6 +96,52 @@ func TestKeeperUpdatesClientAndVerifiesProof(t *testing.T) {
 	}
 }
 
+func TestKeeperVerifiesPacketCommitmentProof(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	keeper := NewKeeper(storage)
+	client := ClientState{
+		ClientID:         "07-vexo-0",
+		ChainID:          "counterparty",
+		LatestHeight:     11,
+		ValidatorSetHash: types.Hash{1},
+	}
+	if err := keeper.SetClient(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	packet := Packet{Sequence: 1, SourcePort: "transfer", SourceChannel: "channel-0", DestinationPort: "transfer", DestinationChannel: "channel-1", Data: []byte("payload")}
+	if err := keeper.SendPacket(ctx, 11, packet); err != nil {
+		t.Fatal(err)
+	}
+	proof, err := queryproof.Build(ctx, storage, "counterparty", 11, Namespace, packetCommitmentKey(packet))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.UpdateClient(ctx, client.ClientID, 11, types.Hash{2}, proof.StateRoot); !errors.Is(err, ErrStaleClientUpdate) {
+		t.Fatalf("expected stale update because client is already at height 11, got %v", err)
+	}
+	client.LatestStateRoot = proof.StateRoot
+	if err := keeper.SetClient(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.VerifyPacketCommitmentProof(ctx, client.ClientID, packet, proof); err != nil {
+		t.Fatal(err)
+	}
+	wrongPacket := packet
+	wrongPacket.Sequence = 2
+	if err := keeper.VerifyPacketCommitmentProof(ctx, client.ClientID, wrongPacket, proof); !errors.Is(err, ErrInvalidProof) {
+		t.Fatalf("expected wrong packet proof rejection, got %v", err)
+	}
+	proof.Value = []byte(`{"packet":{"sequence":1},"commit_height":11}`)
+	if err := keeper.VerifyPacketCommitmentProof(ctx, client.ClientID, packet, proof); !errors.Is(err, ErrInvalidProof) {
+		t.Fatalf("expected tampered packet proof rejection, got %v", err)
+	}
+}
+
 func TestKeeperConnectionAndChannelHandshakeTransitions(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {

@@ -74,10 +74,23 @@ func (runtime *Runtime) QueryProof(ctx context.Context, height types.Height, nam
 	if height == 0 {
 		height = state.Height
 	}
-	if height != state.Height {
+	if height == state.Height {
+		return queryproof.Build(ctx, runtime.Store, runtime.Config.ChainID, state.Height, namespace, key)
+	}
+	historicalStore, ok := runtime.Store.(store.HistoricalKVStore)
+	if !ok {
 		return queryproof.Proof{}, ErrHistoricalQueryProofUnsupported
 	}
-	return queryproof.Build(ctx, runtime.Store, runtime.Config.ChainID, state.Height, namespace, key)
+	rootRecord, err := runtime.Store.StateRoot(ctx, height, namespace)
+	if err != nil {
+		return queryproof.Proof{}, err
+	}
+	value, err := historicalStore.GetAt(ctx, height, namespace, key)
+	exists := err == nil
+	if err != nil && !errors.Is(err, store.ErrKeyNotFound) {
+		return queryproof.Proof{}, err
+	}
+	return queryproof.BuildFromValue(runtime.Config.ChainID, height, namespace, key, value, exists, rootRecord.Root)
 }
 
 func (runtime *Runtime) IBCQuery(ctx context.Context, path []string) (app.QueryResponse, error) {

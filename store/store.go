@@ -126,6 +126,10 @@ type KVStore interface {
 	Root(ctx context.Context, namespace string) (types.Hash, error)
 }
 
+type HistoricalKVStore interface {
+	GetAt(ctx context.Context, height types.Height, namespace string, key []byte) ([]byte, error)
+}
+
 type BatchKVStore = kvbatch.BatchKVStore
 
 type SnapshotKVStore interface {

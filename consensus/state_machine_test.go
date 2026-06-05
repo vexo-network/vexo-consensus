@@ -2,6 +2,7 @@ package consensus
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"testing"
 
@@ -20,6 +21,7 @@ func TestStateMachineBuildsQuorumCert(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -62,6 +64,7 @@ func TestStateMachineStoresVoteQuorumCertInBlockTree(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -112,6 +115,7 @@ func TestStateMachineCreateProposalUsesHighQC(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -152,6 +156,7 @@ func TestStateMachineCreateProposalKeepsExplicitQC(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -179,6 +184,7 @@ func TestStateMachineRejectsUnsafeForkBelowLockedQC(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -221,6 +227,7 @@ func TestStateMachineRejectsUnsafeVoteBelowLockedQC(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -267,6 +274,7 @@ func TestStateMachineAcceptsSafeVoteExtendingLockedQC(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -312,6 +320,7 @@ func TestStateMachineAcceptsProposalExtendingLockedQC(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -353,6 +362,7 @@ func TestStateMachineAcceptsProposalWithNewerQCThanLockedQC(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -399,6 +409,7 @@ func TestStateMachineWeightedQuorum(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -431,6 +442,7 @@ func TestStateMachineRejectsUnknownValidatorVote(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -450,6 +462,7 @@ func TestStateMachineRejectsUnknownVoteTarget(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -472,6 +485,7 @@ func TestStateMachineRejectsInvalidVoteFields(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -522,6 +536,7 @@ func TestStateMachineRejectsStaleVote(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -547,6 +562,7 @@ func TestStateMachineObservesTimeoutCertHighQCForNextProposal(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -581,6 +597,7 @@ func TestStateMachineRejectsUnknownProposalProposer(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -603,6 +620,7 @@ func TestStateMachineRejectsWrongChainProposal(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -625,6 +643,7 @@ func TestStateMachineAcceptsValidProposal(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -654,6 +673,7 @@ func TestStateMachineAutoCommitsThreeChainOnProposal(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -712,6 +732,7 @@ func TestStateMachineRejectsConflictingCommitAtSameHeight(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -752,6 +773,7 @@ func TestStateMachineRejectsProposalWithMismatchedJustifyQCParent(t *testing.T) 
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -779,6 +801,7 @@ func TestStateMachineRejectsInvalidProposalFields(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -836,6 +859,7 @@ func TestStateMachineRejectsStaleProposal(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -870,6 +894,7 @@ func TestStateMachineAllowsSameVoteReplay(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -898,6 +923,7 @@ func TestStateMachineRejectsConflictingVote(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -938,6 +964,7 @@ func TestStateMachineAdvancesRoundOnTimeoutQuorum(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -972,6 +999,7 @@ func TestStateMachineJumpsToFutureTimeoutCertificateRound(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1003,6 +1031,7 @@ func TestStateMachineJumpsToFutureHeightTimeoutCertificate(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1030,6 +1059,7 @@ func TestStateMachineRecordsConflictingTimeoutVoteEvidence(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1063,6 +1093,7 @@ func TestStateMachineRecordsFutureRoundConflictingTimeoutEvidence(t *testing.T) 
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1095,6 +1126,7 @@ func TestStateMachineRejectsStaleTimeoutVote(t *testing.T) {
 	machine, err := NewStateMachine(StateMachineConfig{
 		ChainID:      "vexo-test",
 		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1144,4 +1176,17 @@ func (set testValidatorSet) Get(id types.ValidatorID) (validator.Validator, bool
 
 func (set testValidatorSet) List() []validator.Validator {
 	return set.validators
+}
+
+type testAggregateSigner struct{}
+
+func (testAggregateSigner) Aggregate(signatures []types.Signature) (types.AggregateSignature, error) {
+	if !allSignaturesPresent(signatures) {
+		return nil, ErrMissingSignature
+	}
+	hasher := sha256.New()
+	for _, signature := range signatures {
+		hasher.Write(signature)
+	}
+	return types.AggregateSignature(hasher.Sum(nil)), nil
 }
