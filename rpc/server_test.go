@@ -1050,6 +1050,14 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if pendingTxByHash.Error != nil || !ok || pendingTxByHashResult["hash"] != "0x9999999999999999999999999999999999999999999999999999999999999999" || pendingTxByHashResult["blockHash"] != nil {
 		t.Fatalf("unexpected pending tx by hash: %+v", pendingTxByHash)
 	}
+	provider.pendingTxs = nil
+	var scannedTxByHash JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":103,"method":"eth_getTransactionByHash","params":["`+blockTxHashText+`"]}`, http.StatusOK, &scannedTxByHash)
+	scannedTxByHashResult, ok := scannedTxByHash.Result.(map[string]any)
+	if scannedTxByHash.Error != nil || !ok || scannedTxByHashResult["hash"] != blockTxHashText || scannedTxByHashResult["blockNumber"] != "0xc" {
+		t.Fatalf("unexpected scanned tx by hash: %+v", scannedTxByHash)
+	}
+	provider.pendingTxs = []types.Tx{pendingTx}
 	var uncleCount JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":73,"method":"eth_getUncleCountByBlockNumber","params":["latest"]}`, http.StatusOK, &uncleCount)
 	if uncleCount.Error != nil || uncleCount.Result != "0x0" {
@@ -1506,6 +1514,57 @@ func TestHandlerServesWeb3WebSocketPendingTransactionSubscriptions(t *testing.T)
 	}
 	if params["result"] != "0x0200000000000000000000000000000000000000000000000000000000000000" {
 		t.Fatalf("unexpected pending hash: %+v", params["result"])
+	}
+}
+
+func TestHandlerServesWeb3WebSocketFullPendingTransactionSubscriptions(t *testing.T) {
+	pendingTx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
+		Module: "evm",
+		Action: "call",
+		Args:   []string{"evm", "0xaaaa", "0xbbbb", "call", "abcd", "21000", "5"},
+		Tags: map[string]string{
+			"signer":             "0xaaaa",
+			"nonce":              "3",
+			"gas":                "21000",
+			"fee":                "42000",
+			ethcompat.TagHash:    "0x9999999999999999999999999999999999999999999999999999999999999999",
+			ethcompat.TagChainID: "1",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &fakeStatusProvider{
+		status: node.Status{ChainID: "vexo-chain", LatestHeight: 1},
+	}
+	sent := make([]any, 0)
+	session := &web3SubscriptionSession{
+		provider: provider,
+		ctx:      context.Background(),
+		subs:     map[string]web3Subscription{},
+		send:     func(value any) { sent = append(sent, value) },
+	}
+	subscriptionID, rpcErr := session.subscribe([]json.RawMessage{json.RawMessage(`"newPendingTransactions"`), json.RawMessage(`true`)})
+	if rpcErr != nil || subscriptionID == "" {
+		t.Fatalf("unexpected pending subscription response id=%q err=%+v", subscriptionID, rpcErr)
+	}
+
+	provider.pendingTxs = []types.Tx{pendingTx}
+	session.publish()
+	if len(sent) != 1 {
+		t.Fatalf("expected one full pending tx notification, got %+v", sent)
+	}
+	notification, ok := sent[0].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected notification type: %+v", sent[0])
+	}
+	params, ok := notification["params"].(map[string]any)
+	if notification["method"] != "eth_subscription" || !ok || params["subscription"] != subscriptionID {
+		t.Fatalf("unexpected full pending notification: %+v", notification)
+	}
+	result, ok := params["result"].(map[string]any)
+	if !ok || result["hash"] != "0x9999999999999999999999999999999999999999999999999999999999999999" || result["from"] != "0xaaaa" || result["blockHash"] != nil {
+		t.Fatalf("unexpected full pending result: %+v", params["result"])
 	}
 }
 

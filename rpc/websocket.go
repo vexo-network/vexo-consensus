@@ -28,6 +28,7 @@ type web3Subscription struct {
 	LastHeight   uint64
 	LastLogIndex int
 	SeenPending  map[string]bool
+	PendingFull  bool
 }
 
 type web3SubscriptionSession struct {
@@ -124,6 +125,13 @@ func (session *web3SubscriptionSession) subscribe(params []json.RawMessage) (str
 		pendingProvider, ok := session.provider.(PendingTxProvider)
 		if !ok {
 			return "", &JSONRPCError{Code: -32000, Message: "pending transaction query is unavailable"}
+		}
+		if len(params) > 1 {
+			var full bool
+			if err := json.Unmarshal(params[1], &full); err != nil {
+				return "", &JSONRPCError{Code: -32602, Message: "newPendingTransactions full transaction flag must be boolean"}
+			}
+			subscription.PendingFull = full
 		}
 		hashes, err := pendingProvider.PendingTxHashes(session.ctx)
 		if err != nil {
@@ -255,7 +263,13 @@ func (session *web3SubscriptionSession) publishPendingTransactions(subscription 
 		if subscription.SeenPending[encoded] {
 			continue
 		}
-		session.sendSubscription(subscription.ID, encoded)
+		result := any(encoded)
+		if subscription.PendingFull {
+			if tx, found, rpcErr := web3PendingTxByHash(session.ctx, session.provider, encoded); rpcErr == nil && found {
+				result = web3PendingTransaction(tx)
+			}
+		}
+		session.sendSubscription(subscription.ID, result)
 	}
 	subscription.SeenPending = live
 	return subscription

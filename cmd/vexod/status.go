@@ -258,6 +258,8 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"web3_pending_tx_compat":                  true,
 			"web3_safe_finalized_tags":                true,
 			"web3_post_merge_block_fields":            true,
+			"web3_block_scan_tx_lookup":               true,
+			"web3_ws_full_pending_transactions":       true,
 			"evm_geth_vm_adapter":                     true,
 			"evm_ethereum_raw_tx":                     true,
 			"evm_storage_writes":                      true,

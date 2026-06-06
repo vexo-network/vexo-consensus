@@ -1757,7 +1757,10 @@ func web3TransactionByHash(ctx context.Context, provider StatusProvider, params 
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
-	return pending, nil
+	if pending != nil {
+		return pending, nil
+	}
+	return web3CommittedTransactionByHash(ctx, provider, hash)
 }
 
 func web3TransactionByBlockNumberAndIndex(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
@@ -1802,19 +1805,62 @@ func web3TransactionByBlockIndex(record store.BlockRecord, rawIndex json.RawMess
 }
 
 func web3PendingTransactionByHash(ctx context.Context, provider StatusProvider, hash string) (any, *JSONRPCError) {
+	tx, found, rpcErr := web3PendingTxByHash(ctx, provider, hash)
+	if rpcErr != nil || !found {
+		return nil, rpcErr
+	}
+	return web3PendingTransaction(tx), nil
+}
+
+func web3PendingTxByHash(ctx context.Context, provider StatusProvider, hash string) (types.Tx, bool, *JSONRPCError) {
 	txs, rpcErr := web3PendingTxs(ctx, provider)
 	if rpcErr != nil {
 		if rpcErr.Message == "pending transaction query is unavailable" {
-			return nil, nil
+			return nil, false, nil
 		}
-		return nil, rpcErr
+		return nil, false, rpcErr
 	}
 	for _, tx := range txs {
-		if strings.EqualFold(web3TxHash(tx), hash) {
-			return web3PendingTransaction(tx), nil
+		if web3TxMatchesHash(tx, hash) {
+			return tx, true, nil
 		}
 	}
-	return nil, nil
+	return nil, false, nil
+}
+
+func web3TxMatchesHash(tx types.Tx, hash string) bool {
+	return strings.EqualFold(web3TxHash(tx), hash) || strings.EqualFold(web3HashString(mempool.HashTx(tx)), hash)
+}
+
+func web3CommittedTransactionByHash(ctx context.Context, provider StatusProvider, hash string) (any, *JSONRPCError) {
+	record, index, tx, found, rpcErr := web3CommittedTxByHash(ctx, provider, hash)
+	if rpcErr != nil || !found {
+		return nil, rpcErr
+	}
+	return web3TransactionFromBlockRecord(record, index, web3TxHash(tx), tx), nil
+}
+
+func web3CommittedTxByHash(ctx context.Context, provider StatusProvider, hash string) (store.BlockRecord, int, types.Tx, bool, *JSONRPCError) {
+	blockProvider, ok := provider.(BlockProvider)
+	if !ok {
+		return store.BlockRecord{}, 0, nil, false, nil
+	}
+	status := provider.Status(ctx)
+	for height := status.LatestHeight; height > 0; height-- {
+		record, err := blockProvider.BlockByHeight(ctx, height)
+		if errors.Is(err, store.ErrBlockNotFound) {
+			continue
+		}
+		if err != nil {
+			return store.BlockRecord{}, 0, nil, false, &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
+		for index, tx := range record.Block.Txs {
+			if web3TxMatchesHash(tx, hash) {
+				return record, index, tx, true, nil
+			}
+		}
+	}
+	return store.BlockRecord{}, 0, nil, false, nil
 }
 
 func web3RawTransactionByHash(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
@@ -1828,42 +1874,19 @@ func web3RawTransactionByHash(ctx context.Context, provider StatusProvider, para
 	if raw, rpcErr := web3PendingRawTransactionByHash(ctx, provider, hash); rpcErr != nil || raw != nil {
 		return raw, rpcErr
 	}
-	blockProvider, ok := provider.(BlockProvider)
-	if !ok {
-		return nil, &JSONRPCError{Code: -32000, Message: "block query is unavailable"}
+	_, _, tx, found, rpcErr := web3CommittedTxByHash(ctx, provider, hash)
+	if rpcErr != nil || !found {
+		return nil, rpcErr
 	}
-	status := provider.Status(ctx)
-	for height := status.LatestHeight; height > 0; height-- {
-		record, err := blockProvider.BlockByHeight(ctx, height)
-		if errors.Is(err, store.ErrBlockNotFound) {
-			continue
-		}
-		if err != nil {
-			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
-		}
-		for _, tx := range record.Block.Txs {
-			if web3TxHash(tx) == hash {
-				return web3RawTransaction(tx), nil
-			}
-		}
-	}
-	return nil, nil
+	return web3RawTransaction(tx), nil
 }
 
 func web3PendingRawTransactionByHash(ctx context.Context, provider StatusProvider, hash string) (any, *JSONRPCError) {
-	txs, rpcErr := web3PendingTxs(ctx, provider)
-	if rpcErr != nil {
-		if rpcErr.Message == "pending transaction query is unavailable" {
-			return nil, nil
-		}
+	tx, found, rpcErr := web3PendingTxByHash(ctx, provider, hash)
+	if rpcErr != nil || !found {
 		return nil, rpcErr
 	}
-	for _, tx := range txs {
-		if strings.EqualFold(web3TxHash(tx), hash) {
-			return web3RawTransaction(tx), nil
-		}
-	}
-	return nil, nil
+	return web3RawTransaction(tx), nil
 }
 
 func web3RawTransactionByBlockNumberAndIndex(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
