@@ -127,6 +127,9 @@ func TestModuleExecutesAndPersistsReceiptsCodeAndLogs(t *testing.T) {
 	if err := json.Unmarshal(result.Data, &callReceipt); err != nil {
 		t.Fatal(err)
 	}
+	if callReceipt.StateDiff == nil || !strings.Contains(mustJSON(t, callReceipt.StateDiff), `"storage"`) {
+		t.Fatalf("expected receipt state diff with storage writes, got %+v", callReceipt.StateDiff)
+	}
 	receiptQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"receipt", callReceipt.TxHash}})
 	if receiptQuery.Code != 0 || !strings.Contains(string(receiptQuery.Value), callReceipt.TxHash) {
 		t.Fatalf("unexpected receipt query: %+v", receiptQuery)
@@ -146,6 +149,47 @@ func TestModuleExecutesAndPersistsReceiptsCodeAndLogs(t *testing.T) {
 	storageQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"storage", deployReceipt.ContractAddress, "0x0"}})
 	if storageQuery.Code != 0 || !strings.Contains(string(storageQuery.Value), `"value":"0x73746f7265643a7472616e73666572"`) {
 		t.Fatalf("unexpected storage query: %+v", storageQuery)
+	}
+}
+
+func TestModuleEndBlockPersistsReceiptIndexes(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	receipt := Receipt{
+		TxHash:  "0xabc123",
+		Height:  42,
+		Status:  1,
+		From:    "0x000000000000000000000000000000000000aaaa",
+		To:      "0x000000000000000000000000000000000000bbbb",
+		GasUsed: 21,
+	}
+	encoded, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := vexoapp.Context{
+		Ctx:       context.Background(),
+		Height:    42,
+		Store:     storage,
+		TxResults: []types.Result{{Data: encoded}},
+	}
+	if err := module.EndBlock(ctx); err != nil {
+		t.Fatal(err)
+	}
+	query := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"receipt_index", receipt.TxHash}})
+	if query.Code != 0 {
+		t.Fatalf("unexpected receipt index query: %+v", query)
+	}
+	var index ReceiptIndex
+	if err := json.Unmarshal(query.Value, &index); err != nil {
+		t.Fatal(err)
+	}
+	if index.TxHash != receipt.TxHash || index.Height != 42 || index.TxIndex != 0 {
+		t.Fatalf("unexpected receipt index: %+v", index)
 	}
 }
 
@@ -338,6 +382,10 @@ func TestDefaultModuleRunsGethEVMBytecode(t *testing.T) {
 	}
 	if callReceipt.Output != "0x000000000000000000000000000000000000000000000000000000000000002a" {
 		t.Fatalf("unexpected EVM output: %+v", callReceipt)
+	}
+	trace, ok := callReceipt.VMTrace.(map[string]any)
+	if !ok || trace["structLogs"] == nil {
+		t.Fatalf("expected geth-backed VM trace in receipt, got %+v", callReceipt.VMTrace)
 	}
 }
 
@@ -630,4 +678,13 @@ func signedEthereumCreateTx(t *testing.T, chainID uint64, initCode string) strin
 		t.Fatal(err)
 	}
 	return "0x" + hex.EncodeToString(raw)
+}
+
+func mustJSON(t *testing.T, value any) string {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded)
 }

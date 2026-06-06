@@ -3,6 +3,7 @@ package geth
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"math/big"
 	"sort"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types/bal"
 	gethvm "github.com/ethereum/go-ethereum/core/vm"
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
+	gethlogger "github.com/ethereum/go-ethereum/eth/tracers/logger"
 	gethparams "github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	"github.com/vexo-network/vexo-consensus/contract"
@@ -42,11 +44,17 @@ func (GethVM) Execute(ctx context.Context, invocation contract.Invocation) (cont
 		stateDB.SetCode(contractAddress, invocation.Code, gethtracing.CodeChangeUnspecified)
 	}
 
-	evm := gethvm.NewEVM(gethBlockContext(invocation, stateDB), stateDB, gethparams.AllEthashProtocolChanges, gethvm.Config{})
+	traceLogger := gethlogger.NewStructLogger(&gethlogger.Config{
+		EnableReturnData: true,
+		DisableStack:     false,
+		DisableStorage:   false,
+	})
+	evm := gethvm.NewEVM(gethBlockContext(invocation, stateDB), stateDB, gethparams.AllEthashProtocolChanges, gethvm.Config{Tracer: traceLogger.Hooks()})
 	evm.SetTxContext(gethvm.TxContext{
 		Origin:   caller,
 		GasPrice: new(uint256.Int).SetUint64(invocation.GasPrice),
 	})
+	traceLogger.OnTxStart(evm.GetVMContext(), nil, caller)
 
 	gasLimit := invocation.GasLimit
 	if gasLimit == 0 {
@@ -67,6 +75,12 @@ func (GethVM) Execute(ctx context.Context, invocation contract.Invocation) (cont
 		output, left, err = evm.Call(caller, contractAddress, invocation.Input, initialGas, value)
 	}
 	if err != nil {
+		traceLogger.OnTxEnd(&gethtypes.Receipt{GasUsed: left.Used(initialGas)}, err)
+		return contract.Result{}, err
+	}
+	traceLogger.OnTxEnd(&gethtypes.Receipt{GasUsed: left.Used(initialGas)}, nil)
+	vmTrace, err := gethVMTrace(traceLogger)
+	if err != nil {
 		return contract.Result{}, err
 	}
 	stateDB.Finalise(true)
@@ -85,11 +99,24 @@ func (GethVM) Execute(ctx context.Context, invocation contract.Invocation) (cont
 		AccountDeletions: stateDB.AccountDeletions(),
 		AccessList:       stateDB.ContractAccessList(),
 		Logs:             stateDB.ContractLogs(),
+		VMTrace:          vmTrace,
 	}
 	if invocation.Method != "deploy" {
 		result.DeployedCode = nil
 	}
 	return result, nil
+}
+
+func gethVMTrace(traceLogger *gethlogger.StructLogger) (any, error) {
+	raw, err := traceLogger.GetResult()
+	if err != nil {
+		return nil, err
+	}
+	var trace map[string]any
+	if err := json.Unmarshal(raw, &trace); err != nil {
+		return nil, err
+	}
+	return trace, nil
 }
 
 func gethBlockContext(invocation contract.Invocation, stateDB *gethStateDB) gethvm.BlockContext {

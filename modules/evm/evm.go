@@ -52,6 +52,14 @@ type Receipt struct {
 	GasUsed         uint64 `json:"gas_used"`
 	Output          string `json:"output,omitempty"`
 	Logs            []Log  `json:"logs,omitempty"`
+	StateDiff       any    `json:"state_diff,omitempty"`
+	VMTrace         any    `json:"vm_trace,omitempty"`
+}
+
+type ReceiptIndex struct {
+	TxHash  string `json:"tx_hash"`
+	Height  uint64 `json:"height"`
+	TxIndex uint64 `json:"tx_index"`
 }
 
 type Log struct {
@@ -172,7 +180,10 @@ func (Module) EndBlock(ctx vexoapp.Context) error {
 	if ctx.Store == nil || ctx.Height == 0 {
 		return nil
 	}
-	return persistEthereumStateSnapshot(ctx.GoContext(), ctx.Store, uint64(ctx.Height))
+	if err := persistEthereumStateSnapshot(ctx.GoContext(), ctx.Store, uint64(ctx.Height)); err != nil {
+		return err
+	}
+	return persistReceiptIndexes(ctx.GoContext(), ctx.Store, ctx.TxResults)
 }
 
 func (Module) Prune(ctx vexoapp.Context, retainFrom types.Height) error {
@@ -308,6 +319,11 @@ func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoap
 			return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
 		}
 		return queryJSON(ctx, receiptKey(req.Path[1]))
+	case "receipt_index":
+		if len(req.Path) != 2 {
+			return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
+		}
+		return queryJSON(ctx, receiptIndexKey(req.Path[1]))
 	case "code":
 		if len(req.Path) != 2 {
 			return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
@@ -762,6 +778,8 @@ func receiptFromResult(tx types.Tx, height types.Height, invocation contract.Inv
 		GasUsed:         result.GasUsed,
 		Output:          "0x" + hex.EncodeToString(result.Output),
 		Logs:            make([]Log, 0, len(result.Logs)),
+		StateDiff:       stateDiffFromResult(result, types.Address(receiptTargetAddress(invocation, contractAddress))),
+		VMTrace:         result.VMTrace,
 	}
 	if contractAddress == "" {
 		receipt.To = string(invocation.Contract)
@@ -780,6 +798,91 @@ func receiptFromResult(tx types.Tx, height types.Height, invocation contract.Inv
 	return receipt
 }
 
+func receiptTargetAddress(invocation contract.Invocation, contractAddress string) string {
+	if contractAddress != "" {
+		return string(contractAddress)
+	}
+	return string(invocation.Contract)
+}
+
+func stateDiffFromResult(result contract.Result, defaultAddress types.Address) any {
+	diff := make(map[string]map[string]any)
+	account := func(address types.Address) map[string]any {
+		if address == "" {
+			address = defaultAddress
+		}
+		if address == "" {
+			return nil
+		}
+		key := canonicalAddressKey(address)
+		item := diff[key]
+		if item == nil {
+			item = make(map[string]any)
+			diff[key] = item
+		}
+		return item
+	}
+	for _, write := range result.BalanceWrites {
+		entry := account(write.Address)
+		if entry != nil {
+			entry["balance"] = map[string]any{"to": hexQuantityLocal(write.Balance)}
+		}
+	}
+	for _, write := range result.NonceWrites {
+		entry := account(write.Address)
+		if entry != nil {
+			entry["nonce"] = map[string]any{"to": hexQuantityLocal(write.Nonce)}
+		}
+	}
+	for _, write := range result.CodeWrites {
+		entry := account(write.Address)
+		if entry == nil {
+			continue
+		}
+		if write.Delete {
+			entry["code"] = map[string]any{"delete": true}
+			continue
+		}
+		entry["code"] = map[string]any{"to": "0x" + hex.EncodeToString(write.Code)}
+	}
+	for _, write := range result.StorageWrites {
+		if write.Slot == "" {
+			continue
+		}
+		entry := account(write.Address)
+		if entry == nil {
+			continue
+		}
+		storage, _ := entry["storage"].(map[string]any)
+		if storage == nil {
+			storage = make(map[string]any)
+			entry["storage"] = storage
+		}
+		if write.Delete {
+			storage[normalizeSlot(write.Slot)] = map[string]any{"delete": true}
+			continue
+		}
+		storage[normalizeSlot(write.Slot)] = map[string]any{"to": "0x" + hex.EncodeToString(write.Value)}
+	}
+	for _, deletion := range result.AccountDeletions {
+		entry := account(deletion.Address)
+		if entry != nil {
+			entry["delete"] = true
+		}
+	}
+	if len(diff) == 0 {
+		return nil
+	}
+	return diff
+}
+
+func hexQuantityLocal(value uint64) string {
+	if value == 0 {
+		return "0x0"
+	}
+	return "0x" + strconv.FormatUint(value, 16)
+}
+
 func persistReceipt(ctx context.Context, store vexoapp.StateStore, receipt Receipt) error {
 	encoded, err := json.Marshal(receipt)
 	if err != nil {
@@ -794,6 +897,48 @@ func persistReceipt(ctx context.Context, store vexoapp.StateStore, receipt Recei
 		}
 	}
 	return nil
+}
+
+func persistReceiptIndexes(ctx context.Context, store vexoapp.StateStore, results []types.Result) error {
+	writes := make([]vexostore.KVWrite, 0)
+	for index, result := range results {
+		receipt, ok := receiptFromTxResult(result)
+		if !ok || receipt.TxHash == "" || receipt.Height == 0 {
+			continue
+		}
+		encoded, err := json.Marshal(ReceiptIndex{TxHash: receipt.TxHash, Height: receipt.Height, TxIndex: uint64(index)})
+		if err != nil {
+			return err
+		}
+		writes = append(writes, vexostore.KVWrite{
+			Namespace: ModuleName,
+			Key:       receiptIndexKey(receipt.TxHash),
+			Value:     encoded,
+		})
+	}
+	if len(writes) == 0 {
+		return nil
+	}
+	if batchStore, ok := store.(vexostore.BatchKVStore); ok {
+		return batchStore.SetBatch(ctx, writes)
+	}
+	for _, write := range writes {
+		if err := store.Set(ctx, write.Namespace, write.Key, write.Value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func receiptFromTxResult(result types.Result) (Receipt, bool) {
+	if len(result.Data) == 0 {
+		return Receipt{}, false
+	}
+	var receipt Receipt
+	if err := json.Unmarshal(result.Data, &receipt); err != nil || receipt.TxHash == "" {
+		return Receipt{}, false
+	}
+	return receipt, true
 }
 
 func persistExecutionResult(ctx context.Context, store vexoapp.StateStore, defaultAddress types.Address, result contract.Result) error {
@@ -1323,6 +1468,10 @@ func txHash(tx types.Tx) string {
 
 func receiptKey(hash string) []byte {
 	return []byte("receipts/" + strings.TrimPrefix(hash, "0x"))
+}
+
+func receiptIndexKey(hash string) []byte {
+	return []byte("receipt_index/" + strings.TrimPrefix(hash, "0x"))
 }
 
 func codeKey(address types.Address) []byte {

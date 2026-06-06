@@ -274,6 +274,8 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"web3_historical_code_storage":            true,
 			"web3_historical_account_state":           true,
 			"web3_txpool_pending_queued":              true,
+			"web3_receipt_location_index":             true,
+			"web3_replay_state_diff":                  true,
 			"execution_context_aware_app_calls":       true,
 			"validator_update_atomic_commit":          true,
 			"staking_slashing_ledger":                 true,

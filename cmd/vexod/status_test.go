@@ -174,6 +174,8 @@ func TestWriteStatusJSON(t *testing.T) {
 		"web3_historical_code_storage",
 		"web3_historical_account_state",
 		"web3_txpool_pending_queued",
+		"web3_receipt_location_index",
+		"web3_replay_state_diff",
 		"execution_context_aware_app_calls",
 		"validator_update_atomic_commit",
 		"staking_slashing_ledger",

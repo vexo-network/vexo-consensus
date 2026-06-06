@@ -289,6 +289,8 @@ func (runtime *Runtime) finalizeBlockWithStore(goCtx context.Context, req Finali
 		results = append(results, result)
 	}
 
+	ctx.Block = req.Block
+	ctx.TxResults = cloneResults(results)
 	for _, module := range runtime.modules {
 		if err := module.EndBlock(ctx); err != nil {
 			return FinalizeBlockResponse{}, err
@@ -456,6 +458,15 @@ func cloneValidatorUpdate(update types.ValidatorUpdate) types.ValidatorUpdate {
 		update.Metadata = metadata
 	}
 	return update
+}
+
+func cloneResults(results []types.Result) []types.Result {
+	cloned := make([]types.Result, len(results))
+	for index, result := range results {
+		cloned[index] = result
+		cloned[index].Data = append([]byte(nil), result.Data...)
+	}
+	return cloned
 }
 
 func (runtime *Runtime) computeAppHash() types.Hash {

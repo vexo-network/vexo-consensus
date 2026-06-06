@@ -65,6 +65,7 @@ type fakeStatusProvider struct {
 	ibcQueryErr       error
 	ibcQueryPath      []string
 	appQueryResponse  vexoapp.QueryResponse
+	appQueryResponses map[string]vexoapp.QueryResponse
 	appQueryErr       error
 	appQueryPath      []string
 	appQueryData      []byte
@@ -256,6 +257,11 @@ func (provider *fakeStatusProvider) AppQuery(ctx context.Context, path []string,
 	provider.appQueryData = append([]byte(nil), data...)
 	if provider.appQueryErr != nil {
 		return vexoapp.QueryResponse{}, provider.appQueryErr
+	}
+	if provider.appQueryResponses != nil {
+		if response, ok := provider.appQueryResponses[strings.Join(path, "/")]; ok {
+			return response, nil
+		}
 	}
 	return provider.appQueryResponse, nil
 }
@@ -784,7 +790,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		Hash:    blockHash,
 		AppHash: types.Hash{0xef},
 		TxResults: []types.Result{
-			{GasUsed: 7, Data: []byte(`{"tx_hash":"` + blockTxHashText + `","height":12,"status":1,"from":"0xaaaa","to":"0xbbbb","gas_used":7,"output":"0x1234"}`)},
+			{GasUsed: 7, Data: []byte(`{"tx_hash":"` + blockTxHashText + `","height":12,"status":1,"from":"0xaaaa","to":"0xbbbb","gas_used":7,"output":"0x1234","state_diff":{"0xbbbb":{"storage":{"0x0":{"to":"0x1"}}}}}`)},
 		},
 	}
 	finalizedHash := types.Hash{0xac}
@@ -1266,6 +1272,15 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	_, replayTransactionVMTrace := replayTransactionResult["vmTrace"]
 	if replayTransaction.Error != nil || !ok || len(replayTransactionTrace) != 1 || replayTransactionStateDiff || replayTransactionVMTrace {
 		t.Fatalf("unexpected trace_replayTransaction: %+v", replayTransaction)
+	}
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"` + blockTxHashText + `","height":12,"status":1,"from":"0xaaaa","to":"0xbbbb","gas_used":7,"output":"0x1234","state_diff":{"0xbbbb":{"storage":{"0x0":{"to":"0x1"}}}},"vm_trace":{"gas":7,"failed":false,"returnValue":"0x1234","structLogs":[{"pc":0,"op":"STOP"}]}}`)}
+	var replayTransactionWithDiff JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":111,"method":"trace_replayTransaction","params":["`+blockTxHashText+`"]}`, http.StatusOK, &replayTransactionWithDiff)
+	replayTransactionWithDiffResult, ok := replayTransactionWithDiff.Result.(map[string]any)
+	replayStateDiff, stateDiffOK := replayTransactionWithDiffResult["stateDiff"].(map[string]any)
+	replayVMTrace, vmTraceOK := replayTransactionWithDiffResult["vmTrace"].(map[string]any)
+	if replayTransactionWithDiff.Error != nil || !ok || !stateDiffOK || replayStateDiff["0xbbbb"] == nil || !vmTraceOK || replayVMTrace["structLogs"] == nil {
+		t.Fatalf("unexpected replay transaction state diff: %+v", replayTransactionWithDiff)
 	}
 	var replayBlock JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":94,"method":"trace_replayBlockTransactions","params":["latest",["trace"]]}`, http.StatusOK, &replayBlock)

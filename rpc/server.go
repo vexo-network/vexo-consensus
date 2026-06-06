@@ -1649,6 +1649,14 @@ type web3Receipt struct {
 	GasUsed         uint64 `json:"gas_used"`
 	Output          string `json:"output,omitempty"`
 	Logs            []any  `json:"logs,omitempty"`
+	StateDiff       any    `json:"state_diff,omitempty"`
+	VMTrace         any    `json:"vm_trace,omitempty"`
+}
+
+type web3ReceiptIndex struct {
+	TxHash  string `json:"tx_hash"`
+	Height  uint64 `json:"height"`
+	TxIndex uint64 `json:"tx_index"`
 }
 
 type web3EVMCallResponse struct {
@@ -1945,6 +1953,24 @@ func web3CommittedTxByHash(ctx context.Context, provider StatusProvider, hash st
 	blockProvider, ok := provider.(BlockProvider)
 	if !ok {
 		return store.BlockRecord{}, 0, nil, false, nil
+	}
+	if index, found, rpcErr := web3ReceiptIndexByHash(ctx, provider, hash); rpcErr != nil || found {
+		if rpcErr != nil {
+			return store.BlockRecord{}, 0, nil, false, rpcErr
+		}
+		record, err := blockProvider.BlockByHeight(ctx, types.Height(index.Height))
+		if errors.Is(err, store.ErrBlockNotFound) {
+			return store.BlockRecord{}, 0, nil, false, nil
+		}
+		if err != nil {
+			return store.BlockRecord{}, 0, nil, false, &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
+		if index.TxIndex < uint64(len(record.Block.Txs)) {
+			tx := record.Block.Txs[index.TxIndex]
+			if strings.EqualFold(index.TxHash, hash) || web3TxMatchesHash(tx, hash) {
+				return record, int(index.TxIndex), append(types.Tx(nil), tx...), true, nil
+			}
+		}
 	}
 	status := provider.Status(ctx)
 	for height := status.LatestHeight; height > 0; height-- {
@@ -2291,6 +2317,31 @@ func web3ReceiptValueByHash(ctx context.Context, provider StatusProvider, hash s
 		return nil, false, nil
 	}
 	return record.TxResults[index].Data, true, nil
+}
+
+func web3ReceiptIndexByHash(ctx context.Context, provider StatusProvider, hash string) (web3ReceiptIndex, bool, *JSONRPCError) {
+	query, ok := provider.(AppQueryProvider)
+	if !ok {
+		return web3ReceiptIndex{}, false, nil
+	}
+	response, err := query.AppQuery(ctx, []string{"evm", "receipt_index", hash}, nil)
+	if err != nil {
+		return web3ReceiptIndex{}, false, &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	if response.Code == 3 {
+		return web3ReceiptIndex{}, false, nil
+	}
+	if response.Code != 0 {
+		return web3ReceiptIndex{}, false, &JSONRPCError{Code: -32000, Message: response.Log}
+	}
+	var index web3ReceiptIndex
+	if err := json.Unmarshal(response.Value, &index); err != nil {
+		return web3ReceiptIndex{}, false, &JSONRPCError{Code: -32000, Message: "invalid EVM receipt index response"}
+	}
+	if index.TxHash == "" || index.Height == 0 {
+		return web3ReceiptIndex{}, false, nil
+	}
+	return index, true, nil
 }
 
 func web3TxpoolStatus(ctx context.Context, provider StatusProvider) (any, *JSONRPCError) {
@@ -2696,7 +2747,7 @@ func web3TraceReplayTransaction(ctx context.Context, provider StatusProvider, pa
 	if len(params) == 0 || len(params) > 2 {
 		return nil, &JSONRPCError{Code: -32602, Message: "trace_replayTransaction requires transaction hash and optional trace types"}
 	}
-	types, rpcErr := web3ReplayTypes(params, 1)
+	replayTypes, rpcErr := web3ReplayTypes(params, 1)
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
@@ -2704,14 +2755,29 @@ func web3TraceReplayTransaction(ctx context.Context, provider StatusProvider, pa
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
-	return web3ReplayResponse("0x", traces, types), nil
+	hash, err := jsonRPCStringParam(params[0])
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	value, found, rpcErr := web3ReceiptValueByHash(ctx, provider, hash)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	if !found {
+		return web3ReplayResponse("0x", traces, replayTypes, nil, nil), nil
+	}
+	receipt, ok := web3ReceiptFromResult(types.Result{Data: value})
+	if !ok {
+		return nil, &JSONRPCError{Code: -32000, Message: "invalid EVM receipt"}
+	}
+	return web3ReplayResponse(receipt.Output, traces, replayTypes, receipt.StateDiff, web3VMTraceFromReceipt(receipt)), nil
 }
 
 func web3TraceReplayBlockTransactions(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
 	if len(params) == 0 || len(params) > 2 {
 		return nil, &JSONRPCError{Code: -32602, Message: "trace_replayBlockTransactions requires block hash/tag and optional trace types"}
 	}
-	types, rpcErr := web3ReplayTypes(params, 1)
+	replayTypes, rpcErr := web3ReplayTypes(params, 1)
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
@@ -2732,7 +2798,7 @@ func web3TraceReplayBlockTransactions(ctx context.Context, provider StatusProvid
 		if trace == nil {
 			continue
 		}
-		response := web3ReplayResponse(receipt.Output, []any{trace}, types)
+		response := web3ReplayResponse(receipt.Output, []any{trace}, replayTypes, receipt.StateDiff, web3VMTraceFromReceipt(receipt))
 		response["transactionHash"] = receipt.TxHash
 		responses = append(responses, response)
 	}
@@ -2760,18 +2826,28 @@ func web3ReplayTypes(params []json.RawMessage, index int) (map[string]bool, *JSO
 	return types, nil
 }
 
-func web3ReplayResponse(output string, traces any, types map[string]bool) map[string]any {
+func web3ReplayResponse(output string, traces any, types map[string]bool, stateDiff any, vmTrace any) map[string]any {
 	response := map[string]any{"output": output}
 	if types["trace"] {
 		response["trace"] = traces
 	}
 	if types["stateDiff"] {
-		response["stateDiff"] = nil
+		if stateDiff == nil {
+			stateDiff = map[string]any{}
+		}
+		response["stateDiff"] = stateDiff
 	}
 	if types["vmTrace"] {
-		response["vmTrace"] = nil
+		response["vmTrace"] = vmTrace
 	}
 	return response
+}
+
+func web3VMTraceFromReceipt(receipt web3Receipt) any {
+	if receipt.VMTrace != nil {
+		return receipt.VMTrace
+	}
+	return nil
 }
 
 func web3TraceBlockRecord(ctx context.Context, provider StatusProvider, record store.BlockRecord) []any {
@@ -3510,6 +3586,12 @@ func web3ReceiptBlockLocation(ctx context.Context, provider StatusProvider, rece
 	record, err := blockProvider.BlockByHeight(ctx, types.Height(receipt.Height))
 	if err != nil {
 		return nil, 0, nil, false
+	}
+	if index, found, _ := web3ReceiptIndexByHash(ctx, provider, receipt.TxHash); found && index.Height == receipt.Height && index.TxIndex < uint64(len(record.Block.Txs)) {
+		tx := record.Block.Txs[index.TxIndex]
+		if web3TxMatchesHash(tx, receipt.TxHash) || strings.EqualFold(index.TxHash, receipt.TxHash) {
+			return "0x" + hex.EncodeToString(record.Hash[:]), index.TxIndex, append(types.Tx(nil), tx...), true
+		}
 	}
 	for index, tx := range record.Block.Txs {
 		if web3TxHash(tx) == receipt.TxHash {

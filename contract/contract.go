@@ -41,6 +41,7 @@ type Result struct {
 	GasUsed          uint64            `json:"gas_used,omitempty"`
 	DeployedCode     []byte            `json:"deployed_code,omitempty"`
 	Logs             []Log             `json:"logs,omitempty"`
+	VMTrace          any               `json:"vm_trace,omitempty"`
 	CodeWrites       []CodeWrite       `json:"code_writes,omitempty"`
 	StorageWrites    []StorageWrite    `json:"storage_writes,omitempty"`
 	BalanceWrites    []BalanceWrite    `json:"balance_writes,omitempty"`
