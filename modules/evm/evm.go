@@ -23,6 +23,8 @@ import (
 
 const ModuleName = "evm"
 
+const ethereumStateSnapshotNamespace = "evm_ethstate"
+
 const (
 	callGasCost   uint64 = 21_000
 	deployGasCost uint64 = 53_000
@@ -80,6 +82,16 @@ type CallResponse struct {
 type ProofRequest struct {
 	Address     string   `json:"address"`
 	StorageKeys []string `json:"storage_keys,omitempty"`
+	Height      uint64   `json:"height,omitempty"`
+}
+
+type StateRootRequest struct {
+	Height uint64 `json:"height,omitempty"`
+}
+
+type ethereumStateSnapshotMeta struct {
+	Height    uint64 `json:"height"`
+	StateRoot string `json:"state_root"`
 }
 
 func NewModule() Module {
@@ -157,7 +169,50 @@ func (module Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 	}
 }
 
-func (Module) EndBlock(ctx vexoapp.Context) error { return nil }
+func (Module) EndBlock(ctx vexoapp.Context) error {
+	if ctx.Store == nil || ctx.Height == 0 {
+		return nil
+	}
+	return persistEthereumStateSnapshot(ctx.GoContext(), ctx.Store, uint64(ctx.Height))
+}
+
+func (Module) Prune(ctx vexoapp.Context, retainFrom types.Height) error {
+	if ctx.Store == nil || retainFrom == 0 {
+		return nil
+	}
+	prefixStore, ok := ctx.Store.(vexostore.PrefixKVStore)
+	if !ok {
+		return nil
+	}
+	pairs, err := prefixStore.ExportPrefix(ctx.GoContext(), ethereumStateSnapshotNamespace, nil)
+	if err != nil {
+		return err
+	}
+	writes := make([]vexostore.KVWrite, 0)
+	for _, pair := range pairs {
+		height, ok := ethereumStateSnapshotHeightFromKey(pair.Key)
+		if !ok || height >= uint64(retainFrom) {
+			continue
+		}
+		writes = append(writes, vexostore.KVWrite{
+			Namespace: ethereumStateSnapshotNamespace,
+			Key:       append([]byte(nil), pair.Key...),
+			Delete:    true,
+		})
+	}
+	if len(writes) == 0 {
+		return nil
+	}
+	if batchStore, ok := ctx.Store.(vexostore.BatchKVStore); ok {
+		return batchStore.SetBatch(ctx.GoContext(), writes)
+	}
+	for _, write := range writes {
+		if err := ctx.Store.Delete(ctx.GoContext(), write.Namespace, write.Key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func (Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
 	canonical, err := vexoapp.ParseCanonicalTx(tx)
@@ -186,7 +241,7 @@ func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoap
 	}
 	switch req.Path[0] {
 	case "eth_state_root":
-		return queryEthereumStateRoot(ctx)
+		return queryEthereumStateRoot(ctx, req.Data)
 	case "eth_proof":
 		return queryEthereumProof(ctx, req.Data)
 	case "receipt":
@@ -647,7 +702,27 @@ func queryLogs(ctx vexoapp.Context, prefix []byte, legacyKey []byte) vexoapp.Que
 	return vexoapp.QueryResponse{Value: append([]byte(nil), value...)}
 }
 
-func queryEthereumStateRoot(ctx vexoapp.Context) vexoapp.QueryResponse {
+func queryEthereumStateRoot(ctx vexoapp.Context, data []byte) vexoapp.QueryResponse {
+	var request StateRootRequest
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &request); err != nil {
+			return vexoapp.QueryResponse{Code: 2, Log: err.Error()}
+		}
+	}
+	if request.Height > 0 {
+		meta, err := ethereumStateSnapshotMetaAt(ctx.GoContext(), ctx.Store, request.Height)
+		if errors.Is(err, vexostore.ErrKeyNotFound) {
+			return vexoapp.QueryResponse{Code: 3, Log: "Ethereum state snapshot not found"}
+		}
+		if err != nil {
+			return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+		}
+		encoded, err := json.Marshal(map[string]string{"state_root": meta.StateRoot})
+		if err != nil {
+			return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+		}
+		return vexoapp.QueryResponse{Value: encoded}
+	}
 	accounts, err := ethereumAccountsFromStore(ctx.GoContext(), ctx.Store)
 	if err != nil {
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
@@ -671,8 +746,11 @@ func queryEthereumProof(ctx vexoapp.Context, data []byte) vexoapp.QueryResponse 
 	if request.Address == "" {
 		return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
 	}
-	accounts, err := ethereumAccountsFromStore(ctx.GoContext(), ctx.Store)
+	accounts, err := ethereumAccountsForProof(ctx.GoContext(), ctx.Store, request.Height)
 	if err != nil {
+		if errors.Is(err, vexostore.ErrKeyNotFound) {
+			return vexoapp.QueryResponse{Code: 3, Log: "Ethereum state snapshot not found"}
+		}
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
 	}
 	proof, err := ethcompat.GetProof(accounts, request.Address, request.StorageKeys)
@@ -684,6 +762,86 @@ func queryEthereumProof(ctx vexoapp.Context, data []byte) vexoapp.QueryResponse 
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
 	}
 	return vexoapp.QueryResponse{Value: encoded}
+}
+
+func persistEthereumStateSnapshot(ctx context.Context, stateStore vexoapp.StateStore, height uint64) error {
+	accounts, err := ethereumAccountsFromStore(ctx, stateStore)
+	if err != nil {
+		return err
+	}
+	root, err := ethcompat.StateRoot(accounts)
+	if err != nil {
+		return err
+	}
+	meta := ethereumStateSnapshotMeta{Height: height, StateRoot: root}
+	encodedMeta, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	if err := stateStore.Set(ctx, ethereumStateSnapshotNamespace, ethereumStateSnapshotMetaKey(height), encodedMeta); err != nil {
+		return err
+	}
+	for _, account := range accounts {
+		encodedAccount, err := json.Marshal(account)
+		if err != nil {
+			return err
+		}
+		if err := stateStore.Set(ctx, ethereumStateSnapshotNamespace, ethereumStateSnapshotAccountKey(height, types.Address(account.Address)), encodedAccount); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ethereumAccountsForProof(ctx context.Context, stateStore vexoapp.StateStore, height uint64) ([]ethcompat.AccountState, error) {
+	if height == 0 {
+		return ethereumAccountsFromStore(ctx, stateStore)
+	}
+	return ethereumAccountsFromSnapshot(ctx, stateStore, height)
+}
+
+func ethereumStateSnapshotMetaAt(ctx context.Context, stateStore vexoapp.StateStore, height uint64) (ethereumStateSnapshotMeta, error) {
+	if stateStore == nil {
+		return ethereumStateSnapshotMeta{}, ErrStoreMissing
+	}
+	value, err := stateStore.Get(ctx, ethereumStateSnapshotNamespace, ethereumStateSnapshotMetaKey(height))
+	if err != nil {
+		return ethereumStateSnapshotMeta{}, err
+	}
+	var meta ethereumStateSnapshotMeta
+	if err := json.Unmarshal(value, &meta); err != nil {
+		return ethereumStateSnapshotMeta{}, err
+	}
+	if meta.Height != height || meta.StateRoot == "" {
+		return ethereumStateSnapshotMeta{}, ErrInvalidEVMQuery
+	}
+	return meta, nil
+}
+
+func ethereumAccountsFromSnapshot(ctx context.Context, stateStore vexoapp.StateStore, height uint64) ([]ethcompat.AccountState, error) {
+	if _, err := ethereumStateSnapshotMetaAt(ctx, stateStore, height); err != nil {
+		return nil, err
+	}
+	prefixStore, ok := stateStore.(vexostore.PrefixKVStore)
+	if !ok {
+		return nil, ErrStoreMissing
+	}
+	pairs, err := prefixStore.ExportPrefix(ctx, ethereumStateSnapshotNamespace, ethereumStateSnapshotAccountPrefix(height))
+	if err != nil {
+		return nil, err
+	}
+	accounts := make([]ethcompat.AccountState, 0, len(pairs))
+	for _, pair := range pairs {
+		var account ethcompat.AccountState
+		if err := json.Unmarshal(pair.Value, &account); err != nil {
+			return nil, err
+		}
+		if account.Storage == nil {
+			account.Storage = map[string][]byte{}
+		}
+		accounts = append(accounts, account)
+	}
+	return accounts, nil
 }
 
 func ethereumAccountsFromStore(ctx context.Context, stateStore vexoapp.StateStore) ([]ethcompat.AccountState, error) {
@@ -765,6 +923,30 @@ func ethereumStorageKeyParts(key []byte) (types.Address, string, bool) {
 		return "", "", false
 	}
 	return types.Address(parts[0]), parts[1], true
+}
+
+func ethereumStateSnapshotMetaKey(height uint64) []byte {
+	return []byte(fmt.Sprintf("%020d/meta", height))
+}
+
+func ethereumStateSnapshotAccountPrefix(height uint64) []byte {
+	return []byte(fmt.Sprintf("%020d/accounts/", height))
+}
+
+func ethereumStateSnapshotAccountKey(height uint64, address types.Address) []byte {
+	return append(ethereumStateSnapshotAccountPrefix(height), []byte(canonicalAddressKey(address))...)
+}
+
+func ethereumStateSnapshotHeightFromKey(key []byte) (uint64, bool) {
+	raw := string(key)
+	if len(raw) < 21 || raw[20] != '/' {
+		return 0, false
+	}
+	height, err := strconv.ParseUint(raw[:20], 10, 64)
+	if err != nil || height == 0 {
+		return 0, false
+	}
+	return height, true
 }
 
 func createAddress(caller types.Address, code []byte, salt [32]byte) types.Address {

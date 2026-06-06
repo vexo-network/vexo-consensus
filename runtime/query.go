@@ -124,14 +124,28 @@ func (runtime *Runtime) PruneBelow(ctx context.Context, retainFrom types.Height)
 	if runtime.Store == nil {
 		return store.PruneResult{}, store.ErrBlockIndexNotFound
 	}
-	return runtime.Store.PruneBelow(ctx, retainFrom)
+	result, err := runtime.Store.PruneBelow(ctx, retainFrom)
+	if err != nil {
+		return store.PruneResult{}, err
+	}
+	if err := runtime.pruneAppModules(ctx, result.RetainFromHeight); err != nil {
+		return result, err
+	}
+	return result, nil
 }
 
 func (runtime *Runtime) PruneByRetention(ctx context.Context, policy store.RetentionPolicy) (store.PruneResult, error) {
 	if runtime.Store == nil {
 		return store.PruneResult{}, store.ErrBlockIndexNotFound
 	}
-	return runtime.Store.PruneByRetention(ctx, policy)
+	result, err := runtime.Store.PruneByRetention(ctx, policy)
+	if err != nil {
+		return store.PruneResult{}, err
+	}
+	if err := runtime.pruneAppModules(ctx, result.RetainFromHeight); err != nil {
+		return result, err
+	}
+	return result, nil
 }
 
 func (runtime *Runtime) RecoverIndexes(ctx context.Context) (store.RecoverResult, error) {
@@ -156,4 +170,26 @@ func (runtime *Runtime) Compact(ctx context.Context) error {
 		return store.ErrBlockIndexNotFound
 	}
 	return runtime.Store.Compact(ctx)
+}
+
+func (runtime *Runtime) pruneAppModules(ctx context.Context, retainFrom types.Height) error {
+	if retainFrom == 0 || runtime.Store == nil {
+		return nil
+	}
+	moduleCtx := app.Context{
+		Ctx:     ctx,
+		ChainID: runtime.Config.ChainID,
+		Height:  retainFrom,
+		Store:   runtime.Store,
+	}
+	for _, module := range runtime.AppModules() {
+		hook, ok := module.(app.PruneHook)
+		if !ok {
+			continue
+		}
+		if err := hook.Prune(moduleCtx, retainFrom); err != nil {
+			return err
+		}
+	}
+	return nil
 }

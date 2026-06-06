@@ -896,6 +896,11 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if !strings.Contains(string(provider.appQueryData), `"storage_keys":["0x0"]`) {
 		t.Fatalf("unexpected proof query data: %s", provider.appQueryData)
 	}
+	var historicalProof JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":48,"method":"eth_getProof","params":["0xbbbb",[],"0xb"]}`, http.StatusOK, &historicalProof)
+	if historicalProof.Error != nil || !strings.Contains(string(provider.appQueryData), `"height":11`) {
+		t.Fatalf("unexpected historical proof response=%+v data=%s", historicalProof, provider.appQueryData)
+	}
 
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"` + blockTxHashText + `","height":12,"status":1,"from":"0xaaaa","to":"0xbbbb","gas_used":7,"output":"0x1234"}`)}
 	var txByHash JSONRPCResponse

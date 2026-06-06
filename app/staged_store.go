@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"sort"
+	"strings"
 
 	"github.com/vexo-network/vexo-consensus/kvbatch"
 	vexostore "github.com/vexo-network/vexo-consensus/store"
@@ -80,6 +82,52 @@ func (store *StagedStore) Root(ctx context.Context, namespace string) (types.Has
 		return types.Hash{}, errors.New("staged base store cannot compute roots")
 	}
 	return rooter.Root(ctx, namespace)
+}
+
+func (store *StagedStore) ExportPrefix(ctx context.Context, namespace string, prefix []byte) ([]vexostore.KVPair, error) {
+	if store == nil || store.base == nil {
+		return nil, errors.New("missing staged base store")
+	}
+	prefixStore, ok := store.base.(vexostore.PrefixKVStore)
+	if !ok {
+		return nil, errors.New("staged base store cannot export prefixes")
+	}
+	pairs, err := prefixStore.ExportPrefix(ctx, namespace, prefix)
+	if err != nil {
+		return nil, err
+	}
+	merged := make(map[string]vexostore.KVPair, len(pairs)+len(store.overlay))
+	for _, pair := range pairs {
+		merged[string(pair.Key)] = vexostore.KVPair{
+			Namespace: pair.Namespace,
+			Key:       append([]byte(nil), pair.Key...),
+			Value:     append([]byte(nil), pair.Value...),
+		}
+	}
+	rawPrefix := string(prefix)
+	for _, write := range store.overlay {
+		if write.Namespace != namespace || !strings.HasPrefix(string(write.Key), rawPrefix) {
+			continue
+		}
+		key := string(write.Key)
+		if write.Delete {
+			delete(merged, key)
+			continue
+		}
+		merged[key] = vexostore.KVPair{
+			Namespace: write.Namespace,
+			Key:       append([]byte(nil), write.Key...),
+			Value:     append([]byte(nil), write.Value...),
+		}
+	}
+	result := make([]vexostore.KVPair, 0, len(merged))
+	for _, pair := range merged {
+		result = append(result, pair)
+	}
+	sort.Slice(result, func(first int, second int) bool {
+		return string(result[first].Key) < string(result[second].Key)
+	})
+	return result, nil
 }
 
 func (store *StagedStore) Writes() []kvbatch.KVWrite {

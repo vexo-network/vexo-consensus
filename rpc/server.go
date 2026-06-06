@@ -1654,12 +1654,18 @@ func web3GetProof(ctx context.Context, provider StatusProvider, params []json.Ra
 	if err := json.Unmarshal(params[1], &storageKeys); err != nil {
 		return nil, &JSONRPCError{Code: -32602, Message: "storage keys array is required"}
 	}
+	height := types.Height(0)
 	if len(params) == 3 {
-		if rpcErr := web3RequireLatestBlockTag(params[2]); rpcErr != nil {
+		var rpcErr *JSONRPCError
+		height, rpcErr = web3BlockHeightParam(ctx, provider, params[2])
+		if rpcErr != nil {
 			return nil, rpcErr
 		}
 	}
 	request := map[string]any{"address": address, "storage_keys": storageKeys}
+	if height > 0 {
+		request["height"] = uint64(height)
+	}
 	encoded, _ := json.Marshal(request)
 	response, err := query.AppQuery(ctx, []string{"evm", "eth_proof"}, encoded)
 	if err != nil {
@@ -1682,7 +1688,8 @@ func web3GetProof(ctx context.Context, provider StatusProvider, params []json.Ra
 func web3StateRoot(ctx context.Context, provider StatusProvider, record store.BlockRecord) string {
 	if record.Block.Header.Height == provider.Status(ctx).LatestHeight {
 		if query, ok := provider.(AppQueryProvider); ok {
-			response, err := query.AppQuery(ctx, []string{"evm", "eth_state_root"}, nil)
+			payload, _ := json.Marshal(map[string]uint64{"height": uint64(record.Block.Header.Height)})
+			response, err := query.AppQuery(ctx, []string{"evm", "eth_state_root"}, payload)
 			if err == nil && response.Code == 0 {
 				var payload struct {
 					StateRoot string `json:"state_root"`
@@ -1690,6 +1697,17 @@ func web3StateRoot(ctx context.Context, provider StatusProvider, record store.Bl
 				if json.Unmarshal(response.Value, &payload) == nil && payload.StateRoot != "" {
 					return payload.StateRoot
 				}
+			}
+		}
+	} else if query, ok := provider.(AppQueryProvider); ok {
+		payload, _ := json.Marshal(map[string]uint64{"height": uint64(record.Block.Header.Height)})
+		response, err := query.AppQuery(ctx, []string{"evm", "eth_state_root"}, payload)
+		if err == nil && response.Code == 0 {
+			var payload struct {
+				StateRoot string `json:"state_root"`
+			}
+			if json.Unmarshal(response.Value, &payload) == nil && payload.StateRoot != "" {
+				return payload.StateRoot
 			}
 		}
 	}
@@ -2383,17 +2401,6 @@ func web3BlockHeightParam(ctx context.Context, provider StatusProvider, raw json
 		}
 		return types.Height(height), nil
 	}
-}
-
-func web3RequireLatestBlockTag(raw json.RawMessage) *JSONRPCError {
-	text, err := jsonRPCStringParam(raw)
-	if err != nil {
-		return &JSONRPCError{Code: -32602, Message: err.Error()}
-	}
-	if text == "latest" || text == "pending" {
-		return nil
-	}
-	return &JSONRPCError{Code: -32000, Message: "historical Ethereum account proofs are unavailable without historical EVM state"}
 }
 
 func web3QuantityParam(raw json.RawMessage) (uint64, error) {

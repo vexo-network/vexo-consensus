@@ -84,6 +84,10 @@ type GasEstimator interface {
 	EstimateGas(ctx Context, tx types.Tx) (uint64, error)
 }
 
+type PruneHook interface {
+	Prune(ctx Context, retainFrom types.Height) error
+}
+
 type TxEventEmitter interface {
 	Events(ctx Context, tx types.Tx, result types.Result) []events.Event
 }

@@ -227,6 +227,120 @@ func TestModuleQueriesEthereumStateRootAndProof(t *testing.T) {
 	}
 }
 
+func TestModulePersistsHistoricalEthereumStateSnapshots(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	address := types.Address("0x000000000000000000000000000000000000beef")
+	setTestEVMBalance(t, storage, address, 10)
+	if err := module.EndBlock(vexoapp.Context{Ctx: context.Background(), Height: 1, Store: storage}); err != nil {
+		t.Fatal(err)
+	}
+	setTestEVMBalance(t, storage, address, 20)
+	if err := module.EndBlock(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}); err != nil {
+		t.Fatal(err)
+	}
+	firstRequest, _ := json.Marshal(ProofRequest{Address: string(address), Height: 1})
+	firstQuery := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}, vexoapp.QueryRequest{Path: []string{"eth_proof"}, Data: firstRequest})
+	if firstQuery.Code != 0 {
+		t.Fatalf("unexpected first proof query: %+v", firstQuery)
+	}
+	var firstProof ethcompat.AccountProof
+	if err := json.Unmarshal(firstQuery.Value, &firstProof); err != nil {
+		t.Fatal(err)
+	}
+	secondRequest, _ := json.Marshal(ProofRequest{Address: string(address), Height: 2})
+	secondQuery := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}, vexoapp.QueryRequest{Path: []string{"eth_proof"}, Data: secondRequest})
+	if secondQuery.Code != 0 {
+		t.Fatalf("unexpected second proof query: %+v", secondQuery)
+	}
+	var secondProof ethcompat.AccountProof
+	if err := json.Unmarshal(secondQuery.Value, &secondProof); err != nil {
+		t.Fatal(err)
+	}
+	if firstProof.Balance != "0xa" || secondProof.Balance != "0x14" || firstProof.StateRoot == secondProof.StateRoot {
+		t.Fatalf("unexpected historical proofs: first=%+v second=%+v", firstProof, secondProof)
+	}
+	rootRequest, _ := json.Marshal(StateRootRequest{Height: 1})
+	rootQuery := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}, vexoapp.QueryRequest{Path: []string{"eth_state_root"}, Data: rootRequest})
+	if rootQuery.Code != 0 || !strings.Contains(string(rootQuery.Value), firstProof.StateRoot) {
+		t.Fatalf("unexpected historical root query: %+v proof=%+v", rootQuery, firstProof)
+	}
+}
+
+func TestModuleSnapshotsUseStagedStoreOverlay(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	address := types.Address("0x000000000000000000000000000000000000beef")
+	setTestEVMBalance(t, storage, address, 10)
+	staged := vexoapp.NewStagedStore(storage)
+	setTestEVMBalance(t, staged, address, 25)
+	if err := module.EndBlock(vexoapp.Context{Ctx: context.Background(), Height: 3, Store: staged}); err != nil {
+		t.Fatal(err)
+	}
+	request, _ := json.Marshal(ProofRequest{Address: string(address), Height: 3})
+	query := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 3, Store: staged}, vexoapp.QueryRequest{Path: []string{"eth_proof"}, Data: request})
+	if query.Code != 0 {
+		t.Fatalf("unexpected staged proof query: %+v", query)
+	}
+	var proof ethcompat.AccountProof
+	if err := json.Unmarshal(query.Value, &proof); err != nil {
+		t.Fatal(err)
+	}
+	if proof.Balance != "0x19" {
+		t.Fatalf("expected staged balance in snapshot, got %+v", proof)
+	}
+}
+
+func TestModulePrunesHistoricalEthereumStateSnapshots(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	address := types.Address("0x000000000000000000000000000000000000beef")
+	setTestEVMBalance(t, storage, address, 10)
+	if err := module.EndBlock(vexoapp.Context{Ctx: context.Background(), Height: 1, Store: storage}); err != nil {
+		t.Fatal(err)
+	}
+	setTestEVMBalance(t, storage, address, 20)
+	if err := module.EndBlock(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}); err != nil {
+		t.Fatal(err)
+	}
+	rootBeforePrune, err := storage.Root(context.Background(), ModuleName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := module.Prune(vexoapp.Context{Ctx: context.Background(), Store: storage}, 2); err != nil {
+		t.Fatal(err)
+	}
+	rootAfterPrune, err := storage.Root(context.Background(), ModuleName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rootAfterPrune != rootBeforePrune {
+		t.Fatalf("EVM snapshot pruning must not mutate consensus module root: before=%x after=%x", rootBeforePrune, rootAfterPrune)
+	}
+	firstRequest, _ := json.Marshal(ProofRequest{Address: string(address), Height: 1})
+	firstQuery := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}, vexoapp.QueryRequest{Path: []string{"eth_proof"}, Data: firstRequest})
+	if firstQuery.Code == 0 {
+		t.Fatalf("expected pruned historical proof to be unavailable, got %+v", firstQuery)
+	}
+	secondRequest, _ := json.Marshal(ProofRequest{Address: string(address), Height: 2})
+	secondQuery := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}, vexoapp.QueryRequest{Path: []string{"eth_proof"}, Data: secondRequest})
+	if secondQuery.Code != 0 {
+		t.Fatalf("expected retained historical proof, got %+v", secondQuery)
+	}
+}
+
 func TestDefaultModuleExecutesEthereumRawContractCreation(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
@@ -256,6 +370,15 @@ func TestDefaultModuleExecutesEthereumRawContractCreation(t *testing.T) {
 	codeQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"code", receipt.ContractAddress}})
 	if codeQuery.Code != 0 || !strings.Contains(string(codeQuery.Value), `"code":"602a60005260206000f3"`) {
 		t.Fatalf("expected Ethereum-created runtime code, got %+v", codeQuery)
+	}
+}
+
+func setTestEVMBalance(t *testing.T, storage vexoapp.StateStore, address types.Address, balance uint64) {
+	t.Helper()
+	var encoded [8]byte
+	binary.BigEndian.PutUint64(encoded[:], balance)
+	if err := storage.Set(context.Background(), "bank", evmBankKey(address), encoded[:]); err != nil {
+		t.Fatal(err)
 	}
 }
 

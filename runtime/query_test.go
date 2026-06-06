@@ -3,8 +3,10 @@ package runtime
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 
+	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/queryproof"
 	"github.com/vexo-network/vexo-consensus/store"
@@ -78,6 +80,41 @@ func TestRuntimeQueryProofSupportsHistoricalHeight(t *testing.T) {
 	}
 }
 
+func TestRuntimePruneCallsAppModuleHooks(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	for height := types.Height(1); height <= 2; height++ {
+		if err := storage.SaveBlock(context.Background(), store.BlockRecord{
+			Block: types.Block{Header: types.Header{ChainID: "vexo-test", Height: height}},
+			Hash:  types.Hash{byte(height)},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	module := &pruneHookModule{}
+	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{module}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := NewWithStore(config.Default("vexo-test"), application, nil, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runtime.PruneBelow(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RetainFromHeight != 2 || module.retainFrom != 2 {
+		t.Fatalf("expected module prune hook at retain height 2, result=%+v module=%d", result, module.retainFrom)
+	}
+	if value, err := storage.Get(context.Background(), "hook", []byte("retain")); err != nil || string(value) != "2" {
+		t.Fatalf("expected hook store write, value=%q err=%v", value, err)
+	}
+}
+
 func commitQueryProofState(t *testing.T, storage *store.LevelDBStore, height types.Height, value []byte) {
 	t.Helper()
 	ctx := context.Background()
@@ -95,4 +132,29 @@ func commitQueryProofState(t *testing.T, storage *store.LevelDBStore, height typ
 	); err != nil {
 		t.Fatal(err)
 	}
+}
+
+type pruneHookModule struct {
+	retainFrom types.Height
+}
+
+func (module *pruneHookModule) Name() string { return "hook" }
+
+func (module *pruneHookModule) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisState) error {
+	return nil
+}
+
+func (module *pruneHookModule) BeginBlock(ctx vexoapp.Context, header types.Header) error {
+	return nil
+}
+
+func (module *pruneHookModule) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
+	return types.Result{}
+}
+
+func (module *pruneHookModule) EndBlock(ctx vexoapp.Context) error { return nil }
+
+func (module *pruneHookModule) Prune(ctx vexoapp.Context, retainFrom types.Height) error {
+	module.retainFrom = retainFrom
+	return ctx.Store.Set(ctx.GoContext(), "hook", []byte("retain"), []byte(strconv.FormatUint(uint64(retainFrom), 10)))
 }

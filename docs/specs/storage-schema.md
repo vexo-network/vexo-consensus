@@ -82,8 +82,10 @@ The Web3 bridge reconstructs Ethereum account/storage tries from these committed
 - `auth/nonce/{0x_address}` for account nonces
 - `evm/code/{0x_address}` for account code hashes
 - `evm/storage/{0x_address}/{slot}` for account storage roots and storage proofs
+- `evm_ethstate/{height}/meta` for the retained Ethereum state root
+- `evm_ethstate/{height}/accounts/{0x_address}` for retained account/storage proof inputs
 
-Latest `eth_getProof` and latest Web3 `stateRoot` are generated from this reconstructed go-ethereum MPT. Historical Ethereum account proofs require historical EVM state snapshots; without those snapshots, historical proof requests are rejected instead of returning misleading proofs.
+Latest `eth_getProof` and latest Web3 `stateRoot` are generated from the live reconstructed go-ethereum MPT. Historical `eth_getProof` and historical Web3 block `stateRoot` use the retained auxiliary `evm_ethstate/{height}` snapshots written during `EndBlock`. Runtime pruning calls module pruning hooks, and the EVM module deletes Ethereum snapshots below the retained height so archival nodes keep proofs while pruned nodes fail old proof requests explicitly. The auxiliary namespace is not an application module root, so pruning retained Web3 proof snapshots does not mutate consensus application state.
 
 LevelDB also writes height-versioned KV history records for each atomic block write. Historical query proofs rebuild the namespace at the requested height from those records, then verify membership with a compact Merkle path or non-membership with compact adjacent-neighbor absence proofs. Verifiers still accept legacy full namespace absence witnesses for compatibility.
 
