@@ -42,6 +42,8 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "mempool.seen_ttl: %s\n", cfg.Mempool.SeenTTL)
 	fmt.Fprintf(writer, "mempool.min_fee: %d\n", cfg.Mempool.MinFee)
 	fmt.Fprintf(writer, "mempool.priority_enabled: %t\n", cfg.Mempool.EnablePriority)
+	fmt.Fprintf(writer, "mempool.replacement_enabled: %t\n", cfg.Mempool.EnableReplacement)
+	fmt.Fprintf(writer, "mempool.replacement_bump_bps: %d\n", cfg.Mempool.ReplacementBumpBPS)
 	fmt.Fprintf(writer, "mempool.wal_path: %s\n", cfg.Mempool.WALPath)
 	fmt.Fprintf(writer, "fair_ordering.deterministic: true\n")
 	fmt.Fprintf(writer, "fair_ordering.height_salted: true\n")
@@ -153,12 +155,14 @@ type committeeStatus struct {
 }
 
 type mempoolStatus struct {
-	MaxTxBytes     int64  `json:"max_tx_bytes"`
-	MaxTxs         int    `json:"max_txs"`
-	SeenTTL        string `json:"seen_ttl"`
-	MinFee         uint64 `json:"min_fee"`
-	EnablePriority bool   `json:"enable_priority"`
-	WALPath        string `json:"wal_path"`
+	MaxTxBytes         int64  `json:"max_tx_bytes"`
+	MaxTxs             int    `json:"max_txs"`
+	SeenTTL            string `json:"seen_ttl"`
+	MinFee             uint64 `json:"min_fee"`
+	EnablePriority     bool   `json:"enable_priority"`
+	EnableReplacement  bool   `json:"enable_replacement"`
+	ReplacementBumpBPS uint64 `json:"replacement_bump_bps"`
+	WALPath            string `json:"wal_path"`
 }
 
 type storageStatus struct {
@@ -231,12 +235,14 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			Backend:        string(cfg.Committee.Backend),
 		},
 		Mempool: mempoolStatus{
-			MaxTxBytes:     cfg.Mempool.MaxTxBytes,
-			MaxTxs:         cfg.Mempool.MaxTxs,
-			SeenTTL:        cfg.Mempool.SeenTTL.String(),
-			MinFee:         cfg.Mempool.MinFee,
-			EnablePriority: cfg.Mempool.EnablePriority,
-			WALPath:        cfg.Mempool.WALPath,
+			MaxTxBytes:         cfg.Mempool.MaxTxBytes,
+			MaxTxs:             cfg.Mempool.MaxTxs,
+			SeenTTL:            cfg.Mempool.SeenTTL.String(),
+			MinFee:             cfg.Mempool.MinFee,
+			EnablePriority:     cfg.Mempool.EnablePriority,
+			EnableReplacement:  cfg.Mempool.EnableReplacement,
+			ReplacementBumpBPS: cfg.Mempool.ReplacementBumpBPS,
+			WALPath:            cfg.Mempool.WALPath,
 		},
 		Features: map[string]bool{
 			"fair_ordering":                           true,

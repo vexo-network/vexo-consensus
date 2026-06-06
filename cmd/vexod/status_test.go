@@ -30,6 +30,8 @@ func TestWriteStatus(t *testing.T) {
 		"mempool.min_fee: 0",
 		"mempool.seen_ttl:",
 		"mempool.priority_enabled: false",
+		"mempool.replacement_enabled: true",
+		"mempool.replacement_bump_bps: 1000",
 		"fair_ordering.deterministic: true",
 		"fair_ordering.height_salted: true",
 		"data_availability.commitments: true",
@@ -119,7 +121,7 @@ func TestWriteStatusJSON(t *testing.T) {
 	if document.Bank.MintAuthority != "" {
 		t.Fatalf("unexpected bank status: %+v", document.Bank)
 	}
-	if document.Mempool.MinFee != 0 || document.Mempool.EnablePriority {
+	if document.Mempool.MinFee != 0 || document.Mempool.EnablePriority || !document.Mempool.EnableReplacement || document.Mempool.ReplacementBumpBPS != 1000 {
 		t.Fatalf("unexpected mempool status: %+v", document.Mempool)
 	}
 	if document.Execution.FeeDenom != "avxo" || document.Execution.DisplayDenom != "vexo" || document.Execution.DisplayExponent != 18 || document.Execution.GasDenom != "gas" {

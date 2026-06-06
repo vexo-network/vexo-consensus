@@ -46,6 +46,9 @@ func (dag *DAG) AddTx(ctx context.Context, tx types.Tx) error {
 			return err
 		}
 	}
+	if dag.base.replaceTxUnchecked(tx) {
+		return nil
+	}
 	return dag.base.addTxUnchecked(tx)
 }
 

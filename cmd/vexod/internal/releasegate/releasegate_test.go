@@ -171,9 +171,9 @@ func semanticEvidenceContentForPath(path string) []byte {
 	case "validator-economics.json":
 		return []byte(`{"ok":true,"summary":"validator slashing reward commission unbonding evidence passed"}`)
 	case "upgrade-governance.json":
-		return []byte(`{"ok":true,"summary":"upgrade governance migration rollback halt evidence passed"}`)
+		return []byte(`{"ok":true,"summary":"upgrade governance migration rollback halt allow_noop no-op evidence passed"}`)
 	case "mev-fee-market.json":
-		return []byte(`{"ok":true,"summary":"mev fee market fair mempool ordering evidence passed"}`)
+		return []byte(`{"ok":true,"summary":"mev fee market fair mempool ordering replacement evidence passed"}`)
 	case "ops-runbook.json":
 		return []byte(`{"ok":true,"summary":"ops runbook alert incident metrics evidence passed"}`)
 	case "formal-safety.json":

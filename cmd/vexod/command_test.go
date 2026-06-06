@@ -215,10 +215,11 @@ func TestRunUpgradePlan(t *testing.T) {
 		"--app-to", "2",
 		"--proposal", "42",
 		"--rollback-binary", "v0.1.0",
+		"--allow-noop-migrations",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"upgrade plan", "height: 100", "config_schema: 1 -> 2", "governance_proposal: 42", "rollback_binary: v0.1.0"} {
+	for _, expected := range []string{"upgrade plan", "height: 100", "config_schema: 1 -> 2", "governance_proposal: 42", "rollback_binary: v0.1.0", "allow_noop_migrations: true"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("expected upgrade output to contain %q, got:\n%s", expected, output.String())
 		}
@@ -238,7 +239,8 @@ func TestRunUpgradeApplyPersistsExecutionRecord(t *testing.T) {
 		"store_schema_from":1,
 		"store_schema_to":2,
 		"app_state_schema_from":1,
-		"app_state_schema_to":2
+		"app_state_schema_to":2,
+		"allow_noop_migrations":true
 	}`)
 	if err := os.WriteFile(planFile, plan, 0o644); err != nil {
 		t.Fatal(err)
@@ -269,6 +271,40 @@ func TestRunUpgradeApplyPersistsExecutionRecord(t *testing.T) {
 	}
 	if !strings.Contains(string(record), `"status": "applied"`) || !strings.Contains(string(record), `"v0.2.0"`) {
 		t.Fatalf("unexpected record file:\n%s", string(record))
+	}
+}
+
+func TestRunUpgradeApplyRequiresPlanOptInForNoopMigrations(t *testing.T) {
+	home := t.TempDir()
+	planFile := filepath.Join(home, "plan.json")
+	recordFile := filepath.Join(home, "records.json")
+	plan := []byte(`{
+		"name":"v0.2.0",
+		"height":100,
+		"binary_version":"v0.2.0",
+		"config_schema_from":1,
+		"config_schema_to":2,
+		"store_schema_from":1,
+		"store_schema_to":2,
+		"app_state_schema_from":1,
+		"app_state_schema_to":2
+	}`)
+	if err := os.WriteFile(planFile, plan, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := runCommand(&bytes.Buffer{}, &bytes.Buffer{}, []string{
+		"upgrade", "apply",
+		"--plan-file", planFile,
+		"--record-file", recordFile,
+		"--height", "100",
+		"--binary-version", "v0.1.0",
+		"--config-version", "1",
+		"--store-version", "1",
+		"--app-version", "1",
+		"--allow-empty-migrations",
+	})
+	if err == nil || !strings.Contains(err.Error(), "allow_noop_migrations") {
+		t.Fatalf("expected no-op migration opt-in error, got %v", err)
 	}
 }
 
@@ -710,7 +746,7 @@ func releaseReadinessCheckOK(checks []releasegate.Check, name string) bool {
 
 func releaseEvidenceFixture(name string) []byte {
 	summary := map[string]string{
-		"longrun-evidence.json":                 "longrun duration height validator soak evidence passed",
+		"longrun-evidence.json":                 "longrun duration height validator distributed per_node soak evidence passed",
 		"adversarial-evidence.json":             "adversarial consensus simulation partition evidence passed",
 		"chaos-evidence.json":                   "chaos fault partition restart evidence passed",
 		"kms-evidence.json":                     "kms signer policy double-sign guard evidence passed",
@@ -718,8 +754,8 @@ func releaseEvidenceFixture(name string) []byte {
 		"p2p-scale-evidence.json":               "p2p peer scale discovery reconnect backpressure evidence passed",
 		"state-sync-light-client-evidence.json": "state-sync light-client finality proof evidence passed",
 		"validator-economics-evidence.json":     "validator slashing reward commission unbonding evidence passed",
-		"upgrade-governance-evidence.json":      "upgrade governance migration rollback halt evidence passed",
-		"mev-fee-market-evidence.json":          "mev fee market fair mempool ordering evidence passed",
+		"upgrade-governance-evidence.json":      "upgrade governance migration rollback halt allow_noop no-op evidence passed",
+		"mev-fee-market-evidence.json":          "mev fee market fair mempool ordering replacement evidence passed",
 		"ops-runbook-evidence.json":             "ops runbook alert incident metrics evidence passed",
 		"formal-safety-evidence.json":           "safety invariant adversarial property proof evidence passed",
 		"sdk-conformance-evidence.json":         "sdk api conformance module rpc storage crypto transport evidence passed",
@@ -1683,6 +1719,9 @@ func TestRunNetworkLongRunEvidenceEvaluatesMetrics(t *testing.T) {
 	if !evidence.OK || evidence.SchemaVersion != "v1" || evidence.Load.Submitted == 0 || txSubmitted == 0 || len(evidence.Nodes) != 2 {
 		t.Fatalf("unexpected longrun evidence: %+v", evidence)
 	}
+	if len(evidence.Load.PerNode) != 2 {
+		t.Fatalf("expected distributed load evidence, got %+v", evidence.Load.PerNode)
+	}
 	for _, node := range evidence.Nodes {
 		if node.Sample.HeightRatePerMinute <= 0 || !node.Report.OK {
 			t.Fatalf("expected healthy node evidence, got %+v", node)
@@ -1723,8 +1762,8 @@ func TestEstimatedNetworkTransactionsUsesWallSeconds(t *testing.T) {
 }
 
 func TestNetworkLoadPayloadUsesRealisticNonce(t *testing.T) {
-	payload := networkLoadPayload("bank:send:alice:bob:1:fee=1:gas=1000:signer=alice:nonce", 7)
-	if string(payload) != "bank:send:alice:bob:1:fee=1:gas=1000:signer=alice:nonce=7" {
+	payload := networkLoadPayload("bank:send:{validator}:bob:1:fee=1:gas=1000:signer={validator}:nonce", 7, "validator-1")
+	if string(payload) != "bank:send:validator-1:bob:1:fee=1:gas=1000:signer=validator-1:nonce=7" {
 		t.Fatalf("unexpected load payload: %s", payload)
 	}
 }

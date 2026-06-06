@@ -231,7 +231,7 @@ Archive `consensus_config.json` disables the local consensus loop:
 }
 ```
 
-Set `"require_network_safety": true` in `config.json` when a node must refuse unsafe launch settings. This is not a mode; it is a startup safety gate that rejects deterministic crypto, unsigned/nonced-off transactions, missing fee/gas floors, missing durable mempool WAL, and unsafe committee randomness.
+Set `"require_network_safety": true` in `config.json` when a node must refuse unsafe launch settings. This is not a mode; it is a startup safety gate that rejects deterministic crypto, unsigned/nonced-off transactions, missing fee/gas floors, missing durable mempool WAL, missing replacement policy for same signer/nonce transactions, and unsafe committee randomness.
 
 When `require_network_safety` is enabled, run:
 

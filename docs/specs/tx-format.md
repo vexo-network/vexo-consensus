@@ -92,6 +92,7 @@ nonce is `N+1`.
 - `gas` is bounded by configured min/max gas. `gas_limit` is accepted as an alias.
 - `base_fee` is configured per gas unit; required fee is `max(min_fee, base_fee * gas)`.
 - `evm_chain_id`/`EVMChainID` is the EIP-155/Web3 chain ID used by `eth_chainId`, `net_version`, and `eth_sendRawTransaction` signature validation.
+- Mempools may replace an existing pending transaction with the same `signer` and `nonce` only when the new `fee` or `priority` meets the configured replacement bump.
 - When `dynamic_base_fee` is enabled, each committed block stores the base fee used for that block and the next base fee derived from total gas used versus `target_gas`.
 - Built-in modules expose estimated gas costs and consume gas during `DeliverTx`; under-gas transactions are rejected during context-aware `CheckTx`, `ProcessProposal`, and execution.
 - Result metadata should expose gas used and fee paid.

@@ -149,6 +149,7 @@ The `release-candidate` target runs:
 - longrun harness evidence (`RC_DRY_RUN=1` keeps this as a plan-only dry-run)
 
 Real release candidates should run `network longrun` on independent machines and attach the generated evidence JSON plus metrics, logs, pprof, snapshot, replay, KMS signing, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, and SDK conformance evidence.
+The longrun harness distributes load across validator RPC endpoints and records per-validator submission counts in the evidence payload. Upgrade plans that rely on no-op schema migrations must explicitly set `allow_noop_migrations=true`; `vexod upgrade apply --allow-empty-migrations` rejects plans that do not opt in.
 
 ## Launch Runbook
 

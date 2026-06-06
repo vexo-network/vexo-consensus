@@ -64,22 +64,24 @@ func runUpgradePlan(writer io.Writer, args []string) error {
 	appTo := flags.Uint64("app-to", 1, "target app module state schema version")
 	governanceProposal := flags.String("proposal", "", "governance proposal identifier")
 	rollbackBinary := flags.String("rollback-binary", "", "rollback binary version or artifact")
+	allowNoopMigrations := flags.Bool("allow-noop-migrations", false, "explicitly mark this plan as allowing no-op schema migrations")
 	jsonOutput := flags.Bool("json", false, "write JSON output")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	plan := upgrade.Plan{
-		Name:               *name,
-		Height:             types.Height(*height),
-		BinaryVersion:      *binaryVersion,
-		ConfigSchemaFrom:   *configFrom,
-		ConfigSchemaTo:     *configTo,
-		StoreSchemaFrom:    *storeFrom,
-		StoreSchemaTo:      *storeTo,
-		AppStateSchemaFrom: *appFrom,
-		AppStateSchemaTo:   *appTo,
-		GovernanceProposal: *governanceProposal,
-		RollbackBinary:     *rollbackBinary,
+		Name:                *name,
+		Height:              types.Height(*height),
+		BinaryVersion:       *binaryVersion,
+		ConfigSchemaFrom:    *configFrom,
+		ConfigSchemaTo:      *configTo,
+		StoreSchemaFrom:     *storeFrom,
+		StoreSchemaTo:       *storeTo,
+		AppStateSchemaFrom:  *appFrom,
+		AppStateSchemaTo:    *appTo,
+		GovernanceProposal:  *governanceProposal,
+		RollbackBinary:      *rollbackBinary,
+		AllowNoopMigrations: *allowNoopMigrations,
 	}
 	if err := upgrade.ValidatePlan(plan); err != nil {
 		return err
@@ -102,6 +104,7 @@ func runUpgradePlan(writer io.Writer, args []string) error {
 	if plan.RollbackBinary != "" {
 		fmt.Fprintf(writer, "rollback_binary: %s\n", plan.RollbackBinary)
 	}
+	fmt.Fprintf(writer, "allow_noop_migrations: %t\n", plan.AllowNoopMigrations)
 	return nil
 }
 
@@ -129,6 +132,9 @@ func runUpgradeApply(writer io.Writer, args []string) error {
 	}
 	registry := upgrade.NewRegistry()
 	if *allowEmptyMigrations {
+		if !plan.AllowNoopMigrations {
+			return errors.New("plan must set allow_noop_migrations=true before --allow-empty-migrations can be used")
+		}
 		registerNoopUpgradeMigrations(registry, plan)
 	}
 	state := upgrade.State{

@@ -83,6 +83,7 @@ type networkLoadResult struct {
 	Submitted uint64
 	Failed    uint64
 	Duration  time.Duration
+	PerNode   map[string]uint64
 }
 
 type networkLongRunEvidence struct {
@@ -99,9 +100,10 @@ type networkLongRunEvidence struct {
 }
 
 type networkLongRunLoadEvidence struct {
-	Submitted uint64 `json:"submitted"`
-	Failed    uint64 `json:"failed"`
-	Duration  string `json:"duration"`
+	Submitted uint64            `json:"submitted"`
+	Failed    uint64            `json:"failed"`
+	Duration  string            `json:"duration"`
+	PerNode   map[string]uint64 `json:"per_node,omitempty"`
 }
 
 type networkLongRunNodeEvidence struct {
@@ -152,7 +154,7 @@ func runNetworkLoad(ctx context.Context, writer io.Writer, args []string) error 
 	durationValue := flags.String("duration", "30s", "load test duration")
 	rate := flags.Int("rate", 10, "transactions per second")
 	timeoutValue := flags.String("timeout", "2s", "per-request timeout")
-	txPrefix := flags.String("tx-prefix", "bank:send:load-src:load-dst:1:fee=1:gas=1000:signer=load-src:nonce", "transaction payload prefix; nonce suffix is appended for realistic load")
+	txPrefix := flags.String("tx-prefix", "bank:send:{validator}:load-dst:1:fee=1:gas=1000:signer={validator}:nonce", "transaction payload prefix; nonce suffix is appended; {validator} is replaced per target node")
 	dryRun := flags.Bool("dry-run", false, "print load plan without submitting transactions")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -302,7 +304,7 @@ func runNetworkLongRun(ctx context.Context, writer io.Writer, args []string) err
 	durationValue := flags.String("duration", "1h", "long-run execution duration")
 	timeoutValue := flags.String("timeout", "2s", "per-request timeout")
 	rate := flags.Int("rate", 10, "transactions per second during long-run")
-	txPrefix := flags.String("tx-prefix", "bank:send:load-src:load-dst:1:fee=1:gas=1000:signer=load-src:nonce", "transaction payload prefix; nonce suffix is appended")
+	txPrefix := flags.String("tx-prefix", "bank:send:{validator}:load-dst:1:fee=1:gas=1000:signer={validator}:nonce", "transaction payload prefix; nonce suffix is appended; {validator} is replaced per target node")
 	outputPath := flags.String("output", "", "optional JSON evidence output path")
 	jsonOutput := flags.Bool("json", false, "write JSON evidence to stdout")
 	dryRun := flags.Bool("dry-run", false, "print long-run harness plan without querying or submitting")
@@ -1214,6 +1216,7 @@ func runNetworkLongRunEvidence(ctx context.Context, client http.Client, plan net
 			Submitted: load.Submitted,
 			Failed:    load.Failed,
 			Duration:  load.Duration.String(),
+			PerNode:   load.PerNode,
 		},
 		Nodes: make([]networkLongRunNodeEvidence, 0, len(plan.Nodes)),
 	}
@@ -1284,19 +1287,22 @@ func runNetworkLoadPlan(ctx context.Context, client http.Client, plan networkRun
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	var result networkLoadResult
+	result := networkLoadResult{PerNode: make(map[string]uint64, len(plan.Nodes))}
 	for {
 		select {
 		case <-ctx.Done():
 			result.Duration = time.Since(started)
 			return result
 		case <-ticker.C:
-			payload := networkLoadPayload(txPrefix, result.Submitted+result.Failed+1)
-			if err := submitNetworkTx(ctx, client, plan.Nodes[0].RPCAddress, payload); err != nil {
+			sequence := result.Submitted + result.Failed + 1
+			target := plan.Nodes[int((sequence-1)%uint64(len(plan.Nodes)))]
+			payload := networkLoadPayload(txPrefix, sequence, target.ValidatorID)
+			if err := submitNetworkTx(ctx, client, target.RPCAddress, payload); err != nil {
 				result.Failed++
 				continue
 			}
 			result.Submitted++
+			result.PerNode[target.ValidatorID]++
 		}
 	}
 }
@@ -1308,7 +1314,9 @@ func networkSurvivorNode(plan networkRuntimePlan, targetIndex int) networkNodeRu
 	return plan.Nodes[1]
 }
 
-func networkLoadPayload(txPrefix string, sequence uint64) types.Tx {
+func networkLoadPayload(txPrefix string, sequence uint64, validatorID string) types.Tx {
+	txPrefix = strings.ReplaceAll(txPrefix, "{validator}", validatorID)
+	txPrefix = strings.ReplaceAll(txPrefix, "{node}", validatorID)
 	if strings.Contains(txPrefix, "nonce") && !strings.Contains(txPrefix, "nonce=") {
 		return types.Tx(fmt.Sprintf("%s=%d", txPrefix, sequence))
 	}

@@ -23,17 +23,18 @@ var (
 )
 
 type Plan struct {
-	Name               string       `json:"name"`
-	Height             types.Height `json:"height"`
-	BinaryVersion      string       `json:"binary_version"`
-	ConfigSchemaFrom   uint64       `json:"config_schema_from"`
-	ConfigSchemaTo     uint64       `json:"config_schema_to"`
-	StoreSchemaFrom    uint64       `json:"store_schema_from"`
-	StoreSchemaTo      uint64       `json:"store_schema_to"`
-	AppStateSchemaFrom uint64       `json:"app_state_schema_from"`
-	AppStateSchemaTo   uint64       `json:"app_state_schema_to"`
-	GovernanceProposal string       `json:"governance_proposal,omitempty"`
-	RollbackBinary     string       `json:"rollback_binary,omitempty"`
+	Name                string       `json:"name"`
+	Height              types.Height `json:"height"`
+	BinaryVersion       string       `json:"binary_version"`
+	ConfigSchemaFrom    uint64       `json:"config_schema_from"`
+	ConfigSchemaTo      uint64       `json:"config_schema_to"`
+	StoreSchemaFrom     uint64       `json:"store_schema_from"`
+	StoreSchemaTo       uint64       `json:"store_schema_to"`
+	AppStateSchemaFrom  uint64       `json:"app_state_schema_from"`
+	AppStateSchemaTo    uint64       `json:"app_state_schema_to"`
+	GovernanceProposal  string       `json:"governance_proposal,omitempty"`
+	RollbackBinary      string       `json:"rollback_binary,omitempty"`
+	AllowNoopMigrations bool         `json:"allow_noop_migrations,omitempty"`
 }
 
 type State struct {

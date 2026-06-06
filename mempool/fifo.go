@@ -11,39 +11,44 @@ import (
 )
 
 var (
-	ErrEmptyTx         = errors.New("transaction is empty")
-	ErrDuplicateTx     = errors.New("duplicate transaction")
-	ErrTxTooLarge      = errors.New("transaction exceeds maximum size")
-	ErrMempoolFull     = errors.New("mempool is full")
-	ErrInvalidMaxBytes = errors.New("max bytes must be greater than zero")
-	ErrInsufficientFee = errors.New("transaction fee is below minimum")
+	ErrEmptyTx                = errors.New("transaction is empty")
+	ErrDuplicateTx            = errors.New("duplicate transaction")
+	ErrTxTooLarge             = errors.New("transaction exceeds maximum size")
+	ErrMempoolFull            = errors.New("mempool is full")
+	ErrInvalidMaxBytes        = errors.New("max bytes must be greater than zero")
+	ErrInsufficientFee        = errors.New("transaction fee is below minimum")
+	ErrReplacementUnderpriced = errors.New("replacement transaction is underpriced")
 )
 
 type FIFOConfig struct {
-	Author         types.ValidatorID
-	MaxTxBytes     int64
-	MaxTxs         int
-	AllowDuplicate bool
-	SeenTTL        time.Duration
-	MinFee         uint64
-	EnablePriority bool
-	WALPath        string
+	Author             types.ValidatorID
+	MaxTxBytes         int64
+	MaxTxs             int
+	AllowDuplicate     bool
+	SeenTTL            time.Duration
+	MinFee             uint64
+	EnablePriority     bool
+	WALPath            string
+	EnableReplacement  bool
+	ReplacementBumpBPS uint64
 }
 
 type FIFO struct {
-	config FIFOConfig
-	txs    []types.Tx
-	index  map[types.Hash]int
-	seen   map[types.Hash]time.Time
-	now    func() time.Time
+	config       FIFOConfig
+	txs          []types.Tx
+	index        map[types.Hash]int
+	replacements map[string]int
+	seen         map[types.Hash]time.Time
+	now          func() time.Time
 }
 
 func NewFIFO(config FIFOConfig) *FIFO {
 	return &FIFO{
-		config: config,
-		index:  make(map[types.Hash]int),
-		seen:   make(map[types.Hash]time.Time),
-		now:    time.Now,
+		config:       config,
+		index:        make(map[types.Hash]int),
+		replacements: make(map[string]int),
+		seen:         make(map[types.Hash]time.Time),
+		now:          time.Now,
 	}
 }
 
@@ -59,6 +64,9 @@ func (pool *FIFO) CheckTx(ctx context.Context, tx types.Tx) error {
 	}
 	if pool.config.MaxTxBytes > 0 && int64(len(tx)) > pool.config.MaxTxBytes {
 		return ErrTxTooLarge
+	}
+	if pool.replacementIndex(tx) >= 0 {
+		return pool.checkReplacement(tx)
 	}
 	if pool.config.MaxTxs > 0 && len(pool.txs) >= pool.config.MaxTxs {
 		return ErrMempoolFull
@@ -83,6 +91,9 @@ func (pool *FIFO) AddTx(ctx context.Context, tx types.Tx) error {
 	if err := pool.CheckTx(ctx, tx); err != nil {
 		return err
 	}
+	if replaced := pool.replaceTxUnchecked(tx); replaced {
+		return nil
+	}
 
 	return pool.addTxUnchecked(tx)
 }
@@ -91,9 +102,33 @@ func (pool *FIFO) addTxUnchecked(tx types.Tx) error {
 	copied := append(types.Tx(nil), tx...)
 	hash := HashTx(copied)
 	pool.index[hash] = len(pool.txs)
+	if key, ok := ReplacementKey(copied); ok {
+		pool.replacements[key] = len(pool.txs)
+	}
 	pool.markSeen(hash)
 	pool.txs = append(pool.txs, copied)
 	return nil
+}
+
+func (pool *FIFO) replaceTxUnchecked(tx types.Tx) bool {
+	index := pool.replacementIndex(tx)
+	if index < 0 {
+		return false
+	}
+	old := pool.txs[index]
+	delete(pool.index, HashTx(old))
+	if oldKey, ok := ReplacementKey(old); ok {
+		delete(pool.replacements, oldKey)
+	}
+	copied := append(types.Tx(nil), tx...)
+	pool.txs[index] = copied
+	pool.index[HashTx(copied)] = index
+	if key, ok := ReplacementKey(copied); ok {
+		pool.replacements[key] = index
+	}
+	pool.markSeen(HashTx(old))
+	pool.markSeen(HashTx(copied))
+	return true
 }
 
 func (pool *FIFO) BuildBatch(ctx context.Context, maxBytes int64) (Batch, error) {
@@ -155,6 +190,9 @@ func (pool *FIFO) MarkCommitted(ctx context.Context, committed []types.Tx) error
 		if containsTx(committed, tx) {
 			hash := HashTx(tx)
 			delete(pool.index, hash)
+			if key, ok := ReplacementKey(tx); ok {
+				delete(pool.replacements, key)
+			}
 			pool.markSeen(hash)
 			continue
 		}
@@ -232,9 +270,43 @@ func (pool *FIFO) Len() int {
 
 func (pool *FIFO) rebuildIndex() {
 	pool.index = make(map[types.Hash]int, len(pool.txs))
+	pool.replacements = make(map[string]int, len(pool.txs))
 	for txIndex, tx := range pool.txs {
 		pool.index[HashTx(tx)] = txIndex
+		if key, ok := ReplacementKey(tx); ok {
+			pool.replacements[key] = txIndex
+		}
 	}
+}
+
+func (pool *FIFO) replacementIndex(tx types.Tx) int {
+	if !pool.config.EnableReplacement {
+		return -1
+	}
+	key, ok := ReplacementKey(tx)
+	if !ok {
+		return -1
+	}
+	index, found := pool.replacements[key]
+	if !found {
+		return -1
+	}
+	return index
+}
+
+func (pool *FIFO) checkReplacement(tx types.Tx) error {
+	index := pool.replacementIndex(tx)
+	if index < 0 {
+		return nil
+	}
+	old := pool.txs[index]
+	if HashTx(old) == HashTx(tx) {
+		return ErrDuplicateTx
+	}
+	if !replacementPriceBumped(old, tx, pool.config.ReplacementBumpBPS) {
+		return ErrReplacementUnderpriced
+	}
+	return nil
 }
 
 func containsTx(txs []types.Tx, target types.Tx) bool {

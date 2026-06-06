@@ -121,8 +121,10 @@ func Default(chainID string) Config {
 			Backend:        committee.BackendDeterministic,
 		},
 		Mempool: mempool.FIFOConfig{
-			MaxTxBytes: 1024 * 1024,
-			MaxTxs:     100000,
+			MaxTxBytes:         1024 * 1024,
+			MaxTxs:             100000,
+			EnableReplacement:  true,
+			ReplacementBumpBPS: 1000,
 		},
 		Bank: BankConfig{},
 		Staking: StakingConfig{
@@ -248,7 +250,7 @@ func (config Config) ValidateNetworkSafety() error {
 	if config.Execution.MinFee == 0 || config.Execution.BaseFee == 0 || config.Execution.MinGas == 0 {
 		return ErrUnsafeNetworkConfig
 	}
-	if config.Mempool.MinFee == 0 || !config.Mempool.EnablePriority {
+	if config.Mempool.MinFee == 0 || !config.Mempool.EnablePriority || !config.Mempool.EnableReplacement {
 		return ErrUnsafeNetworkConfig
 	}
 	if config.Mempool.WALPath == "" {

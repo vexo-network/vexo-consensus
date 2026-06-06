@@ -208,7 +208,7 @@ func evidenceTextCovers(name string, path string, text string) bool {
 func semanticRequirements(name string) [][]string {
 	switch name {
 	case "longrun_evidence":
-		return [][]string{{"longrun", "long run", "soak"}, {"duration", "height", "validator"}}
+		return [][]string{{"longrun", "long run", "soak"}, {"duration", "height", "validator"}, {"per_node", "per-node", "distributed"}}
 	case "adversarial_evidence":
 		return [][]string{{"adversarial"}, {"consensus", "simulation", "partition"}}
 	case "fuzz_evidence":
@@ -226,9 +226,9 @@ func semanticRequirements(name string) [][]string {
 	case "validator_economics_evidence":
 		return [][]string{{"validator"}, {"slashing", "reward", "commission", "unbonding", "jail"}}
 	case "upgrade_governance_evidence":
-		return [][]string{{"upgrade"}, {"governance", "migration", "rollback", "halt"}}
+		return [][]string{{"upgrade"}, {"governance", "migration", "rollback", "halt"}, {"allow_noop", "no-op", "noop"}}
 	case "mev_fee_market_evidence":
-		return [][]string{{"fee", "mev"}, {"market", "fair", "mempool", "ordering"}}
+		return [][]string{{"fee", "mev"}, {"market", "fair", "mempool", "ordering"}, {"replacement", "replace"}}
 	case "ops_runbook_evidence":
 		return [][]string{{"ops", "runbook"}, {"alert", "incident", "metrics"}}
 	case "formal_safety_evidence":

@@ -280,6 +280,48 @@ func TestFIFOBuildBatchPrioritizesPriorityThenFee(t *testing.T) {
 	}
 }
 
+func TestFIFOReplacesSameSignerNonceWithBumpedPrice(t *testing.T) {
+	pool := NewFIFO(FIFOConfig{MaxTxs: 1, EnableReplacement: true, ReplacementBumpBPS: 1000})
+	if err := pool.AddTx(context.Background(), []byte("bank:send:fee=100:priority=1:signer=alice:nonce=7")); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.AddTx(context.Background(), []byte("bank:send:fee=109:priority=1:signer=alice:nonce=7")); !errors.Is(err, ErrReplacementUnderpriced) {
+		t.Fatalf("expected underpriced replacement, got %v", err)
+	}
+	if err := pool.AddTx(context.Background(), []byte("bank:send:fee=110:priority=1:signer=alice:nonce=7")); err != nil {
+		t.Fatalf("expected bumped replacement to pass, got %v", err)
+	}
+	pending, err := pool.PendingTxs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || string(pending[0]) != "bank:send:fee=110:priority=1:signer=alice:nonce=7" {
+		t.Fatalf("unexpected replacement pending txs: %q", pending)
+	}
+}
+
+func TestFIFOReplacementUsesSignedPayloadTags(t *testing.T) {
+	pool := NewFIFO(FIFOConfig{EnableReplacement: true})
+	first := signedTestMempoolPayload(t, "bank:send:fee=1:priority=1:signer=alice:nonce=9")
+	second := signedTestMempoolPayload(t, "bank:send:fee=2:priority=1:signer=alice:nonce=9")
+	if key, ok := ReplacementKey(first); !ok || key != "alice/9" {
+		t.Fatalf("unexpected signed replacement key %q found=%v", key, ok)
+	}
+	if err := pool.AddTx(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.AddTx(context.Background(), second); err != nil {
+		t.Fatalf("expected signed payload replacement, got %v", err)
+	}
+	pending, err := pool.PendingTxs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || !reflect.DeepEqual(pending[0], second) {
+		t.Fatalf("unexpected signed replacement pending txs: %q", pending)
+	}
+}
+
 func TestTxFeeAndPriorityParseTags(t *testing.T) {
 	tx := types.Tx("bank:send:fee=42:priority=7")
 	if TxFee(tx) != 42 {
@@ -291,6 +333,19 @@ func TestTxFeeAndPriorityParseTags(t *testing.T) {
 	if TxPriority(tx) != 7 {
 		t.Fatalf("expected priority 7, got %d", TxPriority(tx))
 	}
+}
+
+func signedTestMempoolPayload(t *testing.T, payload string) types.Tx {
+	t.Helper()
+	document := map[string]string{
+		"schema_version": "v1",
+		"payload":        base64.StdEncoding.EncodeToString([]byte(payload)),
+	}
+	encoded, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return types.Tx("signed:" + base64.StdEncoding.EncodeToString(encoded))
 }
 
 func TestTxFeeAndPriorityUnwrapSignedTx(t *testing.T) {

@@ -41,11 +41,13 @@ type deploymentExecutionTemplate struct {
 }
 
 type deploymentMempoolTemplate struct {
-	MinFee         uint64 `json:"min_fee"`
-	EnablePriority bool   `json:"enable_priority"`
-	MaxTxs         int    `json:"max_txs"`
-	SeenTTL        string `json:"seen_ttl"`
-	WALPath        string `json:"wal_path"`
+	MinFee             uint64 `json:"min_fee"`
+	EnablePriority     bool   `json:"enable_priority"`
+	EnableReplacement  bool   `json:"enable_replacement"`
+	ReplacementBumpBPS uint64 `json:"replacement_bump_bps"`
+	MaxTxs             int    `json:"max_txs"`
+	SeenTTL            string `json:"seen_ttl"`
+	WALPath            string `json:"wal_path"`
 }
 
 type deploymentValidatorTemplate struct {
@@ -89,7 +91,7 @@ func runConfigDeploymentTemplate(writer io.Writer, args []string) error {
 	}
 	fmt.Fprintf(writer, "deployment parameter template\n")
 	fmt.Fprintf(writer, "execution: require_signed=%t require_nonce=%t min_fee=%d base_fee=%d dynamic_base_fee=%t target_gas=%d min_gas=%d max_gas=%d fee_denom=%s gas_denom=%s\n", document.Chain.Execution.RequireSigned, document.Chain.Execution.RequireNonce, document.Chain.Execution.MinFee, document.Chain.Execution.BaseFee, document.Chain.Execution.DynamicBaseFee, document.Chain.Execution.TargetGas, document.Chain.Execution.MinGas, document.Chain.Execution.MaxGas, document.Chain.Execution.FeeDenom, document.Chain.Execution.GasDenom)
-	fmt.Fprintf(writer, "mempool: min_fee=%d priority=%t max_txs=%d seen_ttl=%s wal_path=%s\n", document.Chain.Mempool.MinFee, document.Chain.Mempool.EnablePriority, document.Chain.Mempool.MaxTxs, document.Chain.Mempool.SeenTTL, document.Chain.Mempool.WALPath)
+	fmt.Fprintf(writer, "mempool: min_fee=%d priority=%t replacement=%t replacement_bump_bps=%d max_txs=%d seen_ttl=%s wal_path=%s\n", document.Chain.Mempool.MinFee, document.Chain.Mempool.EnablePriority, document.Chain.Mempool.EnableReplacement, document.Chain.Mempool.ReplacementBumpBPS, document.Chain.Mempool.MaxTxs, document.Chain.Mempool.SeenTTL, document.Chain.Mempool.WALPath)
 	fmt.Fprintf(writer, "validator: permissionless=%t min_stake=%d remote_signer=%t\n", document.Chain.Validator.Permissionless, document.Chain.Validator.MinStake, document.Chain.Validator.RemoteSigner)
 	fmt.Fprintf(writer, "committee: size=%d epoch_length=%d regions=%d\n", document.Chain.Committee.Size, document.Chain.Committee.EpochLength, document.Chain.Committee.Regions)
 	fmt.Fprintf(writer, "runtime: rpc_max_request_bytes=%d rpc_rate_limit_max=%d p2p_max_message_bytes=%d\n", document.Runtime.RPCMaxRequestBytes, document.Runtime.RPCRateLimitMaxRequests, document.Runtime.P2PMaxMessageBytes)
@@ -124,11 +126,13 @@ func buildDeploymentTemplateDocument() deploymentTemplateDocument {
 				GasDenom:                 "gas",
 			},
 			Mempool: deploymentMempoolTemplate{
-				MinFee:         1,
-				EnablePriority: true,
-				MaxTxs:         50_000,
-				SeenTTL:        "10m0s",
-				WALPath:        "data/mempool.wal",
+				MinFee:             1,
+				EnablePriority:     true,
+				EnableReplacement:  true,
+				ReplacementBumpBPS: 1000,
+				MaxTxs:             50_000,
+				SeenTTL:            "10m0s",
+				WALPath:            "data/mempool.wal",
 			},
 			Validator: deploymentValidatorTemplate{
 				Permissionless: true,
