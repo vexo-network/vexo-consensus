@@ -50,6 +50,22 @@ func (node *Node) PendingTxHashes(ctx context.Context) ([]types.Hash, error) {
 	return hashes, nil
 }
 
+func (node *Node) PendingTxs(ctx context.Context) ([]types.Tx, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return nil, err
+	}
+	txs, err := runtime.Mempool.PendingTxs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	copied := make([]types.Tx, 0, len(txs))
+	for _, tx := range txs {
+		copied = append(copied, append(types.Tx(nil), tx...))
+	}
+	return copied, nil
+}
+
 func (node *Node) ProposeFromMempool(ctx context.Context, maxBytes int64) (consensus.Proposal, types.Hash, error) {
 	return node.ProposeFromMempoolWithOptions(ctx, maxBytes, ProposalOptions{AllowEmpty: true})
 }

@@ -1383,6 +1383,14 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 			return nil, &JSONRPCError{Code: -32000, Message: response.Log}
 		}
 		return web3TransactionFromReceipt(ctx, provider, response.Value)
+	case "txpool_status":
+		return web3TxpoolStatus(ctx, provider)
+	case "txpool_content":
+		return web3TxpoolContent(ctx, provider)
+	case "txpool_inspect":
+		return web3TxpoolInspect(ctx, provider)
+	case "debug_traceTransaction":
+		return web3DebugTraceTransaction(ctx, provider, params)
 	case "eth_getLogs":
 		filter, rpcErr := web3LogFilterParam(ctx, provider, params)
 		if rpcErr != nil {
@@ -1910,6 +1918,176 @@ func web3BlockReceipts(ctx context.Context, provider StatusProvider, params []js
 		receipts = append(receipts, receipt)
 	}
 	return receipts, nil
+}
+
+func web3TxpoolStatus(ctx context.Context, provider StatusProvider) (any, *JSONRPCError) {
+	txs, rpcErr := web3PendingTxs(ctx, provider)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	count := hexQuantity(uint64(len(txs)))
+	return map[string]any{"pending": count, "queued": "0x0"}, nil
+}
+
+func web3TxpoolContent(ctx context.Context, provider StatusProvider) (any, *JSONRPCError) {
+	txs, rpcErr := web3PendingTxs(ctx, provider)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	pending := make(map[string]map[string]any)
+	for _, tx := range txs {
+		details := web3TransactionDetails(tx)
+		from := "0x0000000000000000000000000000000000000000"
+		if raw, ok := details.From.(string); ok && raw != "" {
+			from = raw
+		}
+		nonce := hexQuantity(details.Nonce)
+		if pending[from] == nil {
+			pending[from] = make(map[string]any)
+		}
+		pending[from][nonce] = web3PendingTransaction(tx)
+	}
+	return map[string]any{"pending": pending, "queued": map[string]any{}}, nil
+}
+
+func web3TxpoolInspect(ctx context.Context, provider StatusProvider) (any, *JSONRPCError) {
+	txs, rpcErr := web3PendingTxs(ctx, provider)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	pending := make(map[string]map[string]string)
+	for _, tx := range txs {
+		details := web3TransactionDetails(tx)
+		from := "0x0000000000000000000000000000000000000000"
+		if raw, ok := details.From.(string); ok && raw != "" {
+			from = raw
+		}
+		nonce := hexQuantity(details.Nonce)
+		to := "<contract creation>"
+		if raw, ok := details.To.(string); ok && raw != "" {
+			to = raw
+		}
+		if pending[from] == nil {
+			pending[from] = make(map[string]string)
+		}
+		pending[from][nonce] = fmt.Sprintf("%s: %d value + %d gas × %d wei", to, details.Value, details.Gas, details.GasPrice)
+	}
+	return map[string]any{"pending": pending, "queued": map[string]string{}}, nil
+}
+
+func web3PendingTxs(ctx context.Context, provider StatusProvider) ([]types.Tx, *JSONRPCError) {
+	pendingProvider, ok := provider.(PendingTxsProvider)
+	if !ok {
+		hashProvider, ok := provider.(PendingTxProvider)
+		if !ok {
+			return nil, &JSONRPCError{Code: -32000, Message: "pending transaction query is unavailable"}
+		}
+		hashes, err := hashProvider.PendingTxHashes(ctx)
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
+		txs := make([]types.Tx, 0, len(hashes))
+		for _, hash := range hashes {
+			txs = append(txs, types.Tx("hash:"+web3HashString(hash)))
+		}
+		return txs, nil
+	}
+	txs, err := pendingProvider.PendingTxs(ctx)
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	return txs, nil
+}
+
+func web3PendingTransaction(tx types.Tx) any {
+	details := web3TransactionDetails(tx)
+	transaction := map[string]any{
+		"hash":             web3TxHash(tx),
+		"nonce":            hexQuantity(details.Nonce),
+		"blockHash":        nil,
+		"blockNumber":      nil,
+		"transactionIndex": nil,
+		"from":             details.From,
+		"to":               details.To,
+		"value":            hexQuantity(details.Value),
+		"gas":              hexQuantity(details.Gas),
+		"gasPrice":         hexQuantity(details.GasPrice),
+		"input":            details.Input,
+		"type":             hexQuantity(details.Type),
+		"chainId":          hexQuantity(details.ChainID),
+	}
+	if details.MaxFeePerGas > 0 {
+		transaction["maxFeePerGas"] = hexQuantity(details.MaxFeePerGas)
+	}
+	if details.MaxPriorityFeePerGas > 0 {
+		transaction["maxPriorityFeePerGas"] = hexQuantity(details.MaxPriorityFeePerGas)
+	}
+	return transaction
+}
+
+func web3DebugTraceTransaction(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
+	if len(params) == 0 || len(params) > 2 {
+		return nil, &JSONRPCError{Code: -32602, Message: "debug_traceTransaction requires transaction hash and optional config"}
+	}
+	hash, err := jsonRPCStringParam(params[0])
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	query, ok := provider.(AppQueryProvider)
+	if !ok {
+		return nil, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
+	}
+	response, err := query.AppQuery(ctx, []string{"evm", "receipt", hash}, nil)
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	if response.Code == 3 {
+		return nil, nil
+	}
+	if response.Code != 0 {
+		return nil, &JSONRPCError{Code: -32000, Message: response.Log}
+	}
+	receipt, ok := web3ReceiptFromResult(types.Result{Data: response.Value})
+	if !ok {
+		return nil, &JSONRPCError{Code: -32000, Message: "invalid EVM receipt"}
+	}
+	if web3TraceWantsCallTracer(params) {
+		to := receipt.To
+		traceType := "CALL"
+		if to == "" && receipt.ContractAddress != "" {
+			to = receipt.ContractAddress
+			traceType = "CREATE"
+		}
+		return map[string]any{
+			"type":    traceType,
+			"from":    receipt.From,
+			"to":      to,
+			"value":   "0x0",
+			"gas":     hexQuantity(receipt.GasUsed),
+			"gasUsed": hexQuantity(receipt.GasUsed),
+			"input":   "0x",
+			"output":  receipt.Output,
+		}, nil
+	}
+	return map[string]any{
+		"gas":         receipt.GasUsed,
+		"failed":      receipt.Status == 0,
+		"returnValue": strings.TrimPrefix(receipt.Output, "0x"),
+		"structLogs":  []any{},
+	}, nil
+}
+
+func web3TraceWantsCallTracer(params []json.RawMessage) bool {
+	if len(params) < 2 || string(params[1]) == "null" {
+		return false
+	}
+	var config struct {
+		Tracer string `json:"tracer"`
+	}
+	if err := json.Unmarshal(params[1], &config); err != nil {
+		return false
+	}
+	return config.Tracer == "callTracer"
 }
 
 func web3Code(ctx context.Context, provider StatusProvider, params []json.RawMessage) (string, *JSONRPCError) {

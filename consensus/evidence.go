@@ -449,6 +449,11 @@ func VerifyInvalidProposalEvidence(evidence slashing.Evidence) error {
 	if err := verifyInvalidProposalEnvelope(decoded, evidence.Validator, evidence.Height, evidence.Round); err != nil {
 		return err
 	}
+	switch decoded.Reason {
+	case InvalidProposalReasonDAMismatch, InvalidProposalReasonMissingData:
+	default:
+		return ErrInvalidProposalContext
+	}
 	return verifyInvalidProposalByReason(decoded)
 }
 

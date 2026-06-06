@@ -1,6 +1,7 @@
 package geth
 
 import (
+	"bytes"
 	"context"
 	"math/big"
 	"sort"
@@ -68,17 +69,21 @@ func (GethVM) Execute(ctx context.Context, invocation contract.Invocation) (cont
 	if err != nil {
 		return contract.Result{}, err
 	}
+	stateDB.Finalise(true)
 	balanceWrites, err := stateDB.BalanceWrites()
 	if err != nil {
 		return contract.Result{}, err
 	}
 	result := contract.Result{
-		Output:        append([]byte(nil), output...),
-		GasUsed:       left.Used(initialGas),
-		DeployedCode:  append([]byte(nil), stateDB.GetCode(contractAddress)...),
-		StorageWrites: stateDB.StorageWrites(),
-		BalanceWrites: balanceWrites,
-		Logs:          stateDB.ContractLogs(),
+		Output:           append([]byte(nil), output...),
+		GasUsed:          left.Used(initialGas),
+		DeployedCode:     append([]byte(nil), stateDB.GetCode(contractAddress)...),
+		CodeWrites:       stateDB.CodeWrites(),
+		StorageWrites:    stateDB.StorageWrites(),
+		BalanceWrites:    balanceWrites,
+		AccountDeletions: stateDB.AccountDeletions(),
+		AccessList:       stateDB.ContractAccessList(),
+		Logs:             stateDB.ContractLogs(),
 	}
 	if invocation.Method != "deploy" {
 		result.DeployedCode = nil
@@ -132,10 +137,12 @@ type gethAccount struct {
 	nonce          uint64
 	committedNonce uint64
 	code           []byte
+	committedCode  []byte
 	storage        map[gethcommon.Hash]gethcommon.Hash
 	committed      map[gethcommon.Hash]gethcommon.Hash
 	transient      map[gethcommon.Hash]gethcommon.Hash
 	selfDestructed bool
+	deleted        bool
 	newContract    bool
 	touched        bool
 }
@@ -292,8 +299,7 @@ func (db *gethStateDB) IsNewContract(address gethcommon.Address) bool {
 }
 
 func (db *gethStateDB) Empty(address gethcommon.Address) bool {
-	account := db.account(address)
-	return account.nonce == 0 && account.balance.IsZero() && len(account.code) == 0
+	return db.account(address).empty()
 }
 
 func (db *gethStateDB) AddressInAccessList(address gethcommon.Address) bool {
@@ -390,12 +396,55 @@ func (db *gethStateDB) AccessEvents() *gethstate.AccessEvents {
 }
 
 func (db *gethStateDB) Finalise(deleteEmptyObjects bool) *bal.StateAccessList {
+	for _, account := range db.accounts {
+		if !account.selfDestructed && (!deleteEmptyObjects || !account.touched || !account.empty()) {
+			continue
+		}
+		account.deleted = true
+		account.code = nil
+		account.balance.Clear()
+		account.nonce = 0
+		for slot := range account.storage {
+			account.storage[slot] = gethcommon.Hash{}
+		}
+	}
 	return nil
+}
+
+func (db *gethStateDB) CodeWrites() []contract.CodeWrite {
+	writes := make([]contract.CodeWrite, 0)
+	addresses := db.sortedAddresses()
+	for _, address := range addresses {
+		account := db.accounts[address]
+		if account.deleted {
+			writes = append(writes, contract.CodeWrite{Address: types.Address(address.Hex()), Delete: true})
+			continue
+		}
+		if bytes.Equal(account.code, account.committedCode) {
+			continue
+		}
+		writes = append(writes, contract.CodeWrite{
+			Address: types.Address(address.Hex()),
+			Code:    append([]byte(nil), account.code...),
+		})
+	}
+	return writes
+}
+
+func (db *gethStateDB) AccountDeletions() []contract.AccountDeletion {
+	deletions := make([]contract.AccountDeletion, 0)
+	for _, address := range db.sortedAddresses() {
+		if db.accounts[address].deleted {
+			deletions = append(deletions, contract.AccountDeletion{Address: types.Address(address.Hex())})
+		}
+	}
+	return deletions
 }
 
 func (db *gethStateDB) StorageWrites() []contract.StorageWrite {
 	writes := make([]contract.StorageWrite, 0)
-	for address, account := range db.accounts {
+	for _, address := range db.sortedAddresses() {
+		account := db.accounts[address]
 		slots := make([]gethcommon.Hash, 0, len(account.storage))
 		for slot := range account.storage {
 			if account.storage[slot] != account.committed[slot] {
@@ -430,14 +479,7 @@ func (db *gethStateDB) StorageWrites() []contract.StorageWrite {
 
 func (db *gethStateDB) BalanceWrites() ([]contract.BalanceWrite, error) {
 	writes := make([]contract.BalanceWrite, 0)
-	addresses := make([]gethcommon.Address, 0, len(db.accounts))
-	for address := range db.accounts {
-		addresses = append(addresses, address)
-	}
-	sort.Slice(addresses, func(first int, second int) bool {
-		return addresses[first].Hex() < addresses[second].Hex()
-	})
-	for _, address := range addresses {
+	for _, address := range db.sortedAddresses() {
 		account := db.accounts[address]
 		if account.balance.Eq(&account.committedBal) {
 			continue
@@ -451,6 +493,32 @@ func (db *gethStateDB) BalanceWrites() ([]contract.BalanceWrite, error) {
 		})
 	}
 	return writes, nil
+}
+
+func (db *gethStateDB) ContractAccessList() []contract.AccessListEntry {
+	entries := make([]contract.AccessListEntry, 0, len(db.accessList))
+	addresses := make([]gethcommon.Address, 0, len(db.accessList))
+	for address := range db.accessList {
+		addresses = append(addresses, address)
+	}
+	sort.Slice(addresses, func(first int, second int) bool {
+		return addresses[first].Hex() < addresses[second].Hex()
+	})
+	for _, address := range addresses {
+		slots := make([]gethcommon.Hash, 0, len(db.accessList[address]))
+		for slot := range db.accessList[address] {
+			slots = append(slots, slot)
+		}
+		sort.Slice(slots, func(first int, second int) bool {
+			return slots[first].Hex() < slots[second].Hex()
+		})
+		entry := contract.AccessListEntry{Address: types.Address(address.Hex()), StorageKeys: make([]string, 0, len(slots))}
+		for _, slot := range slots {
+			entry.StorageKeys = append(entry.StorageKeys, slot.Hex())
+		}
+		entries = append(entries, entry)
+	}
+	return entries
 }
 
 func (db *gethStateDB) ContractLogs() []contract.Log {
@@ -482,6 +550,7 @@ func (db *gethStateDB) account(address gethcommon.Address) *gethAccount {
 	if db.reader != nil {
 		if code, err := db.reader.Code(db.ctx, types.Address(address.Hex())); err == nil && len(code) > 0 {
 			account.code = append([]byte(nil), code...)
+			account.committedCode = append([]byte(nil), code...)
 		}
 		if balanceReader, ok := db.reader.(contract.BalanceReader); ok {
 			if balance, err := balanceReader.Balance(db.ctx, types.Address(address.Hex())); err == nil {
@@ -498,6 +567,21 @@ func (db *gethStateDB) account(address gethcommon.Address) *gethAccount {
 	}
 	db.accounts[address] = account
 	return account
+}
+
+func (account *gethAccount) empty() bool {
+	return account.nonce == 0 && account.balance.IsZero() && len(account.code) == 0
+}
+
+func (db *gethStateDB) sortedAddresses() []gethcommon.Address {
+	addresses := make([]gethcommon.Address, 0, len(db.accounts))
+	for address := range db.accounts {
+		addresses = append(addresses, address)
+	}
+	sort.Slice(addresses, func(first int, second int) bool {
+		return addresses[first].Hex() < addresses[second].Hex()
+	})
+	return addresses
 }
 
 func (db *gethStateDB) blockHash(height uint64) gethcommon.Hash {
@@ -535,6 +619,7 @@ func cloneAccounts(accounts map[gethcommon.Address]*gethAccount) map[gethcommon.
 	for address, account := range accounts {
 		copyAccount := *account
 		copyAccount.code = append([]byte(nil), account.code...)
+		copyAccount.committedCode = append([]byte(nil), account.committedCode...)
 		copyAccount.storage = make(map[gethcommon.Hash]gethcommon.Hash, len(account.storage))
 		for slot, value := range account.storage {
 			copyAccount.storage[slot] = value

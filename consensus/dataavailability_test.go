@@ -106,8 +106,8 @@ func TestInvalidProposalHashEvidenceVerifiesReasonSpecificProof(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifyInvalidProposalEvidence(evidence); err != nil {
-		t.Fatal(err)
+	if err := VerifyInvalidProposalEvidence(evidence); !errors.Is(err, ErrInvalidProposalContext) {
+		t.Fatalf("expected standalone context rejection, got %v", err)
 	}
 	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedValidatorSetHash: types.Hash{1}}); err != nil {
 		t.Fatal(err)
@@ -197,8 +197,8 @@ func TestInvalidProposalTxValidityEvidenceRequiresResultHashContext(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifyInvalidProposalEvidence(evidence); err != nil {
-		t.Fatal(err)
+	if err := VerifyInvalidProposalEvidence(evidence); !errors.Is(err, ErrInvalidProposalContext) {
+		t.Fatalf("expected standalone context rejection, got %v", err)
 	}
 	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{}); !errors.Is(err, ErrInvalidProposalContext) {
 		t.Fatalf("expected missing context rejection, got %v", err)

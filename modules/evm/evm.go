@@ -147,21 +147,12 @@ func (module Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		if err := validateEthereumRawTx(ctx, tx); err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
-		if err := ctx.ConsumeGas(callGasCost); err != nil {
-			return types.Result{Code: 6, Log: err.Error()}
-		}
 		return module.deliverCall(ctx, tx, canonical.Args)
 	case "deploy":
-		if err := ctx.ConsumeGas(deployGasCost); err != nil {
-			return types.Result{Code: 6, Log: err.Error()}
-		}
 		return module.deliverDeploy(ctx, tx, canonical.Args)
 	case "eth_deploy":
 		if err := validateEthereumRawTx(ctx, tx); err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
-		}
-		if err := ctx.ConsumeGas(deployGasCost); err != nil {
-			return types.Result{Code: 6, Log: err.Error()}
 		}
 		return module.deliverEthereumDeploy(ctx, tx, canonical.Args)
 	default:
@@ -214,16 +205,39 @@ func (Module) Prune(ctx vexoapp.Context, retainFrom types.Height) error {
 	return nil
 }
 
-func (Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
+func (module Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
 	canonical, err := vexoapp.ParseCanonicalTx(tx)
 	if err != nil || canonical.Module != ModuleName {
 		return 0, ErrInvalidEVMTx
 	}
 	switch canonical.Action {
 	case "call":
-		return callGasCost, nil
+		invocation, err := callInvocationFromArgs(canonical.Args)
+		if err != nil {
+			return 0, err
+		}
+		if ctx.Store != nil {
+			code, err := loadCode(ctx.GoContext(), ctx.Store, invocation.Contract)
+			if err != nil {
+				return 0, err
+			}
+			invocation.Code = code
+			invocation.State = evmStateReader{store: ctx.Store}
+		}
+		invocation.ReadOnly = true
+		invocation.BlockNumber = uint64(ctx.Height)
+		invocation.Timestamp = headerUnixSeconds(ctx.Header)
+		invocation.BlockGasLimit = ctx.GasLimit()
+		invocation.GasPrice = txGasPrice(tx)
+		invocation.BaseFee = txBaseFee(tx)
+		invocation.Coinbase = types.Address("fee_collector")
+		return module.estimateInvocationGas(ctx, invocation, callGasCost)
 	case "deploy", "eth_deploy":
-		return deployGasCost, nil
+		invocation, err := module.deployInvocationForEstimate(ctx, canonical.Action, canonical.Args, tx)
+		if err != nil {
+			return 0, err
+		}
+		return module.estimateInvocationGas(ctx, invocation, deployGasCost)
 	default:
 		return 0, ErrInvalidEVMTx
 	}
@@ -341,10 +355,10 @@ func (module Module) deliverCall(ctx vexoapp.Context, tx types.Tx, args []string
 	if err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
-	if err := persistStorageWrites(ctx.GoContext(), ctx.Store, invocation.Contract, result.StorageWrites); err != nil {
-		return types.Result{Code: 4, Log: err.Error()}
+	if err := ctx.ConsumeGas(result.GasUsed); err != nil {
+		return types.Result{Code: 6, Log: err.Error()}
 	}
-	if err := persistBalanceWrites(ctx.GoContext(), ctx.Store, result.BalanceWrites); err != nil {
+	if err := persistExecutionResult(ctx.GoContext(), ctx.Store, invocation.Contract, result); err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
 	receipt := receiptFromResult(tx, ctx.Height, invocation, "", result)
@@ -396,6 +410,9 @@ func (module Module) deliverDeploy(ctx vexoapp.Context, tx types.Tx, args []stri
 	if err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
+	if err := ctx.ConsumeGas(result.GasUsed); err != nil {
+		return types.Result{Code: 6, Log: err.Error()}
+	}
 	deployedCode := result.DeployedCode
 	if len(deployedCode) == 0 {
 		deployedCode = code
@@ -403,10 +420,7 @@ func (module Module) deliverDeploy(ctx vexoapp.Context, tx types.Tx, args []stri
 	if err := ctx.Store.Set(ctx.GoContext(), ModuleName, codeKey(contractAddress), deployedCode); err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
-	if err := persistStorageWrites(ctx.GoContext(), ctx.Store, invocation.Contract, result.StorageWrites); err != nil {
-		return types.Result{Code: 4, Log: err.Error()}
-	}
-	if err := persistBalanceWrites(ctx.GoContext(), ctx.Store, result.BalanceWrites); err != nil {
+	if err := persistExecutionResult(ctx.GoContext(), ctx.Store, invocation.Contract, result); err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
 	receipt := receiptFromResult(tx, ctx.Height, invocation, string(contractAddress), result)
@@ -457,6 +471,9 @@ func (module Module) deliverEthereumDeploy(ctx vexoapp.Context, tx types.Tx, arg
 	if err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
+	if err := ctx.ConsumeGas(result.GasUsed); err != nil {
+		return types.Result{Code: 6, Log: err.Error()}
+	}
 	deployedCode := result.DeployedCode
 	if len(deployedCode) == 0 {
 		deployedCode = code
@@ -464,10 +481,7 @@ func (module Module) deliverEthereumDeploy(ctx vexoapp.Context, tx types.Tx, arg
 	if err := ctx.Store.Set(ctx.GoContext(), ModuleName, codeKey(contractAddress), deployedCode); err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
-	if err := persistStorageWrites(ctx.GoContext(), ctx.Store, invocation.Contract, result.StorageWrites); err != nil {
-		return types.Result{Code: 4, Log: err.Error()}
-	}
-	if err := persistBalanceWrites(ctx.GoContext(), ctx.Store, result.BalanceWrites); err != nil {
+	if err := persistExecutionResult(ctx.GoContext(), ctx.Store, invocation.Contract, result); err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
 	receipt := receiptFromResult(tx, ctx.Height, invocation, string(contractAddress), result)
@@ -527,6 +541,81 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
 	}
 	return vexoapp.QueryResponse{Value: encoded}
+}
+
+func (module Module) estimateInvocationGas(ctx vexoapp.Context, invocation contract.Invocation, fallback uint64) (uint64, error) {
+	if module.registry == nil {
+		return 0, ErrVMRegistryEmpty
+	}
+	result, err := module.registry.Execute(ctx.GoContext(), invocation)
+	if err != nil {
+		return 0, err
+	}
+	if result.GasUsed == 0 {
+		return fallback, nil
+	}
+	return result.GasUsed, nil
+}
+
+func (module Module) deployInvocationForEstimate(ctx vexoapp.Context, action string, args []string, tx types.Tx) (contract.Invocation, error) {
+	switch action {
+	case "deploy":
+		if len(args) != 4 && len(args) != 5 {
+			return contract.Invocation{}, ErrInvalidEVMTx
+		}
+		code, err := hex.DecodeString(strings.TrimPrefix(args[2], "0x"))
+		if err != nil || len(code) == 0 {
+			return contract.Invocation{}, ErrInvalidEVMTx
+		}
+		value := uint64(0)
+		if len(args) == 5 {
+			value, err = strconv.ParseUint(args[4], 10, 64)
+			if err != nil {
+				return contract.Invocation{}, ErrInvalidEVMTx
+			}
+		}
+		salt := create2Salt(args[3])
+		return module.prepareDeployInvocation(ctx, tx, args[0], types.Address(args[1]), createAddress(types.Address(args[1]), code, salt), code, value, salt[:]), nil
+	case "eth_deploy":
+		if len(args) != 5 {
+			return contract.Invocation{}, ErrInvalidEVMTx
+		}
+		code, err := hex.DecodeString(strings.TrimPrefix(args[2], "0x"))
+		if err != nil || len(code) == 0 {
+			return contract.Invocation{}, ErrInvalidEVMTx
+		}
+		nonce, err := strconv.ParseUint(args[3], 10, 64)
+		if err != nil {
+			return contract.Invocation{}, ErrInvalidEVMTx
+		}
+		value, err := strconv.ParseUint(args[4], 10, 64)
+		if err != nil {
+			return contract.Invocation{}, ErrInvalidEVMTx
+		}
+		return module.prepareDeployInvocation(ctx, tx, args[0], types.Address(args[1]), createLegacyAddress(types.Address(args[1]), nonce), code, value, nil), nil
+	default:
+		return contract.Invocation{}, ErrInvalidEVMTx
+	}
+}
+
+func (Module) prepareDeployInvocation(ctx vexoapp.Context, tx types.Tx, vm string, caller types.Address, contractAddress types.Address, code []byte, value uint64, salt []byte) contract.Invocation {
+	return contract.Invocation{
+		VM:            vm,
+		Caller:        caller,
+		Contract:      contractAddress,
+		Method:        "deploy",
+		Input:         code,
+		GasLimit:      ctx.GasLimit(),
+		Value:         value,
+		Salt:          append([]byte(nil), salt...),
+		State:         evmStateReader{store: ctx.Store},
+		BlockNumber:   uint64(ctx.Height),
+		Timestamp:     headerUnixSeconds(ctx.Header),
+		BlockGasLimit: ctx.GasLimit(),
+		GasPrice:      txGasPrice(tx),
+		BaseFee:       txBaseFee(tx),
+		Coinbase:      types.Address("fee_collector"),
+	}
 }
 
 func callInvocationFromArgs(args []string) (contract.Invocation, error) {
@@ -603,6 +692,68 @@ func persistReceipt(ctx context.Context, store vexoapp.StateStore, receipt Recei
 	for _, log := range receipt.Logs {
 		if err := persistLog(ctx, store, log); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func persistExecutionResult(ctx context.Context, store vexoapp.StateStore, defaultAddress types.Address, result contract.Result) error {
+	if err := persistAccountDeletions(ctx, store, result.AccountDeletions); err != nil {
+		return err
+	}
+	if err := persistCodeWrites(ctx, store, result.CodeWrites); err != nil {
+		return err
+	}
+	if err := persistStorageWrites(ctx, store, defaultAddress, result.StorageWrites); err != nil {
+		return err
+	}
+	return persistBalanceWrites(ctx, store, result.BalanceWrites)
+}
+
+func persistCodeWrites(ctx context.Context, store vexoapp.StateStore, writes []contract.CodeWrite) error {
+	for _, write := range writes {
+		if write.Address == "" {
+			return ErrInvalidEVMTx
+		}
+		if write.Delete {
+			if err := store.Delete(ctx, ModuleName, codeKey(write.Address)); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := store.Set(ctx, ModuleName, codeKey(write.Address), append([]byte(nil), write.Code...)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func persistAccountDeletions(ctx context.Context, store vexoapp.StateStore, deletions []contract.AccountDeletion) error {
+	for _, deletion := range deletions {
+		if deletion.Address == "" {
+			return ErrInvalidEVMTx
+		}
+		if err := store.Delete(ctx, ModuleName, codeKey(deletion.Address)); err != nil {
+			return err
+		}
+		if err := store.Delete(ctx, "bank", evmBankKey(deletion.Address)); err != nil {
+			return err
+		}
+		if err := store.Delete(ctx, "auth", []byte("nonce/"+string(deletion.Address))); err != nil {
+			return err
+		}
+		prefixStore, ok := store.(vexostore.PrefixKVStore)
+		if !ok {
+			continue
+		}
+		pairs, err := prefixStore.ExportPrefix(ctx, ModuleName, storageAccountPrefix(deletion.Address))
+		if err != nil {
+			return err
+		}
+		for _, pair := range pairs {
+			if err := store.Delete(ctx, ModuleName, pair.Key); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -1047,6 +1198,10 @@ func logOrderKey(log Log) string {
 
 func storageKey(address types.Address, slot string) []byte {
 	return []byte("storage/" + canonicalAddressKey(address) + "/" + strings.TrimPrefix(normalizeSlot(slot), "0x"))
+}
+
+func storageAccountPrefix(address types.Address) []byte {
+	return []byte("storage/" + canonicalAddressKey(address) + "/")
 }
 
 func headerUnixSeconds(header types.Header) uint64 {

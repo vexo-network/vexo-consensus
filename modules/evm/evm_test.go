@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"strings"
 	"testing"
@@ -35,6 +36,23 @@ func (testVM) Execute(ctx context.Context, invocation contract.Invocation) (cont
 			Topics:  []string{"0x01"},
 			Data:    []byte("log"),
 			Meta:    map[string]string{"method": invocation.Method},
+		}},
+	}, nil
+}
+
+type deletionVM struct{}
+
+func (deletionVM) Name() string { return "evm" }
+
+func (deletionVM) Execute(ctx context.Context, invocation contract.Invocation) (contract.Result, error) {
+	return contract.Result{
+		GasUsed: 11,
+		CodeWrites: []contract.CodeWrite{{
+			Address: "0x000000000000000000000000000000000000c0de",
+			Code:    []byte{0x60, 0x01},
+		}},
+		AccountDeletions: []contract.AccountDeletion{{
+			Address: invocation.Contract,
 		}},
 	}, nil
 }
@@ -95,6 +113,54 @@ func TestModuleExecutesAndPersistsReceiptsCodeAndLogs(t *testing.T) {
 	storageQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"storage", deployReceipt.ContractAddress, "0x0"}})
 	if storageQuery.Code != 0 || !strings.Contains(string(storageQuery.Value), `"value":"0x73746f7265643a7472616e73666572"`) {
 		t.Fatalf("unexpected storage query: %+v", storageQuery)
+	}
+}
+
+func TestModulePersistsCodeWritesAccountDeletionsAndActualGas(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	registry := contract.NewRegistry()
+	if err := registry.Register(deletionVM{}); err != nil {
+		t.Fatal(err)
+	}
+	module := NewModuleWithRegistry(registry)
+	contractAddress := types.Address("0x000000000000000000000000000000000000dead")
+	if err := storage.Set(context.Background(), ModuleName, codeKey(contractAddress), []byte{0x60, 0x00}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Set(context.Background(), ModuleName, storageKey(contractAddress, "0x0"), []byte{0x01}); err != nil {
+		t.Fatal(err)
+	}
+	setTestEVMBalance(t, storage, contractAddress, 99)
+
+	ctx := vexoapp.Context{
+		Ctx:    context.Background(),
+		Height: 12,
+		Store:  storage,
+		Gas:    vexoapp.NewGasMeter(100),
+	}
+	result := module.DeliverTx(ctx, types.Tx("evm:call:evm:0x000000000000000000000000000000000000aaaa:"+string(contractAddress)+":call:00:100000"))
+	if result.Code != 0 {
+		t.Fatalf("call failed: %+v", result)
+	}
+	if result.GasUsed != 11 || ctx.GasUsed() != 11 {
+		t.Fatalf("expected actual VM gas to be consumed, result=%d meter=%d", result.GasUsed, ctx.GasUsed())
+	}
+	if _, err := storage.Get(context.Background(), ModuleName, codeKey(contractAddress)); !errors.Is(err, store.ErrKeyNotFound) {
+		t.Fatalf("expected deleted contract code, err=%v", err)
+	}
+	if _, err := storage.Get(context.Background(), ModuleName, storageKey(contractAddress, "0x0")); !errors.Is(err, store.ErrKeyNotFound) {
+		t.Fatalf("expected deleted contract storage, err=%v", err)
+	}
+	if _, err := storage.Get(context.Background(), "bank", evmBankKey(contractAddress)); !errors.Is(err, store.ErrKeyNotFound) {
+		t.Fatalf("expected deleted contract balance, err=%v", err)
+	}
+	codeQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"code", "0x000000000000000000000000000000000000c0de"}})
+	if codeQuery.Code != 0 || !strings.Contains(string(codeQuery.Value), `"code":"6001"`) {
+		t.Fatalf("expected internal code write, got %+v", codeQuery)
 	}
 }
 

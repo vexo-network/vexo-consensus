@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	gethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/vexo-network/vexo-consensus/contract"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -97,5 +98,30 @@ func TestGethBackendUsesReaderBalancesAndReturnsBalanceWrites(t *testing.T) {
 	}
 	if writes[types.Address(strings.ToLower(string(caller)))] != 7 || writes[types.Address(strings.ToLower(string(recipient)))] != 3 {
 		t.Fatalf("unexpected balance writes: %+v", result.BalanceWrites)
+	}
+}
+
+func TestGethStateDBFinaliseReportsCodeStorageAndAccountDeletion(t *testing.T) {
+	address := types.Address("0x000000000000000000000000000000000000dead")
+	slot := "0x00000000000000000000000000000000000000000000000000000000000000000"
+	db := newGethStateDB(context.Background(), contract.Invocation{})
+	gethAddress := gethAddress(address)
+	account := db.account(gethAddress)
+	account.code = []byte{0x60, 0x00}
+	account.committedCode = []byte{0x60, 0x00}
+	account.storage[gethcommon.HexToHash(slot)] = gethcommon.HexToHash("0x01")
+	account.committed[gethcommon.HexToHash(slot)] = gethcommon.HexToHash("0x01")
+	db.SelfDestruct(gethAddress)
+	db.Finalise(true)
+
+	if deletions := db.AccountDeletions(); len(deletions) != 1 || !strings.EqualFold(string(deletions[0].Address), string(address)) {
+		t.Fatalf("unexpected account deletions: %+v", deletions)
+	}
+	if writes := db.CodeWrites(); len(writes) != 1 || !writes[0].Delete || !strings.EqualFold(string(writes[0].Address), string(address)) {
+		t.Fatalf("unexpected code writes: %+v", writes)
+	}
+	storageWrites := db.StorageWrites()
+	if len(storageWrites) != 1 || !storageWrites[0].Delete || !strings.EqualFold(string(storageWrites[0].Address), string(address)) {
+		t.Fatalf("unexpected storage writes: %+v", storageWrites)
 	}
 }

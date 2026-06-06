@@ -37,12 +37,15 @@ type Invocation struct {
 }
 
 type Result struct {
-	Output        []byte         `json:"output,omitempty"`
-	GasUsed       uint64         `json:"gas_used,omitempty"`
-	DeployedCode  []byte         `json:"deployed_code,omitempty"`
-	Logs          []Log          `json:"logs,omitempty"`
-	StorageWrites []StorageWrite `json:"storage_writes,omitempty"`
-	BalanceWrites []BalanceWrite `json:"balance_writes,omitempty"`
+	Output           []byte            `json:"output,omitempty"`
+	GasUsed          uint64            `json:"gas_used,omitempty"`
+	DeployedCode     []byte            `json:"deployed_code,omitempty"`
+	Logs             []Log             `json:"logs,omitempty"`
+	CodeWrites       []CodeWrite       `json:"code_writes,omitempty"`
+	StorageWrites    []StorageWrite    `json:"storage_writes,omitempty"`
+	BalanceWrites    []BalanceWrite    `json:"balance_writes,omitempty"`
+	AccountDeletions []AccountDeletion `json:"account_deletions,omitempty"`
+	AccessList       []AccessListEntry `json:"access_list,omitempty"`
 }
 
 type Log struct {
@@ -59,9 +62,24 @@ type StorageWrite struct {
 	Delete  bool          `json:"delete,omitempty"`
 }
 
+type CodeWrite struct {
+	Address types.Address `json:"address"`
+	Code    []byte        `json:"code,omitempty"`
+	Delete  bool          `json:"delete,omitempty"`
+}
+
 type BalanceWrite struct {
 	Address types.Address `json:"address"`
 	Balance uint64        `json:"balance"`
+}
+
+type AccountDeletion struct {
+	Address types.Address `json:"address"`
+}
+
+type AccessListEntry struct {
+	Address     types.Address `json:"address"`
+	StorageKeys []string      `json:"storage_keys,omitempty"`
 }
 
 type VM interface {
