@@ -761,9 +761,21 @@ func TestHandlerSubmitsBase64Transaction(t *testing.T) {
 func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	blockHash := types.Hash{0xab}
 	parentHash := types.Hash{0xcd}
-	blockTx := types.Tx("bank:send:fee=14:gas=7")
-	blockTxHash := mempool.HashTx(blockTx)
-	blockTxHashText := "0x" + hex.EncodeToString(blockTxHash[:])
+	blockTxHashText := "0x8888888888888888888888888888888888888888888888888888888888888888"
+	blockTx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
+		Module: "evm",
+		Action: "call",
+		Args:   []string{"evm", "0xaaaa", "0xbbbb", "call", "1234", "7", "0"},
+		Tags: map[string]string{
+			"fee":             "14",
+			"gas":             "7",
+			ethcompat.TagRaw:  "0xabcdef",
+			ethcompat.TagHash: blockTxHashText,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	block := store.BlockRecord{
 		Block: types.Block{
 			Header: types.Header{ChainID: "vexo-chain", Height: 12, PreviousBlockHash: parentHash, TimeUnixNano: int64(1700000000 * time.Second)},
@@ -853,6 +865,13 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if txpoolContent.Error != nil || !ok || pendingItem["hash"] != "0x9999999999999999999999999999999999999999999999999999999999999999" || pendingItem["to"] != "0xbbbb" {
 		t.Fatalf("unexpected txpool content: %+v", txpoolContent)
 	}
+	var txpoolContentFrom JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":88,"method":"txpool_contentFrom","params":["0xaaaa"]}`, http.StatusOK, &txpoolContentFrom)
+	contentFromResult, ok := txpoolContentFrom.Result.(map[string]any)
+	contentFromPending, _ := contentFromResult["pending"].(map[string]any)
+	if txpoolContentFrom.Error != nil || !ok || len(contentFromPending) != 1 {
+		t.Fatalf("unexpected txpool contentFrom: %+v", txpoolContentFrom)
+	}
 	var txpoolInspect JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":77,"method":"txpool_inspect","params":[]}`, http.StatusOK, &txpoolInspect)
 	inspectResult, ok := txpoolInspect.Result.(map[string]any)
@@ -936,6 +955,11 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if txByNumberAndIndex.Error != nil || !ok || txByNumberResult["hash"] != blockTxHashText || txByNumberResult["transactionIndex"] != "0x0" {
 		t.Fatalf("unexpected tx by number/index: %+v", txByNumberAndIndex)
 	}
+	var rawByNumberAndIndex JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":89,"method":"eth_getRawTransactionByBlockNumberAndIndex","params":["latest","0x0"]}`, http.StatusOK, &rawByNumberAndIndex)
+	if rawByNumberAndIndex.Error != nil || rawByNumberAndIndex.Result != "0xabcdef" {
+		t.Fatalf("unexpected raw tx by number/index: %+v", rawByNumberAndIndex)
+	}
 	var missingTxByNumberAndIndex JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":70,"method":"eth_getTransactionByBlockNumberAndIndex","params":["latest","0x9"]}`, http.StatusOK, &missingTxByNumberAndIndex)
 	if missingTxByNumberAndIndex.Error != nil || missingTxByNumberAndIndex.Result != nil {
@@ -958,6 +982,16 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	txByHashResult, ok := txByHashAndIndex.Result.(map[string]any)
 	if txByHashAndIndex.Error != nil || !ok || txByHashResult["hash"] != blockTxHashText || txByHashResult["blockHash"] != "0xab00000000000000000000000000000000000000000000000000000000000000" {
 		t.Fatalf("unexpected tx by hash/index: %+v", txByHashAndIndex)
+	}
+	var rawByHashAndIndex JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":90,"method":"eth_getRawTransactionByBlockHashAndIndex","params":["0xab00000000000000000000000000000000000000000000000000000000000000","0x0"]}`, http.StatusOK, &rawByHashAndIndex)
+	if rawByHashAndIndex.Error != nil || rawByHashAndIndex.Result != "0xabcdef" {
+		t.Fatalf("unexpected raw tx by hash/index: %+v", rawByHashAndIndex)
+	}
+	var rawByHash JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":91,"method":"eth_getRawTransactionByHash","params":["`+blockTxHashText+`"]}`, http.StatusOK, &rawByHash)
+	if rawByHash.Error != nil || rawByHash.Result != "0xabcdef" {
+		t.Fatalf("unexpected raw tx by hash: %+v", rawByHash)
 	}
 	var uncleCount JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":73,"method":"eth_getUncleCountByBlockNumber","params":["latest"]}`, http.StatusOK, &uncleCount)
@@ -1084,6 +1118,25 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	filterTraceItems, ok := filterTrace.Result.([]any)
 	if filterTrace.Error != nil || !ok || len(filterTraceItems) != 1 {
 		t.Fatalf("unexpected filter trace: %+v", filterTrace)
+	}
+	var traceGet JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":92,"method":"trace_get","params":["`+blockTxHashText+`",[]]}`, http.StatusOK, &traceGet)
+	traceGetResult, ok := traceGet.Result.(map[string]any)
+	if traceGet.Error != nil || !ok || traceGetResult["transactionHash"] != blockTxHashText {
+		t.Fatalf("unexpected trace_get: %+v", traceGet)
+	}
+	var replayTransaction JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":93,"method":"trace_replayTransaction","params":["`+blockTxHashText+`",["trace"]]}`, http.StatusOK, &replayTransaction)
+	replayTransactionResult, ok := replayTransaction.Result.(map[string]any)
+	replayTransactionTrace, _ := replayTransactionResult["trace"].([]any)
+	if replayTransaction.Error != nil || !ok || len(replayTransactionTrace) != 1 {
+		t.Fatalf("unexpected trace_replayTransaction: %+v", replayTransaction)
+	}
+	var replayBlock JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":94,"method":"trace_replayBlockTransactions","params":["latest",["trace"]]}`, http.StatusOK, &replayBlock)
+	replayBlockItems, ok := replayBlock.Result.([]any)
+	if replayBlock.Error != nil || !ok || len(replayBlockItems) != 1 {
+		t.Fatalf("unexpected trace_replayBlockTransactions: %+v", replayBlock)
 	}
 
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"0xabc","status":1,"gas_used":7,"logs":[{"address":"0xcontract","data":"0x01"}]}`)}
