@@ -10,13 +10,13 @@ import (
 	"strconv"
 	"strings"
 
-	gethcommon "github.com/ethereum/go-ethereum/common"
-	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/contract"
 	"github.com/vexo-network/vexo-consensus/events"
+	gethbackend "github.com/vexo-network/vexo-consensus/modules/evm/backend/geth"
 	vexostore "github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
+	"golang.org/x/crypto/sha3"
 )
 
 const ModuleName = "evm"
@@ -77,7 +77,7 @@ type CallResponse struct {
 
 func NewModule() Module {
 	registry := contract.NewRegistry()
-	_ = registry.Register(NewGethVM())
+	_ = registry.Register(gethbackend.New())
 	return Module{registry: registry}
 }
 
@@ -535,12 +535,12 @@ func queryLogs(ctx vexoapp.Context, prefix []byte, legacyKey []byte) vexoapp.Que
 }
 
 func createAddress(caller types.Address, code []byte, salt [32]byte) types.Address {
-	codeHash := gethcrypto.Keccak256Hash(code)
-	seed := append([]byte{0xff}, gethAddress(caller).Bytes()...)
+	codeHash := keccak256(code)
+	seed := append([]byte{0xff}, addressBytes(caller)...)
 	seed = append(seed, salt[:]...)
-	seed = append(seed, codeHash.Bytes()...)
-	final := gethcrypto.Keccak256(seed)
-	return types.Address(gethcommon.BytesToAddress(final[12:]).Hex())
+	seed = append(seed, codeHash...)
+	final := keccak256(seed)
+	return types.Address("0x" + hex.EncodeToString(final[12:]))
 }
 
 func txHash(tx types.Tx) string {
@@ -553,7 +553,7 @@ func receiptKey(hash string) []byte {
 }
 
 func codeKey(address types.Address) []byte {
-	return []byte("code/" + string(address))
+	return []byte("code/" + canonicalAddressKey(address))
 }
 
 func logsKey(address types.Address) []byte {
@@ -585,7 +585,7 @@ func logOrderKey(log Log) string {
 }
 
 func storageKey(address types.Address, slot string) []byte {
-	return []byte("storage/" + string(address) + "/" + strings.TrimPrefix(normalizeSlot(slot), "0x"))
+	return []byte("storage/" + canonicalAddressKey(address) + "/" + strings.TrimPrefix(normalizeSlot(slot), "0x"))
 }
 
 func headerUnixSeconds(header types.Header) uint64 {
@@ -643,21 +643,70 @@ func (reader evmStateReader) Storage(ctx context.Context, address types.Address,
 
 func create2Salt(raw string) [32]byte {
 	clean := strings.TrimPrefix(raw, "0x")
+	if len(clean)%2 == 1 {
+		clean = "0" + clean
+	}
 	decoded, err := hex.DecodeString(clean)
 	if err == nil && len(decoded) <= 32 {
 		var salt [32]byte
 		copy(salt[32-len(decoded):], decoded)
 		return salt
 	}
-	return gethcrypto.Keccak256Hash([]byte(raw))
+	var salt [32]byte
+	copy(salt[:], keccak256([]byte(raw)))
+	return salt
 }
 
-func gethAddress(address types.Address) gethcommon.Address {
-	return gethcommon.HexToAddress(string(address))
+func addressBytes(address types.Address) []byte {
+	clean := strings.TrimPrefix(string(address), "0x")
+	if len(clean)%2 == 1 {
+		clean = "0" + clean
+	}
+	decoded, err := hex.DecodeString(clean)
+	if err == nil && len(decoded) <= 20 {
+		out := make([]byte, 20)
+		copy(out[20-len(decoded):], decoded)
+		return out
+	}
+	hash := keccak256([]byte(address))
+	return hash[12:]
+}
+
+func canonicalAddressKey(address types.Address) string {
+	raw := string(address)
+	clean := strings.TrimPrefix(raw, "0x")
+	if len(clean)%2 == 1 {
+		clean = "0" + clean
+	}
+	decoded, err := hex.DecodeString(clean)
+	if err != nil || len(decoded) > 20 {
+		return raw
+	}
+	padded := make([]byte, 20)
+	copy(padded[20-len(decoded):], decoded)
+	return "0x" + hex.EncodeToString(padded)
 }
 
 func normalizeSlot(slot string) string {
-	return gethcommon.HexToHash(slot).Hex()
+	clean := strings.TrimPrefix(slot, "0x")
+	if len(clean)%2 == 1 {
+		clean = "0" + clean
+	}
+	decoded, err := hex.DecodeString(clean)
+	if err != nil || len(decoded) > 32 {
+		decoded = keccak256([]byte(slot))
+	}
+	padded := make([]byte, 32)
+	copy(padded[32-len(decoded):], decoded)
+	return "0x" + hex.EncodeToString(padded)
+}
+
+func keccak256(values ...[]byte) []byte {
+	hasher := sha3.NewLegacyKeccak256()
+	for _, value := range values {
+		_, _ = hasher.Write(value)
+	}
+	return hasher.Sum(nil)
 }
 
 func cloneMap(value map[string]string) map[string]string {

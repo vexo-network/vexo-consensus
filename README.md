@@ -42,6 +42,7 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 | `queryproof` | Latest and historical Merkle query proofs for namespace/key state-root binding |
 | `stateproof` | Deterministic namespace Merkle tree and proof verification helpers |
 | `contract` | VM registry boundary used by the built-in geth-backed EVM adapter and custom WASM-compatible modules |
+| `modules/evm/backend/geth` | Isolated go-ethereum adapter layer for EVM bytecode execution |
 | `consensus` | Consensus state machine, certificates, evidence, safety checks, and adversarial simulations |
 | `finality` | Finality proof construction and verifier API |
 | `validator` | Height-versioned validator registry and validator-set hashing |

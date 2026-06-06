@@ -1,8 +1,7 @@
-package evm
+package geth
 
 import (
 	"context"
-	"encoding/hex"
 	"math"
 	"math/big"
 	"sort"
@@ -25,7 +24,7 @@ const GethVMName = "evm"
 
 type GethVM struct{}
 
-func NewGethVM() GethVM {
+func New() GethVM {
 	return GethVM{}
 }
 
@@ -465,6 +464,10 @@ func (db *gethStateDB) loadStorage(address gethcommon.Address, slot gethcommon.H
 	return gethcommon.BytesToHash(value)
 }
 
+func gethAddress(address types.Address) gethcommon.Address {
+	return gethcommon.HexToAddress(string(address))
+}
+
 func cloneAccounts(accounts map[gethcommon.Address]*gethAccount) map[gethcommon.Address]*gethAccount {
 	cloned := make(map[gethcommon.Address]*gethAccount, len(accounts))
 	for address, account := range accounts {
@@ -504,11 +507,4 @@ func cloneAccessList(values map[gethcommon.Address]map[gethcommon.Hash]struct{})
 		}
 	}
 	return cloned
-}
-
-func bytesToHex(value []byte) string {
-	if len(value) == 0 {
-		return "0x"
-	}
-	return "0x" + hex.EncodeToString(value)
 }

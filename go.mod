@@ -8,6 +8,7 @@ require (
 	github.com/holiman/uint256 v1.3.2
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	github.com/vechain/go-ecvrf v0.0.0-20251211112124-5d5a3ef70fc9
+	golang.org/x/crypto v0.48.0
 	golang.org/x/net v0.51.0
 	google.golang.org/grpc v1.81.1
 )
@@ -36,7 +37,6 @@ require (
 	github.com/supranational/blst v0.3.16 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
-	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
