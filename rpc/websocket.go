@@ -296,7 +296,7 @@ func web3BlockHeader(record store.BlockRecord) map[string]any {
 		"logsBloom":        "0x" + strings.Repeat("00", 256),
 		"transactionsRoot": web3TransactionsRoot(record.Block.Txs),
 		"stateRoot":        "0x" + hex.EncodeToString(record.AppHash[:]),
-		"receiptsRoot":     web3ReceiptsRoot(record.TxResults),
+		"receiptsRoot":     web3ReceiptsRoot(record.Block.Txs, record.TxResults),
 		"miner":            "0x0000000000000000000000000000000000000000",
 		"difficulty":       "0x0",
 		"totalDifficulty":  "0x0",

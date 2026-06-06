@@ -146,6 +146,7 @@ func TestWriteStatusJSON(t *testing.T) {
 		"state_sync_snapshot_chunks",
 		"state_sync_historical_replay",
 		"web3_receipt_roots",
+		"web3_ethereum_trie_roots",
 		"web3_global_log_filters",
 		"web3_prefix_log_index",
 		"web3_filter_limit",

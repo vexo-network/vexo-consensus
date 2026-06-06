@@ -246,6 +246,7 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"state_sync_snapshot_chunks":              true,
 			"state_sync_historical_replay":            true,
 			"web3_receipt_roots":                      true,
+			"web3_ethereum_trie_roots":                true,
 			"web3_global_log_filters":                 true,
 			"web3_prefix_log_index":                   true,
 			"web3_filter_limit":                       true,

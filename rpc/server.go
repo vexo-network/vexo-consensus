@@ -1616,7 +1616,7 @@ func web3BlockFromRecord(record store.BlockRecord, fullTransactions bool) any {
 		"logsBloom":        "0x" + strings.Repeat("00", 256),
 		"transactionsRoot": web3TransactionsRoot(record.Block.Txs),
 		"stateRoot":        "0x" + hex.EncodeToString(record.AppHash[:]),
-		"receiptsRoot":     web3ReceiptsRoot(record.TxResults),
+		"receiptsRoot":     web3ReceiptsRoot(record.Block.Txs, record.TxResults),
 		"miner":            "0x0000000000000000000000000000000000000000",
 		"difficulty":       "0x0",
 		"totalDifficulty":  "0x0",
@@ -2084,7 +2084,10 @@ func web3ReceiptBlockLocation(ctx context.Context, provider StatusProvider, rece
 	return nil, 0, nil, false
 }
 
-func web3ReceiptsRoot(results []types.Result) string {
+func web3ReceiptsRoot(txs []types.Tx, results []types.Result) string {
+	if root, ok := ethcompat.ReceiptRoot(txs, results); ok {
+		return root
+	}
 	hasher := sha256.New()
 	for _, result := range results {
 		code := make([]byte, 4)
@@ -2327,8 +2330,8 @@ func parseHexHash(value string) (types.Hash, error) {
 }
 
 func web3TransactionsRoot(txs []types.Tx) string {
-	if len(txs) == 0 {
-		return "0x0000000000000000000000000000000000000000000000000000000000000000"
+	if root, ok := ethcompat.TransactionRoot(txs); ok {
+		return root
 	}
 	hasher := sha256.New()
 	for _, tx := range txs {
