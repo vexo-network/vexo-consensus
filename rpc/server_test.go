@@ -1051,6 +1051,40 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if callTrace.Error != nil || !ok || callTraceResult["type"] != "CALL" || callTraceResult["gasUsed"] != "0x7" {
 		t.Fatalf("unexpected call trace: %+v", callTrace)
 	}
+	var debugBlockTrace JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":80,"method":"debug_traceBlockByNumber","params":["latest"]}`, http.StatusOK, &debugBlockTrace)
+	debugBlockItems, ok := debugBlockTrace.Result.([]any)
+	if debugBlockTrace.Error != nil || !ok || len(debugBlockItems) != 1 {
+		t.Fatalf("unexpected debug block trace: %+v", debugBlockTrace)
+	}
+	var debugBlockHashTrace JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":81,"method":"debug_traceBlockByHash","params":["0xab00000000000000000000000000000000000000000000000000000000000000"]}`, http.StatusOK, &debugBlockHashTrace)
+	debugBlockHashItems, ok := debugBlockHashTrace.Result.([]any)
+	if debugBlockHashTrace.Error != nil || !ok || len(debugBlockHashItems) != 1 {
+		t.Fatalf("unexpected debug block hash trace: %+v", debugBlockHashTrace)
+	}
+	var transactionTrace JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":82,"method":"trace_transaction","params":["`+blockTxHashText+`"]}`, http.StatusOK, &transactionTrace)
+	transactionTraceItems, ok := transactionTrace.Result.([]any)
+	if transactionTrace.Error != nil || !ok || len(transactionTraceItems) != 1 {
+		t.Fatalf("unexpected transaction trace: %+v", transactionTrace)
+	}
+	transactionTraceItem, ok := transactionTraceItems[0].(map[string]any)
+	if !ok || transactionTraceItem["transactionHash"] != blockTxHashText || transactionTraceItem["type"] != "call" {
+		t.Fatalf("unexpected transaction trace item: %+v", transactionTraceItems[0])
+	}
+	var blockTrace JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":83,"method":"trace_block","params":["latest"]}`, http.StatusOK, &blockTrace)
+	blockTraceItems, ok := blockTrace.Result.([]any)
+	if blockTrace.Error != nil || !ok || len(blockTraceItems) != 1 {
+		t.Fatalf("unexpected block trace: %+v", blockTrace)
+	}
+	var filterTrace JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":84,"method":"trace_filter","params":[{"fromBlock":"0xc","toBlock":"0xc"}]}`, http.StatusOK, &filterTrace)
+	filterTraceItems, ok := filterTrace.Result.([]any)
+	if filterTrace.Error != nil || !ok || len(filterTraceItems) != 1 {
+		t.Fatalf("unexpected filter trace: %+v", filterTrace)
+	}
 
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"0xabc","status":1,"gas_used":7,"logs":[{"address":"0xcontract","data":"0x01"}]}`)}
 	var receipt JSONRPCResponse

@@ -1391,6 +1391,16 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		return web3TxpoolInspect(ctx, provider)
 	case "debug_traceTransaction":
 		return web3DebugTraceTransaction(ctx, provider, params)
+	case "debug_traceBlockByNumber":
+		return web3DebugTraceBlockByNumber(ctx, provider, params)
+	case "debug_traceBlockByHash":
+		return web3DebugTraceBlockByHash(ctx, provider, params)
+	case "trace_transaction":
+		return web3TraceTransaction(ctx, provider, params)
+	case "trace_block":
+		return web3TraceBlock(ctx, provider, params)
+	case "trace_filter":
+		return web3TraceFilter(ctx, provider, params)
 	case "eth_getLogs":
 		filter, rpcErr := web3LogFilterParam(ctx, provider, params)
 		if rpcErr != nil {
@@ -2075,6 +2085,209 @@ func web3DebugTraceTransaction(ctx context.Context, provider StatusProvider, par
 		"returnValue": strings.TrimPrefix(receipt.Output, "0x"),
 		"structLogs":  []any{},
 	}, nil
+}
+
+func web3DebugTraceBlockByNumber(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
+	if len(params) == 0 || len(params) > 2 {
+		return nil, &JSONRPCError{Code: -32602, Message: "debug_traceBlockByNumber requires block tag and optional config"}
+	}
+	record, rpcErr := web3BlockByNumber(ctx, provider, []json.RawMessage{params[0]})
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	return web3DebugTraceBlockRecord(record), nil
+}
+
+func web3DebugTraceBlockByHash(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
+	if len(params) == 0 || len(params) > 2 {
+		return nil, &JSONRPCError{Code: -32602, Message: "debug_traceBlockByHash requires block hash and optional config"}
+	}
+	record, rpcErr := web3BlockByHash(ctx, provider, []json.RawMessage{params[0]})
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	return web3DebugTraceBlockRecord(record), nil
+}
+
+func web3DebugTraceBlockRecord(record store.BlockRecord) any {
+	if record.Block.Header.Height == 0 {
+		return nil
+	}
+	traces := make([]any, 0, len(record.TxResults))
+	for index, result := range record.TxResults {
+		receipt, ok := web3ReceiptFromResult(result)
+		if !ok {
+			continue
+		}
+		item := map[string]any{
+			"txHash": receipt.TxHash,
+			"result": map[string]any{
+				"gas":         receipt.GasUsed,
+				"failed":      receipt.Status == 0,
+				"returnValue": strings.TrimPrefix(receipt.Output, "0x"),
+				"structLogs":  []any{},
+			},
+		}
+		if index < len(record.Block.Txs) {
+			item["transaction"] = web3TransactionFromBlockRecord(record, index, receipt.TxHash, record.Block.Txs[index])
+		}
+		traces = append(traces, item)
+	}
+	return traces
+}
+
+func web3TraceTransaction(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
+	if len(params) != 1 {
+		return nil, &JSONRPCError{Code: -32602, Message: "trace_transaction requires one transaction hash"}
+	}
+	hash, err := jsonRPCStringParam(params[0])
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	query, ok := provider.(AppQueryProvider)
+	if !ok {
+		return nil, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
+	}
+	response, err := query.AppQuery(ctx, []string{"evm", "receipt", hash}, nil)
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	if response.Code == 3 {
+		return []any{}, nil
+	}
+	if response.Code != 0 {
+		return nil, &JSONRPCError{Code: -32000, Message: response.Log}
+	}
+	receipt, ok := web3ReceiptFromResult(types.Result{Data: response.Value})
+	if !ok {
+		return nil, &JSONRPCError{Code: -32000, Message: "invalid EVM receipt"}
+	}
+	trace := web3TraceFromReceipt(ctx, provider, receipt)
+	if trace == nil {
+		return []any{}, nil
+	}
+	return []any{trace}, nil
+}
+
+func web3TraceBlock(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
+	if len(params) != 1 {
+		return nil, &JSONRPCError{Code: -32602, Message: "trace_block requires one block hash or tag"}
+	}
+	record, rpcErr := web3BlockRecordParam(ctx, provider, params[0])
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	return web3TraceBlockRecord(ctx, provider, record), nil
+}
+
+func web3TraceFilter(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
+	if len(params) != 1 {
+		return nil, &JSONRPCError{Code: -32602, Message: "trace_filter requires one filter object"}
+	}
+	var filter struct {
+		FromBlock json.RawMessage `json:"fromBlock"`
+		ToBlock   json.RawMessage `json:"toBlock"`
+	}
+	if err := json.Unmarshal(params[0], &filter); err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: "invalid trace filter"}
+	}
+	from := provider.Status(ctx).LatestHeight
+	to := from
+	if len(filter.FromBlock) > 0 {
+		height, rpcErr := web3BlockHeightParam(ctx, provider, filter.FromBlock)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		from = height
+	}
+	if len(filter.ToBlock) > 0 {
+		height, rpcErr := web3BlockHeightParam(ctx, provider, filter.ToBlock)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		to = height
+	}
+	if to < from {
+		return []any{}, nil
+	}
+	if uint64(to-from) > 127 {
+		return nil, &JSONRPCError{Code: -32602, Message: "trace_filter block range exceeds 128 blocks"}
+	}
+	blockProvider, ok := provider.(BlockProvider)
+	if !ok {
+		return nil, &JSONRPCError{Code: -32000, Message: "block query is unavailable"}
+	}
+	traces := make([]any, 0)
+	for height := from; height <= to; height++ {
+		record, err := blockProvider.BlockByHeight(ctx, height)
+		if errors.Is(err, store.ErrBlockNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
+		items := web3TraceBlockRecord(ctx, provider, record)
+		traces = append(traces, items...)
+	}
+	return traces, nil
+}
+
+func web3TraceBlockRecord(ctx context.Context, provider StatusProvider, record store.BlockRecord) []any {
+	if record.Block.Header.Height == 0 {
+		return []any{}
+	}
+	traces := make([]any, 0, len(record.TxResults))
+	for _, result := range record.TxResults {
+		receipt, ok := web3ReceiptFromResult(result)
+		if !ok {
+			continue
+		}
+		if trace := web3TraceFromReceipt(ctx, provider, receipt); trace != nil {
+			traces = append(traces, trace)
+		}
+	}
+	return traces
+}
+
+func web3TraceFromReceipt(ctx context.Context, provider StatusProvider, receipt web3Receipt) any {
+	blockHash, txIndex, tx, found := web3ReceiptBlockLocation(ctx, provider, receipt)
+	if !found {
+		return nil
+	}
+	details := web3TransactionDetails(tx)
+	to := details.To
+	traceType := "call"
+	result := map[string]any{"gasUsed": hexQuantity(receipt.GasUsed), "output": receipt.Output}
+	if receipt.ContractAddress != "" && receipt.To == "" {
+		traceType = "create"
+		to = nil
+		result["address"] = receipt.ContractAddress
+	}
+	action := map[string]any{
+		"from":  receipt.From,
+		"to":    to,
+		"gas":   hexQuantity(details.Gas),
+		"input": details.Input,
+		"value": hexQuantity(details.Value),
+	}
+	if traceType == "call" {
+		action["callType"] = "call"
+	}
+	trace := map[string]any{
+		"action":              action,
+		"blockHash":           blockHash,
+		"blockNumber":         hexQuantity(receipt.Height),
+		"result":              result,
+		"subtraces":           0,
+		"traceAddress":        []any{},
+		"transactionHash":     receipt.TxHash,
+		"transactionPosition": hexQuantity(txIndex),
+		"type":                traceType,
+	}
+	if receipt.Status == 0 {
+		trace["error"] = "execution reverted"
+	}
+	return trace
 }
 
 func web3TraceWantsCallTracer(params []json.RawMessage) bool {
