@@ -1352,10 +1352,6 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		}
 		return decoded.Hash, nil
 	case "eth_getTransactionReceipt":
-		query, ok := provider.(AppQueryProvider)
-		if !ok {
-			return nil, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
-		}
 		if len(params) != 1 {
 			return nil, &JSONRPCError{Code: -32602, Message: "eth_getTransactionReceipt requires one transaction hash"}
 		}
@@ -1363,17 +1359,14 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		if err != nil {
 			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
 		}
-		response, err := query.AppQuery(ctx, []string{"evm", "receipt", hash}, nil)
-		if err != nil {
-			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+		value, found, rpcErr := web3ReceiptValueByHash(ctx, provider, hash)
+		if rpcErr != nil {
+			return nil, rpcErr
 		}
-		if response.Code == 3 {
+		if !found {
 			return nil, nil
 		}
-		if response.Code != 0 {
-			return nil, &JSONRPCError{Code: -32000, Message: response.Log}
-		}
-		return web3ReceiptObject(ctx, provider, response.Value)
+		return web3ReceiptObject(ctx, provider, value)
 	case "eth_getBlockReceipts":
 		return web3BlockReceipts(ctx, provider, params)
 	case "eth_getTransactionByHash":
@@ -2166,6 +2159,32 @@ func web3BlockReceipts(ctx context.Context, provider StatusProvider, params []js
 	return receipts, nil
 }
 
+func web3ReceiptValueByHash(ctx context.Context, provider StatusProvider, hash string) ([]byte, bool, *JSONRPCError) {
+	if query, ok := provider.(AppQueryProvider); ok {
+		response, err := query.AppQuery(ctx, []string{"evm", "receipt", hash}, nil)
+		if err != nil {
+			return nil, false, &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
+		if response.Code != 3 {
+			if response.Code != 0 {
+				return nil, false, &JSONRPCError{Code: -32000, Message: response.Log}
+			}
+			return response.Value, true, nil
+		}
+	}
+	record, index, _, found, rpcErr := web3CommittedTxByHash(ctx, provider, hash)
+	if rpcErr != nil || !found {
+		return nil, false, rpcErr
+	}
+	if index >= len(record.TxResults) {
+		return nil, false, nil
+	}
+	if _, ok := web3ReceiptFromResult(record.TxResults[index]); !ok {
+		return nil, false, nil
+	}
+	return record.TxResults[index].Data, true, nil
+}
+
 func web3TxpoolStatus(ctx context.Context, provider StatusProvider) (any, *JSONRPCError) {
 	txs, rpcErr := web3PendingTxs(ctx, provider)
 	if rpcErr != nil {
@@ -2315,21 +2334,14 @@ func web3DebugTraceTransaction(ctx context.Context, provider StatusProvider, par
 	if err != nil {
 		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
 	}
-	query, ok := provider.(AppQueryProvider)
-	if !ok {
-		return nil, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
+	value, found, rpcErr := web3ReceiptValueByHash(ctx, provider, hash)
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
-	response, err := query.AppQuery(ctx, []string{"evm", "receipt", hash}, nil)
-	if err != nil {
-		return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
-	}
-	if response.Code == 3 {
+	if !found {
 		return nil, nil
 	}
-	if response.Code != 0 {
-		return nil, &JSONRPCError{Code: -32000, Message: response.Log}
-	}
-	receipt, ok := web3ReceiptFromResult(types.Result{Data: response.Value})
+	receipt, ok := web3ReceiptFromResult(types.Result{Data: value})
 	if !ok {
 		return nil, &JSONRPCError{Code: -32000, Message: "invalid EVM receipt"}
 	}
@@ -2416,21 +2428,14 @@ func web3TraceTransaction(ctx context.Context, provider StatusProvider, params [
 	if err != nil {
 		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
 	}
-	query, ok := provider.(AppQueryProvider)
-	if !ok {
-		return nil, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
+	value, found, rpcErr := web3ReceiptValueByHash(ctx, provider, hash)
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
-	response, err := query.AppQuery(ctx, []string{"evm", "receipt", hash}, nil)
-	if err != nil {
-		return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
-	}
-	if response.Code == 3 {
+	if !found {
 		return []any{}, nil
 	}
-	if response.Code != 0 {
-		return nil, &JSONRPCError{Code: -32000, Message: response.Log}
-	}
-	receipt, ok := web3ReceiptFromResult(types.Result{Data: response.Value})
+	receipt, ok := web3ReceiptFromResult(types.Result{Data: value})
 	if !ok {
 		return nil, &JSONRPCError{Code: -32000, Message: "invalid EVM receipt"}
 	}

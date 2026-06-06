@@ -1044,6 +1044,24 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("unexpected pending raw tx by hash: %+v", pendingRawByHash)
 	}
 	provider.appQueryResponse = vexoapp.QueryResponse{Code: 3}
+	var scannedReceipt JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":104,"method":"eth_getTransactionReceipt","params":["`+blockTxHashText+`"]}`, http.StatusOK, &scannedReceipt)
+	scannedReceiptResult, ok := scannedReceipt.Result.(map[string]any)
+	if scannedReceipt.Error != nil || !ok || scannedReceiptResult["transactionHash"] != blockTxHashText || scannedReceiptResult["blockNumber"] != "0xc" {
+		t.Fatalf("unexpected scanned receipt: %+v", scannedReceipt)
+	}
+	var scannedTrace JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":105,"method":"debug_traceTransaction","params":["`+blockTxHashText+`"]}`, http.StatusOK, &scannedTrace)
+	scannedTraceResult, ok := scannedTrace.Result.(map[string]any)
+	if scannedTrace.Error != nil || !ok || scannedTraceResult["gas"] != float64(7) || scannedTraceResult["returnValue"] != "1234" {
+		t.Fatalf("unexpected scanned debug trace: %+v", scannedTrace)
+	}
+	var scannedTransactionTrace JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":106,"method":"trace_transaction","params":["`+blockTxHashText+`"]}`, http.StatusOK, &scannedTransactionTrace)
+	scannedTransactionTraceItems, ok := scannedTransactionTrace.Result.([]any)
+	if scannedTransactionTrace.Error != nil || !ok || len(scannedTransactionTraceItems) != 1 {
+		t.Fatalf("unexpected scanned trace transaction: %+v", scannedTransactionTrace)
+	}
 	var pendingTxByHash JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":99,"method":"eth_getTransactionByHash","params":["0x9999999999999999999999999999999999999999999999999999999999999999"]}`, http.StatusOK, &pendingTxByHash)
 	pendingTxByHashResult, ok := pendingTxByHash.Result.(map[string]any)
