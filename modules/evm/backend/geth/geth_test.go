@@ -2,10 +2,13 @@ package geth
 
 import (
 	"context"
+	"errors"
+	"math/big"
 	"strings"
 	"testing"
 
 	gethcommon "github.com/ethereum/go-ethereum/common"
+	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/vexo-network/vexo-consensus/contract"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -14,6 +17,7 @@ type testStateReader struct {
 	code     map[types.Address][]byte
 	storage  map[string][]byte
 	balances map[types.Address]uint64
+	big      map[types.Address]*big.Int
 	nonces   map[types.Address]uint64
 }
 
@@ -27,6 +31,13 @@ func (reader testStateReader) Storage(ctx context.Context, address types.Address
 
 func (reader testStateReader) Balance(ctx context.Context, address types.Address) (uint64, error) {
 	return reader.balances[address], nil
+}
+
+func (reader testStateReader) BalanceBig(ctx context.Context, address types.Address) (*big.Int, error) {
+	if value := reader.big[address]; value != nil {
+		return new(big.Int).Set(value), nil
+	}
+	return new(big.Int).SetUint64(reader.balances[address]), nil
 }
 
 func (reader testStateReader) Nonce(ctx context.Context, address types.Address) (uint64, error) {
@@ -68,6 +79,25 @@ func TestGethBackendExecutesDeployAndCall(t *testing.T) {
 	}
 }
 
+func TestGethBackendUsesLegacyCreateWhenSaltIsMissing(t *testing.T) {
+	vm := New()
+	caller := types.Address("0x000000000000000000000000000000000000aaaa")
+	result, err := vm.Execute(context.Background(), contract.Invocation{
+		Method:   "deploy",
+		Caller:   caller,
+		Contract: "0x0000000000000000000000000000000000000000",
+		Input:    []byte{0x60, 0x0a, 0x60, 0x0c, 0x60, 0x00, 0x39, 0x60, 0x0a, 0x60, 0x00, 0xf3, 0x60, 0x2a, 0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3},
+		GasLimit: 100_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := gethcrypto.CreateAddress(gethcommon.HexToAddress(string(caller)), 0).Hex()
+	if len(result.CodeWrites) != 1 || !strings.EqualFold(string(result.CodeWrites[0].Address), expected) {
+		t.Fatalf("expected legacy CREATE address %s, got %+v", expected, result.CodeWrites)
+	}
+}
+
 func TestGethBackendImplementsContractVM(t *testing.T) {
 	var _ contract.VM = New()
 }
@@ -98,6 +128,50 @@ func TestGethBackendUsesReaderBalancesAndReturnsBalanceWrites(t *testing.T) {
 	}
 	if writes[types.Address(strings.ToLower(string(caller)))] != 7 || writes[types.Address(strings.ToLower(string(recipient)))] != 3 {
 		t.Fatalf("unexpected balance writes: %+v", result.BalanceWrites)
+	}
+}
+
+func TestGethBackendPreservesUint256BalanceWrites(t *testing.T) {
+	vm := New()
+	caller := types.Address("0x000000000000000000000000000000000000aaaa")
+	recipient := types.Address("0x000000000000000000000000000000000000bbbb")
+	large := new(big.Int).Lsh(big.NewInt(1), 80)
+	result, err := vm.Execute(context.Background(), contract.Invocation{
+		Method:   "call",
+		Caller:   caller,
+		Contract: recipient,
+		GasLimit: 100_000,
+		Value:    5,
+		State: testStateReader{
+			big: map[types.Address]*big.Int{caller: large},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var callerWrite contract.BalanceWrite
+	for _, write := range result.BalanceWrites {
+		if strings.EqualFold(string(write.Address), string(caller)) {
+			callerWrite = write
+		}
+	}
+	expected := new(big.Int).Sub(large, big.NewInt(5))
+	if callerWrite.BalanceBig == nil || callerWrite.BalanceBig.Cmp(expected) != 0 {
+		t.Fatalf("expected caller big balance %s, got %+v", expected, result.BalanceWrites)
+	}
+}
+
+func TestGethBackendRejectsValueOverflow(t *testing.T) {
+	vm := New()
+	_, err := vm.Execute(context.Background(), contract.Invocation{
+		Method:   "call",
+		Caller:   "0x000000000000000000000000000000000000aaaa",
+		Contract: "0x000000000000000000000000000000000000bbbb",
+		GasLimit: 100_000,
+		ValueBig: new(big.Int).Lsh(big.NewInt(1), 256),
+	})
+	if !errors.Is(err, contract.ErrInvalidInvocation) {
+		t.Fatalf("expected invalid invocation, got %v", err)
 	}
 }
 

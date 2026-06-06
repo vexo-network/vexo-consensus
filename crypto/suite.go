@@ -71,6 +71,7 @@ func (registry RuntimeSuiteRegistry) NewRuntimeSuite(cfg config.CryptoConfig) (R
 		if err != nil {
 			return RuntimeSuite{}, err
 		}
+		adapter = blsAdapterWithConfigMetadata(adapter, cfg)
 		if cfg.AdapterName != "" && adapter.Metadata().Name != cfg.AdapterName {
 			return RuntimeSuite{}, ErrBLSAdapterUnsafe
 		}
@@ -110,4 +111,24 @@ func ValidateBLSAdapter(adapter BLSAdapter) error {
 		return ErrBLSAdapterUnsafe
 	}
 	return nil
+}
+
+type configuredBLSAdapter struct {
+	BLSAdapter
+	metadata BLSAdapterMetadata
+}
+
+func (adapter configuredBLSAdapter) Metadata() BLSAdapterMetadata {
+	return adapter.metadata
+}
+
+func blsAdapterWithConfigMetadata(adapter BLSAdapter, cfg config.CryptoConfig) BLSAdapter {
+	if adapter == nil || !cfg.ProductionAdapter || cfg.AuditReport == "" || cfg.DependencyAudit == "" {
+		return adapter
+	}
+	metadata := adapter.Metadata()
+	metadata.Audited = true
+	metadata.AuditReport = cfg.AuditReport
+	metadata.DependencyAudit = cfg.DependencyAudit
+	return configuredBLSAdapter{BLSAdapter: adapter, metadata: metadata}
 }

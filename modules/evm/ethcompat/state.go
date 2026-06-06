@@ -20,11 +20,12 @@ import (
 var ErrInvalidState = errors.New("invalid Ethereum state")
 
 type AccountState struct {
-	Address string
-	Balance uint64
-	Nonce   uint64
-	Code    []byte
-	Storage map[string][]byte
+	Address    string
+	Balance    uint64
+	BalanceHex string
+	Nonce      uint64
+	Code       []byte
+	Storage    map[string][]byte
 }
 
 type AccountProof struct {
@@ -88,7 +89,7 @@ func GetProof(accounts []AccountState, address string, storageKeys []string) (Ac
 	return AccountProof{
 		Address:      targetAddress.Hex(),
 		AccountProof: accountProof,
-		Balance:      hexQuantityBig(new(big.Int).SetUint64(account.Balance)),
+		Balance:      hexQuantityBig(accountBalanceBig(account)),
 		CodeHash:     codeHash(account.Code).Hex(),
 		Nonce:        hexQuantityBig(new(big.Int).SetUint64(account.Nonce)),
 		StorageHash:  storageRoot.Hex(),
@@ -120,7 +121,7 @@ func buildStateTrie(accounts []AccountState) (*trie.StateTrie, map[string]Accoun
 		}
 		stateAccount := &gethtypes.StateAccount{
 			Nonce:    account.Nonce,
-			Balance:  new(uint256.Int).SetUint64(account.Balance),
+			Balance:  uint256.MustFromBig(accountBalanceBig(account)),
 			Root:     storageRoot,
 			CodeHash: codeHash(account.Code).Bytes(),
 		}
@@ -184,7 +185,9 @@ func normalizeAccounts(accounts []AccountState) map[string]AccountState {
 		key := canonicalAddress(address.Hex())
 		current := normalized[key]
 		current.Address = address.Hex()
-		if account.Balance != 0 {
+		if account.BalanceHex != "" {
+			current.BalanceHex = account.BalanceHex
+		} else if account.Balance != 0 {
 			current.Balance = account.Balance
 		}
 		if account.Nonce != 0 {
@@ -205,7 +208,17 @@ func normalizeAccounts(accounts []AccountState) map[string]AccountState {
 }
 
 func emptyAccount(account AccountState) bool {
-	return account.Balance == 0 && account.Nonce == 0 && len(account.Code) == 0 && len(account.Storage) == 0
+	return accountBalanceBig(account).Sign() == 0 && account.Nonce == 0 && len(account.Code) == 0 && len(account.Storage) == 0
+}
+
+func accountBalanceBig(account AccountState) *big.Int {
+	if account.BalanceHex != "" {
+		clean := strings.TrimPrefix(account.BalanceHex, "0x")
+		if value, ok := new(big.Int).SetString(clean, 16); ok && value.Sign() >= 0 {
+			return value
+		}
+	}
+	return new(big.Int).SetUint64(account.Balance)
 }
 
 func canonicalAddress(address string) string {

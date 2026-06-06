@@ -67,14 +67,20 @@ func (GethVM) Execute(ctx context.Context, invocation contract.Invocation) (cont
 		gasLimit = 10_000_000
 	}
 	initialGas := gethvm.NewGasBudget(gasLimit)
-	value := new(uint256.Int).SetUint64(invocation.Value)
+	value, err := invocationValue(invocation)
+	if err != nil {
+		return contract.Result{}, err
+	}
 	var output []byte
 	var left gethvm.GasBudget
-	var err error
 	if invocation.Method == "deploy" {
-		var salt uint256.Int
-		salt.SetBytes(invocation.Salt)
-		output, contractAddress, left, err = evm.Create2(caller, invocation.Input, initialGas, value, &salt)
+		if len(invocation.Salt) > 0 {
+			var salt uint256.Int
+			salt.SetBytes(invocation.Salt)
+			output, contractAddress, left, err = evm.Create2(caller, invocation.Input, initialGas, value, &salt)
+		} else {
+			output, contractAddress, left, err = evm.Create(caller, invocation.Input, initialGas, value)
+		}
 	} else if invocation.ReadOnly {
 		output, left, err = evm.StaticCall(caller, contractAddress, invocation.Input, initialGas)
 	} else {
@@ -111,6 +117,17 @@ func (GethVM) Execute(ctx context.Context, invocation contract.Invocation) (cont
 		result.DeployedCode = nil
 	}
 	return result, nil
+}
+
+func invocationValue(invocation contract.Invocation) (*uint256.Int, error) {
+	if invocation.ValueBig != nil {
+		value, overflow := uint256.FromBig(invocation.ValueBig)
+		if overflow {
+			return nil, contract.ErrInvalidInvocation
+		}
+		return value, nil
+	}
+	return new(uint256.Int).SetUint64(invocation.Value), nil
 }
 
 func gethAccessList(entries []contract.AccessListEntry) gethtypes.AccessList {
@@ -536,13 +553,14 @@ func (db *gethStateDB) BalanceWrites() ([]contract.BalanceWrite, error) {
 		if account.balance.Eq(&account.committedBal) {
 			continue
 		}
-		if !account.balance.IsUint64() {
-			return nil, contract.ErrInvalidInvocation
+		write := contract.BalanceWrite{
+			Address:    types.Address(address.Hex()),
+			BalanceBig: account.balance.ToBig(),
 		}
-		writes = append(writes, contract.BalanceWrite{
-			Address: types.Address(address.Hex()),
-			Balance: account.balance.Uint64(),
-		})
+		if account.balance.IsUint64() {
+			write.Balance = account.balance.Uint64()
+		}
+		writes = append(writes, write)
 	}
 	return writes, nil
 }
@@ -619,7 +637,14 @@ func (db *gethStateDB) account(address gethcommon.Address) *gethAccount {
 			account.code = append([]byte(nil), code...)
 			account.committedCode = append([]byte(nil), code...)
 		}
-		if balanceReader, ok := db.reader.(contract.BalanceReader); ok {
+		if balanceReader, ok := db.reader.(contract.BalanceBigReader); ok {
+			if balance, err := balanceReader.BalanceBig(db.ctx, types.Address(address.Hex())); err == nil && balance != nil && balance.Sign() >= 0 {
+				if value, overflow := uint256.FromBig(balance); !overflow {
+					account.balance = *value
+					account.committedBal = *value
+				}
+			}
+		} else if balanceReader, ok := db.reader.(contract.BalanceReader); ok {
 			if balance, err := balanceReader.Balance(db.ctx, types.Address(address.Hex())); err == nil {
 				account.balance.SetUint64(balance)
 				account.committedBal.SetUint64(balance)

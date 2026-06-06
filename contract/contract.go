@@ -3,6 +3,7 @@ package contract
 import (
 	"context"
 	"errors"
+	"math/big"
 	"sync"
 
 	"github.com/vexo-network/vexo-consensus/types"
@@ -22,6 +23,7 @@ type Invocation struct {
 	Input      []byte            `json:"input,omitempty"`
 	GasLimit   uint64            `json:"gas_limit,omitempty"`
 	Value      uint64            `json:"value,omitempty"`
+	ValueBig   *big.Int          `json:"-"`
 	Code       []byte            `json:"-"`
 	Salt       []byte            `json:"-"`
 	State      StateReader       `json:"-"`
@@ -72,8 +74,9 @@ type CodeWrite struct {
 }
 
 type BalanceWrite struct {
-	Address types.Address `json:"address"`
-	Balance uint64        `json:"balance"`
+	Address    types.Address `json:"address"`
+	Balance    uint64        `json:"balance"`
+	BalanceBig *big.Int      `json:"-"`
 }
 
 type NonceWrite struct {
@@ -102,6 +105,10 @@ type StateReader interface {
 
 type BalanceReader interface {
 	Balance(ctx context.Context, address types.Address) (uint64, error)
+}
+
+type BalanceBigReader interface {
+	BalanceBig(ctx context.Context, address types.Address) (*big.Int, error)
 }
 
 type NonceReader interface {
@@ -159,6 +166,9 @@ func (registry *Registry) Names() []string {
 
 func cloneInvocation(invocation Invocation) Invocation {
 	invocation.Input = append([]byte(nil), invocation.Input...)
+	if invocation.ValueBig != nil {
+		invocation.ValueBig = new(big.Int).Set(invocation.ValueBig)
+	}
 	invocation.Code = append([]byte(nil), invocation.Code...)
 	invocation.Salt = append([]byte(nil), invocation.Salt...)
 	invocation.AccessList = cloneAccessList(invocation.AccessList)

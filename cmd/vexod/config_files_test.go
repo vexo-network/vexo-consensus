@@ -443,6 +443,9 @@ func TestDefaultConfigWritesTendermintStyleConsensusTimeouts(t *testing.T) {
 	if consensus.CreateEmptyBlocks {
 		t.Fatalf("expected empty block creation disabled by default: %+v", consensus)
 	}
+	if consensus.ExecutionCommit != string(vexonode.ExecutionCommitModeQC) {
+		t.Fatalf("expected qc execution commit mode by default: %+v", consensus)
+	}
 }
 
 func TestLoadNodeConfigLoadsEncryptedVRFKeyDocuments(t *testing.T) {
@@ -530,6 +533,7 @@ func TestLoadStartRuntimeConfigParsesConsensusTimeoutsAndEmptyBlocks(t *testing.
 	consensusDocument.Consensus.TimeoutPrecommit = "2s"
 	consensusDocument.Consensus.TimeoutCommit = "250ms"
 	consensusDocument.Consensus.CreateEmptyBlocks = true
+	consensusDocument.Consensus.ExecutionCommit = string(vexonode.ExecutionCommitModeFinalized)
 	writeTestJSON(t, path, document)
 	writeTestJSON(t, filepath.Join(home, consensusConfigFileName), consensusDocument)
 
@@ -541,7 +545,8 @@ func TestLoadStartRuntimeConfigParsesConsensusTimeoutsAndEmptyBlocks(t *testing.
 		cfg.ConsensusLoop.TimeoutPrevote != 1500*time.Millisecond ||
 		cfg.ConsensusLoop.TimeoutPrecommit != 2*time.Second ||
 		cfg.ConsensusLoop.TimeoutCommit != 250*time.Millisecond ||
-		!cfg.ConsensusLoop.CreateEmptyBlocks {
+		!cfg.ConsensusLoop.CreateEmptyBlocks ||
+		cfg.ConsensusLoop.ExecutionCommitMode != vexonode.ExecutionCommitModeFinalized {
 		t.Fatalf("unexpected consensus runtime config: %+v", cfg.ConsensusLoop)
 	}
 }

@@ -558,6 +558,38 @@ func (node *Node) CommitReadyBlock(ctx context.Context) (CommitReadyResult, bool
 	return CommitReadyResult{}, false, nil
 }
 
+func (node *Node) CommitFinalizedBlock(ctx context.Context) (CommitReadyResult, bool, error) {
+	machine, err := node.Consensus()
+	if err != nil {
+		return CommitReadyResult{}, false, err
+	}
+	decisions := machine.CommitDecisions()
+	if len(decisions) == 0 {
+		return CommitReadyResult{}, false, nil
+	}
+	pending := node.pendingProposals()
+	for _, decision := range decisions {
+		proposal, found := pending[decision.CommittedBlockHash]
+		if !found {
+			continue
+		}
+		if proposal.Block.Header.Height != decision.CommittedHeight {
+			continue
+		}
+		response, err := node.commitBlock(ctx, proposal.Block, decision.CommitQC, false, true)
+		if err != nil {
+			return CommitReadyResult{}, false, err
+		}
+		return CommitReadyResult{
+			Block:      proposal.Block,
+			BlockHash:  decision.CommittedBlockHash,
+			QuorumCert: decision.CommitQC,
+			Response:   response,
+		}, true, nil
+	}
+	return CommitReadyResult{}, false, nil
+}
+
 func (node *Node) cacheProposal(proposal consensus.Proposal, blockHash types.Hash) {
 	node.mu.Lock()
 	defer node.mu.Unlock()

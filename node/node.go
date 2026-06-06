@@ -28,6 +28,7 @@ var (
 	ErrLoopAlreadyRunning = errors.New("consensus loop already running")
 	ErrLoopNotRunning     = errors.New("consensus loop is not running")
 	ErrFinalityNotFound   = errors.New("finality proof not found")
+	ErrInvalidLoopConfig  = errors.New("invalid consensus loop config")
 )
 
 type Status struct {

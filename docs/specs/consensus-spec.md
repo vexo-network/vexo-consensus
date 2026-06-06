@@ -50,6 +50,15 @@ Vexo uses three-chain finality:
 - Finalized block hash is recorded as `last_finalized`.
 - Conflicting finalization must be impossible unless at least one validator equivocates and produces accountable evidence.
 
+## Execution Commit Policy
+
+Node execution is configurable and explicit:
+
+- `execution_commit = "qc"`: execute and persist a QC-certified block as soon as its commit certificate verifies.
+- `execution_commit = "finalized"`: execute and persist only the finalized ancestor selected by the three-chain rule.
+
+In both modes, finality proofs remain tied to the consensus finality rule and the validator set at the proof height. `block_committed` means the application state boundary has committed according to the configured policy; it does not by itself redefine light-client finality.
+
 ## Liveness Assumptions
 
 - Eventually, network delay becomes bounded long enough for quorum communication.

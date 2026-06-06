@@ -598,8 +598,9 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 		P2PSeeds:             stringPeerMap(runtime.P2P.Seeds),
 		ConsensusLoopEnabled: runtime.Consensus.LoopEnabled,
 		ConsensusLoop: vexonode.ConsensusLoopConfig{
-			MaxBlockBytes:     runtime.Consensus.MaxBlockBytes,
-			CreateEmptyBlocks: runtime.Consensus.CreateEmptyBlocks,
+			MaxBlockBytes:       runtime.Consensus.MaxBlockBytes,
+			CreateEmptyBlocks:   runtime.Consensus.CreateEmptyBlocks,
+			ExecutionCommitMode: vexonode.ExecutionCommitMode(runtime.Consensus.ExecutionCommit),
 		},
 		LogFormat: runtime.Log.Format,
 		LogLevel:  runtime.Log.Level,
@@ -682,6 +683,11 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 			return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.round_timeout: %w", err)
 		}
 		cfg.ConsensusLoop.RoundTimeout = duration
+	}
+	switch cfg.ConsensusLoop.ExecutionCommitMode {
+	case "", vexonode.ExecutionCommitModeQC, vexonode.ExecutionCommitModeFinalized:
+	default:
+		return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.execution_commit: %w", vexonode.ErrInvalidLoopConfig)
 	}
 	return cfg, nil
 }

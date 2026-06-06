@@ -24,7 +24,7 @@ func (node *Node) StepConsensus(ctx context.Context, maxBytes int64) (ConsensusS
 
 func (node *Node) StepConsensusWithConfig(ctx context.Context, cfg ConsensusLoopConfig) (ConsensusStepResult, error) {
 	cfg = normalizeConsensusLoopConfig(cfg)
-	commit, committed, err := node.CommitReadyBlock(ctx)
+	commit, committed, err := node.commitCandidateForMode(ctx, cfg.ExecutionCommitMode)
 	if err != nil {
 		return ConsensusStepResult{}, err
 	}
@@ -44,4 +44,15 @@ func (node *Node) StepConsensusWithConfig(ctx context.Context, cfg ConsensusLoop
 		Proposal:  proposal,
 		BlockHash: blockHash,
 	}, nil
+}
+
+func (node *Node) commitCandidateForMode(ctx context.Context, mode ExecutionCommitMode) (CommitReadyResult, bool, error) {
+	switch mode {
+	case "", ExecutionCommitModeQC:
+		return node.CommitReadyBlock(ctx)
+	case ExecutionCommitModeFinalized:
+		return node.CommitFinalizedBlock(ctx)
+	default:
+		return CommitReadyResult{}, false, ErrInvalidLoopConfig
+	}
 }

@@ -145,6 +145,41 @@ func TestEthereumStateProofVerifiesWithGethTrie(t *testing.T) {
 	}
 }
 
+func TestEthereumStateProofPreservesUint256Balance(t *testing.T) {
+	address := "0x000000000000000000000000000000000000bEEF"
+	balance := new(big.Int).Lsh(big.NewInt(1), 80)
+	root, err := StateRoot([]AccountState{{
+		Address:    address,
+		BalanceHex: "0x" + balance.Text(16),
+		Storage:    map[string][]byte{},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := GetProof([]AccountState{{
+		Address:    address,
+		BalanceHex: "0x" + balance.Text(16),
+		Storage:    map[string][]byte{},
+	}}, address, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proof.Balance != "0x"+balance.Text(16) {
+		t.Fatalf("unexpected proof balance: got %s want 0x%s", proof.Balance, balance.Text(16))
+	}
+	accountValue, err := trie.VerifyProof(gethcommon.HexToHash(root), gethcrypto.Keccak256(gethcommon.HexToAddress(address).Bytes()), proofDB(t, proof.AccountProof))
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := gethtypes.FullAccount(accountValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.Balance.ToBig().Cmp(balance) != 0 {
+		t.Fatalf("unexpected decoded account balance: got %s want %s", account.Balance.ToBig(), balance)
+	}
+}
+
 func proofDB(t *testing.T, proof []string) *memorydb.Database {
 	t.Helper()
 	db := memorydb.New()

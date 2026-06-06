@@ -70,7 +70,7 @@ func TestCIRCLBLSVerifierAdapterRejectsSigning(t *testing.T) {
 	if _, err := adapter.Sign([]byte("message")); !errors.Is(err, ErrMissingBLSPrivateKey) {
 		t.Fatalf("expected missing private key, got %v", err)
 	}
-	if err := ValidateBLSAdapter(adapter); err != nil {
-		t.Fatal(err)
+	if err := ValidateBLSAdapter(adapter); !errors.Is(err, ErrBLSAdapterUnsafe) {
+		t.Fatalf("expected unaudited built-in adapter to be unsafe, got %v", err)
 	}
 }

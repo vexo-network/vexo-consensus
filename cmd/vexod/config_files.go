@@ -170,6 +170,7 @@ type runtimeConsensusConfig struct {
 	RoundTimeout      string `json:"round_timeout,omitempty"`
 	MaxBlockBytes     int64  `json:"max_block_bytes,omitempty"`
 	CreateEmptyBlocks bool   `json:"create_empty_blocks"`
+	ExecutionCommit   string `json:"execution_commit,omitempty"`
 }
 
 type runtimeLogConfig struct {
@@ -1434,6 +1435,7 @@ func defaultRuntimeConfig(validatorID string) runtimeConfig {
 			TimeoutCommit:     "1s",
 			MaxBlockBytes:     1024 * 1024,
 			CreateEmptyBlocks: false,
+			ExecutionCommit:   "qc",
 		},
 		Log: runtimeLogConfig{
 			Format:       "text",

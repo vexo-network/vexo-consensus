@@ -28,13 +28,25 @@ func TestNewRuntimeSuiteEd25519(t *testing.T) {
 	}
 }
 
-func TestNewRuntimeSuiteBLSUsesBuiltInAdapter(t *testing.T) {
-	suite, err := NewRuntimeSuite(config.CryptoConfig{Backend: config.CryptoBackendBLS})
+func TestNewRuntimeSuiteBLSRequiresAuditMetadata(t *testing.T) {
+	_, err := NewRuntimeSuite(config.CryptoConfig{Backend: config.CryptoBackendBLS})
+	if !errors.Is(err, ErrBLSAdapterUnsafe) {
+		t.Fatalf("expected unaudited built-in bls adapter to be unsafe, got %v", err)
+	}
+}
+
+func TestNewRuntimeSuiteBLSUsesBuiltInAdapterWithAuditMetadata(t *testing.T) {
+	suite, err := NewRuntimeSuite(config.CryptoConfig{
+		Backend:           config.CryptoBackendBLS,
+		ProductionAdapter: true,
+		AuditReport:       "external-audit-report-id",
+		DependencyAudit:   "dependency-audit-id",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if suite.FinalityVerifier == nil || suite.ConsensusAggregator == nil || suite.ConsensusVerifier == nil {
-		t.Fatal("expected built-in bls runtime suite")
+		t.Fatal("expected audited built-in bls runtime suite")
 	}
 }
 

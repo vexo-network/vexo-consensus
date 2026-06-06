@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"strconv"
 	"strings"
 
@@ -308,10 +309,11 @@ func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoap
 			account = ethcompat.AccountState{Address: canonicalAddressKey(types.Address(req.Path[1])), Storage: map[string][]byte{}}
 		}
 		encoded, err := json.Marshal(map[string]any{
-			"address": canonicalAddressKey(types.Address(account.Address)),
-			"balance": account.Balance,
-			"nonce":   account.Nonce,
-			"code":    hex.EncodeToString(account.Code),
+			"address":     canonicalAddressKey(types.Address(account.Address)),
+			"balance":     account.Balance,
+			"balance_hex": accountBalanceHex(account),
+			"nonce":       account.Nonce,
+			"code":        hex.EncodeToString(account.Code),
 		})
 		if err != nil {
 			return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
@@ -489,9 +491,9 @@ func (module Module) deliverDeploy(ctx vexoapp.Context, tx types.Tx, args []stri
 	if err != nil || len(code) == 0 {
 		return types.Result{Code: 3, Log: ErrInvalidEVMTx.Error()}
 	}
-	value := uint64(0)
+	value := new(big.Int)
 	if len(args) == 5 {
-		value, err = strconv.ParseUint(args[4], 10, 64)
+		value, err = parseAmountBig(args[4])
 		if err != nil {
 			return types.Result{Code: 3, Log: ErrInvalidEVMTx.Error()}
 		}
@@ -505,7 +507,8 @@ func (module Module) deliverDeploy(ctx vexoapp.Context, tx types.Tx, args []stri
 		Method:        "deploy",
 		Input:         code,
 		GasLimit:      ctx.GasLimit(),
-		Value:         value,
+		Value:         uint64Amount(value),
+		ValueBig:      value,
 		Salt:          salt[:],
 		State:         evmStateReader{store: ctx.Store},
 		BlockNumber:   uint64(ctx.Height),
@@ -556,7 +559,7 @@ func (module Module) deliverEthereumDeploy(ctx vexoapp.Context, tx types.Tx, arg
 	if err != nil {
 		return types.Result{Code: 3, Log: ErrInvalidEVMTx.Error()}
 	}
-	value, err := strconv.ParseUint(args[4], 10, 64)
+	value, err := parseAmountBig(args[4])
 	if err != nil {
 		return types.Result{Code: 3, Log: ErrInvalidEVMTx.Error()}
 	}
@@ -568,7 +571,8 @@ func (module Module) deliverEthereumDeploy(ctx vexoapp.Context, tx types.Tx, arg
 		Method:        "deploy",
 		Input:         code,
 		GasLimit:      ctx.GasLimit(),
-		Value:         value,
+		Value:         uint64Amount(value),
+		ValueBig:      value,
 		State:         evmStateReader{store: ctx.Store},
 		BlockNumber:   uint64(ctx.Height),
 		Timestamp:     headerUnixSeconds(ctx.Header),
@@ -691,9 +695,9 @@ func (module Module) deployInvocationForEstimate(ctx vexoapp.Context, action str
 		if err != nil || len(code) == 0 {
 			return contract.Invocation{}, ErrInvalidEVMTx
 		}
-		value := uint64(0)
+		value := new(big.Int)
 		if len(args) == 5 {
-			value, err = strconv.ParseUint(args[4], 10, 64)
+			value, err = parseAmountBig(args[4])
 			if err != nil {
 				return contract.Invocation{}, ErrInvalidEVMTx
 			}
@@ -712,7 +716,7 @@ func (module Module) deployInvocationForEstimate(ctx vexoapp.Context, action str
 		if err != nil {
 			return contract.Invocation{}, ErrInvalidEVMTx
 		}
-		value, err := strconv.ParseUint(args[4], 10, 64)
+		value, err := parseAmountBig(args[4])
 		if err != nil {
 			return contract.Invocation{}, ErrInvalidEVMTx
 		}
@@ -722,7 +726,7 @@ func (module Module) deployInvocationForEstimate(ctx vexoapp.Context, action str
 	}
 }
 
-func (Module) prepareDeployInvocation(ctx vexoapp.Context, tx types.Tx, vm string, caller types.Address, contractAddress types.Address, code []byte, value uint64, salt []byte) contract.Invocation {
+func (Module) prepareDeployInvocation(ctx vexoapp.Context, tx types.Tx, vm string, caller types.Address, contractAddress types.Address, code []byte, value *big.Int, salt []byte) contract.Invocation {
 	return contract.Invocation{
 		VM:            vm,
 		Caller:        caller,
@@ -730,7 +734,8 @@ func (Module) prepareDeployInvocation(ctx vexoapp.Context, tx types.Tx, vm strin
 		Method:        "deploy",
 		Input:         code,
 		GasLimit:      ctx.GasLimit(),
-		Value:         value,
+		Value:         uint64Amount(value),
+		ValueBig:      value,
 		Salt:          append([]byte(nil), salt...),
 		State:         evmStateReader{store: ctx.Store},
 		BlockNumber:   uint64(ctx.Height),
@@ -767,9 +772,9 @@ func callInvocationFromArgs(args []string) (contract.Invocation, error) {
 	if err != nil {
 		return contract.Invocation{}, ErrInvalidEVMTx
 	}
-	value := uint64(0)
+	value := new(big.Int)
 	if len(args) == 7 {
-		value, err = strconv.ParseUint(args[6], 10, 64)
+		value, err = parseAmountBig(args[6])
 		if err != nil {
 			return contract.Invocation{}, ErrInvalidEVMTx
 		}
@@ -781,12 +786,31 @@ func callInvocationFromArgs(args []string) (contract.Invocation, error) {
 		Method:   args[3],
 		Input:    input,
 		GasLimit: gasLimit,
-		Value:    value,
+		Value:    uint64Amount(value),
+		ValueBig: value,
 	}
 	if invocation.VM == "" || invocation.Caller == "" || invocation.Contract == "" || invocation.Method == "" {
 		return contract.Invocation{}, ErrInvalidEVMTx
 	}
 	return invocation, nil
+}
+
+func parseAmountBig(raw string) (*big.Int, error) {
+	if raw == "" {
+		return new(big.Int), nil
+	}
+	value, ok := new(big.Int).SetString(raw, 10)
+	if !ok || value.Sign() < 0 || value.BitLen() > 256 {
+		return nil, ErrInvalidEVMTx
+	}
+	return value, nil
+}
+
+func uint64Amount(value *big.Int) uint64 {
+	if value == nil || !value.IsUint64() {
+		return 0
+	}
+	return value.Uint64()
 }
 
 func receiptFromResult(tx types.Tx, height types.Height, invocation contract.Invocation, contractAddress string, result contract.Result) Receipt {
@@ -847,7 +871,7 @@ func stateDiffFromResult(result contract.Result, defaultAddress types.Address) a
 	for _, write := range result.BalanceWrites {
 		entry := account(write.Address)
 		if entry != nil {
-			entry["balance"] = map[string]any{"to": hexQuantityLocal(write.Balance)}
+			entry["balance"] = map[string]any{"to": balanceWriteHex(write)}
 		}
 	}
 	for _, write := range result.NonceWrites {
@@ -903,6 +927,20 @@ func hexQuantityLocal(value uint64) string {
 		return "0x0"
 	}
 	return "0x" + strconv.FormatUint(value, 16)
+}
+
+func balanceWriteHex(write contract.BalanceWrite) string {
+	if write.BalanceBig != nil {
+		return hexQuantityBigLocal(write.BalanceBig)
+	}
+	return hexQuantityLocal(write.Balance)
+}
+
+func hexQuantityBigLocal(value *big.Int) string {
+	if value == nil || value.Sign() == 0 {
+		return "0x0"
+	}
+	return "0x" + value.Text(16)
 }
 
 func persistReceipt(ctx context.Context, store vexoapp.StateStore, receipt Receipt) error {
@@ -1056,13 +1094,52 @@ func persistBalanceWrites(ctx context.Context, store vexoapp.StateStore, writes 
 		if write.Address == "" {
 			return ErrInvalidEVMTx
 		}
-		var encoded [8]byte
-		binary.BigEndian.PutUint64(encoded[:], write.Balance)
-		if err := store.Set(ctx, "bank", evmBankKey(write.Address), encoded[:]); err != nil {
+		encoded, err := encodeEthereumBalance(write)
+		if err != nil {
+			return err
+		}
+		if err := store.Set(ctx, "bank", evmBankKey(write.Address), encoded); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func encodeEthereumBalance(write contract.BalanceWrite) ([]byte, error) {
+	if write.BalanceBig != nil {
+		if write.BalanceBig.Sign() < 0 || write.BalanceBig.BitLen() > 256 {
+			return nil, ErrInvalidEVMTx
+		}
+		encoded := trimLeftZero(write.BalanceBig.FillBytes(make([]byte, 32)))
+		if len(encoded) == 0 {
+			return []byte{0}, nil
+		}
+		return encoded, nil
+	}
+	var encoded [8]byte
+	binary.BigEndian.PutUint64(encoded[:], write.Balance)
+	return encoded[:], nil
+}
+
+func decodeEthereumBalance(value []byte) (uint64, string, error) {
+	if len(value) == 0 {
+		return 0, "", nil
+	}
+	if len(value) > 32 {
+		return 0, "", ErrInvalidEVMTx
+	}
+	balance := new(big.Int).SetBytes(value)
+	if !balance.IsUint64() {
+		return 0, hexQuantityBigLocal(balance), nil
+	}
+	return balance.Uint64(), "", nil
+}
+
+func accountBalanceHex(account ethcompat.AccountState) string {
+	if account.BalanceHex != "" {
+		return account.BalanceHex
+	}
+	return hexQuantityLocal(account.Balance)
 }
 
 func persistNonceWrites(ctx context.Context, store vexoapp.StateStore, writes []contract.NonceWrite) error {
@@ -1347,10 +1424,13 @@ func ethereumAccountsFromStore(ctx context.Context, stateStore vexoapp.StateStor
 		if !strings.HasPrefix(string(address), "0x") || len(pair.Value) == 0 {
 			continue
 		}
-		if len(pair.Value) != 8 {
-			return nil, ErrInvalidEVMTx
+		balance, balanceHex, err := decodeEthereumBalance(pair.Value)
+		if err != nil {
+			return nil, err
 		}
-		accountFor(address).Balance = binary.BigEndian.Uint64(pair.Value)
+		account := accountFor(address)
+		account.Balance = balance
+		account.BalanceHex = balanceHex
 	}
 	nonces, err := prefixStore.ExportPrefix(ctx, "auth", []byte("nonce/"))
 	if err != nil {
@@ -1590,26 +1670,40 @@ func (reader evmStateReader) Storage(ctx context.Context, address types.Address,
 }
 
 func (reader evmStateReader) Balance(ctx context.Context, address types.Address) (uint64, error) {
+	balance, err := reader.BalanceBig(ctx, address)
+	if err != nil {
+		return 0, err
+	}
+	if balance == nil || balance.Sign() == 0 {
+		return 0, nil
+	}
+	if !balance.IsUint64() {
+		return 0, ErrInvalidEVMTx
+	}
+	return balance.Uint64(), nil
+}
+
+func (reader evmStateReader) BalanceBig(ctx context.Context, address types.Address) (*big.Int, error) {
 	if reader.store == nil {
-		return 0, ErrStoreMissing
+		return nil, ErrStoreMissing
 	}
 	value, err := reader.store.Get(ctx, "bank", evmBankKey(address))
 	if errors.Is(err, vexostore.ErrKeyNotFound) {
 		value, err = reader.store.Get(ctx, "bank", []byte(address))
 		if errors.Is(err, vexostore.ErrKeyNotFound) {
-			return 0, nil
+			return new(big.Int), nil
 		}
 	}
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	if len(value) == 0 {
-		return 0, nil
+		return new(big.Int), nil
 	}
-	if len(value) != 8 {
-		return 0, ErrInvalidEVMTx
+	if len(value) > 32 {
+		return nil, ErrInvalidEVMTx
 	}
-	return binary.BigEndian.Uint64(value), nil
+	return new(big.Int).SetBytes(value), nil
 }
 
 func (reader evmStateReader) Nonce(ctx context.Context, address types.Address) (uint64, error) {

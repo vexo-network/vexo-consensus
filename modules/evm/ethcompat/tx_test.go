@@ -55,6 +55,50 @@ func TestDecodeRawTransactionBuildsContractCreationCanonicalTx(t *testing.T) {
 	}
 }
 
+func TestDecodeRawTransactionPreservesUint256Value(t *testing.T) {
+	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := gethcommon.HexToAddress("0x000000000000000000000000000000000000bEEF")
+	value := new(big.Int).Lsh(big.NewInt(1), 80)
+	tx := gethtypes.NewTx(&gethtypes.DynamicFeeTx{
+		ChainID:   big.NewInt(7),
+		Nonce:     9,
+		GasTipCap: big.NewInt(2),
+		GasFeeCap: big.NewInt(20),
+		Gas:       50_000,
+		To:        &to,
+		Value:     value,
+		Data:      []byte{0x12, 0x34},
+	})
+	signed, err := gethtypes.SignTx(tx, gethtypes.LatestSignerForChainID(big.NewInt(7)), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeRawTransaction("0x"+hex.EncodeToString(raw), DecodeOptions{ChainID: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Value != 0 || decoded.ValueBig == nil || decoded.ValueBig.Cmp(value) != 0 {
+		t.Fatalf("expected big value to be preserved, got %+v", decoded)
+	}
+	canonical, err := vexoapp.ParseCanonicalTx(decoded.Tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if canonical.Args[6] != value.String() || canonical.Tags[TagValue] != value.String() {
+		t.Fatalf("expected canonical big value, got args=%v tags=%v", canonical.Args, canonical.Tags)
+	}
+	if err := ValidateCanonicalTx(decoded.Tx, 7); err != nil {
+		t.Fatalf("expected big-value canonical tx to validate: %v", err)
+	}
+}
+
 func TestDecodeRawTransactionPreservesAccessList(t *testing.T) {
 	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
 	if err != nil {

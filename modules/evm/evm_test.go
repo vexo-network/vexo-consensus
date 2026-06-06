@@ -79,6 +79,22 @@ func (nonceVM) Execute(ctx context.Context, invocation contract.Invocation) (con
 	}, nil
 }
 
+type bigBalanceVM struct {
+	balance *big.Int
+}
+
+func (vm bigBalanceVM) Name() string { return "evm" }
+
+func (vm bigBalanceVM) Execute(ctx context.Context, invocation contract.Invocation) (contract.Result, error) {
+	return contract.Result{
+		GasUsed: 5,
+		BalanceWrites: []contract.BalanceWrite{{
+			Address:    invocation.Contract,
+			BalanceBig: new(big.Int).Set(vm.balance),
+		}},
+	}, nil
+}
+
 type recordingInvocationVM struct {
 	invocation contract.Invocation
 }
@@ -297,6 +313,44 @@ func TestModulePersistsNonceWritesIntoEthereumAccountState(t *testing.T) {
 	}
 	if proof.Nonce != "0x8" {
 		t.Fatalf("expected proof nonce 0x8, got %+v", proof)
+	}
+}
+
+func TestModulePersistsUint256EVMBalancesForEthereumProofs(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	large := new(big.Int).Lsh(big.NewInt(1), 80)
+	registry := contract.NewRegistry()
+	if err := registry.Register(bigBalanceVM{balance: large}); err != nil {
+		t.Fatal(err)
+	}
+	module := NewModuleWithRegistry(registry)
+	contractAddress := types.Address("0x000000000000000000000000000000000000bbbb")
+	if err := storage.Set(context.Background(), ModuleName, codeKey(contractAddress), []byte{0x60, 0x00}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := vexoapp.Context{Ctx: context.Background(), Height: 9, Store: storage}
+	result := module.DeliverTx(ctx, types.Tx("evm:call:evm:0x000000000000000000000000000000000000aaaa:"+string(contractAddress)+":call:00:100000"))
+	if result.Code != 0 {
+		t.Fatalf("call failed: %+v", result)
+	}
+	if err := module.EndBlock(ctx); err != nil {
+		t.Fatal(err)
+	}
+	proofRequest, _ := json.Marshal(ProofRequest{Address: string(contractAddress), Height: 9})
+	proofQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"eth_proof"}, Data: proofRequest})
+	if proofQuery.Code != 0 {
+		t.Fatalf("unexpected proof query: %+v", proofQuery)
+	}
+	var proof ethcompat.AccountProof
+	if err := json.Unmarshal(proofQuery.Value, &proof); err != nil {
+		t.Fatal(err)
+	}
+	if proof.Balance != "0x100000000000000000000" {
+		t.Fatalf("expected uint256 balance in proof, got %+v", proof)
 	}
 }
 

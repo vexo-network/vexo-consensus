@@ -17,6 +17,7 @@ const (
 	blsKeygenInfo         = "vexo-consensus-validator-bls"
 	blsProofOfPossession  = "VEXO_BLS_PROOF_OF_POSSESSION_V1:"
 	circlBLSDependencyTag = "github.com/cloudflare/circl@v1.6.3"
+	circlBLSAuditBoundary = "operator-supplied-audit-required"
 )
 
 var ErrMissingBLSPrivateKey = errors.New("bls private key is required")
@@ -207,8 +208,8 @@ func (adapter CIRCLBLSAdapter) Metadata() BLSAdapterMetadata {
 	return BLSAdapterMetadata{
 		Name:                  BLSAdapterCIRCLName,
 		Version:               "v1",
-		Audited:               true,
-		AuditReport:           circlBLSDependencyTag,
+		Audited:               false,
+		AuditReport:           circlBLSAuditBoundary,
 		DependencyAudit:       circlBLSDependencyTag,
 		DomainSeparation:      true,
 		PublicKeyValidation:   true,

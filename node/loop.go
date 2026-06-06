@@ -16,26 +16,35 @@ const (
 	defaultConsensusMaxBytes         = 1024 * 1024
 )
 
+type ExecutionCommitMode string
+
+const (
+	ExecutionCommitModeQC        ExecutionCommitMode = "qc"
+	ExecutionCommitModeFinalized ExecutionCommitMode = "finalized"
+)
+
 type ConsensusLoopConfig struct {
-	Interval          time.Duration
-	TimeoutPropose    time.Duration
-	TimeoutPrevote    time.Duration
-	TimeoutPrecommit  time.Duration
-	TimeoutCommit     time.Duration
-	RoundTimeout      time.Duration
-	MaxBlockBytes     int64
-	CreateEmptyBlocks bool
+	Interval            time.Duration
+	TimeoutPropose      time.Duration
+	TimeoutPrevote      time.Duration
+	TimeoutPrecommit    time.Duration
+	TimeoutCommit       time.Duration
+	RoundTimeout        time.Duration
+	MaxBlockBytes       int64
+	CreateEmptyBlocks   bool
+	ExecutionCommitMode ExecutionCommitMode
 }
 
 func DefaultConsensusLoopConfig() ConsensusLoopConfig {
 	return ConsensusLoopConfig{
-		Interval:          defaultConsensusLoopInterval,
-		TimeoutPropose:    defaultConsensusTimeoutPropose,
-		TimeoutPrevote:    defaultConsensusTimeoutPrevote,
-		TimeoutPrecommit:  defaultConsensusTimeoutPrecommit,
-		TimeoutCommit:     defaultConsensusTimeoutCommit,
-		MaxBlockBytes:     defaultConsensusMaxBytes,
-		CreateEmptyBlocks: false,
+		Interval:            defaultConsensusLoopInterval,
+		TimeoutPropose:      defaultConsensusTimeoutPropose,
+		TimeoutPrevote:      defaultConsensusTimeoutPrevote,
+		TimeoutPrecommit:    defaultConsensusTimeoutPrecommit,
+		TimeoutCommit:       defaultConsensusTimeoutCommit,
+		MaxBlockBytes:       defaultConsensusMaxBytes,
+		CreateEmptyBlocks:   false,
+		ExecutionCommitMode: ExecutionCommitModeQC,
 	}
 }
 
@@ -184,6 +193,9 @@ func normalizeConsensusLoopConfig(cfg ConsensusLoopConfig) ConsensusLoopConfig {
 	}
 	if cfg.MaxBlockBytes <= 0 {
 		cfg.MaxBlockBytes = defaults.MaxBlockBytes
+	}
+	if cfg.ExecutionCommitMode == "" {
+		cfg.ExecutionCommitMode = defaults.ExecutionCommitMode
 	}
 	return cfg
 }

@@ -30,6 +30,7 @@ const (
 	TagChainID              = "eth_chain_id"
 	TagBaseFee              = "eth_base_fee"
 	TagGasPrice             = "eth_gas_price"
+	TagValue                = "eth_value"
 	TagMaxFeePerGas         = "eth_max_fee_per_gas"
 	TagMaxPriorityFeePerGas = "eth_max_priority_fee_per_gas"
 	TagAccessList           = "eth_access_list"
@@ -63,6 +64,7 @@ type DecodedTransaction struct {
 	MaxFeePerGas         uint64
 	MaxPriorityFeePerGas uint64
 	Value                uint64
+	ValueBig             *big.Int
 	Input                string
 	AccessList           []contract.AccessListEntry
 	ContractCreation     bool
@@ -98,9 +100,10 @@ func DecodeRawTransaction(rawHex string, options DecodeOptions) (DecodedTransact
 	if err != nil {
 		return DecodedTransaction{}, fmt.Errorf("%w: %v", ErrInvalidRawTransaction, err)
 	}
-	value, err := uint64Big(ethTx.Value())
-	if err != nil {
-		return DecodedTransaction{}, err
+	valueBig := new(big.Int).Set(ethTx.Value())
+	value := uint64(0)
+	if valueBig.IsUint64() {
+		value = valueBig.Uint64()
 	}
 	gasPrice, err := effectiveGasPrice(&ethTx, options.BaseFee)
 	if err != nil {
@@ -136,6 +139,7 @@ func DecodeRawTransaction(rawHex string, options DecodeOptions) (DecodedTransact
 		TagChainID:              strconv.FormatUint(chainID, 10),
 		TagBaseFee:              strconv.FormatUint(options.BaseFee, 10),
 		TagGasPrice:             strconv.FormatUint(gasPrice, 10),
+		TagValue:                valueBig.String(),
 		TagMaxFeePerGas:         strconv.FormatUint(maxFee, 10),
 		TagMaxPriorityFeePerGas: strconv.FormatUint(maxPriority, 10),
 	}
@@ -159,6 +163,7 @@ func DecodeRawTransaction(rawHex string, options DecodeOptions) (DecodedTransact
 		MaxFeePerGas:         maxFee,
 		MaxPriorityFeePerGas: maxPriority,
 		Value:                value,
+		ValueBig:             valueBig,
 		Input:                input,
 		AccessList:           accessList,
 		ChainID:              chainID,
@@ -176,7 +181,7 @@ func DecodeRawTransaction(rawHex string, options DecodeOptions) (DecodedTransact
 				from.Hex(),
 				strings.TrimPrefix(input, "0x"),
 				strconv.FormatUint(ethTx.Nonce(), 10),
-				strconv.FormatUint(value, 10),
+				valueBig.String(),
 			},
 			Tags: tags,
 		}
@@ -193,7 +198,7 @@ func DecodeRawTransaction(rawHex string, options DecodeOptions) (DecodedTransact
 				"call",
 				strings.TrimPrefix(input, "0x"),
 				strconv.FormatUint(ethTx.Gas(), 10),
-				strconv.FormatUint(value, 10),
+				valueBig.String(),
 			},
 			Tags: tags,
 		}
@@ -229,7 +234,7 @@ func ValidateCanonicalTx(tx types.Tx, expectedChainID uint64) error {
 	if !sameStrings(canonical.Args, decodedCanonical.Args) {
 		return ErrSignatureMismatch
 	}
-	for _, key := range []string{"gas", "signer", "nonce", TagHash, TagRaw, TagType, TagInput, TagChainID, TagMaxFeePerGas, TagMaxPriorityFeePerGas, TagAccessList} {
+	for _, key := range []string{"gas", "signer", "nonce", TagHash, TagRaw, TagType, TagInput, TagChainID, TagValue, TagMaxFeePerGas, TagMaxPriorityFeePerGas, TagAccessList} {
 		if canonical.Tags[key] != decodedCanonical.Tags[key] {
 			return ErrSignatureMismatch
 		}

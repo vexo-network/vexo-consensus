@@ -197,7 +197,8 @@ Example `consensus_config.json`:
     "timeout_precommit": "1s",
     "timeout_commit": "1s",
     "max_block_bytes": 1048576,
-    "create_empty_blocks": false
+    "create_empty_blocks": false,
+    "execution_commit": "qc"
   },
   "vrf_key_paths": ["validator.vrf.key.json"]
 }
@@ -283,7 +284,8 @@ Consensus loop timing lives in `consensus_config.json`:
     "timeout_precommit": "1s",
     "timeout_commit": "1s",
     "max_block_bytes": 1048576,
-    "create_empty_blocks": false
+    "create_empty_blocks": false,
+    "execution_commit": "qc"
   }
 }
 ```
@@ -293,6 +295,7 @@ Consensus loop timing lives in `consensus_config.json`:
 - `timeout_precommit` controls the commit-certificate collection window.
 - `timeout_commit` controls the minimum delay after a committed block.
 - `create_empty_blocks: false` means the node only proposes when transactions are available.
+- `execution_commit: "qc"` executes and persists QC-certified blocks immediately; `execution_commit: "finalized"` waits for the HotStuff three-chain finality decision before executing the finalized ancestor.
 
 `round_timeout` is kept only as a compatibility aggregate. Prefer the Tendermint-style timeout fields above.
 
