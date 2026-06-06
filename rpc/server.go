@@ -1575,16 +1575,22 @@ type web3CallRequest struct {
 	Input    string `json:"input,omitempty"`
 	GasLimit uint64 `json:"gas_limit,omitempty"`
 	Value    uint64 `json:"value,omitempty"`
+	Height   uint64 `json:"height,omitempty"`
+	GasPrice uint64 `json:"gas_price,omitempty"`
+	BaseFee  uint64 `json:"base_fee,omitempty"`
 }
 
 type web3TransactionCall struct {
-	From   string `json:"from"`
-	To     string `json:"to"`
-	Data   string `json:"data"`
-	Gas    string `json:"gas"`
-	Value  string `json:"value"`
-	VM     string `json:"vm"`
-	Method string `json:"method"`
+	From                 string `json:"from"`
+	To                   string `json:"to"`
+	Data                 string `json:"data"`
+	Gas                  string `json:"gas"`
+	GasPrice             string `json:"gasPrice"`
+	MaxFeePerGas         string `json:"maxFeePerGas"`
+	MaxPriorityFeePerGas string `json:"maxPriorityFeePerGas"`
+	Value                string `json:"value"`
+	VM                   string `json:"vm"`
+	Method               string `json:"method"`
 }
 
 type web3Receipt struct {
@@ -2696,7 +2702,11 @@ func web3Code(ctx context.Context, provider StatusProvider, params []json.RawMes
 	if err != nil {
 		return "", &JSONRPCError{Code: -32602, Message: err.Error()}
 	}
-	response, err := query.AppQuery(ctx, []string{"evm", "code", address}, nil)
+	data, rpcErr := web3HistoricalAccountQueryData(ctx, provider, params, 1)
+	if rpcErr != nil {
+		return "", rpcErr
+	}
+	response, err := query.AppQuery(ctx, []string{"evm", "code", address}, data)
 	if err != nil {
 		return "", &JSONRPCError{Code: -32000, Message: err.Error()}
 	}
@@ -2731,7 +2741,11 @@ func web3StorageAt(ctx context.Context, provider StatusProvider, params []json.R
 	if err != nil {
 		return "", &JSONRPCError{Code: -32602, Message: err.Error()}
 	}
-	response, err := query.AppQuery(ctx, []string{"evm", "storage", address, slot}, nil)
+	data, rpcErr := web3HistoricalAccountQueryData(ctx, provider, params, 2)
+	if rpcErr != nil {
+		return "", rpcErr
+	}
+	response, err := query.AppQuery(ctx, []string{"evm", "storage", address, slot}, data)
 	if err != nil {
 		return "", &JSONRPCError{Code: -32000, Message: err.Error()}
 	}
@@ -2751,6 +2765,28 @@ func web3StorageAt(ctx context.Context, provider StatusProvider, params []json.R
 		return "0x0", nil
 	}
 	return "0x" + strings.TrimPrefix(payload.Value, "0x"), nil
+}
+
+func web3HistoricalAccountQueryData(ctx context.Context, provider StatusProvider, params []json.RawMessage, tagIndex int) ([]byte, *JSONRPCError) {
+	if len(params) <= tagIndex || len(params[tagIndex]) == 0 || string(params[tagIndex]) == "null" {
+		return nil, nil
+	}
+	tag, err := jsonRPCStringParam(params[tagIndex])
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	if tag == "latest" || tag == "pending" || tag == "" {
+		return nil, nil
+	}
+	height, rpcErr := web3BlockHeightParam(ctx, provider, params[tagIndex])
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	encoded, err := json.Marshal(map[string]uint64{"height": uint64(height)})
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	return encoded, nil
 }
 
 func web3EstimateGas(ctx context.Context, provider StatusProvider, params []json.RawMessage) (string, *JSONRPCError) {
@@ -2779,6 +2815,16 @@ func web3EVMCall(ctx context.Context, provider StatusProvider, params []json.Raw
 	if rpcErr != nil {
 		return web3EVMCallResponse{}, rpcErr
 	}
+	if height, rpcErr := web3CallHeight(ctx, provider, params); rpcErr != nil {
+		return web3EVMCallResponse{}, rpcErr
+	} else {
+		call.Height = uint64(height)
+	}
+	baseFee := web3LatestBaseFee(ctx, provider)
+	call.BaseFee = baseFee
+	if call.GasPrice == 0 {
+		call.GasPrice = baseFee
+	}
 	query, ok := provider.(AppQueryProvider)
 	if !ok {
 		return web3EVMCallResponse{}, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
@@ -2796,6 +2842,35 @@ func web3EVMCall(ctx context.Context, provider StatusProvider, params []json.Raw
 		return web3EVMCallResponse{}, &JSONRPCError{Code: -32000, Message: "invalid EVM call response"}
 	}
 	return callResponse, nil
+}
+
+func web3CallHeight(ctx context.Context, provider StatusProvider, params []json.RawMessage) (types.Height, *JSONRPCError) {
+	for _, index := range []int{1, 2} {
+		if len(params) <= index || len(params[index]) == 0 || string(params[index]) == "null" {
+			continue
+		}
+		var tag string
+		if err := json.Unmarshal(params[index], &tag); err != nil || tag == "" {
+			continue
+		}
+		return web3BlockHeightParam(ctx, provider, params[index])
+	}
+	return provider.Status(ctx).LatestHeight, nil
+}
+
+func web3LatestBaseFee(ctx context.Context, provider StatusProvider) uint64 {
+	query, ok := provider.(ChainQueryProvider)
+	if !ok {
+		return 0
+	}
+	state, err := query.LatestState(ctx)
+	if err != nil {
+		return 0
+	}
+	if state.NextBaseFee > 0 {
+		return state.NextBaseFee
+	}
+	return state.BaseFee
 }
 
 func web3CreateAccessList(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
@@ -3504,6 +3579,21 @@ func evmCallParam(params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
 		}
 		callValue = value
 	}
+	gasPrice := uint64(0)
+	switch {
+	case payload.GasPrice != "":
+		value, err := parseHexQuantity(payload.GasPrice)
+		if err != nil {
+			return web3CallRequest{}, &JSONRPCError{Code: -32602, Message: "invalid gasPrice quantity"}
+		}
+		gasPrice = value
+	case payload.MaxFeePerGas != "":
+		value, err := parseHexQuantity(payload.MaxFeePerGas)
+		if err != nil {
+			return web3CallRequest{}, &JSONRPCError{Code: -32602, Message: "invalid maxFeePerGas quantity"}
+		}
+		gasPrice = value
+	}
 	if payload.Data == "" {
 		payload.Data = "0x"
 	}
@@ -3518,6 +3608,7 @@ func evmCallParam(params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
 		Input:    payload.Data,
 		GasLimit: gasLimit,
 		Value:    callValue,
+		GasPrice: gasPrice,
 	}, nil
 }
 

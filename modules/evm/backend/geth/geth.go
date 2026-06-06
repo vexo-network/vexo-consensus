@@ -81,6 +81,7 @@ func (GethVM) Execute(ctx context.Context, invocation contract.Invocation) (cont
 		CodeWrites:       stateDB.CodeWrites(),
 		StorageWrites:    stateDB.StorageWrites(),
 		BalanceWrites:    balanceWrites,
+		NonceWrites:      stateDB.NonceWrites(),
 		AccountDeletions: stateDB.AccountDeletions(),
 		AccessList:       stateDB.ContractAccessList(),
 		Logs:             stateDB.ContractLogs(),
@@ -493,6 +494,21 @@ func (db *gethStateDB) BalanceWrites() ([]contract.BalanceWrite, error) {
 		})
 	}
 	return writes, nil
+}
+
+func (db *gethStateDB) NonceWrites() []contract.NonceWrite {
+	writes := make([]contract.NonceWrite, 0)
+	for _, address := range db.sortedAddresses() {
+		account := db.accounts[address]
+		if account.nonce == account.committedNonce {
+			continue
+		}
+		writes = append(writes, contract.NonceWrite{
+			Address: types.Address(address.Hex()),
+			Nonce:   account.nonce,
+		})
+	}
+	return writes
 }
 
 func (db *gethStateDB) ContractAccessList() []contract.AccessListEntry {

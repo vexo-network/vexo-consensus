@@ -1127,12 +1127,22 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if code.Error != nil || code.Result != "0x60016002" {
 		t.Fatalf("unexpected code response: %+v", code)
 	}
+	var historicalCode JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":107,"method":"eth_getCode","params":["0xbbbb","0xb"]}`, http.StatusOK, &historicalCode)
+	if historicalCode.Error != nil || !strings.Contains(string(provider.appQueryData), `"height":11`) {
+		t.Fatalf("unexpected historical code response=%+v data=%s", historicalCode, provider.appQueryData)
+	}
 
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"address":"0xbbbb","slot":"0x0","value":"0x01"}`)}
 	var storageAt JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":35,"method":"eth_getStorageAt","params":["0xbbbb","0x0","latest"]}`, http.StatusOK, &storageAt)
 	if storageAt.Error != nil || storageAt.Result != "0x01" {
 		t.Fatalf("unexpected storage response: %+v", storageAt)
+	}
+	var historicalStorageAt JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":108,"method":"eth_getStorageAt","params":["0xbbbb","0x0","finalized"]}`, http.StatusOK, &historicalStorageAt)
+	if historicalStorageAt.Error != nil || !strings.Contains(string(provider.appQueryData), `"height":11`) {
+		t.Fatalf("unexpected historical storage response=%+v data=%s", historicalStorageAt, provider.appQueryData)
 	}
 
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"address":"0x000000000000000000000000000000000000bbbb","accountProof":["0xf8"],"balance":"0x7b","codeHash":"0xabc","nonce":"0x1","storageHash":"0xdef","storageProof":[{"key":"0x0","value":"0x1","proof":["0xc1"]}],"stateRoot":"0x1111111111111111111111111111111111111111111111111111111111111111"}`)}
@@ -1345,12 +1355,15 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x1234","gas_used":9,"access_list":[{"address":"0xbbbb","storage_keys":["0x01"]}]}`)}
 	var call JSONRPCResponse
-	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":4,"method":"eth_call","params":[{"from":"0xaaaa","to":"0xbbbb","data":"0x1234","gas":"0x5208"},"latest"]}`, http.StatusOK, &call)
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":4,"method":"eth_call","params":[{"from":"0xaaaa","to":"0xbbbb","data":"0x1234","gas":"0x5208","gasPrice":"0x7"},"finalized"]}`, http.StatusOK, &call)
 	if call.Error != nil || call.Result != "0x1234" {
 		t.Fatalf("unexpected eth_call response: %+v", call)
 	}
 	if !strings.Contains(string(provider.appQueryData), `"input":"0x1234"`) {
 		t.Fatalf("unexpected call query data: %s", provider.appQueryData)
+	}
+	if !strings.Contains(string(provider.appQueryData), `"height":11`) || !strings.Contains(string(provider.appQueryData), `"gas_price":7`) || !strings.Contains(string(provider.appQueryData), `"base_fee":11`) {
+		t.Fatalf("expected call query to include block height, gas price, and base fee: %s", provider.appQueryData)
 	}
 
 	var estimate JSONRPCResponse

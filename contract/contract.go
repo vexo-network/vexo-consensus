@@ -44,6 +44,7 @@ type Result struct {
 	CodeWrites       []CodeWrite       `json:"code_writes,omitempty"`
 	StorageWrites    []StorageWrite    `json:"storage_writes,omitempty"`
 	BalanceWrites    []BalanceWrite    `json:"balance_writes,omitempty"`
+	NonceWrites      []NonceWrite      `json:"nonce_writes,omitempty"`
 	AccountDeletions []AccountDeletion `json:"account_deletions,omitempty"`
 	AccessList       []AccessListEntry `json:"access_list,omitempty"`
 }
@@ -71,6 +72,11 @@ type CodeWrite struct {
 type BalanceWrite struct {
 	Address types.Address `json:"address"`
 	Balance uint64        `json:"balance"`
+}
+
+type NonceWrite struct {
+	Address types.Address `json:"address"`
+	Nonce   uint64        `json:"nonce"`
 }
 
 type AccountDeletion struct {

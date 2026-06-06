@@ -72,6 +72,9 @@ type CallRequest struct {
 	Input    string `json:"input,omitempty"`
 	GasLimit uint64 `json:"gas_limit,omitempty"`
 	Value    uint64 `json:"value,omitempty"`
+	Height   uint64 `json:"height,omitempty"`
+	GasPrice uint64 `json:"gas_price,omitempty"`
+	BaseFee  uint64 `json:"base_fee,omitempty"`
 }
 
 type CallResponse struct {
@@ -87,6 +90,10 @@ type ProofRequest struct {
 }
 
 type StateRootRequest struct {
+	Height uint64 `json:"height,omitempty"`
+}
+
+type AccountStateRequest struct {
 	Height uint64 `json:"height,omitempty"`
 }
 
@@ -268,6 +275,24 @@ func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoap
 		if len(req.Path) != 2 {
 			return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
 		}
+		height, err := accountStateRequestHeight(req.Data)
+		if err != nil {
+			return vexoapp.QueryResponse{Code: 2, Log: err.Error()}
+		}
+		if height > 0 {
+			account, found, err := ethereumAccountAtHeight(ctx.GoContext(), ctx.Store, types.Address(req.Path[1]), height)
+			if errors.Is(err, vexostore.ErrKeyNotFound) {
+				return vexoapp.QueryResponse{Code: 3, Log: "Ethereum state snapshot not found"}
+			}
+			if err != nil {
+				return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+			}
+			if !found || len(account.Code) == 0 {
+				return vexoapp.QueryResponse{Code: 3, Log: "EVM code not found"}
+			}
+			encoded, _ := json.Marshal(map[string]string{"address": req.Path[1], "code": hex.EncodeToString(account.Code)})
+			return vexoapp.QueryResponse{Value: encoded}
+		}
 		code, err := ctx.Store.Get(ctx.GoContext(), ModuleName, codeKey(types.Address(req.Path[1])))
 		if errors.Is(err, vexostore.ErrKeyNotFound) {
 			return vexoapp.QueryResponse{Code: 3, Log: "EVM code not found"}
@@ -280,6 +305,32 @@ func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoap
 	case "storage":
 		if len(req.Path) != 3 {
 			return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
+		}
+		height, err := accountStateRequestHeight(req.Data)
+		if err != nil {
+			return vexoapp.QueryResponse{Code: 2, Log: err.Error()}
+		}
+		if height > 0 {
+			account, found, err := ethereumAccountAtHeight(ctx.GoContext(), ctx.Store, types.Address(req.Path[1]), height)
+			if errors.Is(err, vexostore.ErrKeyNotFound) {
+				return vexoapp.QueryResponse{Code: 3, Log: "Ethereum state snapshot not found"}
+			}
+			if err != nil {
+				return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+			}
+			value := []byte(nil)
+			if found && account.Storage != nil {
+				value = account.Storage[strings.TrimPrefix(normalizeSlot(req.Path[2]), "0x")]
+			}
+			if len(value) == 0 {
+				return vexoapp.QueryResponse{Code: 3, Log: "EVM storage not found"}
+			}
+			encoded, _ := json.Marshal(map[string]string{
+				"address": req.Path[1],
+				"slot":    req.Path[2],
+				"value":   "0x" + hex.EncodeToString(value),
+			})
+			return vexoapp.QueryResponse{Value: encoded}
 		}
 		value, err := ctx.Store.Get(ctx.GoContext(), ModuleName, storageKey(types.Address(req.Path[1]), req.Path[2]))
 		if errors.Is(err, vexostore.ErrKeyNotFound) {
@@ -518,6 +569,10 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 		}
 		state = evmStateReader{store: ctx.Store}
 	}
+	blockNumber := uint64(ctx.Height)
+	if request.Height > 0 {
+		blockNumber = request.Height
+	}
 	result, err := module.registry.Execute(ctx.GoContext(), contract.Invocation{
 		VM:            request.VM,
 		Caller:        types.Address(request.From),
@@ -529,9 +584,11 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 		Code:          code,
 		State:         state,
 		ReadOnly:      true,
-		BlockNumber:   uint64(ctx.Height),
+		BlockNumber:   blockNumber,
 		Timestamp:     headerUnixSeconds(ctx.Header),
 		BlockGasLimit: ctx.GasLimit(),
+		GasPrice:      request.GasPrice,
+		BaseFee:       request.BaseFee,
 		Coinbase:      types.Address("fee_collector"),
 	})
 	if err != nil {
@@ -703,16 +760,19 @@ func persistReceipt(ctx context.Context, store vexoapp.StateStore, receipt Recei
 }
 
 func persistExecutionResult(ctx context.Context, store vexoapp.StateStore, defaultAddress types.Address, result contract.Result) error {
-	if err := persistAccountDeletions(ctx, store, result.AccountDeletions); err != nil {
-		return err
-	}
 	if err := persistCodeWrites(ctx, store, result.CodeWrites); err != nil {
 		return err
 	}
 	if err := persistStorageWrites(ctx, store, defaultAddress, result.StorageWrites); err != nil {
 		return err
 	}
-	return persistBalanceWrites(ctx, store, result.BalanceWrites)
+	if err := persistBalanceWrites(ctx, store, result.BalanceWrites); err != nil {
+		return err
+	}
+	if err := persistNonceWrites(ctx, store, result.NonceWrites); err != nil {
+		return err
+	}
+	return persistAccountDeletions(ctx, store, result.AccountDeletions)
 }
 
 func persistCodeWrites(ctx context.Context, store vexoapp.StateStore, writes []contract.CodeWrite) error {
@@ -744,7 +804,7 @@ func persistAccountDeletions(ctx context.Context, store vexoapp.StateStore, dele
 		if err := store.Delete(ctx, "bank", evmBankKey(deletion.Address)); err != nil {
 			return err
 		}
-		if err := store.Delete(ctx, "auth", []byte("nonce/"+string(deletion.Address))); err != nil {
+		if err := store.Delete(ctx, "auth", evmNonceKey(deletion.Address)); err != nil {
 			return err
 		}
 		prefixStore, ok := store.(vexostore.PrefixKVStore)
@@ -795,6 +855,20 @@ func persistBalanceWrites(ctx context.Context, store vexoapp.StateStore, writes 
 		var encoded [8]byte
 		binary.BigEndian.PutUint64(encoded[:], write.Balance)
 		if err := store.Set(ctx, "bank", evmBankKey(write.Address), encoded[:]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func persistNonceWrites(ctx context.Context, store vexoapp.StateStore, writes []contract.NonceWrite) error {
+	for _, write := range writes {
+		if write.Address == "" {
+			return ErrInvalidEVMTx
+		}
+		var encoded [8]byte
+		binary.BigEndian.PutUint64(encoded[:], write.Nonce)
+		if err := store.Set(ctx, "auth", evmNonceKey(write.Address), encoded[:]); err != nil {
 			return err
 		}
 	}
@@ -918,6 +992,34 @@ func queryEthereumProof(ctx vexoapp.Context, data []byte) vexoapp.QueryResponse 
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
 	}
 	return vexoapp.QueryResponse{Value: encoded}
+}
+
+func accountStateRequestHeight(data []byte) (uint64, error) {
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return 0, nil
+	}
+	var request AccountStateRequest
+	if err := json.Unmarshal(data, &request); err != nil {
+		return 0, err
+	}
+	return request.Height, nil
+}
+
+func ethereumAccountAtHeight(ctx context.Context, stateStore vexoapp.StateStore, address types.Address, height uint64) (ethcompat.AccountState, bool, error) {
+	accounts, err := ethereumAccountsForProof(ctx, stateStore, height)
+	if err != nil {
+		return ethcompat.AccountState{}, false, err
+	}
+	target := canonicalAddressKey(address)
+	for _, account := range accounts {
+		if canonicalAddressKey(types.Address(account.Address)) == target {
+			if account.Storage == nil {
+				account.Storage = map[string][]byte{}
+			}
+			return account, true, nil
+		}
+	}
+	return ethcompat.AccountState{}, false, nil
 }
 
 func persistEthereumStateSnapshot(ctx context.Context, stateStore vexoapp.StateStore, height uint64) error {
@@ -1289,7 +1391,7 @@ func (reader evmStateReader) Nonce(ctx context.Context, address types.Address) (
 	if reader.store == nil {
 		return 0, ErrStoreMissing
 	}
-	value, err := reader.store.Get(ctx, "auth", []byte("nonce/"+string(address)))
+	value, err := reader.store.Get(ctx, "auth", evmNonceKey(address))
 	if errors.Is(err, vexostore.ErrKeyNotFound) {
 		return 0, nil
 	}
@@ -1343,6 +1445,10 @@ func txBaseFee(tx types.Tx) uint64 {
 
 func evmBankKey(address types.Address) []byte {
 	return []byte(canonicalAddressKey(address))
+}
+
+func evmNonceKey(address types.Address) []byte {
+	return []byte("nonce/" + canonicalAddressKey(address))
 }
 
 func create2Salt(raw string) [32]byte {

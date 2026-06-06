@@ -125,3 +125,22 @@ func TestGethStateDBFinaliseReportsCodeStorageAndAccountDeletion(t *testing.T) {
 		t.Fatalf("unexpected storage writes: %+v", storageWrites)
 	}
 }
+
+func TestGethStateDBReportsNonceWrites(t *testing.T) {
+	address := types.Address("0x000000000000000000000000000000000000aaaa")
+	db := newGethStateDB(context.Background(), contract.Invocation{
+		State: testStateReader{
+			nonces: map[types.Address]uint64{address: 2},
+		},
+	})
+	gethAddress := gethAddress(address)
+	if nonce := db.GetNonce(gethAddress); nonce != 2 {
+		t.Fatalf("expected loaded nonce 2, got %d", nonce)
+	}
+	db.SetNonce(gethAddress, 3, 0)
+
+	writes := db.NonceWrites()
+	if len(writes) != 1 || writes[0].Nonce != 3 || !strings.EqualFold(string(writes[0].Address), string(address)) {
+		t.Fatalf("unexpected nonce writes: %+v", writes)
+	}
+}

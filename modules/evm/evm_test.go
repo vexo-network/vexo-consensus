@@ -54,7 +54,40 @@ func (deletionVM) Execute(ctx context.Context, invocation contract.Invocation) (
 		AccountDeletions: []contract.AccountDeletion{{
 			Address: invocation.Contract,
 		}},
+		NonceWrites: []contract.NonceWrite{{
+			Address: invocation.Contract,
+			Nonce:   9,
+		}},
+		BalanceWrites: []contract.BalanceWrite{{
+			Address: invocation.Contract,
+			Balance: 88,
+		}},
 	}, nil
+}
+
+type nonceVM struct{}
+
+func (nonceVM) Name() string { return "evm" }
+
+func (nonceVM) Execute(ctx context.Context, invocation contract.Invocation) (contract.Result, error) {
+	return contract.Result{
+		GasUsed: 13,
+		NonceWrites: []contract.NonceWrite{{
+			Address: invocation.Caller,
+			Nonce:   8,
+		}},
+	}, nil
+}
+
+type recordingInvocationVM struct {
+	invocation contract.Invocation
+}
+
+func (vm *recordingInvocationVM) Name() string { return "evm" }
+
+func (vm *recordingInvocationVM) Execute(ctx context.Context, invocation contract.Invocation) (contract.Result, error) {
+	vm.invocation = invocation
+	return contract.Result{Output: []byte{0x42}, GasUsed: 17}, nil
 }
 
 func TestModuleExecutesAndPersistsReceiptsCodeAndLogs(t *testing.T) {
@@ -116,6 +149,86 @@ func TestModuleExecutesAndPersistsReceiptsCodeAndLogs(t *testing.T) {
 	}
 }
 
+func TestModuleQueryCallPassesWeb3ExecutionContext(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	vm := &recordingInvocationVM{}
+	registry := contract.NewRegistry()
+	if err := registry.Register(vm); err != nil {
+		t.Fatal(err)
+	}
+	module := NewModuleWithRegistry(registry)
+	contractAddress := types.Address("0x000000000000000000000000000000000000bbbb")
+	if err := storage.Set(context.Background(), ModuleName, codeKey(contractAddress), []byte{0x60, 0x00}); err != nil {
+		t.Fatal(err)
+	}
+	request, _ := json.Marshal(CallRequest{
+		VM:       "evm",
+		From:     "0x000000000000000000000000000000000000aaaa",
+		To:       string(contractAddress),
+		Method:   "call",
+		Input:    "0x1234",
+		GasLimit: 55_000,
+		Value:    3,
+		Height:   77,
+		GasPrice: 9,
+		BaseFee:  4,
+	})
+	response := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 12, Store: storage}, vexoapp.QueryRequest{Path: []string{"call"}, Data: request})
+	if response.Code != 0 {
+		t.Fatalf("unexpected query response: %+v", response)
+	}
+	if vm.invocation.BlockNumber != 77 || vm.invocation.GasPrice != 9 || vm.invocation.BaseFee != 4 || vm.invocation.Value != 3 || vm.invocation.GasLimit != 55_000 {
+		t.Fatalf("unexpected invocation context: %+v", vm.invocation)
+	}
+}
+
+func TestModulePersistsNonceWritesIntoEthereumAccountState(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	registry := contract.NewRegistry()
+	if err := registry.Register(nonceVM{}); err != nil {
+		t.Fatal(err)
+	}
+	module := NewModuleWithRegistry(registry)
+	caller := types.Address("0x000000000000000000000000000000000000AaAa")
+	contractAddress := types.Address("0x000000000000000000000000000000000000bbbb")
+	if err := storage.Set(context.Background(), ModuleName, codeKey(contractAddress), []byte{0x60, 0x00}); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := vexoapp.Context{Ctx: context.Background(), Height: 4, Store: storage}
+	result := module.DeliverTx(ctx, types.Tx("evm:call:evm:"+string(caller)+":"+string(contractAddress)+":call:00:100000"))
+	if result.Code != 0 {
+		t.Fatalf("call failed: %+v", result)
+	}
+	value, err := storage.Get(context.Background(), "auth", evmNonceKey(caller))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binary.BigEndian.Uint64(value) != 8 {
+		t.Fatalf("expected persisted nonce 8, got %d", binary.BigEndian.Uint64(value))
+	}
+	proofRequest, _ := json.Marshal(ProofRequest{Address: string(caller)})
+	proofQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"eth_proof"}, Data: proofRequest})
+	if proofQuery.Code != 0 {
+		t.Fatalf("unexpected proof query: %+v", proofQuery)
+	}
+	var proof ethcompat.AccountProof
+	if err := json.Unmarshal(proofQuery.Value, &proof); err != nil {
+		t.Fatal(err)
+	}
+	if proof.Nonce != "0x8" {
+		t.Fatalf("expected proof nonce 0x8, got %+v", proof)
+	}
+}
+
 func TestModulePersistsCodeWritesAccountDeletionsAndActualGas(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
@@ -157,6 +270,9 @@ func TestModulePersistsCodeWritesAccountDeletionsAndActualGas(t *testing.T) {
 	}
 	if _, err := storage.Get(context.Background(), "bank", evmBankKey(contractAddress)); !errors.Is(err, store.ErrKeyNotFound) {
 		t.Fatalf("expected deleted contract balance, err=%v", err)
+	}
+	if _, err := storage.Get(context.Background(), "auth", evmNonceKey(contractAddress)); !errors.Is(err, store.ErrKeyNotFound) {
+		t.Fatalf("expected deleted contract nonce, err=%v", err)
 	}
 	codeQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"code", "0x000000000000000000000000000000000000c0de"}})
 	if codeQuery.Code != 0 || !strings.Contains(string(codeQuery.Value), `"code":"6001"`) {
@@ -302,10 +418,22 @@ func TestModulePersistsHistoricalEthereumStateSnapshots(t *testing.T) {
 	module := NewModule()
 	address := types.Address("0x000000000000000000000000000000000000beef")
 	setTestEVMBalance(t, storage, address, 10)
+	if err := storage.Set(context.Background(), ModuleName, codeKey(address), []byte{0x60, 0x01}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Set(context.Background(), ModuleName, storageKey(address, "0x01"), []byte{0x01}); err != nil {
+		t.Fatal(err)
+	}
 	if err := module.EndBlock(vexoapp.Context{Ctx: context.Background(), Height: 1, Store: storage}); err != nil {
 		t.Fatal(err)
 	}
 	setTestEVMBalance(t, storage, address, 20)
+	if err := storage.Set(context.Background(), ModuleName, codeKey(address), []byte{0x60, 0x02}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Set(context.Background(), ModuleName, storageKey(address, "0x01"), []byte{0x02}); err != nil {
+		t.Fatal(err)
+	}
 	if err := module.EndBlock(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}); err != nil {
 		t.Fatal(err)
 	}
@@ -329,6 +457,16 @@ func TestModulePersistsHistoricalEthereumStateSnapshots(t *testing.T) {
 	}
 	if firstProof.Balance != "0xa" || secondProof.Balance != "0x14" || firstProof.StateRoot == secondProof.StateRoot {
 		t.Fatalf("unexpected historical proofs: first=%+v second=%+v", firstProof, secondProof)
+	}
+	codeRequest, _ := json.Marshal(AccountStateRequest{Height: 1})
+	codeQuery := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}, vexoapp.QueryRequest{Path: []string{"code", string(address)}, Data: codeRequest})
+	if codeQuery.Code != 0 || !strings.Contains(string(codeQuery.Value), `"code":"6001"`) {
+		t.Fatalf("unexpected historical code query: %+v", codeQuery)
+	}
+	storageRequest, _ := json.Marshal(AccountStateRequest{Height: 1})
+	storageQuery := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}, vexoapp.QueryRequest{Path: []string{"storage", string(address), "0x01"}, Data: storageRequest})
+	if storageQuery.Code != 0 || !strings.Contains(string(storageQuery.Value), `"value":"0x01"`) {
+		t.Fatalf("unexpected historical storage query: %+v", storageQuery)
 	}
 	rootRequest, _ := json.Marshal(StateRootRequest{Height: 1})
 	rootQuery := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}, vexoapp.QueryRequest{Path: []string{"eth_state_root"}, Data: rootRequest})
