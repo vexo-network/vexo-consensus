@@ -1185,14 +1185,14 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 			return nil, rpcErr
 		}
 		fullTx := web3FullTransactionParam(params, 1)
-		return web3BlockFromRecord(record, fullTx), nil
+		return web3BlockFromRecord(ctx, provider, record, fullTx), nil
 	case "eth_getBlockByHash":
 		record, rpcErr := web3BlockByHash(ctx, provider, params)
 		if rpcErr != nil {
 			return nil, rpcErr
 		}
 		fullTx := web3FullTransactionParam(params, 1)
-		return web3BlockFromRecord(record, fullTx), nil
+		return web3BlockFromRecord(ctx, provider, record, fullTx), nil
 	case "eth_gasPrice":
 		if query, ok := provider.(ChainQueryProvider); ok {
 			state, err := query.LatestState(ctx)
@@ -1261,6 +1261,8 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 			return nil, rpcErr
 		}
 		return value, nil
+	case "eth_getProof":
+		return web3GetProof(ctx, provider, params)
 	case "eth_sendRawTransaction":
 		submitter, ok := provider.(TxSubmitter)
 		if !ok {
@@ -1600,7 +1602,7 @@ func web3FullTransactionParam(params []json.RawMessage, index int) bool {
 	return full
 }
 
-func web3BlockFromRecord(record store.BlockRecord, fullTransactions bool) any {
+func web3BlockFromRecord(ctx context.Context, provider StatusProvider, record store.BlockRecord, fullTransactions bool) any {
 	if record.Block.Header.Height == 0 {
 		return nil
 	}
@@ -1621,7 +1623,7 @@ func web3BlockFromRecord(record store.BlockRecord, fullTransactions bool) any {
 		"sha3Uncles":       "0x0000000000000000000000000000000000000000000000000000000000000000",
 		"logsBloom":        web3LogsBloom(record.Block.Txs, record.TxResults),
 		"transactionsRoot": web3TransactionsRoot(record.Block.Txs),
-		"stateRoot":        "0x" + hex.EncodeToString(record.AppHash[:]),
+		"stateRoot":        web3StateRoot(ctx, provider, record),
 		"receiptsRoot":     web3ReceiptsRoot(record.Block.Txs, record.TxResults),
 		"miner":            "0x0000000000000000000000000000000000000000",
 		"difficulty":       "0x0",
@@ -1634,6 +1636,64 @@ func web3BlockFromRecord(record store.BlockRecord, fullTransactions bool) any {
 		"transactions":     transactions,
 		"uncles":           []any{},
 	}
+}
+
+func web3GetProof(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
+	query, ok := provider.(AppQueryProvider)
+	if !ok {
+		return nil, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
+	}
+	if len(params) < 2 || len(params) > 3 {
+		return nil, &JSONRPCError{Code: -32602, Message: "eth_getProof requires address, storage keys, and optional block tag"}
+	}
+	address, err := jsonRPCStringParam(params[0])
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	var storageKeys []string
+	if err := json.Unmarshal(params[1], &storageKeys); err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: "storage keys array is required"}
+	}
+	if len(params) == 3 {
+		if rpcErr := web3RequireLatestBlockTag(params[2]); rpcErr != nil {
+			return nil, rpcErr
+		}
+	}
+	request := map[string]any{"address": address, "storage_keys": storageKeys}
+	encoded, _ := json.Marshal(request)
+	response, err := query.AppQuery(ctx, []string{"evm", "eth_proof"}, encoded)
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	if response.Code != 0 {
+		return nil, &JSONRPCError{Code: -32000, Message: response.Log}
+	}
+	payload, rpcErr := rawJSONObject(response.Value)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	var result any
+	if err := json.Unmarshal(payload, &result); err != nil {
+		return nil, &JSONRPCError{Code: -32000, Message: "invalid EVM proof response"}
+	}
+	return result, nil
+}
+
+func web3StateRoot(ctx context.Context, provider StatusProvider, record store.BlockRecord) string {
+	if record.Block.Header.Height == provider.Status(ctx).LatestHeight {
+		if query, ok := provider.(AppQueryProvider); ok {
+			response, err := query.AppQuery(ctx, []string{"evm", "eth_state_root"}, nil)
+			if err == nil && response.Code == 0 {
+				var payload struct {
+					StateRoot string `json:"state_root"`
+				}
+				if json.Unmarshal(response.Value, &payload) == nil && payload.StateRoot != "" {
+					return payload.StateRoot
+				}
+			}
+		}
+	}
+	return "0x" + hex.EncodeToString(record.AppHash[:])
 }
 
 func web3MaxPriorityFeePerGas(ctx context.Context, provider StatusProvider) string {
@@ -2323,6 +2383,17 @@ func web3BlockHeightParam(ctx context.Context, provider StatusProvider, raw json
 		}
 		return types.Height(height), nil
 	}
+}
+
+func web3RequireLatestBlockTag(raw json.RawMessage) *JSONRPCError {
+	text, err := jsonRPCStringParam(raw)
+	if err != nil {
+		return &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	if text == "latest" || text == "pending" {
+		return nil
+	}
+	return &JSONRPCError{Code: -32000, Message: "historical Ethereum account proofs are unavailable without historical EVM state"}
 }
 
 func web3QuantityParam(raw json.RawMessage) (uint64, error) {

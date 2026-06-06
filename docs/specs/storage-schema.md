@@ -76,6 +76,15 @@ When staged execution is available, module KV writes, block records, state recor
 
 For Ethereum-compatible `0x` account addresses, the built-in bank, staking, ante, and EVM paths normalize the key to a lowercase 20-byte hex address before reading or writing balance state. Legacy raw keys are still read as fallback, but new writes use the normalized key to avoid checksum/lowercase balance splits.
 
+The Web3 bridge reconstructs Ethereum account/storage tries from these committed namespaces:
+
+- `bank/{0x_address}` for account balances
+- `auth/nonce/{0x_address}` for account nonces
+- `evm/code/{0x_address}` for account code hashes
+- `evm/storage/{0x_address}/{slot}` for account storage roots and storage proofs
+
+Latest `eth_getProof` and latest Web3 `stateRoot` are generated from this reconstructed go-ethereum MPT. Historical Ethereum account proofs require historical EVM state snapshots; without those snapshots, historical proof requests are rejected instead of returning misleading proofs.
+
 LevelDB also writes height-versioned KV history records for each atomic block write. Historical query proofs rebuild the namespace at the requested height from those records, then verify membership with a compact Merkle path or non-membership with compact adjacent-neighbor absence proofs. Verifiers still accept legacy full namespace absence witnesses for compatibility.
 
 When an app block produces validator updates, the store-backed validator registry stages the height `H + 1` validator-set snapshot as KV writes and commits those writes in the same LevelDB batch as app writes, block metadata, state metadata, and state roots. If the block commit fails, the future validator-set snapshot is not persisted.

@@ -811,6 +811,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("unexpected fee history rewards: %+v", feeHistoryResult)
 	}
 
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"state_root":"0x1111111111111111111111111111111111111111111111111111111111111111"}`)}
 	var blockByNumber JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":6,"method":"eth_getBlockByNumber","params":["latest",true]}`, http.StatusOK, &blockByNumber)
 	if blockByNumber.Error != nil {
@@ -819,6 +820,9 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	blockResult, ok := blockByNumber.Result.(map[string]any)
 	if !ok || blockResult["number"] != "0xc" || blockResult["hash"] != "0xab00000000000000000000000000000000000000000000000000000000000000" {
 		t.Fatalf("unexpected block by number response: %+v", blockByNumber.Result)
+	}
+	if blockResult["stateRoot"] != "0x1111111111111111111111111111111111111111111111111111111111111111" {
+		t.Fatalf("expected Ethereum state root, got %+v", blockResult["stateRoot"])
 	}
 	if blockResult["transactionsRoot"] == "0x0000000000000000000000000000000000000000000000000000000000000000" {
 		t.Fatalf("expected non-zero transactions root for block with txs: %+v", blockResult)
@@ -880,6 +884,17 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":35,"method":"eth_getStorageAt","params":["0xbbbb","0x0","latest"]}`, http.StatusOK, &storageAt)
 	if storageAt.Error != nil || storageAt.Result != "0x01" {
 		t.Fatalf("unexpected storage response: %+v", storageAt)
+	}
+
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"address":"0x000000000000000000000000000000000000bbbb","accountProof":["0xf8"],"balance":"0x7b","codeHash":"0xabc","nonce":"0x1","storageHash":"0xdef","storageProof":[{"key":"0x0","value":"0x1","proof":["0xc1"]}],"stateRoot":"0x1111111111111111111111111111111111111111111111111111111111111111"}`)}
+	var proof JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":47,"method":"eth_getProof","params":["0xbbbb",["0x0"],"latest"]}`, http.StatusOK, &proof)
+	proofResult, ok := proof.Result.(map[string]any)
+	if proof.Error != nil || !ok || proofResult["balance"] != "0x7b" || provider.appQueryPath[0] != "evm" || provider.appQueryPath[1] != "eth_proof" {
+		t.Fatalf("unexpected get proof response=%+v path=%+v", proof, provider.appQueryPath)
+	}
+	if !strings.Contains(string(provider.appQueryData), `"storage_keys":["0x0"]`) {
+		t.Fatalf("unexpected proof query data: %s", provider.appQueryData)
 	}
 
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"` + blockTxHashText + `","height":12,"status":1,"from":"0xaaaa","to":"0xbbbb","gas_used":7,"output":"0x1234"}`)}

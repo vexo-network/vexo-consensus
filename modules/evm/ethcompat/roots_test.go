@@ -1,12 +1,17 @@
 package ethcompat
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"math/big"
+	"strings"
 	"testing"
 
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
+	gethcrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethdb/memorydb"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -88,4 +93,69 @@ func TestEthereumRootsRejectMixedVexoTransactions(t *testing.T) {
 	if _, ok := ReceiptRoot([]types.Tx{types.Tx("bank:send")}, []types.Result{{Data: []byte("ok")}}); ok {
 		t.Fatal("expected non-Ethereum receipt root to be rejected")
 	}
+}
+
+func TestEthereumStateProofVerifiesWithGethTrie(t *testing.T) {
+	address := "0x000000000000000000000000000000000000bEEF"
+	slot := "0x01"
+	root, err := StateRoot([]AccountState{{
+		Address: address,
+		Balance: 99,
+		Nonce:   3,
+		Code:    []byte{0x60, 0x2a},
+		Storage: map[string][]byte{slot: {0x2a}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := GetProof([]AccountState{{
+		Address: address,
+		Balance: 99,
+		Nonce:   3,
+		Code:    []byte{0x60, 0x2a},
+		Storage: map[string][]byte{slot: {0x2a}},
+	}}, address, []string{slot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proof.StateRoot != root || proof.Balance != "0x63" || proof.Nonce != "0x3" || proof.StorageProof[0].Value != "0x2a" {
+		t.Fatalf("unexpected proof payload: %+v root=%s", proof, root)
+	}
+	accountValue, err := trie.VerifyProof(gethcommon.HexToHash(root), gethcrypto.Keccak256(gethcommon.HexToAddress(address).Bytes()), proofDB(t, proof.AccountProof))
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := gethtypes.FullAccount(accountValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.Nonce != 3 || account.Balance.Uint64() != 99 || !strings.EqualFold(gethcommon.BytesToHash(account.CodeHash).Hex(), gethcrypto.Keccak256Hash([]byte{0x60, 0x2a}).Hex()) {
+		t.Fatalf("unexpected decoded account: %+v", account)
+	}
+	storageValue, err := trie.VerifyProof(gethcommon.HexToHash(proof.StorageHash), gethcrypto.Keccak256(gethcommon.HexToHash(slot).Bytes()), proofDB(t, proof.StorageProof[0].Proof))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decodedStorage []byte
+	if err := rlp.DecodeBytes(storageValue, &decodedStorage); err != nil {
+		t.Fatal(err)
+	}
+	if len(decodedStorage) != 1 || decodedStorage[0] != 0x2a {
+		t.Fatalf("unexpected storage proof value: %x", decodedStorage)
+	}
+}
+
+func proofDB(t *testing.T, proof []string) *memorydb.Database {
+	t.Helper()
+	db := memorydb.New()
+	for _, node := range proof {
+		raw, err := hex.DecodeString(strings.TrimPrefix(node, "0x"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Put(gethcrypto.Keccak256(raw), raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return db
 }

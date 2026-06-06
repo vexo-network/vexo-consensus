@@ -77,6 +77,11 @@ type CallResponse struct {
 	GasUsed uint64 `json:"gas_used,omitempty"`
 }
 
+type ProofRequest struct {
+	Address     string   `json:"address"`
+	StorageKeys []string `json:"storage_keys,omitempty"`
+}
+
 func NewModule() Module {
 	registry := contract.NewRegistry()
 	_ = registry.Register(gethbackend.New())
@@ -180,6 +185,10 @@ func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoap
 		return vexoapp.QueryResponse{Code: 1, Log: ErrStoreMissing.Error()}
 	}
 	switch req.Path[0] {
+	case "eth_state_root":
+		return queryEthereumStateRoot(ctx)
+	case "eth_proof":
+		return queryEthereumProof(ctx, req.Data)
 	case "receipt":
 		if len(req.Path) != 2 {
 			return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
@@ -636,6 +645,126 @@ func queryLogs(ctx vexoapp.Context, prefix []byte, legacyKey []byte) vexoapp.Que
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
 	}
 	return vexoapp.QueryResponse{Value: append([]byte(nil), value...)}
+}
+
+func queryEthereumStateRoot(ctx vexoapp.Context) vexoapp.QueryResponse {
+	accounts, err := ethereumAccountsFromStore(ctx.GoContext(), ctx.Store)
+	if err != nil {
+		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+	}
+	root, err := ethcompat.StateRoot(accounts)
+	if err != nil {
+		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+	}
+	encoded, err := json.Marshal(map[string]string{"state_root": root})
+	if err != nil {
+		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+	}
+	return vexoapp.QueryResponse{Value: encoded}
+}
+
+func queryEthereumProof(ctx vexoapp.Context, data []byte) vexoapp.QueryResponse {
+	var request ProofRequest
+	if err := json.Unmarshal(data, &request); err != nil {
+		return vexoapp.QueryResponse{Code: 2, Log: err.Error()}
+	}
+	if request.Address == "" {
+		return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
+	}
+	accounts, err := ethereumAccountsFromStore(ctx.GoContext(), ctx.Store)
+	if err != nil {
+		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+	}
+	proof, err := ethcompat.GetProof(accounts, request.Address, request.StorageKeys)
+	if err != nil {
+		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+	}
+	encoded, err := json.Marshal(proof)
+	if err != nil {
+		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+	}
+	return vexoapp.QueryResponse{Value: encoded}
+}
+
+func ethereumAccountsFromStore(ctx context.Context, stateStore vexoapp.StateStore) ([]ethcompat.AccountState, error) {
+	prefixStore, ok := stateStore.(vexostore.PrefixKVStore)
+	if !ok {
+		return nil, ErrStoreMissing
+	}
+	accounts := map[string]*ethcompat.AccountState{}
+	accountFor := func(address types.Address) *ethcompat.AccountState {
+		key := canonicalAddressKey(address)
+		account := accounts[key]
+		if account == nil {
+			account = &ethcompat.AccountState{Address: key, Storage: map[string][]byte{}}
+			accounts[key] = account
+		}
+		return account
+	}
+	balances, err := prefixStore.ExportPrefix(ctx, "bank", nil)
+	if err != nil {
+		return nil, err
+	}
+	for _, pair := range balances {
+		address := types.Address(string(pair.Key))
+		if !strings.HasPrefix(string(address), "0x") || len(pair.Value) == 0 {
+			continue
+		}
+		if len(pair.Value) != 8 {
+			return nil, ErrInvalidEVMTx
+		}
+		accountFor(address).Balance = binary.BigEndian.Uint64(pair.Value)
+	}
+	nonces, err := prefixStore.ExportPrefix(ctx, "auth", []byte("nonce/"))
+	if err != nil {
+		return nil, err
+	}
+	for _, pair := range nonces {
+		address := types.Address(strings.TrimPrefix(string(pair.Key), "nonce/"))
+		if !strings.HasPrefix(string(address), "0x") {
+			continue
+		}
+		if len(pair.Value) != 8 {
+			return nil, ErrInvalidEVMTx
+		}
+		accountFor(address).Nonce = binary.BigEndian.Uint64(pair.Value)
+	}
+	codes, err := prefixStore.ExportPrefix(ctx, ModuleName, []byte("code/"))
+	if err != nil {
+		return nil, err
+	}
+	for _, pair := range codes {
+		address := types.Address(strings.TrimPrefix(string(pair.Key), "code/"))
+		if !strings.HasPrefix(string(address), "0x") {
+			continue
+		}
+		accountFor(address).Code = append([]byte(nil), pair.Value...)
+	}
+	storage, err := prefixStore.ExportPrefix(ctx, ModuleName, []byte("storage/"))
+	if err != nil {
+		return nil, err
+	}
+	for _, pair := range storage {
+		address, slot, ok := ethereumStorageKeyParts(pair.Key)
+		if !ok {
+			continue
+		}
+		accountFor(address).Storage[slot] = append([]byte(nil), pair.Value...)
+	}
+	result := make([]ethcompat.AccountState, 0, len(accounts))
+	for _, account := range accounts {
+		result = append(result, *account)
+	}
+	return result, nil
+}
+
+func ethereumStorageKeyParts(key []byte) (types.Address, string, bool) {
+	trimmed := strings.TrimPrefix(string(key), "storage/")
+	parts := strings.SplitN(trimmed, "/", 2)
+	if len(parts) != 2 || !strings.HasPrefix(parts[0], "0x") || parts[1] == "" {
+		return "", "", false
+	}
+	return types.Address(parts[0]), parts[1], true
 }
 
 func createAddress(caller types.Address, code []byte, salt [32]byte) types.Address {

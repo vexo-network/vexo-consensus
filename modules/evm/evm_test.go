@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"math/big"
@@ -185,6 +186,44 @@ func TestDefaultModulePersistsGethEVMStorageWrites(t *testing.T) {
 	storageQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"storage", deployReceipt.ContractAddress, "0x0"}})
 	if storageQuery.Code != 0 || !strings.Contains(string(storageQuery.Value), `"value":"0x0000000000000000000000000000000000000000000000000000000000000001"`) {
 		t.Fatalf("expected EVM SSTORE value, got %+v", storageQuery)
+	}
+}
+
+func TestModuleQueriesEthereumStateRootAndProof(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	ctx := vexoapp.Context{Ctx: context.Background(), Height: 10, Store: storage}
+	address := types.Address("0x000000000000000000000000000000000000beef")
+	var balance [8]byte
+	binary.BigEndian.PutUint64(balance[:], 99)
+	if err := storage.Set(context.Background(), "bank", evmBankKey(address), balance[:]); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Set(context.Background(), ModuleName, codeKey(address), []byte{0x60, 0x2a}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Set(context.Background(), ModuleName, storageKey(address, "0x01"), []byte{0x2a}); err != nil {
+		t.Fatal(err)
+	}
+	rootQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"eth_state_root"}})
+	if rootQuery.Code != 0 || !strings.Contains(string(rootQuery.Value), `"state_root":"0x`) {
+		t.Fatalf("unexpected state root query: %+v", rootQuery)
+	}
+	request, _ := json.Marshal(ProofRequest{Address: string(address), StorageKeys: []string{"0x01"}})
+	proofQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"eth_proof"}, Data: request})
+	if proofQuery.Code != 0 {
+		t.Fatalf("unexpected proof query: %+v", proofQuery)
+	}
+	var proof ethcompat.AccountProof
+	if err := json.Unmarshal(proofQuery.Value, &proof); err != nil {
+		t.Fatal(err)
+	}
+	if proof.Balance != "0x63" || proof.StorageProof[0].Value != "0x2a" || len(proof.AccountProof) == 0 || len(proof.StorageProof[0].Proof) == 0 {
+		t.Fatalf("unexpected proof payload: %+v", proof)
 	}
 }
 
