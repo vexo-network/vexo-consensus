@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -8,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1138,17 +1141,70 @@ func handleWeb3JSONRPC(writer http.ResponseWriter, request *http.Request, provid
 	}
 	request.Body = http.MaxBytesReader(writer, request.Body, cfg.MaxRequestBytes)
 	defer request.Body.Close()
-	var payload JSONRPCRequest
-	if err := decodeStrictJSON(request.Body, &payload); err != nil {
+	var raw json.RawMessage
+	if err := decodeStrictJSON(request.Body, &raw); err != nil {
 		writeJSONRPC(writer, json.RawMessage("null"), nil, &JSONRPCError{Code: -32700, Message: "parse error"})
 		return
 	}
-	if payload.JSONRPC != "" && payload.JSONRPC != "2.0" {
-		writeJSONRPC(writer, payload.ID, nil, &JSONRPCError{Code: -32600, Message: "invalid JSON-RPC version"})
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		writeJSONRPC(writer, json.RawMessage("null"), nil, &JSONRPCError{Code: -32700, Message: "parse error"})
 		return
 	}
-	result, rpcErr := executeWeb3Method(request.Context(), provider, filters, payload.Method, payload.Params)
-	writeJSONRPC(writer, payload.ID, result, rpcErr)
+	if trimmed[0] == '[' {
+		var batch []json.RawMessage
+		if err := json.Unmarshal(trimmed, &batch); err != nil || len(batch) == 0 {
+			writeJSONRPC(writer, json.RawMessage("null"), nil, &JSONRPCError{Code: -32600, Message: "invalid JSON-RPC batch"})
+			return
+		}
+		responses := make([]JSONRPCResponse, 0, len(batch))
+		for _, item := range batch {
+			response, notify := executeWeb3Payload(request.Context(), provider, filters, item)
+			if notify {
+				continue
+			}
+			responses = append(responses, response)
+		}
+		if len(responses) == 0 {
+			writer.WriteHeader(http.StatusNoContent)
+			return
+		}
+		writeJSON(writer, http.StatusOK, responses)
+		return
+	}
+	response, notify := executeWeb3Payload(request.Context(), provider, filters, trimmed)
+	if notify {
+		writer.WriteHeader(http.StatusNoContent)
+		return
+	}
+	writeJSON(writer, http.StatusOK, response)
+}
+
+func executeWeb3Payload(ctx context.Context, provider StatusProvider, filters *web3FilterStore, raw json.RawMessage) (JSONRPCResponse, bool) {
+	var payload JSONRPCRequest
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return JSONRPCResponse{JSONRPC: "2.0", ID: json.RawMessage("null"), Error: &JSONRPCError{Code: -32600, Message: "invalid request"}}, false
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return JSONRPCResponse{JSONRPC: "2.0", ID: json.RawMessage("null"), Error: &JSONRPCError{Code: -32600, Message: "invalid request"}}, false
+	}
+	if payload.JSONRPC != "" && payload.JSONRPC != "2.0" {
+		return JSONRPCResponse{JSONRPC: "2.0", ID: payload.ID, Error: &JSONRPCError{Code: -32600, Message: "invalid JSON-RPC version"}}, false
+	}
+	if payload.Method == "" {
+		return JSONRPCResponse{JSONRPC: "2.0", ID: payload.ID, Error: &JSONRPCError{Code: -32600, Message: "method is required"}}, false
+	}
+	notify := len(payload.ID) == 0
+	result, rpcErr := executeWeb3Method(ctx, provider, filters, payload.Method, payload.Params)
+	if notify {
+		return JSONRPCResponse{}, true
+	}
+	if len(payload.ID) == 0 {
+		payload.ID = json.RawMessage("null")
+	}
+	return JSONRPCResponse{JSONRPC: "2.0", ID: payload.ID, Result: result, Error: rpcErr}, false
 }
 
 func writeFinalityProof(writer http.ResponseWriter, proof finality.Proof, err error) {
@@ -1252,10 +1308,6 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 	case "eth_feeHistory":
 		return web3FeeHistory(ctx, provider, params)
 	case "eth_getBalance":
-		query, ok := provider.(AppQueryProvider)
-		if !ok {
-			return nil, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
-		}
 		if len(params) == 0 || len(params) > 2 {
 			return nil, &JSONRPCError{Code: -32602, Message: "eth_getBalance requires address and optional block tag"}
 		}
@@ -1263,23 +1315,12 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		if err != nil {
 			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
 		}
-		response, err := query.AppQuery(ctx, []string{"bank", "balance", address}, nil)
-		if err != nil {
-			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+		account, rpcErr := web3AccountState(ctx, provider, address, params, 1)
+		if rpcErr != nil {
+			return nil, rpcErr
 		}
-		if response.Code != 0 {
-			return nil, &JSONRPCError{Code: -32000, Message: response.Log}
-		}
-		balance, err := strconv.ParseUint(string(response.Value), 10, 64)
-		if err != nil {
-			return nil, &JSONRPCError{Code: -32000, Message: "invalid balance response"}
-		}
-		return hexQuantity(balance), nil
+		return hexQuantity(account.Balance), nil
 	case "eth_getTransactionCount":
-		accountProvider, ok := provider.(AccountQueryProvider)
-		if !ok {
-			return nil, &JSONRPCError{Code: -32000, Message: "account sequence query is unavailable"}
-		}
 		if len(params) == 0 || len(params) > 2 {
 			return nil, &JSONRPCError{Code: -32602, Message: "eth_getTransactionCount requires address and optional block tag"}
 		}
@@ -1287,14 +1328,19 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		if err != nil {
 			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
 		}
-		sequence, err := accountProvider.AccountSequence(ctx, types.Address(address))
-		if err != nil {
-			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+		account, rpcErr := web3AccountState(ctx, provider, address, params, 1)
+		if rpcErr != nil {
+			return nil, rpcErr
 		}
+		sequence := account.Nonce
 		if len(params) == 2 {
-			tag, err := jsonRPCStringParam(params[1])
-			if err != nil {
-				return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+			tag := ""
+			if trimmed := bytes.TrimSpace(params[1]); len(trimmed) > 0 && trimmed[0] != '{' {
+				var err error
+				tag, err = jsonRPCStringParam(params[1])
+				if err != nil {
+					return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+				}
 			}
 			if tag == "pending" {
 				sequence, err = web3PendingSequence(ctx, provider, address, sequence)
@@ -1616,6 +1662,13 @@ type web3AccessListEntry struct {
 	StorageKeys []string `json:"storage_keys,omitempty"`
 }
 
+type web3AccountStateResponse struct {
+	Address string `json:"address"`
+	Balance uint64 `json:"balance"`
+	Nonce   uint64 `json:"nonce"`
+	Code    string `json:"code"`
+}
+
 func web3BlockByNumber(ctx context.Context, provider StatusProvider, params []json.RawMessage) (store.BlockRecord, *JSONRPCError) {
 	blockProvider, ok := provider.(BlockProvider)
 	if !ok {
@@ -1718,18 +1771,67 @@ func web3PendingSequence(ctx context.Context, provider StatusProvider, address s
 		}
 		return sequence, errors.New(rpcErr.Message)
 	}
-	next := sequence
+	candidates := make([]uint64, 0)
 	for _, tx := range txs {
 		details := web3TransactionDetails(tx)
 		from, ok := details.From.(string)
 		if !ok || !strings.EqualFold(from, address) {
 			continue
 		}
-		if details.Nonce >= next {
-			next = details.Nonce + 1
+		candidates = append(candidates, details.Nonce)
+	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i] < candidates[j] })
+	next := sequence
+	for _, nonce := range candidates {
+		if nonce < next {
+			continue
 		}
+		if nonce > next {
+			break
+		}
+		next++
 	}
 	return next, nil
+}
+
+func web3AccountState(ctx context.Context, provider StatusProvider, address string, params []json.RawMessage, tagIndex int) (web3AccountStateResponse, *JSONRPCError) {
+	query, ok := provider.(AppQueryProvider)
+	if !ok {
+		if tagIndex >= 0 && len(params) > tagIndex {
+			tag, err := jsonRPCStringParam(params[tagIndex])
+			if err == nil && tag != "" && tag != "latest" && tag != "pending" {
+				return web3AccountStateResponse{}, &JSONRPCError{Code: -32000, Message: "historical EVM account query is unavailable"}
+			}
+		}
+		accountProvider, ok := provider.(AccountQueryProvider)
+		if !ok {
+			return web3AccountStateResponse{}, &JSONRPCError{Code: -32000, Message: "account query is unavailable"}
+		}
+		sequence, err := accountProvider.AccountSequence(ctx, types.Address(address))
+		if err != nil {
+			return web3AccountStateResponse{}, &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
+		return web3AccountStateResponse{Address: address, Nonce: sequence}, nil
+	}
+	data, rpcErr := web3HistoricalAccountQueryData(ctx, provider, params, tagIndex)
+	if rpcErr != nil {
+		return web3AccountStateResponse{}, rpcErr
+	}
+	response, err := query.AppQuery(ctx, []string{"evm", "account", address}, data)
+	if err != nil {
+		return web3AccountStateResponse{}, &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	if response.Code == 3 {
+		return web3AccountStateResponse{Address: address}, nil
+	}
+	if response.Code != 0 {
+		return web3AccountStateResponse{}, &JSONRPCError{Code: -32000, Message: response.Log}
+	}
+	var account web3AccountStateResponse
+	if err := json.Unmarshal(response.Value, &account); err != nil {
+		return web3AccountStateResponse{}, &JSONRPCError{Code: -32000, Message: "invalid EVM account response"}
+	}
+	return account, nil
 }
 
 func web3TransactionByHash(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
@@ -2196,8 +2298,16 @@ func web3TxpoolStatus(ctx context.Context, provider StatusProvider) (any, *JSONR
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
-	count := hexQuantity(uint64(len(txs)))
-	return map[string]any{"pending": count, "queued": "0x0"}, nil
+	pending, queued, rpcErr := web3TxpoolBuckets(ctx, provider, txs, func(tx types.Tx) any {
+		return web3PendingTransaction(tx)
+	})
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	return map[string]any{
+		"pending": hexQuantity(uint64(web3TxpoolBucketCount(pending))),
+		"queued":  hexQuantity(uint64(web3TxpoolBucketCount(queued))),
+	}, nil
 }
 
 func web3TxpoolContent(ctx context.Context, provider StatusProvider) (any, *JSONRPCError) {
@@ -2205,20 +2315,13 @@ func web3TxpoolContent(ctx context.Context, provider StatusProvider) (any, *JSON
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
-	pending := make(map[string]map[string]any)
-	for _, tx := range txs {
-		details := web3TransactionDetails(tx)
-		from := "0x0000000000000000000000000000000000000000"
-		if raw, ok := details.From.(string); ok && raw != "" {
-			from = raw
-		}
-		nonce := hexQuantity(details.Nonce)
-		if pending[from] == nil {
-			pending[from] = make(map[string]any)
-		}
-		pending[from][nonce] = web3PendingTransaction(tx)
+	pending, queued, rpcErr := web3TxpoolBuckets(ctx, provider, txs, func(tx types.Tx) any {
+		return web3PendingTransaction(tx)
+	})
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
-	return map[string]any{"pending": pending, "queued": map[string]any{}}, nil
+	return map[string]any{"pending": pending, "queued": queued}, nil
 }
 
 func web3TxpoolContentFrom(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
@@ -2233,16 +2336,16 @@ func web3TxpoolContentFrom(ctx context.Context, provider StatusProvider, params 
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
-	pending := make(map[string]any)
-	for _, tx := range txs {
-		details := web3TransactionDetails(tx)
-		from, ok := details.From.(string)
-		if !ok || !strings.EqualFold(from, address) {
-			continue
-		}
-		pending[hexQuantity(details.Nonce)] = web3PendingTransaction(tx)
+	pending, queued, rpcErr := web3TxpoolBuckets(ctx, provider, txs, func(tx types.Tx) any {
+		return web3PendingTransaction(tx)
+	})
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
-	return map[string]any{"pending": pending, "queued": map[string]any{}}, nil
+	return map[string]any{
+		"pending": web3TxpoolBucketForAddress(pending, address),
+		"queued":  web3TxpoolBucketForAddress(queued, address),
+	}, nil
 }
 
 func web3TxpoolInspect(ctx context.Context, provider StatusProvider) (any, *JSONRPCError) {
@@ -2250,24 +2353,76 @@ func web3TxpoolInspect(ctx context.Context, provider StatusProvider) (any, *JSON
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
-	pending := make(map[string]map[string]string)
-	for _, tx := range txs {
+	pending, queued, rpcErr := web3TxpoolBuckets(ctx, provider, txs, func(tx types.Tx) any {
 		details := web3TransactionDetails(tx)
-		from := "0x0000000000000000000000000000000000000000"
-		if raw, ok := details.From.(string); ok && raw != "" {
-			from = raw
-		}
-		nonce := hexQuantity(details.Nonce)
 		to := "<contract creation>"
 		if raw, ok := details.To.(string); ok && raw != "" {
 			to = raw
 		}
-		if pending[from] == nil {
-			pending[from] = make(map[string]string)
-		}
-		pending[from][nonce] = fmt.Sprintf("%s: %d value + %d gas × %d wei", to, details.Value, details.Gas, details.GasPrice)
+		return fmt.Sprintf("%s: %d value + %d gas × %d wei", to, details.Value, details.Gas, details.GasPrice)
+	})
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
-	return map[string]any{"pending": pending, "queued": map[string]string{}}, nil
+	return map[string]any{"pending": pending, "queued": queued}, nil
+}
+
+func web3TxpoolBuckets(ctx context.Context, provider StatusProvider, txs []types.Tx, item func(types.Tx) any) (map[string]map[string]any, map[string]map[string]any, *JSONRPCError) {
+	grouped := make(map[string][]types.Tx)
+	for _, tx := range txs {
+		from := web3TxpoolSender(tx)
+		grouped[from] = append(grouped[from], tx)
+	}
+	pending := make(map[string]map[string]any)
+	queued := make(map[string]map[string]any)
+	for from, items := range grouped {
+		sort.SliceStable(items, func(i, j int) bool {
+			return web3TransactionDetails(items[i]).Nonce < web3TransactionDetails(items[j]).Nonce
+		})
+		account, rpcErr := web3AccountState(ctx, provider, from, []json.RawMessage{json.RawMessage(strconv.Quote(from)), json.RawMessage(`"latest"`)}, 1)
+		if rpcErr != nil {
+			return nil, nil, rpcErr
+		}
+		expected := account.Nonce
+		for _, tx := range items {
+			details := web3TransactionDetails(tx)
+			target := queued
+			if details.Nonce == expected {
+				target = pending
+				expected++
+			}
+			if target[from] == nil {
+				target[from] = make(map[string]any)
+			}
+			target[from][hexQuantity(details.Nonce)] = item(tx)
+		}
+	}
+	return pending, queued, nil
+}
+
+func web3TxpoolSender(tx types.Tx) string {
+	details := web3TransactionDetails(tx)
+	if raw, ok := details.From.(string); ok && raw != "" {
+		return raw
+	}
+	return "0x0000000000000000000000000000000000000000"
+}
+
+func web3TxpoolBucketCount(bucket map[string]map[string]any) int {
+	count := 0
+	for _, byNonce := range bucket {
+		count += len(byNonce)
+	}
+	return count
+}
+
+func web3TxpoolBucketForAddress(bucket map[string]map[string]any, address string) map[string]any {
+	for from, byNonce := range bucket {
+		if strings.EqualFold(from, address) {
+			return byNonce
+		}
+	}
+	return map[string]any{}
 }
 
 func web3PendingTransactions(ctx context.Context, provider StatusProvider) (any, *JSONRPCError) {
@@ -2771,12 +2926,18 @@ func web3HistoricalAccountQueryData(ctx context.Context, provider StatusProvider
 	if len(params) <= tagIndex || len(params[tagIndex]) == 0 || string(params[tagIndex]) == "null" {
 		return nil, nil
 	}
-	tag, err := jsonRPCStringParam(params[tagIndex])
-	if err != nil {
-		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
-	}
-	if tag == "latest" || tag == "pending" || tag == "" {
+	trimmed := bytes.TrimSpace(params[tagIndex])
+	if len(trimmed) == 0 {
 		return nil, nil
+	}
+	if trimmed[0] != '{' {
+		tag, err := jsonRPCStringParam(params[tagIndex])
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+		}
+		if tag == "latest" || tag == "pending" || tag == "" {
+			return nil, nil
+		}
 	}
 	height, rpcErr := web3BlockHeightParam(ctx, provider, params[tagIndex])
 	if rpcErr != nil {
@@ -2849,9 +3010,15 @@ func web3CallHeight(ctx context.Context, provider StatusProvider, params []json.
 		if len(params) <= index || len(params[index]) == 0 || string(params[index]) == "null" {
 			continue
 		}
-		var tag string
-		if err := json.Unmarshal(params[index], &tag); err != nil || tag == "" {
+		trimmed := bytes.TrimSpace(params[index])
+		if len(trimmed) == 0 {
 			continue
+		}
+		if trimmed[0] != '{' {
+			var tag string
+			if err := json.Unmarshal(params[index], &tag); err != nil || tag == "" {
+				continue
+			}
 		}
 		return web3BlockHeightParam(ctx, provider, params[index])
 	}
@@ -3470,6 +3637,39 @@ func web3BlockRecordParam(ctx context.Context, provider StatusProvider, raw json
 }
 
 func web3BlockHeightParam(ctx context.Context, provider StatusProvider, raw json.RawMessage) (types.Height, *JSONRPCError) {
+	if len(bytes.TrimSpace(raw)) > 0 && bytes.TrimSpace(raw)[0] == '{' {
+		var selector struct {
+			BlockNumber      string `json:"blockNumber"`
+			BlockHash        string `json:"blockHash"`
+			RequireCanonical bool   `json:"requireCanonical"`
+		}
+		if err := json.Unmarshal(raw, &selector); err != nil {
+			return 0, &JSONRPCError{Code: -32602, Message: "invalid block selector"}
+		}
+		if selector.BlockNumber != "" {
+			encoded, _ := json.Marshal(selector.BlockNumber)
+			return web3BlockHeightParam(ctx, provider, encoded)
+		}
+		if selector.BlockHash == "" {
+			return 0, &JSONRPCError{Code: -32602, Message: "block selector requires blockHash or blockNumber"}
+		}
+		blockProvider, ok := provider.(BlockProvider)
+		if !ok {
+			return 0, &JSONRPCError{Code: -32000, Message: "block query is unavailable"}
+		}
+		hash, err := parseHexHash(selector.BlockHash)
+		if err != nil {
+			return 0, &JSONRPCError{Code: -32602, Message: "invalid block hash"}
+		}
+		record, err := blockProvider.BlockByHash(ctx, hash)
+		if errors.Is(err, store.ErrBlockNotFound) {
+			return 0, &JSONRPCError{Code: -32000, Message: "block not found"}
+		}
+		if err != nil {
+			return 0, &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
+		return record.Block.Header.Height, nil
+	}
 	text, err := jsonRPCStringParam(raw)
 	if err != nil {
 		return 0, &JSONRPCError{Code: -32602, Message: err.Error()}

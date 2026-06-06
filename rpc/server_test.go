@@ -800,7 +800,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		state:            store.StateRecord{Height: 12, BaseFee: 9, NextBaseFee: 11},
 		appQueryResponse: vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"0xabc","status":1,"gas_used":7,"logs":[{"address":"0xcontract","data":"0x01"}]}`)},
 		blocks:           map[types.Height]store.BlockRecord{11: finalizedBlock, 12: block},
-		blocksByHash:     map[types.Hash]store.BlockRecord{blockHash: block},
+		blocksByHash:     map[types.Hash]store.BlockRecord{blockHash: block, finalizedHash: finalizedBlock},
 		latest:           12,
 		index:            store.BlockIndex{EarliestHeight: 11, LatestHeight: 12, TotalBlocks: 2},
 		accountSequence:  7,
@@ -813,7 +813,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		Args:   []string{"evm", "0xaaaa", "0xbbbb", "call", "abcd", "21000", "5"},
 		Tags: map[string]string{
 			"signer":             "0xaaaa",
-			"nonce":              "3",
+			"nonce":              "7",
 			"gas":                "21000",
 			"fee":                "42000",
 			ethcompat.TagHash:    "0x9999999999999999999999999999999999999999999999999999999999999999",
@@ -824,7 +824,24 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider.pendingTxs = []types.Tx{pendingTx}
+	queuedTx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
+		Module: "evm",
+		Action: "call",
+		Args:   []string{"evm", "0xaaaa", "0xcccc", "call", "dcba", "21000", "6"},
+		Tags: map[string]string{
+			"signer":             "0xaaaa",
+			"nonce":              "9",
+			"gas":                "21000",
+			"fee":                "42000",
+			ethcompat.TagHash:    "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			ethcompat.TagRaw:     "0xcafe",
+			ethcompat.TagChainID: "1",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider.pendingTxs = []types.Tx{pendingTx, queuedTx}
 	handler := NewHandler(provider)
 
 	var blockNumber JSONRPCResponse
@@ -866,10 +883,11 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("unexpected rpc modules response: %+v", modules)
 	}
 
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"address":"0xaaaa","balance":123,"nonce":7,"code":""}`)}
 	var txpoolStatus JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":75,"method":"txpool_status","params":[]}`, http.StatusOK, &txpoolStatus)
 	statusResult, ok := txpoolStatus.Result.(map[string]any)
-	if txpoolStatus.Error != nil || !ok || statusResult["pending"] != "0x1" || statusResult["queued"] != "0x0" {
+	if txpoolStatus.Error != nil || !ok || statusResult["pending"] != "0x1" || statusResult["queued"] != "0x1" {
 		t.Fatalf("unexpected txpool status: %+v", txpoolStatus)
 	}
 	var txpoolContent JSONRPCResponse
@@ -877,21 +895,28 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	contentResult, ok := txpoolContent.Result.(map[string]any)
 	pendingContent, _ := contentResult["pending"].(map[string]any)
 	fromContent, _ := pendingContent["0xaaaa"].(map[string]any)
-	pendingItem, _ := fromContent["0x3"].(map[string]any)
+	pendingItem, _ := fromContent["0x7"].(map[string]any)
+	queuedContent, _ := contentResult["queued"].(map[string]any)
+	queuedFromContent, _ := queuedContent["0xaaaa"].(map[string]any)
+	queuedItem, _ := queuedFromContent["0x9"].(map[string]any)
 	if txpoolContent.Error != nil || !ok || pendingItem["hash"] != "0x9999999999999999999999999999999999999999999999999999999999999999" || pendingItem["to"] != "0xbbbb" {
 		t.Fatalf("unexpected txpool content: %+v", txpoolContent)
+	}
+	if queuedItem["hash"] != "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" || queuedItem["to"] != "0xcccc" {
+		t.Fatalf("unexpected queued txpool content: %+v", txpoolContent)
 	}
 	var txpoolContentFrom JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":88,"method":"txpool_contentFrom","params":["0xaaaa"]}`, http.StatusOK, &txpoolContentFrom)
 	contentFromResult, ok := txpoolContentFrom.Result.(map[string]any)
 	contentFromPending, _ := contentFromResult["pending"].(map[string]any)
-	if txpoolContentFrom.Error != nil || !ok || len(contentFromPending) != 1 {
+	contentFromQueued, _ := contentFromResult["queued"].(map[string]any)
+	if txpoolContentFrom.Error != nil || !ok || len(contentFromPending) != 1 || len(contentFromQueued) != 1 {
 		t.Fatalf("unexpected txpool contentFrom: %+v", txpoolContentFrom)
 	}
 	var pendingTransactions JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":96,"method":"eth_pendingTransactions","params":[]}`, http.StatusOK, &pendingTransactions)
 	pendingItems, ok := pendingTransactions.Result.([]any)
-	if pendingTransactions.Error != nil || !ok || len(pendingItems) != 1 {
+	if pendingTransactions.Error != nil || !ok || len(pendingItems) != 2 {
 		t.Fatalf("unexpected pending transactions: %+v", pendingTransactions)
 	}
 	pendingObject, ok := pendingItems[0].(map[string]any)
@@ -1098,28 +1123,36 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("unexpected block receipt item: %+v", blockReceiptItems[0])
 	}
 
-	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`123`)}
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"address":"0xaaaa","balance":123,"nonce":7,"code":""}`)}
 	var balance JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":31,"method":"eth_getBalance","params":["0xaaaa","latest"]}`, http.StatusOK, &balance)
 	if balance.Error != nil || balance.Result != "0x7b" {
 		t.Fatalf("unexpected balance response: %+v", balance)
 	}
-	if provider.appQueryPath[0] != "bank" || provider.appQueryPath[1] != "balance" || provider.appQueryPath[2] != "0xaaaa" {
+	if provider.appQueryPath[0] != "evm" || provider.appQueryPath[1] != "account" || provider.appQueryPath[2] != "0xaaaa" {
 		t.Fatalf("unexpected balance query path: %+v", provider.appQueryPath)
+	}
+	var historicalBalance JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":109,"method":"eth_getBalance","params":["0xaaaa",{"blockNumber":"0xb"}]}`, http.StatusOK, &historicalBalance)
+	if historicalBalance.Error != nil || historicalBalance.Result != "0x7b" || !strings.Contains(string(provider.appQueryData), `"height":11`) {
+		t.Fatalf("unexpected historical balance response=%+v data=%s", historicalBalance, provider.appQueryData)
 	}
 
 	var txCount JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":33,"method":"eth_getTransactionCount","params":["0xaaaa","latest"]}`, http.StatusOK, &txCount)
-	if txCount.Error != nil || txCount.Result != "0x7" || provider.accountAddress != "0xaaaa" {
-		t.Fatalf("unexpected transaction count response: %+v address=%s", txCount, provider.accountAddress)
+	if txCount.Error != nil || txCount.Result != "0x7" {
+		t.Fatalf("unexpected transaction count response: %+v", txCount)
 	}
-	provider.accountSequence = 2
 	var pendingTxCount JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":97,"method":"eth_getTransactionCount","params":["0xaaaa","pending"]}`, http.StatusOK, &pendingTxCount)
-	if pendingTxCount.Error != nil || pendingTxCount.Result != "0x4" {
+	if pendingTxCount.Error != nil || pendingTxCount.Result != "0x8" {
 		t.Fatalf("unexpected pending transaction count response: %+v", pendingTxCount)
 	}
-	provider.accountSequence = 7
+	var historicalTxCount JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":110,"method":"eth_getTransactionCount","params":["0xaaaa",{"blockHash":"0xac00000000000000000000000000000000000000000000000000000000000000"}]}`, http.StatusOK, &historicalTxCount)
+	if historicalTxCount.Error != nil || historicalTxCount.Result != "0x7" || !strings.Contains(string(provider.appQueryData), `"height":11`) {
+		t.Fatalf("unexpected historical transaction count response=%+v error=%+v data=%s", historicalTxCount, historicalTxCount.Error, provider.appQueryData)
+	}
 
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"address":"0xbbbb","code":"60016002"}`)}
 	var code JSONRPCResponse
@@ -1355,7 +1388,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x1234","gas_used":9,"access_list":[{"address":"0xbbbb","storage_keys":["0x01"]}]}`)}
 	var call JSONRPCResponse
-	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":4,"method":"eth_call","params":[{"from":"0xaaaa","to":"0xbbbb","data":"0x1234","gas":"0x5208","gasPrice":"0x7"},"finalized"]}`, http.StatusOK, &call)
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":4,"method":"eth_call","params":[{"from":"0xaaaa","to":"0xbbbb","data":"0x1234","gas":"0x5208","gasPrice":"0x7"},{"blockNumber":"0xb"}]}`, http.StatusOK, &call)
 	if call.Error != nil || call.Result != "0x1234" {
 		t.Fatalf("unexpected eth_call response: %+v", call)
 	}
@@ -1416,6 +1449,27 @@ func TestWeb3FilterStoreEvictsOldestFilters(t *testing.T) {
 	}
 	if _, found := filters.get(third); !found {
 		t.Fatalf("expected third filter %s to remain", third)
+	}
+}
+
+func TestWeb3JSONRPCBatchAndNotifications(t *testing.T) {
+	handler := NewHandler(&fakeStatusProvider{
+		status: node.Status{ChainID: "vexo-chain", Running: true, LatestHeight: 12, PeerCount: 2},
+	})
+	var batch []JSONRPCResponse
+	postJSON(t, handler, "/", `[
+		{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]},
+		{"jsonrpc":"2.0","method":"net_listening","params":[]},
+		{"jsonrpc":"2.0","id":2,"method":"net_peerCount","params":[]}
+	]`, http.StatusOK, &batch)
+	if len(batch) != 2 || string(batch[0].ID) != "1" || batch[0].Result != "0xc" || string(batch[1].ID) != "2" || batch[1].Result != "0x2" {
+		t.Fatalf("unexpected batch response: %+v", batch)
+	}
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"jsonrpc":"2.0","method":"net_listening","params":[]}`))
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNoContent || strings.TrimSpace(recorder.Body.String()) != "" {
+		t.Fatalf("unexpected notification response status=%d body=%q", recorder.Code, recorder.Body.String())
 	}
 }
 

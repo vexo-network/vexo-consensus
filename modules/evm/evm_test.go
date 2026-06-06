@@ -418,6 +418,7 @@ func TestModulePersistsHistoricalEthereumStateSnapshots(t *testing.T) {
 	module := NewModule()
 	address := types.Address("0x000000000000000000000000000000000000beef")
 	setTestEVMBalance(t, storage, address, 10)
+	setTestEVMNonce(t, storage, address, 1)
 	if err := storage.Set(context.Background(), ModuleName, codeKey(address), []byte{0x60, 0x01}); err != nil {
 		t.Fatal(err)
 	}
@@ -428,6 +429,7 @@ func TestModulePersistsHistoricalEthereumStateSnapshots(t *testing.T) {
 		t.Fatal(err)
 	}
 	setTestEVMBalance(t, storage, address, 20)
+	setTestEVMNonce(t, storage, address, 2)
 	if err := storage.Set(context.Background(), ModuleName, codeKey(address), []byte{0x60, 0x02}); err != nil {
 		t.Fatal(err)
 	}
@@ -457,6 +459,11 @@ func TestModulePersistsHistoricalEthereumStateSnapshots(t *testing.T) {
 	}
 	if firstProof.Balance != "0xa" || secondProof.Balance != "0x14" || firstProof.StateRoot == secondProof.StateRoot {
 		t.Fatalf("unexpected historical proofs: first=%+v second=%+v", firstProof, secondProof)
+	}
+	accountRequest, _ := json.Marshal(AccountStateRequest{Height: 1})
+	accountQuery := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}, vexoapp.QueryRequest{Path: []string{"account", string(address)}, Data: accountRequest})
+	if accountQuery.Code != 0 || !strings.Contains(string(accountQuery.Value), `"balance":10`) || !strings.Contains(string(accountQuery.Value), `"nonce":1`) {
+		t.Fatalf("unexpected historical account query: %+v", accountQuery)
 	}
 	codeRequest, _ := json.Marshal(AccountStateRequest{Height: 1})
 	codeQuery := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}, vexoapp.QueryRequest{Path: []string{"code", string(address)}, Data: codeRequest})
@@ -582,6 +589,15 @@ func setTestEVMBalance(t *testing.T, storage vexoapp.StateStore, address types.A
 	var encoded [8]byte
 	binary.BigEndian.PutUint64(encoded[:], balance)
 	if err := storage.Set(context.Background(), "bank", evmBankKey(address), encoded[:]); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func setTestEVMNonce(t *testing.T, storage vexoapp.StateStore, address types.Address, nonce uint64) {
+	t.Helper()
+	var encoded [8]byte
+	binary.BigEndian.PutUint64(encoded[:], nonce)
+	if err := storage.Set(context.Background(), "auth", evmNonceKey(address), encoded[:]); err != nil {
 		t.Fatal(err)
 	}
 }
