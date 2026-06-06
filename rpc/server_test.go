@@ -808,6 +808,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 			"gas":                "21000",
 			"fee":                "42000",
 			ethcompat.TagHash:    "0x9999999999999999999999999999999999999999999999999999999999999999",
+			ethcompat.TagRaw:     "0xbeef",
 			ethcompat.TagChainID: "1",
 		},
 	})
@@ -849,6 +850,12 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if accounts.Error != nil || !ok || len(accountList) != 0 {
 		t.Fatalf("unexpected accounts response: %+v", accounts)
 	}
+	var modules JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":95,"method":"rpc_modules","params":[]}`, http.StatusOK, &modules)
+	moduleResult, ok := modules.Result.(map[string]any)
+	if modules.Error != nil || !ok || moduleResult["eth"] != "1.0" || moduleResult["txpool"] != "1.0" || moduleResult["trace"] != "1.0" {
+		t.Fatalf("unexpected rpc modules response: %+v", modules)
+	}
 
 	var txpoolStatus JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":75,"method":"txpool_status","params":[]}`, http.StatusOK, &txpoolStatus)
@@ -871,6 +878,16 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	contentFromPending, _ := contentFromResult["pending"].(map[string]any)
 	if txpoolContentFrom.Error != nil || !ok || len(contentFromPending) != 1 {
 		t.Fatalf("unexpected txpool contentFrom: %+v", txpoolContentFrom)
+	}
+	var pendingTransactions JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":96,"method":"eth_pendingTransactions","params":[]}`, http.StatusOK, &pendingTransactions)
+	pendingItems, ok := pendingTransactions.Result.([]any)
+	if pendingTransactions.Error != nil || !ok || len(pendingItems) != 1 {
+		t.Fatalf("unexpected pending transactions: %+v", pendingTransactions)
+	}
+	pendingObject, ok := pendingItems[0].(map[string]any)
+	if !ok || pendingObject["hash"] != "0x9999999999999999999999999999999999999999999999999999999999999999" || pendingObject["blockNumber"] != nil {
+		t.Fatalf("unexpected pending transaction object: %+v", pendingItems[0])
 	}
 	var txpoolInspect JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":77,"method":"txpool_inspect","params":[]}`, http.StatusOK, &txpoolInspect)
@@ -993,6 +1010,18 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if rawByHash.Error != nil || rawByHash.Result != "0xabcdef" {
 		t.Fatalf("unexpected raw tx by hash: %+v", rawByHash)
 	}
+	var pendingRawByHash JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":98,"method":"eth_getRawTransactionByHash","params":["0x9999999999999999999999999999999999999999999999999999999999999999"]}`, http.StatusOK, &pendingRawByHash)
+	if pendingRawByHash.Error != nil || pendingRawByHash.Result != "0xbeef" {
+		t.Fatalf("unexpected pending raw tx by hash: %+v", pendingRawByHash)
+	}
+	provider.appQueryResponse = vexoapp.QueryResponse{Code: 3}
+	var pendingTxByHash JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":99,"method":"eth_getTransactionByHash","params":["0x9999999999999999999999999999999999999999999999999999999999999999"]}`, http.StatusOK, &pendingTxByHash)
+	pendingTxByHashResult, ok := pendingTxByHash.Result.(map[string]any)
+	if pendingTxByHash.Error != nil || !ok || pendingTxByHashResult["hash"] != "0x9999999999999999999999999999999999999999999999999999999999999999" || pendingTxByHashResult["blockHash"] != nil {
+		t.Fatalf("unexpected pending tx by hash: %+v", pendingTxByHash)
+	}
 	var uncleCount JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":73,"method":"eth_getUncleCountByBlockNumber","params":["latest"]}`, http.StatusOK, &uncleCount)
 	if uncleCount.Error != nil || uncleCount.Result != "0x0" {
@@ -1030,6 +1059,13 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if txCount.Error != nil || txCount.Result != "0x7" || provider.accountAddress != "0xaaaa" {
 		t.Fatalf("unexpected transaction count response: %+v address=%s", txCount, provider.accountAddress)
 	}
+	provider.accountSequence = 2
+	var pendingTxCount JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":97,"method":"eth_getTransactionCount","params":["0xaaaa","pending"]}`, http.StatusOK, &pendingTxCount)
+	if pendingTxCount.Error != nil || pendingTxCount.Result != "0x4" {
+		t.Fatalf("unexpected pending transaction count response: %+v", pendingTxCount)
+	}
+	provider.accountSequence = 7
 
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"address":"0xbbbb","code":"60016002"}`)}
 	var code JSONRPCResponse
@@ -1129,7 +1165,9 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":93,"method":"trace_replayTransaction","params":["`+blockTxHashText+`",["trace"]]}`, http.StatusOK, &replayTransaction)
 	replayTransactionResult, ok := replayTransaction.Result.(map[string]any)
 	replayTransactionTrace, _ := replayTransactionResult["trace"].([]any)
-	if replayTransaction.Error != nil || !ok || len(replayTransactionTrace) != 1 {
+	_, replayTransactionStateDiff := replayTransactionResult["stateDiff"]
+	_, replayTransactionVMTrace := replayTransactionResult["vmTrace"]
+	if replayTransaction.Error != nil || !ok || len(replayTransactionTrace) != 1 || replayTransactionStateDiff || replayTransactionVMTrace {
 		t.Fatalf("unexpected trace_replayTransaction: %+v", replayTransaction)
 	}
 	var replayBlock JSONRPCResponse
@@ -1137,6 +1175,12 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	replayBlockItems, ok := replayBlock.Result.([]any)
 	if replayBlock.Error != nil || !ok || len(replayBlockItems) != 1 {
 		t.Fatalf("unexpected trace_replayBlockTransactions: %+v", replayBlock)
+	}
+	replayBlockItem, ok := replayBlockItems[0].(map[string]any)
+	_, replayBlockStateDiff := replayBlockItem["stateDiff"]
+	_, replayBlockVMTrace := replayBlockItem["vmTrace"]
+	if !ok || replayBlockStateDiff || replayBlockVMTrace {
+		t.Fatalf("unexpected replay block item fields: %+v", replayBlockItems[0])
 	}
 
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"0xabc","status":1,"gas_used":7,"logs":[{"address":"0xcontract","data":"0x01"}]}`)}

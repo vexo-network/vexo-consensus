@@ -255,6 +255,7 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"web3_trace_api":                          true,
 			"web3_access_list_call_trace":             true,
 			"web3_raw_tx_replay_trace":                true,
+			"web3_pending_tx_compat":                  true,
 			"evm_geth_vm_adapter":                     true,
 			"evm_ethereum_raw_tx":                     true,
 			"evm_storage_writes":                      true,

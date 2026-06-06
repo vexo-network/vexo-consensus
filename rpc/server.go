@@ -1172,6 +1172,8 @@ func writeFinalityProof(writer http.ResponseWriter, proof finality.Proof, err er
 
 func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *web3FilterStore, method string, params []json.RawMessage) (any, *JSONRPCError) {
 	switch method {
+	case "rpc_modules":
+		return web3RPCModules(), nil
 	case "web3_clientVersion":
 		return "vexo-consensus/web3", nil
 	case "web3_sha3":
@@ -1287,6 +1289,18 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		if err != nil {
 			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
 		}
+		if len(params) == 2 {
+			tag, err := jsonRPCStringParam(params[1])
+			if err != nil {
+				return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+			}
+			if tag == "pending" {
+				sequence, err = web3PendingSequence(ctx, provider, address, sequence)
+				if err != nil {
+					return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+				}
+			}
+		}
 		return hexQuantity(sequence), nil
 	case "eth_getCode":
 		code, rpcErr := web3Code(ctx, provider, params)
@@ -1361,28 +1375,7 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 	case "eth_getBlockReceipts":
 		return web3BlockReceipts(ctx, provider, params)
 	case "eth_getTransactionByHash":
-		query, ok := provider.(AppQueryProvider)
-		if !ok {
-			return nil, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
-		}
-		if len(params) != 1 {
-			return nil, &JSONRPCError{Code: -32602, Message: "eth_getTransactionByHash requires one transaction hash"}
-		}
-		hash, err := jsonRPCStringParam(params[0])
-		if err != nil {
-			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
-		}
-		response, err := query.AppQuery(ctx, []string{"evm", "receipt", hash}, nil)
-		if err != nil {
-			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
-		}
-		if response.Code == 3 {
-			return nil, nil
-		}
-		if response.Code != 0 {
-			return nil, &JSONRPCError{Code: -32000, Message: response.Log}
-		}
-		return web3TransactionFromReceipt(ctx, provider, response.Value)
+		return web3TransactionByHash(ctx, provider, params)
 	case "eth_getRawTransactionByHash":
 		return web3RawTransactionByHash(ctx, provider, params)
 	case "eth_getRawTransactionByBlockNumberAndIndex":
@@ -1397,6 +1390,8 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		return web3TxpoolContentFrom(ctx, provider, params)
 	case "txpool_inspect":
 		return web3TxpoolInspect(ctx, provider)
+	case "eth_pendingTransactions":
+		return web3PendingTransactions(ctx, provider)
 	case "debug_traceTransaction":
 		return web3DebugTraceTransaction(ctx, provider, params)
 	case "debug_traceBlockByNumber":
@@ -1548,6 +1543,18 @@ func firstParam(params []json.RawMessage, fallback string) json.RawMessage {
 	return params[0]
 }
 
+func web3RPCModules() map[string]string {
+	return map[string]string{
+		"debug":  "1.0",
+		"eth":    "1.0",
+		"net":    "1.0",
+		"rpc":    "1.0",
+		"trace":  "1.0",
+		"txpool": "1.0",
+		"web3":   "1.0",
+	}
+}
+
 func web3Sha3(params []json.RawMessage) (string, *JSONRPCError) {
 	if len(params) != 1 {
 		return "", &JSONRPCError{Code: -32602, Message: "web3_sha3 requires one data parameter"}
@@ -1696,6 +1703,55 @@ func web3BlockTransactionCount(record store.BlockRecord) any {
 	return hexQuantity(uint64(len(record.Block.Txs)))
 }
 
+func web3PendingSequence(ctx context.Context, provider StatusProvider, address string, sequence uint64) (uint64, error) {
+	txs, rpcErr := web3PendingTxs(ctx, provider)
+	if rpcErr != nil {
+		if rpcErr.Message == "pending transaction query is unavailable" {
+			return sequence, nil
+		}
+		return sequence, errors.New(rpcErr.Message)
+	}
+	next := sequence
+	for _, tx := range txs {
+		details := web3TransactionDetails(tx)
+		from, ok := details.From.(string)
+		if !ok || !strings.EqualFold(from, address) {
+			continue
+		}
+		if details.Nonce >= next {
+			next = details.Nonce + 1
+		}
+	}
+	return next, nil
+}
+
+func web3TransactionByHash(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
+	if len(params) != 1 {
+		return nil, &JSONRPCError{Code: -32602, Message: "eth_getTransactionByHash requires one transaction hash"}
+	}
+	hash, err := jsonRPCStringParam(params[0])
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	if query, ok := provider.(AppQueryProvider); ok {
+		response, err := query.AppQuery(ctx, []string{"evm", "receipt", hash}, nil)
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
+		if response.Code != 3 {
+			if response.Code != 0 {
+				return nil, &JSONRPCError{Code: -32000, Message: response.Log}
+			}
+			return web3TransactionFromReceipt(ctx, provider, response.Value)
+		}
+	}
+	pending, rpcErr := web3PendingTransactionByHash(ctx, provider, hash)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	return pending, nil
+}
+
 func web3TransactionByBlockNumberAndIndex(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
 	if len(params) != 2 {
 		return nil, &JSONRPCError{Code: -32602, Message: "eth_getTransactionByBlockNumberAndIndex requires block tag and transaction index"}
@@ -1737,6 +1793,22 @@ func web3TransactionByBlockIndex(record store.BlockRecord, rawIndex json.RawMess
 	return web3TransactionFromBlockRecord(record, int(index), web3TxHash(tx), tx), nil
 }
 
+func web3PendingTransactionByHash(ctx context.Context, provider StatusProvider, hash string) (any, *JSONRPCError) {
+	txs, rpcErr := web3PendingTxs(ctx, provider)
+	if rpcErr != nil {
+		if rpcErr.Message == "pending transaction query is unavailable" {
+			return nil, nil
+		}
+		return nil, rpcErr
+	}
+	for _, tx := range txs {
+		if strings.EqualFold(web3TxHash(tx), hash) {
+			return web3PendingTransaction(tx), nil
+		}
+	}
+	return nil, nil
+}
+
 func web3RawTransactionByHash(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
 	if len(params) != 1 {
 		return nil, &JSONRPCError{Code: -32602, Message: "eth_getRawTransactionByHash requires one transaction hash"}
@@ -1744,6 +1816,9 @@ func web3RawTransactionByHash(ctx context.Context, provider StatusProvider, para
 	hash, err := jsonRPCStringParam(params[0])
 	if err != nil {
 		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	if raw, rpcErr := web3PendingRawTransactionByHash(ctx, provider, hash); rpcErr != nil || raw != nil {
+		return raw, rpcErr
 	}
 	blockProvider, ok := provider.(BlockProvider)
 	if !ok {
@@ -1762,6 +1837,22 @@ func web3RawTransactionByHash(ctx context.Context, provider StatusProvider, para
 			if web3TxHash(tx) == hash {
 				return web3RawTransaction(tx), nil
 			}
+		}
+	}
+	return nil, nil
+}
+
+func web3PendingRawTransactionByHash(ctx context.Context, provider StatusProvider, hash string) (any, *JSONRPCError) {
+	txs, rpcErr := web3PendingTxs(ctx, provider)
+	if rpcErr != nil {
+		if rpcErr.Message == "pending transaction query is unavailable" {
+			return nil, nil
+		}
+		return nil, rpcErr
+	}
+	for _, tx := range txs {
+		if strings.EqualFold(web3TxHash(tx), hash) {
+			return web3RawTransaction(tx), nil
 		}
 	}
 	return nil, nil
@@ -2099,6 +2190,18 @@ func web3TxpoolInspect(ctx context.Context, provider StatusProvider) (any, *JSON
 	return map[string]any{"pending": pending, "queued": map[string]string{}}, nil
 }
 
+func web3PendingTransactions(ctx context.Context, provider StatusProvider) (any, *JSONRPCError) {
+	txs, rpcErr := web3PendingTxs(ctx, provider)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	transactions := make([]any, 0, len(txs))
+	for _, tx := range txs {
+		transactions = append(transactions, web3PendingTransaction(tx))
+	}
+	return transactions, nil
+}
+
 func web3PendingTxs(ctx context.Context, provider StatusProvider) ([]types.Tx, *JSONRPCError) {
 	pendingProvider, ok := provider.(PendingTxsProvider)
 	if !ok {
@@ -2372,21 +2475,24 @@ func web3TraceReplayTransaction(ctx context.Context, provider StatusProvider, pa
 	if len(params) == 0 || len(params) > 2 {
 		return nil, &JSONRPCError{Code: -32602, Message: "trace_replayTransaction requires transaction hash and optional trace types"}
 	}
+	types, rpcErr := web3ReplayTypes(params, 1)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
 	traces, rpcErr := web3TraceTransaction(ctx, provider, []json.RawMessage{params[0]})
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
-	return map[string]any{
-		"output":    "0x",
-		"stateDiff": nil,
-		"trace":     traces,
-		"vmTrace":   nil,
-	}, nil
+	return web3ReplayResponse("0x", traces, types), nil
 }
 
 func web3TraceReplayBlockTransactions(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
 	if len(params) == 0 || len(params) > 2 {
 		return nil, &JSONRPCError{Code: -32602, Message: "trace_replayBlockTransactions requires block hash/tag and optional trace types"}
+	}
+	types, rpcErr := web3ReplayTypes(params, 1)
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
 	record, rpcErr := web3BlockRecordParam(ctx, provider, params[0])
 	if rpcErr != nil {
@@ -2405,15 +2511,46 @@ func web3TraceReplayBlockTransactions(ctx context.Context, provider StatusProvid
 		if trace == nil {
 			continue
 		}
-		responses = append(responses, map[string]any{
-			"transactionHash": receipt.TxHash,
-			"output":          receipt.Output,
-			"stateDiff":       nil,
-			"trace":           []any{trace},
-			"vmTrace":         nil,
-		})
+		response := web3ReplayResponse(receipt.Output, []any{trace}, types)
+		response["transactionHash"] = receipt.TxHash
+		responses = append(responses, response)
 	}
 	return responses, nil
+}
+
+func web3ReplayTypes(params []json.RawMessage, index int) (map[string]bool, *JSONRPCError) {
+	types := map[string]bool{"trace": true, "stateDiff": true, "vmTrace": true}
+	if len(params) <= index || string(params[index]) == "null" {
+		return types, nil
+	}
+	var requested []string
+	if err := json.Unmarshal(params[index], &requested); err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: "invalid replay trace types"}
+	}
+	types = make(map[string]bool, len(requested))
+	for _, item := range requested {
+		switch item {
+		case "trace", "stateDiff", "vmTrace":
+			types[item] = true
+		default:
+			return nil, &JSONRPCError{Code: -32602, Message: "unsupported replay trace type " + item}
+		}
+	}
+	return types, nil
+}
+
+func web3ReplayResponse(output string, traces any, types map[string]bool) map[string]any {
+	response := map[string]any{"output": output}
+	if types["trace"] {
+		response["trace"] = traces
+	}
+	if types["stateDiff"] {
+		response["stateDiff"] = nil
+	}
+	if types["vmTrace"] {
+		response["vmTrace"] = nil
+	}
+	return response
 }
 
 func web3TraceBlockRecord(ctx context.Context, provider StatusProvider, record store.BlockRecord) []any {

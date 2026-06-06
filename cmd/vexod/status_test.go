@@ -155,6 +155,7 @@ func TestWriteStatusJSON(t *testing.T) {
 		"web3_trace_api",
 		"web3_access_list_call_trace",
 		"web3_raw_tx_replay_trace",
+		"web3_pending_tx_compat",
 		"evm_geth_vm_adapter",
 		"evm_ethereum_raw_tx",
 		"evm_storage_writes",
