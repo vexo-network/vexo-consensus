@@ -2,7 +2,6 @@ package geth
 
 import (
 	"context"
-	"math"
 	"math/big"
 	"sort"
 
@@ -35,7 +34,6 @@ func (GethVM) Execute(ctx context.Context, invocation contract.Invocation) (cont
 	contractAddress := gethAddress(invocation.Contract)
 	stateDB := newGethStateDB(ctx, invocation)
 	stateDB.CreateAccount(caller)
-	stateDB.AddBalance(caller, new(uint256.Int).SetUint64(math.MaxUint64), gethtracing.BalanceIncreaseGenesisBalance)
 	if invocation.Method != "deploy" {
 		stateDB.CreateAccount(contractAddress)
 	}
@@ -70,11 +68,16 @@ func (GethVM) Execute(ctx context.Context, invocation contract.Invocation) (cont
 	if err != nil {
 		return contract.Result{}, err
 	}
+	balanceWrites, err := stateDB.BalanceWrites()
+	if err != nil {
+		return contract.Result{}, err
+	}
 	result := contract.Result{
 		Output:        append([]byte(nil), output...),
 		GasUsed:       left.Used(initialGas),
 		DeployedCode:  append([]byte(nil), stateDB.GetCode(contractAddress)...),
 		StorageWrites: stateDB.StorageWrites(),
+		BalanceWrites: balanceWrites,
 		Logs:          stateDB.ContractLogs(),
 	}
 	if invocation.Method != "deploy" {
@@ -86,7 +89,11 @@ func (GethVM) Execute(ctx context.Context, invocation contract.Invocation) (cont
 func gethBlockContext(invocation contract.Invocation, stateDB *gethStateDB) gethvm.BlockContext {
 	baseFee := new(big.Int).SetUint64(invocation.BaseFee)
 	blobBaseFee := new(big.Int)
-	random := gethcommon.Hash{}
+	random := gethcommon.Hash(invocation.PrevRandao)
+	gasLimit := invocation.BlockGasLimit
+	if gasLimit == 0 {
+		gasLimit = invocation.GasLimit
+	}
 	return gethvm.BlockContext{
 		CanTransfer: func(db gethvm.StateDB, address gethcommon.Address, amount *uint256.Int) bool {
 			return db.GetBalance(address).Cmp(amount) >= 0
@@ -95,8 +102,9 @@ func gethBlockContext(invocation contract.Invocation, stateDB *gethStateDB) geth
 			db.SubBalance(from, amount, gethtracing.BalanceChangeTransfer)
 			db.AddBalance(to, amount, gethtracing.BalanceChangeTransfer)
 		},
-		GetHash:     func(uint64) gethcommon.Hash { return gethcommon.Hash{} },
-		GasLimit:    invocation.GasLimit,
+		Coinbase:    gethAddress(invocation.Coinbase),
+		GetHash:     stateDB.blockHash,
+		GasLimit:    gasLimit,
 		BlockNumber: new(big.Int).SetUint64(invocation.BlockNumber),
 		Time:        invocation.Timestamp,
 		Difficulty:  new(big.Int),
@@ -120,7 +128,9 @@ type gethStateDB struct {
 
 type gethAccount struct {
 	balance        uint256.Int
+	committedBal   uint256.Int
 	nonce          uint64
+	committedNonce uint64
 	code           []byte
 	storage        map[gethcommon.Hash]gethcommon.Hash
 	committed      map[gethcommon.Hash]gethcommon.Hash
@@ -418,6 +428,31 @@ func (db *gethStateDB) StorageWrites() []contract.StorageWrite {
 	return writes
 }
 
+func (db *gethStateDB) BalanceWrites() ([]contract.BalanceWrite, error) {
+	writes := make([]contract.BalanceWrite, 0)
+	addresses := make([]gethcommon.Address, 0, len(db.accounts))
+	for address := range db.accounts {
+		addresses = append(addresses, address)
+	}
+	sort.Slice(addresses, func(first int, second int) bool {
+		return addresses[first].Hex() < addresses[second].Hex()
+	})
+	for _, address := range addresses {
+		account := db.accounts[address]
+		if account.balance.Eq(&account.committedBal) {
+			continue
+		}
+		if !account.balance.IsUint64() {
+			return nil, contract.ErrInvalidInvocation
+		}
+		writes = append(writes, contract.BalanceWrite{
+			Address: types.Address(address.Hex()),
+			Balance: account.balance.Uint64(),
+		})
+	}
+	return writes, nil
+}
+
 func (db *gethStateDB) ContractLogs() []contract.Log {
 	logs := make([]contract.Log, 0, len(db.logs))
 	for _, log := range db.logs {
@@ -448,9 +483,36 @@ func (db *gethStateDB) account(address gethcommon.Address) *gethAccount {
 		if code, err := db.reader.Code(db.ctx, types.Address(address.Hex())); err == nil && len(code) > 0 {
 			account.code = append([]byte(nil), code...)
 		}
+		if balanceReader, ok := db.reader.(contract.BalanceReader); ok {
+			if balance, err := balanceReader.Balance(db.ctx, types.Address(address.Hex())); err == nil {
+				account.balance.SetUint64(balance)
+				account.committedBal.SetUint64(balance)
+			}
+		}
+		if nonceReader, ok := db.reader.(contract.NonceReader); ok {
+			if nonce, err := nonceReader.Nonce(db.ctx, types.Address(address.Hex())); err == nil {
+				account.nonce = nonce
+				account.committedNonce = nonce
+			}
+		}
 	}
 	db.accounts[address] = account
 	return account
+}
+
+func (db *gethStateDB) blockHash(height uint64) gethcommon.Hash {
+	if db.reader == nil {
+		return gethcommon.Hash{}
+	}
+	reader, ok := db.reader.(contract.BlockHashReader)
+	if !ok {
+		return gethcommon.Hash{}
+	}
+	hash, err := reader.BlockHash(db.ctx, height)
+	if err != nil {
+		return gethcommon.Hash{}
+	}
+	return gethcommon.Hash(hash)
 }
 
 func (db *gethStateDB) loadStorage(address gethcommon.Address, slot gethcommon.Hash) gethcommon.Hash {

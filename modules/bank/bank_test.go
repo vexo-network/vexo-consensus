@@ -43,6 +43,22 @@ func TestBankModuleMintsAndSends(t *testing.T) {
 	assertBalance(t, storage, "bob", 35)
 }
 
+func TestBankModuleNormalizesEthereumHexAddressKeys(t *testing.T) {
+	storage := newBankStore(t)
+	module := NewModule()
+	lower := types.Address("0x000000000000000000000000000000000000bbbb")
+	checksum := types.Address("0x000000000000000000000000000000000000BbBB")
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:mint:"+string(lower)+":100")); result.Code != 0 {
+		t.Fatalf("unexpected mint result: %+v", result)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:send:"+string(checksum)+":alice:35")); result.Code != 0 {
+		t.Fatalf("unexpected send result: %+v", result)
+	}
+	assertBalance(t, storage, lower, 65)
+	assertBalance(t, storage, checksum, 65)
+	assertBalance(t, storage, "alice", 35)
+}
+
 func TestBankModuleIgnoresExecutionTags(t *testing.T) {
 	storage := newBankStore(t)
 	module := NewModule()

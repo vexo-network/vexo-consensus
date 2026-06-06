@@ -3,8 +3,10 @@ package app
 import (
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"math"
+	"strings"
 
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	vexostore "github.com/vexo-network/vexo-consensus/store"
@@ -253,9 +255,12 @@ func (keeper AnteKeeper) signatureVerifier() vexocrypto.Signer {
 }
 
 func bankBalance(ctx context.Context, store StateStore, address types.Address) (uint64, error) {
-	value, err := store.Get(ctx, "bank", []byte(address))
+	value, err := store.Get(ctx, "bank", bankBalanceKey(address))
 	if errors.Is(err, vexostore.ErrKeyNotFound) {
-		return 0, nil
+		value, err = store.Get(ctx, "bank", []byte(address))
+		if errors.Is(err, vexostore.ErrKeyNotFound) {
+			return 0, nil
+		}
 	}
 	if err != nil {
 		return 0, err
@@ -272,5 +277,23 @@ func bankBalance(ctx context.Context, store StateStore, address types.Address) (
 func setBankBalance(ctx context.Context, store StateStore, address types.Address, balance uint64) error {
 	var encoded [8]byte
 	binary.BigEndian.PutUint64(encoded[:], balance)
-	return store.Set(ctx, "bank", []byte(address), encoded[:])
+	return store.Set(ctx, "bank", bankBalanceKey(address), encoded[:])
+}
+
+func bankBalanceKey(address types.Address) []byte {
+	raw := string(address)
+	if !strings.HasPrefix(raw, "0x") {
+		return []byte(address)
+	}
+	clean := strings.TrimPrefix(raw, "0x")
+	if len(clean)%2 == 1 {
+		clean = "0" + clean
+	}
+	decoded, err := hex.DecodeString(clean)
+	if err != nil || len(decoded) > 20 {
+		return []byte(address)
+	}
+	padded := make([]byte, 20)
+	copy(padded[20-len(decoded):], decoded)
+	return []byte("0x" + hex.EncodeToString(padded))
 }

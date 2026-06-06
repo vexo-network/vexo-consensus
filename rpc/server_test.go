@@ -790,6 +790,27 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("unexpected gas price response: %+v", gasPrice)
 	}
 
+	var priorityFee JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":44,"method":"eth_maxPriorityFeePerGas","params":[]}`, http.StatusOK, &priorityFee)
+	if priorityFee.Error != nil || priorityFee.Result != "0x1" {
+		t.Fatalf("unexpected priority fee response: %+v", priorityFee)
+	}
+
+	var feeHistory JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":45,"method":"eth_feeHistory","params":["0x2","latest",[10,50]]}`, http.StatusOK, &feeHistory)
+	feeHistoryResult, ok := feeHistory.Result.(map[string]any)
+	if feeHistory.Error != nil || !ok || feeHistoryResult["oldestBlock"] != "0xb" {
+		t.Fatalf("unexpected fee history response: %+v", feeHistory)
+	}
+	baseFees, ok := feeHistoryResult["baseFeePerGas"].([]any)
+	if !ok || len(baseFees) != 3 || baseFees[0] != "0xb" {
+		t.Fatalf("unexpected fee history base fees: %+v", feeHistoryResult)
+	}
+	rewards, ok := feeHistoryResult["reward"].([]any)
+	if !ok || len(rewards) != 2 {
+		t.Fatalf("unexpected fee history rewards: %+v", feeHistoryResult)
+	}
+
 	var blockByNumber JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":6,"method":"eth_getBlockByNumber","params":["latest",true]}`, http.StatusOK, &blockByNumber)
 	if blockByNumber.Error != nil {
@@ -818,6 +839,17 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":7,"method":"eth_getBlockByHash","params":["0xab00000000000000000000000000000000000000000000000000000000000000",false]}`, http.StatusOK, &blockByHash)
 	if blockByHash.Error != nil {
 		t.Fatalf("unexpected block by hash error: %+v", blockByHash)
+	}
+
+	var blockReceipts JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":46,"method":"eth_getBlockReceipts","params":["latest"]}`, http.StatusOK, &blockReceipts)
+	blockReceiptItems, ok := blockReceipts.Result.([]any)
+	if blockReceipts.Error != nil || !ok || len(blockReceiptItems) != 1 {
+		t.Fatalf("unexpected block receipts: %+v", blockReceipts)
+	}
+	blockReceipt, ok := blockReceiptItems[0].(map[string]any)
+	if !ok || blockReceipt["transactionHash"] != blockTxHashText || blockReceipt["blockNumber"] != "0xc" {
+		t.Fatalf("unexpected block receipt item: %+v", blockReceiptItems[0])
 	}
 
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`123`)}

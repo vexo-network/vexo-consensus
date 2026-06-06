@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/bits"
@@ -308,7 +309,7 @@ func (module *Module) delegate(ctx context.Context, store vexoapp.StateStore, de
 	newPower := currentPower + amount
 	if batchStore, ok := store.(kvbatch.BatchKVStore); ok {
 		if err := batchStore.SetBatch(ctx, []kvbatch.KVWrite{
-			{Namespace: bankNamespace, Key: []byte(delegator), Value: encodeUint64(balance - amount)},
+			{Namespace: bankNamespace, Key: bankBalanceKey(delegator), Value: encodeUint64(balance - amount)},
 			{Namespace: ModuleName, Key: stakeKey(delegator, validatorID), Value: encodeUint64(currentStake + amount)},
 			{Namespace: ModuleName, Key: validatorPowerKey(validatorID), Value: encodeUint64(newPower)},
 			{Namespace: ModuleName, Key: validatorKeyKey(validatorID), Value: append([]byte(nil), publicKey...)},
@@ -501,7 +502,7 @@ func (module *Module) claimRewards(ctx context.Context, store vexoapp.StateStore
 		return ErrStakeOverflow
 	}
 	writes := []kvbatch.KVWrite{
-		{Namespace: bankNamespace, Key: []byte(delegator), Value: encodeUint64(balance + reward)},
+		{Namespace: bankNamespace, Key: bankBalanceKey(delegator), Value: encodeUint64(balance + reward)},
 		{Namespace: ModuleName, Key: rewardKey(delegator, validatorID), Value: encodeUint64(0)},
 	}
 	if batchStore, ok := store.(kvbatch.BatchKVStore); ok {
@@ -608,7 +609,7 @@ func (module *Module) distributeFees(ctx context.Context, store vexoapp.StateSto
 		return nil
 	}
 	writes := []kvbatch.KVWrite{
-		{Namespace: bankNamespace, Key: []byte(module.feeCollector), Value: encodeUint64(collectorBalance - distributed)},
+		{Namespace: bankNamespace, Key: bankBalanceKey(module.feeCollector), Value: encodeUint64(collectorBalance - distributed)},
 	}
 	for encodedKey, amount := range rewards {
 		delegator, validatorID := splitRewardMapKey(encodedKey)
@@ -637,9 +638,12 @@ func (module *Module) distributeFees(ctx context.Context, store vexoapp.StateSto
 }
 
 func bankBalance(ctx context.Context, store vexoapp.StateStore, address types.Address) (uint64, error) {
-	value, err := store.Get(ctx, bankNamespace, []byte(address))
+	value, err := store.Get(ctx, bankNamespace, bankBalanceKey(address))
 	if errors.Is(err, vexostore.ErrKeyNotFound) {
-		return 0, nil
+		value, err = store.Get(ctx, bankNamespace, []byte(address))
+		if errors.Is(err, vexostore.ErrKeyNotFound) {
+			return 0, nil
+		}
 	}
 	if err != nil {
 		return 0, err
@@ -654,7 +658,25 @@ func bankBalance(ctx context.Context, store vexoapp.StateStore, address types.Ad
 }
 
 func setBankBalance(ctx context.Context, store vexoapp.StateStore, address types.Address, amount uint64) error {
-	return setUint64(ctx, store, bankNamespace, []byte(address), amount)
+	return setUint64(ctx, store, bankNamespace, bankBalanceKey(address), amount)
+}
+
+func bankBalanceKey(address types.Address) []byte {
+	raw := string(address)
+	if !strings.HasPrefix(raw, "0x") {
+		return []byte(address)
+	}
+	clean := strings.TrimPrefix(raw, "0x")
+	if len(clean)%2 == 1 {
+		clean = "0" + clean
+	}
+	decoded, err := hex.DecodeString(clean)
+	if err != nil || len(decoded) > 20 {
+		return []byte(address)
+	}
+	padded := make([]byte, 20)
+	copy(padded[20-len(decoded):], decoded)
+	return []byte("0x" + hex.EncodeToString(padded))
 }
 
 func setStake(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID, amount uint64) error {

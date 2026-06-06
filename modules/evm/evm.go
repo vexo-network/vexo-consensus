@@ -3,6 +3,7 @@ package evm
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -268,13 +269,18 @@ func (module Module) deliverCall(ctx vexoapp.Context, tx types.Tx, args []string
 	invocation.State = evmStateReader{store: ctx.Store}
 	invocation.BlockNumber = uint64(ctx.Height)
 	invocation.Timestamp = headerUnixSeconds(ctx.Header)
-	invocation.GasPrice = 0
-	invocation.BaseFee = 0
+	invocation.BlockGasLimit = ctx.GasLimit()
+	invocation.GasPrice = txGasPrice(tx)
+	invocation.BaseFee = txBaseFee(tx)
+	invocation.Coinbase = types.Address("fee_collector")
 	result, err := module.registry.Execute(ctx.GoContext(), invocation)
 	if err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
 	if err := persistStorageWrites(ctx.GoContext(), ctx.Store, invocation.Contract, result.StorageWrites); err != nil {
+		return types.Result{Code: 4, Log: err.Error()}
+	}
+	if err := persistBalanceWrites(ctx.GoContext(), ctx.Store, result.BalanceWrites); err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
 	receipt := receiptFromResult(tx, ctx.Height, invocation, "", result)
@@ -306,17 +312,21 @@ func (module Module) deliverDeploy(ctx vexoapp.Context, tx types.Tx, args []stri
 	salt := create2Salt(args[3])
 	contractAddress := createAddress(types.Address(args[1]), code, salt)
 	invocation := contract.Invocation{
-		VM:          args[0],
-		Caller:      types.Address(args[1]),
-		Contract:    contractAddress,
-		Method:      "deploy",
-		Input:       code,
-		GasLimit:    ctx.GasLimit(),
-		Value:       value,
-		Salt:        salt[:],
-		State:       evmStateReader{store: ctx.Store},
-		BlockNumber: uint64(ctx.Height),
-		Timestamp:   headerUnixSeconds(ctx.Header),
+		VM:            args[0],
+		Caller:        types.Address(args[1]),
+		Contract:      contractAddress,
+		Method:        "deploy",
+		Input:         code,
+		GasLimit:      ctx.GasLimit(),
+		Value:         value,
+		Salt:          salt[:],
+		State:         evmStateReader{store: ctx.Store},
+		BlockNumber:   uint64(ctx.Height),
+		Timestamp:     headerUnixSeconds(ctx.Header),
+		BlockGasLimit: ctx.GasLimit(),
+		GasPrice:      txGasPrice(tx),
+		BaseFee:       txBaseFee(tx),
+		Coinbase:      types.Address("fee_collector"),
 	}
 	result, err := module.registry.Execute(ctx.GoContext(), invocation)
 	if err != nil {
@@ -330,6 +340,9 @@ func (module Module) deliverDeploy(ctx vexoapp.Context, tx types.Tx, args []stri
 		return types.Result{Code: 4, Log: err.Error()}
 	}
 	if err := persistStorageWrites(ctx.GoContext(), ctx.Store, invocation.Contract, result.StorageWrites); err != nil {
+		return types.Result{Code: 4, Log: err.Error()}
+	}
+	if err := persistBalanceWrites(ctx.GoContext(), ctx.Store, result.BalanceWrites); err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
 	receipt := receiptFromResult(tx, ctx.Height, invocation, string(contractAddress), result)
@@ -361,16 +374,20 @@ func (module Module) deliverEthereumDeploy(ctx vexoapp.Context, tx types.Tx, arg
 	}
 	contractAddress := createLegacyAddress(types.Address(args[1]), nonce)
 	invocation := contract.Invocation{
-		VM:          args[0],
-		Caller:      types.Address(args[1]),
-		Contract:    contractAddress,
-		Method:      "deploy",
-		Input:       code,
-		GasLimit:    ctx.GasLimit(),
-		Value:       value,
-		State:       evmStateReader{store: ctx.Store},
-		BlockNumber: uint64(ctx.Height),
-		Timestamp:   headerUnixSeconds(ctx.Header),
+		VM:            args[0],
+		Caller:        types.Address(args[1]),
+		Contract:      contractAddress,
+		Method:        "deploy",
+		Input:         code,
+		GasLimit:      ctx.GasLimit(),
+		Value:         value,
+		State:         evmStateReader{store: ctx.Store},
+		BlockNumber:   uint64(ctx.Height),
+		Timestamp:     headerUnixSeconds(ctx.Header),
+		BlockGasLimit: ctx.GasLimit(),
+		GasPrice:      txGasPrice(tx),
+		BaseFee:       txBaseFee(tx),
+		Coinbase:      types.Address("fee_collector"),
 	}
 	result, err := module.registry.Execute(ctx.GoContext(), invocation)
 	if err != nil {
@@ -384,6 +401,9 @@ func (module Module) deliverEthereumDeploy(ctx vexoapp.Context, tx types.Tx, arg
 		return types.Result{Code: 4, Log: err.Error()}
 	}
 	if err := persistStorageWrites(ctx.GoContext(), ctx.Store, invocation.Contract, result.StorageWrites); err != nil {
+		return types.Result{Code: 4, Log: err.Error()}
+	}
+	if err := persistBalanceWrites(ctx.GoContext(), ctx.Store, result.BalanceWrites); err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
 	receipt := receiptFromResult(tx, ctx.Height, invocation, string(contractAddress), result)
@@ -420,18 +440,20 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 		state = evmStateReader{store: ctx.Store}
 	}
 	result, err := module.registry.Execute(ctx.GoContext(), contract.Invocation{
-		VM:          request.VM,
-		Caller:      types.Address(request.From),
-		Contract:    types.Address(request.To),
-		Method:      request.Method,
-		Input:       input,
-		GasLimit:    request.GasLimit,
-		Value:       request.Value,
-		Code:        code,
-		State:       state,
-		ReadOnly:    true,
-		BlockNumber: uint64(ctx.Height),
-		Timestamp:   headerUnixSeconds(ctx.Header),
+		VM:            request.VM,
+		Caller:        types.Address(request.From),
+		Contract:      types.Address(request.To),
+		Method:        request.Method,
+		Input:         input,
+		GasLimit:      request.GasLimit,
+		Value:         request.Value,
+		Code:          code,
+		State:         state,
+		ReadOnly:      true,
+		BlockNumber:   uint64(ctx.Height),
+		Timestamp:     headerUnixSeconds(ctx.Header),
+		BlockGasLimit: ctx.GasLimit(),
+		Coinbase:      types.Address("fee_collector"),
 	})
 	if err != nil {
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
@@ -539,6 +561,20 @@ func persistStorageWrites(ctx context.Context, store vexoapp.StateStore, default
 			continue
 		}
 		if err := store.Set(ctx, ModuleName, key, append([]byte(nil), write.Value...)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func persistBalanceWrites(ctx context.Context, store vexoapp.StateStore, writes []contract.BalanceWrite) error {
+	for _, write := range writes {
+		if write.Address == "" {
+			return ErrInvalidEVMTx
+		}
+		var encoded [8]byte
+		binary.BigEndian.PutUint64(encoded[:], write.Balance)
+		if err := store.Set(ctx, "bank", evmBankKey(write.Address), encoded[:]); err != nil {
 			return err
 		}
 	}
@@ -753,6 +789,89 @@ func (reader evmStateReader) Storage(ctx context.Context, address types.Address,
 		return nil, err
 	}
 	return append([]byte(nil), value...), nil
+}
+
+func (reader evmStateReader) Balance(ctx context.Context, address types.Address) (uint64, error) {
+	if reader.store == nil {
+		return 0, ErrStoreMissing
+	}
+	value, err := reader.store.Get(ctx, "bank", evmBankKey(address))
+	if errors.Is(err, vexostore.ErrKeyNotFound) {
+		value, err = reader.store.Get(ctx, "bank", []byte(address))
+		if errors.Is(err, vexostore.ErrKeyNotFound) {
+			return 0, nil
+		}
+	}
+	if err != nil {
+		return 0, err
+	}
+	if len(value) == 0 {
+		return 0, nil
+	}
+	if len(value) != 8 {
+		return 0, ErrInvalidEVMTx
+	}
+	return binary.BigEndian.Uint64(value), nil
+}
+
+func (reader evmStateReader) Nonce(ctx context.Context, address types.Address) (uint64, error) {
+	if reader.store == nil {
+		return 0, ErrStoreMissing
+	}
+	value, err := reader.store.Get(ctx, "auth", []byte("nonce/"+string(address)))
+	if errors.Is(err, vexostore.ErrKeyNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if len(value) != 8 {
+		return 0, ErrInvalidEVMTx
+	}
+	return binary.BigEndian.Uint64(value), nil
+}
+
+func (reader evmStateReader) BlockHash(ctx context.Context, height uint64) (types.Hash, error) {
+	var zero types.Hash
+	if reader.store == nil {
+		return zero, ErrStoreMissing
+	}
+	blockStore, ok := reader.store.(interface {
+		BlockByHeight(context.Context, types.Height) (vexostore.BlockRecord, error)
+	})
+	if !ok {
+		return zero, nil
+	}
+	record, err := blockStore.BlockByHeight(ctx, types.Height(height))
+	if errors.Is(err, vexostore.ErrBlockNotFound) {
+		return zero, nil
+	}
+	if err != nil {
+		return zero, err
+	}
+	return record.Hash, nil
+}
+
+func txGasPrice(tx types.Tx) uint64 {
+	if gasPrice, found := vexoapp.TxUintTag(tx, ethcompat.TagGasPrice); found {
+		return gasPrice
+	}
+	meta := vexoapp.ParseTxMeta(tx)
+	if meta.Gas > 0 && meta.Fee > 0 {
+		return meta.Fee / meta.Gas
+	}
+	return 0
+}
+
+func txBaseFee(tx types.Tx) uint64 {
+	if baseFee, found := vexoapp.TxUintTag(tx, ethcompat.TagBaseFee); found {
+		return baseFee
+	}
+	return 0
+}
+
+func evmBankKey(address types.Address) []byte {
+	return []byte(canonicalAddressKey(address))
 }
 
 func create2Salt(raw string) [32]byte {

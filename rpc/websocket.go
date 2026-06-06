@@ -293,7 +293,7 @@ func web3BlockHeader(record store.BlockRecord) map[string]any {
 		"parentHash":       web3HashString(record.Block.Header.PreviousBlockHash),
 		"nonce":            "0x0000000000000000",
 		"sha3Uncles":       "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"logsBloom":        "0x" + strings.Repeat("00", 256),
+		"logsBloom":        web3LogsBloom(record.Block.Txs, record.TxResults),
 		"transactionsRoot": web3TransactionsRoot(record.Block.Txs),
 		"stateRoot":        "0x" + hex.EncodeToString(record.AppHash[:]),
 		"receiptsRoot":     web3ReceiptsRoot(record.Block.Txs, record.TxResults),

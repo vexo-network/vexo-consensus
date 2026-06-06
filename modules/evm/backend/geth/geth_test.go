@@ -2,6 +2,7 @@ package geth
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/contract"
@@ -9,8 +10,10 @@ import (
 )
 
 type testStateReader struct {
-	code    map[types.Address][]byte
-	storage map[string][]byte
+	code     map[types.Address][]byte
+	storage  map[string][]byte
+	balances map[types.Address]uint64
+	nonces   map[types.Address]uint64
 }
 
 func (reader testStateReader) Code(ctx context.Context, address types.Address) ([]byte, error) {
@@ -19,6 +22,14 @@ func (reader testStateReader) Code(ctx context.Context, address types.Address) (
 
 func (reader testStateReader) Storage(ctx context.Context, address types.Address, slot string) ([]byte, error) {
 	return append([]byte(nil), reader.storage[string(address)+"/"+slot]...), nil
+}
+
+func (reader testStateReader) Balance(ctx context.Context, address types.Address) (uint64, error) {
+	return reader.balances[address], nil
+}
+
+func (reader testStateReader) Nonce(ctx context.Context, address types.Address) (uint64, error) {
+	return reader.nonces[address], nil
 }
 
 func TestGethBackendExecutesDeployAndCall(t *testing.T) {
@@ -58,4 +69,33 @@ func TestGethBackendExecutesDeployAndCall(t *testing.T) {
 
 func TestGethBackendImplementsContractVM(t *testing.T) {
 	var _ contract.VM = New()
+}
+
+func TestGethBackendUsesReaderBalancesAndReturnsBalanceWrites(t *testing.T) {
+	vm := New()
+	caller := types.Address("0x000000000000000000000000000000000000aaaa")
+	recipient := types.Address("0x000000000000000000000000000000000000bbbb")
+	result, err := vm.Execute(context.Background(), contract.Invocation{
+		Method:   "call",
+		Caller:   caller,
+		Contract: recipient,
+		GasLimit: 100_000,
+		Value:    3,
+		State: testStateReader{
+			balances: map[types.Address]uint64{caller: 10},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.BalanceWrites) != 2 {
+		t.Fatalf("expected caller and recipient balance writes, got %+v", result.BalanceWrites)
+	}
+	writes := map[types.Address]uint64{}
+	for _, write := range result.BalanceWrites {
+		writes[types.Address(strings.ToLower(string(write.Address)))] = write.Balance
+	}
+	if writes[types.Address(strings.ToLower(string(caller)))] != 7 || writes[types.Address(strings.ToLower(string(recipient)))] != 3 {
+		t.Fatalf("unexpected balance writes: %+v", result.BalanceWrites)
+	}
 }

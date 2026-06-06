@@ -65,6 +65,7 @@ Module data is stored by namespace and key.
 
 Common framework namespaces:
 
+- `bank`: account balances used by native bank transfers, fees, staking, and EVM value transfers
 - `events`: indexed transaction event records and attribute indexes
 - `evm`: contract VM code, storage slots, receipts, global log index, and address log index
 - `ibc`: client, connection, channel, packet commitment, and receipt records
@@ -72,6 +73,8 @@ Common framework namespaces:
 - `staking`: delegated stake, validator power, validator public keys, commission basis points, unbonding release heights, jail flags, and pending reward balances
 
 When staged execution is available, module KV writes, block records, state records, and state roots are committed in one backend batch. If that batch fails, module KV writes are not applied.
+
+For Ethereum-compatible `0x` account addresses, the built-in bank, staking, ante, and EVM paths normalize the key to a lowercase 20-byte hex address before reading or writing balance state. Legacy raw keys are still read as fallback, but new writes use the normalized key to avoid checksum/lowercase balance splits.
 
 LevelDB also writes height-versioned KV history records for each atomic block write. Historical query proofs rebuild the namespace at the requested height from those records, then verify membership with a compact Merkle path or non-membership with compact adjacent-neighbor absence proofs. Verifiers still accept legacy full namespace absence witnesses for compatibility.
 

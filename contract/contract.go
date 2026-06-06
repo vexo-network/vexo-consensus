@@ -27,10 +27,13 @@ type Invocation struct {
 	State    StateReader   `json:"-"`
 	ReadOnly bool          `json:"-"`
 
-	BlockNumber uint64 `json:"-"`
-	Timestamp   uint64 `json:"-"`
-	BaseFee     uint64 `json:"-"`
-	GasPrice    uint64 `json:"-"`
+	BlockNumber   uint64        `json:"-"`
+	Timestamp     uint64        `json:"-"`
+	BaseFee       uint64        `json:"-"`
+	GasPrice      uint64        `json:"-"`
+	BlockGasLimit uint64        `json:"-"`
+	Coinbase      types.Address `json:"-"`
+	PrevRandao    types.Hash    `json:"-"`
 }
 
 type Result struct {
@@ -39,6 +42,7 @@ type Result struct {
 	DeployedCode  []byte         `json:"deployed_code,omitempty"`
 	Logs          []Log          `json:"logs,omitempty"`
 	StorageWrites []StorageWrite `json:"storage_writes,omitempty"`
+	BalanceWrites []BalanceWrite `json:"balance_writes,omitempty"`
 }
 
 type Log struct {
@@ -55,6 +59,11 @@ type StorageWrite struct {
 	Delete  bool          `json:"delete,omitempty"`
 }
 
+type BalanceWrite struct {
+	Address types.Address `json:"address"`
+	Balance uint64        `json:"balance"`
+}
+
 type VM interface {
 	Name() string
 	Execute(ctx context.Context, invocation Invocation) (Result, error)
@@ -63,6 +72,18 @@ type VM interface {
 type StateReader interface {
 	Code(ctx context.Context, address types.Address) ([]byte, error)
 	Storage(ctx context.Context, address types.Address, slot string) ([]byte, error)
+}
+
+type BalanceReader interface {
+	Balance(ctx context.Context, address types.Address) (uint64, error)
+}
+
+type NonceReader interface {
+	Nonce(ctx context.Context, address types.Address) (uint64, error)
+}
+
+type BlockHashReader interface {
+	BlockHash(ctx context.Context, height uint64) (types.Hash, error)
 }
 
 type Registry struct {

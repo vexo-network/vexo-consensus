@@ -1204,6 +1204,10 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 			}
 		}
 		return hexQuantity(0), nil
+	case "eth_maxPriorityFeePerGas":
+		return web3MaxPriorityFeePerGas(ctx, provider), nil
+	case "eth_feeHistory":
+		return web3FeeHistory(ctx, provider, params)
 	case "eth_getBalance":
 		query, ok := provider.(AppQueryProvider)
 		if !ok {
@@ -1313,6 +1317,8 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 			return nil, &JSONRPCError{Code: -32000, Message: response.Log}
 		}
 		return web3ReceiptObject(ctx, provider, response.Value)
+	case "eth_getBlockReceipts":
+		return web3BlockReceipts(ctx, provider, params)
 	case "eth_getTransactionByHash":
 		query, ok := provider.(AppQueryProvider)
 		if !ok {
@@ -1613,7 +1619,7 @@ func web3BlockFromRecord(record store.BlockRecord, fullTransactions bool) any {
 		"parentHash":       "0x" + hex.EncodeToString(record.Block.Header.PreviousBlockHash[:]),
 		"nonce":            "0x0000000000000000",
 		"sha3Uncles":       "0x0000000000000000000000000000000000000000000000000000000000000000",
-		"logsBloom":        "0x" + strings.Repeat("00", 256),
+		"logsBloom":        web3LogsBloom(record.Block.Txs, record.TxResults),
 		"transactionsRoot": web3TransactionsRoot(record.Block.Txs),
 		"stateRoot":        "0x" + hex.EncodeToString(record.AppHash[:]),
 		"receiptsRoot":     web3ReceiptsRoot(record.Block.Txs, record.TxResults),
@@ -1628,6 +1634,100 @@ func web3BlockFromRecord(record store.BlockRecord, fullTransactions bool) any {
 		"transactions":     transactions,
 		"uncles":           []any{},
 	}
+}
+
+func web3MaxPriorityFeePerGas(ctx context.Context, provider StatusProvider) string {
+	if query, ok := provider.(ChainQueryProvider); ok {
+		state, err := query.LatestState(ctx)
+		if err == nil && (state.BaseFee > 0 || state.NextBaseFee > 0) {
+			return hexQuantity(1)
+		}
+	}
+	return hexQuantity(0)
+}
+
+func web3FeeHistory(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
+	if len(params) < 2 || len(params) > 3 {
+		return nil, &JSONRPCError{Code: -32602, Message: "eth_feeHistory requires block count, newest block, and optional reward percentiles"}
+	}
+	blockCount, err := web3QuantityParam(params[0])
+	if err != nil || blockCount == 0 {
+		return nil, &JSONRPCError{Code: -32602, Message: "invalid fee history block count"}
+	}
+	if blockCount > 1024 {
+		blockCount = 1024
+	}
+	newest, rpcErr := web3BlockHeightParam(ctx, provider, params[1])
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	oldest := uint64(0)
+	if uint64(newest) >= blockCount {
+		oldest = uint64(newest) - blockCount + 1
+	}
+	baseFee := uint64(0)
+	if query, ok := provider.(ChainQueryProvider); ok {
+		state, err := query.LatestState(ctx)
+		if err == nil {
+			baseFee = state.BaseFee
+			if state.NextBaseFee > 0 {
+				baseFee = state.NextBaseFee
+			}
+		}
+	}
+	baseFees := make([]string, 0, blockCount+1)
+	gasUsedRatios := make([]float64, 0, blockCount)
+	for index := uint64(0); index < blockCount; index++ {
+		baseFees = append(baseFees, hexQuantity(baseFee))
+		gasUsedRatios = append(gasUsedRatios, web3BlockGasUsedRatio(ctx, provider, types.Height(oldest+index)))
+	}
+	baseFees = append(baseFees, hexQuantity(baseFee))
+	response := map[string]any{
+		"oldestBlock":   hexQuantity(oldest),
+		"baseFeePerGas": baseFees,
+		"gasUsedRatio":  gasUsedRatios,
+	}
+	if len(params) == 3 && string(params[2]) != "null" {
+		percentiles, err := web3RewardPercentiles(params[2])
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+		}
+		reward := make([][]string, 0, blockCount)
+		for range blockCount {
+			row := make([]string, len(percentiles))
+			for index := range row {
+				row[index] = web3MaxPriorityFeePerGas(ctx, provider)
+			}
+			reward = append(reward, row)
+		}
+		response["reward"] = reward
+	}
+	return response, nil
+}
+
+func web3BlockReceipts(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
+	if len(params) != 1 {
+		return nil, &JSONRPCError{Code: -32602, Message: "eth_getBlockReceipts requires block hash or block tag"}
+	}
+	record, rpcErr := web3BlockRecordParam(ctx, provider, params[0])
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	if record.Block.Header.Height == 0 {
+		return nil, nil
+	}
+	receipts := make([]any, 0, len(record.TxResults))
+	for _, result := range record.TxResults {
+		if _, ok := web3ReceiptFromResult(result); !ok {
+			continue
+		}
+		receipt, rpcErr := web3ReceiptObject(ctx, provider, result.Data)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		receipts = append(receipts, receipt)
+	}
+	return receipts, nil
 }
 
 func web3Code(ctx context.Context, provider StatusProvider, params []json.RawMessage) (string, *JSONRPCError) {
@@ -1895,7 +1995,7 @@ func web3ReceiptObject(ctx context.Context, provider StatusProvider, value []byt
 		"gasUsed":           hexQuantity(receipt.GasUsed),
 		"contractAddress":   contractAddress,
 		"logs":              logs,
-		"logsBloom":         "0x" + strings.Repeat("00", 256),
+		"logsBloom":         web3ReceiptBloom(ctx, provider, receipt),
 		"status":            hexQuantity(uint64(receipt.Status)),
 		"effectiveGasPrice": hexQuantity(web3EffectiveGasPriceFromReceipt(ctx, provider, receipt)),
 		"type":              hexQuantity(web3TransactionTypeFromReceipt(ctx, provider, receipt)),
@@ -2105,6 +2205,36 @@ func web3ReceiptsRoot(txs []types.Tx, results []types.Result) string {
 	return "0x" + hex.EncodeToString(sum)
 }
 
+func web3LogsBloom(txs []types.Tx, results []types.Result) string {
+	if bloom, ok := ethcompat.LogsBloom(txs, results); ok {
+		return bloom
+	}
+	return "0x" + strings.Repeat("00", 256)
+}
+
+func web3ReceiptBloom(ctx context.Context, provider StatusProvider, receipt web3Receipt) string {
+	blockProvider, ok := provider.(BlockProvider)
+	if !ok || receipt.Height == 0 {
+		return "0x" + strings.Repeat("00", 256)
+	}
+	record, err := blockProvider.BlockByHeight(ctx, types.Height(receipt.Height))
+	if err != nil {
+		return "0x" + strings.Repeat("00", 256)
+	}
+	for index, tx := range record.Block.Txs {
+		if index >= len(record.TxResults) {
+			break
+		}
+		if web3TxHash(tx) != receipt.TxHash {
+			continue
+		}
+		if bloom, ok := ethcompat.ReceiptBloom(tx, record.TxResults[index]); ok {
+			return bloom
+		}
+	}
+	return "0x" + strings.Repeat("00", 256)
+}
+
 func web3BlockGasUsed(results []types.Result) uint64 {
 	var total uint64
 	for _, result := range results {
@@ -2114,6 +2244,110 @@ func web3BlockGasUsed(results []types.Result) uint64 {
 		total += result.GasUsed
 	}
 	return total
+}
+
+func web3BlockGasUsedRatio(ctx context.Context, provider StatusProvider, height types.Height) float64 {
+	blockProvider, ok := provider.(BlockProvider)
+	if !ok || height == 0 {
+		return 0
+	}
+	record, err := blockProvider.BlockByHeight(ctx, height)
+	if err != nil {
+		return 0
+	}
+	if web3BlockGasUsed(record.TxResults) == 0 {
+		return 0
+	}
+	return 1
+}
+
+func web3BlockRecordParam(ctx context.Context, provider StatusProvider, raw json.RawMessage) (store.BlockRecord, *JSONRPCError) {
+	text, err := jsonRPCStringParam(raw)
+	if err != nil {
+		return store.BlockRecord{}, &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	blockProvider, ok := provider.(BlockProvider)
+	if !ok {
+		return store.BlockRecord{}, &JSONRPCError{Code: -32000, Message: "block query is unavailable"}
+	}
+	if strings.HasPrefix(text, "0x") && len(text) == 66 {
+		hash, err := parseHexHash(text)
+		if err != nil {
+			return store.BlockRecord{}, &JSONRPCError{Code: -32602, Message: "invalid block hash"}
+		}
+		record, err := blockProvider.BlockByHash(ctx, hash)
+		if errors.Is(err, store.ErrBlockNotFound) {
+			return store.BlockRecord{}, nil
+		}
+		if err != nil {
+			return store.BlockRecord{}, &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
+		return record, nil
+	}
+	height, rpcErr := web3BlockHeightParam(ctx, provider, raw)
+	if rpcErr != nil {
+		return store.BlockRecord{}, rpcErr
+	}
+	record, err := blockProvider.BlockByHeight(ctx, height)
+	if errors.Is(err, store.ErrBlockNotFound) {
+		return store.BlockRecord{}, nil
+	}
+	if err != nil {
+		return store.BlockRecord{}, &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	return record, nil
+}
+
+func web3BlockHeightParam(ctx context.Context, provider StatusProvider, raw json.RawMessage) (types.Height, *JSONRPCError) {
+	text, err := jsonRPCStringParam(raw)
+	if err != nil {
+		return 0, &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	switch text {
+	case "latest", "pending":
+		return provider.Status(ctx).LatestHeight, nil
+	case "earliest":
+		query, ok := provider.(ChainQueryProvider)
+		if !ok {
+			return 0, &JSONRPCError{Code: -32000, Message: "block index query is unavailable"}
+		}
+		index, err := query.BlockIndex(ctx)
+		if err != nil {
+			return 0, &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
+		return index.EarliestHeight, nil
+	default:
+		height, err := parseHexQuantity(text)
+		if err != nil {
+			return 0, &JSONRPCError{Code: -32602, Message: "invalid block tag"}
+		}
+		return types.Height(height), nil
+	}
+}
+
+func web3QuantityParam(raw json.RawMessage) (uint64, error) {
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return parseHexQuantity(text)
+	}
+	var value uint64
+	if err := json.Unmarshal(raw, &value); err == nil {
+		return value, nil
+	}
+	return 0, fmt.Errorf("quantity parameter is required")
+}
+
+func web3RewardPercentiles(raw json.RawMessage) ([]float64, error) {
+	var percentiles []float64
+	if err := json.Unmarshal(raw, &percentiles); err != nil {
+		return nil, fmt.Errorf("invalid reward percentiles")
+	}
+	for _, percentile := range percentiles {
+		if percentile < 0 || percentile > 100 {
+			return nil, fmt.Errorf("reward percentile out of range")
+		}
+	}
+	return percentiles, nil
 }
 
 func evmCallParam(params []json.RawMessage) (web3CallRequest, *JSONRPCError) {

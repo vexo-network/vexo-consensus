@@ -25,6 +25,7 @@ const (
 	TagType                 = "eth_type"
 	TagInput                = "eth_input"
 	TagChainID              = "eth_chain_id"
+	TagBaseFee              = "eth_base_fee"
 	TagGasPrice             = "eth_gas_price"
 	TagMaxFeePerGas         = "eth_max_fee_per_gas"
 	TagMaxPriorityFeePerGas = "eth_max_priority_fee_per_gas"
@@ -128,6 +129,7 @@ func DecodeRawTransaction(rawHex string, options DecodeOptions) (DecodedTransact
 		TagType:                 strconv.FormatUint(uint64(ethTx.Type()), 10),
 		TagInput:                input,
 		TagChainID:              strconv.FormatUint(chainID, 10),
+		TagBaseFee:              strconv.FormatUint(options.BaseFee, 10),
 		TagGasPrice:             strconv.FormatUint(gasPrice, 10),
 		TagMaxFeePerGas:         strconv.FormatUint(maxFee, 10),
 		TagMaxPriorityFeePerGas: strconv.FormatUint(maxPriority, 10),

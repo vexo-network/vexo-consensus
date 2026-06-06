@@ -3,6 +3,7 @@ package bank
 import (
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -163,9 +164,12 @@ func Balance(ctx context.Context, store vexoapp.StateStore, address types.Addres
 	if store == nil {
 		return 0, errors.New("missing bank store")
 	}
-	value, err := store.Get(ctx, ModuleName, []byte(address))
+	value, err := store.Get(ctx, ModuleName, balanceKey(address))
 	if errors.Is(err, vexostore.ErrKeyNotFound) {
-		return 0, nil
+		value, err = store.Get(ctx, ModuleName, []byte(address))
+		if errors.Is(err, vexostore.ErrKeyNotFound) {
+			return 0, nil
+		}
 	}
 	if err != nil {
 		return 0, err
@@ -213,8 +217,8 @@ func send(ctx context.Context, store vexoapp.StateStore, from types.Address, to 
 	}
 	if batchStore, ok := store.(kvbatch.BatchKVStore); ok {
 		return batchStore.SetBatch(ctx, []kvbatch.KVWrite{
-			{Namespace: ModuleName, Key: []byte(from), Value: encodeBalance(fromBalance - amount)},
-			{Namespace: ModuleName, Key: []byte(to), Value: encodeBalance(toBalance + amount)},
+			{Namespace: ModuleName, Key: balanceKey(from), Value: encodeBalance(fromBalance - amount)},
+			{Namespace: ModuleName, Key: balanceKey(to), Value: encodeBalance(toBalance + amount)},
 		})
 	}
 	if err := setBalance(ctx, store, from, fromBalance-amount); err != nil {
@@ -224,13 +228,28 @@ func send(ctx context.Context, store vexoapp.StateStore, from types.Address, to 
 }
 
 func setBalance(ctx context.Context, store vexoapp.StateStore, address types.Address, balance uint64) error {
-	return store.Set(ctx, ModuleName, []byte(address), encodeBalance(balance))
+	return store.Set(ctx, ModuleName, balanceKey(address), encodeBalance(balance))
 }
 
 func encodeBalance(balance uint64) []byte {
 	encoded := make([]byte, 8)
 	binary.BigEndian.PutUint64(encoded, balance)
 	return encoded
+}
+
+func balanceKey(address types.Address) []byte {
+	raw := string(address)
+	clean := strings.TrimPrefix(raw, "0x")
+	if len(clean)%2 == 1 {
+		clean = "0" + clean
+	}
+	decoded, err := hex.DecodeString(clean)
+	if err != nil || len(decoded) > 20 || !strings.HasPrefix(raw, "0x") {
+		return []byte(address)
+	}
+	padded := make([]byte, 20)
+	copy(padded[20-len(decoded):], decoded)
+	return []byte("0x" + hex.EncodeToString(padded))
 }
 
 func parseAmount(value string) (uint64, error) {

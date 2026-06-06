@@ -43,6 +43,8 @@ The built-in human-readable prefixes are:
 Signed transactions that include `signer=<address>` must use the `vexo` address derived from the
 envelope public key. A signed transaction with a mismatched signer address is invalid.
 
+The EVM/Web3 bridge also accepts Ethereum `0x` account addresses for Ethereum raw transactions and EVM module calls. Those 20-byte hex addresses are normalized to lowercase storage keys for bank balance reads/writes, while Web3 responses may preserve checksum address text returned by go-ethereum.
+
 ## Signed Envelope
 
 Signed transactions use an envelope over the raw payload:

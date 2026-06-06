@@ -43,25 +43,54 @@ func TransactionRoot(txs []types.Tx) (string, bool) {
 }
 
 func ReceiptRoot(txs []types.Tx, results []types.Result) (string, bool) {
+	receipts, ok := Receipts(txs, results)
+	if !ok {
+		return "", false
+	}
+	root := gethtypes.DeriveSha(receipts, trie.NewStackTrie(nil))
+	return root.Hex(), true
+}
+
+func Receipts(txs []types.Tx, results []types.Result) (gethtypes.Receipts, bool) {
 	if len(results) == 0 {
-		root := gethtypes.DeriveSha(gethtypes.Receipts{}, trie.NewStackTrie(nil))
-		return root.Hex(), true
+		return gethtypes.Receipts{}, true
 	}
 	if len(txs) < len(results) {
-		return "", false
+		return nil, false
 	}
 	receipts := make(gethtypes.Receipts, 0, len(results))
 	var cumulativeGas uint64
 	for index, result := range results {
 		receipt, ok := receiptFromResult(txs[index], result, cumulativeGas)
 		if !ok {
-			return "", false
+			return nil, false
 		}
 		cumulativeGas = receipt.CumulativeGasUsed
 		receipts = append(receipts, receipt)
 	}
-	root := gethtypes.DeriveSha(receipts, trie.NewStackTrie(nil))
-	return root.Hex(), true
+	return receipts, true
+}
+
+func LogsBloom(txs []types.Tx, results []types.Result) (string, bool) {
+	receipts, ok := Receipts(txs, results)
+	if !ok {
+		return "", false
+	}
+	var bloom gethtypes.Bloom
+	for _, receipt := range receipts {
+		for index := range bloom {
+			bloom[index] |= receipt.Bloom[index]
+		}
+	}
+	return "0x" + hex.EncodeToString(bloom[:]), true
+}
+
+func ReceiptBloom(tx types.Tx, result types.Result) (string, bool) {
+	receipt, ok := receiptFromResult(tx, result, 0)
+	if !ok {
+		return "", false
+	}
+	return "0x" + hex.EncodeToString(receipt.Bloom[:]), true
 }
 
 func rawTransactionFromCanonical(tx types.Tx) (*gethtypes.Transaction, bool) {
