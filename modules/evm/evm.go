@@ -14,6 +14,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/contract"
 	"github.com/vexo-network/vexo-consensus/events"
 	gethbackend "github.com/vexo-network/vexo-consensus/modules/evm/backend/geth"
+	"github.com/vexo-network/vexo-consensus/modules/evm/ethcompat"
 	vexostore "github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"golang.org/x/crypto/sha3"
@@ -125,6 +126,9 @@ func (module Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 	}
 	switch canonical.Action {
 	case "call":
+		if err := validateEthereumRawTx(ctx, tx); err != nil {
+			return types.Result{Code: 3, Log: err.Error()}
+		}
 		if err := ctx.ConsumeGas(callGasCost); err != nil {
 			return types.Result{Code: 6, Log: err.Error()}
 		}
@@ -134,6 +138,14 @@ func (module Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 			return types.Result{Code: 6, Log: err.Error()}
 		}
 		return module.deliverDeploy(ctx, tx, canonical.Args)
+	case "eth_deploy":
+		if err := validateEthereumRawTx(ctx, tx); err != nil {
+			return types.Result{Code: 3, Log: err.Error()}
+		}
+		if err := ctx.ConsumeGas(deployGasCost); err != nil {
+			return types.Result{Code: 6, Log: err.Error()}
+		}
+		return module.deliverEthereumDeploy(ctx, tx, canonical.Args)
 	default:
 		return types.Result{Code: 2, Log: ErrInvalidEVMTx.Error()}
 	}
@@ -149,7 +161,7 @@ func (Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
 	switch canonical.Action {
 	case "call":
 		return callGasCost, nil
-	case "deploy":
+	case "deploy", "eth_deploy":
 		return deployGasCost, nil
 	default:
 		return 0, ErrInvalidEVMTx
@@ -331,6 +343,60 @@ func (module Module) deliverDeploy(ctx vexoapp.Context, tx types.Tx, args []stri
 	return types.Result{Data: encoded, GasUsed: result.GasUsed}
 }
 
+func (module Module) deliverEthereumDeploy(ctx vexoapp.Context, tx types.Tx, args []string) types.Result {
+	if len(args) != 5 {
+		return types.Result{Code: 3, Log: ErrInvalidEVMTx.Error()}
+	}
+	code, err := hex.DecodeString(strings.TrimPrefix(args[2], "0x"))
+	if err != nil || len(code) == 0 {
+		return types.Result{Code: 3, Log: ErrInvalidEVMTx.Error()}
+	}
+	nonce, err := strconv.ParseUint(args[3], 10, 64)
+	if err != nil {
+		return types.Result{Code: 3, Log: ErrInvalidEVMTx.Error()}
+	}
+	value, err := strconv.ParseUint(args[4], 10, 64)
+	if err != nil {
+		return types.Result{Code: 3, Log: ErrInvalidEVMTx.Error()}
+	}
+	contractAddress := createLegacyAddress(types.Address(args[1]), nonce)
+	invocation := contract.Invocation{
+		VM:          args[0],
+		Caller:      types.Address(args[1]),
+		Contract:    contractAddress,
+		Method:      "deploy",
+		Input:       code,
+		GasLimit:    ctx.GasLimit(),
+		Value:       value,
+		State:       evmStateReader{store: ctx.Store},
+		BlockNumber: uint64(ctx.Height),
+		Timestamp:   headerUnixSeconds(ctx.Header),
+	}
+	result, err := module.registry.Execute(ctx.GoContext(), invocation)
+	if err != nil {
+		return types.Result{Code: 4, Log: err.Error()}
+	}
+	deployedCode := result.DeployedCode
+	if len(deployedCode) == 0 {
+		deployedCode = code
+	}
+	if err := ctx.Store.Set(ctx.GoContext(), ModuleName, codeKey(contractAddress), deployedCode); err != nil {
+		return types.Result{Code: 4, Log: err.Error()}
+	}
+	if err := persistStorageWrites(ctx.GoContext(), ctx.Store, invocation.Contract, result.StorageWrites); err != nil {
+		return types.Result{Code: 4, Log: err.Error()}
+	}
+	receipt := receiptFromResult(tx, ctx.Height, invocation, string(contractAddress), result)
+	if err := persistReceipt(ctx.GoContext(), ctx.Store, receipt); err != nil {
+		return types.Result{Code: 4, Log: err.Error()}
+	}
+	encoded, err := json.Marshal(receipt)
+	if err != nil {
+		return types.Result{Code: 4, Log: err.Error()}
+	}
+	return types.Result{Data: encoded, GasUsed: result.GasUsed}
+}
+
 func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryResponse {
 	if module.registry == nil {
 		return vexoapp.QueryResponse{Code: 1, Log: ErrVMRegistryEmpty.Error()}
@@ -417,12 +483,14 @@ func receiptFromResult(tx types.Tx, height types.Height, invocation contract.Inv
 		Height:          uint64(height),
 		Status:          1,
 		From:            string(invocation.Caller),
-		To:              string(invocation.Contract),
 		ContractAddress: contractAddress,
 		VM:              invocation.VM,
 		GasUsed:         result.GasUsed,
 		Output:          "0x" + hex.EncodeToString(result.Output),
 		Logs:            make([]Log, 0, len(result.Logs)),
+	}
+	if contractAddress == "" {
+		receipt.To = string(invocation.Contract)
 	}
 	for index, log := range result.Logs {
 		receipt.Logs = append(receipt.Logs, Log{
@@ -543,7 +611,53 @@ func createAddress(caller types.Address, code []byte, salt [32]byte) types.Addre
 	return types.Address("0x" + hex.EncodeToString(final[12:]))
 }
 
+func createLegacyAddress(caller types.Address, nonce uint64) types.Address {
+	final := keccak256(rlpLegacyCreateAddress(addressBytes(caller), nonce))
+	return types.Address("0x" + hex.EncodeToString(final[12:]))
+}
+
+func rlpLegacyCreateAddress(address []byte, nonce uint64) []byte {
+	address = rightMost20(address)
+	noncePayload := rlpEncodeUint(nonce)
+	payloadLen := 1 + len(address) + len(noncePayload)
+	encoded := make([]byte, 0, 1+payloadLen)
+	encoded = append(encoded, byte(0xc0+payloadLen))
+	encoded = append(encoded, byte(0x80+len(address)))
+	encoded = append(encoded, address...)
+	encoded = append(encoded, noncePayload...)
+	return encoded
+}
+
+func rlpEncodeUint(value uint64) []byte {
+	if value == 0 {
+		return []byte{0x80}
+	}
+	raw := make([]byte, 8)
+	for index := len(raw) - 1; index >= 0; index-- {
+		raw[index] = byte(value)
+		value >>= 8
+	}
+	raw = trimLeftZero(raw)
+	if len(raw) == 1 && raw[0] < 0x80 {
+		return raw
+	}
+	encoded := make([]byte, 0, 1+len(raw))
+	encoded = append(encoded, byte(0x80+len(raw)))
+	encoded = append(encoded, raw...)
+	return encoded
+}
+
+func trimLeftZero(value []byte) []byte {
+	for len(value) > 0 && value[0] == 0 {
+		value = value[1:]
+	}
+	return value
+}
+
 func txHash(tx types.Tx) string {
+	if hash, found := vexoapp.TxTag(tx, ethcompat.TagHash); found && hash != "" {
+		return hash
+	}
 	hash := sha256.Sum256(tx)
 	return "0x" + hex.EncodeToString(hash[:])
 }
@@ -672,6 +786,18 @@ func addressBytes(address types.Address) []byte {
 	return hash[12:]
 }
 
+func rightMost20(raw []byte) []byte {
+	if len(raw) > 20 {
+		return raw[len(raw)-20:]
+	}
+	if len(raw) == 20 {
+		return raw
+	}
+	padded := make([]byte, 20)
+	copy(padded[20-len(raw):], raw)
+	return padded
+}
+
 func canonicalAddressKey(address types.Address) string {
 	raw := string(address)
 	clean := strings.TrimPrefix(raw, "0x")
@@ -718,4 +844,11 @@ func cloneMap(value map[string]string) map[string]string {
 		cloned[key] = item
 	}
 	return cloned
+}
+
+func validateEthereumRawTx(ctx vexoapp.Context, tx types.Tx) error {
+	if !ethcompat.IsEthereumTx(tx) {
+		return nil
+	}
+	return ethcompat.ValidateCanonicalTx(tx, ethcompat.ChainNumericID(ctx.ChainID))
 }

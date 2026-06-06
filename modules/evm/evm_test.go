@@ -2,12 +2,17 @@ package evm
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
+	"math/big"
 	"strings"
 	"testing"
 
+	gethtypes "github.com/ethereum/go-ethereum/core/types"
+	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/contract"
+	"github.com/vexo-network/vexo-consensus/modules/evm/ethcompat"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -181,4 +186,66 @@ func TestDefaultModulePersistsGethEVMStorageWrites(t *testing.T) {
 	if storageQuery.Code != 0 || !strings.Contains(string(storageQuery.Value), `"value":"0x0000000000000000000000000000000000000000000000000000000000000001"`) {
 		t.Fatalf("expected EVM SSTORE value, got %+v", storageQuery)
 	}
+}
+
+func TestDefaultModuleExecutesEthereumRawContractCreation(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	ctx := vexoapp.Context{Ctx: context.Background(), ChainID: "vexo-chain", Height: 9, Store: storage}
+
+	initCode := "600a600c600039600a6000f3602a60005260206000f3"
+	rawTx := signedEthereumCreateTx(t, ethcompat.ChainNumericID("vexo-chain"), initCode)
+	decoded, err := ethcompat.DecodeRawTransaction(rawTx, ethcompat.DecodeOptions{ChainID: ethcompat.ChainNumericID("vexo-chain")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := module.DeliverTx(ctx, decoded.Tx)
+	if result.Code != 0 {
+		t.Fatalf("ethereum deploy failed: %+v", result)
+	}
+	var receipt Receipt
+	if err := json.Unmarshal(result.Data, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.TxHash != decoded.Hash || receipt.To != "" || !strings.EqualFold(receipt.ContractAddress, string(decoded.ContractAddress)) {
+		t.Fatalf("unexpected ethereum deploy receipt: %+v decoded=%+v", receipt, decoded)
+	}
+	codeQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"code", receipt.ContractAddress}})
+	if codeQuery.Code != 0 || !strings.Contains(string(codeQuery.Value), `"code":"602a60005260206000f3"`) {
+		t.Fatalf("expected Ethereum-created runtime code, got %+v", codeQuery)
+	}
+}
+
+func signedEthereumCreateTx(t *testing.T, chainID uint64, initCode string) string {
+	t.Helper()
+	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := hex.DecodeString(initCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx := gethtypes.NewTx(&gethtypes.DynamicFeeTx{
+		ChainID:   new(big.Int).SetUint64(chainID),
+		Nonce:     2,
+		GasTipCap: big.NewInt(1),
+		GasFeeCap: big.NewInt(1),
+		Gas:       100_000,
+		Value:     big.NewInt(0),
+		Data:      data,
+	})
+	signed, err := gethtypes.SignTx(tx, gethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "0x" + hex.EncodeToString(raw)
 }

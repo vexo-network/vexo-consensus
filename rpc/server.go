@@ -20,6 +20,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/finality"
 	ibckeeper "github.com/vexo-network/vexo-consensus/ibc"
 	"github.com/vexo-network/vexo-consensus/mempool"
+	"github.com/vexo-network/vexo-consensus/modules/evm/ethcompat"
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/queryproof"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
@@ -1268,15 +1269,27 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		if err != nil {
 			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
 		}
-		tx, err := hexBytes(rawTx)
-		if err != nil || len(tx) == 0 {
-			return nil, &JSONRPCError{Code: -32602, Message: "invalid raw transaction hex"}
+		baseFee := uint64(0)
+		if query, ok := provider.(ChainQueryProvider); ok {
+			if state, err := query.LatestState(ctx); err == nil {
+				baseFee = state.BaseFee
+				if state.NextBaseFee > 0 {
+					baseFee = state.NextBaseFee
+				}
+			}
 		}
-		if err := submitter.SubmitTx(ctx, types.Tx(tx)); err != nil {
+		decoded, err := ethcompat.DecodeRawTransaction(rawTx, ethcompat.DecodeOptions{
+			ChainID: chainNumericID(provider.Status(ctx).ChainID),
+			BaseFee: baseFee,
+			VM:      "evm",
+		})
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+		}
+		if err := submitter.SubmitTx(ctx, decoded.Tx); err != nil {
 			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
 		}
-		hash := mempool.HashTx(types.Tx(tx))
-		return "0x" + hex.EncodeToString(hash[:]), nil
+		return decoded.Hash, nil
 	case "eth_getTransactionReceipt":
 		query, ok := provider.(AppQueryProvider)
 		if !ok {
@@ -1587,8 +1600,7 @@ func web3BlockFromRecord(record store.BlockRecord, fullTransactions bool) any {
 	}
 	transactions := make([]any, 0, len(record.Block.Txs))
 	for index, tx := range record.Block.Txs {
-		hash := mempool.HashTx(tx)
-		hashText := "0x" + hex.EncodeToString(hash[:])
+		hashText := web3TxHash(tx)
 		if !fullTransactions {
 			transactions = append(transactions, hashText)
 			continue
@@ -1825,8 +1837,10 @@ func web3TransactionFromReceipt(ctx context.Context, provider StatusProvider, va
 	}
 	blockHash, txIndex, tx, foundTx := web3ReceiptBlockLocation(ctx, provider, receipt)
 	gasPrice := uint64(0)
+	details := web3TxDetails{Nonce: 0, Gas: receipt.GasUsed, GasPrice: 0, Value: 0, Input: receipt.Output}
 	if foundTx {
 		gasPrice = web3EffectiveGasPrice(tx)
+		details = web3TransactionDetails(tx)
 	}
 	to := receipt.To
 	if to == "" && receipt.ContractAddress != "" {
@@ -1834,16 +1848,18 @@ func web3TransactionFromReceipt(ctx context.Context, provider StatusProvider, va
 	}
 	return map[string]any{
 		"hash":             receipt.TxHash,
-		"nonce":            "0x0",
+		"nonce":            hexQuantity(details.Nonce),
 		"blockHash":        blockHash,
 		"blockNumber":      hexQuantity(receipt.Height),
 		"transactionIndex": hexQuantity(txIndex),
 		"from":             receipt.From,
 		"to":               to,
-		"value":            "0x0",
-		"gas":              hexQuantity(receipt.GasUsed),
+		"value":            hexQuantity(details.Value),
+		"gas":              hexQuantity(details.Gas),
 		"gasPrice":         hexQuantity(gasPrice),
-		"input":            receipt.Output,
+		"input":            details.Input,
+		"type":             hexQuantity(details.Type),
+		"chainId":          hexQuantity(details.ChainID),
 	}, nil
 }
 
@@ -1881,22 +1897,33 @@ func web3ReceiptObject(ctx context.Context, provider StatusProvider, value []byt
 		"logs":              logs,
 		"logsBloom":         "0x" + strings.Repeat("00", 256),
 		"status":            hexQuantity(uint64(receipt.Status)),
+		"effectiveGasPrice": hexQuantity(web3EffectiveGasPriceFromReceipt(ctx, provider, receipt)),
+		"type":              hexQuantity(web3TransactionTypeFromReceipt(ctx, provider, receipt)),
 	}, nil
 }
 
 func web3TransactionFromBlockRecord(record store.BlockRecord, index int, hashText string, tx types.Tx) any {
+	details := web3TransactionDetails(tx)
 	transaction := map[string]any{
 		"hash":             hashText,
-		"nonce":            "0x0",
+		"nonce":            hexQuantity(details.Nonce),
 		"blockHash":        "0x" + hex.EncodeToString(record.Hash[:]),
 		"blockNumber":      hexQuantity(uint64(record.Block.Header.Height)),
 		"transactionIndex": hexQuantity(uint64(index)),
-		"from":             nil,
-		"to":               nil,
-		"value":            "0x0",
-		"gas":              "0x0",
-		"gasPrice":         hexQuantity(web3EffectiveGasPrice(tx)),
-		"input":            "0x" + hex.EncodeToString(tx),
+		"from":             details.From,
+		"to":               details.To,
+		"value":            hexQuantity(details.Value),
+		"gas":              hexQuantity(details.Gas),
+		"gasPrice":         hexQuantity(details.GasPrice),
+		"input":            details.Input,
+		"type":             hexQuantity(details.Type),
+		"chainId":          hexQuantity(details.ChainID),
+	}
+	if details.MaxFeePerGas > 0 {
+		transaction["maxFeePerGas"] = hexQuantity(details.MaxFeePerGas)
+	}
+	if details.MaxPriorityFeePerGas > 0 {
+		transaction["maxPriorityFeePerGas"] = hexQuantity(details.MaxPriorityFeePerGas)
 	}
 	if index >= len(record.TxResults) {
 		return transaction
@@ -1913,16 +1940,98 @@ func web3TransactionFromBlockRecord(record store.BlockRecord, index int, hashTex
 	transaction["from"] = receipt.From
 	transaction["to"] = to
 	transaction["gas"] = hexQuantity(receipt.GasUsed)
-	transaction["input"] = receipt.Output
 	return transaction
 }
 
 func web3EffectiveGasPrice(tx types.Tx) uint64 {
+	if gasPrice, found := vexoapp.TxUintTag(tx, ethcompat.TagGasPrice); found {
+		return gasPrice
+	}
 	meta := vexoapp.ParseTxMeta(tx)
 	if meta.Fee == 0 || meta.Gas == 0 {
 		return 0
 	}
 	return meta.Fee / meta.Gas
+}
+
+type web3TxDetails struct {
+	From                 any
+	To                   any
+	Input                string
+	Nonce                uint64
+	Gas                  uint64
+	GasPrice             uint64
+	MaxFeePerGas         uint64
+	MaxPriorityFeePerGas uint64
+	Value                uint64
+	Type                 uint64
+	ChainID              uint64
+}
+
+func web3TransactionDetails(tx types.Tx) web3TxDetails {
+	meta := vexoapp.ParseTxMeta(tx)
+	details := web3TxDetails{
+		From:     nil,
+		To:       nil,
+		Input:    "0x" + hex.EncodeToString(tx),
+		Nonce:    meta.Nonce,
+		Gas:      meta.Gas,
+		GasPrice: web3EffectiveGasPrice(tx),
+		Type:     0,
+	}
+	if meta.Signer != "" {
+		details.From = string(meta.Signer)
+	}
+	if chainID, found := vexoapp.TxUintTag(tx, ethcompat.TagChainID); found {
+		details.ChainID = chainID
+	}
+	if txType, found := vexoapp.TxUintTag(tx, ethcompat.TagType); found {
+		details.Type = txType
+	}
+	if maxFee, found := vexoapp.TxUintTag(tx, ethcompat.TagMaxFeePerGas); found {
+		details.MaxFeePerGas = maxFee
+	}
+	if maxPriority, found := vexoapp.TxUintTag(tx, ethcompat.TagMaxPriorityFeePerGas); found {
+		details.MaxPriorityFeePerGas = maxPriority
+	}
+	if input, found := vexoapp.TxTag(tx, ethcompat.TagInput); found && input != "" {
+		details.Input = "0x" + strings.TrimPrefix(input, "0x")
+	}
+	canonical, err := vexoapp.ParseCanonicalTx(tx)
+	if err != nil {
+		return details
+	}
+	switch canonical.Action {
+	case "call":
+		if len(canonical.Args) >= 7 {
+			details.To = canonical.Args[2]
+			if details.Input == "" || details.Input == "0x" {
+				details.Input = "0x" + strings.TrimPrefix(canonical.Args[4], "0x")
+			}
+			if value, err := strconv.ParseUint(canonical.Args[6], 10, 64); err == nil {
+				details.Value = value
+			}
+		}
+	case "deploy", "eth_deploy":
+		if len(canonical.Args) >= 5 {
+			details.To = nil
+			if details.Input == "" || details.Input == "0x" {
+				details.Input = "0x" + strings.TrimPrefix(canonical.Args[2], "0x")
+			}
+			if value, err := strconv.ParseUint(canonical.Args[4], 10, 64); err == nil {
+				details.Value = value
+			}
+		}
+	}
+	return details
+}
+
+func web3TxHash(tx types.Tx) string {
+	if hash, found := vexoapp.TxTag(tx, ethcompat.TagHash); found && hash != "" {
+		return hash
+	}
+	hash := mempool.HashTx(tx)
+	return "0x" + hex.EncodeToString(hash[:])
 }
 
 func web3ReceiptFromResult(result types.Result) (web3Receipt, bool) {
@@ -1936,6 +2045,25 @@ func web3ReceiptFromResult(result types.Result) (web3Receipt, bool) {
 	return receipt, true
 }
 
+func web3EffectiveGasPriceFromReceipt(ctx context.Context, provider StatusProvider, receipt web3Receipt) uint64 {
+	_, _, tx, found := web3ReceiptBlockLocation(ctx, provider, receipt)
+	if !found {
+		return 0
+	}
+	return web3EffectiveGasPrice(tx)
+}
+
+func web3TransactionTypeFromReceipt(ctx context.Context, provider StatusProvider, receipt web3Receipt) uint64 {
+	_, _, tx, found := web3ReceiptBlockLocation(ctx, provider, receipt)
+	if !found {
+		return 0
+	}
+	if txType, ok := vexoapp.TxUintTag(tx, ethcompat.TagType); ok {
+		return txType
+	}
+	return 0
+}
+
 func web3ReceiptBlockLocation(ctx context.Context, provider StatusProvider, receipt web3Receipt) (any, uint64, types.Tx, bool) {
 	blockProvider, ok := provider.(BlockProvider)
 	if !ok || receipt.Height == 0 {
@@ -1946,8 +2074,7 @@ func web3ReceiptBlockLocation(ctx context.Context, provider StatusProvider, rece
 		return nil, 0, nil, false
 	}
 	for index, tx := range record.Block.Txs {
-		hash := mempool.HashTx(tx)
-		if "0x"+hex.EncodeToString(hash[:]) == receipt.TxHash {
+		if web3TxHash(tx) == receipt.TxHash {
 			return "0x" + hex.EncodeToString(record.Hash[:]), uint64(index), append(types.Tx(nil), tx...), true
 		}
 	}
@@ -2205,8 +2332,7 @@ func web3TransactionsRoot(txs []types.Tx) string {
 	}
 	hasher := sha256.New()
 	for _, tx := range txs {
-		hash := mempool.HashTx(tx)
-		_, _ = hasher.Write(hash[:])
+		_, _ = hasher.Write([]byte(web3TxHash(tx)))
 	}
 	return "0x" + hex.EncodeToString(hasher.Sum(nil))
 }

@@ -250,6 +250,7 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"web3_prefix_log_index":                   true,
 			"web3_filter_limit":                       true,
 			"evm_geth_vm_adapter":                     true,
+			"evm_ethereum_raw_tx":                     true,
 			"evm_storage_writes":                      true,
 			"validator_update_atomic_commit":          true,
 			"staking_slashing_ledger":                 true,

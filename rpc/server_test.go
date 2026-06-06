@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,9 @@ import (
 	"testing"
 	"time"
 
+	gethcommon "github.com/ethereum/go-ethereum/common"
+	gethtypes "github.com/ethereum/go-ethereum/core/types"
+	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/consensus"
@@ -771,11 +775,12 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	}
 
 	var sendRaw JSONRPCResponse
-	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":2,"method":"eth_sendRawTransaction","params":["0x62616e6b3a73656e64"]}`, http.StatusOK, &sendRaw)
-	if sendRaw.Error != nil || len(provider.submitted) != 1 || string(provider.submitted[0]) != "bank:send" {
+	rawEthTx, rawEthHash := signedTestEthereumTx(t, chainNumericID("vexo-chain"))
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":2,"method":"eth_sendRawTransaction","params":["`+rawEthTx+`"]}`, http.StatusOK, &sendRaw)
+	if sendRaw.Error != nil || len(provider.submitted) != 1 || !strings.HasPrefix(string(provider.submitted[0]), "evm:call:evm:") || !strings.Contains(string(provider.submitted[0]), "eth_hash="+rawEthHash) {
 		t.Fatalf("unexpected sendRaw response=%+v submitted=%q", sendRaw, provider.submitted)
 	}
-	if result, ok := sendRaw.Result.(string); !ok || !strings.HasPrefix(result, "0x") {
+	if result, ok := sendRaw.Result.(string); !ok || result != rawEthHash {
 		t.Fatalf("expected tx hash result, got %+v", sendRaw.Result)
 	}
 
@@ -2424,6 +2429,34 @@ func postJSONWithToken(t *testing.T, handler http.Handler, path string, body str
 		headers["Authorization"] = "Bearer " + token
 	}
 	requestJSONWithHeaders(t, handler, http.MethodPost, path, body, "192.0.2.1:1234", headers, expectedStatus, value)
+}
+
+func signedTestEthereumTx(t *testing.T, chainID uint64) (string, string) {
+	t.Helper()
+	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := gethcommon.HexToAddress("0x000000000000000000000000000000000000bEEF")
+	tx := gethtypes.NewTx(&gethtypes.DynamicFeeTx{
+		ChainID:   new(big.Int).SetUint64(chainID),
+		Nonce:     7,
+		GasTipCap: big.NewInt(2),
+		GasFeeCap: big.NewInt(20),
+		Gas:       21_000,
+		To:        &to,
+		Value:     big.NewInt(3),
+		Data:      []byte{0x12, 0x34},
+	})
+	signed, err := gethtypes.SignTx(tx, gethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "0x" + hex.EncodeToString(raw), signed.Hash().Hex()
 }
 
 func requestJSON(t *testing.T, handler http.Handler, method string, path string, body string, remoteAddr string, expectedStatus int, value any) {

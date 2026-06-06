@@ -235,6 +235,11 @@ func (keeper AnteKeeper) collectFee(ctx context.Context, store StateStore, meta 
 
 func (keeper AnteKeeper) verifySignature(ctx Context, tx types.Tx) error {
 	if !IsSignedTx(tx) {
+		if _, found := TxTag(tx, "eth_raw"); found {
+			if _, hashFound := TxTag(tx, "eth_hash"); hashFound {
+				return nil
+			}
+		}
 		if keeper.config.RequireSigned {
 			return ErrInvalidSignedTx
 		}
