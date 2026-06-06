@@ -485,10 +485,11 @@ func TestRunReleasePackIncludesEvidenceFiles(t *testing.T) {
 	longrun := filepath.Join(dist, "longrun-evidence.json")
 	adversarial := filepath.Join(dist, "adversarial-evidence.json")
 	fuzz := filepath.Join(dist, "fuzz-evidence.txt")
-	for _, path := range []string{longrun, adversarial} {
-		if err := os.WriteFile(path, []byte(`{"ok":true,"checks":[{"ok":true,"name":"evidence"}]}`), 0o644); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.WriteFile(longrun, releaseEvidenceFixture("longrun-evidence.json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(adversarial, releaseEvidenceFixture("adversarial-evidence.json"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.WriteFile(fuzz, []byte("fuzz evidence passed"), 0o644); err != nil {
 		t.Fatal(err)
@@ -651,14 +652,7 @@ func TestRunReleaseGatePassesWithEvidence(t *testing.T) {
 		"bls-audit.pdf",
 	}
 	for _, name := range required {
-		content := []byte(name + " evidence")
-		if strings.HasSuffix(name, ".json") {
-			content = []byte(`{"ok":true,"checks":[{"ok":true,"name":"` + name + `"}]}`)
-		}
-		if strings.HasSuffix(name, ".txt") {
-			content = []byte("fuzz evidence passed")
-		}
-		if err := os.WriteFile(filepath.Join(dist, name), content, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dist, name), releaseEvidenceFixture(name), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -712,6 +706,39 @@ func releaseReadinessCheckOK(checks []releasegate.Check, name string) bool {
 		}
 	}
 	return false
+}
+
+func releaseEvidenceFixture(name string) []byte {
+	summary := map[string]string{
+		"longrun-evidence.json":                 "longrun duration height validator soak evidence passed",
+		"adversarial-evidence.json":             "adversarial consensus simulation partition evidence passed",
+		"chaos-evidence.json":                   "chaos fault partition restart evidence passed",
+		"kms-evidence.json":                     "kms signer policy double-sign guard evidence passed",
+		"snapshot-replay-evidence.json":         "snapshot replay restore consistency evidence passed",
+		"p2p-scale-evidence.json":               "p2p peer scale discovery reconnect backpressure evidence passed",
+		"state-sync-light-client-evidence.json": "state-sync light-client finality proof evidence passed",
+		"validator-economics-evidence.json":     "validator slashing reward commission unbonding evidence passed",
+		"upgrade-governance-evidence.json":      "upgrade governance migration rollback halt evidence passed",
+		"mev-fee-market-evidence.json":          "mev fee market fair mempool ordering evidence passed",
+		"ops-runbook-evidence.json":             "ops runbook alert incident metrics evidence passed",
+		"formal-safety-evidence.json":           "safety invariant adversarial property proof evidence passed",
+		"sdk-conformance-evidence.json":         "sdk api conformance module rpc storage crypto transport evidence passed",
+	}
+	switch {
+	case name == "fuzz-evidence.txt":
+		return []byte("fuzz property evidence passed")
+	case name == "external-audit.pdf":
+		return []byte("external security audit disposition evidence passed")
+	case name == "bls-audit.pdf":
+		return []byte("bls adapter audit dependency subgroup rogue-key evidence passed")
+	case strings.HasSuffix(name, ".json"):
+		if value, ok := summary[name]; ok {
+			return []byte(`{"ok":true,"summary":"` + value + `","checks":[{"ok":true,"name":"` + name + `"}]}`)
+		}
+		return []byte(`{"ok":true,"name":"` + name + `"}`)
+	default:
+		return []byte(name)
+	}
 }
 
 func TestRunProofVerifyCommand(t *testing.T) {

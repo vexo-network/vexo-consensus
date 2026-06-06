@@ -275,6 +275,7 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"ops_structured_logs":                     true,
 			"ops_release_artifacts":                   true,
 			"ops_release_evidence_content_gate":       true,
+			"ops_release_evidence_semantic_gate":      true,
 			"ops_external_audit_pack":                 true,
 			"ops_deployment_template":                 true,
 			"ops_longrun_network_plan":                true,

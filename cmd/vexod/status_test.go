@@ -175,6 +175,7 @@ func TestWriteStatusJSON(t *testing.T) {
 		"ops_structured_logs",
 		"ops_release_artifacts",
 		"ops_release_evidence_content_gate",
+		"ops_release_evidence_semantic_gate",
 		"ops_external_audit_pack",
 		"ops_deployment_template",
 		"ops_longrun_network_plan",

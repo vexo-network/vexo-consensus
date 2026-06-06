@@ -497,7 +497,7 @@ func (document *releaseAuditPack) addEvidenceCheck(name string, path string, mes
 		return
 	}
 	data, err := os.ReadFile(path)
-	document.addCheck(name, err == nil && releasegate.EvidenceContentOK(path, data), message)
+	document.addCheck(name, err == nil && releasegate.EvidenceCheckContentOK(name, path, data), message)
 }
 
 func releaseArtifacts(distDir string) ([]releaseArtifact, error) {

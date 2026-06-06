@@ -64,17 +64,17 @@ func Build(version string, pack Pack, evidence Evidence) Document {
 	for _, check := range pack.Checks {
 		document.addCheck("pack_"+check.Name, check.OK, check.Message)
 	}
-	document.addFileCheck("chaos_evidence", evidence.Chaos, "chaos test evidence must exist and contain passing evidence", evidence)
-	document.addFileCheck("kms_signer_evidence", evidence.KMS, "KMS/remote signer policy and double-sign guard evidence must exist and contain passing evidence", evidence)
-	document.addFileCheck("snapshot_replay_evidence", evidence.Snapshot, "snapshot restore and replay consistency evidence must exist and contain passing evidence", evidence)
-	document.addFileCheck("p2p_scale_evidence", evidence.P2PScale, "large validator P2P discovery, reconnect, backpressure, NAT, seed, and addrbook evidence must exist and contain passing evidence", evidence)
-	document.addFileCheck("state_sync_light_client_evidence", evidence.StateSyncLightClient, "state sync, snapshot restore, replay, and light-client finality proof evidence must exist and contain passing evidence", evidence)
-	document.addFileCheck("validator_economics_evidence", evidence.ValidatorEconomics, "staking, rewards, commission, jail, tombstone, unbonding, and slashing accounting evidence must exist and contain passing evidence", evidence)
-	document.addFileCheck("upgrade_governance_evidence", evidence.UpgradeGovernance, "governance-approved upgrade, migration, halt, rollback, and failed-upgrade evidence must exist and contain passing evidence", evidence)
-	document.addFileCheck("mev_fee_market_evidence", evidence.MEVFeeMarket, "fee market, fair ordering, MEV mitigation, spam-cost, and mempool replay evidence must exist and contain passing evidence", evidence)
-	document.addFileCheck("ops_runbook_evidence", evidence.OpsRunbook, "operator runbook, alert thresholds, incident drill, and multi-region observability evidence must exist and contain passing evidence", evidence)
-	document.addFileCheck("formal_safety_evidence", evidence.FormalSafety, "formal-ish safety argument, invariant tests, adversarial simulations, and property output must exist and contain passing evidence", evidence)
-	document.addFileCheck("sdk_conformance_evidence", evidence.SDKConformance, "app module, storage, crypto, transport, RPC, and upgrade API conformance evidence must exist and contain passing evidence", evidence)
+	document.addFileCheck("chaos_evidence", evidence.Chaos, "chaos test evidence must exist and semantically cover chaos/fault scenarios", evidence)
+	document.addFileCheck("kms_signer_evidence", evidence.KMS, "KMS/remote signer evidence must cover signer policy and double-sign protection", evidence)
+	document.addFileCheck("snapshot_replay_evidence", evidence.Snapshot, "snapshot evidence must cover snapshot restore and replay consistency", evidence)
+	document.addFileCheck("p2p_scale_evidence", evidence.P2PScale, "P2P scale evidence must cover peer discovery/reconnect/scale behavior", evidence)
+	document.addFileCheck("state_sync_light_client_evidence", evidence.StateSyncLightClient, "state-sync evidence must cover light-client finality proof verification", evidence)
+	document.addFileCheck("validator_economics_evidence", evidence.ValidatorEconomics, "validator economics evidence must cover validator accounting and slashing/rewards/unbonding", evidence)
+	document.addFileCheck("upgrade_governance_evidence", evidence.UpgradeGovernance, "upgrade evidence must cover governance, migration, and rollback/halt behavior", evidence)
+	document.addFileCheck("mev_fee_market_evidence", evidence.MEVFeeMarket, "MEV/fee evidence must cover fee market, fair ordering, or mempool pressure", evidence)
+	document.addFileCheck("ops_runbook_evidence", evidence.OpsRunbook, "ops evidence must cover runbooks plus alert/incident/metrics handling", evidence)
+	document.addFileCheck("formal_safety_evidence", evidence.FormalSafety, "formal safety evidence must cover safety plus invariants/adversarial/property output", evidence)
+	document.addFileCheck("sdk_conformance_evidence", evidence.SDKConformance, "SDK evidence must cover SDK/API conformance for modules/RPC/storage/crypto/transport", evidence)
 	document.addExternalCheck("external_security_audit", evidence.ExternalAudit, evidence.AllowExternalPending, "external audit disposition must exist before public production release", evidence)
 	document.addExternalCheck("bls_adapter_audit", evidence.BLSAudit, evidence.AllowExternalPending, "audited BLS adapter and dependency audit evidence must exist when BLS is enabled", evidence)
 	if !document.OK {
@@ -96,18 +96,18 @@ func (document *Document) addCheck(name string, ok bool, message string) {
 }
 
 func (document *Document) addFileCheck(name string, path string, message string, evidence Evidence) {
-	document.addCheck(name, evidenceFileOK(path, evidence), message)
+	document.addCheck(name, evidenceFileOK(name, path, evidence), message)
 }
 
 func (document *Document) addExternalCheck(name string, path string, allowPending bool, message string, evidence Evidence) {
-	if evidenceFileOK(path, evidence) {
+	if evidenceFileOK(name, path, evidence) {
 		document.addCheck(name, true, message)
 		return
 	}
 	document.addCheck(name, allowPending, message)
 }
 
-func evidenceFileOK(path string, evidence Evidence) bool {
+func evidenceFileOK(name string, path string, evidence Evidence) bool {
 	if path == "" || !evidence.Exists(path) {
 		return false
 	}
@@ -118,10 +118,14 @@ func evidenceFileOK(path string, evidence Evidence) bool {
 	if err != nil {
 		return false
 	}
-	return EvidenceContentOK(path, data)
+	return EvidenceCheckContentOK(name, path, data)
 }
 
 func EvidenceContentOK(path string, data []byte) bool {
+	return EvidenceCheckContentOK("", path, data)
+}
+
+func EvidenceCheckContentOK(name string, path string, data []byte) bool {
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) == 0 {
 		return false
@@ -132,9 +136,9 @@ func EvidenceContentOK(path string, data []byte) bool {
 		if err := json.Unmarshal(trimmed, &value); err != nil {
 			return false
 		}
-		return jsonEvidenceOK(value)
+		return jsonEvidenceOK(value) && evidenceCovers(name, path, value)
 	default:
-		return len(trimmed) >= 8
+		return len(trimmed) >= 8 && evidenceTextCovers(name, path, string(trimmed))
 	}
 }
 
@@ -174,4 +178,100 @@ func jsonEvidenceOK(value any) bool {
 		}
 	}
 	return true
+}
+
+func evidenceCovers(name string, path string, value any) bool {
+	return evidenceTextCovers(name, path, flattenEvidenceText(value))
+}
+
+func evidenceTextCovers(name string, path string, text string) bool {
+	requirements := semanticRequirements(name)
+	if len(requirements) == 0 {
+		return true
+	}
+	normalized := strings.ToLower(path + " " + strings.ReplaceAll(text, "_", " "))
+	for _, group := range requirements {
+		matched := false
+		for _, term := range group {
+			if strings.Contains(normalized, strings.ToLower(term)) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
+}
+
+func semanticRequirements(name string) [][]string {
+	switch name {
+	case "longrun_evidence":
+		return [][]string{{"longrun", "long run", "soak"}, {"duration", "height", "validator"}}
+	case "adversarial_evidence":
+		return [][]string{{"adversarial"}, {"consensus", "simulation", "partition"}}
+	case "fuzz_evidence":
+		return [][]string{{"fuzz", "property"}}
+	case "chaos_evidence":
+		return [][]string{{"chaos"}, {"fault", "partition", "restart", "kill"}}
+	case "kms_signer_evidence":
+		return [][]string{{"kms", "signer"}, {"double sign", "double-sign", "policy", "guard"}}
+	case "snapshot_replay_evidence":
+		return [][]string{{"snapshot"}, {"replay", "restore"}}
+	case "p2p_scale_evidence":
+		return [][]string{{"p2p", "peer"}, {"scale", "discovery", "reconnect", "backpressure"}}
+	case "state_sync_light_client_evidence":
+		return [][]string{{"state sync", "state-sync"}, {"light client", "light-client", "finality"}}
+	case "validator_economics_evidence":
+		return [][]string{{"validator"}, {"slashing", "reward", "commission", "unbonding", "jail"}}
+	case "upgrade_governance_evidence":
+		return [][]string{{"upgrade"}, {"governance", "migration", "rollback", "halt"}}
+	case "mev_fee_market_evidence":
+		return [][]string{{"fee", "mev"}, {"market", "fair", "mempool", "ordering"}}
+	case "ops_runbook_evidence":
+		return [][]string{{"ops", "runbook"}, {"alert", "incident", "metrics"}}
+	case "formal_safety_evidence":
+		return [][]string{{"safety"}, {"invariant", "adversarial", "property", "proof"}}
+	case "sdk_conformance_evidence":
+		return [][]string{{"sdk", "api"}, {"conformance", "module", "rpc", "storage", "crypto", "transport"}}
+	case "external_security_audit":
+		return [][]string{{"external", "security"}, {"audit", "disposition"}}
+	case "bls_adapter_audit":
+		return [][]string{{"bls"}, {"audit", "dependency", "subgroup", "rogue"}}
+	default:
+		return nil
+	}
+}
+
+func flattenEvidenceText(value any) string {
+	var builder strings.Builder
+	writeEvidenceText(&builder, value)
+	return builder.String()
+}
+
+func writeEvidenceText(builder *strings.Builder, value any) {
+	switch item := value.(type) {
+	case map[string]any:
+		for key, value := range item {
+			builder.WriteByte(' ')
+			builder.WriteString(key)
+			writeEvidenceText(builder, value)
+		}
+	case []any:
+		for _, value := range item {
+			writeEvidenceText(builder, value)
+		}
+	case string:
+		builder.WriteByte(' ')
+		builder.WriteString(item)
+	case float64, bool:
+		builder.WriteByte(' ')
+		builder.WriteString(strings.TrimSpace(strings.ReplaceAll(strings.ToLower(jsonScalar(item)), "\"", "")))
+	}
+}
+
+func jsonScalar(value any) string {
+	data, _ := json.Marshal(value)
+	return string(data)
 }

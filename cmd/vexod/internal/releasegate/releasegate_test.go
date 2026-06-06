@@ -95,10 +95,7 @@ func TestBuildFailsInvalidEvidenceContent(t *testing.T) {
 			if path == "chaos.json" {
 				return []byte(`{"ok":false,"checks":[{"ok":false}]}`), nil
 			}
-			if path == "audit.pdf" || path == "bls.pdf" {
-				return []byte("external evidence passed"), nil
-			}
-			return []byte(`{"ok":true,"checks":[{"ok":true}]}`), nil
+			return semanticEvidenceContentForPath(path), nil
 		},
 	})
 
@@ -131,6 +128,27 @@ func TestEvidenceContentValidation(t *testing.T) {
 	}
 }
 
+func TestEvidenceSemanticValidation(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		checkName string
+		path      string
+		data      []byte
+		ok        bool
+	}{
+		{name: "chaos semantic json", checkName: "chaos_evidence", path: "chaos.json", data: []byte(`{"ok":true,"summary":"chaos partition fault drill passed"}`), ok: true},
+		{name: "chaos generic json rejected", checkName: "chaos_evidence", path: "chaos.json", data: []byte(`{"ok":true,"checks":[{"ok":true}]}`), ok: false},
+		{name: "bls semantic text", checkName: "bls_adapter_audit", path: "bls.pdf", data: []byte(`BLS adapter audit covered dependency review, subgroup validation, and rogue-key tests.`), ok: true},
+		{name: "audit generic text rejected", checkName: "external_security_audit", path: "audit.pdf", data: []byte(`evidence passed`), ok: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := EvidenceCheckContentOK(testCase.checkName, testCase.path, testCase.data); got != testCase.ok {
+				t.Fatalf("expected %t got %t", testCase.ok, got)
+			}
+		})
+	}
+}
+
 func checkOK(checks []Check, name string) bool {
 	for _, check := range checks {
 		if check.Name == name {
@@ -138,4 +156,35 @@ func checkOK(checks []Check, name string) bool {
 		}
 	}
 	return false
+}
+
+func semanticEvidenceContentForPath(path string) []byte {
+	switch path {
+	case "kms.json":
+		return []byte(`{"ok":true,"summary":"KMS signer policy and double-sign guard evidence passed"}`)
+	case "snapshot.json":
+		return []byte(`{"ok":true,"summary":"snapshot replay restore consistency evidence passed"}`)
+	case "p2p.json":
+		return []byte(`{"ok":true,"summary":"p2p peer scale discovery reconnect backpressure evidence passed"}`)
+	case "state-sync-light-client.json":
+		return []byte(`{"ok":true,"summary":"state-sync light-client finality proof evidence passed"}`)
+	case "validator-economics.json":
+		return []byte(`{"ok":true,"summary":"validator slashing reward commission unbonding evidence passed"}`)
+	case "upgrade-governance.json":
+		return []byte(`{"ok":true,"summary":"upgrade governance migration rollback halt evidence passed"}`)
+	case "mev-fee-market.json":
+		return []byte(`{"ok":true,"summary":"mev fee market fair mempool ordering evidence passed"}`)
+	case "ops-runbook.json":
+		return []byte(`{"ok":true,"summary":"ops runbook alert incident metrics evidence passed"}`)
+	case "formal-safety.json":
+		return []byte(`{"ok":true,"summary":"safety invariant adversarial property proof evidence passed"}`)
+	case "sdk-conformance.json":
+		return []byte(`{"ok":true,"summary":"sdk api conformance module rpc storage crypto transport evidence passed"}`)
+	case "audit.pdf":
+		return []byte(`external security audit disposition evidence passed`)
+	case "bls.pdf":
+		return []byte(`bls adapter audit dependency subgroup rogue-key evidence passed`)
+	default:
+		return []byte(`{"ok":true,"summary":"longrun duration height validator soak evidence passed"}`)
+	}
 }
