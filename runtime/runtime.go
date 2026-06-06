@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/committee"
@@ -19,6 +20,8 @@ import (
 	"github.com/vexo-network/vexo-consensus/upgrade"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
+
+var ErrAtomicAppCommitUnavailable = errors.New("atomic app block commit store is required")
 
 type Runtime struct {
 	Config          config.Config
@@ -168,6 +171,7 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 		if commitStore, ok := runtime.Store.(store.AppBlockCommitStore); ok {
 			return runtime.executeBlockStaged(ctx, block, appRuntime, commitStore, baseFee)
 		}
+		return app.FinalizeBlockResponse{}, ErrAtomicAppCommitUnavailable
 	}
 	response, err := runtime.Executor.Execute(ctx, runtime.App, block)
 	if err != nil {

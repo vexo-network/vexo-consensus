@@ -758,7 +758,6 @@ func buildNetworkRuntimePlanWithPorts(home string, validators int, binaryPath st
 		args := []string{
 			"start",
 			"--home", nodeHome,
-			"--run",
 		}
 		plan.Nodes = append(plan.Nodes, networkNodeRuntimePlan{
 			ValidatorID: validatorID,

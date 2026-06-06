@@ -2808,11 +2808,11 @@ func TestBuildStartNodeLoadsValidatorSigner(t *testing.T) {
 	}
 
 	var output bytes.Buffer
-	if err := runStart(&output, []string{"--home", home}); err != nil {
+	if err := runStart(&output, []string{"--home", home, "--dry-run"}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "validator signer loaded") {
-		t.Fatalf("expected signer loaded output, got:\n%s", output.String())
+	if !strings.Contains(output.String(), "startup dry-run valid") || !strings.Contains(output.String(), "validator_id: alice") {
+		t.Fatalf("expected dry-run output, got:\n%s", output.String())
 	}
 }
 
@@ -2865,7 +2865,7 @@ func TestRunStartRunStartsAndStopsNode(t *testing.T) {
 		cancel: cancel,
 		client: http.Client{Timeout: 5 * time.Second},
 	}
-	if err := runStartWithContext(ctx, output, []string{"--home", home, "--run"}); err != nil {
+	if err := runStartWithContext(ctx, output, []string{"--home", home}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(output.String(), "rpc listening") ||

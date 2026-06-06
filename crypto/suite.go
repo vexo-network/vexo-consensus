@@ -55,8 +55,12 @@ func (registry RuntimeSuiteRegistry) NewRuntimeSuite(cfg config.CryptoConfig) (R
 	case config.CryptoBackendEd25519:
 		return RuntimeSuite{FinalityVerifier: Ed25519MultiVerifier{}, ConsensusAggregator: Ed25519SignatureAggregator{}, ConsensusVerifier: Ed25519Signer{}}, nil
 	case config.CryptoBackendBLS:
-		if registry.blsFactory == nil && cfg.AdapterName != "" {
-			if factory, found := registeredBLSAdapter(cfg.AdapterName); found {
+		if registry.blsFactory == nil {
+			adapterName := cfg.AdapterName
+			if adapterName == "" {
+				adapterName = BLSAdapterCIRCLName
+			}
+			if factory, found := registeredBLSAdapter(adapterName); found {
 				registry.blsFactory = factory
 			}
 		}

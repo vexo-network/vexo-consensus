@@ -74,6 +74,30 @@ func TestNewVRFLoadsRegisteredProductionAdapter(t *testing.T) {
 	}
 }
 
+func TestNewVRFUsesBuiltInProductionAdapterByDefault(t *testing.T) {
+	privateKey := []byte("12345678901234567890123456789012")
+	publicKey, err := ECVRFP256PublicKeyFromPrivateKey(privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vrf, err := NewVRF(config.VRFConfig{
+		ProductionAdapter: true,
+		AuditReport:       "audit-2026",
+		KeySource:         "local-key",
+		Keys:              map[string][]byte{string(publicKey): privateKey},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, proof, err := vrf.Prove(publicKey, []byte("seed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !vrf.Verify(publicKey, []byte("seed"), output, proof) {
+		t.Fatal("expected built-in production vrf proof to verify")
+	}
+}
+
 func TestNewVRFRequiresRegisteredProductionAdapter(t *testing.T) {
 	_, err := NewVRF(config.VRFConfig{ProductionAdapter: true, AdapterName: "missing-vrf"})
 	if !errors.Is(err, ErrVRFBackendUnavailable) {

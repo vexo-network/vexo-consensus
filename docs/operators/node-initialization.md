@@ -44,7 +44,7 @@ This creates:
 Start it with config-driven networking:
 
 ```bash
-vexod start --home .vexo-validator-1 --run
+vexod start --home .vexo-validator-1
 ```
 
 ## Archive Node
@@ -74,7 +74,7 @@ It does **not** create `validator.key.json`.
 Start it with:
 
 ```bash
-vexod start --home .vexo-archive-1 --run
+vexod start --home .vexo-archive-1
 ```
 
 ## Split Configuration Files
@@ -262,7 +262,7 @@ Peer and listen addresses live in `network_config.json`:
 `vexod start` loads these peers automatically:
 
 ```bash
-vexod start --home .vexo-archive-1 --run
+vexod start --home .vexo-archive-1
 ```
 
 Command-line `--peer` and `--seed` remain available for temporary debugging, but production homes should store persistent peers in `network_config.json`.

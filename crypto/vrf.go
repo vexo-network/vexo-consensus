@@ -27,7 +27,11 @@ func NewDeterministicVRF(keys map[string][]byte) DeterministicVRF {
 
 func NewVRF(cfg config.VRFConfig) (VRF, error) {
 	if cfg.ProductionAdapter || cfg.AdapterName != "" {
-		factory, found := registeredVRFAdapter(cfg.AdapterName)
+		adapterName := cfg.AdapterName
+		if adapterName == "" {
+			adapterName = VRFAdapterECVRFP256Name
+		}
+		factory, found := registeredVRFAdapter(adapterName)
 		if !found {
 			return nil, ErrVRFBackendUnavailable
 		}

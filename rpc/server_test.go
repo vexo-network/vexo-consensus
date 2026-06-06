@@ -997,7 +997,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if blockResult["receiptsRoot"] == "0x0000000000000000000000000000000000000000000000000000000000000000" || blockResult["gasUsed"] != "0x7" {
 		t.Fatalf("expected execution-backed receipts root and gas used: %+v", blockResult)
 	}
-	if blockResult["baseFeePerGas"] != "0x9" || blockResult["blobGasUsed"] != "0x0" || blockResult["withdrawals"] == nil {
+	if blockResult["baseFeePerGas"] != "0x9" || blockResult["blobGasUsed"] != "0x0" || blockResult["withdrawals"] == nil || blockResult["gasLimit"] == "0x0" {
 		t.Fatalf("expected post-merge/cancun compatible block fields: %+v", blockResult)
 	}
 	fullTxs, ok := blockResult["transactions"].([]any)

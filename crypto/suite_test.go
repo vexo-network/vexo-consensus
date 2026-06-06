@@ -28,10 +28,13 @@ func TestNewRuntimeSuiteEd25519(t *testing.T) {
 	}
 }
 
-func TestNewRuntimeSuiteBLSRequiresProductionAdapter(t *testing.T) {
-	_, err := NewRuntimeSuite(config.CryptoConfig{Backend: config.CryptoBackendBLS})
-	if !errors.Is(err, ErrBLSBackendUnavailable) {
-		t.Fatalf("expected bls unavailable, got %v", err)
+func TestNewRuntimeSuiteBLSUsesBuiltInAdapter(t *testing.T) {
+	suite, err := NewRuntimeSuite(config.CryptoConfig{Backend: config.CryptoBackendBLS})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if suite.FinalityVerifier == nil || suite.ConsensusAggregator == nil || suite.ConsensusVerifier == nil {
+		t.Fatal("expected built-in bls runtime suite")
 	}
 }
 

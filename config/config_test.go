@@ -149,7 +149,6 @@ func TestValidateNetworkSafetyAcceptsHardenedEd25519Config(t *testing.T) {
 	cfg.Crypto.Backend = CryptoBackendEd25519
 	cfg.Committee.Backend = committee.BackendVRF
 	cfg.VRF.ProductionAdapter = true
-	cfg.VRF.AdapterName = "audited-vrf"
 	cfg.VRF.AuditReport = "vrf-audit-2026"
 	cfg.VRF.KeySource = "remote-signer"
 	cfg.Execution.RequireSigned = true

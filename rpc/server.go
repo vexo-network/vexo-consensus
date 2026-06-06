@@ -36,6 +36,7 @@ import (
 const defaultReadHeaderTimeout = 5 * time.Second
 const defaultMaxRequestBytes = 1024 * 1024
 const defaultMaxWeb3Filters = 1024
+const defaultWeb3BlockGasLimit = 10_000_000
 const stableAPIPrefix = "/v1"
 
 type Config struct {
@@ -2114,7 +2115,7 @@ func web3BlockFromRecord(ctx context.Context, provider StatusProvider, record st
 		"totalDifficulty":  "0x0",
 		"extraData":        "0x",
 		"size":             hexQuantity(uint64(len(record.Block.Txs))),
-		"gasLimit":         "0x0",
+		"gasLimit":         web3BlockGasLimit(record.TxResults),
 		"gasUsed":          hexQuantity(web3BlockGasUsed(record.TxResults)),
 		"baseFeePerGas":    hexQuantity(web3BlockBaseFee(ctx, provider, record)),
 		"blobGasUsed":      "0x0",
@@ -3704,6 +3705,14 @@ func web3BlockGasUsed(results []types.Result) uint64 {
 		total += result.GasUsed
 	}
 	return total
+}
+
+func web3BlockGasLimit(results []types.Result) string {
+	used := web3BlockGasUsed(results)
+	if used > defaultWeb3BlockGasLimit {
+		return hexQuantity(used)
+	}
+	return hexQuantity(defaultWeb3BlockGasLimit)
 }
 
 func web3BlockGasUsedRatio(ctx context.Context, provider StatusProvider, height types.Height) float64 {

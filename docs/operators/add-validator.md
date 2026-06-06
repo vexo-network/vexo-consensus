@@ -126,7 +126,7 @@ At signing time, the node uses the key whose active window contains the consensu
 
 ```bash
 vexod config audit --home .vexo-validator-new --strict
-vexod start --home .vexo-validator-new --run
+vexod start --home .vexo-validator-new
 ```
 
 Startup has no network mode switch. Use `config audit --strict` before startup when the network is expected to satisfy public-network safety assumptions.

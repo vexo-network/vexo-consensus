@@ -22,10 +22,18 @@ func TestSignerRegistryGeneratesEd25519Signer(t *testing.T) {
 	}
 }
 
-func TestSignerRegistryBLSRequiresAdapter(t *testing.T) {
-	_, err := NewSignerRegistry().Generate(config.CryptoBackendBLS)
-	if !errors.Is(err, ErrBLSBackendUnavailable) {
-		t.Fatalf("expected bls unavailable, got %v", err)
+func TestSignerRegistryGeneratesBuiltInBLSSigner(t *testing.T) {
+	signer, err := NewSignerRegistry().Generate(config.CryptoBackendBLS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := []byte("hello-bls")
+	signature, err := signer.Sign(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !signer.Verify(signer.PublicKey(), message, signature) {
+		t.Fatal("expected generated BLS signer to verify")
 	}
 }
 

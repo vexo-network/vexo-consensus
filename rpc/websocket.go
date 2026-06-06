@@ -315,7 +315,7 @@ func web3BlockHeader(record store.BlockRecord) map[string]any {
 		"difficulty":       "0x0",
 		"totalDifficulty":  "0x0",
 		"extraData":        "0x",
-		"gasLimit":         "0x0",
+		"gasLimit":         web3BlockGasLimit(record.TxResults),
 		"gasUsed":          hexQuantity(web3BlockGasUsed(record.TxResults)),
 		"timestamp":        hexQuantity(uint64(record.Block.Header.TimeUnixNano / int64(time.Second))),
 	}

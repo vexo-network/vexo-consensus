@@ -234,7 +234,7 @@ func (config Config) ValidateNetworkSafety() error {
 	if config.Committee.Backend != committee.BackendVRF {
 		return ErrUnsafeNetworkConfig
 	}
-	if !config.VRF.ProductionAdapter || config.VRF.AdapterName == "" || config.VRF.AuditReport == "" || config.VRF.KeySource == "" {
+	if !config.VRF.ProductionAdapter || config.VRF.AuditReport == "" || config.VRF.KeySource == "" {
 		return ErrUnsafeNetworkConfig
 	}
 	if !config.Execution.RequireSigned || !config.Execution.RequireNonce {

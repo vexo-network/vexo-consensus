@@ -96,7 +96,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	rotationKeys := stringListFlags{}
 	flags.Var(&rotationKeys, "rotation-key", "additional validator key file path with active-from/active-until metadata; may be repeated")
 	dryRun := flags.Bool("dry-run", false, "validate startup inputs without running a node")
-	run := flags.Bool("run", false, "start the node and block until context cancellation")
+	flags.Bool("run", false, "deprecated compatibility flag; start runs the node unless --dry-run is set")
 	rpcEnabled := flags.Bool("rpc", true, "run HTTP RPC server with node")
 	rpcAdminToken := flags.String("rpc-admin-token", "", "admin token required for protected RPC endpoints")
 	rpcEnablePprof := flags.Bool("rpc-pprof", false, "enable net/http/pprof endpoints under /debug/pprof")
@@ -178,25 +178,12 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(plan)
 	}
-	if *run {
+	if !plan.DryRun {
 		runCtx, stopSignals := signal.NotifyContext(ctx, shutdownSignals()...)
 		defer stopSignals()
 		return runStartNode(runCtx, writer, inputs, runtimeConfig)
 	}
-	if !plan.DryRun {
-		if _, err := buildStartNode(inputs); err != nil {
-			return err
-		}
-		fmt.Fprintf(writer, "startup inputs valid\n")
-		if inputs.Config.ValidatorID != "" {
-			fmt.Fprintf(writer, "validator signer loaded\n")
-		} else {
-			fmt.Fprintf(writer, "non-validator archive node\n")
-		}
-		fmt.Fprintf(writer, "start execution is not enabled yet; rerun with --dry-run for readiness checks\n")
-	} else {
-		fmt.Fprintf(writer, "startup dry-run valid\n")
-	}
+	fmt.Fprintf(writer, "startup dry-run valid\n")
 	fmt.Fprintf(writer, "chain_id: %s\n", plan.ChainID)
 	fmt.Fprintf(writer, "validator_id: %s\n", plan.ValidatorID)
 	fmt.Fprintf(writer, "validators: %d\n", plan.ValidatorN)
