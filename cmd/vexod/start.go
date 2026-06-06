@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	vexoconfig "github.com/vexo-network/vexo-consensus/config"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	appmodules "github.com/vexo-network/vexo-consensus/modules"
 	vexonode "github.com/vexo-network/vexo-consensus/node"
@@ -688,6 +689,9 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 	case "", vexonode.ExecutionCommitModeQC, vexonode.ExecutionCommitModeFinalized:
 	default:
 		return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.execution_commit: %w", vexonode.ErrInvalidLoopConfig)
+	}
+	if document.RequireNetworkSafety && cfg.ConsensusLoop.ExecutionCommitMode != vexonode.ExecutionCommitModeFinalized {
+		return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.execution_commit must be %q when require_network_safety is true: %w", vexonode.ExecutionCommitModeFinalized, vexoconfig.ErrUnsafeNetworkConfig)
 	}
 	return cfg, nil
 }

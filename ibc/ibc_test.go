@@ -2,6 +2,7 @@ package ibc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -137,6 +138,135 @@ func TestKeeperVerifiesPacketCommitmentProof(t *testing.T) {
 	proof.Value = []byte(`{"packet":{"sequence":1},"commit_height":11}`)
 	if err := keeper.VerifyPacketCommitmentProof(ctx, client.ClientID, packet, proof); !errors.Is(err, ErrInvalidProof) {
 		t.Fatalf("expected tampered packet proof rejection, got %v", err)
+	}
+}
+
+func TestKeeperAcknowledgesPacketOnlyWithAckProof(t *testing.T) {
+	localStore, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer localStore.Close()
+	remoteStore, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remoteStore.Close()
+	ctx := context.Background()
+	keeper := NewKeeper(localStore)
+	client := setupOpenIBCPath(t, ctx, keeper, 20)
+	packet := Packet{Sequence: 1, SourcePort: "transfer", SourceChannel: "channel-0", DestinationPort: "transfer", DestinationChannel: "channel-1", Data: []byte("payload"), TimeoutHeight: 30}
+	if err := keeper.SendPacket(ctx, 20, packet); err != nil {
+		t.Fatal(err)
+	}
+	remoteReceipt := PacketReceipt{Packet: packet, CommitHeight: 20, Acknowledged: true, Ack: []byte("ack"), AckHeight: 21}
+	encoded, err := json.Marshal(remoteReceipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remoteStore.Set(ctx, Namespace, packetCommitmentKey(packet), encoded); err != nil {
+		t.Fatal(err)
+	}
+	proof, err := queryproof.Build(ctx, remoteStore, client.ChainID, 21, Namespace, packetCommitmentKey(packet))
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.LatestHeight = 21
+	client.LatestStateRoot = proof.StateRoot
+	if err := keeper.SetClient(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.VerifyPacketCommitmentProof(ctx, client.ClientID, packet, proof); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.AcknowledgePacketWithProof(ctx, 22, client.ClientID, packet, proof, []byte("wrong")); !errors.Is(err, ErrInvalidProof) {
+		t.Fatalf("expected wrong ack proof rejection, got %v", err)
+	}
+	if err := keeper.AcknowledgePacketWithProof(ctx, 22, client.ClientID, packet, proof, []byte("ack")); err != nil {
+		t.Fatal(err)
+	}
+	localReceipt, found, err := keeper.PacketReceipt(ctx, packet)
+	if err != nil || !found || !localReceipt.Acknowledged || string(localReceipt.Ack) != "ack" {
+		t.Fatalf("unexpected local receipt found=%t receipt=%+v err=%v", found, localReceipt, err)
+	}
+}
+
+func TestKeeperTimeoutPacketWithAbsenceProof(t *testing.T) {
+	localStore, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer localStore.Close()
+	remoteStore, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remoteStore.Close()
+	ctx := context.Background()
+	keeper := NewKeeper(localStore)
+	client := setupOpenIBCPath(t, ctx, keeper, 20)
+	packet := Packet{Sequence: 1, SourcePort: "transfer", SourceChannel: "channel-0", DestinationPort: "transfer", DestinationChannel: "channel-1", Data: []byte("payload"), TimeoutHeight: 30}
+	if err := keeper.SendPacket(ctx, 20, packet); err != nil {
+		t.Fatal(err)
+	}
+	proof, err := queryproof.Build(ctx, remoteStore, client.ChainID, 31, Namespace, packetCommitmentKey(packet))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proof.Exists {
+		t.Fatalf("expected absence proof")
+	}
+	client.LatestHeight = 31
+	client.LatestStateRoot = proof.StateRoot
+	if err := keeper.SetClient(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.TimeoutPacketWithProof(ctx, 31, client.ClientID, packet, proof); err != nil {
+		t.Fatal(err)
+	}
+	localReceipt, found, err := keeper.PacketReceipt(ctx, packet)
+	if err != nil || !found || !localReceipt.TimedOut || localReceipt.TimeoutAt != 31 {
+		t.Fatalf("unexpected timeout receipt found=%t receipt=%+v err=%v", found, localReceipt, err)
+	}
+}
+
+func TestKeeperTimeoutRejectsAcknowledgementProof(t *testing.T) {
+	localStore, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer localStore.Close()
+	remoteStore, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remoteStore.Close()
+	ctx := context.Background()
+	keeper := NewKeeper(localStore)
+	client := setupOpenIBCPath(t, ctx, keeper, 20)
+	packet := Packet{Sequence: 1, SourcePort: "transfer", SourceChannel: "channel-0", DestinationPort: "transfer", DestinationChannel: "channel-1", Data: []byte("payload"), TimeoutHeight: 30}
+	if err := keeper.SendPacket(ctx, 20, packet); err != nil {
+		t.Fatal(err)
+	}
+	remoteReceipt := PacketReceipt{Packet: packet, CommitHeight: 20, Acknowledged: true, Ack: []byte("ack"), AckHeight: 21}
+	encoded, err := json.Marshal(remoteReceipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remoteStore.Set(ctx, Namespace, packetCommitmentKey(packet), encoded); err != nil {
+		t.Fatal(err)
+	}
+	proof, err := queryproof.Build(ctx, remoteStore, client.ChainID, 31, Namespace, packetCommitmentKey(packet))
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.LatestHeight = 31
+	client.LatestStateRoot = proof.StateRoot
+	if err := keeper.SetClient(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.TimeoutPacketWithProof(ctx, 31, client.ClientID, packet, proof); !errors.Is(err, ErrInvalidProof) {
+		t.Fatalf("expected ack proof timeout rejection, got %v", err)
 	}
 }
 

@@ -1248,6 +1248,11 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if callTrace.Error != nil || !ok || callTraceResult["type"] != "CALL" || callTraceResult["gasUsed"] != "0x7" {
 		t.Fatalf("unexpected call trace: %+v", callTrace)
 	}
+	var unsupportedTrace JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":114,"method":"debug_traceTransaction","params":["`+blockTxHashText+`",{"tracer":"prestateTracer"}]}`, http.StatusOK, &unsupportedTrace)
+	if unsupportedTrace.Error == nil || !strings.Contains(unsupportedTrace.Error.Message, "unsupported debug tracer") {
+		t.Fatalf("expected unsupported tracer rejection: %+v", unsupportedTrace)
+	}
 	var debugBlockTrace JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":80,"method":"debug_traceBlockByNumber","params":["latest"]}`, http.StatusOK, &debugBlockTrace)
 	debugBlockItems, ok := debugBlockTrace.Result.([]any)
@@ -1492,6 +1497,11 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	structLogs, _ := debugStructResult["structLogs"].([]any)
 	if debugStruct.Error != nil || !ok || len(structLogs) != 1 {
 		t.Fatalf("unexpected debug struct trace call: %+v", debugStruct)
+	}
+	var unsupportedDebugCall JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":115,"method":"debug_traceCall","params":[{"from":"0xaaaa","to":"0xbbbb","data":"0x1234"},"latest",{"tracer":"prestateTracer"}]}`, http.StatusOK, &unsupportedDebugCall)
+	if unsupportedDebugCall.Error == nil || !strings.Contains(unsupportedDebugCall.Error.Message, "unsupported debug tracer") {
+		t.Fatalf("expected unsupported debug_traceCall tracer rejection: %+v", unsupportedDebugCall)
 	}
 
 	var traceCall JSONRPCResponse

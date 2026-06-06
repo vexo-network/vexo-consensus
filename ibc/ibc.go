@@ -268,7 +268,7 @@ func (keeper *Keeper) AcknowledgePacketWithProof(ctx context.Context, height typ
 	if clientID == "" {
 		return ErrInvalidClient
 	}
-	if err := keeper.VerifyPacketCommitmentProof(ctx, clientID, packet, proof); err != nil {
+	if err := keeper.VerifyPacketAcknowledgementProof(ctx, clientID, packet, proof, ack); err != nil {
 		return err
 	}
 	return keeper.AcknowledgePacket(ctx, height, packet, ack)
@@ -307,7 +307,7 @@ func (keeper *Keeper) TimeoutPacketWithProof(ctx context.Context, height types.H
 	if clientID == "" {
 		return ErrInvalidClient
 	}
-	if err := keeper.VerifyPacketCommitmentProof(ctx, clientID, packet, proof); err != nil {
+	if err := keeper.VerifyPacketTimeoutProof(ctx, clientID, packet, proof); err != nil {
 		return err
 	}
 	return keeper.TimeoutPacket(ctx, height, packet)
@@ -357,6 +357,63 @@ func (keeper *Keeper) VerifyPacketCommitmentProof(ctx context.Context, clientID 
 		return ErrInvalidProof
 	}
 	return nil
+}
+
+func (keeper *Keeper) VerifyPacketAcknowledgementProof(ctx context.Context, clientID string, packet Packet, proof queryproof.Proof, ack []byte) error {
+	if len(ack) == 0 {
+		return ErrInvalidAck
+	}
+	receipt, err := keeper.verifiedPacketReceiptProof(ctx, clientID, packet, proof)
+	if err != nil {
+		return err
+	}
+	if !receipt.Acknowledged || receipt.AckHeight == 0 || !bytes.Equal(receipt.Ack, ack) {
+		return ErrInvalidProof
+	}
+	return nil
+}
+
+func (keeper *Keeper) VerifyPacketTimeoutProof(ctx context.Context, clientID string, packet Packet, proof queryproof.Proof) error {
+	if err := validatePacket(packet); err != nil {
+		return err
+	}
+	if err := keeper.VerifyClientProof(ctx, clientID, proof); err != nil {
+		return err
+	}
+	if proof.Namespace != Namespace || !bytes.Equal(proof.Key, packetCommitmentKey(packet)) {
+		return ErrInvalidProof
+	}
+	if !proof.Exists {
+		return nil
+	}
+	var receipt PacketReceipt
+	if err := json.Unmarshal(proof.Value, &receipt); err != nil {
+		return errors.Join(ErrInvalidProof, err)
+	}
+	if !samePacket(receipt.Packet, packet) || receipt.Acknowledged {
+		return ErrInvalidProof
+	}
+	return nil
+}
+
+func (keeper *Keeper) verifiedPacketReceiptProof(ctx context.Context, clientID string, packet Packet, proof queryproof.Proof) (PacketReceipt, error) {
+	if err := validatePacket(packet); err != nil {
+		return PacketReceipt{}, err
+	}
+	if err := keeper.VerifyClientProof(ctx, clientID, proof); err != nil {
+		return PacketReceipt{}, err
+	}
+	if proof.Namespace != Namespace || !bytes.Equal(proof.Key, packetCommitmentKey(packet)) || !proof.Exists {
+		return PacketReceipt{}, ErrInvalidProof
+	}
+	var receipt PacketReceipt
+	if err := json.Unmarshal(proof.Value, &receipt); err != nil {
+		return PacketReceipt{}, errors.Join(ErrInvalidProof, err)
+	}
+	if !samePacket(receipt.Packet, packet) || receipt.CommitHeight == 0 {
+		return PacketReceipt{}, ErrInvalidProof
+	}
+	return receipt, nil
 }
 
 func (keeper *Keeper) validatePacketPath(ctx context.Context, packet Packet) error {

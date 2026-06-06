@@ -2586,6 +2586,10 @@ func web3DebugTraceTransaction(ctx context.Context, provider StatusProvider, par
 	if len(params) == 0 || len(params) > 2 {
 		return nil, &JSONRPCError{Code: -32602, Message: "debug_traceTransaction requires transaction hash and optional config"}
 	}
+	tracer, rpcErr := web3DebugTracer(params, 1)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
 	hash, err := jsonRPCStringParam(params[0])
 	if err != nil {
 		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
@@ -2601,7 +2605,7 @@ func web3DebugTraceTransaction(ctx context.Context, provider StatusProvider, par
 	if !ok {
 		return nil, &JSONRPCError{Code: -32000, Message: "invalid EVM receipt"}
 	}
-	if web3TraceWantsCallTracer(params) {
+	if tracer == "callTracer" {
 		return web3ReceiptCallTrace(ctx, provider, receipt), nil
 	}
 	return web3ReceiptDebugTraceResult(receipt), nil
@@ -3330,11 +3334,15 @@ func web3DebugTraceCall(ctx context.Context, provider StatusProvider, params []j
 	if len(params) == 0 || len(params) > 3 {
 		return nil, &JSONRPCError{Code: -32602, Message: "debug_traceCall requires call object, optional block tag, and optional config"}
 	}
+	tracer, rpcErr := web3DebugCallTracer(params)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
 	callResponse, rpcErr := web3EVMCall(ctx, provider, params)
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
-	if web3TraceWantsCallTracer(params) || web3TraceWantsCallTracer([]json.RawMessage{nil, lastParam(params)}) {
+	if tracer == "callTracer" {
 		call, _ := evmCallParam(params)
 		return map[string]any{
 			"type":       "CALL",
@@ -3403,6 +3411,34 @@ func web3StructLogs(vmTrace any) any {
 		return logs
 	}
 	return []any{}
+}
+
+func web3DebugCallTracer(params []json.RawMessage) (string, *JSONRPCError) {
+	if len(params) >= 3 {
+		return web3DebugTracer(params, 2)
+	}
+	if len(params) == 2 && bytes.Contains(params[1], []byte(`"tracer"`)) {
+		return web3DebugTracer(params, 1)
+	}
+	return "", nil
+}
+
+func web3DebugTracer(params []json.RawMessage, index int) (string, *JSONRPCError) {
+	if len(params) <= index || len(bytes.TrimSpace(params[index])) == 0 || string(bytes.TrimSpace(params[index])) == "null" {
+		return "", nil
+	}
+	var config struct {
+		Tracer string `json:"tracer"`
+	}
+	if err := json.Unmarshal(params[index], &config); err != nil {
+		return "", &JSONRPCError{Code: -32602, Message: "debug trace config must be an object"}
+	}
+	switch config.Tracer {
+	case "", "callTracer", "structLogger":
+		return config.Tracer, nil
+	default:
+		return "", &JSONRPCError{Code: -32602, Message: "unsupported debug tracer " + config.Tracer}
+	}
 }
 
 func web3StateDiff(stateDiff any) any {

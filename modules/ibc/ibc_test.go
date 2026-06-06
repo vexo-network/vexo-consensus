@@ -148,6 +148,11 @@ func TestModuleAcknowledgesPacketWithProof(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer storage.Close()
+	remoteStore, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remoteStore.Close()
 	module := NewModule()
 	hash := strings.Repeat("01", 32)
 	ctx := vexoapp.Context{Ctx: context.Background(), Height: 7, Store: storage}
@@ -162,7 +167,15 @@ func TestModuleAcknowledgesPacketWithProof(t *testing.T) {
 		}
 	}
 	packet := ibckeeper.Packet{Sequence: 1, SourcePort: "transfer", SourceChannel: "channel-0", DestinationPort: "transfer", DestinationChannel: "channel-1", Data: []byte("payload")}
-	proof, err := queryproof.Build(context.Background(), storage, "counterparty", 8, ibckeeper.Namespace, ibckeeper.PacketCommitmentKey(packet))
+	remoteReceipt := ibckeeper.PacketReceipt{Packet: packet, CommitHeight: 8, Acknowledged: true, Ack: []byte("ack"), AckHeight: 8}
+	encoded, err := json.Marshal(remoteReceipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remoteStore.Set(context.Background(), ibckeeper.Namespace, ibckeeper.PacketCommitmentKey(packet), encoded); err != nil {
+		t.Fatal(err)
+	}
+	proof, err := queryproof.Build(context.Background(), remoteStore, "counterparty", 8, ibckeeper.Namespace, ibckeeper.PacketCommitmentKey(packet))
 	if err != nil {
 		t.Fatal(err)
 	}

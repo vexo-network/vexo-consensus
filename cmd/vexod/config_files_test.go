@@ -551,6 +551,27 @@ func TestLoadStartRuntimeConfigParsesConsensusTimeoutsAndEmptyBlocks(t *testing.
 	}
 }
 
+func TestLoadStartRuntimeConfigRequiresFinalizedCommitWhenNetworkSafetyIsRequired(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, configFileName)
+	document := defaultConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	document.RequireNetworkSafety = true
+	consensusDocument := defaultConsensusConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	consensusDocument.Consensus.ExecutionCommit = string(vexonode.ExecutionCommitModeQC)
+	writeTestJSON(t, path, document)
+	writeTestJSON(t, filepath.Join(home, consensusConfigFileName), consensusDocument)
+
+	_, err := loadStartRuntimeConfig(home, path)
+	if !errors.Is(err, config.ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected unsafe network config for qc commit with safety gate, got %v", err)
+	}
+	consensusDocument.Consensus.ExecutionCommit = string(vexonode.ExecutionCommitModeFinalized)
+	writeTestJSON(t, filepath.Join(home, consensusConfigFileName), consensusDocument)
+	if _, err := loadStartRuntimeConfig(home, path); err != nil {
+		t.Fatalf("expected finalized commit to satisfy runtime safety boundary, got %v", err)
+	}
+}
+
 func TestNetworkRuntimeDefaultsDoNotBindAdvertisedAddress(t *testing.T) {
 	inputs := startInputs{
 		Config: vexonode.Config{
