@@ -1544,6 +1544,9 @@ func configFromConfigDocuments(document configDocument, moduleDocument moduleCon
 
 func normalizeExecutionConfig(execution config.ExecutionConfig) config.ExecutionConfig {
 	defaults := config.Default(defaultChainID).Execution
+	if execution.EVMChainID == 0 {
+		execution.EVMChainID = defaults.EVMChainID
+	}
 	if execution.FeeCollector == "" {
 		execution.FeeCollector = defaults.FeeCollector
 	}

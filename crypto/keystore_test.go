@@ -71,7 +71,10 @@ func TestEncryptedKeyDocumentRoundTrip(t *testing.T) {
 	if encrypted.PrivateKey != "" || encrypted.Encryption == nil {
 		t.Fatalf("expected encrypted document without plaintext key: %+v", encrypted)
 	}
-	if encrypted.Encryption.KDF != KeyKDFPBKDF2SHA512 || encrypted.Encryption.Iterations < 600_000 {
+	if encrypted.Encryption.KDF != KeyKDFArgon2ID ||
+		encrypted.Encryption.Iterations < 2 ||
+		encrypted.Encryption.MemoryKiB < 19*1024 ||
+		encrypted.Encryption.Parallelism < 1 {
 		t.Fatalf("expected hardened key encryption params: %+v", encrypted.Encryption)
 	}
 	salt, err := base64.StdEncoding.DecodeString(encrypted.Encryption.Salt)

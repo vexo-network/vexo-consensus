@@ -37,65 +37,67 @@ import (
 )
 
 type fakeStatusProvider struct {
-	status            node.Status
-	statusDeadline    chan bool
-	statusWaitCancel  chan struct{}
-	metrics           node.Metrics
-	metricsErr        error
-	snapshot          node.StateSnapshot
-	snapshotErr       error
-	recoveryReport    node.RecoveryReport
-	recoveryErr       error
-	recoveryRepairs   int
-	submitErr         error
-	submitted         []types.Tx
-	blocks            map[types.Height]store.BlockRecord
-	blocksByHash      map[types.Hash]store.BlockRecord
-	latest            types.Height
-	blockErr          error
-	index             store.BlockIndex
-	state             store.StateRecord
-	roots             map[string]store.StateRootRecord
-	stateErr          error
-	eventRecords      []events.Record
-	eventErr          error
-	queryProof        queryproof.Proof
-	queryProofErr     error
-	ibcQueryResponse  vexoapp.QueryResponse
-	ibcQueryErr       error
-	ibcQueryPath      []string
-	appQueryResponse  vexoapp.QueryResponse
-	appQueryResponses map[string]vexoapp.QueryResponse
-	appQueryErr       error
-	appQueryPath      []string
-	appQueryData      []byte
-	pruneResult       store.PruneResult
-	pruneErr          error
-	prunedHeights     []types.Height
-	replayResult      vexoruntime.ReplayResult
-	replayErr         error
-	replayAllCalled   bool
-	replayRanges      [][2]types.Height
-	loopStartErr      error
-	loopStopErr       error
-	loopRunning       bool
-	loopStartConfigs  []node.ConsensusLoopConfig
-	validators        validator.Set
-	committee         committee.Committee
-	validatorErr      error
-	evidenceResult    consensus.SlashResult
-	evidenceApplied   bool
-	evidenceErr       error
-	evidenceSubmitted []slashing.Evidence
-	accountSequence   uint64
-	accountErr        error
-	accountAddress    types.Address
-	finalityProof     finality.Proof
-	finalityErr       error
-	finalityHeight    types.Height
-	pendingHashes     []types.Hash
-	pendingTxs        []types.Tx
-	pendingErr        error
+	status                node.Status
+	statusDeadline        chan bool
+	statusWaitCancel      chan struct{}
+	metrics               node.Metrics
+	metricsErr            error
+	snapshot              node.StateSnapshot
+	snapshotErr           error
+	recoveryReport        node.RecoveryReport
+	recoveryErr           error
+	recoveryRepairs       int
+	submitErr             error
+	submitted             []types.Tx
+	blocks                map[types.Height]store.BlockRecord
+	blocksByHash          map[types.Hash]store.BlockRecord
+	latest                types.Height
+	blockErr              error
+	index                 store.BlockIndex
+	state                 store.StateRecord
+	roots                 map[string]store.StateRootRecord
+	stateErr              error
+	eventRecords          []events.Record
+	eventErr              error
+	queryProof            queryproof.Proof
+	queryProofErr         error
+	ibcQueryResponse      vexoapp.QueryResponse
+	ibcQueryErr           error
+	ibcQueryPath          []string
+	appQueryResponse      vexoapp.QueryResponse
+	appQueryResponses     map[string]vexoapp.QueryResponse
+	appQueryErr           error
+	appQueryPath          []string
+	appQueryData          []byte
+	pruneResult           store.PruneResult
+	pruneErr              error
+	prunedHeights         []types.Height
+	replayResult          vexoruntime.ReplayResult
+	replayErr             error
+	replayAllCalled       bool
+	replayRanges          [][2]types.Height
+	strictReplayAllCalled bool
+	strictReplayRanges    [][2]types.Height
+	loopStartErr          error
+	loopStopErr           error
+	loopRunning           bool
+	loopStartConfigs      []node.ConsensusLoopConfig
+	validators            validator.Set
+	committee             committee.Committee
+	validatorErr          error
+	evidenceResult        consensus.SlashResult
+	evidenceApplied       bool
+	evidenceErr           error
+	evidenceSubmitted     []slashing.Evidence
+	accountSequence       uint64
+	accountErr            error
+	accountAddress        types.Address
+	finalityProof         finality.Proof
+	finalityErr           error
+	finalityHeight        types.Height
+	pendingHashes         []types.Hash
+	pendingTxs            []types.Tx
+	pendingErr            error
 }
 
 func (provider fakeStatusProvider) Status(ctx context.Context) node.Status {
@@ -310,6 +312,22 @@ func (provider *fakeStatusProvider) ReplayAll(ctx context.Context) (vexoruntime.
 		return vexoruntime.ReplayResult{}, provider.replayErr
 	}
 	provider.replayAllCalled = true
+	return provider.replayResult, nil
+}
+
+func (provider *fakeStatusProvider) ReplayStrict(ctx context.Context, from types.Height, to types.Height) (vexoruntime.ReplayResult, error) {
+	if provider.replayErr != nil {
+		return vexoruntime.ReplayResult{}, provider.replayErr
+	}
+	provider.strictReplayRanges = append(provider.strictReplayRanges, [2]types.Height{from, to})
+	return provider.replayResult, nil
+}
+
+func (provider *fakeStatusProvider) ReplayAllStrict(ctx context.Context) (vexoruntime.ReplayResult, error) {
+	if provider.replayErr != nil {
+		return vexoruntime.ReplayResult{}, provider.replayErr
+	}
+	provider.strictReplayAllCalled = true
 	return provider.replayResult, nil
 }
 
@@ -1270,6 +1288,25 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if traceGet.Error != nil || !ok || traceGetResult["transactionHash"] != blockTxHashText {
 		t.Fatalf("unexpected trace_get: %+v", traceGet)
 	}
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"` + blockTxHashText + `","height":12,"status":1,"from":"0xaaaa","to":"0xbbbb","gas_used":7,"output":"0x1234","vm_trace":{"calls":[{"type":"CALL","from":"0xaaaa","to":"0xcccc","gas":"0x5","gasUsed":"0x3","input":"0x12","output":"0x34","value":"0x2"}]}}`)}
+	var nestedTransactionTrace JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":112,"method":"trace_transaction","params":["`+blockTxHashText+`"]}`, http.StatusOK, &nestedTransactionTrace)
+	nestedTransactionTraceItems, ok := nestedTransactionTrace.Result.([]any)
+	if nestedTransactionTrace.Error != nil || !ok || len(nestedTransactionTraceItems) != 2 {
+		t.Fatalf("unexpected nested transaction trace: %+v", nestedTransactionTrace)
+	}
+	nestedChildTrace, ok := nestedTransactionTraceItems[1].(map[string]any)
+	if !ok || !web3TraceAddressEqual(nestedChildTrace["traceAddress"], []uint64{0}) {
+		t.Fatalf("unexpected nested child trace: %+v", nestedTransactionTraceItems[1])
+	}
+	var nestedTraceGet JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":113,"method":"trace_get","params":["`+blockTxHashText+`",[0]]}`, http.StatusOK, &nestedTraceGet)
+	nestedTraceGetResult, ok := nestedTraceGet.Result.(map[string]any)
+	nestedTraceGetAction, _ := nestedTraceGetResult["action"].(map[string]any)
+	if nestedTraceGet.Error != nil || !ok || nestedTraceGetAction["to"] != "0xcccc" {
+		t.Fatalf("unexpected nested trace_get: %+v", nestedTraceGet)
+	}
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"` + blockTxHashText + `","height":12,"status":1,"from":"0xaaaa","to":"0xbbbb","gas_used":7,"output":"0x1234"}`)}
 	var replayTransaction JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":93,"method":"trace_replayTransaction","params":["`+blockTxHashText+`",["trace"]]}`, http.StatusOK, &replayTransaction)
 	replayTransactionResult, ok := replayTransaction.Result.(map[string]any)
@@ -1465,6 +1502,38 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	traceVMTrace, _ := traceCallResult["vmTrace"].(map[string]any)
 	if traceCall.Error != nil || !ok || traceCallResult["output"] != "0x1234" || len(traceItems) != 1 || len(traceStateDiff) == 0 || len(traceVMTrace) == 0 {
 		t.Fatalf("unexpected trace call: %+v", traceCall)
+	}
+}
+
+func TestHandlerWeb3UsesConfiguredEVMChainID(t *testing.T) {
+	provider := &fakeStatusProvider{
+		status: node.Status{ChainID: "vexo-chain", EVMChainID: 77, Running: true},
+	}
+	handler := NewHandler(provider)
+
+	var netVersion JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":1,"method":"net_version","params":[]}`, http.StatusOK, &netVersion)
+	if netVersion.Error != nil || netVersion.Result != "77" {
+		t.Fatalf("unexpected net_version response: %+v", netVersion)
+	}
+	var chainID JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":2,"method":"eth_chainId","params":[]}`, http.StatusOK, &chainID)
+	if chainID.Error != nil || chainID.Result != "0x4d" {
+		t.Fatalf("unexpected eth_chainId response: %+v", chainID)
+	}
+
+	rawConfiguredTx, configuredHash := signedTestEthereumTx(t, 77)
+	var sendConfigured JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":3,"method":"eth_sendRawTransaction","params":["`+rawConfiguredTx+`"]}`, http.StatusOK, &sendConfigured)
+	if sendConfigured.Error != nil || sendConfigured.Result != configuredHash || len(provider.submitted) != 1 {
+		t.Fatalf("expected configured chain tx to be accepted, response=%+v submitted=%d", sendConfigured, len(provider.submitted))
+	}
+
+	rawFallbackTx, _ := signedTestEthereumTx(t, chainNumericID("vexo-chain"))
+	var sendFallback JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":4,"method":"eth_sendRawTransaction","params":["`+rawFallbackTx+`"]}`, http.StatusOK, &sendFallback)
+	if sendFallback.Error == nil || len(provider.submitted) != 1 {
+		t.Fatalf("expected fallback-derived chain tx to be rejected, response=%+v submitted=%d", sendFallback, len(provider.submitted))
 	}
 }
 
@@ -2543,6 +2612,43 @@ func TestHandlerReplaysAllStoredBlocks(t *testing.T) {
 
 	if !provider.replayAllCalled || response.FromHeight != 1 || response.ToHeight != 5 || response.Blocks != 5 {
 		t.Fatalf("unexpected replay all response: called=%v response=%+v", provider.replayAllCalled, response)
+	}
+}
+
+func TestHandlerReplaysStrictStoredBlocks(t *testing.T) {
+	provider := &fakeStatusProvider{replayResult: vexoruntime.ReplayResult{
+		FromHeight: 2,
+		ToHeight:   4,
+		LastHash:   types.Hash{9},
+		Blocks:     3,
+	}}
+	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
+
+	var response ReplayResponse
+	postJSONWithToken(t, handler, "/replay", `{"from_height":2,"to_height":4,"strict":true}`, "secret", http.StatusOK, &response)
+
+	if response.FromHeight != 2 || response.ToHeight != 4 || response.Blocks != 3 {
+		t.Fatalf("unexpected strict replay response: %+v", response)
+	}
+	if len(provider.strictReplayRanges) != 1 || provider.strictReplayRanges[0] != [2]types.Height{2, 4} || len(provider.replayRanges) != 0 {
+		t.Fatalf("unexpected replay calls: strict=%+v normal=%+v", provider.strictReplayRanges, provider.replayRanges)
+	}
+}
+
+func TestHandlerReplaysAllStrictStoredBlocks(t *testing.T) {
+	provider := &fakeStatusProvider{replayResult: vexoruntime.ReplayResult{
+		FromHeight: 1,
+		ToHeight:   5,
+		LastHash:   types.Hash{7},
+		Blocks:     5,
+	}}
+	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
+
+	var response ReplayResponse
+	postJSONWithToken(t, handler, "/replay", `{"all":true,"strict":true}`, "secret", http.StatusOK, &response)
+
+	if !provider.strictReplayAllCalled || provider.replayAllCalled || response.FromHeight != 1 || response.ToHeight != 5 {
+		t.Fatalf("unexpected strict replay all response: strict=%v normal=%v response=%+v", provider.strictReplayAllCalled, provider.replayAllCalled, response)
 	}
 }
 

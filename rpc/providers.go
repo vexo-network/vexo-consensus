@@ -97,6 +97,11 @@ type ReplayProvider interface {
 	ReplayAll(ctx context.Context) (vexoruntime.ReplayResult, error)
 }
 
+type StrictReplayProvider interface {
+	ReplayStrict(ctx context.Context, from types.Height, to types.Height) (vexoruntime.ReplayResult, error)
+	ReplayAllStrict(ctx context.Context) (vexoruntime.ReplayResult, error)
+}
+
 type ConsensusLoopController interface {
 	StartConsensusLoop(ctx context.Context, cfg node.ConsensusLoopConfig) error
 	StopConsensusLoop(ctx context.Context) error

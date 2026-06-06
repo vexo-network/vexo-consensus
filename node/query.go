@@ -281,6 +281,24 @@ func (node *Node) ReplayAll(ctx context.Context) (vexoruntime.ReplayResult, erro
 	return runtime.ReplayAll(ctx)
 }
 
+func (node *Node) ReplayStrict(ctx context.Context, from types.Height, to types.Height) (vexoruntime.ReplayResult, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return vexoruntime.ReplayResult{}, err
+	}
+	defer runtime.Recover(context.Background())
+	return runtime.ReplayStrict(ctx, from, to)
+}
+
+func (node *Node) ReplayAllStrict(ctx context.Context) (vexoruntime.ReplayResult, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return vexoruntime.ReplayResult{}, err
+	}
+	defer runtime.Recover(context.Background())
+	return runtime.ReplayAllStrict(ctx)
+}
+
 func (node *Node) ValidatorSet(ctx context.Context, height types.Height) (validator.Set, error) {
 	runtime, err := node.Runtime()
 	if err != nil {

@@ -1891,5 +1891,9 @@ func validateEthereumRawTx(ctx vexoapp.Context, tx types.Tx) error {
 	if !ethcompat.IsEthereumTx(tx) {
 		return nil
 	}
-	return ethcompat.ValidateCanonicalTx(tx, ethcompat.ChainNumericID(ctx.ChainID))
+	chainID := ctx.EVMChainID
+	if chainID == 0 {
+		chainID = ethcompat.ChainNumericID(ctx.ChainID)
+	}
+	return ethcompat.ValidateCanonicalTx(tx, chainID)
 }

@@ -44,6 +44,7 @@ Signed transactions that include `signer=<address>` must use the `vexo` address 
 envelope public key. A signed transaction with a mismatched signer address is invalid.
 
 The EVM/Web3 bridge also accepts Ethereum `0x` account addresses for Ethereum raw transactions and EVM module calls. Those 20-byte hex addresses are normalized to lowercase storage keys for bank balance reads/writes, while Web3 responses may preserve checksum address text returned by go-ethereum.
+Ethereum raw transactions are verified against the explicit execution `evm_chain_id`/`EVMChainID` configured for the chain, not a hash-derived value from the Vexo `chain_id`. Keep this ID stable for Web3 tooling compatibility.
 
 ## Signed Envelope
 
@@ -90,6 +91,7 @@ nonce is `N+1`.
 - `fee` accepts raw atomic values or suffixed units: `avxo`, `gvxo`, and `vexo`.
 - `gas` is bounded by configured min/max gas. `gas_limit` is accepted as an alias.
 - `base_fee` is configured per gas unit; required fee is `max(min_fee, base_fee * gas)`.
+- `evm_chain_id`/`EVMChainID` is the EIP-155/Web3 chain ID used by `eth_chainId`, `net_version`, and `eth_sendRawTransaction` signature validation.
 - When `dynamic_base_fee` is enabled, each committed block stores the base fee used for that block and the next base fee derived from total gas used versus `target_gas`.
 - Built-in modules expose estimated gas costs and consume gas during `DeliverTx`; under-gas transactions are rejected during context-aware `CheckTx`, `ProcessProposal`, and execution.
 - Result metadata should expose gas used and fee paid.

@@ -143,10 +143,10 @@ The `release-candidate` target runs:
 - fuzz smoke tests
 - ops verification
 - adversarial simulation
-- network load dry-run
+- network load harness (`RC_DRY_RUN=1` keeps this as a plan-only dry-run)
 - chaos plan
 - 7-day multi-host longrun plan
-- longrun harness evidence dry-run
+- longrun harness evidence (`RC_DRY_RUN=1` keeps this as a plan-only dry-run)
 
 Real release candidates should run `network longrun` on independent machines and attach the generated evidence JSON plus metrics, logs, pprof, snapshot, replay, KMS signing, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, and SDK conformance evidence.
 

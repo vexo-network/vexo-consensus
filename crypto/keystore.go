@@ -16,18 +16,23 @@ import (
 	"hash"
 	"os"
 	"time"
+
+	"golang.org/x/crypto/argon2"
 )
 
 const (
-	KeyTypeEd25519       = "ed25519"
-	KeyTypeBLS           = "bls"
-	KeyTypeVRF           = "vrf"
-	KeyTypeRemote        = "remote"
-	KeyDocumentVersionV1 = "v1"
-	KeyEncryptionAESGCM  = "aes-256-gcm"
-	KeyKDFPBKDF2SHA256   = "pbkdf2-sha256"
-	KeyKDFPBKDF2SHA512   = "pbkdf2-sha512"
-	defaultKDFIterations = 600_000
+	KeyTypeEd25519        = "ed25519"
+	KeyTypeBLS            = "bls"
+	KeyTypeVRF            = "vrf"
+	KeyTypeRemote         = "remote"
+	KeyDocumentVersionV1  = "v1"
+	KeyEncryptionAESGCM   = "aes-256-gcm"
+	KeyKDFArgon2ID        = "argon2id"
+	KeyKDFPBKDF2SHA256    = "pbkdf2-sha256"
+	KeyKDFPBKDF2SHA512    = "pbkdf2-sha512"
+	defaultKDFIterations  = 2
+	defaultKDFMemoryKiB   = 19 * 1024
+	defaultKDFParallelism = 1
 )
 
 var (
@@ -63,12 +68,14 @@ type KeyMetadata struct {
 }
 
 type KeyEncryption struct {
-	Algorithm  string `json:"algorithm"`
-	KDF        string `json:"kdf"`
-	Iterations int    `json:"iterations"`
-	Salt       string `json:"salt"`
-	Nonce      string `json:"nonce"`
-	Ciphertext string `json:"ciphertext"`
+	Algorithm   string `json:"algorithm"`
+	KDF         string `json:"kdf"`
+	Iterations  int    `json:"iterations"`
+	MemoryKiB   uint32 `json:"memory_kib,omitempty"`
+	Parallelism uint8  `json:"parallelism,omitempty"`
+	Salt        string `json:"salt"`
+	Nonce       string `json:"nonce"`
+	Ciphertext  string `json:"ciphertext"`
 }
 
 func GenerateEd25519KeyDocument() (KeyDocument, error) {
@@ -286,7 +293,7 @@ func encryptKeyMaterial(privateKey []byte, passphrase string) (KeyEncryption, er
 	if _, err := rand.Read(nonce); err != nil {
 		return KeyEncryption{}, err
 	}
-	key := pbkdf2Key([]byte(passphrase), salt, defaultKDFIterations, 32, sha512.New)
+	key := deriveArgon2IDKey([]byte(passphrase), salt, defaultKDFIterations, defaultKDFMemoryKiB, defaultKDFParallelism, 32)
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return KeyEncryption{}, err
@@ -297,12 +304,14 @@ func encryptKeyMaterial(privateKey []byte, passphrase string) (KeyEncryption, er
 	}
 	ciphertext := aead.Seal(nil, nonce, privateKey, nil)
 	return KeyEncryption{
-		Algorithm:  KeyEncryptionAESGCM,
-		KDF:        KeyKDFPBKDF2SHA512,
-		Iterations: defaultKDFIterations,
-		Salt:       base64.StdEncoding.EncodeToString(salt),
-		Nonce:      base64.StdEncoding.EncodeToString(nonce),
-		Ciphertext: base64.StdEncoding.EncodeToString(ciphertext),
+		Algorithm:   KeyEncryptionAESGCM,
+		KDF:         KeyKDFArgon2ID,
+		Iterations:  defaultKDFIterations,
+		MemoryKiB:   defaultKDFMemoryKiB,
+		Parallelism: defaultKDFParallelism,
+		Salt:        base64.StdEncoding.EncodeToString(salt),
+		Nonce:       base64.StdEncoding.EncodeToString(nonce),
+		Ciphertext:  base64.StdEncoding.EncodeToString(ciphertext),
 	}, nil
 }
 
@@ -325,11 +334,10 @@ func decryptKeyMaterial(encryption KeyEncryption, passphrase string) ([]byte, er
 	if err != nil {
 		return nil, ErrInvalidKeyEncryption
 	}
-	hashFunc, err := keyDerivationHash(encryption.KDF)
+	key, err := deriveKey(encryption, []byte(passphrase), salt, 32)
 	if err != nil {
 		return nil, err
 	}
-	key := pbkdf2Key([]byte(passphrase), salt, encryption.Iterations, 32, hashFunc)
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
@@ -339,6 +347,31 @@ func decryptKeyMaterial(encryption KeyEncryption, passphrase string) ([]byte, er
 		return nil, err
 	}
 	return aead.Open(nil, nonce, ciphertext, nil)
+}
+
+func deriveKey(encryption KeyEncryption, password []byte, salt []byte, keyLen int) ([]byte, error) {
+	switch encryption.KDF {
+	case KeyKDFArgon2ID:
+		memory := encryption.MemoryKiB
+		if memory == 0 {
+			memory = defaultKDFMemoryKiB
+		}
+		parallelism := encryption.Parallelism
+		if parallelism == 0 {
+			parallelism = defaultKDFParallelism
+		}
+		return deriveArgon2IDKey(password, salt, encryption.Iterations, memory, parallelism, uint32(keyLen)), nil
+	default:
+		hashFunc, err := keyDerivationHash(encryption.KDF)
+		if err != nil {
+			return nil, err
+		}
+		return pbkdf2Key(password, salt, encryption.Iterations, keyLen, hashFunc), nil
+	}
+}
+
+func deriveArgon2IDKey(password []byte, salt []byte, iterations int, memoryKiB uint32, parallelism uint8, keyLen uint32) []byte {
+	return argon2.IDKey(password, salt, uint32(iterations), memoryKiB, parallelism, keyLen)
 }
 
 func keyDerivationHash(kdf string) (func() hash.Hash, error) {

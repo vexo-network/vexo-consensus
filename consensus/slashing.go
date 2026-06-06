@@ -184,25 +184,29 @@ func verifyConsensusEvidence(evidence slashing.Evidence, validatorSet validator.
 		if err != nil {
 			return err
 		}
+		invalidProposalContext := verificationContext.InvalidProposal
 		switch decoded.Reason {
 		case InvalidProposalReasonDAMismatch, InvalidProposalReasonMissingData:
-			if err := VerifyInvalidProposalEvidence(evidence); err != nil {
+			if err := VerifyInvalidProposalEvidenceWithContext(evidence, invalidProposalContext); err != nil {
 				return err
 			}
 		case InvalidProposalReasonValidatorSetHash:
-			if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedValidatorSetHash: validatorSet.Hash()}); err != nil {
+			if invalidProposalContext.ExpectedValidatorSetHash == (types.Hash{}) {
+				invalidProposalContext.ExpectedValidatorSetHash = validatorSet.Hash()
+			}
+			if err := VerifyInvalidProposalEvidenceWithContext(evidence, invalidProposalContext); err != nil {
 				return err
 			}
 		case InvalidProposalReasonAppHash:
-			if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedAppHash: verificationContext.InvalidProposal.ExpectedAppHash}); err != nil {
+			if err := VerifyInvalidProposalEvidenceWithContext(evidence, invalidProposalContext); err != nil {
 				return err
 			}
 		case InvalidProposalReasonTimestamp:
-			if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedTimeUnixNano: verificationContext.InvalidProposal.ExpectedTimeUnixNano}); err != nil {
+			if err := VerifyInvalidProposalEvidenceWithContext(evidence, invalidProposalContext); err != nil {
 				return err
 			}
 		case InvalidProposalReasonTxValidity:
-			if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedTxResultsHash: verificationContext.InvalidProposal.ExpectedTxResultsHash}); err != nil {
+			if err := VerifyInvalidProposalEvidenceWithContext(evidence, invalidProposalContext); err != nil {
 				return err
 			}
 		default:

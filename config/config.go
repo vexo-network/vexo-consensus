@@ -40,6 +40,7 @@ type ApplicationConfig struct {
 type ExecutionConfig struct {
 	MinFee                   uint64
 	BaseFee                  uint64
+	EVMChainID               uint64
 	DynamicBaseFee           bool
 	TargetGas                uint64
 	BaseFeeChangeDenominator uint64
@@ -96,6 +97,7 @@ func Default(chainID string) Config {
 			Modules: []string{"bank", "staking", "governance", "params", "ibc"},
 		},
 		Execution: ExecutionConfig{
+			EVMChainID:               1,
 			MaxGas:                   10_000_000,
 			TargetGas:                5_000_000,
 			BaseFeeChangeDenominator: 8,
@@ -157,6 +159,9 @@ func (config Config) Validate() error {
 		return ErrInvalidConfig
 	}
 	if config.Execution.MaxGas > 0 && config.Execution.MinGas > config.Execution.MaxGas {
+		return ErrInvalidConfig
+	}
+	if config.Execution.EVMChainID == 0 {
 		return ErrInvalidConfig
 	}
 	if config.Execution.DynamicBaseFee &&

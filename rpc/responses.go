@@ -34,6 +34,7 @@ func statusResponse(status node.Status) StatusResponse {
 	}
 	response := StatusResponse{
 		ChainID:       status.ChainID,
+		EVMChainID:    status.EVMChainID,
 		Running:       status.Running,
 		StartedAtUnix: startedAtUnix,
 		LatestHeight:  uint64(status.LatestHeight),

@@ -15,6 +15,7 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "application.modules: %v\n", cfg.Application.Modules)
 	fmt.Fprintf(writer, "execution.min_fee: %d\n", cfg.Execution.MinFee)
 	fmt.Fprintf(writer, "execution.base_fee: %d\n", cfg.Execution.BaseFee)
+	fmt.Fprintf(writer, "execution.evm_chain_id: %d\n", cfg.Execution.EVMChainID)
 	fmt.Fprintf(writer, "execution.dynamic_base_fee: %t\n", cfg.Execution.DynamicBaseFee)
 	fmt.Fprintf(writer, "execution.target_gas: %d\n", cfg.Execution.TargetGas)
 	fmt.Fprintf(writer, "execution.base_fee_change_denominator: %d\n", cfg.Execution.BaseFeeChangeDenominator)
@@ -118,6 +119,7 @@ type applicationStatus struct {
 type executionStatus struct {
 	MinFee                   uint64 `json:"min_fee"`
 	BaseFee                  uint64 `json:"base_fee"`
+	EVMChainID               uint64 `json:"evm_chain_id"`
 	DynamicBaseFee           bool   `json:"dynamic_base_fee"`
 	TargetGas                uint64 `json:"target_gas"`
 	BaseFeeChangeDenominator uint64 `json:"base_fee_change_denominator"`
@@ -199,6 +201,7 @@ func newStatusDocument(cfg config.Config) statusDocument {
 		Execution: executionStatus{
 			MinFee:                   cfg.Execution.MinFee,
 			BaseFee:                  cfg.Execution.BaseFee,
+			EVMChainID:               cfg.Execution.EVMChainID,
 			DynamicBaseFee:           cfg.Execution.DynamicBaseFee,
 			TargetGas:                cfg.Execution.TargetGas,
 			BaseFeeChangeDenominator: cfg.Execution.BaseFeeChangeDenominator,

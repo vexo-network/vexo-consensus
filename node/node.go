@@ -33,6 +33,7 @@ var (
 
 type Status struct {
 	ChainID               string
+	EVMChainID            uint64
 	Running               bool
 	StartedAt             time.Time
 	LatestHeight          types.Height
@@ -380,10 +381,11 @@ func (node *Node) Status(ctx context.Context) Status {
 	defer node.mu.Unlock()
 
 	status := Status{
-		ChainID:   node.cfg.Chain.ChainID,
-		Running:   node.running,
-		StartedAt: node.startedAt,
-		DataDir:   node.cfg.DataDir,
+		ChainID:    node.cfg.Chain.ChainID,
+		EVMChainID: node.cfg.Chain.Execution.EVMChainID,
+		Running:    node.running,
+		StartedAt:  node.startedAt,
+		DataDir:    node.cfg.DataDir,
 	}
 	if !node.running || node.runtime == nil {
 		return status

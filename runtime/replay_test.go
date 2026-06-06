@@ -128,6 +128,37 @@ func TestRuntimeReplayFromHistoricalSnapshotReexecutesApp(t *testing.T) {
 	}
 }
 
+func TestRuntimeReplayStrictDoesNotFallbackToStoredRange(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	runtime, err := NewWithStore(config.Default("vexo-test"), noopApp{}, nil, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appHash := types.Hash{9}
+	if err := storage.SaveBlock(context.Background(), store.BlockRecord{
+		Block:   types.Block{Header: types.Header{ChainID: "vexo-test", Height: 2}},
+		Hash:    types.Hash{2},
+		AppHash: appHash,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.SaveState(context.Background(), store.StateRecord{Height: 2, AppHash: appHash}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := runtime.Replay(context.Background(), 2, 2); err != nil {
+		t.Fatalf("expected non-strict replay to fall back to stored range, got %v", err)
+	}
+	if _, err := runtime.ReplayStrict(context.Background(), 2, 2); err == nil {
+		t.Fatal("expected strict replay to reject missing isolated historical snapshot")
+	}
+}
+
 func TestRuntimeReplayRejectsInvalidRange(t *testing.T) {
 	runtime, err := New(config.Default("vexo-test"), noopApp{}, nil, nil)
 	if err != nil {

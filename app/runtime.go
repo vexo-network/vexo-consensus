@@ -25,13 +25,19 @@ type ModuleRouter interface {
 }
 
 type Runtime struct {
-	chainID string
-	modules []Module
-	router  ModuleRouter
-	ante    AnteHandler
-	store   StateStore
-	height  types.Height
-	appHash types.Hash
+	chainID    string
+	evmChainID uint64
+	modules    []Module
+	router     ModuleRouter
+	ante       AnteHandler
+	store      StateStore
+	height     types.Height
+	appHash    types.Hash
+}
+
+func (runtime *Runtime) WithEVMChainID(chainID uint64) *Runtime {
+	runtime.evmChainID = chainID
+	return runtime
 }
 
 type BaseFeeSetter interface {
@@ -91,6 +97,7 @@ func (runtime *Runtime) NewReplayApp(store StateStore) (Application, error) {
 	if err != nil {
 		return nil, err
 	}
+	replayRuntime.evmChainID = runtime.evmChainID
 	replayRuntime.ante = runtime.ante
 	if store != nil {
 		replayRuntime.WithStore(store)
@@ -418,11 +425,12 @@ func (runtime *Runtime) newContextWithGoContext(goCtx context.Context, height ty
 		goCtx = context.Background()
 	}
 	return Context{
-		Ctx:     goCtx,
-		ChainID: runtime.chainID,
-		Height:  height,
-		Header:  header,
-		Store:   runtime.store,
+		Ctx:        goCtx,
+		ChainID:    runtime.chainID,
+		EVMChainID: runtime.evmChainID,
+		Height:     height,
+		Header:     header,
+		Store:      runtime.store,
 	}
 }
 

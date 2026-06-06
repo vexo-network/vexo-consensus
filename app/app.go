@@ -8,14 +8,15 @@ import (
 )
 
 type Context struct {
-	Ctx       context.Context
-	ChainID   string
-	Height    types.Height
-	Header    types.Header
-	Block     types.Block
-	TxResults []types.Result
-	Store     StateStore
-	Gas       *GasMeter
+	Ctx        context.Context
+	ChainID    string
+	EVMChainID uint64
+	Height     types.Height
+	Header     types.Header
+	Block      types.Block
+	TxResults  []types.Result
+	Store      StateStore
+	Gas        *GasMeter
 }
 
 func (ctx Context) GoContext() context.Context {

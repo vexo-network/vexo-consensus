@@ -70,6 +70,7 @@ func NewRuntimeWithExecution(chainID string, cfg config.ApplicationConfig, execu
 	if err != nil {
 		return nil, err
 	}
+	runtime.WithEVMChainID(execution.EVMChainID)
 	if execution.MinFee > 0 || execution.BaseFee > 0 || execution.MinGas > 0 || execution.MaxGas > 0 || execution.RequireNonce || execution.RequireSigned {
 		runtime.WithAnte(vexoapp.NewAnteKeeper(vexoapp.AnteConfig{
 			MinFee:        execution.MinFee,
@@ -94,6 +95,7 @@ func NewRuntimeWithChainConfig(chainID string, chain config.Config) (*vexoapp.Ru
 		return nil, err
 	}
 	execution := chain.Execution
+	runtime.WithEVMChainID(execution.EVMChainID)
 	if execution.MinFee > 0 || execution.BaseFee > 0 || execution.MinGas > 0 || execution.MaxGas > 0 || execution.RequireNonce || execution.RequireSigned {
 		runtime.WithAnte(vexoapp.NewAnteKeeper(vexoapp.AnteConfig{
 			MinFee:        execution.MinFee,

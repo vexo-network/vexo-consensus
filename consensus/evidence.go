@@ -57,6 +57,7 @@ type InvalidProposalProof struct {
 	Reason               InvalidProposalReason `json:"reason"`
 	ExpectedHash         types.Hash            `json:"expected_hash,omitempty"`
 	ActualHash           types.Hash            `json:"actual_hash,omitempty"`
+	ContextProofHash     types.Hash            `json:"context_proof_hash,omitempty"`
 	ExpectedTimeUnixNano int64                 `json:"expected_time_unix_nano,omitempty"`
 	ActualTimeUnixNano   int64                 `json:"actual_time_unix_nano,omitempty"`
 	VerificationMessage  string                `json:"verification_message,omitempty"`
@@ -66,6 +67,7 @@ type InvalidProposalVerificationContext struct {
 	ExpectedValidatorSetHash types.Hash
 	ExpectedAppHash          types.Hash
 	ExpectedTxResultsHash    types.Hash
+	ContextProofHash         types.Hash
 	ExpectedTimeUnixNano     int64
 }
 
@@ -454,6 +456,9 @@ func VerifyInvalidProposalEvidence(evidence slashing.Evidence) error {
 	default:
 		return ErrInvalidProposalContext
 	}
+	if decoded.ContextProofHash != (types.Hash{}) {
+		return ErrInvalidProposalContext
+	}
 	return verifyInvalidProposalByReason(decoded)
 }
 
@@ -497,6 +502,12 @@ func VerifyInvalidProposalEvidenceWithContext(evidence slashing.Evidence, contex
 		if decoded.ExpectedHash != context.ExpectedTxResultsHash {
 			return ErrInvalidProposal
 		}
+	}
+	if decoded.ContextProofHash != (types.Hash{}) && context.ContextProofHash == (types.Hash{}) {
+		return ErrInvalidProposalContext
+	}
+	if context.ContextProofHash != (types.Hash{}) && decoded.ContextProofHash != context.ContextProofHash {
+		return ErrInvalidProposal
 	}
 	return verifyInvalidProposalByReason(decoded)
 }

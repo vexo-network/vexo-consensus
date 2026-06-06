@@ -62,6 +62,7 @@ type HealthResponse struct {
 
 type StatusResponse struct {
 	ChainID               string `json:"chain_id"`
+	EVMChainID            uint64 `json:"evm_chain_id,omitempty"`
 	Running               bool   `json:"running"`
 	StartedAtUnix         int64  `json:"started_at_unix,omitempty"`
 	LatestHeight          uint64 `json:"latest_height"`
@@ -319,6 +320,7 @@ type PruneResponse struct {
 
 type ReplayRequest struct {
 	All        bool   `json:"all,omitempty"`
+	Strict     bool   `json:"strict,omitempty"`
 	FromHeight uint64 `json:"from_height,omitempty"`
 	ToHeight   uint64 `json:"to_height,omitempty"`
 }
@@ -1002,7 +1004,22 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 			return
 		}
 		var result vexoruntime.ReplayResult
-		if payload.All || (payload.FromHeight == 0 && payload.ToHeight == 0) {
+		if payload.Strict {
+			strictReplayer, ok := provider.(StrictReplayProvider)
+			if !ok {
+				writeError(writer, http.StatusNotImplemented, "strict replay is unavailable")
+				return
+			}
+			if payload.All || (payload.FromHeight == 0 && payload.ToHeight == 0) {
+				result, err = strictReplayer.ReplayAllStrict(request.Context())
+			} else {
+				if payload.FromHeight == 0 || payload.ToHeight == 0 {
+					writeError(writer, http.StatusBadRequest, "from_height and to_height are required")
+					return
+				}
+				result, err = strictReplayer.ReplayStrict(request.Context(), types.Height(payload.FromHeight), types.Height(payload.ToHeight))
+			}
+		} else if payload.All || (payload.FromHeight == 0 && payload.ToHeight == 0) {
 			result, err = replayer.ReplayAll(request.Context())
 		} else {
 			if payload.FromHeight == 0 || payload.ToHeight == 0 {
@@ -1238,13 +1255,13 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 	case "web3_sha3":
 		return web3Sha3(params)
 	case "net_version":
-		return strconv.FormatUint(chainNumericID(provider.Status(ctx).ChainID), 10), nil
+		return strconv.FormatUint(web3ChainID(provider.Status(ctx)), 10), nil
 	case "net_listening":
 		return provider.Status(ctx).Running, nil
 	case "net_peerCount":
 		return hexQuantity(uint64(provider.Status(ctx).PeerCount)), nil
 	case "eth_chainId":
-		return hexQuantity(chainNumericID(provider.Status(ctx).ChainID)), nil
+		return hexQuantity(web3ChainID(provider.Status(ctx))), nil
 	case "eth_protocolVersion":
 		return "0x1", nil
 	case "eth_syncing":
@@ -1389,7 +1406,7 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 			}
 		}
 		decoded, err := ethcompat.DecodeRawTransaction(rawTx, ethcompat.DecodeOptions{
-			ChainID: chainNumericID(provider.Status(ctx).ChainID),
+			ChainID: web3ChainID(provider.Status(ctx)),
 			BaseFee: baseFee,
 			VM:      "evm",
 		})
@@ -1653,6 +1670,7 @@ type web3Receipt struct {
 	To              string `json:"to,omitempty"`
 	ContractAddress string `json:"contract_address,omitempty"`
 	GasUsed         uint64 `json:"gas_used"`
+	Error           string `json:"error,omitempty"`
 	Output          string `json:"output,omitempty"`
 	Logs            []any  `json:"logs,omitempty"`
 	StateDiff       any    `json:"state_diff,omitempty"`
@@ -2584,29 +2602,9 @@ func web3DebugTraceTransaction(ctx context.Context, provider StatusProvider, par
 		return nil, &JSONRPCError{Code: -32000, Message: "invalid EVM receipt"}
 	}
 	if web3TraceWantsCallTracer(params) {
-		to := receipt.To
-		traceType := "CALL"
-		if to == "" && receipt.ContractAddress != "" {
-			to = receipt.ContractAddress
-			traceType = "CREATE"
-		}
-		return map[string]any{
-			"type":    traceType,
-			"from":    receipt.From,
-			"to":      to,
-			"value":   "0x0",
-			"gas":     hexQuantity(receipt.GasUsed),
-			"gasUsed": hexQuantity(receipt.GasUsed),
-			"input":   "0x",
-			"output":  receipt.Output,
-		}, nil
+		return web3ReceiptCallTrace(ctx, provider, receipt), nil
 	}
-	return map[string]any{
-		"gas":         receipt.GasUsed,
-		"failed":      receipt.Status == 0,
-		"returnValue": strings.TrimPrefix(receipt.Output, "0x"),
-		"structLogs":  []any{},
-	}, nil
+	return web3ReceiptDebugTraceResult(receipt), nil
 }
 
 func web3DebugTraceBlockByNumber(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
@@ -2642,13 +2640,9 @@ func web3DebugTraceBlockRecord(record store.BlockRecord) any {
 			continue
 		}
 		item := map[string]any{
-			"txHash": receipt.TxHash,
-			"result": map[string]any{
-				"gas":         receipt.GasUsed,
-				"failed":      receipt.Status == 0,
-				"returnValue": strings.TrimPrefix(receipt.Output, "0x"),
-				"structLogs":  []any{},
-			},
+			"txHash":  receipt.TxHash,
+			"result":  web3ReceiptDebugTraceResult(receipt),
+			"vmTrace": web3VMTraceFromReceipt(receipt),
 		}
 		if index < len(record.Block.Txs) {
 			item["transaction"] = web3TransactionFromBlockRecord(record, index, receipt.TxHash, record.Block.Txs[index])
@@ -2677,11 +2671,11 @@ func web3TraceTransaction(ctx context.Context, provider StatusProvider, params [
 	if !ok {
 		return nil, &JSONRPCError{Code: -32000, Message: "invalid EVM receipt"}
 	}
-	trace := web3TraceFromReceipt(ctx, provider, receipt)
-	if trace == nil {
+	traces := web3TraceListFromReceipt(ctx, provider, receipt)
+	if len(traces) == 0 {
 		return []any{}, nil
 	}
-	return []any{trace}, nil
+	return traces, nil
 }
 
 func web3TraceGet(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
@@ -2702,6 +2696,15 @@ func web3TraceGet(ctx context.Context, provider StatusProvider, params []json.Ra
 	}
 	if len(traceAddress) == 0 {
 		return items[0], nil
+	}
+	for _, item := range items {
+		trace, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if web3TraceAddressEqual(trace["traceAddress"], traceAddress) {
+			return trace, nil
+		}
 	}
 	return nil, nil
 }
@@ -2876,6 +2879,51 @@ func web3VMTraceFromReceipt(receipt web3Receipt) any {
 	return nil
 }
 
+func web3ReceiptDebugTraceResult(receipt web3Receipt) map[string]any {
+	return map[string]any{
+		"gas":         receipt.GasUsed,
+		"failed":      receipt.Status == 0,
+		"returnValue": strings.TrimPrefix(receipt.Output, "0x"),
+		"structLogs":  web3StructLogs(receipt.VMTrace),
+	}
+}
+
+func web3ReceiptCallTrace(ctx context.Context, provider StatusProvider, receipt web3Receipt) map[string]any {
+	_, _, tx, found := web3ReceiptBlockLocation(ctx, provider, receipt)
+	details := web3TxDetails{}
+	if found {
+		details = web3TransactionDetails(tx)
+	}
+	to := receipt.To
+	traceType := "CALL"
+	if receipt.ContractAddress != "" && receipt.To == "" {
+		to = receipt.ContractAddress
+		traceType = "CREATE"
+	}
+	result := map[string]any{
+		"type":    traceType,
+		"from":    receipt.From,
+		"to":      to,
+		"value":   web3TxValueHex(details),
+		"gas":     hexQuantity(details.Gas),
+		"gasUsed": hexQuantity(receipt.GasUsed),
+		"input":   details.Input,
+		"output":  receipt.Output,
+	}
+	if !found {
+		result["value"] = "0x0"
+		result["gas"] = hexQuantity(receipt.GasUsed)
+		result["input"] = "0x"
+	}
+	if calls := web3CallTraceChildren(receipt.VMTrace); len(calls) > 0 {
+		result["calls"] = calls
+	}
+	if receipt.Status == 0 {
+		result["error"] = web3ReceiptError(receipt)
+	}
+	return result
+}
+
 func web3TraceBlockRecord(ctx context.Context, provider StatusProvider, record store.BlockRecord) []any {
 	if record.Block.Header.Height == 0 {
 		return []any{}
@@ -2886,10 +2934,18 @@ func web3TraceBlockRecord(ctx context.Context, provider StatusProvider, record s
 		if !ok {
 			continue
 		}
-		if trace := web3TraceFromReceipt(ctx, provider, receipt); trace != nil {
-			traces = append(traces, trace)
-		}
+		traces = append(traces, web3TraceListFromReceipt(ctx, provider, receipt)...)
 	}
+	return traces
+}
+
+func web3TraceListFromReceipt(ctx context.Context, provider StatusProvider, receipt web3Receipt) []any {
+	trace := web3TraceFromReceipt(ctx, provider, receipt)
+	if trace == nil {
+		return nil
+	}
+	traces := []any{trace}
+	traces = append(traces, web3ParityTraceChildren(receipt.VMTrace, []uint64{})...)
 	return traces
 }
 
@@ -2929,9 +2985,126 @@ func web3TraceFromReceipt(ctx context.Context, provider StatusProvider, receipt 
 		"type":                traceType,
 	}
 	if receipt.Status == 0 {
-		trace["error"] = "execution reverted"
+		trace["error"] = web3ReceiptError(receipt)
 	}
 	return trace
+}
+
+func web3ReceiptError(receipt web3Receipt) string {
+	if receipt.Error != "" {
+		return receipt.Error
+	}
+	return "execution reverted"
+}
+
+func web3CallTraceChildren(vmTrace any) []any {
+	trace, ok := vmTrace.(map[string]any)
+	if !ok {
+		return nil
+	}
+	calls, ok := trace["calls"].([]any)
+	if ok {
+		return calls
+	}
+	calls, ok = trace["children"].([]any)
+	if ok {
+		return calls
+	}
+	return nil
+}
+
+func web3ParityTraceChildren(vmTrace any, parent []uint64) []any {
+	children := web3CallTraceChildren(vmTrace)
+	if len(children) == 0 {
+		return nil
+	}
+	out := make([]any, 0, len(children))
+	for index, child := range children {
+		childMap, ok := child.(map[string]any)
+		if !ok {
+			continue
+		}
+		address := append(append([]uint64(nil), parent...), uint64(index))
+		trace := web3ParityTraceFromCall(childMap, address)
+		out = append(out, trace)
+		out = append(out, web3ParityTraceChildren(childMap, address)...)
+	}
+	return out
+}
+
+func web3ParityTraceFromCall(call map[string]any, address []uint64) map[string]any {
+	callType := strings.ToLower(stringValue(call["type"]))
+	if callType == "" {
+		callType = strings.ToLower(stringValue(call["callType"]))
+	}
+	if callType == "" {
+		callType = "call"
+	}
+	action := map[string]any{
+		"callType": callType,
+		"from":     stringValue(call["from"]),
+		"to":       stringValue(call["to"]),
+		"gas":      stringValueOrDefault(call["gas"], "0x0"),
+		"input":    stringValueOrDefault(call["input"], "0x"),
+		"value":    stringValueOrDefault(call["value"], "0x0"),
+	}
+	result := map[string]any{
+		"gasUsed": stringValueOrDefault(call["gasUsed"], "0x0"),
+		"output":  stringValueOrDefault(call["output"], "0x"),
+	}
+	trace := map[string]any{
+		"action":       action,
+		"result":       result,
+		"subtraces":    len(web3CallTraceChildren(call)),
+		"traceAddress": uint64SliceToAny(address),
+		"type":         callType,
+	}
+	if errText := stringValue(call["error"]); errText != "" {
+		trace["error"] = errText
+	}
+	return trace
+}
+
+func stringValue(value any) string {
+	item, _ := value.(string)
+	return item
+}
+
+func stringValueOrDefault(value any, fallback string) string {
+	if item := stringValue(value); item != "" {
+		return item
+	}
+	return fallback
+}
+
+func uint64SliceToAny(values []uint64) []any {
+	out := make([]any, len(values))
+	for index, value := range values {
+		out[index] = value
+	}
+	return out
+}
+
+func web3TraceAddressEqual(raw any, expected []uint64) bool {
+	items, ok := raw.([]any)
+	if !ok || len(items) != len(expected) {
+		return false
+	}
+	for index, item := range items {
+		switch value := item.(type) {
+		case uint64:
+			if value != expected[index] {
+				return false
+			}
+		case float64:
+			if value != float64(expected[index]) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func web3TraceWantsCallTracer(params []json.RawMessage) bool {
@@ -4363,6 +4536,13 @@ func chainNumericID(chainID string) uint64 {
 		return 1
 	}
 	return value
+}
+
+func web3ChainID(status node.Status) uint64 {
+	if status.EVMChainID != 0 {
+		return status.EVMChainID
+	}
+	return chainNumericID(status.ChainID)
 }
 
 func newWeb3FilterStore() *web3FilterStore {

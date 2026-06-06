@@ -38,6 +38,19 @@ func (runtime *Runtime) Replay(ctx context.Context, from types.Height, to types.
 	return runtime.ReplayIsolated(ctx, from, to)
 }
 
+func (runtime *Runtime) ReplayStrict(ctx context.Context, from types.Height, to types.Height) (ReplayResult, error) {
+	if runtime.Store == nil {
+		return ReplayResult{}, store.ErrBlockNotFound
+	}
+	if from == 0 || to == 0 || from > to {
+		return ReplayResult{}, ErrInvalidReplayRange
+	}
+	if from != 1 {
+		return runtime.ReplayFromHistoricalSnapshot(ctx, from, to)
+	}
+	return runtime.replayFromFreshStore(ctx, from, to)
+}
+
 func (runtime *Runtime) ReplayIsolated(ctx context.Context, from types.Height, to types.Height) (ReplayResult, error) {
 	if runtime.Store == nil {
 		return ReplayResult{}, store.ErrBlockNotFound
@@ -198,4 +211,12 @@ func (runtime *Runtime) ReplayAll(ctx context.Context) (ReplayResult, error) {
 		return ReplayResult{}, err
 	}
 	return runtime.Replay(ctx, index.EarliestHeight, index.LatestHeight)
+}
+
+func (runtime *Runtime) ReplayAllStrict(ctx context.Context) (ReplayResult, error) {
+	index, err := runtime.BlockIndex(ctx)
+	if err != nil {
+		return ReplayResult{}, err
+	}
+	return runtime.ReplayStrict(ctx, index.EarliestHeight, index.LatestHeight)
 }

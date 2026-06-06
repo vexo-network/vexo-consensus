@@ -2,6 +2,7 @@ package consensus
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -612,6 +613,82 @@ func TestSubmitInvalidProposalAppHashEvidenceRequiresContext(t *testing.T) {
 	}
 	if result.PreviousPower != 100 || result.RemainingPower != 75 {
 		t.Fatalf("unexpected app-hash invalid proposal slash result: %+v", result)
+	}
+}
+
+func TestSubmitInvalidProposalEvidenceRequiresMatchingContextProofHash(t *testing.T) {
+	signer := testEvidenceSigner(t, "a")
+	registry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{
+		{ID: "a", Address: "a", VotingPower: 100, Stake: 100, PublicKey: signer.PublicKey()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keeper := slashing.NewInMemoryKeeper(slashing.PenaltyPolicy{
+		slashing.EvidenceInvalidProposal: {SlashFraction: "0.25", JailDuration: 30},
+	})
+	expectedAppHash := types.Hash{9}
+	actualAppHash := types.Hash{1}
+	proposal := signedTestProposal(t, signer, Proposal{
+		Block:    types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, AppHash: actualAppHash}},
+		Round:    0,
+		Proposer: "a",
+	})
+	evidence, err := NewInvalidProposalHashEvidence(proposal, string(InvalidProposalReasonAppHash), expectedAppHash, actualAppHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var proof InvalidProposalProof
+	if err := json.Unmarshal(evidence.Proof, &proof); err != nil {
+		t.Fatal(err)
+	}
+	contextProofHash := types.Hash{}
+	contextProofHash[0] = 7
+	wrongContextProofHash := types.Hash{}
+	wrongContextProofHash[0] = 8
+	proof.ContextProofHash = contextProofHash
+	evidence.Proof, err = json.Marshal(proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := SubmitEvidenceForSlashingWithContext(
+		context.Background(),
+		keeper,
+		registry,
+		vexocrypto.DeterministicSigner{},
+		0,
+		evidence,
+		EvidenceVerificationContext{InvalidProposal: InvalidProposalVerificationContext{ExpectedAppHash: expectedAppHash}},
+	); !errors.Is(err, ErrInvalidProposalContext) {
+		t.Fatalf("expected missing context proof hash error, got %v", err)
+	}
+	if _, err := SubmitEvidenceForSlashingWithContext(
+		context.Background(),
+		keeper,
+		registry,
+		vexocrypto.DeterministicSigner{},
+		0,
+		evidence,
+		EvidenceVerificationContext{InvalidProposal: InvalidProposalVerificationContext{ExpectedAppHash: expectedAppHash, ContextProofHash: wrongContextProofHash}},
+	); !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected context proof hash mismatch, got %v", err)
+	}
+
+	result, err := SubmitEvidenceForSlashingWithContext(
+		context.Background(),
+		keeper,
+		registry,
+		vexocrypto.DeterministicSigner{},
+		0,
+		evidence,
+		EvidenceVerificationContext{InvalidProposal: InvalidProposalVerificationContext{ExpectedAppHash: expectedAppHash, ContextProofHash: contextProofHash}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PreviousPower != 100 || result.RemainingPower != 75 {
+		t.Fatalf("unexpected context-proof invalid proposal slash result: %+v", result)
 	}
 }
 
