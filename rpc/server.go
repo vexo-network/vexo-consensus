@@ -1245,6 +1245,8 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 			}
 		}
 		return hexQuantity(0), nil
+	case "eth_blobBaseFee":
+		return hexQuantity(0), nil
 	case "eth_maxPriorityFeePerGas":
 		return web3MaxPriorityFeePerGas(ctx, provider), nil
 	case "eth_feeHistory":
@@ -1634,6 +1636,12 @@ func web3BlockByNumber(ctx context.Context, provider StatusProvider, params []js
 	switch tag {
 	case "latest", "pending":
 		record, queryErr = blockProvider.LatestBlock(ctx)
+	case "safe", "finalized":
+		height, rpcErr := web3FinalizedHeight(ctx, provider)
+		if rpcErr != nil {
+			return store.BlockRecord{}, rpcErr
+		}
+		record, queryErr = blockProvider.BlockByHeight(ctx, height)
 	case "earliest":
 		queryProvider, ok := provider.(ChainQueryProvider)
 		if !ok {
@@ -1924,6 +1932,7 @@ func web3BlockFromRecord(ctx context.Context, provider StatusProvider, record st
 		"parentHash":       "0x" + hex.EncodeToString(record.Block.Header.PreviousBlockHash[:]),
 		"nonce":            "0x0000000000000000",
 		"sha3Uncles":       "0x0000000000000000000000000000000000000000000000000000000000000000",
+		"mixHash":          "0x0000000000000000000000000000000000000000000000000000000000000000",
 		"logsBloom":        web3LogsBloom(record.Block.Txs, record.TxResults),
 		"transactionsRoot": web3TransactionsRoot(record.Block.Txs),
 		"stateRoot":        web3StateRoot(ctx, provider, record),
@@ -1935,9 +1944,14 @@ func web3BlockFromRecord(ctx context.Context, provider StatusProvider, record st
 		"size":             hexQuantity(uint64(len(record.Block.Txs))),
 		"gasLimit":         "0x0",
 		"gasUsed":          hexQuantity(web3BlockGasUsed(record.TxResults)),
+		"baseFeePerGas":    hexQuantity(web3BlockBaseFee(ctx, provider, record)),
+		"blobGasUsed":      "0x0",
+		"excessBlobGas":    "0x0",
 		"timestamp":        hexQuantity(uint64(record.Block.Header.TimeUnixNano / int64(time.Second))),
 		"transactions":     transactions,
 		"uncles":           []any{},
+		"withdrawals":      []any{},
+		"withdrawalsRoot":  "0x0000000000000000000000000000000000000000000000000000000000000000",
 	}
 }
 
@@ -2015,6 +2029,24 @@ func web3StateRoot(ctx context.Context, provider StatusProvider, record store.Bl
 		}
 	}
 	return "0x" + hex.EncodeToString(record.AppHash[:])
+}
+
+func web3BlockBaseFee(ctx context.Context, provider StatusProvider, record store.BlockRecord) uint64 {
+	query, ok := provider.(ChainQueryProvider)
+	if !ok {
+		return 0
+	}
+	state, err := query.LatestState(ctx)
+	if err != nil {
+		return 0
+	}
+	if state.Height != 0 && record.Block.Header.Height != 0 && state.Height != record.Block.Header.Height {
+		return state.BaseFee
+	}
+	if state.BaseFee > 0 {
+		return state.BaseFee
+	}
+	return state.NextBaseFee
 }
 
 func web3MaxPriorityFeePerGas(ctx context.Context, provider StatusProvider) string {
@@ -3342,6 +3374,8 @@ func web3BlockHeightParam(ctx context.Context, provider StatusProvider, raw json
 	switch text {
 	case "latest", "pending":
 		return provider.Status(ctx).LatestHeight, nil
+	case "safe", "finalized":
+		return web3FinalizedHeight(ctx, provider)
 	case "earliest":
 		query, ok := provider.(ChainQueryProvider)
 		if !ok {
@@ -3359,6 +3393,26 @@ func web3BlockHeightParam(ctx context.Context, provider StatusProvider, raw json
 		}
 		return types.Height(height), nil
 	}
+}
+
+func web3FinalizedHeight(ctx context.Context, provider StatusProvider) (types.Height, *JSONRPCError) {
+	status := provider.Status(ctx)
+	if status.LatestFinalizedHeight > 0 {
+		return status.LatestFinalizedHeight, nil
+	}
+	if finalityProvider, ok := provider.(FinalityProvider); ok {
+		proof, err := finalityProvider.LatestFinalityProof(ctx)
+		if err == nil && proof.Header.Height > 0 {
+			return proof.Header.Height, nil
+		}
+		if err != nil && !errors.Is(err, node.ErrFinalityNotFound) && !errors.Is(err, store.ErrBlockNotFound) && !errors.Is(err, store.ErrBlockIndexNotFound) {
+			return 0, &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
+	}
+	if status.LatestHeight > 0 {
+		return status.LatestHeight, nil
+	}
+	return 0, &JSONRPCError{Code: -32000, Message: "finalized block is unavailable"}
 }
 
 func web3QuantityParam(raw json.RawMessage) (uint64, error) {
@@ -3457,11 +3511,11 @@ func web3LogFilterParam(ctx context.Context, provider StatusProvider, params []j
 		return web3Filter{}, rpcErr
 	}
 	latest := uint64(provider.Status(ctx).LatestHeight)
-	fromBlock, rpcErr := web3LogBlockBound(payload.FromBlock, latest, 0)
+	fromBlock, rpcErr := web3LogBlockBound(ctx, provider, payload.FromBlock, latest, 0)
 	if rpcErr != nil {
 		return web3Filter{}, rpcErr
 	}
-	toBlock, rpcErr := web3LogBlockBound(payload.ToBlock, latest, ^uint64(0))
+	toBlock, rpcErr := web3LogBlockBound(ctx, provider, payload.ToBlock, latest, ^uint64(0))
 	if rpcErr != nil {
 		return web3Filter{}, rpcErr
 	}
@@ -3499,13 +3553,19 @@ func web3LogAddresses(value any) ([]string, *JSONRPCError) {
 	}
 }
 
-func web3LogBlockBound(tag string, latest uint64, empty uint64) (uint64, *JSONRPCError) {
+func web3LogBlockBound(ctx context.Context, provider StatusProvider, tag string, latest uint64, empty uint64) (uint64, *JSONRPCError) {
 	if tag == "" {
 		return empty, nil
 	}
 	switch tag {
 	case "latest", "pending":
 		return latest, nil
+	case "safe", "finalized":
+		height, rpcErr := web3FinalizedHeight(ctx, provider)
+		if rpcErr != nil {
+			return 0, rpcErr
+		}
+		return uint64(height), nil
 	case "earliest":
 		return 0, nil
 	default:

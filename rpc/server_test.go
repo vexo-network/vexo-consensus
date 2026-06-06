@@ -787,16 +787,25 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 			{GasUsed: 7, Data: []byte(`{"tx_hash":"` + blockTxHashText + `","height":12,"status":1,"from":"0xaaaa","to":"0xbbbb","gas_used":7,"output":"0x1234"}`)},
 		},
 	}
+	finalizedHash := types.Hash{0xac}
+	finalizedBlock := store.BlockRecord{
+		Block: types.Block{
+			Header: types.Header{ChainID: "vexo-chain", Height: 11, TimeUnixNano: int64(1699999999 * time.Second)},
+		},
+		Hash:    finalizedHash,
+		AppHash: types.Hash{0xee},
+	}
 	provider := &fakeStatusProvider{
-		status:           node.Status{ChainID: "vexo-chain", Running: true, LatestHeight: 12, PeerCount: 2},
+		status:           node.Status{ChainID: "vexo-chain", Running: true, LatestHeight: 12, LatestFinalizedHeight: 11, PeerCount: 2},
 		state:            store.StateRecord{Height: 12, BaseFee: 9, NextBaseFee: 11},
 		appQueryResponse: vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"0xabc","status":1,"gas_used":7,"logs":[{"address":"0xcontract","data":"0x01"}]}`)},
-		blocks:           map[types.Height]store.BlockRecord{12: block},
+		blocks:           map[types.Height]store.BlockRecord{11: finalizedBlock, 12: block},
 		blocksByHash:     map[types.Hash]store.BlockRecord{blockHash: block},
 		latest:           12,
-		index:            store.BlockIndex{EarliestHeight: 12, LatestHeight: 12, TotalBlocks: 1},
+		index:            store.BlockIndex{EarliestHeight: 11, LatestHeight: 12, TotalBlocks: 2},
 		accountSequence:  7,
 		pendingHashes:    []types.Hash{{0xfa}},
+		finalityProof:    finality.Proof{Header: types.Header{Height: 11}, BlockHash: finalizedHash},
 	}
 	pendingTx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
 		Module: "evm",
@@ -911,6 +920,11 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if gasPrice.Error != nil || gasPrice.Result != "0xb" {
 		t.Fatalf("unexpected gas price response: %+v", gasPrice)
 	}
+	var blobBaseFee JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":100,"method":"eth_blobBaseFee","params":[]}`, http.StatusOK, &blobBaseFee)
+	if blobBaseFee.Error != nil || blobBaseFee.Result != "0x0" {
+		t.Fatalf("unexpected blob base fee response: %+v", blobBaseFee)
+	}
 
 	var priorityFee JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":44,"method":"eth_maxPriorityFeePerGas","params":[]}`, http.StatusOK, &priorityFee)
@@ -952,6 +966,9 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if blockResult["receiptsRoot"] == "0x0000000000000000000000000000000000000000000000000000000000000000" || blockResult["gasUsed"] != "0x7" {
 		t.Fatalf("expected execution-backed receipts root and gas used: %+v", blockResult)
 	}
+	if blockResult["baseFeePerGas"] != "0x9" || blockResult["blobGasUsed"] != "0x0" || blockResult["withdrawals"] == nil {
+		t.Fatalf("expected post-merge/cancun compatible block fields: %+v", blockResult)
+	}
 	fullTxs, ok := blockResult["transactions"].([]any)
 	if !ok || len(fullTxs) != 1 {
 		t.Fatalf("expected full transaction response: %+v", blockResult["transactions"])
@@ -965,6 +982,17 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":68,"method":"eth_getBlockTransactionCountByNumber","params":["latest"]}`, http.StatusOK, &txCountByNumber)
 	if txCountByNumber.Error != nil || txCountByNumber.Result != "0x1" {
 		t.Fatalf("unexpected tx count by number: %+v", txCountByNumber)
+	}
+	var finalizedBlockByNumber JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":101,"method":"eth_getBlockByNumber","params":["finalized",false]}`, http.StatusOK, &finalizedBlockByNumber)
+	finalizedBlockResult, ok := finalizedBlockByNumber.Result.(map[string]any)
+	if finalizedBlockByNumber.Error != nil || !ok || finalizedBlockResult["number"] != "0xb" {
+		t.Fatalf("unexpected finalized block response: %+v", finalizedBlockByNumber)
+	}
+	var safeTxCountByNumber JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":102,"method":"eth_getBlockTransactionCountByNumber","params":["safe"]}`, http.StatusOK, &safeTxCountByNumber)
+	if safeTxCountByNumber.Error != nil || safeTxCountByNumber.Result != "0x0" {
+		t.Fatalf("unexpected safe tx count by number: %+v", safeTxCountByNumber)
 	}
 	var txByNumberAndIndex JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":69,"method":"eth_getTransactionByBlockNumberAndIndex","params":["latest","0x0"]}`, http.StatusOK, &txByNumberAndIndex)
