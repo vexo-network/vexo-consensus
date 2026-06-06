@@ -17,7 +17,7 @@ func (node *Node) SubmitTx(ctx context.Context, tx types.Tx) error {
 	if err != nil {
 		return err
 	}
-	if response := runtime.App.CheckTx(tx); response.Result.Code != 0 {
+	if response := checkTxWithContext(ctx, runtime.App, tx); response.Result.Code != 0 {
 		return appCheckError(response.Result.Log)
 	}
 	if err := runtime.Mempool.AddTx(ctx, tx); err != nil {
@@ -97,7 +97,7 @@ func (node *Node) ProposeFromMempoolWithOptions(ctx context.Context, maxBytes in
 	if height == 0 {
 		height = 1
 	}
-	proposalResponse, err := runtime.App.PrepareProposal(app.PrepareProposalRequest{
+	proposalResponse, err := prepareProposalWithContext(ctx, runtime.App, app.PrepareProposalRequest{
 		Height: height,
 		Txs:    batch.Txs,
 	})
@@ -122,6 +122,30 @@ func (err appCheckError) Error() string {
 		return "transaction rejected"
 	}
 	return string(err)
+}
+
+func checkTxWithContext(ctx context.Context, application app.Application, tx types.Tx) app.CheckTxResponse {
+	if checker, ok := application.(app.ContextCheckTxApplication); ok {
+		return checker.CheckTxContext(ctx, tx)
+	}
+	select {
+	case <-ctx.Done():
+		return app.CheckTxResponse{Result: types.Result{Code: 1, Log: ctx.Err().Error()}}
+	default:
+	}
+	return application.CheckTx(tx)
+}
+
+func prepareProposalWithContext(ctx context.Context, application app.Application, req app.PrepareProposalRequest) (app.PrepareProposalResponse, error) {
+	if preparer, ok := application.(app.ContextPrepareProposalApplication); ok {
+		return preparer.PrepareProposalContext(ctx, req)
+	}
+	select {
+	case <-ctx.Done():
+		return app.PrepareProposalResponse{}, ctx.Err()
+	default:
+	}
+	return application.PrepareProposal(req)
 }
 
 func (node *Node) startTxGossip(ctx context.Context) error {
@@ -164,7 +188,7 @@ func (node *Node) acceptGossipTx(ctx context.Context, from p2p.PeerID, tx types.
 	if err != nil {
 		return
 	}
-	if response := runtime.App.CheckTx(tx); response.Result.Code != 0 {
+	if response := checkTxWithContext(ctx, runtime.App, tx); response.Result.Code != 0 {
 		node.observePeerMessage(ctx, from, false)
 		return
 	}

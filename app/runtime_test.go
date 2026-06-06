@@ -369,11 +369,37 @@ func TestRuntimeStagedAppHashUsesBlockHeight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.AppHash == runtime.computeAppHashAtHeight(0, storage) {
+	if response.AppHash == runtime.computeAppHashAtHeight(context.Background(), 0, storage) {
 		t.Fatal("expected staged app hash to include block height, not previous runtime height")
 	}
-	if response.AppHash != runtime.computeAppHashAtHeight(5, storage) {
+	if response.AppHash != runtime.computeAppHashAtHeight(context.Background(), 5, storage) {
 		t.Fatal("expected staged app hash to match the finalized block height")
+	}
+}
+
+func TestRuntimeContextMethodsHonorCancellation(t *testing.T) {
+	runtime, err := NewRuntime("vexo-test", []Module{&recordingModule{name: "bank"}}, PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	block := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1}, Txs: []types.Tx{[]byte("bank:send")}}
+
+	if response := runtime.CheckTxContext(ctx, []byte("bank:send")); response.Result.Code == 0 || !strings.Contains(response.Result.Log, context.Canceled.Error()) {
+		t.Fatalf("expected canceled CheckTxContext, got %+v", response)
+	}
+	if _, err := runtime.PrepareProposalContext(ctx, PrepareProposalRequest{Height: 1, Txs: []types.Tx{[]byte("bank:send")}}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected canceled PrepareProposalContext, got %v", err)
+	}
+	if response := runtime.ProcessProposalContext(ctx, ProcessProposalRequest{Block: block}); response.Accepted || !strings.Contains(response.Reason, context.Canceled.Error()) {
+		t.Fatalf("expected canceled ProcessProposalContext, got %+v", response)
+	}
+	if _, err := runtime.FinalizeBlockContext(ctx, FinalizeBlockRequest{Block: block}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected canceled FinalizeBlockContext, got %v", err)
+	}
+	if response := runtime.QueryContext(ctx, QueryRequest{Path: []string{"bank"}}); response.Code == 0 || !strings.Contains(response.Log, context.Canceled.Error()) {
+		t.Fatalf("expected canceled QueryContext, got %+v", response)
 	}
 }
 
@@ -505,7 +531,7 @@ func (module *statefulModule) DeliverTx(ctx Context, tx types.Tx) types.Result {
 	if value == "" {
 		value = "100"
 	}
-	if err := ctx.Store.Set(context.Background(), "bank", []byte("alice"), []byte(value)); err != nil {
+	if err := ctx.Store.Set(ctx.GoContext(), "bank", []byte("alice"), []byte(value)); err != nil {
 		return types.Result{Code: 3, Log: err.Error()}
 	}
 	return types.Result{}

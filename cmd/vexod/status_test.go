@@ -167,6 +167,7 @@ func TestWriteStatusJSON(t *testing.T) {
 		"evm_code_writes",
 		"evm_selfdestruct_account_deletion",
 		"evm_actual_gas_accounting",
+		"execution_context_aware_app_calls",
 		"validator_update_atomic_commit",
 		"staking_slashing_ledger",
 		"mempool_seen_cache_pruning",

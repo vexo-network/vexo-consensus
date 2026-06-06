@@ -64,8 +64,8 @@ func writeDemo(writer io.Writer) error {
 	fmt.Fprintf(writer, "vexo-consensus demo\n")
 	fmt.Fprintf(writer, "executed_height: %d\n", commit.Height)
 	fmt.Fprintf(writer, "tx_results: %d\n", len(response.Results))
-	fmt.Fprintf(writer, "alice_balance: %s\n", application.Query(vexoapp.QueryRequest{Path: []string{"bank", "balance", "alice"}}).Value)
-	fmt.Fprintf(writer, "bob_balance: %s\n", application.Query(vexoapp.QueryRequest{Path: []string{"bank", "balance", "bob"}}).Value)
+	fmt.Fprintf(writer, "alice_balance: %s\n", application.QueryContext(context.Background(), vexoapp.QueryRequest{Path: []string{"bank", "balance", "alice"}}).Value)
+	fmt.Fprintf(writer, "bob_balance: %s\n", application.QueryContext(context.Background(), vexoapp.QueryRequest{Path: []string{"bank", "balance", "bob"}}).Value)
 	fmt.Fprintf(writer, "app_hash: %x\n", commit.AppHash)
 	return nil
 }

@@ -55,6 +55,8 @@ Enabled modules are configured in the node home's `module_config.json`, not in `
 
 Modules receive `app.Context.Store`, a namespaced KV store. Use the module name as namespace unless a module has a stronger reason not to.
 
+Use `ctx.GoContext()` for every store, crypto signer, remote signer, query, and long-running operation. The runtime now exposes context-aware `CheckTx`, `PrepareProposal`, `ProcessProposal`, `FinalizeBlock`, and `Query` paths, so cancellation and block/RPC deadlines can propagate into module code instead of continuing in the background.
+
 For chain-wide module parameters, prefer the `params` keeper instead of ad-hoc module keys:
 
 ```go

@@ -159,3 +159,32 @@ type Application interface {
 	Commit() (CommitResponse, error)
 	Query(req QueryRequest) QueryResponse
 }
+
+type ContextCheckTxApplication interface {
+	CheckTxContext(ctx context.Context, tx types.Tx) CheckTxResponse
+}
+
+type ContextPrepareProposalApplication interface {
+	PrepareProposalContext(ctx context.Context, req PrepareProposalRequest) (PrepareProposalResponse, error)
+}
+
+type ContextProcessProposalApplication interface {
+	ProcessProposalContext(ctx context.Context, req ProcessProposalRequest) ProcessProposalResponse
+}
+
+type ContextFinalizeBlockApplication interface {
+	FinalizeBlockContext(ctx context.Context, req FinalizeBlockRequest) (FinalizeBlockResponse, error)
+}
+
+type ContextQueryApplication interface {
+	QueryContext(ctx context.Context, req QueryRequest) QueryResponse
+}
+
+type ContextApplication interface {
+	Application
+	ContextCheckTxApplication
+	ContextPrepareProposalApplication
+	ContextProcessProposalApplication
+	ContextFinalizeBlockApplication
+	ContextQueryApplication
+}

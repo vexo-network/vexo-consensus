@@ -16,9 +16,19 @@ func (ApplicationBlockExecutor) Execute(ctx context.Context, application app.App
 	default:
 	}
 
-	processResponse := application.ProcessProposal(app.ProcessProposalRequest{Block: block})
+	processRequest := app.ProcessProposalRequest{Block: block}
+	var processResponse app.ProcessProposalResponse
+	if processor, ok := application.(app.ContextProcessProposalApplication); ok {
+		processResponse = processor.ProcessProposalContext(ctx, processRequest)
+	} else {
+		processResponse = application.ProcessProposal(processRequest)
+	}
 	if !processResponse.Accepted {
 		return app.FinalizeBlockResponse{}, app.ErrProposalRejected
 	}
-	return application.FinalizeBlock(app.FinalizeBlockRequest{Block: block})
+	finalizeRequest := app.FinalizeBlockRequest{Block: block}
+	if finalizer, ok := application.(app.ContextFinalizeBlockApplication); ok {
+		return finalizer.FinalizeBlockContext(ctx, finalizeRequest)
+	}
+	return application.FinalizeBlock(finalizeRequest)
 }

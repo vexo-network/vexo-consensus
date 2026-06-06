@@ -117,12 +117,21 @@ func (runtime *Runtime) InitChain(req InitChainRequest) (InitChainResponse, erro
 			return InitChainResponse{}, err
 		}
 	}
-	runtime.appHash = runtime.computeAppHash()
+	runtime.appHash = runtime.computeAppHashWithContext(ctx.GoContext())
 	return InitChainResponse{AppHash: runtime.appHash}, nil
 }
 
 func (runtime *Runtime) CheckTx(tx types.Tx) CheckTxResponse {
-	ctx := runtime.newContext(runtime.height, types.Header{})
+	return runtime.CheckTxContext(context.Background(), tx)
+}
+
+func (runtime *Runtime) CheckTxContext(goCtx context.Context, tx types.Tx) CheckTxResponse {
+	ctx := runtime.newContextWithGoContext(goCtx, runtime.height, types.Header{})
+	select {
+	case <-ctx.GoContext().Done():
+		return CheckTxResponse{Result: types.Result{Code: 1, Log: ctx.GoContext().Err().Error()}}
+	default:
+	}
 	if runtime.ante != nil {
 		if err := runtime.ante.CheckTx(ctx, tx); err != nil {
 			return CheckTxResponse{Result: types.Result{Code: 1, Log: err.Error()}}
@@ -140,9 +149,18 @@ func (runtime *Runtime) CheckTx(tx types.Tx) CheckTxResponse {
 }
 
 func (runtime *Runtime) PrepareProposal(req PrepareProposalRequest) (PrepareProposalResponse, error) {
+	return runtime.PrepareProposalContext(context.Background(), req)
+}
+
+func (runtime *Runtime) PrepareProposalContext(goCtx context.Context, req PrepareProposalRequest) (PrepareProposalResponse, error) {
+	select {
+	case <-goCtx.Done():
+		return PrepareProposalResponse{}, goCtx.Err()
+	default:
+	}
 	accepted := make([]types.Tx, 0, len(req.Txs))
 	for _, tx := range req.Txs {
-		if runtime.CheckTx(tx).Result.Code == 0 {
+		if runtime.CheckTxContext(goCtx, tx).Result.Code == 0 {
 			accepted = append(accepted, append(types.Tx(nil), tx...))
 		}
 	}
@@ -150,10 +168,19 @@ func (runtime *Runtime) PrepareProposal(req PrepareProposalRequest) (PrepareProp
 }
 
 func (runtime *Runtime) ProcessProposal(req ProcessProposalRequest) ProcessProposalResponse {
+	return runtime.ProcessProposalContext(context.Background(), req)
+}
+
+func (runtime *Runtime) ProcessProposalContext(goCtx context.Context, req ProcessProposalRequest) ProcessProposalResponse {
+	select {
+	case <-goCtx.Done():
+		return ProcessProposalResponse{Accepted: false, Reason: goCtx.Err().Error()}
+	default:
+	}
 	if !fairordering.IsOrderedWithSalt(req.Block.Txs, runtime.orderingSalt(req.Block.Header.Height)) {
 		return ProcessProposalResponse{Accepted: false, Reason: "transaction ordering mismatch"}
 	}
-	ctx := runtime.newContext(req.Block.Header.Height, req.Block.Header)
+	ctx := runtime.newContextWithGoContext(goCtx, req.Block.Header.Height, req.Block.Header)
 	if runtime.ante != nil {
 		if err := runtime.ante.CheckBlock(ctx, req.Block.Txs); err != nil {
 			return ProcessProposalResponse{Accepted: false, Reason: err.Error()}
@@ -173,16 +200,24 @@ func (runtime *Runtime) ProcessProposal(req ProcessProposalRequest) ProcessPropo
 }
 
 func (runtime *Runtime) FinalizeBlock(req FinalizeBlockRequest) (FinalizeBlockResponse, error) {
-	return runtime.finalizeBlockWithStore(req, runtime.store, true)
+	return runtime.FinalizeBlockContext(context.Background(), req)
+}
+
+func (runtime *Runtime) FinalizeBlockContext(goCtx context.Context, req FinalizeBlockRequest) (FinalizeBlockResponse, error) {
+	return runtime.finalizeBlockWithStore(goCtx, req, runtime.store, true)
 }
 
 func (runtime *Runtime) FinalizeBlockStaged(req FinalizeBlockRequest) (FinalizeBlockResponse, []kvbatch.KVWrite, error) {
+	return runtime.FinalizeBlockStagedContext(context.Background(), req)
+}
+
+func (runtime *Runtime) FinalizeBlockStagedContext(goCtx context.Context, req FinalizeBlockRequest) (FinalizeBlockResponse, []kvbatch.KVWrite, error) {
 	if runtime.store == nil {
-		response, err := runtime.finalizeBlockWithStore(req, nil, true)
+		response, err := runtime.finalizeBlockWithStore(goCtx, req, nil, true)
 		return response, nil, err
 	}
 	staged := NewStagedStore(runtime.store)
-	response, err := runtime.finalizeBlockWithStore(req, staged, false)
+	response, err := runtime.finalizeBlockWithStore(goCtx, req, staged, false)
 	if err != nil {
 		return FinalizeBlockResponse{}, nil, err
 	}
@@ -194,13 +229,18 @@ func (runtime *Runtime) CommitStagedBlock(height types.Height, appHash types.Has
 	runtime.appHash = appHash
 }
 
-func (runtime *Runtime) finalizeBlockWithStore(req FinalizeBlockRequest, executionStore StateStore, updateRuntime bool) (FinalizeBlockResponse, error) {
-	proposalResponse := runtime.ProcessProposal(ProcessProposalRequest{Block: req.Block})
+func (runtime *Runtime) finalizeBlockWithStore(goCtx context.Context, req FinalizeBlockRequest, executionStore StateStore, updateRuntime bool) (FinalizeBlockResponse, error) {
+	select {
+	case <-goCtx.Done():
+		return FinalizeBlockResponse{}, goCtx.Err()
+	default:
+	}
+	proposalResponse := runtime.ProcessProposalContext(goCtx, ProcessProposalRequest{Block: req.Block})
 	if !proposalResponse.Accepted {
 		return FinalizeBlockResponse{}, ErrProposalRejected
 	}
 
-	ctx := runtime.newContext(req.Block.Header.Height, req.Block.Header)
+	ctx := runtime.newContextWithGoContext(goCtx, req.Block.Header.Height, req.Block.Header)
 	ctx.Store = executionStore
 
 	for _, module := range runtime.modules {
@@ -261,7 +301,7 @@ func (runtime *Runtime) finalizeBlockWithStore(req FinalizeBlockRequest, executi
 		}
 	}
 
-	appHash := runtime.computeAppHashAtHeight(req.Block.Header.Height, executionStore)
+	appHash := runtime.computeAppHashAtHeight(ctx.GoContext(), req.Block.Header.Height, executionStore)
 	if updateRuntime {
 		runtime.height = req.Block.Header.Height
 		runtime.appHash = appHash
@@ -338,10 +378,19 @@ func (runtime *Runtime) bindStoreWithContext(ctx Context) error {
 }
 
 func (runtime *Runtime) Query(req QueryRequest) QueryResponse {
+	return runtime.QueryContext(context.Background(), req)
+}
+
+func (runtime *Runtime) QueryContext(goCtx context.Context, req QueryRequest) QueryResponse {
+	select {
+	case <-goCtx.Done():
+		return QueryResponse{Code: 1, Log: goCtx.Err().Error()}
+	default:
+	}
 	if len(req.Path) == 0 || req.Path[0] == "" {
 		return QueryResponse{Code: 1, Log: "query module is required"}
 	}
-	ctx := runtime.newContext(runtime.height, types.Header{})
+	ctx := runtime.newContextWithGoContext(goCtx, runtime.height, types.Header{})
 	for _, module := range runtime.modules {
 		if module.Name() != req.Path[0] {
 			continue
@@ -359,8 +408,15 @@ func (runtime *Runtime) Query(req QueryRequest) QueryResponse {
 }
 
 func (runtime *Runtime) newContext(height types.Height, header types.Header) Context {
+	return runtime.newContextWithGoContext(context.Background(), height, header)
+}
+
+func (runtime *Runtime) newContextWithGoContext(goCtx context.Context, height types.Height, header types.Header) Context {
+	if goCtx == nil {
+		goCtx = context.Background()
+	}
 	return Context{
-		Ctx:     context.Background(),
+		Ctx:     goCtx,
 		ChainID: runtime.chainID,
 		Height:  height,
 		Header:  header,
@@ -403,10 +459,17 @@ func cloneValidatorUpdate(update types.ValidatorUpdate) types.ValidatorUpdate {
 }
 
 func (runtime *Runtime) computeAppHash() types.Hash {
-	return runtime.computeAppHashAtHeight(runtime.height, runtime.store)
+	return runtime.computeAppHashWithContext(context.Background())
 }
 
-func (runtime *Runtime) computeAppHashAtHeight(height types.Height, stateStore StateStore) types.Hash {
+func (runtime *Runtime) computeAppHashWithContext(goCtx context.Context) types.Hash {
+	return runtime.computeAppHashAtHeight(goCtx, runtime.height, runtime.store)
+}
+
+func (runtime *Runtime) computeAppHashAtHeight(goCtx context.Context, height types.Height, stateStore StateStore) types.Hash {
+	if goCtx == nil {
+		goCtx = context.Background()
+	}
 	hasher := sha256.New()
 	hasher.Write([]byte(runtime.chainID))
 
@@ -417,7 +480,7 @@ func (runtime *Runtime) computeAppHashAtHeight(height types.Height, stateStore S
 	rootStore, ok := stateStore.(StateRootStore)
 	if ok {
 		for _, module := range runtime.modules {
-			root, err := rootStore.Root(context.Background(), module.Name())
+			root, err := rootStore.Root(goCtx, module.Name())
 			if err != nil {
 				continue
 			}

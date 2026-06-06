@@ -52,6 +52,17 @@ func TestApplicationBlockExecutorContextCancellation(t *testing.T) {
 	}
 }
 
+func TestApplicationBlockExecutorUsesContextAwareApplication(t *testing.T) {
+	application := &contextExecutorApplication{executorApplication: executorApplication{accepted: true}}
+	_, err := ApplicationBlockExecutor{}.Execute(context.Background(), application, types.Block{Header: types.Header{Height: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !application.processContext || !application.finalizeContext {
+		t.Fatalf("expected context-aware process/finalize path, got process=%t finalize=%t", application.processContext, application.finalizeContext)
+	}
+}
+
 type executorApplication struct {
 	accepted    bool
 	finalized   bool
@@ -88,4 +99,20 @@ func (application *executorApplication) Commit() (app.CommitResponse, error) {
 
 func (application *executorApplication) Query(req app.QueryRequest) app.QueryResponse {
 	return app.QueryResponse{}
+}
+
+type contextExecutorApplication struct {
+	executorApplication
+	processContext  bool
+	finalizeContext bool
+}
+
+func (application *contextExecutorApplication) ProcessProposalContext(ctx context.Context, req app.ProcessProposalRequest) app.ProcessProposalResponse {
+	application.processContext = true
+	return application.executorApplication.ProcessProposal(req)
+}
+
+func (application *contextExecutorApplication) FinalizeBlockContext(ctx context.Context, req app.FinalizeBlockRequest) (app.FinalizeBlockResponse, error) {
+	application.finalizeContext = true
+	return application.executorApplication.FinalizeBlock(req)
 }

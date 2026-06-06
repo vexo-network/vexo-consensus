@@ -65,6 +65,6 @@ func writeStoreDemo(writer io.Writer, path string) error {
 	fmt.Fprintf(writer, "stored_block_hash: %x\n", storedBlock.Hash)
 	fmt.Fprintf(writer, "latest_state_height: %d\n", latestState.Height)
 	fmt.Fprintf(writer, "state_roots: %d\n", len(storedBlock.StateRoots))
-	fmt.Fprintf(writer, "bob_balance: %s\n", application.Query(vexoapp.QueryRequest{Path: []string{"bank", "balance", "bob"}}).Value)
+	fmt.Fprintf(writer, "bob_balance: %s\n", application.QueryContext(context.Background(), vexoapp.QueryRequest{Path: []string{"bank", "balance", "bob"}}).Value)
 	return nil
 }

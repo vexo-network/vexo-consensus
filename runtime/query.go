@@ -105,7 +105,13 @@ func (runtime *Runtime) AppQuery(ctx context.Context, path []string, data []byte
 		return app.QueryResponse{}, ctx.Err()
 	default:
 	}
-	response := runtime.App.Query(app.QueryRequest{Path: append([]string(nil), path...), Data: append([]byte(nil), data...)})
+	request := app.QueryRequest{Path: append([]string(nil), path...), Data: append([]byte(nil), data...)}
+	var response app.QueryResponse
+	if querier, ok := runtime.App.(app.ContextQueryApplication); ok {
+		response = querier.QueryContext(ctx, request)
+	} else {
+		response = runtime.App.Query(request)
+	}
 	return app.QueryResponse{
 		Code:  response.Code,
 		Value: append([]byte(nil), response.Value...),

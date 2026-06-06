@@ -115,6 +115,20 @@ func TestRuntimePruneCallsAppModuleHooks(t *testing.T) {
 	}
 }
 
+func TestRuntimeAppQueryUsesContextAwareApplication(t *testing.T) {
+	runtime, err := New(config.Default("vexo-test"), contextQueryApp{}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := runtime.AppQuery(context.Background(), []string{"bank", "balance", "alice"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(response.Value) != "context-aware" {
+		t.Fatalf("expected context-aware app query path, got %+v", response)
+	}
+}
+
 func commitQueryProofState(t *testing.T, storage *store.LevelDBStore, height types.Height, value []byte) {
 	t.Helper()
 	ctx := context.Background()
@@ -136,6 +150,19 @@ func commitQueryProofState(t *testing.T, storage *store.LevelDBStore, height typ
 
 type pruneHookModule struct {
 	retainFrom types.Height
+}
+
+type contextQueryApp struct {
+	noopApp
+}
+
+func (contextQueryApp) QueryContext(ctx context.Context, req vexoapp.QueryRequest) vexoapp.QueryResponse {
+	select {
+	case <-ctx.Done():
+		return vexoapp.QueryResponse{Code: 1, Log: ctx.Err().Error()}
+	default:
+	}
+	return vexoapp.QueryResponse{Value: []byte("context-aware")}
 }
 
 func (module *pruneHookModule) Name() string { return "hook" }

@@ -267,6 +267,7 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"evm_code_writes":                         true,
 			"evm_selfdestruct_account_deletion":       true,
 			"evm_actual_gas_accounting":               true,
+			"execution_context_aware_app_calls":       true,
 			"validator_update_atomic_commit":          true,
 			"staking_slashing_ledger":                 true,
 			"mempool_seen_cache_pruning":              true,
