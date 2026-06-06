@@ -756,7 +756,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		},
 	}
 	provider := &fakeStatusProvider{
-		status:           node.Status{ChainID: "vexo-chain", LatestHeight: 12},
+		status:           node.Status{ChainID: "vexo-chain", Running: true, LatestHeight: 12, PeerCount: 2},
 		state:            store.StateRecord{Height: 12, BaseFee: 9, NextBaseFee: 11},
 		appQueryResponse: vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"0xabc","status":1,"gas_used":7,"logs":[{"address":"0xcontract","data":"0x01"}]}`)},
 		blocks:           map[types.Height]store.BlockRecord{12: block},
@@ -772,6 +772,33 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}`, http.StatusOK, &blockNumber)
 	if blockNumber.Error != nil || blockNumber.Result != "0xc" {
 		t.Fatalf("unexpected block number response: %+v", blockNumber)
+	}
+
+	for _, testCase := range []struct {
+		method   string
+		params   string
+		expected any
+	}{
+		{method: "web3_sha3", params: `["0x68656c6c6f"]`, expected: "0x1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8"},
+		{method: "net_listening", params: `[]`, expected: true},
+		{method: "net_peerCount", params: `[]`, expected: "0x2"},
+		{method: "eth_protocolVersion", params: `[]`, expected: "0x1"},
+		{method: "eth_syncing", params: `[]`, expected: false},
+		{method: "eth_mining", params: `[]`, expected: true},
+		{method: "eth_hashrate", params: `[]`, expected: "0x0"},
+		{method: "eth_coinbase", params: `[]`, expected: "0x0000000000000000000000000000000000000000"},
+	} {
+		var response JSONRPCResponse
+		postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":66,"method":"`+testCase.method+`","params":`+testCase.params+`}`, http.StatusOK, &response)
+		if response.Error != nil || response.Result != testCase.expected {
+			t.Fatalf("unexpected %s response: %+v", testCase.method, response)
+		}
+	}
+	var accounts JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":67,"method":"eth_accounts","params":[]}`, http.StatusOK, &accounts)
+	accountList, ok := accounts.Result.([]any)
+	if accounts.Error != nil || !ok || len(accountList) != 0 {
+		t.Fatalf("unexpected accounts response: %+v", accounts)
 	}
 
 	var sendRaw JSONRPCResponse
@@ -839,10 +866,49 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("expected receipt-backed transaction fields: %+v", fullTxs[0])
 	}
 
+	var txCountByNumber JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":68,"method":"eth_getBlockTransactionCountByNumber","params":["latest"]}`, http.StatusOK, &txCountByNumber)
+	if txCountByNumber.Error != nil || txCountByNumber.Result != "0x1" {
+		t.Fatalf("unexpected tx count by number: %+v", txCountByNumber)
+	}
+	var txByNumberAndIndex JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":69,"method":"eth_getTransactionByBlockNumberAndIndex","params":["latest","0x0"]}`, http.StatusOK, &txByNumberAndIndex)
+	txByNumberResult, ok := txByNumberAndIndex.Result.(map[string]any)
+	if txByNumberAndIndex.Error != nil || !ok || txByNumberResult["hash"] != blockTxHashText || txByNumberResult["transactionIndex"] != "0x0" {
+		t.Fatalf("unexpected tx by number/index: %+v", txByNumberAndIndex)
+	}
+	var missingTxByNumberAndIndex JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":70,"method":"eth_getTransactionByBlockNumberAndIndex","params":["latest","0x9"]}`, http.StatusOK, &missingTxByNumberAndIndex)
+	if missingTxByNumberAndIndex.Error != nil || missingTxByNumberAndIndex.Result != nil {
+		t.Fatalf("unexpected missing tx by number/index: %+v", missingTxByNumberAndIndex)
+	}
+
 	var blockByHash JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":7,"method":"eth_getBlockByHash","params":["0xab00000000000000000000000000000000000000000000000000000000000000",false]}`, http.StatusOK, &blockByHash)
 	if blockByHash.Error != nil {
 		t.Fatalf("unexpected block by hash error: %+v", blockByHash)
+	}
+
+	var txCountByHash JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":71,"method":"eth_getBlockTransactionCountByHash","params":["0xab00000000000000000000000000000000000000000000000000000000000000"]}`, http.StatusOK, &txCountByHash)
+	if txCountByHash.Error != nil || txCountByHash.Result != "0x1" {
+		t.Fatalf("unexpected tx count by hash: %+v", txCountByHash)
+	}
+	var txByHashAndIndex JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":72,"method":"eth_getTransactionByBlockHashAndIndex","params":["0xab00000000000000000000000000000000000000000000000000000000000000","0x0"]}`, http.StatusOK, &txByHashAndIndex)
+	txByHashResult, ok := txByHashAndIndex.Result.(map[string]any)
+	if txByHashAndIndex.Error != nil || !ok || txByHashResult["hash"] != blockTxHashText || txByHashResult["blockHash"] != "0xab00000000000000000000000000000000000000000000000000000000000000" {
+		t.Fatalf("unexpected tx by hash/index: %+v", txByHashAndIndex)
+	}
+	var uncleCount JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":73,"method":"eth_getUncleCountByBlockNumber","params":["latest"]}`, http.StatusOK, &uncleCount)
+	if uncleCount.Error != nil || uncleCount.Result != "0x0" {
+		t.Fatalf("unexpected uncle count: %+v", uncleCount)
+	}
+	var uncle JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":74,"method":"eth_getUncleByBlockNumberAndIndex","params":["latest","0x0"]}`, http.StatusOK, &uncle)
+	if uncle.Error != nil || uncle.Result != nil {
+		t.Fatalf("unexpected uncle response: %+v", uncle)
 	}
 
 	var blockReceipts JSONRPCResponse
@@ -1031,7 +1097,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 
 	var estimate JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":5,"method":"eth_estimateGas","params":[{"to":"0xbbbb","gas":"0x100"}]}`, http.StatusOK, &estimate)
-	if estimate.Error != nil || estimate.Result != "0x100" {
+	if estimate.Error != nil || estimate.Result != "0x9" {
 		t.Fatalf("unexpected estimate response: %+v", estimate)
 	}
 }

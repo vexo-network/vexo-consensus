@@ -26,6 +26,7 @@ import (
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
+	"golang.org/x/crypto/sha3"
 )
 
 const defaultReadHeaderTimeout = 5 * time.Second
@@ -1173,10 +1174,28 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 	switch method {
 	case "web3_clientVersion":
 		return "vexo-consensus/web3", nil
+	case "web3_sha3":
+		return web3Sha3(params)
 	case "net_version":
 		return strconv.FormatUint(chainNumericID(provider.Status(ctx).ChainID), 10), nil
+	case "net_listening":
+		return provider.Status(ctx).Running, nil
+	case "net_peerCount":
+		return hexQuantity(uint64(provider.Status(ctx).PeerCount)), nil
 	case "eth_chainId":
 		return hexQuantity(chainNumericID(provider.Status(ctx).ChainID)), nil
+	case "eth_protocolVersion":
+		return "0x1", nil
+	case "eth_syncing":
+		return false, nil
+	case "eth_mining":
+		return provider.Status(ctx).Running, nil
+	case "eth_hashrate":
+		return hexQuantity(0), nil
+	case "eth_accounts":
+		return []string{}, nil
+	case "eth_coinbase":
+		return "0x0000000000000000000000000000000000000000", nil
 	case "eth_blockNumber":
 		return hexQuantity(uint64(provider.Status(ctx).LatestHeight)), nil
 	case "eth_getBlockByNumber":
@@ -1186,6 +1205,12 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		}
 		fullTx := web3FullTransactionParam(params, 1)
 		return web3BlockFromRecord(ctx, provider, record, fullTx), nil
+	case "eth_getBlockTransactionCountByNumber":
+		record, rpcErr := web3BlockByNumber(ctx, provider, []json.RawMessage{firstParam(params, "null")})
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		return web3BlockTransactionCount(record), nil
 	case "eth_getBlockByHash":
 		record, rpcErr := web3BlockByHash(ctx, provider, params)
 		if rpcErr != nil {
@@ -1193,6 +1218,20 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		}
 		fullTx := web3FullTransactionParam(params, 1)
 		return web3BlockFromRecord(ctx, provider, record, fullTx), nil
+	case "eth_getBlockTransactionCountByHash":
+		record, rpcErr := web3BlockByHash(ctx, provider, []json.RawMessage{firstParam(params, "null")})
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		return web3BlockTransactionCount(record), nil
+	case "eth_getTransactionByBlockNumberAndIndex":
+		return web3TransactionByBlockNumberAndIndex(ctx, provider, params)
+	case "eth_getTransactionByBlockHashAndIndex":
+		return web3TransactionByBlockHashAndIndex(ctx, provider, params)
+	case "eth_getUncleCountByBlockNumber", "eth_getUncleCountByBlockHash":
+		return hexQuantity(0), nil
+	case "eth_getUncleByBlockNumberAndIndex", "eth_getUncleByBlockHashAndIndex":
+		return nil, nil
 	case "eth_gasPrice":
 		if query, ok := provider.(ChainQueryProvider); ok {
 			state, err := query.LatestState(ctx)
@@ -1467,14 +1506,7 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		}
 		return callResponse.Output, nil
 	case "eth_estimateGas":
-		call, rpcErr := evmCallParam(params)
-		if rpcErr != nil {
-			return nil, rpcErr
-		}
-		if call.GasLimit > 0 {
-			return hexQuantity(call.GasLimit), nil
-		}
-		return hexQuantity(21_000), nil
+		return web3EstimateGas(ctx, provider, params)
 	case "eth_subscribe", "eth_unsubscribe":
 		return nil, &JSONRPCError{Code: -32000, Message: method + " requires a WebSocket transport"}
 	default:
@@ -1487,6 +1519,30 @@ func writeJSONRPC(writer http.ResponseWriter, id json.RawMessage, result any, rp
 		id = json.RawMessage("null")
 	}
 	writeJSON(writer, http.StatusOK, JSONRPCResponse{JSONRPC: "2.0", ID: id, Result: result, Error: rpcErr})
+}
+
+func firstParam(params []json.RawMessage, fallback string) json.RawMessage {
+	if len(params) == 0 {
+		return json.RawMessage(fallback)
+	}
+	return params[0]
+}
+
+func web3Sha3(params []json.RawMessage) (string, *JSONRPCError) {
+	if len(params) != 1 {
+		return "", &JSONRPCError{Code: -32602, Message: "web3_sha3 requires one data parameter"}
+	}
+	value, err := jsonRPCStringParam(params[0])
+	if err != nil {
+		return "", &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	data, err := hexBytes(value)
+	if err != nil {
+		return "", &JSONRPCError{Code: -32602, Message: "invalid hex data"}
+	}
+	hash := sha3.NewLegacyKeccak256()
+	_, _ = hash.Write(data)
+	return "0x" + hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 type web3CallRequest struct {
@@ -1600,6 +1656,54 @@ func web3FullTransactionParam(params []json.RawMessage, index int) bool {
 	var full bool
 	_ = json.Unmarshal(params[index], &full)
 	return full
+}
+
+func web3BlockTransactionCount(record store.BlockRecord) any {
+	if record.Block.Header.Height == 0 {
+		return nil
+	}
+	return hexQuantity(uint64(len(record.Block.Txs)))
+}
+
+func web3TransactionByBlockNumberAndIndex(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
+	if len(params) != 2 {
+		return nil, &JSONRPCError{Code: -32602, Message: "eth_getTransactionByBlockNumberAndIndex requires block tag and transaction index"}
+	}
+	record, rpcErr := web3BlockByNumber(ctx, provider, []json.RawMessage{params[0]})
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	return web3TransactionByBlockIndex(record, params[1])
+}
+
+func web3TransactionByBlockHashAndIndex(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
+	if len(params) != 2 {
+		return nil, &JSONRPCError{Code: -32602, Message: "eth_getTransactionByBlockHashAndIndex requires block hash and transaction index"}
+	}
+	record, rpcErr := web3BlockByHash(ctx, provider, []json.RawMessage{params[0]})
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	return web3TransactionByBlockIndex(record, params[1])
+}
+
+func web3TransactionByBlockIndex(record store.BlockRecord, rawIndex json.RawMessage) (any, *JSONRPCError) {
+	if record.Block.Header.Height == 0 {
+		return nil, nil
+	}
+	indexText, err := jsonRPCStringParam(rawIndex)
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	index, err := parseHexQuantity(indexText)
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: "invalid transaction index"}
+	}
+	if index >= uint64(len(record.Block.Txs)) {
+		return nil, nil
+	}
+	tx := record.Block.Txs[index]
+	return web3TransactionFromBlockRecord(record, int(index), web3TxHash(tx), tx), nil
 }
 
 func web3BlockFromRecord(ctx context.Context, provider StatusProvider, record store.BlockRecord, fullTransactions bool) any {
@@ -1875,6 +1979,41 @@ func web3StorageAt(ctx context.Context, provider StatusProvider, params []json.R
 		return "0x0", nil
 	}
 	return "0x" + strings.TrimPrefix(payload.Value, "0x"), nil
+}
+
+func web3EstimateGas(ctx context.Context, provider StatusProvider, params []json.RawMessage) (string, *JSONRPCError) {
+	call, rpcErr := evmCallParam(params)
+	if rpcErr != nil {
+		return "", rpcErr
+	}
+	query, ok := provider.(AppQueryProvider)
+	if !ok {
+		if call.GasLimit > 0 {
+			return hexQuantity(call.GasLimit), nil
+		}
+		return hexQuantity(21_000), nil
+	}
+	encoded, _ := json.Marshal(call)
+	response, err := query.AppQuery(ctx, []string{"evm", "call"}, encoded)
+	if err != nil {
+		return "", &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	if response.Code != 0 {
+		return "", &JSONRPCError{Code: -32000, Message: response.Log}
+	}
+	var callResponse struct {
+		GasUsed uint64 `json:"gas_used"`
+	}
+	if err := json.Unmarshal(response.Value, &callResponse); err != nil {
+		return "", &JSONRPCError{Code: -32000, Message: "invalid EVM call response"}
+	}
+	if callResponse.GasUsed > 0 {
+		return hexQuantity(callResponse.GasUsed), nil
+	}
+	if call.GasLimit > 0 {
+		return hexQuantity(call.GasLimit), nil
+	}
+	return hexQuantity(21_000), nil
 }
 
 func web3LogsForAddress(ctx context.Context, provider StatusProvider, address string) ([]any, *JSONRPCError) {

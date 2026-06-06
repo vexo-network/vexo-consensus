@@ -250,6 +250,7 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"web3_global_log_filters":                 true,
 			"web3_prefix_log_index":                   true,
 			"web3_filter_limit":                       true,
+			"web3_geth_compat_methods":                true,
 			"evm_geth_vm_adapter":                     true,
 			"evm_ethereum_raw_tx":                     true,
 			"evm_storage_writes":                      true,
