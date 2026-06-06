@@ -375,6 +375,7 @@ func buildReleaseGateDocument(versionValue string, pack releaseAuditPack, inputs
 		BLSAudit:             inputs.BLSAudit,
 		AllowExternalPending: inputs.AllowExternalPending,
 		Exists:               fileExists,
+		ReadFile:             os.ReadFile,
 	})
 }
 
@@ -495,7 +496,8 @@ func (document *releaseAuditPack) addEvidenceCheck(name string, path string, mes
 		document.Checks = append(document.Checks, releasePackageCheck{Name: name, OK: true, Message: message + " (not provided)"})
 		return
 	}
-	document.addCheck(name, fileExists(path), message)
+	data, err := os.ReadFile(path)
+	document.addCheck(name, err == nil && releasegate.EvidenceContentOK(path, data), message)
 }
 
 func releaseArtifacts(distDir string) ([]releaseArtifact, error) {

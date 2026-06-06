@@ -147,7 +147,7 @@ Archive:
 - validator set and validator set hash evidence
 - release pack and signed checksums
 - launch metrics, logs, pprof samples, peer score snapshots, and final split config files
-- long-run, chaos, adversarial, fuzz, snapshot, replay, signer, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, ops runbook, formal safety, and SDK conformance evidence
+- long-run, chaos, adversarial, fuzz, snapshot, replay, signer, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, ops runbook, formal safety, and SDK conformance evidence with non-empty passing content
 
 After launch, schedule:
 

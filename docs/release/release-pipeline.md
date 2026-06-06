@@ -75,7 +75,7 @@ go run ./cmd/vexod release gate \
   --json
 ```
 
-`release gate` fails closed when required evidence is missing. `--allow-external-pending` is acceptable for private release candidates only; do not use it for public production launch gates.
+`release gate` fails closed when required evidence is missing, empty, malformed, or explicitly reports a failed `ok`/`status`/check result. `--allow-external-pending` is acceptable for private release candidates only; do not use it for public production launch gates.
 
 ## Artifacts
 
@@ -88,7 +88,7 @@ go run ./cmd/vexod release gate \
 - `sbom-go-version.txt`
 - `release-manifest.json`
 - `release-audit-pack.json`
-- long-run, chaos, adversarial, fuzz, signer, snapshot/replay, P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, SDK conformance, external-audit, and BLS-audit evidence files when preparing a release candidate
+- long-run, chaos, adversarial, fuzz, signer, snapshot/replay, P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, SDK conformance, external-audit, and BLS-audit evidence files with passing content when preparing a release candidate
 
 ## Reproducibility Notes
 

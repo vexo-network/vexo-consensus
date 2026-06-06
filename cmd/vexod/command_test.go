@@ -485,10 +485,13 @@ func TestRunReleasePackIncludesEvidenceFiles(t *testing.T) {
 	longrun := filepath.Join(dist, "longrun-evidence.json")
 	adversarial := filepath.Join(dist, "adversarial-evidence.json")
 	fuzz := filepath.Join(dist, "fuzz-evidence.txt")
-	for _, path := range []string{longrun, adversarial, fuzz} {
-		if err := os.WriteFile(path, []byte("evidence"), 0o644); err != nil {
+	for _, path := range []string{longrun, adversarial} {
+		if err := os.WriteFile(path, []byte(`{"ok":true,"checks":[{"ok":true,"name":"evidence"}]}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := os.WriteFile(fuzz, []byte("fuzz evidence passed"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	var output bytes.Buffer
@@ -511,6 +514,36 @@ func TestRunReleasePackIncludesEvidenceFiles(t *testing.T) {
 	}
 	if !releaseCheckOK(document, "longrun_evidence") || !releaseCheckOK(document, "adversarial_evidence") || !releaseCheckOK(document, "fuzz_evidence") {
 		t.Fatalf("expected evidence checks ok: %+v", document.Checks)
+	}
+}
+
+func TestRunReleasePackRejectsInvalidEvidenceFiles(t *testing.T) {
+	dist := t.TempDir()
+	for _, name := range []string{"checksums.txt", "sbom-go-modules.json", "sbom-go-version.txt", "release-manifest.json"} {
+		if err := os.WriteFile(filepath.Join(dist, name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	longrun := filepath.Join(dist, "longrun-evidence.json")
+	if err := os.WriteFile(longrun, []byte(`{"ok":false}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"release", "pack",
+		"--dist", dist,
+		"--version", "test",
+		"--longrun-evidence", longrun,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var document releaseAuditPack
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.OK || releaseCheckOK(document, "longrun_evidence") {
+		t.Fatalf("expected invalid evidence to fail release pack: %+v", document)
 	}
 }
 
@@ -618,7 +651,14 @@ func TestRunReleaseGatePassesWithEvidence(t *testing.T) {
 		"bls-audit.pdf",
 	}
 	for _, name := range required {
-		if err := os.WriteFile(filepath.Join(dist, name), []byte(name), 0o644); err != nil {
+		content := []byte(name + " evidence")
+		if strings.HasSuffix(name, ".json") {
+			content = []byte(`{"ok":true,"checks":[{"ok":true,"name":"` + name + `"}]}`)
+		}
+		if strings.HasSuffix(name, ".txt") {
+			content = []byte("fuzz evidence passed")
+		}
+		if err := os.WriteFile(filepath.Join(dist, name), content, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
