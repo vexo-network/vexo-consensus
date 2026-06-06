@@ -88,7 +88,17 @@ func (GethVM) Execute(ctx context.Context, invocation contract.Invocation) (cont
 	}
 	if err != nil {
 		traceLogger.OnTxEnd(&gethtypes.Receipt{GasUsed: left.Used(initialGas)}, err)
-		return contract.Result{}, err
+		vmTrace, traceErr := gethVMTrace(traceLogger)
+		if traceErr != nil {
+			return contract.Result{}, traceErr
+		}
+		return contract.Result{
+			Output:  append([]byte(nil), output...),
+			GasUsed: left.Used(initialGas),
+			Failed:  true,
+			Error:   err.Error(),
+			VMTrace: vmTrace,
+		}, nil
 	}
 	traceLogger.OnTxEnd(&gethtypes.Receipt{GasUsed: left.Used(initialGas)}, nil)
 	vmTrace, err := gethVMTrace(traceLogger)

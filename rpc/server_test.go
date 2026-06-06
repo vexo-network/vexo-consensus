@@ -1138,9 +1138,15 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if provider.appQueryPath[0] != "evm" || provider.appQueryPath[1] != "account" || provider.appQueryPath[2] != "0xaaaa" {
 		t.Fatalf("unexpected balance query path: %+v", provider.appQueryPath)
 	}
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"address":"0xaaaa","balance":0,"balance_hex":"0x100000000000000000000","nonce":7,"code":""}`)}
+	var largeBalance JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":131,"method":"eth_getBalance","params":["0xaaaa","latest"]}`, http.StatusOK, &largeBalance)
+	if largeBalance.Error != nil || largeBalance.Result != "0x100000000000000000000" {
+		t.Fatalf("unexpected large balance response: %+v", largeBalance)
+	}
 	var historicalBalance JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":109,"method":"eth_getBalance","params":["0xaaaa",{"blockNumber":"0xb"}]}`, http.StatusOK, &historicalBalance)
-	if historicalBalance.Error != nil || historicalBalance.Result != "0x7b" || !strings.Contains(string(provider.appQueryData), `"height":11`) {
+	if historicalBalance.Error != nil || historicalBalance.Result != "0x100000000000000000000" || !strings.Contains(string(provider.appQueryData), `"height":11`) {
 		t.Fatalf("unexpected historical balance response=%+v data=%s", historicalBalance, provider.appQueryData)
 	}
 
@@ -1477,6 +1483,25 @@ func TestWeb3FilterStoreEvictsOldestFilters(t *testing.T) {
 	}
 	if _, found := filters.get(third); !found {
 		t.Fatalf("expected third filter %s to remain", third)
+	}
+}
+
+func TestWeb3TransactionDetailsPreservesUint256Value(t *testing.T) {
+	value := new(big.Int).Lsh(big.NewInt(1), 80)
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
+		Module: "evm",
+		Action: "call",
+		Args:   []string{"evm", "0xaaaa", "0xbbbb", "call", "00", "21000", value.String()},
+		Tags: map[string]string{
+			ethcompat.TagValue: value.String(),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	details := web3TransactionDetails(tx)
+	if details.Value != 0 || details.ValueHex != "0x"+value.Text(16) || web3TxValueHex(details) != "0x"+value.Text(16) {
+		t.Fatalf("unexpected uint256 transaction value details: %+v", details)
 	}
 }
 

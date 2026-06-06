@@ -51,6 +51,7 @@ type Receipt struct {
 	ContractAddress string `json:"contract_address,omitempty"`
 	VM              string `json:"vm"`
 	GasUsed         uint64 `json:"gas_used"`
+	Error           string `json:"error,omitempty"`
 	Output          string `json:"output,omitempty"`
 	Logs            []Log  `json:"logs,omitempty"`
 	StateDiff       any    `json:"state_diff,omitempty"`
@@ -81,6 +82,7 @@ type CallRequest struct {
 	Input      string                     `json:"input,omitempty"`
 	GasLimit   uint64                     `json:"gas_limit,omitempty"`
 	Value      uint64                     `json:"value,omitempty"`
+	ValueHex   string                     `json:"value_hex,omitempty"`
 	Height     uint64                     `json:"height,omitempty"`
 	GasPrice   uint64                     `json:"gas_price,omitempty"`
 	BaseFee    uint64                     `json:"base_fee,omitempty"`
@@ -526,12 +528,14 @@ func (module Module) deliverDeploy(ctx vexoapp.Context, tx types.Tx, args []stri
 	if err := ctx.ConsumeGas(result.GasUsed); err != nil {
 		return types.Result{Code: 6, Log: err.Error()}
 	}
-	deployedCode := result.DeployedCode
-	if len(deployedCode) == 0 {
-		deployedCode = code
-	}
-	if err := ctx.Store.Set(ctx.GoContext(), ModuleName, codeKey(contractAddress), deployedCode); err != nil {
-		return types.Result{Code: 4, Log: err.Error()}
+	if !result.Failed {
+		deployedCode := result.DeployedCode
+		if len(deployedCode) == 0 {
+			deployedCode = code
+		}
+		if err := ctx.Store.Set(ctx.GoContext(), ModuleName, codeKey(contractAddress), deployedCode); err != nil {
+			return types.Result{Code: 4, Log: err.Error()}
+		}
 	}
 	if err := persistExecutionResult(ctx.GoContext(), ctx.Store, invocation.Contract, result); err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
@@ -589,12 +593,14 @@ func (module Module) deliverEthereumDeploy(ctx vexoapp.Context, tx types.Tx, arg
 	if err := ctx.ConsumeGas(result.GasUsed); err != nil {
 		return types.Result{Code: 6, Log: err.Error()}
 	}
-	deployedCode := result.DeployedCode
-	if len(deployedCode) == 0 {
-		deployedCode = code
-	}
-	if err := ctx.Store.Set(ctx.GoContext(), ModuleName, codeKey(contractAddress), deployedCode); err != nil {
-		return types.Result{Code: 4, Log: err.Error()}
+	if !result.Failed {
+		deployedCode := result.DeployedCode
+		if len(deployedCode) == 0 {
+			deployedCode = code
+		}
+		if err := ctx.Store.Set(ctx.GoContext(), ModuleName, codeKey(contractAddress), deployedCode); err != nil {
+			return types.Result{Code: 4, Log: err.Error()}
+		}
 	}
 	if err := persistExecutionResult(ctx.GoContext(), ctx.Store, invocation.Contract, result); err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
@@ -636,6 +642,10 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 	if request.Height > 0 {
 		blockNumber = request.Height
 	}
+	callValue, err := callRequestValue(request)
+	if err != nil {
+		return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
+	}
 	result, err := module.registry.Execute(ctx.GoContext(), contract.Invocation{
 		VM:            request.VM,
 		Caller:        types.Address(request.From),
@@ -643,7 +653,8 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 		Method:        request.Method,
 		Input:         input,
 		GasLimit:      request.GasLimit,
-		Value:         request.Value,
+		Value:         uint64Amount(callValue),
+		ValueBig:      callValue,
 		Code:          code,
 		State:         state,
 		ReadOnly:      true,
@@ -669,6 +680,17 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
 	}
 	return vexoapp.QueryResponse{Value: encoded}
+}
+
+func callRequestValue(request CallRequest) (*big.Int, error) {
+	if request.ValueHex == "" {
+		return new(big.Int).SetUint64(request.Value), nil
+	}
+	value, ok := new(big.Int).SetString(strings.TrimPrefix(request.ValueHex, "0x"), 16)
+	if !ok || value.Sign() < 0 || value.BitLen() > 256 {
+		return nil, ErrInvalidEVMQuery
+	}
+	return value, nil
 }
 
 func (module Module) estimateInvocationGas(ctx vexoapp.Context, invocation contract.Invocation, fallback uint64) (uint64, error) {
@@ -826,6 +848,10 @@ func receiptFromResult(tx types.Tx, height types.Height, invocation contract.Inv
 		Logs:            make([]Log, 0, len(result.Logs)),
 		StateDiff:       stateDiffFromResult(result, types.Address(receiptTargetAddress(invocation, contractAddress))),
 		VMTrace:         result.VMTrace,
+	}
+	if result.Failed {
+		receipt.Status = 0
+		receipt.Error = result.Error
 	}
 	if contractAddress == "" {
 		receipt.To = string(invocation.Contract)

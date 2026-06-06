@@ -110,11 +110,14 @@ func (tree *BlockTree) CommitCandidate(blockHash types.Hash) (CommitCandidate, b
 	}
 
 	return CommitCandidate{
-		BlockHash:       node.Hash,
-		ParentHash:      parent.Hash,
-		GrandparentHash: parent.JustifyQC.BlockHash,
-		BlockQC:         node.JustifyQC,
-		ParentQC:        parent.JustifyQC,
+		BlockHeight:       node.Block.Header.Height,
+		BlockHash:         node.Hash,
+		ParentHeight:      parent.Block.Header.Height,
+		ParentHash:        parent.Hash,
+		GrandparentHeight: parent.JustifyQC.Height,
+		GrandparentHash:   parent.JustifyQC.BlockHash,
+		BlockQC:           node.JustifyQC,
+		ParentQC:          parent.JustifyQC,
 	}, true
 }
 

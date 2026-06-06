@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"sort"
@@ -1321,7 +1322,7 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		if rpcErr != nil {
 			return nil, rpcErr
 		}
-		return hexQuantity(account.Balance), nil
+		return web3AccountBalanceHex(account), nil
 	case "eth_getTransactionCount":
 		if len(params) == 0 || len(params) > 2 {
 			return nil, &JSONRPCError{Code: -32602, Message: "eth_getTransactionCount requires address and optional block tag"}
@@ -1623,6 +1624,7 @@ type web3CallRequest struct {
 	Input      string                     `json:"input,omitempty"`
 	GasLimit   uint64                     `json:"gas_limit,omitempty"`
 	Value      uint64                     `json:"value,omitempty"`
+	ValueHex   string                     `json:"value_hex,omitempty"`
 	Height     uint64                     `json:"height,omitempty"`
 	GasPrice   uint64                     `json:"gas_price,omitempty"`
 	BaseFee    uint64                     `json:"base_fee,omitempty"`
@@ -1694,10 +1696,11 @@ func (entry *web3AccessListEntry) UnmarshalJSON(data []byte) error {
 }
 
 type web3AccountStateResponse struct {
-	Address string `json:"address"`
-	Balance uint64 `json:"balance"`
-	Nonce   uint64 `json:"nonce"`
-	Code    string `json:"code"`
+	Address    string `json:"address"`
+	Balance    uint64 `json:"balance"`
+	BalanceHex string `json:"balance_hex"`
+	Nonce      uint64 `json:"nonce"`
+	Code       string `json:"code"`
 }
 
 func web3BlockByNumber(ctx context.Context, provider StatusProvider, params []json.RawMessage) (store.BlockRecord, *JSONRPCError) {
@@ -2433,7 +2436,7 @@ func web3TxpoolInspect(ctx context.Context, provider StatusProvider) (any, *JSON
 		if raw, ok := details.To.(string); ok && raw != "" {
 			to = raw
 		}
-		return fmt.Sprintf("%s: %d value + %d gas × %d wei", to, details.Value, details.Gas, details.GasPrice)
+		return fmt.Sprintf("%s: %s value + %d gas × %d wei", to, web3TxValueDecimal(details), details.Gas, details.GasPrice)
 	})
 	if rpcErr != nil {
 		return nil, rpcErr
@@ -2545,7 +2548,7 @@ func web3PendingTransaction(tx types.Tx) any {
 		"transactionIndex": nil,
 		"from":             details.From,
 		"to":               details.To,
-		"value":            hexQuantity(details.Value),
+		"value":            web3TxValueHex(details),
 		"gas":              hexQuantity(details.Gas),
 		"gasPrice":         hexQuantity(details.GasPrice),
 		"input":            details.Input,
@@ -2909,7 +2912,7 @@ func web3TraceFromReceipt(ctx context.Context, provider StatusProvider, receipt 
 		"to":    to,
 		"gas":   hexQuantity(details.Gas),
 		"input": details.Input,
-		"value": hexQuantity(details.Value),
+		"value": web3TxValueHex(details),
 	}
 	if traceType == "call" {
 		action["callType"] = "call"
@@ -3164,7 +3167,7 @@ func web3DebugTraceCall(ctx context.Context, provider StatusProvider, params []j
 			"type":       "CALL",
 			"from":       call.From,
 			"to":         call.To,
-			"value":      hexQuantity(call.Value),
+			"value":      web3CallValueHex(call),
 			"gas":        hexQuantity(call.GasLimit),
 			"gasUsed":    hexQuantity(callResponse.GasUsed),
 			"input":      call.Input,
@@ -3199,7 +3202,7 @@ func web3TraceCall(ctx context.Context, provider StatusProvider, params []json.R
 			"to":       call.To,
 			"gas":      hexQuantity(call.GasLimit),
 			"input":    call.Input,
-			"value":    hexQuantity(call.Value),
+			"value":    web3CallValueHex(call),
 		},
 		"result": map[string]any{
 			"gasUsed": hexQuantity(callResponse.GasUsed),
@@ -3409,7 +3412,7 @@ func web3TransactionFromReceipt(ctx context.Context, provider StatusProvider, va
 		"transactionIndex": hexQuantity(txIndex),
 		"from":             receipt.From,
 		"to":               to,
-		"value":            hexQuantity(details.Value),
+		"value":            web3TxValueHex(details),
 		"gas":              hexQuantity(details.Gas),
 		"gasPrice":         hexQuantity(gasPrice),
 		"input":            details.Input,
@@ -3467,7 +3470,7 @@ func web3TransactionFromBlockRecord(record store.BlockRecord, index int, hashTex
 		"transactionIndex": hexQuantity(uint64(index)),
 		"from":             details.From,
 		"to":               details.To,
-		"value":            hexQuantity(details.Value),
+		"value":            web3TxValueHex(details),
 		"gas":              hexQuantity(details.Gas),
 		"gasPrice":         hexQuantity(details.GasPrice),
 		"input":            details.Input,
@@ -3519,6 +3522,7 @@ type web3TxDetails struct {
 	MaxFeePerGas         uint64
 	MaxPriorityFeePerGas uint64
 	Value                uint64
+	ValueHex             string
 	Type                 uint64
 	ChainID              uint64
 }
@@ -3549,6 +3553,9 @@ func web3TransactionDetails(tx types.Tx) web3TxDetails {
 	if maxPriority, found := vexoapp.TxUintTag(tx, ethcompat.TagMaxPriorityFeePerGas); found {
 		details.MaxPriorityFeePerGas = maxPriority
 	}
+	if value, found := vexoapp.TxTag(tx, ethcompat.TagValue); found {
+		setWeb3TxValue(&details, value)
+	}
 	if input, found := vexoapp.TxTag(tx, ethcompat.TagInput); found && input != "" {
 		details.Input = "0x" + strings.TrimPrefix(input, "0x")
 	}
@@ -3563,9 +3570,7 @@ func web3TransactionDetails(tx types.Tx) web3TxDetails {
 			if details.Input == "" || details.Input == "0x" {
 				details.Input = "0x" + strings.TrimPrefix(canonical.Args[4], "0x")
 			}
-			if value, err := strconv.ParseUint(canonical.Args[6], 10, 64); err == nil {
-				details.Value = value
-			}
+			setWeb3TxValue(&details, canonical.Args[6])
 		}
 	case "deploy", "eth_deploy":
 		if len(canonical.Args) >= 5 {
@@ -3573,12 +3578,53 @@ func web3TransactionDetails(tx types.Tx) web3TxDetails {
 			if details.Input == "" || details.Input == "0x" {
 				details.Input = "0x" + strings.TrimPrefix(canonical.Args[2], "0x")
 			}
-			if value, err := strconv.ParseUint(canonical.Args[4], 10, 64); err == nil {
-				details.Value = value
-			}
+			setWeb3TxValue(&details, canonical.Args[4])
 		}
 	}
 	return details
+}
+
+func setWeb3TxValue(details *web3TxDetails, decimal string) {
+	value, ok := new(big.Int).SetString(decimal, 10)
+	if !ok || value.Sign() < 0 {
+		return
+	}
+	details.ValueHex = hexQuantityBig(value)
+	if value.IsUint64() {
+		details.Value = value.Uint64()
+	}
+}
+
+func web3TxValueHex(details web3TxDetails) string {
+	if details.ValueHex != "" {
+		return details.ValueHex
+	}
+	return hexQuantity(details.Value)
+}
+
+func web3TxValueDecimal(details web3TxDetails) string {
+	if details.ValueHex == "" {
+		return strconv.FormatUint(details.Value, 10)
+	}
+	value, ok := new(big.Int).SetString(strings.TrimPrefix(details.ValueHex, "0x"), 16)
+	if !ok {
+		return "0"
+	}
+	return value.String()
+}
+
+func web3AccountBalanceHex(account web3AccountStateResponse) string {
+	if account.BalanceHex != "" {
+		return account.BalanceHex
+	}
+	return hexQuantity(account.Balance)
+}
+
+func web3CallValueHex(call web3CallRequest) string {
+	if call.ValueHex != "" {
+		return call.ValueHex
+	}
+	return hexQuantity(call.Value)
 }
 
 func web3TxHash(tx types.Tx) string {
@@ -3903,12 +3949,16 @@ func evmCallParam(params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
 		gasLimit = value
 	}
 	callValue := uint64(0)
+	callValueHex := ""
 	if payload.Value != "" {
-		value, err := parseHexQuantity(payload.Value)
+		value, err := parseHexQuantityBig(payload.Value)
 		if err != nil {
 			return web3CallRequest{}, &JSONRPCError{Code: -32602, Message: "invalid value quantity"}
 		}
-		callValue = value
+		callValueHex = hexQuantityBig(value)
+		if value.IsUint64() {
+			callValue = value.Uint64()
+		}
 	}
 	gasPrice := uint64(0)
 	switch {
@@ -3939,6 +3989,7 @@ func evmCallParam(params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
 		Input:      payload.Data,
 		GasLimit:   gasLimit,
 		Value:      callValue,
+		ValueHex:   callValueHex,
 		GasPrice:   gasPrice,
 		AccessList: web3ContractAccessList(payload.AccessList),
 	}, nil
@@ -4111,6 +4162,21 @@ func parseHexQuantity(value string) (uint64, error) {
 	return strconv.ParseUint(trimmed, 16, 64)
 }
 
+func parseHexQuantityBig(value string) (*big.Int, error) {
+	if !strings.HasPrefix(value, "0x") {
+		return nil, fmt.Errorf("quantity must use 0x prefix")
+	}
+	trimmed := strings.TrimPrefix(value, "0x")
+	if trimmed == "" {
+		return nil, fmt.Errorf("empty quantity")
+	}
+	parsed, ok := new(big.Int).SetString(trimmed, 16)
+	if !ok || parsed.Sign() < 0 {
+		return nil, fmt.Errorf("invalid quantity")
+	}
+	return parsed, nil
+}
+
 func parseHexHash(value string) (types.Hash, error) {
 	var hash types.Hash
 	decoded, err := hexBytes(value)
@@ -4280,6 +4346,13 @@ func web3LogID(value any) string {
 
 func hexQuantity(value uint64) string {
 	return "0x" + strconv.FormatUint(value, 16)
+}
+
+func hexQuantityBig(value *big.Int) string {
+	if value == nil || value.Sign() == 0 {
+		return "0x0"
+	}
+	return "0x" + value.Text(16)
 }
 
 func chainNumericID(chainID string) uint64 {

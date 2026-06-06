@@ -113,6 +113,8 @@ Runtime compaction includes both backend store compaction and mempool WAL compac
 - `logs/by_height/{height}/{tx_hash}/{log_index}`: global log index.
 - `logs/by_address/{address}/{height}/{tx_hash}/{log_index}`: address-scoped log index.
 
+EVM account balances are persisted as unsigned 256-bit big-endian values. Execution failures that occur inside the VM are persisted as Ethereum-style receipts with `status = 0`, `error`, consumed gas, return data, and trace data when available; malformed invocations still fail before receipt persistence.
+
 Legacy array-style `logs` and `logs/{address}` values remain query-compatible, but new writes use prefix indexes for bounded incremental scans.
 
 ## Recovery Rules

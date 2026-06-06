@@ -10,11 +10,14 @@ import (
 
 func TestThreeChainCommitRuleCommitsGrandparent(t *testing.T) {
 	decision, err := ThreeChainCommitRule{}.Decide(CommitCandidate{
-		BlockHash:       types.Hash{3},
-		ParentHash:      types.Hash{2},
-		GrandparentHash: types.Hash{1},
-		BlockQC:         finality.QuorumCert{Height: 3, BlockHash: types.Hash{2}},
-		ParentQC:        finality.QuorumCert{Height: 2, BlockHash: types.Hash{1}},
+		BlockHeight:       3,
+		BlockHash:         types.Hash{3},
+		ParentHeight:      2,
+		ParentHash:        types.Hash{2},
+		GrandparentHeight: 1,
+		GrandparentHash:   types.Hash{1},
+		BlockQC:           finality.QuorumCert{Height: 2, BlockHash: types.Hash{2}},
+		ParentQC:          finality.QuorumCert{Height: 1, BlockHash: types.Hash{1}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -22,8 +25,8 @@ func TestThreeChainCommitRuleCommitsGrandparent(t *testing.T) {
 	if decision.CommittedBlockHash != (types.Hash{1}) {
 		t.Fatalf("expected grandparent committed, got %x", decision.CommittedBlockHash)
 	}
-	if decision.CommittedHeight != 2 {
-		t.Fatalf("expected committed height 2, got %d", decision.CommittedHeight)
+	if decision.CommittedHeight != 1 {
+		t.Fatalf("expected committed height 1, got %d", decision.CommittedHeight)
 	}
 }
 
@@ -38,31 +41,53 @@ func TestThreeChainCommitRuleRejectsInvalidCandidates(t *testing.T) {
 		{
 			name: "block qc does not justify parent",
 			candidate: CommitCandidate{
-				BlockHash:       types.Hash{3},
-				ParentHash:      types.Hash{2},
-				GrandparentHash: types.Hash{1},
-				BlockQC:         finality.QuorumCert{Height: 3, BlockHash: types.Hash{9}},
-				ParentQC:        finality.QuorumCert{Height: 2, BlockHash: types.Hash{1}},
+				BlockHeight:       3,
+				BlockHash:         types.Hash{3},
+				ParentHeight:      2,
+				ParentHash:        types.Hash{2},
+				GrandparentHeight: 1,
+				GrandparentHash:   types.Hash{1},
+				BlockQC:           finality.QuorumCert{Height: 2, BlockHash: types.Hash{9}},
+				ParentQC:          finality.QuorumCert{Height: 1, BlockHash: types.Hash{1}},
 			},
 		},
 		{
 			name: "parent qc does not justify grandparent",
 			candidate: CommitCandidate{
-				BlockHash:       types.Hash{3},
-				ParentHash:      types.Hash{2},
-				GrandparentHash: types.Hash{1},
-				BlockQC:         finality.QuorumCert{Height: 3, BlockHash: types.Hash{2}},
-				ParentQC:        finality.QuorumCert{Height: 2, BlockHash: types.Hash{9}},
+				BlockHeight:       3,
+				BlockHash:         types.Hash{3},
+				ParentHeight:      2,
+				ParentHash:        types.Hash{2},
+				GrandparentHeight: 1,
+				GrandparentHash:   types.Hash{1},
+				BlockQC:           finality.QuorumCert{Height: 2, BlockHash: types.Hash{2}},
+				ParentQC:          finality.QuorumCert{Height: 1, BlockHash: types.Hash{9}},
 			},
 		},
 		{
 			name: "non consecutive qcs",
 			candidate: CommitCandidate{
-				BlockHash:       types.Hash{3},
-				ParentHash:      types.Hash{2},
-				GrandparentHash: types.Hash{1},
-				BlockQC:         finality.QuorumCert{Height: 5, BlockHash: types.Hash{2}},
-				ParentQC:        finality.QuorumCert{Height: 2, BlockHash: types.Hash{1}},
+				BlockHeight:       3,
+				BlockHash:         types.Hash{3},
+				ParentHeight:      2,
+				ParentHash:        types.Hash{2},
+				GrandparentHeight: 1,
+				GrandparentHash:   types.Hash{1},
+				BlockQC:           finality.QuorumCert{Height: 5, BlockHash: types.Hash{2}},
+				ParentQC:          finality.QuorumCert{Height: 1, BlockHash: types.Hash{1}},
+			},
+		},
+		{
+			name: "parent qc height does not match grandparent",
+			candidate: CommitCandidate{
+				BlockHeight:       3,
+				BlockHash:         types.Hash{3},
+				ParentHeight:      2,
+				ParentHash:        types.Hash{2},
+				GrandparentHeight: 1,
+				GrandparentHash:   types.Hash{1},
+				BlockQC:           finality.QuorumCert{Height: 2, BlockHash: types.Hash{2}},
+				ParentQC:          finality.QuorumCert{Height: 2, BlockHash: types.Hash{1}},
 			},
 		},
 	}
@@ -89,11 +114,14 @@ func TestStateMachineApplyCommitRule(t *testing.T) {
 	}
 
 	decision, err := machine.ApplyCommitRule(CommitCandidate{
-		BlockHash:       types.Hash{3},
-		ParentHash:      types.Hash{2},
-		GrandparentHash: types.Hash{1},
-		BlockQC:         finality.QuorumCert{Height: 3, BlockHash: types.Hash{2}},
-		ParentQC:        finality.QuorumCert{Height: 2, BlockHash: types.Hash{1}},
+		BlockHeight:       3,
+		BlockHash:         types.Hash{3},
+		ParentHeight:      2,
+		ParentHash:        types.Hash{2},
+		GrandparentHeight: 1,
+		GrandparentHash:   types.Hash{1},
+		BlockQC:           finality.QuorumCert{Height: 2, BlockHash: types.Hash{2}},
+		ParentQC:          finality.QuorumCert{Height: 1, BlockHash: types.Hash{1}},
 	})
 	if err != nil {
 		t.Fatal(err)

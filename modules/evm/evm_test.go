@@ -119,6 +119,14 @@ func (vm *recordingInvocationVM) Execute(ctx context.Context, invocation contrac
 	}, nil
 }
 
+type failingVM struct{}
+
+func (failingVM) Name() string { return "evm" }
+
+func (failingVM) Execute(ctx context.Context, invocation contract.Invocation) (contract.Result, error) {
+	return contract.Result{GasUsed: 9, Failed: true, Error: "execution reverted", Output: []byte{0x08}}, nil
+}
+
 func TestModuleExecutesAndPersistsReceiptsCodeAndLogs(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
@@ -351,6 +359,72 @@ func TestModulePersistsUint256EVMBalancesForEthereumProofs(t *testing.T) {
 	}
 	if proof.Balance != "0x100000000000000000000" {
 		t.Fatalf("expected uint256 balance in proof, got %+v", proof)
+	}
+}
+
+func TestModulePersistsFailedEVMReceiptWithoutFailingBlock(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	registry := contract.NewRegistry()
+	if err := registry.Register(failingVM{}); err != nil {
+		t.Fatal(err)
+	}
+	module := NewModuleWithRegistry(registry)
+	caller := types.Address("0x000000000000000000000000000000000000aaaa")
+	contractAddress := types.Address("0x000000000000000000000000000000000000bbbb")
+	if err := storage.Set(context.Background(), ModuleName, codeKey(contractAddress), []byte{0x60, 0x00}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := vexoapp.Context{Ctx: context.Background(), Height: 4, Store: storage}
+	result := module.DeliverTx(ctx, types.Tx("evm:call:evm:"+string(caller)+":"+string(contractAddress)+":call:00:100000"))
+	if result.Code != 0 {
+		t.Fatalf("expected failed EVM execution to produce successful block result, got %+v", result)
+	}
+	var receipt Receipt
+	if err := json.Unmarshal(result.Data, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Status != 0 || receipt.Error != "execution reverted" || receipt.GasUsed != 9 {
+		t.Fatalf("unexpected failed receipt: %+v", receipt)
+	}
+}
+
+func TestModuleQueryCallAcceptsUint256ValueHex(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	vm := &recordingInvocationVM{}
+	registry := contract.NewRegistry()
+	if err := registry.Register(vm); err != nil {
+		t.Fatal(err)
+	}
+	module := NewModuleWithRegistry(registry)
+	contractAddress := types.Address("0x000000000000000000000000000000000000bbbb")
+	if err := storage.Set(context.Background(), ModuleName, codeKey(contractAddress), []byte{0x60, 0x00}); err != nil {
+		t.Fatal(err)
+	}
+	value := new(big.Int).Lsh(big.NewInt(1), 80)
+	request := CallRequest{
+		VM:       "evm",
+		From:     "0x000000000000000000000000000000000000aaaa",
+		To:       string(contractAddress),
+		Method:   "call",
+		Input:    "0x00",
+		GasLimit: 100000,
+		ValueHex: "0x" + value.Text(16),
+	}
+	encoded, _ := json.Marshal(request)
+	response := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 1, Store: storage}, vexoapp.QueryRequest{Path: []string{"call"}, Data: encoded})
+	if response.Code != 0 {
+		t.Fatalf("query call failed: %+v", response)
+	}
+	if vm.invocation.Value != 0 || vm.invocation.ValueBig == nil || vm.invocation.ValueBig.Cmp(value) != 0 {
+		t.Fatalf("expected uint256 call value, got value=%d big=%v", vm.invocation.Value, vm.invocation.ValueBig)
 	}
 }
 

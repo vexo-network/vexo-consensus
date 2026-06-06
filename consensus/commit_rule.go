@@ -10,11 +10,14 @@ import (
 var ErrCommitRuleNotSatisfied = errors.New("commit rule not satisfied")
 
 type CommitCandidate struct {
-	BlockHash       types.Hash
-	ParentHash      types.Hash
-	GrandparentHash types.Hash
-	BlockQC         finality.QuorumCert
-	ParentQC        finality.QuorumCert
+	BlockHeight       types.Height
+	BlockHash         types.Hash
+	ParentHeight      types.Height
+	ParentHash        types.Hash
+	GrandparentHeight types.Height
+	GrandparentHash   types.Hash
+	BlockQC           finality.QuorumCert
+	ParentQC          finality.QuorumCert
 }
 
 type CommitDecision struct {
@@ -37,14 +40,21 @@ func (ThreeChainCommitRule) Decide(candidate CommitCandidate) (CommitDecision, e
 	if candidate.ParentQC.BlockHash != candidate.GrandparentHash {
 		return CommitDecision{}, ErrCommitRuleNotSatisfied
 	}
-	if candidate.BlockQC.Height == 0 || candidate.ParentQC.Height == 0 {
+	if candidate.BlockHeight == 0 ||
+		candidate.ParentHeight == 0 ||
+		candidate.GrandparentHeight == 0 ||
+		candidate.BlockQC.Height == 0 ||
+		candidate.ParentQC.Height == 0 {
 		return CommitDecision{}, ErrCommitRuleNotSatisfied
 	}
-	if candidate.BlockQC.Height != candidate.ParentQC.Height+1 {
+	if candidate.BlockHeight != candidate.ParentHeight+1 ||
+		candidate.ParentHeight != candidate.GrandparentHeight+1 ||
+		candidate.BlockQC.Height != candidate.ParentHeight ||
+		candidate.ParentQC.Height != candidate.GrandparentHeight {
 		return CommitDecision{}, ErrCommitRuleNotSatisfied
 	}
 	return CommitDecision{
-		CommittedHeight:    candidate.ParentQC.Height,
+		CommittedHeight:    candidate.GrandparentHeight,
 		CommittedBlockHash: candidate.GrandparentHash,
 		CommitQC:           candidate.ParentQC,
 	}, nil

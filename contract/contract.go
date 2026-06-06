@@ -42,6 +42,8 @@ type Invocation struct {
 type Result struct {
 	Output           []byte            `json:"output,omitempty"`
 	GasUsed          uint64            `json:"gas_used,omitempty"`
+	Failed           bool              `json:"failed,omitempty"`
+	Error            string            `json:"error,omitempty"`
 	DeployedCode     []byte            `json:"deployed_code,omitempty"`
 	Logs             []Log             `json:"logs,omitempty"`
 	VMTrace          any               `json:"vm_trace,omitempty"`

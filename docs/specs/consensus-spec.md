@@ -50,6 +50,8 @@ Vexo uses three-chain finality:
 - Finalized block hash is recorded as `last_finalized`.
 - Conflicting finalization must be impossible unless at least one validator equivocates and produces accountable evidence.
 
+The commit rule validates the full height/hash binding before accepting the three-chain decision: `B3.height = B2.height + 1`, `B2.height = B1.height + 1`, `B3`'s block QC certifies `B2`, and `B2`'s parent QC certifies `B1`. A QC with a matching hash but the wrong certified height is invalid for finality.
+
 ## Execution Commit Policy
 
 Node execution is configurable and explicit:

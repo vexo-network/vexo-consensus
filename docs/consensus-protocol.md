@@ -17,6 +17,8 @@ Vexo uses a HotStuff-style BFT core with proposals, votes, quorum certificates, 
 
 A block is safe to vote for only when it extends the locked QC or carries a justify QC at least as new as the lock. A block becomes finalized when the three-chain rule proves a safe parent/grandparent chain extension.
 
+The implementation binds the three-chain decision to explicit block, parent, and grandparent heights. The block QC must certify the parent height/hash, and the parent QC must certify the grandparent height/hash; synthetic or height-skipped QC chains are rejected before a finality decision is recorded.
+
 ## Execution Terms
 
 Vexo uses these terms consistently:
