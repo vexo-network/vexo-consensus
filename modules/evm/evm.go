@@ -75,8 +75,9 @@ type CallRequest struct {
 }
 
 type CallResponse struct {
-	Output  string `json:"output,omitempty"`
-	GasUsed uint64 `json:"gas_used,omitempty"`
+	Output     string                     `json:"output,omitempty"`
+	GasUsed    uint64                     `json:"gas_used,omitempty"`
+	AccessList []contract.AccessListEntry `json:"access_list,omitempty"`
 }
 
 type ProofRequest struct {
@@ -536,7 +537,11 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 	if err != nil {
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
 	}
-	encoded, err := json.Marshal(CallResponse{Output: "0x" + hex.EncodeToString(result.Output), GasUsed: result.GasUsed})
+	encoded, err := json.Marshal(CallResponse{
+		Output:     "0x" + hex.EncodeToString(result.Output),
+		GasUsed:    result.GasUsed,
+		AccessList: append([]contract.AccessListEntry(nil), result.AccessList...),
+	})
 	if err != nil {
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
 	}

@@ -1192,7 +1192,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("expected WebSocket transport error, got %+v", subscribe)
 	}
 
-	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x1234","gas_used":9}`)}
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x1234","gas_used":9,"access_list":[{"address":"0xbbbb","storage_keys":["0x01"]}]}`)}
 	var call JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":4,"method":"eth_call","params":[{"from":"0xaaaa","to":"0xbbbb","data":"0x1234","gas":"0x5208"},"latest"]}`, http.StatusOK, &call)
 	if call.Error != nil || call.Result != "0x1234" {
@@ -1206,6 +1206,34 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":5,"method":"eth_estimateGas","params":[{"to":"0xbbbb","gas":"0x100"}]}`, http.StatusOK, &estimate)
 	if estimate.Error != nil || estimate.Result != "0x9" {
 		t.Fatalf("unexpected estimate response: %+v", estimate)
+	}
+
+	var accessList JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":85,"method":"eth_createAccessList","params":[{"from":"0xaaaa","to":"0xbbbb","data":"0x1234"},"latest"]}`, http.StatusOK, &accessList)
+	accessResult, ok := accessList.Result.(map[string]any)
+	accessEntries, _ := accessResult["accessList"].([]any)
+	if accessList.Error != nil || !ok || accessResult["gasUsed"] != "0x9" || len(accessEntries) != 1 {
+		t.Fatalf("unexpected access list response: %+v", accessList)
+	}
+	accessEntry, ok := accessEntries[0].(map[string]any)
+	storageKeys, _ := accessEntry["storageKeys"].([]any)
+	if !ok || accessEntry["address"] != "0xbbbb" || len(storageKeys) != 1 || storageKeys[0] != "0x01" {
+		t.Fatalf("unexpected access list entry: %+v", accessEntries[0])
+	}
+
+	var debugCall JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":86,"method":"debug_traceCall","params":[{"from":"0xaaaa","to":"0xbbbb","data":"0x1234"},"latest",{"tracer":"callTracer"}]}`, http.StatusOK, &debugCall)
+	debugCallResult, ok := debugCall.Result.(map[string]any)
+	if debugCall.Error != nil || !ok || debugCallResult["type"] != "CALL" || debugCallResult["gasUsed"] != "0x9" {
+		t.Fatalf("unexpected debug trace call: %+v", debugCall)
+	}
+
+	var traceCall JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":87,"method":"trace_call","params":[{"from":"0xaaaa","to":"0xbbbb","data":"0x1234"},["trace"],"latest"]}`, http.StatusOK, &traceCall)
+	traceCallResult, ok := traceCall.Result.(map[string]any)
+	traceItems, _ := traceCallResult["trace"].([]any)
+	if traceCall.Error != nil || !ok || traceCallResult["output"] != "0x1234" || len(traceItems) != 1 {
+		t.Fatalf("unexpected trace call: %+v", traceCall)
 	}
 }
 

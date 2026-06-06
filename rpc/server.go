@@ -1500,31 +1500,19 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		}
 		return filters.remove(filterID), nil
 	case "eth_call":
-		query, ok := provider.(AppQueryProvider)
-		if !ok {
-			return nil, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
-		}
-		call, rpcErr := evmCallParam(params)
+		callResponse, rpcErr := web3EVMCall(ctx, provider, params)
 		if rpcErr != nil {
 			return nil, rpcErr
-		}
-		encoded, _ := json.Marshal(call)
-		response, err := query.AppQuery(ctx, []string{"evm", "call"}, encoded)
-		if err != nil {
-			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
-		}
-		if response.Code != 0 {
-			return nil, &JSONRPCError{Code: -32000, Message: response.Log}
-		}
-		var callResponse struct {
-			Output string `json:"output"`
-		}
-		if err := json.Unmarshal(response.Value, &callResponse); err != nil {
-			return nil, &JSONRPCError{Code: -32000, Message: "invalid EVM call response"}
 		}
 		return callResponse.Output, nil
 	case "eth_estimateGas":
 		return web3EstimateGas(ctx, provider, params)
+	case "eth_createAccessList":
+		return web3CreateAccessList(ctx, provider, params)
+	case "debug_traceCall":
+		return web3DebugTraceCall(ctx, provider, params)
+	case "trace_call":
+		return web3TraceCall(ctx, provider, params)
 	case "eth_subscribe", "eth_unsubscribe":
 		return nil, &JSONRPCError{Code: -32000, Message: method + " requires a WebSocket transport"}
 	default:
@@ -1593,6 +1581,17 @@ type web3Receipt struct {
 	GasUsed         uint64 `json:"gas_used"`
 	Output          string `json:"output,omitempty"`
 	Logs            []any  `json:"logs,omitempty"`
+}
+
+type web3EVMCallResponse struct {
+	Output     string                `json:"output"`
+	GasUsed    uint64                `json:"gas_used"`
+	AccessList []web3AccessListEntry `json:"access_list,omitempty"`
+}
+
+type web3AccessListEntry struct {
+	Address     string   `json:"address"`
+	StorageKeys []string `json:"storage_keys,omitempty"`
 }
 
 func web3BlockByNumber(ctx context.Context, provider StatusProvider, params []json.RawMessage) (store.BlockRecord, *JSONRPCError) {
@@ -2373,38 +2372,145 @@ func web3StorageAt(ctx context.Context, provider StatusProvider, params []json.R
 }
 
 func web3EstimateGas(ctx context.Context, provider StatusProvider, params []json.RawMessage) (string, *JSONRPCError) {
-	call, rpcErr := evmCallParam(params)
-	if rpcErr != nil {
-		return "", rpcErr
+	callResponse, rpcErr := web3EVMCall(ctx, provider, params)
+	if rpcErr == nil && callResponse.GasUsed > 0 {
+		return hexQuantity(callResponse.GasUsed), nil
 	}
-	query, ok := provider.(AppQueryProvider)
-	if !ok {
+	call, parseErr := evmCallParam(params)
+	if parseErr != nil {
+		return "", parseErr
+	}
+	if rpcErr != nil {
 		if call.GasLimit > 0 {
 			return hexQuantity(call.GasLimit), nil
 		}
 		return hexQuantity(21_000), nil
 	}
-	encoded, _ := json.Marshal(call)
-	response, err := query.AppQuery(ctx, []string{"evm", "call"}, encoded)
-	if err != nil {
-		return "", &JSONRPCError{Code: -32000, Message: err.Error()}
-	}
-	if response.Code != 0 {
-		return "", &JSONRPCError{Code: -32000, Message: response.Log}
-	}
-	var callResponse struct {
-		GasUsed uint64 `json:"gas_used"`
-	}
-	if err := json.Unmarshal(response.Value, &callResponse); err != nil {
-		return "", &JSONRPCError{Code: -32000, Message: "invalid EVM call response"}
-	}
-	if callResponse.GasUsed > 0 {
-		return hexQuantity(callResponse.GasUsed), nil
-	}
 	if call.GasLimit > 0 {
 		return hexQuantity(call.GasLimit), nil
 	}
 	return hexQuantity(21_000), nil
+}
+
+func web3EVMCall(ctx context.Context, provider StatusProvider, params []json.RawMessage) (web3EVMCallResponse, *JSONRPCError) {
+	call, rpcErr := evmCallParam(params)
+	if rpcErr != nil {
+		return web3EVMCallResponse{}, rpcErr
+	}
+	query, ok := provider.(AppQueryProvider)
+	if !ok {
+		return web3EVMCallResponse{}, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
+	}
+	encoded, _ := json.Marshal(call)
+	response, err := query.AppQuery(ctx, []string{"evm", "call"}, encoded)
+	if err != nil {
+		return web3EVMCallResponse{}, &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	if response.Code != 0 {
+		return web3EVMCallResponse{}, &JSONRPCError{Code: -32000, Message: response.Log}
+	}
+	var callResponse web3EVMCallResponse
+	if err := json.Unmarshal(response.Value, &callResponse); err != nil {
+		return web3EVMCallResponse{}, &JSONRPCError{Code: -32000, Message: "invalid EVM call response"}
+	}
+	return callResponse, nil
+}
+
+func web3CreateAccessList(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
+	callResponse, rpcErr := web3EVMCall(ctx, provider, params)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	return map[string]any{
+		"accessList": web3AccessList(callResponse.AccessList),
+		"gasUsed":    hexQuantity(callResponse.GasUsed),
+	}, nil
+}
+
+func web3DebugTraceCall(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
+	if len(params) == 0 || len(params) > 3 {
+		return nil, &JSONRPCError{Code: -32602, Message: "debug_traceCall requires call object, optional block tag, and optional config"}
+	}
+	callResponse, rpcErr := web3EVMCall(ctx, provider, params)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	if web3TraceWantsCallTracer(params) || web3TraceWantsCallTracer([]json.RawMessage{nil, lastParam(params)}) {
+		call, _ := evmCallParam(params)
+		return map[string]any{
+			"type":       "CALL",
+			"from":       call.From,
+			"to":         call.To,
+			"value":      hexQuantity(call.Value),
+			"gas":        hexQuantity(call.GasLimit),
+			"gasUsed":    hexQuantity(callResponse.GasUsed),
+			"input":      call.Input,
+			"output":     callResponse.Output,
+			"accessList": web3AccessList(callResponse.AccessList),
+		}, nil
+	}
+	return map[string]any{
+		"gas":         callResponse.GasUsed,
+		"failed":      false,
+		"returnValue": strings.TrimPrefix(callResponse.Output, "0x"),
+		"structLogs":  []any{},
+	}, nil
+}
+
+func web3TraceCall(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
+	if len(params) == 0 || len(params) > 3 {
+		return nil, &JSONRPCError{Code: -32602, Message: "trace_call requires call object, optional trace types, and optional block tag"}
+	}
+	call, rpcErr := evmCallParam(params)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	callResponse, rpcErr := web3EVMCall(ctx, provider, params)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	trace := map[string]any{
+		"action": map[string]any{
+			"callType": "call",
+			"from":     call.From,
+			"to":       call.To,
+			"gas":      hexQuantity(call.GasLimit),
+			"input":    call.Input,
+			"value":    hexQuantity(call.Value),
+		},
+		"result": map[string]any{
+			"gasUsed": hexQuantity(callResponse.GasUsed),
+			"output":  callResponse.Output,
+		},
+		"subtraces":    0,
+		"traceAddress": []any{},
+		"type":         "call",
+	}
+	return map[string]any{
+		"output":     callResponse.Output,
+		"stateDiff":  nil,
+		"trace":      []any{trace},
+		"vmTrace":    nil,
+		"accessList": web3AccessList(callResponse.AccessList),
+	}, nil
+}
+
+func web3AccessList(entries []web3AccessListEntry) []any {
+	out := make([]any, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, map[string]any{
+			"address":     entry.Address,
+			"storageKeys": append([]string(nil), entry.StorageKeys...),
+		})
+	}
+	return out
+}
+
+func lastParam(params []json.RawMessage) json.RawMessage {
+	if len(params) == 0 {
+		return nil
+	}
+	return params[len(params)-1]
 }
 
 func web3LogsForAddress(ctx context.Context, provider StatusProvider, address string) ([]any, *JSONRPCError) {
