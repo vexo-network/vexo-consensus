@@ -1401,9 +1401,9 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("expected WebSocket transport error, got %+v", subscribe)
 	}
 
-	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x1234","gas_used":9,"access_list":[{"address":"0xbbbb","storage_keys":["0x01"]}]}`)}
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x1234","gas_used":9,"access_list":[{"address":"0xbbbb","storage_keys":["0x01"]}],"state_diff":{"0xbbbb":{"storage":{"0x01":{"from":"0x00","to":"0x02"}}}},"vm_trace":{"structLogs":[{"op":"STOP","pc":0}]}}`)}
 	var call JSONRPCResponse
-	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":4,"method":"eth_call","params":[{"from":"0xaaaa","to":"0xbbbb","data":"0x1234","gas":"0x5208","gasPrice":"0x7"},{"blockNumber":"0xb"}]}`, http.StatusOK, &call)
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":4,"method":"eth_call","params":[{"from":"0xaaaa","to":"0xbbbb","data":"0x1234","gas":"0x5208","gasPrice":"0x7","accessList":[{"address":"0xbbbb","storageKeys":["0x01"]}]},{"blockNumber":"0xb"}]}`, http.StatusOK, &call)
 	if call.Error != nil || call.Result != "0x1234" {
 		t.Fatalf("unexpected eth_call response: %+v", call)
 	}
@@ -1412,6 +1412,9 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	}
 	if !strings.Contains(string(provider.appQueryData), `"height":11`) || !strings.Contains(string(provider.appQueryData), `"gas_price":7`) || !strings.Contains(string(provider.appQueryData), `"base_fee":11`) {
 		t.Fatalf("expected call query to include block height, gas price, and base fee: %s", provider.appQueryData)
+	}
+	if !strings.Contains(string(provider.appQueryData), `"access_list":[{"address":"0xbbbb","storage_keys":["0x01"]}]`) {
+		t.Fatalf("expected call query to include access list: %s", provider.appQueryData)
 	}
 
 	var estimate JSONRPCResponse
@@ -1440,11 +1443,21 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("unexpected debug trace call: %+v", debugCall)
 	}
 
+	var debugStruct JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":88,"method":"debug_traceCall","params":[{"from":"0xaaaa","to":"0xbbbb","data":"0x1234"},"latest",{}]}`, http.StatusOK, &debugStruct)
+	debugStructResult, ok := debugStruct.Result.(map[string]any)
+	structLogs, _ := debugStructResult["structLogs"].([]any)
+	if debugStruct.Error != nil || !ok || len(structLogs) != 1 {
+		t.Fatalf("unexpected debug struct trace call: %+v", debugStruct)
+	}
+
 	var traceCall JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":87,"method":"trace_call","params":[{"from":"0xaaaa","to":"0xbbbb","data":"0x1234"},["trace"],"latest"]}`, http.StatusOK, &traceCall)
 	traceCallResult, ok := traceCall.Result.(map[string]any)
 	traceItems, _ := traceCallResult["trace"].([]any)
-	if traceCall.Error != nil || !ok || traceCallResult["output"] != "0x1234" || len(traceItems) != 1 {
+	traceStateDiff, _ := traceCallResult["stateDiff"].(map[string]any)
+	traceVMTrace, _ := traceCallResult["vmTrace"].(map[string]any)
+	if traceCall.Error != nil || !ok || traceCallResult["output"] != "0x1234" || len(traceItems) != 1 || len(traceStateDiff) == 0 || len(traceVMTrace) == 0 {
 		t.Fatalf("unexpected trace call: %+v", traceCall)
 	}
 }

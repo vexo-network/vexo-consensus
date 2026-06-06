@@ -1,7 +1,9 @@
 package ethcompat
 
 import (
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -14,6 +16,7 @@ import (
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/contract"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -29,6 +32,7 @@ const (
 	TagGasPrice             = "eth_gas_price"
 	TagMaxFeePerGas         = "eth_max_fee_per_gas"
 	TagMaxPriorityFeePerGas = "eth_max_priority_fee_per_gas"
+	TagAccessList           = "eth_access_list"
 )
 
 var (
@@ -60,6 +64,7 @@ type DecodedTransaction struct {
 	MaxPriorityFeePerGas uint64
 	Value                uint64
 	Input                string
+	AccessList           []contract.AccessListEntry
 	ContractCreation     bool
 	ChainID              uint64
 }
@@ -134,6 +139,14 @@ func DecodeRawTransaction(rawHex string, options DecodeOptions) (DecodedTransact
 		TagMaxFeePerGas:         strconv.FormatUint(maxFee, 10),
 		TagMaxPriorityFeePerGas: strconv.FormatUint(maxPriority, 10),
 	}
+	accessList := contractAccessList(ethTx.AccessList())
+	if len(accessList) > 0 {
+		encodedAccessList, err := EncodeAccessList(accessList)
+		if err != nil {
+			return DecodedTransaction{}, err
+		}
+		tags[TagAccessList] = encodedAccessList
+	}
 	decoded := DecodedTransaction{
 		Hash:                 hash,
 		Raw:                  rawHex,
@@ -147,6 +160,7 @@ func DecodeRawTransaction(rawHex string, options DecodeOptions) (DecodedTransact
 		MaxPriorityFeePerGas: maxPriority,
 		Value:                value,
 		Input:                input,
+		AccessList:           accessList,
 		ChainID:              chainID,
 	}
 	var canonical vexoapp.CanonicalTx
@@ -215,12 +229,56 @@ func ValidateCanonicalTx(tx types.Tx, expectedChainID uint64) error {
 	if !sameStrings(canonical.Args, decodedCanonical.Args) {
 		return ErrSignatureMismatch
 	}
-	for _, key := range []string{"gas", "signer", "nonce", TagHash, TagRaw, TagType, TagInput, TagChainID, TagMaxFeePerGas, TagMaxPriorityFeePerGas} {
+	for _, key := range []string{"gas", "signer", "nonce", TagHash, TagRaw, TagType, TagInput, TagChainID, TagMaxFeePerGas, TagMaxPriorityFeePerGas, TagAccessList} {
 		if canonical.Tags[key] != decodedCanonical.Tags[key] {
 			return ErrSignatureMismatch
 		}
 	}
 	return nil
+}
+
+func EncodeAccessList(entries []contract.AccessListEntry) (string, error) {
+	if len(entries) == 0 {
+		return "", nil
+	}
+	encoded, err := json.Marshal(entries)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawStdEncoding.EncodeToString(encoded), nil
+}
+
+func DecodeAccessList(encoded string) ([]contract.AccessListEntry, error) {
+	if encoded == "" {
+		return nil, nil
+	}
+	raw, err := base64.RawStdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, err
+	}
+	var entries []contract.AccessListEntry
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+func contractAccessList(entries gethtypes.AccessList) []contract.AccessListEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]contract.AccessListEntry, 0, len(entries))
+	for _, entry := range entries {
+		item := contract.AccessListEntry{
+			Address:     types.Address(entry.Address.Hex()),
+			StorageKeys: make([]string, 0, len(entry.StorageKeys)),
+		}
+		for _, slot := range entry.StorageKeys {
+			item.StorageKeys = append(item.StorageKeys, slot.Hex())
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func IsEthereumTx(tx types.Tx) bool {

@@ -73,22 +73,25 @@ type Log struct {
 }
 
 type CallRequest struct {
-	VM       string `json:"vm"`
-	From     string `json:"from"`
-	To       string `json:"to"`
-	Method   string `json:"method"`
-	Input    string `json:"input,omitempty"`
-	GasLimit uint64 `json:"gas_limit,omitempty"`
-	Value    uint64 `json:"value,omitempty"`
-	Height   uint64 `json:"height,omitempty"`
-	GasPrice uint64 `json:"gas_price,omitempty"`
-	BaseFee  uint64 `json:"base_fee,omitempty"`
+	VM         string                     `json:"vm"`
+	From       string                     `json:"from"`
+	To         string                     `json:"to"`
+	Method     string                     `json:"method"`
+	Input      string                     `json:"input,omitempty"`
+	GasLimit   uint64                     `json:"gas_limit,omitempty"`
+	Value      uint64                     `json:"value,omitempty"`
+	Height     uint64                     `json:"height,omitempty"`
+	GasPrice   uint64                     `json:"gas_price,omitempty"`
+	BaseFee    uint64                     `json:"base_fee,omitempty"`
+	AccessList []contract.AccessListEntry `json:"access_list,omitempty"`
 }
 
 type CallResponse struct {
 	Output     string                     `json:"output,omitempty"`
 	GasUsed    uint64                     `json:"gas_used,omitempty"`
 	AccessList []contract.AccessListEntry `json:"access_list,omitempty"`
+	StateDiff  any                        `json:"state_diff,omitempty"`
+	VMTrace    any                        `json:"vm_trace,omitempty"`
 }
 
 type ProofRequest struct {
@@ -456,6 +459,7 @@ func (module Module) deliverCall(ctx vexoapp.Context, tx types.Tx, args []string
 	invocation.GasPrice = txGasPrice(tx)
 	invocation.BaseFee = txBaseFee(tx)
 	invocation.Coinbase = types.Address("fee_collector")
+	invocation.AccessList = accessListFromTx(tx)
 	result, err := module.registry.Execute(ctx.GoContext(), invocation)
 	if err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
@@ -510,6 +514,7 @@ func (module Module) deliverDeploy(ctx vexoapp.Context, tx types.Tx, args []stri
 		GasPrice:      txGasPrice(tx),
 		BaseFee:       txBaseFee(tx),
 		Coinbase:      types.Address("fee_collector"),
+		AccessList:    accessListFromTx(tx),
 	}
 	result, err := module.registry.Execute(ctx.GoContext(), invocation)
 	if err != nil {
@@ -571,6 +576,7 @@ func (module Module) deliverEthereumDeploy(ctx vexoapp.Context, tx types.Tx, arg
 		GasPrice:      txGasPrice(tx),
 		BaseFee:       txBaseFee(tx),
 		Coinbase:      types.Address("fee_collector"),
+		AccessList:    accessListFromTx(tx),
 	}
 	result, err := module.registry.Execute(ctx.GoContext(), invocation)
 	if err != nil {
@@ -643,6 +649,7 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 		GasPrice:      request.GasPrice,
 		BaseFee:       request.BaseFee,
 		Coinbase:      types.Address("fee_collector"),
+		AccessList:    append([]contract.AccessListEntry(nil), request.AccessList...),
 	})
 	if err != nil {
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
@@ -651,6 +658,8 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 		Output:     "0x" + hex.EncodeToString(result.Output),
 		GasUsed:    result.GasUsed,
 		AccessList: append([]contract.AccessListEntry(nil), result.AccessList...),
+		StateDiff:  stateDiffFromResult(result, types.Address(request.To)),
+		VMTrace:    result.VMTrace,
 	})
 	if err != nil {
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
@@ -730,7 +739,20 @@ func (Module) prepareDeployInvocation(ctx vexoapp.Context, tx types.Tx, vm strin
 		GasPrice:      txGasPrice(tx),
 		BaseFee:       txBaseFee(tx),
 		Coinbase:      types.Address("fee_collector"),
+		AccessList:    accessListFromTx(tx),
 	}
+}
+
+func accessListFromTx(tx types.Tx) []contract.AccessListEntry {
+	encoded, found := vexoapp.TxTag(tx, ethcompat.TagAccessList)
+	if !found || encoded == "" {
+		return nil
+	}
+	entries, err := ethcompat.DecodeAccessList(encoded)
+	if err != nil {
+		return nil
+	}
+	return entries
 }
 
 func callInvocationFromArgs(args []string) (contract.Invocation, error) {

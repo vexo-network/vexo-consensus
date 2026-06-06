@@ -54,6 +54,12 @@ func (GethVM) Execute(ctx context.Context, invocation contract.Invocation) (cont
 		Origin:   caller,
 		GasPrice: new(uint256.Int).SetUint64(invocation.GasPrice),
 	})
+	rules := gethparams.AllEthashProtocolChanges.Rules(new(big.Int).SetUint64(invocation.BlockNumber), true, invocation.Timestamp)
+	var destination *gethcommon.Address
+	if invocation.Method != "deploy" {
+		destination = &contractAddress
+	}
+	stateDB.Prepare(rules, caller, gethAddress(invocation.Coinbase), destination, gethvm.ActivePrecompiles(rules), gethAccessList(invocation.AccessList))
 	traceLogger.OnTxStart(evm.GetVMContext(), nil, caller)
 
 	gasLimit := invocation.GasLimit
@@ -105,6 +111,24 @@ func (GethVM) Execute(ctx context.Context, invocation contract.Invocation) (cont
 		result.DeployedCode = nil
 	}
 	return result, nil
+}
+
+func gethAccessList(entries []contract.AccessListEntry) gethtypes.AccessList {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make(gethtypes.AccessList, 0, len(entries))
+	for _, entry := range entries {
+		access := gethtypes.AccessTuple{
+			Address:     gethAddress(entry.Address),
+			StorageKeys: make([]gethcommon.Hash, 0, len(entry.StorageKeys)),
+		}
+		for _, slot := range entry.StorageKeys {
+			access.StorageKeys = append(access.StorageKeys, gethcommon.HexToHash(slot))
+		}
+		out = append(out, access)
+	}
+	return out
 }
 
 func gethVMTrace(traceLogger *gethlogger.StructLogger) (any, error) {

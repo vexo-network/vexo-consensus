@@ -64,6 +64,8 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "security.fuzz_targets: true\n")
 	fmt.Fprintf(writer, "security.strict_json_rpc: true\n")
 	fmt.Fprintf(writer, "security.forwarded_for_untrusted: true\n")
+	fmt.Fprintf(writer, "web3.raw_tx_access_list_prewarm: true\n")
+	fmt.Fprintf(writer, "web3.call_vm_trace_state_diff: true\n")
 	fmt.Fprintf(writer, "consensus.adversarial_simulation: true\n")
 	fmt.Fprintf(writer, "consensus.partition_safety_simulation: true\n")
 	fmt.Fprintf(writer, "consensus.tendermint_style_timeouts: true\n")
@@ -254,6 +256,8 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"web3_txpool_debug_trace":                 true,
 			"web3_trace_api":                          true,
 			"web3_access_list_call_trace":             true,
+			"web3_raw_tx_access_list_prewarm":         true,
+			"web3_call_vm_trace_state_diff":           true,
 			"web3_raw_tx_replay_trace":                true,
 			"web3_pending_tx_compat":                  true,
 			"web3_safe_finalized_tags":                true,

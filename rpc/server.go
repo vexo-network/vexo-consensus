@@ -19,6 +19,7 @@ import (
 	"time"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/contract"
 	"github.com/vexo-network/vexo-consensus/events"
 	"github.com/vexo-network/vexo-consensus/finality"
 	ibckeeper "github.com/vexo-network/vexo-consensus/ibc"
@@ -1614,29 +1615,31 @@ func web3Sha3(params []json.RawMessage) (string, *JSONRPCError) {
 }
 
 type web3CallRequest struct {
-	VM       string `json:"vm"`
-	From     string `json:"from"`
-	To       string `json:"to"`
-	Method   string `json:"method"`
-	Input    string `json:"input,omitempty"`
-	GasLimit uint64 `json:"gas_limit,omitempty"`
-	Value    uint64 `json:"value,omitempty"`
-	Height   uint64 `json:"height,omitempty"`
-	GasPrice uint64 `json:"gas_price,omitempty"`
-	BaseFee  uint64 `json:"base_fee,omitempty"`
+	VM         string                     `json:"vm"`
+	From       string                     `json:"from"`
+	To         string                     `json:"to"`
+	Method     string                     `json:"method"`
+	Input      string                     `json:"input,omitempty"`
+	GasLimit   uint64                     `json:"gas_limit,omitempty"`
+	Value      uint64                     `json:"value,omitempty"`
+	Height     uint64                     `json:"height,omitempty"`
+	GasPrice   uint64                     `json:"gas_price,omitempty"`
+	BaseFee    uint64                     `json:"base_fee,omitempty"`
+	AccessList []contract.AccessListEntry `json:"access_list,omitempty"`
 }
 
 type web3TransactionCall struct {
-	From                 string `json:"from"`
-	To                   string `json:"to"`
-	Data                 string `json:"data"`
-	Gas                  string `json:"gas"`
-	GasPrice             string `json:"gasPrice"`
-	MaxFeePerGas         string `json:"maxFeePerGas"`
-	MaxPriorityFeePerGas string `json:"maxPriorityFeePerGas"`
-	Value                string `json:"value"`
-	VM                   string `json:"vm"`
-	Method               string `json:"method"`
+	From                 string                `json:"from"`
+	To                   string                `json:"to"`
+	Data                 string                `json:"data"`
+	Gas                  string                `json:"gas"`
+	GasPrice             string                `json:"gasPrice"`
+	MaxFeePerGas         string                `json:"maxFeePerGas"`
+	MaxPriorityFeePerGas string                `json:"maxPriorityFeePerGas"`
+	Value                string                `json:"value"`
+	VM                   string                `json:"vm"`
+	Method               string                `json:"method"`
+	AccessList           []web3AccessListEntry `json:"accessList,omitempty"`
 }
 
 type web3Receipt struct {
@@ -1663,11 +1666,30 @@ type web3EVMCallResponse struct {
 	Output     string                `json:"output"`
 	GasUsed    uint64                `json:"gas_used"`
 	AccessList []web3AccessListEntry `json:"access_list,omitempty"`
+	StateDiff  any                   `json:"state_diff,omitempty"`
+	VMTrace    any                   `json:"vm_trace,omitempty"`
 }
 
 type web3AccessListEntry struct {
 	Address     string   `json:"address"`
 	StorageKeys []string `json:"storage_keys,omitempty"`
+}
+
+func (entry *web3AccessListEntry) UnmarshalJSON(data []byte) error {
+	var payload struct {
+		Address           string   `json:"address"`
+		StorageKeys       []string `json:"storageKeys"`
+		StorageKeysLegacy []string `json:"storage_keys"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return err
+	}
+	entry.Address = payload.Address
+	entry.StorageKeys = append([]string(nil), payload.StorageKeys...)
+	if len(entry.StorageKeys) == 0 {
+		entry.StorageKeys = append([]string(nil), payload.StorageKeysLegacy...)
+	}
+	return nil
 }
 
 type web3AccountStateResponse struct {
@@ -3153,7 +3175,7 @@ func web3DebugTraceCall(ctx context.Context, provider StatusProvider, params []j
 		"gas":         callResponse.GasUsed,
 		"failed":      false,
 		"returnValue": strings.TrimPrefix(callResponse.Output, "0x"),
-		"structLogs":  []any{},
+		"structLogs":  web3StructLogs(callResponse.VMTrace),
 	}, nil
 }
 
@@ -3188,11 +3210,29 @@ func web3TraceCall(ctx context.Context, provider StatusProvider, params []json.R
 	}
 	return map[string]any{
 		"output":     callResponse.Output,
-		"stateDiff":  nil,
+		"stateDiff":  web3StateDiff(callResponse.StateDiff),
 		"trace":      []any{trace},
-		"vmTrace":    nil,
+		"vmTrace":    callResponse.VMTrace,
 		"accessList": web3AccessList(callResponse.AccessList),
 	}, nil
+}
+
+func web3StructLogs(vmTrace any) any {
+	trace, ok := vmTrace.(map[string]any)
+	if !ok {
+		return []any{}
+	}
+	if logs, found := trace["structLogs"]; found {
+		return logs
+	}
+	return []any{}
+}
+
+func web3StateDiff(stateDiff any) any {
+	if stateDiff == nil {
+		return map[string]any{}
+	}
+	return stateDiff
 }
 
 func web3AccessList(entries []web3AccessListEntry) []any {
@@ -3883,15 +3923,30 @@ func evmCallParam(params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
 		return web3CallRequest{}, &JSONRPCError{Code: -32602, Message: "invalid data hex"}
 	}
 	return web3CallRequest{
-		VM:       payload.VM,
-		From:     payload.From,
-		To:       payload.To,
-		Method:   payload.Method,
-		Input:    payload.Data,
-		GasLimit: gasLimit,
-		Value:    callValue,
-		GasPrice: gasPrice,
+		VM:         payload.VM,
+		From:       payload.From,
+		To:         payload.To,
+		Method:     payload.Method,
+		Input:      payload.Data,
+		GasLimit:   gasLimit,
+		Value:      callValue,
+		GasPrice:   gasPrice,
+		AccessList: web3ContractAccessList(payload.AccessList),
 	}, nil
+}
+
+func web3ContractAccessList(entries []web3AccessListEntry) []contract.AccessListEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]contract.AccessListEntry, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, contract.AccessListEntry{
+			Address:     types.Address(entry.Address),
+			StorageKeys: append([]string(nil), entry.StorageKeys...),
+		})
+	}
+	return out
 }
 
 func web3LogFilterParam(ctx context.Context, provider StatusProvider, params []json.RawMessage) (web3Filter, *JSONRPCError) {

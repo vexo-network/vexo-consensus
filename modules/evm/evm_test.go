@@ -87,7 +87,20 @@ func (vm *recordingInvocationVM) Name() string { return "evm" }
 
 func (vm *recordingInvocationVM) Execute(ctx context.Context, invocation contract.Invocation) (contract.Result, error) {
 	vm.invocation = invocation
-	return contract.Result{Output: []byte{0x42}, GasUsed: 17}, nil
+	return contract.Result{
+		Output:  []byte{0x42},
+		GasUsed: 17,
+		AccessList: []contract.AccessListEntry{{
+			Address:     invocation.Contract,
+			StorageKeys: []string{"0x01"},
+		}},
+		StorageWrites: []contract.StorageWrite{{
+			Address: invocation.Contract,
+			Slot:    "0x01",
+			Value:   []byte{0x02},
+		}},
+		VMTrace: map[string]any{"structLogs": []any{map[string]any{"op": "STOP"}}},
+	}, nil
 }
 
 func TestModuleExecutesAndPersistsReceiptsCodeAndLogs(t *testing.T) {
@@ -220,6 +233,10 @@ func TestModuleQueryCallPassesWeb3ExecutionContext(t *testing.T) {
 		Height:   77,
 		GasPrice: 9,
 		BaseFee:  4,
+		AccessList: []contract.AccessListEntry{{
+			Address:     contractAddress,
+			StorageKeys: []string{"0x01"},
+		}},
 	})
 	response := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 12, Store: storage}, vexoapp.QueryRequest{Path: []string{"call"}, Data: request})
 	if response.Code != 0 {
@@ -227,6 +244,16 @@ func TestModuleQueryCallPassesWeb3ExecutionContext(t *testing.T) {
 	}
 	if vm.invocation.BlockNumber != 77 || vm.invocation.GasPrice != 9 || vm.invocation.BaseFee != 4 || vm.invocation.Value != 3 || vm.invocation.GasLimit != 55_000 {
 		t.Fatalf("unexpected invocation context: %+v", vm.invocation)
+	}
+	if len(vm.invocation.AccessList) != 1 || vm.invocation.AccessList[0].Address != contractAddress || vm.invocation.AccessList[0].StorageKeys[0] != "0x01" {
+		t.Fatalf("unexpected invocation access list: %+v", vm.invocation.AccessList)
+	}
+	var callResponse CallResponse
+	if err := json.Unmarshal(response.Value, &callResponse); err != nil {
+		t.Fatal(err)
+	}
+	if len(callResponse.AccessList) != 1 || callResponse.StateDiff == nil || callResponse.VMTrace == nil {
+		t.Fatalf("expected call response access list, state diff, and VM trace, got %+v", callResponse)
 	}
 }
 

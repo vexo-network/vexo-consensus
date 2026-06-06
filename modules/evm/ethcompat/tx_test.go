@@ -10,6 +10,7 @@ import (
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/types"
 )
 
 func TestDecodeRawTransactionBuildsSignedCallCanonicalTx(t *testing.T) {
@@ -51,6 +52,57 @@ func TestDecodeRawTransactionBuildsContractCreationCanonicalTx(t *testing.T) {
 	}
 	if canonical.Action != "eth_deploy" || canonical.Args[2] != "6000" {
 		t.Fatalf("unexpected creation canonical tx: %+v", canonical)
+	}
+}
+
+func TestDecodeRawTransactionPreservesAccessList(t *testing.T) {
+	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := gethcommon.HexToAddress("0x000000000000000000000000000000000000bEEF")
+	accessAddress := gethcommon.HexToAddress("0x000000000000000000000000000000000000CAFe")
+	slot := gethcommon.HexToHash("0x01")
+	tx := gethtypes.NewTx(&gethtypes.AccessListTx{
+		ChainID:  big.NewInt(7),
+		Nonce:    8,
+		GasPrice: big.NewInt(13),
+		Gas:      50_000,
+		To:       &to,
+		Data:     []byte{0x12, 0x34},
+		AccessList: gethtypes.AccessList{{
+			Address:     accessAddress,
+			StorageKeys: []gethcommon.Hash{slot},
+		}},
+	})
+	signed, err := gethtypes.SignTx(tx, gethtypes.LatestSignerForChainID(big.NewInt(7)), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeRawTransaction("0x"+hex.EncodeToString(raw), DecodeOptions{ChainID: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.AccessList) != 1 || decoded.AccessList[0].Address != types.Address(accessAddress.Hex()) || len(decoded.AccessList[0].StorageKeys) != 1 || decoded.AccessList[0].StorageKeys[0] != slot.Hex() {
+		t.Fatalf("unexpected decoded access list: %+v", decoded.AccessList)
+	}
+	encoded, found := vexoapp.TxTag(decoded.Tx, TagAccessList)
+	if !found || encoded == "" {
+		t.Fatalf("expected canonical access-list tag in %s", decoded.Tx)
+	}
+	roundTrip, err := DecodeAccessList(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(roundTrip) != 1 || roundTrip[0].Address != decoded.AccessList[0].Address || roundTrip[0].StorageKeys[0] != slot.Hex() {
+		t.Fatalf("unexpected round-tripped access list: %+v", roundTrip)
+	}
+	if err := ValidateCanonicalTx(decoded.Tx, 7); err != nil {
+		t.Fatalf("expected canonical access-list tx to validate: %v", err)
 	}
 }
 

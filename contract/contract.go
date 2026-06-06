@@ -15,17 +15,18 @@ var (
 )
 
 type Invocation struct {
-	VM       string        `json:"vm"`
-	Caller   types.Address `json:"caller"`
-	Contract types.Address `json:"contract"`
-	Method   string        `json:"method"`
-	Input    []byte        `json:"input,omitempty"`
-	GasLimit uint64        `json:"gas_limit,omitempty"`
-	Value    uint64        `json:"value,omitempty"`
-	Code     []byte        `json:"-"`
-	Salt     []byte        `json:"-"`
-	State    StateReader   `json:"-"`
-	ReadOnly bool          `json:"-"`
+	VM         string            `json:"vm"`
+	Caller     types.Address     `json:"caller"`
+	Contract   types.Address     `json:"contract"`
+	Method     string            `json:"method"`
+	Input      []byte            `json:"input,omitempty"`
+	GasLimit   uint64            `json:"gas_limit,omitempty"`
+	Value      uint64            `json:"value,omitempty"`
+	Code       []byte            `json:"-"`
+	Salt       []byte            `json:"-"`
+	State      StateReader       `json:"-"`
+	ReadOnly   bool              `json:"-"`
+	AccessList []AccessListEntry `json:"-"`
 
 	BlockNumber   uint64        `json:"-"`
 	Timestamp     uint64        `json:"-"`
@@ -160,5 +161,18 @@ func cloneInvocation(invocation Invocation) Invocation {
 	invocation.Input = append([]byte(nil), invocation.Input...)
 	invocation.Code = append([]byte(nil), invocation.Code...)
 	invocation.Salt = append([]byte(nil), invocation.Salt...)
+	invocation.AccessList = cloneAccessList(invocation.AccessList)
 	return invocation
+}
+
+func cloneAccessList(entries []AccessListEntry) []AccessListEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+	cloned := make([]AccessListEntry, len(entries))
+	for index, entry := range entries {
+		cloned[index] = entry
+		cloned[index].StorageKeys = append([]string(nil), entry.StorageKeys...)
+	}
+	return cloned
 }
