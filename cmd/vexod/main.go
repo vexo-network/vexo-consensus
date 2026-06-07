@@ -144,6 +144,7 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  proof da-export export data availability chunks and Reed-Solomon parity\n")
 	fmt.Fprintf(writer, "  proof da-proof  build a data availability chunk proof\n")
 	fmt.Fprintf(writer, "  proof da-verify verify a data availability chunk proof\n")
+	fmt.Fprintf(writer, "  proof da-sample plan and verify deterministic data availability samples\n")
 	fmt.Fprintf(writer, "  proof da-recover recover transactions from a DA bundle\n")
 	fmt.Fprintf(writer, "  relayer packet-proof fetch an IBC packet proof from RPC\n")
 	fmt.Fprintf(writer, "  relayer discover find IBC packets from indexed RPC events\n")

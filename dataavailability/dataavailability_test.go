@@ -188,6 +188,73 @@ func TestRecoverTransactionsRejectsTooManyMissingChunksInGroup(t *testing.T) {
 	}
 }
 
+func TestPlanAndVerifySamples(t *testing.T) {
+	payload := make([]byte, DefaultChunkSize*5+17)
+	for index := range payload {
+		payload[index] = byte(index % 251)
+	}
+	txs := []types.Tx{payload}
+	proof, err := BuildProofWithErasureOptions(txs, DefaultChunkSize, 4, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := PlanSamples("vexo-test", 12, proof, SamplePolicy{Samples: 3, MinSamples: 2}, []byte("round-qc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(request.Indices) != 3 || request.Seed == (types.Hash{}) {
+		t.Fatalf("unexpected sample request: %+v", request)
+	}
+	proofs := make([]ChunkProof, 0, len(request.Indices))
+	for _, index := range request.Indices {
+		chunkProof, err := BuildChunkProof(txs, proof.ChunkSize, index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		proofs = append(proofs, chunkProof)
+	}
+	report, err := VerifySamples(request, proofs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Verified != 3 || report.Requested != 3 || report.CoverageBPS == 0 {
+		t.Fatalf("unexpected sample report: %+v", report)
+	}
+}
+
+func TestVerifySamplesRejectsMissingDuplicateAndUnrequestedProofs(t *testing.T) {
+	txs := []types.Tx{[]byte("a"), []byte("b"), []byte("c")}
+	proof, err := BuildProofWithOptions(txs, 8, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := PlanSamples("vexo-test", 1, proof, SamplePolicy{Samples: 1}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifySamples(request, nil); !errors.Is(err, ErrInsufficientChunks) {
+		t.Fatalf("expected missing sample rejection, got %v", err)
+	}
+	chunkProof, err := BuildChunkProof(txs, proof.ChunkSize, request.Indices[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifySamples(request, []ChunkProof{chunkProof, chunkProof}); !errors.Is(err, ErrInvalidSampleSet) {
+		t.Fatalf("expected duplicate sample rejection, got %v", err)
+	}
+	otherIndex := (request.Indices[0] + 1) % proof.ChunkCount
+	if otherIndex == request.Indices[0] {
+		t.Skip("single chunk proof cannot create an unrequested index")
+	}
+	otherProof, err := BuildChunkProof(txs, proof.ChunkSize, otherIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifySamples(request, []ChunkProof{otherProof}); !errors.Is(err, ErrInvalidSampleSet) {
+		t.Fatalf("expected unrequested sample rejection, got %v", err)
+	}
+}
+
 func TestRecoverTransactionsRejectsInvalidErasureMetadata(t *testing.T) {
 	txs := []types.Tx{[]byte("metadata")}
 	proof := BuildProof(txs)

@@ -41,6 +41,8 @@ func runProof(writer io.Writer, args []string) error {
 		return runProofDAProof(writer, args[1:])
 	case "da-verify":
 		return runProofDAVerify(writer, args[1:])
+	case "da-sample":
+		return runProofDASample(writer, args[1:])
 	case "da-recover":
 		return runProofDARecover(writer, args[1:])
 	default:
@@ -89,6 +91,12 @@ type dataAvailabilityBundle struct {
 
 type dataAvailabilityRecoverResult struct {
 	TxsHex []string `json:"txs_hex"`
+}
+
+type dataAvailabilitySampleResult struct {
+	Request dataavailability.SampleRequest `json:"request"`
+	Proofs  []dataavailability.ChunkProof  `json:"proofs"`
+	Report  dataavailability.SampleReport  `json:"report"`
 }
 
 func runProofDAExport(writer io.Writer, args []string) error {
@@ -169,6 +177,56 @@ func runProofDAVerify(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "chunk_count: %d\n", proof.ChunkCount)
 	fmt.Fprintf(writer, "chunk_size: %d\n", proof.ChunkSize)
 	return nil
+}
+
+func runProofDASample(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("proof da-sample", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	inputPath := flags.String("input", "", "data availability bundle JSON path")
+	chainID := flags.String("chain-id", "", "chain id used to derive deterministic sample seed")
+	height := flags.Uint64("height", 0, "block height used to derive deterministic sample seed")
+	samples := flags.Uint64("samples", 0, "number of chunk samples to verify")
+	minSamples := flags.Uint64("min-samples", 0, "minimum acceptable samples")
+	entropyHex := flags.String("entropy-hex", "", "optional hex entropy mixed into sample seed")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *inputPath == "" || *chainID == "" || *height == 0 {
+		return errors.New("data availability bundle input, chain id, and height are required")
+	}
+	entropy, err := parseOptionalBytesHex(*entropyHex)
+	if err != nil {
+		return err
+	}
+	data, err := readProofFile(*inputPath)
+	if err != nil {
+		return err
+	}
+	var bundle dataAvailabilityBundle
+	if err := json.Unmarshal(data, &bundle); err != nil {
+		return err
+	}
+	request, err := dataavailability.PlanSamples(*chainID, types.Height(*height), bundle.Proof, dataavailability.SamplePolicy{Samples: *samples, MinSamples: *minSamples}, entropy)
+	if err != nil {
+		return err
+	}
+	proofs := make([]dataavailability.ChunkProof, 0, len(request.Indices))
+	for _, index := range request.Indices {
+		proof, err := dataavailability.BuildChunkProofFromChunks(bundle.Chunks, bundle.Proof.ChunkSize, index)
+		if err != nil {
+			return err
+		}
+		proofs = append(proofs, proof)
+	}
+	report, err := dataavailability.VerifySamples(request, proofs)
+	if err != nil {
+		return err
+	}
+	return writeIndentedJSON(writer, dataAvailabilitySampleResult{
+		Request: request,
+		Proofs:  proofs,
+		Report:  report,
+	})
 }
 
 func runProofDARecover(writer io.Writer, args []string) error {
@@ -438,6 +496,17 @@ func parseOptionalHash(value string) (types.Hash, error) {
 	var hash types.Hash
 	copy(hash[:], decoded)
 	return hash, nil
+}
+
+func parseOptionalBytesHex(value string) ([]byte, error) {
+	if value == "" {
+		return nil, nil
+	}
+	decoded, err := hex.DecodeString(strings.TrimPrefix(strings.TrimSpace(value), "0x"))
+	if err != nil {
+		return nil, err
+	}
+	return decoded, nil
 }
 
 func readProofFile(path string) ([]byte, error) {

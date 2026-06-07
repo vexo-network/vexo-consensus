@@ -862,6 +862,17 @@ func TestRunProofDataAvailabilityCommands(t *testing.T) {
 	if err := os.WriteFile(bundlePath, bundle.Bytes(), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	var sampleOutput bytes.Buffer
+	if err := runCommand(&sampleOutput, &bytes.Buffer{}, []string{"proof", "da-sample", "--input", bundlePath, "--chain-id", "vexo-test", "--height", "9", "--samples", "2", "--min-samples", "1", "--entropy-hex", "abcd"}); err != nil {
+		t.Fatal(err)
+	}
+	var sampleResult dataAvailabilitySampleResult
+	if err := json.Unmarshal(sampleOutput.Bytes(), &sampleResult); err != nil {
+		t.Fatal(err)
+	}
+	if sampleResult.Report.Verified != 2 || len(sampleResult.Proofs) != 2 || sampleResult.Request.Height != 9 {
+		t.Fatalf("unexpected DA sample output: %+v", sampleResult)
+	}
 	var recoverOutput bytes.Buffer
 	if err := runCommand(&recoverOutput, &bytes.Buffer{}, []string{"proof", "da-recover", "--input", bundlePath, "--drop", "1", "--drop", "3"}); err != nil {
 		t.Fatal(err)

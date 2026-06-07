@@ -71,6 +71,24 @@ type InvalidProposalVerificationContext struct {
 	ExpectedTimeUnixNano     int64
 }
 
+func (context InvalidProposalVerificationContext) ProofHash() types.Hash {
+	if context.ExpectedValidatorSetHash == (types.Hash{}) &&
+		context.ExpectedAppHash == (types.Hash{}) &&
+		context.ExpectedTxResultsHash == (types.Hash{}) &&
+		context.ExpectedTimeUnixNano == 0 {
+		return types.Hash{}
+	}
+	hasher := sha256.New()
+	hasher.Write([]byte("vexo.invalid_proposal.context.v1"))
+	hasher.Write(context.ExpectedValidatorSetHash[:])
+	hasher.Write(context.ExpectedAppHash[:])
+	hasher.Write(context.ExpectedTxResultsHash[:])
+	writeResultUint64(hasher, uint64(context.ExpectedTimeUnixNano))
+	var out types.Hash
+	copy(out[:], hasher.Sum(nil))
+	return out
+}
+
 type UnavailableDataProof struct {
 	Proposal Proposal `json:"proposal"`
 	Reason   string   `json:"reason"`
@@ -503,11 +521,19 @@ func VerifyInvalidProposalEvidenceWithContext(evidence slashing.Evidence, contex
 			return ErrInvalidProposal
 		}
 	}
-	if decoded.ContextProofHash != (types.Hash{}) && context.ContextProofHash == (types.Hash{}) {
+	if decoded.ContextProofHash != (types.Hash{}) {
+		computedContextProofHash := context.ProofHash()
+		if context.ContextProofHash == (types.Hash{}) || computedContextProofHash == (types.Hash{}) {
+			return ErrInvalidProposalContext
+		}
+		if context.ContextProofHash != computedContextProofHash {
+			return ErrInvalidProposalContext
+		}
+		if decoded.ContextProofHash != computedContextProofHash {
+			return ErrInvalidProposal
+		}
+	} else if context.ContextProofHash != (types.Hash{}) && context.ContextProofHash != context.ProofHash() {
 		return ErrInvalidProposalContext
-	}
-	if context.ContextProofHash != (types.Hash{}) && decoded.ContextProofHash != context.ContextProofHash {
-		return ErrInvalidProposal
 	}
 	return verifyInvalidProposalByReason(decoded)
 }

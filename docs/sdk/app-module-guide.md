@@ -101,12 +101,13 @@ vexod proof query --home .vexo --namespace bank --key alice > proof.json
 vexod proof verify --input proof.json --chain-id vexo-chain --height 10
 ```
 
-Data availability commitments use canonical transaction chunks. Operators and module test harnesses can export a DA bundle, verify an individual chunk proof, and test bounded Reed-Solomon-style recovery:
+Data availability commitments use canonical transaction chunks. Operators and module test harnesses can export a DA bundle, verify individual chunk proofs, plan deterministic chunk samples, and test bounded Reed-Solomon-style recovery:
 
 ```bash
 vexod proof da-export --tx-hex 68656c6c6f --tx-hex 776f726c64 --data-shards 4 --parity-shards 2 > da-bundle.json
 vexod proof da-proof --tx-hex 68656c6c6f --tx-hex 776f726c64 --index 0 > da-proof.json
 vexod proof da-verify --input da-proof.json
+vexod proof da-sample --input da-bundle.json --chain-id vexo-chain --height 10 --samples 8 --min-samples 4 > da-samples.json
 vexod proof da-recover --input da-bundle.json --drop 0 --drop 1
 ```
 

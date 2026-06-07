@@ -19,6 +19,8 @@ var (
 	ErrInsufficientChunks  = errors.New("insufficient data availability chunks")
 	ErrTooManyMissing      = errors.New("too many missing data availability chunks")
 	ErrInvalidEncoding     = errors.New("invalid data availability transaction encoding")
+	ErrInvalidSamplePolicy = errors.New("invalid data availability sample policy")
+	ErrInvalidSampleSet    = errors.New("invalid data availability sample set")
 )
 
 const (
@@ -57,6 +59,29 @@ type ChunkProof struct {
 type MerkleSibling struct {
 	Hash types.Hash
 	Left bool
+}
+
+type SamplePolicy struct {
+	Samples    uint64
+	MinSamples uint64
+}
+
+type SampleRequest struct {
+	Commitment types.Hash
+	Height     types.Height
+	ChunkCount uint64
+	Indices    []uint64
+	Seed       types.Hash
+}
+
+type SampleReport struct {
+	Commitment      types.Hash
+	Height          types.Height
+	ChunkCount      uint64
+	Requested       uint64
+	Verified        uint64
+	CoverageBPS     uint64
+	VerifiedIndices []uint64
 }
 
 func BuildProof(txs []types.Tx) Proof {
@@ -129,17 +154,40 @@ func BuildChunkProof(txs []types.Tx, chunkSize uint64, index uint64) (ChunkProof
 	if err != nil {
 		return ChunkProof{}, err
 	}
+	return BuildChunkProofFromChunks(chunks, chunkSize, index)
+}
+
+func BuildChunkProofFromChunks(chunks []Chunk, chunkSize uint64, index uint64) (ChunkProof, error) {
 	if index >= uint64(len(chunks)) {
 		return ChunkProof{}, ErrInvalidChunkProof
 	}
-	leaves := chunkLeaves(chunks)
-	path := merklePath(leaves, index)
+	ordered := append([]Chunk(nil), chunks...)
+	sort.Slice(ordered, func(first int, second int) bool {
+		return ordered[first].Index < ordered[second].Index
+	})
+	targetPosition := -1
+	for position, chunk := range ordered {
+		if chunk.Index >= uint64(len(ordered)) || uint64(len(chunk.Data)) > chunkSize {
+			return ChunkProof{}, ErrInvalidChunkProof
+		}
+		if position > 0 && ordered[position-1].Index == chunk.Index {
+			return ChunkProof{}, ErrInvalidChunkProof
+		}
+		if chunk.Index == index {
+			targetPosition = position
+		}
+	}
+	if targetPosition < 0 {
+		return ChunkProof{}, ErrInvalidChunkProof
+	}
+	leaves := chunkLeaves(ordered)
+	path := merklePath(leaves, uint64(targetPosition))
 	return ChunkProof{
 		Commitment: merkleRoot(leaves),
 		ChunkSize:  chunkSize,
-		ChunkCount: uint64(len(chunks)),
+		ChunkCount: uint64(len(ordered)),
 		Index:      index,
-		Data:       append([]byte(nil), chunks[index].Data...),
+		Data:       append([]byte(nil), ordered[targetPosition].Data...),
 		Path:       path,
 	}, nil
 }
@@ -162,12 +210,130 @@ func VerifyChunkProof(proof ChunkProof) error {
 	return nil
 }
 
+func PlanSamples(chainID string, height types.Height, proof Proof, policy SamplePolicy, entropy []byte) (SampleRequest, error) {
+	if chainID == "" || height == 0 || proof.Commitment == (types.Hash{}) || proof.ChunkCount == 0 {
+		return SampleRequest{}, ErrInvalidChunkProof
+	}
+	if policy.Samples == 0 {
+		policy.Samples = policy.MinSamples
+	}
+	if policy.MinSamples > policy.Samples {
+		return SampleRequest{}, ErrInvalidSamplePolicy
+	}
+	if policy.Samples == 0 {
+		return SampleRequest{}, ErrInvalidSamplePolicy
+	}
+	if policy.Samples > proof.ChunkCount {
+		policy.Samples = proof.ChunkCount
+	}
+	seed := sampleSeed(chainID, height, proof.Commitment, entropy)
+	indices := deterministicSampleIndices(seed, proof.ChunkCount, policy.Samples)
+	return SampleRequest{
+		Commitment: proof.Commitment,
+		Height:     height,
+		ChunkCount: proof.ChunkCount,
+		Indices:    indices,
+		Seed:       seed,
+	}, nil
+}
+
+func VerifySamples(request SampleRequest, proofs []ChunkProof) (SampleReport, error) {
+	if request.Commitment == (types.Hash{}) || request.Height == 0 || request.ChunkCount == 0 || len(request.Indices) == 0 {
+		return SampleReport{}, ErrInvalidSampleSet
+	}
+	requested := make(map[uint64]struct{}, len(request.Indices))
+	for _, index := range request.Indices {
+		if index >= request.ChunkCount {
+			return SampleReport{}, ErrInvalidSampleSet
+		}
+		if _, found := requested[index]; found {
+			return SampleReport{}, ErrInvalidSampleSet
+		}
+		requested[index] = struct{}{}
+	}
+	verified := make(map[uint64]struct{}, len(proofs))
+	for _, proof := range proofs {
+		if proof.Commitment != request.Commitment ||
+			proof.ChunkCount != request.ChunkCount ||
+			proof.Index >= request.ChunkCount {
+			return SampleReport{}, ErrInvalidSampleSet
+		}
+		if _, found := requested[proof.Index]; !found {
+			return SampleReport{}, ErrInvalidSampleSet
+		}
+		if _, found := verified[proof.Index]; found {
+			return SampleReport{}, ErrInvalidSampleSet
+		}
+		if err := VerifyChunkProof(proof); err != nil {
+			return SampleReport{}, err
+		}
+		verified[proof.Index] = struct{}{}
+	}
+	if len(verified) != len(requested) {
+		return SampleReport{}, ErrInsufficientChunks
+	}
+	indices := make([]uint64, 0, len(verified))
+	for index := range verified {
+		indices = append(indices, index)
+	}
+	sort.Slice(indices, func(first int, second int) bool {
+		return indices[first] < indices[second]
+	})
+	return SampleReport{
+		Commitment:      request.Commitment,
+		Height:          request.Height,
+		ChunkCount:      request.ChunkCount,
+		Requested:       uint64(len(request.Indices)),
+		Verified:        uint64(len(indices)),
+		CoverageBPS:     uint64(len(indices)) * 10000 / request.ChunkCount,
+		VerifiedIndices: indices,
+	}, nil
+}
+
 func RecoverTransactions(proof Proof, chunks []Chunk, parity []Chunk) ([]types.Tx, error) {
 	data, err := RecoverData(proof, chunks, parity)
 	if err != nil {
 		return nil, err
 	}
 	return decodeTransactions(data)
+}
+
+func sampleSeed(chainID string, height types.Height, commitment types.Hash, entropy []byte) types.Hash {
+	hasher := sha256.New()
+	hasher.Write([]byte("vexo.da.sampling.v1"))
+	hasher.Write([]byte(chainID))
+	writeUint64(hasher, uint64(height))
+	hasher.Write(commitment[:])
+	writeUint64(hasher, uint64(len(entropy)))
+	hasher.Write(entropy)
+	var out types.Hash
+	copy(out[:], hasher.Sum(nil))
+	return out
+}
+
+func deterministicSampleIndices(seed types.Hash, chunkCount uint64, samples uint64) []uint64 {
+	if chunkCount == 0 || samples == 0 {
+		return nil
+	}
+	selected := make(map[uint64]struct{}, samples)
+	indices := make([]uint64, 0, samples)
+	for counter := uint64(0); uint64(len(indices)) < samples; counter++ {
+		hasher := sha256.New()
+		hasher.Write([]byte("vexo.da.sample.index.v1"))
+		hasher.Write(seed[:])
+		writeUint64(hasher, counter)
+		sum := hasher.Sum(nil)
+		index := binary.BigEndian.Uint64(sum[:8]) % chunkCount
+		if _, found := selected[index]; found {
+			continue
+		}
+		selected[index] = struct{}{}
+		indices = append(indices, index)
+	}
+	sort.Slice(indices, func(first int, second int) bool {
+		return indices[first] < indices[second]
+	})
+	return indices
 }
 
 func RecoverData(proof Proof, chunks []Chunk, parity []Chunk) ([]byte, error) {

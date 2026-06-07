@@ -642,8 +642,8 @@ func TestSubmitInvalidProposalEvidenceRequiresMatchingContextProofHash(t *testin
 	if err := json.Unmarshal(evidence.Proof, &proof); err != nil {
 		t.Fatal(err)
 	}
-	contextProofHash := types.Hash{}
-	contextProofHash[0] = 7
+	verificationContext := InvalidProposalVerificationContext{ExpectedAppHash: expectedAppHash}
+	contextProofHash := verificationContext.ProofHash()
 	wrongContextProofHash := types.Hash{}
 	wrongContextProofHash[0] = 8
 	proof.ContextProofHash = contextProofHash
@@ -671,7 +671,7 @@ func TestSubmitInvalidProposalEvidenceRequiresMatchingContextProofHash(t *testin
 		0,
 		evidence,
 		EvidenceVerificationContext{InvalidProposal: InvalidProposalVerificationContext{ExpectedAppHash: expectedAppHash, ContextProofHash: wrongContextProofHash}},
-	); !errors.Is(err, ErrInvalidProposal) {
+	); !errors.Is(err, ErrInvalidProposalContext) {
 		t.Fatalf("expected context proof hash mismatch, got %v", err)
 	}
 
