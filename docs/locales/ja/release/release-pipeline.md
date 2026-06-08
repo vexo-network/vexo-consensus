@@ -1,20 +1,40 @@
 # Release Pipeline
 
 > Locale: ja · 日本語
-> この文書は英語の正規文書を基準にした日本語翻訳ガイドです。プロトコル、セキュリティ、リリース判断は英語原文を規範とします。
+> この文書は英語原文と併読するための日本語 補助文書です。プロトコル、セキュリティ、リリース判断は英語原文を規範とします。
 
-## 目的
+## 文書概要
 
-この文書は 署名付きバイナリ、checksums、SBOM を含むリリースパイプラインを扱います。 実装と運用で使うコマンド、JSON フィールド、RPC 名、config key、コード識別子は互換性のため英語表記を保持します。
+この文書は 署名付きバイナリ、checksums、SBOM を含むリリースパイプラインを理解し、実装・運用判断へつなげるためのものです。
 
-## 主な範囲
-
-- この文書を読むときは次の項目を必ず確認してください。コマンド、JSON フィールド、RPC メソッド、設定キー、コード識別子は互換性のため原文のまま保持します。
-- 詳細な規範文は英語原文で確認してください。
 - Canonical path: `docs/release/release-pipeline.md`
 - Locale path: `docs/locales/ja/release/release-pipeline.md`
 
-## 保持する識別子
+## この文書を読む理由
+
+- 署名付きバイナリ、checksums、SBOM を含むリリースパイプライン
+- 英語原文の MUST/SHOULD/MAY 文を先に確認します。
+- このローカライズ文書は理解補助です。監査、リリース、セキュリティ判断は英語原文で確定します。
+
+## 読後にできるべきこと
+
+- この文書がどの実装・運用判断を支えるか説明できるようにします。
+- 英語原文の規範要件を現在のネットワーク設定と対応づけます。
+- 例をコピーする前に chain ID、validator ID、fee/gas、peer アドレスを確認します。
+
+## 安全利用チェックリスト
+
+- 英語原文の MUST/SHOULD/MAY 文を先に確認します。
+- コマンド、config key、RPC 名、JSON フィールド、コード識別子は翻訳しません。
+- 例の値をコピーする前に chain ID、validator ID、fee/gas、peer アドレスが自分のネットワークに合うか確認します。
+- 文書を変更したら `make docs-check` で locale tree と翻訳 guard を確認します。
+
+## 注意点
+
+- このローカライズ文書は理解補助です。監査、リリース、セキュリティ判断は英語原文で確定します。
+- 実装が変わった場合は英語文書と全ローカライズ文書を同じ変更で更新してください。
+
+## 原文のまま保持するインターフェース
 
 - `release gate`
 - `ok`
@@ -34,8 +54,11 @@
 - `release-candidate`
 - `make network-e2e`
 - `RC_DRY_RUN=1`
+- `network longrun`
+- `allow_noop_migrations=true`
+- `vexod upgrade apply --allow-empty-migrations`
 
-## 英語原文のセクション
+## 英語原文の構造
 
 - Release Pipeline
 - Goals
@@ -47,12 +70,6 @@
 - Audit Pack
 - Release Candidate Soak Test
 - Launch Runbook
-
-## 運用メモ
-
-- `MUST`、`SHOULD`、`MAY`、コマンド例、JSON 例、RPC 名は英語表記を保持します。
-- この翻訳を変更した後は `make docs-check` を実行してください。
-- このページと英語原文が矛盾する場合は英語原文を採用し、同じ変更でこの locale ファイルも更新してください。
 
 ## 正規原文
 

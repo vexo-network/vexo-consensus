@@ -1,20 +1,40 @@
 # Release Pipeline
 
 > Locale: pt · Português
-> Este documento é um guia traduzido a partir da documentação canônica em inglês. Decisões de protocolo, segurança e release continuam normativas em inglês.
+> Este documento é um documento de apoio em português para ser lido junto da fonte inglesa. Decisões de protocolo, segurança e release continuam normativas em inglês.
 
-## Objetivo
+## Visão geral
 
-Este documento cobre pipeline de release com binários assinados, checksums e SBOM. Comandos, campos JSON, nomes RPC, config key e identificadores de código usados na implementação e operação permanecem em inglês por compatibilidade.
+Este documento ajuda a entender pipeline de release com binários assinados, checksums e SBOM e a conectar isso a decisões de implementação e operação.
 
-## Escopo principal
-
-- Verifique os itens abaixo ao ler este documento. Comandos, campos JSON, métodos RPC, chaves de configuração e identificadores de código permanecem em inglês por compatibilidade.
-- Para texto normativo detalhado, use o documento em inglês.
 - Canonical path: `docs/release/release-pipeline.md`
 - Locale path: `docs/locales/pt/release/release-pipeline.md`
 
-## Identificadores preservados
+## Por que ler este documento
+
+- pipeline de release com binários assinados, checksums e SBOM
+- Confira primeiro as frases MUST/SHOULD/MAY na fonte inglesa.
+- Este documento localizado ajuda na compreensão; auditoria, release e segurança são decididos pela fonte inglesa.
+
+## O que você deve conseguir fazer
+
+- Explicar qual decisão de implementação ou operação este documento apoia.
+- Relacionar os requisitos normativos da fonte inglesa com a configuração atual da rede.
+- Verificar chain ID, validator ID, fee/gas e endereços peer antes de copiar exemplos.
+
+## Checklist de uso seguro
+
+- Confira primeiro as frases MUST/SHOULD/MAY na fonte inglesa.
+- Não traduza comandos, config key, nomes RPC, campos JSON nem identificadores de código.
+- Antes de copiar exemplos, ajuste chain ID, validator ID, fee/gas e endereços peer para sua rede.
+- Após alterar documentos, execute `make docs-check` para verificar locale tree e guards de tradução.
+
+## Pontos de atenção
+
+- Este documento localizado ajuda na compreensão; auditoria, release e segurança são decididos pela fonte inglesa.
+- Quando a implementação mudar, atualize a fonte inglesa e todos os documentos localizados na mesma alteração.
+
+## Interfaces que devem ser preservadas
 
 - `release gate`
 - `ok`
@@ -34,8 +54,11 @@ Este documento cobre pipeline de release com binários assinados, checksums e SB
 - `release-candidate`
 - `make network-e2e`
 - `RC_DRY_RUN=1`
+- `network longrun`
+- `allow_noop_migrations=true`
+- `vexod upgrade apply --allow-empty-migrations`
 
-## Seções em inglês
+## Estrutura da fonte inglesa
 
 - Release Pipeline
 - Goals
@@ -47,12 +70,6 @@ Este documento cobre pipeline de release com binários assinados, checksums e SB
 - Audit Pack
 - Release Candidate Soak Test
 - Launch Runbook
-
-## Notas operacionais
-
-- `MUST`, `SHOULD`, `MAY`, exemplos de comando, exemplos JSON e nomes RPC preservam a grafia em inglês.
-- Após alterar esta tradução, execute `make docs-check`.
-- Se esta página divergir da fonte inglesa, use a fonte inglesa e atualize este arquivo locale na mesma mudança.
 
 ## Fonte canônica
 

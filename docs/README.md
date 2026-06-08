@@ -1,16 +1,26 @@
 # Documentation
 
-This directory contains protocol specs, SDK extension guides, security material, and release operations documents for `vexo-consensus`.
+This directory is the working manual for `vexo-consensus`: protocol rules, SDK extension points, operator runbooks, release gates, and audit material live here.
 
-If you are new to the project, read the documents in this order.
+The English documents are the canonical source for protocol, security, release, SDK, command, config, and RPC behavior. Localized documents mirror this tree and provide reader-friendly guidance for non-English contributors, but release decisions should always be checked against the English source.
 
-## Start Here
+## How to Read This Set
+
+Use the path that matches what you are trying to do:
+
+- **Understand the chain model:** read the overview, consensus spec, finality proof format, transaction format, and validator lifecycle.
+- **Build an application:** read the app module guide, transaction format, RPC versioning guide, and storage schema.
+- **Operate nodes:** read node initialization, adding a validator, networking spec, storage schema, and launch runbook.
+- **Prepare a release:** read audit readiness, release pipeline, version compatibility, and the Cosmos/Tendermint comparison gate.
+
+If you are new to the project, start in this order:
 
 1. [Consensus Protocol Overview](./consensus-protocol.md)
 2. [Consensus Spec](./specs/consensus-spec.md)
 3. [Transaction Format](./specs/tx-format.md)
 4. [Validator Lifecycle](./specs/validator-lifecycle.md)
-5. [Security Audit Readiness](./security/audit-readiness.md)
+5. [Node Initialization](./operators/node-initialization.md)
+6. [Security Audit Readiness](./security/audit-readiness.md)
 
 ## Protocol Specs
 
@@ -52,6 +62,8 @@ If you are new to the project, read the documents in this order.
 
 ## Localized Documentation
 
+Locale files are not allowed to drift from the canonical tree. They keep commands, JSON fields, RPC names, config keys, and code identifiers unchanged so examples stay copy-pasteable across languages.
+
 | Document | Purpose |
 |---|---|
 | [Documentation Locales](./locales/README.md) | Locale directory map and translation policy |
@@ -73,3 +85,13 @@ Documentation should:
 - keep examples copy-pasteable when possible
 - keep every Markdown file mirrored under `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
 - pass `make docs-check` so localized directory trees cannot drift from the canonical docs
+
+## Documentation Review Checklist
+
+Before merging documentation changes:
+
+- confirm the English document is still precise enough to be used as a release/audit source
+- confirm every locale file points back to the right English canonical document
+- preserve all commands, RPC names, config keys, JSON fields, and package names exactly
+- run `make docs-check`
+- run the broader project checks when command examples, config schemas, or generated artifacts changed

@@ -1,20 +1,40 @@
 # Consensus Spec
 
 > Locale: es · Español
-> Este documento es una guía traducida desde la documentación canónica en inglés. Las decisiones de protocolo, seguridad y publicación siguen siendo normativas en inglés.
+> Este documento es un documento de acompañamiento en español para leer junto con la fuente inglesa. Las decisiones de protocolo, seguridad y release siguen siendo normativas en inglés.
 
-## Propósito
+## Resumen
 
-Este documento cubre especificación normativa de la state machine de consenso. Los comandos, campos JSON, nombres RPC, config key e identificadores de código usados en implementación y operación se mantienen en inglés por compatibilidad.
+Este documento ayuda a entender especificación normativa de la state machine de consenso y a conectarlo con decisiones de implementación y operación.
 
-## Alcance principal
-
-- Revise los siguientes puntos al leer este documento. Los comandos, campos JSON, métodos RPC, claves de configuración e identificadores de código se mantienen en inglés por compatibilidad.
-- Para redacción normativa detallada, use el documento inglés.
 - Canonical path: `docs/specs/consensus-spec.md`
 - Locale path: `docs/locales/es/specs/consensus-spec.md`
 
-## Identificadores que se conservan
+## Por qué leer este documento
+
+- especificación normativa de la state machine de consenso
+- Revise primero las frases MUST/SHOULD/MAY en la fuente inglesa.
+- Este documento localizado ayuda a comprender; auditoría, release y seguridad se deciden con la fuente inglesa.
+
+## Qué debería poder hacer después
+
+- Explicar qué decisión de implementación u operación apoya este documento.
+- Relacionar los requisitos normativos de la fuente inglesa con la configuración actual de la red.
+- Verificar chain ID, validator ID, fee/gas y direcciones peer antes de copiar ejemplos.
+
+## Checklist de uso seguro
+
+- Revise primero las frases MUST/SHOULD/MAY en la fuente inglesa.
+- No traduzca comandos, config key, nombres RPC, campos JSON ni identificadores de código.
+- Antes de copiar ejemplos, adapte chain ID, validator ID, fee/gas y direcciones peer a su red.
+- Después de modificar documentación, ejecute `make docs-check` para verificar locale tree y guards de traducción.
+
+## Puntos de atención
+
+- Este documento localizado ayuda a comprender; auditoría, release y seguridad se deciden con la fuente inglesa.
+- Si cambia la implementación, actualice la fuente inglesa y todos los documentos localizados en el mismo cambio.
+
+## Interfaces que deben conservarse
 
 - `(height, round)`
 - `chain_id`
@@ -34,8 +54,12 @@ Este documento cubre especificación normativa de la state machine de consenso. 
 - `>= 2/3`
 - `B3`
 - `B2`
+- `B1`
+- `B3.height = B2.height + 1`
+- `B2.height = B1.height + 1`
+- `execution_commit = "qc"`
 
-## Secciones en inglés
+## Estructura de la fuente inglesa
 
 - Consensus Spec
 - Scope
@@ -47,12 +71,6 @@ Este documento cubre especificación normativa de la state machine de consenso. 
 - Execution Commit Policy
 - Liveness Assumptions
 - Evidence
-
-## Notas operativas
-
-- `MUST`, `SHOULD`, `MAY`, ejemplos de comandos, ejemplos JSON y nombres RPC mantienen la grafía inglesa.
-- Después de cambiar esta traducción, ejecute `make docs-check`.
-- Si esta página contradice la fuente inglesa, use la fuente inglesa y actualice este archivo locale en el mismo cambio.
 
 ## Fuente canónica
 

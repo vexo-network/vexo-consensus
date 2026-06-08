@@ -1,20 +1,40 @@
 # Consensus Protocol Overview
 
 > Locale: es · Español
-> Este documento es una guía traducida desde la documentación canónica en inglés. Las decisiones de protocolo, seguridad y publicación siguen siendo normativas en inglés.
+> Este documento es un documento de acompañamiento en español para leer junto con la fuente inglesa. Las decisiones de protocolo, seguridad y release siguen siendo normativas en inglés.
 
-## Propósito
+## Resumen
 
-Este documento cubre el modelo de consenso, los términos de ejecución/finality y el límite de seguridad. Los comandos, campos JSON, nombres RPC, config key e identificadores de código usados en implementación y operación se mantienen en inglés por compatibilidad.
+Este documento ayuda a entender el modelo de consenso, términos execution/commit/finality y límite de seguridad y a conectarlo con decisiones de implementación y operación.
 
-## Alcance principal
-
-- Revise los siguientes puntos al leer este documento. Los comandos, campos JSON, métodos RPC, claves de configuración e identificadores de código se mantienen en inglés por compatibilidad.
-- Para redacción normativa detallada, use el documento inglés.
 - Canonical path: `docs/consensus-protocol.md`
 - Locale path: `docs/locales/es/consensus-protocol.md`
 
-## Identificadores que se conservan
+## Por qué leer este documento
+
+- el modelo de consenso, términos execution/commit/finality y límite de seguridad
+- Revise primero las frases MUST/SHOULD/MAY en la fuente inglesa.
+- Este documento localizado ayuda a comprender; auditoría, release y seguridad se deciden con la fuente inglesa.
+
+## Qué debería poder hacer después
+
+- Explicar qué decisión de implementación u operación apoya este documento.
+- Relacionar los requisitos normativos de la fuente inglesa con la configuración actual de la red.
+- Verificar chain ID, validator ID, fee/gas y direcciones peer antes de copiar ejemplos.
+
+## Checklist de uso seguro
+
+- Revise primero las frases MUST/SHOULD/MAY en la fuente inglesa.
+- No traduzca comandos, config key, nombres RPC, campos JSON ni identificadores de código.
+- Antes de copiar ejemplos, adapte chain ID, validator ID, fee/gas y direcciones peer a su red.
+- Después de modificar documentación, ejecute `make docs-check` para verificar locale tree y guards de traducción.
+
+## Puntos de atención
+
+- Este documento localizado ayuda a comprender; auditoría, release y seguridad se deciden con la fuente inglesa.
+- Si cambia la implementación, actualice la fuente inglesa y todos los documentos localizados en el mismo cambio.
+
+## Interfaces que deben conservarse
 
 - `FinalizeBlock`
 - `consensus_config.json`
@@ -27,7 +47,7 @@ Este documento cubre el modelo de consenso, los términos de ejecución/finality
 - `ed25519`
 - `bls`
 
-## Secciones en inglés
+## Estructura de la fuente inglesa
 
 - Consensus Protocol Overview
 - Model
@@ -35,12 +55,6 @@ Este documento cubre el modelo de consenso, los términos de ejecución/finality
 - Safety Boundary
 - Crypto Boundary
 - Operational Boundary
-
-## Notas operativas
-
-- `MUST`, `SHOULD`, `MAY`, ejemplos de comandos, ejemplos JSON y nombres RPC mantienen la grafía inglesa.
-- Después de cambiar esta traducción, ejecute `make docs-check`.
-- Si esta página contradice la fuente inglesa, use la fuente inglesa y actualice este archivo locale en el mismo cambio.
 
 ## Fuente canónica
 

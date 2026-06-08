@@ -1,20 +1,40 @@
 # Node Initialization
 
 > Locale: de · Deutsch
-> Dieses Dokument ist ein übersetzter Leitfaden auf Basis der kanonischen englischen Dokumentation. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
+> Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
 
-## Zweck
+## Überblick
 
-Dieses Dokument behandelt Initialisierung von Archive- und Validator-Nodes sowie getrennte Konfigurationsdateien. Befehle, JSON-Felder, RPC-Namen, config key und Code-Bezeichner, die in Implementierung und Betrieb verwendet werden, bleiben aus Kompatibilitätsgründen auf Englisch.
+Dieses Dokument hilft dabei, Initialisierung von Archive- und Validator-Nodes sowie getrennte Konfigurationsdateien zu verstehen und mit Implementierungs- sowie Betriebsentscheidungen zu verbinden.
 
-## Kernbereich
-
-- Beim Lesen müssen die folgenden Punkte geprüft werden. Befehle, JSON-Felder, RPC-Methoden, Konfigurationsschlüssel und Code-Bezeichner bleiben aus Kompatibilitätsgründen unverändert.
-- Für detaillierte normative Formulierungen gilt der englische Originaltext.
 - Canonical path: `docs/operators/node-initialization.md`
 - Locale path: `docs/locales/de/operators/node-initialization.md`
 
-## Beizubehaltende Bezeichner
+## Warum dieses Dokument lesen
+
+- Initialisierung von Archive- und Validator-Nodes sowie getrennte Konfigurationsdateien
+- Prüfe zuerst MUST/SHOULD/MAY-Sätze in der englischen Quelle.
+- Dieses lokalisierte Dokument unterstützt das Verständnis; Audit-, Release- und Sicherheitsentscheidungen erfolgen anhand der englischen Quelle.
+
+## Was danach möglich sein sollte
+
+- Erklären, welche Implementierungs- oder Betriebsentscheidung dieses Dokument unterstützt.
+- Normative Anforderungen der englischen Quelle mit der aktuellen Netzwerkkonfiguration verbinden.
+- Vor dem Kopieren von Beispielen chain ID, validator ID, fee/gas und Peer-Adressen prüfen.
+
+## Checkliste für sichere Nutzung
+
+- Prüfe zuerst MUST/SHOULD/MAY-Sätze in der englischen Quelle.
+- Übersetze keine Befehle, config key, RPC-Namen, JSON-Felder oder Code-Bezeichner.
+- Passe Beispielwerte vor dem Kopieren an chain ID, validator ID, fee/gas und Peer-Adressen deines Netzwerks an.
+- Nach Änderungen `make docs-check` ausführen, um locale tree und Übersetzungs-Guards zu prüfen.
+
+## Worauf zu achten ist
+
+- Dieses lokalisierte Dokument unterstützt das Verständnis; Audit-, Release- und Sicherheitsentscheidungen erfolgen anhand der englischen Quelle.
+- Bei Implementierungsänderungen müssen englische Quelle und alle lokalisierten Dokumente im selben Change aktualisiert werden.
+
+## Unverändert zu behaltende Schnittstellen
 
 - `network_config.json`
 - `start`
@@ -34,8 +54,12 @@ Dieses Dokument behandelt Initialisierung von Archive- und Validator-Nodes sowie
 - `--key-type bls`
 - `genesis.json`
 - `bls_pop`
+- `config.json`
+- `module_config.json`
+- `consensus_config.json`
+- `mempool_config.json`
 
-## Englische Abschnitte
+## Struktur der englischen Quelle
 
 - Node Initialization
 - Validator Node
@@ -45,12 +69,6 @@ Dieses Dokument behandelt Initialisierung von Archive- und Validator-Nodes sowie
 - Config-Based Peers
 - Consensus Timing
 - Multi-Validator Network
-
-## Betriebshinweis
-
-- `MUST`, `SHOULD`, `MAY`, Befehlsbeispiele, JSON-Beispiele und RPC-Namen behalten die englische Schreibweise.
-- Führe nach Änderungen an dieser Übersetzung `make docs-check` aus.
-- Wenn diese Seite der englischen Quelle widerspricht, gilt die englische Quelle; aktualisiere diese Locale-Datei im selben Change.
 
 ## Kanonische Quelle
 

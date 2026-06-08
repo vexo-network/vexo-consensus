@@ -1,20 +1,40 @@
 # Storage Schema
 
 > Locale: hi · हिन्दी
-> यह दस्तावेज़ अंग्रेज़ी canonical documentation पर आधारित हिन्दी अनुवाद गाइड है। protocol, security और release से जुड़े निर्णयों के लिए अंग्रेज़ी मूल पाठ ही मानक रहेगा।
+> यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
 
-## उद्देश्य
+## सारांश
 
-यह दस्तावेज़ durable storage namespace, key schema और recovery markerको समझाता है। Implementation और operation में उपयोग होने वाले commands, JSON fields, RPC names, config key और code identifiers compatibility के लिए अंग्रेज़ी में ही रहेंगे।
+यह दस्तावेज़ durable storage namespace, key schema और recovery marker को समझने और उसे implementation व operation decisions से जोड़ने में मदद करता है।
 
-## मुख्य दायरा
-
-- इस दस्तावेज़ को पढ़ते समय नीचे दिए बिंदु अवश्य जाँचें। commands, JSON fields, RPC methods, config keys और code identifiers compatibility के लिए अंग्रेज़ी में ही रखे जाते हैं।
-- विस्तृत normative भाषा के लिए अंग्रेज़ी मूल दस्तावेज़ देखें।
 - Canonical path: `docs/specs/storage-schema.md`
 - Locale path: `docs/locales/hi/specs/storage-schema.md`
 
-## संरक्षित identifier
+## यह दस्तावेज़ क्यों पढ़ें
+
+- durable storage namespace, key schema और recovery marker
+- पहले अंग्रेज़ी source में MUST/SHOULD/MAY statements जाँचें।
+- यह स्थानीयकृत दस्तावेज़ समझने में मदद करता है; audit, release और security decisions अंग्रेज़ी source से तय होते हैं।
+
+## पढ़ने के बाद क्या कर पाना चाहिए
+
+- समझाना कि यह दस्तावेज़ किस implementation या operation decision में मदद करता है।
+- अंग्रेज़ी source की normative requirements को वर्तमान network configuration से जोड़ना।
+- examples copy करने से पहले chain ID, validator ID, fee/gas और peer addresses जाँचना।
+
+## सुरक्षित उपयोग checklist
+
+- पहले अंग्रेज़ी source में MUST/SHOULD/MAY statements जाँचें।
+- commands, config key, RPC names, JSON fields और code identifiers का अनुवाद न करें।
+- examples copy करने से पहले chain ID, validator ID, fee/gas और peer addresses अपनी network settings से मिलाएँ।
+- documentation बदलने के बाद `make docs-check` चलाकर locale tree और translation guards जाँचें।
+
+## ध्यान रखने योग्य बातें
+
+- यह स्थानीयकृत दस्तावेज़ समझने में मदद करता है; audit, release और security decisions अंग्रेज़ी source से तय होते हैं।
+- implementation बदलने पर अंग्रेज़ी source और सभी स्थानीयकृत दस्तावेज़ को उसी change में update करें।
+
+## ज्यों-का-त्यों रखने वाले interfaces
 
 - `store.Store`
 - `(height, namespace)`
@@ -34,8 +54,12 @@
 - `eth_getProof`
 - `stateRoot`
 - `evm_ethstate/{height}`
+- `EndBlock`
+- `H + 1`
+- `seen_ttl`
+- `code/{address}`
 
-## अंग्रेज़ी मूल अनुभाग
+## अंग्रेज़ी source की संरचना
 
 - Storage Schema
 - Scope
@@ -52,12 +76,6 @@
 - Snapshot Validation
 - Schema Migration
 
-## ऑपरेशनल नोट
-
-- `MUST`, `SHOULD`, `MAY`, कमांड उदाहरण, JSON उदाहरण और RPC नाम अंग्रेज़ी वर्तनी में ही रहेंगे।
-- इस translation को बदलने के बाद `make docs-check` चलाएँ।
-- यदि यह पेज अंग्रेज़ी source से अलग हो, तो अंग्रेज़ी source मानें और उसी change में इस locale file को update करें।
-
-## Canonical स्रोत
+## Canonical source
 
 - [English canonical document](../../en/specs/storage-schema.md)

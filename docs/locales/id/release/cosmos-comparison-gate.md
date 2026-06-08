@@ -1,20 +1,40 @@
 # Cosmos/Tendermint Comparison Gate
 
 > Locale: id · Bahasa Indonesia
-> Dokumen ini adalah panduan terjemahan berdasarkan dokumentasi kanonik berbahasa Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
+> Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
 
-## Tujuan
+## Gambaran umum
 
-Dokumen ini membahas release gate terhadap ekspektasi bergaya Cosmos/Tendermint. Perintah, field JSON, nama RPC, config key, dan identifier kode yang dipakai dalam implementasi serta operasi tetap berbahasa Inggris demi kompatibilitas.
+Dokumen ini membantu memahami release gate terhadap ekspektasi bergaya Cosmos/Tendermint dan menghubungkannya dengan keputusan implementasi serta operasi.
 
-## Ruang lingkup utama
-
-- Periksa poin berikut saat membaca dokumen ini. Perintah, field JSON, metode RPC, kunci konfigurasi, dan identifier kode dipertahankan dalam bahasa Inggris demi kompatibilitas.
-- Untuk kalimat normatif yang detail, gunakan dokumen Inggris.
 - Canonical path: `docs/release/cosmos-comparison-gate.md`
 - Locale path: `docs/locales/id/release/cosmos-comparison-gate.md`
 
-## Identifier yang dipertahankan
+## Mengapa membaca dokumen ini
+
+- release gate terhadap ekspektasi bergaya Cosmos/Tendermint
+- Periksa dulu kalimat MUST/SHOULD/MAY di sumber Inggris.
+- Dokumen lokal ini membantu pemahaman; keputusan audit, rilis, dan keamanan ditentukan dari sumber Inggris.
+
+## Yang seharusnya bisa dilakukan
+
+- Menjelaskan keputusan implementasi atau operasi yang didukung dokumen ini.
+- Menghubungkan persyaratan normatif dari sumber Inggris dengan konfigurasi jaringan saat ini.
+- Memeriksa chain ID, validator ID, fee/gas, dan alamat peer sebelum menyalin contoh.
+
+## Checklist penggunaan aman
+
+- Periksa dulu kalimat MUST/SHOULD/MAY di sumber Inggris.
+- Jangan menerjemahkan perintah, config key, nama RPC, field JSON, atau identifier kode.
+- Sebelum menyalin contoh, sesuaikan chain ID, validator ID, fee/gas, dan alamat peer dengan jaringan Anda.
+- Setelah mengubah dokumen, jalankan `make docs-check` untuk memeriksa locale tree dan translation guards.
+
+## Hal yang perlu diperhatikan
+
+- Dokumen lokal ini membantu pemahaman; keputusan audit, rilis, dan keamanan ditentukan dari sumber Inggris.
+- Jika implementasi berubah, perbarui sumber Inggris dan semua dokumen lokal dalam perubahan yang sama.
+
+## Interface yang harus dipertahankan
 
 - `release gate`
 - `--longrun-evidence`
@@ -33,17 +53,11 @@ Dokumen ini membahas release gate terhadap ekspektasi bergaya Cosmos/Tendermint.
 - `--kms-evidence`
 - `--bls-audit`
 
-## Bagian sumber Inggris
+## Struktur sumber Inggris
 
 - Cosmos/Tendermint Comparison Gate
 - Required Evidence Properties
 - Release Rule
-
-## Catatan operasional
-
-- `MUST`, `SHOULD`, `MAY`, contoh perintah, contoh JSON, dan nama RPC mempertahankan ejaan Inggris.
-- Setelah mengubah terjemahan ini, jalankan `make docs-check`.
-- Jika halaman ini berbeda dari sumber Inggris, gunakan sumber Inggris dan perbarui file locale ini dalam perubahan yang sama.
 
 ## Sumber kanonik
 

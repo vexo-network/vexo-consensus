@@ -1,20 +1,40 @@
 # RPC API Versioning
 
 > Locale: id · Bahasa Indonesia
-> Dokumen ini adalah panduan terjemahan berdasarkan dokumentasi kanonik berbahasa Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
+> Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
 
-## Tujuan
+## Gambaran umum
 
-Dokumen ini membahas versioning RPC API, alias kompatibilitas, dan kebijakan stabilitas. Perintah, field JSON, nama RPC, config key, dan identifier kode yang dipakai dalam implementasi serta operasi tetap berbahasa Inggris demi kompatibilitas.
+Dokumen ini membantu memahami versioning RPC API, alias kompatibilitas, dan kebijakan stabilitas dan menghubungkannya dengan keputusan implementasi serta operasi.
 
-## Ruang lingkup utama
-
-- Periksa poin berikut saat membaca dokumen ini. Perintah, field JSON, metode RPC, kunci konfigurasi, dan identifier kode dipertahankan dalam bahasa Inggris demi kompatibilitas.
-- Untuk kalimat normatif yang detail, gunakan dokumen Inggris.
 - Canonical path: `docs/sdk/rpc-api-versioning.md`
 - Locale path: `docs/locales/id/sdk/rpc-api-versioning.md`
 
-## Identifier yang dipertahankan
+## Mengapa membaca dokumen ini
+
+- versioning RPC API, alias kompatibilitas, dan kebijakan stabilitas
+- Periksa dulu kalimat MUST/SHOULD/MAY di sumber Inggris.
+- Dokumen lokal ini membantu pemahaman; keputusan audit, rilis, dan keamanan ditentukan dari sumber Inggris.
+
+## Yang seharusnya bisa dilakukan
+
+- Menjelaskan keputusan implementasi atau operasi yang didukung dokumen ini.
+- Menghubungkan persyaratan normatif dari sumber Inggris dengan konfigurasi jaringan saat ini.
+- Memeriksa chain ID, validator ID, fee/gas, dan alamat peer sebelum menyalin contoh.
+
+## Checklist penggunaan aman
+
+- Periksa dulu kalimat MUST/SHOULD/MAY di sumber Inggris.
+- Jangan menerjemahkan perintah, config key, nama RPC, field JSON, atau identifier kode.
+- Sebelum menyalin contoh, sesuaikan chain ID, validator ID, fee/gas, dan alamat peer dengan jaringan Anda.
+- Setelah mengubah dokumen, jalankan `make docs-check` untuk memeriksa locale tree dan translation guards.
+
+## Hal yang perlu diperhatikan
+
+- Dokumen lokal ini membantu pemahaman; keputusan audit, rilis, dan keamanan ditentukan dari sumber Inggris.
+- Jika implementasi berubah, perbarui sumber Inggris dan semua dokumen lokal dalam perubahan yang sama.
+
+## Interface yang harus dipertahankan
 
 - `/v1`
 - `/v1/healthz`
@@ -34,8 +54,12 @@ Dokumen ini membahas versioning RPC API, alias kompatibilitas, dan kebijakan sta
 - `/v1/blocks/latest`
 - `/v1/blocks/{height}`
 - `/v1/state/latest`
+- `/v1/state/{height}/{namespace}`
+- `/v1/events?key={attribute_key}&value={attribute_value}`
+- `/v1/proof?namespace={namespace}&key={key}`
+- `/v1/proof?namespace={namespace}&key={key}&height=latest`
 
-## Bagian sumber Inggris
+## Struktur sumber Inggris
 
 - RPC API Versioning
 - Stability Goal
@@ -48,12 +72,6 @@ Dokumen ini membahas versioning RPC API, alias kompatibilitas, dan kebijakan sta
 - IBC Queries
 - Web3 EVM Configuration
 - Operational Compatibility
-
-## Catatan operasional
-
-- `MUST`, `SHOULD`, `MAY`, contoh perintah, contoh JSON, dan nama RPC mempertahankan ejaan Inggris.
-- Setelah mengubah terjemahan ini, jalankan `make docs-check`.
-- Jika halaman ini berbeda dari sumber Inggris, gunakan sumber Inggris dan perbarui file locale ini dalam perubahan yang sama.
 
 ## Sumber kanonik
 
