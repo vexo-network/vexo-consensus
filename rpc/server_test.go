@@ -1036,7 +1036,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("unexpected fee history response: %+v", feeHistory)
 	}
 	baseFees, ok := feeHistoryResult["baseFeePerGas"].([]any)
-	if !ok || len(baseFees) != 3 || baseFees[0] != "0xb" {
+	if !ok || len(baseFees) != 3 || baseFees[0] != "0xb" || baseFees[1] != "0x9" || baseFees[2] != "0xb" {
 		t.Fatalf("unexpected fee history base fees: %+v", feeHistoryResult)
 	}
 	rewards, ok := feeHistoryResult["reward"].([]any)
@@ -1574,6 +1574,31 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	traceVMTrace, _ := traceCallResult["vmTrace"].(map[string]any)
 	if traceCall.Error != nil || !ok || traceCallResult["output"] != "0x1234" || len(traceItems) != 1 || len(traceStateDiff) == 0 || len(traceVMTrace) == 0 {
 		t.Fatalf("unexpected trace call: %+v", traceCall)
+	}
+}
+
+func TestWeb3EVMCallUsesHistoricalFeeContext(t *testing.T) {
+	provider := &fakeStatusProvider{
+		status: node.Status{ChainID: "vexo-chain", EVMChainID: 7, Running: true, LatestHeight: 9},
+		state:  store.StateRecord{Height: 9, BaseFee: 11, NextBaseFee: 12, BlobBaseFee: 13, NextBlobBaseFee: 14},
+		states: map[types.Height]store.StateRecord{
+			7: {Height: 7, BaseFee: 3, NextBaseFee: 4, BlobBaseFee: 5, NextBlobBaseFee: 6},
+		},
+		appQueryResponse: vexoapp.QueryResponse{Value: []byte(`{"output":"0x"}`)},
+	}
+	handler := NewHandler(provider)
+
+	var response JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"to":"0x000000000000000000000000000000000000beef","data":"0x"},"0x7"]}`, http.StatusOK, &response)
+	if response.Error != nil {
+		t.Fatalf("unexpected eth_call response: %+v", response)
+	}
+	var call web3CallRequest
+	if err := json.Unmarshal(provider.appQueryData, &call); err != nil {
+		t.Fatal(err)
+	}
+	if call.Height != 7 || call.BaseFee != 3 || call.BlobBaseFee != 5 || call.GasPrice != 3 {
+		t.Fatalf("expected historical call fee context, got %+v", call)
 	}
 }
 

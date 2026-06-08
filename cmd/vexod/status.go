@@ -37,6 +37,10 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "execution.display_denom: %s\n", cfg.Execution.DisplayDenom)
 	fmt.Fprintf(writer, "execution.display_exponent: %d\n", cfg.Execution.DisplayExponent)
 	fmt.Fprintf(writer, "execution.gas_denom: %s\n", cfg.Execution.GasDenom)
+	fmt.Fprintf(writer, "execution.evm_fork_preset: %s\n", cfg.Execution.EVMForkPreset)
+	fmt.Fprintf(writer, "execution.evm_chain_config_json: %t\n", cfg.Execution.EVMChainConfigJSON != "")
+	fmt.Fprintf(writer, "execution.max_blob_sidecar_blobs: %d\n", cfg.Execution.MaxBlobSidecarBlobs)
+	fmt.Fprintf(writer, "execution.max_blob_sidecar_bytes: %d\n", cfg.Execution.MaxBlobSidecarBytes)
 	fmt.Fprintf(writer, "bank.mint_authority: %s\n", cfg.Bank.MintAuthority)
 	fmt.Fprintf(writer, "validator.permissionless: %t\n", cfg.Validator.Permissionless)
 	fmt.Fprintf(writer, "validator.min_stake: %d\n", cfg.Validator.MinStake)
@@ -154,6 +158,10 @@ type executionStatus struct {
 	DisplayDenom             string `json:"display_denom"`
 	DisplayExponent          uint8  `json:"display_exponent"`
 	GasDenom                 string `json:"gas_denom"`
+	EVMForkPreset            string `json:"evm_fork_preset"`
+	EVMChainConfigJSON       bool   `json:"evm_chain_config_json"`
+	MaxBlobSidecarBlobs      uint64 `json:"max_blob_sidecar_blobs"`
+	MaxBlobSidecarBytes      uint64 `json:"max_blob_sidecar_bytes"`
 }
 
 type bankStatus struct {
@@ -245,6 +253,10 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			DisplayDenom:             cfg.Execution.DisplayDenom,
 			DisplayExponent:          cfg.Execution.DisplayExponent,
 			GasDenom:                 cfg.Execution.GasDenom,
+			EVMForkPreset:            cfg.Execution.EVMForkPreset,
+			EVMChainConfigJSON:       cfg.Execution.EVMChainConfigJSON != "",
+			MaxBlobSidecarBlobs:      cfg.Execution.MaxBlobSidecarBlobs,
+			MaxBlobSidecarBytes:      cfg.Execution.MaxBlobSidecarBytes,
 		},
 		Bank: bankStatus{
 			MintAuthority: cfg.Bank.MintAuthority,

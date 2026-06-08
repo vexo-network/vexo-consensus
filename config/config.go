@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -62,6 +63,10 @@ type ExecutionConfig struct {
 	DisplayDenom             string
 	DisplayExponent          uint8
 	GasDenom                 string
+	EVMForkPreset            string
+	EVMChainConfigJSON       string
+	MaxBlobSidecarBlobs      uint64
+	MaxBlobSidecarBytes      uint64
 }
 
 type StakingConfig struct {
@@ -118,6 +123,9 @@ func Default(chainID string) Config {
 			DisplayDenom:             economics.DisplayDenom,
 			DisplayExponent:          18,
 			GasDenom:                 "gas",
+			EVMForkPreset:            "latest",
+			MaxBlobSidecarBlobs:      6,
+			MaxBlobSidecarBytes:      2 * 1024 * 1024,
 		},
 		Crypto: CryptoConfig{
 			Backend: CryptoBackendDeterministic,
@@ -195,6 +203,24 @@ func (config Config) Validate() error {
 		return ErrInvalidConfig
 	}
 	if _, ok := economics.DenomFactor(config.Execution.FeeDenom); !ok {
+		return ErrInvalidConfig
+	}
+	if config.Execution.EVMForkPreset != "" &&
+		config.Execution.EVMForkPreset != "latest" &&
+		config.Execution.EVMForkPreset != "custom" {
+		return ErrInvalidConfig
+	}
+	if config.Execution.EVMForkPreset == "custom" && config.Execution.EVMChainConfigJSON == "" {
+		return ErrInvalidConfig
+	}
+	if config.Execution.EVMChainConfigJSON != "" {
+		var raw map[string]any
+		if err := json.Unmarshal([]byte(config.Execution.EVMChainConfigJSON), &raw); err != nil || len(raw) == 0 {
+			return ErrInvalidConfig
+		}
+	}
+	if config.Execution.MaxBlobSidecarBlobs == 0 ||
+		config.Execution.MaxBlobSidecarBytes == 0 {
 		return ErrInvalidConfig
 	}
 	if config.Execution.DisplayDenom != economics.DisplayDenom ||

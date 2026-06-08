@@ -849,6 +849,72 @@ func TestModulePersistsAndQueriesBlobSidecar(t *testing.T) {
 	}
 }
 
+func TestModuleRejectsBlobSidecarPolicyViolations(t *testing.T) {
+	bundle := testBlobSidecarBundle(t)
+	encodedSidecar, err := ethcompat.EncodeBlobSidecarBundle(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encodedHashes, err := json.Marshal(bundle.BlobHashes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
+		Module: ModuleName,
+		Action: "call",
+		Args:   []string{"evm", "0xaaaa", "0xbbbb", "call", "", "21000", "0"},
+		Tags: map[string]string{
+			ethcompat.TagHash:        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			ethcompat.TagBlobHashes:  base64.RawStdEncoding.EncodeToString(encodedHashes),
+			ethcompat.TagBlobSidecar: encodedSidecar,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	limitedByBytes, err := NewModuleWithPolicy(Policy{MaxBlobSidecarBlobs: 1, MaxBlobSidecarBytes: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := limitedByBytes.ValidateTx(vexoapp.Context{ChainID: "vexo-chain"}, tx); !errors.Is(err, ethcompat.ErrInvalidBlobSidecar) {
+		t.Fatalf("expected sidecar byte limit rejection, got %v", err)
+	}
+	twoBlobBundle := ethcompat.BlobSidecarBundle{
+		BlobHashes:  append(append([]string(nil), bundle.BlobHashes...), bundle.BlobHashes...),
+		Blobs:       append(append([]string(nil), bundle.Blobs...), bundle.Blobs...),
+		Commitments: append(append([]string(nil), bundle.Commitments...), bundle.Commitments...),
+		Proofs:      append(append([]string(nil), bundle.Proofs...), bundle.Proofs...),
+	}
+	twoBlobSidecar, err := ethcompat.EncodeBlobSidecarBundle(twoBlobBundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	twoBlobHashes, err := json.Marshal(twoBlobBundle.BlobHashes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	twoBlobTx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
+		Module: ModuleName,
+		Action: "call",
+		Args:   []string{"evm", "0xaaaa", "0xbbbb", "call", "", "21000", "0"},
+		Tags: map[string]string{
+			ethcompat.TagHash:        "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			ethcompat.TagBlobHashes:  base64.RawStdEncoding.EncodeToString(twoBlobHashes),
+			ethcompat.TagBlobSidecar: twoBlobSidecar,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	limitedByCount, err := NewModuleWithPolicy(Policy{MaxBlobSidecarBlobs: 1, MaxBlobSidecarBytes: uint64(len(twoBlobSidecar) + 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := limitedByCount.ValidateTx(vexoapp.Context{ChainID: "vexo-chain"}, twoBlobTx); !errors.Is(err, ethcompat.ErrInvalidBlobSidecar) {
+		t.Fatalf("expected sidecar blob count limit rejection, got %v", err)
+	}
+}
+
 func setTestEVMBalance(t *testing.T, storage vexoapp.StateStore, address types.Address, balance uint64) {
 	t.Helper()
 	var encoded [8]byte

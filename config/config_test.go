@@ -69,6 +69,11 @@ func TestConfigValidateRejectsUnsafeSettings(t *testing.T) {
 		}},
 		{name: "unknown fee denom", mutate: func(cfg *Config) { cfg.Execution.FeeDenom = "unknown" }},
 		{name: "missing gas denom", mutate: func(cfg *Config) { cfg.Execution.GasDenom = "" }},
+		{name: "unknown evm fork preset", mutate: func(cfg *Config) { cfg.Execution.EVMForkPreset = "surprise" }},
+		{name: "custom evm fork preset without chain config", mutate: func(cfg *Config) { cfg.Execution.EVMForkPreset = "custom" }},
+		{name: "invalid evm chain config json", mutate: func(cfg *Config) { cfg.Execution.EVMChainConfigJSON = "{invalid" }},
+		{name: "zero max blob sidecar blobs", mutate: func(cfg *Config) { cfg.Execution.MaxBlobSidecarBlobs = 0 }},
+		{name: "zero max blob sidecar bytes", mutate: func(cfg *Config) { cfg.Execution.MaxBlobSidecarBytes = 0 }},
 		{name: "dynamic base fee without base fee", mutate: func(cfg *Config) {
 			cfg.Execution.DynamicBaseFee = true
 			cfg.Execution.BaseFee = 0

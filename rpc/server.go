@@ -1789,18 +1789,20 @@ func web3Sha3(params []json.RawMessage) (string, *JSONRPCError) {
 }
 
 type web3CallRequest struct {
-	VM         string                     `json:"vm"`
-	From       string                     `json:"from"`
-	To         string                     `json:"to"`
-	Method     string                     `json:"method"`
-	Input      string                     `json:"input,omitempty"`
-	GasLimit   uint64                     `json:"gas_limit,omitempty"`
-	Value      uint64                     `json:"value,omitempty"`
-	ValueHex   string                     `json:"value_hex,omitempty"`
-	Height     uint64                     `json:"height,omitempty"`
-	GasPrice   uint64                     `json:"gas_price,omitempty"`
-	BaseFee    uint64                     `json:"base_fee,omitempty"`
-	AccessList []contract.AccessListEntry `json:"access_list,omitempty"`
+	VM          string                     `json:"vm"`
+	From        string                     `json:"from"`
+	To          string                     `json:"to"`
+	Method      string                     `json:"method"`
+	Input       string                     `json:"input,omitempty"`
+	GasLimit    uint64                     `json:"gas_limit,omitempty"`
+	Value       uint64                     `json:"value,omitempty"`
+	ValueHex    string                     `json:"value_hex,omitempty"`
+	Height      uint64                     `json:"height,omitempty"`
+	GasPrice    uint64                     `json:"gas_price,omitempty"`
+	BaseFee     uint64                     `json:"base_fee,omitempty"`
+	BlobBaseFee uint64                     `json:"blob_base_fee,omitempty"`
+	BlobHashes  []string                   `json:"blob_hashes,omitempty"`
+	AccessList  []contract.AccessListEntry `json:"access_list,omitempty"`
 }
 
 type web3TransactionCall struct {
@@ -2442,6 +2444,39 @@ func web3BaseFeeAtHeight(ctx context.Context, provider StatusProvider, height ty
 	return 0
 }
 
+func web3NextBaseFeeAfterHeight(ctx context.Context, provider StatusProvider, height types.Height) uint64 {
+	if height == 0 {
+		return web3LatestBaseFee(ctx, provider)
+	}
+	if query, ok := provider.(StateByHeightProvider); ok {
+		state, err := query.StateByHeight(ctx, height)
+		if err == nil && state.NextBaseFee > 0 {
+			return state.NextBaseFee
+		}
+		nextState, err := query.StateByHeight(ctx, height+1)
+		if err == nil && nextState.BaseFee > 0 {
+			return nextState.BaseFee
+		}
+	}
+	return web3BaseFeeAtHeight(ctx, provider, height)
+}
+
+func web3BlobBaseFeeAtHeight(ctx context.Context, provider StatusProvider, height types.Height) uint64 {
+	if height == 0 {
+		return web3LatestBlobBaseFee(ctx, provider)
+	}
+	if query, ok := provider.(StateByHeightProvider); ok {
+		state, err := query.StateByHeight(ctx, height)
+		if err == nil {
+			if state.BlobBaseFee > 0 {
+				return state.BlobBaseFee
+			}
+			return state.NextBlobBaseFee
+		}
+	}
+	return web3LatestBlobBaseFee(ctx, provider)
+}
+
 func web3BlockBlobGasUsed(ctx context.Context, provider StatusProvider, record store.BlockRecord) uint64 {
 	if query, ok := provider.(StateByHeightProvider); ok {
 		state, err := query.StateByHeight(ctx, record.Block.Header.Height)
@@ -2513,7 +2548,7 @@ func web3FeeHistory(ctx context.Context, provider StatusProvider, params []json.
 		baseFees = append(baseFees, hexQuantity(web3BaseFeeAtHeight(ctx, provider, height)))
 		gasUsedRatios = append(gasUsedRatios, web3BlockGasUsedRatio(ctx, provider, height))
 	}
-	baseFees = append(baseFees, hexQuantity(web3BaseFeeAtHeight(ctx, provider, types.Height(oldest+blockCount))))
+	baseFees = append(baseFees, hexQuantity(web3NextBaseFeeAfterHeight(ctx, provider, newest)))
 	response := map[string]any{
 		"oldestBlock":   hexQuantity(oldest),
 		"baseFeePerGas": baseFees,
@@ -3559,8 +3594,9 @@ func web3EVMCall(ctx context.Context, provider StatusProvider, params []json.Raw
 	} else {
 		call.Height = uint64(height)
 	}
-	baseFee := web3LatestBaseFee(ctx, provider)
+	baseFee := web3BaseFeeAtHeight(ctx, provider, types.Height(call.Height))
 	call.BaseFee = baseFee
+	call.BlobBaseFee = web3BlobBaseFeeAtHeight(ctx, provider, types.Height(call.Height))
 	if call.GasPrice == 0 {
 		call.GasPrice = baseFee
 	}

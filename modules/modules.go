@@ -35,6 +35,19 @@ func BuildWithExecution(cfg config.ApplicationConfig, execution config.Execution
 }
 
 func BuildWithChainConfig(chain config.Config) ([]vexoapp.Module, error) {
+	var evmModule vexoapp.Module
+	if moduleEnabled(chain.Application.Modules, appevm.ModuleName) {
+		module, err := appevm.NewModuleWithPolicy(appevm.Policy{
+			EVMChainID:          chain.Execution.EVMChainID,
+			GethChainConfigJSON: chain.Execution.EVMChainConfigJSON,
+			MaxBlobSidecarBlobs: chain.Execution.MaxBlobSidecarBlobs,
+			MaxBlobSidecarBytes: chain.Execution.MaxBlobSidecarBytes,
+		})
+		if err != nil {
+			return nil, err
+		}
+		evmModule = module
+	}
 	registry := vexoapp.NewRegistry()
 	_ = registry.Register(bank.ModuleName, func() vexoapp.Module {
 		return bank.NewModuleWithMintAuthority(types.Address(chain.Bank.MintAuthority))
@@ -49,8 +62,22 @@ func BuildWithChainConfig(chain config.Config) ([]vexoapp.Module, error) {
 	_ = registry.Register(appgovernance.ModuleName, func() vexoapp.Module { return appgovernance.NewModule() })
 	_ = registry.Register(params.Namespace, func() vexoapp.Module { return params.NewModule(nil) })
 	_ = registry.Register(appibc.ModuleName, func() vexoapp.Module { return appibc.NewModule() })
-	_ = registry.Register(appevm.ModuleName, func() vexoapp.Module { return appevm.NewModule() })
+	_ = registry.Register(appevm.ModuleName, func() vexoapp.Module {
+		if evmModule != nil {
+			return evmModule
+		}
+		return appevm.NewModule()
+	})
 	return registry.Build(chain.Application.Modules)
+}
+
+func moduleEnabled(modules []string, name string) bool {
+	for _, module := range modules {
+		if module == name {
+			return true
+		}
+	}
+	return false
 }
 
 func BuildCLICommands(cfg config.ApplicationConfig) ([]vexoapp.CLICommand, error) {

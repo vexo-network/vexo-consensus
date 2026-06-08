@@ -1577,6 +1577,15 @@ func normalizeExecutionConfig(execution config.ExecutionConfig) config.Execution
 	if execution.GasDenom == "" {
 		execution.GasDenom = defaults.GasDenom
 	}
+	if execution.EVMForkPreset == "" {
+		execution.EVMForkPreset = defaults.EVMForkPreset
+	}
+	if execution.MaxBlobSidecarBlobs == 0 {
+		execution.MaxBlobSidecarBlobs = defaults.MaxBlobSidecarBlobs
+	}
+	if execution.MaxBlobSidecarBytes == 0 {
+		execution.MaxBlobSidecarBytes = defaults.MaxBlobSidecarBytes
+	}
 	return execution
 }
 

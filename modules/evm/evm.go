@@ -41,6 +41,14 @@ var (
 
 type Module struct {
 	registry *contract.Registry
+	policy   Policy
+}
+
+type Policy struct {
+	EVMChainID          uint64
+	GethChainConfigJSON string
+	MaxBlobSidecarBlobs uint64
+	MaxBlobSidecarBytes uint64
 }
 
 type Receipt struct {
@@ -127,15 +135,40 @@ type ethereumStateSnapshotMeta struct {
 func NewModule() Module {
 	registry := contract.NewRegistry()
 	_ = registry.Register(gethbackend.New())
-	return Module{registry: registry}
+	return Module{registry: registry, policy: DefaultPolicy()}
+}
+
+func DefaultPolicy() Policy {
+	return Policy{
+		MaxBlobSidecarBlobs: 6,
+		MaxBlobSidecarBytes: 2 * 1024 * 1024,
+	}
+}
+
+func NewModuleWithPolicy(policy Policy) (Module, error) {
+	if policy.MaxBlobSidecarBlobs == 0 {
+		policy.MaxBlobSidecarBlobs = DefaultPolicy().MaxBlobSidecarBlobs
+	}
+	if policy.MaxBlobSidecarBytes == 0 {
+		policy.MaxBlobSidecarBytes = DefaultPolicy().MaxBlobSidecarBytes
+	}
+	vm, err := gethbackend.NewWithChainConfigJSON(policy.GethChainConfigJSON, policy.EVMChainID)
+	if err != nil {
+		return Module{}, err
+	}
+	registry := contract.NewRegistry()
+	if err := registry.Register(vm); err != nil {
+		return Module{}, err
+	}
+	return Module{registry: registry, policy: policy}, nil
 }
 
 func NewModuleWithRegistry(registry *contract.Registry) Module {
-	return Module{registry: registry}
+	return Module{registry: registry, policy: DefaultPolicy()}
 }
 
 func (module Module) CloneModule() vexoapp.Module {
-	return Module{registry: module.registry}
+	return Module{registry: module.registry, policy: module.policy}
 }
 
 func (module Module) Name() string { return ModuleName }
@@ -161,8 +194,12 @@ func (Module) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisState) err
 
 func (Module) BeginBlock(ctx vexoapp.Context, header types.Header) error { return nil }
 
-func (Module) ValidateTx(ctx vexoapp.Context, tx types.Tx) error {
-	return validateEthereumRawTx(ctx, tx)
+func (module Module) ValidateTx(ctx vexoapp.Context, tx types.Tx) error {
+	if err := validateEthereumRawTx(ctx, tx); err != nil {
+		return err
+	}
+	_, err := module.blobSidecarBundleFromTx(tx)
+	return err
 }
 
 func (module Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
@@ -478,7 +515,7 @@ func (module Module) Events(ctx vexoapp.Context, tx types.Tx, result types.Resul
 }
 
 func (module Module) deliverCall(ctx vexoapp.Context, tx types.Tx, args []string) types.Result {
-	if _, err := blobSidecarBundleFromTx(tx); err != nil {
+	if _, err := module.blobSidecarBundleFromTx(tx); err != nil {
 		return types.Result{Code: 3, Log: err.Error()}
 	}
 	invocation, err := callInvocationFromArgs(args)
@@ -514,7 +551,7 @@ func (module Module) deliverCall(ctx vexoapp.Context, tx types.Tx, args []string
 	if err := persistReceipt(ctx.GoContext(), ctx.Store, receipt); err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
-	if err := persistBlobSidecar(ctx.GoContext(), ctx.Store, tx); err != nil {
+	if err := module.persistBlobSidecar(ctx.GoContext(), ctx.Store, tx); err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
 	encoded, err := json.Marshal(receipt)
@@ -593,7 +630,7 @@ func (module Module) deliverDeploy(ctx vexoapp.Context, tx types.Tx, args []stri
 }
 
 func (module Module) deliverEthereumDeploy(ctx vexoapp.Context, tx types.Tx, args []string) types.Result {
-	if _, err := blobSidecarBundleFromTx(tx); err != nil {
+	if _, err := module.blobSidecarBundleFromTx(tx); err != nil {
 		return types.Result{Code: 3, Log: err.Error()}
 	}
 	if len(args) != 5 {
@@ -655,7 +692,7 @@ func (module Module) deliverEthereumDeploy(ctx vexoapp.Context, tx types.Tx, arg
 	if err := persistReceipt(ctx.GoContext(), ctx.Store, receipt); err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
-	if err := persistBlobSidecar(ctx.GoContext(), ctx.Store, tx); err != nil {
+	if err := module.persistBlobSidecar(ctx.GoContext(), ctx.Store, tx); err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
 	encoded, err := json.Marshal(receipt)
@@ -1039,6 +1076,10 @@ func persistReceipt(ctx context.Context, store vexoapp.StateStore, receipt Recei
 }
 
 func blobSidecarBundleFromTx(tx types.Tx) (ethcompat.BlobSidecarBundle, error) {
+	return Module{policy: DefaultPolicy()}.blobSidecarBundleFromTx(tx)
+}
+
+func (module Module) blobSidecarBundleFromTx(tx types.Tx) (ethcompat.BlobSidecarBundle, error) {
 	expectedHashes := txBlobHashStrings(tx)
 	encoded, found := vexoapp.TxTag(tx, ethcompat.TagBlobSidecar)
 	if !found || encoded == "" {
@@ -1054,11 +1095,18 @@ func blobSidecarBundleFromTx(tx types.Tx) (ethcompat.BlobSidecarBundle, error) {
 	if !sameBlobHashes(expectedHashes, bundle.BlobHashes) {
 		return ethcompat.BlobSidecarBundle{}, ethcompat.ErrInvalidBlobSidecar
 	}
+	if err := module.validateBlobSidecarLimits(encoded, bundle); err != nil {
+		return ethcompat.BlobSidecarBundle{}, err
+	}
 	return bundle, nil
 }
 
 func persistBlobSidecar(ctx context.Context, store vexoapp.StateStore, tx types.Tx) error {
-	bundle, err := blobSidecarBundleFromTx(tx)
+	return Module{policy: DefaultPolicy()}.persistBlobSidecar(ctx, store, tx)
+}
+
+func (module Module) persistBlobSidecar(ctx context.Context, store vexoapp.StateStore, tx types.Tx) error {
+	bundle, err := module.blobSidecarBundleFromTx(tx)
 	if err != nil {
 		return err
 	}
@@ -1089,6 +1137,23 @@ func persistBlobSidecar(ctx context.Context, store vexoapp.StateStore, tx types.
 		if err := store.Set(ctx, write.Namespace, write.Key, write.Value); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (module Module) validateBlobSidecarLimits(encoded string, bundle ethcompat.BlobSidecarBundle) error {
+	policy := module.policy
+	if policy.MaxBlobSidecarBlobs == 0 {
+		policy.MaxBlobSidecarBlobs = DefaultPolicy().MaxBlobSidecarBlobs
+	}
+	if policy.MaxBlobSidecarBytes == 0 {
+		policy.MaxBlobSidecarBytes = DefaultPolicy().MaxBlobSidecarBytes
+	}
+	if uint64(len(bundle.BlobHashes)) > policy.MaxBlobSidecarBlobs {
+		return ethcompat.ErrInvalidBlobSidecar
+	}
+	if uint64(len(encoded)) > policy.MaxBlobSidecarBytes {
+		return ethcompat.ErrInvalidBlobSidecar
 	}
 	return nil
 }

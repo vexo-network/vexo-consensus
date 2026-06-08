@@ -7,6 +7,7 @@ import (
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/modules/bank"
+	appevm "github.com/vexo-network/vexo-consensus/modules/evm"
 	"github.com/vexo-network/vexo-consensus/modules/staking"
 )
 
@@ -105,6 +106,34 @@ func TestBuildWithChainConfigInjectsBankMintAuthority(t *testing.T) {
 	}
 	if bankModule.MintAuthority() != "governance" {
 		t.Fatalf("expected governance mint authority, got %s", bankModule.MintAuthority())
+	}
+}
+
+func TestBuildWithChainConfigWiresEVMPolicy(t *testing.T) {
+	cfg := config.Default("vexo-test")
+	cfg.Application.Modules = []string{"evm"}
+	cfg.Execution.EVMChainID = 77
+	cfg.Execution.EVMChainConfigJSON = `{"chainId":77,"homesteadBlock":0,"eip150Block":0,"eip155Block":0,"eip158Block":0,"byzantiumBlock":0,"constantinopleBlock":0,"petersburgBlock":0,"istanbulBlock":0,"berlinBlock":0,"londonBlock":0,"shanghaiTime":0}`
+	cfg.Execution.MaxBlobSidecarBlobs = 2
+	cfg.Execution.MaxBlobSidecarBytes = 1000
+	modules, err := BuildWithChainConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(modules) != 1 {
+		t.Fatalf("expected one module, got %d", len(modules))
+	}
+	if _, ok := modules[0].(appevm.Module); !ok {
+		t.Fatalf("expected EVM module, got %T", modules[0])
+	}
+}
+
+func TestBuildWithChainConfigRejectsInvalidEVMChainConfig(t *testing.T) {
+	cfg := config.Default("vexo-test")
+	cfg.Application.Modules = []string{"evm"}
+	cfg.Execution.EVMChainConfigJSON = `{invalid`
+	if _, err := BuildWithChainConfig(cfg); err == nil {
+		t.Fatal("expected invalid geth chain config JSON to fail")
 	}
 }
 
