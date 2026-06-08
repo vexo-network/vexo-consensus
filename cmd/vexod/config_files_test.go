@@ -615,10 +615,11 @@ func TestDefaultConfigEnablesOperationalEventLogs(t *testing.T) {
 func TestDefaultConfigWritesTendermintStyleConsensusTimeouts(t *testing.T) {
 	document := defaultConsensusConfigDocument("vexo-test", t.TempDir(), "alice")
 	consensus := document.Consensus
-	if consensus.TimeoutPropose != "3s" ||
-		consensus.TimeoutPrevote != "1s" ||
-		consensus.TimeoutPrecommit != "1s" ||
-		consensus.TimeoutCommit != "1s" {
+	if consensus.TimeoutPropose != "500ms" ||
+		consensus.TimeoutPrevote != "250ms" ||
+		consensus.TimeoutPrecommit != "250ms" ||
+		consensus.TimeoutCommit != "100ms" ||
+		consensus.RoundTimeout != "1s" {
 		t.Fatalf("unexpected consensus timeouts: %+v", consensus)
 	}
 	if consensus.CreateEmptyBlocks {

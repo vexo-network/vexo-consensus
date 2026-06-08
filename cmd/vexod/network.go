@@ -17,12 +17,16 @@ import (
 	"strings"
 	"time"
 
+	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/ops"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
 const networkPIDFileName = "vexod.pid"
 const networkSecond = time.Duration(1_000_000_000)
+const defaultNetworkSmokeTxPrefix = "bank:send:{account}:smoke:1:fee=1000:gas=1000:signer={account}:nonce"
+const defaultNetworkLoadTxPrefix = "bank:send:{account}:load-dst:1:fee=1000:gas=1000:signer={account}:nonce"
 
 type networkRuntimePlan struct {
 	Home        string
@@ -41,6 +45,7 @@ type networkNodeRuntimePlan struct {
 	PIDPath     string
 	LogPath     string
 	Args        []string
+	command     *exec.Cmd
 }
 
 func runNetwork(writer io.Writer, args []string) error {
@@ -154,7 +159,7 @@ func runNetworkLoad(ctx context.Context, writer io.Writer, args []string) error 
 	durationValue := flags.String("duration", "30s", "load test duration")
 	rate := flags.Int("rate", 10, "transactions per second")
 	timeoutValue := flags.String("timeout", "2s", "per-request timeout")
-	txPrefix := flags.String("tx-prefix", "bank:send:{validator}:load-dst:1:fee=1:gas=1000:signer={validator}:nonce", "transaction payload prefix; nonce suffix is appended; {validator} is replaced per target node")
+	txPrefix := flags.String("tx-prefix", defaultNetworkLoadTxPrefix, "transaction payload prefix; nonce suffix is appended; {validator}, {node}, and {account} are replaced per target node")
 	dryRun := flags.Bool("dry-run", false, "print load plan without submitting transactions")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -181,7 +186,11 @@ func runNetworkLoad(ctx context.Context, writer io.Writer, args []string) error 
 	loadCtx, cancel := context.WithTimeout(ctx, duration)
 	defer cancel()
 	client := http.Client{Timeout: timeout}
-	result := runNetworkLoadPlan(loadCtx, client, plan, *rate, *txPrefix)
+	chainID, err := networkPlanChainID(plan)
+	if err != nil {
+		return err
+	}
+	result := runNetworkLoadPlan(loadCtx, client, plan, chainID, *rate, *txPrefix)
 	fmt.Fprintf(writer, "network load complete\n")
 	fmt.Fprintf(writer, "submitted: %d\n", result.Submitted)
 	fmt.Fprintf(writer, "failed: %d\n", result.Failed)
@@ -304,7 +313,7 @@ func runNetworkLongRun(ctx context.Context, writer io.Writer, args []string) err
 	durationValue := flags.String("duration", "1h", "long-run execution duration")
 	timeoutValue := flags.String("timeout", "2s", "per-request timeout")
 	rate := flags.Int("rate", 10, "transactions per second during long-run")
-	txPrefix := flags.String("tx-prefix", "bank:send:{validator}:load-dst:1:fee=1:gas=1000:signer={validator}:nonce", "transaction payload prefix; nonce suffix is appended; {validator} is replaced per target node")
+	txPrefix := flags.String("tx-prefix", defaultNetworkLoadTxPrefix, "transaction payload prefix; nonce suffix is appended; {validator}, {node}, and {account} are replaced per target node")
 	outputPath := flags.String("output", "", "optional JSON evidence output path")
 	jsonOutput := flags.Bool("json", false, "write JSON evidence to stdout")
 	dryRun := flags.Bool("dry-run", false, "print long-run harness plan without querying or submitting")
@@ -331,7 +340,11 @@ func runNetworkLongRun(ctx context.Context, writer io.Writer, args []string) err
 		return nil
 	}
 	client := http.Client{Timeout: timeout}
-	evidence := runNetworkLongRunEvidence(ctx, client, plan, duration, *rate, *txPrefix)
+	chainID, err := networkPlanChainID(plan)
+	if err != nil {
+		return err
+	}
+	evidence := runNetworkLongRunEvidence(ctx, client, plan, chainID, duration, *rate, *txPrefix)
 	if *outputPath != "" {
 		encoded, err := json.MarshalIndent(evidence, "", "  ")
 		if err != nil {
@@ -402,7 +415,7 @@ func runNetworkUp(ctx context.Context, writer io.Writer, args []string) error {
 	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first network RPC port")
 	binaryPath := flags.String("binary", "", "vexod binary path; defaults to current executable")
 	timeoutValue := flags.String("timeout", "20s", "startup and smoke test timeout")
-	tx := flags.String("tx", "bank:mint:smoke:1", "transaction payload to submit")
+	tx := flags.String("tx", defaultNetworkSmokeTxPrefix, "transaction payload template to submit; nonce suffix is appended when needed")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing network files")
 	keepRunning := flags.Bool("keep-running", false, "leave nodes running after smoke test")
 	dryRun := flags.Bool("dry-run", false, "print orchestration plan without writing files or spawning processes")
@@ -441,8 +454,9 @@ func runNetworkUp(ctx context.Context, writer io.Writer, args []string) error {
 	smokeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	client := http.Client{Timeout: timeout}
-	results, err := runNetworkSmokePlan(smokeCtx, client, plan, []byte(*tx))
+	results, err := runNetworkSmokePlan(smokeCtx, client, plan, *chainID, *tx)
 	if err != nil {
+		writeNetworkLogTails(writer, plan, 4096)
 		return err
 	}
 	for _, result := range results {
@@ -464,7 +478,7 @@ func runNetworkSmoke(ctx context.Context, writer io.Writer, args []string) error
 	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first network P2P port")
 	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first network RPC port")
 	timeoutValue := flags.String("timeout", "10s", "smoke test timeout")
-	tx := flags.String("tx", "bank:mint:smoke:1", "transaction payload to submit")
+	tx := flags.String("tx", defaultNetworkSmokeTxPrefix, "transaction payload template to submit; nonce suffix is appended when needed")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -479,8 +493,13 @@ func runNetworkSmoke(ctx context.Context, writer io.Writer, args []string) error
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	client := http.Client{Timeout: timeout}
-	results, err := runNetworkSmokePlan(ctx, client, plan, []byte(*tx))
+	chainID, err := networkPlanChainID(plan)
 	if err != nil {
+		return err
+	}
+	results, err := runNetworkSmokePlan(ctx, client, plan, chainID, *tx)
+	if err != nil {
+		writeNetworkLogTails(writer, plan, 4096)
 		return err
 	}
 	for _, result := range results {
@@ -632,7 +651,7 @@ func runNetworkChaos(ctx context.Context, writer io.Writer, args []string) error
 	binaryPath := flags.String("binary", "", "vexod binary path; defaults to current executable")
 	timeoutValue := flags.String("timeout", "20s", "chaos scenario timeout")
 	stopIndex := flags.Int("stop-index", -1, "zero-based validator index to stop; defaults to last validator")
-	tx := flags.String("tx", "bank:mint:chaos:1", "transaction payload to submit while one validator is stopped")
+	tx := flags.String("tx", defaultNetworkSmokeTxPrefix, "transaction payload template to submit while one validator is stopped")
 	restart := flags.Bool("restart", true, "restart the stopped validator and wait for catch-up")
 	dryRun := flags.Bool("dry-run", false, "print chaos execution steps without stopping or starting processes")
 	if err := flags.Parse(args); err != nil {
@@ -663,7 +682,11 @@ func runNetworkChaos(ctx context.Context, writer io.Writer, args []string) error
 	chaosCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	client := http.Client{Timeout: timeout}
-	return runNetworkChaosPlanExecution(chaosCtx, writer, client, plan, targetIndex, []byte(*tx), *restart)
+	chainID, err := networkPlanChainID(plan)
+	if err != nil {
+		return err
+	}
+	return runNetworkChaosPlanExecution(chaosCtx, writer, client, plan, chainID, targetIndex, *tx, *restart)
 }
 
 func runNetworkStop(writer io.Writer, args []string) error {
@@ -685,11 +708,14 @@ func runNetworkStop(writer io.Writer, args []string) error {
 
 func startNetworkPlan(writer io.Writer, plan networkRuntimePlan) error {
 	started := networkRuntimePlan{Nodes: make([]networkNodeRuntimePlan, 0, len(plan.Nodes))}
-	for _, localNode := range plan.Nodes {
-		if err := startNetworkNode(plan.Binary, localNode); err != nil {
+	for index, localNode := range plan.Nodes {
+		command, err := startNetworkNode(plan.Binary, localNode)
+		if err != nil {
 			_ = stopNetworkPlan(io.Discard, started)
 			return err
 		}
+		localNode.command = command
+		plan.Nodes[index].command = command
 		started.Nodes = append(started.Nodes, localNode)
 		fmt.Fprintf(writer, "started %s pid=%s log=%s rpc=%s p2p=%s\n", localNode.ValidatorID, localNode.PIDPath, localNode.LogPath, localNode.RPCAddress, localNode.P2PAddress)
 	}
@@ -703,9 +729,14 @@ func stopNetworkPlan(writer io.Writer, plan networkRuntimePlan) error {
 			fmt.Fprintf(writer, "stopped %s pid=missing\n", localNode.ValidatorID)
 			continue
 		}
-		if err := stopNetworkPID(pid); err != nil {
+		if localNode.command != nil {
+			if err := stopNetworkCommand(localNode.command); err != nil {
+				return err
+			}
+		} else if err := stopNetworkPID(pid); err != nil {
 			return err
 		}
+		waitNetworkRPCDown(localNode.RPCAddress, 2*time.Second)
 		_ = os.Remove(localNode.PIDPath)
 		fmt.Fprintf(writer, "stopped %s pid=%d\n", localNode.ValidatorID, pid)
 	}
@@ -1037,18 +1068,18 @@ func parseNetworkDuration(value string) (time.Duration, error) {
 	return duration, nil
 }
 
-func startNetworkNode(binaryPath string, localNode networkNodeRuntimePlan) error {
+func startNetworkNode(binaryPath string, localNode networkNodeRuntimePlan) (*exec.Cmd, error) {
 	if err := os.MkdirAll(localNode.Home, 0o755); err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := os.Stat(localNode.PIDPath); err == nil {
-		return fmt.Errorf("%s already has pid file %s", localNode.ValidatorID, localNode.PIDPath)
+		return nil, fmt.Errorf("%s already has pid file %s", localNode.ValidatorID, localNode.PIDPath)
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
+		return nil, err
 	}
 	logFile, err := os.OpenFile(localNode.LogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer logFile.Close()
 	command := exec.Command(binaryPath, localNode.Args...)
@@ -1056,13 +1087,14 @@ func startNetworkNode(binaryPath string, localNode networkNodeRuntimePlan) error
 	command.Stderr = logFile
 	configureNetworkChildProcess(command)
 	if err := command.Start(); err != nil {
-		return err
+		return nil, err
 	}
 	if err := os.WriteFile(localNode.PIDPath, []byte(strconv.Itoa(command.Process.Pid)), 0o644); err != nil {
 		_ = command.Process.Kill()
-		return err
+		_ = command.Wait()
+		return nil, err
 	}
-	return command.Process.Release()
+	return command, nil
 }
 
 func networkHealthOK(ctx context.Context, client http.Client, address string) bool {
@@ -1078,7 +1110,27 @@ func networkHealthOK(ctx context.Context, client http.Client, address string) bo
 	return response.StatusCode == http.StatusOK
 }
 
-func runNetworkSmokePlan(ctx context.Context, client http.Client, plan networkRuntimePlan, tx []byte) ([]networkSmokeResult, error) {
+func waitNetworkRPCDown(address string, timeout time.Duration) {
+	if address == "" || timeout <= 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	client := http.Client{Timeout: 100 * time.Millisecond}
+	for {
+		if !networkHealthOK(ctx, client, address) {
+			time.Sleep(100 * time.Millisecond)
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+
+func runNetworkSmokePlan(ctx context.Context, client http.Client, plan networkRuntimePlan, chainID string, txPrefix string) ([]networkSmokeResult, error) {
 	if len(plan.Nodes) == 0 {
 		return nil, errors.New("network has no nodes")
 	}
@@ -1092,27 +1144,24 @@ func runNetworkSmokePlan(ctx context.Context, client http.Client, plan networkRu
 	if err != nil {
 		return nil, err
 	}
-	if err := submitNetworkTx(ctx, client, firstNode.RPCAddress, tx); err != nil {
-		return nil, err
+	for _, localNode := range plan.Nodes {
+		tx, err := signedNetworkPayload(chainID, localNode, txPrefix, 1)
+		if err != nil {
+			return nil, err
+		}
+		if err := submitNetworkTx(ctx, client, localNode.RPCAddress, tx); err != nil {
+			return nil, fmt.Errorf("%s tx: %w", localNode.ValidatorID, err)
+		}
 	}
 	targetHeight := statusBefore.LatestHeight + 1
-	results := make([]networkSmokeResult, 0, len(plan.Nodes))
-	for _, localNode := range plan.Nodes {
-		status, err := waitNetworkHeight(ctx, client, localNode.RPCAddress, targetHeight)
-		if err != nil {
-			return nil, fmt.Errorf("%s height: %w", localNode.ValidatorID, err)
-		}
-		results = append(results, networkSmokeResult{
-			ValidatorID: localNode.ValidatorID,
-			RPCAddress:  localNode.RPCAddress,
-			Healthy:     true,
-			Height:      status.LatestHeight,
-		})
+	results, err := waitNetworkHeights(ctx, client, plan.Nodes, targetHeight)
+	if err != nil {
+		return nil, err
 	}
 	return results, nil
 }
 
-func runNetworkChaosPlanExecution(ctx context.Context, writer io.Writer, client http.Client, plan networkRuntimePlan, targetIndex int, tx []byte, restart bool) error {
+func runNetworkChaosPlanExecution(ctx context.Context, writer io.Writer, client http.Client, plan networkRuntimePlan, chainID string, targetIndex int, txPrefix string, restart bool) error {
 	if len(plan.Nodes) < 2 {
 		return errors.New("chaos run requires at least two validators")
 	}
@@ -1136,6 +1185,10 @@ func runNetworkChaosPlanExecution(ctx context.Context, writer io.Writer, client 
 	}
 	_ = os.Remove(target.PIDPath)
 	fmt.Fprintf(writer, "chaos stopped %s pid=%d\n", target.ValidatorID, pid)
+	tx, err := signedNetworkPayload(chainID, survivor, txPrefix, 1)
+	if err != nil {
+		return fmt.Errorf("%s tx during chaos: %w", survivor.ValidatorID, err)
+	}
 	if err := submitNetworkTx(ctx, client, survivor.RPCAddress, tx); err != nil {
 		return fmt.Errorf("%s tx during chaos: %w", survivor.ValidatorID, err)
 	}
@@ -1148,9 +1201,11 @@ func runNetworkChaosPlanExecution(ctx context.Context, writer io.Writer, client 
 		fmt.Fprintf(writer, "network chaos ok; %s remains stopped\n", target.ValidatorID)
 		return nil
 	}
-	if err := startNetworkNode(plan.Binary, target); err != nil {
+	command, err := startNetworkNode(plan.Binary, target)
+	if err != nil {
 		return fmt.Errorf("%s restart: %w", target.ValidatorID, err)
 	}
+	target.command = command
 	fmt.Fprintf(writer, "chaos restarted %s\n", target.ValidatorID)
 	if err := waitNetworkHealth(ctx, client, target.RPCAddress); err != nil {
 		return fmt.Errorf("%s health after restart: %w", target.ValidatorID, err)
@@ -1196,11 +1251,11 @@ func collectNetworkMetrics(ctx context.Context, client http.Client, plan network
 	return results
 }
 
-func runNetworkLongRunEvidence(ctx context.Context, client http.Client, plan networkRuntimePlan, duration time.Duration, rate int, txPrefix string) networkLongRunEvidence {
+func runNetworkLongRunEvidence(ctx context.Context, client http.Client, plan networkRuntimePlan, chainID string, duration time.Duration, rate int, txPrefix string) networkLongRunEvidence {
 	started := time.Now()
 	before := collectNetworkMetrics(ctx, client, plan, false)
 	loadCtx, cancel := context.WithTimeout(ctx, duration)
-	load := runNetworkLoadPlan(loadCtx, client, plan, rate, txPrefix)
+	load := runNetworkLoadPlan(loadCtx, client, plan, chainID, rate, txPrefix)
 	cancel()
 	after := collectNetworkMetrics(ctx, client, plan, false)
 	evidence := networkLongRunEvidence{
@@ -1276,7 +1331,7 @@ func runNetworkLongRunEvidence(ctx context.Context, client http.Client, plan net
 	return evidence
 }
 
-func runNetworkLoadPlan(ctx context.Context, client http.Client, plan networkRuntimePlan, rate int, txPrefix string) networkLoadResult {
+func runNetworkLoadPlan(ctx context.Context, client http.Client, plan networkRuntimePlan, chainID string, rate int, txPrefix string) networkLoadResult {
 	started := time.Now()
 	if len(plan.Nodes) == 0 {
 		return networkLoadResult{Duration: time.Since(started), Failed: 1}
@@ -1296,7 +1351,11 @@ func runNetworkLoadPlan(ctx context.Context, client http.Client, plan networkRun
 		case <-ticker.C:
 			sequence := result.Submitted + result.Failed + 1
 			target := plan.Nodes[int((sequence-1)%uint64(len(plan.Nodes)))]
-			payload := networkLoadPayload(txPrefix, sequence, target.ValidatorID)
+			payload, err := signedNetworkPayload(chainID, target, txPrefix, sequence)
+			if err != nil {
+				result.Failed++
+				continue
+			}
 			if err := submitNetworkTx(ctx, client, target.RPCAddress, payload); err != nil {
 				result.Failed++
 				continue
@@ -1314,9 +1373,48 @@ func networkSurvivorNode(plan networkRuntimePlan, targetIndex int) networkNodeRu
 	return plan.Nodes[1]
 }
 
+func signedNetworkPayload(chainID string, localNode networkNodeRuntimePlan, txPrefix string, sequence uint64) (types.Tx, error) {
+	keyDocument, err := vexocrypto.LoadKeyDocument(filepath.Join(localNode.Home, keyFileName))
+	if err != nil {
+		return nil, err
+	}
+	signer, err := keyDocument.SignerWithPassphrase("")
+	if err != nil {
+		return nil, err
+	}
+	account, err := keyDocumentAccountAddress(keyDocument)
+	if err != nil {
+		return nil, err
+	}
+	payload := networkLoadPayloadForAccount(txPrefix, sequence, localNode.ValidatorID, string(account))
+	if vexoapp.IsSignedTx(payload) {
+		return payload, nil
+	}
+	return vexoapp.SignTx(chainID, payload, signer)
+}
+
+func networkPlanChainID(plan networkRuntimePlan) (string, error) {
+	if len(plan.Nodes) == 0 {
+		return "", errors.New("network has no nodes")
+	}
+	document, err := readConfigDocument(filepath.Join(plan.Nodes[0].Home, configFileName))
+	if err != nil {
+		return "", err
+	}
+	if document.ChainID == "" {
+		return defaultChainID, nil
+	}
+	return document.ChainID, nil
+}
+
 func networkLoadPayload(txPrefix string, sequence uint64, validatorID string) types.Tx {
+	return networkLoadPayloadForAccount(txPrefix, sequence, validatorID, validatorID)
+}
+
+func networkLoadPayloadForAccount(txPrefix string, sequence uint64, validatorID string, account string) types.Tx {
 	txPrefix = strings.ReplaceAll(txPrefix, "{validator}", validatorID)
 	txPrefix = strings.ReplaceAll(txPrefix, "{node}", validatorID)
+	txPrefix = strings.ReplaceAll(txPrefix, "{account}", account)
 	if strings.Contains(txPrefix, "nonce") && !strings.Contains(txPrefix, "nonce=") {
 		return types.Tx(fmt.Sprintf("%s=%d", txPrefix, sequence))
 	}
@@ -1360,6 +1458,47 @@ func waitNetworkHeight(ctx context.Context, client http.Client, address string, 
 	}
 }
 
+func waitNetworkHeights(ctx context.Context, client http.Client, nodes []networkNodeRuntimePlan, targetHeight uint64) ([]networkSmokeResult, error) {
+	pending := make(map[string]networkNodeRuntimePlan, len(nodes))
+	for _, localNode := range nodes {
+		pending[localNode.ValidatorID] = localNode
+	}
+	results := make([]networkSmokeResult, 0, len(nodes))
+	var lastErr error
+	for len(pending) > 0 {
+		for validatorID, localNode := range pending {
+			status, err := networkStatus(ctx, client, localNode.RPCAddress)
+			if err != nil {
+				lastErr = fmt.Errorf("%s status: %w", validatorID, err)
+				continue
+			}
+			if status.LatestHeight < targetHeight {
+				lastErr = fmt.Errorf("%s height %d below target %d", validatorID, status.LatestHeight, targetHeight)
+				continue
+			}
+			results = append(results, networkSmokeResult{
+				ValidatorID: validatorID,
+				RPCAddress:  localNode.RPCAddress,
+				Healthy:     true,
+				Height:      status.LatestHeight,
+			})
+			delete(pending, validatorID)
+		}
+		if len(pending) == 0 {
+			return results, nil
+		}
+		select {
+		case <-ctx.Done():
+			if lastErr != nil {
+				return nil, lastErr
+			}
+			return nil, ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+	return results, nil
+}
+
 func networkStatus(ctx context.Context, client http.Client, address string) (networkStatusResponse, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+address+"/v1/status", nil)
 	if err != nil {
@@ -1375,6 +1514,29 @@ func networkStatus(ctx context.Context, client http.Client, address string) (net
 	}
 	var status networkStatusResponse
 	return status, json.NewDecoder(response.Body).Decode(&status)
+}
+
+func writeNetworkLogTails(writer io.Writer, plan networkRuntimePlan, maxBytes int) {
+	if maxBytes <= 0 {
+		return
+	}
+	for _, localNode := range plan.Nodes {
+		data, err := os.ReadFile(localNode.LogPath)
+		if err != nil {
+			fmt.Fprintf(writer, "--- %s log unavailable: %v\n", localNode.ValidatorID, err)
+			continue
+		}
+		if len(data) > maxBytes {
+			data = data[len(data)-maxBytes:]
+			if newline := bytes.IndexByte(data, '\n'); newline >= 0 && newline+1 < len(data) {
+				data = data[newline+1:]
+			}
+		}
+		fmt.Fprintf(writer, "--- %s log tail (%s)\n%s", localNode.ValidatorID, localNode.LogPath, data)
+		if len(data) == 0 || data[len(data)-1] != '\n' {
+			fmt.Fprintln(writer)
+		}
+	}
 }
 
 func networkMetrics(ctx context.Context, client http.Client, address string) (ops.MetricsSnapshot, error) {
@@ -1410,7 +1572,8 @@ func submitNetworkTx(ctx context.Context, client http.Client, address string, tx
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("tx returned HTTP %d", response.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 1024))
+		return fmt.Errorf("tx returned HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return nil
 }
@@ -1435,6 +1598,38 @@ func stopNetworkPID(pid int) error {
 		return process.Kill()
 	}
 	return nil
+}
+
+func stopNetworkCommand(command *exec.Cmd) error {
+	if command == nil || command.Process == nil {
+		return nil
+	}
+	process := command.Process
+	if err := process.Signal(os.Interrupt); err != nil {
+		if errors.Is(err, os.ErrProcessDone) {
+			return nil
+		}
+		_ = process.Kill()
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- command.Wait()
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			return nil
+		}
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return nil
+		}
+		return err
+	case <-time.After(3 * time.Second):
+		_ = process.Kill()
+		<-done
+		return nil
+	}
 }
 
 func joinArgs(args []string) string {

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNetworkUpBuiltBinaryE2E(t *testing.T) {
@@ -17,27 +18,17 @@ func TestNetworkUpBuiltBinaryE2E(t *testing.T) {
 		t.Skip("set VEXO_NETWORK_E2E=1 to run built-binary network e2e")
 	}
 
-	repoRoot := filepath.Clean(filepath.Join("..", ".."))
-	binaryPath := filepath.Join(t.TempDir(), "vexod")
-	build := exec.Command("go", "build", "-o", binaryPath, "./cmd/vexod")
-	build.Dir = repoRoot
-	build.Env = append(os.Environ(),
-		"GOCACHE="+filepath.Join(t.TempDir(), "gocache"),
-	)
-	buildOutput, err := build.CombinedOutput()
-	if err != nil {
-		t.Fatalf("build vexod: %v\n%s", err, buildOutput)
-	}
+	binaryPath := networkE2EBinary(t)
 
 	p2pBasePort, rpcBasePort := reserveNetworkE2EPorts(t)
-	home := t.TempDir()
+	home := networkE2ETempHome(t)
 	run := exec.Command(binaryPath,
 		"network", "up",
 		"--home", home,
 		"--validators", "4",
 		"--p2p-base-port", strconv.Itoa(p2pBasePort),
 		"--rpc-base-port", strconv.Itoa(rpcBasePort),
-		"--timeout", "20s",
+		"--timeout", "25s",
 		"--overwrite",
 	)
 	var output bytes.Buffer
@@ -55,6 +46,48 @@ func TestNetworkUpBuiltBinaryE2E(t *testing.T) {
 	if !strings.Contains(output.String(), "network up ok; stopping nodes") || !strings.Contains(output.String(), "stopped validator-4") {
 		t.Fatalf("expected network stop confirmation, got:\n%s", output.String())
 	}
+}
+
+func networkE2ETempHome(t *testing.T) string {
+	t.Helper()
+	home, err := os.MkdirTemp("", "vexo-network-e2e-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		var err error
+		for attempt := 0; attempt < 50; attempt++ {
+			err = os.RemoveAll(home)
+			if err == nil {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		t.Fatalf("cleanup network e2e home %s: %v", home, err)
+	})
+	return home
+}
+
+func networkE2EBinary(t *testing.T) string {
+	t.Helper()
+	if binaryPath := os.Getenv("VEXO_NETWORK_E2E_BINARY"); binaryPath != "" {
+		if _, err := os.Stat(binaryPath); err != nil {
+			t.Fatalf("VEXO_NETWORK_E2E_BINARY is not readable: %v", err)
+		}
+		return binaryPath
+	}
+	repoRoot := filepath.Clean(filepath.Join("..", ".."))
+	binaryPath := filepath.Join(t.TempDir(), "vexod")
+	build := exec.Command("go", "build", "-o", binaryPath, "./cmd/vexod")
+	build.Dir = repoRoot
+	build.Env = append(os.Environ(),
+		"GOCACHE="+filepath.Join(t.TempDir(), "gocache"),
+	)
+	buildOutput, err := build.CombinedOutput()
+	if err != nil {
+		t.Fatalf("build vexod: %v\n%s", err, buildOutput)
+	}
+	return binaryPath
 }
 
 func reserveNetworkE2EPorts(t *testing.T) (int, int) {

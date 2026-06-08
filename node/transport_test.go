@@ -1242,6 +1242,81 @@ func TestNodeConsensusLoopSkipsEmptyBlocksWhenDisabled(t *testing.T) {
 	waitForNodeHeight(t, alice, 1)
 }
 
+func TestNodeConsensusLoopFinalizedModeProgressesTxWithEmptyBlocksDisabled(t *testing.T) {
+	bus := transport.NewInMemoryBus()
+	genesis := Genesis{
+		ChainID: "vexo-test",
+		Validators: []validator.Validator{
+			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("alice")},
+		},
+		Governance: map[types.Address]types.VotingPower{"alice": 1},
+	}
+	alice := newConsensusLoopNode(t, bus, genesis, "alice")
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+
+	machine, err := alice.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(1, 0)
+
+	loopConfig := ConsensusLoopConfig{Interval: time.Millisecond, RoundTimeout: time.Hour, MaxBlockBytes: 1024, CreateEmptyBlocks: false, ExecutionCommitMode: ExecutionCommitModeFinalized}
+	if err := alice.StartConsensusLoop(context.Background(), loopConfig); err != nil {
+		t.Fatal(err)
+	}
+	defer alice.StopConsensusLoop(context.Background())
+
+	time.Sleep(25 * time.Millisecond)
+	if status := alice.Status(context.Background()); status.LatestHeight != 0 {
+		t.Fatalf("expected no gratuitous empty block commits, got %+v", status)
+	}
+	if err := alice.SubmitTx(context.Background(), []byte("bank:finalized-tx-only-block")); err != nil {
+		t.Fatal(err)
+	}
+	waitForNodeHeight(t, alice, 1)
+	if status := alice.Status(context.Background()); status.LatestHeight != 1 {
+		t.Fatalf("expected only tx block to commit, got %+v", status)
+	}
+}
+
+func TestNodeStepFinalizedModeProgressesTxWithEmptyBlocksDisabled(t *testing.T) {
+	bus := transport.NewInMemoryBus()
+	genesis := Genesis{
+		ChainID: "vexo-test",
+		Validators: []validator.Validator{
+			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("alice")},
+		},
+		Governance: map[types.Address]types.VotingPower{"alice": 1},
+	}
+	alice := newConsensusLoopNode(t, bus, genesis, "alice")
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+
+	machine, err := alice.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(1, 0)
+	if err := alice.SubmitTx(context.Background(), []byte("bank:finalized-step")); err != nil {
+		t.Fatal(err)
+	}
+
+	loopConfig := ConsensusLoopConfig{Interval: time.Millisecond, RoundTimeout: time.Hour, MaxBlockBytes: 1024, CreateEmptyBlocks: false, ExecutionCommitMode: ExecutionCommitModeFinalized}
+	for step := 0; step < 8; step++ {
+		result, err := alice.StepConsensusWithConfig(context.Background(), loopConfig)
+		if err != nil {
+			t.Fatalf("step %d failed: %v status=%+v", step, err, machine.Status(context.Background()))
+		}
+		if result.Committed {
+			break
+		}
+	}
+	if status := alice.Status(context.Background()); status.LatestHeight != 1 {
+		t.Fatalf("expected tx block commit through finality progress, got %+v machine=%+v decisions=%+v", status, machine.Status(context.Background()), machine.CommitDecisions())
+	}
+}
+
 func TestNodeSkippedProposerRecoversOnNextRound(t *testing.T) {
 	alice, bob, carol := newConsensusLoopNodes(t)
 	startNode(t, alice)

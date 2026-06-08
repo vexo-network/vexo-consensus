@@ -65,6 +65,9 @@ func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
 	if err != nil {
 		return Metrics{}, err
 	}
+	if runtime.Mempool != nil {
+		metrics.MempoolSize = uint64(runtime.Mempool.Len())
+	}
 	index, err := runtime.BlockIndex(ctx)
 	if err == nil {
 		metrics.EarliestBlockHeight = index.EarliestHeight

@@ -456,6 +456,7 @@ func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validat
 
 	validators := make([]validatorDocument, 0, validatorCount)
 	governance := make(map[string]uint64, validatorCount)
+	appState := make(map[string]string, validatorCount)
 	keys := make([]vexocrypto.KeyDocument, 0, validatorCount)
 	vrfKeys := make([]vexocrypto.KeyDocument, 0, validatorCount)
 	for index := 1; index <= validatorCount; index++ {
@@ -511,11 +512,13 @@ func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validat
 			Metadata:    metadata,
 		})
 		governance[string(operatorAddress)] = 1
+		appState["bank:"+string(accountAddress)] = base64.StdEncoding.EncodeToString([]byte("1000000000000000000000000"))
 	}
 	genesis := genesisDocument{
 		SchemaVersion: genesisSchemaVersion,
 		ChainID:       chainID,
 		Validators:    validators,
+		AppState:      appState,
 		Governance:    governance,
 	}
 
@@ -1568,10 +1571,11 @@ func defaultRuntimeConfig(validatorID string) runtimeConfig {
 		Consensus: runtimeConsensusConfig{
 			LoopEnabled:       loopEnabled,
 			Interval:          "50ms",
-			TimeoutPropose:    "3s",
-			TimeoutPrevote:    "1s",
-			TimeoutPrecommit:  "1s",
-			TimeoutCommit:     "1s",
+			TimeoutPropose:    "500ms",
+			TimeoutPrevote:    "250ms",
+			TimeoutPrecommit:  "250ms",
+			TimeoutCommit:     "100ms",
+			RoundTimeout:      "1s",
 			MaxBlockBytes:     1024 * 1024,
 			CreateEmptyBlocks: false,
 			ExecutionCommit:   string(node.ExecutionCommitModeFinalized),

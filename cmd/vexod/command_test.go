@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/cmd/vexod/internal/releasegate"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	ibckeeper "github.com/vexo-network/vexo-consensus/ibc"
@@ -1702,7 +1703,11 @@ func TestRunNetworkLongRunDryRun(t *testing.T) {
 }
 
 func TestRunNetworkLongRunEvidenceEvaluatesMetrics(t *testing.T) {
-	plan, err := buildNetworkRuntimePlan(t.TempDir(), 2, "/bin/vexod")
+	home := t.TempDir()
+	if _, err := writeNetworkFilesWithPorts(home, "vexo-test", 2, true, defaultP2PBasePort, defaultRPCBasePort); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := buildNetworkRuntimePlan(home, 2, "/bin/vexod")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1726,7 +1731,7 @@ func TestRunNetworkLongRunEvidenceEvaluatesMetrics(t *testing.T) {
 		}
 	})}
 
-	evidence := runNetworkLongRunEvidence(context.Background(), client, plan, 250*time.Millisecond, 40, "bank:send:alice:bob:1:fee=1:gas=1000:signer=alice:nonce")
+	evidence := runNetworkLongRunEvidence(context.Background(), client, plan, "vexo-test", 250*time.Millisecond, 40, defaultNetworkLoadTxPrefix)
 	if !evidence.OK || evidence.SchemaVersion != "v1" || evidence.Load.Submitted == 0 || txSubmitted == 0 || len(evidence.Nodes) != 2 {
 		t.Fatalf("unexpected longrun evidence: %+v", evidence)
 	}
@@ -2455,7 +2460,7 @@ func TestStartNetworkNodeRefusesExistingPIDFile(t *testing.T) {
 	if err := os.WriteFile(localNode.PIDPath, []byte("123"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err = startNetworkNode("/bin/vexod", localNode)
+	_, err = startNetworkNode("/bin/vexod", localNode)
 	if err == nil || !strings.Contains(err.Error(), "already has pid file") {
 		t.Fatalf("expected existing pid file error, got %v", err)
 	}
@@ -2480,7 +2485,11 @@ func TestNetworkHealthOK(t *testing.T) {
 }
 
 func TestRunNetworkSmokePlanSubmitsTxAndWaitsForHeight(t *testing.T) {
-	plan, err := buildNetworkRuntimePlan(t.TempDir(), 2, "/bin/vexod")
+	home := t.TempDir()
+	if _, err := writeNetworkFilesWithPorts(home, "vexo-test", 2, true, defaultP2PBasePort, defaultRPCBasePort); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := buildNetworkRuntimePlan(home, 2, "/bin/vexod")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2498,6 +2507,19 @@ func TestRunNetworkSmokePlanSubmitsTxAndWaitsForHeight(t *testing.T) {
 			return jsonHTTPResponse(http.StatusOK, `{"chain_id":"vexo-test","running":true,"latest_height":`+strconv.FormatUint(heights[address], 10)+`}`), nil
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/tx":
 			txSubmitted = true
+			var payload struct {
+				Tx string `json:"tx"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			decoded, err := base64.StdEncoding.DecodeString(payload.Tx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !vexoapp.IsSignedTx(decoded) {
+				t.Fatalf("expected signed smoke tx, got %s", decoded)
+			}
 			heights[plan.Nodes[0].RPCAddress] = 8
 			heights[plan.Nodes[1].RPCAddress] = 8
 			return jsonHTTPResponse(http.StatusAccepted, `{"accepted":true}`), nil
@@ -2505,7 +2527,7 @@ func TestRunNetworkSmokePlanSubmitsTxAndWaitsForHeight(t *testing.T) {
 			return jsonHTTPResponse(http.StatusNotFound, `{}`), nil
 		}
 	})}
-	results, err := runNetworkSmokePlan(context.Background(), client, plan, []byte("bank:smoke"))
+	results, err := runNetworkSmokePlan(context.Background(), client, plan, "vexo-test", defaultNetworkSmokeTxPrefix)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -138,6 +138,9 @@ func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig,
 			if errors.Is(err, ErrNodeNotRunning) {
 				return
 			}
+			node.logEvent("consensus_step_failed", map[string]any{
+				"error": err.Error(),
+			})
 		}
 		if result.Committed || result.Proposed {
 			lastTimeout = time.Now()

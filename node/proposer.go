@@ -70,6 +70,10 @@ func (node *Node) TickConsensus(ctx context.Context, maxBytes int64) (consensus.
 }
 
 func (node *Node) TickConsensusWithConfig(ctx context.Context, cfg ConsensusLoopConfig) (consensus.Proposal, types.Hash, bool, error) {
+	return node.tickConsensusWithProposalOptions(ctx, cfg, ProposalOptions{AllowEmpty: cfg.CreateEmptyBlocks})
+}
+
+func (node *Node) tickConsensusWithProposalOptions(ctx context.Context, cfg ConsensusLoopConfig, options ProposalOptions) (consensus.Proposal, types.Hash, bool, error) {
 	cfg = normalizeConsensusLoopConfig(cfg)
 	machine, err := node.Consensus()
 	if err != nil {
@@ -88,9 +92,23 @@ func (node *Node) TickConsensusWithConfig(ctx context.Context, cfg ConsensusLoop
 		return consensus.Proposal{}, types.Hash{}, false, nil
 	}
 	if node.hasProposed(height, status.Round) {
+		proposal, _, ok := node.cachedProposalForRound(height, status.Round)
+		if !ok {
+			return consensus.Proposal{}, types.Hash{}, false, nil
+		}
+		reactor, err := node.ConsensusReactor()
+		if err != nil {
+			return consensus.Proposal{}, types.Hash{}, false, ErrConsensusOffline
+		}
+		if err := node.broadcastAncestorProposals(ctx, reactor, proposal.Block.Header.Height); err != nil {
+			return consensus.Proposal{}, types.Hash{}, false, err
+		}
+		if err := reactor.BroadcastProposal(ctx, proposal); err != nil {
+			return consensus.Proposal{}, types.Hash{}, false, err
+		}
 		return consensus.Proposal{}, types.Hash{}, false, nil
 	}
-	proposal, blockHash, err := node.ProposeFromMempoolWithOptions(ctx, cfg.MaxBlockBytes, ProposalOptions{AllowEmpty: cfg.CreateEmptyBlocks})
+	proposal, blockHash, err := node.ProposeFromMempoolWithOptions(ctx, cfg.MaxBlockBytes, options)
 	if errors.Is(err, ErrEmptyProposal) {
 		return consensus.Proposal{}, types.Hash{}, false, nil
 	}

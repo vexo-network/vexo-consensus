@@ -23,6 +23,9 @@ func (node *Node) StepConsensus(ctx context.Context, maxBytes int64) (ConsensusS
 }
 
 func (node *Node) StepConsensusWithConfig(ctx context.Context, cfg ConsensusLoopConfig) (ConsensusStepResult, error) {
+	node.stepMu.Lock()
+	defer node.stepMu.Unlock()
+
 	cfg = normalizeConsensusLoopConfig(cfg)
 	commit, committed, err := node.commitCandidateForMode(ctx, cfg.ExecutionCommitMode)
 	if err != nil {
@@ -35,7 +38,16 @@ func (node *Node) StepConsensusWithConfig(ctx context.Context, cfg ConsensusLoop
 		}, nil
 	}
 
-	proposal, blockHash, proposed, err := node.TickConsensusWithConfig(ctx, cfg)
+	proposalOptions := ProposalOptions{AllowEmpty: cfg.CreateEmptyBlocks}
+	if node.needsFinalityProgress(ctx, cfg.ExecutionCommitMode) {
+		if err := node.advanceFinalityRound(ctx); err != nil {
+			return ConsensusStepResult{}, err
+		}
+		proposalOptions.AllowEmpty = true
+		proposalOptions.ForceEmpty = true
+	}
+
+	proposal, blockHash, proposed, err := node.tickConsensusWithProposalOptions(ctx, cfg, proposalOptions)
 	if err != nil {
 		return ConsensusStepResult{}, err
 	}
@@ -55,4 +67,37 @@ func (node *Node) commitCandidateForMode(ctx context.Context, mode ExecutionComm
 	default:
 		return CommitReadyResult{}, false, ErrInvalidLoopConfig
 	}
+}
+
+func (node *Node) needsFinalityProgress(ctx context.Context, mode ExecutionCommitMode) bool {
+	if mode != "" && mode != ExecutionCommitModeFinalized {
+		return false
+	}
+	for _, proposal := range node.pendingProposals() {
+		select {
+		case <-ctx.Done():
+			return false
+		default:
+		}
+		if len(proposal.Block.Txs) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (node *Node) advanceFinalityRound(ctx context.Context) error {
+	machine, err := node.Consensus()
+	if err != nil {
+		return err
+	}
+	highQC := machine.HighQC(ctx)
+	if highQC.Height == 0 {
+		return nil
+	}
+	status := machine.Status(ctx)
+	if status.Height == 0 || highQC.Height >= status.Height {
+		machine.StartRound(highQC.Height+1, 0)
+	}
+	return nil
 }

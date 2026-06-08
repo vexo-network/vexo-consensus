@@ -72,6 +72,7 @@ func (node *Node) ProposeFromMempool(ctx context.Context, maxBytes int64) (conse
 
 type ProposalOptions struct {
 	AllowEmpty bool
+	ForceEmpty bool
 }
 
 func (node *Node) ProposeFromMempoolWithOptions(ctx context.Context, maxBytes int64, options ProposalOptions) (consensus.Proposal, types.Hash, error) {
@@ -84,9 +85,13 @@ func (node *Node) ProposeFromMempoolWithOptions(ctx context.Context, maxBytes in
 		return consensus.Proposal{}, types.Hash{}, err
 	}
 
-	batch, err := runtime.Mempool.BuildBatch(ctx, maxBytes)
-	if err != nil {
-		return consensus.Proposal{}, types.Hash{}, err
+	batch := mempool.Batch{}
+	if !options.ForceEmpty {
+		var err error
+		batch, err = runtime.Mempool.BuildBatch(ctx, maxBytes)
+		if err != nil {
+			return consensus.Proposal{}, types.Hash{}, err
+		}
 	}
 	if !options.AllowEmpty && len(batch.Txs) == 0 {
 		return consensus.Proposal{}, types.Hash{}, ErrEmptyProposal
@@ -219,5 +224,20 @@ func (node *Node) wakeConsensus(ctx context.Context) {
 	node.mu.Lock()
 	cfg := node.loopConfig
 	node.mu.Unlock()
-	_, _ = node.StepConsensusWithConfig(ctx, cfg)
+	for attempt := 0; attempt < 4; attempt++ {
+		result, err := node.StepConsensusWithConfig(ctx, cfg)
+		if err != nil {
+			node.logEvent("consensus_wake_failed", map[string]any{
+				"attempt": attempt,
+				"error":   err.Error(),
+			})
+			return
+		}
+		if !result.Committed && !result.Proposed {
+			return
+		}
+		if result.Committed {
+			return
+		}
+	}
 }

@@ -70,7 +70,7 @@ ops-verify: check fuzz-smoke
 
 network-e2e: build
 	mkdir -p $(GOCACHE_DIR)
-	VEXO_NETWORK_E2E=1 GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test -timeout=30000s ./cmd/vexod -run TestNetworkUpBuiltBinaryE2E -count=1
+	VEXO_NETWORK_E2E=1 VEXO_NETWORK_E2E_BINARY=$$(pwd)/$(BUILD_DIR)/$(BINARY) GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test -timeout=30000s ./cmd/vexod -run TestNetworkUpBuiltBinaryE2E -count=1
 
 coverage:
 	mkdir -p $(GOCACHE_DIR)

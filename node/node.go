@@ -53,6 +53,7 @@ type Node struct {
 	wire    transport.Transport
 
 	mu             sync.Mutex
+	stepMu         sync.Mutex
 	runtime        *vexoruntime.Runtime
 	consensus      *consensus.StateMachine
 	reactor        *consensus.TransportReactor
@@ -196,7 +197,10 @@ func (node *Node) Start(ctx context.Context) error {
 				onProposalAccepted: node.cacheProposal,
 				onVoteAccepted:     node.wakeConsensus,
 				onEvidence:         node.handleLocalEvidence,
-				wal:                consensusWAL,
+				onError: func(event string, err error) {
+					node.logEvent(event, map[string]any{"error": err.Error()})
+				},
+				wal: consensusWAL,
 			}
 		}
 		reactor = consensus.NewTransportReactor(node.wire, receiver)

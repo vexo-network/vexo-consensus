@@ -190,33 +190,46 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 	if err := dataavailability.Verify(proposal.Block.Header, proposal.Block.Txs); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidProposal, err)
 	}
-	if proposal.Block.Header.Height < machine.status.Height {
-		return ErrStaleProposal
-	}
-	if proposal.Block.Header.Height == machine.status.Height && proposal.Round < machine.status.Round {
-		return ErrStaleProposal
-	}
 	if proposal.JustifyQC.Height > 0 && proposal.JustifyQC.Height > proposal.Block.Header.Height {
 		return fmt.Errorf("%w: justify qc height exceeds proposal height", ErrInvalidProposal)
 	}
 	if proposal.JustifyQC.Height > 0 && proposal.JustifyQC.BlockHash != proposal.Block.Header.PreviousBlockHash {
 		return fmt.Errorf("%w: justify qc must match parent block", ErrInvalidProposal)
 	}
+	blockHash := machine.hashBlock(proposal.Block)
+	if proposal.Block.Header.Height < machine.status.Height ||
+		(proposal.Block.Header.Height == machine.status.Height && proposal.Round < machine.status.Round) {
+		machine.blockTree.Insert(proposal.Block, blockHash, proposal.JustifyQC)
+		if err := machine.applyKnownCommitRules(); err != nil {
+			return err
+		}
+		return ErrStaleProposal
+	}
 	if !machine.isSafeProposal(proposal) {
 		return ErrUnsafeProposal
 	}
 
-	blockHash := machine.hashBlock(proposal.Block)
 	machine.blockTree.Insert(proposal.Block, blockHash, proposal.JustifyQC)
-	if candidate, found := machine.blockTree.CommitCandidate(blockHash); found {
-		if _, err := machine.applyCommitRule(candidate); err != nil && !errors.Is(err, ErrCommitRuleNotSatisfied) {
-			return err
-		}
+	if err := machine.applyKnownCommitRules(); err != nil {
+		return err
 	}
 
 	machine.status.Height = proposal.Block.Header.Height
 	machine.status.Round = proposal.Round
 	machine.status.Phase = PhaseVote
+	return nil
+}
+
+func (machine *StateMachine) applyKnownCommitRules() error {
+	for blockHash := range machine.blockTree.blocks {
+		candidate, found := machine.blockTree.CommitCandidate(blockHash)
+		if !found {
+			continue
+		}
+		if _, err := machine.applyCommitRule(candidate); err != nil && !errors.Is(err, ErrCommitRuleNotSatisfied) {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -553,14 +566,18 @@ func (machine *StateMachine) applyCommitRule(candidate CommitCandidate) (CommitD
 	if err != nil {
 		return CommitDecision{}, err
 	}
+	if _, found := machine.committedSet[decision.CommittedBlockHash]; found {
+		return decision, nil
+	}
 	if err := machine.commitIndex.Record(decision.CommittedHeight, decision.CommittedBlockHash); err != nil {
 		return CommitDecision{}, err
 	}
-	machine.status.LastFinalized = decision.CommittedBlockHash
-	if _, found := machine.committedSet[decision.CommittedBlockHash]; !found {
-		machine.committed = append(machine.committed, decision)
-		machine.committedSet[decision.CommittedBlockHash] = struct{}{}
-	}
+	machine.committed = append(machine.committed, decision)
+	machine.committedSet[decision.CommittedBlockHash] = struct{}{}
+	sort.Slice(machine.committed, func(left, right int) bool {
+		return machine.committed[left].CommittedHeight < machine.committed[right].CommittedHeight
+	})
+	machine.status.LastFinalized = machine.committed[len(machine.committed)-1].CommittedBlockHash
 	return decision, nil
 }
 
