@@ -237,6 +237,10 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 
 func (module *Module) EndBlock(ctx vexoapp.Context) error { return nil }
 
+func (module *Module) PendingChanges() []Change {
+	return append([]Change(nil), module.pending...)
+}
+
 func (module *Module) Events(ctx vexoapp.Context, tx types.Tx, result types.Result) []events.Event {
 	if result.Code != 0 {
 		return nil

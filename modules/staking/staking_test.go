@@ -422,6 +422,87 @@ func TestStakingModuleEnforcesPolicyCommissionCap(t *testing.T) {
 	}
 }
 
+func TestStakingModulePolicyGasQueriesAndErrorEdges(t *testing.T) {
+	storage := newStakingStore(t)
+	module := NewModuleWithPolicy(Policy{UnbondingDelay: 0, FeeCollector: "", MaxCommissionBPS: 20_000})
+	policy := module.Policy()
+	if policy.UnbondingDelay != defaultUnbondingDelay || policy.FeeCollector != defaultFeeCollector || policy.MaxCommissionBPS != commissionDenominatorBPS {
+		t.Fatalf("expected normalized policy, got %+v", policy)
+	}
+	if clone := module.CloneModule(); clone.Name() != ModuleName {
+		t.Fatalf("unexpected clone: %+v", clone)
+	}
+
+	publicKey := base64.StdEncoding.EncodeToString([]byte("validator-key"))
+	if err := setBankBalance(context.Background(), storage, "alice", 100); err != nil {
+		t.Fatal(err)
+	}
+	delegateTx := types.Tx("staking:delegate:alice:validator-1:40:" + publicKey)
+	if gas, err := module.EstimateGas(vexoapp.Context{}, delegateTx); err != nil || gas != delegateGasCost {
+		t.Fatalf("unexpected delegate gas=%d err=%v", gas, err)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 5, Store: storage, Gas: vexoapp.NewGasMeter(1)}, delegateTx); result.Code != 5 {
+		t.Fatalf("expected gas failure, got %+v", result)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 5, Store: storage}, delegateTx); result.Code != 0 {
+		t.Fatalf("unexpected delegate result: %+v", result)
+	}
+	queries := map[string][]string{
+		"stake":      {"stake", "alice", "validator-1"},
+		"validator":  {"validator", "validator-1"},
+		"unbonding":  {"unbonding", "alice", "validator-1"},
+		"rewards":    {"rewards", "alice", "validator-1"},
+		"commission": {"commission", "validator-1"},
+		"tombstone":  {"tombstone", "validator-1"},
+	}
+	for name, path := range queries {
+		response := module.Query(vexoapp.Context{Store: storage}, vexoapp.QueryRequest{Path: path})
+		if response.Code != 0 {
+			t.Fatalf("expected %s query to succeed, got %+v", name, response)
+		}
+	}
+	if response := module.Query(vexoapp.Context{Store: storage}, vexoapp.QueryRequest{Path: []string{"bad"}}); response.Code == 0 {
+		t.Fatalf("expected invalid query failure")
+	}
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, types.Tx("staking:delegate:alice:validator-1:not-a-number:"+publicKey)); result.Code != 3 {
+		t.Fatalf("expected parse failure, got %+v", result)
+	}
+	if _, err := module.EstimateGas(vexoapp.Context{}, types.Tx("staking:bad")); err != ErrInvalidStakingTx {
+		t.Fatalf("expected invalid gas estimate failure, got %v", err)
+	}
+}
+
+func TestStakingGenesisAndUnjailEdges(t *testing.T) {
+	storage := newStakingStore(t)
+	module := NewModule()
+	ctx := vexoapp.Context{Store: storage}
+	if err := module.InitGenesis(ctx, vexoapp.GenesisState{"staking:stake:alice:validator-1": []byte("25")}); err != nil {
+		t.Fatal(err)
+	}
+	stake, err := Stake(context.Background(), storage, "alice", "validator-1")
+	if err != nil || stake != 25 {
+		t.Fatalf("unexpected genesis stake=%d err=%v", stake, err)
+	}
+	if err := module.InitGenesis(ctx, vexoapp.GenesisState{"staking:stake:bad": []byte("25")}); !errors.Is(err, ErrInvalidStakeRecord) {
+		t.Fatalf("expected invalid stake record, got %v", err)
+	}
+	if err := setUint64(context.Background(), storage, ModuleName, jailKey("validator-1"), 1); err != nil {
+		t.Fatal(err)
+	}
+	if result := module.DeliverTx(ctx, types.Tx("staking:unjail:validator-1")); result.Code != 0 {
+		t.Fatalf("unexpected unjail result: %+v", result)
+	}
+	if err := setUint64(context.Background(), storage, ModuleName, tombstoneKey("validator-1"), 1); err != nil {
+		t.Fatal(err)
+	}
+	if result := module.DeliverTx(ctx, types.Tx("staking:unjail:validator-1")); result.Code == 0 {
+		t.Fatalf("expected tombstoned validator unjail failure")
+	}
+	if result := module.DeliverTx(vexoapp.Context{}, types.Tx("staking:unjail:validator-1")); result.Code != 1 {
+		t.Fatalf("expected missing store failure, got %+v", result)
+	}
+}
+
 func TestStakingModuleAssignsRewardRoundingRemainderToValidator(t *testing.T) {
 	storage := newStakingStore(t)
 	module := NewModule()
@@ -490,6 +571,30 @@ func TestStakingCLICommands(t *testing.T) {
 		t.Fatalf("unexpected staking command: %+v", command)
 	}
 	var output bytes.Buffer
+	if commands := NewModule().CLICommands(); len(commands) != 1 || commands[0].Name != ModuleName {
+		t.Fatalf("unexpected module commands: %+v", commands)
+	}
+	if err := command.Execute(&output, []string{"tx", "delegate", "alice", "validator-1", "40", "dmFsaWRhdG9yLWtleQ", "--fee", "1avxo", "--gas", "1000", "--nonce", "7"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "staking:delegate:alice:validator-1:40:dmFsaWRhdG9yLWtleQ") || !strings.Contains(output.String(), "fee=1avxo") {
+		t.Fatalf("unexpected delegate cli output: %s", output.String())
+	}
+	output.Reset()
+	if err := command.Execute(&output, []string{"tx", "undelegate", "alice", "validator-1", "15"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "staking:undelegate:alice:validator-1:15") {
+		t.Fatalf("unexpected undelegate cli output: %s", output.String())
+	}
+	output.Reset()
+	if err := command.Execute(&output, []string{"tx", "unjail", "validator-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "staking:unjail:validator-1") {
+		t.Fatalf("unexpected unjail cli output: %s", output.String())
+	}
+	output.Reset()
 	if err := runClaimRewardsCLI(&output, []string{"alice", "validator-1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -516,6 +621,35 @@ func TestStakingCLICommands(t *testing.T) {
 	}
 	if strings.TrimSpace(output.String()) != "query_path: staking/tombstone/validator-1" {
 		t.Fatalf("unexpected tombstone query cli output: %s", output.String())
+	}
+	for _, tc := range []struct {
+		name string
+		run  func(*bytes.Buffer) error
+		want string
+	}{
+		{"stake", func(buffer *bytes.Buffer) error { return runStakeQueryCLI(buffer, []string{"alice", "validator-1"}) }, "query_path: staking/stake/alice/validator-1"},
+		{"validator", func(buffer *bytes.Buffer) error { return runValidatorQueryCLI(buffer, []string{"validator-1"}) }, "query_path: staking/validator/validator-1"},
+		{"unbonding", func(buffer *bytes.Buffer) error {
+			return runUnbondingQueryCLI(buffer, []string{"alice", "validator-1"})
+		}, "query_path: staking/unbonding/alice/validator-1"},
+		{"commission", func(buffer *bytes.Buffer) error { return runCommissionQueryCLI(buffer, []string{"validator-1"}) }, "query_path: staking/commission/validator-1"},
+	} {
+		output.Reset()
+		if err := tc.run(&output); err != nil {
+			t.Fatalf("%s query cli failed: %v", tc.name, err)
+		}
+		if strings.TrimSpace(output.String()) != tc.want {
+			t.Fatalf("unexpected %s output: %s", tc.name, output.String())
+		}
+	}
+	if _, err := parseCLIAmount("bad"); err == nil {
+		t.Fatalf("expected invalid CLI amount failure")
+	}
+	if _, _, err := splitExecutionTags([]string{"--unknown", "1"}); err == nil {
+		t.Fatalf("expected unknown flag failure")
+	}
+	if _, _, err := splitExecutionTags([]string{"--fee"}); err == nil {
+		t.Fatalf("expected missing flag value failure")
 	}
 }
 

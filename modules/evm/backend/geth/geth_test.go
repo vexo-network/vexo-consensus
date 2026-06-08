@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	gethcommon "github.com/ethereum/go-ethereum/common"
+	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
+	gethparams "github.com/ethereum/go-ethereum/params"
 	"github.com/holiman/uint256"
 	"github.com/vexo-network/vexo-consensus/contract"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -21,6 +23,7 @@ type testStateReader struct {
 	big      map[types.Address]*big.Int
 	nonces   map[types.Address]uint64
 	headers  map[uint64]contract.EthereumHeader
+	hashes   map[uint64]types.Hash
 	err      error
 }
 
@@ -68,6 +71,17 @@ func (reader testStateReader) EthereumHeader(ctx context.Context, height uint64)
 		return contract.EthereumHeader{}, errors.New("header not found")
 	}
 	return header, nil
+}
+
+func (reader testStateReader) BlockHash(ctx context.Context, height uint64) (types.Hash, error) {
+	if reader.err != nil {
+		return types.Hash{}, reader.err
+	}
+	hash, found := reader.hashes[height]
+	if !found {
+		return types.Hash{}, errors.New("hash not found")
+	}
+	return hash, nil
 }
 
 func TestGethBackendExecutesDeployAndCall(t *testing.T) {
@@ -211,6 +225,36 @@ func TestGethBackendImplementsContractVM(t *testing.T) {
 	var _ contract.VM = New()
 }
 
+func TestGethBackendChainConfigJSONValidation(t *testing.T) {
+	vm, err := NewWithChainConfigJSON(`{}`, 777)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vm.activeChainConfig().ChainID == nil || vm.activeChainConfig().ChainID.Uint64() != 777 {
+		t.Fatalf("expected injected chain id 777, got %+v", vm.activeChainConfig().ChainID)
+	}
+	vm, err = NewWithChainConfigJSON(`{"chainId":888}`, 777)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if vm.activeChainConfig().ChainID == nil || vm.activeChainConfig().ChainID.Uint64() != 888 {
+		t.Fatalf("expected JSON chain id 888 to win, got %+v", vm.activeChainConfig().ChainID)
+	}
+	if _, err := NewWithChainConfigJSON(`{`, 1); err == nil {
+		t.Fatalf("expected invalid JSON failure")
+	}
+	if _, err := NewWithChainConfigJSON(`{"chainId":1,"shanghaiTime":1,"londonBlock":2}`, 1); err == nil {
+		t.Fatalf("expected fork order validation failure")
+	}
+	if normalizedChainConfig(nil) != gethparams.AllDevChainProtocolChanges {
+		t.Fatalf("expected nil config to normalize to geth dev protocol changes")
+	}
+	custom := &gethparams.ChainConfig{ChainID: big.NewInt(999)}
+	if normalizedChainConfig(custom) != custom {
+		t.Fatalf("expected custom config pointer to be preserved")
+	}
+}
+
 func TestGethBackendUsesReaderBalancesAndReturnsBalanceWrites(t *testing.T) {
 	vm := New()
 	caller := types.Address("0x000000000000000000000000000000000000aaaa")
@@ -284,6 +328,88 @@ func TestGethStateDBFinaliseReturnsStateAccessList(t *testing.T) {
 	}
 	if accessList.Copy() == nil {
 		t.Fatal("expected copyable state access list")
+	}
+}
+
+func TestGethStateDBDirectShimMethods(t *testing.T) {
+	address := types.Address("0x000000000000000000000000000000000000aaaa")
+	gethAddress := gethcommon.HexToAddress(string(address))
+	slot := gethcommon.HexToHash("0x01")
+	initialStorage := gethcommon.HexToHash("0x02")
+	blockHash := types.Hash{9}
+	db := newGethStateDB(context.Background(), contract.Invocation{
+		State: testStateReader{
+			code:    map[types.Address][]byte{address: {0x60, 0x00}},
+			storage: map[string][]byte{string(address) + "/" + slot.Hex(): initialStorage.Bytes()},
+			hashes:  map[uint64]types.Hash{7: blockHash},
+		},
+	})
+
+	if size := db.GetCodeSize(gethAddress); size != 2 {
+		t.Fatalf("expected code size 2, got %d", size)
+	}
+	db.AddRefund(10)
+	db.SubRefund(3)
+	if refund := db.GetRefund(); refund != 7 {
+		t.Fatalf("expected refund 7, got %d", refund)
+	}
+	db.SubRefund(100)
+	if refund := db.GetRefund(); refund != 0 {
+		t.Fatalf("expected refund floor at zero, got %d", refund)
+	}
+	current, committed := db.GetStateAndCommittedState(gethAddress, slot)
+	if current != initialStorage || committed != initialStorage {
+		t.Fatalf("unexpected loaded storage current=%s committed=%s", current, committed)
+	}
+	nextStorage := gethcommon.HexToHash("0x03")
+	if previous := db.SetState(gethAddress, slot, nextStorage); previous != initialStorage {
+		t.Fatalf("expected previous storage %s, got %s", initialStorage, previous)
+	}
+	db.SetTransientState(gethAddress, slot, gethcommon.HexToHash("0x04"))
+	if transient := db.GetTransientState(gethAddress, slot); transient != gethcommon.HexToHash("0x04") {
+		t.Fatalf("unexpected transient storage %s", transient)
+	}
+	if db.HasSelfDestructed(gethAddress) {
+		t.Fatal("unexpected self-destruct before marker")
+	}
+	db.SelfDestruct(gethAddress)
+	if !db.HasSelfDestructed(gethAddress) {
+		t.Fatal("expected self-destruct marker")
+	}
+	db.CreateContract(gethAddress)
+	if !db.IsNewContract(gethAddress) || db.Empty(gethAddress) {
+		t.Fatal("expected new non-empty contract")
+	}
+	if db.AddressInAccessList(gethAddress) {
+		t.Fatal("unexpected access-list address before prepare")
+	}
+	db.AddSlotToAccessList(gethAddress, slot)
+	addressOK, slotOK := db.SlotInAccessList(gethAddress, slot)
+	if !db.AddressInAccessList(gethAddress) || !addressOK || !slotOK {
+		t.Fatal("expected address and slot in access list")
+	}
+	snapshot := db.Snapshot()
+	db.AddRefund(5)
+	db.SetState(gethAddress, slot, gethcommon.HexToHash("0x05"))
+	db.RevertToSnapshot(snapshot)
+	if db.GetRefund() != 0 || db.GetState(gethAddress, slot) != nextStorage {
+		t.Fatalf("expected snapshot revert refund/storage, refund=%d storage=%s", db.GetRefund(), db.GetState(gethAddress, slot))
+	}
+	db.RevertToSnapshot(99)
+	db.AddLog(&gethtypes.Log{Address: gethAddress, Topics: []gethcommon.Hash{slot}, Data: []byte{1}})
+	db.AddLog(nil)
+	if logs := db.ContractLogs(); len(logs) != 1 || !strings.EqualFold(string(logs[0].Address), gethAddress.Hex()) {
+		t.Fatalf("unexpected logs: %+v", logs)
+	}
+	db.AddPreimage(slot, []byte("preimage"))
+	if events := db.AccessEvents(); events == nil {
+		t.Fatal("expected access events")
+	}
+	if got := db.blockHash(7); got != gethcommon.Hash(blockHash) {
+		t.Fatalf("expected block hash %s, got %s", gethcommon.Hash(blockHash), got)
+	}
+	if got := db.blockHash(8); got != (gethcommon.Hash{}) {
+		t.Fatalf("expected missing block hash to return zero, got %s", got)
 	}
 }
 
