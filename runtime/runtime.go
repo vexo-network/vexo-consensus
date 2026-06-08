@@ -175,6 +175,7 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 	}
 	baseFee := runtime.CurrentBaseFee()
 	runtime.setApplicationBaseFee(baseFee)
+	runtime.setApplicationBlobBaseFee(runtime.CurrentBlobBaseFee())
 	if appRuntime, ok := runtime.App.(*app.Runtime); ok && runtime.Store != nil {
 		if commitStore, ok := runtime.Store.(store.AppBlockCommitStore); ok {
 			return runtime.executeBlockStaged(ctx, block, appRuntime, commitStore, baseFee, blobGasUsed)
@@ -377,6 +378,14 @@ func (runtime *Runtime) setApplicationBaseFee(baseFee uint64) {
 		return
 	}
 	setter.SetBaseFee(baseFee)
+}
+
+func (runtime *Runtime) setApplicationBlobBaseFee(blobBaseFee uint64) {
+	setter, ok := runtime.App.(interface{ SetBlobBaseFee(uint64) })
+	if !ok {
+		return
+	}
+	setter.SetBlobBaseFee(blobBaseFee)
 }
 
 func totalGasUsed(response app.FinalizeBlockResponse) uint64 {

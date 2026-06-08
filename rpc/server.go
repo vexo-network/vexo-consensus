@@ -39,7 +39,6 @@ const defaultReadHeaderTimeout = 5 * time.Second
 const defaultMaxRequestBytes = 1024 * 1024
 const defaultMaxWeb3Filters = 1024
 const defaultWeb3BlockGasLimit = 10_000_000
-const defaultWeb3IntrinsicGas = 21_000
 const stableAPIPrefix = "/v1"
 
 type Config struct {
@@ -3666,24 +3665,13 @@ func web3EstimateGas(ctx context.Context, provider StatusProvider, params []json
 }
 
 func web3IntrinsicGasForCall(call web3CallRequest) (uint64, *JSONRPCError) {
-	gas := uint64(defaultWeb3IntrinsicGas)
-	if call.Method == "deploy" {
-		gas = 53_000
-	}
 	input, err := hexBytes(call.Input)
 	if err != nil {
 		return 0, &JSONRPCError{Code: -32602, Message: "invalid data hex"}
 	}
-	for _, value := range input {
-		if value == 0 {
-			gas = saturatingAddUint64(gas, 4)
-			continue
-		}
-		gas = saturatingAddUint64(gas, 16)
-	}
-	for _, entry := range call.AccessList {
-		gas = saturatingAddUint64(gas, 2400)
-		gas = saturatingAddUint64(gas, uint64(len(entry.StorageKeys))*1900)
+	gas, err := ethcompat.IntrinsicGas(input, call.AccessList, call.Method == "deploy", 0)
+	if err != nil {
+		return 0, &JSONRPCError{Code: -32000, Message: err.Error()}
 	}
 	return gas, nil
 }
@@ -3820,7 +3808,7 @@ func web3DebugTraceCall(ctx context.Context, provider StatusProvider, params []j
 	}
 	if tracer == "callTracer" {
 		call, _ := evmCallParam(params)
-		return map[string]any{
+		trace := map[string]any{
 			"type":       "CALL",
 			"from":       call.From,
 			"to":         call.To,
@@ -3830,7 +3818,14 @@ func web3DebugTraceCall(ctx context.Context, provider StatusProvider, params []j
 			"input":      call.Input,
 			"output":     callResponse.Output,
 			"accessList": web3AccessList(callResponse.AccessList),
-		}, nil
+		}
+		if callResponse.Failed {
+			trace["error"] = callResponse.Error
+		}
+		if children := web3CallTraceChildren(callResponse.VMTrace); len(children) > 0 {
+			trace["calls"] = children
+		}
+		return trace, nil
 	}
 	if tracer == "prestateTracer" {
 		call, _ := evmCallParam(params)
@@ -3873,14 +3868,19 @@ func web3TraceCall(ctx context.Context, provider StatusProvider, params []json.R
 			"gasUsed": hexQuantity(callResponse.GasUsed),
 			"output":  callResponse.Output,
 		},
-		"subtraces":    0,
+		"subtraces":    len(web3CallTraceChildren(callResponse.VMTrace)),
 		"traceAddress": []any{},
 		"type":         "call",
 	}
+	if callResponse.Failed {
+		trace["error"] = callResponse.Error
+	}
+	traces := []any{trace}
+	traces = append(traces, web3ParityTraceChildren(callResponse.VMTrace, []uint64{})...)
 	return map[string]any{
 		"output":     callResponse.Output,
 		"stateDiff":  web3StateDiff(callResponse.StateDiff),
-		"trace":      []any{trace},
+		"trace":      traces,
 		"vmTrace":    callResponse.VMTrace,
 		"accessList": web3AccessList(callResponse.AccessList),
 	}, nil

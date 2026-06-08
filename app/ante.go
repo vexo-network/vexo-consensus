@@ -83,7 +83,7 @@ func (keeper AnteKeeper) CheckTx(ctx Context, tx types.Tx) error {
 		return err
 	}
 	meta := ParseTxMeta(tx)
-	if err := keeper.validateMeta(meta); err != nil {
+	if err := keeper.validateMetaForTx(tx, meta); err != nil {
 		return err
 	}
 	if ctx.Store == nil || meta.Signer == "" || !meta.HasNonce {
@@ -106,7 +106,7 @@ func (keeper AnteKeeper) CheckBlock(ctx Context, txs []types.Tx) error {
 			return err
 		}
 		meta := ParseTxMeta(tx)
-		if err := keeper.validateMeta(meta); err != nil {
+		if err := keeper.validateMetaForTx(tx, meta); err != nil {
 			return err
 		}
 		if ctx.Store == nil || meta.Signer == "" || !meta.HasNonce {
@@ -168,6 +168,9 @@ func (keeper AnteKeeper) GasLimit(tx types.Tx) uint64 {
 }
 
 func (keeper AnteKeeper) FeePaid(tx types.Tx) uint64 {
+	if isEthereumRawTx(tx) {
+		return 0
+	}
 	return ParseTxMeta(tx).Fee
 }
 
@@ -190,6 +193,25 @@ func (keeper AnteKeeper) validateMeta(meta TxMeta) error {
 		if !ok || meta.Fee < requiredFee {
 			return ErrInsufficientFee
 		}
+	}
+	if keeper.config.MinGas > 0 && meta.Gas < keeper.config.MinGas {
+		return ErrInvalidGas
+	}
+	if keeper.config.MaxGas > 0 && meta.Gas > keeper.config.MaxGas {
+		return ErrInvalidGas
+	}
+	if keeper.config.RequireNonce && (meta.Signer == "" || !meta.HasNonce) {
+		return ErrMissingNonce
+	}
+	return nil
+}
+
+func (keeper AnteKeeper) validateMetaForTx(tx types.Tx, meta TxMeta) error {
+	if !isEthereumRawTx(tx) {
+		return keeper.validateMeta(meta)
+	}
+	if meta.Gas == 0 {
+		return ErrInvalidGas
 	}
 	if keeper.config.MinGas > 0 && meta.Gas < keeper.config.MinGas {
 		return ErrInvalidGas

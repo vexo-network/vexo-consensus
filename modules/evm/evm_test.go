@@ -273,7 +273,7 @@ func TestModuleQueryCallPassesWeb3ExecutionContext(t *testing.T) {
 	if response.Code != 0 {
 		t.Fatalf("unexpected query response: %+v", response)
 	}
-	if vm.invocation.BlockNumber != 77 || vm.invocation.GasPrice != 9 || vm.invocation.BaseFee != 4 || vm.invocation.Value != 3 || vm.invocation.GasLimit != 55_000 || vm.invocation.ReadOnly {
+	if vm.invocation.BlockNumber != 77 || vm.invocation.GasPrice != 9 || vm.invocation.BaseFee != 4 || vm.invocation.Value != 3 || vm.invocation.GasLimit != 55_000 || vm.invocation.ReadOnly || !vm.invocation.EthereumSimulation {
 		t.Fatalf("unexpected invocation context: %+v", vm.invocation)
 	}
 	if len(vm.invocation.AccessList) != 1 || vm.invocation.AccessList[0].Address != contractAddress || vm.invocation.AccessList[0].StorageKeys[0] != "0x01" {
@@ -396,6 +396,33 @@ func TestModulePersistsFailedEVMReceiptWithoutFailingBlock(t *testing.T) {
 	}
 	if receipt.Status != 0 || receipt.Error != "execution reverted" || receipt.GasUsed != 9 {
 		t.Fatalf("unexpected failed receipt: %+v", receipt)
+	}
+}
+
+func TestModuleEstimateEthereumDeployUsesRawTxGasLimit(t *testing.T) {
+	vm := &recordingInvocationVM{}
+	registry := contract.NewRegistry()
+	if err := registry.Register(vm); err != nil {
+		t.Fatal(err)
+	}
+	module := NewModuleWithRegistry(registry)
+	rawTx := signedEthereumCreateTx(t, ethcompat.ChainNumericID("vexo-chain"), "6000")
+	decoded, err := ethcompat.DecodeRawTransaction(rawTx, ethcompat.DecodeOptions{ChainID: ethcompat.ChainNumericID("vexo-chain")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := vexoapp.Context{
+		Ctx:     context.Background(),
+		ChainID: "vexo-chain",
+		Height:  1,
+		Gas:     vexoapp.NewGasMeter(1_000_000),
+	}
+	gas, err := module.EstimateGas(ctx, decoded.Tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gas != 17 || vm.invocation.GasLimit != decoded.Gas {
+		t.Fatalf("expected estimate to use raw tx gas limit %d, got gas=%d invocation=%+v", decoded.Gas, gas, vm.invocation)
 	}
 }
 

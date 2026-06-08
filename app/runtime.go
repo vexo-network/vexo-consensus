@@ -25,14 +25,16 @@ type ModuleRouter interface {
 }
 
 type Runtime struct {
-	chainID    string
-	evmChainID uint64
-	modules    []Module
-	router     ModuleRouter
-	ante       AnteHandler
-	store      StateStore
-	height     types.Height
-	appHash    types.Hash
+	chainID     string
+	evmChainID  uint64
+	modules     []Module
+	router      ModuleRouter
+	ante        AnteHandler
+	store       StateStore
+	height      types.Height
+	appHash     types.Hash
+	baseFee     uint64
+	blobBaseFee uint64
 }
 
 func (runtime *Runtime) WithEVMChainID(chainID uint64) *Runtime {
@@ -74,11 +76,16 @@ func (runtime *Runtime) WithAnte(ante AnteHandler) *Runtime {
 }
 
 func (runtime *Runtime) SetBaseFee(baseFee uint64) {
+	runtime.baseFee = baseFee
 	setter, ok := runtime.ante.(BaseFeeSetter)
 	if !ok {
 		return
 	}
 	setter.SetBaseFee(baseFee)
+}
+
+func (runtime *Runtime) SetBlobBaseFee(blobBaseFee uint64) {
+	runtime.blobBaseFee = blobBaseFee
 }
 
 func (runtime *Runtime) NewReplayApp(store StateStore) (Application, error) {
@@ -99,6 +106,8 @@ func (runtime *Runtime) NewReplayApp(store StateStore) (Application, error) {
 	}
 	replayRuntime.evmChainID = runtime.evmChainID
 	replayRuntime.ante = runtime.ante
+	replayRuntime.baseFee = runtime.baseFee
+	replayRuntime.blobBaseFee = runtime.blobBaseFee
 	if store != nil {
 		replayRuntime.WithStore(store)
 	}
@@ -439,12 +448,14 @@ func (runtime *Runtime) newContextWithGoContext(goCtx context.Context, height ty
 		goCtx = context.Background()
 	}
 	return Context{
-		Ctx:        goCtx,
-		ChainID:    runtime.chainID,
-		EVMChainID: runtime.evmChainID,
-		Height:     height,
-		Header:     header,
-		Store:      runtime.store,
+		Ctx:         goCtx,
+		ChainID:     runtime.chainID,
+		EVMChainID:  runtime.evmChainID,
+		BaseFee:     runtime.baseFee,
+		BlobBaseFee: runtime.blobBaseFee,
+		Height:      height,
+		Header:      header,
+		Store:       runtime.store,
 	}
 }
 

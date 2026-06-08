@@ -14,9 +14,11 @@ import (
 	"strings"
 
 	gethcommon "github.com/ethereum/go-ethereum/common"
+	gethcore "github.com/ethereum/go-ethereum/core"
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/kzg4844"
+	gethparams "github.com/ethereum/go-ethereum/params"
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/contract"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -452,6 +454,74 @@ func ValidateCanonicalTxWithOptions(tx types.Tx, options DecodeOptions) error {
 		}
 	}
 	return nil
+}
+
+func ValidateCanonicalTxForExecution(tx types.Tx, options DecodeOptions) error {
+	raw, found := vexoapp.TxTag(tx, TagRaw)
+	if !found || raw == "" {
+		return ErrInvalidRawTransaction
+	}
+	canonical, err := vexoapp.ParseCanonicalTx(tx)
+	if err != nil {
+		return err
+	}
+	decoded, err := DecodeRawTransaction(raw, options)
+	if err != nil {
+		return err
+	}
+	decodedCanonical, err := vexoapp.ParseCanonicalTx(decoded.Tx)
+	if err != nil {
+		return err
+	}
+	if canonical.Module != decodedCanonical.Module || canonical.Action != decodedCanonical.Action {
+		return ErrSignatureMismatch
+	}
+	if !sameStrings(canonical.Args, decodedCanonical.Args) {
+		return ErrSignatureMismatch
+	}
+	for _, key := range []string{"gas", "signer", "nonce", TagHash, TagRaw, TagType, TagInput, TagChainID, TagValue, TagMaxFeePerGas, TagMaxPriorityFeePerGas, TagAccessList, TagBlobGas, TagBlobGasFeeCap, TagBlobHashes} {
+		if canonical.Tags[key] != decodedCanonical.Tags[key] {
+			return ErrSignatureMismatch
+		}
+	}
+	return nil
+}
+
+func IntrinsicGas(data []byte, accessList []contract.AccessListEntry, contractCreation bool, timestamp uint64) (uint64, error) {
+	rules := gethparams.AllDevChainProtocolChanges.Rules(new(big.Int), true, timestamp)
+	cost, err := gethcore.IntrinsicGas(data, gethAccessList(accessList), nil, contractCreation, rules.IsHomestead, rules.IsIstanbul, rules.IsShanghai, rules.IsAmsterdam)
+	if err != nil {
+		return 0, err
+	}
+	required := cost.Sum()
+	if rules.IsPrague {
+		floor, err := gethcore.FloorDataGas(rules, data, gethAccessList(accessList))
+		if err != nil {
+			return 0, err
+		}
+		if floor > required {
+			required = floor
+		}
+	}
+	return required, nil
+}
+
+func gethAccessList(entries []contract.AccessListEntry) gethtypes.AccessList {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make(gethtypes.AccessList, 0, len(entries))
+	for _, entry := range entries {
+		item := gethtypes.AccessTuple{
+			Address:     gethcommon.HexToAddress(string(entry.Address)),
+			StorageKeys: make([]gethcommon.Hash, 0, len(entry.StorageKeys)),
+		}
+		for _, slot := range entry.StorageKeys {
+			item.StorageKeys = append(item.StorageKeys, gethcommon.HexToHash(slot))
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func parseUintTag(tags map[string]string, key string) (uint64, bool) {

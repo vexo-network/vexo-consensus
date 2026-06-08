@@ -60,7 +60,7 @@ func (vm GethVM) Execute(ctx context.Context, invocation contract.Invocation) (c
 	})
 	chainConfig := vm.activeChainConfig()
 	evm := gethvm.NewEVM(gethBlockContext(invocation, stateDB), stateDB, chainConfig, gethvm.Config{Tracer: traceLogger.Hooks()})
-	if invocation.EthereumTx && !invocation.ReadOnly && len(invocation.Salt) == 0 {
+	if (invocation.EthereumTx || invocation.EthereumSimulation) && len(invocation.Salt) == 0 {
 		return vm.executeStateTransition(invocation, stateDB, evm, traceLogger, caller, contractAddress)
 	}
 	evm.SetTxContext(gethvm.TxContext{
@@ -266,8 +266,8 @@ func ethereumMessage(invocation contract.Invocation, caller gethcommon.Address, 
 		AccessList:            gethAccessList(invocation.AccessList),
 		BlobGasFeeCap:         new(uint256.Int).SetUint64(invocation.BlobGasFeeCap),
 		BlobHashes:            gethBlobHashes(invocation.BlobHashes),
-		SkipNonceChecks:       false,
-		SkipTransactionChecks: false,
+		SkipNonceChecks:       invocation.EthereumSimulation,
+		SkipTransactionChecks: invocation.EthereumSimulation,
 	}, nil
 }
 

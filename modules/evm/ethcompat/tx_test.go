@@ -371,6 +371,32 @@ func TestValidateCanonicalTxRejectsTamperingAndWrongChain(t *testing.T) {
 	}
 }
 
+func TestValidateCanonicalTxForExecutionUsesCurrentBaseFee(t *testing.T) {
+	raw, _ := signedRawTestTx(t, 7, false)
+	decoded, err := DecodeRawTransaction(raw, DecodeOptions{ChainID: 7, BaseFee: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateCanonicalTxForExecution(decoded.Tx, DecodeOptions{ChainID: 7, BaseFee: 12}); err != nil {
+		t.Fatalf("expected execution validation to accept repriced base fee: %v", err)
+	}
+	if err := ValidateCanonicalTxForExecution(decoded.Tx, DecodeOptions{ChainID: 7, BaseFee: 21}); !errors.Is(err, ErrFeeCapTooLow) {
+		t.Fatalf("expected current base fee to be enforced, got %v", err)
+	}
+	canonical, err := vexoapp.ParseCanonicalTx(decoded.Tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical.Tags["fee"] = "1"
+	repriced, err := vexoapp.BuildCanonicalTx(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateCanonicalTxForExecution(repriced, DecodeOptions{ChainID: 7, BaseFee: 12}); err != nil {
+		t.Fatalf("execution validation should not trust stale wrapper fee metadata: %v", err)
+	}
+}
+
 func signedRawTestTx(t *testing.T, chainID uint64, create bool) (string, string) {
 	t.Helper()
 	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
