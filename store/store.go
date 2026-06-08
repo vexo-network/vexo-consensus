@@ -105,6 +105,7 @@ func EvidenceKey(evidence slashing.Evidence) string {
 
 type Store interface {
 	KVStore
+	HistoricalSnapshotKVStore
 	SaveBlock(ctx context.Context, record BlockRecord) error
 	BlockByHeight(ctx context.Context, height types.Height) (BlockRecord, error)
 	BlockByHash(ctx context.Context, hash types.Hash) (BlockRecord, error)

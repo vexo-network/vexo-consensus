@@ -301,20 +301,6 @@ func NewInvalidProposalHashEvidence(proposal Proposal, reason string, expected t
 	}, nil
 }
 
-func NewInvalidProposalTxValidityEvidence(proposal Proposal, expected types.Hash, actual types.Hash, message string) (slashing.Evidence, error) {
-	if proposal.Proposer == "" || proposal.Block.Header.Height == 0 {
-		return slashing.Evidence{}, slashing.ErrMissingValidator
-	}
-	proof := InvalidProposalProof{
-		Proposal:            proposal,
-		Reason:              InvalidProposalReasonTxValidity,
-		ExpectedHash:        expected,
-		ActualHash:          actual,
-		VerificationMessage: message,
-	}
-	return newInvalidProposalEvidenceFromProof(proof)
-}
-
 func NewInvalidProposalTxExecutionEvidence(proposal Proposal, expectedResults []types.Result, actualResults []types.Result, txIndex uint64, message string) (slashing.Evidence, error) {
 	if proposal.Proposer == "" || proposal.Block.Header.Height == 0 {
 		return slashing.Evidence{}, slashing.ErrMissingValidator
@@ -373,7 +359,7 @@ func NewInvalidProposalEvidenceWithContext(proposal Proposal, context InvalidPro
 	case InvalidProposalReasonAppHash:
 		return NewInvalidProposalHashEvidence(proposal, string(reason), context.ExpectedAppHash, actual)
 	case InvalidProposalReasonTxValidity:
-		return NewInvalidProposalTxValidityEvidence(proposal, context.ExpectedTxResultsHash, actual, message)
+		return slashing.Evidence{}, ErrInvalidProposal
 	case InvalidProposalReasonTimestamp:
 		return NewInvalidProposalTimestampEvidence(proposal, context.ExpectedTimeUnixNano, proposal.Block.Header.TimeUnixNano)
 	case InvalidProposalReasonDAMismatch, InvalidProposalReasonMissingData:
@@ -728,6 +714,9 @@ func VerifyInvalidProposalEvidenceWithContext(evidence slashing.Evidence, contex
 	case InvalidProposalReasonTxValidity:
 		if context.ExpectedTxResultsHash == (types.Hash{}) {
 			return ErrInvalidProposalContext
+		}
+		if decoded.ExecutionProof == nil {
+			return ErrInvalidProposal
 		}
 		if decoded.ExpectedHash != context.ExpectedTxResultsHash {
 			return ErrInvalidProposal

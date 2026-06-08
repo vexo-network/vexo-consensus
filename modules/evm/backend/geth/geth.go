@@ -182,11 +182,7 @@ func (vm GethVM) executeStateTransition(invocation contract.Invocation, stateDB 
 			err = stateDB.err
 		}
 		traceLogger.OnTxEnd(&gethtypes.Receipt{GasUsed: 0}, err)
-		vmTrace, traceErr := gethVMTrace(traceLogger)
-		if traceErr != nil {
-			return contract.Result{}, traceErr
-		}
-		return contract.Result{Failed: true, Error: err.Error(), VMTrace: vmTrace}, nil
+		return contract.Result{}, err
 	}
 	if stateDB.err != nil {
 		return contract.Result{}, stateDB.err

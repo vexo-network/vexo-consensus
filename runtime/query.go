@@ -11,7 +11,6 @@ import (
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
-var ErrHistoricalQueryProofUnsupported = errors.New("historical query proof is unsupported without historical KV snapshots")
 var ErrAppQueryUnavailable = errors.New("application query is unavailable")
 
 func (runtime *Runtime) BlockByHeight(ctx context.Context, height types.Height) (store.BlockRecord, error) {
@@ -77,15 +76,11 @@ func (runtime *Runtime) QueryProof(ctx context.Context, height types.Height, nam
 	if height == state.Height {
 		return queryproof.Build(ctx, runtime.Store, runtime.Config.ChainID, state.Height, namespace, key)
 	}
-	historicalStore, ok := runtime.Store.(store.HistoricalSnapshotKVStore)
-	if !ok {
-		return queryproof.Proof{}, ErrHistoricalQueryProofUnsupported
-	}
 	rootRecord, err := runtime.Store.StateRoot(ctx, height, namespace)
 	if err != nil {
 		return queryproof.Proof{}, err
 	}
-	pairs, err := historicalStore.ExportNamespaceAt(ctx, height, namespace)
+	pairs, err := runtime.Store.ExportNamespaceAt(ctx, height, namespace)
 	if err != nil {
 		return queryproof.Proof{}, err
 	}

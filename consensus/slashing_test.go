@@ -702,8 +702,10 @@ func TestSubmitInvalidProposalTxValidityEvidenceRequiresContext(t *testing.T) {
 		Round:    0,
 		Proposer: "a",
 	})
-	expectedResultsHash := HashTxResults([]types.Result{{Code: 1, Log: "ante rejected tx"}})
-	evidence, err := NewInvalidProposalTxValidityEvidence(proposal, expectedResultsHash, txSetHash(proposal.Block.Txs), "ante rejected tx")
+	expectedResults := []types.Result{{Code: 1, Log: "ante rejected tx"}}
+	actualResults := []types.Result{{Code: 0, Log: "accepted"}}
+	expectedResultsHash := HashTxResults(expectedResults)
+	evidence, err := NewInvalidProposalTxExecutionEvidence(proposal, expectedResults, actualResults, 0, "ante rejected tx")
 	if err != nil {
 		t.Fatal(err)
 	}

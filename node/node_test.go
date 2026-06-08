@@ -1023,10 +1023,14 @@ func TestNodeBuildsTxValidityEvidenceContextFromStoredBlockResults(t *testing.T)
 		Round:    0,
 		Proposer: "alice",
 	})
-	evidence, err := consensus.NewInvalidProposalTxValidityEvidence(
+	actualResults := make([]types.Result, len(response.Results))
+	copy(actualResults, response.Results)
+	actualResults[0] = types.Result{Code: 1, Log: "deterministic execution mismatch"}
+	evidence, err := consensus.NewInvalidProposalTxExecutionEvidence(
 		proposal,
-		consensus.HashTxResults(response.Results),
-		consensus.TxSetHashForEvidence(proposal.Block.Txs),
+		response.Results,
+		actualResults,
+		0,
 		"deterministic execution mismatch",
 	)
 	if err != nil {

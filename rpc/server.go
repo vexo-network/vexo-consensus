@@ -745,10 +745,6 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 			writeError(writer, http.StatusBadRequest, "invalid query proof request")
 			return
 		}
-		if errors.Is(err, vexoruntime.ErrHistoricalQueryProofUnsupported) {
-			writeError(writer, http.StatusBadRequest, err.Error())
-			return
-		}
 		if errors.Is(err, store.ErrStateNotFound) {
 			writeError(writer, http.StatusNotFound, "state not found")
 			return
@@ -782,10 +778,6 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 			proof, err := queryProvider.QueryProof(request.Context(), height, ibckeeper.Namespace, ibckeeper.PacketCommitmentKey(packet))
 			if errors.Is(err, queryproof.ErrInvalidProof) {
 				writeError(writer, http.StatusBadRequest, "invalid IBC proof request")
-				return
-			}
-			if errors.Is(err, vexoruntime.ErrHistoricalQueryProofUnsupported) {
-				writeError(writer, http.StatusBadRequest, err.Error())
 				return
 			}
 			if errors.Is(err, store.ErrStateNotFound) {

@@ -128,51 +128,6 @@ func TestRuntimeReplayFromHistoricalSnapshotReexecutesApp(t *testing.T) {
 	}
 }
 
-func TestRuntimeReplayStrictFallsBackToGenesisReplayWhenSnapshotUnavailable(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer storage.Close()
-
-	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{&storeWritingModule{name: "bank"}}, vexoapp.PrefixRouter{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	runtime, err := NewWithStore(config.Default("vexo-test"), application, []validator.Validator{
-		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
-	}, nil, storage)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for height := types.Height(1); height <= 3; height++ {
-		if _, err := runtime.ExecuteBlock(context.Background(), types.Block{
-			Header: types.Header{ChainID: "vexo-test", Height: height},
-			Txs:    []types.Tx{[]byte("bank:send")},
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	replayApplication, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{&storeWritingModule{name: "bank"}}, vexoapp.PrefixRouter{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	replayRuntime, err := NewWithStore(config.Default("vexo-test"), replayApplication, []validator.Validator{
-		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
-	}, nil, noHistoricalStore{Store: storage})
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := replayRuntime.ReplayStrict(context.Background(), 2, 3)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.FromHeight != 2 || result.ToHeight != 3 || result.Blocks != 2 {
-		t.Fatalf("unexpected strict genesis fallback result: %+v", result)
-	}
-}
-
 func TestRuntimeReplayStrictDoesNotFallbackToStoredRange(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
@@ -209,10 +164,6 @@ func TestRuntimeReplayStrictDoesNotFallbackToStoredRange(t *testing.T) {
 	if _, err := runtime.ReplayStrict(context.Background(), 2, 2); err == nil {
 		t.Fatal("expected strict replay to reject missing isolated historical snapshot")
 	}
-}
-
-type noHistoricalStore struct {
-	store.Store
 }
 
 func TestRuntimeReplayRejectsInvalidRange(t *testing.T) {

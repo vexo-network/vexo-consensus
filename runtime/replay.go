@@ -131,10 +131,6 @@ func (runtime *Runtime) ReplayFromHistoricalSnapshot(ctx context.Context, from t
 	if from <= 1 || to == 0 || from > to {
 		return ReplayResult{}, ErrReplayRequiresGenesisStart
 	}
-	historicalStore, ok := runtime.Store.(store.HistoricalSnapshotKVStore)
-	if !ok {
-		return ReplayResult{}, ErrReplayRequiresGenesisStart
-	}
 	factory, ok := runtime.App.(IsolatedReplayAppFactory)
 	if !ok {
 		return ReplayResult{}, ErrReplayRequiresIsolatedApp
@@ -155,7 +151,7 @@ func (runtime *Runtime) ReplayFromHistoricalSnapshot(ctx context.Context, from t
 	}
 	defer replayStore.Close()
 	for _, module := range runtime.AppModules() {
-		pairs, err := historicalStore.ExportNamespaceAt(ctx, baseHeight, module.Name())
+		pairs, err := runtime.Store.ExportNamespaceAt(ctx, baseHeight, module.Name())
 		if err != nil {
 			return ReplayResult{}, err
 		}

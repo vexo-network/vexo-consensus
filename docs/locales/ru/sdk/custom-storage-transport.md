@@ -12,12 +12,15 @@ Implement `store.Store`:
 - pruning
 - index recovery
 - compaction
+- historical namespace export by height through `store.HistoricalSnapshotKVStore`
 - close
 
-Optional snapshot support implements `store.SnapshotKVStore`:
+Snapshot support implements `store.SnapshotKVStore`:
 
 - export namespace
 - import namespace
+
+Historical snapshot support is required for runtime construction. Custom stores that only implement latest-state reads are rejected because historical query proofs, replay, light-client proof serving, Web3 historical account state, and state-sync verification must fail at startup rather than later under load.
 
 ## Storage Requirements
 

@@ -202,6 +202,26 @@ func TestGethBackendFailsClosedOnStateReaderError(t *testing.T) {
 	}
 }
 
+func TestGethBackendRejectsHardStateTransitionErrors(t *testing.T) {
+	caller := types.Address("0x000000000000000000000000000000000000aaaa")
+	contractAddress := types.Address("0x000000000000000000000000000000000000bbbb")
+	_, err := New().Execute(context.Background(), contract.Invocation{
+		Method:        "call",
+		Caller:        caller,
+		Contract:      contractAddress,
+		GasLimit:      1,
+		GasPrice:      1,
+		EthereumTx:    true,
+		BlockGasLimit: 100_000,
+		State: testStateReader{
+			balances: map[types.Address]uint64{caller: 100_000},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected intrinsic gas validation error")
+	}
+}
+
 func TestGethBackendUsesLegacyCreateWhenSaltIsMissing(t *testing.T) {
 	vm := New()
 	caller := types.Address("0x000000000000000000000000000000000000aaaa")

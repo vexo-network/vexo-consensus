@@ -294,23 +294,23 @@ func TestInvalidProposalTxValidityEvidenceRequiresDeterministicMismatch(t *testi
 		},
 		Proposer: "validator-1",
 	}
-	actual := txSetHash(proposal.Block.Txs)
+	expectedResults := []types.Result{{Code: 1, Log: "ante rejected tx"}}
+	actualResults := []types.Result{{Code: 0, Log: "accepted"}}
 
-	_, err := NewInvalidProposalTxValidityEvidence(proposal, types.Hash{1}, actual, "ante rejected tx")
-	if err != nil {
+	if _, err := NewInvalidProposalTxExecutionEvidence(proposal, expectedResults, actualResults, 0, "ante rejected tx"); err != nil {
 		t.Fatal(err)
 	}
-	_, err = NewInvalidProposalTxValidityEvidence(proposal, actual, actual, "ante rejected tx")
+	_, err := NewInvalidProposalTxExecutionEvidence(proposal, expectedResults, expectedResults, 0, "ante rejected tx")
 	if !errors.Is(err, ErrInvalidProposal) {
-		t.Fatalf("expected invalid matching tx validity proof, got %v", err)
+		t.Fatalf("expected invalid matching tx execution proof, got %v", err)
 	}
-	_, err = NewInvalidProposalTxValidityEvidence(proposal, types.Hash{1}, actual, "")
+	_, err = NewInvalidProposalTxExecutionEvidence(proposal, expectedResults, actualResults, 0, "")
 	if !errors.Is(err, ErrInvalidProposal) {
 		t.Fatalf("expected invalid missing verification message, got %v", err)
 	}
-	_, err = NewInvalidProposalTxValidityEvidence(proposal, types.Hash{1}, types.Hash{2}, "wrong actual tx set hash")
+	_, err = NewInvalidProposalTxExecutionEvidence(proposal, expectedResults, actualResults, 1, "bad index")
 	if !errors.Is(err, ErrInvalidProposal) {
-		t.Fatalf("expected invalid unbound tx set hash, got %v", err)
+		t.Fatalf("expected invalid tx index rejection, got %v", err)
 	}
 }
 
@@ -324,7 +324,9 @@ func TestInvalidProposalTxValidityEvidenceRequiresResultHashContext(t *testing.T
 		Proposer: "validator-1",
 	}
 	expected := HashTxResults([]types.Result{{Code: 1, Log: "ante rejected tx"}})
-	evidence, err := NewInvalidProposalTxValidityEvidence(proposal, expected, txSetHash(proposal.Block.Txs), "ante rejected tx")
+	expectedResults := []types.Result{{Code: 1, Log: "ante rejected tx"}}
+	actualResults := []types.Result{{Code: 0, Log: "accepted"}}
+	evidence, err := NewInvalidProposalTxExecutionEvidence(proposal, expectedResults, actualResults, 0, "ante rejected tx")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,6 +341,19 @@ func TestInvalidProposalTxValidityEvidenceRequiresResultHashContext(t *testing.T
 	}
 	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedTxResultsHash: expected}); err != nil {
 		t.Fatal(err)
+	}
+	decoded, err := DecodeInvalidProposalProof(evidence.Proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded.ExecutionProof = nil
+	encoded, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence.Proof = encoded
+	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedTxResultsHash: expected}); !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected missing execution proof rejection, got %v", err)
 	}
 }
 
