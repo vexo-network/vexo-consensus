@@ -381,6 +381,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			RateLimitWindow:          runtimeConfig.RPCRateLimitWindow,
 			RateLimitMaxRequests:     runtimeConfig.RPCRateLimitMaxRequests,
 			AllowUnprotectedLegacyTx: inputs.Config.Chain.Execution.AllowUnprotectedLegacyTx,
+			EVMChainConfigJSON:       inputs.Config.Chain.Execution.EVMChainConfigJSON,
 		}, serverErr)
 		if err != nil {
 			_ = node.Stop(context.Background())

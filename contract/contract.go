@@ -30,22 +30,23 @@ type Invocation struct {
 	ReadOnly   bool              `json:"-"`
 	AccessList []AccessListEntry `json:"-"`
 
-	BlockNumber        uint64        `json:"-"`
-	Nonce              uint64        `json:"-"`
-	Timestamp          uint64        `json:"-"`
-	BaseFee            uint64        `json:"-"`
-	BlobBaseFee        uint64        `json:"-"`
-	BlobHashes         []types.Hash  `json:"-"`
-	GasPrice           uint64        `json:"-"`
-	GasFeeCap          uint64        `json:"-"`
-	GasTipCap          uint64        `json:"-"`
-	BlobGasFeeCap      uint64        `json:"-"`
-	BlockGasLimit      uint64        `json:"-"`
-	Coinbase           types.Address `json:"-"`
-	PrevRandao         types.Hash    `json:"-"`
-	EthereumTx         bool          `json:"-"`
-	EthereumSimulation bool          `json:"-"`
-	RawEthereumTx      string        `json:"-"`
+	BlockNumber               uint64        `json:"-"`
+	Nonce                     uint64        `json:"-"`
+	Timestamp                 uint64        `json:"-"`
+	BaseFee                   uint64        `json:"-"`
+	BlobBaseFee               uint64        `json:"-"`
+	BlobHashes                []types.Hash  `json:"-"`
+	GasPrice                  uint64        `json:"-"`
+	GasFeeCap                 uint64        `json:"-"`
+	GasTipCap                 uint64        `json:"-"`
+	BlobGasFeeCap             uint64        `json:"-"`
+	BlockGasLimit             uint64        `json:"-"`
+	Coinbase                  types.Address `json:"-"`
+	PrevRandao                types.Hash    `json:"-"`
+	EthereumTx                bool          `json:"-"`
+	EthereumSimulation        bool          `json:"-"`
+	RawEthereumTx             string        `json:"-"`
+	SetCodeAuthorizationsJSON string        `json:"-"`
 }
 
 type Result struct {

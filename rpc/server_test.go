@@ -1550,6 +1550,22 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if !strings.Contains(string(provider.appQueryData), `"access_list":[{"address":"0xbbbb","storage_keys":["0x01"]}]`) {
 		t.Fatalf("expected call query to include access list: %s", provider.appQueryData)
 	}
+	var overrideCall JSONRPCResponse
+	overrideAddress := "0x000000000000000000000000000000000000bbbb"
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":44,"method":"eth_call","params":[{"from":"0xaaaa","to":"`+overrideAddress+`","data":"0x1234","authorizationList":[{"chainId":"0x1","address":"`+overrideAddress+`","nonce":"0x0","yParity":"0x0","r":"0x1","s":"0x1"}]},"latest",{"`+overrideAddress+`":{"balance":"0x64","nonce":"0x9","code":"0x6001","stateDiff":{"0x01":"0x02"}}},{"number":"0x63","time":"0x3039","gasLimit":"0x6acfc0","baseFeePerGas":"0x2a","blobBaseFee":"0x2b"}]}`, http.StatusOK, &overrideCall)
+	if overrideCall.Error != nil {
+		t.Fatalf("unexpected override eth_call response: %+v", overrideCall)
+	}
+	var overrideRequest web3CallRequest
+	if err := json.Unmarshal(provider.appQueryData, &overrideRequest); err != nil {
+		t.Fatal(err)
+	}
+	if overrideRequest.BlockOverride.Number != 99 || overrideRequest.BlockOverride.Timestamp != 12345 || overrideRequest.BlockOverride.GasLimit != 7_000_000 || overrideRequest.BaseFee != 42 || overrideRequest.BlobBaseFee != 43 {
+		t.Fatalf("expected block override in call request, got %+v", overrideRequest)
+	}
+	if overrideRequest.SetCodeAuthorizationsJSON == "" || len(overrideRequest.StateOverrides) != 1 || overrideRequest.StateOverrides[overrideAddress].Balance != "0x64" || overrideRequest.StateOverrides[overrideAddress].Nonce == nil || *overrideRequest.StateOverrides[overrideAddress].Nonce != 9 {
+		t.Fatalf("expected state override and authorization list in call request, got %+v", overrideRequest)
+	}
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x602a60005260206000f3","gas_used":53000}`)}
 	var createCall JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":45,"method":"eth_call","params":[{"from":"0xaaaa","data":"0x600a600c600039600a6000f3602a60005260206000f3","gas":"0x10000"},"latest"]}`, http.StatusOK, &createCall)
@@ -1652,7 +1668,7 @@ func TestWeb3EVMCallUsesHistoricalFeeContext(t *testing.T) {
 	if err := json.Unmarshal(provider.appQueryData, &call); err != nil {
 		t.Fatal(err)
 	}
-	if call.Height != 7 || call.BaseFee != 3 || call.BlobBaseFee != 5 || call.GasPrice != 3 {
+	if call.Height != 7 || call.BaseFee != 3 || call.BlobBaseFee != 5 || call.GasPrice != 0 {
 		t.Fatalf("expected historical call fee context, got %+v", call)
 	}
 	var dynamicFee JSONRPCResponse

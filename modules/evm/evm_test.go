@@ -1,6 +1,7 @@
 package evm
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -285,6 +286,86 @@ func TestModuleQueryCallPassesWeb3ExecutionContext(t *testing.T) {
 	}
 	if len(callResponse.AccessList) != 1 || callResponse.StateDiff == nil || callResponse.VMTrace == nil {
 		t.Fatalf("expected call response access list, state diff, and VM trace, got %+v", callResponse)
+	}
+}
+
+func TestModuleQueryCallAppliesStateBlockOverridesAndAuthorizations(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	vm := &recordingInvocationVM{}
+	registry := contract.NewRegistry()
+	if err := registry.Register(vm); err != nil {
+		t.Fatal(err)
+	}
+	module := NewModuleWithRegistry(registry)
+	contractAddress := types.Address("0x000000000000000000000000000000000000bbbb")
+	caller := types.Address("0x000000000000000000000000000000000000aaaa")
+	if err := storage.Set(context.Background(), ModuleName, codeKey(contractAddress), []byte{0x60, 0x00}); err != nil {
+		t.Fatal(err)
+	}
+	setTestEVMBalance(t, storage, contractAddress, 1)
+	setTestEVMNonce(t, storage, contractAddress, 2)
+	if err := storage.Set(context.Background(), ModuleName, storageKey(contractAddress, "0x01"), []byte{0x01}); err != nil {
+		t.Fatal(err)
+	}
+
+	nonce := uint64(9)
+	request, _ := json.Marshal(CallRequest{
+		VM:       "evm",
+		From:     string(caller),
+		To:       string(contractAddress),
+		Method:   "call",
+		Input:    "0x",
+		GasLimit: 100_000,
+		BaseFee:  1,
+		StateOverrides: map[string]CallStateOverride{
+			string(contractAddress): {
+				Balance:   "0x64",
+				Nonce:     &nonce,
+				Code:      "0x6001",
+				StateDiff: map[string]string{"0x01": "0x02"},
+			},
+		},
+		BlockOverride: CallBlockOverride{
+			Number:      99,
+			Timestamp:   12345,
+			GasLimit:    7_000_000,
+			BaseFee:     42,
+			BlobBaseFee: 43,
+		},
+		SetCodeAuthorizationsJSON: `[{"chainId":"0x1"}]`,
+	})
+	response := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 12, Store: storage}, vexoapp.QueryRequest{Path: []string{"call"}, Data: request})
+	if response.Code != 0 {
+		t.Fatalf("unexpected query response: %+v", response)
+	}
+	if vm.invocation.BlockNumber != 99 || vm.invocation.Timestamp != 12345 || vm.invocation.BlockGasLimit != 7_000_000 || vm.invocation.BaseFee != 42 || vm.invocation.BlobBaseFee != 43 {
+		t.Fatalf("expected block override in invocation, got %+v", vm.invocation)
+	}
+	if vm.invocation.SetCodeAuthorizationsJSON != `[{"chainId":"0x1"}]` {
+		t.Fatalf("expected authorization list to be forwarded, got %q", vm.invocation.SetCodeAuthorizationsJSON)
+	}
+	if !bytes.Equal(vm.invocation.Code, []byte{0x60, 0x01}) {
+		t.Fatalf("expected override code, got %x", vm.invocation.Code)
+	}
+	reader := vm.invocation.State.(callStateReader)
+	balance, err := reader.BalanceBig(context.Background(), contractAddress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readNonce, err := reader.Nonce(context.Background(), contractAddress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := reader.Storage(context.Background(), contractAddress, "0x01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance.Uint64() != 100 || readNonce != 9 || !bytes.Equal(value, []byte{0x02}) {
+		t.Fatalf("expected override state, balance=%v nonce=%d storage=%x", balance, readNonce, value)
 	}
 }
 

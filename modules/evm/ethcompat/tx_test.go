@@ -41,6 +41,12 @@ func TestDecodeRawTransactionBuildsSignedCallCanonicalTx(t *testing.T) {
 	}
 }
 
+func TestIntrinsicGasWithChainConfigRejectsInvalidConfig(t *testing.T) {
+	if _, err := IntrinsicGasWithChainConfigJSON([]byte{0x00}, nil, false, 0, `{invalid`); err == nil {
+		t.Fatal("expected invalid chain config JSON to fail")
+	}
+}
+
 func TestDecodeRawTransactionBuildsContractCreationCanonicalTx(t *testing.T) {
 	raw, hash := signedRawTestTx(t, 7, true)
 	decoded, err := DecodeRawTransaction(raw, DecodeOptions{ChainID: 7, BaseFee: 1})

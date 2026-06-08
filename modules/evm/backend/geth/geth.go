@@ -59,7 +59,11 @@ func (vm GethVM) Execute(ctx context.Context, invocation contract.Invocation) (c
 		DisableStorage:   false,
 	})
 	chainConfig := vm.activeChainConfig()
-	evm := gethvm.NewEVM(gethBlockContext(invocation, stateDB), stateDB, chainConfig, gethvm.Config{Tracer: traceLogger.Hooks()})
+	evmConfig := gethvm.Config{Tracer: traceLogger.Hooks()}
+	if invocation.EthereumSimulation {
+		evmConfig.NoBaseFee = true
+	}
+	evm := gethvm.NewEVM(gethBlockContext(invocation, stateDB), stateDB, chainConfig, evmConfig)
 	if (invocation.EthereumTx || invocation.EthereumSimulation) && len(invocation.Salt) == 0 {
 		return vm.executeStateTransition(invocation, stateDB, evm, traceLogger, caller, contractAddress)
 	}
@@ -253,6 +257,10 @@ func ethereumMessage(invocation contract.Invocation, caller gethcommon.Address, 
 	if gasTipCap == 0 {
 		gasTipCap = invocation.GasPrice
 	}
+	authorizations, err := gethSetCodeAuthorizations(invocation.SetCodeAuthorizationsJSON)
+	if err != nil {
+		return nil, err
+	}
 	return &gethcore.Message{
 		From:                  caller,
 		To:                    to,
@@ -266,9 +274,21 @@ func ethereumMessage(invocation contract.Invocation, caller gethcommon.Address, 
 		AccessList:            gethAccessList(invocation.AccessList),
 		BlobGasFeeCap:         new(uint256.Int).SetUint64(invocation.BlobGasFeeCap),
 		BlobHashes:            gethBlobHashes(invocation.BlobHashes),
+		SetCodeAuthorizations: authorizations,
 		SkipNonceChecks:       invocation.EthereumSimulation,
 		SkipTransactionChecks: invocation.EthereumSimulation,
 	}, nil
+}
+
+func gethSetCodeAuthorizations(raw string) ([]gethtypes.SetCodeAuthorization, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var authorizations []gethtypes.SetCodeAuthorization
+	if err := json.Unmarshal([]byte(raw), &authorizations); err != nil {
+		return nil, err
+	}
+	return authorizations, nil
 }
 
 func gethBlobHashes(hashes []types.Hash) []gethcommon.Hash {

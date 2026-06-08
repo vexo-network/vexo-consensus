@@ -488,7 +488,22 @@ func ValidateCanonicalTxForExecution(tx types.Tx, options DecodeOptions) error {
 }
 
 func IntrinsicGas(data []byte, accessList []contract.AccessListEntry, contractCreation bool, timestamp uint64) (uint64, error) {
-	rules := gethparams.AllDevChainProtocolChanges.Rules(new(big.Int), true, timestamp)
+	return IntrinsicGasWithChainConfigJSON(data, accessList, contractCreation, timestamp, "")
+}
+
+func IntrinsicGasWithChainConfigJSON(data []byte, accessList []contract.AccessListEntry, contractCreation bool, timestamp uint64, chainConfigJSON string) (uint64, error) {
+	chainConfig := gethparams.AllDevChainProtocolChanges
+	if strings.TrimSpace(chainConfigJSON) != "" {
+		var custom gethparams.ChainConfig
+		if err := json.Unmarshal([]byte(chainConfigJSON), &custom); err != nil {
+			return 0, err
+		}
+		if err := custom.CheckConfigForkOrder(); err != nil {
+			return 0, err
+		}
+		chainConfig = &custom
+	}
+	rules := chainConfig.Rules(new(big.Int), true, timestamp)
 	cost, err := gethcore.IntrinsicGas(data, gethAccessList(accessList), nil, contractCreation, rules.IsHomestead, rules.IsIstanbul, rules.IsShanghai, rules.IsAmsterdam)
 	if err != nil {
 		return 0, err

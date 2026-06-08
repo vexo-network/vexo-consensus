@@ -26,6 +26,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/finality"
 	ibckeeper "github.com/vexo-network/vexo-consensus/ibc"
 	"github.com/vexo-network/vexo-consensus/mempool"
+	evmmodule "github.com/vexo-network/vexo-consensus/modules/evm"
 	"github.com/vexo-network/vexo-consensus/modules/evm/ethcompat"
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/queryproof"
@@ -51,6 +52,7 @@ type Config struct {
 	AdminToken               string
 	EnablePprof              bool
 	AllowUnprotectedLegacyTx bool
+	EVMChainConfigJSON       string
 }
 
 type Server struct {
@@ -1568,19 +1570,19 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 		}
 		return filters.remove(filterID), nil
 	case "eth_call":
-		callResponse, rpcErr := web3EVMCall(ctx, provider, params)
+		callResponse, rpcErr := web3EVMCall(ctx, provider, cfg, params)
 		if rpcErr != nil {
 			return nil, rpcErr
 		}
 		return callResponse.Output, nil
 	case "eth_estimateGas":
-		return web3EstimateGas(ctx, provider, params)
+		return web3EstimateGas(ctx, provider, cfg, params)
 	case "eth_createAccessList":
-		return web3CreateAccessList(ctx, provider, params)
+		return web3CreateAccessList(ctx, provider, cfg, params)
 	case "debug_traceCall":
-		return web3DebugTraceCall(ctx, provider, params)
+		return web3DebugTraceCall(ctx, provider, cfg, params)
 	case "trace_call":
-		return web3TraceCall(ctx, provider, params)
+		return web3TraceCall(ctx, provider, cfg, params)
 	case "eth_subscribe", "eth_unsubscribe":
 		return nil, &JSONRPCError{Code: -32000, Message: method + " requires a WebSocket transport"}
 	default:
@@ -1781,23 +1783,26 @@ func web3Sha3(params []json.RawMessage) (string, *JSONRPCError) {
 }
 
 type web3CallRequest struct {
-	VM                   string                     `json:"vm"`
-	From                 string                     `json:"from"`
-	To                   string                     `json:"to"`
-	Method               string                     `json:"method"`
-	Input                string                     `json:"input,omitempty"`
-	GasLimit             uint64                     `json:"gas_limit,omitempty"`
-	Value                uint64                     `json:"value,omitempty"`
-	ValueHex             string                     `json:"value_hex,omitempty"`
-	Height               uint64                     `json:"height,omitempty"`
-	GasPrice             uint64                     `json:"gas_price,omitempty"`
-	MaxFeePerGas         uint64                     `json:"max_fee_per_gas,omitempty"`
-	MaxPriorityFeePerGas uint64                     `json:"max_priority_fee_per_gas,omitempty"`
-	BaseFee              uint64                     `json:"base_fee,omitempty"`
-	BlobBaseFee          uint64                     `json:"blob_base_fee,omitempty"`
-	BlobHashes           []string                   `json:"blob_hashes,omitempty"`
-	Nonce                uint64                     `json:"nonce,omitempty"`
-	AccessList           []contract.AccessListEntry `json:"access_list,omitempty"`
+	VM                        string                                 `json:"vm"`
+	From                      string                                 `json:"from"`
+	To                        string                                 `json:"to"`
+	Method                    string                                 `json:"method"`
+	Input                     string                                 `json:"input,omitempty"`
+	GasLimit                  uint64                                 `json:"gas_limit,omitempty"`
+	Value                     uint64                                 `json:"value,omitempty"`
+	ValueHex                  string                                 `json:"value_hex,omitempty"`
+	Height                    uint64                                 `json:"height,omitempty"`
+	GasPrice                  uint64                                 `json:"gas_price,omitempty"`
+	MaxFeePerGas              uint64                                 `json:"max_fee_per_gas,omitempty"`
+	MaxPriorityFeePerGas      uint64                                 `json:"max_priority_fee_per_gas,omitempty"`
+	BaseFee                   uint64                                 `json:"base_fee,omitempty"`
+	BlobBaseFee               uint64                                 `json:"blob_base_fee,omitempty"`
+	BlobHashes                []string                               `json:"blob_hashes,omitempty"`
+	Nonce                     uint64                                 `json:"nonce,omitempty"`
+	AccessList                []contract.AccessListEntry             `json:"access_list,omitempty"`
+	StateOverrides            map[string]evmmodule.CallStateOverride `json:"state_overrides,omitempty"`
+	BlockOverride             evmmodule.CallBlockOverride            `json:"block_override,omitempty"`
+	SetCodeAuthorizationsJSON string                                 `json:"set_code_authorizations_json,omitempty"`
 }
 
 type web3TransactionCall struct {
@@ -1813,6 +1818,24 @@ type web3TransactionCall struct {
 	VM                   string                `json:"vm"`
 	Method               string                `json:"method"`
 	AccessList           []web3AccessListEntry `json:"accessList,omitempty"`
+	AuthorizationList    json.RawMessage       `json:"authorizationList,omitempty"`
+}
+
+type web3StateOverrideAccount struct {
+	Balance   string            `json:"balance"`
+	Nonce     string            `json:"nonce"`
+	Code      string            `json:"code"`
+	State     map[string]string `json:"state"`
+	StateDiff map[string]string `json:"stateDiff"`
+}
+
+type web3BlockOverride struct {
+	Number      string `json:"number"`
+	Time        string `json:"time"`
+	Timestamp   string `json:"timestamp"`
+	GasLimit    string `json:"gasLimit"`
+	BaseFee     string `json:"baseFeePerGas"`
+	BlobBaseFee string `json:"blobBaseFee"`
 }
 
 type web3Receipt struct {
@@ -3618,12 +3641,12 @@ func web3HistoricalAccountQueryData(ctx context.Context, provider StatusProvider
 	return encoded, nil
 }
 
-func web3EstimateGas(ctx context.Context, provider StatusProvider, params []json.RawMessage) (string, *JSONRPCError) {
-	call, rpcErr := web3PreparedEVMCall(ctx, provider, params)
+func web3EstimateGas(ctx context.Context, provider StatusProvider, cfg Config, params []json.RawMessage) (string, *JSONRPCError) {
+	call, rpcErr := web3PreparedEVMCall(ctx, provider, cfg, params)
 	if rpcErr != nil {
 		return "", rpcErr
 	}
-	intrinsicGas, rpcErr := web3IntrinsicGasForCall(call)
+	intrinsicGas, rpcErr := web3IntrinsicGasForCall(call, cfg)
 	if rpcErr != nil {
 		return "", rpcErr
 	}
@@ -3664,12 +3687,12 @@ func web3EstimateGas(ctx context.Context, provider StatusProvider, params []json
 	return hexQuantity(left), nil
 }
 
-func web3IntrinsicGasForCall(call web3CallRequest) (uint64, *JSONRPCError) {
+func web3IntrinsicGasForCall(call web3CallRequest, cfg Config) (uint64, *JSONRPCError) {
 	input, err := hexBytes(call.Input)
 	if err != nil {
 		return 0, &JSONRPCError{Code: -32602, Message: "invalid data hex"}
 	}
-	gas, err := ethcompat.IntrinsicGas(input, call.AccessList, call.Method == "deploy", 0)
+	gas, err := ethcompat.IntrinsicGasWithChainConfigJSON(input, call.AccessList, call.Method == "deploy", call.BlockOverride.Timestamp, cfg.EVMChainConfigJSON)
 	if err != nil {
 		return 0, &JSONRPCError{Code: -32000, Message: err.Error()}
 	}
@@ -3683,15 +3706,15 @@ func saturatingAddUint64(left uint64, right uint64) uint64 {
 	return left + right
 }
 
-func web3EVMCall(ctx context.Context, provider StatusProvider, params []json.RawMessage) (web3EVMCallResponse, *JSONRPCError) {
-	call, rpcErr := web3PreparedEVMCall(ctx, provider, params)
+func web3EVMCall(ctx context.Context, provider StatusProvider, cfg Config, params []json.RawMessage) (web3EVMCallResponse, *JSONRPCError) {
+	call, rpcErr := web3PreparedEVMCall(ctx, provider, cfg, params)
 	if rpcErr != nil {
 		return web3EVMCallResponse{}, rpcErr
 	}
 	return web3EVMCallRequest(ctx, provider, call)
 }
 
-func web3PreparedEVMCall(ctx context.Context, provider StatusProvider, params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
+func web3PreparedEVMCall(ctx context.Context, provider StatusProvider, cfg Config, params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
 	call, rpcErr := evmCallParam(params)
 	if rpcErr != nil {
 		return web3CallRequest{}, rpcErr
@@ -3704,9 +3727,26 @@ func web3PreparedEVMCall(ctx context.Context, provider StatusProvider, params []
 	baseFee := web3BaseFeeAtHeight(ctx, provider, types.Height(call.Height))
 	call.BaseFee = baseFee
 	call.BlobBaseFee = web3BlobBaseFeeAtHeight(ctx, provider, types.Height(call.Height))
-	if call.GasPrice == 0 {
+	if call.GasPrice == 0 && call.MaxFeePerGas > 0 {
 		call.GasPrice = web3EffectiveCallGasPrice(baseFee, call.MaxFeePerGas, call.MaxPriorityFeePerGas)
 	}
+	if overrides, rpcErr := web3StateOverridesParam(params); rpcErr != nil {
+		return web3CallRequest{}, rpcErr
+	} else {
+		call.StateOverrides = overrides
+	}
+	if override, rpcErr := web3BlockOverrideParam(params); rpcErr != nil {
+		return web3CallRequest{}, rpcErr
+	} else {
+		call.BlockOverride = override
+		if override.BaseFee > 0 {
+			call.BaseFee = override.BaseFee
+		}
+		if override.BlobBaseFee > 0 {
+			call.BlobBaseFee = override.BlobBaseFee
+		}
+	}
+	_ = cfg
 	return call, nil
 }
 
@@ -3757,6 +3797,9 @@ func web3CallHeight(ctx context.Context, provider StatusProvider, params []json.
 		if len(trimmed) == 0 {
 			continue
 		}
+		if index == 2 && trimmed[0] == '{' && !web3LooksLikeBlockSelector(trimmed) {
+			continue
+		}
 		if trimmed[0] != '{' {
 			var tag string
 			if err := json.Unmarshal(params[index], &tag); err != nil || tag == "" {
@@ -3766,6 +3809,110 @@ func web3CallHeight(ctx context.Context, provider StatusProvider, params []json.
 		return web3BlockHeightParam(ctx, provider, params[index])
 	}
 	return provider.Status(ctx).LatestHeight, nil
+}
+
+func web3LooksLikeBlockSelector(raw json.RawMessage) bool {
+	var selector map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &selector); err != nil {
+		return false
+	}
+	_, hasNumber := selector["blockNumber"]
+	_, hasHash := selector["blockHash"]
+	_, hasCanonical := selector["requireCanonical"]
+	return hasNumber || hasHash || hasCanonical
+}
+
+func web3StateOverridesParam(params []json.RawMessage) (map[string]evmmodule.CallStateOverride, *JSONRPCError) {
+	if len(params) <= 2 || len(bytes.TrimSpace(params[2])) == 0 || string(bytes.TrimSpace(params[2])) == "null" {
+		return nil, nil
+	}
+	raw := bytes.TrimSpace(params[2])
+	if raw[0] != '{' || web3LooksLikeBlockSelector(raw) {
+		return nil, nil
+	}
+	var payload map[string]web3StateOverrideAccount
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: "invalid state override"}
+	}
+	overrides := make(map[string]evmmodule.CallStateOverride, len(payload))
+	for address, account := range payload {
+		if _, err := parseHexAddress(address); err != nil {
+			return nil, &JSONRPCError{Code: -32602, Message: "invalid state override address"}
+		}
+		override := evmmodule.CallStateOverride{
+			Balance:   account.Balance,
+			Code:      account.Code,
+			State:     normalizeOverrideStorage(account.State),
+			StateDiff: normalizeOverrideStorage(account.StateDiff),
+		}
+		if account.Nonce != "" {
+			nonce, err := parseHexQuantity(account.Nonce)
+			if err != nil {
+				return nil, &JSONRPCError{Code: -32602, Message: "invalid state override nonce"}
+			}
+			override.Nonce = &nonce
+		}
+		overrides[address] = override
+	}
+	return overrides, nil
+}
+
+func normalizeOverrideStorage(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	normalized := make(map[string]string, len(values))
+	for slot, value := range values {
+		normalized[slot] = value
+	}
+	return normalized
+}
+
+func web3BlockOverrideParam(params []json.RawMessage) (evmmodule.CallBlockOverride, *JSONRPCError) {
+	if len(params) <= 3 || len(bytes.TrimSpace(params[3])) == 0 || string(bytes.TrimSpace(params[3])) == "null" {
+		return evmmodule.CallBlockOverride{}, nil
+	}
+	var payload web3BlockOverride
+	if err := json.Unmarshal(params[3], &payload); err != nil {
+		return evmmodule.CallBlockOverride{}, &JSONRPCError{Code: -32602, Message: "invalid block override"}
+	}
+	var override evmmodule.CallBlockOverride
+	var err error
+	if payload.Number != "" {
+		override.Number, err = parseHexQuantity(payload.Number)
+		if err != nil {
+			return evmmodule.CallBlockOverride{}, &JSONRPCError{Code: -32602, Message: "invalid block override number"}
+		}
+	}
+	timestamp := payload.Timestamp
+	if timestamp == "" {
+		timestamp = payload.Time
+	}
+	if timestamp != "" {
+		override.Timestamp, err = parseHexQuantity(timestamp)
+		if err != nil {
+			return evmmodule.CallBlockOverride{}, &JSONRPCError{Code: -32602, Message: "invalid block override timestamp"}
+		}
+	}
+	if payload.GasLimit != "" {
+		override.GasLimit, err = parseHexQuantity(payload.GasLimit)
+		if err != nil {
+			return evmmodule.CallBlockOverride{}, &JSONRPCError{Code: -32602, Message: "invalid block override gasLimit"}
+		}
+	}
+	if payload.BaseFee != "" {
+		override.BaseFee, err = parseHexQuantity(payload.BaseFee)
+		if err != nil {
+			return evmmodule.CallBlockOverride{}, &JSONRPCError{Code: -32602, Message: "invalid block override baseFeePerGas"}
+		}
+	}
+	if payload.BlobBaseFee != "" {
+		override.BlobBaseFee, err = parseHexQuantity(payload.BlobBaseFee)
+		if err != nil {
+			return evmmodule.CallBlockOverride{}, &JSONRPCError{Code: -32602, Message: "invalid block override blobBaseFee"}
+		}
+	}
+	return override, nil
 }
 
 func web3LatestBaseFee(ctx context.Context, provider StatusProvider) uint64 {
@@ -3783,8 +3930,8 @@ func web3LatestBaseFee(ctx context.Context, provider StatusProvider) uint64 {
 	return state.BaseFee
 }
 
-func web3CreateAccessList(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
-	callResponse, rpcErr := web3EVMCall(ctx, provider, params)
+func web3CreateAccessList(ctx context.Context, provider StatusProvider, cfg Config, params []json.RawMessage) (any, *JSONRPCError) {
+	callResponse, rpcErr := web3EVMCall(ctx, provider, cfg, params)
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
@@ -3794,7 +3941,7 @@ func web3CreateAccessList(ctx context.Context, provider StatusProvider, params [
 	}, nil
 }
 
-func web3DebugTraceCall(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
+func web3DebugTraceCall(ctx context.Context, provider StatusProvider, cfg Config, params []json.RawMessage) (any, *JSONRPCError) {
 	if len(params) == 0 || len(params) > 3 {
 		return nil, &JSONRPCError{Code: -32602, Message: "debug_traceCall requires call object, optional block tag, and optional config"}
 	}
@@ -3802,7 +3949,8 @@ func web3DebugTraceCall(ctx context.Context, provider StatusProvider, params []j
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
-	callResponse, rpcErr := web3EVMCall(ctx, provider, params)
+	executionParams := web3DebugTraceExecutionParams(params)
+	callResponse, rpcErr := web3EVMCall(ctx, provider, cfg, executionParams)
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
@@ -3843,7 +3991,7 @@ func web3DebugTraceCall(ctx context.Context, provider StatusProvider, params []j
 	}, nil
 }
 
-func web3TraceCall(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
+func web3TraceCall(ctx context.Context, provider StatusProvider, cfg Config, params []json.RawMessage) (any, *JSONRPCError) {
 	if len(params) == 0 || len(params) > 3 {
 		return nil, &JSONRPCError{Code: -32602, Message: "trace_call requires call object, optional trace types, and optional block tag"}
 	}
@@ -3851,7 +3999,7 @@ func web3TraceCall(ctx context.Context, provider StatusProvider, params []json.R
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
-	callResponse, rpcErr := web3EVMCall(ctx, provider, params)
+	callResponse, rpcErr := web3EVMCall(ctx, provider, cfg, params)
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
@@ -3905,6 +4053,16 @@ func web3DebugCallTracer(params []json.RawMessage) (string, *JSONRPCError) {
 		return web3DebugTracer(params, 1)
 	}
 	return "", nil
+}
+
+func web3DebugTraceExecutionParams(params []json.RawMessage) []json.RawMessage {
+	if len(params) >= 3 {
+		return params[:2]
+	}
+	if len(params) == 2 && bytes.Contains(params[1], []byte(`"tracer"`)) {
+		return params[:1]
+	}
+	return params
 }
 
 func web3DebugTracer(params []json.RawMessage, index int) (string, *JSONRPCError) {
@@ -4731,20 +4889,28 @@ func evmCallParam(params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
 	if _, err := hexBytes(payload.Data); err != nil {
 		return web3CallRequest{}, &JSONRPCError{Code: -32602, Message: "invalid data hex"}
 	}
+	setCodeAuthorizationsJSON := ""
+	if raw := bytes.TrimSpace(payload.AuthorizationList); len(raw) > 0 && string(raw) != "null" {
+		if !json.Valid(raw) || raw[0] != '[' {
+			return web3CallRequest{}, &JSONRPCError{Code: -32602, Message: "invalid authorizationList"}
+		}
+		setCodeAuthorizationsJSON = string(raw)
+	}
 	return web3CallRequest{
-		VM:                   payload.VM,
-		From:                 payload.From,
-		To:                   payload.To,
-		Method:               payload.Method,
-		Input:                payload.Data,
-		GasLimit:             gasLimit,
-		Value:                callValue,
-		ValueHex:             callValueHex,
-		GasPrice:             gasPrice,
-		MaxFeePerGas:         maxFeePerGas,
-		MaxPriorityFeePerGas: maxPriorityFeePerGas,
-		Nonce:                nonce,
-		AccessList:           web3ContractAccessList(payload.AccessList),
+		VM:                        payload.VM,
+		From:                      payload.From,
+		To:                        payload.To,
+		Method:                    payload.Method,
+		Input:                     payload.Data,
+		GasLimit:                  gasLimit,
+		Value:                     callValue,
+		ValueHex:                  callValueHex,
+		GasPrice:                  gasPrice,
+		MaxFeePerGas:              maxFeePerGas,
+		MaxPriorityFeePerGas:      maxPriorityFeePerGas,
+		Nonce:                     nonce,
+		AccessList:                web3ContractAccessList(payload.AccessList),
+		SetCodeAuthorizationsJSON: setCodeAuthorizationsJSON,
 	}, nil
 }
 
@@ -4928,6 +5094,22 @@ func parseHexQuantityBig(value string) (*big.Int, error) {
 		return nil, fmt.Errorf("invalid quantity")
 	}
 	return parsed, nil
+}
+
+func parseHexAddress(value string) (types.Address, error) {
+	trimmed := strings.TrimSpace(value)
+	if !strings.HasPrefix(trimmed, "0x") {
+		return "", fmt.Errorf("address must use 0x prefix")
+	}
+	clean := strings.TrimPrefix(trimmed, "0x")
+	if len(clean) != 40 {
+		return "", fmt.Errorf("address must be 20 bytes")
+	}
+	decoded, err := hex.DecodeString(clean)
+	if err != nil || len(decoded) != 20 {
+		return "", fmt.Errorf("invalid address")
+	}
+	return types.Address("0x" + strings.ToLower(clean)), nil
 }
 
 func parseHexHash(value string) (types.Hash, error) {

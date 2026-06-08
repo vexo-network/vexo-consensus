@@ -90,23 +90,26 @@ type Log struct {
 }
 
 type CallRequest struct {
-	VM                   string                     `json:"vm"`
-	From                 string                     `json:"from"`
-	To                   string                     `json:"to"`
-	Method               string                     `json:"method"`
-	Input                string                     `json:"input,omitempty"`
-	GasLimit             uint64                     `json:"gas_limit,omitempty"`
-	Value                uint64                     `json:"value,omitempty"`
-	ValueHex             string                     `json:"value_hex,omitempty"`
-	Height               uint64                     `json:"height,omitempty"`
-	GasPrice             uint64                     `json:"gas_price,omitempty"`
-	MaxFeePerGas         uint64                     `json:"max_fee_per_gas,omitempty"`
-	MaxPriorityFeePerGas uint64                     `json:"max_priority_fee_per_gas,omitempty"`
-	BaseFee              uint64                     `json:"base_fee,omitempty"`
-	BlobBaseFee          uint64                     `json:"blob_base_fee,omitempty"`
-	BlobHashes           []string                   `json:"blob_hashes,omitempty"`
-	Nonce                uint64                     `json:"nonce,omitempty"`
-	AccessList           []contract.AccessListEntry `json:"access_list,omitempty"`
+	VM                        string                       `json:"vm"`
+	From                      string                       `json:"from"`
+	To                        string                       `json:"to"`
+	Method                    string                       `json:"method"`
+	Input                     string                       `json:"input,omitempty"`
+	GasLimit                  uint64                       `json:"gas_limit,omitempty"`
+	Value                     uint64                       `json:"value,omitempty"`
+	ValueHex                  string                       `json:"value_hex,omitempty"`
+	Height                    uint64                       `json:"height,omitempty"`
+	GasPrice                  uint64                       `json:"gas_price,omitempty"`
+	MaxFeePerGas              uint64                       `json:"max_fee_per_gas,omitempty"`
+	MaxPriorityFeePerGas      uint64                       `json:"max_priority_fee_per_gas,omitempty"`
+	BaseFee                   uint64                       `json:"base_fee,omitempty"`
+	BlobBaseFee               uint64                       `json:"blob_base_fee,omitempty"`
+	BlobHashes                []string                     `json:"blob_hashes,omitempty"`
+	Nonce                     uint64                       `json:"nonce,omitempty"`
+	AccessList                []contract.AccessListEntry   `json:"access_list,omitempty"`
+	StateOverrides            map[string]CallStateOverride `json:"state_overrides,omitempty"`
+	BlockOverride             CallBlockOverride            `json:"block_override,omitempty"`
+	SetCodeAuthorizationsJSON string                       `json:"set_code_authorizations_json,omitempty"`
 }
 
 type CallResponse struct {
@@ -117,6 +120,22 @@ type CallResponse struct {
 	AccessList []contract.AccessListEntry `json:"access_list,omitempty"`
 	StateDiff  any                        `json:"state_diff,omitempty"`
 	VMTrace    any                        `json:"vm_trace,omitempty"`
+}
+
+type CallStateOverride struct {
+	Balance   string            `json:"balance,omitempty"`
+	Nonce     *uint64           `json:"nonce,omitempty"`
+	Code      string            `json:"code,omitempty"`
+	State     map[string]string `json:"state,omitempty"`
+	StateDiff map[string]string `json:"stateDiff,omitempty"`
+}
+
+type CallBlockOverride struct {
+	Number      uint64 `json:"number,omitempty"`
+	Timestamp   uint64 `json:"timestamp,omitempty"`
+	GasLimit    uint64 `json:"gas_limit,omitempty"`
+	BaseFee     uint64 `json:"base_fee,omitempty"`
+	BlobBaseFee uint64 `json:"blob_base_fee,omitempty"`
 }
 
 type ProofRequest struct {
@@ -743,6 +762,9 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 	if request.Height > 0 {
 		blockNumber = request.Height
 	}
+	if request.BlockOverride.Number > 0 {
+		blockNumber = request.BlockOverride.Number
+	}
 	state, err := stateReaderForCall(ctx, request.Height)
 	if err != nil {
 		if errors.Is(err, vexostore.ErrKeyNotFound) {
@@ -750,6 +772,7 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 		}
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
 	}
+	state = newOverrideStateReader(state, request.StateOverrides)
 	var code []byte
 	if ctx.Store != nil {
 		code, err = state.Code(ctx.GoContext(), types.Address(request.To))
@@ -764,31 +787,48 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 	if err != nil {
 		return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
 	}
+	timestamp := headerUnixSeconds(ctx.Header)
+	if request.BlockOverride.Timestamp > 0 {
+		timestamp = request.BlockOverride.Timestamp
+	}
+	blockGasLimit := ctx.GasLimit()
+	if request.BlockOverride.GasLimit > 0 {
+		blockGasLimit = request.BlockOverride.GasLimit
+	}
+	baseFee := request.BaseFee
+	if request.BlockOverride.BaseFee > 0 {
+		baseFee = request.BlockOverride.BaseFee
+	}
+	blobBaseFee := request.BlobBaseFee
+	if request.BlockOverride.BlobBaseFee > 0 {
+		blobBaseFee = request.BlockOverride.BlobBaseFee
+	}
 	result, err := module.registry.Execute(ctx.GoContext(), contract.Invocation{
-		VM:                 request.VM,
-		Caller:             types.Address(request.From),
-		Contract:           types.Address(request.To),
-		Method:             request.Method,
-		Input:              input,
-		GasLimit:           request.GasLimit,
-		Value:              uint64Amount(callValue),
-		ValueBig:           callValue,
-		Code:               code,
-		State:              state,
-		ReadOnly:           false,
-		BlockNumber:        blockNumber,
-		Timestamp:          headerUnixSeconds(ctx.Header),
-		BlockGasLimit:      ctx.GasLimit(),
-		GasPrice:           request.GasPrice,
-		GasFeeCap:          request.MaxFeePerGas,
-		GasTipCap:          request.MaxPriorityFeePerGas,
-		BaseFee:            request.BaseFee,
-		BlobBaseFee:        request.BlobBaseFee,
-		BlobHashes:         parseBlobHashes(request.BlobHashes),
-		Coinbase:           types.Address("fee_collector"),
-		AccessList:         append([]contract.AccessListEntry(nil), request.AccessList...),
-		Nonce:              request.Nonce,
-		EthereumSimulation: true,
+		VM:                        request.VM,
+		Caller:                    types.Address(request.From),
+		Contract:                  types.Address(request.To),
+		Method:                    request.Method,
+		Input:                     input,
+		GasLimit:                  request.GasLimit,
+		Value:                     uint64Amount(callValue),
+		ValueBig:                  callValue,
+		Code:                      code,
+		State:                     state,
+		ReadOnly:                  false,
+		BlockNumber:               blockNumber,
+		Timestamp:                 timestamp,
+		BlockGasLimit:             blockGasLimit,
+		GasPrice:                  request.GasPrice,
+		GasFeeCap:                 request.MaxFeePerGas,
+		GasTipCap:                 request.MaxPriorityFeePerGas,
+		BaseFee:                   baseFee,
+		BlobBaseFee:               blobBaseFee,
+		BlobHashes:                parseBlobHashes(request.BlobHashes),
+		Coinbase:                  types.Address("fee_collector"),
+		AccessList:                append([]contract.AccessListEntry(nil), request.AccessList...),
+		Nonce:                     request.Nonce,
+		EthereumSimulation:        true,
+		SetCodeAuthorizationsJSON: request.SetCodeAuthorizationsJSON,
 	})
 	if err != nil {
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
@@ -1993,13 +2033,15 @@ type evmStateReader struct {
 	store vexoapp.StateStore
 }
 
-func stateReaderForCall(ctx vexoapp.Context, height uint64) (interface {
+type callStateReader interface {
 	contract.StateReader
 	contract.BalanceBigReader
 	contract.BalanceReader
 	contract.NonceReader
 	contract.BlockHashReader
-}, error) {
+}
+
+func stateReaderForCall(ctx vexoapp.Context, height uint64) (callStateReader, error) {
 	if ctx.Store == nil {
 		return evmStateReader{}, nil
 	}
@@ -2011,6 +2053,129 @@ func stateReaderForCall(ctx vexoapp.Context, height uint64) (interface {
 		return nil, err
 	}
 	return newEVMSnapshotStateReader(ctx.Store, accounts), nil
+}
+
+type overrideStateReader struct {
+	base     callStateReader
+	accounts map[string]CallStateOverride
+}
+
+func newOverrideStateReader(base callStateReader, overrides map[string]CallStateOverride) callStateReader {
+	if len(overrides) == 0 {
+		return base
+	}
+	normalized := make(map[string]CallStateOverride, len(overrides))
+	for address, override := range overrides {
+		if len(override.State) > 0 {
+			state := make(map[string]string, len(override.State))
+			for slot, value := range override.State {
+				state[normalizeSlot(slot)] = value
+			}
+			override.State = state
+		}
+		if len(override.StateDiff) > 0 {
+			stateDiff := make(map[string]string, len(override.StateDiff))
+			for slot, value := range override.StateDiff {
+				stateDiff[normalizeSlot(slot)] = value
+			}
+			override.StateDiff = stateDiff
+		}
+		normalized[canonicalAddressKey(types.Address(address))] = override
+	}
+	return overrideStateReader{base: base, accounts: normalized}
+}
+
+func (reader overrideStateReader) override(address types.Address) (CallStateOverride, bool) {
+	override, found := reader.accounts[canonicalAddressKey(address)]
+	return override, found
+}
+
+func (reader overrideStateReader) Code(ctx context.Context, address types.Address) ([]byte, error) {
+	if override, found := reader.override(address); found && override.Code != "" {
+		return decodeOverrideBytes(override.Code)
+	}
+	return reader.base.Code(ctx, address)
+}
+
+func (reader overrideStateReader) Storage(ctx context.Context, address types.Address, slot string) ([]byte, error) {
+	override, found := reader.override(address)
+	if !found {
+		return reader.base.Storage(ctx, address, slot)
+	}
+	normalized := normalizeSlot(slot)
+	if override.State != nil {
+		return decodeOverrideBytes(override.State[normalized])
+	}
+	if override.StateDiff != nil {
+		if value, ok := override.StateDiff[normalized]; ok {
+			return decodeOverrideBytes(value)
+		}
+	}
+	return reader.base.Storage(ctx, address, slot)
+}
+
+func (reader overrideStateReader) Balance(ctx context.Context, address types.Address) (uint64, error) {
+	balance, err := reader.BalanceBig(ctx, address)
+	if err != nil {
+		return 0, err
+	}
+	if balance == nil || balance.Sign() == 0 {
+		return 0, nil
+	}
+	if !balance.IsUint64() {
+		return 0, ErrInvalidEVMTx
+	}
+	return balance.Uint64(), nil
+}
+
+func (reader overrideStateReader) BalanceBig(ctx context.Context, address types.Address) (*big.Int, error) {
+	if override, found := reader.override(address); found && override.Balance != "" {
+		return parseOverrideBig(override.Balance)
+	}
+	return reader.base.BalanceBig(ctx, address)
+}
+
+func (reader overrideStateReader) Nonce(ctx context.Context, address types.Address) (uint64, error) {
+	if override, found := reader.override(address); found && override.Nonce != nil {
+		return *override.Nonce, nil
+	}
+	return reader.base.Nonce(ctx, address)
+}
+
+func (reader overrideStateReader) BlockHash(ctx context.Context, height uint64) (types.Hash, error) {
+	return reader.base.BlockHash(ctx, height)
+}
+
+func decodeOverrideBytes(value string) ([]byte, error) {
+	if value == "" || value == "0x" {
+		return nil, nil
+	}
+	clean := strings.TrimPrefix(value, "0x")
+	if len(clean)%2 == 1 {
+		clean = "0" + clean
+	}
+	decoded, err := hex.DecodeString(clean)
+	if err != nil {
+		return nil, ErrInvalidEVMQuery
+	}
+	return decoded, nil
+}
+
+func parseOverrideBig(value string) (*big.Int, error) {
+	if value == "" {
+		return new(big.Int), nil
+	}
+	base := 10
+	clean := value
+	if strings.HasPrefix(value, "0x") {
+		base = 16
+		clean = strings.TrimPrefix(value, "0x")
+	}
+	parsed, ok := new(big.Int).SetString(clean, base)
+	if !ok || parsed.Sign() < 0 || parsed.BitLen() > 256 {
+		return nil, ErrInvalidEVMQuery
+	}
+	return parsed, nil
 }
 
 func (reader evmStateReader) Code(ctx context.Context, address types.Address) ([]byte, error) {
