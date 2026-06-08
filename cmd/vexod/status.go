@@ -39,6 +39,7 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "execution.gas_denom: %s\n", cfg.Execution.GasDenom)
 	fmt.Fprintf(writer, "execution.evm_fork_preset: %s\n", cfg.Execution.EVMForkPreset)
 	fmt.Fprintf(writer, "execution.evm_chain_config_json: %t\n", cfg.Execution.EVMChainConfigJSON != "")
+	fmt.Fprintf(writer, "execution.allow_unprotected_legacy_tx: %t\n", cfg.Execution.AllowUnprotectedLegacyTx)
 	fmt.Fprintf(writer, "execution.max_blob_sidecar_blobs: %d\n", cfg.Execution.MaxBlobSidecarBlobs)
 	fmt.Fprintf(writer, "execution.max_blob_sidecar_bytes: %d\n", cfg.Execution.MaxBlobSidecarBytes)
 	fmt.Fprintf(writer, "bank.mint_authority: %s\n", cfg.Bank.MintAuthority)
@@ -160,6 +161,7 @@ type executionStatus struct {
 	GasDenom                 string `json:"gas_denom"`
 	EVMForkPreset            string `json:"evm_fork_preset"`
 	EVMChainConfigJSON       bool   `json:"evm_chain_config_json"`
+	AllowUnprotectedLegacyTx bool   `json:"allow_unprotected_legacy_tx"`
 	MaxBlobSidecarBlobs      uint64 `json:"max_blob_sidecar_blobs"`
 	MaxBlobSidecarBytes      uint64 `json:"max_blob_sidecar_bytes"`
 }
@@ -255,6 +257,7 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			GasDenom:                 cfg.Execution.GasDenom,
 			EVMForkPreset:            cfg.Execution.EVMForkPreset,
 			EVMChainConfigJSON:       cfg.Execution.EVMChainConfigJSON != "",
+			AllowUnprotectedLegacyTx: cfg.Execution.AllowUnprotectedLegacyTx,
 			MaxBlobSidecarBlobs:      cfg.Execution.MaxBlobSidecarBlobs,
 			MaxBlobSidecarBytes:      cfg.Execution.MaxBlobSidecarBytes,
 		},

@@ -172,6 +172,30 @@ func TestValidateNetworkSafetyAcceptsHardenedEd25519Config(t *testing.T) {
 	}
 }
 
+func TestValidateNetworkSafetyRejectsUnprotectedLegacyEthereumTx(t *testing.T) {
+	cfg := Default("vexo-test")
+	cfg.Crypto.Backend = CryptoBackendEd25519
+	cfg.Committee.Backend = committee.BackendVRF
+	cfg.VRF.ProductionAdapter = true
+	cfg.VRF.AuditReport = "vrf-audit-2026"
+	cfg.VRF.KeySource = "remote-signer"
+	cfg.Execution.RequireSigned = true
+	cfg.Bank.MintAuthority = "governance"
+	cfg.Execution.RequireNonce = true
+	cfg.Execution.AllowUnprotectedLegacyTx = true
+	cfg.Execution.MinFee = 1
+	cfg.Execution.BaseFee = 1
+	cfg.Execution.MinGas = 1
+	cfg.Mempool.MinFee = 1
+	cfg.Mempool.EnablePriority = true
+	cfg.Mempool.WALPath = "mempool.wal"
+	cfg.Mempool.SeenTTL = time.Hour
+
+	if err := cfg.ValidateNetworkSafety(); !errors.Is(err, ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected unprotected legacy tx support to be unsafe, got %v", err)
+	}
+}
+
 func TestValidateNetworkSafetyRejectsDisabledMempoolReplacement(t *testing.T) {
 	cfg := Default("vexo-test")
 	cfg.Crypto.Backend = CryptoBackendEd25519

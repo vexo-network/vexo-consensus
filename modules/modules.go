@@ -38,10 +38,11 @@ func BuildWithChainConfig(chain config.Config) ([]vexoapp.Module, error) {
 	var evmModule vexoapp.Module
 	if moduleEnabled(chain.Application.Modules, appevm.ModuleName) {
 		module, err := appevm.NewModuleWithPolicy(appevm.Policy{
-			EVMChainID:          chain.Execution.EVMChainID,
-			GethChainConfigJSON: chain.Execution.EVMChainConfigJSON,
-			MaxBlobSidecarBlobs: chain.Execution.MaxBlobSidecarBlobs,
-			MaxBlobSidecarBytes: chain.Execution.MaxBlobSidecarBytes,
+			EVMChainID:               chain.Execution.EVMChainID,
+			GethChainConfigJSON:      chain.Execution.EVMChainConfigJSON,
+			AllowUnprotectedLegacyTx: chain.Execution.AllowUnprotectedLegacyTx,
+			MaxBlobSidecarBlobs:      chain.Execution.MaxBlobSidecarBlobs,
+			MaxBlobSidecarBytes:      chain.Execution.MaxBlobSidecarBytes,
 		})
 		if err != nil {
 			return nil, err

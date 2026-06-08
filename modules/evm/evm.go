@@ -45,10 +45,11 @@ type Module struct {
 }
 
 type Policy struct {
-	EVMChainID          uint64
-	GethChainConfigJSON string
-	MaxBlobSidecarBlobs uint64
-	MaxBlobSidecarBytes uint64
+	EVMChainID               uint64
+	GethChainConfigJSON      string
+	AllowUnprotectedLegacyTx bool
+	MaxBlobSidecarBlobs      uint64
+	MaxBlobSidecarBytes      uint64
 }
 
 type Receipt struct {
@@ -108,6 +109,8 @@ type CallRequest struct {
 type CallResponse struct {
 	Output     string                     `json:"output,omitempty"`
 	GasUsed    uint64                     `json:"gas_used,omitempty"`
+	Failed     bool                       `json:"failed,omitempty"`
+	Error      string                     `json:"error,omitempty"`
 	AccessList []contract.AccessListEntry `json:"access_list,omitempty"`
 	StateDiff  any                        `json:"state_diff,omitempty"`
 	VMTrace    any                        `json:"vm_trace,omitempty"`
@@ -195,7 +198,7 @@ func (Module) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisState) err
 func (Module) BeginBlock(ctx vexoapp.Context, header types.Header) error { return nil }
 
 func (module Module) ValidateTx(ctx vexoapp.Context, tx types.Tx) error {
-	if err := validateEthereumRawTx(ctx, tx); err != nil {
+	if err := module.validateEthereumRawTx(ctx, tx); err != nil {
 		return err
 	}
 	_, err := module.blobSidecarBundleFromTx(tx)
@@ -215,14 +218,14 @@ func (module Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 	}
 	switch canonical.Action {
 	case "call":
-		if err := validateEthereumRawTx(ctx, tx); err != nil {
+		if err := module.validateEthereumRawTx(ctx, tx); err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
 		return module.deliverCall(ctx, tx, canonical.Args)
 	case "deploy":
 		return module.deliverDeploy(ctx, tx, canonical.Args)
 	case "eth_deploy":
-		if err := validateEthereumRawTx(ctx, tx); err != nil {
+		if err := module.validateEthereumRawTx(ctx, tx); err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
 		return module.deliverEthereumDeploy(ctx, tx, canonical.Args)
@@ -265,18 +268,12 @@ func (Module) Prune(ctx vexoapp.Context, retainFrom types.Height) error {
 			Delete:    true,
 		})
 	}
-	if len(writes) == 0 {
-		return nil
+	pruneWrites, err := evmHistoryPruneWrites(ctx.GoContext(), ctx.Store, uint64(retainFrom))
+	if err != nil {
+		return err
 	}
-	if batchStore, ok := ctx.Store.(vexostore.BatchKVStore); ok {
-		return batchStore.SetBatch(ctx.GoContext(), writes)
-	}
-	for _, write := range writes {
-		if err := ctx.Store.Delete(ctx.GoContext(), write.Namespace, write.Key); err != nil {
-			return err
-		}
-	}
-	return nil
+	writes = append(writes, pruneWrites...)
+	return applyKVWrites(ctx.GoContext(), ctx.Store, writes)
 }
 
 func (module Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
@@ -760,6 +757,8 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 	encoded, err := json.Marshal(CallResponse{
 		Output:     "0x" + hex.EncodeToString(result.Output),
 		GasUsed:    result.GasUsed,
+		Failed:     result.Failed,
+		Error:      result.Error,
 		AccessList: append([]contract.AccessListEntry(nil), result.AccessList...),
 		StateDiff:  stateDiffFromResult(result, types.Address(request.To)),
 		VMTrace:    result.VMTrace,
@@ -1410,6 +1409,107 @@ func queryLogs(ctx vexoapp.Context, prefix []byte, legacyKey []byte) vexoapp.Que
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
 	}
 	return vexoapp.QueryResponse{Value: append([]byte(nil), value...)}
+}
+
+func evmHistoryPruneWrites(ctx context.Context, store vexoapp.StateStore, retainFrom uint64) ([]vexostore.KVWrite, error) {
+	prefixStore, ok := store.(vexostore.PrefixKVStore)
+	if !ok {
+		return nil, nil
+	}
+	pairs, err := prefixStore.ExportPrefix(ctx, ModuleName, []byte("receipt_index/"))
+	if err != nil {
+		return nil, err
+	}
+	writes := make([]vexostore.KVWrite, 0)
+	for _, pair := range pairs {
+		var index ReceiptIndex
+		if err := json.Unmarshal(pair.Value, &index); err != nil {
+			return nil, err
+		}
+		if index.Height == 0 || index.Height >= retainFrom || index.TxHash == "" {
+			continue
+		}
+		receipt, err := loadReceiptForPrune(ctx, store, index.TxHash)
+		if err != nil {
+			return nil, err
+		}
+		writes = append(writes,
+			deleteWrite(ModuleName, append([]byte(nil), pair.Key...)),
+			deleteWrite(ModuleName, receiptKey(index.TxHash)),
+		)
+		for _, log := range receipt.Logs {
+			writes = append(writes,
+				deleteWrite(ModuleName, globalLogKey(log)),
+				deleteWrite(ModuleName, addressLogKey(log)),
+			)
+		}
+		blobRecord, found, err := loadBlobSidecarForPrune(ctx, store, index.TxHash)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			writes = append(writes, deleteWrite(ModuleName, blobSidecarKey(index.TxHash)))
+			for _, blobHash := range blobRecord.Sidecar.BlobHashes {
+				writes = append(writes, deleteWrite(ModuleName, blobSidecarHashIndexKey(blobHash)))
+			}
+		}
+	}
+	return writes, nil
+}
+
+func loadReceiptForPrune(ctx context.Context, store vexoapp.StateStore, txHash string) (Receipt, error) {
+	value, err := store.Get(ctx, ModuleName, receiptKey(txHash))
+	if errors.Is(err, vexostore.ErrKeyNotFound) {
+		return Receipt{TxHash: txHash}, nil
+	}
+	if err != nil {
+		return Receipt{}, err
+	}
+	var receipt Receipt
+	if err := json.Unmarshal(value, &receipt); err != nil {
+		return Receipt{}, err
+	}
+	return receipt, nil
+}
+
+func loadBlobSidecarForPrune(ctx context.Context, store vexoapp.StateStore, txHash string) (BlobSidecarRecord, bool, error) {
+	value, err := store.Get(ctx, ModuleName, blobSidecarKey(txHash))
+	if errors.Is(err, vexostore.ErrKeyNotFound) {
+		return BlobSidecarRecord{}, false, nil
+	}
+	if err != nil {
+		return BlobSidecarRecord{}, false, err
+	}
+	var record BlobSidecarRecord
+	if err := json.Unmarshal(value, &record); err != nil {
+		return BlobSidecarRecord{}, false, err
+	}
+	return record, true, nil
+}
+
+func applyKVWrites(ctx context.Context, store vexoapp.StateStore, writes []vexostore.KVWrite) error {
+	if len(writes) == 0 {
+		return nil
+	}
+	if batchStore, ok := store.(vexostore.BatchKVStore); ok {
+		return batchStore.SetBatch(ctx, writes)
+	}
+	for _, write := range writes {
+		if write.Delete {
+			if err := store.Delete(ctx, write.Namespace, write.Key); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := store.Set(ctx, write.Namespace, write.Key, write.Value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func deleteWrite(namespace string, key []byte) vexostore.KVWrite {
+	return vexostore.KVWrite{Namespace: namespace, Key: append([]byte(nil), key...), Delete: true}
 }
 
 func queryEthereumStateRoot(ctx vexoapp.Context, data []byte) vexoapp.QueryResponse {
@@ -2131,6 +2231,10 @@ func cloneMap(value map[string]string) map[string]string {
 }
 
 func validateEthereumRawTx(ctx vexoapp.Context, tx types.Tx) error {
+	return Module{policy: DefaultPolicy()}.validateEthereumRawTx(ctx, tx)
+}
+
+func (module Module) validateEthereumRawTx(ctx vexoapp.Context, tx types.Tx) error {
 	if !ethcompat.IsEthereumTx(tx) {
 		return nil
 	}
@@ -2138,5 +2242,8 @@ func validateEthereumRawTx(ctx vexoapp.Context, tx types.Tx) error {
 	if chainID == 0 {
 		chainID = ethcompat.ChainNumericID(ctx.ChainID)
 	}
-	return ethcompat.ValidateCanonicalTx(tx, chainID)
+	return ethcompat.ValidateCanonicalTxWithOptions(tx, ethcompat.DecodeOptions{
+		ChainID:                chainID,
+		AllowUnprotectedLegacy: module.policy.AllowUnprotectedLegacyTx,
+	})
 }

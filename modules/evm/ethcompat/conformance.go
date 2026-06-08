@@ -108,6 +108,8 @@ func namedFixtureError(name string) error {
 		return ErrFeeCapTooLow
 	case ErrTipCapAboveFeeCap.Error():
 		return ErrTipCapAboveFeeCap
+	case ErrUnprotectedLegacyTx.Error():
+		return ErrUnprotectedLegacyTx
 	case ErrBlobFeeCapTooLow.Error():
 		return ErrBlobFeeCapTooLow
 	case ErrInvalidBlobSidecar.Error():

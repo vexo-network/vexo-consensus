@@ -246,6 +246,40 @@ func TestDecodeRawTransactionRejectsInvalidFeeCaps(t *testing.T) {
 	}
 }
 
+func TestDecodeRawTransactionRejectsUnprotectedLegacyByDefault(t *testing.T) {
+	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := gethcommon.HexToAddress("0x000000000000000000000000000000000000bEEF")
+	tx := gethtypes.NewTransaction(3, to, big.NewInt(1), 21_000, big.NewInt(13), []byte{0x01})
+	signed, err := gethtypes.SignTx(tx, gethtypes.HomesteadSigner{}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawHex := "0x" + hex.EncodeToString(raw)
+	if _, err := DecodeRawTransaction(rawHex, DecodeOptions{ChainID: 7}); !errors.Is(err, ErrUnprotectedLegacyTx) {
+		t.Fatalf("expected unprotected legacy tx rejection, got %v", err)
+	}
+	decoded, err := DecodeRawTransaction(rawHex, DecodeOptions{ChainID: 7, AllowUnprotectedLegacy: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.ChainID != 7 || decoded.Type != gethtypes.LegacyTxType {
+		t.Fatalf("unexpected allowed legacy decode: %+v", decoded)
+	}
+	if err := ValidateCanonicalTxWithOptions(decoded.Tx, DecodeOptions{ChainID: 7, AllowUnprotectedLegacy: true}); err != nil {
+		t.Fatalf("expected allowed legacy canonical tx to validate: %v", err)
+	}
+	if err := ValidateCanonicalTx(decoded.Tx, 7); !errors.Is(err, ErrUnprotectedLegacyTx) {
+		t.Fatalf("expected default canonical validation to reject legacy tx, got %v", err)
+	}
+}
+
 func TestVerifyBlobSidecarVerifiesKZGProofAndHashes(t *testing.T) {
 	var blob kzg4844.Blob
 	blob[0] = 1

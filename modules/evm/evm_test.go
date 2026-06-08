@@ -759,6 +759,115 @@ func TestModulePrunesHistoricalEthereumStateSnapshots(t *testing.T) {
 	}
 }
 
+func TestModulePrunesHistoricalEthereumReceiptsLogsAndBlobSidecars(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	ctx := context.Background()
+	oldReceipt := Receipt{
+		TxHash: "0xold",
+		Height: 1,
+		Status: 1,
+		From:   "0x000000000000000000000000000000000000aaaa",
+		To:     "0x000000000000000000000000000000000000bbbb",
+		Logs: []Log{{
+			Address:         "0x000000000000000000000000000000000000bbbb",
+			BlockNumber:     1,
+			TransactionHash: "0xold",
+			LogIndex:        0,
+			Data:            "0x01",
+		}},
+	}
+	newReceipt := Receipt{TxHash: "0xnew", Height: 2, Status: 1, From: oldReceipt.From, To: oldReceipt.To}
+	for _, receipt := range []Receipt{oldReceipt, newReceipt} {
+		if err := persistReceipt(ctx, storage, receipt); err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(receipt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := persistReceiptIndexes(ctx, storage, []types.Result{{Data: encoded}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record := BlobSidecarRecord{
+		TxHash: "0xold",
+		Sidecar: ethcompat.BlobSidecarBundle{
+			BlobHashes: []string{"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		},
+	}
+	encodedRecord, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Set(ctx, ModuleName, blobSidecarKey(record.TxHash), encodedRecord); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Set(ctx, ModuleName, blobSidecarHashIndexKey(record.Sidecar.BlobHashes[0]), []byte(record.TxHash)); err != nil {
+		t.Fatal(err)
+	}
+	if err := module.Prune(vexoapp.Context{Ctx: ctx, Store: storage}, 2); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range [][]byte{
+		receiptKey(oldReceipt.TxHash),
+		receiptIndexKey(oldReceipt.TxHash),
+		globalLogKey(oldReceipt.Logs[0]),
+		addressLogKey(oldReceipt.Logs[0]),
+		blobSidecarKey(oldReceipt.TxHash),
+		blobSidecarHashIndexKey(record.Sidecar.BlobHashes[0]),
+	} {
+		if _, err := storage.Get(ctx, ModuleName, key); !errors.Is(err, store.ErrKeyNotFound) {
+			t.Fatalf("expected old EVM history key %q to be pruned, got %v", key, err)
+		}
+	}
+	if _, err := storage.Get(ctx, ModuleName, receiptKey(newReceipt.TxHash)); err != nil {
+		t.Fatalf("expected retained receipt, got %v", err)
+	}
+	if _, err := storage.Get(ctx, ModuleName, receiptIndexKey(newReceipt.TxHash)); err != nil {
+		t.Fatalf("expected retained receipt index, got %v", err)
+	}
+}
+
+func TestModuleRejectsUnprotectedLegacyEthereumTxUnlessPolicyAllows(t *testing.T) {
+	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := gethcommon.HexToAddress("0x000000000000000000000000000000000000bEEF")
+	legacy := gethtypes.NewTransaction(0, to, big.NewInt(1), 21_000, big.NewInt(13), nil)
+	signed, err := gethtypes.SignTx(legacy, gethtypes.HomesteadSigner{}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := ethcompat.DecodeRawTransaction("0x"+hex.EncodeToString(raw), ethcompat.DecodeOptions{ChainID: 7, AllowUnprotectedLegacy: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaultModule, err := NewModuleWithPolicy(Policy{EVMChainID: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := defaultModule.ValidateTx(vexoapp.Context{ChainID: "vexo-chain", EVMChainID: 7}, decoded.Tx); !errors.Is(err, ethcompat.ErrUnprotectedLegacyTx) {
+		t.Fatalf("expected default module to reject unprotected legacy tx, got %v", err)
+	}
+	allowedModule, err := NewModuleWithPolicy(Policy{EVMChainID: 7, AllowUnprotectedLegacyTx: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := allowedModule.ValidateTx(vexoapp.Context{ChainID: "vexo-chain", EVMChainID: 7}, decoded.Tx); err != nil {
+		t.Fatalf("expected policy to allow unprotected legacy tx: %v", err)
+	}
+}
+
 func TestDefaultModuleExecutesEthereumRawContractCreation(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {

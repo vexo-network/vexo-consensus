@@ -39,6 +39,7 @@ const defaultReadHeaderTimeout = 5 * time.Second
 const defaultMaxRequestBytes = 1024 * 1024
 const defaultMaxWeb3Filters = 1024
 const defaultWeb3BlockGasLimit = 10_000_000
+const defaultWeb3IntrinsicGas = 21_000
 const stableAPIPrefix = "/v1"
 
 type Config struct {
@@ -1843,6 +1844,8 @@ type web3ReceiptIndex struct {
 type web3EVMCallResponse struct {
 	Output     string                `json:"output"`
 	GasUsed    uint64                `json:"gas_used"`
+	Failed     bool                  `json:"failed,omitempty"`
+	Error      string                `json:"error,omitempty"`
 	AccessList []web3AccessListEntry `json:"access_list,omitempty"`
 	StateDiff  any                   `json:"state_diff,omitempty"`
 	VMTrace    any                   `json:"vm_trace,omitempty"`
@@ -3564,33 +3567,62 @@ func web3HistoricalAccountQueryData(ctx context.Context, provider StatusProvider
 }
 
 func web3EstimateGas(ctx context.Context, provider StatusProvider, params []json.RawMessage) (string, *JSONRPCError) {
-	callResponse, rpcErr := web3EVMCall(ctx, provider, params)
-	if rpcErr == nil && callResponse.GasUsed > 0 {
-		return hexQuantity(callResponse.GasUsed), nil
-	}
-	call, parseErr := evmCallParam(params)
-	if parseErr != nil {
-		return "", parseErr
-	}
+	call, rpcErr := web3PreparedEVMCall(ctx, provider, params)
 	if rpcErr != nil {
-		if call.GasLimit > 0 {
-			return hexQuantity(call.GasLimit), nil
+		return "", rpcErr
+	}
+	high := call.GasLimit
+	if high == 0 {
+		high = defaultWeb3BlockGasLimit
+	}
+	if high < defaultWeb3IntrinsicGas {
+		high = defaultWeb3IntrinsicGas
+	}
+	probe := call
+	probe.GasLimit = high
+	callResponse, rpcErr := web3EVMCallRequest(ctx, provider, probe)
+	if rpcErr != nil {
+		return "", rpcErr
+	}
+	if callResponse.Failed {
+		return "", web3CallFailureError(callResponse)
+	}
+	low := uint64(defaultWeb3IntrinsicGas)
+	if callResponse.GasUsed > low {
+		low = callResponse.GasUsed
+	}
+	if low >= high {
+		return hexQuantity(high), nil
+	}
+	left, right := low, high
+	for left < right {
+		mid := left + (right-left)/2
+		probe.GasLimit = mid
+		response, rpcErr := web3EVMCallRequest(ctx, provider, probe)
+		if rpcErr != nil || response.Failed {
+			left = mid + 1
+			continue
 		}
-		return hexQuantity(21_000), nil
+		right = mid
 	}
-	if call.GasLimit > 0 {
-		return hexQuantity(call.GasLimit), nil
-	}
-	return hexQuantity(21_000), nil
+	return hexQuantity(left), nil
 }
 
 func web3EVMCall(ctx context.Context, provider StatusProvider, params []json.RawMessage) (web3EVMCallResponse, *JSONRPCError) {
-	call, rpcErr := evmCallParam(params)
+	call, rpcErr := web3PreparedEVMCall(ctx, provider, params)
 	if rpcErr != nil {
 		return web3EVMCallResponse{}, rpcErr
 	}
+	return web3EVMCallRequest(ctx, provider, call)
+}
+
+func web3PreparedEVMCall(ctx context.Context, provider StatusProvider, params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
+	call, rpcErr := evmCallParam(params)
+	if rpcErr != nil {
+		return web3CallRequest{}, rpcErr
+	}
 	if height, rpcErr := web3CallHeight(ctx, provider, params); rpcErr != nil {
-		return web3EVMCallResponse{}, rpcErr
+		return web3CallRequest{}, rpcErr
 	} else {
 		call.Height = uint64(height)
 	}
@@ -3600,6 +3632,10 @@ func web3EVMCall(ctx context.Context, provider StatusProvider, params []json.Raw
 	if call.GasPrice == 0 {
 		call.GasPrice = baseFee
 	}
+	return call, nil
+}
+
+func web3EVMCallRequest(ctx context.Context, provider StatusProvider, call web3CallRequest) (web3EVMCallResponse, *JSONRPCError) {
 	query, ok := provider.(AppQueryProvider)
 	if !ok {
 		return web3EVMCallResponse{}, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
@@ -3617,6 +3653,13 @@ func web3EVMCall(ctx context.Context, provider StatusProvider, params []json.Raw
 		return web3EVMCallResponse{}, &JSONRPCError{Code: -32000, Message: "invalid EVM call response"}
 	}
 	return callResponse, nil
+}
+
+func web3CallFailureError(callResponse web3EVMCallResponse) *JSONRPCError {
+	if callResponse.Error == "" {
+		callResponse.Error = "execution reverted"
+	}
+	return &JSONRPCError{Code: -32000, Message: callResponse.Error}
 }
 
 func web3CallHeight(ctx context.Context, provider StatusProvider, params []json.RawMessage) (types.Height, *JSONRPCError) {

@@ -50,15 +50,17 @@ var (
 	ErrSignatureMismatch     = errors.New("Ethereum transaction signature does not match canonical tags")
 	ErrFeeCapTooLow          = errors.New("Ethereum fee cap is below base fee")
 	ErrTipCapAboveFeeCap     = errors.New("Ethereum priority fee cap is above fee cap")
+	ErrUnprotectedLegacyTx   = errors.New("unprotected Ethereum legacy transaction is disabled")
 	ErrBlobFeeCapTooLow      = errors.New("Ethereum blob fee cap is below blob base fee")
 	ErrInvalidBlobSidecar    = errors.New("Ethereum blob sidecar proof is invalid")
 )
 
 type DecodeOptions struct {
-	ChainID     uint64
-	BaseFee     uint64
-	BlobBaseFee uint64
-	VM          string
+	ChainID                uint64
+	BaseFee                uint64
+	BlobBaseFee            uint64
+	VM                     string
+	AllowUnprotectedLegacy bool
 }
 
 type DecodedTransaction struct {
@@ -113,6 +115,9 @@ func DecodeRawTransaction(rawHex string, options DecodeOptions) (DecodedTransact
 	var ethTx gethtypes.Transaction
 	if err := ethTx.UnmarshalBinary(raw); err != nil {
 		return DecodedTransaction{}, fmt.Errorf("%w: %v", ErrInvalidRawTransaction, err)
+	}
+	if ethTx.Type() == gethtypes.LegacyTxType && !ethTx.Protected() && !options.AllowUnprotectedLegacy {
+		return DecodedTransaction{}, ErrUnprotectedLegacyTx
 	}
 	chainID, err := resolvedChainID(&ethTx, options.ChainID)
 	if err != nil {
@@ -411,6 +416,10 @@ func BlobSidecarBundleFromGeth(sidecar *gethtypes.BlobTxSidecar, expectedHashes 
 }
 
 func ValidateCanonicalTx(tx types.Tx, expectedChainID uint64) error {
+	return ValidateCanonicalTxWithOptions(tx, DecodeOptions{ChainID: expectedChainID})
+}
+
+func ValidateCanonicalTxWithOptions(tx types.Tx, options DecodeOptions) error {
 	raw, found := vexoapp.TxTag(tx, TagRaw)
 	if !found || raw == "" {
 		return ErrInvalidRawTransaction
@@ -421,11 +430,9 @@ func ValidateCanonicalTx(tx types.Tx, expectedChainID uint64) error {
 	}
 	baseFee, _ := parseUintTag(canonical.Tags, TagBaseFee)
 	blobBaseFee, _ := parseUintTag(canonical.Tags, TagBlobBaseFee)
-	decoded, err := DecodeRawTransaction(raw, DecodeOptions{
-		ChainID:     expectedChainID,
-		BaseFee:     baseFee,
-		BlobBaseFee: blobBaseFee,
-	})
+	options.BaseFee = baseFee
+	options.BlobBaseFee = blobBaseFee
+	decoded, err := DecodeRawTransaction(raw, options)
 	if err != nil {
 		return err
 	}

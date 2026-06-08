@@ -65,6 +65,7 @@ type ExecutionConfig struct {
 	GasDenom                 string
 	EVMForkPreset            string
 	EVMChainConfigJSON       string
+	AllowUnprotectedLegacyTx bool
 	MaxBlobSidecarBlobs      uint64
 	MaxBlobSidecarBytes      uint64
 }
@@ -292,6 +293,9 @@ func (config Config) ValidateNetworkSafety() error {
 		return ErrUnsafeNetworkConfig
 	}
 	if !config.Execution.RequireSigned || !config.Execution.RequireNonce {
+		return ErrUnsafeNetworkConfig
+	}
+	if config.Execution.AllowUnprotectedLegacyTx {
 		return ErrUnsafeNetworkConfig
 	}
 	if config.Execution.MinFee == 0 || config.Execution.BaseFee == 0 || config.Execution.BlobBaseFee == 0 || config.Execution.MinGas == 0 {

@@ -1522,9 +1522,16 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 
 	var estimate JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":5,"method":"eth_estimateGas","params":[{"to":"0xbbbb","gas":"0x100"}]}`, http.StatusOK, &estimate)
-	if estimate.Error != nil || estimate.Result != "0x9" {
+	if estimate.Error != nil || estimate.Result != "0x5208" {
 		t.Fatalf("unexpected estimate response: %+v", estimate)
 	}
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x","gas_used":9,"failed":true,"error":"execution reverted"}`)}
+	var failedEstimate JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":55,"method":"eth_estimateGas","params":[{"to":"0xbbbb","gas":"0x100"}]}`, http.StatusOK, &failedEstimate)
+	if failedEstimate.Error == nil || failedEstimate.Error.Message != "execution reverted" {
+		t.Fatalf("expected failed estimate to surface EVM failure, got %+v", failedEstimate)
+	}
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x1234","gas_used":9,"access_list":[{"address":"0xbbbb","storage_keys":["0x01"]}],"state_diff":{"0xbbbb":{"storage":{"0x01":{"from":"0x00","to":"0x02"}}}},"vm_trace":{"structLogs":[{"op":"STOP","pc":0}]}}`)}
 
 	var accessList JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":85,"method":"eth_createAccessList","params":[{"from":"0xaaaa","to":"0xbbbb","data":"0x1234"},"latest"]}`, http.StatusOK, &accessList)

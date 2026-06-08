@@ -21,6 +21,7 @@ func TestWriteStatus(t *testing.T) {
 		"execution.max_gas: 10000000",
 		"execution.require_signed: false",
 		"execution.fee_collector: fee_collector",
+		"execution.allow_unprotected_legacy_tx: false",
 		"bank.mint_authority:",
 		"validator.permissionless: true",
 		"committee.size: 128",
@@ -127,7 +128,7 @@ func TestWriteStatusJSON(t *testing.T) {
 	if document.Mempool.MinFee != 0 || document.Mempool.EnablePriority || !document.Mempool.EnableReplacement || document.Mempool.ReplacementBumpBPS != 1000 {
 		t.Fatalf("unexpected mempool status: %+v", document.Mempool)
 	}
-	if document.Execution.FeeDenom != "avxo" || document.Execution.DisplayDenom != "vexo" || document.Execution.DisplayExponent != 18 || document.Execution.GasDenom != "gas" {
+	if document.Execution.FeeDenom != "avxo" || document.Execution.DisplayDenom != "vexo" || document.Execution.DisplayExponent != 18 || document.Execution.GasDenom != "gas" || document.Execution.AllowUnprotectedLegacyTx {
 		t.Fatalf("unexpected execution status: %+v", document.Execution)
 	}
 	if document.Storage.Backend != "leveldb" {
