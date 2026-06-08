@@ -48,6 +48,8 @@ var (
 	ErrChainIDMismatch       = errors.New("Ethereum transaction chain ID mismatch")
 	ErrValueOverflow         = errors.New("Ethereum transaction value overflows Vexo uint64 amount")
 	ErrSignatureMismatch     = errors.New("Ethereum transaction signature does not match canonical tags")
+	ErrFeeCapTooLow          = errors.New("Ethereum fee cap is below base fee")
+	ErrTipCapAboveFeeCap     = errors.New("Ethereum priority fee cap is above fee cap")
 	ErrBlobFeeCapTooLow      = errors.New("Ethereum blob fee cap is below blob base fee")
 	ErrInvalidBlobSidecar    = errors.New("Ethereum blob sidecar proof is invalid")
 )
@@ -595,8 +597,32 @@ func signerForTransaction(tx *gethtypes.Transaction, chainID uint64) gethtypes.S
 }
 
 func effectiveGasPrice(tx *gethtypes.Transaction, baseFee uint64) (uint64, error) {
-	if tx.Type() == gethtypes.LegacyTxType || tx.Type() == gethtypes.AccessListTxType || baseFee == 0 {
-		return uint64Big(tx.GasPrice())
+	if tx.Type() == gethtypes.LegacyTxType || tx.Type() == gethtypes.AccessListTxType {
+		gasPrice, err := uint64Big(tx.GasPrice())
+		if err != nil {
+			return 0, err
+		}
+		if baseFee > 0 && gasPrice < baseFee {
+			return 0, ErrFeeCapTooLow
+		}
+		return gasPrice, nil
+	}
+	feeCap, err := uint64Big(tx.GasFeeCap())
+	if err != nil {
+		return 0, err
+	}
+	tipCap, err := uint64Big(tx.GasTipCap())
+	if err != nil {
+		return 0, err
+	}
+	if tipCap > feeCap {
+		return 0, ErrTipCapAboveFeeCap
+	}
+	if feeCap < baseFee {
+		return 0, ErrFeeCapTooLow
+	}
+	if baseFee == 0 {
+		return feeCap, nil
 	}
 	base := new(big.Int).SetUint64(baseFee)
 	candidate := new(big.Int).Add(base, tx.GasTipCap())

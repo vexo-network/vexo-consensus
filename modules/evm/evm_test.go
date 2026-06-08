@@ -935,7 +935,7 @@ func setTestEVMNonce(t *testing.T, storage vexoapp.StateStore, address types.Add
 
 func TestModuleValidateTxRejectsTamperedEthereumRawEconomics(t *testing.T) {
 	rawTx := signedEthereumCreateTx(t, ethcompat.ChainNumericID("vexo-chain"), "6000")
-	decoded, err := ethcompat.DecodeRawTransaction(rawTx, ethcompat.DecodeOptions{ChainID: ethcompat.ChainNumericID("vexo-chain"), BaseFee: 11})
+	decoded, err := ethcompat.DecodeRawTransaction(rawTx, ethcompat.DecodeOptions{ChainID: ethcompat.ChainNumericID("vexo-chain"), BaseFee: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

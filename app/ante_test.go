@@ -93,6 +93,35 @@ func TestAnteKeeperTracksNonceAcrossCommittedTxs(t *testing.T) {
 	}
 }
 
+func TestAnteKeeperTracksEthereumNonceFromZero(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	keeper := NewAnteKeeper(AnteConfig{RequireNonce: true})
+	ctx := Context{Store: storage}
+	signer := types.Address("0x000000000000000000000000000000000000aaaa")
+	if err := setBankBalance(context.Background(), storage, signer, 10); err != nil {
+		t.Fatal(err)
+	}
+	first := types.Tx("evm:call:fee=1:gas=21000:signer=0x000000000000000000000000000000000000aaaa:nonce=0:eth_raw=0x01:eth_hash=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	if err := keeper.CheckTx(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.AfterTx(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.CheckTx(ctx, first); !errors.Is(err, ErrInvalidNonce) {
+		t.Fatalf("expected replay nonce rejection, got %v", err)
+	}
+	second := types.Tx("evm:call:fee=1:gas=21000:signer=0x000000000000000000000000000000000000aaaa:nonce=1:eth_raw=0x02:eth_hash=0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	if err := keeper.CheckTx(ctx, second); err != nil {
+		t.Fatalf("expected Ethereum nonce 1 to pass after nonce 0, got %v", err)
+	}
+}
+
 func TestAnteKeeperCollectsFeeAndReportsGas(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {

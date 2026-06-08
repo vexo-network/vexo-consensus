@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/vexo-network/vexo-consensus/modules/evm/ethcompat"
 	"github.com/vexo-network/vexo-consensus/ops"
 	"github.com/vexo-network/vexo-consensus/p2p"
 )
@@ -41,13 +42,14 @@ type opsIncidentDocument struct {
 }
 
 type opsConformanceDocument struct {
-	SchemaVersion string                   `json:"schema_version"`
-	OK            bool                     `json:"ok"`
-	StartPlan     startPlanDocument        `json:"start_plan"`
-	Audit         auditDocument            `json:"audit"`
-	RotationPlan  *keyRotationPlanDocument `json:"rotation_plan,omitempty"`
-	Metrics       *ops.Report              `json:"metrics,omitempty"`
-	Checks        []auditCheckDocument     `json:"checks"`
+	SchemaVersion string                                  `json:"schema_version"`
+	OK            bool                                    `json:"ok"`
+	StartPlan     startPlanDocument                       `json:"start_plan"`
+	Audit         auditDocument                           `json:"audit"`
+	RotationPlan  *keyRotationPlanDocument                `json:"rotation_plan,omitempty"`
+	Metrics       *ops.Report                             `json:"metrics,omitempty"`
+	EVMFixtures   *ethcompat.TransactionConformanceReport `json:"evm_fixtures,omitempty"`
+	Checks        []auditCheckDocument                    `json:"checks"`
 }
 
 func runOpsThresholds(writer io.Writer, args []string) error {
@@ -86,6 +88,7 @@ func runOpsConformance(writer io.Writer, args []string) error {
 	keyPath := flags.String("key", "", "key file path")
 	metricsFile := flags.String("metrics-file", "", "current /metrics JSON file to evaluate")
 	previousMetricsFile := flags.String("previous-metrics-file", "", "previous /metrics JSON file for rate deltas")
+	evmFixtures := flags.String("evm-tx-fixtures", "", "Ethereum raw transaction fixture JSON file")
 	windowValue := flags.String("window", "1m", "elapsed time between previous and current metrics files")
 	strict := flags.Bool("strict", false, "use strict network-safety audit severities")
 	jsonOutput := flags.Bool("json", false, "write JSON output")
@@ -137,12 +140,27 @@ func runOpsConformance(writer io.Writer, args []string) error {
 		document.Metrics = &report
 		document.addCheck("metrics_thresholds", "warning", report.OK, "operator metrics should stay within alert thresholds")
 	}
+	if *evmFixtures != "" {
+		raw, err := os.ReadFile(*evmFixtures)
+		if err != nil {
+			return err
+		}
+		report, err := ethcompat.RunTransactionFixturesJSON(raw)
+		if err != nil {
+			return err
+		}
+		document.EVMFixtures = &report
+		document.addCheck("evm_transaction_fixtures", "error", report.OK, "Ethereum raw transaction fixtures must decode, validate, and match expected outcomes")
+	}
 	document.OK = document.Audit.OK && conformanceChecksOK(document.Checks)
 	if document.RotationPlan != nil {
 		document.OK = document.OK && document.RotationPlan.OK
 	}
 	if document.Metrics != nil {
 		document.OK = document.OK && document.Metrics.OK
+	}
+	if document.EVMFixtures != nil {
+		document.OK = document.OK && document.EVMFixtures.OK
 	}
 	if *jsonOutput {
 		encoder := json.NewEncoder(writer)
@@ -255,6 +273,9 @@ func writeOpsConformance(writer io.Writer, document opsConformanceDocument) {
 	}
 	if document.Metrics != nil {
 		fmt.Fprintf(writer, "metrics_ok: %t\n", document.Metrics.OK)
+	}
+	if document.EVMFixtures != nil {
+		fmt.Fprintf(writer, "evm_fixtures_ok: %t passed=%d failed=%d total=%d\n", document.EVMFixtures.OK, document.EVMFixtures.Passed, document.EVMFixtures.Failed, document.EVMFixtures.Total)
 	}
 }
 

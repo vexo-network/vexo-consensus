@@ -104,6 +104,10 @@ func namedFixtureError(name string) error {
 		return ErrValueOverflow
 	case ErrSignatureMismatch.Error():
 		return ErrSignatureMismatch
+	case ErrFeeCapTooLow.Error():
+		return ErrFeeCapTooLow
+	case ErrTipCapAboveFeeCap.Error():
+		return ErrTipCapAboveFeeCap
 	case ErrBlobFeeCapTooLow.Error():
 		return ErrBlobFeeCapTooLow
 	case ErrInvalidBlobSidecar.Error():

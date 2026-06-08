@@ -125,8 +125,11 @@ EVM behavior is configured from execution config, not by pretending the node is 
 - `execution.evm_fork_preset` defaults to `latest`; use `custom` only when `execution.evm_chain_config_json` pins a raw go-ethereum `params.ChainConfig` JSON.
 - `execution.evm_chain_config_json` is passed to the geth VM adapter and validated with go-ethereum fork-order checks before the node starts.
 - `execution.max_blob_sidecar_blobs` and `execution.max_blob_sidecar_bytes` bound `vexo_sendRawBlobTransaction` sidecars at transaction admission and execution.
+- `execution.max_blob_gas` is enforced at block execution before application state is mutated.
 - Historical `eth_call`, `eth_estimateGas`, `eth_createAccessList`, and `eth_feeHistory` use height-matched persisted base-fee and blob-base-fee state instead of latest-only fee context.
-- `modules/evm/ethcompat.RunTransactionFixturesJSON` is the CI entry point for Ethereum raw-transaction fixture/conformance suites; keep fixture corpora outside normal source unless they are small, licensed, and intentionally versioned.
+- Ethereum raw transaction admission rejects invalid fee-cap relationships, including `maxFeePerGas < baseFee`, `maxPriorityFeePerGas > maxFeePerGas`, and blob fee cap below blob base fee.
+- Ethereum raw transaction nonces use Ethereum semantics: the first accepted nonce is `0`, and the account sequence persisted after execution is the next expected nonce.
+- `modules/evm/ethcompat.RunTransactionFixturesJSON` and `vexod ops conformance --evm-tx-fixtures <file>` are the CI entry points for Ethereum raw-transaction fixture/conformance suites; keep fixture corpora outside normal source unless they are small, licensed, and intentionally versioned.
 
 Bytecode semantics come from the registered `contract.VM` adapter; chains that need Ethereum-equivalent execution must register and audit an Ethereum-compatible VM adapter.
 

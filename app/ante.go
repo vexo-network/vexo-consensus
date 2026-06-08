@@ -89,7 +89,7 @@ func (keeper AnteKeeper) CheckTx(ctx Context, tx types.Tx) error {
 	if ctx.Store == nil || meta.Signer == "" || !meta.HasNonce {
 		return nil
 	}
-	expected, err := keeper.accounts.NextSequence(ctx.GoContext(), ctx.Store, meta.Signer)
+	expected, err := keeper.expectedSequence(ctx.GoContext(), ctx.Store, meta.Signer, tx)
 	if err != nil {
 		return err
 	}
@@ -115,7 +115,7 @@ func (keeper AnteKeeper) CheckBlock(ctx Context, txs []types.Tx) error {
 		expected, found := nextBySigner[meta.Signer]
 		if !found {
 			var err error
-			expected, err = keeper.accounts.NextSequence(ctx.GoContext(), ctx.Store, meta.Signer)
+			expected, err = keeper.expectedSequence(ctx.GoContext(), ctx.Store, meta.Signer, tx)
 			if err != nil {
 				return err
 			}
@@ -143,7 +143,14 @@ func (keeper AnteKeeper) AfterTx(ctx Context, tx types.Tx) error {
 	if meta.Signer == "" || !meta.HasNonce {
 		return nil
 	}
-	return keeper.accounts.SetSequence(ctx.GoContext(), ctx.Store, meta.Signer, meta.Nonce)
+	nextSequence := meta.Nonce
+	if isEthereumRawTx(tx) {
+		if meta.Nonce == math.MaxUint64 {
+			return ErrInvalidNonce
+		}
+		nextSequence = meta.Nonce + 1
+	}
+	return keeper.accounts.SetSequence(ctx.GoContext(), ctx.Store, meta.Signer, nextSequence)
 }
 
 func (keeper AnteKeeper) GasUsed(tx types.Tx) uint64 {
@@ -252,6 +259,18 @@ func (keeper AnteKeeper) verifySignature(ctx Context, tx types.Tx) error {
 
 func (keeper AnteKeeper) signatureVerifier() vexocrypto.Signer {
 	return vexocrypto.Ed25519Signer{}
+}
+
+func (keeper AnteKeeper) expectedSequence(ctx context.Context, store StateStore, signer types.Address, tx types.Tx) (uint64, error) {
+	if isEthereumRawTx(tx) {
+		return keeper.accounts.Sequence(ctx, store, signer)
+	}
+	return keeper.accounts.NextSequence(ctx, store, signer)
+}
+
+func isEthereumRawTx(tx types.Tx) bool {
+	_, found := TxTag(tx, "eth_raw")
+	return found
 }
 
 func bankBalance(ctx context.Context, store StateStore, address types.Address) (uint64, error) {

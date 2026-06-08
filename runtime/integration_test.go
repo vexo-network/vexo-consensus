@@ -194,6 +194,30 @@ func TestRuntimeUpdatesAndRecoversDynamicBlobBaseFee(t *testing.T) {
 	}
 }
 
+func TestRuntimeRejectsBlockAboveMaxBlobGas(t *testing.T) {
+	cfg := config.Default("vexo-test")
+	cfg.Execution.MaxBlobGas = 10
+	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{&runtimeModule{name: "bank"}}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := New(cfg, application, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 1},
+		Txs: []types.Tx{
+			[]byte("bank:send:alice:bob:1:" + ethcompat.TagBlobGas + "=11"),
+		},
+	}
+	if _, err := runtime.ExecuteBlock(context.Background(), block); !errors.Is(err, ErrBlobGasLimitExceeded) {
+		t.Fatalf("expected blob gas limit rejection, got %v", err)
+	}
+}
+
 func TestRuntimeExecuteBlockPersistsBlockAndState(t *testing.T) {
 	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{&runtimeModule{name: "bank"}}, vexoapp.PrefixRouter{})
 	if err != nil {

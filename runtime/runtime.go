@@ -23,6 +23,7 @@ import (
 )
 
 var ErrAtomicAppCommitUnavailable = errors.New("atomic app block commit store is required")
+var ErrBlobGasLimitExceeded = errors.New("block blob gas exceeds configured max blob gas")
 
 type Runtime struct {
 	Config             config.Config
@@ -168,11 +169,15 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 	if err := runtime.applyUpgradeHook(ctx, block.Header.Height); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
+	blobGasUsed, err := runtime.validateBlockBlobGas(block)
+	if err != nil {
+		return app.FinalizeBlockResponse{}, err
+	}
 	baseFee := runtime.CurrentBaseFee()
 	runtime.setApplicationBaseFee(baseFee)
 	if appRuntime, ok := runtime.App.(*app.Runtime); ok && runtime.Store != nil {
 		if commitStore, ok := runtime.Store.(store.AppBlockCommitStore); ok {
-			return runtime.executeBlockStaged(ctx, block, appRuntime, commitStore, baseFee)
+			return runtime.executeBlockStaged(ctx, block, appRuntime, commitStore, baseFee, blobGasUsed)
 		}
 		return app.FinalizeBlockResponse{}, ErrAtomicAppCommitUnavailable
 	}
@@ -181,7 +186,6 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 		return app.FinalizeBlockResponse{}, err
 	}
 	nextBaseFee := runtime.NextBaseFee(response)
-	blobGasUsed := totalBlobGasUsed(block.Txs)
 	nextBlobBaseFee := runtime.NextBlobBaseFee(blobGasUsed)
 	validatorSetHash := block.Header.ValidatorSetHash
 	if len(response.ValidatorUpdates) > 0 {
@@ -246,13 +250,12 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 	return response, nil
 }
 
-func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Block, application *app.Runtime, commitStore store.AppBlockCommitStore, baseFee uint64) (app.FinalizeBlockResponse, error) {
+func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Block, application *app.Runtime, commitStore store.AppBlockCommitStore, baseFee uint64, blobGasUsed uint64) (app.FinalizeBlockResponse, error) {
 	response, writes, err := application.FinalizeBlockStaged(app.FinalizeBlockRequest{Block: block})
 	if err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
 	nextBaseFee := runtime.NextBaseFee(response)
-	blobGasUsed := totalBlobGasUsed(block.Txs)
 	nextBlobBaseFee := runtime.NextBlobBaseFee(blobGasUsed)
 	validatorSetHash := block.Header.ValidatorSetHash
 	validatorUpdateHeight := block.Header.Height + 1
@@ -357,6 +360,15 @@ func (runtime *Runtime) NextBlobBaseFee(blobGasUsed uint64) uint64 {
 		MinBaseFee:        runtime.Config.Execution.MinBlobBaseFee,
 		MaxBaseFee:        runtime.Config.Execution.MaxBlobBaseFee,
 	})
+}
+
+func (runtime *Runtime) validateBlockBlobGas(block types.Block) (uint64, error) {
+	blobGasUsed := totalBlobGasUsed(block.Txs)
+	maxBlobGas := runtime.Config.Execution.MaxBlobGas
+	if maxBlobGas > 0 && blobGasUsed > maxBlobGas {
+		return 0, ErrBlobGasLimitExceeded
+	}
+	return blobGasUsed, nil
 }
 
 func (runtime *Runtime) setApplicationBaseFee(baseFee uint64) {

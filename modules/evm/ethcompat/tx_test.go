@@ -203,6 +203,49 @@ func TestDecodeRawTransactionPreservesBlobMetadata(t *testing.T) {
 	}
 }
 
+func TestDecodeRawTransactionRejectsInvalidFeeCaps(t *testing.T) {
+	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := gethcommon.HexToAddress("0x000000000000000000000000000000000000bEEF")
+	cases := []struct {
+		name      string
+		gasTipCap *big.Int
+		gasFeeCap *big.Int
+		baseFee   uint64
+		err       error
+	}{
+		{name: "fee cap below base fee", gasTipCap: big.NewInt(1), gasFeeCap: big.NewInt(9), baseFee: 10, err: ErrFeeCapTooLow},
+		{name: "tip cap above fee cap", gasTipCap: big.NewInt(11), gasFeeCap: big.NewInt(10), baseFee: 0, err: ErrTipCapAboveFeeCap},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			tx := gethtypes.NewTx(&gethtypes.DynamicFeeTx{
+				ChainID:   big.NewInt(7),
+				Nonce:     9,
+				GasTipCap: testCase.gasTipCap,
+				GasFeeCap: testCase.gasFeeCap,
+				Gas:       50_000,
+				To:        &to,
+				Value:     big.NewInt(1),
+			})
+			signed, err := gethtypes.SignTx(tx, gethtypes.LatestSignerForChainID(big.NewInt(7)), key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := signed.MarshalBinary()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = DecodeRawTransaction("0x"+hex.EncodeToString(raw), DecodeOptions{ChainID: 7, BaseFee: testCase.baseFee})
+			if !errors.Is(err, testCase.err) {
+				t.Fatalf("expected %v, got %v", testCase.err, err)
+			}
+		})
+	}
+}
+
 func TestVerifyBlobSidecarVerifiesKZGProofAndHashes(t *testing.T) {
 	var blob kzg4844.Blob
 	blob[0] = 1
