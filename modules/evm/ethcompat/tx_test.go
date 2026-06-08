@@ -65,6 +65,63 @@ func TestDecodeRawTransactionBuildsContractCreationCanonicalTx(t *testing.T) {
 	}
 }
 
+func TestDecodeRawTransactionPreservesSetCodeTx(t *testing.T) {
+	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authKey, err := gethcrypto.HexToECDSA("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := gethcommon.HexToAddress("0x000000000000000000000000000000000000bEEF")
+	auth, err := gethtypes.SignSetCode(authKey, gethtypes.SetCodeAuthorization{
+		ChainID: *uint256.NewInt(7),
+		Address: gethcommon.HexToAddress("0x000000000000000000000000000000000000CAFe"),
+		Nonce:   1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx := gethtypes.NewTx(&gethtypes.SetCodeTx{
+		ChainID:   uint256.NewInt(7),
+		Nonce:     12,
+		GasTipCap: uint256.NewInt(2),
+		GasFeeCap: uint256.NewInt(20),
+		Gas:       80_000,
+		To:        to,
+		Value:     uint256.NewInt(3),
+		Data:      []byte{0x12, 0x34},
+		AuthList:  []gethtypes.SetCodeAuthorization{auth},
+	})
+	signed, err := gethtypes.SignTx(tx, gethtypes.LatestSignerForChainID(big.NewInt(7)), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawHex := "0x" + hex.EncodeToString(raw)
+	decoded, err := DecodeRawTransaction(rawHex, DecodeOptions{ChainID: 7, BaseFee: 11})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Type != gethtypes.SetCodeTxType || decoded.Hash != signed.Hash().Hex() || decoded.Raw != strings.ToLower(rawHex) {
+		t.Fatalf("unexpected set-code decoded tx: %+v", decoded)
+	}
+	canonical, err := vexoapp.ParseCanonicalTx(decoded.Tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if canonical.Tags[TagType] != "4" || canonical.Tags[TagRaw] != strings.ToLower(rawHex) || canonical.Tags[TagChainID] != "7" {
+		t.Fatalf("expected set-code metadata to be preserved: %+v", canonical.Tags)
+	}
+	if err := ValidateCanonicalTx(decoded.Tx, 7); err != nil {
+		t.Fatalf("expected set-code canonical tx to validate: %v", err)
+	}
+}
+
 func TestDecodeRawTransactionPreservesUint256Value(t *testing.T) {
 	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
 	if err != nil {

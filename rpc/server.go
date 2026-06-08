@@ -3313,22 +3313,60 @@ func web3Receipt4ByteTrace(ctx context.Context, provider StatusProvider, receipt
 func web3CallPrestateTrace(call web3CallRequest) map[string]any {
 	out := map[string]any{}
 	if call.From != "" {
-		out[strings.ToLower(call.From)] = map[string]any{
-			"balance": "0x0",
-			"nonce":   "0x0",
-			"code":    "0x",
-			"storage": map[string]any{},
-		}
+		out[strings.ToLower(call.From)] = web3CallPrestateAccount(call.From, call.StateOverrides)
 	}
 	if call.To != "" {
-		out[strings.ToLower(call.To)] = map[string]any{
-			"balance": "0x0",
-			"nonce":   "0x0",
-			"code":    "0x",
-			"storage": map[string]any{},
-		}
+		out[strings.ToLower(call.To)] = web3CallPrestateAccount(call.To, call.StateOverrides)
 	}
 	return out
+}
+
+func web3CallPrestateAccount(address string, overrides map[string]evmmodule.CallStateOverride) map[string]any {
+	account := map[string]any{
+		"balance": "0x0",
+		"nonce":   "0x0",
+		"code":    "0x",
+		"storage": map[string]any{},
+	}
+	override, ok := web3StateOverrideForAddress(address, overrides)
+	if !ok {
+		return account
+	}
+	if override.Balance != "" {
+		account["balance"] = normalizeHexQuantityString(override.Balance)
+	}
+	if override.Nonce != nil {
+		account["nonce"] = hexQuantity(*override.Nonce)
+	}
+	if override.Code != "" {
+		account["code"] = normalizeHexDataString(override.Code)
+	}
+	storage := make(map[string]any)
+	for slot, value := range override.State {
+		storage[normalizeStorageHex(slot)] = normalizeStorageHex(value)
+	}
+	for slot, value := range override.StateDiff {
+		storage[normalizeStorageHex(slot)] = normalizeStorageHex(value)
+	}
+	account["storage"] = storage
+	return account
+}
+
+func web3StateOverrideForAddress(address string, overrides map[string]evmmodule.CallStateOverride) (evmmodule.CallStateOverride, bool) {
+	if len(overrides) == 0 || address == "" {
+		return evmmodule.CallStateOverride{}, false
+	}
+	candidates := []string{address, strings.ToLower(address), strings.ToUpper(address)}
+	if parsed, err := parseHexAddress(address); err == nil {
+		canonical := string(parsed)
+		candidates = append(candidates, canonical, strings.ToLower(canonical), strings.ToUpper(canonical))
+	}
+	for _, candidate := range candidates {
+		if override, ok := overrides[candidate]; ok {
+			return override, true
+		}
+	}
+	return evmmodule.CallStateOverride{}, false
 }
 
 func web3SelectorTrace(input string) map[string]any {
@@ -3839,6 +3877,9 @@ func web3StateOverridesParam(params []json.RawMessage) (map[string]evmmodule.Cal
 		if _, err := parseHexAddress(address); err != nil {
 			return nil, &JSONRPCError{Code: -32602, Message: "invalid state override address"}
 		}
+		if rpcErr := validateWeb3StateOverrideAccount(account); rpcErr != nil {
+			return nil, rpcErr
+		}
 		override := evmmodule.CallStateOverride{
 			Balance:   account.Balance,
 			Code:      account.Code,
@@ -3855,6 +3896,97 @@ func web3StateOverridesParam(params []json.RawMessage) (map[string]evmmodule.Cal
 		overrides[address] = override
 	}
 	return overrides, nil
+}
+
+func validateWeb3StateOverrideAccount(account web3StateOverrideAccount) *JSONRPCError {
+	if account.Balance != "" {
+		if _, err := parseOverrideBalance(account.Balance); err != nil {
+			return &JSONRPCError{Code: -32602, Message: "invalid state override balance"}
+		}
+	}
+	if account.Nonce != "" {
+		if _, err := parseHexQuantity(account.Nonce); err != nil {
+			return &JSONRPCError{Code: -32602, Message: "invalid state override nonce"}
+		}
+	}
+	if account.Code != "" {
+		if err := validateHexData(account.Code, "state override code"); err != nil {
+			return &JSONRPCError{Code: -32602, Message: err.Error()}
+		}
+	}
+	if len(account.State) > 0 && len(account.StateDiff) > 0 {
+		return &JSONRPCError{Code: -32602, Message: "state override cannot include both state and stateDiff"}
+	}
+	if err := validateOverrideStorage(account.State, "state override state"); err != nil {
+		return &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	if err := validateOverrideStorage(account.StateDiff, "state override stateDiff"); err != nil {
+		return &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	return nil
+}
+
+func parseOverrideBalance(value string) (*big.Int, error) {
+	if strings.HasPrefix(value, "0x") {
+		parsed, err := parseHexQuantityBig(value)
+		if err != nil {
+			return nil, err
+		}
+		if parsed.BitLen() > 256 {
+			return nil, fmt.Errorf("balance exceeds uint256")
+		}
+		return parsed, nil
+	}
+	parsed, ok := new(big.Int).SetString(value, 10)
+	if !ok || parsed.Sign() < 0 || parsed.BitLen() > 256 {
+		return nil, fmt.Errorf("invalid decimal balance")
+	}
+	return parsed, nil
+}
+
+func validateHexData(value string, name string) error {
+	if !strings.HasPrefix(value, "0x") {
+		return fmt.Errorf("%s must use 0x hex data", name)
+	}
+	_, err := hexBytes(value)
+	if err != nil {
+		return fmt.Errorf("invalid %s", name)
+	}
+	return nil
+}
+
+func validateOverrideStorage(values map[string]string, name string) error {
+	for slot, value := range values {
+		slotBytes, err := parseFixedWidthHex(slot, 32)
+		if err != nil {
+			return fmt.Errorf("invalid %s slot", name)
+		}
+		if len(slotBytes) > 32 {
+			return fmt.Errorf("invalid %s slot", name)
+		}
+		valueBytes, err := parseFixedWidthHex(value, 32)
+		if err != nil {
+			return fmt.Errorf("invalid %s value", name)
+		}
+		if len(valueBytes) > 32 {
+			return fmt.Errorf("invalid %s value", name)
+		}
+	}
+	return nil
+}
+
+func parseFixedWidthHex(value string, maxBytes int) ([]byte, error) {
+	if !strings.HasPrefix(value, "0x") {
+		return nil, fmt.Errorf("hex value must use 0x prefix")
+	}
+	trimmed := strings.TrimPrefix(value, "0x")
+	if trimmed == "" {
+		return []byte{}, nil
+	}
+	if len(trimmed) > maxBytes*2 {
+		return nil, fmt.Errorf("hex value too wide")
+	}
+	return hexBytes(value)
 }
 
 func normalizeOverrideStorage(values map[string]string) map[string]string {
@@ -5068,6 +5200,42 @@ func hexBytes(value string) ([]byte, error) {
 		value = "0" + value
 	}
 	return hex.DecodeString(value)
+}
+
+func normalizeHexDataString(value string) string {
+	decoded, err := hexBytes(value)
+	if err != nil {
+		return value
+	}
+	return "0x" + hex.EncodeToString(decoded)
+}
+
+func normalizeHexQuantityString(value string) string {
+	if strings.HasPrefix(value, "0x") {
+		parsed, err := parseHexQuantityBig(value)
+		if err != nil {
+			return value
+		}
+		return "0x" + parsed.Text(16)
+	}
+	parsed, ok := new(big.Int).SetString(value, 10)
+	if !ok {
+		return value
+	}
+	return "0x" + parsed.Text(16)
+}
+
+func normalizeStorageHex(value string) string {
+	decoded, err := parseFixedWidthHex(value, 32)
+	if err != nil {
+		return value
+	}
+	if len(decoded) > 32 {
+		return value
+	}
+	out := make([]byte, 32)
+	copy(out[32-len(decoded):], decoded)
+	return "0x" + hex.EncodeToString(out)
 }
 
 func parseHexQuantity(value string) (uint64, error) {

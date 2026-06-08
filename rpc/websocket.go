@@ -18,7 +18,13 @@ import (
 	"golang.org/x/net/websocket"
 )
 
-const web3SubscriptionPollInterval = 100 * time.Millisecond
+const (
+	web3SubscriptionPollInterval  = 100 * time.Millisecond
+	web3SubscriptionWriteTimeout  = 5 * time.Second
+	web3SubscriptionMaxCatchUp    = 1024
+	web3SubscriptionMaxLogBatch   = 4096
+	web3SubscriptionMaxPendingRun = 4096
+)
 
 type web3Subscription struct {
 	ID           string
@@ -219,7 +225,11 @@ func (session *web3SubscriptionSession) publishHeads(subscription web3Subscripti
 		return subscription
 	}
 	latest := uint64(session.provider.Status(session.ctx).LatestHeight)
-	for height := subscription.LastHeight + 1; height <= latest; height++ {
+	target := latest
+	if target > subscription.LastHeight+web3SubscriptionMaxCatchUp {
+		target = subscription.LastHeight + web3SubscriptionMaxCatchUp
+	}
+	for height := subscription.LastHeight + 1; height <= target; height++ {
 		record, err := blockProvider.BlockByHeight(session.ctx, types.Height(height))
 		if errors.Is(err, store.ErrBlockNotFound) {
 			continue
@@ -227,7 +237,7 @@ func (session *web3SubscriptionSession) publishHeads(subscription web3Subscripti
 		if err != nil {
 			return subscription
 		}
-		session.sendSubscription(subscription.ID, web3BlockHeader(record))
+		session.sendSubscription(subscription.ID, web3BlockHeader(session.ctx, session.provider, record))
 		subscription.LastHeight = height
 	}
 	return subscription
@@ -238,10 +248,12 @@ func (session *web3SubscriptionSession) publishLogs(subscription web3Subscriptio
 	if rpcErr != nil {
 		return subscription
 	}
-	for index := subscription.LastLogIndex; index < len(logs); index++ {
+	sent := 0
+	for index := subscription.LastLogIndex; index < len(logs) && sent < web3SubscriptionMaxLogBatch; index++ {
 		session.sendSubscription(subscription.ID, logs[index])
+		subscription.LastLogIndex = index + 1
+		sent++
 	}
-	subscription.LastLogIndex = len(logs)
 	subscription.LastHeight = uint64(session.provider.Status(session.ctx).LatestHeight)
 	return subscription
 }
@@ -259,10 +271,14 @@ func (session *web3SubscriptionSession) publishPendingTransactions(subscription 
 		subscription.SeenPending = make(map[string]bool, len(hashes))
 	}
 	live := make(map[string]bool, len(hashes))
+	sent := 0
 	for _, hash := range hashes {
 		encoded := web3HashString(hash)
 		live[encoded] = true
 		if subscription.SeenPending[encoded] {
+			continue
+		}
+		if sent >= web3SubscriptionMaxPendingRun {
 			continue
 		}
 		result := any(encoded)
@@ -272,6 +288,7 @@ func (session *web3SubscriptionSession) publishPendingTransactions(subscription 
 			}
 		}
 		session.sendSubscription(subscription.ID, result)
+		sent++
 	}
 	subscription.SeenPending = live
 	return subscription
@@ -295,14 +312,20 @@ func (session *web3SubscriptionSession) sendJSON(value any) {
 	}
 	session.sendMu.Lock()
 	defer session.sendMu.Unlock()
-	_ = websocket.JSON.Send(session.conn, value)
+	if web3SubscriptionWriteTimeout > 0 {
+		_ = session.conn.SetWriteDeadline(time.Now().Add(web3SubscriptionWriteTimeout))
+		defer session.conn.SetWriteDeadline(time.Time{})
+	}
+	if err := websocket.JSON.Send(session.conn, value); err != nil {
+		session.cancel()
+	}
 }
 
 func web3HashString(hash types.Hash) string {
 	return "0x" + hex.EncodeToString(hash[:])
 }
 
-func web3BlockHeader(record store.BlockRecord) map[string]any {
+func web3BlockHeader(ctx context.Context, provider StatusProvider, record store.BlockRecord) map[string]any {
 	return map[string]any{
 		"number":           hexQuantity(uint64(record.Block.Header.Height)),
 		"hash":             web3HashString(record.Hash),
@@ -311,7 +334,7 @@ func web3BlockHeader(record store.BlockRecord) map[string]any {
 		"sha3Uncles":       "0x0000000000000000000000000000000000000000000000000000000000000000",
 		"logsBloom":        web3LogsBloom(record.Block.Txs, record.TxResults),
 		"transactionsRoot": web3TransactionsRoot(record.Block.Txs),
-		"stateRoot":        "0x" + hex.EncodeToString(record.AppHash[:]),
+		"stateRoot":        web3StateRoot(ctx, provider, record),
 		"receiptsRoot":     web3ReceiptsRoot(record.Block.Txs, record.TxResults),
 		"miner":            "0x0000000000000000000000000000000000000000",
 		"difficulty":       "0x0",

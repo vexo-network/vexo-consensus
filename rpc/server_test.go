@@ -28,6 +28,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/events"
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/mempool"
+	evmmodule "github.com/vexo-network/vexo-consensus/modules/evm"
 	"github.com/vexo-network/vexo-consensus/modules/evm/ethcompat"
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/p2p"
@@ -1566,6 +1567,11 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if overrideRequest.SetCodeAuthorizationsJSON == "" || len(overrideRequest.StateOverrides) != 1 || overrideRequest.StateOverrides[overrideAddress].Balance != "0x64" || overrideRequest.StateOverrides[overrideAddress].Nonce == nil || *overrideRequest.StateOverrides[overrideAddress].Nonce != 9 {
 		t.Fatalf("expected state override and authorization list in call request, got %+v", overrideRequest)
 	}
+	var invalidOverride JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":46,"method":"eth_call","params":[{"to":"`+overrideAddress+`"},"latest",{"`+overrideAddress+`":{"code":"6001","state":{"0x01":"0x02"},"stateDiff":{"0x01":"0x03"}}}]}`, http.StatusOK, &invalidOverride)
+	if invalidOverride.Error == nil || invalidOverride.Error.Code != -32602 {
+		t.Fatalf("expected invalid state override to be rejected, got %+v", invalidOverride)
+	}
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x602a60005260206000f3","gas_used":53000}`)}
 	var createCall JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":45,"method":"eth_call","params":[{"from":"0xaaaa","data":"0x600a600c600039600a6000f3602a60005260206000f3","gas":"0x10000"},"latest"]}`, http.StatusOK, &createCall)
@@ -1716,6 +1722,32 @@ func TestHandlerWeb3UsesConfiguredEVMChainID(t *testing.T) {
 	}
 }
 
+func TestWeb3CallPrestateTraceIncludesStateOverride(t *testing.T) {
+	nonce := uint64(9)
+	address := "0x000000000000000000000000000000000000bbbb"
+	trace := web3CallPrestateTrace(web3CallRequest{
+		From: address,
+		StateOverrides: map[string]evmmodule.CallStateOverride{
+			address: {
+				Balance: "100",
+				Nonce:   &nonce,
+				Code:    "0x6001",
+				StateDiff: map[string]string{
+					"0x01": "0x02",
+				},
+			},
+		},
+	})
+	account, ok := trace[address].(map[string]any)
+	storage, _ := account["storage"].(map[string]any)
+	if !ok || account["balance"] != "0x64" || account["nonce"] != "0x9" || account["code"] != "0x6001" {
+		t.Fatalf("expected prestate override account, got %+v", trace)
+	}
+	if storage["0x0000000000000000000000000000000000000000000000000000000000000001"] != "0x0000000000000000000000000000000000000000000000000000000000000002" {
+		t.Fatalf("expected normalized override storage, got %+v", storage)
+	}
+}
+
 func TestWeb3FilterStoreEvictsOldestFilters(t *testing.T) {
 	filters := newWeb3FilterStore()
 	filters.max = 2
@@ -1790,6 +1822,9 @@ func TestHandlerServesWeb3WebSocketNewHeads(t *testing.T) {
 			},
 		},
 		latest: 1,
+		appQueryResponses: map[string]vexoapp.QueryResponse{
+			"evm/eth_state_root": {Value: []byte(`{"state_root":"0x1111111111111111111111111111111111111111111111111111111111111111"}`)},
+		},
 	}
 	sent := make([]any, 0)
 	session := &web3SubscriptionSession{
@@ -1821,8 +1856,36 @@ func TestHandlerServesWeb3WebSocketNewHeads(t *testing.T) {
 		t.Fatalf("unexpected subscription params: %+v", notification)
 	}
 	result, ok := params["result"].(map[string]any)
-	if !ok || result["number"] != "0x2" || result["hash"] != "0x0200000000000000000000000000000000000000000000000000000000000000" {
+	if !ok || result["number"] != "0x2" || result["hash"] != "0x0200000000000000000000000000000000000000000000000000000000000000" || result["stateRoot"] != "0x1111111111111111111111111111111111111111111111111111111111111111" {
 		t.Fatalf("unexpected head result: %+v", result)
+	}
+}
+
+func TestHandlerBoundsWeb3WebSocketCatchUp(t *testing.T) {
+	blocks := make(map[types.Height]store.BlockRecord)
+	for height := types.Height(1); height <= types.Height(web3SubscriptionMaxCatchUp+2); height++ {
+		blocks[height] = store.BlockRecord{Block: types.Block{Header: types.Header{ChainID: "vexo-chain", Height: height}}}
+	}
+	provider := &fakeStatusProvider{
+		status: node.Status{ChainID: "vexo-chain", LatestHeight: types.Height(web3SubscriptionMaxCatchUp + 2)},
+		blocks: blocks,
+		latest: types.Height(web3SubscriptionMaxCatchUp + 2),
+	}
+	sent := make([]any, 0)
+	session := &web3SubscriptionSession{
+		provider: provider,
+		ctx:      context.Background(),
+		subs:     map[string]web3Subscription{},
+		send:     func(value any) { sent = append(sent, value) },
+	}
+	session.subs["0xsub"] = web3Subscription{ID: "0xsub", Type: "newHeads"}
+
+	session.publish()
+	if len(sent) != web3SubscriptionMaxCatchUp {
+		t.Fatalf("expected bounded catch-up batch, got %d", len(sent))
+	}
+	if session.subs["0xsub"].LastHeight != web3SubscriptionMaxCatchUp {
+		t.Fatalf("expected bounded last height, got %d", session.subs["0xsub"].LastHeight)
 	}
 }
 
