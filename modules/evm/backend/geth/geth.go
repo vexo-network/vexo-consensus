@@ -381,6 +381,7 @@ type gethStateDB struct {
 	snapshots    []gethSnapshot
 	accessList   map[gethcommon.Address]map[gethcommon.Hash]struct{}
 	accessEvents *gethstate.AccessEvents
+	witness      *stateless.Witness
 	err          error
 }
 
@@ -416,6 +417,56 @@ func newGethStateDB(ctx context.Context, invocation contract.Invocation) *gethSt
 		preimages:    make(map[gethcommon.Hash][]byte),
 		accessList:   make(map[gethcommon.Address]map[gethcommon.Hash]struct{}),
 		accessEvents: gethstate.NewAccessEvents(),
+		witness:      newGethWitness(ctx, invocation),
+	}
+}
+
+type gethWitnessHeaderChain struct {
+	ctx    context.Context
+	reader contract.EthereumHeaderReader
+}
+
+func (chain gethWitnessHeaderChain) GetHeader(hash gethcommon.Hash, number uint64) *gethtypes.Header {
+	header, err := chain.reader.EthereumHeader(chain.ctx, number)
+	if err != nil {
+		return nil
+	}
+	if header.Hash != (types.Hash{}) && gethcommon.Hash(header.Hash) != hash {
+		return nil
+	}
+	return gethHeader(header)
+}
+
+func newGethWitness(ctx context.Context, invocation contract.Invocation) *stateless.Witness {
+	if invocation.State == nil || invocation.BlockNumber == 0 {
+		return nil
+	}
+	reader, ok := invocation.State.(contract.EthereumHeaderReader)
+	if !ok {
+		return nil
+	}
+	header, err := reader.EthereumHeader(ctx, invocation.BlockNumber)
+	if err != nil || header.Number == 0 {
+		return nil
+	}
+	witness, err := stateless.NewWitness(gethHeader(header), gethWitnessHeaderChain{ctx: ctx, reader: reader}, false)
+	if err != nil {
+		return nil
+	}
+	return witness
+}
+
+func gethHeader(header contract.EthereumHeader) *gethtypes.Header {
+	headerTime := header.TimeUnixNano
+	if headerTime < 0 {
+		headerTime = 0
+	}
+	return &gethtypes.Header{
+		ParentHash:  gethcommon.Hash(header.ParentHash),
+		Root:        gethcommon.Hash(header.StateRoot),
+		ReceiptHash: gethcommon.Hash(header.ReceiptRoot),
+		Number:      new(big.Int).SetUint64(header.Number),
+		Time:        uint64(headerTime / 1_000_000_000),
 	}
 }
 
@@ -665,7 +716,7 @@ func (db *gethStateDB) AddPreimage(hash gethcommon.Hash, preimage []byte) {
 }
 
 func (db *gethStateDB) Witness() *stateless.Witness {
-	return nil
+	return db.witness
 }
 
 func (db *gethStateDB) AccessEvents() *gethstate.AccessEvents {
@@ -673,6 +724,13 @@ func (db *gethStateDB) AccessEvents() *gethstate.AccessEvents {
 }
 
 func (db *gethStateDB) Finalise(deleteEmptyObjects bool) *bal.StateAccessList {
+	stateAccessList := bal.NewStateAccessList()
+	for address, slots := range db.accessList {
+		stateAccessList.AddAccount(address)
+		for slot := range slots {
+			stateAccessList.AddState(address, slot)
+		}
+	}
 	for _, account := range db.accounts {
 		if !account.selfDestructed && (!deleteEmptyObjects || !account.touched || !account.empty()) {
 			continue
@@ -685,7 +743,7 @@ func (db *gethStateDB) Finalise(deleteEmptyObjects bool) *bal.StateAccessList {
 			account.storage[slot] = gethcommon.Hash{}
 		}
 	}
-	return nil
+	return stateAccessList
 }
 
 func (db *gethStateDB) CodeWrites() []contract.CodeWrite {

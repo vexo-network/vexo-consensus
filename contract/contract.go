@@ -131,6 +131,19 @@ type BlockHashReader interface {
 	BlockHash(ctx context.Context, height uint64) (types.Hash, error)
 }
 
+type EthereumHeader struct {
+	Hash         types.Hash
+	ParentHash   types.Hash
+	StateRoot    types.Hash
+	ReceiptRoot  types.Hash
+	Number       uint64
+	TimeUnixNano int64
+}
+
+type EthereumHeaderReader interface {
+	EthereumHeader(ctx context.Context, height uint64) (EthereumHeader, error)
+}
+
 type Registry struct {
 	mu  sync.RWMutex
 	vms map[string]VM

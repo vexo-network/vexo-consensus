@@ -181,6 +181,75 @@ func TestInvalidProposalHashEvidenceVerifiesStateProof(t *testing.T) {
 	}
 }
 
+func TestInvalidProposalEvidenceWithContextBuildsReasonSpecificProof(t *testing.T) {
+	proposal := Proposal{
+		Block: types.Block{
+			Header: types.Header{
+				ChainID:          "vexo-test",
+				Height:           7,
+				ValidatorSetHash: types.Hash{2},
+				ConsensusHash:    dataavailability.Commitment([]types.Tx{[]byte("tx")}),
+			},
+			Txs: []types.Tx{[]byte("tx")},
+		},
+		Round:    2,
+		Proposer: "validator-1",
+	}
+	context := InvalidProposalVerificationContext{ExpectedValidatorSetHash: types.Hash{1}}
+	evidence, err := NewInvalidProposalEvidenceWithContext(proposal, context, InvalidProposalReasonValidatorSetHash, proposal.Block.Header.ValidatorSetHash, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyInvalidProposalEvidenceWithContext(evidence, context); err != nil {
+		t.Fatalf("expected contextual evidence to verify: %v", err)
+	}
+}
+
+func TestInvalidProposalEvidenceWithStateProofBindsProof(t *testing.T) {
+	proposal := Proposal{
+		Block: types.Block{
+			Header: types.Header{
+				ChainID:          "vexo-test",
+				Height:           7,
+				ValidatorSetHash: types.Hash{2},
+				ConsensusHash:    dataavailability.Commitment([]types.Tx{[]byte("tx")}),
+			},
+			Txs: []types.Tx{[]byte("tx")},
+		},
+		Round:    2,
+		Proposer: "validator-1",
+	}
+	expectedValidatorSetHash := types.Hash{1}
+	pairs := []stateproof.Pair{{Key: []byte("validator_set_hash"), Value: expectedValidatorSetHash[:]}}
+	root, err := stateproof.Root("consensus", pairs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := queryproof.BuildFromPairs("vexo-test", 7, "consensus", []byte("validator_set_hash"), pairs, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedExists := true
+	context := InvalidProposalVerificationContext{
+		ExpectedValidatorSetHash: expectedValidatorSetHash,
+		ChainID:                  "vexo-test",
+		ExpectedStateRoot:        root,
+		ExpectedProofNamespace:   "consensus",
+		ExpectedProofKey:         []byte("validator_set_hash"),
+		ExpectedProofValue:       expectedValidatorSetHash[:],
+		ExpectedProofExists:      &expectedExists,
+		RequireStateProof:        true,
+	}
+	evidence, err := NewInvalidProposalEvidenceWithStateProof(proposal, context, InvalidProposalReasonValidatorSetHash, proposal.Block.Header.ValidatorSetHash, proof, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	context.ContextProofHash = context.ProofHash()
+	if err := VerifyInvalidProposalEvidenceWithContext(evidence, context); err != nil {
+		t.Fatalf("expected state-proof evidence to verify: %v", err)
+	}
+}
+
 func TestInvalidProposalHashEvidenceRejectsActualHashNotInProposal(t *testing.T) {
 	proposal := Proposal{
 		Block: types.Block{

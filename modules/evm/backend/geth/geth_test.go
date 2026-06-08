@@ -20,6 +20,7 @@ type testStateReader struct {
 	balances map[types.Address]uint64
 	big      map[types.Address]*big.Int
 	nonces   map[types.Address]uint64
+	headers  map[uint64]contract.EthereumHeader
 	err      error
 }
 
@@ -56,6 +57,17 @@ func (reader testStateReader) Nonce(ctx context.Context, address types.Address) 
 		return 0, reader.err
 	}
 	return reader.nonces[address], nil
+}
+
+func (reader testStateReader) EthereumHeader(ctx context.Context, height uint64) (contract.EthereumHeader, error) {
+	if reader.err != nil {
+		return contract.EthereumHeader{}, reader.err
+	}
+	header, found := reader.headers[height]
+	if !found {
+		return contract.EthereumHeader{}, errors.New("header not found")
+	}
+	return header, nil
 }
 
 func TestGethBackendExecutesDeployAndCall(t *testing.T) {
@@ -255,6 +267,39 @@ func TestGethBackendPreservesUint256BalanceWrites(t *testing.T) {
 	expected := new(big.Int).Sub(large, big.NewInt(5))
 	if callerWrite.BalanceBig == nil || callerWrite.BalanceBig.Cmp(expected) != 0 {
 		t.Fatalf("expected caller big balance %s, got %+v", expected, result.BalanceWrites)
+	}
+}
+
+func TestGethStateDBFinaliseReturnsStateAccessList(t *testing.T) {
+	stateDB := newGethStateDB(context.Background(), contract.Invocation{})
+	address := gethcommon.HexToAddress("0x000000000000000000000000000000000000aaaa")
+	slot := gethcommon.HexToHash("0x01")
+	stateDB.AddAddressToAccessList(address)
+	stateDB.AddSlotToAccessList(address, slot)
+	stateDB.Touch(address)
+
+	accessList := stateDB.Finalise(true)
+	if accessList == nil {
+		t.Fatal("expected non-nil state access list")
+	}
+	if accessList.Copy() == nil {
+		t.Fatal("expected copyable state access list")
+	}
+}
+
+func TestGethStateDBEnablesWitnessWhenHeaderReaderIsAvailable(t *testing.T) {
+	parentHash := types.Hash{1}
+	stateDB := newGethStateDB(context.Background(), contract.Invocation{
+		BlockNumber: 2,
+		State: testStateReader{
+			headers: map[uint64]contract.EthereumHeader{
+				1: {Hash: parentHash, Number: 1, StateRoot: types.Hash{3}},
+				2: {ParentHash: parentHash, Number: 2, StateRoot: types.Hash{4}},
+			},
+		},
+	})
+	if stateDB.Witness() == nil {
+		t.Fatal("expected witness when EthereumHeaderReader is available")
 	}
 }
 

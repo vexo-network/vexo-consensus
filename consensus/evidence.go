@@ -333,6 +333,31 @@ func NewInvalidProposalTimestampEvidence(proposal Proposal, expected int64, actu
 	}, nil
 }
 
+func NewInvalidProposalEvidenceWithContext(proposal Proposal, context InvalidProposalVerificationContext, reason InvalidProposalReason, actual types.Hash, message string) (slashing.Evidence, error) {
+	switch reason {
+	case InvalidProposalReasonValidatorSetHash:
+		return NewInvalidProposalHashEvidence(proposal, string(reason), context.ExpectedValidatorSetHash, actual)
+	case InvalidProposalReasonAppHash:
+		return NewInvalidProposalHashEvidence(proposal, string(reason), context.ExpectedAppHash, actual)
+	case InvalidProposalReasonTxValidity:
+		return NewInvalidProposalTxValidityEvidence(proposal, context.ExpectedTxResultsHash, actual, message)
+	case InvalidProposalReasonTimestamp:
+		return NewInvalidProposalTimestampEvidence(proposal, context.ExpectedTimeUnixNano, proposal.Block.Header.TimeUnixNano)
+	case InvalidProposalReasonDAMismatch, InvalidProposalReasonMissingData:
+		return NewInvalidProposalEvidence(proposal, string(reason))
+	default:
+		return slashing.Evidence{}, ErrUnsupportedProposalReason
+	}
+}
+
+func NewInvalidProposalEvidenceWithStateProof(proposal Proposal, context InvalidProposalVerificationContext, reason InvalidProposalReason, actual types.Hash, stateProof queryproof.Proof, message string) (slashing.Evidence, error) {
+	evidence, err := NewInvalidProposalEvidenceWithContext(proposal, context, reason, actual, message)
+	if err != nil {
+		return slashing.Evidence{}, err
+	}
+	return BindInvalidProposalEvidenceStateProof(evidence, context, stateProof)
+}
+
 func newInvalidProposalEvidenceFromProof(proof InvalidProposalProof) (slashing.Evidence, error) {
 	if proof.Proposal.Proposer == "" || proof.Proposal.Block.Header.Height == 0 {
 		return slashing.Evidence{}, slashing.ErrMissingValidator
