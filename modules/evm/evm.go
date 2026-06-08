@@ -363,6 +363,7 @@ func (module Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, erro
 		invocation.BaseFee = txExecutionBaseFee(ctx, tx)
 		invocation.BlobBaseFee = txExecutionBlobBaseFee(ctx, tx)
 		invocation.BlobGasFeeCap = txBlobGasFeeCap(tx)
+		applyInvocationGasPricing(tx, &invocation)
 		invocation.BlobHashes = txBlobHashes(tx)
 		invocation.Coinbase = types.Address("fee_collector")
 		invocation.Nonce = txNonce(tx)
@@ -598,6 +599,7 @@ func (module Module) deliverCall(ctx vexoapp.Context, tx types.Tx, args []string
 	invocation.BaseFee = txExecutionBaseFee(ctx, tx)
 	invocation.BlobBaseFee = txExecutionBlobBaseFee(ctx, tx)
 	invocation.BlobGasFeeCap = txBlobGasFeeCap(tx)
+	applyInvocationGasPricing(tx, &invocation)
 	invocation.BlobHashes = txBlobHashes(tx)
 	invocation.Coinbase = types.Address("fee_collector")
 	invocation.AccessList = accessListFromTx(tx)
@@ -672,6 +674,7 @@ func (module Module) deliverDeploy(ctx vexoapp.Context, tx types.Tx, args []stri
 		EthereumTx:    ethcompat.IsEthereumTx(tx),
 		RawEthereumTx: txRawEthereum(tx),
 	}
+	applyInvocationGasPricing(tx, &invocation)
 	result, err := module.registry.Execute(ctx.GoContext(), invocation)
 	if err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
@@ -748,6 +751,7 @@ func (module Module) deliverEthereumDeploy(ctx vexoapp.Context, tx types.Tx, arg
 		EthereumTx:    ethcompat.IsEthereumTx(tx),
 		RawEthereumTx: txRawEthereum(tx),
 	}
+	applyInvocationGasPricing(tx, &invocation)
 	result, err := module.registry.Execute(ctx.GoContext(), invocation)
 	if err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
@@ -950,7 +954,7 @@ func (module Module) deployInvocationForEstimate(ctx vexoapp.Context, action str
 }
 
 func (Module) prepareDeployInvocation(ctx vexoapp.Context, tx types.Tx, vm string, caller types.Address, contractAddress types.Address, code []byte, value *big.Int, salt []byte) contract.Invocation {
-	return contract.Invocation{
+	invocation := contract.Invocation{
 		VM:            vm,
 		Caller:        caller,
 		Contract:      contractAddress,
@@ -977,6 +981,8 @@ func (Module) prepareDeployInvocation(ctx vexoapp.Context, tx types.Tx, vm strin
 		EthereumTx:    ethcompat.IsEthereumTx(tx),
 		RawEthereumTx: txRawEthereum(tx),
 	}
+	applyInvocationGasPricing(tx, &invocation)
+	return invocation
 }
 
 func accessListFromTx(tx types.Tx) []contract.AccessListEntry {
@@ -2446,11 +2452,60 @@ func txGasPrice(tx types.Tx) uint64 {
 	return 0
 }
 
+func applyInvocationGasPricing(tx types.Tx, invocation *contract.Invocation) {
+	if invocation == nil {
+		return
+	}
+	if gasPrice := txGasPriceBig(tx); gasPrice != nil {
+		invocation.GasPriceBig = gasPrice
+		if gasPrice.IsUint64() {
+			invocation.GasPrice = gasPrice.Uint64()
+		}
+	}
+	if gasFeeCap := txGasFeeCapBig(tx); gasFeeCap != nil {
+		invocation.GasFeeCapBig = gasFeeCap
+		if gasFeeCap.IsUint64() {
+			invocation.GasFeeCap = gasFeeCap.Uint64()
+		}
+	}
+	if gasTipCap := txGasTipCapBig(tx); gasTipCap != nil {
+		invocation.GasTipCapBig = gasTipCap
+		if gasTipCap.IsUint64() {
+			invocation.GasTipCap = gasTipCap.Uint64()
+		}
+	}
+	if blobGasFeeCap := txBlobGasFeeCapBig(tx); blobGasFeeCap != nil {
+		invocation.BlobGasFeeCapBig = blobGasFeeCap
+		if blobGasFeeCap.IsUint64() {
+			invocation.BlobGasFeeCap = blobGasFeeCap.Uint64()
+		}
+	}
+}
+
+func txGasPriceBig(tx types.Tx) *big.Int {
+	if gasPrice, found := txAmountTagBig(tx, ethcompat.TagGasPrice); found {
+		return gasPrice
+	}
+	meta := vexoapp.ParseTxMeta(tx)
+	fee := metaFeeForEVM(meta)
+	if meta.Gas > 0 && fee.Sign() > 0 {
+		return fee.Div(fee, new(big.Int).SetUint64(meta.Gas))
+	}
+	return nil
+}
+
 func txGasFeeCap(tx types.Tx) uint64 {
 	if feeCap, found := vexoapp.TxUintTag(tx, ethcompat.TagMaxFeePerGas); found {
 		return feeCap
 	}
 	return txGasPrice(tx)
+}
+
+func txGasFeeCapBig(tx types.Tx) *big.Int {
+	if feeCap, found := txAmountTagBig(tx, ethcompat.TagMaxFeePerGas); found {
+		return feeCap
+	}
+	return txGasPriceBig(tx)
 }
 
 func txGasTipCap(tx types.Tx) uint64 {
@@ -2460,11 +2515,40 @@ func txGasTipCap(tx types.Tx) uint64 {
 	return txGasPrice(tx)
 }
 
+func txGasTipCapBig(tx types.Tx) *big.Int {
+	if tipCap, found := txAmountTagBig(tx, ethcompat.TagMaxPriorityFeePerGas); found {
+		return tipCap
+	}
+	return txGasPriceBig(tx)
+}
+
 func txBlobGasFeeCap(tx types.Tx) uint64 {
 	if feeCap, found := vexoapp.TxUintTag(tx, ethcompat.TagBlobGasFeeCap); found {
 		return feeCap
 	}
 	return 0
+}
+
+func txBlobGasFeeCapBig(tx types.Tx) *big.Int {
+	if feeCap, found := txAmountTagBig(tx, ethcompat.TagBlobGasFeeCap); found {
+		return feeCap
+	}
+	return nil
+}
+
+func txAmountTagBig(tx types.Tx, key string) (*big.Int, bool) {
+	value, found := vexoapp.TxAmountBigTag(tx, key)
+	if !found || value.Sign() < 0 || value.BitLen() > 256 {
+		return nil, false
+	}
+	return value, true
+}
+
+func metaFeeForEVM(meta vexoapp.TxMeta) *big.Int {
+	if meta.FeeBig != nil {
+		return new(big.Int).Set(meta.FeeBig)
+	}
+	return new(big.Int).SetUint64(meta.Fee)
 }
 
 func txNonce(tx types.Tx) uint64 {

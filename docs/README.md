@@ -21,6 +21,7 @@ If you are new to the project, read the documents in this order.
 | [Networking Spec](./specs/networking-spec.md) | Transport expectations, handshake policy, peer scoring, backoff, and DoS defenses |
 | [Storage Schema](./specs/storage-schema.md) | Durable records, indexes, recovery rules, snapshots, and schema migration expectations |
 | [Transaction Format](./specs/tx-format.md) | Canonical transaction payload, signed envelope, nonce, fee, gas, and CheckTx requirements |
+| [EVM and Native Accounting](./specs/evm-native-accounting.md) | Shared native/EVM balance model, 256-bit amounts, fee handling, and compatibility boundary |
 | [Validator Lifecycle](./specs/validator-lifecycle.md) | Admission, rotation, evidence lifecycle, slashing, jailing, and unbonding |
 
 ## SDK and Extension Guides

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"math/big"
 	"strings"
 	"testing"
 
@@ -41,6 +42,39 @@ func TestBankModuleMintsAndSends(t *testing.T) {
 
 	assertBalance(t, storage, "alice", 65)
 	assertBalance(t, storage, "bob", 35)
+}
+
+func TestBankModuleSupportsNativeEVM256BitBalances(t *testing.T) {
+	storage := newBankStore(t)
+	module := NewModule()
+	holder := types.Address("0x000000000000000000000000000000000000aaaa")
+	receiver := types.Address("0x000000000000000000000000000000000000bbbb")
+	huge := new(big.Int).Lsh(big.NewInt(1), 80)
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, types.Tx("bank:mint:"+string(holder)+":"+huge.String())); result.Code != 0 {
+		t.Fatalf("unexpected huge mint result: %+v", result)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, types.Tx("bank:send:"+string(holder)+":"+string(receiver)+":1000000000000000000")); result.Code != 0 {
+		t.Fatalf("unexpected huge send result: %+v", result)
+	}
+	holderBalance, err := BalanceBig(context.Background(), storage, holder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedHolder := new(big.Int).Sub(huge, big.NewInt(1_000_000_000_000_000_000))
+	if holderBalance.Cmp(expectedHolder) != 0 {
+		t.Fatalf("unexpected holder balance: got %s want %s", holderBalance, expectedHolder)
+	}
+	receiverBalance, err := BalanceBig(context.Background(), storage, receiver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receiverBalance.String() != "1000000000000000000" {
+		t.Fatalf("unexpected receiver balance: %s", receiverBalance)
+	}
+	query := module.Query(vexoapp.Context{Store: storage}, vexoapp.QueryRequest{Path: []string{"balance", string(holder)}})
+	if query.Code != 0 || string(query.Value) != expectedHolder.String() {
+		t.Fatalf("unexpected huge balance query: %+v", query)
+	}
 }
 
 func TestBankModuleNormalizesEthereumHexAddressKeys(t *testing.T) {
@@ -98,8 +132,8 @@ func TestBankModuleRejectsInvalidTransactions(t *testing.T) {
 func TestBankModuleRejectsBalanceOverflow(t *testing.T) {
 	storage := newBankStore(t)
 	module := NewModule()
-	maxUint := "18446744073709551615"
-	if result := module.DeliverTx(vexoapp.Context{Store: storage}, types.Tx("bank:mint:alice:"+maxUint)); result.Code != 0 {
+	maxUint256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1)).String()
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, types.Tx("bank:mint:alice:"+maxUint256)); result.Code != 0 {
 		t.Fatalf("unexpected max mint result: %+v", result)
 	}
 	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:mint:alice:1")); result.Code == 0 || result.Log != ErrBalanceOverflow.Error() {
@@ -111,7 +145,13 @@ func TestBankModuleRejectsBalanceOverflow(t *testing.T) {
 	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:send:bob:alice:1")); result.Code == 0 || result.Log != ErrBalanceOverflow.Error() {
 		t.Fatalf("expected send overflow, got %+v", result)
 	}
-	assertBalance(t, storage, "alice", ^uint64(0))
+	alice, err := BalanceBig(context.Background(), storage, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alice.String() != maxUint256 {
+		t.Fatalf("expected max uint256 balance, got %s", alice)
+	}
 	assertBalance(t, storage, "bob", 1)
 }
 

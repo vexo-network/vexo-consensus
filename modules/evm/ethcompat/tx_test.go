@@ -166,6 +166,52 @@ func TestDecodeRawTransactionPreservesUint256Value(t *testing.T) {
 	}
 }
 
+func TestDecodeRawTransactionPreservesUint256GasFees(t *testing.T) {
+	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := gethcommon.HexToAddress("0x000000000000000000000000000000000000bEEF")
+	gasFeeCapBig := new(big.Int).Lsh(big.NewInt(1), 80)
+	gasTipCapBig := new(big.Int).Lsh(big.NewInt(1), 79)
+	tx := gethtypes.NewTx(&gethtypes.DynamicFeeTx{
+		ChainID:   big.NewInt(7),
+		Nonce:     9,
+		GasTipCap: gasTipCapBig,
+		GasFeeCap: gasFeeCapBig,
+		Gas:       21_000,
+		To:        &to,
+		Value:     big.NewInt(1),
+	})
+	signed, err := gethtypes.SignTx(tx, gethtypes.LatestSignerForChainID(big.NewInt(7)), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeRawTransaction("0x"+hex.EncodeToString(raw), DecodeOptions{ChainID: 7, BaseFee: 11})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedPrice := new(big.Int).Add(big.NewInt(11), gasTipCapBig)
+	expectedFee := new(big.Int).Mul(expectedPrice, big.NewInt(21_000))
+	if decoded.GasPriceBig.Cmp(expectedPrice) != 0 || decoded.FeeBig.Cmp(expectedFee) != 0 || decoded.GasPrice != 0 || decoded.Fee != 0 {
+		t.Fatalf("unexpected big fee decode: price=%s fee=%s compat_price=%d compat_fee=%d", decoded.GasPriceBig, decoded.FeeBig, decoded.GasPrice, decoded.Fee)
+	}
+	canonical, err := vexoapp.ParseCanonicalTx(decoded.Tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if canonical.Tags[TagGasPrice] != expectedPrice.String() || canonical.Tags["fee"] != expectedFee.String() || canonical.Tags[TagMaxFeePerGas] != gasFeeCapBig.String() {
+		t.Fatalf("expected canonical uint256 fee tags, got %+v", canonical.Tags)
+	}
+	if err := ValidateCanonicalTx(decoded.Tx, 7); err != nil {
+		t.Fatalf("expected big-fee canonical tx to validate: %v", err)
+	}
+}
+
 func TestDecodeRawTransactionPreservesAccessList(t *testing.T) {
 	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
 	if err != nil {

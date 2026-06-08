@@ -78,19 +78,24 @@ func (node *Node) applyEvidence(ctx context.Context, evidence slashing.Evidence)
 	}
 	result, err := consensus.SubmitEvidenceForSlashingWithContext(ctx, runtime.Slashing, runtime.Validators, verifier, applyHeight, evidence, verificationContext)
 	if errors.Is(err, slashing.ErrDuplicateEvidence) {
-		if runtime.Store != nil {
-			key := store.EvidenceKey(evidence)
-			if key != "" {
-				existing, loadErr := runtime.Store.EvidenceByKey(ctx, key)
-				if loadErr == nil && !existing.Applied {
-					existing.Applied = true
-					if saveErr := runtime.Store.SaveEvidence(ctx, existing); saveErr != nil {
-						return consensus.SlashResult{}, false, saveErr
-					}
-				}
-			}
+		receipt, found, receiptErr := penaltyReceiptForRuntime(ctx, runtime, evidence)
+		if receiptErr != nil {
+			return consensus.SlashResult{}, false, receiptErr
 		}
-		return consensus.SlashResult{}, false, nil
+		if !found {
+			return consensus.SlashResult{}, false, nil
+		}
+		result = consensus.SlashResult{Receipt: receipt, PreviousPower: receipt.PreviousPower, RemainingPower: receipt.RemainingPower}
+		if err := runtime.ApplyStakingSlashingPenalty(ctx, receipt); err != nil {
+			return consensus.SlashResult{}, false, err
+		}
+		if err := node.markEvidenceApplied(ctx, runtime, evidence); err != nil {
+			return consensus.SlashResult{}, false, err
+		}
+		if err := node.refreshConsensusValidatorsAfterEvidence(ctx, runtime, evidence); err != nil {
+			return consensus.SlashResult{}, false, err
+		}
+		return result, true, nil
 	}
 	if err != nil {
 		return consensus.SlashResult{}, false, err
@@ -98,28 +103,47 @@ func (node *Node) applyEvidence(ctx context.Context, evidence slashing.Evidence)
 	if err := runtime.ApplyStakingSlashingPenalty(ctx, result.Receipt); err != nil {
 		return consensus.SlashResult{}, false, err
 	}
-	if runtime.Store != nil {
-		if err := runtime.Store.SaveEvidence(ctx, store.EvidenceRecord{
-			Evidence:  evidence,
-			Applied:   true,
-			CreatedAt: time.Now().Unix(),
-		}); err != nil {
-			return consensus.SlashResult{}, false, err
+	if err := node.markEvidenceApplied(ctx, runtime, evidence); err != nil {
+		return consensus.SlashResult{}, false, err
+	}
+	if err := node.refreshConsensusValidatorsAfterEvidence(ctx, runtime, evidence); err != nil {
+		return consensus.SlashResult{}, false, err
+	}
+	return result, true, nil
+}
+
+func (node *Node) markEvidenceApplied(ctx context.Context, runtime *vexoruntime.Runtime, evidence slashing.Evidence) error {
+	if runtime == nil || runtime.Store == nil {
+		return nil
+	}
+	createdAt := time.Now().Unix()
+	key := store.EvidenceKey(evidence)
+	if key != "" {
+		existing, err := runtime.Store.EvidenceByKey(ctx, key)
+		if err == nil && existing.CreatedAt != 0 {
+			createdAt = existing.CreatedAt
+		} else if err != nil && !errors.Is(err, store.ErrEvidenceNotFound) {
+			return err
 		}
 	}
+	return runtime.Store.SaveEvidence(ctx, store.EvidenceRecord{
+		Evidence:  evidence,
+		Applied:   true,
+		CreatedAt: createdAt,
+	})
+}
+
+func (node *Node) refreshConsensusValidatorsAfterEvidence(ctx context.Context, runtime *vexoruntime.Runtime, evidence slashing.Evidence) error {
 	machine, err := node.Consensus()
 	if err != nil {
-		return consensus.SlashResult{}, false, err
+		return err
 	}
 	status := machine.Status(ctx)
 	height := status.Height
 	if height == 0 {
 		height = evidence.Height
 	}
-	if err := machine.UpdateValidatorSetFromRegistry(ctx, runtime.Validators, height); err != nil {
-		return consensus.SlashResult{}, false, err
-	}
-	return result, true, nil
+	return machine.UpdateValidatorSetFromRegistry(ctx, runtime.Validators, height)
 }
 
 func (node *Node) reconcileEvidence(ctx context.Context, runtime *vexoruntime.Runtime) error {

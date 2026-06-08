@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"math/big"
 	"testing"
 
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
@@ -168,6 +169,42 @@ func TestAnteKeeperCollectsFeeAndReportsGas(t *testing.T) {
 	}
 	if keeper.GasUsed(tx) != 99 || keeper.FeePaid(tx) != 7 {
 		t.Fatalf("unexpected gas/fee metadata: gas=%d fee=%d", keeper.GasUsed(tx), keeper.FeePaid(tx))
+	}
+}
+
+func TestAnteKeeperCollects256BitNativeFee(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	hugeBalance := new(big.Int).Lsh(big.NewInt(1), 90)
+	hugeFee := new(big.Int).Lsh(big.NewInt(1), 80)
+	if err := setBankBalanceBig(context.Background(), storage, "alice", hugeBalance); err != nil {
+		t.Fatal(err)
+	}
+
+	keeper := NewAnteKeeper(AnteConfig{BaseFee: 1, FeeCollector: "treasury"})
+	tx := types.Tx("bank:send:signer=alice:nonce=1:fee=" + hugeFee.String() + ":gas=1")
+	if err := keeper.CheckTx(Context{Store: storage}, tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.AfterTx(Context{Store: storage}, tx); err != nil {
+		t.Fatal(err)
+	}
+	alice, err := bankBalanceBig(context.Background(), storage, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	treasury, err := bankBalanceBig(context.Background(), storage, "treasury")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alice.Cmp(new(big.Int).Sub(hugeBalance, hugeFee)) != 0 || treasury.Cmp(hugeFee) != 0 {
+		t.Fatalf("unexpected 256-bit fee balances: alice=%s treasury=%s", alice, treasury)
+	}
+	if keeper.FeePaid(tx) != ^uint64(0) {
+		t.Fatalf("expected saturated FeePaid compatibility value, got %d", keeper.FeePaid(tx))
 	}
 }
 

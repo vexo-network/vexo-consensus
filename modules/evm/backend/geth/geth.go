@@ -69,7 +69,7 @@ func (vm GethVM) Execute(ctx context.Context, invocation contract.Invocation) (c
 	}
 	evm.SetTxContext(gethvm.TxContext{
 		Origin:     caller,
-		GasPrice:   new(uint256.Int).SetUint64(invocation.GasPrice),
+		GasPrice:   invocationUint256(invocation.GasPriceBig, invocation.GasPrice),
 		BlobHashes: gethBlobHashes(invocation.BlobHashes),
 	})
 	rules := chainConfig.Rules(new(big.Int).SetUint64(invocation.BlockNumber), true, invocation.Timestamp)
@@ -267,12 +267,12 @@ func ethereumMessage(invocation contract.Invocation, caller gethcommon.Address, 
 		Nonce:                 invocation.Nonce,
 		Value:                 value,
 		GasLimit:              gasLimit,
-		GasPrice:              new(uint256.Int).SetUint64(invocation.GasPrice),
-		GasFeeCap:             new(uint256.Int).SetUint64(gasFeeCap),
-		GasTipCap:             new(uint256.Int).SetUint64(gasTipCap),
+		GasPrice:              invocationUint256(invocation.GasPriceBig, invocation.GasPrice),
+		GasFeeCap:             invocationUint256(invocation.GasFeeCapBig, gasFeeCap),
+		GasTipCap:             invocationUint256(invocation.GasTipCapBig, gasTipCap),
 		Data:                  append([]byte(nil), invocation.Input...),
 		AccessList:            gethAccessList(invocation.AccessList),
-		BlobGasFeeCap:         new(uint256.Int).SetUint64(invocation.BlobGasFeeCap),
+		BlobGasFeeCap:         invocationUint256(invocation.BlobGasFeeCapBig, invocation.BlobGasFeeCap),
 		BlobHashes:            gethBlobHashes(invocation.BlobHashes),
 		SetCodeAuthorizations: authorizations,
 		SkipNonceChecks:       invocation.EthereumSimulation,
@@ -311,6 +311,15 @@ func invocationValue(invocation contract.Invocation) (*uint256.Int, error) {
 		return value, nil
 	}
 	return new(uint256.Int).SetUint64(invocation.Value), nil
+}
+
+func invocationUint256(value *big.Int, fallback uint64) *uint256.Int {
+	if value != nil {
+		if converted, overflow := uint256.FromBig(value); !overflow {
+			return converted
+		}
+	}
+	return new(uint256.Int).SetUint64(fallback)
 }
 
 func gethAccessList(entries []contract.AccessListEntry) gethtypes.AccessList {

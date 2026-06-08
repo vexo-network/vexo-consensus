@@ -2,8 +2,7 @@ package economics
 
 import (
 	"errors"
-	"math"
-	"strconv"
+	"math/big"
 	"strings"
 )
 
@@ -31,11 +30,23 @@ var Units = []DenomUnit{
 }
 
 func ParseAmount(input string) (uint64, error) {
-	value := strings.TrimSpace(strings.ToLower(input))
-	if value == "" {
+	amount, err := ParseAmountBig(input)
+	if err != nil || !amount.IsUint64() {
 		return 0, ErrInvalidAmount
 	}
-	if amount, err := strconv.ParseUint(value, 10, 64); err == nil {
+	return amount.Uint64(), nil
+}
+
+func ParseAmountBig(input string) (*big.Int, error) {
+	value := strings.TrimSpace(strings.ToLower(input))
+	if value == "" {
+		return nil, ErrInvalidAmount
+	}
+	if decimalDigits(value) {
+		amount, ok := new(big.Int).SetString(value, 10)
+		if !ok {
+			return nil, ErrInvalidAmount
+		}
 		return amount, nil
 	}
 	for _, unit := range Units {
@@ -43,9 +54,9 @@ func ParseAmount(input string) (uint64, error) {
 		if !found {
 			continue
 		}
-		return parseDecimalAmount(number, unit)
+		return parseDecimalAmountBig(number, unit)
 	}
-	return 0, ErrInvalidAmount
+	return nil, ErrInvalidAmount
 }
 
 func DenomFactor(denom string) (uint64, bool) {
@@ -59,43 +70,45 @@ func DenomFactor(denom string) (uint64, bool) {
 }
 
 func parseDecimalAmount(number string, unit DenomUnit) (uint64, error) {
+	amount, err := parseDecimalAmountBig(number, unit)
+	if err != nil || !amount.IsUint64() {
+		return 0, ErrInvalidAmount
+	}
+	return amount.Uint64(), nil
+}
+
+func parseDecimalAmountBig(number string, unit DenomUnit) (*big.Int, error) {
 	number = strings.TrimSpace(number)
 	if number == "" || strings.HasPrefix(number, "-") || strings.HasPrefix(number, "+") {
-		return 0, ErrInvalidAmount
+		return nil, ErrInvalidAmount
 	}
 	whole, fraction, hasFraction := strings.Cut(number, ".")
 	if whole == "" {
 		whole = "0"
 	}
 	if whole == "" || !decimalDigits(whole) {
-		return 0, ErrInvalidAmount
+		return nil, ErrInvalidAmount
 	}
 	if hasFraction && !decimalDigits(fraction) {
-		return 0, ErrInvalidAmount
+		return nil, ErrInvalidAmount
 	}
 	if len(fraction) > int(unit.Exponent) {
-		return 0, ErrInvalidAmount
+		return nil, ErrInvalidAmount
 	}
-	wholeValue, err := strconv.ParseUint(whole, 10, 64)
-	if err != nil {
-		return 0, ErrInvalidAmount
+	wholeValue, ok := new(big.Int).SetString(whole, 10)
+	if !ok {
+		return nil, ErrInvalidAmount
 	}
-	if wholeValue > math.MaxUint64/unit.Factor {
-		return 0, ErrInvalidAmount
-	}
-	amount := wholeValue * unit.Factor
+	amount := new(big.Int).Mul(wholeValue, new(big.Int).SetUint64(unit.Factor))
 	if !hasFraction || fraction == "" {
 		return amount, nil
 	}
 	padded := fraction + strings.Repeat("0", int(unit.Exponent)-len(fraction))
-	fractionValue, err := strconv.ParseUint(padded, 10, 64)
-	if err != nil {
-		return 0, ErrInvalidAmount
+	fractionValue, ok := new(big.Int).SetString(padded, 10)
+	if !ok {
+		return nil, ErrInvalidAmount
 	}
-	if amount > math.MaxUint64-fractionValue {
-		return 0, ErrInvalidAmount
-	}
-	return amount + fractionValue, nil
+	return amount.Add(amount, fractionValue), nil
 }
 
 func decimalDigits(value string) bool {

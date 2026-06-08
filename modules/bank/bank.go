@@ -6,10 +6,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strconv"
+	"math/big"
 	"strings"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/economics"
 	"github.com/vexo-network/vexo-consensus/kvbatch"
 	vexostore "github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -63,11 +64,11 @@ func (Module) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisState) err
 			continue
 		}
 		address := strings.TrimPrefix(rawAddress, ModuleName+":")
-		balance, err := strconv.ParseUint(string(rawBalance), 10, 64)
+		balance, err := parseAmountBig(string(rawBalance))
 		if err != nil {
 			return fmt.Errorf("%w: %s", ErrInvalidGenesisBalance, rawAddress)
 		}
-		if err := setBalance(context.Background(), ctx.Store, types.Address(address), balance); err != nil {
+		if err := setBalanceBig(context.Background(), ctx.Store, types.Address(address), balance); err != nil {
 			return err
 		}
 	}
@@ -91,7 +92,7 @@ func (module Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		if err := ctx.ConsumeGas(mintGasCost); err != nil {
 			return types.Result{Code: 5, Log: err.Error()}
 		}
-		amount, err := parseAmount(parts[3])
+		amount, err := parseAmountBig(parts[3])
 		if err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
@@ -106,7 +107,7 @@ func (module Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		if err := ctx.ConsumeGas(sendGasCost); err != nil {
 			return types.Result{Code: 5, Log: err.Error()}
 		}
-		amount, err := parseAmount(parts[4])
+		amount, err := parseAmountBig(parts[4])
 		if err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
@@ -153,88 +154,119 @@ func (Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoapp.Query
 	if len(req.Path) != 2 || req.Path[0] != "balance" || req.Path[1] == "" {
 		return vexoapp.QueryResponse{Code: 2, Log: "invalid bank query"}
 	}
-	balance, err := Balance(ctx.GoContext(), ctx.Store, types.Address(req.Path[1]))
+	balance, err := BalanceBig(ctx.GoContext(), ctx.Store, types.Address(req.Path[1]))
 	if err != nil {
 		return vexoapp.QueryResponse{Code: 3, Log: err.Error()}
 	}
-	return vexoapp.QueryResponse{Value: []byte(strconv.FormatUint(balance, 10))}
+	return vexoapp.QueryResponse{Value: []byte(balance.String())}
 }
 
 func Balance(ctx context.Context, store vexoapp.StateStore, address types.Address) (uint64, error) {
+	balance, err := BalanceBig(ctx, store, address)
+	if err != nil {
+		return 0, err
+	}
+	if !balance.IsUint64() {
+		return 0, ErrBalanceOverflow
+	}
+	return balance.Uint64(), nil
+}
+
+func BalanceBig(ctx context.Context, store vexoapp.StateStore, address types.Address) (*big.Int, error) {
 	if store == nil {
-		return 0, errors.New("missing bank store")
+		return nil, errors.New("missing bank store")
 	}
 	value, err := store.Get(ctx, ModuleName, balanceKey(address))
 	if errors.Is(err, vexostore.ErrKeyNotFound) {
 		value, err = store.Get(ctx, ModuleName, []byte(address))
 		if errors.Is(err, vexostore.ErrKeyNotFound) {
-			return 0, nil
+			return new(big.Int), nil
 		}
 	}
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	if len(value) == 0 {
-		return 0, nil
+		return new(big.Int), nil
 	}
-	if len(value) != 8 {
-		return 0, ErrInvalidGenesisBalance
+	if len(value) > 32 {
+		return nil, ErrInvalidGenesisBalance
 	}
-	return binary.BigEndian.Uint64(value), nil
+	return new(big.Int).SetBytes(value), nil
 }
 
-func mint(ctx context.Context, store vexoapp.StateStore, to types.Address, amount uint64) error {
-	if to == "" || amount == 0 {
+func mint(ctx context.Context, store vexoapp.StateStore, to types.Address, amount *big.Int) error {
+	if to == "" || amount == nil || amount.Sign() <= 0 {
 		return ErrInvalidBankTx
 	}
-	balance, err := Balance(ctx, store, to)
+	balance, err := BalanceBig(ctx, store, to)
 	if err != nil {
 		return err
 	}
-	if balance > ^uint64(0)-amount {
+	next := new(big.Int).Add(balance, amount)
+	if next.BitLen() > 256 {
 		return ErrBalanceOverflow
 	}
-	return setBalance(ctx, store, to, balance+amount)
+	return setBalanceBig(ctx, store, to, next)
 }
 
-func send(ctx context.Context, store vexoapp.StateStore, from types.Address, to types.Address, amount uint64) error {
-	if from == "" || to == "" || amount == 0 {
+func send(ctx context.Context, store vexoapp.StateStore, from types.Address, to types.Address, amount *big.Int) error {
+	if from == "" || to == "" || amount == nil || amount.Sign() <= 0 {
 		return ErrInvalidBankTx
 	}
-	fromBalance, err := Balance(ctx, store, from)
+	fromBalance, err := BalanceBig(ctx, store, from)
 	if err != nil {
 		return err
 	}
-	if fromBalance < amount {
+	if fromBalance.Cmp(amount) < 0 {
 		return ErrInsufficientFunds
 	}
-	toBalance, err := Balance(ctx, store, to)
+	toBalance, err := BalanceBig(ctx, store, to)
 	if err != nil {
 		return err
 	}
-	if toBalance > ^uint64(0)-amount {
+	nextToBalance := new(big.Int).Add(toBalance, amount)
+	if nextToBalance.BitLen() > 256 {
 		return ErrBalanceOverflow
 	}
+	nextFromBalance := new(big.Int).Sub(fromBalance, amount)
 	if batchStore, ok := store.(kvbatch.BatchKVStore); ok {
 		return batchStore.SetBatch(ctx, []kvbatch.KVWrite{
-			{Namespace: ModuleName, Key: balanceKey(from), Value: encodeBalance(fromBalance - amount)},
-			{Namespace: ModuleName, Key: balanceKey(to), Value: encodeBalance(toBalance + amount)},
+			{Namespace: ModuleName, Key: balanceKey(from), Value: encodeBalanceBig(nextFromBalance)},
+			{Namespace: ModuleName, Key: balanceKey(to), Value: encodeBalanceBig(nextToBalance)},
 		})
 	}
-	if err := setBalance(ctx, store, from, fromBalance-amount); err != nil {
+	if err := setBalanceBig(ctx, store, from, nextFromBalance); err != nil {
 		return err
 	}
-	return setBalance(ctx, store, to, toBalance+amount)
+	return setBalanceBig(ctx, store, to, nextToBalance)
 }
 
 func setBalance(ctx context.Context, store vexoapp.StateStore, address types.Address, balance uint64) error {
-	return store.Set(ctx, ModuleName, balanceKey(address), encodeBalance(balance))
+	return setBalanceBig(ctx, store, address, new(big.Int).SetUint64(balance))
 }
 
 func encodeBalance(balance uint64) []byte {
 	encoded := make([]byte, 8)
 	binary.BigEndian.PutUint64(encoded, balance)
 	return encoded
+}
+
+func setBalanceBig(ctx context.Context, store vexoapp.StateStore, address types.Address, balance *big.Int) error {
+	if balance == nil || balance.Sign() < 0 || balance.BitLen() > 256 {
+		return ErrBalanceOverflow
+	}
+	return store.Set(ctx, ModuleName, balanceKey(address), encodeBalanceBig(balance))
+}
+
+func encodeBalanceBig(balance *big.Int) []byte {
+	if balance == nil || balance.Sign() == 0 {
+		return make([]byte, 8)
+	}
+	if balance.IsUint64() {
+		return encodeBalance(balance.Uint64())
+	}
+	return balance.Bytes()
 }
 
 func balanceKey(address types.Address) []byte {
@@ -253,9 +285,17 @@ func balanceKey(address types.Address) []byte {
 }
 
 func parseAmount(value string) (uint64, error) {
-	amount, err := strconv.ParseUint(value, 10, 64)
-	if err != nil || amount == 0 {
+	amount, err := parseAmountBig(value)
+	if err != nil || !amount.IsUint64() {
 		return 0, ErrInvalidBankTx
+	}
+	return amount.Uint64(), nil
+}
+
+func parseAmountBig(value string) (*big.Int, error) {
+	amount, err := economics.ParseAmountBig(value)
+	if err != nil || amount.Sign() <= 0 || amount.BitLen() > 256 {
+		return nil, ErrInvalidBankTx
 	}
 	return amount, nil
 }

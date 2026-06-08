@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"math/big"
 	"sort"
 	"strconv"
 	"strings"
@@ -100,11 +101,19 @@ func TxUintTag(tx types.Tx, key string) (uint64, bool) {
 }
 
 func TxAmountTag(tx types.Tx, key string) (uint64, bool) {
-	value, found := TxTag(tx, key)
-	if !found {
+	parsed, found := TxAmountBigTag(tx, key)
+	if !found || !parsed.IsUint64() {
 		return 0, false
 	}
-	parsed, err := economics.ParseAmount(value)
+	return parsed.Uint64(), true
+}
+
+func TxAmountBigTag(tx types.Tx, key string) (*big.Int, bool) {
+	value, found := TxTag(tx, key)
+	if !found {
+		return nil, false
+	}
+	parsed, err := economics.ParseAmountBig(value)
 	return parsed, err == nil
 }
 

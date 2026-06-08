@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
-	"math"
 	"math/big"
 	"strconv"
 	"strings"
@@ -66,29 +65,35 @@ type DecodeOptions struct {
 }
 
 type DecodedTransaction struct {
-	Tx                   types.Tx
-	Hash                 string
-	Raw                  string
-	From                 types.Address
-	To                   *types.Address
-	ContractAddress      types.Address
-	Type                 uint8
-	Nonce                uint64
-	Gas                  uint64
-	Fee                  uint64
-	GasPrice             uint64
-	MaxFeePerGas         uint64
-	MaxPriorityFeePerGas uint64
-	BlobGas              uint64
-	BlobGasFeeCap        uint64
-	BlobFee              uint64
-	BlobHashes           []string
-	Value                uint64
-	ValueBig             *big.Int
-	Input                string
-	AccessList           []contract.AccessListEntry
-	ContractCreation     bool
-	ChainID              uint64
+	Tx                      types.Tx
+	Hash                    string
+	Raw                     string
+	From                    types.Address
+	To                      *types.Address
+	ContractAddress         types.Address
+	Type                    uint8
+	Nonce                   uint64
+	Gas                     uint64
+	Fee                     uint64
+	FeeBig                  *big.Int
+	GasPrice                uint64
+	GasPriceBig             *big.Int
+	MaxFeePerGas            uint64
+	MaxFeePerGasBig         *big.Int
+	MaxPriorityFeePerGas    uint64
+	MaxPriorityFeePerGasBig *big.Int
+	BlobGas                 uint64
+	BlobGasFeeCap           uint64
+	BlobGasFeeCapBig        *big.Int
+	BlobFee                 uint64
+	BlobFeeBig              *big.Int
+	BlobHashes              []string
+	Value                   uint64
+	ValueBig                *big.Int
+	Input                   string
+	AccessList              []contract.AccessListEntry
+	ContractCreation        bool
+	ChainID                 uint64
 }
 
 type BlobSidecarBundle struct {
@@ -135,43 +140,35 @@ func DecodeRawTransaction(rawHex string, options DecodeOptions) (DecodedTransact
 	if valueBig.IsUint64() {
 		value = valueBig.Uint64()
 	}
-	gasPrice, err := effectiveGasPrice(&ethTx, options.BaseFee)
+	gasPriceBig, err := effectiveGasPriceBig(&ethTx, options.BaseFee)
 	if err != nil {
 		return DecodedTransaction{}, err
 	}
-	fee, ok := multiply(ethTx.Gas(), gasPrice)
-	if !ok {
-		return DecodedTransaction{}, ErrValueOverflow
-	}
+	gasPrice := uint64IfPossible(gasPriceBig)
+	feeBig := new(big.Int).Mul(new(big.Int).SetUint64(ethTx.Gas()), gasPriceBig)
+	fee := uint64IfPossible(feeBig)
 	blobGas := ethTx.BlobGas()
-	blobGasFeeCap, err := uint64Big(ethTx.BlobGasFeeCap())
-	if err != nil {
-		return DecodedTransaction{}, err
-	}
+	blobGasFeeCapBig := cloneBig(ethTx.BlobGasFeeCap())
+	blobGasFeeCap := uint64IfPossible(blobGasFeeCapBig)
 	blobFee := uint64(0)
+	blobFeeBig := new(big.Int)
 	if blobGas > 0 {
-		if options.BlobBaseFee > 0 && blobGasFeeCap < options.BlobBaseFee {
+		if options.BlobBaseFee > 0 && blobGasFeeCapBig.Cmp(new(big.Int).SetUint64(options.BlobBaseFee)) < 0 {
 			return DecodedTransaction{}, ErrBlobFeeCapTooLow
 		}
-		blobUnitPrice := blobGasFeeCap
+		blobUnitPrice := cloneBig(blobGasFeeCapBig)
 		if options.BlobBaseFee > 0 {
-			blobUnitPrice = options.BlobBaseFee
+			blobUnitPrice = new(big.Int).SetUint64(options.BlobBaseFee)
 		}
-		var ok bool
-		blobFee, ok = multiply(blobGas, blobUnitPrice)
-		if !ok || fee > math.MaxUint64-blobFee {
-			return DecodedTransaction{}, ErrValueOverflow
-		}
-		fee += blobFee
+		blobFeeBig = new(big.Int).Mul(new(big.Int).SetUint64(blobGas), blobUnitPrice)
+		blobFee = uint64IfPossible(blobFeeBig)
+		feeBig.Add(feeBig, blobFeeBig)
+		fee = uint64IfPossible(feeBig)
 	}
-	maxFee, err := uint64Big(ethTx.GasFeeCap())
-	if err != nil {
-		return DecodedTransaction{}, err
-	}
-	maxPriority, err := uint64Big(ethTx.GasTipCap())
-	if err != nil {
-		return DecodedTransaction{}, err
-	}
+	maxFeeBig := cloneBig(ethTx.GasFeeCap())
+	maxFee := uint64IfPossible(maxFeeBig)
+	maxPriorityBig := cloneBig(ethTx.GasTipCap())
+	maxPriority := uint64IfPossible(maxPriorityBig)
 	input := "0x" + hex.EncodeToString(ethTx.Data())
 	hash := ethTx.Hash().Hex()
 	vm := options.VM
@@ -179,7 +176,7 @@ func DecodeRawTransaction(rawHex string, options DecodeOptions) (DecodedTransact
 		vm = DefaultVM
 	}
 	tags := map[string]string{
-		"fee":                   strconv.FormatUint(fee, 10),
+		"fee":                   feeBig.String(),
 		"gas":                   strconv.FormatUint(ethTx.Gas(), 10),
 		"signer":                from.Hex(),
 		"nonce":                 strconv.FormatUint(ethTx.Nonce(), 10),
@@ -189,13 +186,13 @@ func DecodeRawTransaction(rawHex string, options DecodeOptions) (DecodedTransact
 		TagInput:                input,
 		TagChainID:              strconv.FormatUint(chainID, 10),
 		TagBaseFee:              strconv.FormatUint(options.BaseFee, 10),
-		TagGasPrice:             strconv.FormatUint(gasPrice, 10),
+		TagGasPrice:             gasPriceBig.String(),
 		TagValue:                valueBig.String(),
-		TagMaxFeePerGas:         strconv.FormatUint(maxFee, 10),
-		TagMaxPriorityFeePerGas: strconv.FormatUint(maxPriority, 10),
+		TagMaxFeePerGas:         maxFeeBig.String(),
+		TagMaxPriorityFeePerGas: maxPriorityBig.String(),
 		TagBlobBaseFee:          strconv.FormatUint(options.BlobBaseFee, 10),
 		TagBlobGas:              strconv.FormatUint(blobGas, 10),
-		TagBlobGasFeeCap:        strconv.FormatUint(blobGasFeeCap, 10),
+		TagBlobGasFeeCap:        blobGasFeeCapBig.String(),
 	}
 	blobHashes := blobHashesHex(ethTx.BlobHashes())
 	if sidecar := ethTx.BlobTxSidecar(); sidecar != nil {
@@ -219,25 +216,31 @@ func DecodeRawTransaction(rawHex string, options DecodeOptions) (DecodedTransact
 		tags[TagAccessList] = encodedAccessList
 	}
 	decoded := DecodedTransaction{
-		Hash:                 hash,
-		Raw:                  rawHex,
-		From:                 types.Address(from.Hex()),
-		Type:                 ethTx.Type(),
-		Nonce:                ethTx.Nonce(),
-		Gas:                  ethTx.Gas(),
-		Fee:                  fee,
-		GasPrice:             gasPrice,
-		MaxFeePerGas:         maxFee,
-		MaxPriorityFeePerGas: maxPriority,
-		BlobGas:              blobGas,
-		BlobGasFeeCap:        blobGasFeeCap,
-		BlobFee:              blobFee,
-		BlobHashes:           blobHashes,
-		Value:                value,
-		ValueBig:             valueBig,
-		Input:                input,
-		AccessList:           accessList,
-		ChainID:              chainID,
+		Hash:                    hash,
+		Raw:                     rawHex,
+		From:                    types.Address(from.Hex()),
+		Type:                    ethTx.Type(),
+		Nonce:                   ethTx.Nonce(),
+		Gas:                     ethTx.Gas(),
+		Fee:                     fee,
+		FeeBig:                  feeBig,
+		GasPrice:                gasPrice,
+		GasPriceBig:             gasPriceBig,
+		MaxFeePerGas:            maxFee,
+		MaxFeePerGasBig:         maxFeeBig,
+		MaxPriorityFeePerGas:    maxPriority,
+		MaxPriorityFeePerGasBig: maxPriorityBig,
+		BlobGas:                 blobGas,
+		BlobGasFeeCap:           blobGasFeeCap,
+		BlobGasFeeCapBig:        blobGasFeeCapBig,
+		BlobFee:                 blobFee,
+		BlobFeeBig:              blobFeeBig,
+		BlobHashes:              blobHashes,
+		Value:                   value,
+		ValueBig:                valueBig,
+		Input:                   input,
+		AccessList:              accessList,
+		ChainID:                 chainID,
 	}
 	var canonical vexoapp.CanonicalTx
 	if ethTx.To() == nil {
@@ -689,42 +692,50 @@ func signerForTransaction(tx *gethtypes.Transaction, chainID uint64) gethtypes.S
 }
 
 func effectiveGasPrice(tx *gethtypes.Transaction, baseFee uint64) (uint64, error) {
+	price, err := effectiveGasPriceBig(tx, baseFee)
+	if err != nil {
+		return 0, err
+	}
+	if !price.IsUint64() {
+		return 0, ErrValueOverflow
+	}
+	return price.Uint64(), nil
+}
+
+func effectiveGasPriceBig(tx *gethtypes.Transaction, baseFee uint64) (*big.Int, error) {
 	if tx.Type() == gethtypes.LegacyTxType || tx.Type() == gethtypes.AccessListTxType {
-		gasPrice, err := uint64Big(tx.GasPrice())
-		if err != nil {
-			return 0, err
+		gasPrice := cloneBig(tx.GasPrice())
+		if gasPrice.Sign() < 0 {
+			return nil, ErrInvalidRawTransaction
 		}
-		if baseFee > 0 && gasPrice < baseFee {
-			return 0, ErrFeeCapTooLow
+		if baseFee > 0 && gasPrice.Cmp(new(big.Int).SetUint64(baseFee)) < 0 {
+			return nil, ErrFeeCapTooLow
 		}
 		return gasPrice, nil
 	}
-	feeCap, err := uint64Big(tx.GasFeeCap())
-	if err != nil {
-		return 0, err
+	feeCap := cloneBig(tx.GasFeeCap())
+	tipCap := cloneBig(tx.GasTipCap())
+	if tipCap.Sign() < 0 || feeCap.Sign() < 0 {
+		return nil, ErrInvalidRawTransaction
 	}
-	tipCap, err := uint64Big(tx.GasTipCap())
-	if err != nil {
-		return 0, err
+	if tipCap.Cmp(feeCap) > 0 {
+		return nil, ErrTipCapAboveFeeCap
 	}
-	if tipCap > feeCap {
-		return 0, ErrTipCapAboveFeeCap
-	}
-	if feeCap < baseFee {
-		return 0, ErrFeeCapTooLow
+	base := new(big.Int).SetUint64(baseFee)
+	if feeCap.Cmp(base) < 0 {
+		return nil, ErrFeeCapTooLow
 	}
 	if baseFee == 0 {
 		return feeCap, nil
 	}
-	base := new(big.Int).SetUint64(baseFee)
 	candidate := new(big.Int).Add(base, tx.GasTipCap())
 	if candidate.Cmp(tx.GasFeeCap()) > 0 {
 		candidate = tx.GasFeeCap()
 	}
 	if candidate.Sign() < 0 {
-		return 0, ErrInvalidRawTransaction
+		return nil, ErrInvalidRawTransaction
 	}
-	return uint64Big(candidate)
+	return new(big.Int).Set(candidate), nil
 }
 
 func uint64Big(value *big.Int) (uint64, error) {
@@ -737,14 +748,18 @@ func uint64Big(value *big.Int) (uint64, error) {
 	return value.Uint64(), nil
 }
 
-func multiply(left uint64, right uint64) (uint64, bool) {
-	if left == 0 || right == 0 {
-		return 0, true
+func uint64IfPossible(value *big.Int) uint64 {
+	if value == nil || value.Sign() < 0 || !value.IsUint64() {
+		return 0
 	}
-	if left > math.MaxUint64/right {
-		return 0, false
+	return value.Uint64()
+}
+
+func cloneBig(value *big.Int) *big.Int {
+	if value == nil {
+		return new(big.Int)
 	}
-	return left * right, true
+	return new(big.Int).Set(value)
 }
 
 func sameStrings(left []string, right []string) bool {

@@ -38,9 +38,13 @@ type Invocation struct {
 	BlobBaseFee               uint64        `json:"-"`
 	BlobHashes                []types.Hash  `json:"-"`
 	GasPrice                  uint64        `json:"-"`
+	GasPriceBig               *big.Int      `json:"-"`
 	GasFeeCap                 uint64        `json:"-"`
+	GasFeeCapBig              *big.Int      `json:"-"`
 	GasTipCap                 uint64        `json:"-"`
+	GasTipCapBig              *big.Int      `json:"-"`
 	BlobGasFeeCap             uint64        `json:"-"`
+	BlobGasFeeCapBig          *big.Int      `json:"-"`
 	BlockGasLimit             uint64        `json:"-"`
 	Coinbase                  types.Address `json:"-"`
 	PrevRandao                types.Hash    `json:"-"`
@@ -195,6 +199,18 @@ func cloneInvocation(invocation Invocation) Invocation {
 	invocation.Input = append([]byte(nil), invocation.Input...)
 	if invocation.ValueBig != nil {
 		invocation.ValueBig = new(big.Int).Set(invocation.ValueBig)
+	}
+	if invocation.GasPriceBig != nil {
+		invocation.GasPriceBig = new(big.Int).Set(invocation.GasPriceBig)
+	}
+	if invocation.GasFeeCapBig != nil {
+		invocation.GasFeeCapBig = new(big.Int).Set(invocation.GasFeeCapBig)
+	}
+	if invocation.GasTipCapBig != nil {
+		invocation.GasTipCapBig = new(big.Int).Set(invocation.GasTipCapBig)
+	}
+	if invocation.BlobGasFeeCapBig != nil {
+		invocation.BlobGasFeeCapBig = new(big.Int).Set(invocation.BlobGasFeeCapBig)
 	}
 	invocation.Code = append([]byte(nil), invocation.Code...)
 	invocation.Salt = append([]byte(nil), invocation.Salt...)

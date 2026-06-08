@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"math"
+	"math/big"
 	"strings"
 
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
@@ -35,6 +36,7 @@ type TxMeta struct {
 	Signer   types.Address
 	Nonce    uint64
 	Fee      uint64
+	FeeBig   *big.Int
 	Gas      uint64
 	HasNonce bool
 }
@@ -67,8 +69,13 @@ func ParseTxMeta(tx types.Tx) TxMeta {
 		meta.Nonce = nonce
 		meta.HasNonce = true
 	}
-	if fee, found := TxAmountTag(tx, "fee"); found {
-		meta.Fee = fee
+	if fee, found := TxAmountBigTag(tx, "fee"); found {
+		meta.FeeBig = fee
+		if fee.IsUint64() {
+			meta.Fee = fee.Uint64()
+		} else {
+			meta.Fee = math.MaxUint64
+		}
 	}
 	if gas, found := TxUintTag(tx, "gas"); found {
 		meta.Gas = gas
@@ -171,7 +178,11 @@ func (keeper AnteKeeper) FeePaid(tx types.Tx) uint64 {
 	if isEthereumRawTx(tx) {
 		return 0
 	}
-	return ParseTxMeta(tx).Fee
+	fee := metaFeeBig(ParseTxMeta(tx))
+	if !fee.IsUint64() {
+		return math.MaxUint64
+	}
+	return fee.Uint64()
 }
 
 func (keeper *AnteKeeper) SetBaseFee(baseFee uint64) {
@@ -182,15 +193,16 @@ func (keeper *AnteKeeper) SetBaseFee(baseFee uint64) {
 }
 
 func (keeper AnteKeeper) validateMeta(meta TxMeta) error {
-	if keeper.config.MinFee > 0 && meta.Fee < keeper.config.MinFee {
+	fee := metaFeeBig(meta)
+	if keeper.config.MinFee > 0 && fee.Cmp(new(big.Int).SetUint64(keeper.config.MinFee)) < 0 {
 		return ErrInsufficientFee
 	}
 	if keeper.config.BaseFee > 0 {
 		if meta.Gas == 0 {
 			return ErrInvalidGas
 		}
-		requiredFee, ok := multiplyGasPrice(meta.Gas, keeper.config.BaseFee)
-		if !ok || meta.Fee < requiredFee {
+		requiredFee := multiplyGasPriceBig(meta.Gas, keeper.config.BaseFee)
+		if fee.Cmp(requiredFee) < 0 {
 			return ErrInsufficientFee
 		}
 	}
@@ -235,8 +247,20 @@ func multiplyGasPrice(gas uint64, baseFee uint64) (uint64, bool) {
 	return gas * baseFee, true
 }
 
+func multiplyGasPriceBig(gas uint64, baseFee uint64) *big.Int {
+	return new(big.Int).Mul(new(big.Int).SetUint64(gas), new(big.Int).SetUint64(baseFee))
+}
+
+func metaFeeBig(meta TxMeta) *big.Int {
+	if meta.FeeBig == nil {
+		return new(big.Int).SetUint64(meta.Fee)
+	}
+	return new(big.Int).Set(meta.FeeBig)
+}
+
 func (keeper AnteKeeper) collectFee(ctx context.Context, store StateStore, meta TxMeta) error {
-	if meta.Fee == 0 {
+	fee := metaFeeBig(meta)
+	if fee.Sign() == 0 {
 		return nil
 	}
 	if meta.Signer == "" {
@@ -246,24 +270,24 @@ func (keeper AnteKeeper) collectFee(ctx context.Context, store StateStore, meta 
 	if collector == "" {
 		collector = "fee_collector"
 	}
-	balance, err := bankBalance(ctx, store, meta.Signer)
+	balance, err := bankBalanceBig(ctx, store, meta.Signer)
 	if err != nil {
 		return err
 	}
-	if balance < meta.Fee {
+	if balance.Cmp(fee) < 0 {
 		return ErrInsufficientFeeBalance
 	}
-	collectorBalance, err := bankBalance(ctx, store, collector)
+	collectorBalance, err := bankBalanceBig(ctx, store, collector)
 	if err != nil {
 		return err
 	}
-	if collectorBalance > ^uint64(0)-meta.Fee {
+	if new(big.Int).Add(collectorBalance, fee).BitLen() > 256 {
 		return ErrInsufficientFeeBalance
 	}
-	if err := setBankBalance(ctx, store, meta.Signer, balance-meta.Fee); err != nil {
+	if err := setBankBalanceBig(ctx, store, meta.Signer, new(big.Int).Sub(balance, fee)); err != nil {
 		return err
 	}
-	return setBankBalance(ctx, store, collector, collectorBalance+meta.Fee)
+	return setBankBalanceBig(ctx, store, collector, new(big.Int).Add(collectorBalance, fee))
 }
 
 func (keeper AnteKeeper) verifySignature(ctx Context, tx types.Tx) error {
@@ -298,29 +322,57 @@ func isEthereumRawTx(tx types.Tx) bool {
 }
 
 func bankBalance(ctx context.Context, store StateStore, address types.Address) (uint64, error) {
+	balance, err := bankBalanceBig(ctx, store, address)
+	if err != nil {
+		return 0, err
+	}
+	if !balance.IsUint64() {
+		return 0, ErrInsufficientFeeBalance
+	}
+	return balance.Uint64(), nil
+}
+
+func bankBalanceBig(ctx context.Context, store StateStore, address types.Address) (*big.Int, error) {
 	value, err := store.Get(ctx, "bank", bankBalanceKey(address))
 	if errors.Is(err, vexostore.ErrKeyNotFound) {
 		value, err = store.Get(ctx, "bank", []byte(address))
 		if errors.Is(err, vexostore.ErrKeyNotFound) {
-			return 0, nil
+			return new(big.Int), nil
 		}
 	}
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	if len(value) == 0 {
-		return 0, nil
+		return new(big.Int), nil
 	}
-	if len(value) != 8 {
-		return 0, ErrInsufficientFeeBalance
+	if len(value) > 32 {
+		return nil, ErrInsufficientFeeBalance
 	}
-	return binary.BigEndian.Uint64(value), nil
+	return new(big.Int).SetBytes(value), nil
 }
 
 func setBankBalance(ctx context.Context, store StateStore, address types.Address, balance uint64) error {
-	var encoded [8]byte
-	binary.BigEndian.PutUint64(encoded[:], balance)
-	return store.Set(ctx, "bank", bankBalanceKey(address), encoded[:])
+	return setBankBalanceBig(ctx, store, address, new(big.Int).SetUint64(balance))
+}
+
+func setBankBalanceBig(ctx context.Context, store StateStore, address types.Address, balance *big.Int) error {
+	if balance == nil || balance.Sign() < 0 || balance.BitLen() > 256 {
+		return ErrInsufficientFeeBalance
+	}
+	return store.Set(ctx, "bank", bankBalanceKey(address), encodeBankBalanceBig(balance))
+}
+
+func encodeBankBalanceBig(balance *big.Int) []byte {
+	if balance == nil || balance.Sign() == 0 {
+		return make([]byte, 8)
+	}
+	if balance.IsUint64() {
+		encoded := make([]byte, 8)
+		binary.BigEndian.PutUint64(encoded, balance.Uint64())
+		return encoded
+	}
+	return balance.Bytes()
 }
 
 func bankBalanceKey(address types.Address) []byte {
