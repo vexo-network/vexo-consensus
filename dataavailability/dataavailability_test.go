@@ -307,3 +307,61 @@ func TestRecoverTransactionsRejectsTamperedChunk(t *testing.T) {
 		t.Fatalf("expected commitment mismatch, got %v", err)
 	}
 }
+
+func TestPlan2DSamplesBuildsDeterministicCrossAxisRequest(t *testing.T) {
+	txs := []types.Tx{
+		[]byte("row-0-col-0"),
+		[]byte("row-0-col-1"),
+		[]byte("row-1-col-0"),
+		[]byte("row-1-col-1"),
+		[]byte("row-2-col-0"),
+		[]byte("row-2-col-1"),
+	}
+	proof, err := BuildProofWithOptions(txs, 16, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := Plan2DSamples("vexo-test", 7, proof, TwoDimensionalSamplePolicy{
+		Rows:           16,
+		Columns:        16,
+		SampledRows:    1,
+		SampledColumns: 1,
+		MinSamples:     4,
+	}, []byte("entropy"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repeated, err := Plan2DSamples("vexo-test", 7, proof, TwoDimensionalSamplePolicy{
+		Rows:           16,
+		Columns:        16,
+		SampledRows:    1,
+		SampledColumns: 1,
+		MinSamples:     4,
+	}, []byte("entropy"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.Seed != repeated.Seed || len(request.Indices) != len(repeated.Indices) {
+		t.Fatalf("expected deterministic repeated request: first=%+v second=%+v", request, repeated)
+	}
+	for index := range request.Indices {
+		if request.Indices[index] != repeated.Indices[index] {
+			t.Fatalf("expected deterministic indices: first=%+v second=%+v", request.Indices, repeated.Indices)
+		}
+	}
+	proofs := make([]ChunkProof, 0, len(request.Indices))
+	for _, index := range request.Indices {
+		chunkProof, err := BuildChunkProof(txs, proof.ChunkSize, index)
+		if err != nil {
+			t.Fatal(err)
+		}
+		proofs = append(proofs, chunkProof)
+	}
+	report, err := VerifySamples(request, proofs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Verified != uint64(len(request.Indices)) || report.CoverageBPS == 0 {
+		t.Fatalf("unexpected 2D sample report: %+v", report)
+	}
+}

@@ -35,6 +35,8 @@ var (
 	ErrInvalidAck               = errors.New("invalid IBC acknowledgement")
 	ErrInvalidProof             = errors.New("invalid IBC proof")
 	ErrClientNotFound           = errors.New("IBC client not found")
+	ErrClientFrozen             = errors.New("IBC client is frozen")
+	ErrClientExpired            = errors.New("IBC client trusting period expired")
 	ErrStaleClientUpdate        = errors.New("stale IBC client update")
 	ErrChannelNotOpen           = errors.New("IBC channel is not open")
 	ErrConnectionNotOpen        = errors.New("IBC connection is not open")
@@ -129,6 +131,9 @@ func (keeper *Keeper) UpdateClient(ctx context.Context, clientID string, latestH
 	if !found {
 		return ErrClientNotFound
 	}
+	if client.Frozen {
+		return ErrClientFrozen
+	}
 	if latestHeight <= client.LatestHeight {
 		return ErrStaleClientUpdate
 	}
@@ -136,6 +141,32 @@ func (keeper *Keeper) UpdateClient(ctx context.Context, clientID string, latestH
 	client.ValidatorSetHash = validatorSetHash
 	client.LatestStateRoot = latestStateRoot
 	return keeper.SetClient(ctx, client)
+}
+
+func (keeper *Keeper) FreezeClient(ctx context.Context, clientID string) error {
+	if clientID == "" {
+		return ErrInvalidClient
+	}
+	client, found, err := keeper.Client(ctx, clientID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return ErrClientNotFound
+	}
+	client.Frozen = true
+	return keeper.SetClient(ctx, client)
+}
+
+func (keeper *Keeper) ClientExpired(ctx context.Context, clientID string, currentHeight types.Height) (bool, error) {
+	client, found, err := keeper.Client(ctx, clientID)
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return false, ErrClientNotFound
+	}
+	return clientExpired(client, currentHeight), nil
 }
 
 func (keeper *Keeper) SetConnection(ctx context.Context, connection ConnectionState) error {
@@ -325,12 +356,22 @@ func (keeper *Keeper) PacketReceipt(ctx context.Context, packet Packet) (PacketR
 }
 
 func (keeper *Keeper) VerifyClientProof(ctx context.Context, clientID string, proof queryproof.Proof) error {
+	return keeper.VerifyClientProofAt(ctx, clientID, 0, proof)
+}
+
+func (keeper *Keeper) VerifyClientProofAt(ctx context.Context, clientID string, currentHeight types.Height, proof queryproof.Proof) error {
 	client, found, err := keeper.Client(ctx, clientID)
 	if err != nil {
 		return err
 	}
 	if !found {
 		return ErrClientNotFound
+	}
+	if client.Frozen {
+		return ErrClientFrozen
+	}
+	if clientExpired(client, currentHeight) {
+		return ErrClientExpired
 	}
 	if client.LatestStateRoot == (types.Hash{}) {
 		return ErrInvalidProof
@@ -500,7 +541,17 @@ func validateClient(client ClientState) error {
 	if client.ClientID == "" || client.ChainID == "" || client.LatestHeight == 0 || client.ValidatorSetHash == (types.Hash{}) {
 		return ErrInvalidClient
 	}
+	if client.TrustingPeriodHeight > 0 && uint64(client.LatestHeight) > ^uint64(0)-client.TrustingPeriodHeight {
+		return ErrInvalidClient
+	}
 	return nil
+}
+
+func clientExpired(client ClientState, currentHeight types.Height) bool {
+	if currentHeight == 0 || client.TrustingPeriodHeight == 0 {
+		return false
+	}
+	return uint64(currentHeight) > uint64(client.LatestHeight)+client.TrustingPeriodHeight
 }
 
 func validatePacket(packet Packet) error {

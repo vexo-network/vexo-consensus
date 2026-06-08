@@ -33,6 +33,7 @@ type Invocation struct {
 	BlockNumber   uint64        `json:"-"`
 	Timestamp     uint64        `json:"-"`
 	BaseFee       uint64        `json:"-"`
+	BlobBaseFee   uint64        `json:"-"`
 	GasPrice      uint64        `json:"-"`
 	BlockGasLimit uint64        `json:"-"`
 	Coinbase      types.Address `json:"-"`

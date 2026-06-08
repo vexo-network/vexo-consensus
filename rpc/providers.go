@@ -63,6 +63,10 @@ type ChainQueryProvider interface {
 	StateRoot(ctx context.Context, height types.Height, namespace string) (store.StateRootRecord, error)
 }
 
+type StateByHeightProvider interface {
+	StateByHeight(ctx context.Context, height types.Height) (store.StateRecord, error)
+}
+
 type EventQueryProvider interface {
 	QueryEvents(ctx context.Context, key string, value string) ([]events.Record, error)
 }

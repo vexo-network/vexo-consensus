@@ -15,12 +15,19 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "application.modules: %v\n", cfg.Application.Modules)
 	fmt.Fprintf(writer, "execution.min_fee: %d\n", cfg.Execution.MinFee)
 	fmt.Fprintf(writer, "execution.base_fee: %d\n", cfg.Execution.BaseFee)
+	fmt.Fprintf(writer, "execution.blob_base_fee: %d\n", cfg.Execution.BlobBaseFee)
 	fmt.Fprintf(writer, "execution.evm_chain_id: %d\n", cfg.Execution.EVMChainID)
 	fmt.Fprintf(writer, "execution.dynamic_base_fee: %t\n", cfg.Execution.DynamicBaseFee)
+	fmt.Fprintf(writer, "execution.dynamic_blob_base_fee: %t\n", cfg.Execution.DynamicBlobBaseFee)
 	fmt.Fprintf(writer, "execution.target_gas: %d\n", cfg.Execution.TargetGas)
+	fmt.Fprintf(writer, "execution.target_blob_gas: %d\n", cfg.Execution.TargetBlobGas)
+	fmt.Fprintf(writer, "execution.max_blob_gas: %d\n", cfg.Execution.MaxBlobGas)
 	fmt.Fprintf(writer, "execution.base_fee_change_denominator: %d\n", cfg.Execution.BaseFeeChangeDenominator)
+	fmt.Fprintf(writer, "execution.blob_fee_change_denominator: %d\n", cfg.Execution.BlobFeeChangeDenominator)
 	fmt.Fprintf(writer, "execution.min_base_fee: %d\n", cfg.Execution.MinBaseFee)
 	fmt.Fprintf(writer, "execution.max_base_fee: %d\n", cfg.Execution.MaxBaseFee)
+	fmt.Fprintf(writer, "execution.min_blob_base_fee: %d\n", cfg.Execution.MinBlobBaseFee)
+	fmt.Fprintf(writer, "execution.max_blob_base_fee: %d\n", cfg.Execution.MaxBlobBaseFee)
 	fmt.Fprintf(writer, "execution.min_gas: %d\n", cfg.Execution.MinGas)
 	fmt.Fprintf(writer, "execution.max_gas: %d\n", cfg.Execution.MaxGas)
 	fmt.Fprintf(writer, "execution.require_nonce: %t\n", cfg.Execution.RequireNonce)
@@ -72,6 +79,7 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "web3.raw_tx_access_list_prewarm: true\n")
 	fmt.Fprintf(writer, "web3.call_vm_trace_state_diff: true\n")
 	fmt.Fprintf(writer, "web3.prestate_and_4byte_tracers: true\n")
+	fmt.Fprintf(writer, "web3.blob_tx_fee_accounting: true\n")
 	fmt.Fprintf(writer, "consensus.adversarial_simulation: true\n")
 	fmt.Fprintf(writer, "consensus.partition_safety_simulation: true\n")
 	fmt.Fprintf(writer, "consensus.tendermint_style_timeouts: true\n")
@@ -124,12 +132,19 @@ type applicationStatus struct {
 type executionStatus struct {
 	MinFee                   uint64 `json:"min_fee"`
 	BaseFee                  uint64 `json:"base_fee"`
+	BlobBaseFee              uint64 `json:"blob_base_fee"`
 	EVMChainID               uint64 `json:"evm_chain_id"`
 	DynamicBaseFee           bool   `json:"dynamic_base_fee"`
+	DynamicBlobBaseFee       bool   `json:"dynamic_blob_base_fee"`
 	TargetGas                uint64 `json:"target_gas"`
+	TargetBlobGas            uint64 `json:"target_blob_gas"`
+	MaxBlobGas               uint64 `json:"max_blob_gas"`
 	BaseFeeChangeDenominator uint64 `json:"base_fee_change_denominator"`
+	BlobFeeChangeDenominator uint64 `json:"blob_fee_change_denominator"`
 	MinBaseFee               uint64 `json:"min_base_fee"`
 	MaxBaseFee               uint64 `json:"max_base_fee"`
+	MinBlobBaseFee           uint64 `json:"min_blob_base_fee"`
+	MaxBlobBaseFee           uint64 `json:"max_blob_base_fee"`
 	MinGas                   uint64 `json:"min_gas"`
 	MaxGas                   uint64 `json:"max_gas"`
 	RequireNonce             bool   `json:"require_nonce"`
@@ -208,12 +223,19 @@ func newStatusDocument(cfg config.Config) statusDocument {
 		Execution: executionStatus{
 			MinFee:                   cfg.Execution.MinFee,
 			BaseFee:                  cfg.Execution.BaseFee,
+			BlobBaseFee:              cfg.Execution.BlobBaseFee,
 			EVMChainID:               cfg.Execution.EVMChainID,
 			DynamicBaseFee:           cfg.Execution.DynamicBaseFee,
+			DynamicBlobBaseFee:       cfg.Execution.DynamicBlobBaseFee,
 			TargetGas:                cfg.Execution.TargetGas,
+			TargetBlobGas:            cfg.Execution.TargetBlobGas,
+			MaxBlobGas:               cfg.Execution.MaxBlobGas,
 			BaseFeeChangeDenominator: cfg.Execution.BaseFeeChangeDenominator,
+			BlobFeeChangeDenominator: cfg.Execution.BlobFeeChangeDenominator,
 			MinBaseFee:               cfg.Execution.MinBaseFee,
 			MaxBaseFee:               cfg.Execution.MaxBaseFee,
+			MinBlobBaseFee:           cfg.Execution.MinBlobBaseFee,
+			MaxBlobBaseFee:           cfg.Execution.MaxBlobBaseFee,
 			MinGas:                   cfg.Execution.MinGas,
 			MaxGas:                   cfg.Execution.MaxGas,
 			RequireNonce:             cfg.Execution.RequireNonce,
@@ -294,6 +316,7 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"web3_txpool_pending_queued":               true,
 			"web3_receipt_location_index":              true,
 			"web3_replay_state_diff":                   true,
+			"web3_blob_tx_fee_accounting":              true,
 			"execution_context_aware_app_calls":        true,
 			"validator_update_atomic_commit":           true,
 			"staking_slashing_ledger":                  true,

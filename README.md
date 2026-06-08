@@ -17,8 +17,8 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 - Modular application runtime with pluggable modules and module-owned CLI commands.
 - Split subsystem configuration through `config.json`, `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json`, and `log_config.json`.
 - Durable LevelDB storage for blocks, state, Merkle state roots, evidence, KV state, schema metadata, pruning, recovery, and snapshots.
-- Signed transaction envelopes with nonce, fee units, dynamic base fee, gas metering, and ante validation paths.
-- Data availability commitments with chunk proofs, deterministic sample verification, and bounded parity recovery.
+- Signed transaction envelopes with nonce, fee units, dynamic base fee, dynamic blob base fee, gas metering, and ante validation paths.
+- Data availability commitments with chunk proofs, deterministic 1D/2D sample verification, and bounded parity recovery.
 - Slashing evidence lifecycle with penalty receipts, jailing, tombstone records, unbonding checks, and restart-aware recovery.
 - gRPC/TCP/in-memory transport abstractions with peer handshake validation, scoring, bans, backoff, and rate limits.
 - Operations tooling for config audit, release gates, audit packs, snapshot drills, adversarial simulations, and parameter tuning.
@@ -39,7 +39,7 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 | `modules` | Built-in bank, staking, governance, params, and IBC application modules |
 | `params` | Cosmos-style module parameter keeper and parameter transaction/query module |
 | `events` | Event indexing primitives for block/tx attributes |
-| `ibc` | IBC client, connection, channel, and packet lifecycle primitives |
+| `ibc` | IBC client, freeze/expiry, connection, channel, proof, and packet lifecycle primitives |
 | `queryproof` | Latest and historical Merkle query proofs for namespace/key state-root binding |
 | `stateproof` | Deterministic namespace Merkle tree and proof verification helpers |
 | `contract` | VM registry boundary used by the built-in geth-backed EVM adapter and custom WASM-compatible modules |

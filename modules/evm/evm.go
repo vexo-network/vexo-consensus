@@ -75,18 +75,19 @@ type Log struct {
 }
 
 type CallRequest struct {
-	VM         string                     `json:"vm"`
-	From       string                     `json:"from"`
-	To         string                     `json:"to"`
-	Method     string                     `json:"method"`
-	Input      string                     `json:"input,omitempty"`
-	GasLimit   uint64                     `json:"gas_limit,omitempty"`
-	Value      uint64                     `json:"value,omitempty"`
-	ValueHex   string                     `json:"value_hex,omitempty"`
-	Height     uint64                     `json:"height,omitempty"`
-	GasPrice   uint64                     `json:"gas_price,omitempty"`
-	BaseFee    uint64                     `json:"base_fee,omitempty"`
-	AccessList []contract.AccessListEntry `json:"access_list,omitempty"`
+	VM          string                     `json:"vm"`
+	From        string                     `json:"from"`
+	To          string                     `json:"to"`
+	Method      string                     `json:"method"`
+	Input       string                     `json:"input,omitempty"`
+	GasLimit    uint64                     `json:"gas_limit,omitempty"`
+	Value       uint64                     `json:"value,omitempty"`
+	ValueHex    string                     `json:"value_hex,omitempty"`
+	Height      uint64                     `json:"height,omitempty"`
+	GasPrice    uint64                     `json:"gas_price,omitempty"`
+	BaseFee     uint64                     `json:"base_fee,omitempty"`
+	BlobBaseFee uint64                     `json:"blob_base_fee,omitempty"`
+	AccessList  []contract.AccessListEntry `json:"access_list,omitempty"`
 }
 
 type CallResponse struct {
@@ -255,6 +256,7 @@ func (module Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, erro
 		invocation.BlockGasLimit = ctx.GasLimit()
 		invocation.GasPrice = txGasPrice(tx)
 		invocation.BaseFee = txBaseFee(tx)
+		invocation.BlobBaseFee = txBlobBaseFee(tx)
 		invocation.Coinbase = types.Address("fee_collector")
 		return module.estimateInvocationGas(ctx, invocation, callGasCost)
 	case "deploy", "eth_deploy":
@@ -462,6 +464,7 @@ func (module Module) deliverCall(ctx vexoapp.Context, tx types.Tx, args []string
 	invocation.BlockGasLimit = ctx.GasLimit()
 	invocation.GasPrice = txGasPrice(tx)
 	invocation.BaseFee = txBaseFee(tx)
+	invocation.BlobBaseFee = txBlobBaseFee(tx)
 	invocation.Coinbase = types.Address("fee_collector")
 	invocation.AccessList = accessListFromTx(tx)
 	result, err := module.registry.Execute(ctx.GoContext(), invocation)
@@ -518,6 +521,7 @@ func (module Module) deliverDeploy(ctx vexoapp.Context, tx types.Tx, args []stri
 		BlockGasLimit: ctx.GasLimit(),
 		GasPrice:      txGasPrice(tx),
 		BaseFee:       txBaseFee(tx),
+		BlobBaseFee:   txBlobBaseFee(tx),
 		Coinbase:      types.Address("fee_collector"),
 		AccessList:    accessListFromTx(tx),
 	}
@@ -583,6 +587,7 @@ func (module Module) deliverEthereumDeploy(ctx vexoapp.Context, tx types.Tx, arg
 		BlockGasLimit: ctx.GasLimit(),
 		GasPrice:      txGasPrice(tx),
 		BaseFee:       txBaseFee(tx),
+		BlobBaseFee:   txBlobBaseFee(tx),
 		Coinbase:      types.Address("fee_collector"),
 		AccessList:    accessListFromTx(tx),
 	}
@@ -663,6 +668,7 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 		BlockGasLimit: ctx.GasLimit(),
 		GasPrice:      request.GasPrice,
 		BaseFee:       request.BaseFee,
+		BlobBaseFee:   request.BlobBaseFee,
 		Coinbase:      types.Address("fee_collector"),
 		AccessList:    append([]contract.AccessListEntry(nil), request.AccessList...),
 	})
@@ -765,6 +771,7 @@ func (Module) prepareDeployInvocation(ctx vexoapp.Context, tx types.Tx, vm strin
 		BlockGasLimit: ctx.GasLimit(),
 		GasPrice:      txGasPrice(tx),
 		BaseFee:       txBaseFee(tx),
+		BlobBaseFee:   txBlobBaseFee(tx),
 		Coinbase:      types.Address("fee_collector"),
 		AccessList:    accessListFromTx(tx),
 	}
@@ -1784,6 +1791,13 @@ func txGasPrice(tx types.Tx) uint64 {
 func txBaseFee(tx types.Tx) uint64 {
 	if baseFee, found := vexoapp.TxUintTag(tx, ethcompat.TagBaseFee); found {
 		return baseFee
+	}
+	return 0
+}
+
+func txBlobBaseFee(tx types.Tx) uint64 {
+	if blobBaseFee, found := vexoapp.TxUintTag(tx, ethcompat.TagBlobBaseFee); found {
+		return blobBaseFee
 	}
 	return 0
 }

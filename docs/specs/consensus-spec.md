@@ -96,8 +96,9 @@ The consensus/data-availability hash is the Merkle root of canonical length-pref
 Nodes can verify individual chunk samples against that root and recover bounded missing chunks with the
 built-in GF(256) Reed-Solomon-style parity backend. The proof records the configured data-shard and
 parity-shard counts, and recovery can tolerate up to `parity_shards` missing data chunks per shard group.
-The data-availability package also exposes deterministic sample planning and sample-report verification
-against chunk inclusion proofs. Chains that need probabilistic large-network 2D sampling should configure
-that policy on top of this deterministic recovery and sample-verification layer.
+The data-availability package also exposes deterministic one-dimensional and two-dimensional sample
+planning plus sample-report verification against chunk inclusion proofs. The 2D planner samples
+deterministic row and column crosses over the configured chunk grid, so operators can tune large-network
+sampling policy without replacing the commitment or proof format.
 
 It is not a full light-client Merkle/state-proof system. Chains that require slashing from independently verifiable state membership or non-membership proofs must add reason-specific Merkle/state proof verification before applying penalties for those reasons.

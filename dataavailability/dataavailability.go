@@ -66,6 +66,14 @@ type SamplePolicy struct {
 	MinSamples uint64
 }
 
+type TwoDimensionalSamplePolicy struct {
+	Rows           uint64
+	Columns        uint64
+	SampledRows    uint64
+	SampledColumns uint64
+	MinSamples     uint64
+}
+
 type SampleRequest struct {
 	Commitment types.Hash
 	Height     types.Height
@@ -237,6 +245,63 @@ func PlanSamples(chainID string, height types.Height, proof Proof, policy Sample
 	}, nil
 }
 
+func Plan2DSamples(chainID string, height types.Height, proof Proof, policy TwoDimensionalSamplePolicy, entropy []byte) (SampleRequest, error) {
+	if chainID == "" || height == 0 || proof.Commitment == (types.Hash{}) || proof.ChunkCount == 0 {
+		return SampleRequest{}, ErrInvalidChunkProof
+	}
+	if policy.Rows == 0 || policy.Columns == 0 {
+		return SampleRequest{}, ErrInvalidSamplePolicy
+	}
+	if policy.Rows*policy.Columns < proof.ChunkCount {
+		return SampleRequest{}, ErrInvalidSamplePolicy
+	}
+	effectiveRows := (proof.ChunkCount + policy.Columns - 1) / policy.Columns
+	effectiveColumns := policy.Columns
+	if proof.ChunkCount < effectiveColumns {
+		effectiveColumns = proof.ChunkCount
+	}
+	if policy.SampledRows == 0 || policy.SampledColumns == 0 || policy.SampledRows > effectiveRows || policy.SampledColumns > effectiveColumns {
+		return SampleRequest{}, ErrInvalidSamplePolicy
+	}
+	seed := sampleSeed(chainID, height, proof.Commitment, append([]byte("2d:"), entropy...))
+	rows := deterministicSampleIndices(axisSeed(seed, "rows"), effectiveRows, policy.SampledRows)
+	columns := deterministicSampleIndices(axisSeed(seed, "columns"), effectiveColumns, policy.SampledColumns)
+	selected := make(map[uint64]struct{}, len(rows)*int(policy.Columns)+len(columns)*int(policy.Rows))
+	for _, row := range rows {
+		for column := uint64(0); column < policy.Columns; column++ {
+			index := row*policy.Columns + column
+			if index < proof.ChunkCount {
+				selected[index] = struct{}{}
+			}
+		}
+	}
+	for _, column := range columns {
+		for row := uint64(0); row < policy.Rows; row++ {
+			index := row*policy.Columns + column
+			if index < proof.ChunkCount {
+				selected[index] = struct{}{}
+			}
+		}
+	}
+	if uint64(len(selected)) < policy.MinSamples {
+		return SampleRequest{}, ErrInvalidSamplePolicy
+	}
+	indices := make([]uint64, 0, len(selected))
+	for index := range selected {
+		indices = append(indices, index)
+	}
+	sort.Slice(indices, func(first int, second int) bool {
+		return indices[first] < indices[second]
+	})
+	return SampleRequest{
+		Commitment: proof.Commitment,
+		Height:     height,
+		ChunkCount: proof.ChunkCount,
+		Indices:    indices,
+		Seed:       seed,
+	}, nil
+}
+
 func VerifySamples(request SampleRequest, proofs []ChunkProof) (SampleReport, error) {
 	if request.Commitment == (types.Hash{}) || request.Height == 0 || request.ChunkCount == 0 || len(request.Indices) == 0 {
 		return SampleReport{}, ErrInvalidSampleSet
@@ -334,6 +399,16 @@ func deterministicSampleIndices(seed types.Hash, chunkCount uint64, samples uint
 		return indices[first] < indices[second]
 	})
 	return indices
+}
+
+func axisSeed(seed types.Hash, axis string) types.Hash {
+	hasher := sha256.New()
+	hasher.Write([]byte("vexo.da.sample.axis.v1"))
+	hasher.Write(seed[:])
+	hasher.Write([]byte(axis))
+	var out types.Hash
+	copy(out[:], hasher.Sum(nil))
+	return out
 }
 
 func RecoverData(proof Proof, chunks []Chunk, parity []Chunk) ([]byte, error) {

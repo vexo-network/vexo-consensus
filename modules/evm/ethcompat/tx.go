@@ -34,6 +34,10 @@ const (
 	TagMaxFeePerGas         = "eth_max_fee_per_gas"
 	TagMaxPriorityFeePerGas = "eth_max_priority_fee_per_gas"
 	TagAccessList           = "eth_access_list"
+	TagBlobBaseFee          = "eth_blob_base_fee"
+	TagBlobGas              = "eth_blob_gas"
+	TagBlobGasFeeCap        = "eth_blob_gas_fee_cap"
+	TagBlobHashes           = "eth_blob_hashes"
 )
 
 var (
@@ -41,12 +45,14 @@ var (
 	ErrChainIDMismatch       = errors.New("Ethereum transaction chain ID mismatch")
 	ErrValueOverflow         = errors.New("Ethereum transaction value overflows Vexo uint64 amount")
 	ErrSignatureMismatch     = errors.New("Ethereum transaction signature does not match canonical tags")
+	ErrBlobFeeCapTooLow      = errors.New("Ethereum blob fee cap is below blob base fee")
 )
 
 type DecodeOptions struct {
-	ChainID uint64
-	BaseFee uint64
-	VM      string
+	ChainID     uint64
+	BaseFee     uint64
+	BlobBaseFee uint64
+	VM          string
 }
 
 type DecodedTransaction struct {
@@ -63,6 +69,10 @@ type DecodedTransaction struct {
 	GasPrice             uint64
 	MaxFeePerGas         uint64
 	MaxPriorityFeePerGas uint64
+	BlobGas              uint64
+	BlobGasFeeCap        uint64
+	BlobFee              uint64
+	BlobHashes           []string
 	Value                uint64
 	ValueBig             *big.Int
 	Input                string
@@ -113,6 +123,27 @@ func DecodeRawTransaction(rawHex string, options DecodeOptions) (DecodedTransact
 	if !ok {
 		return DecodedTransaction{}, ErrValueOverflow
 	}
+	blobGas := ethTx.BlobGas()
+	blobGasFeeCap, err := uint64Big(ethTx.BlobGasFeeCap())
+	if err != nil {
+		return DecodedTransaction{}, err
+	}
+	blobFee := uint64(0)
+	if blobGas > 0 {
+		if options.BlobBaseFee > 0 && blobGasFeeCap < options.BlobBaseFee {
+			return DecodedTransaction{}, ErrBlobFeeCapTooLow
+		}
+		blobUnitPrice := blobGasFeeCap
+		if options.BlobBaseFee > 0 {
+			blobUnitPrice = options.BlobBaseFee
+		}
+		var ok bool
+		blobFee, ok = multiply(blobGas, blobUnitPrice)
+		if !ok || fee > math.MaxUint64-blobFee {
+			return DecodedTransaction{}, ErrValueOverflow
+		}
+		fee += blobFee
+	}
 	maxFee, err := uint64Big(ethTx.GasFeeCap())
 	if err != nil {
 		return DecodedTransaction{}, err
@@ -142,6 +173,17 @@ func DecodeRawTransaction(rawHex string, options DecodeOptions) (DecodedTransact
 		TagValue:                valueBig.String(),
 		TagMaxFeePerGas:         strconv.FormatUint(maxFee, 10),
 		TagMaxPriorityFeePerGas: strconv.FormatUint(maxPriority, 10),
+		TagBlobBaseFee:          strconv.FormatUint(options.BlobBaseFee, 10),
+		TagBlobGas:              strconv.FormatUint(blobGas, 10),
+		TagBlobGasFeeCap:        strconv.FormatUint(blobGasFeeCap, 10),
+	}
+	blobHashes := blobHashesHex(ethTx.BlobHashes())
+	if len(blobHashes) > 0 {
+		encodedHashes, err := json.Marshal(blobHashes)
+		if err != nil {
+			return DecodedTransaction{}, err
+		}
+		tags[TagBlobHashes] = base64.RawStdEncoding.EncodeToString(encodedHashes)
 	}
 	accessList := contractAccessList(ethTx.AccessList())
 	if len(accessList) > 0 {
@@ -162,6 +204,10 @@ func DecodeRawTransaction(rawHex string, options DecodeOptions) (DecodedTransact
 		GasPrice:             gasPrice,
 		MaxFeePerGas:         maxFee,
 		MaxPriorityFeePerGas: maxPriority,
+		BlobGas:              blobGas,
+		BlobGasFeeCap:        blobGasFeeCap,
+		BlobFee:              blobFee,
+		BlobHashes:           blobHashes,
 		Value:                value,
 		ValueBig:             valueBig,
 		Input:                input,
@@ -234,7 +280,7 @@ func ValidateCanonicalTx(tx types.Tx, expectedChainID uint64) error {
 	if !sameStrings(canonical.Args, decodedCanonical.Args) {
 		return ErrSignatureMismatch
 	}
-	for _, key := range []string{"gas", "signer", "nonce", TagHash, TagRaw, TagType, TagInput, TagChainID, TagValue, TagMaxFeePerGas, TagMaxPriorityFeePerGas, TagAccessList} {
+	for _, key := range []string{"gas", "signer", "nonce", TagHash, TagRaw, TagType, TagInput, TagChainID, TagValue, TagMaxFeePerGas, TagMaxPriorityFeePerGas, TagAccessList, TagBlobGas, TagBlobGasFeeCap, TagBlobHashes} {
 		if canonical.Tags[key] != decodedCanonical.Tags[key] {
 			return ErrSignatureMismatch
 		}
@@ -282,6 +328,17 @@ func contractAccessList(entries gethtypes.AccessList) []contract.AccessListEntry
 			item.StorageKeys = append(item.StorageKeys, slot.Hex())
 		}
 		out = append(out, item)
+	}
+	return out
+}
+
+func blobHashesHex(hashes []gethcommon.Hash) []string {
+	if len(hashes) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(hashes))
+	for _, hash := range hashes {
+		out = append(out, hash.Hex())
 	}
 	return out
 }

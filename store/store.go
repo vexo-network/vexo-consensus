@@ -27,6 +27,10 @@ type StateRecord struct {
 	ValidatorSetHash types.Hash
 	BaseFee          uint64
 	NextBaseFee      uint64
+	BlobBaseFee      uint64
+	NextBlobBaseFee  uint64
+	BlobGasUsed      uint64
+	ExcessBlobGas    uint64
 }
 
 type StateRootRecord struct {

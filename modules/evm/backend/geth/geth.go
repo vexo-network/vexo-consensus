@@ -172,7 +172,7 @@ func gethVMTrace(traceLogger *gethlogger.StructLogger) (any, error) {
 
 func gethBlockContext(invocation contract.Invocation, stateDB *gethStateDB) gethvm.BlockContext {
 	baseFee := new(big.Int).SetUint64(invocation.BaseFee)
-	blobBaseFee := new(big.Int)
+	blobBaseFee := new(big.Int).SetUint64(invocation.BlobBaseFee)
 	random := gethcommon.Hash(invocation.PrevRandao)
 	gasLimit := invocation.BlockGasLimit
 	if gasLimit == 0 {

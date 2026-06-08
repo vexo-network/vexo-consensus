@@ -9,6 +9,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/fairordering"
 	"github.com/vexo-network/vexo-consensus/modules/bank"
+	"github.com/vexo-network/vexo-consensus/modules/evm/ethcompat"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
@@ -122,6 +123,74 @@ func TestRuntimeUpdatesAndRecoversDynamicBaseFee(t *testing.T) {
 	}
 	if recovered.CurrentBaseFee() != 112 {
 		t.Fatalf("expected recovered base fee 112, got %d", recovered.CurrentBaseFee())
+	}
+}
+
+func TestRuntimeUpdatesAndRecoversDynamicBlobBaseFee(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	cfg := config.Default("vexo-test")
+	cfg.Execution.BlobBaseFee = 100
+	cfg.Execution.DynamicBlobBaseFee = true
+	cfg.Execution.TargetBlobGas = 10
+	cfg.Execution.MaxBlobGas = 100
+	cfg.Execution.BlobFeeChangeDenominator = 8
+	cfg.Execution.MinBlobBaseFee = 1
+
+	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{bank.NewModule()}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	application.WithStore(storage)
+	if _, err := application.InitChain(vexoapp.InitChainRequest{Genesis: vexoapp.GenesisState{"bank:alice": []byte("10000")}}); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := NewWithStore(cfg, application, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+	}, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	block := types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 1},
+		Txs: []types.Tx{
+			[]byte("bank:send:alice:bob:1:fee=1:gas=1:" + ethcompat.TagBlobGas + "=20"),
+		},
+	}
+	if _, err := runtime.ExecuteBlock(context.Background(), block); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.CurrentBlobBaseFee() != 112 {
+		t.Fatalf("expected next blob base fee 112, got %d", runtime.CurrentBlobBaseFee())
+	}
+	state, err := storage.LatestState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.BlobBaseFee != 100 || state.NextBlobBaseFee != 112 || state.BlobGasUsed != 20 || state.ExcessBlobGas != 10 {
+		t.Fatalf("unexpected persisted blob fee state: %+v", state)
+	}
+
+	recoveredApplication, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{bank.NewModule()}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := NewWithStore(cfg, recoveredApplication, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+	}, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := recovered.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if recovered.CurrentBlobBaseFee() != 112 {
+		t.Fatalf("expected recovered blob base fee 112, got %d", recovered.CurrentBlobBaseFee())
 	}
 }
 

@@ -1547,6 +1547,21 @@ func normalizeExecutionConfig(execution config.ExecutionConfig) config.Execution
 	if execution.EVMChainID == 0 {
 		execution.EVMChainID = defaults.EVMChainID
 	}
+	if execution.BlobBaseFee == 0 {
+		execution.BlobBaseFee = defaults.BlobBaseFee
+	}
+	if execution.TargetBlobGas == 0 {
+		execution.TargetBlobGas = defaults.TargetBlobGas
+	}
+	if execution.MaxBlobGas == 0 {
+		execution.MaxBlobGas = defaults.MaxBlobGas
+	}
+	if execution.BlobFeeChangeDenominator == 0 {
+		execution.BlobFeeChangeDenominator = defaults.BlobFeeChangeDenominator
+	}
+	if execution.MinBlobBaseFee == 0 {
+		execution.MinBlobBaseFee = defaults.MinBlobBaseFee
+	}
 	if execution.FeeCollector == "" {
 		execution.FeeCollector = defaults.FeeCollector
 	}

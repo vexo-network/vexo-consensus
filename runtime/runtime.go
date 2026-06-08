@@ -13,6 +13,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/governance"
 	"github.com/vexo-network/vexo-consensus/mempool"
+	"github.com/vexo-network/vexo-consensus/modules/evm/ethcompat"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/store"
@@ -24,22 +25,23 @@ import (
 var ErrAtomicAppCommitUnavailable = errors.New("atomic app block commit store is required")
 
 type Runtime struct {
-	Config          config.Config
-	App             app.Application
-	Executor        consensus.ApplicationBlockExecutor
-	Validators      validator.VersionedRegistry
-	Committee       committee.Selector
-	Mempool         *mempool.DAG
-	Slashing        consensus.SlashingKeeper
-	Governance      governance.OperationalKeeper
-	P2PScore        *p2p.ScoreKeeper
-	Crypto          crypto.RuntimeSuite
-	Store           store.Store
-	UpgradePlan     *upgrade.Plan
-	UpgradeExecutor upgrade.Executor
-	UpgradeState    upgrade.State
-	UpgradeHalted   bool
-	currentBaseFee  uint64
+	Config             config.Config
+	App                app.Application
+	Executor           consensus.ApplicationBlockExecutor
+	Validators         validator.VersionedRegistry
+	Committee          committee.Selector
+	Mempool            *mempool.DAG
+	Slashing           consensus.SlashingKeeper
+	Governance         governance.OperationalKeeper
+	P2PScore           *p2p.ScoreKeeper
+	Crypto             crypto.RuntimeSuite
+	Store              store.Store
+	UpgradePlan        *upgrade.Plan
+	UpgradeExecutor    upgrade.Executor
+	UpgradeState       upgrade.State
+	UpgradeHalted      bool
+	currentBaseFee     uint64
+	currentBlobBaseFee uint64
 }
 
 type stagedValidatorUpdateRegistry interface {
@@ -139,18 +141,19 @@ func NewWithStoreAndCryptoRegistry(cfg config.Config, application app.Applicatio
 	}
 
 	return &Runtime{
-		Config:         cfg,
-		App:            application,
-		Executor:       consensus.ApplicationBlockExecutor{},
-		Validators:     registry,
-		Committee:      selector,
-		Mempool:        dag,
-		Slashing:       slashingKeeper,
-		Governance:     governanceKeeper,
-		P2PScore:       p2p.NewScoreKeeper(cfg.P2P),
-		Crypto:         cryptoSuite,
-		Store:          storage,
-		currentBaseFee: cfg.Execution.BaseFee,
+		Config:             cfg,
+		App:                application,
+		Executor:           consensus.ApplicationBlockExecutor{},
+		Validators:         registry,
+		Committee:          selector,
+		Mempool:            dag,
+		Slashing:           slashingKeeper,
+		Governance:         governanceKeeper,
+		P2PScore:           p2p.NewScoreKeeper(cfg.P2P),
+		Crypto:             cryptoSuite,
+		Store:              storage,
+		currentBaseFee:     cfg.Execution.BaseFee,
+		currentBlobBaseFee: cfg.Execution.BlobBaseFee,
 	}, nil
 }
 
@@ -178,6 +181,8 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 		return app.FinalizeBlockResponse{}, err
 	}
 	nextBaseFee := runtime.NextBaseFee(response)
+	blobGasUsed := totalBlobGasUsed(block.Txs)
+	nextBlobBaseFee := runtime.NextBlobBaseFee(blobGasUsed)
 	validatorSetHash := block.Header.ValidatorSetHash
 	if len(response.ValidatorUpdates) > 0 {
 		if err := runtime.ApplyValidatorUpdatesAt(ctx, block.Header.Height+1, response.ValidatorUpdates); err != nil {
@@ -212,12 +217,17 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 		ValidatorSetHash: validatorSetHash,
 		BaseFee:          baseFee,
 		NextBaseFee:      nextBaseFee,
+		BlobBaseFee:      runtime.CurrentBlobBaseFee(),
+		NextBlobBaseFee:  nextBlobBaseFee,
+		BlobGasUsed:      blobGasUsed,
+		ExcessBlobGas:    excessBlobGas(blobGasUsed, runtime.Config.Execution.TargetBlobGas),
 	}
 	if commitStore, ok := runtime.Store.(store.BlockCommitStore); ok {
 		if err := commitStore.CommitBlockState(ctx, blockRecord, stateRecord, stateRoots); err != nil {
 			return app.FinalizeBlockResponse{}, err
 		}
 		runtime.currentBaseFee = nextBaseFee
+		runtime.currentBlobBaseFee = nextBlobBaseFee
 		return response, nil
 	}
 	for _, record := range stateRoots {
@@ -232,6 +242,7 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 		return app.FinalizeBlockResponse{}, err
 	}
 	runtime.currentBaseFee = nextBaseFee
+	runtime.currentBlobBaseFee = nextBlobBaseFee
 	return response, nil
 }
 
@@ -241,6 +252,8 @@ func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Bloc
 		return app.FinalizeBlockResponse{}, err
 	}
 	nextBaseFee := runtime.NextBaseFee(response)
+	blobGasUsed := totalBlobGasUsed(block.Txs)
+	nextBlobBaseFee := runtime.NextBlobBaseFee(blobGasUsed)
 	validatorSetHash := block.Header.ValidatorSetHash
 	validatorUpdateHeight := block.Header.Height + 1
 	var stagedValidatorRegistry stagedValidatorUpdateRegistry
@@ -283,6 +296,10 @@ func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Bloc
 		ValidatorSetHash: validatorSetHash,
 		BaseFee:          baseFee,
 		NextBaseFee:      nextBaseFee,
+		BlobBaseFee:      runtime.CurrentBlobBaseFee(),
+		NextBlobBaseFee:  nextBlobBaseFee,
+		BlobGasUsed:      blobGasUsed,
+		ExcessBlobGas:    excessBlobGas(blobGasUsed, runtime.Config.Execution.TargetBlobGas),
 	}
 	if err := commitStore.CommitBlockStateWithWrites(ctx, writes, blockRecord, stateRecord, stateRoots); err != nil {
 		return app.FinalizeBlockResponse{}, err
@@ -294,6 +311,7 @@ func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Bloc
 	}
 	application.CommitStagedBlock(block.Header.Height, response.AppHash)
 	runtime.currentBaseFee = nextBaseFee
+	runtime.currentBlobBaseFee = nextBlobBaseFee
 	return response, nil
 }
 
@@ -302,6 +320,13 @@ func (runtime *Runtime) CurrentBaseFee() uint64 {
 		return runtime.currentBaseFee
 	}
 	return runtime.Config.Execution.BaseFee
+}
+
+func (runtime *Runtime) CurrentBlobBaseFee() uint64 {
+	if runtime.currentBlobBaseFee > 0 {
+		return runtime.currentBlobBaseFee
+	}
+	return runtime.Config.Execution.BlobBaseFee
 }
 
 func (runtime *Runtime) NextBaseFee(response app.FinalizeBlockResponse) uint64 {
@@ -316,6 +341,21 @@ func (runtime *Runtime) NextBaseFee(response app.FinalizeBlockResponse) uint64 {
 		ChangeDenominator: runtime.Config.Execution.BaseFeeChangeDenominator,
 		MinBaseFee:        runtime.Config.Execution.MinBaseFee,
 		MaxBaseFee:        runtime.Config.Execution.MaxBaseFee,
+	})
+}
+
+func (runtime *Runtime) NextBlobBaseFee(blobGasUsed uint64) uint64 {
+	current := runtime.CurrentBlobBaseFee()
+	if !runtime.Config.Execution.DynamicBlobBaseFee {
+		return current
+	}
+	return economics.NextBaseFee(economics.BaseFeeParams{
+		CurrentBaseFee:    current,
+		GasUsed:           blobGasUsed,
+		TargetGas:         runtime.Config.Execution.TargetBlobGas,
+		ChangeDenominator: runtime.Config.Execution.BlobFeeChangeDenominator,
+		MinBaseFee:        runtime.Config.Execution.MinBlobBaseFee,
+		MaxBaseFee:        runtime.Config.Execution.MaxBlobBaseFee,
 	})
 }
 
@@ -336,6 +376,28 @@ func totalGasUsed(response app.FinalizeBlockResponse) uint64 {
 		total += result.GasUsed
 	}
 	return total
+}
+
+func totalBlobGasUsed(txs []types.Tx) uint64 {
+	var total uint64
+	for _, tx := range txs {
+		blobGas, found := app.TxUintTag(tx, ethcompat.TagBlobGas)
+		if !found {
+			continue
+		}
+		if total > ^uint64(0)-blobGas {
+			return ^uint64(0)
+		}
+		total += blobGas
+	}
+	return total
+}
+
+func excessBlobGas(blobGasUsed uint64, target uint64) uint64 {
+	if target == 0 || blobGasUsed <= target {
+		return 0
+	}
+	return blobGasUsed - target
 }
 
 func cloneTxResults(results []types.Result) []types.Result {
@@ -562,6 +624,11 @@ func (runtime *Runtime) Recover(ctx context.Context) (store.StateRecord, error) 
 		runtime.currentBaseFee = state.NextBaseFee
 	} else if state.BaseFee > 0 {
 		runtime.currentBaseFee = state.BaseFee
+	}
+	if state.NextBlobBaseFee > 0 {
+		runtime.currentBlobBaseFee = state.NextBlobBaseFee
+	} else if state.BlobBaseFee > 0 {
+		runtime.currentBlobBaseFee = state.BlobBaseFee
 	}
 	return state, nil
 }

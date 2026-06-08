@@ -2,6 +2,7 @@ package ethcompat
 
 import (
 	"encoding/hex"
+	"errors"
 	"math/big"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/holiman/uint256"
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -147,6 +149,55 @@ func TestDecodeRawTransactionPreservesAccessList(t *testing.T) {
 	}
 	if err := ValidateCanonicalTx(decoded.Tx, 7); err != nil {
 		t.Fatalf("expected canonical access-list tx to validate: %v", err)
+	}
+}
+
+func TestDecodeRawTransactionPreservesBlobMetadata(t *testing.T) {
+	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := gethcommon.HexToAddress("0x000000000000000000000000000000000000bEEF")
+	blobHash := gethcommon.HexToHash("0x010203")
+	tx := gethtypes.NewTx(&gethtypes.BlobTx{
+		ChainID:    uint256.NewInt(7),
+		Nonce:      10,
+		GasTipCap:  uint256.NewInt(2),
+		GasFeeCap:  uint256.NewInt(20),
+		Gas:        50_000,
+		To:         to,
+		Value:      uint256.NewInt(3),
+		Data:       []byte{0x12, 0x34},
+		BlobFeeCap: uint256.NewInt(9),
+		BlobHashes: []gethcommon.Hash{blobHash},
+	})
+	signed, err := gethtypes.SignTx(tx, gethtypes.LatestSignerForChainID(big.NewInt(7)), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeRawTransaction("0x"+hex.EncodeToString(raw), DecodeOptions{ChainID: 7, BaseFee: 11, BlobBaseFee: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.BlobGas == 0 || decoded.BlobGasFeeCap != 9 || decoded.BlobFee != decoded.BlobGas*5 || len(decoded.BlobHashes) != 1 || decoded.BlobHashes[0] != blobHash.Hex() {
+		t.Fatalf("unexpected decoded blob metadata: %+v", decoded)
+	}
+	canonical, err := vexoapp.ParseCanonicalTx(decoded.Tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if canonical.Tags[TagBlobGas] == "" || canonical.Tags[TagBlobGasFeeCap] != "9" || canonical.Tags[TagBlobHashes] == "" {
+		t.Fatalf("expected blob canonical tags: %+v", canonical.Tags)
+	}
+	if err := ValidateCanonicalTx(decoded.Tx, 7); err != nil {
+		t.Fatalf("expected blob canonical tx to validate: %v", err)
+	}
+	if _, err := DecodeRawTransaction("0x"+hex.EncodeToString(raw), DecodeOptions{ChainID: 7, BaseFee: 11, BlobBaseFee: 10}); !errors.Is(err, ErrBlobFeeCapTooLow) {
+		t.Fatalf("expected low blob fee cap rejection, got %v", err)
 	}
 }
 

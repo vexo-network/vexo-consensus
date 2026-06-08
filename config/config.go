@@ -40,12 +40,19 @@ type ApplicationConfig struct {
 type ExecutionConfig struct {
 	MinFee                   uint64
 	BaseFee                  uint64
+	BlobBaseFee              uint64
 	EVMChainID               uint64
 	DynamicBaseFee           bool
+	DynamicBlobBaseFee       bool
 	TargetGas                uint64
+	TargetBlobGas            uint64
+	MaxBlobGas               uint64
 	BaseFeeChangeDenominator uint64
+	BlobFeeChangeDenominator uint64
 	MinBaseFee               uint64
 	MaxBaseFee               uint64
+	MinBlobBaseFee           uint64
+	MaxBlobBaseFee           uint64
 	MinGas                   uint64
 	MaxGas                   uint64
 	RequireNonce             bool
@@ -100,7 +107,12 @@ func Default(chainID string) Config {
 			EVMChainID:               1,
 			MaxGas:                   10_000_000,
 			TargetGas:                5_000_000,
+			BlobBaseFee:              1,
+			TargetBlobGas:            393_216,
+			MaxBlobGas:               786_432,
 			BaseFeeChangeDenominator: 8,
+			BlobFeeChangeDenominator: 6,
+			MinBlobBaseFee:           1,
 			FeeCollector:             "fee_collector",
 			FeeDenom:                 economics.AtomicDenom,
 			DisplayDenom:             economics.DisplayDenom,
@@ -171,6 +183,15 @@ func (config Config) Validate() error {
 			config.Execution.TargetGas == 0 ||
 			config.Execution.BaseFeeChangeDenominator == 0 ||
 			(config.Execution.MaxBaseFee > 0 && config.Execution.MinBaseFee > config.Execution.MaxBaseFee)) {
+		return ErrInvalidConfig
+	}
+	if config.Execution.DynamicBlobBaseFee &&
+		(config.Execution.BlobBaseFee == 0 ||
+			config.Execution.TargetBlobGas == 0 ||
+			config.Execution.MaxBlobGas == 0 ||
+			config.Execution.TargetBlobGas > config.Execution.MaxBlobGas ||
+			config.Execution.BlobFeeChangeDenominator == 0 ||
+			(config.Execution.MaxBlobBaseFee > 0 && config.Execution.MinBlobBaseFee > config.Execution.MaxBlobBaseFee)) {
 		return ErrInvalidConfig
 	}
 	if _, ok := economics.DenomFactor(config.Execution.FeeDenom); !ok {
@@ -247,7 +268,7 @@ func (config Config) ValidateNetworkSafety() error {
 	if !config.Execution.RequireSigned || !config.Execution.RequireNonce {
 		return ErrUnsafeNetworkConfig
 	}
-	if config.Execution.MinFee == 0 || config.Execution.BaseFee == 0 || config.Execution.MinGas == 0 {
+	if config.Execution.MinFee == 0 || config.Execution.BaseFee == 0 || config.Execution.BlobBaseFee == 0 || config.Execution.MinGas == 0 {
 		return ErrUnsafeNetworkConfig
 	}
 	if config.Mempool.MinFee == 0 || !config.Mempool.EnablePriority || !config.Mempool.EnableReplacement {

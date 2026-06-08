@@ -1322,7 +1322,7 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		}
 		return hexQuantity(0), nil
 	case "eth_blobBaseFee":
-		return hexQuantity(0), nil
+		return hexQuantity(web3LatestBlobBaseFee(ctx, provider)), nil
 	case "eth_maxPriorityFeePerGas":
 		return web3MaxPriorityFeePerGas(ctx, provider), nil
 	case "eth_feeHistory":
@@ -1406,9 +1406,10 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 			}
 		}
 		decoded, err := ethcompat.DecodeRawTransaction(rawTx, ethcompat.DecodeOptions{
-			ChainID: web3ChainID(provider.Status(ctx)),
-			BaseFee: baseFee,
-			VM:      "evm",
+			ChainID:     web3ChainID(provider.Status(ctx)),
+			BaseFee:     baseFee,
+			BlobBaseFee: web3LatestBlobBaseFee(ctx, provider),
+			VM:          "evm",
 		})
 		if err != nil {
 			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
@@ -2139,8 +2140,8 @@ func web3BlockFromRecord(ctx context.Context, provider StatusProvider, record st
 		"gasLimit":         web3BlockGasLimit(record.TxResults),
 		"gasUsed":          hexQuantity(web3BlockGasUsed(record.TxResults)),
 		"baseFeePerGas":    hexQuantity(web3BlockBaseFee(ctx, provider, record)),
-		"blobGasUsed":      "0x0",
-		"excessBlobGas":    "0x0",
+		"blobGasUsed":      hexQuantity(web3BlockBlobGasUsed(ctx, provider, record)),
+		"excessBlobGas":    hexQuantity(web3BlockExcessBlobGas(ctx, provider, record)),
 		"timestamp":        hexQuantity(uint64(record.Block.Header.TimeUnixNano / int64(time.Second))),
 		"transactions":     transactions,
 		"uncles":           []any{},
@@ -2241,6 +2242,54 @@ func web3BlockBaseFee(ctx context.Context, provider StatusProvider, record store
 		return state.BaseFee
 	}
 	return state.NextBaseFee
+}
+
+func web3LatestBlobBaseFee(ctx context.Context, provider StatusProvider) uint64 {
+	if query, ok := provider.(ChainQueryProvider); ok {
+		state, err := query.LatestState(ctx)
+		if err == nil {
+			if state.NextBlobBaseFee > 0 {
+				return state.NextBlobBaseFee
+			}
+			return state.BlobBaseFee
+		}
+	}
+	return 0
+}
+
+func web3BlockBlobGasUsed(ctx context.Context, provider StatusProvider, record store.BlockRecord) uint64 {
+	if query, ok := provider.(StateByHeightProvider); ok {
+		state, err := query.StateByHeight(ctx, record.Block.Header.Height)
+		if err == nil {
+			return state.BlobGasUsed
+		}
+	}
+	return web3TxsBlobGas(record.Block.Txs)
+}
+
+func web3BlockExcessBlobGas(ctx context.Context, provider StatusProvider, record store.BlockRecord) uint64 {
+	if query, ok := provider.(StateByHeightProvider); ok {
+		state, err := query.StateByHeight(ctx, record.Block.Header.Height)
+		if err == nil {
+			return state.ExcessBlobGas
+		}
+	}
+	return 0
+}
+
+func web3TxsBlobGas(txs []types.Tx) uint64 {
+	var total uint64
+	for _, tx := range txs {
+		blobGas, found := vexoapp.TxUintTag(tx, ethcompat.TagBlobGas)
+		if !found {
+			continue
+		}
+		if total > ^uint64(0)-blobGas {
+			return ^uint64(0)
+		}
+		total += blobGas
+	}
+	return total
 }
 
 func web3MaxPriorityFeePerGas(ctx context.Context, provider StatusProvider) string {

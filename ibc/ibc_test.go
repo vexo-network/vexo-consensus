@@ -385,3 +385,53 @@ func TestKeeperRejectsInvalidPacketPathAndSequence(t *testing.T) {
 		t.Fatalf("expected duplicate packet rejection, got %v", err)
 	}
 }
+
+func TestKeeperFreezesAndExpiresClients(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	keeper := NewKeeper(storage)
+	client := ClientState{
+		ClientID:             "07-vexo-0",
+		ChainID:              "counterparty",
+		LatestHeight:         10,
+		ValidatorSetHash:     types.Hash{1},
+		TrustingPeriodHeight: 5,
+	}
+	if err := keeper.SetClient(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Set(ctx, "bank", []byte("alice"), []byte("100")); err != nil {
+		t.Fatal(err)
+	}
+	proof, err := queryproof.Build(ctx, storage, "counterparty", 10, "bank", []byte("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.LatestStateRoot = proof.StateRoot
+	if err := keeper.SetClient(ctx, client); err != nil {
+		t.Fatal(err)
+	}
+	expired, err := keeper.ClientExpired(ctx, client.ClientID, 16)
+	if err != nil || !expired {
+		t.Fatalf("expected expired client, expired=%t err=%v", expired, err)
+	}
+	if err := keeper.VerifyClientProofAt(ctx, client.ClientID, 16, proof); !errors.Is(err, ErrClientExpired) {
+		t.Fatalf("expected expired client proof rejection, got %v", err)
+	}
+	if err := keeper.VerifyClientProofAt(ctx, client.ClientID, 15, proof); err != nil {
+		t.Fatalf("expected proof inside trusting period, got %v", err)
+	}
+	if err := keeper.FreezeClient(ctx, client.ClientID); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.UpdateClient(ctx, client.ClientID, 11, types.Hash{2}, proof.StateRoot); !errors.Is(err, ErrClientFrozen) {
+		t.Fatalf("expected frozen client update rejection, got %v", err)
+	}
+	if err := keeper.VerifyClientProof(ctx, client.ClientID, proof); !errors.Is(err, ErrClientFrozen) {
+		t.Fatalf("expected frozen client proof rejection, got %v", err)
+	}
+}
