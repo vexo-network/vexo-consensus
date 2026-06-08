@@ -133,7 +133,7 @@ go run ./cmd/vexod release pack --dist dist --version 0.1.0 \
   --fuzz-evidence dist/fuzz-evidence.txt
 ```
 
-The generated pack lists artifact SHA-256 values, required release files, signature status, attached long-run/adversarial/fuzz evidence, and the external audit checklist. `release gate` adds the stricter publish/no-publish decision by requiring category-specific chaos, signer, snapshot/replay, P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, SDK conformance, external audit, and BLS audit evidence.
+The generated pack lists artifact SHA-256 values, required release files, signature status, attached long-run/adversarial/fuzz evidence, and the external audit checklist. `release gate` adds the stricter publish/no-publish decision by requiring category-specific chaos, signer, snapshot/replay, P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, SDK conformance including EVM/Web3 fixtures, external audit, and BLS audit evidence.
 
 ## Release Candidate Soak Test
 

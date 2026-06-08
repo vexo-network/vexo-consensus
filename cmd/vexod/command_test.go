@@ -2832,6 +2832,56 @@ func TestOpsConformanceIncludesAuditAndRotationPlan(t *testing.T) {
 	if len(document.Audit.Checks) == 0 || len(document.Checks) == 0 {
 		t.Fatalf("expected audit and conformance checks: %+v", document)
 	}
+	surface := strings.Join(document.SDKSurface, " ")
+	summary := strings.Join(document.Summary, " ")
+	for _, expected := range []string{"sdk", "api", "module", "rpc", "storage", "crypto", "transport", "evm", "web3", "ethereum"} {
+		if !strings.Contains(surface, expected) && !strings.Contains(summary, expected) {
+			t.Fatalf("expected conformance evidence to contain %q, surface=%q summary=%q", expected, surface, summary)
+		}
+	}
+	foundEVMCheck := false
+	for _, check := range document.Checks {
+		if check.Name == "evm_transaction_fixtures" && check.OK {
+			foundEVMCheck = true
+			break
+		}
+	}
+	if !foundEVMCheck {
+		t.Fatalf("expected passing EVM fixture check: %+v", document.Checks)
+	}
+}
+
+func TestOpsConformanceRequiresFixtureForEthereumSurface(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := runOps(&output, []string{"conformance", "--home", home, "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var document opsConformanceDocument
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	surface := strings.Join(document.SDKSurface, " ")
+	summary := strings.Join(document.Summary, " ")
+	if strings.Contains(surface, "ethereum") || strings.Contains(summary, "ethereum") {
+		t.Fatalf("ethereum conformance surface must require fixture evidence, surface=%q summary=%q", surface, summary)
+	}
+	foundWarning := false
+	for _, check := range document.Checks {
+		if check.Name == "evm_transaction_fixtures_missing" && check.Severity == "warning" && check.OK {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Fatalf("expected missing fixture warning: %+v", document.Checks)
+	}
 }
 
 func TestBuildStartNodeLoadsValidatorSigner(t *testing.T) {

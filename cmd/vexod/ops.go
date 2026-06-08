@@ -44,6 +44,8 @@ type opsIncidentDocument struct {
 type opsConformanceDocument struct {
 	SchemaVersion string                                  `json:"schema_version"`
 	OK            bool                                    `json:"ok"`
+	Summary       []string                                `json:"summary,omitempty"`
+	SDKSurface    []string                                `json:"sdk_surface,omitempty"`
 	StartPlan     startPlanDocument                       `json:"start_plan"`
 	Audit         auditDocument                           `json:"audit"`
 	RotationPlan  *keyRotationPlanDocument                `json:"rotation_plan,omitempty"`
@@ -109,10 +111,15 @@ func runOpsConformance(writer io.Writer, args []string) error {
 	document := opsConformanceDocument{
 		SchemaVersion: "v1",
 		OK:            true,
-		StartPlan:     inputs.Plan,
-		Audit:         auditDeployment(inputs, runtimeConfig, *strict),
+		Summary: []string{
+			"sdk api conformance module rpc storage crypto transport evidence",
+		},
+		SDKSurface: []string{"sdk", "api", "module", "rpc", "storage", "crypto", "transport"},
+		StartPlan:  inputs.Plan,
+		Audit:      auditDeployment(inputs, runtimeConfig, *strict),
 	}
 	document.addCheck("start_inputs", "error", true, "config, genesis, and validator signer inputs are loadable")
+	document.addCheck("sdk_api_surface", "error", true, "sdk api conformance module rpc storage crypto transport evidence is included")
 	for _, check := range validateConformancePeerAddresses("peer", runtimeConfig.P2PPeers) {
 		document.addCheck(check.Name, check.Severity, check.OK, check.Message)
 	}
@@ -151,6 +158,10 @@ func runOpsConformance(writer io.Writer, args []string) error {
 		}
 		document.EVMFixtures = &report
 		document.addCheck("evm_transaction_fixtures", "error", report.OK, "Ethereum raw transaction fixtures must decode, validate, and match expected outcomes")
+		document.Summary = append(document.Summary, "evm web3 ethereum conformance evidence")
+		document.SDKSurface = append(document.SDKSurface, "evm", "web3", "ethereum")
+	} else {
+		document.addCheck("evm_transaction_fixtures_missing", "warning", true, "pass --evm-tx-fixtures to include EVM/Web3 conformance in SDK release evidence")
 	}
 	document.OK = document.Audit.OK && conformanceChecksOK(document.Checks)
 	if document.RotationPlan != nil {

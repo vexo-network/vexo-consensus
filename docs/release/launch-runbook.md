@@ -52,7 +52,7 @@ Required artifacts:
 - MEV/fee-market evidence covering base fee, fair ordering, censorship-resistance, spam cost, and mempool WAL replay
 - ops runbook evidence covering alert thresholds, incident drills, multi-region observability, and archive requirements
 - formal safety evidence covering invariants, adversarial simulation output, and property/fuzz output
-- SDK conformance evidence covering app modules, custom crypto, custom storage, custom transport, RPC versioning, and upgrade hooks
+- SDK conformance evidence covering app modules, custom crypto, custom storage, custom transport, RPC versioning, upgrade hooks, and EVM/Web3 transaction fixtures
 - external audit disposition for public releases
 - BLS adapter audit evidence when BLS is enabled
 
@@ -61,7 +61,10 @@ Recommended commands:
 ```bash
 make release VERSION=<version>
 make sign-release VERSION=<version>
-go run ./cmd/vexod ops conformance --home .vexo --json > dist/ops-conformance.json
+go run ./cmd/vexod ops conformance \
+  --home .vexo \
+  --evm-tx-fixtures dist/evm-tx-fixtures.json \
+  --json > dist/sdk-conformance-evidence.json
 go run ./cmd/vexod release pack \
   --dist dist \
   --version <version> \
