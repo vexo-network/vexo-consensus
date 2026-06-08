@@ -91,7 +91,8 @@ nonce is `N+1`.
 - `fee` accepts raw atomic values or suffixed units: `avxo`, `gvxo`, and `vexo`.
 - `gas` is bounded by configured min/max gas. `gas_limit` is accepted as an alias.
 - `base_fee` is configured per gas unit; required fee is `max(min_fee, base_fee * gas)`.
-- `blob_base_fee`, `blob_gas`, and `blob_gas_fee_cap` are tracked for EIP-4844-style raw Ethereum transactions; blob fee cap must cover the current blob base fee and committed blocks persist blob gas usage/excess blob gas.
+- `blob_base_fee`, `blob_gas`, `blob_gas_fee_cap`, and blob versioned hashes are tracked for EIP-4844-style raw Ethereum transactions; blob fee cap must cover the current blob base fee and committed blocks persist blob gas usage/excess blob gas.
+- Blob sidecars can be verified through the EVM ethcompat boundary with geth KZG4844 proof verification, commitment-derived versioned hash checks, and strict blob/commitment/proof length checks. The geth VM adapter passes decoded blob hashes into `TxContext`, so contracts using the `BLOBHASH` opcode see the transaction's blob hashes.
 - `evm_chain_id`/`EVMChainID` is the EIP-155/Web3 chain ID used by `eth_chainId`, `net_version`, and `eth_sendRawTransaction` signature validation.
 - Mempools may replace an existing pending transaction with the same `signer` and `nonce` only when the new `fee` or `priority` meets the configured replacement bump.
 - When `dynamic_base_fee` is enabled, each committed block stores the base fee used for that block and the next base fee derived from total gas used versus `target_gas`.

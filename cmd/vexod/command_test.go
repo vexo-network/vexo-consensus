@@ -749,12 +749,12 @@ func releaseEvidenceFixture(name string) []byte {
 		"longrun-evidence.json":                 "longrun duration height validator distributed per_node soak evidence passed",
 		"adversarial-evidence.json":             "adversarial consensus simulation partition evidence passed",
 		"chaos-evidence.json":                   "chaos fault partition restart evidence passed",
-		"kms-evidence.json":                     "kms signer policy double-sign guard evidence passed",
+		"kms-evidence.json":                     "kms signer policy double-sign guard nonce replay audit evidence passed",
 		"snapshot-replay-evidence.json":         "snapshot replay restore consistency evidence passed",
 		"p2p-scale-evidence.json":               "p2p peer scale discovery reconnect backpressure evidence passed",
 		"state-sync-light-client-evidence.json": "state-sync light-client finality proof evidence passed",
-		"validator-economics-evidence.json":     "validator slashing reward commission unbonding evidence passed",
-		"upgrade-governance-evidence.json":      "upgrade governance migration rollback halt allow_noop no-op evidence passed",
+		"validator-economics-evidence.json":     "validator slashing reward commission unbonding jail custody stake-accounting tombstone false-slashing evidence passed",
+		"upgrade-governance-evidence.json":      "upgrade governance migration rollback halt allow_noop no-op authority rollback-required last-safe-height evidence passed",
 		"mev-fee-market-evidence.json":          "mev fee market fair mempool ordering replacement evidence passed",
 		"ops-runbook-evidence.json":             "ops runbook alert incident metrics evidence passed",
 		"formal-safety-evidence.json":           "safety invariant adversarial property proof evidence passed",
@@ -766,7 +766,7 @@ func releaseEvidenceFixture(name string) []byte {
 	case name == "external-audit.pdf":
 		return []byte("external security audit disposition evidence passed")
 	case name == "bls-audit.pdf":
-		return []byte("bls adapter audit dependency subgroup rogue-key evidence passed")
+		return []byte("bls adapter audit dependency subgroup rogue-key proof-of-possession key-validation evidence passed")
 	case strings.HasSuffix(name, ".json"):
 		if value, ok := summary[name]; ok {
 			return []byte(`{"ok":true,"summary":"` + value + `","checks":[{"ok":true,"name":"` + name + `"}]}`)

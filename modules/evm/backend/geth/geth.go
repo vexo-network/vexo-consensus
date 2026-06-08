@@ -49,12 +49,13 @@ func (GethVM) Execute(ctx context.Context, invocation contract.Invocation) (cont
 		DisableStack:     false,
 		DisableStorage:   false,
 	})
-	evm := gethvm.NewEVM(gethBlockContext(invocation, stateDB), stateDB, gethparams.AllEthashProtocolChanges, gethvm.Config{Tracer: traceLogger.Hooks()})
+	evm := gethvm.NewEVM(gethBlockContext(invocation, stateDB), stateDB, gethparams.AllDevChainProtocolChanges, gethvm.Config{Tracer: traceLogger.Hooks()})
 	evm.SetTxContext(gethvm.TxContext{
-		Origin:   caller,
-		GasPrice: new(uint256.Int).SetUint64(invocation.GasPrice),
+		Origin:     caller,
+		GasPrice:   new(uint256.Int).SetUint64(invocation.GasPrice),
+		BlobHashes: gethBlobHashes(invocation.BlobHashes),
 	})
-	rules := gethparams.AllEthashProtocolChanges.Rules(new(big.Int).SetUint64(invocation.BlockNumber), true, invocation.Timestamp)
+	rules := gethparams.AllDevChainProtocolChanges.Rules(new(big.Int).SetUint64(invocation.BlockNumber), true, invocation.Timestamp)
 	var destination *gethcommon.Address
 	if invocation.Method != "deploy" {
 		destination = &contractAddress
@@ -127,6 +128,17 @@ func (GethVM) Execute(ctx context.Context, invocation contract.Invocation) (cont
 		result.DeployedCode = nil
 	}
 	return result, nil
+}
+
+func gethBlobHashes(hashes []types.Hash) []gethcommon.Hash {
+	if len(hashes) == 0 {
+		return nil
+	}
+	out := make([]gethcommon.Hash, len(hashes))
+	for index, hash := range hashes {
+		out[index] = gethcommon.Hash(hash)
+	}
+	return out
 }
 
 func invocationValue(invocation contract.Invocation) (*uint256.Int, error) {

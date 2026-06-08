@@ -1,6 +1,7 @@
 package ethcompat
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/contract"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -46,6 +48,7 @@ var (
 	ErrValueOverflow         = errors.New("Ethereum transaction value overflows Vexo uint64 amount")
 	ErrSignatureMismatch     = errors.New("Ethereum transaction signature does not match canonical tags")
 	ErrBlobFeeCapTooLow      = errors.New("Ethereum blob fee cap is below blob base fee")
+	ErrInvalidBlobSidecar    = errors.New("Ethereum blob sidecar proof is invalid")
 )
 
 type DecodeOptions struct {
@@ -178,6 +181,11 @@ func DecodeRawTransaction(rawHex string, options DecodeOptions) (DecodedTransact
 		TagBlobGasFeeCap:        strconv.FormatUint(blobGasFeeCap, 10),
 	}
 	blobHashes := blobHashesHex(ethTx.BlobHashes())
+	if sidecar := ethTx.BlobTxSidecar(); sidecar != nil {
+		if err := VerifyBlobSidecar(sidecar, blobHashes); err != nil {
+			return DecodedTransaction{}, err
+		}
+	}
 	if len(blobHashes) > 0 {
 		encodedHashes, err := json.Marshal(blobHashes)
 		if err != nil {
@@ -255,6 +263,61 @@ func DecodeRawTransaction(rawHex string, options DecodeOptions) (DecodedTransact
 	}
 	decoded.Tx = built
 	return decoded, nil
+}
+
+func VerifyBlobSidecar(sidecar *gethtypes.BlobTxSidecar, expectedHashes []string) error {
+	if sidecar == nil {
+		if len(expectedHashes) > 0 {
+			return ErrInvalidBlobSidecar
+		}
+		return nil
+	}
+	if len(sidecar.Blobs) == 0 ||
+		len(sidecar.Blobs) != len(sidecar.Commitments) ||
+		len(sidecar.Blobs) != len(sidecar.Proofs) ||
+		len(expectedHashes) != len(sidecar.Blobs) {
+		return ErrInvalidBlobSidecar
+	}
+	commitmentHashes := make([]gethcommon.Hash, len(sidecar.Commitments))
+	for index := range sidecar.Blobs {
+		if err := kzg4844.VerifyBlobProof(&sidecar.Blobs[index], sidecar.Commitments[index], sidecar.Proofs[index]); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidBlobSidecar, err)
+		}
+		versionedHash := kzg4844.CalcBlobHashV1(sha256.New(), &sidecar.Commitments[index])
+		if !kzg4844.IsValidVersionedHash(versionedHash[:]) {
+			return ErrInvalidBlobSidecar
+		}
+		commitmentHashes[index] = gethcommon.Hash(versionedHash)
+		if !strings.EqualFold(commitmentHashes[index].Hex(), expectedHashes[index]) {
+			return ErrInvalidBlobSidecar
+		}
+	}
+	if err := sidecar.ValidateBlobCommitmentHashes(commitmentHashes); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidBlobSidecar, err)
+	}
+	return nil
+}
+
+func VerifyBlobSidecarBytes(expectedHashes []string, blobs [][]byte, commitments [][]byte, proofs [][]byte) error {
+	if len(blobs) != len(commitments) || len(blobs) != len(proofs) {
+		return ErrInvalidBlobSidecar
+	}
+	sidecar := &gethtypes.BlobTxSidecar{
+		Blobs:       make([]kzg4844.Blob, len(blobs)),
+		Commitments: make([]kzg4844.Commitment, len(commitments)),
+		Proofs:      make([]kzg4844.Proof, len(proofs)),
+	}
+	for index := range blobs {
+		if len(blobs[index]) != len(kzg4844.Blob{}) ||
+			len(commitments[index]) != len(kzg4844.Commitment{}) ||
+			len(proofs[index]) != len(kzg4844.Proof{}) {
+			return ErrInvalidBlobSidecar
+		}
+		copy(sidecar.Blobs[index][:], blobs[index])
+		copy(sidecar.Commitments[index][:], commitments[index])
+		copy(sidecar.Proofs[index][:], proofs[index])
+	}
+	return VerifyBlobSidecar(sidecar, expectedHashes)
 }
 
 func ValidateCanonicalTx(tx types.Tx, expectedChainID uint64) error {

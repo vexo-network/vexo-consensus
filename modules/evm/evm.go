@@ -3,6 +3,7 @@ package evm
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -87,6 +88,7 @@ type CallRequest struct {
 	GasPrice    uint64                     `json:"gas_price,omitempty"`
 	BaseFee     uint64                     `json:"base_fee,omitempty"`
 	BlobBaseFee uint64                     `json:"blob_base_fee,omitempty"`
+	BlobHashes  []string                   `json:"blob_hashes,omitempty"`
 	AccessList  []contract.AccessListEntry `json:"access_list,omitempty"`
 }
 
@@ -257,6 +259,7 @@ func (module Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, erro
 		invocation.GasPrice = txGasPrice(tx)
 		invocation.BaseFee = txBaseFee(tx)
 		invocation.BlobBaseFee = txBlobBaseFee(tx)
+		invocation.BlobHashes = txBlobHashes(tx)
 		invocation.Coinbase = types.Address("fee_collector")
 		return module.estimateInvocationGas(ctx, invocation, callGasCost)
 	case "deploy", "eth_deploy":
@@ -465,6 +468,7 @@ func (module Module) deliverCall(ctx vexoapp.Context, tx types.Tx, args []string
 	invocation.GasPrice = txGasPrice(tx)
 	invocation.BaseFee = txBaseFee(tx)
 	invocation.BlobBaseFee = txBlobBaseFee(tx)
+	invocation.BlobHashes = txBlobHashes(tx)
 	invocation.Coinbase = types.Address("fee_collector")
 	invocation.AccessList = accessListFromTx(tx)
 	result, err := module.registry.Execute(ctx.GoContext(), invocation)
@@ -522,6 +526,7 @@ func (module Module) deliverDeploy(ctx vexoapp.Context, tx types.Tx, args []stri
 		GasPrice:      txGasPrice(tx),
 		BaseFee:       txBaseFee(tx),
 		BlobBaseFee:   txBlobBaseFee(tx),
+		BlobHashes:    txBlobHashes(tx),
 		Coinbase:      types.Address("fee_collector"),
 		AccessList:    accessListFromTx(tx),
 	}
@@ -588,6 +593,7 @@ func (module Module) deliverEthereumDeploy(ctx vexoapp.Context, tx types.Tx, arg
 		GasPrice:      txGasPrice(tx),
 		BaseFee:       txBaseFee(tx),
 		BlobBaseFee:   txBlobBaseFee(tx),
+		BlobHashes:    txBlobHashes(tx),
 		Coinbase:      types.Address("fee_collector"),
 		AccessList:    accessListFromTx(tx),
 	}
@@ -669,6 +675,7 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 		GasPrice:      request.GasPrice,
 		BaseFee:       request.BaseFee,
 		BlobBaseFee:   request.BlobBaseFee,
+		BlobHashes:    parseBlobHashes(request.BlobHashes),
 		Coinbase:      types.Address("fee_collector"),
 		AccessList:    append([]contract.AccessListEntry(nil), request.AccessList...),
 	})
@@ -772,6 +779,7 @@ func (Module) prepareDeployInvocation(ctx vexoapp.Context, tx types.Tx, vm strin
 		GasPrice:      txGasPrice(tx),
 		BaseFee:       txBaseFee(tx),
 		BlobBaseFee:   txBlobBaseFee(tx),
+		BlobHashes:    txBlobHashes(tx),
 		Coinbase:      types.Address("fee_collector"),
 		AccessList:    accessListFromTx(tx),
 	}
@@ -1800,6 +1808,39 @@ func txBlobBaseFee(tx types.Tx) uint64 {
 		return blobBaseFee
 	}
 	return 0
+}
+
+func txBlobHashes(tx types.Tx) []types.Hash {
+	encoded, found := vexoapp.TxTag(tx, ethcompat.TagBlobHashes)
+	if !found || encoded == "" {
+		return nil
+	}
+	raw, err := base64.RawStdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil
+	}
+	var hashes []string
+	if err := json.Unmarshal(raw, &hashes); err != nil {
+		return nil
+	}
+	return parseBlobHashes(hashes)
+}
+
+func parseBlobHashes(raw []string) []types.Hash {
+	if len(raw) == 0 {
+		return nil
+	}
+	hashes := make([]types.Hash, 0, len(raw))
+	for _, value := range raw {
+		decoded, err := hex.DecodeString(strings.TrimPrefix(value, "0x"))
+		if err != nil || len(decoded) != len(types.Hash{}) {
+			return nil
+		}
+		var hash types.Hash
+		copy(hash[:], decoded)
+		hashes = append(hashes, hash)
+	}
+	return hashes
 }
 
 func evmBankKey(address types.Address) []byte {

@@ -34,6 +34,7 @@ type Invocation struct {
 	Timestamp     uint64        `json:"-"`
 	BaseFee       uint64        `json:"-"`
 	BlobBaseFee   uint64        `json:"-"`
+	BlobHashes    []types.Hash  `json:"-"`
 	GasPrice      uint64        `json:"-"`
 	BlockGasLimit uint64        `json:"-"`
 	Coinbase      types.Address `json:"-"`
@@ -175,6 +176,7 @@ func cloneInvocation(invocation Invocation) Invocation {
 	invocation.Code = append([]byte(nil), invocation.Code...)
 	invocation.Salt = append([]byte(nil), invocation.Salt...)
 	invocation.AccessList = cloneAccessList(invocation.AccessList)
+	invocation.BlobHashes = append([]types.Hash(nil), invocation.BlobHashes...)
 	return invocation
 }
 

@@ -8,6 +8,7 @@ import (
 	"errors"
 
 	"github.com/vexo-network/vexo-consensus/dataavailability"
+	"github.com/vexo-network/vexo-consensus/queryproof"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -58,6 +59,7 @@ type InvalidProposalProof struct {
 	ExpectedHash         types.Hash            `json:"expected_hash,omitempty"`
 	ActualHash           types.Hash            `json:"actual_hash,omitempty"`
 	ContextProofHash     types.Hash            `json:"context_proof_hash,omitempty"`
+	StateProof           *queryproof.Proof     `json:"state_proof,omitempty"`
 	ExpectedTimeUnixNano int64                 `json:"expected_time_unix_nano,omitempty"`
 	ActualTimeUnixNano   int64                 `json:"actual_time_unix_nano,omitempty"`
 	VerificationMessage  string                `json:"verification_message,omitempty"`
@@ -68,6 +70,13 @@ type InvalidProposalVerificationContext struct {
 	ExpectedAppHash          types.Hash
 	ExpectedTxResultsHash    types.Hash
 	ContextProofHash         types.Hash
+	ChainID                  string
+	ExpectedStateRoot        types.Hash
+	ExpectedProofNamespace   string
+	ExpectedProofKey         []byte
+	ExpectedProofValue       []byte
+	ExpectedProofExists      *bool
+	RequireStateProof        bool
 	ExpectedTimeUnixNano     int64
 }
 
@@ -75,6 +84,13 @@ func (context InvalidProposalVerificationContext) ProofHash() types.Hash {
 	if context.ExpectedValidatorSetHash == (types.Hash{}) &&
 		context.ExpectedAppHash == (types.Hash{}) &&
 		context.ExpectedTxResultsHash == (types.Hash{}) &&
+		context.ExpectedStateRoot == (types.Hash{}) &&
+		context.ChainID == "" &&
+		context.ExpectedProofNamespace == "" &&
+		len(context.ExpectedProofKey) == 0 &&
+		len(context.ExpectedProofValue) == 0 &&
+		context.ExpectedProofExists == nil &&
+		!context.RequireStateProof &&
 		context.ExpectedTimeUnixNano == 0 {
 		return types.Hash{}
 	}
@@ -83,6 +99,26 @@ func (context InvalidProposalVerificationContext) ProofHash() types.Hash {
 	hasher.Write(context.ExpectedValidatorSetHash[:])
 	hasher.Write(context.ExpectedAppHash[:])
 	hasher.Write(context.ExpectedTxResultsHash[:])
+	hasher.Write(context.ExpectedStateRoot[:])
+	writeResultBytes(hasher, []byte(context.ChainID))
+	writeResultBytes(hasher, []byte(context.ExpectedProofNamespace))
+	writeResultBytes(hasher, context.ExpectedProofKey)
+	writeResultBytes(hasher, context.ExpectedProofValue)
+	if context.ExpectedProofExists != nil {
+		writeResultUint64(hasher, 1)
+		if *context.ExpectedProofExists {
+			writeResultUint64(hasher, 1)
+		} else {
+			writeResultUint64(hasher, 0)
+		}
+	} else {
+		writeResultUint64(hasher, 0)
+	}
+	if context.RequireStateProof {
+		writeResultUint64(hasher, 1)
+	} else {
+		writeResultUint64(hasher, 0)
+	}
 	writeResultUint64(hasher, uint64(context.ExpectedTimeUnixNano))
 	var out types.Hash
 	copy(out[:], hasher.Sum(nil))
@@ -105,6 +141,33 @@ func BindInvalidProposalEvidenceContext(evidence slashing.Evidence, context Inva
 		return slashing.Evidence{}, ErrInvalidProposalContext
 	}
 	proof.ContextProofHash = contextProofHash
+	encoded, err := json.Marshal(proof)
+	if err != nil {
+		return slashing.Evidence{}, err
+	}
+	evidence.Proof = encoded
+	return evidence, nil
+}
+
+func BindInvalidProposalEvidenceStateProof(evidence slashing.Evidence, context InvalidProposalVerificationContext, stateProof queryproof.Proof) (slashing.Evidence, error) {
+	if evidence.Type != slashing.EvidenceInvalidProposal {
+		return slashing.Evidence{}, slashing.ErrUnknownEvidenceType
+	}
+	proof, err := DecodeInvalidProposalProof(evidence.Proof)
+	if err != nil {
+		return slashing.Evidence{}, err
+	}
+	if err := verifyInvalidProposalEnvelope(proof, evidence.Validator, evidence.Height, evidence.Round); err != nil {
+		return slashing.Evidence{}, err
+	}
+	if context.ExpectedStateRoot == (types.Hash{}) {
+		return slashing.Evidence{}, ErrInvalidProposalContext
+	}
+	context.RequireStateProof = true
+	if contextProofHash := context.ProofHash(); contextProofHash != (types.Hash{}) {
+		proof.ContextProofHash = contextProofHash
+	}
+	proof.StateProof = cloneQueryProof(stateProof)
 	encoded, err := json.Marshal(proof)
 	if err != nil {
 		return slashing.Evidence{}, err
@@ -426,6 +489,20 @@ func DecodeInvalidProposalProof(proof []byte) (InvalidProposalProof, error) {
 	return decoded, nil
 }
 
+func cloneQueryProof(proof queryproof.Proof) *queryproof.Proof {
+	encoded, err := queryproof.Encode(proof)
+	if err != nil {
+		cloned := proof
+		return &cloned
+	}
+	cloned, err := queryproof.Decode(encoded)
+	if err != nil {
+		cloned := proof
+		return &cloned
+	}
+	return &cloned
+}
+
 func DecodeUnavailableDataProof(proof []byte) (UnavailableDataProof, error) {
 	var decoded UnavailableDataProof
 	if err := json.Unmarshal(proof, &decoded); err != nil {
@@ -559,7 +636,38 @@ func VerifyInvalidProposalEvidenceWithContext(evidence slashing.Evidence, contex
 	} else if context.ContextProofHash != (types.Hash{}) && context.ContextProofHash != context.ProofHash() {
 		return ErrInvalidProposalContext
 	}
+	if err := verifyInvalidProposalStateProof(decoded, context, evidence.Height); err != nil {
+		return err
+	}
 	return verifyInvalidProposalByReason(decoded)
+}
+
+func verifyInvalidProposalStateProof(decoded InvalidProposalProof, context InvalidProposalVerificationContext, height types.Height) error {
+	if decoded.StateProof == nil {
+		if context.RequireStateProof {
+			return ErrInvalidProposalContext
+		}
+		return nil
+	}
+	if context.ExpectedStateRoot == (types.Hash{}) {
+		return ErrInvalidProposalContext
+	}
+	if err := queryproof.Verify(*decoded.StateProof, context.ChainID, height, context.ExpectedStateRoot); err != nil {
+		return err
+	}
+	if context.ExpectedProofNamespace != "" && decoded.StateProof.Namespace != context.ExpectedProofNamespace {
+		return ErrInvalidProposal
+	}
+	if len(context.ExpectedProofKey) > 0 && !bytes.Equal(decoded.StateProof.Key, context.ExpectedProofKey) {
+		return ErrInvalidProposal
+	}
+	if context.ExpectedProofExists != nil && decoded.StateProof.Exists != *context.ExpectedProofExists {
+		return ErrInvalidProposal
+	}
+	if len(context.ExpectedProofValue) > 0 && !bytes.Equal(decoded.StateProof.Value, context.ExpectedProofValue) {
+		return ErrInvalidProposal
+	}
+	return nil
 }
 
 func HashTxResults(results []types.Result) types.Hash {

@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/dataavailability"
+	"github.com/vexo-network/vexo-consensus/queryproof"
+	"github.com/vexo-network/vexo-consensus/stateproof"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
@@ -117,6 +119,65 @@ func TestInvalidProposalHashEvidenceVerifiesReasonSpecificProof(t *testing.T) {
 	}
 	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{}); !errors.Is(err, ErrInvalidProposalContext) {
 		t.Fatalf("expected missing context rejection, got %v", err)
+	}
+}
+
+func TestInvalidProposalHashEvidenceVerifiesStateProof(t *testing.T) {
+	proposal := Proposal{
+		Block: types.Block{
+			Header: types.Header{
+				ChainID:          "vexo-test",
+				Height:           7,
+				ValidatorSetHash: types.Hash{2},
+				ConsensusHash:    dataavailability.Commitment([]types.Tx{[]byte("tx")}),
+			},
+			Txs: []types.Tx{[]byte("tx")},
+		},
+		Round:    2,
+		Proposer: "validator-1",
+	}
+	evidence, err := NewInvalidProposalHashEvidence(proposal, string(InvalidProposalReasonValidatorSetHash), types.Hash{1}, types.Hash{2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedValidatorSetHash := types.Hash{1}
+	appHash := types.Hash{3}
+	pairs := []stateproof.Pair{
+		{Key: []byte("validator_set_hash"), Value: expectedValidatorSetHash[:]},
+		{Key: []byte("app_hash"), Value: appHash[:]},
+	}
+	root, err := stateproof.Root("consensus", pairs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := queryproof.BuildFromPairs("vexo-test", 7, "consensus", []byte("validator_set_hash"), pairs, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedExists := true
+	context := InvalidProposalVerificationContext{
+		ExpectedValidatorSetHash: expectedValidatorSetHash,
+		ChainID:                  "vexo-test",
+		ExpectedStateRoot:        root,
+		ExpectedProofNamespace:   "consensus",
+		ExpectedProofKey:         []byte("validator_set_hash"),
+		ExpectedProofValue:       expectedValidatorSetHash[:],
+		ExpectedProofExists:      &expectedExists,
+		RequireStateProof:        true,
+	}
+	evidence, err = BindInvalidProposalEvidenceStateProof(evidence, context, proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	context.ContextProofHash = context.ProofHash()
+	if err := VerifyInvalidProposalEvidenceWithContext(evidence, context); err != nil {
+		t.Fatalf("expected state proof evidence to verify: %v", err)
+	}
+	tamperedContext := context
+	tamperedContext.ExpectedStateRoot = types.Hash{9}
+	tamperedContext.ContextProofHash = tamperedContext.ProofHash()
+	if err := VerifyInvalidProposalEvidenceWithContext(evidence, tamperedContext); !errors.Is(err, ErrInvalidProposal) && !errors.Is(err, queryproof.ErrRootMismatch) && !errors.Is(err, ErrInvalidProposalContext) {
+		t.Fatalf("expected tampered state root to fail, got %v", err)
 	}
 }
 

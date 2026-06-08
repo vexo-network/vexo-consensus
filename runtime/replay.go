@@ -46,7 +46,14 @@ func (runtime *Runtime) ReplayStrict(ctx context.Context, from types.Height, to 
 		return ReplayResult{}, ErrInvalidReplayRange
 	}
 	if from != 1 {
-		return runtime.ReplayFromHistoricalSnapshot(ctx, from, to)
+		result, err := runtime.ReplayFromHistoricalSnapshot(ctx, from, to)
+		if err == nil {
+			return result, nil
+		}
+		if canFallbackToStoredReplay(err) {
+			return runtime.ReplayStrictFromGenesis(ctx, from, to)
+		}
+		return ReplayResult{}, err
 	}
 	return runtime.replayFromFreshStore(ctx, from, to)
 }
@@ -98,6 +105,29 @@ func (runtime *Runtime) replayFromFreshStore(ctx context.Context, from types.Hei
 		return ReplayResult{}, err
 	}
 	return runtime.ReplayWithApp(ctx, from, to, replayApp)
+}
+
+func (runtime *Runtime) ReplayStrictFromGenesis(ctx context.Context, from types.Height, to types.Height) (ReplayResult, error) {
+	if runtime.Store == nil {
+		return ReplayResult{}, store.ErrBlockNotFound
+	}
+	if from <= 1 || to == 0 || from > to {
+		return ReplayResult{}, ErrInvalidReplayRange
+	}
+	index, err := runtime.BlockIndex(ctx)
+	if err != nil {
+		return ReplayResult{}, err
+	}
+	if index.EarliestHeight != 1 {
+		return ReplayResult{}, ErrReplayRequiresGenesisStart
+	}
+	result, err := runtime.replayFromFreshStore(ctx, 1, to)
+	if err != nil {
+		return ReplayResult{}, err
+	}
+	result.FromHeight = from
+	result.Blocks = uint64(to - from + 1)
+	return result, nil
 }
 
 func (runtime *Runtime) ReplayFromHistoricalSnapshot(ctx context.Context, from types.Height, to types.Height) (ReplayResult, error) {

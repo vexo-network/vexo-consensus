@@ -1,6 +1,7 @@
 package ethcompat
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"math/big"
@@ -10,6 +11,7 @@ import (
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	"github.com/holiman/uint256"
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -198,6 +200,38 @@ func TestDecodeRawTransactionPreservesBlobMetadata(t *testing.T) {
 	}
 	if _, err := DecodeRawTransaction("0x"+hex.EncodeToString(raw), DecodeOptions{ChainID: 7, BaseFee: 11, BlobBaseFee: 10}); !errors.Is(err, ErrBlobFeeCapTooLow) {
 		t.Fatalf("expected low blob fee cap rejection, got %v", err)
+	}
+}
+
+func TestVerifyBlobSidecarVerifiesKZGProofAndHashes(t *testing.T) {
+	var blob kzg4844.Blob
+	blob[0] = 1
+	blob[31] = 2
+	commitment, err := kzg4844.BlobToCommitment(&blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := kzg4844.ComputeBlobProof(&blob, commitment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	versionedHash := gethcommon.Hash(kzg4844.CalcBlobHashV1(sha256.New(), &commitment)).Hex()
+	sidecar := &gethtypes.BlobTxSidecar{
+		Blobs:       []kzg4844.Blob{blob},
+		Commitments: []kzg4844.Commitment{commitment},
+		Proofs:      []kzg4844.Proof{proof},
+	}
+	if err := VerifyBlobSidecar(sidecar, []string{versionedHash}); err != nil {
+		t.Fatalf("expected valid sidecar: %v", err)
+	}
+	if err := VerifyBlobSidecar(sidecar, []string{gethcommon.HexToHash("0x01").Hex()}); !errors.Is(err, ErrInvalidBlobSidecar) {
+		t.Fatalf("expected hash mismatch to fail, got %v", err)
+	}
+	tampered := sidecar
+	tampered.Blobs = append([]kzg4844.Blob(nil), sidecar.Blobs...)
+	tampered.Blobs[0][32] = 9
+	if err := VerifyBlobSidecar(tampered, []string{versionedHash}); !errors.Is(err, ErrInvalidBlobSidecar) {
+		t.Fatalf("expected tampered blob to fail, got %v", err)
 	}
 }
 

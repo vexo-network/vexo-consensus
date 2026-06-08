@@ -216,7 +216,7 @@ func semanticRequirements(name string) [][]string {
 	case "chaos_evidence":
 		return [][]string{{"chaos"}, {"fault", "partition", "restart", "kill"}}
 	case "kms_signer_evidence":
-		return [][]string{{"kms", "signer"}, {"double sign", "double-sign", "policy", "guard"}}
+		return [][]string{{"kms", "signer"}, {"double sign", "double-sign", "policy", "guard"}, {"nonce", "replay"}, {"audit"}}
 	case "snapshot_replay_evidence":
 		return [][]string{{"snapshot"}, {"replay", "restore"}}
 	case "p2p_scale_evidence":
@@ -224,9 +224,9 @@ func semanticRequirements(name string) [][]string {
 	case "state_sync_light_client_evidence":
 		return [][]string{{"state sync", "state-sync"}, {"light client", "light-client", "finality"}}
 	case "validator_economics_evidence":
-		return [][]string{{"validator"}, {"slashing", "reward", "commission", "unbonding", "jail"}}
+		return [][]string{{"validator"}, {"slashing", "reward", "commission", "unbonding", "jail"}, {"custody", "stake accounting", "stake-accounting"}, {"tombstone"}, {"false slashing", "false-slashing"}}
 	case "upgrade_governance_evidence":
-		return [][]string{{"upgrade"}, {"governance", "migration", "rollback", "halt"}, {"allow_noop", "no-op", "noop"}}
+		return [][]string{{"upgrade"}, {"governance", "migration", "rollback", "halt"}, {"allow_noop", "no-op", "noop"}, {"authority"}, {"rollback-required", "rollback required"}, {"last safe height", "last-safe-height"}}
 	case "mev_fee_market_evidence":
 		return [][]string{{"fee", "mev"}, {"market", "fair", "mempool", "ordering"}, {"replacement", "replace"}}
 	case "ops_runbook_evidence":
@@ -238,7 +238,7 @@ func semanticRequirements(name string) [][]string {
 	case "external_security_audit":
 		return [][]string{{"external", "security"}, {"audit", "disposition"}}
 	case "bls_adapter_audit":
-		return [][]string{{"bls"}, {"audit", "dependency", "subgroup", "rogue"}}
+		return [][]string{{"bls"}, {"audit", "dependency", "subgroup", "rogue"}, {"proof of possession", "proof-of-possession", "pop"}, {"key validation", "key-validation"}}
 	default:
 		return nil
 	}

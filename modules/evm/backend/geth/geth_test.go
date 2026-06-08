@@ -79,6 +79,30 @@ func TestGethBackendExecutesDeployAndCall(t *testing.T) {
 	}
 }
 
+func TestGethBackendPassesBlobHashesToEVM(t *testing.T) {
+	vm := New()
+	blobHash := types.Hash(gethcommon.HexToHash("0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"))
+	result, err := vm.Execute(context.Background(), contract.Invocation{
+		Method:      "call",
+		Caller:      "0x000000000000000000000000000000000000aaaa",
+		Contract:    "0x000000000000000000000000000000000000bbbb",
+		Code:        []byte{0x60, 0x00, 0x49, 0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3},
+		GasLimit:    100_000,
+		BlockNumber: 1,
+		Timestamp:   1,
+		BlobHashes:  []types.Hash{blobHash},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Failed {
+		t.Fatalf("expected blobhash opcode to succeed: %s", result.Error)
+	}
+	if len(result.Output) != 32 || gethcommon.BytesToHash(result.Output) != gethcommon.Hash(blobHash) {
+		t.Fatalf("expected blobhash output %x, got %x", blobHash, result.Output)
+	}
+}
+
 func TestGethBackendUsesLegacyCreateWhenSaltIsMissing(t *testing.T) {
 	vm := New()
 	caller := types.Address("0x000000000000000000000000000000000000aaaa")
