@@ -142,7 +142,9 @@ The `release-candidate` target runs:
 - full test/vet check
 - fuzz smoke tests
 - ops verification
+- built-binary network E2E (`make network-e2e`)
 - adversarial simulation
+- SDK/EVM transaction fixture conformance evidence
 - network load harness (`RC_DRY_RUN=1` keeps this as a plan-only dry-run)
 - chaos plan
 - 7-day multi-host longrun plan

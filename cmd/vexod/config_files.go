@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/vexo-network/vexo-consensus/address"
 	"github.com/vexo-network/vexo-consensus/committee"
@@ -28,6 +29,7 @@ const (
 	defaultHomeDir          = ".vexo"
 	defaultChainID          = "vexo-chain"
 	defaultValidatorID      = "validator-1"
+	defaultVRFKeyFileName   = "validator.vrf.key.json"
 	defaultP2PBasePort      = 26656
 	defaultRPCBasePort      = 26657
 	configFileName          = "config.json"
@@ -245,11 +247,11 @@ func runInit(writer io.Writer, args []string) error {
 		fmt.Fprintf(writer, "home: %s\n", network.Home)
 		fmt.Fprintf(writer, "validators: %d\n", len(network.Nodes))
 		for _, localNode := range network.Nodes {
-			fmt.Fprintf(writer, "node: %s config=%s module_config=%s network_config=%s consensus_config=%s mempool_config=%s log_config=%s genesis=%s key=%s p2p=%s rpc=%s\n", localNode.ValidatorID, localNode.ConfigPath, localNode.ModuleConfigPath, localNode.NetworkConfigPath, localNode.ConsensusConfigPath, localNode.MempoolConfigPath, localNode.LogConfigPath, localNode.GenesisPath, localNode.KeyPath, localNode.P2PAddress, localNode.RPCAddress)
+			fmt.Fprintf(writer, "node: %s config=%s module_config=%s network_config=%s consensus_config=%s mempool_config=%s log_config=%s genesis=%s key=%s vrf_key=%s p2p=%s rpc=%s\n", localNode.ValidatorID, localNode.ConfigPath, localNode.ModuleConfigPath, localNode.NetworkConfigPath, localNode.ConsensusConfigPath, localNode.MempoolConfigPath, localNode.LogConfigPath, localNode.GenesisPath, localNode.KeyPath, localNode.VRFKeyPath, localNode.P2PAddress, localNode.RPCAddress)
 		}
 		return nil
 	}
-	configPath, genesisPath, err := writeInitFiles(*home, *chainID, *validatorID, *overwrite)
+	configPath, genesisPath, keyPath, err := writeValidatorInitFilesWithKeyType(*home, *chainID, *validatorID, defaultP2PAddress, defaultRPCAddress, *overwrite, *keyType)
 	if err != nil {
 		return err
 	}
@@ -262,6 +264,7 @@ func runInit(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "mempool_config: %s\n", resolveMempoolConfigPath(*home, ""))
 	fmt.Fprintf(writer, "log_config: %s\n", resolveLogConfigPath(*home, ""))
 	fmt.Fprintf(writer, "genesis: %s\n", genesisPath)
+	fmt.Fprintf(writer, "key: %s\n", keyPath)
 	return nil
 }
 
@@ -335,6 +338,7 @@ type networkNodeDocument struct {
 	LogConfigPath       string
 	GenesisPath         string
 	KeyPath             string
+	VRFKeyPath          string
 	P2PAddress          string
 	RPCAddress          string
 }
@@ -444,6 +448,7 @@ func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validat
 	validators := make([]validatorDocument, 0, validatorCount)
 	governance := make(map[string]uint64, validatorCount)
 	keys := make([]vexocrypto.KeyDocument, 0, validatorCount)
+	vrfKeys := make([]vexocrypto.KeyDocument, 0, validatorCount)
 	for index := 1; index <= validatorCount; index++ {
 		validatorID := networkValidatorID(index)
 		keyDocument, err := generateConsensusKeyDocument(keyType)
@@ -451,6 +456,11 @@ func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validat
 			return networkDocument{}, err
 		}
 		keys = append(keys, keyDocument)
+		vrfKeyDocument, err := vexocrypto.GenerateECVRFP256KeyDocument()
+		if err != nil {
+			return networkDocument{}, err
+		}
+		vrfKeys = append(vrfKeys, vrfKeyDocument)
 		publicKey, err := decodeOptionalBase64(keyDocument.PublicKey)
 		if err != nil {
 			return networkDocument{}, err
@@ -518,8 +528,9 @@ func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validat
 		logConfigPath := filepath.Join(nodeHome, logConfigFileName)
 		genesisPath := filepath.Join(nodeHome, genesisFileName)
 		keyPath := filepath.Join(nodeHome, keyFileName)
+		vrfKeyPath := filepath.Join(nodeHome, defaultVRFKeyFileName)
 		if !overwrite {
-			for _, path := range []string{configPath, moduleConfigPath, networkConfigPath, consensusConfigPath, mempoolConfigPath, logConfigPath, genesisPath, keyPath} {
+			for _, path := range []string{configPath, moduleConfigPath, networkConfigPath, consensusConfigPath, mempoolConfigPath, logConfigPath, genesisPath, keyPath, vrfKeyPath} {
 				if _, err := os.Stat(path); err == nil {
 					return networkDocument{}, fmt.Errorf("%s already exists", path)
 				} else if !errors.Is(err, os.ErrNotExist) {
@@ -528,12 +539,15 @@ func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validat
 			}
 		} else if err := os.Remove(keyPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return networkDocument{}, err
+		} else if err := os.Remove(vrfKeyPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return networkDocument{}, err
 		}
 		cfg := defaultConfigDocument(chainID, dataDir, validatorID)
 		moduleCfg := defaultModuleConfigDocument(chainID)
 		networkCfg := defaultNetworkConfigDocument(chainID, dataDir, validatorID)
 		consensusCfg := defaultConsensusConfigDocument(chainID, dataDir, validatorID)
-		mempoolCfg := defaultMempoolConfigDocument(chainID)
+		consensusCfg.VRFKeyPaths = []string{defaultVRFKeyFileName}
+		mempoolCfg := defaultMempoolConfigDocument(chainID, dataDir)
 		logCfg := defaultLogConfigDocument(chainID, dataDir, validatorID)
 		networkCfg.RPC.Address = networkRPCListenAddressWithOptions(index, options)
 		networkCfg.P2P.ListenAddress = networkP2PListenAddressWithOptions(index, options)
@@ -562,6 +576,9 @@ func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validat
 		if err := vexocrypto.SaveKeyDocument(keyPath, keys[index-1]); err != nil {
 			return networkDocument{}, err
 		}
+		if err := vexocrypto.SaveKeyDocument(vrfKeyPath, vrfKeys[index-1]); err != nil {
+			return networkDocument{}, err
+		}
 		network.Nodes = append(network.Nodes, networkNodeDocument{
 			ValidatorID:         validatorID,
 			Home:                nodeHome,
@@ -573,6 +590,7 @@ func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validat
 			LogConfigPath:       logConfigPath,
 			GenesisPath:         genesisPath,
 			KeyPath:             keyPath,
+			VRFKeyPath:          vrfKeyPath,
 			P2PAddress:          networkP2PAdvertiseAddressWithOptions(index, options),
 			RPCAddress:          networkRPCAdvertiseAddressWithOptions(index, options),
 		})
@@ -748,7 +766,7 @@ func writeInitFiles(home string, chainID string, validatorID string, overwrite b
 	moduleCfg := defaultModuleConfigDocument(chainID)
 	networkCfg := defaultNetworkConfigDocument(chainID, dataDir, validatorID)
 	consensusCfg := defaultConsensusConfigDocument(chainID, dataDir, validatorID)
-	mempoolCfg := defaultMempoolConfigDocument(chainID)
+	mempoolCfg := defaultMempoolConfigDocument(chainID, dataDir)
 	logCfg := defaultLogConfigDocument(chainID, dataDir, validatorID)
 	genesis := defaultGenesisDocument(chainID, validatorID)
 	if err := writeJSONFile(configPath, cfg); err != nil {
@@ -799,6 +817,32 @@ func writeValidatorInitFilesWithKeyType(home string, chainID string, validatorID
 		return "", "", "", err
 	}
 	if err := vexocrypto.SaveKeyDocument(keyPath, keyDocument); err != nil {
+		return "", "", "", err
+	}
+	vrfKeyPath := filepath.Join(home, defaultVRFKeyFileName)
+	if !overwrite {
+		if _, err := os.Stat(vrfKeyPath); err == nil {
+			return "", "", "", fmt.Errorf("%s already exists", vrfKeyPath)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", "", "", err
+		}
+	} else if err := os.Remove(vrfKeyPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", "", "", err
+	}
+	vrfKeyDocument, err := vexocrypto.GenerateECVRFP256KeyDocument()
+	if err != nil {
+		return "", "", "", err
+	}
+	if err := vexocrypto.SaveKeyDocument(vrfKeyPath, vrfKeyDocument); err != nil {
+		return "", "", "", err
+	}
+	consensusPath := resolveConsensusConfigPath(home, "")
+	consensusDocument, err := readConsensusConfigDocument(consensusPath)
+	if err != nil {
+		return "", "", "", err
+	}
+	consensusDocument.VRFKeyPaths = []string{defaultVRFKeyFileName}
+	if err := writeJSONFile(consensusPath, consensusDocument); err != nil {
 		return "", "", "", err
 	}
 	genesisDocument, err := readGenesisDocument(genesisPath)
@@ -930,7 +974,7 @@ func writeArchiveInitFiles(home string, chainID string, p2pAddress string, rpcAd
 	moduleDocument := defaultModuleConfigDocument(chainID)
 	networkDocument := defaultNetworkConfigDocument(chainID, filepath.Join(home, "data"), "")
 	consensusDocument := defaultConsensusConfigDocument(chainID, filepath.Join(home, "data"), "")
-	mempoolDocument := defaultMempoolConfigDocument(chainID)
+	mempoolDocument := defaultMempoolConfigDocument(chainID, filepath.Join(home, "data"))
 	logDocument := defaultLogConfigDocument(chainID, filepath.Join(home, "data"), "")
 	networkDocument.RPC.Address = p2pOrDefault(rpcAddress, defaultRPCAddress)
 	networkDocument.P2P.ListenAddress = p2pOrDefault(p2pAddress, defaultP2PAddress)
@@ -1192,7 +1236,7 @@ func loadMempoolConfigForConfig(configPath string, document configDocument) (mem
 		if hasLegacyMempoolConfig(document.LegacyMempool) {
 			return document.LegacyMempool, nil
 		}
-		return defaultMempoolConfigDocument(documentChainID(document)), nil
+		return defaultMempoolConfigDocument(documentChainID(document), document.DataDir), nil
 	}
 	return mempoolConfigDocument{}, err
 }
@@ -1368,7 +1412,7 @@ func validateValidatorDocumentAddress(validatorInfo validatorDocument, publicKey
 func defaultConfigDocument(chainID string, dataDir string, validatorID string) configDocument {
 	return configDocument{
 		SchemaVersion:        configSchemaVersion,
-		RequireNetworkSafety: false,
+		RequireNetworkSafety: true,
 		DataDir:              dataDir,
 		ValidatorID:          validatorID,
 		ChainID:              chainID,
@@ -1382,7 +1426,23 @@ func defaultConfigDocument(chainID string, dataDir string, validatorID string) c
 
 func defaultModuleConfigDocument(chainID string) moduleConfigDocument {
 	cfg := config.Default(chainID)
+	applyDefaultNetworkSafetyModuleConfig(&cfg)
 	return moduleConfigFromConfig(cfg)
+}
+
+func applyDefaultNetworkSafetyModuleConfig(cfg *config.Config) {
+	cfg.Execution.RequireSigned = true
+	cfg.Execution.RequireNonce = true
+	cfg.Execution.MinFee = 1
+	cfg.Execution.BaseFee = 1
+	cfg.Execution.MinBaseFee = 1
+	cfg.Execution.DynamicBaseFee = true
+	cfg.Execution.MinGas = 1
+	cfg.Execution.BlobBaseFee = 1
+	cfg.Execution.MinBlobBaseFee = 1
+	cfg.Execution.DynamicBlobBaseFee = true
+	cfg.Execution.AllowUnprotectedLegacyTx = false
+	cfg.Bank.MintAuthority = "governance"
 }
 
 func defaultNetworkConfigDocument(chainID string, dataDir string, validatorID string) networkConfigDocument {
@@ -1398,6 +1458,7 @@ func defaultNetworkConfigDocument(chainID string, dataDir string, validatorID st
 
 func defaultConsensusConfigDocument(chainID string, dataDir string, validatorID string) consensusConfigDocument {
 	cfg := config.Default(chainID)
+	applyDefaultNetworkSafetyConsensusConfig(&cfg)
 	runtime := defaultRuntimeConfig(validatorID)
 	return consensusConfigDocument{
 		SchemaVersion: consensusSchemaVersion,
@@ -1409,11 +1470,38 @@ func defaultConsensusConfigDocument(chainID string, dataDir string, validatorID 
 	}
 }
 
-func defaultMempoolConfigDocument(chainID string) mempoolConfigDocument {
+func applyDefaultNetworkSafetyConsensusConfig(cfg *config.Config) {
+	cfg.Crypto.Backend = config.CryptoBackendEd25519
+	cfg.Crypto.ProductionAdapter = false
+	cfg.Crypto.AdapterName = ""
+	cfg.Crypto.AuditReport = ""
+	cfg.Crypto.DependencyAudit = ""
+	cfg.Committee.Backend = committee.BackendVRF
+	cfg.VRF.ProductionAdapter = true
+	cfg.VRF.AdapterName = vexocrypto.VRFAdapterECVRFP256Name
+	cfg.VRF.AuditReport = "built-in-ecvrf-p256-runtime"
+	cfg.VRF.KeySource = "consensus_config.vrf_key_paths"
+}
+
+func defaultMempoolConfigDocument(chainID string, dataDir string) mempoolConfigDocument {
 	cfg := config.Default(chainID)
+	applyDefaultNetworkSafetyMempoolConfig(&cfg, dataDir)
 	return mempoolConfigDocument{
 		SchemaVersion: mempoolSchemaVersion,
 		Mempool:       cfg.Mempool,
+	}
+}
+
+func applyDefaultNetworkSafetyMempoolConfig(cfg *config.Config, dataDir string) {
+	cfg.Mempool.MinFee = 1
+	cfg.Mempool.EnablePriority = true
+	cfg.Mempool.EnableReplacement = true
+	cfg.Mempool.ReplacementBumpBPS = 1000
+	cfg.Mempool.SeenTTL = time.Hour
+	if dataDir != "" {
+		cfg.Mempool.WALPath = filepath.Join(dataDir, "mempool.wal")
+	} else {
+		cfg.Mempool.WALPath = "mempool.wal"
 	}
 }
 
@@ -1448,7 +1536,7 @@ func defaultRuntimeConfig(validatorID string) runtimeConfig {
 			TimeoutCommit:     "1s",
 			MaxBlockBytes:     1024 * 1024,
 			CreateEmptyBlocks: false,
-			ExecutionCommit:   "qc",
+			ExecutionCommit:   string(node.ExecutionCommitModeFinalized),
 		},
 		Log: runtimeLogConfig{
 			Format:       "text",

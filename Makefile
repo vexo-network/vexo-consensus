@@ -15,7 +15,7 @@ GPG ?= gpg
 RC_DRY_RUN ?= 0
 RC_DRY_RUN_FLAG = $(if $(filter 1 true yes,$(RC_DRY_RUN)),--dry-run,)
 
-.PHONY: all build test vet check fuzz-smoke ops-verify coverage release checksums sbom release-manifest release-audit-pack sign-release docker-image release-candidate clean init-demo keys-demo
+.PHONY: all build test vet check fuzz-smoke ops-verify network-e2e coverage release checksums sbom release-manifest release-audit-pack sign-release docker-image release-candidate clean init-demo keys-demo
 
 all: check build
 
@@ -63,6 +63,10 @@ ops-verify: check fuzz-smoke
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network chaos-plan --validators 4 --duration 24h --regions 3
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network load --validators 4 --duration 1h --rate 50 --dry-run
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network longrun --validators 4 --duration 1h --rate 50 --output longrun-evidence.json --dry-run
+
+network-e2e: build
+	mkdir -p $(GOCACHE_DIR)
+	VEXO_NETWORK_E2E=1 GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test -timeout=30000s ./cmd/vexod -run TestNetworkUpBuiltBinaryE2E -count=1
 
 coverage:
 	mkdir -p $(GOCACHE_DIR)
@@ -114,7 +118,11 @@ docker-image:
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		-t $(IMAGE):$(IMAGE_TAG) .
 
-release-candidate: release ops-verify
+release-candidate: release ops-verify network-e2e
+	rm -rf /tmp/vexo-rc-conformance
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod init validator --home /tmp/vexo-rc-conformance --chain-id vexo-rc --validator validator-1 --overwrite
+	printf '[{"name":"reject empty raw tx","raw":"0x","want_error":"invalid Ethereum raw transaction"}]' > /tmp/vexo-evm-tx-fixtures.json
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod ops conformance --home /tmp/vexo-rc-conformance --evm-tx-fixtures /tmp/vexo-evm-tx-fixtures.json --json > $(DIST_DIR)/sdk-conformance-evidence.json
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network load --validators 4 --duration 10m --rate 25 $(RC_DRY_RUN_FLAG)
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network longrun --validators 4 --duration 10m --rate 25 --output longrun-evidence.json $(RC_DRY_RUN_FLAG)
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network chaos-plan --validators 4 --duration 24h --regions 3

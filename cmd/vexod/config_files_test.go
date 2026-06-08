@@ -29,7 +29,9 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	}
 
 	output := buffer.String()
-	if !strings.Contains(output, "initialized vexo node") || !strings.Contains(output, filepath.Join(home, configFileName)) {
+	if !strings.Contains(output, "initialized vexo node") ||
+		!strings.Contains(output, filepath.Join(home, configFileName)) ||
+		!strings.Contains(output, filepath.Join(home, keyFileName)) {
 		t.Fatalf("unexpected init output:\n%s", output)
 	}
 	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
@@ -54,6 +56,11 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 			t.Fatalf("expected split config file %s: %v", fileName, err)
 		}
 	}
+	for _, fileName := range []string{keyFileName, defaultVRFKeyFileName} {
+		if _, err := os.Stat(filepath.Join(home, fileName)); err != nil {
+			t.Fatalf("expected validator key file %s: %v", fileName, err)
+		}
+	}
 	configBytes, err := os.ReadFile(filepath.Join(home, configFileName))
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +76,19 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(moduleDocument.Application.Modules) != 5 || moduleDocument.Execution.MaxGas == 0 || moduleDocument.Execution.FeeDenom != "avxo" || moduleDocument.Execution.DisplayDenom != "vexo" || moduleDocument.Execution.GasDenom != "gas" || moduleDocument.Governance.Timelock == 0 {
+	if len(moduleDocument.Application.Modules) != 5 ||
+		moduleDocument.Execution.MaxGas == 0 ||
+		moduleDocument.Execution.FeeDenom != "avxo" ||
+		moduleDocument.Execution.DisplayDenom != "vexo" ||
+		moduleDocument.Execution.GasDenom != "gas" ||
+		!moduleDocument.Execution.RequireSigned ||
+		!moduleDocument.Execution.RequireNonce ||
+		moduleDocument.Execution.MinFee == 0 ||
+		moduleDocument.Execution.BaseFee == 0 ||
+		moduleDocument.Execution.MinGas == 0 ||
+		moduleDocument.Execution.AllowUnprotectedLegacyTx ||
+		moduleDocument.Bank.MintAuthority != "governance" ||
+		moduleDocument.Governance.Timelock == 0 {
 		t.Fatalf("unexpected module config: %+v", moduleDocument)
 	}
 	networkDocument, err := readNetworkConfigDocument(filepath.Join(home, networkConfigFileName))
@@ -83,8 +102,25 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !consensusDocument.Consensus.LoopEnabled || consensusDocument.Committee.CommitteeSize == 0 {
+	if !consensusDocument.Consensus.LoopEnabled ||
+		consensusDocument.Consensus.ExecutionCommit != string(vexonode.ExecutionCommitModeFinalized) ||
+		consensusDocument.Committee.CommitteeSize == 0 ||
+		consensusDocument.Committee.Backend != committee.BackendVRF ||
+		consensusDocument.VRF.AdapterName != vexocrypto.VRFAdapterECVRFP256Name ||
+		!consensusDocument.VRF.ProductionAdapter ||
+		len(consensusDocument.VRFKeyPaths) != 1 ||
+		consensusDocument.VRFKeyPaths[0] != defaultVRFKeyFileName {
 		t.Fatalf("unexpected consensus config: %+v", consensusDocument)
+	}
+	mempoolDocument, err := readMempoolConfigDocument(filepath.Join(home, mempoolConfigFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mempoolDocument.Mempool.MinFee == 0 ||
+		!mempoolDocument.Mempool.EnablePriority ||
+		!mempoolDocument.Mempool.EnableReplacement ||
+		mempoolDocument.Mempool.WALPath == "" {
+		t.Fatalf("unexpected mempool config: %+v", mempoolDocument)
 	}
 }
 
@@ -126,6 +162,16 @@ func TestRunInitWritesNetworkFiles(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(nodeHome, fileName)); err != nil {
 				t.Fatalf("expected network split config %s for %s: %v", fileName, validatorID, err)
 			}
+		}
+		if _, err := os.Stat(filepath.Join(nodeHome, defaultVRFKeyFileName)); err != nil {
+			t.Fatalf("expected network VRF key for %s: %v", validatorID, err)
+		}
+		consensusDocument, err := readConsensusConfigDocument(filepath.Join(nodeHome, consensusConfigFileName))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(consensusDocument.VRFKeyPaths) != 1 || consensusDocument.VRFKeyPaths[0] != defaultVRFKeyFileName {
+			t.Fatalf("expected network VRF key path for %s, got %+v", validatorID, consensusDocument.VRFKeyPaths)
 		}
 	}
 
@@ -358,7 +404,7 @@ func TestRunConfigPathsReportsCustomModuleConfig(t *testing.T) {
 	writeTestJSON(t, filepath.Join(home, "modules", "custom.json"), defaultModuleConfigDocument("vexo-test"))
 	writeTestJSON(t, filepath.Join(home, "modules", "network.json"), defaultNetworkConfigDocument("vexo-test", filepath.Join(home, "data"), "validator-1"))
 	writeTestJSON(t, filepath.Join(home, "modules", "consensus.json"), defaultConsensusConfigDocument("vexo-test", filepath.Join(home, "data"), "validator-1"))
-	writeTestJSON(t, filepath.Join(home, "modules", "mempool.json"), defaultMempoolConfigDocument("vexo-test"))
+	writeTestJSON(t, filepath.Join(home, "modules", "mempool.json"), defaultMempoolConfigDocument("vexo-test", filepath.Join(home, "data")))
 	writeTestJSON(t, filepath.Join(home, "modules", "log.json"), defaultLogConfigDocument("vexo-test", filepath.Join(home, "data"), "validator-1"))
 	writeTestJSON(t, filepath.Join(home, configFileName), document)
 
@@ -474,8 +520,8 @@ func TestDefaultConfigWritesTendermintStyleConsensusTimeouts(t *testing.T) {
 	if consensus.CreateEmptyBlocks {
 		t.Fatalf("expected empty block creation disabled by default: %+v", consensus)
 	}
-	if consensus.ExecutionCommit != string(vexonode.ExecutionCommitModeQC) {
-		t.Fatalf("expected qc execution commit mode by default: %+v", consensus)
+	if consensus.ExecutionCommit != string(vexonode.ExecutionCommitModeFinalized) {
+		t.Fatalf("expected finalized execution commit mode by default: %+v", consensus)
 	}
 }
 

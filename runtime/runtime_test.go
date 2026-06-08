@@ -235,6 +235,50 @@ func TestRuntimeLoadsUpgradePlanFromStoreByHeight(t *testing.T) {
 	}
 }
 
+func TestRuntimeHaltsStoredUpgradePlanWithoutExecutorRecorder(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	if err := storage.SaveUpgradePlan(context.Background(), upgrade.Plan{
+		Name:                "v2",
+		Height:              2,
+		BinaryVersion:       "v2.0.0",
+		ConfigSchemaFrom:    1,
+		ConfigSchemaTo:      1,
+		StoreSchemaFrom:     1,
+		StoreSchemaTo:       1,
+		AppStateSchemaFrom:  1,
+		AppStateSchemaTo:    1,
+		AllowNoopMigrations: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := NewWithStore(config.Default("vexo-test"), noopApp{}, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+	}, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.UpgradeState = upgrade.State{
+		Height:              1,
+		BinaryVersion:       "v1.0.0",
+		ConfigSchemaVersion: 1,
+		StoreSchemaVersion:  1,
+		AppStateVersion:     1,
+	}
+
+	_, err = runtime.ExecuteBlock(context.Background(), types.Block{Header: types.Header{ChainID: "vexo-test", Height: 2}})
+	if !errors.Is(err, ErrUpgradeExecutorMissing) {
+		t.Fatalf("expected missing upgrade executor error, got %v", err)
+	}
+	if !runtime.UpgradeHalted {
+		t.Fatal("expected runtime to halt when stored upgrade has no durable executor")
+	}
+}
+
 func TestRuntimeWithStoreUsesDurableSlashingKeeper(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {

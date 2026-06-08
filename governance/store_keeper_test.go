@@ -49,6 +49,36 @@ func TestStoreKeeperPersistsVotesAndTally(t *testing.T) {
 	}
 }
 
+func TestStoreKeeperContextQueriesPropagateStoreErrors(t *testing.T) {
+	expected := errors.New("read failed")
+	keeper := &StoreKeeper{store: failingKVStore{err: expected}}
+	if _, _, err := keeper.ProposalContext(context.Background(), 1); !errors.Is(err, expected) {
+		t.Fatalf("expected proposal query error, got %v", err)
+	}
+	if _, err := keeper.AppliedChangesContext(context.Background()); !errors.Is(err, expected) {
+		t.Fatalf("expected applied changes query error, got %v", err)
+	}
+	if _, _, err := keeper.TallyContext(context.Background(), 1); !errors.Is(err, expected) {
+		t.Fatalf("expected tally query error, got %v", err)
+	}
+}
+
+type failingKVStore struct {
+	err error
+}
+
+func (store failingKVStore) Set(ctx context.Context, namespace string, key []byte, value []byte) error {
+	return store.err
+}
+
+func (store failingKVStore) Get(ctx context.Context, namespace string, key []byte) ([]byte, error) {
+	return nil, store.err
+}
+
+func (store failingKVStore) Delete(ctx context.Context, namespace string, key []byte) error {
+	return store.err
+}
+
 func TestStoreKeeperRejectsCorruptExistingState(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {

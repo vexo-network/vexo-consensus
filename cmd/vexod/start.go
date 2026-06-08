@@ -920,7 +920,7 @@ func genesisHash(genesis vexonode.Genesis) string {
 
 func withLocalValidatorPublicKey(genesis vexonode.Genesis, validatorID types.ValidatorID, publicKey types.PublicKey) vexonode.Genesis {
 	for index := range genesis.Validators {
-		if genesis.Validators[index].ID == validatorID && len(genesis.Validators[index].PublicKey) == 0 {
+		if genesis.Validators[index].ID == validatorID && len(publicKey) > 0 {
 			genesis.Validators[index].PublicKey = append(types.PublicKey(nil), publicKey...)
 		}
 	}

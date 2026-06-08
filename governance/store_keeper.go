@@ -206,32 +206,48 @@ func (keeper *StoreKeeper) persistUpgradePlans(ctx context.Context, plans []upgr
 }
 
 func (keeper *StoreKeeper) Proposal(proposalID uint64) (ProposalState, bool) {
-	document, err := keeper.load(context.Background())
+	proposal, found, _ := keeper.ProposalContext(context.Background(), proposalID)
+	return proposal, found
+}
+
+func (keeper *StoreKeeper) ProposalContext(ctx context.Context, proposalID uint64) (ProposalState, bool, error) {
+	document, err := keeper.load(ctx)
 	if err != nil {
-		return ProposalState{}, false
+		return ProposalState{}, false, err
 	}
 	state, found := document.Proposals[proposalID]
 	if !found {
-		return ProposalState{}, false
+		return ProposalState{}, false, nil
 	}
-	return cloneProposalState(state), true
+	return cloneProposalState(state), true, nil
 }
 
 func (keeper *StoreKeeper) AppliedChanges() []ParameterChange {
-	document, err := keeper.load(context.Background())
+	changes, _ := keeper.AppliedChangesContext(context.Background())
+	return changes
+}
+
+func (keeper *StoreKeeper) AppliedChangesContext(ctx context.Context) ([]ParameterChange, error) {
+	document, err := keeper.load(ctx)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return append([]ParameterChange(nil), document.Applied...)
+	return append([]ParameterChange(nil), document.Applied...), nil
 }
 
 func (keeper *StoreKeeper) Tally(proposalID uint64) (TallyResult, bool) {
-	document, err := keeper.load(context.Background())
+	tally, found, _ := keeper.TallyContext(context.Background(), proposalID)
+	return tally, found
+}
+
+func (keeper *StoreKeeper) TallyContext(ctx context.Context, proposalID uint64) (TallyResult, bool, error) {
+	document, err := keeper.load(ctx)
 	if err != nil {
-		return TallyResult{}, false
+		return TallyResult{}, false, err
 	}
 	memory := keeper.memory(document)
-	return memory.Tally(proposalID)
+	tally, found := memory.Tally(proposalID)
+	return tally, found, nil
 }
 
 func (keeper *StoreKeeper) memory(document storeDocument) *InMemoryKeeper {

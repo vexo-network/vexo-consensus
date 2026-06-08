@@ -29,8 +29,10 @@ func TestModuleStoresClientChannelAndPacket(t *testing.T) {
 	for _, tx := range []types.Tx{
 		types.Tx("ibc:client-create:07-vexo-0:counterparty:5:" + hash),
 		types.Tx("ibc:client-update:07-vexo-0:6:" + hash + ":" + root),
-		types.Tx("ibc:connection-open:connection-0:07-vexo-0:connection-1"),
-		types.Tx("ibc:channel-open:transfer:channel-0:connection-0:channel-1:ordered"),
+		types.Tx("ibc:connection-open-init:connection-0:07-vexo-0:connection-1"),
+		types.Tx("ibc:connection-open-ack:connection-0"),
+		types.Tx("ibc:channel-open-init:transfer:channel-0:connection-0:channel-1:ordered"),
+		types.Tx("ibc:channel-open-ack:transfer:channel-0"),
 		types.Tx("ibc:packet-send:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA"),
 		types.Tx("ibc:packet-ack:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA:YWNr"),
 	} {
@@ -108,8 +110,10 @@ func TestModuleTimeoutsPackets(t *testing.T) {
 	sendCtx := vexoapp.Context{Ctx: context.Background(), Height: 7, Store: storage}
 	for _, tx := range []types.Tx{
 		types.Tx("ibc:client-create:07-vexo-0:counterparty:5:" + hash),
-		types.Tx("ibc:connection-open:connection-0:07-vexo-0:connection-1"),
-		types.Tx("ibc:channel-open:transfer:channel-0:connection-0:channel-1:ordered"),
+		types.Tx("ibc:connection-open-init:connection-0:07-vexo-0:connection-1"),
+		types.Tx("ibc:connection-open-ack:connection-0"),
+		types.Tx("ibc:channel-open-init:transfer:channel-0:connection-0:channel-1:ordered"),
+		types.Tx("ibc:channel-open-ack:transfer:channel-0"),
 	} {
 		if result := module.DeliverTx(sendCtx, tx); result.Code != 0 {
 			t.Fatalf("setup %q failed: %+v", tx, result)
@@ -158,8 +162,10 @@ func TestModuleAcknowledgesPacketWithProof(t *testing.T) {
 	ctx := vexoapp.Context{Ctx: context.Background(), Height: 7, Store: storage}
 	for _, tx := range []types.Tx{
 		types.Tx("ibc:client-create:07-vexo-0:counterparty:5:" + hash),
-		types.Tx("ibc:connection-open:connection-0:07-vexo-0:connection-1"),
-		types.Tx("ibc:channel-open:transfer:channel-0:connection-0:channel-1:ordered"),
+		types.Tx("ibc:connection-open-init:connection-0:07-vexo-0:connection-1"),
+		types.Tx("ibc:connection-open-ack:connection-0"),
+		types.Tx("ibc:channel-open-init:transfer:channel-0:connection-0:channel-1:ordered"),
+		types.Tx("ibc:channel-open-ack:transfer:channel-0"),
 		types.Tx("ibc:packet-send:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA"),
 	} {
 		if result := module.DeliverTx(ctx, tx); result.Code != 0 {
@@ -210,8 +216,10 @@ func TestModuleTimesOutPacketWithProof(t *testing.T) {
 	ctx := vexoapp.Context{Ctx: context.Background(), Height: 7, Store: storage}
 	for _, tx := range []types.Tx{
 		types.Tx("ibc:client-create:07-vexo-0:counterparty:5:" + hash),
-		types.Tx("ibc:connection-open:connection-0:07-vexo-0:connection-1"),
-		types.Tx("ibc:channel-open:transfer:channel-0:connection-0:channel-1:ordered"),
+		types.Tx("ibc:connection-open-init:connection-0:07-vexo-0:connection-1"),
+		types.Tx("ibc:connection-open-ack:connection-0"),
+		types.Tx("ibc:channel-open-init:transfer:channel-0:connection-0:channel-1:ordered"),
+		types.Tx("ibc:channel-open-ack:transfer:channel-0"),
 		types.Tx("ibc:packet-send:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA:10"),
 	} {
 		if result := module.DeliverTx(ctx, tx); result.Code != 0 {
@@ -282,6 +290,33 @@ func TestModuleConnectionAndChannelHandshake(t *testing.T) {
 	}
 	if result := module.DeliverTx(ctx, types.Tx("ibc:channel-open-confirm:transfer:channel-0")); result.Code == 0 {
 		t.Fatalf("expected invalid confirm transition")
+	}
+}
+
+func TestModuleLegacyOpenAliasesOnlyInitializeHandshake(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	ctx := vexoapp.Context{Ctx: context.Background(), Height: 7, Store: storage}
+	for _, tx := range []types.Tx{
+		types.Tx("ibc:connection-open:connection-0:07-vexo-0:connection-1"),
+		types.Tx("ibc:channel-open:transfer:channel-0:connection-0:channel-1:ordered"),
+	} {
+		if result := module.DeliverTx(ctx, tx); result.Code != 0 {
+			t.Fatalf("deliver %q failed: %+v", tx, result)
+		}
+	}
+	keeper := ibckeeper.NewKeeper(storage)
+	connection, found, err := keeper.Connection(context.Background(), "connection-0")
+	if err != nil || !found || connection.State != ibckeeper.StateInit {
+		t.Fatalf("expected legacy connection-open to initialize only, found=%t connection=%+v err=%v", found, connection, err)
+	}
+	channel, found, err := keeper.Channel(context.Background(), "transfer", "channel-0")
+	if err != nil || !found || channel.State != ibckeeper.StateInit {
+		t.Fatalf("expected legacy channel-open to initialize only, found=%t channel=%+v err=%v", found, channel, err)
 	}
 }
 

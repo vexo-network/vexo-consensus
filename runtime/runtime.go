@@ -23,6 +23,7 @@ import (
 )
 
 var ErrAtomicAppCommitUnavailable = errors.New("atomic app block commit store is required")
+var ErrUpgradeExecutorMissing = errors.New("upgrade executor is required")
 var ErrBlobGasLimitExceeded = errors.New("block blob gas exceeds configured max blob gas")
 
 type Runtime struct {
@@ -450,6 +451,10 @@ func (runtime *Runtime) applyUpgradeHook(ctx context.Context, height types.Heigh
 	}
 	if runtime.UpgradePlan == nil || height < runtime.UpgradePlan.Height {
 		return nil
+	}
+	if runtime.UpgradeExecutor.Recorder == nil {
+		runtime.UpgradeHalted = true
+		return ErrUpgradeExecutorMissing
 	}
 	if runtime.UpgradeState.Height < height {
 		runtime.UpgradeState.Height = height

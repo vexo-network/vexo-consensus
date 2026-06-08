@@ -143,19 +143,7 @@ func (Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		err = keeper.UpdateClient(ctx.GoContext(), canonical.Args[0], height, validatorSetHash, stateRoot)
 		return resultFromError(err)
 	case "connection-open":
-		if err := ctx.ConsumeGas(connectionOpenGasCost); err != nil {
-			return types.Result{Code: 6, Log: err.Error()}
-		}
-		if len(canonical.Args) != 3 {
-			return types.Result{Code: 2, Log: ErrInvalidIBCTx.Error()}
-		}
-		err := keeper.SetConnection(ctx.GoContext(), ibckeeper.ConnectionState{
-			ConnectionID: canonical.Args[0],
-			ClientID:     canonical.Args[1],
-			Counterparty: canonical.Args[2],
-			State:        "open",
-		})
-		return resultFromError(err)
+		return deliverConnectionOpen(ctx, keeper, canonical.Args, ibckeeper.StateInit)
 	case "connection-open-init":
 		return deliverConnectionOpen(ctx, keeper, canonical.Args, ibckeeper.StateInit)
 	case "connection-open-try":
@@ -165,21 +153,7 @@ func (Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 	case "connection-open-confirm":
 		return deliverConnectionTransition(ctx, keeper, canonical.Args, ibckeeper.StateTryOpen, ibckeeper.StateOpen)
 	case "channel-open":
-		if err := ctx.ConsumeGas(channelOpenGasCost); err != nil {
-			return types.Result{Code: 6, Log: err.Error()}
-		}
-		if len(canonical.Args) != 5 {
-			return types.Result{Code: 2, Log: ErrInvalidIBCTx.Error()}
-		}
-		err := keeper.SetChannel(ctx.GoContext(), ibckeeper.ChannelState{
-			PortID:       canonical.Args[0],
-			ChannelID:    canonical.Args[1],
-			ConnectionID: canonical.Args[2],
-			Counterparty: canonical.Args[3],
-			Ordering:     canonical.Args[4],
-			State:        "open",
-		})
-		return resultFromError(err)
+		return deliverChannelOpen(ctx, keeper, canonical.Args, ibckeeper.StateInit)
 	case "channel-open-init":
 		return deliverChannelOpen(ctx, keeper, canonical.Args, ibckeeper.StateInit)
 	case "channel-open-try":

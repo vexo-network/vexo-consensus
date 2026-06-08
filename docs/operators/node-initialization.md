@@ -202,7 +202,7 @@ Example `consensus_config.json`:
     "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false,
-    "execution_commit": "qc"
+    "execution_commit": "finalized"
   },
   "vrf_key_paths": ["validator.vrf.key.json"]
 }
@@ -234,7 +234,7 @@ Archive `consensus_config.json` disables the local consensus loop:
 }
 ```
 
-Set `"require_network_safety": true` in `config.json` when a node must refuse unsafe launch settings. This is not a mode; it is a startup safety gate that rejects deterministic crypto, unsigned/nonced-off transactions, missing fee/gas floors, missing durable mempool WAL, missing replacement policy for same signer/nonce transactions, unsafe committee randomness, and `execution_commit` values other than `finalized`.
+Generated validator homes set `"require_network_safety": true` in `config.json` by default. This is not a mode; it is a startup safety gate that rejects deterministic crypto, unsigned/nonced-off transactions, missing fee/gas floors, missing durable mempool WAL, missing replacement policy for same signer/nonce transactions, unsafe committee randomness, and `execution_commit` values other than `finalized`.
 
 When `require_network_safety` is enabled, run:
 
@@ -289,7 +289,7 @@ Consensus loop timing lives in `consensus_config.json`:
     "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false,
-    "execution_commit": "qc"
+    "execution_commit": "finalized"
   }
 }
 ```
@@ -299,7 +299,7 @@ Consensus loop timing lives in `consensus_config.json`:
 - `timeout_precommit` controls the commit-certificate collection window.
 - `timeout_commit` controls the minimum delay after a committed block.
 - `create_empty_blocks: false` means the node only proposes when transactions are available.
-- `execution_commit: "qc"` executes and persists QC-certified blocks immediately. `execution_commit: "finalized"` waits for the HotStuff three-chain finality decision before executing the finalized ancestor. The safety gate requires `finalized`.
+- `execution_commit: "finalized"` waits for the HotStuff three-chain finality decision before executing the finalized ancestor and is the generated validator default. `execution_commit: "qc"` executes and persists QC-certified blocks immediately, but the safety gate rejects it.
 
 `round_timeout` is kept only as a compatibility aggregate. Prefer the Tendermint-style timeout fields above.
 

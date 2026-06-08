@@ -2323,7 +2323,7 @@ func TestRunDoctorReportsOperationalReadinessAndRepairsIndexes(t *testing.T) {
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--overwrite"}); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
@@ -2574,7 +2574,7 @@ func TestRunConfigAuditReportsProductionWarnings(t *testing.T) {
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--overwrite"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2596,7 +2596,7 @@ func TestRunConfigAuditStrictFailsUnsafeDeployment(t *testing.T) {
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--overwrite"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2675,7 +2675,7 @@ func TestRunStartDryRun(t *testing.T) {
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--overwrite"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2706,7 +2706,7 @@ func TestRunStartDryRunWithRotationKeys(t *testing.T) {
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--id", "key-1", "--active-from", "1", "--active-until", "10"}); err != nil {
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--id", "key-1", "--active-from", "1", "--active-until", "10", "--overwrite"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--path", rotationKeyPath, "--id", "key-2", "--active-from", "11"}); err != nil {
@@ -2809,7 +2809,7 @@ func TestOpsConformanceIncludesAuditAndRotationPlan(t *testing.T) {
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--id", "key-1", "--active-from", "1", "--active-until", "10"}); err != nil {
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--id", "key-1", "--active-from", "1", "--active-until", "10", "--overwrite"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--path", rotationKeyPath, "--id", "key-2", "--active-from", "11"}); err != nil {
@@ -2856,7 +2856,7 @@ func TestOpsConformanceRequiresFixtureForEthereumSurface(t *testing.T) {
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--overwrite"}); err != nil {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
@@ -2887,9 +2887,6 @@ func TestOpsConformanceRequiresFixtureForEthereumSurface(t *testing.T) {
 func TestBuildStartNodeLoadsValidatorSigner(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2929,7 +2926,7 @@ func TestBuildStartNodeLoadsRemoteValidatorSigner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runKeys(&bytes.Buffer{}, []string{"remote", "--home", home, "--public-key", base64.StdEncoding.EncodeToString(signer.PublicKey()), "--url", "http://127.0.0.1:9000/sign"}); err != nil {
+	if err := runKeys(&bytes.Buffer{}, []string{"remote", "--home", home, "--public-key", base64.StdEncoding.EncodeToString(signer.PublicKey()), "--url", "http://127.0.0.1:9000/sign", "--overwrite"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2950,7 +2947,7 @@ func TestRunStartRunStartsAndStopsNode(t *testing.T) {
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--overwrite"}); err != nil {
 		t.Fatal(err)
 	}
 	networkPath := filepath.Join(home, networkConfigFileName)
@@ -3022,7 +3019,7 @@ func TestStartSeedFlagsMergeIntoGRPCPeers(t *testing.T) {
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--overwrite"}); err != nil {
 		t.Fatal(err)
 	}
 	inputs, err := loadStartInputs(home, "", "", "", nil, false)
@@ -3049,7 +3046,7 @@ func TestBuildRuntimeNodePersistsAddrBookPeers(t *testing.T) {
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--overwrite"}); err != nil {
 		t.Fatal(err)
 	}
 	inputs, err := loadStartInputs(home, "", "", "", nil, false)
@@ -3083,7 +3080,7 @@ func TestBuildRuntimeNodeFiltersBannedAddrBookPeers(t *testing.T) {
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--overwrite"}); err != nil {
 		t.Fatal(err)
 	}
 	inputs, err := loadStartInputs(home, "", "", "", nil, false)
@@ -3120,7 +3117,7 @@ func TestBuildRuntimeNodeConfiguresGRPCTransport(t *testing.T) {
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--overwrite"}); err != nil {
 		t.Fatal(err)
 	}
 	inputs, err := loadStartInputs(home, "", "", "", nil, false)
@@ -3255,6 +3252,9 @@ func TestConfigBackedPeersRejectDifferentGenesisHash(t *testing.T) {
 func TestRunStartRequiresKey(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(home, keyFileName)); err != nil {
 		t.Fatal(err)
 	}
 	if err := runStart(&bytes.Buffer{}, []string{"--home", home, "--dry-run"}); err == nil {

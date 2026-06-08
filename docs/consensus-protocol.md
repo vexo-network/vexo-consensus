@@ -33,7 +33,7 @@ The node execution path uses two separate boundaries:
 - **Execution commit boundary**: a QC-certified block can be executed and atomically persisted as app writes + block record + state record + state roots.
 - **Consensus finality boundary**: the three-chain rule finalizes an ancestor and is the only source for light-client finality proofs.
 
-`consensus_config.json` exposes this choice through `execution_commit`. The default `qc` mode favors low-latency execution of QC-certified blocks. The stricter `finalized` mode executes only the ancestor selected by the three-chain finality rule, so state commits align with the stricter finality boundary. Operators and SDK users should treat `block_committed` logs as state-commit events for the configured execution boundary. Finality proofs describe consensus finality at their validator-set height.
+`consensus_config.json` exposes this choice through `execution_commit`. Generated validator homes default to `finalized`, which executes only the ancestor selected by the three-chain finality rule so state commits align with the stricter finality boundary. The lower-latency `qc` boundary remains available for custom deployments, but `require_network_safety` rejects it. Operators and SDK users should treat `block_committed` logs as state-commit events for the configured execution boundary. Finality proofs describe consensus finality at their validator-set height.
 
 ## Safety Boundary
 
