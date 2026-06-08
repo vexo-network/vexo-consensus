@@ -100,7 +100,7 @@ func TestRuntimeFinalityProofRequiresStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := New(config.Default("vexo-test"), application, []validator.Validator{
+	runtime, err := NewEphemeral(config.Default("vexo-test"), application, []validator.Validator{
 		{ID: "a", Address: "a", VotingPower: 1, Stake: 1},
 	}, nil)
 	if err != nil {

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/cmd/vexod/internal/commandset"
@@ -49,20 +48,6 @@ func runCommand(stdout io.Writer, stderr io.Writer, args []string) error {
 	case "--json":
 		if err := writeStatusJSON(stdout, config.Default("vexo-chain")); err != nil {
 			return writeCommandError(stderr, "status", err)
-		}
-		return nil
-	case "demo":
-		if err := writeDemo(stdout); err != nil {
-			return writeCommandError(stderr, "demo", err)
-		}
-		return nil
-	case "store-demo":
-		path := filepath.Join(os.TempDir(), "vexo-consensus-store-demo")
-		if len(args) > 1 {
-			path = args[1]
-		}
-		if err := writeStoreDemo(stdout, path); err != nil {
-			return writeCommandError(stderr, "store-demo", err)
 		}
 		return nil
 	default:
@@ -159,8 +144,6 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  ibc tx packet-timeout build an IBC packet timeout transaction\n")
 	fmt.Fprintf(writer, "  ibc packet send build an IBC packet scaffold\n")
 	fmt.Fprintf(writer, "  status          print default node capability status\n")
-	fmt.Fprintf(writer, "  demo            run an in-memory bank execution example\n")
-	fmt.Fprintf(writer, "  store-demo      run a LevelDB-backed storage example\n")
 	fmt.Fprintf(writer, "  version         print version\n")
 	writeModuleHelp(writer)
 }

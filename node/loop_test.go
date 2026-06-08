@@ -8,8 +8,8 @@ import (
 
 func TestNormalizeConsensusLoopConfigDefaultsExecutionCommitMode(t *testing.T) {
 	cfg := normalizeConsensusLoopConfig(ConsensusLoopConfig{})
-	if cfg.ExecutionCommitMode != ExecutionCommitModeQC {
-		t.Fatalf("expected qc execution commit mode, got %q", cfg.ExecutionCommitMode)
+	if cfg.ExecutionCommitMode != ExecutionCommitModeFinalized {
+		t.Fatalf("expected finalized execution commit mode, got %q", cfg.ExecutionCommitMode)
 	}
 }
 

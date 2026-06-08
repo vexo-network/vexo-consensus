@@ -44,7 +44,7 @@ func DefaultConsensusLoopConfig() ConsensusLoopConfig {
 		TimeoutCommit:       defaultConsensusTimeoutCommit,
 		MaxBlockBytes:       defaultConsensusMaxBytes,
 		CreateEmptyBlocks:   false,
-		ExecutionCommitMode: ExecutionCommitModeQC,
+		ExecutionCommitMode: ExecutionCommitModeFinalized,
 	}
 }
 

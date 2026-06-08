@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/committee"
@@ -284,6 +285,9 @@ func (config Config) ValidateNetworkSafety() error {
 	}
 	if config.Crypto.Backend == CryptoBackendBLS &&
 		(config.Crypto.AdapterName == "" || config.Crypto.AuditReport == "" || config.Crypto.DependencyAudit == "") {
+		return ErrUnsafeNetworkConfig
+	}
+	if config.Crypto.Backend == CryptoBackendBLS && strings.HasPrefix(config.Crypto.AdapterName, "circl-bls12381-") {
 		return ErrUnsafeNetworkConfig
 	}
 	if config.Committee.Backend != committee.BackendVRF {

@@ -20,7 +20,7 @@ import (
 
 func TestRuntimeNewWiresModules(t *testing.T) {
 	cfg := config.Default("vexo-test")
-	runtime, err := New(cfg, noopApp{}, []validator.Validator{
+	runtime, err := NewEphemeral(cfg, noopApp{}, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
 	}, map[types.Address]types.VotingPower{"alice": 1})
 	if err != nil {
@@ -35,8 +35,15 @@ func TestRuntimeNewWiresModules(t *testing.T) {
 	}
 }
 
+func TestRuntimeNewRequiresDurableStore(t *testing.T) {
+	_, err := New(config.Default("vexo-test"), noopApp{}, nil, nil)
+	if !errors.Is(err, ErrDurableStoreRequired) {
+		t.Fatalf("expected durable store requirement, got %v", err)
+	}
+}
+
 func TestRuntimeRejectsInvalidConfig(t *testing.T) {
-	_, err := New(config.Default(""), noopApp{}, nil, nil)
+	_, err := NewEphemeral(config.Default(""), noopApp{}, nil, nil)
 	if !errors.Is(err, config.ErrMissingChainID) {
 		t.Fatalf("expected missing chain id, got %v", err)
 	}
@@ -45,7 +52,7 @@ func TestRuntimeRejectsInvalidConfig(t *testing.T) {
 func TestRuntimeRejectsUnsupportedCryptoBackend(t *testing.T) {
 	cfg := config.Default("vexo-test")
 	cfg.Crypto.Backend = "unknown"
-	_, err := New(cfg, noopApp{}, nil, nil)
+	_, err := NewEphemeral(cfg, noopApp{}, nil, nil)
 	if !errors.Is(err, config.ErrInvalidConfig) {
 		t.Fatalf("expected invalid config, got %v", err)
 	}
@@ -54,7 +61,7 @@ func TestRuntimeRejectsUnsupportedCryptoBackend(t *testing.T) {
 func TestRuntimeRejectsUnsupportedCommitteeBackend(t *testing.T) {
 	cfg := config.Default("vexo-test")
 	cfg.Committee.Backend = "unknown"
-	_, err := New(cfg, noopApp{}, nil, nil)
+	_, err := NewEphemeral(cfg, noopApp{}, nil, nil)
 	if !errors.Is(err, config.ErrInvalidConfig) {
 		t.Fatalf("expected invalid config, got %v", err)
 	}
@@ -66,7 +73,7 @@ func TestRuntimeBuildsVRFCommitteeSelector(t *testing.T) {
 	cfg.Committee.CommitteeSize = 1
 	cfg.VRF.Keys = map[string][]byte{"alice-pub": []byte("alice-secret")}
 
-	runtime, err := New(cfg, noopApp{}, []validator.Validator{
+	runtime, err := NewEphemeral(cfg, noopApp{}, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: []byte("alice-pub")},
 	}, nil)
 	if err != nil {
@@ -92,7 +99,7 @@ func TestRuntimeDoesNotLoadVRFAdapterForDeterministicCommittee(t *testing.T) {
 	cfg.VRF.ProductionAdapter = true
 	cfg.VRF.AdapterName = "missing-vrf"
 
-	if _, err := New(cfg, noopApp{}, []validator.Validator{
+	if _, err := NewEphemeral(cfg, noopApp{}, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: []byte("alice-pub")},
 	}, nil); err != nil {
 		t.Fatalf("deterministic committee must not require VRF adapter: %v", err)
@@ -101,7 +108,7 @@ func TestRuntimeDoesNotLoadVRFAdapterForDeterministicCommittee(t *testing.T) {
 
 func TestRuntimeBuildsConsensusStateMachine(t *testing.T) {
 	cfg := config.Default("vexo-test")
-	runtime, err := New(cfg, noopApp{}, []validator.Validator{
+	runtime, err := NewEphemeral(cfg, noopApp{}, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
 	}, nil)
 	if err != nil {
@@ -121,7 +128,7 @@ func TestRuntimeBuildsConsensusStateMachine(t *testing.T) {
 
 func TestRuntimeBuildsFinalityVerifier(t *testing.T) {
 	cfg := config.Default("vexo-test")
-	runtime, err := New(cfg, noopApp{}, []validator.Validator{
+	runtime, err := NewEphemeral(cfg, noopApp{}, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: []byte("pub")},
 	}, nil)
 	if err != nil {
@@ -140,7 +147,7 @@ func TestRuntimeAppliesUpgradeHookAndPersistsSchemaState(t *testing.T) {
 	}
 	defer storage.Close()
 
-	runtime, err := NewWithStore(config.Default("vexo-test"), noopApp{}, []validator.Validator{
+	runtime, err := NewWithStore(config.Default("vexo-test"), newEmptyRuntimeApp(t), []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
 	}, nil, storage)
 	if err != nil {
@@ -201,7 +208,7 @@ func TestRuntimeLoadsUpgradePlanFromStoreByHeight(t *testing.T) {
 	if err := storage.SaveUpgradePlan(context.Background(), plan); err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := NewWithStore(config.Default("vexo-test"), noopApp{}, []validator.Validator{
+	runtime, err := NewWithStore(config.Default("vexo-test"), newEmptyRuntimeApp(t), []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
 	}, nil, storage)
 	if err != nil {
@@ -418,7 +425,7 @@ func TestRuntimeWithStoreUsesDurableValidatorRegistry(t *testing.T) {
 func TestRuntimeBuildsEd25519FinalityVerifier(t *testing.T) {
 	cfg := config.Default("vexo-test")
 	cfg.Crypto.Backend = config.CryptoBackendEd25519
-	runtime, err := New(cfg, noopApp{}, []validator.Validator{
+	runtime, err := NewEphemeral(cfg, noopApp{}, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: []byte("pub")},
 	}, nil)
 	if err != nil {
@@ -432,7 +439,7 @@ func TestRuntimeBuildsEd25519FinalityVerifier(t *testing.T) {
 
 func TestRuntimeContextCancellation(t *testing.T) {
 	cfg := config.Default("vexo-test")
-	runtime, err := New(cfg, noopApp{}, []validator.Validator{
+	runtime, err := NewEphemeral(cfg, noopApp{}, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
 	}, nil)
 	if err != nil {
@@ -477,6 +484,15 @@ func (noopApp) Commit() (app.CommitResponse, error) {
 
 func (noopApp) Query(req app.QueryRequest) app.QueryResponse {
 	return app.QueryResponse{}
+}
+
+func newEmptyRuntimeApp(t *testing.T) *app.Runtime {
+	t.Helper()
+	application, err := app.NewRuntime("vexo-test", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return application
 }
 
 func encodeRuntimeTestUint64(value uint64) []byte {

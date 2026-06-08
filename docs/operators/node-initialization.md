@@ -275,7 +275,7 @@ Peer and listen addresses live in `network_config.json`:
 vexod start --home .vexo-archive-1
 ```
 
-Command-line `--peer` and `--seed` remain available for temporary debugging, but production homes should store persistent peers in `network_config.json`.
+Persistent peers and seeds are configured in `network_config.json`; `vexod start` does not accept peer or seed host overrides.
 
 Do not put long-lived host or `host:port` settings on the `vexod start` command line. Edit `rpc.address`, `p2p.listen_address`, `p2p.peers`, and `p2p.seeds` in `network_config.json` instead.
 

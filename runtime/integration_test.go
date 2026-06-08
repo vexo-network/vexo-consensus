@@ -22,7 +22,7 @@ func TestRuntimeExecuteBlockUsesConfiguredApplication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := New(config.Default("vexo-test"), application, []validator.Validator{
+	runtime, err := NewEphemeral(config.Default("vexo-test"), application, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
 	}, nil)
 	if err != nil {
@@ -201,7 +201,7 @@ func TestRuntimeRejectsBlockAboveMaxBlobGas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := New(cfg, application, []validator.Validator{
+	runtime, err := NewEphemeral(cfg, application, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
 	}, nil)
 	if err != nil {
@@ -429,7 +429,7 @@ func TestRuntimeExecuteBlockRemovesValidatorFromUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := New(config.Default("vexo-test"), application, []validator.Validator{
+	runtime, err := NewEphemeral(config.Default("vexo-test"), application, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
 		{ID: "bob", Address: "bob", VotingPower: 1, Stake: 1},
 	}, nil)

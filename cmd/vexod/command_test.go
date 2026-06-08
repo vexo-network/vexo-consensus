@@ -2995,21 +2995,22 @@ func TestShutdownSignalsIncludeInterrupt(t *testing.T) {
 	t.Fatalf("expected shutdown signals to include os.Interrupt, got %+v", signals)
 }
 
-func TestStartPeerFlagsParsePersistentPeers(t *testing.T) {
-	peers := peerFlags{}
-	if err := peers.Set("bob=127.0.0.1:26657"); err != nil {
+func TestStartPeerAssignmentParserRejectsInvalidAddresses(t *testing.T) {
+	firstID, firstAddress, err := parsePeerAssignment("bob=127.0.0.1:26657")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := peers.Set("carol=127.0.0.1:26658"); err != nil {
+	secondID, secondAddress, err := parsePeerAssignment("carol=127.0.0.1:26658")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if peers["bob"] != "127.0.0.1:26657" || peers["carol"] != "127.0.0.1:26658" {
-		t.Fatalf("unexpected peers: %+v", peers)
+	if firstID != "bob" || firstAddress != "127.0.0.1:26657" || secondID != "carol" || secondAddress != "127.0.0.1:26658" {
+		t.Fatalf("unexpected peers: %s=%s %s=%s", firstID, firstAddress, secondID, secondAddress)
 	}
-	if err := peers.Set("bad"); err == nil {
+	if _, _, err := parsePeerAssignment("bad"); err == nil {
 		t.Fatal("expected invalid peer format error")
 	}
-	if err := peers.Set("bad=0.0.0.0:26656"); err == nil {
+	if _, _, err := parsePeerAssignment("bad=0.0.0.0:26656"); err == nil {
 		t.Fatal("expected invalid advertised peer address error")
 	}
 }

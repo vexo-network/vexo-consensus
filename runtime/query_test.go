@@ -14,7 +14,7 @@ import (
 )
 
 func TestRuntimeQueriesReturnNotFoundWithoutStore(t *testing.T) {
-	runtime, err := New(config.Default("vexo-test"), noopApp{}, nil, nil)
+	runtime, err := NewEphemeral(config.Default("vexo-test"), noopApp{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestRuntimePruneCallsAppModuleHooks(t *testing.T) {
 }
 
 func TestRuntimeAppQueryUsesContextAwareApplication(t *testing.T) {
-	runtime, err := New(config.Default("vexo-test"), contextQueryApp{}, nil, nil)
+	runtime, err := NewEphemeral(config.Default("vexo-test"), contextQueryApp{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -92,18 +92,6 @@ The generated home uses split subsystem config files:
 - `.vexo/mempool_config.json` for mempool limits, fees, priority, and WAL policy
 - `.vexo/log_config.json` for log format, level, and operational event logging
 
-Run an in-memory application example:
-
-```bash
-./bin/vexod demo
-```
-
-Run a LevelDB-backed storage example:
-
-```bash
-./bin/vexod store-demo
-```
-
 ## Common CLI Commands
 
 ```bash

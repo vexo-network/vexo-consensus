@@ -77,7 +77,7 @@ func init() {
 
 Validator public keys should be admitted through `BLSValidatorCredential` records or validator metadata key `bls_pop`. `ValidateBLSValidatorCredentials` rejects missing IDs, missing keys, duplicate public keys, invalid keys, and invalid proof-of-possession values. `NewBLSAggregateVerifier` wraps the audited adapter so finality verification only accepts registered validator keys.
 
-The built-in CIRCL adapter is registered as `circl-bls12381-g1sigg2-basic-v1`. It provides BLS12-381 basic signatures, aggregate verification, compressed deterministic encoding, public-key validation, and proof-of-possession helpers. `NewCIRCLBLSKeyDocument` writes `bls_proof_of_possession` metadata so validator genesis metadata can carry the rogue-key defense proof.
+The built-in CIRCL adapter is registered as `circl-bls12381-g1sigg2-basic-v1` and is a reference integration for BLS12-381 basic signatures, aggregate verification, compressed deterministic encoding, public-key validation, and proof-of-possession helpers. It is intentionally not accepted by the network safety gate as a production BLS adapter. Config metadata cannot promote the built-in adapter into an audited adapter; production binaries must link a separately audited adapter whose own `Metadata()` satisfies `ValidateBLSAdapter`. `NewCIRCLBLSKeyDocument` writes `bls_proof_of_possession` metadata so validator genesis metadata can carry the rogue-key defense proof.
 
 CLI helpers:
 

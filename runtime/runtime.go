@@ -23,6 +23,7 @@ import (
 )
 
 var ErrAtomicAppCommitUnavailable = errors.New("atomic app block commit store is required")
+var ErrDurableStoreRequired = errors.New("durable store is required; use NewEphemeral only for isolated tests and examples")
 var ErrUpgradeExecutorMissing = errors.New("upgrade executor is required")
 var ErrBlobGasLimitExceeded = errors.New("block blob gas exceeds configured max blob gas")
 
@@ -56,7 +57,11 @@ type stakingPenaltyApplier interface {
 }
 
 func New(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower) (*Runtime, error) {
-	return NewWithStore(cfg, application, initialValidators, governancePower, nil)
+	return nil, ErrDurableStoreRequired
+}
+
+func NewEphemeral(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower) (*Runtime, error) {
+	return newWithStoreAndCryptoRegistry(cfg, application, initialValidators, governancePower, nil, crypto.NewRuntimeSuiteRegistry(), true)
 }
 
 func NewWithStore(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower, storage store.Store) (*Runtime, error) {
@@ -64,8 +69,15 @@ func NewWithStore(cfg config.Config, application app.Application, initialValidat
 }
 
 func NewWithStoreAndCryptoRegistry(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower, storage store.Store, cryptoRegistry crypto.RuntimeSuiteRegistry) (*Runtime, error) {
+	return newWithStoreAndCryptoRegistry(cfg, application, initialValidators, governancePower, storage, cryptoRegistry, false)
+}
+
+func newWithStoreAndCryptoRegistry(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower, storage store.Store, cryptoRegistry crypto.RuntimeSuiteRegistry, allowEphemeral bool) (*Runtime, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
+	}
+	if storage == nil && !allowEphemeral {
+		return nil, ErrDurableStoreRequired
 	}
 
 	admission := validator.NewConfigurableAdmissionPolicy(cfg.Validator)
@@ -177,11 +189,16 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 	baseFee := runtime.CurrentBaseFee()
 	runtime.setApplicationBaseFee(baseFee)
 	runtime.setApplicationBlobBaseFee(runtime.CurrentBlobBaseFee())
-	if appRuntime, ok := runtime.App.(*app.Runtime); ok && runtime.Store != nil {
-		if commitStore, ok := runtime.Store.(store.AppBlockCommitStore); ok {
-			return runtime.executeBlockStaged(ctx, block, appRuntime, commitStore, baseFee, blobGasUsed)
+	if runtime.Store != nil {
+		appRuntime, ok := runtime.App.(*app.Runtime)
+		if !ok {
+			return app.FinalizeBlockResponse{}, ErrAtomicAppCommitUnavailable
 		}
-		return app.FinalizeBlockResponse{}, ErrAtomicAppCommitUnavailable
+		commitStore, ok := runtime.Store.(store.AppBlockCommitStore)
+		if !ok {
+			return app.FinalizeBlockResponse{}, ErrAtomicAppCommitUnavailable
+		}
+		return runtime.executeBlockStaged(ctx, block, appRuntime, commitStore, baseFee, blobGasUsed)
 	}
 	response, err := runtime.Executor.Execute(ctx, runtime.App, block)
 	if err != nil {

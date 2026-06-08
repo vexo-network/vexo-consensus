@@ -6,9 +6,9 @@
 
 | Version | Security Support |
 |---|---|
-| `main` | Best-effort review and fixes |
-| release candidates | Best-effort review and fixes |
-| production/mainnet deployments | Not currently supported by this repository |
+| `main` | Active review and fixes before release tagging |
+| release candidates | Security fixes for release-gate blockers |
+| tagged releases | Security fixes according to the release notes and attached gate evidence |
 
 ## Reporting a Vulnerability
 

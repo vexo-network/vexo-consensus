@@ -10,7 +10,7 @@ import (
 )
 
 func TestRuntimeRecoverWithoutStore(t *testing.T) {
-	runtime, err := New(config.Default("vexo-test"), noopApp{}, nil, nil)
+	runtime, err := NewEphemeral(config.Default("vexo-test"), noopApp{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -48,9 +48,9 @@ func (node *Node) StepConsensusWithConfig(ctx context.Context, cfg ConsensusLoop
 
 func (node *Node) commitCandidateForMode(ctx context.Context, mode ExecutionCommitMode) (CommitReadyResult, bool, error) {
 	switch mode {
-	case "", ExecutionCommitModeQC:
+	case ExecutionCommitModeQC:
 		return node.CommitReadyBlock(ctx)
-	case ExecutionCommitModeFinalized:
+	case "", ExecutionCommitModeFinalized:
 		return node.CommitFinalizedBlock(ctx)
 	default:
 		return CommitReadyResult{}, false, ErrInvalidLoopConfig

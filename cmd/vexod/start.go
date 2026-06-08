@@ -80,8 +80,6 @@ type startRuntimeConfig struct {
 	AddrBookMaxFailures     int
 }
 
-type peerFlags map[p2p.PeerID]string
-
 type stringListFlags []string
 
 func runStart(writer io.Writer, args []string) error {
@@ -128,10 +126,6 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	logLevel := flags.String("log-level", "info", "operational log level")
 	logCommitEvents := flags.Bool("log-commit-events", true, "log committed block events")
 	logPeerEvents := flags.Bool("log-peer-events", true, "log P2P peer connection events")
-	peers := peerFlags{}
-	flags.Var(peers, "peer", "persistent peer in id=host:port form; may be repeated")
-	seeds := peerFlags{}
-	flags.Var(seeds, "seed", "seed peer used for bootstrap discovery in id=host:port form; may be repeated")
 	jsonOutput := flags.Bool("json", false, "write JSON output")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -174,8 +168,6 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 		p2pAuthToken:            *p2pAuthToken,
 		addrBookPath:            resolveAddrBookPath(*home, *addrBookPath),
 		addrBookMaxFailures:     *addrBookMaxFailures,
-		peers:                   peers,
-		seeds:                   seeds,
 	})
 	plan := inputs.Plan
 	if *jsonOutput {
@@ -227,8 +219,6 @@ type startFlagValues struct {
 	p2pAuthToken            string
 	addrBookPath            string
 	addrBookMaxFailures     int
-	peers                   peerFlags
-	seeds                   peerFlags
 }
 
 func visitedFlags(flags *flag.FlagSet) map[string]bool {
@@ -323,12 +313,6 @@ func applyStartFlagOverrides(cfg *startRuntimeConfig, visited map[string]bool, v
 	}
 	if visited["addr-book-max-failures"] {
 		cfg.AddrBookMaxFailures = values.addrBookMaxFailures
-	}
-	if visited["peer"] {
-		cfg.P2PPeers = values.peers
-	}
-	if visited["seed"] {
-		cfg.P2PSeeds = values.seeds
 	}
 }
 
@@ -925,26 +909,6 @@ func withLocalValidatorPublicKey(genesis vexonode.Genesis, validatorID types.Val
 		}
 	}
 	return genesis
-}
-
-func (flags peerFlags) String() string {
-	if len(flags) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(flags))
-	for peerID, address := range flags {
-		parts = append(parts, string(peerID)+"="+address)
-	}
-	return strings.Join(parts, ",")
-}
-
-func (flags peerFlags) Set(value string) error {
-	peerID, address, err := parsePeerAssignment(value)
-	if err != nil {
-		return err
-	}
-	flags[peerID] = address
-	return nil
 }
 
 func (flags *stringListFlags) String() string {

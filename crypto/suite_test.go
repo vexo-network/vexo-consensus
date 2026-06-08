@@ -35,18 +35,15 @@ func TestNewRuntimeSuiteBLSRequiresAuditMetadata(t *testing.T) {
 	}
 }
 
-func TestNewRuntimeSuiteBLSUsesBuiltInAdapterWithAuditMetadata(t *testing.T) {
-	suite, err := NewRuntimeSuite(config.CryptoConfig{
+func TestNewRuntimeSuiteBLSRejectsConfigOnlyAuditMetadata(t *testing.T) {
+	_, err := NewRuntimeSuite(config.CryptoConfig{
 		Backend:           config.CryptoBackendBLS,
 		ProductionAdapter: true,
 		AuditReport:       "external-audit-report-id",
 		DependencyAudit:   "dependency-audit-id",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if suite.FinalityVerifier == nil || suite.ConsensusAggregator == nil || suite.ConsensusVerifier == nil {
-		t.Fatal("expected audited built-in bls runtime suite")
+	if !errors.Is(err, ErrBLSAdapterUnsafe) {
+		t.Fatalf("expected configuration metadata without audited adapter metadata to remain unsafe, got %v", err)
 	}
 }
 
