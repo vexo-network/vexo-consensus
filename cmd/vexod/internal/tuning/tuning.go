@@ -287,22 +287,22 @@ func duration(value string) time.Duration {
 	case strings.HasSuffix(value, "ms"):
 		amount, err := strconv.ParseInt(strings.TrimSuffix(value, "ms"), 10, 64)
 		if err != nil {
-			panic(err)
+			return 0
 		}
 		return time.Duration(amount) * time.Millisecond
 	case strings.HasSuffix(value, "s"):
 		amount, err := strconv.ParseInt(strings.TrimSuffix(value, "s"), 10, 64)
 		if err != nil {
-			panic(err)
+			return 0
 		}
 		return time.Duration(amount*1000) * time.Millisecond
 	case strings.HasSuffix(value, "h"):
 		amount, err := strconv.ParseInt(strings.TrimSuffix(value, "h"), 10, 64)
 		if err != nil {
-			panic(err)
+			return 0
 		}
 		return time.Duration(amount*60*60*1000) * time.Millisecond
 	default:
-		panic("unsupported duration " + value)
+		return 0
 	}
 }

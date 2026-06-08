@@ -89,6 +89,14 @@ type Log struct {
 	Meta            map[string]string `json:"meta,omitempty"`
 }
 
+type BlockContextRecord struct {
+	Height       uint64     `json:"height"`
+	TimeUnixNano int64      `json:"time_unix_nano,omitempty"`
+	AppHash      types.Hash `json:"app_hash,omitempty"`
+	BaseFee      uint64     `json:"base_fee,omitempty"`
+	BlobBaseFee  uint64     `json:"blob_base_fee,omitempty"`
+}
+
 type CallRequest struct {
 	VM                        string                       `json:"vm"`
 	From                      string                       `json:"from"`
@@ -217,7 +225,34 @@ func (Module) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisState) err
 	return nil
 }
 
-func (Module) BeginBlock(ctx vexoapp.Context, header types.Header) error { return nil }
+func (Module) BeginBlock(ctx vexoapp.Context, header types.Header) error {
+	if ctx.Store == nil {
+		return nil
+	}
+	height := header.Height
+	if height == 0 {
+		height = ctx.Height
+	}
+	if height == 0 {
+		return nil
+	}
+	record := BlockContextRecord{
+		Height:       uint64(height),
+		TimeUnixNano: header.TimeUnixNano,
+		AppHash:      header.AppHash,
+		BaseFee:      ctx.BaseFee,
+		BlobBaseFee:  ctx.BlobBaseFee,
+	}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	return ctx.Store.Set(ctx.GoContext(), ModuleName, latestBlockContextKey(), encoded)
+}
+
+func latestBlockContextKey() []byte {
+	return []byte("meta/latest_block_context")
+}
 
 func (module Module) ValidateTx(ctx vexoapp.Context, tx types.Tx) error {
 	if err := module.validateEthereumRawTx(ctx, tx); err != nil {

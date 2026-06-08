@@ -48,14 +48,6 @@ func ParseAmount(input string) (uint64, error) {
 	return 0, ErrInvalidAmount
 }
 
-func MustParseAmount(input string) uint64 {
-	amount, err := ParseAmount(input)
-	if err != nil {
-		panic(err)
-	}
-	return amount
-}
-
 func DenomFactor(denom string) (uint64, bool) {
 	normalized := strings.TrimSpace(strings.ToLower(denom))
 	for _, unit := range Units {

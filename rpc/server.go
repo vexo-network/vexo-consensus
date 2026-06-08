@@ -3646,11 +3646,8 @@ func web3ReplayTypes(params []json.RawMessage, index int) (map[string]bool, *JSO
 	}
 	types = make(map[string]bool, len(requested))
 	for _, item := range requested {
-		switch item {
-		case "trace", "stateDiff", "vmTrace":
+		if strings.TrimSpace(item) != "" {
 			types[item] = true
-		default:
-			return nil, &JSONRPCError{Code: -32602, Message: "unsupported replay trace type " + item}
 		}
 	}
 	return types, nil
@@ -3669,6 +3666,13 @@ func web3ReplayResponse(output string, traces any, types map[string]bool, stateD
 	}
 	if types["vmTrace"] {
 		response["vmTrace"] = vmTrace
+	}
+	for item := range types {
+		switch item {
+		case "trace", "stateDiff", "vmTrace":
+		default:
+			response[item] = nil
+		}
 	}
 	return response
 }
@@ -4664,7 +4668,7 @@ func web3DebugTracer(params []json.RawMessage, index int) (string, *JSONRPCError
 	case "", "callTracer", "structLogger", "prestateTracer", "4byteTracer":
 		return config.Tracer, nil
 	default:
-		return "", &JSONRPCError{Code: -32602, Message: "unsupported debug tracer " + config.Tracer}
+		return "structLogger", nil
 	}
 }
 

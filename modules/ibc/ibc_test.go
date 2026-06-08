@@ -146,6 +146,45 @@ func TestModuleTimeoutsPackets(t *testing.T) {
 	}
 }
 
+func TestModuleLifecycleTracksHeightAndSweepsExpiredPackets(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	hash := strings.Repeat("01", 32)
+	setupCtx := vexoapp.Context{Ctx: context.Background(), Height: 7, Store: storage}
+	for _, tx := range []types.Tx{
+		types.Tx("ibc:client-create:07-vexo-0:counterparty:5:" + hash),
+		types.Tx("ibc:connection-open-init:connection-0:07-vexo-0:connection-1"),
+		types.Tx("ibc:connection-open-ack:connection-0"),
+		types.Tx("ibc:channel-open-init:transfer:channel-0:connection-0:channel-1:ordered"),
+		types.Tx("ibc:channel-open-ack:transfer:channel-0"),
+		types.Tx("ibc:packet-send:1:transfer:channel-0:transfer:channel-1:cGF5bG9hZA:10"),
+	} {
+		if result := module.DeliverTx(setupCtx, tx); result.Code != 0 {
+			t.Fatalf("setup %q failed: %+v", tx, result)
+		}
+	}
+	blockCtx := vexoapp.Context{Ctx: context.Background(), Height: 10, Store: storage}
+	if err := module.BeginBlock(blockCtx, types.Header{Height: 10}); err != nil {
+		t.Fatal(err)
+	}
+	encodedHeight, err := storage.Get(context.Background(), ibckeeper.Namespace, latestBeginHeightKey)
+	if err != nil || string(encodedHeight) != "10" {
+		t.Fatalf("expected begin height marker, got %q err=%v", encodedHeight, err)
+	}
+	if err := module.EndBlock(blockCtx); err != nil {
+		t.Fatal(err)
+	}
+	packet := ibckeeper.Packet{Sequence: 1, SourcePort: "transfer", SourceChannel: "channel-0", DestinationPort: "transfer", DestinationChannel: "channel-1", Data: []byte("payload"), TimeoutHeight: 10}
+	receipt, found, err := ibckeeper.NewKeeper(storage).PacketReceipt(context.Background(), packet)
+	if err != nil || !found || !receipt.TimedOut || receipt.TimeoutAt != 10 {
+		t.Fatalf("expected lifecycle timeout found=%t receipt=%+v err=%v", found, receipt, err)
+	}
+}
+
 func TestModuleAcknowledgesPacketWithProof(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {

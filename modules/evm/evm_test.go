@@ -235,6 +235,37 @@ func TestModuleEndBlockPersistsReceiptIndexes(t *testing.T) {
 	}
 }
 
+func TestModuleBeginBlockPersistsLatestBlockContext(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	ctx := vexoapp.Context{
+		Ctx:         context.Background(),
+		Height:      8,
+		Store:       storage,
+		BaseFee:     10,
+		BlobBaseFee: 3,
+	}
+	header := types.Header{Height: 8, TimeUnixNano: 123, AppHash: types.Hash{1}}
+	if err := module.BeginBlock(ctx, header); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := storage.Get(context.Background(), ModuleName, latestBlockContextKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record BlockContextRecord
+	if err := json.Unmarshal(encoded, &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.Height != 8 || record.TimeUnixNano != 123 || record.BaseFee != 10 || record.BlobBaseFee != 3 || record.AppHash != (types.Hash{1}) {
+		t.Fatalf("unexpected block context: %+v", record)
+	}
+}
+
 func TestModuleQueryCallPassesWeb3ExecutionContext(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {

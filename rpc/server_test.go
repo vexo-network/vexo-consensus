@@ -1323,6 +1323,12 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if fourByteTrace.Error != nil || !ok {
 		t.Fatalf("unexpected 4byte tracer response: %+v", fourByteTrace)
 	}
+	var customTrace JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":117,"method":"debug_traceTransaction","params":["`+blockTxHashText+`",{"tracer":"function(){return {}}"}]}`, http.StatusOK, &customTrace)
+	customTraceResult, ok := customTrace.Result.(map[string]any)
+	if customTrace.Error != nil || !ok || customTraceResult["gas"] != float64(7) {
+		t.Fatalf("expected custom tracer to fall back to struct logger, got %+v", customTrace)
+	}
 	var debugBlockTrace JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":80,"method":"debug_traceBlockByNumber","params":["latest"]}`, http.StatusOK, &debugBlockTrace)
 	debugBlockItems, ok := debugBlockTrace.Result.([]any)
@@ -1408,6 +1414,15 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	_, replayTransactionVMTrace := replayTransactionResult["vmTrace"]
 	if replayTransaction.Error != nil || !ok || len(replayTransactionTrace) != 1 || replayTransactionStateDiff || replayTransactionVMTrace {
 		t.Fatalf("unexpected trace_replayTransaction: %+v", replayTransaction)
+	}
+	var replayTransactionCustomType JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":118,"method":"trace_replayTransaction","params":["`+blockTxHashText+`",["trace","customTrace"]]}`, http.StatusOK, &replayTransactionCustomType)
+	replayCustomResult, ok := replayTransactionCustomType.Result.(map[string]any)
+	if replayTransactionCustomType.Error != nil || !ok {
+		t.Fatalf("expected custom replay type to be accepted, got %+v", replayTransactionCustomType)
+	}
+	if _, found := replayCustomResult["customTrace"]; !found {
+		t.Fatalf("expected custom replay type key in response: %+v", replayCustomResult)
 	}
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"` + blockTxHashText + `","height":12,"status":1,"from":"0xaaaa","to":"0xbbbb","gas_used":7,"output":"0x1234","state_diff":{"0xbbbb":{"storage":{"0x0":{"to":"0x1"}}}},"vm_trace":{"gas":7,"failed":false,"returnValue":"0x1234","structLogs":[{"pc":0,"op":"STOP"}]}}`)}
 	var replayTransactionWithDiff JSONRPCResponse

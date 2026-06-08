@@ -31,6 +31,8 @@ const (
 	packetTimeoutGasCost  uint64 = 20
 )
 
+var latestBeginHeightKey = []byte("meta/latest_begin_height")
+
 var (
 	ErrInvalidIBCTx    = errors.New("invalid IBC transaction")
 	ErrInvalidIBCQuery = errors.New("invalid IBC query")
@@ -79,7 +81,19 @@ func (Module) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisState) err
 	return nil
 }
 
-func (Module) BeginBlock(ctx vexoapp.Context, header types.Header) error { return nil }
+func (Module) BeginBlock(ctx vexoapp.Context, header types.Header) error {
+	if ctx.Store == nil {
+		return nil
+	}
+	height := header.Height
+	if height == 0 {
+		height = ctx.Height
+	}
+	if height == 0 {
+		return nil
+	}
+	return ctx.Store.Set(ctx.GoContext(), ibckeeper.Namespace, latestBeginHeightKey, []byte(strconv.FormatUint(uint64(height), 10)))
+}
 
 func (Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 	if ctx.Store == nil {
@@ -217,7 +231,40 @@ func (Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 	}
 }
 
-func (Module) EndBlock(ctx vexoapp.Context) error { return nil }
+func (Module) EndBlock(ctx vexoapp.Context) error {
+	if ctx.Store == nil || ctx.Height == 0 {
+		return nil
+	}
+	return sweepExpiredPackets(ctx)
+}
+
+func sweepExpiredPackets(ctx vexoapp.Context) error {
+	snapshot, ok := ctx.Store.(store.SnapshotKVStore)
+	if !ok {
+		return nil
+	}
+	pairs, err := snapshot.ExportNamespace(ctx.GoContext(), ibckeeper.Namespace)
+	if err != nil {
+		return err
+	}
+	keeper := ibckeeper.NewKeeper(ctx.Store)
+	for _, pair := range pairs {
+		if !strings.HasPrefix(string(pair.Key), "packets/") {
+			continue
+		}
+		var receipt ibckeeper.PacketReceipt
+		if err := json.Unmarshal(pair.Value, &receipt); err != nil {
+			return err
+		}
+		if receipt.Acknowledged || receipt.TimedOut || receipt.Packet.TimeoutHeight == 0 || uint64(ctx.Height) < receipt.Packet.TimeoutHeight {
+			continue
+		}
+		if err := keeper.TimeoutPacket(ctx.GoContext(), ctx.Height, receipt.Packet); err != nil && !errors.Is(err, ibckeeper.ErrPacketTimedOut) && !errors.Is(err, ibckeeper.ErrPacketAcked) {
+			return err
+		}
+	}
+	return nil
+}
 
 func (Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
 	canonical, err := vexoapp.ParseCanonicalTx(tx)
