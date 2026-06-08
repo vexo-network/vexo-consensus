@@ -90,20 +90,23 @@ type Log struct {
 }
 
 type CallRequest struct {
-	VM          string                     `json:"vm"`
-	From        string                     `json:"from"`
-	To          string                     `json:"to"`
-	Method      string                     `json:"method"`
-	Input       string                     `json:"input,omitempty"`
-	GasLimit    uint64                     `json:"gas_limit,omitempty"`
-	Value       uint64                     `json:"value,omitempty"`
-	ValueHex    string                     `json:"value_hex,omitempty"`
-	Height      uint64                     `json:"height,omitempty"`
-	GasPrice    uint64                     `json:"gas_price,omitempty"`
-	BaseFee     uint64                     `json:"base_fee,omitempty"`
-	BlobBaseFee uint64                     `json:"blob_base_fee,omitempty"`
-	BlobHashes  []string                   `json:"blob_hashes,omitempty"`
-	AccessList  []contract.AccessListEntry `json:"access_list,omitempty"`
+	VM                   string                     `json:"vm"`
+	From                 string                     `json:"from"`
+	To                   string                     `json:"to"`
+	Method               string                     `json:"method"`
+	Input                string                     `json:"input,omitempty"`
+	GasLimit             uint64                     `json:"gas_limit,omitempty"`
+	Value                uint64                     `json:"value,omitempty"`
+	ValueHex             string                     `json:"value_hex,omitempty"`
+	Height               uint64                     `json:"height,omitempty"`
+	GasPrice             uint64                     `json:"gas_price,omitempty"`
+	MaxFeePerGas         uint64                     `json:"max_fee_per_gas,omitempty"`
+	MaxPriorityFeePerGas uint64                     `json:"max_priority_fee_per_gas,omitempty"`
+	BaseFee              uint64                     `json:"base_fee,omitempty"`
+	BlobBaseFee          uint64                     `json:"blob_base_fee,omitempty"`
+	BlobHashes           []string                   `json:"blob_hashes,omitempty"`
+	Nonce                uint64                     `json:"nonce,omitempty"`
+	AccessList           []contract.AccessListEntry `json:"access_list,omitempty"`
 }
 
 type CallResponse struct {
@@ -301,10 +304,16 @@ func (module Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, erro
 		invocation.Timestamp = headerUnixSeconds(ctx.Header)
 		invocation.BlockGasLimit = ctx.GasLimit()
 		invocation.GasPrice = txGasPrice(tx)
+		invocation.GasFeeCap = txGasFeeCap(tx)
+		invocation.GasTipCap = txGasTipCap(tx)
 		invocation.BaseFee = txBaseFee(tx)
 		invocation.BlobBaseFee = txBlobBaseFee(tx)
+		invocation.BlobGasFeeCap = txBlobGasFeeCap(tx)
 		invocation.BlobHashes = txBlobHashes(tx)
 		invocation.Coinbase = types.Address("fee_collector")
+		invocation.Nonce = txNonce(tx)
+		invocation.EthereumTx = ethcompat.IsEthereumTx(tx)
+		invocation.RawEthereumTx = txRawEthereum(tx)
 		return module.estimateInvocationGas(ctx, invocation, callGasCost)
 	case "deploy", "eth_deploy":
 		invocation, err := module.deployInvocationForEstimate(ctx, canonical.Action, canonical.Args, tx)
@@ -530,11 +539,17 @@ func (module Module) deliverCall(ctx vexoapp.Context, tx types.Tx, args []string
 	invocation.Timestamp = headerUnixSeconds(ctx.Header)
 	invocation.BlockGasLimit = ctx.GasLimit()
 	invocation.GasPrice = txGasPrice(tx)
+	invocation.GasFeeCap = txGasFeeCap(tx)
+	invocation.GasTipCap = txGasTipCap(tx)
 	invocation.BaseFee = txBaseFee(tx)
 	invocation.BlobBaseFee = txBlobBaseFee(tx)
+	invocation.BlobGasFeeCap = txBlobGasFeeCap(tx)
 	invocation.BlobHashes = txBlobHashes(tx)
 	invocation.Coinbase = types.Address("fee_collector")
 	invocation.AccessList = accessListFromTx(tx)
+	invocation.Nonce = txNonce(tx)
+	invocation.EthereumTx = ethcompat.IsEthereumTx(tx)
+	invocation.RawEthereumTx = txRawEthereum(tx)
 	result, err := module.registry.Execute(ctx.GoContext(), invocation)
 	if err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
@@ -582,7 +597,7 @@ func (module Module) deliverDeploy(ctx vexoapp.Context, tx types.Tx, args []stri
 		Contract:      contractAddress,
 		Method:        "deploy",
 		Input:         code,
-		GasLimit:      ctx.GasLimit(),
+		GasLimit:      txGasLimit(tx, ctx.GasLimit()),
 		Value:         uint64Amount(value),
 		ValueBig:      value,
 		Salt:          salt[:],
@@ -591,11 +606,17 @@ func (module Module) deliverDeploy(ctx vexoapp.Context, tx types.Tx, args []stri
 		Timestamp:     headerUnixSeconds(ctx.Header),
 		BlockGasLimit: ctx.GasLimit(),
 		GasPrice:      txGasPrice(tx),
+		GasFeeCap:     txGasFeeCap(tx),
+		GasTipCap:     txGasTipCap(tx),
 		BaseFee:       txBaseFee(tx),
 		BlobBaseFee:   txBlobBaseFee(tx),
+		BlobGasFeeCap: txBlobGasFeeCap(tx),
 		BlobHashes:    txBlobHashes(tx),
 		Coinbase:      types.Address("fee_collector"),
 		AccessList:    accessListFromTx(tx),
+		Nonce:         txNonce(tx),
+		EthereumTx:    ethcompat.IsEthereumTx(tx),
+		RawEthereumTx: txRawEthereum(tx),
 	}
 	result, err := module.registry.Execute(ctx.GoContext(), invocation)
 	if err != nil {
@@ -653,7 +674,7 @@ func (module Module) deliverEthereumDeploy(ctx vexoapp.Context, tx types.Tx, arg
 		Contract:      contractAddress,
 		Method:        "deploy",
 		Input:         code,
-		GasLimit:      ctx.GasLimit(),
+		GasLimit:      txGasLimit(tx, ctx.GasLimit()),
 		Value:         uint64Amount(value),
 		ValueBig:      value,
 		State:         evmStateReader{store: ctx.Store},
@@ -661,11 +682,17 @@ func (module Module) deliverEthereumDeploy(ctx vexoapp.Context, tx types.Tx, arg
 		Timestamp:     headerUnixSeconds(ctx.Header),
 		BlockGasLimit: ctx.GasLimit(),
 		GasPrice:      txGasPrice(tx),
+		GasFeeCap:     txGasFeeCap(tx),
+		GasTipCap:     txGasTipCap(tx),
 		BaseFee:       txBaseFee(tx),
 		BlobBaseFee:   txBlobBaseFee(tx),
+		BlobGasFeeCap: txBlobGasFeeCap(tx),
 		BlobHashes:    txBlobHashes(tx),
 		Coinbase:      types.Address("fee_collector"),
 		AccessList:    accessListFromTx(tx),
+		Nonce:         nonce,
+		EthereumTx:    ethcompat.IsEthereumTx(tx),
+		RawEthereumTx: txRawEthereum(tx),
 	}
 	result, err := module.registry.Execute(ctx.GoContext(), invocation)
 	if err != nil {
@@ -753,11 +780,14 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 		Timestamp:     headerUnixSeconds(ctx.Header),
 		BlockGasLimit: ctx.GasLimit(),
 		GasPrice:      request.GasPrice,
+		GasFeeCap:     request.MaxFeePerGas,
+		GasTipCap:     request.MaxPriorityFeePerGas,
 		BaseFee:       request.BaseFee,
 		BlobBaseFee:   request.BlobBaseFee,
 		BlobHashes:    parseBlobHashes(request.BlobHashes),
 		Coinbase:      types.Address("fee_collector"),
 		AccessList:    append([]contract.AccessListEntry(nil), request.AccessList...),
+		Nonce:         request.Nonce,
 	})
 	if err != nil {
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
@@ -859,11 +889,17 @@ func (Module) prepareDeployInvocation(ctx vexoapp.Context, tx types.Tx, vm strin
 		Timestamp:     headerUnixSeconds(ctx.Header),
 		BlockGasLimit: ctx.GasLimit(),
 		GasPrice:      txGasPrice(tx),
+		GasFeeCap:     txGasFeeCap(tx),
+		GasTipCap:     txGasTipCap(tx),
 		BaseFee:       txBaseFee(tx),
 		BlobBaseFee:   txBlobBaseFee(tx),
+		BlobGasFeeCap: txBlobGasFeeCap(tx),
 		BlobHashes:    txBlobHashes(tx),
 		Coinbase:      types.Address("fee_collector"),
 		AccessList:    accessListFromTx(tx),
+		Nonce:         txNonce(tx),
+		EthereumTx:    ethcompat.IsEthereumTx(tx),
+		RawEthereumTx: txRawEthereum(tx),
 	}
 }
 
@@ -2158,6 +2194,52 @@ func txGasPrice(tx types.Tx) uint64 {
 		return meta.Fee / meta.Gas
 	}
 	return 0
+}
+
+func txGasFeeCap(tx types.Tx) uint64 {
+	if feeCap, found := vexoapp.TxUintTag(tx, ethcompat.TagMaxFeePerGas); found {
+		return feeCap
+	}
+	return txGasPrice(tx)
+}
+
+func txGasTipCap(tx types.Tx) uint64 {
+	if tipCap, found := vexoapp.TxUintTag(tx, ethcompat.TagMaxPriorityFeePerGas); found {
+		return tipCap
+	}
+	return txGasPrice(tx)
+}
+
+func txBlobGasFeeCap(tx types.Tx) uint64 {
+	if feeCap, found := vexoapp.TxUintTag(tx, ethcompat.TagBlobGasFeeCap); found {
+		return feeCap
+	}
+	return 0
+}
+
+func txNonce(tx types.Tx) uint64 {
+	if nonce, found := vexoapp.TxUintTag(tx, "nonce"); found {
+		return nonce
+	}
+	return 0
+}
+
+func txRawEthereum(tx types.Tx) string {
+	raw, _ := vexoapp.TxTag(tx, ethcompat.TagRaw)
+	return raw
+}
+
+func txGasLimit(tx types.Tx, fallback uint64) uint64 {
+	if !ethcompat.IsEthereumTx(tx) {
+		return fallback
+	}
+	if gas, found := vexoapp.TxUintTag(tx, "gas"); found && gas > 0 {
+		return gas
+	}
+	if gas, found := vexoapp.TxUintTag(tx, "gas_limit"); found && gas > 0 {
+		return gas
+	}
+	return fallback
 }
 
 func txBaseFee(tx types.Tx) uint64 {

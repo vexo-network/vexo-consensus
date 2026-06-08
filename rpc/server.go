@@ -1797,6 +1797,7 @@ type web3CallRequest struct {
 	BaseFee              uint64                     `json:"base_fee,omitempty"`
 	BlobBaseFee          uint64                     `json:"blob_base_fee,omitempty"`
 	BlobHashes           []string                   `json:"blob_hashes,omitempty"`
+	Nonce                uint64                     `json:"nonce,omitempty"`
 	AccessList           []contract.AccessListEntry `json:"access_list,omitempty"`
 }
 
@@ -3841,7 +3842,7 @@ func web3DebugTraceCall(ctx context.Context, provider StatusProvider, params []j
 	}
 	return map[string]any{
 		"gas":         callResponse.GasUsed,
-		"failed":      false,
+		"failed":      callResponse.Failed,
 		"returnValue": strings.TrimPrefix(callResponse.Output, "0x"),
 		"structLogs":  web3StructLogs(callResponse.VMTrace),
 	}, nil
@@ -4695,6 +4696,7 @@ func evmCallParam(params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
 	gasPrice := uint64(0)
 	maxFeePerGas := uint64(0)
 	maxPriorityFeePerGas := uint64(0)
+	nonce := uint64(0)
 	switch {
 	case payload.GasPrice != "":
 		value, err := parseHexQuantity(payload.GasPrice)
@@ -4716,6 +4718,13 @@ func evmCallParam(params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
 			maxPriorityFeePerGas = priority
 		}
 	}
+	if payload.Nonce != "" {
+		value, err := parseHexQuantity(payload.Nonce)
+		if err != nil {
+			return web3CallRequest{}, &JSONRPCError{Code: -32602, Message: "invalid nonce quantity"}
+		}
+		nonce = value
+	}
 	if payload.Data == "" {
 		payload.Data = "0x"
 	}
@@ -4734,6 +4743,7 @@ func evmCallParam(params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
 		GasPrice:             gasPrice,
 		MaxFeePerGas:         maxFeePerGas,
 		MaxPriorityFeePerGas: maxPriorityFeePerGas,
+		Nonce:                nonce,
 		AccessList:           web3ContractAccessList(payload.AccessList),
 	}, nil
 }

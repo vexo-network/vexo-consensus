@@ -113,6 +113,13 @@ func TestAnteKeeperTracksEthereumNonceFromZero(t *testing.T) {
 	if err := keeper.AfterTx(ctx, first); err != nil {
 		t.Fatal(err)
 	}
+	balance, err := bankBalance(context.Background(), storage, signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != 10 {
+		t.Fatalf("Ethereum raw tx fee must be handled by the EVM state transition, got balance %d", balance)
+	}
 	if err := keeper.CheckTx(ctx, first); !errors.Is(err, ErrInvalidNonce) {
 		t.Fatalf("expected replay nonce rejection, got %v", err)
 	}

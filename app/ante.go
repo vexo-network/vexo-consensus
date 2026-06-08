@@ -137,8 +137,10 @@ func (keeper AnteKeeper) AfterTx(ctx Context, tx types.Tx) error {
 	if ctx.Store == nil {
 		return nil
 	}
-	if err := keeper.collectFee(ctx.GoContext(), ctx.Store, meta); err != nil {
-		return err
+	if !isEthereumRawTx(tx) {
+		if err := keeper.collectFee(ctx.GoContext(), ctx.Store, meta); err != nil {
+			return err
+		}
 	}
 	if meta.Signer == "" || !meta.HasNonce {
 		return nil

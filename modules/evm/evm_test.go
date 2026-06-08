@@ -960,6 +960,8 @@ func TestDefaultModuleExecutesEthereumRawContractCreation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	setTestEVMBalance(t, storage, decoded.From, 1_000_000)
+	setTestEVMNonce(t, storage, decoded.From, decoded.Nonce)
 	result := module.DeliverTx(ctx, decoded.Tx)
 	if result.Code != 0 {
 		t.Fatalf("ethereum deploy failed: %+v", result)
@@ -973,7 +975,7 @@ func TestDefaultModuleExecutesEthereumRawContractCreation(t *testing.T) {
 	}
 	codeQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"code", receipt.ContractAddress}})
 	if codeQuery.Code != 0 || !strings.Contains(string(codeQuery.Value), `"code":"602a60005260206000f3"`) {
-		t.Fatalf("expected Ethereum-created runtime code, got %+v", codeQuery)
+		t.Fatalf("expected Ethereum-created runtime code, got query=%+v receipt=%+v", codeQuery, receipt)
 	}
 }
 

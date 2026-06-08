@@ -3,11 +3,14 @@ package geth
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"math/big"
 	"sort"
+	"strings"
 
 	gethcommon "github.com/ethereum/go-ethereum/common"
+	gethcore "github.com/ethereum/go-ethereum/core"
 	gethstate "github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/stateless"
 	gethtracing "github.com/ethereum/go-ethereum/core/tracing"
@@ -57,6 +60,9 @@ func (vm GethVM) Execute(ctx context.Context, invocation contract.Invocation) (c
 	})
 	chainConfig := vm.activeChainConfig()
 	evm := gethvm.NewEVM(gethBlockContext(invocation, stateDB), stateDB, chainConfig, gethvm.Config{Tracer: traceLogger.Hooks()})
+	if invocation.EthereumTx && !invocation.ReadOnly && len(invocation.Salt) == 0 {
+		return vm.executeStateTransition(invocation, stateDB, evm, traceLogger, caller, contractAddress)
+	}
 	evm.SetTxContext(gethvm.TxContext{
 		Origin:     caller,
 		GasPrice:   new(uint256.Int).SetUint64(invocation.GasPrice),
@@ -95,6 +101,9 @@ func (vm GethVM) Execute(ctx context.Context, invocation contract.Invocation) (c
 		output, left, err = evm.Call(caller, contractAddress, invocation.Input, initialGas, value)
 	}
 	if err != nil {
+		if stateDB.err != nil {
+			err = stateDB.err
+		}
 		traceLogger.OnTxEnd(&gethtypes.Receipt{GasUsed: left.Used(initialGas)}, err)
 		vmTrace, traceErr := gethVMTrace(traceLogger)
 		if traceErr != nil {
@@ -112,6 +121,9 @@ func (vm GethVM) Execute(ctx context.Context, invocation contract.Invocation) (c
 		for _, log := range stateDB.LogsForBurnAccounts() {
 			stateDB.AddLog(log)
 		}
+	}
+	if stateDB.err != nil {
+		return contract.Result{}, stateDB.err
 	}
 	traceLogger.OnTxEnd(&gethtypes.Receipt{GasUsed: left.Used(initialGas)}, nil)
 	vmTrace, err := gethVMTrace(traceLogger)
@@ -140,6 +152,123 @@ func (vm GethVM) Execute(ctx context.Context, invocation contract.Invocation) (c
 		result.DeployedCode = nil
 	}
 	return result, nil
+}
+
+func (vm GethVM) executeStateTransition(invocation contract.Invocation, stateDB *gethStateDB, evm *gethvm.EVM, traceLogger *gethlogger.StructLogger, caller gethcommon.Address, contractAddress gethcommon.Address) (contract.Result, error) {
+	value, err := invocationValue(invocation)
+	if err != nil {
+		return contract.Result{}, err
+	}
+	gasLimit := invocation.GasLimit
+	if gasLimit == 0 {
+		gasLimit = 10_000_000
+	}
+	msg, err := ethereumMessage(invocation, caller, contractAddress, value, gasLimit)
+	if err != nil {
+		return contract.Result{}, err
+	}
+	blockGasLimit := invocation.BlockGasLimit
+	if blockGasLimit == 0 || blockGasLimit < gasLimit {
+		blockGasLimit = gasLimit
+	}
+	traceLogger.OnTxStart(evm.GetVMContext(), nil, caller)
+	execution, err := gethcore.ApplyMessage(evm, msg, gethcore.NewGasPool(blockGasLimit))
+	if err != nil {
+		if stateDB.err != nil {
+			err = stateDB.err
+		}
+		traceLogger.OnTxEnd(&gethtypes.Receipt{GasUsed: 0}, err)
+		vmTrace, traceErr := gethVMTrace(traceLogger)
+		if traceErr != nil {
+			return contract.Result{}, traceErr
+		}
+		return contract.Result{Failed: true, Error: err.Error(), VMTrace: vmTrace}, nil
+	}
+	if stateDB.err != nil {
+		return contract.Result{}, stateDB.err
+	}
+	traceLogger.OnTxEnd(&gethtypes.Receipt{GasUsed: execution.UsedGas}, execution.Err)
+	vmTrace, err := gethVMTrace(traceLogger)
+	if err != nil {
+		return contract.Result{}, err
+	}
+	stateDB.Finalise(true)
+	balanceWrites, err := stateDB.BalanceWrites()
+	if err != nil {
+		return contract.Result{}, err
+	}
+	result := contract.Result{
+		Output:           append([]byte(nil), execution.ReturnData...),
+		GasUsed:          execution.UsedGas,
+		Failed:           execution.Failed(),
+		CodeWrites:       stateDB.CodeWrites(),
+		StorageWrites:    stateDB.StorageWrites(),
+		BalanceWrites:    balanceWrites,
+		NonceWrites:      stateDB.NonceWrites(),
+		AccountDeletions: stateDB.AccountDeletions(),
+		AccessList:       stateDB.ContractAccessList(),
+		Logs:             stateDB.ContractLogs(),
+		VMTrace:          vmTrace,
+	}
+	if execution.Err != nil {
+		result.Error = execution.Err.Error()
+	}
+	if invocation.Method == "deploy" && !result.Failed {
+		result.DeployedCode = append([]byte(nil), stateDB.GetCode(contractAddress)...)
+	}
+	return result, nil
+}
+
+func ethereumMessage(invocation contract.Invocation, caller gethcommon.Address, contractAddress gethcommon.Address, value *uint256.Int, gasLimit uint64) (*gethcore.Message, error) {
+	if invocation.RawEthereumTx != "" {
+		raw, err := hex.DecodeString(strings.TrimPrefix(invocation.RawEthereumTx, "0x"))
+		if err != nil || len(raw) == 0 {
+			return nil, contract.ErrInvalidInvocation
+		}
+		var tx gethtypes.Transaction
+		if err := tx.UnmarshalBinary(raw); err != nil {
+			return nil, err
+		}
+		signer := gethtypes.LatestSignerForChainID(tx.ChainId())
+		if tx.Type() == gethtypes.LegacyTxType && !tx.Protected() {
+			signer = gethtypes.HomesteadSigner{}
+		}
+		msg, err := gethcore.TransactionToMessage(&tx, signer, new(big.Int).SetUint64(invocation.BaseFee))
+		if err != nil {
+			return nil, err
+		}
+		msg.SkipNonceChecks = false
+		msg.SkipTransactionChecks = false
+		return msg, nil
+	}
+	var to *gethcommon.Address
+	if invocation.Method != "deploy" {
+		to = &contractAddress
+	}
+	gasFeeCap := invocation.GasFeeCap
+	if gasFeeCap == 0 {
+		gasFeeCap = invocation.GasPrice
+	}
+	gasTipCap := invocation.GasTipCap
+	if gasTipCap == 0 {
+		gasTipCap = invocation.GasPrice
+	}
+	return &gethcore.Message{
+		From:                  caller,
+		To:                    to,
+		Nonce:                 invocation.Nonce,
+		Value:                 value,
+		GasLimit:              gasLimit,
+		GasPrice:              new(uint256.Int).SetUint64(invocation.GasPrice),
+		GasFeeCap:             new(uint256.Int).SetUint64(gasFeeCap),
+		GasTipCap:             new(uint256.Int).SetUint64(gasTipCap),
+		Data:                  append([]byte(nil), invocation.Input...),
+		AccessList:            gethAccessList(invocation.AccessList),
+		BlobGasFeeCap:         new(uint256.Int).SetUint64(invocation.BlobGasFeeCap),
+		BlobHashes:            gethBlobHashes(invocation.BlobHashes),
+		SkipNonceChecks:       false,
+		SkipTransactionChecks: false,
+	}, nil
 }
 
 func gethBlobHashes(hashes []types.Hash) []gethcommon.Hash {
@@ -232,6 +361,7 @@ type gethStateDB struct {
 	snapshots    []gethSnapshot
 	accessList   map[gethcommon.Address]map[gethcommon.Hash]struct{}
 	accessEvents *gethstate.AccessEvents
+	err          error
 }
 
 type gethAccount struct {
@@ -691,25 +821,35 @@ func (db *gethStateDB) account(address gethcommon.Address) *gethAccount {
 		transient: make(map[gethcommon.Hash]gethcommon.Hash),
 	}
 	if db.reader != nil {
-		if code, err := db.reader.Code(db.ctx, types.Address(address.Hex())); err == nil && len(code) > 0 {
+		if code, err := db.reader.Code(db.ctx, types.Address(address.Hex())); err != nil {
+			db.setError(err)
+		} else if len(code) > 0 {
 			account.code = append([]byte(nil), code...)
 			account.committedCode = append([]byte(nil), code...)
 		}
 		if balanceReader, ok := db.reader.(contract.BalanceBigReader); ok {
-			if balance, err := balanceReader.BalanceBig(db.ctx, types.Address(address.Hex())); err == nil && balance != nil && balance.Sign() >= 0 {
+			if balance, err := balanceReader.BalanceBig(db.ctx, types.Address(address.Hex())); err != nil {
+				db.setError(err)
+			} else if balance != nil && balance.Sign() >= 0 {
 				if value, overflow := uint256.FromBig(balance); !overflow {
 					account.balance = *value
 					account.committedBal = *value
+				} else {
+					db.setError(contract.ErrInvalidInvocation)
 				}
 			}
 		} else if balanceReader, ok := db.reader.(contract.BalanceReader); ok {
-			if balance, err := balanceReader.Balance(db.ctx, types.Address(address.Hex())); err == nil {
+			if balance, err := balanceReader.Balance(db.ctx, types.Address(address.Hex())); err != nil {
+				db.setError(err)
+			} else {
 				account.balance.SetUint64(balance)
 				account.committedBal.SetUint64(balance)
 			}
 		}
 		if nonceReader, ok := db.reader.(contract.NonceReader); ok {
-			if nonce, err := nonceReader.Nonce(db.ctx, types.Address(address.Hex())); err == nil {
+			if nonce, err := nonceReader.Nonce(db.ctx, types.Address(address.Hex())); err != nil {
+				db.setError(err)
+			} else {
 				account.nonce = nonce
 				account.committedNonce = nonce
 			}
@@ -721,6 +861,12 @@ func (db *gethStateDB) account(address gethcommon.Address) *gethAccount {
 
 func (account *gethAccount) empty() bool {
 	return account.nonce == 0 && account.balance.IsZero() && len(account.code) == 0
+}
+
+func (db *gethStateDB) setError(err error) {
+	if err != nil && db.err == nil {
+		db.err = err
+	}
 }
 
 func (db *gethStateDB) sortedAddresses() []gethcommon.Address {
@@ -754,7 +900,11 @@ func (db *gethStateDB) loadStorage(address gethcommon.Address, slot gethcommon.H
 		return gethcommon.Hash{}
 	}
 	value, err := db.reader.Storage(db.ctx, types.Address(address.Hex()), slot.Hex())
-	if err != nil || len(value) == 0 {
+	if err != nil {
+		db.setError(err)
+		return gethcommon.Hash{}
+	}
+	if len(value) == 0 {
 		return gethcommon.Hash{}
 	}
 	return gethcommon.BytesToHash(value)

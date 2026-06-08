@@ -20,13 +20,20 @@ type testStateReader struct {
 	balances map[types.Address]uint64
 	big      map[types.Address]*big.Int
 	nonces   map[types.Address]uint64
+	err      error
 }
 
 func (reader testStateReader) Code(ctx context.Context, address types.Address) ([]byte, error) {
+	if reader.err != nil {
+		return nil, reader.err
+	}
 	return append([]byte(nil), reader.code[address]...), nil
 }
 
 func (reader testStateReader) Storage(ctx context.Context, address types.Address, slot string) ([]byte, error) {
+	if reader.err != nil {
+		return nil, reader.err
+	}
 	return append([]byte(nil), reader.storage[string(address)+"/"+slot]...), nil
 }
 
@@ -35,6 +42,9 @@ func (reader testStateReader) Balance(ctx context.Context, address types.Address
 }
 
 func (reader testStateReader) BalanceBig(ctx context.Context, address types.Address) (*big.Int, error) {
+	if reader.err != nil {
+		return nil, reader.err
+	}
 	if value := reader.big[address]; value != nil {
 		return new(big.Int).Set(value), nil
 	}
@@ -42,6 +52,9 @@ func (reader testStateReader) BalanceBig(ctx context.Context, address types.Addr
 }
 
 func (reader testStateReader) Nonce(ctx context.Context, address types.Address) (uint64, error) {
+	if reader.err != nil {
+		return 0, reader.err
+	}
 	return reader.nonces[address], nil
 }
 
@@ -101,6 +114,65 @@ func TestGethBackendPassesBlobHashesToEVM(t *testing.T) {
 	}
 	if len(result.Output) != 32 || gethcommon.BytesToHash(result.Output) != gethcommon.Hash(blobHash) {
 		t.Fatalf("expected blobhash output %x, got %x", blobHash, result.Output)
+	}
+}
+
+func TestGethBackendEthereumTxUsesStateTransition(t *testing.T) {
+	vm := New()
+	caller := types.Address("0x000000000000000000000000000000000000aaaa")
+	coinbase := types.Address("0x000000000000000000000000000000000000c0fe")
+	result, err := vm.Execute(context.Background(), contract.Invocation{
+		Method:        "call",
+		Caller:        caller,
+		Contract:      "0x000000000000000000000000000000000000bbbb",
+		GasLimit:      21_000,
+		GasPrice:      2,
+		GasFeeCap:     2,
+		GasTipCap:     2,
+		Nonce:         7,
+		Coinbase:      coinbase,
+		EthereumTx:    true,
+		BlockGasLimit: 100_000,
+		State: testStateReader{
+			balances: map[types.Address]uint64{caller: 100_000},
+			nonces:   map[types.Address]uint64{caller: 7},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Failed || result.GasUsed != 21_000 {
+		t.Fatalf("expected successful Ethereum state transition, got %+v", result)
+	}
+	seenNonce := false
+	for _, write := range result.NonceWrites {
+		if write.Address == caller && write.Nonce == 8 {
+			seenNonce = true
+		}
+	}
+	if !seenNonce {
+		t.Fatalf("expected Ethereum nonce increment, got %+v", result.NonceWrites)
+	}
+	balances := map[types.Address]uint64{}
+	for _, write := range result.BalanceWrites {
+		balances[types.Address(strings.ToLower(string(write.Address)))] = write.Balance
+	}
+	if balances[types.Address(strings.ToLower(string(caller)))] != 58_000 || balances[types.Address(strings.ToLower(string(coinbase)))] != 42_000 {
+		t.Fatalf("expected gas fee transfer through state transition, got %+v", result.BalanceWrites)
+	}
+}
+
+func TestGethBackendFailsClosedOnStateReaderError(t *testing.T) {
+	expected := errors.New("reader failed")
+	_, err := New().Execute(context.Background(), contract.Invocation{
+		Method:   "call",
+		Caller:   "0x000000000000000000000000000000000000aaaa",
+		Contract: "0x000000000000000000000000000000000000bbbb",
+		GasLimit: 21_000,
+		State:    testStateReader{err: expected},
+	})
+	if !errors.Is(err, expected) {
+		t.Fatalf("expected reader error, got %v", err)
 	}
 }
 
