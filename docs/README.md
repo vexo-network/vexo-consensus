@@ -1,17 +1,27 @@
 # Documentation
 
-This directory is the working manual for `vexo-consensus`: protocol rules, SDK extension points, operator runbooks, release gates, and audit material live here.
+This directory is the practical manual for `vexo-consensus`.
 
-The English documents are the canonical source for protocol, security, release, SDK, command, config, and RPC behavior. Localized documents mirror this tree and provide reader-friendly guidance for non-English contributors, but release decisions should always be checked against the English source.
+It is written for people who need to understand, build, operate, review, or release a network without guessing from source code alone. A good page in this tree should answer four questions quickly:
+
+1. **What is this part of the system responsible for?**
+2. **Which files, commands, config keys, or APIs implement it?**
+3. **What must be true for it to be safe?**
+4. **What evidence proves it is ready for a real network?**
+
+English is the canonical source for protocol, security, release, SDK, command, config, and RPC behavior. Localized documents mirror this tree and help non-English readers, but release and audit decisions must always be checked against the English source.
 
 ## How to Read This Set
 
-Use the path that matches what you are trying to do:
+Use the path that matches what you are trying to do. If you are not sure, start with the first row.
 
-- **Understand the chain model:** read the overview, consensus spec, finality proof format, transaction format, and validator lifecycle.
-- **Build an application:** read the app module guide, transaction format, RPC versioning guide, and storage schema.
-- **Operate nodes:** read node initialization, adding a validator, networking spec, storage schema, and launch runbook.
-- **Prepare a release:** read audit readiness, release pipeline, version compatibility, and the Cosmos/Tendermint comparison gate.
+| Goal | Read First | Then Verify |
+|---|---|---|
+| Understand the protocol | Consensus overview, consensus spec, finality proof format | Safety assumptions, validator lifecycle, evidence rules |
+| Build an app chain | App module guide, tx format, storage schema | Module store writes, gas/fee policy, RPC compatibility |
+| Enable EVM features | EVM/native accounting, tx format, RPC versioning | Native balance accounting, gas/base fee behavior, Web3 compatibility evidence |
+| Run nodes | Node initialization, adding a validator, networking spec | Split config files, peer identity, key custody, status/metrics |
+| Prepare a release | Audit readiness, release pipeline, launch runbook | Required evidence files, release gate output, rollback plan |
 
 If you are new to the project, start in this order:
 
@@ -78,13 +88,24 @@ Locale files are not allowed to drift from the canonical tree. They keep command
 
 Documentation should:
 
-- state whether it is normative specification, implementation guide, or operator guidance
-- include the relevant commands or package paths
-- describe safety boundaries and failure modes
+- start with the reader goal and the decision the page supports
+- state whether it is a normative spec, implementation guide, operator guide, or release/audit checklist
+- include relevant commands, package paths, config keys, RPC methods, and JSON fields
+- explain safety boundaries, failure modes, and unsafe shortcuts
 - avoid production-readiness claims without evidence
-- keep examples copy-pasteable when possible
+- keep examples copy-pasteable when possible, but clearly mark values that must be changed
 - keep every Markdown file mirrored under `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
 - pass `make docs-check` so localized directory trees cannot drift from the canonical docs
+
+## Production Claim Rule
+
+Do not call a feature production-ready just because code exists. A production claim needs:
+
+- implementation code
+- unit/property/adversarial tests
+- operational or E2E evidence when the feature crosses process or machine boundaries
+- documentation of assumptions and failure modes
+- release-gate evidence for security-sensitive categories such as BLS, VRF, Web3/EVM compatibility, slashing, state sync, upgrades, and validator economics
 
 ## Documentation Review Checklist
 

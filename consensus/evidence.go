@@ -239,21 +239,20 @@ func NewConflictingTimeoutVoteEvidence(first TimeoutVote, second TimeoutVote) (s
 	}, nil
 }
 
-func NewInvalidProposalEvidence(proposal Proposal, reason string) (slashing.Evidence, error) {
+func NewDataAvailabilityInvalidProposalEvidence(proposal Proposal, reason InvalidProposalReason) (slashing.Evidence, error) {
 	if proposal.Proposer == "" || proposal.Block.Header.Height == 0 || reason == "" {
 		return slashing.Evidence{}, slashing.ErrMissingValidator
 	}
-	proposalReason := InvalidProposalReason(reason)
-	if !validInvalidProposalReason(proposalReason) {
+	if !validInvalidProposalReason(reason) {
 		return slashing.Evidence{}, ErrUnsupportedProposalReason
 	}
-	if proposalReason != InvalidProposalReasonDAMismatch && proposalReason != InvalidProposalReasonMissingData {
+	if reason != InvalidProposalReasonDAMismatch && reason != InvalidProposalReasonMissingData {
 		return slashing.Evidence{}, ErrUnsupportedProposalReason
 	}
-	if err := verifyInvalidProposalByReason(InvalidProposalProof{Proposal: proposal, Reason: proposalReason}); err != nil {
+	if err := verifyInvalidProposalByReason(InvalidProposalProof{Proposal: proposal, Reason: reason}); err != nil {
 		return slashing.Evidence{}, err
 	}
-	proof, err := json.Marshal(InvalidProposalProof{Proposal: proposal, Reason: proposalReason})
+	proof, err := json.Marshal(InvalidProposalProof{Proposal: proposal, Reason: reason})
 	if err != nil {
 		return slashing.Evidence{}, err
 	}
@@ -264,6 +263,16 @@ func NewInvalidProposalEvidence(proposal Proposal, reason string) (slashing.Evid
 		Round:     proposal.Round,
 		Proof:     proof,
 	}, nil
+}
+
+// NewInvalidProposalEvidence builds legacy data-availability invalid proposal evidence.
+//
+// Deprecated: use NewDataAvailabilityInvalidProposalEvidence for data-availability
+// reasons, or a reason-specific constructor such as NewInvalidProposalHashEvidence,
+// NewInvalidProposalTimestampEvidence, NewInvalidProposalTxValidityEvidence, or
+// NewInvalidProposalEvidenceWithContext for context-bound proposal validation.
+func NewInvalidProposalEvidence(proposal Proposal, reason string) (slashing.Evidence, error) {
+	return NewDataAvailabilityInvalidProposalEvidence(proposal, InvalidProposalReason(reason))
 }
 
 func NewInvalidProposalHashEvidence(proposal Proposal, reason string, expected types.Hash, actual types.Hash) (slashing.Evidence, error) {
@@ -363,7 +372,7 @@ func NewInvalidProposalEvidenceWithContext(proposal Proposal, context InvalidPro
 	case InvalidProposalReasonTimestamp:
 		return NewInvalidProposalTimestampEvidence(proposal, context.ExpectedTimeUnixNano, proposal.Block.Header.TimeUnixNano)
 	case InvalidProposalReasonDAMismatch, InvalidProposalReasonMissingData:
-		return NewInvalidProposalEvidence(proposal, string(reason))
+		return NewDataAvailabilityInvalidProposalEvidence(proposal, reason)
 	default:
 		return slashing.Evidence{}, ErrUnsupportedProposalReason
 	}

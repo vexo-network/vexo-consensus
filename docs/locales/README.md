@@ -42,6 +42,16 @@ Each localized page should make three things obvious:
 
 Do not make localized pages vague shells. If a locale page only lists identifiers and does not explain how the document is used, improve it before release.
 
+For reader quality, every locale page should also include:
+
+- the operational or implementation decision the page supports
+- the most important safety boundary in plain language
+- the commands, config keys, RPC methods, package paths, and JSON fields that must stay untranslated
+- a short warning when code exists but external release evidence is still required
+- enough context for a new contributor to know which English page to open next
+
+Localized pages may be shorter than the English canonical page, but they should never be empty wrappers. A reader should leave the page knowing what matters, what can be copied, what must be changed, and what must be verified.
+
 ## Adding a New Locale
 
 1. Add the locale code to `docs/locales/manifest.json`.

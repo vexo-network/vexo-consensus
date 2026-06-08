@@ -9,6 +9,7 @@ import (
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	vexogov "github.com/vexo-network/vexo-consensus/governance"
+	"github.com/vexo-network/vexo-consensus/modules/staking"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -21,8 +22,9 @@ const (
 )
 
 var (
-	ErrInvalidGovernanceTx = errors.New("invalid governance transaction")
-	ErrGovernanceRequired  = errors.New("missing governance keeper")
+	ErrInvalidGovernanceTx     = errors.New("invalid governance transaction")
+	ErrGovernanceRequired      = errors.New("missing governance keeper")
+	ErrNoGovernanceVotingPower = errors.New("governance voting power is not available from staking state")
 )
 
 type Module struct {
@@ -103,11 +105,11 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
 		return types.Result{Data: []byte(strconv.FormatUint(id, 10))}
-	case len(parts) == 6 && parts[1] == "vote":
+	case (len(parts) == 5 || len(parts) == 6) && parts[1] == "vote":
 		if err := ctx.ConsumeGas(voteGasCost); err != nil {
 			return types.Result{Code: 5, Log: err.Error()}
 		}
-		if err := module.vote(goCtx, parts); err != nil {
+		if err := module.vote(ctx, parts); err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
 		return types.Result{}
@@ -137,7 +139,7 @@ func (module *Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, err
 	switch {
 	case len(parts) == 7 && parts[1] == "submit":
 		return submitGasCost, nil
-	case len(parts) == 6 && parts[1] == "vote":
+	case (len(parts) == 5 || len(parts) == 6) && parts[1] == "vote":
 		return voteGasCost, nil
 	case len(parts) == 3 && parts[1] == "execute":
 		return executeGasCost, nil
@@ -198,19 +200,37 @@ func (module *Module) submit(ctx context.Context, parts []string) (uint64, error
 	})
 }
 
-func (module *Module) vote(ctx context.Context, parts []string) error {
+func (module *Module) vote(ctx vexoapp.Context, parts []string) error {
 	proposalID, err := parseProposalID(parts[2])
 	if err != nil {
 		return err
 	}
-	power, err := parseVotingPower(parts[5])
-	if err != nil {
+	voter := types.Address(parts[3])
+	var power types.VotingPower
+	if ctx.Store != nil {
+		if len(parts) != 5 {
+			return ErrInvalidGovernanceTx
+		}
+		power, err = staking.DelegatedPower(ctx.GoContext(), ctx.Store, voter)
+		if err != nil {
+			return err
+		}
+		if power == 0 {
+			return ErrNoGovernanceVotingPower
+		}
+	} else {
+		if len(parts) != 6 {
+			return ErrInvalidGovernanceTx
+		}
+		power, err = parseVotingPower(parts[5])
+		if err != nil {
+			return err
+		}
+	}
+	if err := module.setVotingPower(ctx.GoContext(), voter, power); err != nil {
 		return err
 	}
-	if err := module.setVotingPower(ctx, types.Address(parts[3]), power); err != nil {
-		return err
-	}
-	return module.keeper.Vote(ctx, proposalID, types.Address(parts[3]), vexogov.VoteOption(parts[4]))
+	return module.keeper.Vote(ctx.GoContext(), proposalID, voter, vexogov.VoteOption(parts[4]))
 }
 
 func (module *Module) setTime(ctx context.Context, now uint64) error {

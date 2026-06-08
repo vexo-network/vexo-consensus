@@ -45,6 +45,7 @@ var (
 	ErrUnauthorizedStaking  = errors.New("unauthorized staking transaction")
 	ErrInvalidSlashReceipt  = errors.New("invalid staking slash receipt")
 	ErrValidatorTombstoned  = errors.New("validator is tombstoned")
+	ErrStakingSnapshot      = errors.New("staking snapshot export is required")
 )
 
 type Module struct {
@@ -482,6 +483,36 @@ func Stake(ctx context.Context, store vexoapp.StateStore, delegator types.Addres
 
 func ValidatorPower(ctx context.Context, store vexoapp.StateStore, validatorID types.ValidatorID) (uint64, error) {
 	return getUint64(ctx, store, validatorPowerKey(validatorID))
+}
+
+func DelegatedPower(ctx context.Context, store vexoapp.StateStore, delegator types.Address) (types.VotingPower, error) {
+	if store == nil || delegator == "" {
+		return 0, ErrInvalidStakingTx
+	}
+	prefixStore, ok := store.(vexostore.PrefixKVStore)
+	if !ok {
+		return 0, ErrStakingSnapshot
+	}
+	pairs, err := prefixStore.ExportPrefix(ctx, ModuleName, []byte("stake/"+string(delegator)+"/"))
+	if err != nil {
+		return 0, err
+	}
+	total := uint64(0)
+	for _, pair := range pairs {
+		parsedDelegator, _, ok := parseStakeKey(string(pair.Key))
+		if !ok || parsedDelegator != delegator {
+			continue
+		}
+		stake, err := decodeUint64(pair.Value)
+		if err != nil {
+			return 0, err
+		}
+		if total > ^uint64(0)-stake {
+			return 0, ErrStakeOverflow
+		}
+		total += stake
+	}
+	return types.VotingPower(total), nil
 }
 
 func UnbondingReleaseHeight(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) (types.Height, error) {

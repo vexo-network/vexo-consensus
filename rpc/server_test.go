@@ -1790,7 +1790,14 @@ func TestHandlerWeb3ManagedAccountSigning(t *testing.T) {
 		state:            store.StateRecord{Height: 3, BaseFee: 9, NextBaseFee: 11},
 		appQueryResponse: vexoapp.QueryResponse{Value: []byte(`{"address":"` + address + `","balance":1000000000000,"nonce":7,"code":""}`)},
 	}
-	handler := NewHandlerWithConfig(provider, Config{EVMAccountPrivateKeys: []string{privateKeyHex}})
+	disabledHandler := NewHandlerWithConfig(provider, Config{EVMAccountPrivateKeys: []string{privateKeyHex}})
+	var disabledAccounts JSONRPCResponse
+	postJSON(t, disabledHandler, "/web3", `{"jsonrpc":"2.0","id":0,"method":"eth_accounts","params":[]}`, http.StatusOK, &disabledAccounts)
+	if disabledAccounts.Error != nil || len(disabledAccounts.Result.([]any)) != 0 {
+		t.Fatalf("expected managed accounts to be disabled by default, got %+v", disabledAccounts)
+	}
+
+	handler := NewHandlerWithConfig(provider, Config{EnableEVMManagedAccounts: true, EVMAccountPrivateKeys: []string{privateKeyHex}})
 
 	var accounts JSONRPCResponse
 	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":1,"method":"eth_accounts","params":[]}`, http.StatusOK, &accounts)

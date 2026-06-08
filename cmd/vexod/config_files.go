@@ -148,6 +148,7 @@ type runtimeRPCConfig struct {
 	MaxRequestBytes       int64               `json:"max_request_bytes,omitempty"`
 	RateLimitWindow       string              `json:"rate_limit_window,omitempty"`
 	RateLimitMaxRequests  int                 `json:"rate_limit_max_requests,omitempty"`
+	EVMManagedAccounts    bool                `json:"evm_managed_accounts,omitempty"`
 	EVMAccountPrivateKeys []string            `json:"evm_account_private_keys,omitempty"`
 }
 
@@ -1329,6 +1330,7 @@ func runtimeRPCConfigSet(rpc runtimeRPCConfig) bool {
 		rpc.MaxRequestBytes != 0 ||
 		rpc.RateLimitWindow != "" ||
 		rpc.RateLimitMaxRequests != 0 ||
+		rpc.EVMManagedAccounts ||
 		len(rpc.EVMAccountPrivateKeys) > 0
 }
 

@@ -9,6 +9,13 @@
 
 명령어, JSON 필드, RPC 이름, config key, package path, 코드 식별자는 호환성을 위해 영어 원문 그대로 유지합니다. 설명과 읽는 순서, 운영상 주의점은 한국어로 풀어 적습니다.
 
+좋은 문서는 단순히 “기능이 있다”라고 말하지 않습니다. 각 문서는 다음 질문에 답해야 합니다.
+
+1. 이 기능이 시스템에서 맡는 책임은 무엇인가?
+2. 어떤 파일, 명령어, config key, RPC, JSON 필드가 이 기능을 구현하는가?
+3. 안전하게 쓰려면 어떤 조건이 반드시 맞아야 하는가?
+4. 실제 네트워크에 올리기 전에 어떤 테스트와 운영 증거가 필요한가?
+
 ## 처음 읽는 순서
 
 1. [Consensus Protocol Overview](./consensus-protocol.md)
@@ -74,6 +81,16 @@
 - 예제 명령어는 그대로 복사하기 전에 자신의 `chain_id`, `validator_id`, fee/gas, peer 주소, key path에 맞는지 확인합니다.
 - 문서를 수정했다면 `make docs-check`를 실행합니다.
 - 영어 원문과 한국어 문서가 충돌하면 영어 원문을 기준으로 하고, 같은 변경에서 한국어 문서도 갱신합니다.
+
+## production-ready라고 말하기 위한 기준
+
+코드가 존재한다고 바로 production-ready는 아닙니다. 다음 증거가 같이 있어야 합니다.
+
+- 실제 구현 코드
+- unit/property/adversarial test
+- 여러 프로세스나 머신을 넘는 기능이라면 E2E 또는 운영 증거
+- 안전 가정과 실패 모드 문서화
+- BLS, VRF, Web3/EVM compatibility, slashing, state sync, upgrade, validator economics 같은 보안 민감 기능에 대한 release-gate evidence
 
 ## 규범 원문
 

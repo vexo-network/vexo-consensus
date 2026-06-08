@@ -18,7 +18,7 @@ func governanceCLICommand() vexoapp.CLICommand {
 		Description: "governance proposal, voting, execution, and query commands",
 		Examples: []string{
 			"governance tx submit alice max-gas execution max_gas 20000000",
-			"governance tx vote 1 alice yes 10",
+			"governance tx vote 1 alice yes",
 			"governance query tally 1",
 		},
 		Children: []vexoapp.CLICommand{
@@ -42,13 +42,12 @@ func governanceCLICommand() vexoapp.CLICommand {
 					},
 					{
 						Name:        "vote",
-						Usage:       "governance tx vote <proposal_id> <voter> <option> <power>",
-						Description: "build a governance vote transaction",
+						Usage:       "governance tx vote <proposal_id> <voter> <option>",
+						Description: "build a governance vote transaction; voting power is derived from staking state",
 						Args: []vexoapp.CLIArg{
 							{Name: "proposal_id", Description: "positive proposal id"},
 							{Name: "voter", Description: "voter address"},
 							{Name: "option", Description: "yes, no, abstain, or veto"},
-							{Name: "power", Description: "positive voting power"},
 						},
 						Run: runVoteCLI,
 					},
@@ -124,19 +123,16 @@ func runVoteCLI(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(args) != 4 {
-		return vexoapp.ErrCLIUsage("governance tx vote <proposal_id> <voter> <option> <power>")
+	if len(args) != 3 {
+		return vexoapp.ErrCLIUsage("governance tx vote <proposal_id> <voter> <option>")
 	}
 	if _, err := parseProposalID(args[0]); err != nil {
-		return err
-	}
-	if _, err := parseVotingPower(args[3]); err != nil {
 		return err
 	}
 	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
 		Module: ModuleName,
 		Action: "vote",
-		Args:   []string{args[0], args[1], args[2], args[3]},
+		Args:   []string{args[0], args[1], args[2]},
 		Tags:   tags,
 	})
 	if err != nil {

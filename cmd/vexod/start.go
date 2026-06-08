@@ -64,6 +64,7 @@ type startRuntimeConfig struct {
 	RPCMaxRequestBytes      int64
 	RPCRateLimitWindow      time.Duration
 	RPCRateLimitMaxRequests int
+	RPCEVMManagedAccounts   bool
 	RPCEVMAccountKeys       []string
 	LogFormat               string
 	LogLevel                string
@@ -305,6 +306,7 @@ func applyStartFlagOverrides(cfg *startRuntimeConfig, visited map[string]bool, v
 	}
 	if visited["evm-account-key"] {
 		cfg.RPCEVMAccountKeys = append([]string(nil), values.rpcEVMAccountKeys...)
+		cfg.RPCEVMManagedAccounts = len(values.rpcEVMAccountKeys) > 0
 	}
 	if visited["log-format"] {
 		cfg.LogFormat = values.logFormat
@@ -428,6 +430,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			AllowUnprotectedLegacyTx: inputs.Config.Chain.Execution.AllowUnprotectedLegacyTx,
 			EVMChainConfigJSON:       inputs.Config.Chain.Execution.EVMChainConfigJSON,
 			StrictEVMStateRoot:       inputs.Config.Chain.Execution.StrictEVMStateRoot,
+			EnableEVMManagedAccounts: runtimeConfig.RPCEVMManagedAccounts,
 			EVMAccountPrivateKeys:    runtimeConfig.RPCEVMAccountKeys,
 		}, serverErr)
 		if err != nil {
@@ -631,28 +634,29 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 		runtime = defaultRuntimeConfig(document.ValidatorID)
 	}
 	cfg := startRuntimeConfig{
-		RPCEnabled:           runtime.RPC.Enabled,
-		RPCAddress:           runtime.RPC.Address,
-		RPCAdminToken:        runtime.RPC.AdminToken,
-		RPCAdminTokens:       cloneStringSliceMap(runtime.RPC.AdminTokens),
-		RPCEnablePprof:       runtime.RPC.EnablePprof,
-		RPCMaxRequestBytes:   runtime.RPC.MaxRequestBytes,
-		RPCEVMAccountKeys:    append([]string(nil), runtime.RPC.EVMAccountPrivateKeys...),
-		P2PEnabled:           runtime.P2P.Enabled,
-		P2PListenAddress:     runtime.P2P.ListenAddress,
-		P2PNetworkID:         runtime.P2P.NetworkID,
-		P2PMaxMessageBytes:   runtime.P2P.MaxMessageBytes,
-		P2PMaxPeers:          runtime.P2P.MaxPeers,
-		P2PAuthToken:         runtime.P2P.AuthToken,
-		P2PTLSCertPath:       resolveOptionalPath(home, runtime.P2P.TLSCertPath),
-		P2PTLSKeyPath:        resolveOptionalPath(home, runtime.P2P.TLSKeyPath),
-		P2PTLSCAPath:         resolveOptionalPath(home, runtime.P2P.TLSCAPath),
-		P2PTLSServerName:     runtime.P2P.TLSServerName,
-		AddrBookPath:         resolveAddrBookPath(home, runtime.P2P.AddrBookPath),
-		AddrBookMaxFailures:  runtime.P2P.AddrBookMaxFails,
-		P2PPeers:             stringPeerMap(runtime.P2P.Peers),
-		P2PSeeds:             stringPeerMap(runtime.P2P.Seeds),
-		ConsensusLoopEnabled: runtime.Consensus.LoopEnabled,
+		RPCEnabled:            runtime.RPC.Enabled,
+		RPCAddress:            runtime.RPC.Address,
+		RPCAdminToken:         runtime.RPC.AdminToken,
+		RPCAdminTokens:        cloneStringSliceMap(runtime.RPC.AdminTokens),
+		RPCEnablePprof:        runtime.RPC.EnablePprof,
+		RPCMaxRequestBytes:    runtime.RPC.MaxRequestBytes,
+		RPCEVMManagedAccounts: runtime.RPC.EVMManagedAccounts,
+		RPCEVMAccountKeys:     append([]string(nil), runtime.RPC.EVMAccountPrivateKeys...),
+		P2PEnabled:            runtime.P2P.Enabled,
+		P2PListenAddress:      runtime.P2P.ListenAddress,
+		P2PNetworkID:          runtime.P2P.NetworkID,
+		P2PMaxMessageBytes:    runtime.P2P.MaxMessageBytes,
+		P2PMaxPeers:           runtime.P2P.MaxPeers,
+		P2PAuthToken:          runtime.P2P.AuthToken,
+		P2PTLSCertPath:        resolveOptionalPath(home, runtime.P2P.TLSCertPath),
+		P2PTLSKeyPath:         resolveOptionalPath(home, runtime.P2P.TLSKeyPath),
+		P2PTLSCAPath:          resolveOptionalPath(home, runtime.P2P.TLSCAPath),
+		P2PTLSServerName:      runtime.P2P.TLSServerName,
+		AddrBookPath:          resolveAddrBookPath(home, runtime.P2P.AddrBookPath),
+		AddrBookMaxFailures:   runtime.P2P.AddrBookMaxFails,
+		P2PPeers:              stringPeerMap(runtime.P2P.Peers),
+		P2PSeeds:              stringPeerMap(runtime.P2P.Seeds),
+		ConsensusLoopEnabled:  runtime.Consensus.LoopEnabled,
 		ConsensusLoop: vexonode.ConsensusLoopConfig{
 			MaxBlockBytes:       runtime.Consensus.MaxBlockBytes,
 			CreateEmptyBlocks:   runtime.Consensus.CreateEmptyBlocks,
@@ -806,6 +810,7 @@ func runtimeConfigIsZero(runtime runtimeConfig) bool {
 		runtime.RPC.MaxRequestBytes == 0 &&
 		runtime.RPC.RateLimitWindow == "" &&
 		runtime.RPC.RateLimitMaxRequests == 0 &&
+		runtime.RPC.EVMManagedAccounts == false &&
 		len(runtime.RPC.EVMAccountPrivateKeys) == 0 &&
 		runtime.P2P.Enabled == false &&
 		runtime.P2P.ListenAddress == "" &&

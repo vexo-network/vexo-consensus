@@ -5,12 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/fairordering"
 	vexogov "github.com/vexo-network/vexo-consensus/governance"
+	"github.com/vexo-network/vexo-consensus/modules/bank"
+	"github.com/vexo-network/vexo-consensus/modules/staking"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -61,18 +64,19 @@ func TestGovernanceModulePersistsStateWithRuntimeStore(t *testing.T) {
 	}
 	defer storage.Close()
 
-	runtime, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{NewModule()}, vexoapp.PrefixRouter{})
+	runtime, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{bank.NewModule(), staking.NewModule(), NewModule()}, vexoapp.PrefixRouter{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	runtime.WithStore(storage)
-	if _, err := runtime.InitChain(vexoapp.InitChainRequest{}); err != nil {
+	if _, err := runtime.InitChain(vexoapp.InitChainRequest{Genesis: governanceTestGenesis("alice", 10)}); err != nil {
 		t.Fatal(err)
 	}
-	finalizeGovernanceBlock(t, runtime, 1, []types.Tx{[]byte("governance:submit:alice:title:execution:max_gas:20000000")})
-	finalizeGovernanceBlock(t, runtime, 2, []types.Tx{[]byte("governance:vote:1:alice:yes:1")})
+	finalizeGovernanceBlock(t, runtime, 1, []types.Tx{governanceTestDelegateTx("alice", "validator-1", 1)})
+	finalizeGovernanceBlock(t, runtime, 2, []types.Tx{[]byte("governance:submit:alice:title:execution:max_gas:20000000")})
+	finalizeGovernanceBlock(t, runtime, 3, []types.Tx{[]byte("governance:vote:1:alice:yes")})
 
-	recovered, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{NewModule()}, vexoapp.PrefixRouter{})
+	recovered, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{bank.NewModule(), staking.NewModule(), NewModule()}, vexoapp.PrefixRouter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,6 +130,7 @@ func TestGovernanceModuleRejectsInvalidTransactions(t *testing.T) {
 		[]byte("governance:vote:0:alice:yes:1"),
 		[]byte("governance:vote:1:alice:maybe:1"),
 		[]byte("governance:vote:1:alice:yes:0"),
+		[]byte("governance:vote:1:alice:yes"),
 		[]byte("governance:execute:0"),
 		[]byte("bank:mint:alice:1"),
 	} {
@@ -133,6 +138,35 @@ func TestGovernanceModuleRejectsInvalidTransactions(t *testing.T) {
 		if result.Code == 0 {
 			t.Fatalf("expected tx %q to fail", tx)
 		}
+	}
+}
+
+func TestGovernanceModuleDerivesVotingPowerFromStakingState(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	runtime, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{bank.NewModule(), staking.NewModule(), NewModule()}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.WithStore(storage)
+	if _, err := runtime.InitChain(vexoapp.InitChainRequest{Genesis: governanceTestGenesis("alice", 10)}); err != nil {
+		t.Fatal(err)
+	}
+	finalizeGovernanceBlock(t, runtime, 1, []types.Tx{governanceTestDelegateTx("alice", "validator-1", 3)})
+	finalizeGovernanceBlock(t, runtime, 2, []types.Tx{[]byte("governance:submit:alice:title:execution:max_gas:20000000")})
+	finalizeGovernanceBlock(t, runtime, 3, []types.Tx{[]byte("governance:vote:1:alice:yes")})
+	tally := runtime.Query(vexoapp.QueryRequest{Path: []string{"governance", "tally", "1"}})
+	if tally.Code != 0 || !strings.Contains(string(tally.Value), `"Yes":3`) {
+		t.Fatalf("expected staking-derived voting power, got %+v", tally)
+	}
+	legacyPower := NewModule()
+	result := legacyPower.DeliverTx(vexoapp.Context{Height: 1, Store: storage}, []byte("governance:vote:1:alice:yes:999"))
+	if result.Code == 0 {
+		t.Fatalf("expected store-backed vote with explicit power to fail")
 	}
 }
 
@@ -221,13 +255,13 @@ func TestGovernanceCLICommands(t *testing.T) {
 		},
 		{
 			name:     "vote transaction",
-			args:     []string{"tx", "vote", "1", "alice", "yes", "10"},
-			expected: "tx: governance:vote:1:alice:yes:10",
+			args:     []string{"tx", "vote", "1", "alice", "yes"},
+			expected: "tx: governance:vote:1:alice:yes",
 		},
 		{
 			name:     "vote transaction with execution tags",
-			args:     []string{"tx", "vote", "1", "alice", "yes", "10", "--fee", "1", "--gas", "1000"},
-			expected: "tx: governance:vote:1:alice:yes:10:fee=1:gas=1000",
+			args:     []string{"tx", "vote", "1", "alice", "yes", "--fee", "1", "--gas", "1000"},
+			expected: "tx: governance:vote:1:alice:yes:fee=1:gas=1000",
 		},
 		{
 			name:     "execute transaction",
@@ -261,6 +295,14 @@ func TestGovernanceCLICommands(t *testing.T) {
 			}
 		})
 	}
+}
+
+func governanceTestGenesis(address types.Address, balance uint64) vexoapp.GenesisState {
+	return vexoapp.GenesisState{"bank:" + string(address): []byte(strconv.FormatUint(balance, 10))}
+}
+
+func governanceTestDelegateTx(delegator types.Address, validatorID types.ValidatorID, amount uint64) types.Tx {
+	return []byte("staking:delegate:" + string(delegator) + ":" + string(validatorID) + ":" + strconv.FormatUint(amount, 10) + ":cHVibGljLWtleQ==")
 }
 
 func TestGovernanceQueryJSONIsValid(t *testing.T) {

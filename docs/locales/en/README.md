@@ -1,6 +1,26 @@
 # Documentation
 
-This directory contains protocol specs, SDK extension guides, security material, and release operations documents for `vexo-consensus`.
+> Locale: en · canonical source
+
+This is the canonical documentation set for `vexo-consensus`. It should be useful to five readers at once:
+
+- protocol researchers checking safety and finality rules
+- application developers building modules
+- EVM/Web3 integrators checking native-accounting behavior
+- node operators running validators, archive nodes, and release candidates
+- auditors reviewing assumptions, evidence, and failure modes
+
+Every page should make the implementation path and the safety boundary visible. If a feature needs external evidence, the document should say so instead of implying that code alone is enough.
+
+## How to Use These Docs
+
+| Goal | Read First | Then Verify |
+|---|---|---|
+| Understand the protocol | Consensus overview, consensus spec, finality proof format | Safety assumptions, validator lifecycle, evidence rules |
+| Build an app chain | App module guide, transaction format, storage schema | Module store writes, gas/fee policy, RPC compatibility |
+| Enable EVM features | EVM/native accounting, transaction format, RPC versioning | Native balance accounting, gas/base fee behavior, Web3 compatibility evidence |
+| Run nodes | Node initialization, adding a validator, networking spec | Split config files, peer identity, key custody, status/metrics |
+| Prepare a release | Audit readiness, release pipeline, launch runbook | Required evidence files, release gate output, rollback plan |
 
 If you are new to the project, read the documents in this order.
 
@@ -65,8 +85,19 @@ If you are new to the project, read the documents in this order.
 
 Documentation should:
 
-- state whether it is normative specification, implementation guide, or operator guidance
-- include the relevant commands or package paths
-- describe safety boundaries and failure modes
+- start with the reader goal and the decision the page supports
+- state whether it is a normative specification, implementation guide, operator guide, or release/audit checklist
+- include relevant commands, package paths, config keys, RPC methods, and JSON fields
+- explain safety boundaries, failure modes, and unsafe shortcuts
 - avoid production-readiness claims without evidence
-- keep examples copy-pasteable when possible
+- keep examples copy-pasteable when possible, but clearly mark values that must be changed
+
+## Production Claim Rule
+
+Do not call a feature production-ready just because code exists. A production claim needs:
+
+- implementation code
+- unit/property/adversarial tests
+- operational or E2E evidence when the feature crosses process or machine boundaries
+- documentation of assumptions and failure modes
+- release-gate evidence for security-sensitive categories such as BLS, VRF, Web3/EVM compatibility, slashing, state sync, upgrades, and validator economics

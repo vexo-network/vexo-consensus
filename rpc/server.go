@@ -62,6 +62,7 @@ type Config struct {
 	AllowUnprotectedLegacyTx bool
 	EVMChainConfigJSON       string
 	StrictEVMStateRoot       bool
+	EnableEVMManagedAccounts bool
 	EVMAccountPrivateKeys    []string
 }
 
@@ -1642,6 +1643,9 @@ func web3RPCModules() map[string]string {
 }
 
 func web3ConfiguredAccounts(cfg Config) []string {
+	if !cfg.EnableEVMManagedAccounts {
+		return []string{}
+	}
 	accounts := make([]string, 0, len(cfg.EVMAccountPrivateKeys))
 	seen := make(map[string]struct{}, len(cfg.EVMAccountPrivateKeys))
 	for _, rawKey := range cfg.EVMAccountPrivateKeys {
@@ -1661,6 +1665,9 @@ func web3ConfiguredAccounts(cfg Config) []string {
 }
 
 func web3AccountKey(cfg Config, address string) (*ecdsa.PrivateKey, *JSONRPCError) {
+	if !cfg.EnableEVMManagedAccounts {
+		return nil, &JSONRPCError{Code: -32000, Message: "managed accounts are disabled"}
+	}
 	parsed, err := parseHexAddress(address)
 	if err != nil {
 		return nil, &JSONRPCError{Code: -32602, Message: "invalid account address"}
