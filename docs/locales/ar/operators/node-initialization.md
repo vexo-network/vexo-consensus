@@ -4,6 +4,8 @@ This guide explains how to initialize validator and archive node homes.
 
 Peer connectivity should be configured in `network_config.json`, not passed repeatedly on the `start` command line.
 
+Runtime behavior that affects consensus, RPC, P2P, logging, or managed Web3 accounts is config-file only. `vexod start` rejects flags such as `--timeout-propose`, `--create-empty-blocks`, `--p2p-auth-token`, `--rpc-admin-token`, and `--evm-account-key`; edit the split config files instead so every operator reviews the same deterministic node behavior.
+
 There is no node-mode switch. A node home is defined by its config files, genesis, key material, and whether `validator_id` plus a signer are present.
 
 ## Validator Node

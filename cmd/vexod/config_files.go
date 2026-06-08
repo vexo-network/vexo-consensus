@@ -1154,7 +1154,7 @@ func loadNodeConfig(path string) (node.Config, error) {
 		Chain:                chain,
 		DataDir:              document.DataDir,
 		ValidatorID:          types.ValidatorID(document.ValidatorID),
-		RequireNetworkSafety: document.RequireNetworkSafety,
+		RequireNetworkSafety: true,
 	}
 	if err := cfg.Validate(); err != nil {
 		return node.Config{}, err

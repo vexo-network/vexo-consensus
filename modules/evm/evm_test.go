@@ -132,6 +132,14 @@ func (failingVM) Execute(ctx context.Context, invocation contract.Invocation) (c
 	return contract.Result{GasUsed: 9, Failed: true, Error: "execution reverted", Output: []byte{0x08}}, nil
 }
 
+type zeroGasVM struct{}
+
+func (zeroGasVM) Name() string { return "evm" }
+
+func (zeroGasVM) Execute(ctx context.Context, invocation contract.Invocation) (contract.Result, error) {
+	return contract.Result{}, nil
+}
+
 func TestModuleExecutesAndPersistsReceiptsCodeAndLogs(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
@@ -1142,6 +1150,19 @@ func TestModuleEstimateGasCurrentAccountAndSnapshotReaders(t *testing.T) {
 	}
 	if err := validateEthereumRawTx(ctx, types.Tx("evm:call:evm:a:b:c:d:1")); err != nil {
 		t.Fatalf("expected non-ethereum tx validation to no-op, got %v", err)
+	}
+}
+
+func TestModuleEstimateGasRejectsZeroGasVMResult(t *testing.T) {
+	registry := contract.NewRegistry()
+	if err := registry.Register(zeroGasVM{}); err != nil {
+		t.Fatal(err)
+	}
+	module := NewModuleWithRegistry(registry)
+	ctx := vexoapp.Context{Ctx: context.Background(), Height: 1}
+	tx := types.Tx("evm:call:evm:0x000000000000000000000000000000000000aaaa:0x000000000000000000000000000000000000beef:transfer:aabb:100000")
+	if _, err := module.EstimateGas(ctx, tx); !errors.Is(err, ErrInvalidEVMGasEstimate) {
+		t.Fatalf("expected zero-gas estimate rejection, got %v", err)
 	}
 }
 

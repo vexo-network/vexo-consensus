@@ -27,16 +27,12 @@ const ModuleName = "evm"
 
 const ethereumStateSnapshotNamespace = "evm_ethstate"
 
-const (
-	callGasCost   uint64 = 21_000
-	deployGasCost uint64 = 53_000
-)
-
 var (
-	ErrInvalidEVMTx    = errors.New("invalid EVM transaction")
-	ErrInvalidEVMQuery = errors.New("invalid EVM query")
-	ErrStoreMissing    = errors.New("EVM module store is required")
-	ErrVMRegistryEmpty = errors.New("EVM VM registry is required")
+	ErrInvalidEVMTx          = errors.New("invalid EVM transaction")
+	ErrInvalidEVMQuery       = errors.New("invalid EVM query")
+	ErrInvalidEVMGasEstimate = errors.New("invalid EVM gas estimate")
+	ErrStoreMissing          = errors.New("EVM module store is required")
+	ErrVMRegistryEmpty       = errors.New("EVM VM registry is required")
 )
 
 type Module struct {
@@ -369,13 +365,13 @@ func (module Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, erro
 		invocation.Nonce = txNonce(tx)
 		invocation.EthereumTx = ethcompat.IsEthereumTx(tx)
 		invocation.RawEthereumTx = txRawEthereum(tx)
-		return module.estimateInvocationGas(ctx, invocation, callGasCost)
+		return module.estimateInvocationGas(ctx, invocation)
 	case "deploy", "eth_deploy":
 		invocation, err := module.deployInvocationForEstimate(ctx, canonical.Action, canonical.Args, tx)
 		if err != nil {
 			return 0, err
 		}
-		return module.estimateInvocationGas(ctx, invocation, deployGasCost)
+		return module.estimateInvocationGas(ctx, invocation)
 	default:
 		return 0, ErrInvalidEVMTx
 	}
@@ -898,7 +894,7 @@ func callRequestValue(request CallRequest) (*big.Int, error) {
 	return value, nil
 }
 
-func (module Module) estimateInvocationGas(ctx vexoapp.Context, invocation contract.Invocation, fallback uint64) (uint64, error) {
+func (module Module) estimateInvocationGas(ctx vexoapp.Context, invocation contract.Invocation) (uint64, error) {
 	if module.registry == nil {
 		return 0, ErrVMRegistryEmpty
 	}
@@ -907,7 +903,7 @@ func (module Module) estimateInvocationGas(ctx vexoapp.Context, invocation contr
 		return 0, err
 	}
 	if result.GasUsed == 0 {
-		return fallback, nil
+		return 0, ErrInvalidEVMGasEstimate
 	}
 	return result.GasUsed, nil
 }

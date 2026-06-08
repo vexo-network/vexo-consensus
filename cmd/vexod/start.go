@@ -145,6 +145,11 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	if err != nil {
 		return err
 	}
+	if inputs.Config.RequireNetworkSafety {
+		if err := rejectRuntimeFlagOverrides(visited); err != nil {
+			return err
+		}
+	}
 	applyStartFlagOverrides(&runtimeConfig, visited, startFlagValues{
 		rpcEnabled:              *rpcEnabled,
 		rpcAdminToken:           *rpcAdminToken,
@@ -233,6 +238,46 @@ func visitedFlags(flags *flag.FlagSet) map[string]bool {
 		visited[flagInfo.Name] = true
 	})
 	return visited
+}
+
+var runtimeConfigOnlyStartFlags = map[string]string{
+	"addr-book":                 "network_config.json:p2p.addr_book_path",
+	"addr-book-max-failures":    "network_config.json:p2p.addr_book_max_failures",
+	"consensus-interval":        "consensus_config.json:consensus.interval",
+	"consensus-loop":            "consensus_config.json:consensus.loop_enabled",
+	"consensus-max-block-bytes": "consensus_config.json:consensus.max_block_bytes",
+	"consensus-round-timeout":   "consensus_config.json:consensus.round_timeout",
+	"create-empty-blocks":       "consensus_config.json:consensus.create_empty_blocks",
+	"evm-account-key":           "network_config.json:rpc.evm_account_private_keys",
+	"log-commit-events":         "log_config.json:log.commit_events",
+	"log-format":                "log_config.json:log.format",
+	"log-level":                 "log_config.json:log.level",
+	"log-peer-events":           "log_config.json:log.peer_events",
+	"p2p":                       "network_config.json:p2p.enabled",
+	"p2p-auth-token":            "network_config.json:p2p.auth_token",
+	"p2p-max-message-bytes":     "network_config.json:p2p.max_message_bytes",
+	"p2p-max-peers":             "network_config.json:p2p.max_peers",
+	"p2p-network":               "network_config.json:p2p.network_id",
+	"rpc":                       "network_config.json:rpc.enabled",
+	"rpc-admin-token":           "network_config.json:rpc.admin_token",
+	"rpc-max-request-bytes":     "network_config.json:rpc.max_request_bytes",
+	"rpc-pprof":                 "network_config.json:rpc.enable_pprof",
+	"rpc-rate-limit-max":        "network_config.json:rpc.rate_limit_max_requests",
+	"rpc-rate-limit-window":     "network_config.json:rpc.rate_limit_window",
+	"rpc-request-timeout":       "network_config.json:rpc.request_timeout",
+	"timeout-commit":            "consensus_config.json:consensus.timeout_commit",
+	"timeout-precommit":         "consensus_config.json:consensus.timeout_precommit",
+	"timeout-prevote":           "consensus_config.json:consensus.timeout_prevote",
+	"timeout-propose":           "consensus_config.json:consensus.timeout_propose",
+}
+
+func rejectRuntimeFlagOverrides(visited map[string]bool) error {
+	for name, configPath := range runtimeConfigOnlyStartFlags {
+		if visited[name] {
+			return fmt.Errorf("start flag --%s changes network runtime behavior; set %s instead: %w", name, configPath, vexoconfig.ErrUnsafeNetworkConfig)
+		}
+	}
+	return nil
 }
 
 func applyStartFlagOverrides(cfg *startRuntimeConfig, visited map[string]bool, values startFlagValues) {
@@ -696,13 +741,11 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 	default:
 		return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.execution_commit: %w", vexonode.ErrInvalidLoopConfig)
 	}
-	if document.RequireNetworkSafety && cfg.ConsensusLoop.ExecutionCommitMode != vexonode.ExecutionCommitModeFinalized {
-		return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.execution_commit must be %q when require_network_safety is true: %w", vexonode.ExecutionCommitModeFinalized, vexoconfig.ErrUnsafeNetworkConfig)
+	if cfg.ConsensusLoop.ExecutionCommitMode != vexonode.ExecutionCommitModeFinalized {
+		return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.execution_commit must be %q: %w", vexonode.ExecutionCommitModeFinalized, vexoconfig.ErrUnsafeNetworkConfig)
 	}
-	if document.RequireNetworkSafety {
-		if err := validateRuntimeNetworkSafety(cfg); err != nil {
-			return startRuntimeConfig{}, err
-		}
+	if err := validateRuntimeNetworkSafety(cfg); err != nil {
+		return startRuntimeConfig{}, err
 	}
 	return cfg, nil
 }
@@ -710,14 +753,14 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 func validateRuntimeNetworkSafety(cfg startRuntimeConfig) error {
 	if cfg.P2PEnabled && requiresAuthenticatedP2P(cfg) {
 		if cfg.P2PAuthToken == "" {
-			return fmt.Errorf("runtime.p2p.auth_token is required when require_network_safety is true: %w", vexoconfig.ErrUnsafeNetworkConfig)
+			return fmt.Errorf("runtime.p2p.auth_token is required for public peer connections: %w", vexoconfig.ErrUnsafeNetworkConfig)
 		}
 		if cfg.P2PTLSCertPath == "" || cfg.P2PTLSKeyPath == "" || cfg.P2PTLSCAPath == "" {
-			return fmt.Errorf("runtime.p2p tls cert, key, and ca paths are required when require_network_safety is true: %w", vexoconfig.ErrUnsafeNetworkConfig)
+			return fmt.Errorf("runtime.p2p tls cert, key, and ca paths are required for public peer connections: %w", vexoconfig.ErrUnsafeNetworkConfig)
 		}
 	}
 	if cfg.RPCEnabled && cfg.RPCAdminToken == "" && !isPrivateListenAddress(cfg.RPCAddress) {
-		return fmt.Errorf("runtime.rpc.admin_token is required for public rpc listeners when require_network_safety is true: %w", vexoconfig.ErrUnsafeNetworkConfig)
+		return fmt.Errorf("runtime.rpc.admin_token is required for public rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
 	return nil
 }

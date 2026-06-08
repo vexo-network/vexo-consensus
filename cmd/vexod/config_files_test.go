@@ -438,6 +438,39 @@ func TestApplyStartFlagOverridesEVMAccountKeys(t *testing.T) {
 	}
 }
 
+func TestRunStartRejectsRuntimeFlagOverrides(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	err := runStart(&bytes.Buffer{}, []string{"--home", home, "--dry-run", "--timeout-propose", "250ms"})
+	if !errors.Is(err, config.ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected runtime flag override to be rejected, got %v", err)
+	}
+}
+
+func TestLoadNodeConfigForcesNetworkSafety(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(home, configFileName)
+	document, err := readConfigDocument(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document.RequireNetworkSafety = false
+	writeTestJSON(t, configPath, document)
+
+	cfg, err := loadNodeConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.RequireNetworkSafety {
+		t.Fatalf("expected node config load path to force network safety")
+	}
+}
+
 func TestLoadNodeConfigUsesDefaultModuleConfigWhenSplitFileMissing(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
@@ -730,6 +763,21 @@ func TestLoadStartRuntimeConfigRequiresFinalizedCommitWhenNetworkSafetyIsRequire
 	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
 	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrUnsafeNetworkConfig) {
 		t.Fatalf("expected missing p2p mtls ca to fail network safety boundary, got %v", err)
+	}
+}
+
+func TestLoadStartRuntimeConfigAlwaysRequiresFinalizedCommit(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, configFileName)
+	document := defaultConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	document.RequireNetworkSafety = false
+	consensusDocument := defaultConsensusConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	consensusDocument.Consensus.ExecutionCommit = string(vexonode.ExecutionCommitModeQC)
+	writeTestJSON(t, path, document)
+	writeTestJSON(t, filepath.Join(home, consensusConfigFileName), consensusDocument)
+
+	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected finalized execution commit to be mandatory, got %v", err)
 	}
 }
 
