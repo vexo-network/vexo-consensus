@@ -781,6 +781,9 @@ func validateRuntimeNetworkSafety(cfg startRuntimeConfig) error {
 	if cfg.RPCEnabled && cfg.RPCAdminToken == "" && len(cfg.RPCAdminTokens) == 0 && !isPrivateListenAddress(cfg.RPCAddress) {
 		return fmt.Errorf("runtime.rpc.admin_token or scoped runtime.rpc.admin_tokens is required for public rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
+	if cfg.RPCEnabled && len(cfg.RPCEVMAccountKeys) > 0 && !isPrivateListenAddress(cfg.RPCAddress) {
+		return fmt.Errorf("runtime.rpc.evm_account_private_keys are only allowed on private rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
+	}
 	return nil
 }
 

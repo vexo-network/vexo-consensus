@@ -92,6 +92,8 @@
 - 안전 가정과 실패 모드 문서화
 - BLS, VRF, Web3/EVM compatibility, slashing, state sync, upgrade, validator economics 같은 보안 민감 기능에 대한 release-gate evidence
 
+`vexod status --json`도 같은 원칙을 따릅니다. `features`는 config 기준으로 코드 경로가 켜졌는지 보여주고, `feature_assurance`는 그 기능이 단순 구현 상태인지, 운영 산출물이 필요한지, release evidence가 필요한지, 외부 audit evidence가 필요한지를 분리해서 보여줍니다.
+
 ## 규범 원문
 
 - [English canonical document](../en/README.md)

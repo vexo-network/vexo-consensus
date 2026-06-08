@@ -101,3 +101,5 @@ Do not call a feature production-ready just because code exists. A production cl
 - operational or E2E evidence when the feature crosses process or machine boundaries
 - documentation of assumptions and failure modes
 - release-gate evidence for security-sensitive categories such as BLS, VRF, Web3/EVM compatibility, slashing, state sync, upgrades, and validator economics
+
+`vexod status --json` follows the same rule. The `features` map says whether a code path is enabled by config. The `feature_assurance` map says whether that enabled feature is merely implemented, requires operator artifacts, requires release evidence, or requires external audit evidence.

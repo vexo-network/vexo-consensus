@@ -783,6 +783,29 @@ func TestLoadStartRuntimeConfigAlwaysRequiresFinalizedCommit(t *testing.T) {
 	}
 }
 
+func TestLoadStartRuntimeConfigRejectsManagedEVMKeysOnPublicRPC(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, configFileName)
+	document := defaultConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	networkDocument := defaultNetworkConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	networkDocument.RPC.Address = "0.0.0.0:26657"
+	networkDocument.RPC.AdminToken = "secret"
+	networkDocument.RPC.EVMManagedAccounts = true
+	networkDocument.RPC.EVMAccountPrivateKeys = []string{"0xabc"}
+	writeTestJSON(t, path, document)
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+
+	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected public rpc hot key config to fail network safety boundary, got %v", err)
+	}
+
+	networkDocument.RPC.Address = "127.0.0.1:26657"
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+	if _, err := loadStartRuntimeConfig(home, path); err != nil {
+		t.Fatalf("expected private rpc managed account config to load, got %v", err)
+	}
+}
+
 func TestNetworkRuntimeDefaultsDoNotBindAdvertisedAddress(t *testing.T) {
 	inputs := startInputs{
 		Config: vexonode.Config{

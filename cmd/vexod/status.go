@@ -118,18 +118,24 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 }
 
 type statusDocument struct {
-	SchemaVersion    string                 `json:"schema_version"`
-	ChainID          string                 `json:"chain_id"`
-	Application      applicationStatus      `json:"application"`
-	Execution        executionStatus        `json:"execution"`
-	Bank             bankStatus             `json:"bank"`
-	Validator        validatorStatus        `json:"validator"`
-	Committee        committeeStatus        `json:"committee"`
-	Mempool          mempoolStatus          `json:"mempool"`
-	Features         map[string]bool        `json:"features"`
-	Storage          storageStatus          `json:"storage"`
-	P2P              p2pStatus              `json:"p2p"`
-	OperationalHints operationalHintsStatus `json:"operational_hints"`
+	SchemaVersion    string                     `json:"schema_version"`
+	ChainID          string                     `json:"chain_id"`
+	Application      applicationStatus          `json:"application"`
+	Execution        executionStatus            `json:"execution"`
+	Bank             bankStatus                 `json:"bank"`
+	Validator        validatorStatus            `json:"validator"`
+	Committee        committeeStatus            `json:"committee"`
+	Mempool          mempoolStatus              `json:"mempool"`
+	Features         map[string]bool            `json:"features"`
+	FeatureAssurance map[string]assuranceStatus `json:"feature_assurance"`
+	Storage          storageStatus              `json:"storage"`
+	P2P              p2pStatus                  `json:"p2p"`
+	OperationalHints operationalHintsStatus     `json:"operational_hints"`
+}
+
+type assuranceStatus struct {
+	State string `json:"state"`
+	Note  string `json:"note"`
 }
 
 type applicationStatus struct {
@@ -288,8 +294,9 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			ReplacementBumpBPS: cfg.Mempool.ReplacementBumpBPS,
 			WALPath:            cfg.Mempool.WALPath,
 		},
-		Features: statusFeatures(cfg),
-		Storage:  storageStatus{Backend: "leveldb"},
+		Features:         statusFeatures(cfg),
+		FeatureAssurance: statusFeatureAssurance(cfg),
+		Storage:          storageStatus{Backend: "leveldb"},
 		P2P: p2pStatus{
 			InitialScore:          cfg.P2P.InitialScore,
 			MaxScore:              cfg.P2P.MaxScore,
@@ -368,6 +375,7 @@ func statusFeatures(cfg config.Config) map[string]bool {
 		"ibc_ordering_validation":                  moduleEnabled(cfg, "ibc"),
 		"mempool_seen_cache_pruning":               cfg.Mempool.SeenTTL > 0,
 		"mempool_wal":                              cfg.Mempool.WALPath != "",
+		"mempool_wal_compaction":                   cfg.Mempool.WALPath != "",
 		"mempool_priority":                         cfg.Mempool.EnablePriority,
 		"mempool_replacement":                      cfg.Mempool.EnableReplacement,
 		"ops_metrics_uptime":                       true,
@@ -406,6 +414,61 @@ func statusFeatures(cfg config.Config) map[string]bool {
 		"temporary_peer_bans":                      cfg.P2P.BanDuration > 0,
 		"peer_score_recovery":                      cfg.P2P.ScoreRecovery > 0,
 	}
+}
+
+func statusFeatureAssurance(cfg config.Config) map[string]assuranceStatus {
+	features := statusFeatures(cfg)
+	assurance := make(map[string]assuranceStatus, len(features))
+	for feature, enabled := range features {
+		if !enabled {
+			assurance[feature] = assuranceStatus{State: "disabled", Note: "feature is not enabled by current config"}
+			continue
+		}
+		assurance[feature] = assuranceStatus{State: "implemented", Note: "code path is enabled; release evidence may still be required"}
+	}
+	for _, feature := range []string{
+		"web3_geth_compat_methods",
+		"web3_txpool_debug_trace",
+		"web3_trace_api",
+		"web3_raw_tx_replay_trace",
+		"web3_blob_tx_fee_accounting",
+		"evm_geth_vm_adapter",
+		"evm_ethereum_raw_tx",
+		"evm_actual_gas_accounting",
+	} {
+		if features[feature] {
+			assurance[feature] = assuranceStatus{
+				State: "requires_release_evidence",
+				Note:  "EVM/Web3 compatibility should be backed by fixture/conformance evidence before release claims",
+			}
+		}
+	}
+	for _, feature := range []string{
+		"ops_longrun_network_plan",
+		"ops_release_evidence_content_gate",
+		"ops_release_evidence_semantic_gate",
+		"ops_external_audit_pack",
+	} {
+		if features[feature] {
+			assurance[feature] = assuranceStatus{
+				State: "requires_operator_artifact",
+				Note:  "the tool exists, but release readiness depends on generated evidence artifacts",
+			}
+		}
+	}
+	for _, feature := range []string{
+		"crypto_bls_adapter_required",
+		"crypto_bls_production_adapter",
+		"crypto_vrf_production_adapter",
+	} {
+		if features[feature] {
+			assurance[feature] = assuranceStatus{
+				State: "requires_external_audit_evidence",
+				Note:  "cryptographic adapter safety depends on configured audited adapter metadata and attached audit evidence",
+			}
+		}
+	}
+	return assurance
 }
 
 func moduleEnabled(cfg config.Config, name string) bool {

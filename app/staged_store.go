@@ -70,6 +70,28 @@ func (store *StagedStore) Delete(ctx context.Context, namespace string, key []by
 	return nil
 }
 
+func (store *StagedStore) SetBatch(ctx context.Context, writes []kvbatch.KVWrite) error {
+	if store == nil || store.base == nil {
+		return errors.New("missing staged base store")
+	}
+	for _, write := range writes {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		copied := kvbatch.KVWrite{
+			Namespace: write.Namespace,
+			Key:       append([]byte(nil), write.Key...),
+			Value:     append([]byte(nil), write.Value...),
+			Delete:    write.Delete,
+		}
+		store.writes = append(store.writes, copied)
+		store.overlay[stagedKey(write.Namespace, write.Key)] = copied
+	}
+	return nil
+}
+
 func (store *StagedStore) Root(ctx context.Context, namespace string) (types.Hash, error) {
 	if store == nil || store.base == nil {
 		return types.Hash{}, errors.New("missing staged base store")

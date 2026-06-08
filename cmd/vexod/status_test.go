@@ -190,6 +190,9 @@ func TestWriteStatusJSON(t *testing.T) {
 	if document.OperationalHints.PeerMetricsLocation != "node.Status().Peers" {
 		t.Fatalf("unexpected operational hints: %+v", document.OperationalHints)
 	}
+	if document.FeatureAssurance["ops_longrun_network_plan"].State != "requires_operator_artifact" {
+		t.Fatalf("expected operator evidence assurance for longrun plan, got %+v", document.FeatureAssurance["ops_longrun_network_plan"])
+	}
 	if document.Features["mempool_seen_cache_pruning"] ||
 		document.Features["crypto_bls_adapter_required"] ||
 		document.Features["web3_geth_compat_methods"] ||
@@ -223,6 +226,11 @@ func TestStatusFeaturesReflectConfiguredModules(t *testing.T) {
 			t.Fatalf("expected EVM feature %q enabled with evm module", feature)
 		}
 	}
+	assurance := statusFeatureAssurance(cfg)
+	if assurance["web3_geth_compat_methods"].State != "requires_release_evidence" ||
+		assurance["evm_geth_vm_adapter"].State != "requires_release_evidence" {
+		t.Fatalf("expected EVM assurance to require release evidence: %+v", assurance)
+	}
 	if features["crypto_bls_production_adapter"] {
 		t.Fatalf("expected BLS production feature disabled on deterministic backend")
 	}
@@ -232,5 +240,9 @@ func TestStatusFeaturesReflectConfiguredModules(t *testing.T) {
 	features = statusFeatures(cfg)
 	if !features["crypto_bls_adapter_required"] || !features["crypto_bls_production_adapter"] {
 		t.Fatalf("expected BLS features enabled for production BLS backend: %+v", features)
+	}
+	assurance = statusFeatureAssurance(cfg)
+	if assurance["crypto_bls_production_adapter"].State != "requires_external_audit_evidence" {
+		t.Fatalf("expected BLS assurance to require external audit evidence: %+v", assurance["crypto_bls_production_adapter"])
 	}
 }
