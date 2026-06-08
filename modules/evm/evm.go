@@ -288,14 +288,15 @@ func (module Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, erro
 			return 0, err
 		}
 		if ctx.Store != nil {
-			code, err := loadCode(ctx.GoContext(), ctx.Store, invocation.Contract)
+			state := evmStateReader{store: ctx.Store}
+			code, err := state.Code(ctx.GoContext(), invocation.Contract)
 			if err != nil {
 				return 0, err
 			}
 			invocation.Code = code
-			invocation.State = evmStateReader{store: ctx.Store}
+			invocation.State = state
 		}
-		invocation.ReadOnly = true
+		invocation.ReadOnly = false
 		invocation.BlockNumber = uint64(ctx.Height)
 		invocation.Timestamp = headerUnixSeconds(ctx.Header)
 		invocation.BlockGasLimit = ctx.GasLimit()
@@ -711,19 +712,26 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 	if err != nil {
 		return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
 	}
-	var code []byte
-	var state contract.StateReader
-	if ctx.Store != nil {
-		var err error
-		code, err = loadCode(ctx.GoContext(), ctx.Store, types.Address(request.To))
-		if err != nil {
-			return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
-		}
-		state = evmStateReader{store: ctx.Store}
-	}
 	blockNumber := uint64(ctx.Height)
 	if request.Height > 0 {
 		blockNumber = request.Height
+	}
+	state, err := stateReaderForCall(ctx, request.Height)
+	if err != nil {
+		if errors.Is(err, vexostore.ErrKeyNotFound) {
+			return vexoapp.QueryResponse{Code: 3, Log: "Ethereum state snapshot not found"}
+		}
+		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+	}
+	var code []byte
+	if ctx.Store != nil {
+		code, err = state.Code(ctx.GoContext(), types.Address(request.To))
+		if err != nil && request.Method != "deploy" {
+			return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+		}
+		if request.Method == "deploy" {
+			code = nil
+		}
 	}
 	callValue, err := callRequestValue(request)
 	if err != nil {
@@ -740,7 +748,7 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 		ValueBig:      callValue,
 		Code:          code,
 		State:         state,
-		ReadOnly:      true,
+		ReadOnly:      false,
 		BlockNumber:   blockNumber,
 		Timestamp:     headerUnixSeconds(ctx.Header),
 		BlockGasLimit: ctx.GasLimit(),
@@ -1948,6 +1956,26 @@ type evmStateReader struct {
 	store vexoapp.StateStore
 }
 
+func stateReaderForCall(ctx vexoapp.Context, height uint64) (interface {
+	contract.StateReader
+	contract.BalanceBigReader
+	contract.BalanceReader
+	contract.NonceReader
+	contract.BlockHashReader
+}, error) {
+	if ctx.Store == nil {
+		return evmStateReader{}, nil
+	}
+	if height == 0 {
+		return evmStateReader{store: ctx.Store}, nil
+	}
+	accounts, err := ethereumAccountsForProof(ctx.GoContext(), ctx.Store, height)
+	if err != nil {
+		return nil, err
+	}
+	return newEVMSnapshotStateReader(ctx.Store, accounts), nil
+}
+
 func (reader evmStateReader) Code(ctx context.Context, address types.Address) ([]byte, error) {
 	if reader.store == nil {
 		return nil, ErrStoreMissing
@@ -1960,6 +1988,76 @@ func (reader evmStateReader) Code(ctx context.Context, address types.Address) ([
 		return nil, err
 	}
 	return append([]byte(nil), code...), nil
+}
+
+type evmSnapshotStateReader struct {
+	store    vexoapp.StateStore
+	accounts map[string]ethcompat.AccountState
+}
+
+func newEVMSnapshotStateReader(stateStore vexoapp.StateStore, accounts []ethcompat.AccountState) evmSnapshotStateReader {
+	reader := evmSnapshotStateReader{store: stateStore, accounts: make(map[string]ethcompat.AccountState, len(accounts))}
+	for _, account := range accounts {
+		if account.Storage == nil {
+			account.Storage = map[string][]byte{}
+		}
+		reader.accounts[canonicalAddressKey(types.Address(account.Address))] = account
+	}
+	return reader
+}
+
+func (reader evmSnapshotStateReader) account(address types.Address) ethcompat.AccountState {
+	return reader.accounts[canonicalAddressKey(address)]
+}
+
+func (reader evmSnapshotStateReader) Code(ctx context.Context, address types.Address) ([]byte, error) {
+	return append([]byte(nil), reader.account(address).Code...), nil
+}
+
+func (reader evmSnapshotStateReader) Storage(ctx context.Context, address types.Address, slot string) ([]byte, error) {
+	account := reader.account(address)
+	if account.Storage == nil {
+		return nil, nil
+	}
+	value := account.Storage[normalizeSlot(slot)]
+	if len(value) == 0 {
+		value = account.Storage[slot]
+	}
+	return append([]byte(nil), value...), nil
+}
+
+func (reader evmSnapshotStateReader) Balance(ctx context.Context, address types.Address) (uint64, error) {
+	balance, err := reader.BalanceBig(ctx, address)
+	if err != nil {
+		return 0, err
+	}
+	if balance == nil || balance.Sign() == 0 {
+		return 0, nil
+	}
+	if !balance.IsUint64() {
+		return 0, ErrInvalidEVMTx
+	}
+	return balance.Uint64(), nil
+}
+
+func (reader evmSnapshotStateReader) BalanceBig(ctx context.Context, address types.Address) (*big.Int, error) {
+	account := reader.account(address)
+	if account.BalanceHex != "" {
+		value, ok := new(big.Int).SetString(strings.TrimPrefix(account.BalanceHex, "0x"), 16)
+		if !ok || value.Sign() < 0 || value.BitLen() > 256 {
+			return nil, ErrInvalidEVMTx
+		}
+		return value, nil
+	}
+	return new(big.Int).SetUint64(account.Balance), nil
+}
+
+func (reader evmSnapshotStateReader) Nonce(ctx context.Context, address types.Address) (uint64, error) {
+	return reader.account(address).Nonce, nil
+}
+
+func (reader evmSnapshotStateReader) BlockHash(ctx context.Context, height uint64) (types.Hash, error) {
+	return evmStateReader{store: reader.store}.BlockHash(ctx, height)
 }
 
 func (reader evmStateReader) Storage(ctx context.Context, address types.Address, slot string) ([]byte, error) {

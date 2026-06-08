@@ -1782,20 +1782,22 @@ func web3Sha3(params []json.RawMessage) (string, *JSONRPCError) {
 }
 
 type web3CallRequest struct {
-	VM          string                     `json:"vm"`
-	From        string                     `json:"from"`
-	To          string                     `json:"to"`
-	Method      string                     `json:"method"`
-	Input       string                     `json:"input,omitempty"`
-	GasLimit    uint64                     `json:"gas_limit,omitempty"`
-	Value       uint64                     `json:"value,omitempty"`
-	ValueHex    string                     `json:"value_hex,omitempty"`
-	Height      uint64                     `json:"height,omitempty"`
-	GasPrice    uint64                     `json:"gas_price,omitempty"`
-	BaseFee     uint64                     `json:"base_fee,omitempty"`
-	BlobBaseFee uint64                     `json:"blob_base_fee,omitempty"`
-	BlobHashes  []string                   `json:"blob_hashes,omitempty"`
-	AccessList  []contract.AccessListEntry `json:"access_list,omitempty"`
+	VM                   string                     `json:"vm"`
+	From                 string                     `json:"from"`
+	To                   string                     `json:"to"`
+	Method               string                     `json:"method"`
+	Input                string                     `json:"input,omitempty"`
+	GasLimit             uint64                     `json:"gas_limit,omitempty"`
+	Value                uint64                     `json:"value,omitempty"`
+	ValueHex             string                     `json:"value_hex,omitempty"`
+	Height               uint64                     `json:"height,omitempty"`
+	GasPrice             uint64                     `json:"gas_price,omitempty"`
+	MaxFeePerGas         uint64                     `json:"max_fee_per_gas,omitempty"`
+	MaxPriorityFeePerGas uint64                     `json:"max_priority_fee_per_gas,omitempty"`
+	BaseFee              uint64                     `json:"base_fee,omitempty"`
+	BlobBaseFee          uint64                     `json:"blob_base_fee,omitempty"`
+	BlobHashes           []string                   `json:"blob_hashes,omitempty"`
+	AccessList           []contract.AccessListEntry `json:"access_list,omitempty"`
 }
 
 type web3TransactionCall struct {
@@ -1806,6 +1808,7 @@ type web3TransactionCall struct {
 	GasPrice             string                `json:"gasPrice"`
 	MaxFeePerGas         string                `json:"maxFeePerGas"`
 	MaxPriorityFeePerGas string                `json:"maxPriorityFeePerGas"`
+	Nonce                string                `json:"nonce"`
 	Value                string                `json:"value"`
 	VM                   string                `json:"vm"`
 	Method               string                `json:"method"`
@@ -3663,6 +3666,9 @@ func web3EstimateGas(ctx context.Context, provider StatusProvider, params []json
 
 func web3IntrinsicGasForCall(call web3CallRequest) (uint64, *JSONRPCError) {
 	gas := uint64(defaultWeb3IntrinsicGas)
+	if call.Method == "deploy" {
+		gas = 53_000
+	}
 	input, err := hexBytes(call.Input)
 	if err != nil {
 		return 0, &JSONRPCError{Code: -32602, Message: "invalid data hex"}
@@ -3710,9 +3716,20 @@ func web3PreparedEVMCall(ctx context.Context, provider StatusProvider, params []
 	call.BaseFee = baseFee
 	call.BlobBaseFee = web3BlobBaseFeeAtHeight(ctx, provider, types.Height(call.Height))
 	if call.GasPrice == 0 {
-		call.GasPrice = baseFee
+		call.GasPrice = web3EffectiveCallGasPrice(baseFee, call.MaxFeePerGas, call.MaxPriorityFeePerGas)
 	}
 	return call, nil
+}
+
+func web3EffectiveCallGasPrice(baseFee uint64, maxFeePerGas uint64, maxPriorityFeePerGas uint64) uint64 {
+	if maxFeePerGas == 0 {
+		return baseFee
+	}
+	capWithTip := saturatingAddUint64(baseFee, maxPriorityFeePerGas)
+	if capWithTip > maxFeePerGas {
+		return maxFeePerGas
+	}
+	return capWithTip
 }
 
 func web3EVMCallRequest(ctx context.Context, provider StatusProvider, call web3CallRequest) (web3EVMCallResponse, *JSONRPCError) {
@@ -4652,7 +4669,8 @@ func evmCallParam(params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
 		payload.From = "0x0000000000000000000000000000000000000000"
 	}
 	if payload.To == "" {
-		return web3CallRequest{}, &JSONRPCError{Code: -32602, Message: "to address is required"}
+		payload.Method = "deploy"
+		payload.To = "0x0000000000000000000000000000000000000000"
 	}
 	gasLimit := uint64(0)
 	if payload.Gas != "" {
@@ -4675,6 +4693,8 @@ func evmCallParam(params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
 		}
 	}
 	gasPrice := uint64(0)
+	maxFeePerGas := uint64(0)
+	maxPriorityFeePerGas := uint64(0)
 	switch {
 	case payload.GasPrice != "":
 		value, err := parseHexQuantity(payload.GasPrice)
@@ -4687,7 +4707,14 @@ func evmCallParam(params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
 		if err != nil {
 			return web3CallRequest{}, &JSONRPCError{Code: -32602, Message: "invalid maxFeePerGas quantity"}
 		}
-		gasPrice = value
+		maxFeePerGas = value
+		if payload.MaxPriorityFeePerGas != "" {
+			priority, err := parseHexQuantity(payload.MaxPriorityFeePerGas)
+			if err != nil {
+				return web3CallRequest{}, &JSONRPCError{Code: -32602, Message: "invalid maxPriorityFeePerGas quantity"}
+			}
+			maxPriorityFeePerGas = priority
+		}
 	}
 	if payload.Data == "" {
 		payload.Data = "0x"
@@ -4696,16 +4723,18 @@ func evmCallParam(params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
 		return web3CallRequest{}, &JSONRPCError{Code: -32602, Message: "invalid data hex"}
 	}
 	return web3CallRequest{
-		VM:         payload.VM,
-		From:       payload.From,
-		To:         payload.To,
-		Method:     payload.Method,
-		Input:      payload.Data,
-		GasLimit:   gasLimit,
-		Value:      callValue,
-		ValueHex:   callValueHex,
-		GasPrice:   gasPrice,
-		AccessList: web3ContractAccessList(payload.AccessList),
+		VM:                   payload.VM,
+		From:                 payload.From,
+		To:                   payload.To,
+		Method:               payload.Method,
+		Input:                payload.Data,
+		GasLimit:             gasLimit,
+		Value:                callValue,
+		ValueHex:             callValueHex,
+		GasPrice:             gasPrice,
+		MaxFeePerGas:         maxFeePerGas,
+		MaxPriorityFeePerGas: maxPriorityFeePerGas,
+		AccessList:           web3ContractAccessList(payload.AccessList),
 	}, nil
 }
 

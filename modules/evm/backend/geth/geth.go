@@ -108,6 +108,11 @@ func (vm GethVM) Execute(ctx context.Context, invocation contract.Invocation) (c
 			VMTrace: vmTrace,
 		}, nil
 	}
+	if rules.IsAmsterdam {
+		for _, log := range stateDB.LogsForBurnAccounts() {
+			stateDB.AddLog(log)
+		}
+	}
 	traceLogger.OnTxEnd(&gethtypes.Receipt{GasUsed: left.Used(initialGas)}, nil)
 	vmTrace, err := gethVMTrace(traceLogger)
 	if err != nil {

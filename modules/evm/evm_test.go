@@ -250,6 +250,9 @@ func TestModuleQueryCallPassesWeb3ExecutionContext(t *testing.T) {
 	if err := storage.Set(context.Background(), ModuleName, codeKey(contractAddress), []byte{0x60, 0x00}); err != nil {
 		t.Fatal(err)
 	}
+	if err := persistEthereumStateSnapshot(context.Background(), storage, 77); err != nil {
+		t.Fatal(err)
+	}
 	request, _ := json.Marshal(CallRequest{
 		VM:       "evm",
 		From:     "0x000000000000000000000000000000000000aaaa",
@@ -270,7 +273,7 @@ func TestModuleQueryCallPassesWeb3ExecutionContext(t *testing.T) {
 	if response.Code != 0 {
 		t.Fatalf("unexpected query response: %+v", response)
 	}
-	if vm.invocation.BlockNumber != 77 || vm.invocation.GasPrice != 9 || vm.invocation.BaseFee != 4 || vm.invocation.Value != 3 || vm.invocation.GasLimit != 55_000 {
+	if vm.invocation.BlockNumber != 77 || vm.invocation.GasPrice != 9 || vm.invocation.BaseFee != 4 || vm.invocation.Value != 3 || vm.invocation.GasLimit != 55_000 || vm.invocation.ReadOnly {
 		t.Fatalf("unexpected invocation context: %+v", vm.invocation)
 	}
 	if len(vm.invocation.AccessList) != 1 || vm.invocation.AccessList[0].Address != contractAddress || vm.invocation.AccessList[0].StorageKeys[0] != "0x01" {
@@ -575,6 +578,80 @@ func TestDefaultModulePersistsGethEVMStorageWrites(t *testing.T) {
 	storageQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"storage", deployReceipt.ContractAddress, "0x0"}})
 	if storageQuery.Code != 0 || !strings.Contains(string(storageQuery.Value), `"value":"0x0000000000000000000000000000000000000000000000000000000000000001"`) {
 		t.Fatalf("expected EVM SSTORE value, got %+v", storageQuery)
+	}
+}
+
+func TestDefaultModuleQueryCallAllowsStateChangingSimulationWithoutPersisting(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	ctx := vexoapp.Context{Ctx: context.Background(), Height: 8, Store: storage}
+
+	initCode := "6006600c60003960066000f3600160005500"
+	deployTx := types.Tx("evm:deploy:evm:0x000000000000000000000000000000000000aaaa:" + initCode + ":03")
+	result := module.DeliverTx(ctx, deployTx)
+	if result.Code != 0 {
+		t.Fatalf("deploy failed: %+v", result)
+	}
+	var deployReceipt Receipt
+	if err := json.Unmarshal(result.Data, &deployReceipt); err != nil {
+		t.Fatal(err)
+	}
+	request, _ := json.Marshal(CallRequest{
+		VM:       "evm",
+		From:     "0x000000000000000000000000000000000000aaaa",
+		To:       deployReceipt.ContractAddress,
+		Method:   "call",
+		Input:    "0x",
+		GasLimit: 100_000,
+	})
+	response := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"call"}, Data: request})
+	if response.Code != 0 {
+		t.Fatalf("expected state-changing eth_call simulation to succeed, got %+v", response)
+	}
+	var callResponse CallResponse
+	if err := json.Unmarshal(response.Value, &callResponse); err != nil {
+		t.Fatal(err)
+	}
+	if callResponse.Failed {
+		t.Fatalf("expected call simulation to be non-static, got %+v", callResponse)
+	}
+	storageQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"storage", deployReceipt.ContractAddress, "0x0"}})
+	if storageQuery.Code == 0 {
+		t.Fatalf("eth_call simulation must not persist storage writes, got %+v", storageQuery)
+	}
+}
+
+func TestDefaultModuleQueryCallSupportsContractCreationSimulation(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	ctx := vexoapp.Context{Ctx: context.Background(), Height: 8, Store: storage}
+	initCode := "600a600c600039600a6000f3602a60005260206000f3"
+	request, _ := json.Marshal(CallRequest{
+		VM:       "evm",
+		From:     "0x000000000000000000000000000000000000aaaa",
+		To:       "0x0000000000000000000000000000000000000000",
+		Method:   "deploy",
+		Input:    "0x" + initCode,
+		GasLimit: 100_000,
+	})
+	response := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"call"}, Data: request})
+	if response.Code != 0 {
+		t.Fatalf("expected contract creation simulation to succeed, got %+v", response)
+	}
+	var callResponse CallResponse
+	if err := json.Unmarshal(response.Value, &callResponse); err != nil {
+		t.Fatal(err)
+	}
+	if callResponse.Output != "0x602a60005260206000f3" {
+		t.Fatalf("unexpected create simulation output: %+v", callResponse)
 	}
 }
 

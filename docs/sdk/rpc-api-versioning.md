@@ -127,7 +127,8 @@ EVM behavior is configured from execution config, not by pretending the node is 
 - `execution.allow_unprotected_legacy_tx` defaults to `false`; unprotected Homestead-style legacy raw transactions are rejected on every Web3 raw-transaction admission path unless a chain deliberately opts into them.
 - `execution.max_blob_sidecar_blobs` and `execution.max_blob_sidecar_bytes` bound `vexo_sendRawBlobTransaction` sidecars at transaction admission and execution.
 - `execution.max_blob_gas` is enforced at block execution before application state is mutated.
-- Historical `eth_call`, `eth_estimateGas`, `eth_createAccessList`, and `eth_feeHistory` use height-matched persisted base-fee and blob-base-fee state instead of latest-only fee context.
+- Historical `eth_call`, `eth_estimateGas`, `eth_createAccessList`, and `eth_feeHistory` use height-matched persisted base-fee and blob-base-fee state instead of latest-only fee context. Historical EVM calls read retained EVM account/code/storage snapshots and fail closed once the requested snapshot has been pruned.
+- `eth_call` executes with Ethereum call semantics and discards writes after simulation; it is not mapped to `STATICCALL`. Omitting `to` simulates contract creation and returns the VM creation output without persisting deployed code.
 - `eth_estimateGas` includes Ethereum intrinsic calldata and access-list costs before probing the VM adapter, so low caller gas limits cannot under-report below the protocol floor.
 - `trace_filter` supports bounded block ranges plus `fromAddress`, `toAddress`, `after`, and `count` filtering over committed receipt-backed traces.
 - Ethereum raw transaction admission rejects invalid fee-cap relationships, including `maxFeePerGas < baseFee`, `maxPriorityFeePerGas > maxFeePerGas`, blob fee cap below blob base fee, and unprotected legacy transactions when the compatibility opt-in is disabled.

@@ -1550,6 +1550,13 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if !strings.Contains(string(provider.appQueryData), `"access_list":[{"address":"0xbbbb","storage_keys":["0x01"]}]`) {
 		t.Fatalf("expected call query to include access list: %s", provider.appQueryData)
 	}
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x602a60005260206000f3","gas_used":53000}`)}
+	var createCall JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":45,"method":"eth_call","params":[{"from":"0xaaaa","data":"0x600a600c600039600a6000f3602a60005260206000f3","gas":"0x10000"},"latest"]}`, http.StatusOK, &createCall)
+	if createCall.Error != nil || createCall.Result != "0x602a60005260206000f3" || !strings.Contains(string(provider.appQueryData), `"method":"deploy"`) {
+		t.Fatalf("unexpected contract creation eth_call response=%+v query=%s", createCall, provider.appQueryData)
+	}
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x1234","gas_used":9,"access_list":[{"address":"0xbbbb","storage_keys":["0x01"]}],"state_diff":{"0xbbbb":{"storage":{"0x01":{"from":"0x00","to":"0x02"}}}},"vm_trace":{"structLogs":[{"op":"STOP","pc":0}]}}`)}
 
 	var estimate JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":5,"method":"eth_estimateGas","params":[{"to":"0xbbbb","gas":"0x100"}]}`, http.StatusOK, &estimate)
@@ -1560,6 +1567,11 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":56,"method":"eth_estimateGas","params":[{"to":"0xbbbb","data":"0x0001","accessList":[{"address":"0xbbbb","storageKeys":["0x01"]}],"gas":"0x100"}]}`, http.StatusOK, &intrinsicEstimate)
 	if intrinsicEstimate.Error != nil || intrinsicEstimate.Result != "0x62e8" {
 		t.Fatalf("expected estimate to honor calldata/access-list intrinsic gas, got %+v", intrinsicEstimate)
+	}
+	var deployEstimate JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":57,"method":"eth_estimateGas","params":[{"data":"0x00","gas":"0x100"}]}`, http.StatusOK, &deployEstimate)
+	if deployEstimate.Error != nil || deployEstimate.Result != "0xcf0c" {
+		t.Fatalf("expected create estimate to honor deploy intrinsic gas, got %+v", deployEstimate)
 	}
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x","gas_used":9,"failed":true,"error":"execution reverted"}`)}
 	var failedEstimate JSONRPCResponse
@@ -1642,6 +1654,17 @@ func TestWeb3EVMCallUsesHistoricalFeeContext(t *testing.T) {
 	}
 	if call.Height != 7 || call.BaseFee != 3 || call.BlobBaseFee != 5 || call.GasPrice != 3 {
 		t.Fatalf("expected historical call fee context, got %+v", call)
+	}
+	var dynamicFee JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":2,"method":"eth_call","params":[{"to":"0x000000000000000000000000000000000000beef","data":"0x","maxFeePerGas":"0xa","maxPriorityFeePerGas":"0x2"},"0x7"]}`, http.StatusOK, &dynamicFee)
+	if dynamicFee.Error != nil {
+		t.Fatalf("unexpected dynamic fee eth_call response: %+v", dynamicFee)
+	}
+	if err := json.Unmarshal(provider.appQueryData, &call); err != nil {
+		t.Fatal(err)
+	}
+	if call.GasPrice != 5 || call.MaxFeePerGas != 10 || call.MaxPriorityFeePerGas != 2 {
+		t.Fatalf("expected EIP-1559 effective call gas price, got %+v", call)
 	}
 }
 
