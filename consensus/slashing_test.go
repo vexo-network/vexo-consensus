@@ -2,7 +2,6 @@ package consensus
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
@@ -638,16 +637,11 @@ func TestSubmitInvalidProposalEvidenceRequiresMatchingContextProofHash(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	var proof InvalidProposalProof
-	if err := json.Unmarshal(evidence.Proof, &proof); err != nil {
-		t.Fatal(err)
-	}
 	verificationContext := InvalidProposalVerificationContext{ExpectedAppHash: expectedAppHash}
 	contextProofHash := verificationContext.ProofHash()
 	wrongContextProofHash := types.Hash{}
 	wrongContextProofHash[0] = 8
-	proof.ContextProofHash = contextProofHash
-	evidence.Proof, err = json.Marshal(proof)
+	evidence, err = BindInvalidProposalEvidenceContext(evidence, verificationContext)
 	if err != nil {
 		t.Fatal(err)
 	}

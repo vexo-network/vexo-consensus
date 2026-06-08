@@ -44,6 +44,7 @@ var (
 	ErrInvalidCommission    = errors.New("invalid validator commission")
 	ErrUnauthorizedStaking  = errors.New("unauthorized staking transaction")
 	ErrInvalidSlashReceipt  = errors.New("invalid staking slash receipt")
+	ErrValidatorTombstoned  = errors.New("validator is tombstoned")
 )
 
 type Module struct {
@@ -184,6 +185,13 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		if err := ctx.ConsumeGas(unjailGasCost); err != nil {
 			return types.Result{Code: 5, Log: err.Error()}
 		}
+		tombstoned, err := Tombstoned(ctx.GoContext(), ctx.Store, types.ValidatorID(parts[2]))
+		if err != nil {
+			return types.Result{Code: 4, Log: err.Error()}
+		}
+		if tombstoned {
+			return types.Result{Code: 4, Log: ErrValidatorTombstoned.Error()}
+		}
 		if err := ctx.Store.Delete(ctx.GoContext(), ModuleName, jailKey(types.ValidatorID(parts[2]))); err != nil {
 			return types.Result{Code: 4, Log: err.Error()}
 		}
@@ -281,12 +289,26 @@ func (module *Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoa
 		}
 		return vexoapp.QueryResponse{Value: []byte(strconv.FormatUint(commissionBPS, 10))}
 	}
+	if len(req.Path) == 2 && req.Path[0] == "tombstone" {
+		tombstoned, err := Tombstoned(ctx.GoContext(), ctx.Store, types.ValidatorID(req.Path[1]))
+		if err != nil {
+			return vexoapp.QueryResponse{Code: 3, Log: err.Error()}
+		}
+		return vexoapp.QueryResponse{Value: []byte(strconv.FormatBool(tombstoned))}
+	}
 	return vexoapp.QueryResponse{Code: 2, Log: "invalid staking query"}
 }
 
 func (module *Module) delegate(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID, amount uint64, publicKey types.PublicKey) (types.ValidatorUpdate, error) {
 	if delegator == "" || validatorID == "" || amount == 0 {
 		return types.ValidatorUpdate{}, ErrInvalidStakingTx
+	}
+	tombstoned, err := Tombstoned(ctx, store, validatorID)
+	if err != nil {
+		return types.ValidatorUpdate{}, err
+	}
+	if tombstoned {
+		return types.ValidatorUpdate{}, ErrValidatorTombstoned
 	}
 	balance, err := bankBalance(ctx, store, delegator)
 	if err != nil {
@@ -414,6 +436,9 @@ func (module *Module) ApplySlashingPenalty(ctx context.Context, store vexoapp.St
 		{Namespace: ModuleName, Key: validatorPowerKey(receipt.Evidence.Validator), Value: encodeUint64(uint64(receipt.RemainingPower))},
 		{Namespace: ModuleName, Key: markerKey, Value: encodeSlashMarker(receipt)},
 	}
+	if receipt.RemainingPower == 0 {
+		writes = append(writes, kvbatch.KVWrite{Namespace: ModuleName, Key: tombstoneKey(receipt.Evidence.Validator), Value: encodeUint64(uint64(receipt.Evidence.Height))})
+	}
 	snapshot, ok := store.(vexostore.SnapshotKVStore)
 	if ok {
 		pairs, err := snapshot.ExportNamespace(ctx, ModuleName)
@@ -470,6 +495,20 @@ func Rewards(ctx context.Context, store vexoapp.StateStore, delegator types.Addr
 
 func Commission(ctx context.Context, store vexoapp.StateStore, validatorID types.ValidatorID) (uint64, error) {
 	return getUint64(ctx, store, commissionKey(validatorID))
+}
+
+func Tombstoned(ctx context.Context, store vexoapp.StateStore, validatorID types.ValidatorID) (bool, error) {
+	if validatorID == "" {
+		return false, ErrInvalidStakingTx
+	}
+	_, err := store.Get(ctx, ModuleName, tombstoneKey(validatorID))
+	if errors.Is(err, vexostore.ErrKeyNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (module *Module) setCommission(ctx context.Context, store vexoapp.StateStore, tx types.Tx, validatorID types.ValidatorID, commissionBPS uint64) error {
@@ -898,6 +937,10 @@ func validatorKeyKey(validatorID types.ValidatorID) []byte {
 
 func jailKey(validatorID types.ValidatorID) []byte {
 	return []byte("validator/" + string(validatorID) + "/jail")
+}
+
+func tombstoneKey(validatorID types.ValidatorID) []byte {
+	return []byte("validator/" + string(validatorID) + "/tombstone")
 }
 
 func unbondingKey(delegator types.Address, validatorID types.ValidatorID) []byte {

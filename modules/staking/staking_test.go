@@ -185,6 +185,20 @@ func TestStakingFullSlashRemovesDelegations(t *testing.T) {
 	if stake != 0 || power != 0 {
 		t.Fatalf("expected full slash to zero ledger, stake=%d power=%d", stake, power)
 	}
+	tombstoned, err := Tombstoned(context.Background(), storage, "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tombstoned {
+		t.Fatal("expected full slash to tombstone validator")
+	}
+	publicKey := base64.StdEncoding.EncodeToString([]byte("validator-public-key"))
+	if result := module.DeliverTx(vexoapp.Context{Height: 11, Store: storage}, types.Tx("staking:delegate:alice:validator-1:1:"+publicKey)); result.Code == 0 {
+		t.Fatal("expected tombstoned validator delegation to fail")
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 11, Store: storage}, types.Tx("staking:unjail:validator-1")); result.Code == 0 {
+		t.Fatal("expected tombstoned validator unjail to fail")
+	}
 }
 
 func TestStakingSlashingBatchFailureDoesNotMutateState(t *testing.T) {
@@ -495,6 +509,13 @@ func TestStakingCLICommands(t *testing.T) {
 	}
 	if strings.TrimSpace(output.String()) != "query_path: staking/rewards/alice/validator-1" {
 		t.Fatalf("unexpected rewards query cli output: %s", output.String())
+	}
+	output.Reset()
+	if err := runTombstoneQueryCLI(&output, []string{"validator-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(output.String()) != "query_path: staking/tombstone/validator-1" {
+		t.Fatalf("unexpected tombstone query cli output: %s", output.String())
 	}
 }
 

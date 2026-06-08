@@ -113,7 +113,7 @@ vexod proof da-recover --input da-bundle.json --drop 0 --drop 1
 
 ## IBC and Contract Extension Points
 
-The `ibc` package provides client, connection, channel, packet commitment, acknowledgement, and receipt primitives for building an IBC-compatible module. Full relayer/light-client protocol compatibility is chain integration work.
+The `ibc` package provides client, connection, channel, ordered/unordered channel validation, packet commitment, acknowledgement, and receipt primitives for building an IBC-compatible module. Full relayer/light-client protocol compatibility is chain integration work.
 
 Packet scaffolds can be generated from the CLI while chain-specific IBC modules wire packet commitments into state:
 

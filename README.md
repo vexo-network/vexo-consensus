@@ -19,7 +19,7 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 - Durable LevelDB storage for blocks, state, Merkle state roots, evidence, KV state, schema metadata, pruning, recovery, and snapshots.
 - Signed transaction envelopes with nonce, fee units, dynamic base fee, gas metering, and ante validation paths.
 - Data availability commitments with chunk proofs, deterministic sample verification, and bounded parity recovery.
-- Slashing evidence lifecycle with penalty receipts, jailing, unbonding checks, and restart-aware recovery.
+- Slashing evidence lifecycle with penalty receipts, jailing, tombstone records, unbonding checks, and restart-aware recovery.
 - gRPC/TCP/in-memory transport abstractions with peer handshake validation, scoring, bans, backoff, and rate limits.
 - Operations tooling for config audit, release gates, audit packs, snapshot drills, adversarial simulations, and parameter tuning.
 

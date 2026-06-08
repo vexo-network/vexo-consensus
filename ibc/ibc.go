@@ -21,6 +21,11 @@ const (
 	StateOpen    = "open"
 )
 
+const (
+	OrderingOrdered   = "ordered"
+	OrderingUnordered = "unordered"
+)
+
 var (
 	ErrInvalidClient            = errors.New("invalid IBC client")
 	ErrInvalidConnection        = errors.New("invalid IBC connection")
@@ -165,7 +170,7 @@ func (keeper *Keeper) UpdateConnectionState(ctx context.Context, connectionID st
 }
 
 func (keeper *Keeper) SetChannel(ctx context.Context, channel ChannelState) error {
-	if channel.PortID == "" || channel.ChannelID == "" || channel.ConnectionID == "" || channel.Counterparty == "" || channel.Ordering == "" || !validHandshakeState(channel.State) {
+	if channel.PortID == "" || channel.ChannelID == "" || channel.ConnectionID == "" || channel.Counterparty == "" || !validChannelOrdering(channel.Ordering) || !validHandshakeState(channel.State) {
 		return ErrInvalidChannel
 	}
 	return keeper.setJSON(ctx, channelKey(channel.PortID, channel.ChannelID), channel)
@@ -508,6 +513,15 @@ func validatePacket(packet Packet) error {
 func validHandshakeState(state string) bool {
 	switch state {
 	case StateInit, StateTryOpen, StateOpen:
+		return true
+	default:
+		return false
+	}
+}
+
+func validChannelOrdering(ordering string) bool {
+	switch ordering {
+	case OrderingOrdered, OrderingUnordered:
 		return true
 	default:
 		return false

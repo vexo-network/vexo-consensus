@@ -2608,6 +2608,12 @@ func web3DebugTraceTransaction(ctx context.Context, provider StatusProvider, par
 	if tracer == "callTracer" {
 		return web3ReceiptCallTrace(ctx, provider, receipt), nil
 	}
+	if tracer == "prestateTracer" {
+		return web3ReceiptPrestateTrace(ctx, provider, receipt), nil
+	}
+	if tracer == "4byteTracer" {
+		return web3Receipt4ByteTrace(ctx, provider, receipt), nil
+	}
 	return web3ReceiptDebugTraceResult(receipt), nil
 }
 
@@ -2926,6 +2932,74 @@ func web3ReceiptCallTrace(ctx context.Context, provider StatusProvider, receipt 
 		result["error"] = web3ReceiptError(receipt)
 	}
 	return result
+}
+
+func web3ReceiptPrestateTrace(ctx context.Context, provider StatusProvider, receipt web3Receipt) map[string]any {
+	_, _, tx, found := web3ReceiptBlockLocation(ctx, provider, receipt)
+	details := web3TxDetails{Input: "0x"}
+	if found {
+		details = web3TransactionDetails(tx)
+	}
+	out := map[string]any{}
+	if receipt.From != "" {
+		out[strings.ToLower(receipt.From)] = map[string]any{
+			"balance": "0x0",
+			"nonce":   hexQuantity(details.Nonce),
+			"code":    "0x",
+			"storage": map[string]any{},
+		}
+	}
+	to := receipt.To
+	if to == "" {
+		to = receipt.ContractAddress
+	}
+	if to != "" {
+		out[strings.ToLower(to)] = map[string]any{
+			"balance": "0x0",
+			"nonce":   "0x0",
+			"code":    "0x",
+			"storage": map[string]any{},
+		}
+	}
+	return out
+}
+
+func web3Receipt4ByteTrace(ctx context.Context, provider StatusProvider, receipt web3Receipt) map[string]any {
+	_, _, tx, found := web3ReceiptBlockLocation(ctx, provider, receipt)
+	if !found {
+		return map[string]any{}
+	}
+	return web3SelectorTrace(web3TransactionDetails(tx).Input)
+}
+
+func web3CallPrestateTrace(call web3CallRequest) map[string]any {
+	out := map[string]any{}
+	if call.From != "" {
+		out[strings.ToLower(call.From)] = map[string]any{
+			"balance": "0x0",
+			"nonce":   "0x0",
+			"code":    "0x",
+			"storage": map[string]any{},
+		}
+	}
+	if call.To != "" {
+		out[strings.ToLower(call.To)] = map[string]any{
+			"balance": "0x0",
+			"nonce":   "0x0",
+			"code":    "0x",
+			"storage": map[string]any{},
+		}
+	}
+	return out
+}
+
+func web3SelectorTrace(input string) map[string]any {
+	decoded, err := hexBytes(input)
+	if err != nil || len(decoded) < 4 {
+		return map[string]any{}
+	}
+	key := "0x" + hex.EncodeToString(decoded[:4]) + "-" + strconv.Itoa(len(decoded)-4)
+	return map[string]any{key: 1}
 }
 
 func web3TraceBlockRecord(ctx context.Context, provider StatusProvider, record store.BlockRecord) []any {
@@ -3356,6 +3430,14 @@ func web3DebugTraceCall(ctx context.Context, provider StatusProvider, params []j
 			"accessList": web3AccessList(callResponse.AccessList),
 		}, nil
 	}
+	if tracer == "prestateTracer" {
+		call, _ := evmCallParam(params)
+		return web3CallPrestateTrace(call), nil
+	}
+	if tracer == "4byteTracer" {
+		call, _ := evmCallParam(params)
+		return web3SelectorTrace(call.Input), nil
+	}
 	return map[string]any{
 		"gas":         callResponse.GasUsed,
 		"failed":      false,
@@ -3434,7 +3516,7 @@ func web3DebugTracer(params []json.RawMessage, index int) (string, *JSONRPCError
 		return "", &JSONRPCError{Code: -32602, Message: "debug trace config must be an object"}
 	}
 	switch config.Tracer {
-	case "", "callTracer", "structLogger":
+	case "", "callTracer", "structLogger", "prestateTracer", "4byteTracer":
 		return config.Tracer, nil
 	default:
 		return "", &JSONRPCError{Code: -32602, Message: "unsupported debug tracer " + config.Tracer}

@@ -89,6 +89,30 @@ func (context InvalidProposalVerificationContext) ProofHash() types.Hash {
 	return out
 }
 
+func BindInvalidProposalEvidenceContext(evidence slashing.Evidence, context InvalidProposalVerificationContext) (slashing.Evidence, error) {
+	if evidence.Type != slashing.EvidenceInvalidProposal {
+		return slashing.Evidence{}, slashing.ErrUnknownEvidenceType
+	}
+	proof, err := DecodeInvalidProposalProof(evidence.Proof)
+	if err != nil {
+		return slashing.Evidence{}, err
+	}
+	if err := verifyInvalidProposalEnvelope(proof, evidence.Validator, evidence.Height, evidence.Round); err != nil {
+		return slashing.Evidence{}, err
+	}
+	contextProofHash := context.ProofHash()
+	if contextProofHash == (types.Hash{}) {
+		return slashing.Evidence{}, ErrInvalidProposalContext
+	}
+	proof.ContextProofHash = contextProofHash
+	encoded, err := json.Marshal(proof)
+	if err != nil {
+		return slashing.Evidence{}, err
+	}
+	evidence.Proof = encoded
+	return evidence, nil
+}
+
 type UnavailableDataProof struct {
 	Proposal Proposal `json:"proposal"`
 	Reason   string   `json:"reason"`

@@ -58,6 +58,7 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "state_sync.snapshot_verify: true\n")
 	fmt.Fprintf(writer, "state_sync.snapshot_chunks: true\n")
 	fmt.Fprintf(writer, "staking.slashing_ledger: true\n")
+	fmt.Fprintf(writer, "staking.tombstone_ledger: true\n")
 	fmt.Fprintf(writer, "ops.metrics_uptime: true\n")
 	fmt.Fprintf(writer, "ops.pprof_optional: true\n")
 	fmt.Fprintf(writer, "ops.structured_logs: true\n")
@@ -70,6 +71,7 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "security.forwarded_for_untrusted: true\n")
 	fmt.Fprintf(writer, "web3.raw_tx_access_list_prewarm: true\n")
 	fmt.Fprintf(writer, "web3.call_vm_trace_state_diff: true\n")
+	fmt.Fprintf(writer, "web3.prestate_and_4byte_tracers: true\n")
 	fmt.Fprintf(writer, "consensus.adversarial_simulation: true\n")
 	fmt.Fprintf(writer, "consensus.partition_safety_simulation: true\n")
 	fmt.Fprintf(writer, "consensus.tendermint_style_timeouts: true\n")
@@ -269,6 +271,7 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"web3_access_list_call_trace":              true,
 			"web3_raw_tx_access_list_prewarm":          true,
 			"web3_call_vm_trace_state_diff":            true,
+			"web3_prestate_and_4byte_tracers":          true,
 			"web3_raw_tx_replay_trace":                 true,
 			"web3_pending_tx_compat":                   true,
 			"web3_safe_finalized_tags":                 true,
@@ -294,6 +297,8 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			"execution_context_aware_app_calls":        true,
 			"validator_update_atomic_commit":           true,
 			"staking_slashing_ledger":                  true,
+			"staking_tombstone_ledger":                 true,
+			"ibc_ordering_validation":                  true,
 			"mempool_seen_cache_pruning":               true,
 			"ops_metrics_uptime":                       true,
 			"ops_pprof_optional":                       true,

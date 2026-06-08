@@ -304,6 +304,9 @@ func TestKeeperConnectionAndChannelHandshakeTransitions(t *testing.T) {
 	if err != nil || !found || channel.State != StateOpen {
 		t.Fatalf("unexpected channel found=%t channel=%+v err=%v", found, channel, err)
 	}
+	if err := keeper.SetChannel(ctx, ChannelState{PortID: "transfer", ChannelID: "channel-bad", ConnectionID: "connection-0", Counterparty: "channel-2", Ordering: "random", State: StateOpen}); !errors.Is(err, ErrInvalidChannel) {
+		t.Fatalf("expected invalid channel ordering rejection, got %v", err)
+	}
 }
 
 func TestKeeperPacketTimeoutLifecycle(t *testing.T) {

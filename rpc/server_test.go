@@ -1248,10 +1248,17 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if callTrace.Error != nil || !ok || callTraceResult["type"] != "CALL" || callTraceResult["gasUsed"] != "0x7" {
 		t.Fatalf("unexpected call trace: %+v", callTrace)
 	}
-	var unsupportedTrace JSONRPCResponse
-	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":114,"method":"debug_traceTransaction","params":["`+blockTxHashText+`",{"tracer":"prestateTracer"}]}`, http.StatusOK, &unsupportedTrace)
-	if unsupportedTrace.Error == nil || !strings.Contains(unsupportedTrace.Error.Message, "unsupported debug tracer") {
-		t.Fatalf("expected unsupported tracer rejection: %+v", unsupportedTrace)
+	var prestateTrace JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":114,"method":"debug_traceTransaction","params":["`+blockTxHashText+`",{"tracer":"prestateTracer"}]}`, http.StatusOK, &prestateTrace)
+	prestateResult, ok := prestateTrace.Result.(map[string]any)
+	if prestateTrace.Error != nil || !ok || len(prestateResult) == 0 {
+		t.Fatalf("unexpected prestate tracer response: %+v", prestateTrace)
+	}
+	var fourByteTrace JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":116,"method":"debug_traceTransaction","params":["`+blockTxHashText+`",{"tracer":"4byteTracer"}]}`, http.StatusOK, &fourByteTrace)
+	_, ok = fourByteTrace.Result.(map[string]any)
+	if fourByteTrace.Error != nil || !ok {
+		t.Fatalf("unexpected 4byte tracer response: %+v", fourByteTrace)
 	}
 	var debugBlockTrace JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":80,"method":"debug_traceBlockByNumber","params":["latest"]}`, http.StatusOK, &debugBlockTrace)
@@ -1498,10 +1505,17 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if debugStruct.Error != nil || !ok || len(structLogs) != 1 {
 		t.Fatalf("unexpected debug struct trace call: %+v", debugStruct)
 	}
-	var unsupportedDebugCall JSONRPCResponse
-	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":115,"method":"debug_traceCall","params":[{"from":"0xaaaa","to":"0xbbbb","data":"0x1234"},"latest",{"tracer":"prestateTracer"}]}`, http.StatusOK, &unsupportedDebugCall)
-	if unsupportedDebugCall.Error == nil || !strings.Contains(unsupportedDebugCall.Error.Message, "unsupported debug tracer") {
-		t.Fatalf("expected unsupported debug_traceCall tracer rejection: %+v", unsupportedDebugCall)
+	var prestateDebugCall JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":115,"method":"debug_traceCall","params":[{"from":"0xaaaa","to":"0xbbbb","data":"0x12345678"},"latest",{"tracer":"prestateTracer"}]}`, http.StatusOK, &prestateDebugCall)
+	prestateDebugCallResult, ok := prestateDebugCall.Result.(map[string]any)
+	if prestateDebugCall.Error != nil || !ok || len(prestateDebugCallResult) != 2 {
+		t.Fatalf("unexpected prestate debug_traceCall response: %+v", prestateDebugCall)
+	}
+	var fourByteDebugCall JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":116,"method":"debug_traceCall","params":[{"from":"0xaaaa","to":"0xbbbb","data":"0x12345678"},"latest",{"tracer":"4byteTracer"}]}`, http.StatusOK, &fourByteDebugCall)
+	fourByteDebugCallResult, ok := fourByteDebugCall.Result.(map[string]any)
+	if fourByteDebugCall.Error != nil || !ok || fourByteDebugCallResult["0x12345678-0"] != float64(1) {
+		t.Fatalf("unexpected 4byte debug_traceCall response: %+v", fourByteDebugCall)
 	}
 
 	var traceCall JSONRPCResponse

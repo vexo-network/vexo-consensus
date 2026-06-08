@@ -24,6 +24,7 @@ func stakingCLICommand() vexoapp.CLICommand {
 			"staking tx set-commission validator-1 500 --signer validator-1",
 			"staking query validator validator-1",
 			"staking query rewards alice validator-1",
+			"staking query tombstone validator-1",
 		},
 		Children: []vexoapp.CLICommand{
 			{
@@ -137,6 +138,15 @@ func stakingCLICommand() vexoapp.CLICommand {
 							{Name: "validator", Description: "validator id"},
 						},
 						Run: runCommissionQueryCLI,
+					},
+					{
+						Name:        "tombstone",
+						Usage:       "staking query tombstone <validator>",
+						Description: "build a validator tombstone query path",
+						Args: []vexoapp.CLIArg{
+							{Name: "validator", Description: "validator id"},
+						},
+						Run: runTombstoneQueryCLI,
 					},
 				},
 			},
@@ -298,6 +308,14 @@ func runCommissionQueryCLI(writer io.Writer, args []string) error {
 		return vexoapp.ErrCLIUsage("staking query commission <validator>")
 	}
 	fmt.Fprintf(writer, "query_path: %s/commission/%s\n", ModuleName, args[0])
+	return nil
+}
+
+func runTombstoneQueryCLI(writer io.Writer, args []string) error {
+	if len(args) != 1 {
+		return vexoapp.ErrCLIUsage("staking query tombstone <validator>")
+	}
+	fmt.Fprintf(writer, "query_path: %s/tombstone/%s\n", ModuleName, args[0])
 	return nil
 }
 
