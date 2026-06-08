@@ -24,6 +24,7 @@ Vexo should not claim public production readiness unless every row has attached 
 - Metrics must include thresholds, not only raw values.
 - Slashing and validator economics evidence must include negative tests for false slashing.
 - Light-client evidence must bind finality proof height to the correct validator-set hash.
+- SDK/Web3 evidence must cover Vexo's supported Ethereum execution/RPC surface and must not imply Ethereum devp2p, Ethereum fork-choice, or geth stateless execution-witness compatibility.
 - MEV/fee-market evidence must include congested mempool, empty-block disabled, base-fee movement, fair-ordering consistency, and censorship-resistance drills.
 - Upgrade evidence must include failed migration and rollback-required handling.
 

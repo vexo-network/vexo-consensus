@@ -1044,6 +1044,44 @@ func TestNodeBuildsTxValidityEvidenceContextFromStoredBlockResults(t *testing.T)
 	}
 }
 
+func TestNodeBuildsTimestampEvidenceContextFromStoredBlock(t *testing.T) {
+	ctx := context.Background()
+	signer := deterministicSignerForID("alice")
+	node := newTestNodeWithSigner(t, signer)
+	if err := node.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer node.Stop(ctx)
+	runtime, err := node.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 1, TimeUnixNano: 12345},
+	}
+	if _, err := runtime.ExecuteBlock(ctx, block); err != nil {
+		t.Fatal(err)
+	}
+	proposal := signedNodeTestProposal(t, signer, consensus.Proposal{
+		Block: types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: 1, TimeUnixNano: 99999},
+		},
+		Round:    0,
+		Proposer: "alice",
+	})
+	evidence, err := consensus.NewInvalidProposalTimestampEvidence(proposal, block.Header.TimeUnixNano, proposal.Block.Header.TimeUnixNano)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verificationContext, err := node.evidenceVerificationContext(ctx, runtime, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verificationContext.InvalidProposal.ExpectedTimeUnixNano != block.Header.TimeUnixNano {
+		t.Fatalf("expected timestamp context %d, got %+v", block.Header.TimeUnixNano, verificationContext.InvalidProposal.ExpectedTimeUnixNano)
+	}
+}
+
 func TestNodeReadsDurableFinalityProofWithoutLiveDecision(t *testing.T) {
 	ctx := context.Background()
 	storage, err := store.OpenLevelDB(t.TempDir())

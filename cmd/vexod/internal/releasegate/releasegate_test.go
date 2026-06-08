@@ -179,7 +179,7 @@ func semanticEvidenceContentForPath(path string) []byte {
 	case "formal-safety.json":
 		return []byte(`{"ok":true,"summary":"safety invariant adversarial property proof evidence passed"}`)
 	case "sdk-conformance.json":
-		return []byte(`{"ok":true,"summary":"sdk api conformance module rpc storage crypto transport evidence passed"}`)
+		return []byte(`{"ok":true,"summary":"sdk api conformance module rpc storage crypto transport evm web3 ethereum evidence passed"}`)
 	case "audit.pdf":
 		return []byte(`external security audit disposition evidence passed`)
 	case "bls.pdf":

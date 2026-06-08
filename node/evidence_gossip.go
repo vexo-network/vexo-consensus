@@ -223,6 +223,16 @@ func (node *Node) evidenceVerificationContext(ctx context.Context, runtime *vexo
 		}
 		verificationContext.InvalidProposal.ExpectedTxResultsHash = consensus.HashTxResults(blockRecord.TxResults)
 	}
+	if proof.Reason == consensus.InvalidProposalReasonTimestamp {
+		blockRecord, err := runtime.Store.BlockByHeight(ctx, evidence.Height)
+		if errors.Is(err, store.ErrBlockNotFound) {
+			return verificationContext, nil
+		}
+		if err != nil {
+			return consensus.EvidenceVerificationContext{}, err
+		}
+		verificationContext.InvalidProposal.ExpectedTimeUnixNano = blockRecord.Block.Header.TimeUnixNano
+	}
 	return verificationContext, nil
 }
 

@@ -214,7 +214,7 @@ func runReleaseGate(writer io.Writer, args []string) error {
 	mevFeeMarketEvidence := flags.String("mev-fee-market-evidence", "", "MEV, fair ordering, fee-market, and mempool evidence path")
 	opsRunbookEvidence := flags.String("ops-runbook-evidence", "", "operator runbook, alert threshold, and incident drill evidence path")
 	formalSafetyEvidence := flags.String("formal-safety-evidence", "", "formal safety argument, invariant, and adversarial evidence path")
-	sdkConformanceEvidence := flags.String("sdk-conformance-evidence", "", "SDK/API module, storage, crypto, transport, and RPC conformance evidence path")
+	sdkConformanceEvidence := flags.String("sdk-conformance-evidence", "", "SDK/API module, storage, crypto, transport, RPC, EVM, and Web3 conformance evidence path")
 	externalAudit := flags.String("external-audit", "", "external security audit report or disposition path")
 	blsAudit := flags.String("bls-audit", "", "audited BLS adapter/dependency audit evidence path")
 	allowExternalPending := flags.Bool("allow-external-pending", false, "allow external audit/BLS audit to remain pending for private release candidates")
@@ -305,7 +305,7 @@ func buildProductionReadinessDocument() productionReadinessDocument {
 			"chain-specific staking custody, rewards, commission, tombstone, jail, unbonding, and slashing accounting review",
 			"chain-specific durable governance state, proposal execution authority, rollback, and failed-upgrade recovery review",
 			"fee-market and MEV mitigation evidence covering base fee, fair ordering, spam cost, mempool durability, and censorship-resistance drills",
-			"SDK/API conformance evidence for module, storage, crypto, transport, RPC versioning, and upgrade extension points",
+			"SDK/API conformance evidence for module, storage, crypto, transport, RPC/Web3 versioning, EVM execution semantics, and upgrade extension points",
 		},
 	}
 	for _, check := range []productionReadinessCheck{

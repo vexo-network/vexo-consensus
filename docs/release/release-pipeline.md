@@ -88,7 +88,7 @@ go run ./cmd/vexod release gate \
 - `sbom-go-version.txt`
 - `release-manifest.json`
 - `release-audit-pack.json`
-- long-run, chaos, adversarial, fuzz, signer, snapshot/replay, P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, SDK conformance, external-audit, and BLS-audit evidence files with passing content when preparing a release candidate
+- long-run, chaos, adversarial, fuzz, signer, snapshot/replay, P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, SDK conformance including EVM/Web3 conformance, external-audit, and BLS-audit evidence files with passing content when preparing a release candidate
 
 ## Reproducibility Notes
 
@@ -148,7 +148,7 @@ The `release-candidate` target runs:
 - 7-day multi-host longrun plan
 - longrun harness evidence (`RC_DRY_RUN=1` keeps this as a plan-only dry-run)
 
-Real release candidates should run `network longrun` on independent machines and attach the generated evidence JSON plus metrics, logs, pprof, snapshot, replay, KMS signing, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, and SDK conformance evidence.
+Real release candidates should run `network longrun` on independent machines and attach the generated evidence JSON plus metrics, logs, pprof, snapshot, replay, KMS signing, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, SDK conformance, and EVM/Web3 conformance evidence.
 The longrun harness distributes load across validator RPC endpoints and records per-validator submission counts in the evidence payload. Upgrade plans that rely on no-op schema migrations must explicitly set `allow_noop_migrations=true`; `vexod upgrade apply --allow-empty-migrations` rejects plans that do not opt in.
 
 ## Launch Runbook
