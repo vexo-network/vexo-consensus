@@ -2,6 +2,7 @@ package consensus
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -338,6 +339,47 @@ func TestInvalidProposalTxValidityEvidenceRequiresResultHashContext(t *testing.T
 	}
 	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedTxResultsHash: expected}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestInvalidProposalTxExecutionEvidenceBindsResultArrays(t *testing.T) {
+	proposal := Proposal{
+		Block: types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: 7},
+			Txs:    []types.Tx{[]byte("first"), []byte("bad-tx")},
+		},
+		Round:    1,
+		Proposer: "validator-1",
+	}
+	expectedResults := []types.Result{{}, {Code: 1, Log: "ante rejected tx", GasUsed: 1}}
+	actualResults := []types.Result{{}, {Code: 0, Data: []byte("accepted"), GasUsed: 9}}
+	expected := HashTxResults(expectedResults)
+	evidence, err := NewInvalidProposalTxExecutionEvidence(proposal, expectedResults, actualResults, 1, "deterministic tx execution mismatch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedTxResultsHash: expected}); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeInvalidProposalProof(evidence.Proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.ExecutionProof == nil || decoded.ExecutionProof.TxIndex != 1 || string(decoded.ExecutionProof.Tx) != "bad-tx" {
+		t.Fatalf("execution proof was not bound to tx index: %+v", decoded.ExecutionProof)
+	}
+	decoded.ExecutionProof.ActualResults[1] = decoded.ExecutionProof.ExpectedResults[1]
+	tamperedProof, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence.Proof = tamperedProof
+	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedTxResultsHash: expected}); !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected tampered execution proof rejection, got %v", err)
+	}
+	_, err = NewInvalidProposalTxExecutionEvidence(proposal, expectedResults[:1], actualResults, 1, "bad lengths")
+	if !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected invalid result length rejection, got %v", err)
 	}
 }
 

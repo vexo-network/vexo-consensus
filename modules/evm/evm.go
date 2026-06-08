@@ -1320,107 +1320,149 @@ func receiptFromTxResult(result types.Result) (Receipt, bool) {
 }
 
 func persistExecutionResult(ctx context.Context, store vexoapp.StateStore, defaultAddress types.Address, result contract.Result) error {
-	if err := persistCodeWrites(ctx, store, result.CodeWrites); err != nil {
+	writes, err := executionResultWrites(ctx, store, defaultAddress, result)
+	if err != nil {
 		return err
 	}
-	if err := persistStorageWrites(ctx, store, defaultAddress, result.StorageWrites); err != nil {
-		return err
+	return applyKVWrites(ctx, store, writes)
+}
+
+func executionResultWrites(ctx context.Context, store vexoapp.StateStore, defaultAddress types.Address, result contract.Result) ([]vexostore.KVWrite, error) {
+	writes := make([]vexostore.KVWrite, 0, len(result.CodeWrites)+len(result.StorageWrites)+len(result.BalanceWrites)+len(result.NonceWrites)+len(result.AccountDeletions)*3)
+	codeWrites, err := codeKVWrites(result.CodeWrites)
+	if err != nil {
+		return nil, err
 	}
-	if err := persistBalanceWrites(ctx, store, result.BalanceWrites); err != nil {
-		return err
+	writes = append(writes, codeWrites...)
+	storageWrites, err := storageKVWrites(defaultAddress, result.StorageWrites)
+	if err != nil {
+		return nil, err
 	}
-	if err := persistNonceWrites(ctx, store, result.NonceWrites); err != nil {
-		return err
+	writes = append(writes, storageWrites...)
+	balanceWrites, err := balanceKVWrites(result.BalanceWrites)
+	if err != nil {
+		return nil, err
 	}
-	return persistAccountDeletions(ctx, store, result.AccountDeletions)
+	writes = append(writes, balanceWrites...)
+	nonceWrites, err := nonceKVWrites(result.NonceWrites)
+	if err != nil {
+		return nil, err
+	}
+	writes = append(writes, nonceWrites...)
+	deletionWrites, err := accountDeletionKVWrites(ctx, store, result.AccountDeletions)
+	if err != nil {
+		return nil, err
+	}
+	writes = append(writes, deletionWrites...)
+	return writes, nil
 }
 
 func persistCodeWrites(ctx context.Context, store vexoapp.StateStore, writes []contract.CodeWrite) error {
+	kvWrites, err := codeKVWrites(writes)
+	if err != nil {
+		return err
+	}
+	return applyKVWrites(ctx, store, kvWrites)
+}
+
+func codeKVWrites(writes []contract.CodeWrite) ([]vexostore.KVWrite, error) {
+	kvWrites := make([]vexostore.KVWrite, 0, len(writes))
 	for _, write := range writes {
 		if write.Address == "" {
-			return ErrInvalidEVMTx
+			return nil, ErrInvalidEVMTx
 		}
 		if write.Delete {
-			if err := store.Delete(ctx, ModuleName, codeKey(write.Address)); err != nil {
-				return err
-			}
+			kvWrites = append(kvWrites, deleteWrite(ModuleName, codeKey(write.Address)))
 			continue
 		}
-		if err := store.Set(ctx, ModuleName, codeKey(write.Address), append([]byte(nil), write.Code...)); err != nil {
-			return err
-		}
+		kvWrites = append(kvWrites, vexostore.KVWrite{Namespace: ModuleName, Key: codeKey(write.Address), Value: append([]byte(nil), write.Code...)})
 	}
-	return nil
+	return kvWrites, nil
 }
 
 func persistAccountDeletions(ctx context.Context, store vexoapp.StateStore, deletions []contract.AccountDeletion) error {
+	writes, err := accountDeletionKVWrites(ctx, store, deletions)
+	if err != nil {
+		return err
+	}
+	return applyKVWrites(ctx, store, writes)
+}
+
+func accountDeletionKVWrites(ctx context.Context, store vexoapp.StateStore, deletions []contract.AccountDeletion) ([]vexostore.KVWrite, error) {
+	writes := make([]vexostore.KVWrite, 0, len(deletions)*3)
 	for _, deletion := range deletions {
 		if deletion.Address == "" {
-			return ErrInvalidEVMTx
+			return nil, ErrInvalidEVMTx
 		}
-		if err := store.Delete(ctx, ModuleName, codeKey(deletion.Address)); err != nil {
-			return err
-		}
-		if err := store.Delete(ctx, "bank", evmBankKey(deletion.Address)); err != nil {
-			return err
-		}
-		if err := store.Delete(ctx, "auth", evmNonceKey(deletion.Address)); err != nil {
-			return err
-		}
+		writes = append(writes,
+			deleteWrite(ModuleName, codeKey(deletion.Address)),
+			deleteWrite("bank", evmBankKey(deletion.Address)),
+			deleteWrite("auth", evmNonceKey(deletion.Address)),
+		)
 		prefixStore, ok := store.(vexostore.PrefixKVStore)
 		if !ok {
 			continue
 		}
 		pairs, err := prefixStore.ExportPrefix(ctx, ModuleName, storageAccountPrefix(deletion.Address))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, pair := range pairs {
-			if err := store.Delete(ctx, ModuleName, pair.Key); err != nil {
-				return err
-			}
+			writes = append(writes, deleteWrite(ModuleName, pair.Key))
 		}
 	}
-	return nil
+	return writes, nil
 }
 
 func persistStorageWrites(ctx context.Context, store vexoapp.StateStore, defaultAddress types.Address, writes []contract.StorageWrite) error {
+	kvWrites, err := storageKVWrites(defaultAddress, writes)
+	if err != nil {
+		return err
+	}
+	return applyKVWrites(ctx, store, kvWrites)
+}
+
+func storageKVWrites(defaultAddress types.Address, writes []contract.StorageWrite) ([]vexostore.KVWrite, error) {
+	kvWrites := make([]vexostore.KVWrite, 0, len(writes))
 	for _, write := range writes {
 		address := write.Address
 		if address == "" {
 			address = defaultAddress
 		}
 		if address == "" || write.Slot == "" {
-			return ErrInvalidEVMTx
+			return nil, ErrInvalidEVMTx
 		}
 		key := storageKey(address, write.Slot)
 		if write.Delete {
-			if err := store.Delete(ctx, ModuleName, key); err != nil {
-				return err
-			}
+			kvWrites = append(kvWrites, deleteWrite(ModuleName, key))
 			continue
 		}
-		if err := store.Set(ctx, ModuleName, key, append([]byte(nil), write.Value...)); err != nil {
-			return err
-		}
+		kvWrites = append(kvWrites, vexostore.KVWrite{Namespace: ModuleName, Key: key, Value: append([]byte(nil), write.Value...)})
 	}
-	return nil
+	return kvWrites, nil
 }
 
 func persistBalanceWrites(ctx context.Context, store vexoapp.StateStore, writes []contract.BalanceWrite) error {
+	kvWrites, err := balanceKVWrites(writes)
+	if err != nil {
+		return err
+	}
+	return applyKVWrites(ctx, store, kvWrites)
+}
+
+func balanceKVWrites(writes []contract.BalanceWrite) ([]vexostore.KVWrite, error) {
+	kvWrites := make([]vexostore.KVWrite, 0, len(writes))
 	for _, write := range writes {
 		if write.Address == "" {
-			return ErrInvalidEVMTx
+			return nil, ErrInvalidEVMTx
 		}
 		encoded, err := encodeEthereumBalance(write)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if err := store.Set(ctx, "bank", evmBankKey(write.Address), encoded); err != nil {
-			return err
-		}
+		kvWrites = append(kvWrites, vexostore.KVWrite{Namespace: "bank", Key: evmBankKey(write.Address), Value: encoded})
 	}
-	return nil
+	return kvWrites, nil
 }
 
 func encodeEthereumBalance(write contract.BalanceWrite) ([]byte, error) {
@@ -1461,17 +1503,24 @@ func accountBalanceHex(account ethcompat.AccountState) string {
 }
 
 func persistNonceWrites(ctx context.Context, store vexoapp.StateStore, writes []contract.NonceWrite) error {
+	kvWrites, err := nonceKVWrites(writes)
+	if err != nil {
+		return err
+	}
+	return applyKVWrites(ctx, store, kvWrites)
+}
+
+func nonceKVWrites(writes []contract.NonceWrite) ([]vexostore.KVWrite, error) {
+	kvWrites := make([]vexostore.KVWrite, 0, len(writes))
 	for _, write := range writes {
 		if write.Address == "" {
-			return ErrInvalidEVMTx
+			return nil, ErrInvalidEVMTx
 		}
 		var encoded [8]byte
 		binary.BigEndian.PutUint64(encoded[:], write.Nonce)
-		if err := store.Set(ctx, "auth", evmNonceKey(write.Address), encoded[:]); err != nil {
-			return err
-		}
+		kvWrites = append(kvWrites, vexostore.KVWrite{Namespace: "auth", Key: evmNonceKey(write.Address), Value: append([]byte(nil), encoded[:]...)})
 	}
-	return nil
+	return kvWrites, nil
 }
 
 func persistLog(ctx context.Context, store vexoapp.StateStore, log Log) error {

@@ -266,6 +266,115 @@ func TestModuleBeginBlockPersistsLatestBlockContext(t *testing.T) {
 	}
 }
 
+func TestExecutionResultWritesBundleAllStateChanges(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	defaultAddress := types.Address("0x000000000000000000000000000000000000c0de")
+	deletedAddress := types.Address("0x000000000000000000000000000000000000dead")
+	codeAddress := types.Address("0x000000000000000000000000000000000000babe")
+	if err := storage.Set(ctx, ModuleName, codeKey(deletedAddress), []byte{0xff}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Set(ctx, ModuleName, storageKey(deletedAddress, "0x01"), []byte{0xaa}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Set(ctx, "bank", evmBankKey(deletedAddress), []byte{0x01}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Set(ctx, "auth", evmNonceKey(deletedAddress), []byte{0x01}); err != nil {
+		t.Fatal(err)
+	}
+	result := contract.Result{
+		CodeWrites: []contract.CodeWrite{{
+			Address: codeAddress,
+			Code:    []byte{0x60, 0x01},
+		}},
+		StorageWrites: []contract.StorageWrite{{
+			Slot:  "0x02",
+			Value: []byte{0xbb},
+		}},
+		BalanceWrites: []contract.BalanceWrite{{
+			Address:    defaultAddress,
+			BalanceBig: new(big.Int).SetUint64(12345),
+		}},
+		NonceWrites: []contract.NonceWrite{{
+			Address: defaultAddress,
+			Nonce:   9,
+		}},
+		AccountDeletions: []contract.AccountDeletion{{
+			Address: deletedAddress,
+		}},
+	}
+	writes, err := executionResultWrites(ctx, storage, defaultAddress, result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(writes) != 8 {
+		t.Fatalf("expected bundled code/storage/balance/nonce/account deletion writes, got %d: %+v", len(writes), writes)
+	}
+	if err := applyKVWrites(ctx, storage, writes); err != nil {
+		t.Fatal(err)
+	}
+	if value, err := storage.Get(ctx, ModuleName, codeKey(codeAddress)); err != nil || !bytes.Equal(value, []byte{0x60, 0x01}) {
+		t.Fatalf("expected code write to be applied, value=%x err=%v", value, err)
+	}
+	if value, err := storage.Get(ctx, ModuleName, storageKey(defaultAddress, "0x02")); err != nil || !bytes.Equal(value, []byte{0xbb}) {
+		t.Fatalf("expected default-address storage write to be applied, value=%x err=%v", value, err)
+	}
+	if _, _, err := decodeEthereumBalance(mustGetStoreValue(t, storage, "bank", evmBankKey(defaultAddress))); err != nil {
+		t.Fatalf("expected valid ethereum balance encoding: %v", err)
+	}
+	if balance, _, _ := decodeEthereumBalance(mustGetStoreValue(t, storage, "bank", evmBankKey(defaultAddress))); balance != 12345 {
+		t.Fatalf("expected balance 12345, got %d", balance)
+	}
+	if nonce := binary.BigEndian.Uint64(mustGetStoreValue(t, storage, "auth", evmNonceKey(defaultAddress))); nonce != 9 {
+		t.Fatalf("expected nonce 9, got %d", nonce)
+	}
+	for _, item := range []struct {
+		namespace string
+		key       []byte
+	}{
+		{ModuleName, codeKey(deletedAddress)},
+		{ModuleName, storageKey(deletedAddress, "0x01")},
+		{"bank", evmBankKey(deletedAddress)},
+		{"auth", evmNonceKey(deletedAddress)},
+	} {
+		if _, err := storage.Get(ctx, item.namespace, item.key); !errors.Is(err, store.ErrKeyNotFound) {
+			t.Fatalf("expected deleted key %s/%s to be absent, got %v", item.namespace, item.key, err)
+		}
+	}
+}
+
+func TestPersistExecutionResultValidatesBeforeMutatingState(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	codeAddress := types.Address("0x000000000000000000000000000000000000babe")
+	err = persistExecutionResult(ctx, storage, codeAddress, contract.Result{
+		CodeWrites: []contract.CodeWrite{{
+			Address: codeAddress,
+			Code:    []byte{0x60, 0x01},
+		}},
+		StorageWrites: []contract.StorageWrite{{
+			Address: codeAddress,
+			Value:   []byte{0x01},
+		}},
+	})
+	if !errors.Is(err, ErrInvalidEVMTx) {
+		t.Fatalf("expected invalid EVM tx, got %v", err)
+	}
+	if _, err := storage.Get(ctx, ModuleName, codeKey(codeAddress)); !errors.Is(err, store.ErrKeyNotFound) {
+		t.Fatalf("expected no partial code write after invalid result, got %v", err)
+	}
+}
+
 func TestModuleQueryCallPassesWeb3ExecutionContext(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
@@ -1547,4 +1656,13 @@ func mustJSON(t *testing.T, value any) string {
 		t.Fatal(err)
 	}
 	return string(encoded)
+}
+
+func mustGetStoreValue(t *testing.T, storage vexoapp.StateStore, namespace string, key []byte) []byte {
+	t.Helper()
+	value, err := storage.Get(context.Background(), namespace, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
 }

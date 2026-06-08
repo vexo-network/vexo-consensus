@@ -60,9 +60,17 @@ type InvalidProposalProof struct {
 	ActualHash           types.Hash            `json:"actual_hash,omitempty"`
 	ContextProofHash     types.Hash            `json:"context_proof_hash,omitempty"`
 	StateProof           *queryproof.Proof     `json:"state_proof,omitempty"`
+	ExecutionProof       *TxExecutionProof     `json:"execution_proof,omitempty"`
 	ExpectedTimeUnixNano int64                 `json:"expected_time_unix_nano,omitempty"`
 	ActualTimeUnixNano   int64                 `json:"actual_time_unix_nano,omitempty"`
 	VerificationMessage  string                `json:"verification_message,omitempty"`
+}
+
+type TxExecutionProof struct {
+	TxIndex         uint64         `json:"tx_index"`
+	Tx              types.Tx       `json:"tx"`
+	ExpectedResults []types.Result `json:"expected_results"`
+	ActualResults   []types.Result `json:"actual_results"`
 }
 
 type InvalidProposalVerificationContext struct {
@@ -307,6 +315,31 @@ func NewInvalidProposalTxValidityEvidence(proposal Proposal, expected types.Hash
 	return newInvalidProposalEvidenceFromProof(proof)
 }
 
+func NewInvalidProposalTxExecutionEvidence(proposal Proposal, expectedResults []types.Result, actualResults []types.Result, txIndex uint64, message string) (slashing.Evidence, error) {
+	if proposal.Proposer == "" || proposal.Block.Header.Height == 0 {
+		return slashing.Evidence{}, slashing.ErrMissingValidator
+	}
+	if message == "" || len(expectedResults) == 0 || len(actualResults) == 0 || len(expectedResults) != len(proposal.Block.Txs) || len(actualResults) != len(proposal.Block.Txs) || txIndex >= uint64(len(proposal.Block.Txs)) {
+		return slashing.Evidence{}, ErrInvalidProposal
+	}
+	expectedHash := HashTxResults(expectedResults)
+	actualHash := HashTxResults(actualResults)
+	proof := InvalidProposalProof{
+		Proposal:            proposal,
+		Reason:              InvalidProposalReasonTxValidity,
+		ExpectedHash:        expectedHash,
+		ActualHash:          actualHash,
+		VerificationMessage: message,
+		ExecutionProof: &TxExecutionProof{
+			TxIndex:         txIndex,
+			Tx:              append(types.Tx(nil), proposal.Block.Txs[txIndex]...),
+			ExpectedResults: cloneResults(expectedResults),
+			ActualResults:   cloneResults(actualResults),
+		},
+	}
+	return newInvalidProposalEvidenceFromProof(proof)
+}
+
 func NewInvalidProposalTimestampEvidence(proposal Proposal, expected int64, actual int64) (slashing.Evidence, error) {
 	if proposal.Proposer == "" || proposal.Block.Header.Height == 0 {
 		return slashing.Evidence{}, slashing.ErrMissingValidator
@@ -426,7 +459,7 @@ func verifyInvalidProposalByReason(decoded InvalidProposalProof) error {
 		if decoded.VerificationMessage == "" {
 			return ErrInvalidProposal
 		}
-		if err := verifyHashMismatch(decoded, txSetHash(decoded.Proposal.Block.Txs)); err != nil {
+		if err := verifyTxValidityMismatch(decoded); err != nil {
 			return err
 		}
 		return nil
@@ -464,6 +497,59 @@ func txSetHash(txs []types.Tx) types.Hash {
 	var out types.Hash
 	copy(out[:], hasher.Sum(nil))
 	return out
+}
+
+func verifyTxValidityMismatch(decoded InvalidProposalProof) error {
+	if decoded.ExpectedHash == (types.Hash{}) ||
+		decoded.ActualHash == (types.Hash{}) ||
+		decoded.ExpectedHash == decoded.ActualHash {
+		return ErrInvalidProposal
+	}
+	if decoded.ExecutionProof == nil {
+		if decoded.ActualHash != txSetHash(decoded.Proposal.Block.Txs) {
+			return ErrInvalidProposal
+		}
+		return nil
+	}
+	proof := decoded.ExecutionProof
+	if proof.TxIndex >= uint64(len(decoded.Proposal.Block.Txs)) ||
+		!bytes.Equal(proof.Tx, decoded.Proposal.Block.Txs[proof.TxIndex]) ||
+		len(proof.ExpectedResults) != len(decoded.Proposal.Block.Txs) ||
+		len(proof.ActualResults) != len(decoded.Proposal.Block.Txs) {
+		return ErrInvalidProposal
+	}
+	if HashTxResults(proof.ExpectedResults) != decoded.ExpectedHash ||
+		HashTxResults(proof.ActualResults) != decoded.ActualHash {
+		return ErrInvalidProposal
+	}
+	if sameResult(proof.ExpectedResults[proof.TxIndex], proof.ActualResults[proof.TxIndex]) {
+		return ErrInvalidProposal
+	}
+	return nil
+}
+
+func cloneResults(results []types.Result) []types.Result {
+	if len(results) == 0 {
+		return nil
+	}
+	cloned := make([]types.Result, len(results))
+	for index, result := range results {
+		cloned[index] = cloneResult(result)
+	}
+	return cloned
+}
+
+func cloneResult(result types.Result) types.Result {
+	result.Data = append([]byte(nil), result.Data...)
+	return result
+}
+
+func sameResult(left types.Result, right types.Result) bool {
+	return left.Code == right.Code &&
+		left.Log == right.Log &&
+		bytes.Equal(left.Data, right.Data) &&
+		left.GasUsed == right.GasUsed &&
+		left.FeePaid == right.FeePaid
 }
 
 func TxSetHashForEvidence(txs []types.Tx) types.Hash {
