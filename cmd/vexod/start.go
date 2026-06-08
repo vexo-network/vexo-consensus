@@ -699,7 +699,44 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 	if document.RequireNetworkSafety && cfg.ConsensusLoop.ExecutionCommitMode != vexonode.ExecutionCommitModeFinalized {
 		return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.execution_commit must be %q when require_network_safety is true: %w", vexonode.ExecutionCommitModeFinalized, vexoconfig.ErrUnsafeNetworkConfig)
 	}
+	if document.RequireNetworkSafety {
+		if err := validateRuntimeNetworkSafety(cfg); err != nil {
+			return startRuntimeConfig{}, err
+		}
+	}
 	return cfg, nil
+}
+
+func validateRuntimeNetworkSafety(cfg startRuntimeConfig) error {
+	if cfg.P2PEnabled && requiresAuthenticatedP2P(cfg) {
+		if cfg.P2PAuthToken == "" {
+			return fmt.Errorf("runtime.p2p.auth_token is required when require_network_safety is true: %w", vexoconfig.ErrUnsafeNetworkConfig)
+		}
+		if cfg.P2PTLSCertPath == "" || cfg.P2PTLSKeyPath == "" || cfg.P2PTLSCAPath == "" {
+			return fmt.Errorf("runtime.p2p tls cert, key, and ca paths are required when require_network_safety is true: %w", vexoconfig.ErrUnsafeNetworkConfig)
+		}
+	}
+	if cfg.RPCEnabled && cfg.RPCAdminToken == "" && !isPrivateListenAddress(cfg.RPCAddress) {
+		return fmt.Errorf("runtime.rpc.admin_token is required for public rpc listeners when require_network_safety is true: %w", vexoconfig.ErrUnsafeNetworkConfig)
+	}
+	return nil
+}
+
+func requiresAuthenticatedP2P(cfg startRuntimeConfig) bool {
+	if !isPrivateListenAddress(cfg.P2PListenAddress) {
+		return true
+	}
+	for _, address := range cfg.P2PPeers {
+		if !isPrivateListenAddress(address) {
+			return true
+		}
+	}
+	for _, address := range cfg.P2PSeeds {
+		if !isPrivateListenAddress(address) {
+			return true
+		}
+	}
+	return false
 }
 
 func runtimeConfigIsZero(runtime runtimeConfig) bool {

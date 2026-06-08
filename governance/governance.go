@@ -49,3 +49,10 @@ type ContextOperationalKeeper interface {
 	SetTimeContext(ctx context.Context, now uint64) error
 	SetVotingPowerContext(ctx context.Context, voter types.Address, power types.VotingPower) error
 }
+
+type ContextQueryKeeper interface {
+	OperationalKeeper
+	ProposalContext(ctx context.Context, proposalID uint64) (ProposalState, bool, error)
+	AppliedChangesContext(ctx context.Context) ([]ParameterChange, error)
+	TallyContext(ctx context.Context, proposalID uint64) (TallyResult, bool, error)
+}

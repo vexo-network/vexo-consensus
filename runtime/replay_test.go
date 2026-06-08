@@ -196,8 +196,15 @@ func TestRuntimeReplayStrictDoesNotFallbackToStoredRange(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := runtime.Replay(context.Background(), 2, 2); err != nil {
-		t.Fatalf("expected non-strict replay to fall back to stored range, got %v", err)
+	if _, err := runtime.Replay(context.Background(), 2, 2); err == nil {
+		t.Fatal("expected default replay to reject missing isolated historical snapshot")
+	}
+	stored, err := runtime.ReplayStoredRange(context.Background(), 2, 2)
+	if err != nil {
+		t.Fatalf("expected explicit stored range replay to verify metadata, got %v", err)
+	}
+	if stored.Blocks != 1 || stored.FromHeight != 2 || stored.ToHeight != 2 {
+		t.Fatalf("unexpected stored range replay result: %+v", stored)
 	}
 	if _, err := runtime.ReplayStrict(context.Background(), 2, 2); err == nil {
 		t.Fatal("expected strict replay to reject missing isolated historical snapshot")

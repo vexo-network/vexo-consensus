@@ -4,7 +4,7 @@
 
 This guide explains how to add a custom crypto backend, including audited BLS and VRF adapters.
 
-`vexo-consensus` ships adapter contracts, registry hooks, metadata validation, runtime wiring, a CIRCL-backed BLS12-381 adapter, and an ECVRF P-256 adapter. Operators can use the built-ins or register their own adapters, but audit evidence, key custody, and release-gate validation remain deployment responsibilities.
+`vexo-consensus` ships adapter contracts, registry hooks, metadata validation, runtime wiring, a CIRCL-backed BLS12-381 reference adapter, and an ECVRF P-256 adapter. Operators can register audited adapters for value-bearing deployments, and audit evidence, key custody, and release-gate validation remain deployment responsibilities.
 
 ## Interfaces
 

@@ -855,6 +855,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		accountSequence:  7,
 		pendingHashes:    []types.Hash{{0xfa}},
 		finalityProof:    finality.Proof{Header: types.Header{Height: 11}, BlockHash: finalizedHash},
+		loopRunning:      true,
 	}
 	pendingTx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
 		Module: "evm",
@@ -908,7 +909,6 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		{method: "net_listening", params: `[]`, expected: true},
 		{method: "net_peerCount", params: `[]`, expected: "0x2"},
 		{method: "eth_protocolVersion", params: `[]`, expected: "0x1"},
-		{method: "eth_syncing", params: `[]`, expected: false},
 		{method: "eth_mining", params: `[]`, expected: true},
 		{method: "eth_hashrate", params: `[]`, expected: "0x0"},
 		{method: "eth_coinbase", params: `[]`, expected: "0x0000000000000000000000000000000000000000"},
@@ -918,6 +918,12 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		if response.Error != nil || response.Result != testCase.expected {
 			t.Fatalf("unexpected %s response: %+v", testCase.method, response)
 		}
+	}
+	var syncing JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":66,"method":"eth_syncing","params":[]}`, http.StatusOK, &syncing)
+	syncingObject, ok := syncing.Result.(map[string]any)
+	if syncing.Error != nil || !ok || syncingObject["currentBlock"] != "0xb" || syncingObject["highestBlock"] != "0xc" {
+		t.Fatalf("unexpected eth_syncing response: %+v", syncing)
 	}
 	var accounts JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":67,"method":"eth_accounts","params":[]}`, http.StatusOK, &accounts)

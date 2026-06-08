@@ -706,8 +706,15 @@ func TestLoadStartRuntimeConfigRequiresFinalizedCommitWhenNetworkSafetyIsRequire
 	document.RequireNetworkSafety = true
 	consensusDocument := defaultConsensusConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
 	consensusDocument.Consensus.ExecutionCommit = string(vexonode.ExecutionCommitModeQC)
+	networkDocument := defaultNetworkConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	networkDocument.P2P.ListenAddress = "0.0.0.0:26656"
+	networkDocument.P2P.AuthToken = "network-auth-token"
+	networkDocument.P2P.TLSCertPath = "tls/node.crt"
+	networkDocument.P2P.TLSKeyPath = "tls/node.key"
+	networkDocument.P2P.TLSCAPath = "tls/ca.crt"
 	writeTestJSON(t, path, document)
 	writeTestJSON(t, filepath.Join(home, consensusConfigFileName), consensusDocument)
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
 
 	_, err := loadStartRuntimeConfig(home, path)
 	if !errors.Is(err, config.ErrUnsafeNetworkConfig) {
@@ -717,6 +724,12 @@ func TestLoadStartRuntimeConfigRequiresFinalizedCommitWhenNetworkSafetyIsRequire
 	writeTestJSON(t, filepath.Join(home, consensusConfigFileName), consensusDocument)
 	if _, err := loadStartRuntimeConfig(home, path); err != nil {
 		t.Fatalf("expected finalized commit to satisfy runtime safety boundary, got %v", err)
+	}
+
+	networkDocument.P2P.TLSCAPath = ""
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected missing p2p mtls ca to fail network safety boundary, got %v", err)
 	}
 }
 

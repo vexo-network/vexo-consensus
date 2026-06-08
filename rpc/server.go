@@ -1276,9 +1276,9 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 	case "eth_protocolVersion":
 		return "0x1", nil
 	case "eth_syncing":
-		return false, nil
+		return web3Syncing(provider.Status(ctx)), nil
 	case "eth_mining":
-		return provider.Status(ctx).Running, nil
+		return web3Mining(provider, ctx), nil
 	case "eth_hashrate":
 		return hexQuantity(0), nil
 	case "eth_accounts":
@@ -5930,6 +5930,32 @@ func web3ChainID(status node.Status) uint64 {
 		return status.EVMChainID
 	}
 	return chainNumericID(status.ChainID)
+}
+
+func web3Syncing(status node.Status) any {
+	if !status.Running || status.LatestHeight == 0 {
+		return false
+	}
+	finalized := status.LatestFinalizedHeight
+	if finalized == 0 || finalized >= status.LatestHeight {
+		return false
+	}
+	return map[string]any{
+		"startingBlock": hexQuantity(uint64(finalized)),
+		"currentBlock":  hexQuantity(uint64(finalized)),
+		"highestBlock":  hexQuantity(uint64(status.LatestHeight)),
+	}
+}
+
+func web3Mining(provider StatusProvider, ctx context.Context) bool {
+	status := provider.Status(ctx)
+	if !status.Running {
+		return false
+	}
+	if controller, ok := provider.(ConsensusLoopController); ok {
+		return controller.ConsensusLoopRunning()
+	}
+	return true
 }
 
 func newWeb3FilterStore() *web3FilterStore {

@@ -155,7 +155,10 @@ func (module *Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoa
 		if err != nil {
 			return vexoapp.QueryResponse{Code: 2, Log: err.Error()}
 		}
-		state, found := module.keeper.Proposal(proposalID)
+		state, found, err := module.proposal(ctx.GoContext(), proposalID)
+		if err != nil {
+			return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+		}
 		if !found {
 			return vexoapp.QueryResponse{Code: 3, Log: vexogov.ErrProposalNotFound.Error()}
 		}
@@ -166,14 +169,21 @@ func (module *Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoa
 		if err != nil {
 			return vexoapp.QueryResponse{Code: 2, Log: err.Error()}
 		}
-		tally, found := module.keeper.Tally(proposalID)
+		tally, found, err := module.tally(ctx.GoContext(), proposalID)
+		if err != nil {
+			return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+		}
 		if !found {
 			return vexoapp.QueryResponse{Code: 3, Log: vexogov.ErrProposalNotFound.Error()}
 		}
 		return jsonQueryResponse(tally)
 	}
 	if len(req.Path) == 1 && req.Path[0] == "applied" {
-		return jsonQueryResponse(module.keeper.AppliedChanges())
+		changes, err := module.appliedChanges(ctx.GoContext())
+		if err != nil {
+			return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+		}
+		return jsonQueryResponse(changes)
 	}
 	return vexoapp.QueryResponse{Code: 2, Log: "invalid governance query"}
 }
@@ -217,6 +227,29 @@ func (module *Module) setVotingPower(ctx context.Context, voter types.Address, p
 	}
 	module.keeper.SetVotingPower(voter, power)
 	return nil
+}
+
+func (module *Module) proposal(ctx context.Context, proposalID uint64) (vexogov.ProposalState, bool, error) {
+	if keeper, ok := module.keeper.(vexogov.ContextQueryKeeper); ok {
+		return keeper.ProposalContext(ctx, proposalID)
+	}
+	state, found := module.keeper.Proposal(proposalID)
+	return state, found, nil
+}
+
+func (module *Module) tally(ctx context.Context, proposalID uint64) (vexogov.TallyResult, bool, error) {
+	if keeper, ok := module.keeper.(vexogov.ContextQueryKeeper); ok {
+		return keeper.TallyContext(ctx, proposalID)
+	}
+	tally, found := module.keeper.Tally(proposalID)
+	return tally, found, nil
+}
+
+func (module *Module) appliedChanges(ctx context.Context) ([]vexogov.ParameterChange, error) {
+	if keeper, ok := module.keeper.(vexogov.ContextQueryKeeper); ok {
+		return keeper.AppliedChangesContext(ctx)
+	}
+	return module.keeper.AppliedChanges(), nil
 }
 
 type proposalView struct {

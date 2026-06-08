@@ -1,72 +1,23 @@
-# Documentation
+# Vexo 문서
 
-This directory contains protocol specs, SDK extension guides, security material, and release operations documents for `vexo-consensus`.
+이 디렉토리는 Vexo 문서의 한국어 진입점입니다. 영어(`en`) 문서가 규범 원문이며, 한국어 문서는 운영자와 개발자가 빠르게 위치를 찾을 수 있도록 같은 디렉토리 구조를 유지합니다.
 
-If you are new to the project, read the documents in this order.
+## 먼저 읽기
 
-## Start Here
+1. [합의 프로토콜 개요](./consensus-protocol.md)
+2. [합의 명세](./specs/consensus-spec.md)
+3. [트랜잭션 포맷](./specs/tx-format.md)
+4. [검증자 생명주기](./specs/validator-lifecycle.md)
+5. [보안 감사 준비](./security/audit-readiness.md)
 
-1. [Consensus Protocol Overview](./consensus-protocol.md)
-2. [Consensus Spec](./specs/consensus-spec.md)
-3. [Transaction Format](./specs/tx-format.md)
-4. [Validator Lifecycle](./specs/validator-lifecycle.md)
-5. [Security Audit Readiness](./security/audit-readiness.md)
+## 문서 묶음
 
-## Protocol Specs
+| 구분 | 경로 | 설명 |
+|---|---|---|
+| 운영자 | `operators/` | 노드 초기화, 검증자 추가, 설정 파일 관리 |
+| 릴리즈 | `release/` | 릴리즈 파이프라인, 런북, 호환성, 게이트 |
+| SDK | `sdk/` | 앱 모듈, 커스텀 crypto/storage/transport, RPC 버전 관리 |
+| 보안 | `security/` | 위협 모델, 가정, 감사 준비 |
+| 명세 | `specs/` | 합의, 네트워크, 스토리지, 트랜잭션, finality proof |
 
-| Document | Purpose |
-|---|---|
-| [Consensus Spec](./specs/consensus-spec.md) | Consensus state machine, safety rules, liveness assumptions, and evidence surfaces |
-| [Finality Proof Format](./specs/finality-proof-format.md) | Proof fields and verifier rules for full nodes and light clients |
-| [Networking Spec](./specs/networking-spec.md) | Transport expectations, handshake policy, peer scoring, backoff, and DoS defenses |
-| [Storage Schema](./specs/storage-schema.md) | Durable records, indexes, recovery rules, snapshots, and schema migration expectations |
-| [Transaction Format](./specs/tx-format.md) | Canonical transaction payload, signed envelope, nonce, fee, gas, and CheckTx requirements |
-| [Validator Lifecycle](./specs/validator-lifecycle.md) | Admission, rotation, evidence lifecycle, slashing, jailing, and unbonding |
-
-## SDK and Extension Guides
-
-| Document | Purpose |
-|---|---|
-| [App Module Guide](./sdk/app-module-guide.md) | Add a custom application module and module CLI commands |
-| [Custom Crypto Backend](./sdk/custom-crypto-backend.md) | Add signing/finality backends and production BLS adapter metadata |
-| [Custom Storage and Transport](./sdk/custom-storage-transport.md) | Implement custom stores or peer transports |
-| [RPC API Versioning](./sdk/rpc-api-versioning.md) | Understand `/v1/*` compatibility rules and endpoint stability |
-
-## Operations and Release
-
-| Document | Purpose |
-|---|---|
-| [Node Initialization](./operators/node-initialization.md) | Initialize validator/archive nodes and manage split subsystem config files |
-| [Adding a Validator](./operators/add-validator.md) | Operator flow for adding a validator and verifying height-specific validator-set updates |
-| [Launch Runbook](./release/launch-runbook.md) | Operator launch flow, halt criteria, monitoring, and postlaunch archive requirements |
-| [Release Pipeline](./release/release-pipeline.md) | Build, sign, package, and gate release artifacts |
-| [Cosmos/Tendermint Comparison Gate](./release/cosmos-comparison-gate.md) | Maps Tendermint/Cosmos maturity advantages to required Vexo release evidence |
-| [Version Compatibility Matrix](./release/version-compatibility.md) | Compatibility expectations across binary, config, store, app, RPC, and proof formats |
-
-## Security
-
-| Document | Purpose |
-|---|---|
-| [Security Audit Readiness](./security/audit-readiness.md) | Threat model, assumptions, limitations, safety argument, and required audit evidence |
-
-## Localized Documentation
-
-| Document | Purpose |
-|---|---|
-| [Documentation Locales](./locales/README.md) | Locale directory map and translation policy |
-| [English Canonical Docs](./locales/en/README.md) | Normative English documentation tree |
-| [Korean Docs](./locales/ko/README.md) | Korean locale tree |
-| [Chinese Docs](./locales/zh/README.md) | Chinese locale tree |
-| [Japanese Docs](./locales/ja/README.md) | Japanese locale tree |
-| [French Docs](./locales/fr/README.md) | French locale tree |
-| [German Docs](./locales/de/README.md) | German locale tree |
-
-## Writing New Docs
-
-Documentation should:
-
-- state whether it is normative specification, implementation guide, or operator guidance
-- include the relevant commands or package paths
-- describe safety boundaries and failure modes
-- avoid production-readiness claims without evidence
-- keep examples copy-pasteable when possible
+명령어, JSON 필드, RPC 메서드, 코드 식별자는 번역하지 않고 원문 그대로 유지합니다.

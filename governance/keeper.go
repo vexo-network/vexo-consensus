@@ -203,8 +203,27 @@ func (keeper *InMemoryKeeper) Proposal(proposalID uint64) (ProposalState, bool) 
 	return cloneProposalState(*state), true
 }
 
+func (keeper *InMemoryKeeper) ProposalContext(ctx context.Context, proposalID uint64) (ProposalState, bool, error) {
+	select {
+	case <-ctx.Done():
+		return ProposalState{}, false, ctx.Err()
+	default:
+	}
+	state, found := keeper.Proposal(proposalID)
+	return state, found, nil
+}
+
 func (keeper *InMemoryKeeper) AppliedChanges() []ParameterChange {
 	return append([]ParameterChange(nil), keeper.applied...)
+}
+
+func (keeper *InMemoryKeeper) AppliedChangesContext(ctx context.Context) ([]ParameterChange, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	return keeper.AppliedChanges(), nil
 }
 
 func (keeper *InMemoryKeeper) Tally(proposalID uint64) (TallyResult, bool) {
@@ -215,6 +234,16 @@ func (keeper *InMemoryKeeper) Tally(proposalID uint64) (TallyResult, bool) {
 	result := keeper.tally(state)
 	result.Passed = keeper.passesTally(result)
 	return result, true
+}
+
+func (keeper *InMemoryKeeper) TallyContext(ctx context.Context, proposalID uint64) (TallyResult, bool, error) {
+	select {
+	case <-ctx.Done():
+		return TallyResult{}, false, ctx.Err()
+	default:
+	}
+	tally, found := keeper.Tally(proposalID)
+	return tally, found, nil
 }
 
 func (keeper *InMemoryKeeper) passes(state *ProposalState) bool {

@@ -167,6 +167,24 @@ func TestGovernanceModulePropagatesStoreWriteErrors(t *testing.T) {
 	}
 }
 
+func TestGovernanceModulePropagatesStoreQueryErrors(t *testing.T) {
+	expected := errors.New("store read failed")
+	module := NewModuleWithKeeper(failingContextKeeper{
+		InMemoryKeeper: vexogov.NewInMemoryKeeper(vexogov.TallyPolicy{}, nil),
+		err:            expected,
+	})
+	for _, req := range []vexoapp.QueryRequest{
+		{Path: []string{"proposal", "1"}},
+		{Path: []string{"tally", "1"}},
+		{Path: []string{"applied"}},
+	} {
+		response := module.Query(vexoapp.Context{}, req)
+		if response.Code == 0 || !strings.Contains(response.Log, expected.Error()) {
+			t.Fatalf("expected query error for %+v, got %+v", req, response)
+		}
+	}
+}
+
 func TestGovernanceModuleUsesCallerContext(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
@@ -285,4 +303,16 @@ func (keeper failingContextKeeper) SetTimeContext(ctx context.Context, now uint6
 
 func (keeper failingContextKeeper) SetVotingPowerContext(ctx context.Context, voter types.Address, power types.VotingPower) error {
 	return keeper.err
+}
+
+func (keeper failingContextKeeper) ProposalContext(ctx context.Context, proposalID uint64) (vexogov.ProposalState, bool, error) {
+	return vexogov.ProposalState{}, false, keeper.err
+}
+
+func (keeper failingContextKeeper) AppliedChangesContext(ctx context.Context) ([]vexogov.ParameterChange, error) {
+	return nil, keeper.err
+}
+
+func (keeper failingContextKeeper) TallyContext(ctx context.Context, proposalID uint64) (vexogov.TallyResult, bool, error) {
+	return vexogov.TallyResult{}, false, keeper.err
 }

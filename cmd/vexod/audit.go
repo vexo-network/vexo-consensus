@@ -204,6 +204,8 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 	}
 	if runtimeConfig.P2PEnabled {
 		document.addCheck("p2p_auth_token", strictSeverity(strict), runtimeConfig.P2PAuthToken != "", "set a P2P auth token to harden handshakes")
+		document.addCheck("p2p_tls_identity", strictSeverity(strict), runtimeConfig.P2PTLSCertPath != "" && runtimeConfig.P2PTLSKeyPath != "", "configure P2P TLS cert/key identity for encrypted peer transport")
+		document.addCheck("p2p_mtls_ca", strictSeverity(strict), runtimeConfig.P2PTLSCAPath != "", "configure P2P TLS CA trust roots so peers verify client certificates")
 		document.addCheck("p2p_message_limit", "warning", runtimeConfig.P2PMaxMessageBytes > 0, "set --p2p-max-message-bytes to bound peer payloads")
 		document.addCheck("p2p_peer_discovery", "warning", len(runtimeConfig.P2PPeers)+len(runtimeConfig.P2PSeeds) > 0, "configure peers or seeds for non-local networks")
 		document.addCheck("addr_book_failure_policy", "warning", runtimeConfig.AddrBookMaxFailures > 0, "keep addr book failure banning enabled to evict repeatedly failing peers")

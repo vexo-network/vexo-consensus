@@ -29,13 +29,7 @@ type IsolatedReplayAppFactory interface {
 }
 
 func (runtime *Runtime) Replay(ctx context.Context, from types.Height, to types.Height) (ReplayResult, error) {
-	if runtime.Store == nil {
-		return ReplayResult{}, store.ErrBlockNotFound
-	}
-	if from == 0 || to == 0 || from > to {
-		return ReplayResult{}, ErrInvalidReplayRange
-	}
-	return runtime.ReplayIsolated(ctx, from, to)
+	return runtime.ReplayStrict(ctx, from, to)
 }
 
 func (runtime *Runtime) ReplayStrict(ctx context.Context, from types.Height, to types.Height) (ReplayResult, error) {
