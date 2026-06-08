@@ -14,8 +14,11 @@ Use `init validator` when the node will propose, vote, sign consensus messages, 
 vexod init validator \
   --home .vexo-validator-1 \
   --chain-id vexo-chain \
-  --validator validator-1
+  --validator validator-1 \
+  --encrypt-keys
 ```
+
+Set `VEXO_KEY_PASSPHRASE` before running this command, or pass `--passphrase` for a one-off local setup. `--encrypt-keys` encrypts both `validator.key.json` and `validator.vrf.key.json`.
 
 For a BLS consensus key:
 
@@ -24,7 +27,8 @@ vexod init validator \
   --home .vexo-validator-1 \
   --chain-id vexo-chain \
   --validator validator-1 \
-  --key-type bls
+  --key-type bls \
+  --encrypt-keys
 ```
 
 `--key-type bls` writes a BLS key document and copies the proof-of-possession into `genesis.json` validator metadata as `bls_pop`.
@@ -39,6 +43,7 @@ This creates:
 - `log_config.json`
 - `genesis.json`
 - `validator.key.json`
+- `validator.vrf.key.json`
 - `data/`
 
 Start it with config-driven networking:
@@ -91,7 +96,7 @@ Node homes use separate config files so operators can edit one subsystem without
 
 ## Key Types
 
-Validator init supports `--key-type ed25519` and `--key-type bls`. Standalone key generation also supports VRF keys:
+Validator init supports `--key-type ed25519` and `--key-type bls`, and `--encrypt-keys` should be used for any non-throwaway node home. Standalone key generation also supports VRF keys:
 
 ```bash
 vexod keys gen --home .vexo-ed25519 --type ed25519

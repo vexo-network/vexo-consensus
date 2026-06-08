@@ -79,7 +79,7 @@ make check
 Initialize and validate a validator home:
 
 ```bash
-./bin/vexod init validator --home .vexo --chain-id vexo-chain --validator validator-1 --overwrite
+VEXO_KEY_PASSPHRASE='change-me' ./bin/vexod init validator --home .vexo --chain-id vexo-chain --validator validator-1 --encrypt-keys --overwrite
 ./bin/vexod validate --home .vexo
 ```
 

@@ -10,7 +10,8 @@ The exact admission path depends on the chain's staking and governance policy. A
 vexod init validator \
   --home .vexo-validator-new \
   --chain-id vexo-chain \
-  --validator validator-new
+  --validator validator-new \
+  --encrypt-keys
 ```
 
 For a BLS validator key:
@@ -20,8 +21,11 @@ vexod init validator \
   --home .vexo-validator-new \
   --chain-id vexo-chain \
   --validator validator-new \
-  --key-type bls
+  --key-type bls \
+  --encrypt-keys
 ```
+
+Set `VEXO_KEY_PASSPHRASE` before running these commands, or pass `--passphrase` for a one-off local setup.
 
 When admitting a BLS validator to an existing chain, include the generated `bls_pop` metadata in the validator update proposal.
 

@@ -183,6 +183,47 @@ func TestRunInitWritesNetworkFiles(t *testing.T) {
 	}
 }
 
+func TestRunInitCanEncryptGeneratedValidatorAndVRFKeys(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"validator", "--home", home, "--chain-id", "vexo-test", "--validator", "alice", "--encrypt-keys", "--passphrase", "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		filepath.Join(home, keyFileName),
+		filepath.Join(home, defaultVRFKeyFileName),
+	} {
+		document, err := vexocrypto.LoadKeyDocument(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if document.Encryption == nil || document.PrivateKey != "" {
+			t.Fatalf("expected encrypted key document at %s, got %+v", path, document)
+		}
+	}
+}
+
+func TestRunInitNetworkCanEncryptGeneratedValidatorAndVRFKeys(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("VEXO_KEY_PASSPHRASE", "secret")
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validators", "2", "--encrypt-keys"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		filepath.Join(home, "validator-1", keyFileName),
+		filepath.Join(home, "validator-1", defaultVRFKeyFileName),
+		filepath.Join(home, "validator-2", keyFileName),
+		filepath.Join(home, "validator-2", defaultVRFKeyFileName),
+	} {
+		document, err := vexocrypto.LoadKeyDocument(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if document.Encryption == nil || document.PrivateKey != "" {
+			t.Fatalf("expected encrypted key document at %s, got %+v", path, document)
+		}
+	}
+}
+
 func TestRunInitNetworkBLSWritesProofOfPossession(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validators", "2", "--key-type", "bls"}); err != nil {

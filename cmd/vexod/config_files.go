@@ -221,6 +221,8 @@ func runInit(writer io.Writer, args []string) error {
 	p2pPortStep := flags.Int("p2p-port-step", 10, "P2P port increment per validator")
 	rpcPortStep := flags.Int("rpc-port-step", 10, "RPC port increment per validator")
 	networkConfigPath := flags.String("network-config", "", "network topology config file for generated validator addresses")
+	encryptKeys := flags.Bool("encrypt-keys", false, "encrypt generated validator and VRF key files")
+	passphrase := flags.String("passphrase", "", "key encryption passphrase; prefer VEXO_KEY_PASSPHRASE")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing files")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -239,7 +241,7 @@ func runInit(writer io.Writer, args []string) error {
 			}
 			options = loadedOptions
 		}
-		network, err := writeNetworkFilesWithOptionsAndKeyType(*home, *chainID, *validatorCount, *overwrite, options, *keyType)
+		network, err := writeNetworkFilesWithOptionsAndKeyType(*home, *chainID, *validatorCount, *overwrite, options, *keyType, *encryptKeys, resolvePassphrase(*passphrase))
 		if err != nil {
 			return err
 		}
@@ -251,7 +253,7 @@ func runInit(writer io.Writer, args []string) error {
 		}
 		return nil
 	}
-	configPath, genesisPath, keyPath, err := writeValidatorInitFilesWithKeyType(*home, *chainID, *validatorID, defaultP2PAddress, defaultRPCAddress, *overwrite, *keyType)
+	configPath, genesisPath, keyPath, err := writeValidatorInitFilesWithKeyType(*home, *chainID, *validatorID, defaultP2PAddress, defaultRPCAddress, *overwrite, *keyType, *encryptKeys, resolvePassphrase(*passphrase))
 	if err != nil {
 		return err
 	}
@@ -275,11 +277,13 @@ func runInitValidator(writer io.Writer, args []string) error {
 	chainID := flags.String("chain-id", defaultChainID, "chain id")
 	validatorID := flags.String("validator", defaultValidatorID, "local validator id")
 	keyType := flags.String("key-type", vexocrypto.KeyTypeEd25519, "validator key type: ed25519 or bls")
+	encryptKeys := flags.Bool("encrypt-keys", false, "encrypt generated validator and VRF key files")
+	passphrase := flags.String("passphrase", "", "key encryption passphrase; prefer VEXO_KEY_PASSPHRASE")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing files")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	configPath, genesisPath, keyPath, err := writeValidatorInitFilesWithKeyType(*home, *chainID, *validatorID, defaultP2PAddress, defaultRPCAddress, *overwrite, *keyType)
+	configPath, genesisPath, keyPath, err := writeValidatorInitFilesWithKeyType(*home, *chainID, *validatorID, defaultP2PAddress, defaultRPCAddress, *overwrite, *keyType, *encryptKeys, resolvePassphrase(*passphrase))
 	if err != nil {
 		return err
 	}
@@ -421,10 +425,10 @@ func readNetworkAddressOptions(path string) (networkAddressOptions, error) {
 }
 
 func writeNetworkFilesWithOptions(home string, chainID string, validatorCount int, overwrite bool, options networkAddressOptions) (networkDocument, error) {
-	return writeNetworkFilesWithOptionsAndKeyType(home, chainID, validatorCount, overwrite, options, vexocrypto.KeyTypeEd25519)
+	return writeNetworkFilesWithOptionsAndKeyType(home, chainID, validatorCount, overwrite, options, vexocrypto.KeyTypeEd25519, false, "")
 }
 
-func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validatorCount int, overwrite bool, options networkAddressOptions, keyType string) (networkDocument, error) {
+func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validatorCount int, overwrite bool, options networkAddressOptions, keyType string, encryptKeys bool, passphrase string) (networkDocument, error) {
 	if home == "" {
 		home = defaultHomeDir
 	}
@@ -455,8 +459,16 @@ func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validat
 		if err != nil {
 			return networkDocument{}, err
 		}
+		keyDocument, err = maybeEncryptKeyDocument(keyDocument, encryptKeys, passphrase)
+		if err != nil {
+			return networkDocument{}, err
+		}
 		keys = append(keys, keyDocument)
 		vrfKeyDocument, err := vexocrypto.GenerateECVRFP256KeyDocument()
+		if err != nil {
+			return networkDocument{}, err
+		}
+		vrfKeyDocument, err = maybeEncryptKeyDocument(vrfKeyDocument, encryptKeys, passphrase)
 		if err != nil {
 			return networkDocument{}, err
 		}
@@ -794,10 +806,10 @@ func writeInitFiles(home string, chainID string, validatorID string, overwrite b
 }
 
 func writeValidatorInitFiles(home string, chainID string, validatorID string, p2pAddress string, rpcAddress string, overwrite bool) (string, string, string, error) {
-	return writeValidatorInitFilesWithKeyType(home, chainID, validatorID, p2pAddress, rpcAddress, overwrite, vexocrypto.KeyTypeEd25519)
+	return writeValidatorInitFilesWithKeyType(home, chainID, validatorID, p2pAddress, rpcAddress, overwrite, vexocrypto.KeyTypeEd25519, false, "")
 }
 
-func writeValidatorInitFilesWithKeyType(home string, chainID string, validatorID string, p2pAddress string, rpcAddress string, overwrite bool, keyType string) (string, string, string, error) {
+func writeValidatorInitFilesWithKeyType(home string, chainID string, validatorID string, p2pAddress string, rpcAddress string, overwrite bool, keyType string, encryptKeys bool, passphrase string) (string, string, string, error) {
 	configPath, genesisPath, err := writeInitFiles(home, chainID, validatorID, overwrite)
 	if err != nil {
 		return "", "", "", err
@@ -816,6 +828,10 @@ func writeValidatorInitFilesWithKeyType(home string, chainID string, validatorID
 	if err != nil {
 		return "", "", "", err
 	}
+	keyDocument, err = maybeEncryptKeyDocument(keyDocument, encryptKeys, passphrase)
+	if err != nil {
+		return "", "", "", err
+	}
 	if err := vexocrypto.SaveKeyDocument(keyPath, keyDocument); err != nil {
 		return "", "", "", err
 	}
@@ -830,6 +846,10 @@ func writeValidatorInitFilesWithKeyType(home string, chainID string, validatorID
 		return "", "", "", err
 	}
 	vrfKeyDocument, err := vexocrypto.GenerateECVRFP256KeyDocument()
+	if err != nil {
+		return "", "", "", err
+	}
+	vrfKeyDocument, err = maybeEncryptKeyDocument(vrfKeyDocument, encryptKeys, passphrase)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -1407,6 +1427,13 @@ func validateValidatorDocumentAddress(validatorInfo validatorDocument, publicKey
 		return nil
 	}
 	return address.MatchesPublicKey(types.Address(validatorInfo.Address), address.ValidatorOperatorHRP, publicKey)
+}
+
+func maybeEncryptKeyDocument(document vexocrypto.KeyDocument, encrypt bool, passphrase string) (vexocrypto.KeyDocument, error) {
+	if !encrypt {
+		return document, nil
+	}
+	return document.Encrypted(passphrase)
 }
 
 func defaultConfigDocument(chainID string, dataDir string, validatorID string) configDocument {
