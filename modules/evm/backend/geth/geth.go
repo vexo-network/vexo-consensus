@@ -478,7 +478,31 @@ func (db *gethStateDB) AddLog(log *gethtypes.Log) {
 }
 
 func (db *gethStateDB) LogsForBurnAccounts() []*gethtypes.Log {
-	return nil
+	type removedAccount struct {
+		address gethcommon.Address
+		balance *uint256.Int
+	}
+	removed := make([]removedAccount, 0)
+	for address, account := range db.accounts {
+		if !account.selfDestructed || account.balance.IsZero() {
+			continue
+		}
+		removed = append(removed, removedAccount{
+			address: address,
+			balance: new(uint256.Int).Set(&account.balance),
+		})
+	}
+	if len(removed) == 0 {
+		return nil
+	}
+	sort.Slice(removed, func(first int, second int) bool {
+		return removed[first].address.Cmp(removed[second].address) < 0
+	})
+	logs := make([]*gethtypes.Log, 0, len(removed))
+	for _, account := range removed {
+		logs = append(logs, gethtypes.EthBurnLog(account.address, account.balance))
+	}
+	return logs
 }
 
 func (db *gethStateDB) AddPreimage(hash gethcommon.Hash, preimage []byte) {

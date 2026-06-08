@@ -34,6 +34,7 @@ type web3Subscription struct {
 type web3SubscriptionSession struct {
 	conn     *websocket.Conn
 	provider StatusProvider
+	cfg      Config
 	filters  *web3FilterStore
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -48,20 +49,21 @@ func isWebSocketUpgrade(request *http.Request) bool {
 		strings.Contains(strings.ToLower(request.Header.Get("Connection")), "upgrade")
 }
 
-func handleWeb3WebSocket(writer http.ResponseWriter, request *http.Request, provider StatusProvider, filters *web3FilterStore) {
+func handleWeb3WebSocket(writer http.ResponseWriter, request *http.Request, provider StatusProvider, cfg Config, filters *web3FilterStore) {
 	server := websocket.Server{
 		Handler: func(conn *websocket.Conn) {
-			serveWeb3WebSocket(conn, request.Context(), provider, filters)
+			serveWeb3WebSocket(conn, request.Context(), provider, cfg, filters)
 		},
 	}
 	server.ServeHTTP(writer, request)
 }
 
-func serveWeb3WebSocket(conn *websocket.Conn, parent context.Context, provider StatusProvider, filters *web3FilterStore) {
+func serveWeb3WebSocket(conn *websocket.Conn, parent context.Context, provider StatusProvider, cfg Config, filters *web3FilterStore) {
 	ctx, cancel := context.WithCancel(parent)
 	session := &web3SubscriptionSession{
 		conn:     conn,
 		provider: provider,
+		cfg:      cfg,
 		filters:  filters,
 		ctx:      ctx,
 		cancel:   cancel,
@@ -91,7 +93,7 @@ func (session *web3SubscriptionSession) handle(payload JSONRPCRequest) {
 		removed, rpcErr := session.unsubscribe(payload.Params)
 		session.sendJSON(JSONRPCResponse{JSONRPC: "2.0", ID: payload.ID, Result: removed, Error: rpcErr})
 	default:
-		result, rpcErr := executeWeb3Method(session.ctx, session.provider, session.filters, payload.Method, payload.Params)
+		result, rpcErr := executeWeb3Method(session.ctx, session.provider, session.cfg, session.filters, payload.Method, payload.Params)
 		session.sendJSON(JSONRPCResponse{JSONRPC: "2.0", ID: payload.ID, Result: result, Error: rpcErr})
 	}
 }

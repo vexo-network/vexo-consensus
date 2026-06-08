@@ -374,12 +374,13 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 	rpcShutdown := func(context.Context) error { return nil }
 	if runtimeConfig.RPCEnabled {
 		address, shutdown, err := startRPCServerWithConfig(node, runtimeConfig.RPCAddress, vexorpc.Config{
-			AdminToken:           runtimeConfig.RPCAdminToken,
-			EnablePprof:          runtimeConfig.RPCEnablePprof,
-			RequestTimeout:       runtimeConfig.RPCRequestTimeout,
-			MaxRequestBytes:      runtimeConfig.RPCMaxRequestBytes,
-			RateLimitWindow:      runtimeConfig.RPCRateLimitWindow,
-			RateLimitMaxRequests: runtimeConfig.RPCRateLimitMaxRequests,
+			AdminToken:               runtimeConfig.RPCAdminToken,
+			EnablePprof:              runtimeConfig.RPCEnablePprof,
+			RequestTimeout:           runtimeConfig.RPCRequestTimeout,
+			MaxRequestBytes:          runtimeConfig.RPCMaxRequestBytes,
+			RateLimitWindow:          runtimeConfig.RPCRateLimitWindow,
+			RateLimitMaxRequests:     runtimeConfig.RPCRateLimitMaxRequests,
+			AllowUnprotectedLegacyTx: inputs.Config.Chain.Execution.AllowUnprotectedLegacyTx,
 		}, serverErr)
 		if err != nil {
 			_ = node.Stop(context.Background())

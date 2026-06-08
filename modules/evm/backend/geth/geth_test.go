@@ -9,6 +9,7 @@ import (
 
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/holiman/uint256"
 	"github.com/vexo-network/vexo-consensus/contract"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -221,6 +222,31 @@ func TestGethStateDBFinaliseReportsCodeStorageAndAccountDeletion(t *testing.T) {
 	storageWrites := db.StorageWrites()
 	if len(storageWrites) != 1 || !storageWrites[0].Delete || !strings.EqualFold(string(storageWrites[0].Address), string(address)) {
 		t.Fatalf("unexpected storage writes: %+v", storageWrites)
+	}
+}
+
+func TestGethStateDBLogsForBurnAccounts(t *testing.T) {
+	db := newGethStateDB(context.Background(), contract.Invocation{})
+	first := gethcommon.HexToAddress("0x0000000000000000000000000000000000000001")
+	second := gethcommon.HexToAddress("0x0000000000000000000000000000000000000002")
+	db.CreateAccount(second)
+	db.CreateAccount(first)
+	db.AddBalance(second, new(uint256.Int).SetUint64(7), 0)
+	db.AddBalance(first, new(uint256.Int).SetUint64(3), 0)
+	db.SelfDestruct(second)
+	db.SelfDestruct(first)
+
+	logs := db.LogsForBurnAccounts()
+	if len(logs) != 2 {
+		t.Fatalf("expected two burn logs, got %+v", logs)
+	}
+	if len(logs[0].Topics) < 2 || len(logs[1].Topics) < 2 ||
+		gethcommon.BytesToAddress(logs[0].Topics[1].Bytes()) != first ||
+		gethcommon.BytesToAddress(logs[1].Topics[1].Bytes()) != second {
+		t.Fatalf("expected burn logs sorted by address, got %+v", logs)
+	}
+	if logs[0].Data == nil || logs[1].Data == nil {
+		t.Fatalf("expected burn logs to include encoded balance data, got %+v", logs)
 	}
 }
 

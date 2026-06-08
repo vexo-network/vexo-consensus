@@ -124,10 +124,12 @@ EVM behavior is configured from execution config, not by pretending the node is 
 
 - `execution.evm_fork_preset` defaults to `latest`; use `custom` only when `execution.evm_chain_config_json` pins a raw go-ethereum `params.ChainConfig` JSON.
 - `execution.evm_chain_config_json` is passed to the geth VM adapter and validated with go-ethereum fork-order checks before the node starts.
-- `execution.allow_unprotected_legacy_tx` defaults to `false`; unprotected Homestead-style legacy raw transactions are rejected unless a chain deliberately opts into them.
+- `execution.allow_unprotected_legacy_tx` defaults to `false`; unprotected Homestead-style legacy raw transactions are rejected on every Web3 raw-transaction admission path unless a chain deliberately opts into them.
 - `execution.max_blob_sidecar_blobs` and `execution.max_blob_sidecar_bytes` bound `vexo_sendRawBlobTransaction` sidecars at transaction admission and execution.
 - `execution.max_blob_gas` is enforced at block execution before application state is mutated.
 - Historical `eth_call`, `eth_estimateGas`, `eth_createAccessList`, and `eth_feeHistory` use height-matched persisted base-fee and blob-base-fee state instead of latest-only fee context.
+- `eth_estimateGas` includes Ethereum intrinsic calldata and access-list costs before probing the VM adapter, so low caller gas limits cannot under-report below the protocol floor.
+- `trace_filter` supports bounded block ranges plus `fromAddress`, `toAddress`, `after`, and `count` filtering over committed receipt-backed traces.
 - Ethereum raw transaction admission rejects invalid fee-cap relationships, including `maxFeePerGas < baseFee`, `maxPriorityFeePerGas > maxFeePerGas`, blob fee cap below blob base fee, and unprotected legacy transactions when the compatibility opt-in is disabled.
 - Ethereum raw transaction nonces use Ethereum semantics: the first accepted nonce is `0`, and the account sequence persisted after execution is the next expected nonce.
 - `modules/evm/ethcompat.RunTransactionFixturesJSON` and `vexod ops conformance --evm-tx-fixtures <file>` are the CI entry points for Ethereum raw-transaction fixture/conformance suites; keep fixture corpora outside normal source unless they are small, licensed, and intentionally versioned.

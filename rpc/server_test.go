@@ -986,6 +986,19 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if result, ok := sendRaw.Result.(string); !ok || result != rawEthHash {
 		t.Fatalf("expected tx hash result, got %+v", sendRaw.Result)
 	}
+	rawUnprotectedTx, _ := unprotectedLegacyEthereumTx(t)
+	var sendUnprotected JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":104,"method":"eth_sendRawTransaction","params":["`+rawUnprotectedTx+`"]}`, http.StatusOK, &sendUnprotected)
+	if sendUnprotected.Error == nil || len(provider.submitted) != 1 {
+		t.Fatalf("expected unprotected legacy tx rejection, response=%+v submitted=%d", sendUnprotected, len(provider.submitted))
+	}
+	legacyProvider := &fakeStatusProvider{status: node.Status{ChainID: "vexo-chain", Running: true}}
+	legacyHandler := NewHandlerWithConfig(legacyProvider, Config{AllowUnprotectedLegacyTx: true})
+	var sendAllowedUnprotected JSONRPCResponse
+	postJSON(t, legacyHandler, "/web3", `{"jsonrpc":"2.0","id":105,"method":"eth_sendRawTransaction","params":["`+rawUnprotectedTx+`"]}`, http.StatusOK, &sendAllowedUnprotected)
+	if sendAllowedUnprotected.Error != nil || len(legacyProvider.submitted) != 1 {
+		t.Fatalf("expected explicitly allowed unprotected legacy tx, response=%+v submitted=%d", sendAllowedUnprotected, len(legacyProvider.submitted))
+	}
 	rawBlobTx, rawBlobHash, blobSidecar := signedTestEthereumBlobTx(t, chainNumericID("vexo-chain"))
 	blobSidecarJSON, err := json.Marshal(blobSidecar)
 	if err != nil {
@@ -1342,6 +1355,24 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if filterTrace.Error != nil || !ok || len(filterTraceItems) != 1 {
 		t.Fatalf("unexpected filter trace: %+v", filterTrace)
 	}
+	var filteredByFrom JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":841,"method":"trace_filter","params":[{"fromBlock":"0xc","toBlock":"0xc","fromAddress":["0xaaaa"],"toAddress":"0xbbbb","count":1}]}`, http.StatusOK, &filteredByFrom)
+	filteredByFromItems, ok := filteredByFrom.Result.([]any)
+	if filteredByFrom.Error != nil || !ok || len(filteredByFromItems) != 1 {
+		t.Fatalf("unexpected address-filtered trace: %+v", filteredByFrom)
+	}
+	var filteredAfter JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":842,"method":"trace_filter","params":[{"fromBlock":"0xc","toBlock":"0xc","fromAddress":"0xaaaa","after":1}]}`, http.StatusOK, &filteredAfter)
+	filteredAfterItems, ok := filteredAfter.Result.([]any)
+	if filteredAfter.Error != nil || !ok || len(filteredAfterItems) != 0 {
+		t.Fatalf("unexpected paged trace result: %+v", filteredAfter)
+	}
+	var filteredMiss JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":843,"method":"trace_filter","params":[{"fromBlock":"0xc","toBlock":"0xc","toAddress":"0xcccc"}]}`, http.StatusOK, &filteredMiss)
+	filteredMissItems, ok := filteredMiss.Result.([]any)
+	if filteredMiss.Error != nil || !ok || len(filteredMissItems) != 0 {
+		t.Fatalf("unexpected miss trace result: %+v", filteredMiss)
+	}
 	var traceGet JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":92,"method":"trace_get","params":["`+blockTxHashText+`",[]]}`, http.StatusOK, &traceGet)
 	traceGetResult, ok := traceGet.Result.(map[string]any)
@@ -1524,6 +1555,11 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":5,"method":"eth_estimateGas","params":[{"to":"0xbbbb","gas":"0x100"}]}`, http.StatusOK, &estimate)
 	if estimate.Error != nil || estimate.Result != "0x5208" {
 		t.Fatalf("unexpected estimate response: %+v", estimate)
+	}
+	var intrinsicEstimate JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":56,"method":"eth_estimateGas","params":[{"to":"0xbbbb","data":"0x0001","accessList":[{"address":"0xbbbb","storageKeys":["0x01"]}],"gas":"0x100"}]}`, http.StatusOK, &intrinsicEstimate)
+	if intrinsicEstimate.Error != nil || intrinsicEstimate.Result != "0x62e8" {
+		t.Fatalf("expected estimate to honor calldata/access-list intrinsic gas, got %+v", intrinsicEstimate)
 	}
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x","gas_used":9,"failed":true,"error":"execution reverted"}`)}
 	var failedEstimate JSONRPCResponse
@@ -3234,6 +3270,25 @@ func signedTestEthereumTx(t *testing.T, chainID uint64) (string, string) {
 		Data:      []byte{0x12, 0x34},
 	})
 	signed, err := gethtypes.SignTx(tx, gethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "0x" + hex.EncodeToString(raw), signed.Hash().Hex()
+}
+
+func unprotectedLegacyEthereumTx(t *testing.T) (string, string) {
+	t.Helper()
+	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	to := gethcommon.HexToAddress("0x000000000000000000000000000000000000bEEF")
+	tx := gethtypes.NewTransaction(8, to, big.NewInt(1), 21_000, big.NewInt(1), nil)
+	signed, err := gethtypes.SignTx(tx, gethtypes.HomesteadSigner{}, key)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -43,14 +43,15 @@ const defaultWeb3IntrinsicGas = 21_000
 const stableAPIPrefix = "/v1"
 
 type Config struct {
-	Address              string
-	ReadHeaderTimeout    time.Duration
-	RequestTimeout       time.Duration
-	MaxRequestBytes      int64
-	RateLimitWindow      time.Duration
-	RateLimitMaxRequests int
-	AdminToken           string
-	EnablePprof          bool
+	Address                  string
+	ReadHeaderTimeout        time.Duration
+	RequestTimeout           time.Duration
+	MaxRequestBytes          int64
+	RateLimitWindow          time.Duration
+	RateLimitMaxRequests     int
+	AdminToken               string
+	EnablePprof              bool
+	AllowUnprotectedLegacyTx bool
 }
 
 type Server struct {
@@ -1138,7 +1139,7 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 	})
 	mux.HandleFunc("/web3", func(writer http.ResponseWriter, request *http.Request) {
 		if isWebSocketUpgrade(request) {
-			handleWeb3WebSocket(writer, request, provider, filters)
+			handleWeb3WebSocket(writer, request, provider, cfg, filters)
 			return
 		}
 		handleWeb3JSONRPC(writer, request, provider, cfg, filters)
@@ -1149,7 +1150,7 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 			return
 		}
 		if isWebSocketUpgrade(request) {
-			handleWeb3WebSocket(writer, request, provider, filters)
+			handleWeb3WebSocket(writer, request, provider, cfg, filters)
 			return
 		}
 		handleWeb3JSONRPC(writer, request, provider, cfg, filters)
@@ -1181,7 +1182,7 @@ func handleWeb3JSONRPC(writer http.ResponseWriter, request *http.Request, provid
 		}
 		responses := make([]JSONRPCResponse, 0, len(batch))
 		for _, item := range batch {
-			response, notify := executeWeb3Payload(request.Context(), provider, filters, item)
+			response, notify := executeWeb3Payload(request.Context(), provider, cfg, filters, item)
 			if notify {
 				continue
 			}
@@ -1194,7 +1195,7 @@ func handleWeb3JSONRPC(writer http.ResponseWriter, request *http.Request, provid
 		writeJSON(writer, http.StatusOK, responses)
 		return
 	}
-	response, notify := executeWeb3Payload(request.Context(), provider, filters, trimmed)
+	response, notify := executeWeb3Payload(request.Context(), provider, cfg, filters, trimmed)
 	if notify {
 		writer.WriteHeader(http.StatusNoContent)
 		return
@@ -1202,7 +1203,7 @@ func handleWeb3JSONRPC(writer http.ResponseWriter, request *http.Request, provid
 	writeJSON(writer, http.StatusOK, response)
 }
 
-func executeWeb3Payload(ctx context.Context, provider StatusProvider, filters *web3FilterStore, raw json.RawMessage) (JSONRPCResponse, bool) {
+func executeWeb3Payload(ctx context.Context, provider StatusProvider, cfg Config, filters *web3FilterStore, raw json.RawMessage) (JSONRPCResponse, bool) {
 	var payload JSONRPCRequest
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
@@ -1219,7 +1220,7 @@ func executeWeb3Payload(ctx context.Context, provider StatusProvider, filters *w
 		return JSONRPCResponse{JSONRPC: "2.0", ID: payload.ID, Error: &JSONRPCError{Code: -32600, Message: "method is required"}}, false
 	}
 	notify := len(payload.ID) == 0
-	result, rpcErr := executeWeb3Method(ctx, provider, filters, payload.Method, payload.Params)
+	result, rpcErr := executeWeb3Method(ctx, provider, cfg, filters, payload.Method, payload.Params)
 	if notify {
 		return JSONRPCResponse{}, true
 	}
@@ -1248,7 +1249,7 @@ func writeFinalityProof(writer http.ResponseWriter, proof finality.Proof, err er
 	writeJSON(writer, http.StatusOK, finalityProofResponse(proof))
 }
 
-func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *web3FilterStore, method string, params []json.RawMessage) (any, *JSONRPCError) {
+func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config, filters *web3FilterStore, method string, params []json.RawMessage) (any, *JSONRPCError) {
 	switch method {
 	case "rpc_modules":
 		return web3RPCModules(), nil
@@ -1398,21 +1399,7 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		if err != nil {
 			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
 		}
-		baseFee := uint64(0)
-		if query, ok := provider.(ChainQueryProvider); ok {
-			if state, err := query.LatestState(ctx); err == nil {
-				baseFee = state.BaseFee
-				if state.NextBaseFee > 0 {
-					baseFee = state.NextBaseFee
-				}
-			}
-		}
-		decoded, err := ethcompat.DecodeRawTransaction(rawTx, ethcompat.DecodeOptions{
-			ChainID:     web3ChainID(provider.Status(ctx)),
-			BaseFee:     baseFee,
-			BlobBaseFee: web3LatestBlobBaseFee(ctx, provider),
-			VM:          "evm",
-		})
+		decoded, err := web3DecodeRawEthereumTx(ctx, provider, cfg, rawTx)
 		if err != nil {
 			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
 		}
@@ -1424,7 +1411,7 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		}
 		return decoded.Hash, nil
 	case "vexo_sendRawBlobTransaction":
-		return web3SendRawBlobTransaction(ctx, provider, params)
+		return web3SendRawBlobTransaction(ctx, provider, cfg, params)
 	case "vexo_getBlobSidecarByTxHash":
 		return web3BlobSidecar(ctx, provider, params, "blob_sidecar")
 	case "vexo_getBlobSidecarByBlobHash":
@@ -1637,7 +1624,26 @@ type web3BlobSidecarParam struct {
 	Proofs          []string `json:"proofs"`
 }
 
-func web3SendRawBlobTransaction(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
+func web3DecodeRawEthereumTx(ctx context.Context, provider StatusProvider, cfg Config, rawTx string) (ethcompat.DecodedTransaction, error) {
+	baseFee := uint64(0)
+	if query, ok := provider.(ChainQueryProvider); ok {
+		if state, err := query.LatestState(ctx); err == nil {
+			baseFee = state.BaseFee
+			if state.NextBaseFee > 0 {
+				baseFee = state.NextBaseFee
+			}
+		}
+	}
+	return ethcompat.DecodeRawTransaction(rawTx, ethcompat.DecodeOptions{
+		ChainID:                web3ChainID(provider.Status(ctx)),
+		BaseFee:                baseFee,
+		BlobBaseFee:            web3LatestBlobBaseFee(ctx, provider),
+		VM:                     "evm",
+		AllowUnprotectedLegacy: cfg.AllowUnprotectedLegacyTx,
+	})
+}
+
+func web3SendRawBlobTransaction(ctx context.Context, provider StatusProvider, cfg Config, params []json.RawMessage) (any, *JSONRPCError) {
 	submitter, ok := provider.(TxSubmitter)
 	if !ok {
 		return nil, &JSONRPCError{Code: -32000, Message: "transaction submission is unavailable"}
@@ -1649,21 +1655,7 @@ func web3SendRawBlobTransaction(ctx context.Context, provider StatusProvider, pa
 	if err != nil {
 		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
 	}
-	baseFee := uint64(0)
-	if query, ok := provider.(ChainQueryProvider); ok {
-		if state, err := query.LatestState(ctx); err == nil {
-			baseFee = state.BaseFee
-			if state.NextBaseFee > 0 {
-				baseFee = state.NextBaseFee
-			}
-		}
-	}
-	decoded, err := ethcompat.DecodeRawTransaction(rawTx, ethcompat.DecodeOptions{
-		ChainID:     web3ChainID(provider.Status(ctx)),
-		BaseFee:     baseFee,
-		BlobBaseFee: web3LatestBlobBaseFee(ctx, provider),
-		VM:          "evm",
-	})
+	decoded, err := web3DecodeRawEthereumTx(ctx, provider, cfg, rawTx)
 	if err != nil {
 		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
 	}
@@ -2998,11 +2990,23 @@ func web3TraceFilter(ctx context.Context, provider StatusProvider, params []json
 		return nil, &JSONRPCError{Code: -32602, Message: "trace_filter requires one filter object"}
 	}
 	var filter struct {
-		FromBlock json.RawMessage `json:"fromBlock"`
-		ToBlock   json.RawMessage `json:"toBlock"`
+		FromBlock   json.RawMessage `json:"fromBlock"`
+		ToBlock     json.RawMessage `json:"toBlock"`
+		FromAddress any             `json:"fromAddress"`
+		ToAddress   any             `json:"toAddress"`
+		After       uint64          `json:"after"`
+		Count       uint64          `json:"count"`
 	}
 	if err := json.Unmarshal(params[0], &filter); err != nil {
 		return nil, &JSONRPCError{Code: -32602, Message: "invalid trace filter"}
+	}
+	fromAddresses, rpcErr := web3LogAddresses(filter.FromAddress)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	toAddresses, rpcErr := web3LogAddresses(filter.ToAddress)
+	if rpcErr != nil {
+		return nil, rpcErr
 	}
 	from := provider.Status(ctx).LatestHeight
 	to := from
@@ -3040,9 +3044,54 @@ func web3TraceFilter(ctx context.Context, provider StatusProvider, params []json
 			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
 		}
 		items := web3TraceBlockRecord(ctx, provider, record)
-		traces = append(traces, items...)
+		for _, item := range items {
+			if !web3TraceMatchesFilter(item, fromAddresses, toAddresses) {
+				continue
+			}
+			traces = append(traces, item)
+		}
 	}
-	return traces, nil
+	return web3TracePage(traces, filter.After, filter.Count), nil
+}
+
+func web3TraceMatchesFilter(raw any, fromAddresses []string, toAddresses []string) bool {
+	trace, ok := raw.(map[string]any)
+	if !ok {
+		return false
+	}
+	action, _ := trace["action"].(map[string]any)
+	if len(fromAddresses) > 0 && !web3TraceActionAddressMatches(action["from"], fromAddresses) {
+		return false
+	}
+	if len(toAddresses) > 0 && !web3TraceActionAddressMatches(action["to"], toAddresses) {
+		return false
+	}
+	return true
+}
+
+func web3TraceActionAddressMatches(raw any, addresses []string) bool {
+	address, ok := raw.(string)
+	if !ok || address == "" {
+		return false
+	}
+	for _, candidate := range addresses {
+		if strings.EqualFold(address, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func web3TracePage(traces []any, after uint64, count uint64) []any {
+	if after >= uint64(len(traces)) {
+		return []any{}
+	}
+	start := int(after)
+	end := len(traces)
+	if count > 0 && count < uint64(end-start) {
+		end = start + int(count)
+	}
+	return traces[start:end]
 }
 
 func web3TraceReplayTransaction(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
@@ -3571,12 +3620,16 @@ func web3EstimateGas(ctx context.Context, provider StatusProvider, params []json
 	if rpcErr != nil {
 		return "", rpcErr
 	}
+	intrinsicGas, rpcErr := web3IntrinsicGasForCall(call)
+	if rpcErr != nil {
+		return "", rpcErr
+	}
 	high := call.GasLimit
 	if high == 0 {
 		high = defaultWeb3BlockGasLimit
 	}
-	if high < defaultWeb3IntrinsicGas {
-		high = defaultWeb3IntrinsicGas
+	if high < intrinsicGas {
+		high = intrinsicGas
 	}
 	probe := call
 	probe.GasLimit = high
@@ -3587,7 +3640,7 @@ func web3EstimateGas(ctx context.Context, provider StatusProvider, params []json
 	if callResponse.Failed {
 		return "", web3CallFailureError(callResponse)
 	}
-	low := uint64(defaultWeb3IntrinsicGas)
+	low := intrinsicGas
 	if callResponse.GasUsed > low {
 		low = callResponse.GasUsed
 	}
@@ -3606,6 +3659,33 @@ func web3EstimateGas(ctx context.Context, provider StatusProvider, params []json
 		right = mid
 	}
 	return hexQuantity(left), nil
+}
+
+func web3IntrinsicGasForCall(call web3CallRequest) (uint64, *JSONRPCError) {
+	gas := uint64(defaultWeb3IntrinsicGas)
+	input, err := hexBytes(call.Input)
+	if err != nil {
+		return 0, &JSONRPCError{Code: -32602, Message: "invalid data hex"}
+	}
+	for _, value := range input {
+		if value == 0 {
+			gas = saturatingAddUint64(gas, 4)
+			continue
+		}
+		gas = saturatingAddUint64(gas, 16)
+	}
+	for _, entry := range call.AccessList {
+		gas = saturatingAddUint64(gas, 2400)
+		gas = saturatingAddUint64(gas, uint64(len(entry.StorageKeys))*1900)
+	}
+	return gas, nil
+}
+
+func saturatingAddUint64(left uint64, right uint64) uint64 {
+	if ^uint64(0)-left < right {
+		return ^uint64(0)
+	}
+	return left + right
 }
 
 func web3EVMCall(ctx context.Context, provider StatusProvider, params []json.RawMessage) (web3EVMCallResponse, *JSONRPCError) {
