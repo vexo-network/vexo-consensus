@@ -413,11 +413,17 @@ func ValidateCanonicalTx(tx types.Tx, expectedChainID uint64) error {
 	if !found || raw == "" {
 		return ErrInvalidRawTransaction
 	}
-	decoded, err := DecodeRawTransaction(raw, DecodeOptions{ChainID: expectedChainID})
+	canonical, err := vexoapp.ParseCanonicalTx(tx)
 	if err != nil {
 		return err
 	}
-	canonical, err := vexoapp.ParseCanonicalTx(tx)
+	baseFee, _ := parseUintTag(canonical.Tags, TagBaseFee)
+	blobBaseFee, _ := parseUintTag(canonical.Tags, TagBlobBaseFee)
+	decoded, err := DecodeRawTransaction(raw, DecodeOptions{
+		ChainID:     expectedChainID,
+		BaseFee:     baseFee,
+		BlobBaseFee: blobBaseFee,
+	})
 	if err != nil {
 		return err
 	}
@@ -431,12 +437,24 @@ func ValidateCanonicalTx(tx types.Tx, expectedChainID uint64) error {
 	if !sameStrings(canonical.Args, decodedCanonical.Args) {
 		return ErrSignatureMismatch
 	}
-	for _, key := range []string{"gas", "signer", "nonce", TagHash, TagRaw, TagType, TagInput, TagChainID, TagValue, TagMaxFeePerGas, TagMaxPriorityFeePerGas, TagAccessList, TagBlobGas, TagBlobGasFeeCap, TagBlobHashes} {
+	for _, key := range []string{"fee", "gas", "signer", "nonce", TagHash, TagRaw, TagType, TagInput, TagChainID, TagBaseFee, TagGasPrice, TagValue, TagMaxFeePerGas, TagMaxPriorityFeePerGas, TagAccessList, TagBlobBaseFee, TagBlobGas, TagBlobGasFeeCap, TagBlobHashes} {
 		if canonical.Tags[key] != decodedCanonical.Tags[key] {
 			return ErrSignatureMismatch
 		}
 	}
 	return nil
+}
+
+func parseUintTag(tags map[string]string, key string) (uint64, bool) {
+	if len(tags) == 0 {
+		return 0, false
+	}
+	value, found := tags[key]
+	if !found || value == "" {
+		return 0, false
+	}
+	parsed, err := strconv.ParseUint(value, 10, 64)
+	return parsed, err == nil
 }
 
 func decodeFixedHexList(items []string, expectedBytes int) ([][]byte, error) {

@@ -252,7 +252,7 @@ func TestVerifyBlobSidecarVerifiesKZGProofAndHashes(t *testing.T) {
 
 func TestValidateCanonicalTxRejectsTamperingAndWrongChain(t *testing.T) {
 	raw, _ := signedRawTestTx(t, 7, false)
-	decoded, err := DecodeRawTransaction(raw, DecodeOptions{ChainID: 7})
+	decoded, err := DecodeRawTransaction(raw, DecodeOptions{ChainID: 7, BaseFee: 11})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,6 +270,27 @@ func TestValidateCanonicalTxRejectsTamperingAndWrongChain(t *testing.T) {
 	}
 	if err := ValidateCanonicalTx(tampered, 7); err == nil {
 		t.Fatal("expected tampered canonical tx to be rejected")
+	}
+	canonical, err = vexoapp.ParseCanonicalTx(decoded.Tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical.Tags["fee"] = "1"
+	tampered, err = vexoapp.BuildCanonicalTx(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateCanonicalTx(tampered, 7); !errors.Is(err, ErrSignatureMismatch) {
+		t.Fatalf("expected tampered fee to be rejected, got %v", err)
+	}
+	canonical.Tags["fee"] = "273000"
+	canonical.Tags[TagGasPrice] = "1"
+	tampered, err = vexoapp.BuildCanonicalTx(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateCanonicalTx(tampered, 7); !errors.Is(err, ErrSignatureMismatch) {
+		t.Fatalf("expected tampered gas price to be rejected, got %v", err)
 	}
 }
 

@@ -87,6 +87,10 @@ type GasEstimator interface {
 	EstimateGas(ctx Context, tx types.Tx) (uint64, error)
 }
 
+type TxValidator interface {
+	ValidateTx(ctx Context, tx types.Tx) error
+}
+
 type PruneHook interface {
 	Prune(ctx Context, retainFrom types.Height) error
 }

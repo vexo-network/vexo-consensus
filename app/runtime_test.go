@@ -146,6 +146,28 @@ func TestRuntimeProcessProposalRejectsInvalidTx(t *testing.T) {
 	}
 }
 
+func TestRuntimeRunsModuleTxValidatorInAdmissionPaths(t *testing.T) {
+	validateErr := errors.New("module validation failed")
+	module := &recordingModule{name: "bank", validateErr: validateErr}
+	runtime, err := NewRuntime("vexo-test", []Module{module}, PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if response := runtime.CheckTx([]byte("bank:send")); response.Result.Code == 0 || response.Result.Log != validateErr.Error() {
+		t.Fatalf("expected CheckTx validation failure, got %+v", response)
+	}
+	proposal := runtime.ProcessProposal(ProcessProposalRequest{
+		Block: types.Block{
+			Header: types.Header{Height: 1},
+			Txs:    []types.Tx{[]byte("bank:send")},
+		},
+	})
+	if proposal.Accepted || proposal.Reason != validateErr.Error() {
+		t.Fatalf("expected ProcessProposal validation failure, got %+v", proposal)
+	}
+}
+
 func TestRuntimeFinalizeRejectsBadProposal(t *testing.T) {
 	runtime, err := NewRuntime("vexo-test", []Module{&recordingModule{name: "bank"}}, PrefixRouter{})
 	if err != nil {
@@ -476,6 +498,7 @@ type recordingModule struct {
 	endErr      error
 	deliverCode uint32
 	deliverLog  string
+	validateErr error
 }
 
 func (module *recordingModule) Name() string {
@@ -496,6 +519,10 @@ func (module *recordingModule) DeliverTx(ctx Context, tx types.Tx) types.Result 
 	}
 	module.delivered = append(module.delivered, string(tx))
 	return types.Result{}
+}
+
+func (module *recordingModule) ValidateTx(ctx Context, tx types.Tx) error {
+	return module.validateErr
 }
 
 func (module *recordingModule) EndBlock(ctx Context) error {

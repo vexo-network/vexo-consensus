@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -2380,6 +2381,15 @@ func web3StateRoot(ctx context.Context, provider StatusProvider, record store.Bl
 }
 
 func web3BlockBaseFee(ctx context.Context, provider StatusProvider, record store.BlockRecord) uint64 {
+	if stateProvider, ok := provider.(StateByHeightProvider); ok && record.Block.Header.Height != 0 {
+		state, err := stateProvider.StateByHeight(ctx, record.Block.Header.Height)
+		if err == nil {
+			if state.BaseFee > 0 {
+				return state.BaseFee
+			}
+			return state.NextBaseFee
+		}
+	}
 	query, ok := provider.(ChainQueryProvider)
 	if !ok {
 		return 0
@@ -2389,7 +2399,7 @@ func web3BlockBaseFee(ctx context.Context, provider StatusProvider, record store
 		return 0
 	}
 	if state.Height != 0 && record.Block.Header.Height != 0 && state.Height != record.Block.Header.Height {
-		return state.BaseFee
+		return 0
 	}
 	if state.BaseFee > 0 {
 		return state.BaseFee
@@ -2405,6 +2415,28 @@ func web3LatestBlobBaseFee(ctx context.Context, provider StatusProvider) uint64 
 				return state.NextBlobBaseFee
 			}
 			return state.BlobBaseFee
+		}
+	}
+	return 0
+}
+
+func web3BaseFeeAtHeight(ctx context.Context, provider StatusProvider, height types.Height) uint64 {
+	if height == 0 {
+		return web3LatestBaseFee(ctx, provider)
+	}
+	if query, ok := provider.(StateByHeightProvider); ok {
+		state, err := query.StateByHeight(ctx, height)
+		if err == nil {
+			if state.BaseFee > 0 {
+				return state.BaseFee
+			}
+			return state.NextBaseFee
+		}
+	}
+	if blockProvider, ok := provider.(BlockProvider); ok {
+		record, err := blockProvider.BlockByHeight(ctx, height)
+		if err == nil {
+			return web3BlockBaseFee(ctx, provider, record)
 		}
 	}
 	return 0
@@ -2474,23 +2506,14 @@ func web3FeeHistory(ctx context.Context, provider StatusProvider, params []json.
 	if uint64(newest) >= blockCount {
 		oldest = uint64(newest) - blockCount + 1
 	}
-	baseFee := uint64(0)
-	if query, ok := provider.(ChainQueryProvider); ok {
-		state, err := query.LatestState(ctx)
-		if err == nil {
-			baseFee = state.BaseFee
-			if state.NextBaseFee > 0 {
-				baseFee = state.NextBaseFee
-			}
-		}
-	}
 	baseFees := make([]string, 0, blockCount+1)
 	gasUsedRatios := make([]float64, 0, blockCount)
 	for index := uint64(0); index < blockCount; index++ {
-		baseFees = append(baseFees, hexQuantity(baseFee))
-		gasUsedRatios = append(gasUsedRatios, web3BlockGasUsedRatio(ctx, provider, types.Height(oldest+index)))
+		height := types.Height(oldest + index)
+		baseFees = append(baseFees, hexQuantity(web3BaseFeeAtHeight(ctx, provider, height)))
+		gasUsedRatios = append(gasUsedRatios, web3BlockGasUsedRatio(ctx, provider, height))
 	}
-	baseFees = append(baseFees, hexQuantity(baseFee))
+	baseFees = append(baseFees, hexQuantity(web3BaseFeeAtHeight(ctx, provider, types.Height(oldest+blockCount))))
 	response := map[string]any{
 		"oldestBlock":   hexQuantity(oldest),
 		"baseFeePerGas": baseFees,
@@ -3976,6 +3999,12 @@ func web3TransactionFromBlockRecord(record store.BlockRecord, index int, hashTex
 	if details.MaxPriorityFeePerGas > 0 {
 		transaction["maxPriorityFeePerGas"] = hexQuantity(details.MaxPriorityFeePerGas)
 	}
+	if details.BlobGasFeeCap > 0 {
+		transaction["maxFeePerBlobGas"] = hexQuantity(details.BlobGasFeeCap)
+	}
+	if len(details.BlobHashes) > 0 {
+		transaction["blobVersionedHashes"] = append([]string(nil), details.BlobHashes...)
+	}
 	if index >= len(record.TxResults) {
 		return transaction
 	}
@@ -4014,6 +4043,8 @@ type web3TxDetails struct {
 	GasPrice             uint64
 	MaxFeePerGas         uint64
 	MaxPriorityFeePerGas uint64
+	BlobGasFeeCap        uint64
+	BlobHashes           []string
 	Value                uint64
 	ValueHex             string
 	Type                 uint64
@@ -4046,6 +4077,10 @@ func web3TransactionDetails(tx types.Tx) web3TxDetails {
 	if maxPriority, found := vexoapp.TxUintTag(tx, ethcompat.TagMaxPriorityFeePerGas); found {
 		details.MaxPriorityFeePerGas = maxPriority
 	}
+	if blobGasFeeCap, found := vexoapp.TxUintTag(tx, ethcompat.TagBlobGasFeeCap); found {
+		details.BlobGasFeeCap = blobGasFeeCap
+	}
+	details.BlobHashes = web3BlobVersionedHashes(tx)
 	if value, found := vexoapp.TxTag(tx, ethcompat.TagValue); found {
 		setWeb3TxValue(&details, value)
 	}
@@ -4104,6 +4139,33 @@ func web3TxValueDecimal(details web3TxDetails) string {
 		return "0"
 	}
 	return value.String()
+}
+
+func web3BlobVersionedHashes(tx types.Tx) []string {
+	encoded, found := vexoapp.TxTag(tx, ethcompat.TagBlobHashes)
+	if !found || encoded == "" {
+		return nil
+	}
+	raw, err := base64.RawStdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil
+	}
+	var hashes []string
+	if err := json.Unmarshal(raw, &hashes); err != nil {
+		return nil
+	}
+	normalized := make([]string, 0, len(hashes))
+	for _, hash := range hashes {
+		hash = strings.TrimSpace(hash)
+		if hash == "" {
+			continue
+		}
+		if !strings.HasPrefix(hash, "0x") && !strings.HasPrefix(hash, "0X") {
+			hash = "0x" + hash
+		}
+		normalized = append(normalized, strings.ToLower(hash))
+	}
+	return normalized
 }
 
 func web3AccountBalanceHex(account web3AccountStateResponse) string {

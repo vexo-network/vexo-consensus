@@ -867,6 +867,26 @@ func setTestEVMNonce(t *testing.T, storage vexoapp.StateStore, address types.Add
 	}
 }
 
+func TestModuleValidateTxRejectsTamperedEthereumRawEconomics(t *testing.T) {
+	rawTx := signedEthereumCreateTx(t, ethcompat.ChainNumericID("vexo-chain"), "6000")
+	decoded, err := ethcompat.DecodeRawTransaction(rawTx, ethcompat.DecodeOptions{ChainID: ethcompat.ChainNumericID("vexo-chain"), BaseFee: 11})
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := vexoapp.ParseCanonicalTx(decoded.Tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical.Tags["fee"] = "1"
+	tampered, err := vexoapp.BuildCanonicalTx(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (Module{}).ValidateTx(vexoapp.Context{ChainID: "vexo-chain"}, tampered); !errors.Is(err, ethcompat.ErrSignatureMismatch) {
+		t.Fatalf("expected tampered Ethereum raw tx to be rejected, got %v", err)
+	}
+}
+
 func testBlobSidecarBundle(t *testing.T) ethcompat.BlobSidecarBundle {
 	t.Helper()
 	var blob kzg4844.Blob

@@ -24,15 +24,21 @@ import (
 
 const GethVMName = "evm"
 
-type GethVM struct{}
+type GethVM struct {
+	chainConfig *gethparams.ChainConfig
+}
 
 func New() GethVM {
-	return GethVM{}
+	return NewWithChainConfig(nil)
+}
+
+func NewWithChainConfig(chainConfig *gethparams.ChainConfig) GethVM {
+	return GethVM{chainConfig: normalizedChainConfig(chainConfig)}
 }
 
 func (GethVM) Name() string { return GethVMName }
 
-func (GethVM) Execute(ctx context.Context, invocation contract.Invocation) (contract.Result, error) {
+func (vm GethVM) Execute(ctx context.Context, invocation contract.Invocation) (contract.Result, error) {
 	caller := gethAddress(invocation.Caller)
 	contractAddress := gethAddress(invocation.Contract)
 	stateDB := newGethStateDB(ctx, invocation)
@@ -49,13 +55,14 @@ func (GethVM) Execute(ctx context.Context, invocation contract.Invocation) (cont
 		DisableStack:     false,
 		DisableStorage:   false,
 	})
-	evm := gethvm.NewEVM(gethBlockContext(invocation, stateDB), stateDB, gethparams.AllDevChainProtocolChanges, gethvm.Config{Tracer: traceLogger.Hooks()})
+	chainConfig := vm.activeChainConfig()
+	evm := gethvm.NewEVM(gethBlockContext(invocation, stateDB), stateDB, chainConfig, gethvm.Config{Tracer: traceLogger.Hooks()})
 	evm.SetTxContext(gethvm.TxContext{
 		Origin:     caller,
 		GasPrice:   new(uint256.Int).SetUint64(invocation.GasPrice),
 		BlobHashes: gethBlobHashes(invocation.BlobHashes),
 	})
-	rules := gethparams.AllDevChainProtocolChanges.Rules(new(big.Int).SetUint64(invocation.BlockNumber), true, invocation.Timestamp)
+	rules := chainConfig.Rules(new(big.Int).SetUint64(invocation.BlockNumber), true, invocation.Timestamp)
 	var destination *gethcommon.Address
 	if invocation.Method != "deploy" {
 		destination = &contractAddress

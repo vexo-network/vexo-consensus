@@ -161,6 +161,10 @@ func (Module) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisState) err
 
 func (Module) BeginBlock(ctx vexoapp.Context, header types.Header) error { return nil }
 
+func (Module) ValidateTx(ctx vexoapp.Context, tx types.Tx) error {
+	return validateEthereumRawTx(ctx, tx)
+}
+
 func (module Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 	if ctx.Store == nil {
 		return types.Result{Code: 1, Log: ErrStoreMissing.Error()}

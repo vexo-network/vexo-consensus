@@ -58,6 +58,7 @@ type fakeStatusProvider struct {
 	blockErr              error
 	index                 store.BlockIndex
 	state                 store.StateRecord
+	states                map[types.Height]store.StateRecord
 	roots                 map[string]store.StateRootRecord
 	stateErr              error
 	eventRecords          []events.Record
@@ -222,6 +223,21 @@ func (provider fakeStatusProvider) LatestState(ctx context.Context) (store.State
 		return store.StateRecord{}, store.ErrStateNotFound
 	}
 	return provider.state, nil
+}
+
+func (provider fakeStatusProvider) StateByHeight(ctx context.Context, height types.Height) (store.StateRecord, error) {
+	if provider.stateErr != nil {
+		return store.StateRecord{}, provider.stateErr
+	}
+	if provider.states != nil {
+		if record, ok := provider.states[height]; ok {
+			return record, nil
+		}
+	}
+	if provider.state.Height == height && height != 0 {
+		return provider.state, nil
+	}
+	return store.StateRecord{}, store.ErrStateNotFound
 }
 
 func (provider fakeStatusProvider) StateRoot(ctx context.Context, height types.Height, namespace string) (store.StateRootRecord, error) {
@@ -823,8 +839,12 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		AppHash: types.Hash{0xee},
 	}
 	provider := &fakeStatusProvider{
-		status:           node.Status{ChainID: "vexo-chain", Running: true, LatestHeight: 12, LatestFinalizedHeight: 11, PeerCount: 2},
-		state:            store.StateRecord{Height: 12, BaseFee: 9, NextBaseFee: 11},
+		status: node.Status{ChainID: "vexo-chain", Running: true, LatestHeight: 12, LatestFinalizedHeight: 11, PeerCount: 2},
+		state:  store.StateRecord{Height: 12, BaseFee: 9, NextBaseFee: 11},
+		states: map[types.Height]store.StateRecord{
+			11: {Height: 11, BaseFee: 11, NextBaseFee: 9},
+			12: {Height: 12, BaseFee: 9, NextBaseFee: 11},
+		},
 		appQueryResponse: vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"0xabc","status":1,"gas_used":7,"logs":[{"address":"0xcontract","data":"0x01"}]}`)},
 		blocks:           map[types.Height]store.BlockRecord{11: finalizedBlock, 12: block},
 		blocksByHash:     map[types.Hash]store.BlockRecord{blockHash: block, finalizedHash: finalizedBlock},
@@ -980,6 +1000,10 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":102,"method":"vexo_sendRawBlobTransaction","params":["`+rawBlobTx+`",`+string(blobSidecarJSON)+`]}`, http.StatusOK, &sendBlob)
 	if sendBlob.Error != nil || sendBlob.Result != rawBlobHash || len(provider.submitted) != 2 || !strings.Contains(string(provider.submitted[1]), ethcompat.TagBlobSidecar+"=") {
 		t.Fatalf("unexpected blob tx response=%+v submitted=%q", sendBlob, provider.submitted)
+	}
+	blobDetails := web3TransactionDetails(provider.submitted[1])
+	if blobDetails.BlobGasFeeCap != 9 || len(blobDetails.BlobHashes) != 1 || !strings.EqualFold(blobDetails.BlobHashes[0], blobSidecar.BlobHashes[0]) {
+		t.Fatalf("expected Web3 blob transaction details, got %+v sidecar=%+v", blobDetails, blobSidecar)
 	}
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"` + rawBlobHash + `","sidecar":{"blob_hashes":["` + blobSidecar.BlobHashes[0] + `"],"blobs":[],"commitments":[],"proofs":[]}}`)}
 	var getBlob JSONRPCResponse

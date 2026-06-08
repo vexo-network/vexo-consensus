@@ -149,6 +149,9 @@ func (runtime *Runtime) CheckTxContext(goCtx context.Context, tx types.Tx) Check
 	if err != nil {
 		return CheckTxResponse{Result: types.Result{Code: 1, Log: err.Error()}}
 	}
+	if err := runtime.validateModuleTx(ctx, tx, payload, module); err != nil {
+		return CheckTxResponse{Result: types.Result{Code: 1, Log: err.Error()}}
+	}
 	if err := runtime.checkEstimatedGas(ctx, tx, payload, module); err != nil {
 		return CheckTxResponse{Result: types.Result{Code: 1, Log: err.Error()}}
 	}
@@ -198,6 +201,9 @@ func (runtime *Runtime) ProcessProposalContext(goCtx context.Context, req Proces
 		module, err := runtime.router.RouteTx(ctx, payload, runtime.modules)
 		if err != nil {
 			return ProcessProposalResponse{Accepted: false, Reason: "invalid transaction"}
+		}
+		if err := runtime.validateModuleTx(ctx, tx, payload, module); err != nil {
+			return ProcessProposalResponse{Accepted: false, Reason: err.Error()}
 		}
 		if err := runtime.checkEstimatedGas(ctx, tx, payload, module); err != nil {
 			return ProcessProposalResponse{Accepted: false, Reason: err.Error()}
@@ -354,6 +360,14 @@ func (runtime *Runtime) checkEstimatedGas(ctx Context, tx types.Tx, payload type
 		return ErrOutOfGas
 	}
 	return nil
+}
+
+func (runtime *Runtime) validateModuleTx(ctx Context, tx types.Tx, payload types.Tx, module Module) error {
+	validator, ok := module.(TxValidator)
+	if !ok {
+		return nil
+	}
+	return validator.ValidateTx(ctx, payload)
 }
 
 func (runtime *Runtime) Commit() (CommitResponse, error) {
