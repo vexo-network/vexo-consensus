@@ -1,23 +1,43 @@
-# Vexo 문서
+# Documentation
 
-이 디렉토리는 Vexo 문서의 한국어 진입점입니다. 영어(`en`) 문서가 규범 원문이며, 한국어 문서는 운영자와 개발자가 빠르게 위치를 찾을 수 있도록 같은 디렉토리 구조를 유지합니다.
+> Locale: ko · 한국어
+> 이 문서는 영어 원문을 기준으로 작성된 한국어 번역 가이드입니다. 프로토콜, 보안, 릴리즈 판단은 영어 원문이 규범입니다.
 
-## 먼저 읽기
+## 목적
 
-1. [합의 프로토콜 개요](./consensus-protocol.md)
-2. [합의 명세](./specs/consensus-spec.md)
-3. [트랜잭션 포맷](./specs/tx-format.md)
-4. [검증자 생명주기](./specs/validator-lifecycle.md)
-5. [보안 감사 준비](./security/audit-readiness.md)
+이 문서는 다음 내용을 다룹니다: 문서 색인과 권장 읽기 순서. 구현과 운영에서 쓰는 명령어, JSON 필드, RPC 이름, config key, 코드 식별자는 호환성을 위해 영어 원문 표기를 유지합니다.
 
-## 문서 묶음
+## 핵심 범위
 
-| 구분 | 경로 | 설명 |
-|---|---|---|
-| 운영자 | `operators/` | 노드 초기화, 검증자 추가, 설정 파일 관리 |
-| 릴리즈 | `release/` | 릴리즈 파이프라인, 런북, 호환성, 게이트 |
-| SDK | `sdk/` | 앱 모듈, 커스텀 crypto/storage/transport, RPC 버전 관리 |
-| 보안 | `security/` | 위협 모델, 가정, 감사 준비 |
-| 명세 | `specs/` | 합의, 네트워크, 스토리지, 트랜잭션, finality proof |
+- 아래 항목은 이 문서를 읽을 때 반드시 확인해야 하는 내용입니다. 명령어, JSON 필드, RPC 메서드, config key, 코드 식별자는 호환성을 위해 원문 그대로 유지합니다.
+- 상세한 규범 문장은 영어 원문을 기준으로 검토하세요.
+- Canonical path: `docs/README.md`
+- Locale path: `docs/locales/ko/README.md`
 
-명령어, JSON 필드, RPC 메서드, 코드 식별자는 번역하지 않고 원문 그대로 유지합니다.
+## 보존해야 할 식별자
+
+- `vexo-consensus`
+- `/v1/*`
+- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
+- `make docs-check`
+
+## 영어 원문 섹션
+
+- Documentation
+- Start Here
+- Protocol Specs
+- SDK and Extension Guides
+- Operations and Release
+- Security
+- Localized Documentation
+- Writing New Docs
+
+## 운영 참고
+
+- `MUST`, `SHOULD`, `MAY`, 명령어 예시, JSON 예시, RPC 이름은 영어 표기를 유지합니다.
+- 이 번역을 변경한 뒤에는 `make docs-check`를 실행하세요.
+- 이 문서와 영어 원문이 충돌하면 영어 원문을 기준으로 하고 같은 변경에서 이 locale 파일도 갱신하세요.
+
+## 규범 원문
+
+- [English canonical document](../en/README.md)

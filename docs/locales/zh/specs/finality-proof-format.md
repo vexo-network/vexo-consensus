@@ -1,91 +1,57 @@
 # Finality Proof Format
 
-## Scope
+> Locale: zh · 中文
+> 本文档是基于英文规范文档编写的中文翻译指南。协议、安全和发布判断以英文原文为准。
 
-This spec defines the proof format verified by light clients and full nodes.
+## 目的
 
-## Proof Fields
+本文档说明 finality proof 字段、验证顺序和 validator set binding。 实现和运维中使用的命令、JSON 字段、RPC 名称、config key 和代码标识符为保持兼容性保留英文原样。
 
-`finality.Proof` contains:
+## 核心范围
 
-- `Header`: finalized block header
-- `QuorumCert`: QC for the finalized header hash
-- `ValidatorSetHeight`: height whose validator set is used for verification
-- `ValidatorSetHash`: hash of the validator set used for verification
+- 阅读本文档时必须检查以下项目。命令、JSON 字段、RPC 方法、配置键和代码标识符为保持兼容性保留英文原样。
+- 详细的规范性表述请以英文原文为准。
+- Canonical path: `docs/specs/finality-proof-format.md`
+- Locale path: `docs/locales/zh/specs/finality-proof-format.md`
 
-Full nodes expose the latest live finality proof at `/v1/finality/latest` and height-specific live proofs at `/v1/finality/{height}`. These proofs are consensus-finality artifacts, while `/v1/status.latest_height` reports application state commit height.
+## 需要保留的标识符
 
-## Header Fields
+- `finality.Proof`
+- `Header`
+- `QuorumCert`
+- `ValidatorSetHeight`
+- `ValidatorSetHash`
+- `/v1/finality/latest`
+- `/v1/finality/{height}`
+- `/v1/status.latest_height`
+- `Proof.ValidatorSetHeight == Header.Height`
+- `Proof.ValidatorSetHash == loaded_set.Hash()`
+- `Header.ValidatorSetHash == loaded_set.Hash()`
+- `QuorumCert.Height == Header.Height`
+- `QuorumCert.BlockHash == HeaderHash(Header)`
+- `finality.AttackDetector`
+- `--validator-set`
+- `BLSAdapter`
+- `vexo.finality.proof.v1`
 
-The header hash covers:
+## 英文原文章节
 
-- chain ID
-- height
-- timestamp
-- previous block hash
-- app hash
-- validator set hash
-- consensus/data availability chunk root
+- Finality Proof Format
+- Scope
+- Proof Fields
+- Header Fields
+- Quorum Certificate Fields
+- Verification Algorithm
+- Accountable Safety Detection
+- Ed25519 Model
+- BLS Model
 
-## Quorum Certificate Fields
+## 运维说明
 
-- height
-- round
-- block hash
-- signer bitmap
-- aggregate or multisignature
-- voting power
+- `MUST`、`SHOULD`、`MAY`、命令示例、JSON 示例和 RPC 名称保留英文拼写。
+- 修改此翻译后请运行 `make docs-check`。
+- 如果本页与英文来源不一致，请以英文来源为准，并在同一次变更中更新该 locale 文件。
 
-## Verification Algorithm
+## 规范来源
 
-1. Reject proofs without an explicit `ValidatorSetHeight`.
-2. Load validator set for `ValidatorSetHeight`.
-3. Verify `Proof.ValidatorSetHeight == Header.Height`.
-4. Verify `Proof.ValidatorSetHash == loaded_set.Hash()`.
-5. Verify `Header.ValidatorSetHash == loaded_set.Hash()`.
-6. Verify `QuorumCert.Height == Header.Height`.
-7. Verify `QuorumCert.BlockHash == HeaderHash(Header)`.
-8. Parse signer bitmap and reject unknown or duplicate signers.
-9. Recompute signer voting power and require quorum.
-10. If QC voting power is present, require it to match recomputed voting power.
-11. Verify aggregate/multisignature over finality sign bytes.
-
-## Accountable Safety Detection
-
-Light clients and operators should retain the first valid finality proof seen for each height. If another valid proof for the same height carries a different block hash, the node can deterministically derive accountable safety evidence:
-
-1. Verify both finality proofs with the validator set at `ValidatorSetHeight`.
-2. Require both proofs to use the same height and validator-set hash.
-3. Compare the finalized block hashes.
-4. If hashes differ, intersect both QC signer sets.
-5. Sum the overlapping validator voting power from the height-specific validator set.
-6. Treat the overlapping signers as double-finality signers.
-
-`finality.AttackDetector` implements this flow in-process. The CLI exposes the same check for incident response:
-
-```bash
-vexod proof detect-finality-conflict \
-  --first first-finality-proof.json \
-  --second second-finality-proof.json \
-  --validator-set validator-set-at-height.json
-```
-
-If `--validator-set` is omitted, the command loads validators from the resolved genesis file. For validator-set changes after genesis, pass the exact validator set for the proof height.
-
-## Ed25519 Model
-
-Ed25519 uses ordered multisignature concatenation. It is not cryptographic aggregation.
-
-## BLS Model
-
-BLS requires an audited adapter with:
-
-- domain separation
-- public key validation
-- subgroup checks
-- rogue-key defense such as proof of possession
-- deterministic serialization
-
-The runtime rejects BLS until an adapter satisfying the `BLSAdapter` contract is registered. This keeps aggregate-finality verification explicit: the verifier must know the validator-set public keys at the proof height, validate those keys, verify proof-of-possession or equivalent rogue-key defense, and verify the aggregate signature under the `vexo.finality.proof.v1` domain. The production wrapper rejects aggregate verification for public keys that were not admitted through validated BLS credentials.
-
-The framework includes a CIRCL-backed BLS12-381 adapter and still allows custom adapter registration. Operators must keep adapter audit evidence, dependency audit evidence, proof-of-possession metadata, and release artifacts together for value-bearing deployments.
+- [English canonical document](../../en/specs/finality-proof-format.md)

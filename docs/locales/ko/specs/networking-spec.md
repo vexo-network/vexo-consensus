@@ -1,106 +1,60 @@
 # Networking Spec
 
-## Scope
+> Locale: ko · 한국어
+> 이 문서는 영어 원문을 기준으로 작성된 한국어 번역 가이드입니다. 프로토콜, 보안, 릴리즈 판단은 영어 원문이 규범입니다.
 
-This spec defines peer communication, handshake expectations, scoring, reconnection, and DoS resistance.
+## 목적
 
-## Transport
+이 문서는 다음 내용을 다룹니다: P2P handshake, gossip, peer scoring, ban 정책. 구현과 운영에서 쓰는 명령어, JSON 필드, RPC 이름, config key, 코드 식별자는 호환성을 위해 영어 원문 표기를 유지합니다.
 
-The transport interface is modular. Current implementations include:
+## 핵심 범위
 
-- in-memory transport for tests
-- TCP transport
-- gRPC transport
+- 아래 항목은 이 문서를 읽을 때 반드시 확인해야 하는 내용입니다. 명령어, JSON 필드, RPC 메서드, config key, 코드 식별자는 호환성을 위해 원문 그대로 유지합니다.
+- 상세한 규범 문장은 영어 원문을 기준으로 검토하세요.
+- Canonical path: `docs/specs/networking-spec.md`
+- Locale path: `docs/locales/ko/specs/networking-spec.md`
 
-Different binaries can peer if they speak the same transport protocol, chain ID, message topics, and handshake policy.
+## 보존해야 할 식별자
 
-## Topics
+- `consensus`
+- `tx`
+- `commit`
+- `evidence`
+- `network_config.json`
+- `rpc.address`
+- `p2p.listen_address`
+- `p2p.peers`
+- `p2p.seeds`
+- `p2p_address`
+- `rpc_address`
+- `host:port`
+- `0.0.0.0:26656`
+- `[::]:26656`
+- `0`
+- `p2p.tls_cert_path`
+- `p2p.tls_key_path`
+- `p2p.tls_ca_path`
 
-- `consensus`: proposals, votes, timeout votes, QCs, and TCs
-- `tx`: transaction gossip
-- `commit`: committed block announcements
-- `evidence`: evidence gossip
+## 영어 원문 섹션
 
-## Handshake
+- Networking Spec
+- Scope
+- Transport
+- Topics
+- Handshake
+- Address Roles
+- Transport TLS
+- Peer Scoring
+- Reconnect and Backoff
+- DoS/DDOS Defenses
+- Operational Signals
 
-A production handshake should bind:
+## 운영 참고
 
-- chain ID
-- node ID
-- supported protocol version
-- transport protocol version
-- optional P2P auth proof or stronger peer authentication
-- advertised listen address
+- `MUST`, `SHOULD`, `MAY`, 명령어 예시, JSON 예시, RPC 이름은 영어 표기를 유지합니다.
+- 이 번역을 변경한 뒤에는 `make docs-check`를 실행하세요.
+- 이 문서와 영어 원문이 충돌하면 영어 원문을 기준으로 하고 같은 변경에서 이 locale 파일도 갱신하세요.
 
-Peers failing handshake authentication are rejected before gossip admission. When a shared P2P auth secret is configured, Vexo handshakes send a derived HMAC proof over the protocol/network/chain/genesis/node tuple rather than the raw secret.
+## 규범 원문
 
-## Address Roles
-
-Vexo separates local bind addresses, peer dial addresses, and public advertised addresses:
-
-- Local bind addresses live in `network_config.json` as `rpc.address` and `p2p.listen_address`.
-- Peer dial addresses live in `network_config.json` under `p2p.peers` and `p2p.seeds`.
-- Public advertised addresses live in validator metadata as `p2p_address` and `rpc_address`.
-
-Container-only names such as Docker service names may be valid peer dial targets inside a private bridge network, but they should not be written as public validator metadata for a public network. Public validator metadata should use stable DNS names or public IP addresses that external peers can resolve.
-
-Peer dial and discovered addresses must be dialable `host:port` values. Address-book and handshake discovery reject unspecified bind addresses such as `0.0.0.0:26656` or `[::]:26656`, malformed host strings, and port `0`. This prevents one node's local bind config from poisoning other nodes' peer books.
-
-### Transport TLS
-
-gRPC transport TLS is configured only through `network_config.json`:
-
-- `p2p.tls_cert_path` and `p2p.tls_key_path` enable a local node certificate.
-- `p2p.tls_ca_path` enables peer certificate verification and requires client certificates.
-- `p2p.tls_server_name` sets the expected server name for outbound verification.
-
-Relative TLS paths are resolved against the node home directory. Operators should keep public dial addresses in `p2p.peers`/`p2p.seeds`, local bind addresses in `p2p.listen_address`, and certificate trust material in these TLS fields rather than passing long-lived host or TLS state on the `start` command line.
-
-## Peer Scoring
-
-Peers are scored by:
-
-- valid messages
-- malformed messages
-- rate-limit violations
-- invalid consensus/evidence payloads
-- repeated dial failures
-
-Score behavior:
-
-- Score at or below `BanThreshold` causes temporary ban and disconnect.
-- Score above `MaxScore` is capped.
-- Score arithmetic uses saturating operations so long-running honest gossip cannot overflow integer score state.
-- Existing persisted scores above `MaxScore` are capped when peer score state is restored.
-- Persisted peer-score documents carry a schema version; unsupported schema versions must fail startup or operator recovery rather than being silently ignored.
-
-Score persistence should not be on the consensus hot path. Implementations should persist on shutdown, periodic score-window maintenance, or explicit operator snapshot paths.
-
-## Reconnect and Backoff
-
-- Dial failures are tracked in the address book.
-- Reconnect uses backoff to avoid dial storms.
-- Banned peers are evicted from active dial sets until ban expiration.
-
-## DoS/DDOS Defenses
-
-- request/body size limits
-- message size limits
-- per-peer score windows
-- global score windows
-- invalid-message penalties
-- peer bans and disconnects
-- admin-token protection for mutating RPC endpoints
-
-Admin RPC endpoints must fail closed when no admin token is configured.
-
-## Operational Signals
-
-Networking health should be monitored with:
-
-- peer count
-- banned peer count
-- peer window message count
-- reconnect failures
-- invalid message rate
-- gossip latency
+- [English canonical document](../../en/specs/networking-spec.md)

@@ -1715,7 +1715,7 @@ func TestRunNetworkLongRunEvidenceEvaluatesMetrics(t *testing.T) {
 			metricsCalls[address]++
 			height := uint64(10)
 			if metricsCalls[address] > 1 {
-				height = 12
+				height = 1010
 			}
 			return jsonHTTPResponse(http.StatusOK, `{"latest_height":`+strconv.FormatUint(height, 10)+`,"snapshot_healthy":true,"replay_healthy":true}`), nil
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/tx":
@@ -1726,7 +1726,7 @@ func TestRunNetworkLongRunEvidenceEvaluatesMetrics(t *testing.T) {
 		}
 	})}
 
-	evidence := runNetworkLongRunEvidence(context.Background(), client, plan, 100*time.Millisecond, 20, "bank:send:alice:bob:1:fee=1:gas=1000:signer=alice:nonce")
+	evidence := runNetworkLongRunEvidence(context.Background(), client, plan, 250*time.Millisecond, 40, "bank:send:alice:bob:1:fee=1:gas=1000:signer=alice:nonce")
 	if !evidence.OK || evidence.SchemaVersion != "v1" || evidence.Load.Submitted == 0 || txSubmitted == 0 || len(evidence.Nodes) != 2 {
 		t.Fatalf("unexpected longrun evidence: %+v", evidence)
 	}

@@ -1,23 +1,43 @@
-# Vexo-Dokumentation
+# Documentation
 
-Dieses Verzeichnis ist der deutsche Einstiegspunkt für die Vexo-Dokumentation. Die englische Dokumentation (`en`) ist die normative Quelle; die deutsche Struktur spiegelt dieselben Pfade wider.
+> Locale: de · Deutsch
+> Dieses Dokument ist ein übersetzter Leitfaden auf Basis der kanonischen englischen Dokumentation. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
 
-## Einstieg
+## Zweck
 
-1. [Konsensprotokoll Überblick](./consensus-protocol.md)
-2. [Konsensspezifikation](./specs/consensus-spec.md)
-3. [Transaktionsformat](./specs/tx-format.md)
-4. [Validator-Lebenszyklus](./specs/validator-lifecycle.md)
-5. [Vorbereitung auf Sicherheitsaudits](./security/audit-readiness.md)
+Dieses Dokument behandelt den Dokumentationsindex und die empfohlene Lesereihenfolge. Befehle, JSON-Felder, RPC-Namen, config key und Code-Bezeichner, die in Implementierung und Betrieb verwendet werden, bleiben aus Kompatibilitätsgründen auf Englisch.
 
-## Dokumentgruppen
+## Kernbereich
 
-| Bereich | Pfad | Zweck |
-|---|---|---|
-| Betrieb | `operators/` | Node-Initialisierung, Validator hinzufügen, Konfiguration |
-| Release | `release/` | Release-Pipeline, Runbook, Kompatibilität, Gates |
-| SDK | `sdk/` | App-Module, eigene crypto/storage/transport Backends, RPC-Versionierung |
-| Sicherheit | `security/` | Threat Model, Annahmen, Audit-Vorbereitung |
-| Spezifikationen | `specs/` | Konsens, Netzwerk, Storage, Transaktionen, Finality Proof |
+- Beim Lesen müssen die folgenden Punkte geprüft werden. Befehle, JSON-Felder, RPC-Methoden, Konfigurationsschlüssel und Code-Bezeichner bleiben aus Kompatibilitätsgründen unverändert.
+- Für detaillierte normative Formulierungen gilt der englische Originaltext.
+- Canonical path: `docs/README.md`
+- Locale path: `docs/locales/de/README.md`
 
-Befehle, JSON-Felder, RPC-Methoden und Code-Bezeichner bleiben unverändert auf Englisch.
+## Beizubehaltende Bezeichner
+
+- `vexo-consensus`
+- `/v1/*`
+- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
+- `make docs-check`
+
+## Englische Abschnitte
+
+- Documentation
+- Start Here
+- Protocol Specs
+- SDK and Extension Guides
+- Operations and Release
+- Security
+- Localized Documentation
+- Writing New Docs
+
+## Betriebshinweis
+
+- `MUST`, `SHOULD`, `MAY`, Befehlsbeispiele, JSON-Beispiele und RPC-Namen behalten die englische Schreibweise.
+- Führe nach Änderungen an dieser Übersetzung `make docs-check` aus.
+- Wenn diese Seite der englischen Quelle widerspricht, gilt die englische Quelle; aktualisiere diese Locale-Datei im selben Change.
+
+## Kanonische Quelle
+
+- [English canonical document](../en/README.md)

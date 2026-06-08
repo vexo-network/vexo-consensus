@@ -1,158 +1,59 @@
 # Release Pipeline
 
-## Goals
+> Locale: hi · हिन्दी
+> यह दस्तावेज़ अंग्रेज़ी canonical documentation पर आधारित हिन्दी अनुवाद गाइड है। protocol, security और release से जुड़े निर्णयों के लिए अंग्रेज़ी मूल पाठ ही मानक रहेगा।
 
-A release should provide:
+## उद्देश्य
 
-- signed release binaries
-- checksums
-- SBOM
-- reproducible Docker image inputs
-- version compatibility matrix
-- release candidate soak-test evidence
+यह दस्तावेज़ signed binaries, checksums और SBOM वाली release pipelineको समझाता है। Implementation और operation में उपयोग होने वाले commands, JSON fields, RPC names, config key और code identifiers compatibility के लिए अंग्रेज़ी में ही रहेंगे।
 
-## Release Commands
+## मुख्य दायरा
 
-Build cross-platform binaries, checksums, SBOM, and manifest:
+- इस दस्तावेज़ को पढ़ते समय नीचे दिए बिंदु अवश्य जाँचें। commands, JSON fields, RPC methods, config keys और code identifiers compatibility के लिए अंग्रेज़ी में ही रखे जाते हैं।
+- विस्तृत normative भाषा के लिए अंग्रेज़ी मूल दस्तावेज़ देखें।
+- Canonical path: `docs/release/release-pipeline.md`
+- Locale path: `docs/locales/hi/release/release-pipeline.md`
 
-```bash
-make release VERSION=0.1.0
-```
+## संरक्षित identifier
 
-Sign checksums with GPG:
-
-```bash
-make sign-release VERSION=0.1.0
-```
-
-Build Docker image with pinned metadata:
-
-```bash
-make docker-image VERSION=0.1.0 IMAGE=vexo-consensus IMAGE_TAG=0.1.0
-```
-
-Run release candidate verification:
-
-```bash
-make release-candidate VERSION=0.1.0-rc.1
-```
-
-Generate launch parameter recommendations for the target network:
-
-```bash
-go run ./cmd/vexod config tune --validators 64 --tps 5000 --regions 4 --latency 120ms --json
-```
-
-Print the operator launch checklist:
-
-```bash
-go run ./cmd/vexod release launch-checklist
-go run ./cmd/vexod release launch-checklist --json
-```
-
-Run the release gate before publishing a release candidate:
-
-```bash
-go run ./cmd/vexod release gate \
-  --dist dist \
-  --version 0.1.0-rc.1 \
-  --longrun-evidence dist/longrun-evidence.json \
-  --chaos-evidence dist/chaos-evidence.json \
-  --adversarial-evidence dist/adversarial-evidence.json \
-  --fuzz-evidence dist/fuzz-evidence.txt \
-  --kms-evidence dist/kms-evidence.json \
-  --snapshot-evidence dist/snapshot-replay-evidence.json \
-  --p2p-scale-evidence dist/p2p-scale-evidence.json \
-  --state-sync-light-client-evidence dist/state-sync-light-client-evidence.json \
-  --validator-economics-evidence dist/validator-economics-evidence.json \
-  --upgrade-governance-evidence dist/upgrade-governance-evidence.json \
-  --mev-fee-market-evidence dist/mev-fee-market-evidence.json \
-  --ops-runbook-evidence dist/ops-runbook-evidence.json \
-  --formal-safety-evidence dist/formal-safety-evidence.json \
-  --sdk-conformance-evidence dist/sdk-conformance-evidence.json \
-  --external-audit dist/external-audit.pdf \
-  --bls-audit dist/bls-audit.pdf \
-  --json
-```
-
-`release gate` fails closed when required evidence is missing, empty, malformed, explicitly reports a failed `ok`/`status`/check result, or does not semantically cover the evidence category it claims to satisfy. `--allow-external-pending` is acceptable for private release candidates only; do not use it for public production launch gates.
-
-## Artifacts
-
-`dist/` contains:
-
-- `vexod-<version>-<os>-<arch>` binaries
+- `release gate`
+- `ok`
+- `status`
+- `--allow-external-pending`
+- `dist/`
+- `vexod-<version>-<os>-<arch>`
 - `checksums.txt`
-- `checksums.txt.asc` after signing
+- `checksums.txt.asc`
 - `sbom-go-modules.json`
 - `sbom-go-version.txt`
 - `release-manifest.json`
 - `release-audit-pack.json`
-- long-run, chaos, adversarial, fuzz, signer, snapshot/replay, P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, SDK conformance including EVM/Web3 conformance, external-audit, and BLS-audit evidence files with passing content when preparing a release candidate
-
-## Reproducibility Notes
-
-Builds use:
-
 - `CGO_ENABLED=0`
 - `go build -trimpath`
-- explicit version, commit, and build date ldflags
-- Docker build args for version metadata
+- `BUILD_DATE`
+- `release-candidate`
+- `make network-e2e`
+- `RC_DRY_RUN=1`
 
-For stricter reproducibility, set a deterministic `BUILD_DATE`, use a clean checkout, and compare `checksums.txt` across builders.
+## अंग्रेज़ी मूल अनुभाग
 
-## Signed Binaries
+- Release Pipeline
+- Goals
+- Release Commands
+- Artifacts
+- Reproducibility Notes
+- Signed Binaries
+- SBOM
+- Audit Pack
+- Release Candidate Soak Test
+- Launch Runbook
 
-Binaries are verified through signed checksums:
+## ऑपरेशनल नोट
 
-```bash
-gpg --verify dist/checksums.txt.asc dist/checksums.txt
-shasum -a 256 -c dist/checksums.txt
-```
+- `MUST`, `SHOULD`, `MAY`, कमांड उदाहरण, JSON उदाहरण और RPC नाम अंग्रेज़ी वर्तनी में ही रहेंगे।
+- इस translation को बदलने के बाद `make docs-check` चलाएँ।
+- यदि यह पेज अंग्रेज़ी source से अलग हो, तो अंग्रेज़ी source मानें और उसी change में इस locale file को update करें।
 
-## SBOM
+## Canonical स्रोत
 
-The current SBOM is Go-module based:
-
-```bash
-cat dist/sbom-go-modules.json
-```
-
-External pipelines may replace or augment it with SPDX/CycloneDX tools.
-
-## Audit Pack
-
-Package release artifacts and reviewer evidence metadata:
-
-```bash
-go run ./cmd/vexod release pack --dist dist --version 0.1.0 --output dist/release-audit-pack.json
-go run ./cmd/vexod release pack --dist dist --version 0.1.0 --require-signature
-go run ./cmd/vexod release pack --dist dist --version 0.1.0 \
-  --longrun-evidence dist/longrun-evidence.json \
-  --adversarial-evidence dist/adversarial-evidence.json \
-  --fuzz-evidence dist/fuzz-evidence.txt
-```
-
-The generated pack lists artifact SHA-256 values, required release files, signature status, attached long-run/adversarial/fuzz evidence, and the external audit checklist. `release gate` adds the stricter publish/no-publish decision by requiring category-specific chaos, signer, snapshot/replay, P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, SDK conformance including EVM/Web3 fixtures, external audit, and BLS audit evidence.
-
-## Release Candidate Soak Test
-
-The `release-candidate` target runs:
-
-- full test/vet check
-- fuzz smoke tests
-- ops verification
-- built-binary network E2E (`make network-e2e`)
-- adversarial simulation
-- SDK/EVM transaction fixture conformance evidence
-- network load harness (`RC_DRY_RUN=1` keeps this as a plan-only dry-run)
-- chaos plan
-- 7-day multi-host longrun plan
-- longrun harness evidence (`RC_DRY_RUN=1` keeps this as a plan-only dry-run)
-
-Real release candidates should run `network longrun` on independent machines and attach the generated evidence JSON plus metrics, logs, pprof, snapshot, replay, KMS signing, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, SDK conformance, and EVM/Web3 conformance evidence.
-The longrun harness distributes load across validator RPC endpoints and records per-validator submission counts in the evidence payload. Upgrade plans that rely on no-op schema migrations must explicitly set `allow_noop_migrations=true`; `vexod upgrade apply --allow-empty-migrations` rejects plans that do not opt in.
-
-## Launch Runbook
-
-Use [Launch Runbook](./launch-runbook.md) for the prelaunch gate, release-candidate gate, genesis gate, launch-window monitoring, halt criteria, and postlaunch archive requirements.
+- [English canonical document](../../en/release/release-pipeline.md)

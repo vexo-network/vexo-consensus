@@ -1,35 +1,50 @@
 # Cosmos/Tendermint Comparison Gate
 
-This document maps common Tendermint/CometBFT/Cosmos SDK maturity advantages to Vexo release gates.
+> Locale: ko · 한국어
+> 이 문서는 영어 원문을 기준으로 작성된 한국어 번역 가이드입니다. 프로토콜, 보안, 릴리즈 판단은 영어 원문이 규범입니다.
 
-Vexo should not claim public production readiness unless every row has attached evidence in `release gate`.
+## 목적
 
-| Area | Tendermint/Cosmos Advantage | Vexo Gate |
-|---|---|---|
-| Operational history | Many years of public-network incidents, fixes, and operator practice | `--longrun-evidence`, `--chaos-evidence`, `--ops-runbook-evidence` |
-| Independent review | External audits, ecosystem scrutiny, and battle-tested assumptions | `--external-audit`, `--formal-safety-evidence`, `--fuzz-evidence` |
-| Ecosystem | Mature SDK modules, IBC, wallets, explorers, tooling, and tutorials | `--sdk-conformance-evidence` plus chain-specific integration evidence |
-| P2P maturity | Proven seed/addrbook behavior, reconnects, peer exchange, and DoS hardening | `--p2p-scale-evidence` |
-| State sync/light clients | Widely exercised snapshot and light-client verification flows | `--state-sync-light-client-evidence`, `--snapshot-evidence` |
-| Validator economics | Mature staking, slashing, unbonding, commission, rewards, and tombstone flows | `--validator-economics-evidence` |
-| Governance upgrades | On-chain upgrade coordination with known failure playbooks | `--upgrade-governance-evidence` |
-| Operations | Known metrics, alerts, runbooks, incident response, and archive procedures | `--ops-runbook-evidence` |
-| Fee market/MEV | More ecosystem experience with fee pressure, spam, censorship, and ordering | `--mev-fee-market-evidence` |
-| Signer/KMS | Operational signer tooling and validator custody practice | `--kms-evidence`, `--bls-audit` when BLS is enabled |
+이 문서는 다음 내용을 다룹니다: Cosmos/Tendermint 스타일 기대치 대비 릴리즈 게이트. 구현과 운영에서 쓰는 명령어, JSON 필드, RPC 이름, config key, 코드 식별자는 호환성을 위해 영어 원문 표기를 유지합니다.
 
-## Required Evidence Properties
+## 핵심 범위
 
-- Evidence must be generated from the exact release candidate binary and config schema.
-- Multi-host evidence must run on independent machines or independent failure domains.
-- Metrics must include thresholds, not only raw values.
-- Slashing and validator economics evidence must include negative tests for false slashing.
-- Light-client evidence must bind finality proof height to the correct validator-set hash.
-- SDK/Web3 evidence must cover Vexo's supported Ethereum execution/RPC surface and must not imply Ethereum devp2p, Ethereum fork-choice, or geth stateless execution-witness compatibility.
-- MEV/fee-market evidence must include congested mempool, empty-block disabled, base-fee movement, fair-ordering consistency, and censorship-resistance drills.
-- Upgrade evidence must include failed migration and rollback-required handling.
+- 아래 항목은 이 문서를 읽을 때 반드시 확인해야 하는 내용입니다. 명령어, JSON 필드, RPC 메서드, config key, 코드 식별자는 호환성을 위해 원문 그대로 유지합니다.
+- 상세한 규범 문장은 영어 원문을 기준으로 검토하세요.
+- Canonical path: `docs/release/cosmos-comparison-gate.md`
+- Locale path: `docs/locales/ko/release/cosmos-comparison-gate.md`
 
-## Release Rule
+## 보존해야 할 식별자
 
-If a Vexo release lacks any required evidence, the correct public statement is:
+- `release gate`
+- `--longrun-evidence`
+- `--chaos-evidence`
+- `--ops-runbook-evidence`
+- `--external-audit`
+- `--formal-safety-evidence`
+- `--fuzz-evidence`
+- `--sdk-conformance-evidence`
+- `--p2p-scale-evidence`
+- `--state-sync-light-client-evidence`
+- `--snapshot-evidence`
+- `--validator-economics-evidence`
+- `--upgrade-governance-evidence`
+- `--mev-fee-market-evidence`
+- `--kms-evidence`
+- `--bls-audit`
 
-> The code has the framework hooks, but the network has not yet met the Vexo release gate for public production launch.
+## 영어 원문 섹션
+
+- Cosmos/Tendermint Comparison Gate
+- Required Evidence Properties
+- Release Rule
+
+## 운영 참고
+
+- `MUST`, `SHOULD`, `MAY`, 명령어 예시, JSON 예시, RPC 이름은 영어 표기를 유지합니다.
+- 이 번역을 변경한 뒤에는 `make docs-check`를 실행하세요.
+- 이 문서와 영어 원문이 충돌하면 영어 원문을 기준으로 하고 같은 변경에서 이 locale 파일도 갱신하세요.
+
+## 규범 원문
+
+- [English canonical document](../../en/release/cosmos-comparison-gate.md)

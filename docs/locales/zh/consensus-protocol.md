@@ -1,67 +1,47 @@
 # Consensus Protocol Overview
 
-This page is the high-level entry point for Vexo consensus documentation. For a broader documentation map, see [Documentation](./README.md).
+> Locale: zh · 中文
+> 本文档是基于英文规范文档编写的中文翻译指南。协议、安全和发布判断以英文原文为准。
 
-For normative details, use the spec files:
+## 目的
 
-- [Consensus Spec](./specs/consensus-spec.md)
-- [Finality Proof Format](./specs/finality-proof-format.md)
-- [Validator Lifecycle](./specs/validator-lifecycle.md)
-- [Storage Schema](./specs/storage-schema.md)
-- [Networking Spec](./specs/networking-spec.md)
-- [Transaction Format](./specs/tx-format.md)
+本文档说明 共识模型、执行与 finality 术语以及安全边界。 实现和运维中使用的命令、JSON 字段、RPC 名称、config key 和代码标识符为保持兼容性保留英文原样。
 
-## Model
+## 核心范围
 
-Vexo uses a HotStuff-style BFT core with proposals, votes, quorum certificates, timeout certificates, locked-QC safety, and three-chain finality.
+- 阅读本文档时必须检查以下项目。命令、JSON 字段、RPC 方法、配置键和代码标识符为保持兼容性保留英文原样。
+- 详细的规范性表述请以英文原文为准。
+- Canonical path: `docs/consensus-protocol.md`
+- Locale path: `docs/locales/zh/consensus-protocol.md`
 
-A block is safe to vote for only when it extends the locked QC or carries a justify QC at least as new as the lock. A block becomes finalized when the three-chain rule proves a safe parent/grandparent chain extension.
+## 需要保留的标识符
 
-The implementation binds the three-chain decision to explicit block, parent, and grandparent heights. The block QC must certify the parent height/hash, and the parent QC must certify the grandparent height/hash; synthetic or height-skipped QC chains are rejected before a finality decision is recorded.
+- `FinalizeBlock`
+- `consensus_config.json`
+- `execution_commit`
+- `finalized`
+- `qc`
+- `require_network_safety`
+- `block_committed`
+- `deterministic`
+- `ed25519`
+- `bls`
 
-## Execution Terms
+## 英文原文章节
 
-Vexo uses these terms consistently:
+- Consensus Protocol Overview
+- Model
+- Execution Terms
+- Safety Boundary
+- Crypto Boundary
+- Operational Boundary
 
-- **QC certified**: a block has enough votes to form a quorum certificate.
-- **Finalized**: the HotStuff three-chain rule finalizes an ancestor block.
-- **Executed**: the application has run `FinalizeBlock` for a block.
-- **State committed**: application KV writes, block record, state record, and module state roots have been durably committed.
+## 运维说明
 
-The node execution path uses two separate boundaries:
+- `MUST`、`SHOULD`、`MAY`、命令示例、JSON 示例和 RPC 名称保留英文拼写。
+- 修改此翻译后请运行 `make docs-check`。
+- 如果本页与英文来源不一致，请以英文来源为准，并在同一次变更中更新该 locale 文件。
 
-- **Execution commit boundary**: a QC-certified block can be executed and atomically persisted as app writes + block record + state record + state roots.
-- **Consensus finality boundary**: the three-chain rule finalizes an ancestor and is the only source for light-client finality proofs.
+## 规范来源
 
-`consensus_config.json` exposes this choice through `execution_commit`. Generated validator homes default to `finalized`, which executes only the ancestor selected by the three-chain finality rule so state commits align with the stricter finality boundary. The lower-latency `qc` boundary remains available for custom deployments, but `require_network_safety` rejects it. Operators and SDK users should treat `block_committed` logs as state-commit events for the configured execution boundary. Finality proofs describe consensus finality at their validator-set height.
-
-## Safety Boundary
-
-Safety depends on:
-
-- less than one-third Byzantine voting power
-- domain-separated proposal, vote, timeout-vote, and finality signatures
-- validator-set hash binding at the relevant proof height
-- unique known signers in QCs and finality proofs
-- accountable evidence for validator equivocation
-- rejection of conflicting commit decisions at the same finalized height
-
-## Crypto Boundary
-
-- `deterministic` is test-only and fails network safety validation.
-- `ed25519` is supported for public-network testing and launch preparation.
-- `bls` requires proof-of-possession or equivalent rogue-key defense, subgroup checks, public-key validation, dependency audit evidence, and release-gate evidence. The built-in CIRCL adapter is a reference integration for the runtime interface; value-bearing networks should link a separately audited adapter and keep the audit evidence with the release.
-- Network safety validation requires VRF adapter metadata for VRF committee selection. The built-in ECVRF adapter can satisfy the runtime interface; deterministic VRF remains test-only and should not be used for value-bearing networks.
-
-## Operational Boundary
-
-The code includes production-oriented checks, but public deployments still require:
-
-- strict config audit for every validator home
-- release-gate evidence
-- external security review
-- multi-host long-run and chaos evidence
-- signer/KMS policy evidence
-- chain-specific economic and governance policy review
-
-See [Security Audit Readiness](./security/audit-readiness.md) and [Release Pipeline](./release/release-pipeline.md) before treating a release as production-ready.
+- [English canonical document](../en/consensus-protocol.md)

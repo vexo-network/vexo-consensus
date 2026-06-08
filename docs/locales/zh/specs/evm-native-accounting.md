@@ -1,59 +1,56 @@
 # EVM and Native Accounting
 
-This document is a normative accounting specification for Vexo native balances, fees, and the built-in EVM module.
+> Locale: zh · 中文
+> 本文档是基于英文规范文档编写的中文翻译指南。协议、安全和发布判断以英文原文为准。
 
-## Core Rule
+## 目的
 
-Vexo native coin balances and EVM account balances are the same economic asset.
+本文档说明 将 native coin 与 EVM gas/accounting 保持一致的方法。 实现和运维中使用的命令、JSON 字段、RPC 名称、config key 和代码标识符为保持兼容性保留英文原样。
 
-- The atomic unit is `avxo`.
-- Display units are `gvxo` (`10^9 avxo`) and `vexo` (`10^18 avxo`).
-- Native `bank` transfers, ante fees, staking/reward accounting, and EVM value transfers read and write the same `bank` namespace for account balances.
-- Ethereum `0x` account addresses are normalized to lowercase 20-byte hex keys before balance reads and writes.
-- Bech32 Vexo account addresses remain plain account keys.
+## 核心范围
 
-## Amount Encoding
+- 阅读本文档时必须检查以下项目。命令、JSON 字段、RPC 方法、配置键和代码标识符为保持兼容性保留英文原样。
+- 详细的规范性表述请以英文原文为准。
+- Canonical path: `docs/specs/evm-native-accounting.md`
+- Locale path: `docs/locales/zh/specs/evm-native-accounting.md`
 
-Balances are unsigned 256-bit integers encoded as big-endian bytes.
+## 需要保留的标识符
 
-- New writes use 8-byte big-endian encoding for values that fit in `uint64` to preserve legacy compatibility.
-- New writes use minimal big-endian encoding for values above `uint64`.
-- Readers must accept any non-empty value up to 32 bytes.
-- Values above 256 bits are invalid.
-- Missing balance keys are interpreted as zero.
+- `avxo`
+- `gvxo`
+- `10^9 avxo`
+- `vexo`
+- `10^18 avxo`
+- `bank`
+- `0x`
+- `uint64`
+- `fee`
+- `fee=1`
+- `fee=1avxo`
+- `fee=1gvxo`
+- `fee=1vexo`
+- `base_fee * gas`
+- `value`
+- `uint256`
+- `contract.Invocation`
+- `eth_getBalance`
 
-## Fee Accounting
+## 英文原文章节
 
-The ante layer parses `fee` as a 256-bit atomic amount.
+- EVM and Native Accounting
+- Core Rule
+- Amount Encoding
+- Fee Accounting
+- EVM Execution
+- Compatibility Boundary
+- Failure Modes
 
-- `fee=1`, `fee=1avxo`, `fee=1gvxo`, and `fee=1vexo` are valid.
-- `base_fee * gas` is computed with arbitrary-precision arithmetic before the 256-bit storage boundary is checked.
-- Non-Ethereum Vexo transactions pay fees from the signer balance to the configured fee collector.
-- Raw Ethereum transactions do not pay ante-layer fees; their gas/value accounting is executed by the EVM state transition and then persisted back into the same native balance namespace.
+## 运维说明
 
-## EVM Execution
+- `MUST`、`SHOULD`、`MAY`、命令示例、JSON 示例和 RPC 名称保留英文拼写。
+- 修改此翻译后请运行 `make docs-check`。
+- 如果本页与英文来源不一致，请以英文来源为准，并在同一次变更中更新该 locale 文件。
 
-The built-in EVM adapter preserves Ethereum 256-bit value and fee fields.
+## 规范来源
 
-- Raw Ethereum transaction `value`, effective gas price, fee cap, priority fee cap, blob fee cap, and total fee are decoded as `uint256`-compatible values.
-- Canonical Vexo wrapper tags store those values as decimal strings even when they exceed `uint64`.
-- The geth-backed VM adapter receives 256-bit gas price and fee-cap fields through the `contract.Invocation` boundary.
-- VM balance writes are persisted as native bank balances, so `eth_getBalance` and `bank query balance` observe the same underlying asset for Ethereum `0x` accounts.
-
-## Compatibility Boundary
-
-Vexo does not become an Ethereum node.
-
-- Vexo keeps its own consensus, P2P, state sync, fork choice, validator lifecycle, and block format.
-- EVM compatibility means Ethereum execution semantics and Web3-facing account/transaction behavior inside a Vexo network.
-- Ethereum devp2p, Ethereum fork-choice, and Ethereum sync semantics are intentionally outside this accounting spec.
-
-## Failure Modes
-
-Implementations must fail closed when:
-
-- a stored balance is longer than 32 bytes
-- a parsed amount is negative or larger than 256 bits
-- a fee collector balance would overflow 256 bits
-- an EVM state transition returns invalid balance writes
-- checksum/lowercase Ethereum address aliases would split account balance state
+- [English canonical document](../../en/specs/evm-native-accounting.md)

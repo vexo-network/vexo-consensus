@@ -1,51 +1,46 @@
 # Version Compatibility Matrix
 
-| Component | Compatibility Rule |
-|---|---|
-| Consensus wire schema | Breaking changes require protocol version bump |
-| RPC API | Additive fields are compatible; removals require new API version |
-| Config schema | Migrations for `config.json`, `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json`, and `log_config.json` must be captured in an upgrade plan |
-| Store schema | Migrations must be height-gated and rollback-aware |
-| App module state | Module migrations must be deterministic and replay-safe |
-| Finality proof format | Breaking changes require light-client compatibility plan |
-| Crypto backend | BLS adapters require audited implementation and explicit activation |
-| Docker image | Image metadata must match binary version/commit/build date |
+> Locale: ko · 한국어
+> 이 문서는 영어 원문을 기준으로 작성된 한국어 번역 가이드입니다. 프로토콜, 보안, 릴리즈 판단은 영어 원문이 규범입니다.
 
-## Current Matrix
+## 목적
 
-| Version | RPC | Config Schema | Store Schema | App State Schema | Notes |
-|---|---|---:|---:|---:|---|
-| pre-audit | `/v1/*` stable paths, unversioned aliases | 1 | 1 | 1 | Requires release-gate evidence before value-bearing launch |
+이 문서는 다음 내용을 다룹니다: 버전 호환성 매트릭스와 업그레이드 판단 기준. 구현과 운영에서 쓰는 명령어, JSON 필드, RPC 이름, config key, 코드 식별자는 호환성을 위해 영어 원문 표기를 유지합니다.
 
-## Upgrade Compatibility Checklist
+## 핵심 범위
 
-- Define governance-approved upgrade height.
-- Define target binary version.
-- Define config/store/app-state schema from/to versions, including every split config file.
-- Generate upgrade plan with `vexod upgrade plan --json`.
-- Execute the plan with `vexod upgrade apply` at the approved height and persist the execution record.
-- Treat any `rollback_required` record as an operator stop condition until rollback is completed.
-- Run `make release-candidate`.
-- Sign checksums and publish SBOM.
-- Execute rollback drill before deployment activation.
+- 아래 항목은 이 문서를 읽을 때 반드시 확인해야 하는 내용입니다. 명령어, JSON 필드, RPC 메서드, config key, 코드 식별자는 호환성을 위해 원문 그대로 유지합니다.
+- 상세한 규범 문장은 영어 원문을 기준으로 검토하세요.
+- Canonical path: `docs/release/version-compatibility.md`
+- Locale path: `docs/locales/ko/release/version-compatibility.md`
 
-## Rollback Drill
+## 보존해야 할 식별자
 
-Generate a rollback drill plan before activating an upgrade:
+- `config.json`
+- `module_config.json`
+- `network_config.json`
+- `consensus_config.json`
+- `mempool_config.json`
+- `log_config.json`
+- `/v1/*`
+- `vexod upgrade plan --json`
+- `vexod upgrade apply`
+- `rollback_required`
+- `make release-candidate`
 
-```bash
-go run ./cmd/vexod upgrade rollback-plan \
-  --plan-file upgrade-plan.json \
-  --record-file .vexo/upgrade-records.json \
-  --last-safe-height <upgrade-height-minus-one> \
-  --snapshot .vexo/snapshots/<safe-height>.json
-```
+## 영어 원문 섹션
 
-The drill must verify:
+- Version Compatibility Matrix
+- Current Matrix
+- Upgrade Compatibility Checklist
+- Rollback Drill
 
-- rollback binary or artifact is declared
-- last safe height is lower than the upgrade height
-- restore snapshot evidence is attached
-- failed `rollback_required` records block retry until rollback is completed
-- validators restart from identical genesis/config inputs
-- replay, signer policy, height growth, and light-client finality proofs remain valid after rollback
+## 운영 참고
+
+- `MUST`, `SHOULD`, `MAY`, 명령어 예시, JSON 예시, RPC 이름은 영어 표기를 유지합니다.
+- 이 번역을 변경한 뒤에는 `make docs-check`를 실행하세요.
+- 이 문서와 영어 원문이 충돌하면 영어 원문을 기준으로 하고 같은 변경에서 이 locale 파일도 갱신하세요.
+
+## 규범 원문
+
+- [English canonical document](../../en/release/version-compatibility.md)

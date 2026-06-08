@@ -1,23 +1,43 @@
-# Vexo 文档
+# Documentation
 
-本目录是 Vexo 文档的中文入口。英文 (`en`) 文档是规范来源；中文目录保持相同结构，方便开发者和运维人员按主题查找。
+> Locale: zh · 中文
+> 本文档是基于英文规范文档编写的中文翻译指南。协议、安全和发布判断以英文原文为准。
 
-## 建议阅读顺序
+## 目的
 
-1. [共识协议概览](./consensus-protocol.md)
-2. [共识规范](./specs/consensus-spec.md)
-3. [交易格式](./specs/tx-format.md)
-4. [验证者生命周期](./specs/validator-lifecycle.md)
-5. [安全审计准备](./security/audit-readiness.md)
+本文档说明 文档索引和推荐阅读顺序。 实现和运维中使用的命令、JSON 字段、RPC 名称、config key 和代码标识符为保持兼容性保留英文原样。
 
-## 文档集合
+## 核心范围
 
-| 类别 | 路径 | 说明 |
-|---|---|---|
-| 运维 | `operators/` | 节点初始化、添加验证者、配置文件管理 |
-| 发布 | `release/` | 发布流水线、运行手册、兼容性和发布门禁 |
-| SDK | `sdk/` | 应用模块、自定义 crypto/storage/transport、RPC 版本管理 |
-| 安全 | `security/` | 威胁模型、假设和审计准备 |
-| 规范 | `specs/` | 共识、网络、存储、交易和 finality proof |
+- 阅读本文档时必须检查以下项目。命令、JSON 字段、RPC 方法、配置键和代码标识符为保持兼容性保留英文原样。
+- 详细的规范性表述请以英文原文为准。
+- Canonical path: `docs/README.md`
+- Locale path: `docs/locales/zh/README.md`
 
-命令、JSON 字段、RPC 方法和代码标识符保持英文原样。
+## 需要保留的标识符
+
+- `vexo-consensus`
+- `/v1/*`
+- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
+- `make docs-check`
+
+## 英文原文章节
+
+- Documentation
+- Start Here
+- Protocol Specs
+- SDK and Extension Guides
+- Operations and Release
+- Security
+- Localized Documentation
+- Writing New Docs
+
+## 运维说明
+
+- `MUST`、`SHOULD`、`MAY`、命令示例、JSON 示例和 RPC 名称保留英文拼写。
+- 修改此翻译后请运行 `make docs-check`。
+- 如果本页与英文来源不一致，请以英文来源为准，并在同一次变更中更新该 locale 文件。
+
+## 规范来源
+
+- [English canonical document](../en/README.md)

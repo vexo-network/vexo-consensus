@@ -1,70 +1,41 @@
 # Custom Storage and Transport Guide
 
-## Custom Storage
+> Locale: pt · Português
+> Este documento é um guia traduzido a partir da documentação canônica em inglês. Decisões de protocolo, segurança e release continuam normativas em inglês.
 
-Implement `store.Store`:
+## Objetivo
 
-- block save/query by height and hash
-- block index
-- state save/query by height/latest
-- state root save/query
-- evidence save/query/index
-- pruning
-- index recovery
-- compaction
-- historical namespace export by height through `store.HistoricalSnapshotKVStore`
-- close
+Este documento cobre implementação e registro de custom storage e transport adapter. Comandos, campos JSON, nomes RPC, config key e identificadores de código usados na implementação e operação permanecem em inglês por compatibilidade.
 
-Snapshot support implements `store.SnapshotKVStore`:
+## Escopo principal
 
-- export namespace
-- import namespace
+- Verifique os itens abaixo ao ler este documento. Comandos, campos JSON, métodos RPC, chaves de configuração e identificadores de código permanecem em inglês por compatibilidade.
+- Para texto normativo detalhado, use o documento em inglês.
+- Canonical path: `docs/sdk/custom-storage-transport.md`
+- Locale path: `docs/locales/pt/sdk/custom-storage-transport.md`
 
-Historical snapshot support is required for runtime construction. Custom stores that only implement latest-state reads are rejected because historical query proofs, replay, light-client proof serving, Web3 historical account state, and state-sync verification must fail at startup rather than later under load.
+## Identificadores preservados
 
-## Storage Requirements
+- `store.Store`
+- `store.HistoricalSnapshotKVStore`
+- `store.SnapshotKVStore`
+- `transport.Transport`
 
-A production storage backend must guarantee:
+## Seções em inglês
 
-- atomic block/state persistence or clear recovery semantics
-- crash-safe latest state pointer
-- durable evidence records
-- deterministic state roots
-- schema migration path
-- rollback-safe upgrade behavior
+- Custom Storage and Transport Guide
+- Custom Storage
+- Storage Requirements
+- Custom Transport
+- Transport Requirements
+- Compatibility
 
-## Custom Transport
+## Notas operacionais
 
-Implement `transport.Transport`:
+- `MUST`, `SHOULD`, `MAY`, exemplos de comando, exemplos JSON e nomes RPC preservam a grafia em inglês.
+- Após alterar esta tradução, execute `make docs-check`.
+- Se esta página divergir da fonte inglesa, use a fonte inglesa e atualize este arquivo locale na mesma mudança.
 
-- start/stop lifecycle
-- publish messages by topic
-- subscribe to topics
-- peer identity
-- peer addressing
+## Fonte canônica
 
-## Transport Requirements
-
-A production transport should provide:
-
-- handshake authentication
-- protocol version negotiation
-- chain ID binding
-- max message size
-- peer scoring hooks
-- reconnect/backoff
-- ban/disconnect support
-- metrics for latency, failures, and invalid messages
-- TLS or an equivalent authenticated encryption layer for public peer links
-- config-file wiring for cert/key/CA/server-name material instead of long-lived command-line overrides
-
-## Compatibility
-
-Different binaries can peer when they implement compatible:
-
-- chain ID
-- transport protocol
-- topic names
-- message encoding
-- handshake/auth policy
-- consensus wire schema
+- [English canonical document](../../en/sdk/custom-storage-transport.md)

@@ -38,6 +38,7 @@ func TestDocsLocalesMirrorCanonicalTree(t *testing.T) {
 	canonical := markdownTree(t, docsDir, func(path string) bool {
 		return !strings.HasPrefix(filepath.ToSlash(path), "locales/")
 	})
+	canonicalLocaleFiles := readMarkdownFiles(t, filepath.Join(docsDir, "locales", manifest.CanonicalLocale))
 	for _, locale := range manifest.Locales {
 		localeDir := filepath.Join(docsDir, "locales", locale)
 		files := markdownTree(t, localeDir, func(string) bool { return true })
@@ -46,6 +47,18 @@ func TestDocsLocalesMirrorCanonicalTree(t *testing.T) {
 		}
 		if diff := stringSetDiff(files, canonical); len(diff) > 0 {
 			t.Fatalf("locale %s has non-canonical extra docs: %v", locale, diff)
+		}
+		localeFiles := readMarkdownFiles(t, localeDir)
+		for relative, body := range localeFiles {
+			if locale == manifest.CanonicalLocale {
+				continue
+			}
+			if !strings.Contains(body, "Locale: "+locale) {
+				t.Fatalf("locale %s document %s is missing locale marker", locale, relative)
+			}
+			if body == canonicalLocaleFiles[relative] {
+				t.Fatalf("locale %s document %s is identical to canonical English", locale, relative)
+			}
 		}
 	}
 }
@@ -94,4 +107,30 @@ func stringSetDiff(left []string, right []string) []string {
 		}
 	}
 	return diff
+}
+
+func readMarkdownFiles(t *testing.T, root string) map[string]string {
+	t.Helper()
+	files := make(map[string]string)
+	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".md" {
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		files[filepath.ToSlash(relative)] = string(body)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return files
 }

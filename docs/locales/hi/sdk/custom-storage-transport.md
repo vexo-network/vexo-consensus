@@ -1,70 +1,41 @@
 # Custom Storage and Transport Guide
 
-## Custom Storage
+> Locale: hi · हिन्दी
+> यह दस्तावेज़ अंग्रेज़ी canonical documentation पर आधारित हिन्दी अनुवाद गाइड है। protocol, security और release से जुड़े निर्णयों के लिए अंग्रेज़ी मूल पाठ ही मानक रहेगा।
 
-Implement `store.Store`:
+## उद्देश्य
 
-- block save/query by height and hash
-- block index
-- state save/query by height/latest
-- state root save/query
-- evidence save/query/index
-- pruning
-- index recovery
-- compaction
-- historical namespace export by height through `store.HistoricalSnapshotKVStore`
-- close
+यह दस्तावेज़ custom storage और transport adapter लागू व register करनाको समझाता है। Implementation और operation में उपयोग होने वाले commands, JSON fields, RPC names, config key और code identifiers compatibility के लिए अंग्रेज़ी में ही रहेंगे।
 
-Snapshot support implements `store.SnapshotKVStore`:
+## मुख्य दायरा
 
-- export namespace
-- import namespace
+- इस दस्तावेज़ को पढ़ते समय नीचे दिए बिंदु अवश्य जाँचें। commands, JSON fields, RPC methods, config keys और code identifiers compatibility के लिए अंग्रेज़ी में ही रखे जाते हैं।
+- विस्तृत normative भाषा के लिए अंग्रेज़ी मूल दस्तावेज़ देखें।
+- Canonical path: `docs/sdk/custom-storage-transport.md`
+- Locale path: `docs/locales/hi/sdk/custom-storage-transport.md`
 
-Historical snapshot support is required for runtime construction. Custom stores that only implement latest-state reads are rejected because historical query proofs, replay, light-client proof serving, Web3 historical account state, and state-sync verification must fail at startup rather than later under load.
+## संरक्षित identifier
 
-## Storage Requirements
+- `store.Store`
+- `store.HistoricalSnapshotKVStore`
+- `store.SnapshotKVStore`
+- `transport.Transport`
 
-A production storage backend must guarantee:
+## अंग्रेज़ी मूल अनुभाग
 
-- atomic block/state persistence or clear recovery semantics
-- crash-safe latest state pointer
-- durable evidence records
-- deterministic state roots
-- schema migration path
-- rollback-safe upgrade behavior
+- Custom Storage and Transport Guide
+- Custom Storage
+- Storage Requirements
+- Custom Transport
+- Transport Requirements
+- Compatibility
 
-## Custom Transport
+## ऑपरेशनल नोट
 
-Implement `transport.Transport`:
+- `MUST`, `SHOULD`, `MAY`, कमांड उदाहरण, JSON उदाहरण और RPC नाम अंग्रेज़ी वर्तनी में ही रहेंगे।
+- इस translation को बदलने के बाद `make docs-check` चलाएँ।
+- यदि यह पेज अंग्रेज़ी source से अलग हो, तो अंग्रेज़ी source मानें और उसी change में इस locale file को update करें।
 
-- start/stop lifecycle
-- publish messages by topic
-- subscribe to topics
-- peer identity
-- peer addressing
+## Canonical स्रोत
 
-## Transport Requirements
-
-A production transport should provide:
-
-- handshake authentication
-- protocol version negotiation
-- chain ID binding
-- max message size
-- peer scoring hooks
-- reconnect/backoff
-- ban/disconnect support
-- metrics for latency, failures, and invalid messages
-- TLS or an equivalent authenticated encryption layer for public peer links
-- config-file wiring for cert/key/CA/server-name material instead of long-lived command-line overrides
-
-## Compatibility
-
-Different binaries can peer when they implement compatible:
-
-- chain ID
-- transport protocol
-- topic names
-- message encoding
-- handshake/auth policy
-- consensus wire schema
+- [English canonical document](../../en/sdk/custom-storage-transport.md)

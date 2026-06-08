@@ -1,13 +1,22 @@
 # RPC API Versioning
 
-## Stability Goal
+> Locale: vi · Tiếng Việt
+> Tài liệu này là hướng dẫn dịch dựa trên tài liệu tiếng Anh chuẩn. Các quyết định về giao thức, bảo mật và phát hành vẫn lấy bản tiếng Anh làm chuẩn.
 
-Vexo RPC should be stable enough for operators, wallets, dashboards, and automation harnesses.
+## Mục đích
 
-## Current Stable API
+Tài liệu này trình bày quản lý phiên bản RPC API, alias tương thích và chính sách ổn định. Lệnh, trường JSON, tên RPC, config key và định danh mã dùng trong triển khai và vận hành được giữ bằng tiếng Anh để đảm bảo tương thích.
 
-Stable endpoints are exposed under `/v1`. The unversioned paths remain compatibility aliases.
+## Phạm vi chính
 
+- Khi đọc tài liệu này, hãy kiểm tra các mục sau. Lệnh, trường JSON, phương thức RPC, khóa cấu hình và định danh mã được giữ nguyên tiếng Anh để đảm bảo tương thích.
+- Đối với câu chữ mang tính quy phạm chi tiết, hãy dùng bản tiếng Anh.
+- Canonical path: `docs/sdk/rpc-api-versioning.md`
+- Locale path: `docs/locales/vi/sdk/rpc-api-versioning.md`
+
+## Định danh cần giữ nguyên
+
+- `/v1`
 - `/v1/healthz`
 - `/v1/readyz`
 - `/v1/status`
@@ -25,120 +34,27 @@ Stable endpoints are exposed under `/v1`. The unversioned paths remain compatibi
 - `/v1/blocks/latest`
 - `/v1/blocks/{height}`
 - `/v1/state/latest`
-- `/v1/state/{height}/{namespace}`
-- `/v1/events?key={attribute_key}&value={attribute_value}`
-- `/v1/proof?namespace={namespace}&key={key}`
-- `/v1/proof?namespace={namespace}&key={key}&height=latest`
-- `/v1/finality/latest`
-- `/v1/finality/{height}`
-- `/v1/ibc/client/{client_id}`
-- `/v1/ibc/connection/{connection_id}`
-- `/v1/ibc/channel/{port_id}/{channel_id}`
-- `/v1/ibc/packet/{sequence}/{source_port}/{source_channel}/{destination_port}/{destination_channel}`
-- `/v1/ibc/proof/packet/{sequence}/{source_port}/{source_channel}/{destination_port}/{destination_channel}`
-- `/v1/validators/{height}`
-- `/v1/committee/{height}/{round}`
 
-Admin endpoints:
+## Mục trong bản tiếng Anh
 
-- `/v1/prune`
-- `/v1/replay`
-- `/v1/consensus/start`
-- `/v1/consensus/stop`
+- RPC API Versioning
+- Stability Goal
+- Current Stable API
+- Versioning Rules
+- Compatibility Aliases
+- Error Format
+- Query Proofs
+- Event Queries
+- IBC Queries
+- Web3 EVM Configuration
+- Operational Compatibility
 
-Admin endpoints require a configured admin token. If no token is configured, the endpoint returns `401` instead of treating the empty token as an operator bypass.
+## Ghi chú vận hành
 
-`/v1/replay` accepts `strict: true` to require isolated re-execution from genesis or a retained historical snapshot. Non-strict replay may fall back to stored block/state consistency checks when isolated replay prerequisites are unavailable; strict replay fails closed instead.
+- `MUST`, `SHOULD`, `MAY`, ví dụ lệnh, ví dụ JSON và tên RPC giữ nguyên cách viết tiếng Anh.
+- Sau khi sửa bản dịch này, hãy chạy `make docs-check`.
+- Nếu trang này khác với nguồn tiếng Anh, hãy dùng nguồn tiếng Anh và cập nhật file locale này trong cùng thay đổi.
 
-## Versioning Rules
+## Nguồn chuẩn
 
-- Additive response fields are minor-compatible.
-- Removing or renaming fields requires a new version.
-- Changing error semantics requires a new version or explicit compatibility flag.
-- Mutating endpoints must remain admin-token protected.
-- Admin-token checks must fail closed when token configuration is absent.
-- JSON decoders for public endpoints should reject unknown fields where request safety matters.
-
-## Compatibility Aliases
-
-Unversioned paths such as `/status`, `/tx`, and `/blocks/latest` are compatibility aliases for `/v1/status`, `/v1/tx`, and `/v1/blocks/latest`.
-
-New clients should use `/v1/*`. Future breaking API changes should use a new prefix such as `/v2/*`.
-
-## Error Format
-
-Errors should use:
-
-```json
-{"error":"message"}
-```
-
-Do not leak private key material, auth token values, or internal file contents in RPC errors.
-
-## Query Proofs
-
-`/v1/proof` returns a state-root-bound Merkle query-proof envelope for KV state. If `height` is omitted, the latest committed height is used:
-
-```bash
-curl 'http://127.0.0.1:26657/v1/proof?namespace=bank&key=alice'
-curl 'http://127.0.0.1:26657/v1/proof?height=10&namespace=bank&key=alice'
-```
-
-LevelDB stores height-versioned KV writes during atomic block commits, so historical proofs rebuild the namespace snapshot at the requested height and bind membership or non-membership to the state root saved for that height. Existing-key proofs include a compact Merkle path. Missing-key proofs include compact left/right neighbor absence proofs; legacy full namespace absence witnesses remain verifier-compatible. Stores that do not implement historical namespace reads must reject historical proof requests instead of returning latest values for older heights.
-
-`/v1/finality/latest` and `/v1/finality/{height}` return the latest or height-specific three-chain finality proof known by the live consensus state. These endpoints expose consensus finality, while `/v1/status.latest_height` reports application state commit height.
-
-## Event Queries
-
-`/v1/events` queries indexed transaction events by attribute key/value:
-
-```bash
-curl 'http://127.0.0.1:26657/v1/events?key=sender&value=alice'
-```
-
-Only attributes emitted with `Index: true` are queryable. Modules must keep event emission deterministic.
-
-## IBC Queries
-
-The IBC module exposes relayer-facing read endpoints:
-
-```bash
-curl 'http://127.0.0.1:26657/v1/ibc/client/07-vexo-0'
-curl 'http://127.0.0.1:26657/v1/ibc/connection/connection-0'
-curl 'http://127.0.0.1:26657/v1/ibc/channel/transfer/channel-0'
-curl 'http://127.0.0.1:26657/v1/ibc/packet/1/transfer/channel-0/transfer/channel-1'
-curl 'http://127.0.0.1:26657/v1/ibc/proof/packet/1/transfer/channel-0/transfer/channel-1'
-```
-
-Responses wrap the module JSON state in `{ "path": [...], "value": ... }`. Missing IBC state returns `404`.
-
-Packet proof responses reuse the standard Merkle query-proof envelope with namespace `ibc` and packet commitment key `packets/{source_port}/{source_channel}/{sequence}`. Relayers can use this endpoint to prove sent, acknowledged, or timed-out packet receipt state at a specific height. The keeper validates client chain ID, trusted height, trusted state root, namespace, key, existence, Merkle proof, and decoded packet receipt before accepting a packet commitment proof.
-
-The Web3 JSON-RPC bridge supports single requests, batch requests, notifications, string block tags, and EIP-1898 block selector objects, and includes block, fee, account, proof, code, storage, transaction, receipt, log, call, estimate, network, txpool, debug-trace, trace, and HTTP polling-filter methods: `rpc_modules`, `web3_clientVersion`, `web3_sha3`, `net_version`, `net_listening`, `net_peerCount`, `eth_chainId`, `eth_protocolVersion`, `eth_syncing`, `eth_mining`, `eth_hashrate`, `eth_accounts`, `eth_coinbase`, `eth_blockNumber`, `eth_getBlockByNumber`, `eth_getBlockByHash`, `eth_getBlockTransactionCountByNumber`, `eth_getBlockTransactionCountByHash`, `eth_getTransactionByBlockNumberAndIndex`, `eth_getTransactionByBlockHashAndIndex`, `eth_getUncleCountByBlockNumber`, `eth_getUncleCountByBlockHash`, `eth_getUncleByBlockNumberAndIndex`, `eth_getUncleByBlockHashAndIndex`, `eth_gasPrice`, `eth_blobBaseFee`, `eth_maxPriorityFeePerGas`, `eth_feeHistory`, `eth_getBalance`, `eth_getTransactionCount`, `eth_getProof`, `eth_getCode`, `eth_getStorageAt`, `eth_sendRawTransaction`, `eth_sendTransaction`, `eth_signTransaction`, `eth_sign`, `personal_sign`, `eth_getTransactionReceipt`, `eth_getBlockReceipts`, `eth_getTransactionByHash`, `eth_getRawTransactionByHash`, `eth_getRawTransactionByBlockNumberAndIndex`, `eth_getRawTransactionByBlockHashAndIndex`, `eth_pendingTransactions`, `eth_getLogs`, `eth_newFilter`, `eth_getFilterChanges`, `eth_getFilterLogs`, `eth_uninstallFilter`, `eth_call`, `eth_estimateGas`, `eth_createAccessList`, `txpool_status`, `txpool_content`, `txpool_contentFrom`, `txpool_inspect`, `debug_traceTransaction`, `debug_traceCall`, `debug_traceBlockByNumber`, `debug_traceBlockByHash`, `trace_call`, `trace_transaction`, `trace_get`, `trace_block`, `trace_filter`, `trace_replayTransaction`, and `trace_replayBlockTransactions`. This is Ethereum execution and Web3 method compatibility inside a Vexo network; Vexo does not expose Ethereum devp2p, peer discovery, fork choice, or sync semantics. `eth_chainId`, `net_version`, and signed raw transaction validation use the explicit execution `evm_chain_id`; nodes reject `0` and legacy configs are normalized to the default. `eth_sendRawTransaction` accepts signed Ethereum RLP/typed transactions, verifies the sender and configured EVM chain ID through go-ethereum transaction signers, preserves the Ethereum transaction hash and EIP-2930/EIP-1559 access list, and translates the payload into the internal `evm` canonical transaction format before mempool submission. `vexo_sendRawBlobTransaction` accepts a signed Ethereum blob transaction plus an explicit blob sidecar object, verifies KZG proofs and versioned hashes, stores the sidecar with committed EVM state, and keeps this inside Vexo consensus/RPC rather than pretending to be an Ethereum devp2p node. `vexo_getBlobSidecarByTxHash` and `vexo_getBlobSidecarByBlobHash` return committed sidecars for Vexo Web3 clients that need EIP-4844-style data availability. The EVM execution path prewarms caller-supplied access-list addresses and storage keys before running the geth VM adapter. Committed EVM receipts are indexed by transaction hash at end block, so transaction and receipt lookups use the index first and only fall back to retained block scans if an old receipt index is missing. Replay APIs return receipt-backed `stateDiff` from actual VM balance, nonce, code, storage, and deletion writes; the built-in geth adapter also stores geth struct-logger `vmTrace` output with opcode-level `structLogs`.
-
-Committed block records persist transaction execution results. Web3 block responses derive `stateRoot` from a go-ethereum-compatible account/storage trie persisted by the EVM module for the requested height. By default, if no EVM snapshot exists, the response falls back to the Vexo app hash for broad Web3 tooling compatibility; when `execution.strict_evm_state_root` is enabled, block responses fail closed instead of substituting a Vexo app hash. `newHeads` websocket notifications use the same EVM state-root lookup as Web3 block responses and skip unavailable heads when strict EVM state-root mode is enabled. Web3 block responses and `newHeads` websocket notifications derive `receiptsRoot`, `logsBloom`, and `gasUsed` from committed transaction results. When every transaction/result in a block is an Ethereum raw transaction with an EVM receipt, `transactionsRoot` and `receiptsRoot` are computed with go-ethereum `DeriveSha` over Ethereum transaction and receipt RLP. Mixed Vexo module blocks fall back to deterministic Vexo roots rather than pretending to be Ethereum trie roots. Full transaction responses derive `from`, `to`, `nonce`, 256-bit `value`, `input`, `type`, `chainId`, `gas`, effective `gasPrice`, dynamic-fee caps, access-list metadata, blob gas, blob fee cap, blob base fee, and blob hashes from Ethereum raw transaction tags when present. `eth_getBalance` and `eth_getProof` return 256-bit Ethereum balances, including balances above `uint64`, by reconstructing a go-ethereum MPT over bank/auth/EVM module state for `latest`, `pending`, or a historical block tag retained by the node's pruning policy. The EVM module persists VM nonce writes into the canonical account sequence namespace, snapshots Ethereum account state during `EndBlock`, serves retained historical `eth_getBalance`, `eth_getTransactionCount`, `eth_getCode`, and `eth_getStorageAt` from those snapshots, and prunes snapshots below the retained height. `eth_getTransactionReceipt` and `eth_getBlockReceipts` return Ethereum-shaped receipt fields, including `logsBloom`, `effectiveGasPrice`, `type`, contract creation `to: null`, preserved Ethereum transaction hash, and VM execution failures as `status: 0` receipts instead of rejecting an otherwise valid block transaction. Signed Ethereum raw transactions execute through go-ethereum's `ApplyMessage` state-transition path for nonce, intrinsic gas, balance, value transfer, refund, fee-cap, and fork-rule checks inside Vexo consensus, and are revalidated at execution time against the current block base fee/blob base fee instead of trusting stale wrapper fee metadata from mempool admission. `eth_call`, `eth_estimateGas`, and `eth_createAccessList` route through a non-persisting geth `ApplyMessage` simulation path with the requested block height, latest base fee, latest blob base fee, caller-supplied gas price or fee cap, caller-supplied access list, EIP-7702 `authorizationList`, strictly validated optional geth-style state override set, and optional block override. Calls without explicit gas price or fee caps run with zero gas price and `NoBaseFee` simulation semantics so balance-free read calls do not fail only because the block has a base fee; explicit fee fields still use geth state-transition checks. Gas estimation uses go-ethereum intrinsic/floor-data gas rules from the configured fork preset or custom `params.ChainConfig`, probes the requested/default block gas limit, binary-searches the lowest non-failing gas limit when the adapter reports failures, and returns execution errors instead of hiding them behind fallback estimates. Access-list creation returns the addresses and storage keys reported by the VM adapter. `eth_pendingTransactions`, `txpool_status`, `txpool_content`, `txpool_contentFrom`, and `txpool_inspect` read the node's live pending transactions when the provider exposes raw mempool transactions and split executable contiguous-nonce transactions from future nonce-gap transactions into `pending` and `queued`; same-signer/same-nonce pending transactions are replaceable only when the new fee or priority satisfies the configured replacement bump. `eth_getTransactionByHash`, `eth_getRawTransactionByHash`, and `eth_getTransactionCount(..., "pending")` also consult the live mempool before falling back to committed state semantics. If an EVM receipt index is unavailable, `eth_getTransactionByHash`, `eth_getTransactionReceipt`, `debug_traceTransaction`, and `trace_transaction` scan retained committed blocks before returning null, so raw Ethereum tx tags, receipts, and deterministic receipt-backed traces remain discoverable from block storage. `debug_traceCall` and `trace_call` execute non-persisting calls through the VM adapter and return the adapter-provided opcode `vmTrace` plus call-result `stateDiff` when available. `debug_traceCall` treats its tracer config as tracer config, not a state override object; `eth_call`/`eth_estimateGas` own the state/block override positions. `debug_traceTransaction`, `debug_traceBlockByNumber`, `debug_traceBlockByHash`, `trace_transaction`, `trace_get`, `trace_block`, `trace_filter`, `trace_replayTransaction`, and `trace_replayBlockTransactions` return deterministic receipt-backed trace summaries for committed EVM receipts. When receipts contain VM call trees, `trace_transaction`, `trace_get`, and block/filter trace methods expose nested `traceAddress` entries instead of only a root call; `debug_traceTransaction` uses persisted `vmTrace` data for default traces and call-tracer children when available. Built-in debug tracers are empty/default, `structLogger`, `callTracer`, `prestateTracer`, and `4byteTracer`; custom or unknown tracer names fall back to deterministic struct-logger output so generic Web3 tooling can probe tracers without failing the whole request. `trace_replayTransaction` and `trace_replayBlockTransactions` honor requested replay sections (`trace`, `stateDiff`, `vmTrace`) and return unknown optional replay sections as `null` entries instead of failing the whole request. These trace methods return persisted opcode-level execution frames when the VM adapter provides them and otherwise omit `vmTrace` instead of inventing frames. Raw transaction lookup methods return preserved Ethereum raw transaction bytes when available and deterministic Vexo transaction bytes otherwise. `safe` and `finalized` block tags resolve through the latest finality height when available, and Web3 block objects include post-merge/Cancun compatibility fields such as `baseFeePerGas`, `mixHash`, `blobGasUsed`, `excessBlobGas`, and empty withdrawals for tooling compatibility. `eth_feeHistory` reports the persisted base-fee path with bounded block count, `eth_blobBaseFee` reports the latest persisted blob base fee, and `eth_maxPriorityFeePerGas` returns the node's conservative priority-fee hint. `eth_getLogs` supports both address-scoped filters and global log filters when no address is supplied. EVM logs are indexed with prefix keys by height/transaction/log index and address, so log queries do not rely on one ever-growing global JSON array. HTTP polling filters are bounded and evict oldest filter IDs when the in-process filter store reaches its configured limit. WebSocket `newHeads` catch-up, `logs`, and `newPendingTransactions` delivery are bounded per polling tick and socket writes use deadlines, so slow clients cannot force unbounded catch-up work inside the node. WebSocket `newPendingTransactions` supports the optional full-transaction boolean and returns pending transaction objects when the provider exposes raw mempool transactions.
-
-## Web3 EVM Configuration
-
-EVM behavior is configured from execution config, not by pretending the node is an Ethereum devp2p client:
-
-- `execution.evm_fork_preset` defaults to `latest`; use `custom` only when `execution.evm_chain_config_json` pins a raw go-ethereum `params.ChainConfig` JSON.
-- `execution.evm_chain_config_json` is passed to the geth VM adapter and validated with go-ethereum fork-order checks before the node starts.
-- `execution.allow_unprotected_legacy_tx` defaults to `false`; unprotected Homestead-style legacy raw transactions are rejected on every Web3 raw-transaction admission path unless a chain deliberately opts into them.
-- `execution.max_blob_sidecar_blobs` and `execution.max_blob_sidecar_bytes` bound `vexo_sendRawBlobTransaction` sidecars at transaction admission and execution.
-- `execution.max_blob_gas` is enforced at block execution before application state is mutated.
-- Historical `eth_call`, `eth_estimateGas`, `eth_createAccessList`, and `eth_feeHistory` use height-matched persisted base-fee and blob-base-fee state instead of latest-only fee context. Historical EVM calls read retained EVM account/code/storage snapshots and fail closed once the requested snapshot has been pruned.
-- `eth_call` executes with Ethereum call semantics and discards writes after simulation; it is not mapped to `STATICCALL`. Omitting `to` simulates contract creation and returns the VM creation output without persisting deployed code.
-- `eth_estimateGas` uses go-ethereum intrinsic and floor-data gas helpers for calldata, access-list, contract-creation, and fork-rule costs before probing the VM adapter, so low caller gas limits cannot under-report below the protocol floor.
-- `trace_filter` supports bounded block ranges plus `fromAddress`, `toAddress`, `after`, and `count` filtering over committed receipt-backed traces.
-- Ethereum raw transaction admission rejects invalid fee-cap relationships, including `maxFeePerGas < baseFee`, `maxPriorityFeePerGas > maxFeePerGas`, blob fee cap below blob base fee, and unprotected legacy transactions when the compatibility opt-in is disabled. During block execution, the EVM module revalidates raw transactions against the current block base fee/blob base fee so repriced mempool transactions cannot bypass inclusion-time economics.
-- Ethereum raw transaction nonces use Ethereum semantics: the first accepted nonce is `0`, and the account sequence persisted after execution is the next expected nonce.
-- Optional managed Web3 accounts can be configured with `network_config.json` RPC `evm_account_private_keys` entries or repeated `vexod start --evm-account-key` flags. Managed accounts power `eth_accounts`, `eth_coinbase`, `eth_sign`, `personal_sign`, `eth_signTransaction`, and `eth_sendTransaction`; `eth_sendTransaction` signs an Ethereum-format transaction locally, verifies it with the configured Vexo EVM chain ID, then submits the translated Vexo canonical transaction. Production operators should prefer external wallets or remote signing flows and avoid storing hot private keys in plain JSON.
-- Vexo does not expose Ethereum stateless execution witnesses. Use Vexo native query proofs, finality proofs, and retained EVM state snapshots for light-client and audit verification instead of relying on geth `debug_executionWitness` semantics.
-- `modules/evm/ethcompat.RunTransactionFixturesJSON` and `vexod ops conformance --evm-tx-fixtures <file>` are the CI entry points for Ethereum raw-transaction fixture/conformance suites; keep fixture corpora outside normal source unless they are small, licensed, and intentionally versioned.
-
-Bytecode semantics come from the registered `contract.VM` adapter; the built-in path targets Ethereum execution semantics and Web3 JSON-RPC compatibility inside Vexo consensus, not Ethereum devp2p/consensus compatibility.
-
-## Operational Compatibility
-
-Dashboards and alerting should prefer machine-readable JSON endpoints and use `/metrics/text` only for Prometheus-style scraping.
+- [English canonical document](../../en/sdk/rpc-api-versioning.md)

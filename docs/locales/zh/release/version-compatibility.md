@@ -1,51 +1,46 @@
 # Version Compatibility Matrix
 
-| Component | Compatibility Rule |
-|---|---|
-| Consensus wire schema | Breaking changes require protocol version bump |
-| RPC API | Additive fields are compatible; removals require new API version |
-| Config schema | Migrations for `config.json`, `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json`, and `log_config.json` must be captured in an upgrade plan |
-| Store schema | Migrations must be height-gated and rollback-aware |
-| App module state | Module migrations must be deterministic and replay-safe |
-| Finality proof format | Breaking changes require light-client compatibility plan |
-| Crypto backend | BLS adapters require audited implementation and explicit activation |
-| Docker image | Image metadata must match binary version/commit/build date |
+> Locale: zh · 中文
+> 本文档是基于英文规范文档编写的中文翻译指南。协议、安全和发布判断以英文原文为准。
 
-## Current Matrix
+## 目的
 
-| Version | RPC | Config Schema | Store Schema | App State Schema | Notes |
-|---|---|---:|---:|---:|---|
-| pre-audit | `/v1/*` stable paths, unversioned aliases | 1 | 1 | 1 | Requires release-gate evidence before value-bearing launch |
+本文档说明 版本兼容矩阵和升级判断标准。 实现和运维中使用的命令、JSON 字段、RPC 名称、config key 和代码标识符为保持兼容性保留英文原样。
 
-## Upgrade Compatibility Checklist
+## 核心范围
 
-- Define governance-approved upgrade height.
-- Define target binary version.
-- Define config/store/app-state schema from/to versions, including every split config file.
-- Generate upgrade plan with `vexod upgrade plan --json`.
-- Execute the plan with `vexod upgrade apply` at the approved height and persist the execution record.
-- Treat any `rollback_required` record as an operator stop condition until rollback is completed.
-- Run `make release-candidate`.
-- Sign checksums and publish SBOM.
-- Execute rollback drill before deployment activation.
+- 阅读本文档时必须检查以下项目。命令、JSON 字段、RPC 方法、配置键和代码标识符为保持兼容性保留英文原样。
+- 详细的规范性表述请以英文原文为准。
+- Canonical path: `docs/release/version-compatibility.md`
+- Locale path: `docs/locales/zh/release/version-compatibility.md`
 
-## Rollback Drill
+## 需要保留的标识符
 
-Generate a rollback drill plan before activating an upgrade:
+- `config.json`
+- `module_config.json`
+- `network_config.json`
+- `consensus_config.json`
+- `mempool_config.json`
+- `log_config.json`
+- `/v1/*`
+- `vexod upgrade plan --json`
+- `vexod upgrade apply`
+- `rollback_required`
+- `make release-candidate`
 
-```bash
-go run ./cmd/vexod upgrade rollback-plan \
-  --plan-file upgrade-plan.json \
-  --record-file .vexo/upgrade-records.json \
-  --last-safe-height <upgrade-height-minus-one> \
-  --snapshot .vexo/snapshots/<safe-height>.json
-```
+## 英文原文章节
 
-The drill must verify:
+- Version Compatibility Matrix
+- Current Matrix
+- Upgrade Compatibility Checklist
+- Rollback Drill
 
-- rollback binary or artifact is declared
-- last safe height is lower than the upgrade height
-- restore snapshot evidence is attached
-- failed `rollback_required` records block retry until rollback is completed
-- validators restart from identical genesis/config inputs
-- replay, signer policy, height growth, and light-client finality proofs remain valid after rollback
+## 运维说明
+
+- `MUST`、`SHOULD`、`MAY`、命令示例、JSON 示例和 RPC 名称保留英文拼写。
+- 修改此翻译后请运行 `make docs-check`。
+- 如果本页与英文来源不一致，请以英文来源为准，并在同一次变更中更新该 locale 文件。
+
+## 规范来源
+
+- [English canonical document](../../en/release/version-compatibility.md)

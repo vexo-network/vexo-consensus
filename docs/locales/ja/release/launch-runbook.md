@@ -1,161 +1,45 @@
 # Launch Runbook
 
-This runbook defines the minimum operator flow for launching an independent Vexo network.
+> Locale: ja · 日本語
+> この文書は英語の正規文書を基準にした日本語翻訳ガイドです。プロトコル、セキュリティ、リリース判断は英語原文を規範とします。
 
-## Prelaunch Gate
+## 目的
 
-Run these checks from a clean checkout:
+この文書は ネットワーク開始前の運用チェックリストと実行手順を扱います。 実装と運用で使うコマンド、JSON フィールド、RPC 名、config key、コード識別子は互換性のため英語表記を保持します。
 
-```bash
-make check
-make ops-verify
-go run ./cmd/vexod release launch-checklist --json
-go run ./cmd/vexod config audit --home .vexo --strict
-go run ./cmd/vexod config tune --validators 64 --tps 5000 --regions 4 --latency 120ms --json
-go run ./cmd/vexod network scale-plan --validators 64 --regions 4 --hosts 8 --duration 24h --rate 100
-```
+## 主な範囲
 
-Do not launch if:
+- この文書を読むときは次の項目を必ず確認してください。コマンド、JSON フィールド、RPC メソッド、設定キー、コード識別子は互換性のため原文のまま保持します。
+- 詳細な規範文は英語原文で確認してください。
+- Canonical path: `docs/release/launch-runbook.md`
+- Locale path: `docs/locales/ja/release/launch-runbook.md`
 
-- deterministic crypto is enabled for a network that is expected to carry real value or public validator traffic
-- validator homes fail strict config audit
-- remote signer policy or double-sign guard is not verified
-- RPC admin token is missing while admin endpoints are enabled
-- peer scoring has no `MaxScore`, ban threshold, or window limits
-- public validator metadata contains Docker-only service names instead of externally resolvable addresses
-- parameter tuning output is missing or has failed validation checks
-- release artifacts, checksums, SBOM, or audit pack are missing
-- long-run, adversarial, fuzz, snapshot, replay, or signer evidence is missing for a release candidate
-- P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, or SDK conformance evidence is missing for a public release candidate
-- `release gate` fails without an explicitly documented private-RC exception
+## 保持する識別子
 
-## Release Candidate Gate
-
-Required artifacts:
-
-- signed binaries or signed checksums
+- `MaxScore`
+- `release gate`
 - `checksums.txt`
 - `sbom-go-modules.json`
 - `sbom-go-version.txt`
 - `release-manifest.json`
 - `release-audit-pack.json`
-- long-run network evidence
-- chaos test evidence
-- consensus adversarial simulation evidence
-- fuzz or property test evidence
-- KMS or remote signer policy evidence
-- snapshot/replay restore evidence
-- P2P scale evidence covering discovery, reconnect, NAT, seed, addrbook, ban eviction, and backpressure
-- state-sync and light-client evidence covering validator-set hash binding, snapshot restore, replay, and finality proof verification
-- validator economics evidence covering custody, rewards, commission, jail, tombstone, unbonding, and slashing accounting
-- upgrade governance evidence covering proposal approval, migration execution, halt, rollback, and failed-upgrade recovery
-- MEV/fee-market evidence covering base fee, fair ordering, censorship-resistance, spam cost, and mempool WAL replay
-- ops runbook evidence covering alert thresholds, incident drills, multi-region observability, and archive requirements
-- formal safety evidence covering invariants, adversarial simulation output, and property/fuzz output
-- SDK conformance evidence covering app modules, custom crypto, custom storage, custom transport, RPC versioning, upgrade hooks, and EVM/Web3 transaction fixtures
-- external audit disposition for public releases
-- BLS adapter audit evidence when BLS is enabled
+- `chain_id`
 
-Recommended commands:
+## 英語原文のセクション
 
-```bash
-make release VERSION=<version>
-make sign-release VERSION=<version>
-go run ./cmd/vexod ops conformance \
-  --home .vexo \
-  --evm-tx-fixtures dist/evm-tx-fixtures.json \
-  --json > dist/sdk-conformance-evidence.json
-go run ./cmd/vexod release pack \
-  --dist dist \
-  --version <version> \
-  --require-signature \
-  --longrun-evidence dist/longrun-evidence.json \
-  --adversarial-evidence dist/adversarial-evidence.json \
-  --fuzz-evidence dist/fuzz-evidence.txt \
-  --output dist/release-audit-pack.json
-go run ./cmd/vexod release gate \
-  --dist dist \
-  --version <version> \
-  --longrun-evidence dist/longrun-evidence.json \
-  --chaos-evidence dist/chaos-evidence.json \
-  --adversarial-evidence dist/adversarial-evidence.json \
-  --fuzz-evidence dist/fuzz-evidence.txt \
-  --kms-evidence dist/kms-evidence.json \
-  --snapshot-evidence dist/snapshot-replay-evidence.json \
-  --p2p-scale-evidence dist/p2p-scale-evidence.json \
-  --state-sync-light-client-evidence dist/state-sync-light-client-evidence.json \
-  --validator-economics-evidence dist/validator-economics-evidence.json \
-  --upgrade-governance-evidence dist/upgrade-governance-evidence.json \
-  --mev-fee-market-evidence dist/mev-fee-market-evidence.json \
-  --ops-runbook-evidence dist/ops-runbook-evidence.json \
-  --formal-safety-evidence dist/formal-safety-evidence.json \
-  --sdk-conformance-evidence dist/sdk-conformance-evidence.json \
-  --external-audit dist/external-audit.pdf \
-  --bls-audit dist/bls-audit.pdf
-```
+- Launch Runbook
+- Prelaunch Gate
+- Release Candidate Gate
+- Genesis Gate
+- Launch Window
+- Postlaunch Archive
 
-## Genesis Gate
+## 運用メモ
 
-Before public start:
+- `MUST`、`SHOULD`、`MAY`、コマンド例、JSON 例、RPC 名は英語表記を保持します。
+- この翻訳を変更した後は `make docs-check` を実行してください。
+- このページと英語原文が矛盾する場合は英語原文を採用し、同じ変更でこの locale ファイルも更新してください。
 
-- freeze `chain_id`, initial validator set, validator set hash, and app state
-- copy identical genesis/config files to every validator
-- verify Ed25519 keys or BLS proof-of-possession metadata
-- verify remote signer reachability and signer-side height/round/type policy
-- define the last safe recovery height and rollback procedure
+## 正規原文
 
-## Launch Window
-
-Start sequence:
-
-1. start seed validators
-2. start remaining validators by region
-3. wait for quorum and height growth
-4. submit low-rate signed smoke transactions
-5. increase load only after metrics remain healthy
-
-Monitor these values continuously:
-
-- height increase rate
-- round timeout frequency
-- proposal and vote processing latency
-- peer ban count
-- mempool size
-- commit latency
-- snapshot and replay health
-- validator signing failures
-- peer backpressure saturation and reconnect churn
-- light-client proof verification success rate
-- base-fee movement, mempool WAL compaction, and fair-ordering consistency
-- governance-upgrade plan, halt, apply, and rollback status
-
-Halt the launch if:
-
-- quorum is unstable
-- conflicting finality is observed
-- signer policy rejects valid consensus messages
-- snapshot verification or replay recovery diverges
-- peer bans spike across multiple regions
-- peer scores unexpectedly pin at `MaxScore` while invalid-message, reconnect, or ban metrics also increase
-- commit latency remains above the configured alert threshold
-- light-client proof verification or validator-set hash binding fails
-- base fee, fair ordering, or mempool replay behaves non-deterministically across nodes
-- governance-upgrade migration enters rollback-required state without a verified last safe height
-
-## Postlaunch Archive
-
-Archive:
-
-- final genesis and config files
-- validator set and validator set hash evidence
-- release pack and signed checksums
-- launch metrics, logs, pprof samples, peer score snapshots, and final split config files
-- long-run, chaos, adversarial, fuzz, snapshot, replay, signer, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, ops runbook, formal safety, and SDK conformance evidence with category-specific passing content
-
-After launch, schedule:
-
-- external security review
-- multi-region long-duration soak
-- slashing lifecycle review
-- governance upgrade drill
-- state sync restore drill
+- [English canonical document](../../en/release/launch-runbook.md)

@@ -1,89 +1,45 @@
 # Validator Lifecycle
 
-## Scope
+> Locale: zh · 中文
+> 本文档是基于英文规范文档编写的中文翻译指南。协议、安全和发布判断以英文原文为准。
 
-This spec defines validator admission, set updates, evidence handling, slashing, jailing, and unbonding expectations.
+## 目的
 
-## Admission
+本文档说明 validator join、rotation、jail、slashing、leave 生命周期。 实现和运维中使用的命令、JSON 字段、RPC 名称、config key 和代码标识符为保持兼容性保留英文原样。
 
-Validator admission can be:
+## 核心范围
 
-- permissionless with minimum stake
-- restricted by configuration
-- capped by maximum validator count
-- optionally requiring a non-empty validator public key
+- 阅读本文档时必须检查以下项目。命令、JSON 字段、RPC 方法、配置键和代码标识符为保持兼容性保留英文原样。
+- 详细的规范性表述请以英文原文为准。
+- Canonical path: `docs/specs/validator-lifecycle.md`
+- Locale path: `docs/locales/zh/specs/validator-lifecycle.md`
 
-Candidates must satisfy the configured admission policy before joining.
+## 需要保留的标识符
 
-## Validator Set
+- `vexovaloper...`
+- `address`
+- `vexovalcons...`
+- `vexo...`
+- `H`
+- `H + 1`
 
-Each height has a validator set hash. Consensus proposals and finality proofs bind to this hash.
+## 英文原文章节
 
-Validator updates are applied through app/runtime output and become effective for the next height.
+- Validator Lifecycle
+- Scope
+- Admission
+- Validator Set
+- Rotation
+- Evidence Lifecycle
+- Slashing
+- Jail and Unbonding
 
-Validator records use three address namespaces derived from the validator key:
+## 运维说明
 
-- `vexovaloper...` operator address in the validator record `address` field.
-- `vexovalcons...` consensus address in validator metadata.
-- `vexo...` account address in validator metadata for account-level transactions.
+- `MUST`、`SHOULD`、`MAY`、命令示例、JSON 示例和 RPC 名称保留英文拼写。
+- 修改此翻译后请运行 `make docs-check`。
+- 如果本页与英文来源不一致，请以英文来源为准，并在同一次变更中更新该 locale 文件。
 
-Implementations may use the in-memory registry for tests or the store-backed registry for durable chains.
-Both registries serve historical lookups from the latest snapshot at or below the requested height.
-The in-memory registry records rotation events for joins, leaves, and voting-power changes; the
-store-backed registry persists sorted validator-set snapshots by height.
+## 规范来源
 
-## Rotation
-
-Committee/proposer rotation is height and round dependent. Deterministic rotation is the default; VRF-backed rotation can be configured.
-
-Runtime validator updates produced while executing height `H` are written for height `H + 1`. This avoids
-mid-block validator-set ambiguity and keeps finality proofs bound to a single validator set per height.
-
-## Evidence Lifecycle
-
-Evidence states:
-
-- submitted
-- applied
-- appealed
-- expired
-
-Evidence must be validated, deduplicated, persisted, and only then applied.
-
-Durable keepers persist evidence lifecycle, penalty receipts, jail-until heights, and unbonding release heights. Consensus slashing
-first validates evidence, then records it, applies a stake-aware penalty, and finally writes the resulting
-validator voting-power update through the registry.
-
-When the staking module is enabled, the node runtime also applies the same penalty receipt to staking state.
-Delegations to the slashed validator are reduced proportionally, the staking validator-power key is updated to
-the remaining power, and an evidence-derived slash marker makes restart reconciliation idempotent.
-
-Store-backed keepers distinguish missing records from corrupt or failed reads. Missing evidence, receipts, jail state, or unbonding state can be treated as absent; corrupt JSON and storage read errors must abort startup, reconciliation, or penalty execution instead of silently resetting state.
-
-Lifecycle policy includes:
-
-- evidence max age
-- appeal window
-- unbonding delay
-
-Appealed or expired evidence must not be applied.
-
-## Slashing
-
-Slashing records:
-
-- evidence metadata
-- evidence proof type, including vote conflicts, timeout conflicts, invalid proposals, unavailable data, and finality conflicts
-- penalty policy
-- previous voting power
-- remaining voting power
-- jail duration
-
-Incorrect slashing is a critical chain-trust failure, so slashing policy includes appeal and expiration handling.
-Penalty application must keep slashing receipts, validator registry power, and staking delegation power aligned.
-
-## Jail and Unbonding
-
-- Jailed validators are tracked by validator ID and jail-until height.
-- Unbonding is blocked until the recorded release height.
-- Production stake accounting should be durable and auditable.
+- [English canonical document](../../en/specs/validator-lifecycle.md)

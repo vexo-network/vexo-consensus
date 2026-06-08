@@ -1,35 +1,50 @@
 # Cosmos/Tendermint Comparison Gate
 
-This document maps common Tendermint/CometBFT/Cosmos SDK maturity advantages to Vexo release gates.
+> Locale: ja · 日本語
+> この文書は英語の正規文書を基準にした日本語翻訳ガイドです。プロトコル、セキュリティ、リリース判断は英語原文を規範とします。
 
-Vexo should not claim public production readiness unless every row has attached evidence in `release gate`.
+## 目的
 
-| Area | Tendermint/Cosmos Advantage | Vexo Gate |
-|---|---|---|
-| Operational history | Many years of public-network incidents, fixes, and operator practice | `--longrun-evidence`, `--chaos-evidence`, `--ops-runbook-evidence` |
-| Independent review | External audits, ecosystem scrutiny, and battle-tested assumptions | `--external-audit`, `--formal-safety-evidence`, `--fuzz-evidence` |
-| Ecosystem | Mature SDK modules, IBC, wallets, explorers, tooling, and tutorials | `--sdk-conformance-evidence` plus chain-specific integration evidence |
-| P2P maturity | Proven seed/addrbook behavior, reconnects, peer exchange, and DoS hardening | `--p2p-scale-evidence` |
-| State sync/light clients | Widely exercised snapshot and light-client verification flows | `--state-sync-light-client-evidence`, `--snapshot-evidence` |
-| Validator economics | Mature staking, slashing, unbonding, commission, rewards, and tombstone flows | `--validator-economics-evidence` |
-| Governance upgrades | On-chain upgrade coordination with known failure playbooks | `--upgrade-governance-evidence` |
-| Operations | Known metrics, alerts, runbooks, incident response, and archive procedures | `--ops-runbook-evidence` |
-| Fee market/MEV | More ecosystem experience with fee pressure, spam, censorship, and ordering | `--mev-fee-market-evidence` |
-| Signer/KMS | Operational signer tooling and validator custody practice | `--kms-evidence`, `--bls-audit` when BLS is enabled |
+この文書は Cosmos/Tendermint 風の期待値に対するリリースゲートを扱います。 実装と運用で使うコマンド、JSON フィールド、RPC 名、config key、コード識別子は互換性のため英語表記を保持します。
 
-## Required Evidence Properties
+## 主な範囲
 
-- Evidence must be generated from the exact release candidate binary and config schema.
-- Multi-host evidence must run on independent machines or independent failure domains.
-- Metrics must include thresholds, not only raw values.
-- Slashing and validator economics evidence must include negative tests for false slashing.
-- Light-client evidence must bind finality proof height to the correct validator-set hash.
-- SDK/Web3 evidence must cover Vexo's supported Ethereum execution/RPC surface and must not imply Ethereum devp2p, Ethereum fork-choice, or geth stateless execution-witness compatibility.
-- MEV/fee-market evidence must include congested mempool, empty-block disabled, base-fee movement, fair-ordering consistency, and censorship-resistance drills.
-- Upgrade evidence must include failed migration and rollback-required handling.
+- この文書を読むときは次の項目を必ず確認してください。コマンド、JSON フィールド、RPC メソッド、設定キー、コード識別子は互換性のため原文のまま保持します。
+- 詳細な規範文は英語原文で確認してください。
+- Canonical path: `docs/release/cosmos-comparison-gate.md`
+- Locale path: `docs/locales/ja/release/cosmos-comparison-gate.md`
 
-## Release Rule
+## 保持する識別子
 
-If a Vexo release lacks any required evidence, the correct public statement is:
+- `release gate`
+- `--longrun-evidence`
+- `--chaos-evidence`
+- `--ops-runbook-evidence`
+- `--external-audit`
+- `--formal-safety-evidence`
+- `--fuzz-evidence`
+- `--sdk-conformance-evidence`
+- `--p2p-scale-evidence`
+- `--state-sync-light-client-evidence`
+- `--snapshot-evidence`
+- `--validator-economics-evidence`
+- `--upgrade-governance-evidence`
+- `--mev-fee-market-evidence`
+- `--kms-evidence`
+- `--bls-audit`
 
-> The code has the framework hooks, but the network has not yet met the Vexo release gate for public production launch.
+## 英語原文のセクション
+
+- Cosmos/Tendermint Comparison Gate
+- Required Evidence Properties
+- Release Rule
+
+## 運用メモ
+
+- `MUST`、`SHOULD`、`MAY`、コマンド例、JSON 例、RPC 名は英語表記を保持します。
+- この翻訳を変更した後は `make docs-check` を実行してください。
+- このページと英語原文が矛盾する場合は英語原文を採用し、同じ変更でこの locale ファイルも更新してください。
+
+## 正規原文
+
+- [English canonical document](../../en/release/cosmos-comparison-gate.md)

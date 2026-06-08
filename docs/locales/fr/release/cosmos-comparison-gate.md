@@ -1,35 +1,50 @@
 # Cosmos/Tendermint Comparison Gate
 
-This document maps common Tendermint/CometBFT/Cosmos SDK maturity advantages to Vexo release gates.
+> Locale: fr · Français
+> Ce document est un guide traduit à partir de la documentation anglaise canonique. Les décisions de protocole, de sécurité et de publication restent normatives en anglais.
 
-Vexo should not claim public production readiness unless every row has attached evidence in `release gate`.
+## Objectif
 
-| Area | Tendermint/Cosmos Advantage | Vexo Gate |
-|---|---|---|
-| Operational history | Many years of public-network incidents, fixes, and operator practice | `--longrun-evidence`, `--chaos-evidence`, `--ops-runbook-evidence` |
-| Independent review | External audits, ecosystem scrutiny, and battle-tested assumptions | `--external-audit`, `--formal-safety-evidence`, `--fuzz-evidence` |
-| Ecosystem | Mature SDK modules, IBC, wallets, explorers, tooling, and tutorials | `--sdk-conformance-evidence` plus chain-specific integration evidence |
-| P2P maturity | Proven seed/addrbook behavior, reconnects, peer exchange, and DoS hardening | `--p2p-scale-evidence` |
-| State sync/light clients | Widely exercised snapshot and light-client verification flows | `--state-sync-light-client-evidence`, `--snapshot-evidence` |
-| Validator economics | Mature staking, slashing, unbonding, commission, rewards, and tombstone flows | `--validator-economics-evidence` |
-| Governance upgrades | On-chain upgrade coordination with known failure playbooks | `--upgrade-governance-evidence` |
-| Operations | Known metrics, alerts, runbooks, incident response, and archive procedures | `--ops-runbook-evidence` |
-| Fee market/MEV | More ecosystem experience with fee pressure, spam, censorship, and ordering | `--mev-fee-market-evidence` |
-| Signer/KMS | Operational signer tooling and validator custody practice | `--kms-evidence`, `--bls-audit` when BLS is enabled |
+Ce document couvre la porte de release face aux attentes de style Cosmos/Tendermint. Les commandes, champs JSON, noms RPC, config key et identifiants de code utilisés par l’implémentation et l’exploitation restent en anglais pour préserver la compatibilité.
 
-## Required Evidence Properties
+## Périmètre essentiel
 
-- Evidence must be generated from the exact release candidate binary and config schema.
-- Multi-host evidence must run on independent machines or independent failure domains.
-- Metrics must include thresholds, not only raw values.
-- Slashing and validator economics evidence must include negative tests for false slashing.
-- Light-client evidence must bind finality proof height to the correct validator-set hash.
-- SDK/Web3 evidence must cover Vexo's supported Ethereum execution/RPC surface and must not imply Ethereum devp2p, Ethereum fork-choice, or geth stateless execution-witness compatibility.
-- MEV/fee-market evidence must include congested mempool, empty-block disabled, base-fee movement, fair-ordering consistency, and censorship-resistance drills.
-- Upgrade evidence must include failed migration and rollback-required handling.
+- Vérifiez les points suivants lors de la lecture. Les commandes, champs JSON, méthodes RPC, clés de configuration et identifiants de code restent en anglais pour préserver la compatibilité.
+- Pour les formulations normatives détaillées, utilisez le document anglais.
+- Canonical path: `docs/release/cosmos-comparison-gate.md`
+- Locale path: `docs/locales/fr/release/cosmos-comparison-gate.md`
 
-## Release Rule
+## Identifiants à conserver
 
-If a Vexo release lacks any required evidence, the correct public statement is:
+- `release gate`
+- `--longrun-evidence`
+- `--chaos-evidence`
+- `--ops-runbook-evidence`
+- `--external-audit`
+- `--formal-safety-evidence`
+- `--fuzz-evidence`
+- `--sdk-conformance-evidence`
+- `--p2p-scale-evidence`
+- `--state-sync-light-client-evidence`
+- `--snapshot-evidence`
+- `--validator-economics-evidence`
+- `--upgrade-governance-evidence`
+- `--mev-fee-market-evidence`
+- `--kms-evidence`
+- `--bls-audit`
 
-> The code has the framework hooks, but the network has not yet met the Vexo release gate for public production launch.
+## Sections anglaises
+
+- Cosmos/Tendermint Comparison Gate
+- Required Evidence Properties
+- Release Rule
+
+## Notes opérationnelles
+
+- `MUST`, `SHOULD`, `MAY`, les exemples de commande, les exemples JSON et les noms RPC conservent l’orthographe anglaise.
+- Après modification de cette traduction, exécutez `make docs-check`.
+- Si cette page contredit la source anglaise, utilisez la source anglaise et mettez à jour ce fichier locale dans le même changement.
+
+## Source canonique
+
+- [English canonical document](../../en/release/cosmos-comparison-gate.md)

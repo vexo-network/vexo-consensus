@@ -1,59 +1,56 @@
 # EVM and Native Accounting
 
-This document is a normative accounting specification for Vexo native balances, fees, and the built-in EVM module.
+> Locale: ko · 한국어
+> 이 문서는 영어 원문을 기준으로 작성된 한국어 번역 가이드입니다. 프로토콜, 보안, 릴리즈 판단은 영어 원문이 규범입니다.
 
-## Core Rule
+## 목적
 
-Vexo native coin balances and EVM account balances are the same economic asset.
+이 문서는 다음 내용을 다룹니다: native coin과 EVM gas/accounting을 일관되게 연결하는 방식. 구현과 운영에서 쓰는 명령어, JSON 필드, RPC 이름, config key, 코드 식별자는 호환성을 위해 영어 원문 표기를 유지합니다.
 
-- The atomic unit is `avxo`.
-- Display units are `gvxo` (`10^9 avxo`) and `vexo` (`10^18 avxo`).
-- Native `bank` transfers, ante fees, staking/reward accounting, and EVM value transfers read and write the same `bank` namespace for account balances.
-- Ethereum `0x` account addresses are normalized to lowercase 20-byte hex keys before balance reads and writes.
-- Bech32 Vexo account addresses remain plain account keys.
+## 핵심 범위
 
-## Amount Encoding
+- 아래 항목은 이 문서를 읽을 때 반드시 확인해야 하는 내용입니다. 명령어, JSON 필드, RPC 메서드, config key, 코드 식별자는 호환성을 위해 원문 그대로 유지합니다.
+- 상세한 규범 문장은 영어 원문을 기준으로 검토하세요.
+- Canonical path: `docs/specs/evm-native-accounting.md`
+- Locale path: `docs/locales/ko/specs/evm-native-accounting.md`
 
-Balances are unsigned 256-bit integers encoded as big-endian bytes.
+## 보존해야 할 식별자
 
-- New writes use 8-byte big-endian encoding for values that fit in `uint64` to preserve legacy compatibility.
-- New writes use minimal big-endian encoding for values above `uint64`.
-- Readers must accept any non-empty value up to 32 bytes.
-- Values above 256 bits are invalid.
-- Missing balance keys are interpreted as zero.
+- `avxo`
+- `gvxo`
+- `10^9 avxo`
+- `vexo`
+- `10^18 avxo`
+- `bank`
+- `0x`
+- `uint64`
+- `fee`
+- `fee=1`
+- `fee=1avxo`
+- `fee=1gvxo`
+- `fee=1vexo`
+- `base_fee * gas`
+- `value`
+- `uint256`
+- `contract.Invocation`
+- `eth_getBalance`
 
-## Fee Accounting
+## 영어 원문 섹션
 
-The ante layer parses `fee` as a 256-bit atomic amount.
+- EVM and Native Accounting
+- Core Rule
+- Amount Encoding
+- Fee Accounting
+- EVM Execution
+- Compatibility Boundary
+- Failure Modes
 
-- `fee=1`, `fee=1avxo`, `fee=1gvxo`, and `fee=1vexo` are valid.
-- `base_fee * gas` is computed with arbitrary-precision arithmetic before the 256-bit storage boundary is checked.
-- Non-Ethereum Vexo transactions pay fees from the signer balance to the configured fee collector.
-- Raw Ethereum transactions do not pay ante-layer fees; their gas/value accounting is executed by the EVM state transition and then persisted back into the same native balance namespace.
+## 운영 참고
 
-## EVM Execution
+- `MUST`, `SHOULD`, `MAY`, 명령어 예시, JSON 예시, RPC 이름은 영어 표기를 유지합니다.
+- 이 번역을 변경한 뒤에는 `make docs-check`를 실행하세요.
+- 이 문서와 영어 원문이 충돌하면 영어 원문을 기준으로 하고 같은 변경에서 이 locale 파일도 갱신하세요.
 
-The built-in EVM adapter preserves Ethereum 256-bit value and fee fields.
+## 규범 원문
 
-- Raw Ethereum transaction `value`, effective gas price, fee cap, priority fee cap, blob fee cap, and total fee are decoded as `uint256`-compatible values.
-- Canonical Vexo wrapper tags store those values as decimal strings even when they exceed `uint64`.
-- The geth-backed VM adapter receives 256-bit gas price and fee-cap fields through the `contract.Invocation` boundary.
-- VM balance writes are persisted as native bank balances, so `eth_getBalance` and `bank query balance` observe the same underlying asset for Ethereum `0x` accounts.
-
-## Compatibility Boundary
-
-Vexo does not become an Ethereum node.
-
-- Vexo keeps its own consensus, P2P, state sync, fork choice, validator lifecycle, and block format.
-- EVM compatibility means Ethereum execution semantics and Web3-facing account/transaction behavior inside a Vexo network.
-- Ethereum devp2p, Ethereum fork-choice, and Ethereum sync semantics are intentionally outside this accounting spec.
-
-## Failure Modes
-
-Implementations must fail closed when:
-
-- a stored balance is longer than 32 bytes
-- a parsed amount is negative or larger than 256 bits
-- a fee collector balance would overflow 256 bits
-- an EVM state transition returns invalid balance writes
-- checksum/lowercase Ethereum address aliases would split account balance state
+- [English canonical document](../../en/specs/evm-native-accounting.md)

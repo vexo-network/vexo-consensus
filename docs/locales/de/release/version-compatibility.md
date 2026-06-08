@@ -1,51 +1,46 @@
 # Version Compatibility Matrix
 
-| Component | Compatibility Rule |
-|---|---|
-| Consensus wire schema | Breaking changes require protocol version bump |
-| RPC API | Additive fields are compatible; removals require new API version |
-| Config schema | Migrations for `config.json`, `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json`, and `log_config.json` must be captured in an upgrade plan |
-| Store schema | Migrations must be height-gated and rollback-aware |
-| App module state | Module migrations must be deterministic and replay-safe |
-| Finality proof format | Breaking changes require light-client compatibility plan |
-| Crypto backend | BLS adapters require audited implementation and explicit activation |
-| Docker image | Image metadata must match binary version/commit/build date |
+> Locale: de · Deutsch
+> Dieses Dokument ist ein übersetzter Leitfaden auf Basis der kanonischen englischen Dokumentation. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
 
-## Current Matrix
+## Zweck
 
-| Version | RPC | Config Schema | Store Schema | App State Schema | Notes |
-|---|---|---:|---:|---:|---|
-| pre-audit | `/v1/*` stable paths, unversioned aliases | 1 | 1 | 1 | Requires release-gate evidence before value-bearing launch |
+Dieses Dokument behandelt Version-Kompatibilitätsmatrix und Upgrade-Entscheidungskriterien. Befehle, JSON-Felder, RPC-Namen, config key und Code-Bezeichner, die in Implementierung und Betrieb verwendet werden, bleiben aus Kompatibilitätsgründen auf Englisch.
 
-## Upgrade Compatibility Checklist
+## Kernbereich
 
-- Define governance-approved upgrade height.
-- Define target binary version.
-- Define config/store/app-state schema from/to versions, including every split config file.
-- Generate upgrade plan with `vexod upgrade plan --json`.
-- Execute the plan with `vexod upgrade apply` at the approved height and persist the execution record.
-- Treat any `rollback_required` record as an operator stop condition until rollback is completed.
-- Run `make release-candidate`.
-- Sign checksums and publish SBOM.
-- Execute rollback drill before deployment activation.
+- Beim Lesen müssen die folgenden Punkte geprüft werden. Befehle, JSON-Felder, RPC-Methoden, Konfigurationsschlüssel und Code-Bezeichner bleiben aus Kompatibilitätsgründen unverändert.
+- Für detaillierte normative Formulierungen gilt der englische Originaltext.
+- Canonical path: `docs/release/version-compatibility.md`
+- Locale path: `docs/locales/de/release/version-compatibility.md`
 
-## Rollback Drill
+## Beizubehaltende Bezeichner
 
-Generate a rollback drill plan before activating an upgrade:
+- `config.json`
+- `module_config.json`
+- `network_config.json`
+- `consensus_config.json`
+- `mempool_config.json`
+- `log_config.json`
+- `/v1/*`
+- `vexod upgrade plan --json`
+- `vexod upgrade apply`
+- `rollback_required`
+- `make release-candidate`
 
-```bash
-go run ./cmd/vexod upgrade rollback-plan \
-  --plan-file upgrade-plan.json \
-  --record-file .vexo/upgrade-records.json \
-  --last-safe-height <upgrade-height-minus-one> \
-  --snapshot .vexo/snapshots/<safe-height>.json
-```
+## Englische Abschnitte
 
-The drill must verify:
+- Version Compatibility Matrix
+- Current Matrix
+- Upgrade Compatibility Checklist
+- Rollback Drill
 
-- rollback binary or artifact is declared
-- last safe height is lower than the upgrade height
-- restore snapshot evidence is attached
-- failed `rollback_required` records block retry until rollback is completed
-- validators restart from identical genesis/config inputs
-- replay, signer policy, height growth, and light-client finality proofs remain valid after rollback
+## Betriebshinweis
+
+- `MUST`, `SHOULD`, `MAY`, Befehlsbeispiele, JSON-Beispiele und RPC-Namen behalten die englische Schreibweise.
+- Führe nach Änderungen an dieser Übersetzung `make docs-check` aus.
+- Wenn diese Seite der englischen Quelle widerspricht, gilt die englische Quelle; aktualisiere diese Locale-Datei im selben Change.
+
+## Kanonische Quelle
+
+- [English canonical document](../../en/release/version-compatibility.md)

@@ -1,154 +1,58 @@
 # Custom Crypto Backend Guide
 
-## Goal
+> Locale: ko · 한국어
+> 이 문서는 영어 원문을 기준으로 작성된 한국어 번역 가이드입니다. 프로토콜, 보안, 릴리즈 판단은 영어 원문이 규범입니다.
 
-This guide explains how to add a custom crypto backend, including audited BLS and VRF adapters.
+## 목적
 
-`vexo-consensus` ships adapter contracts, registry hooks, metadata validation, runtime wiring, a CIRCL-backed BLS12-381 reference adapter, and an ECVRF P-256 adapter. Operators can register audited adapters for value-bearing deployments, and audit evidence, key custody, and release-gate validation remain deployment responsibilities.
+이 문서는 다음 내용을 다룹니다: BLS, VRF, signer 등 custom crypto backend 연결 방식. 구현과 운영에서 쓰는 명령어, JSON 필드, RPC 이름, config key, 코드 식별자는 호환성을 위해 영어 원문 표기를 유지합니다.
 
-## Interfaces
+## 핵심 범위
 
-Implement:
+- 아래 항목은 이 문서를 읽을 때 반드시 확인해야 하는 내용입니다. 명령어, JSON 필드, RPC 메서드, config key, 코드 식별자는 호환성을 위해 원문 그대로 유지합니다.
+- 상세한 규범 문장은 영어 원문을 기준으로 검토하세요.
+- Canonical path: `docs/sdk/custom-crypto-backend.md`
+- Locale path: `docs/locales/ko/sdk/custom-crypto-backend.md`
 
-```go
-type Signer interface {
-    PublicKey() types.PublicKey
-    Sign(message []byte) (types.Signature, error)
-    Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool
-}
+## 보존해야 할 식별자
 
-type AggregateSigner interface {
-    Aggregate(signatures []types.Signature) (types.AggregateSignature, error)
-    VerifyAggregate(publicKeys []types.PublicKey, message []byte, signature types.AggregateSignature) bool
-}
-```
-
-## Runtime Suite
-
-A backend must provide:
-
-- consensus signer
-- finality verifier
-- consensus aggregator
-- key validation
-- deterministic serialization
-
-## Domain Separation
-
-All signatures must use explicit domains:
-
+- `vexo-consensus`
 - `vexo.consensus.proposal.v1`
 - `vexo.consensus.vote.v1`
 - `vexo.consensus.timeout_vote.v1`
 - `vexo.finality.proof.v1`
+- `BLSAdapter`
+- `ValidateBLSAdapter`
+- `init()`
+- `crypto.adapter_name`
+- `BLSAdapter.Metadata().Name`
+- `BLSValidatorCredential`
+- `bls_pop`
+- `ValidateBLSValidatorCredentials`
+- `NewBLSAggregateVerifier`
+- `circl-bls12381-g1sigg2-basic-v1`
+- `Metadata()`
+- `NewCIRCLBLSKeyDocument`
+- `bls_proof_of_possession`
 
-Never sign raw messages directly in production paths.
+## 영어 원문 섹션
 
-## Production BLS Requirements
+- Custom Crypto Backend Guide
+- Goal
+- Interfaces
+- Runtime Suite
+- Domain Separation
+- Production BLS Requirements
+- Production VRF Requirements
+- Remote Signer Requirements
+- Test Backends
 
-A BLS adapter must include:
+## 운영 참고
 
-- audited library dependency
-- public key validation
-- signature validation
-- subgroup checks
-- proof-of-possession or equivalent rogue-key defense
-- domain separation
-- deterministic aggregate encoding
-- dependency audit for the adapter and transitive crypto dependencies
-- test vectors
-- fuzz tests for malformed keys/signatures
+- `MUST`, `SHOULD`, `MAY`, 명령어 예시, JSON 예시, RPC 이름은 영어 표기를 유지합니다.
+- 이 번역을 변경한 뒤에는 `make docs-check`를 실행하세요.
+- 이 문서와 영어 원문이 충돌하면 영어 원문을 기준으로 하고 같은 변경에서 이 locale 파일도 갱신하세요.
 
-Production BLS is registered through `BLSAdapter` and must pass `ValidateBLSAdapter` before it can be used as a signer or runtime finality backend. Adapter metadata must declare audit status, audit report identity, dependency audit identity, public-key validation, subgroup checks, rogue-key defense, deterministic encoding, malformed-input fuzz coverage, and proof-of-possession support.
+## 규범 원문
 
-Registering metadata is not a substitute for a real audited implementation. The adapter package must perform the actual subgroup checks, key validation, proof-of-possession verification, signature verification, aggregate verification, and malformed-input rejection.
-
-Adapter packages should register implementations from `init()`:
-
-```go
-func init() {
-    crypto.RegisterBLSAdapter("audited-bls-v1", func() (crypto.BLSAdapter, error) {
-        return NewAuditedBLSAdapter()
-    })
-}
-```
-
-`crypto.adapter_name` must match `BLSAdapter.Metadata().Name`; otherwise runtime startup fails. This prevents config-only “BLS enabled” states where no audited implementation is actually linked into the binary.
-
-Validator public keys should be admitted through `BLSValidatorCredential` records or validator metadata key `bls_pop`. `ValidateBLSValidatorCredentials` rejects missing IDs, missing keys, duplicate public keys, invalid keys, and invalid proof-of-possession values. `NewBLSAggregateVerifier` wraps the audited adapter so finality verification only accepts registered validator keys.
-
-The built-in CIRCL adapter is registered as `circl-bls12381-g1sigg2-basic-v1` and is a reference integration for BLS12-381 basic signatures, aggregate verification, compressed deterministic encoding, public-key validation, and proof-of-possession helpers. It is intentionally not accepted by the network safety gate as a production BLS adapter. Config metadata cannot promote the built-in adapter into an audited adapter; production binaries must link a separately audited adapter whose own `Metadata()` satisfies `ValidateBLSAdapter`. `NewCIRCLBLSKeyDocument` writes `bls_proof_of_possession` metadata so validator genesis metadata can carry the rogue-key defense proof.
-
-CLI helpers:
-
-```bash
-vexod keys gen --home .vexo-bls --type bls
-vexod init validator --home .vexo-validator --validator validator-1 --key-type bls
-```
-
-The init flow copies `bls_proof_of_possession` from the key document into genesis metadata key `bls_pop`.
-
-## Production VRF Requirements
-
-VRF-backed committee selection uses the same registration pattern:
-
-```go
-func init() {
-    crypto.RegisterVRFAdapter("audited-vrf-v1", func(cfg config.VRFConfig) (crypto.VRFAdapter, error) {
-        return NewAuditedVRFAdapter(cfg)
-    })
-}
-```
-
-`vrf.adapter_name`, `vrf.audit_report`, and `vrf.key_source` must match the adapter metadata. When `committee.backend` is `vrf`, runtime startup fails if no matching adapter is linked instead of silently falling back to deterministic VRF. When committee selection is deterministic, runtime does not load a VRF adapter.
-
-The built-in ECVRF adapter is registered as `ecvrf-p256-sha256-tai-v1`. It uses P-256/SHA-256 try-and-increment ECVRF proofs. Validators may put a base64 VRF public key in metadata key `vrf_public_key`; otherwise committee selection falls back to the validator consensus public key.
-
-Prefer encrypted VRF key documents referenced from `consensus_config.json`:
-
-```json
-{
-  "vrf_key_paths": ["validator.vrf.key.json"],
-  "vrf": {
-    "adapter_name": "ecvrf-p256-sha256-tai-v1",
-    "audit_report": "operator-audit-reference",
-    "key_source": "config.vrf.keys",
-    "production_adapter": true
-  }
-}
-```
-
-Generate an encrypted VRF key document with:
-
-```bash
-VEXO_KEY_PASSPHRASE='change-me' vexod keys gen --home .vexo-vrf --type vrf --encrypt
-```
-
-At startup, `vexod` resolves relative `vrf_key_paths` from the directory containing `consensus_config.json`, decrypts encrypted key documents through `VEXO_KEY_PASSPHRASE`, and injects the private key into the runtime VRF adapter. Direct `vrf.keys` remains available for tests or custom loaders, but operators should avoid storing raw private scalars in config files. For public value-bearing networks, a remote signer/KMS-backed VRF prover is still preferred over local key custody.
-
-## Remote Signer Requirements
-
-Remote signers must enforce their own policy tuple:
-
-```text
-(chain_id, height, round, type, domain)
-```
-
-They must reject conflicting messages for the same tuple even if the node process restarts or is compromised.
-
-`vexo-consensus` also provides a node-side and HTTP KMS/HSM `DoubleSignGuard` helper plus a durable remote-signer nonce replay guard. For built-in serving, run `vexod keys serve-remote` with durable `--guard-path` and `--nonce-path`; external production KMS/HSM implementations must keep equivalent durable policy and replay-nonce databases. The guard key includes domain separation:
-
-```text
-chain_id/height/round/type/domain
-```
-
-Valid sign type and domain pairs are:
-
-- `consensus_proposal` → `vexo.consensus.proposal.v1`
-- `consensus_vote` → `vexo.consensus.vote.v1`
-- `consensus_timeout_vote` → `vexo.consensus.timeout_vote.v1`
-- `finality_proof` → `vexo.finality.proof.v1`
-
-## Test Backends
-
-`deterministic` is test-only. It must not pass network safety validation and must not be used for value-bearing deployments.
+- [English canonical document](../../en/sdk/custom-crypto-backend.md)

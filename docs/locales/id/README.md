@@ -1,13 +1,43 @@
-# Dokumentasi Vexo
+# Documentation
 
-Direktori ini adalah pintu masuk bahasa Indonesia untuk dokumentasi Vexo. Dokumentasi Inggris (`en`) adalah sumber normatif; struktur ini mempertahankan jalur yang sama.
+> Locale: id · Bahasa Indonesia
+> Dokumen ini adalah panduan terjemahan berdasarkan dokumentasi kanonik berbahasa Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
 
-## Mulai di sini
+## Tujuan
 
-1. [Ikhtisar protokol konsensus](./consensus-protocol.md)
-2. [Spesifikasi konsensus](./specs/consensus-spec.md)
-3. [Format transaksi](./specs/tx-format.md)
-4. [Siklus hidup validator](./specs/validator-lifecycle.md)
-5. [Kesiapan audit keamanan](./security/audit-readiness.md)
+Dokumen ini membahas indeks dokumentasi dan urutan baca yang disarankan. Perintah, field JSON, nama RPC, config key, dan identifier kode yang dipakai dalam implementasi serta operasi tetap berbahasa Inggris demi kompatibilitas.
 
-Perintah, field JSON, metode RPC, dan identifier kode tetap menggunakan bahasa Inggris.
+## Ruang lingkup utama
+
+- Periksa poin berikut saat membaca dokumen ini. Perintah, field JSON, metode RPC, kunci konfigurasi, dan identifier kode dipertahankan dalam bahasa Inggris demi kompatibilitas.
+- Untuk kalimat normatif yang detail, gunakan dokumen Inggris.
+- Canonical path: `docs/README.md`
+- Locale path: `docs/locales/id/README.md`
+
+## Identifier yang dipertahankan
+
+- `vexo-consensus`
+- `/v1/*`
+- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
+- `make docs-check`
+
+## Bagian sumber Inggris
+
+- Documentation
+- Start Here
+- Protocol Specs
+- SDK and Extension Guides
+- Operations and Release
+- Security
+- Localized Documentation
+- Writing New Docs
+
+## Catatan operasional
+
+- `MUST`, `SHOULD`, `MAY`, contoh perintah, contoh JSON, dan nama RPC mempertahankan ejaan Inggris.
+- Setelah mengubah terjemahan ini, jalankan `make docs-check`.
+- Jika halaman ini berbeda dari sumber Inggris, gunakan sumber Inggris dan perbarui file locale ini dalam perubahan yang sama.
+
+## Sumber kanonik
+
+- [English canonical document](../en/README.md)

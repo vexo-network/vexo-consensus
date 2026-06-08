@@ -1,51 +1,46 @@
 # Version Compatibility Matrix
 
-| Component | Compatibility Rule |
-|---|---|
-| Consensus wire schema | Breaking changes require protocol version bump |
-| RPC API | Additive fields are compatible; removals require new API version |
-| Config schema | Migrations for `config.json`, `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json`, and `log_config.json` must be captured in an upgrade plan |
-| Store schema | Migrations must be height-gated and rollback-aware |
-| App module state | Module migrations must be deterministic and replay-safe |
-| Finality proof format | Breaking changes require light-client compatibility plan |
-| Crypto backend | BLS adapters require audited implementation and explicit activation |
-| Docker image | Image metadata must match binary version/commit/build date |
+> Locale: es · Español
+> Este documento es una guía traducida desde la documentación canónica en inglés. Las decisiones de protocolo, seguridad y publicación siguen siendo normativas en inglés.
 
-## Current Matrix
+## Propósito
 
-| Version | RPC | Config Schema | Store Schema | App State Schema | Notes |
-|---|---|---:|---:|---:|---|
-| pre-audit | `/v1/*` stable paths, unversioned aliases | 1 | 1 | 1 | Requires release-gate evidence before value-bearing launch |
+Este documento cubre matriz de compatibilidad de versiones y criterios de upgrade. Los comandos, campos JSON, nombres RPC, config key e identificadores de código usados en implementación y operación se mantienen en inglés por compatibilidad.
 
-## Upgrade Compatibility Checklist
+## Alcance principal
 
-- Define governance-approved upgrade height.
-- Define target binary version.
-- Define config/store/app-state schema from/to versions, including every split config file.
-- Generate upgrade plan with `vexod upgrade plan --json`.
-- Execute the plan with `vexod upgrade apply` at the approved height and persist the execution record.
-- Treat any `rollback_required` record as an operator stop condition until rollback is completed.
-- Run `make release-candidate`.
-- Sign checksums and publish SBOM.
-- Execute rollback drill before deployment activation.
+- Revise los siguientes puntos al leer este documento. Los comandos, campos JSON, métodos RPC, claves de configuración e identificadores de código se mantienen en inglés por compatibilidad.
+- Para redacción normativa detallada, use el documento inglés.
+- Canonical path: `docs/release/version-compatibility.md`
+- Locale path: `docs/locales/es/release/version-compatibility.md`
 
-## Rollback Drill
+## Identificadores que se conservan
 
-Generate a rollback drill plan before activating an upgrade:
+- `config.json`
+- `module_config.json`
+- `network_config.json`
+- `consensus_config.json`
+- `mempool_config.json`
+- `log_config.json`
+- `/v1/*`
+- `vexod upgrade plan --json`
+- `vexod upgrade apply`
+- `rollback_required`
+- `make release-candidate`
 
-```bash
-go run ./cmd/vexod upgrade rollback-plan \
-  --plan-file upgrade-plan.json \
-  --record-file .vexo/upgrade-records.json \
-  --last-safe-height <upgrade-height-minus-one> \
-  --snapshot .vexo/snapshots/<safe-height>.json
-```
+## Secciones en inglés
 
-The drill must verify:
+- Version Compatibility Matrix
+- Current Matrix
+- Upgrade Compatibility Checklist
+- Rollback Drill
 
-- rollback binary or artifact is declared
-- last safe height is lower than the upgrade height
-- restore snapshot evidence is attached
-- failed `rollback_required` records block retry until rollback is completed
-- validators restart from identical genesis/config inputs
-- replay, signer policy, height growth, and light-client finality proofs remain valid after rollback
+## Notas operativas
+
+- `MUST`, `SHOULD`, `MAY`, ejemplos de comandos, ejemplos JSON y nombres RPC mantienen la grafía inglesa.
+- Después de cambiar esta traducción, ejecute `make docs-check`.
+- Si esta página contradice la fuente inglesa, use la fuente inglesa y actualice este archivo locale en el mismo cambio.
+
+## Fuente canónica
+
+- [English canonical document](../../en/release/version-compatibility.md)

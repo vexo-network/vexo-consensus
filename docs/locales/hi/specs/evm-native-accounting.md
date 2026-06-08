@@ -1,59 +1,56 @@
 # EVM and Native Accounting
 
-This document is a normative accounting specification for Vexo native balances, fees, and the built-in EVM module.
+> Locale: hi · हिन्दी
+> यह दस्तावेज़ अंग्रेज़ी canonical documentation पर आधारित हिन्दी अनुवाद गाइड है। protocol, security और release से जुड़े निर्णयों के लिए अंग्रेज़ी मूल पाठ ही मानक रहेगा।
 
-## Core Rule
+## उद्देश्य
 
-Vexo native coin balances and EVM account balances are the same economic asset.
+यह दस्तावेज़ native coin और EVM gas/accounting को consistent तरीके से जोड़नाको समझाता है। Implementation और operation में उपयोग होने वाले commands, JSON fields, RPC names, config key और code identifiers compatibility के लिए अंग्रेज़ी में ही रहेंगे।
 
-- The atomic unit is `avxo`.
-- Display units are `gvxo` (`10^9 avxo`) and `vexo` (`10^18 avxo`).
-- Native `bank` transfers, ante fees, staking/reward accounting, and EVM value transfers read and write the same `bank` namespace for account balances.
-- Ethereum `0x` account addresses are normalized to lowercase 20-byte hex keys before balance reads and writes.
-- Bech32 Vexo account addresses remain plain account keys.
+## मुख्य दायरा
 
-## Amount Encoding
+- इस दस्तावेज़ को पढ़ते समय नीचे दिए बिंदु अवश्य जाँचें। commands, JSON fields, RPC methods, config keys और code identifiers compatibility के लिए अंग्रेज़ी में ही रखे जाते हैं।
+- विस्तृत normative भाषा के लिए अंग्रेज़ी मूल दस्तावेज़ देखें।
+- Canonical path: `docs/specs/evm-native-accounting.md`
+- Locale path: `docs/locales/hi/specs/evm-native-accounting.md`
 
-Balances are unsigned 256-bit integers encoded as big-endian bytes.
+## संरक्षित identifier
 
-- New writes use 8-byte big-endian encoding for values that fit in `uint64` to preserve legacy compatibility.
-- New writes use minimal big-endian encoding for values above `uint64`.
-- Readers must accept any non-empty value up to 32 bytes.
-- Values above 256 bits are invalid.
-- Missing balance keys are interpreted as zero.
+- `avxo`
+- `gvxo`
+- `10^9 avxo`
+- `vexo`
+- `10^18 avxo`
+- `bank`
+- `0x`
+- `uint64`
+- `fee`
+- `fee=1`
+- `fee=1avxo`
+- `fee=1gvxo`
+- `fee=1vexo`
+- `base_fee * gas`
+- `value`
+- `uint256`
+- `contract.Invocation`
+- `eth_getBalance`
 
-## Fee Accounting
+## अंग्रेज़ी मूल अनुभाग
 
-The ante layer parses `fee` as a 256-bit atomic amount.
+- EVM and Native Accounting
+- Core Rule
+- Amount Encoding
+- Fee Accounting
+- EVM Execution
+- Compatibility Boundary
+- Failure Modes
 
-- `fee=1`, `fee=1avxo`, `fee=1gvxo`, and `fee=1vexo` are valid.
-- `base_fee * gas` is computed with arbitrary-precision arithmetic before the 256-bit storage boundary is checked.
-- Non-Ethereum Vexo transactions pay fees from the signer balance to the configured fee collector.
-- Raw Ethereum transactions do not pay ante-layer fees; their gas/value accounting is executed by the EVM state transition and then persisted back into the same native balance namespace.
+## ऑपरेशनल नोट
 
-## EVM Execution
+- `MUST`, `SHOULD`, `MAY`, कमांड उदाहरण, JSON उदाहरण और RPC नाम अंग्रेज़ी वर्तनी में ही रहेंगे।
+- इस translation को बदलने के बाद `make docs-check` चलाएँ।
+- यदि यह पेज अंग्रेज़ी source से अलग हो, तो अंग्रेज़ी source मानें और उसी change में इस locale file को update करें।
 
-The built-in EVM adapter preserves Ethereum 256-bit value and fee fields.
+## Canonical स्रोत
 
-- Raw Ethereum transaction `value`, effective gas price, fee cap, priority fee cap, blob fee cap, and total fee are decoded as `uint256`-compatible values.
-- Canonical Vexo wrapper tags store those values as decimal strings even when they exceed `uint64`.
-- The geth-backed VM adapter receives 256-bit gas price and fee-cap fields through the `contract.Invocation` boundary.
-- VM balance writes are persisted as native bank balances, so `eth_getBalance` and `bank query balance` observe the same underlying asset for Ethereum `0x` accounts.
-
-## Compatibility Boundary
-
-Vexo does not become an Ethereum node.
-
-- Vexo keeps its own consensus, P2P, state sync, fork choice, validator lifecycle, and block format.
-- EVM compatibility means Ethereum execution semantics and Web3-facing account/transaction behavior inside a Vexo network.
-- Ethereum devp2p, Ethereum fork-choice, and Ethereum sync semantics are intentionally outside this accounting spec.
-
-## Failure Modes
-
-Implementations must fail closed when:
-
-- a stored balance is longer than 32 bytes
-- a parsed amount is negative or larger than 256 bits
-- a fee collector balance would overflow 256 bits
-- an EVM state transition returns invalid balance writes
-- checksum/lowercase Ethereum address aliases would split account balance state
+- [English canonical document](../../en/specs/evm-native-accounting.md)
