@@ -40,6 +40,7 @@ Dieses Dokument hilft dabei, die Release-Pipeline mit signierten Binaries, Check
 - `ok`
 - `status`
 - `--allow-external-pending`
+- `--private-rc`
 - `dist/`
 - `vexod-<version>-<os>-<arch>`
 - `checksums.txt`

@@ -40,6 +40,7 @@ Dokumen ini membantu memahami pipeline rilis dengan binary bertanda tangan, chec
 - `ok`
 - `status`
 - `--allow-external-pending`
+- `--private-rc`
 - `dist/`
 - `vexod-<version>-<os>-<arch>`
 - `checksums.txt`

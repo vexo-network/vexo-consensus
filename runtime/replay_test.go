@@ -164,6 +164,9 @@ func TestRuntimeReplayStrictDoesNotFallbackToStoredRange(t *testing.T) {
 	if _, err := runtime.ReplayStrict(context.Background(), 2, 2); err == nil {
 		t.Fatal("expected strict replay to reject missing isolated historical snapshot")
 	}
+	if _, err := runtime.ReplayIsolated(context.Background(), 2, 2); err == nil {
+		t.Fatal("expected isolated replay to reject stored-range fallback")
+	}
 }
 
 func TestRuntimeReplayRejectsInvalidRange(t *testing.T) {

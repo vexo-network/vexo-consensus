@@ -20,6 +20,7 @@ func stakingCLICommand() vexoapp.CLICommand {
 		Examples: []string{
 			"staking tx delegate alice validator-1 100 <base64-public-key>",
 			"staking tx undelegate alice validator-1 50",
+			"staking tx withdraw-unbonded alice validator-1",
 			"staking tx claim-rewards alice validator-1",
 			"staking tx set-commission validator-1 500 --signer validator-1",
 			"staking query validator validator-1",
@@ -75,6 +76,16 @@ func stakingCLICommand() vexoapp.CLICommand {
 						Run: runClaimRewardsCLI,
 					},
 					{
+						Name:        "withdraw-unbonded",
+						Usage:       "staking tx withdraw-unbonded <delegator> <validator>",
+						Description: "build a matured unbonding withdrawal transaction payload",
+						Args: []vexoapp.CLIArg{
+							{Name: "delegator", Description: "delegator account address"},
+							{Name: "validator", Description: "validator id that released the unbonded balance"},
+						},
+						Run: runWithdrawUnbondedCLI,
+					},
+					{
 						Name:        "set-commission",
 						Usage:       "staking tx set-commission <validator> <bps> --signer <validator>",
 						Description: "build a validator commission update transaction payload",
@@ -119,6 +130,16 @@ func stakingCLICommand() vexoapp.CLICommand {
 							{Name: "validator", Description: "validator id"},
 						},
 						Run: runUnbondingQueryCLI,
+					},
+					{
+						Name:        "unbonding-balance",
+						Usage:       "staking query unbonding-balance <delegator> <validator>",
+						Description: "build an unbonding balance query path",
+						Args: []vexoapp.CLIArg{
+							{Name: "delegator", Description: "delegator account address"},
+							{Name: "validator", Description: "validator id"},
+						},
+						Run: runUnbondingBalanceQueryCLI,
 					},
 					{
 						Name:        "rewards",
@@ -246,6 +267,27 @@ func runClaimRewardsCLI(writer io.Writer, args []string) error {
 	return nil
 }
 
+func runWithdrawUnbondedCLI(writer io.Writer, args []string) error {
+	args, tags, err := splitExecutionTags(args)
+	if err != nil {
+		return err
+	}
+	if len(args) != 2 {
+		return vexoapp.ErrCLIUsage("staking tx withdraw-unbonded <delegator> <validator>")
+	}
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
+		Module: ModuleName,
+		Action: "withdraw-unbonded",
+		Args:   []string{args[0], args[1]},
+		Tags:   tags,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "tx: %s\n", tx)
+	return nil
+}
+
 func runSetCommissionCLI(writer io.Writer, args []string) error {
 	args, tags, err := splitExecutionTags(args)
 	if err != nil {
@@ -292,6 +334,14 @@ func runUnbondingQueryCLI(writer io.Writer, args []string) error {
 		return vexoapp.ErrCLIUsage("staking query unbonding <delegator> <validator>")
 	}
 	fmt.Fprintf(writer, "query_path: %s/unbonding/%s/%s\n", ModuleName, args[0], args[1])
+	return nil
+}
+
+func runUnbondingBalanceQueryCLI(writer io.Writer, args []string) error {
+	if len(args) != 2 {
+		return vexoapp.ErrCLIUsage("staking query unbonding-balance <delegator> <validator>")
+	}
+	fmt.Fprintf(writer, "query_path: %s/unbonding-balance/%s/%s\n", ModuleName, args[0], args[1])
 	return nil
 }
 

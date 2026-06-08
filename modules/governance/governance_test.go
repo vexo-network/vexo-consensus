@@ -3,6 +3,7 @@ package governance
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -141,6 +142,20 @@ func TestGovernanceModuleRejectsInvalidTransactions(t *testing.T) {
 	}
 }
 
+func TestGovernanceModuleSubmitsMultiChangeJSONProposal(t *testing.T) {
+	module := NewModule()
+	payload := `{"submitter":"alice","title":"multi-change","changes":[{"module":"execution","key":"max_gas","value":"20000000"},{"module":"mempool","key":"max_txs","value":"50000"}]}`
+	tx := types.Tx("governance:submit-json:" + base64.RawStdEncoding.EncodeToString([]byte(payload)))
+	result := module.DeliverTx(vexoapp.Context{Height: 1}, tx)
+	if result.Code != 0 {
+		t.Fatalf("unexpected submit-json result: %+v", result)
+	}
+	response := module.Query(vexoapp.Context{}, vexoapp.QueryRequest{Path: []string{"proposal", "1"}})
+	if response.Code != 0 || !strings.Contains(string(response.Value), `"max_txs"`) || !strings.Contains(string(response.Value), `"max_gas"`) {
+		t.Fatalf("expected multi-change proposal query, got %+v", response)
+	}
+}
+
 func TestGovernanceModuleDerivesVotingPowerFromStakingState(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
@@ -252,6 +267,11 @@ func TestGovernanceCLICommands(t *testing.T) {
 			name:     "submit transaction",
 			args:     []string{"tx", "submit", "alice", "max-gas", "execution", "max_gas", "20000000"},
 			expected: "tx: governance:submit:alice:max-gas:execution:max_gas:20000000",
+		},
+		{
+			name:     "submit json transaction",
+			args:     []string{"tx", "submit-json", `{"submitter":"alice","title":"multi","changes":[{"module":"execution","key":"max_gas","value":"20000000"}]}`},
+			expected: "tx: governance:submit-json:eyJzdWJtaXR0ZXIiOiJhbGljZSIsInRpdGxlIjoibXVsdGkiLCJjaGFuZ2VzIjpbeyJtb2R1bGUiOiJleGVjdXRpb24iLCJrZXkiOiJtYXhfZ2FzIiwidmFsdWUiOiIyMDAwMDAwMCJ9XX0",
 		},
 		{
 			name:     "vote transaction",

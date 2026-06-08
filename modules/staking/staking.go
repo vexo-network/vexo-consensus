@@ -21,11 +21,12 @@ import (
 const ModuleName = "staking"
 
 const (
-	delegateGasCost      uint64 = 50
-	undelegateGasCost    uint64 = 40
-	unjailGasCost        uint64 = 20
-	claimRewardsGasCost  uint64 = 20
-	setCommissionGasCost uint64 = 20
+	delegateGasCost         uint64 = 50
+	undelegateGasCost       uint64 = 40
+	unjailGasCost           uint64 = 20
+	claimRewardsGasCost     uint64 = 20
+	withdrawUnbondedGasCost uint64 = 25
+	setCommissionGasCost    uint64 = 20
 )
 const bankNamespace = "bank"
 const defaultFeeCollector types.Address = "fee_collector"
@@ -33,19 +34,22 @@ const defaultUnbondingDelay types.Height = 1209600
 const commissionDenominatorBPS uint64 = 10000
 
 var (
-	ErrInvalidStakingTx     = errors.New("invalid staking transaction")
-	ErrInsufficientBalance  = errors.New("insufficient balance for delegation")
-	ErrInsufficientStake    = errors.New("insufficient delegated stake")
-	ErrInvalidStakeRecord   = errors.New("invalid stake record")
-	ErrMissingValidatorKey  = errors.New("validator public key is required")
-	ErrStakingStoreRequired = errors.New("missing staking store")
-	ErrStakeOverflow        = errors.New("staking amount overflow")
-	ErrNoRewards            = errors.New("no staking rewards available")
-	ErrInvalidCommission    = errors.New("invalid validator commission")
-	ErrUnauthorizedStaking  = errors.New("unauthorized staking transaction")
-	ErrInvalidSlashReceipt  = errors.New("invalid staking slash receipt")
-	ErrValidatorTombstoned  = errors.New("validator is tombstoned")
-	ErrStakingSnapshot      = errors.New("staking snapshot export is required")
+	ErrInvalidStakingTx           = errors.New("invalid staking transaction")
+	ErrInsufficientBalance        = errors.New("insufficient balance for delegation")
+	ErrInsufficientStake          = errors.New("insufficient delegated stake")
+	ErrInvalidStakeRecord         = errors.New("invalid stake record")
+	ErrMissingValidatorKey        = errors.New("validator public key is required")
+	ErrStakingStoreRequired       = errors.New("missing staking store")
+	ErrStakeOverflow              = errors.New("staking amount overflow")
+	ErrNoRewards                  = errors.New("no staking rewards available")
+	ErrNoUnbonding                = errors.New("no matured unbonding balance")
+	ErrUnbondingNotMature         = errors.New("unbonding balance is not mature")
+	ErrInvalidCommission          = errors.New("invalid validator commission")
+	ErrUnauthorizedStaking        = errors.New("unauthorized staking transaction")
+	ErrInvalidSlashReceipt        = errors.New("invalid staking slash receipt")
+	ErrValidatorTombstoned        = errors.New("validator is tombstoned")
+	ErrStakingSnapshot            = errors.New("staking snapshot export is required")
+	ErrStakingAtomicStoreRequired = errors.New("staking multi-key writes require atomic batch store")
 )
 
 type Module struct {
@@ -205,6 +209,14 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 			return types.Result{Code: 4, Log: err.Error()}
 		}
 		return types.Result{}
+	case len(parts) == 4 && parts[1] == "withdraw-unbonded":
+		if err := ctx.ConsumeGas(withdrawUnbondedGasCost); err != nil {
+			return types.Result{Code: 5, Log: err.Error()}
+		}
+		if err := module.withdrawUnbonded(ctx.GoContext(), ctx.Store, ctx.Height, types.Address(parts[2]), types.ValidatorID(parts[3])); err != nil {
+			return types.Result{Code: 4, Log: err.Error()}
+		}
+		return types.Result{}
 	case len(parts) == 4 && parts[1] == "set-commission":
 		if err := ctx.ConsumeGas(setCommissionGasCost); err != nil {
 			return types.Result{Code: 5, Log: err.Error()}
@@ -240,6 +252,8 @@ func (module *Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, err
 		return unjailGasCost, nil
 	case len(parts) == 4 && parts[1] == "claim-rewards":
 		return claimRewardsGasCost, nil
+	case len(parts) == 4 && parts[1] == "withdraw-unbonded":
+		return withdrawUnbondedGasCost, nil
 	case len(parts) == 4 && parts[1] == "set-commission":
 		return setCommissionGasCost, nil
 	default:
@@ -275,6 +289,13 @@ func (module *Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoa
 			return vexoapp.QueryResponse{Code: 3, Log: err.Error()}
 		}
 		return vexoapp.QueryResponse{Value: []byte(strconv.FormatUint(uint64(releaseHeight), 10))}
+	}
+	if len(req.Path) == 3 && req.Path[0] == "unbonding-balance" {
+		amount, err := UnbondingAmount(ctx.GoContext(), ctx.Store, types.Address(req.Path[1]), types.ValidatorID(req.Path[2]))
+		if err != nil {
+			return vexoapp.QueryResponse{Code: 3, Log: err.Error()}
+		}
+		return vexoapp.QueryResponse{Value: []byte(strconv.FormatUint(amount, 10))}
 	}
 	if len(req.Path) == 3 && req.Path[0] == "rewards" {
 		amount, err := Rewards(ctx.GoContext(), ctx.Store, types.Address(req.Path[1]), types.ValidatorID(req.Path[2]))
@@ -330,28 +351,13 @@ func (module *Module) delegate(ctx context.Context, store vexoapp.StateStore, de
 		return types.ValidatorUpdate{}, ErrStakeOverflow
 	}
 	newPower := currentPower + amount
-	if batchStore, ok := store.(kvbatch.BatchKVStore); ok {
-		if err := batchStore.SetBatch(ctx, []kvbatch.KVWrite{
-			{Namespace: bankNamespace, Key: bankBalanceKey(delegator), Value: encodeUint64(balance - amount)},
-			{Namespace: ModuleName, Key: stakeKey(delegator, validatorID), Value: encodeUint64(currentStake + amount)},
-			{Namespace: ModuleName, Key: validatorPowerKey(validatorID), Value: encodeUint64(newPower)},
-			{Namespace: ModuleName, Key: validatorKeyKey(validatorID), Value: append([]byte(nil), publicKey...)},
-		}); err != nil {
-			return types.ValidatorUpdate{}, err
-		}
-	} else {
-		if err := setBankBalance(ctx, store, delegator, balance-amount); err != nil {
-			return types.ValidatorUpdate{}, err
-		}
-		if err := setStake(ctx, store, delegator, validatorID, currentStake+amount); err != nil {
-			return types.ValidatorUpdate{}, err
-		}
-		if err := setValidatorPower(ctx, store, validatorID, newPower); err != nil {
-			return types.ValidatorUpdate{}, err
-		}
-		if err := store.Set(ctx, ModuleName, validatorKeyKey(validatorID), publicKey); err != nil {
-			return types.ValidatorUpdate{}, err
-		}
+	if err := applyAtomicWrites(ctx, store, []kvbatch.KVWrite{
+		{Namespace: bankNamespace, Key: bankBalanceKey(delegator), Value: encodeUint64(balance - amount)},
+		{Namespace: ModuleName, Key: stakeKey(delegator, validatorID), Value: encodeUint64(currentStake + amount)},
+		{Namespace: ModuleName, Key: validatorPowerKey(validatorID), Value: encodeUint64(newPower)},
+		{Namespace: ModuleName, Key: validatorKeyKey(validatorID), Value: append([]byte(nil), publicKey...)},
+	}); err != nil {
+		return types.ValidatorUpdate{}, err
 	}
 	return types.ValidatorUpdate{
 		ID:          validatorID,
@@ -378,29 +384,28 @@ func (module *Module) undelegate(ctx context.Context, store vexoapp.StateStore, 
 	if err != nil {
 		return types.ValidatorUpdate{}, err
 	}
+	if currentPower < amount {
+		return types.ValidatorUpdate{}, ErrInvalidStakeRecord
+	}
 	newPower := currentPower - amount
+	unbondingAmount, err := UnbondingAmount(ctx, store, delegator, validatorID)
+	if err != nil {
+		return types.ValidatorUpdate{}, err
+	}
+	if unbondingAmount > ^uint64(0)-amount {
+		return types.ValidatorUpdate{}, ErrStakeOverflow
+	}
 	if uint64(height) > ^uint64(0)-uint64(module.unbondingDelay) {
 		return types.ValidatorUpdate{}, ErrStakeOverflow
 	}
 	releaseHeight := height + module.unbondingDelay
-	if batchStore, ok := store.(kvbatch.BatchKVStore); ok {
-		if err := batchStore.SetBatch(ctx, []kvbatch.KVWrite{
-			{Namespace: ModuleName, Key: stakeKey(delegator, validatorID), Value: encodeUint64(currentStake - amount)},
-			{Namespace: ModuleName, Key: validatorPowerKey(validatorID), Value: encodeUint64(newPower)},
-			{Namespace: ModuleName, Key: unbondingKey(delegator, validatorID), Value: encodeUint64(uint64(releaseHeight))},
-		}); err != nil {
-			return types.ValidatorUpdate{}, err
-		}
-	} else {
-		if err := setStake(ctx, store, delegator, validatorID, currentStake-amount); err != nil {
-			return types.ValidatorUpdate{}, err
-		}
-		if err := setValidatorPower(ctx, store, validatorID, newPower); err != nil {
-			return types.ValidatorUpdate{}, err
-		}
-		if err := setUnbondingReleaseHeight(ctx, store, delegator, validatorID, releaseHeight); err != nil {
-			return types.ValidatorUpdate{}, err
-		}
+	if err := applyAtomicWrites(ctx, store, []kvbatch.KVWrite{
+		{Namespace: ModuleName, Key: stakeKey(delegator, validatorID), Value: encodeUint64(currentStake - amount)},
+		{Namespace: ModuleName, Key: validatorPowerKey(validatorID), Value: encodeUint64(newPower)},
+		{Namespace: ModuleName, Key: unbondingKey(delegator, validatorID), Value: encodeUint64(uint64(releaseHeight))},
+		{Namespace: ModuleName, Key: unbondingAmountKey(delegator, validatorID), Value: encodeUint64(unbondingAmount + amount)},
+	}); err != nil {
+		return types.ValidatorUpdate{}, err
 	}
 	publicKey, err := store.Get(ctx, ModuleName, validatorKeyKey(validatorID))
 	if err != nil && !errors.Is(err, vexostore.ErrKeyNotFound) {
@@ -460,21 +465,7 @@ func (module *Module) ApplySlashingPenalty(ctx context.Context, store vexoapp.St
 			writes = append(writes, write)
 		}
 	}
-	if batchStore, ok := store.(kvbatch.BatchKVStore); ok {
-		return batchStore.SetBatch(ctx, writes)
-	}
-	for _, write := range writes {
-		if write.Delete {
-			if err := store.Delete(ctx, write.Namespace, write.Key); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := store.Set(ctx, write.Namespace, write.Key, write.Value); err != nil {
-			return err
-		}
-	}
-	return nil
+	return applyAtomicWrites(ctx, store, writes)
 }
 
 func Stake(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) (uint64, error) {
@@ -518,6 +509,10 @@ func DelegatedPower(ctx context.Context, store vexoapp.StateStore, delegator typ
 func UnbondingReleaseHeight(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) (types.Height, error) {
 	value, err := getUint64(ctx, store, unbondingKey(delegator, validatorID))
 	return types.Height(value), err
+}
+
+func UnbondingAmount(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) (uint64, error) {
+	return getUint64(ctx, store, unbondingAmountKey(delegator, validatorID))
 }
 
 func Rewards(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) (uint64, error) {
@@ -575,15 +570,39 @@ func (module *Module) claimRewards(ctx context.Context, store vexoapp.StateStore
 		{Namespace: bankNamespace, Key: bankBalanceKey(delegator), Value: encodeUint64(balance + reward)},
 		{Namespace: ModuleName, Key: rewardKey(delegator, validatorID), Value: encodeUint64(0)},
 	}
-	if batchStore, ok := store.(kvbatch.BatchKVStore); ok {
-		return batchStore.SetBatch(ctx, writes)
+	return applyAtomicWrites(ctx, store, writes)
+}
+
+func (module *Module) withdrawUnbonded(ctx context.Context, store vexoapp.StateStore, height types.Height, delegator types.Address, validatorID types.ValidatorID) error {
+	if delegator == "" || validatorID == "" {
+		return ErrInvalidStakingTx
 	}
-	for _, write := range writes {
-		if err := store.Set(ctx, write.Namespace, write.Key, write.Value); err != nil {
-			return err
-		}
+	releaseHeight, err := UnbondingReleaseHeight(ctx, store, delegator, validatorID)
+	if err != nil {
+		return err
 	}
-	return nil
+	amount, err := UnbondingAmount(ctx, store, delegator, validatorID)
+	if err != nil {
+		return err
+	}
+	if amount == 0 {
+		return ErrNoUnbonding
+	}
+	if height < releaseHeight {
+		return ErrUnbondingNotMature
+	}
+	balance, err := bankBalance(ctx, store, delegator)
+	if err != nil {
+		return err
+	}
+	if balance > ^uint64(0)-amount {
+		return ErrStakeOverflow
+	}
+	return applyAtomicWrites(ctx, store, []kvbatch.KVWrite{
+		{Namespace: bankNamespace, Key: bankBalanceKey(delegator), Value: encodeUint64(balance + amount)},
+		{Namespace: ModuleName, Key: unbondingKey(delegator, validatorID), Delete: true},
+		{Namespace: ModuleName, Key: unbondingAmountKey(delegator, validatorID), Delete: true},
+	})
 }
 
 type validatorPowerRecord struct {
@@ -696,15 +715,7 @@ func (module *Module) distributeFees(ctx context.Context, store vexoapp.StateSto
 			Value:     encodeUint64(current + amount),
 		})
 	}
-	if batchStore, ok := store.(kvbatch.BatchKVStore); ok {
-		return batchStore.SetBatch(ctx, writes)
-	}
-	for _, write := range writes {
-		if err := store.Set(ctx, write.Namespace, write.Key, write.Value); err != nil {
-			return err
-		}
-	}
-	return nil
+	return applyAtomicWrites(ctx, store, writes)
 }
 
 func bankBalance(ctx context.Context, store vexoapp.StateStore, address types.Address) (uint64, error) {
@@ -759,6 +770,14 @@ func setValidatorPower(ctx context.Context, store vexoapp.StateStore, validatorI
 
 func setUnbondingReleaseHeight(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID, releaseHeight types.Height) error {
 	return setUint64(ctx, store, ModuleName, unbondingKey(delegator, validatorID), uint64(releaseHeight))
+}
+
+func applyAtomicWrites(ctx context.Context, store vexoapp.StateStore, writes []kvbatch.KVWrite) error {
+	batchStore, ok := store.(kvbatch.BatchKVStore)
+	if !ok {
+		return ErrStakingAtomicStoreRequired
+	}
+	return batchStore.SetBatch(ctx, writes)
 }
 
 func stakingRewardInputs(pairs []vexostore.KVPair) ([]validatorPowerRecord, []delegationRecord, error) {
@@ -976,6 +995,10 @@ func tombstoneKey(validatorID types.ValidatorID) []byte {
 
 func unbondingKey(delegator types.Address, validatorID types.ValidatorID) []byte {
 	return []byte("unbonding/" + string(delegator) + "/" + string(validatorID))
+}
+
+func unbondingAmountKey(delegator types.Address, validatorID types.ValidatorID) []byte {
+	return []byte("unbonding_amount/" + string(delegator) + "/" + string(validatorID))
 }
 
 func rewardKey(delegator types.Address, validatorID types.ValidatorID) []byte {

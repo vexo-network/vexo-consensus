@@ -75,7 +75,7 @@ go run ./cmd/vexod release gate \
   --json
 ```
 
-`release gate` fails closed when required evidence is missing, empty, malformed, explicitly reports a failed `ok`/`status`/check result, or does not semantically cover the evidence category it claims to satisfy. `--allow-external-pending` is acceptable for private release candidates only; do not use it for public production launch gates.
+`release gate` fails closed when required evidence is missing, empty, malformed, explicitly reports a failed `ok`/`status`/check result, or does not semantically cover the evidence category it claims to satisfy. `--allow-external-pending` requires `--private-rc` and is acceptable for private release candidates only; do not use it for public production launch gates.
 
 ## Artifacts
 

@@ -663,6 +663,25 @@ func TestRunReleaseGateRequiresOperationalEvidence(t *testing.T) {
 	}
 }
 
+func TestRunReleaseGateRejectsPendingExternalChecksWithoutPrivateRC(t *testing.T) {
+	dist := t.TempDir()
+	for _, name := range []string{"checksums.txt", "checksums.txt.asc", "sbom-go-modules.json", "sbom-go-version.txt", "release-manifest.json"} {
+		if err := os.WriteFile(filepath.Join(dist, name), []byte(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var output bytes.Buffer
+	err := runCommand(&output, &bytes.Buffer{}, []string{
+		"release", "gate",
+		"--dist", dist,
+		"--version", "test",
+		"--allow-external-pending",
+	})
+	if err == nil || !strings.Contains(err.Error(), "--private-rc") {
+		t.Fatalf("expected private RC guard error, got %v", err)
+	}
+}
+
 func TestRunReleaseGatePassesWithEvidence(t *testing.T) {
 	dist := t.TempDir()
 	required := []string{

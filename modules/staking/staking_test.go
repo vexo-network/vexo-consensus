@@ -75,9 +75,85 @@ func TestStakingModuleUndelegatesAndRecordsUnbonding(t *testing.T) {
 	if releaseHeight != 18 {
 		t.Fatalf("expected release height 18, got %d", releaseHeight)
 	}
+	unbondingAmount, err := UnbondingAmount(context.Background(), storage, "alice", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unbondingAmount != 15 {
+		t.Fatalf("expected unbonding amount 15, got %d", unbondingAmount)
+	}
 	updates := module.ValidatorUpdates(vexoapp.Context{Store: storage})
 	if len(updates) != 1 || updates[0].VotingPower != 25 {
 		t.Fatalf("unexpected validator updates: %+v", updates)
+	}
+}
+
+func TestStakingWithdrawsMaturedUnbonding(t *testing.T) {
+	storage := newStakingStore(t)
+	module := NewModuleWithUnbondingDelay(10)
+	if err := setBankBalance(context.Background(), storage, "alice", 100); err != nil {
+		t.Fatal(err)
+	}
+	publicKey := base64.StdEncoding.EncodeToString([]byte("validator-key"))
+	if result := module.DeliverTx(vexoapp.Context{Height: 1, Store: storage}, types.Tx("staking:delegate:alice:validator-1:40:"+publicKey)); result.Code != 0 {
+		t.Fatalf("unexpected delegate result: %+v", result)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 2, Store: storage}, types.Tx("staking:undelegate:alice:validator-1:15")); result.Code != 0 {
+		t.Fatalf("unexpected undelegate result: %+v", result)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 11, Store: storage}, types.Tx("staking:withdraw-unbonded:alice:validator-1")); result.Code == 0 || !strings.Contains(result.Log, ErrUnbondingNotMature.Error()) {
+		t.Fatalf("expected immature withdrawal failure, got %+v", result)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 12, Store: storage}, types.Tx("staking:withdraw-unbonded:alice:validator-1")); result.Code != 0 {
+		t.Fatalf("unexpected withdrawal result: %+v", result)
+	}
+	balance, err := bankBalance(context.Background(), storage, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != 75 {
+		t.Fatalf("expected withdrawn bank balance 75, got %d", balance)
+	}
+	amount, err := UnbondingAmount(context.Background(), storage, "alice", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseHeight, err := UnbondingReleaseHeight(context.Background(), storage, "alice", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if amount != 0 || releaseHeight != 0 {
+		t.Fatalf("expected cleared unbonding state, amount=%d release=%d", amount, releaseHeight)
+	}
+}
+
+func TestStakingWithdrawUnbondedBatchFailureDoesNotMutateState(t *testing.T) {
+	base := newStakingStore(t)
+	storage := failingBatchStore{Store: base, err: errors.New("batch failed")}
+	module := NewModuleWithUnbondingDelay(1)
+	if err := setBankBalance(context.Background(), storage, "alice", 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := setUint64(context.Background(), storage, ModuleName, unbondingKey("alice", "validator-1"), 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := setUint64(context.Background(), storage, ModuleName, unbondingAmountKey("alice", "validator-1"), 5); err != nil {
+		t.Fatal(err)
+	}
+	result := module.DeliverTx(vexoapp.Context{Height: 2, Store: storage}, types.Tx("staking:withdraw-unbonded:alice:validator-1"))
+	if result.Code == 0 {
+		t.Fatalf("expected withdraw batch failure, got %+v", result)
+	}
+	balance, err := bankBalance(context.Background(), storage, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	amount, err := UnbondingAmount(context.Background(), storage, "alice", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != 10 || amount != 5 {
+		t.Fatalf("expected unchanged withdrawal state, balance=%d amount=%d", balance, amount)
 	}
 }
 
@@ -602,6 +678,13 @@ func TestStakingCLICommands(t *testing.T) {
 		t.Fatalf("unexpected claim cli output: %s", output.String())
 	}
 	output.Reset()
+	if err := runWithdrawUnbondedCLI(&output, []string{"alice", "validator-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "staking:withdraw-unbonded:alice:validator-1") {
+		t.Fatalf("unexpected withdraw cli output: %s", output.String())
+	}
+	output.Reset()
 	if err := runSetCommissionCLI(&output, []string{"validator-1", "500", "--signer", "validator-1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -632,6 +715,9 @@ func TestStakingCLICommands(t *testing.T) {
 		{"unbonding", func(buffer *bytes.Buffer) error {
 			return runUnbondingQueryCLI(buffer, []string{"alice", "validator-1"})
 		}, "query_path: staking/unbonding/alice/validator-1"},
+		{"unbonding-balance", func(buffer *bytes.Buffer) error {
+			return runUnbondingBalanceQueryCLI(buffer, []string{"alice", "validator-1"})
+		}, "query_path: staking/unbonding-balance/alice/validator-1"},
 		{"commission", func(buffer *bytes.Buffer) error { return runCommissionQueryCLI(buffer, []string{"validator-1"}) }, "query_path: staking/commission/validator-1"},
 	} {
 		output.Reset()

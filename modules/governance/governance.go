@@ -2,6 +2,7 @@ package governance
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -105,6 +106,15 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
 		return types.Result{Data: []byte(strconv.FormatUint(id, 10))}
+	case len(parts) == 3 && parts[1] == "submit-json":
+		if err := ctx.ConsumeGas(submitGasCost); err != nil {
+			return types.Result{Code: 5, Log: err.Error()}
+		}
+		id, err := module.submitJSON(goCtx, parts[2])
+		if err != nil {
+			return types.Result{Code: 3, Log: err.Error()}
+		}
+		return types.Result{Data: []byte(strconv.FormatUint(id, 10))}
 	case (len(parts) == 5 || len(parts) == 6) && parts[1] == "vote":
 		if err := ctx.ConsumeGas(voteGasCost); err != nil {
 			return types.Result{Code: 5, Log: err.Error()}
@@ -138,6 +148,8 @@ func (module *Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, err
 	parts := governanceTxParts(tx)
 	switch {
 	case len(parts) == 7 && parts[1] == "submit":
+		return submitGasCost, nil
+	case len(parts) == 3 && parts[1] == "submit-json":
 		return submitGasCost, nil
 	case (len(parts) == 5 || len(parts) == 6) && parts[1] == "vote":
 		return voteGasCost, nil
@@ -197,6 +209,51 @@ func (module *Module) submit(ctx context.Context, parts []string) (uint64, error
 		Changes: []vexogov.ParameterChange{
 			{Module: parts[4], Key: parts[5], Value: []byte(parts[6])},
 		},
+	})
+}
+
+type proposalJSONPayload struct {
+	Submitter string                        `json:"submitter"`
+	Title     string                        `json:"title"`
+	Changes   []proposalJSONParameterChange `json:"changes"`
+}
+
+type proposalJSONParameterChange struct {
+	Module string `json:"module"`
+	Key    string `json:"key"`
+	Value  string `json:"value"`
+}
+
+func (module *Module) submitJSON(ctx context.Context, encodedPayload string) (uint64, error) {
+	rawPayload, err := base64.RawStdEncoding.DecodeString(encodedPayload)
+	if err != nil {
+		rawPayload, err = base64.StdEncoding.DecodeString(encodedPayload)
+	}
+	if err != nil {
+		return 0, ErrInvalidGovernanceTx
+	}
+	var payload proposalJSONPayload
+	if err := json.Unmarshal(rawPayload, &payload); err != nil {
+		return 0, ErrInvalidGovernanceTx
+	}
+	if payload.Submitter == "" || payload.Title == "" || len(payload.Changes) == 0 {
+		return 0, ErrInvalidGovernanceTx
+	}
+	changes := make([]vexogov.ParameterChange, 0, len(payload.Changes))
+	for _, change := range payload.Changes {
+		if change.Module == "" || change.Key == "" {
+			return 0, ErrInvalidGovernanceTx
+		}
+		changes = append(changes, vexogov.ParameterChange{
+			Module: change.Module,
+			Key:    change.Key,
+			Value:  []byte(change.Value),
+		})
+	}
+	return module.keeper.SubmitProposal(ctx, vexogov.Proposal{
+		Submitter: types.Address(payload.Submitter),
+		Title:     payload.Title,
+		Changes:   changes,
 	})
 }
 

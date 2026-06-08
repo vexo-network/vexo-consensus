@@ -128,6 +128,9 @@ vexod evm tx call evm 0xaaaa 0xbbbb transfer aabb 100000 --fee 1 --gas 100000 --
 vexod staking tx set-commission validator-1 500 --signer validator-1
 vexod staking query rewards alice validator-1
 vexod staking tx claim-rewards alice validator-1 --fee 1 --gas 1000 --signer alice --nonce 2
+vexod staking query unbonding-balance alice validator-1
+vexod staking tx withdraw-unbonded alice validator-1 --fee 1 --gas 1000 --signer alice --nonce 3
+vexod governance tx submit-json '{"submitter":"alice","title":"multi-change","changes":[{"module":"execution","key":"max_gas","value":"20000000"},{"module":"mempool","key":"max_txs","value":"50000"}]}'
 curl -s -X POST http://127.0.0.1:26657/ -d '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}'
 vexod ibc packet send --sequence 1 --source-port transfer --source-channel channel-0 --destination-port transfer --destination-channel channel-1 --data payload
 vexod consensus adversarial --json

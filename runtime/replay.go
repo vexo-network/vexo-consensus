@@ -60,14 +60,7 @@ func (runtime *Runtime) ReplayIsolated(ctx context.Context, from types.Height, t
 		return ReplayResult{}, ErrInvalidReplayRange
 	}
 	if from != 1 {
-		result, err := runtime.ReplayFromHistoricalSnapshot(ctx, from, to)
-		if err == nil {
-			return result, nil
-		}
-		if !canFallbackToStoredReplay(err) {
-			return ReplayResult{}, err
-		}
-		return runtime.ReplayStoredRange(ctx, from, to)
+		return runtime.ReplayFromHistoricalSnapshot(ctx, from, to)
 	}
 	return runtime.replayFromFreshStore(ctx, from, to)
 }

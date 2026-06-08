@@ -40,6 +40,7 @@
 - `ok`
 - `status`
 - `--allow-external-pending`
+- `--private-rc`
 - `dist/`
 - `vexod-<version>-<os>-<arch>`
 - `checksums.txt`

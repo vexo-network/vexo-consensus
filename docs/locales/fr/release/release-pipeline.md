@@ -40,6 +40,7 @@ Ce document aide à comprendre le pipeline de release avec binaires signés, che
 - `ok`
 - `status`
 - `--allow-external-pending`
+- `--private-rc`
 - `dist/`
 - `vexod-<version>-<os>-<arch>`
 - `checksums.txt`

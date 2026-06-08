@@ -101,6 +101,7 @@ type CallRequest struct {
 	Input                     string                       `json:"input,omitempty"`
 	GasLimit                  uint64                       `json:"gas_limit,omitempty"`
 	Value                     uint64                       `json:"value,omitempty"`
+	ValueWei                  string                       `json:"value_wei,omitempty"`
 	ValueHex                  string                       `json:"value_hex,omitempty"`
 	Height                    uint64                       `json:"height,omitempty"`
 	GasPrice                  uint64                       `json:"gas_price,omitempty"`
@@ -884,14 +885,28 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 }
 
 func callRequestValue(request CallRequest) (*big.Int, error) {
-	if request.ValueHex == "" {
-		return new(big.Int).SetUint64(request.Value), nil
+	var parsed *big.Int
+	if request.ValueWei != "" {
+		value, ok := new(big.Int).SetString(request.ValueWei, 10)
+		if !ok || value.Sign() < 0 || value.BitLen() > 256 {
+			return nil, ErrInvalidEVMQuery
+		}
+		parsed = value
 	}
-	value, ok := new(big.Int).SetString(strings.TrimPrefix(request.ValueHex, "0x"), 16)
-	if !ok || value.Sign() < 0 || value.BitLen() > 256 {
-		return nil, ErrInvalidEVMQuery
+	if request.ValueHex != "" {
+		value, ok := new(big.Int).SetString(strings.TrimPrefix(request.ValueHex, "0x"), 16)
+		if !ok || value.Sign() < 0 || value.BitLen() > 256 {
+			return nil, ErrInvalidEVMQuery
+		}
+		if parsed != nil && parsed.Cmp(value) != 0 {
+			return nil, ErrInvalidEVMQuery
+		}
+		parsed = value
 	}
-	return value, nil
+	if parsed != nil {
+		return parsed, nil
+	}
+	return new(big.Int).SetUint64(request.Value), nil
 }
 
 func (module Module) estimateInvocationGas(ctx vexoapp.Context, invocation contract.Invocation) (uint64, error) {

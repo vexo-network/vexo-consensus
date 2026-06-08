@@ -725,6 +725,48 @@ func TestModuleQueryCallAcceptsUint256ValueHex(t *testing.T) {
 	}
 }
 
+func TestModuleQueryCallAcceptsUint256ValueWeiAndRejectsConflict(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	vm := &recordingInvocationVM{}
+	registry := contract.NewRegistry()
+	if err := registry.Register(vm); err != nil {
+		t.Fatal(err)
+	}
+	module := NewModuleWithRegistry(registry)
+	contractAddress := types.Address("0x000000000000000000000000000000000000bbbb")
+	if err := storage.Set(context.Background(), ModuleName, codeKey(contractAddress), []byte{0x60, 0x00}); err != nil {
+		t.Fatal(err)
+	}
+	value := new(big.Int).Lsh(big.NewInt(1), 80)
+	request := CallRequest{
+		VM:       "evm",
+		From:     "0x000000000000000000000000000000000000aaaa",
+		To:       string(contractAddress),
+		Method:   "call",
+		Input:    "0x00",
+		GasLimit: 100000,
+		ValueWei: value.String(),
+	}
+	encoded, _ := json.Marshal(request)
+	response := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 1, Store: storage}, vexoapp.QueryRequest{Path: []string{"call"}, Data: encoded})
+	if response.Code != 0 {
+		t.Fatalf("query call failed: %+v", response)
+	}
+	if vm.invocation.ValueBig == nil || vm.invocation.ValueBig.Cmp(value) != 0 {
+		t.Fatalf("expected uint256 wei call value, got %v", vm.invocation.ValueBig)
+	}
+	request.ValueHex = "0x1"
+	encoded, _ = json.Marshal(request)
+	response = module.Query(vexoapp.Context{Ctx: context.Background(), Height: 1, Store: storage}, vexoapp.QueryRequest{Path: []string{"call"}, Data: encoded})
+	if response.Code == 0 {
+		t.Fatalf("expected conflicting value encodings to fail, got %+v", response)
+	}
+}
+
 func TestModulePersistsCodeWritesAccountDeletionsAndActualGas(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {

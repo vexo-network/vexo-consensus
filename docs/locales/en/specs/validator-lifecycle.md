@@ -50,12 +50,16 @@ Evidence states:
 
 Evidence must be validated, deduplicated, persisted, and only then applied.
 
-Durable keepers persist evidence lifecycle, penalty receipts, jail-until heights, and unbonding release heights. Consensus slashing
+Durable keepers persist evidence lifecycle, penalty receipts, jail-until heights, unbonding release heights, and unbonding custody balances. Consensus slashing
 first validates evidence, then records it, applies a stake-aware penalty, and finally writes the resulting
 validator voting-power update through the registry.
 
 When the staking module is enabled, the node runtime also applies the same penalty receipt to staking state.
 Delegations to the slashed validator are reduced proportionally, the staking validator-power key is updated to
+match the penalty receipt, and matured undelegations are returned only through `staking tx withdraw-unbonded`
+after the configured unbonding delay. Delegation, undelegation, reward claiming, unbonding withdrawal, fee
+distribution, and slashing updates require an atomic batch-capable store so custody and validator power cannot
+diverge on partial write failure.
 the remaining power, and an evidence-derived slash marker makes restart reconciliation idempotent.
 
 Store-backed keepers distinguish missing records from corrupt or failed reads. Missing evidence, receipts, jail state, or unbonding state can be treated as absent; corrupt JSON and storage read errors must abort startup, reconciliation, or penalty execution instead of silently resetting state.

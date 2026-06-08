@@ -217,10 +217,14 @@ func runReleaseGate(writer io.Writer, args []string) error {
 	sdkConformanceEvidence := flags.String("sdk-conformance-evidence", "", "SDK/API module, storage, crypto, transport, RPC, EVM, and Web3 conformance evidence path")
 	externalAudit := flags.String("external-audit", "", "external security audit report or disposition path")
 	blsAudit := flags.String("bls-audit", "", "audited BLS adapter/dependency audit evidence path")
+	privateRC := flags.Bool("private-rc", false, "mark this gate as a private release candidate; required before allowing external audit items to remain pending")
 	allowExternalPending := flags.Bool("allow-external-pending", false, "allow external audit/BLS audit to remain pending for private release candidates")
 	jsonOutput := flags.Bool("json", false, "write JSON output")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if *allowExternalPending && !*privateRC {
+		return fmt.Errorf("--allow-external-pending requires --private-rc")
 	}
 	pack, err := buildReleaseAuditPackWithEvidence(*distDir, *versionValue, *requireSignature, releaseEvidenceInputs{
 		LongRun:     *longRunEvidence,

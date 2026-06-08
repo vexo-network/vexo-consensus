@@ -1,6 +1,8 @@
 package governance
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -18,6 +20,7 @@ func governanceCLICommand() vexoapp.CLICommand {
 		Description: "governance proposal, voting, execution, and query commands",
 		Examples: []string{
 			"governance tx submit alice max-gas execution max_gas 20000000",
+			`governance tx submit-json '{"submitter":"alice","title":"upgrade","changes":[{"module":"execution","key":"max_gas","value":"20000000"}]}'`,
 			"governance tx vote 1 alice yes",
 			"governance query tally 1",
 		},
@@ -39,6 +42,15 @@ func governanceCLICommand() vexoapp.CLICommand {
 							{Name: "value", Description: "new parameter value without ':'"},
 						},
 						Run: runSubmitCLI,
+					},
+					{
+						Name:        "submit-json",
+						Usage:       "governance tx submit-json <json>",
+						Description: "build a multi-change proposal transaction from JSON",
+						Args: []vexoapp.CLIArg{
+							{Name: "json", Description: "proposal JSON with submitter, title, and changes[]"},
+						},
+						Run: runSubmitJSONCLI,
 					},
 					{
 						Name:        "vote",
@@ -109,6 +121,28 @@ func runSubmitCLI(writer io.Writer, args []string) error {
 		Module: ModuleName,
 		Action: "submit",
 		Args:   []string{args[0], args[1], args[2], args[3], args[4]},
+		Tags:   tags,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "tx: %s\n", tx)
+	return nil
+}
+
+func runSubmitJSONCLI(writer io.Writer, args []string) error {
+	args, tags, err := splitExecutionTags(args)
+	if err != nil {
+		return err
+	}
+	if len(args) != 1 || !json.Valid([]byte(args[0])) {
+		return vexoapp.ErrCLIUsage("governance tx submit-json <json>")
+	}
+	encodedPayload := base64.RawStdEncoding.EncodeToString([]byte(args[0]))
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
+		Module: ModuleName,
+		Action: "submit-json",
+		Args:   []string{encodedPayload},
 		Tags:   tags,
 	})
 	if err != nil {

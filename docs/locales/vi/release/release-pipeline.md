@@ -40,6 +40,7 @@ Tài liệu này giúp hiểu pipeline phát hành với binary đã ký, checks
 - `ok`
 - `status`
 - `--allow-external-pending`
+- `--private-rc`
 - `dist/`
 - `vexod-<version>-<os>-<arch>`
 - `checksums.txt`
