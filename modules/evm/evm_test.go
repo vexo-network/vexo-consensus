@@ -832,6 +832,210 @@ func TestModuleQueriesEthereumStateRootAndProof(t *testing.T) {
 	}
 }
 
+func TestModuleLifecycleEventsAndStateReaders(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	if module.Name() != ModuleName {
+		t.Fatalf("unexpected module name %q", module.Name())
+	}
+	if clone := module.CloneModule(); clone.Name() != ModuleName {
+		t.Fatalf("unexpected cloned module: %+v", clone)
+	}
+	address := types.Address("0x000000000000000000000000000000000000beef")
+	ctx := vexoapp.Context{
+		Ctx:         context.Background(),
+		Height:      12,
+		Store:       storage,
+		BaseFee:     7,
+		BlobBaseFee: 3,
+		Header:      types.Header{Height: 12, TimeUnixNano: 2_000_000_000, AppHash: types.Hash{0xaa}},
+	}
+	if err := module.InitGenesis(ctx, vexoapp.GenesisState{ModuleName + ":code:" + string(address): []byte{0x60, 0x01}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := module.InitGenesis(ctx, vexoapp.GenesisState{ModuleName + ":code:": []byte{0x60}}); err != ErrInvalidEVMTx {
+		t.Fatalf("expected invalid genesis code address, got %v", err)
+	}
+	if err := module.BeginBlock(ctx, ctx.Header); err != nil {
+		t.Fatal(err)
+	}
+	recordBytes, err := storage.Get(context.Background(), ModuleName, latestBlockContextKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record BlockContextRecord
+	if err := json.Unmarshal(recordBytes, &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.Height != 12 || record.BaseFee != 7 || record.BlobBaseFee != 3 || record.TimeUnixNano != 2_000_000_000 {
+		t.Fatalf("unexpected block context record: %+v", record)
+	}
+	if response := module.Query(vexoapp.Context{}, vexoapp.QueryRequest{}); response.Code != 2 {
+		t.Fatalf("expected empty query path rejection, got %+v", response)
+	}
+	if response := module.Query(vexoapp.Context{}, vexoapp.QueryRequest{Path: []string{"code", string(address)}}); response.Code != 1 {
+		t.Fatalf("expected missing store query rejection, got %+v", response)
+	}
+	codeQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"code", string(address)}})
+	if codeQuery.Code != 0 || !strings.Contains(string(codeQuery.Value), `"code":"6001"`) {
+		t.Fatalf("unexpected code query: %+v", codeQuery)
+	}
+	setTestEVMBalance(t, storage, address, 55)
+	setTestEVMNonce(t, storage, address, 4)
+	if err := storage.Set(context.Background(), ModuleName, storageKey(address, "0x01"), []byte{0x09}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.SaveBlock(context.Background(), store.BlockRecord{Block: types.Block{Header: types.Header{Height: 11}}, Hash: types.Hash{0x11}}); err != nil {
+		t.Fatal(err)
+	}
+	reader := evmStateReader{store: storage}
+	if code, err := reader.Code(context.Background(), address); err != nil || !bytes.Equal(code, []byte{0x60, 0x01}) {
+		t.Fatalf("unexpected reader code=%x err=%v", code, err)
+	}
+	if storageValue, err := reader.Storage(context.Background(), address, "0x01"); err != nil || !bytes.Equal(storageValue, []byte{0x09}) {
+		t.Fatalf("unexpected reader storage=%x err=%v", storageValue, err)
+	}
+	if balance, err := reader.Balance(context.Background(), address); err != nil || balance != 55 {
+		t.Fatalf("unexpected reader balance=%d err=%v", balance, err)
+	}
+	if nonce, err := reader.Nonce(context.Background(), address); err != nil || nonce != 4 {
+		t.Fatalf("unexpected reader nonce=%d err=%v", nonce, err)
+	}
+	if blockHash, err := reader.BlockHash(context.Background(), 11); err != nil || blockHash != (types.Hash{0x11}) {
+		t.Fatalf("unexpected reader block hash=%x err=%v", blockHash, err)
+	}
+	if missingHash, err := reader.BlockHash(context.Background(), 99); err != nil || missingHash != (types.Hash{}) {
+		t.Fatalf("unexpected missing block hash=%x err=%v", missingHash, err)
+	}
+	receipt := Receipt{TxHash: "0xabc", From: string(address), To: "0x000000000000000000000000000000000000c0de", ContractAddress: "0x000000000000000000000000000000000000c0de"}
+	encodedReceipt, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	emitted := module.Events(ctx, types.Tx("evm:deploy:evm:"+string(address)+":6001:salt"), types.Result{Data: encodedReceipt})
+	if len(emitted) != 1 || emitted[0].Type != "evm_deploy" {
+		t.Fatalf("unexpected events: %+v", emitted)
+	}
+	if events := module.Events(ctx, types.Tx("bad"), types.Result{}); events != nil {
+		t.Fatalf("expected invalid tx events to be ignored, got %+v", events)
+	}
+	if events := module.Events(ctx, types.Tx("evm:call:evm:a:b:c:d:1"), types.Result{Code: 1}); events != nil {
+		t.Fatalf("expected failed result events to be ignored, got %+v", events)
+	}
+	if err := module.EndBlock(vexoapp.Context{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := module.Prune(vexoapp.Context{}, 1); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestModuleEstimateGasCurrentAccountAndSnapshotReaders(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	registry := contract.NewRegistry()
+	recorder := &recordingInvocationVM{}
+	if err := registry.Register(recorder); err != nil {
+		t.Fatal(err)
+	}
+	module := NewModuleWithRegistry(registry)
+	address := types.Address("0x000000000000000000000000000000000000beef")
+	caller := types.Address("0x000000000000000000000000000000000000aaaa")
+	ctx := vexoapp.Context{Ctx: context.Background(), Height: 15, Store: storage, BaseFee: 11, BlobBaseFee: 5, Header: types.Header{Height: 15, TimeUnixNano: 3_000_000_000}}
+	if err := storage.Set(context.Background(), ModuleName, codeKey(address), []byte{0x60, 0x01}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Set(context.Background(), ModuleName, storageKey(address, "0x01"), []byte{0x2a}); err != nil {
+		t.Fatal(err)
+	}
+	setTestEVMBalance(t, storage, address, 123)
+	setTestEVMNonce(t, storage, address, 9)
+	callTx := types.Tx("evm:call:evm:" + string(caller) + ":" + string(address) + ":transfer:aabb:100000:gas_price=3:nonce=7")
+	gas, err := module.EstimateGas(ctx, callTx)
+	if err != nil || gas != 17 {
+		t.Fatalf("unexpected call estimate gas=%d err=%v", gas, err)
+	}
+	if recorder.invocation.BlockNumber != 15 || recorder.invocation.Timestamp != 3 || recorder.invocation.BaseFee != 11 || recorder.invocation.BlobBaseFee != 5 || recorder.invocation.Nonce != 7 {
+		t.Fatalf("unexpected estimated invocation: %+v", recorder.invocation)
+	}
+	deployGas, err := module.EstimateGas(ctx, types.Tx("evm:deploy:evm:"+string(caller)+":6001:salt:1"))
+	if err != nil || deployGas != 17 {
+		t.Fatalf("unexpected deploy estimate gas=%d err=%v", deployGas, err)
+	}
+	ethDeployGas, err := module.EstimateGas(ctx, types.Tx("evm:eth_deploy:evm:"+string(caller)+":6001:2:1"))
+	if err != nil || ethDeployGas != 17 {
+		t.Fatalf("unexpected eth deploy estimate gas=%d err=%v", ethDeployGas, err)
+	}
+	if _, err := module.EstimateGas(ctx, types.Tx("evm:unknown")); err != ErrInvalidEVMTx {
+		t.Fatalf("expected invalid estimate action, got %v", err)
+	}
+	accountQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"account", string(address)}})
+	if accountQuery.Code != 0 || !strings.Contains(string(accountQuery.Value), `"balance":123`) || !strings.Contains(string(accountQuery.Value), `"nonce":9`) {
+		t.Fatalf("unexpected current account query: %+v", accountQuery)
+	}
+	reader := newEVMSnapshotStateReader(storage, []ethcompat.AccountState{{
+		Address:    canonicalAddressKey(address),
+		Balance:    77,
+		BalanceHex: "0x4d",
+		Nonce:      6,
+		Code:       []byte{0x60, 0x02},
+		Storage:    map[string][]byte{normalizeSlot("0x01"): {0x03}},
+	}})
+	if code, err := reader.Code(context.Background(), address); err != nil || !bytes.Equal(code, []byte{0x60, 0x02}) {
+		t.Fatalf("unexpected snapshot code=%x err=%v", code, err)
+	}
+	if value, err := reader.Storage(context.Background(), address, "0x01"); err != nil || !bytes.Equal(value, []byte{0x03}) {
+		t.Fatalf("unexpected snapshot storage=%x err=%v", value, err)
+	}
+	if balance, err := reader.Balance(context.Background(), address); err != nil || balance != 77 {
+		t.Fatalf("unexpected snapshot balance=%d err=%v", balance, err)
+	}
+	if nonce, err := reader.Nonce(context.Background(), address); err != nil || nonce != 6 {
+		t.Fatalf("unexpected snapshot nonce=%d err=%v", nonce, err)
+	}
+	overrideNonce := uint64(99)
+	override := newOverrideStateReader(reader, map[string]CallStateOverride{
+		string(address): {
+			Code:      "0x6003",
+			Balance:   "0x100",
+			Nonce:     &overrideNonce,
+			State:     map[string]string{"0x01": "0x04"},
+			StateDiff: map[string]string{"0x02": "0x05"},
+		},
+	})
+	if code, err := override.Code(context.Background(), address); err != nil || !bytes.Equal(code, []byte{0x60, 0x03}) {
+		t.Fatalf("unexpected override code=%x err=%v", code, err)
+	}
+	if value, err := override.Storage(context.Background(), address, "0x01"); err != nil || !bytes.Equal(value, []byte{0x04}) {
+		t.Fatalf("unexpected override storage=%x err=%v", value, err)
+	}
+	if balance, err := override.Balance(context.Background(), address); err != nil || balance != 256 {
+		t.Fatalf("unexpected override balance=%d err=%v", balance, err)
+	}
+	if nonce, err := override.Nonce(context.Background(), address); err != nil || nonce != 99 {
+		t.Fatalf("unexpected override nonce=%d err=%v", nonce, err)
+	}
+	if _, err := parseOverrideBig("-1"); err != ErrInvalidEVMQuery {
+		t.Fatalf("expected negative override balance rejection, got %v", err)
+	}
+	if _, err := decodeOverrideBytes("0xzz"); err != ErrInvalidEVMQuery {
+		t.Fatalf("expected invalid override bytes rejection, got %v", err)
+	}
+	if hashes := parseBlobHashes([]string{strings.Repeat("01", 32), "bad"}); hashes != nil {
+		t.Fatalf("expected invalid blob hashes to fail closed, got %+v", hashes)
+	}
+	if err := validateEthereumRawTx(ctx, types.Tx("evm:call:evm:a:b:c:d:1")); err != nil {
+		t.Fatalf("expected non-ethereum tx validation to no-op, got %v", err)
+	}
+}
+
 func TestModulePersistsHistoricalEthereumStateSnapshots(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {

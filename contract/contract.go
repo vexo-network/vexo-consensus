@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math/big"
+	"sort"
 	"sync"
 
 	"github.com/vexo-network/vexo-consensus/types"
@@ -186,6 +187,7 @@ func (registry *Registry) Names() []string {
 	for name := range registry.vms {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }
 
