@@ -386,6 +386,7 @@ func runKeysServeRemote(writer io.Writer, args []string) error {
 	minHeight := flags.Uint64("min-height", 0, "minimum allowed signing height")
 	maxHeight := flags.Uint64("max-height", 0, "maximum allowed signing height; zero means no limit")
 	guardPath := flags.String("guard-path", "", "double-sign guard file path")
+	noncePath := flags.String("nonce-path", "", "replay nonce guard file path")
 	authToken := flags.String("auth-token", "", "required bearer token for remote signing requests")
 	authTokenEnv := flags.String("auth-token-env", "", "environment variable containing required bearer token")
 	passphrase := flags.String("passphrase", "", "key decryption passphrase; prefer VEXO_KEY_PASSPHRASE")
@@ -394,6 +395,9 @@ func runKeysServeRemote(writer io.Writer, args []string) error {
 	}
 	if *guardPath == "" {
 		*guardPath = filepath.Join(*home, "remote-signer.guard.json")
+	}
+	if *noncePath == "" {
+		*noncePath = filepath.Join(*home, "remote-signer.nonces.json")
 	}
 	resolvedAuthToken := *authToken
 	if resolvedAuthToken == "" && *authTokenEnv != "" {
@@ -411,14 +415,18 @@ func runKeysServeRemote(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	service, err := vexocrypto.NewRemoteSignerService(signer, vexocrypto.RemoteSignerPolicy{
+	nonceGuard, err := vexocrypto.NewFileBackedRemoteSignerNonceGuard(*noncePath)
+	if err != nil {
+		return err
+	}
+	service, err := vexocrypto.NewRemoteSignerServiceWithNonceGuard(signer, vexocrypto.RemoteSignerPolicy{
 		ChainID:       *chainID,
 		MinHeight:     types.Height(*minHeight),
 		MaxHeight:     types.Height(*maxHeight),
 		AllowedTypes:  []vexocrypto.SignType{vexocrypto.SignTypeConsensusProposal, vexocrypto.SignTypeConsensusVote, vexocrypto.SignTypeConsensusTimeoutVote, vexocrypto.SignTypeFinalityProof},
 		RequirePolicy: true,
 		AuthToken:     resolvedAuthToken,
-	}, guard)
+	}, guard, nonceGuard)
 	if err != nil {
 		return err
 	}
@@ -431,6 +439,7 @@ func runKeysServeRemote(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "listen: %s\n", *listen)
 	fmt.Fprintf(writer, "chain_id: %s\n", *chainID)
 	fmt.Fprintf(writer, "guard_path: %s\n", *guardPath)
+	fmt.Fprintf(writer, "nonce_path: %s\n", *noncePath)
 	fmt.Fprintf(writer, "auth_required: %t\n", resolvedAuthToken != "")
 	return server.ListenAndServe()
 }

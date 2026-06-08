@@ -65,6 +65,11 @@ type ReceiptIndex struct {
 	TxIndex uint64 `json:"tx_index"`
 }
 
+type BlobSidecarRecord struct {
+	TxHash  string                      `json:"tx_hash"`
+	Sidecar ethcompat.BlobSidecarBundle `json:"sidecar"`
+}
+
 type Log struct {
 	Address         string            `json:"address"`
 	Topics          []string          `json:"topics,omitempty"`
@@ -336,6 +341,23 @@ func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoap
 			return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
 		}
 		return queryJSON(ctx, receiptIndexKey(req.Path[1]))
+	case "blob_sidecar":
+		if len(req.Path) != 2 {
+			return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
+		}
+		return queryJSON(ctx, blobSidecarKey(req.Path[1]))
+	case "blob_sidecar_by_hash":
+		if len(req.Path) != 2 {
+			return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
+		}
+		txHash, err := ctx.Store.Get(ctx.GoContext(), ModuleName, blobSidecarHashIndexKey(req.Path[1]))
+		if errors.Is(err, vexostore.ErrKeyNotFound) {
+			return vexoapp.QueryResponse{Code: 3, Log: "EVM blob sidecar not found"}
+		}
+		if err != nil {
+			return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+		}
+		return queryJSON(ctx, blobSidecarKey(string(txHash)))
 	case "code":
 		if len(req.Path) != 2 {
 			return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
@@ -452,6 +474,9 @@ func (module Module) Events(ctx vexoapp.Context, tx types.Tx, result types.Resul
 }
 
 func (module Module) deliverCall(ctx vexoapp.Context, tx types.Tx, args []string) types.Result {
+	if _, err := blobSidecarBundleFromTx(tx); err != nil {
+		return types.Result{Code: 3, Log: err.Error()}
+	}
 	invocation, err := callInvocationFromArgs(args)
 	if err != nil {
 		return types.Result{Code: 3, Log: err.Error()}
@@ -483,6 +508,9 @@ func (module Module) deliverCall(ctx vexoapp.Context, tx types.Tx, args []string
 	}
 	receipt := receiptFromResult(tx, ctx.Height, invocation, "", result)
 	if err := persistReceipt(ctx.GoContext(), ctx.Store, receipt); err != nil {
+		return types.Result{Code: 4, Log: err.Error()}
+	}
+	if err := persistBlobSidecar(ctx.GoContext(), ctx.Store, tx); err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
 	encoded, err := json.Marshal(receipt)
@@ -561,6 +589,9 @@ func (module Module) deliverDeploy(ctx vexoapp.Context, tx types.Tx, args []stri
 }
 
 func (module Module) deliverEthereumDeploy(ctx vexoapp.Context, tx types.Tx, args []string) types.Result {
+	if _, err := blobSidecarBundleFromTx(tx); err != nil {
+		return types.Result{Code: 3, Log: err.Error()}
+	}
 	if len(args) != 5 {
 		return types.Result{Code: 3, Log: ErrInvalidEVMTx.Error()}
 	}
@@ -618,6 +649,9 @@ func (module Module) deliverEthereumDeploy(ctx vexoapp.Context, tx types.Tx, arg
 	}
 	receipt := receiptFromResult(tx, ctx.Height, invocation, string(contractAddress), result)
 	if err := persistReceipt(ctx.GoContext(), ctx.Store, receipt); err != nil {
+		return types.Result{Code: 4, Log: err.Error()}
+	}
+	if err := persistBlobSidecar(ctx.GoContext(), ctx.Store, tx); err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
 	encoded, err := json.Marshal(receipt)
@@ -994,6 +1028,61 @@ func persistReceipt(ctx context.Context, store vexoapp.StateStore, receipt Recei
 	}
 	for _, log := range receipt.Logs {
 		if err := persistLog(ctx, store, log); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func blobSidecarBundleFromTx(tx types.Tx) (ethcompat.BlobSidecarBundle, error) {
+	expectedHashes := txBlobHashStrings(tx)
+	encoded, found := vexoapp.TxTag(tx, ethcompat.TagBlobSidecar)
+	if !found || encoded == "" {
+		if len(expectedHashes) > 0 {
+			return ethcompat.BlobSidecarBundle{}, ethcompat.ErrInvalidBlobSidecar
+		}
+		return ethcompat.BlobSidecarBundle{}, nil
+	}
+	bundle, err := ethcompat.DecodeBlobSidecarBundle(encoded)
+	if err != nil {
+		return ethcompat.BlobSidecarBundle{}, err
+	}
+	if !sameBlobHashes(expectedHashes, bundle.BlobHashes) {
+		return ethcompat.BlobSidecarBundle{}, ethcompat.ErrInvalidBlobSidecar
+	}
+	return bundle, nil
+}
+
+func persistBlobSidecar(ctx context.Context, store vexoapp.StateStore, tx types.Tx) error {
+	bundle, err := blobSidecarBundleFromTx(tx)
+	if err != nil {
+		return err
+	}
+	if len(bundle.BlobHashes) == 0 {
+		return nil
+	}
+	record := BlobSidecarRecord{TxHash: txHash(tx), Sidecar: bundle}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	writes := []vexostore.KVWrite{{
+		Namespace: ModuleName,
+		Key:       blobSidecarKey(record.TxHash),
+		Value:     encoded,
+	}}
+	for _, blobHash := range bundle.BlobHashes {
+		writes = append(writes, vexostore.KVWrite{
+			Namespace: ModuleName,
+			Key:       blobSidecarHashIndexKey(blobHash),
+			Value:     []byte(record.TxHash),
+		})
+	}
+	if batchStore, ok := store.(vexostore.BatchKVStore); ok {
+		return batchStore.SetBatch(ctx, writes)
+	}
+	for _, write := range writes {
+		if err := store.Set(ctx, write.Namespace, write.Key, write.Value); err != nil {
 			return err
 		}
 	}
@@ -1617,6 +1706,14 @@ func receiptIndexKey(hash string) []byte {
 	return []byte("receipt_index/" + strings.TrimPrefix(hash, "0x"))
 }
 
+func blobSidecarKey(hash string) []byte {
+	return []byte("blob_sidecars/by_tx/" + strings.ToLower(strings.TrimPrefix(hash, "0x")))
+}
+
+func blobSidecarHashIndexKey(hash string) []byte {
+	return []byte("blob_sidecars/by_blob/" + strings.ToLower(strings.TrimPrefix(hash, "0x")))
+}
+
 func codeKey(address types.Address) []byte {
 	return []byte("code/" + canonicalAddressKey(address))
 }
@@ -1811,6 +1908,10 @@ func txBlobBaseFee(tx types.Tx) uint64 {
 }
 
 func txBlobHashes(tx types.Tx) []types.Hash {
+	return parseBlobHashes(txBlobHashStrings(tx))
+}
+
+func txBlobHashStrings(tx types.Tx) []string {
 	encoded, found := vexoapp.TxTag(tx, ethcompat.TagBlobHashes)
 	if !found || encoded == "" {
 		return nil
@@ -1823,7 +1924,25 @@ func txBlobHashes(tx types.Tx) []types.Hash {
 	if err := json.Unmarshal(raw, &hashes); err != nil {
 		return nil
 	}
-	return parseBlobHashes(hashes)
+	out := make([]string, 0, len(hashes))
+	for _, hash := range hashes {
+		if decoded, err := hex.DecodeString(strings.TrimPrefix(hash, "0x")); err == nil && len(decoded) == len(types.Hash{}) {
+			out = append(out, "0x"+strings.ToLower(hex.EncodeToString(decoded)))
+		}
+	}
+	return out
+}
+
+func sameBlobHashes(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if !strings.EqualFold(left[index], right[index]) {
+			return false
+		}
+	}
+	return true
 }
 
 func parseBlobHashes(raw []string) []types.Hash {

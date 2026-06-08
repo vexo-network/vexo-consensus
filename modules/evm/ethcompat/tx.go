@@ -40,6 +40,7 @@ const (
 	TagBlobGas              = "eth_blob_gas"
 	TagBlobGasFeeCap        = "eth_blob_gas_fee_cap"
 	TagBlobHashes           = "eth_blob_hashes"
+	TagBlobSidecar          = "eth_blob_sidecar"
 )
 
 var (
@@ -82,6 +83,13 @@ type DecodedTransaction struct {
 	AccessList           []contract.AccessListEntry
 	ContractCreation     bool
 	ChainID              uint64
+}
+
+type BlobSidecarBundle struct {
+	BlobHashes  []string `json:"blob_hashes"`
+	Blobs       []string `json:"blobs"`
+	Commitments []string `json:"commitments"`
+	Proofs      []string `json:"proofs"`
 }
 
 func ChainNumericID(chainID string) uint64 {
@@ -320,6 +328,86 @@ func VerifyBlobSidecarBytes(expectedHashes []string, blobs [][]byte, commitments
 	return VerifyBlobSidecar(sidecar, expectedHashes)
 }
 
+func EncodeBlobSidecarBundle(bundle BlobSidecarBundle) (string, error) {
+	normalized, err := NormalizeBlobSidecarBundle(bundle)
+	if err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawStdEncoding.EncodeToString(encoded), nil
+}
+
+func DecodeBlobSidecarBundle(encoded string) (BlobSidecarBundle, error) {
+	if encoded == "" {
+		return BlobSidecarBundle{}, ErrInvalidBlobSidecar
+	}
+	raw, err := base64.RawStdEncoding.DecodeString(encoded)
+	if err != nil {
+		return BlobSidecarBundle{}, err
+	}
+	return DecodeBlobSidecarBundleJSON(raw)
+}
+
+func DecodeBlobSidecarBundleJSON(raw []byte) (BlobSidecarBundle, error) {
+	var bundle BlobSidecarBundle
+	if err := json.Unmarshal(raw, &bundle); err != nil {
+		return BlobSidecarBundle{}, err
+	}
+	return NormalizeBlobSidecarBundle(bundle)
+}
+
+func NormalizeBlobSidecarBundle(bundle BlobSidecarBundle) (BlobSidecarBundle, error) {
+	bundle.BlobHashes = normalizeHashList(bundle.BlobHashes)
+	bundle.Blobs = normalizeHexList(bundle.Blobs)
+	bundle.Commitments = normalizeHexList(bundle.Commitments)
+	bundle.Proofs = normalizeHexList(bundle.Proofs)
+	if err := VerifyBlobSidecarBundle(bundle); err != nil {
+		return BlobSidecarBundle{}, err
+	}
+	return bundle, nil
+}
+
+func VerifyBlobSidecarBundle(bundle BlobSidecarBundle) error {
+	blobs, err := decodeFixedHexList(bundle.Blobs, len(kzg4844.Blob{}))
+	if err != nil {
+		return err
+	}
+	commitments, err := decodeFixedHexList(bundle.Commitments, len(kzg4844.Commitment{}))
+	if err != nil {
+		return err
+	}
+	proofs, err := decodeFixedHexList(bundle.Proofs, len(kzg4844.Proof{}))
+	if err != nil {
+		return err
+	}
+	return VerifyBlobSidecarBytes(bundle.BlobHashes, blobs, commitments, proofs)
+}
+
+func BlobSidecarBundleFromGeth(sidecar *gethtypes.BlobTxSidecar, expectedHashes []string) (BlobSidecarBundle, error) {
+	if err := VerifyBlobSidecar(sidecar, expectedHashes); err != nil {
+		return BlobSidecarBundle{}, err
+	}
+	bundle := BlobSidecarBundle{
+		BlobHashes:  normalizeHashList(expectedHashes),
+		Blobs:       make([]string, 0, len(sidecar.Blobs)),
+		Commitments: make([]string, 0, len(sidecar.Commitments)),
+		Proofs:      make([]string, 0, len(sidecar.Proofs)),
+	}
+	for _, blob := range sidecar.Blobs {
+		bundle.Blobs = append(bundle.Blobs, "0x"+hex.EncodeToString(blob[:]))
+	}
+	for _, commitment := range sidecar.Commitments {
+		bundle.Commitments = append(bundle.Commitments, "0x"+hex.EncodeToString(commitment[:]))
+	}
+	for _, proof := range sidecar.Proofs {
+		bundle.Proofs = append(bundle.Proofs, "0x"+hex.EncodeToString(proof[:]))
+	}
+	return bundle, nil
+}
+
 func ValidateCanonicalTx(tx types.Tx, expectedChainID uint64) error {
 	raw, found := vexoapp.TxTag(tx, TagRaw)
 	if !found || raw == "" {
@@ -349,6 +437,43 @@ func ValidateCanonicalTx(tx types.Tx, expectedChainID uint64) error {
 		}
 	}
 	return nil
+}
+
+func decodeFixedHexList(items []string, expectedBytes int) ([][]byte, error) {
+	if len(items) == 0 {
+		return nil, ErrInvalidBlobSidecar
+	}
+	out := make([][]byte, 0, len(items))
+	for _, item := range items {
+		raw, err := hex.DecodeString(strings.TrimPrefix(normalizeHex(item), "0x"))
+		if err != nil || len(raw) != expectedBytes {
+			return nil, ErrInvalidBlobSidecar
+		}
+		out = append(out, raw)
+	}
+	return out, nil
+}
+
+func normalizeHashList(items []string) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, gethcommon.HexToHash(item).Hex())
+	}
+	return out
+}
+
+func normalizeHexList(items []string) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, normalizeHex(item))
+	}
+	return out
 }
 
 func EncodeAccessList(entries []contract.AccessListEntry) (string, error) {

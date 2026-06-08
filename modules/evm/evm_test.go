@@ -2,6 +2,8 @@ package evm
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -10,8 +12,10 @@ import (
 	"strings"
 	"testing"
 
+	gethcommon "github.com/ethereum/go-ethereum/common"
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/contract"
 	"github.com/vexo-network/vexo-consensus/modules/evm/ethcompat"
@@ -787,6 +791,64 @@ func TestDefaultModuleExecutesEthereumRawContractCreation(t *testing.T) {
 	}
 }
 
+func TestModulePersistsAndQueriesBlobSidecar(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	bundle := testBlobSidecarBundle(t)
+	encodedSidecar, err := ethcompat.EncodeBlobSidecarBundle(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encodedHashes, err := json.Marshal(bundle.BlobHashes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
+		Module: ModuleName,
+		Action: "call",
+		Args:   []string{"evm", "0xaaaa", "0xbbbb", "call", "", "21000", "0"},
+		Tags: map[string]string{
+			ethcompat.TagHash:        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			ethcompat.TagBlobHashes:  base64.RawStdEncoding.EncodeToString(encodedHashes),
+			ethcompat.TagBlobSidecar: encodedSidecar,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := persistBlobSidecar(context.Background(), storage, tx); err != nil {
+		t.Fatal(err)
+	}
+	ctx := vexoapp.Context{Ctx: context.Background(), Store: storage}
+	byTx := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"blob_sidecar", "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}})
+	if byTx.Code != 0 || !strings.Contains(string(byTx.Value), bundle.BlobHashes[0]) {
+		t.Fatalf("expected blob sidecar by tx hash, got %+v", byTx)
+	}
+	byBlob := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"blob_sidecar_by_hash", bundle.BlobHashes[0]}})
+	if byBlob.Code != 0 || string(byBlob.Value) != string(byTx.Value) {
+		t.Fatalf("expected blob sidecar by blob hash, got %+v", byBlob)
+	}
+	noSidecarTx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
+		Module: ModuleName,
+		Action: "call",
+		Args:   []string{"evm", "0xaaaa", "0xbbbb", "call", "", "21000", "0"},
+		Tags: map[string]string{
+			ethcompat.TagHash:       "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			ethcompat.TagBlobHashes: base64.RawStdEncoding.EncodeToString(encodedHashes),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := blobSidecarBundleFromTx(noSidecarTx); !errors.Is(err, ethcompat.ErrInvalidBlobSidecar) {
+		t.Fatalf("expected blob tx without sidecar to be rejected, got %v", err)
+	}
+}
+
 func setTestEVMBalance(t *testing.T, storage vexoapp.StateStore, address types.Address, balance uint64) {
 	t.Helper()
 	var encoded [8]byte
@@ -803,6 +865,32 @@ func setTestEVMNonce(t *testing.T, storage vexoapp.StateStore, address types.Add
 	if err := storage.Set(context.Background(), "auth", evmNonceKey(address), encoded[:]); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func testBlobSidecarBundle(t *testing.T) ethcompat.BlobSidecarBundle {
+	t.Helper()
+	var blob kzg4844.Blob
+	blob[0] = 1
+	blob[31] = 2
+	commitment, err := kzg4844.BlobToCommitment(&blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := kzg4844.ComputeBlobProof(&blob, commitment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	versionedHash := gethcommon.Hash(kzg4844.CalcBlobHashV1(sha256.New(), &commitment)).Hex()
+	sidecar := &gethtypes.BlobTxSidecar{
+		Blobs:       []kzg4844.Blob{blob},
+		Commitments: []kzg4844.Commitment{commitment},
+		Proofs:      []kzg4844.Proof{proof},
+	}
+	bundle, err := ethcompat.BlobSidecarBundleFromGeth(sidecar, []string{versionedHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bundle
 }
 
 func signedEthereumCreateTx(t *testing.T, chainID uint64, initCode string) string {

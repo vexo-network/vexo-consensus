@@ -31,6 +31,7 @@ var (
 	ErrMissingKMSSigner        = errors.New("kms signer is required")
 	ErrRemotePublicKeyMismatch = errors.New("remote signer public key mismatch")
 	ErrMissingGuardPath        = errors.New("double-sign guard path is required")
+	ErrMissingNonceGuardPath   = errors.New("remote signer nonce guard path is required")
 )
 
 type SignType string
@@ -56,6 +57,14 @@ type DoubleSignGuard struct {
 	snapshotPath string
 }
 
+type RemoteSignerNonceGuard struct {
+	mu           sync.Mutex
+	seen         map[string]struct{}
+	order        []string
+	snapshotPath string
+	maxNonces    int
+}
+
 type RemoteSignerPolicy struct {
 	ChainID       string
 	MinHeight     types.Height
@@ -69,9 +78,7 @@ type RemoteSignerService struct {
 	signer     typesSigner
 	policy     RemoteSignerPolicy
 	guard      *DoubleSignGuard
-	mu         sync.Mutex
-	seenNonces map[string]struct{}
-	nonceOrder []string
+	nonceGuard *RemoteSignerNonceGuard
 }
 
 type typesSigner interface {
@@ -102,6 +109,11 @@ type remoteSignResponse struct {
 type doubleSignGuardSnapshotDocument struct {
 	SchemaVersion string            `json:"schema_version"`
 	Records       map[string]string `json:"records"`
+}
+
+type remoteSignerNonceSnapshotDocument struct {
+	SchemaVersion string   `json:"schema_version"`
+	Nonces        []string `json:"nonces"`
 }
 
 func NewRemoteSigner(url string, publicKey types.PublicKey, verifier Signer, timeout time.Duration) (RemoteSigner, error) {
@@ -345,6 +357,137 @@ func LoadDoubleSignGuard(path string) (*DoubleSignGuard, error) {
 	return guard, nil
 }
 
+func NewRemoteSignerNonceGuard() *RemoteSignerNonceGuard {
+	return &RemoteSignerNonceGuard{seen: make(map[string]struct{}), maxNonces: 4096}
+}
+
+func NewFileBackedRemoteSignerNonceGuard(path string) (*RemoteSignerNonceGuard, error) {
+	if path == "" {
+		return nil, ErrMissingNonceGuardPath
+	}
+	guard, err := LoadRemoteSignerNonceGuard(path)
+	if errors.Is(err, os.ErrNotExist) {
+		guard = NewRemoteSignerNonceGuard()
+		err = nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	guard.snapshotPath = path
+	if guard.maxNonces <= 0 {
+		guard.maxNonces = 4096
+	}
+	return guard, nil
+}
+
+func LoadRemoteSignerNonceGuard(path string) (*RemoteSignerNonceGuard, error) {
+	if path == "" {
+		return nil, ErrMissingNonceGuardPath
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	var document remoteSignerNonceSnapshotDocument
+	decoder := json.NewDecoder(file)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&document); err != nil {
+		return nil, err
+	}
+	if document.SchemaVersion != KeyDocumentVersionV1 {
+		return nil, ErrUnsupportedKeyVersion
+	}
+	guard := NewRemoteSignerNonceGuard()
+	for _, nonce := range document.Nonces {
+		if nonce == "" {
+			continue
+		}
+		if _, found := guard.seen[nonce]; found {
+			continue
+		}
+		guard.seen[nonce] = struct{}{}
+		guard.order = append(guard.order, nonce)
+	}
+	guard.snapshotPath = path
+	guard.evictLocked()
+	return guard, nil
+}
+
+func (guard *RemoteSignerNonceGuard) Remember(nonce string) (bool, error) {
+	if nonce == "" {
+		return true, nil
+	}
+	guard.mu.Lock()
+	defer guard.mu.Unlock()
+	if guard.seen == nil {
+		guard.seen = make(map[string]struct{})
+	}
+	if guard.maxNonces <= 0 {
+		guard.maxNonces = 4096
+	}
+	if _, found := guard.seen[nonce]; found {
+		return true, nil
+	}
+	guard.seen[nonce] = struct{}{}
+	guard.order = append(guard.order, nonce)
+	guard.evictLocked()
+	if guard.snapshotPath != "" {
+		return false, guard.saveLocked(guard.snapshotPath)
+	}
+	return false, nil
+}
+
+func (guard *RemoteSignerNonceGuard) evictLocked() {
+	for guard.maxNonces > 0 && len(guard.order) > guard.maxNonces {
+		oldest := guard.order[0]
+		copy(guard.order, guard.order[1:])
+		guard.order = guard.order[:len(guard.order)-1]
+		delete(guard.seen, oldest)
+	}
+}
+
+func (guard *RemoteSignerNonceGuard) saveLocked(path string) error {
+	if path == "" {
+		return ErrMissingNonceGuardPath
+	}
+	document := remoteSignerNonceSnapshotDocument{
+		SchemaVersion: KeyDocumentVersionV1,
+		Nonces:        append([]string(nil), guard.order...),
+	}
+	encoded, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tempPath := path + ".tmp"
+	file, err := os.OpenFile(tempPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write(append(encoded, '\n')); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return err
+	}
+	if dirFile, err := os.Open(filepath.Dir(path)); err == nil {
+		_ = dirFile.Sync()
+		_ = dirFile.Close()
+	}
+	return nil
+}
+
 func (guard *DoubleSignGuard) saveLocked(path string) error {
 	if path == "" {
 		return ErrMissingGuardPath
@@ -391,16 +534,23 @@ func (guard *DoubleSignGuard) saveLocked(path string) error {
 }
 
 func NewRemoteSignerService(signer Signer, policy RemoteSignerPolicy, guard *DoubleSignGuard) (*RemoteSignerService, error) {
+	return NewRemoteSignerServiceWithNonceGuard(signer, policy, guard, nil)
+}
+
+func NewRemoteSignerServiceWithNonceGuard(signer Signer, policy RemoteSignerPolicy, guard *DoubleSignGuard, nonceGuard *RemoteSignerNonceGuard) (*RemoteSignerService, error) {
 	if signer == nil {
 		return nil, ErrMissingKMSSigner
 	}
 	if guard == nil {
 		guard = NewDoubleSignGuard()
 	}
+	if nonceGuard == nil {
+		nonceGuard = NewRemoteSignerNonceGuard()
+	}
 	if policy.RequirePolicy || policy.ChainID != "" || len(policy.AllowedTypes) > 0 || policy.MinHeight > 0 || policy.MaxHeight > 0 {
 		policy.RequirePolicy = true
 	}
-	return &RemoteSignerService{signer: signer, policy: policy, guard: guard, seenNonces: make(map[string]struct{})}, nil
+	return &RemoteSignerService{signer: signer, policy: policy, guard: guard, nonceGuard: nonceGuard}, nil
 }
 
 func (service *RemoteSignerService) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -422,7 +572,12 @@ func (service *RemoteSignerService) ServeHTTP(writer http.ResponseWriter, reques
 		return
 	}
 	if service.policy.AuthToken != "" {
-		if payload.Nonce == "" || service.seenNonce(payload.Nonce) {
+		replayed, err := service.seenNonce(payload.Nonce)
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if replayed {
 			http.Error(writer, "remote signer replay nonce rejected", http.StatusForbidden)
 			return
 		}
@@ -456,22 +611,11 @@ func (service *RemoteSignerService) ServeHTTP(writer http.ResponseWriter, reques
 	_ = json.NewEncoder(writer).Encode(remoteSignResponse{Signature: base64.StdEncoding.EncodeToString(signature)})
 }
 
-func (service *RemoteSignerService) seenNonce(nonce string) bool {
-	const maxSeenNonces = 4096
-	service.mu.Lock()
-	defer service.mu.Unlock()
-	if _, found := service.seenNonces[nonce]; found {
-		return true
+func (service *RemoteSignerService) seenNonce(nonce string) (bool, error) {
+	if service.nonceGuard == nil {
+		service.nonceGuard = NewRemoteSignerNonceGuard()
 	}
-	service.seenNonces[nonce] = struct{}{}
-	service.nonceOrder = append(service.nonceOrder, nonce)
-	if len(service.nonceOrder) > maxSeenNonces {
-		oldest := service.nonceOrder[0]
-		copy(service.nonceOrder, service.nonceOrder[1:])
-		service.nonceOrder = service.nonceOrder[:len(service.nonceOrder)-1]
-		delete(service.seenNonces, oldest)
-	}
-	return false
+	return service.nonceGuard.Remember(nonce)
 }
 
 func newRemoteSignerNonce() string {

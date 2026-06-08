@@ -1414,10 +1414,19 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, filters *we
 		if err != nil {
 			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
 		}
+		if len(decoded.BlobHashes) > 0 {
+			return nil, &JSONRPCError{Code: -32602, Message: "blob transactions require vexo_sendRawBlobTransaction with an explicit sidecar"}
+		}
 		if err := submitter.SubmitTx(ctx, decoded.Tx); err != nil {
 			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
 		}
 		return decoded.Hash, nil
+	case "vexo_sendRawBlobTransaction":
+		return web3SendRawBlobTransaction(ctx, provider, params)
+	case "vexo_getBlobSidecarByTxHash":
+		return web3BlobSidecar(ctx, provider, params, "blob_sidecar")
+	case "vexo_getBlobSidecarByBlobHash":
+		return web3BlobSidecar(ctx, provider, params, "blob_sidecar_by_hash")
 	case "eth_getTransactionReceipt":
 		if len(params) != 1 {
 			return nil, &JSONRPCError{Code: -32602, Message: "eth_getTransactionReceipt requires one transaction hash"}
@@ -1613,8 +1622,152 @@ func web3RPCModules() map[string]string {
 		"rpc":    "1.0",
 		"trace":  "1.0",
 		"txpool": "1.0",
+		"vexo":   "1.0",
 		"web3":   "1.0",
 	}
+}
+
+type web3BlobSidecarParam struct {
+	BlobHashes      []string `json:"blobHashes,omitempty"`
+	BlobHashesSnake []string `json:"blob_hashes,omitempty"`
+	Blobs           []string `json:"blobs"`
+	Commitments     []string `json:"commitments"`
+	Proofs          []string `json:"proofs"`
+}
+
+func web3SendRawBlobTransaction(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
+	submitter, ok := provider.(TxSubmitter)
+	if !ok {
+		return nil, &JSONRPCError{Code: -32000, Message: "transaction submission is unavailable"}
+	}
+	if len(params) != 2 {
+		return nil, &JSONRPCError{Code: -32602, Message: "vexo_sendRawBlobTransaction requires raw transaction and blob sidecar parameters"}
+	}
+	rawTx, err := jsonRPCStringParam(params[0])
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	baseFee := uint64(0)
+	if query, ok := provider.(ChainQueryProvider); ok {
+		if state, err := query.LatestState(ctx); err == nil {
+			baseFee = state.BaseFee
+			if state.NextBaseFee > 0 {
+				baseFee = state.NextBaseFee
+			}
+		}
+	}
+	decoded, err := ethcompat.DecodeRawTransaction(rawTx, ethcompat.DecodeOptions{
+		ChainID:     web3ChainID(provider.Status(ctx)),
+		BaseFee:     baseFee,
+		BlobBaseFee: web3LatestBlobBaseFee(ctx, provider),
+		VM:          "evm",
+	})
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	if len(decoded.BlobHashes) == 0 {
+		return nil, &JSONRPCError{Code: -32602, Message: "raw transaction does not reference blobs"}
+	}
+	sidecarTag, rpcErr := web3EncodeBlobSidecarParam(params[1], decoded.BlobHashes)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	canonical, err := vexoapp.ParseCanonicalTx(decoded.Tx)
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	if canonical.Tags == nil {
+		canonical.Tags = make(map[string]string)
+	}
+	canonical.Tags[ethcompat.TagBlobSidecar] = sidecarTag
+	tx, err := vexoapp.BuildCanonicalTx(canonical)
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	if err := submitter.SubmitTx(ctx, tx); err != nil {
+		return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	return decoded.Hash, nil
+}
+
+func web3EncodeBlobSidecarParam(raw json.RawMessage, expectedHashes []string) (string, *JSONRPCError) {
+	if len(bytes.TrimSpace(raw)) > 0 && bytes.TrimSpace(raw)[0] == '"' {
+		encoded, err := jsonRPCStringParam(raw)
+		if err != nil {
+			return "", &JSONRPCError{Code: -32602, Message: err.Error()}
+		}
+		bundle, err := ethcompat.DecodeBlobSidecarBundle(encoded)
+		if err != nil {
+			return "", &JSONRPCError{Code: -32602, Message: err.Error()}
+		}
+		if !web3SameBlobHashes(expectedHashes, bundle.BlobHashes) {
+			return "", &JSONRPCError{Code: -32602, Message: ethcompat.ErrInvalidBlobSidecar.Error()}
+		}
+		return encoded, nil
+	}
+	var param web3BlobSidecarParam
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&param); err != nil {
+		return "", &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	hashes := param.BlobHashes
+	if len(hashes) == 0 {
+		hashes = param.BlobHashesSnake
+	}
+	if len(hashes) == 0 {
+		hashes = expectedHashes
+	}
+	if !web3SameBlobHashes(expectedHashes, hashes) {
+		return "", &JSONRPCError{Code: -32602, Message: ethcompat.ErrInvalidBlobSidecar.Error()}
+	}
+	encoded, err := ethcompat.EncodeBlobSidecarBundle(ethcompat.BlobSidecarBundle{
+		BlobHashes:  hashes,
+		Blobs:       param.Blobs,
+		Commitments: param.Commitments,
+		Proofs:      param.Proofs,
+	})
+	if err != nil {
+		return "", &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	return encoded, nil
+}
+
+func web3SameBlobHashes(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if !strings.EqualFold(left[index], right[index]) {
+			return false
+		}
+	}
+	return true
+}
+
+func web3BlobSidecar(ctx context.Context, provider StatusProvider, params []json.RawMessage, queryPath string) (any, *JSONRPCError) {
+	if len(params) != 1 {
+		return nil, &JSONRPCError{Code: -32602, Message: queryPath + " requires one hash parameter"}
+	}
+	hash, err := jsonRPCStringParam(params[0])
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	query, ok := provider.(AppQueryProvider)
+	if !ok {
+		return nil, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
+	}
+	response, err := query.AppQuery(ctx, []string{"evm", queryPath, hash}, nil)
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	if response.Code == 3 {
+		return nil, nil
+	}
+	if response.Code != 0 {
+		return nil, &JSONRPCError{Code: -32000, Message: response.Log}
+	}
+	return rawJSONObject(response.Value)
 }
 
 func web3Sha3(params []json.RawMessage) (string, *JSONRPCError) {

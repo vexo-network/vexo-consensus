@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -96,6 +97,69 @@ func TestRemoteSignerServiceRequiresAuthToken(t *testing.T) {
 	}
 	if _, err := authenticated.Sign([]byte("message")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRemoteSignerServicePersistsReplayNonces(t *testing.T) {
+	baseSigner, err := GenerateEd25519Signer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	noncePath := filepath.Join(t.TempDir(), "nonces.json")
+	nonceGuard, err := NewFileBackedRemoteSignerNonceGuard(noncePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewRemoteSignerServiceWithNonceGuard(baseSigner, RemoteSignerPolicy{AuthToken: "secret"}, nil, nonceGuard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := remoteSignRequest{
+		PublicKey: base64.StdEncoding.EncodeToString(baseSigner.PublicKey()),
+		Message:   base64.StdEncoding.EncodeToString([]byte("message")),
+		Nonce:     "nonce-1",
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(service)
+	request, err := http.NewRequest(http.MethodPost, server.URL, bytes.NewReader(encoded))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Authorization", "Bearer secret")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	server.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("expected first nonce to be accepted, got status %d", response.StatusCode)
+	}
+	restoredNonceGuard, err := NewFileBackedRemoteSignerNonceGuard(noncePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredService, err := NewRemoteSignerServiceWithNonceGuard(baseSigner, RemoteSignerPolicy{AuthToken: "secret"}, nil, restoredNonceGuard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredServer := httptest.NewServer(restoredService)
+	defer restoredServer.Close()
+	replayRequest, err := http.NewRequest(http.MethodPost, restoredServer.URL, bytes.NewReader(encoded))
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayRequest.Header.Set("Authorization", "Bearer secret")
+	replayResponse, err := http.DefaultClient.Do(replayRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer replayResponse.Body.Close()
+	if replayResponse.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected restored nonce guard to reject replay, got status %d", replayResponse.StatusCode)
 	}
 }
 

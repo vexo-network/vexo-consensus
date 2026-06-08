@@ -224,6 +224,21 @@ func TestVerifyBlobSidecarVerifiesKZGProofAndHashes(t *testing.T) {
 	if err := VerifyBlobSidecar(sidecar, []string{versionedHash}); err != nil {
 		t.Fatalf("expected valid sidecar: %v", err)
 	}
+	bundle, err := BlobSidecarBundleFromGeth(sidecar, []string{versionedHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encodedBundle, err := EncodeBlobSidecarBundle(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decodedBundle, err := DecodeBlobSidecarBundle(encodedBundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decodedBundle.BlobHashes) != 1 || decodedBundle.BlobHashes[0] != versionedHash {
+		t.Fatalf("unexpected decoded sidecar bundle: %+v", decodedBundle)
+	}
 	if err := VerifyBlobSidecar(sidecar, []string{gethcommon.HexToHash("0x01").Hex()}); !errors.Is(err, ErrInvalidBlobSidecar) {
 		t.Fatalf("expected hash mismatch to fail, got %v", err)
 	}

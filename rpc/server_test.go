@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -19,6 +20,8 @@ import (
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/crypto/kzg4844"
+	"github.com/holiman/uint256"
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/consensus"
@@ -962,6 +965,27 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	}
 	if result, ok := sendRaw.Result.(string); !ok || result != rawEthHash {
 		t.Fatalf("expected tx hash result, got %+v", sendRaw.Result)
+	}
+	rawBlobTx, rawBlobHash, blobSidecar := signedTestEthereumBlobTx(t, chainNumericID("vexo-chain"))
+	blobSidecarJSON, err := json.Marshal(blobSidecar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sendBlobWithoutSidecar JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":101,"method":"eth_sendRawTransaction","params":["`+rawBlobTx+`"]}`, http.StatusOK, &sendBlobWithoutSidecar)
+	if sendBlobWithoutSidecar.Error == nil || len(provider.submitted) != 1 {
+		t.Fatalf("expected eth_sendRawTransaction to reject blob tx without sidecar, response=%+v submitted=%q", sendBlobWithoutSidecar, provider.submitted)
+	}
+	var sendBlob JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":102,"method":"vexo_sendRawBlobTransaction","params":["`+rawBlobTx+`",`+string(blobSidecarJSON)+`]}`, http.StatusOK, &sendBlob)
+	if sendBlob.Error != nil || sendBlob.Result != rawBlobHash || len(provider.submitted) != 2 || !strings.Contains(string(provider.submitted[1]), ethcompat.TagBlobSidecar+"=") {
+		t.Fatalf("unexpected blob tx response=%+v submitted=%q", sendBlob, provider.submitted)
+	}
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"` + rawBlobHash + `","sidecar":{"blob_hashes":["` + blobSidecar.BlobHashes[0] + `"],"blobs":[],"commitments":[],"proofs":[]}}`)}
+	var getBlob JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":103,"method":"vexo_getBlobSidecarByTxHash","params":["`+rawBlobHash+`"]}`, http.StatusOK, &getBlob)
+	if getBlob.Error != nil {
+		t.Fatalf("unexpected blob sidecar query response: %+v", getBlob)
 	}
 
 	var gasPrice JSONRPCResponse
@@ -3162,6 +3186,57 @@ func signedTestEthereumTx(t *testing.T, chainID uint64) (string, string) {
 		t.Fatal(err)
 	}
 	return "0x" + hex.EncodeToString(raw), signed.Hash().Hex()
+}
+
+func signedTestEthereumBlobTx(t *testing.T, chainID uint64) (string, string, ethcompat.BlobSidecarBundle) {
+	t.Helper()
+	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var blob kzg4844.Blob
+	blob[0] = 1
+	blob[31] = 2
+	commitment, err := kzg4844.BlobToCommitment(&blob)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := kzg4844.ComputeBlobProof(&blob, commitment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blobHash := gethcommon.Hash(kzg4844.CalcBlobHashV1(sha256.New(), &commitment))
+	sidecar := &gethtypes.BlobTxSidecar{
+		Blobs:       []kzg4844.Blob{blob},
+		Commitments: []kzg4844.Commitment{commitment},
+		Proofs:      []kzg4844.Proof{proof},
+	}
+	to := gethcommon.HexToAddress("0x000000000000000000000000000000000000bEEF")
+	tx := gethtypes.NewTx(&gethtypes.BlobTx{
+		ChainID:    uint256.NewInt(chainID),
+		Nonce:      8,
+		GasTipCap:  uint256.NewInt(2),
+		GasFeeCap:  uint256.NewInt(20),
+		Gas:        50_000,
+		To:         to,
+		Value:      uint256.NewInt(3),
+		Data:       []byte{0x12, 0x34},
+		BlobFeeCap: uint256.NewInt(9),
+		BlobHashes: []gethcommon.Hash{blobHash},
+	})
+	signed, err := gethtypes.SignTx(tx, gethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := ethcompat.BlobSidecarBundleFromGeth(sidecar, []string{blobHash.Hex()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "0x" + hex.EncodeToString(raw), signed.Hash().Hex(), bundle
 }
 
 func requestJSON(t *testing.T, handler http.Handler, method string, path string, body string, remoteAddr string, expectedStatus int, value any) {
