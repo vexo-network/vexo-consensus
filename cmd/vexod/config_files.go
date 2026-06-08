@@ -137,14 +137,15 @@ type runtimeConfig struct {
 }
 
 type runtimeRPCConfig struct {
-	Enabled              bool   `json:"enabled"`
-	Address              string `json:"address,omitempty"`
-	AdminToken           string `json:"admin_token,omitempty"`
-	EnablePprof          bool   `json:"enable_pprof,omitempty"`
-	RequestTimeout       string `json:"request_timeout,omitempty"`
-	MaxRequestBytes      int64  `json:"max_request_bytes,omitempty"`
-	RateLimitWindow      string `json:"rate_limit_window,omitempty"`
-	RateLimitMaxRequests int    `json:"rate_limit_max_requests,omitempty"`
+	Enabled               bool     `json:"enabled"`
+	Address               string   `json:"address,omitempty"`
+	AdminToken            string   `json:"admin_token,omitempty"`
+	EnablePprof           bool     `json:"enable_pprof,omitempty"`
+	RequestTimeout        string   `json:"request_timeout,omitempty"`
+	MaxRequestBytes       int64    `json:"max_request_bytes,omitempty"`
+	RateLimitWindow       string   `json:"rate_limit_window,omitempty"`
+	RateLimitMaxRequests  int      `json:"rate_limit_max_requests,omitempty"`
+	EVMAccountPrivateKeys []string `json:"evm_account_private_keys,omitempty"`
 }
 
 type runtimeP2PConfig struct {
@@ -1241,9 +1242,21 @@ func hasLegacyNetworkConfig(document networkConfigDocument) bool {
 	if document.SchemaVersion == "" {
 		return false
 	}
-	return document.RPC != (runtimeRPCConfig{}) ||
+	return runtimeRPCConfigSet(document.RPC) ||
 		runtimeP2PConfigSet(document.P2P) ||
 		document.PeerScoring != (p2p.ScoreConfig{})
+}
+
+func runtimeRPCConfigSet(rpc runtimeRPCConfig) bool {
+	return rpc.Enabled ||
+		rpc.Address != "" ||
+		rpc.AdminToken != "" ||
+		rpc.EnablePprof ||
+		rpc.RequestTimeout != "" ||
+		rpc.MaxRequestBytes != 0 ||
+		rpc.RateLimitWindow != "" ||
+		rpc.RateLimitMaxRequests != 0 ||
+		len(rpc.EVMAccountPrivateKeys) > 0
 }
 
 func hasLegacyConsensusConfig(document consensusConfigDocument) bool {

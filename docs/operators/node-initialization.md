@@ -168,7 +168,8 @@ Example `network_config.json`:
   "schema_version": "v1",
   "rpc": {
     "enabled": true,
-    "address": "0.0.0.0:26657"
+    "address": "0.0.0.0:26657",
+    "evm_account_private_keys": []
   },
   "p2p": {
     "enabled": true,
@@ -184,6 +185,8 @@ Example `network_config.json`:
   }
 }
 ```
+
+`rpc.evm_account_private_keys` is optional and backs Web3 managed-account methods such as `eth_accounts`, `eth_sign`, `eth_signTransaction`, and `eth_sendTransaction`. Keep it empty for normal validator operation unless this node is intentionally acting as a local Web3 hot-wallet endpoint; production deployments should prefer external wallets or remote signing instead of plain JSON private keys.
 
 Example `consensus_config.json`:
 

@@ -3,6 +3,7 @@ package rpc
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -20,6 +21,11 @@ import (
 	"sync"
 	"time"
 
+	gethaccounts "github.com/ethereum/go-ethereum/accounts"
+	gethcommon "github.com/ethereum/go-ethereum/common"
+	gethtypes "github.com/ethereum/go-ethereum/core/types"
+	gethcrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/holiman/uint256"
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/contract"
 	"github.com/vexo-network/vexo-consensus/events"
@@ -53,6 +59,7 @@ type Config struct {
 	EnablePprof              bool
 	AllowUnprotectedLegacyTx bool
 	EVMChainConfigJSON       string
+	EVMAccountPrivateKeys    []string
 }
 
 type Server struct {
@@ -1275,9 +1282,21 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 	case "eth_hashrate":
 		return hexQuantity(0), nil
 	case "eth_accounts":
-		return []string{}, nil
+		return web3ConfiguredAccounts(cfg), nil
 	case "eth_coinbase":
-		return "0x0000000000000000000000000000000000000000", nil
+		accounts := web3ConfiguredAccounts(cfg)
+		if len(accounts) == 0 {
+			return "0x0000000000000000000000000000000000000000", nil
+		}
+		return accounts[0], nil
+	case "eth_sign":
+		return web3EthSign(cfg, params, false)
+	case "personal_sign":
+		return web3EthSign(cfg, params, true)
+	case "eth_signTransaction":
+		return web3SignTransaction(ctx, provider, cfg, params)
+	case "eth_sendTransaction":
+		return web3SendTransaction(ctx, provider, cfg, params)
 	case "eth_blockNumber":
 		return hexQuantity(uint64(provider.Status(ctx).LatestHeight)), nil
 	case "eth_getBlockByNumber":
@@ -1617,6 +1636,439 @@ func web3RPCModules() map[string]string {
 	}
 }
 
+func web3ConfiguredAccounts(cfg Config) []string {
+	accounts := make([]string, 0, len(cfg.EVMAccountPrivateKeys))
+	seen := make(map[string]struct{}, len(cfg.EVMAccountPrivateKeys))
+	for _, rawKey := range cfg.EVMAccountPrivateKeys {
+		key, err := web3PrivateKey(rawKey)
+		if err != nil {
+			continue
+		}
+		address := gethcrypto.PubkeyToAddress(key.PublicKey).Hex()
+		lower := strings.ToLower(address)
+		if _, found := seen[lower]; found {
+			continue
+		}
+		seen[lower] = struct{}{}
+		accounts = append(accounts, address)
+	}
+	return accounts
+}
+
+func web3AccountKey(cfg Config, address string) (*ecdsa.PrivateKey, *JSONRPCError) {
+	parsed, err := parseHexAddress(address)
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: "invalid account address"}
+	}
+	target := strings.ToLower(string(parsed))
+	for _, rawKey := range cfg.EVMAccountPrivateKeys {
+		key, err := web3PrivateKey(rawKey)
+		if err != nil {
+			continue
+		}
+		if strings.ToLower(gethcrypto.PubkeyToAddress(key.PublicKey).Hex()) == target {
+			return key, nil
+		}
+	}
+	return nil, &JSONRPCError{Code: -32000, Message: "account is not managed by this node"}
+}
+
+func web3PrivateKey(rawKey string) (*ecdsa.PrivateKey, error) {
+	trimmed := strings.TrimSpace(strings.TrimPrefix(rawKey, "0x"))
+	if trimmed == "" {
+		return nil, errors.New("empty private key")
+	}
+	return gethcrypto.HexToECDSA(trimmed)
+}
+
+func web3EthSign(cfg Config, params []json.RawMessage, personalOrder bool) (string, *JSONRPCError) {
+	if len(params) != 2 {
+		return "", &JSONRPCError{Code: -32602, Message: "signing requires address and data"}
+	}
+	addressIndex := 0
+	dataIndex := 1
+	if personalOrder {
+		addressIndex = 1
+		dataIndex = 0
+	}
+	address, err := jsonRPCStringParam(params[addressIndex])
+	if err != nil {
+		return "", &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	dataHex, err := jsonRPCStringParam(params[dataIndex])
+	if err != nil {
+		return "", &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	data, err := hexBytes(dataHex)
+	if err != nil {
+		return "", &JSONRPCError{Code: -32602, Message: "invalid sign data hex"}
+	}
+	key, rpcErr := web3AccountKey(cfg, address)
+	if rpcErr != nil {
+		return "", rpcErr
+	}
+	signature, err := gethcrypto.Sign(gethaccounts.TextHash(data), key)
+	if err != nil {
+		return "", &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	signature[64] += 27
+	return "0x" + hex.EncodeToString(signature), nil
+}
+
+func web3SignTransaction(ctx context.Context, provider StatusProvider, cfg Config, params []json.RawMessage) (any, *JSONRPCError) {
+	signed, raw, rpcErr := web3SignEthereumTransaction(ctx, provider, cfg, params)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	return map[string]any{
+		"raw": "0x" + hex.EncodeToString(raw),
+		"tx":  web3SignedTransactionObject(signed),
+	}, nil
+}
+
+func web3SendTransaction(ctx context.Context, provider StatusProvider, cfg Config, params []json.RawMessage) (any, *JSONRPCError) {
+	submitter, ok := provider.(TxSubmitter)
+	if !ok {
+		return nil, &JSONRPCError{Code: -32000, Message: "transaction submission is unavailable"}
+	}
+	signed, raw, rpcErr := web3SignEthereumTransaction(ctx, provider, cfg, params)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	rawHex := "0x" + hex.EncodeToString(raw)
+	decoded, err := web3DecodeRawEthereumTx(ctx, provider, cfg, rawHex)
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
+	}
+	if len(decoded.BlobHashes) > 0 {
+		return nil, &JSONRPCError{Code: -32602, Message: "blob transactions require vexo_sendRawBlobTransaction with an explicit sidecar"}
+	}
+	if err := submitter.SubmitTx(ctx, decoded.Tx); err != nil {
+		return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	return signed.Hash().Hex(), nil
+}
+
+func web3SignEthereumTransaction(ctx context.Context, provider StatusProvider, cfg Config, params []json.RawMessage) (*gethtypes.Transaction, []byte, *JSONRPCError) {
+	if len(params) != 1 {
+		return nil, nil, &JSONRPCError{Code: -32602, Message: "transaction signing requires one transaction object"}
+	}
+	var payload web3TransactionCall
+	if err := json.Unmarshal(params[0], &payload); err != nil {
+		return nil, nil, &JSONRPCError{Code: -32602, Message: "invalid transaction object"}
+	}
+	if payload.From == "" {
+		return nil, nil, &JSONRPCError{Code: -32602, Message: "from address is required"}
+	}
+	key, rpcErr := web3AccountKey(cfg, payload.From)
+	if rpcErr != nil {
+		return nil, nil, rpcErr
+	}
+	tx, rpcErr := web3UnsignedEthereumTransaction(ctx, provider, payload)
+	if rpcErr != nil {
+		return nil, nil, rpcErr
+	}
+	chainID := new(big.Int).SetUint64(web3ChainID(provider.Status(ctx)))
+	signed, err := gethtypes.SignTx(tx, gethtypes.LatestSignerForChainID(chainID), key)
+	if err != nil {
+		return nil, nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		return nil, nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	return signed, raw, nil
+}
+
+func web3UnsignedEthereumTransaction(ctx context.Context, provider StatusProvider, payload web3TransactionCall) (*gethtypes.Transaction, *JSONRPCError) {
+	dataHex := payload.Data
+	if dataHex == "" {
+		dataHex = payload.Input
+	}
+	if dataHex == "" {
+		dataHex = "0x"
+	}
+	data, err := hexBytes(dataHex)
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: "invalid data hex"}
+	}
+	nonce, rpcErr := web3TransactionNonce(ctx, provider, payload)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	gas, rpcErr := web3TransactionGas(payload)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	value, rpcErr := web3TransactionBig(payload.Value, "invalid value quantity")
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	accessList, rpcErr := web3GethAccessList(payload.AccessList)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	chainID := new(big.Int).SetUint64(web3ChainID(provider.Status(ctx)))
+	to, rpcErr := web3OptionalToAddress(payload.To)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	if len(bytes.TrimSpace(payload.AuthorizationList)) > 0 && string(bytes.TrimSpace(payload.AuthorizationList)) != "null" {
+		authList, rpcErr := web3SetCodeAuthorizations(payload.AuthorizationList)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		if to == nil {
+			return nil, &JSONRPCError{Code: -32602, Message: "set-code transaction requires to address"}
+		}
+		gasFeeCap, rpcErr := web3RequiredUint256(payload.MaxFeePerGas, "maxFeePerGas is required for set-code transaction")
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		gasTipCap, rpcErr := web3OptionalUint256(payload.MaxPriorityFeePerGas)
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		txValue, rpcErr := web3BigToUint256(value, "value exceeds uint256")
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		return gethtypes.NewTx(&gethtypes.SetCodeTx{
+			ChainID:    uint256.MustFromBig(chainID),
+			Nonce:      nonce,
+			GasTipCap:  gasTipCap,
+			GasFeeCap:  gasFeeCap,
+			Gas:        gas,
+			To:         *to,
+			Value:      txValue,
+			Data:       data,
+			AccessList: accessList,
+			AuthList:   authList,
+		}), nil
+	}
+	if payload.MaxFeePerGas != "" || payload.MaxPriorityFeePerGas != "" {
+		gasFeeCap, rpcErr := web3RequiredBig(payload.MaxFeePerGas, "maxFeePerGas is required for dynamic fee transaction")
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		gasTipCap, rpcErr := web3TransactionBig(payload.MaxPriorityFeePerGas, "invalid maxPriorityFeePerGas quantity")
+		if rpcErr != nil {
+			return nil, rpcErr
+		}
+		return gethtypes.NewTx(&gethtypes.DynamicFeeTx{
+			ChainID:    chainID,
+			Nonce:      nonce,
+			GasTipCap:  gasTipCap,
+			GasFeeCap:  gasFeeCap,
+			Gas:        gas,
+			To:         to,
+			Value:      value,
+			Data:       data,
+			AccessList: accessList,
+		}), nil
+	}
+	gasPrice, rpcErr := web3TransactionGasPrice(ctx, provider, payload)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	if len(accessList) > 0 {
+		return gethtypes.NewTx(&gethtypes.AccessListTx{
+			ChainID:    chainID,
+			Nonce:      nonce,
+			GasPrice:   gasPrice,
+			Gas:        gas,
+			To:         to,
+			Value:      value,
+			Data:       data,
+			AccessList: accessList,
+		}), nil
+	}
+	return gethtypes.NewTx(&gethtypes.LegacyTx{
+		Nonce:    nonce,
+		GasPrice: gasPrice,
+		Gas:      gas,
+		To:       to,
+		Value:    value,
+		Data:     data,
+	}), nil
+}
+
+func web3TransactionNonce(ctx context.Context, provider StatusProvider, payload web3TransactionCall) (uint64, *JSONRPCError) {
+	if payload.Nonce != "" {
+		nonce, err := parseHexQuantity(payload.Nonce)
+		if err != nil {
+			return 0, &JSONRPCError{Code: -32602, Message: "invalid nonce quantity"}
+		}
+		return nonce, nil
+	}
+	account, rpcErr := web3AccountState(ctx, provider, payload.From, []json.RawMessage{json.RawMessage(strconv.Quote(payload.From)), json.RawMessage(`"pending"`)}, 1)
+	if rpcErr != nil {
+		return 0, rpcErr
+	}
+	return account.Nonce, nil
+}
+
+func web3TransactionGas(payload web3TransactionCall) (uint64, *JSONRPCError) {
+	if payload.Gas == "" {
+		return defaultWeb3BlockGasLimit, nil
+	}
+	gas, err := parseHexQuantity(payload.Gas)
+	if err != nil {
+		return 0, &JSONRPCError{Code: -32602, Message: "invalid gas quantity"}
+	}
+	return gas, nil
+}
+
+func web3TransactionGasPrice(ctx context.Context, provider StatusProvider, payload web3TransactionCall) (*big.Int, *JSONRPCError) {
+	if payload.GasPrice != "" {
+		return web3RequiredBig(payload.GasPrice, "invalid gasPrice quantity")
+	}
+	if query, ok := provider.(ChainQueryProvider); ok {
+		if state, err := query.LatestState(ctx); err == nil {
+			price := state.NextBaseFee
+			if price == 0 {
+				price = state.BaseFee
+			}
+			return new(big.Int).SetUint64(price), nil
+		}
+	}
+	return big.NewInt(0), nil
+}
+
+func web3TransactionBig(value string, message string) (*big.Int, *JSONRPCError) {
+	if value == "" {
+		return big.NewInt(0), nil
+	}
+	parsed, err := parseHexQuantityBig(value)
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: message}
+	}
+	return parsed, nil
+}
+
+func web3RequiredBig(value string, message string) (*big.Int, *JSONRPCError) {
+	if value == "" {
+		return nil, &JSONRPCError{Code: -32602, Message: message}
+	}
+	return web3TransactionBig(value, message)
+}
+
+func web3OptionalUint256(value string) (*uint256.Int, *JSONRPCError) {
+	if value == "" {
+		return uint256.NewInt(0), nil
+	}
+	parsed, rpcErr := web3TransactionBig(value, "invalid uint256 quantity")
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	if parsed.BitLen() > 256 {
+		return nil, &JSONRPCError{Code: -32602, Message: "quantity exceeds uint256"}
+	}
+	return uint256.MustFromBig(parsed), nil
+}
+
+func web3RequiredUint256(value string, message string) (*uint256.Int, *JSONRPCError) {
+	if value == "" {
+		return nil, &JSONRPCError{Code: -32602, Message: message}
+	}
+	return web3OptionalUint256(value)
+}
+
+func web3BigToUint256(value *big.Int, message string) (*uint256.Int, *JSONRPCError) {
+	if value == nil {
+		return uint256.NewInt(0), nil
+	}
+	if value.Sign() < 0 || value.BitLen() > 256 {
+		return nil, &JSONRPCError{Code: -32602, Message: message}
+	}
+	return uint256.MustFromBig(value), nil
+}
+
+func web3OptionalToAddress(value string) (*gethcommon.Address, *JSONRPCError) {
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := parseHexAddress(value)
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: "invalid to address"}
+	}
+	address := gethcommon.HexToAddress(string(parsed))
+	return &address, nil
+}
+
+func web3GethAccessList(entries []web3AccessListEntry) (gethtypes.AccessList, *JSONRPCError) {
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	out := make(gethtypes.AccessList, 0, len(entries))
+	for _, entry := range entries {
+		parsed, err := parseHexAddress(entry.Address)
+		if err != nil {
+			return nil, &JSONRPCError{Code: -32602, Message: "invalid access list address"}
+		}
+		item := gethtypes.AccessTuple{Address: gethcommon.HexToAddress(string(parsed))}
+		for _, key := range entry.StorageKeys {
+			if _, err := parseFixedWidthHex(key, 32); err != nil {
+				return nil, &JSONRPCError{Code: -32602, Message: "invalid access list storage key"}
+			}
+			item.StorageKeys = append(item.StorageKeys, gethcommon.HexToHash(key))
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func web3SetCodeAuthorizations(raw json.RawMessage) ([]gethtypes.SetCodeAuthorization, *JSONRPCError) {
+	var authList []gethtypes.SetCodeAuthorization
+	if err := json.Unmarshal(raw, &authList); err != nil {
+		return nil, &JSONRPCError{Code: -32602, Message: "invalid authorizationList"}
+	}
+	return authList, nil
+}
+
+func web3SignedTransactionObject(tx *gethtypes.Transaction) map[string]any {
+	out := map[string]any{
+		"hash":  tx.Hash().Hex(),
+		"type":  hexQuantity(uint64(tx.Type())),
+		"nonce": hexQuantity(tx.Nonce()),
+		"gas":   hexQuantity(tx.Gas()),
+		"input": "0x" + hex.EncodeToString(tx.Data()),
+		"value": hexQuantityBig(tx.Value()),
+	}
+	if to := tx.To(); to != nil {
+		out["to"] = to.Hex()
+	} else {
+		out["to"] = nil
+	}
+	if chainID := tx.ChainId(); chainID != nil {
+		out["chainId"] = hexQuantityBig(chainID)
+	}
+	if gasPrice := tx.GasPrice(); gasPrice != nil {
+		out["gasPrice"] = hexQuantityBig(gasPrice)
+	}
+	if tx.GasFeeCap() != nil {
+		out["maxFeePerGas"] = hexQuantityBig(tx.GasFeeCap())
+	}
+	if tx.GasTipCap() != nil {
+		out["maxPriorityFeePerGas"] = hexQuantityBig(tx.GasTipCap())
+	}
+	if accessList := tx.AccessList(); len(accessList) > 0 {
+		items := make([]any, 0, len(accessList))
+		for _, entry := range accessList {
+			keys := make([]string, 0, len(entry.StorageKeys))
+			for _, key := range entry.StorageKeys {
+				keys = append(keys, key.Hex())
+			}
+			items = append(items, map[string]any{"address": entry.Address.Hex(), "storageKeys": keys})
+		}
+		out["accessList"] = items
+	}
+	if authList := tx.SetCodeAuthorizations(); len(authList) > 0 {
+		out["authorizationList"] = authList
+	}
+	return out
+}
+
 type web3BlobSidecarParam struct {
 	BlobHashes      []string `json:"blobHashes,omitempty"`
 	BlobHashesSnake []string `json:"blob_hashes,omitempty"`
@@ -1809,6 +2261,7 @@ type web3TransactionCall struct {
 	From                 string                `json:"from"`
 	To                   string                `json:"to"`
 	Data                 string                `json:"data"`
+	Input                string                `json:"input"`
 	Gas                  string                `json:"gas"`
 	GasPrice             string                `json:"gasPrice"`
 	MaxFeePerGas         string                `json:"maxFeePerGas"`

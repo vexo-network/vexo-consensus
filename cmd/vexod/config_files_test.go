@@ -290,6 +290,37 @@ func TestLoadNodeConfigMergesSplitConfigFiles(t *testing.T) {
 	}
 }
 
+func TestRuntimeConfigLoadsEVMAccountKeysFromSplitNetworkConfig(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	networkDocument, err := readNetworkConfigDocument(filepath.Join(home, networkConfigFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	networkDocument.RPC.EVMAccountPrivateKeys = []string{"0xabc", "0xdef"}
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+
+	runtimeConfig, err := loadStartRuntimeConfig(home, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runtimeConfig.RPCEVMAccountKeys) != 2 || runtimeConfig.RPCEVMAccountKeys[0] != "0xabc" || runtimeConfig.RPCEVMAccountKeys[1] != "0xdef" {
+		t.Fatalf("expected RPC EVM account keys from network config, got %+v", runtimeConfig.RPCEVMAccountKeys)
+	}
+}
+
+func TestApplyStartFlagOverridesEVMAccountKeys(t *testing.T) {
+	runtimeConfig := startRuntimeConfig{RPCEVMAccountKeys: []string{"existing"}}
+	applyStartFlagOverrides(&runtimeConfig, map[string]bool{"evm-account-key": true}, startFlagValues{
+		rpcEVMAccountKeys: []string{"0xabc", "0xdef"},
+	})
+	if len(runtimeConfig.RPCEVMAccountKeys) != 2 || runtimeConfig.RPCEVMAccountKeys[0] != "0xabc" || runtimeConfig.RPCEVMAccountKeys[1] != "0xdef" {
+		t.Fatalf("expected flag-provided EVM account keys, got %+v", runtimeConfig.RPCEVMAccountKeys)
+	}
+}
+
 func TestLoadNodeConfigUsesDefaultModuleConfigWhenSplitFileMissing(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {

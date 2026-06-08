@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	gethaccounts "github.com/ethereum/go-ethereum/accounts"
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
@@ -1719,6 +1720,103 @@ func TestHandlerWeb3UsesConfiguredEVMChainID(t *testing.T) {
 	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":4,"method":"eth_sendRawTransaction","params":["`+rawFallbackTx+`"]}`, http.StatusOK, &sendFallback)
 	if sendFallback.Error == nil || len(provider.submitted) != 1 {
 		t.Fatalf("expected fallback-derived chain tx to be rejected, response=%+v submitted=%d", sendFallback, len(provider.submitted))
+	}
+}
+
+func TestHandlerWeb3ManagedAccountSigning(t *testing.T) {
+	const privateKeyHex = "4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5"
+	key, err := gethcrypto.HexToECDSA(privateKeyHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := gethcrypto.PubkeyToAddress(key.PublicKey).Hex()
+	provider := &fakeStatusProvider{
+		status:           node.Status{ChainID: "vexo-chain", EVMChainID: 77, Running: true, LatestHeight: 3},
+		state:            store.StateRecord{Height: 3, BaseFee: 9, NextBaseFee: 11},
+		appQueryResponse: vexoapp.QueryResponse{Value: []byte(`{"address":"` + address + `","balance":1000000000000,"nonce":7,"code":""}`)},
+	}
+	handler := NewHandlerWithConfig(provider, Config{EVMAccountPrivateKeys: []string{privateKeyHex}})
+
+	var accounts JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":1,"method":"eth_accounts","params":[]}`, http.StatusOK, &accounts)
+	accountList, ok := accounts.Result.([]any)
+	if accounts.Error != nil || !ok || len(accountList) != 1 || !strings.EqualFold(accountList[0].(string), address) {
+		t.Fatalf("unexpected eth_accounts response: %+v", accounts)
+	}
+
+	var coinbase JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":2,"method":"eth_coinbase","params":[]}`, http.StatusOK, &coinbase)
+	if coinbase.Error != nil || !strings.EqualFold(coinbase.Result.(string), address) {
+		t.Fatalf("unexpected eth_coinbase response: %+v", coinbase)
+	}
+
+	var sign JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":3,"method":"eth_sign","params":["`+address+`","0x6869"]}`, http.StatusOK, &sign)
+	assertWeb3TextSignature(t, sign, address, []byte("hi"))
+
+	var personalSign JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":4,"method":"personal_sign","params":["0x6869","`+address+`"]}`, http.StatusOK, &personalSign)
+	assertWeb3TextSignature(t, personalSign, address, []byte("hi"))
+
+	txJSON := `{"from":"` + address + `","to":"0x000000000000000000000000000000000000beef","value":"0x5","gas":"0x5208","maxFeePerGas":"0x14","maxPriorityFeePerGas":"0x2","data":"0x1234"}`
+	var signedTx JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":5,"method":"eth_signTransaction","params":[`+txJSON+`]}`, http.StatusOK, &signedTx)
+	signedTxResult, ok := signedTx.Result.(map[string]any)
+	if signedTx.Error != nil || !ok || signedTxResult["raw"] == "" {
+		t.Fatalf("unexpected eth_signTransaction response: %+v", signedTx)
+	}
+	rawText, ok := signedTxResult["raw"].(string)
+	if !ok {
+		t.Fatalf("expected raw signed tx, got %+v", signedTxResult)
+	}
+	decoded, err := ethcompat.DecodeRawTransaction(rawText, ethcompat.DecodeOptions{ChainID: 77, BaseFee: 11})
+	if err != nil {
+		t.Fatalf("expected signed tx to decode: %v", err)
+	}
+	if decoded.Nonce != 7 || decoded.Gas != 21000 || decoded.MaxFeePerGas != 20 || decoded.MaxPriorityFeePerGas != 2 || !strings.EqualFold(string(decoded.From), address) {
+		t.Fatalf("unexpected decoded signed tx: %+v", decoded)
+	}
+	txObject, ok := signedTxResult["tx"].(map[string]any)
+	if !ok || txObject["chainId"] != "0x4d" || txObject["nonce"] != "0x7" {
+		t.Fatalf("unexpected signed transaction object: %+v", signedTxResult["tx"])
+	}
+
+	var sendTx JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":6,"method":"eth_sendTransaction","params":[`+txJSON+`]}`, http.StatusOK, &sendTx)
+	if sendTx.Error != nil || len(provider.submitted) != 1 {
+		t.Fatalf("unexpected eth_sendTransaction response=%+v submitted=%d", sendTx, len(provider.submitted))
+	}
+	submitted := string(provider.submitted[0])
+	if result, ok := sendTx.Result.(string); !ok || !strings.HasPrefix(result, "0x") || !strings.Contains(submitted, "eth_hash="+result) || !strings.Contains(submitted, ethcompat.TagRaw+"=") {
+		t.Fatalf("unexpected send transaction result=%+v submitted=%q", sendTx.Result, submitted)
+	}
+}
+
+func assertWeb3TextSignature(t *testing.T, response JSONRPCResponse, expectedAddress string, payload []byte) {
+	t.Helper()
+	if response.Error != nil {
+		t.Fatalf("unexpected signing error: %+v", response)
+	}
+	signatureText, ok := response.Result.(string)
+	if !ok || !strings.HasPrefix(signatureText, "0x") {
+		t.Fatalf("expected hex signature, got %+v", response.Result)
+	}
+	signature, err := hex.DecodeString(strings.TrimPrefix(signatureText, "0x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(signature) != 65 {
+		t.Fatalf("expected 65-byte signature, got %d", len(signature))
+	}
+	if signature[64] >= 27 {
+		signature[64] -= 27
+	}
+	publicKey, err := gethcrypto.SigToPub(gethaccounts.TextHash(payload), signature)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered := gethcrypto.PubkeyToAddress(*publicKey).Hex(); !strings.EqualFold(recovered, expectedAddress) {
+		t.Fatalf("expected recovered %s, got %s", expectedAddress, recovered)
 	}
 }
 

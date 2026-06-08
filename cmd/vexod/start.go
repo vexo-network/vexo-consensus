@@ -61,6 +61,7 @@ type startRuntimeConfig struct {
 	RPCMaxRequestBytes      int64
 	RPCRateLimitWindow      time.Duration
 	RPCRateLimitMaxRequests int
+	RPCEVMAccountKeys       []string
 	LogFormat               string
 	LogLevel                string
 	LogCommitEvents         bool
@@ -105,6 +106,8 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	rpcMaxRequestBytes := flags.Int64("rpc-max-request-bytes", 0, "maximum HTTP RPC request body bytes")
 	rpcRateLimitWindow := flags.Duration("rpc-rate-limit-window", 0, "HTTP RPC rate limit window")
 	rpcRateLimitMaxRequests := flags.Int("rpc-rate-limit-max", 0, "maximum HTTP RPC requests per client per window")
+	evmAccountKeys := stringListFlags{}
+	flags.Var(&evmAccountKeys, "evm-account-key", "hex secp256k1 private key for Web3 eth_accounts/sign/sendTransaction; may be repeated")
 	consensusLoopEnabled := flags.Bool("consensus-loop", true, "start local consensus loop with node")
 	consensusInterval := flags.Duration("consensus-interval", 0, "local consensus loop tick interval")
 	timeoutPropose := flags.Duration("timeout-propose", 0, "consensus proposal timeout")
@@ -150,6 +153,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 		rpcMaxRequestBytes:      *rpcMaxRequestBytes,
 		rpcRateLimitWindow:      *rpcRateLimitWindow,
 		rpcRateLimitMaxRequests: *rpcRateLimitMaxRequests,
+		rpcEVMAccountKeys:       []string(evmAccountKeys),
 		logFormat:               *logFormat,
 		logLevel:                *logLevel,
 		logCommitEvents:         *logCommitEvents,
@@ -202,6 +206,7 @@ type startFlagValues struct {
 	rpcMaxRequestBytes      int64
 	rpcRateLimitWindow      time.Duration
 	rpcRateLimitMaxRequests int
+	rpcEVMAccountKeys       []string
 	logFormat               string
 	logLevel                string
 	logCommitEvents         bool
@@ -255,6 +260,9 @@ func applyStartFlagOverrides(cfg *startRuntimeConfig, visited map[string]bool, v
 	}
 	if visited["rpc-rate-limit-max"] {
 		cfg.RPCRateLimitMaxRequests = values.rpcRateLimitMaxRequests
+	}
+	if visited["evm-account-key"] {
+		cfg.RPCEVMAccountKeys = append([]string(nil), values.rpcEVMAccountKeys...)
 	}
 	if visited["log-format"] {
 		cfg.LogFormat = values.logFormat
@@ -382,6 +390,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			RateLimitMaxRequests:     runtimeConfig.RPCRateLimitMaxRequests,
 			AllowUnprotectedLegacyTx: inputs.Config.Chain.Execution.AllowUnprotectedLegacyTx,
 			EVMChainConfigJSON:       inputs.Config.Chain.Execution.EVMChainConfigJSON,
+			EVMAccountPrivateKeys:    runtimeConfig.RPCEVMAccountKeys,
 		}, serverErr)
 		if err != nil {
 			_ = node.Stop(context.Background())
@@ -589,6 +598,7 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 		RPCAdminToken:        runtime.RPC.AdminToken,
 		RPCEnablePprof:       runtime.RPC.EnablePprof,
 		RPCMaxRequestBytes:   runtime.RPC.MaxRequestBytes,
+		RPCEVMAccountKeys:    append([]string(nil), runtime.RPC.EVMAccountPrivateKeys...),
 		P2PEnabled:           runtime.P2P.Enabled,
 		P2PListenAddress:     runtime.P2P.ListenAddress,
 		P2PNetworkID:         runtime.P2P.NetworkID,
@@ -699,7 +709,15 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 }
 
 func runtimeConfigIsZero(runtime runtimeConfig) bool {
-	return runtime.RPC == (runtimeRPCConfig{}) &&
+	return runtime.RPC.Enabled == false &&
+		runtime.RPC.Address == "" &&
+		runtime.RPC.AdminToken == "" &&
+		runtime.RPC.EnablePprof == false &&
+		runtime.RPC.RequestTimeout == "" &&
+		runtime.RPC.MaxRequestBytes == 0 &&
+		runtime.RPC.RateLimitWindow == "" &&
+		runtime.RPC.RateLimitMaxRequests == 0 &&
+		len(runtime.RPC.EVMAccountPrivateKeys) == 0 &&
 		runtime.P2P.Enabled == false &&
 		runtime.P2P.ListenAddress == "" &&
 		runtime.P2P.NetworkID == "" &&
