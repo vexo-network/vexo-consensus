@@ -425,6 +425,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			RateLimitMaxRequests:     runtimeConfig.RPCRateLimitMaxRequests,
 			AllowUnprotectedLegacyTx: inputs.Config.Chain.Execution.AllowUnprotectedLegacyTx,
 			EVMChainConfigJSON:       inputs.Config.Chain.Execution.EVMChainConfigJSON,
+			StrictEVMStateRoot:       inputs.Config.Chain.Execution.StrictEVMStateRoot,
 			EVMAccountPrivateKeys:    runtimeConfig.RPCEVMAccountKeys,
 		}, serverErr)
 		if err != nil {

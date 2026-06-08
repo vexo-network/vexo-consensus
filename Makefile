@@ -15,7 +15,7 @@ GPG ?= gpg
 RC_DRY_RUN ?= 0
 RC_DRY_RUN_FLAG = $(if $(filter 1 true yes,$(RC_DRY_RUN)),--dry-run,)
 
-.PHONY: all build test vet check fuzz-smoke ops-verify network-e2e coverage release checksums sbom release-manifest release-audit-pack sign-release docker-image release-candidate clean init-demo keys-demo
+.PHONY: all build test vet check docs-check fuzz-smoke ops-verify network-e2e coverage release checksums sbom release-manifest release-audit-pack sign-release docker-image release-candidate clean init-demo keys-demo
 
 all: check build
 
@@ -32,6 +32,10 @@ vet:
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) vet ./...
 
 check: test vet
+
+docs-check:
+	mkdir -p $(GOCACHE_DIR)
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./cmd/vexod -run TestDocsLocalesMirrorCanonicalTree -count=1
 
 fuzz-smoke:
 	mkdir -p $(GOCACHE_DIR)

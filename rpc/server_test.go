@@ -1676,6 +1676,40 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	}
 }
 
+func TestHandlerWeb3StrictStateRootFailsClosedWhenUnavailable(t *testing.T) {
+	blockHash := types.Hash{0xab}
+	provider := &fakeStatusProvider{
+		status: node.Status{ChainID: "vexo-chain", EVMChainID: 7, Running: true, LatestHeight: 1},
+		blocks: map[types.Height]store.BlockRecord{
+			1: {
+				Block:   types.Block{Header: types.Header{ChainID: "vexo-chain", Height: 1}},
+				Hash:    blockHash,
+				AppHash: types.Hash{0xcd},
+			},
+		},
+		latest:           1,
+		appQueryResponse: vexoapp.QueryResponse{Code: 1, Log: "missing EVM snapshot"},
+	}
+	handler := NewHandlerWithConfig(provider, Config{StrictEVMStateRoot: true})
+
+	var response JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["latest",false]}`, http.StatusOK, &response)
+	if response.Error == nil || response.Error.Code != -32000 || !strings.Contains(response.Error.Message, "EVM state root is unavailable") {
+		t.Fatalf("expected strict EVM state-root failure, got %+v", response)
+	}
+
+	handler = NewHandlerWithConfig(provider, Config{})
+	response = JSONRPCResponse{}
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":2,"method":"eth_getBlockByNumber","params":["latest",false]}`, http.StatusOK, &response)
+	if response.Error != nil {
+		t.Fatalf("unexpected fallback response error: %+v", response)
+	}
+	result, ok := response.Result.(map[string]any)
+	if !ok || result["stateRoot"] != "0xcd00000000000000000000000000000000000000000000000000000000000000" {
+		t.Fatalf("expected Vexo app-hash fallback when strict mode is disabled, got %+v", response.Result)
+	}
+}
+
 func TestWeb3EVMCallUsesHistoricalFeeContext(t *testing.T) {
 	provider := &fakeStatusProvider{
 		status: node.Status{ChainID: "vexo-chain", EVMChainID: 7, Running: true, LatestHeight: 9},
@@ -1977,6 +2011,30 @@ func TestHandlerServesWeb3WebSocketNewHeads(t *testing.T) {
 	result, ok := params["result"].(map[string]any)
 	if !ok || result["number"] != "0x2" || result["hash"] != "0x0200000000000000000000000000000000000000000000000000000000000000" || result["stateRoot"] != "0x1111111111111111111111111111111111111111111111111111111111111111" {
 		t.Fatalf("unexpected head result: %+v", result)
+	}
+}
+
+func TestHandlerWeb3WebSocketStrictStateRootSkipsUnavailableHead(t *testing.T) {
+	provider := &fakeStatusProvider{
+		status: node.Status{ChainID: "vexo-chain", LatestHeight: 2},
+		blocks: map[types.Height]store.BlockRecord{
+			1: {Block: types.Block{Header: types.Header{ChainID: "vexo-chain", Height: 1}}, Hash: types.Hash{0x01}},
+			2: {Block: types.Block{Header: types.Header{ChainID: "vexo-chain", Height: 2}}, Hash: types.Hash{0x02}, AppHash: types.Hash{0xcd}},
+		},
+		latest:           2,
+		appQueryResponse: vexoapp.QueryResponse{Code: 1, Log: "missing EVM snapshot"},
+	}
+	sent := make([]any, 0)
+	session := &web3SubscriptionSession{
+		provider: provider,
+		cfg:      Config{StrictEVMStateRoot: true},
+		ctx:      context.Background(),
+		subs:     map[string]web3Subscription{"0xsub": {ID: "0xsub", Type: "newHeads", LastHeight: 1}},
+		send:     func(value any) { sent = append(sent, value) },
+	}
+	session.publish()
+	if len(sent) != 0 {
+		t.Fatalf("expected strict state-root policy to skip head without EVM snapshot, got %+v", sent)
 	}
 }
 

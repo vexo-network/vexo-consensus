@@ -45,6 +45,7 @@ type deploymentExecutionTemplate struct {
 	DisplayDenom             string `json:"display_denom"`
 	DisplayExponent          uint8  `json:"display_exponent"`
 	GasDenom                 string `json:"gas_denom"`
+	StrictEVMStateRoot       bool   `json:"strict_evm_state_root"`
 }
 
 type deploymentMempoolTemplate struct {
@@ -97,7 +98,7 @@ func runConfigDeploymentTemplate(writer io.Writer, args []string) error {
 		return encoder.Encode(document)
 	}
 	fmt.Fprintf(writer, "deployment parameter template\n")
-	fmt.Fprintf(writer, "execution: require_signed=%t require_nonce=%t min_fee=%d base_fee=%d blob_base_fee=%d dynamic_base_fee=%t dynamic_blob_base_fee=%t target_gas=%d target_blob_gas=%d min_gas=%d max_gas=%d fee_denom=%s gas_denom=%s\n", document.Chain.Execution.RequireSigned, document.Chain.Execution.RequireNonce, document.Chain.Execution.MinFee, document.Chain.Execution.BaseFee, document.Chain.Execution.BlobBaseFee, document.Chain.Execution.DynamicBaseFee, document.Chain.Execution.DynamicBlobBaseFee, document.Chain.Execution.TargetGas, document.Chain.Execution.TargetBlobGas, document.Chain.Execution.MinGas, document.Chain.Execution.MaxGas, document.Chain.Execution.FeeDenom, document.Chain.Execution.GasDenom)
+	fmt.Fprintf(writer, "execution: require_signed=%t require_nonce=%t min_fee=%d base_fee=%d blob_base_fee=%d dynamic_base_fee=%t dynamic_blob_base_fee=%t target_gas=%d target_blob_gas=%d min_gas=%d max_gas=%d fee_denom=%s gas_denom=%s strict_evm_state_root=%t\n", document.Chain.Execution.RequireSigned, document.Chain.Execution.RequireNonce, document.Chain.Execution.MinFee, document.Chain.Execution.BaseFee, document.Chain.Execution.BlobBaseFee, document.Chain.Execution.DynamicBaseFee, document.Chain.Execution.DynamicBlobBaseFee, document.Chain.Execution.TargetGas, document.Chain.Execution.TargetBlobGas, document.Chain.Execution.MinGas, document.Chain.Execution.MaxGas, document.Chain.Execution.FeeDenom, document.Chain.Execution.GasDenom, document.Chain.Execution.StrictEVMStateRoot)
 	fmt.Fprintf(writer, "mempool: min_fee=%d priority=%t replacement=%t replacement_bump_bps=%d max_txs=%d seen_ttl=%s wal_path=%s\n", document.Chain.Mempool.MinFee, document.Chain.Mempool.EnablePriority, document.Chain.Mempool.EnableReplacement, document.Chain.Mempool.ReplacementBumpBPS, document.Chain.Mempool.MaxTxs, document.Chain.Mempool.SeenTTL, document.Chain.Mempool.WALPath)
 	fmt.Fprintf(writer, "validator: permissionless=%t min_stake=%d remote_signer=%t\n", document.Chain.Validator.Permissionless, document.Chain.Validator.MinStake, document.Chain.Validator.RemoteSigner)
 	fmt.Fprintf(writer, "committee: size=%d epoch_length=%d regions=%d\n", document.Chain.Committee.Size, document.Chain.Committee.EpochLength, document.Chain.Committee.Regions)
@@ -137,6 +138,7 @@ func buildDeploymentTemplateDocument() deploymentTemplateDocument {
 				DisplayDenom:             "vexo",
 				DisplayExponent:          18,
 				GasDenom:                 "gas",
+				StrictEVMStateRoot:       false,
 			},
 			Mempool: deploymentMempoolTemplate{
 				MinFee:             1,

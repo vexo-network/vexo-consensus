@@ -71,3 +71,5 @@ Documentation should:
 - describe safety boundaries and failure modes
 - avoid production-readiness claims without evidence
 - keep examples copy-pasteable when possible
+- keep every Markdown file mirrored under `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
+- pass `make docs-check` so localized directory trees cannot drift from the canonical docs

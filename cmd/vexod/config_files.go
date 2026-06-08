@@ -1476,6 +1476,7 @@ func applyDefaultNetworkSafetyModuleConfig(cfg *config.Config) {
 	cfg.Execution.BlobBaseFee = 1
 	cfg.Execution.MinBlobBaseFee = 1
 	cfg.Execution.DynamicBlobBaseFee = true
+	cfg.Execution.StrictEVMStateRoot = false
 	cfg.Execution.AllowUnprotectedLegacyTx = false
 	cfg.Bank.MintAuthority = "governance"
 }

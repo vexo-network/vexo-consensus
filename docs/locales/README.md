@@ -1,6 +1,6 @@
 # Documentation Locales
 
-English (`en`) is the canonical technical documentation set. The locale directories keep the same document tree so translations can be reviewed file-by-file without changing links or release evidence paths.
+English (`en`) is the canonical technical documentation set. The locale directories keep the same document tree so translations can be reviewed file-by-file without changing links or release evidence paths. `go test ./cmd/vexod` enforces that every locale mirrors the canonical document tree, so new documents cannot silently skip Korean, Chinese, Japanese, French, German, or other supported locale directories.
 
 | Locale | Directory |
 | --- | --- |
@@ -25,3 +25,4 @@ Localization policy:
 - Add new documents to `docs/` first, mirror them under every locale directory, and keep `en/` as the canonical review target.
 - Translation updates should preserve commands, JSON field names, RPC method names, config keys, and code identifiers exactly.
 - Security-sensitive wording should be reviewed against `en/` before release.
+- Run `go test ./cmd/vexod -run TestDocsLocalesMirrorCanonicalTree` or `make docs-check` before release documentation changes.

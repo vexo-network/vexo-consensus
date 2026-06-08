@@ -59,6 +59,7 @@ type Config struct {
 	EnablePprof              bool
 	AllowUnprotectedLegacyTx bool
 	EVMChainConfigJSON       string
+	StrictEVMStateRoot       bool
 	EVMAccountPrivateKeys    []string
 }
 
@@ -1297,7 +1298,7 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 			return nil, rpcErr
 		}
 		fullTx := web3FullTransactionParam(params, 1)
-		return web3BlockFromRecord(ctx, provider, record, fullTx), nil
+		return web3BlockFromRecord(ctx, provider, cfg, record, fullTx)
 	case "eth_getBlockTransactionCountByNumber":
 		record, rpcErr := web3BlockByNumber(ctx, provider, []json.RawMessage{firstParam(params, "null")})
 		if rpcErr != nil {
@@ -1310,7 +1311,7 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 			return nil, rpcErr
 		}
 		fullTx := web3FullTransactionParam(params, 1)
-		return web3BlockFromRecord(ctx, provider, record, fullTx), nil
+		return web3BlockFromRecord(ctx, provider, cfg, record, fullTx)
 	case "eth_getBlockTransactionCountByHash":
 		record, rpcErr := web3BlockByHash(ctx, provider, []json.RawMessage{firstParam(params, "null")})
 		if rpcErr != nil {
@@ -2730,9 +2731,13 @@ func web3RawTransaction(tx types.Tx) any {
 	return "0x" + hex.EncodeToString(tx)
 }
 
-func web3BlockFromRecord(ctx context.Context, provider StatusProvider, record store.BlockRecord, fullTransactions bool) any {
+func web3BlockFromRecord(ctx context.Context, provider StatusProvider, cfg Config, record store.BlockRecord, fullTransactions bool) (any, *JSONRPCError) {
 	if record.Block.Header.Height == 0 {
-		return nil
+		return nil, nil
+	}
+	stateRoot, ok := web3StateRoot(ctx, provider, cfg, record)
+	if !ok {
+		return nil, &JSONRPCError{Code: -32000, Message: "EVM state root is unavailable for block"}
 	}
 	transactions := make([]any, 0, len(record.Block.Txs))
 	for index, tx := range record.Block.Txs {
@@ -2752,7 +2757,7 @@ func web3BlockFromRecord(ctx context.Context, provider StatusProvider, record st
 		"mixHash":          "0x0000000000000000000000000000000000000000000000000000000000000000",
 		"logsBloom":        web3LogsBloom(record.Block.Txs, record.TxResults),
 		"transactionsRoot": web3TransactionsRoot(record.Block.Txs),
-		"stateRoot":        web3StateRoot(ctx, provider, record),
+		"stateRoot":        stateRoot,
 		"receiptsRoot":     web3ReceiptsRoot(record.Block.Txs, record.TxResults),
 		"miner":            "0x0000000000000000000000000000000000000000",
 		"difficulty":       "0x0",
@@ -2769,7 +2774,7 @@ func web3BlockFromRecord(ctx context.Context, provider StatusProvider, record st
 		"uncles":           []any{},
 		"withdrawals":      []any{},
 		"withdrawalsRoot":  "0x0000000000000000000000000000000000000000000000000000000000000000",
-	}
+	}, nil
 }
 
 func web3GetProof(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
@@ -2819,7 +2824,7 @@ func web3GetProof(ctx context.Context, provider StatusProvider, params []json.Ra
 	return result, nil
 }
 
-func web3StateRoot(ctx context.Context, provider StatusProvider, record store.BlockRecord) string {
+func web3StateRoot(ctx context.Context, provider StatusProvider, cfg Config, record store.BlockRecord) (string, bool) {
 	if record.Block.Header.Height == provider.Status(ctx).LatestHeight {
 		if query, ok := provider.(AppQueryProvider); ok {
 			payload, _ := json.Marshal(map[string]uint64{"height": uint64(record.Block.Header.Height)})
@@ -2829,7 +2834,7 @@ func web3StateRoot(ctx context.Context, provider StatusProvider, record store.Bl
 					StateRoot string `json:"state_root"`
 				}
 				if json.Unmarshal(response.Value, &payload) == nil && payload.StateRoot != "" {
-					return payload.StateRoot
+					return payload.StateRoot, true
 				}
 			}
 		}
@@ -2841,11 +2846,14 @@ func web3StateRoot(ctx context.Context, provider StatusProvider, record store.Bl
 				StateRoot string `json:"state_root"`
 			}
 			if json.Unmarshal(response.Value, &payload) == nil && payload.StateRoot != "" {
-				return payload.StateRoot
+				return payload.StateRoot, true
 			}
 		}
 	}
-	return "0x" + hex.EncodeToString(record.AppHash[:])
+	if cfg.StrictEVMStateRoot {
+		return "", false
+	}
+	return "0x" + hex.EncodeToString(record.AppHash[:]), true
 }
 
 func web3BlockBaseFee(ctx context.Context, provider StatusProvider, record store.BlockRecord) uint64 {

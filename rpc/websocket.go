@@ -237,7 +237,11 @@ func (session *web3SubscriptionSession) publishHeads(subscription web3Subscripti
 		if err != nil {
 			return subscription
 		}
-		session.sendSubscription(subscription.ID, web3BlockHeader(session.ctx, session.provider, record))
+		header, ok := web3BlockHeader(session.ctx, session.provider, session.cfg, record)
+		if !ok {
+			return subscription
+		}
+		session.sendSubscription(subscription.ID, header)
 		subscription.LastHeight = height
 	}
 	return subscription
@@ -325,7 +329,11 @@ func web3HashString(hash types.Hash) string {
 	return "0x" + hex.EncodeToString(hash[:])
 }
 
-func web3BlockHeader(ctx context.Context, provider StatusProvider, record store.BlockRecord) map[string]any {
+func web3BlockHeader(ctx context.Context, provider StatusProvider, cfg Config, record store.BlockRecord) (map[string]any, bool) {
+	stateRoot, ok := web3StateRoot(ctx, provider, cfg, record)
+	if !ok {
+		return nil, false
+	}
 	return map[string]any{
 		"number":           hexQuantity(uint64(record.Block.Header.Height)),
 		"hash":             web3HashString(record.Hash),
@@ -334,7 +342,7 @@ func web3BlockHeader(ctx context.Context, provider StatusProvider, record store.
 		"sha3Uncles":       "0x0000000000000000000000000000000000000000000000000000000000000000",
 		"logsBloom":        web3LogsBloom(record.Block.Txs, record.TxResults),
 		"transactionsRoot": web3TransactionsRoot(record.Block.Txs),
-		"stateRoot":        web3StateRoot(ctx, provider, record),
+		"stateRoot":        stateRoot,
 		"receiptsRoot":     web3ReceiptsRoot(record.Block.Txs, record.TxResults),
 		"miner":            "0x0000000000000000000000000000000000000000",
 		"difficulty":       "0x0",
@@ -343,7 +351,7 @@ func web3BlockHeader(ctx context.Context, provider StatusProvider, record store.
 		"gasLimit":         web3BlockGasLimit(record.TxResults),
 		"gasUsed":          hexQuantity(web3BlockGasUsed(record.TxResults)),
 		"timestamp":        hexQuantity(uint64(record.Block.Header.TimeUnixNano / int64(time.Second))),
-	}
+	}, true
 }
 
 func web3LogArray(value any) []any {

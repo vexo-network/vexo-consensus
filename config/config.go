@@ -66,6 +66,7 @@ type ExecutionConfig struct {
 	GasDenom                 string
 	EVMForkPreset            string
 	EVMChainConfigJSON       string
+	StrictEVMStateRoot       bool
 	AllowUnprotectedLegacyTx bool
 	MaxBlobSidecarBlobs      uint64
 	MaxBlobSidecarBytes      uint64
