@@ -598,6 +598,40 @@ func TestModulePersistsUint256EVMBalancesForEthereumProofs(t *testing.T) {
 	}
 }
 
+func TestModuleEVMNativeCoinUsesBankNamespaceAsCanonicalBalance(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	nativeBalance := new(big.Int).Add(new(big.Int).Lsh(big.NewInt(1), 72), big.NewInt(123))
+	registry := contract.NewRegistry()
+	if err := registry.Register(bigBalanceVM{balance: nativeBalance}); err != nil {
+		t.Fatal(err)
+	}
+	module := NewModuleWithRegistry(registry)
+	contractAddress := types.Address("0x000000000000000000000000000000000000bA11")
+	if err := storage.Set(context.Background(), ModuleName, codeKey(contractAddress), []byte{0x60, 0x00}); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := vexoapp.Context{Ctx: context.Background(), Height: 10, Store: storage}
+	result := module.DeliverTx(ctx, types.Tx("evm:call:evm:0x000000000000000000000000000000000000aaaa:"+string(contractAddress)+":call:00:100000"))
+	if result.Code != 0 {
+		t.Fatalf("call failed: %+v", result)
+	}
+
+	rawBalance := mustGetStoreValue(t, storage, "bank", evmBankKey(contractAddress))
+	storedBalance := new(big.Int).SetBytes(rawBalance)
+	if storedBalance.Cmp(nativeBalance) != 0 {
+		t.Fatalf("expected EVM native balance to be stored in bank namespace, got %s want %s", storedBalance, nativeBalance)
+	}
+	accountQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"account", string(contractAddress)}})
+	if accountQuery.Code != 0 || !strings.Contains(string(accountQuery.Value), `"balance_hex":"0x100000000000000007b"`) {
+		t.Fatalf("expected account query to expose native bank-backed EVM balance, got %+v", accountQuery)
+	}
+}
+
 func TestModulePersistsFailedEVMReceiptWithoutFailingBlock(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {

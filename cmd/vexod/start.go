@@ -58,6 +58,7 @@ type startRuntimeConfig struct {
 	RPCEnabled              bool
 	RPCAddress              string
 	RPCAdminToken           string
+	RPCAdminTokens          map[string][]string
 	RPCEnablePprof          bool
 	RPCRequestTimeout       time.Duration
 	RPCMaxRequestBytes      int64
@@ -418,6 +419,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 	if runtimeConfig.RPCEnabled {
 		address, shutdown, err := startRPCServerWithConfig(node, runtimeConfig.RPCAddress, vexorpc.Config{
 			AdminToken:               runtimeConfig.RPCAdminToken,
+			AdminTokens:              runtimeConfig.RPCAdminTokens,
 			EnablePprof:              runtimeConfig.RPCEnablePprof,
 			RequestTimeout:           runtimeConfig.RPCRequestTimeout,
 			MaxRequestBytes:          runtimeConfig.RPCMaxRequestBytes,
@@ -632,6 +634,7 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 		RPCEnabled:           runtime.RPC.Enabled,
 		RPCAddress:           runtime.RPC.Address,
 		RPCAdminToken:        runtime.RPC.AdminToken,
+		RPCAdminTokens:       cloneStringSliceMap(runtime.RPC.AdminTokens),
 		RPCEnablePprof:       runtime.RPC.EnablePprof,
 		RPCMaxRequestBytes:   runtime.RPC.MaxRequestBytes,
 		RPCEVMAccountKeys:    append([]string(nil), runtime.RPC.EVMAccountPrivateKeys...),
@@ -751,6 +754,17 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 	return cfg, nil
 }
 
+func cloneStringSliceMap(values map[string][]string) map[string][]string {
+	if len(values) == 0 {
+		return nil
+	}
+	cloned := make(map[string][]string, len(values))
+	for key, value := range values {
+		cloned[key] = append([]string(nil), value...)
+	}
+	return cloned
+}
+
 func validateRuntimeNetworkSafety(cfg startRuntimeConfig) error {
 	if cfg.P2PEnabled && requiresAuthenticatedP2P(cfg) {
 		if cfg.P2PAuthToken == "" {
@@ -760,8 +774,8 @@ func validateRuntimeNetworkSafety(cfg startRuntimeConfig) error {
 			return fmt.Errorf("runtime.p2p tls cert, key, and ca paths are required for public peer connections: %w", vexoconfig.ErrUnsafeNetworkConfig)
 		}
 	}
-	if cfg.RPCEnabled && cfg.RPCAdminToken == "" && !isPrivateListenAddress(cfg.RPCAddress) {
-		return fmt.Errorf("runtime.rpc.admin_token is required for public rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
+	if cfg.RPCEnabled && cfg.RPCAdminToken == "" && len(cfg.RPCAdminTokens) == 0 && !isPrivateListenAddress(cfg.RPCAddress) {
+		return fmt.Errorf("runtime.rpc.admin_token or scoped runtime.rpc.admin_tokens is required for public rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
 	return nil
 }

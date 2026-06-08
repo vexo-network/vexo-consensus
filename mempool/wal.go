@@ -1,6 +1,8 @@
 package mempool
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -105,17 +107,40 @@ func (wal *WAL) Replay() ([]WALEvent, error) {
 	if _, err := wal.file.Seek(0, io.SeekStart); err != nil {
 		return nil, err
 	}
-	decoder := json.NewDecoder(wal.file)
+	reader := bufio.NewReader(wal.file)
 	events := make([]WALEvent, 0)
+	var offset int64
 	for {
-		var event WALEvent
-		if err := decoder.Decode(&event); err != nil {
+		line, err := reader.ReadBytes('\n')
+		if errors.Is(err, io.EOF) && len(line) == 0 {
+			break
+		}
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, err
+		}
+		trimmed := bytes.TrimSpace(line)
+		if len(trimmed) == 0 {
+			offset += int64(len(line))
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return nil, err
+			continue
+		}
+		var event WALEvent
+		if decodeErr := json.Unmarshal(trimmed, &event); decodeErr != nil {
+			if errors.Is(err, io.EOF) {
+				if truncateErr := wal.file.Truncate(offset); truncateErr != nil {
+					return nil, truncateErr
+				}
+				break
+			}
+			return nil, decodeErr
 		}
 		events = append(events, event)
+		offset += int64(len(line))
+		if errors.Is(err, io.EOF) {
+			break
+		}
 	}
 	_, err := wal.file.Seek(0, io.SeekEnd)
 	return events, err

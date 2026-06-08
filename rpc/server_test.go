@@ -2939,6 +2939,47 @@ func TestHandlerAcceptsAdminTokenForPrune(t *testing.T) {
 	}
 }
 
+func TestHandlerEnforcesScopedAdminTokensAndAudits(t *testing.T) {
+	provider := &fakeStatusProvider{
+		pruneResult:  store.PruneResult{RetainFromHeight: 3, PrunedBlocks: 1},
+		replayResult: vexoruntime.ReplayResult{FromHeight: 1, ToHeight: 1, LastHash: types.Hash{1}, Blocks: 1},
+	}
+	var events []AdminAuditEvent
+	handler := NewHandlerWithConfig(provider, Config{
+		AdminTokens: map[string][]string{
+			"prune-token":  {"prune"},
+			"replay-token": {"replay"},
+			"root-token":   {"*"},
+		},
+		AdminAuditSink: func(event AdminAuditEvent) {
+			events = append(events, event)
+		},
+	})
+
+	var forbidden map[string]string
+	postJSONWithToken(t, handler, "/prune", `{"retain_from_height":3}`, "replay-token", http.StatusForbidden, &forbidden)
+	if forbidden["error"] == "" {
+		t.Fatalf("expected scoped auth failure, got %+v", forbidden)
+	}
+	var prune PruneResponse
+	postJSONWithToken(t, handler, "/prune", `{"retain_from_height":3}`, "prune-token", http.StatusOK, &prune)
+	var replay ReplayResponse
+	postJSONWithToken(t, handler, "/replay", `{"all":true}`, "root-token", http.StatusOK, &replay)
+
+	if len(events) != 3 {
+		t.Fatalf("expected three audit events, got %+v", events)
+	}
+	if events[0].Authorized || events[0].Scope != "prune" || events[0].Reason == "" {
+		t.Fatalf("unexpected failed audit event: %+v", events[0])
+	}
+	if !events[1].Authorized || events[1].Scope != "prune" {
+		t.Fatalf("unexpected prune audit event: %+v", events[1])
+	}
+	if !events[2].Authorized || events[2].Scope != "replay" {
+		t.Fatalf("unexpected replay audit event: %+v", events[2])
+	}
+}
+
 func TestHandlerRejectsInvalidPruneRequests(t *testing.T) {
 	handler := NewHandlerWithConfig(&fakeStatusProvider{}, Config{AdminToken: "secret"})
 	cases := []string{

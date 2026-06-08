@@ -56,11 +56,23 @@ type Config struct {
 	RateLimitWindow          time.Duration
 	RateLimitMaxRequests     int
 	AdminToken               string
+	AdminTokens              map[string][]string
+	AdminAuditSink           func(AdminAuditEvent)
 	EnablePprof              bool
 	AllowUnprotectedLegacyTx bool
 	EVMChainConfigJSON       string
 	StrictEVMStateRoot       bool
 	EVMAccountPrivateKeys    []string
+}
+
+type AdminAuditEvent struct {
+	Scope      string
+	Path       string
+	Method     string
+	RemoteAddr string
+	Authorized bool
+	Reason     string
+	At         time.Time
 }
 
 type Server struct {
@@ -919,7 +931,7 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 			report, err := recoveryProvider.RecoveryReport(request.Context(), false)
 			writeRecoveryReport(writer, report, err)
 		case http.MethodPost:
-			if !allowAdmin(writer, request, cfg.AdminToken) {
+			if !allowAdmin(writer, request, cfg, "recovery") {
 				return
 			}
 			report, err := recoveryProvider.RecoveryReport(request.Context(), true)
@@ -962,7 +974,7 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 		if !allowPost(writer, request) {
 			return
 		}
-		if !allowAdmin(writer, request, cfg.AdminToken) {
+		if !allowAdmin(writer, request, cfg, "prune") {
 			return
 		}
 		pruner, ok := provider.(PruneProvider)
@@ -994,7 +1006,7 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 		if !allowPost(writer, request) {
 			return
 		}
-		if !allowAdmin(writer, request, cfg.AdminToken) {
+		if !allowAdmin(writer, request, cfg, "replay") {
 			return
 		}
 		replayer, ok := provider.(ReplayProvider)
@@ -1054,7 +1066,7 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 		if !allowPost(writer, request) {
 			return
 		}
-		if !allowAdmin(writer, request, cfg.AdminToken) {
+		if !allowAdmin(writer, request, cfg, "consensus") {
 			return
 		}
 		controller, ok := provider.(ConsensusLoopController)
@@ -1077,7 +1089,7 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 		if !allowPost(writer, request) {
 			return
 		}
-		if !allowAdmin(writer, request, cfg.AdminToken) {
+		if !allowAdmin(writer, request, cfg, "consensus") {
 			return
 		}
 		controller, ok := provider.(ConsensusLoopController)

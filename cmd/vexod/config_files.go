@@ -139,15 +139,16 @@ type runtimeConfig struct {
 }
 
 type runtimeRPCConfig struct {
-	Enabled               bool     `json:"enabled"`
-	Address               string   `json:"address,omitempty"`
-	AdminToken            string   `json:"admin_token,omitempty"`
-	EnablePprof           bool     `json:"enable_pprof,omitempty"`
-	RequestTimeout        string   `json:"request_timeout,omitempty"`
-	MaxRequestBytes       int64    `json:"max_request_bytes,omitempty"`
-	RateLimitWindow       string   `json:"rate_limit_window,omitempty"`
-	RateLimitMaxRequests  int      `json:"rate_limit_max_requests,omitempty"`
-	EVMAccountPrivateKeys []string `json:"evm_account_private_keys,omitempty"`
+	Enabled               bool                `json:"enabled"`
+	Address               string              `json:"address,omitempty"`
+	AdminToken            string              `json:"admin_token,omitempty"`
+	AdminTokens           map[string][]string `json:"admin_tokens,omitempty"`
+	EnablePprof           bool                `json:"enable_pprof,omitempty"`
+	RequestTimeout        string              `json:"request_timeout,omitempty"`
+	MaxRequestBytes       int64               `json:"max_request_bytes,omitempty"`
+	RateLimitWindow       string              `json:"rate_limit_window,omitempty"`
+	RateLimitMaxRequests  int                 `json:"rate_limit_max_requests,omitempty"`
+	EVMAccountPrivateKeys []string            `json:"evm_account_private_keys,omitempty"`
 }
 
 type runtimeP2PConfig struct {
@@ -1319,6 +1320,7 @@ func runtimeRPCConfigSet(rpc runtimeRPCConfig) bool {
 	return rpc.Enabled ||
 		rpc.Address != "" ||
 		rpc.AdminToken != "" ||
+		len(rpc.AdminTokens) > 0 ||
 		rpc.EnablePprof ||
 		rpc.RequestTimeout != "" ||
 		rpc.MaxRequestBytes != 0 ||

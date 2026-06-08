@@ -144,21 +144,57 @@ func allowPost(writer http.ResponseWriter, request *http.Request) bool {
 	return false
 }
 
-func allowAdmin(writer http.ResponseWriter, request *http.Request, adminToken string) bool {
-	if adminToken == "" {
+func allowAdmin(writer http.ResponseWriter, request *http.Request, cfg Config, scope string) bool {
+	if cfg.AdminToken == "" && len(cfg.AdminTokens) == 0 {
+		auditAdmin(cfg, request, scope, false, "not_configured")
 		writeJSON(writer, http.StatusUnauthorized, map[string]string{"error": "admin authorization is not configured"})
 		return false
 	}
 	const prefix = "Bearer "
 	header := request.Header.Get("Authorization")
 	if !strings.HasPrefix(header, prefix) {
+		auditAdmin(cfg, request, scope, false, "missing_bearer")
 		writeJSON(writer, http.StatusUnauthorized, map[string]string{"error": "admin authorization is required"})
 		return false
 	}
 	token := strings.TrimPrefix(header, prefix)
-	if subtle.ConstantTimeCompare([]byte(token), []byte(adminToken)) != 1 {
+	if !adminTokenAllowed(cfg, token, scope) {
+		auditAdmin(cfg, request, scope, false, "invalid_or_insufficient_scope")
 		writeJSON(writer, http.StatusForbidden, map[string]string{"error": "admin authorization is invalid"})
 		return false
 	}
+	auditAdmin(cfg, request, scope, true, "")
 	return true
+}
+
+func adminTokenAllowed(cfg Config, token string, scope string) bool {
+	if cfg.AdminToken != "" && subtle.ConstantTimeCompare([]byte(token), []byte(cfg.AdminToken)) == 1 {
+		return true
+	}
+	for configuredToken, scopes := range cfg.AdminTokens {
+		if subtle.ConstantTimeCompare([]byte(token), []byte(configuredToken)) != 1 {
+			continue
+		}
+		for _, candidate := range scopes {
+			if candidate == "*" || candidate == scope {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func auditAdmin(cfg Config, request *http.Request, scope string, authorized bool, reason string) {
+	if cfg.AdminAuditSink == nil {
+		return
+	}
+	cfg.AdminAuditSink(AdminAuditEvent{
+		Scope:      scope,
+		Path:       request.URL.Path,
+		Method:     request.Method,
+		RemoteAddr: request.RemoteAddr,
+		Authorized: authorized,
+		Reason:     reason,
+		At:         time.Now(),
+	})
 }
