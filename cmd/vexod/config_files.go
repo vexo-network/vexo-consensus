@@ -157,6 +157,10 @@ type runtimeP2PConfig struct {
 	MaxMessageBytes  uint64            `json:"max_message_bytes,omitempty"`
 	MaxPeers         int               `json:"max_peers,omitempty"`
 	AuthToken        string            `json:"auth_token,omitempty"`
+	TLSCertPath      string            `json:"tls_cert_path,omitempty"`
+	TLSKeyPath       string            `json:"tls_key_path,omitempty"`
+	TLSCAPath        string            `json:"tls_ca_path,omitempty"`
+	TLSServerName    string            `json:"tls_server_name,omitempty"`
 	AddrBookPath     string            `json:"addr_book_path,omitempty"`
 	AddrBookMaxFails int               `json:"addr_book_max_failures,omitempty"`
 	Peers            map[string]string `json:"peers,omitempty"`
@@ -1356,6 +1360,10 @@ func runtimeP2PConfigSet(config runtimeP2PConfig) bool {
 		config.MaxMessageBytes != 0 ||
 		config.MaxPeers != 0 ||
 		config.AuthToken != "" ||
+		config.TLSCertPath != "" ||
+		config.TLSKeyPath != "" ||
+		config.TLSCAPath != "" ||
+		config.TLSServerName != "" ||
 		config.AddrBookPath != "" ||
 		config.AddrBookMaxFails != 0 ||
 		len(config.Peers) > 0 ||

@@ -269,7 +269,7 @@ func (node *Node) Replay(ctx context.Context, from types.Height, to types.Height
 		return vexoruntime.ReplayResult{}, err
 	}
 	defer runtime.Recover(context.Background())
-	return runtime.Replay(ctx, from, to)
+	return runtime.ReplayStrict(ctx, from, to)
 }
 
 func (node *Node) ReplayAll(ctx context.Context) (vexoruntime.ReplayResult, error) {
@@ -278,7 +278,7 @@ func (node *Node) ReplayAll(ctx context.Context) (vexoruntime.ReplayResult, erro
 		return vexoruntime.ReplayResult{}, err
 	}
 	defer runtime.Recover(context.Background())
-	return runtime.ReplayAll(ctx)
+	return runtime.ReplayAllStrict(ctx)
 }
 
 func (node *Node) ReplayStrict(ctx context.Context, from types.Height, to types.Height) (vexoruntime.ReplayResult, error) {

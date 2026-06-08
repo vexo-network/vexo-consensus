@@ -10,6 +10,7 @@ import (
 )
 
 func writeStatus(writer io.Writer, cfg config.Config) {
+	features := statusFeatures(cfg)
 	fmt.Fprintf(writer, "vexo-consensus status\n")
 	fmt.Fprintf(writer, "chain_id: %s\n", cfg.ChainID)
 	fmt.Fprintf(writer, "application.modules: %v\n", cfg.Application.Modules)
@@ -69,8 +70,8 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "state_sync.snapshot_checksum: true\n")
 	fmt.Fprintf(writer, "state_sync.snapshot_verify: true\n")
 	fmt.Fprintf(writer, "state_sync.snapshot_chunks: true\n")
-	fmt.Fprintf(writer, "staking.slashing_ledger: true\n")
-	fmt.Fprintf(writer, "staking.tombstone_ledger: true\n")
+	fmt.Fprintf(writer, "staking.slashing_ledger: %t\n", features["staking_slashing_ledger"])
+	fmt.Fprintf(writer, "staking.tombstone_ledger: %t\n", features["staking_tombstone_ledger"])
 	fmt.Fprintf(writer, "ops.metrics_uptime: true\n")
 	fmt.Fprintf(writer, "ops.pprof_optional: true\n")
 	fmt.Fprintf(writer, "ops.structured_logs: true\n")
@@ -81,10 +82,10 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "security.fuzz_targets: true\n")
 	fmt.Fprintf(writer, "security.strict_json_rpc: true\n")
 	fmt.Fprintf(writer, "security.forwarded_for_untrusted: true\n")
-	fmt.Fprintf(writer, "web3.raw_tx_access_list_prewarm: true\n")
-	fmt.Fprintf(writer, "web3.call_vm_trace_state_diff: true\n")
-	fmt.Fprintf(writer, "web3.prestate_and_4byte_tracers: true\n")
-	fmt.Fprintf(writer, "web3.blob_tx_fee_accounting: true\n")
+	fmt.Fprintf(writer, "web3.raw_tx_access_list_prewarm: %t\n", features["web3_raw_tx_access_list_prewarm"])
+	fmt.Fprintf(writer, "web3.call_vm_trace_state_diff: %t\n", features["web3_call_vm_trace_state_diff"])
+	fmt.Fprintf(writer, "web3.prestate_and_4byte_tracers: %t\n", features["web3_prestate_and_4byte_tracers"])
+	fmt.Fprintf(writer, "web3.blob_tx_fee_accounting: %t\n", features["web3_blob_tx_fee_accounting"])
 	fmt.Fprintf(writer, "consensus.adversarial_simulation: true\n")
 	fmt.Fprintf(writer, "consensus.partition_safety_simulation: true\n")
 	fmt.Fprintf(writer, "consensus.tendermint_style_timeouts: true\n")
@@ -93,7 +94,7 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "crypto.backend: %s\n", cfg.Crypto.Backend)
 	fmt.Fprintf(writer, "crypto.production_adapter: %t\n", cfg.Crypto.ProductionAdapter)
 	fmt.Fprintf(writer, "crypto.remote_signer_verification: true\n")
-	fmt.Fprintf(writer, "crypto.bls_adapter_required: true\n")
+	fmt.Fprintf(writer, "crypto.bls_adapter_required: %t\n", features["crypto_bls_adapter_required"])
 	fmt.Fprintf(writer, "addr_book.persistent: true\n")
 	fmt.Fprintf(writer, "addr_book.dial_failure_tracking: true\n")
 	fmt.Fprintf(writer, "addr_book.ban_eviction_policy: true\n")
@@ -284,94 +285,8 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			ReplacementBumpBPS: cfg.Mempool.ReplacementBumpBPS,
 			WALPath:            cfg.Mempool.WALPath,
 		},
-		Features: map[string]bool{
-			"fair_ordering":                            true,
-			"height_salted_order":                      true,
-			"data_availability":                        true,
-			"data_availability_chunk_proofs":           true,
-			"data_availability_parity_recovery":        true,
-			"data_availability_reed_solomon_recovery":  true,
-			"data_availability_deterministic_sampling": true,
-			"state_sync_snapshot_kv":                   true,
-			"state_sync_checksum":                      true,
-			"state_sync_verify":                        true,
-			"state_sync_snapshot_chunks":               true,
-			"state_sync_historical_replay":             true,
-			"web3_receipt_roots":                       true,
-			"web3_ethereum_trie_roots":                 true,
-			"web3_global_log_filters":                  true,
-			"web3_prefix_log_index":                    true,
-			"web3_filter_limit":                        true,
-			"web3_geth_compat_methods":                 true,
-			"web3_txpool_debug_trace":                  true,
-			"web3_trace_api":                           true,
-			"web3_access_list_call_trace":              true,
-			"web3_raw_tx_access_list_prewarm":          true,
-			"web3_call_vm_trace_state_diff":            true,
-			"web3_prestate_and_4byte_tracers":          true,
-			"web3_raw_tx_replay_trace":                 true,
-			"web3_pending_tx_compat":                   true,
-			"web3_safe_finalized_tags":                 true,
-			"web3_jsonrpc_batch_notifications":         true,
-			"web3_eip1898_block_selectors":             true,
-			"web3_post_merge_block_fields":             true,
-			"web3_block_scan_tx_lookup":                true,
-			"web3_receipt_trace_block_fallback":        true,
-			"web3_ws_full_pending_transactions":        true,
-			"evm_geth_vm_adapter":                      true,
-			"evm_ethereum_raw_tx":                      true,
-			"evm_storage_writes":                       true,
-			"evm_code_writes":                          true,
-			"evm_nonce_writes":                         true,
-			"evm_selfdestruct_account_deletion":        true,
-			"evm_actual_gas_accounting":                true,
-			"web3_call_block_context":                  true,
-			"web3_historical_code_storage":             true,
-			"web3_historical_account_state":            true,
-			"web3_txpool_pending_queued":               true,
-			"web3_receipt_location_index":              true,
-			"web3_replay_state_diff":                   true,
-			"web3_blob_tx_fee_accounting":              true,
-			"execution_context_aware_app_calls":        true,
-			"validator_update_atomic_commit":           true,
-			"staking_slashing_ledger":                  true,
-			"staking_tombstone_ledger":                 true,
-			"ibc_ordering_validation":                  true,
-			"mempool_seen_cache_pruning":               true,
-			"ops_metrics_uptime":                       true,
-			"ops_pprof_optional":                       true,
-			"ops_structured_logs":                      true,
-			"ops_release_artifacts":                    true,
-			"ops_release_evidence_content_gate":        true,
-			"ops_release_evidence_semantic_gate":       true,
-			"ops_external_audit_pack":                  true,
-			"ops_deployment_template":                  true,
-			"ops_longrun_network_plan":                 true,
-			"security_fuzz_targets":                    true,
-			"security_strict_json_rpc":                 true,
-			"security_forwarded_for_untrusted":         true,
-			"consensus_adversarial_simulation":         true,
-			"consensus_partition_safety":               true,
-			"consensus_tendermint_timeouts":            true,
-			"consensus_empty_block_control":            true,
-			"consensus_app_hash_evidence":              true,
-			"consensus_tx_validity_evidence":           true,
-			"crypto_remote_signer_verification":        true,
-			"crypto_bls_adapter_required":              true,
-			"deployment_audit":                         true,
-			"addr_book":                                true,
-			"addr_book_ban_evict":                      true,
-			"peer_dial_tracking":                       true,
-			"transport_peer_gate":                      true,
-			"consensus_gossip_scoring":                 true,
-			"banned_peer_disconnect":                   true,
-			"peer_score_persistence":                   true,
-			"leveldb_storage":                          true,
-			"peer_scoring":                             true,
-			"temporary_peer_bans":                      true,
-			"peer_score_recovery":                      true,
-		},
-		Storage: storageStatus{Backend: "leveldb"},
+		Features: statusFeatures(cfg),
+		Storage:  storageStatus{Backend: "leveldb"},
 		P2P: p2pStatus{
 			InitialScore:          cfg.P2P.InitialScore,
 			MaxScore:              cfg.P2P.MaxScore,
@@ -391,4 +306,110 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			PeerMetricsLocation: "node.Status().Peers",
 		},
 	}
+}
+
+func statusFeatures(cfg config.Config) map[string]bool {
+	evmEnabled := moduleEnabled(cfg, "evm")
+	return map[string]bool{
+		"fair_ordering":                            true,
+		"height_salted_order":                      true,
+		"data_availability":                        true,
+		"data_availability_chunk_proofs":           true,
+		"data_availability_parity_recovery":        true,
+		"data_availability_reed_solomon_recovery":  true,
+		"data_availability_deterministic_sampling": true,
+		"state_sync_snapshot_kv":                   true,
+		"state_sync_checksum":                      true,
+		"state_sync_verify":                        true,
+		"state_sync_snapshot_chunks":               true,
+		"state_sync_historical_replay":             true,
+		"web3_receipt_roots":                       evmEnabled,
+		"web3_ethereum_trie_roots":                 evmEnabled,
+		"web3_global_log_filters":                  evmEnabled,
+		"web3_prefix_log_index":                    evmEnabled,
+		"web3_filter_limit":                        evmEnabled,
+		"web3_geth_compat_methods":                 evmEnabled,
+		"web3_txpool_debug_trace":                  evmEnabled,
+		"web3_trace_api":                           evmEnabled,
+		"web3_access_list_call_trace":              evmEnabled,
+		"web3_raw_tx_access_list_prewarm":          evmEnabled,
+		"web3_call_vm_trace_state_diff":            evmEnabled,
+		"web3_prestate_and_4byte_tracers":          evmEnabled,
+		"web3_raw_tx_replay_trace":                 evmEnabled,
+		"web3_pending_tx_compat":                   evmEnabled,
+		"web3_safe_finalized_tags":                 evmEnabled,
+		"web3_jsonrpc_batch_notifications":         evmEnabled,
+		"web3_eip1898_block_selectors":             evmEnabled,
+		"web3_post_merge_block_fields":             evmEnabled,
+		"web3_block_scan_tx_lookup":                evmEnabled,
+		"web3_receipt_trace_block_fallback":        evmEnabled,
+		"web3_ws_full_pending_transactions":        evmEnabled,
+		"evm_geth_vm_adapter":                      evmEnabled,
+		"evm_ethereum_raw_tx":                      evmEnabled,
+		"evm_storage_writes":                       evmEnabled,
+		"evm_code_writes":                          evmEnabled,
+		"evm_nonce_writes":                         evmEnabled,
+		"evm_selfdestruct_account_deletion":        evmEnabled,
+		"evm_actual_gas_accounting":                evmEnabled,
+		"web3_call_block_context":                  evmEnabled,
+		"web3_historical_code_storage":             evmEnabled,
+		"web3_historical_account_state":            evmEnabled,
+		"web3_txpool_pending_queued":               evmEnabled,
+		"web3_receipt_location_index":              evmEnabled,
+		"web3_replay_state_diff":                   evmEnabled,
+		"web3_blob_tx_fee_accounting":              evmEnabled,
+		"execution_context_aware_app_calls":        true,
+		"validator_update_atomic_commit":           true,
+		"staking_slashing_ledger":                  moduleEnabled(cfg, "staking"),
+		"staking_tombstone_ledger":                 moduleEnabled(cfg, "staking"),
+		"ibc_ordering_validation":                  moduleEnabled(cfg, "ibc"),
+		"mempool_seen_cache_pruning":               cfg.Mempool.SeenTTL > 0,
+		"mempool_wal":                              cfg.Mempool.WALPath != "",
+		"mempool_priority":                         cfg.Mempool.EnablePriority,
+		"mempool_replacement":                      cfg.Mempool.EnableReplacement,
+		"ops_metrics_uptime":                       true,
+		"ops_pprof_optional":                       true,
+		"ops_structured_logs":                      true,
+		"ops_release_artifacts":                    true,
+		"ops_release_evidence_content_gate":        true,
+		"ops_release_evidence_semantic_gate":       true,
+		"ops_external_audit_pack":                  true,
+		"ops_deployment_template":                  true,
+		"ops_longrun_network_plan":                 true,
+		"security_fuzz_targets":                    true,
+		"security_strict_json_rpc":                 true,
+		"security_forwarded_for_untrusted":         true,
+		"consensus_adversarial_simulation":         true,
+		"consensus_partition_safety":               true,
+		"consensus_tendermint_timeouts":            true,
+		"consensus_empty_block_control":            true,
+		"consensus_app_hash_evidence":              true,
+		"consensus_tx_validity_evidence":           true,
+		"crypto_remote_signer_verification":        true,
+		"crypto_bls_adapter_required":              cfg.Crypto.Backend == config.CryptoBackendBLS,
+		"crypto_bls_production_adapter":            cfg.Crypto.Backend == config.CryptoBackendBLS && cfg.Crypto.ProductionAdapter,
+		"crypto_vrf_production_adapter":            cfg.VRF.ProductionAdapter,
+		"deployment_audit":                         true,
+		"addr_book":                                true,
+		"addr_book_ban_evict":                      cfg.P2P.BanDuration > 0,
+		"peer_dial_tracking":                       true,
+		"transport_peer_gate":                      true,
+		"transport_tls_configurable":               true,
+		"consensus_gossip_scoring":                 true,
+		"banned_peer_disconnect":                   true,
+		"peer_score_persistence":                   true,
+		"leveldb_storage":                          true,
+		"peer_scoring":                             true,
+		"temporary_peer_bans":                      cfg.P2P.BanDuration > 0,
+		"peer_score_recovery":                      cfg.P2P.ScoreRecovery > 0,
+	}
+}
+
+func moduleEnabled(cfg config.Config, name string) bool {
+	for _, module := range cfg.Application.Modules {
+		if module == name {
+			return true
+		}
+	}
+	return false
 }

@@ -398,6 +398,36 @@ func TestRuntimeConfigLoadsEVMAccountKeysFromSplitNetworkConfig(t *testing.T) {
 	}
 }
 
+func TestRuntimeConfigLoadsP2PTLSFromSplitNetworkConfig(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	networkDocument, err := readNetworkConfigDocument(filepath.Join(home, networkConfigFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	networkDocument.P2P.TLSCertPath = "tls/node.crt"
+	networkDocument.P2P.TLSKeyPath = "tls/node.key"
+	networkDocument.P2P.TLSCAPath = "tls/ca.crt"
+	networkDocument.P2P.TLSServerName = "validator.internal"
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+
+	runtimeConfig, err := loadStartRuntimeConfig(home, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedCert := filepath.Join(home, "tls/node.crt")
+	expectedKey := filepath.Join(home, "tls/node.key")
+	expectedCA := filepath.Join(home, "tls/ca.crt")
+	if runtimeConfig.P2PTLSCertPath != expectedCert ||
+		runtimeConfig.P2PTLSKeyPath != expectedKey ||
+		runtimeConfig.P2PTLSCAPath != expectedCA ||
+		runtimeConfig.P2PTLSServerName != "validator.internal" {
+		t.Fatalf("expected resolved p2p TLS config, got %+v", runtimeConfig)
+	}
+}
+
 func TestApplyStartFlagOverridesEVMAccountKeys(t *testing.T) {
 	runtimeConfig := startRuntimeConfig{RPCEVMAccountKeys: []string{"existing"}}
 	applyStartFlagOverrides(&runtimeConfig, map[string]bool{"evm-account-key": true}, startFlagValues{

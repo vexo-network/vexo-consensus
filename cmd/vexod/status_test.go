@@ -44,7 +44,6 @@ func TestWriteStatus(t *testing.T) {
 		"state_sync.snapshot_verify: true",
 		"state_sync.snapshot_chunks: true",
 		"staking.tombstone_ledger: true",
-		"web3.prestate_and_4byte_tracers: true",
 		"ops.metrics_uptime: true",
 		"ops.pprof_optional: true",
 		"ops.structured_logs: true",
@@ -55,8 +54,6 @@ func TestWriteStatus(t *testing.T) {
 		"security.fuzz_targets: true",
 		"security.strict_json_rpc: true",
 		"security.forwarded_for_untrusted: true",
-		"web3.raw_tx_access_list_prewarm: true",
-		"web3.call_vm_trace_state_diff: true",
 		"consensus.adversarial_simulation: true",
 		"consensus.partition_safety_simulation: true",
 		"consensus.tendermint_style_timeouts: true",
@@ -64,7 +61,10 @@ func TestWriteStatus(t *testing.T) {
 		"crypto.backend: deterministic",
 		"crypto.production_adapter: false",
 		"crypto.remote_signer_verification: true",
-		"crypto.bls_adapter_required: true",
+		"crypto.bls_adapter_required: false",
+		"web3.raw_tx_access_list_prewarm: false",
+		"web3.call_vm_trace_state_diff: false",
+		"web3.prestate_and_4byte_tracers: false",
 		"addr_book.persistent: true",
 		"addr_book.dial_failure_tracking: true",
 		"addr_book.ban_eviction_policy: true",
@@ -154,46 +154,11 @@ func TestWriteStatusJSON(t *testing.T) {
 		"state_sync_verify",
 		"state_sync_snapshot_chunks",
 		"state_sync_historical_replay",
-		"web3_receipt_roots",
-		"web3_ethereum_trie_roots",
-		"web3_prestate_and_4byte_tracers",
 		"staking_tombstone_ledger",
 		"ibc_ordering_validation",
-		"web3_global_log_filters",
-		"web3_prefix_log_index",
-		"web3_filter_limit",
-		"web3_geth_compat_methods",
-		"web3_txpool_debug_trace",
-		"web3_trace_api",
-		"web3_access_list_call_trace",
-		"web3_raw_tx_access_list_prewarm",
-		"web3_call_vm_trace_state_diff",
-		"web3_raw_tx_replay_trace",
-		"web3_pending_tx_compat",
-		"web3_safe_finalized_tags",
-		"web3_jsonrpc_batch_notifications",
-		"web3_eip1898_block_selectors",
-		"web3_post_merge_block_fields",
-		"web3_block_scan_tx_lookup",
-		"web3_receipt_trace_block_fallback",
-		"web3_ws_full_pending_transactions",
-		"evm_geth_vm_adapter",
-		"evm_ethereum_raw_tx",
-		"evm_storage_writes",
-		"evm_code_writes",
-		"evm_nonce_writes",
-		"evm_selfdestruct_account_deletion",
-		"evm_actual_gas_accounting",
-		"web3_call_block_context",
-		"web3_historical_code_storage",
-		"web3_historical_account_state",
-		"web3_txpool_pending_queued",
-		"web3_receipt_location_index",
-		"web3_replay_state_diff",
 		"execution_context_aware_app_calls",
 		"validator_update_atomic_commit",
 		"staking_slashing_ledger",
-		"mempool_seen_cache_pruning",
 		"ops_metrics_uptime",
 		"ops_pprof_optional",
 		"ops_structured_logs",
@@ -213,7 +178,6 @@ func TestWriteStatusJSON(t *testing.T) {
 		"consensus_app_hash_evidence",
 		"consensus_tx_validity_evidence",
 		"crypto_remote_signer_verification",
-		"crypto_bls_adapter_required",
 	}
 	for _, feature := range expectedFeatures {
 		if !document.Features[feature] {
@@ -225,5 +189,48 @@ func TestWriteStatusJSON(t *testing.T) {
 	}
 	if document.OperationalHints.PeerMetricsLocation != "node.Status().Peers" {
 		t.Fatalf("unexpected operational hints: %+v", document.OperationalHints)
+	}
+	if document.Features["mempool_seen_cache_pruning"] ||
+		document.Features["crypto_bls_adapter_required"] ||
+		document.Features["web3_geth_compat_methods"] ||
+		document.Features["evm_geth_vm_adapter"] {
+		t.Fatalf("expected optional features disabled by default: %+v", document.Features)
+	}
+}
+
+func TestStatusFeaturesReflectConfiguredModules(t *testing.T) {
+	cfg := config.Default("vexo-test")
+	features := statusFeatures(cfg)
+	evmFeatures := []string{
+		"web3_geth_compat_methods",
+		"web3_trace_api",
+		"evm_geth_vm_adapter",
+		"evm_ethereum_raw_tx",
+	}
+	for _, feature := range evmFeatures {
+		if features[feature] {
+			t.Fatalf("expected EVM feature %q disabled without evm module", feature)
+		}
+	}
+	if !features["staking_slashing_ledger"] || !features["ibc_ordering_validation"] {
+		t.Fatalf("expected configured staking/ibc features enabled: %+v", features)
+	}
+
+	cfg.Application.Modules = append(cfg.Application.Modules, "evm")
+	features = statusFeatures(cfg)
+	for _, feature := range evmFeatures {
+		if !features[feature] {
+			t.Fatalf("expected EVM feature %q enabled with evm module", feature)
+		}
+	}
+	if features["crypto_bls_production_adapter"] {
+		t.Fatalf("expected BLS production feature disabled on deterministic backend")
+	}
+
+	cfg.Crypto.Backend = config.CryptoBackendBLS
+	cfg.Crypto.ProductionAdapter = true
+	features = statusFeatures(cfg)
+	if !features["crypto_bls_adapter_required"] || !features["crypto_bls_production_adapter"] {
+		t.Fatalf("expected BLS features enabled for production BLS backend: %+v", features)
 	}
 }

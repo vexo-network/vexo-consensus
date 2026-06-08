@@ -1,0 +1,8 @@
+{
+  "schema_version": "v1",
+  "canonical_locale": "en",
+  "locales": ["en", "ko", "zh", "ja", "fr", "de", "es", "pt", "ru", "ar", "hi", "id", "vi"],
+  "top_level_documents": ["README.md", "consensus-protocol.md"],
+  "document_sets": ["operators", "release", "sdk", "security", "specs"],
+  "policy": "Each locale directory mirrors the canonical English document tree. Commands, config keys, RPC methods, and code identifiers must remain unchanged across translations."
+}

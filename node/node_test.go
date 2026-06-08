@@ -488,7 +488,7 @@ func TestNodeReplayRangeRestoresLatestState(t *testing.T) {
 	}
 }
 
-func TestNodeReplayAllAfterPrune(t *testing.T) {
+func TestNodeReplayAllAfterPruneRequiresStrictReplaySource(t *testing.T) {
 	node := newTestNode(t)
 	if err := node.Start(context.Background()); err != nil {
 		t.Fatal(err)
@@ -511,12 +511,9 @@ func TestNodeReplayAllAfterPrune(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := node.ReplayAll(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.FromHeight != 3 || result.ToHeight != 4 || result.Blocks != 2 || result.LastHash == (types.Hash{}) {
-		t.Fatalf("unexpected replay all result after prune: %+v", result)
+	_, err = node.ReplayAll(context.Background())
+	if !errors.Is(err, vexoruntime.ErrReplayRequiresGenesisStart) {
+		t.Fatalf("expected strict replay source error after prune, got %v", err)
 	}
 }
 

@@ -166,7 +166,7 @@ func buildAuditPackDocument() auditPackDocument {
 			"release checksums, signed checksums, SBOM, release manifest, and Docker image metadata",
 		},
 		ReviewerNotes: []string{
-			"BLS has a built-in CIRCL-backed adapter path and custom adapter hooks; auditors should still verify dependency, subgroup, rogue-key, and proof-of-possession evidence.",
+			"BLS has a reference CIRCL-backed integration and custom adapter hooks; value-bearing networks must link a separately audited adapter and verify dependency, subgroup, rogue-key, and proof-of-possession evidence.",
 			"External auditors should treat deterministic crypto as unsafe for public value-bearing networks.",
 			"Long-running tests should be executed on independent hosts for network partition coverage.",
 		},

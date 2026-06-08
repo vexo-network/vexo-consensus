@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -76,6 +78,10 @@ type startRuntimeConfig struct {
 	P2PMaxMessageBytes      uint64
 	P2PMaxPeers             int
 	P2PAuthToken            string
+	P2PTLSCertPath          string
+	P2PTLSKeyPath           string
+	P2PTLSCAPath            string
+	P2PTLSServerName        string
 	AddrBookPath            string
 	AddrBookMaxFailures     int
 }
@@ -589,6 +595,10 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 		P2PMaxMessageBytes:   runtime.P2P.MaxMessageBytes,
 		P2PMaxPeers:          runtime.P2P.MaxPeers,
 		P2PAuthToken:         runtime.P2P.AuthToken,
+		P2PTLSCertPath:       resolveOptionalPath(home, runtime.P2P.TLSCertPath),
+		P2PTLSKeyPath:        resolveOptionalPath(home, runtime.P2P.TLSKeyPath),
+		P2PTLSCAPath:         resolveOptionalPath(home, runtime.P2P.TLSCAPath),
+		P2PTLSServerName:     runtime.P2P.TLSServerName,
 		AddrBookPath:         resolveAddrBookPath(home, runtime.P2P.AddrBookPath),
 		AddrBookMaxFailures:  runtime.P2P.AddrBookMaxFails,
 		P2PPeers:             stringPeerMap(runtime.P2P.Peers),
@@ -708,6 +718,10 @@ func runtimeConfigIsZero(runtime runtimeConfig) bool {
 		runtime.P2P.MaxMessageBytes == 0 &&
 		runtime.P2P.MaxPeers == 0 &&
 		runtime.P2P.AuthToken == "" &&
+		runtime.P2P.TLSCertPath == "" &&
+		runtime.P2P.TLSKeyPath == "" &&
+		runtime.P2P.TLSCAPath == "" &&
+		runtime.P2P.TLSServerName == "" &&
 		runtime.P2P.AddrBookPath == "" &&
 		runtime.P2P.AddrBookMaxFails == 0 &&
 		len(runtime.P2P.Peers) == 0 &&
@@ -735,6 +749,19 @@ func signerFromKeyDocuments(documents []vexocrypto.KeyDocument) (vexocrypto.Sign
 }
 
 func resolveRotationKeyPath(home string, path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	if home == "" {
+		home = defaultHomeDir
+	}
+	return filepath.Join(home, path)
+}
+
+func resolveOptionalPath(home string, path string) string {
+	if path == "" {
+		return ""
+	}
 	if filepath.IsAbs(path) {
 		return path
 	}
@@ -818,6 +845,10 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 	if networkID == "" {
 		networkID = inputs.Config.Chain.ChainID
 	}
+	tlsConfig, err := loadP2PTLSConfig(runtimeConfig)
+	if err != nil {
+		return nil, err
+	}
 	addrBook, err := p2p.OpenAddrBookWithPolicy(runtimeConfig.AddrBookPath, runtimeConfig.AddrBookMaxFailures)
 	if err != nil {
 		return nil, err
@@ -839,6 +870,7 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 		MaxMessageBytes: runtimeConfig.P2PMaxMessageBytes,
 		MaxPeers:        runtimeConfig.P2PMaxPeers,
 		AuthToken:       runtimeConfig.P2PAuthToken,
+		TLSConfig:       tlsConfig,
 		PeerLearned: func(peerID p2p.PeerID, address string) {
 			addrBook.Add(peerID, address, "handshake", false)
 			_ = addrBook.Save()
@@ -869,6 +901,43 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 		return nil, err
 	}
 	return grpcTransport, nil
+}
+
+func loadP2PTLSConfig(runtimeConfig startRuntimeConfig) (*tls.Config, error) {
+	if runtimeConfig.P2PTLSCertPath == "" &&
+		runtimeConfig.P2PTLSKeyPath == "" &&
+		runtimeConfig.P2PTLSCAPath == "" &&
+		runtimeConfig.P2PTLSServerName == "" {
+		return nil, nil
+	}
+	if (runtimeConfig.P2PTLSCertPath == "") != (runtimeConfig.P2PTLSKeyPath == "") {
+		return nil, errors.New("p2p tls cert and key must be configured together")
+	}
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		ServerName: runtimeConfig.P2PTLSServerName,
+	}
+	if runtimeConfig.P2PTLSCertPath != "" {
+		certificate, err := tls.LoadX509KeyPair(runtimeConfig.P2PTLSCertPath, runtimeConfig.P2PTLSKeyPath)
+		if err != nil {
+			return nil, err
+		}
+		tlsConfig.Certificates = []tls.Certificate{certificate}
+	}
+	if runtimeConfig.P2PTLSCAPath != "" {
+		caBytes, err := os.ReadFile(runtimeConfig.P2PTLSCAPath)
+		if err != nil {
+			return nil, err
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caBytes) {
+			return nil, errors.New("p2p tls ca file does not contain PEM certificates")
+		}
+		tlsConfig.RootCAs = pool
+		tlsConfig.ClientCAs = pool
+		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+	return tlsConfig, nil
 }
 
 func mergePeerMaps(peerMaps ...map[p2p.PeerID]string) map[p2p.PeerID]string {
