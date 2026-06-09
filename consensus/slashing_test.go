@@ -56,6 +56,32 @@ func TestSubmitEvidenceForSlashingReducesValidatorPower(t *testing.T) {
 	}
 }
 
+func TestSubmitEvidenceForSlashingRejectsUnappliedRegistryMutation(t *testing.T) {
+	signer := testEvidenceSigner(t, "a")
+	baseRegistry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{
+		{ID: "a", Address: "a", VotingPower: 100, Stake: 100, PublicKey: signer.PublicKey()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := stalePowerRegistry{InMemoryRegistry: baseRegistry}
+	keeper := slashing.NewInMemoryKeeper(slashing.PenaltyPolicy{
+		slashing.EvidenceConflictingVote: {SlashFraction: "0.25", JailDuration: 30},
+	})
+	evidence, err := NewConflictingVoteEvidence(
+		signedTestVote(t, signer, "a", 1, 0, types.Hash{1}),
+		signedTestVote(t, signer, "a", 1, 0, types.Hash{2}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence)
+	if !errors.Is(err, ErrSlashingRegistryMismatch) {
+		t.Fatalf("expected unapplied registry mutation rejection, got %v", err)
+	}
+}
+
 func TestSubmitEvidenceForSlashingRejectsTamperedEvidence(t *testing.T) {
 	signer := testEvidenceSigner(t, "a")
 	registry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{
@@ -946,4 +972,12 @@ func signedFinalityConflictProof(t *testing.T, set validator.Set, signers map[ty
 	}
 	proof.QuorumCert.Signature = aggregate
 	return proof
+}
+
+type stalePowerRegistry struct {
+	*validator.InMemoryRegistry
+}
+
+func (registry stalePowerRegistry) UpdateVotingPowerAt(ctx context.Context, height types.Height, id types.ValidatorID, power types.VotingPower) error {
+	return nil
 }

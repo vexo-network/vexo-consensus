@@ -77,6 +77,9 @@ type InvalidProposalVerificationContext struct {
 	ExpectedValidatorSetHash types.Hash
 	ExpectedAppHash          types.Hash
 	ExpectedTxResultsHash    types.Hash
+	ExpectedTxResults        []types.Result
+	ActualTxResults          []types.Result
+	TxIndex                  uint64
 	ContextProofHash         types.Hash
 	ChainID                  string
 	ExpectedStateRoot        types.Hash
@@ -92,6 +95,9 @@ func (context InvalidProposalVerificationContext) ProofHash() types.Hash {
 	if context.ExpectedValidatorSetHash == (types.Hash{}) &&
 		context.ExpectedAppHash == (types.Hash{}) &&
 		context.ExpectedTxResultsHash == (types.Hash{}) &&
+		len(context.ExpectedTxResults) == 0 &&
+		len(context.ActualTxResults) == 0 &&
+		context.TxIndex == 0 &&
 		context.ExpectedStateRoot == (types.Hash{}) &&
 		context.ChainID == "" &&
 		context.ExpectedProofNamespace == "" &&
@@ -128,6 +134,13 @@ func (context InvalidProposalVerificationContext) ProofHash() types.Hash {
 		writeResultUint64(hasher, 0)
 	}
 	writeResultUint64(hasher, uint64(context.ExpectedTimeUnixNano))
+	if len(context.ExpectedTxResults) > 0 || len(context.ActualTxResults) > 0 {
+		expectedResultsHash := HashTxResults(context.ExpectedTxResults)
+		actualResultsHash := HashTxResults(context.ActualTxResults)
+		hasher.Write(expectedResultsHash[:])
+		hasher.Write(actualResultsHash[:])
+		writeResultUint64(hasher, context.TxIndex)
+	}
 	var out types.Hash
 	copy(out[:], hasher.Sum(nil))
 	return out
@@ -368,7 +381,20 @@ func NewInvalidProposalEvidenceWithContext(proposal Proposal, context InvalidPro
 	case InvalidProposalReasonAppHash:
 		return NewInvalidProposalHashEvidence(proposal, string(reason), context.ExpectedAppHash, actual)
 	case InvalidProposalReasonTxValidity:
-		return slashing.Evidence{}, ErrInvalidProposal
+		expectedResultsHash := context.ExpectedTxResultsHash
+		if expectedResultsHash == (types.Hash{}) && len(context.ExpectedTxResults) > 0 {
+			expectedResultsHash = HashTxResults(context.ExpectedTxResults)
+		}
+		if expectedResultsHash == (types.Hash{}) ||
+			len(context.ExpectedTxResults) == 0 ||
+			len(context.ActualTxResults) == 0 {
+			return slashing.Evidence{}, ErrInvalidProposalContext
+		}
+		actualResultsHash := HashTxResults(context.ActualTxResults)
+		if actual != (types.Hash{}) && actual != actualResultsHash {
+			return slashing.Evidence{}, ErrInvalidProposal
+		}
+		return NewInvalidProposalTxExecutionEvidence(proposal, context.ExpectedTxResults, context.ActualTxResults, context.TxIndex, message)
 	case InvalidProposalReasonTimestamp:
 		return NewInvalidProposalTimestampEvidence(proposal, context.ExpectedTimeUnixNano, proposal.Block.Header.TimeUnixNano)
 	case InvalidProposalReasonDAMismatch, InvalidProposalReasonMissingData:

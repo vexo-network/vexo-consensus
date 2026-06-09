@@ -79,6 +79,32 @@ func TestVerifierRejectsMissingValidatorSetHeight(t *testing.T) {
 	}
 }
 
+func TestVerifierAcceptsHistoricalValidatorSetHeight(t *testing.T) {
+	set := testValidatorSet(t, []validator.Validator{{ID: "a", VotingPower: 1, PublicKey: []byte("a-pub")}})
+	proof := validProof(set, []types.ValidatorID{"a"})
+	proof.Header.Height = 10
+	proof.ValidatorSetHeight = 7
+	proof.QuorumCert.Height = proof.Header.Height
+	proof.QuorumCert.BlockHash = proof.HeaderHash()
+	proof.BlockHash = proof.QuorumCert.BlockHash
+
+	err := NewVerifier(set, acceptSignatureVerifier{}).VerifyFinalityProof(proof)
+	if err != nil {
+		t.Fatalf("expected historical validator set height to verify, got %v", err)
+	}
+}
+
+func TestVerifierRejectsFutureValidatorSetHeight(t *testing.T) {
+	set := testValidatorSet(t, []validator.Validator{{ID: "a", VotingPower: 1, PublicKey: []byte("a-pub")}})
+	proof := validProof(set, []types.ValidatorID{"a"})
+	proof.ValidatorSetHeight = proof.Header.Height + 1
+
+	err := NewVerifier(set, acceptSignatureVerifier{}).VerifyFinalityProof(proof)
+	if !errors.Is(err, ErrHeightMismatch) {
+		t.Fatalf("expected future validator set height rejection, got %v", err)
+	}
+}
+
 func TestRegistryVerifierLoadsValidatorSetAtProofHeight(t *testing.T) {
 	registry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{
 		{ID: "a", VotingPower: 1, PublicKey: []byte("a-pub")},
@@ -222,6 +248,8 @@ func TestHasQuorum(t *testing.T) {
 		{power: 2, total: 3, expected: true},
 		{power: 6, total: 7, expected: true},
 		{power: 4, total: 7, expected: false},
+		{power: ^types.VotingPower(0), total: ^types.VotingPower(0), expected: true},
+		{power: ^types.VotingPower(0)/3*2 + 1, total: ^types.VotingPower(0), expected: true},
 	}
 	for _, testCase := range cases {
 		if got := HasQuorum(testCase.power, testCase.total); got != testCase.expected {

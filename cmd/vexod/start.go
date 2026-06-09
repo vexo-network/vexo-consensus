@@ -29,8 +29,9 @@ import (
 )
 
 const (
-	defaultRPCAddress = "127.0.0.1:26657"
-	defaultP2PAddress = "127.0.0.1:26656"
+	defaultRPCAddress      = "127.0.0.1:26657"
+	defaultP2PAddress      = "127.0.0.1:26656"
+	defaultShutdownTimeout = 10 * time.Second
 )
 
 type startPlanDocument struct {
@@ -61,6 +62,7 @@ type startRuntimeConfig struct {
 	RPCAdminTokens          map[string][]string
 	RPCEnablePprof          bool
 	RPCRequestTimeout       time.Duration
+	ShutdownTimeout         time.Duration
 	RPCMaxRequestBytes      int64
 	RPCRateLimitWindow      time.Duration
 	RPCRateLimitMaxRequests int
@@ -109,6 +111,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	rpcAdminToken := flags.String("rpc-admin-token", "", "admin token required for protected RPC endpoints")
 	rpcEnablePprof := flags.Bool("rpc-pprof", false, "enable net/http/pprof endpoints under /debug/pprof")
 	rpcRequestTimeout := flags.Duration("rpc-request-timeout", 0, "HTTP RPC request timeout")
+	shutdownTimeout := flags.Duration("shutdown-timeout", 0, "bounded graceful shutdown timeout")
 	rpcMaxRequestBytes := flags.Int64("rpc-max-request-bytes", 0, "maximum HTTP RPC request body bytes")
 	rpcRateLimitWindow := flags.Duration("rpc-rate-limit-window", 0, "HTTP RPC rate limit window")
 	rpcRateLimitMaxRequests := flags.Int("rpc-rate-limit-max", 0, "maximum HTTP RPC requests per client per window")
@@ -157,6 +160,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 		rpcAdminToken:           *rpcAdminToken,
 		rpcEnablePprof:          *rpcEnablePprof,
 		rpcRequestTimeout:       *rpcRequestTimeout,
+		shutdownTimeout:         *shutdownTimeout,
 		rpcMaxRequestBytes:      *rpcMaxRequestBytes,
 		rpcRateLimitWindow:      *rpcRateLimitWindow,
 		rpcRateLimitMaxRequests: *rpcRateLimitMaxRequests,
@@ -208,6 +212,7 @@ type startFlagValues struct {
 	rpcAdminToken           string
 	rpcEnablePprof          bool
 	rpcRequestTimeout       time.Duration
+	shutdownTimeout         time.Duration
 	rpcMaxRequestBytes      int64
 	rpcRateLimitWindow      time.Duration
 	rpcRateLimitMaxRequests int
@@ -267,6 +272,7 @@ var runtimeConfigOnlyStartFlags = map[string]string{
 	"rpc-rate-limit-max":        "network_config.json:rpc.rate_limit_max_requests",
 	"rpc-rate-limit-window":     "network_config.json:rpc.rate_limit_window",
 	"rpc-request-timeout":       "network_config.json:rpc.request_timeout",
+	"shutdown-timeout":          "network_config.json:rpc.shutdown_timeout",
 	"timeout-commit":            "consensus_config.json:consensus.timeout_commit",
 	"timeout-precommit":         "consensus_config.json:consensus.timeout_precommit",
 	"timeout-prevote":           "consensus_config.json:consensus.timeout_prevote",
@@ -294,6 +300,9 @@ func applyStartFlagOverrides(cfg *startRuntimeConfig, visited map[string]bool, v
 	}
 	if visited["rpc-request-timeout"] {
 		cfg.RPCRequestTimeout = values.rpcRequestTimeout
+	}
+	if visited["shutdown-timeout"] {
+		cfg.ShutdownTimeout = values.shutdownTimeout
 	}
 	if visited["rpc-max-request-bytes"] {
 		cfg.RPCMaxRequestBytes = values.rpcMaxRequestBytes
@@ -410,7 +419,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 	consensusLoopStarted := false
 	if runtimeConfig.ConsensusLoopEnabled {
 		if err := node.StartConsensusLoop(ctx, runtimeConfig.ConsensusLoop); err != nil {
-			_ = node.Stop(context.Background())
+			_ = withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop)
 			return err
 		}
 		consensusLoopStarted = true
@@ -434,7 +443,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			EVMAccountPrivateKeys:    runtimeConfig.RPCEVMAccountKeys,
 		}, serverErr)
 		if err != nil {
-			_ = node.Stop(context.Background())
+			_ = withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop)
 			return err
 		}
 		rpcShutdown = shutdown
@@ -447,23 +456,36 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 	select {
 	case <-ctx.Done():
 	case err := <-serverErr:
-		_ = node.Stop(context.Background())
+		_ = withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop)
 		return err
 	}
 	logEvent("shutdown_requested", map[string]any{"chain_id": inputs.Plan.ChainID})
 	if consensusLoopStarted {
-		if err := node.StopConsensusLoop(context.Background()); err != nil && err != vexonode.ErrLoopNotRunning {
+		if err := withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.StopConsensusLoop); err != nil && err != vexonode.ErrLoopNotRunning {
 			return err
 		}
 	}
-	if err := rpcShutdown(context.Background()); err != nil {
+	if err := withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, rpcShutdown); err != nil {
 		return err
 	}
-	if err := node.Stop(context.Background()); err != nil {
+	if err := withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop); err != nil {
 		return err
 	}
 	logEvent("node_stopped", map[string]any{"chain_id": inputs.Plan.ChainID})
 	return nil
+}
+
+func withShutdownContext(parent context.Context, timeout time.Duration, run func(context.Context) error) error {
+	if timeout <= 0 {
+		timeout = defaultShutdownTimeout
+	}
+	base := context.Background()
+	if parent != nil && parent.Err() == nil {
+		base = parent
+	}
+	ctx, cancel := context.WithTimeout(base, timeout)
+	defer cancel()
+	return run(ctx)
 }
 
 func newOperationalLogger(writer io.Writer, format string, level string) vexonode.EventLogger {
@@ -640,6 +662,7 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 		RPCAdminTokens:        cloneStringSliceMap(runtime.RPC.AdminTokens),
 		RPCEnablePprof:        runtime.RPC.EnablePprof,
 		RPCMaxRequestBytes:    runtime.RPC.MaxRequestBytes,
+		ShutdownTimeout:       defaultShutdownTimeout,
 		RPCEVMManagedAccounts: runtime.RPC.EVMManagedAccounts,
 		RPCEVMAccountKeys:     append([]string(nil), runtime.RPC.EVMAccountPrivateKeys...),
 		P2PEnabled:            runtime.P2P.Enabled,
@@ -694,6 +717,16 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 			return startRuntimeConfig{}, fmt.Errorf("runtime.rpc.request_timeout: %w", err)
 		}
 		cfg.RPCRequestTimeout = duration
+	}
+	if runtime.RPC.ShutdownTimeout != "" {
+		duration, err := time.ParseDuration(runtime.RPC.ShutdownTimeout)
+		if err != nil {
+			return startRuntimeConfig{}, fmt.Errorf("runtime.rpc.shutdown_timeout: %w", err)
+		}
+		if duration <= 0 {
+			return startRuntimeConfig{}, fmt.Errorf("runtime.rpc.shutdown_timeout: %w", vexoconfig.ErrInvalidConfig)
+		}
+		cfg.ShutdownTimeout = duration
 	}
 	if runtime.RPC.RateLimitWindow != "" {
 		duration, err := time.ParseDuration(runtime.RPC.RateLimitWindow)
@@ -810,6 +843,7 @@ func runtimeConfigIsZero(runtime runtimeConfig) bool {
 		runtime.RPC.AdminToken == "" &&
 		runtime.RPC.EnablePprof == false &&
 		runtime.RPC.RequestTimeout == "" &&
+		runtime.RPC.ShutdownTimeout == "" &&
 		runtime.RPC.MaxRequestBytes == 0 &&
 		runtime.RPC.RateLimitWindow == "" &&
 		runtime.RPC.RateLimitMaxRequests == 0 &&

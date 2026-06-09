@@ -3,6 +3,7 @@ package finality
 import (
 	"context"
 	"errors"
+	"math/bits"
 
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -88,7 +89,7 @@ func (verifier Verifier) VerifyFinalityProofWithContext(ctx context.Context, pro
 	if proof.ValidatorSetHash != verifier.validatorSet.Hash() || proof.Header.ValidatorSetHash != verifier.validatorSet.Hash() {
 		return ErrValidatorSetMismatch
 	}
-	if proof.ValidatorSetHeight == 0 || proof.ValidatorSetHeight != proof.Header.Height {
+	if proof.ValidatorSetHeight == 0 || proof.ValidatorSetHeight > proof.Header.Height {
 		return ErrHeightMismatch
 	}
 	if proof.QuorumCert.Height != proof.Header.Height {
@@ -141,5 +142,20 @@ func HasQuorum(power types.VotingPower, total types.VotingPower) bool {
 	if total == 0 {
 		return false
 	}
-	return power*3 >= total*2
+	threshold := quorumThreshold(total)
+	return power >= threshold
+}
+
+func quorumThreshold(total types.VotingPower) types.VotingPower {
+	base := total / 3 * 2
+	remainder := total % 3
+	extra := types.VotingPower(0)
+	if remainder > 0 {
+		extra = types.VotingPower((uint64(remainder)*2 + 2) / 3)
+	}
+	threshold, carry := bits.Add64(uint64(base), uint64(extra), 0)
+	if carry != 0 {
+		return ^types.VotingPower(0)
+	}
+	return types.VotingPower(threshold)
 }

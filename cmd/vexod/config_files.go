@@ -145,6 +145,7 @@ type runtimeRPCConfig struct {
 	AdminTokens           map[string][]string `json:"admin_tokens,omitempty"`
 	EnablePprof           bool                `json:"enable_pprof,omitempty"`
 	RequestTimeout        string              `json:"request_timeout,omitempty"`
+	ShutdownTimeout       string              `json:"shutdown_timeout,omitempty"`
 	MaxRequestBytes       int64               `json:"max_request_bytes,omitempty"`
 	RateLimitWindow       string              `json:"rate_limit_window,omitempty"`
 	RateLimitMaxRequests  int                 `json:"rate_limit_max_requests,omitempty"`
@@ -1560,8 +1561,9 @@ func defaultRuntimeConfig(validatorID string) runtimeConfig {
 	loopEnabled := validatorID != ""
 	return runtimeConfig{
 		RPC: runtimeRPCConfig{
-			Enabled: true,
-			Address: defaultRPCAddress,
+			Enabled:         true,
+			Address:         defaultRPCAddress,
+			ShutdownTimeout: "10s",
 		},
 		P2P: runtimeP2PConfig{
 			Enabled:          true,

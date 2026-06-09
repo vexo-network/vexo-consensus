@@ -706,6 +706,30 @@ func TestLoadStartRuntimeConfigAllowsDisablingOperationalEventLogs(t *testing.T)
 	}
 }
 
+func TestLoadStartRuntimeConfigParsesShutdownTimeout(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, configFileName)
+	document := defaultConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	networkDocument := defaultNetworkConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	networkDocument.RPC.ShutdownTimeout = "3s"
+	writeTestJSON(t, path, document)
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+
+	cfg, err := loadStartRuntimeConfig(home, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ShutdownTimeout != 3*time.Second {
+		t.Fatalf("expected shutdown timeout 3s, got %s", cfg.ShutdownTimeout)
+	}
+
+	networkDocument.RPC.ShutdownTimeout = "0s"
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrInvalidConfig) {
+		t.Fatalf("expected invalid zero shutdown timeout, got %v", err)
+	}
+}
+
 func TestLoadStartRuntimeConfigParsesConsensusTimeoutsAndEmptyBlocks(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, configFileName)

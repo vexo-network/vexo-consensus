@@ -357,6 +357,82 @@ func TestInvalidProposalTxValidityEvidenceRequiresResultHashContext(t *testing.T
 	}
 }
 
+func TestInvalidProposalTxValidityEvidenceWithContextBuildsExecutionProof(t *testing.T) {
+	proposal := Proposal{
+		Block: types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: 7},
+			Txs:    []types.Tx{[]byte("bad-tx")},
+		},
+		Round:    1,
+		Proposer: "validator-1",
+	}
+	expectedResults := []types.Result{{Code: 1, Log: "ante rejected tx"}}
+	actualResults := []types.Result{{Code: 0, Log: "accepted"}}
+	expectedHash := HashTxResults(expectedResults)
+
+	evidence, err := NewInvalidProposalEvidenceWithContext(
+		proposal,
+		InvalidProposalVerificationContext{
+			ExpectedTxResultsHash: expectedHash,
+			ExpectedTxResults:     expectedResults,
+			ActualTxResults:       actualResults,
+			TxIndex:               0,
+		},
+		InvalidProposalReasonTxValidity,
+		HashTxResults(actualResults),
+		"ante rejected tx",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedTxResultsHash: expectedHash}); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeInvalidProposalProof(evidence.Proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.ExecutionProof == nil || decoded.ExecutionProof.TxIndex != 0 {
+		t.Fatalf("expected tx execution proof, got %+v", decoded.ExecutionProof)
+	}
+
+	_, err = NewInvalidProposalEvidenceWithContext(
+		proposal,
+		InvalidProposalVerificationContext{
+			ExpectedTxResultsHash: expectedHash,
+			ExpectedTxResults:     expectedResults,
+			ActualTxResults:       actualResults,
+			TxIndex:               0,
+		},
+		InvalidProposalReasonTxValidity,
+		types.Hash{9},
+		"ante rejected tx",
+	)
+	if !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected actual tx result hash mismatch rejection, got %v", err)
+	}
+}
+
+func TestInvalidProposalTxValidityEvidenceWithContextRequiresResults(t *testing.T) {
+	proposal := Proposal{
+		Block: types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: 7},
+			Txs:    []types.Tx{[]byte("bad-tx")},
+		},
+		Proposer: "validator-1",
+	}
+	_, err := NewInvalidProposalEvidenceWithContext(
+		proposal,
+		InvalidProposalVerificationContext{ExpectedTxResultsHash: types.Hash{1}},
+		InvalidProposalReasonTxValidity,
+		types.Hash{2},
+		"ante rejected tx",
+	)
+	if !errors.Is(err, ErrInvalidProposalContext) {
+		t.Fatalf("expected missing result arrays to be rejected, got %v", err)
+	}
+}
+
 func TestInvalidProposalTxExecutionEvidenceBindsResultArrays(t *testing.T) {
 	proposal := Proposal{
 		Block: types.Block{

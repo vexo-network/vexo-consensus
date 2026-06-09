@@ -96,6 +96,8 @@ Node homes use separate config files so operators can edit one subsystem without
 - `log_config.json` contains log format, level, block commit event logging, and peer event logging.
 - `genesis.json` contains immutable genesis validators, validator metadata, and genesis module state.
 
+`network_config.json` RPC settings also include `shutdown_timeout`. This bounds graceful shutdown for the consensus loop, RPC server, and node transport so operators do not wait forever on a stuck stop path. The generated default is `10s`.
+
 ## Key Types
 
 Validator init supports `--key-type ed25519` and `--key-type bls`, and `--encrypt-keys` should be used for any non-throwaway node home. Standalone key generation also supports VRF keys:

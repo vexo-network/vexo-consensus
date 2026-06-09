@@ -18,6 +18,7 @@ var (
 	ErrUnsupportedEvidenceProof        = errors.New("unsupported evidence proof")
 	ErrInvalidEvidenceVoteSignature    = errors.New("invalid evidence vote signature")
 	ErrInvalidEvidenceTimeoutSignature = errors.New("invalid evidence timeout vote signature")
+	ErrSlashingRegistryMismatch        = errors.New("slashing registry state does not match penalty receipt")
 )
 
 type SlashResult struct {
@@ -122,6 +123,9 @@ func SubmitEvidenceForSlashingWithContext(ctx context.Context, keeper SlashingKe
 				return SlashResult{}, err
 			}
 		}
+		if err := verifySlashingRegistryApplication(ctx, registry, applyHeight, evidence.Validator, receipt.RemainingPower); err != nil {
+			return SlashResult{}, err
+		}
 	}
 
 	return SlashResult{
@@ -129,6 +133,24 @@ func SubmitEvidenceForSlashingWithContext(ctx context.Context, keeper SlashingKe
 		PreviousPower:  receipt.PreviousPower,
 		RemainingPower: receipt.RemainingPower,
 	}, nil
+}
+
+func verifySlashingRegistryApplication(ctx context.Context, registry validator.VersionedRegistry, applyHeight types.Height, validatorID types.ValidatorID, remainingPower types.VotingPower) error {
+	set, err := registry.ValidatorSet(ctx, applyHeight)
+	if err != nil {
+		return err
+	}
+	validatorInfo, found := set.Get(validatorID)
+	if remainingPower == 0 {
+		if found {
+			return ErrSlashingRegistryMismatch
+		}
+		return nil
+	}
+	if !found || validatorInfo.VotingPower != remainingPower {
+		return ErrSlashingRegistryMismatch
+	}
+	return nil
 }
 
 func penaltyReceipt(ctx context.Context, keeper SlashingKeeper, evidence slashing.Evidence) (slashing.PenaltyReceipt, bool, error) {
