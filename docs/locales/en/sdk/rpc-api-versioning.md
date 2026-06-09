@@ -153,12 +153,14 @@ The bridge supports single requests, batch requests, notifications, string block
 - `eth_chainId`, `net_version`, and signed raw transaction validation use the configured execution `evm_chain_id`; nodes reject `0`.
 - `eth_sendRawTransaction` accepts signed Ethereum RLP/typed transactions, verifies sender and chain ID with go-ethereum signers, preserves the Ethereum transaction hash/access list/blob metadata, and translates the payload into the canonical internal `evm` transaction format.
 - Raw transaction admission and block execution both enforce fee-cap relationships, blob fee caps, protected legacy settings, and current base/blob-base fees. Mempool wrapper tags are not trusted at execution time.
+- Raw Ethereum transactions do not pay an additional ante-layer native fee. The geth-backed EVM state transition owns gas and value balance mutation, while the translated fee metadata remains available for block metrics and Web3 receipt reporting.
 
 ### Native Coin and State
 
 - Vexo native coin and EVM account balances are one asset. EVM balance writes persist to the canonical `bank` namespace, and `eth_getBalance`/`eth_getProof` reconstruct Ethereum account proofs from committed Vexo state.
 - The EVM module stores nonce writes in the canonical account sequence namespace and snapshots Ethereum account/code/storage state during `EndBlock` for retained historical Web3 reads.
 - Mixed Vexo module blocks use deterministic Vexo roots where Ethereum transaction/receipt trie roots would be misleading. Blocks containing only Ethereum raw transactions with EVM receipts compute Ethereum-style transaction and receipt roots with go-ethereum `DeriveSha`.
+- `eth_getTransactionReceipt` reports per-transaction `gasUsed` and block-relative `cumulativeGasUsed`; `eth_getBlockReceipts` returns the same receipt semantics for every EVM receipt in the block.
 - When `execution.strict_evm_state_root` is enabled, Web3 block responses and `newHeads` fail closed if a retained EVM state root is unavailable instead of substituting the Vexo app hash.
 
 ### Calls, Gas, and Traces

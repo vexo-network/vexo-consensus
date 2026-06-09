@@ -74,6 +74,8 @@ Common framework namespaces:
 
 When staged execution is available, module KV writes, block records, state records, and state roots are committed in one backend batch. If that batch fails, module KV writes are not applied.
 
+IBC packet send writes both the packet commitment and the next sequence. Stores that do not implement `BatchKVStore` must reject packet send instead of partially writing one key. Governance upgrade execution has the same fail-closed rule: if a proposal produces an upgrade plan, the governance state transition and upgrade plan records must be written through an atomic upgrade-plan store.
+
 For Ethereum-compatible `0x` account addresses, the built-in bank, staking, ante, and EVM paths normalize the key to a lowercase 20-byte hex address before reading or writing balance state. Legacy raw keys are still read as fallback, but new writes use the normalized key to avoid checksum/lowercase balance splits.
 
 The Web3 bridge reconstructs Ethereum account/storage tries from these committed namespaces:

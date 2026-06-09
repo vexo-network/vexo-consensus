@@ -4889,6 +4889,7 @@ func web3ReceiptObject(ctx context.Context, provider StatusProvider, value []byt
 		return nil, &JSONRPCError{Code: -32000, Message: "missing EVM receipt hash"}
 	}
 	blockHash, txIndex, _, _ := web3ReceiptBlockLocation(ctx, provider, receipt)
+	cumulativeGasUsed := web3CumulativeGasUsed(ctx, provider, receipt, txIndex)
 	to := any(receipt.To)
 	if receipt.To == "" {
 		to = nil
@@ -4908,7 +4909,7 @@ func web3ReceiptObject(ctx context.Context, provider StatusProvider, value []byt
 		"blockNumber":       hexQuantity(receipt.Height),
 		"from":              receipt.From,
 		"to":                to,
-		"cumulativeGasUsed": hexQuantity(receipt.GasUsed),
+		"cumulativeGasUsed": hexQuantity(cumulativeGasUsed),
 		"gasUsed":           hexQuantity(receipt.GasUsed),
 		"contractAddress":   contractAddress,
 		"logs":              logs,
@@ -5161,6 +5162,35 @@ func web3TransactionTypeFromReceipt(ctx context.Context, provider StatusProvider
 		return txType
 	}
 	return 0
+}
+
+func web3CumulativeGasUsed(ctx context.Context, provider StatusProvider, receipt web3Receipt, txIndex uint64) uint64 {
+	blockProvider, ok := provider.(BlockProvider)
+	if !ok || receipt.Height == 0 {
+		return receipt.GasUsed
+	}
+	record, err := blockProvider.BlockByHeight(ctx, types.Height(receipt.Height))
+	if err != nil {
+		return receipt.GasUsed
+	}
+	if txIndex >= uint64(len(record.TxResults)) {
+		return receipt.GasUsed
+	}
+	var cumulative uint64
+	for index := uint64(0); index <= txIndex; index++ {
+		gasUsed := record.TxResults[index].GasUsed
+		if parsed, ok := web3ReceiptFromResult(record.TxResults[index]); ok {
+			gasUsed = parsed.GasUsed
+		}
+		if ^uint64(0)-cumulative < gasUsed {
+			return ^uint64(0)
+		}
+		cumulative += gasUsed
+	}
+	if cumulative == 0 {
+		return receipt.GasUsed
+	}
+	return cumulative
 }
 
 func web3ReceiptBlockLocation(ctx context.Context, provider StatusProvider, receipt web3Receipt) (any, uint64, types.Tx, bool) {

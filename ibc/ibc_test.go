@@ -60,6 +60,19 @@ func TestKeeperPacketLifecycle(t *testing.T) {
 	}
 }
 
+func TestKeeperSendPacketRequiresAtomicStore(t *testing.T) {
+	ctx := context.Background()
+	keeper := NewKeeper(newNonBatchIBCStore())
+	setupOpenIBCPath(t, ctx, keeper, 10)
+	packet := Packet{Sequence: 1, SourcePort: "transfer", SourceChannel: "channel-0", DestinationPort: "transfer", DestinationChannel: "channel-1", Data: []byte("payload")}
+	if err := keeper.SendPacket(ctx, 11, packet); !errors.Is(err, ErrAtomicStoreRequired) {
+		t.Fatalf("expected atomic store requirement, got %v", err)
+	}
+	if _, found, err := keeper.PacketReceipt(ctx, packet); err != nil || found {
+		t.Fatalf("expected no partial packet receipt, found=%t err=%v", found, err)
+	}
+}
+
 func TestKeeperUpdatesClientAndVerifiesProof(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
@@ -434,4 +447,25 @@ func TestKeeperFreezesAndExpiresClients(t *testing.T) {
 	if err := keeper.VerifyClientProof(ctx, client.ClientID, proof); !errors.Is(err, ErrClientFrozen) {
 		t.Fatalf("expected frozen client proof rejection, got %v", err)
 	}
+}
+
+type nonBatchIBCStore struct {
+	values map[string][]byte
+}
+
+func newNonBatchIBCStore() *nonBatchIBCStore {
+	return &nonBatchIBCStore{values: make(map[string][]byte)}
+}
+
+func (memory *nonBatchIBCStore) Get(ctx context.Context, namespace string, key []byte) ([]byte, error) {
+	value, ok := memory.values[namespace+"\x00"+string(key)]
+	if !ok {
+		return nil, store.ErrKeyNotFound
+	}
+	return append([]byte(nil), value...), nil
+}
+
+func (memory *nonBatchIBCStore) Set(ctx context.Context, namespace string, key []byte, value []byte) error {
+	memory.values[namespace+"\x00"+string(key)] = append([]byte(nil), value...)
+	return nil
 }

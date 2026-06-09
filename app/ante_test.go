@@ -130,14 +130,14 @@ func TestAnteKeeperTracksEthereumNonceFromZero(t *testing.T) {
 	}
 }
 
-func TestAnteKeeperLetsEthereumRawTxOwnFeeAccounting(t *testing.T) {
+func TestAnteKeeperLetsEthereumRawTxOwnBalanceAccounting(t *testing.T) {
 	keeper := NewAnteKeeper(AnteConfig{BaseFee: 100, MinFee: 100, RequireNonce: true})
 	tx := types.Tx("evm:call:fee=1:gas=21000:signer=0x000000000000000000000000000000000000aaaa:nonce=0:eth_raw=0x01:eth_hash=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	if err := keeper.CheckTx(Context{}, tx); err != nil {
 		t.Fatalf("expected raw Ethereum tx to skip Vexo fee accounting: %v", err)
 	}
-	if keeper.FeePaid(tx) != 0 {
-		t.Fatalf("expected raw Ethereum fee to be reported by EVM receipt path, got %d", keeper.FeePaid(tx))
+	if keeper.FeePaid(tx) != 1 {
+		t.Fatalf("expected raw Ethereum fee metadata to be reported for block metrics, got %d", keeper.FeePaid(tx))
 	}
 }
 

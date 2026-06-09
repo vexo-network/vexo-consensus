@@ -72,8 +72,12 @@ func NewRemoteVRFAdapter(cfg config.VRFConfig) (VRFAdapter, error) {
 }
 
 func (adapter RemoteVRFAdapter) Prove(publicKey types.PublicKey, seed []byte) ([]byte, []byte, error) {
+	return adapter.ProveWithContext(context.Background(), publicKey, seed)
+}
+
+func (adapter RemoteVRFAdapter) ProveWithContext(ctx context.Context, publicKey types.PublicKey, seed []byte) ([]byte, []byte, error) {
 	var response remoteVRFProveResponse
-	if err := adapter.post(context.Background(), "/prove", remoteVRFProveRequest{
+	if err := adapter.post(ctx, "/prove", remoteVRFProveRequest{
 		PublicKey: base64.StdEncoding.EncodeToString(publicKey),
 		Seed:      base64.StdEncoding.EncodeToString(seed),
 	}, &response); err != nil {
@@ -91,8 +95,12 @@ func (adapter RemoteVRFAdapter) Prove(publicKey types.PublicKey, seed []byte) ([
 }
 
 func (adapter RemoteVRFAdapter) Verify(publicKey types.PublicKey, seed []byte, output []byte, proof []byte) bool {
+	return adapter.VerifyWithContext(context.Background(), publicKey, seed, output, proof)
+}
+
+func (adapter RemoteVRFAdapter) VerifyWithContext(ctx context.Context, publicKey types.PublicKey, seed []byte, output []byte, proof []byte) bool {
 	var response remoteVRFVerifyResponse
-	err := adapter.post(context.Background(), "/verify", remoteVRFVerifyRequest{
+	err := adapter.post(ctx, "/verify", remoteVRFVerifyRequest{
 		PublicKey: base64.StdEncoding.EncodeToString(publicKey),
 		Seed:      base64.StdEncoding.EncodeToString(seed),
 		Output:    base64.StdEncoding.EncodeToString(output),

@@ -12,7 +12,10 @@ import (
 
 const governanceNamespace = "governance"
 
-var ErrGovernanceStoreRequired = errors.New("governance store is required")
+var (
+	ErrGovernanceStoreRequired        = errors.New("governance store is required")
+	ErrAtomicUpgradePlanStoreRequired = errors.New("governance upgrade plans require atomic store")
+)
 
 type KVStore interface {
 	Set(ctx context.Context, namespace string, key []byte, value []byte) error
@@ -164,6 +167,7 @@ func (keeper *StoreKeeper) Execute(ctx context.Context, proposalID uint64) error
 			}
 			return atomicStore.SetWithUpgradePlans(ctx, governanceNamespace, []byte("state"), encoded, plans)
 		}
+		return ErrAtomicUpgradePlanStoreRequired
 	}
 	if err := keeper.save(ctx, updated); err != nil {
 		return err

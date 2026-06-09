@@ -1,8 +1,10 @@
 package crypto
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -70,5 +72,29 @@ func TestRemoteVRFAdapterProvesAndVerifiesThroughHTTP(t *testing.T) {
 		KeySource:         "remote-http:" + server.URL,
 	}); err != nil {
 		t.Fatalf("expected remote adapter metadata to validate: %v", err)
+	}
+}
+
+func TestRemoteVRFAdapterHonorsCanceledContext(t *testing.T) {
+	adapter, err := NewRemoteVRFAdapter(config.VRFConfig{
+		AdapterName:       VRFAdapterRemoteHTTPName,
+		ProductionAdapter: true,
+		AuditReport:       "remote-vrf-audit",
+		KeySource:         "remote-http:http://127.0.0.1:1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	remoteAdapter, ok := adapter.(RemoteVRFAdapter)
+	if !ok {
+		t.Fatalf("expected remote VRF adapter, got %T", adapter)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := remoteAdapter.ProveWithContext(ctx, types.PublicKey("public"), []byte("seed")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected canceled prove context, got %v", err)
+	}
+	if remoteAdapter.VerifyWithContext(ctx, types.PublicKey("public"), []byte("seed"), []byte("output"), []byte("proof")) {
+		t.Fatalf("expected canceled verify context to fail closed")
 	}
 }

@@ -70,9 +70,11 @@ Common framework namespaces:
 - `evm`: contract VM code, storage slots, receipts, global log index, and address log index
 - `ibc`: client, connection, channel, packet commitment, and receipt records
 - `params`: chain-wide module parameter values and metadata
-- `staking`: delegated stake, validator power, validator public keys, commission basis points, unbonding release heights, unbonding custody balances, jail flags, and pending reward balances
+- `staking`: delegated stake, validator power, validator public keys, commission basis points, entry-based unbonding release records, unbonding custody balances, jail flags, and pending reward balances
 
 When staged execution is available, module KV writes, block records, state records, and state roots are committed in one backend batch. If that batch fails, module KV writes are not applied.
+
+IBC packet send writes both the packet commitment and the next sequence. Stores that do not implement `BatchKVStore` must reject packet send instead of partially writing one key. Governance upgrade execution has the same fail-closed rule: if a proposal produces an upgrade plan, the governance state transition and upgrade plan records must be written through an atomic upgrade-plan store.
 
 For Ethereum-compatible `0x` account addresses, the built-in bank, staking, ante, and EVM paths normalize the key to a lowercase 20-byte hex address before reading or writing balance state. Legacy raw keys are still read as fallback, but new writes use the normalized key to avoid checksum/lowercase balance splits.
 
@@ -87,7 +89,7 @@ The Web3 bridge reconstructs Ethereum account/storage tries from these committed
 
 Latest `eth_getProof` and latest Web3 `stateRoot` are generated from the live reconstructed go-ethereum MPT. Historical `eth_getProof` and historical Web3 block `stateRoot` use the retained auxiliary `evm_ethstate/{height}` snapshots written during `EndBlock`. Runtime pruning calls module pruning hooks, and the EVM module deletes Ethereum snapshots below the retained height so archival nodes keep proofs while pruned nodes fail old proof requests explicitly. The auxiliary namespace is not an application module root, so pruning retained Web3 proof snapshots does not mutate consensus application state.
 
-LevelDB also writes height-versioned KV history records for each atomic block write. Historical query proofs rebuild the namespace at the requested height from those records, then verify membership with a compact Merkle path or non-membership with compact adjacent-neighbor absence proofs. Verifiers still accept legacy full namespace absence witnesses for compatibility.
+LevelDB also writes height-versioned KV history records for each atomic block write. Historical query proofs rebuild the namespace at the requested height from those records, then verify membership with a compact Merkle path or non-membership with compact adjacent-neighbor absence proofs. Verifiers still accept legacy full namespace absence witnesses for compatibility. Evidence records are monotonic for the `Applied` flag: once an evidence record is marked applied, later pending saves in the same process cannot downgrade it back to unapplied.
 
 When an app block produces validator updates, the store-backed validator registry stages the height `H + 1` validator-set snapshot as KV writes and commits those writes in the same LevelDB batch as app writes, block metadata, state metadata, and state roots. If the block commit fails, the future validator-set snapshot is not persisted.
 
@@ -106,6 +108,8 @@ Runtime compaction includes both backend store compaction and mempool WAL compac
 - EVM address log index by address/height/transaction/log index
 
 ## EVM Records
+
+The EVM module requires atomic batch writes for state-changing execution, receipt indexes, blob sidecar indexes, account snapshots, and VM write application. A custom storage backend that only implements single-key `Set`/`Delete` must reject EVM execution rather than partially writing contract state or native-account balances.
 
 - `code/{address}`: deployed contract bytecode.
 - `storage/{address}/{slot}`: VM-returned storage slot value.

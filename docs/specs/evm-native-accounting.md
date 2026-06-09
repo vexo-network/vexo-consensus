@@ -30,6 +30,7 @@ The ante layer parses `fee` as a 256-bit atomic amount.
 - `base_fee * gas` is computed with arbitrary-precision arithmetic before the 256-bit storage boundary is checked.
 - Non-Ethereum Vexo transactions pay fees from the signer balance to the configured fee collector.
 - Raw Ethereum transactions do not pay ante-layer fees; their gas/value accounting is executed by the EVM state transition and then persisted back into the same native balance namespace.
+- Raw Ethereum transaction fee metadata is still reported for block metrics and RPC surfaces. Balance mutation remains EVM-owned to avoid double charging the same native asset.
 
 ## EVM Execution
 
@@ -39,6 +40,7 @@ The built-in EVM adapter preserves Ethereum 256-bit value and fee fields.
 - Canonical Vexo wrapper tags store those values as decimal strings even when they exceed `uint64`.
 - The geth-backed VM adapter receives 256-bit gas price and fee-cap fields through the `contract.Invocation` boundary.
 - VM balance writes are persisted as native bank balances, so `eth_getBalance` and `bank query balance` observe the same underlying asset for Ethereum `0x` accounts.
+- EVM receipts report `gasUsed` for the transaction and `cumulativeGasUsed` as the sum of receipt gas used earlier in the same block plus the current transaction, matching Web3 client expectations.
 
 ## Compatibility Boundary
 

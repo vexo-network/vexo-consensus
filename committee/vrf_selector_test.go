@@ -88,6 +88,24 @@ func TestVRFSelectorRejectsMissingValidatorKey(t *testing.T) {
 	}
 }
 
+func TestVRFSelectorPropagatesContextToVRF(t *testing.T) {
+	vrf := &contextAwareTestVRF{testVRF: testVRF{keys: map[string][]byte{"a-pub": []byte("a-secret")}}}
+	selector := mustVRFSelector(t, RotationPolicy{EpochLength: 10, CommitteeSize: 1}, vrf)
+	ctx := context.WithValue(context.Background(), contextKey("vrf-test"), "expected")
+	committee, err := selector.Select(ctx, 1, 2, testSeed(1), testSet(t, []validator.Validator{
+		{ID: "a", VotingPower: 1, PublicKey: []byte("a-pub")},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !vrf.proveSawContext || !vrf.verifySawContext {
+		t.Fatalf("expected selector to pass context to VRF prove/verify")
+	}
+	if !selector.VerifyMemberWithContext(ctx, committee.Epoch, committee.Round, committee.Seed, committee.Members[0]) || !vrf.memberVerifySawContext {
+		t.Fatalf("expected member verification to pass context to VRF")
+	}
+}
+
 func mustVRFSelector(t *testing.T, policy RotationPolicy, vrf VRF) VRFSelector {
 	t.Helper()
 	selector, err := NewVRFSelector(policy, vrf)
@@ -99,6 +117,32 @@ func mustVRFSelector(t *testing.T, policy RotationPolicy, vrf VRF) VRFSelector {
 
 type testVRF struct {
 	keys map[string][]byte
+}
+
+type contextKey string
+
+type contextAwareTestVRF struct {
+	testVRF
+	proveSawContext        bool
+	verifySawContext       bool
+	memberVerifySawContext bool
+}
+
+func (vrf *contextAwareTestVRF) ProveWithContext(ctx context.Context, publicKey types.PublicKey, seed []byte) (output []byte, proof []byte, err error) {
+	if ctx.Value(contextKey("vrf-test")) == "expected" {
+		vrf.proveSawContext = true
+	}
+	return vrf.testVRF.Prove(publicKey, seed)
+}
+
+func (vrf *contextAwareTestVRF) VerifyWithContext(ctx context.Context, publicKey types.PublicKey, seed []byte, output []byte, proof []byte) bool {
+	if ctx.Value(contextKey("vrf-test")) == "expected" {
+		if vrf.verifySawContext {
+			vrf.memberVerifySawContext = true
+		}
+		vrf.verifySawContext = true
+	}
+	return vrf.testVRF.Verify(publicKey, seed, output, proof)
 }
 
 func (vrf testVRF) Prove(publicKey types.PublicKey, seed []byte) (output []byte, proof []byte, err error) {

@@ -175,9 +175,6 @@ func (keeper AnteKeeper) GasLimit(tx types.Tx) uint64 {
 }
 
 func (keeper AnteKeeper) FeePaid(tx types.Tx) uint64 {
-	if isEthereumRawTx(tx) {
-		return 0
-	}
 	fee := metaFeeBig(ParseTxMeta(tx))
 	if !fee.IsUint64() {
 		return math.MaxUint64

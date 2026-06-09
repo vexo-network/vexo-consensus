@@ -15,7 +15,7 @@ GPG ?= gpg
 RC_DRY_RUN ?= 0
 RC_DRY_RUN_FLAG = $(if $(filter 1 true yes,$(RC_DRY_RUN)),--dry-run,)
 
-.PHONY: all build test vet check docs-check fuzz-smoke ops-verify network-e2e coverage release checksums sbom release-manifest release-audit-pack sign-release docker-image release-candidate clean init-demo keys-demo
+.PHONY: all build test vet check docs-check fuzz-smoke ops-verify network-e2e coverage release checksums sbom release-manifest release-audit-pack sign-release docker-image release-candidate clean
 
 all: check build
 
@@ -134,11 +134,3 @@ release-candidate: release ops-verify network-e2e
 
 clean:
 	rm -rf $(BUILD_DIR) $(DIST_DIR) $(GOCACHE_DIR) coverage.out coverage.html
-
-init-demo: build
-	$(BUILD_DIR)/$(BINARY) init --home .vexo --chain-id vexo-chain --validator validator-1 --overwrite
-	$(BUILD_DIR)/$(BINARY) validate --home .vexo
-
-keys-demo: build
-	$(BUILD_DIR)/$(BINARY) keys gen --home .vexo --overwrite
-	$(BUILD_DIR)/$(BINARY) keys show --home .vexo --json

@@ -21,6 +21,12 @@ type VRF interface {
 	Verify(publicKey types.PublicKey, seed []byte, output []byte, proof []byte) bool
 }
 
+type ContextVRF interface {
+	VRF
+	ProveWithContext(ctx context.Context, publicKey types.PublicKey, seed []byte) (output []byte, proof []byte, err error)
+	VerifyWithContext(ctx context.Context, publicKey types.PublicKey, seed []byte, output []byte, proof []byte) bool
+}
+
 type VRFSelector struct {
 	policy RotationPolicy
 	vrf    VRF
@@ -55,11 +61,11 @@ func (selector VRFSelector) Select(ctx context.Context, epoch uint64, round type
 	candidates := make([]vrfCandidate, 0, len(validators))
 	for _, validatorInfo := range validators {
 		vrfPublicKey := validatorVRFPublicKey(validatorInfo)
-		output, proof, err := selector.vrf.Prove(vrfPublicKey, selectionSeed)
+		output, proof, err := selector.prove(ctx, vrfPublicKey, selectionSeed)
 		if err != nil {
 			return Committee{}, err
 		}
-		if !selector.vrf.Verify(vrfPublicKey, selectionSeed, output, proof) {
+		if !selector.verify(ctx, vrfPublicKey, selectionSeed, output, proof) {
 			return Committee{}, ErrMissingVRF
 		}
 		candidates = append(candidates, vrfCandidate{
@@ -101,12 +107,30 @@ func (selector VRFSelector) Select(ctx context.Context, epoch uint64, round type
 }
 
 func (selector VRFSelector) VerifyMember(epoch uint64, round types.Round, seed types.Hash, member Member) bool {
+	return selector.VerifyMemberWithContext(context.Background(), epoch, round, seed, member)
+}
+
+func (selector VRFSelector) VerifyMemberWithContext(ctx context.Context, epoch uint64, round types.Round, seed types.Hash, member Member) bool {
 	selectionSeed := vrfSeed(seed, epoch, round)
 	output := member.Output
 	if len(output) == 0 {
 		output = member.Proof
 	}
-	return selector.vrf.Verify(validatorVRFPublicKey(member.Validator), selectionSeed, output, member.Proof)
+	return selector.verify(ctx, validatorVRFPublicKey(member.Validator), selectionSeed, output, member.Proof)
+}
+
+func (selector VRFSelector) prove(ctx context.Context, publicKey types.PublicKey, seed []byte) ([]byte, []byte, error) {
+	if contextVRF, ok := selector.vrf.(ContextVRF); ok {
+		return contextVRF.ProveWithContext(ctx, publicKey, seed)
+	}
+	return selector.vrf.Prove(publicKey, seed)
+}
+
+func (selector VRFSelector) verify(ctx context.Context, publicKey types.PublicKey, seed []byte, output []byte, proof []byte) bool {
+	if contextVRF, ok := selector.vrf.(ContextVRF); ok {
+		return contextVRF.VerifyWithContext(ctx, publicKey, seed, output, proof)
+	}
+	return selector.vrf.Verify(publicKey, seed, output, proof)
 }
 
 type vrfCandidate struct {

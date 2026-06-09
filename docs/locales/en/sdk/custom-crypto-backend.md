@@ -104,6 +104,10 @@ func init() {
 
 The built-in ECVRF adapter is registered as `ecvrf-p256-sha256-tai-v1`. It uses P-256/SHA-256 try-and-increment ECVRF proofs. Validators may put a base64 VRF public key in metadata key `vrf_public_key`; otherwise committee selection falls back to the validator consensus public key.
 
+The built-in remote VRF adapter is registered as `remote-vrf-http-v1`. Set `vrf.adapter_name` to that value and `vrf.key_source` to `remote-http:<base-url>` or the plain HTTPS base URL. The adapter calls `POST /prove` with base64 `public_key` and `seed`, expects base64 `output` and `proof`, and calls `POST /verify` with base64 `public_key`, `seed`, `output`, and `proof`, expecting `{ "valid": true }`. If the `VEXO_REMOTE_VRF_TOKEN` environment variable is set, requests include `Authorization: Bearer <token>`. This is the preferred integration point for KMS/HSM-backed VRF custody, but the remote service still needs independent audit evidence matching `vrf.audit_report` and operational evidence for availability, replay protection, and key access policy.
+
+Remote VRF implementations should use the context-aware `ProveWithContext` and `VerifyWithContext` methods whenever selection is driven by consensus or RPC deadlines. The legacy `Prove` and `Verify` methods are convenience wrappers; production paths should propagate cancellation so a slow remote prover cannot outlive the block or request timeout.
+
 Prefer encrypted VRF key documents referenced from `consensus_config.json`:
 
 ```json

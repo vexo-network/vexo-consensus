@@ -1676,6 +1676,47 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	}
 }
 
+func TestWeb3ReceiptUsesBlockCumulativeGas(t *testing.T) {
+	txHash1 := "0x1111111111111111111111111111111111111111111111111111111111111111"
+	txHash2 := "0x2222222222222222222222222222222222222222222222222222222222222222"
+	receipt1 := web3Receipt{TxHash: txHash1, Height: 3, Status: 1, From: "0xaaaa", To: "0xbbbb", GasUsed: 7}
+	receipt2 := web3Receipt{TxHash: txHash2, Height: 3, Status: 1, From: "0xcccc", To: "0xdddd", GasUsed: 11}
+	encoded1, err := json.Marshal(receipt1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded2, err := json.Marshal(receipt2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := fakeStatusProvider{
+		blocks: map[types.Height]store.BlockRecord{
+			3: {
+				Block: types.Block{
+					Header: types.Header{Height: 3},
+					Txs: []types.Tx{
+						types.Tx("evm:call:fee=7:gas=21000:signer=0xaaaa:nonce=0:eth_hash=" + txHash1),
+						types.Tx("evm:call:fee=11:gas=21000:signer=0xcccc:nonce=0:eth_hash=" + txHash2),
+					},
+				},
+				Hash: types.Hash{3},
+				TxResults: []types.Result{
+					{Data: encoded1, GasUsed: 7},
+					{Data: encoded2, GasUsed: 11},
+				},
+			},
+		},
+	}
+	object, rpcErr := web3ReceiptObject(context.Background(), provider, encoded2)
+	if rpcErr != nil {
+		t.Fatalf("unexpected receipt error: %+v", rpcErr)
+	}
+	receiptObject, ok := object.(map[string]any)
+	if !ok || receiptObject["transactionIndex"] != "0x1" || receiptObject["gasUsed"] != "0xb" || receiptObject["cumulativeGasUsed"] != "0x12" {
+		t.Fatalf("unexpected cumulative receipt object: %+v", object)
+	}
+}
+
 func TestHandlerWeb3StrictStateRootFailsClosedWhenUnavailable(t *testing.T) {
 	blockHash := types.Hash{0xab}
 	provider := &fakeStatusProvider{

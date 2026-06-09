@@ -47,6 +47,7 @@ var (
 	ErrPacketTimedOut           = errors.New("IBC packet already timed out")
 	ErrPacketNotTimedOut        = errors.New("IBC packet timeout height has not elapsed")
 	ErrStoreMissing             = errors.New("IBC store is required")
+	ErrAtomicStoreRequired      = errors.New("IBC packet send requires atomic batch store")
 )
 
 type ClientState struct {
@@ -271,12 +272,7 @@ func (keeper *Keeper) SendPacket(ctx context.Context, height types.Height, packe
 	if batch, ok := keeper.store.(kvbatch.BatchKVStore); ok {
 		return batch.SetBatch(ctx, writes)
 	}
-	for _, write := range writes {
-		if err := keeper.store.Set(ctx, write.Namespace, write.Key, write.Value); err != nil {
-			return err
-		}
-	}
-	return nil
+	return ErrAtomicStoreRequired
 }
 
 func (keeper *Keeper) AcknowledgePacket(ctx context.Context, height types.Height, packet Packet, ack []byte) error {
