@@ -31,7 +31,7 @@ vet:
 	mkdir -p $(GOCACHE_DIR)
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) vet ./...
 
-check: test vet
+check: test vet docs-check
 
 docs-check:
 	mkdir -p $(GOCACHE_DIR)

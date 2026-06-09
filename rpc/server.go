@@ -49,21 +49,25 @@ const defaultWeb3BlockGasLimit = 10_000_000
 const stableAPIPrefix = "/v1"
 
 type Config struct {
-	Address                  string
-	ReadHeaderTimeout        time.Duration
-	RequestTimeout           time.Duration
-	MaxRequestBytes          int64
-	RateLimitWindow          time.Duration
-	RateLimitMaxRequests     int
-	AdminToken               string
-	AdminTokens              map[string][]string
-	AdminAuditSink           func(AdminAuditEvent)
-	EnablePprof              bool
-	AllowUnprotectedLegacyTx bool
-	EVMChainConfigJSON       string
-	StrictEVMStateRoot       bool
-	EnableEVMManagedAccounts bool
-	EVMAccountPrivateKeys    []string
+	Address                       string
+	ReadHeaderTimeout             time.Duration
+	RequestTimeout                time.Duration
+	MaxRequestBytes               int64
+	RateLimitWindow               time.Duration
+	RateLimitMaxRequests          int
+	AdminToken                    string
+	AdminTokens                   map[string][]string
+	AdminAuditSink                func(AdminAuditEvent)
+	EnablePprof                   bool
+	AllowUnprotectedLegacyTx      bool
+	EVMChainConfigJSON            string
+	StrictEVMStateRoot            bool
+	EnableEVMManagedAccounts      bool
+	EVMAccountPrivateKeys         []string
+	Web3SubscriptionInterval      time.Duration
+	Web3SubscriptionMaxCatchUp    uint64
+	Web3SubscriptionMaxLogBatch   int
+	Web3SubscriptionMaxPendingRun int
 }
 
 type AdminAuditEvent struct {

@@ -2114,6 +2114,31 @@ func TestHandlerBoundsWeb3WebSocketCatchUp(t *testing.T) {
 	}
 }
 
+func TestHandlerUsesConfiguredWeb3WebSocketCatchUpLimit(t *testing.T) {
+	blocks := make(map[types.Height]store.BlockRecord)
+	for height := types.Height(1); height <= 5; height++ {
+		blocks[height] = store.BlockRecord{Block: types.Block{Header: types.Header{ChainID: "vexo-chain", Height: height}}}
+	}
+	provider := &fakeStatusProvider{
+		status: node.Status{ChainID: "vexo-chain", LatestHeight: 5},
+		blocks: blocks,
+		latest: 5,
+	}
+	sent := make([]any, 0)
+	session := &web3SubscriptionSession{
+		provider: provider,
+		cfg:      Config{Web3SubscriptionMaxCatchUp: 2},
+		ctx:      context.Background(),
+		subs:     map[string]web3Subscription{"0xsub": {ID: "0xsub", Type: "newHeads"}},
+		send:     func(value any) { sent = append(sent, value) },
+	}
+
+	session.publish()
+	if len(sent) != 2 || session.subs["0xsub"].LastHeight != 2 {
+		t.Fatalf("expected configured catch-up limit, sent=%d sub=%+v", len(sent), session.subs["0xsub"])
+	}
+}
+
 func TestHandlerServesWeb3WebSocketLogSubscriptions(t *testing.T) {
 	provider := &fakeStatusProvider{
 		status:           node.Status{ChainID: "vexo-chain", LatestHeight: 1},
@@ -2188,6 +2213,31 @@ func TestHandlerServesWeb3WebSocketPendingTransactionSubscriptions(t *testing.T)
 	}
 	if params["result"] != "0x0200000000000000000000000000000000000000000000000000000000000000" {
 		t.Fatalf("unexpected pending hash: %+v", params["result"])
+	}
+}
+
+func TestHandlerRetriesPendingWebSocketTransactionsBeyondConfiguredRunLimit(t *testing.T) {
+	firstHash := types.Hash{0x01}
+	secondHash := types.Hash{0x02}
+	provider := &fakeStatusProvider{
+		status:        node.Status{ChainID: "vexo-chain", LatestHeight: 1},
+		pendingHashes: []types.Hash{firstHash, secondHash},
+	}
+	sent := make([]any, 0)
+	session := &web3SubscriptionSession{
+		provider: provider,
+		cfg:      Config{Web3SubscriptionMaxPendingRun: 1},
+		ctx:      context.Background(),
+		subs: map[string]web3Subscription{
+			"0xsub": {ID: "0xsub", Type: "newPendingTransactions", SeenPending: map[string]bool{}},
+		},
+		send: func(value any) { sent = append(sent, value) },
+	}
+
+	session.publish()
+	session.publish()
+	if len(sent) != 2 {
+		t.Fatalf("expected pending overflow to be retried on next tick, got %+v", sent)
 	}
 }
 

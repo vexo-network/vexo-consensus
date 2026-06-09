@@ -351,9 +351,12 @@ func statusFeatures(cfg config.Config) map[string]bool {
 		"web3_jsonrpc_batch_notifications":         evmEnabled,
 		"web3_eip1898_block_selectors":             evmEnabled,
 		"web3_post_merge_block_fields":             evmEnabled,
+		"web3_pow_uncle_compat_responses":          evmEnabled,
 		"web3_block_scan_tx_lookup":                evmEnabled,
 		"web3_receipt_trace_block_fallback":        evmEnabled,
 		"web3_ws_full_pending_transactions":        evmEnabled,
+		"web3_polling_subscriptions":               evmEnabled,
+		"web3_configurable_subscription_limits":    evmEnabled,
 		"evm_geth_vm_adapter":                      evmEnabled,
 		"evm_ethereum_raw_tx":                      evmEnabled,
 		"evm_storage_writes":                       evmEnabled,
@@ -432,6 +435,8 @@ func statusFeatureAssurance(cfg config.Config) map[string]assuranceStatus {
 		"web3_trace_api",
 		"web3_raw_tx_replay_trace",
 		"web3_blob_tx_fee_accounting",
+		"web3_polling_subscriptions",
+		"web3_configurable_subscription_limits",
 		"evm_geth_vm_adapter",
 		"evm_ethereum_raw_tx",
 		"evm_actual_gas_accounting",
@@ -440,6 +445,16 @@ func statusFeatureAssurance(cfg config.Config) map[string]assuranceStatus {
 			assurance[feature] = assuranceStatus{
 				State: "requires_release_evidence",
 				Note:  "EVM/Web3 compatibility should be backed by fixture/conformance evidence before release claims",
+			}
+		}
+	}
+	for _, feature := range []string{
+		"web3_pow_uncle_compat_responses",
+	} {
+		if features[feature] {
+			assurance[feature] = assuranceStatus{
+				State: "compatibility_boundary",
+				Note:  "proof-of-work and uncle RPCs intentionally return post-merge compatibility values, not Vexo consensus semantics",
 			}
 		}
 	}

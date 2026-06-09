@@ -174,7 +174,7 @@ func (session *web3SubscriptionSession) unsubscribe(params []json.RawMessage) (b
 }
 
 func (session *web3SubscriptionSession) poll() {
-	ticker := time.NewTicker(web3SubscriptionPollInterval)
+	ticker := time.NewTicker(session.cfg.subscriptionPollInterval())
 	defer ticker.Stop()
 	for {
 		select {
@@ -226,8 +226,9 @@ func (session *web3SubscriptionSession) publishHeads(subscription web3Subscripti
 	}
 	latest := uint64(session.provider.Status(session.ctx).LatestHeight)
 	target := latest
-	if target > subscription.LastHeight+web3SubscriptionMaxCatchUp {
-		target = subscription.LastHeight + web3SubscriptionMaxCatchUp
+	maxCatchUp := session.cfg.subscriptionMaxCatchUp()
+	if target > subscription.LastHeight+maxCatchUp {
+		target = subscription.LastHeight + maxCatchUp
 	}
 	for height := subscription.LastHeight + 1; height <= target; height++ {
 		record, err := blockProvider.BlockByHeight(session.ctx, types.Height(height))
@@ -253,7 +254,7 @@ func (session *web3SubscriptionSession) publishLogs(subscription web3Subscriptio
 		return subscription
 	}
 	sent := 0
-	for index := subscription.LastLogIndex; index < len(logs) && sent < web3SubscriptionMaxLogBatch; index++ {
+	for index := subscription.LastLogIndex; index < len(logs) && sent < session.cfg.subscriptionMaxLogBatch(); index++ {
 		session.sendSubscription(subscription.ID, logs[index])
 		subscription.LastLogIndex = index + 1
 		sent++
@@ -278,13 +279,14 @@ func (session *web3SubscriptionSession) publishPendingTransactions(subscription 
 	sent := 0
 	for _, hash := range hashes {
 		encoded := web3HashString(hash)
-		live[encoded] = true
 		if subscription.SeenPending[encoded] {
+			live[encoded] = true
 			continue
 		}
-		if sent >= web3SubscriptionMaxPendingRun {
+		if sent >= session.cfg.subscriptionMaxPendingRun() {
 			continue
 		}
+		live[encoded] = true
 		result := any(encoded)
 		if subscription.PendingFull {
 			if tx, found, rpcErr := web3PendingTxByHash(session.ctx, session.provider, encoded); rpcErr == nil && found {
@@ -296,6 +298,34 @@ func (session *web3SubscriptionSession) publishPendingTransactions(subscription 
 	}
 	subscription.SeenPending = live
 	return subscription
+}
+
+func (cfg Config) subscriptionPollInterval() time.Duration {
+	if cfg.Web3SubscriptionInterval > 0 {
+		return cfg.Web3SubscriptionInterval
+	}
+	return web3SubscriptionPollInterval
+}
+
+func (cfg Config) subscriptionMaxCatchUp() uint64 {
+	if cfg.Web3SubscriptionMaxCatchUp > 0 {
+		return cfg.Web3SubscriptionMaxCatchUp
+	}
+	return web3SubscriptionMaxCatchUp
+}
+
+func (cfg Config) subscriptionMaxLogBatch() int {
+	if cfg.Web3SubscriptionMaxLogBatch > 0 {
+		return cfg.Web3SubscriptionMaxLogBatch
+	}
+	return web3SubscriptionMaxLogBatch
+}
+
+func (cfg Config) subscriptionMaxPendingRun() int {
+	if cfg.Web3SubscriptionMaxPendingRun > 0 {
+		return cfg.Web3SubscriptionMaxPendingRun
+	}
+	return web3SubscriptionMaxPendingRun
 }
 
 func (session *web3SubscriptionSession) sendSubscription(id string, result any) {

@@ -24,6 +24,9 @@ jobs:
       - name: Vet
         run: make vet
 
+      - name: Docs
+        run: make docs-check
+
       - name: Build
         run: make build
 

@@ -47,6 +47,13 @@ func NewVRF(cfg config.VRFConfig) (VRF, error) {
 	return NewDeterministicVRF(cfg.Keys), nil
 }
 
+func NewProductionVRF(cfg config.VRFConfig) (VRF, error) {
+	if !cfg.ProductionAdapter {
+		return nil, ErrVRFAdapterUnsafe
+	}
+	return NewVRF(cfg)
+}
+
 func ValidateVRFAdapter(adapter VRFAdapter, cfg config.VRFConfig) error {
 	if adapter == nil {
 		return ErrVRFBackendUnavailable

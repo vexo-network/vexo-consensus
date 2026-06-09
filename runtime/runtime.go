@@ -102,7 +102,13 @@ func newWithStoreAndCryptoRegistry(cfg config.Config, application app.Applicatio
 
 	var vrf committee.VRF
 	if cfg.Committee.Backend == committee.BackendVRF {
-		loadedVRF, err := crypto.NewVRF(cfg.VRF)
+		var loadedVRF crypto.VRF
+		var err error
+		if cfg.VRF.ProductionAdapter {
+			loadedVRF, err = crypto.NewProductionVRF(cfg.VRF)
+		} else {
+			loadedVRF, err = crypto.NewVRF(cfg.VRF)
+		}
 		if err != nil {
 			return nil, err
 		}

@@ -105,6 +105,13 @@ func TestNewVRFRequiresRegisteredProductionAdapter(t *testing.T) {
 	}
 }
 
+func TestNewProductionVRFRejectsImplicitDeterministicFallback(t *testing.T) {
+	_, err := NewProductionVRF(config.VRFConfig{Keys: map[string][]byte{"alice": []byte("secret")}})
+	if !errors.Is(err, ErrVRFAdapterUnsafe) {
+		t.Fatalf("expected production vrf to reject deterministic fallback, got %v", err)
+	}
+}
+
 type testVRFAdapter struct {
 	name        string
 	auditReport string

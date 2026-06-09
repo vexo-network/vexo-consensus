@@ -231,6 +231,9 @@ func TestStatusFeaturesReflectConfiguredModules(t *testing.T) {
 		assurance["evm_geth_vm_adapter"].State != "requires_release_evidence" {
 		t.Fatalf("expected EVM assurance to require release evidence: %+v", assurance)
 	}
+	if assurance["web3_pow_uncle_compat_responses"].State != "compatibility_boundary" {
+		t.Fatalf("expected PoW/uncle compatibility boundary assurance: %+v", assurance["web3_pow_uncle_compat_responses"])
+	}
 	if features["crypto_bls_production_adapter"] {
 		t.Fatalf("expected BLS production feature disabled on deterministic backend")
 	}
