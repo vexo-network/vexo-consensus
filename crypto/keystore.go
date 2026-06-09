@@ -202,6 +202,13 @@ func (document KeyDocument) SignerWithPassphrase(passphrase string) (Signer, err
 		}
 		return signer, nil
 	case KeyTypeBLS:
+		if document.Metadata.BLSAdapter == BLSAdapterBLSTName {
+			signer, err := document.BLSTBLSSignerWithPassphrase(passphrase)
+			if err != nil {
+				return nil, err
+			}
+			return signer, nil
+		}
 		signer, err := document.CIRCLBLSSignerWithPassphrase(passphrase)
 		if err != nil {
 			return nil, err

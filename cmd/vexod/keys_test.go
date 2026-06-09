@@ -68,16 +68,37 @@ func TestRunKeysGenBLS(t *testing.T) {
 	if document.Type != vexocrypto.KeyTypeBLS || document.Metadata.BLSProofOfPossession == "" || document.Metadata.BLSAdapter == "" {
 		t.Fatalf("unexpected BLS key document: %+v", document)
 	}
-	signer, err := document.CIRCLBLSSigner()
+	if document.Metadata.BLSAdapter != vexocrypto.BLSAdapterBLSTName {
+		t.Fatalf("expected BLST adapter metadata, got %+v", document.Metadata)
+	}
+	signer, err := document.SignerWithPassphrase("")
 	if err != nil {
 		t.Fatal(err)
+	}
+	blsSigner, ok := signer.(vexocrypto.BLSAdapter)
+	if !ok {
+		t.Fatalf("expected BLS adapter signer, got %T", signer)
 	}
 	proof, err := base64.StdEncoding.DecodeString(document.Metadata.BLSProofOfPossession)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !signer.VerifyProofOfPossession(signer.PublicKey(), proof) {
+	if !blsSigner.VerifyProofOfPossession(blsSigner.PublicKey(), proof) {
 		t.Fatal("expected BLS proof of possession to verify")
+	}
+}
+
+func TestRunKeysGenBLSAllowsCIRCLReferenceAdapter(t *testing.T) {
+	home := t.TempDir()
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--type", "bls", "--bls-adapter", vexocrypto.BLSAdapterCIRCLName}); err != nil {
+		t.Fatal(err)
+	}
+	document, err := vexocrypto.LoadKeyDocument(filepath.Join(home, keyFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.Metadata.BLSAdapter != vexocrypto.BLSAdapterCIRCLName {
+		t.Fatalf("expected CIRCL reference adapter metadata, got %+v", document.Metadata)
 	}
 }
 

@@ -26,7 +26,7 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 ## Non-Goals
 
 - This project does not provide ABCI compatibility.
-- This project includes BLS12-381 and ECVRF adapter wiring, but operators are still responsible for audit evidence, key custody, and release-gate validation before value-bearing deployment.
+- This project includes a `supranational/blst` BLS12-381 min-pk adapter, ECVRF adapter wiring, and custom crypto hooks, but operators are still responsible for audit evidence, key custody, and release-gate validation before value-bearing deployment.
 - This project does not claim public value-bearing network safety without external audit and real multi-host operational evidence.
 - Chain-specific economics such as token custody, reward policy tuning, and governance authority remain integration responsibilities.
 

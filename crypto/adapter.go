@@ -20,7 +20,7 @@ func NewSignerRegistry() SignerRegistry {
 			return GenerateEd25519Signer()
 		},
 		config.CryptoBackendBLS: func() (Signer, error) {
-			return GenerateCIRCLBLSAdapter()
+			return GenerateBLSTBLSAdapter()
 		},
 	}}
 }

@@ -58,7 +58,7 @@ func (registry RuntimeSuiteRegistry) NewRuntimeSuite(cfg config.CryptoConfig) (R
 		if registry.blsFactory == nil {
 			adapterName := cfg.AdapterName
 			if adapterName == "" {
-				adapterName = BLSAdapterCIRCLName
+				adapterName = BLSAdapterBLSTName
 			}
 			if factory, found := registeredBLSAdapter(adapterName); found {
 				registry.blsFactory = factory

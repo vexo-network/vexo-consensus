@@ -185,7 +185,7 @@ func buildDeploymentTemplateDocument() deploymentTemplateDocument {
 		Notes: []string{
 			"Tune fee, stake, and rate-limit values against real traffic before launch.",
 			"Use remote signer/KMS or encrypted local keys; never ship unencrypted validator keys.",
-			"BLS requires a separately audited adapter linked into the binary plus proof-of-possession metadata before launch; the built-in reference adapter is not a launch waiver.",
+			"BLS defaults to the supranational/blst min-pk adapter; attach adapter/dependency audit evidence and proof-of-possession metadata before launch.",
 		},
 	}
 }

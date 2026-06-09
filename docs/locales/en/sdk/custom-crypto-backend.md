@@ -4,7 +4,7 @@
 
 This guide explains how to add a custom crypto backend, including audited BLS and VRF adapters.
 
-`vexo-consensus` ships adapter contracts, registry hooks, metadata validation, runtime wiring, a CIRCL-backed BLS12-381 reference adapter, and an ECVRF P-256 adapter. Operators can register audited adapters for value-bearing deployments, and audit evidence, key custody, and release-gate validation remain deployment responsibilities.
+`vexo-consensus` ships adapter contracts, registry hooks, metadata validation, runtime wiring, a `supranational/blst` BLS12-381 min-pk adapter, a CIRCL-backed BLS12-381 reference adapter, and an ECVRF P-256 adapter. Operators can register audited adapters for value-bearing deployments, and audit evidence, key custody, and release-gate validation remain deployment responsibilities.
 
 ## Interfaces
 
@@ -77,12 +77,13 @@ func init() {
 
 Validator public keys should be admitted through `BLSValidatorCredential` records or validator metadata key `bls_pop`. `ValidateBLSValidatorCredentials` rejects missing IDs, missing keys, duplicate public keys, invalid keys, and invalid proof-of-possession values. `NewBLSAggregateVerifier` wraps the audited adapter so finality verification only accepts registered validator keys.
 
-The built-in CIRCL adapter is registered as `circl-bls12381-g1sigg2-basic-v1` and is a reference integration for BLS12-381 basic signatures, aggregate verification, compressed deterministic encoding, public-key validation, and proof-of-possession helpers. It is intentionally not accepted by the network safety gate as a production BLS adapter. Config metadata cannot promote the built-in adapter into an audited adapter; production binaries must link a separately audited adapter whose own `Metadata()` satisfies `ValidateBLSAdapter`. `NewCIRCLBLSKeyDocument` writes `bls_proof_of_possession` metadata so validator genesis metadata can carry the rogue-key defense proof.
+The default production-oriented adapter is `blst-bls12381-minpk-v1`. It uses `github.com/supranational/blst`, compressed min-pk encoding, public keys in G1, signatures in G2, proof-of-possession checks, subgroup validation, domain-separated signing, and fast aggregate verification for same-message finality votes. The built-in CIRCL adapter is still registered as `circl-bls12381-g1sigg2-basic-v1` for reference and compatibility tests, but it is intentionally not accepted by the network safety gate as a production BLS adapter. Config metadata cannot promote an unsafe adapter into an audited adapter. `NewBLSTBLSKeyDocument` and `NewCIRCLBLSKeyDocument` both write `bls_proof_of_possession` metadata so validator genesis metadata can carry the rogue-key defense proof.
 
 CLI helpers:
 
 ```bash
 vexod keys gen --home .vexo-bls --type bls
+vexod keys gen --home .vexo-bls-circl --type bls --bls-adapter circl-bls12381-g1sigg2-basic-v1
 vexod init validator --home .vexo-validator --validator validator-1 --key-type bls
 ```
 

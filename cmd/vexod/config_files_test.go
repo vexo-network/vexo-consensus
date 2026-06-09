@@ -237,7 +237,7 @@ func TestRunInitNetworkBLSWritesProofOfPossession(t *testing.T) {
 		t.Fatalf("unexpected validators: %+v", genesis.Validators)
 	}
 	for _, validatorInfo := range genesis.Validators {
-		if validatorInfo.Metadata[vexocrypto.BLSProofOfPossessionMetadataKey] == "" || validatorInfo.Metadata["bls_adapter"] != vexocrypto.BLSAdapterCIRCLName {
+		if validatorInfo.Metadata[vexocrypto.BLSProofOfPossessionMetadataKey] == "" || validatorInfo.Metadata["bls_adapter"] != vexocrypto.BLSAdapterBLSTName {
 			t.Fatalf("expected BLS metadata, got %+v", validatorInfo.Metadata)
 		}
 	}
@@ -247,6 +247,15 @@ func TestRunInitNetworkBLSWritesProofOfPossession(t *testing.T) {
 	}
 	if keyDocument.Type != vexocrypto.KeyTypeBLS || keyDocument.Metadata.BLSProofOfPossession == "" {
 		t.Fatalf("unexpected BLS key document: %+v", keyDocument)
+	}
+	consensusDocument, err := readConsensusConfigDocument(filepath.Join(home, "validator-1", consensusConfigFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if consensusDocument.Crypto.Backend != config.CryptoBackendBLS ||
+		!consensusDocument.Crypto.ProductionAdapter ||
+		consensusDocument.Crypto.AdapterName != vexocrypto.BLSAdapterBLSTName {
+		t.Fatalf("expected BLST consensus crypto config, got %+v", consensusDocument.Crypto)
 	}
 }
 

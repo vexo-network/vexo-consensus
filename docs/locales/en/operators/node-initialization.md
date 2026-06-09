@@ -33,7 +33,7 @@ vexod init validator \
   --encrypt-keys
 ```
 
-`--key-type bls` writes a BLS key document and copies the proof-of-possession into `genesis.json` validator metadata as `bls_pop`.
+`--key-type bls` writes a `blst-bls12381-minpk-v1` BLS key document and copies the proof-of-possession into `genesis.json` validator metadata as `bls_pop`.
 
 This creates:
 
@@ -105,6 +105,7 @@ Validator init supports `--key-type ed25519` and `--key-type bls`, and `--encryp
 ```bash
 vexod keys gen --home .vexo-ed25519 --type ed25519
 vexod keys gen --home .vexo-bls --type bls
+vexod keys gen --home .vexo-bls-circl --type bls --bls-adapter circl-bls12381-g1sigg2-basic-v1
 VEXO_KEY_PASSPHRASE='change-me' vexod keys gen --home .vexo-vrf --type vrf --encrypt
 ```
 

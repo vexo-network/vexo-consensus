@@ -28,22 +28,26 @@ func TestNewRuntimeSuiteEd25519(t *testing.T) {
 	}
 }
 
-func TestNewRuntimeSuiteBLSRequiresAuditMetadata(t *testing.T) {
-	_, err := NewRuntimeSuite(config.CryptoConfig{Backend: config.CryptoBackendBLS})
-	if !errors.Is(err, ErrBLSAdapterUnsafe) {
-		t.Fatalf("expected unaudited built-in bls adapter to be unsafe, got %v", err)
+func TestNewRuntimeSuiteBLSDefaultsToBLST(t *testing.T) {
+	suite, err := NewRuntimeSuite(config.CryptoConfig{Backend: config.CryptoBackendBLS})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if suite.FinalityVerifier == nil || suite.ConsensusAggregator == nil || suite.ConsensusVerifier == nil {
+		t.Fatal("expected BLST BLS runtime suite")
 	}
 }
 
-func TestNewRuntimeSuiteBLSRejectsConfigOnlyAuditMetadata(t *testing.T) {
+func TestNewRuntimeSuiteBLSRejectsUnsafeRegisteredAdapter(t *testing.T) {
 	_, err := NewRuntimeSuite(config.CryptoConfig{
 		Backend:           config.CryptoBackendBLS,
+		AdapterName:       BLSAdapterCIRCLName,
 		ProductionAdapter: true,
 		AuditReport:       "external-audit-report-id",
 		DependencyAudit:   "dependency-audit-id",
 	})
 	if !errors.Is(err, ErrBLSAdapterUnsafe) {
-		t.Fatalf("expected configuration metadata without audited adapter metadata to remain unsafe, got %v", err)
+		t.Fatalf("expected CIRCL reference adapter to remain unsafe, got %v", err)
 	}
 }
 

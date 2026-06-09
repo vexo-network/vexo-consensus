@@ -569,6 +569,7 @@ func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validat
 		moduleCfg := defaultModuleConfigDocument(chainID)
 		networkCfg := defaultNetworkConfigDocument(chainID, dataDir, validatorID)
 		consensusCfg := defaultConsensusConfigDocument(chainID, dataDir, validatorID)
+		applyConsensusCryptoForKeyType(&consensusCfg, keyType)
 		consensusCfg.VRFKeyPaths = []string{defaultVRFKeyFileName}
 		mempoolCfg := defaultMempoolConfigDocument(chainID, dataDir)
 		logCfg := defaultLogConfigDocument(chainID, dataDir, validatorID)
@@ -789,6 +790,7 @@ func writeInitFiles(home string, chainID string, validatorID string, overwrite b
 	moduleCfg := defaultModuleConfigDocument(chainID)
 	networkCfg := defaultNetworkConfigDocument(chainID, dataDir, validatorID)
 	consensusCfg := defaultConsensusConfigDocument(chainID, dataDir, validatorID)
+	applyConsensusCryptoForKeyType(&consensusCfg, vexocrypto.KeyTypeEd25519)
 	mempoolCfg := defaultMempoolConfigDocument(chainID, dataDir)
 	logCfg := defaultLogConfigDocument(chainID, dataDir, validatorID)
 	genesis := defaultGenesisDocument(chainID, validatorID)
@@ -838,6 +840,17 @@ func writeValidatorInitFilesWithKeyType(home string, chainID string, validatorID
 	keyDocument, err := generateConsensusKeyDocument(keyType)
 	if err != nil {
 		return "", "", "", err
+	}
+	if keyType == vexocrypto.KeyTypeBLS {
+		consensusPath := resolveConsensusConfigPath(home, "")
+		consensusDocument, err := readConsensusConfigDocument(consensusPath)
+		if err != nil {
+			return "", "", "", err
+		}
+		applyConsensusCryptoForKeyType(&consensusDocument, keyType)
+		if err := writeJSONFile(consensusPath, consensusDocument); err != nil {
+			return "", "", "", err
+		}
 	}
 	keyDocument, err = maybeEncryptKeyDocument(keyDocument, encryptKeys, passphrase)
 	if err != nil {
@@ -1527,6 +1540,17 @@ func applyDefaultNetworkSafetyConsensusConfig(cfg *config.Config) {
 	cfg.VRF.AdapterName = vexocrypto.VRFAdapterECVRFP256Name
 	cfg.VRF.AuditReport = "built-in-ecvrf-p256-runtime"
 	cfg.VRF.KeySource = "consensus_config.vrf_key_paths"
+}
+
+func applyConsensusCryptoForKeyType(document *consensusConfigDocument, keyType string) {
+	if document == nil || keyType != vexocrypto.KeyTypeBLS {
+		return
+	}
+	document.Crypto.Backend = config.CryptoBackendBLS
+	document.Crypto.ProductionAdapter = true
+	document.Crypto.AdapterName = vexocrypto.BLSAdapterBLSTName
+	document.Crypto.AuditReport = "ncc-group-blst-security-assessment"
+	document.Crypto.DependencyAudit = "github.com/supranational/blst@v0.3.16"
 }
 
 func defaultMempoolConfigDocument(chainID string, dataDir string) mempoolConfigDocument {

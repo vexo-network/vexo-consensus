@@ -28,6 +28,7 @@ vexod init validator \
 Set `VEXO_KEY_PASSPHRASE` before running these commands, or pass `--passphrase` for a one-off local setup.
 
 When admitting a BLS validator to an existing chain, include the generated `bls_pop` metadata in the validator update proposal.
+The default BLS key path uses `blst-bls12381-minpk-v1`; use `vexod keys gen --type bls --bls-adapter circl-bls12381-g1sigg2-basic-v1` only for reference/compatibility testing.
 
 Archive the generated public key:
 

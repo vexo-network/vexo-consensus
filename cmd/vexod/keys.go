@@ -83,6 +83,7 @@ func runKeysGen(writer io.Writer, args []string) error {
 	home := flags.String("home", defaultHomeDir, "node home directory")
 	path := flags.String("path", "", "key file path")
 	keyType := flags.String("type", vexocrypto.KeyTypeEd25519, "key type: ed25519, bls, or vrf")
+	blsAdapter := flags.String("bls-adapter", vexocrypto.BLSAdapterBLSTName, "BLS adapter for --type bls")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing key")
 	encrypt := flags.Bool("encrypt", false, "encrypt private key material")
 	passphrase := flags.String("passphrase", "", "key encryption passphrase; prefer VEXO_KEY_PASSPHRASE")
@@ -101,7 +102,7 @@ func runKeysGen(writer io.Writer, args []string) error {
 			return err
 		}
 	}
-	document, err := generateKeyDocument(*keyType)
+	document, err := generateKeyDocumentWithBLSAdapter(*keyType, *blsAdapter)
 	if err != nil {
 		return err
 	}
@@ -132,10 +133,24 @@ func runKeysGen(writer io.Writer, args []string) error {
 }
 
 func generateKeyDocument(keyType string) (vexocrypto.KeyDocument, error) {
+	return generateKeyDocumentWithBLSAdapter(keyType, vexocrypto.BLSAdapterBLSTName)
+}
+
+func generateKeyDocumentWithBLSAdapter(keyType string, blsAdapterName string) (vexocrypto.KeyDocument, error) {
 	switch keyType {
 	case vexocrypto.KeyTypeEd25519:
 		return vexocrypto.GenerateEd25519KeyDocument()
 	case vexocrypto.KeyTypeBLS:
+		if blsAdapterName == "" || blsAdapterName == vexocrypto.BLSAdapterBLSTName {
+			adapter, err := vexocrypto.GenerateBLSTBLSAdapter()
+			if err != nil {
+				return vexocrypto.KeyDocument{}, err
+			}
+			return vexocrypto.NewBLSTBLSKeyDocument(adapter)
+		}
+		if blsAdapterName != vexocrypto.BLSAdapterCIRCLName {
+			return vexocrypto.KeyDocument{}, vexocrypto.ErrUnsupportedSignerBackend
+		}
 		adapter, err := vexocrypto.GenerateCIRCLBLSAdapter()
 		if err != nil {
 			return vexocrypto.KeyDocument{}, err
