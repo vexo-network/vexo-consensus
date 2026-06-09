@@ -27,8 +27,8 @@ func TestModuleStoresClientChannelAndPacket(t *testing.T) {
 	root := strings.Repeat("02", 32)
 	ctx := vexoapp.Context{Ctx: context.Background(), Height: 7, Store: storage}
 	for _, tx := range []types.Tx{
-		types.Tx("ibc:client-create:07-vexo-0:counterparty:5:" + hash),
-		types.Tx("ibc:client-update:07-vexo-0:6:" + hash + ":" + root),
+		types.Tx("ibc:client-create:07-vexo-0:counterparty:5:" + hash + ":signer=relayer"),
+		types.Tx("ibc:client-update:07-vexo-0:6:" + hash + ":" + root + ":signer=relayer"),
 		types.Tx("ibc:connection-open-init:connection-0:07-vexo-0:connection-1"),
 		types.Tx("ibc:connection-open-ack:connection-0"),
 		types.Tx("ibc:channel-open-init:transfer:channel-0:connection-0:channel-1:ordered"),
@@ -63,6 +63,40 @@ func TestModuleStoresClientChannelAndPacket(t *testing.T) {
 	query := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"packet", "1", "transfer", "channel-0", "transfer", "channel-1"}})
 	if query.Code != 0 || !strings.Contains(string(query.Value), `"commit_height":7`) {
 		t.Fatalf("unexpected query response: %+v", query)
+	}
+}
+
+func TestModuleClientUpdateWithoutAuthorityRequiresProof(t *testing.T) {
+	localStore, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer localStore.Close()
+	remoteStore, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remoteStore.Close()
+	module := NewModule()
+	hash := strings.Repeat("01", 32)
+	ctx := vexoapp.Context{Ctx: context.Background(), Height: 7, Store: localStore}
+	if result := module.DeliverTx(ctx, types.Tx("ibc:client-create:07-vexo-0:counterparty:5:"+hash)); result.Code != 0 {
+		t.Fatalf("unexpected client create result: %+v", result)
+	}
+	if err := remoteStore.Set(context.Background(), "bank", []byte("alice"), []byte("100")); err != nil {
+		t.Fatal(err)
+	}
+	proof, err := queryproof.Build(context.Background(), remoteStore, "counterparty", 6, "bank", []byte("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawUpdate := types.Tx("ibc:client-update:07-vexo-0:6:" + hash + ":" + hex.EncodeToString(proof.StateRoot[:]))
+	if result := module.DeliverTx(ctx, rawUpdate); result.Code == 0 || !strings.Contains(result.Log, ibckeeper.ErrInvalidProof.Error()) {
+		t.Fatalf("expected proof requirement, got %+v", result)
+	}
+	proofUpdate := types.Tx(string(rawUpdate) + ":" + encodeProofForTest(t, proof))
+	if result := module.DeliverTx(ctx, proofUpdate); result.Code != 0 {
+		t.Fatalf("expected proof update to pass, got %+v", result)
 	}
 }
 
@@ -399,7 +433,7 @@ func TestModuleAcknowledgesPacketWithProof(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	update := types.Tx("ibc:client-update:07-vexo-0:8:" + hash + ":" + hex.EncodeToString(proof.StateRoot[:]))
+	update := types.Tx("ibc:client-update:07-vexo-0:8:" + hash + ":" + hex.EncodeToString(proof.StateRoot[:]) + ":" + encodeProofForTest(t, proof))
 	if result := module.DeliverTx(vexoapp.Context{Ctx: context.Background(), Height: 8, Store: storage}, update); result.Code != 0 {
 		t.Fatalf("client update failed: %+v", result)
 	}
@@ -445,7 +479,7 @@ func TestModuleTimesOutPacketWithProof(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	update := types.Tx("ibc:client-update:07-vexo-0:8:" + hash + ":" + hex.EncodeToString(proof.StateRoot[:]))
+	update := types.Tx("ibc:client-update:07-vexo-0:8:" + hash + ":" + hex.EncodeToString(proof.StateRoot[:]) + ":" + encodeProofForTest(t, proof))
 	if result := module.DeliverTx(vexoapp.Context{Ctx: context.Background(), Height: 8, Store: storage}, update); result.Code != 0 {
 		t.Fatalf("client update failed: %+v", result)
 	}
@@ -583,6 +617,14 @@ func TestIBCModuleCLICommands(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "tx: ibc:client-update:07-vexo-0:6:"+strings.Repeat("01", 32)+":"+strings.Repeat("02", 32)) {
 		t.Fatalf("unexpected client update output: %s", output.String())
+	}
+	output.Reset()
+	proofPayload := base64.StdEncoding.EncodeToString([]byte(`{"namespace":"ibc","key":"clients/07-vexo-0"}`))
+	if err := command.Execute(&output, []string{"tx", "client-update", "07-vexo-0", "7", strings.Repeat("03", 32), strings.Repeat("04", 32), proofPayload}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "tx: ibc:client-update:07-vexo-0:7:"+strings.Repeat("03", 32)+":"+strings.Repeat("04", 32)+":"+proofPayload) {
+		t.Fatalf("unexpected proof client update output: %s", output.String())
 	}
 	output.Reset()
 	if err := command.Execute(&output, []string{"tx", "connection-open-init", "connection-0", "07-vexo-0", "connection-1"}); err != nil {

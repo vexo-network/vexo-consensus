@@ -953,7 +953,7 @@ func releaseEvidenceFixture(name string) []byte {
 		"mev-fee-market-evidence.json":          "mev fee market fair mempool ordering replacement evidence passed",
 		"ops-runbook-evidence.json":             "ops runbook alert incident metrics evidence passed",
 		"formal-safety-evidence.json":           "safety invariant adversarial property proof evidence passed",
-		"sdk-conformance-evidence.json":         "sdk api conformance module rpc storage crypto transport ibc relayer proof evm web3 ethereum raw transaction fixtures evidence passed",
+		"sdk-conformance-evidence.json":         "sdk api conformance module rpc storage crypto transport ibc relayer proof evm web3 ethereum raw transaction fixtures vm execution evidence passed",
 	}
 	switch {
 	case name == "fuzz-evidence.txt":

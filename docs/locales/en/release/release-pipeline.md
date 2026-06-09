@@ -153,14 +153,14 @@ The `release-candidate` target runs:
 - ops verification
 - built-binary network E2E (`make network-e2e`)
 - adversarial simulation
-- SDK/EVM transaction fixture conformance evidence. If the `evm` module is enabled, `vexod ops conformance` treats missing `--evm-default-fixtures` or `--evm-tx-fixtures` as an error, not a warning. The built-in fixture set is a baseline for dynamic-fee, access-list, protected legacy, unprotected legacy rejection, chain-ID, malformed raw, and fee-cap behavior. Attach any chain-specific raw transaction fixture corpus before making broader Web3/EVM compatibility claims.
+- SDK/EVM conformance evidence. If the `evm` module is enabled, `vexod ops conformance` treats missing `--evm-default-fixtures` or `--evm-tx-fixtures` as an error, not a warning. The built-in fixture set is a baseline for dynamic-fee, access-list, protected legacy, unprotected legacy rejection, chain-ID, malformed raw, fee-cap behavior, geth VM call return data, contract creation execution, revert behavior, and persistent storage writes. Attach any chain-specific raw transaction and VM execution fixture corpus before making broader Web3/EVM compatibility claims.
 - network load harness (`RC_DRY_RUN=1` keeps this as a plan-only dry-run; `make release-candidate-real` forces `RC_DRY_RUN=0`)
 - chaos plan
 - 7-day multi-host longrun plan
 - longrun harness evidence (`RC_DRY_RUN=1` keeps this as a plan-only dry-run; `make release-candidate-real` forces real load/longrun execution)
 - evidence manifest generation for whatever RC evidence files are present in `dist/`
 
-Real release candidates should run `network longrun` on independent machines and attach the generated evidence JSON plus metrics, logs, pprof, snapshot, replay, KMS signing, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, SDK conformance, and EVM/Web3 conformance evidence.
+Real release candidates should run `network longrun` on independent machines and attach the generated evidence JSON plus metrics, logs, pprof, snapshot, replay, KMS signing, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, SDK conformance, EVM/Web3 raw transaction conformance, and geth VM execution conformance evidence.
 The longrun harness distributes load across validator RPC endpoints and records per-validator submission counts in the evidence payload. Upgrade plans that rely on no-op schema migrations must explicitly set `allow_noop_migrations=true`; `vexod upgrade apply --allow-empty-migrations` rejects plans that do not opt in.
 
 ## Launch Runbook

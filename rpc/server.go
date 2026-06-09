@@ -70,6 +70,8 @@ type Config struct {
 	Web3SubscriptionMaxCatchUp    uint64
 	Web3SubscriptionMaxLogBatch   int
 	Web3SubscriptionMaxPendingRun int
+	Web3SubscriptionMaxPerConn    int
+	Web3SubscriptionIdleTimeout   time.Duration
 	Web3LogMaxResults             int
 	Web3LogMaxBlockRange          uint64
 }
@@ -108,32 +110,38 @@ type StatusResponse struct {
 }
 
 type MetricsResponse struct {
-	ChainID              string  `json:"chain_id"`
-	Running              bool    `json:"running"`
-	StartedAtUnix        int64   `json:"started_at_unix,omitempty"`
-	UptimeSeconds        uint64  `json:"uptime_seconds"`
-	DataDir              string  `json:"data_dir"`
-	LatestHeight         uint64  `json:"latest_height"`
-	LatestAppHash        string  `json:"latest_app_hash"`
-	EarliestBlockHeight  uint64  `json:"earliest_block_height"`
-	LatestBlockHeight    uint64  `json:"latest_block_height"`
-	TotalBlocks          uint64  `json:"total_blocks"`
-	ValidatorCount       int     `json:"validator_count"`
-	TotalVotingPower     uint64  `json:"total_voting_power"`
-	ValidatorSetHash     string  `json:"validator_set_hash"`
-	PeerCount            int     `json:"peer_count"`
-	BannedPeers          int     `json:"banned_peers"`
-	PeerWindowMessages   uint64  `json:"peer_window_messages"`
-	ConsensusLoopRunning bool    `json:"consensus_loop_running"`
-	HeightRatePerMinute  float64 `json:"height_rate_per_minute"`
-	RoundTimeouts        uint64  `json:"round_timeouts"`
-	ProposalLatencyNanos uint64  `json:"proposal_latency_nanos"`
-	VoteLatencyNanos     uint64  `json:"vote_latency_nanos"`
-	MempoolSize          uint64  `json:"mempool_size"`
-	CommitLatencyNanos   uint64  `json:"commit_latency_nanos"`
-	SnapshotHealthy      bool    `json:"snapshot_healthy"`
-	ReplayHealthy        bool    `json:"replay_healthy"`
-	SigningFailures      uint64  `json:"validator_signing_failures"`
+	ChainID                 string  `json:"chain_id"`
+	Running                 bool    `json:"running"`
+	StartedAtUnix           int64   `json:"started_at_unix,omitempty"`
+	UptimeSeconds           uint64  `json:"uptime_seconds"`
+	DataDir                 string  `json:"data_dir"`
+	LatestHeight            uint64  `json:"latest_height"`
+	LatestAppHash           string  `json:"latest_app_hash"`
+	EarliestBlockHeight     uint64  `json:"earliest_block_height"`
+	LatestBlockHeight       uint64  `json:"latest_block_height"`
+	TotalBlocks             uint64  `json:"total_blocks"`
+	ValidatorCount          int     `json:"validator_count"`
+	TotalVotingPower        uint64  `json:"total_voting_power"`
+	ValidatorSetHash        string  `json:"validator_set_hash"`
+	PeerCount               int     `json:"peer_count"`
+	BannedPeers             int     `json:"banned_peers"`
+	PeerWindowMessages      uint64  `json:"peer_window_messages"`
+	ConsensusLoopRunning    bool    `json:"consensus_loop_running"`
+	HeightRatePerMinute     float64 `json:"height_rate_per_minute"`
+	RoundTimeouts           uint64  `json:"round_timeouts"`
+	ProposalLatencyNanos    uint64  `json:"proposal_latency_nanos"`
+	ProposalLatencyP95Nanos uint64  `json:"proposal_latency_p95_nanos"`
+	ProposalLatencyP99Nanos uint64  `json:"proposal_latency_p99_nanos"`
+	VoteLatencyNanos        uint64  `json:"vote_latency_nanos"`
+	VoteLatencyP95Nanos     uint64  `json:"vote_latency_p95_nanos"`
+	VoteLatencyP99Nanos     uint64  `json:"vote_latency_p99_nanos"`
+	MempoolSize             uint64  `json:"mempool_size"`
+	CommitLatencyNanos      uint64  `json:"commit_latency_nanos"`
+	CommitLatencyP95Nanos   uint64  `json:"commit_latency_p95_nanos"`
+	CommitLatencyP99Nanos   uint64  `json:"commit_latency_p99_nanos"`
+	SnapshotHealthy         bool    `json:"snapshot_healthy"`
+	ReplayHealthy           bool    `json:"replay_healthy"`
+	SigningFailures         uint64  `json:"validator_signing_failures"`
 }
 
 type DiagnosticsResponse struct {

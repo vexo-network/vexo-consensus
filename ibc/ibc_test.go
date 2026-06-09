@@ -60,6 +60,63 @@ func TestKeeperPacketLifecycle(t *testing.T) {
 	}
 }
 
+func TestKeeperIndexesTimeoutPacketsAndRemovesAckedEntries(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	keeper := NewKeeper(storage)
+	ctx := context.Background()
+	setupOpenIBCPath(t, ctx, keeper, 10)
+	packet := Packet{Sequence: 1, SourcePort: "transfer", SourceChannel: "channel-0", DestinationPort: "transfer", DestinationChannel: "channel-1", Data: []byte("payload"), TimeoutHeight: 20}
+	if err := keeper.SendPacket(ctx, 11, packet); err != nil {
+		t.Fatal(err)
+	}
+	receipts, err := keeper.TimeoutReceiptsAt(ctx, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(receipts) != 1 || !samePacket(receipts[0].Packet, packet) {
+		t.Fatalf("expected indexed timeout receipt, got %+v", receipts)
+	}
+	if err := keeper.AcknowledgePacket(ctx, 12, packet, []byte("ack")); err != nil {
+		t.Fatal(err)
+	}
+	receipts, err = keeper.TimeoutReceiptsAt(ctx, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(receipts) != 0 {
+		t.Fatalf("expected ack to remove timeout index, got %+v", receipts)
+	}
+}
+
+func TestKeeperRemovesTimeoutIndexWhenPacketTimesOut(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	keeper := NewKeeper(storage)
+	ctx := context.Background()
+	setupOpenIBCPath(t, ctx, keeper, 10)
+	packet := Packet{Sequence: 1, SourcePort: "transfer", SourceChannel: "channel-0", DestinationPort: "transfer", DestinationChannel: "channel-1", Data: []byte("payload"), TimeoutHeight: 20}
+	if err := keeper.SendPacket(ctx, 11, packet); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeper.TimeoutPacket(ctx, 20, packet); err != nil {
+		t.Fatal(err)
+	}
+	receipts, err := keeper.TimeoutReceiptsAt(ctx, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(receipts) != 0 {
+		t.Fatalf("expected timeout to remove index, got %+v", receipts)
+	}
+}
+
 func TestKeeperSendPacketRequiresAtomicStore(t *testing.T) {
 	ctx := context.Background()
 	keeper := NewKeeper(newNonBatchIBCStore())

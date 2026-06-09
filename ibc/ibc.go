@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/vexo-network/vexo-consensus/kvbatch"
 	"github.com/vexo-network/vexo-consensus/queryproof"
@@ -102,6 +104,10 @@ type KVStore interface {
 	Set(ctx context.Context, namespace string, key []byte, value []byte) error
 }
 
+type deleteKVStore interface {
+	Delete(ctx context.Context, namespace string, key []byte) error
+}
+
 type Keeper struct {
 	store KVStore
 }
@@ -127,6 +133,20 @@ func (keeper *Keeper) UpdateClient(ctx context.Context, clientID string, latestH
 	return keeper.UpdateClientWithAuthority(ctx, clientID, latestHeight, validatorSetHash, latestStateRoot, "")
 }
 
+func (keeper *Keeper) UpdateClientWithProof(ctx context.Context, clientID string, latestHeight types.Height, validatorSetHash types.Hash, latestStateRoot types.Hash, proof queryproof.Proof, authority string) error {
+	client, found, err := keeper.Client(ctx, clientID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return ErrClientNotFound
+	}
+	if err := validateClientUpdateProof(client, latestHeight, latestStateRoot, proof); err != nil {
+		return err
+	}
+	return keeper.updateClient(ctx, client, latestHeight, validatorSetHash, latestStateRoot, authority)
+}
+
 func (keeper *Keeper) UpdateClientWithAuthority(ctx context.Context, clientID string, latestHeight types.Height, validatorSetHash types.Hash, latestStateRoot types.Hash, authority string) error {
 	if clientID == "" || latestHeight == 0 || validatorSetHash == (types.Hash{}) || latestStateRoot == (types.Hash{}) {
 		return ErrInvalidClient
@@ -137,6 +157,13 @@ func (keeper *Keeper) UpdateClientWithAuthority(ctx context.Context, clientID st
 	}
 	if !found {
 		return ErrClientNotFound
+	}
+	return keeper.updateClient(ctx, client, latestHeight, validatorSetHash, latestStateRoot, authority)
+}
+
+func (keeper *Keeper) updateClient(ctx context.Context, client ClientState, latestHeight types.Height, validatorSetHash types.Hash, latestStateRoot types.Hash, authority string) error {
+	if client.ClientID == "" || latestHeight == 0 || validatorSetHash == (types.Hash{}) || latestStateRoot == (types.Hash{}) {
+		return ErrInvalidClient
 	}
 	if client.Frozen {
 		return ErrClientFrozen
@@ -269,6 +296,9 @@ func (keeper *Keeper) SendPacket(ctx context.Context, height types.Height, packe
 		{Namespace: Namespace, Key: packetCommitmentKey(packet), Value: encoded},
 		{Namespace: Namespace, Key: nextSequenceKey(packet.SourcePort, packet.SourceChannel), Value: []byte(strconv.FormatUint(packet.Sequence+1, 10))},
 	}
+	if packet.TimeoutHeight > 0 {
+		writes = append(writes, kvbatch.KVWrite{Namespace: Namespace, Key: packetTimeoutIndexKey(packet), Value: packetCommitmentKey(packet)})
+	}
 	if batch, ok := keeper.store.(kvbatch.BatchKVStore); ok {
 		return batch.SetBatch(ctx, writes)
 	}
@@ -302,7 +332,26 @@ func (keeper *Keeper) AcknowledgePacket(ctx context.Context, height types.Height
 	receipt.Acknowledged = true
 	receipt.Ack = append([]byte(nil), ack...)
 	receipt.AckHeight = height
-	return keeper.setJSON(ctx, packetCommitmentKey(packet), receipt)
+	encoded, err := json.Marshal(receipt)
+	if err != nil {
+		return err
+	}
+	if batch, ok := keeper.store.(kvbatch.BatchKVStore); ok {
+		writes := []kvbatch.KVWrite{{Namespace: Namespace, Key: packetCommitmentKey(packet), Value: encoded}}
+		if receipt.Packet.TimeoutHeight > 0 {
+			writes = append(writes, kvbatch.KVWrite{Namespace: Namespace, Key: packetTimeoutIndexKey(receipt.Packet), Delete: true})
+		}
+		return batch.SetBatch(ctx, writes)
+	}
+	if err := keeper.setJSON(ctx, packetCommitmentKey(packet), receipt); err != nil {
+		return err
+	}
+	if receipt.Packet.TimeoutHeight > 0 {
+		if deleter, ok := keeper.store.(deleteKVStore); ok {
+			return deleter.Delete(ctx, Namespace, packetTimeoutIndexKey(receipt.Packet))
+		}
+	}
+	return nil
 }
 
 func (keeper *Keeper) AcknowledgePacketWithProof(ctx context.Context, height types.Height, clientID string, packet Packet, proof queryproof.Proof, ack []byte) error {
@@ -341,7 +390,24 @@ func (keeper *Keeper) TimeoutPacket(ctx context.Context, height types.Height, pa
 	}
 	receipt.TimedOut = true
 	receipt.TimeoutAt = height
-	return keeper.setJSON(ctx, packetCommitmentKey(packet), receipt)
+	encoded, err := json.Marshal(receipt)
+	if err != nil {
+		return err
+	}
+	if batch, ok := keeper.store.(kvbatch.BatchKVStore); ok {
+		writes := []kvbatch.KVWrite{
+			{Namespace: Namespace, Key: packetCommitmentKey(packet), Value: encoded},
+			{Namespace: Namespace, Key: packetTimeoutIndexKey(receipt.Packet), Delete: true},
+		}
+		return batch.SetBatch(ctx, writes)
+	}
+	if err := keeper.setJSON(ctx, packetCommitmentKey(packet), receipt); err != nil {
+		return err
+	}
+	if deleter, ok := keeper.store.(deleteKVStore); ok {
+		return deleter.Delete(ctx, Namespace, packetTimeoutIndexKey(receipt.Packet))
+	}
+	return nil
 }
 
 func (keeper *Keeper) TimeoutPacketWithProof(ctx context.Context, height types.Height, clientID string, packet Packet, proof queryproof.Proof) error {
@@ -358,6 +424,37 @@ func (keeper *Keeper) PacketReceipt(ctx context.Context, packet Packet) (PacketR
 	var receipt PacketReceipt
 	found, err := keeper.getJSON(ctx, packetCommitmentKey(packet), &receipt)
 	return receipt, found, err
+}
+
+func (keeper *Keeper) TimeoutReceiptsAt(ctx context.Context, height types.Height) ([]PacketReceipt, error) {
+	if height == 0 {
+		return nil, ErrInvalidPacket
+	}
+	prefixStore, ok := keeper.store.(store.PrefixKVStore)
+	if !ok {
+		return nil, ErrStoreMissing
+	}
+	pairs, err := prefixStore.ExportPrefix(ctx, Namespace, packetTimeoutHeightPrefix(uint64(height)))
+	if err != nil {
+		return nil, err
+	}
+	receipts := make([]PacketReceipt, 0, len(pairs))
+	for _, pair := range pairs {
+		packetKey := packetTimeoutIndexPacketKey(pair.Key)
+		if len(packetKey) == 0 {
+			return nil, ErrInvalidPacket
+		}
+		var receipt PacketReceipt
+		found, err := keeper.getJSON(ctx, packetKey, &receipt)
+		if err != nil {
+			return nil, err
+		}
+		if !found || receipt.Acknowledged || receipt.TimedOut || receipt.Packet.TimeoutHeight != uint64(height) {
+			continue
+		}
+		receipts = append(receipts, receipt)
+	}
+	return receipts, nil
 }
 
 func (keeper *Keeper) VerifyClientProof(ctx context.Context, clientID string, proof queryproof.Proof) error {
@@ -385,6 +482,22 @@ func (keeper *Keeper) VerifyClientProofAt(ctx context.Context, clientID string, 
 		return ErrInvalidProof
 	}
 	if err := queryproof.Verify(proof, client.ChainID, client.LatestHeight, client.LatestStateRoot); err != nil {
+		return errors.Join(ErrInvalidProof, err)
+	}
+	return nil
+}
+
+func validateClientUpdateProof(client ClientState, latestHeight types.Height, latestStateRoot types.Hash, proof queryproof.Proof) error {
+	if client.ClientID == "" || client.ChainID == "" || latestHeight == 0 || latestStateRoot == (types.Hash{}) {
+		return ErrInvalidClient
+	}
+	if proof.ChainID != client.ChainID || proof.Height != latestHeight || proof.StateRoot != latestStateRoot {
+		return ErrInvalidProof
+	}
+	if proof.Namespace == "" || len(proof.Key) == 0 {
+		return ErrInvalidProof
+	}
+	if err := queryproof.Verify(proof, client.ChainID, latestHeight, latestStateRoot); err != nil {
 		return errors.Join(ErrInvalidProof, err)
 	}
 	return nil
@@ -617,6 +730,23 @@ func packetCommitmentKey(packet Packet) []byte {
 
 func PacketCommitmentKey(packet Packet) []byte {
 	return append([]byte(nil), packetCommitmentKey(packet)...)
+}
+
+func packetTimeoutHeightPrefix(height uint64) []byte {
+	return []byte("packet-timeouts/" + fmt.Sprintf("%020d", height) + "/")
+}
+
+func packetTimeoutIndexKey(packet Packet) []byte {
+	return append(packetTimeoutHeightPrefix(packet.TimeoutHeight), packetCommitmentKey(packet)...)
+}
+
+func packetTimeoutIndexPacketKey(key []byte) []byte {
+	const separator = "/packets/"
+	index := strings.Index(string(key), separator)
+	if index < 0 {
+		return nil
+	}
+	return append([]byte(nil), key[index+1:]...)
 }
 
 func clonePacket(packet Packet) Packet {

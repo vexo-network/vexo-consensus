@@ -96,7 +96,7 @@ Node homes use separate config files so operators can edit one subsystem without
 - `log_config.json` contains log format, level, block commit event logging, and peer event logging.
 - `genesis.json` contains immutable genesis validators, validator metadata, and genesis module state.
 
-`network_config.json` RPC settings also include `shutdown_timeout`. This bounds graceful shutdown for the consensus loop, RPC server, and node transport so operators do not wait forever on a stuck stop path. The generated default is `10s`.
+`network_config.json` RPC settings also include `shutdown_timeout`, `web3_max_subscriptions_per_connection`, and `web3_idle_timeout`. `shutdown_timeout` bounds graceful shutdown for the consensus loop, RPC server, and node transport so operators do not wait forever on a stuck stop path. The generated default is `10s`; Web3 subscriptions default to 256 per connection with a `2m` idle timeout so public RPC endpoints cannot accumulate unbounded idle subscriptions.
 
 ## Key Types
 

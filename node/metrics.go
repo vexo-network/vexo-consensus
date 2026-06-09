@@ -9,32 +9,38 @@ import (
 )
 
 type Metrics struct {
-	ChainID              string
-	Running              bool
-	StartedAtUnix        int64
-	UptimeSeconds        uint64
-	DataDir              string
-	LatestHeight         types.Height
-	LatestAppHash        types.Hash
-	EarliestBlockHeight  types.Height
-	LatestBlockHeight    types.Height
-	TotalBlocks          uint64
-	ValidatorCount       int
-	TotalVotingPower     uint64
-	ValidatorSetHash     types.Hash
-	PeerCount            int
-	BannedPeers          int
-	PeerWindowMessages   uint64
-	ConsensusLoopRunning bool
-	HeightRatePerMinute  float64
-	RoundTimeouts        uint64
-	ProposalLatencyNanos uint64
-	VoteLatencyNanos     uint64
-	MempoolSize          uint64
-	CommitLatencyNanos   uint64
-	SnapshotHealthy      bool
-	ReplayHealthy        bool
-	SigningFailures      uint64
+	ChainID                 string
+	Running                 bool
+	StartedAtUnix           int64
+	UptimeSeconds           uint64
+	DataDir                 string
+	LatestHeight            types.Height
+	LatestAppHash           types.Hash
+	EarliestBlockHeight     types.Height
+	LatestBlockHeight       types.Height
+	TotalBlocks             uint64
+	ValidatorCount          int
+	TotalVotingPower        uint64
+	ValidatorSetHash        types.Hash
+	PeerCount               int
+	BannedPeers             int
+	PeerWindowMessages      uint64
+	ConsensusLoopRunning    bool
+	HeightRatePerMinute     float64
+	RoundTimeouts           uint64
+	ProposalLatencyNanos    uint64
+	ProposalLatencyP95Nanos uint64
+	ProposalLatencyP99Nanos uint64
+	VoteLatencyNanos        uint64
+	VoteLatencyP95Nanos     uint64
+	VoteLatencyP99Nanos     uint64
+	MempoolSize             uint64
+	CommitLatencyNanos      uint64
+	CommitLatencyP95Nanos   uint64
+	CommitLatencyP99Nanos   uint64
+	SnapshotHealthy         bool
+	ReplayHealthy           bool
+	SigningFailures         uint64
 }
 
 func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
@@ -56,8 +62,14 @@ func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
 	snapshot := node.metrics.snapshot()
 	metrics.RoundTimeouts = snapshot.roundTimeouts
 	metrics.ProposalLatencyNanos = snapshot.proposalLatencyNanos
+	metrics.ProposalLatencyP95Nanos = snapshot.proposalP95Nanos
+	metrics.ProposalLatencyP99Nanos = snapshot.proposalP99Nanos
 	metrics.VoteLatencyNanos = snapshot.voteLatencyNanos
+	metrics.VoteLatencyP95Nanos = snapshot.voteP95Nanos
+	metrics.VoteLatencyP99Nanos = snapshot.voteP99Nanos
 	metrics.CommitLatencyNanos = snapshot.commitLatencyNanos
+	metrics.CommitLatencyP95Nanos = snapshot.commitP95Nanos
+	metrics.CommitLatencyP99Nanos = snapshot.commitP99Nanos
 	metrics.SigningFailures = snapshot.signingFailures
 	if snapshot.committedBlocks > 0 && snapshot.firstCommitUnixNano > 0 && snapshot.latestCommitUnixNano > snapshot.firstCommitUnixNano {
 		elapsed := time.Duration(snapshot.latestCommitUnixNano - snapshot.firstCommitUnixNano)

@@ -381,7 +381,7 @@ func semanticRequirements(name string) [][]string {
 	case "formal_safety_evidence":
 		return [][]string{{"safety"}, {"invariant", "adversarial", "property", "proof"}}
 	case "sdk_conformance_evidence":
-		return [][]string{{"sdk", "api"}, {"conformance", "module", "rpc", "storage", "crypto", "transport"}, {"ibc", "relayer", "proof"}, {"evm", "web3", "ethereum"}, {"fixture", "fixtures"}, {"transaction", "raw tx", "raw transaction"}}
+		return [][]string{{"sdk", "api"}, {"conformance", "module", "rpc", "storage", "crypto", "transport"}, {"ibc", "relayer", "proof"}, {"evm", "web3", "ethereum"}, {"fixture", "fixtures"}, {"transaction", "raw tx", "raw transaction"}, {"execution", "vm", "opcode"}}
 	case "external_security_audit":
 		return [][]string{{"external", "security"}, {"audit", "disposition"}}
 	case "bls_adapter_audit":

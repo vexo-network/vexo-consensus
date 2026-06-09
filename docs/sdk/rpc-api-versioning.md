@@ -174,7 +174,11 @@ The bridge supports single requests, batch requests, notifications, string block
 
 - Pending transaction and txpool methods read the live Vexo mempool when the provider exposes raw pending transactions. Contiguous nonces are reported as `pending`; nonce gaps are reported as `queued`.
 - Same-signer/same-nonce replacement requires the configured replacement bump.
-- WebSocket `newHeads`, `logs`, and `newPendingTransactions` delivery is bounded per polling tick, and socket writes use deadlines so slow clients cannot force unbounded catch-up work. Embedders can tune `rpc.Config.Web3SubscriptionInterval`, `Web3SubscriptionMaxCatchUp`, `Web3SubscriptionMaxLogBatch`, and `Web3SubscriptionMaxPendingRun` for high-fanout RPC deployments.
+- WebSocket `newHeads`, `logs`, and `newPendingTransactions` delivery is bounded per polling tick, per connection, and by idle deadline. Socket writes use deadlines so slow clients cannot force unbounded catch-up work. Embedders can tune `rpc.Config.Web3SubscriptionInterval`, `Web3SubscriptionMaxCatchUp`, `Web3SubscriptionMaxLogBatch`, `Web3SubscriptionMaxPendingRun`, `Web3SubscriptionMaxPerConn`, and `Web3SubscriptionIdleTimeout`; split config files expose the last two as `network_config.json` RPC fields `web3_max_subscriptions_per_connection` and `web3_idle_timeout`.
+
+### Operator Latency Metrics
+
+`/v1/metrics` exposes average plus p95/p99 latency for proposal, vote, and commit processing. Alert on sustained p95 or p99 growth before average latency moves; this catches slow peers, saturated disks, and overloaded RPC/Web3 subscription fanout earlier than height-only monitoring.
 
 ## Web3 EVM Configuration
 

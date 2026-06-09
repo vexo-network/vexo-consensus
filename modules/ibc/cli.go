@@ -23,7 +23,7 @@ func ibcCLICommand() vexoapp.CLICommand {
 		Description: "IBC module commands for clients, connections, channels, and packets",
 		Examples: []string{
 			"ibc tx client-create 07-vexo-0 counterparty 10 <validator-set-hash>",
-			"ibc tx client-update 07-vexo-0 11 <validator-set-hash> <state-root>",
+			"ibc tx client-update 07-vexo-0 11 <validator-set-hash> <state-root> [proof_json_base64]",
 			"ibc tx connection-open-init connection-0 07-vexo-0 connection-1",
 			"ibc tx channel-open-init transfer channel-0 connection-0 channel-1 ordered",
 			"ibc tx packet-send 1 transfer channel-0 transfer channel-1 payload",
@@ -54,13 +54,14 @@ func ibcCLICommand() vexoapp.CLICommand {
 					},
 					{
 						Name:        "client-update",
-						Usage:       "ibc tx client-update <client_id> <latest_height> <validator_set_hash_hex> <state_root_hex>",
-						Description: "build an IBC client update transaction",
+						Usage:       "ibc tx client-update <client_id> <latest_height> <validator_set_hash_hex> <state_root_hex> [proof_json_base64]",
+						Description: "build an IBC client update transaction; permissionless clients require the optional query proof",
 						Args: []vexoapp.CLIArg{
 							{Name: "client_id", Description: "local client identifier"},
 							{Name: "latest_height", Description: "counterparty latest trusted height"},
 							{Name: "validator_set_hash_hex", Description: "32-byte validator set hash"},
 							{Name: "state_root_hex", Description: "32-byte counterparty state root"},
+							{Name: "proof_json_base64", Description: "optional base64 encoded query proof JSON for permissionless updates"},
 						},
 						Run: runClientUpdateCLI,
 					},
@@ -263,8 +264,8 @@ func runClientUpdateCLI(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(args) != 4 {
-		return vexoapp.ErrCLIUsage("ibc tx client-update <client_id> <latest_height> <validator_set_hash_hex> <state_root_hex>")
+	if len(args) != 4 && len(args) != 5 {
+		return vexoapp.ErrCLIUsage("ibc tx client-update <client_id> <latest_height> <validator_set_hash_hex> <state_root_hex> [proof_json_base64]")
 	}
 	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: "client-update", Args: args, Tags: tags})
 	if err != nil {

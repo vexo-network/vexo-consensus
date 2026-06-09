@@ -2183,6 +2183,23 @@ func TestHandlerUsesConfiguredWeb3WebSocketCatchUpLimit(t *testing.T) {
 	}
 }
 
+func TestHandlerLimitsWeb3WebSocketSubscriptionsPerConnection(t *testing.T) {
+	provider := &fakeStatusProvider{status: node.Status{ChainID: "vexo-chain", LatestHeight: 1}}
+	session := &web3SubscriptionSession{
+		provider: provider,
+		cfg:      Config{Web3SubscriptionMaxPerConn: 1},
+		ctx:      context.Background(),
+		subs:     map[string]web3Subscription{},
+		send:     func(value any) {},
+	}
+	if id, rpcErr := session.subscribe([]json.RawMessage{json.RawMessage(`"newHeads"`)}); rpcErr != nil || id == "" {
+		t.Fatalf("unexpected first subscription id=%q err=%+v", id, rpcErr)
+	}
+	if id, rpcErr := session.subscribe([]json.RawMessage{json.RawMessage(`"newHeads"`)}); rpcErr == nil || id != "" || rpcErr.Code != -32005 {
+		t.Fatalf("expected subscription limit rejection, id=%q err=%+v", id, rpcErr)
+	}
+}
+
 func TestHandlerServesWeb3WebSocketLogSubscriptions(t *testing.T) {
 	provider := &fakeStatusProvider{
 		status:           node.Status{ChainID: "vexo-chain", LatestHeight: 1},

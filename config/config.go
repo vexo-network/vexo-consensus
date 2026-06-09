@@ -255,6 +255,9 @@ func (config Config) Validate() error {
 	if config.Execution.EVMForkPreset == "custom" && config.Execution.EVMChainConfigJSON == "" {
 		return ErrInvalidConfig
 	}
+	if config.Execution.EVMChainConfigJSON != "" && config.Execution.EVMForkPreset != "custom" {
+		return ErrInvalidConfig
+	}
 	if config.Execution.EVMChainConfigJSON != "" {
 		var raw map[string]any
 		if err := json.Unmarshal([]byte(config.Execution.EVMChainConfigJSON), &raw); err != nil || len(raw) == 0 {

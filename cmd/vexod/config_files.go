@@ -149,6 +149,8 @@ type runtimeRPCConfig struct {
 	MaxRequestBytes       int64               `json:"max_request_bytes,omitempty"`
 	RateLimitWindow       string              `json:"rate_limit_window,omitempty"`
 	RateLimitMaxRequests  int                 `json:"rate_limit_max_requests,omitempty"`
+	Web3MaxSubscriptions  int                 `json:"web3_max_subscriptions_per_connection,omitempty"`
+	Web3IdleTimeout       string              `json:"web3_idle_timeout,omitempty"`
 	EVMManagedAccounts    bool                `json:"evm_managed_accounts,omitempty"`
 	EVMAccountPrivateKeys []string            `json:"evm_account_private_keys,omitempty"`
 	EVMAccountKeyEnvs     []string            `json:"evm_account_key_envs,omitempty"`
@@ -1345,6 +1347,8 @@ func runtimeRPCConfigSet(rpc runtimeRPCConfig) bool {
 		rpc.MaxRequestBytes != 0 ||
 		rpc.RateLimitWindow != "" ||
 		rpc.RateLimitMaxRequests != 0 ||
+		rpc.Web3MaxSubscriptions != 0 ||
+		rpc.Web3IdleTimeout != "" ||
 		rpc.EVMManagedAccounts ||
 		len(rpc.EVMAccountPrivateKeys) > 0 ||
 		len(rpc.EVMAccountKeyEnvs) > 0
@@ -1587,9 +1591,11 @@ func defaultRuntimeConfig(validatorID string) runtimeConfig {
 	loopEnabled := validatorID != ""
 	return runtimeConfig{
 		RPC: runtimeRPCConfig{
-			Enabled:         true,
-			Address:         defaultRPCAddress,
-			ShutdownTimeout: "10s",
+			Enabled:              true,
+			Address:              defaultRPCAddress,
+			ShutdownTimeout:      "10s",
+			Web3MaxSubscriptions: 256,
+			Web3IdleTimeout:      "2m",
 		},
 		P2P: runtimeP2PConfig{
 			Enabled:          true,

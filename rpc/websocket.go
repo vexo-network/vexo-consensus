@@ -24,6 +24,8 @@ const (
 	web3SubscriptionMaxCatchUp    = 1024
 	web3SubscriptionMaxLogBatch   = 4096
 	web3SubscriptionMaxPendingRun = 4096
+	web3SubscriptionMaxPerConn    = 256
+	web3SubscriptionIdleTimeout   = 2 * time.Minute
 )
 
 type web3Subscription struct {
@@ -78,9 +80,15 @@ func serveWeb3WebSocket(conn *websocket.Conn, parent context.Context, provider S
 	defer cancel()
 	go session.poll()
 	for {
+		if timeout := cfg.subscriptionIdleTimeout(); timeout > 0 {
+			_ = conn.SetReadDeadline(time.Now().Add(timeout))
+		}
 		var payload JSONRPCRequest
 		if err := websocket.JSON.Receive(conn, &payload); err != nil {
 			return
+		}
+		if cfg.subscriptionIdleTimeout() > 0 {
+			_ = conn.SetReadDeadline(time.Time{})
 		}
 		session.handle(payload)
 	}
@@ -112,6 +120,12 @@ func (session *web3SubscriptionSession) subscribe(params []json.RawMessage) (str
 	if err != nil {
 		return "", &JSONRPCError{Code: -32602, Message: err.Error()}
 	}
+	session.mu.Lock()
+	if len(session.subs) >= session.cfg.subscriptionMaxPerConnection() {
+		session.mu.Unlock()
+		return "", &JSONRPCError{Code: -32005, Message: "web3 subscription limit exceeded"}
+	}
+	session.mu.Unlock()
 	status := session.provider.Status(session.ctx)
 	subscription := web3Subscription{
 		ID:         randomSubscriptionID(),
@@ -326,6 +340,20 @@ func (cfg Config) subscriptionMaxPendingRun() int {
 		return cfg.Web3SubscriptionMaxPendingRun
 	}
 	return web3SubscriptionMaxPendingRun
+}
+
+func (cfg Config) subscriptionMaxPerConnection() int {
+	if cfg.Web3SubscriptionMaxPerConn > 0 {
+		return cfg.Web3SubscriptionMaxPerConn
+	}
+	return web3SubscriptionMaxPerConn
+}
+
+func (cfg Config) subscriptionIdleTimeout() time.Duration {
+	if cfg.Web3SubscriptionIdleTimeout > 0 {
+		return cfg.Web3SubscriptionIdleTimeout
+	}
+	return web3SubscriptionIdleTimeout
 }
 
 func (session *web3SubscriptionSession) sendSubscription(id string, result any) {

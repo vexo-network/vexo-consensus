@@ -52,32 +52,38 @@ func statusResponse(status node.Status) StatusResponse {
 
 func metricsResponse(metrics node.Metrics) MetricsResponse {
 	return MetricsResponse{
-		ChainID:              metrics.ChainID,
-		Running:              metrics.Running,
-		StartedAtUnix:        metrics.StartedAtUnix,
-		UptimeSeconds:        metrics.UptimeSeconds,
-		DataDir:              metrics.DataDir,
-		LatestHeight:         uint64(metrics.LatestHeight),
-		LatestAppHash:        hex.EncodeToString(metrics.LatestAppHash[:]),
-		EarliestBlockHeight:  uint64(metrics.EarliestBlockHeight),
-		LatestBlockHeight:    uint64(metrics.LatestBlockHeight),
-		TotalBlocks:          metrics.TotalBlocks,
-		ValidatorCount:       metrics.ValidatorCount,
-		TotalVotingPower:     metrics.TotalVotingPower,
-		ValidatorSetHash:     hex.EncodeToString(metrics.ValidatorSetHash[:]),
-		PeerCount:            metrics.PeerCount,
-		BannedPeers:          metrics.BannedPeers,
-		PeerWindowMessages:   metrics.PeerWindowMessages,
-		ConsensusLoopRunning: metrics.ConsensusLoopRunning,
-		HeightRatePerMinute:  metrics.HeightRatePerMinute,
-		RoundTimeouts:        metrics.RoundTimeouts,
-		ProposalLatencyNanos: metrics.ProposalLatencyNanos,
-		VoteLatencyNanos:     metrics.VoteLatencyNanos,
-		MempoolSize:          metrics.MempoolSize,
-		CommitLatencyNanos:   metrics.CommitLatencyNanos,
-		SnapshotHealthy:      metrics.SnapshotHealthy,
-		ReplayHealthy:        metrics.ReplayHealthy,
-		SigningFailures:      metrics.SigningFailures,
+		ChainID:                 metrics.ChainID,
+		Running:                 metrics.Running,
+		StartedAtUnix:           metrics.StartedAtUnix,
+		UptimeSeconds:           metrics.UptimeSeconds,
+		DataDir:                 metrics.DataDir,
+		LatestHeight:            uint64(metrics.LatestHeight),
+		LatestAppHash:           hex.EncodeToString(metrics.LatestAppHash[:]),
+		EarliestBlockHeight:     uint64(metrics.EarliestBlockHeight),
+		LatestBlockHeight:       uint64(metrics.LatestBlockHeight),
+		TotalBlocks:             metrics.TotalBlocks,
+		ValidatorCount:          metrics.ValidatorCount,
+		TotalVotingPower:        metrics.TotalVotingPower,
+		ValidatorSetHash:        hex.EncodeToString(metrics.ValidatorSetHash[:]),
+		PeerCount:               metrics.PeerCount,
+		BannedPeers:             metrics.BannedPeers,
+		PeerWindowMessages:      metrics.PeerWindowMessages,
+		ConsensusLoopRunning:    metrics.ConsensusLoopRunning,
+		HeightRatePerMinute:     metrics.HeightRatePerMinute,
+		RoundTimeouts:           metrics.RoundTimeouts,
+		ProposalLatencyNanos:    metrics.ProposalLatencyNanos,
+		ProposalLatencyP95Nanos: metrics.ProposalLatencyP95Nanos,
+		ProposalLatencyP99Nanos: metrics.ProposalLatencyP99Nanos,
+		VoteLatencyNanos:        metrics.VoteLatencyNanos,
+		VoteLatencyP95Nanos:     metrics.VoteLatencyP95Nanos,
+		VoteLatencyP99Nanos:     metrics.VoteLatencyP99Nanos,
+		MempoolSize:             metrics.MempoolSize,
+		CommitLatencyNanos:      metrics.CommitLatencyNanos,
+		CommitLatencyP95Nanos:   metrics.CommitLatencyP95Nanos,
+		CommitLatencyP99Nanos:   metrics.CommitLatencyP99Nanos,
+		SnapshotHealthy:         metrics.SnapshotHealthy,
+		ReplayHealthy:           metrics.ReplayHealthy,
+		SigningFailures:         metrics.SigningFailures,
 	}
 }
 
@@ -161,9 +167,15 @@ func metricsText(metrics node.Metrics) string {
 	writeGauge("vexo_consensus_loop_running", "Whether the local consensus loop is running.", boolGauge(metrics.ConsensusLoopRunning))
 	writeGauge("vexo_round_timeouts", "Observed consensus round timeouts.", metrics.RoundTimeouts)
 	writeGauge("vexo_proposal_latency_nanos", "Observed proposal processing latency in nanoseconds.", metrics.ProposalLatencyNanos)
+	writeGauge("vexo_proposal_latency_p95_nanos", "Rolling p95 proposal processing latency in nanoseconds.", metrics.ProposalLatencyP95Nanos)
+	writeGauge("vexo_proposal_latency_p99_nanos", "Rolling p99 proposal processing latency in nanoseconds.", metrics.ProposalLatencyP99Nanos)
 	writeGauge("vexo_vote_latency_nanos", "Observed vote processing latency in nanoseconds.", metrics.VoteLatencyNanos)
+	writeGauge("vexo_vote_latency_p95_nanos", "Rolling p95 vote processing latency in nanoseconds.", metrics.VoteLatencyP95Nanos)
+	writeGauge("vexo_vote_latency_p99_nanos", "Rolling p99 vote processing latency in nanoseconds.", metrics.VoteLatencyP99Nanos)
 	writeGauge("vexo_mempool_size", "Current mempool size.", metrics.MempoolSize)
 	writeGauge("vexo_commit_latency_nanos", "Observed commit latency in nanoseconds.", metrics.CommitLatencyNanos)
+	writeGauge("vexo_commit_latency_p95_nanos", "Rolling p95 commit latency in nanoseconds.", metrics.CommitLatencyP95Nanos)
+	writeGauge("vexo_commit_latency_p99_nanos", "Rolling p99 commit latency in nanoseconds.", metrics.CommitLatencyP99Nanos)
 	writeGauge("vexo_snapshot_healthy", "Whether snapshot verification is healthy.", boolGauge(metrics.SnapshotHealthy))
 	writeGauge("vexo_replay_healthy", "Whether replay verification is healthy.", boolGauge(metrics.ReplayHealthy))
 	writeGauge("vexo_validator_signing_failures", "Validator signing failures.", metrics.SigningFailures)

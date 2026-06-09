@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	gethbackend "github.com/vexo-network/vexo-consensus/modules/evm/backend/geth"
 	"github.com/vexo-network/vexo-consensus/modules/evm/ethcompat"
 	"github.com/vexo-network/vexo-consensus/ops"
 	"github.com/vexo-network/vexo-consensus/p2p"
@@ -51,6 +52,7 @@ type opsConformanceDocument struct {
 	RotationPlan  *keyRotationPlanDocument                `json:"rotation_plan,omitempty"`
 	Metrics       *ops.Report                             `json:"metrics,omitempty"`
 	EVMFixtures   *ethcompat.TransactionConformanceReport `json:"evm_fixtures,omitempty"`
+	EVMExecution  *gethbackend.ExecutionConformanceReport `json:"evm_execution,omitempty"`
 	Checks        []auditCheckDocument                    `json:"checks"`
 }
 
@@ -173,8 +175,11 @@ func runOpsConformance(writer io.Writer, args []string) error {
 		}
 		document.EVMFixtures = &report
 		document.addCheck("evm_transaction_fixtures", "error", report.OK, "Ethereum raw transaction fixtures must decode, validate, match expected outcomes, and cover required transaction categories")
-		document.Summary = append(document.Summary, "evm web3 ethereum conformance evidence")
-		document.SDKSurface = append(document.SDKSurface, "evm", "web3", "ethereum")
+		executionReport := gethbackend.RunExecutionFixtures(gethbackend.DefaultExecutionFixtures())
+		document.EVMExecution = &executionReport
+		document.addCheck("evm_execution_fixtures", "error", executionReport.OK, "geth EVM execution fixtures must cover call return, contract creation, revert, and storage writes")
+		document.Summary = append(document.Summary, "evm web3 ethereum raw transaction fixtures vm execution evidence")
+		document.SDKSurface = append(document.SDKSurface, "evm", "web3", "ethereum", "raw transaction", "vm execution")
 	} else if evmModuleEnabled {
 		document.addCheck("evm_transaction_fixtures_missing", "error", false, "EVM module is enabled; pass --evm-default-fixtures or --evm-tx-fixtures before claiming EVM/Web3 conformance")
 	} else {
@@ -189,6 +194,9 @@ func runOpsConformance(writer io.Writer, args []string) error {
 	}
 	if document.EVMFixtures != nil {
 		document.OK = document.OK && document.EVMFixtures.OK
+	}
+	if document.EVMExecution != nil {
+		document.OK = document.OK && document.EVMExecution.OK
 	}
 	if *jsonOutput {
 		encoder := json.NewEncoder(writer)
@@ -305,6 +313,10 @@ func writeOpsConformance(writer io.Writer, document opsConformanceDocument) {
 	if document.EVMFixtures != nil {
 		fmt.Fprintf(writer, "evm_fixtures_ok: %t passed=%d failed=%d total=%d\n", document.EVMFixtures.OK, document.EVMFixtures.Passed, document.EVMFixtures.Failed, document.EVMFixtures.Total)
 		fmt.Fprintf(writer, "evm_fixture_coverage_ok: %t covered=%d missing=%d\n", document.EVMFixtures.CoverageOK, len(document.EVMFixtures.CoveredCategories), len(document.EVMFixtures.MissingCategories))
+	}
+	if document.EVMExecution != nil {
+		fmt.Fprintf(writer, "evm_execution_ok: %t passed=%d failed=%d total=%d\n", document.EVMExecution.OK, document.EVMExecution.Passed, document.EVMExecution.Failed, document.EVMExecution.Total)
+		fmt.Fprintf(writer, "evm_execution_coverage_ok: %t covered=%d missing=%d\n", document.EVMExecution.CoverageOK, len(document.EVMExecution.CoveredCategories), len(document.EVMExecution.MissingCategories))
 	}
 }
 

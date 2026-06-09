@@ -52,7 +52,7 @@ Required artifacts:
 - MEV/fee-market evidence covering base fee, fair ordering, censorship-resistance, spam cost, and mempool WAL replay
 - ops runbook evidence covering alert thresholds, incident drills, multi-region observability, and archive requirements
 - formal safety evidence covering invariants, adversarial simulation output, and property/fuzz output
-- SDK conformance evidence covering app modules, custom crypto, custom storage, custom transport, RPC versioning, upgrade hooks, built-in EVM/Web3 transaction fixtures, and any chain-specific fixture corpus
+- SDK conformance evidence covering app modules, custom crypto, custom storage, custom transport, RPC versioning, upgrade hooks, built-in EVM/Web3 raw transaction fixtures, geth VM execution fixtures, and any chain-specific fixture corpus
 - external audit disposition for public releases
 - BLS adapter audit evidence when BLS is enabled
 
@@ -95,7 +95,7 @@ go run ./cmd/vexod release gate \
   --bls-audit dist/bls-audit.pdf
 ```
 
-`--evm-default-fixtures` is intentionally small enough for CI but not superficial: it exercises dynamic-fee calls, contract creation, access-list metadata, protected legacy signing, unprotected legacy rejection, chain-ID mismatch rejection, malformed raw input rejection, and fee-cap rejection. Add `--evm-tx-fixtures <file>` for chain-specific contract, precompile, blob, and account-abstraction scenarios before a public compatibility claim.
+`--evm-default-fixtures` is intentionally small enough for CI but not superficial: it exercises dynamic-fee calls, contract creation, access-list metadata, protected legacy signing, unprotected legacy rejection, chain-ID mismatch rejection, malformed raw input rejection, fee-cap rejection, geth VM call return data, contract creation execution, revert behavior, and persistent storage writes. Add `--evm-tx-fixtures <file>` for chain-specific contract, precompile, blob, and account-abstraction scenarios before a public compatibility claim.
 
 ## Genesis Gate
 

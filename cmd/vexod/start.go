@@ -66,6 +66,8 @@ type startRuntimeConfig struct {
 	RPCMaxRequestBytes      int64
 	RPCRateLimitWindow      time.Duration
 	RPCRateLimitMaxRequests int
+	RPCWeb3MaxSubscriptions int
+	RPCWeb3IdleTimeout      time.Duration
 	RPCEVMManagedAccounts   bool
 	RPCEVMAccountKeys       []string
 	RPCEVMAccountKeyEnvs    []string
@@ -442,18 +444,20 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			return err
 		}
 		address, shutdown, err := startRPCServerWithConfig(node, runtimeConfig.RPCAddress, vexorpc.Config{
-			AdminToken:               runtimeConfig.RPCAdminToken,
-			AdminTokens:              runtimeConfig.RPCAdminTokens,
-			EnablePprof:              runtimeConfig.RPCEnablePprof,
-			RequestTimeout:           runtimeConfig.RPCRequestTimeout,
-			MaxRequestBytes:          runtimeConfig.RPCMaxRequestBytes,
-			RateLimitWindow:          runtimeConfig.RPCRateLimitWindow,
-			RateLimitMaxRequests:     runtimeConfig.RPCRateLimitMaxRequests,
-			AllowUnprotectedLegacyTx: inputs.Config.Chain.Execution.AllowUnprotectedLegacyTx,
-			EVMChainConfigJSON:       inputs.Config.Chain.Execution.EVMChainConfigJSON,
-			StrictEVMStateRoot:       inputs.Config.Chain.Execution.StrictEVMStateRoot,
-			EnableEVMManagedAccounts: runtimeConfig.RPCEVMManagedAccounts,
-			EVMAccountPrivateKeys:    evmAccountKeys,
+			AdminToken:                  runtimeConfig.RPCAdminToken,
+			AdminTokens:                 runtimeConfig.RPCAdminTokens,
+			EnablePprof:                 runtimeConfig.RPCEnablePprof,
+			RequestTimeout:              runtimeConfig.RPCRequestTimeout,
+			MaxRequestBytes:             runtimeConfig.RPCMaxRequestBytes,
+			RateLimitWindow:             runtimeConfig.RPCRateLimitWindow,
+			RateLimitMaxRequests:        runtimeConfig.RPCRateLimitMaxRequests,
+			Web3SubscriptionMaxPerConn:  runtimeConfig.RPCWeb3MaxSubscriptions,
+			Web3SubscriptionIdleTimeout: runtimeConfig.RPCWeb3IdleTimeout,
+			AllowUnprotectedLegacyTx:    inputs.Config.Chain.Execution.AllowUnprotectedLegacyTx,
+			EVMChainConfigJSON:          inputs.Config.Chain.Execution.EVMChainConfigJSON,
+			StrictEVMStateRoot:          inputs.Config.Chain.Execution.StrictEVMStateRoot,
+			EnableEVMManagedAccounts:    runtimeConfig.RPCEVMManagedAccounts,
+			EVMAccountPrivateKeys:       evmAccountKeys,
 		}, serverErr)
 		if err != nil {
 			_ = withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop)
@@ -672,31 +676,32 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 		runtime = defaultRuntimeConfig(document.ValidatorID)
 	}
 	cfg := startRuntimeConfig{
-		RPCEnabled:            runtime.RPC.Enabled,
-		RPCAddress:            runtime.RPC.Address,
-		RPCAdminToken:         runtime.RPC.AdminToken,
-		RPCAdminTokens:        cloneStringSliceMap(runtime.RPC.AdminTokens),
-		RPCEnablePprof:        runtime.RPC.EnablePprof,
-		RPCMaxRequestBytes:    runtime.RPC.MaxRequestBytes,
-		ShutdownTimeout:       defaultShutdownTimeout,
-		RPCEVMManagedAccounts: runtime.RPC.EVMManagedAccounts || len(runtime.RPC.EVMAccountPrivateKeys) > 0 || len(runtime.RPC.EVMAccountKeyEnvs) > 0,
-		RPCEVMAccountKeys:     append([]string(nil), runtime.RPC.EVMAccountPrivateKeys...),
-		RPCEVMAccountKeyEnvs:  append([]string(nil), runtime.RPC.EVMAccountKeyEnvs...),
-		P2PEnabled:            runtime.P2P.Enabled,
-		P2PListenAddress:      runtime.P2P.ListenAddress,
-		P2PNetworkID:          runtime.P2P.NetworkID,
-		P2PMaxMessageBytes:    runtime.P2P.MaxMessageBytes,
-		P2PMaxPeers:           runtime.P2P.MaxPeers,
-		P2PAuthToken:          runtime.P2P.AuthToken,
-		P2PTLSCertPath:        resolveOptionalPath(home, runtime.P2P.TLSCertPath),
-		P2PTLSKeyPath:         resolveOptionalPath(home, runtime.P2P.TLSKeyPath),
-		P2PTLSCAPath:          resolveOptionalPath(home, runtime.P2P.TLSCAPath),
-		P2PTLSServerName:      runtime.P2P.TLSServerName,
-		AddrBookPath:          resolveAddrBookPath(home, runtime.P2P.AddrBookPath),
-		AddrBookMaxFailures:   runtime.P2P.AddrBookMaxFails,
-		P2PPeers:              stringPeerMap(runtime.P2P.Peers),
-		P2PSeeds:              stringPeerMap(runtime.P2P.Seeds),
-		ConsensusLoopEnabled:  runtime.Consensus.LoopEnabled,
+		RPCEnabled:              runtime.RPC.Enabled,
+		RPCAddress:              runtime.RPC.Address,
+		RPCAdminToken:           runtime.RPC.AdminToken,
+		RPCAdminTokens:          cloneStringSliceMap(runtime.RPC.AdminTokens),
+		RPCEnablePprof:          runtime.RPC.EnablePprof,
+		RPCMaxRequestBytes:      runtime.RPC.MaxRequestBytes,
+		RPCWeb3MaxSubscriptions: runtime.RPC.Web3MaxSubscriptions,
+		ShutdownTimeout:         defaultShutdownTimeout,
+		RPCEVMManagedAccounts:   runtime.RPC.EVMManagedAccounts || len(runtime.RPC.EVMAccountPrivateKeys) > 0 || len(runtime.RPC.EVMAccountKeyEnvs) > 0,
+		RPCEVMAccountKeys:       append([]string(nil), runtime.RPC.EVMAccountPrivateKeys...),
+		RPCEVMAccountKeyEnvs:    append([]string(nil), runtime.RPC.EVMAccountKeyEnvs...),
+		P2PEnabled:              runtime.P2P.Enabled,
+		P2PListenAddress:        runtime.P2P.ListenAddress,
+		P2PNetworkID:            runtime.P2P.NetworkID,
+		P2PMaxMessageBytes:      runtime.P2P.MaxMessageBytes,
+		P2PMaxPeers:             runtime.P2P.MaxPeers,
+		P2PAuthToken:            runtime.P2P.AuthToken,
+		P2PTLSCertPath:          resolveOptionalPath(home, runtime.P2P.TLSCertPath),
+		P2PTLSKeyPath:           resolveOptionalPath(home, runtime.P2P.TLSKeyPath),
+		P2PTLSCAPath:            resolveOptionalPath(home, runtime.P2P.TLSCAPath),
+		P2PTLSServerName:        runtime.P2P.TLSServerName,
+		AddrBookPath:            resolveAddrBookPath(home, runtime.P2P.AddrBookPath),
+		AddrBookMaxFailures:     runtime.P2P.AddrBookMaxFails,
+		P2PPeers:                stringPeerMap(runtime.P2P.Peers),
+		P2PSeeds:                stringPeerMap(runtime.P2P.Seeds),
+		ConsensusLoopEnabled:    runtime.Consensus.LoopEnabled,
 		ConsensusLoop: vexonode.ConsensusLoopConfig{
 			MaxBlockBytes:       runtime.Consensus.MaxBlockBytes,
 			CreateEmptyBlocks:   runtime.Consensus.CreateEmptyBlocks,
@@ -751,6 +756,16 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 			return startRuntimeConfig{}, fmt.Errorf("runtime.rpc.rate_limit_window: %w", err)
 		}
 		cfg.RPCRateLimitWindow = duration
+	}
+	if runtime.RPC.Web3IdleTimeout != "" {
+		duration, err := time.ParseDuration(runtime.RPC.Web3IdleTimeout)
+		if err != nil {
+			return startRuntimeConfig{}, fmt.Errorf("runtime.rpc.web3_idle_timeout: %w", err)
+		}
+		if duration <= 0 {
+			return startRuntimeConfig{}, fmt.Errorf("runtime.rpc.web3_idle_timeout: %w", vexoconfig.ErrInvalidConfig)
+		}
+		cfg.RPCWeb3IdleTimeout = duration
 	}
 	if runtime.Consensus.Interval != "" {
 		duration, err := time.ParseDuration(runtime.Consensus.Interval)
@@ -883,6 +898,8 @@ func runtimeConfigIsZero(runtime runtimeConfig) bool {
 		runtime.RPC.MaxRequestBytes == 0 &&
 		runtime.RPC.RateLimitWindow == "" &&
 		runtime.RPC.RateLimitMaxRequests == 0 &&
+		runtime.RPC.Web3MaxSubscriptions == 0 &&
+		runtime.RPC.Web3IdleTimeout == "" &&
 		runtime.RPC.EVMManagedAccounts == false &&
 		len(runtime.RPC.EVMAccountPrivateKeys) == 0 &&
 		len(runtime.RPC.EVMAccountKeyEnvs) == 0 &&

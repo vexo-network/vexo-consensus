@@ -108,7 +108,7 @@ func TestEvidenceSemanticValidation(t *testing.T) {
 		{name: "bls builtin reference rejected", checkName: "bls_adapter_audit", path: "bls.pdf", data: []byte(`circl-bls12381 operator-supplied-audit-required dependency subgroup rogue-key proof-of-possession key-validation version`), ok: false},
 		{name: "bls audit pending rejected", checkName: "bls_adapter_audit", path: "bls.pdf", data: []byte(`BLS audit pending blst adapter dependency version subgroup rogue-key proof-of-possession key-validation`), ok: false},
 		{name: "sdk conformance requires fixtures", checkName: "sdk_conformance_evidence", path: "sdk.json", data: []byte(`{"ok":true,"summary":"sdk api conformance module rpc storage crypto transport ibc relayer proof evm web3 ethereum evidence passed"}`), ok: false},
-		{name: "sdk conformance fixtures accepted", checkName: "sdk_conformance_evidence", path: "sdk.json", data: []byte(`{"ok":true,"summary":"sdk api conformance module rpc storage crypto transport ibc relayer proof evm web3 ethereum raw transaction fixtures passed"}`), ok: true},
+		{name: "sdk conformance fixtures accepted", checkName: "sdk_conformance_evidence", path: "sdk.json", data: []byte(`{"ok":true,"summary":"sdk api conformance module rpc storage crypto transport ibc relayer proof evm web3 ethereum raw transaction fixtures vm execution passed"}`), ok: true},
 		{name: "audit generic text rejected", checkName: "external_security_audit", path: "audit.pdf", data: []byte(`evidence passed`), ok: false},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -325,7 +325,7 @@ func semanticEvidenceContentForPath(path string) []byte {
 	case "formal-safety.json":
 		return []byte(`{"ok":true,"summary":"safety invariant adversarial property proof evidence passed"}`)
 	case "sdk-conformance.json":
-		return []byte(`{"ok":true,"summary":"sdk api conformance module rpc storage crypto transport ibc relayer proof evm web3 ethereum raw transaction fixtures evidence passed"}`)
+		return []byte(`{"ok":true,"summary":"sdk api conformance module rpc storage crypto transport ibc relayer proof evm web3 ethereum raw transaction fixtures vm execution evidence passed"}`)
 	case "audit.pdf":
 		return []byte(`external security audit disposition evidence passed`)
 	case "bls.pdf":
