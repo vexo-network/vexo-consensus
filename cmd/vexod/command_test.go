@@ -920,7 +920,7 @@ func releaseEvidenceFixture(name string) []byte {
 		"mev-fee-market-evidence.json":          "mev fee market fair mempool ordering replacement evidence passed",
 		"ops-runbook-evidence.json":             "ops runbook alert incident metrics evidence passed",
 		"formal-safety-evidence.json":           "safety invariant adversarial property proof evidence passed",
-		"sdk-conformance-evidence.json":         "sdk api conformance module rpc storage crypto transport ibc relayer proof evm web3 ethereum evidence passed",
+		"sdk-conformance-evidence.json":         "sdk api conformance module rpc storage crypto transport ibc relayer proof evm web3 ethereum raw transaction fixtures evidence passed",
 	}
 	switch {
 	case name == "fuzz-evidence.txt":
@@ -3064,6 +3064,45 @@ func TestOpsConformanceRequiresFixtureForEthereumSurface(t *testing.T) {
 	}
 	if !foundWarning {
 		t.Fatalf("expected missing fixture warning: %+v", document.Checks)
+	}
+}
+
+func TestOpsConformanceFailsWithoutFixturesWhenEVMEnabled(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--overwrite"}); err != nil {
+		t.Fatal(err)
+	}
+	modulePath := filepath.Join(home, moduleConfigFileName)
+	moduleDocument, err := readModuleConfigDocument(modulePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	moduleDocument.Application.Modules = append(moduleDocument.Application.Modules, "evm")
+	writeTestJSON(t, modulePath, moduleDocument)
+
+	var output bytes.Buffer
+	if err := runOps(&output, []string{"conformance", "--home", home, "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var document opsConformanceDocument
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.OK {
+		t.Fatalf("expected EVM conformance to fail without fixtures: %+v", document)
+	}
+	foundError := false
+	for _, check := range document.Checks {
+		if check.Name == "evm_transaction_fixtures_missing" && check.Severity == "error" && !check.OK {
+			foundError = true
+			break
+		}
+	}
+	if !foundError {
+		t.Fatalf("expected missing fixture error: %+v", document.Checks)
 	}
 }
 

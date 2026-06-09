@@ -151,6 +151,7 @@ func runOpsConformance(writer io.Writer, args []string) error {
 		document.Metrics = &report
 		document.addCheck("metrics_thresholds", "warning", report.OK, "operator metrics should stay within alert thresholds")
 	}
+	evmModuleEnabled := moduleEnabled(inputs.Config.Chain, "evm")
 	if *evmFixtures != "" || *evmDefaultFixtures {
 		var report ethcompat.TransactionConformanceReport
 		var err error
@@ -174,6 +175,8 @@ func runOpsConformance(writer io.Writer, args []string) error {
 		document.addCheck("evm_transaction_fixtures", "error", report.OK, "Ethereum raw transaction fixtures must decode, validate, and match expected outcomes")
 		document.Summary = append(document.Summary, "evm web3 ethereum conformance evidence")
 		document.SDKSurface = append(document.SDKSurface, "evm", "web3", "ethereum")
+	} else if evmModuleEnabled {
+		document.addCheck("evm_transaction_fixtures_missing", "error", false, "EVM module is enabled; pass --evm-default-fixtures or --evm-tx-fixtures before claiming EVM/Web3 conformance")
 	} else {
 		document.addCheck("evm_transaction_fixtures_missing", "warning", true, "pass --evm-default-fixtures or --evm-tx-fixtures to include EVM/Web3 conformance in SDK release evidence")
 	}

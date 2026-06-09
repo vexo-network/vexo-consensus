@@ -218,6 +218,9 @@ func EvidenceCheckContentOK(name string, path string, data []byte) bool {
 	if len(trimmed) == 0 {
 		return false
 	}
+	if evidenceContainsUnsafeClaim(name, path, string(trimmed)) {
+		return false
+	}
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".json":
 		var value any
@@ -228,6 +231,22 @@ func EvidenceCheckContentOK(name string, path string, data []byte) bool {
 	default:
 		return len(trimmed) >= 8 && evidenceTextCovers(name, path, string(trimmed))
 	}
+}
+
+func evidenceContainsUnsafeClaim(name string, path string, text string) bool {
+	normalized := strings.ToLower(path + " " + strings.ReplaceAll(text, "_", " "))
+	if strings.Contains(normalized, "operator supplied audit required") ||
+		strings.Contains(normalized, "operator-supplied-audit-required") ||
+		strings.Contains(normalized, "audit pending") ||
+		strings.Contains(normalized, "unaudited") ||
+		strings.Contains(normalized, "audited false") ||
+		strings.Contains(normalized, `"audited":false`) {
+		return true
+	}
+	if name == "bls_adapter_audit" && strings.Contains(normalized, "circl-bls12381") {
+		return true
+	}
+	return false
 }
 
 func jsonEvidenceOK(value any) bool {
@@ -322,7 +341,7 @@ func semanticRequirements(name string) [][]string {
 	case "formal_safety_evidence":
 		return [][]string{{"safety"}, {"invariant", "adversarial", "property", "proof"}}
 	case "sdk_conformance_evidence":
-		return [][]string{{"sdk", "api"}, {"conformance", "module", "rpc", "storage", "crypto", "transport"}, {"ibc", "relayer", "proof"}, {"evm", "web3", "ethereum"}}
+		return [][]string{{"sdk", "api"}, {"conformance", "module", "rpc", "storage", "crypto", "transport"}, {"ibc", "relayer", "proof"}, {"evm", "web3", "ethereum"}, {"fixture", "fixtures"}, {"transaction", "raw tx", "raw transaction"}}
 	case "external_security_audit":
 		return [][]string{{"external", "security"}, {"audit", "disposition"}}
 	case "bls_adapter_audit":

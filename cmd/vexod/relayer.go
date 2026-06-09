@@ -235,6 +235,7 @@ func runRelayerLoop(writer io.Writer, args []string, client http.Client) error {
 	ack := flags.String("ack", "", "acknowledgement bytes as plain text when --mode ack")
 	proofRPC := flags.String("proof-rpc", "", "source RPC base URL used to poll packet proofs")
 	interval := flags.Duration("interval", 5*time.Second, "poll interval")
+	failureBackoff := flags.Duration("failure-backoff", 0, "optional wait duration after proof or submit errors; defaults to --interval")
 	maxIterations := flags.Uint64("max-iterations", 0, "maximum poll iterations; 0 means run until interrupted")
 	continueOnError := flags.Bool("continue-on-error", false, "continue polling after proof fetch or submit errors")
 	submit := flags.Bool("submit", false, "submit the built transaction to --rpc")
@@ -251,6 +252,9 @@ func runRelayerLoop(writer io.Writer, args []string, client http.Client) error {
 	}
 	if *interval < 0 {
 		return errors.New("interval must be non-negative")
+	}
+	if *failureBackoff < 0 {
+		return errors.New("failure-backoff must be non-negative")
 	}
 	packetArgs, err := options.packetArgs()
 	if err != nil {
@@ -275,6 +279,7 @@ func runRelayerLoop(writer io.Writer, args []string, client http.Client) error {
 		Tags:            tags,
 		Submit:          *submit,
 		Interval:        *interval,
+		FailureBackoff:  *failureBackoff,
 		MaxIterations:   *maxIterations,
 		ContinueOnError: *continueOnError,
 		Checkpoint:      checkpoint,
@@ -320,6 +325,7 @@ type relayerJobConfig struct {
 	StatePath       string              `json:"state_path,omitempty"`
 	Interval        string              `json:"interval,omitempty"`
 	MaxIterations   uint64              `json:"max_iterations,omitempty"`
+	FailureBackoff  string              `json:"failure_backoff,omitempty"`
 	ContinueOnError bool                `json:"continue_on_error,omitempty"`
 }
 
@@ -437,6 +443,17 @@ func relayerLoopConfigFromJob(job relayerJobConfig) (relayerLoopConfig, error) {
 	if interval < 0 {
 		return relayerLoopConfig{}, errors.New("interval must be non-negative")
 	}
+	failureBackoff := time.Duration(0)
+	if job.FailureBackoff != "" {
+		parsed, err := time.ParseDuration(job.FailureBackoff)
+		if err != nil {
+			return relayerLoopConfig{}, err
+		}
+		failureBackoff = parsed
+	}
+	if failureBackoff < 0 {
+		return relayerLoopConfig{}, errors.New("failure_backoff must be non-negative")
+	}
 	packetArgs, err := relayerPacketOptions{
 		rpcAddress:         job.RPC,
 		sequence:           job.Packet.Sequence,
@@ -479,6 +496,7 @@ func relayerLoopConfigFromJob(job relayerJobConfig) (relayerLoopConfig, error) {
 		},
 		Submit:          job.Submit,
 		Interval:        interval,
+		FailureBackoff:  failureBackoff,
 		MaxIterations:   job.MaxIterations,
 		ContinueOnError: job.ContinueOnError,
 	}, nil
@@ -514,6 +532,7 @@ type relayerLoopConfig struct {
 	Tags            *relayerTxTags
 	Submit          bool
 	Interval        time.Duration
+	FailureBackoff  time.Duration
 	MaxIterations   uint64
 	ContinueOnError bool
 	Checkpoint      *relayerCheckpointStore
@@ -521,13 +540,27 @@ type relayerLoopConfig struct {
 
 func runRelayerPollingLoop(ctx context.Context, writer io.Writer, client http.Client, cfg relayerLoopConfig) error {
 	checkpointKey := relayerCheckpointKey(cfg)
+	metrics := relayerLoopMetrics{StartedAtUnix: time.Now().Unix()}
+	defer func() {
+		metrics.CompletedAtUnix = time.Now().Unix()
+		fmt.Fprintf(writer, "metrics: iterations=%d proof_errors=%d submit_errors=%d submitted=%d checkpoint_skips=%d completed_at_unix=%d\n",
+			metrics.Iterations,
+			metrics.ProofErrors,
+			metrics.SubmitErrors,
+			metrics.Submitted,
+			metrics.CheckpointSkips,
+			metrics.CompletedAtUnix,
+		)
+	}()
 	for iteration := uint64(1); ; iteration++ {
+		metrics.Iterations = iteration
 		if cfg.Checkpoint != nil {
 			done, err := cfg.Checkpoint.IsCompleted(checkpointKey)
 			if err != nil {
 				return err
 			}
 			if done {
+				metrics.CheckpointSkips++
 				fmt.Fprintf(writer, "checkpoint_skipped: true\n")
 				fmt.Fprintf(writer, "checkpoint_key: %s\n", checkpointKey)
 				return nil
@@ -535,6 +568,7 @@ func runRelayerPollingLoop(ctx context.Context, writer io.Writer, client http.Cl
 		}
 		proof, err := fetchRelayerPacketProof(ctx, client, cfg.ProofRPC, cfg.PacketArgs)
 		if err != nil {
+			metrics.ProofErrors++
 			fmt.Fprintf(writer, "iteration: %d\n", iteration)
 			fmt.Fprintf(writer, "proof_error: %v\n", err)
 			if !cfg.ContinueOnError {
@@ -543,7 +577,7 @@ func runRelayerPollingLoop(ctx context.Context, writer io.Writer, client http.Cl
 			if cfg.MaxIterations > 0 && iteration >= cfg.MaxIterations {
 				return nil
 			}
-			if err := waitRelayerLoopInterval(ctx, cfg.Interval); err != nil {
+			if err := waitRelayerLoopInterval(ctx, relayerFailureWait(cfg)); err != nil {
 				return err
 			}
 			continue
@@ -558,11 +592,20 @@ func runRelayerPollingLoop(ctx context.Context, writer io.Writer, client http.Cl
 		fmt.Fprintf(writer, "tx: %s\n", tx)
 		if cfg.Submit {
 			if err := submitRelayerTx(ctx, client, cfg.RPCAddress, tx); err != nil {
+				metrics.SubmitErrors++
 				fmt.Fprintf(writer, "submit_error: %v\n", err)
 				if !cfg.ContinueOnError {
 					return err
 				}
+				if cfg.MaxIterations > 0 && iteration >= cfg.MaxIterations {
+					return nil
+				}
+				if err := waitRelayerLoopInterval(ctx, relayerFailureWait(cfg)); err != nil {
+					return err
+				}
+				continue
 			} else {
+				metrics.Submitted++
 				fmt.Fprintf(writer, "submitted: true\n")
 				if cfg.Checkpoint != nil {
 					if err := cfg.Checkpoint.MarkCompleted(checkpointKey, relayerCheckpointEntry{
@@ -587,6 +630,23 @@ func runRelayerPollingLoop(ctx context.Context, writer io.Writer, client http.Cl
 			return err
 		}
 	}
+}
+
+type relayerLoopMetrics struct {
+	StartedAtUnix   int64
+	CompletedAtUnix int64
+	Iterations      uint64
+	ProofErrors     uint64
+	SubmitErrors    uint64
+	Submitted       uint64
+	CheckpointSkips uint64
+}
+
+func relayerFailureWait(cfg relayerLoopConfig) time.Duration {
+	if cfg.FailureBackoff > 0 {
+		return cfg.FailureBackoff
+	}
+	return cfg.Interval
 }
 
 const relayerCheckpointSchemaVersion = "v1"

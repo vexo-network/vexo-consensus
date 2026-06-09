@@ -153,7 +153,7 @@ The `release-candidate` target runs:
 - ops verification
 - built-binary network E2E (`make network-e2e`)
 - adversarial simulation
-- SDK/EVM transaction fixture conformance evidence, preferably generated with `vexod ops conformance --evm-default-fixtures` plus any chain-specific fixture corpus
+- SDK/EVM transaction fixture conformance evidence. If the `evm` module is enabled, `vexod ops conformance` treats missing `--evm-default-fixtures` or `--evm-tx-fixtures` as an error, not a warning. Use the built-in fixture set for baseline coverage and attach any chain-specific raw transaction fixture corpus before making Web3/EVM compatibility claims.
 - network load harness (`RC_DRY_RUN=1` keeps this as a plan-only dry-run; `make release-candidate-real` forces `RC_DRY_RUN=0`)
 - chaos plan
 - 7-day multi-host longrun plan
