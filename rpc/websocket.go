@@ -121,12 +121,12 @@ func (session *web3SubscriptionSession) subscribe(params []json.RawMessage) (str
 	switch subscriptionType {
 	case "newHeads":
 	case "logs":
-		filter, rpcErr := web3LogFilterParam(session.ctx, session.provider, params[1:])
+		filter, rpcErr := web3LogFilterParam(session.ctx, session.provider, session.cfg, params[1:])
 		if rpcErr != nil {
 			return "", rpcErr
 		}
 		subscription.Filter = filter
-		if logs, rpcErr := web3LogsForFilter(session.ctx, session.provider, filter); rpcErr == nil {
+		if logs, rpcErr := web3LogsForFilter(session.ctx, session.provider, session.cfg, filter); rpcErr == nil {
 			subscription.LastLogIndex = len(logs)
 		}
 	case "newPendingTransactions":
@@ -249,7 +249,7 @@ func (session *web3SubscriptionSession) publishHeads(subscription web3Subscripti
 }
 
 func (session *web3SubscriptionSession) publishLogs(subscription web3Subscription) web3Subscription {
-	logs, rpcErr := web3LogsForFilter(session.ctx, session.provider, subscription.Filter)
+	logs, rpcErr := web3LogsForFilter(session.ctx, session.provider, session.cfg, subscription.Filter)
 	if rpcErr != nil {
 		return subscription
 	}

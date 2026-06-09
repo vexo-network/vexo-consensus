@@ -45,6 +45,8 @@ import (
 const defaultReadHeaderTimeout = 5 * time.Second
 const defaultMaxRequestBytes = 1024 * 1024
 const defaultMaxWeb3Filters = 1024
+const defaultMaxWeb3LogResults = 10_000
+const defaultMaxWeb3LogBlockRange = 10_000
 const defaultWeb3BlockGasLimit = 10_000_000
 const stableAPIPrefix = "/v1"
 
@@ -68,6 +70,8 @@ type Config struct {
 	Web3SubscriptionMaxCatchUp    uint64
 	Web3SubscriptionMaxLogBatch   int
 	Web3SubscriptionMaxPendingRun int
+	Web3LogMaxResults             int
+	Web3LogMaxBlockRange          uint64
 }
 
 type AdminAuditEvent struct {
@@ -440,7 +444,15 @@ type web3FilterStore struct {
 	filters map[string]web3Filter
 }
 
+type Web3FilterStoreSnapshot struct {
+	NextID  uint64       `json:"next_id"`
+	Max     int          `json:"max"`
+	Order   []string     `json:"order"`
+	Filters []web3Filter `json:"filters"`
+}
+
 type web3Filter struct {
+	ID          string `json:"id,omitempty"`
 	Type        string
 	Address     string
 	Addresses   []string
@@ -489,6 +501,12 @@ func NewHandler(provider StatusProvider) http.Handler {
 func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 	if cfg.MaxRequestBytes <= 0 {
 		cfg.MaxRequestBytes = defaultMaxRequestBytes
+	}
+	if cfg.Web3LogMaxResults <= 0 {
+		cfg.Web3LogMaxResults = defaultMaxWeb3LogResults
+	}
+	if cfg.Web3LogMaxBlockRange == 0 {
+		cfg.Web3LogMaxBlockRange = defaultMaxWeb3LogBlockRange
 	}
 	filters := newWeb3FilterStore()
 	mux := http.NewServeMux()
@@ -1518,11 +1536,11 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 	case "trace_replayBlockTransactions":
 		return web3TraceReplayBlockTransactions(ctx, provider, params)
 	case "eth_getLogs":
-		filter, rpcErr := web3LogFilterParam(ctx, provider, params)
+		filter, rpcErr := web3LogFilterParam(ctx, provider, cfg, params)
 		if rpcErr != nil {
 			return nil, rpcErr
 		}
-		return web3LogsForFilter(ctx, provider, filter)
+		return web3LogsForFilter(ctx, provider, cfg, filter)
 	case "eth_newBlockFilter":
 		if filters == nil {
 			return nil, &JSONRPCError{Code: -32000, Message: "filter store is unavailable"}
@@ -1551,11 +1569,11 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 		if filters == nil {
 			return nil, &JSONRPCError{Code: -32000, Message: "filter store is unavailable"}
 		}
-		filter, rpcErr := web3LogFilterParam(ctx, provider, params)
+		filter, rpcErr := web3LogFilterParam(ctx, provider, cfg, params)
 		if rpcErr != nil {
 			return nil, rpcErr
 		}
-		logs, rpcErr := web3LogsForFilter(ctx, provider, filter)
+		logs, rpcErr := web3LogsForFilter(ctx, provider, cfg, filter)
 		if rpcErr != nil {
 			return nil, rpcErr
 		}
@@ -1585,13 +1603,13 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 			}
 			return changes, nil
 		}
-		changes, rpcErr := web3FilterChanges(ctx, provider, filter, method == "eth_getFilterChanges")
+		changes, rpcErr := web3FilterChanges(ctx, provider, cfg, filter, method == "eth_getFilterChanges")
 		if rpcErr != nil {
 			return nil, rpcErr
 		}
 		if method == "eth_getFilterChanges" {
 			if filter.Type == "log" {
-				currentLogs, rpcErr := web3LogsForFilter(ctx, provider, filter)
+				currentLogs, rpcErr := web3LogsForFilter(ctx, provider, cfg, filter)
 				if rpcErr != nil {
 					return nil, rpcErr
 				}
@@ -4763,17 +4781,31 @@ func web3LogsForAddress(ctx context.Context, provider StatusProvider, address st
 	return web3LogArray(logs), nil
 }
 
-func web3LogsForFilter(ctx context.Context, provider StatusProvider, filter web3Filter) ([]any, *JSONRPCError) {
+func web3LogsForFilter(ctx context.Context, provider StatusProvider, cfg Config, filter web3Filter) ([]any, *JSONRPCError) {
+	maxResults := cfg.Web3LogMaxResults
+	if maxResults <= 0 {
+		maxResults = defaultMaxWeb3LogResults
+	}
 	results := make([]any, 0)
+	appendMatching := func(logs []any) *JSONRPCError {
+		for _, log := range logs {
+			if !web3LogMatchesFilter(log, filter) {
+				continue
+			}
+			results = append(results, web3NormalizeLog(log))
+			if len(results) > maxResults {
+				return &JSONRPCError{Code: -32005, Message: "eth_getLogs result limit exceeded"}
+			}
+		}
+		return nil
+	}
 	if len(filter.Addresses) == 0 {
 		logs, rpcErr := web3LogsForAddress(ctx, provider, "")
 		if rpcErr != nil {
 			return nil, rpcErr
 		}
-		for _, log := range logs {
-			if web3LogMatchesFilter(log, filter) {
-				results = append(results, web3NormalizeLog(log))
-			}
+		if rpcErr := appendMatching(logs); rpcErr != nil {
+			return nil, rpcErr
 		}
 		return results, nil
 	}
@@ -4782,21 +4814,19 @@ func web3LogsForFilter(ctx context.Context, provider StatusProvider, filter web3
 		if rpcErr != nil {
 			return nil, rpcErr
 		}
-		for _, log := range logs {
-			if web3LogMatchesFilter(log, filter) {
-				results = append(results, web3NormalizeLog(log))
-			}
+		if rpcErr := appendMatching(logs); rpcErr != nil {
+			return nil, rpcErr
 		}
 	}
 	return results, nil
 }
 
-func web3FilterChanges(ctx context.Context, provider StatusProvider, filter web3Filter, onlyChanges bool) (any, *JSONRPCError) {
+func web3FilterChanges(ctx context.Context, provider StatusProvider, cfg Config, filter web3Filter, onlyChanges bool) (any, *JSONRPCError) {
 	switch filter.Type {
 	case "block":
 		return web3BlockFilterChanges(ctx, provider, filter, onlyChanges)
 	default:
-		logs, rpcErr := web3LogsForFilter(ctx, provider, filter)
+		logs, rpcErr := web3LogsForFilter(ctx, provider, cfg, filter)
 		if rpcErr != nil {
 			return nil, rpcErr
 		}
@@ -5587,7 +5617,7 @@ func web3ContractAccessList(entries []web3AccessListEntry) []contract.AccessList
 	return out
 }
 
-func web3LogFilterParam(ctx context.Context, provider StatusProvider, params []json.RawMessage) (web3Filter, *JSONRPCError) {
+func web3LogFilterParam(ctx context.Context, provider StatusProvider, cfg Config, params []json.RawMessage) (web3Filter, *JSONRPCError) {
 	if len(params) != 1 {
 		return web3Filter{}, &JSONRPCError{Code: -32602, Message: "filter object is required"}
 	}
@@ -5612,6 +5642,12 @@ func web3LogFilterParam(ctx context.Context, provider StatusProvider, params []j
 	toBlock, rpcErr := web3LogBlockBound(ctx, provider, payload.ToBlock, latest, ^uint64(0))
 	if rpcErr != nil {
 		return web3Filter{}, rpcErr
+	}
+	if cfg.Web3LogMaxBlockRange == 0 {
+		cfg.Web3LogMaxBlockRange = defaultMaxWeb3LogBlockRange
+	}
+	if toBlock != ^uint64(0) && toBlock >= fromBlock && toBlock-fromBlock+1 > cfg.Web3LogMaxBlockRange {
+		return web3Filter{}, &JSONRPCError{Code: -32602, Message: "eth_getLogs block range exceeds configured limit"}
 	}
 	topics, rpcErr := web3LogTopics(payload.Topics)
 	if rpcErr != nil {
@@ -6125,6 +6161,101 @@ func (store *web3FilterStore) removeLocked(id string) {
 			return
 		}
 	}
+}
+
+func (store *web3FilterStore) Snapshot() Web3FilterStoreSnapshot {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	filters := make([]web3Filter, 0, len(store.order))
+	for _, id := range store.order {
+		filter, found := store.filters[id]
+		if !found {
+			continue
+		}
+		filter.ID = id
+		filter.Addresses = append([]string(nil), filter.Addresses...)
+		filter.Topics = cloneWeb3Topics(filter.Topics)
+		filter.SeenPending = cloneStringBoolMap(filter.SeenPending)
+		filter.SeenLogs = cloneStringBoolMap(filter.SeenLogs)
+		filters = append(filters, filter)
+	}
+	return Web3FilterStoreSnapshot{
+		NextID:  store.nextID,
+		Max:     store.max,
+		Order:   append([]string(nil), store.order...),
+		Filters: filters,
+	}
+}
+
+func (store *web3FilterStore) Restore(snapshot Web3FilterStoreSnapshot) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.nextID = snapshot.NextID
+	store.max = snapshot.Max
+	store.order = make([]string, 0, len(snapshot.Filters))
+	store.filters = make(map[string]web3Filter, len(snapshot.Filters))
+	for _, filter := range snapshot.Filters {
+		id := filter.ID
+		if id == "" {
+			continue
+		}
+		filter.ID = ""
+		filter.Addresses = append([]string(nil), filter.Addresses...)
+		filter.Topics = cloneWeb3Topics(filter.Topics)
+		filter.SeenPending = cloneStringBoolMap(filter.SeenPending)
+		filter.SeenLogs = cloneStringBoolMap(filter.SeenLogs)
+		store.order = append(store.order, id)
+		store.filters[id] = filter
+	}
+	if len(snapshot.Order) > 0 {
+		ordered := make([]string, 0, len(snapshot.Order))
+		seen := make(map[string]struct{}, len(snapshot.Order))
+		for _, id := range snapshot.Order {
+			if _, found := store.filters[id]; !found {
+				continue
+			}
+			if _, duplicate := seen[id]; duplicate {
+				continue
+			}
+			ordered = append(ordered, id)
+			seen[id] = struct{}{}
+		}
+		for id := range store.filters {
+			if _, found := seen[id]; !found {
+				ordered = append(ordered, id)
+			}
+		}
+		store.order = ordered
+	}
+	limit := store.max
+	if limit <= 0 {
+		limit = defaultMaxWeb3Filters
+	}
+	for len(store.filters) > limit && len(store.order) > 0 {
+		store.removeLocked(store.order[0])
+	}
+}
+
+func cloneWeb3Topics(topics [][]string) [][]string {
+	if topics == nil {
+		return nil
+	}
+	cloned := make([][]string, len(topics))
+	for index, topicGroup := range topics {
+		cloned[index] = append([]string(nil), topicGroup...)
+	}
+	return cloned
+}
+
+func cloneStringBoolMap(values map[string]bool) map[string]bool {
+	if values == nil {
+		return nil
+	}
+	cloned := make(map[string]bool, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func parseStateRootPath(path string) (types.Height, string, bool) {

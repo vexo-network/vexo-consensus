@@ -32,7 +32,15 @@ type Genesis struct {
 	Governance map[types.Address]types.VotingPower
 }
 
+// DefaultConfig returns the legacy test-friendly node config.
+//
+// Deprecated: use NetworkSafeConfig for real network nodes. Tests that
+// intentionally need deterministic crypto should use UnsafeTestConfig.
 func DefaultConfig(chainID string, dataDir string) Config {
+	return UnsafeTestConfig(chainID, dataDir)
+}
+
+func UnsafeTestConfig(chainID string, dataDir string) Config {
 	return Config{
 		Chain:   config.Default(chainID),
 		DataDir: dataDir,

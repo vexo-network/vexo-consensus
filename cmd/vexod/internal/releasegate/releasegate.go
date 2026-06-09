@@ -255,6 +255,18 @@ func jsonEvidenceOK(value any) bool {
 		if okValue, found := item["ok"].(bool); found && !okValue {
 			return false
 		}
+		if coverageOK, found := item["coverage_ok"].(bool); found && !coverageOK {
+			return false
+		}
+		if failed, found := numericEvidenceValue(item["failed"]); found && failed > 0 {
+			return false
+		}
+		if total, found := numericEvidenceValue(item["total"]); found && total == 0 {
+			return false
+		}
+		if missing, found := item["missing_categories"].([]any); found && len(missing) > 0 {
+			return false
+		}
 		if status, found := item["status"].(string); found {
 			normalized := strings.ToLower(status)
 			if strings.Contains(normalized, "fail") || strings.Contains(normalized, "error") {
@@ -274,6 +286,16 @@ func jsonEvidenceOK(value any) bool {
 		if evidence, found := item["evidence"].([]any); found && len(evidence) == 0 {
 			return false
 		}
+		if results, found := item["results"].([]any); found {
+			if len(results) == 0 {
+				return false
+			}
+			for _, result := range results {
+				if !jsonEvidenceOK(result) {
+					return false
+				}
+			}
+		}
 	case []any:
 		if len(item) == 0 {
 			return false
@@ -285,6 +307,24 @@ func jsonEvidenceOK(value any) bool {
 		}
 	}
 	return true
+}
+
+func numericEvidenceValue(value any) (uint64, bool) {
+	switch number := value.(type) {
+	case float64:
+		if number < 0 {
+			return 0, false
+		}
+		return uint64(number), true
+	case json.Number:
+		parsed, err := number.Int64()
+		if err != nil || parsed < 0 {
+			return 0, false
+		}
+		return uint64(parsed), true
+	default:
+		return 0, false
+	}
 }
 
 func evidenceCovers(name string, path string, value any) bool {

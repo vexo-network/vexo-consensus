@@ -1489,6 +1489,22 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if allLogs.Error != nil || !ok || len(allLogItems) != 1 || len(provider.appQueryPath) != 2 || provider.appQueryPath[0] != "evm" || provider.appQueryPath[1] != "logs" {
 		t.Fatalf("unexpected global logs response=%+v path=%+v", allLogs, provider.appQueryPath)
 	}
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`[
+		{"address":"0xcontract","topics":["0xaaa"],"data":"0x01","block_number":13,"transaction_hash":"0xabc","log_index":0},
+		{"address":"0xcontract","topics":["0xbbb"],"data":"0x02","block_number":14,"transaction_hash":"0xdef","log_index":1}
+	]`)}
+	limitedHandler := NewHandlerWithConfig(provider, Config{Web3LogMaxResults: 1})
+	var tooManyLogs JSONRPCResponse
+	postJSON(t, limitedHandler, "/", `{"jsonrpc":"2.0","id":44,"method":"eth_getLogs","params":[{"address":"0xcontract"}]}`, http.StatusOK, &tooManyLogs)
+	if tooManyLogs.Error == nil || tooManyLogs.Error.Code != -32005 {
+		t.Fatalf("expected log result limit error, got %+v", tooManyLogs)
+	}
+	rangeLimitedHandler := NewHandlerWithConfig(provider, Config{Web3LogMaxBlockRange: 1})
+	var tooWideLogs JSONRPCResponse
+	postJSON(t, rangeLimitedHandler, "/", `{"jsonrpc":"2.0","id":45,"method":"eth_getLogs","params":[{"fromBlock":"0x1","toBlock":"0x3"}]}`, http.StatusOK, &tooWideLogs)
+	if tooWideLogs.Error == nil || !strings.Contains(tooWideLogs.Error.Message, "block range") {
+		t.Fatalf("expected log block range error, got %+v", tooWideLogs)
+	}
 
 	var filterID JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":8,"method":"eth_newFilter","params":[{"address":"0xcontract"}]}`, http.StatusOK, &filterID)
@@ -1964,6 +1980,34 @@ func TestWeb3FilterStoreEvictsOldestFilters(t *testing.T) {
 	}
 	if _, found := filters.get(third); !found {
 		t.Fatalf("expected third filter %s to remain", third)
+	}
+}
+
+func TestWeb3FilterStoreSnapshotRestore(t *testing.T) {
+	filters := newWeb3FilterStore()
+	logFilterID := filters.addLog(web3Filter{
+		Addresses: []string{"0xcontract"},
+		Topics:    [][]string{{"0xaaa"}},
+		FromBlock: 7,
+		ToBlock:   9,
+	}, []any{map[string]any{"transactionHash": "0xabc", "logIndex": "0x0"}}, 9)
+	pendingFilterID := filters.addPending([]types.Hash{{1, 2, 3}})
+	snapshot := filters.Snapshot()
+
+	restored := newWeb3FilterStore()
+	restored.Restore(snapshot)
+	logFilter, found := restored.get(logFilterID)
+	if !found || logFilter.LastHeight != 9 || len(logFilter.Addresses) != 1 || len(logFilter.Topics) != 1 || len(logFilter.SeenLogs) != 1 {
+		t.Fatalf("expected restored log filter, got found=%t filter=%+v", found, logFilter)
+	}
+	pendingFilter, found := restored.get(pendingFilterID)
+	if !found || len(pendingFilter.SeenPending) != 1 {
+		t.Fatalf("expected restored pending filter, got found=%t filter=%+v", found, pendingFilter)
+	}
+	snapshot.Filters[0].Addresses[0] = "0xmutated"
+	logFilter, _ = restored.get(logFilterID)
+	if logFilter.Addresses[0] != "0xcontract" {
+		t.Fatalf("expected restore to deep-copy filters, got %+v", logFilter)
 	}
 }
 

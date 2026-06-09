@@ -78,6 +78,10 @@ func TestEvidenceContentValidation(t *testing.T) {
 		{name: "json ok", path: "evidence.json", data: []byte(`{"ok":true,"checks":[{"ok":true}]}`), ok: true},
 		{name: "json false", path: "evidence.json", data: []byte(`{"ok":false}`), ok: false},
 		{name: "json failed status", path: "evidence.json", data: []byte(`{"status":"failed"}`), ok: false},
+		{name: "json coverage false", path: "evidence.json", data: []byte(`{"ok":true,"coverage_ok":false}`), ok: false},
+		{name: "json failed count", path: "evidence.json", data: []byte(`{"ok":true,"total":12,"failed":1}`), ok: false},
+		{name: "json missing categories", path: "evidence.json", data: []byte(`{"ok":true,"total":12,"failed":0,"coverage_ok":false,"missing_categories":["blob_tx"]}`), ok: false},
+		{name: "json nested result false", path: "evidence.json", data: []byte(`{"ok":true,"results":[{"ok":true},{"ok":false}]}`), ok: false},
 		{name: "empty text", path: "evidence.txt", data: []byte(` `), ok: false},
 		{name: "text ok", path: "evidence.txt", data: []byte(`fuzz evidence passed`), ok: true},
 	} {
