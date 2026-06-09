@@ -49,6 +49,8 @@
 - `sbom-go-version.txt`
 - `release-manifest.json`
 - `release-audit-pack.json`
+- `evidence-manifest.json`
+- `--evidence-manifest`
 - `CGO_ENABLED=0`
 - `go build -trimpath`
 - `BUILD_DATE`
@@ -71,6 +73,10 @@
 - Audit Pack
 - Release Candidate Soak Test
 - Launch Runbook
+
+## Release gate evidence binding
+
+`release gate` now expects evidence artifacts to be bound through `evidence-manifest.json`. The manifest records each evidence `name`, `path`, and `sha256`, and the gate rejects evidence whose file content does not match the manifest hash. Keep command-line flags such as `--evidence-manifest`, `--sdk-conformance-evidence`, `--external-audit`, and `--bls-audit` untranslated so operators can copy the exact interface names.
 
 ## 규범 원문
 

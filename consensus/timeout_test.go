@@ -110,6 +110,24 @@ func TestTimeoutCollectorWeightedQuorum(t *testing.T) {
 	}
 }
 
+func TestTimeoutCollectorRejectsVotingPowerOverflow(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: ^types.VotingPower(0)},
+		{ID: "b", VotingPower: 1},
+	})
+	collector := NewTimeoutCollectorWithAggregator(set, testAggregateSigner{})
+	if err := collector.AddVote(testCollectorTimeoutVote(1, 0, "a", finality.QuorumCert{})); err != nil {
+		t.Fatal(err)
+	}
+	if err := collector.AddVote(testCollectorTimeoutVote(1, 0, "b", finality.QuorumCert{})); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := collector.BuildTimeoutCert(1, 0); !errors.Is(err, types.ErrVotingPowerOverflow) {
+		t.Fatalf("expected voting power overflow, got %v", err)
+	}
+}
+
 func TestTimeoutCollectorRejectsUnknownValidator(t *testing.T) {
 	set := newTestValidatorSet([]validator.Validator{{ID: "a", VotingPower: 1}})
 	collector := NewTimeoutCollectorWithAggregator(set, testAggregateSigner{})

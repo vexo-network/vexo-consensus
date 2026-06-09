@@ -43,6 +43,9 @@ Este documento ajuda a entender checklist operacional e procedimento antes do la
 - `sbom-go-version.txt`
 - `release-manifest.json`
 - `release-audit-pack.json`
+- `evidence-manifest.json`
+- `--evidence-manifest`
+- `--evm-default-fixtures`
 - `chain_id`
 
 ## Estrutura da fonte inglesa

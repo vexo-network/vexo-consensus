@@ -263,40 +263,49 @@ func (node *Node) Compact(ctx context.Context) error {
 	return runtime.Compact(ctx)
 }
 
-func (node *Node) Replay(ctx context.Context, from types.Height, to types.Height) (vexoruntime.ReplayResult, error) {
+func (node *Node) Replay(ctx context.Context, from types.Height, to types.Height) (result vexoruntime.ReplayResult, err error) {
 	runtime, err := node.Runtime()
 	if err != nil {
 		return vexoruntime.ReplayResult{}, err
 	}
-	defer runtime.Recover(context.Background())
+	defer recoverRuntimeAfterReplay(runtime, &err)
 	return runtime.ReplayStrict(ctx, from, to)
 }
 
-func (node *Node) ReplayAll(ctx context.Context) (vexoruntime.ReplayResult, error) {
+func (node *Node) ReplayAll(ctx context.Context) (result vexoruntime.ReplayResult, err error) {
 	runtime, err := node.Runtime()
 	if err != nil {
 		return vexoruntime.ReplayResult{}, err
 	}
-	defer runtime.Recover(context.Background())
+	defer recoverRuntimeAfterReplay(runtime, &err)
 	return runtime.ReplayAllStrict(ctx)
 }
 
-func (node *Node) ReplayStrict(ctx context.Context, from types.Height, to types.Height) (vexoruntime.ReplayResult, error) {
+func (node *Node) ReplayStrict(ctx context.Context, from types.Height, to types.Height) (result vexoruntime.ReplayResult, err error) {
 	runtime, err := node.Runtime()
 	if err != nil {
 		return vexoruntime.ReplayResult{}, err
 	}
-	defer runtime.Recover(context.Background())
+	defer recoverRuntimeAfterReplay(runtime, &err)
 	return runtime.ReplayStrict(ctx, from, to)
 }
 
-func (node *Node) ReplayAllStrict(ctx context.Context) (vexoruntime.ReplayResult, error) {
+func (node *Node) ReplayAllStrict(ctx context.Context) (result vexoruntime.ReplayResult, err error) {
 	runtime, err := node.Runtime()
 	if err != nil {
 		return vexoruntime.ReplayResult{}, err
 	}
-	defer runtime.Recover(context.Background())
+	defer recoverRuntimeAfterReplay(runtime, &err)
 	return runtime.ReplayAllStrict(ctx)
+}
+
+func recoverRuntimeAfterReplay(runtime *vexoruntime.Runtime, err *error) {
+	if runtime == nil {
+		return
+	}
+	if _, recoverErr := runtime.Recover(context.Background()); recoverErr != nil && *err == nil {
+		*err = recoverErr
+	}
 }
 
 func (node *Node) ValidatorSet(ctx context.Context, height types.Height) (validator.Set, error) {

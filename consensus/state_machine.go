@@ -401,7 +401,11 @@ func (machine *StateMachine) buildQuorumCert(height types.Height, round types.Ro
 		if !found {
 			continue
 		}
-		votingPower += validatorInfo.VotingPower
+		var err error
+		votingPower, err = types.AddVotingPower(votingPower, validatorInfo.VotingPower)
+		if err != nil {
+			return finality.QuorumCert{}, err
+		}
 		votes = append(votes, signedVote{validatorID: validatorID, signature: vote.Signature})
 	}
 
@@ -657,10 +661,7 @@ func (machine *StateMachine) ensureVoteMaps(height types.Height, round types.Rou
 }
 
 func hasQuorum(power types.VotingPower, total types.VotingPower) bool {
-	if total == 0 {
-		return false
-	}
-	return power*3 >= total*2
+	return types.HasTwoThirdsQuorum(power, total)
 }
 
 func allSignaturesPresent(signatures []types.Signature) bool {

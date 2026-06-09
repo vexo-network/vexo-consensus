@@ -43,6 +43,9 @@ Dokumen ini membantu memahami checklist operator dan prosedur sebelum peluncuran
 - `sbom-go-version.txt`
 - `release-manifest.json`
 - `release-audit-pack.json`
+- `evidence-manifest.json`
+- `--evidence-manifest`
+- `--evm-default-fixtures`
 - `chain_id`
 
 ## Struktur sumber Inggris

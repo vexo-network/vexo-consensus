@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -59,8 +60,44 @@ func TestDocsLocalesMirrorCanonicalTree(t *testing.T) {
 			if body == canonicalLocaleFiles[relative] {
 				t.Fatalf("locale %s document %s is identical to canonical English", locale, relative)
 			}
+			if err := validateLocalizedMarkdownBody(locale, relative, body); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
+}
+
+func validateLocalizedMarkdownBody(locale string, relative string, body string) error {
+	if len(strings.TrimSpace(body)) < 1500 {
+		return &docsLocaleQualityError{locale: locale, relative: relative, reason: "localized document is too short to be useful"}
+	}
+	for _, forbidden := range []string{"todo", "tbd", "placeholder", "coming soon", "translation pending", "machine translation pending"} {
+		if placeholderPattern(forbidden).MatchString(body) {
+			return &docsLocaleQualityError{locale: locale, relative: relative, reason: "localized document contains placeholder text: " + forbidden}
+		}
+	}
+	if strings.Count(body, "\n## ") < 2 {
+		return &docsLocaleQualityError{locale: locale, relative: relative, reason: "localized document must keep multiple explanatory sections"}
+	}
+	return nil
+}
+
+func placeholderPattern(value string) *regexp.Regexp {
+	quoted := regexp.QuoteMeta(value)
+	if strings.Contains(value, " ") {
+		quoted = strings.ReplaceAll(quoted, `\ `, `\s+`)
+	}
+	return regexp.MustCompile(`(?i)(^|[^[:alpha:]])` + quoted + `($|[^[:alpha:]])`)
+}
+
+type docsLocaleQualityError struct {
+	locale   string
+	relative string
+	reason   string
+}
+
+func (err *docsLocaleQualityError) Error() string {
+	return "locale " + err.locale + " document " + err.relative + " failed quality gate: " + err.reason
 }
 
 func markdownTree(t *testing.T, root string, include func(string) bool) []string {

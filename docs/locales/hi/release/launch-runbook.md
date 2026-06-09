@@ -43,6 +43,9 @@
 - `sbom-go-version.txt`
 - `release-manifest.json`
 - `release-audit-pack.json`
+- `evidence-manifest.json`
+- `--evidence-manifest`
+- `--evm-default-fixtures`
 - `chain_id`
 
 ## अंग्रेज़ी source की संरचना

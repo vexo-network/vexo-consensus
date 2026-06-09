@@ -91,6 +91,7 @@ func runOpsConformance(writer io.Writer, args []string) error {
 	metricsFile := flags.String("metrics-file", "", "current /metrics JSON file to evaluate")
 	previousMetricsFile := flags.String("previous-metrics-file", "", "previous /metrics JSON file for rate deltas")
 	evmFixtures := flags.String("evm-tx-fixtures", "", "Ethereum raw transaction fixture JSON file")
+	evmDefaultFixtures := flags.Bool("evm-default-fixtures", false, "run the built-in geth-signed Ethereum transaction conformance fixtures")
 	windowValue := flags.String("window", "1m", "elapsed time between previous and current metrics files")
 	strict := flags.Bool("strict", false, "use strict network-safety audit severities")
 	jsonOutput := flags.Bool("json", false, "write JSON output")
@@ -98,6 +99,9 @@ func runOpsConformance(writer io.Writer, args []string) error {
 	flags.Var(&rotationKeys, "rotation-key", "additional validator key file path with active-from/active-until metadata; may be repeated")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if *evmFixtures != "" && *evmDefaultFixtures {
+		return fmt.Errorf("--evm-tx-fixtures and --evm-default-fixtures are mutually exclusive")
 	}
 	inputs, err := loadStartInputs(*home, *configPath, *genesisPath, *keyPath, []string(rotationKeys), true)
 	if err != nil {
@@ -147,12 +151,22 @@ func runOpsConformance(writer io.Writer, args []string) error {
 		document.Metrics = &report
 		document.addCheck("metrics_thresholds", "warning", report.OK, "operator metrics should stay within alert thresholds")
 	}
-	if *evmFixtures != "" {
-		raw, err := os.ReadFile(*evmFixtures)
-		if err != nil {
-			return err
+	if *evmFixtures != "" || *evmDefaultFixtures {
+		var report ethcompat.TransactionConformanceReport
+		var err error
+		if *evmDefaultFixtures {
+			fixtures, fixtureErr := ethcompat.DefaultTransactionFixtures()
+			if fixtureErr != nil {
+				return fixtureErr
+			}
+			report = ethcompat.RunTransactionFixtures(fixtures)
+		} else {
+			raw, readErr := os.ReadFile(*evmFixtures)
+			if readErr != nil {
+				return readErr
+			}
+			report, err = ethcompat.RunTransactionFixturesJSON(raw)
 		}
-		report, err := ethcompat.RunTransactionFixturesJSON(raw)
 		if err != nil {
 			return err
 		}
@@ -161,7 +175,7 @@ func runOpsConformance(writer io.Writer, args []string) error {
 		document.Summary = append(document.Summary, "evm web3 ethereum conformance evidence")
 		document.SDKSurface = append(document.SDKSurface, "evm", "web3", "ethereum")
 	} else {
-		document.addCheck("evm_transaction_fixtures_missing", "warning", true, "pass --evm-tx-fixtures to include EVM/Web3 conformance in SDK release evidence")
+		document.addCheck("evm_transaction_fixtures_missing", "warning", true, "pass --evm-default-fixtures or --evm-tx-fixtures to include EVM/Web3 conformance in SDK release evidence")
 	}
 	document.OK = document.Audit.OK && conformanceChecksOK(document.Checks)
 	if document.RotationPlan != nil {

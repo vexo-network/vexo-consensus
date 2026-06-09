@@ -43,6 +43,9 @@
 - `sbom-go-version.txt`
 - `release-manifest.json`
 - `release-audit-pack.json`
+- `evidence-manifest.json`
+- `--evidence-manifest`
+- `--evm-default-fixtures`
 - `chain_id`
 
 ## 영어 원문 구조
@@ -53,6 +56,10 @@
 - Genesis Gate
 - Launch Window
 - Postlaunch Archive
+
+## Release candidate command updates
+
+Use `vexod ops conformance --evm-default-fixtures` when a chain-specific Ethereum fixture corpus is not ready yet; add `--evm-tx-fixtures` later for chain-specific Web3/EVM cases. Use `vexod release gate --evidence-manifest dist/evidence-manifest.json` so long-run, chaos, signer, snapshot, P2P, state-sync, economics, governance, MEV, ops, formal-safety, SDK, external-audit, and BLS evidence are hash-bound before publication.
 
 ## 규범 원문
 

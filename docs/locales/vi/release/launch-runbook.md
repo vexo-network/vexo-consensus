@@ -43,6 +43,9 @@ Tài liệu này giúp hiểu checklist vận hành và quy trình trước khi 
 - `sbom-go-version.txt`
 - `release-manifest.json`
 - `release-audit-pack.json`
+- `evidence-manifest.json`
+- `--evidence-manifest`
+- `--evm-default-fixtures`
 - `chain_id`
 
 ## Cấu trúc nguồn tiếng Anh

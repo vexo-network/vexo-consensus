@@ -43,6 +43,9 @@ Dieses Dokument hilft dabei, Operator-Checkliste und Ablauf vor dem Netzwerkstar
 - `sbom-go-version.txt`
 - `release-manifest.json`
 - `release-audit-pack.json`
+- `evidence-manifest.json`
+- `--evidence-manifest`
+- `--evm-default-fixtures`
 - `chain_id`
 
 ## Struktur der englischen Quelle

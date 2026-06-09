@@ -1,6 +1,11 @@
 package releasegate
 
-import "testing"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"testing"
+)
 
 func TestBuildPassesWithAllEvidence(t *testing.T) {
 	document := Build("v1.2.3", Pack{
@@ -149,7 +154,81 @@ func TestEvidenceSemanticValidation(t *testing.T) {
 	}
 }
 
+func TestBuildValidatesEvidenceManifestHash(t *testing.T) {
+	chaos := []byte(`{"ok":true,"summary":"chaos partition fault drill passed"}`)
+	sum := sha256.Sum256(chaos)
+	manifest, err := json.Marshal(EvidenceManifest{
+		SchemaVersion: "v1",
+		Evidence: []EvidenceManifestEntry{{
+			Name:   "chaos_evidence",
+			Path:   "chaos.json",
+			SHA256: hex.EncodeToString(sum[:]),
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := Build("rc", Pack{OK: false}, Evidence{
+		Manifest: "evidence-manifest.json",
+		Chaos:    "chaos.json",
+		Exists: func(path string) bool {
+			return path == "chaos.json" || path == "evidence-manifest.json"
+		},
+		ReadFile: func(path string) ([]byte, error) {
+			switch path {
+			case "chaos.json":
+				return chaos, nil
+			case "evidence-manifest.json":
+				return manifest, nil
+			default:
+				return nil, nil
+			}
+		},
+	})
+	if !releaseGateCheckOK(document.Checks, "evidence_manifest") || !releaseGateCheckOK(document.Checks, "chaos_evidence") {
+		t.Fatalf("expected manifest-bound chaos evidence to pass: %+v", document.Checks)
+	}
+}
+
+func TestBuildRejectsEvidenceManifestMismatch(t *testing.T) {
+	manifest, err := json.Marshal(EvidenceManifest{
+		SchemaVersion: "v1",
+		Evidence: []EvidenceManifestEntry{{
+			Name:   "chaos_evidence",
+			Path:   "chaos.json",
+			SHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := Build("rc", Pack{OK: false}, Evidence{
+		Manifest: "evidence-manifest.json",
+		Chaos:    "chaos.json",
+		Exists: func(path string) bool {
+			return path == "chaos.json" || path == "evidence-manifest.json"
+		},
+		ReadFile: func(path string) ([]byte, error) {
+			switch path {
+			case "chaos.json":
+				return []byte(`{"ok":true,"summary":"chaos partition fault drill passed"}`), nil
+			case "evidence-manifest.json":
+				return manifest, nil
+			default:
+				return nil, nil
+			}
+		},
+	})
+	if releaseGateCheckOK(document.Checks, "chaos_evidence") {
+		t.Fatalf("expected manifest hash mismatch to fail chaos evidence: %+v", document.Checks)
+	}
+}
+
 func checkOK(checks []Check, name string) bool {
+	return releaseGateCheckOK(checks, name)
+}
+
+func releaseGateCheckOK(checks []Check, name string) bool {
 	for _, check := range checks {
 		if check.Name == name {
 			return check.OK

@@ -85,7 +85,11 @@ func (collector *TimeoutCollector) BuildTimeoutCert(height types.Height, round t
 		if !found {
 			continue
 		}
-		votingPower += validatorInfo.VotingPower
+		var err error
+		votingPower, err = types.AddVotingPower(votingPower, validatorInfo.VotingPower)
+		if err != nil {
+			return finality.TimeoutCert{}, err
+		}
 		votes = append(votes, signedTimeoutVote{validatorID: validatorID, signature: vote.Signature})
 		if isBetterQC(vote.HighQC, highQC) {
 			highQC = vote.HighQC

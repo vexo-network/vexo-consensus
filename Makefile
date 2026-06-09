@@ -125,8 +125,7 @@ docker-image:
 release-candidate: release ops-verify network-e2e
 	rm -rf /tmp/vexo-rc-conformance
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod init validator --home /tmp/vexo-rc-conformance --chain-id vexo-rc --validator validator-1 --overwrite
-	printf '[{"name":"reject empty raw tx","raw":"0x","want_error":"invalid Ethereum raw transaction"}]' > /tmp/vexo-evm-tx-fixtures.json
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod ops conformance --home /tmp/vexo-rc-conformance --evm-tx-fixtures /tmp/vexo-evm-tx-fixtures.json --json > $(DIST_DIR)/sdk-conformance-evidence.json
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod ops conformance --home /tmp/vexo-rc-conformance --evm-default-fixtures --json > $(DIST_DIR)/sdk-conformance-evidence.json
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network load --validators 4 --duration 10m --rate 25 $(RC_DRY_RUN_FLAG)
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network longrun --validators 4 --duration 10m --rate 25 --output longrun-evidence.json $(RC_DRY_RUN_FLAG)
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network chaos-plan --validators 4 --duration 24h --regions 3

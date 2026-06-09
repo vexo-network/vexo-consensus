@@ -2,6 +2,8 @@ package releasegate
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"path/filepath"
 	"strings"
@@ -33,6 +35,7 @@ type Pack struct {
 }
 
 type Evidence struct {
+	Manifest             string
 	Chaos                string
 	KMS                  string
 	Snapshot             string
@@ -51,6 +54,18 @@ type Evidence struct {
 	ReadFile             func(string) ([]byte, error)
 }
 
+type EvidenceManifest struct {
+	SchemaVersion string                  `json:"schema_version"`
+	GeneratedAt   string                  `json:"generated_at,omitempty"`
+	Evidence      []EvidenceManifestEntry `json:"evidence"`
+}
+
+type EvidenceManifestEntry struct {
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+}
+
 func Build(version string, pack Pack, evidence Evidence) Document {
 	if evidence.Exists == nil {
 		evidence.Exists = func(string) bool { return false }
@@ -63,6 +78,9 @@ func Build(version string, pack Pack, evidence Evidence) Document {
 	document.addCheck("release_pack", pack.OK, "release pack must include manifest, checksums, SBOM, signature when required, and core RC evidence")
 	for _, check := range pack.Checks {
 		document.addCheck("pack_"+check.Name, check.OK, check.Message)
+	}
+	if evidence.Manifest != "" {
+		document.addCheck("evidence_manifest", evidenceManifestOK(evidence), "evidence manifest must exist and bind evidence artifact names, paths, and sha256 hashes")
 	}
 	document.addFileCheck("chaos_evidence", evidence.Chaos, "chaos test evidence must exist and semantically cover chaos/fault scenarios", evidence)
 	document.addFileCheck("kms_signer_evidence", evidence.KMS, "KMS/remote signer evidence must cover signer policy and double-sign protection", evidence)
@@ -112,13 +130,85 @@ func evidenceFileOK(name string, path string, evidence Evidence) bool {
 		return false
 	}
 	if evidence.ReadFile == nil {
-		return true
+		return evidence.Manifest == ""
 	}
 	data, err := evidence.ReadFile(path)
 	if err != nil {
 		return false
 	}
-	return EvidenceCheckContentOK(name, path, data)
+	return EvidenceCheckContentOK(name, path, data) && evidenceFileManifestOK(name, path, data, evidence)
+}
+
+func evidenceManifestOK(evidence Evidence) bool {
+	manifest, ok := readEvidenceManifest(evidence)
+	if !ok {
+		return false
+	}
+	if strings.TrimSpace(manifest.SchemaVersion) == "" || len(manifest.Evidence) == 0 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(manifest.Evidence))
+	for _, entry := range manifest.Evidence {
+		if strings.TrimSpace(entry.Name) == "" || strings.TrimSpace(entry.Path) == "" || strings.TrimSpace(entry.SHA256) == "" {
+			return false
+		}
+		normalizedHash := strings.ToLower(strings.TrimSpace(entry.SHA256))
+		if len(normalizedHash) != 64 {
+			return false
+		}
+		if _, err := hex.DecodeString(normalizedHash); err != nil {
+			return false
+		}
+		key := strings.ToLower(entry.Name + "\x00" + entry.Path)
+		if _, duplicate := seen[key]; duplicate {
+			return false
+		}
+		seen[key] = struct{}{}
+	}
+	return true
+}
+
+func evidenceFileManifestOK(name string, path string, data []byte, evidence Evidence) bool {
+	if evidence.Manifest == "" {
+		return true
+	}
+	manifest, ok := readEvidenceManifest(evidence)
+	if !ok {
+		return false
+	}
+	sum := sha256.Sum256(data)
+	actual := hex.EncodeToString(sum[:])
+	for _, entry := range manifest.Evidence {
+		if !manifestEntryMatches(entry, name, path) {
+			continue
+		}
+		return strings.EqualFold(strings.TrimSpace(entry.SHA256), actual)
+	}
+	return false
+}
+
+func readEvidenceManifest(evidence Evidence) (EvidenceManifest, bool) {
+	if evidence.Manifest == "" || evidence.ReadFile == nil || !evidence.Exists(evidence.Manifest) {
+		return EvidenceManifest{}, false
+	}
+	data, err := evidence.ReadFile(evidence.Manifest)
+	if err != nil {
+		return EvidenceManifest{}, false
+	}
+	var manifest EvidenceManifest
+	if err := json.Unmarshal(bytes.TrimSpace(data), &manifest); err != nil {
+		return EvidenceManifest{}, false
+	}
+	return manifest, true
+}
+
+func manifestEntryMatches(entry EvidenceManifestEntry, name string, path string) bool {
+	if entry.Name == name {
+		return true
+	}
+	entryPath := filepath.Clean(entry.Path)
+	targetPath := filepath.Clean(path)
+	return entryPath == targetPath || filepath.Base(entryPath) == filepath.Base(targetPath)
 }
 
 func EvidenceContentOK(path string, data []byte) bool {

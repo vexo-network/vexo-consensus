@@ -1,8 +1,16 @@
 package ethcompat
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math/big"
+	"strconv"
+
+	gethcommon "github.com/ethereum/go-ethereum/common"
+	gethtypes "github.com/ethereum/go-ethereum/core/types"
+	gethcrypto "github.com/ethereum/go-ethereum/crypto"
+	vexoapp "github.com/vexo-network/vexo-consensus/app"
 )
 
 var ErrConformanceFailed = errors.New("Ethereum compatibility conformance fixture failed")
@@ -15,15 +23,23 @@ type TransactionFixture struct {
 	BlobBaseFee uint64 `json:"blob_base_fee,omitempty"`
 	WantHash    string `json:"want_hash,omitempty"`
 	WantFrom    string `json:"want_from,omitempty"`
+	WantAction  string `json:"want_action,omitempty"`
+	WantType    string `json:"want_type,omitempty"`
+	WantTo      string `json:"want_to,omitempty"`
+	WantValue   string `json:"want_value,omitempty"`
+	WantFee     string `json:"want_fee,omitempty"`
+	WantGas     uint64 `json:"want_gas,omitempty"`
 	WantError   string `json:"want_error,omitempty"`
 }
 
 type TransactionFixtureResult struct {
-	Name string `json:"name"`
-	OK   bool   `json:"ok"`
-	Hash string `json:"hash,omitempty"`
-	From string `json:"from,omitempty"`
-	Err  string `json:"error,omitempty"`
+	Name   string `json:"name"`
+	OK     bool   `json:"ok"`
+	Hash   string `json:"hash,omitempty"`
+	From   string `json:"from,omitempty"`
+	Type   string `json:"type,omitempty"`
+	Action string `json:"action,omitempty"`
+	Err    string `json:"error,omitempty"`
 }
 
 type TransactionConformanceReport struct {
@@ -34,12 +50,94 @@ type TransactionConformanceReport struct {
 	Results []TransactionFixtureResult `json:"results"`
 }
 
+func DefaultTransactionFixtures() ([]TransactionFixture, error) {
+	callRaw, callHash, err := signedFixtureRawTransaction(7, false)
+	if err != nil {
+		return nil, err
+	}
+	createRaw, createHash, err := signedFixtureRawTransaction(7, true)
+	if err != nil {
+		return nil, err
+	}
+	return []TransactionFixture{
+		{
+			Name:       "default dynamic fee call",
+			Raw:        callRaw,
+			ChainID:    7,
+			BaseFee:    11,
+			WantHash:   callHash,
+			WantAction: "call",
+			WantType:   "2",
+			WantTo:     "0x000000000000000000000000000000000000bEEF",
+			WantValue:  "3",
+			WantFee:    "273000",
+			WantGas:    21_000,
+		},
+		{
+			Name:       "default dynamic fee contract creation",
+			Raw:        createRaw,
+			ChainID:    7,
+			BaseFee:    11,
+			WantHash:   createHash,
+			WantAction: "eth_deploy",
+			WantType:   "2",
+			WantValue:  "3",
+			WantFee:    "273000",
+			WantGas:    21_000,
+		},
+		{Name: "default wrong chain rejection", Raw: callRaw, ChainID: 8, WantError: ErrChainIDMismatch.Error()},
+		{Name: "default invalid raw rejection", Raw: "0x", WantError: ErrInvalidRawTransaction.Error()},
+	}, nil
+}
+
+func DefaultTransactionFixturesJSON() ([]byte, error) {
+	fixtures, err := DefaultTransactionFixtures()
+	if err != nil {
+		return nil, err
+	}
+	return json.MarshalIndent(fixtures, "", "  ")
+}
+
 func RunTransactionFixturesJSON(raw []byte) (TransactionConformanceReport, error) {
 	var fixtures []TransactionFixture
 	if err := json.Unmarshal(raw, &fixtures); err != nil {
 		return TransactionConformanceReport{}, err
 	}
 	return RunTransactionFixtures(fixtures), nil
+}
+
+func signedFixtureRawTransaction(chainID uint64, create bool) (string, string, error) {
+	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
+	if err != nil {
+		return "", "", err
+	}
+	var to *gethcommon.Address
+	data := []byte{0x12, 0x34}
+	if create {
+		data = []byte{0x60, 0x00}
+	} else {
+		address := gethcommon.HexToAddress("0x000000000000000000000000000000000000bEEF")
+		to = &address
+	}
+	tx := gethtypes.NewTx(&gethtypes.DynamicFeeTx{
+		ChainID:   new(big.Int).SetUint64(chainID),
+		Nonce:     7,
+		GasTipCap: big.NewInt(2),
+		GasFeeCap: big.NewInt(20),
+		Gas:       21_000,
+		To:        to,
+		Value:     big.NewInt(3),
+		Data:      data,
+	})
+	signed, err := gethtypes.SignTx(tx, gethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), key)
+	if err != nil {
+		return "", "", err
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		return "", "", err
+	}
+	return "0x" + hex.EncodeToString(raw), signed.Hash().Hex(), nil
 }
 
 func RunTransactionFixtures(fixtures []TransactionFixture) TransactionConformanceReport {
@@ -74,6 +172,7 @@ func runTransactionFixture(fixture TransactionFixture) TransactionFixtureResult 
 	}
 	result.Hash = decoded.Hash
 	result.From = string(decoded.From)
+	result.Type = strconv.FormatUint(uint64(decoded.Type), 10)
 	if fixture.WantError != "" {
 		result.Err = "expected error " + fixture.WantError
 		return result
@@ -84,6 +183,36 @@ func runTransactionFixture(fixture TransactionFixture) TransactionFixtureResult 
 	}
 	if fixture.WantFrom != "" && fixture.WantFrom != string(decoded.From) {
 		result.Err = "sender mismatch"
+		return result
+	}
+	canonical, err := vexoapp.ParseCanonicalTx(decoded.Tx)
+	if err != nil {
+		result.Err = err.Error()
+		return result
+	}
+	result.Action = canonical.Action
+	if fixture.WantAction != "" && fixture.WantAction != canonical.Action {
+		result.Err = "action mismatch"
+		return result
+	}
+	if fixture.WantType != "" && fixture.WantType != canonical.Tags[TagType] {
+		result.Err = "type mismatch"
+		return result
+	}
+	if fixture.WantTo != "" && (canonical.Action != "call" || len(canonical.Args) < 3 || canonical.Args[2] != fixture.WantTo) {
+		result.Err = "recipient mismatch"
+		return result
+	}
+	if fixture.WantValue != "" && canonical.Tags[TagValue] != fixture.WantValue {
+		result.Err = "value mismatch"
+		return result
+	}
+	if fixture.WantFee != "" && canonical.Tags["fee"] != fixture.WantFee {
+		result.Err = "fee mismatch"
+		return result
+	}
+	if fixture.WantGas != 0 && canonical.Tags["gas"] != strconv.FormatUint(fixture.WantGas, 10) {
+		result.Err = "gas mismatch"
 		return result
 	}
 	if err := ValidateCanonicalTx(decoded.Tx, decoded.ChainID); err != nil {

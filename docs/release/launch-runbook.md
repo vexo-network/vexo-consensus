@@ -52,7 +52,7 @@ Required artifacts:
 - MEV/fee-market evidence covering base fee, fair ordering, censorship-resistance, spam cost, and mempool WAL replay
 - ops runbook evidence covering alert thresholds, incident drills, multi-region observability, and archive requirements
 - formal safety evidence covering invariants, adversarial simulation output, and property/fuzz output
-- SDK conformance evidence covering app modules, custom crypto, custom storage, custom transport, RPC versioning, upgrade hooks, and EVM/Web3 transaction fixtures
+- SDK conformance evidence covering app modules, custom crypto, custom storage, custom transport, RPC versioning, upgrade hooks, built-in EVM/Web3 transaction fixtures, and any chain-specific fixture corpus
 - external audit disposition for public releases
 - BLS adapter audit evidence when BLS is enabled
 
@@ -63,7 +63,7 @@ make release VERSION=<version>
 make sign-release VERSION=<version>
 go run ./cmd/vexod ops conformance \
   --home .vexo \
-  --evm-tx-fixtures dist/evm-tx-fixtures.json \
+  --evm-default-fixtures \
   --json > dist/sdk-conformance-evidence.json
 go run ./cmd/vexod release pack \
   --dist dist \
@@ -76,6 +76,7 @@ go run ./cmd/vexod release pack \
 go run ./cmd/vexod release gate \
   --dist dist \
   --version <version> \
+  --evidence-manifest dist/evidence-manifest.json \
   --longrun-evidence dist/longrun-evidence.json \
   --chaos-evidence dist/chaos-evidence.json \
   --adversarial-evidence dist/adversarial-evidence.json \
@@ -150,7 +151,7 @@ Archive:
 - validator set and validator set hash evidence
 - release pack and signed checksums
 - launch metrics, logs, pprof samples, peer score snapshots, and final split config files
-- long-run, chaos, adversarial, fuzz, snapshot, replay, signer, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, ops runbook, formal safety, and SDK conformance evidence with category-specific passing content
+- long-run, chaos, adversarial, fuzz, snapshot, replay, signer, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, ops runbook, formal safety, and SDK conformance evidence with category-specific passing content plus `evidence-manifest.json` SHA-256 bindings
 
 After launch, schedule:
 

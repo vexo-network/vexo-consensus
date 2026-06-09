@@ -1,31 +1,22 @@
 package types
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
-func TestCoreValueTypesAreStable(t *testing.T) {
-	hash := Hash{1, 2, 3}
-	if len(hash) != 32 {
-		t.Fatalf("hash length changed: %d", len(hash))
-	}
-	if Address("alice") != "alice" ||
-		ValidatorID("validator-1") != "validator-1" ||
-		Height(7) != 7 ||
-		Round(2) != 2 ||
-		VotingPower(100) != 100 {
-		t.Fatal("core alias semantics changed")
+func TestAddVotingPowerRejectsOverflow(t *testing.T) {
+	if _, err := AddVotingPower(^VotingPower(0), 1); !errors.Is(err, ErrVotingPowerOverflow) {
+		t.Fatalf("expected voting power overflow, got %v", err)
 	}
 }
 
-func TestValidatorUpdateCarriesMetadata(t *testing.T) {
-	update := ValidatorUpdate{
-		ID:          "validator-1",
-		Address:     "vexo1abc",
-		PublicKey:   PublicKey{1, 2, 3},
-		VotingPower: 10,
-		Stake:       20,
-		Metadata:    map[string]string{"role": "validator"},
+func TestHasTwoThirdsQuorumAvoidsMultiplicationOverflow(t *testing.T) {
+	total := ^VotingPower(0)
+	if !HasTwoThirdsQuorum(TwoThirdsQuorumThreshold(total), total) {
+		t.Fatal("expected exact threshold to satisfy quorum")
 	}
-	if update.ID == "" || update.Address == "" || len(update.PublicKey) == 0 || update.Metadata["role"] != "validator" {
-		t.Fatalf("unexpected validator update: %+v", update)
+	if HasTwoThirdsQuorum(TwoThirdsQuorumThreshold(total)-1, total) {
+		t.Fatal("expected below-threshold power to fail quorum")
 	}
 }

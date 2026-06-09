@@ -56,6 +56,7 @@ Run the release gate before publishing a release candidate:
 go run ./cmd/vexod release gate \
   --dist dist \
   --version 0.1.0-rc.1 \
+  --evidence-manifest dist/evidence-manifest.json \
   --longrun-evidence dist/longrun-evidence.json \
   --chaos-evidence dist/chaos-evidence.json \
   --adversarial-evidence dist/adversarial-evidence.json \
@@ -75,7 +76,7 @@ go run ./cmd/vexod release gate \
   --json
 ```
 
-`release gate` fails closed when required evidence is missing, empty, malformed, explicitly reports a failed `ok`/`status`/check result, or does not semantically cover the evidence category it claims to satisfy. `--allow-external-pending` requires `--private-rc` and is acceptable for private release candidates only; do not use it for public production launch gates.
+`release gate` fails closed when required evidence is missing, empty, malformed, explicitly reports a failed `ok`/`status`/check result, does not semantically cover the evidence category it claims to satisfy, or is not bound to `evidence-manifest.json` by SHA-256. `--allow-external-pending` requires `--private-rc` and is acceptable for private release candidates only; do not use it for public production launch gates.
 
 ## Artifacts
 
@@ -88,6 +89,7 @@ go run ./cmd/vexod release gate \
 - `sbom-go-version.txt`
 - `release-manifest.json`
 - `release-audit-pack.json`
+- `evidence-manifest.json`, binding each release evidence file name/path to its SHA-256 hash
 - long-run, chaos, adversarial, fuzz, signer, snapshot/replay, P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, SDK conformance including EVM/Web3 conformance, external-audit, and BLS-audit evidence files with passing content when preparing a release candidate
 
 ## Reproducibility Notes
@@ -133,7 +135,7 @@ go run ./cmd/vexod release pack --dist dist --version 0.1.0 \
   --fuzz-evidence dist/fuzz-evidence.txt
 ```
 
-The generated pack lists artifact SHA-256 values, required release files, signature status, attached long-run/adversarial/fuzz evidence, and the external audit checklist. `release gate` adds the stricter publish/no-publish decision by requiring category-specific chaos, signer, snapshot/replay, P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, SDK conformance including EVM/Web3 fixtures, external audit, and BLS audit evidence.
+The generated pack lists artifact SHA-256 values, required release files, signature status, attached long-run/adversarial/fuzz evidence, and the external audit checklist. `release gate` adds the stricter publish/no-publish decision by requiring category-specific chaos, signer, snapshot/replay, P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, SDK conformance including EVM/Web3 fixtures, evidence-manifest SHA-256 bindings, external audit, and BLS audit evidence.
 
 ## Release Candidate Soak Test
 
@@ -144,7 +146,7 @@ The `release-candidate` target runs:
 - ops verification
 - built-binary network E2E (`make network-e2e`)
 - adversarial simulation
-- SDK/EVM transaction fixture conformance evidence
+- SDK/EVM transaction fixture conformance evidence, preferably generated with `vexod ops conformance --evm-default-fixtures` plus any chain-specific fixture corpus
 - network load harness (`RC_DRY_RUN=1` keeps this as a plan-only dry-run)
 - chaos plan
 - 7-day multi-host longrun plan

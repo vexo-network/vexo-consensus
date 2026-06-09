@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -712,6 +714,9 @@ func TestRunReleaseGatePassesWithEvidence(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := writeReleaseEvidenceManifest(dist, required); err != nil {
+		t.Fatal(err)
+	}
 	var output bytes.Buffer
 	if err := runCommand(&output, &bytes.Buffer{}, []string{
 		"release", "gate",
@@ -746,6 +751,55 @@ func TestRunReleaseGatePassesWithEvidence(t *testing.T) {
 	}
 }
 
+func TestRunReleaseGateRejectsEvidenceManifestHashMismatch(t *testing.T) {
+	dist := t.TempDir()
+	required := []string{
+		"checksums.txt",
+		"checksums.txt.asc",
+		"sbom-go-modules.json",
+		"sbom-go-version.txt",
+		"release-manifest.json",
+		"chaos-evidence.json",
+	}
+	for _, name := range required {
+		if err := os.WriteFile(filepath.Join(dist, name), releaseEvidenceFixture(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest := releasegate.EvidenceManifest{
+		SchemaVersion: "v1",
+		Evidence: []releasegate.EvidenceManifestEntry{{
+			Name:   "chaos_evidence",
+			Path:   filepath.Join(dist, "chaos-evidence.json"),
+			SHA256: strings.Repeat("0", 64),
+		}},
+	}
+	encoded, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dist, "evidence-manifest.json"), encoded, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"release", "gate",
+		"--dist", dist,
+		"--version", "test",
+		"--chaos-evidence", filepath.Join(dist, "chaos-evidence.json"),
+		"--json",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var document releaseGateDocument
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.OK || releaseReadinessCheckOK(document.Checks, "chaos_evidence") {
+		t.Fatalf("expected manifest hash mismatch to fail chaos evidence: %+v", document)
+	}
+}
+
 func releaseCheckOK(document releaseAuditPack, name string) bool {
 	for _, check := range document.Checks {
 		if check.Name == name {
@@ -762,6 +816,50 @@ func releaseReadinessCheckOK(checks []releasegate.Check, name string) bool {
 		}
 	}
 	return false
+}
+
+func writeReleaseEvidenceManifest(dist string, files []string) error {
+	manifest := releasegate.EvidenceManifest{SchemaVersion: "v1"}
+	nameByFile := map[string]string{
+		"longrun-evidence.json":                 "longrun_evidence",
+		"adversarial-evidence.json":             "adversarial_evidence",
+		"fuzz-evidence.txt":                     "fuzz_evidence",
+		"chaos-evidence.json":                   "chaos_evidence",
+		"kms-evidence.json":                     "kms_signer_evidence",
+		"snapshot-replay-evidence.json":         "snapshot_replay_evidence",
+		"p2p-scale-evidence.json":               "p2p_scale_evidence",
+		"state-sync-light-client-evidence.json": "state_sync_light_client_evidence",
+		"validator-economics-evidence.json":     "validator_economics_evidence",
+		"upgrade-governance-evidence.json":      "upgrade_governance_evidence",
+		"mev-fee-market-evidence.json":          "mev_fee_market_evidence",
+		"ops-runbook-evidence.json":             "ops_runbook_evidence",
+		"formal-safety-evidence.json":           "formal_safety_evidence",
+		"sdk-conformance-evidence.json":         "sdk_conformance_evidence",
+		"external-audit.pdf":                    "external_security_audit",
+		"bls-audit.pdf":                         "bls_adapter_audit",
+	}
+	for _, file := range files {
+		name, ok := nameByFile[file]
+		if !ok {
+			continue
+		}
+		path := filepath.Join(dist, file)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(data)
+		manifest.Evidence = append(manifest.Evidence, releasegate.EvidenceManifestEntry{
+			Name:   name,
+			Path:   path,
+			SHA256: hex.EncodeToString(sum[:]),
+		})
+	}
+	encoded, err := json.Marshal(manifest)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dist, "evidence-manifest.json"), encoded, 0o644)
 }
 
 func releaseEvidenceFixture(name string) []byte {
@@ -2922,6 +3020,27 @@ func TestOpsConformanceRequiresFixtureForEthereumSurface(t *testing.T) {
 	}
 	if !foundWarning {
 		t.Fatalf("expected missing fixture warning: %+v", document.Checks)
+	}
+}
+
+func TestOpsConformanceRunsDefaultEVMFixtures(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--overwrite"}); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := runOps(&output, []string{"conformance", "--home", home, "--evm-default-fixtures", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var document opsConformanceDocument
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if !document.OK || document.EVMFixtures == nil || !document.EVMFixtures.OK || document.EVMFixtures.Total < 4 {
+		t.Fatalf("expected default EVM fixtures to pass: %+v", document)
 	}
 }
 

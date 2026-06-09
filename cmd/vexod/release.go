@@ -201,6 +201,7 @@ func runReleaseGate(writer io.Writer, args []string) error {
 	versionValue := flags.String("version", version, "release version label")
 	distDir := flags.String("dist", "dist", "release dist directory")
 	requireSignature := flags.Bool("require-signature", true, "require signed checksums")
+	evidenceManifest := flags.String("evidence-manifest", "", "evidence manifest JSON path; defaults to <dist>/evidence-manifest.json")
 	longRunEvidence := flags.String("longrun-evidence", "", "multi-host longrun evidence JSON path")
 	chaosEvidence := flags.String("chaos-evidence", "", "chaos test evidence JSON path")
 	adversarialEvidence := flags.String("adversarial-evidence", "", "consensus adversarial evidence JSON path")
@@ -226,6 +227,10 @@ func runReleaseGate(writer io.Writer, args []string) error {
 	if *allowExternalPending && !*privateRC {
 		return fmt.Errorf("--allow-external-pending requires --private-rc")
 	}
+	manifestPath := *evidenceManifest
+	if manifestPath == "" {
+		manifestPath = filepath.Join(*distDir, "evidence-manifest.json")
+	}
 	pack, err := buildReleaseAuditPackWithEvidence(*distDir, *versionValue, *requireSignature, releaseEvidenceInputs{
 		LongRun:     *longRunEvidence,
 		Adversarial: *adversarialEvidence,
@@ -235,6 +240,7 @@ func runReleaseGate(writer io.Writer, args []string) error {
 		return err
 	}
 	document := buildReleaseGateDocument(*versionValue, pack, releaseGateInputs{
+		Manifest:             manifestPath,
 		Chaos:                *chaosEvidence,
 		KMS:                  *kmsEvidence,
 		Snapshot:             *snapshotEvidence,
@@ -280,7 +286,7 @@ func buildProductionReadinessDocument() productionReadinessDocument {
 			"go run ./cmd/vexod release launch-checklist --json",
 			"go run ./cmd/vexod release readiness --json",
 			"go run ./cmd/vexod config tune --validators <n> --tps <target> --regions <r> --latency <duration> --json",
-			"go run ./cmd/vexod release gate --dist dist --version <version> --longrun-evidence dist/longrun-evidence.json --chaos-evidence dist/chaos-evidence.json --adversarial-evidence dist/adversarial-evidence.json --fuzz-evidence dist/fuzz-evidence.txt --kms-evidence dist/kms-evidence.json --snapshot-evidence dist/snapshot-replay-evidence.json --p2p-scale-evidence dist/p2p-scale-evidence.json --state-sync-light-client-evidence dist/state-sync-light-client-evidence.json --validator-economics-evidence dist/validator-economics-evidence.json --upgrade-governance-evidence dist/upgrade-governance-evidence.json --mev-fee-market-evidence dist/mev-fee-market-evidence.json --ops-runbook-evidence dist/ops-runbook-evidence.json --formal-safety-evidence dist/formal-safety-evidence.json --sdk-conformance-evidence dist/sdk-conformance-evidence.json --external-audit dist/external-audit.pdf --bls-audit dist/bls-audit.pdf",
+			"go run ./cmd/vexod release gate --dist dist --version <version> --evidence-manifest dist/evidence-manifest.json --longrun-evidence dist/longrun-evidence.json --chaos-evidence dist/chaos-evidence.json --adversarial-evidence dist/adversarial-evidence.json --fuzz-evidence dist/fuzz-evidence.txt --kms-evidence dist/kms-evidence.json --snapshot-evidence dist/snapshot-replay-evidence.json --p2p-scale-evidence dist/p2p-scale-evidence.json --state-sync-light-client-evidence dist/state-sync-light-client-evidence.json --validator-economics-evidence dist/validator-economics-evidence.json --upgrade-governance-evidence dist/upgrade-governance-evidence.json --mev-fee-market-evidence dist/mev-fee-market-evidence.json --ops-runbook-evidence dist/ops-runbook-evidence.json --formal-safety-evidence dist/formal-safety-evidence.json --sdk-conformance-evidence dist/sdk-conformance-evidence.json --external-audit dist/external-audit.pdf --bls-audit dist/bls-audit.pdf",
 			"go run ./cmd/vexod network scale-plan --validators <n> --regions <r> --hosts <h> --json",
 			"go run ./cmd/vexod snapshot drill-plan --input snapshot.json --chain-id <chain-id> --json",
 			"go run ./cmd/vexod slashing lifecycle-plan --type conflicting_vote --validator <id> --height <h> --current-height <h> --json",
@@ -335,6 +341,7 @@ func buildProductionReadinessDocument() productionReadinessDocument {
 }
 
 type releaseGateInputs struct {
+	Manifest             string
 	Chaos                string
 	KMS                  string
 	Snapshot             string
@@ -364,6 +371,7 @@ func buildReleaseGateDocument(versionValue string, pack releaseAuditPack, inputs
 		OK:     pack.OK,
 		Checks: gateChecks,
 	}, releasegate.Evidence{
+		Manifest:             inputs.Manifest,
 		Chaos:                inputs.Chaos,
 		KMS:                  inputs.KMS,
 		Snapshot:             inputs.Snapshot,

@@ -55,6 +55,35 @@ func TestStateMachineBuildsQuorumCert(t *testing.T) {
 	}
 }
 
+func TestStateMachineBuildQuorumCertRejectsVotingPowerOverflow(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: ^types.VotingPower(0)},
+		{ID: "b", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := dataavailability.AttachCommitment(types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHash: set.Hash()}})
+	blockHash := HashBlock(block)
+	if err := machine.OnProposal(context.Background(), Proposal{Block: block, Proposer: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, validatorID := range []types.ValidatorID{"a", "b"} {
+		if err := machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: blockHash, ValidatorID: validatorID, Signature: types.Signature("sig")}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := machine.BuildQuorumCert(1, 0, blockHash); !errors.Is(err, types.ErrVotingPowerOverflow) {
+		t.Fatalf("expected voting power overflow, got %v", err)
+	}
+}
+
 func TestStateMachineStoresVoteQuorumCertInBlockTree(t *testing.T) {
 	set := newTestValidatorSet([]validator.Validator{
 		{ID: "a", VotingPower: 1},
@@ -1158,7 +1187,7 @@ func newTestValidatorSet(validators []validator.Validator) testValidatorSet {
 	var totalPower types.VotingPower
 	for _, validatorInfo := range validators {
 		byID[validatorInfo.ID] = validatorInfo
-		totalPower += validatorInfo.VotingPower
+		totalPower = types.MustAddVotingPowerSaturating(totalPower, validatorInfo.VotingPower)
 	}
 	return testValidatorSet{
 		validators: validators,

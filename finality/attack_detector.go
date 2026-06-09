@@ -211,7 +211,11 @@ func overlappingVotingPower(validatorSet validator.Set, firstSigners []types.Val
 			return nil, 0, ErrUnknownSigner
 		}
 		overlapping = append(overlapping, signer)
-		power += validatorInfo.VotingPower
+		var err error
+		power, err = types.AddVotingPower(power, validatorInfo.VotingPower)
+		if err != nil {
+			return nil, 0, err
+		}
 	}
 	sort.Slice(overlapping, func(left int, right int) bool {
 		return overlapping[left] < overlapping[right]

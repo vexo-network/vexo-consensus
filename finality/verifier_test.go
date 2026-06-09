@@ -193,6 +193,19 @@ func TestVerifierRejectsDuplicateSigner(t *testing.T) {
 	}
 }
 
+func TestVerifierRejectsVotingPowerOverflow(t *testing.T) {
+	set := testValidatorSet(t, []validator.Validator{
+		{ID: "a", VotingPower: ^types.VotingPower(0)},
+		{ID: "b", VotingPower: 1},
+	})
+	proof := validProof(set, []types.ValidatorID{"a", "b"})
+
+	err := NewVerifier(set, nil).VerifyFinalityProof(proof)
+	if !errors.Is(err, types.ErrVotingPowerOverflow) {
+		t.Fatalf("expected voting power overflow, got %v", err)
+	}
+}
+
 func TestVerifierRejectsVotingPowerMismatch(t *testing.T) {
 	set := testValidatorSet(t, []validator.Validator{
 		{ID: "a", VotingPower: 1},

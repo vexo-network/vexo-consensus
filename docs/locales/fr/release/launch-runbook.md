@@ -43,6 +43,9 @@ Ce document aide à comprendre la checklist opérateur et la procédure d’exé
 - `sbom-go-version.txt`
 - `release-manifest.json`
 - `release-audit-pack.json`
+- `evidence-manifest.json`
+- `--evidence-manifest`
+- `--evm-default-fixtures`
 - `chain_id`
 
 ## Structure de la source anglaise

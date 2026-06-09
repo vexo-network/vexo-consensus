@@ -49,6 +49,8 @@ Dieses Dokument hilft dabei, die Release-Pipeline mit signierten Binaries, Check
 - `sbom-go-version.txt`
 - `release-manifest.json`
 - `release-audit-pack.json`
+- `evidence-manifest.json`
+- `--evidence-manifest`
 - `CGO_ENABLED=0`
 - `go build -trimpath`
 - `BUILD_DATE`

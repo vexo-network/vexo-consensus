@@ -22,7 +22,7 @@ func newSetSnapshot(validators []Validator) setSnapshot {
 		validatorInfo = cloneValidator(validatorInfo)
 		copiedValidators[index] = validatorInfo
 		byID[validatorInfo.ID] = cloneValidator(validatorInfo)
-		totalPower += validatorInfo.VotingPower
+		totalPower = types.MustAddVotingPowerSaturating(totalPower, validatorInfo.VotingPower)
 	}
 	return setSnapshot{
 		validators: copiedValidators,
