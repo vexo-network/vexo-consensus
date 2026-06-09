@@ -466,6 +466,16 @@ func TestRuntimeConfigLoadsP2PTLSFromSplitNetworkConfig(t *testing.T) {
 	}
 }
 
+func TestLoadP2PTLSConfigRequiresCAForConfiguredIdentity(t *testing.T) {
+	_, err := loadP2PTLSConfig(startRuntimeConfig{
+		P2PTLSCertPath: "tls/node.crt",
+		P2PTLSKeyPath:  "tls/node.key",
+	})
+	if err == nil {
+		t.Fatal("expected p2p tls identity without ca to fail")
+	}
+}
+
 func TestApplyStartFlagOverridesEVMAccountKeys(t *testing.T) {
 	runtimeConfig := startRuntimeConfig{RPCEVMAccountKeys: []string{"existing"}}
 	applyStartFlagOverrides(&runtimeConfig, map[string]bool{"evm-account-key": true}, startFlagValues{

@@ -26,6 +26,8 @@ import (
 const ModuleName = "evm"
 
 const ethereumStateSnapshotNamespace = "evm_ethstate"
+const authNamespace = "auth"
+const bankNamespace = "bank"
 
 var (
 	ErrInvalidEVMTx          = errors.New("invalid EVM transaction")
@@ -203,6 +205,10 @@ func (module Module) CloneModule() vexoapp.Module {
 }
 
 func (module Module) Name() string { return ModuleName }
+
+func (module Module) ReplayNamespaces() []string {
+	return []string{ModuleName, ethereumStateSnapshotNamespace, bankNamespace, authNamespace}
+}
 
 func (Module) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisState) error {
 	if ctx.Store == nil {

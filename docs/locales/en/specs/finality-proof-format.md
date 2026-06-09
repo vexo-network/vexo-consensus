@@ -15,7 +15,7 @@ This spec defines the proof format verified by light clients and full nodes.
 - `ValidatorSetHeight`: height whose validator set is used for verification
 - `ValidatorSetHash`: hash of the validator set used for verification
 
-Full nodes expose the latest live finality proof at `/v1/finality/latest` and height-specific live proofs at `/v1/finality/{height}`. These proofs are consensus-finality artifacts, while `/v1/status.latest_height` reports application state commit height.
+Full nodes expose the latest known finality proof at `/v1/finality/latest` and height-specific proofs at `/v1/finality/{height}`. Responses include `strict: true` when the proof carries the descendant `CommitChain` required for external 3-chain verification. These proofs are consensus-finality artifacts, while `/v1/status.latest_height` reports application state commit height.
 
 ## Header Fields
 
@@ -57,7 +57,7 @@ This lets a peer that missed earlier proposals verify the same 3-chain finality 
 
 1. Reject proofs without an explicit `ValidatorSetHeight`.
 2. Load validator set for `ValidatorSetHeight`.
-3. Verify `Proof.ValidatorSetHeight == Header.Height`.
+3. Verify `Proof.ValidatorSetHeight <= Header.Height`; the loaded validator set hash must still match the proof and header hashes.
 4. Verify `Proof.ValidatorSetHash == loaded_set.Hash()`.
 5. Verify `Header.ValidatorSetHash == loaded_set.Hash()`.
 6. Verify `QuorumCert.Height == Header.Height`.
@@ -66,7 +66,7 @@ This lets a peer that missed earlier proposals verify the same 3-chain finality 
 9. Recompute signer voting power and require quorum.
 10. If QC voting power is present, require it to match recomputed voting power.
 11. Verify aggregate/multisignature over finality sign bytes.
-12. If `CommitChain` is present, require at least two links.
+12. For external/light-client strict verification, require `CommitChain` to contain at least two links. Compatibility-only verification may accept a bare block QC, but that proof is not sufficient for 3-chain finality.
 13. Verify each link extends the previous block hash by exactly one height.
 14. Verify each link QC signs the previous block hash under the same validator-set hash and consensus vote domain.
 

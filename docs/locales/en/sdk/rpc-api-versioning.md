@@ -103,7 +103,7 @@ curl 'http://127.0.0.1:26657/v1/proof?height=10&namespace=bank&key=alice'
 
 LevelDB stores height-versioned KV writes during atomic block commits, so historical proofs rebuild the namespace snapshot at the requested height and bind membership or non-membership to the state root saved for that height. Existing-key proofs include a compact Merkle path. Missing-key proofs include compact left/right neighbor absence proofs; legacy full namespace absence witnesses remain verifier-compatible. Stores that do not implement historical namespace reads must reject historical proof requests instead of returning latest values for older heights.
 
-`/v1/finality/latest` and `/v1/finality/{height}` return the latest or height-specific three-chain finality proof known by the live consensus state. These endpoints expose consensus finality, while `/v1/status.latest_height` reports application state commit height.
+`/v1/finality/latest` and `/v1/finality/{height}` return the latest or height-specific finality proof known by the node. The JSON response includes `strict: true` only when the proof carries the explicit two-link descendant `commit_chain` needed for external/light-client 3-chain verification. These endpoints expose consensus finality, while `/v1/status.latest_height` reports application state commit height.
 
 ## Event Queries
 
@@ -140,7 +140,7 @@ The Web3 bridge provides Ethereum execution and wallet/tooling compatibility ins
 The bridge supports single requests, batch requests, notifications, string block tags, EIP-1898 selectors, and these method families:
 
 - **Client/network**: `rpc_modules`, `web3_clientVersion`, `web3_sha3`, `net_version`, `net_listening`, `net_peerCount`, `eth_chainId`, `eth_protocolVersion`, `eth_syncing`, `eth_mining`, `eth_hashrate`.
-- **Blocks/fees**: `eth_blockNumber`, block lookups by number/hash, transaction count by block, uncle compatibility methods, `eth_gasPrice`, `eth_blobBaseFee`, `eth_maxPriorityFeePerGas`, `eth_feeHistory`.
+- **Blocks/fees**: `eth_blockNumber`, block lookups by number/hash, transaction count by block, uncle compatibility methods that return zero or `null` because Vexo does not produce Ethereum uncle blocks, `eth_gasPrice`, `eth_blobBaseFee`, `eth_maxPriorityFeePerGas`, `eth_feeHistory`.
 - **Accounts/state**: `eth_accounts`, `eth_coinbase`, `eth_getBalance`, `eth_getTransactionCount`, `eth_getProof`, `eth_getCode`, `eth_getStorageAt`.
 - **Transactions/receipts**: `eth_sendRawTransaction`, `eth_sendTransaction`, `eth_signTransaction`, `eth_sign`, `personal_sign`, transaction lookup methods, raw transaction lookup methods, `eth_getTransactionReceipt`, `eth_getBlockReceipts`.
 - **Logs/filters**: `eth_getLogs`, `eth_newFilter`, `eth_getFilterChanges`, `eth_getFilterLogs`, `eth_uninstallFilter`.

@@ -530,6 +530,9 @@ func (store *LevelDBStore) SaveFinalityProof(ctx context.Context, proof Finality
 		proof.QuorumCert.BlockHash != proof.BlockHash {
 		return ErrInvalidFinality
 	}
+	if err := validateFinalityCommitChainRecord(proof); err != nil {
+		return err
+	}
 	encoded, err := json.Marshal(proof)
 	if err != nil {
 		return err
@@ -579,10 +582,39 @@ func (store *LevelDBStore) getFinalityProof(key []byte, expectedHeight types.Hei
 		proof.QuorumCert.BlockHash != proof.BlockHash {
 		return FinalityProofRecord{}, ErrInvalidFinality
 	}
+	if err := validateFinalityCommitChainRecord(proof); err != nil {
+		return FinalityProofRecord{}, err
+	}
 	if expectedHeight != 0 && proof.Header.Height != expectedHeight {
 		return FinalityProofRecord{}, ErrInvalidFinality
 	}
 	return proof, nil
+}
+
+func validateFinalityCommitChainRecord(proof FinalityProofRecord) error {
+	if len(proof.CommitChain) == 0 {
+		return nil
+	}
+	if len(proof.CommitChain) < 2 {
+		return ErrInvalidFinality
+	}
+	previousHeader := proof.Header
+	previousHash := proof.BlockHash
+	for _, link := range proof.CommitChain {
+		if link.BlockHash == (types.Hash{}) ||
+			link.QuorumCert.Height == 0 ||
+			link.QuorumCert.BlockHash != previousHash ||
+			link.QuorumCert.Height != previousHeader.Height ||
+			link.Header.ChainID != proof.Header.ChainID ||
+			link.Header.Height != previousHeader.Height+1 ||
+			link.Header.PreviousBlockHash != previousHash ||
+			link.Header.ValidatorSetHash != proof.Header.ValidatorSetHash {
+			return ErrInvalidFinality
+		}
+		previousHeader = link.Header
+		previousHash = link.BlockHash
+	}
+	return nil
 }
 
 func (store *LevelDBStore) Set(ctx context.Context, namespace string, key []byte, value []byte) error {

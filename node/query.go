@@ -194,7 +194,15 @@ func (node *Node) finalityProof(ctx context.Context, height types.Height) (final
 	if err != nil {
 		return finality.Proof{}, err
 	}
-	return runtime.FinalityProof(ctx, decision.CommittedHeight, decision.CommitQC)
+	proof, err := runtime.FinalityProof(ctx, decision.CommittedHeight, decision.CommitQC)
+	if err != nil {
+		return finality.Proof{}, err
+	}
+	enriched, err := node.attachCommitChainProof(proof)
+	if err != nil {
+		return proof, nil
+	}
+	return enriched, nil
 }
 
 func finalityProofFromRecord(record store.FinalityProofRecord) finality.Proof {

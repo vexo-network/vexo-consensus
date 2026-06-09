@@ -1027,6 +1027,29 @@ func TestLevelDBStoreRejectsInvalidFinalityProof(t *testing.T) {
 	if err := storage.SaveFinalityProof(context.Background(), FinalityProofRecord{}); !errors.Is(err, ErrInvalidFinality) {
 		t.Fatalf("expected invalid finality, got %v", err)
 	}
+	proof := FinalityProofRecord{
+		Header:    types.Header{ChainID: "vexo-test", Height: 7, ValidatorSetHash: types.Hash{1}},
+		BlockHash: types.Hash{7},
+		QuorumCert: QuorumCertRecord{
+			Height:    7,
+			BlockHash: types.Hash{7},
+			Signers:   types.Bitmap("alice"),
+		},
+		CommitChain: []CommitLinkRecord{
+			{
+				Header:    types.Header{ChainID: "vexo-test", Height: 8, PreviousBlockHash: types.Hash{99}, ValidatorSetHash: types.Hash{1}},
+				BlockHash: types.Hash{8},
+				QuorumCert: QuorumCertRecord{
+					Height:    7,
+					BlockHash: types.Hash{7},
+					Signers:   types.Bitmap("alice"),
+				},
+			},
+		},
+	}
+	if err := storage.SaveFinalityProof(context.Background(), proof); !errors.Is(err, ErrInvalidFinality) {
+		t.Fatalf("expected invalid commit chain finality, got %v", err)
+	}
 	if _, err := storage.FinalityProof(context.Background(), 0); !errors.Is(err, ErrInvalidFinality) {
 		t.Fatalf("expected invalid finality height, got %v", err)
 	}

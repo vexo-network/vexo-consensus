@@ -27,29 +27,44 @@ type SignatureVerifier interface {
 }
 
 type Verifier struct {
-	validatorSet validator.Set
-	signatures   SignatureVerifier
+	validatorSet       validator.Set
+	signatures         SignatureVerifier
+	requireCommitChain bool
 }
 
 type RegistryVerifier struct {
-	registry   validator.Registry
-	signatures SignatureVerifier
+	registry           validator.Registry
+	signatures         SignatureVerifier
+	requireCommitChain bool
 }
 
 func NewVerifier(validatorSet validator.Set, signatures SignatureVerifier) Verifier {
+	return newVerifier(validatorSet, signatures, false)
+}
+
+func NewStrictVerifier(validatorSet validator.Set, signatures SignatureVerifier) Verifier {
+	return newVerifier(validatorSet, signatures, true)
+}
+
+func newVerifier(validatorSet validator.Set, signatures SignatureVerifier, requireCommitChain bool) Verifier {
 	if signatures != nil {
 		if wrapped, err := vexocrypto.NewDomainAggregateVerifier(signatures, vexocrypto.DomainConsensusVote); err == nil {
 			signatures = wrapped
 		}
 	}
 	return Verifier{
-		validatorSet: validatorSet,
-		signatures:   signatures,
+		validatorSet:       validatorSet,
+		signatures:         signatures,
+		requireCommitChain: requireCommitChain,
 	}
 }
 
 func NewRegistryVerifier(registry validator.Registry, signatures SignatureVerifier) RegistryVerifier {
 	return RegistryVerifier{registry: registry, signatures: signatures}
+}
+
+func NewStrictRegistryVerifier(registry validator.Registry, signatures SignatureVerifier) RegistryVerifier {
+	return RegistryVerifier{registry: registry, signatures: signatures, requireCommitChain: true}
 }
 
 func (verifier Verifier) VerifyFinalityProof(proof Proof) error {
@@ -77,7 +92,7 @@ func (verifier RegistryVerifier) VerifyFinalityProofWithContext(ctx context.Cont
 	if err != nil {
 		return err
 	}
-	return NewVerifier(validatorSet, verifier.signatures).VerifyFinalityProofWithContext(ctx, proof)
+	return newVerifier(validatorSet, verifier.signatures, verifier.requireCommitChain).VerifyFinalityProofWithContext(ctx, proof)
 }
 
 func (verifier Verifier) VerifyFinalityProofWithContext(ctx context.Context, proof Proof) error {
@@ -156,6 +171,9 @@ func (verifier Verifier) verifyQuorumCert(ctx context.Context, cert QuorumCert, 
 
 func (verifier Verifier) verifyCommitChain(ctx context.Context, proof Proof) error {
 	if len(proof.CommitChain) == 0 {
+		if verifier.requireCommitChain {
+			return ErrCommitChainTooShort
+		}
 		return nil
 	}
 	if !proof.HasThreeChainCommitProof() {

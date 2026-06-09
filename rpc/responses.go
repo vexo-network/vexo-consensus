@@ -253,6 +253,7 @@ func finalityProofResponse(proof finality.Proof) FinalityProofResponse {
 		BlockHash:          hex.EncodeToString(proof.BlockHash[:]),
 		ValidatorSetHeight: uint64(proof.ValidatorSetHeight),
 		ValidatorSetHash:   hex.EncodeToString(proof.ValidatorSetHash[:]),
+		Strict:             proof.HasThreeChainCommitProof(),
 		Header:             headerResponse(proof.Header),
 		QuorumCert:         quorumCertResponse(proof.QuorumCert),
 		CommitChain:        commitChain,

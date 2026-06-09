@@ -246,6 +246,7 @@ type FinalityProofResponse struct {
 	BlockHash          string               `json:"block_hash"`
 	ValidatorSetHeight uint64               `json:"validator_set_height"`
 	ValidatorSetHash   string               `json:"validator_set_hash"`
+	Strict             bool                 `json:"strict"`
 	Header             HeaderResponse       `json:"header"`
 	QuorumCert         QuorumCertResponse   `json:"quorum_cert"`
 	CommitChain        []CommitLinkResponse `json:"commit_chain,omitempty"`

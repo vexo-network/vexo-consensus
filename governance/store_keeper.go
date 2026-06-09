@@ -28,9 +28,10 @@ type atomicUpgradePlanStore interface {
 }
 
 type StoreKeeper struct {
-	store  KVStore
-	policy TallyPolicy
-	powers map[types.Address]types.VotingPower
+	store   KVStore
+	policy  TallyPolicy
+	powers  map[types.Address]types.VotingPower
+	lastErr error
 }
 
 type storeDocument struct {
@@ -66,7 +67,7 @@ func NewStoreKeeper(store KVStore, policy TallyPolicy, votingPower map[types.Add
 }
 
 func (keeper *StoreKeeper) SetTime(now uint64) {
-	_ = keeper.SetTimeContext(context.Background(), now)
+	keeper.setLastError(keeper.SetTimeContext(context.Background(), now))
 }
 
 func (keeper *StoreKeeper) SetTimeContext(ctx context.Context, now uint64) error {
@@ -79,7 +80,7 @@ func (keeper *StoreKeeper) SetTimeContext(ctx context.Context, now uint64) error
 }
 
 func (keeper *StoreKeeper) SetVotingPower(voter types.Address, power types.VotingPower) {
-	_ = keeper.SetVotingPowerContext(context.Background(), voter, power)
+	keeper.setLastError(keeper.SetVotingPowerContext(context.Background(), voter, power))
 }
 
 func (keeper *StoreKeeper) SetVotingPowerContext(ctx context.Context, voter types.Address, power types.VotingPower) error {
@@ -210,7 +211,8 @@ func (keeper *StoreKeeper) persistUpgradePlans(ctx context.Context, plans []upgr
 }
 
 func (keeper *StoreKeeper) Proposal(proposalID uint64) (ProposalState, bool) {
-	proposal, found, _ := keeper.ProposalContext(context.Background(), proposalID)
+	proposal, found, err := keeper.ProposalContext(context.Background(), proposalID)
+	keeper.setLastError(err)
 	return proposal, found
 }
 
@@ -227,7 +229,8 @@ func (keeper *StoreKeeper) ProposalContext(ctx context.Context, proposalID uint6
 }
 
 func (keeper *StoreKeeper) AppliedChanges() []ParameterChange {
-	changes, _ := keeper.AppliedChangesContext(context.Background())
+	changes, err := keeper.AppliedChangesContext(context.Background())
+	keeper.setLastError(err)
 	return changes
 }
 
@@ -240,8 +243,17 @@ func (keeper *StoreKeeper) AppliedChangesContext(ctx context.Context) ([]Paramet
 }
 
 func (keeper *StoreKeeper) Tally(proposalID uint64) (TallyResult, bool) {
-	tally, found, _ := keeper.TallyContext(context.Background(), proposalID)
+	tally, found, err := keeper.TallyContext(context.Background(), proposalID)
+	keeper.setLastError(err)
 	return tally, found
+}
+
+func (keeper *StoreKeeper) LastError() error {
+	return keeper.lastErr
+}
+
+func (keeper *StoreKeeper) setLastError(err error) {
+	keeper.lastErr = err
 }
 
 func (keeper *StoreKeeper) TallyContext(ctx context.Context, proposalID uint64) (TallyResult, bool, error) {

@@ -23,6 +23,34 @@ func TestVerifierAcceptsValidFinalityProof(t *testing.T) {
 	}
 }
 
+func TestStrictVerifierRequiresCommitChain(t *testing.T) {
+	set := testValidatorSet(t, []validator.Validator{
+		{ID: "a", VotingPower: 1, PublicKey: []byte("a-pub")},
+		{ID: "b", VotingPower: 1, PublicKey: []byte("b-pub")},
+		{ID: "c", VotingPower: 1, PublicKey: []byte("c-pub")},
+	})
+	proof := validProof(set, []types.ValidatorID{"a", "b"})
+
+	err := NewStrictVerifier(set, acceptSignatureVerifier{}).VerifyFinalityProof(proof)
+	if !errors.Is(err, ErrCommitChainTooShort) {
+		t.Fatalf("expected strict verifier to require commit chain, got %v", err)
+	}
+}
+
+func TestStrictVerifierAcceptsThreeChainProof(t *testing.T) {
+	set := testValidatorSet(t, []validator.Validator{
+		{ID: "a", VotingPower: 1, PublicKey: []byte("a-pub")},
+		{ID: "b", VotingPower: 1, PublicKey: []byte("b-pub")},
+		{ID: "c", VotingPower: 1, PublicKey: []byte("c-pub")},
+	})
+	proof := validProof(set, []types.ValidatorID{"a", "b"})
+	proof.CommitChain = validCommitChain(proof, []types.ValidatorID{"a", "b"})
+
+	if err := NewStrictVerifier(set, acceptSignatureVerifier{}).VerifyFinalityProof(proof); err != nil {
+		t.Fatalf("expected strict verifier to accept 3-chain proof, got %v", err)
+	}
+}
+
 func TestVerifierRejectsValidatorSetMismatch(t *testing.T) {
 	set := testValidatorSet(t, []validator.Validator{{ID: "a", VotingPower: 1}})
 	proof := validProof(set, []types.ValidatorID{"a"})
@@ -31,6 +59,49 @@ func TestVerifierRejectsValidatorSetMismatch(t *testing.T) {
 	err := NewVerifier(set, nil).VerifyFinalityProof(proof)
 	if !errors.Is(err, ErrValidatorSetMismatch) {
 		t.Fatalf("expected validator set mismatch, got %v", err)
+	}
+}
+
+func validCommitChain(proof Proof, signers []types.ValidatorID) []CommitLink {
+	firstHeader := types.Header{
+		ChainID:           proof.Header.ChainID,
+		Height:            proof.Header.Height + 1,
+		PreviousBlockHash: proof.BlockHash,
+		ValidatorSetHash:  proof.Header.ValidatorSetHash,
+	}
+	firstHash := types.Hash{2}
+	secondHeader := types.Header{
+		ChainID:           proof.Header.ChainID,
+		Height:            proof.Header.Height + 2,
+		PreviousBlockHash: firstHash,
+		ValidatorSetHash:  proof.Header.ValidatorSetHash,
+	}
+	secondHash := types.Hash{3}
+	return []CommitLink{
+		{
+			Header:    firstHeader,
+			BlockHash: firstHash,
+			QuorumCert: QuorumCert{
+				Height:      proof.Header.Height,
+				Round:       0,
+				BlockHash:   proof.BlockHash,
+				Signers:     EncodeSigners(signers),
+				Signature:   types.AggregateSignature("signature"),
+				VotingPower: types.VotingPower(len(signers)),
+			},
+		},
+		{
+			Header:    secondHeader,
+			BlockHash: secondHash,
+			QuorumCert: QuorumCert{
+				Height:      firstHeader.Height,
+				Round:       0,
+				BlockHash:   firstHash,
+				Signers:     EncodeSigners(signers),
+				Signature:   types.AggregateSignature("signature"),
+				VotingPower: types.VotingPower(len(signers)),
+			},
+		},
 	}
 }
 

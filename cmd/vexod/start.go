@@ -1086,6 +1086,12 @@ func loadP2PTLSConfig(runtimeConfig startRuntimeConfig) (*tls.Config, error) {
 	if (runtimeConfig.P2PTLSCertPath == "") != (runtimeConfig.P2PTLSKeyPath == "") {
 		return nil, errors.New("p2p tls cert and key must be configured together")
 	}
+	if runtimeConfig.P2PTLSCertPath != "" && runtimeConfig.P2PTLSCAPath == "" {
+		return nil, errors.New("p2p tls ca path is required when tls cert and key are configured")
+	}
+	if runtimeConfig.P2PTLSServerName != "" && runtimeConfig.P2PTLSCAPath == "" {
+		return nil, errors.New("p2p tls server name requires a tls ca path")
+	}
 	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS13,
 		ServerName: runtimeConfig.P2PTLSServerName,

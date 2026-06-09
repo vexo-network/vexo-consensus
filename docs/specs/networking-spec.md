@@ -50,8 +50,8 @@ Peer dial and discovered addresses must be dialable `host:port` values. Address-
 
 gRPC transport TLS is configured only through `network_config.json`:
 
-- `p2p.tls_cert_path` and `p2p.tls_key_path` enable a local node certificate.
-- `p2p.tls_ca_path` enables peer certificate verification and requires client certificates.
+- `p2p.tls_cert_path` and `p2p.tls_key_path` configure the local node certificate and must be paired with `p2p.tls_ca_path`.
+- `p2p.tls_ca_path` enables peer certificate verification and requires client certificates; Vexo rejects TLS identity config without a CA trust root.
 - `p2p.tls_server_name` sets the expected server name for outbound verification.
 
 Relative TLS paths are resolved against the node home directory. Operators should keep public dial addresses in `p2p.peers`/`p2p.seeds`, local bind addresses in `p2p.listen_address`, and certificate trust material in these TLS fields rather than passing long-lived host or TLS state on the `start` command line.

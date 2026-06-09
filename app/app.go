@@ -97,6 +97,10 @@ type PruneHook interface {
 	Prune(ctx Context, retainFrom types.Height) error
 }
 
+type ReplayNamespaceProvider interface {
+	ReplayNamespaces() []string
+}
+
 type TxEventEmitter interface {
 	Events(ctx Context, tx types.Tx, result types.Result) []events.Event
 }

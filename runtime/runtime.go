@@ -60,6 +60,10 @@ func New(cfg config.Config, application app.Application, initialValidators []val
 	return nil, ErrDurableStoreRequired
 }
 
+// NewEphemeral creates an in-memory runtime for isolated tests and examples.
+//
+// Do not use it for a running network: it does not persist validator registry,
+// governance, slashing, mempool, block, state, or finality-proof data.
 func NewEphemeral(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower) (*Runtime, error) {
 	return newWithStoreAndCryptoRegistry(cfg, application, initialValidators, governancePower, nil, crypto.NewRuntimeSuiteRegistry(), true)
 }
@@ -206,63 +210,10 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 	}
 	nextBaseFee := runtime.NextBaseFee(response)
 	nextBlobBaseFee := runtime.NextBlobBaseFee(blobGasUsed)
-	validatorSetHash := block.Header.ValidatorSetHash
 	if len(response.ValidatorUpdates) > 0 {
 		if err := runtime.ApplyValidatorUpdatesAt(ctx, block.Header.Height+1, response.ValidatorUpdates); err != nil {
 			return app.FinalizeBlockResponse{}, err
 		}
-		validatorSet, err := runtime.Validators.ValidatorSet(ctx, block.Header.Height+1)
-		if err != nil {
-			return app.FinalizeBlockResponse{}, err
-		}
-		validatorSetHash = validatorSet.Hash()
-	}
-	if runtime.Store == nil {
-		return response, nil
-	}
-
-	blockHash := consensus.HashBlock(block)
-	stateRoots, err := runtime.moduleStateRoots(ctx, block.Header.Height)
-	if err != nil {
-		return app.FinalizeBlockResponse{}, err
-	}
-	blockRecord := store.BlockRecord{
-		Block:      block,
-		Hash:       blockHash,
-		AppHash:    response.AppHash,
-		StateRoots: stateRoots,
-		TxResults:  cloneTxResults(response.Results),
-	}
-	stateRecord := store.StateRecord{
-		Height:           block.Header.Height,
-		AppHash:          response.AppHash,
-		LastBlockHash:    blockHash,
-		ValidatorSetHash: validatorSetHash,
-		BaseFee:          baseFee,
-		NextBaseFee:      nextBaseFee,
-		BlobBaseFee:      runtime.CurrentBlobBaseFee(),
-		NextBlobBaseFee:  nextBlobBaseFee,
-		BlobGasUsed:      blobGasUsed,
-		ExcessBlobGas:    excessBlobGas(blobGasUsed, runtime.Config.Execution.TargetBlobGas),
-	}
-	if commitStore, ok := runtime.Store.(store.BlockCommitStore); ok {
-		if err := commitStore.CommitBlockState(ctx, blockRecord, stateRecord, stateRoots); err != nil {
-			return app.FinalizeBlockResponse{}, err
-		}
-		runtime.currentBaseFee = nextBaseFee
-		runtime.currentBlobBaseFee = nextBlobBaseFee
-		return response, nil
-	}
-	for _, record := range stateRoots {
-		if err := runtime.Store.SaveStateRoot(ctx, record); err != nil {
-			return app.FinalizeBlockResponse{}, err
-		}
-	}
-	if err := runtime.Store.SaveBlock(ctx, blockRecord); err != nil {
-		return app.FinalizeBlockResponse{}, err
-	}
-	if err := runtime.Store.SaveState(ctx, stateRecord); err != nil {
-		return app.FinalizeBlockResponse{}, err
 	}
 	runtime.currentBaseFee = nextBaseFee
 	runtime.currentBlobBaseFee = nextBlobBaseFee

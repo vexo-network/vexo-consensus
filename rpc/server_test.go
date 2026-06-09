@@ -2550,7 +2550,7 @@ func TestHandlerReportsFinalityProof(t *testing.T) {
 
 	var latest FinalityProofResponse
 	getJSON(t, handler, "/v1/finality/latest", http.StatusOK, &latest)
-	if latest.Height != 7 || latest.BlockHash[:2] != "01" || latest.QuorumCert.Round != 2 {
+	if latest.Height != 7 || latest.BlockHash[:2] != "01" || latest.QuorumCert.Round != 2 || latest.Strict {
 		t.Fatalf("unexpected latest finality proof: %+v", latest)
 	}
 

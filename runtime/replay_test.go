@@ -128,6 +128,38 @@ func TestRuntimeReplayFromHistoricalSnapshotReexecutesApp(t *testing.T) {
 	}
 }
 
+func TestRuntimeReplayFromHistoricalSnapshotImportsModuleReplayNamespaces(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	module := &auxReplayModule{name: "primary", auxNamespace: "aux"}
+	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{module}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := NewWithStore(config.Default("vexo-test"), application, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+	}, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for height := types.Height(1); height <= 2; height++ {
+		if _, err := runtime.ExecuteBlock(context.Background(), types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: height},
+			Txs:    []types.Tx{[]byte("primary:write")},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := runtime.ReplayFromHistoricalSnapshot(context.Background(), 2, 2); err != nil {
+		t.Fatalf("expected replay to import auxiliary namespace, got %v", err)
+	}
+}
+
 func TestRuntimeReplayStrictDoesNotFallbackToStoredRange(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
@@ -168,6 +200,41 @@ func TestRuntimeReplayStrictDoesNotFallbackToStoredRange(t *testing.T) {
 		t.Fatal("expected isolated replay to reject stored-range fallback")
 	}
 }
+
+type auxReplayModule struct {
+	name         string
+	auxNamespace string
+}
+
+func (module *auxReplayModule) Name() string { return module.name }
+
+func (module *auxReplayModule) ReplayNamespaces() []string {
+	return []string{module.name, module.auxNamespace}
+}
+
+func (module *auxReplayModule) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisState) error {
+	return nil
+}
+
+func (module *auxReplayModule) BeginBlock(ctx vexoapp.Context, header types.Header) error {
+	if header.Height < 2 {
+		return nil
+	}
+	_, err := ctx.Store.Get(ctx.GoContext(), module.auxNamespace, []byte("required"))
+	return err
+}
+
+func (module *auxReplayModule) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
+	if err := ctx.Store.Set(ctx.GoContext(), module.name, []byte("primary"), []byte("ok")); err != nil {
+		return types.Result{Code: 1, Log: err.Error()}
+	}
+	if err := ctx.Store.Set(ctx.GoContext(), module.auxNamespace, []byte("required"), []byte("ok")); err != nil {
+		return types.Result{Code: 2, Log: err.Error()}
+	}
+	return types.Result{}
+}
+
+func (module *auxReplayModule) EndBlock(ctx vexoapp.Context) error { return nil }
 
 func TestRuntimeReplayRejectsInvalidRange(t *testing.T) {
 	runtime, err := NewEphemeral(config.Default("vexo-test"), noopApp{}, nil, nil)

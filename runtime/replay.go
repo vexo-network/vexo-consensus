@@ -143,12 +143,12 @@ func (runtime *Runtime) ReplayFromHistoricalSnapshot(ctx context.Context, from t
 		return ReplayResult{}, err
 	}
 	defer replayStore.Close()
-	for _, module := range runtime.AppModules() {
-		pairs, err := runtime.Store.ExportNamespaceAt(ctx, baseHeight, module.Name())
+	for _, namespace := range runtime.replayNamespaces() {
+		pairs, err := runtime.Store.ExportNamespaceAt(ctx, baseHeight, namespace)
 		if err != nil {
 			return ReplayResult{}, err
 		}
-		if err := replayStore.ImportNamespace(ctx, module.Name(), pairs); err != nil {
+		if err := replayStore.ImportNamespace(ctx, namespace, pairs); err != nil {
 			return ReplayResult{}, err
 		}
 	}
@@ -160,6 +160,30 @@ func (runtime *Runtime) ReplayFromHistoricalSnapshot(ctx context.Context, from t
 		appRuntime.Restore(baseHeight, baseState.AppHash)
 	}
 	return runtime.ReplayWithApp(ctx, from, to, replayApp)
+}
+
+func (runtime *Runtime) replayNamespaces() []string {
+	seen := make(map[string]struct{})
+	namespaces := make([]string, 0, len(runtime.AppModules()))
+	add := func(namespace string) {
+		if namespace == "" {
+			return
+		}
+		if _, found := seen[namespace]; found {
+			return
+		}
+		seen[namespace] = struct{}{}
+		namespaces = append(namespaces, namespace)
+	}
+	for _, module := range runtime.AppModules() {
+		add(module.Name())
+		if provider, ok := module.(app.ReplayNamespaceProvider); ok {
+			for _, namespace := range provider.ReplayNamespaces() {
+				add(namespace)
+			}
+		}
+	}
+	return namespaces
 }
 
 func (runtime *Runtime) ReplayStoredRange(ctx context.Context, from types.Height, to types.Height) (ReplayResult, error) {

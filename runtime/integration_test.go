@@ -126,6 +126,71 @@ func TestRuntimeUpdatesAndRecoversDynamicBaseFee(t *testing.T) {
 	}
 }
 
+func TestEphemeralRuntimeUpdatesDynamicBaseFee(t *testing.T) {
+	cfg := config.Default("vexo-test")
+	cfg.Execution.BaseFee = 100
+	cfg.Execution.DynamicBaseFee = true
+	cfg.Execution.TargetGas = 10
+	cfg.Execution.BaseFeeChangeDenominator = 8
+	cfg.Execution.MinBaseFee = 1
+	cfg.Execution.RequireNonce = true
+	cfg.Execution.MinFee = 1
+
+	runtime, err := NewEphemeral(cfg, gasApp{gasUsed: 10}, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	block := types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 1},
+		Txs:    []types.Tx{[]byte("a"), []byte("b")},
+	}
+	if _, err := runtime.ExecuteBlock(context.Background(), block); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.CurrentBaseFee() != 112 {
+		t.Fatalf("expected next base fee 112, got %d", runtime.CurrentBaseFee())
+	}
+}
+
+type gasApp struct {
+	gasUsed uint64
+}
+
+func (gasApp) InitChain(req vexoapp.InitChainRequest) (vexoapp.InitChainResponse, error) {
+	return vexoapp.InitChainResponse{}, nil
+}
+
+func (gasApp) CheckTx(tx types.Tx) vexoapp.CheckTxResponse {
+	return vexoapp.CheckTxResponse{}
+}
+
+func (gasApp) PrepareProposal(req vexoapp.PrepareProposalRequest) (vexoapp.PrepareProposalResponse, error) {
+	return vexoapp.PrepareProposalResponse{Txs: req.Txs}, nil
+}
+
+func (gasApp) ProcessProposal(req vexoapp.ProcessProposalRequest) vexoapp.ProcessProposalResponse {
+	return vexoapp.ProcessProposalResponse{Accepted: true}
+}
+
+func (application gasApp) FinalizeBlock(req vexoapp.FinalizeBlockRequest) (vexoapp.FinalizeBlockResponse, error) {
+	results := make([]types.Result, 0, len(req.Block.Txs))
+	for range req.Block.Txs {
+		results = append(results, types.Result{GasUsed: application.gasUsed})
+	}
+	return vexoapp.FinalizeBlockResponse{Results: results}, nil
+}
+
+func (gasApp) Commit() (vexoapp.CommitResponse, error) {
+	return vexoapp.CommitResponse{}, nil
+}
+
+func (gasApp) Query(req vexoapp.QueryRequest) vexoapp.QueryResponse {
+	return vexoapp.QueryResponse{}
+}
+
 func TestRuntimeUpdatesAndRecoversDynamicBlobBaseFee(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {

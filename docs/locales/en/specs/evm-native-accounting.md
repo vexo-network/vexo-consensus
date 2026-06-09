@@ -49,6 +49,8 @@ Vexo does not become an Ethereum node.
 - Vexo keeps its own consensus, P2P, state sync, fork choice, validator lifecycle, and block format.
 - EVM compatibility means Ethereum execution semantics and Web3-facing account/transaction behavior inside a Vexo network.
 - Ethereum devp2p, Ethereum fork-choice, and Ethereum sync semantics are intentionally outside this accounting spec.
+- Uncle-related Web3 methods intentionally return zero or `null` because Vexo consensus does not produce Ethereum uncle blocks.
+- Vexo does not expose geth stateless execution-witness RPC; use Vexo finality proofs, query proofs, and retained EVM snapshots for verification.
 
 ## Failure Modes
 
