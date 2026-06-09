@@ -153,10 +153,8 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	if err != nil {
 		return err
 	}
-	if inputs.Config.RequireNetworkSafety {
-		if err := rejectRuntimeFlagOverrides(visited); err != nil {
-			return err
-		}
+	if err := rejectRuntimeFlagOverrides(visited); err != nil {
+		return err
 	}
 	applyStartFlagOverrides(&runtimeConfig, visited, startFlagValues{
 		rpcEnabled:              *rpcEnabled,

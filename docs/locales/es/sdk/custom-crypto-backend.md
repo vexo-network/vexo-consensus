@@ -52,6 +52,7 @@ Este documento ayuda a entender integración de custom crypto backend como BLS, 
 - `NewBLSAggregateVerifier`
 - `circl-bls12381-g1sigg2-basic-v1`
 - `Metadata()`
+- `NewBLSTBLSKeyDocument`
 - `NewCIRCLBLSKeyDocument`
 - `bls_proof_of_possession`
 - `vrf.adapter_name`

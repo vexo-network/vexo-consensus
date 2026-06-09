@@ -149,7 +149,8 @@ func (node *Node) Start(ctx context.Context) error {
 		return err
 	}
 
-	runtime, err := vexoruntime.NewWithStore(
+	runtime, err := vexoruntime.NewWithStoreContext(
+		ctx,
 		node.cfg.Chain,
 		node.app,
 		node.genesis.Validators,

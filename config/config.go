@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -87,6 +88,12 @@ const (
 	CryptoBackendDeterministic CryptoBackend = "deterministic"
 	CryptoBackendEd25519       CryptoBackend = "ed25519"
 	CryptoBackendBLS           CryptoBackend = "bls"
+)
+
+const (
+	NetworkSafeVRFAdapterECVRFP256 = "ecvrf-p256-sha256-tai-v1"
+	NetworkSafeVRFAuditReport      = "built-in-ecvrf-p256-runtime-validation"
+	NetworkSafeVRFKeySource        = "local-encrypted-or-remote-kms"
 )
 
 type CryptoConfig struct {
@@ -174,6 +181,38 @@ func Default(chainID string) Config {
 			BanDuration:               10 * time.Minute,
 		},
 	}
+}
+
+func NetworkSafeTemplate(chainID string, dataDir string) Config {
+	cfg := Default(chainID)
+	cfg.Crypto = CryptoConfig{Backend: CryptoBackendEd25519}
+	cfg.Committee.Backend = committee.BackendVRF
+	cfg.VRF = VRFConfig{
+		ProductionAdapter: true,
+		AdapterName:       NetworkSafeVRFAdapterECVRFP256,
+		AuditReport:       NetworkSafeVRFAuditReport,
+		KeySource:         NetworkSafeVRFKeySource,
+	}
+	cfg.Execution.MinFee = 1
+	cfg.Execution.BaseFee = 1
+	cfg.Execution.BlobBaseFee = 1
+	cfg.Execution.MinGas = 1
+	cfg.Execution.RequireSigned = true
+	cfg.Execution.RequireNonce = true
+	cfg.Execution.AllowUnprotectedLegacyTx = false
+	cfg.Bank.MintAuthority = "governance"
+	cfg.Mempool.MinFee = 1
+	cfg.Mempool.EnablePriority = true
+	cfg.Mempool.EnableReplacement = true
+	cfg.Mempool.SeenTTL = time.Hour
+	if cfg.Mempool.WALPath == "" {
+		if dataDir == "" {
+			cfg.Mempool.WALPath = "mempool.wal"
+		} else {
+			cfg.Mempool.WALPath = filepath.Join(dataDir, "mempool.wal")
+		}
+	}
+	return cfg
 }
 
 func (config Config) Validate() error {

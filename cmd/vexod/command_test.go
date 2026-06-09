@@ -3518,7 +3518,7 @@ func (writer *rpcHealthCheckWriter) Write(data []byte) (int, error) {
 	if writer.rpcOK {
 		return count, err
 	}
-	match := regexp.MustCompile(`rpc_address: ([^\s]+)`).FindStringSubmatch(writer.Buffer.String())
+	match := regexp.MustCompile(`rpc_address(?:: |":")([^"\s]+)`).FindStringSubmatch(writer.Buffer.String())
 	if len(match) != 2 {
 		return count, err
 	}

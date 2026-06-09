@@ -172,6 +172,20 @@ func TestValidateNetworkSafetyAcceptsHardenedEd25519Config(t *testing.T) {
 	}
 }
 
+func TestNetworkSafeTemplatePassesNetworkSafety(t *testing.T) {
+	cfg := NetworkSafeTemplate("vexo-test", "/var/lib/vexo")
+	if err := cfg.ValidateNetworkSafety(); err != nil {
+		t.Fatalf("expected network-safe template to pass validation, got %v", err)
+	}
+	if cfg.Crypto.Backend != CryptoBackendEd25519 ||
+		cfg.Committee.Backend != committee.BackendVRF ||
+		cfg.Mempool.WALPath == "" ||
+		!cfg.Execution.RequireSigned ||
+		!cfg.Execution.RequireNonce {
+		t.Fatalf("unexpected network-safe template: %+v", cfg)
+	}
+}
+
 func TestValidateNetworkSafetyAcceptsHardenedBLSTConfig(t *testing.T) {
 	cfg := Default("vexo-test")
 	cfg.Crypto.Backend = CryptoBackendBLS

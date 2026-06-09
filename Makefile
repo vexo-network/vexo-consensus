@@ -15,7 +15,7 @@ GPG ?= gpg
 RC_DRY_RUN ?= 0
 RC_DRY_RUN_FLAG = $(if $(filter 1 true yes,$(RC_DRY_RUN)),--dry-run,)
 
-.PHONY: all build test vet check docs-check fuzz-smoke ops-verify network-e2e coverage release checksums sbom release-manifest release-audit-pack release-evidence-manifest sign-release docker-image release-candidate release-candidate-real clean
+.PHONY: all build test vet check docs-check evm-conformance fuzz-smoke ops-verify network-e2e coverage release checksums sbom release-manifest release-audit-pack release-evidence-manifest sign-release docker-image release-candidate release-candidate-real clean
 
 all: check build
 
@@ -31,11 +31,17 @@ vet:
 	mkdir -p $(GOCACHE_DIR)
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) vet ./...
 
-check: test vet docs-check
+check: test vet docs-check evm-conformance
 
 docs-check:
 	mkdir -p $(GOCACHE_DIR)
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./cmd/vexod -run TestDocsLocalesMirrorCanonicalTree -count=1
+
+evm-conformance:
+	mkdir -p $(GOCACHE_DIR)
+	rm -rf /tmp/vexo-evm-conformance
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod init validator --home /tmp/vexo-evm-conformance --chain-id vexo-evm-conformance --validator validator-1 --overwrite
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod ops conformance --home /tmp/vexo-evm-conformance --evm-default-fixtures --json > /tmp/vexo-evm-conformance.json
 
 fuzz-smoke:
 	mkdir -p $(GOCACHE_DIR)

@@ -65,18 +65,29 @@ func New(cfg config.Config, application app.Application, initialValidators []val
 // Do not use it for a running network: it does not persist validator registry,
 // governance, slashing, mempool, block, state, or finality-proof data.
 func NewEphemeral(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower) (*Runtime, error) {
-	return newWithStoreAndCryptoRegistry(cfg, application, initialValidators, governancePower, nil, crypto.NewRuntimeSuiteRegistry(), true)
+	return newWithStoreAndCryptoRegistry(context.Background(), cfg, application, initialValidators, governancePower, nil, crypto.NewRuntimeSuiteRegistry(), true)
 }
 
 func NewWithStore(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower, storage store.Store) (*Runtime, error) {
-	return NewWithStoreAndCryptoRegistry(cfg, application, initialValidators, governancePower, storage, crypto.NewRuntimeSuiteRegistry())
+	return NewWithStoreContext(context.Background(), cfg, application, initialValidators, governancePower, storage)
+}
+
+func NewWithStoreContext(ctx context.Context, cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower, storage store.Store) (*Runtime, error) {
+	return NewWithStoreAndCryptoRegistryContext(ctx, cfg, application, initialValidators, governancePower, storage, crypto.NewRuntimeSuiteRegistry())
 }
 
 func NewWithStoreAndCryptoRegistry(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower, storage store.Store, cryptoRegistry crypto.RuntimeSuiteRegistry) (*Runtime, error) {
-	return newWithStoreAndCryptoRegistry(cfg, application, initialValidators, governancePower, storage, cryptoRegistry, false)
+	return NewWithStoreAndCryptoRegistryContext(context.Background(), cfg, application, initialValidators, governancePower, storage, cryptoRegistry)
 }
 
-func newWithStoreAndCryptoRegistry(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower, storage store.Store, cryptoRegistry crypto.RuntimeSuiteRegistry, allowEphemeral bool) (*Runtime, error) {
+func NewWithStoreAndCryptoRegistryContext(ctx context.Context, cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower, storage store.Store, cryptoRegistry crypto.RuntimeSuiteRegistry) (*Runtime, error) {
+	return newWithStoreAndCryptoRegistry(ctx, cfg, application, initialValidators, governancePower, storage, cryptoRegistry, false)
+}
+
+func newWithStoreAndCryptoRegistry(ctx context.Context, cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower, storage store.Store, cryptoRegistry crypto.RuntimeSuiteRegistry, allowEphemeral bool) (*Runtime, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -87,7 +98,7 @@ func newWithStoreAndCryptoRegistry(cfg config.Config, application app.Applicatio
 	admission := validator.NewConfigurableAdmissionPolicy(cfg.Validator)
 	var registry validator.VersionedRegistry
 	if storage != nil {
-		storeRegistry, err := validator.NewStoreRegistry(context.Background(), storage, admission, 1, initialValidators)
+		storeRegistry, err := validator.NewStoreRegistry(ctx, storage, admission, 1, initialValidators)
 		if err != nil {
 			return nil, err
 		}
@@ -136,7 +147,7 @@ func newWithStoreAndCryptoRegistry(cfg config.Config, application app.Applicatio
 	}
 	dag := mempool.NewDAG(mempool.NewFIFO(fifoConfig))
 	if fifoConfig.WALPath != "" {
-		durableDAG, err := mempool.OpenDurableDAG(context.Background(), fifoConfig.WALPath, mempool.NewFIFO(fifoConfig))
+		durableDAG, err := mempool.OpenDurableDAG(ctx, fifoConfig.WALPath, mempool.NewFIFO(fifoConfig))
 		if err != nil {
 			return nil, err
 		}

@@ -26,6 +26,7 @@ type StoreRegistry struct {
 	policy          AdmissionPolicy
 	effectiveHeight types.Height
 	events          []RotationEvent
+	pendingEvents   map[types.Height][]RotationEvent
 }
 
 type validatorSetDocument struct {
@@ -180,6 +181,7 @@ func (registry *StoreRegistry) StageValidatorUpdatesAt(ctx context.Context, heig
 	if err != nil {
 		return nil, nil, err
 	}
+	previous := newSetSnapshot(sortedValidatorMap(validators))
 	for _, update := range updates {
 		if update.ID == "" {
 			update.ID = types.ValidatorID(update.Address)
@@ -244,12 +246,19 @@ func (registry *StoreRegistry) StageValidatorUpdatesAt(ctx context.Context, heig
 	if err != nil {
 		return nil, nil, err
 	}
+	registry.stageRotationEvents(height, previous, set, updates)
 	return set, writes, nil
 }
 
 func (registry *StoreRegistry) CommitStagedValidatorUpdates(ctx context.Context, height types.Height, updates []types.ValidatorUpdate) error {
 	if height == 0 {
 		height = registry.effectiveHeight
+	}
+	registry.SetEffectiveHeight(height)
+	if len(registry.pendingEvents[height]) > 0 {
+		registry.events = append(registry.events, registry.pendingEvents[height]...)
+		delete(registry.pendingEvents, height)
+		return nil
 	}
 	previous := Set(newSetSnapshot(nil))
 	if height > 1 {
@@ -261,7 +270,6 @@ func (registry *StoreRegistry) CommitStagedValidatorUpdates(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	registry.SetEffectiveHeight(height)
 	for _, update := range updates {
 		if update.ID == "" {
 			update.ID = types.ValidatorID(update.Address)
@@ -281,6 +289,33 @@ func (registry *StoreRegistry) CommitStagedValidatorUpdates(ctx context.Context,
 		}
 	}
 	return nil
+}
+
+func (registry *StoreRegistry) stageRotationEvents(height types.Height, previous Set, current Set, updates []types.ValidatorUpdate) {
+	if registry.pendingEvents == nil {
+		registry.pendingEvents = make(map[types.Height][]RotationEvent)
+	}
+	events := make([]RotationEvent, 0, len(updates))
+	currentHash := current.Hash()
+	for _, update := range updates {
+		if update.ID == "" {
+			update.ID = types.ValidatorID(update.Address)
+		}
+		if update.ID == "" {
+			continue
+		}
+		currentValidator, currentFound := current.Get(update.ID)
+		_, previousFound := previous.Get(update.ID)
+		switch {
+		case !currentFound && previousFound:
+			events = append(events, RotationEvent{Height: height, Type: RotationEventLeave, ValidatorID: update.ID, ValidatorSetHash: currentHash})
+		case currentFound && !previousFound:
+			events = append(events, RotationEvent{Height: height, Type: RotationEventJoin, ValidatorID: update.ID, VotingPower: currentValidator.VotingPower, ValidatorSetHash: currentHash})
+		case currentFound && previousFound:
+			events = append(events, RotationEvent{Height: height, Type: RotationEventPowerChange, ValidatorID: update.ID, VotingPower: currentValidator.VotingPower, ValidatorSetHash: currentHash})
+		}
+	}
+	registry.pendingEvents[height] = events
 }
 
 func (registry *StoreRegistry) RotationEvents() []RotationEvent {
