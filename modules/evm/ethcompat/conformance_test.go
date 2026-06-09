@@ -68,23 +68,29 @@ func TestDefaultTransactionFixturesCoverSuccessAndFeeFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	report := RunTransactionFixtures(fixtures)
-	if !report.OK || report.Total < 6 || report.Passed != report.Total {
+	if !report.OK || report.Total < 9 || report.Passed != report.Total {
 		t.Fatalf("expected default fixtures to pass as a corpus: %+v", report)
 	}
 	foundAccessList := false
+	foundLegacy := false
+	foundUnprotectedLegacy := false
 	foundFeeCap := false
 	foundTipCap := false
 	for _, result := range report.Results {
 		switch result.Name {
 		case "default access-list metadata preservation":
 			foundAccessList = result.OK && result.Type == "1" && result.Action == "call"
+		case "default protected legacy call":
+			foundLegacy = result.OK && result.Type == "0" && result.Action == "call"
+		case "default unprotected legacy rejection":
+			foundUnprotectedLegacy = result.OK
 		case "default base fee cap rejection":
 			foundFeeCap = result.OK
 		case "default priority fee cap rejection":
 			foundTipCap = result.OK
 		}
 	}
-	if !foundAccessList || !foundFeeCap || !foundTipCap {
-		t.Fatalf("expected access-list and fee failure fixtures, got %+v", report.Results)
+	if !foundAccessList || !foundLegacy || !foundUnprotectedLegacy || !foundFeeCap || !foundTipCap {
+		t.Fatalf("expected access-list, legacy, and fee failure fixtures, got %+v", report.Results)
 	}
 }

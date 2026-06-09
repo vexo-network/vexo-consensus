@@ -311,6 +311,39 @@ func TestRunUpgradeApplyRequiresPlanOptInForNoopMigrations(t *testing.T) {
 	}
 }
 
+func TestRunUpgradeApplyHonorsCanceledContext(t *testing.T) {
+	home := t.TempDir()
+	planFile := filepath.Join(home, "plan.json")
+	recordFile := filepath.Join(home, "records.json")
+	if err := os.WriteFile(planFile, []byte(`{
+		"name":"v0.2.0",
+		"height":100,
+		"binary_version":"v0.2.0",
+		"config_schema_from":1,
+		"config_schema_to":1,
+		"store_schema_from":1,
+		"store_schema_to":1,
+		"app_state_schema_from":1,
+		"app_state_schema_to":1
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := runUpgradeApplyWithContext(ctx, &bytes.Buffer{}, []string{
+		"--plan-file", planFile,
+		"--record-file", recordFile,
+		"--height", "100",
+		"--binary-version", "v0.1.0",
+		"--config-version", "1",
+		"--store-version", "1",
+		"--app-version", "1",
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled, got %v", err)
+	}
+}
+
 func TestRunTxBuildAndParseCanonicalPayload(t *testing.T) {
 	var buildOutput bytes.Buffer
 	if err := runCommand(&buildOutput, &bytes.Buffer{}, []string{
@@ -1538,6 +1571,33 @@ func TestRunRelayerLoopCheckpointSkipsDuplicateSubmit(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "checkpoint_skipped: true") {
 		t.Fatalf("expected checkpoint skip output:\n%s", output.String())
+	}
+}
+
+func TestRunRelayerLoopHonorsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	client := http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		t.Fatal("relayer loop should not make network requests after context cancellation")
+		return nil, nil
+	})}
+	var output bytes.Buffer
+	err := runRelayerLoopWithContext(ctx, &output, []string{
+		"--mode", "ack",
+		"--rpc", "http://dest.example",
+		"--proof-rpc", "http://source.example",
+		"--sequence", "1",
+		"--source-port", "transfer",
+		"--source-channel", "channel-0",
+		"--destination-port", "transfer",
+		"--destination-channel", "channel-1",
+		"--data", "payload",
+		"--ack", "ack",
+		"--interval", "0s",
+		"--max-iterations", "1",
+	}, client)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled, got %v", err)
 	}
 }
 

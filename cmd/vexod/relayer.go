@@ -25,31 +25,39 @@ import (
 )
 
 func runRelayer(writer io.Writer, args []string) error {
+	return runRelayerWithContext(context.Background(), writer, args)
+}
+
+func runRelayerWithContext(ctx context.Context, writer io.Writer, args []string) error {
 	if len(args) == 0 {
 		return errors.New("relayer subcommand is required")
 	}
 	client := http.Client{Timeout: 10 * time.Second}
 	switch args[0] {
 	case "client-update":
-		return runRelayerClientUpdate(writer, args[1:], client)
+		return runRelayerClientUpdateWithContext(ctx, writer, args[1:], client)
 	case "packet-ack":
-		return runRelayerPacketAck(writer, args[1:], client)
+		return runRelayerPacketAckWithContext(ctx, writer, args[1:], client)
 	case "packet-timeout":
-		return runRelayerPacketTimeout(writer, args[1:], client)
+		return runRelayerPacketTimeoutWithContext(ctx, writer, args[1:], client)
 	case "packet-proof":
-		return runRelayerPacketProof(writer, args[1:], client)
+		return runRelayerPacketProofWithContext(ctx, writer, args[1:], client)
 	case "discover":
-		return runRelayerDiscover(writer, args[1:], client)
+		return runRelayerDiscoverWithContext(ctx, writer, args[1:], client)
 	case "loop":
-		return runRelayerLoop(writer, args[1:], client)
+		return runRelayerLoopWithContext(ctx, writer, args[1:], client)
 	case "run":
-		return runRelayerRun(writer, args[1:], client)
+		return runRelayerRunWithContext(ctx, writer, args[1:], client)
 	default:
 		return fmt.Errorf("unknown relayer subcommand %q", args[0])
 	}
 }
 
 func runRelayerClientUpdate(writer io.Writer, args []string, client http.Client) error {
+	return runRelayerClientUpdateWithContext(context.Background(), writer, args, client)
+}
+
+func runRelayerClientUpdateWithContext(ctx context.Context, writer io.Writer, args []string, client http.Client) error {
 	flags := flag.NewFlagSet("relayer client-update", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	rpcAddress := flags.String("rpc", "", "destination RPC base URL used when --submit is set")
@@ -64,7 +72,7 @@ func runRelayerClientUpdate(writer io.Writer, args []string, client http.Client)
 		return err
 	}
 	if *sourceRPC != "" && (*height == 0 || *validatorSetHash == "" || *stateRoot == "") {
-		state, err := fetchRelayerLatestState(context.Background(), client, *sourceRPC)
+		state, err := fetchRelayerLatestState(ctx, client, *sourceRPC)
 		if err != nil {
 			return err
 		}
@@ -94,10 +102,14 @@ func runRelayerClientUpdate(writer io.Writer, args []string, client http.Client)
 	if err != nil {
 		return err
 	}
-	return writeOrSubmitRelayerTx(context.Background(), writer, client, *rpcAddress, tx, *submit)
+	return writeOrSubmitRelayerTx(ctx, writer, client, *rpcAddress, tx, *submit)
 }
 
 func runRelayerPacketAck(writer io.Writer, args []string, client http.Client) error {
+	return runRelayerPacketAckWithContext(context.Background(), writer, args, client)
+}
+
+func runRelayerPacketAckWithContext(ctx context.Context, writer io.Writer, args []string, client http.Client) error {
 	flags := flag.NewFlagSet("relayer packet-ack", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	options := packetRelayerFlags(flags)
@@ -116,7 +128,7 @@ func runRelayerPacketAck(writer io.Writer, args []string, client http.Client) er
 		return errors.New("ack is required")
 	}
 	if *proofRPC != "" {
-		proof, err := fetchRelayerPacketProof(context.Background(), client, *proofRPC, packetArgs)
+		proof, err := fetchRelayerPacketProof(ctx, client, *proofRPC, packetArgs)
 		if err != nil {
 			return err
 		}
@@ -128,10 +140,14 @@ func runRelayerPacketAck(writer io.Writer, args []string, client http.Client) er
 	if err != nil {
 		return err
 	}
-	return writeOrSubmitRelayerTx(context.Background(), writer, client, options.rpcAddress, tx, *submit)
+	return writeOrSubmitRelayerTx(ctx, writer, client, options.rpcAddress, tx, *submit)
 }
 
 func runRelayerPacketTimeout(writer io.Writer, args []string, client http.Client) error {
+	return runRelayerPacketTimeoutWithContext(context.Background(), writer, args, client)
+}
+
+func runRelayerPacketTimeoutWithContext(ctx context.Context, writer io.Writer, args []string, client http.Client) error {
 	flags := flag.NewFlagSet("relayer packet-timeout", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	options := packetRelayerFlags(flags)
@@ -149,7 +165,7 @@ func runRelayerPacketTimeout(writer io.Writer, args []string, client http.Client
 		return errors.New("timeout-height is required")
 	}
 	if *proofRPC != "" {
-		proof, err := fetchRelayerPacketProof(context.Background(), client, *proofRPC, packetArgs)
+		proof, err := fetchRelayerPacketProof(ctx, client, *proofRPC, packetArgs)
 		if err != nil {
 			return err
 		}
@@ -160,10 +176,14 @@ func runRelayerPacketTimeout(writer io.Writer, args []string, client http.Client
 	if err != nil {
 		return err
 	}
-	return writeOrSubmitRelayerTx(context.Background(), writer, client, options.rpcAddress, tx, *submit)
+	return writeOrSubmitRelayerTx(ctx, writer, client, options.rpcAddress, tx, *submit)
 }
 
 func runRelayerPacketProof(writer io.Writer, args []string, client http.Client) error {
+	return runRelayerPacketProofWithContext(context.Background(), writer, args, client)
+}
+
+func runRelayerPacketProofWithContext(ctx context.Context, writer io.Writer, args []string, client http.Client) error {
 	flags := flag.NewFlagSet("relayer packet-proof", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	options := packetRelayerFlags(flags)
@@ -177,7 +197,7 @@ func runRelayerPacketProof(writer io.Writer, args []string, client http.Client) 
 	if options.rpcAddress == "" {
 		return errors.New("rpc is required")
 	}
-	proof, err := fetchRelayerPacketProof(context.Background(), client, options.rpcAddress, packetArgs)
+	proof, err := fetchRelayerPacketProof(ctx, client, options.rpcAddress, packetArgs)
 	if err != nil {
 		return err
 	}
@@ -187,6 +207,10 @@ func runRelayerPacketProof(writer io.Writer, args []string, client http.Client) 
 }
 
 func runRelayerDiscover(writer io.Writer, args []string, client http.Client) error {
+	return runRelayerDiscoverWithContext(context.Background(), writer, args, client)
+}
+
+func runRelayerDiscoverWithContext(ctx context.Context, writer io.Writer, args []string, client http.Client) error {
 	flags := flag.NewFlagSet("relayer discover", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	rpcAddress := flags.String("rpc", "", "source RPC base URL used to query indexed packet events")
@@ -200,7 +224,7 @@ func runRelayerDiscover(writer io.Writer, args []string, client http.Client) err
 	if *rpcAddress == "" {
 		return errors.New("rpc is required")
 	}
-	packets, err := fetchRelayerDiscoveredPackets(context.Background(), client, *rpcAddress, *eventKey, *eventValue)
+	packets, err := fetchRelayerDiscoveredPackets(ctx, client, *rpcAddress, *eventKey, *eventValue)
 	if err != nil {
 		return err
 	}
@@ -228,6 +252,10 @@ func runRelayerDiscover(writer io.Writer, args []string, client http.Client) err
 }
 
 func runRelayerLoop(writer io.Writer, args []string, client http.Client) error {
+	return runRelayerLoopWithContext(context.Background(), writer, args, client)
+}
+
+func runRelayerLoopWithContext(ctx context.Context, writer io.Writer, args []string, client http.Client) error {
 	flags := flag.NewFlagSet("relayer loop", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	options := packetRelayerFlags(flags)
@@ -270,7 +298,7 @@ func runRelayerLoop(writer io.Writer, args []string, client http.Client) error {
 	if err != nil {
 		return err
 	}
-	return runRelayerPollingLoop(context.Background(), writer, client, relayerLoopConfig{
+	return runRelayerPollingLoop(ctx, writer, client, relayerLoopConfig{
 		Mode:            *mode,
 		RPCAddress:      options.rpcAddress,
 		ProofRPC:        *proofRPC,
@@ -287,6 +315,10 @@ func runRelayerLoop(writer io.Writer, args []string, client http.Client) error {
 }
 
 func runRelayerRun(writer io.Writer, args []string, client http.Client) error {
+	return runRelayerRunWithContext(context.Background(), writer, args, client)
+}
+
+func runRelayerRunWithContext(ctx context.Context, writer io.Writer, args []string, client http.Client) error {
 	flags := flag.NewFlagSet("relayer run", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	configPath := flags.String("config", "", "relayer config JSON path")
@@ -300,7 +332,7 @@ func runRelayerRun(writer io.Writer, args []string, client http.Client) error {
 	if err != nil {
 		return err
 	}
-	return runRelayerConfig(context.Background(), writer, client, document)
+	return runRelayerConfig(ctx, writer, client, document)
 }
 
 const relayerConfigSchemaVersion = "v1"
@@ -553,6 +585,11 @@ func runRelayerPollingLoop(ctx context.Context, writer io.Writer, client http.Cl
 		)
 	}()
 	for iteration := uint64(1); ; iteration++ {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		metrics.Iterations = iteration
 		if cfg.Checkpoint != nil {
 			done, err := cfg.Checkpoint.IsCompleted(checkpointKey)

@@ -95,6 +95,8 @@ go run ./cmd/vexod release gate \
   --bls-audit dist/bls-audit.pdf
 ```
 
+`--evm-default-fixtures` is intentionally small enough for CI but not superficial: it exercises dynamic-fee calls, contract creation, access-list metadata, protected legacy signing, unprotected legacy rejection, chain-ID mismatch rejection, malformed raw input rejection, and fee-cap rejection. Add `--evm-tx-fixtures <file>` for chain-specific contract, precompile, blob, and account-abstraction scenarios before a public compatibility claim.
+
 ## Genesis Gate
 
 Before public start:

@@ -179,6 +179,18 @@ func TestBankModuleRejectsInvalidGenesis(t *testing.T) {
 	}
 }
 
+func TestBankModuleInitGenesisHonorsCanceledContext(t *testing.T) {
+	storage := newBankStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := NewModule().InitGenesis(vexoapp.Context{Ctx: ctx, Store: storage}, vexoapp.GenesisState{
+		"bank:alice": []byte("1"),
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected canceled context, got %v", err)
+	}
+}
+
 func TestBankModuleQueryRejectsInvalidRequests(t *testing.T) {
 	storage := newBankStore(t)
 	module := NewModule()

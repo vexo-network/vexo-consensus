@@ -15,6 +15,10 @@ import (
 )
 
 func runUpgrade(writer io.Writer, args []string) error {
+	return runUpgradeWithContext(context.Background(), writer, args)
+}
+
+func runUpgradeWithContext(ctx context.Context, writer io.Writer, args []string) error {
 	if len(args) == 0 {
 		return errors.New("upgrade subcommand is required")
 	}
@@ -22,9 +26,9 @@ func runUpgrade(writer io.Writer, args []string) error {
 	case "plan":
 		return runUpgradePlan(writer, args[1:])
 	case "apply":
-		return runUpgradeApply(writer, args[1:])
+		return runUpgradeApplyWithContext(ctx, writer, args[1:])
 	case "rollback-plan":
-		return runUpgradeRollbackPlan(writer, args[1:])
+		return runUpgradeRollbackPlanWithContext(ctx, writer, args[1:])
 	default:
 		return fmt.Errorf("unknown upgrade subcommand %q", args[0])
 	}
@@ -109,6 +113,10 @@ func runUpgradePlan(writer io.Writer, args []string) error {
 }
 
 func runUpgradeApply(writer io.Writer, args []string) error {
+	return runUpgradeApplyWithContext(context.Background(), writer, args)
+}
+
+func runUpgradeApplyWithContext(ctx context.Context, writer io.Writer, args []string) error {
 	flags := flag.NewFlagSet("upgrade apply", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	planFile := flags.String("plan-file", "", "upgrade plan JSON file")
@@ -125,6 +133,9 @@ func runUpgradeApply(writer io.Writer, args []string) error {
 	}
 	if *planFile == "" {
 		return errors.New("plan-file is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	plan, err := readUpgradePlanFile(*planFile)
 	if err != nil {
@@ -145,7 +156,7 @@ func runUpgradeApply(writer io.Writer, args []string) error {
 		AppStateVersion:     *appVersion,
 	}
 	executor := upgrade.NewExecutor(registry, upgrade.JSONFileRecorder{Path: *recordFile})
-	record, err := executor.Execute(context.Background(), state, plan)
+	record, err := executor.Execute(ctx, state, plan)
 	if *jsonOutput {
 		encoder := json.NewEncoder(writer)
 		encoder.SetIndent("", "  ")
@@ -172,6 +183,10 @@ func runUpgradeApply(writer io.Writer, args []string) error {
 }
 
 func runUpgradeRollbackPlan(writer io.Writer, args []string) error {
+	return runUpgradeRollbackPlanWithContext(context.Background(), writer, args)
+}
+
+func runUpgradeRollbackPlanWithContext(ctx context.Context, writer io.Writer, args []string) error {
 	flags := flag.NewFlagSet("upgrade rollback-plan", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	planFile := flags.String("plan-file", "", "upgrade plan JSON file")
@@ -191,7 +206,7 @@ func runUpgradeRollbackPlan(writer io.Writer, args []string) error {
 	}
 	document := buildUpgradeRollbackPlanDocument(plan, *recordFile, types.Height(*lastSafeHeight), *snapshotPath)
 	if *recordFile != "" {
-		record, found, err := upgrade.JSONFileRecorder{Path: *recordFile}.Load(context.Background(), plan.Name)
+		record, found, err := upgrade.JSONFileRecorder{Path: *recordFile}.Load(ctx, plan.Name)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}

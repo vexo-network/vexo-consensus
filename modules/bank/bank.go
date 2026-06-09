@@ -68,7 +68,7 @@ func (Module) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisState) err
 		if err != nil {
 			return fmt.Errorf("%w: %s", ErrInvalidGenesisBalance, rawAddress)
 		}
-		if err := setBalanceBig(context.Background(), ctx.Store, types.Address(address), balance); err != nil {
+		if err := setBalanceBig(ctx.GoContext(), ctx.Store, types.Address(address), balance); err != nil {
 			return err
 		}
 	}
