@@ -610,7 +610,10 @@ func loadStartInputs(home string, configPath string, genesisPath string, keyPath
 			keyType = "keyring"
 		}
 		publicKey = keyDocument.PublicKey
-		genesis = withLocalValidatorPublicKey(genesis, cfg.ValidatorID, signer.PublicKey())
+		genesis, err = validateOrPatchLocalValidatorPublicKey(genesis, cfg.ValidatorID, signer.PublicKey(), cfg.RequireNetworkSafety)
+		if err != nil {
+			return startInputs{}, err
+		}
 	}
 	plan := startPlanDocument{
 		ChainID:          cfg.Chain.ChainID,
@@ -1148,13 +1151,36 @@ func genesisHash(genesis vexonode.Genesis) string {
 	return transport.GenesisHash(data)
 }
 
-func withLocalValidatorPublicKey(genesis vexonode.Genesis, validatorID types.ValidatorID, publicKey types.PublicKey) vexonode.Genesis {
+func validateOrPatchLocalValidatorPublicKey(genesis vexonode.Genesis, validatorID types.ValidatorID, publicKey types.PublicKey, requireNetworkSafety bool) (vexonode.Genesis, error) {
+	if validatorID == "" || len(publicKey) == 0 {
+		return genesis, nil
+	}
 	for index := range genesis.Validators {
-		if genesis.Validators[index].ID == validatorID && len(publicKey) > 0 {
+		if genesis.Validators[index].ID != validatorID {
+			continue
+		}
+		if len(genesis.Validators[index].PublicKey) == 0 && requireNetworkSafety {
+			return genesis, fmt.Errorf("%w: validator=%s public key missing from genesis", vexonode.ErrValidatorKeyMismatch, validatorID)
+		}
+		if len(genesis.Validators[index].PublicKey) > 0 && string(genesis.Validators[index].PublicKey) != string(publicKey) {
+			if requireNetworkSafety {
+				return genesis, fmt.Errorf("%w: validator=%s", vexonode.ErrValidatorKeyMismatch, validatorID)
+			}
+		}
+		if !requireNetworkSafety {
 			genesis.Validators[index].PublicKey = append(types.PublicKey(nil), publicKey...)
 		}
+		return genesis, nil
 	}
-	return genesis
+	if requireNetworkSafety {
+		return genesis, fmt.Errorf("%w: validator=%s missing from genesis", vexonode.ErrValidatorKeyMismatch, validatorID)
+	}
+	return genesis, nil
+}
+
+func withLocalValidatorPublicKey(genesis vexonode.Genesis, validatorID types.ValidatorID, publicKey types.PublicKey) vexonode.Genesis {
+	patched, _ := validateOrPatchLocalValidatorPublicKey(genesis, validatorID, publicKey, false)
+	return patched
 }
 
 func (flags *stringListFlags) String() string {

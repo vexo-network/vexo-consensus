@@ -961,7 +961,7 @@ func releaseEvidenceFixture(name string) []byte {
 	case name == "external-audit.pdf":
 		return []byte("external security audit disposition evidence passed")
 	case name == "bls-audit.pdf":
-		return []byte("bls adapter audit dependency subgroup rogue-key proof-of-possession key-validation evidence passed")
+		return []byte("bls blst adapter implementation audit pinned dependency version subgroup rogue-key proof-of-possession key-validation evidence passed")
 	case strings.HasSuffix(name, ".json"):
 		if value, ok := summary[name]; ok {
 			return []byte(`{"ok":true,"summary":"` + value + `","checks":[{"ok":true,"name":"` + name + `"}]}`)
@@ -3237,7 +3237,7 @@ func TestBuildStartNodeLoadsRemoteValidatorSigner(t *testing.T) {
 		t.Fatal("expected remote signer public key")
 	}
 	if string(inputs.Genesis.Validators[0].PublicKey) != string(signer.PublicKey()) {
-		t.Fatal("expected genesis public key to be patched from remote signer")
+		t.Fatal("expected genesis public key to be updated from registered remote signer")
 	}
 }
 

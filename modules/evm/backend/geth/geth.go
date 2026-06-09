@@ -489,6 +489,7 @@ func (db *gethStateDB) SubBalance(address gethcommon.Address, amount *uint256.In
 	previous := account.balance
 	if account.balance.Cmp(amount) < 0 {
 		account.balance.Clear()
+		db.setError(contract.ErrInvalidInvocation)
 		return previous
 	}
 	account.balance.Sub(&account.balance, amount)

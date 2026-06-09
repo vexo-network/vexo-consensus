@@ -119,6 +119,9 @@ func runKeysGen(writer io.Writer, args []string) error {
 	if err := vexocrypto.SaveKeyDocument(keyPath, document); err != nil {
 		return err
 	}
+	if err := maybeUpdateGenesisValidatorKey(*home, keyPath, document); err != nil {
+		return err
+	}
 	accountAddress, err := keyDocumentAccountAddress(document)
 	if err != nil {
 		return err
@@ -214,6 +217,9 @@ func runKeysRemote(writer io.Writer, args []string) error {
 	if err := vexocrypto.SaveKeyDocument(keyPath, document); err != nil {
 		return err
 	}
+	if err := maybeUpdateGenesisValidatorKey(*home, keyPath, document); err != nil {
+		return err
+	}
 	accountAddress, err := keyDocumentAccountAddress(document)
 	if err != nil {
 		return err
@@ -299,6 +305,39 @@ func keyDocumentAccountAddress(document vexocrypto.KeyDocument) (types.Address, 
 		return "", err
 	}
 	return address.AccountFromPublicKey(publicKey)
+}
+
+func maybeUpdateGenesisValidatorKey(home string, keyPath string, document vexocrypto.KeyDocument) error {
+	if filepath.Clean(keyPath) != filepath.Clean(resolveKeyPath(home, "")) {
+		return nil
+	}
+	switch document.Type {
+	case vexocrypto.KeyTypeEd25519, vexocrypto.KeyTypeBLS, vexocrypto.KeyTypeRemote:
+	default:
+		return nil
+	}
+	cfg, err := loadNodeConfig(resolveConfigPath(home, ""))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if cfg.ValidatorID == "" {
+		return nil
+	}
+	genesisPath := resolveGenesisPath(home, "")
+	genesis, err := readGenesisDocument(genesisPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if err := applyValidatorKeyToGenesisDocument(&genesis, string(cfg.ValidatorID), document); err != nil {
+		return err
+	}
+	return writeJSONFile(genesisPath, genesis)
 }
 
 func runKeysSignTx(writer io.Writer, args []string) error {

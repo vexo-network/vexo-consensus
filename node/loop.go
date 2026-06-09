@@ -149,6 +149,7 @@ func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig,
 			lastCommit = time.Now()
 		}
 		if !result.Committed && !result.Proposed && time.Since(lastTimeout) >= cfg.roundTimeout() {
+			node.metrics.observeRoundTimeout()
 			if _, _, err := node.TimeoutRound(ctx); err != nil && errors.Is(err, ErrNodeNotRunning) {
 				return
 			}

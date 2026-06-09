@@ -634,6 +634,50 @@ func TestNodeValidatorModeRequiresSigner(t *testing.T) {
 	}
 }
 
+func TestNodeNetworkSafetyRejectsMismatchedValidatorSigner(t *testing.T) {
+	cfg := NetworkSafeConfig("vexo-test", t.TempDir())
+	cfg.ValidatorID = "alice"
+	genesisSigner := deterministicSignerForID("alice")
+	wrongSigner := deterministicSignerForID("mallory")
+	genesis := Genesis{
+		ChainID: "vexo-test",
+		Validators: []validator.Validator{{
+			ID:          "alice",
+			Address:     "alice",
+			VotingPower: 1,
+			Stake:       1,
+			PublicKey:   genesisSigner.PublicKey(),
+		}},
+	}
+	node, err := New(cfg, genesis, newTestApplication(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := node.WithSigner(wrongSigner).Start(context.Background()); !errors.Is(err, ErrValidatorKeyMismatch) {
+		t.Fatalf("expected validator key mismatch, got %v", err)
+	}
+}
+
+func TestNodeMetricsExposeObservedConsensusCounters(t *testing.T) {
+	node := newTestNode(t)
+	node.metrics.observeRoundTimeout()
+	node.metrics.observeSigningFailure()
+	node.metrics.observeProposalLatency(2 * time.Millisecond)
+	node.metrics.observeVoteLatency(3 * time.Millisecond)
+	node.metrics.observeCommitLatency(4 * time.Millisecond)
+
+	metrics, err := node.Metrics(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.RoundTimeouts != 1 || metrics.SigningFailures != 1 {
+		t.Fatalf("unexpected counters: %+v", metrics)
+	}
+	if metrics.ProposalLatencyNanos == 0 || metrics.VoteLatencyNanos == 0 || metrics.CommitLatencyNanos == 0 {
+		t.Fatalf("expected latency metrics to be populated: %+v", metrics)
+	}
+}
+
 func TestNodeSignsConsensusMessagesWithDomains(t *testing.T) {
 	signer, err := vexocrypto.NewDeterministicSigner([]byte("alice-key"))
 	if err != nil {

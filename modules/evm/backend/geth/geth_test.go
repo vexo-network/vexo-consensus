@@ -266,8 +266,8 @@ func TestGethBackendChainConfigJSONValidation(t *testing.T) {
 	if _, err := NewWithChainConfigJSON(`{"chainId":1,"shanghaiTime":1,"londonBlock":2}`, 1); err == nil {
 		t.Fatalf("expected fork order validation failure")
 	}
-	if normalizedChainConfig(nil) != gethparams.AllDevChainProtocolChanges {
-		t.Fatalf("expected nil config to normalize to geth dev protocol changes")
+	if normalizedChainConfig(nil) != VexoDefaultChainConfig || VexoDefaultChainConfig != gethparams.AllDevChainProtocolChanges {
+		t.Fatalf("expected nil config to normalize to Vexo default protocol changes")
 	}
 	custom := &gethparams.ChainConfig{ChainID: big.NewInt(999)}
 	if normalizedChainConfig(custom) != custom {
@@ -510,6 +510,19 @@ func TestGethStateDBLogsForBurnAccounts(t *testing.T) {
 	}
 	if logs[0].Data == nil || logs[1].Data == nil {
 		t.Fatalf("expected burn logs to include encoded balance data, got %+v", logs)
+	}
+}
+
+func TestGethStateDBBalanceUnderflowFailsClosed(t *testing.T) {
+	db := newGethStateDB(context.Background(), contract.Invocation{})
+	address := gethcommon.HexToAddress("0x000000000000000000000000000000000000aaaa")
+	db.AddBalance(address, new(uint256.Int).SetUint64(3), 0)
+	db.SubBalance(address, new(uint256.Int).SetUint64(5), 0)
+	if !errors.Is(db.err, contract.ErrInvalidInvocation) {
+		t.Fatalf("expected balance underflow to fail closed, got %v", db.err)
+	}
+	if balance := db.GetBalance(address); !balance.IsZero() {
+		t.Fatalf("expected underflowed account to be zeroed, got %s", balance.ToBig())
 	}
 }
 

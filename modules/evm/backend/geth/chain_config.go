@@ -7,6 +7,8 @@ import (
 	gethparams "github.com/ethereum/go-ethereum/params"
 )
 
+var VexoDefaultChainConfig = gethparams.AllDevChainProtocolChanges
+
 func NewWithChainConfigJSON(raw string, chainID uint64) (GethVM, error) {
 	if raw == "" {
 		return New(), nil
@@ -26,7 +28,7 @@ func NewWithChainConfigJSON(raw string, chainID uint64) (GethVM, error) {
 
 func normalizedChainConfig(chainConfig *gethparams.ChainConfig) *gethparams.ChainConfig {
 	if chainConfig == nil {
-		return gethparams.AllDevChainProtocolChanges
+		return VexoDefaultChainConfig
 	}
 	return chainConfig
 }

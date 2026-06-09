@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/consensus"
@@ -32,6 +33,9 @@ type autoVoteReactor struct {
 	onVoteAccepted     func(context.Context)
 	onEvidence         func(context.Context, slashing.Evidence)
 	onError            func(string, error)
+	onProposalLatency  func(time.Duration)
+	onVoteLatency      func(time.Duration)
+	onSigningFailure   func()
 	wal                *consensus.WAL
 	mu                 sync.Mutex
 	pendingVotes       map[types.Hash][]consensus.Vote
@@ -52,6 +56,12 @@ type unknownVoteKey struct {
 }
 
 func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consensus.Proposal) error {
+	started := time.Now()
+	defer func() {
+		if reactor.onProposalLatency != nil {
+			reactor.onProposalLatency(time.Since(started))
+		}
+	}()
 	before := len(reactor.machine.Evidence())
 	if err := reactor.machine.OnProposal(ctx, proposal); err != nil {
 		if errors.Is(err, consensus.ErrStaleProposal) {
@@ -82,6 +92,9 @@ func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consens
 			ValidatorID: reactor.validatorID,
 		}
 		if err := signConsensusVote(reactor.chainID, reactor.signer, &vote); err != nil {
+			if reactor.onSigningFailure != nil {
+				reactor.onSigningFailure()
+			}
 			reactor.reportError("vote_sign_failed", err)
 			return err
 		}
@@ -126,6 +139,12 @@ func (reactor *autoVoteReactor) cacheLocalVote(vote consensus.Vote) {
 }
 
 func (reactor *autoVoteReactor) OnVote(ctx context.Context, vote consensus.Vote) error {
+	started := time.Now()
+	defer func() {
+		if reactor.onVoteLatency != nil {
+			reactor.onVoteLatency(time.Since(started))
+		}
+	}()
 	before := len(reactor.machine.Evidence())
 	err := reactor.machine.OnVote(ctx, vote)
 	if errors.Is(err, consensus.ErrUnknownVoteBlock) {
@@ -232,7 +251,12 @@ func (node *Node) cachedProposalForRound(height types.Height, round types.Round)
 }
 
 func (reactor *autoVoteReactor) OnTimeoutVote(ctx context.Context, vote consensus.TimeoutVote) (finality.TimeoutCert, error) {
-	return reactor.machine.OnTimeoutVote(ctx, vote)
+	started := time.Now()
+	timeoutCert, err := reactor.machine.OnTimeoutVote(ctx, vote)
+	if reactor.onVoteLatency != nil {
+		reactor.onVoteLatency(time.Since(started))
+	}
+	return timeoutCert, err
 }
 
 func (reactor *autoVoteReactor) publishNewEvidence(ctx context.Context, previousCount int) {
@@ -249,6 +273,7 @@ func (reactor *autoVoteReactor) publishNewEvidence(ctx context.Context, previous
 }
 
 func (node *Node) ProposeBlock(ctx context.Context, block types.Block) (consensus.Proposal, types.Hash, error) {
+	started := time.Now()
 	if node.cfg.ValidatorID == "" {
 		return consensus.Proposal{}, types.Hash{}, ErrMissingValidatorID
 	}
@@ -323,6 +348,7 @@ func (node *Node) ProposeBlock(ctx context.Context, block types.Block) (consensu
 			"tx_count":   len(proposal.Block.Txs),
 			"proposer":   proposal.Proposer,
 		})
+		node.metrics.observeProposalLatency(time.Since(started))
 		return proposal, blockHash, nil
 	}
 	if lastErr != nil {
@@ -381,6 +407,7 @@ func (node *Node) voteLocalProposal(ctx context.Context, proposal consensus.Prop
 }
 
 func (node *Node) VoteBlock(ctx context.Context, height types.Height, round types.Round, blockHash types.Hash) (finality.QuorumCert, bool, error) {
+	started := time.Now()
 	if node.cfg.ValidatorID == "" {
 		return finality.QuorumCert{}, false, ErrMissingValidatorID
 	}
@@ -415,10 +442,12 @@ func (node *Node) VoteBlock(ctx context.Context, height types.Height, round type
 	if err != nil {
 		return finality.QuorumCert{}, false, nil
 	}
+	node.metrics.observeVoteLatency(time.Since(started))
 	return qc, true, nil
 }
 
 func (node *Node) TimeoutRound(ctx context.Context) (finality.TimeoutCert, bool, error) {
+	started := time.Now()
 	if node.cfg.ValidatorID == "" {
 		return finality.TimeoutCert{}, false, ErrMissingValidatorID
 	}
@@ -468,6 +497,7 @@ func (node *Node) TimeoutRound(ctx context.Context) (finality.TimeoutCert, bool,
 	if err != nil {
 		return finality.TimeoutCert{}, false, nil
 	}
+	node.metrics.observeVoteLatency(time.Since(started))
 	return timeoutCert, true, nil
 }
 
@@ -500,6 +530,7 @@ func (node *Node) signConsensusProposal(proposal *consensus.Proposal) error {
 		Domain:  vexocrypto.DomainConsensusProposal,
 	}, consensus.ProposalSignBytes(*proposal))
 	if err != nil {
+		node.metrics.observeSigningFailure()
 		return err
 	}
 	proposal.Signature = signature
@@ -511,7 +542,11 @@ func (node *Node) signConsensusVote(vote *consensus.Vote) error {
 	signer := node.signer
 	chainID := node.cfg.Chain.ChainID
 	node.mu.Unlock()
-	return signConsensusVote(chainID, signer, vote)
+	if err := signConsensusVote(chainID, signer, vote); err != nil {
+		node.metrics.observeSigningFailure()
+		return err
+	}
+	return nil
 }
 
 func signConsensusVote(chainID string, signer vexocrypto.Signer, vote *consensus.Vote) error {
@@ -548,6 +583,7 @@ func (node *Node) signConsensusTimeoutVote(vote *consensus.TimeoutVote) error {
 		Domain:  vexocrypto.DomainConsensusTimeoutVote,
 	}, consensus.TimeoutVoteSignBytes(*vote))
 	if err != nil {
+		node.metrics.observeSigningFailure()
 		return err
 	}
 	vote.Signature = signature
@@ -590,6 +626,7 @@ func (node *Node) recordConsensusTimeoutVote(vote consensus.TimeoutVote) error {
 }
 
 func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert finality.QuorumCert, requireLocalQC bool, broadcast bool) (app.FinalizeBlockResponse, error) {
+	started := time.Now()
 	if quorumCert.Height != block.Header.Height {
 		return app.FinalizeBlockResponse{}, fmt.Errorf("%w: height mismatch", ErrInvalidCommitQC)
 	}
@@ -663,6 +700,7 @@ func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert
 			return app.FinalizeBlockResponse{}, err
 		}
 	}
+	node.metrics.observeCommitLatency(time.Since(started))
 	return response, nil
 }
 

@@ -18,17 +18,18 @@ import (
 )
 
 var (
-	ErrMissingApplication = errors.New("application is required")
-	ErrNodeAlreadyRunning = errors.New("node already running")
-	ErrNodeNotRunning     = errors.New("node is not running")
-	ErrMissingValidatorID = errors.New("validator id is required")
-	ErrConsensusOffline   = errors.New("consensus reactor is unavailable")
-	ErrInvalidCommitQC    = errors.New("invalid commit quorum certificate")
-	ErrEmptyProposal      = errors.New("proposal has no transactions")
-	ErrLoopAlreadyRunning = errors.New("consensus loop already running")
-	ErrLoopNotRunning     = errors.New("consensus loop is not running")
-	ErrFinalityNotFound   = errors.New("finality proof not found")
-	ErrInvalidLoopConfig  = errors.New("invalid consensus loop config")
+	ErrMissingApplication   = errors.New("application is required")
+	ErrNodeAlreadyRunning   = errors.New("node already running")
+	ErrNodeNotRunning       = errors.New("node is not running")
+	ErrMissingValidatorID   = errors.New("validator id is required")
+	ErrConsensusOffline     = errors.New("consensus reactor is unavailable")
+	ErrInvalidCommitQC      = errors.New("invalid commit quorum certificate")
+	ErrEmptyProposal        = errors.New("proposal has no transactions")
+	ErrLoopAlreadyRunning   = errors.New("consensus loop already running")
+	ErrLoopNotRunning       = errors.New("consensus loop is not running")
+	ErrFinalityNotFound     = errors.New("finality proof not found")
+	ErrInvalidLoopConfig    = errors.New("invalid consensus loop config")
+	ErrValidatorKeyMismatch = errors.New("validator signer public key does not match genesis validator public key")
 )
 
 type Status struct {
@@ -71,6 +72,7 @@ type Node struct {
 	pending        map[types.Hash]consensus.Proposal
 	proposed       map[proposalRound]struct{}
 	timeoutVotes   map[proposalRound]consensus.TimeoutVote
+	metrics        nodeMetrics
 	store          store.Store
 	consensusWAL   *consensus.WAL
 	signer         vexocrypto.Signer
@@ -141,6 +143,11 @@ func (node *Node) Start(ctx context.Context) error {
 	if node.cfg.ValidatorID != "" && node.signer == nil {
 		return ErrMissingSigner
 	}
+	if node.cfg.ValidatorID != "" && node.cfg.RequireNetworkSafety {
+		if err := node.validateSignerMatchesGenesis(); err != nil {
+			return err
+		}
+	}
 	if err := os.MkdirAll(node.cfg.StoreDir(), 0o755); err != nil {
 		return err
 	}
@@ -201,7 +208,10 @@ func (node *Node) Start(ctx context.Context) error {
 				onError: func(event string, err error) {
 					node.logEvent(event, map[string]any{"error": err.Error()})
 				},
-				wal: consensusWAL,
+				onProposalLatency: node.metrics.observeProposalLatency,
+				onVoteLatency:     node.metrics.observeVoteLatency,
+				onSigningFailure:  node.metrics.observeSigningFailure,
+				wal:               consensusWAL,
 			}
 		}
 		reactor = consensus.NewTransportReactor(node.wire, receiver)
@@ -249,6 +259,23 @@ func (node *Node) Start(ctx context.Context) error {
 	node.startedAt = time.Now().UTC()
 	node.startPeerScoreWindowReset(ctx)
 	return nil
+}
+
+func (node *Node) validateSignerMatchesGenesis() error {
+	if node.signer == nil {
+		return ErrMissingSigner
+	}
+	publicKey := node.signer.PublicKey()
+	for _, validatorInfo := range node.genesis.Validators {
+		if validatorInfo.ID != node.cfg.ValidatorID {
+			continue
+		}
+		if len(validatorInfo.PublicKey) == 0 || string(validatorInfo.PublicKey) != string(publicKey) {
+			return ErrValidatorKeyMismatch
+		}
+		return nil
+	}
+	return ErrValidatorKeyMismatch
 }
 
 func (node *Node) initializeRuntime(ctx context.Context, runtime *vexoruntime.Runtime, storage store.Store) (types.Height, error) {

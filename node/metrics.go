@@ -53,6 +53,18 @@ func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
 		metrics.StartedAtUnix = status.StartedAt.Unix()
 		metrics.UptimeSeconds = uint64(time.Since(status.StartedAt).Seconds())
 	}
+	snapshot := node.metrics.snapshot()
+	metrics.RoundTimeouts = snapshot.roundTimeouts
+	metrics.ProposalLatencyNanos = snapshot.proposalLatencyNanos
+	metrics.VoteLatencyNanos = snapshot.voteLatencyNanos
+	metrics.CommitLatencyNanos = snapshot.commitLatencyNanos
+	metrics.SigningFailures = snapshot.signingFailures
+	if snapshot.committedBlocks > 0 && snapshot.firstCommitUnixNano > 0 && snapshot.latestCommitUnixNano > snapshot.firstCommitUnixNano {
+		elapsed := time.Duration(snapshot.latestCommitUnixNano - snapshot.firstCommitUnixNano)
+		metrics.HeightRatePerMinute = float64(snapshot.committedBlocks) / elapsed.Minutes()
+	} else if metrics.UptimeSeconds > 0 && status.LatestHeight > 0 {
+		metrics.HeightRatePerMinute = float64(status.LatestHeight) / (float64(metrics.UptimeSeconds) / 60)
+	}
 
 	node.mu.Lock()
 	metrics.ConsensusLoopRunning = node.loopCancel != nil

@@ -103,9 +103,10 @@ func TestEvidenceSemanticValidation(t *testing.T) {
 	}{
 		{name: "chaos semantic json", checkName: "chaos_evidence", path: "chaos.json", data: []byte(`{"ok":true,"summary":"chaos partition fault drill passed"}`), ok: true},
 		{name: "chaos generic json rejected", checkName: "chaos_evidence", path: "chaos.json", data: []byte(`{"ok":true,"checks":[{"ok":true}]}`), ok: false},
-		{name: "bls semantic text", checkName: "bls_adapter_audit", path: "bls.pdf", data: []byte(`BLS adapter audit covered dependency review, subgroup validation, rogue-key tests, proof-of-possession, and key-validation.`), ok: true},
-		{name: "bls builtin reference rejected", checkName: "bls_adapter_audit", path: "bls.pdf", data: []byte(`circl-bls12381 operator-supplied-audit-required dependency subgroup rogue-key proof-of-possession key-validation`), ok: false},
-		{name: "bls audit pending rejected", checkName: "bls_adapter_audit", path: "bls.pdf", data: []byte(`BLS audit pending dependency subgroup rogue-key proof-of-possession key-validation`), ok: false},
+		{name: "bls semantic text", checkName: "bls_adapter_audit", path: "bls.pdf", data: []byte(`BLS blst adapter implementation audit covered pinned dependency version review, subgroup validation, rogue-key tests, proof-of-possession, and key-validation.`), ok: true},
+		{name: "bls generic audit rejected", checkName: "bls_adapter_audit", path: "bls.pdf", data: []byte(`BLS adapter audit covered dependency review, subgroup validation, rogue-key tests, proof-of-possession, and key-validation.`), ok: false},
+		{name: "bls builtin reference rejected", checkName: "bls_adapter_audit", path: "bls.pdf", data: []byte(`circl-bls12381 operator-supplied-audit-required dependency subgroup rogue-key proof-of-possession key-validation version`), ok: false},
+		{name: "bls audit pending rejected", checkName: "bls_adapter_audit", path: "bls.pdf", data: []byte(`BLS audit pending blst adapter dependency version subgroup rogue-key proof-of-possession key-validation`), ok: false},
 		{name: "sdk conformance requires fixtures", checkName: "sdk_conformance_evidence", path: "sdk.json", data: []byte(`{"ok":true,"summary":"sdk api conformance module rpc storage crypto transport ibc relayer proof evm web3 ethereum evidence passed"}`), ok: false},
 		{name: "sdk conformance fixtures accepted", checkName: "sdk_conformance_evidence", path: "sdk.json", data: []byte(`{"ok":true,"summary":"sdk api conformance module rpc storage crypto transport ibc relayer proof evm web3 ethereum raw transaction fixtures passed"}`), ok: true},
 		{name: "audit generic text rejected", checkName: "external_security_audit", path: "audit.pdf", data: []byte(`evidence passed`), ok: false},
@@ -328,7 +329,7 @@ func semanticEvidenceContentForPath(path string) []byte {
 	case "audit.pdf":
 		return []byte(`external security audit disposition evidence passed`)
 	case "bls.pdf":
-		return []byte(`bls adapter audit dependency subgroup rogue-key proof-of-possession key-validation evidence passed`)
+		return []byte(`bls blst adapter implementation audit pinned dependency version subgroup rogue-key proof-of-possession key-validation evidence passed`)
 	default:
 		return []byte(`{"ok":true,"summary":"longrun duration height validator soak evidence passed"}`)
 	}

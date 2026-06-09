@@ -385,7 +385,7 @@ func semanticRequirements(name string) [][]string {
 	case "external_security_audit":
 		return [][]string{{"external", "security"}, {"audit", "disposition"}}
 	case "bls_adapter_audit":
-		return [][]string{{"bls"}, {"audit", "dependency", "subgroup", "rogue"}, {"proof of possession", "proof-of-possession", "pop"}, {"key validation", "key-validation"}}
+		return [][]string{{"bls"}, {"adapter", "implementation", "blst", "supranational"}, {"audit", "dependency"}, {"version", "dependency version", "pinned"}, {"subgroup", "rogue"}, {"proof of possession", "proof-of-possession", "pop"}, {"key validation", "key-validation"}}
 	default:
 		return nil
 	}
