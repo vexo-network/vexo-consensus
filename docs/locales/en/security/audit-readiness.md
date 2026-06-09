@@ -44,7 +44,7 @@ This package is intended for independent reviewers evaluating Vexo consensus, ne
 - Local encrypted key documents use AES-256-GCM with Argon2id by default and keep legacy PBKDF2-SHA512 documents readable for migration; production operators should still prefer a remote signer/KMS for validator signing.
 - Remote signer/KMS enforces its own height/round/type/domain double-sign guard.
 - Operators configure RPC root or scoped admin tokens, P2P auth proofs, request limits, peer scoring, `MaxScore`, and ban thresholds. Admin RPC endpoints are expected to be unusable unless an admin token is configured, and embeddings should attach the RPC admin audit sink to their structured log pipeline.
-- Public release candidates attach P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, and SDK conformance evidence with EVM/Web3 fixture results to `release gate`; the gate rejects missing, empty, malformed, explicitly failed, or category-mismatched evidence content.
+- Public release candidates attach P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, and SDK conformance evidence with IBC/relayer/proof plus EVM/Web3 fixture results to `release gate`; the gate rejects missing, empty, malformed, explicitly failed, or category-mismatched evidence content.
 - Operators keep Docker-only service names out of public validator metadata unless the network is intentionally private and all peers resolve those names.
 - Storage backend preserves block/state/evidence durability or clearly reports recovery mismatch.
 

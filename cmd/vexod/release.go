@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/cmd/vexod/internal/releasegate"
@@ -229,6 +230,9 @@ func runReleaseGate(writer io.Writer, args []string) error {
 	if *allowExternalPending && !*privateRC {
 		return fmt.Errorf("--allow-external-pending requires --private-rc")
 	}
+	if *allowExternalPending && !isPrivateReleaseCandidateVersion(*versionValue) {
+		return fmt.Errorf("--allow-external-pending requires a private release candidate version label containing rc, alpha, beta, or private")
+	}
 	manifestPath := *evidenceManifest
 	if manifestPath == "" {
 		manifestPath = filepath.Join(*distDir, "evidence-manifest.json")
@@ -276,6 +280,14 @@ func runReleaseGate(writer io.Writer, args []string) error {
 		}
 	}
 	return nil
+}
+
+func isPrivateReleaseCandidateVersion(versionValue string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(versionValue))
+	return strings.Contains(normalized, "rc") ||
+		strings.Contains(normalized, "alpha") ||
+		strings.Contains(normalized, "beta") ||
+		strings.Contains(normalized, "private")
 }
 
 func runReleaseEvidenceManifest(writer io.Writer, args []string) error {

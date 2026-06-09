@@ -2553,11 +2553,26 @@ func TestHandlerReportsFinalityProof(t *testing.T) {
 	if latest.Height != 7 || latest.BlockHash[:2] != "01" || latest.QuorumCert.Round != 2 || latest.Strict {
 		t.Fatalf("unexpected latest finality proof: %+v", latest)
 	}
+	var strictError map[string]string
+	getJSON(t, handler, "/v1/finality/latest?strict=true", http.StatusNotFound, &strictError)
+	if strictError["error"] == "" {
+		t.Fatalf("expected strict finality error, got %+v", strictError)
+	}
 
 	var byHeight FinalityProofResponse
 	getJSON(t, handler, "/v1/finality/7", http.StatusOK, &byHeight)
 	if provider.finalityHeight != 7 || byHeight.ValidatorSetHash[:2] != "03" {
 		t.Fatalf("unexpected finality by height: proof=%+v requested=%d", byHeight, provider.finalityHeight)
+	}
+
+	provider.finalityProof.CommitChain = []finality.CommitLink{
+		{Header: types.Header{ChainID: "vexo-test", Height: 8}, BlockHash: types.Hash{8}, QuorumCert: finality.QuorumCert{Height: 8, Round: 0, BlockHash: types.Hash{8}}},
+		{Header: types.Header{ChainID: "vexo-test", Height: 9}, BlockHash: types.Hash{9}, QuorumCert: finality.QuorumCert{Height: 9, Round: 0, BlockHash: types.Hash{9}}},
+	}
+	var strictLatest FinalityProofResponse
+	getJSON(t, handler, "/v1/finality/latest?strict=1", http.StatusOK, &strictLatest)
+	if !strictLatest.Strict || len(strictLatest.CommitChain) != 2 {
+		t.Fatalf("unexpected strict finality proof: %+v", strictLatest)
 	}
 }
 

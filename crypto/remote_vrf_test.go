@@ -28,18 +28,25 @@ func TestRemoteVRFAdapterProvesAndVerifiesThroughHTTP(t *testing.T) {
 			if payload.PublicKey != base64.StdEncoding.EncodeToString(publicKey) || payload.Seed != base64.StdEncoding.EncodeToString(seed) {
 				t.Fatalf("unexpected prove request: %+v", payload)
 			}
+			if payload.Nonce == "" || payload.Domain != "vexo.remote_vrf.prove.v1" || payload.IssuedAtUnixNano == 0 || payload.DeadlineUnixNano <= payload.IssuedAtUnixNano {
+				t.Fatalf("expected replay-bound prove challenge, got %+v", payload)
+			}
 			_ = json.NewEncoder(writer).Encode(remoteVRFProveResponse{
 				Output: base64.StdEncoding.EncodeToString(output),
 				Proof:  base64.StdEncoding.EncodeToString(proof),
+				Nonce:  payload.Nonce,
 			})
 		case "/verify":
 			var payload remoteVRFVerifyRequest
 			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 				t.Fatalf("decode verify request: %v", err)
 			}
+			if payload.Nonce == "" || payload.Domain != "vexo.remote_vrf.verify.v1" || payload.IssuedAtUnixNano == 0 || payload.DeadlineUnixNano <= payload.IssuedAtUnixNano {
+				t.Fatalf("expected replay-bound verify challenge, got %+v", payload)
+			}
 			valid := payload.Output == base64.StdEncoding.EncodeToString(output) &&
 				payload.Proof == base64.StdEncoding.EncodeToString(proof)
-			_ = json.NewEncoder(writer).Encode(remoteVRFVerifyResponse{Valid: valid})
+			_ = json.NewEncoder(writer).Encode(remoteVRFVerifyResponse{Valid: valid, Nonce: payload.Nonce})
 		default:
 			http.NotFound(writer, request)
 		}

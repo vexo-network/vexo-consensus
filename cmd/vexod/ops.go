@@ -116,14 +116,14 @@ func runOpsConformance(writer io.Writer, args []string) error {
 		SchemaVersion: "v1",
 		OK:            true,
 		Summary: []string{
-			"sdk api conformance module rpc storage crypto transport evidence",
+			"sdk api conformance module rpc storage crypto transport ibc relayer proof evidence",
 		},
-		SDKSurface: []string{"sdk", "api", "module", "rpc", "storage", "crypto", "transport"},
+		SDKSurface: []string{"sdk", "api", "module", "rpc", "storage", "crypto", "transport", "ibc", "relayer", "proof"},
 		StartPlan:  inputs.Plan,
 		Audit:      auditDeployment(inputs, runtimeConfig, *strict),
 	}
 	document.addCheck("start_inputs", "error", true, "config, genesis, and validator signer inputs are loadable")
-	document.addCheck("sdk_api_surface", "error", true, "sdk api conformance module rpc storage crypto transport evidence is included")
+	document.addCheck("sdk_api_surface", "error", true, "sdk api conformance module rpc storage crypto transport ibc relayer proof evidence is included")
 	for _, check := range validateConformancePeerAddresses("peer", runtimeConfig.P2PPeers) {
 		document.addCheck(check.Name, check.Severity, check.OK, check.Message)
 	}

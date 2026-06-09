@@ -682,6 +682,18 @@ func TestRunReleaseGateRejectsPendingExternalChecksWithoutPrivateRC(t *testing.T
 	if err == nil || !strings.Contains(err.Error(), "--private-rc") {
 		t.Fatalf("expected private RC guard error, got %v", err)
 	}
+
+	output.Reset()
+	err = runCommand(&output, &bytes.Buffer{}, []string{
+		"release", "gate",
+		"--dist", dist,
+		"--version", "v1.0.0",
+		"--private-rc",
+		"--allow-external-pending",
+	})
+	if err == nil || !strings.Contains(err.Error(), "release candidate version") {
+		t.Fatalf("expected release candidate version guard error, got %v", err)
+	}
 }
 
 func TestRunReleaseGatePassesWithEvidence(t *testing.T) {
@@ -908,7 +920,7 @@ func releaseEvidenceFixture(name string) []byte {
 		"mev-fee-market-evidence.json":          "mev fee market fair mempool ordering replacement evidence passed",
 		"ops-runbook-evidence.json":             "ops runbook alert incident metrics evidence passed",
 		"formal-safety-evidence.json":           "safety invariant adversarial property proof evidence passed",
-		"sdk-conformance-evidence.json":         "sdk api conformance module rpc storage crypto transport evm web3 ethereum evidence passed",
+		"sdk-conformance-evidence.json":         "sdk api conformance module rpc storage crypto transport ibc relayer proof evm web3 ethereum evidence passed",
 	}
 	switch {
 	case name == "fuzz-evidence.txt":
@@ -3005,7 +3017,7 @@ func TestOpsConformanceIncludesAuditAndRotationPlan(t *testing.T) {
 	}
 	surface := strings.Join(document.SDKSurface, " ")
 	summary := strings.Join(document.Summary, " ")
-	for _, expected := range []string{"sdk", "api", "module", "rpc", "storage", "crypto", "transport", "evm", "web3", "ethereum"} {
+	for _, expected := range []string{"sdk", "api", "module", "rpc", "storage", "crypto", "transport", "ibc", "relayer", "proof", "evm", "web3", "ethereum"} {
 		if !strings.Contains(surface, expected) && !strings.Contains(summary, expected) {
 			t.Fatalf("expected conformance evidence to contain %q, surface=%q summary=%q", expected, surface, summary)
 		}

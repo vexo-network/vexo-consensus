@@ -103,7 +103,7 @@ curl 'http://127.0.0.1:26657/v1/proof?height=10&namespace=bank&key=alice'
 
 LevelDB stores height-versioned KV writes during atomic block commits, so historical proofs rebuild the namespace snapshot at the requested height and bind membership or non-membership to the state root saved for that height. Existing-key proofs include a compact Merkle path. Missing-key proofs include compact left/right neighbor absence proofs; legacy full namespace absence witnesses remain verifier-compatible. Stores that do not implement historical namespace reads must reject historical proof requests instead of returning latest values for older heights.
 
-`/v1/finality/latest` and `/v1/finality/{height}` return the latest or height-specific finality proof known by the node. The JSON response includes `strict: true` only when the proof carries the explicit two-link descendant `commit_chain` needed for external/light-client 3-chain verification. These endpoints expose consensus finality, while `/v1/status.latest_height` reports application state commit height.
+`/v1/finality/latest` and `/v1/finality/{height}` return the latest or height-specific finality proof known by the node. The JSON response includes `strict: true` only when the proof carries the explicit two-link descendant `commit_chain` needed for external/light-client 3-chain verification. Add `?strict=true` when an API consumer must fail closed unless that strict proof is available; the endpoint returns HTTP 404 instead of silently serving a compatibility-only bare-QC proof. These endpoints expose consensus finality, while `/v1/status.latest_height` reports application state commit height.
 
 ## Event Queries
 

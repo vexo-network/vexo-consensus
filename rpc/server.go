@@ -697,7 +697,7 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 			return
 		}
 		proof, err := finalityProvider.LatestFinalityProof(request.Context())
-		writeFinalityProof(writer, proof, err)
+		writeFinalityProof(writer, proof, err, strictFinalityRequested(request))
 	})
 	mux.HandleFunc("/finality/", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
@@ -714,7 +714,7 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 			return
 		}
 		proof, err := finalityProvider.FinalityProof(request.Context(), height)
-		writeFinalityProof(writer, proof, err)
+		writeFinalityProof(writer, proof, err, strictFinalityRequested(request))
 	})
 	mux.HandleFunc("/events", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
@@ -1252,7 +1252,7 @@ func executeWeb3Payload(ctx context.Context, provider StatusProvider, cfg Config
 	return JSONRPCResponse{JSONRPC: "2.0", ID: payload.ID, Result: result, Error: rpcErr}, false
 }
 
-func writeFinalityProof(writer http.ResponseWriter, proof finality.Proof, err error) {
+func writeFinalityProof(writer http.ResponseWriter, proof finality.Proof, err error, requireStrict bool) {
 	if errors.Is(err, node.ErrFinalityNotFound) ||
 		errors.Is(err, store.ErrBlockNotFound) ||
 		errors.Is(err, store.ErrBlockIndexNotFound) {
@@ -1268,7 +1268,16 @@ func writeFinalityProof(writer http.ResponseWriter, proof finality.Proof, err er
 		writeError(writer, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if requireStrict && !proof.HasThreeChainCommitProof() {
+		writeError(writer, http.StatusNotFound, "strict finality proof not found")
+		return
+	}
 	writeJSON(writer, http.StatusOK, finalityProofResponse(proof))
+}
+
+func strictFinalityRequested(request *http.Request) bool {
+	value := request.URL.Query().Get("strict")
+	return value == "1" || strings.EqualFold(value, "true") || strings.EqualFold(value, "yes")
 }
 
 func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config, filters *web3FilterStore, method string, params []json.RawMessage) (any, *JSONRPCError) {

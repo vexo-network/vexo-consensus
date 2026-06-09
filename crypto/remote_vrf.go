@@ -3,10 +3,12 @@ package crypto
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -22,6 +24,7 @@ const (
 )
 
 var ErrMissingRemoteVRFURL = errors.New("remote vrf url is required")
+var ErrRemoteVRFReplay = errors.New("remote vrf response failed nonce binding")
 
 type RemoteVRFAdapter struct {
 	baseURL     string
@@ -32,24 +35,34 @@ type RemoteVRFAdapter struct {
 }
 
 type remoteVRFProveRequest struct {
-	PublicKey string `json:"public_key"`
-	Seed      string `json:"seed"`
+	PublicKey        string `json:"public_key"`
+	Seed             string `json:"seed"`
+	Nonce            string `json:"nonce"`
+	IssuedAtUnixNano int64  `json:"issued_at_unix_nano"`
+	DeadlineUnixNano int64  `json:"deadline_unix_nano"`
+	Domain           string `json:"domain"`
 }
 
 type remoteVRFProveResponse struct {
 	Output string `json:"output"`
 	Proof  string `json:"proof"`
+	Nonce  string `json:"nonce"`
 }
 
 type remoteVRFVerifyRequest struct {
-	PublicKey string `json:"public_key"`
-	Seed      string `json:"seed"`
-	Output    string `json:"output"`
-	Proof     string `json:"proof"`
+	PublicKey        string `json:"public_key"`
+	Seed             string `json:"seed"`
+	Output           string `json:"output"`
+	Proof            string `json:"proof"`
+	Nonce            string `json:"nonce"`
+	IssuedAtUnixNano int64  `json:"issued_at_unix_nano"`
+	DeadlineUnixNano int64  `json:"deadline_unix_nano"`
+	Domain           string `json:"domain"`
 }
 
 type remoteVRFVerifyResponse struct {
-	Valid bool `json:"valid"`
+	Valid bool   `json:"valid"`
+	Nonce string `json:"nonce"`
 }
 
 func init() {
@@ -76,12 +89,23 @@ func (adapter RemoteVRFAdapter) Prove(publicKey types.PublicKey, seed []byte) ([
 }
 
 func (adapter RemoteVRFAdapter) ProveWithContext(ctx context.Context, publicKey types.PublicKey, seed []byte) ([]byte, []byte, error) {
+	challenge, err := newRemoteVRFChallenge()
+	if err != nil {
+		return nil, nil, err
+	}
 	var response remoteVRFProveResponse
 	if err := adapter.post(ctx, "/prove", remoteVRFProveRequest{
-		PublicKey: base64.StdEncoding.EncodeToString(publicKey),
-		Seed:      base64.StdEncoding.EncodeToString(seed),
+		PublicKey:        base64.StdEncoding.EncodeToString(publicKey),
+		Seed:             base64.StdEncoding.EncodeToString(seed),
+		Nonce:            challenge.nonce,
+		IssuedAtUnixNano: challenge.issuedAt,
+		DeadlineUnixNano: challenge.deadline,
+		Domain:           "vexo.remote_vrf.prove.v1",
 	}, &response); err != nil {
 		return nil, nil, err
+	}
+	if response.Nonce != challenge.nonce {
+		return nil, nil, ErrRemoteVRFReplay
 	}
 	output, err := base64.StdEncoding.DecodeString(response.Output)
 	if err != nil {
@@ -99,14 +123,22 @@ func (adapter RemoteVRFAdapter) Verify(publicKey types.PublicKey, seed []byte, o
 }
 
 func (adapter RemoteVRFAdapter) VerifyWithContext(ctx context.Context, publicKey types.PublicKey, seed []byte, output []byte, proof []byte) bool {
+	challenge, err := newRemoteVRFChallenge()
+	if err != nil {
+		return false
+	}
 	var response remoteVRFVerifyResponse
-	err := adapter.post(ctx, "/verify", remoteVRFVerifyRequest{
-		PublicKey: base64.StdEncoding.EncodeToString(publicKey),
-		Seed:      base64.StdEncoding.EncodeToString(seed),
-		Output:    base64.StdEncoding.EncodeToString(output),
-		Proof:     base64.StdEncoding.EncodeToString(proof),
+	err = adapter.post(ctx, "/verify", remoteVRFVerifyRequest{
+		PublicKey:        base64.StdEncoding.EncodeToString(publicKey),
+		Seed:             base64.StdEncoding.EncodeToString(seed),
+		Output:           base64.StdEncoding.EncodeToString(output),
+		Proof:            base64.StdEncoding.EncodeToString(proof),
+		Nonce:            challenge.nonce,
+		IssuedAtUnixNano: challenge.issuedAt,
+		DeadlineUnixNano: challenge.deadline,
+		Domain:           "vexo.remote_vrf.verify.v1",
 	}, &response)
-	return err == nil && response.Valid
+	return err == nil && response.Valid && response.Nonce == challenge.nonce
 }
 
 func (adapter RemoteVRFAdapter) Metadata() VRFAdapterMetadata {
@@ -150,4 +182,23 @@ func (adapter RemoteVRFAdapter) post(ctx context.Context, path string, requestBo
 	decoder := json.NewDecoder(response.Body)
 	decoder.DisallowUnknownFields()
 	return decoder.Decode(responseBody)
+}
+
+type remoteVRFChallenge struct {
+	nonce    string
+	issuedAt int64
+	deadline int64
+}
+
+func newRemoteVRFChallenge() (remoteVRFChallenge, error) {
+	var nonce [32]byte
+	if _, err := io.ReadFull(rand.Reader, nonce[:]); err != nil {
+		return remoteVRFChallenge{}, err
+	}
+	now := time.Now()
+	return remoteVRFChallenge{
+		nonce:    base64.RawURLEncoding.EncodeToString(nonce[:]),
+		issuedAt: now.UnixNano(),
+		deadline: now.Add(5 * time.Second).UnixNano(),
+	}, nil
 }
