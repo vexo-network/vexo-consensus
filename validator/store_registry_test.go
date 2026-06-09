@@ -147,7 +147,7 @@ func TestStoreRegistryStagesCommitsLeavesAndRotationEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(writes) != 2 {
+	if len(writes) != 3 {
 		t.Fatalf("expected staged snapshot writes, got %+v", writes)
 	}
 	if total := staged.TotalVotingPower(); total != 17 {
@@ -218,5 +218,36 @@ func TestStoreRegistryStagesCommitsLeavesAndRotationEvents(t *testing.T) {
 	}
 	if _, found := reopenedSet.Get("bob"); found {
 		t.Fatal("expected bob leave to persist")
+	}
+	reopenedEvents := reopened.RotationEvents()
+	if len(reopenedEvents) < 3 {
+		t.Fatalf("expected persisted rotation events after reopen, got %+v", reopenedEvents)
+	}
+}
+
+func TestStoreRegistryPersistsStagedRotationEventsBeforeInMemoryCommit(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	registry, err := NewStoreRegistry(context.Background(), storage, nil, 1, []Validator{{ID: "alice", Address: "alice", VotingPower: 10, Stake: 10}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, writes, err := registry.StageValidatorUpdatesAt(context.Background(), 2, []types.ValidatorUpdate{{ID: "bob", Address: "bob", VotingPower: 5, Stake: 5}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.SetBatch(context.Background(), writes); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := NewStoreRegistry(context.Background(), storage, nil, 2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := reopened.RotationEvents()
+	if len(events) != 1 || events[0].Type != RotationEventJoin || events[0].ValidatorID != "bob" || events[0].Height != 2 {
+		t.Fatalf("expected staged rotation event to survive crash before in-memory commit, got %+v", events)
 	}
 }

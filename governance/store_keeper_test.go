@@ -63,6 +63,19 @@ func TestStoreKeeperContextQueriesPropagateStoreErrors(t *testing.T) {
 	}
 }
 
+func TestNewStoreKeeperContextHonorsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	if _, err := NewStoreKeeperContext(ctx, storage, TallyPolicy{}, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected canceled context startup failure, got %v", err)
+	}
+}
+
 type failingKVStore struct {
 	err error
 }

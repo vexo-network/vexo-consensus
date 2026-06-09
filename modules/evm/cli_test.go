@@ -23,6 +23,13 @@ func TestCLICommandsBuildEVMTransactionsAndQueries(t *testing.T) {
 		t.Fatalf("unexpected deploy output: %s", output.String())
 	}
 	output.Reset()
+	if err := command.Execute(&output, []string{"tx", "call", "evm", "0xaaaa", "0xbbbb", "transfer", "aabb", "100000", "0x10000000000000000"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), ":18446744073709551616") {
+		t.Fatalf("expected 256-bit value to be normalized to decimal, got %s", output.String())
+	}
+	output.Reset()
 	if err := command.Execute(&output, []string{"query", "receipt", "0xhash"}); err != nil {
 		t.Fatal(err)
 	}

@@ -11,6 +11,8 @@ import (
 
 const slashingNamespace = "slashing"
 
+var ErrAtomicPenaltyStoreRequired = errors.New("slashing penalty bundles require atomic batch store")
+
 type KVStore interface {
 	Set(ctx context.Context, namespace string, key []byte, value []byte) error
 	Get(ctx context.Context, namespace string, key []byte) ([]byte, error)
@@ -192,23 +194,7 @@ func (keeper *StoreKeeper) savePenaltyBundle(ctx context.Context, receipt Penalt
 	if batchStore, ok := keeper.store.(kvbatch.BatchKVStore); ok {
 		return batchStore.SetBatch(ctx, writes)
 	}
-	if err := keeper.store.Set(ctx, slashingNamespace, penaltyKey(receipt.Evidence), encodedReceipt); err != nil {
-		return err
-	}
-	if err := keeper.saveEvidence(ctx, document); err != nil {
-		return err
-	}
-	if receipt.Penalty.JailDuration > 0 {
-		if err := keeper.saveJail(ctx, receipt.Evidence.Validator, receipt.Evidence.Height+types.Height(receipt.Penalty.JailDuration)); err != nil {
-			return err
-		}
-	}
-	if keeper.lifecyclePolicy.UnbondingDelay > 0 {
-		if err := keeper.saveUnbonding(ctx, receipt.Evidence.Validator, receipt.Evidence.Height+keeper.lifecyclePolicy.UnbondingDelay); err != nil {
-			return err
-		}
-	}
-	return nil
+	return ErrAtomicPenaltyStoreRequired
 }
 
 func (keeper *StoreKeeper) AppealEvidence(ctx context.Context, evidence Evidence) (bool, error) {

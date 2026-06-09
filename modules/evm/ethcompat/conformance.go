@@ -10,6 +10,7 @@ import (
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/holiman/uint256"
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 )
 
@@ -75,6 +76,14 @@ func DefaultTransactionFixtures() ([]TransactionFixture, error) {
 	if err != nil {
 		return nil, err
 	}
+	setCodeRaw, setCodeHash, err := signedFixtureSetCodeTransaction(7)
+	if err != nil {
+		return nil, err
+	}
+	blobRaw, blobHash, err := signedFixtureBlobTransaction(7)
+	if err != nil {
+		return nil, err
+	}
 	return []TransactionFixture{
 		{
 			Name:       "default dynamic fee call",
@@ -131,6 +140,32 @@ func DefaultTransactionFixtures() ([]TransactionFixture, error) {
 		{Name: "default base fee cap rejection", Raw: callRaw, ChainID: 7, BaseFee: 21, WantError: ErrFeeCapTooLow.Error()},
 		{Name: "default priority fee cap rejection", Raw: tipAboveFeeRaw, ChainID: 7, BaseFee: 1, WantError: ErrTipCapAboveFeeCap.Error()},
 		{Name: "default unprotected legacy rejection", Raw: unprotectedLegacyRaw, ChainID: 7, WantError: ErrUnprotectedLegacyTx.Error()},
+		{
+			Name:       "default set-code transaction metadata preservation",
+			Raw:        setCodeRaw,
+			ChainID:    7,
+			BaseFee:    11,
+			WantHash:   setCodeHash,
+			WantAction: "call",
+			WantType:   "4",
+			WantTo:     "0x000000000000000000000000000000000000bEEF",
+			WantValue:  "3",
+			WantGas:    80_000,
+		},
+		{
+			Name:        "default blob transaction metadata preservation",
+			Raw:         blobRaw,
+			ChainID:     7,
+			BaseFee:     11,
+			BlobBaseFee: 5,
+			WantHash:    blobHash,
+			WantAction:  "call",
+			WantType:    "3",
+			WantTo:      "0x000000000000000000000000000000000000bEEF",
+			WantValue:   "3",
+			WantGas:     50_000,
+		},
+		{Name: "default blob base fee rejection", Raw: blobRaw, ChainID: 7, BaseFee: 11, BlobBaseFee: 10, WantError: ErrBlobFeeCapTooLow.Error()},
 	}, nil
 }
 
@@ -237,6 +272,75 @@ func signedFixtureLegacyTransaction(chainID uint64, protected bool) (string, str
 		signer = gethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID))
 	}
 	signed, err := gethtypes.SignTx(tx, signer, key)
+	if err != nil {
+		return "", "", err
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		return "", "", err
+	}
+	return "0x" + hex.EncodeToString(raw), signed.Hash().Hex(), nil
+}
+
+func signedFixtureSetCodeTransaction(chainID uint64) (string, string, error) {
+	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
+	if err != nil {
+		return "", "", err
+	}
+	authKey, err := gethcrypto.HexToECDSA("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	if err != nil {
+		return "", "", err
+	}
+	to := gethcommon.HexToAddress("0x000000000000000000000000000000000000bEEF")
+	auth, err := gethtypes.SignSetCode(authKey, gethtypes.SetCodeAuthorization{
+		ChainID: *uint256.NewInt(chainID),
+		Address: gethcommon.HexToAddress("0x000000000000000000000000000000000000CAFe"),
+		Nonce:   1,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	tx := gethtypes.NewTx(&gethtypes.SetCodeTx{
+		ChainID:   uint256.NewInt(chainID),
+		Nonce:     12,
+		GasTipCap: uint256.NewInt(2),
+		GasFeeCap: uint256.NewInt(20),
+		Gas:       80_000,
+		To:        to,
+		Value:     uint256.NewInt(3),
+		Data:      []byte{0x12, 0x34},
+		AuthList:  []gethtypes.SetCodeAuthorization{auth},
+	})
+	signed, err := gethtypes.SignTx(tx, gethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), key)
+	if err != nil {
+		return "", "", err
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		return "", "", err
+	}
+	return "0x" + hex.EncodeToString(raw), signed.Hash().Hex(), nil
+}
+
+func signedFixtureBlobTransaction(chainID uint64) (string, string, error) {
+	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
+	if err != nil {
+		return "", "", err
+	}
+	to := gethcommon.HexToAddress("0x000000000000000000000000000000000000bEEF")
+	tx := gethtypes.NewTx(&gethtypes.BlobTx{
+		ChainID:    uint256.NewInt(chainID),
+		Nonce:      10,
+		GasTipCap:  uint256.NewInt(2),
+		GasFeeCap:  uint256.NewInt(20),
+		Gas:        50_000,
+		To:         to,
+		Value:      uint256.NewInt(3),
+		Data:       []byte{0x12, 0x34},
+		BlobFeeCap: uint256.NewInt(9),
+		BlobHashes: []gethcommon.Hash{gethcommon.HexToHash("0x010203")},
+	})
+	signed, err := gethtypes.SignTx(tx, gethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), key)
 	if err != nil {
 		return "", "", err
 	}

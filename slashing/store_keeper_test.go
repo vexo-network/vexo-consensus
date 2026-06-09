@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"testing/iotest"
+
+	"github.com/vexo-network/vexo-consensus/kvbatch"
 )
 
 func TestStoreKeeperPersistsEvidenceLifecycleAndPenalty(t *testing.T) {
@@ -192,6 +194,19 @@ func newMemoryKV() *memoryKV {
 
 func (store *memoryKV) Set(ctx context.Context, namespace string, key []byte, value []byte) error {
 	store.values[namespace+"/"+string(key)] = append([]byte(nil), value...)
+	return nil
+}
+
+func (store *memoryKV) SetBatch(ctx context.Context, writes []kvbatch.KVWrite) error {
+	for _, write := range writes {
+		if write.Delete {
+			_ = store.Delete(ctx, write.Namespace, write.Key)
+			continue
+		}
+		if err := store.Set(ctx, write.Namespace, write.Key, write.Value); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

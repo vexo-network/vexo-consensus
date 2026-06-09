@@ -29,8 +29,11 @@ Validator records use three address namespaces derived from the validator key:
 
 Implementations may use the in-memory registry for tests or the store-backed registry for durable chains.
 Both registries serve historical lookups from the latest snapshot at or below the requested height.
-The in-memory registry records rotation events for joins, leaves, and voting-power changes; the
-store-backed registry persists sorted validator-set snapshots by height.
+The in-memory registry records rotation events for joins, leaves, and voting-power changes. The
+store-backed registry persists sorted validator-set snapshots by height and persists the matching
+rotation-event audit log. Staged app-driven validator updates commit the future set and event log in
+the same backend batch as the block/state metadata, so restart recovery can reconstruct both the
+height-versioned validator set and the operator-facing rotation history.
 
 ## Rotation
 

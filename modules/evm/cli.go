@@ -3,6 +3,7 @@ package evm
 import (
 	"fmt"
 	"io"
+	"math/big"
 	"strconv"
 	"strings"
 
@@ -60,9 +61,11 @@ func runEVMCallCLI(writer io.Writer, args []string) error {
 		return ErrInvalidEVMTx
 	}
 	if len(args) == 7 {
-		if _, err := strconv.ParseUint(args[6], 10, 64); err != nil {
+		value, err := parseCLIAmount(args[6])
+		if err != nil {
 			return ErrInvalidEVMTx
 		}
+		args[6] = value
 	}
 	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: "call", Args: args, Tags: tags})
 	if err != nil {
@@ -81,9 +84,11 @@ func runEVMDeployCLI(writer io.Writer, args []string) error {
 		return vexoapp.ErrCLIUsage("evm tx deploy <vm> <from> <code_hex> <salt> [value]")
 	}
 	if len(args) == 5 {
-		if _, err := strconv.ParseUint(args[4], 10, 64); err != nil {
+		value, err := parseCLIAmount(args[4])
+		if err != nil {
 			return ErrInvalidEVMTx
 		}
+		args[4] = value
 	}
 	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: "deploy", Args: args, Tags: tags})
 	if err != nil {
@@ -91,6 +96,24 @@ func runEVMDeployCLI(writer io.Writer, args []string) error {
 	}
 	fmt.Fprintf(writer, "tx: %s\n", tx)
 	return nil
+}
+
+func parseCLIAmount(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "0", nil
+	}
+	base := 10
+	valueText := trimmed
+	if strings.HasPrefix(trimmed, "0x") || strings.HasPrefix(trimmed, "0X") {
+		base = 16
+		valueText = trimmed[2:]
+	}
+	value, ok := new(big.Int).SetString(valueText, base)
+	if !ok || value.Sign() < 0 || value.BitLen() > 256 {
+		return "", ErrInvalidEVMTx
+	}
+	return value.String(), nil
 }
 
 func runEVMReceiptQueryCLI(writer io.Writer, args []string) error {

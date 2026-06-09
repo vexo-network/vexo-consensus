@@ -168,7 +168,7 @@ func newWithStoreAndCryptoRegistry(ctx context.Context, cfg config.Config, appli
 	}
 	governanceKeeper := governance.OperationalKeeper(governance.NewInMemoryKeeper(cfg.Governance, governancePower))
 	if storage != nil {
-		storeKeeper, err := governance.NewStoreKeeper(storage, cfg.Governance, governancePower)
+		storeKeeper, err := governance.NewStoreKeeperContext(ctx, storage, cfg.Governance, governancePower)
 		if err != nil {
 			return nil, err
 		}

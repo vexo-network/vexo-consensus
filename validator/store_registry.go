@@ -41,8 +41,13 @@ func NewStoreRegistry(ctx context.Context, store KVStore, policy AdmissionPolicy
 	if initialHeight == 0 {
 		initialHeight = 1
 	}
-	registry := &StoreRegistry{store: store, policy: policy, effectiveHeight: initialHeight}
+	registry := &StoreRegistry{store: store, policy: policy, effectiveHeight: initialHeight, pendingEvents: make(map[types.Height][]RotationEvent)}
 	if _, err := registry.loadLatest(ctx, initialHeight); err == nil {
+		events, err := registry.loadRotationEvents(ctx)
+		if err != nil {
+			return nil, err
+		}
+		registry.events = events
 		return registry, nil
 	} else if !errors.Is(err, ErrValidatorSetNotFound) {
 		return nil, err
@@ -113,10 +118,12 @@ func (registry *StoreRegistry) ApplyJoinAt(ctx context.Context, height types.Hei
 		return Validator{}, ErrZeroVotingPower
 	}
 	validators[validatorID] = validatorInfo
-	if err := registry.saveSnapshot(ctx, height, sortedValidatorMap(validators)); err != nil {
+	set := newSetSnapshot(sortedValidatorMap(validators))
+	event := RotationEvent{Height: height, Type: RotationEventJoin, ValidatorID: validatorID, VotingPower: validatorInfo.VotingPower, ValidatorSetHash: set.Hash()}
+	if err := registry.saveSnapshotWithEvents(ctx, height, set.List(), []RotationEvent{event}); err != nil {
 		return Validator{}, err
 	}
-	registry.recordEvent(ctx, height, RotationEventJoin, validatorID, validatorInfo.VotingPower)
+	registry.events = append(registry.events, event)
 	return validatorInfo, nil
 }
 
@@ -137,10 +144,12 @@ func (registry *StoreRegistry) ApplyLeaveAt(ctx context.Context, height types.He
 		return ErrValidatorNotFound
 	}
 	delete(validators, id)
-	if err := registry.saveSnapshot(ctx, height, sortedValidatorMap(validators)); err != nil {
+	set := newSetSnapshot(sortedValidatorMap(validators))
+	event := RotationEvent{Height: height, Type: RotationEventLeave, ValidatorID: id, ValidatorSetHash: set.Hash()}
+	if err := registry.saveSnapshotWithEvents(ctx, height, set.List(), []RotationEvent{event}); err != nil {
 		return err
 	}
-	registry.recordEvent(ctx, height, RotationEventLeave, id, 0)
+	registry.events = append(registry.events, event)
 	return nil
 }
 
@@ -166,10 +175,12 @@ func (registry *StoreRegistry) UpdateVotingPowerAt(ctx context.Context, height t
 	}
 	validatorInfo.VotingPower = power
 	validators[id] = validatorInfo
-	if err := registry.saveSnapshot(ctx, height, sortedValidatorMap(validators)); err != nil {
+	set := newSetSnapshot(sortedValidatorMap(validators))
+	event := RotationEvent{Height: height, Type: RotationEventPowerChange, ValidatorID: id, VotingPower: power, ValidatorSetHash: set.Hash()}
+	if err := registry.saveSnapshotWithEvents(ctx, height, set.List(), []RotationEvent{event}); err != nil {
 		return err
 	}
-	registry.recordEvent(ctx, height, RotationEventPowerChange, id, power)
+	registry.events = append(registry.events, event)
 	return nil
 }
 
@@ -247,6 +258,11 @@ func (registry *StoreRegistry) StageValidatorUpdatesAt(ctx context.Context, heig
 		return nil, nil, err
 	}
 	registry.stageRotationEvents(height, previous, set, updates)
+	eventWrites, err := registry.rotationEventWrites(ctx, registry.pendingEvents[height])
+	if err != nil {
+		return nil, nil, err
+	}
+	writes = append(writes, eventWrites...)
 	return set, writes, nil
 }
 
@@ -355,10 +371,19 @@ func (registry *StoreRegistry) validatorsAt(ctx context.Context, height types.He
 }
 
 func (registry *StoreRegistry) saveSnapshot(ctx context.Context, height types.Height, validators []Validator) error {
+	return registry.saveSnapshotWithEvents(ctx, height, validators, nil)
+}
+
+func (registry *StoreRegistry) saveSnapshotWithEvents(ctx context.Context, height types.Height, validators []Validator, events []RotationEvent) error {
 	writes, err := registry.snapshotWrites(ctx, height, validators)
 	if err != nil {
 		return err
 	}
+	eventWrites, err := registry.rotationEventWrites(ctx, events)
+	if err != nil {
+		return err
+	}
+	writes = append(writes, eventWrites...)
 	if batchStore, ok := registry.store.(vexostore.BatchKVStore); ok {
 		return batchStore.SetBatch(ctx, writes)
 	}
@@ -368,6 +393,22 @@ func (registry *StoreRegistry) saveSnapshot(ctx context.Context, height types.He
 		}
 	}
 	return nil
+}
+
+func (registry *StoreRegistry) rotationEventWrites(ctx context.Context, events []RotationEvent) ([]vexostore.KVWrite, error) {
+	if len(events) == 0 {
+		return nil, nil
+	}
+	persisted, err := registry.loadRotationEvents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	persisted = append(persisted, events...)
+	encoded, err := json.Marshal(persisted)
+	if err != nil {
+		return nil, err
+	}
+	return []vexostore.KVWrite{{Namespace: validatorRegistryNamespace, Key: []byte("events"), Value: encoded}}, nil
 }
 
 func (registry *StoreRegistry) snapshotWrites(ctx context.Context, height types.Height, validators []Validator) ([]vexostore.KVWrite, error) {
@@ -434,6 +475,21 @@ func (registry *StoreRegistry) loadHeights(ctx context.Context) ([]types.Height,
 		return nil, err
 	}
 	return heights, nil
+}
+
+func (registry *StoreRegistry) loadRotationEvents(ctx context.Context) ([]RotationEvent, error) {
+	encoded, err := registry.store.Get(ctx, validatorRegistryNamespace, []byte("events"))
+	if err != nil {
+		if errors.Is(err, vexostore.ErrKeyNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var events []RotationEvent
+	if err := json.Unmarshal(encoded, &events); err != nil {
+		return nil, err
+	}
+	return events, nil
 }
 
 func validatorSetKey(height types.Height) []byte {

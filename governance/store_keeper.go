@@ -43,6 +43,10 @@ type storeDocument struct {
 }
 
 func NewStoreKeeper(store KVStore, policy TallyPolicy, votingPower map[types.Address]types.VotingPower) (*StoreKeeper, error) {
+	return NewStoreKeeperContext(context.Background(), store, policy, votingPower)
+}
+
+func NewStoreKeeperContext(ctx context.Context, store KVStore, policy TallyPolicy, votingPower map[types.Address]types.VotingPower) (*StoreKeeper, error) {
 	if store == nil {
 		return nil, ErrGovernanceStoreRequired
 	}
@@ -51,11 +55,11 @@ func NewStoreKeeper(store KVStore, policy TallyPolicy, votingPower map[types.Add
 		powers[address] = power
 	}
 	keeper := &StoreKeeper{store: store, policy: policy, powers: powers}
-	if _, err := keeper.load(context.Background()); err != nil {
+	if _, err := keeper.load(ctx); err != nil {
 		if !errors.Is(err, vexostore.ErrKeyNotFound) {
 			return nil, err
 		}
-		if err := keeper.save(context.Background(), storeDocument{
+		if err := keeper.save(ctx, storeDocument{
 			NextID:    1,
 			Proposals: make(map[uint64]ProposalState),
 			Powers:    powers,

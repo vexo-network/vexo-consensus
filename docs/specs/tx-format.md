@@ -111,4 +111,9 @@ Public-network load tests should use realistic signed `bank:send` payloads with 
 vexod keys show --home .vexo
 vexod tx build --module bank --action send --args vexo1...,vexo1...,1 --tags fee=1gvxo,gas=100,signer=vexo1...,nonce=7
 vexod tx parse --tx bank:send:vexo1...:vexo1...:1:fee=1gvxo:gas=100:signer=vexo1...:nonce=7 --json
+vexod evm tx call evm 0xaaaa 0xbbbb call 0x 21000 0x10000000000000000
 ```
+
+EVM module CLI value arguments accept decimal atomic values or `0x` hex quantities and normalize them
+to canonical decimal strings before transaction construction. This keeps CLI-built EVM payloads aligned
+with raw Ethereum transaction decoding, where value and fee fields are unsigned 256-bit quantities.
