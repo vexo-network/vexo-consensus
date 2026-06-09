@@ -79,9 +79,7 @@ func Build(version string, pack Pack, evidence Evidence) Document {
 	for _, check := range pack.Checks {
 		document.addCheck("pack_"+check.Name, check.OK, check.Message)
 	}
-	if evidence.Manifest != "" {
-		document.addCheck("evidence_manifest", evidenceManifestOK(evidence), "evidence manifest must exist and bind evidence artifact names, paths, and sha256 hashes")
-	}
+	document.addCheck("evidence_manifest", evidenceManifestOK(evidence), "evidence manifest must exist and bind evidence artifact names, paths, and sha256 hashes")
 	document.addFileCheck("chaos_evidence", evidence.Chaos, "chaos test evidence must exist and semantically cover chaos/fault scenarios", evidence)
 	document.addFileCheck("kms_signer_evidence", evidence.KMS, "KMS/remote signer evidence must cover signer policy and double-sign protection", evidence)
 	document.addFileCheck("snapshot_replay_evidence", evidence.Snapshot, "snapshot evidence must cover snapshot restore and replay consistency", evidence)

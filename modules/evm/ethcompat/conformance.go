@@ -59,6 +59,14 @@ func DefaultTransactionFixtures() ([]TransactionFixture, error) {
 	if err != nil {
 		return nil, err
 	}
+	accessListRaw, accessListHash, err := signedFixtureAccessListTransaction(7)
+	if err != nil {
+		return nil, err
+	}
+	tipAboveFeeRaw, _, err := signedFixtureRawTransactionWithFees(7, false, 30, 20)
+	if err != nil {
+		return nil, err
+	}
 	return []TransactionFixture{
 		{
 			Name:       "default dynamic fee call",
@@ -85,8 +93,23 @@ func DefaultTransactionFixtures() ([]TransactionFixture, error) {
 			WantFee:    "273000",
 			WantGas:    21_000,
 		},
+		{
+			Name:       "default access-list metadata preservation",
+			Raw:        accessListRaw,
+			ChainID:    7,
+			BaseFee:    11,
+			WantHash:   accessListHash,
+			WantAction: "call",
+			WantType:   "1",
+			WantTo:     "0x000000000000000000000000000000000000bEEF",
+			WantValue:  "3",
+			WantFee:    "273000",
+			WantGas:    21_000,
+		},
 		{Name: "default wrong chain rejection", Raw: callRaw, ChainID: 8, WantError: ErrChainIDMismatch.Error()},
 		{Name: "default invalid raw rejection", Raw: "0x", WantError: ErrInvalidRawTransaction.Error()},
+		{Name: "default base fee cap rejection", Raw: callRaw, ChainID: 7, BaseFee: 21, WantError: ErrFeeCapTooLow.Error()},
+		{Name: "default priority fee cap rejection", Raw: tipAboveFeeRaw, ChainID: 7, BaseFee: 1, WantError: ErrTipCapAboveFeeCap.Error()},
 	}, nil
 }
 
@@ -107,6 +130,10 @@ func RunTransactionFixturesJSON(raw []byte) (TransactionConformanceReport, error
 }
 
 func signedFixtureRawTransaction(chainID uint64, create bool) (string, string, error) {
+	return signedFixtureRawTransactionWithFees(chainID, create, 2, 20)
+}
+
+func signedFixtureRawTransactionWithFees(chainID uint64, create bool, tipCap int64, feeCap int64) (string, string, error) {
 	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
 	if err != nil {
 		return "", "", err
@@ -122,12 +149,42 @@ func signedFixtureRawTransaction(chainID uint64, create bool) (string, string, e
 	tx := gethtypes.NewTx(&gethtypes.DynamicFeeTx{
 		ChainID:   new(big.Int).SetUint64(chainID),
 		Nonce:     7,
-		GasTipCap: big.NewInt(2),
-		GasFeeCap: big.NewInt(20),
+		GasTipCap: big.NewInt(tipCap),
+		GasFeeCap: big.NewInt(feeCap),
 		Gas:       21_000,
 		To:        to,
 		Value:     big.NewInt(3),
 		Data:      data,
+	})
+	signed, err := gethtypes.SignTx(tx, gethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), key)
+	if err != nil {
+		return "", "", err
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		return "", "", err
+	}
+	return "0x" + hex.EncodeToString(raw), signed.Hash().Hex(), nil
+}
+
+func signedFixtureAccessListTransaction(chainID uint64) (string, string, error) {
+	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
+	if err != nil {
+		return "", "", err
+	}
+	to := gethcommon.HexToAddress("0x000000000000000000000000000000000000bEEF")
+	tx := gethtypes.NewTx(&gethtypes.AccessListTx{
+		ChainID:  new(big.Int).SetUint64(chainID),
+		Nonce:    7,
+		GasPrice: big.NewInt(13),
+		Gas:      21_000,
+		To:       &to,
+		Value:    big.NewInt(3),
+		Data:     []byte{0x12, 0x34},
+		AccessList: gethtypes.AccessList{{
+			Address:     to,
+			StorageKeys: []gethcommon.Hash{gethcommon.HexToHash("0x01")},
+		}},
 	})
 	signed, err := gethtypes.SignTx(tx, gethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), key)
 	if err != nil {

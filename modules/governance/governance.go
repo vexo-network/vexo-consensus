@@ -29,9 +29,18 @@ var (
 )
 
 type Module struct {
-	keeper       vexogov.OperationalKeeper
+	keeper       contextKeeper
 	policy       vexogov.TallyPolicy
 	useStorePath bool
+}
+
+type contextKeeper interface {
+	vexogov.Keeper
+	SetTimeContext(ctx context.Context, now uint64) error
+	SetVotingPowerContext(ctx context.Context, voter types.Address, power types.VotingPower) error
+	ProposalContext(ctx context.Context, proposalID uint64) (vexogov.ProposalState, bool, error)
+	AppliedChangesContext(ctx context.Context) ([]vexogov.ParameterChange, error)
+	TallyContext(ctx context.Context, proposalID uint64) (vexogov.TallyResult, bool, error)
 }
 
 func NewModule() *Module {
@@ -44,7 +53,7 @@ func NewModule() *Module {
 }
 
 func NewModuleWithKeeper(keeper vexogov.OperationalKeeper) *Module {
-	return &Module{keeper: keeper}
+	return &Module{keeper: adaptGovernanceKeeper(keeper)}
 }
 
 func (module *Module) CloneModule() vexoapp.Module {
@@ -313,42 +322,86 @@ func (module *Module) vote(ctx vexoapp.Context, parts []string) error {
 }
 
 func (module *Module) setTime(ctx context.Context, now uint64) error {
-	if keeper, ok := module.keeper.(vexogov.ContextOperationalKeeper); ok {
-		return keeper.SetTimeContext(ctx, now)
-	}
-	module.keeper.SetTime(now)
-	return nil
+	return module.keeper.SetTimeContext(ctx, now)
 }
 
 func (module *Module) setVotingPower(ctx context.Context, voter types.Address, power types.VotingPower) error {
-	if keeper, ok := module.keeper.(vexogov.ContextOperationalKeeper); ok {
-		return keeper.SetVotingPowerContext(ctx, voter, power)
-	}
-	module.keeper.SetVotingPower(voter, power)
-	return nil
+	return module.keeper.SetVotingPowerContext(ctx, voter, power)
 }
 
 func (module *Module) proposal(ctx context.Context, proposalID uint64) (vexogov.ProposalState, bool, error) {
-	if keeper, ok := module.keeper.(vexogov.ContextQueryKeeper); ok {
-		return keeper.ProposalContext(ctx, proposalID)
-	}
-	state, found := module.keeper.Proposal(proposalID)
-	return state, found, nil
+	return module.keeper.ProposalContext(ctx, proposalID)
 }
 
 func (module *Module) tally(ctx context.Context, proposalID uint64) (vexogov.TallyResult, bool, error) {
-	if keeper, ok := module.keeper.(vexogov.ContextQueryKeeper); ok {
-		return keeper.TallyContext(ctx, proposalID)
-	}
-	tally, found := module.keeper.Tally(proposalID)
-	return tally, found, nil
+	return module.keeper.TallyContext(ctx, proposalID)
 }
 
 func (module *Module) appliedChanges(ctx context.Context) ([]vexogov.ParameterChange, error) {
-	if keeper, ok := module.keeper.(vexogov.ContextQueryKeeper); ok {
-		return keeper.AppliedChangesContext(ctx)
+	return module.keeper.AppliedChangesContext(ctx)
+}
+
+func adaptGovernanceKeeper(keeper vexogov.OperationalKeeper) contextKeeper {
+	if keeper == nil {
+		return nil
 	}
-	return module.keeper.AppliedChanges(), nil
+	if contextKeeper, ok := keeper.(contextKeeper); ok {
+		return contextKeeper
+	}
+	return legacyContextKeeper{OperationalKeeper: keeper}
+}
+
+type legacyContextKeeper struct {
+	vexogov.OperationalKeeper
+}
+
+func (keeper legacyContextKeeper) SetTimeContext(ctx context.Context, now uint64) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	keeper.SetTime(now)
+	return nil
+}
+
+func (keeper legacyContextKeeper) SetVotingPowerContext(ctx context.Context, voter types.Address, power types.VotingPower) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	keeper.SetVotingPower(voter, power)
+	return nil
+}
+
+func (keeper legacyContextKeeper) ProposalContext(ctx context.Context, proposalID uint64) (vexogov.ProposalState, bool, error) {
+	select {
+	case <-ctx.Done():
+		return vexogov.ProposalState{}, false, ctx.Err()
+	default:
+	}
+	proposal, found := keeper.Proposal(proposalID)
+	return proposal, found, nil
+}
+
+func (keeper legacyContextKeeper) AppliedChangesContext(ctx context.Context) ([]vexogov.ParameterChange, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	return keeper.AppliedChanges(), nil
+}
+
+func (keeper legacyContextKeeper) TallyContext(ctx context.Context, proposalID uint64) (vexogov.TallyResult, bool, error) {
+	select {
+	case <-ctx.Done():
+		return vexogov.TallyResult{}, false, ctx.Err()
+	default:
+	}
+	tally, found := keeper.Tally(proposalID)
+	return tally, found, nil
 }
 
 type proposalView struct {

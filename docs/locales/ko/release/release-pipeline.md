@@ -55,6 +55,7 @@
 - `go build -trimpath`
 - `BUILD_DATE`
 - `release-candidate`
+- `release-candidate-real`
 - `make network-e2e`
 - `RC_DRY_RUN=1`
 - `network longrun`
@@ -76,7 +77,7 @@
 
 ## Release gate evidence binding
 
-`release gate` now expects evidence artifacts to be bound through `evidence-manifest.json`. The manifest records each evidence `name`, `path`, and `sha256`, and the gate rejects evidence whose file content does not match the manifest hash. Keep command-line flags such as `--evidence-manifest`, `--sdk-conformance-evidence`, `--external-audit`, and `--bls-audit` untranslated so operators can copy the exact interface names.
+`release gate` now expects evidence artifacts to be bound through `evidence-manifest.json`. The manifest records each evidence `name`, `path`, and `sha256`, and the gate rejects evidence whose file content does not match the manifest hash. Keep command-line flags such as `--evidence-manifest`, `--sdk-conformance-evidence`, `--external-audit`, and `--bls-audit` untranslated so operators can copy the exact interface names. Use `make release-candidate-real` when the release candidate must run real load and long-run checks instead of plan-only dry runs.
 
 ## 규범 원문
 

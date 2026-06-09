@@ -515,7 +515,7 @@ func validatorSetResponse(height types.Height, validatorSet validator.Set) Valid
 	responses := make([]ValidatorResponse, 0, len(validators))
 	var totalPower uint64
 	for _, validatorInfo := range validators {
-		totalPower += uint64(validatorInfo.VotingPower)
+		totalPower = types.MustAddUint64Saturating(totalPower, uint64(validatorInfo.VotingPower))
 		responses = append(responses, validatorResponse(validatorInfo))
 	}
 	hash := validatorSet.Hash()

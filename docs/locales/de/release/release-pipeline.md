@@ -55,6 +55,7 @@ Dieses Dokument hilft dabei, die Release-Pipeline mit signierten Binaries, Check
 - `go build -trimpath`
 - `BUILD_DATE`
 - `release-candidate`
+- `release-candidate-real`
 - `make network-e2e`
 - `RC_DRY_RUN=1`
 - `network longrun`

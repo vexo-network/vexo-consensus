@@ -89,7 +89,7 @@ func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
 	metrics.ValidatorSetHash = hash
 	for _, validatorInfo := range validatorSet.List() {
 		metrics.ValidatorCount++
-		metrics.TotalVotingPower += uint64(validatorInfo.VotingPower)
+		metrics.TotalVotingPower = types.MustAddUint64Saturating(metrics.TotalVotingPower, uint64(validatorInfo.VotingPower))
 	}
 	if runtime.P2PScore != nil {
 		totalMessages, err := runtime.P2PScore.TotalWindowMessages(ctx)
@@ -103,7 +103,7 @@ func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
 func peerWindowMessages(peers []p2p.PeerSnapshot) uint64 {
 	var total uint64
 	for _, peer := range peers {
-		total += peer.WindowMessages
+		total = types.MustAddUint64Saturating(total, peer.WindowMessages)
 	}
 	return total
 }

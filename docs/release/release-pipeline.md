@@ -147,10 +147,10 @@ The `release-candidate` target runs:
 - built-binary network E2E (`make network-e2e`)
 - adversarial simulation
 - SDK/EVM transaction fixture conformance evidence, preferably generated with `vexod ops conformance --evm-default-fixtures` plus any chain-specific fixture corpus
-- network load harness (`RC_DRY_RUN=1` keeps this as a plan-only dry-run)
+- network load harness (`RC_DRY_RUN=1` keeps this as a plan-only dry-run; `make release-candidate-real` forces `RC_DRY_RUN=0`)
 - chaos plan
 - 7-day multi-host longrun plan
-- longrun harness evidence (`RC_DRY_RUN=1` keeps this as a plan-only dry-run)
+- longrun harness evidence (`RC_DRY_RUN=1` keeps this as a plan-only dry-run; `make release-candidate-real` forces real load/longrun execution)
 
 Real release candidates should run `network longrun` on independent machines and attach the generated evidence JSON plus metrics, logs, pprof, snapshot, replay, KMS signing, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, SDK conformance, and EVM/Web3 conformance evidence.
 The longrun harness distributes load across validator RPC endpoints and records per-validator submission counts in the evidence payload. Upgrade plans that rely on no-op schema migrations must explicitly set `allow_noop_migrations=true`; `vexod upgrade apply --allow-empty-migrations` rejects plans that do not opt in.

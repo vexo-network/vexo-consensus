@@ -55,6 +55,7 @@ Dokumen ini membantu memahami pipeline rilis dengan binary bertanda tangan, chec
 - `go build -trimpath`
 - `BUILD_DATE`
 - `release-candidate`
+- `release-candidate-real`
 - `make network-e2e`
 - `RC_DRY_RUN=1`
 - `network longrun`

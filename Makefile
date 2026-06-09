@@ -15,7 +15,7 @@ GPG ?= gpg
 RC_DRY_RUN ?= 0
 RC_DRY_RUN_FLAG = $(if $(filter 1 true yes,$(RC_DRY_RUN)),--dry-run,)
 
-.PHONY: all build test vet check docs-check fuzz-smoke ops-verify network-e2e coverage release checksums sbom release-manifest release-audit-pack sign-release docker-image release-candidate clean
+.PHONY: all build test vet check docs-check fuzz-smoke ops-verify network-e2e coverage release checksums sbom release-manifest release-audit-pack sign-release docker-image release-candidate release-candidate-real clean
 
 all: check build
 
@@ -130,6 +130,9 @@ release-candidate: release ops-verify network-e2e
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network longrun --validators 4 --duration 10m --rate 25 --output longrun-evidence.json $(RC_DRY_RUN_FLAG)
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network chaos-plan --validators 4 --duration 24h --regions 3
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network longrun-plan --validators 4 --duration 168h --regions 3 --hosts 4
+
+release-candidate-real:
+	$(MAKE) release-candidate RC_DRY_RUN=0
 
 clean:
 	rm -rf $(BUILD_DIR) $(DIST_DIR) $(GOCACHE_DIR) coverage.out coverage.html

@@ -55,6 +55,7 @@ Este documento ajuda a entender pipeline de release com binários assinados, che
 - `go build -trimpath`
 - `BUILD_DATE`
 - `release-candidate`
+- `release-candidate-real`
 - `make network-e2e`
 - `RC_DRY_RUN=1`
 - `network longrun`

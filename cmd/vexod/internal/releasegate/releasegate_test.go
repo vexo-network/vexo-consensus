@@ -8,29 +8,13 @@ import (
 )
 
 func TestBuildPassesWithAllEvidence(t *testing.T) {
+	evidence := completeReleaseGateEvidence(false)
 	document := Build("v1.2.3", Pack{
 		OK: true,
 		Checks: []PackCheck{
 			{Name: "manifest", OK: true, Message: "manifest exists"},
 		},
-	}, Evidence{
-		Chaos:                "chaos.json",
-		KMS:                  "kms.json",
-		Snapshot:             "snapshot.json",
-		P2PScale:             "p2p.json",
-		StateSyncLightClient: "state-sync-light-client.json",
-		ValidatorEconomics:   "validator-economics.json",
-		UpgradeGovernance:    "upgrade-governance.json",
-		MEVFeeMarket:         "mev-fee-market.json",
-		OpsRunbook:           "ops-runbook.json",
-		FormalSafety:         "formal-safety.json",
-		SDKConformance:       "sdk-conformance.json",
-		ExternalAudit:        "audit.json",
-		BLSAudit:             "bls.json",
-		Exists: func(path string) bool {
-			return path != ""
-		},
-	})
+	}, evidence)
 
 	if !document.OK {
 		t.Fatalf("expected release gate to pass: %+v", document)
@@ -55,23 +39,11 @@ func TestBuildFailsWhenEvidenceMissing(t *testing.T) {
 }
 
 func TestBuildAllowsExternalPendingOnlyForExternalChecks(t *testing.T) {
-	document := Build("rc", Pack{OK: true}, Evidence{
-		Chaos:                "chaos.json",
-		KMS:                  "kms.json",
-		Snapshot:             "snapshot.json",
-		P2PScale:             "p2p.json",
-		StateSyncLightClient: "state-sync-light-client.json",
-		ValidatorEconomics:   "validator-economics.json",
-		UpgradeGovernance:    "upgrade-governance.json",
-		MEVFeeMarket:         "mev-fee-market.json",
-		OpsRunbook:           "ops-runbook.json",
-		FormalSafety:         "formal-safety.json",
-		SDKConformance:       "sdk-conformance.json",
-		AllowExternalPending: true,
-		Exists: func(path string) bool {
-			return path != ""
-		},
-	})
+	evidence := completeReleaseGateEvidence(true)
+	evidence.ExternalAudit = ""
+	evidence.BLSAudit = ""
+	evidence.AllowExternalPending = true
+	document := Build("rc", Pack{OK: true}, evidence)
 
 	if !document.OK {
 		t.Fatalf("expected pending external checks to pass for private RCs: %+v", document)
@@ -79,30 +51,14 @@ func TestBuildAllowsExternalPendingOnlyForExternalChecks(t *testing.T) {
 }
 
 func TestBuildFailsInvalidEvidenceContent(t *testing.T) {
-	document := Build("rc", Pack{OK: true}, Evidence{
-		Chaos:                "chaos.json",
-		KMS:                  "kms.json",
-		Snapshot:             "snapshot.json",
-		P2PScale:             "p2p.json",
-		StateSyncLightClient: "state-sync-light-client.json",
-		ValidatorEconomics:   "validator-economics.json",
-		UpgradeGovernance:    "upgrade-governance.json",
-		MEVFeeMarket:         "mev-fee-market.json",
-		OpsRunbook:           "ops-runbook.json",
-		FormalSafety:         "formal-safety.json",
-		SDKConformance:       "sdk-conformance.json",
-		ExternalAudit:        "audit.pdf",
-		BLSAudit:             "bls.pdf",
-		Exists: func(path string) bool {
-			return path != ""
-		},
-		ReadFile: func(path string) ([]byte, error) {
-			if path == "chaos.json" {
-				return []byte(`{"ok":false,"checks":[{"ok":false}]}`), nil
-			}
-			return semanticEvidenceContentForPath(path), nil
-		},
-	})
+	evidence := completeReleaseGateEvidence(false)
+	evidenceFiles := completeReleaseGateEvidenceFiles(false)
+	evidenceFiles["chaos.json"] = []byte(`{"ok":false,"checks":[{"ok":false}]}`)
+	evidenceFiles["evidence-manifest.json"] = releaseGateManifestForEvidence(evidenceFiles)
+	evidence.ReadFile = func(path string) ([]byte, error) {
+		return evidenceFiles[path], nil
+	}
+	document := Build("rc", Pack{OK: true}, evidence)
 
 	if document.OK {
 		t.Fatalf("expected release gate to fail invalid evidence")
@@ -235,6 +191,108 @@ func releaseGateCheckOK(checks []Check, name string) bool {
 		}
 	}
 	return false
+}
+
+func completeReleaseGateEvidence(skipExternal bool) Evidence {
+	files := completeReleaseGateEvidenceFiles(skipExternal)
+	files["evidence-manifest.json"] = releaseGateManifestForEvidence(files)
+	evidence := Evidence{
+		Manifest:             "evidence-manifest.json",
+		Chaos:                "chaos.json",
+		KMS:                  "kms.json",
+		Snapshot:             "snapshot.json",
+		P2PScale:             "p2p.json",
+		StateSyncLightClient: "state-sync-light-client.json",
+		ValidatorEconomics:   "validator-economics.json",
+		UpgradeGovernance:    "upgrade-governance.json",
+		MEVFeeMarket:         "mev-fee-market.json",
+		OpsRunbook:           "ops-runbook.json",
+		FormalSafety:         "formal-safety.json",
+		SDKConformance:       "sdk-conformance.json",
+		Exists: func(path string) bool {
+			_, found := files[path]
+			return found
+		},
+		ReadFile: func(path string) ([]byte, error) {
+			return files[path], nil
+		},
+	}
+	if !skipExternal {
+		evidence.ExternalAudit = "audit.pdf"
+		evidence.BLSAudit = "bls.pdf"
+	}
+	return evidence
+}
+
+func completeReleaseGateEvidenceFiles(skipExternal bool) map[string][]byte {
+	files := map[string][]byte{
+		"chaos.json":                   []byte(`{"ok":true,"summary":"chaos partition fault drill passed"}`),
+		"kms.json":                     semanticEvidenceContentForPath("kms.json"),
+		"snapshot.json":                semanticEvidenceContentForPath("snapshot.json"),
+		"p2p.json":                     semanticEvidenceContentForPath("p2p.json"),
+		"state-sync-light-client.json": semanticEvidenceContentForPath("state-sync-light-client.json"),
+		"validator-economics.json":     semanticEvidenceContentForPath("validator-economics.json"),
+		"upgrade-governance.json":      semanticEvidenceContentForPath("upgrade-governance.json"),
+		"mev-fee-market.json":          semanticEvidenceContentForPath("mev-fee-market.json"),
+		"ops-runbook.json":             semanticEvidenceContentForPath("ops-runbook.json"),
+		"formal-safety.json":           semanticEvidenceContentForPath("formal-safety.json"),
+		"sdk-conformance.json":         semanticEvidenceContentForPath("sdk-conformance.json"),
+	}
+	if !skipExternal {
+		files["audit.pdf"] = semanticEvidenceContentForPath("audit.pdf")
+		files["bls.pdf"] = semanticEvidenceContentForPath("bls.pdf")
+	}
+	return files
+}
+
+func releaseGateManifestForEvidence(files map[string][]byte) []byte {
+	entries := make([]EvidenceManifestEntry, 0, len(files))
+	for path, data := range files {
+		if path == "evidence-manifest.json" {
+			continue
+		}
+		sum := sha256.Sum256(data)
+		entries = append(entries, EvidenceManifestEntry{
+			Name:   releaseGateEvidenceName(path),
+			Path:   path,
+			SHA256: hex.EncodeToString(sum[:]),
+		})
+	}
+	encoded, _ := json.Marshal(EvidenceManifest{SchemaVersion: "v1", Evidence: entries})
+	return encoded
+}
+
+func releaseGateEvidenceName(path string) string {
+	switch path {
+	case "chaos.json":
+		return "chaos_evidence"
+	case "kms.json":
+		return "kms_signer_evidence"
+	case "snapshot.json":
+		return "snapshot_replay_evidence"
+	case "p2p.json":
+		return "p2p_scale_evidence"
+	case "state-sync-light-client.json":
+		return "state_sync_light_client_evidence"
+	case "validator-economics.json":
+		return "validator_economics_evidence"
+	case "upgrade-governance.json":
+		return "upgrade_governance_evidence"
+	case "mev-fee-market.json":
+		return "mev_fee_market_evidence"
+	case "ops-runbook.json":
+		return "ops_runbook_evidence"
+	case "formal-safety.json":
+		return "formal_safety_evidence"
+	case "sdk-conformance.json":
+		return "sdk_conformance_evidence"
+	case "audit.pdf":
+		return "external_security_audit"
+	case "bls.pdf":
+		return "bls_adapter_audit"
+	default:
+		return path
+	}
 }
 
 func semanticEvidenceContentForPath(path string) []byte {

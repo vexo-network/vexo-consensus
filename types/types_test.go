@@ -11,6 +11,15 @@ func TestAddVotingPowerRejectsOverflow(t *testing.T) {
 	}
 }
 
+func TestAddUint64RejectsOverflow(t *testing.T) {
+	if _, err := AddUint64(^uint64(0), 1); !errors.Is(err, ErrVotingPowerOverflow) {
+		t.Fatalf("expected uint64 overflow, got %v", err)
+	}
+	if got := MustAddUint64Saturating(^uint64(0), 1); got != ^uint64(0) {
+		t.Fatalf("expected saturating add to clamp, got %d", got)
+	}
+}
+
 func TestHasTwoThirdsQuorumAvoidsMultiplicationOverflow(t *testing.T) {
 	total := ^VotingPower(0)
 	if !HasTwoThirdsQuorum(TwoThirdsQuorumThreshold(total), total) {

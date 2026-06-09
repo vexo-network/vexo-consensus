@@ -46,6 +46,22 @@ func AddVotingPower(left VotingPower, right VotingPower) (VotingPower, error) {
 	return VotingPower(sum), nil
 }
 
+func AddUint64(left uint64, right uint64) (uint64, error) {
+	sum, carry := bits.Add64(left, right, 0)
+	if carry != 0 {
+		return 0, ErrVotingPowerOverflow
+	}
+	return sum, nil
+}
+
+func MustAddUint64Saturating(left uint64, right uint64) uint64 {
+	sum, err := AddUint64(left, right)
+	if err != nil {
+		return ^uint64(0)
+	}
+	return sum
+}
+
 func MustAddVotingPowerSaturating(left VotingPower, right VotingPower) VotingPower {
 	sum, err := AddVotingPower(left, right)
 	if err != nil {
