@@ -92,6 +92,8 @@ func runRelease(writer io.Writer, args []string) error {
 		return runReleaseReadiness(writer, args[1:])
 	case "gate":
 		return runReleaseGate(writer, args[1:])
+	case "evidence-manifest":
+		return runReleaseEvidenceManifest(writer, args[1:])
 	default:
 		return fmt.Errorf("unknown release subcommand %q", args[0])
 	}
@@ -276,6 +278,48 @@ func runReleaseGate(writer io.Writer, args []string) error {
 	return nil
 }
 
+func runReleaseEvidenceManifest(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("release evidence-manifest", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	distDir := flags.String("dist", "dist", "release dist directory")
+	outputPath := flags.String("output", "", "output JSON path; defaults to <dist>/evidence-manifest.json")
+	requireAny := flags.Bool("require-any", false, "fail when no known evidence artifacts are found")
+	jsonOutput := flags.Bool("json", false, "write the generated manifest JSON to stdout")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	manifest, err := buildReleaseEvidenceManifest(*distDir)
+	if err != nil {
+		return err
+	}
+	if *requireAny && len(manifest.Evidence) == 0 {
+		return fmt.Errorf("no known release evidence artifacts found in %s", *distDir)
+	}
+	path := *outputPath
+	if path == "" {
+		path = filepath.Join(*distDir, "evidence-manifest.json")
+	}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return err
+	}
+	if *jsonOutput {
+		_, err := writer.Write(data)
+		return err
+	}
+	fmt.Fprintf(writer, "release evidence manifest written\n")
+	fmt.Fprintf(writer, "path: %s\n", path)
+	fmt.Fprintf(writer, "evidence: %d\n", len(manifest.Evidence))
+	return nil
+}
+
 func buildProductionReadinessDocument() productionReadinessDocument {
 	document := productionReadinessDocument{
 		SchemaVersion: "v1",
@@ -389,6 +433,58 @@ func buildReleaseGateDocument(versionValue string, pack releaseAuditPack, inputs
 		Exists:               fileExists,
 		ReadFile:             os.ReadFile,
 	})
+}
+
+func buildReleaseEvidenceManifest(distDir string) (releasegate.EvidenceManifest, error) {
+	manifest := releasegate.EvidenceManifest{
+		SchemaVersion: "v1",
+		GeneratedAt:   time.Now().UTC().Format(time.RFC3339),
+	}
+	for _, candidate := range releaseEvidenceCandidates() {
+		path := filepath.Join(distDir, candidate.File)
+		if !fileExists(path) {
+			continue
+		}
+		sum, err := fileSHA256(path)
+		if err != nil {
+			return releasegate.EvidenceManifest{}, err
+		}
+		manifest.Evidence = append(manifest.Evidence, releasegate.EvidenceManifestEntry{
+			Name:   candidate.Name,
+			Path:   path,
+			SHA256: sum,
+		})
+	}
+	sort.Slice(manifest.Evidence, func(left int, right int) bool {
+		return manifest.Evidence[left].Name < manifest.Evidence[right].Name
+	})
+	return manifest, nil
+}
+
+type releaseEvidenceCandidate struct {
+	Name string
+	File string
+}
+
+func releaseEvidenceCandidates() []releaseEvidenceCandidate {
+	return []releaseEvidenceCandidate{
+		{Name: "longrun_evidence", File: "longrun-evidence.json"},
+		{Name: "adversarial_evidence", File: "adversarial-evidence.json"},
+		{Name: "fuzz_evidence", File: "fuzz-evidence.txt"},
+		{Name: "chaos_evidence", File: "chaos-evidence.json"},
+		{Name: "kms_signer_evidence", File: "kms-evidence.json"},
+		{Name: "snapshot_replay_evidence", File: "snapshot-replay-evidence.json"},
+		{Name: "p2p_scale_evidence", File: "p2p-scale-evidence.json"},
+		{Name: "state_sync_light_client_evidence", File: "state-sync-light-client-evidence.json"},
+		{Name: "validator_economics_evidence", File: "validator-economics-evidence.json"},
+		{Name: "upgrade_governance_evidence", File: "upgrade-governance-evidence.json"},
+		{Name: "mev_fee_market_evidence", File: "mev-fee-market-evidence.json"},
+		{Name: "ops_runbook_evidence", File: "ops-runbook-evidence.json"},
+		{Name: "formal_safety_evidence", File: "formal-safety-evidence.json"},
+		{Name: "sdk_conformance_evidence", File: "sdk-conformance-evidence.json"},
+		{Name: "external_security_audit", File: "external-audit.pdf"},
+		{Name: "bls_adapter_audit", File: "bls-audit.pdf"},
+	}
 }
 
 func buildLaunchChecklistDocument() launchChecklistDocument {

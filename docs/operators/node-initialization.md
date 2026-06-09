@@ -4,7 +4,7 @@ This guide explains how to initialize validator and archive node homes.
 
 Peer connectivity should be configured in `network_config.json`, not passed repeatedly on the `start` command line.
 
-Runtime behavior that affects consensus, RPC, P2P, logging, or managed Web3 accounts is config-file only. `vexod start` rejects flags such as `--timeout-propose`, `--create-empty-blocks`, `--p2p-auth-token`, `--rpc-admin-token`, and `--evm-account-key`; edit the split config files instead so every operator reviews the same deterministic node behavior.
+Runtime behavior that affects consensus, RPC, P2P, logging, or managed Web3 accounts is config-file only. `vexod start` rejects flags such as `--timeout-propose`, `--create-empty-blocks`, `--p2p-auth-token`, `--rpc-admin-token`, `--evm-account-key-env`, and `--evm-account-key`; edit the split config files instead so every operator reviews the same deterministic node behavior.
 
 There is no node-mode switch. A node home is defined by its config files, genesis, key material, and whether `validator_id` plus a signer are present.
 
@@ -178,6 +178,7 @@ Example `network_config.json`:
   "rpc": {
     "enabled": true,
     "address": "0.0.0.0:26657",
+    "evm_account_key_envs": [],
     "evm_account_private_keys": []
   },
   "p2p": {
@@ -199,7 +200,7 @@ Example `network_config.json`:
 }
 ```
 
-`rpc.evm_account_private_keys` is optional and backs Web3 managed-account methods such as `eth_accounts`, `eth_sign`, `eth_signTransaction`, and `eth_sendTransaction`. Keep it empty for normal validator operation unless this node is intentionally acting as a local Web3 hot-wallet endpoint; production deployments should prefer external wallets or remote signing instead of plain JSON private keys.
+`rpc.evm_account_key_envs` and `rpc.evm_account_private_keys` are optional and back Web3 managed-account methods such as `eth_accounts`, `eth_sign`, `eth_signTransaction`, and `eth_sendTransaction`. Prefer `evm_account_key_envs` so the private key is injected by the process environment or secret manager instead of stored in JSON. Keep both lists empty for normal validator operation unless this node is intentionally acting as a local Web3 hot-wallet endpoint. Startup safety rejects managed EVM hot keys on public RPC listeners.
 
 Example `consensus_config.json`:
 

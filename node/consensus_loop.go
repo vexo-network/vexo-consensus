@@ -618,6 +618,16 @@ func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert
 	if err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
+	var commitProof finality.Proof
+	if broadcast {
+		proof, err := node.buildCommitFinalityProof(ctx, runtime, block, quorumCert)
+		if err != nil && !errors.Is(err, ErrFinalityNotFound) && !errors.Is(err, store.ErrFinalityNotFound) {
+			return app.FinalizeBlockResponse{}, err
+		}
+		if err == nil {
+			commitProof = proof
+		}
+	}
 	if err := runtime.Mempool.MarkCommitted(ctx, block.Txs); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
@@ -649,7 +659,7 @@ func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert
 	node.removeProposedAtOrBelow(block.Header.Height)
 	node.removeTimeoutVotesAtOrBelow(block.Header.Height)
 	if broadcast {
-		if err := node.broadcastCommit(ctx, block, quorumCert); err != nil {
+		if err := node.broadcastCommit(ctx, block, quorumCert, commitProof); err != nil {
 			return app.FinalizeBlockResponse{}, err
 		}
 	}
@@ -669,11 +679,64 @@ func (node *Node) persistFinalityDecisions(ctx context.Context, runtime *vexorun
 		if err != nil {
 			return err
 		}
+		if enriched, err := node.attachCommitChainProof(proof); err == nil {
+			proof = enriched
+		} else if !errors.Is(err, ErrFinalityNotFound) {
+			return err
+		}
 		if err := proofStore.SaveFinalityProof(ctx, finalityProofRecord(proof)); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (node *Node) buildCommitFinalityProof(ctx context.Context, runtime *vexoruntime.Runtime, block types.Block, quorumCert finality.QuorumCert) (finality.Proof, error) {
+	proof, err := runtime.FinalityProof(ctx, block.Header.Height, quorumCert)
+	if err != nil {
+		return finality.Proof{}, err
+	}
+	return node.attachCommitChainProof(proof)
+}
+
+func (node *Node) attachCommitChainProof(proof finality.Proof) (finality.Proof, error) {
+	pending := node.pendingProposals()
+	first, found := findCommitChild(pending, proof.Header, proof.BlockHash)
+	if !found {
+		return finality.Proof{}, ErrFinalityNotFound
+	}
+	second, found := findCommitChild(pending, first.Header, first.BlockHash)
+	if !found {
+		return finality.Proof{}, ErrFinalityNotFound
+	}
+	proof.CommitChain = []finality.CommitLink{first, second}
+	return proof, nil
+}
+
+func findCommitChild(pending map[types.Hash]consensus.Proposal, parentHeader types.Header, parentHash types.Hash) (finality.CommitLink, bool) {
+	for childHash, proposal := range pending {
+		if proposal.Block.Header.ChainID != parentHeader.ChainID {
+			continue
+		}
+		if proposal.Block.Header.Height != parentHeader.Height+1 {
+			continue
+		}
+		if proposal.Block.Header.PreviousBlockHash != parentHash {
+			continue
+		}
+		if proposal.JustifyQC.Height != parentHeader.Height {
+			continue
+		}
+		if proposal.JustifyQC.BlockHash != parentHash {
+			continue
+		}
+		return finality.CommitLink{
+			Header:     proposal.Block.Header,
+			BlockHash:  childHash,
+			QuorumCert: proposal.JustifyQC,
+		}, true
+	}
+	return finality.CommitLink{}, false
 }
 
 type CommitReadyResult struct {

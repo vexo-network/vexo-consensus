@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"math/bits"
 	"strconv"
 	"strings"
@@ -780,10 +781,17 @@ func bankBalance(ctx context.Context, store vexoapp.StateStore, address types.Ad
 	if len(value) == 0 {
 		return 0, nil
 	}
-	if len(value) != 8 {
+	if len(value) > 32 {
 		return 0, ErrInvalidStakeRecord
 	}
-	return binary.BigEndian.Uint64(value), nil
+	if len(value) == 8 {
+		return binary.BigEndian.Uint64(value), nil
+	}
+	amount := new(big.Int).SetBytes(value)
+	if !amount.IsUint64() {
+		return 0, ErrStakeOverflow
+	}
+	return amount.Uint64(), nil
 }
 
 func setBankBalance(ctx context.Context, store vexoapp.StateStore, address types.Address, amount uint64) error {

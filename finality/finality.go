@@ -23,8 +23,15 @@ type Proof struct {
 	Header             types.Header
 	BlockHash          types.Hash
 	QuorumCert         QuorumCert
+	CommitChain        []CommitLink
 	ValidatorSetHeight types.Height
 	ValidatorSetHash   types.Hash
+}
+
+type CommitLink struct {
+	Header     types.Header
+	BlockHash  types.Hash
+	QuorumCert QuorumCert
 }
 
 type LightVerifier interface {

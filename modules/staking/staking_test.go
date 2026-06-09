@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"math"
+	"math/big"
 	"strings"
 	"testing"
 
@@ -43,6 +45,46 @@ func TestStakingModuleDelegatesAndEmitsValidatorUpdate(t *testing.T) {
 	updates := module.ValidatorUpdates(vexoapp.Context{Store: storage})
 	if len(updates) != 1 || updates[0].ID != "validator-1" || updates[0].VotingPower != 40 || string(updates[0].PublicKey) != "validator-key" {
 		t.Fatalf("unexpected validator updates: %+v", updates)
+	}
+}
+
+func TestStakingModuleReadsEVMStyleBankBalance(t *testing.T) {
+	storage := newStakingStore(t)
+	module := NewModuleWithUnbondingDelay(10)
+	publicKey := base64.StdEncoding.EncodeToString([]byte("validator-key"))
+	if err := storage.Set(context.Background(), bankNamespace, bankBalanceKey("alice"), []byte{100}); err != nil {
+		t.Fatal(err)
+	}
+
+	result := module.DeliverTx(vexoapp.Context{Height: 7, Store: storage}, types.Tx("staking:delegate:alice:validator-1:40:"+publicKey))
+	if result.Code != 0 {
+		t.Fatalf("unexpected delegate result for evm-style balance: %+v", result)
+	}
+	balance, err := bankBalance(context.Background(), storage, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance != 60 {
+		t.Fatalf("expected remaining balance 60, got %d", balance)
+	}
+}
+
+func TestStakingModuleRejectsBankBalanceAboveUint64(t *testing.T) {
+	storage := newStakingStore(t)
+	module := NewModuleWithUnbondingDelay(10)
+	publicKey := base64.StdEncoding.EncodeToString([]byte("validator-key"))
+	overflow := new(big.Int).SetUint64(math.MaxUint64)
+	overflow.Add(overflow, big.NewInt(1))
+	if err := storage.Set(context.Background(), bankNamespace, bankBalanceKey("alice"), overflow.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+
+	result := module.DeliverTx(vexoapp.Context{Height: 7, Store: storage}, types.Tx("staking:delegate:alice:validator-1:1:"+publicKey))
+	if result.Code == 0 {
+		t.Fatalf("expected delegate overflow rejection, got %+v", result)
+	}
+	if !strings.Contains(result.Log, ErrStakeOverflow.Error()) {
+		t.Fatalf("expected overflow error, got %+v", result)
 	}
 }
 

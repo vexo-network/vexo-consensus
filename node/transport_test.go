@@ -598,11 +598,32 @@ func TestNodeCommitGossipSyncsPeerThatMissedProposal(t *testing.T) {
 		t.Fatalf("vote block: %v", err)
 	}
 	if !ok {
-		waitForQuorumCert(t, aliceConsensus, proposal.Block.Header.Height, proposal.Round, blockHash)
-		quorumCert, err = aliceConsensus.BuildQuorumCert(proposal.Block.Header.Height, proposal.Round, blockHash)
-		if err != nil {
-			t.Fatal(err)
-		}
+		quorumCert = forceTestQuorumCert(t, aliceConsensus, proposal.Block.Header.Height, proposal.Round, blockHash)
+	}
+	parentProposal, parentHash, err := alice.ProposeBlock(context.Background(), types.Block{
+		Header: types.Header{Height: 2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentQC, ok, err := alice.VoteBlock(context.Background(), parentProposal.Block.Header.Height, parentProposal.Round, parentHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		parentQC = forceTestQuorumCert(t, aliceConsensus, parentProposal.Block.Header.Height, parentProposal.Round, parentHash)
+	}
+	childProposal, childHash, err := alice.ProposeBlock(context.Background(), types.Block{
+		Header: types.Header{Height: 3},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if childProposal.JustifyQC.Height != parentQC.Height || childProposal.JustifyQC.BlockHash != parentQC.BlockHash {
+		t.Fatalf("expected child proposal to carry parent QC, got %+v want %+v", childProposal.JustifyQC, parentQC)
+	}
+	if childProposal.Block.Header.PreviousBlockHash != parentHash || childHash == (types.Hash{}) {
+		t.Fatalf("unexpected child proposal: hash=%x proposal=%+v", childHash, childProposal)
 	}
 
 	startNode(t, bob)
@@ -682,6 +703,21 @@ func TestNodeLogsCommittedBlockWithRound(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for block commit log")
 	}
+}
+
+func forceTestQuorumCert(t *testing.T, machine *consensus.StateMachine, height types.Height, round types.Round, blockHash types.Hash) finality.QuorumCert {
+	t.Helper()
+	for _, validatorID := range []types.ValidatorID{"bob", "carol"} {
+		vote := signedNodeTestVote(t, deterministicSignerForID(validatorID), validatorID, height, round, blockHash)
+		if err := machine.OnVote(context.Background(), vote); err != nil {
+			t.Fatal(err)
+		}
+	}
+	qc, err := machine.BuildQuorumCert(height, round, blockHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return qc
 }
 
 func TestNodeGossipsConflictingVoteEvidenceAndSlashesValidator(t *testing.T) {

@@ -43,6 +43,7 @@ Este documento ajuda a entender inicialização de nós archive/validator e uso 
 - `--create-empty-blocks`
 - `--p2p-auth-token`
 - `--rpc-admin-token`
+- `--evm-account-key-env`
 - `--evm-account-key`
 - `validator_id`
 - `init validator`

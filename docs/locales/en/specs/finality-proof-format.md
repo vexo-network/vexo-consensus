@@ -9,7 +9,9 @@ This spec defines the proof format verified by light clients and full nodes.
 `finality.Proof` contains:
 
 - `Header`: finalized block header
+- `BlockHash`: finalized block hash
 - `QuorumCert`: QC for the finalized header hash
+- `CommitChain`: descendant proposal links that prove the HotStuff-style 3-chain commit decision
 - `ValidatorSetHeight`: height whose validator set is used for verification
 - `ValidatorSetHash`: hash of the validator set used for verification
 
@@ -36,6 +38,21 @@ The header hash covers:
 - aggregate or multisignature
 - voting power
 
+## Commit Chain Fields
+
+External commit gossip is intentionally stricter than a single block plus QC. A commit message must carry a finality proof with at least two descendant links:
+
+- link 1: child block whose `JustifyQC` certifies the finalized block
+- link 2: grandchild block whose `JustifyQC` certifies link 1
+
+Each `CommitChain` link contains:
+
+- descendant header
+- descendant block hash
+- QC that certifies the previous block in the chain
+
+This lets a peer that missed earlier proposals verify the same 3-chain finality decision before executing the committed block. Legacy block+QC-only commit gossip is treated as non-punishable but insufficient; the receiver does not mutate local state from it.
+
 ## Verification Algorithm
 
 1. Reject proofs without an explicit `ValidatorSetHeight`.
@@ -49,6 +66,9 @@ The header hash covers:
 9. Recompute signer voting power and require quorum.
 10. If QC voting power is present, require it to match recomputed voting power.
 11. Verify aggregate/multisignature over finality sign bytes.
+12. If `CommitChain` is present, require at least two links.
+13. Verify each link extends the previous block hash by exactly one height.
+14. Verify each link QC signs the previous block hash under the same validator-set hash and consensus vote domain.
 
 ## Accountable Safety Detection
 

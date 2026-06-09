@@ -151,6 +151,7 @@ type runtimeRPCConfig struct {
 	RateLimitMaxRequests  int                 `json:"rate_limit_max_requests,omitempty"`
 	EVMManagedAccounts    bool                `json:"evm_managed_accounts,omitempty"`
 	EVMAccountPrivateKeys []string            `json:"evm_account_private_keys,omitempty"`
+	EVMAccountKeyEnvs     []string            `json:"evm_account_key_envs,omitempty"`
 }
 
 type runtimeP2PConfig struct {
@@ -1332,7 +1333,8 @@ func runtimeRPCConfigSet(rpc runtimeRPCConfig) bool {
 		rpc.RateLimitWindow != "" ||
 		rpc.RateLimitMaxRequests != 0 ||
 		rpc.EVMManagedAccounts ||
-		len(rpc.EVMAccountPrivateKeys) > 0
+		len(rpc.EVMAccountPrivateKeys) > 0 ||
+		len(rpc.EVMAccountKeyEnvs) > 0
 }
 
 func hasLegacyConsensusConfig(document consensusConfigDocument) bool {

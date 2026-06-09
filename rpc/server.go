@@ -242,12 +242,19 @@ type QuorumCertResponse struct {
 }
 
 type FinalityProofResponse struct {
-	Height             uint64             `json:"height"`
-	BlockHash          string             `json:"block_hash"`
-	ValidatorSetHeight uint64             `json:"validator_set_height"`
-	ValidatorSetHash   string             `json:"validator_set_hash"`
-	Header             HeaderResponse     `json:"header"`
-	QuorumCert         QuorumCertResponse `json:"quorum_cert"`
+	Height             uint64               `json:"height"`
+	BlockHash          string               `json:"block_hash"`
+	ValidatorSetHeight uint64               `json:"validator_set_height"`
+	ValidatorSetHash   string               `json:"validator_set_hash"`
+	Header             HeaderResponse       `json:"header"`
+	QuorumCert         QuorumCertResponse   `json:"quorum_cert"`
+	CommitChain        []CommitLinkResponse `json:"commit_chain,omitempty"`
+}
+
+type CommitLinkResponse struct {
+	Header     HeaderResponse     `json:"header"`
+	BlockHash  string             `json:"block_hash"`
+	QuorumCert QuorumCertResponse `json:"quorum_cert"`
 }
 
 type EventAttributeResponse struct {

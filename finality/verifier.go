@@ -18,6 +18,8 @@ var (
 	ErrMissingQCSignature   = errors.New("quorum certificate signature is missing")
 	ErrUnknownSigner        = errors.New("quorum certificate contains unknown signer")
 	ErrDuplicateSigner      = errors.New("quorum certificate contains duplicate signer")
+	ErrCommitChainTooShort  = errors.New("commit chain proof is too short")
+	ErrCommitChainBroken    = errors.New("commit chain proof is broken")
 )
 
 type SignatureVerifier interface {
@@ -85,27 +87,39 @@ func (verifier Verifier) VerifyFinalityProofWithContext(ctx context.Context, pro
 	default:
 	}
 
-	if proof.ValidatorSetHash != verifier.validatorSet.Hash() || proof.Header.ValidatorSetHash != verifier.validatorSet.Hash() {
+	validatorSetHash := verifier.validatorSet.Hash()
+	if proof.ValidatorSetHash != validatorSetHash || proof.Header.ValidatorSetHash != validatorSetHash {
 		return ErrValidatorSetMismatch
 	}
 	if proof.ValidatorSetHeight == 0 || proof.ValidatorSetHeight > proof.Header.Height {
-		return ErrHeightMismatch
-	}
-	if proof.QuorumCert.Height != proof.Header.Height {
 		return ErrHeightMismatch
 	}
 	blockHash := proof.BlockHash
 	if blockHash == (types.Hash{}) {
 		blockHash = proof.HeaderHash()
 	}
-	if proof.QuorumCert.BlockHash != blockHash {
+	if err := verifier.verifyQuorumCert(ctx, proof.QuorumCert, proof.Header.Height, blockHash, proof.SignBytes()); err != nil {
+		return err
+	}
+	return verifier.verifyCommitChain(ctx, proof)
+}
+
+func (verifier Verifier) verifyQuorumCert(ctx context.Context, cert QuorumCert, height types.Height, blockHash types.Hash, signBytes []byte) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	if cert.Height != height {
+		return ErrHeightMismatch
+	}
+	if cert.BlockHash != blockHash {
 		return ErrBlockHashMismatch
 	}
-	if len(proof.QuorumCert.Signature) == 0 {
+	if len(cert.Signature) == 0 {
 		return ErrMissingQCSignature
 	}
-
-	signers, err := ParseSigners(proof.QuorumCert.Signers)
+	signers, err := ParseSigners(cert.Signers)
 	if err != nil {
 		return err
 	}
@@ -131,11 +145,57 @@ func (verifier Verifier) VerifyFinalityProofWithContext(ctx context.Context, pro
 	if !HasQuorum(votingPower, verifier.validatorSet.TotalVotingPower()) {
 		return ErrInsufficientQuorum
 	}
-	if proof.QuorumCert.VotingPower != 0 && proof.QuorumCert.VotingPower != votingPower {
+	if cert.VotingPower != 0 && cert.VotingPower != votingPower {
 		return ErrVotingPowerMismatch
 	}
-	if verifier.signatures != nil && !verifier.signatures.VerifyAggregate(publicKeys, proof.SignBytes(), proof.QuorumCert.Signature) {
+	if verifier.signatures != nil && !verifier.signatures.VerifyAggregate(publicKeys, signBytes, cert.Signature) {
 		return ErrMissingQCSignature
+	}
+	return nil
+}
+
+func (verifier Verifier) verifyCommitChain(ctx context.Context, proof Proof) error {
+	if len(proof.CommitChain) == 0 {
+		return nil
+	}
+	if !proof.HasThreeChainCommitProof() {
+		return ErrCommitChainTooShort
+	}
+	rootHash := proof.BlockHash
+	if rootHash == (types.Hash{}) {
+		rootHash = proof.HeaderHash()
+	}
+	previousHeader := proof.Header
+	previousHash := rootHash
+	for index, link := range proof.CommitChain {
+		if link.BlockHash == (types.Hash{}) {
+			return ErrCommitChainBroken
+		}
+		if link.Header.ChainID != proof.Header.ChainID {
+			return ErrCommitChainBroken
+		}
+		if link.Header.ValidatorSetHash != proof.Header.ValidatorSetHash {
+			return ErrValidatorSetMismatch
+		}
+		if link.Header.Height != previousHeader.Height+1 {
+			return ErrCommitChainBroken
+		}
+		if link.Header.PreviousBlockHash != previousHash {
+			return ErrCommitChainBroken
+		}
+		if link.QuorumCert.Height != previousHeader.Height {
+			return ErrHeightMismatch
+		}
+		if link.QuorumCert.BlockHash != previousHash {
+			return ErrBlockHashMismatch
+		}
+		if index < 2 {
+			if err := verifier.verifyQuorumCert(ctx, link.QuorumCert, previousHeader.Height, previousHash, link.SignBytes()); err != nil {
+				return err
+			}
+		}
+		previousHeader = link.Header
+		previousHash = link.BlockHash
 	}
 	return nil
 }

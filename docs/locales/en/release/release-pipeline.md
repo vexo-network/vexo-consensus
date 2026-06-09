@@ -37,6 +37,13 @@ Run release candidate verification:
 make release-candidate VERSION=0.1.0-rc.1
 ```
 
+Generate or refresh the SHA-256-bound evidence manifest after collecting evidence files:
+
+```bash
+go run ./cmd/vexod release evidence-manifest --dist dist --output dist/evidence-manifest.json
+make release-evidence-manifest
+```
+
 Generate launch parameter recommendations for the target network:
 
 ```bash
@@ -151,6 +158,7 @@ The `release-candidate` target runs:
 - chaos plan
 - 7-day multi-host longrun plan
 - longrun harness evidence (`RC_DRY_RUN=1` keeps this as a plan-only dry-run; `make release-candidate-real` forces real load/longrun execution)
+- evidence manifest generation for whatever RC evidence files are present in `dist/`
 
 Real release candidates should run `network longrun` on independent machines and attach the generated evidence JSON plus metrics, logs, pprof, snapshot, replay, KMS signing, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, SDK conformance, and EVM/Web3 conformance evidence.
 The longrun harness distributes load across validator RPC endpoints and records per-validator submission counts in the evidence payload. Upgrade plans that rely on no-op schema migrations must explicitly set `allow_noop_migrations=true`; `vexod upgrade apply --allow-empty-migrations` rejects plans that do not opt in.

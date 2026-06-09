@@ -68,6 +68,7 @@ type startRuntimeConfig struct {
 	RPCRateLimitMaxRequests int
 	RPCEVMManagedAccounts   bool
 	RPCEVMAccountKeys       []string
+	RPCEVMAccountKeyEnvs    []string
 	LogFormat               string
 	LogLevel                string
 	LogCommitEvents         bool
@@ -116,7 +117,9 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	rpcRateLimitWindow := flags.Duration("rpc-rate-limit-window", 0, "HTTP RPC rate limit window")
 	rpcRateLimitMaxRequests := flags.Int("rpc-rate-limit-max", 0, "maximum HTTP RPC requests per client per window")
 	evmAccountKeys := stringListFlags{}
+	evmAccountKeyEnvs := stringListFlags{}
 	flags.Var(&evmAccountKeys, "evm-account-key", "hex secp256k1 private key for Web3 eth_accounts/sign/sendTransaction; may be repeated")
+	flags.Var(&evmAccountKeyEnvs, "evm-account-key-env", "environment variable name containing a hex secp256k1 private key for Web3 managed accounts; may be repeated")
 	consensusLoopEnabled := flags.Bool("consensus-loop", true, "start local consensus loop with node")
 	consensusInterval := flags.Duration("consensus-interval", 0, "local consensus loop tick interval")
 	timeoutPropose := flags.Duration("timeout-propose", 0, "consensus proposal timeout")
@@ -165,6 +168,7 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 		rpcRateLimitWindow:      *rpcRateLimitWindow,
 		rpcRateLimitMaxRequests: *rpcRateLimitMaxRequests,
 		rpcEVMAccountKeys:       []string(evmAccountKeys),
+		rpcEVMAccountKeyEnvs:    []string(evmAccountKeyEnvs),
 		logFormat:               *logFormat,
 		logLevel:                *logLevel,
 		logCommitEvents:         *logCommitEvents,
@@ -217,6 +221,7 @@ type startFlagValues struct {
 	rpcRateLimitWindow      time.Duration
 	rpcRateLimitMaxRequests int
 	rpcEVMAccountKeys       []string
+	rpcEVMAccountKeyEnvs    []string
 	logFormat               string
 	logLevel                string
 	logCommitEvents         bool
@@ -256,6 +261,7 @@ var runtimeConfigOnlyStartFlags = map[string]string{
 	"consensus-round-timeout":   "consensus_config.json:consensus.round_timeout",
 	"create-empty-blocks":       "consensus_config.json:consensus.create_empty_blocks",
 	"evm-account-key":           "network_config.json:rpc.evm_account_private_keys",
+	"evm-account-key-env":       "network_config.json:rpc.evm_account_key_envs",
 	"log-commit-events":         "log_config.json:log.commit_events",
 	"log-format":                "log_config.json:log.format",
 	"log-level":                 "log_config.json:log.level",
@@ -316,6 +322,10 @@ func applyStartFlagOverrides(cfg *startRuntimeConfig, visited map[string]bool, v
 	if visited["evm-account-key"] {
 		cfg.RPCEVMAccountKeys = append([]string(nil), values.rpcEVMAccountKeys...)
 		cfg.RPCEVMManagedAccounts = len(values.rpcEVMAccountKeys) > 0
+	}
+	if visited["evm-account-key-env"] {
+		cfg.RPCEVMAccountKeyEnvs = append([]string(nil), values.rpcEVMAccountKeyEnvs...)
+		cfg.RPCEVMManagedAccounts = len(values.rpcEVMAccountKeyEnvs) > 0 || len(cfg.RPCEVMAccountKeys) > 0
 	}
 	if visited["log-format"] {
 		cfg.LogFormat = values.logFormat
@@ -428,6 +438,11 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 	serverErr := make(chan error, 1)
 	rpcShutdown := func(context.Context) error { return nil }
 	if runtimeConfig.RPCEnabled {
+		evmAccountKeys, err := resolveEVMAccountKeys(runtimeConfig)
+		if err != nil {
+			_ = withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop)
+			return err
+		}
 		address, shutdown, err := startRPCServerWithConfig(node, runtimeConfig.RPCAddress, vexorpc.Config{
 			AdminToken:               runtimeConfig.RPCAdminToken,
 			AdminTokens:              runtimeConfig.RPCAdminTokens,
@@ -440,7 +455,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			EVMChainConfigJSON:       inputs.Config.Chain.Execution.EVMChainConfigJSON,
 			StrictEVMStateRoot:       inputs.Config.Chain.Execution.StrictEVMStateRoot,
 			EnableEVMManagedAccounts: runtimeConfig.RPCEVMManagedAccounts,
-			EVMAccountPrivateKeys:    runtimeConfig.RPCEVMAccountKeys,
+			EVMAccountPrivateKeys:    evmAccountKeys,
 		}, serverErr)
 		if err != nil {
 			_ = withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop)
@@ -663,8 +678,9 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 		RPCEnablePprof:        runtime.RPC.EnablePprof,
 		RPCMaxRequestBytes:    runtime.RPC.MaxRequestBytes,
 		ShutdownTimeout:       defaultShutdownTimeout,
-		RPCEVMManagedAccounts: runtime.RPC.EVMManagedAccounts,
+		RPCEVMManagedAccounts: runtime.RPC.EVMManagedAccounts || len(runtime.RPC.EVMAccountPrivateKeys) > 0 || len(runtime.RPC.EVMAccountKeyEnvs) > 0,
 		RPCEVMAccountKeys:     append([]string(nil), runtime.RPC.EVMAccountPrivateKeys...),
+		RPCEVMAccountKeyEnvs:  append([]string(nil), runtime.RPC.EVMAccountKeyEnvs...),
 		P2PEnabled:            runtime.P2P.Enabled,
 		P2PListenAddress:      runtime.P2P.ListenAddress,
 		P2PNetworkID:          runtime.P2P.NetworkID,
@@ -817,7 +833,26 @@ func validateRuntimeNetworkSafety(cfg startRuntimeConfig) error {
 	if cfg.RPCEnabled && len(cfg.RPCEVMAccountKeys) > 0 && !isPrivateListenAddress(cfg.RPCAddress) {
 		return fmt.Errorf("runtime.rpc.evm_account_private_keys are only allowed on private rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
+	if cfg.RPCEnabled && len(cfg.RPCEVMAccountKeyEnvs) > 0 && !isPrivateListenAddress(cfg.RPCAddress) {
+		return fmt.Errorf("runtime.rpc.evm_account_key_envs are only allowed on private rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
+	}
 	return nil
+}
+
+func resolveEVMAccountKeys(cfg startRuntimeConfig) ([]string, error) {
+	keys := append([]string(nil), cfg.RPCEVMAccountKeys...)
+	for _, envName := range cfg.RPCEVMAccountKeyEnvs {
+		envName = strings.TrimSpace(envName)
+		if envName == "" {
+			return nil, fmt.Errorf("runtime.rpc.evm_account_key_envs contains an empty environment variable name")
+		}
+		value, found := os.LookupEnv(envName)
+		if !found || strings.TrimSpace(value) == "" {
+			return nil, fmt.Errorf("runtime.rpc.evm_account_key_envs references unset or empty environment variable %q", envName)
+		}
+		keys = append(keys, strings.TrimSpace(value))
+	}
+	return keys, nil
 }
 
 func requiresAuthenticatedP2P(cfg startRuntimeConfig) bool {
@@ -849,6 +884,7 @@ func runtimeConfigIsZero(runtime runtimeConfig) bool {
 		runtime.RPC.RateLimitMaxRequests == 0 &&
 		runtime.RPC.EVMManagedAccounts == false &&
 		len(runtime.RPC.EVMAccountPrivateKeys) == 0 &&
+		len(runtime.RPC.EVMAccountKeyEnvs) == 0 &&
 		runtime.P2P.Enabled == false &&
 		runtime.P2P.ListenAddress == "" &&
 		runtime.P2P.NetworkID == "" &&

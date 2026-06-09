@@ -82,8 +82,15 @@ type FinalityProofRecord struct {
 	Header             types.Header
 	BlockHash          types.Hash
 	QuorumCert         QuorumCertRecord
+	CommitChain        []CommitLinkRecord
 	ValidatorSetHeight types.Height
 	ValidatorSetHash   types.Hash
+}
+
+type CommitLinkRecord struct {
+	Header     types.Header
+	BlockHash  types.Hash
+	QuorumCert QuorumCertRecord
 }
 
 type QuorumCertRecord struct {

@@ -399,6 +399,43 @@ func TestRuntimeConfigLoadsEVMAccountKeysFromSplitNetworkConfig(t *testing.T) {
 	}
 }
 
+func TestRuntimeConfigLoadsEVMAccountKeyEnvsFromSplitNetworkConfig(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	networkDocument, err := readNetworkConfigDocument(filepath.Join(home, networkConfigFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	networkDocument.RPC.EVMAccountKeyEnvs = []string{"VEXO_EVM_KEY_A", "VEXO_EVM_KEY_B"}
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+
+	runtimeConfig, err := loadStartRuntimeConfig(home, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !runtimeConfig.RPCEVMManagedAccounts || len(runtimeConfig.RPCEVMAccountKeyEnvs) != 2 || runtimeConfig.RPCEVMAccountKeyEnvs[0] != "VEXO_EVM_KEY_A" {
+		t.Fatalf("expected enabled RPC EVM account key envs, got enabled=%v envs=%+v", runtimeConfig.RPCEVMManagedAccounts, runtimeConfig.RPCEVMAccountKeyEnvs)
+	}
+	t.Setenv("VEXO_EVM_KEY_A", "0xabc")
+	t.Setenv("VEXO_EVM_KEY_B", "0xdef")
+	keys, err := resolveEVMAccountKeys(runtimeConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 2 || keys[0] != "0xabc" || keys[1] != "0xdef" {
+		t.Fatalf("expected keys from envs, got %+v", keys)
+	}
+}
+
+func TestResolveEVMAccountKeysRejectsMissingEnv(t *testing.T) {
+	_, err := resolveEVMAccountKeys(startRuntimeConfig{RPCEVMAccountKeyEnvs: []string{"VEXO_MISSING_EVM_KEY"}})
+	if err == nil || !strings.Contains(err.Error(), "VEXO_MISSING_EVM_KEY") {
+		t.Fatalf("expected missing env error, got %v", err)
+	}
+}
+
 func TestRuntimeConfigLoadsP2PTLSFromSplitNetworkConfig(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
@@ -436,6 +473,16 @@ func TestApplyStartFlagOverridesEVMAccountKeys(t *testing.T) {
 	})
 	if !runtimeConfig.RPCEVMManagedAccounts || len(runtimeConfig.RPCEVMAccountKeys) != 2 || runtimeConfig.RPCEVMAccountKeys[0] != "0xabc" || runtimeConfig.RPCEVMAccountKeys[1] != "0xdef" {
 		t.Fatalf("expected enabled flag-provided EVM account keys, got enabled=%v keys=%+v", runtimeConfig.RPCEVMManagedAccounts, runtimeConfig.RPCEVMAccountKeys)
+	}
+}
+
+func TestApplyStartFlagOverridesEVMAccountKeyEnvs(t *testing.T) {
+	runtimeConfig := startRuntimeConfig{}
+	applyStartFlagOverrides(&runtimeConfig, map[string]bool{"evm-account-key-env": true}, startFlagValues{
+		rpcEVMAccountKeyEnvs: []string{"VEXO_EVM_KEY"},
+	})
+	if !runtimeConfig.RPCEVMManagedAccounts || len(runtimeConfig.RPCEVMAccountKeyEnvs) != 1 || runtimeConfig.RPCEVMAccountKeyEnvs[0] != "VEXO_EVM_KEY" {
+		t.Fatalf("expected enabled flag-provided EVM account key envs, got enabled=%v envs=%+v", runtimeConfig.RPCEVMManagedAccounts, runtimeConfig.RPCEVMAccountKeyEnvs)
 	}
 }
 
@@ -827,6 +874,14 @@ func TestLoadStartRuntimeConfigRejectsManagedEVMKeysOnPublicRPC(t *testing.T) {
 	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
 	if _, err := loadStartRuntimeConfig(home, path); err != nil {
 		t.Fatalf("expected private rpc managed account config to load, got %v", err)
+	}
+
+	networkDocument.RPC.Address = "0.0.0.0:26657"
+	networkDocument.RPC.EVMAccountPrivateKeys = nil
+	networkDocument.RPC.EVMAccountKeyEnvs = []string{"VEXO_EVM_KEY"}
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected public rpc hot key env config to fail network safety boundary, got %v", err)
 	}
 }
 

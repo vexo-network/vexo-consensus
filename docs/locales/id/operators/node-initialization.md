@@ -43,6 +43,7 @@ Dokumen ini membantu memahami inisialisasi node archive/validator dan pengelolaa
 - `--create-empty-blocks`
 - `--p2p-auth-token`
 - `--rpc-admin-token`
+- `--evm-account-key-env`
 - `--evm-account-key`
 - `validator_id`
 - `init validator`

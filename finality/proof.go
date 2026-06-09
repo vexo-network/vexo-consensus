@@ -38,6 +38,18 @@ func (proof Proof) SignBytes() []byte {
 	return signbytes.Vote(proof.QuorumCert.Height, proof.QuorumCert.Round, blockHash)
 }
 
+func (proof Proof) HasThreeChainCommitProof() bool {
+	return len(proof.CommitChain) >= 2
+}
+
+func (link CommitLink) SignBytes() []byte {
+	blockHash := link.QuorumCert.BlockHash
+	if blockHash == (types.Hash{}) {
+		blockHash = link.BlockHash
+	}
+	return signbytes.Vote(link.QuorumCert.Height, link.QuorumCert.Round, blockHash)
+}
+
 func EncodeSigners(signers []types.ValidatorID) types.Bitmap {
 	parts := make([]string, 0, len(signers))
 	for _, signer := range signers {

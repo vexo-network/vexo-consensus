@@ -800,6 +800,38 @@ func TestRunReleaseGateRejectsEvidenceManifestHashMismatch(t *testing.T) {
 	}
 }
 
+func TestRunReleaseEvidenceManifestGeneratesHashes(t *testing.T) {
+	dist := t.TempDir()
+	for _, name := range []string{"longrun-evidence.json", "sdk-conformance-evidence.json"} {
+		if err := os.WriteFile(filepath.Join(dist, name), releaseEvidenceFixture(name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"release", "evidence-manifest",
+		"--dist", dist,
+		"--json",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var manifest releasegate.EvidenceManifest
+	if err := json.Unmarshal(output.Bytes(), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.SchemaVersion != "v1" || len(manifest.Evidence) != 2 {
+		t.Fatalf("unexpected generated manifest: %+v", manifest)
+	}
+	for _, entry := range manifest.Evidence {
+		if entry.SHA256 == "" || !fileExists(entry.Path) {
+			t.Fatalf("expected manifest entry to bind existing file and hash: %+v", entry)
+		}
+	}
+	if !fileExists(filepath.Join(dist, "evidence-manifest.json")) {
+		t.Fatalf("expected evidence-manifest.json to be written")
+	}
+}
+
 func releaseCheckOK(document releaseAuditPack, name string) bool {
 	for _, check := range document.Checks {
 		if check.Name == name {

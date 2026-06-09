@@ -240,6 +240,14 @@ func stateResponse(state store.StateRecord) StateResponse {
 }
 
 func finalityProofResponse(proof finality.Proof) FinalityProofResponse {
+	commitChain := make([]CommitLinkResponse, 0, len(proof.CommitChain))
+	for _, link := range proof.CommitChain {
+		commitChain = append(commitChain, CommitLinkResponse{
+			Header:     headerResponse(link.Header),
+			BlockHash:  hex.EncodeToString(link.BlockHash[:]),
+			QuorumCert: quorumCertResponse(link.QuorumCert),
+		})
+	}
 	return FinalityProofResponse{
 		Height:             uint64(proof.Header.Height),
 		BlockHash:          hex.EncodeToString(proof.BlockHash[:]),
@@ -247,6 +255,7 @@ func finalityProofResponse(proof finality.Proof) FinalityProofResponse {
 		ValidatorSetHash:   hex.EncodeToString(proof.ValidatorSetHash[:]),
 		Header:             headerResponse(proof.Header),
 		QuorumCert:         quorumCertResponse(proof.QuorumCert),
+		CommitChain:        commitChain,
 	}
 }
 

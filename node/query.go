@@ -198,6 +198,21 @@ func (node *Node) finalityProof(ctx context.Context, height types.Height) (final
 }
 
 func finalityProofFromRecord(record store.FinalityProofRecord) finality.Proof {
+	commitChain := make([]finality.CommitLink, 0, len(record.CommitChain))
+	for _, link := range record.CommitChain {
+		commitChain = append(commitChain, finality.CommitLink{
+			Header:    link.Header,
+			BlockHash: link.BlockHash,
+			QuorumCert: finality.QuorumCert{
+				Height:      link.QuorumCert.Height,
+				Round:       link.QuorumCert.Round,
+				BlockHash:   link.QuorumCert.BlockHash,
+				Signers:     link.QuorumCert.Signers,
+				Signature:   link.QuorumCert.Signature,
+				VotingPower: link.QuorumCert.VotingPower,
+			},
+		})
+	}
 	return finality.Proof{
 		Header:    record.Header,
 		BlockHash: record.BlockHash,
@@ -209,12 +224,28 @@ func finalityProofFromRecord(record store.FinalityProofRecord) finality.Proof {
 			Signature:   record.QuorumCert.Signature,
 			VotingPower: record.QuorumCert.VotingPower,
 		},
+		CommitChain:        commitChain,
 		ValidatorSetHeight: record.ValidatorSetHeight,
 		ValidatorSetHash:   record.ValidatorSetHash,
 	}
 }
 
 func finalityProofRecord(proof finality.Proof) store.FinalityProofRecord {
+	commitChain := make([]store.CommitLinkRecord, 0, len(proof.CommitChain))
+	for _, link := range proof.CommitChain {
+		commitChain = append(commitChain, store.CommitLinkRecord{
+			Header:    link.Header,
+			BlockHash: link.BlockHash,
+			QuorumCert: store.QuorumCertRecord{
+				Height:      link.QuorumCert.Height,
+				Round:       link.QuorumCert.Round,
+				BlockHash:   link.QuorumCert.BlockHash,
+				Signers:     link.QuorumCert.Signers,
+				Signature:   link.QuorumCert.Signature,
+				VotingPower: link.QuorumCert.VotingPower,
+			},
+		})
+	}
 	return store.FinalityProofRecord{
 		Header:    proof.Header,
 		BlockHash: proof.BlockHash,
@@ -226,6 +257,7 @@ func finalityProofRecord(proof finality.Proof) store.FinalityProofRecord {
 			Signature:   proof.QuorumCert.Signature,
 			VotingPower: proof.QuorumCert.VotingPower,
 		},
+		CommitChain:        commitChain,
 		ValidatorSetHeight: proof.ValidatorSetHeight,
 		ValidatorSetHash:   proof.ValidatorSetHash,
 	}
