@@ -84,6 +84,32 @@ func (nonceVM) Execute(ctx context.Context, invocation contract.Invocation) (con
 	}, nil
 }
 
+type nonBatchStore struct {
+	values map[string][]byte
+}
+
+func newNonBatchStore() *nonBatchStore {
+	return &nonBatchStore{values: make(map[string][]byte)}
+}
+
+func (storage *nonBatchStore) Set(ctx context.Context, namespace string, key []byte, value []byte) error {
+	storage.values[namespace+"/"+string(key)] = append([]byte(nil), value...)
+	return nil
+}
+
+func (storage *nonBatchStore) Get(ctx context.Context, namespace string, key []byte) ([]byte, error) {
+	value, found := storage.values[namespace+"/"+string(key)]
+	if !found {
+		return nil, store.ErrKeyNotFound
+	}
+	return append([]byte(nil), value...), nil
+}
+
+func (storage *nonBatchStore) Delete(ctx context.Context, namespace string, key []byte) error {
+	delete(storage.values, namespace+"/"+string(key))
+	return nil
+}
+
 type bigBalanceVM struct {
 	balance *big.Int
 }
@@ -1340,6 +1366,20 @@ func TestModuleSnapshotsUseStagedStoreOverlay(t *testing.T) {
 	}
 	if proof.Balance != "0x19" {
 		t.Fatalf("expected staged balance in snapshot, got %+v", proof)
+	}
+}
+
+func TestEVMWritesRequireAtomicBatchStore(t *testing.T) {
+	storage := newNonBatchStore()
+	if err := applyKVWrites(context.Background(), storage, []store.KVWrite{{
+		Namespace: ModuleName,
+		Key:       []byte("a"),
+		Value:     []byte("b"),
+	}}); !errors.Is(err, ErrAtomicStoreRequired) {
+		t.Fatalf("expected atomic store error, got %v", err)
+	}
+	if _, err := storage.Get(context.Background(), ModuleName, []byte("a")); err == nil {
+		t.Fatalf("expected no partial EVM write on non-batch store")
 	}
 }
 

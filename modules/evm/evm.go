@@ -33,6 +33,7 @@ var (
 	ErrInvalidEVMGasEstimate = errors.New("invalid EVM gas estimate")
 	ErrStoreMissing          = errors.New("EVM module store is required")
 	ErrVMRegistryEmpty       = errors.New("EVM VM registry is required")
+	ErrAtomicStoreRequired   = errors.New("EVM module requires an atomic batch store")
 )
 
 type Module struct {
@@ -1269,12 +1270,7 @@ func (module Module) persistBlobSidecar(ctx context.Context, store vexoapp.State
 	if batchStore, ok := store.(vexostore.BatchKVStore); ok {
 		return batchStore.SetBatch(ctx, writes)
 	}
-	for _, write := range writes {
-		if err := store.Set(ctx, write.Namespace, write.Key, write.Value); err != nil {
-			return err
-		}
-	}
-	return nil
+	return ErrAtomicStoreRequired
 }
 
 func (module Module) validateBlobSidecarLimits(encoded string, bundle ethcompat.BlobSidecarBundle) error {
@@ -1317,12 +1313,7 @@ func persistReceiptIndexes(ctx context.Context, store vexoapp.StateStore, result
 	if batchStore, ok := store.(vexostore.BatchKVStore); ok {
 		return batchStore.SetBatch(ctx, writes)
 	}
-	for _, write := range writes {
-		if err := store.Set(ctx, write.Namespace, write.Key, write.Value); err != nil {
-			return err
-		}
-	}
-	return nil
+	return ErrAtomicStoreRequired
 }
 
 func receiptFromTxResult(result types.Result) (Receipt, bool) {
@@ -1680,18 +1671,7 @@ func applyKVWrites(ctx context.Context, store vexoapp.StateStore, writes []vexos
 	if batchStore, ok := store.(vexostore.BatchKVStore); ok {
 		return batchStore.SetBatch(ctx, writes)
 	}
-	for _, write := range writes {
-		if write.Delete {
-			if err := store.Delete(ctx, write.Namespace, write.Key); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := store.Set(ctx, write.Namespace, write.Key, write.Value); err != nil {
-			return err
-		}
-	}
-	return nil
+	return ErrAtomicStoreRequired
 }
 
 func deleteWrite(namespace string, key []byte) vexostore.KVWrite {

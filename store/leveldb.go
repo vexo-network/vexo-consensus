@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 
 	"github.com/syndtr/goleveldb/leveldb"
 	leveldberrors "github.com/syndtr/goleveldb/leveldb/errors"
@@ -32,7 +33,8 @@ var (
 )
 
 type LevelDBStore struct {
-	db *leveldb.DB
+	db         *leveldb.DB
+	evidenceMu sync.Mutex
 }
 
 type kvHistoryRecord struct {

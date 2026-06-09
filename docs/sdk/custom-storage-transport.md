@@ -27,6 +27,7 @@ Historical snapshot support is required for runtime construction. Custom stores 
 A production storage backend must guarantee:
 
 - atomic block/state persistence or clear recovery semantics
+- `BatchKVStore` for modules that write multiple keys per transaction, especially staking custody and EVM execution
 - crash-safe latest state pointer
 - durable evidence records
 - deterministic state roots

@@ -213,9 +213,13 @@ func (module *Module) submit(ctx context.Context, parts []string) (uint64, error
 }
 
 type proposalJSONPayload struct {
-	Submitter string                        `json:"submitter"`
-	Title     string                        `json:"title"`
-	Changes   []proposalJSONParameterChange `json:"changes"`
+	Submitter   string                        `json:"submitter"`
+	Title       string                        `json:"title"`
+	Description string                        `json:"description,omitempty"`
+	MetadataURI string                        `json:"metadata_uri,omitempty"`
+	Type        string                        `json:"type,omitempty"`
+	Deposit     string                        `json:"deposit,omitempty"`
+	Changes     []proposalJSONParameterChange `json:"changes"`
 }
 
 type proposalJSONParameterChange struct {
@@ -239,6 +243,9 @@ func (module *Module) submitJSON(ctx context.Context, encodedPayload string) (ui
 	if payload.Submitter == "" || payload.Title == "" || len(payload.Changes) == 0 {
 		return 0, ErrInvalidGovernanceTx
 	}
+	if payload.Type != "" && payload.Type != "parameter_change" {
+		return 0, ErrInvalidGovernanceTx
+	}
 	changes := make([]vexogov.ParameterChange, 0, len(payload.Changes))
 	for _, change := range payload.Changes {
 		if change.Module == "" || change.Key == "" {
@@ -251,10 +258,25 @@ func (module *Module) submitJSON(ctx context.Context, encodedPayload string) (ui
 		})
 	}
 	return module.keeper.SubmitProposal(ctx, vexogov.Proposal{
-		Submitter: types.Address(payload.Submitter),
-		Title:     payload.Title,
-		Changes:   changes,
+		Submitter:   types.Address(payload.Submitter),
+		Title:       payload.Title,
+		Description: proposalDescription(payload),
+		Changes:     changes,
 	})
+}
+
+func proposalDescription(payload proposalJSONPayload) string {
+	parts := make([]string, 0, 3)
+	if strings.TrimSpace(payload.Description) != "" {
+		parts = append(parts, strings.TrimSpace(payload.Description))
+	}
+	if strings.TrimSpace(payload.MetadataURI) != "" {
+		parts = append(parts, "metadata_uri="+strings.TrimSpace(payload.MetadataURI))
+	}
+	if strings.TrimSpace(payload.Deposit) != "" {
+		parts = append(parts, "deposit="+strings.TrimSpace(payload.Deposit))
+	}
+	return strings.Join(parts, "\n")
 }
 
 func (module *Module) vote(ctx vexoapp.Context, parts []string) error {

@@ -38,6 +38,7 @@ var (
 	ErrClientFrozen             = errors.New("IBC client is frozen")
 	ErrClientExpired            = errors.New("IBC client trusting period expired")
 	ErrStaleClientUpdate        = errors.New("stale IBC client update")
+	ErrUnauthorizedClientUpdate = errors.New("unauthorized IBC client update")
 	ErrChannelNotOpen           = errors.New("IBC channel is not open")
 	ErrConnectionNotOpen        = errors.New("IBC connection is not open")
 	ErrUnexpectedPacketSequence = errors.New("unexpected IBC packet sequence")
@@ -56,6 +57,7 @@ type ClientState struct {
 	LatestStateRoot      types.Hash   `json:"latest_state_root,omitempty"`
 	Frozen               bool         `json:"frozen,omitempty"`
 	TrustingPeriodHeight uint64       `json:"trusting_period_height,omitempty"`
+	Authority            string       `json:"authority,omitempty"`
 }
 
 type ConnectionState struct {
@@ -121,6 +123,10 @@ func (keeper *Keeper) Client(ctx context.Context, clientID string) (ClientState,
 }
 
 func (keeper *Keeper) UpdateClient(ctx context.Context, clientID string, latestHeight types.Height, validatorSetHash types.Hash, latestStateRoot types.Hash) error {
+	return keeper.UpdateClientWithAuthority(ctx, clientID, latestHeight, validatorSetHash, latestStateRoot, "")
+}
+
+func (keeper *Keeper) UpdateClientWithAuthority(ctx context.Context, clientID string, latestHeight types.Height, validatorSetHash types.Hash, latestStateRoot types.Hash, authority string) error {
 	if clientID == "" || latestHeight == 0 || validatorSetHash == (types.Hash{}) || latestStateRoot == (types.Hash{}) {
 		return ErrInvalidClient
 	}
@@ -133,6 +139,9 @@ func (keeper *Keeper) UpdateClient(ctx context.Context, clientID string, latestH
 	}
 	if client.Frozen {
 		return ErrClientFrozen
+	}
+	if client.Authority != "" && authority != client.Authority {
+		return ErrUnauthorizedClientUpdate
 	}
 	if latestHeight <= client.LatestHeight {
 		return ErrStaleClientUpdate

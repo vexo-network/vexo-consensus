@@ -66,6 +66,27 @@ func TestModuleStoresClientChannelAndPacket(t *testing.T) {
 	}
 }
 
+func TestModuleClientUpdateRequiresStoredAuthority(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	hash := strings.Repeat("01", 32)
+	root := strings.Repeat("02", 32)
+	ctx := vexoapp.Context{Ctx: context.Background(), Height: 7, Store: storage}
+	if result := module.DeliverTx(ctx, types.Tx("ibc:client-create:07-vexo-0:counterparty:5:"+hash+":signer=relayer-1")); result.Code != 0 {
+		t.Fatalf("unexpected client create result: %+v", result)
+	}
+	if result := module.DeliverTx(ctx, types.Tx("ibc:client-update:07-vexo-0:6:"+hash+":"+root+":signer=relayer-2")); result.Code == 0 || !strings.Contains(result.Log, ibckeeper.ErrUnauthorizedClientUpdate.Error()) {
+		t.Fatalf("expected unauthorized client update, got %+v", result)
+	}
+	if result := module.DeliverTx(ctx, types.Tx("ibc:client-update:07-vexo-0:6:"+hash+":"+root+":signer=relayer-1")); result.Code != 0 {
+		t.Fatalf("unexpected authorized client update result: %+v", result)
+	}
+}
+
 func TestModuleGenesisQueriesGasAndErrorEdges(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {

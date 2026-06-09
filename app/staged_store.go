@@ -152,6 +152,69 @@ func (store *StagedStore) ExportPrefix(ctx context.Context, namespace string, pr
 	return result, nil
 }
 
+func (store *StagedStore) ExportNamespace(ctx context.Context, namespace string) ([]vexostore.KVPair, error) {
+	if store == nil || store.base == nil {
+		return nil, errors.New("missing staged base store")
+	}
+	snapshot, ok := store.base.(vexostore.SnapshotKVStore)
+	if !ok {
+		return nil, errors.New("staged base store cannot export namespaces")
+	}
+	pairs, err := snapshot.ExportNamespace(ctx, namespace)
+	if err != nil {
+		return nil, err
+	}
+	merged := make(map[string]vexostore.KVPair, len(pairs)+len(store.overlay))
+	for _, pair := range pairs {
+		merged[string(pair.Key)] = vexostore.KVPair{
+			Namespace: pair.Namespace,
+			Key:       append([]byte(nil), pair.Key...),
+			Value:     append([]byte(nil), pair.Value...),
+		}
+	}
+	for _, write := range store.overlay {
+		if write.Namespace != namespace {
+			continue
+		}
+		key := string(write.Key)
+		if write.Delete {
+			delete(merged, key)
+			continue
+		}
+		merged[key] = vexostore.KVPair{
+			Namespace: write.Namespace,
+			Key:       append([]byte(nil), write.Key...),
+			Value:     append([]byte(nil), write.Value...),
+		}
+	}
+	result := make([]vexostore.KVPair, 0, len(merged))
+	for _, pair := range merged {
+		result = append(result, pair)
+	}
+	sort.Slice(result, func(first int, second int) bool {
+		return string(result[first].Key) < string(result[second].Key)
+	})
+	return result, nil
+}
+
+func (store *StagedStore) ImportNamespace(ctx context.Context, namespace string, pairs []vexostore.KVPair) error {
+	if store == nil || store.base == nil {
+		return errors.New("missing staged base store")
+	}
+	existing, err := store.ExportNamespace(ctx, namespace)
+	if err != nil {
+		return err
+	}
+	writes := make([]kvbatch.KVWrite, 0, len(existing)+len(pairs))
+	for _, pair := range existing {
+		writes = append(writes, kvbatch.KVWrite{Namespace: namespace, Key: pair.Key, Delete: true})
+	}
+	for _, pair := range pairs {
+		writes = append(writes, kvbatch.KVWrite{Namespace: namespace, Key: pair.Key, Value: pair.Value})
+	}
+	return store.SetBatch(ctx, writes)
+}
+
 func (store *StagedStore) Writes() []kvbatch.KVWrite {
 	if store == nil {
 		return nil

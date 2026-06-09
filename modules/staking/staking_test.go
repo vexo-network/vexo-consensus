@@ -127,6 +127,51 @@ func TestStakingWithdrawsMaturedUnbonding(t *testing.T) {
 	}
 }
 
+func TestStakingWithdrawsOnlyMaturedUnbondingEntries(t *testing.T) {
+	storage := newStakingStore(t)
+	module := NewModuleWithUnbondingDelay(10)
+	if err := setBankBalance(context.Background(), storage, "alice", 100); err != nil {
+		t.Fatal(err)
+	}
+	publicKey := base64.StdEncoding.EncodeToString([]byte("validator-key"))
+	if result := module.DeliverTx(vexoapp.Context{Height: 1, Store: storage}, types.Tx("staking:delegate:alice:validator-1:80:"+publicKey)); result.Code != 0 {
+		t.Fatalf("unexpected delegate result: %+v", result)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 2, Store: storage}, types.Tx("staking:undelegate:alice:validator-1:20")); result.Code != 0 {
+		t.Fatalf("unexpected first undelegate result: %+v", result)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 7, Store: storage}, types.Tx("staking:undelegate:alice:validator-1:30")); result.Code != 0 {
+		t.Fatalf("unexpected second undelegate result: %+v", result)
+	}
+	if amount, err := UnbondingAmount(context.Background(), storage, "alice", "validator-1"); err != nil || amount != 50 {
+		t.Fatalf("expected total unbonding 50, got %d err=%v", amount, err)
+	}
+	if releaseHeight, err := UnbondingReleaseHeight(context.Background(), storage, "alice", "validator-1"); err != nil || releaseHeight != 12 {
+		t.Fatalf("expected earliest release height 12, got %d err=%v", releaseHeight, err)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 12, Store: storage}, types.Tx("staking:withdraw-unbonded:alice:validator-1")); result.Code != 0 {
+		t.Fatalf("unexpected first withdrawal result: %+v", result)
+	}
+	if balance, err := bankBalance(context.Background(), storage, "alice"); err != nil || balance != 40 {
+		t.Fatalf("expected balance 40 after first withdrawal, got %d err=%v", balance, err)
+	}
+	if amount, err := UnbondingAmount(context.Background(), storage, "alice", "validator-1"); err != nil || amount != 30 {
+		t.Fatalf("expected pending unbonding 30, got %d err=%v", amount, err)
+	}
+	if releaseHeight, err := UnbondingReleaseHeight(context.Background(), storage, "alice", "validator-1"); err != nil || releaseHeight != 17 {
+		t.Fatalf("expected pending release height 17, got %d err=%v", releaseHeight, err)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 16, Store: storage}, types.Tx("staking:withdraw-unbonded:alice:validator-1")); result.Code == 0 || !strings.Contains(result.Log, ErrUnbondingNotMature.Error()) {
+		t.Fatalf("expected remaining entry immature failure, got %+v", result)
+	}
+	if result := module.DeliverTx(vexoapp.Context{Height: 17, Store: storage}, types.Tx("staking:withdraw-unbonded:alice:validator-1")); result.Code != 0 {
+		t.Fatalf("unexpected second withdrawal result: %+v", result)
+	}
+	if balance, err := bankBalance(context.Background(), storage, "alice"); err != nil || balance != 70 {
+		t.Fatalf("expected balance 70 after all withdrawals, got %d err=%v", balance, err)
+	}
+}
+
 func TestStakingWithdrawUnbondedBatchFailureDoesNotMutateState(t *testing.T) {
 	base := newStakingStore(t)
 	storage := failingBatchStore{Store: base, err: errors.New("batch failed")}

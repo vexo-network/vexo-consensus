@@ -584,7 +584,7 @@ func splitExecutionTags(args []string) ([]string, map[string]string, error) {
 		}
 		key := strings.TrimPrefix(arg, "--")
 		switch key {
-		case "fee", "gas", "signer", "nonce":
+		case "fee", "gas", "signer", "nonce", "authority":
 			if index+1 >= len(args) || strings.HasPrefix(args[index+1], "--") {
 				return nil, nil, vexoapp.ErrCLIUsage("--" + key + " <value>")
 			}

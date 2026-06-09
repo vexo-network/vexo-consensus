@@ -16,9 +16,23 @@ func (store *LevelDBStore) SaveEvidence(ctx context.Context, record EvidenceReco
 		return ctx.Err()
 	default:
 	}
+	store.evidenceMu.Lock()
+	defer store.evidenceMu.Unlock()
 	key := EvidenceKey(record.Evidence)
 	if key == "" {
 		return ErrInvalidKey
+	}
+	existing, err := store.EvidenceByKey(ctx, key)
+	if err != nil && !errors.Is(err, ErrEvidenceNotFound) {
+		return err
+	}
+	if err == nil {
+		if existing.Applied {
+			record.Applied = true
+		}
+		if record.CreatedAt == 0 {
+			record.CreatedAt = existing.CreatedAt
+		}
 	}
 	encoded, err := json.Marshal(record)
 	if err != nil {

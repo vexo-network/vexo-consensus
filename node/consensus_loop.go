@@ -36,12 +36,19 @@ type autoVoteReactor struct {
 	mu                 sync.Mutex
 	pendingVotes       map[types.Hash][]consensus.Vote
 	localVotes         map[voteRound]consensus.Vote
+	unknownVotes       map[unknownVoteKey]consensus.Vote
 }
 
 type voteRound struct {
 	height    types.Height
 	round     types.Round
 	blockHash types.Hash
+}
+
+type unknownVoteKey struct {
+	height      types.Height
+	round       types.Round
+	validatorID types.ValidatorID
 }
 
 func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consensus.Proposal) error {
@@ -122,6 +129,7 @@ func (reactor *autoVoteReactor) OnVote(ctx context.Context, vote consensus.Vote)
 	before := len(reactor.machine.Evidence())
 	err := reactor.machine.OnVote(ctx, vote)
 	if errors.Is(err, consensus.ErrUnknownVoteBlock) {
+		reactor.publishUnknownVoteEvidence(ctx, vote)
 		reactor.cachePendingVote(vote)
 		return nil
 	}
@@ -133,6 +141,33 @@ func (reactor *autoVoteReactor) OnVote(ctx context.Context, vote consensus.Vote)
 		reactor.onVoteAccepted(ctx)
 	}
 	return err
+}
+
+func (reactor *autoVoteReactor) publishUnknownVoteEvidence(ctx context.Context, vote consensus.Vote) {
+	if reactor.onEvidence == nil {
+		return
+	}
+	reactor.mu.Lock()
+	if reactor.unknownVotes == nil {
+		reactor.unknownVotes = make(map[unknownVoteKey]consensus.Vote)
+	}
+	key := unknownVoteKey{height: vote.Height, round: vote.Round, validatorID: vote.ValidatorID}
+	previous, found := reactor.unknownVotes[key]
+	if !found {
+		reactor.unknownVotes[key] = vote
+		reactor.mu.Unlock()
+		return
+	}
+	if previous.BlockHash == vote.BlockHash {
+		reactor.mu.Unlock()
+		return
+	}
+	reactor.mu.Unlock()
+	evidence, err := consensus.NewConflictingVoteEvidence(previous, vote)
+	if err != nil {
+		return
+	}
+	reactor.onEvidence(ctx, evidence)
 }
 
 func (reactor *autoVoteReactor) reportError(event string, err error) {

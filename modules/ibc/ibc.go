@@ -133,6 +133,7 @@ func (Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 			LatestHeight:     height,
 			ValidatorSetHash: hash,
 			LatestStateRoot:  stateRoot,
+			Authority:        clientAuthority(canonical.Tags),
 		})
 		return resultFromError(err)
 	case "client-update":
@@ -154,7 +155,7 @@ func (Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		if err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
-		err = keeper.UpdateClient(ctx.GoContext(), canonical.Args[0], height, validatorSetHash, stateRoot)
+		err = keeper.UpdateClientWithAuthority(ctx.GoContext(), canonical.Args[0], height, validatorSetHash, stateRoot, clientAuthority(canonical.Tags))
 		return resultFromError(err)
 	case "connection-open":
 		return deliverConnectionOpen(ctx, keeper, canonical.Args, ibckeeper.StateInit)
@@ -241,7 +242,7 @@ func (Module) EndBlock(ctx vexoapp.Context) error {
 func sweepExpiredPackets(ctx vexoapp.Context) error {
 	snapshot, ok := ctx.Store.(store.SnapshotKVStore)
 	if !ok {
-		return nil
+		return ErrStoreMissing
 	}
 	pairs, err := snapshot.ExportNamespace(ctx.GoContext(), ibckeeper.Namespace)
 	if err != nil {
@@ -429,6 +430,16 @@ func resultFromError(err error) types.Result {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
 	return types.Result{}
+}
+
+func clientAuthority(tags map[string]string) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	if authority := strings.TrimSpace(tags["authority"]); authority != "" {
+		return authority
+	}
+	return strings.TrimSpace(tags["signer"])
 }
 
 func deliverConnectionOpen(ctx vexoapp.Context, keeper *ibckeeper.Keeper, args []string, state string) types.Result {
@@ -627,6 +638,10 @@ func SendPacket(ctx context.Context, store vexoapp.StateStore, height types.Heig
 
 func UpdateClient(ctx context.Context, store vexoapp.StateStore, clientID string, latestHeight types.Height, validatorSetHash types.Hash, latestStateRoot types.Hash) error {
 	return ibckeeper.NewKeeper(store).UpdateClient(ctx, clientID, latestHeight, validatorSetHash, latestStateRoot)
+}
+
+func UpdateClientWithAuthority(ctx context.Context, store vexoapp.StateStore, clientID string, latestHeight types.Height, validatorSetHash types.Hash, latestStateRoot types.Hash, authority string) error {
+	return ibckeeper.NewKeeper(store).UpdateClientWithAuthority(ctx, clientID, latestHeight, validatorSetHash, latestStateRoot, authority)
 }
 
 func VerifyClientProof(ctx context.Context, store vexoapp.StateStore, clientID string, proof queryproof.Proof) error {

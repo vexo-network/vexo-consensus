@@ -113,7 +113,11 @@ func (node *Node) disconnectPeer(peer p2p.PeerID) {
 }
 
 func (node *Node) persistPeerScores() error {
-	return nil
+	node.mu.Lock()
+	runtime := node.runtime
+	path := node.cfg.PeerScorePath()
+	node.mu.Unlock()
+	return savePeerScores(runtime, path)
 }
 
 func (node *Node) persistPeerScoresLocked() error {

@@ -144,14 +144,19 @@ func TestGovernanceModuleRejectsInvalidTransactions(t *testing.T) {
 
 func TestGovernanceModuleSubmitsMultiChangeJSONProposal(t *testing.T) {
 	module := NewModule()
-	payload := `{"submitter":"alice","title":"multi-change","changes":[{"module":"execution","key":"max_gas","value":"20000000"},{"module":"mempool","key":"max_txs","value":"50000"}]}`
+	payload := `{"submitter":"alice","title":"multi-change","description":"raise limits","metadata_uri":"ipfs://proposal","type":"parameter_change","deposit":"100avxo","changes":[{"module":"execution","key":"max_gas","value":"20000000"},{"module":"mempool","key":"max_txs","value":"50000"}]}`
 	tx := types.Tx("governance:submit-json:" + base64.RawStdEncoding.EncodeToString([]byte(payload)))
 	result := module.DeliverTx(vexoapp.Context{Height: 1}, tx)
 	if result.Code != 0 {
 		t.Fatalf("unexpected submit-json result: %+v", result)
 	}
 	response := module.Query(vexoapp.Context{}, vexoapp.QueryRequest{Path: []string{"proposal", "1"}})
-	if response.Code != 0 || !strings.Contains(string(response.Value), `"max_txs"`) || !strings.Contains(string(response.Value), `"max_gas"`) {
+	if response.Code != 0 ||
+		!strings.Contains(string(response.Value), `"max_txs"`) ||
+		!strings.Contains(string(response.Value), `"max_gas"`) ||
+		!strings.Contains(string(response.Value), `raise limits`) ||
+		!strings.Contains(string(response.Value), `metadata_uri=ipfs://proposal`) ||
+		!strings.Contains(string(response.Value), `deposit=100avxo`) {
 		t.Fatalf("expected multi-change proposal query, got %+v", response)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/bits"
@@ -388,7 +389,11 @@ func (module *Module) undelegate(ctx context.Context, store vexoapp.StateStore, 
 		return types.ValidatorUpdate{}, ErrInvalidStakeRecord
 	}
 	newPower := currentPower - amount
-	unbondingAmount, err := UnbondingAmount(ctx, store, delegator, validatorID)
+	entries, err := loadUnbondingEntries(ctx, store, delegator, validatorID)
+	if err != nil {
+		return types.ValidatorUpdate{}, err
+	}
+	unbondingAmount, err := sumUnbondingEntries(entries)
 	if err != nil {
 		return types.ValidatorUpdate{}, err
 	}
@@ -399,12 +404,15 @@ func (module *Module) undelegate(ctx context.Context, store vexoapp.StateStore, 
 		return types.ValidatorUpdate{}, ErrStakeOverflow
 	}
 	releaseHeight := height + module.unbondingDelay
-	if err := applyAtomicWrites(ctx, store, []kvbatch.KVWrite{
+	unbondingWrites, err := appendUnbondingEntryWrites(ctx, store, delegator, validatorID, entries, amount, releaseHeight)
+	if err != nil {
+		return types.ValidatorUpdate{}, err
+	}
+	writes := append([]kvbatch.KVWrite{
 		{Namespace: ModuleName, Key: stakeKey(delegator, validatorID), Value: encodeUint64(currentStake - amount)},
 		{Namespace: ModuleName, Key: validatorPowerKey(validatorID), Value: encodeUint64(newPower)},
-		{Namespace: ModuleName, Key: unbondingKey(delegator, validatorID), Value: encodeUint64(uint64(releaseHeight))},
-		{Namespace: ModuleName, Key: unbondingAmountKey(delegator, validatorID), Value: encodeUint64(unbondingAmount + amount)},
-	}); err != nil {
+	}, unbondingWrites...)
+	if err := applyAtomicWrites(ctx, store, writes); err != nil {
 		return types.ValidatorUpdate{}, err
 	}
 	publicKey, err := store.Get(ctx, ModuleName, validatorKeyKey(validatorID))
@@ -507,12 +515,28 @@ func DelegatedPower(ctx context.Context, store vexoapp.StateStore, delegator typ
 }
 
 func UnbondingReleaseHeight(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) (types.Height, error) {
-	value, err := getUint64(ctx, store, unbondingKey(delegator, validatorID))
-	return types.Height(value), err
+	entries, err := loadUnbondingEntries(ctx, store, delegator, validatorID)
+	if err != nil {
+		return 0, err
+	}
+	if len(entries) == 0 {
+		return 0, nil
+	}
+	releaseHeight := entries[0].ReleaseHeight
+	for _, entry := range entries[1:] {
+		if entry.ReleaseHeight < releaseHeight {
+			releaseHeight = entry.ReleaseHeight
+		}
+	}
+	return releaseHeight, nil
 }
 
 func UnbondingAmount(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) (uint64, error) {
-	return getUint64(ctx, store, unbondingAmountKey(delegator, validatorID))
+	entries, err := loadUnbondingEntries(ctx, store, delegator, validatorID)
+	if err != nil {
+		return 0, err
+	}
+	return sumUnbondingEntries(entries)
 }
 
 func Rewards(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) (uint64, error) {
@@ -577,19 +601,28 @@ func (module *Module) withdrawUnbonded(ctx context.Context, store vexoapp.StateS
 	if delegator == "" || validatorID == "" {
 		return ErrInvalidStakingTx
 	}
-	releaseHeight, err := UnbondingReleaseHeight(ctx, store, delegator, validatorID)
+	entries, err := loadUnbondingEntries(ctx, store, delegator, validatorID)
 	if err != nil {
 		return err
 	}
-	amount, err := UnbondingAmount(ctx, store, delegator, validatorID)
-	if err != nil {
-		return err
-	}
-	if amount == 0 {
+	if len(entries) == 0 {
 		return ErrNoUnbonding
 	}
-	if height < releaseHeight {
+	matured := make([]unbondingEntry, 0, len(entries))
+	pending := make([]unbondingEntry, 0, len(entries))
+	for _, entry := range entries {
+		if height >= entry.ReleaseHeight {
+			matured = append(matured, entry)
+			continue
+		}
+		pending = append(pending, entry)
+	}
+	if len(matured) == 0 {
 		return ErrUnbondingNotMature
+	}
+	amount, err := sumUnbondingEntries(matured)
+	if err != nil {
+		return err
 	}
 	balance, err := bankBalance(ctx, store, delegator)
 	if err != nil {
@@ -598,11 +631,19 @@ func (module *Module) withdrawUnbonded(ctx context.Context, store vexoapp.StateS
 	if balance > ^uint64(0)-amount {
 		return ErrStakeOverflow
 	}
-	return applyAtomicWrites(ctx, store, []kvbatch.KVWrite{
+	writes, err := replaceUnbondingEntriesWrites(delegator, validatorID, pending)
+	if err != nil {
+		return err
+	}
+	for _, entry := range matured {
+		if !entry.legacy {
+			writes = append(writes, kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingEntryKey(delegator, validatorID, entry.ID), Delete: true})
+		}
+	}
+	writes = append([]kvbatch.KVWrite{
 		{Namespace: bankNamespace, Key: bankBalanceKey(delegator), Value: encodeUint64(balance + amount)},
-		{Namespace: ModuleName, Key: unbondingKey(delegator, validatorID), Delete: true},
-		{Namespace: ModuleName, Key: unbondingAmountKey(delegator, validatorID), Delete: true},
-	})
+	}, writes...)
+	return applyAtomicWrites(ctx, store, writes)
 }
 
 type validatorPowerRecord struct {
@@ -614,6 +655,13 @@ type delegationRecord struct {
 	delegator   types.Address
 	validatorID types.ValidatorID
 	stake       uint64
+}
+
+type unbondingEntry struct {
+	ID            uint64       `json:"id"`
+	Amount        uint64       `json:"amount"`
+	ReleaseHeight types.Height `json:"release_height"`
+	legacy        bool
 }
 
 func (module *Module) distributeFees(ctx context.Context, store vexoapp.StateStore) error {
@@ -770,6 +818,152 @@ func setValidatorPower(ctx context.Context, store vexoapp.StateStore, validatorI
 
 func setUnbondingReleaseHeight(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID, releaseHeight types.Height) error {
 	return setUint64(ctx, store, ModuleName, unbondingKey(delegator, validatorID), uint64(releaseHeight))
+}
+
+func loadUnbondingEntries(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) ([]unbondingEntry, error) {
+	if store == nil || delegator == "" || validatorID == "" {
+		return nil, ErrInvalidStakingTx
+	}
+	rawIndex, err := store.Get(ctx, ModuleName, unbondingIndexKey(delegator, validatorID))
+	if err != nil && !errors.Is(err, vexostore.ErrKeyNotFound) {
+		return nil, err
+	}
+	if err == nil && len(rawIndex) > 0 {
+		var ids []uint64
+		if err := json.Unmarshal(rawIndex, &ids); err != nil {
+			return nil, ErrInvalidStakeRecord
+		}
+		entries := make([]unbondingEntry, 0, len(ids))
+		for _, id := range ids {
+			rawEntry, err := store.Get(ctx, ModuleName, unbondingEntryKey(delegator, validatorID, id))
+			if err != nil {
+				return nil, err
+			}
+			var entry unbondingEntry
+			if err := json.Unmarshal(rawEntry, &entry); err != nil {
+				return nil, ErrInvalidStakeRecord
+			}
+			if entry.ID != id || entry.Amount == 0 || entry.ReleaseHeight == 0 {
+				return nil, ErrInvalidStakeRecord
+			}
+			entries = append(entries, entry)
+		}
+		return entries, nil
+	}
+	releaseHeight, err := getUint64(ctx, store, unbondingKey(delegator, validatorID))
+	if err != nil {
+		return nil, err
+	}
+	amount, err := getUint64(ctx, store, unbondingAmountKey(delegator, validatorID))
+	if err != nil {
+		return nil, err
+	}
+	if amount == 0 {
+		return nil, nil
+	}
+	if releaseHeight == 0 {
+		return nil, ErrInvalidStakeRecord
+	}
+	return []unbondingEntry{{
+		ID:            0,
+		Amount:        amount,
+		ReleaseHeight: types.Height(releaseHeight),
+		legacy:        true,
+	}}, nil
+}
+
+func appendUnbondingEntryWrites(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID, existing []unbondingEntry, amount uint64, releaseHeight types.Height) ([]kvbatch.KVWrite, error) {
+	nextID, err := getUint64(ctx, store, unbondingNextIDKey(delegator, validatorID))
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]unbondingEntry, 0, len(existing)+1)
+	for _, entry := range existing {
+		if entry.ID == 0 {
+			nextID++
+			entry.ID = nextID
+			entry.legacy = false
+		}
+		if entry.ID > nextID {
+			nextID = entry.ID
+		}
+		entries = append(entries, entry)
+	}
+	nextID++
+	entries = append(entries, unbondingEntry{ID: nextID, Amount: amount, ReleaseHeight: releaseHeight})
+	return replaceUnbondingEntriesWritesWithNextID(delegator, validatorID, entries, nextID)
+}
+
+func replaceUnbondingEntriesWrites(delegator types.Address, validatorID types.ValidatorID, entries []unbondingEntry) ([]kvbatch.KVWrite, error) {
+	nextID := uint64(0)
+	for _, entry := range entries {
+		if entry.ID > nextID {
+			nextID = entry.ID
+		}
+	}
+	return replaceUnbondingEntriesWritesWithNextID(delegator, validatorID, entries, nextID)
+}
+
+func replaceUnbondingEntriesWritesWithNextID(delegator types.Address, validatorID types.ValidatorID, entries []unbondingEntry, nextID uint64) ([]kvbatch.KVWrite, error) {
+	ids := make([]uint64, 0, len(entries))
+	total := uint64(0)
+	var nextRelease types.Height
+	writes := make([]kvbatch.KVWrite, 0, len(entries)+5)
+	for _, entry := range entries {
+		if entry.Amount == 0 || entry.ReleaseHeight == 0 {
+			return nil, ErrInvalidStakeRecord
+		}
+		if entry.ID == 0 {
+			return nil, ErrInvalidStakeRecord
+		}
+		if total > ^uint64(0)-entry.Amount {
+			return nil, ErrStakeOverflow
+		}
+		total += entry.Amount
+		if nextRelease == 0 || entry.ReleaseHeight < nextRelease {
+			nextRelease = entry.ReleaseHeight
+		}
+		entry.legacy = false
+		encoded, err := json.Marshal(entry)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, entry.ID)
+		writes = append(writes, kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingEntryKey(delegator, validatorID, entry.ID), Value: encoded})
+	}
+	if len(entries) == 0 {
+		writes = append(writes,
+			kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingIndexKey(delegator, validatorID), Delete: true},
+			kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingKey(delegator, validatorID), Delete: true},
+			kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingAmountKey(delegator, validatorID), Delete: true},
+		)
+		return writes, nil
+	}
+	encodedIndex, err := json.Marshal(ids)
+	if err != nil {
+		return nil, err
+	}
+	writes = append(writes,
+		kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingIndexKey(delegator, validatorID), Value: encodedIndex},
+		kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingNextIDKey(delegator, validatorID), Value: encodeUint64(nextID)},
+		kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingKey(delegator, validatorID), Value: encodeUint64(uint64(nextRelease))},
+		kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingAmountKey(delegator, validatorID), Value: encodeUint64(total)},
+	)
+	return writes, nil
+}
+
+func sumUnbondingEntries(entries []unbondingEntry) (uint64, error) {
+	total := uint64(0)
+	for _, entry := range entries {
+		if entry.Amount == 0 || entry.ReleaseHeight == 0 {
+			return 0, ErrInvalidStakeRecord
+		}
+		if total > ^uint64(0)-entry.Amount {
+			return 0, ErrStakeOverflow
+		}
+		total += entry.Amount
+	}
+	return total, nil
 }
 
 func applyAtomicWrites(ctx context.Context, store vexoapp.StateStore, writes []kvbatch.KVWrite) error {
@@ -999,6 +1193,18 @@ func unbondingKey(delegator types.Address, validatorID types.ValidatorID) []byte
 
 func unbondingAmountKey(delegator types.Address, validatorID types.ValidatorID) []byte {
 	return []byte("unbonding_amount/" + string(delegator) + "/" + string(validatorID))
+}
+
+func unbondingIndexKey(delegator types.Address, validatorID types.ValidatorID) []byte {
+	return []byte("unbonding_entries/" + string(delegator) + "/" + string(validatorID) + "/index")
+}
+
+func unbondingNextIDKey(delegator types.Address, validatorID types.ValidatorID) []byte {
+	return []byte("unbonding_entries/" + string(delegator) + "/" + string(validatorID) + "/next_id")
+}
+
+func unbondingEntryKey(delegator types.Address, validatorID types.ValidatorID, id uint64) []byte {
+	return []byte("unbonding_entries/" + string(delegator) + "/" + string(validatorID) + "/" + strconv.FormatUint(id, 10))
 }
 
 func rewardKey(delegator types.Address, validatorID types.ValidatorID) []byte {

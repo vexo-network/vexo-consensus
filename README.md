@@ -19,7 +19,7 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 - Durable LevelDB storage for blocks, state, Merkle state roots, evidence, KV state, schema metadata, pruning, recovery, and snapshots.
 - Signed transaction envelopes with nonce, fee units, dynamic base fee, dynamic blob base fee, gas metering, and ante validation paths.
 - Data availability commitments with chunk proofs, deterministic 1D/2D sample verification, and bounded parity recovery.
-- Slashing evidence lifecycle with penalty receipts, jailing, tombstone records, unbonding checks, and restart-aware recovery.
+- Slashing evidence lifecycle with monotonic applied-evidence persistence, penalty receipts, jailing, tombstone records, entry-based unbonding checks, and restart-aware recovery.
 - gRPC/TCP/in-memory transport abstractions with peer handshake validation, scoring, bans, backoff, and rate limits.
 - Operations tooling for config audit, release gates, audit packs, snapshot drills, adversarial simulations, and parameter tuning.
 
@@ -113,6 +113,7 @@ vexod proof da-export --tx-hex 68656c6c6f --tx-hex 776f726c64 --data-shards 4 --
 vexod proof da-proof --tx-hex 68656c6c6f --tx-hex 776f726c64 --index 0 > da-proof.json
 vexod proof da-verify --input da-proof.json
 vexod proof da-recover --input da-bundle.json --drop 0 --drop 1
+vexod ibc tx client-create 07-vexo-0 counterparty 10 <validator-set-hash> <state-root> --signer relayer
 vexod ibc tx client-update 07-vexo-0 11 <validator-set-hash> <state-root> --fee 1 --gas 1000 --signer relayer --nonce 1
 vexod relayer client-update --source-rpc 127.0.0.1:26657 --rpc 127.0.0.1:27657 --client-id 07-vexo-0 --fee 1 --gas 1000 --signer relayer --nonce 1 --submit
 vexod ibc tx connection-open-init connection-0 07-vexo-0 connection-1 --fee 1 --gas 1000 --signer relayer --nonce 1
@@ -130,7 +131,7 @@ vexod staking query rewards alice validator-1
 vexod staking tx claim-rewards alice validator-1 --fee 1 --gas 1000 --signer alice --nonce 2
 vexod staking query unbonding-balance alice validator-1
 vexod staking tx withdraw-unbonded alice validator-1 --fee 1 --gas 1000 --signer alice --nonce 3
-vexod governance tx submit-json '{"submitter":"alice","title":"multi-change","changes":[{"module":"execution","key":"max_gas","value":"20000000"},{"module":"mempool","key":"max_txs","value":"50000"}]}'
+vexod governance tx submit-json '{"submitter":"alice","title":"multi-change","description":"raise throughput safely","metadata_uri":"ipfs://proposal","type":"parameter_change","deposit":"100avxo","changes":[{"module":"execution","key":"max_gas","value":"20000000"},{"module":"mempool","key":"max_txs","value":"50000"}]}'
 curl -s -X POST http://127.0.0.1:26657/ -d '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}'
 vexod ibc packet send --sequence 1 --source-port transfer --source-channel channel-0 --destination-port transfer --destination-channel channel-1 --data payload
 vexod consensus adversarial --json

@@ -754,7 +754,15 @@ func TestNodeGossipsConflictingVoteEvidenceAndSlashesValidator(t *testing.T) {
 	if err := bobReactor.BroadcastVote(context.Background(), secondVote); err != nil {
 		t.Fatal(err)
 	}
+	evidence, err := consensus.NewConflictingVoteEvidence(firstVote, secondVote)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, applied, err := alice.SubmitEvidence(context.Background(), evidence); err != nil || !applied {
+		t.Fatalf("expected alice to submit conflicting vote evidence, applied=%t err=%v", applied, err)
+	}
 
+	waitForAppliedEvidence(t, alice, "bob")
 	waitForValidatorPower(t, alice, "bob", 95)
 	waitForValidatorPower(t, bob, "bob", 95)
 	waitForValidatorPower(t, carol, "bob", 95)
@@ -776,6 +784,26 @@ func TestNodeGossipsConflictingVoteEvidenceAndSlashesValidator(t *testing.T) {
 	if record.Evidence.Validator != "bob" || !record.Applied {
 		t.Fatalf("unexpected persisted evidence: %+v", record)
 	}
+}
+
+func waitForAppliedEvidence(t *testing.T, node *Node, validatorID types.ValidatorID) {
+	t.Helper()
+	for attempt := 0; attempt < int(transportTestWaitTimeout/time.Millisecond); attempt++ {
+		runtime, err := node.Runtime()
+		if err == nil && runtime.Store != nil {
+			index, err := runtime.Store.EvidenceIndex(context.Background())
+			if err == nil {
+				for _, key := range index {
+					record, err := runtime.Store.EvidenceByKey(context.Background(), key)
+					if err == nil && record.Evidence.Validator == validatorID && record.Applied {
+						return
+					}
+				}
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for applied evidence for %s", validatorID)
 }
 
 func TestNodePenalizesAndBansInvalidPeerMessages(t *testing.T) {
@@ -1661,15 +1689,16 @@ func waitForBlockByHeight(t *testing.T, node *Node, height types.Height) store.B
 
 func waitForValidatorPower(t *testing.T, node *Node, validatorID types.ValidatorID, expected types.VotingPower) {
 	t.Helper()
-	deadline := time.Now().Add(transportTestWaitTimeout)
-	for time.Now().Before(deadline) {
+	for attempt := 0; attempt < int(transportTestWaitTimeout/time.Millisecond); attempt++ {
 		runtime, err := node.Runtime()
 		if err == nil {
-			set, err := runtime.Validators.ValidatorSet(context.Background(), 1)
-			if err == nil {
-				validatorInfo, found := set.Get(validatorID)
-				if found && validatorInfo.VotingPower == expected {
-					return
+			for _, height := range []types.Height{0, 1} {
+				set, err := runtime.Validators.ValidatorSet(context.Background(), height)
+				if err == nil {
+					validatorInfo, found := set.Get(validatorID)
+					if found && validatorInfo.VotingPower == expected {
+						return
+					}
 				}
 			}
 		}
@@ -1679,7 +1708,7 @@ func waitForValidatorPower(t *testing.T, node *Node, validatorID types.Validator
 	if err != nil {
 		t.Fatal(err)
 	}
-	set, err := runtime.Validators.ValidatorSet(context.Background(), 1)
+	set, err := runtime.Validators.ValidatorSet(context.Background(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
