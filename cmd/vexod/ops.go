@@ -172,7 +172,7 @@ func runOpsConformance(writer io.Writer, args []string) error {
 			return err
 		}
 		document.EVMFixtures = &report
-		document.addCheck("evm_transaction_fixtures", "error", report.OK, "Ethereum raw transaction fixtures must decode, validate, and match expected outcomes")
+		document.addCheck("evm_transaction_fixtures", "error", report.OK, "Ethereum raw transaction fixtures must decode, validate, match expected outcomes, and cover required transaction categories")
 		document.Summary = append(document.Summary, "evm web3 ethereum conformance evidence")
 		document.SDKSurface = append(document.SDKSurface, "evm", "web3", "ethereum")
 	} else if evmModuleEnabled {
@@ -304,6 +304,7 @@ func writeOpsConformance(writer io.Writer, document opsConformanceDocument) {
 	}
 	if document.EVMFixtures != nil {
 		fmt.Fprintf(writer, "evm_fixtures_ok: %t passed=%d failed=%d total=%d\n", document.EVMFixtures.OK, document.EVMFixtures.Passed, document.EVMFixtures.Failed, document.EVMFixtures.Total)
+		fmt.Fprintf(writer, "evm_fixture_coverage_ok: %t covered=%d missing=%d\n", document.EVMFixtures.CoverageOK, len(document.EVMFixtures.CoveredCategories), len(document.EVMFixtures.MissingCategories))
 	}
 }
 

@@ -43,7 +43,10 @@ func TestRunTransactionFixturesJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !report.OK || report.Total != 3 || report.Passed != 3 || report.Failed != 0 {
+	if report.OK || report.CoverageOK || report.Total != 3 || report.Passed != 3 || report.Failed != 0 || len(report.MissingCategories) == 0 {
+		t.Fatalf("expected thin custom corpus to pass fixtures but fail required coverage: %+v", report)
+	}
+	if report.Passed != 3 {
 		t.Fatalf("unexpected conformance report: %+v", report)
 	}
 }
@@ -57,7 +60,7 @@ func TestRunTransactionFixturesRejectsCanonicalMismatch(t *testing.T) {
 		BaseFee:    11,
 		WantAction: "eth_deploy",
 	}})
-	if report.OK || report.Passed != 0 || report.Failed != 1 || report.Results[0].Err != "action mismatch" {
+	if report.OK || report.CoverageOK || report.Passed != 0 || report.Failed != 1 || report.Results[0].Err != "action mismatch" {
 		t.Fatalf("expected canonical action mismatch: %+v", report)
 	}
 }
@@ -68,7 +71,7 @@ func TestDefaultTransactionFixturesCoverSuccessAndFeeFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	report := RunTransactionFixtures(fixtures)
-	if !report.OK || report.Total < 9 || report.Passed != report.Total {
+	if !report.OK || !report.CoverageOK || report.Total < 12 || report.Passed != report.Total || len(report.MissingCategories) != 0 {
 		t.Fatalf("expected default fixtures to pass as a corpus: %+v", report)
 	}
 	foundAccessList := false

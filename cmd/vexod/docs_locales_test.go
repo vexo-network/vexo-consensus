@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,13 +13,14 @@ import (
 )
 
 type docsLocaleManifest struct {
-	SchemaVersion     string   `json:"schema_version"`
-	CanonicalLocale   string   `json:"canonical_locale"`
-	Locales           []string `json:"locales"`
-	TopLevelDocs      []string `json:"top_level_documents"`
-	DocumentSets      []string `json:"document_sets"`
-	CanonicalPolicy   string   `json:"canonical_policy"`
-	TranslationPolicy string   `json:"translation_policy"`
+	SchemaVersion     string            `json:"schema_version"`
+	CanonicalLocale   string            `json:"canonical_locale"`
+	Locales           []string          `json:"locales"`
+	TopLevelDocs      []string          `json:"top_level_documents"`
+	DocumentSets      []string          `json:"document_sets"`
+	CanonicalPolicy   string            `json:"canonical_policy"`
+	TranslationPolicy string            `json:"translation_policy"`
+	CanonicalHashes   map[string]string `json:"canonical_hashes"`
 }
 
 func TestDocsLocalesMirrorCanonicalTree(t *testing.T) {
@@ -36,9 +39,28 @@ func TestDocsLocalesMirrorCanonicalTree(t *testing.T) {
 	if manifest.CanonicalPolicy == "" || manifest.TranslationPolicy == "" {
 		t.Fatalf("manifest must state canonical and translation policy: %+v", manifest)
 	}
+	if len(manifest.CanonicalHashes) == 0 {
+		t.Fatalf("manifest must bind canonical English docs by SHA-256: %+v", manifest)
+	}
 	canonical := markdownTree(t, docsDir, func(path string) bool {
 		return !strings.HasPrefix(filepath.ToSlash(path), "locales/")
 	})
+	for _, relative := range canonical {
+		data, err := os.ReadFile(filepath.Join(docsDir, relative))
+		if err != nil {
+			t.Fatal(err)
+		}
+		hash := fmt.Sprintf("%x", sha256.Sum256(data))
+		if manifest.CanonicalHashes[relative] != hash {
+			t.Fatalf("canonical document %s hash mismatch: manifest=%q actual=%q", relative, manifest.CanonicalHashes[relative], hash)
+		}
+	}
+	if diff := stringSetDiff(canonical, sortedMapKeys(manifest.CanonicalHashes)); len(diff) > 0 {
+		t.Fatalf("manifest missing canonical document hashes: %v", diff)
+	}
+	if diff := stringSetDiff(sortedMapKeys(manifest.CanonicalHashes), canonical); len(diff) > 0 {
+		t.Fatalf("manifest has hashes for non-canonical documents: %v", diff)
+	}
 	canonicalLocaleFiles := readMarkdownFiles(t, filepath.Join(docsDir, "locales", manifest.CanonicalLocale))
 	for _, locale := range manifest.Locales {
 		localeDir := filepath.Join(docsDir, "locales", locale)
@@ -144,6 +166,15 @@ func stringSetDiff(left []string, right []string) []string {
 		}
 	}
 	return diff
+}
+
+func sortedMapKeys(values map[string]string) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func readMarkdownFiles(t *testing.T, root string) map[string]string {

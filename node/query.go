@@ -308,7 +308,7 @@ func (node *Node) Replay(ctx context.Context, from types.Height, to types.Height
 	if err != nil {
 		return vexoruntime.ReplayResult{}, err
 	}
-	defer recoverRuntimeAfterReplay(runtime, &err)
+	defer recoverRuntimeAfterReplay(ctx, runtime, &err)
 	return runtime.ReplayStrict(ctx, from, to)
 }
 
@@ -317,7 +317,7 @@ func (node *Node) ReplayAll(ctx context.Context) (result vexoruntime.ReplayResul
 	if err != nil {
 		return vexoruntime.ReplayResult{}, err
 	}
-	defer recoverRuntimeAfterReplay(runtime, &err)
+	defer recoverRuntimeAfterReplay(ctx, runtime, &err)
 	return runtime.ReplayAllStrict(ctx)
 }
 
@@ -326,7 +326,7 @@ func (node *Node) ReplayStrict(ctx context.Context, from types.Height, to types.
 	if err != nil {
 		return vexoruntime.ReplayResult{}, err
 	}
-	defer recoverRuntimeAfterReplay(runtime, &err)
+	defer recoverRuntimeAfterReplay(ctx, runtime, &err)
 	return runtime.ReplayStrict(ctx, from, to)
 }
 
@@ -335,15 +335,21 @@ func (node *Node) ReplayAllStrict(ctx context.Context) (result vexoruntime.Repla
 	if err != nil {
 		return vexoruntime.ReplayResult{}, err
 	}
-	defer recoverRuntimeAfterReplay(runtime, &err)
+	defer recoverRuntimeAfterReplay(ctx, runtime, &err)
 	return runtime.ReplayAllStrict(ctx)
 }
 
-func recoverRuntimeAfterReplay(runtime *vexoruntime.Runtime, err *error) {
+func recoverRuntimeAfterReplay(ctx context.Context, runtime *vexoruntime.Runtime, err *error) {
 	if runtime == nil {
 		return
 	}
-	if _, recoverErr := runtime.Recover(context.Background()); recoverErr != nil && *err == nil {
+	recoverCtx := context.WithoutCancel(ctx)
+	if deadline, ok := ctx.Deadline(); ok {
+		var cancel context.CancelFunc
+		recoverCtx, cancel = context.WithDeadline(recoverCtx, deadline)
+		defer cancel()
+	}
+	if _, recoverErr := runtime.Recover(recoverCtx); recoverErr != nil && *err == nil {
 		*err = recoverErr
 	}
 }

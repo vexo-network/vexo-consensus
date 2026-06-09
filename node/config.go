@@ -39,6 +39,14 @@ func DefaultConfig(chainID string, dataDir string) Config {
 	}
 }
 
+func NetworkSafeConfig(chainID string, dataDir string) Config {
+	return Config{
+		Chain:                config.NetworkSafeTemplate(chainID, dataDir),
+		DataDir:              dataDir,
+		RequireNetworkSafety: true,
+	}
+}
+
 func (cfg Config) Validate() error {
 	if err := cfg.Chain.Validate(); err != nil {
 		return err

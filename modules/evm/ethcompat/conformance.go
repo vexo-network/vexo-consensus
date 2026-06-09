@@ -17,20 +17,21 @@ import (
 var ErrConformanceFailed = errors.New("Ethereum compatibility conformance fixture failed")
 
 type TransactionFixture struct {
-	Name        string `json:"name"`
-	Raw         string `json:"raw"`
-	ChainID     uint64 `json:"chain_id,omitempty"`
-	BaseFee     uint64 `json:"base_fee,omitempty"`
-	BlobBaseFee uint64 `json:"blob_base_fee,omitempty"`
-	WantHash    string `json:"want_hash,omitempty"`
-	WantFrom    string `json:"want_from,omitempty"`
-	WantAction  string `json:"want_action,omitempty"`
-	WantType    string `json:"want_type,omitempty"`
-	WantTo      string `json:"want_to,omitempty"`
-	WantValue   string `json:"want_value,omitempty"`
-	WantFee     string `json:"want_fee,omitempty"`
-	WantGas     uint64 `json:"want_gas,omitempty"`
-	WantError   string `json:"want_error,omitempty"`
+	Name        string   `json:"name"`
+	Raw         string   `json:"raw"`
+	Categories  []string `json:"categories,omitempty"`
+	ChainID     uint64   `json:"chain_id,omitempty"`
+	BaseFee     uint64   `json:"base_fee,omitempty"`
+	BlobBaseFee uint64   `json:"blob_base_fee,omitempty"`
+	WantHash    string   `json:"want_hash,omitempty"`
+	WantFrom    string   `json:"want_from,omitempty"`
+	WantAction  string   `json:"want_action,omitempty"`
+	WantType    string   `json:"want_type,omitempty"`
+	WantTo      string   `json:"want_to,omitempty"`
+	WantValue   string   `json:"want_value,omitempty"`
+	WantFee     string   `json:"want_fee,omitempty"`
+	WantGas     uint64   `json:"want_gas,omitempty"`
+	WantError   string   `json:"want_error,omitempty"`
 }
 
 type TransactionFixtureResult struct {
@@ -44,11 +45,30 @@ type TransactionFixtureResult struct {
 }
 
 type TransactionConformanceReport struct {
-	OK      bool                       `json:"ok"`
-	Total   int                        `json:"total"`
-	Passed  int                        `json:"passed"`
-	Failed  int                        `json:"failed"`
-	Results []TransactionFixtureResult `json:"results"`
+	OK                 bool                       `json:"ok"`
+	Total              int                        `json:"total"`
+	Passed             int                        `json:"passed"`
+	Failed             int                        `json:"failed"`
+	CoverageOK         bool                       `json:"coverage_ok"`
+	RequiredCategories []string                   `json:"required_categories"`
+	CoveredCategories  []string                   `json:"covered_categories"`
+	MissingCategories  []string                   `json:"missing_categories,omitempty"`
+	Results            []TransactionFixtureResult `json:"results"`
+}
+
+var defaultRequiredTransactionFixtureCategories = []string{
+	"dynamic_fee_call",
+	"dynamic_fee_create",
+	"access_list",
+	"protected_legacy",
+	"chain_id_reject",
+	"invalid_raw_reject",
+	"base_fee_reject",
+	"priority_fee_reject",
+	"unprotected_legacy_reject",
+	"set_code",
+	"blob_tx",
+	"blob_fee_reject",
 }
 
 func DefaultTransactionFixtures() ([]TransactionFixture, error) {
@@ -88,6 +108,7 @@ func DefaultTransactionFixtures() ([]TransactionFixture, error) {
 		{
 			Name:       "default dynamic fee call",
 			Raw:        callRaw,
+			Categories: []string{"dynamic_fee_call"},
 			ChainID:    7,
 			BaseFee:    11,
 			WantHash:   callHash,
@@ -101,6 +122,7 @@ func DefaultTransactionFixtures() ([]TransactionFixture, error) {
 		{
 			Name:       "default dynamic fee contract creation",
 			Raw:        createRaw,
+			Categories: []string{"dynamic_fee_create"},
 			ChainID:    7,
 			BaseFee:    11,
 			WantHash:   createHash,
@@ -113,6 +135,7 @@ func DefaultTransactionFixtures() ([]TransactionFixture, error) {
 		{
 			Name:       "default access-list metadata preservation",
 			Raw:        accessListRaw,
+			Categories: []string{"access_list"},
 			ChainID:    7,
 			BaseFee:    11,
 			WantHash:   accessListHash,
@@ -126,6 +149,7 @@ func DefaultTransactionFixtures() ([]TransactionFixture, error) {
 		{
 			Name:       "default protected legacy call",
 			Raw:        legacyRaw,
+			Categories: []string{"protected_legacy"},
 			ChainID:    7,
 			WantHash:   legacyHash,
 			WantAction: "call",
@@ -135,14 +159,15 @@ func DefaultTransactionFixtures() ([]TransactionFixture, error) {
 			WantFee:    "273000",
 			WantGas:    21_000,
 		},
-		{Name: "default wrong chain rejection", Raw: callRaw, ChainID: 8, WantError: ErrChainIDMismatch.Error()},
-		{Name: "default invalid raw rejection", Raw: "0x", WantError: ErrInvalidRawTransaction.Error()},
-		{Name: "default base fee cap rejection", Raw: callRaw, ChainID: 7, BaseFee: 21, WantError: ErrFeeCapTooLow.Error()},
-		{Name: "default priority fee cap rejection", Raw: tipAboveFeeRaw, ChainID: 7, BaseFee: 1, WantError: ErrTipCapAboveFeeCap.Error()},
-		{Name: "default unprotected legacy rejection", Raw: unprotectedLegacyRaw, ChainID: 7, WantError: ErrUnprotectedLegacyTx.Error()},
+		{Name: "default wrong chain rejection", Raw: callRaw, Categories: []string{"chain_id_reject"}, ChainID: 8, WantError: ErrChainIDMismatch.Error()},
+		{Name: "default invalid raw rejection", Raw: "0x", Categories: []string{"invalid_raw_reject"}, WantError: ErrInvalidRawTransaction.Error()},
+		{Name: "default base fee cap rejection", Raw: callRaw, Categories: []string{"base_fee_reject"}, ChainID: 7, BaseFee: 21, WantError: ErrFeeCapTooLow.Error()},
+		{Name: "default priority fee cap rejection", Raw: tipAboveFeeRaw, Categories: []string{"priority_fee_reject"}, ChainID: 7, BaseFee: 1, WantError: ErrTipCapAboveFeeCap.Error()},
+		{Name: "default unprotected legacy rejection", Raw: unprotectedLegacyRaw, Categories: []string{"unprotected_legacy_reject"}, ChainID: 7, WantError: ErrUnprotectedLegacyTx.Error()},
 		{
 			Name:       "default set-code transaction metadata preservation",
 			Raw:        setCodeRaw,
+			Categories: []string{"set_code"},
 			ChainID:    7,
 			BaseFee:    11,
 			WantHash:   setCodeHash,
@@ -155,6 +180,7 @@ func DefaultTransactionFixtures() ([]TransactionFixture, error) {
 		{
 			Name:        "default blob transaction metadata preservation",
 			Raw:         blobRaw,
+			Categories:  []string{"blob_tx"},
 			ChainID:     7,
 			BaseFee:     11,
 			BlobBaseFee: 5,
@@ -165,7 +191,7 @@ func DefaultTransactionFixtures() ([]TransactionFixture, error) {
 			WantValue:   "3",
 			WantGas:     50_000,
 		},
-		{Name: "default blob base fee rejection", Raw: blobRaw, ChainID: 7, BaseFee: 11, BlobBaseFee: 10, WantError: ErrBlobFeeCapTooLow.Error()},
+		{Name: "default blob base fee rejection", Raw: blobRaw, Categories: []string{"blob_fee_reject"}, ChainID: 7, BaseFee: 11, BlobBaseFee: 10, WantError: ErrBlobFeeCapTooLow.Error()},
 	}, nil
 }
 
@@ -352,18 +378,70 @@ func signedFixtureBlobTransaction(chainID uint64) (string, string, error) {
 }
 
 func RunTransactionFixtures(fixtures []TransactionFixture) TransactionConformanceReport {
-	report := TransactionConformanceReport{OK: true, Total: len(fixtures), Results: make([]TransactionFixtureResult, 0, len(fixtures))}
+	report := TransactionConformanceReport{
+		OK:                 true,
+		Total:              len(fixtures),
+		RequiredCategories: append([]string(nil), defaultRequiredTransactionFixtureCategories...),
+		Results:            make([]TransactionFixtureResult, 0, len(fixtures)),
+	}
+	covered := make(map[string]struct{})
 	for _, fixture := range fixtures {
 		result := runTransactionFixture(fixture)
 		if result.OK {
 			report.Passed++
+			for _, category := range transactionFixtureCategories(fixture, result) {
+				covered[category] = struct{}{}
+			}
 		} else {
 			report.OK = false
 			report.Failed++
 		}
 		report.Results = append(report.Results, result)
 	}
+	for _, category := range defaultRequiredTransactionFixtureCategories {
+		if _, ok := covered[category]; ok {
+			report.CoveredCategories = append(report.CoveredCategories, category)
+		} else {
+			report.MissingCategories = append(report.MissingCategories, category)
+		}
+	}
+	report.CoverageOK = len(report.MissingCategories) == 0
+	report.OK = report.OK && report.CoverageOK
 	return report
+}
+
+func transactionFixtureCategories(fixture TransactionFixture, result TransactionFixtureResult) []string {
+	if len(fixture.Categories) > 0 {
+		return fixture.Categories
+	}
+	switch {
+	case fixture.WantError == ErrChainIDMismatch.Error():
+		return []string{"chain_id_reject"}
+	case fixture.WantError == ErrInvalidRawTransaction.Error():
+		return []string{"invalid_raw_reject"}
+	case fixture.WantError == ErrFeeCapTooLow.Error():
+		return []string{"base_fee_reject"}
+	case fixture.WantError == ErrTipCapAboveFeeCap.Error():
+		return []string{"priority_fee_reject"}
+	case fixture.WantError == ErrUnprotectedLegacyTx.Error():
+		return []string{"unprotected_legacy_reject"}
+	case fixture.WantError == ErrBlobFeeCapTooLow.Error():
+		return []string{"blob_fee_reject"}
+	case result.Type == "0":
+		return []string{"protected_legacy"}
+	case result.Type == "1":
+		return []string{"access_list"}
+	case result.Type == "3":
+		return []string{"blob_tx"}
+	case result.Type == "4":
+		return []string{"set_code"}
+	case result.Type == "2" && result.Action == "eth_deploy":
+		return []string{"dynamic_fee_create"}
+	case result.Type == "2" && result.Action == "call":
+		return []string{"dynamic_fee_call"}
+	default:
+		return nil
+	}
 }
 
 func runTransactionFixture(fixture TransactionFixture) TransactionFixtureResult {

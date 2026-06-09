@@ -3048,7 +3048,6 @@ func TestKeysRotationPlanReportsGapsAndOverlaps(t *testing.T) {
 func TestOpsConformanceIncludesAuditAndRotationPlan(t *testing.T) {
 	home := t.TempDir()
 	rotationKeyPath := filepath.Join(home, "rotation.key.json")
-	fixturePath := filepath.Join(home, "evm-fixtures.json")
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
 		t.Fatal(err)
 	}
@@ -3058,18 +3057,15 @@ func TestOpsConformanceIncludesAuditAndRotationPlan(t *testing.T) {
 	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--path", rotationKeyPath, "--id", "key-2", "--active-from", "11"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(fixturePath, []byte(`[{"name":"reject empty raw tx","raw":"0x","want_error":"invalid Ethereum raw transaction"}]`), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	var output bytes.Buffer
-	if err := runOps(&output, []string{"conformance", "--home", home, "--rotation-key", rotationKeyPath, "--evm-tx-fixtures", fixturePath, "--json"}); err != nil {
+	if err := runOps(&output, []string{"conformance", "--home", home, "--rotation-key", rotationKeyPath, "--evm-default-fixtures", "--json"}); err != nil {
 		t.Fatal(err)
 	}
 	var document opsConformanceDocument
 	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if !document.OK || document.StartPlan.ValidatorID != "alice" || document.RotationPlan == nil || !document.RotationPlan.OK || document.EVMFixtures == nil || !document.EVMFixtures.OK {
+	if !document.OK || document.StartPlan.ValidatorID != "alice" || document.RotationPlan == nil || !document.RotationPlan.OK || document.EVMFixtures == nil || !document.EVMFixtures.OK || !document.EVMFixtures.CoverageOK {
 		t.Fatalf("unexpected conformance document: %+v", document)
 	}
 	if len(document.Audit.Checks) == 0 || len(document.Checks) == 0 {

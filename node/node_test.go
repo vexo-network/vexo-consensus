@@ -57,6 +57,16 @@ func TestNodeRejectsUnsafeConfigWhenNetworkSafetyRequired(t *testing.T) {
 	}
 }
 
+func TestNetworkSafeConfigEnablesSafetyValidation(t *testing.T) {
+	cfg := NetworkSafeConfig("vexo-test", t.TempDir())
+	if !cfg.RequireNetworkSafety {
+		t.Fatal("expected network-safe config to require safety validation")
+	}
+	if err := cfg.Chain.ValidateNetworkSafety(); err != nil {
+		t.Fatalf("expected network-safe chain config: %v", err)
+	}
+}
+
 func TestNodeExecutesBlockThroughRuntime(t *testing.T) {
 	node := newTestNode(t)
 	if err := node.Start(context.Background()); err != nil {
