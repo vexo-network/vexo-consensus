@@ -50,6 +50,11 @@ Tài liệu này giúp hiểu quy trình thêm validator, xác thực cấu hìn
 - `active_until`
 - `config audit --strict`
 
+- `node.key.json`
+- `p2p.node_id`
+- `p2p.node_key_path`
+- `node_id`
+- `node_key_path`
 ## Cấu trúc nguồn tiếng Anh
 
 - Adding a Validator

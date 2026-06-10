@@ -60,6 +60,11 @@
 - `consensus_config.json`
 - `mempool_config.json`
 
+- `node.key.json`
+- `p2p.node_id`
+- `p2p.node_key_path`
+- `node_id`
+- `node_key_path`
 ## 영어 원문 구조
 
 - Node Initialization

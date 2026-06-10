@@ -20,7 +20,7 @@ vexod init validator \
   --encrypt-keys
 ```
 
-Set `VEXO_KEY_PASSPHRASE` before running this command, or pass `--passphrase` for a one-off local setup. `--encrypt-keys` encrypts both `validator.key.json` and `validator.vrf.key.json`.
+Set `VEXO_KEY_PASSPHRASE` before running this command, or pass `--passphrase` for a one-off local setup. `--encrypt-keys` encrypts `validator.key.json`, `node.key.json`, and `validator.vrf.key.json`.
 
 For a BLS consensus key:
 
@@ -45,8 +45,11 @@ This creates:
 - `log_config.json`
 - `genesis.json`
 - `validator.key.json`
+- `node.key.json`
 - `validator.vrf.key.json`
 - `data/`
+
+`validator.key.json` is the consensus signer. `node.key.json` is the P2P handshake signer referenced by `network_config.json:p2p.node_key_path`. They are deliberately separate so archive nodes and validators can use the same transport without giving every peer a validator signing key.
 
 Start it with config-driven networking:
 
@@ -74,6 +77,7 @@ This creates:
 - `mempool_config.json`
 - `log_config.json`
 - `genesis.json`
+- `node.key.json`
 - `data/`
 
 It does **not** create `validator.key.json`.
@@ -90,7 +94,7 @@ Node homes use separate config files so operators can edit one subsystem without
 
 - `config.json` contains node identity, chain ID, data path, and pointers to the split config files.
 - `module_config.json` contains application module selection, execution/ante policy, and module-level governance policy.
-- `network_config.json` contains RPC, P2P listen/peer/seed settings, and peer-scoring policy.
+- `network_config.json` contains RPC, P2P node identity, listen/peer/seed settings, TLS/auth settings, and peer-scoring policy.
 - `consensus_config.json` contains consensus loop timing, empty-block policy, crypto backend, VRF, validator admission, and committee policy.
 - `mempool_config.json` contains mempool size, fee, priority, WAL, duplicate, and TTL policy.
 - `log_config.json` contains log format, level, block commit event logging, and peer event logging.
@@ -184,6 +188,8 @@ Example `network_config.json`:
   },
   "p2p": {
     "enabled": true,
+    "node_id": "validator-1",
+    "node_key_path": "node.key.json",
     "listen_address": "0.0.0.0:26656",
     "tls_cert_path": "tls/node.crt",
     "tls_key_path": "tls/node.key",
@@ -267,6 +273,8 @@ Peer and listen addresses live in `network_config.json`:
 {
   "p2p": {
     "enabled": true,
+    "node_id": "validator-1",
+    "node_key_path": "node.key.json",
     "listen_address": "0.0.0.0:26656",
     "tls_cert_path": "tls/node.crt",
     "tls_key_path": "tls/node.key",
@@ -292,6 +300,8 @@ vexod start --home .vexo-archive-1
 Persistent peers and seeds are configured in `network_config.json`; `vexod start` does not accept peer or seed host overrides.
 
 Do not put long-lived host or `host:port` settings on the `vexod start` command line. Edit `rpc.address`, `p2p.listen_address`, `p2p.peers`, and `p2p.seeds` in `network_config.json` instead.
+
+Keep `p2p.node_id` stable for the lifetime of the node home. `p2p.node_key_path` should point to `node.key.json` or another local/managed key document used only for peer handshake signing. Peer maps should use peer node IDs, not account addresses or validator operator names unless those are intentionally the same.
 
 For encrypted and authenticated gRPC peer transport, also set `p2p.tls_cert_path`, `p2p.tls_key_path`, `p2p.tls_ca_path`, and optionally `p2p.tls_server_name` in `network_config.json`. Relative TLS paths are resolved from the node home directory.
 

@@ -30,7 +30,8 @@ import (
 const (
 	GRPCProtocolVersion      = "vexo-p2p/1"
 	grpcCodecName            = "vexo-binary"
-	grpcCodecVersion         = byte(1)
+	grpcCodecVersion         = byte(2)
+	grpcCodecVersionV1       = byte(1)
 	defaultGRPCDialTimeout   = 3 * time.Second
 	defaultReconnectInterval = time.Duration(500_000_000)
 	defaultMaxMessageBytes   = 4 * 1024 * 1024
@@ -139,6 +140,8 @@ type GRPCTransport struct {
 	listener        net.Listener
 	server          *grpc.Server
 	started         bool
+	rootCtx         context.Context
+	rootCancel      context.CancelFunc
 	reconnectCancel context.CancelFunc
 	reconnectDone   chan struct{}
 	peers           map[p2p.PeerID]string
@@ -238,7 +241,7 @@ func decodeGRPCStreamMessage(data []byte) (*grpcStreamMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	if version != grpcCodecVersion {
+	if version != grpcCodecVersion && version != grpcCodecVersionV1 {
 		return nil, fmt.Errorf("unsupported grpc codec version %d", version)
 	}
 	message := &grpcStreamMessage{}
@@ -277,17 +280,22 @@ func decodeGRPCStreamMessage(data []byte) (*grpcStreamMessage, error) {
 		if err != nil {
 			return nil, err
 		}
-		signatureNonce, err := readBinaryString(reader)
-		if err != nil {
-			return nil, err
-		}
-		nodePublicKey, err := readBinaryBytes(reader)
-		if err != nil {
-			return nil, err
-		}
-		signature, err := readBinaryBytes(reader)
-		if err != nil {
-			return nil, err
+		var signatureNonce string
+		var nodePublicKey []byte
+		var signature []byte
+		if version >= grpcCodecVersion {
+			signatureNonce, err = readBinaryString(reader)
+			if err != nil {
+				return nil, err
+			}
+			nodePublicKey, err = readBinaryBytes(reader)
+			if err != nil {
+				return nil, err
+			}
+			signature, err = readBinaryBytes(reader)
+			if err != nil {
+				return nil, err
+			}
 		}
 		knownPeers, err := readBinaryPeerMap(reader)
 		if err != nil {
@@ -440,6 +448,9 @@ func NewGRPCTransport(config GRPCConfig) (*GRPCTransport, error) {
 	if config.RequireTLS && tlsConfig == nil {
 		return nil, ErrTLSRequired
 	}
+	if config.RequireHandshakeSignature && (config.HandshakeSigner == nil || config.HandshakeVerifier == nil) {
+		return nil, ErrHandshakeSignature
+	}
 	peers := make(map[p2p.PeerID]string, len(config.Peers))
 	peerOrder := make([]p2p.PeerID, 0, len(config.Peers))
 	for peerID, address := range config.Peers {
@@ -519,8 +530,11 @@ func (transport *GRPCTransport) Start(ctx context.Context) error {
 	transport.server = server
 	transport.listenAddr = listener.Addr().String()
 	transport.started = true
-	reconnectCtx, cancelReconnect := context.WithCancel(ctx)
+	rootCtx, cancelRoot := context.WithCancel(ctx)
+	reconnectCtx, cancelReconnect := context.WithCancel(rootCtx)
 	reconnectDone := make(chan struct{})
+	transport.rootCtx = rootCtx
+	transport.rootCancel = cancelRoot
 	transport.reconnectCancel = cancelReconnect
 	transport.reconnectDone = reconnectDone
 	go func() {
@@ -545,11 +559,14 @@ func (transport *GRPCTransport) Stop(ctx context.Context) error {
 	listener := transport.listener
 	connections := transport.connections
 	sessions := transport.sessions
+	rootCancel := transport.rootCancel
 	reconnectCancel := transport.reconnectCancel
 	reconnectDone := transport.reconnectDone
 	transport.server = nil
 	transport.listener = nil
 	transport.started = false
+	transport.rootCtx = nil
+	transport.rootCancel = nil
 	transport.reconnectCancel = nil
 	transport.reconnectDone = nil
 	transport.connections = make(map[p2p.PeerID]*grpc.ClientConn)
@@ -564,6 +581,9 @@ func (transport *GRPCTransport) Stop(ctx context.Context) error {
 	transport.mu.Unlock()
 	if reconnectCancel != nil {
 		reconnectCancel()
+	}
+	if rootCancel != nil {
+		rootCancel()
 	}
 	if reconnectDone != nil {
 		select {
@@ -922,7 +942,13 @@ func (transport *GRPCTransport) peerSession(ctx context.Context, peerID p2p.Peer
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	streamCtx, cancel := context.WithCancel(context.Background())
+	transport.mu.RLock()
+	rootCtx := transport.rootCtx
+	transport.mu.RUnlock()
+	if rootCtx == nil {
+		rootCtx = context.Background()
+	}
+	streamCtx, cancel := context.WithCancel(rootCtx)
 	handshakeDone := make(chan struct{})
 	go func() {
 		select {

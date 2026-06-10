@@ -31,7 +31,8 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	output := buffer.String()
 	if !strings.Contains(output, "initialized vexo node") ||
 		!strings.Contains(output, filepath.Join(home, configFileName)) ||
-		!strings.Contains(output, filepath.Join(home, keyFileName)) {
+		!strings.Contains(output, filepath.Join(home, keyFileName)) ||
+		!strings.Contains(output, filepath.Join(home, nodeKeyFileName)) {
 		t.Fatalf("unexpected init output:\n%s", output)
 	}
 	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
@@ -56,7 +57,7 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 			t.Fatalf("expected split config file %s: %v", fileName, err)
 		}
 	}
-	for _, fileName := range []string{keyFileName, defaultVRFKeyFileName} {
+	for _, fileName := range []string{keyFileName, nodeKeyFileName, defaultVRFKeyFileName} {
 		if _, err := os.Stat(filepath.Join(home, fileName)); err != nil {
 			t.Fatalf("expected validator key file %s: %v", fileName, err)
 		}
@@ -98,6 +99,8 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	if !networkDocument.RPC.Enabled ||
 		networkDocument.RPC.Web3FilterSnapshot == "" ||
 		!networkDocument.P2P.Enabled ||
+		networkDocument.P2P.NodeID != "alice" ||
+		networkDocument.P2P.NodeKeyPath != nodeKeyFileName ||
 		networkDocument.PeerScoring.InitialScore == 0 {
 		t.Fatalf("unexpected network config: %+v", networkDocument)
 	}
@@ -155,7 +158,10 @@ func TestRunInitWritesNetworkFiles(t *testing.T) {
 			t.Fatalf("unexpected genesis for %s: %+v", validatorID, genesis)
 		}
 		validatorInfo := genesis.Validators[index-1]
-		if len(validatorInfo.PublicKey) == 0 || validatorInfo.Metadata["p2p_address"] != networkP2PAddress(index) || validatorInfo.Metadata["rpc_address"] != networkRPCAddress(index) {
+		if len(validatorInfo.PublicKey) == 0 ||
+			validatorInfo.Metadata["p2p_address"] != networkP2PAddress(index) ||
+			validatorInfo.Metadata["rpc_address"] != networkRPCAddress(index) ||
+			validatorInfo.Metadata["node_id"] != validatorID {
 			t.Fatalf("unexpected validator metadata: %+v", validatorInfo)
 		}
 		if _, err := loadStartInputs(nodeHome, "", "", "", nil, false); err != nil {
@@ -166,8 +172,17 @@ func TestRunInitWritesNetworkFiles(t *testing.T) {
 				t.Fatalf("expected network split config %s for %s: %v", fileName, validatorID, err)
 			}
 		}
-		if _, err := os.Stat(filepath.Join(nodeHome, defaultVRFKeyFileName)); err != nil {
-			t.Fatalf("expected network VRF key for %s: %v", validatorID, err)
+		for _, fileName := range []string{nodeKeyFileName, defaultVRFKeyFileName} {
+			if _, err := os.Stat(filepath.Join(nodeHome, fileName)); err != nil {
+				t.Fatalf("expected network key %s for %s: %v", fileName, validatorID, err)
+			}
+		}
+		networkDocument, err := readNetworkConfigDocument(filepath.Join(nodeHome, networkConfigFileName))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if networkDocument.P2P.NodeID != validatorID || networkDocument.P2P.NodeKeyPath != nodeKeyFileName {
+			t.Fatalf("expected p2p node identity for %s, got %+v", validatorID, networkDocument.P2P)
 		}
 		consensusDocument, err := readConsensusConfigDocument(filepath.Join(nodeHome, consensusConfigFileName))
 		if err != nil {
@@ -193,6 +208,7 @@ func TestRunInitCanEncryptGeneratedValidatorAndVRFKeys(t *testing.T) {
 	}
 	for _, path := range []string{
 		filepath.Join(home, keyFileName),
+		filepath.Join(home, nodeKeyFileName),
 		filepath.Join(home, defaultVRFKeyFileName),
 	} {
 		document, err := vexocrypto.LoadKeyDocument(path)
@@ -213,8 +229,10 @@ func TestRunInitNetworkCanEncryptGeneratedValidatorAndVRFKeys(t *testing.T) {
 	}
 	for _, path := range []string{
 		filepath.Join(home, "validator-1", keyFileName),
+		filepath.Join(home, "validator-1", nodeKeyFileName),
 		filepath.Join(home, "validator-1", defaultVRFKeyFileName),
 		filepath.Join(home, "validator-2", keyFileName),
+		filepath.Join(home, "validator-2", nodeKeyFileName),
 		filepath.Join(home, "validator-2", defaultVRFKeyFileName),
 	} {
 		document, err := vexocrypto.LoadKeyDocument(path)
@@ -306,6 +324,19 @@ func TestRunInitRejectsExistingFilesUnlessOverwrite(t *testing.T) {
 	}
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--overwrite"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRunInitRejectsExistingKeyBeforeWritingConfigs(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, nodeKeyFileName), []byte("existing"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := runInit(&bytes.Buffer{}, []string{"validator", "--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err == nil {
+		t.Fatal("expected init to reject existing node key")
+	}
+	if _, err := os.Stat(filepath.Join(home, configFileName)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("init must not write config after key preflight failure, got %v", err)
 	}
 }
 
@@ -481,6 +512,28 @@ func TestRuntimeConfigLoadsP2PTLSFromSplitNetworkConfig(t *testing.T) {
 		runtimeConfig.P2PTLSCAPath != expectedCA ||
 		runtimeConfig.P2PTLSServerName != "validator.internal" {
 		t.Fatalf("expected resolved p2p TLS config, got %+v", runtimeConfig)
+	}
+}
+
+func TestRuntimeConfigLoadsP2PNodeIdentityFromSplitNetworkConfig(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"archive", "--home", home, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	networkDocument, err := readNetworkConfigDocument(filepath.Join(home, networkConfigFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	networkDocument.P2P.NodeID = "archive-rpc-1"
+	networkDocument.P2P.NodeKeyPath = "keys/node.key.json"
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+
+	runtimeConfig, err := loadStartRuntimeConfig(home, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtimeConfig.P2PNodeID != "archive-rpc-1" || runtimeConfig.P2PNodeKeyPath != filepath.Join(home, "keys/node.key.json") {
+		t.Fatalf("expected resolved p2p node identity, got %+v", runtimeConfig)
 	}
 }
 
@@ -1025,6 +1078,41 @@ func TestNetworkRuntimeDefaultsDoNotBindAdvertisedAddress(t *testing.T) {
 	})
 	if runtimeConfig.RPCAddress != defaultRPCAddress || runtimeConfig.P2PListenAddress != defaultP2PAddress {
 		t.Fatalf("advertised metadata must not become listen addresses: %+v", runtimeConfig)
+	}
+}
+
+func TestNetworkRuntimeDefaultsUseGenesisNodeIDPeers(t *testing.T) {
+	inputs := startInputs{
+		Config: vexonode.Config{
+			Chain:       config.Default("vexo-test"),
+			ValidatorID: "validator-1",
+		},
+		Plan: startPlanDocument{ConfigPath: filepath.Join(t.TempDir(), configFileName)},
+		Genesis: vexonode.Genesis{
+			Validators: []validator.Validator{
+				{
+					ID: "validator-1",
+					Metadata: map[string]string{
+						"node_id":     "node-1",
+						"p2p_address": "validator-1.example.com:26656",
+					},
+				},
+				{
+					ID: "validator-2",
+					Metadata: map[string]string{
+						"node_id":     "node-2",
+						"p2p_address": "validator-2.example.com:26656",
+					},
+				},
+			},
+		},
+	}
+	runtimeConfig := applyNetworkRuntimeDefaults(inputs, startRuntimeConfig{P2PNodeID: "node-1"})
+	if runtimeConfig.P2PPeers["node-2"] != "validator-2.example.com:26656" {
+		t.Fatalf("expected peer map to use genesis node IDs, got %+v", runtimeConfig.P2PPeers)
+	}
+	if _, found := runtimeConfig.P2PPeers["validator-2"]; found {
+		t.Fatalf("validator IDs must not be used when metadata node_id is present: %+v", runtimeConfig.P2PPeers)
 	}
 }
 

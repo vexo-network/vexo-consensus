@@ -50,6 +50,11 @@
 - `active_until`
 - `config audit --strict`
 
+- `node.key.json`
+- `p2p.node_id`
+- `p2p.node_key_path`
+- `node_id`
+- `node_key_path`
 ## Структура английского источника
 
 - Adding a Validator

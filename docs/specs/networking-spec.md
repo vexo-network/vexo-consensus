@@ -14,6 +14,8 @@ The transport interface is modular. Current implementations include:
 
 Different binaries can peer if they speak the same transport protocol, chain ID, message topics, and handshake policy.
 
+Validator identity and peer identity are intentionally separate. `validator_id` identifies the consensus/staking actor; `network_config.json:p2p.node_id` identifies the network peer that opens streams and appears in address books. Validator nodes usually generate the same human-readable value for both at init time, while archive or RPC-only nodes receive their own `node_id` and `node.key.json` without a validator signer.
+
 ## Topics
 
 - `consensus`: proposals, votes, timeout votes, QCs, and TCs
@@ -36,6 +38,12 @@ Peers failing handshake authentication are rejected before gossip admission. Whe
 
 When authenticated P2P is required, the gRPC transport also signs a canonical handshake payload with the node signer. The signed payload binds protocol version, network ID, chain ID, genesis hash, node ID, advertised listen address, discovered peers, and a random signature nonce. Signature fields are preserved by the binary stream codec, verified before peer admission, and rejected on nonce replay.
 
+The node signer is loaded from `network_config.json:p2p.node_key_path`. This key is an Ed25519 peer-authentication key and is not the validator consensus key. Public authenticated peer transport must provide a node ID, node key, auth proof, and TLS trust root before startup succeeds.
+
+## Wire Compatibility
+
+The gRPC binary stream codec carries a version byte. Version `2` includes signed-handshake fields (`signature_nonce`, `node_public_key`, and `signature`). Decoders still accept version `1` frames so older unsigned peers can fail at the explicit handshake-policy layer instead of being misdecoded. Operators should roll out nodes with matching handshake policy before requiring signed P2P on public networks.
+
 ## Address Roles
 
 Vexo separates local bind addresses, peer dial addresses, and public advertised addresses:
@@ -43,6 +51,7 @@ Vexo separates local bind addresses, peer dial addresses, and public advertised 
 - Local bind addresses live in `network_config.json` as `rpc.address` and `p2p.listen_address`.
 - Peer dial addresses live in `network_config.json` under `p2p.peers` and `p2p.seeds`.
 - Public advertised addresses live in validator metadata as `p2p_address` and `rpc_address`.
+- Peer IDs live in `network_config.json:p2p.node_id`; genesis validator metadata may include `node_id` so generated peer maps can refer to the network identity rather than assuming validator IDs are peer IDs.
 
 Container-only names such as Docker service names may be valid peer dial targets inside a private bridge network, but they should not be written as public validator metadata for a public network. Public validator metadata should use stable DNS names or public IP addresses that external peers can resolve.
 

@@ -50,6 +50,11 @@ Este documento ayuda a entender el alta de un validator, validación de configur
 - `active_until`
 - `config audit --strict`
 
+- `node.key.json`
+- `p2p.node_id`
+- `p2p.node_key_path`
+- `node_id`
+- `node_key_path`
 ## Estructura de la fuente inglesa
 
 - Adding a Validator

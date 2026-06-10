@@ -36,6 +36,8 @@ Archive the generated public key:
 vexod keys show --home .vexo-validator-new --json
 ```
 
+Also keep the generated `node.key.json`. It signs P2P handshakes for `network_config.json:p2p.node_id`; it is not a validator consensus key and should not be reused as an account key.
+
 ## 2. Configure Network Addresses and Peers
 
 Edit `.vexo-validator-new/network_config.json` and set local listen addresses plus persistent peers:
@@ -49,6 +51,8 @@ Edit `.vexo-validator-new/network_config.json` and set local listen addresses pl
   },
   "p2p": {
     "enabled": true,
+    "node_id": "validator-new",
+    "node_key_path": "node.key.json",
     "listen_address": "0.0.0.0:26656",
     "peers": {
       "validator-1": "validator-1.example.com:26656",
@@ -69,7 +73,9 @@ Do not rely on long-lived command-line networking overrides for production valid
 Use separate address roles:
 
 - `p2p.listen_address` and `rpc.address` are local bind addresses for this machine or container.
-- `p2p.peers` contains dial targets this node uses to reach other peers.
+- `p2p.node_id` is this node's peer identity. Keep it stable after peers have learned it.
+- `p2p.node_key_path` points to the local handshake signing key for that peer identity.
+- `p2p.peers` contains dial targets this node uses to reach other peers; map keys should be the remote nodes' `p2p.node_id` values.
 - validator metadata `p2p_address` and `rpc_address` should contain public advertised addresses, not Docker-only service names, unless the network is intentionally private.
 
 ## 3. Submit Validator Admission
@@ -87,6 +93,7 @@ The validator admission transaction should include:
 - consensus public key
 - voting power or stake reference
 - validator commission basis points, if the chain allows self-service commission updates
+- P2P `node_id` metadata if the chain uses genesis/validator metadata to preseed peer maps
 - public P2P address metadata
 - public RPC address metadata, if public
 - BLS proof-of-possession metadata when BLS is enabled

@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -119,6 +120,35 @@ func TestGRPCBinaryCodecRoundTrip(t *testing.T) {
 	}
 	if decoded.Envelope.Topic != original.Envelope.Topic || decoded.Envelope.From != original.Envelope.From || decoded.Envelope.To != original.Envelope.To || string(decoded.Envelope.Data) != string(original.Envelope.Data) {
 		t.Fatalf("unexpected decoded envelope: %+v", decoded.Envelope)
+	}
+}
+
+func TestGRPCBinaryCodecDecodesLegacyV1Handshake(t *testing.T) {
+	var buffer bytes.Buffer
+	buffer.WriteByte(grpcCodecVersionV1)
+	buffer.WriteByte(1)
+	writeBinaryString(&buffer, GRPCProtocolVersion)
+	writeBinaryString(&buffer, "vexo-network")
+	writeBinaryString(&buffer, "vexo-test")
+	writeBinaryString(&buffer, GenesisHash([]byte("genesis")))
+	writeBinaryString(&buffer, "alice")
+	writeBinaryString(&buffer, "127.0.0.1:26656")
+	writeBinaryString(&buffer, "shared-secret")
+	writeBinaryPeerMap(&buffer, map[p2p.PeerID]string{"bob": "127.0.0.1:26666"})
+	buffer.WriteByte(0)
+
+	decoded, err := decodeGRPCStreamMessage(buffer.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Handshake == nil {
+		t.Fatalf("expected legacy handshake")
+	}
+	if decoded.Handshake.NodeID != "alice" || decoded.Handshake.KnownPeers["bob"] != "127.0.0.1:26666" {
+		t.Fatalf("unexpected decoded legacy handshake: %+v", decoded.Handshake)
+	}
+	if decoded.Handshake.SignatureNonce != "" || len(decoded.Handshake.NodePublicKey) != 0 || len(decoded.Handshake.Signature) != 0 {
+		t.Fatalf("legacy v1 handshake must not synthesize signature fields: %+v", decoded.Handshake)
 	}
 }
 
@@ -512,18 +542,23 @@ func TestGRPCTransportRejectsReplayedAuthProof(t *testing.T) {
 }
 
 func TestGRPCTransportValidatesSignedHandshake(t *testing.T) {
-	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	alicePublicKey, alicePrivateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	signer := testHandshakeSigner{publicKey: publicKey, privateKey: privateKey}
+	bobPublicKey, bobPrivateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceSigner := testHandshakeSigner{publicKey: alicePublicKey, privateKey: alicePrivateKey}
+	bobSigner := testHandshakeSigner{publicKey: bobPublicKey, privateKey: bobPrivateKey}
 	verifier := testHandshakeVerifier{}
 	alice, err := NewGRPCTransport(GRPCConfig{
 		PeerID:                    "alice",
 		NetworkID:                 "vexo-network",
 		ChainID:                   "vexo-test",
 		GenesisHash:               GenesisHash([]byte("genesis")),
-		HandshakeSigner:           signer,
+		HandshakeSigner:           aliceSigner,
 		HandshakeVerifier:         verifier,
 		RequireHandshakeSignature: true,
 	})
@@ -535,6 +570,7 @@ func TestGRPCTransportValidatesSignedHandshake(t *testing.T) {
 		NetworkID:                 "vexo-network",
 		ChainID:                   "vexo-test",
 		GenesisHash:               GenesisHash([]byte("genesis")),
+		HandshakeSigner:           bobSigner,
 		HandshakeVerifier:         verifier,
 		RequireHandshakeSignature: true,
 	})
@@ -556,6 +592,16 @@ func TestGRPCTransportValidatesSignedHandshake(t *testing.T) {
 	handshake.ListenAddr = "127.0.0.1:9999"
 	if err := bob.validateHandshake(handshake); !errors.Is(err, ErrHandshakeSignature) {
 		t.Fatalf("expected tampered signed handshake rejection, got %v", err)
+	}
+}
+
+func TestGRPCTransportRequiresSignerForRequiredHandshakeSignature(t *testing.T) {
+	if _, err := NewGRPCTransport(GRPCConfig{
+		PeerID:                    "alice",
+		HandshakeVerifier:         testHandshakeVerifier{},
+		RequireHandshakeSignature: true,
+	}); !errors.Is(err, ErrHandshakeSignature) {
+		t.Fatalf("expected missing signer to fail strict handshake config, got %v", err)
 	}
 }
 

@@ -2303,6 +2303,9 @@ func TestRunInitWritesNetworkFilesWithCustomPorts(t *testing.T) {
 	if !strings.Contains(output.String(), "p2p=127.0.0.1:27666") || !strings.Contains(output.String(), "rpc=127.0.0.1:27667") {
 		t.Fatalf("unexpected custom port output:\n%s", output.String())
 	}
+	if !strings.Contains(output.String(), "node_id=validator-2") || !strings.Contains(output.String(), "node_key=") {
+		t.Fatalf("expected node identity output:\n%s", output.String())
+	}
 }
 
 func TestRunInitWritesNetworkConfigPeers(t *testing.T) {
@@ -2341,11 +2344,17 @@ func TestRunInitWritesNetworkConfigPeers(t *testing.T) {
 	if networkDocument.P2P.Peers["validator-2"] != "validator-2:26656" {
 		t.Fatalf("expected config peer address, got %+v", networkDocument.P2P.Peers)
 	}
+	if networkDocument.P2P.NodeID != "validator-1" || networkDocument.P2P.NodeKeyPath != nodeKeyFileName {
+		t.Fatalf("expected p2p node identity in config, got %+v", networkDocument.P2P)
+	}
 	genesis, err := loadGenesis(filepath.Join(home, "validator-2", genesisFileName))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if genesis.Validators[0].Metadata["p2p_address"] != "public-validator-1.example.com:26656" || genesis.Validators[1].Metadata["rpc_address"] != "public-rpc-2.example.com:26657" {
+	if genesis.Validators[0].Metadata["p2p_address"] != "public-validator-1.example.com:26656" ||
+		genesis.Validators[0].Metadata["node_id"] != "validator-1" ||
+		genesis.Validators[1].Metadata["rpc_address"] != "public-rpc-2.example.com:26657" ||
+		genesis.Validators[1].Metadata["node_id"] != "validator-2" {
 		t.Fatalf("unexpected advertised metadata: %+v", genesis.Validators)
 	}
 }
@@ -2384,6 +2393,9 @@ func TestRunInitValidatorAndArchiveRoles(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(validatorHome, keyFileName)); err != nil {
 		t.Fatalf("expected validator key: %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(validatorHome, nodeKeyFileName)); err != nil {
+		t.Fatalf("expected validator node key: %v", err)
+	}
 
 	archiveHome := t.TempDir()
 	var archiveOutput bytes.Buffer
@@ -2408,8 +2420,14 @@ func TestRunInitValidatorAndArchiveRoles(t *testing.T) {
 	if archiveNetwork.P2P.Peers["validator-1"] != "seed.example.com:26656" {
 		t.Fatalf("expected bootstrap peer in config, got %+v", archiveNetwork.P2P.Peers)
 	}
+	if archiveNetwork.P2P.NodeID == "" || archiveNetwork.P2P.NodeKeyPath != nodeKeyFileName {
+		t.Fatalf("expected archive p2p node identity, got %+v", archiveNetwork.P2P)
+	}
 	if _, err := os.Stat(filepath.Join(archiveHome, keyFileName)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("archive init must not create validator key, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(archiveHome, nodeKeyFileName)); err != nil {
+		t.Fatalf("archive init must create node key, got %v", err)
 	}
 	inputs, err := loadStartInputs(archiveHome, "", "", "", nil, false)
 	if err != nil {

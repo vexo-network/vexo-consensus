@@ -59,6 +59,14 @@ Este documento ajuda a entender P2P handshake, gossip, peer scoring e política 
 - `BanThreshold`
 - `MaxScore`
 
+- `validator_id`
+- `p2p.node_id`
+- `node.key.json`
+- `p2p.node_key_path`
+- `signature_nonce`
+- `node_public_key`
+- `signature`
+- `Wire Compatibility`
 ## Estrutura da fonte inglesa
 
 - Networking Spec

@@ -84,6 +84,8 @@ type startRuntimeConfig struct {
 	ConsensusLoopEnabled    bool
 	ConsensusLoop           vexonode.ConsensusLoopConfig
 	P2PEnabled              bool
+	P2PNodeID               p2p.PeerID
+	P2PNodeKeyPath          string
 	P2PListenAddress        string
 	P2PPeers                map[p2p.PeerID]string
 	P2PSeeds                map[p2p.PeerID]string
@@ -711,6 +713,8 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 		RPCEVMAccountKeys:       append([]string(nil), runtime.RPC.EVMAccountPrivateKeys...),
 		RPCEVMAccountKeyEnvs:    append([]string(nil), runtime.RPC.EVMAccountKeyEnvs...),
 		P2PEnabled:              runtime.P2P.Enabled,
+		P2PNodeID:               p2p.PeerID(runtime.P2P.NodeID),
+		P2PNodeKeyPath:          resolveOptionalPath(home, runtime.P2P.NodeKeyPath),
 		P2PListenAddress:        runtime.P2P.ListenAddress,
 		P2PNetworkID:            runtime.P2P.NetworkID,
 		P2PMaxMessageBytes:      runtime.P2P.MaxMessageBytes,
@@ -747,6 +751,9 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 	}
 	if cfg.P2PListenAddress == "" {
 		cfg.P2PListenAddress = defaultP2PAddress
+	}
+	if cfg.P2PNodeID == "" {
+		cfg.P2PNodeID = p2p.PeerID(defaultP2PNodeID(document.ValidatorID, home))
 	}
 	if cfg.AddrBookMaxFailures == 0 {
 		cfg.AddrBookMaxFailures = 3
@@ -864,6 +871,12 @@ func cloneStringSliceMap(values map[string][]string) map[string][]string {
 
 func validateRuntimeNetworkSafety(cfg startRuntimeConfig) error {
 	if cfg.P2PEnabled && requiresAuthenticatedP2P(cfg) {
+		if cfg.P2PNodeID == "" {
+			return fmt.Errorf("runtime.p2p.node_id is required for public peer connections: %w", vexoconfig.ErrUnsafeNetworkConfig)
+		}
+		if cfg.P2PNodeKeyPath == "" {
+			return fmt.Errorf("runtime.p2p.node_key_path is required for public peer connections: %w", vexoconfig.ErrUnsafeNetworkConfig)
+		}
 		if cfg.P2PAuthToken == "" {
 			return fmt.Errorf("runtime.p2p.auth_token is required for public peer connections: %w", vexoconfig.ErrUnsafeNetworkConfig)
 		}
@@ -936,6 +949,8 @@ func runtimeConfigIsZero(runtime runtimeConfig) bool {
 		len(runtime.RPC.EVMAccountPrivateKeys) == 0 &&
 		len(runtime.RPC.EVMAccountKeyEnvs) == 0 &&
 		runtime.P2P.Enabled == false &&
+		runtime.P2P.NodeID == "" &&
+		runtime.P2P.NodeKeyPath == "" &&
 		runtime.P2P.ListenAddress == "" &&
 		runtime.P2P.NetworkID == "" &&
 		runtime.P2P.MaxMessageBytes == 0 &&
@@ -969,6 +984,24 @@ func signerFromKeyDocuments(documents []vexocrypto.KeyDocument) (vexocrypto.Sign
 		return documents[0].SignerWithPassphrase(resolvePassphrase(""))
 	}
 	return vexocrypto.NewKeyRingPolicySignerFromDocuments(resolvePassphrase(""), documents...)
+}
+
+func loadP2PHandshakeSigner(runtimeConfig startRuntimeConfig, fallback vexocrypto.Signer) (vexocrypto.Signer, error) {
+	if runtimeConfig.P2PNodeKeyPath == "" {
+		return fallback, nil
+	}
+	document, err := vexocrypto.LoadKeyDocument(runtimeConfig.P2PNodeKeyPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) && !requiresAuthenticatedP2P(runtimeConfig) {
+			return fallback, nil
+		}
+		return nil, fmt.Errorf("runtime.p2p.node_key_path: %w", err)
+	}
+	signer, err := document.SignerWithPassphrase(resolvePassphrase(""))
+	if err != nil {
+		return nil, fmt.Errorf("runtime.p2p.node_key_path: %w", err)
+	}
+	return signer, nil
 }
 
 func resolveRotationKeyPath(home string, path string) string {
@@ -1022,6 +1055,10 @@ func buildRuntimeNode(inputs startInputs, runtimeConfig startRuntimeConfig) (*ve
 }
 
 func applyNetworkRuntimeDefaults(inputs startInputs, runtimeConfig startRuntimeConfig) startRuntimeConfig {
+	selfPeerID := runtimeConfig.P2PNodeID
+	if selfPeerID == "" {
+		selfPeerID = p2p.PeerID(defaultP2PNodeID(string(inputs.Config.ValidatorID), filepath.Dir(inputs.Plan.ConfigPath)))
+	}
 	if runtimeConfig.RPCAddress == "" || runtimeConfig.RPCAddress == defaultRPCAddress {
 		if address := validatorMetadata(inputs.Genesis, inputs.Config.ValidatorID, "rpc_listen_address"); address != "" {
 			runtimeConfig.RPCAddress = address
@@ -1033,7 +1070,7 @@ func applyNetworkRuntimeDefaults(inputs startInputs, runtimeConfig startRuntimeC
 		}
 	}
 	if len(runtimeConfig.P2PPeers) == 0 {
-		runtimeConfig.P2PPeers = peersFromGenesis(inputs.Genesis, inputs.Config.ValidatorID)
+		runtimeConfig.P2PPeers = peersFromGenesis(inputs.Genesis, inputs.Config.ValidatorID, selfPeerID)
 	}
 	return runtimeConfig
 }
@@ -1048,17 +1085,23 @@ func validatorMetadata(genesis vexonode.Genesis, validatorID types.ValidatorID, 
 	return ""
 }
 
-func peersFromGenesis(genesis vexonode.Genesis, self types.ValidatorID) map[p2p.PeerID]string {
+func peersFromGenesis(genesis vexonode.Genesis, selfValidator types.ValidatorID, selfPeer p2p.PeerID) map[p2p.PeerID]string {
 	peers := make(map[p2p.PeerID]string)
 	for _, validatorInfo := range genesis.Validators {
-		if validatorInfo.ID == self {
+		peerID := p2p.PeerID(validatorInfo.ID)
+		if validatorInfo.Metadata != nil {
+			if metadataNodeID := strings.TrimSpace(validatorInfo.Metadata["node_id"]); metadataNodeID != "" {
+				peerID = p2p.PeerID(metadataNodeID)
+			}
+		}
+		if validatorInfo.ID == selfValidator || peerID == selfPeer {
 			continue
 		}
 		address := validatorInfo.Metadata["p2p_address"]
 		if address == "" {
 			continue
 		}
-		peers[p2p.PeerID(validatorInfo.ID)] = address
+		peers[peerID] = address
 	}
 	return peers
 }
@@ -1067,6 +1110,17 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 	networkID := runtimeConfig.P2PNetworkID
 	if networkID == "" {
 		networkID = inputs.Config.Chain.ChainID
+	}
+	peerID := runtimeConfig.P2PNodeID
+	if peerID == "" {
+		peerID = p2p.PeerID(inputs.Config.ValidatorID)
+	}
+	handshakeSigner, err := loadP2PHandshakeSigner(runtimeConfig, inputs.Signer)
+	if err != nil {
+		return nil, err
+	}
+	if requiresAuthenticatedP2P(runtimeConfig) && handshakeSigner == nil {
+		return nil, fmt.Errorf("runtime.p2p.node_key_path is required for authenticated P2P handshake: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
 	tlsConfig, err := loadP2PTLSConfig(runtimeConfig)
 	if err != nil {
@@ -1081,11 +1135,11 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 	if err := addrBook.Save(); err != nil {
 		return nil, err
 	}
-	peers := mergePeerMaps(addrBook.PeerMap(p2p.PeerID(inputs.Config.ValidatorID)), runtimeConfig.P2PPeers, runtimeConfig.P2PSeeds)
+	peers := mergePeerMaps(addrBook.PeerMap(peerID), runtimeConfig.P2PPeers, runtimeConfig.P2PSeeds)
 	var grpcTransport *transport.GRPCTransport
-	requireHandshakeSignature := requiresAuthenticatedP2P(runtimeConfig) && inputs.Signer != nil
+	requireHandshakeSignature := requiresAuthenticatedP2P(runtimeConfig)
 	grpcTransport, err = transport.NewGRPCTransport(transport.GRPCConfig{
-		PeerID:                    p2p.PeerID(inputs.Config.ValidatorID),
+		PeerID:                    peerID,
 		ListenAddr:                runtimeConfig.P2PListenAddress,
 		Peers:                     peers,
 		NetworkID:                 networkID,
@@ -1096,8 +1150,8 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 		AuthToken:                 runtimeConfig.P2PAuthToken,
 		TLSConfig:                 tlsConfig,
 		RequireTLS:                requiresAuthenticatedP2P(runtimeConfig),
-		HandshakeSigner:           inputs.Signer,
-		HandshakeVerifier:         inputs.Signer,
+		HandshakeSigner:           handshakeSigner,
+		HandshakeVerifier:         handshakeSigner,
 		RequireHandshakeSignature: requireHandshakeSignature,
 		PeerLearned: func(peerID p2p.PeerID, address string) {
 			addrBook.Add(peerID, address, "handshake", false)

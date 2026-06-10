@@ -50,6 +50,11 @@ Dokumen ini membantu memahami proses menambah validator, validasi konfigurasi, d
 - `active_until`
 - `config audit --strict`
 
+- `node.key.json`
+- `p2p.node_id`
+- `p2p.node_key_path`
+- `node_id`
+- `node_key_path`
 ## Struktur sumber Inggris
 
 - Adding a Validator

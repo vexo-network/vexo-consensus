@@ -59,6 +59,14 @@
 - `BanThreshold`
 - `MaxScore`
 
+- `validator_id`
+- `p2p.node_id`
+- `node.key.json`
+- `p2p.node_key_path`
+- `signature_nonce`
+- `node_public_key`
+- `signature`
+- `Wire Compatibility`
 ## 英語原文の構造
 
 - Networking Spec

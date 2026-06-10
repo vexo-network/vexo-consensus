@@ -19,7 +19,10 @@ import (
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
-const keyFileName = "validator.key.json"
+const (
+	keyFileName     = "validator.key.json"
+	nodeKeyFileName = "node.key.json"
+)
 
 type keyInfoDocument struct {
 	SchemaVersion string `json:"schema_version"`
