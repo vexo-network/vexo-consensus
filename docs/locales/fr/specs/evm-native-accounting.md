@@ -63,6 +63,7 @@ Ce document aide à comprendre l’alignement entre native coin et EVM gas/accou
 - Amount Encoding
 - Fee Accounting
 - EVM Execution
+- State Root Policy
 - Compatibility Boundary
 - Failure Modes
 

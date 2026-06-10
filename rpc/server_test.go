@@ -1028,6 +1028,11 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if blobDetails.BlobGasFeeCap != 9 || len(blobDetails.BlobHashes) != 1 || !strings.EqualFold(blobDetails.BlobHashes[0], blobSidecar.BlobHashes[0]) {
 		t.Fatalf("expected Web3 blob transaction details, got %+v sidecar=%+v", blobDetails, blobSidecar)
 	}
+	var sendBlobAlias JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":106,"method":"eth_sendRawBlobTransaction","params":["`+rawBlobTx+`",`+string(blobSidecarJSON)+`]}`, http.StatusOK, &sendBlobAlias)
+	if sendBlobAlias.Error != nil || sendBlobAlias.Result != rawBlobHash || len(provider.submitted) != 3 {
+		t.Fatalf("unexpected blob tx alias response=%+v submitted=%q", sendBlobAlias, provider.submitted)
+	}
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"` + rawBlobHash + `","sidecar":{"blob_hashes":["` + blobSidecar.BlobHashes[0] + `"],"blobs":[],"commitments":[],"proofs":[]}}`)}
 	var getBlob JSONRPCResponse
 	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":103,"method":"vexo_getBlobSidecarByTxHash","params":["`+rawBlobHash+`"]}`, http.StatusOK, &getBlob)
@@ -2059,6 +2064,26 @@ func TestServerPersistsWeb3FilterStoreOnMutation(t *testing.T) {
 	}
 	if _, found := restored.get(filterID); !found {
 		t.Fatalf("expected mutation to persist filter %s", filterID)
+	}
+}
+
+func TestWeb3FilterSnapshotPersistErrorFailsRPC(t *testing.T) {
+	filters := newWeb3FilterStore()
+	filters.setOnChange(func(Web3FilterStoreSnapshot) error {
+		return errors.New("disk full")
+	})
+	provider := fakeStatusProvider{status: node.Status{Running: true, LatestHeight: 7}}
+
+	result, rpcErr := executeWeb3Method(context.Background(), provider, Config{}, filters, "eth_newBlockFilter", nil)
+	if rpcErr == nil || !strings.Contains(rpcErr.Message, "web3 filter snapshot persistence failed") {
+		t.Fatalf("expected persist failure, result=%v err=%+v", result, rpcErr)
+	}
+	if _, found := filters.get("0x1"); !found {
+		t.Fatal("expected in-memory filter to remain for operator inspection")
+	}
+	_, rpcErr = executeWeb3Method(context.Background(), provider, Config{}, filters, "eth_getFilterChanges", []json.RawMessage{json.RawMessage(`"0x1"`)})
+	if rpcErr == nil || !strings.Contains(rpcErr.Message, "web3 filter snapshot persistence failed") {
+		t.Fatalf("expected subsequent filter RPC to fail while persistence is unhealthy, got %+v", rpcErr)
 	}
 }
 

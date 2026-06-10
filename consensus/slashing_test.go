@@ -623,6 +623,12 @@ func TestSubmitInvalidProposalAppHashEvidenceRequiresContext(t *testing.T) {
 	if _, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence); !errors.Is(err, ErrInvalidProposalContext) {
 		t.Fatalf("expected context error, got %v", err)
 	}
+	verificationContext := InvalidProposalVerificationContext{ExpectedAppHash: expectedAppHash}
+	verificationContext.ContextProofHash = verificationContext.ProofHash()
+	evidence, err = BindInvalidProposalEvidenceContext(evidence, verificationContext)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := SubmitEvidenceForSlashingWithContext(
 		context.Background(),
@@ -631,7 +637,7 @@ func TestSubmitInvalidProposalAppHashEvidenceRequiresContext(t *testing.T) {
 		vexocrypto.DeterministicSigner{},
 		0,
 		evidence,
-		EvidenceVerificationContext{InvalidProposal: InvalidProposalVerificationContext{ExpectedAppHash: expectedAppHash}},
+		EvidenceVerificationContext{InvalidProposal: verificationContext},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -738,6 +744,12 @@ func TestSubmitInvalidProposalTxValidityEvidenceRequiresContext(t *testing.T) {
 	if _, err := SubmitEvidenceForSlashing(context.Background(), keeper, registry, vexocrypto.DeterministicSigner{}, 0, evidence); !errors.Is(err, ErrInvalidProposalContext) {
 		t.Fatalf("expected context error, got %v", err)
 	}
+	verificationContext := InvalidProposalVerificationContext{ExpectedTxResultsHash: expectedResultsHash}
+	verificationContext.ContextProofHash = verificationContext.ProofHash()
+	evidence, err = BindInvalidProposalEvidenceContext(evidence, verificationContext)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := SubmitEvidenceForSlashingWithContext(
 		context.Background(),
 		keeper,
@@ -746,7 +758,7 @@ func TestSubmitInvalidProposalTxValidityEvidenceRequiresContext(t *testing.T) {
 		0,
 		evidence,
 		EvidenceVerificationContext{InvalidProposal: InvalidProposalVerificationContext{ExpectedTxResultsHash: types.Hash{9}}},
-	); !errors.Is(err, ErrInvalidProposal) {
+	); !errors.Is(err, ErrInvalidProposalContext) {
 		t.Fatalf("expected tx result hash mismatch, got %v", err)
 	}
 
@@ -757,7 +769,7 @@ func TestSubmitInvalidProposalTxValidityEvidenceRequiresContext(t *testing.T) {
 		vexocrypto.DeterministicSigner{},
 		0,
 		evidence,
-		EvidenceVerificationContext{InvalidProposal: InvalidProposalVerificationContext{ExpectedTxResultsHash: expectedResultsHash}},
+		EvidenceVerificationContext{InvalidProposal: verificationContext},
 	)
 	if err != nil {
 		t.Fatal(err)

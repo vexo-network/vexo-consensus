@@ -63,6 +63,7 @@ Este documento ayuda a entender conexión coherente entre native coin y EVM gas/
 - Amount Encoding
 - Fee Accounting
 - EVM Execution
+- State Root Policy
 - Compatibility Boundary
 - Failure Modes
 

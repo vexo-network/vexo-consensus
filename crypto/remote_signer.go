@@ -153,7 +153,9 @@ func (signer RemoteSigner) PublicKey() types.PublicKey {
 }
 
 func (signer RemoteSigner) Sign(message []byte) (types.Signature, error) {
-	return signer.SignWithContext(context.Background(), message)
+	ctx, cancel := signer.defaultContext()
+	defer cancel()
+	return signer.SignWithContext(ctx, message)
 }
 
 func (signer RemoteSigner) SignWithContext(ctx context.Context, message []byte) (types.Signature, error) {
@@ -161,7 +163,9 @@ func (signer RemoteSigner) SignWithContext(ctx context.Context, message []byte) 
 }
 
 func (signer RemoteSigner) SignWithPolicy(policy SignPolicy, message []byte) (types.Signature, error) {
-	return signer.SignWithPolicyContext(context.Background(), policy, message)
+	ctx, cancel := signer.defaultContext()
+	defer cancel()
+	return signer.SignWithPolicyContext(ctx, policy, message)
 }
 
 func (signer RemoteSigner) SignWithPolicyContext(ctx context.Context, policy SignPolicy, message []byte) (types.Signature, error) {
@@ -174,6 +178,14 @@ func (signer RemoteSigner) SignWithPolicyContext(ctx context.Context, policy Sig
 		}
 	}
 	return signer.signWithPolicy(ctx, message, &policy)
+}
+
+func (signer RemoteSigner) defaultContext() (context.Context, context.CancelFunc) {
+	timeout := 5 * time.Second
+	if signer.client != nil && signer.client.Timeout > 0 {
+		timeout = signer.client.Timeout
+	}
+	return context.WithTimeout(context.Background(), timeout)
 }
 
 func (signer RemoteSigner) signWithPolicy(ctx context.Context, message []byte, policy *SignPolicy) (types.Signature, error) {

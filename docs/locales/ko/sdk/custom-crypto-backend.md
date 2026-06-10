@@ -22,6 +22,36 @@
 - 영어 원문의 규범 문장과 현재 네트워크 설정을 연결해서 검토할 수 있어야 합니다.
 - 예제 명령과 config 값을 복사하기 전에 chain ID, validator ID, fee/gas, peer 주소를 확인할 수 있어야 합니다.
 
+## 구현자가 반드시 구분해야 할 것
+
+Custom crypto backend는 “서명 라이브러리 하나 연결”이 아니라 consensus safety 경계입니다.
+
+- BLS backend는 aggregate finality signature 검증에 쓰입니다.
+- VRF backend는 committee/randomness 선택 경로에 쓰입니다.
+- Remote signer는 validator private key를 노드 프로세스 밖으로 분리하기 위한 운영 경계입니다.
+- 세 경로 모두 domain separation을 유지해야 하며, 서로 다른 메시지 타입을 같은 sign bytes로 서명하면 안 됩니다.
+
+## BLS backend 체크리스트
+
+- adapter metadata의 `Name`, `Version`, `Audited`, `AuditReport`, `DependencyAudit`, `DomainSeparation`, `RogueKeyDefense`를 채웁니다.
+- validator credential에는 public key와 proof-of-possession을 포함합니다.
+- subgroup check, malformed key rejection, rogue-key 방어, aggregate verification test vector를 통과해야 합니다.
+- 릴리즈 전에는 audit evidence SHA-256을 release gate에 고정합니다.
+
+## VRF backend 체크리스트
+
+- deterministic VRF는 테스트용으로만 사용합니다.
+- 네트워크 운영에서는 local encrypted key, KMS, remote VRF service 중 하나를 명확히 선택합니다.
+- proof verification이 runtime/gossip/finality 경로에서 같은 domain으로 수행되는지 확인합니다.
+- TLS 또는 인증 토큰 없이 remote VRF를 공개 네트워크에서 사용하지 않습니다.
+
+## Remote signer 체크리스트
+
+- `height`, `round`, `type` 기반 sign policy를 signer 쪽에서도 검증합니다.
+- double-sign guard는 노드뿐 아니라 signer 저장소에도 두는 것이 안전합니다.
+- client auth token, replay nonce, request audit log를 운영 기본값으로 둡니다.
+- 기본 `Sign` wrapper보다 deadline이 있는 `SignWithContext` 또는 `SignWithPolicyContext`를 우선 사용합니다.
+
 ## 안전 사용 체크리스트
 
 - 영어 원문에서 MUST/SHOULD/MAY 문장을 먼저 확인합니다.

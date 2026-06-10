@@ -63,6 +63,7 @@ Dieses Dokument hilft dabei, die konsistente Verbindung von native coin und EVM 
 - Amount Encoding
 - Fee Accounting
 - EVM Execution
+- State Root Policy
 - Compatibility Boundary
 - Failure Modes
 

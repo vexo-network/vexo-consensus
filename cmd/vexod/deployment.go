@@ -138,7 +138,7 @@ func buildDeploymentTemplateDocument() deploymentTemplateDocument {
 				DisplayDenom:             "vexo",
 				DisplayExponent:          18,
 				GasDenom:                 "gas",
-				StrictEVMStateRoot:       false,
+				StrictEVMStateRoot:       true,
 			},
 			Mempool: deploymentMempoolTemplate{
 				MinFee:             1,

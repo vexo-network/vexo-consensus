@@ -41,6 +41,16 @@ The built-in EVM adapter preserves Ethereum 256-bit value and fee fields.
 - The geth-backed VM adapter receives 256-bit gas price and fee-cap fields through the `contract.Invocation` boundary.
 - VM balance writes are persisted as native bank balances, so `eth_getBalance` and `bank query balance` observe the same underlying asset for Ethereum `0x` accounts.
 - EVM receipts report `gasUsed` for the transaction and `cumulativeGasUsed` as the sum of receipt gas used earlier in the same block plus the current transaction, matching Web3 client expectations.
+- Blob transactions are accepted through `eth_sendRawBlobTransaction` or `vexo_sendRawBlobTransaction` with an explicit sidecar. `eth_sendRawTransaction` rejects blob transactions that reference blob hashes without sidecar data, because Vexo does not rely on Ethereum devp2p sidecar propagation.
+
+## State Root Policy
+
+Networks should keep `execution.strict_evm_state_root` enabled.
+
+- When strict mode is enabled, Web3 block responses fail closed if the retained EVM state root for the requested height is unavailable.
+- The app hash is not a safe substitute for Ethereum-compatible `stateRoot` in Web3 responses.
+- Operators may disable strict mode only for migration or historical debugging windows where Web3 state-root fidelity is not being advertised.
+- Release evidence should include retained EVM snapshots or replay results for the heights used by Web3 clients.
 
 ## Compatibility Boundary
 
@@ -61,3 +71,5 @@ Implementations must fail closed when:
 - a fee collector balance would overflow 256 bits
 - an EVM state transition returns invalid balance writes
 - checksum/lowercase Ethereum address aliases would split account balance state
+- a Web3 block response cannot load the retained EVM state root while strict state-root mode is enabled
+- a blob transaction is submitted without the explicit blob sidecar required by Vexo RPC

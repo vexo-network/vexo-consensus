@@ -59,7 +59,7 @@
     "sdk/rpc-api-versioning.md": "9c49f86895be40f6b26e2d6cd30aa677af9ec1186cb72c3f0801bde57acac74f",
     "security/audit-readiness.md": "99924682e8d19558af033a8b8dbf6b948abdb7cdca469d1a21855b88ebc6730a",
     "specs/consensus-spec.md": "0823e835fbb832953d6279b9a6d8714eabbce1e46307609b113e9d07701e61eb",
-    "specs/evm-native-accounting.md": "352e54a6d7f37e928aa0ee95d975762d29b12706dbf732f253182b492c8ece8a",
+    "specs/evm-native-accounting.md": "d07d86ab463242269aeac0be72087215cfcd0fa8953f31a894f4fe1d90d3d617",
     "specs/finality-proof-format.md": "11934a6c7e2d3433bb5310b1dbc0ef955437f467abb89e6b42ac1c59af751bd9",
     "specs/networking-spec.md": "0d9a0059db659fbc053ba4c4ffbb588fd8da265720b0c0367373219ad036d65c",
     "specs/storage-schema.md": "c6d6ca9dbe845a34f59dba33aa4bc7215383c4eac0d405af77b9dffebdb22d04",

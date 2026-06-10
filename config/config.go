@@ -140,6 +140,7 @@ func Default(chainID string) Config {
 			DisplayExponent:          18,
 			GasDenom:                 "gas",
 			EVMForkPreset:            "latest",
+			StrictEVMStateRoot:       true,
 			MaxBlobSidecarBlobs:      6,
 			MaxBlobSidecarBytes:      2 * 1024 * 1024,
 		},
@@ -206,6 +207,7 @@ func NetworkSafeTemplate(chainID string, dataDir string) Config {
 	cfg.Execution.RequireSigned = true
 	cfg.Execution.RequireNonce = true
 	cfg.Execution.AllowUnprotectedLegacyTx = false
+	cfg.Execution.StrictEVMStateRoot = true
 	cfg.Bank.MintAuthority = "governance"
 	cfg.Mempool.MinFee = 1
 	cfg.Mempool.EnablePriority = true

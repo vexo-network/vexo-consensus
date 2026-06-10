@@ -1526,12 +1526,14 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
 		}
 		if len(decoded.BlobHashes) > 0 {
-			return nil, &JSONRPCError{Code: -32602, Message: "blob transactions require vexo_sendRawBlobTransaction with an explicit sidecar"}
+			return nil, &JSONRPCError{Code: -32602, Message: "blob transactions require eth_sendRawBlobTransaction or vexo_sendRawBlobTransaction with an explicit sidecar"}
 		}
 		if err := submitter.SubmitTx(ctx, decoded.Tx); err != nil {
 			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
 		}
 		return decoded.Hash, nil
+	case "eth_sendRawBlobTransaction":
+		return web3SendRawBlobTransaction(ctx, provider, cfg, params)
 	case "vexo_sendRawBlobTransaction":
 		return web3SendRawBlobTransaction(ctx, provider, cfg, params)
 	case "vexo_getBlobSidecarByTxHash":
@@ -1605,7 +1607,11 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 		if len(params) != 0 {
 			return nil, &JSONRPCError{Code: -32602, Message: "eth_newBlockFilter does not accept parameters"}
 		}
-		return filters.addBlock(uint64(provider.Status(ctx).LatestHeight)), nil
+		filterID := filters.addBlock(uint64(provider.Status(ctx).LatestHeight))
+		if rpcErr := web3FilterPersistRPCError(filters); rpcErr != nil {
+			return nil, rpcErr
+		}
+		return filterID, nil
 	case "eth_newPendingTransactionFilter":
 		if filters == nil {
 			return nil, &JSONRPCError{Code: -32000, Message: "filter store is unavailable"}
@@ -1621,7 +1627,11 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 		if err != nil {
 			return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
 		}
-		return filters.addPending(hashes), nil
+		filterID := filters.addPending(hashes)
+		if rpcErr := web3FilterPersistRPCError(filters); rpcErr != nil {
+			return nil, rpcErr
+		}
+		return filterID, nil
 	case "eth_newFilter":
 		if filters == nil {
 			return nil, &JSONRPCError{Code: -32000, Message: "filter store is unavailable"}
@@ -1634,10 +1644,17 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 		if rpcErr != nil {
 			return nil, rpcErr
 		}
-		return filters.addLog(filter, logs, uint64(provider.Status(ctx).LatestHeight)), nil
+		filterID := filters.addLog(filter, logs, uint64(provider.Status(ctx).LatestHeight))
+		if rpcErr := web3FilterPersistRPCError(filters); rpcErr != nil {
+			return nil, rpcErr
+		}
+		return filterID, nil
 	case "eth_getFilterChanges", "eth_getFilterLogs":
 		if filters == nil {
 			return nil, &JSONRPCError{Code: -32000, Message: "filter store is unavailable"}
+		}
+		if rpcErr := web3FilterPersistRPCError(filters); rpcErr != nil {
+			return nil, rpcErr
 		}
 		if len(params) != 1 {
 			return nil, &JSONRPCError{Code: -32602, Message: method + " requires filter id"}
@@ -1657,6 +1674,9 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 			}
 			if method == "eth_getFilterChanges" {
 				filters.replace(filterID, updated)
+				if rpcErr := web3FilterPersistRPCError(filters); rpcErr != nil {
+					return nil, rpcErr
+				}
 			}
 			return changes, nil
 		}
@@ -1676,6 +1696,9 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 			} else {
 				filters.mark(filterID, uint64(provider.Status(ctx).LatestHeight))
 			}
+			if rpcErr := web3FilterPersistRPCError(filters); rpcErr != nil {
+				return nil, rpcErr
+			}
 		}
 		return changes, nil
 	case "eth_uninstallFilter":
@@ -1689,7 +1712,11 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 		if err != nil {
 			return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
 		}
-		return filters.remove(filterID), nil
+		removed := filters.remove(filterID)
+		if rpcErr := web3FilterPersistRPCError(filters); rpcErr != nil {
+			return nil, rpcErr
+		}
+		return removed, nil
 	case "eth_call":
 		callResponse, rpcErr := web3EVMCall(ctx, provider, cfg, params)
 		if rpcErr != nil {
@@ -1849,7 +1876,7 @@ func web3SendTransaction(ctx context.Context, provider StatusProvider, cfg Confi
 		return nil, &JSONRPCError{Code: -32602, Message: err.Error()}
 	}
 	if len(decoded.BlobHashes) > 0 {
-		return nil, &JSONRPCError{Code: -32602, Message: "blob transactions require vexo_sendRawBlobTransaction with an explicit sidecar"}
+		return nil, &JSONRPCError{Code: -32602, Message: "blob transactions require eth_sendRawBlobTransaction or vexo_sendRawBlobTransaction with an explicit sidecar"}
 	}
 	if err := submitter.SubmitTx(ctx, decoded.Tx); err != nil {
 		return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
@@ -6360,6 +6387,16 @@ func (store *web3FilterStore) persistError() error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	return store.lastPersistErr
+}
+
+func web3FilterPersistRPCError(store *web3FilterStore) *JSONRPCError {
+	if store == nil {
+		return nil
+	}
+	if err := store.persistError(); err != nil {
+		return &JSONRPCError{Code: -32000, Message: "web3 filter snapshot persistence failed: " + err.Error()}
+	}
+	return nil
 }
 
 func (store *web3FilterStore) Restore(snapshot Web3FilterStoreSnapshot) {

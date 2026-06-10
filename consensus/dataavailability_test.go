@@ -200,6 +200,7 @@ func TestInvalidProposalEvidenceWithBoundContextRequiresContextHash(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	context.ContextProofHash = context.ProofHash()
 	if err := VerifyInvalidProposalEvidenceWithBoundContext(bound, context); err != nil {
 		t.Fatalf("expected bound context evidence to verify, got %v", err)
 	}
@@ -224,6 +225,7 @@ func TestInvalidProposalEvidenceWithContextBuildsReasonSpecificProof(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+	context.ContextProofHash = context.ProofHash()
 	if err := VerifyInvalidProposalEvidenceWithContext(evidence, context); err != nil {
 		t.Fatalf("expected contextual evidence to verify: %v", err)
 	}
@@ -393,14 +395,15 @@ func TestInvalidProposalTxValidityEvidenceWithContextBuildsExecutionProof(t *tes
 	actualResults := []types.Result{{Code: 0, Log: "accepted"}}
 	expectedHash := HashTxResults(expectedResults)
 
+	context := InvalidProposalVerificationContext{
+		ExpectedTxResultsHash: expectedHash,
+		ExpectedTxResults:     expectedResults,
+		ActualTxResults:       actualResults,
+		TxIndex:               0,
+	}
 	evidence, err := NewInvalidProposalEvidenceWithContext(
 		proposal,
-		InvalidProposalVerificationContext{
-			ExpectedTxResultsHash: expectedHash,
-			ExpectedTxResults:     expectedResults,
-			ActualTxResults:       actualResults,
-			TxIndex:               0,
-		},
+		context,
 		InvalidProposalReasonTxValidity,
 		HashTxResults(actualResults),
 		"ante rejected tx",
@@ -408,7 +411,8 @@ func TestInvalidProposalTxValidityEvidenceWithContextBuildsExecutionProof(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedTxResultsHash: expectedHash}); err != nil {
+	context.ContextProofHash = context.ProofHash()
+	if err := VerifyInvalidProposalEvidenceWithContext(evidence, context); err != nil {
 		t.Fatal(err)
 	}
 	decoded, err := DecodeInvalidProposalProof(evidence.Proof)
@@ -527,5 +531,71 @@ func TestInvalidProposalTimestampEvidenceBindsActualToProposal(t *testing.T) {
 	}
 	if _, err := NewInvalidProposalTimestampEvidence(proposal, 100, 200); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDataAvailabilityEvidenceBindsCommitmentProof(t *testing.T) {
+	proposal := Proposal{
+		Block: types.Block{
+			Header: types.Header{
+				ChainID:       "vexo-test",
+				Height:        7,
+				ConsensusHash: dataavailability.Commitment([]types.Tx{[]byte("other")}),
+			},
+			Txs: []types.Tx{[]byte("tx")},
+		},
+		Round:    2,
+		Proposer: "validator-1",
+	}
+	evidence, err := NewDataAvailabilityInvalidProposalEvidence(proposal, InvalidProposalReasonDAMismatch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyInvalidProposalEvidence(evidence); err != nil {
+		t.Fatalf("expected DA mismatch evidence to verify: %v", err)
+	}
+	decoded, err := DecodeInvalidProposalProof(evidence.Proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded.ExpectedHash = types.Hash{}
+	tampered, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence.Proof = tampered
+	if err := VerifyInvalidProposalEvidence(evidence); !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected tampered DA proof to fail, got %v", err)
+	}
+}
+
+func TestUnavailableDataEvidenceBindsMissingCommitmentProof(t *testing.T) {
+	proposal := Proposal{
+		Block: types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: 7},
+			Txs:    []types.Tx{[]byte("tx")},
+		},
+		Round:    2,
+		Proposer: "validator-1",
+	}
+	evidence, err := NewUnavailableDataEvidence(proposal, "missing data availability commitment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyUnavailableDataEvidence(evidence); err != nil {
+		t.Fatalf("expected unavailable data evidence to verify: %v", err)
+	}
+	decoded, err := DecodeUnavailableDataProof(evidence.Proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded.TxCount++
+	tampered, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence.Proof = tampered
+	if err := VerifyUnavailableDataEvidence(evidence); !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected tampered unavailable data proof to fail, got %v", err)
 	}
 }

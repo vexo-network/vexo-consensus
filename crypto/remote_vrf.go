@@ -128,7 +128,9 @@ func remoteVRFHTTPClient(cfg config.VRFConfig) (*http.Client, error) {
 }
 
 func (adapter RemoteVRFAdapter) Prove(publicKey types.PublicKey, seed []byte) ([]byte, []byte, error) {
-	return adapter.ProveWithContext(context.Background(), publicKey, seed)
+	ctx, cancel := adapter.defaultContext()
+	defer cancel()
+	return adapter.ProveWithContext(ctx, publicKey, seed)
 }
 
 func (adapter RemoteVRFAdapter) ProveWithContext(ctx context.Context, publicKey types.PublicKey, seed []byte) ([]byte, []byte, error) {
@@ -162,7 +164,9 @@ func (adapter RemoteVRFAdapter) ProveWithContext(ctx context.Context, publicKey 
 }
 
 func (adapter RemoteVRFAdapter) Verify(publicKey types.PublicKey, seed []byte, output []byte, proof []byte) bool {
-	return adapter.VerifyWithContext(context.Background(), publicKey, seed, output, proof)
+	ctx, cancel := adapter.defaultContext()
+	defer cancel()
+	return adapter.VerifyWithContext(ctx, publicKey, seed, output, proof)
 }
 
 func (adapter RemoteVRFAdapter) VerifyWithContext(ctx context.Context, publicKey types.PublicKey, seed []byte, output []byte, proof []byte) bool {
@@ -182,6 +186,14 @@ func (adapter RemoteVRFAdapter) VerifyWithContext(ctx context.Context, publicKey
 		Domain:           "vexo.remote_vrf.verify.v1",
 	}, &response)
 	return err == nil && response.Valid && response.Nonce == challenge.nonce
+}
+
+func (adapter RemoteVRFAdapter) defaultContext() (context.Context, context.CancelFunc) {
+	timeout := 5 * time.Second
+	if adapter.client != nil && adapter.client.Timeout > 0 {
+		timeout = adapter.client.Timeout
+	}
+	return context.WithTimeout(context.Background(), timeout)
 }
 
 func (adapter RemoteVRFAdapter) Metadata() VRFAdapterMetadata {

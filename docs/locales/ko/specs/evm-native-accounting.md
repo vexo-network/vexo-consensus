@@ -22,6 +22,32 @@
 - 영어 원문의 규범 문장과 현재 네트워크 설정을 연결해서 검토할 수 있어야 합니다.
 - 예제 명령과 config 값을 복사하기 전에 chain ID, validator ID, fee/gas, peer 주소를 확인할 수 있어야 합니다.
 
+## 핵심 개념
+
+Vexo의 native coin과 EVM 계정 잔액은 서로 다른 자산이 아닙니다.
+
+- 최소 단위는 `avxo`이고, 사람이 읽는 단위는 `gvxo`, `vexo`입니다.
+- EVM의 `value`, gas fee, blob fee는 모두 native coin 회계와 연결됩니다.
+- `eth_getBalance`로 보는 `0x` 계정 잔액과 native bank store의 해당 계정 잔액은 같은 경제 상태를 바라봅니다.
+- 일반 Vexo tx는 ante layer에서 fee를 차감하고, raw Ethereum tx는 EVM state transition에서 gas/value 처리를 수행합니다.
+
+## Web3 사용 시 주의점
+
+Vexo는 Ethereum node가 아니라 Vexo consensus 위에 EVM 실행 환경을 얹은 네트워크입니다.
+
+- Ethereum devp2p, Ethereum fork choice, Ethereum sync protocol은 사용하지 않습니다.
+- Blob transaction은 sidecar가 필요하므로 `eth_sendRawBlobTransaction` 또는 `vexo_sendRawBlobTransaction`을 사용합니다.
+- Blob hash만 들어 있는 `eth_sendRawTransaction` 요청은 sidecar가 없기 때문에 거절됩니다.
+- `execution.strict_evm_state_root`는 기본적으로 켜두는 것이 안전합니다. 해당 height의 EVM state root를 로드하지 못하면 Web3 block 응답은 실패해야 합니다.
+- app hash는 Web3의 Ethereum-style `stateRoot`를 대체하는 값으로 쓰면 안 됩니다.
+
+## 운영자 체크포인트
+
+- EVM 모듈을 켰다면 retained EVM snapshot 또는 replay evidence를 릴리즈 증거에 포함합니다.
+- `base_fee`, `blob_base_fee`, `target_gas`, `target_blob_gas`가 실제 트래픽에 맞는지 장기 부하 테스트로 확인합니다.
+- native bank balance와 `eth_getBalance`가 같은 계정에 대해 같은 자산 흐름을 보여주는지 테스트합니다.
+- Web3 RPC를 공개한다면 filter snapshot 저장 경로, state root 보존 기간, blob sidecar 보존 기간을 운영 정책으로 정합니다.
+
 ## 안전 사용 체크리스트
 
 - 영어 원문에서 MUST/SHOULD/MAY 문장을 먼저 확인합니다.
@@ -63,6 +89,7 @@
 - Amount Encoding
 - Fee Accounting
 - EVM Execution
+- State Root Policy
 - Compatibility Boundary
 - Failure Modes
 

@@ -216,19 +216,19 @@ func verifyConsensusEvidence(evidence slashing.Evidence, validatorSet validator.
 			if invalidProposalContext.ExpectedValidatorSetHash == (types.Hash{}) {
 				invalidProposalContext.ExpectedValidatorSetHash = validatorSet.Hash()
 			}
-			if err := VerifyInvalidProposalEvidenceWithContext(evidence, invalidProposalContext); err != nil {
+			if err := VerifyInvalidProposalEvidenceWithBoundContext(evidence, invalidProposalContext); err != nil {
 				return err
 			}
 		case InvalidProposalReasonAppHash:
-			if err := VerifyInvalidProposalEvidenceWithContext(evidence, invalidProposalContext); err != nil {
+			if err := VerifyInvalidProposalEvidenceWithBoundContext(evidence, invalidProposalContext); err != nil {
 				return err
 			}
 		case InvalidProposalReasonTimestamp:
-			if err := VerifyInvalidProposalEvidenceWithContext(evidence, invalidProposalContext); err != nil {
+			if err := VerifyInvalidProposalEvidenceWithBoundContext(evidence, invalidProposalContext); err != nil {
 				return err
 			}
 		case InvalidProposalReasonTxValidity:
-			if err := VerifyInvalidProposalEvidenceWithContext(evidence, invalidProposalContext); err != nil {
+			if err := VerifyInvalidProposalEvidenceWithBoundContext(evidence, invalidProposalContext); err != nil {
 				return err
 			}
 		default:

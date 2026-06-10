@@ -63,6 +63,7 @@ Tài liệu này giúp hiểu liên kết nhất quán native coin với EVM gas
 - Amount Encoding
 - Fee Accounting
 - EVM Execution
+- State Root Policy
 - Compatibility Boundary
 - Failure Modes
 

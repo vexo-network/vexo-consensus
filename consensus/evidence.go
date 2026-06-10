@@ -198,8 +198,12 @@ func BindInvalidProposalEvidenceStateProof(evidence slashing.Evidence, context I
 }
 
 type UnavailableDataProof struct {
-	Proposal Proposal `json:"proposal"`
-	Reason   string   `json:"reason"`
+	Proposal           Proposal   `json:"proposal"`
+	Reason             string     `json:"reason"`
+	ExpectedCommitment types.Hash `json:"expected_commitment"`
+	ActualCommitment   types.Hash `json:"actual_commitment"`
+	TxCount            uint64     `json:"tx_count"`
+	TotalBytes         uint64     `json:"total_bytes"`
 }
 
 func NewConflictingVoteEvidence(first Vote, second Vote) (slashing.Evidence, error) {
@@ -262,10 +266,17 @@ func NewDataAvailabilityInvalidProposalEvidence(proposal Proposal, reason Invali
 	if reason != InvalidProposalReasonDAMismatch && reason != InvalidProposalReasonMissingData {
 		return slashing.Evidence{}, ErrUnsupportedProposalReason
 	}
-	if err := verifyInvalidProposalByReason(InvalidProposalProof{Proposal: proposal, Reason: reason}); err != nil {
+	expectedCommitment := dataavailability.Commitment(proposal.Block.Txs)
+	invalidProposalProof := InvalidProposalProof{
+		Proposal:     proposal,
+		Reason:       reason,
+		ExpectedHash: expectedCommitment,
+		ActualHash:   proposal.Block.Header.ConsensusHash,
+	}
+	if err := verifyInvalidProposalByReason(invalidProposalProof); err != nil {
 		return slashing.Evidence{}, err
 	}
-	proof, err := json.Marshal(InvalidProposalProof{Proposal: proposal, Reason: reason})
+	proof, err := json.Marshal(invalidProposalProof)
 	if err != nil {
 		return slashing.Evidence{}, err
 	}
@@ -375,11 +386,13 @@ func NewInvalidProposalTimestampEvidence(proposal Proposal, expected int64, actu
 }
 
 func NewInvalidProposalEvidenceWithContext(proposal Proposal, context InvalidProposalVerificationContext, reason InvalidProposalReason, actual types.Hash, message string) (slashing.Evidence, error) {
+	var evidence slashing.Evidence
+	var err error
 	switch reason {
 	case InvalidProposalReasonValidatorSetHash:
-		return NewInvalidProposalHashEvidence(proposal, string(reason), context.ExpectedValidatorSetHash, actual)
+		evidence, err = NewInvalidProposalHashEvidence(proposal, string(reason), context.ExpectedValidatorSetHash, actual)
 	case InvalidProposalReasonAppHash:
-		return NewInvalidProposalHashEvidence(proposal, string(reason), context.ExpectedAppHash, actual)
+		evidence, err = NewInvalidProposalHashEvidence(proposal, string(reason), context.ExpectedAppHash, actual)
 	case InvalidProposalReasonTxValidity:
 		expectedResultsHash := context.ExpectedTxResultsHash
 		if expectedResultsHash == (types.Hash{}) && len(context.ExpectedTxResults) > 0 {
@@ -394,14 +407,21 @@ func NewInvalidProposalEvidenceWithContext(proposal Proposal, context InvalidPro
 		if actual != (types.Hash{}) && actual != actualResultsHash {
 			return slashing.Evidence{}, ErrInvalidProposal
 		}
-		return NewInvalidProposalTxExecutionEvidence(proposal, context.ExpectedTxResults, context.ActualTxResults, context.TxIndex, message)
+		evidence, err = NewInvalidProposalTxExecutionEvidence(proposal, context.ExpectedTxResults, context.ActualTxResults, context.TxIndex, message)
 	case InvalidProposalReasonTimestamp:
-		return NewInvalidProposalTimestampEvidence(proposal, context.ExpectedTimeUnixNano, proposal.Block.Header.TimeUnixNano)
+		evidence, err = NewInvalidProposalTimestampEvidence(proposal, context.ExpectedTimeUnixNano, proposal.Block.Header.TimeUnixNano)
 	case InvalidProposalReasonDAMismatch, InvalidProposalReasonMissingData:
 		return NewDataAvailabilityInvalidProposalEvidence(proposal, reason)
 	default:
 		return slashing.Evidence{}, ErrUnsupportedProposalReason
 	}
+	if err != nil {
+		return slashing.Evidence{}, err
+	}
+	if invalidProposalReasonRequiresContext(reason) {
+		return BindInvalidProposalEvidenceContext(evidence, context)
+	}
+	return evidence, nil
 }
 
 func NewInvalidProposalEvidenceWithStateProof(proposal Proposal, context InvalidProposalVerificationContext, reason InvalidProposalReason, actual types.Hash, stateProof queryproof.Proof, message string) (slashing.Evidence, error) {
@@ -449,6 +469,9 @@ func verifyInvalidProposalEnvelope(decoded InvalidProposalProof, validatorID typ
 func verifyInvalidProposalByReason(decoded InvalidProposalProof) error {
 	switch decoded.Reason {
 	case InvalidProposalReasonDAMismatch:
+		if err := verifyDACommitmentProof(decoded); err != nil {
+			return err
+		}
 		err := dataavailability.Verify(decoded.Proposal.Block.Header, decoded.Proposal.Block.Txs)
 		if !errors.Is(err, dataavailability.ErrCommitmentMismatch) {
 			if err == nil {
@@ -458,6 +481,9 @@ func verifyInvalidProposalByReason(decoded InvalidProposalProof) error {
 		}
 		return nil
 	case InvalidProposalReasonMissingData:
+		if err := verifyDACommitmentProof(decoded); err != nil {
+			return err
+		}
 		err := dataavailability.Verify(decoded.Proposal.Block.Header, decoded.Proposal.Block.Txs)
 		if !errors.Is(err, dataavailability.ErrMissingData) {
 			if err == nil {
@@ -495,6 +521,23 @@ func verifyInvalidProposalByReason(decoded InvalidProposalProof) error {
 	default:
 		return ErrUnsupportedProposalReason
 	}
+}
+
+func verifyDACommitmentProof(decoded InvalidProposalProof) error {
+	expectedCommitment := dataavailability.Commitment(decoded.Proposal.Block.Txs)
+	actualCommitment := decoded.Proposal.Block.Header.ConsensusHash
+	if decoded.ExpectedHash == (types.Hash{}) ||
+		decoded.ExpectedHash != expectedCommitment ||
+		decoded.ActualHash != actualCommitment {
+		return ErrInvalidProposal
+	}
+	if decoded.Reason == InvalidProposalReasonDAMismatch && decoded.ExpectedHash == decoded.ActualHash {
+		return ErrInvalidProposal
+	}
+	if decoded.Reason == InvalidProposalReasonMissingData && decoded.ActualHash != (types.Hash{}) {
+		return ErrInvalidProposal
+	}
+	return nil
 }
 
 func verifyHashMismatch(decoded InvalidProposalProof, proposalActual types.Hash) error {
@@ -584,7 +627,15 @@ func NewUnavailableDataEvidence(proposal Proposal, reason string) (slashing.Evid
 	if !errors.Is(dataavailability.Verify(proposal.Block.Header, proposal.Block.Txs), dataavailability.ErrMissingData) {
 		return slashing.Evidence{}, dataavailability.ErrMissingData
 	}
-	proof, err := json.Marshal(UnavailableDataProof{Proposal: proposal, Reason: reason})
+	daProof := dataavailability.BuildProof(proposal.Block.Txs)
+	proof, err := json.Marshal(UnavailableDataProof{
+		Proposal:           proposal,
+		Reason:             reason,
+		ExpectedCommitment: daProof.Commitment,
+		ActualCommitment:   proposal.Block.Header.ConsensusHash,
+		TxCount:            daProof.TxCount,
+		TotalBytes:         daProof.TotalBytes,
+	})
 	if err != nil {
 		return slashing.Evidence{}, err
 	}
@@ -794,7 +845,10 @@ func VerifyInvalidProposalEvidenceWithBoundContext(evidence slashing.Evidence, c
 			return ErrInvalidProposalContext
 		}
 		if context.ContextProofHash == (types.Hash{}) {
-			context.ContextProofHash = computed
+			return ErrInvalidProposalContext
+		}
+		if context.ContextProofHash != computed {
+			return ErrInvalidProposalContext
 		}
 	}
 	return VerifyInvalidProposalEvidenceWithContext(evidence, context)
@@ -888,6 +942,15 @@ func VerifyUnavailableDataEvidence(evidence slashing.Evidence) error {
 		decoded.Proposal.Block.Header.Height != evidence.Height ||
 		decoded.Proposal.Round != evidence.Round {
 		return ErrVotePairMismatch
+	}
+	daProof := dataavailability.BuildProof(decoded.Proposal.Block.Txs)
+	if decoded.ExpectedCommitment == (types.Hash{}) ||
+		decoded.ExpectedCommitment != daProof.Commitment ||
+		decoded.ActualCommitment != decoded.Proposal.Block.Header.ConsensusHash ||
+		decoded.ActualCommitment != (types.Hash{}) ||
+		decoded.TxCount != daProof.TxCount ||
+		decoded.TotalBytes != daProof.TotalBytes {
+		return ErrInvalidProposal
 	}
 	if !errors.Is(dataavailability.Verify(decoded.Proposal.Block.Header, decoded.Proposal.Block.Txs), dataavailability.ErrMissingData) {
 		return dataavailability.ErrMissingData
