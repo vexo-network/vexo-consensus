@@ -41,7 +41,7 @@ func TestRunCommandHelpAndVersion(t *testing.T) {
 			t.Fatal(err)
 		}
 		output := stdout.String()
-		for _, expected := range []string{"Usage:", "init", "config paths", "start", "network", "consensus", "snapshot", "doctor", "version", "Module Commands:", "bank tx mint", "bank query balance"} {
+		for _, expected := range []string{"Usage:", "init", "config paths", "start", "network", "consensus", "snapshot", "doctor", "version", "Module Commands:", "bank tx mint", "bank query balance", "evm tx call"} {
 			if !strings.Contains(output, expected) {
 				t.Fatalf("expected help output to contain %q, got:\n%s", expected, output)
 			}
@@ -95,6 +95,19 @@ func TestRunCommandDispatchesModuleCLI(t *testing.T) {
 	}
 	if strings.TrimSpace(stdout.String()) != "tx: bank:send:alice:bob:25" {
 		t.Fatalf("unexpected module cli output: %q", stdout.String())
+	}
+}
+
+func TestRunCommandExposesEVMCLIWithoutEnablingRuntimeModule(t *testing.T) {
+	var stdout bytes.Buffer
+	if err := runCommand(&stdout, &bytes.Buffer{}, []string{"evm", "--help"}); err != nil {
+		t.Fatal(err)
+	}
+	output := stdout.String()
+	for _, expected := range []string{"contract VM and Web3 bridge module commands", "evm tx call", "evm query receipt"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("expected EVM module help to contain %q, got:\n%s", expected, output)
+		}
 	}
 }
 

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -97,11 +98,12 @@ const (
 )
 
 type CryptoConfig struct {
-	Backend           CryptoBackend
-	ProductionAdapter bool
-	AdapterName       string
-	AuditReport       string
-	DependencyAudit   string
+	Backend             CryptoBackend
+	ProductionAdapter   bool
+	AdapterName         string
+	AuditReport         string
+	DependencyAudit     string
+	AuditEvidenceSHA256 string
 }
 
 type VRFConfig struct {
@@ -334,6 +336,9 @@ func (config Config) ValidateNetworkSafety() error {
 		(config.Crypto.AdapterName == "" || config.Crypto.AuditReport == "" || config.Crypto.DependencyAudit == "") {
 		return ErrUnsafeNetworkConfig
 	}
+	if config.Crypto.Backend == CryptoBackendBLS && !validSHA256Hex(config.Crypto.AuditEvidenceSHA256) {
+		return ErrUnsafeNetworkConfig
+	}
 	if config.Crypto.Backend == CryptoBackendBLS && strings.HasPrefix(config.Crypto.AdapterName, "circl-bls12381-") {
 		return ErrUnsafeNetworkConfig
 	}
@@ -368,6 +373,15 @@ func (config Config) ValidateNetworkSafety() error {
 		return ErrUnsafeNetworkConfig
 	}
 	return nil
+}
+
+func validSHA256Hex(value string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) != 64 {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == 32
 }
 
 func validCryptoBackend(backend CryptoBackend) bool {

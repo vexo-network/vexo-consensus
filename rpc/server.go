@@ -16,6 +16,8 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -76,6 +78,7 @@ type Config struct {
 	Web3SubscriptionIdleTimeout   time.Duration
 	Web3LogMaxResults             int
 	Web3LogMaxBlockRange          uint64
+	Web3FilterSnapshotPath        string
 }
 
 type AdminAuditEvent struct {
@@ -89,8 +92,11 @@ type AdminAuditEvent struct {
 }
 
 type Server struct {
-	provider StatusProvider
-	server   *http.Server
+	provider               StatusProvider
+	server                 *http.Server
+	filterStore            *web3FilterStore
+	web3FilterSnapshotPath string
+	startupErr             error
 }
 
 type HealthResponse struct {
@@ -478,9 +484,13 @@ func NewServer(provider StatusProvider, cfg Config) *Server {
 	if cfg.ReadHeaderTimeout <= 0 {
 		cfg.ReadHeaderTimeout = defaultReadHeaderTimeout
 	}
-	handler := NewHandlerWithConfig(provider, cfg)
+	filters, startupErr := newWeb3FilterStoreWithConfig(cfg)
+	handler := newHandlerWithConfig(provider, cfg, filters)
 	return &Server{
-		provider: provider,
+		provider:               provider,
+		filterStore:            filters,
+		web3FilterSnapshotPath: cfg.Web3FilterSnapshotPath,
+		startupErr:             startupErr,
 		server: &http.Server{
 			Addr:              cfg.Address,
 			Handler:           handler,
@@ -494,6 +504,10 @@ func (server *Server) Start(listener net.Listener) error {
 	if listener == nil {
 		return errors.New("listener is required")
 	}
+	if server.startupErr != nil {
+		_ = listener.Close()
+		return server.startupErr
+	}
 	var err error
 	if server.server.TLSConfig != nil {
 		err = server.server.ServeTLS(listener, "", "")
@@ -506,8 +520,24 @@ func (server *Server) Start(listener net.Listener) error {
 	return err
 }
 
+func (server *Server) StartupError() error {
+	if server == nil {
+		return nil
+	}
+	return server.startupErr
+}
+
 func (server *Server) Shutdown(ctx context.Context) error {
-	return server.server.Shutdown(ctx)
+	shutdownErr := server.server.Shutdown(ctx)
+	saveErr := server.saveWeb3FilterSnapshot()
+	return errors.Join(shutdownErr, saveErr)
+}
+
+func (server *Server) saveWeb3FilterSnapshot() error {
+	if server == nil || server.filterStore == nil || server.web3FilterSnapshotPath == "" {
+		return nil
+	}
+	return saveWeb3FilterStoreSnapshotAtomic(server.web3FilterSnapshotPath, server.filterStore.Snapshot())
 }
 
 func NewHandler(provider StatusProvider) http.Handler {
@@ -515,6 +545,11 @@ func NewHandler(provider StatusProvider) http.Handler {
 }
 
 func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
+	filters, _ := newWeb3FilterStoreWithConfig(cfg)
+	return newHandlerWithConfig(provider, cfg, filters)
+}
+
+func newHandlerWithConfig(provider StatusProvider, cfg Config, filters *web3FilterStore) http.Handler {
 	if cfg.MaxRequestBytes <= 0 {
 		cfg.MaxRequestBytes = defaultMaxRequestBytes
 	}
@@ -524,7 +559,9 @@ func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 	if cfg.Web3LogMaxBlockRange == 0 {
 		cfg.Web3LogMaxBlockRange = defaultMaxWeb3LogBlockRange
 	}
-	filters := newWeb3FilterStore()
+	if filters == nil {
+		filters = newWeb3FilterStore()
+	}
 	mux := http.NewServeMux()
 	if cfg.EnablePprof {
 		registerPprofHandlers(mux)
@@ -6089,6 +6126,74 @@ func web3Mining(provider StatusProvider, ctx context.Context) bool {
 
 func newWeb3FilterStore() *web3FilterStore {
 	return &web3FilterStore{max: defaultMaxWeb3Filters, filters: make(map[string]web3Filter)}
+}
+
+func newWeb3FilterStoreWithConfig(cfg Config) (*web3FilterStore, error) {
+	filters := newWeb3FilterStore()
+	if strings.TrimSpace(cfg.Web3FilterSnapshotPath) == "" {
+		return filters, nil
+	}
+	snapshot, err := loadWeb3FilterStoreSnapshot(cfg.Web3FilterSnapshotPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return filters, nil
+	}
+	if err != nil {
+		return filters, err
+	}
+	filters.Restore(snapshot)
+	return filters, nil
+}
+
+func loadWeb3FilterStoreSnapshot(path string) (Web3FilterStoreSnapshot, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return Web3FilterStoreSnapshot{}, err
+	}
+	var snapshot Web3FilterStoreSnapshot
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		return Web3FilterStoreSnapshot{}, err
+	}
+	return snapshot, nil
+}
+
+func saveWeb3FilterStoreSnapshotAtomic(path string, snapshot Web3FilterStoreSnapshot) error {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+	raw, err := json.MarshalIndent(snapshot, "", "  ")
+	if err != nil {
+		return err
+	}
+	raw = append(raw, '\n')
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := file.Name()
+	defer os.Remove(tmpPath)
+	if _, err := file.Write(raw); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	if dirFile, err := os.Open(dir); err == nil {
+		_ = dirFile.Sync()
+		_ = dirFile.Close()
+	}
+	return nil
 }
 
 func (store *web3FilterStore) addLog(filter web3Filter, logs []any, latestHeight uint64) string {

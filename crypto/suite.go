@@ -1,7 +1,9 @@
 package crypto
 
 import (
+	"encoding/hex"
 	"errors"
+	"strings"
 
 	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -77,6 +79,9 @@ func (registry RuntimeSuiteRegistry) NewRuntimeSuite(cfg config.CryptoConfig) (R
 		if err := ValidateBLSAdapter(adapter); err != nil {
 			return RuntimeSuite{}, err
 		}
+		if err := validateBLSAdapterConfig(cfg, adapter.Metadata()); err != nil {
+			return RuntimeSuite{}, err
+		}
 		if len(registry.blsCredentials) > 0 {
 			verifier, err := NewBLSAggregateVerifier(adapter, registry.blsCredentials)
 			if err != nil {
@@ -110,4 +115,32 @@ func ValidateBLSAdapter(adapter BLSAdapter) error {
 		return ErrBLSAdapterUnsafe
 	}
 	return nil
+}
+
+func validateBLSAdapterConfig(cfg config.CryptoConfig, metadata BLSAdapterMetadata) error {
+	if !cfg.ProductionAdapter {
+		return nil
+	}
+	if cfg.AdapterName != "" && cfg.AdapterName != metadata.Name {
+		return ErrBLSAdapterUnsafe
+	}
+	if cfg.AuditReport == "" || cfg.AuditReport != metadata.AuditReport {
+		return ErrBLSAdapterUnsafe
+	}
+	if cfg.DependencyAudit == "" || cfg.DependencyAudit != metadata.DependencyAudit {
+		return ErrBLSAdapterUnsafe
+	}
+	if !validBLSAuditEvidenceDigest(cfg.AuditEvidenceSHA256) {
+		return ErrBLSAdapterUnsafe
+	}
+	return nil
+}
+
+func validBLSAuditEvidenceDigest(value string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) != 64 {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == 32
 }

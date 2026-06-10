@@ -95,7 +95,10 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !networkDocument.RPC.Enabled || !networkDocument.P2P.Enabled || networkDocument.PeerScoring.InitialScore == 0 {
+	if !networkDocument.RPC.Enabled ||
+		networkDocument.RPC.Web3FilterSnapshot == "" ||
+		!networkDocument.P2P.Enabled ||
+		networkDocument.PeerScoring.InitialScore == 0 {
 		t.Fatalf("unexpected network config: %+v", networkDocument)
 	}
 	consensusDocument, err := readConsensusConfigDocument(filepath.Join(home, consensusConfigFileName))

@@ -193,6 +193,7 @@ func TestValidateNetworkSafetyAcceptsHardenedBLSTConfig(t *testing.T) {
 	cfg.Crypto.AdapterName = "blst-bls12381-minpk-v1"
 	cfg.Crypto.AuditReport = "ncc-group-blst-security-assessment"
 	cfg.Crypto.DependencyAudit = "github.com/supranational/blst@v0.3.16"
+	cfg.Crypto.AuditEvidenceSHA256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	cfg.Committee.Backend = committee.BackendVRF
 	cfg.VRF.ProductionAdapter = true
 	cfg.VRF.AuditReport = "vrf-audit-2026"
@@ -213,6 +214,33 @@ func TestValidateNetworkSafetyAcceptsHardenedBLSTConfig(t *testing.T) {
 	}
 }
 
+func TestValidateNetworkSafetyRejectsBLSWithoutAuditEvidenceDigest(t *testing.T) {
+	cfg := Default("vexo-test")
+	cfg.Crypto.Backend = CryptoBackendBLS
+	cfg.Crypto.ProductionAdapter = true
+	cfg.Crypto.AdapterName = "blst-bls12381-minpk-v1"
+	cfg.Crypto.AuditReport = "ncc-group-blst-security-assessment"
+	cfg.Crypto.DependencyAudit = "github.com/supranational/blst@v0.3.16"
+	cfg.Committee.Backend = committee.BackendVRF
+	cfg.VRF.ProductionAdapter = true
+	cfg.VRF.AuditReport = "vrf-audit-2026"
+	cfg.VRF.KeySource = "remote-signer"
+	cfg.Execution.RequireSigned = true
+	cfg.Bank.MintAuthority = "governance"
+	cfg.Execution.RequireNonce = true
+	cfg.Execution.MinFee = 1
+	cfg.Execution.BaseFee = 1
+	cfg.Execution.MinGas = 1
+	cfg.Mempool.MinFee = 1
+	cfg.Mempool.EnablePriority = true
+	cfg.Mempool.WALPath = "mempool.wal"
+	cfg.Mempool.SeenTTL = time.Hour
+
+	if err := cfg.ValidateNetworkSafety(); !errors.Is(err, ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected missing BLS audit evidence digest rejection, got %v", err)
+	}
+}
+
 func TestValidateNetworkSafetyRejectsBuiltInBLSAdapterName(t *testing.T) {
 	cfg := Default("vexo-test")
 	cfg.Crypto.Backend = CryptoBackendBLS
@@ -220,6 +248,7 @@ func TestValidateNetworkSafetyRejectsBuiltInBLSAdapterName(t *testing.T) {
 	cfg.Crypto.AdapterName = "circl-bls12381-g1sigg2-basic-v1"
 	cfg.Crypto.AuditReport = "external-audit-report-id"
 	cfg.Crypto.DependencyAudit = "dependency-audit-id"
+	cfg.Crypto.AuditEvidenceSHA256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	cfg.Committee.Backend = committee.BackendVRF
 	cfg.VRF.ProductionAdapter = true
 	cfg.VRF.AuditReport = "vrf-audit-2026"

@@ -154,7 +154,7 @@ func writeHelp(writer io.Writer) {
 }
 
 func moduleCLICommands() []vexoapp.CLICommand {
-	commands, err := appmodules.BuildCLICommands(config.Default("vexo-chain").Application)
+	commands, err := appmodules.BuildAllCLICommands()
 	if err != nil {
 		return nil
 	}

@@ -70,6 +70,27 @@ func TestAnteKeeperRequiresAndVerifiesSignedTx(t *testing.T) {
 	}
 }
 
+func TestAnteKeeperUsesConfiguredSignatureVerifier(t *testing.T) {
+	signer, err := vexocrypto.GenerateEd25519Signer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	signedTx, err := SignTx("vexo-test", types.Tx("bank:send:alice:bob:1"), signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keeper := NewAnteKeeper(AnteConfig{RequireSigned: true, SignatureVerifier: rejectingTxVerifier{}})
+	if err := keeper.CheckTx(Context{ChainID: "vexo-test"}, signedTx); !errors.Is(err, ErrInvalidTxSignature) {
+		t.Fatalf("expected custom verifier rejection, got %v", err)
+	}
+}
+
+type rejectingTxVerifier struct{}
+
+func (rejectingTxVerifier) Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool {
+	return false
+}
+
 func TestAnteKeeperTracksNonceAcrossCommittedTxs(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {

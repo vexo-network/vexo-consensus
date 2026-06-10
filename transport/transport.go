@@ -12,6 +12,7 @@ var (
 	ErrTransportClosed = errors.New("transport is closed")
 	ErrPeerIDRequired  = errors.New("peer id is required")
 	ErrPeerRejected    = errors.New("peer rejected by transport gate")
+	ErrPeerNotFound    = errors.New("peer is not configured")
 )
 
 type Envelope struct {

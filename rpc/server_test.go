@@ -11,6 +11,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -2008,6 +2010,52 @@ func TestWeb3FilterStoreSnapshotRestore(t *testing.T) {
 	logFilter, _ = restored.get(logFilterID)
 	if logFilter.Addresses[0] != "0xcontract" {
 		t.Fatalf("expected restore to deep-copy filters, got %+v", logFilter)
+	}
+}
+
+func TestWeb3FilterStoreSnapshotPathRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "filters.json")
+	filters := newWeb3FilterStore()
+	firstID := filters.addBlock(7)
+	if err := saveWeb3FilterStoreSnapshotAtomic(path, filters.Snapshot()); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := newWeb3FilterStoreWithConfig(Config{Web3FilterSnapshotPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := restored.get(firstID); !found {
+		t.Fatalf("expected restored filter %s", firstID)
+	}
+	if nextID := restored.addBlock(8); nextID != "0x2" {
+		t.Fatalf("expected persisted next filter id, got %s", nextID)
+	}
+}
+
+func TestServerShutdownPersistsWeb3FilterStore(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "filters.json")
+	server := NewServer(fakeStatusProvider{status: node.Status{Running: true}}, Config{Web3FilterSnapshotPath: path})
+	filterID := server.filterStore.addBlock(11)
+	if err := server.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := newWeb3FilterStoreWithConfig(Config{Web3FilterSnapshotPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := restored.get(filterID); !found {
+		t.Fatalf("expected shutdown to persist filter %s", filterID)
+	}
+}
+
+func TestServerReportsCorruptWeb3FilterSnapshot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "filters.json")
+	if err := os.WriteFile(path, []byte("{not-json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server := NewServer(fakeStatusProvider{status: node.Status{Running: true}}, Config{Web3FilterSnapshotPath: path})
+	if server.StartupError() == nil {
+		t.Fatal("expected corrupt filter snapshot to fail server startup")
 	}
 }
 

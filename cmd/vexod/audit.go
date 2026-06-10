@@ -184,7 +184,13 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 
 	document.addCheck("crypto_backend", strictSeverity(strict), inputs.Config.Chain.Crypto.Backend != config.CryptoBackendDeterministic, "use ed25519, bls, or remote signer for public value-bearing networks")
 	if inputs.Config.Chain.Crypto.Backend == config.CryptoBackendBLS {
-		document.addCheck("bls_production_adapter", strictSeverity(strict), inputs.Config.Chain.Crypto.ProductionAdapter, "BLS requires an audited production adapter with dependency audit metadata")
+		cryptoConfig := inputs.Config.Chain.Crypto
+		blsEvidencePinned := cryptoConfig.ProductionAdapter &&
+			cryptoConfig.AdapterName != "" &&
+			cryptoConfig.AuditReport != "" &&
+			cryptoConfig.DependencyAudit != "" &&
+			len(strings.TrimSpace(cryptoConfig.AuditEvidenceSHA256)) == 64
+		document.addCheck("bls_production_adapter", strictSeverity(strict), blsEvidencePinned, "BLS requires an audited adapter, dependency audit metadata, and pinned audit evidence SHA-256")
 		document.addCheck("bls_genesis_pop", strictSeverity(strict), genesisHasBLSPoP(inputs.Genesis.Validators), "every genesis validator must include bls_pop proof-of-possession metadata")
 	}
 	if keyErr == nil {

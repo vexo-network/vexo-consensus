@@ -23,13 +23,14 @@ var (
 )
 
 type AnteConfig struct {
-	MinFee        uint64
-	BaseFee       uint64
-	MinGas        uint64
-	MaxGas        uint64
-	RequireNonce  bool
-	FeeCollector  string
-	RequireSigned bool
+	MinFee            uint64
+	BaseFee           uint64
+	MinGas            uint64
+	MaxGas            uint64
+	RequireNonce      bool
+	FeeCollector      string
+	RequireSigned     bool
+	SignatureVerifier TxSignatureVerifier
 }
 
 type TxMeta struct {
@@ -303,7 +304,26 @@ func (keeper AnteKeeper) verifySignature(ctx Context, tx types.Tx) error {
 }
 
 func (keeper AnteKeeper) signatureVerifier() vexocrypto.Signer {
+	if keeper.config.SignatureVerifier != nil {
+		return signerVerifierAdapter{verifier: keeper.config.SignatureVerifier}
+	}
 	return vexocrypto.Ed25519Signer{}
+}
+
+type signerVerifierAdapter struct {
+	verifier TxSignatureVerifier
+}
+
+func (adapter signerVerifierAdapter) PublicKey() types.PublicKey {
+	return nil
+}
+
+func (adapter signerVerifierAdapter) Sign(message []byte) (types.Signature, error) {
+	return nil, ErrInvalidTxSignature
+}
+
+func (adapter signerVerifierAdapter) Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool {
+	return adapter.verifier != nil && adapter.verifier.Verify(publicKey, message, signature)
 }
 
 func (keeper AnteKeeper) expectedSequence(ctx context.Context, store StateStore, signer types.Address, tx types.Tx) (uint64, error) {

@@ -236,7 +236,7 @@ func runOpsConformance(writer io.Writer, args []string) error {
 			executionReport = gethbackend.RunExecutionFixtures(gethbackend.DefaultExecutionFixtures())
 		}
 		document.EVMExecution = &executionReport
-		document.addCheck("evm_execution_fixtures", "error", executionReport.OK, "geth EVM execution fixtures must cover call return, contract creation, revert, and storage writes")
+		document.addCheck("evm_execution_fixtures", "error", executionReport.OK, "geth EVM execution fixtures must cover call/create/create2, revert data, storage, gas, logs, value transfer, precompile, access-list, and blob-hash semantics")
 		document.Summary = append(document.Summary, "evm web3 ethereum raw transaction fixtures vm execution evidence")
 		document.SDKSurface = append(document.SDKSurface, "evm", "web3", "ethereum", "raw transaction", "vm execution")
 	} else if evmModuleEnabled {

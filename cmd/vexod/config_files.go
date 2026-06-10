@@ -155,6 +155,7 @@ type runtimeRPCConfig struct {
 	RateLimitMaxRequests  int                 `json:"rate_limit_max_requests,omitempty"`
 	Web3MaxSubscriptions  int                 `json:"web3_max_subscriptions_per_connection,omitempty"`
 	Web3IdleTimeout       string              `json:"web3_idle_timeout,omitempty"`
+	Web3FilterSnapshot    string              `json:"web3_filter_snapshot,omitempty"`
 	EVMManagedAccounts    bool                `json:"evm_managed_accounts,omitempty"`
 	EVMAccountPrivateKeys []string            `json:"evm_account_private_keys,omitempty"`
 	EVMAccountKeyEnvs     []string            `json:"evm_account_key_envs,omitempty"`
@@ -1357,6 +1358,7 @@ func runtimeRPCConfigSet(rpc runtimeRPCConfig) bool {
 		rpc.RateLimitMaxRequests != 0 ||
 		rpc.Web3MaxSubscriptions != 0 ||
 		rpc.Web3IdleTimeout != "" ||
+		rpc.Web3FilterSnapshot != "" ||
 		rpc.EVMManagedAccounts ||
 		len(rpc.EVMAccountPrivateKeys) > 0 ||
 		len(rpc.EVMAccountKeyEnvs) > 0
@@ -1547,6 +1549,7 @@ func applyDefaultNetworkSafetyConsensusConfig(cfg *config.Config) {
 	cfg.Crypto.AdapterName = ""
 	cfg.Crypto.AuditReport = ""
 	cfg.Crypto.DependencyAudit = ""
+	cfg.Crypto.AuditEvidenceSHA256 = ""
 	cfg.Committee.Backend = committee.BackendVRF
 	cfg.VRF.ProductionAdapter = true
 	cfg.VRF.AdapterName = vexocrypto.VRFAdapterECVRFP256Name
@@ -1604,6 +1607,7 @@ func defaultRuntimeConfig(validatorID string) runtimeConfig {
 			ShutdownTimeout:      "10s",
 			Web3MaxSubscriptions: 256,
 			Web3IdleTimeout:      "2m",
+			Web3FilterSnapshot:   filepath.Join("data", "web3_filters.json"),
 		},
 		P2P: runtimeP2PConfig{
 			Enabled:          true,

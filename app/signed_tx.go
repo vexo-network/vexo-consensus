@@ -27,6 +27,10 @@ type SignedTxEnvelope struct {
 	Signature     string `json:"signature"`
 }
 
+type TxSignatureVerifier interface {
+	Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool
+}
+
 func SignTx(chainID string, payload types.Tx, signer vexocrypto.Signer) (types.Tx, error) {
 	if err := validatePayloadSignerAddress(payload, signer.PublicKey()); err != nil {
 		return nil, err
@@ -49,10 +53,13 @@ func SignTx(chainID string, payload types.Tx, signer vexocrypto.Signer) (types.T
 	return types.Tx(signedTxPrefix + base64.StdEncoding.EncodeToString(encoded)), nil
 }
 
-func VerifySignedTx(chainID string, tx types.Tx, verifier vexocrypto.Signer) error {
+func VerifySignedTx(chainID string, tx types.Tx, verifier TxSignatureVerifier) error {
 	envelope, payload, err := DecodeSignedTx(tx)
 	if err != nil {
 		return err
+	}
+	if verifier == nil {
+		return ErrInvalidTxSignature
 	}
 	if envelope.ChainID != chainID {
 		return ErrInvalidSignedTx

@@ -72,6 +72,7 @@ type startRuntimeConfig struct {
 	RPCRateLimitMaxRequests int
 	RPCWeb3MaxSubscriptions int
 	RPCWeb3IdleTimeout      time.Duration
+	RPCWeb3FilterSnapshot   string
 	RPCEVMManagedAccounts   bool
 	RPCEVMAccountKeys       []string
 	RPCEVMAccountKeyEnvs    []string
@@ -463,6 +464,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			RateLimitMaxRequests:        runtimeConfig.RPCRateLimitMaxRequests,
 			Web3SubscriptionMaxPerConn:  runtimeConfig.RPCWeb3MaxSubscriptions,
 			Web3SubscriptionIdleTimeout: runtimeConfig.RPCWeb3IdleTimeout,
+			Web3FilterSnapshotPath:      runtimeConfig.RPCWeb3FilterSnapshot,
 			AllowUnprotectedLegacyTx:    inputs.Config.Chain.Execution.AllowUnprotectedLegacyTx,
 			EVMChainConfigJSON:          inputs.Config.Chain.Execution.EVMChainConfigJSON,
 			StrictEVMStateRoot:          inputs.Config.Chain.Execution.StrictEVMStateRoot,
@@ -565,6 +567,10 @@ func startRPCServerWithConfig(provider vexorpc.StatusProvider, address string, c
 	}
 	cfg.Address = address
 	server := vexorpc.NewServer(provider, cfg)
+	if err := server.StartupError(); err != nil {
+		_ = listener.Close()
+		return "", nil, err
+	}
 	go func() {
 		serverErr <- server.Start(listener)
 	}()
@@ -697,6 +703,7 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 		RPCEnablePprof:          runtime.RPC.EnablePprof,
 		RPCMaxRequestBytes:      runtime.RPC.MaxRequestBytes,
 		RPCWeb3MaxSubscriptions: runtime.RPC.Web3MaxSubscriptions,
+		RPCWeb3FilterSnapshot:   resolveOptionalPath(home, runtime.RPC.Web3FilterSnapshot),
 		ShutdownTimeout:         defaultShutdownTimeout,
 		RPCEVMManagedAccounts:   runtime.RPC.EVMManagedAccounts || len(runtime.RPC.EVMAccountPrivateKeys) > 0 || len(runtime.RPC.EVMAccountKeyEnvs) > 0,
 		RPCEVMAccountKeys:       append([]string(nil), runtime.RPC.EVMAccountPrivateKeys...),
@@ -914,6 +921,7 @@ func runtimeConfigIsZero(runtime runtimeConfig) bool {
 		runtime.RPC.RateLimitMaxRequests == 0 &&
 		runtime.RPC.Web3MaxSubscriptions == 0 &&
 		runtime.RPC.Web3IdleTimeout == "" &&
+		runtime.RPC.Web3FilterSnapshot == "" &&
 		runtime.RPC.EVMManagedAccounts == false &&
 		len(runtime.RPC.EVMAccountPrivateKeys) == 0 &&
 		len(runtime.RPC.EVMAccountKeyEnvs) == 0 &&

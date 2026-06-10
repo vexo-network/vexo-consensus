@@ -1,9 +1,10 @@
+//go:build legacytcp
+
 package transport
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net"
 	"sync"
 	"time"
@@ -12,8 +13,6 @@ import (
 )
 
 const defaultTCPDialTimeout = 3 * time.Second
-
-var ErrPeerNotFound = errors.New("peer is not configured")
 
 type TCPConfig struct {
 	PeerID      p2p.PeerID

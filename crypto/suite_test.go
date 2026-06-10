@@ -64,6 +64,22 @@ func TestRuntimeSuiteRegistryAcceptsSafeBLSAdapter(t *testing.T) {
 	}
 }
 
+func TestRuntimeSuiteRejectsProductionBLSMetadataMismatch(t *testing.T) {
+	_, err := NewRuntimeSuiteRegistry().
+		RegisterBLS(func() (BLSAdapter, error) { return testBLSAdapter{safe: true}, nil }).
+		NewRuntimeSuite(config.CryptoConfig{
+			Backend:             config.CryptoBackendBLS,
+			ProductionAdapter:   true,
+			AdapterName:         "test-bls",
+			AuditReport:         "wrong-audit",
+			DependencyAudit:     "go-mod-audit-id",
+			AuditEvidenceSHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		})
+	if !errors.Is(err, ErrBLSAdapterUnsafe) {
+		t.Fatalf("expected metadata mismatch rejection, got %v", err)
+	}
+}
+
 func TestRuntimeSuiteRegistryWrapsBLSFinalityWithValidatedCredentials(t *testing.T) {
 	suite, err := NewRuntimeSuiteRegistry().
 		RegisterBLS(func() (BLSAdapter, error) { return testBLSAdapter{safe: true}, nil }).

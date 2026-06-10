@@ -12,19 +12,21 @@ import (
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
+var defaultModuleEntries = []struct {
+	name    string
+	factory vexoapp.ModuleFactory
+}{
+	{bank.ModuleName, func() vexoapp.Module { return bank.NewModule() }},
+	{staking.ModuleName, func() vexoapp.Module { return staking.NewModule() }},
+	{appgovernance.ModuleName, func() vexoapp.Module { return appgovernance.NewModule() }},
+	{params.Namespace, func() vexoapp.Module { return params.NewModule(nil) }},
+	{appibc.ModuleName, func() vexoapp.Module { return appibc.NewModule() }},
+	{appevm.ModuleName, func() vexoapp.Module { return appevm.NewModule() }},
+}
+
 func DefaultRegistry() (vexoapp.Registry, error) {
 	registry := vexoapp.NewRegistry()
-	for _, entry := range []struct {
-		name    string
-		factory vexoapp.ModuleFactory
-	}{
-		{bank.ModuleName, func() vexoapp.Module { return bank.NewModule() }},
-		{staking.ModuleName, func() vexoapp.Module { return staking.NewModule() }},
-		{appgovernance.ModuleName, func() vexoapp.Module { return appgovernance.NewModule() }},
-		{params.Namespace, func() vexoapp.Module { return params.NewModule(nil) }},
-		{appibc.ModuleName, func() vexoapp.Module { return appibc.NewModule() }},
-		{appevm.ModuleName, func() vexoapp.Module { return appevm.NewModule() }},
-	} {
+	for _, entry := range defaultModuleEntries {
 		if err := registry.Register(entry.name, entry.factory); err != nil {
 			return vexoapp.Registry{}, err
 		}
@@ -112,6 +114,18 @@ func BuildCLICommands(cfg config.ApplicationConfig) ([]vexoapp.CLICommand, error
 		return nil, err
 	}
 	return registry.BuildCLICommands(cfg.Modules)
+}
+
+func BuildAllCLICommands() ([]vexoapp.CLICommand, error) {
+	registry, err := DefaultRegistry()
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(defaultModuleEntries))
+	for _, entry := range defaultModuleEntries {
+		names = append(names, entry.name)
+	}
+	return registry.BuildCLICommands(names)
 }
 
 func NewRuntime(chainID string, cfg config.ApplicationConfig) (*vexoapp.Runtime, error) {
