@@ -391,6 +391,9 @@ func EvidenceCheckContentOK(name string, path string, data []byte) bool {
 	if evidenceContainsUnsafeClaim(name, path, string(trimmed)) {
 		return false
 	}
+	if evidenceContainsPlanOnlyClaim(name, path, string(trimmed)) {
+		return false
+	}
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".json":
 		var value any
@@ -419,9 +422,48 @@ func evidenceContainsUnsafeClaim(name string, path string, text string) bool {
 	return false
 }
 
+func evidenceContainsPlanOnlyClaim(name string, path string, text string) bool {
+	normalized := strings.ToLower(path + " " + strings.ReplaceAll(text, "_", " "))
+	for _, marker := range []string{
+		"--dry-run",
+		"dry-run",
+		"dry run",
+		"plan-only",
+		"plan only",
+		"not release evidence",
+		"network load plan",
+		"network longrun plan",
+		"network long-run plan",
+		"long-run harness plan",
+		"network chaos plan",
+		"chaos plan",
+		"scale-plan",
+	} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	if name == "longrun_evidence" && strings.Contains(normalized, "estimated transactions") {
+		return true
+	}
+	return false
+}
+
 func jsonEvidenceOK(value any) bool {
 	switch item := value.(type) {
 	case map[string]any:
+		if dryRun, found := item["dry_run"].(bool); found && dryRun {
+			return false
+		}
+		if dryRun, found := item["dry-run"].(bool); found && dryRun {
+			return false
+		}
+		if planOnly, found := item["plan_only"].(bool); found && planOnly {
+			return false
+		}
+		if planOnly, found := item["plan-only"].(bool); found && planOnly {
+			return false
+		}
 		if okValue, found := item["ok"].(bool); found && !okValue {
 			return false
 		}

@@ -138,8 +138,11 @@ func TestEvidenceContentValidation(t *testing.T) {
 		{name: "json failed count", path: "evidence.json", data: []byte(`{"ok":true,"total":12,"failed":1}`), ok: false},
 		{name: "json missing categories", path: "evidence.json", data: []byte(`{"ok":true,"total":12,"failed":0,"coverage_ok":false,"missing_categories":["blob_tx"]}`), ok: false},
 		{name: "json nested result false", path: "evidence.json", data: []byte(`{"ok":true,"results":[{"ok":true},{"ok":false}]}`), ok: false},
+		{name: "json dry run rejected", path: "evidence.json", data: []byte(`{"ok":true,"dry_run":true,"summary":"network longrun harness plan"}`), ok: false},
+		{name: "json plan only rejected", path: "evidence.json", data: []byte(`{"ok":true,"plan_only":true,"summary":"not release evidence"}`), ok: false},
 		{name: "empty text", path: "evidence.txt", data: []byte(` `), ok: false},
 		{name: "text ok", path: "evidence.txt", data: []byte(`fuzz evidence passed`), ok: true},
+		{name: "text dry run rejected", path: "evidence.txt", data: []byte(`network load plan --dry-run estimated transactions only`), ok: false},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			if got := EvidenceContentOK(testCase.path, testCase.data); got != testCase.ok {
@@ -159,6 +162,7 @@ func TestEvidenceSemanticValidation(t *testing.T) {
 	}{
 		{name: "chaos semantic json", checkName: "chaos_evidence", path: "chaos.json", data: []byte(`{"ok":true,"summary":"chaos partition fault drill passed"}`), ok: true},
 		{name: "chaos generic json rejected", checkName: "chaos_evidence", path: "chaos.json", data: []byte(`{"ok":true,"checks":[{"ok":true}]}`), ok: false},
+		{name: "chaos plan rejected", checkName: "chaos_evidence", path: "chaos.json", data: []byte(`{"ok":true,"summary":"network chaos plan partition restart steps"}`), ok: false},
 		{name: "bls semantic text", checkName: "bls_adapter_audit", path: "bls.pdf", data: []byte(`BLS blst adapter implementation audit covered pinned dependency version review, subgroup validation, rogue-key tests, proof-of-possession, and key-validation.`), ok: true},
 		{name: "bls generic audit rejected", checkName: "bls_adapter_audit", path: "bls.pdf", data: []byte(`BLS adapter audit covered dependency review, subgroup validation, rogue-key tests, proof-of-possession, and key-validation.`), ok: false},
 		{name: "bls builtin reference rejected", checkName: "bls_adapter_audit", path: "bls.pdf", data: []byte(`circl-bls12381 operator-supplied-audit-required dependency subgroup rogue-key proof-of-possession key-validation version`), ok: false},
@@ -230,6 +234,25 @@ func TestTypedNetworkLongRunEvidenceValidation(t *testing.T) {
 	}`)
 	if EvidenceCheckContentOK("longrun_evidence", "longrun.json", loadFailure) {
 		t.Fatalf("expected longrun evidence with failed load to fail")
+	}
+
+	dryRun := []byte(`{
+		"ok":true,
+		"dry_run":true,
+		"validators":4,
+		"duration":"1h",
+		"rate":50,
+		"summary":"longrun duration height validator per-node distributed soak evidence passed",
+		"load":{"submitted":10,"failed":0},
+		"nodes":[
+			{"validator_id":"validator-1","before":{"latest_height":1},"after":{"latest_height":5},"report":{"ok":true}},
+			{"validator_id":"validator-2","before":{"latest_height":2},"after":{"latest_height":6},"report":{"ok":true}},
+			{"validator_id":"validator-3","before":{"latest_height":3},"after":{"latest_height":7},"report":{"ok":true}},
+			{"validator_id":"validator-4","before":{"latest_height":4},"after":{"latest_height":8},"report":{"ok":true}}
+		]
+	}`)
+	if EvidenceCheckContentOK("longrun_evidence", "longrun.json", dryRun) {
+		t.Fatalf("expected dry-run longrun evidence to fail")
 	}
 }
 

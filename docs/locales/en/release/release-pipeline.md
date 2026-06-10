@@ -181,11 +181,11 @@ The `release-candidate` target runs:
 - built-binary network E2E (`make network-e2e`)
 - adversarial simulation
 - SDK/EVM conformance evidence. If the `evm` module is enabled, `vexod ops conformance` treats missing `--evm-default-fixtures`, `--evm-tx-fixtures`, or `--evm-tx-fixtures-dir` as an error, not a warning. The built-in fixture set is a baseline for dynamic-fee, access-list, protected legacy, unprotected legacy rejection, chain-ID, malformed raw, fee-cap behavior, geth VM call return data, contract creation execution, CREATE2, revert behavior, persistent storage writes, event logs, value transfer, precompile execution, access-list gas semantics, and blob-hash semantics. Every EVM claim must include `evm_fixtures`, `evm_execution`, and `evm_corpus` with transaction and execution corpus SHA-256 values. Strict release conformance must use an external raw transaction corpus plus an external geth VM execution corpus, both pinned by SHA-256, through `RC_EVM_CONFORMANCE_FLAGS`.
-- network load harness (`make release-candidate` runs real load; use `make release-candidate-plan` only when you intentionally want plan/dry-run artifacts)
+- network load harness (`make release-candidate` runs real load; `make release-candidate-plan` writes `*-plan` files only and those files are intentionally rejected as release evidence)
 - chaos plan
 - IBC relayer soak plan with `vexod relayer soak-plan --json`
 - 7-day multi-host longrun plan
-- longrun harness evidence (`RC_LONGRUN_DURATION` defaults to 168h; `release-candidate-plan` keeps the old short dry-run workflow separate)
+- longrun harness evidence (`RC_LONGRUN_DURATION` defaults to 168h; `release-candidate-plan` keeps short dry-run planning separate from `longrun-evidence.json`)
 - longrun analysis with `vexod network analyze-longrun`
 - locale and canonical documentation quality with `vexod release docs-quality`
 - evidence manifest generation for whatever RC evidence files are present in `dist/`
