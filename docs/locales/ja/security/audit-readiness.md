@@ -42,6 +42,10 @@
 - `chain_id`
 - `(height, round)`
 
+- `crypto.audit_evidence_sha256`
+- `vrf.dependency_audit`
+- `vrf.audit_evidence_sha256`
+- `docs/security/ecvrf-audit-evidence.json`
 ## 英語原文の構造
 
 - Security Audit Readiness
@@ -55,6 +59,10 @@
 - Formal-ish Safety Argument
 - Required Evidence for Audit
 - Auditor Focus Areas
+
+## VRF audit evidence SHA-256
+
+監査提出物には BLS だけでなく VRF adapter audit evidence も含めます。`docs/security/ecvrf-audit-evidence.json` のような evidence ファイルの SHA-256 を `vrf.audit_evidence_sha256` または `--vrf-audit-sha256` に固定し、dependency audit、key custody、TLS/mTLS または pinned CA、auth、replay 防御、service availability を同じ境界で確認します。
 
 ## 正規原文
 

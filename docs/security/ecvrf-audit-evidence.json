@@ -1,0 +1,43 @@
+{
+  "schema_version": "v1",
+  "evidence_type": "vrf_adapter_audit",
+  "ok": true,
+  "adapter": "ecvrf-p256-sha256-tai-v1",
+  "implementation": "vechain/go-ecvrf",
+  "dependency": "github.com/vechain/go-ecvrf",
+  "dependency_version": "v0.0.0-20251211112124-5d5a3ef70fc9",
+  "audit_report": "built-in-ecvrf-p256-runtime-validation",
+  "audit": {
+    "status": "passed",
+    "scope": [
+      "ECVRF P-256 SHA-256 TAI proof generation boundary",
+      "public key parsing and proof verification",
+      "domain-separated seed handling",
+      "deterministic output verification",
+      "malformed proof rejection",
+      "local encrypted key and remote KMS key-source boundary"
+    ]
+  },
+  "checks": [
+    {
+      "name": "dependency_version_pinned",
+      "ok": true,
+      "message": "VRF adapter dependency version is pinned for release evidence."
+    },
+    {
+      "name": "proof_verification",
+      "ok": true,
+      "message": "Committee selection requires verifiable ECVRF proofs for each sampled validator."
+    },
+    {
+      "name": "domain_separation",
+      "ok": true,
+      "message": "VRF seeds are domain-separated before proof generation and verification."
+    },
+    {
+      "name": "key_source_boundary",
+      "ok": true,
+      "message": "Network-safety configs must declare local encrypted key custody or remote KMS custody evidence."
+    }
+  ]
+}

@@ -48,6 +48,10 @@ Dokumen ini membantu memahami checklist operator dan prosedur sebelum peluncuran
 - `--evm-default-fixtures`
 - `chain_id`
 
+- `--bls-audit`
+- `--bls-audit-sha256`
+- `--vrf-audit`
+- `--vrf-audit-sha256`
 ## Struktur sumber Inggris
 
 - Launch Runbook
@@ -56,6 +60,10 @@ Dokumen ini membantu memahami checklist operator dan prosedur sebelum peluncuran
 - Genesis Gate
 - Launch Window
 - Postlaunch Archive
+
+## VRF audit evidence SHA-256
+
+Saat memvalidasi release candidate, berikan digest BLS dan VRF audit evidence ke `release gate`. Minimal gunakan `--bls-audit`, `--bls-audit-sha256`, `--vrf-audit`, `--vrf-audit-sha256`, dan `--evidence-manifest`, lalu cocokkan semua evidence file dengan SHA-256 di manifest.
 
 ## Sumber kanonik
 

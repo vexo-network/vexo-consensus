@@ -120,7 +120,8 @@ go run ./cmd/vexod release gate \
   --external-audit dist/external-audit.pdf \
   --bls-audit dist/bls-audit.pdf \
   --bls-audit-sha256 <sha256> \
-  --vrf-audit dist/vrf-audit.pdf
+  --vrf-audit dist/vrf-audit.pdf \
+  --vrf-audit-sha256 <sha256>
 ```
 
 `release collect-evidence` only marks snapshot/replay evidence as passing when the sampled validators expose both a positive snapshot height and healthy replay diagnostics. If that check is false, run the snapshot restore/replay drill before packaging the release.

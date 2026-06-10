@@ -8,6 +8,7 @@ import (
 	"net"
 	"strings"
 
+	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/config"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/validator"
@@ -192,6 +193,16 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 			len(strings.TrimSpace(cryptoConfig.AuditEvidenceSHA256)) == 64
 		document.addCheck("bls_production_adapter", strictSeverity(strict), blsEvidencePinned, "BLS requires an audited adapter, dependency audit metadata, and pinned audit evidence SHA-256")
 		document.addCheck("bls_genesis_pop", strictSeverity(strict), genesisHasBLSPoP(inputs.Genesis.Validators), "every genesis validator must include bls_pop proof-of-possession metadata")
+	}
+	if inputs.Config.Chain.Committee.Backend == committee.BackendVRF {
+		vrfConfig := inputs.Config.Chain.VRF
+		vrfEvidencePinned := vrfConfig.ProductionAdapter &&
+			vrfConfig.AdapterName != "" &&
+			vrfConfig.AuditReport != "" &&
+			vrfConfig.DependencyAudit != "" &&
+			vrfConfig.KeySource != "" &&
+			len(strings.TrimSpace(vrfConfig.AuditEvidenceSHA256)) == 64
+		document.addCheck("vrf_production_adapter", strictSeverity(strict), vrfEvidencePinned, "VRF requires an audited adapter, dependency audit metadata, key-source evidence, and pinned audit evidence SHA-256")
 	}
 	if keyErr == nil {
 		document.addCheck("key_encrypted_or_remote", strictSeverity(strict), keyDocument.Type == vexocrypto.KeyTypeRemote || keyDocument.Encryption != nil, "avoid unencrypted local private keys in production")

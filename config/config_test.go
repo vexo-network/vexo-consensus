@@ -1,7 +1,9 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -184,10 +186,30 @@ func TestNetworkSafeTemplatePassesNetworkSafety(t *testing.T) {
 		cfg.Crypto.DependencyAudit != NetworkSafeBLSDependencyAudit ||
 		cfg.Crypto.AuditEvidenceSHA256 == "" ||
 		cfg.Committee.Backend != committee.BackendVRF ||
+		cfg.VRF.DependencyAudit != NetworkSafeVRFDependencyAudit ||
+		cfg.VRF.AuditEvidenceSHA256 == "" ||
 		cfg.Mempool.WALPath == "" ||
 		!cfg.Execution.RequireSigned ||
 		!cfg.Execution.RequireNonce {
 		t.Fatalf("unexpected network-safe template: %+v", cfg)
+	}
+}
+
+func TestCryptoAndVRFConfigJSONUsesSnakeCase(t *testing.T) {
+	cfg := NetworkSafeTemplate("vexo-test", "/var/lib/vexo")
+	encoded, err := json.Marshal(cfg.VRF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), "audit_evidence_sha256") || !strings.Contains(string(encoded), "dependency_audit") {
+		t.Fatalf("expected snake_case VRF fields, got %s", encoded)
+	}
+	var decoded VRFConfig
+	if err := json.Unmarshal([]byte(`{"production_adapter":true,"adapter_name":"ecvrf-p256-sha256-tai-v1","audit_report":"audit","dependency_audit":"dep","audit_evidence_sha256":"`+strings.Repeat("a", 64)+`","key_source":"kms"}`), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !decoded.ProductionAdapter || decoded.AdapterName == "" || decoded.DependencyAudit != "dep" || decoded.AuditEvidenceSHA256 == "" {
+		t.Fatalf("expected snake_case decode, got %+v", decoded)
 	}
 }
 
@@ -203,6 +225,8 @@ func TestValidateNetworkSafetyAcceptsHardenedBLSTConfig(t *testing.T) {
 	cfg.VRF.ProductionAdapter = true
 	cfg.VRF.AdapterName = NetworkSafeVRFAdapterECVRFP256
 	cfg.VRF.AuditReport = "vrf-audit-2026"
+	cfg.VRF.DependencyAudit = NetworkSafeVRFDependencyAudit
+	cfg.VRF.AuditEvidenceSHA256 = NetworkSafeVRFAuditEvidence
 	cfg.VRF.KeySource = "remote-signer"
 	cfg.Execution.RequireSigned = true
 	cfg.Bank.MintAuthority = "governance"
@@ -226,6 +250,24 @@ func TestValidateNetworkSafetyRejectsVRFWithoutAdapterName(t *testing.T) {
 
 	if err := cfg.ValidateNetworkSafety(); !errors.Is(err, ErrUnsafeNetworkConfig) {
 		t.Fatalf("expected missing VRF adapter name rejection, got %v", err)
+	}
+}
+
+func TestValidateNetworkSafetyRejectsVRFWithoutAuditEvidence(t *testing.T) {
+	cfg := NetworkSafeTemplate("vexo-test", "/var/lib/vexo")
+	cfg.VRF.AuditEvidenceSHA256 = ""
+
+	if err := cfg.ValidateNetworkSafety(); !errors.Is(err, ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected missing VRF audit evidence rejection, got %v", err)
+	}
+}
+
+func TestValidateNetworkSafetyRejectsVRFWithoutDependencyAudit(t *testing.T) {
+	cfg := NetworkSafeTemplate("vexo-test", "/var/lib/vexo")
+	cfg.VRF.DependencyAudit = ""
+
+	if err := cfg.ValidateNetworkSafety(); !errors.Is(err, ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected missing VRF dependency audit rejection, got %v", err)
 	}
 }
 

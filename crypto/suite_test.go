@@ -38,6 +38,58 @@ func TestNewRuntimeSuiteBLSDefaultsToBLST(t *testing.T) {
 	}
 }
 
+func TestNewRuntimeSuiteProductionBLSTRequiresPinnedDependency(t *testing.T) {
+	_, err := NewRuntimeSuite(config.CryptoConfig{
+		Backend:             config.CryptoBackendBLS,
+		ProductionAdapter:   true,
+		AdapterName:         BLSAdapterBLSTName,
+		AuditReport:         config.NetworkSafeBLSAuditReport,
+		DependencyAudit:     "github.com/supranational/blst@v0.0.0-bad",
+		AuditEvidenceSHA256: config.NetworkSafeBLSAuditEvidence,
+	})
+	if !errors.Is(err, ErrBLSAdapterUnsafe) {
+		t.Fatalf("expected BLS dependency drift rejection, got %v", err)
+	}
+}
+
+func TestNewRuntimeSuiteProductionBLSTAcceptsPinnedDependency(t *testing.T) {
+	suite, err := NewRuntimeSuite(config.CryptoConfig{
+		Backend:             config.CryptoBackendBLS,
+		ProductionAdapter:   true,
+		AdapterName:         BLSAdapterBLSTName,
+		AuditReport:         config.NetworkSafeBLSAuditReport,
+		DependencyAudit:     config.NetworkSafeBLSDependencyAudit,
+		AuditEvidenceSHA256: config.NetworkSafeBLSAuditEvidence,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if suite.FinalityVerifier == nil || suite.ConsensusAggregator == nil || suite.ConsensusVerifier == nil {
+		t.Fatal("expected production BLST suite")
+	}
+}
+
+func TestDependencyAuditReferences(t *testing.T) {
+	tests := []struct {
+		name   string
+		value  string
+		expect bool
+	}{
+		{name: "external reference", value: "external:independent-audit-2026", expect: true},
+		{name: "remote reference", value: "remote:kms-vrf-audit-evidence-2026", expect: true},
+		{name: "short external reference", value: "external:short", expect: false},
+		{name: "short remote reference", value: "remote:short", expect: false},
+		{name: "malformed module pin", value: "github.com/example/module", expect: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if dependencyAuditMatchesBuildInfo(test.value) != test.expect {
+				t.Fatalf("expected %q to be %v", test.value, test.expect)
+			}
+		})
+	}
+}
+
 func TestNewRuntimeSuiteBLSRejectsUnsafeRegisteredAdapter(t *testing.T) {
 	_, err := NewRuntimeSuite(config.CryptoConfig{
 		Backend:           config.CryptoBackendBLS,

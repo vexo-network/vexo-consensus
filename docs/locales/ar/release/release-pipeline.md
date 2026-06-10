@@ -88,3 +88,11 @@
 - `signature_algorithm`
 - `signature_public_key`
 - `vexo-release-evidence-attestation-v1`
+- `--bls-audit-sha256`
+- `--vrf-audit`
+- `--vrf-audit-sha256`
+- `vrf.audit_evidence_sha256`
+
+## VRF audit evidence SHA-256
+
+يجب أن يثبت `release gate` أدلة تدقيق VRF عبر SHA-256 كما يفعل مع BLS. يجب أن يكون ملف `--vrf-audit` داخل `evidence-manifest.json`، وأن يطابق `--vrf-audit-sha256` محتوى الملف بدقة. عند استخدام config يكون `vrf.audit_evidence_sha256` هو digest pin الافتراضي. هذه القاعدة تربط VRF service و KMS/HSM custody و TLS/mTLS أو pinned CA و auth token ودفاع nonce replay بأدلة الإصدار.

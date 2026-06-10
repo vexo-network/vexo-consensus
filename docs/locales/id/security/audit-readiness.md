@@ -42,6 +42,10 @@ Dokumen ini membantu memahami threat model, asumsi keamanan, dan bukti audit dan
 - `chain_id`
 - `(height, round)`
 
+- `crypto.audit_evidence_sha256`
+- `vrf.dependency_audit`
+- `vrf.audit_evidence_sha256`
+- `docs/security/ecvrf-audit-evidence.json`
 ## Struktur sumber Inggris
 
 - Security Audit Readiness
@@ -55,6 +59,10 @@ Dokumen ini membantu memahami threat model, asumsi keamanan, dan bukti audit dan
 - Formal-ish Safety Argument
 - Required Evidence for Audit
 - Auditor Focus Areas
+
+## VRF audit evidence SHA-256
+
+Materi audit harus mencakup VRF adapter audit evidence selain BLS. Pin SHA-256 file seperti `docs/security/ecvrf-audit-evidence.json` ke `vrf.audit_evidence_sha256` atau `--vrf-audit-sha256`, lalu tinjau dependency audit, key custody, TLS/mTLS atau pinned CA, auth, replay defense, dan service availability dalam satu boundary.
 
 ## Sumber kanonik
 

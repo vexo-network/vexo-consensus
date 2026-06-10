@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/config"
@@ -57,10 +58,12 @@ func TestNewVRFLoadsRegisteredProductionAdapter(t *testing.T) {
 	})
 
 	vrf, err := NewVRF(config.VRFConfig{
-		ProductionAdapter: true,
-		AdapterName:       "global-test-vrf",
-		AuditReport:       "audit-2026",
-		KeySource:         "kms",
+		ProductionAdapter:   true,
+		AdapterName:         "global-test-vrf",
+		AuditReport:         "audit-2026",
+		DependencyAudit:     "external:global-test-vrf-audit-2026",
+		AuditEvidenceSHA256: strings.Repeat("a", 64),
+		KeySource:           "kms",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -81,10 +84,12 @@ func TestNewVRFUsesBuiltInProductionAdapterByDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	vrf, err := NewVRF(config.VRFConfig{
-		ProductionAdapter: true,
-		AuditReport:       "audit-2026",
-		KeySource:         "local-key",
-		Keys:              map[string][]byte{string(publicKey): privateKey},
+		ProductionAdapter:   true,
+		AuditReport:         "audit-2026",
+		DependencyAudit:     config.NetworkSafeVRFDependencyAudit,
+		AuditEvidenceSHA256: config.NetworkSafeVRFAuditEvidence,
+		KeySource:           "local-key",
+		Keys:                map[string][]byte{string(publicKey): privateKey},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -98,10 +103,37 @@ func TestNewVRFUsesBuiltInProductionAdapterByDefault(t *testing.T) {
 	}
 }
 
+func TestNewVRFRejectsDependencyDrift(t *testing.T) {
+	privateKey := []byte("12345678901234567890123456789012")
+	publicKey, err := ECVRFP256PublicKeyFromPrivateKey(privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = NewVRF(config.VRFConfig{
+		ProductionAdapter:   true,
+		AdapterName:         VRFAdapterECVRFP256Name,
+		AuditReport:         "audit-2026",
+		DependencyAudit:     "github.com/vechain/go-ecvrf@v0.0.0-bad",
+		AuditEvidenceSHA256: config.NetworkSafeVRFAuditEvidence,
+		KeySource:           "local-key",
+		Keys:                map[string][]byte{string(publicKey): privateKey},
+	})
+	if !errors.Is(err, ErrVRFAdapterUnsafe) {
+		t.Fatalf("expected VRF dependency drift rejection, got %v", err)
+	}
+}
+
 func TestNewVRFRequiresRegisteredProductionAdapter(t *testing.T) {
 	_, err := NewVRF(config.VRFConfig{ProductionAdapter: true, AdapterName: "missing-vrf"})
 	if !errors.Is(err, ErrVRFBackendUnavailable) {
 		t.Fatalf("expected missing production vrf adapter, got %v", err)
+	}
+}
+
+func TestNewVRFRejectsImplicitDeterministicFallback(t *testing.T) {
+	_, err := NewVRF(config.VRFConfig{Keys: map[string][]byte{"alice": []byte("secret")}})
+	if !errors.Is(err, ErrVRFAdapterUnsafe) {
+		t.Fatalf("expected explicit adapter requirement, got %v", err)
 	}
 }
 
@@ -135,6 +167,7 @@ func (adapter testVRFAdapter) Metadata() VRFAdapterMetadata {
 		Version:              "v1",
 		Audited:              true,
 		AuditReport:          adapter.auditReport,
+		DependencyAudit:      "external:global-test-vrf-audit-2026",
 		KeySource:            adapter.keySource,
 		DomainSeparation:     true,
 		ProofVerification:    true,

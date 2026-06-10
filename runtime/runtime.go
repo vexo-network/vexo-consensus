@@ -106,6 +106,14 @@ func newWithStoreAndCryptoRegistry(ctx context.Context, cfg config.Config, appli
 	if storage == nil && !allowEphemeral {
 		return nil, ErrDurableStoreRequired
 	}
+	if storage != nil && cfg.ValidateNetworkSafety() == nil {
+		if _, ok := application.(app.AtomicBlockApplication); !ok {
+			return nil, ErrAtomicAppCommitUnavailable
+		}
+		if _, ok := storage.(store.AppBlockCommitStore); !ok {
+			return nil, ErrAtomicAppCommitUnavailable
+		}
+	}
 
 	admission := validator.NewConfigurableAdmissionPolicy(cfg.Validator)
 	var registry validator.VersionedRegistry

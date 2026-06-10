@@ -48,6 +48,10 @@
 - `--evm-default-fixtures`
 - `chain_id`
 
+- `--bls-audit`
+- `--bls-audit-sha256`
+- `--vrf-audit`
+- `--vrf-audit-sha256`
 ## 영어 원문 구조
 
 - Launch Runbook
@@ -60,6 +64,10 @@
 ## Release candidate command updates
 
 Use `vexod ops conformance --evm-default-fixtures` when a chain-specific Ethereum fixture corpus is not ready yet; add `--evm-tx-fixtures` later for chain-specific Web3/EVM cases. Use `vexod release gate --evidence-manifest dist/evidence-manifest.json` so long-run, chaos, signer, snapshot, P2P, state-sync, economics, governance, MEV, ops, formal-safety, SDK, external-audit, and BLS evidence are hash-bound before publication.
+
+## VRF audit evidence SHA-256
+
+릴리즈 후보를 검증할 때 `release gate` 명령에는 BLS와 VRF audit evidence digest를 모두 넣습니다. 최소한 `--bls-audit`, `--bls-audit-sha256`, `--vrf-audit`, `--vrf-audit-sha256`, `--evidence-manifest`를 함께 사용하고, 모든 evidence 파일이 manifest의 SHA-256과 일치하는지 확인합니다.
 
 ## 규범 원문
 

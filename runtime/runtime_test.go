@@ -10,6 +10,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/config"
+	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/modules/staking"
 	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/store"
@@ -71,10 +72,16 @@ func TestRuntimeBuildsVRFCommitteeSelector(t *testing.T) {
 	cfg := config.Default("vexo-test")
 	cfg.Committee.Backend = committee.BackendVRF
 	cfg.Committee.CommitteeSize = 1
-	cfg.VRF.Keys = map[string][]byte{"alice-pub": []byte("alice-secret")}
+	privateKey := []byte("12345678901234567890123456789012")
+	publicKey, err := vexocrypto.ECVRFP256PublicKeyFromPrivateKey(privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.VRF.AdapterName = vexocrypto.VRFAdapterECVRFP256Name
+	cfg.VRF.Keys = map[string][]byte{base64.StdEncoding.EncodeToString(publicKey): privateKey}
 
 	runtime, err := NewEphemeral(cfg, noopApp{}, []validator.Validator{
-		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: []byte("alice-pub")},
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: publicKey},
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -453,6 +460,19 @@ func TestRuntimeContextCancellation(t *testing.T) {
 	}
 	if _, err := runtime.NewFinalityVerifier(ctx, 1); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected finality context canceled, got %v", err)
+	}
+}
+
+func TestNetworkSafeRuntimeRequiresAtomicApplicationAtStartup(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	_, err = NewWithStore(config.NetworkSafeTemplate("vexo-test", t.TempDir()), noopApp{}, nil, nil, storage)
+	if !errors.Is(err, ErrAtomicAppCommitUnavailable) {
+		t.Fatalf("expected atomic app startup guard, got %v", err)
 	}
 }
 

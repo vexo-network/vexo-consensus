@@ -3,7 +3,9 @@ package crypto
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"strings"
 
 	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -26,25 +28,25 @@ func NewDeterministicVRF(keys map[string][]byte) DeterministicVRF {
 }
 
 func NewVRF(cfg config.VRFConfig) (VRF, error) {
-	if cfg.ProductionAdapter || cfg.AdapterName != "" {
-		adapterName := cfg.AdapterName
-		if adapterName == "" {
-			adapterName = VRFAdapterECVRFP256Name
-		}
-		factory, found := registeredVRFAdapter(adapterName)
-		if !found {
-			return nil, ErrVRFBackendUnavailable
-		}
-		adapter, err := factory(cfg)
-		if err != nil {
-			return nil, err
-		}
-		if err := ValidateVRFAdapter(adapter, cfg); err != nil {
-			return nil, err
-		}
-		return adapter, nil
+	if !cfg.ProductionAdapter && cfg.AdapterName == "" {
+		return nil, ErrVRFAdapterUnsafe
 	}
-	return NewDeterministicVRF(cfg.Keys), nil
+	adapterName := cfg.AdapterName
+	if adapterName == "" {
+		adapterName = VRFAdapterECVRFP256Name
+	}
+	factory, found := registeredVRFAdapter(adapterName)
+	if !found {
+		return nil, ErrVRFBackendUnavailable
+	}
+	adapter, err := factory(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if err := ValidateVRFAdapter(adapter, cfg); err != nil {
+		return nil, err
+	}
+	return adapter, nil
 }
 
 func NewProductionVRF(cfg config.VRFConfig) (VRF, error) {
@@ -63,6 +65,7 @@ func ValidateVRFAdapter(adapter VRFAdapter, cfg config.VRFConfig) error {
 		metadata.Version == "" ||
 		!metadata.Audited ||
 		metadata.AuditReport == "" ||
+		metadata.DependencyAudit == "" ||
 		metadata.KeySource == "" ||
 		!metadata.DomainSeparation ||
 		!metadata.ProofVerification ||
@@ -76,10 +79,33 @@ func ValidateVRFAdapter(adapter VRFAdapter, cfg config.VRFConfig) error {
 	if cfg.AuditReport != "" && metadata.AuditReport != cfg.AuditReport {
 		return ErrVRFAdapterUnsafe
 	}
+	if cfg.DependencyAudit != "" && metadata.DependencyAudit != cfg.DependencyAudit {
+		return ErrVRFAdapterUnsafe
+	}
+	if cfg.ProductionAdapter {
+		if cfg.DependencyAudit == "" || metadata.DependencyAudit != cfg.DependencyAudit {
+			return ErrVRFAdapterUnsafe
+		}
+		if !validVRFAuditEvidenceDigest(cfg.AuditEvidenceSHA256) {
+			return ErrVRFAdapterUnsafe
+		}
+		if !dependencyAuditMatchesBuildInfo(metadata.DependencyAudit) {
+			return ErrVRFAdapterUnsafe
+		}
+	}
 	if cfg.KeySource != "" && metadata.KeySource != cfg.KeySource {
 		return ErrVRFAdapterUnsafe
 	}
 	return nil
+}
+
+func validVRFAuditEvidenceDigest(value string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) != 64 {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == 32
 }
 
 func (vrf DeterministicVRF) Prove(publicKey types.PublicKey, seed []byte) (output []byte, proof []byte, err error) {

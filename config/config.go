@@ -95,6 +95,9 @@ const (
 	DefaultEVMChainID               uint64 = 83960
 	NetworkSafeVRFAdapterECVRFP256         = "ecvrf-p256-sha256-tai-v1"
 	NetworkSafeVRFAuditReport              = "built-in-ecvrf-p256-runtime-validation"
+	NetworkSafeVRFDependencyAudit          = "github.com/vechain/go-ecvrf@v0.0.0-20251211112124-5d5a3ef70fc9"
+	NetworkSafeVRFAuditEvidence            = "d391193d5a9e5da40a6e77171782083c6e2c2a055afccede6eb5f0e1896f8b1f"
+	NetworkSafeVRFAuditEvidencePath        = "docs/security/ecvrf-audit-evidence.json"
 	NetworkSafeVRFKeySource                = "local-encrypted-or-remote-kms"
 	NetworkSafeBLSAdapterBLST              = "blst-bls12381-minpk-v1"
 	NetworkSafeBLSAuditReport              = "ncc-group-blst-security-assessment"
@@ -104,24 +107,26 @@ const (
 )
 
 type CryptoConfig struct {
-	Backend             CryptoBackend
-	ProductionAdapter   bool
-	AdapterName         string
-	AuditReport         string
-	DependencyAudit     string
-	AuditEvidenceSHA256 string
+	Backend             CryptoBackend `json:"backend"`
+	ProductionAdapter   bool          `json:"production_adapter"`
+	AdapterName         string        `json:"adapter_name"`
+	AuditReport         string        `json:"audit_report"`
+	DependencyAudit     string        `json:"dependency_audit"`
+	AuditEvidenceSHA256 string        `json:"audit_evidence_sha256"`
 }
 
 type VRFConfig struct {
-	Keys              map[string][]byte
-	ProductionAdapter bool
-	AdapterName       string
-	AuditReport       string
-	KeySource         string
-	TLSCertPath       string
-	TLSKeyPath        string
-	TLSCAPath         string
-	TLSServerName     string
+	Keys                map[string][]byte `json:"keys,omitempty"`
+	ProductionAdapter   bool              `json:"production_adapter"`
+	AdapterName         string            `json:"adapter_name"`
+	AuditReport         string            `json:"audit_report"`
+	DependencyAudit     string            `json:"dependency_audit"`
+	AuditEvidenceSHA256 string            `json:"audit_evidence_sha256"`
+	KeySource           string            `json:"key_source"`
+	TLSCertPath         string            `json:"tls_cert_path,omitempty"`
+	TLSKeyPath          string            `json:"tls_key_path,omitempty"`
+	TLSCAPath           string            `json:"tls_ca_path,omitempty"`
+	TLSServerName       string            `json:"tls_server_name,omitempty"`
 }
 
 func Default(chainID string) Config {
@@ -208,10 +213,12 @@ func NetworkSafeTemplate(chainID string, dataDir string) Config {
 	}
 	cfg.Committee.Backend = committee.BackendVRF
 	cfg.VRF = VRFConfig{
-		ProductionAdapter: true,
-		AdapterName:       NetworkSafeVRFAdapterECVRFP256,
-		AuditReport:       NetworkSafeVRFAuditReport,
-		KeySource:         NetworkSafeVRFKeySource,
+		ProductionAdapter:   true,
+		AdapterName:         NetworkSafeVRFAdapterECVRFP256,
+		AuditReport:         NetworkSafeVRFAuditReport,
+		DependencyAudit:     NetworkSafeVRFDependencyAudit,
+		AuditEvidenceSHA256: NetworkSafeVRFAuditEvidence,
+		KeySource:           NetworkSafeVRFKeySource,
 	}
 	cfg.Execution.MinFee = 1
 	cfg.Execution.BaseFee = 1
@@ -359,7 +366,10 @@ func (config Config) ValidateNetworkSafety() error {
 	if config.Committee.Backend != committee.BackendVRF {
 		return ErrUnsafeNetworkConfig
 	}
-	if !config.VRF.ProductionAdapter || config.VRF.AdapterName == "" || config.VRF.AuditReport == "" || config.VRF.KeySource == "" {
+	if !config.VRF.ProductionAdapter || config.VRF.AdapterName == "" || config.VRF.AuditReport == "" || config.VRF.DependencyAudit == "" || config.VRF.KeySource == "" {
+		return ErrUnsafeNetworkConfig
+	}
+	if !validSHA256Hex(config.VRF.AuditEvidenceSHA256) || unsafeAuditEvidenceDigest(config.VRF.AuditEvidenceSHA256) {
 		return ErrUnsafeNetworkConfig
 	}
 	if !config.Execution.RequireSigned || !config.Execution.RequireNonce {

@@ -101,7 +101,7 @@ func init() {
 }
 ```
 
-`vrf.adapter_name`, `vrf.audit_report`, and `vrf.key_source` must match the adapter metadata. When `committee.backend` is `vrf`, runtime startup fails if no matching adapter is linked instead of silently falling back to deterministic VRF. SDK integrations that must never fall back to deterministic VRF should call `crypto.NewProductionVRF`, which rejects configs without `production_adapter: true`. When committee selection is deterministic, runtime does not load a VRF adapter.
+`vrf.adapter_name`, `vrf.audit_report`, `vrf.dependency_audit`, `vrf.audit_evidence_sha256`, and `vrf.key_source` must match the adapter metadata and release evidence. When `committee.backend` is `vrf`, runtime startup fails if no matching adapter is linked instead of silently falling back to deterministic VRF. SDK integrations that must never fall back to deterministic VRF should call `crypto.NewProductionVRF`, which rejects configs without `production_adapter: true`. When committee selection is deterministic, runtime does not load a VRF adapter.
 
 The built-in ECVRF adapter is registered as `ecvrf-p256-sha256-tai-v1`. It uses P-256/SHA-256 try-and-increment ECVRF proofs. Validators may put a base64 VRF public key in metadata key `vrf_public_key`; otherwise committee selection falls back to the validator consensus public key.
 
@@ -117,6 +117,8 @@ Prefer encrypted VRF key documents referenced from `consensus_config.json`:
   "vrf": {
     "adapter_name": "ecvrf-p256-sha256-tai-v1",
     "audit_report": "operator-audit-reference",
+    "dependency_audit": "github.com/vechain/go-ecvrf@v0.0.0-20251211112124-5d5a3ef70fc9",
+    "audit_evidence_sha256": "<sha256-of-vrf-audit-evidence>",
     "key_source": "config.vrf.keys",
     "production_adapter": true
   }
@@ -130,6 +132,8 @@ For a remote VRF prover, prefer HTTPS plus mTLS/pinned CA:
   "vrf": {
     "adapter_name": "remote-vrf-http-v1",
     "audit_report": "operator-remote-vrf-audit",
+    "dependency_audit": "external:remote-vrf-service-audit-2026",
+    "audit_evidence_sha256": "<sha256-of-remote-vrf-audit-evidence>",
     "key_source": "remote-http:https://vrf.example.internal",
     "production_adapter": true,
     "tls_cert_path": "vrf-client.crt",

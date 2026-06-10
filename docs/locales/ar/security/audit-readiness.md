@@ -59,3 +59,11 @@
 ## المصدر المعتمد
 
 - [English canonical document](../../en/security/audit-readiness.md)
+- `crypto.audit_evidence_sha256`
+- `vrf.dependency_audit`
+- `vrf.audit_evidence_sha256`
+- `docs/security/ecvrf-audit-evidence.json`
+
+## VRF audit evidence SHA-256
+
+يجب أن تتضمن مواد التدقيق VRF adapter audit evidence إضافة إلى BLS. ثبت SHA-256 لملف مثل `docs/security/ecvrf-audit-evidence.json` في `vrf.audit_evidence_sha256` أو `--vrf-audit-sha256`، وراجع dependency audit و key custody و TLS/mTLS أو pinned CA و auth و replay defense و service availability كحد أمني واحد.

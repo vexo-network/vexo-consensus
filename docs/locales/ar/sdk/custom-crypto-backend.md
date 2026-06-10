@@ -75,3 +75,11 @@
 ## المصدر المعتمد
 
 - [English canonical document](../../en/sdk/custom-crypto-backend.md)
+- `vrf.dependency_audit`
+- `vrf.audit_evidence_sha256`
+- `ecvrf-p256-sha256-tai-v1`
+- `remote-vrf-http-v1`
+
+## VRF audit evidence SHA-256
+
+يجب أن يعلن VRF backend حدود التدقيق بوضوح مثل BLS. املأ `vrf.adapter_name` و `vrf.audit_report` و `vrf.dependency_audit` و `vrf.audit_evidence_sha256` و `vrf.key_source`؛ إذا اختلفت adapter metadata عن config فيجب أن يفشل runtime بشكل fail closed. يتحقق ECVRF adapter المدمج من go.mod dependency pin و audit evidence digest، بينما يستخدم remote VRF adapter مرجع تدقيق خارجي لـ KMS/HSM.

@@ -62,6 +62,10 @@ Ce document aide à comprendre le pipeline de release avec binaires signés, che
 - `allow_noop_migrations=true`
 - `vexod upgrade apply --allow-empty-migrations`
 
+- `--bls-audit-sha256`
+- `--vrf-audit`
+- `--vrf-audit-sha256`
+- `vrf.audit_evidence_sha256`
 ## Structure de la source anglaise
 
 - Release Pipeline
@@ -74,6 +78,10 @@ Ce document aide à comprendre le pipeline de release avec binaires signés, che
 - Audit Pack
 - Release Candidate Soak Test
 - Launch Runbook
+
+## VRF audit evidence SHA-256
+
+`release gate` ne fixe pas seulement les preuves d’audit BLS ; les preuves d’audit VRF doivent aussi être épinglées par SHA-256. Le fichier `--vrf-audit` doit être présent dans `evidence-manifest.json`, et `--vrf-audit-sha256` doit correspondre exactement au contenu du fichier. Avec une config, `vrf.audit_evidence_sha256` sert de digest pin par défaut. Cette règle vérifie que VRF service, KMS/HSM custody, TLS/mTLS ou pinned CA, auth token et défense contre nonce replay sont liés aux preuves de release.
 
 ## Source canonique
 

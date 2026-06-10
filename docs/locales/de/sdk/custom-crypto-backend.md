@@ -60,6 +60,10 @@ Dieses Dokument hilft dabei, die Integration von custom crypto backends wie BLS,
 - `vrf.key_source`
 - `committee.backend`
 
+- `vrf.dependency_audit`
+- `vrf.audit_evidence_sha256`
+- `ecvrf-p256-sha256-tai-v1`
+- `remote-vrf-http-v1`
 ## Struktur der englischen Quelle
 
 - Custom Crypto Backend Guide
@@ -71,6 +75,10 @@ Dieses Dokument hilft dabei, die Integration von custom crypto backends wie BLS,
 - Production VRF Requirements
 - Remote Signer Requirements
 - Test Backends
+
+## VRF audit evidence SHA-256
+
+Der VRF backend muss eine ebenso klare Audit-Grenze wie BLS zeigen. Setze `vrf.adapter_name`, `vrf.audit_report`, `vrf.dependency_audit`, `vrf.audit_evidence_sha256` und `vrf.key_source`; wenn adapter metadata und config abweichen, muss der runtime fail closed. Der eingebaute ECVRF adapter prüft go.mod dependency pin und audit evidence digest, während der remote VRF adapter eine externe KMS/HSM audit reference verwendet.
 
 ## Kanonische Quelle
 

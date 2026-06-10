@@ -103,6 +103,7 @@ go run ./cmd/vexod release gate \
   --bls-audit dist/bls-audit.pdf \
   --bls-audit-sha256 <sha256> \
   --vrf-audit dist/vrf-audit.pdf \
+  --vrf-audit-sha256 <sha256> \
   --json
 ```
 
@@ -190,7 +191,7 @@ The `release-candidate` target runs:
 - evidence manifest generation for whatever RC evidence files are present in `dist/`
 
 Real release candidates should run `network longrun` on independent machines and attach the generated evidence JSON plus metrics, logs, pprof, snapshot, replay, KMS signing, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, SDK conformance, EVM/Web3 raw transaction conformance, geth VM execution conformance, BLS adapter audit, and VRF adapter/KMS/TLS audit evidence.
-The longrun harness distributes load across validator RPC endpoints and records per-validator submission counts in the evidence payload. The analyzer should pass before the evidence is attached to the release gate. Relayer soak plans should include both acknowledgement and timeout jobs and should be archived with checkpoint state. Upgrade plans that rely on no-op schema migrations must explicitly set `allow_noop_migrations=true`; `vexod upgrade apply --allow-empty-migrations` rejects plans that do not opt in. Public release gates require `--bls-audit` evidence and either `--bls-audit-sha256` or `--config <path>` with `crypto.audit_evidence_sha256` when BLS is configured. The repository includes `docs/security/blst-audit-evidence.json` and its SHA-256 pin for the built-in supranational/blst adapter metadata; launch teams should still attach their target-release BLS audit artifact and VRF evidence covering adapter implementation, dependency audit, TLS/mTLS or pinned CA, authorization, nonce replay defense, and KMS/HSM custody policy.
+The longrun harness distributes load across validator RPC endpoints and records per-validator submission counts in the evidence payload. The analyzer should pass before the evidence is attached to the release gate. Relayer soak plans should include both acknowledgement and timeout jobs and should be archived with checkpoint state. Upgrade plans that rely on no-op schema migrations must explicitly set `allow_noop_migrations=true`; `vexod upgrade apply --allow-empty-migrations` rejects plans that do not opt in. Public release gates require `--bls-audit` evidence plus `--bls-audit-sha256` or `--config <path>` with `crypto.audit_evidence_sha256` when BLS is configured, and `--vrf-audit` evidence plus `--vrf-audit-sha256` or `--config <path>` with `vrf.audit_evidence_sha256` when VRF committee selection is configured. The repository includes `docs/security/blst-audit-evidence.json`, `docs/security/ecvrf-audit-evidence.json`, and their SHA-256 pins for the built-in adapter metadata; launch teams should still attach their target-release BLS and VRF audit artifacts covering adapter implementation, dependency audit, TLS/mTLS or pinned CA, authorization, nonce replay defense, and KMS/HSM custody policy.
 
 ## Launch Runbook
 

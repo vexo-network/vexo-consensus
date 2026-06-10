@@ -51,7 +51,7 @@ This package is intended for independent reviewers evaluating Vexo consensus, ne
 ## Known Limitations
 
 - BLS backend defaults to the built-in supranational/blst min-pk adapter and still requires dependency audit evidence, proof-of-possession validation, subgroup/key checks, configured audit-evidence SHA-256 pinning, and release evidence. The default pin is bound to `docs/security/blst-audit-evidence.json` instead of a dummy digest, and the network-safety validator rejects known placeholder digests. The CIRCL adapter remains reference/compatibility-only and does not replace an external audit.
-- VRF-backed committee selection requires an adapter with proof verification and key-source evidence; the built-in ECVRF P-256 adapter provides local encrypted-key custody and the `remote-vrf-http-v1` adapter provides the KMS/HSM remote-prover boundary. Private key custody, remote service availability, replay protection, access policy, and deployment audit remain operator responsibilities.
+- VRF-backed committee selection requires an adapter with proof verification, dependency-audit metadata, pinned audit-evidence SHA-256, and key-source evidence; the built-in ECVRF P-256 adapter provides local encrypted-key custody and the `remote-vrf-http-v1` adapter provides the KMS/HSM remote-prover boundary. Private key custody, remote service availability, replay protection, access policy, and deployment audit remain operator responsibilities.
 - Ed25519 finality is ordered multisignature concatenation, not cryptographic aggregation.
 - Data availability commitments use canonical transaction chunk roots with chunk-inclusion proofs, deterministic 1D/2D sample planning/reporting, and built-in GF(256) Reed-Solomon-style parity recovery. Operators still need chain-specific sampling thresholds and alert policy, but the 2D planner and verifier are code-level primitives.
 - Invalid-proposal evidence supports reason-specific mismatch verification. DA mismatch and missing-data evidence are self-contained unless the proof declares an external context proof hash; validator-set-hash, app-hash, timestamp, and transaction-validity evidence require runtime-supplied height context and fail closed without it. Transaction-validity evidence is gated by an independently computed deterministic transaction-result hash, context-bound proofs must match the supplied context proof hash before slashing, and `VerifyInvalidProposalEvidenceWithBoundContext` is available for operators or modules that want to reject any context-bound invalid-proposal proof unless the context hash is embedded in the evidence itself. Runtime-required state proofs are verified against chain ID, evidence height, expected state root, namespace, key, existence, and value. Application-specific invalid-proposal reasons are registered with `RegisterInvalidProposalVerifier` or `RegisterInvalidProposalVerifierWithOptions`; context-required reasons must use bound-context verification before penalty application.
@@ -106,6 +106,7 @@ go run ./cmd/vexod release gate \
   --bls-audit dist/bls-audit.pdf \
   --bls-audit-sha256 <sha256> \
   --vrf-audit dist/vrf-audit.pdf \
+  --vrf-audit-sha256 <sha256> \
   --json
 ```
 

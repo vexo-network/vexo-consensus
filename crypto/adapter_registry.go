@@ -16,6 +16,7 @@ type VRFAdapterMetadata struct {
 	Version              string
 	Audited              bool
 	AuditReport          string
+	DependencyAudit      string
 	KeySource            string
 	DomainSeparation     bool
 	ProofVerification    bool

@@ -42,6 +42,10 @@
 - `chain_id`
 - `(height, round)`
 
+- `crypto.audit_evidence_sha256`
+- `vrf.dependency_audit`
+- `vrf.audit_evidence_sha256`
+- `docs/security/ecvrf-audit-evidence.json`
 ## अंग्रेज़ी source की संरचना
 
 - Security Audit Readiness
@@ -55,6 +59,10 @@
 - Formal-ish Safety Argument
 - Required Evidence for Audit
 - Auditor Focus Areas
+
+## VRF audit evidence SHA-256
+
+Audit सामग्री में BLS के साथ VRF adapter audit evidence भी होनी चाहिए। `docs/security/ecvrf-audit-evidence.json` जैसे file का SHA-256 `vrf.audit_evidence_sha256` या `--vrf-audit-sha256` में pin करें, और dependency audit, key custody, TLS/mTLS या pinned CA, auth, replay defense और service availability को एक ही boundary में जाँचें।
 
 ## Canonical source
 

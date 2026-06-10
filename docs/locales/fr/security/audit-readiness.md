@@ -42,6 +42,10 @@ Ce document aide à comprendre le threat model, les hypothèses de sécurité et
 - `chain_id`
 - `(height, round)`
 
+- `crypto.audit_evidence_sha256`
+- `vrf.dependency_audit`
+- `vrf.audit_evidence_sha256`
+- `docs/security/ecvrf-audit-evidence.json`
 ## Structure de la source anglaise
 
 - Security Audit Readiness
@@ -55,6 +59,10 @@ Ce document aide à comprendre le threat model, les hypothèses de sécurité et
 - Formal-ish Safety Argument
 - Required Evidence for Audit
 - Auditor Focus Areas
+
+## VRF audit evidence SHA-256
+
+Les éléments remis aux auditeurs doivent inclure l’audit VRF adapter en plus de BLS. Épinglez le SHA-256 d’un fichier comme `docs/security/ecvrf-audit-evidence.json` dans `vrf.audit_evidence_sha256` ou `--vrf-audit-sha256`, puis examinez dependency audit, key custody, TLS/mTLS ou pinned CA, auth, replay defense et disponibilité du service dans une même frontière.
 
 ## Source canonique
 

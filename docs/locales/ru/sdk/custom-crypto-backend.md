@@ -60,6 +60,10 @@
 - `vrf.key_source`
 - `committee.backend`
 
+- `vrf.dependency_audit`
+- `vrf.audit_evidence_sha256`
+- `ecvrf-p256-sha256-tai-v1`
+- `remote-vrf-http-v1`
 ## Структура английского источника
 
 - Custom Crypto Backend Guide
@@ -71,6 +75,10 @@
 - Production VRF Requirements
 - Remote Signer Requirements
 - Test Backends
+
+## VRF audit evidence SHA-256
+
+VRF backend должен показывать такую же чёткую audit boundary, как BLS. Заполните `vrf.adapter_name`, `vrf.audit_report`, `vrf.dependency_audit`, `vrf.audit_evidence_sha256` и `vrf.key_source`; если metadata adapter не совпадают с config, runtime должен fail closed. Встроенный ECVRF adapter проверяет go.mod dependency pin и audit evidence digest, а remote VRF adapter использует внешнюю KMS/HSM audit reference.
 
 ## Канонический источник
 

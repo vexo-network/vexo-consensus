@@ -62,6 +62,10 @@
 - `allow_noop_migrations=true`
 - `vexod upgrade apply --allow-empty-migrations`
 
+- `--bls-audit-sha256`
+- `--vrf-audit`
+- `--vrf-audit-sha256`
+- `vrf.audit_evidence_sha256`
 ## 영어 원문 구조
 
 - Release Pipeline
@@ -78,6 +82,10 @@
 ## Release gate evidence binding
 
 `release gate` now expects evidence artifacts to be bound through `evidence-manifest.json`. The manifest records each evidence `name`, `path`, and `sha256`, and the gate rejects evidence whose file content does not match the manifest hash. Keep command-line flags such as `--evidence-manifest`, `--sdk-conformance-evidence`, `--external-audit`, and `--bls-audit` untranslated so operators can copy the exact interface names. Use `make release-candidate-real` when the release candidate must run real load and long-run checks instead of plan-only dry runs.
+
+## VRF audit evidence SHA-256
+
+`release gate`는 BLS audit evidence뿐 아니라 VRF audit evidence도 SHA-256으로 고정해야 합니다. `--vrf-audit` 파일은 `evidence-manifest.json`에 포함되어야 하며, `--vrf-audit-sha256` 값은 파일 내용과 정확히 일치해야 합니다. config를 사용하는 경우 `vrf.audit_evidence_sha256`이 기본 digest pin으로 쓰입니다. 이 규칙은 VRF service, KMS/HSM custody, TLS/mTLS 또는 pinned CA, auth token, nonce replay 방어가 실제 릴리즈 증거에 묶였는지 확인하기 위한 것입니다.
 
 ## 규범 원문
 

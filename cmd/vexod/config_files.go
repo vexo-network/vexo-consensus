@@ -1619,8 +1619,10 @@ func applyDefaultNetworkSafetyConsensusConfig(cfg *config.Config) {
 	cfg.Crypto.AuditEvidenceSHA256 = config.NetworkSafeBLSAuditEvidence
 	cfg.Committee.Backend = committee.BackendVRF
 	cfg.VRF.ProductionAdapter = true
-	cfg.VRF.AdapterName = vexocrypto.VRFAdapterECVRFP256Name
-	cfg.VRF.AuditReport = "built-in-ecvrf-p256-runtime"
+	cfg.VRF.AdapterName = config.NetworkSafeVRFAdapterECVRFP256
+	cfg.VRF.AuditReport = config.NetworkSafeVRFAuditReport
+	cfg.VRF.DependencyAudit = config.NetworkSafeVRFDependencyAudit
+	cfg.VRF.AuditEvidenceSHA256 = config.NetworkSafeVRFAuditEvidence
 	cfg.VRF.KeySource = "consensus_config.vrf_key_paths"
 }
 

@@ -60,3 +60,11 @@
 ## المصدر المعتمد
 
 - [English canonical document](../../en/release/launch-runbook.md)
+- `--bls-audit`
+- `--bls-audit-sha256`
+- `--vrf-audit`
+- `--vrf-audit-sha256`
+
+## VRF audit evidence SHA-256
+
+عند التحقق من release candidate مرر إلى `release gate` دليلي التدقيق BLS و VRF مع digest لكل منهما. استخدم على الأقل `--bls-audit` و `--bls-audit-sha256` و `--vrf-audit` و `--vrf-audit-sha256` و `--evidence-manifest`، وتحقق أن كل evidence file يطابق SHA-256 في manifest.

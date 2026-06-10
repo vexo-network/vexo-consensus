@@ -832,6 +832,8 @@ func TestLoadNodeConfigLoadsEncryptedVRFKeyDocuments(t *testing.T) {
 	consensusDocument.VRF.ProductionAdapter = true
 	consensusDocument.VRF.AdapterName = vexocrypto.VRFAdapterECVRFP256Name
 	consensusDocument.VRF.AuditReport = "ecvrf-test-audit"
+	consensusDocument.VRF.DependencyAudit = config.NetworkSafeVRFDependencyAudit
+	consensusDocument.VRF.AuditEvidenceSHA256 = config.NetworkSafeVRFAuditEvidence
 	consensusDocument.VRF.KeySource = "config.vrf.keys"
 	consensusDocument.VRFKeyPaths = []string{"validator.vrf.key.json"}
 	writeTestJSON(t, filepath.Join(consensusDir, "consensus.json"), consensusDocument)

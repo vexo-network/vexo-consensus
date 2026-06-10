@@ -62,6 +62,10 @@
 - `allow_noop_migrations=true`
 - `vexod upgrade apply --allow-empty-migrations`
 
+- `--bls-audit-sha256`
+- `--vrf-audit`
+- `--vrf-audit-sha256`
+- `vrf.audit_evidence_sha256`
 ## अंग्रेज़ी source की संरचना
 
 - Release Pipeline
@@ -74,6 +78,10 @@
 - Audit Pack
 - Release Candidate Soak Test
 - Launch Runbook
+
+## VRF audit evidence SHA-256
+
+`release gate` केवल BLS audit evidence को नहीं, VRF audit evidence को भी SHA-256 से pin करता है। `--vrf-audit` file को `evidence-manifest.json` में होना चाहिए, और `--vrf-audit-sha256` file content से बिल्कुल मेल खाना चाहिए। config के साथ `vrf.audit_evidence_sha256` default digest pin है। यह नियम VRF service, KMS/HSM custody, TLS/mTLS या pinned CA, auth token और nonce replay defense को release evidence से जोड़ता है।
 
 ## Canonical source
 

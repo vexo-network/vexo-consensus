@@ -72,6 +72,14 @@ Tài liệu này giúp hiểu tích hợp custom crypto backend như BLS, VRF v�
 - Remote Signer Requirements
 - Test Backends
 
+## VRF audit evidence SHA-256
+
+VRF backend phải thể hiện audit boundary rõ như BLS. Điền `vrf.adapter_name`, `vrf.audit_report`, `vrf.dependency_audit`, `vrf.audit_evidence_sha256` và `vrf.key_source`; nếu adapter metadata khác config thì runtime phải fail closed. Built-in ECVRF adapter xác minh go.mod dependency pin và audit evidence digest, còn remote VRF adapter dùng external KMS/HSM audit reference.
+
 ## Nguồn chuẩn
 
 - [English canonical document](../../en/sdk/custom-crypto-backend.md)
+- `vrf.dependency_audit`
+- `vrf.audit_evidence_sha256`
+- `ecvrf-p256-sha256-tai-v1`
+- `remote-vrf-http-v1`

@@ -28,3 +28,10 @@ func TestNewSelectorRejectsUnsupportedBackend(t *testing.T) {
 		t.Fatalf("expected unsupported backend, got %v", err)
 	}
 }
+
+func TestNewSelectorRejectsImplicitBackend(t *testing.T) {
+	_, err := NewSelector(RotationPolicy{EpochLength: 1, CommitteeSize: 1}, nil)
+	if !errors.Is(err, ErrUnsupportedCommitteeBackend) {
+		t.Fatalf("expected explicit backend requirement, got %v", err)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/config"
@@ -54,10 +55,12 @@ func TestRemoteVRFAdapterProvesAndVerifiesThroughHTTP(t *testing.T) {
 	defer server.Close()
 
 	adapter, err := NewRemoteVRFAdapter(config.VRFConfig{
-		AdapterName:       VRFAdapterRemoteHTTPName,
-		ProductionAdapter: true,
-		AuditReport:       "remote-vrf-audit",
-		KeySource:         "remote-http:" + server.URL,
+		AdapterName:         VRFAdapterRemoteHTTPName,
+		ProductionAdapter:   true,
+		AuditReport:         "remote-vrf-audit",
+		DependencyAudit:     "external:remote-vrf-service-audit-2026",
+		AuditEvidenceSHA256: strings.Repeat("b", 64),
+		KeySource:           "remote-http:" + server.URL,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -73,10 +76,12 @@ func TestRemoteVRFAdapterProvesAndVerifiesThroughHTTP(t *testing.T) {
 		t.Fatalf("expected remote proof to verify")
 	}
 	if err := ValidateVRFAdapter(adapter, config.VRFConfig{
-		AdapterName:       VRFAdapterRemoteHTTPName,
-		ProductionAdapter: true,
-		AuditReport:       "remote-vrf-audit",
-		KeySource:         "remote-http:" + server.URL,
+		AdapterName:         VRFAdapterRemoteHTTPName,
+		ProductionAdapter:   true,
+		AuditReport:         "remote-vrf-audit",
+		DependencyAudit:     "external:remote-vrf-service-audit-2026",
+		AuditEvidenceSHA256: strings.Repeat("b", 64),
+		KeySource:           "remote-http:" + server.URL,
 	}); err != nil {
 		t.Fatalf("expected remote adapter metadata to validate: %v", err)
 	}
@@ -84,10 +89,12 @@ func TestRemoteVRFAdapterProvesAndVerifiesThroughHTTP(t *testing.T) {
 
 func TestRemoteVRFAdapterHonorsCanceledContext(t *testing.T) {
 	adapter, err := NewRemoteVRFAdapter(config.VRFConfig{
-		AdapterName:       VRFAdapterRemoteHTTPName,
-		ProductionAdapter: true,
-		AuditReport:       "remote-vrf-audit",
-		KeySource:         "remote-http:http://127.0.0.1:1",
+		AdapterName:         VRFAdapterRemoteHTTPName,
+		ProductionAdapter:   true,
+		AuditReport:         "remote-vrf-audit",
+		DependencyAudit:     "external:remote-vrf-service-audit-2026",
+		AuditEvidenceSHA256: strings.Repeat("b", 64),
+		KeySource:           "remote-http:http://127.0.0.1:1",
 	})
 	if err != nil {
 		t.Fatal(err)

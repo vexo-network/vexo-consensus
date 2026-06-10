@@ -54,6 +54,7 @@ type Evidence struct {
 	BLSAudit             string
 	BLSAuditSHA256       string
 	VRFAudit             string
+	VRFAuditSHA256       string
 	AllowExternalPending bool
 	Exists               func(string) bool
 	ReadFile             func(string) ([]byte, error)
@@ -126,6 +127,9 @@ func Build(version string, pack Pack, evidence Evidence) Document {
 		document.addCheck("bls_adapter_audit_digest", evidenceFileSHA256OK(evidence.BLSAudit, evidence.BLSAuditSHA256, evidence), "BLS audit evidence digest must match the configured crypto audit_evidence_sha256 pin")
 	}
 	document.addExternalCheck("vrf_adapter_audit", evidence.VRFAudit, allowExternalPending, "audited VRF adapter/KMS evidence must cover TLS/mTLS, auth, replay protection, and key custody", evidence)
+	if strings.TrimSpace(evidence.VRFAuditSHA256) != "" {
+		document.addCheck("vrf_adapter_audit_digest", evidenceFileSHA256OK(evidence.VRFAudit, evidence.VRFAuditSHA256, evidence), "VRF audit evidence digest must match the configured vrf audit_evidence_sha256 pin")
+	}
 	if !document.OK {
 		document.NextActions = []string{
 			"collect missing evidence artifacts and rerun release gate",

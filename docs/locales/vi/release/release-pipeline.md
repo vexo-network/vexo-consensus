@@ -75,6 +75,10 @@ Tài liệu này giúp hiểu pipeline phát hành với binary đã ký, checks
 - Release Candidate Soak Test
 - Launch Runbook
 
+## VRF audit evidence SHA-256
+
+`release gate` không chỉ pin BLS audit evidence; VRF audit evidence cũng phải được pin bằng SHA-256. File `--vrf-audit` phải nằm trong `evidence-manifest.json`, và `--vrf-audit-sha256` phải khớp chính xác với nội dung file. Khi dùng config, `vrf.audit_evidence_sha256` là digest pin mặc định. Quy tắc này buộc VRF service, KMS/HSM custody, TLS/mTLS hoặc pinned CA, auth token và nonce replay defense vào release evidence.
+
 ## Nguồn chuẩn
 
 - [English canonical document](../../en/release/release-pipeline.md)
@@ -88,3 +92,7 @@ Với bản phát hành công khai, mỗi mục trong `evidence-manifest.json` p
 - `signature_algorithm`
 - `signature_public_key`
 - `vexo-release-evidence-attestation-v1`
+- `--bls-audit-sha256`
+- `--vrf-audit`
+- `--vrf-audit-sha256`
+- `vrf.audit_evidence_sha256`

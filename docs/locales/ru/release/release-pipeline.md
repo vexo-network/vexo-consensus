@@ -62,6 +62,10 @@
 - `allow_noop_migrations=true`
 - `vexod upgrade apply --allow-empty-migrations`
 
+- `--bls-audit-sha256`
+- `--vrf-audit`
+- `--vrf-audit-sha256`
+- `vrf.audit_evidence_sha256`
 ## Структура английского источника
 
 - Release Pipeline
@@ -74,6 +78,10 @@
 - Audit Pack
 - Release Candidate Soak Test
 - Launch Runbook
+
+## VRF audit evidence SHA-256
+
+`release gate` закрепляет SHA-256 не только для BLS audit evidence, но и для VRF audit evidence. Файл `--vrf-audit` должен быть включён в `evidence-manifest.json`, а `--vrf-audit-sha256` должен точно совпадать с содержимым файла. При использовании config значение `vrf.audit_evidence_sha256` служит digest pin по умолчанию. Это связывает VRF service, KMS/HSM custody, TLS/mTLS или pinned CA, auth token и защиту от nonce replay с release evidence.
 
 ## Канонический источник
 

@@ -788,6 +788,12 @@ func TestRunReleaseGatePassesWithEvidence(t *testing.T) {
 	}
 	blsAuditSum := sha256.Sum256(blsAuditData)
 	blsAuditDigest := hex.EncodeToString(blsAuditSum[:])
+	vrfAuditData, err := os.ReadFile(filepath.Join(dist, "vrf-audit.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	vrfAuditSum := sha256.Sum256(vrfAuditData)
+	vrfAuditDigest := hex.EncodeToString(vrfAuditSum[:])
 	var output bytes.Buffer
 	if err := runCommand(&output, &bytes.Buffer{}, []string{
 		"release", "gate",
@@ -811,6 +817,7 @@ func TestRunReleaseGatePassesWithEvidence(t *testing.T) {
 		"--bls-audit", filepath.Join(dist, "bls-audit.pdf"),
 		"--bls-audit-sha256", blsAuditDigest,
 		"--vrf-audit", filepath.Join(dist, "vrf-audit.pdf"),
+		"--vrf-audit-sha256", vrfAuditDigest,
 		"--json",
 	}); err != nil {
 		t.Fatal(err)
@@ -819,7 +826,7 @@ func TestRunReleaseGatePassesWithEvidence(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if !document.OK || !releaseReadinessCheckOK(document.Checks, "external_security_audit") || !releaseReadinessCheckOK(document.Checks, "bls_adapter_audit") || !releaseReadinessCheckOK(document.Checks, "bls_adapter_audit_digest") || !releaseReadinessCheckOK(document.Checks, "vrf_adapter_audit") {
+	if !document.OK || !releaseReadinessCheckOK(document.Checks, "external_security_audit") || !releaseReadinessCheckOK(document.Checks, "bls_adapter_audit") || !releaseReadinessCheckOK(document.Checks, "bls_adapter_audit_digest") || !releaseReadinessCheckOK(document.Checks, "vrf_adapter_audit") || !releaseReadinessCheckOK(document.Checks, "vrf_adapter_audit_digest") {
 		t.Fatalf("expected release gate to pass: %+v", document)
 	}
 	output.Reset()
@@ -845,6 +852,7 @@ func TestRunReleaseGatePassesWithEvidence(t *testing.T) {
 		"--bls-audit", filepath.Join(dist, "bls-audit.pdf"),
 		"--bls-audit-sha256", strings.Repeat("0", 64),
 		"--vrf-audit", filepath.Join(dist, "vrf-audit.pdf"),
+		"--vrf-audit-sha256", vrfAuditDigest,
 		"--json",
 	}); err != nil {
 		t.Fatal(err)
@@ -854,6 +862,40 @@ func TestRunReleaseGatePassesWithEvidence(t *testing.T) {
 	}
 	if document.OK || releaseReadinessCheckOK(document.Checks, "bls_adapter_audit_digest") {
 		t.Fatalf("expected release gate to fail mismatched BLS digest: %+v", document)
+	}
+	output.Reset()
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"release", "gate",
+		"--dist", dist,
+		"--version", "test",
+		"--longrun-evidence", filepath.Join(dist, "longrun-evidence.json"),
+		"--chaos-evidence", filepath.Join(dist, "chaos-evidence.json"),
+		"--adversarial-evidence", filepath.Join(dist, "adversarial-evidence.json"),
+		"--fuzz-evidence", filepath.Join(dist, "fuzz-evidence.txt"),
+		"--kms-evidence", filepath.Join(dist, "kms-evidence.json"),
+		"--snapshot-evidence", filepath.Join(dist, "snapshot-replay-evidence.json"),
+		"--p2p-scale-evidence", filepath.Join(dist, "p2p-scale-evidence.json"),
+		"--state-sync-light-client-evidence", filepath.Join(dist, "state-sync-light-client-evidence.json"),
+		"--validator-economics-evidence", filepath.Join(dist, "validator-economics-evidence.json"),
+		"--upgrade-governance-evidence", filepath.Join(dist, "upgrade-governance-evidence.json"),
+		"--mev-fee-market-evidence", filepath.Join(dist, "mev-fee-market-evidence.json"),
+		"--ops-runbook-evidence", filepath.Join(dist, "ops-runbook-evidence.json"),
+		"--formal-safety-evidence", filepath.Join(dist, "formal-safety-evidence.json"),
+		"--sdk-conformance-evidence", filepath.Join(dist, "sdk-conformance-evidence.json"),
+		"--external-audit", filepath.Join(dist, "external-audit.pdf"),
+		"--bls-audit", filepath.Join(dist, "bls-audit.pdf"),
+		"--bls-audit-sha256", blsAuditDigest,
+		"--vrf-audit", filepath.Join(dist, "vrf-audit.pdf"),
+		"--vrf-audit-sha256", strings.Repeat("0", 64),
+		"--json",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.OK || releaseReadinessCheckOK(document.Checks, "vrf_adapter_audit_digest") {
+		t.Fatalf("expected release gate to fail mismatched VRF digest: %+v", document)
 	}
 }
 

@@ -46,11 +46,13 @@ func TestECVRFP256AdapterValidationAndRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := config.VRFConfig{
-		ProductionAdapter: true,
-		AdapterName:       VRFAdapterECVRFP256Name,
-		AuditReport:       "ecvrf-test-audit",
-		KeySource:         "test-key-source",
-		Keys:              map[string][]byte{base64.StdEncoding.EncodeToString(publicKey): privateKey},
+		ProductionAdapter:   true,
+		AdapterName:         VRFAdapterECVRFP256Name,
+		AuditReport:         "ecvrf-test-audit",
+		DependencyAudit:     config.NetworkSafeVRFDependencyAudit,
+		AuditEvidenceSHA256: config.NetworkSafeVRFAuditEvidence,
+		KeySource:           "test-key-source",
+		Keys:                map[string][]byte{base64.StdEncoding.EncodeToString(publicKey): privateKey},
 	}
 	vrf, err := NewVRF(cfg)
 	if err != nil {

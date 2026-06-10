@@ -60,6 +60,10 @@
 - `vrf.key_source`
 - `committee.backend`
 
+- `vrf.dependency_audit`
+- `vrf.audit_evidence_sha256`
+- `ecvrf-p256-sha256-tai-v1`
+- `remote-vrf-http-v1`
 ## 英語原文の構造
 
 - Custom Crypto Backend Guide
@@ -71,6 +75,10 @@
 - Production VRF Requirements
 - Remote Signer Requirements
 - Test Backends
+
+## VRF audit evidence SHA-256
+
+VRF backend も BLS と同じ水準で監査境界を示す必要があります。`vrf.adapter_name`、`vrf.audit_report`、`vrf.dependency_audit`、`vrf.audit_evidence_sha256`、`vrf.key_source` をすべて設定し、adapter metadata と config が一致しない場合は runtime が fail closed になるべきです。built-in ECVRF adapter は go.mod dependency pin と audit evidence digest を検証し、remote VRF adapter は外部 KMS/HSM audit reference を使います。
 
 ## 正規原文
 

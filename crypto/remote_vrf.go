@@ -34,6 +34,7 @@ type RemoteVRFAdapter struct {
 	authToken   string
 	client      *http.Client
 	auditReport string
+	dependency  string
 	keySource   string
 }
 
@@ -87,6 +88,7 @@ func NewRemoteVRFAdapter(cfg config.VRFConfig) (VRFAdapter, error) {
 		authToken:   os.Getenv(remoteVRFTokenEnv),
 		client:      client,
 		auditReport: cfg.AuditReport,
+		dependency:  cfg.DependencyAudit,
 		keySource:   cfg.KeySource,
 	}, nil
 }
@@ -202,6 +204,7 @@ func (adapter RemoteVRFAdapter) Metadata() VRFAdapterMetadata {
 		Version:              "v1",
 		Audited:              adapter.auditReport != "",
 		AuditReport:          adapter.auditReport,
+		DependencyAudit:      adapter.dependency,
 		KeySource:            adapter.keySource,
 		DomainSeparation:     true,
 		ProofVerification:    true,

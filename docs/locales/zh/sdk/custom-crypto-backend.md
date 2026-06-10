@@ -60,6 +60,10 @@
 - `vrf.key_source`
 - `committee.backend`
 
+- `vrf.dependency_audit`
+- `vrf.audit_evidence_sha256`
+- `ecvrf-p256-sha256-tai-v1`
+- `remote-vrf-http-v1`
 ## 英文原文结构
 
 - Custom Crypto Backend Guide
@@ -71,6 +75,10 @@
 - Production VRF Requirements
 - Remote Signer Requirements
 - Test Backends
+
+## VRF audit evidence SHA-256
+
+VRF backend 也要像 BLS 一样暴露清晰的审计边界。请填写 `vrf.adapter_name`、`vrf.audit_report`、`vrf.dependency_audit`、`vrf.audit_evidence_sha256`、`vrf.key_source`；如果 adapter metadata 与 config 不一致，runtime 应失败关闭。内置 ECVRF adapter 会验证 go.mod dependency pin 和 audit evidence digest；remote VRF adapter 使用外部 KMS/HSM audit reference。
 
 ## 规范来源
 

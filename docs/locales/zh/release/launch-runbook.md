@@ -48,6 +48,10 @@
 - `--evm-default-fixtures`
 - `chain_id`
 
+- `--bls-audit`
+- `--bls-audit-sha256`
+- `--vrf-audit`
+- `--vrf-audit-sha256`
 ## 英文原文结构
 
 - Launch Runbook
@@ -56,6 +60,10 @@
 - Genesis Gate
 - Launch Window
 - Postlaunch Archive
+
+## VRF audit evidence SHA-256
+
+验证 release candidate 时，`release gate` 命令要同时提供 BLS 和 VRF audit evidence digest。至少一起使用 `--bls-audit`、`--bls-audit-sha256`、`--vrf-audit`、`--vrf-audit-sha256`、`--evidence-manifest`，并确认所有 evidence 文件与 manifest 的 SHA-256 一致。
 
 ## 规范来源
 

@@ -56,6 +56,14 @@ Tài liệu này giúp hiểu threat model, giả định bảo mật và bằng
 - Required Evidence for Audit
 - Auditor Focus Areas
 
+## VRF audit evidence SHA-256
+
+Hồ sơ audit phải có VRF adapter audit evidence ngoài BLS. Pin SHA-256 của file như `docs/security/ecvrf-audit-evidence.json` vào `vrf.audit_evidence_sha256` hoặc `--vrf-audit-sha256`, rồi kiểm tra dependency audit, key custody, TLS/mTLS hoặc pinned CA, auth, replay defense và service availability như một boundary duy nhất.
+
 ## Nguồn chuẩn
 
 - [English canonical document](../../en/security/audit-readiness.md)
+- `crypto.audit_evidence_sha256`
+- `vrf.dependency_audit`
+- `vrf.audit_evidence_sha256`
+- `docs/security/ecvrf-audit-evidence.json`

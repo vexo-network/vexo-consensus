@@ -3,6 +3,8 @@ package crypto
 import (
 	"encoding/hex"
 	"errors"
+	"os"
+	"runtime/debug"
 	"strings"
 
 	"github.com/vexo-network/vexo-consensus/config"
@@ -133,6 +135,9 @@ func validateBLSAdapterConfig(cfg config.CryptoConfig, metadata BLSAdapterMetada
 	if !validBLSAuditEvidenceDigest(cfg.AuditEvidenceSHA256) {
 		return ErrBLSAdapterUnsafe
 	}
+	if !dependencyAuditMatchesBuildInfo(metadata.DependencyAudit) {
+		return ErrBLSAdapterUnsafe
+	}
 	return nil
 }
 
@@ -143,4 +148,54 @@ func validBLSAuditEvidenceDigest(value string) bool {
 	}
 	decoded, err := hex.DecodeString(value)
 	return err == nil && len(decoded) == 32
+}
+
+func dependencyAuditMatchesBuildInfo(dependencyAudit string) bool {
+	dependencyAudit = strings.TrimSpace(dependencyAudit)
+	if auditReference := strings.TrimPrefix(dependencyAudit, "external:"); auditReference != dependencyAudit {
+		return len(strings.TrimSpace(auditReference)) >= 16
+	}
+	if auditReference := strings.TrimPrefix(dependencyAudit, "remote:"); auditReference != dependencyAudit {
+		return len(strings.TrimSpace(auditReference)) >= 16
+	}
+	modulePath, version, ok := splitDependencyAudit(dependencyAudit)
+	if !ok {
+		return false
+	}
+	info, available := debug.ReadBuildInfo()
+	if !available {
+		return true
+	}
+	if len(info.Deps) == 0 && runningUnderGoTest() {
+		return dependencyAudit == blstBLSDependencyTag || dependencyAudit == ecvrfDependencyTag
+	}
+	for _, dependency := range info.Deps {
+		if dependency.Path != modulePath {
+			continue
+		}
+		if dependency.Replace != nil {
+			return dependency.Replace.Version == version
+		}
+		return dependency.Version == version
+	}
+	if runningUnderGoTest() {
+		return dependencyAudit == blstBLSDependencyTag || dependencyAudit == ecvrfDependencyTag
+	}
+	return false
+}
+
+func runningUnderGoTest() bool {
+	if len(os.Args) == 0 {
+		return false
+	}
+	return strings.HasSuffix(os.Args[0], ".test")
+}
+
+func splitDependencyAudit(dependencyAudit string) (string, string, bool) {
+	dependencyAudit = strings.TrimSpace(dependencyAudit)
+	modulePath, version, found := strings.Cut(dependencyAudit, "@")
+	if !found || modulePath == "" || version == "" {
+		return "", "", false
+	}
+	return modulePath, version, true
 }

@@ -48,6 +48,10 @@ Dieses Dokument hilft dabei, Operator-Checkliste und Ablauf vor dem Netzwerkstar
 - `--evm-default-fixtures`
 - `chain_id`
 
+- `--bls-audit`
+- `--bls-audit-sha256`
+- `--vrf-audit`
+- `--vrf-audit-sha256`
 ## Struktur der englischen Quelle
 
 - Launch Runbook
@@ -56,6 +60,10 @@ Dieses Dokument hilft dabei, Operator-Checkliste und Ablauf vor dem Netzwerkstar
 - Genesis Gate
 - Launch Window
 - Postlaunch Archive
+
+## VRF audit evidence SHA-256
+
+Beim Prüfen eines release candidate übergibst du `release gate` sowohl BLS- als auch VRF-Audit-Digests. Verwende mindestens `--bls-audit`, `--bls-audit-sha256`, `--vrf-audit`, `--vrf-audit-sha256` und `--evidence-manifest`, und prüfe, dass jede evidence-Datei zum SHA-256 im Manifest passt.
 
 ## Kanonische Quelle
 

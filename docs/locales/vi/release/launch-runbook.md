@@ -57,6 +57,14 @@ Tài liệu này giúp hiểu checklist vận hành và quy trình trước khi 
 - Launch Window
 - Postlaunch Archive
 
+## VRF audit evidence SHA-256
+
+Khi kiểm tra release candidate, hãy truyền cả BLS và VRF audit evidence digest cho `release gate`. Tối thiểu dùng `--bls-audit`, `--bls-audit-sha256`, `--vrf-audit`, `--vrf-audit-sha256` và `--evidence-manifest`, rồi xác nhận mọi evidence file khớp SHA-256 trong manifest.
+
 ## Nguồn chuẩn
 
 - [English canonical document](../../en/release/launch-runbook.md)
+- `--bls-audit`
+- `--bls-audit-sha256`
+- `--vrf-audit`
+- `--vrf-audit-sha256`

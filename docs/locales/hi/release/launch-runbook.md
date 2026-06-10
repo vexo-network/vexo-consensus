@@ -48,6 +48,10 @@
 - `--evm-default-fixtures`
 - `chain_id`
 
+- `--bls-audit`
+- `--bls-audit-sha256`
+- `--vrf-audit`
+- `--vrf-audit-sha256`
 ## अंग्रेज़ी source की संरचना
 
 - Launch Runbook
@@ -56,6 +60,10 @@
 - Genesis Gate
 - Launch Window
 - Postlaunch Archive
+
+## VRF audit evidence SHA-256
+
+release candidate जाँचते समय `release gate` को BLS और VRF दोनों audit evidence digest दें। कम से कम `--bls-audit`, `--bls-audit-sha256`, `--vrf-audit`, `--vrf-audit-sha256` और `--evidence-manifest` साथ चलाएँ, फिर हर evidence file का SHA-256 manifest से मिलाएँ।
 
 ## Canonical source
 

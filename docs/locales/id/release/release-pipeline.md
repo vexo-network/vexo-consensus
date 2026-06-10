@@ -62,6 +62,10 @@ Dokumen ini membantu memahami pipeline rilis dengan binary bertanda tangan, chec
 - `allow_noop_migrations=true`
 - `vexod upgrade apply --allow-empty-migrations`
 
+- `--bls-audit-sha256`
+- `--vrf-audit`
+- `--vrf-audit-sha256`
+- `vrf.audit_evidence_sha256`
 ## Struktur sumber Inggris
 
 - Release Pipeline
@@ -74,6 +78,10 @@ Dokumen ini membantu memahami pipeline rilis dengan binary bertanda tangan, chec
 - Audit Pack
 - Release Candidate Soak Test
 - Launch Runbook
+
+## VRF audit evidence SHA-256
+
+`release gate` tidak hanya mengunci BLS audit evidence; VRF audit evidence juga harus dipin dengan SHA-256. File `--vrf-audit` wajib masuk ke `evidence-manifest.json`, dan `--vrf-audit-sha256` harus cocok persis dengan isi file. Jika memakai config, `vrf.audit_evidence_sha256` menjadi digest pin default. Aturan ini memastikan VRF service, KMS/HSM custody, TLS/mTLS atau pinned CA, auth token, dan nonce replay defense terikat ke release evidence.
 
 ## Sumber kanonik
 

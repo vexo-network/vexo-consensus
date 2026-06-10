@@ -48,6 +48,10 @@
 - `--evm-default-fixtures`
 - `chain_id`
 
+- `--bls-audit`
+- `--bls-audit-sha256`
+- `--vrf-audit`
+- `--vrf-audit-sha256`
 ## Структура английского источника
 
 - Launch Runbook
@@ -56,6 +60,10 @@
 - Genesis Gate
 - Launch Window
 - Postlaunch Archive
+
+## VRF audit evidence SHA-256
+
+При проверке release candidate передайте в `release gate` оба digest: BLS и VRF audit evidence. Минимально используйте `--bls-audit`, `--bls-audit-sha256`, `--vrf-audit`, `--vrf-audit-sha256` и `--evidence-manifest`, затем проверьте совпадение всех evidence файлов с SHA-256 в manifest.
 
 ## Канонический источник
 

@@ -42,6 +42,10 @@
 - `chain_id`
 - `(height, round)`
 
+- `crypto.audit_evidence_sha256`
+- `vrf.dependency_audit`
+- `vrf.audit_evidence_sha256`
+- `docs/security/ecvrf-audit-evidence.json`
 ## Структура английского источника
 
 - Security Audit Readiness
@@ -55,6 +59,10 @@
 - Formal-ish Safety Argument
 - Required Evidence for Audit
 - Auditor Focus Areas
+
+## VRF audit evidence SHA-256
+
+Материалы аудита должны включать VRF adapter audit evidence наряду с BLS. Закрепите SHA-256 файла вроде `docs/security/ecvrf-audit-evidence.json` в `vrf.audit_evidence_sha256` или `--vrf-audit-sha256` и проверяйте dependency audit, key custody, TLS/mTLS или pinned CA, auth, replay defense и service availability как единую границу.
 
 ## Канонический источник
 

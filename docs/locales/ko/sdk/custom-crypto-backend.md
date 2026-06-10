@@ -90,6 +90,10 @@ Custom crypto backend는 “서명 라이브러리 하나 연결”이 아니라
 - `vrf.key_source`
 - `committee.backend`
 
+- `vrf.dependency_audit`
+- `vrf.audit_evidence_sha256`
+- `ecvrf-p256-sha256-tai-v1`
+- `remote-vrf-http-v1`
 ## 영어 원문 구조
 
 - Custom Crypto Backend Guide
@@ -101,6 +105,10 @@ Custom crypto backend는 “서명 라이브러리 하나 연결”이 아니라
 - Production VRF Requirements
 - Remote Signer Requirements
 - Test Backends
+
+## VRF audit evidence SHA-256
+
+VRF backend도 BLS와 같은 수준으로 감사 경계를 드러내야 합니다. `vrf.adapter_name`, `vrf.audit_report`, `vrf.dependency_audit`, `vrf.audit_evidence_sha256`, `vrf.key_source`를 모두 채우고, adapter metadata와 config 값이 다르면 runtime이 실패해야 합니다. built-in ECVRF adapter는 go.mod dependency pin과 audit evidence digest를 검증하며, remote VRF adapter는 외부 KMS/HSM audit reference를 사용합니다.
 
 ## 규범 원문
 

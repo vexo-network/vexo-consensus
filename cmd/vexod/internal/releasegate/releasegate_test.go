@@ -107,6 +107,23 @@ func TestBuildFailsWhenBLSAuditDigestDoesNotMatchPin(t *testing.T) {
 	}
 }
 
+func TestBuildFailsWhenVRFAuditDigestDoesNotMatchPin(t *testing.T) {
+	evidence := completeReleaseGateEvidence(false)
+	files := completeReleaseGateEvidenceFiles(false)
+	sum := sha256.Sum256(files["vrf.pdf"])
+	evidence.VRFAuditSHA256 = hex.EncodeToString(sum[:])
+	document := Build("rc", Pack{OK: true}, evidence)
+	if !document.OK || !checkOK(document.Checks, "vrf_adapter_audit_digest") {
+		t.Fatalf("expected matching VRF audit digest to pass: %+v", document)
+	}
+
+	evidence.VRFAuditSHA256 = strings.Repeat("0", 64)
+	document = Build("rc", Pack{OK: true}, evidence)
+	if document.OK || checkOK(document.Checks, "vrf_adapter_audit_digest") {
+		t.Fatalf("expected mismatched VRF audit digest to fail: %+v", document)
+	}
+}
+
 func TestEvidenceContentValidation(t *testing.T) {
 	for _, testCase := range []struct {
 		name string
@@ -420,6 +437,10 @@ func completeReleaseGateEvidence(skipExternal bool) Evidence {
 		evidence.ExternalAudit = "audit.pdf"
 		evidence.BLSAudit = "bls.pdf"
 		evidence.VRFAudit = "vrf.pdf"
+		blsSum := sha256.Sum256(files["bls.pdf"])
+		vrfSum := sha256.Sum256(files["vrf.pdf"])
+		evidence.BLSAuditSHA256 = hex.EncodeToString(blsSum[:])
+		evidence.VRFAuditSHA256 = hex.EncodeToString(vrfSum[:])
 	}
 	return evidence
 }

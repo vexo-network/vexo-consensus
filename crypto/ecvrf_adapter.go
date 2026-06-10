@@ -141,6 +141,7 @@ func (adapter ECVRFP256Adapter) Metadata() VRFAdapterMetadata {
 		Version:              "v1",
 		Audited:              true,
 		AuditReport:          adapter.auditReport,
+		DependencyAudit:      ecvrfDependencyTag,
 		KeySource:            adapter.keySource,
 		DomainSeparation:     true,
 		ProofVerification:    true,
