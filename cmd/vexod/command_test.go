@@ -2770,7 +2770,7 @@ func TestRunDoctorReportsOperationalReadinessAndRepairsIndexes(t *testing.T) {
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--overwrite"}); err != nil {
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--type", "bls", "--overwrite"}); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
@@ -3038,7 +3038,7 @@ func TestRunConfigAuditReportsProductionWarnings(t *testing.T) {
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--overwrite"}); err != nil {
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--type", "bls", "--overwrite"}); err != nil {
 		t.Fatal(err)
 	}
 

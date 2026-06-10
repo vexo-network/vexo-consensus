@@ -99,6 +99,44 @@ type PacketReceipt struct {
 	TimeoutAt    types.Height `json:"timeout_at,omitempty"`
 }
 
+type CapabilityReport struct {
+	Protocol                    string   `json:"protocol"`
+	NativeVexoIBC               bool     `json:"native_vexo_ibc"`
+	CosmosIBCCompatible         bool     `json:"cosmos_ibc_compatible"`
+	ProofFormat                 string   `json:"proof_format"`
+	ClientProofs                bool     `json:"client_proofs"`
+	ClientFreeze                bool     `json:"client_freeze"`
+	AuthorityBoundUpdates       bool     `json:"authority_bound_updates"`
+	ConnectionHandshakeStates   []string `json:"connection_handshake_states"`
+	ChannelHandshakeStates      []string `json:"channel_handshake_states"`
+	OrderedChannels             bool     `json:"ordered_channels"`
+	UnorderedChannels           bool     `json:"unordered_channels"`
+	PacketAcknowledgementProofs bool     `json:"packet_acknowledgement_proofs"`
+	PacketTimeoutProofs         bool     `json:"packet_timeout_proofs"`
+	PacketTimeoutSweep          bool     `json:"packet_timeout_sweep"`
+	CompatibilityTarget         string   `json:"compatibility_target"`
+}
+
+func Capabilities() CapabilityReport {
+	return CapabilityReport{
+		Protocol:                    "vexo-native-ibc-v1",
+		NativeVexoIBC:               true,
+		CosmosIBCCompatible:         false,
+		ProofFormat:                 "vexo-queryproof",
+		ClientProofs:                true,
+		ClientFreeze:                true,
+		AuthorityBoundUpdates:       true,
+		ConnectionHandshakeStates:   []string{StateInit, StateTryOpen, StateOpen},
+		ChannelHandshakeStates:      []string{StateInit, StateTryOpen, StateOpen},
+		OrderedChannels:             true,
+		UnorderedChannels:           true,
+		PacketAcknowledgementProofs: true,
+		PacketTimeoutProofs:         true,
+		PacketTimeoutSweep:          true,
+		CompatibilityTarget:         "Vexo state-proof bridge semantics, not Cosmos ICS/IBC wire compatibility",
+	}
+}
+
 type KVStore interface {
 	Get(ctx context.Context, namespace string, key []byte) ([]byte, error)
 	Set(ctx context.Context, namespace string, key []byte, value []byte) error

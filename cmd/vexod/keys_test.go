@@ -34,7 +34,7 @@ func TestRunKeysGenAndShow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := document.Ed25519Signer(); err != nil {
+	if signer, err := document.SignerWithPassphrase(""); err != nil || signer == nil {
 		t.Fatal(err)
 	}
 
@@ -145,7 +145,7 @@ func TestRunKeysShowJSON(t *testing.T) {
 	if err := json.Unmarshal(buffer.Bytes(), &info); err != nil {
 		t.Fatal(err)
 	}
-	if info.SchemaVersion != vexocrypto.KeyDocumentVersionV1 || info.Type != vexocrypto.KeyTypeEd25519 || info.PublicKey == "" {
+	if info.SchemaVersion != vexocrypto.KeyDocumentVersionV1 || info.Type != vexocrypto.KeyTypeBLS || info.PublicKey == "" {
 		t.Fatalf("unexpected key info: %+v", info)
 	}
 	if strings.Contains(buffer.String(), "private_key") {
@@ -276,7 +276,7 @@ func TestRunKeysShowEncryptedRejectsWrongPassphrase(t *testing.T) {
 
 func TestRunKeysGenRejectsExistingUnlessOverwrite(t *testing.T) {
 	home := t.TempDir()
-	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--type", "ed25519"}); err != nil {
 		t.Fatal(err)
 	}
 	first, err := os.ReadFile(filepath.Join(home, keyFileName))
@@ -314,7 +314,7 @@ func TestRunKeysSupportsExplicitPath(t *testing.T) {
 
 func TestRunKeysSignTx(t *testing.T) {
 	home := t.TempDir()
-	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home}); err != nil {
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--type", "ed25519"}); err != nil {
 		t.Fatal(err)
 	}
 	document, err := vexocrypto.LoadKeyDocument(resolveKeyPath(home, ""))

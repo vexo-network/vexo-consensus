@@ -268,11 +268,21 @@ func (Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
 }
 
 func (Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoapp.QueryResponse {
-	if ctx.Store == nil {
-		return vexoapp.QueryResponse{Code: 1, Log: ErrStoreMissing.Error()}
-	}
 	if len(req.Path) == 0 {
 		return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidIBCQuery.Error()}
+	}
+	if req.Path[0] == "capabilities" {
+		if len(req.Path) != 1 {
+			return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidIBCQuery.Error()}
+		}
+		encoded, err := json.Marshal(ibckeeper.Capabilities())
+		if err != nil {
+			return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+		}
+		return vexoapp.QueryResponse{Value: encoded}
+	}
+	if ctx.Store == nil {
+		return vexoapp.QueryResponse{Code: 1, Log: ErrStoreMissing.Error()}
 	}
 	keeper := ibckeeper.NewKeeper(ctx.Store)
 	var value any

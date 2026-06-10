@@ -59,7 +59,7 @@ A BLS adapter must include:
 - test vectors
 - fuzz tests for malformed keys/signatures
 
-Production BLS is registered through `BLSAdapter` and must pass `ValidateBLSAdapter` before it can be used as a signer or runtime finality backend. Adapter metadata must declare audit status, audit report identity, dependency audit identity, public-key validation, subgroup checks, rogue-key defense, deterministic encoding, malformed-input fuzz coverage, and proof-of-possession support.
+Production BLS is registered through `BLSAdapter` and must pass `ValidateBLSAdapter` before it can be used as a signer or runtime finality backend. Adapter metadata must declare audit status, audit report identity, dependency audit identity, public-key validation, subgroup checks, rogue-key defense, deterministic encoding, malformed-input fuzz coverage, and proof-of-possession support. The network-safety gate now requires BLS for public/value-bearing configs; Ed25519 is intentionally outside that gate because it cannot provide aggregate-finality verification.
 
 Registering metadata is not a substitute for a real audited implementation. The adapter package must perform the actual subgroup checks, key validation, proof-of-possession verification, signature verification, aggregate verification, and malformed-input rejection.
 
@@ -73,7 +73,7 @@ func init() {
 }
 ```
 
-`crypto.adapter_name` must match `BLSAdapter.Metadata().Name`; otherwise runtime startup fails. This prevents config-only “BLS enabled” states where no audited implementation is actually linked into the binary.
+`crypto.adapter_name` must match `BLSAdapter.Metadata().Name`; otherwise runtime startup fails. This prevents config-only “BLS enabled” states where no audited implementation is actually linked into the binary. `crypto.audit_evidence_sha256` must also be a 32-byte hex digest so release tooling can bind the config to the external BLS audit artifact.
 
 Validator public keys should be admitted through `BLSValidatorCredential` records or validator metadata key `bls_pop`. `ValidateBLSValidatorCredentials` rejects missing IDs, missing keys, duplicate public keys, invalid keys, and invalid proof-of-possession values. `NewBLSAggregateVerifier` wraps the audited adapter so finality verification only accepts registered validator keys.
 

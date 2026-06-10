@@ -82,7 +82,7 @@ func runKeysGen(writer io.Writer, args []string) error {
 	flags.SetOutput(io.Discard)
 	home := flags.String("home", defaultHomeDir, "node home directory")
 	path := flags.String("path", "", "key file path")
-	keyType := flags.String("type", vexocrypto.KeyTypeEd25519, "key type: ed25519, bls, or vrf")
+	keyType := flags.String("type", vexocrypto.KeyTypeBLS, "key type: bls, ed25519, or vrf")
 	blsAdapter := flags.String("bls-adapter", vexocrypto.BLSAdapterBLSTName, "BLS adapter for --type bls")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing key")
 	encrypt := flags.Bool("encrypt", false, "encrypt private key material")

@@ -40,7 +40,7 @@ This package is intended for independent reviewers evaluating Vexo consensus, ne
 
 - Less than one-third of voting power is Byzantine for safety and liveness under partial synchrony.
 - Validator private keys or remote signer policies are not all compromised.
-- Value-bearing or public-validator networks use Ed25519 or an audited BLS adapter, never deterministic crypto.
+- Value-bearing or public-validator networks use the audited BLS aggregate-finality path. Ed25519 remains useful for tests, private experiments, and custom deployments, but the network-safety gate requires BLS metadata and audit evidence pinning.
 - Local encrypted key documents use AES-256-GCM with Argon2id by default and keep legacy PBKDF2-SHA512 documents readable for migration; production operators should still prefer a remote signer/KMS for validator signing.
 - Remote signer/KMS enforces its own height/round/type/domain double-sign guard.
 - Operators configure RPC root or scoped admin tokens, P2P auth proofs, request limits, peer scoring, `MaxScore`, and ban thresholds. Admin RPC endpoints are expected to be unusable unless an admin token is configured, and embeddings should attach the RPC admin audit sink to their structured log pipeline.

@@ -231,7 +231,7 @@ func runInit(writer io.Writer, args []string) error {
 	chainID := flags.String("chain-id", defaultChainID, "chain id")
 	validatorID := flags.String("validator", defaultValidatorID, "local validator id")
 	validatorCount := flags.Int("validators", 1, "number of local validators to initialize")
-	keyType := flags.String("key-type", vexocrypto.KeyTypeEd25519, "validator key type: ed25519 or bls")
+	keyType := flags.String("key-type", vexocrypto.KeyTypeBLS, "validator key type: bls or ed25519")
 	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first network P2P port")
 	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first network RPC port")
 	p2pPortStep := flags.Int("p2p-port-step", 10, "P2P port increment per validator")
@@ -292,7 +292,7 @@ func runInitValidator(writer io.Writer, args []string) error {
 	home := flags.String("home", defaultHomeDir, "validator node home directory")
 	chainID := flags.String("chain-id", defaultChainID, "chain id")
 	validatorID := flags.String("validator", defaultValidatorID, "local validator id")
-	keyType := flags.String("key-type", vexocrypto.KeyTypeEd25519, "validator key type: ed25519 or bls")
+	keyType := flags.String("key-type", vexocrypto.KeyTypeBLS, "validator key type: bls or ed25519")
 	encryptKeys := flags.Bool("encrypt-keys", false, "encrypt generated validator and VRF key files")
 	passphrase := flags.String("passphrase", "", "key encryption passphrase; prefer VEXO_KEY_PASSPHRASE")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing files")
@@ -441,7 +441,7 @@ func readNetworkAddressOptions(path string) (networkAddressOptions, error) {
 }
 
 func writeNetworkFilesWithOptions(home string, chainID string, validatorCount int, overwrite bool, options networkAddressOptions) (networkDocument, error) {
-	return writeNetworkFilesWithOptionsAndKeyType(home, chainID, validatorCount, overwrite, options, vexocrypto.KeyTypeEd25519, false, "")
+	return writeNetworkFilesWithOptionsAndKeyType(home, chainID, validatorCount, overwrite, options, vexocrypto.KeyTypeBLS, false, "")
 }
 
 func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validatorCount int, overwrite bool, options networkAddressOptions, keyType string, encryptKeys bool, passphrase string) (networkDocument, error) {
@@ -798,7 +798,7 @@ func writeInitFiles(home string, chainID string, validatorID string, overwrite b
 	moduleCfg := defaultModuleConfigDocument(chainID)
 	networkCfg := defaultNetworkConfigDocument(chainID, dataDir, validatorID)
 	consensusCfg := defaultConsensusConfigDocument(chainID, dataDir, validatorID)
-	applyConsensusCryptoForKeyType(&consensusCfg, vexocrypto.KeyTypeEd25519)
+	applyConsensusCryptoForKeyType(&consensusCfg, vexocrypto.KeyTypeBLS)
 	mempoolCfg := defaultMempoolConfigDocument(chainID, dataDir)
 	logCfg := defaultLogConfigDocument(chainID, dataDir, validatorID)
 	genesis := defaultGenesisDocument(chainID, validatorID)
@@ -827,7 +827,7 @@ func writeInitFiles(home string, chainID string, validatorID string, overwrite b
 }
 
 func writeValidatorInitFiles(home string, chainID string, validatorID string, p2pAddress string, rpcAddress string, overwrite bool) (string, string, string, error) {
-	return writeValidatorInitFilesWithKeyType(home, chainID, validatorID, p2pAddress, rpcAddress, overwrite, vexocrypto.KeyTypeEd25519, false, "")
+	return writeValidatorInitFilesWithKeyType(home, chainID, validatorID, p2pAddress, rpcAddress, overwrite, vexocrypto.KeyTypeBLS, false, "")
 }
 
 func writeValidatorInitFilesWithKeyType(home string, chainID string, validatorID string, p2pAddress string, rpcAddress string, overwrite bool, keyType string, encryptKeys bool, passphrase string) (string, string, string, error) {
@@ -1545,12 +1545,12 @@ func defaultConsensusConfigDocument(chainID string, dataDir string, validatorID 
 }
 
 func applyDefaultNetworkSafetyConsensusConfig(cfg *config.Config) {
-	cfg.Crypto.Backend = config.CryptoBackendEd25519
-	cfg.Crypto.ProductionAdapter = false
-	cfg.Crypto.AdapterName = ""
-	cfg.Crypto.AuditReport = ""
-	cfg.Crypto.DependencyAudit = ""
-	cfg.Crypto.AuditEvidenceSHA256 = ""
+	cfg.Crypto.Backend = config.CryptoBackendBLS
+	cfg.Crypto.ProductionAdapter = true
+	cfg.Crypto.AdapterName = config.NetworkSafeBLSAdapterBLST
+	cfg.Crypto.AuditReport = config.NetworkSafeBLSAuditReport
+	cfg.Crypto.DependencyAudit = config.NetworkSafeBLSDependencyAudit
+	cfg.Crypto.AuditEvidenceSHA256 = config.NetworkSafeBLSAuditEvidence
 	cfg.Committee.Backend = committee.BackendVRF
 	cfg.VRF.ProductionAdapter = true
 	cfg.VRF.AdapterName = vexocrypto.VRFAdapterECVRFP256Name
@@ -1564,9 +1564,10 @@ func applyConsensusCryptoForKeyType(document *consensusConfigDocument, keyType s
 	}
 	document.Crypto.Backend = config.CryptoBackendBLS
 	document.Crypto.ProductionAdapter = true
-	document.Crypto.AdapterName = vexocrypto.BLSAdapterBLSTName
-	document.Crypto.AuditReport = "ncc-group-blst-security-assessment"
-	document.Crypto.DependencyAudit = "github.com/supranational/blst@v0.3.16"
+	document.Crypto.AdapterName = config.NetworkSafeBLSAdapterBLST
+	document.Crypto.AuditReport = config.NetworkSafeBLSAuditReport
+	document.Crypto.DependencyAudit = config.NetworkSafeBLSDependencyAudit
+	document.Crypto.AuditEvidenceSHA256 = config.NetworkSafeBLSAuditEvidence
 }
 
 func defaultMempoolConfigDocument(chainID string, dataDir string) mempoolConfigDocument {

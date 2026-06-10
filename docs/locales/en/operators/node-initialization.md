@@ -100,7 +100,7 @@ Node homes use separate config files so operators can edit one subsystem without
 
 ## Key Types
 
-Validator init supports `--key-type ed25519` and `--key-type bls`, and `--encrypt-keys` should be used for any non-throwaway node home. Standalone key generation also supports VRF keys:
+Validator init defaults to `--key-type bls` because network-safety validation requires audited BLS aggregate finality. `--key-type ed25519` remains available for private experiments and custom deployments outside the network-safety gate. `--encrypt-keys` should be used for any non-throwaway node home. Standalone key generation also supports VRF keys:
 
 ```bash
 vexod keys gen --home .vexo-ed25519 --type ed25519

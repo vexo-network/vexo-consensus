@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/binary"
@@ -13,6 +14,7 @@ import (
 	"io"
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +34,8 @@ const (
 	defaultReconnectInterval = time.Duration(500_000_000)
 	defaultMaxMessageBytes   = 4 * 1024 * 1024
 	defaultSubscriberBuffer  = 32
+	handshakeAuthTTL         = 2 * time.Minute
+	handshakeAuthVersion     = "v2"
 )
 
 var (
@@ -120,6 +124,7 @@ type GRPCTransport struct {
 	connections     map[p2p.PeerID]*grpc.ClientConn
 	sessions        map[p2p.PeerID]*grpcPeerSession
 	backoffUntil    map[p2p.PeerID]time.Time
+	authNonces      map[string]time.Time
 	subscribers     map[p2p.Topic][]chan Envelope
 	droppedMessages uint64
 }
@@ -429,6 +434,7 @@ func NewGRPCTransport(config GRPCConfig) (*GRPCTransport, error) {
 		connections:       make(map[p2p.PeerID]*grpc.ClientConn),
 		sessions:          make(map[p2p.PeerID]*grpcPeerSession),
 		backoffUntil:      make(map[p2p.PeerID]time.Time),
+		authNonces:        make(map[string]time.Time),
 		subscribers:       make(map[p2p.Topic][]chan Envelope),
 	}, nil
 }
@@ -1109,7 +1115,7 @@ func (transport *GRPCTransport) validateHandshake(handshake Handshake) error {
 		return fmt.Errorf("%w: local=%s remote=%s", ErrGenesisHashMismatch, transport.genesisHash, handshake.GenesisHash)
 	}
 	if transport.authToken != "" || handshake.AuthToken != "" {
-		if transport.authToken == "" || handshake.AuthToken == "" || handshake.AuthToken != transport.authProof(handshake.NodeID) {
+		if transport.authToken == "" || handshake.AuthToken == "" || !transport.verifyAuthProof(handshake.NodeID, handshake.AuthToken) {
 			return ErrAuthTokenMismatch
 		}
 	}
@@ -1123,6 +1129,50 @@ func (transport *GRPCTransport) authProof(nodeID p2p.PeerID) string {
 	if transport.authToken == "" {
 		return ""
 	}
+	timestamp := time.Now().UnixNano()
+	nonce := randomAuthNonce()
+	signature := transport.authMAC(nodeID, timestamp, nonce)
+	return handshakeAuthVersion + ":" + strconv.FormatInt(timestamp, 10) + ":" + nonce + ":" + signature
+}
+
+func (transport *GRPCTransport) verifyAuthProof(nodeID p2p.PeerID, proof string) bool {
+	parts := strings.Split(proof, ":")
+	if len(parts) != 4 || parts[0] != handshakeAuthVersion {
+		return false
+	}
+	timestamp, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil || timestamp <= 0 || parts[2] == "" || parts[3] == "" {
+		return false
+	}
+	now := time.Now()
+	issuedAt := time.Unix(0, timestamp)
+	if issuedAt.After(now.Add(handshakeAuthTTL)) || now.Sub(issuedAt) > handshakeAuthTTL {
+		return false
+	}
+	expected := transport.authMAC(nodeID, timestamp, parts[2])
+	if !hmac.Equal([]byte(parts[3]), []byte(expected)) {
+		return false
+	}
+	return transport.markAuthNonce(nodeID, parts[2], now)
+}
+
+func (transport *GRPCTransport) markAuthNonce(nodeID p2p.PeerID, nonce string, now time.Time) bool {
+	key := string(nodeID) + ":" + nonce
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	for nonceKey, seenAt := range transport.authNonces {
+		if now.Sub(seenAt) > handshakeAuthTTL {
+			delete(transport.authNonces, nonceKey)
+		}
+	}
+	if _, found := transport.authNonces[key]; found {
+		return false
+	}
+	transport.authNonces[key] = now
+	return true
+}
+
+func (transport *GRPCTransport) authMAC(nodeID p2p.PeerID, timestamp int64, nonce string) string {
 	mac := hmac.New(sha256.New, []byte(transport.authToken))
 	mac.Write([]byte(transport.protocolVersion))
 	mac.Write([]byte{0})
@@ -1133,7 +1183,20 @@ func (transport *GRPCTransport) authProof(nodeID p2p.PeerID) string {
 	mac.Write([]byte(transport.genesisHash))
 	mac.Write([]byte{0})
 	mac.Write([]byte(nodeID))
+	mac.Write([]byte{0})
+	mac.Write([]byte(strconv.FormatInt(timestamp, 10)))
+	mac.Write([]byte{0})
+	mac.Write([]byte(nonce))
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func randomAuthNonce() string {
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		sum := sha256.Sum256([]byte(strconv.FormatInt(time.Now().UnixNano(), 10)))
+		return hex.EncodeToString(sum[:16])
+	}
+	return hex.EncodeToString(nonce[:])
 }
 
 func (transport *GRPCTransport) runReconnectLoop(ctx context.Context, done chan<- struct{}) {

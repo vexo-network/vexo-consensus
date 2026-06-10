@@ -225,6 +225,7 @@ func ibcCLICommand() vexoapp.CLICommand {
 				Usage:       "ibc query <command>",
 				Description: "build IBC query paths",
 				Children: []vexoapp.CLICommand{
+					{Name: "capabilities", Usage: "ibc query capabilities", Description: "build an IBC capability query path", Run: runCapabilitiesQueryCLI},
 					{Name: "client", Usage: "ibc query client <client_id>", Description: "build an IBC client query path", Run: runClientQueryCLI},
 					{Name: "connection", Usage: "ibc query connection <connection_id>", Description: "build an IBC connection query path", Run: runConnectionQueryCLI},
 					{Name: "channel", Usage: "ibc query channel <port_id> <channel_id>", Description: "build an IBC channel query path", Run: runChannelQueryCLI},
@@ -241,6 +242,14 @@ func ibcCLICommand() vexoapp.CLICommand {
 			},
 		},
 	}
+}
+
+func runCapabilitiesQueryCLI(writer io.Writer, args []string) error {
+	if len(args) != 0 {
+		return vexoapp.ErrCLIUsage("ibc query capabilities")
+	}
+	fmt.Fprintf(writer, "query_path: %s/capabilities\n", ModuleName)
+	return nil
 }
 
 func runClientCreateCLI(writer io.Writer, args []string) error {

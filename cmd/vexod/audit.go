@@ -178,11 +178,11 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 	document := auditDocument{OK: true, Strict: strict}
 	keyDocument, keyErr := vexocrypto.LoadKeyDocument(inputs.Plan.KeyPath)
 	document.addCheck("config_valid", "error", inputs.Config.Chain.Validate() == nil, "chain config must pass validation")
-	document.addCheck("network_safety_config", strictSeverity(strict), inputs.Config.Chain.ValidateNetworkSafety() == nil, "network safety config must use non-deterministic crypto, signed/nonced txs, min fee, base fee, gas floor, priority mempool, and durable mempool WAL")
+	document.addCheck("network_safety_config", strictSeverity(strict), inputs.Config.Chain.ValidateNetworkSafety() == nil, "network safety config must use audited BLS aggregate finality, signed/nonced txs, min fee, base fee, gas floor, priority mempool, and durable mempool WAL")
 	document.addCheck("genesis_valid", "error", inputs.Genesis.Validate(inputs.Config.Chain.ChainID) == nil, "genesis must match chain id and validator set")
 	document.addCheck("key_loadable", "error", keyErr == nil, "validator key document must be loadable")
 
-	document.addCheck("crypto_backend", strictSeverity(strict), inputs.Config.Chain.Crypto.Backend != config.CryptoBackendDeterministic, "use ed25519, bls, or remote signer for public value-bearing networks")
+	document.addCheck("crypto_backend", strictSeverity(strict), inputs.Config.Chain.Crypto.Backend == config.CryptoBackendBLS, "use audited BLS aggregate finality for public value-bearing networks")
 	if inputs.Config.Chain.Crypto.Backend == config.CryptoBackendBLS {
 		cryptoConfig := inputs.Config.Chain.Crypto
 		blsEvidencePinned := cryptoConfig.ProductionAdapter &&

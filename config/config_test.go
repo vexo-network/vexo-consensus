@@ -149,7 +149,7 @@ func TestValidateNetworkSafetyRejectsDeterministicCrypto(t *testing.T) {
 	}
 }
 
-func TestValidateNetworkSafetyAcceptsHardenedEd25519Config(t *testing.T) {
+func TestValidateNetworkSafetyRejectsHardenedEd25519Config(t *testing.T) {
 	cfg := Default("vexo-test")
 	cfg.Crypto.Backend = CryptoBackendEd25519
 	cfg.Committee.Backend = committee.BackendVRF
@@ -167,8 +167,8 @@ func TestValidateNetworkSafetyAcceptsHardenedEd25519Config(t *testing.T) {
 	cfg.Mempool.WALPath = "mempool.wal"
 	cfg.Mempool.SeenTTL = time.Hour
 
-	if err := cfg.ValidateNetworkSafety(); err != nil {
-		t.Fatalf("expected hardened ed25519 config to pass, got %v", err)
+	if err := cfg.ValidateNetworkSafety(); !errors.Is(err, ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected ed25519 network-safety rejection, got %v", err)
 	}
 }
 
@@ -177,7 +177,12 @@ func TestNetworkSafeTemplatePassesNetworkSafety(t *testing.T) {
 	if err := cfg.ValidateNetworkSafety(); err != nil {
 		t.Fatalf("expected network-safe template to pass validation, got %v", err)
 	}
-	if cfg.Crypto.Backend != CryptoBackendEd25519 ||
+	if cfg.Crypto.Backend != CryptoBackendBLS ||
+		!cfg.Crypto.ProductionAdapter ||
+		cfg.Crypto.AdapterName != NetworkSafeBLSAdapterBLST ||
+		cfg.Crypto.AuditReport != NetworkSafeBLSAuditReport ||
+		cfg.Crypto.DependencyAudit != NetworkSafeBLSDependencyAudit ||
+		cfg.Crypto.AuditEvidenceSHA256 == "" ||
 		cfg.Committee.Backend != committee.BackendVRF ||
 		cfg.Mempool.WALPath == "" ||
 		!cfg.Execution.RequireSigned ||

@@ -939,6 +939,12 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if modules.Error != nil || !ok || moduleResult["eth"] != "1.0" || moduleResult["txpool"] != "1.0" || moduleResult["trace"] != "1.0" {
 		t.Fatalf("unexpected rpc modules response: %+v", modules)
 	}
+	var capabilities JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":96,"method":"vexo_web3Capabilities","params":[]}`, http.StatusOK, &capabilities)
+	capabilityResult, ok := capabilities.Result.(map[string]any)
+	if capabilities.Error != nil || !ok || capabilityResult["native_vexo_network"] != true || capabilityResult["ethereum_p2p"] != false || capabilityResult["trace_reexecution"] == "" {
+		t.Fatalf("unexpected web3 capabilities response: %+v", capabilities)
+	}
 
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"address":"0xaaaa","balance":123,"nonce":7,"code":""}`)}
 	var txpoolStatus JSONRPCResponse

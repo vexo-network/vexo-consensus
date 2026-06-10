@@ -100,12 +100,13 @@ vexod status --json
 vexod config show --home .vexo
 vexod config audit --home .vexo --strict
 vexod config tune --validators 64 --tps 5000 --regions 4 --latency 120ms --json
-vexod keys gen --home .vexo --type ed25519
 vexod keys gen --home .vexo-bls --type bls
 VEXO_KEY_PASSPHRASE='change-me' vexod keys gen --home .vexo-vrf --type vrf --encrypt
 vexod keys rotation-plan --home .vexo --key validator.key.json --key next-validator.key.json
 vexod start --home .vexo --rotation-key next-validator.key.json --dry-run
 vexod tx build --module bank --action send --args alice,bob,25 --tags fee=1gvxo,gas=1000,signer=alice,nonce=1
+curl -s http://127.0.0.1:26657/ -d '{"jsonrpc":"2.0","id":1,"method":"vexo_web3Capabilities","params":[]}'
+vexod ibc query capabilities
 vexod proof query --home .vexo --namespace bank --key alice
 vexod proof verify --input proof.json --chain-id vexo-chain --height 10
 vexod proof verify-ibc --home .vexo --client-id 07-vexo-0 --input ibc-proof.json

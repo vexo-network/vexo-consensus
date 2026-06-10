@@ -81,6 +81,7 @@ Supported scopes are `recovery`, `prune`, `replay`, and `consensus`. A scoped to
 - JSON decoders for public endpoints should reject unknown fields where request safety matters.
 - Web3 `safe` and `finalized` block tags must fail closed when no finality proof or finalized height is available; they must not silently fall back to `latest`.
 - `eth_gasPrice` must fail closed when base-fee state is unavailable; it must not return `0x0` unless a future version explicitly defines a zero-fee policy.
+- Web3 clients can call `vexo_web3Capabilities` to discover the Vexo-native compatibility target, supported Ethereum JSON-RPC namespaces, trace mode, unsupported namespaces, and recommended conformance suites. This avoids confusing Ethereum JSON-RPC compatibility with Ethereum devp2p or Engine API node compatibility.
 
 ## Compatibility Aliases
 

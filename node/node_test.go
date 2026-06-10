@@ -637,8 +637,18 @@ func TestNodeValidatorModeRequiresSigner(t *testing.T) {
 func TestNodeNetworkSafetyRejectsMismatchedValidatorSigner(t *testing.T) {
 	cfg := NetworkSafeConfig("vexo-test", t.TempDir())
 	cfg.ValidatorID = "alice"
-	genesisSigner := deterministicSignerForID("alice")
-	wrongSigner := deterministicSignerForID("mallory")
+	genesisSigner, err := vexocrypto.NewBLSTBLSAdapterFromSeed([]byte("alice-network-safety-bls-seed-0001"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongSigner, err := vexocrypto.NewBLSTBLSAdapterFromSeed([]byte("mallory-network-safety-bls-seed1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := genesisSigner.ProofOfPossession()
+	if err != nil {
+		t.Fatal(err)
+	}
 	genesis := Genesis{
 		ChainID: "vexo-test",
 		Validators: []validator.Validator{{
@@ -647,6 +657,10 @@ func TestNodeNetworkSafetyRejectsMismatchedValidatorSigner(t *testing.T) {
 			VotingPower: 1,
 			Stake:       1,
 			PublicKey:   genesisSigner.PublicKey(),
+			Metadata: map[string]string{
+				vexocrypto.BLSProofOfPossessionMetadataKey: base64.StdEncoding.EncodeToString(proof),
+				"bls_adapter": vexocrypto.BLSAdapterBLSTName,
+			},
 		}},
 	}
 	node, err := New(cfg, genesis, newTestApplication(t))

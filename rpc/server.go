@@ -1361,6 +1361,8 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 	switch method {
 	case "rpc_modules":
 		return web3RPCModules(), nil
+	case "vexo_web3Capabilities":
+		return web3Capabilities(), nil
 	case "web3_clientVersion":
 		return "vexo-consensus/web3", nil
 	case "web3_sha3":
@@ -1762,6 +1764,40 @@ func web3RPCModules() map[string]string {
 		"txpool": "1.0",
 		"vexo":   "1.0",
 		"web3":   "1.0",
+	}
+}
+
+func web3Capabilities() map[string]any {
+	return map[string]any{
+		"ethereum_p2p":                 false,
+		"native_vexo_network":          true,
+		"json_rpc_namespaces":          web3RPCModules(),
+		"raw_transactions":             true,
+		"blob_transactions":            true,
+		"native_fee_token_accounting":  true,
+		"dynamic_base_fee":             true,
+		"dynamic_blob_base_fee":        true,
+		"eth_call":                     true,
+		"eth_estimateGas":              true,
+		"eth_createAccessList":         true,
+		"eth_getProof":                 true,
+		"websocket_subscriptions":      true,
+		"filters":                      true,
+		"txpool":                       true,
+		"debug_traceTransaction":       true,
+		"debug_traceCall":              true,
+		"trace_replayTransaction":      true,
+		"trace_reexecution":            "receipt_or_call_context_backed",
+		"trace_filter_max_block_range": 128,
+		"unsupported_namespaces":       []string{"admin", "engine", "miner"},
+		"compatibility_target":         "Ethereum JSON-RPC semantics on the Vexo native network; not Ethereum devp2p/engine API node compatibility",
+		"recommended_conformance_suites": []string{
+			"ethers",
+			"web3.js",
+			"MetaMask",
+			"Hardhat",
+			"Foundry",
+		},
 	}
 }
 

@@ -476,6 +476,33 @@ func TestGRPCTransportRejectsAuthTokenMismatch(t *testing.T) {
 	}
 }
 
+func TestGRPCTransportRejectsReplayedAuthProof(t *testing.T) {
+	transport, err := NewGRPCTransport(GRPCConfig{
+		PeerID:      "alice",
+		AuthToken:   "shared-secret",
+		NetworkID:   "vexo-network",
+		ChainID:     "vexo-test",
+		GenesisHash: GenesisHash([]byte("genesis")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handshake := Handshake{
+		ProtocolVersion: GRPCProtocolVersion,
+		NetworkID:       "vexo-network",
+		ChainID:         "vexo-test",
+		GenesisHash:     GenesisHash([]byte("genesis")),
+		NodeID:          "bob",
+		AuthToken:       transport.authProof("bob"),
+	}
+	if err := transport.validateHandshake(handshake); err != nil {
+		t.Fatalf("expected first proof to pass, got %v", err)
+	}
+	if err := transport.validateHandshake(handshake); !errors.Is(err, ErrAuthTokenMismatch) {
+		t.Fatalf("expected replayed proof rejection, got %v", err)
+	}
+}
+
 func TestGRPCTransportReconnectLoopEstablishesPeerSession(t *testing.T) {
 	alice := newStartedGRPCPeer(t, "alice", GRPCConfig{
 		ReconnectInterval: 10 * time.Duration(1_000_000),

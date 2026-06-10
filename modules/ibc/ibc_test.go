@@ -66,6 +66,21 @@ func TestModuleStoresClientChannelAndPacket(t *testing.T) {
 	}
 }
 
+func TestModuleReportsIBCCapabilities(t *testing.T) {
+	module := NewModule()
+	response := module.Query(vexoapp.Context{Ctx: context.Background()}, vexoapp.QueryRequest{Path: []string{"capabilities"}})
+	if response.Code != 0 {
+		t.Fatalf("expected capabilities query to pass, got %+v", response)
+	}
+	var capabilities ibckeeper.CapabilityReport
+	if err := json.Unmarshal(response.Value, &capabilities); err != nil {
+		t.Fatal(err)
+	}
+	if !capabilities.NativeVexoIBC || capabilities.CosmosIBCCompatible || capabilities.ProofFormat != "vexo-queryproof" {
+		t.Fatalf("unexpected capabilities: %+v", capabilities)
+	}
+}
+
 func TestModuleClientUpdateWithoutAuthorityRequiresProof(t *testing.T) {
 	localStore, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
@@ -660,6 +675,13 @@ func TestIBCModuleCLICommands(t *testing.T) {
 	}
 	if strings.TrimSpace(output.String()) != "query_path: ibc/packet/1/transfer/channel-0/transfer/channel-1" {
 		t.Fatalf("unexpected query output: %s", output.String())
+	}
+	output.Reset()
+	if err := command.Execute(&output, []string{"query", "capabilities"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(output.String()) != "query_path: ibc/capabilities" {
+		t.Fatalf("unexpected capabilities query output: %s", output.String())
 	}
 	for _, args := range [][]string{
 		{"tx", "connection-open", "connection-0", "07-vexo-0", "connection-1"},

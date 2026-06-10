@@ -95,6 +95,10 @@ const (
 	NetworkSafeVRFAdapterECVRFP256 = "ecvrf-p256-sha256-tai-v1"
 	NetworkSafeVRFAuditReport      = "built-in-ecvrf-p256-runtime-validation"
 	NetworkSafeVRFKeySource        = "local-encrypted-or-remote-kms"
+	NetworkSafeBLSAdapterBLST      = "blst-bls12381-minpk-v1"
+	NetworkSafeBLSAuditReport      = "ncc-group-blst-security-assessment"
+	NetworkSafeBLSDependencyAudit  = "github.com/supranational/blst@v0.3.16"
+	NetworkSafeBLSAuditEvidence    = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 )
 
 type CryptoConfig struct {
@@ -192,7 +196,14 @@ func Default(chainID string) Config {
 
 func NetworkSafeTemplate(chainID string, dataDir string) Config {
 	cfg := Default(chainID)
-	cfg.Crypto = CryptoConfig{Backend: CryptoBackendEd25519}
+	cfg.Crypto = CryptoConfig{
+		Backend:             CryptoBackendBLS,
+		ProductionAdapter:   true,
+		AdapterName:         NetworkSafeBLSAdapterBLST,
+		AuditReport:         NetworkSafeBLSAuditReport,
+		DependencyAudit:     NetworkSafeBLSDependencyAudit,
+		AuditEvidenceSHA256: NetworkSafeBLSAuditEvidence,
+	}
 	cfg.Committee.Backend = committee.BackendVRF
 	cfg.VRF = VRFConfig{
 		ProductionAdapter: true,
@@ -328,20 +339,19 @@ func (config Config) ValidateNetworkSafety() error {
 	if err := config.Validate(); err != nil {
 		return err
 	}
-	if config.Crypto.Backend == CryptoBackendDeterministic {
+	if config.Crypto.Backend != CryptoBackendBLS {
 		return ErrUnsafeNetworkConfig
 	}
-	if config.Crypto.Backend == CryptoBackendBLS && !config.Crypto.ProductionAdapter {
+	if !config.Crypto.ProductionAdapter {
 		return ErrUnsafeNetworkConfig
 	}
-	if config.Crypto.Backend == CryptoBackendBLS &&
-		(config.Crypto.AdapterName == "" || config.Crypto.AuditReport == "" || config.Crypto.DependencyAudit == "") {
+	if config.Crypto.AdapterName == "" || config.Crypto.AuditReport == "" || config.Crypto.DependencyAudit == "" {
 		return ErrUnsafeNetworkConfig
 	}
-	if config.Crypto.Backend == CryptoBackendBLS && !validSHA256Hex(config.Crypto.AuditEvidenceSHA256) {
+	if !validSHA256Hex(config.Crypto.AuditEvidenceSHA256) {
 		return ErrUnsafeNetworkConfig
 	}
-	if config.Crypto.Backend == CryptoBackendBLS && strings.HasPrefix(config.Crypto.AdapterName, "circl-bls12381-") {
+	if strings.HasPrefix(config.Crypto.AdapterName, "circl-bls12381-") {
 		return ErrUnsafeNetworkConfig
 	}
 	if config.Committee.Backend != committee.BackendVRF {
