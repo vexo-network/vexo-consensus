@@ -53,6 +53,8 @@ Each `CommitChain` link contains:
 
 This lets a peer that missed earlier proposals verify the same 3-chain finality decision before executing the committed block. Legacy block+QC-only commit gossip is treated as non-punishable but insufficient; the receiver does not mutate local state from it.
 
+When a node commits a certified block, the block record also stores the QC that certified that block. This lets a restarted node reconstruct the two-link descendant `CommitChain` from durable block records instead of relying only on in-memory pending proposals. Node-level `/v1/finality/*` queries fail closed when a strict two-link proof cannot be built; runtime-level bare block+QC proofs remain an internal compatibility primitive, not a light-client finality artifact.
+
 ## Verification Algorithm
 
 1. Reject proofs without an explicit `ValidatorSetHeight`.

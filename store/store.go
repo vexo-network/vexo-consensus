@@ -16,6 +16,7 @@ type BlockRecord struct {
 	Block      types.Block
 	Hash       types.Hash
 	AppHash    types.Hash
+	QuorumCert *QuorumCertRecord
 	StateRoots []StateRootRecord
 	TxResults  []types.Result
 }

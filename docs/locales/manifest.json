@@ -50,7 +50,7 @@
     "operators/add-validator.md": "861e4c1d4cb51946d4767ee4a973b4cc8789368a9ede525186f4ec914316d712",
     "operators/node-initialization.md": "beb7f93196fe1515d43fe61664ebb4cf383273e7ff6139ae4a4c50bc9ad9898f",
     "release/cosmos-comparison-gate.md": "70b3173f258e3aeda93c172b6a7530b62e3b2a2e0353dc1a0a2f64312ccf32c4",
-    "release/launch-runbook.md": "d8d3107fe52a99d8309643f516c5037ee175a5bb2fcb20b77a198a41c34b2fd8",
+    "release/launch-runbook.md": "b986c36fee052cd45c3df75d4d35c4650533a154d478f83e7f5187765c682958",
     "release/release-pipeline.md": "333e634f887d6d6fad2bf44ec714b95920b46f60481965769cf28a00ac16defc",
     "release/version-compatibility.md": "382dfa986cdc1a4cc861cdc4ff05c986967cfbf495a1c14b70e9fcbcf3c99c5b",
     "sdk/app-module-guide.md": "7b856b47d6b66814f0a8a31dea038dba704f4101d3e7d22478e91746b6aa2198",
@@ -60,9 +60,9 @@
     "security/audit-readiness.md": "8611d989595def6ff480a89b1577da529d1e1ef24bdaf428cf49adb2c24757db",
     "specs/consensus-spec.md": "9d3bef13bf6d43b1ab559d83efd8a926f057c5eec41f22258220096fd1539f6f",
     "specs/evm-native-accounting.md": "5888f0fa2846c063137c7d3ba71b2079e8291c2bb1a8cb7714f55b207b3ee3df",
-    "specs/finality-proof-format.md": "11934a6c7e2d3433bb5310b1dbc0ef955437f467abb89e6b42ac1c59af751bd9",
+    "specs/finality-proof-format.md": "2983af4df3142f69c2c11cedcc1a3682c516d81bfaf8fdd4874a546647c497c3",
     "specs/networking-spec.md": "eb58e65566b73ecefcb4674044686f67c8b50dfdf3421cb0b0df144faf646780",
-    "specs/storage-schema.md": "c6d6ca9dbe845a34f59dba33aa4bc7215383c4eac0d405af77b9dffebdb22d04",
+    "specs/storage-schema.md": "af1276c8f14e751da8427437e8b86b15c01079ec786ba97c2b2290554e60b053",
     "specs/tx-format.md": "fc7a3178b1fa9a9b6918e24658d0c938f62c1f18763c7a78442ef1ae88890fb5",
     "specs/validator-lifecycle.md": "4dbe83d6eae7aadf4f269de335d8e27ab5b6905b65c9c83f366469bbeac065e3"
   }

@@ -201,6 +201,7 @@ func TestValidateNetworkSafetyAcceptsHardenedBLSTConfig(t *testing.T) {
 	cfg.Crypto.AuditEvidenceSHA256 = NetworkSafeBLSAuditEvidence
 	cfg.Committee.Backend = committee.BackendVRF
 	cfg.VRF.ProductionAdapter = true
+	cfg.VRF.AdapterName = NetworkSafeVRFAdapterECVRFP256
 	cfg.VRF.AuditReport = "vrf-audit-2026"
 	cfg.VRF.KeySource = "remote-signer"
 	cfg.Execution.RequireSigned = true
@@ -216,6 +217,15 @@ func TestValidateNetworkSafetyAcceptsHardenedBLSTConfig(t *testing.T) {
 
 	if err := cfg.ValidateNetworkSafety(); err != nil {
 		t.Fatalf("expected hardened BLST config to pass, got %v", err)
+	}
+}
+
+func TestValidateNetworkSafetyRejectsVRFWithoutAdapterName(t *testing.T) {
+	cfg := NetworkSafeTemplate("vexo-test", "/var/lib/vexo")
+	cfg.VRF.AdapterName = ""
+
+	if err := cfg.ValidateNetworkSafety(); !errors.Is(err, ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected missing VRF adapter name rejection, got %v", err)
 	}
 }
 

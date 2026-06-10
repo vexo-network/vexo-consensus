@@ -92,6 +92,27 @@ func newNonBatchStore() *nonBatchStore {
 	return &nonBatchStore{values: make(map[string][]byte)}
 }
 
+func TestModuleInitErrorFailsClosed(t *testing.T) {
+	module := Module{policy: DefaultPolicy(), initErr: ErrVMBackendUnavailable}
+	ctx := vexoapp.Context{Store: newNonBatchStore()}
+	tx := types.Tx("evm:call:evm:alice:bob:transfer:00:21000")
+
+	if err := module.ValidateTx(ctx, tx); !errors.Is(err, ErrVMBackendUnavailable) {
+		t.Fatalf("expected init error from ValidateTx, got %v", err)
+	}
+	result := module.DeliverTx(ctx, tx)
+	if result.Code == 0 || !strings.Contains(result.Log, ErrVMBackendUnavailable.Error()) {
+		t.Fatalf("expected init error from DeliverTx, got %+v", result)
+	}
+	if _, err := module.EstimateGas(ctx, tx); !errors.Is(err, ErrVMBackendUnavailable) {
+		t.Fatalf("expected init error from EstimateGas, got %v", err)
+	}
+	response := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"call"}})
+	if response.Code == 0 || !strings.Contains(response.Log, ErrVMBackendUnavailable.Error()) {
+		t.Fatalf("expected init error from Query call, got %+v", response)
+	}
+}
+
 func (storage *nonBatchStore) Set(ctx context.Context, namespace string, key []byte, value []byte) error {
 	storage.values[namespace+"/"+string(key)] = append([]byte(nil), value...)
 	return nil

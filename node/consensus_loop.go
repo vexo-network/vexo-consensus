@@ -651,7 +651,7 @@ func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert
 		return app.FinalizeBlockResponse{}, err
 	}
 
-	response, err := runtime.ExecuteBlock(ctx, block)
+	response, err := runtime.ExecuteCertifiedBlock(ctx, block, quorumCert)
 	if err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
@@ -717,10 +717,12 @@ func (node *Node) persistFinalityDecisions(ctx context.Context, runtime *vexorun
 		if err != nil {
 			return err
 		}
-		if enriched, err := node.attachCommitChainProof(proof); err == nil {
+		if enriched, err := node.attachCommitChainProof(ctx, runtime, proof); err == nil {
 			proof = enriched
 		} else if !errors.Is(err, ErrFinalityNotFound) {
 			return err
+		} else {
+			continue
 		}
 		if err := proofStore.SaveFinalityProof(ctx, finalityProofRecord(proof)); err != nil {
 			return err
@@ -734,20 +736,69 @@ func (node *Node) buildCommitFinalityProof(ctx context.Context, runtime *vexorun
 	if err != nil {
 		return finality.Proof{}, err
 	}
-	return node.attachCommitChainProof(proof)
+	return node.attachCommitChainProof(ctx, runtime, proof)
 }
 
-func (node *Node) attachCommitChainProof(proof finality.Proof) (finality.Proof, error) {
+func (node *Node) attachCommitChainProof(ctx context.Context, runtime *vexoruntime.Runtime, proof finality.Proof) (finality.Proof, error) {
 	pending := node.pendingProposals()
 	first, found := findCommitChild(pending, proof.Header, proof.BlockHash)
-	if !found {
+	if found {
+		second, found := findCommitChild(pending, first.Header, first.BlockHash)
+		if found {
+			proof.CommitChain = []finality.CommitLink{first, second}
+			return proof, nil
+		}
+	}
+	return attachCommitChainProofFromStore(ctx, runtime, proof)
+}
+
+func attachCommitChainProofFromStore(ctx context.Context, runtime *vexoruntime.Runtime, proof finality.Proof) (finality.Proof, error) {
+	if runtime == nil {
 		return finality.Proof{}, ErrFinalityNotFound
 	}
-	second, found := findCommitChild(pending, first.Header, first.BlockHash)
-	if !found {
+	firstRecord, err := runtime.BlockByHeight(ctx, proof.Header.Height+1)
+	if err != nil {
+		if errors.Is(err, store.ErrBlockNotFound) {
+			return finality.Proof{}, ErrFinalityNotFound
+		}
+		return finality.Proof{}, err
+	}
+	if firstRecord.Hash == (types.Hash{}) ||
+		firstRecord.Block.Header.ChainID != proof.Header.ChainID ||
+		firstRecord.Block.Header.Height != proof.Header.Height+1 ||
+		firstRecord.Block.Header.PreviousBlockHash != proof.BlockHash {
 		return finality.Proof{}, ErrFinalityNotFound
 	}
-	proof.CommitChain = []finality.CommitLink{first, second}
+	if firstRecord.QuorumCert == nil ||
+		firstRecord.QuorumCert.Height != firstRecord.Block.Header.Height ||
+		firstRecord.QuorumCert.BlockHash != firstRecord.Hash {
+		return finality.Proof{}, ErrFinalityNotFound
+	}
+	secondRecord, err := runtime.BlockByHeight(ctx, proof.Header.Height+2)
+	if err != nil {
+		if errors.Is(err, store.ErrBlockNotFound) {
+			return finality.Proof{}, ErrFinalityNotFound
+		}
+		return finality.Proof{}, err
+	}
+	if secondRecord.Hash == (types.Hash{}) ||
+		secondRecord.Block.Header.ChainID != proof.Header.ChainID ||
+		secondRecord.Block.Header.Height != firstRecord.Block.Header.Height+1 ||
+		secondRecord.Block.Header.PreviousBlockHash != firstRecord.Hash {
+		return finality.Proof{}, ErrFinalityNotFound
+	}
+	proof.CommitChain = []finality.CommitLink{
+		{
+			Header:     firstRecord.Block.Header,
+			BlockHash:  firstRecord.Hash,
+			QuorumCert: proof.QuorumCert,
+		},
+		{
+			Header:     secondRecord.Block.Header,
+			BlockHash:  secondRecord.Hash,
+			QuorumCert: finalityQuorumCertFromRecord(*firstRecord.QuorumCert),
+		},
+	}
 	return proof, nil
 }
 

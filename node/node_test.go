@@ -1169,18 +1169,37 @@ func TestNodeReadsDurableFinalityProofWithoutLiveDecision(t *testing.T) {
 	}
 	defer storage.Close()
 
-	block := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 3}}
+	validatorSetHash := types.Hash{8}
+	block := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 3, ValidatorSetHash: validatorSetHash}}
 	blockHash := consensus.HashBlock(block)
 	if err := storage.SaveBlock(ctx, store.BlockRecord{Block: block, Hash: blockHash}); err != nil {
 		t.Fatal(err)
 	}
-	proof := finality.NewProof(block.Header, finality.QuorumCert{
+	rootQC := finality.QuorumCert{
 		Height:    3,
 		Round:     1,
 		BlockHash: blockHash,
 		Signers:   finality.EncodeSigners([]types.ValidatorID{"alice"}),
-	})
+	}
+	proof := finality.NewProof(block.Header, rootQC)
 	if err := storage.SaveFinalityProof(ctx, finalityProofRecord(proof)); err != nil {
+		t.Fatal(err)
+	}
+	child := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 4, PreviousBlockHash: blockHash, ValidatorSetHash: validatorSetHash}}
+	childHash := consensus.HashBlock(child)
+	childQC := finality.QuorumCert{
+		Height:    4,
+		Round:     1,
+		BlockHash: childHash,
+		Signers:   finality.EncodeSigners([]types.ValidatorID{"alice"}),
+	}
+	childQCRecord := finalityQuorumCertRecord(childQC)
+	if err := storage.SaveBlock(ctx, store.BlockRecord{Block: child, Hash: childHash, QuorumCert: &childQCRecord}); err != nil {
+		t.Fatal(err)
+	}
+	grandchild := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 5, PreviousBlockHash: childHash, ValidatorSetHash: validatorSetHash}}
+	grandchildHash := consensus.HashBlock(grandchild)
+	if err := storage.SaveBlock(ctx, store.BlockRecord{Block: grandchild, Hash: grandchildHash}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1193,14 +1212,17 @@ func TestNodeReadsDurableFinalityProofWithoutLiveDecision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Header.Height != 3 || loaded.QuorumCert.Round != 1 {
+	if loaded.Header.Height != 3 || loaded.QuorumCert.Round != 1 || !loaded.HasThreeChainCommitProof() {
 		t.Fatalf("unexpected durable proof: %+v", loaded)
+	}
+	if loaded.CommitChain[0].BlockHash != childHash || loaded.CommitChain[1].BlockHash != grandchildHash {
+		t.Fatalf("unexpected durable commit chain: %+v", loaded.CommitChain)
 	}
 	latest, err := node.LatestFinalityProof(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if latest.Header.Height != 3 {
+	if latest.Header.Height != 3 || !latest.HasThreeChainCommitProof() {
 		t.Fatalf("unexpected latest durable proof: %+v", latest)
 	}
 }

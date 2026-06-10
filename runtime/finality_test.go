@@ -69,6 +69,31 @@ func TestRuntimeBuildsAndVerifiesStoredFinalityProof(t *testing.T) {
 	}
 }
 
+func TestRuntimeExecuteCertifiedBlockPersistsQuorumCert(t *testing.T) {
+	runtime := newFinalityRuntime(t, []validator.Validator{
+		{ID: "a", Address: "a", VotingPower: 1, Stake: 1},
+	})
+	block := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1}}
+	blockHash := consensus.HashBlock(block)
+	qc := finality.QuorumCert{
+		Height:      1,
+		Round:       2,
+		BlockHash:   blockHash,
+		Signers:     finality.EncodeSigners([]types.ValidatorID{"a"}),
+		VotingPower: 1,
+	}
+	if _, err := runtime.ExecuteCertifiedBlock(context.Background(), block, qc); err != nil {
+		t.Fatal(err)
+	}
+	record, err := runtime.BlockByHeight(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.QuorumCert == nil || record.QuorumCert.Height != 1 || record.QuorumCert.Round != 2 || record.QuorumCert.BlockHash != blockHash {
+		t.Fatalf("expected persisted block quorum cert, got %+v", record.QuorumCert)
+	}
+}
+
 func TestRuntimeFinalityProofRejectsWrongHeight(t *testing.T) {
 	runtime := newFinalityRuntime(t, []validator.Validator{
 		{ID: "a", Address: "a", VotingPower: 1, Stake: 1},

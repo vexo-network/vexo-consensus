@@ -35,12 +35,14 @@ var (
 	ErrInvalidEVMGasEstimate = errors.New("invalid EVM gas estimate")
 	ErrStoreMissing          = errors.New("EVM module store is required")
 	ErrVMRegistryEmpty       = errors.New("EVM VM registry is required")
+	ErrVMBackendUnavailable  = errors.New("EVM VM backend is unavailable")
 	ErrAtomicStoreRequired   = errors.New("EVM module requires an atomic batch store")
 )
 
 type Module struct {
 	registry *contract.Registry
 	policy   Policy
+	initErr  error
 }
 
 type Policy struct {
@@ -188,7 +190,7 @@ type ethereumStateSnapshotMeta struct {
 func NewModule() Module {
 	registry := contract.NewRegistry()
 	if err := registry.Register(gethbackend.New()); err != nil {
-		panic(fmt.Sprintf("register geth EVM backend: %v", err))
+		return Module{policy: DefaultPolicy(), initErr: fmt.Errorf("%w: register geth EVM backend: %v", ErrVMBackendUnavailable, err)}
 	}
 	return Module{registry: registry, policy: DefaultPolicy()}
 }
@@ -223,7 +225,7 @@ func NewModuleWithRegistry(registry *contract.Registry) Module {
 }
 
 func (module Module) CloneModule() vexoapp.Module {
-	return Module{registry: module.registry, policy: module.policy}
+	return Module{registry: module.registry, policy: module.policy, initErr: module.initErr}
 }
 
 func (module Module) Name() string { return ModuleName }
@@ -281,6 +283,9 @@ func latestBlockContextKey() []byte {
 }
 
 func (module Module) ValidateTx(ctx vexoapp.Context, tx types.Tx) error {
+	if module.initErr != nil {
+		return module.initErr
+	}
 	if err := module.validateEthereumRawTx(ctx, tx); err != nil {
 		return err
 	}
@@ -289,6 +294,9 @@ func (module Module) ValidateTx(ctx vexoapp.Context, tx types.Tx) error {
 }
 
 func (module Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
+	if module.initErr != nil {
+		return types.Result{Code: 1, Log: module.initErr.Error()}
+	}
 	if ctx.Store == nil {
 		return types.Result{Code: 1, Log: ErrStoreMissing.Error()}
 	}
@@ -360,6 +368,9 @@ func (Module) Prune(ctx vexoapp.Context, retainFrom types.Height) error {
 }
 
 func (module Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
+	if module.initErr != nil {
+		return 0, module.initErr
+	}
 	canonical, err := vexoapp.ParseCanonicalTx(tx)
 	if err != nil || canonical.Module != ModuleName {
 		return 0, ErrInvalidEVMTx
@@ -410,6 +421,9 @@ func (module Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, erro
 func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoapp.QueryResponse {
 	if len(req.Path) == 0 {
 		return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
+	}
+	if module.initErr != nil && req.Path[0] == "call" {
+		return vexoapp.QueryResponse{Code: 1, Log: module.initErr.Error()}
 	}
 	if req.Path[0] == "call" {
 		return module.queryCall(ctx, req.Data)

@@ -1127,6 +1127,9 @@ func releaseEvidenceFixture(name string) []byte {
 		return []byte("vrf remote adapter implementation ecvrf audit dependency tls mtls certificate auth token nonce replay custody kms hsm evidence passed")
 	case strings.HasSuffix(name, ".json"):
 		if value, ok := summary[name]; ok {
+			if name == "sdk-conformance-evidence.json" {
+				return []byte(`{"ok":true,"summary":"` + value + ` opcode","checks":[{"ok":true,"name":"` + name + `"}],"evm_fixtures":{"ok":true,"total":1,"passed":1,"failed":0,"coverage_ok":true,"required_categories":["raw_transaction"],"covered_categories":["raw_transaction"],"results":[{"ok":true,"name":"tx"}]},"evm_execution":{"ok":true,"total":1,"passed":1,"failed":0,"coverage_ok":true,"required_categories":["opcode"],"covered_categories":["opcode"],"results":[{"ok":true,"name":"vm"}]}}`)
+			}
 			return []byte(`{"ok":true,"summary":"` + value + `","checks":[{"ok":true,"name":"` + name + `"}]}`)
 		}
 		return []byte(`{"ok":true,"name":"` + name + `"}`)

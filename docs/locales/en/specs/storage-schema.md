@@ -20,7 +20,10 @@ Fields:
 - transactions
 - block hash
 - app hash
+- optional quorum certificate that certified the block
 - module state roots
+
+Committed blocks written through the node commit path include the block QC in the same atomic block/state/app-write batch. Finality proof serving can use the certified child block plus grandchild header to rebuild strict two-link commit-chain proofs after restart. Blocks inserted by offline tooling may omit the QC, but those records cannot be used to satisfy strict light-client finality proof requests until enough certified descendants are available.
 
 ### State Record
 

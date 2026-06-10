@@ -659,11 +659,19 @@ func opsRunbookEvidenceOK(item map[string]any) bool {
 }
 
 func sdkConformanceEvidenceOK(item map[string]any) bool {
-	if evmFixtures, found := evidenceMap(item["evm_fixtures"]); found && !jsonEvidenceOK(evmFixtures) {
+	evmFixtures, hasEVMFixtures := evidenceMap(item["evm_fixtures"])
+	if hasEVMFixtures && !jsonEvidenceOK(evmFixtures) {
 		return false
 	}
-	if evmExecution, found := evidenceMap(item["evm_execution"]); found && !jsonEvidenceOK(evmExecution) {
+	evmExecution, hasEVMExecution := evidenceMap(item["evm_execution"])
+	if hasEVMExecution && !jsonEvidenceOK(evmExecution) {
 		return false
+	}
+	normalized := strings.ToLower(strings.ReplaceAll(flattenEvidenceText(item), "_", " "))
+	if strings.Contains(normalized, "evm") || strings.Contains(normalized, "web3") || strings.Contains(normalized, "ethereum") {
+		if !hasEVMFixtures || !hasEVMExecution {
+			return false
+		}
 	}
 	return true
 }

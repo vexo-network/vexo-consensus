@@ -211,6 +211,21 @@ func (runtime *Runtime) WithUpgrade(plan upgrade.Plan, state upgrade.State, exec
 }
 
 func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (app.FinalizeBlockResponse, error) {
+	return runtime.executeBlock(ctx, block, nil)
+}
+
+func (runtime *Runtime) ExecuteCertifiedBlock(ctx context.Context, block types.Block, quorumCert finality.QuorumCert) (app.FinalizeBlockResponse, error) {
+	blockHash := consensus.HashBlock(block)
+	if quorumCert.Height != block.Header.Height {
+		return app.FinalizeBlockResponse{}, finality.ErrHeightMismatch
+	}
+	if quorumCert.BlockHash != blockHash {
+		return app.FinalizeBlockResponse{}, finality.ErrBlockHashMismatch
+	}
+	return runtime.executeBlock(ctx, block, &quorumCert)
+}
+
+func (runtime *Runtime) executeBlock(ctx context.Context, block types.Block, quorumCert *finality.QuorumCert) (app.FinalizeBlockResponse, error) {
 	if err := runtime.applyUpgradeHook(ctx, block.Header.Height); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
@@ -230,7 +245,7 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 		if !ok {
 			return app.FinalizeBlockResponse{}, ErrAtomicAppCommitUnavailable
 		}
-		return runtime.executeBlockStaged(ctx, block, atomicApp, commitStore, baseFee, blobGasUsed)
+		return runtime.executeBlockStaged(ctx, block, quorumCert, atomicApp, commitStore, baseFee, blobGasUsed)
 	}
 	response, err := runtime.Executor.Execute(ctx, runtime.App, block)
 	if err != nil {
@@ -248,7 +263,7 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 	return response, nil
 }
 
-func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Block, application app.AtomicBlockApplication, commitStore store.AppBlockCommitStore, baseFee uint64, blobGasUsed uint64) (app.FinalizeBlockResponse, error) {
+func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Block, quorumCert *finality.QuorumCert, application app.AtomicBlockApplication, commitStore store.AppBlockCommitStore, baseFee uint64, blobGasUsed uint64) (app.FinalizeBlockResponse, error) {
 	response, writes, err := application.FinalizeBlockStagedContext(ctx, app.FinalizeBlockRequest{Block: block})
 	if err != nil {
 		return app.FinalizeBlockResponse{}, err
@@ -290,6 +305,10 @@ func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Bloc
 		StateRoots: stateRoots,
 		TxResults:  cloneTxResults(response.Results),
 	}
+	if quorumCert != nil {
+		certRecord := storeQuorumCertRecord(*quorumCert)
+		blockRecord.QuorumCert = &certRecord
+	}
 	stateRecord := store.StateRecord{
 		Height:           block.Header.Height,
 		AppHash:          response.AppHash,
@@ -316,6 +335,17 @@ func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Bloc
 		}
 	}
 	return response, nil
+}
+
+func storeQuorumCertRecord(quorumCert finality.QuorumCert) store.QuorumCertRecord {
+	return store.QuorumCertRecord{
+		Height:      quorumCert.Height,
+		Round:       quorumCert.Round,
+		BlockHash:   quorumCert.BlockHash,
+		Signers:     quorumCert.Signers,
+		Signature:   quorumCert.Signature,
+		VotingPower: quorumCert.VotingPower,
+	}
 }
 
 func (runtime *Runtime) CurrentBaseFee() uint64 {

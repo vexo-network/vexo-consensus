@@ -116,14 +116,14 @@ func (node *Node) AccountSequence(ctx context.Context, address types.Address) (u
 }
 
 func (node *Node) LatestFinalityProof(ctx context.Context) (finality.Proof, error) {
-	if proof, found, err := node.storedLatestFinalityProof(ctx); found || err != nil {
+	if proof, found, err := node.storedLatestFinalityProof(ctx); found || (err != nil && !errors.Is(err, ErrFinalityNotFound)) {
 		return proof, err
 	}
 	return node.finalityProof(ctx, 0)
 }
 
 func (node *Node) FinalityProof(ctx context.Context, height types.Height) (finality.Proof, error) {
-	if proof, found, err := node.storedFinalityProof(ctx, height); found || err != nil {
+	if proof, found, err := node.storedFinalityProof(ctx, height); found || (err != nil && !errors.Is(err, ErrFinalityNotFound)) {
 		return proof, err
 	}
 	return node.finalityProof(ctx, height)
@@ -145,7 +145,16 @@ func (node *Node) storedLatestFinalityProof(ctx context.Context) (finality.Proof
 	if err != nil {
 		return finality.Proof{}, false, err
 	}
-	return finalityProofFromRecord(proof), true, nil
+	loaded := finalityProofFromRecord(proof)
+	if loaded.HasThreeChainCommitProof() {
+		return loaded, true, nil
+	}
+	if enriched, err := node.enrichStoredFinalityProof(ctx, loaded); err == nil {
+		return enriched, true, nil
+	} else if !errors.Is(err, ErrFinalityNotFound) {
+		return finality.Proof{}, false, err
+	}
+	return finality.Proof{}, false, ErrFinalityNotFound
 }
 
 func (node *Node) storedFinalityProof(ctx context.Context, height types.Height) (finality.Proof, bool, error) {
@@ -164,7 +173,33 @@ func (node *Node) storedFinalityProof(ctx context.Context, height types.Height) 
 	if err != nil {
 		return finality.Proof{}, false, err
 	}
-	return finalityProofFromRecord(proof), true, nil
+	loaded := finalityProofFromRecord(proof)
+	if loaded.HasThreeChainCommitProof() {
+		return loaded, true, nil
+	}
+	if enriched, err := node.enrichStoredFinalityProof(ctx, loaded); err == nil {
+		return enriched, true, nil
+	} else if !errors.Is(err, ErrFinalityNotFound) {
+		return finality.Proof{}, false, err
+	}
+	return finality.Proof{}, false, ErrFinalityNotFound
+}
+
+func (node *Node) enrichStoredFinalityProof(ctx context.Context, proof finality.Proof) (finality.Proof, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return finality.Proof{}, err
+	}
+	enriched, err := node.attachCommitChainProof(ctx, runtime, proof)
+	if err != nil {
+		return finality.Proof{}, err
+	}
+	if proofStore, ok := runtime.Store.(store.FinalityProofStore); ok && proofStore != nil {
+		if err := proofStore.SaveFinalityProof(ctx, finalityProofRecord(enriched)); err != nil {
+			return finality.Proof{}, err
+		}
+	}
+	return enriched, nil
 }
 
 func (node *Node) finalityProof(ctx context.Context, height types.Height) (finality.Proof, error) {
@@ -198,43 +233,47 @@ func (node *Node) finalityProof(ctx context.Context, height types.Height) (final
 	if err != nil {
 		return finality.Proof{}, err
 	}
-	enriched, err := node.attachCommitChainProof(proof)
-	if err != nil {
-		return proof, nil
-	}
-	return enriched, nil
+	return node.attachCommitChainProof(ctx, runtime, proof)
 }
 
 func finalityProofFromRecord(record store.FinalityProofRecord) finality.Proof {
 	commitChain := make([]finality.CommitLink, 0, len(record.CommitChain))
 	for _, link := range record.CommitChain {
 		commitChain = append(commitChain, finality.CommitLink{
-			Header:    link.Header,
-			BlockHash: link.BlockHash,
-			QuorumCert: finality.QuorumCert{
-				Height:      link.QuorumCert.Height,
-				Round:       link.QuorumCert.Round,
-				BlockHash:   link.QuorumCert.BlockHash,
-				Signers:     link.QuorumCert.Signers,
-				Signature:   link.QuorumCert.Signature,
-				VotingPower: link.QuorumCert.VotingPower,
-			},
+			Header:     link.Header,
+			BlockHash:  link.BlockHash,
+			QuorumCert: finalityQuorumCertFromRecord(link.QuorumCert),
 		})
 	}
 	return finality.Proof{
-		Header:    record.Header,
-		BlockHash: record.BlockHash,
-		QuorumCert: finality.QuorumCert{
-			Height:      record.QuorumCert.Height,
-			Round:       record.QuorumCert.Round,
-			BlockHash:   record.QuorumCert.BlockHash,
-			Signers:     record.QuorumCert.Signers,
-			Signature:   record.QuorumCert.Signature,
-			VotingPower: record.QuorumCert.VotingPower,
-		},
+		Header:             record.Header,
+		BlockHash:          record.BlockHash,
+		QuorumCert:         finalityQuorumCertFromRecord(record.QuorumCert),
 		CommitChain:        commitChain,
 		ValidatorSetHeight: record.ValidatorSetHeight,
 		ValidatorSetHash:   record.ValidatorSetHash,
+	}
+}
+
+func finalityQuorumCertFromRecord(record store.QuorumCertRecord) finality.QuorumCert {
+	return finality.QuorumCert{
+		Height:      record.Height,
+		Round:       record.Round,
+		BlockHash:   record.BlockHash,
+		Signers:     record.Signers,
+		Signature:   record.Signature,
+		VotingPower: record.VotingPower,
+	}
+}
+
+func finalityQuorumCertRecord(quorumCert finality.QuorumCert) store.QuorumCertRecord {
+	return store.QuorumCertRecord{
+		Height:      quorumCert.Height,
+		Round:       quorumCert.Round,
+		BlockHash:   quorumCert.BlockHash,
+		Signers:     quorumCert.Signers,
+		Signature:   quorumCert.Signature,
+		VotingPower: quorumCert.VotingPower,
 	}
 }
 
@@ -242,29 +281,15 @@ func finalityProofRecord(proof finality.Proof) store.FinalityProofRecord {
 	commitChain := make([]store.CommitLinkRecord, 0, len(proof.CommitChain))
 	for _, link := range proof.CommitChain {
 		commitChain = append(commitChain, store.CommitLinkRecord{
-			Header:    link.Header,
-			BlockHash: link.BlockHash,
-			QuorumCert: store.QuorumCertRecord{
-				Height:      link.QuorumCert.Height,
-				Round:       link.QuorumCert.Round,
-				BlockHash:   link.QuorumCert.BlockHash,
-				Signers:     link.QuorumCert.Signers,
-				Signature:   link.QuorumCert.Signature,
-				VotingPower: link.QuorumCert.VotingPower,
-			},
+			Header:     link.Header,
+			BlockHash:  link.BlockHash,
+			QuorumCert: finalityQuorumCertRecord(link.QuorumCert),
 		})
 	}
 	return store.FinalityProofRecord{
-		Header:    proof.Header,
-		BlockHash: proof.BlockHash,
-		QuorumCert: store.QuorumCertRecord{
-			Height:      proof.QuorumCert.Height,
-			Round:       proof.QuorumCert.Round,
-			BlockHash:   proof.QuorumCert.BlockHash,
-			Signers:     proof.QuorumCert.Signers,
-			Signature:   proof.QuorumCert.Signature,
-			VotingPower: proof.QuorumCert.VotingPower,
-		},
+		Header:             proof.Header,
+		BlockHash:          proof.BlockHash,
+		QuorumCert:         finalityQuorumCertRecord(proof.QuorumCert),
 		CommitChain:        commitChain,
 		ValidatorSetHeight: proof.ValidatorSetHeight,
 		ValidatorSetHash:   proof.ValidatorSetHash,
