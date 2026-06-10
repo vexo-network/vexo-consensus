@@ -21,13 +21,16 @@ var (
 	ErrRemoteVRFUnauthorized     = errors.New("remote vrf request is unauthorized")
 	ErrRemoteVRFInvalidChallenge = errors.New("remote vrf challenge is invalid")
 	ErrRemoteVRFDuplicateNonce   = errors.New("remote vrf nonce was already used")
+	ErrRemoteVRFReplayStore      = errors.New("remote vrf replay store error")
 )
 
 type RemoteVRFServiceConfig struct {
-	AuthToken string
-	MaxSkew   time.Duration
-	NonceTTL  time.Duration
-	AuditSink func(RemoteVRFAuditEvent)
+	AuthToken                 string
+	MaxSkew                   time.Duration
+	NonceTTL                  time.Duration
+	ReplayStore               RemoteVRFReplayStore
+	RequireDurableReplayStore bool
+	AuditSink                 func(RemoteVRFAuditEvent)
 }
 
 type RemoteVRFAuditEvent struct {
@@ -37,6 +40,10 @@ type RemoteVRFAuditEvent struct {
 	Reason     string
 	Nonce      string
 	At         time.Time
+}
+
+type RemoteVRFReplayStore interface {
+	MarkNonce(domain string, nonce string, expires time.Time, now time.Time) error
 }
 
 type RemoteVRFService struct {
@@ -51,6 +58,9 @@ type RemoteVRFService struct {
 func NewRemoteVRFService(vrf VRF, cfg RemoteVRFServiceConfig) (*RemoteVRFService, error) {
 	if vrf == nil {
 		return nil, ErrVRFBackendUnavailable
+	}
+	if cfg.RequireDurableReplayStore && cfg.ReplayStore == nil {
+		return nil, ErrRemoteVRFReplayStore
 	}
 	if cfg.MaxSkew <= 0 {
 		cfg.MaxSkew = 30 * time.Second
@@ -188,9 +198,15 @@ func (service *RemoteVRFService) validateChallenge(nonce string, issuedAt int64,
 }
 
 func (service *RemoteVRFService) markNonce(domain string, nonce string, expires time.Time) error {
+	now := service.now()
+	if expires.After(now.Add(service.cfg.NonceTTL)) {
+		expires = now.Add(service.cfg.NonceTTL)
+	}
+	if service.cfg.ReplayStore != nil {
+		return service.cfg.ReplayStore.MarkNonce(domain, nonce, expires, now)
+	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	now := service.now()
 	for key, expiry := range service.seen {
 		if !expiry.After(now) {
 			delete(service.seen, key)
@@ -199,9 +215,6 @@ func (service *RemoteVRFService) markNonce(domain string, nonce string, expires 
 	key := domain + "/" + nonce
 	if _, found := service.seen[key]; found {
 		return ErrRemoteVRFDuplicateNonce
-	}
-	if expires.After(now.Add(service.cfg.NonceTTL)) {
-		expires = now.Add(service.cfg.NonceTTL)
 	}
 	service.seen[key] = expires
 	return nil

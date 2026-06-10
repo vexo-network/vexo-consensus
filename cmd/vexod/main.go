@@ -120,7 +120,7 @@ func writeHelp(writer io.Writer) {
 	fmt.Fprintf(writer, "  keys remote     register a remote KMS/HSM validator signer\n")
 	fmt.Fprintf(writer, "  keys serve-remote serve a policy-enforced KMS/HSM signer endpoint\n")
 	fmt.Fprintf(writer, "  keys verify-remote verify remote KMS/HSM challenge signing\n")
-	fmt.Fprintf(writer, "  keys serve-vrf  serve a replay-protected remote VRF endpoint\n")
+	fmt.Fprintf(writer, "  keys serve-vrf  serve a durable replay-protected remote VRF endpoint\n")
 	fmt.Fprintf(writer, "  keys verify-vrf verify remote VRF proof generation\n")
 	fmt.Fprintf(writer, "  keys sign-tx    sign a raw transaction payload\n")
 	fmt.Fprintf(writer, "  keys show       show validator public key\n")

@@ -159,14 +159,26 @@ func (node *Node) Start(ctx context.Context) error {
 		return err
 	}
 
-	runtime, err := vexoruntime.NewWithStoreContext(
-		ctx,
-		node.cfg.Chain,
-		node.app,
-		node.genesis.Validators,
-		node.genesis.Governance,
-		storage,
-	)
+	var runtime *vexoruntime.Runtime
+	if node.cfg.RequireNetworkSafety {
+		runtime, err = vexoruntime.NewNetworkSafeWithStoreContext(
+			ctx,
+			node.cfg.Chain,
+			node.app,
+			node.genesis.Validators,
+			node.genesis.Governance,
+			storage,
+		)
+	} else {
+		runtime, err = vexoruntime.NewWithStoreContext(
+			ctx,
+			node.cfg.Chain,
+			node.app,
+			node.genesis.Validators,
+			node.genesis.Governance,
+			storage,
+		)
+	}
 	if err != nil {
 		storage.Close()
 		return err

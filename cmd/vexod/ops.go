@@ -59,7 +59,24 @@ type opsConformanceDocument struct {
 	Metrics       *ops.Report                             `json:"metrics,omitempty"`
 	EVMFixtures   *ethcompat.TransactionConformanceReport `json:"evm_fixtures,omitempty"`
 	EVMExecution  *gethbackend.ExecutionConformanceReport `json:"evm_execution,omitempty"`
+	EVMCorpus     *evmConformanceCorpusDocument           `json:"evm_corpus,omitempty"`
 	Checks        []auditCheckDocument                    `json:"checks"`
+}
+
+type evmConformanceCorpusDocument struct {
+	Transaction evmFixtureCorpusEvidence `json:"transaction"`
+	Execution   evmFixtureCorpusEvidence `json:"execution"`
+	Strict      bool                     `json:"strict"`
+}
+
+type evmFixtureCorpusEvidence struct {
+	Source             string   `json:"source"`
+	Path               string   `json:"path,omitempty"`
+	SHA256             string   `json:"sha256"`
+	Pinned             bool     `json:"pinned"`
+	FixtureCount       int      `json:"fixture_count"`
+	Files              []string `json:"files,omitempty"`
+	RequiredCategories []string `json:"required_categories,omitempty"`
 }
 
 func runOpsThresholds(writer io.Writer, args []string) error {
@@ -260,6 +277,23 @@ func runOpsConformance(writer io.Writer, args []string) error {
 		if *strict && (*evmExecutionFixtures != "" || *evmExecutionFixtureDir != "") && *evmExecutionFixturesSHA256 == "" {
 			document.addCheck("evm_execution_fixture_digest_pinning", "error", false, "strict EVM/Web3 conformance requires SHA-256 pinning for the external geth VM execution fixture corpus")
 		}
+		corpus, corpusErr := buildEVMConformanceCorpusEvidence(
+			*evmDefaultFixtures,
+			*evmFixtures,
+			*evmFixtureDir,
+			*evmFixturesSHA256,
+			report.Total,
+			*evmExecutionFixtures,
+			*evmExecutionFixtureDir,
+			*evmExecutionFixturesSHA256,
+			executionReport.Total,
+			*strict,
+		)
+		if corpusErr != nil {
+			return corpusErr
+		}
+		document.EVMCorpus = &corpus
+		document.addCheck("evm_conformance_corpus_evidence", "error", corpus.Transaction.SHA256 != "" && corpus.Execution.SHA256 != "", "EVM/Web3 conformance evidence must record transaction and execution fixture corpus SHA-256 values")
 		document.Summary = append(document.Summary, "evm web3 ethereum raw transaction fixtures vm execution evidence")
 		document.SDKSurface = append(document.SDKSurface, "evm", "web3", "ethereum", "raw transaction", "vm execution")
 	} else if evmModuleEnabled {
@@ -438,6 +472,177 @@ func loadExecutionFixtureCorpus(paths []string) ([]gethbackend.ExecutionFixture,
 	return fixtures, required, nil
 }
 
+func buildEVMConformanceCorpusEvidence(defaultTransactions bool, transactionFile string, transactionDir string, transactionPin string, transactionCount int, executionFile string, executionDir string, executionPin string, executionCount int, strict bool) (evmConformanceCorpusDocument, error) {
+	transaction, err := transactionCorpusEvidence(defaultTransactions, transactionFile, transactionDir, transactionPin, transactionCount)
+	if err != nil {
+		return evmConformanceCorpusDocument{}, err
+	}
+	execution, err := executionCorpusEvidence(executionFile, executionDir, executionPin, executionCount)
+	if err != nil {
+		return evmConformanceCorpusDocument{}, err
+	}
+	return evmConformanceCorpusDocument{
+		Transaction: transaction,
+		Execution:   execution,
+		Strict:      strict,
+	}, nil
+}
+
+func transactionCorpusEvidence(defaultTransactions bool, filePath string, dirPath string, expected string, count int) (evmFixtureCorpusEvidence, error) {
+	switch {
+	case defaultTransactions:
+		raw, err := ethcompat.DefaultTransactionFixturesJSON()
+		if err != nil {
+			return evmFixtureCorpusEvidence{}, err
+		}
+		return evmFixtureCorpusEvidence{
+			Source:       "built_in",
+			Path:         "modules/evm/ethcompat.DefaultTransactionFixtures",
+			SHA256:       sha256Hex(raw),
+			Pinned:       true,
+			FixtureCount: count,
+		}, nil
+	case filePath != "":
+		digest, err := fixtureSourceSHA256(filePath, "")
+		if err != nil {
+			return evmFixtureCorpusEvidence{}, err
+		}
+		return evmFixtureCorpusEvidence{
+			Source:       "file",
+			Path:         filePath,
+			SHA256:       digest,
+			Pinned:       strings.TrimSpace(expected) != "",
+			FixtureCount: count,
+		}, nil
+	case dirPath != "":
+		digest, err := fixtureSourceSHA256("", dirPath)
+		if err != nil {
+			return evmFixtureCorpusEvidence{}, err
+		}
+		files, err := relativeJSONFiles(dirPath)
+		if err != nil {
+			return evmFixtureCorpusEvidence{}, err
+		}
+		return evmFixtureCorpusEvidence{
+			Source:       "directory",
+			Path:         dirPath,
+			SHA256:       digest,
+			Pinned:       strings.TrimSpace(expected) != "",
+			FixtureCount: count,
+			Files:        files,
+		}, nil
+	default:
+		return evmFixtureCorpusEvidence{}, errors.New("transaction fixture corpus is missing")
+	}
+}
+
+func executionCorpusEvidence(filePath string, dirPath string, expected string, count int) (evmFixtureCorpusEvidence, error) {
+	switch {
+	case filePath != "":
+		digest, err := fixtureSourceSHA256(filePath, "")
+		if err != nil {
+			return evmFixtureCorpusEvidence{}, err
+		}
+		required, err := executionRequiredCategoriesFromFile(filePath)
+		if err != nil {
+			return evmFixtureCorpusEvidence{}, err
+		}
+		return evmFixtureCorpusEvidence{
+			Source:             "file",
+			Path:               filePath,
+			SHA256:             digest,
+			Pinned:             strings.TrimSpace(expected) != "",
+			FixtureCount:       count,
+			RequiredCategories: required,
+		}, nil
+	case dirPath != "":
+		digest, err := fixtureSourceSHA256("", dirPath)
+		if err != nil {
+			return evmFixtureCorpusEvidence{}, err
+		}
+		files, err := relativeJSONFiles(dirPath)
+		if err != nil {
+			return evmFixtureCorpusEvidence{}, err
+		}
+		_, required, err := loadExecutionFixtureCorpus(mustAbsJSONPaths(dirPath, files))
+		if err != nil {
+			return evmFixtureCorpusEvidence{}, err
+		}
+		return evmFixtureCorpusEvidence{
+			Source:             "directory",
+			Path:               dirPath,
+			SHA256:             digest,
+			Pinned:             strings.TrimSpace(expected) != "",
+			FixtureCount:       count,
+			Files:              files,
+			RequiredCategories: required,
+		}, nil
+	default:
+		fixtures := gethbackend.DefaultExecutionFixtures()
+		raw, err := json.Marshal(fixtures)
+		if err != nil {
+			return evmFixtureCorpusEvidence{}, err
+		}
+		return evmFixtureCorpusEvidence{
+			Source:       "built_in",
+			Path:         "modules/evm/backend/geth.DefaultExecutionFixtures",
+			SHA256:       sha256Hex(raw),
+			Pinned:       true,
+			FixtureCount: count,
+		}, nil
+	}
+}
+
+func executionRequiredCategoriesFromFile(path string) ([]string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var document gethbackend.ExecutionFixtureDocument
+	if err := json.Unmarshal(raw, &document); err != nil || len(document.RequiredCategories) == 0 {
+		return nil, nil
+	}
+	required := make([]string, 0, len(document.RequiredCategories))
+	for _, category := range document.RequiredCategories {
+		category = strings.TrimSpace(category)
+		if category != "" {
+			required = append(required, category)
+		}
+	}
+	sort.Strings(required)
+	return required, nil
+}
+
+func relativeJSONFiles(root string) ([]string, error) {
+	paths, err := jsonFilePaths(root)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]string, 0, len(paths))
+	for _, path := range paths {
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, filepath.ToSlash(relative))
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+func mustAbsJSONPaths(root string, files []string) []string {
+	paths := make([]string, 0, len(files))
+	for _, file := range files {
+		paths = append(paths, filepath.Join(root, filepath.FromSlash(file)))
+	}
+	return paths
+}
+
+func sha256Hex(raw []byte) string {
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
 func runOpsAlerts(writer io.Writer, args []string) error {
 	flags := flag.NewFlagSet("ops alerts", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -550,6 +755,10 @@ func writeOpsConformance(writer io.Writer, document opsConformanceDocument) {
 	if document.EVMExecution != nil {
 		fmt.Fprintf(writer, "evm_execution_ok: %t passed=%d failed=%d total=%d\n", document.EVMExecution.OK, document.EVMExecution.Passed, document.EVMExecution.Failed, document.EVMExecution.Total)
 		fmt.Fprintf(writer, "evm_execution_coverage_ok: %t covered=%d missing=%d\n", document.EVMExecution.CoverageOK, len(document.EVMExecution.CoveredCategories), len(document.EVMExecution.MissingCategories))
+	}
+	if document.EVMCorpus != nil {
+		fmt.Fprintf(writer, "evm_transaction_corpus_sha256: %s\n", document.EVMCorpus.Transaction.SHA256)
+		fmt.Fprintf(writer, "evm_execution_corpus_sha256: %s\n", document.EVMCorpus.Execution.SHA256)
 	}
 }
 

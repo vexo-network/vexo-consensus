@@ -84,6 +84,41 @@ func NewWithStore(cfg config.Config, application app.Application, initialValidat
 	return NewWithStoreContext(context.Background(), cfg, application, initialValidators, governancePower, storage)
 }
 
+func NewNetworkSafeWithStore(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower, storage store.Store) (*Runtime, error) {
+	return NewNetworkSafeWithStoreContext(context.Background(), cfg, application, initialValidators, governancePower, storage)
+}
+
+func NewNetworkSafeWithStoreContext(ctx context.Context, cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower, storage store.Store) (*Runtime, error) {
+	return NewNetworkSafeWithStoreAndCryptoRegistryContext(ctx, cfg, application, initialValidators, governancePower, storage, crypto.NewRuntimeSuiteRegistry())
+}
+
+func NewNetworkSafeWithStoreAndCryptoRegistry(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower, storage store.Store, cryptoRegistry crypto.RuntimeSuiteRegistry) (*Runtime, error) {
+	return NewNetworkSafeWithStoreAndCryptoRegistryContext(context.Background(), cfg, application, initialValidators, governancePower, storage, cryptoRegistry)
+}
+
+func NewNetworkSafeWithStoreAndCryptoRegistryContext(ctx context.Context, cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower, storage store.Store, cryptoRegistry crypto.RuntimeSuiteRegistry) (*Runtime, error) {
+	if err := ValidateNetworkSafeRuntimeInputs(cfg, application, storage); err != nil {
+		return nil, err
+	}
+	return NewWithStoreAndCryptoRegistryContext(ctx, cfg, application, initialValidators, governancePower, storage, cryptoRegistry)
+}
+
+func ValidateNetworkSafeRuntimeInputs(cfg config.Config, application app.Application, storage store.Store) error {
+	if err := cfg.ValidateNetworkSafety(); err != nil {
+		return err
+	}
+	if storage == nil {
+		return ErrDurableStoreRequired
+	}
+	if _, ok := application.(app.AtomicBlockApplication); !ok {
+		return ErrAtomicAppCommitUnavailable
+	}
+	if _, ok := storage.(store.AppBlockCommitStore); !ok {
+		return ErrAtomicAppCommitUnavailable
+	}
+	return nil
+}
+
 func NewWithStoreContext(ctx context.Context, cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower, storage store.Store) (*Runtime, error) {
 	return NewWithStoreAndCryptoRegistryContext(ctx, cfg, application, initialValidators, governancePower, storage, crypto.NewRuntimeSuiteRegistry())
 }

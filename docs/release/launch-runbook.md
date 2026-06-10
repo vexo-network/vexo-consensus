@@ -130,7 +130,7 @@ go run ./cmd/vexod release gate \
 
 `--evm-default-fixtures` is intentionally small enough for CI but not enough for strict launch evidence. Strict EVM/Web3 evidence must use `--evm-tx-fixtures` or `--evm-tx-fixtures-dir` for chain-specific raw transaction scenarios and `--evm-execution-fixtures` or `--evm-execution-fixtures-dir` for contract, precompile, blob, opcode, and account-abstraction execution scenarios. Pin those external corpora with `--evm-tx-fixtures-sha256` and `--evm-execution-fixtures-sha256`; strict conformance exits non-zero if the corpus or digest pin is missing.
 
-SDK conformance evidence that claims EVM/Web3 coverage must include the machine-readable `evm_fixtures` and `evm_execution` reports emitted by `vexod ops conformance`. A JSON file that only says “EVM fixtures passed” in a summary string is rejected by the release gate.
+SDK conformance evidence that claims EVM/Web3 coverage must include the machine-readable `evm_fixtures`, `evm_execution`, and `evm_corpus` reports emitted by `vexod ops conformance`. `evm_corpus` records the transaction fixture source, execution fixture source, SHA-256 digest, fixture count, and pinning status. A JSON file that only says “EVM fixtures passed” in a summary string is rejected by the release gate.
 
 `relayer soak-plan` emits a runnable `relayer run` config that alternates acknowledgement and timeout jobs, uses checkpoint state to prevent duplicate submissions, and keeps transient proof/RPC failures visible in soak output. Archive the generated plan and any checkpoint/log evidence when IBC is part of the launch surface.
 

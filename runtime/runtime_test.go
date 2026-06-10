@@ -476,6 +476,42 @@ func TestNetworkSafeRuntimeRequiresAtomicApplicationAtStartup(t *testing.T) {
 	}
 }
 
+func TestNewNetworkSafeWithStoreRejectsUnsafeConfig(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	_, err = NewNetworkSafeWithStore(config.Default("vexo-test"), newEmptyRuntimeApp(t), nil, nil, storage)
+	if !errors.Is(err, config.ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected unsafe network config error, got %v", err)
+	}
+}
+
+func TestNewNetworkSafeWithStoreRejectsMissingStore(t *testing.T) {
+	_, err := NewNetworkSafeWithStore(config.NetworkSafeTemplate("vexo-test", t.TempDir()), newEmptyRuntimeApp(t), nil, nil, nil)
+	if !errors.Is(err, ErrDurableStoreRequired) {
+		t.Fatalf("expected durable store requirement, got %v", err)
+	}
+}
+
+func TestNewNetworkSafeWithStoreAcceptsAtomicDurableInputs(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	runtime, err := NewNetworkSafeWithStore(config.NetworkSafeTemplate("vexo-test", t.TempDir()), newEmptyRuntimeApp(t), nil, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.Store == nil {
+		t.Fatal("expected durable store to be wired")
+	}
+}
+
 type noopApp struct{}
 
 func (noopApp) InitChain(req app.InitChainRequest) (app.InitChainResponse, error) {

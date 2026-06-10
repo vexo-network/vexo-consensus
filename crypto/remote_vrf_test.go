@@ -8,8 +8,10 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -226,5 +228,39 @@ func TestRemoteVRFServiceRequiresAuthToken(t *testing.T) {
 	service.ServeHTTP(response, request)
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("expected unauthorized status, got %d", response.Code)
+	}
+}
+
+func TestRemoteVRFFileReplayStoreRejectsNonceAfterRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "remote-vrf-nonces.jsonl")
+	first, err := NewFileRemoteVRFReplayStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(100, 0).UTC()
+	expires := now.Add(time.Minute)
+	if err := first.MarkNonce(remoteVRFProveDomain, "nonce-1", expires, now); err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewFileRemoteVRFReplayStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.MarkNonce(remoteVRFProveDomain, "nonce-1", expires, now.Add(time.Second)); !errors.Is(err, ErrRemoteVRFDuplicateNonce) {
+		t.Fatalf("expected duplicate nonce after restart, got %v", err)
+	}
+	if err := second.MarkNonce(remoteVRFProveDomain, "nonce-1", expires.Add(time.Minute), expires.Add(time.Second)); err != nil {
+		t.Fatalf("expected expired nonce to be reusable after compaction, got %v", err)
+	}
+}
+
+func TestRemoteVRFServiceCanRequireDurableReplayStore(t *testing.T) {
+	localVRF, err := NewECVRFP256Adapter(config.VRFConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = NewRemoteVRFService(localVRF, RemoteVRFServiceConfig{RequireDurableReplayStore: true})
+	if !errors.Is(err, ErrRemoteVRFReplayStore) {
+		t.Fatalf("expected durable replay store error, got %v", err)
 	}
 }

@@ -733,8 +733,37 @@ func sdkConformanceEvidenceOK(item map[string]any) bool {
 		if !hasEVMFixtures || !hasEVMExecution {
 			return false
 		}
+		if !evmCorpusEvidenceOK(item) {
+			return false
+		}
 	}
 	return true
+}
+
+func evmCorpusEvidenceOK(item map[string]any) bool {
+	corpus, found := evidenceMap(item["evm_corpus"])
+	if !found {
+		return false
+	}
+	transaction, found := evidenceMap(corpus["transaction"])
+	if !found || !evmCorpusPartOK(transaction) {
+		return false
+	}
+	execution, found := evidenceMap(corpus["execution"])
+	return found && evmCorpusPartOK(execution)
+}
+
+func evmCorpusPartOK(item map[string]any) bool {
+	source, found := evidenceString(item["source"])
+	if !found || strings.TrimSpace(source) == "" {
+		return false
+	}
+	digest, found := evidenceString(item["sha256"])
+	if !found || len(strings.TrimSpace(digest)) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(strings.TrimSpace(digest))
+	return err == nil
 }
 
 func evidenceRPCs(item map[string]any) []map[string]any {

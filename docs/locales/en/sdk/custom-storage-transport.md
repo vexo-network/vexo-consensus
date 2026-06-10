@@ -28,12 +28,15 @@ A production storage backend must guarantee:
 
 - atomic block/state persistence or clear recovery semantics
 - `BatchKVStore` for modules that write multiple keys per transaction, especially staking custody, EVM execution, and IBC packet send
+- `store.AppBlockCommitStore` when network safety is required, so app writes, block metadata, state metadata, and state roots commit as one unit
 - atomic upgrade-plan persistence for governance proposals that schedule binary/config/store/app migrations
 - crash-safe latest state pointer
 - durable evidence records
 - deterministic state roots
 - schema migration path
 - rollback-safe upgrade behavior
+
+SDK embedders that want the same fail-closed startup behavior as `vexod start` should construct runtimes with `runtime.NewNetworkSafeWithStore`, `runtime.NewNetworkSafeWithStoreContext`, or `runtime.NewNetworkSafeWithStoreAndCryptoRegistryContext`. These constructors run `config.ValidateNetworkSafety`, reject missing durable stores, require `app.AtomicBlockApplication`, and require `store.AppBlockCommitStore` before the node can start.
 
 ## Custom Transport
 

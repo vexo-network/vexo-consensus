@@ -119,7 +119,9 @@ vexod keys serve-vrf \
   --auth-token-env VEXO_REMOTE_VRF_TOKEN
 ```
 
-The service exposes only `POST /prove` and `POST /verify`. It rejects missing bearer tokens when `--auth-token` or `--auth-token-env` is set, validates challenge domain/deadline fields, stores replay nonces in memory for the request window, and emits audit events when embedded through `crypto.NewRemoteVRFService`. The built-in command is useful for single-host validation and controlled deployments. For public validator custody, prefer an HSM/KMS-backed service with the same HTTP contract plus durable nonce/audit storage.
+The service exposes only `POST /prove` and `POST /verify`. It rejects missing bearer tokens when `--auth-token` or `--auth-token-env` is set, validates challenge domain/deadline fields, and records durable replay/audit evidence when run through `vexod keys serve-vrf`. Embedded services can still provide their own audit sink and replay store through `crypto.NewRemoteVRFService`. The built-in command is useful for single-host validation and controlled deployments; public validator custody should use an HSM/KMS-backed service with the same HTTP contract and durable nonce/audit storage.
+
+By default, `vexod keys serve-vrf` now uses durable replay and audit files under `--home`: `remote-vrf-nonces.jsonl` and `remote-vrf-audit.jsonl`. Override them with `--nonce-path` and `--audit-log` when the VRF service runs under a separate service account or mounted volume. Embedded KMS/HSM services should provide `crypto.RemoteVRFServiceConfig.ReplayStore` and set `RequireDurableReplayStore: true`; the built-in `crypto.NewFileRemoteVRFReplayStore` is the reference implementation. This prevents a restart from accepting the same challenge nonce again.
 
 Before wiring the remote prover into `consensus_config.json`, verify it end to end:
 

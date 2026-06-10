@@ -514,6 +514,8 @@ func runKeysServeVRF(writer io.Writer, args []string) error {
 	listen := flags.String("listen", "127.0.0.1:9100", "HTTP listen address")
 	authToken := flags.String("auth-token", "", "required bearer token for remote VRF requests")
 	authTokenEnv := flags.String("auth-token-env", "", "environment variable containing required bearer token")
+	noncePath := flags.String("nonce-path", "", "durable remote VRF nonce replay file; defaults under --home")
+	auditLogPath := flags.String("audit-log", "", "remote VRF JSONL audit log path; defaults under --home")
 	passphrase := flags.String("passphrase", "", "key decryption passphrase; prefer VEXO_KEY_PASSPHRASE")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -546,7 +548,28 @@ func runKeysServeVRF(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	service, err := vexocrypto.NewRemoteVRFService(vrf, vexocrypto.RemoteVRFServiceConfig{AuthToken: resolvedAuthToken})
+	resolvedNoncePath := *noncePath
+	if resolvedNoncePath == "" {
+		resolvedNoncePath = filepath.Join(*home, "remote-vrf-nonces.jsonl")
+	}
+	replayStore, err := vexocrypto.NewFileRemoteVRFReplayStore(resolvedNoncePath)
+	if err != nil {
+		return err
+	}
+	resolvedAuditPath := *auditLogPath
+	if resolvedAuditPath == "" {
+		resolvedAuditPath = filepath.Join(*home, "remote-vrf-audit.jsonl")
+	}
+	auditSink, err := vexocrypto.NewRemoteVRFFileAuditSink(resolvedAuditPath)
+	if err != nil {
+		return err
+	}
+	service, err := vexocrypto.NewRemoteVRFService(vrf, vexocrypto.RemoteVRFServiceConfig{
+		AuthToken:                 resolvedAuthToken,
+		ReplayStore:               replayStore,
+		RequireDurableReplayStore: true,
+		AuditSink:                 auditSink,
+	})
 	if err != nil {
 		return err
 	}
@@ -559,6 +582,8 @@ func runKeysServeVRF(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "listen: %s\n", *listen)
 	fmt.Fprintf(writer, "public_key: %s\n", base64.StdEncoding.EncodeToString(publicKey))
 	fmt.Fprintf(writer, "auth_required: %t\n", resolvedAuthToken != "")
+	fmt.Fprintf(writer, "nonce_path: %s\n", resolvedNoncePath)
+	fmt.Fprintf(writer, "audit_log: %s\n", resolvedAuditPath)
 	return server.ListenAndServe()
 }
 

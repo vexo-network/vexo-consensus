@@ -1176,7 +1176,7 @@ func releaseEvidenceFixture(name string) []byte {
 				return []byte(`{"ok":true,"validators":4,"duration":"1h","rate":50,"summary":"` + value + `","checks":[{"ok":true,"name":"` + name + `"}],"load":{"submitted":100,"failed":0},"nodes":[{"validator_id":"validator-1","before":{"latest_height":1},"after":{"latest_height":11},"report":{"ok":true}},{"validator_id":"validator-2","before":{"latest_height":1},"after":{"latest_height":12},"report":{"ok":true}},{"validator_id":"validator-3","before":{"latest_height":1},"after":{"latest_height":13},"report":{"ok":true}},{"validator_id":"validator-4","before":{"latest_height":1},"after":{"latest_height":14},"report":{"ok":true}}]}`)
 			}
 			if name == "sdk-conformance-evidence.json" {
-				return []byte(`{"ok":true,"summary":"` + value + ` opcode","checks":[{"ok":true,"name":"` + name + `"}],"evm_fixtures":{"ok":true,"total":1,"passed":1,"failed":0,"coverage_ok":true,"required_categories":["raw_transaction"],"covered_categories":["raw_transaction"],"results":[{"ok":true,"name":"tx"}]},"evm_execution":{"ok":true,"total":1,"passed":1,"failed":0,"coverage_ok":true,"required_categories":["opcode"],"covered_categories":["opcode"],"results":[{"ok":true,"name":"vm"}]}}`)
+				return []byte(`{"ok":true,"summary":"` + value + ` opcode","checks":[{"ok":true,"name":"` + name + `"}],"evm_fixtures":{"ok":true,"total":1,"passed":1,"failed":0,"coverage_ok":true,"required_categories":["raw_transaction"],"covered_categories":["raw_transaction"],"results":[{"ok":true,"name":"tx"}]},"evm_execution":{"ok":true,"total":1,"passed":1,"failed":0,"coverage_ok":true,"required_categories":["opcode"],"covered_categories":["opcode"],"results":[{"ok":true,"name":"vm"}]},"evm_corpus":{"transaction":{"source":"file","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","fixture_count":1},"execution":{"source":"file","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","fixture_count":1}}}`)
 			}
 			return []byte(`{"ok":true,"summary":"` + value + `","checks":[{"ok":true,"name":"` + name + `"}]}`)
 		}
@@ -3520,7 +3520,7 @@ func TestOpsConformanceRunsDefaultEVMFixtures(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if !document.OK || document.EVMFixtures == nil || !document.EVMFixtures.OK || document.EVMFixtures.Total < 4 {
+	if !document.OK || document.EVMFixtures == nil || !document.EVMFixtures.OK || document.EVMFixtures.Total < 4 || document.EVMCorpus == nil || document.EVMCorpus.Transaction.SHA256 == "" || document.EVMCorpus.Execution.SHA256 == "" {
 		t.Fatalf("expected default EVM fixtures to pass: %+v", document)
 	}
 }
@@ -3647,7 +3647,7 @@ func TestOpsConformanceRunsEVMFixtureDirectories(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if !document.OK || document.EVMFixtures == nil || !document.EVMFixtures.OK || document.EVMExecution == nil || !document.EVMExecution.OK {
+	if !document.OK || document.EVMFixtures == nil || !document.EVMFixtures.OK || document.EVMExecution == nil || !document.EVMExecution.OK || document.EVMCorpus == nil || !document.EVMCorpus.Transaction.Pinned || !document.EVMCorpus.Execution.Pinned {
 		t.Fatalf("expected EVM fixture corpus to pass: %+v", document)
 	}
 	if err := runOps(&bytes.Buffer{}, []string{
