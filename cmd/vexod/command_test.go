@@ -877,6 +877,42 @@ func TestRunReleaseEvidenceManifestGeneratesHashes(t *testing.T) {
 	}
 }
 
+func TestCollectedReleaseEvidenceDocumentsPassSemanticGate(t *testing.T) {
+	observations := []releaseRPCObservation{{
+		RPC: "http://validator-1:26657",
+		Baseline: releaseRPCSnapshot{Status: map[string]any{
+			"latest_height": float64(1),
+			"peer_count":    float64(1),
+		}},
+		Final: releaseRPCSnapshot{
+			Status: map[string]any{
+				"latest_height": float64(2),
+				"peer_count":    float64(1),
+			},
+			Metrics:  map[string]any{"height_rate": float64(1), "commit_latency_p95_nanos": float64(100)},
+			Peers:    map[string]any{"peers": []any{map[string]any{"id": "peer-1"}}},
+			Finality: map[string]any{"strict": true, "height": float64(2)},
+			Snapshot: map[string]any{"height": float64(2), "chunks": float64(1)},
+			Diagnostics: map[string]any{
+				"replay_healthy": true,
+			},
+		},
+	}}
+	documents := buildCollectedReleaseEvidenceDocuments(time.Minute, observations)
+	if !collectedEvidenceAllOK(documents) {
+		t.Fatalf("expected collected evidence to pass: %+v", documents)
+	}
+	for _, document := range documents {
+		data, err := json.Marshal(document)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !releasegate.EvidenceCheckContentOK(document.EvidenceType, releaseCollectedEvidenceFile(document.EvidenceType), data) {
+			t.Fatalf("expected %s to satisfy semantic gate: %s", document.EvidenceType, data)
+		}
+	}
+}
+
 func releaseCheckOK(document releaseAuditPack, name string) bool {
 	for _, check := range document.Checks {
 		if check.Name == name {
@@ -3183,6 +3219,43 @@ func TestOpsConformanceRunsDefaultEVMFixtures(t *testing.T) {
 	}
 }
 
+func TestOpsConformanceRunsCustomEVMExecutionFixtures(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--overwrite"}); err != nil {
+		t.Fatal(err)
+	}
+	fixturePath := filepath.Join(home, "evm-execution-fixtures.json")
+	fixture := `{
+		"schema_version": "v1",
+		"required_categories": ["call_return"],
+		"fixtures": [{
+			"name": "custom call returns 42",
+			"method": "call",
+			"code": "0x602a60005260206000f3",
+			"gas_limit": 100000,
+			"want_output": "0x000000000000000000000000000000000000000000000000000000000000002a",
+			"categories": ["call_return"]
+		}]
+	}`
+	if err := os.WriteFile(fixturePath, []byte(fixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := runOps(&output, []string{"conformance", "--home", home, "--evm-default-fixtures", "--evm-execution-fixtures", fixturePath, "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var document opsConformanceDocument
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if !document.OK || document.EVMExecution == nil || !document.EVMExecution.OK || document.EVMExecution.Total != 1 {
+		t.Fatalf("expected custom execution fixture to pass: %+v", document)
+	}
+}
+
 func TestBuildStartNodeLoadsValidatorSigner(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
@@ -3255,6 +3328,7 @@ func TestRunStartRunStartsAndStopsNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	networkDocument.RPC.Address = "127.0.0.1:0"
+	networkDocument.RPC.ShutdownTimeout = "30s"
 	networkDocument.P2P.ListenAddress = "127.0.0.1:0"
 	if err := writeJSONFile(networkPath, networkDocument); err != nil {
 		t.Fatal(err)
@@ -3263,7 +3337,7 @@ func TestRunStartRunStartsAndStopsNode(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	output := &rpcHealthCheckWriter{
 		cancel: cancel,
-		client: http.Client{Timeout: 5 * time.Second},
+		client: http.Client{Timeout: time.Second},
 	}
 	if err := runStartWithContext(ctx, output, []string{"--home", home}); err != nil {
 		t.Fatal(err)

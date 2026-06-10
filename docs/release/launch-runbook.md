@@ -65,6 +65,11 @@ go run ./cmd/vexod ops conformance \
   --home .vexo \
   --evm-default-fixtures \
   --json > dist/sdk-conformance-evidence.json
+go run ./cmd/vexod release collect-evidence \
+  --rpc http://validator-1.example:26657 \
+  --rpc http://validator-2.example:26657 \
+  --duration 1h \
+  --dist dist
 go run ./cmd/vexod release pack \
   --dist dist \
   --version <version> \
@@ -95,7 +100,9 @@ go run ./cmd/vexod release gate \
   --bls-audit dist/bls-audit.pdf
 ```
 
-`--evm-default-fixtures` is intentionally small enough for CI but not superficial: it exercises dynamic-fee calls, contract creation, access-list metadata, protected legacy signing, unprotected legacy rejection, chain-ID mismatch rejection, malformed raw input rejection, fee-cap rejection, geth VM call return data, contract creation execution, revert behavior, and persistent storage writes. Add `--evm-tx-fixtures <file>` for chain-specific contract, precompile, blob, and account-abstraction scenarios before a public compatibility claim.
+`release collect-evidence` only marks snapshot/replay evidence as passing when the sampled validators expose both a positive snapshot height and healthy replay diagnostics. If that check is false, run the snapshot restore/replay drill before packaging the release.
+
+`--evm-default-fixtures` is intentionally small enough for CI but not superficial: it exercises dynamic-fee calls, contract creation, access-list metadata, protected legacy signing, unprotected legacy rejection, chain-ID mismatch rejection, malformed raw input rejection, fee-cap rejection, geth VM call return data, contract creation execution, revert behavior, and persistent storage writes. Add `--evm-tx-fixtures <file>` for chain-specific raw transaction scenarios and `--evm-execution-fixtures <file>` for chain-specific contract, precompile, blob, opcode, and account-abstraction execution scenarios before a public compatibility claim.
 
 ## Genesis Gate
 

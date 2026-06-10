@@ -3,6 +3,7 @@ package geth
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strings"
 
@@ -48,6 +49,12 @@ type ExecutionConformanceReport struct {
 
 var defaultRequiredExecutionFixtureCategories = []string{"call_return", "contract_create", "revert", "storage_write"}
 
+type ExecutionFixtureDocument struct {
+	SchemaVersion      string             `json:"schema_version,omitempty"`
+	RequiredCategories []string           `json:"required_categories,omitempty"`
+	Fixtures           []ExecutionFixture `json:"fixtures"`
+}
+
 func DefaultExecutionFixtures() []ExecutionFixture {
 	return []ExecutionFixture{
 		{
@@ -86,10 +93,14 @@ func DefaultExecutionFixtures() []ExecutionFixture {
 }
 
 func RunExecutionFixtures(fixtures []ExecutionFixture) ExecutionConformanceReport {
+	return RunExecutionFixturesWithRequired(fixtures, defaultRequiredExecutionFixtureCategories)
+}
+
+func RunExecutionFixturesWithRequired(fixtures []ExecutionFixture, required []string) ExecutionConformanceReport {
 	report := ExecutionConformanceReport{
 		OK:                 true,
 		Total:              len(fixtures),
-		RequiredCategories: append([]string(nil), defaultRequiredExecutionFixtureCategories...),
+		RequiredCategories: append([]string(nil), required...),
 		Results:            make([]ExecutionFixtureResult, 0, len(fixtures)),
 	}
 	covered := make(map[string]struct{})
@@ -106,7 +117,7 @@ func RunExecutionFixtures(fixtures []ExecutionFixture) ExecutionConformanceRepor
 		}
 		report.Results = append(report.Results, result)
 	}
-	for _, category := range defaultRequiredExecutionFixtureCategories {
+	for _, category := range report.RequiredCategories {
 		if _, ok := covered[category]; ok {
 			report.CoveredCategories = append(report.CoveredCategories, category)
 		} else {
@@ -116,6 +127,22 @@ func RunExecutionFixtures(fixtures []ExecutionFixture) ExecutionConformanceRepor
 	report.CoverageOK = len(report.MissingCategories) == 0
 	report.OK = report.OK && report.CoverageOK
 	return report
+}
+
+func RunExecutionFixturesJSON(raw []byte) (ExecutionConformanceReport, error) {
+	var document ExecutionFixtureDocument
+	if err := json.Unmarshal(raw, &document); err == nil && len(document.Fixtures) > 0 {
+		required := document.RequiredCategories
+		if len(required) == 0 {
+			required = defaultRequiredExecutionFixtureCategories
+		}
+		return RunExecutionFixturesWithRequired(document.Fixtures, required), nil
+	}
+	var fixtures []ExecutionFixture
+	if err := json.Unmarshal(raw, &fixtures); err != nil {
+		return ExecutionConformanceReport{}, err
+	}
+	return RunExecutionFixtures(fixtures), nil
 }
 
 func runExecutionFixture(fixture ExecutionFixture) ExecutionFixtureResult {

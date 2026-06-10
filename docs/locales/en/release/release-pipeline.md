@@ -40,9 +40,16 @@ make release-candidate VERSION=0.1.0-rc.1
 Generate or refresh the SHA-256-bound evidence manifest after collecting evidence files:
 
 ```bash
+go run ./cmd/vexod release collect-evidence \
+  --rpc http://validator-1.example:26657 \
+  --rpc http://validator-2.example:26657 \
+  --duration 1h \
+  --dist dist
 go run ./cmd/vexod release evidence-manifest --dist dist --output dist/evidence-manifest.json
 make release-evidence-manifest
 ```
+
+`release collect-evidence` samples validator RPC endpoints before and after the observation window and writes RPC-backed `longrun`, `ops-runbook`, `p2p-scale`, `state-sync-light-client`, and `snapshot-replay` evidence files plus a manifest. The snapshot evidence only passes when both a positive snapshot height and healthy replay diagnostics are observed. It does not fabricate chaos, KMS, economics, governance, MEV, external-audit, or BLS-audit evidence; those artifacts still need their dedicated drills or reviews.
 
 Generate launch parameter recommendations for the target network:
 
@@ -153,7 +160,7 @@ The `release-candidate` target runs:
 - ops verification
 - built-binary network E2E (`make network-e2e`)
 - adversarial simulation
-- SDK/EVM conformance evidence. If the `evm` module is enabled, `vexod ops conformance` treats missing `--evm-default-fixtures` or `--evm-tx-fixtures` as an error, not a warning. The built-in fixture set is a baseline for dynamic-fee, access-list, protected legacy, unprotected legacy rejection, chain-ID, malformed raw, fee-cap behavior, geth VM call return data, contract creation execution, revert behavior, and persistent storage writes. Attach any chain-specific raw transaction and VM execution fixture corpus before making broader Web3/EVM compatibility claims.
+- SDK/EVM conformance evidence. If the `evm` module is enabled, `vexod ops conformance` treats missing `--evm-default-fixtures` or `--evm-tx-fixtures` as an error, not a warning. The built-in fixture set is a baseline for dynamic-fee, access-list, protected legacy, unprotected legacy rejection, chain-ID, malformed raw, fee-cap behavior, geth VM call return data, contract creation execution, revert behavior, and persistent storage writes. Attach any chain-specific raw transaction corpus with `--evm-tx-fixtures <file>` and any chain-specific VM execution corpus with `--evm-execution-fixtures <file>` before making broader Web3/EVM compatibility claims.
 - network load harness (`RC_DRY_RUN=1` keeps this as a plan-only dry-run; `make release-candidate-real` forces `RC_DRY_RUN=0`)
 - chaos plan
 - 7-day multi-host longrun plan

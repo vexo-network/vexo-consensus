@@ -777,6 +777,41 @@ func VerifyInvalidProposalEvidenceWithContext(evidence slashing.Evidence, contex
 	return verifyInvalidProposalByReason(decoded)
 }
 
+func VerifyInvalidProposalEvidenceWithBoundContext(evidence slashing.Evidence, context InvalidProposalVerificationContext) error {
+	if evidence.Type != slashing.EvidenceInvalidProposal {
+		return slashing.ErrUnknownEvidenceType
+	}
+	decoded, err := DecodeInvalidProposalProof(evidence.Proof)
+	if err != nil {
+		return err
+	}
+	if invalidProposalReasonRequiresContext(decoded.Reason) {
+		if decoded.ContextProofHash == (types.Hash{}) {
+			return ErrInvalidProposalContext
+		}
+		computed := context.ProofHash()
+		if computed == (types.Hash{}) {
+			return ErrInvalidProposalContext
+		}
+		if context.ContextProofHash == (types.Hash{}) {
+			context.ContextProofHash = computed
+		}
+	}
+	return VerifyInvalidProposalEvidenceWithContext(evidence, context)
+}
+
+func invalidProposalReasonRequiresContext(reason InvalidProposalReason) bool {
+	switch reason {
+	case InvalidProposalReasonValidatorSetHash,
+		InvalidProposalReasonAppHash,
+		InvalidProposalReasonTimestamp,
+		InvalidProposalReasonTxValidity:
+		return true
+	default:
+		return false
+	}
+}
+
 func verifyInvalidProposalStateProof(decoded InvalidProposalProof, context InvalidProposalVerificationContext, height types.Height) error {
 	if decoded.StateProof == nil {
 		if context.RequireStateProof {

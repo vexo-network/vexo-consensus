@@ -8,9 +8,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -95,6 +98,8 @@ func runRelease(writer io.Writer, args []string) error {
 		return runReleaseGate(writer, args[1:])
 	case "evidence-manifest":
 		return runReleaseEvidenceManifest(writer, args[1:])
+	case "collect-evidence":
+		return runReleaseCollectEvidence(writer, args[1:])
 	default:
 		return fmt.Errorf("unknown release subcommand %q", args[0])
 	}
@@ -330,6 +335,396 @@ func runReleaseEvidenceManifest(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "path: %s\n", path)
 	fmt.Fprintf(writer, "evidence: %d\n", len(manifest.Evidence))
 	return nil
+}
+
+type releaseCollectedEvidence struct {
+	SchemaVersion string                          `json:"schema_version"`
+	EvidenceType  string                          `json:"evidence_type"`
+	GeneratedAt   string                          `json:"generated_at"`
+	Duration      string                          `json:"duration"`
+	OK            bool                            `json:"ok"`
+	Summary       string                          `json:"summary"`
+	Checks        []releaseCollectedEvidenceCheck `json:"checks"`
+	RPCs          []releaseRPCObservation         `json:"rpcs"`
+}
+
+type releaseCollectedEvidenceCheck struct {
+	Name    string `json:"name"`
+	OK      bool   `json:"ok"`
+	Message string `json:"message"`
+}
+
+type releaseRPCObservation struct {
+	RPC      string             `json:"rpc"`
+	Baseline releaseRPCSnapshot `json:"baseline"`
+	Final    releaseRPCSnapshot `json:"final"`
+	Errors   []string           `json:"errors,omitempty"`
+	Raw      map[string]any     `json:"raw,omitempty"`
+}
+
+type releaseRPCSnapshot struct {
+	Status      map[string]any `json:"status,omitempty"`
+	Metrics     map[string]any `json:"metrics,omitempty"`
+	Peers       map[string]any `json:"peers,omitempty"`
+	Finality    map[string]any `json:"finality,omitempty"`
+	Snapshot    map[string]any `json:"snapshot,omitempty"`
+	Diagnostics map[string]any `json:"diagnostics,omitempty"`
+}
+
+func runReleaseCollectEvidence(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("release collect-evidence", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	distDir := flags.String("dist", "dist", "release dist directory")
+	durationValue := flags.String("duration", "0s", "observation window between baseline and final samples")
+	timeoutValue := flags.String("timeout", "5s", "per-request timeout")
+	jsonOutput := flags.Bool("json", false, "write collection summary JSON to stdout")
+	writeManifest := flags.Bool("write-manifest", true, "write evidence-manifest.json after collecting evidence")
+	rpcs := stringListFlags{}
+	flags.Var(&rpcs, "rpc", "validator RPC base URL; may be repeated")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if len(rpcs) == 0 {
+		return errors.New("at least one --rpc is required")
+	}
+	duration, err := time.ParseDuration(*durationValue)
+	if err != nil {
+		return err
+	}
+	timeout, err := time.ParseDuration(*timeoutValue)
+	if err != nil {
+		return err
+	}
+	if timeout <= 0 {
+		return errors.New("timeout must be positive")
+	}
+	if err := os.MkdirAll(*distDir, 0o755); err != nil {
+		return err
+	}
+	client := &http.Client{Timeout: timeout}
+	observations := make([]releaseRPCObservation, 0, len(rpcs))
+	for _, rpcURL := range rpcs {
+		observation, err := collectReleaseRPCBaseline(client, rpcURL)
+		if err != nil {
+			return err
+		}
+		observations = append(observations, observation)
+	}
+	if duration > 0 {
+		time.Sleep(duration)
+	}
+	for index := range observations {
+		final, errors := collectReleaseRPCSnapshot(client, observations[index].RPC)
+		observations[index].Final = final
+		observations[index].Errors = append(observations[index].Errors, errors...)
+	}
+	documents := buildCollectedReleaseEvidenceDocuments(duration, observations)
+	for _, document := range documents {
+		path := filepath.Join(*distDir, releaseCollectedEvidenceFile(document.EvidenceType))
+		encoded, err := json.MarshalIndent(document, "", "  ")
+		if err != nil {
+			return err
+		}
+		encoded = append(encoded, '\n')
+		if err := os.WriteFile(path, encoded, 0o644); err != nil {
+			return err
+		}
+	}
+	var manifest releasegate.EvidenceManifest
+	if *writeManifest {
+		manifest, err = buildReleaseEvidenceManifest(*distDir)
+		if err != nil {
+			return err
+		}
+		encoded, err := json.MarshalIndent(manifest, "", "  ")
+		if err != nil {
+			return err
+		}
+		encoded = append(encoded, '\n')
+		if err := os.WriteFile(filepath.Join(*distDir, "evidence-manifest.json"), encoded, 0o644); err != nil {
+			return err
+		}
+	}
+	summary := map[string]any{
+		"schema_version": "v1",
+		"ok":             collectedEvidenceAllOK(documents),
+		"dist":           *distDir,
+		"written":        len(documents),
+		"manifest_items": len(manifest.Evidence),
+		"evidence":       documents,
+	}
+	if *jsonOutput {
+		encoder := json.NewEncoder(writer)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(summary)
+	}
+	fmt.Fprintf(writer, "release evidence collected\n")
+	fmt.Fprintf(writer, "dist: %s\n", *distDir)
+	fmt.Fprintf(writer, "rpc_endpoints: %d\n", len(rpcs))
+	fmt.Fprintf(writer, "evidence_files: %d\n", len(documents))
+	fmt.Fprintf(writer, "ok: %t\n", summary["ok"])
+	return nil
+}
+
+func collectReleaseRPCBaseline(client *http.Client, rpcURL string) (releaseRPCObservation, error) {
+	normalized, err := normalizeReleaseRPCURL(rpcURL)
+	if err != nil {
+		return releaseRPCObservation{}, err
+	}
+	snapshot, errors := collectReleaseRPCSnapshot(client, normalized)
+	return releaseRPCObservation{RPC: normalized, Baseline: snapshot, Errors: errors}, nil
+}
+
+func normalizeReleaseRPCURL(raw string) (string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return "", errors.New("rpc URL is required")
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "http://" + raw
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("unsupported rpc scheme %q", parsed.Scheme)
+	}
+	if parsed.Host == "" {
+		return "", errors.New("rpc host is required")
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/")
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return strings.TrimRight(parsed.String(), "/"), nil
+}
+
+func collectReleaseRPCSnapshot(client *http.Client, rpcURL string) (releaseRPCSnapshot, []string) {
+	var snapshot releaseRPCSnapshot
+	errors := make([]string, 0)
+	for _, endpoint := range []struct {
+		path string
+		set  func(map[string]any)
+	}{
+		{"/v1/status", func(value map[string]any) { snapshot.Status = value }},
+		{"/v1/metrics", func(value map[string]any) { snapshot.Metrics = value }},
+		{"/v1/peers", func(value map[string]any) { snapshot.Peers = value }},
+		{"/v1/finality/latest?strict=true", func(value map[string]any) { snapshot.Finality = value }},
+		{"/v1/snapshot/latest", func(value map[string]any) { snapshot.Snapshot = value }},
+		{"/v1/diagnostics", func(value map[string]any) { snapshot.Diagnostics = value }},
+	} {
+		value, err := collectReleaseRPCJSON(client, rpcURL+endpoint.path)
+		if err != nil {
+			errors = append(errors, endpoint.path+": "+err.Error())
+			continue
+		}
+		endpoint.set(value)
+	}
+	return snapshot, errors
+}
+
+func collectReleaseRPCJSON(client *http.Client, target string) (map[string]any, error) {
+	response, err := client.Get(target)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, fmt.Errorf("http status %d", response.StatusCode)
+	}
+	var value map[string]any
+	decoder := json.NewDecoder(io.LimitReader(response.Body, 4<<20))
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+func buildCollectedReleaseEvidenceDocuments(duration time.Duration, observations []releaseRPCObservation) []releaseCollectedEvidence {
+	return []releaseCollectedEvidence{
+		newCollectedEvidence("longrun_evidence", duration, "longrun duration height validator distributed per_node soak evidence", observations, checkCollectedLongrun(observations)),
+		newCollectedEvidence("ops_runbook_evidence", duration, "ops runbook alert incident metrics evidence", observations, checkCollectedOps(observations)),
+		newCollectedEvidence("p2p_scale_evidence", duration, "p2p peer scale discovery reconnect backpressure evidence", observations, checkCollectedP2P(observations)),
+		newCollectedEvidence("state_sync_light_client_evidence", duration, "state-sync light-client finality evidence", observations, checkCollectedFinality(observations)),
+		newCollectedEvidence("snapshot_replay_evidence", duration, "snapshot replay restore evidence", observations, checkCollectedSnapshot(observations)),
+	}
+}
+
+func newCollectedEvidence(evidenceType string, duration time.Duration, summary string, observations []releaseRPCObservation, checks []releaseCollectedEvidenceCheck) releaseCollectedEvidence {
+	return releaseCollectedEvidence{
+		SchemaVersion: "v1",
+		EvidenceType:  evidenceType,
+		GeneratedAt:   time.Now().UTC().Format(time.RFC3339),
+		Duration:      duration.String(),
+		OK:            collectedChecksOK(checks),
+		Summary:       summary,
+		Checks:        checks,
+		RPCs:          observations,
+	}
+}
+
+func releaseCollectedEvidenceFile(evidenceType string) string {
+	for _, candidate := range releaseEvidenceCandidates() {
+		if candidate.Name == evidenceType {
+			return candidate.File
+		}
+	}
+	return evidenceType + ".json"
+}
+
+func checkCollectedLongrun(observations []releaseRPCObservation) []releaseCollectedEvidenceCheck {
+	checks := []releaseCollectedEvidenceCheck{{Name: "validator_observations", OK: len(observations) > 0, Message: "validator RPC endpoints must be observed"}}
+	for _, observation := range observations {
+		baseline := jsonNumber(observation.Baseline.Status, "latest_height")
+		final := jsonNumber(observation.Final.Status, "latest_height")
+		checks = append(checks, releaseCollectedEvidenceCheck{
+			Name:    "height_growth_" + safeEvidenceCheckName(observation.RPC),
+			OK:      baseline >= 0 && final > baseline,
+			Message: fmt.Sprintf("height must increase for %s baseline=%d final=%d", observation.RPC, baseline, final),
+		})
+	}
+	return checks
+}
+
+func checkCollectedOps(observations []releaseRPCObservation) []releaseCollectedEvidenceCheck {
+	checks := make([]releaseCollectedEvidenceCheck, 0, len(observations))
+	for _, observation := range observations {
+		checks = append(checks, releaseCollectedEvidenceCheck{
+			Name:    "metrics_" + safeEvidenceCheckName(observation.RPC),
+			OK:      observation.Final.Metrics != nil,
+			Message: "metrics endpoint should return operator alert inputs",
+		})
+	}
+	return checks
+}
+
+func checkCollectedP2P(observations []releaseRPCObservation) []releaseCollectedEvidenceCheck {
+	checks := make([]releaseCollectedEvidenceCheck, 0, len(observations))
+	for _, observation := range observations {
+		peerCount := jsonNumber(observation.Final.Status, "peer_count")
+		peerListCount := jsonCollectionLen(observation.Final.Peers, "peers")
+		checks = append(checks, releaseCollectedEvidenceCheck{
+			Name:    "peer_connectivity_" + safeEvidenceCheckName(observation.RPC),
+			OK:      peerCount > 0 || peerListCount > 0,
+			Message: fmt.Sprintf("peer evidence should expose connected peers for %s peer_count=%d peers=%d", observation.RPC, peerCount, peerListCount),
+		})
+	}
+	return checks
+}
+
+func checkCollectedFinality(observations []releaseRPCObservation) []releaseCollectedEvidenceCheck {
+	checks := make([]releaseCollectedEvidenceCheck, 0, len(observations))
+	for _, observation := range observations {
+		checks = append(checks, releaseCollectedEvidenceCheck{
+			Name:    "strict_finality_" + safeEvidenceCheckName(observation.RPC),
+			OK:      observation.Final.Finality != nil,
+			Message: "strict finality proof endpoint should return light-client finality evidence",
+		})
+	}
+	return checks
+}
+
+func checkCollectedSnapshot(observations []releaseRPCObservation) []releaseCollectedEvidenceCheck {
+	checks := make([]releaseCollectedEvidenceCheck, 0, len(observations))
+	for _, observation := range observations {
+		snapshotHeight := jsonNumber(observation.Final.Snapshot, "height")
+		replayHealthy := jsonBool(observation.Final.Diagnostics, "replay_healthy") ||
+			strings.EqualFold(jsonString(observation.Final.Diagnostics, "replay_status"), "healthy") ||
+			strings.EqualFold(jsonString(observation.Final.Diagnostics, "replay_status"), "ok")
+		checks = append(checks, releaseCollectedEvidenceCheck{
+			Name:    "snapshot_" + safeEvidenceCheckName(observation.RPC),
+			OK:      snapshotHeight > 0 && replayHealthy,
+			Message: fmt.Sprintf("snapshot evidence should include snapshot height and healthy replay diagnostics for %s height=%d replay_healthy=%t", observation.RPC, snapshotHeight, replayHealthy),
+		})
+	}
+	return checks
+}
+
+func collectedEvidenceAllOK(documents []releaseCollectedEvidence) bool {
+	for _, document := range documents {
+		if !document.OK {
+			return false
+		}
+	}
+	return true
+}
+
+func collectedChecksOK(checks []releaseCollectedEvidenceCheck) bool {
+	if len(checks) == 0 {
+		return false
+	}
+	for _, check := range checks {
+		if !check.OK {
+			return false
+		}
+	}
+	return true
+}
+
+func jsonNumber(value map[string]any, key string) int64 {
+	if value == nil {
+		return -1
+	}
+	switch item := value[key].(type) {
+	case float64:
+		return int64(item)
+	case int64:
+		return item
+	case json.Number:
+		parsed, err := item.Int64()
+		if err == nil {
+			return parsed
+		}
+	case string:
+		parsed, err := strconv.ParseInt(item, 10, 64)
+		if err == nil {
+			return parsed
+		}
+	}
+	return -1
+}
+
+func jsonCollectionLen(value map[string]any, key string) int {
+	if value == nil {
+		return 0
+	}
+	switch item := value[key].(type) {
+	case []any:
+		return len(item)
+	case []map[string]any:
+		return len(item)
+	}
+	return 0
+}
+
+func jsonBool(value map[string]any, key string) bool {
+	if value == nil {
+		return false
+	}
+	switch item := value[key].(type) {
+	case bool:
+		return item
+	case string:
+		parsed, err := strconv.ParseBool(item)
+		return err == nil && parsed
+	}
+	return false
+}
+
+func jsonString(value map[string]any, key string) string {
+	if value == nil {
+		return ""
+	}
+	switch item := value[key].(type) {
+	case string:
+		return item
+	default:
+		return fmt.Sprint(item)
+	}
+}
+
+func safeEvidenceCheckName(value string) string {
+	replacer := strings.NewReplacer("://", "_", "/", "_", ":", "_", ".", "_", "-", "_")
+	return strings.Trim(replacer.Replace(value), "_")
 }
 
 func buildProductionReadinessDocument() productionReadinessDocument {

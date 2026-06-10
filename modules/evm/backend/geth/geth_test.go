@@ -119,6 +119,30 @@ func TestGethBackendExecutesDeployAndCall(t *testing.T) {
 	}
 }
 
+func TestRunExecutionFixturesJSON(t *testing.T) {
+	raw := []byte(`{
+		"schema_version": "v1",
+		"required_categories": ["call_return"],
+		"fixtures": [
+			{
+				"name": "json call returns 42",
+				"method": "call",
+				"code": "0x602a60005260206000f3",
+				"gas_limit": 100000,
+				"want_output": "0x000000000000000000000000000000000000000000000000000000000000002a",
+				"categories": ["call_return"]
+			}
+		]
+	}`)
+	report, err := RunExecutionFixturesJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.OK || !report.CoverageOK || report.Passed != 1 || report.Failed != 0 {
+		t.Fatalf("unexpected execution fixture report: %+v", report)
+	}
+}
+
 func TestGethBackendPassesBlobHashesToEVM(t *testing.T) {
 	vm := New()
 	blobHash := types.Hash(gethcommon.HexToHash("0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"))

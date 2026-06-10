@@ -93,6 +93,7 @@ func runOpsConformance(writer io.Writer, args []string) error {
 	metricsFile := flags.String("metrics-file", "", "current /metrics JSON file to evaluate")
 	previousMetricsFile := flags.String("previous-metrics-file", "", "previous /metrics JSON file for rate deltas")
 	evmFixtures := flags.String("evm-tx-fixtures", "", "Ethereum raw transaction fixture JSON file")
+	evmExecutionFixtures := flags.String("evm-execution-fixtures", "", "geth EVM execution fixture JSON file")
 	evmDefaultFixtures := flags.Bool("evm-default-fixtures", false, "run the built-in geth-signed Ethereum transaction conformance fixtures")
 	windowValue := flags.String("window", "1m", "elapsed time between previous and current metrics files")
 	strict := flags.Bool("strict", false, "use strict network-safety audit severities")
@@ -175,7 +176,19 @@ func runOpsConformance(writer io.Writer, args []string) error {
 		}
 		document.EVMFixtures = &report
 		document.addCheck("evm_transaction_fixtures", "error", report.OK, "Ethereum raw transaction fixtures must decode, validate, match expected outcomes, and cover required transaction categories")
-		executionReport := gethbackend.RunExecutionFixtures(gethbackend.DefaultExecutionFixtures())
+		var executionReport gethbackend.ExecutionConformanceReport
+		if *evmExecutionFixtures != "" {
+			raw, readErr := os.ReadFile(*evmExecutionFixtures)
+			if readErr != nil {
+				return readErr
+			}
+			executionReport, err = gethbackend.RunExecutionFixturesJSON(raw)
+			if err != nil {
+				return err
+			}
+		} else {
+			executionReport = gethbackend.RunExecutionFixtures(gethbackend.DefaultExecutionFixtures())
+		}
 		document.EVMExecution = &executionReport
 		document.addCheck("evm_execution_fixtures", "error", executionReport.OK, "geth EVM execution fixtures must cover call return, contract creation, revert, and storage writes")
 		document.Summary = append(document.Summary, "evm web3 ethereum raw transaction fixtures vm execution evidence")

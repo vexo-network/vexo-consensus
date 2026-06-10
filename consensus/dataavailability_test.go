@@ -182,6 +182,29 @@ func TestInvalidProposalHashEvidenceVerifiesStateProof(t *testing.T) {
 	}
 }
 
+func TestInvalidProposalEvidenceWithBoundContextRequiresContextHash(t *testing.T) {
+	proposal := Proposal{
+		Block:    types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHash: types.Hash{2}}},
+		Round:    0,
+		Proposer: "a",
+	}
+	context := InvalidProposalVerificationContext{ExpectedValidatorSetHash: types.Hash{1}}
+	evidence, err := NewInvalidProposalHashEvidence(proposal, string(InvalidProposalReasonValidatorSetHash), types.Hash{1}, types.Hash{2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyInvalidProposalEvidenceWithBoundContext(evidence, context); !errors.Is(err, ErrInvalidProposalContext) {
+		t.Fatalf("expected unbound context error, got %v", err)
+	}
+	bound, err := BindInvalidProposalEvidenceContext(evidence, context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyInvalidProposalEvidenceWithBoundContext(bound, context); err != nil {
+		t.Fatalf("expected bound context evidence to verify, got %v", err)
+	}
+}
+
 func TestInvalidProposalEvidenceWithContextBuildsReasonSpecificProof(t *testing.T) {
 	proposal := Proposal{
 		Block: types.Block{
