@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/committee"
@@ -45,6 +46,7 @@ type Runtime struct {
 	UpgradeHalted      bool
 	currentBaseFee     uint64
 	currentBlobBaseFee uint64
+	reconcileFailures  uint64
 }
 
 type stagedValidatorUpdateRegistry interface {
@@ -303,14 +305,16 @@ func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Bloc
 	if err := commitStore.CommitBlockStateWithWrites(ctx, writes, blockRecord, stateRecord, stateRoots); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
-	if stagedValidatorRegistry != nil {
-		if err := stagedValidatorRegistry.CommitStagedValidatorUpdates(ctx, validatorUpdateHeight, response.ValidatorUpdates); err != nil {
-			return app.FinalizeBlockResponse{}, err
-		}
-	}
 	application.CommitStagedBlock(block.Header.Height, response.AppHash)
 	runtime.currentBaseFee = nextBaseFee
 	runtime.currentBlobBaseFee = nextBlobBaseFee
+	if stagedValidatorRegistry != nil {
+		if err := stagedValidatorRegistry.CommitStagedValidatorUpdates(ctx, validatorUpdateHeight, response.ValidatorUpdates); err != nil {
+			atomic.AddUint64(&runtime.reconcileFailures, 1)
+			_, _ = runtime.Recover(ctx)
+			return response, nil
+		}
+	}
 	return response, nil
 }
 
@@ -650,5 +654,12 @@ func (runtime *Runtime) Recover(ctx context.Context) (store.StateRecord, error) 
 	} else if state.BlobBaseFee > 0 {
 		runtime.currentBlobBaseFee = state.BlobBaseFee
 	}
+	if state.Height > 0 && runtime.Validators != nil {
+		runtime.Validators.SetEffectiveHeight(state.Height + 1)
+	}
 	return state, nil
+}
+
+func (runtime *Runtime) PostCommitReconciliationFailures() uint64 {
+	return atomic.LoadUint64(&runtime.reconcileFailures)
 }

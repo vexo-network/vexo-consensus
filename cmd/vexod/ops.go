@@ -86,6 +86,7 @@ func runOpsThresholds(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "snapshot_required: %t\n", thresholds.SnapshotRequired)
 	fmt.Fprintf(writer, "replay_healthy_required: %t\n", thresholds.ReplayHealthyRequired)
 	fmt.Fprintf(writer, "validator_signing_failures <= %d\n", thresholds.MaxValidatorSigningFailures)
+	fmt.Fprintf(writer, "post_commit_reconciliation_failures <= %d\n", thresholds.MaxReconciliationFailures)
 	return nil
 }
 
@@ -450,6 +451,7 @@ func runOpsAlerts(writer io.Writer, args []string) error {
 	snapshotHealthy := flags.Bool("snapshot-healthy", false, "whether snapshot export/verify is healthy")
 	replayHealthy := flags.Bool("replay-healthy", false, "whether replay/recovery is healthy")
 	signingFailures := flags.Uint64("signing-failures", 0, "validator signing failures")
+	reconciliationFailures := flags.Uint64("reconciliation-failures", 0, "post-commit reconciliation failures")
 	metricsFile := flags.String("metrics-file", "", "current /metrics JSON file to evaluate")
 	previousMetricsFile := flags.String("previous-metrics-file", "", "previous /metrics JSON file for rate deltas")
 	windowValue := flags.String("window", "1m", "elapsed time between previous and current metrics files")
@@ -468,6 +470,7 @@ func runOpsAlerts(writer io.Writer, args []string) error {
 		SnapshotHealthy:          *snapshotHealthy,
 		ReplayHealthy:            *replayHealthy,
 		ValidatorSigningFailures: *signingFailures,
+		ReconciliationFailures:   *reconciliationFailures,
 	}
 	if *metricsFile != "" {
 		derived, err := readOpsMetricsSample(*metricsFile, *previousMetricsFile, *windowValue)

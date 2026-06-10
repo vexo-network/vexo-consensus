@@ -78,3 +78,13 @@ Tài liệu này giúp hiểu pipeline phát hành với binary đã ký, checks
 ## Nguồn chuẩn
 
 - [English canonical document](../../en/release/release-pipeline.md)
+
+## Thuật ngữ attestation cho bằng chứng release
+
+Với bản phát hành công khai, mỗi mục trong `evidence-manifest.json` phải được xác minh bằng chữ ký Ed25519. Giữ nguyên các cờ CLI và trường JSON sau, không dịch.
+
+- `--signing-key`
+- `--signing-key-env`
+- `signature_algorithm`
+- `signature_public_key`
+- `vexo-release-evidence-attestation-v1`

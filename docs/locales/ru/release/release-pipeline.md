@@ -78,3 +78,13 @@
 ## Канонический источник
 
 - [English canonical document](../../en/release/release-pipeline.md)
+
+## Термины attestation для release evidence
+
+Для публичного релиза каждая запись в `evidence-manifest.json` должна проверяться подписью Ed25519. Следующие CLI-флаги и JSON-поля нужно оставлять без перевода.
+
+- `--signing-key`
+- `--signing-key-env`
+- `signature_algorithm`
+- `signature_public_key`
+- `vexo-release-evidence-attestation-v1`

@@ -78,3 +78,13 @@
 ## Canonical source
 
 - [English canonical document](../../en/release/release-pipeline.md)
+
+## रिलीज़ evidence attestation शब्द
+
+सार्वजनिक रिलीज़ में `evidence-manifest.json` की हर entry Ed25519 signature से verify होनी चाहिए। नीचे दिए गए CLI flags और JSON fields को translate न करें।
+
+- `--signing-key`
+- `--signing-key-env`
+- `signature_algorithm`
+- `signature_public_key`
+- `vexo-release-evidence-attestation-v1`

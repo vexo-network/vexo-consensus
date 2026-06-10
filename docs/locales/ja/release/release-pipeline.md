@@ -78,3 +78,13 @@
 ## 正規原文
 
 - [English canonical document](../../en/release/release-pipeline.md)
+
+## リリース証拠 attestation 用語
+
+公開リリースでは、`evidence-manifest.json` の各項目が Ed25519 署名で検証される必要があります。次の CLI フラグと JSON フィールドは翻訳せず、そのまま保持します。
+
+- `--signing-key`
+- `--signing-key-env`
+- `signature_algorithm`
+- `signature_public_key`
+- `vexo-release-evidence-attestation-v1`

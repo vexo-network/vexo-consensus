@@ -180,8 +180,9 @@ type StateBackendInfo struct {
 }
 
 type ethereumStateSnapshotMeta struct {
-	Height    uint64 `json:"height"`
-	StateRoot string `json:"state_root"`
+	Height          uint64 `json:"height"`
+	StateRoot       string `json:"state_root"`
+	ReferenceHeight uint64 `json:"reference_height,omitempty"`
 }
 
 func NewModule() Module {
@@ -1816,10 +1817,11 @@ func ethereumAccountAtHeight(ctx context.Context, stateStore vexoapp.StateStore,
 	if height == 0 {
 		return ethereumAccountFromCurrentState(ctx, stateStore, address)
 	}
-	if _, err := ethereumStateSnapshotMetaAt(ctx, stateStore, height); err != nil {
+	accountHeight, err := ethereumStateSnapshotAccountHeight(ctx, stateStore, height)
+	if err != nil {
 		return ethcompat.AccountState{}, false, err
 	}
-	value, err := stateStore.Get(ctx, ethereumStateSnapshotNamespace, ethereumStateSnapshotAccountKey(height, address))
+	value, err := stateStore.Get(ctx, ethereumStateSnapshotNamespace, ethereumStateSnapshotAccountKey(accountHeight, address))
 	if errors.Is(err, vexostore.ErrKeyNotFound) {
 		return ethcompat.AccountState{}, false, nil
 	}
@@ -1918,6 +1920,17 @@ func persistEthereumStateSnapshot(ctx context.Context, stateStore vexoapp.StateS
 		return err
 	}
 	meta := ethereumStateSnapshotMeta{Height: height, StateRoot: root}
+	if height > 0 {
+		previousMeta, err := ethereumStateSnapshotMetaAt(ctx, stateStore, height-1)
+		if err == nil && previousMeta.StateRoot == root {
+			meta.ReferenceHeight = previousMeta.Height
+			if previousMeta.ReferenceHeight > 0 {
+				meta.ReferenceHeight = previousMeta.ReferenceHeight
+			}
+		} else if err != nil && !errors.Is(err, vexostore.ErrKeyNotFound) {
+			return err
+		}
+	}
 	encodedMeta, err := json.Marshal(meta)
 	if err != nil {
 		return err
@@ -1927,16 +1940,18 @@ func persistEthereumStateSnapshot(ctx context.Context, stateStore vexoapp.StateS
 		Key:       ethereumStateSnapshotMetaKey(height),
 		Value:     encodedMeta,
 	}}
-	for _, account := range accounts {
-		encodedAccount, err := json.Marshal(account)
-		if err != nil {
-			return err
+	if meta.ReferenceHeight == 0 {
+		for _, account := range accounts {
+			encodedAccount, err := json.Marshal(account)
+			if err != nil {
+				return err
+			}
+			writes = append(writes, vexostore.KVWrite{
+				Namespace: ethereumStateSnapshotNamespace,
+				Key:       ethereumStateSnapshotAccountKey(height, types.Address(account.Address)),
+				Value:     encodedAccount,
+			})
 		}
-		writes = append(writes, vexostore.KVWrite{
-			Namespace: ethereumStateSnapshotNamespace,
-			Key:       ethereumStateSnapshotAccountKey(height, types.Address(account.Address)),
-			Value:     encodedAccount,
-		})
 	}
 	return applyKVWrites(ctx, stateStore, writes)
 }
@@ -1963,18 +1978,22 @@ func ethereumStateSnapshotMetaAt(ctx context.Context, stateStore vexoapp.StateSt
 	if meta.Height != height || meta.StateRoot == "" {
 		return ethereumStateSnapshotMeta{}, ErrInvalidEVMQuery
 	}
+	if meta.ReferenceHeight >= height && meta.ReferenceHeight != 0 {
+		return ethereumStateSnapshotMeta{}, ErrInvalidEVMQuery
+	}
 	return meta, nil
 }
 
 func ethereumAccountsFromSnapshot(ctx context.Context, stateStore vexoapp.StateStore, height uint64) ([]ethcompat.AccountState, error) {
-	if _, err := ethereumStateSnapshotMetaAt(ctx, stateStore, height); err != nil {
+	accountHeight, err := ethereumStateSnapshotAccountHeight(ctx, stateStore, height)
+	if err != nil {
 		return nil, err
 	}
 	prefixStore, ok := stateStore.(vexostore.PrefixKVStore)
 	if !ok {
 		return nil, ErrStoreMissing
 	}
-	pairs, err := prefixStore.ExportPrefix(ctx, ethereumStateSnapshotNamespace, ethereumStateSnapshotAccountPrefix(height))
+	pairs, err := prefixStore.ExportPrefix(ctx, ethereumStateSnapshotNamespace, ethereumStateSnapshotAccountPrefix(accountHeight))
 	if err != nil {
 		return nil, err
 	}
@@ -1990,6 +2009,30 @@ func ethereumAccountsFromSnapshot(ctx context.Context, stateStore vexoapp.StateS
 		accounts = append(accounts, account)
 	}
 	return accounts, nil
+}
+
+func ethereumStateSnapshotAccountHeight(ctx context.Context, stateStore vexoapp.StateStore, height uint64) (uint64, error) {
+	meta, err := ethereumStateSnapshotMetaAt(ctx, stateStore, height)
+	if err != nil {
+		return 0, err
+	}
+	root := meta.StateRoot
+	visited := map[uint64]struct{}{height: {}}
+	for meta.ReferenceHeight > 0 {
+		if _, duplicate := visited[meta.ReferenceHeight]; duplicate {
+			return 0, ErrInvalidEVMQuery
+		}
+		visited[meta.ReferenceHeight] = struct{}{}
+		nextMeta, err := ethereumStateSnapshotMetaAt(ctx, stateStore, meta.ReferenceHeight)
+		if err != nil {
+			return 0, err
+		}
+		if nextMeta.StateRoot != root {
+			return 0, ErrInvalidEVMQuery
+		}
+		meta = nextMeta
+	}
+	return meta.Height, nil
 }
 
 func ethereumAccountsFromStore(ctx context.Context, stateStore vexoapp.StateStore) ([]ethcompat.AccountState, error) {

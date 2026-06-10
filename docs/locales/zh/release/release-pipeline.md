@@ -78,3 +78,13 @@
 ## 规范来源
 
 - [English canonical document](../../en/release/release-pipeline.md)
+
+## 发布证据 attestation 术语
+
+公开发布时，`evidence-manifest.json` 中的每个条目都必须通过 Ed25519 签名验证。下面的 CLI 标志和 JSON 字段应保持原样，不要翻译。
+
+- `--signing-key`
+- `--signing-key-env`
+- `signature_algorithm`
+- `signature_public_key`
+- `vexo-release-evidence-attestation-v1`

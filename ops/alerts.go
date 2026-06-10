@@ -28,6 +28,7 @@ type Thresholds struct {
 	SnapshotRequired            bool          `json:"snapshot_required"`
 	ReplayHealthyRequired       bool          `json:"replay_healthy_required"`
 	MaxValidatorSigningFailures uint64        `json:"max_validator_signing_failures"`
+	MaxReconciliationFailures   uint64        `json:"max_post_commit_reconciliation_failures"`
 }
 
 type Sample struct {
@@ -41,6 +42,7 @@ type Sample struct {
 	SnapshotHealthy          bool          `json:"snapshot_healthy"`
 	ReplayHealthy            bool          `json:"replay_healthy"`
 	ValidatorSigningFailures uint64        `json:"validator_signing_failures"`
+	ReconciliationFailures   uint64        `json:"post_commit_reconciliation_failures"`
 }
 
 type Alert struct {
@@ -68,6 +70,7 @@ func DefaultThresholds() Thresholds {
 		SnapshotRequired:            true,
 		ReplayHealthyRequired:       true,
 		MaxValidatorSigningFailures: 0,
+		MaxReconciliationFailures:   0,
 	}
 }
 
@@ -120,6 +123,9 @@ func Evaluate(sample Sample, thresholds Thresholds) (Report, error) {
 	}
 	if sample.ValidatorSigningFailures > thresholds.MaxValidatorSigningFailures {
 		add(Alert{Name: "validator_signing_failures", Severity: SeverityCritical, Value: formatUint(sample.ValidatorSigningFailures), Threshold: "<=" + formatUint(thresholds.MaxValidatorSigningFailures), Message: "validator signer or KMS is failing"})
+	}
+	if sample.ReconciliationFailures > thresholds.MaxReconciliationFailures {
+		add(Alert{Name: "post_commit_reconciliation", Severity: SeverityCritical, Value: formatUint(sample.ReconciliationFailures), Threshold: "<=" + formatUint(thresholds.MaxReconciliationFailures), Message: "post-commit reconciliation recovered from a partial durable commit and needs operator review"})
 	}
 	return report, nil
 }

@@ -19,6 +19,7 @@ type MetricsSnapshot struct {
 	SnapshotHealthy      bool    `json:"snapshot_healthy"`
 	ReplayHealthy        bool    `json:"replay_healthy"`
 	SigningFailures      uint64  `json:"validator_signing_failures"`
+	ReconciliationFails  uint64  `json:"post_commit_reconciliation_failures"`
 }
 
 func SampleFromMetricsSnapshot(previous *MetricsSnapshot, current MetricsSnapshot, window time.Duration) (Sample, error) {
@@ -32,6 +33,7 @@ func SampleFromMetricsSnapshot(previous *MetricsSnapshot, current MetricsSnapsho
 		SnapshotHealthy:          current.SnapshotHealthy,
 		ReplayHealthy:            current.ReplayHealthy,
 		ValidatorSigningFailures: current.SigningFailures,
+		ReconciliationFailures:   current.ReconciliationFails,
 	}
 	if previous == nil {
 		sample.RoundTimeoutsPerMinute = float64(current.RoundTimeouts)

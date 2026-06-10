@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -582,11 +584,21 @@ func runReleaseEvidenceManifest(writer io.Writer, args []string) error {
 	distDir := flags.String("dist", "dist", "release dist directory")
 	outputPath := flags.String("output", "", "output JSON path; defaults to <dist>/evidence-manifest.json")
 	requireAny := flags.Bool("require-any", false, "fail when no known evidence artifacts are found")
+	signingKeyPath := flags.String("signing-key", "", "optional Ed25519 private key/seed file for evidence attestation")
+	signingKeyEnv := flags.String("signing-key-env", "", "optional environment variable containing an Ed25519 private key/seed")
 	jsonOutput := flags.Bool("json", false, "write the generated manifest JSON to stdout")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	manifest, err := buildReleaseEvidenceManifest(*distDir)
+	options := releaseEvidenceManifestOptions{}
+	if *signingKeyPath != "" || *signingKeyEnv != "" {
+		privateKey, err := loadReleaseEvidenceSigningKey(*signingKeyPath, *signingKeyEnv)
+		if err != nil {
+			return err
+		}
+		options.SigningPrivateKey = privateKey
+	}
+	manifest, err := buildReleaseEvidenceManifestWithOptions(*distDir, options)
 	if err != nil {
 		return err
 	}
@@ -616,6 +628,10 @@ func runReleaseEvidenceManifest(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "path: %s\n", path)
 	fmt.Fprintf(writer, "evidence: %d\n", len(manifest.Evidence))
 	return nil
+}
+
+type releaseEvidenceManifestOptions struct {
+	SigningPrivateKey ed25519.PrivateKey
 }
 
 type releaseCollectedEvidence struct {
@@ -1128,6 +1144,10 @@ func buildReleaseGateDocument(versionValue string, pack releaseAuditPack, inputs
 }
 
 func buildReleaseEvidenceManifest(distDir string) (releasegate.EvidenceManifest, error) {
+	return buildReleaseEvidenceManifestWithOptions(distDir, releaseEvidenceManifestOptions{})
+}
+
+func buildReleaseEvidenceManifestWithOptions(distDir string, options releaseEvidenceManifestOptions) (releasegate.EvidenceManifest, error) {
 	manifest := releasegate.EvidenceManifest{
 		SchemaVersion: "v1",
 		GeneratedAt:   time.Now().UTC().Format(time.RFC3339),
@@ -1141,13 +1161,21 @@ func buildReleaseEvidenceManifest(distDir string) (releasegate.EvidenceManifest,
 		if err != nil {
 			return releasegate.EvidenceManifest{}, err
 		}
-		manifest.Evidence = append(manifest.Evidence, releasegate.EvidenceManifestEntry{
+		entry := releasegate.EvidenceManifestEntry{
 			Name:          candidate.Name,
 			Path:          path,
 			SHA256:        sum,
 			SchemaVersion: "v1",
 			Provenance:    "vexod release evidence-manifest",
-		})
+		}
+		if len(options.SigningPrivateKey) == ed25519.PrivateKeySize {
+			publicKey := options.SigningPrivateKey.Public().(ed25519.PublicKey)
+			signature := ed25519.Sign(options.SigningPrivateKey, releasegate.EvidenceManifestEntrySigningMessage(entry))
+			entry.SignatureAlgo = "ed25519"
+			entry.SignaturePubKey = base64.StdEncoding.EncodeToString(publicKey)
+			entry.Signature = base64.StdEncoding.EncodeToString(signature)
+		}
+		manifest.Evidence = append(manifest.Evidence, entry)
 		signaturePath := path + ".sig"
 		if fileExists(signaturePath) {
 			signatureSum, err := fileSHA256(signaturePath)
@@ -1157,12 +1185,78 @@ func buildReleaseEvidenceManifest(distDir string) (releasegate.EvidenceManifest,
 			last := len(manifest.Evidence) - 1
 			manifest.Evidence[last].SignaturePath = signaturePath
 			manifest.Evidence[last].SignatureSHA256 = signatureSum
+			if publicKey := releaseEvidenceSignaturePublicKey(path); publicKey != "" {
+				manifest.Evidence[last].SignatureAlgo = "ed25519"
+				manifest.Evidence[last].SignaturePubKey = publicKey
+			}
 		}
 	}
 	sort.Slice(manifest.Evidence, func(left int, right int) bool {
 		return manifest.Evidence[left].Name < manifest.Evidence[right].Name
 	})
 	return manifest, nil
+}
+
+func releaseEvidenceSignaturePublicKey(artifactPath string) string {
+	for _, candidate := range []string{artifactPath + ".sig.pub", artifactPath + ".pub"} {
+		data, err := os.ReadFile(candidate)
+		if err == nil {
+			return strings.TrimSpace(string(data))
+		}
+	}
+	return ""
+}
+
+func loadReleaseEvidenceSigningKey(path string, envName string) (ed25519.PrivateKey, error) {
+	if path != "" && envName != "" {
+		return nil, errors.New("use only one of --signing-key or --signing-key-env")
+	}
+	var raw []byte
+	var err error
+	if envName != "" {
+		value := strings.TrimSpace(os.Getenv(envName))
+		if value == "" {
+			return nil, fmt.Errorf("release evidence signing key env %s is empty", envName)
+		}
+		raw = []byte(value)
+	} else {
+		raw, err = os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+	}
+	keyBytes, err := decodeReleaseEvidenceKeyBytes(string(raw))
+	if err != nil {
+		return nil, err
+	}
+	switch len(keyBytes) {
+	case ed25519.SeedSize:
+		return ed25519.NewKeyFromSeed(keyBytes), nil
+	case ed25519.PrivateKeySize:
+		return ed25519.PrivateKey(keyBytes), nil
+	default:
+		return nil, fmt.Errorf("release evidence signing key must be %d-byte seed or %d-byte private key", ed25519.SeedSize, ed25519.PrivateKeySize)
+	}
+}
+
+func decodeReleaseEvidenceKeyBytes(value string) ([]byte, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil, errors.New("empty release evidence signing key")
+	}
+	if decoded, err := base64.StdEncoding.DecodeString(trimmed); err == nil {
+		return decoded, nil
+	}
+	if decoded, err := base64.RawStdEncoding.DecodeString(trimmed); err == nil {
+		return decoded, nil
+	}
+	if decoded, err := base64.RawURLEncoding.DecodeString(trimmed); err == nil {
+		return decoded, nil
+	}
+	if decoded, err := hex.DecodeString(trimmed); err == nil {
+		return decoded, nil
+	}
+	return nil, errors.New("release evidence signing key must be base64 or hex encoded")
 }
 
 type releaseEvidenceCandidate struct {

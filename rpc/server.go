@@ -150,6 +150,7 @@ type MetricsResponse struct {
 	SnapshotHealthy         bool    `json:"snapshot_healthy"`
 	ReplayHealthy           bool    `json:"replay_healthy"`
 	SigningFailures         uint64  `json:"validator_signing_failures"`
+	ReconciliationFailures  uint64  `json:"post_commit_reconciliation_failures"`
 }
 
 type DiagnosticsResponse struct {

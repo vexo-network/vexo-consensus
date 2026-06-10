@@ -503,23 +503,24 @@ func TestHandlerReportsNotReadyWhenNodeStopped(t *testing.T) {
 
 func TestHandlerReportsMetrics(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{metrics: node.Metrics{
-		ChainID:              "vexo-test",
-		Running:              true,
-		StartedAtUnix:        1710000000,
-		UptimeSeconds:        42,
-		DataDir:              "/tmp/vexo",
-		LatestHeight:         9,
-		LatestAppHash:        types.Hash{1, 2, 3},
-		EarliestBlockHeight:  1,
-		LatestBlockHeight:    9,
-		TotalBlocks:          9,
-		ValidatorCount:       4,
-		TotalVotingPower:     100,
-		ValidatorSetHash:     types.Hash{4, 5, 6},
-		PeerCount:            3,
-		BannedPeers:          1,
-		PeerWindowMessages:   12,
-		ConsensusLoopRunning: true,
+		ChainID:                "vexo-test",
+		Running:                true,
+		StartedAtUnix:          1710000000,
+		UptimeSeconds:          42,
+		DataDir:                "/tmp/vexo",
+		LatestHeight:           9,
+		LatestAppHash:          types.Hash{1, 2, 3},
+		EarliestBlockHeight:    1,
+		LatestBlockHeight:      9,
+		TotalBlocks:            9,
+		ValidatorCount:         4,
+		TotalVotingPower:       100,
+		ValidatorSetHash:       types.Hash{4, 5, 6},
+		PeerCount:              3,
+		BannedPeers:            1,
+		PeerWindowMessages:     12,
+		ConsensusLoopRunning:   true,
+		ReconciliationFailures: 2,
 	}})
 
 	var metrics MetricsResponse
@@ -527,7 +528,7 @@ func TestHandlerReportsMetrics(t *testing.T) {
 	if metrics.ChainID != "vexo-test" || !metrics.Running || metrics.StartedAtUnix != 1710000000 || metrics.UptimeSeconds != 42 || metrics.LatestHeight != 9 || metrics.TotalBlocks != 9 {
 		t.Fatalf("unexpected metrics identity: %+v", metrics)
 	}
-	if metrics.ValidatorCount != 4 || metrics.TotalVotingPower != 100 || metrics.PeerCount != 3 || metrics.BannedPeers != 1 || !metrics.ConsensusLoopRunning {
+	if metrics.ValidatorCount != 4 || metrics.TotalVotingPower != 100 || metrics.PeerCount != 3 || metrics.BannedPeers != 1 || !metrics.ConsensusLoopRunning || metrics.ReconciliationFailures != 2 {
 		t.Fatalf("unexpected metrics counters: %+v", metrics)
 	}
 	if metrics.LatestAppHash[:6] != "010203" || metrics.ValidatorSetHash[:6] != "040506" {
@@ -537,19 +538,20 @@ func TestHandlerReportsMetrics(t *testing.T) {
 
 func TestHandlerReportsMetricsText(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{metrics: node.Metrics{
-		Running:              true,
-		StartedAtUnix:        1710000000,
-		UptimeSeconds:        42,
-		LatestHeight:         9,
-		EarliestBlockHeight:  1,
-		LatestBlockHeight:    9,
-		TotalBlocks:          9,
-		ValidatorCount:       4,
-		TotalVotingPower:     100,
-		PeerCount:            3,
-		BannedPeers:          1,
-		PeerWindowMessages:   12,
-		ConsensusLoopRunning: true,
+		Running:                true,
+		StartedAtUnix:          1710000000,
+		UptimeSeconds:          42,
+		LatestHeight:           9,
+		EarliestBlockHeight:    1,
+		LatestBlockHeight:      9,
+		TotalBlocks:            9,
+		ValidatorCount:         4,
+		TotalVotingPower:       100,
+		PeerCount:              3,
+		BannedPeers:            1,
+		PeerWindowMessages:     12,
+		ConsensusLoopRunning:   true,
+		ReconciliationFailures: 2,
 	}})
 
 	body := getText(t, handler, "/metrics/text", http.StatusOK)
@@ -566,6 +568,7 @@ func TestHandlerReportsMetricsText(t *testing.T) {
 		"vexo_banned_peers 1",
 		"vexo_peer_window_messages 12",
 		"vexo_consensus_loop_running 1",
+		"vexo_post_commit_reconciliation_failures 2",
 	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("expected metrics text to contain %q, got:\n%s", expected, body)

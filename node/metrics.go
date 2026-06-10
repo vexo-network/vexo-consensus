@@ -41,6 +41,7 @@ type Metrics struct {
 	SnapshotHealthy         bool
 	ReplayHealthy           bool
 	SigningFailures         uint64
+	ReconciliationFailures  uint64
 }
 
 func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
@@ -92,6 +93,7 @@ func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
 	if runtime.Mempool != nil {
 		metrics.MempoolSize = uint64(runtime.Mempool.Len())
 	}
+	metrics.ReconciliationFailures = runtime.PostCommitReconciliationFailures()
 	index, err := runtime.BlockIndex(ctx)
 	if err == nil {
 		metrics.EarliestBlockHeight = index.EarliestHeight

@@ -78,3 +78,13 @@ Ce document aide à comprendre le pipeline de release avec binaires signés, che
 ## Source canonique
 
 - [English canonical document](../../en/release/release-pipeline.md)
+
+## Termes d’attestation des preuves de release
+
+Pour une publication publique, chaque entrée de `evidence-manifest.json` doit être vérifiée par une signature Ed25519. Conservez les indicateurs CLI et champs JSON suivants sans traduction.
+
+- `--signing-key`
+- `--signing-key-env`
+- `signature_algorithm`
+- `signature_public_key`
+- `vexo-release-evidence-attestation-v1`

@@ -78,3 +78,13 @@ Dokumen ini membantu memahami pipeline rilis dengan binary bertanda tangan, chec
 ## Sumber kanonik
 
 - [English canonical document](../../en/release/release-pipeline.md)
+
+## Istilah attestation bukti rilis
+
+Untuk rilis publik, setiap entri di `evidence-manifest.json` harus diverifikasi dengan tanda tangan Ed25519. Biarkan flag CLI dan field JSON berikut tanpa diterjemahkan.
+
+- `--signing-key`
+- `--signing-key-env`
+- `signature_algorithm`
+- `signature_public_key`
+- `vexo-release-evidence-attestation-v1`

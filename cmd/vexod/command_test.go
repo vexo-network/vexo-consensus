@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -33,6 +34,8 @@ import (
 	"github.com/vexo-network/vexo-consensus/transport"
 	"github.com/vexo-network/vexo-consensus/types"
 )
+
+var commandReleaseTestPrivateKey = ed25519.NewKeyFromSeed(bytes.Repeat([]byte{9}, ed25519.SeedSize))
 
 func TestRunCommandHelpAndVersion(t *testing.T) {
 	for _, args := range [][]string{{"help"}, {"--help"}, {"-h"}} {
@@ -935,6 +938,43 @@ func TestRunReleaseEvidenceManifestGeneratesHashes(t *testing.T) {
 	}
 }
 
+func TestRunReleaseEvidenceManifestSignsEntries(t *testing.T) {
+	dist := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dist, "longrun-evidence.json"), releaseEvidenceFixture("longrun-evidence.json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seed := bytes.Repeat([]byte{11}, ed25519.SeedSize)
+	t.Setenv("VEXO_TEST_RELEASE_EVIDENCE_KEY", base64.StdEncoding.EncodeToString(seed))
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"release", "evidence-manifest",
+		"--dist", dist,
+		"--signing-key-env", "VEXO_TEST_RELEASE_EVIDENCE_KEY",
+		"--json",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var manifest releasegate.EvidenceManifest
+	if err := json.Unmarshal(output.Bytes(), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Evidence) != 1 {
+		t.Fatalf("unexpected signed manifest: %+v", manifest)
+	}
+	entry := manifest.Evidence[0]
+	signature, err := base64.StdEncoding.DecodeString(entry.Signature)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKey, err := base64.StdEncoding.DecodeString(entry.SignaturePubKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.SignatureAlgo != "ed25519" || !ed25519.Verify(ed25519.PublicKey(publicKey), releasegate.EvidenceManifestEntrySigningMessage(entry), signature) {
+		t.Fatalf("expected verifiable Ed25519 evidence attestation: %+v", entry)
+	}
+}
+
 func TestCollectedReleaseEvidenceDocumentsPassSemanticGate(t *testing.T) {
 	observations := []releaseRPCObservation{{
 		RPC: "http://validator-1:26657",
@@ -1041,14 +1081,23 @@ func writeReleaseEvidenceManifest(dist string, files []string) error {
 			SHA256:        hex.EncodeToString(sum[:]),
 			SchemaVersion: "v1",
 			Provenance:    "test harness",
-			Signature:     "test-signature-" + hex.EncodeToString(sum[:8]),
 		})
+		last := len(manifest.Evidence) - 1
+		signCommandReleaseEvidenceEntry(&manifest.Evidence[last])
 	}
 	encoded, err := json.Marshal(manifest)
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dist, "evidence-manifest.json"), encoded, 0o644)
+}
+
+func signCommandReleaseEvidenceEntry(entry *releasegate.EvidenceManifestEntry) {
+	publicKey := commandReleaseTestPrivateKey.Public().(ed25519.PublicKey)
+	signature := ed25519.Sign(commandReleaseTestPrivateKey, releasegate.EvidenceManifestEntrySigningMessage(*entry))
+	entry.SignatureAlgo = "ed25519"
+	entry.SignaturePubKey = base64.StdEncoding.EncodeToString(publicKey)
+	entry.Signature = base64.StdEncoding.EncodeToString(signature)
 }
 
 func releaseEvidenceFixture(name string) []byte {

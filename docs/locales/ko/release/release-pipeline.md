@@ -82,3 +82,13 @@
 ## 규범 원문
 
 - [English canonical document](../../en/release/release-pipeline.md)
+
+## 릴리즈 증거 attestation 용어
+
+공개 릴리즈에서는 `evidence-manifest.json` 항목이 Ed25519 서명으로 검증되어야 합니다. 아래 CLI 플래그와 JSON 필드는 번역하지 말고 그대로 유지합니다.
+
+- `--signing-key`
+- `--signing-key-env`
+- `signature_algorithm`
+- `signature_public_key`
+- `vexo-release-evidence-attestation-v1`

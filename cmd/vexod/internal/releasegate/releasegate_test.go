@@ -1,12 +1,17 @@
 package releasegate
 
 import (
+	"bytes"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
 )
+
+var releaseGateTestPrivateKey = ed25519.NewKeyFromSeed(bytes.Repeat([]byte{7}, ed25519.SeedSize))
 
 func TestBuildPassesWithAllEvidence(t *testing.T) {
 	evidence := completeReleaseGateEvidence(false)
@@ -331,6 +336,28 @@ func TestBuildRequiresAttestedEvidenceManifestForPublicRelease(t *testing.T) {
 	}
 }
 
+func TestBuildRejectsTamperedEvidenceManifestSignature(t *testing.T) {
+	evidence := completeReleaseGateEvidence(false)
+	files := completeReleaseGateEvidenceFiles(false)
+	var manifest EvidenceManifest
+	if err := json.Unmarshal(releaseGateManifestForEvidence(files), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	manifest.Evidence[0].Signature = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0}, ed25519.SignatureSize))
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files["evidence-manifest.json"] = data
+	evidence.ReadFile = func(path string) ([]byte, error) {
+		return files[path], nil
+	}
+	document := Build("v1.2.3", Pack{OK: true}, evidence)
+	if document.OK || releaseGateCheckOK(document.Checks, "evidence_manifest_attestation") {
+		t.Fatalf("expected public release to reject tampered evidence signature: %+v", document.Checks)
+	}
+}
+
 func checkOK(checks []Check, name string) bool {
 	return releaseGateCheckOK(checks, name)
 }
@@ -411,11 +438,20 @@ func releaseGateManifestForEvidence(files map[string][]byte) []byte {
 			SHA256:        hex.EncodeToString(sum[:]),
 			SchemaVersion: "v1",
 			Provenance:    "test harness",
-			Signature:     "test-signature-" + hex.EncodeToString(sum[:8]),
 		})
+		last := len(entries) - 1
+		signReleaseGateEvidenceEntry(&entries[last])
 	}
 	encoded, _ := json.Marshal(EvidenceManifest{SchemaVersion: "v1", Evidence: entries})
 	return encoded
+}
+
+func signReleaseGateEvidenceEntry(entry *EvidenceManifestEntry) {
+	publicKey := releaseGateTestPrivateKey.Public().(ed25519.PublicKey)
+	signature := ed25519.Sign(releaseGateTestPrivateKey, EvidenceManifestEntrySigningMessage(*entry))
+	entry.SignatureAlgo = evidenceManifestSignatureAlgorithmEd25519
+	entry.SignaturePubKey = base64.StdEncoding.EncodeToString(publicKey)
+	entry.Signature = base64.StdEncoding.EncodeToString(signature)
 }
 
 func releaseGateManifestWithoutAttestation(files map[string][]byte) []byte {

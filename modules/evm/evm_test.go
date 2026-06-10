@@ -1376,6 +1376,45 @@ func TestModulePersistsHistoricalEthereumStateSnapshots(t *testing.T) {
 	}
 }
 
+func TestModuleReusesUnchangedEthereumStateSnapshotAccounts(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := NewModule()
+	address := types.Address("0x000000000000000000000000000000000000beef")
+	setTestEVMBalance(t, storage, address, 10)
+	if err := module.EndBlock(vexoapp.Context{Ctx: context.Background(), Height: 1, Store: storage}); err != nil {
+		t.Fatal(err)
+	}
+	if err := module.EndBlock(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := ethereumStateSnapshotMetaAt(context.Background(), storage, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.ReferenceHeight != 1 {
+		t.Fatalf("expected unchanged snapshot to reference height 1, got %+v", meta)
+	}
+	if _, err := storage.Get(context.Background(), ethereumStateSnapshotNamespace, ethereumStateSnapshotAccountKey(2, address)); !errors.Is(err, store.ErrKeyNotFound) {
+		t.Fatalf("expected no duplicate account snapshot at height 2, got %v", err)
+	}
+	request, _ := json.Marshal(ProofRequest{Address: string(address), Height: 2})
+	query := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}, vexoapp.QueryRequest{Path: []string{"eth_proof"}, Data: request})
+	if query.Code != 0 {
+		t.Fatalf("unexpected referenced proof query: %+v", query)
+	}
+	var proof ethcompat.AccountProof
+	if err := json.Unmarshal(query.Value, &proof); err != nil {
+		t.Fatal(err)
+	}
+	if proof.Balance != "0xa" {
+		t.Fatalf("unexpected referenced snapshot proof: %+v", proof)
+	}
+}
+
 func TestModuleSnapshotsUseStagedStoreOverlay(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {

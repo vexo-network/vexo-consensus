@@ -18,12 +18,13 @@ func TestEvaluateReportsOperationalRisk(t *testing.T) {
 		SnapshotHealthy:          false,
 		ReplayHealthy:            false,
 		ValidatorSigningFailures: 1,
+		ReconciliationFailures:   1,
 	}, DefaultThresholds())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.OK || len(report.Alerts) != 10 {
-		t.Fatalf("expected 10 alerts, got %+v", report)
+	if report.OK || len(report.Alerts) != 11 {
+		t.Fatalf("expected 11 alerts, got %+v", report)
 	}
 }
 
@@ -62,6 +63,7 @@ func TestSampleFromMetricsSnapshotCalculatesRates(t *testing.T) {
 		SnapshotHealthy:      true,
 		ReplayHealthy:        true,
 		SigningFailures:      1,
+		ReconciliationFails:  2,
 	}
 	sample, err := SampleFromMetricsSnapshot(&previous, current, 2*time.Minute)
 	if err != nil {
@@ -70,7 +72,7 @@ func TestSampleFromMetricsSnapshotCalculatesRates(t *testing.T) {
 	if sample.HeightRatePerMinute != 3 || sample.RoundTimeoutsPerMinute != 1.5 {
 		t.Fatalf("unexpected rates: %+v", sample)
 	}
-	if sample.ProposalLatency != 250*time.Millisecond || sample.PeerBans != 2 || sample.ValidatorSigningFailures != 1 {
+	if sample.ProposalLatency != 250*time.Millisecond || sample.PeerBans != 2 || sample.ValidatorSigningFailures != 1 || sample.ReconciliationFailures != 2 {
 		t.Fatalf("unexpected sample fields: %+v", sample)
 	}
 }

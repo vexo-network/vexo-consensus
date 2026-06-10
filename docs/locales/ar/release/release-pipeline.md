@@ -78,3 +78,13 @@
 ## المصدر المعتمد
 
 - [English canonical document](../../en/release/release-pipeline.md)
+
+## مصطلحات attestation لأدلة الإصدار
+
+في الإصدارات العامة يجب التحقق من كل عنصر داخل `evidence-manifest.json` بتوقيع Ed25519. اترك أعلام CLI وحقول JSON التالية كما هي من دون ترجمة.
+
+- `--signing-key`
+- `--signing-key-env`
+- `signature_algorithm`
+- `signature_public_key`
+- `vexo-release-evidence-attestation-v1`

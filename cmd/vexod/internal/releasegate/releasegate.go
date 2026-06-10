@@ -2,7 +2,9 @@ package releasegate
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"path/filepath"
@@ -69,8 +71,22 @@ type EvidenceManifestEntry struct {
 	SchemaVersion   string `json:"schema_version,omitempty"`
 	Provenance      string `json:"provenance,omitempty"`
 	Signature       string `json:"signature,omitempty"`
+	SignatureAlgo   string `json:"signature_algorithm,omitempty"`
+	SignaturePubKey string `json:"signature_public_key,omitempty"`
 	SignaturePath   string `json:"signature_path,omitempty"`
 	SignatureSHA256 string `json:"signature_sha256,omitempty"`
+}
+
+const evidenceManifestSignatureAlgorithmEd25519 = "ed25519"
+
+func EvidenceManifestEntrySigningMessage(entry EvidenceManifestEntry) []byte {
+	normalizedHash := strings.ToLower(strings.TrimSpace(entry.SHA256))
+	return []byte(strings.Join([]string{
+		"vexo-release-evidence-attestation-v1",
+		strings.TrimSpace(entry.Name),
+		strings.TrimSpace(entry.Path),
+		normalizedHash,
+	}, "\n") + "\n")
 }
 
 func Build(version string, pack Pack, evidence Evidence) Document {
@@ -223,7 +239,7 @@ func evidenceManifestAttestedOK(evidence Evidence) bool {
 		if strings.TrimSpace(entry.Provenance) == "" {
 			return false
 		}
-		if strings.TrimSpace(entry.Signature) == "" && !manifestEntrySignatureOK(entry, evidence) {
+		if !manifestEntrySignatureOK(entry, evidence) {
 			return false
 		}
 	}
@@ -231,23 +247,88 @@ func evidenceManifestAttestedOK(evidence Evidence) bool {
 }
 
 func manifestEntrySignatureOK(entry EvidenceManifestEntry, evidence Evidence) bool {
+	algorithm := strings.ToLower(strings.TrimSpace(entry.SignatureAlgo))
+	if algorithm == "" {
+		algorithm = evidenceManifestSignatureAlgorithmEd25519
+	}
+	if algorithm != evidenceManifestSignatureAlgorithmEd25519 {
+		return false
+	}
+	publicKey, ok := decodeEvidencePublicKey(entry.SignaturePubKey)
+	if !ok {
+		return false
+	}
+	signature, ok := evidenceManifestSignature(entry, evidence)
+	if !ok {
+		return false
+	}
+	return ed25519.Verify(publicKey, EvidenceManifestEntrySigningMessage(entry), signature)
+}
+
+func evidenceManifestSignature(entry EvidenceManifestEntry, evidence Evidence) ([]byte, bool) {
+	inline := strings.TrimSpace(entry.Signature)
+	if inline != "" {
+		return decodeEvidenceSignature(inline)
+	}
 	path := strings.TrimSpace(entry.SignaturePath)
 	expected := strings.ToLower(strings.TrimSpace(entry.SignatureSHA256))
 	if path == "" || expected == "" || evidence.Exists == nil || evidence.ReadFile == nil || !evidence.Exists(path) {
-		return false
+		return nil, false
 	}
 	if len(expected) != 64 {
-		return false
+		return nil, false
 	}
 	if _, err := hex.DecodeString(expected); err != nil {
-		return false
+		return nil, false
 	}
 	data, err := evidence.ReadFile(path)
 	if err != nil {
-		return false
+		return nil, false
 	}
 	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:]) == expected
+	if hex.EncodeToString(sum[:]) != expected {
+		return nil, false
+	}
+	if len(data) == ed25519.SignatureSize {
+		return data, true
+	}
+	return decodeEvidenceSignature(string(data))
+}
+
+func decodeEvidencePublicKey(value string) (ed25519.PublicKey, bool) {
+	data, ok := decodeEvidenceBytes(value)
+	if !ok || len(data) != ed25519.PublicKeySize {
+		return nil, false
+	}
+	return ed25519.PublicKey(data), true
+}
+
+func decodeEvidenceSignature(value string) ([]byte, bool) {
+	data, ok := decodeEvidenceBytes(value)
+	if !ok || len(data) != ed25519.SignatureSize {
+		return nil, false
+	}
+	return data, true
+}
+
+func decodeEvidenceBytes(value string) ([]byte, bool) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil, false
+	}
+	if decoded, err := base64.StdEncoding.DecodeString(trimmed); err == nil {
+		return decoded, true
+	}
+	if decoded, err := base64.RawStdEncoding.DecodeString(trimmed); err == nil {
+		return decoded, true
+	}
+	if decoded, err := base64.RawURLEncoding.DecodeString(trimmed); err == nil {
+		return decoded, true
+	}
+	if decoded, err := hex.DecodeString(trimmed); err == nil {
+		return decoded, true
+	}
+	return nil, false
 }
 
 func evidenceFileManifestOK(name string, path string, data []byte, evidence Evidence) bool {

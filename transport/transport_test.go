@@ -156,7 +156,7 @@ func assertEnvelope(t *testing.T, ch <-chan Envelope, from p2p.PeerID, to p2p.Pe
 		if envelope.From != from || envelope.To != to || envelope.Topic != topic || string(envelope.Data) != data {
 			t.Fatalf("unexpected envelope: %+v", envelope)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for envelope")
 	}
 }

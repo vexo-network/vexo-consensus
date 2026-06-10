@@ -55,7 +55,10 @@ go run ./cmd/vexod release collect-evidence \
   --rpc http://validator-2.example:26657 \
   --duration 1h \
   --dist dist
-go run ./cmd/vexod release evidence-manifest --dist dist --output dist/evidence-manifest.json
+go run ./cmd/vexod release evidence-manifest \
+  --dist dist \
+  --output dist/evidence-manifest.json \
+  --signing-key-env VEXO_RELEASE_EVIDENCE_SIGNING_KEY
 make release-evidence-manifest
 ```
 
@@ -103,7 +106,9 @@ go run ./cmd/vexod release gate \
   --json
 ```
 
-`release gate` fails closed when required evidence is missing, empty, malformed, explicitly reports a failed `ok`/`status`/check result, does not semantically cover the evidence category it claims to satisfy, is not bound to `evidence-manifest.json` by SHA-256, or is prepared for a public version without manifest entry provenance plus detached/signature attestation. `--allow-external-pending` requires both `--private-rc` and a private/RC-style version label containing `rc`, `alpha`, `beta`, or `private`; do not use it for public production launch gates.
+`release gate` fails closed when required evidence is missing, empty, malformed, explicitly reports a failed `ok`/`status`/check result, does not semantically cover the evidence category it claims to satisfy, is not bound to `evidence-manifest.json` by SHA-256, or is prepared for a public version without manifest entry provenance plus a verified Ed25519 evidence attestation. `--allow-external-pending` requires both `--private-rc` and a private/RC-style version label containing `rc`, `alpha`, `beta`, or `private`; do not use it for public production launch gates.
+
+Evidence attestation signs the canonical tuple `name`, `path`, and `sha256` for each manifest entry with domain `vexo-release-evidence-attestation-v1`. `release evidence-manifest` accepts a 32-byte Ed25519 seed or 64-byte private key in hex/base64 through `--signing-key` or `--signing-key-env`. Detached signatures are also supported when `<evidence-file>.sig` is paired with `<evidence-file>.sig.pub` or `<evidence-file>.pub`; both files must decode to a valid Ed25519 signature/public key pair and the signature file SHA-256 must match the manifest.
 
 ## Artifacts
 
@@ -116,7 +121,7 @@ go run ./cmd/vexod release gate \
 - `sbom-go-version.txt`
 - `release-manifest.json`
 - `release-audit-pack.json`
-- `evidence-manifest.json`, binding each release evidence file name/path to its SHA-256 hash, provenance, and public-release attestation. If `<evidence-file>.sig` exists next to an evidence file, `release evidence-manifest` records the detached signature path and signature SHA-256 so `release gate` can verify that attestation before publication.
+- `evidence-manifest.json`, binding each release evidence file name/path to its SHA-256 hash, provenance, signature algorithm, public key, and verified public-release attestation. If `<evidence-file>.sig` exists next to an evidence file, `release evidence-manifest` records the detached signature path and signature SHA-256; `release gate` verifies the Ed25519 signature before publication.
 - `longrun-analysis.json` and optional `docs-quality.json` when produced by the release pipeline
 - long-run, chaos, adversarial, fuzz, signer, snapshot/replay, P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, SDK conformance including EVM/Web3 conformance, external-audit, and BLS-audit evidence files with passing content when preparing a release candidate
 

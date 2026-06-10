@@ -84,6 +84,7 @@ func metricsResponse(metrics node.Metrics) MetricsResponse {
 		SnapshotHealthy:         metrics.SnapshotHealthy,
 		ReplayHealthy:           metrics.ReplayHealthy,
 		SigningFailures:         metrics.SigningFailures,
+		ReconciliationFailures:  metrics.ReconciliationFailures,
 	}
 }
 
@@ -179,6 +180,7 @@ func metricsText(metrics node.Metrics) string {
 	writeGauge("vexo_snapshot_healthy", "Whether snapshot verification is healthy.", boolGauge(metrics.SnapshotHealthy))
 	writeGauge("vexo_replay_healthy", "Whether replay verification is healthy.", boolGauge(metrics.ReplayHealthy))
 	writeGauge("vexo_validator_signing_failures", "Validator signing failures.", metrics.SigningFailures)
+	writeGauge("vexo_post_commit_reconciliation_failures", "Post-commit reconciliation failures recovered from durable state.", metrics.ReconciliationFailures)
 	fmt.Fprintf(&builder, "# HELP vexo_height_rate_per_minute Height increase rate per minute.\n")
 	fmt.Fprintf(&builder, "# TYPE vexo_height_rate_per_minute gauge\n")
 	fmt.Fprintf(&builder, "vexo_height_rate_per_minute %.6f\n", metrics.HeightRatePerMinute)
