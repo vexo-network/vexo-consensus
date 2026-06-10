@@ -186,7 +186,9 @@ type ethereumStateSnapshotMeta struct {
 
 func NewModule() Module {
 	registry := contract.NewRegistry()
-	_ = registry.Register(gethbackend.New())
+	if err := registry.Register(gethbackend.New()); err != nil {
+		panic(fmt.Sprintf("register geth EVM backend: %v", err))
+	}
 	return Module{registry: registry, policy: DefaultPolicy()}
 }
 
@@ -1855,19 +1857,23 @@ func persistEthereumStateSnapshot(ctx context.Context, stateStore vexoapp.StateS
 	if err != nil {
 		return err
 	}
-	if err := stateStore.Set(ctx, ethereumStateSnapshotNamespace, ethereumStateSnapshotMetaKey(height), encodedMeta); err != nil {
-		return err
-	}
+	writes := []vexostore.KVWrite{{
+		Namespace: ethereumStateSnapshotNamespace,
+		Key:       ethereumStateSnapshotMetaKey(height),
+		Value:     encodedMeta,
+	}}
 	for _, account := range accounts {
 		encodedAccount, err := json.Marshal(account)
 		if err != nil {
 			return err
 		}
-		if err := stateStore.Set(ctx, ethereumStateSnapshotNamespace, ethereumStateSnapshotAccountKey(height, types.Address(account.Address)), encodedAccount); err != nil {
-			return err
-		}
+		writes = append(writes, vexostore.KVWrite{
+			Namespace: ethereumStateSnapshotNamespace,
+			Key:       ethereumStateSnapshotAccountKey(height, types.Address(account.Address)),
+			Value:     encodedAccount,
+		})
 	}
-	return nil
+	return applyKVWrites(ctx, stateStore, writes)
 }
 
 func ethereumAccountsForProof(ctx context.Context, stateStore vexoapp.StateStore, height uint64) ([]ethcompat.AccountState, error) {

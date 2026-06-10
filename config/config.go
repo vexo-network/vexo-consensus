@@ -92,13 +92,14 @@ const (
 )
 
 const (
-	NetworkSafeVRFAdapterECVRFP256 = "ecvrf-p256-sha256-tai-v1"
-	NetworkSafeVRFAuditReport      = "built-in-ecvrf-p256-runtime-validation"
-	NetworkSafeVRFKeySource        = "local-encrypted-or-remote-kms"
-	NetworkSafeBLSAdapterBLST      = "blst-bls12381-minpk-v1"
-	NetworkSafeBLSAuditReport      = "ncc-group-blst-security-assessment"
-	NetworkSafeBLSDependencyAudit  = "github.com/supranational/blst@v0.3.16"
-	NetworkSafeBLSAuditEvidence    = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	NetworkSafeVRFAdapterECVRFP256  = "ecvrf-p256-sha256-tai-v1"
+	NetworkSafeVRFAuditReport       = "built-in-ecvrf-p256-runtime-validation"
+	NetworkSafeVRFKeySource         = "local-encrypted-or-remote-kms"
+	NetworkSafeBLSAdapterBLST       = "blst-bls12381-minpk-v1"
+	NetworkSafeBLSAuditReport       = "ncc-group-blst-security-assessment"
+	NetworkSafeBLSDependencyAudit   = "github.com/supranational/blst@v0.3.16"
+	NetworkSafeBLSAuditEvidence     = "fe4310147a3d182952ba9a44ab94e6fe9fb2c160913248984973cd052b2dfb95"
+	NetworkSafeBLSAuditEvidencePath = "docs/security/blst-audit-evidence.json"
 )
 
 type CryptoConfig struct {
@@ -348,7 +349,7 @@ func (config Config) ValidateNetworkSafety() error {
 	if config.Crypto.AdapterName == "" || config.Crypto.AuditReport == "" || config.Crypto.DependencyAudit == "" {
 		return ErrUnsafeNetworkConfig
 	}
-	if !validSHA256Hex(config.Crypto.AuditEvidenceSHA256) {
+	if !validSHA256Hex(config.Crypto.AuditEvidenceSHA256) || unsafeAuditEvidenceDigest(config.Crypto.AuditEvidenceSHA256) {
 		return ErrUnsafeNetworkConfig
 	}
 	if strings.HasPrefix(config.Crypto.AdapterName, "circl-bls12381-") {
@@ -394,6 +395,18 @@ func validSHA256Hex(value string) bool {
 	}
 	decoded, err := hex.DecodeString(value)
 	return err == nil && len(decoded) == 32
+}
+
+func unsafeAuditEvidenceDigest(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "",
+		"0000000000000000000000000000000000000000000000000000000000000000",
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef":
+		return true
+	default:
+		return false
+	}
 }
 
 func validCryptoBackend(backend CryptoBackend) bool {

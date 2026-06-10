@@ -218,6 +218,12 @@ func runOpsConformance(writer io.Writer, args []string) error {
 		}
 		document.EVMFixtures = &report
 		document.addCheck("evm_transaction_fixtures", "error", report.OK, "Ethereum raw transaction fixtures must decode, validate, match expected outcomes, and cover required transaction categories")
+		if *strict && *evmDefaultFixtures {
+			document.addCheck("evm_external_transaction_fixture_corpus", "error", false, "strict EVM/Web3 conformance requires an external raw transaction fixture file or deterministic fixture directory with SHA-256 pinning")
+		}
+		if *strict && (*evmFixtures != "" || *evmFixtureDir != "") && *evmFixturesSHA256 == "" {
+			document.addCheck("evm_transaction_fixture_digest_pinning", "error", false, "strict EVM/Web3 conformance requires SHA-256 pinning for the external raw transaction fixture corpus")
+		}
 		var executionReport gethbackend.ExecutionConformanceReport
 		if *evmExecutionFixtures != "" {
 			raw, readErr := os.ReadFile(*evmExecutionFixtures)
@@ -247,6 +253,12 @@ func runOpsConformance(writer io.Writer, args []string) error {
 		}
 		document.EVMExecution = &executionReport
 		document.addCheck("evm_execution_fixtures", "error", executionReport.OK, "geth EVM execution fixtures must cover call/create/create2, revert data, storage, gas, logs, value transfer, precompile, access-list, and blob-hash semantics")
+		if *strict && *evmExecutionFixtures == "" && *evmExecutionFixtureDir == "" {
+			document.addCheck("evm_external_execution_fixture_corpus", "error", false, "strict EVM/Web3 conformance requires an external geth VM execution fixture file or deterministic fixture directory with SHA-256 pinning")
+		}
+		if *strict && (*evmExecutionFixtures != "" || *evmExecutionFixtureDir != "") && *evmExecutionFixturesSHA256 == "" {
+			document.addCheck("evm_execution_fixture_digest_pinning", "error", false, "strict EVM/Web3 conformance requires SHA-256 pinning for the external geth VM execution fixture corpus")
+		}
 		document.Summary = append(document.Summary, "evm web3 ethereum raw transaction fixtures vm execution evidence")
 		document.SDKSurface = append(document.SDKSurface, "evm", "web3", "ethereum", "raw transaction", "vm execution")
 	} else if evmModuleEnabled {
@@ -270,9 +282,18 @@ func runOpsConformance(writer io.Writer, args []string) error {
 	if *jsonOutput {
 		encoder := json.NewEncoder(writer)
 		encoder.SetIndent("", "  ")
-		return encoder.Encode(document)
+		if err := encoder.Encode(document); err != nil {
+			return err
+		}
+		if *strict && !document.OK {
+			return fmt.Errorf("ops conformance strict checks failed: %w", errValidationFailed)
+		}
+		return nil
 	}
 	writeOpsConformance(writer, document)
+	if *strict && !document.OK {
+		return fmt.Errorf("ops conformance strict checks failed: %w", errValidationFailed)
+	}
 	return nil
 }
 

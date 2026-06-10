@@ -1089,6 +1089,7 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 		MaxPeers:        runtimeConfig.P2PMaxPeers,
 		AuthToken:       runtimeConfig.P2PAuthToken,
 		TLSConfig:       tlsConfig,
+		RequireTLS:      requiresAuthenticatedP2P(runtimeConfig),
 		PeerLearned: func(peerID p2p.PeerID, address string) {
 			addrBook.Add(peerID, address, "handshake", false)
 			_ = addrBook.Save()

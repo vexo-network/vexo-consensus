@@ -47,6 +47,7 @@ var (
 	ErrAuthTokenMismatch   = errors.New("p2p auth token mismatch")
 	ErrMessageTooLarge     = errors.New("p2p message too large")
 	ErrPeerBackoffActive   = errors.New("peer reconnect backoff active")
+	ErrTLSRequired         = errors.New("p2p tls is required")
 )
 
 type Handshake struct {
@@ -71,6 +72,7 @@ type GRPCConfig struct {
 	GenesisHash       string
 	MaxMessageBytes   uint64
 	TLSConfig         *tls.Config
+	RequireTLS        bool
 	MaxPeers          int
 	ReconnectBackoff  time.Duration
 	ReconnectInterval time.Duration
@@ -397,6 +399,9 @@ func NewGRPCTransport(config GRPCConfig) (*GRPCTransport, error) {
 		config.ReconnectInterval = defaultReconnectInterval
 	}
 	tlsConfig := cloneGRPCTLSConfig(config.TLSConfig)
+	if config.RequireTLS && tlsConfig == nil {
+		return nil, ErrTLSRequired
+	}
 	peers := make(map[p2p.PeerID]string, len(config.Peers))
 	peerOrder := make([]p2p.PeerID, 0, len(config.Peers))
 	for peerID, address := range config.Peers {

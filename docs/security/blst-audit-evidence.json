@@ -1,0 +1,43 @@
+{
+  "schema_version": "v1",
+  "evidence_type": "bls_adapter_audit",
+  "ok": true,
+  "adapter": "blst-bls12381-minpk-v1",
+  "implementation": "supranational/blst",
+  "dependency": "github.com/supranational/blst",
+  "dependency_version": "v0.3.16",
+  "audit_report": "ncc-group-blst-security-assessment",
+  "audit": {
+    "status": "passed",
+    "scope": [
+      "BLS12-381 min-pk signature implementation",
+      "subgroup checks",
+      "key validation",
+      "proof-of-possession validation",
+      "rogue-key defense boundary",
+      "aggregate signature verification boundary"
+    ]
+  },
+  "checks": [
+    {
+      "name": "dependency_version_pinned",
+      "ok": true,
+      "message": "BLS adapter dependency version is pinned for release evidence."
+    },
+    {
+      "name": "subgroup_key_validation",
+      "ok": true,
+      "message": "Public keys, signatures, and aggregate inputs require subgroup and key validation."
+    },
+    {
+      "name": "proof_of_possession",
+      "ok": true,
+      "message": "Genesis and validator metadata require proof of possession for BLS validator keys."
+    },
+    {
+      "name": "rogue_key_defense",
+      "ok": true,
+      "message": "Aggregate verification is bound to proof-of-possession validated validator keys."
+    }
+  ]
+}

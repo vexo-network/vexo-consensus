@@ -456,24 +456,25 @@ func (module *Module) ApplySlashingPenalty(ctx context.Context, store vexoapp.St
 		writes = append(writes, kvbatch.KVWrite{Namespace: ModuleName, Key: tombstoneKey(receipt.Evidence.Validator), Value: encodeUint64(uint64(receipt.Evidence.Height))})
 	}
 	snapshot, ok := store.(vexostore.SnapshotKVStore)
-	if ok {
-		pairs, err := snapshot.ExportNamespace(ctx, ModuleName)
-		if err != nil {
-			return err
+	if !ok {
+		return ErrStakingSnapshot
+	}
+	pairs, err := snapshot.ExportNamespace(ctx, ModuleName)
+	if err != nil {
+		return err
+	}
+	for _, delegation := range delegationsForValidator(pairs, receipt.Evidence.Validator) {
+		nextStake := proportionalShare(delegation.stake, uint64(receipt.RemainingPower), uint64(receipt.PreviousPower))
+		write := kvbatch.KVWrite{
+			Namespace: ModuleName,
+			Key:       stakeKey(delegation.delegator, delegation.validatorID),
+			Value:     encodeUint64(nextStake),
 		}
-		for _, delegation := range delegationsForValidator(pairs, receipt.Evidence.Validator) {
-			nextStake := proportionalShare(delegation.stake, uint64(receipt.RemainingPower), uint64(receipt.PreviousPower))
-			write := kvbatch.KVWrite{
-				Namespace: ModuleName,
-				Key:       stakeKey(delegation.delegator, delegation.validatorID),
-				Value:     encodeUint64(nextStake),
-			}
-			if nextStake == 0 {
-				write.Delete = true
-				write.Value = nil
-			}
-			writes = append(writes, write)
+		if nextStake == 0 {
+			write.Delete = true
+			write.Value = nil
 		}
+		writes = append(writes, write)
 	}
 	return applyAtomicWrites(ctx, store, writes)
 }

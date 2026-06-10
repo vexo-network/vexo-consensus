@@ -198,7 +198,7 @@ func TestValidateNetworkSafetyAcceptsHardenedBLSTConfig(t *testing.T) {
 	cfg.Crypto.AdapterName = "blst-bls12381-minpk-v1"
 	cfg.Crypto.AuditReport = "ncc-group-blst-security-assessment"
 	cfg.Crypto.DependencyAudit = "github.com/supranational/blst@v0.3.16"
-	cfg.Crypto.AuditEvidenceSHA256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	cfg.Crypto.AuditEvidenceSHA256 = NetworkSafeBLSAuditEvidence
 	cfg.Committee.Backend = committee.BackendVRF
 	cfg.VRF.ProductionAdapter = true
 	cfg.VRF.AuditReport = "vrf-audit-2026"
@@ -243,6 +243,15 @@ func TestValidateNetworkSafetyRejectsBLSWithoutAuditEvidenceDigest(t *testing.T)
 
 	if err := cfg.ValidateNetworkSafety(); !errors.Is(err, ErrUnsafeNetworkConfig) {
 		t.Fatalf("expected missing BLS audit evidence digest rejection, got %v", err)
+	}
+}
+
+func TestValidateNetworkSafetyRejectsPlaceholderBLSAuditEvidenceDigest(t *testing.T) {
+	cfg := NetworkSafeTemplate("vexo-test", "/var/lib/vexo")
+	cfg.Crypto.AuditEvidenceSHA256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+	if err := cfg.ValidateNetworkSafety(); !errors.Is(err, ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected placeholder BLS audit evidence digest rejection, got %v", err)
 	}
 }
 

@@ -110,6 +110,23 @@ func (storage *nonBatchStore) Delete(ctx context.Context, namespace string, key 
 	return nil
 }
 
+func (storage *nonBatchStore) ExportPrefix(ctx context.Context, namespace string, prefix []byte) ([]store.KVPair, error) {
+	rawPrefix := namespace + "/" + string(prefix)
+	pairs := make([]store.KVPair, 0)
+	for rawKey, value := range storage.values {
+		if !strings.HasPrefix(rawKey, rawPrefix) {
+			continue
+		}
+		key := strings.TrimPrefix(rawKey, namespace+"/")
+		pairs = append(pairs, store.KVPair{
+			Namespace: namespace,
+			Key:       []byte(key),
+			Value:     append([]byte(nil), value...),
+		})
+	}
+	return pairs, nil
+}
+
 type bigBalanceVM struct {
 	balance *big.Int
 }
@@ -1398,6 +1415,19 @@ func TestEVMWritesRequireAtomicBatchStore(t *testing.T) {
 	}
 	if _, err := storage.Get(context.Background(), ModuleName, []byte("a")); err == nil {
 		t.Fatalf("expected no partial EVM write on non-batch store")
+	}
+}
+
+func TestEthereumStateSnapshotRequiresAtomicBatchStore(t *testing.T) {
+	storage := newNonBatchStore()
+	address := types.Address("0x0000000000000000000000000000000000000abc")
+	setTestEVMBalance(t, storage, address, 25)
+	err := persistEthereumStateSnapshot(context.Background(), storage, 7)
+	if !errors.Is(err, ErrAtomicStoreRequired) {
+		t.Fatalf("expected atomic store error, got %v", err)
+	}
+	if _, err := storage.Get(context.Background(), ethereumStateSnapshotNamespace, ethereumStateSnapshotMetaKey(7)); err == nil {
+		t.Fatalf("expected no partial EVM snapshot metadata on non-batch store")
 	}
 }
 

@@ -12,10 +12,13 @@ RELEASE_TARGETS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 IMAGE ?= vexo-consensus
 IMAGE_TAG ?= $(VERSION)
 GPG ?= gpg
-RC_DRY_RUN ?= 0
-RC_DRY_RUN_FLAG = $(if $(filter 1 true yes,$(RC_DRY_RUN)),--dry-run,)
+RC_LOAD_DURATION ?= 1h
+RC_LONGRUN_DURATION ?= 168h
+RC_CHAOS_DURATION ?= 24h
+RC_RATE ?= 50
+RC_EVM_CONFORMANCE_FLAGS ?=
 
-.PHONY: all build test vet check docs-check evm-conformance fuzz-smoke ops-verify network-e2e coverage release checksums sbom release-manifest release-audit-pack release-evidence-manifest sign-release docker-image release-candidate release-candidate-real clean
+.PHONY: all build test vet check docs-check evm-conformance fuzz-smoke ops-verify network-e2e coverage release checksums sbom release-manifest release-audit-pack release-evidence-manifest sign-release docker-image release-candidate release-candidate-real release-candidate-plan clean
 
 all: check build
 
@@ -134,17 +137,28 @@ docker-image:
 		-t $(IMAGE):$(IMAGE_TAG) .
 
 release-candidate: release ops-verify network-e2e
+	test -n "$(RC_EVM_CONFORMANCE_FLAGS)"
 	rm -rf /tmp/vexo-rc-conformance
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod init validator --home /tmp/vexo-rc-conformance --chain-id vexo-rc --validator validator-1 --overwrite
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod ops conformance --home /tmp/vexo-rc-conformance --evm-default-fixtures --json > $(DIST_DIR)/sdk-conformance-evidence.json
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network load --validators 4 --duration 10m --rate 25 $(RC_DRY_RUN_FLAG)
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network longrun --validators 4 --duration 10m --rate 25 --output $(DIST_DIR)/longrun-evidence.json $(RC_DRY_RUN_FLAG)
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network chaos-plan --validators 4 --duration 24h --regions 3
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network longrun-plan --validators 4 --duration 168h --regions 3 --hosts 4
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod ops conformance --home /tmp/vexo-rc-conformance --strict $(RC_EVM_CONFORMANCE_FLAGS) --json > $(DIST_DIR)/sdk-conformance-evidence.json
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network load --validators 4 --duration $(RC_LOAD_DURATION) --rate $(RC_RATE)
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network longrun --validators 4 --duration $(RC_LONGRUN_DURATION) --rate $(RC_RATE) --output $(DIST_DIR)/longrun-evidence.json
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network chaos-plan --validators 4 --duration $(RC_CHAOS_DURATION) --regions 3
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network longrun-plan --validators 4 --duration $(RC_LONGRUN_DURATION) --regions 3 --hosts 4
 	$(MAKE) release-evidence-manifest
 
 release-candidate-real:
-	$(MAKE) release-candidate RC_DRY_RUN=0
+	$(MAKE) release-candidate
+
+release-candidate-plan: release ops-verify
+	rm -rf /tmp/vexo-rc-conformance
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod init validator --home /tmp/vexo-rc-conformance --chain-id vexo-rc --validator validator-1 --overwrite
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod ops conformance --home /tmp/vexo-rc-conformance --evm-default-fixtures --json > $(DIST_DIR)/sdk-conformance-evidence.json
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network load --validators 4 --duration 10m --rate 25 --dry-run
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network longrun --validators 4 --duration 10m --rate 25 --output $(DIST_DIR)/longrun-evidence.json --dry-run
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network chaos-plan --validators 4 --duration $(RC_CHAOS_DURATION) --regions 3
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network longrun-plan --validators 4 --duration $(RC_LONGRUN_DURATION) --regions 3 --hosts 4
+	$(MAKE) release-evidence-manifest
 
 clean:
 	rm -rf $(BUILD_DIR) $(DIST_DIR) $(GOCACHE_DIR) coverage.out coverage.html

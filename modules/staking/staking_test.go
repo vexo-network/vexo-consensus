@@ -417,6 +417,32 @@ func TestStakingSlashingBatchFailureDoesNotMutateState(t *testing.T) {
 	}
 }
 
+func TestStakingSlashingRequiresSnapshotStore(t *testing.T) {
+	storage := newBatchOnlyStore()
+	module := NewModule()
+	if err := setStake(context.Background(), storage, "alice", "validator-1", 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := setValidatorPower(context.Background(), storage, "validator-1", 100); err != nil {
+		t.Fatal(err)
+	}
+	err := module.ApplySlashingPenalty(context.Background(), storage, testSlashReceipt("validator-1", 100, 50))
+	if !errors.Is(err, ErrStakingSnapshot) {
+		t.Fatalf("expected snapshot store requirement, got %v", err)
+	}
+	stake, err := Stake(context.Background(), storage, "alice", "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	power, err := ValidatorPower(context.Background(), storage, "validator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stake != 100 || power != 100 {
+		t.Fatalf("expected unchanged slash state, stake=%d power=%d", stake, power)
+	}
+}
+
 func TestStakingModuleQueries(t *testing.T) {
 	storage := newStakingStore(t)
 	module := NewModule()
@@ -870,4 +896,45 @@ type failingBatchStore struct {
 
 func (storage failingBatchStore) SetBatch(ctx context.Context, writes []kvbatch.KVWrite) error {
 	return storage.err
+}
+
+type batchOnlyStore struct {
+	values map[string][]byte
+}
+
+func newBatchOnlyStore() *batchOnlyStore {
+	return &batchOnlyStore{values: make(map[string][]byte)}
+}
+
+func (storage *batchOnlyStore) Set(ctx context.Context, namespace string, key []byte, value []byte) error {
+	storage.values[namespace+"/"+string(key)] = append([]byte(nil), value...)
+	return nil
+}
+
+func (storage *batchOnlyStore) Get(ctx context.Context, namespace string, key []byte) ([]byte, error) {
+	value, found := storage.values[namespace+"/"+string(key)]
+	if !found {
+		return nil, store.ErrKeyNotFound
+	}
+	return append([]byte(nil), value...), nil
+}
+
+func (storage *batchOnlyStore) Delete(ctx context.Context, namespace string, key []byte) error {
+	delete(storage.values, namespace+"/"+string(key))
+	return nil
+}
+
+func (storage *batchOnlyStore) SetBatch(ctx context.Context, writes []kvbatch.KVWrite) error {
+	for _, write := range writes {
+		if write.Delete {
+			if err := storage.Delete(ctx, write.Namespace, write.Key); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := storage.Set(ctx, write.Namespace, write.Key, write.Value); err != nil {
+			return err
+		}
+	}
+	return nil
 }

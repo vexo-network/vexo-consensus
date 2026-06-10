@@ -59,6 +59,7 @@ A production transport should provide:
 - metrics for latency, failures, and invalid messages
 - TLS or an equivalent authenticated encryption layer for public peer links
 - config-file wiring for cert/key/CA/server-name material instead of long-lived command-line overrides
+- `transport.GRPCConfig.RequireTLS` when the caller wants construction to fail instead of silently falling back to insecure gRPC credentials
 
 ## Compatibility
 

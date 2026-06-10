@@ -3404,6 +3404,40 @@ func TestOpsConformanceRunsDefaultEVMFixtures(t *testing.T) {
 	}
 }
 
+func TestOpsConformanceStrictRejectsDefaultOnlyEVMFixtures(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--overwrite"}); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := runOps(&output, []string{"conformance", "--home", home, "--evm-default-fixtures", "--strict", "--json"}); !errors.Is(err, errValidationFailed) {
+		t.Fatalf("expected strict validation failure, got %v", err)
+	}
+	var document opsConformanceDocument
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.OK {
+		t.Fatalf("expected strict default-only EVM conformance to fail: %+v", document)
+	}
+	foundTxExternal := false
+	foundExecutionExternal := false
+	for _, check := range document.Checks {
+		if check.Name == "evm_external_transaction_fixture_corpus" && !check.OK {
+			foundTxExternal = true
+		}
+		if check.Name == "evm_external_execution_fixture_corpus" && !check.OK {
+			foundExecutionExternal = true
+		}
+	}
+	if !foundTxExternal || !foundExecutionExternal {
+		t.Fatalf("expected strict external fixture checks, got %+v", document.Checks)
+	}
+}
+
 func TestOpsConformanceRunsCustomEVMExecutionFixtures(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {

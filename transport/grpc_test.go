@@ -595,6 +595,9 @@ func TestGRPCTransportValidationAndContext(t *testing.T) {
 	if _, err := NewGRPCTransport(GRPCConfig{}); !errors.Is(err, ErrPeerIDRequired) {
 		t.Fatalf("expected peer id required, got %v", err)
 	}
+	if _, err := NewGRPCTransport(GRPCConfig{PeerID: "alice", RequireTLS: true}); !errors.Is(err, ErrTLSRequired) {
+		t.Fatalf("expected tls required, got %v", err)
+	}
 	alice, err := NewGRPCTransport(GRPCConfig{PeerID: "alice", ListenAddr: "127.0.0.1:0"})
 	if err != nil {
 		t.Fatal(err)
