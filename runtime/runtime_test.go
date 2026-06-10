@@ -43,6 +43,13 @@ func TestRuntimeNewRequiresDurableStore(t *testing.T) {
 	}
 }
 
+func TestRuntimeNewEphemeralRejectsNetworkLikeChainID(t *testing.T) {
+	_, err := NewEphemeral(config.Default("vexo-chain"), noopApp{}, nil, nil)
+	if !errors.Is(err, ErrEphemeralRuntimeNotAllowed) {
+		t.Fatalf("expected ephemeral runtime opt-in error, got %v", err)
+	}
+}
+
 func TestRuntimeRejectsInvalidConfig(t *testing.T) {
 	_, err := NewEphemeral(config.Default(""), noopApp{}, nil, nil)
 	if !errors.Is(err, config.ErrMissingChainID) {

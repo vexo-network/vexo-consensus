@@ -166,6 +166,10 @@ type StateBackendInfo struct {
 	Name                    string   `json:"name"`
 	Version                 string   `json:"version"`
 	ExecutionBackend        string   `json:"execution_backend"`
+	GethModule              string   `json:"geth_module"`
+	GethVersion             string   `json:"geth_version"`
+	GethChecksum            string   `json:"geth_checksum,omitempty"`
+	GethReplace             string   `json:"geth_replace,omitempty"`
 	LinkedVMs               []string `json:"linked_vms,omitempty"`
 	AccountNamespace        string   `json:"account_namespace"`
 	AuthNamespace           string   `json:"auth_namespace"`
@@ -593,10 +597,15 @@ func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoap
 }
 
 func (module Module) queryStateBackend() vexoapp.QueryResponse {
+	gethDependency := gethbackend.GoEthereumDependencyInfo()
 	info := StateBackendInfo{
 		Name:                    "vexo-evm-state",
 		Version:                 "1",
 		ExecutionBackend:        "go-ethereum/core/vm",
+		GethModule:              gethDependency.Module,
+		GethVersion:             gethDependency.Version,
+		GethChecksum:            gethDependency.Sum,
+		GethReplace:             gethDependency.Replace,
 		AccountNamespace:        ModuleName,
 		AuthNamespace:           authNamespace,
 		EthereumSnapshotNS:      ethereumStateSnapshotNamespace,

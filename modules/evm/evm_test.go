@@ -214,7 +214,11 @@ func TestModuleStateBackendQueryDocumentsRuntimeContract(t *testing.T) {
 	if err := json.Unmarshal(response.Value, &info); err != nil {
 		t.Fatal(err)
 	}
-	if info.ExecutionBackend != "go-ethereum/core/vm" || !info.NativeCoinSharedWithEVM || info.NativeBalanceBits != 256 {
+	if info.ExecutionBackend != "go-ethereum/core/vm" ||
+		info.GethModule != "github.com/ethereum/go-ethereum" ||
+		info.GethVersion == "" ||
+		!info.NativeCoinSharedWithEVM ||
+		info.NativeBalanceBits != 256 {
 		t.Fatalf("unexpected state backend info: %+v", info)
 	}
 	if len(info.LinkedVMs) != 1 || info.LinkedVMs[0] != "evm" {

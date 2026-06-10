@@ -755,15 +755,34 @@ func evmCorpusEvidenceOK(item map[string]any) bool {
 
 func evmCorpusPartOK(item map[string]any) bool {
 	source, found := evidenceString(item["source"])
-	if !found || strings.TrimSpace(source) == "" {
+	if !found || !evmCorpusSourceOK(source) {
 		return false
 	}
 	digest, found := evidenceString(item["sha256"])
 	if !found || len(strings.TrimSpace(digest)) != 64 {
 		return false
 	}
-	_, err := hex.DecodeString(strings.TrimSpace(digest))
-	return err == nil
+	if _, err := hex.DecodeString(strings.TrimSpace(digest)); err != nil {
+		return false
+	}
+	fixtureCount, found := evidencePositiveNumber(item["fixture_count"])
+	return found && fixtureCount > 0
+}
+
+func evmCorpusSourceOK(source string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(source))
+	if normalized == "" {
+		return false
+	}
+	switch normalized {
+	case "default", "builtin", "built-in", "internal", "dry-run", "plan", "placeholder", "mock", "test":
+		return false
+	default:
+		return !strings.Contains(normalized, "dry-run") &&
+			!strings.Contains(normalized, "placeholder") &&
+			!strings.Contains(normalized, "built-in") &&
+			!strings.Contains(normalized, "builtin")
+	}
 }
 
 func evidenceRPCs(item map[string]any) []map[string]any {
@@ -793,6 +812,25 @@ func evidenceArray(value any) ([]any, bool) {
 func evidenceString(value any) (string, bool) {
 	item, ok := value.(string)
 	return item, ok
+}
+
+func evidencePositiveNumber(value any) (uint64, bool) {
+	switch number := value.(type) {
+	case float64:
+		if number <= 0 || number != float64(uint64(number)) {
+			return 0, false
+		}
+		return uint64(number), true
+	case uint64:
+		return number, number > 0
+	case int:
+		if number <= 0 {
+			return 0, false
+		}
+		return uint64(number), true
+	default:
+		return 0, false
+	}
 }
 
 func evidenceBoolFalse(value any) bool {

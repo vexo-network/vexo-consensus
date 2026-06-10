@@ -269,6 +269,13 @@ func TestGethBackendImplementsContractVM(t *testing.T) {
 	var _ contract.VM = New()
 }
 
+func TestGoEthereumDependencyInfo(t *testing.T) {
+	info := GoEthereumDependencyInfo()
+	if info.Module != GoEthereumModulePath || info.Version == "" {
+		t.Fatalf("unexpected go-ethereum dependency info: %+v", info)
+	}
+}
+
 func TestGethBackendChainConfigJSONValidation(t *testing.T) {
 	vm, err := NewWithChainConfigJSON(`{}`, 777)
 	if err != nil {

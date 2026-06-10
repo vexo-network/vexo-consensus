@@ -519,6 +519,14 @@ func NewServer(provider StatusProvider, cfg Config) *Server {
 	}
 }
 
+func NewNetworkSafeServer(provider StatusProvider, cfg Config) (*Server, error) {
+	server := NewServer(provider, NetworkSafeConfig(cfg))
+	if err := server.StartupError(); err != nil {
+		return nil, err
+	}
+	return server, nil
+}
+
 func (server *Server) Start(listener net.Listener) error {
 	if listener == nil {
 		return errors.New("listener is required")
@@ -566,6 +574,18 @@ func NewHandler(provider StatusProvider) http.Handler {
 func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 	filters, _ := newWeb3FilterStoreWithConfig(cfg)
 	return newHandlerWithConfig(provider, cfg, filters)
+}
+
+func NewNetworkSafeHandlerWithConfig(provider StatusProvider, cfg Config) (http.Handler, error) {
+	cfg = NetworkSafeConfig(cfg)
+	if err := validateRequiredCapabilities(provider, cfg); err != nil {
+		return nil, err
+	}
+	filters, err := newWeb3FilterStoreWithConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return newHandlerWithConfig(provider, cfg, filters), nil
 }
 
 func newHandlerWithConfig(provider StatusProvider, cfg Config, filters *web3FilterStore) http.Handler {

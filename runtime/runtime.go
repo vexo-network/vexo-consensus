@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 
 	"github.com/vexo-network/vexo-consensus/app"
@@ -25,6 +26,7 @@ import (
 
 var ErrAtomicAppCommitUnavailable = errors.New("atomic app block commit store is required")
 var ErrDurableStoreRequired = errors.New("durable store is required; use NewEphemeral only for isolated tests and examples")
+var ErrEphemeralRuntimeNotAllowed = errors.New("ephemeral runtime requires a test/example/demo chain id; use NewEphemeralForTesting for tests or NewNetworkSafeWithStore for nodes")
 var ErrUpgradeExecutorMissing = errors.New("upgrade executor is required")
 var ErrBlobGasLimitExceeded = errors.New("block blob gas exceeds configured max blob gas")
 var ErrValidatorRegistryCommitFailed = errors.New("validator registry post-commit reconciliation failed")
@@ -77,7 +79,20 @@ func NewEphemeralForTesting(cfg config.Config, application app.Application, init
 // or NewWithStoreAndCryptoRegistry so validator, governance, slashing, block,
 // state, and finality-proof data survive restart.
 func NewEphemeral(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower) (*Runtime, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	if !ephemeralChainIDAllowed(cfg.ChainID) {
+		return nil, ErrEphemeralRuntimeNotAllowed
+	}
 	return NewEphemeralForTesting(cfg, application, initialValidators, governancePower)
+}
+
+func ephemeralChainIDAllowed(chainID string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(chainID))
+	return strings.Contains(normalized, "test") ||
+		strings.Contains(normalized, "example") ||
+		strings.Contains(normalized, "demo")
 }
 
 func NewWithStore(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower, storage store.Store) (*Runtime, error) {

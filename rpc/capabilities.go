@@ -70,6 +70,20 @@ func validateRequiredCapabilities(provider StatusProvider, cfg Config) error {
 	return fmt.Errorf("%w: %s", ErrMissingRequiredCapability, strings.Join(capabilities.Missing, ","))
 }
 
+func RequiredCapabilityNames() []string {
+	names := make([]string, 0, len(providerCapabilityCatalog))
+	for _, capability := range providerCapabilityCatalog {
+		names = append(names, capability.name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func NetworkSafeConfig(cfg Config) Config {
+	cfg.RequireAllCapabilities = true
+	return cfg
+}
+
 func requiredCapabilitySet(cfg Config) map[string]bool {
 	required := make(map[string]bool)
 	if cfg.RequireAllCapabilities {

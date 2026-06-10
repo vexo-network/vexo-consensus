@@ -722,6 +722,48 @@ func TestServerStartupFailsWhenRequiredCapabilitiesAreMissing(t *testing.T) {
 	}
 }
 
+func TestNetworkSafeServerRequiresAllCapabilities(t *testing.T) {
+	_, err := NewNetworkSafeServer(struct{ StatusProvider }{fakeStatusProvider{status: node.Status{Running: true}}}, Config{})
+	if !errors.Is(err, ErrMissingRequiredCapability) {
+		t.Fatalf("expected missing capability error, got %v", err)
+	}
+}
+
+func TestNetworkSafeServerAcceptsFullProvider(t *testing.T) {
+	registry, err := validator.NewInMemoryRegistry(nil, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	validatorSet, err := registry.ValidatorSet(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewNetworkSafeServer(&fakeStatusProvider{
+		status:     node.Status{Running: true},
+		metrics:    node.Metrics{Running: true},
+		index:      store.BlockIndex{EarliestHeight: 1, LatestHeight: 1, TotalBlocks: 1},
+		validators: validatorSet,
+		committee: committee.Committee{Members: []committee.Member{
+			{Validator: validator.Validator{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1}, Weight: 1},
+		}},
+	}, Config{})
+	if err != nil {
+		t.Fatalf("expected full provider to pass network-safe startup: %v", err)
+	}
+	if server.StartupError() != nil {
+		t.Fatalf("unexpected startup error: %v", server.StartupError())
+	}
+}
+
+func TestNetworkSafeHandlerRequiresAllCapabilities(t *testing.T) {
+	_, err := NewNetworkSafeHandlerWithConfig(struct{ StatusProvider }{fakeStatusProvider{status: node.Status{Running: true}}}, Config{})
+	if !errors.Is(err, ErrMissingRequiredCapability) {
+		t.Fatalf("expected missing capability error, got %v", err)
+	}
+}
+
 func TestHandlerAppliesRequestTimeoutContext(t *testing.T) {
 	deadline := make(chan bool, 1)
 	cancelled := make(chan struct{})
