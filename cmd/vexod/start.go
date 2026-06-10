@@ -468,6 +468,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			Web3SubscriptionMaxPerConn:  runtimeConfig.RPCWeb3MaxSubscriptions,
 			Web3SubscriptionIdleTimeout: runtimeConfig.RPCWeb3IdleTimeout,
 			Web3FilterSnapshotPath:      runtimeConfig.RPCWeb3FilterSnapshot,
+			RequireAllCapabilities:      runtimeConfig.RequireNetworkSafety,
 			AllowUnprotectedLegacyTx:    inputs.Config.Chain.Execution.AllowUnprotectedLegacyTx,
 			EVMChainConfigJSON:          inputs.Config.Chain.Execution.EVMChainConfigJSON,
 			StrictEVMStateRoot:          inputs.Config.Chain.Execution.StrictEVMStateRoot,

@@ -109,6 +109,28 @@ The built-in remote VRF adapter is registered as `remote-vrf-http-v1`. Set `vrf.
 
 Remote VRF implementations should use the context-aware `ProveWithContext` and `VerifyWithContext` methods whenever selection is driven by consensus or RPC deadlines. The legacy `Prove` and `Verify` methods are convenience wrappers; production paths should propagate cancellation so a slow remote prover cannot outlive the block or request timeout.
 
+For a built-in reference service backed by an encrypted local ECVRF key, use `keys serve-vrf`:
+
+```bash
+VEXO_KEY_PASSPHRASE='change-me' \
+vexod keys serve-vrf \
+  --home /var/lib/vexo/validator-1 \
+  --listen 127.0.0.1:9100 \
+  --auth-token-env VEXO_REMOTE_VRF_TOKEN
+```
+
+The service exposes only `POST /prove` and `POST /verify`. It rejects missing bearer tokens when `--auth-token` or `--auth-token-env` is set, validates challenge domain/deadline fields, stores replay nonces in memory for the request window, and emits audit events when embedded through `crypto.NewRemoteVRFService`. The built-in command is useful for single-host validation and controlled deployments. For public validator custody, prefer an HSM/KMS-backed service with the same HTTP contract plus durable nonce/audit storage.
+
+Before wiring the remote prover into `consensus_config.json`, verify it end to end:
+
+```bash
+vexod keys verify-vrf \
+  --url https://vrf.example.internal \
+  --public-key <base64-vrf-public-key> \
+  --seed release-candidate-check \
+  --auth-token-env VEXO_REMOTE_VRF_TOKEN
+```
+
 Prefer encrypted VRF key documents referenced from `consensus_config.json`:
 
 ```json

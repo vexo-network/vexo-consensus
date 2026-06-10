@@ -12,6 +12,7 @@ Stable endpoints are exposed under `/v1`. The unversioned paths remain compatibi
 - `/v1/readyz`
 - `/v1/status`
 - `/v1/diagnostics`
+- `/v1/capabilities`
 - `/v1/metrics`
 - `/v1/metrics/text`
 - `/v1/peers`
@@ -82,6 +83,29 @@ Supported scopes are `recovery`, `prune`, `replay`, and `consensus`. A scoped to
 - Web3 `safe` and `finalized` block tags must fail closed when no finality proof or finalized height is available; they must not silently fall back to `latest`.
 - `eth_gasPrice` must fail closed when base-fee state is unavailable; it must not return `0x0` unless a future version explicitly defines a zero-fee policy.
 - Web3 clients can call `vexo_web3Capabilities` to discover the Vexo-native compatibility target, supported Ethereum JSON-RPC namespaces, trace mode, unsupported namespaces, and recommended conformance suites. This avoids confusing Ethereum JSON-RPC compatibility with Ethereum devp2p or Engine API node compatibility.
+- Operators can call `/v1/capabilities` to see which RPC provider interfaces are actually attached. When `require_network_safety` is enabled, `vexod start` requires the full built-in node RPC capability set before the server is allowed to listen. SDK embedders can set `rpc.Config.RequiredCapabilities` or `rpc.Config.RequireAllCapabilities` so a partial provider fails at startup instead of returning `501` later.
+
+## Capability Discovery
+
+`/v1/capabilities` returns a machine-readable inventory:
+
+```json
+{
+  "complete": true,
+  "capabilities": [
+    {
+      "name": "metrics",
+      "available": true,
+      "required": true,
+      "description": "node metrics and Prometheus text metrics"
+    }
+  ]
+}
+```
+
+Important capability names include `metrics`, `snapshot`, `recovery`, `tx`, `pending_txs`, `evidence`, `blocks`, `state_by_height`, `events`, `proofs`, `ibc`, `app_query`, `accounts`, `finality`, `prune`, `replay`, `strict_replay`, `consensus_control`, and `validators`.
+
+Use this endpoint in deployment checks before advertising an RPC endpoint to wallets, indexers, dashboards, relayers, or validators. A missing optional capability may be acceptable for a custom read-only service, but a validator node intended to expose the full API should fail closed through startup configuration.
 
 ## Compatibility Aliases
 

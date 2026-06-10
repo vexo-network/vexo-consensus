@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -123,5 +124,107 @@ func TestRemoteVRFAdapterRejectsPartialTLSConfig(t *testing.T) {
 	})
 	if !errors.Is(err, ErrInvalidRemoteVRFTLS) {
 		t.Fatalf("expected invalid TLS config, got %v", err)
+	}
+}
+
+func TestRemoteVRFServiceProvesVerifiesAndRejectsReplay(t *testing.T) {
+	privateKey, err := generateECVRFP256PrivateKeyBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKey, err := ECVRFP256PublicKeyFromPrivateKey(privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localVRF, err := NewECVRFP256Adapter(config.VRFConfig{
+		Keys: map[string][]byte{base64.StdEncoding.EncodeToString(publicKey): privateKey},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := make([]RemoteVRFAuditEvent, 0)
+	service, err := NewRemoteVRFService(localVRF, RemoteVRFServiceConfig{
+		AuthToken: "secret",
+		AuditSink: func(event RemoteVRFAuditEvent) {
+			events = append(events, event)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(service)
+	defer server.Close()
+
+	remoteVRF, err := NewRemoteVRFAdapterWithAuth(config.VRFConfig{
+		AdapterName:     VRFAdapterRemoteHTTPName,
+		AuditReport:     "remote-vrf-audit",
+		DependencyAudit: "external:remote-vrf-service-audit",
+		KeySource:       "remote-http:" + server.URL,
+	}, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, proof, err := remoteVRF.Prove(publicKey, []byte("seed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !remoteVRF.Verify(publicKey, []byte("seed"), output, proof) {
+		t.Fatal("expected remote VRF proof to verify")
+	}
+
+	challenge, err := newRemoteVRFChallenge()
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestBody, err := json.Marshal(remoteVRFVerifyRequest{
+		PublicKey:        base64.StdEncoding.EncodeToString(publicKey),
+		Seed:             base64.StdEncoding.EncodeToString([]byte("seed")),
+		Output:           base64.StdEncoding.EncodeToString(output),
+		Proof:            base64.StdEncoding.EncodeToString(proof),
+		Nonce:            challenge.nonce,
+		IssuedAtUnixNano: challenge.issuedAt,
+		DeadlineUnixNano: challenge.deadline,
+		Domain:           remoteVRFVerifyDomain,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 2; index++ {
+		request, err := http.NewRequest(http.MethodPost, server.URL+"/verify", bytes.NewReader(requestBody))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer secret")
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+		if index == 0 && response.StatusCode != http.StatusOK {
+			t.Fatalf("expected first nonce use to pass, got status %d", response.StatusCode)
+		}
+		if index == 1 && response.StatusCode != http.StatusBadRequest {
+			t.Fatalf("expected replay to fail, got status %d", response.StatusCode)
+		}
+	}
+	if len(events) == 0 {
+		t.Fatal("expected remote VRF audit events")
+	}
+}
+
+func TestRemoteVRFServiceRequiresAuthToken(t *testing.T) {
+	localVRF, err := NewECVRFP256Adapter(config.VRFConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewRemoteVRFService(localVRF, RemoteVRFServiceConfig{AuthToken: "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/verify", strings.NewReader(`{}`))
+	service.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized status, got %d", response.Code)
 	}
 }

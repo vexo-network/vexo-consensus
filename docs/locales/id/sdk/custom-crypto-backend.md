@@ -83,3 +83,9 @@ VRF backend harus membuka audit boundary sejelas BLS. Isi `vrf.adapter_name`, `v
 ## Sumber kanonik
 
 - [English canonical document](../../en/sdk/custom-crypto-backend.md)
+
+## Remote VRF service
+
+`vexod keys serve-vrf` menyediakan `POST /prove` dan `POST /verify` dengan ECVRF key, dan `vexod keys verify-vrf` memvalidasi remote prover end-to-end. Jangan terjemahkan `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, dan `vexo.remote_vrf.verify.v1`.
+
+Keep these interface names unchanged: `vexod keys serve-vrf`, `vexod keys verify-vrf`, `POST /prove`, `POST /verify`, `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, `vexo.remote_vrf.verify.v1`.

@@ -692,6 +692,36 @@ func TestHandlerReportsNotReadyDiagnostics(t *testing.T) {
 	assertDiagnosticCheck(t, diagnostics.Checks, "storage", true)
 }
 
+func TestHandlerReportsProviderCapabilities(t *testing.T) {
+	handler := NewHandlerWithConfig(fakeStatusProvider{
+		status:  node.Status{ChainID: "vexo-test", Running: true},
+		metrics: node.Metrics{ChainID: "vexo-test", Running: true},
+		index:   store.BlockIndex{EarliestHeight: 1, LatestHeight: 1, TotalBlocks: 1},
+	}, Config{RequiredCapabilities: []string{"metrics", "blocks", "finality"}})
+
+	var capabilities CapabilityResponse
+	getJSON(t, handler, "/capabilities", http.StatusOK, &capabilities)
+	if capabilities.Complete || len(capabilities.Missing) != 1 || capabilities.Missing[0] != "finality" {
+		t.Fatalf("expected missing finality capability, got %+v", capabilities)
+	}
+	foundMetrics := false
+	for _, capability := range capabilities.Capabilities {
+		if capability.Name == "metrics" {
+			foundMetrics = capability.Available && capability.Required
+		}
+	}
+	if !foundMetrics {
+		t.Fatalf("expected required metrics capability to be available: %+v", capabilities)
+	}
+}
+
+func TestServerStartupFailsWhenRequiredCapabilitiesAreMissing(t *testing.T) {
+	server := NewServer(fakeStatusProvider{status: node.Status{Running: true}}, Config{RequiredCapabilities: []string{"finality"}})
+	if !errors.Is(server.StartupError(), ErrMissingRequiredCapability) {
+		t.Fatalf("expected missing capability startup error, got %v", server.StartupError())
+	}
+}
+
 func TestHandlerAppliesRequestTimeoutContext(t *testing.T) {
 	deadline := make(chan bool, 1)
 	cancelled := make(chan struct{})

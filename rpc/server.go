@@ -79,6 +79,8 @@ type Config struct {
 	Web3LogMaxResults             int
 	Web3LogMaxBlockRange          uint64
 	Web3FilterSnapshotPath        string
+	RequiredCapabilities          []string
+	RequireAllCapabilities        bool
 }
 
 type AdminAuditEvent struct {
@@ -161,6 +163,19 @@ type DiagnosticsResponse struct {
 	Metrics *MetricsResponse          `json:"metrics,omitempty"`
 	Storage *BlockIndexResponse       `json:"storage,omitempty"`
 	Peers   []PeerResponse            `json:"peers"`
+}
+
+type CapabilityResponse struct {
+	Complete     bool                 `json:"complete"`
+	Capabilities []CapabilitySnapshot `json:"capabilities"`
+	Missing      []string             `json:"missing,omitempty"`
+}
+
+type CapabilitySnapshot struct {
+	Name        string `json:"name"`
+	Available   bool   `json:"available"`
+	Required    bool   `json:"required"`
+	Description string `json:"description"`
 }
 
 type DiagnosticCheckResponse struct {
@@ -488,6 +503,7 @@ func NewServer(provider StatusProvider, cfg Config) *Server {
 		cfg.ReadHeaderTimeout = defaultReadHeaderTimeout
 	}
 	filters, startupErr := newWeb3FilterStoreWithConfig(cfg)
+	startupErr = errors.Join(startupErr, validateRequiredCapabilities(provider, cfg))
 	handler := newHandlerWithConfig(provider, cfg, filters)
 	return &Server{
 		provider:               provider,
@@ -596,12 +612,18 @@ func newHandlerWithConfig(provider StatusProvider, cfg Config, filters *web3Filt
 		if !allowGet(writer, request) {
 			return
 		}
-		diagnostics := diagnosticsResponse(request.Context(), provider)
+		diagnostics := diagnosticsResponse(request.Context(), provider, cfg)
 		statusCode := http.StatusOK
 		if !diagnostics.OK {
 			statusCode = http.StatusServiceUnavailable
 		}
 		writeJSON(writer, statusCode, diagnostics)
+	})
+	mux.HandleFunc("/capabilities", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowGet(writer, request) {
+			return
+		}
+		writeJSON(writer, http.StatusOK, providerCapabilities(provider, cfg))
 	})
 	mux.HandleFunc("/metrics/text", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {

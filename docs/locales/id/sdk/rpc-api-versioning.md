@@ -76,3 +76,9 @@ Dokumen ini membantu memahami versioning RPC API, alias kompatibilitas, dan kebi
 ## Sumber kanonik
 
 - [English canonical document](../../en/sdk/rpc-api-versioning.md)
+
+## RPC capability discovery
+
+Interface RPC capability discovery baru menunjukkan fungsi provider yang benar-benar terpasang. Operator memanggil `/v1/capabilities`; integrasi SDK memakai `rpc.Config.RequiredCapabilities` atau `rpc.Config.RequireAllCapabilities` agar startup fail closed saat capability hilang.
+
+Keep these interface names unchanged: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.

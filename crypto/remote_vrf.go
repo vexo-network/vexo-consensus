@@ -74,6 +74,10 @@ func init() {
 }
 
 func NewRemoteVRFAdapter(cfg config.VRFConfig) (VRFAdapter, error) {
+	return NewRemoteVRFAdapterWithAuth(cfg, os.Getenv(remoteVRFTokenEnv))
+}
+
+func NewRemoteVRFAdapterWithAuth(cfg config.VRFConfig, authToken string) (VRFAdapter, error) {
 	baseURL := strings.TrimSpace(cfg.KeySource)
 	baseURL = strings.TrimPrefix(baseURL, "remote-http:")
 	if baseURL == "" {
@@ -85,7 +89,7 @@ func NewRemoteVRFAdapter(cfg config.VRFConfig) (VRFAdapter, error) {
 	}
 	return RemoteVRFAdapter{
 		baseURL:     strings.TrimRight(baseURL, "/"),
-		authToken:   os.Getenv(remoteVRFTokenEnv),
+		authToken:   authToken,
 		client:      client,
 		auditReport: cfg.AuditReport,
 		dependency:  cfg.DependencyAudit,
@@ -147,7 +151,7 @@ func (adapter RemoteVRFAdapter) ProveWithContext(ctx context.Context, publicKey 
 		Nonce:            challenge.nonce,
 		IssuedAtUnixNano: challenge.issuedAt,
 		DeadlineUnixNano: challenge.deadline,
-		Domain:           "vexo.remote_vrf.prove.v1",
+		Domain:           remoteVRFProveDomain,
 	}, &response); err != nil {
 		return nil, nil, err
 	}
@@ -185,7 +189,7 @@ func (adapter RemoteVRFAdapter) VerifyWithContext(ctx context.Context, publicKey
 		Nonce:            challenge.nonce,
 		IssuedAtUnixNano: challenge.issuedAt,
 		DeadlineUnixNano: challenge.deadline,
-		Domain:           "vexo.remote_vrf.verify.v1",
+		Domain:           remoteVRFVerifyDomain,
 	}, &response)
 	return err == nil && response.Valid && response.Nonce == challenge.nonce
 }

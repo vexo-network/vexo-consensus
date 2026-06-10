@@ -76,3 +76,9 @@
 ## Канонический источник
 
 - [English canonical document](../../en/sdk/rpc-api-versioning.md)
+
+## RPC capability discovery
+
+Новый интерфейс RPC capability discovery показывает, какие provider функции реально подключены. Операторы вызывают `/v1/capabilities`; SDK-интеграции используют `rpc.Config.RequiredCapabilities` или `rpc.Config.RequireAllCapabilities`, чтобы fail closed происходил уже при запуске.
+
+Keep these interface names unchanged: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.

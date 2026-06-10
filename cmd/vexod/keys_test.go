@@ -13,6 +13,7 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/address"
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/config"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 )
 
@@ -129,6 +130,41 @@ func TestRunKeysGenVRF(t *testing.T) {
 	}
 	if document.PublicKey != base64.StdEncoding.EncodeToString(publicKey) {
 		t.Fatalf("unexpected VRF public key: %s", document.PublicKey)
+	}
+}
+
+func TestRunKeysVerifyVRF(t *testing.T) {
+	privateKey, err := vexocrypto.GenerateECVRFP256KeyDocument()
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateKeyBytes, err := privateKey.ECVRFP256PrivateKeyWithPassphrase("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKey, err := vexocrypto.ECVRFP256PublicKeyFromPrivateKey(privateKeyBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localVRF, err := vexocrypto.NewECVRFP256Adapter(config.VRFConfig{
+		Keys: map[string][]byte{base64.StdEncoding.EncodeToString(publicKey): privateKeyBytes},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := vexocrypto.NewRemoteVRFService(localVRF, vexocrypto.RemoteVRFServiceConfig{AuthToken: "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(service)
+	defer server.Close()
+
+	var output bytes.Buffer
+	if err := runKeys(&output, []string{"verify-vrf", "--url", server.URL, "--public-key", base64.StdEncoding.EncodeToString(publicKey), "--seed", "check", "--auth-token", "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "remote vrf verified") || !strings.Contains(output.String(), "proof:") {
+		t.Fatalf("unexpected verify-vrf output:\n%s", output.String())
 	}
 }
 

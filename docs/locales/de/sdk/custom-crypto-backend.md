@@ -83,3 +83,9 @@ Der VRF backend muss eine ebenso klare Audit-Grenze wie BLS zeigen. Setze `vrf.a
 ## Kanonische Quelle
 
 - [English canonical document](../../en/sdk/custom-crypto-backend.md)
+
+## Remote VRF service
+
+`vexod keys serve-vrf` stellt mit einem ECVRF key `POST /prove` und `POST /verify` bereit; `vexod keys verify-vrf` prüft den remote prover Ende zu Ende. `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1` und `vexo.remote_vrf.verify.v1` bleiben unverändert.
+
+Keep these interface names unchanged: `vexod keys serve-vrf`, `vexod keys verify-vrf`, `POST /prove`, `POST /verify`, `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, `vexo.remote_vrf.verify.v1`.

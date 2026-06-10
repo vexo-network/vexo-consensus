@@ -76,3 +76,9 @@ Este documento ajuda a entender versionamento da RPC API, aliases de compatibili
 ## Fonte canônica
 
 - [English canonical document](../../en/sdk/rpc-api-versioning.md)
+
+## RPC capability discovery
+
+A nova interface RPC capability discovery mostra quais funções provider estão realmente conectadas. Operadores usam `/v1/capabilities`; integrações SDK usam `rpc.Config.RequiredCapabilities` ou `rpc.Config.RequireAllCapabilities` para falhar no startup quando faltar uma capacidade.
+
+Keep these interface names unchanged: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.

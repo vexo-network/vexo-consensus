@@ -88,8 +88,9 @@ func metricsResponse(metrics node.Metrics) MetricsResponse {
 	}
 }
 
-func diagnosticsResponse(ctx context.Context, provider StatusProvider) DiagnosticsResponse {
+func diagnosticsResponse(ctx context.Context, provider StatusProvider, cfg Config) DiagnosticsResponse {
 	status := provider.Status(ctx)
+	capabilities := providerCapabilities(provider, cfg)
 	response := DiagnosticsResponse{
 		OK:     true,
 		Status: "healthy",
@@ -130,6 +131,11 @@ func diagnosticsResponse(ctx context.Context, provider StatusProvider) Diagnosti
 		}
 	} else {
 		response.addDiagnosticFailure("storage", errors.New("block index query is unavailable"))
+	}
+	if capabilities.Complete {
+		response.Checks = append(response.Checks, DiagnosticCheckResponse{Name: "capabilities", OK: true})
+	} else {
+		response.addDiagnosticFailure("capabilities", fmt.Errorf("missing required rpc capabilities: %s", strings.Join(capabilities.Missing, ",")))
 	}
 	return response
 }

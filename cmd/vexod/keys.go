@@ -15,6 +15,7 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/address"
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/config"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -73,6 +74,10 @@ func runKeys(writer io.Writer, args []string) error {
 		return runKeysVerifyRemote(writer, args[1:])
 	case "serve-remote":
 		return runKeysServeRemote(writer, args[1:])
+	case "serve-vrf":
+		return runKeysServeVRF(writer, args[1:])
+	case "verify-vrf":
+		return runKeysVerifyVRF(writer, args[1:])
 	case "rotation-plan":
 		return runKeysRotationPlan(writer, args[1:])
 	default:
@@ -499,6 +504,126 @@ func runKeysServeRemote(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "nonce_path: %s\n", *noncePath)
 	fmt.Fprintf(writer, "auth_required: %t\n", resolvedAuthToken != "")
 	return server.ListenAndServe()
+}
+
+func runKeysServeVRF(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("keys serve-vrf", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", defaultHomeDir, "node home directory")
+	path := flags.String("path", "", "local VRF key file path")
+	listen := flags.String("listen", "127.0.0.1:9100", "HTTP listen address")
+	authToken := flags.String("auth-token", "", "required bearer token for remote VRF requests")
+	authTokenEnv := flags.String("auth-token-env", "", "environment variable containing required bearer token")
+	passphrase := flags.String("passphrase", "", "key decryption passphrase; prefer VEXO_KEY_PASSPHRASE")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	resolvedAuthToken := *authToken
+	if resolvedAuthToken == "" && *authTokenEnv != "" {
+		resolvedAuthToken = os.Getenv(*authTokenEnv)
+	}
+	document, err := vexocrypto.LoadKeyDocument(resolveKeyPath(*home, *path))
+	if err != nil {
+		return err
+	}
+	privateKey, err := document.ECVRFP256PrivateKeyWithPassphrase(resolvePassphrase(*passphrase))
+	if err != nil {
+		return err
+	}
+	publicKey, err := vexocrypto.ECVRFP256PublicKeyFromPrivateKey(privateKey)
+	if err != nil {
+		return err
+	}
+	vrf, err := vexocrypto.NewECVRFP256Adapter(config.VRFConfig{
+		Keys: map[string][]byte{
+			string(publicKey): privateKey,
+			base64.StdEncoding.EncodeToString(publicKey): privateKey,
+		},
+		AuditReport:     "local-ecvrf-remote-service",
+		DependencyAudit: config.NetworkSafeVRFDependencyAudit,
+		KeySource:       "keys.serve-vrf",
+	})
+	if err != nil {
+		return err
+	}
+	service, err := vexocrypto.NewRemoteVRFService(vrf, vexocrypto.RemoteVRFServiceConfig{AuthToken: resolvedAuthToken})
+	if err != nil {
+		return err
+	}
+	server := &http.Server{
+		Addr:              *listen,
+		Handler:           service,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	fmt.Fprintf(writer, "remote vrf serving\n")
+	fmt.Fprintf(writer, "listen: %s\n", *listen)
+	fmt.Fprintf(writer, "public_key: %s\n", base64.StdEncoding.EncodeToString(publicKey))
+	fmt.Fprintf(writer, "auth_required: %t\n", resolvedAuthToken != "")
+	return server.ListenAndServe()
+}
+
+func runKeysVerifyVRF(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("keys verify-vrf", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	url := flags.String("url", "", "remote VRF base URL")
+	publicKeyString := flags.String("public-key", "", "base64 encoded VRF public key")
+	seedString := flags.String("seed", "vexo-vrf-check", "seed string to prove and verify")
+	authToken := flags.String("auth-token", "", "bearer token for remote VRF requests")
+	authTokenEnv := flags.String("auth-token-env", "", "environment variable containing bearer token")
+	jsonOutput := flags.Bool("json", false, "write JSON output")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *url == "" {
+		return errors.New("remote VRF URL is required")
+	}
+	if *publicKeyString == "" {
+		return errors.New("remote VRF public key is required")
+	}
+	publicKey, err := base64.StdEncoding.DecodeString(*publicKeyString)
+	if err != nil {
+		return fmt.Errorf("invalid remote VRF public key: %w", err)
+	}
+	resolvedAuthToken := *authToken
+	if resolvedAuthToken == "" && *authTokenEnv != "" {
+		resolvedAuthToken = os.Getenv(*authTokenEnv)
+	}
+	adapter, err := vexocrypto.NewRemoteVRFAdapterWithAuth(config.VRFConfig{
+		AdapterName:     vexocrypto.VRFAdapterRemoteHTTPName,
+		AuditReport:     "remote-vrf-operator-check",
+		DependencyAudit: "external:remote-vrf-service",
+		KeySource:       "remote-http:" + *url,
+	}, resolvedAuthToken)
+	if err != nil {
+		return err
+	}
+	output, proof, err := adapter.Prove(types.PublicKey(publicKey), []byte(*seedString))
+	if err != nil {
+		return err
+	}
+	verified := adapter.Verify(types.PublicKey(publicKey), []byte(*seedString), output, proof)
+	if !verified {
+		return errors.New("remote VRF proof verification failed")
+	}
+	result := map[string]any{
+		"ok":         true,
+		"remote_url": *url,
+		"public_key": *publicKeyString,
+		"seed":       *seedString,
+		"output":     base64.StdEncoding.EncodeToString(output),
+		"proof":      base64.StdEncoding.EncodeToString(proof),
+	}
+	if *jsonOutput {
+		encoder := json.NewEncoder(writer)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(result)
+	}
+	fmt.Fprintf(writer, "remote vrf verified\n")
+	fmt.Fprintf(writer, "remote_url: %s\n", *url)
+	fmt.Fprintf(writer, "public_key: %s\n", *publicKeyString)
+	fmt.Fprintf(writer, "output: %s\n", base64.StdEncoding.EncodeToString(output))
+	fmt.Fprintf(writer, "proof: %s\n", base64.StdEncoding.EncodeToString(proof))
+	return nil
 }
 
 func runKeysRotationPlan(writer io.Writer, args []string) error {

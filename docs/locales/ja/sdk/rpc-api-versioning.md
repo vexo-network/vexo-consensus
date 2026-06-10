@@ -76,3 +76,9 @@
 ## 正規原文
 
 - [English canonical document](../../en/sdk/rpc-api-versioning.md)
+
+## RPC capability discovery
+
+新しい RPC capability discovery インターフェースです。運用者は `/v1/capabilities` で実際に接続された provider 機能を確認し、SDK 側は `rpc.Config.RequiredCapabilities` または `rpc.Config.RequireAllCapabilities` で起動時に fail closed にできます。
+
+Keep these interface names unchanged: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.

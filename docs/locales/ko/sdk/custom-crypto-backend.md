@@ -113,3 +113,9 @@ VRF backend도 BLS와 같은 수준으로 감사 경계를 드러내야 합니�
 ## 규범 원문
 
 - [English canonical document](../../en/sdk/custom-crypto-backend.md)
+
+## Remote VRF service
+
+`vexod keys serve-vrf`는 ECVRF key로 `POST /prove`와 `POST /verify`를 제공하고, `vexod keys verify-vrf`는 remote prover를 end-to-end로 확인합니다. `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, `vexo.remote_vrf.verify.v1` 이름은 그대로 유지합니다.
+
+Keep these interface names unchanged: `vexod keys serve-vrf`, `vexod keys verify-vrf`, `POST /prove`, `POST /verify`, `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, `vexo.remote_vrf.verify.v1`.
