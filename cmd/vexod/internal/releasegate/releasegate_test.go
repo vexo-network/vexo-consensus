@@ -119,6 +119,91 @@ func TestEvidenceSemanticValidation(t *testing.T) {
 	}
 }
 
+func TestTypedNetworkLongRunEvidenceValidation(t *testing.T) {
+	passing := []byte(`{
+		"ok":true,
+		"summary":"longrun duration height validator per-node distributed soak evidence passed",
+		"load":{"submitted":10,"failed":0},
+		"nodes":[
+			{"validator_id":"validator-1","before":{"latest_height":1},"after":{"latest_height":5},"report":{"ok":true}},
+			{"validator_id":"validator-2","before":{"latest_height":2},"after":{"latest_height":6},"report":{"ok":true}}
+		]
+	}`)
+	if !EvidenceCheckContentOK("longrun_evidence", "longrun.json", passing) {
+		t.Fatalf("expected longrun evidence with height growth to pass")
+	}
+
+	noGrowth := []byte(`{
+		"ok":true,
+		"summary":"longrun duration height validator per-node distributed soak evidence passed",
+		"load":{"submitted":10,"failed":0},
+		"nodes":[{"validator_id":"validator-1","before":{"latest_height":5},"after":{"latest_height":5},"report":{"ok":true}}]
+	}`)
+	if EvidenceCheckContentOK("longrun_evidence", "longrun.json", noGrowth) {
+		t.Fatalf("expected longrun evidence without height growth to fail")
+	}
+
+	loadFailure := []byte(`{
+		"ok":true,
+		"summary":"longrun duration height validator per-node distributed soak evidence passed",
+		"load":{"submitted":10,"failed":1},
+		"nodes":[{"validator_id":"validator-1","before":{"latest_height":1},"after":{"latest_height":5},"report":{"ok":true}}]
+	}`)
+	if EvidenceCheckContentOK("longrun_evidence", "longrun.json", loadFailure) {
+		t.Fatalf("expected longrun evidence with failed load to fail")
+	}
+}
+
+func TestTypedCollectedEvidenceValidation(t *testing.T) {
+	passingSnapshot := []byte(`{
+		"schema_version":"v1",
+		"evidence_type":"snapshot_replay_evidence",
+		"ok":true,
+		"summary":"snapshot replay restore evidence passed",
+		"checks":[{"name":"snapshot","ok":true}],
+		"rpcs":[{"rpc":"http://127.0.0.1:26657","final":{"snapshot":{"height":10},"diagnostics":{"replay_healthy":true}}}]
+	}`)
+	if !EvidenceCheckContentOK("snapshot_replay_evidence", "snapshot.json", passingSnapshot) {
+		t.Fatalf("expected collected snapshot evidence to pass")
+	}
+
+	failedReplay := []byte(`{
+		"schema_version":"v1",
+		"evidence_type":"snapshot_replay_evidence",
+		"ok":true,
+		"summary":"snapshot replay restore evidence passed",
+		"checks":[{"name":"snapshot","ok":true}],
+		"rpcs":[{"rpc":"http://127.0.0.1:26657","final":{"snapshot":{"height":10},"diagnostics":{"replay_healthy":false}}}]
+	}`)
+	if EvidenceCheckContentOK("snapshot_replay_evidence", "snapshot.json", failedReplay) {
+		t.Fatalf("expected collected snapshot evidence with unhealthy replay to fail")
+	}
+
+	noPeers := []byte(`{
+		"schema_version":"v1",
+		"evidence_type":"p2p_scale_evidence",
+		"ok":true,
+		"summary":"p2p peer scale discovery reconnect backpressure evidence passed",
+		"checks":[{"name":"p2p","ok":true}],
+		"rpcs":[{"rpc":"http://127.0.0.1:26657","final":{"status":{"peer_count":0},"peers":{"peers":[]}}}]
+	}`)
+	if EvidenceCheckContentOK("p2p_scale_evidence", "p2p.json", noPeers) {
+		t.Fatalf("expected collected p2p evidence without peers to fail")
+	}
+
+	wrongType := []byte(`{
+		"schema_version":"v1",
+		"evidence_type":"p2p_scale_evidence",
+		"ok":true,
+		"summary":"snapshot replay restore evidence passed",
+		"checks":[{"name":"snapshot","ok":true}],
+		"rpcs":[{"rpc":"http://127.0.0.1:26657","final":{"snapshot":{"height":10},"diagnostics":{"replay_healthy":true}}}]
+	}`)
+	if EvidenceCheckContentOK("snapshot_replay_evidence", "snapshot.json", wrongType) {
+		t.Fatalf("expected evidence_type mismatch to fail")
+	}
+}
+
 func TestBuildValidatesEvidenceManifestHash(t *testing.T) {
 	chaos := []byte(`{"ok":true,"summary":"chaos partition fault drill passed"}`)
 	sum := sha256.Sum256(chaos)

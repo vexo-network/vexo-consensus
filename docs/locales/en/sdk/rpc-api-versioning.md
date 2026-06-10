@@ -131,6 +131,21 @@ Responses wrap the module JSON state in `{ "path": [...], "value": ... }`. Missi
 
 Packet proof responses reuse the standard Merkle query-proof envelope with namespace `ibc` and packet commitment key `packets/{source_port}/{source_channel}/{sequence}`. Relayers can use this endpoint to prove sent, acknowledged, or timed-out packet receipt state at a specific height. The keeper validates client chain ID, trusted height, trusted state root, namespace, key, existence, Merkle proof, and decoded packet receipt before accepting a packet commitment proof.
 
+For longer IBC validation, generate a runnable soak configuration instead of hand-copying many packet commands:
+
+```bash
+go run ./cmd/vexod relayer soak-plan \
+  --source-rpc http://validator-1.example:26657 \
+  --dest-rpc http://validator-2.example:26657 \
+  --client-id client-0 \
+  --sequences 16 \
+  --json > relayer-soak.json
+jq .config relayer-soak.json > relayer-config.json
+go run ./cmd/vexod relayer run --config relayer-config.json
+```
+
+The generated config alternates acknowledgement and timeout jobs, uses checkpoint state to prevent duplicate submissions, and keeps transient proof or submit errors visible for release evidence.
+
 ## Web3 JSON-RPC Bridge
 
 The Web3 bridge provides Ethereum execution and wallet/tooling compatibility inside a Vexo network. It does not expose Ethereum devp2p, Ethereum fork choice, or Ethereum sync semantics. Vexo nodes keep Vexo consensus, validator lifecycle, P2P, state sync, and block formats.

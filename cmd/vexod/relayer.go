@@ -48,6 +48,8 @@ func runRelayerWithContext(ctx context.Context, writer io.Writer, args []string)
 		return runRelayerLoopWithContext(ctx, writer, args[1:], client)
 	case "run":
 		return runRelayerRunWithContext(ctx, writer, args[1:], client)
+	case "soak-plan":
+		return runRelayerSoakPlan(writer, args[1:])
 	default:
 		return fmt.Errorf("unknown relayer subcommand %q", args[0])
 	}
@@ -337,6 +339,27 @@ func runRelayerRunWithContext(ctx context.Context, writer io.Writer, args []stri
 
 const relayerConfigSchemaVersion = "v1"
 
+type relayerSoakPlanDocument struct {
+	SchemaVersion  string                 `json:"schema_version"`
+	OK             bool                   `json:"ok"`
+	Duration       string                 `json:"duration"`
+	Interval       string                 `json:"interval"`
+	FailureBackoff string                 `json:"failure_backoff"`
+	SourceRPC      string                 `json:"source_rpc"`
+	DestinationRPC string                 `json:"destination_rpc"`
+	ClientID       string                 `json:"client_id,omitempty"`
+	Config         relayerConfigDocument  `json:"config"`
+	Scenarios      []string               `json:"scenarios"`
+	Commands       []string               `json:"commands"`
+	Checks         []relayerSoakPlanCheck `json:"checks"`
+}
+
+type relayerSoakPlanCheck struct {
+	Name    string `json:"name"`
+	OK      bool   `json:"ok"`
+	Message string `json:"message"`
+}
+
 type relayerConfigDocument struct {
 	SchemaVersion string             `json:"schema_version"`
 	Jobs          []relayerJobConfig `json:"jobs"`
@@ -387,6 +410,191 @@ type relayerLatestState struct {
 	Height           uint64 `json:"height"`
 	AppHash          string `json:"app_hash"`
 	ValidatorSetHash string `json:"validator_set_hash"`
+}
+
+func runRelayerSoakPlan(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("relayer soak-plan", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	sourceRPC := flags.String("source-rpc", "", "source chain RPC base URL used for packet proofs")
+	destinationRPC := flags.String("dest-rpc", "", "destination chain RPC base URL used when --submit is set")
+	clientID := flags.String("client-id", "", "optional IBC client id to document in the soak plan")
+	sourcePort := flags.String("source-port", "transfer", "packet source port")
+	sourceChannel := flags.String("source-channel", "channel-0", "packet source channel")
+	destinationPort := flags.String("destination-port", "transfer", "packet destination port")
+	destinationChannel := flags.String("destination-channel", "channel-0", "packet destination channel")
+	sequenceStart := flags.Uint64("sequence-start", 1, "first packet sequence to include")
+	sequences := flags.Uint64("sequences", 2, "number of packet relay jobs to generate")
+	timeoutHeight := flags.Uint64("timeout-height", 1000, "timeout height used for timeout relay jobs")
+	ack := flags.String("ack", "ok", "acknowledgement bytes for ack relay jobs")
+	durationValue := flags.String("duration", "24h", "target soak duration")
+	interval := flags.Duration("interval", 5*time.Second, "relayer polling interval")
+	failureBackoff := flags.Duration("failure-backoff", 30*time.Second, "relayer failure backoff")
+	statePath := flags.String("state", "relayer-soak-checkpoints.json", "checkpoint state path")
+	fee := flags.String("fee", "1000", "fee tag attached to generated relay transactions")
+	gas := flags.String("gas", "100000", "gas tag attached to generated relay transactions")
+	signer := flags.String("signer", "", "optional signer tag attached to generated relay transactions")
+	nonce := flags.String("nonce", "auto", "nonce tag attached to generated relay transactions")
+	submit := flags.Bool("submit", false, "generate jobs that submit transactions")
+	jsonOutput := flags.Bool("json", false, "write JSON output")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	duration, err := time.ParseDuration(*durationValue)
+	if err != nil {
+		return err
+	}
+	document := buildRelayerSoakPlan(relayerSoakPlanOptions{
+		SourceRPC:          *sourceRPC,
+		DestinationRPC:     *destinationRPC,
+		ClientID:           *clientID,
+		SourcePort:         *sourcePort,
+		SourceChannel:      *sourceChannel,
+		DestinationPort:    *destinationPort,
+		DestinationChannel: *destinationChannel,
+		SequenceStart:      *sequenceStart,
+		Sequences:          *sequences,
+		TimeoutHeight:      *timeoutHeight,
+		Ack:                *ack,
+		Duration:           duration,
+		Interval:           *interval,
+		FailureBackoff:     *failureBackoff,
+		StatePath:          *statePath,
+		Fee:                *fee,
+		Gas:                *gas,
+		Signer:             *signer,
+		Nonce:              *nonce,
+		Submit:             *submit,
+	})
+	if *jsonOutput {
+		encoder := json.NewEncoder(writer)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(document)
+	}
+	status := "ok"
+	if !document.OK {
+		status = "failed"
+	}
+	fmt.Fprintf(writer, "relayer soak plan %s\n", status)
+	fmt.Fprintf(writer, "duration: %s\n", document.Duration)
+	fmt.Fprintf(writer, "jobs: %d\n", len(document.Config.Jobs))
+	fmt.Fprintf(writer, "source_rpc: %s\n", document.SourceRPC)
+	fmt.Fprintf(writer, "destination_rpc: %s\n", document.DestinationRPC)
+	for _, scenario := range document.Scenarios {
+		fmt.Fprintf(writer, "- %s\n", scenario)
+	}
+	for _, command := range document.Commands {
+		fmt.Fprintf(writer, "command: %s\n", command)
+	}
+	for _, check := range document.Checks {
+		fmt.Fprintf(writer, "%s ok=%t %s\n", check.Name, check.OK, check.Message)
+	}
+	return nil
+}
+
+type relayerSoakPlanOptions struct {
+	SourceRPC          string
+	DestinationRPC     string
+	ClientID           string
+	SourcePort         string
+	SourceChannel      string
+	DestinationPort    string
+	DestinationChannel string
+	SequenceStart      uint64
+	Sequences          uint64
+	TimeoutHeight      uint64
+	Ack                string
+	Duration           time.Duration
+	Interval           time.Duration
+	FailureBackoff     time.Duration
+	StatePath          string
+	Fee                string
+	Gas                string
+	Signer             string
+	Nonce              string
+	Submit             bool
+}
+
+func buildRelayerSoakPlan(options relayerSoakPlanOptions) relayerSoakPlanDocument {
+	document := relayerSoakPlanDocument{
+		SchemaVersion:  "v1",
+		OK:             true,
+		Duration:       options.Duration.String(),
+		Interval:       options.Interval.String(),
+		FailureBackoff: options.FailureBackoff.String(),
+		SourceRPC:      options.SourceRPC,
+		DestinationRPC: options.DestinationRPC,
+		ClientID:       options.ClientID,
+		Config:         relayerConfigDocument{SchemaVersion: relayerConfigSchemaVersion},
+		Scenarios: []string{
+			"ack relay jobs fetch packet proofs and checkpoint successful submissions",
+			"timeout relay jobs exercise timeout proofs using a separate packet sequence",
+			"failure backoff and continue-on-error keep the soak running through transient RPC faults",
+			"operator should run this together with long-run metrics and release evidence collection",
+		},
+		Commands: []string{
+			"vexod relayer soak-plan --json > relayer-soak.json",
+			"jq .config relayer-soak.json > relayer-config.json",
+			"vexod relayer run --config relayer-config.json",
+		},
+	}
+	addCheck := func(name string, ok bool, message string) {
+		if !ok {
+			document.OK = false
+		}
+		document.Checks = append(document.Checks, relayerSoakPlanCheck{Name: name, OK: ok, Message: message})
+	}
+	addCheck("source_rpc", strings.TrimSpace(options.SourceRPC) != "", "source-rpc is required for proof polling")
+	addCheck("destination_rpc", strings.TrimSpace(options.DestinationRPC) != "" || !options.Submit, "dest-rpc is required when submit is enabled")
+	addCheck("sequence_count", options.Sequences > 0, "at least one relay job is required")
+	addCheck("timeout_height", options.TimeoutHeight > 0, "timeout relay jobs require a timeout height")
+	addCheck("duration", options.Duration > 0, "soak duration must be positive")
+	addCheck("interval", options.Interval >= 0, "poll interval must be non-negative")
+	addCheck("failure_backoff", options.FailureBackoff >= 0, "failure backoff must be non-negative")
+	for index := uint64(0); index < options.Sequences; index++ {
+		sequence := options.SequenceStart + index
+		mode := "ack"
+		ack := options.Ack
+		timeoutHeight := uint64(0)
+		if index%2 == 1 {
+			mode = "timeout"
+			ack = ""
+			timeoutHeight = options.TimeoutHeight
+		}
+		name := fmt.Sprintf("%s-sequence-%d", mode, sequence)
+		document.Config.Jobs = append(document.Config.Jobs, relayerJobConfig{
+			Name:     name,
+			Mode:     mode,
+			RPC:      options.DestinationRPC,
+			ProofRPC: options.SourceRPC,
+			Packet: relayerPacketConfig{
+				Sequence:           sequence,
+				SourcePort:         options.SourcePort,
+				SourceChannel:      options.SourceChannel,
+				DestinationPort:    options.DestinationPort,
+				DestinationChannel: options.DestinationChannel,
+				Data:               fmt.Sprintf("soak-packet-%d", sequence),
+				TimeoutHeight:      timeoutHeight,
+			},
+			Ack:             ack,
+			Fee:             options.Fee,
+			Gas:             options.Gas,
+			Signer:          options.Signer,
+			Nonce:           options.Nonce,
+			Submit:          options.Submit,
+			StatePath:       options.StatePath,
+			Interval:        options.Interval.String(),
+			FailureBackoff:  options.FailureBackoff.String(),
+			ContinueOnError: true,
+		})
+	}
+	for _, job := range document.Config.Jobs {
+		if _, err := relayerLoopConfigFromJob(job); err != nil {
+			addCheck("job_"+job.Name, false, err.Error())
+		} else {
+			addCheck("job_"+job.Name, true, "relayer job config is valid")
+		}
+	}
+	return document
 }
 
 func readRelayerConfigDocument(path string) (relayerConfigDocument, error) {

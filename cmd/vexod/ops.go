@@ -6,7 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	gethbackend "github.com/vexo-network/vexo-consensus/modules/evm/backend/geth"
@@ -93,7 +97,9 @@ func runOpsConformance(writer io.Writer, args []string) error {
 	metricsFile := flags.String("metrics-file", "", "current /metrics JSON file to evaluate")
 	previousMetricsFile := flags.String("previous-metrics-file", "", "previous /metrics JSON file for rate deltas")
 	evmFixtures := flags.String("evm-tx-fixtures", "", "Ethereum raw transaction fixture JSON file")
+	evmFixtureDir := flags.String("evm-tx-fixtures-dir", "", "directory of Ethereum raw transaction fixture JSON files")
 	evmExecutionFixtures := flags.String("evm-execution-fixtures", "", "geth EVM execution fixture JSON file")
+	evmExecutionFixtureDir := flags.String("evm-execution-fixtures-dir", "", "directory of geth EVM execution fixture JSON files")
 	evmDefaultFixtures := flags.Bool("evm-default-fixtures", false, "run the built-in geth-signed Ethereum transaction conformance fixtures")
 	windowValue := flags.String("window", "1m", "elapsed time between previous and current metrics files")
 	strict := flags.Bool("strict", false, "use strict network-safety audit severities")
@@ -103,8 +109,24 @@ func runOpsConformance(writer io.Writer, args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if *evmFixtures != "" && *evmDefaultFixtures {
-		return fmt.Errorf("--evm-tx-fixtures and --evm-default-fixtures are mutually exclusive")
+	transactionFixtureSources := 0
+	if *evmFixtures != "" {
+		transactionFixtureSources++
+	}
+	if *evmFixtureDir != "" {
+		transactionFixtureSources++
+	}
+	if *evmDefaultFixtures {
+		transactionFixtureSources++
+	}
+	if transactionFixtureSources > 1 {
+		return fmt.Errorf("--evm-tx-fixtures, --evm-tx-fixtures-dir, and --evm-default-fixtures are mutually exclusive")
+	}
+	if *evmExecutionFixtures != "" && *evmExecutionFixtureDir != "" {
+		return fmt.Errorf("--evm-execution-fixtures and --evm-execution-fixtures-dir are mutually exclusive")
+	}
+	if transactionFixtureSources == 0 && (*evmExecutionFixtures != "" || *evmExecutionFixtureDir != "") {
+		return fmt.Errorf("EVM execution fixtures require --evm-default-fixtures, --evm-tx-fixtures, or --evm-tx-fixtures-dir")
 	}
 	inputs, err := loadStartInputs(*home, *configPath, *genesisPath, *keyPath, []string(rotationKeys), true)
 	if err != nil {
@@ -155,13 +177,23 @@ func runOpsConformance(writer io.Writer, args []string) error {
 		document.addCheck("metrics_thresholds", "warning", report.OK, "operator metrics should stay within alert thresholds")
 	}
 	evmModuleEnabled := moduleEnabled(inputs.Config.Chain, "evm")
-	if *evmFixtures != "" || *evmDefaultFixtures {
+	if transactionFixtureSources > 0 {
 		var report ethcompat.TransactionConformanceReport
 		var err error
 		if *evmDefaultFixtures {
 			fixtures, fixtureErr := ethcompat.DefaultTransactionFixtures()
 			if fixtureErr != nil {
 				return fixtureErr
+			}
+			report = ethcompat.RunTransactionFixtures(fixtures)
+		} else if *evmFixtureDir != "" {
+			paths, listErr := jsonFilePaths(*evmFixtureDir)
+			if listErr != nil {
+				return listErr
+			}
+			fixtures, loadErr := loadTransactionFixtureCorpus(paths)
+			if loadErr != nil {
+				return loadErr
 			}
 			report = ethcompat.RunTransactionFixtures(fixtures)
 		} else {
@@ -185,6 +217,20 @@ func runOpsConformance(writer io.Writer, args []string) error {
 			executionReport, err = gethbackend.RunExecutionFixturesJSON(raw)
 			if err != nil {
 				return err
+			}
+		} else if *evmExecutionFixtureDir != "" {
+			paths, listErr := jsonFilePaths(*evmExecutionFixtureDir)
+			if listErr != nil {
+				return listErr
+			}
+			fixtures, required, loadErr := loadExecutionFixtureCorpus(paths)
+			if loadErr != nil {
+				return loadErr
+			}
+			if len(required) == 0 {
+				executionReport = gethbackend.RunExecutionFixtures(fixtures)
+			} else {
+				executionReport = gethbackend.RunExecutionFixturesWithRequired(fixtures, required)
 			}
 		} else {
 			executionReport = gethbackend.RunExecutionFixtures(gethbackend.DefaultExecutionFixtures())
@@ -218,6 +264,91 @@ func runOpsConformance(writer io.Writer, args []string) error {
 	}
 	writeOpsConformance(writer, document)
 	return nil
+}
+
+func jsonFilePaths(root string) ([]string, error) {
+	var paths []string
+	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if strings.EqualFold(filepath.Ext(entry.Name()), ".json") {
+			paths = append(paths, path)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	sort.Strings(paths)
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("no JSON fixture files found under %s", root)
+	}
+	return paths, nil
+}
+
+func loadTransactionFixtureCorpus(paths []string) ([]ethcompat.TransactionFixture, error) {
+	var fixtures []ethcompat.TransactionFixture
+	for _, path := range paths {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		var fileFixtures []ethcompat.TransactionFixture
+		if err := json.Unmarshal(raw, &fileFixtures); err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		if len(fileFixtures) == 0 {
+			return nil, fmt.Errorf("%s: transaction fixture file is empty", path)
+		}
+		fixtures = append(fixtures, fileFixtures...)
+	}
+	if len(fixtures) == 0 {
+		return nil, errors.New("transaction fixture corpus is empty")
+	}
+	return fixtures, nil
+}
+
+func loadExecutionFixtureCorpus(paths []string) ([]gethbackend.ExecutionFixture, []string, error) {
+	var fixtures []gethbackend.ExecutionFixture
+	var required []string
+	seenRequired := make(map[string]struct{})
+	for _, path := range paths {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, nil, err
+		}
+		var document gethbackend.ExecutionFixtureDocument
+		if err := json.Unmarshal(raw, &document); err == nil && len(document.Fixtures) > 0 {
+			fixtures = append(fixtures, document.Fixtures...)
+			for _, category := range document.RequiredCategories {
+				category = strings.TrimSpace(category)
+				if category == "" {
+					continue
+				}
+				if _, found := seenRequired[category]; !found {
+					seenRequired[category] = struct{}{}
+					required = append(required, category)
+				}
+			}
+			continue
+		}
+		var fileFixtures []gethbackend.ExecutionFixture
+		if err := json.Unmarshal(raw, &fileFixtures); err != nil {
+			return nil, nil, fmt.Errorf("%s: %w", path, err)
+		}
+		if len(fileFixtures) == 0 {
+			return nil, nil, fmt.Errorf("%s: execution fixture file is empty", path)
+		}
+		fixtures = append(fixtures, fileFixtures...)
+	}
+	if len(fixtures) == 0 {
+		return nil, nil, errors.New("execution fixture corpus is empty")
+	}
+	sort.Strings(required)
+	return fixtures, required, nil
 }
 
 func runOpsAlerts(writer io.Writer, args []string) error {

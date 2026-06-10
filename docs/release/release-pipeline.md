@@ -40,6 +40,16 @@ make release-candidate VERSION=0.1.0-rc.1
 Generate or refresh the SHA-256-bound evidence manifest after collecting evidence files:
 
 ```bash
+go run ./cmd/vexod network longrun \
+  --validators 64 \
+  --duration 168h \
+  --rate 100 \
+  --output dist/longrun-evidence.json
+go run ./cmd/vexod network analyze-longrun \
+  --input dist/longrun-evidence.json \
+  --min-validators 64 \
+  --min-duration 168h \
+  --json > dist/longrun-analysis.json
 go run ./cmd/vexod release collect-evidence \
   --rpc http://validator-1.example:26657 \
   --rpc http://validator-2.example:26657 \
@@ -49,7 +59,7 @@ go run ./cmd/vexod release evidence-manifest --dist dist --output dist/evidence-
 make release-evidence-manifest
 ```
 
-`release collect-evidence` samples validator RPC endpoints before and after the observation window and writes RPC-backed `longrun`, `ops-runbook`, `p2p-scale`, `state-sync-light-client`, and `snapshot-replay` evidence files plus a manifest. The snapshot evidence only passes when both a positive snapshot height and healthy replay diagnostics are observed. It does not fabricate chaos, KMS, economics, governance, MEV, external-audit, or BLS-audit evidence; those artifacts still need their dedicated drills or reviews.
+`network analyze-longrun` re-checks machine-readable long-run evidence for schema, validator count, duration, submitted/failed load, height growth, per-node ops thresholds, snapshot health, and replay health. `release collect-evidence` samples validator RPC endpoints before and after the observation window and writes RPC-backed `longrun`, `ops-runbook`, `p2p-scale`, `state-sync-light-client`, and `snapshot-replay` evidence files plus a manifest. The snapshot evidence only passes when both a positive snapshot height and healthy replay diagnostics are observed. It does not fabricate chaos, KMS, economics, governance, MEV, external-audit, or BLS-audit evidence; those artifacts still need their dedicated drills or reviews.
 
 Generate launch parameter recommendations for the target network:
 
@@ -62,6 +72,7 @@ Print the operator launch checklist:
 ```bash
 go run ./cmd/vexod release launch-checklist
 go run ./cmd/vexod release launch-checklist --json
+go run ./cmd/vexod release docs-quality --docs docs --json
 ```
 
 Run the release gate before publishing a release candidate:
@@ -104,6 +115,7 @@ go run ./cmd/vexod release gate \
 - `release-manifest.json`
 - `release-audit-pack.json`
 - `evidence-manifest.json`, binding each release evidence file name/path to its SHA-256 hash
+- `longrun-analysis.json` and optional `docs-quality.json` when produced by the release pipeline
 - long-run, chaos, adversarial, fuzz, signer, snapshot/replay, P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, SDK conformance including EVM/Web3 conformance, external-audit, and BLS-audit evidence files with passing content when preparing a release candidate
 
 ## Reproducibility Notes
@@ -160,15 +172,18 @@ The `release-candidate` target runs:
 - ops verification
 - built-binary network E2E (`make network-e2e`)
 - adversarial simulation
-- SDK/EVM conformance evidence. If the `evm` module is enabled, `vexod ops conformance` treats missing `--evm-default-fixtures` or `--evm-tx-fixtures` as an error, not a warning. The built-in fixture set is a baseline for dynamic-fee, access-list, protected legacy, unprotected legacy rejection, chain-ID, malformed raw, fee-cap behavior, geth VM call return data, contract creation execution, revert behavior, and persistent storage writes. Attach any chain-specific raw transaction corpus with `--evm-tx-fixtures <file>` and any chain-specific VM execution corpus with `--evm-execution-fixtures <file>` before making broader Web3/EVM compatibility claims.
+- SDK/EVM conformance evidence. If the `evm` module is enabled, `vexod ops conformance` treats missing `--evm-default-fixtures`, `--evm-tx-fixtures`, or `--evm-tx-fixtures-dir` as an error, not a warning. The built-in fixture set is a baseline for dynamic-fee, access-list, protected legacy, unprotected legacy rejection, chain-ID, malformed raw, fee-cap behavior, geth VM call return data, contract creation execution, revert behavior, and persistent storage writes. Attach any chain-specific raw transaction corpus with `--evm-tx-fixtures <file>` or `--evm-tx-fixtures-dir <dir>` and any chain-specific VM execution corpus with `--evm-execution-fixtures <file>` or `--evm-execution-fixtures-dir <dir>` before making broader Web3/EVM compatibility claims.
 - network load harness (`RC_DRY_RUN=1` keeps this as a plan-only dry-run; `make release-candidate-real` forces `RC_DRY_RUN=0`)
 - chaos plan
+- IBC relayer soak plan with `vexod relayer soak-plan --json`
 - 7-day multi-host longrun plan
 - longrun harness evidence (`RC_DRY_RUN=1` keeps this as a plan-only dry-run; `make release-candidate-real` forces real load/longrun execution)
+- longrun analysis with `vexod network analyze-longrun`
+- locale and canonical documentation quality with `vexod release docs-quality`
 - evidence manifest generation for whatever RC evidence files are present in `dist/`
 
 Real release candidates should run `network longrun` on independent machines and attach the generated evidence JSON plus metrics, logs, pprof, snapshot, replay, KMS signing, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, SDK conformance, EVM/Web3 raw transaction conformance, and geth VM execution conformance evidence.
-The longrun harness distributes load across validator RPC endpoints and records per-validator submission counts in the evidence payload. Upgrade plans that rely on no-op schema migrations must explicitly set `allow_noop_migrations=true`; `vexod upgrade apply --allow-empty-migrations` rejects plans that do not opt in.
+The longrun harness distributes load across validator RPC endpoints and records per-validator submission counts in the evidence payload. The analyzer should pass before the evidence is attached to the release gate. Relayer soak plans should include both acknowledgement and timeout jobs and should be archived with checkpoint state. Upgrade plans that rely on no-op schema migrations must explicitly set `allow_noop_migrations=true`; `vexod upgrade apply --allow-empty-migrations` rejects plans that do not opt in.
 
 ## Launch Runbook
 

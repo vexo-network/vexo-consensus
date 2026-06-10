@@ -77,6 +77,8 @@ func runNetwork(writer io.Writer, args []string) error {
 		return runNetworkLongRunPlan(writer, args[1:])
 	case "longrun":
 		return runNetworkLongRun(context.Background(), writer, args[1:])
+	case "analyze-longrun":
+		return runNetworkAnalyzeLongRun(writer, args[1:])
 	case "stop":
 		return runNetworkStop(writer, args[1:])
 	default:
@@ -119,6 +121,21 @@ type networkLongRunNodeEvidence struct {
 	Sample      ops.Sample          `json:"sample,omitempty"`
 	Report      ops.Report          `json:"report,omitempty"`
 	Error       string              `json:"error,omitempty"`
+}
+
+type networkLongRunAnalysis struct {
+	SchemaVersion string                  `json:"schema_version"`
+	OK            bool                    `json:"ok"`
+	Input         string                  `json:"input"`
+	Summary       []string                `json:"summary"`
+	Checks        []networkLongRunCheck   `json:"checks"`
+	Evidence      *networkLongRunEvidence `json:"evidence,omitempty"`
+}
+
+type networkLongRunCheck struct {
+	Name    string `json:"name"`
+	OK      bool   `json:"ok"`
+	Message string `json:"message"`
 }
 
 type networkScalePlan struct {
@@ -384,6 +401,111 @@ func runNetworkLongRun(ctx context.Context, writer io.Writer, args []string) err
 		fmt.Fprintf(writer, "%s rpc=%s height_before=%d height_after=%d rate=%.2f/min status=%s\n", node.ValidatorID, node.RPCAddress, node.Before.LatestHeight, node.After.LatestHeight, node.Sample.HeightRatePerMinute, nodeStatus)
 	}
 	return nil
+}
+
+func runNetworkAnalyzeLongRun(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("network analyze-longrun", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	inputPath := flags.String("input", "", "long-run evidence JSON file")
+	minValidators := flags.Int("min-validators", 4, "minimum expected validators")
+	minDurationValue := flags.String("min-duration", "1h", "minimum observed long-run duration")
+	includeEvidence := flags.Bool("include-evidence", false, "include original evidence in JSON output")
+	jsonOutput := flags.Bool("json", false, "write JSON output")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *inputPath == "" {
+		return errors.New("input is required")
+	}
+	minDuration, err := parseNetworkDuration(*minDurationValue)
+	if err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(*inputPath)
+	if err != nil {
+		return err
+	}
+	var evidence networkLongRunEvidence
+	if err := json.Unmarshal(raw, &evidence); err != nil {
+		return err
+	}
+	analysis := analyzeNetworkLongRunEvidence(*inputPath, evidence, *minValidators, minDuration)
+	if *includeEvidence {
+		analysis.Evidence = &evidence
+	}
+	if *jsonOutput {
+		encoder := json.NewEncoder(writer)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(analysis)
+	}
+	status := "ok"
+	if !analysis.OK {
+		status = "failed"
+	}
+	fmt.Fprintf(writer, "network longrun analysis %s\n", status)
+	fmt.Fprintf(writer, "input: %s\n", analysis.Input)
+	for _, summary := range analysis.Summary {
+		fmt.Fprintf(writer, "- %s\n", summary)
+	}
+	for _, check := range analysis.Checks {
+		fmt.Fprintf(writer, "%s ok=%t %s\n", check.Name, check.OK, check.Message)
+	}
+	return nil
+}
+
+func analyzeNetworkLongRunEvidence(inputPath string, evidence networkLongRunEvidence, minValidators int, minDuration time.Duration) networkLongRunAnalysis {
+	analysis := networkLongRunAnalysis{
+		SchemaVersion: "v1",
+		OK:            true,
+		Input:         inputPath,
+	}
+	addCheck := func(name string, ok bool, message string) {
+		if !ok {
+			analysis.OK = false
+		}
+		analysis.Checks = append(analysis.Checks, networkLongRunCheck{Name: name, OK: ok, Message: message})
+	}
+	addCheck("schema_version", strings.TrimSpace(evidence.SchemaVersion) == "v1", "long-run evidence schema version must be v1")
+	addCheck("evidence_ok", evidence.OK, "long-run harness must report ok=true")
+	addCheck("validator_count", evidence.Validators >= minValidators, fmt.Sprintf("validators must be at least %d", minValidators))
+	addCheck("node_count", len(evidence.Nodes) >= minValidators, fmt.Sprintf("node evidence must include at least %d validators", minValidators))
+	addCheck("load_submitted", evidence.Load.Submitted > 0, "long-run load must submit transactions")
+	addCheck("load_failed", evidence.Load.Failed == 0, "long-run load must not record failed transactions")
+	observedDuration := observedLongRunDuration(evidence)
+	addCheck("duration", observedDuration >= minDuration, fmt.Sprintf("observed duration %s must be at least %s", observedDuration, minDuration))
+	thresholds := ops.DefaultThresholds()
+	for _, node := range evidence.Nodes {
+		prefix := "node_" + node.ValidatorID
+		addCheck(prefix+"_error", strings.TrimSpace(node.Error) == "", "node evidence must not include collection errors")
+		addCheck(prefix+"_height_growth", node.After.LatestHeight > node.Before.LatestHeight, "latest height must increase during the long run")
+		addCheck(prefix+"_report_ok", node.Report.OK, "ops report must satisfy alert thresholds")
+		addCheck(prefix+"_height_rate", node.Sample.HeightRatePerMinute >= thresholds.MinHeightRatePerMinute, fmt.Sprintf("height rate %.2f/min must meet threshold %.2f/min", node.Sample.HeightRatePerMinute, thresholds.MinHeightRatePerMinute))
+		if thresholds.SnapshotRequired {
+			addCheck(prefix+"_snapshot", node.Sample.SnapshotHealthy, "snapshot health must be true")
+		}
+		if thresholds.ReplayHealthyRequired {
+			addCheck(prefix+"_replay", node.Sample.ReplayHealthy, "replay health must be true")
+		}
+	}
+	analysis.Summary = append(analysis.Summary,
+		fmt.Sprintf("validators=%d nodes=%d", evidence.Validators, len(evidence.Nodes)),
+		fmt.Sprintf("load submitted=%d failed=%d", evidence.Load.Submitted, evidence.Load.Failed),
+		fmt.Sprintf("observed_duration=%s", observedDuration),
+	)
+	return analysis
+}
+
+func observedLongRunDuration(evidence networkLongRunEvidence) time.Duration {
+	if duration, err := parseNetworkDuration(evidence.Duration); err == nil {
+		return duration
+	}
+	if evidence.StartedAtUnix > 0 && evidence.EndedAtUnix > evidence.StartedAtUnix {
+		return time.Duration(evidence.EndedAtUnix-evidence.StartedAtUnix) * time.Second
+	}
+	if duration, err := parseNetworkDuration(evidence.Load.Duration); err == nil {
+		return duration
+	}
+	return 0
 }
 
 type networkSmokeResult struct {

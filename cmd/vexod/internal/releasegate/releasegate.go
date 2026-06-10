@@ -227,7 +227,7 @@ func EvidenceCheckContentOK(name string, path string, data []byte) bool {
 		if err := json.Unmarshal(trimmed, &value); err != nil {
 			return false
 		}
-		return jsonEvidenceOK(value) && evidenceCovers(name, path, value)
+		return jsonEvidenceOK(value) && typedEvidenceOK(name, value) && evidenceCovers(name, path, value)
 	default:
 		return len(trimmed) >= 8 && evidenceTextCovers(name, path, string(trimmed))
 	}
@@ -307,6 +307,248 @@ func jsonEvidenceOK(value any) bool {
 		}
 	}
 	return true
+}
+
+func typedEvidenceOK(name string, value any) bool {
+	item, ok := value.(map[string]any)
+	if !ok {
+		return true
+	}
+	if evidenceType, found := evidenceString(item["evidence_type"]); found {
+		if name != "" && evidenceType != "" && evidenceType != name {
+			return false
+		}
+		if !collectedEvidenceOK(item) {
+			return false
+		}
+	}
+	switch name {
+	case "longrun_evidence":
+		return networkLongRunEvidenceOK(item)
+	case "snapshot_replay_evidence":
+		return snapshotReplayEvidenceOK(item)
+	case "p2p_scale_evidence":
+		return p2pScaleEvidenceOK(item)
+	case "state_sync_light_client_evidence":
+		return stateSyncLightClientEvidenceOK(item)
+	case "ops_runbook_evidence":
+		return opsRunbookEvidenceOK(item)
+	case "sdk_conformance_evidence":
+		return sdkConformanceEvidenceOK(item)
+	default:
+		return true
+	}
+}
+
+func collectedEvidenceOK(item map[string]any) bool {
+	if schemaVersion, found := evidenceString(item["schema_version"]); !found || strings.TrimSpace(schemaVersion) == "" {
+		return false
+	}
+	if okValue, found := item["ok"].(bool); !found || !okValue {
+		return false
+	}
+	checks, found := evidenceArray(item["checks"])
+	if !found || len(checks) == 0 {
+		return false
+	}
+	rpcs, found := evidenceArray(item["rpcs"])
+	if !found || len(rpcs) == 0 {
+		return false
+	}
+	for _, check := range checks {
+		if !jsonEvidenceOK(check) {
+			return false
+		}
+	}
+	return true
+}
+
+func networkLongRunEvidenceOK(item map[string]any) bool {
+	if _, found := item["nodes"]; !found {
+		return true
+	}
+	nodes, found := evidenceArray(item["nodes"])
+	if !found || len(nodes) == 0 {
+		return false
+	}
+	if load, found := evidenceMap(item["load"]); found {
+		if submitted, found := numericEvidenceValue(load["submitted"]); found && submitted == 0 {
+			return false
+		}
+		if failed, found := numericEvidenceValue(load["failed"]); found && failed > 0 {
+			return false
+		}
+	}
+	for _, node := range nodes {
+		nodeMap, ok := evidenceMap(node)
+		if !ok {
+			return false
+		}
+		if nodeError, found := evidenceString(nodeMap["error"]); found && strings.TrimSpace(nodeError) != "" {
+			return false
+		}
+		before, beforeOK := evidenceMap(nodeMap["before"])
+		after, afterOK := evidenceMap(nodeMap["after"])
+		if beforeOK && afterOK {
+			beforeHeight, beforeFound := numericEvidenceValue(before["latest_height"])
+			afterHeight, afterFound := numericEvidenceValue(after["latest_height"])
+			if beforeFound && afterFound && afterHeight <= beforeHeight {
+				return false
+			}
+		}
+		if report, found := evidenceMap(nodeMap["report"]); found {
+			if okValue, found := report["ok"].(bool); found && !okValue {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func snapshotReplayEvidenceOK(item map[string]any) bool {
+	if _, found := item["evidence_type"]; !found {
+		return true
+	}
+	for _, rpcValue := range evidenceRPCs(item) {
+		final, found := evidenceMap(rpcValue["final"])
+		if !found {
+			return false
+		}
+		snapshot, snapshotFound := evidenceMap(final["snapshot"])
+		diagnostics, diagnosticsFound := evidenceMap(final["diagnostics"])
+		replayStatus, replayFound := evidenceMap(final["replay_status"])
+		if snapshotFound {
+			if height, found := numericEvidenceValue(snapshot["height"]); !found || height == 0 {
+				return false
+			}
+		}
+		if diagnosticsFound && evidenceBoolFalse(diagnostics["replay_healthy"]) {
+			return false
+		}
+		if replayFound && !evidenceReplayHealthy(replayStatus) {
+			return false
+		}
+		if !snapshotFound && !diagnosticsFound && !replayFound {
+			return false
+		}
+	}
+	return true
+}
+
+func p2pScaleEvidenceOK(item map[string]any) bool {
+	if _, found := item["evidence_type"]; !found {
+		return true
+	}
+	for _, rpcValue := range evidenceRPCs(item) {
+		final, found := evidenceMap(rpcValue["final"])
+		if !found {
+			return false
+		}
+		status, statusFound := evidenceMap(final["status"])
+		peers, peersFound := evidenceMap(final["peers"])
+		if statusFound {
+			if peerCount, found := numericEvidenceValue(status["peer_count"]); found && peerCount > 0 {
+				continue
+			}
+		}
+		if peersFound {
+			if peerList, found := evidenceArray(peers["peers"]); found && len(peerList) > 0 {
+				continue
+			}
+		}
+		return false
+	}
+	return true
+}
+
+func stateSyncLightClientEvidenceOK(item map[string]any) bool {
+	if _, found := item["evidence_type"]; !found {
+		return true
+	}
+	for _, rpcValue := range evidenceRPCs(item) {
+		final, found := evidenceMap(rpcValue["final"])
+		if !found {
+			return false
+		}
+		if _, found := evidenceMap(final["finality"]); !found {
+			return false
+		}
+	}
+	return true
+}
+
+func opsRunbookEvidenceOK(item map[string]any) bool {
+	if _, found := item["evidence_type"]; !found {
+		return true
+	}
+	for _, rpcValue := range evidenceRPCs(item) {
+		final, found := evidenceMap(rpcValue["final"])
+		if !found {
+			return false
+		}
+		if _, found := evidenceMap(final["metrics"]); !found {
+			return false
+		}
+	}
+	return true
+}
+
+func sdkConformanceEvidenceOK(item map[string]any) bool {
+	if evmFixtures, found := evidenceMap(item["evm_fixtures"]); found && !jsonEvidenceOK(evmFixtures) {
+		return false
+	}
+	if evmExecution, found := evidenceMap(item["evm_execution"]); found && !jsonEvidenceOK(evmExecution) {
+		return false
+	}
+	return true
+}
+
+func evidenceRPCs(item map[string]any) []map[string]any {
+	values, found := evidenceArray(item["rpcs"])
+	if !found {
+		return nil
+	}
+	rpcs := make([]map[string]any, 0, len(values))
+	for _, value := range values {
+		if rpc, ok := evidenceMap(value); ok {
+			rpcs = append(rpcs, rpc)
+		}
+	}
+	return rpcs
+}
+
+func evidenceMap(value any) (map[string]any, bool) {
+	item, ok := value.(map[string]any)
+	return item, ok
+}
+
+func evidenceArray(value any) ([]any, bool) {
+	items, ok := value.([]any)
+	return items, ok
+}
+
+func evidenceString(value any) (string, bool) {
+	item, ok := value.(string)
+	return item, ok
+}
+
+func evidenceBoolFalse(value any) bool {
+	boolean, found := value.(bool)
+	return found && !boolean
+}
+
+func evidenceReplayHealthy(item map[string]any) bool {
+	if okValue, found := item["ok"].(bool); found {
+		return okValue
+	}
+	if healthy, found := item["healthy"].(bool); found {
+		return healthy
+	}
+	if status, found := evidenceString(item["status"]); found {
+		normalized := strings.ToLower(status)
+		return !strings.Contains(normalized, "fail") && !strings.Contains(normalized, "error") && !strings.Contains(normalized, "unhealthy")
+	}
+	return false
 }
 
 func numericEvidenceValue(value any) (uint64, bool) {

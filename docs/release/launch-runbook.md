@@ -10,6 +10,7 @@ Run these checks from a clean checkout:
 make check
 make ops-verify
 go run ./cmd/vexod release launch-checklist --json
+go run ./cmd/vexod release docs-quality --docs docs --json
 go run ./cmd/vexod config audit --home .vexo --strict
 go run ./cmd/vexod config tune --validators 64 --tps 5000 --regions 4 --latency 120ms --json
 go run ./cmd/vexod network scale-plan --validators 64 --regions 4 --hosts 8 --duration 24h --rate 100
@@ -25,6 +26,7 @@ Do not launch if:
 - public validator metadata contains Docker-only service names instead of externally resolvable addresses
 - parameter tuning output is missing or has failed validation checks
 - release artifacts, checksums, SBOM, or audit pack are missing
+- canonical or localized documentation fails `release docs-quality`
 - long-run, adversarial, fuzz, snapshot, replay, or signer evidence is missing for a release candidate
 - P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, or SDK conformance evidence is missing for a public release candidate
 - `release gate` fails without an explicitly documented private-RC exception
@@ -39,7 +41,9 @@ Required artifacts:
 - `sbom-go-version.txt`
 - `release-manifest.json`
 - `release-audit-pack.json`
+- documentation quality evidence when docs changed during the candidate
 - long-run network evidence
+- long-run analysis proving validator count, duration, submitted load, height growth, snapshot health, replay health, and per-node alert thresholds
 - chaos test evidence
 - consensus adversarial simulation evidence
 - fuzz or property test evidence
@@ -53,6 +57,7 @@ Required artifacts:
 - ops runbook evidence covering alert thresholds, incident drills, multi-region observability, and archive requirements
 - formal safety evidence covering invariants, adversarial simulation output, and property/fuzz output
 - SDK conformance evidence covering app modules, custom crypto, custom storage, custom transport, RPC versioning, upgrade hooks, built-in EVM/Web3 raw transaction fixtures, geth VM execution fixtures, and any chain-specific fixture corpus
+- relayer soak-plan evidence covering acknowledgement and timeout relay jobs when IBC is enabled
 - external audit disposition for public releases
 - BLS adapter audit evidence when BLS is enabled
 
@@ -64,12 +69,26 @@ make sign-release VERSION=<version>
 go run ./cmd/vexod ops conformance \
   --home .vexo \
   --evm-default-fixtures \
+  --evm-tx-fixtures-dir ./fixtures/evm/transactions \
+  --evm-execution-fixtures-dir ./fixtures/evm/execution \
   --json > dist/sdk-conformance-evidence.json
+go run ./cmd/vexod relayer soak-plan \
+  --source-rpc http://validator-1.example:26657 \
+  --dest-rpc http://validator-2.example:26657 \
+  --client-id client-0 \
+  --sequences 16 \
+  --json > dist/relayer-soak-plan.json
+go run ./cmd/vexod release docs-quality --docs docs --json > dist/docs-quality.json
 go run ./cmd/vexod release collect-evidence \
   --rpc http://validator-1.example:26657 \
   --rpc http://validator-2.example:26657 \
   --duration 1h \
   --dist dist
+go run ./cmd/vexod network analyze-longrun \
+  --input dist/longrun-evidence.json \
+  --min-validators 64 \
+  --min-duration 168h \
+  --json > dist/longrun-analysis.json
 go run ./cmd/vexod release pack \
   --dist dist \
   --version <version> \
@@ -102,7 +121,11 @@ go run ./cmd/vexod release gate \
 
 `release collect-evidence` only marks snapshot/replay evidence as passing when the sampled validators expose both a positive snapshot height and healthy replay diagnostics. If that check is false, run the snapshot restore/replay drill before packaging the release.
 
-`--evm-default-fixtures` is intentionally small enough for CI but not superficial: it exercises dynamic-fee calls, contract creation, access-list metadata, protected legacy signing, unprotected legacy rejection, chain-ID mismatch rejection, malformed raw input rejection, fee-cap rejection, geth VM call return data, contract creation execution, revert behavior, and persistent storage writes. Add `--evm-tx-fixtures <file>` for chain-specific raw transaction scenarios and `--evm-execution-fixtures <file>` for chain-specific contract, precompile, blob, opcode, and account-abstraction execution scenarios before a public compatibility claim.
+`network analyze-longrun` should pass before `longrun-evidence.json` is accepted by reviewers. It verifies that the evidence still shows validator participation, submitted load, height growth, ops-threshold health, snapshot health, and replay health instead of merely proving that a JSON file exists.
+
+`--evm-default-fixtures` is intentionally small enough for CI but not superficial: it exercises dynamic-fee calls, contract creation, access-list metadata, protected legacy signing, unprotected legacy rejection, chain-ID mismatch rejection, malformed raw input rejection, fee-cap rejection, geth VM call return data, contract creation execution, revert behavior, and persistent storage writes. Add `--evm-tx-fixtures <file>` or `--evm-tx-fixtures-dir <dir>` for chain-specific raw transaction scenarios and `--evm-execution-fixtures <file>` or `--evm-execution-fixtures-dir <dir>` for chain-specific contract, precompile, blob, opcode, and account-abstraction execution scenarios before a public compatibility claim.
+
+`relayer soak-plan` emits a runnable `relayer run` config that alternates acknowledgement and timeout jobs, uses checkpoint state to prevent duplicate submissions, and keeps transient proof/RPC failures visible in soak output. Archive the generated plan and any checkpoint/log evidence when IBC is part of the launch surface.
 
 ## Genesis Gate
 
@@ -160,6 +183,7 @@ Archive:
 - validator set and validator set hash evidence
 - release pack and signed checksums
 - launch metrics, logs, pprof samples, peer score snapshots, and final split config files
+- docs quality report and localized documentation manifest
 - long-run, chaos, adversarial, fuzz, snapshot, replay, signer, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, ops runbook, formal safety, and SDK conformance evidence with category-specific passing content plus `evidence-manifest.json` SHA-256 bindings
 
 After launch, schedule:

@@ -24,6 +24,9 @@ import (
 	"github.com/vexo-network/vexo-consensus/cmd/vexod/internal/releasegate"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	ibckeeper "github.com/vexo-network/vexo-consensus/ibc"
+	gethbackend "github.com/vexo-network/vexo-consensus/modules/evm/backend/geth"
+	"github.com/vexo-network/vexo-consensus/modules/evm/ethcompat"
+	"github.com/vexo-network/vexo-consensus/ops"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	"github.com/vexo-network/vexo-consensus/queryproof"
 	"github.com/vexo-network/vexo-consensus/store"
@@ -913,6 +916,20 @@ func TestCollectedReleaseEvidenceDocumentsPassSemanticGate(t *testing.T) {
 	}
 }
 
+func TestRunReleaseDocsQuality(t *testing.T) {
+	var output bytes.Buffer
+	if err := runRelease(&output, []string{"docs-quality", "--docs", filepath.Join("..", "..", "docs"), "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var document releaseDocsQualityDocument
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if !document.OK || document.LocaleCount < 2 || document.DocumentCount == 0 {
+		t.Fatalf("expected docs quality gate to pass: %+v", document)
+	}
+}
+
 func releaseCheckOK(document releaseAuditPack, name string) bool {
 	for _, check := range document.Checks {
 		if check.Name == name {
@@ -1775,6 +1792,40 @@ func TestReadRelayerConfigDocument(t *testing.T) {
 	}
 }
 
+func TestRunRelayerSoakPlanBuildsRunnableConfig(t *testing.T) {
+	var output bytes.Buffer
+	if err := runRelayer(&output, []string{
+		"soak-plan",
+		"--source-rpc", "http://source.example",
+		"--dest-rpc", "http://dest.example",
+		"--client-id", "client-0",
+		"--sequences", "4",
+		"--interval", "0s",
+		"--json",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var document relayerSoakPlanDocument
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if !document.OK || len(document.Config.Jobs) != 4 {
+		t.Fatalf("unexpected soak plan: %+v", document)
+	}
+	seenAck := false
+	seenTimeout := false
+	for _, job := range document.Config.Jobs {
+		if _, err := relayerLoopConfigFromJob(job); err != nil {
+			t.Fatalf("generated job must be runnable: %+v err=%v", job, err)
+		}
+		seenAck = seenAck || job.Mode == "ack"
+		seenTimeout = seenTimeout || job.Mode == "timeout"
+	}
+	if !seenAck || !seenTimeout {
+		t.Fatalf("expected both ack and timeout scenarios: %+v", document.Config.Jobs)
+	}
+}
+
 func TestRunNetworkInitAndStartDryRun(t *testing.T) {
 	home := t.TempDir()
 	var initOutput bytes.Buffer
@@ -1999,6 +2050,82 @@ func TestRunNetworkLongRunEvidenceEvaluatesMetrics(t *testing.T) {
 		if node.Sample.HeightRatePerMinute <= 0 || !node.Report.OK {
 			t.Fatalf("expected healthy node evidence, got %+v", node)
 		}
+	}
+}
+
+func TestRunNetworkAnalyzeLongRun(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "longrun.json")
+	evidence := networkLongRunEvidence{
+		SchemaVersion: "v1",
+		OK:            true,
+		Home:          dir,
+		Validators:    2,
+		Duration:      "2h",
+		StartedAtUnix: 100,
+		EndedAtUnix:   7300,
+		Load: networkLongRunLoadEvidence{
+			Submitted: 12,
+			Failed:    0,
+			Duration:  "2h",
+		},
+		Nodes: []networkLongRunNodeEvidence{
+			{
+				ValidatorID: "validator-1",
+				Before:      opsMetricsSnapshotForTest(10),
+				After:       opsMetricsSnapshotForTest(130),
+				Sample: ops.Sample{
+					HeightRatePerMinute: 1,
+					SnapshotHealthy:     true,
+					ReplayHealthy:       true,
+				},
+				Report: ops.Report{OK: true},
+			},
+			{
+				ValidatorID: "validator-2",
+				Before:      opsMetricsSnapshotForTest(11),
+				After:       opsMetricsSnapshotForTest(131),
+				Sample: ops.Sample{
+					HeightRatePerMinute: 1,
+					SnapshotHealthy:     true,
+					ReplayHealthy:       true,
+				},
+				Report: ops.Report{OK: true},
+			},
+		},
+	}
+	writeTestJSON(t, path, evidence)
+	var output bytes.Buffer
+	if err := runNetwork(&output, []string{"analyze-longrun", "--input", path, "--min-validators", "2", "--min-duration", "1h", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	var analysis networkLongRunAnalysis
+	if err := json.Unmarshal(output.Bytes(), &analysis); err != nil {
+		t.Fatal(err)
+	}
+	if !analysis.OK || len(analysis.Checks) == 0 {
+		t.Fatalf("expected healthy longrun analysis: %+v", analysis)
+	}
+
+	evidence.Load.Failed = 1
+	writeTestJSON(t, path, evidence)
+	output.Reset()
+	if err := runNetwork(&output, []string{"analyze-longrun", "--input", path, "--min-validators", "2", "--min-duration", "1h", "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(output.Bytes(), &analysis); err != nil {
+		t.Fatal(err)
+	}
+	if analysis.OK {
+		t.Fatalf("expected failed load to fail longrun analysis: %+v", analysis)
+	}
+}
+
+func opsMetricsSnapshotForTest(height uint64) ops.MetricsSnapshot {
+	return ops.MetricsSnapshot{
+		LatestHeight:    height,
+		SnapshotHealthy: true,
+		ReplayHealthy:   true,
 	}
 }
 
@@ -3253,6 +3380,52 @@ func TestOpsConformanceRunsCustomEVMExecutionFixtures(t *testing.T) {
 	}
 	if !document.OK || document.EVMExecution == nil || !document.EVMExecution.OK || document.EVMExecution.Total != 1 {
 		t.Fatalf("expected custom execution fixture to pass: %+v", document)
+	}
+}
+
+func TestOpsConformanceRunsEVMFixtureDirectories(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--overwrite"}); err != nil {
+		t.Fatal(err)
+	}
+	txDir := filepath.Join(home, "tx-fixtures")
+	executionDir := filepath.Join(home, "execution-fixtures")
+	if err := os.MkdirAll(txDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(executionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	txFixtures, err := ethcompat.DefaultTransactionFixturesJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(txDir, "transactions.json"), txFixtures, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeTestJSON(t, filepath.Join(executionDir, "execution.json"), gethbackend.ExecutionFixtureDocument{
+		SchemaVersion: "v1",
+		Fixtures:      gethbackend.DefaultExecutionFixtures(),
+	})
+	var output bytes.Buffer
+	if err := runOps(&output, []string{
+		"conformance",
+		"--home", home,
+		"--evm-tx-fixtures-dir", txDir,
+		"--evm-execution-fixtures-dir", executionDir,
+		"--json",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var document opsConformanceDocument
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if !document.OK || document.EVMFixtures == nil || !document.EVMFixtures.OK || document.EVMExecution == nil || !document.EVMExecution.OK {
+		t.Fatalf("expected EVM fixture corpus to pass: %+v", document)
 	}
 }
 

@@ -8,10 +8,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -100,9 +102,260 @@ func runRelease(writer io.Writer, args []string) error {
 		return runReleaseEvidenceManifest(writer, args[1:])
 	case "collect-evidence":
 		return runReleaseCollectEvidence(writer, args[1:])
+	case "docs-quality":
+		return runReleaseDocsQuality(writer, args[1:])
 	default:
 		return fmt.Errorf("unknown release subcommand %q", args[0])
 	}
+}
+
+type releaseDocsQualityDocument struct {
+	SchemaVersion   string                    `json:"schema_version"`
+	OK              bool                      `json:"ok"`
+	DocsDir         string                    `json:"docs_dir"`
+	CanonicalLocale string                    `json:"canonical_locale"`
+	LocaleCount     int                       `json:"locale_count"`
+	DocumentCount   int                       `json:"document_count"`
+	Checks          []releaseDocsQualityCheck `json:"checks"`
+}
+
+type releaseDocsQualityCheck struct {
+	Name    string `json:"name"`
+	Locale  string `json:"locale,omitempty"`
+	Path    string `json:"path,omitempty"`
+	OK      bool   `json:"ok"`
+	Message string `json:"message"`
+}
+
+type releaseDocsLocaleManifest struct {
+	SchemaVersion     string            `json:"schema_version"`
+	CanonicalLocale   string            `json:"canonical_locale"`
+	Locales           []string          `json:"locales"`
+	CanonicalPolicy   string            `json:"canonical_policy"`
+	TranslationPolicy string            `json:"translation_policy"`
+	CanonicalHashes   map[string]string `json:"canonical_hashes"`
+}
+
+func runReleaseDocsQuality(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("release docs-quality", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	docsDir := flags.String("docs", "docs", "documentation directory")
+	minBytes := flags.Int("min-bytes", 1500, "minimum useful localized markdown length")
+	jsonOutput := flags.Bool("json", false, "write JSON output")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	document, err := buildReleaseDocsQualityDocument(*docsDir, *minBytes)
+	if err != nil {
+		return err
+	}
+	if *jsonOutput {
+		encoder := json.NewEncoder(writer)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(document)
+	}
+	status := "ok"
+	if !document.OK {
+		status = "failed"
+	}
+	fmt.Fprintf(writer, "release docs quality %s\n", status)
+	fmt.Fprintf(writer, "docs_dir: %s\n", document.DocsDir)
+	fmt.Fprintf(writer, "canonical_locale: %s\n", document.CanonicalLocale)
+	fmt.Fprintf(writer, "locales: %d\n", document.LocaleCount)
+	fmt.Fprintf(writer, "documents: %d\n", document.DocumentCount)
+	for _, check := range document.Checks {
+		fmt.Fprintf(writer, "%s", check.Name)
+		if check.Locale != "" {
+			fmt.Fprintf(writer, " locale=%s", check.Locale)
+		}
+		if check.Path != "" {
+			fmt.Fprintf(writer, " path=%s", check.Path)
+		}
+		fmt.Fprintf(writer, " ok=%t %s\n", check.OK, check.Message)
+	}
+	return nil
+}
+
+func buildReleaseDocsQualityDocument(docsDir string, minBytes int) (releaseDocsQualityDocument, error) {
+	manifestData, err := os.ReadFile(filepath.Join(docsDir, "locales", "manifest.json"))
+	if err != nil {
+		return releaseDocsQualityDocument{}, err
+	}
+	var manifest releaseDocsLocaleManifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		return releaseDocsQualityDocument{}, err
+	}
+	document := releaseDocsQualityDocument{
+		SchemaVersion:   "v1",
+		OK:              true,
+		DocsDir:         docsDir,
+		CanonicalLocale: manifest.CanonicalLocale,
+		LocaleCount:     len(manifest.Locales),
+	}
+	addCheck := func(name string, locale string, path string, ok bool, message string) {
+		if !ok {
+			document.OK = false
+		}
+		document.Checks = append(document.Checks, releaseDocsQualityCheck{Name: name, Locale: locale, Path: path, OK: ok, Message: message})
+	}
+	addCheck("manifest_schema", "", "locales/manifest.json", manifest.SchemaVersion == "v1", "locale manifest schema must be v1")
+	addCheck("canonical_locale", "", "locales/manifest.json", manifest.CanonicalLocale != "" && containsString(manifest.Locales, manifest.CanonicalLocale), "canonical locale must be present in locales list")
+	addCheck("policies", "", "locales/manifest.json", manifest.CanonicalPolicy != "" && manifest.TranslationPolicy != "", "manifest must state canonical and translation policies")
+	canonical, err := releaseMarkdownTree(docsDir, func(path string) bool {
+		return !strings.HasPrefix(filepath.ToSlash(path), "locales/")
+	})
+	if err != nil {
+		return releaseDocsQualityDocument{}, err
+	}
+	document.DocumentCount = len(canonical)
+	addCheck("canonical_docs_present", "", "", len(canonical) > 0, "canonical documentation tree must contain markdown files")
+	if len(manifest.CanonicalHashes) == 0 {
+		addCheck("canonical_hashes", "", "locales/manifest.json", false, "manifest must bind canonical docs by SHA-256")
+	} else {
+		for _, relative := range canonical {
+			data, readErr := os.ReadFile(filepath.Join(docsDir, relative))
+			if readErr != nil {
+				return releaseDocsQualityDocument{}, readErr
+			}
+			hash := fmt.Sprintf("%x", sha256.Sum256(data))
+			addCheck("canonical_hash", manifest.CanonicalLocale, relative, manifest.CanonicalHashes[relative] == hash, "canonical document hash must match manifest")
+		}
+		if diff := stringSetDiffStrings(canonical, sortedStringMapKeys(manifest.CanonicalHashes)); len(diff) > 0 {
+			addCheck("canonical_hash_missing", manifest.CanonicalLocale, strings.Join(diff, ","), false, "manifest is missing canonical document hashes")
+		}
+		if diff := stringSetDiffStrings(sortedStringMapKeys(manifest.CanonicalHashes), canonical); len(diff) > 0 {
+			addCheck("canonical_hash_extra", manifest.CanonicalLocale, strings.Join(diff, ","), false, "manifest references non-canonical documents")
+		}
+	}
+	canonicalLocaleFiles, err := releaseReadMarkdownFiles(filepath.Join(docsDir, "locales", manifest.CanonicalLocale))
+	if err != nil {
+		return releaseDocsQualityDocument{}, err
+	}
+	for _, locale := range manifest.Locales {
+		localeDir := filepath.Join(docsDir, "locales", locale)
+		files, err := releaseMarkdownTree(localeDir, func(string) bool { return true })
+		if err != nil {
+			return releaseDocsQualityDocument{}, err
+		}
+		if diff := stringSetDiffStrings(canonical, files); len(diff) > 0 {
+			addCheck("locale_missing_docs", locale, strings.Join(diff, ","), false, "locale is missing canonical markdown files")
+		}
+		if diff := stringSetDiffStrings(files, canonical); len(diff) > 0 {
+			addCheck("locale_extra_docs", locale, strings.Join(diff, ","), false, "locale has markdown files outside canonical tree")
+		}
+		localeFiles, err := releaseReadMarkdownFiles(localeDir)
+		if err != nil {
+			return releaseDocsQualityDocument{}, err
+		}
+		for relative, body := range localeFiles {
+			if locale == manifest.CanonicalLocale {
+				continue
+			}
+			addCheck("locale_marker", locale, relative, strings.Contains(body, "Locale: "+locale), "localized document must include its locale marker")
+			addCheck("locale_not_identical", locale, relative, body != canonicalLocaleFiles[relative], "localized document must not be identical to canonical English")
+			addCheck("locale_length", locale, relative, len(strings.TrimSpace(body)) >= minBytes, fmt.Sprintf("localized document must be at least %d bytes", minBytes))
+			addCheck("locale_sections", locale, relative, strings.Count(body, "\n## ") >= 2, "localized document must keep multiple explanatory sections")
+			addCheck("locale_no_placeholders", locale, relative, !releaseContainsPlaceholder(body), "localized document must not contain placeholder translation text")
+		}
+	}
+	return document, nil
+}
+
+func releaseMarkdownTree(root string, include func(string) bool) ([]string, error) {
+	files := make([]string, 0)
+	if err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if filepath.Base(path) == "locales" && filepath.Clean(path) == filepath.Join(filepath.Clean(root), "locales") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if filepath.Ext(path) != ".md" {
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		relative = filepath.ToSlash(relative)
+		if include(relative) {
+			files = append(files, relative)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+func releaseReadMarkdownFiles(root string) (map[string]string, error) {
+	files, err := releaseMarkdownTree(root, func(string) bool { return true })
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]string, len(files))
+	for _, relative := range files {
+		data, err := os.ReadFile(filepath.Join(root, relative))
+		if err != nil {
+			return nil, err
+		}
+		result[relative] = string(data)
+	}
+	return result, nil
+}
+
+func releaseContainsPlaceholder(body string) bool {
+	for _, forbidden := range []string{"todo", "tbd", "placeholder", "coming soon", "translation pending", "machine translation pending"} {
+		if releasePlaceholderPattern(forbidden).MatchString(body) {
+			return true
+		}
+	}
+	return false
+}
+
+func releasePlaceholderPattern(value string) *regexp.Regexp {
+	quoted := regexp.QuoteMeta(value)
+	if strings.Contains(value, " ") {
+		quoted = strings.ReplaceAll(quoted, `\ `, `\s+`)
+	}
+	return regexp.MustCompile(`(?i)(^|[^[:alpha:]])` + quoted + `($|[^[:alpha:]])`)
+}
+
+func sortedStringMapKeys(values map[string]string) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func stringSetDiffStrings(left []string, right []string) []string {
+	seen := make(map[string]struct{}, len(right))
+	for _, value := range right {
+		seen[value] = struct{}{}
+	}
+	var diff []string
+	for _, value := range left {
+		if _, found := seen[value]; !found {
+			diff = append(diff, value)
+		}
+	}
+	sort.Strings(diff)
+	return diff
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func runReleasePack(writer io.Writer, args []string) error {
