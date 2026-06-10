@@ -51,6 +51,22 @@ func TestBuildAllowsExternalPendingOnlyForExternalChecks(t *testing.T) {
 	}
 }
 
+func TestBuildRejectsExternalPendingForPublicVersion(t *testing.T) {
+	evidence := completeReleaseGateEvidence(true)
+	evidence.ExternalAudit = ""
+	evidence.BLSAudit = ""
+	evidence.VRFAudit = ""
+	evidence.AllowExternalPending = true
+	document := Build("v1.2.3", Pack{OK: true}, evidence)
+
+	if document.OK {
+		t.Fatalf("expected public version to reject pending external checks")
+	}
+	if checkOK(document.Checks, "external_pending_scope") {
+		t.Fatalf("expected external pending scope check to fail: %+v", document.Checks)
+	}
+}
+
 func TestBuildFailsInvalidEvidenceContent(t *testing.T) {
 	evidence := completeReleaseGateEvidence(false)
 	evidenceFiles := completeReleaseGateEvidenceFiles(false)

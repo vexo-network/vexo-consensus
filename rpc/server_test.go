@@ -1740,7 +1740,7 @@ func TestWeb3ReceiptUsesBlockCumulativeGas(t *testing.T) {
 	}
 }
 
-func TestHandlerWeb3StrictStateRootFailsClosedWhenUnavailable(t *testing.T) {
+func TestHandlerWeb3StateRootFailsClosedWhenUnavailable(t *testing.T) {
 	blockHash := types.Hash{0xab}
 	provider := &fakeStatusProvider{
 		status: node.Status{ChainID: "vexo-chain", EVMChainID: 7, Running: true, LatestHeight: 1},
@@ -1765,12 +1765,8 @@ func TestHandlerWeb3StrictStateRootFailsClosedWhenUnavailable(t *testing.T) {
 	handler = NewHandlerWithConfig(provider, Config{})
 	response = JSONRPCResponse{}
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":2,"method":"eth_getBlockByNumber","params":["latest",false]}`, http.StatusOK, &response)
-	if response.Error != nil {
-		t.Fatalf("unexpected fallback response error: %+v", response)
-	}
-	result, ok := response.Result.(map[string]any)
-	if !ok || result["stateRoot"] != "0xcd00000000000000000000000000000000000000000000000000000000000000" {
-		t.Fatalf("expected Vexo app-hash fallback when strict mode is disabled, got %+v", response.Result)
+	if response.Error == nil || response.Error.Code != -32000 || !strings.Contains(response.Error.Message, "EVM state root is unavailable") {
+		t.Fatalf("expected EVM state-root failure without fallback, got %+v", response)
 	}
 }
 
@@ -2223,9 +2219,10 @@ func TestHandlerBoundsWeb3WebSocketCatchUp(t *testing.T) {
 		blocks[height] = store.BlockRecord{Block: types.Block{Header: types.Header{ChainID: "vexo-chain", Height: height}}}
 	}
 	provider := &fakeStatusProvider{
-		status: node.Status{ChainID: "vexo-chain", LatestHeight: types.Height(web3SubscriptionMaxCatchUp + 2)},
-		blocks: blocks,
-		latest: types.Height(web3SubscriptionMaxCatchUp + 2),
+		status:           node.Status{ChainID: "vexo-chain", LatestHeight: types.Height(web3SubscriptionMaxCatchUp + 2)},
+		blocks:           blocks,
+		latest:           types.Height(web3SubscriptionMaxCatchUp + 2),
+		appQueryResponse: vexoapp.QueryResponse{Value: []byte(`{"state_root":"0x1111111111111111111111111111111111111111111111111111111111111111"}`)},
 	}
 	sent := make([]any, 0)
 	session := &web3SubscriptionSession{
@@ -2251,9 +2248,10 @@ func TestHandlerUsesConfiguredWeb3WebSocketCatchUpLimit(t *testing.T) {
 		blocks[height] = store.BlockRecord{Block: types.Block{Header: types.Header{ChainID: "vexo-chain", Height: height}}}
 	}
 	provider := &fakeStatusProvider{
-		status: node.Status{ChainID: "vexo-chain", LatestHeight: 5},
-		blocks: blocks,
-		latest: 5,
+		status:           node.Status{ChainID: "vexo-chain", LatestHeight: 5},
+		blocks:           blocks,
+		latest:           5,
+		appQueryResponse: vexoapp.QueryResponse{Value: []byte(`{"state_root":"0x1111111111111111111111111111111111111111111111111111111111111111"}`)},
 	}
 	sent := make([]any, 0)
 	session := &web3SubscriptionSession{

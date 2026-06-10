@@ -184,7 +184,7 @@ The bridge supports single requests, batch requests, notifications, string block
 - Module query path `evm/state-backend` returns the active EVM state backend contract, linked VM names, native balance namespace, 256-bit balance width, snapshot support, proof support, and the geth library boundary.
 - Mixed Vexo module blocks use deterministic Vexo roots where Ethereum transaction/receipt trie roots would be misleading. Blocks containing only Ethereum raw transactions with EVM receipts compute Ethereum-style transaction and receipt roots with go-ethereum `DeriveSha`.
 - `eth_getTransactionReceipt` reports per-transaction `gasUsed` and block-relative `cumulativeGasUsed`; `eth_getBlockReceipts` returns the same receipt semantics for every EVM receipt in the block.
-- When `execution.strict_evm_state_root` is enabled, Web3 block responses and `newHeads` fail closed if a retained EVM state root is unavailable instead of substituting the Vexo app hash.
+- Web3 block responses and `newHeads` fail closed if a retained EVM state root is unavailable; the RPC server never substitutes the Vexo app hash for Ethereum-compatible `stateRoot`.
 
 ### Calls, Gas, and Traces
 

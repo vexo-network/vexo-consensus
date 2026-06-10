@@ -232,7 +232,18 @@ func verifyConsensusEvidence(evidence slashing.Evidence, validatorSet validator.
 				return err
 			}
 		default:
-			return ErrInvalidProposalContext
+			if !isCustomInvalidProposalReason(decoded.Reason) {
+				return ErrInvalidProposalContext
+			}
+			var err error
+			if invalidProposalReasonRequiresContext(decoded.Reason) {
+				err = VerifyInvalidProposalEvidenceWithBoundContext(evidence, invalidProposalContext)
+			} else {
+				err = VerifyInvalidProposalEvidenceWithContext(evidence, invalidProposalContext)
+			}
+			if err != nil {
+				return err
+			}
 		}
 		return verifyProposalEvidenceSignature(decoded.Proposal, validatorInfo, verifier)
 	case slashing.EvidenceUnavailableData:

@@ -38,8 +38,9 @@ Vexo는 Ethereum node가 아니라 Vexo consensus 위에 EVM 실행 환경을 �
 - Ethereum devp2p, Ethereum fork choice, Ethereum sync protocol은 사용하지 않습니다.
 - Blob transaction은 sidecar가 필요하므로 `eth_sendRawBlobTransaction` 또는 `vexo_sendRawBlobTransaction`을 사용합니다.
 - Blob hash만 들어 있는 `eth_sendRawTransaction` 요청은 sidecar가 없기 때문에 거절됩니다.
-- `execution.strict_evm_state_root`는 기본적으로 켜두는 것이 안전합니다. 해당 height의 EVM state root를 로드하지 못하면 Web3 block 응답은 실패해야 합니다.
-- app hash는 Web3의 Ethereum-style `stateRoot`를 대체하는 값으로 쓰면 안 됩니다.
+- Web3 block 응답과 `newHeads`는 해당 height의 retained EVM state root가 있어야만 응답합니다.
+- app hash는 Web3의 Ethereum-style `stateRoot`를 대체하는 값으로 쓰면 안 되므로, RPC 서버는 app hash fallback을 하지 않습니다.
+- `execution.strict_evm_state_root`는 config 호환성을 위해 남아 있지만, app-hash 대체 응답을 허용하지 않습니다.
 
 ## 운영자 체크포인트
 

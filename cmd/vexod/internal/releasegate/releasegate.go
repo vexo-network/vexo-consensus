@@ -93,12 +93,16 @@ func Build(version string, pack Pack, evidence Evidence) Document {
 	document.addFileCheck("ops_runbook_evidence", evidence.OpsRunbook, "ops evidence must cover runbooks plus alert/incident/metrics handling", evidence)
 	document.addFileCheck("formal_safety_evidence", evidence.FormalSafety, "formal safety evidence must cover safety plus invariants/adversarial/property output", evidence)
 	document.addFileCheck("sdk_conformance_evidence", evidence.SDKConformance, "SDK evidence must cover SDK/API conformance for modules/RPC/storage/crypto/transport", evidence)
-	document.addExternalCheck("external_security_audit", evidence.ExternalAudit, evidence.AllowExternalPending, "external audit disposition must exist before public production release", evidence)
-	document.addExternalCheck("bls_adapter_audit", evidence.BLSAudit, evidence.AllowExternalPending, "audited BLS adapter and dependency audit evidence must exist when BLS is enabled", evidence)
+	allowExternalPending := evidence.AllowExternalPending && privateReleaseCandidateVersion(version)
+	if evidence.AllowExternalPending && !privateReleaseCandidateVersion(version) {
+		document.addCheck("external_pending_scope", false, "pending external audit evidence is only allowed for private rc/alpha/beta/private version labels")
+	}
+	document.addExternalCheck("external_security_audit", evidence.ExternalAudit, allowExternalPending, "external audit disposition must exist before public production release", evidence)
+	document.addExternalCheck("bls_adapter_audit", evidence.BLSAudit, allowExternalPending, "audited BLS adapter and dependency audit evidence must exist when BLS is enabled", evidence)
 	if strings.TrimSpace(evidence.BLSAuditSHA256) != "" {
 		document.addCheck("bls_adapter_audit_digest", evidenceFileSHA256OK(evidence.BLSAudit, evidence.BLSAuditSHA256, evidence), "BLS audit evidence digest must match the configured crypto audit_evidence_sha256 pin")
 	}
-	document.addExternalCheck("vrf_adapter_audit", evidence.VRFAudit, evidence.AllowExternalPending, "audited VRF adapter/KMS evidence must cover TLS/mTLS, auth, replay protection, and key custody", evidence)
+	document.addExternalCheck("vrf_adapter_audit", evidence.VRFAudit, allowExternalPending, "audited VRF adapter/KMS evidence must cover TLS/mTLS, auth, replay protection, and key custody", evidence)
 	if !document.OK {
 		document.NextActions = []string{
 			"collect missing evidence artifacts and rerun release gate",
@@ -108,6 +112,14 @@ func Build(version string, pack Pack, evidence Evidence) Document {
 		}
 	}
 	return document
+}
+
+func privateReleaseCandidateVersion(version string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(version))
+	return strings.Contains(normalized, "rc") ||
+		strings.Contains(normalized, "alpha") ||
+		strings.Contains(normalized, "beta") ||
+		strings.Contains(normalized, "private")
 }
 
 func (document *Document) addCheck(name string, ok bool, message string) {

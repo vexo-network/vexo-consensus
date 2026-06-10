@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"sort"
+	"sync"
 
 	"github.com/vexo-network/vexo-consensus/dataavailability"
 	"github.com/vexo-network/vexo-consensus/queryproof"
@@ -32,15 +34,58 @@ const (
 	InvalidProposalReasonTxValidity       InvalidProposalReason = "tx_validity"
 )
 
+var builtinInvalidProposalReasons = []InvalidProposalReason{
+	InvalidProposalReasonDAMismatch,
+	InvalidProposalReasonMissingData,
+	InvalidProposalReasonValidatorSetHash,
+	InvalidProposalReasonAppHash,
+	InvalidProposalReasonTxValidity,
+	InvalidProposalReasonTimestamp,
+}
+
+type InvalidProposalVerifier func(InvalidProposalProof, InvalidProposalVerificationContext) error
+
+type InvalidProposalVerifierOptions struct {
+	RequireContext bool
+}
+
+type invalidProposalVerifierEntry struct {
+	verifier       InvalidProposalVerifier
+	requireContext bool
+}
+
+var invalidProposalVerifierRegistry = struct {
+	sync.RWMutex
+	entries map[InvalidProposalReason]invalidProposalVerifierEntry
+}{
+	entries: make(map[InvalidProposalReason]invalidProposalVerifierEntry),
+}
+
 func SupportedInvalidProposalReasons() []InvalidProposalReason {
-	return []InvalidProposalReason{
-		InvalidProposalReasonDAMismatch,
-		InvalidProposalReasonMissingData,
-		InvalidProposalReasonValidatorSetHash,
-		InvalidProposalReasonAppHash,
-		InvalidProposalReasonTxValidity,
-		InvalidProposalReasonTimestamp,
+	reasons := append([]InvalidProposalReason(nil), builtinInvalidProposalReasons...)
+	custom := registeredInvalidProposalReasons()
+	sort.Slice(custom, func(i int, j int) bool { return custom[i] < custom[j] })
+	return append(reasons, custom...)
+}
+
+func RegisterInvalidProposalVerifier(reason InvalidProposalReason, verifier InvalidProposalVerifier) error {
+	return RegisterInvalidProposalVerifierWithOptions(reason, verifier, InvalidProposalVerifierOptions{})
+}
+
+func RegisterInvalidProposalVerifierWithOptions(reason InvalidProposalReason, verifier InvalidProposalVerifier, options InvalidProposalVerifierOptions) error {
+	if reason == "" || verifier == nil || isBuiltinInvalidProposalReason(reason) {
+		return ErrUnsupportedProposalReason
 	}
+	invalidProposalVerifierRegistry.Lock()
+	defer invalidProposalVerifierRegistry.Unlock()
+	if _, exists := invalidProposalVerifierRegistry.entries[reason]; exists {
+		return ErrUnsupportedProposalReason
+	}
+	invalidProposalVerifierRegistry.entries[reason] = invalidProposalVerifierEntry{
+		verifier:       verifier,
+		requireContext: options.RequireContext,
+	}
+	return nil
 }
 
 type ConflictingVoteProof struct {
@@ -432,14 +477,43 @@ func NewInvalidProposalEvidenceWithStateProof(proposal Proposal, context Invalid
 	return BindInvalidProposalEvidenceStateProof(evidence, context, stateProof)
 }
 
+func NewCustomInvalidProposalEvidence(proposal Proposal, reason InvalidProposalReason, expected types.Hash, actual types.Hash, message string) (slashing.Evidence, error) {
+	return NewCustomInvalidProposalEvidenceWithContext(proposal, InvalidProposalVerificationContext{}, reason, expected, actual, message)
+}
+
+func NewCustomInvalidProposalEvidenceWithContext(proposal Proposal, context InvalidProposalVerificationContext, reason InvalidProposalReason, expected types.Hash, actual types.Hash, message string) (slashing.Evidence, error) {
+	if !isCustomInvalidProposalReason(reason) {
+		return slashing.Evidence{}, ErrUnsupportedProposalReason
+	}
+	proof := InvalidProposalProof{
+		Proposal:            proposal,
+		Reason:              reason,
+		ExpectedHash:        expected,
+		ActualHash:          actual,
+		VerificationMessage: message,
+	}
+	evidence, err := newInvalidProposalEvidenceFromProofWithContext(proof, context)
+	if err != nil {
+		return slashing.Evidence{}, err
+	}
+	if invalidProposalReasonRequiresContext(reason) || context.ProofHash() != (types.Hash{}) {
+		return BindInvalidProposalEvidenceContext(evidence, context)
+	}
+	return evidence, nil
+}
+
 func newInvalidProposalEvidenceFromProof(proof InvalidProposalProof) (slashing.Evidence, error) {
+	return newInvalidProposalEvidenceFromProofWithContext(proof, InvalidProposalVerificationContext{})
+}
+
+func newInvalidProposalEvidenceFromProofWithContext(proof InvalidProposalProof, context InvalidProposalVerificationContext) (slashing.Evidence, error) {
 	if proof.Proposal.Proposer == "" || proof.Proposal.Block.Header.Height == 0 {
 		return slashing.Evidence{}, slashing.ErrMissingValidator
 	}
 	if err := verifyInvalidProposalEnvelope(proof, proof.Proposal.Proposer, proof.Proposal.Block.Header.Height, proof.Proposal.Round); err != nil {
 		return slashing.Evidence{}, err
 	}
-	if err := verifyInvalidProposalByReason(proof); err != nil {
+	if err := verifyInvalidProposalByReasonWithContext(proof, context); err != nil {
 		return slashing.Evidence{}, err
 	}
 	encoded, err := json.Marshal(proof)
@@ -467,6 +541,10 @@ func verifyInvalidProposalEnvelope(decoded InvalidProposalProof, validatorID typ
 }
 
 func verifyInvalidProposalByReason(decoded InvalidProposalProof) error {
+	return verifyInvalidProposalByReasonWithContext(decoded, InvalidProposalVerificationContext{})
+}
+
+func verifyInvalidProposalByReasonWithContext(decoded InvalidProposalProof, context InvalidProposalVerificationContext) error {
 	switch decoded.Reason {
 	case InvalidProposalReasonDAMismatch:
 		if err := verifyDACommitmentProof(decoded); err != nil {
@@ -519,6 +597,9 @@ func verifyInvalidProposalByReason(decoded InvalidProposalProof) error {
 		}
 		return nil
 	default:
+		if verifier, ok := invalidProposalVerifier(decoded.Reason); ok {
+			return verifier(decoded, context)
+		}
 		return ErrUnsupportedProposalReason
 	}
 }
@@ -756,7 +837,9 @@ func VerifyInvalidProposalEvidence(evidence slashing.Evidence) error {
 	switch decoded.Reason {
 	case InvalidProposalReasonDAMismatch, InvalidProposalReasonMissingData:
 	default:
-		return ErrInvalidProposalContext
+		if !isCustomInvalidProposalReason(decoded.Reason) {
+			return ErrInvalidProposalContext
+		}
 	}
 	if decoded.ContextProofHash != (types.Hash{}) {
 		return ErrInvalidProposalContext
@@ -825,7 +908,7 @@ func VerifyInvalidProposalEvidenceWithContext(evidence slashing.Evidence, contex
 	if err := verifyInvalidProposalStateProof(decoded, context, evidence.Height); err != nil {
 		return err
 	}
-	return verifyInvalidProposalByReason(decoded)
+	return verifyInvalidProposalByReasonWithContext(decoded, context)
 }
 
 func VerifyInvalidProposalEvidenceWithBoundContext(evidence slashing.Evidence, context InvalidProposalVerificationContext) error {
@@ -862,7 +945,8 @@ func invalidProposalReasonRequiresContext(reason InvalidProposalReason) bool {
 		InvalidProposalReasonTxValidity:
 		return true
 	default:
-		return false
+		entry, ok := invalidProposalVerifierEntryFor(reason)
+		return ok && entry.requireContext
 	}
 }
 
@@ -921,12 +1005,52 @@ func writeResultUint64(hasher interface{ Write([]byte) (int, error) }, value uin
 }
 
 func validInvalidProposalReason(reason InvalidProposalReason) bool {
-	for _, supported := range SupportedInvalidProposalReasons() {
+	return isBuiltinInvalidProposalReason(reason) || isCustomInvalidProposalReason(reason)
+}
+
+func isBuiltinInvalidProposalReason(reason InvalidProposalReason) bool {
+	for _, supported := range builtinInvalidProposalReasons {
 		if reason == supported {
 			return true
 		}
 	}
 	return false
+}
+
+func isCustomInvalidProposalReason(reason InvalidProposalReason) bool {
+	_, ok := invalidProposalVerifierEntryFor(reason)
+	return ok
+}
+
+func invalidProposalVerifier(reason InvalidProposalReason) (InvalidProposalVerifier, bool) {
+	entry, ok := invalidProposalVerifierEntryFor(reason)
+	if !ok {
+		return nil, false
+	}
+	return entry.verifier, true
+}
+
+func invalidProposalVerifierEntryFor(reason InvalidProposalReason) (invalidProposalVerifierEntry, bool) {
+	invalidProposalVerifierRegistry.RLock()
+	defer invalidProposalVerifierRegistry.RUnlock()
+	entry, ok := invalidProposalVerifierRegistry.entries[reason]
+	return entry, ok
+}
+
+func registeredInvalidProposalReasons() []InvalidProposalReason {
+	invalidProposalVerifierRegistry.RLock()
+	defer invalidProposalVerifierRegistry.RUnlock()
+	reasons := make([]InvalidProposalReason, 0, len(invalidProposalVerifierRegistry.entries))
+	for reason := range invalidProposalVerifierRegistry.entries {
+		reasons = append(reasons, reason)
+	}
+	return reasons
+}
+
+func unregisterInvalidProposalVerifierForTest(reason InvalidProposalReason) {
+	invalidProposalVerifierRegistry.Lock()
+	defer invalidProposalVerifierRegistry.Unlock()
+	delete(invalidProposalVerifierRegistry.entries, reason)
 }
 
 func VerifyUnavailableDataEvidence(evidence slashing.Evidence) error {

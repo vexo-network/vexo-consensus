@@ -45,11 +45,11 @@ The built-in EVM adapter preserves Ethereum 256-bit value and fee fields.
 
 ## State Root Policy
 
-Networks should keep `execution.strict_evm_state_root` enabled.
+Web3 `stateRoot` responses are fail-closed.
 
-- When strict mode is enabled, Web3 block responses fail closed if the retained EVM state root for the requested height is unavailable.
-- The app hash is not a safe substitute for Ethereum-compatible `stateRoot` in Web3 responses.
-- Operators may disable strict mode only for migration or historical debugging windows where Web3 state-root fidelity is not being advertised.
+- Web3 block responses and `newHeads` require the retained EVM state root for the requested height.
+- The app hash is not a safe substitute for Ethereum-compatible `stateRoot` in Web3 responses, so the RPC server never falls back to it.
+- `execution.strict_evm_state_root` is retained for config compatibility; it does not permit app-hash substitution.
 - Release evidence should include retained EVM snapshots or replay results for the heights used by Web3 clients.
 
 ## Compatibility Boundary

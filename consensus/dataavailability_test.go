@@ -517,6 +517,73 @@ func TestSupportedInvalidProposalReasonsExposeOnlyVerifiableReasons(t *testing.T
 	}
 }
 
+func TestCustomInvalidProposalVerifierRequiresBoundContext(t *testing.T) {
+	reason := InvalidProposalReason("custom_app_rule_test")
+	defer unregisterInvalidProposalVerifierForTest(reason)
+
+	if err := RegisterInvalidProposalVerifierWithOptions(reason, func(proof InvalidProposalProof, context InvalidProposalVerificationContext) error {
+		if proof.ExpectedHash == (types.Hash{}) || proof.ActualHash == (types.Hash{}) || proof.ExpectedHash == proof.ActualHash {
+			return ErrInvalidProposal
+		}
+		if context.ExpectedAppHash == (types.Hash{}) {
+			return ErrInvalidProposalContext
+		}
+		if proof.ExpectedHash != context.ExpectedAppHash {
+			return ErrInvalidProposal
+		}
+		return nil
+	}, InvalidProposalVerifierOptions{RequireContext: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	proposal := Proposal{
+		Block: types.Block{
+			Header: types.Header{ChainID: "vexo-test", Height: 7, AppHash: types.Hash{2}},
+		},
+		Proposer: "validator-1",
+	}
+	context := InvalidProposalVerificationContext{ExpectedAppHash: types.Hash{1}}
+	context.ContextProofHash = context.ProofHash()
+
+	if _, err := NewCustomInvalidProposalEvidence(proposal, reason, types.Hash{1}, types.Hash{2}, "app rule mismatch"); !errors.Is(err, ErrInvalidProposalContext) {
+		t.Fatalf("expected custom verifier to reject missing context, got %v", err)
+	}
+
+	evidence, err := NewCustomInvalidProposalEvidenceWithContext(proposal, context, reason, types.Hash{1}, types.Hash{2}, "app rule mismatch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyInvalidProposalEvidence(evidence); !errors.Is(err, ErrInvalidProposalContext) {
+		t.Fatalf("expected raw verification to require context, got %v", err)
+	}
+	if err := VerifyInvalidProposalEvidenceWithBoundContext(evidence, context); err != nil {
+		t.Fatalf("expected bound custom verification to pass: %v", err)
+	}
+	tampered := context
+	tampered.ExpectedAppHash = types.Hash{9}
+	tampered.ContextProofHash = tampered.ProofHash()
+	if err := VerifyInvalidProposalEvidenceWithBoundContext(evidence, tampered); !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected tampered custom context rejection, got %v", err)
+	}
+}
+
+func TestRegisterInvalidProposalVerifierRejectsUnsafeReasons(t *testing.T) {
+	if err := RegisterInvalidProposalVerifier(InvalidProposalReasonAppHash, func(InvalidProposalProof, InvalidProposalVerificationContext) error {
+		return nil
+	}); !errors.Is(err, ErrUnsupportedProposalReason) {
+		t.Fatalf("expected builtin reason registration rejection, got %v", err)
+	}
+	reason := InvalidProposalReason("custom_duplicate_test")
+	defer unregisterInvalidProposalVerifierForTest(reason)
+	verifier := func(InvalidProposalProof, InvalidProposalVerificationContext) error { return nil }
+	if err := RegisterInvalidProposalVerifier(reason, verifier); err != nil {
+		t.Fatal(err)
+	}
+	if err := RegisterInvalidProposalVerifier(reason, verifier); !errors.Is(err, ErrUnsupportedProposalReason) {
+		t.Fatalf("expected duplicate registration rejection, got %v", err)
+	}
+}
+
 func TestInvalidProposalTimestampEvidenceBindsActualToProposal(t *testing.T) {
 	proposal := Proposal{
 		Block: types.Block{

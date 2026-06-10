@@ -2966,7 +2966,7 @@ func web3GetProof(ctx context.Context, provider StatusProvider, params []json.Ra
 	return result, nil
 }
 
-func web3StateRoot(ctx context.Context, provider StatusProvider, cfg Config, record store.BlockRecord) (string, bool) {
+func web3StateRoot(ctx context.Context, provider StatusProvider, _ Config, record store.BlockRecord) (string, bool) {
 	if record.Block.Header.Height == provider.Status(ctx).LatestHeight {
 		if query, ok := provider.(AppQueryProvider); ok {
 			payload, _ := json.Marshal(map[string]uint64{"height": uint64(record.Block.Header.Height)})
@@ -2992,10 +2992,7 @@ func web3StateRoot(ctx context.Context, provider StatusProvider, cfg Config, rec
 			}
 		}
 	}
-	if cfg.StrictEVMStateRoot {
-		return "", false
-	}
-	return "0x" + hex.EncodeToString(record.AppHash[:]), true
+	return "", false
 }
 
 func web3BlockBaseFee(ctx context.Context, provider StatusProvider, record store.BlockRecord) uint64 {
