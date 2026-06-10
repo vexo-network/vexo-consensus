@@ -104,6 +104,8 @@ go run ./cmd/vexod release gate \
   --sdk-conformance-evidence dist/sdk-conformance-evidence.json \
   --external-audit dist/external-audit.pdf \
   --bls-audit dist/bls-audit.pdf \
+  --bls-audit-sha256 <sha256> \
+  --vrf-audit dist/vrf-audit.pdf \
   --json
 ```
 

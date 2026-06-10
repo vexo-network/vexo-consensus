@@ -931,7 +931,7 @@ func TestLoadStartRuntimeConfigRequiresFinalizedCommitWhenNetworkSafetyIsRequire
 	}
 }
 
-func TestLoadStartRuntimeConfigAlwaysRequiresFinalizedCommit(t *testing.T) {
+func TestLoadStartRuntimeConfigRequiresExplicitUnsafeOptInForQCCommit(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, configFileName)
 	document := defaultConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
@@ -942,7 +942,17 @@ func TestLoadStartRuntimeConfigAlwaysRequiresFinalizedCommit(t *testing.T) {
 	writeTestJSON(t, filepath.Join(home, consensusConfigFileName), consensusDocument)
 
 	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrUnsafeNetworkConfig) {
-		t.Fatalf("expected finalized execution commit to be mandatory, got %v", err)
+		t.Fatalf("expected qc commit without explicit unsafe opt-in to fail, got %v", err)
+	}
+	consensusDocument.Consensus.AllowUnsafeQCCommit = true
+	writeTestJSON(t, filepath.Join(home, consensusConfigFileName), consensusDocument)
+	if cfg, err := loadStartRuntimeConfig(home, path); err != nil || !cfg.ConsensusLoop.AllowUnsafeQCCommit || cfg.ConsensusLoop.ExecutionCommitMode != vexonode.ExecutionCommitModeQC {
+		t.Fatalf("expected explicit unsafe qc commit to load when network safety gate is off, cfg=%+v err=%v", cfg.ConsensusLoop, err)
+	}
+	document.RequireNetworkSafety = true
+	writeTestJSON(t, path, document)
+	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected qc commit to fail when require_network_safety=true, got %v", err)
 	}
 }
 

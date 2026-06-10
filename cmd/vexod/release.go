@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/cmd/vexod/internal/releasegate"
+	vexoconfig "github.com/vexo-network/vexo-consensus/config"
 )
 
 type releaseAuditPack struct {
@@ -459,6 +460,8 @@ func runReleaseReadiness(writer io.Writer, args []string) error {
 func runReleaseGate(writer io.Writer, args []string) error {
 	flags := flag.NewFlagSet("release gate", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
+	home := flags.String("home", defaultHomeDir, "node home directory used when resolving --config")
+	configPath := flags.String("config", "", "node config path used to read release-gate digest pins")
 	versionValue := flags.String("version", version, "release version label")
 	distDir := flags.String("dist", "dist", "release dist directory")
 	requireSignature := flags.Bool("require-signature", true, "require signed checksums")
@@ -479,6 +482,7 @@ func runReleaseGate(writer io.Writer, args []string) error {
 	sdkConformanceEvidence := flags.String("sdk-conformance-evidence", "", "SDK/API module, storage, crypto, transport, RPC, EVM, and Web3 conformance evidence path")
 	externalAudit := flags.String("external-audit", "", "external security audit report or disposition path")
 	blsAudit := flags.String("bls-audit", "", "audited BLS adapter/dependency audit evidence path")
+	blsAuditSHA256 := flags.String("bls-audit-sha256", "", "expected SHA-256 of BLS audit evidence; defaults to crypto.audit_evidence_sha256 from --config when BLS is configured")
 	vrfAudit := flags.String("vrf-audit", "", "audited VRF adapter/KMS/TLS evidence path")
 	privateRC := flags.Bool("private-rc", false, "mark this gate as a private release candidate; required before allowing external audit items to remain pending")
 	allowExternalPending := flags.Bool("allow-external-pending", false, "allow external audit/BLS audit to remain pending for private release candidates")
@@ -491,6 +495,10 @@ func runReleaseGate(writer io.Writer, args []string) error {
 	}
 	if *allowExternalPending && !isPrivateReleaseCandidateVersion(*versionValue) {
 		return fmt.Errorf("--allow-external-pending requires a private release candidate version label containing rc, alpha, beta, or private")
+	}
+	blsDigestPin, err := resolveReleaseGateBLSAuditSHA256(*home, *configPath, *blsAuditSHA256)
+	if err != nil {
+		return err
 	}
 	manifestPath := *evidenceManifest
 	if manifestPath == "" {
@@ -519,6 +527,7 @@ func runReleaseGate(writer io.Writer, args []string) error {
 		SDKConformance:       *sdkConformanceEvidence,
 		ExternalAudit:        *externalAudit,
 		BLSAudit:             *blsAudit,
+		BLSAuditSHA256:       blsDigestPin,
 		VRFAudit:             *vrfAudit,
 		AllowExternalPending: *allowExternalPending,
 	})
@@ -540,6 +549,23 @@ func runReleaseGate(writer io.Writer, args []string) error {
 		}
 	}
 	return nil
+}
+
+func resolveReleaseGateBLSAuditSHA256(home string, configPath string, explicit string) (string, error) {
+	if strings.TrimSpace(explicit) != "" {
+		return strings.TrimSpace(explicit), nil
+	}
+	if strings.TrimSpace(configPath) == "" {
+		return "", nil
+	}
+	nodeConfig, err := loadNodeConfig(resolveConfigPath(home, configPath))
+	if err != nil {
+		return "", err
+	}
+	if nodeConfig.Chain.Crypto.Backend != vexoconfig.CryptoBackendBLS {
+		return "", nil
+	}
+	return strings.TrimSpace(nodeConfig.Chain.Crypto.AuditEvidenceSHA256), nil
 }
 
 func isPrivateReleaseCandidateVersion(versionValue string) bool {
@@ -992,7 +1018,7 @@ func buildProductionReadinessDocument() productionReadinessDocument {
 			"go run ./cmd/vexod release launch-checklist --json",
 			"go run ./cmd/vexod release readiness --json",
 			"go run ./cmd/vexod config tune --validators <n> --tps <target> --regions <r> --latency <duration> --json",
-			"go run ./cmd/vexod release gate --dist dist --version <version> --evidence-manifest dist/evidence-manifest.json --longrun-evidence dist/longrun-evidence.json --chaos-evidence dist/chaos-evidence.json --adversarial-evidence dist/adversarial-evidence.json --fuzz-evidence dist/fuzz-evidence.txt --kms-evidence dist/kms-evidence.json --snapshot-evidence dist/snapshot-replay-evidence.json --p2p-scale-evidence dist/p2p-scale-evidence.json --state-sync-light-client-evidence dist/state-sync-light-client-evidence.json --validator-economics-evidence dist/validator-economics-evidence.json --upgrade-governance-evidence dist/upgrade-governance-evidence.json --mev-fee-market-evidence dist/mev-fee-market-evidence.json --ops-runbook-evidence dist/ops-runbook-evidence.json --formal-safety-evidence dist/formal-safety-evidence.json --sdk-conformance-evidence dist/sdk-conformance-evidence.json --external-audit dist/external-audit.pdf --bls-audit dist/bls-audit.pdf --vrf-audit dist/vrf-audit.pdf",
+			"go run ./cmd/vexod release gate --dist dist --version <version> --evidence-manifest dist/evidence-manifest.json --longrun-evidence dist/longrun-evidence.json --chaos-evidence dist/chaos-evidence.json --adversarial-evidence dist/adversarial-evidence.json --fuzz-evidence dist/fuzz-evidence.txt --kms-evidence dist/kms-evidence.json --snapshot-evidence dist/snapshot-replay-evidence.json --p2p-scale-evidence dist/p2p-scale-evidence.json --state-sync-light-client-evidence dist/state-sync-light-client-evidence.json --validator-economics-evidence dist/validator-economics-evidence.json --upgrade-governance-evidence dist/upgrade-governance-evidence.json --mev-fee-market-evidence dist/mev-fee-market-evidence.json --ops-runbook-evidence dist/ops-runbook-evidence.json --formal-safety-evidence dist/formal-safety-evidence.json --sdk-conformance-evidence dist/sdk-conformance-evidence.json --external-audit dist/external-audit.pdf --bls-audit dist/bls-audit.pdf --bls-audit-sha256 <sha256> --vrf-audit dist/vrf-audit.pdf",
 			"go run ./cmd/vexod network scale-plan --validators <n> --regions <r> --hosts <h> --json",
 			"go run ./cmd/vexod snapshot drill-plan --input snapshot.json --chain-id <chain-id> --json",
 			"go run ./cmd/vexod slashing lifecycle-plan --type conflicting_vote --validator <id> --height <h> --current-height <h> --json",
@@ -1061,6 +1087,7 @@ type releaseGateInputs struct {
 	SDKConformance       string
 	ExternalAudit        string
 	BLSAudit             string
+	BLSAuditSHA256       string
 	VRFAudit             string
 	AllowExternalPending bool
 }
@@ -1092,6 +1119,7 @@ func buildReleaseGateDocument(versionValue string, pack releaseAuditPack, inputs
 		SDKConformance:       inputs.SDKConformance,
 		ExternalAudit:        inputs.ExternalAudit,
 		BLSAudit:             inputs.BLSAudit,
+		BLSAuditSHA256:       inputs.BLSAuditSHA256,
 		VRFAudit:             inputs.VRFAudit,
 		AllowExternalPending: inputs.AllowExternalPending,
 		Exists:               fileExists,

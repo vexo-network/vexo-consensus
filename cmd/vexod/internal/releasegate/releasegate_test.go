@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -65,6 +66,23 @@ func TestBuildFailsInvalidEvidenceContent(t *testing.T) {
 	}
 	if checkOK(document.Checks, "chaos_evidence") {
 		t.Fatalf("expected chaos evidence check to fail: %+v", document.Checks)
+	}
+}
+
+func TestBuildFailsWhenBLSAuditDigestDoesNotMatchPin(t *testing.T) {
+	evidence := completeReleaseGateEvidence(false)
+	files := completeReleaseGateEvidenceFiles(false)
+	sum := sha256.Sum256(files["bls.pdf"])
+	evidence.BLSAuditSHA256 = hex.EncodeToString(sum[:])
+	document := Build("rc", Pack{OK: true}, evidence)
+	if !document.OK || !checkOK(document.Checks, "bls_adapter_audit_digest") {
+		t.Fatalf("expected matching BLS audit digest to pass: %+v", document)
+	}
+
+	evidence.BLSAuditSHA256 = strings.Repeat("0", 64)
+	document = Build("rc", Pack{OK: true}, evidence)
+	if document.OK || checkOK(document.Checks, "bls_adapter_audit_digest") {
+		t.Fatalf("expected mismatched BLS audit digest to fail: %+v", document)
 	}
 }
 

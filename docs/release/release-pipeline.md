@@ -98,6 +98,8 @@ go run ./cmd/vexod release gate \
   --sdk-conformance-evidence dist/sdk-conformance-evidence.json \
   --external-audit dist/external-audit.pdf \
   --bls-audit dist/bls-audit.pdf \
+  --bls-audit-sha256 <sha256> \
+  --vrf-audit dist/vrf-audit.pdf \
   --json
 ```
 
@@ -172,7 +174,7 @@ The `release-candidate` target runs:
 - ops verification
 - built-binary network E2E (`make network-e2e`)
 - adversarial simulation
-- SDK/EVM conformance evidence. If the `evm` module is enabled, `vexod ops conformance` treats missing `--evm-default-fixtures`, `--evm-tx-fixtures`, or `--evm-tx-fixtures-dir` as an error, not a warning. The built-in fixture set is a baseline for dynamic-fee, access-list, protected legacy, unprotected legacy rejection, chain-ID, malformed raw, fee-cap behavior, geth VM call return data, contract creation execution, revert behavior, and persistent storage writes. Attach any chain-specific raw transaction corpus with `--evm-tx-fixtures <file>` or `--evm-tx-fixtures-dir <dir>` and any chain-specific VM execution corpus with `--evm-execution-fixtures <file>` or `--evm-execution-fixtures-dir <dir>` before making broader Web3/EVM compatibility claims.
+- SDK/EVM conformance evidence. If the `evm` module is enabled, `vexod ops conformance` treats missing `--evm-default-fixtures`, `--evm-tx-fixtures`, or `--evm-tx-fixtures-dir` as an error, not a warning. The built-in fixture set is a baseline for dynamic-fee, access-list, protected legacy, unprotected legacy rejection, chain-ID, malformed raw, fee-cap behavior, geth VM call return data, contract creation execution, CREATE2, revert behavior, persistent storage writes, event logs, value transfer, precompile execution, access-list gas semantics, and blob-hash semantics. Attach any chain-specific raw transaction corpus with `--evm-tx-fixtures <file>` or `--evm-tx-fixtures-dir <dir>` and any chain-specific VM execution corpus with `--evm-execution-fixtures <file>` or `--evm-execution-fixtures-dir <dir>` before making broader Web3/EVM compatibility claims. Pin external corpora with `--evm-tx-fixtures-sha256` and `--evm-execution-fixtures-sha256` so CI evidence proves exactly which fixture set ran.
 - network load harness (`RC_DRY_RUN=1` keeps this as a plan-only dry-run; `make release-candidate-real` forces `RC_DRY_RUN=0`)
 - chaos plan
 - IBC relayer soak plan with `vexod relayer soak-plan --json`
@@ -183,7 +185,7 @@ The `release-candidate` target runs:
 - evidence manifest generation for whatever RC evidence files are present in `dist/`
 
 Real release candidates should run `network longrun` on independent machines and attach the generated evidence JSON plus metrics, logs, pprof, snapshot, replay, KMS signing, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, SDK conformance, EVM/Web3 raw transaction conformance, geth VM execution conformance, BLS adapter audit, and VRF adapter/KMS/TLS audit evidence.
-The longrun harness distributes load across validator RPC endpoints and records per-validator submission counts in the evidence payload. The analyzer should pass before the evidence is attached to the release gate. Relayer soak plans should include both acknowledgement and timeout jobs and should be archived with checkpoint state. Upgrade plans that rely on no-op schema migrations must explicitly set `allow_noop_migrations=true`; `vexod upgrade apply --allow-empty-migrations` rejects plans that do not opt in. Public release gates require `--vrf-audit` evidence covering the VRF adapter implementation, dependency audit, TLS/mTLS or pinned CA, authorization, nonce replay defense, and KMS/HSM custody policy.
+The longrun harness distributes load across validator RPC endpoints and records per-validator submission counts in the evidence payload. The analyzer should pass before the evidence is attached to the release gate. Relayer soak plans should include both acknowledgement and timeout jobs and should be archived with checkpoint state. Upgrade plans that rely on no-op schema migrations must explicitly set `allow_noop_migrations=true`; `vexod upgrade apply --allow-empty-migrations` rejects plans that do not opt in. Public release gates require `--bls-audit` evidence and either `--bls-audit-sha256` or `--config <path>` with `crypto.audit_evidence_sha256` when BLS is configured, plus `--vrf-audit` evidence covering the VRF adapter implementation, dependency audit, TLS/mTLS or pinned CA, authorization, nonce replay defense, and KMS/HSM custody policy.
 
 ## Launch Runbook
 

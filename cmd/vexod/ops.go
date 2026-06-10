@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -98,8 +100,10 @@ func runOpsConformance(writer io.Writer, args []string) error {
 	previousMetricsFile := flags.String("previous-metrics-file", "", "previous /metrics JSON file for rate deltas")
 	evmFixtures := flags.String("evm-tx-fixtures", "", "Ethereum raw transaction fixture JSON file")
 	evmFixtureDir := flags.String("evm-tx-fixtures-dir", "", "directory of Ethereum raw transaction fixture JSON files")
+	evmFixturesSHA256 := flags.String("evm-tx-fixtures-sha256", "", "expected SHA-256 of the Ethereum raw transaction fixture file or deterministic directory corpus")
 	evmExecutionFixtures := flags.String("evm-execution-fixtures", "", "geth EVM execution fixture JSON file")
 	evmExecutionFixtureDir := flags.String("evm-execution-fixtures-dir", "", "directory of geth EVM execution fixture JSON files")
+	evmExecutionFixturesSHA256 := flags.String("evm-execution-fixtures-sha256", "", "expected SHA-256 of the geth EVM execution fixture file or deterministic directory corpus")
 	evmDefaultFixtures := flags.Bool("evm-default-fixtures", false, "run the built-in geth-signed Ethereum transaction conformance fixtures")
 	windowValue := flags.String("window", "1m", "elapsed time between previous and current metrics files")
 	strict := flags.Bool("strict", false, "use strict network-safety audit severities")
@@ -127,6 +131,12 @@ func runOpsConformance(writer io.Writer, args []string) error {
 	}
 	if transactionFixtureSources == 0 && (*evmExecutionFixtures != "" || *evmExecutionFixtureDir != "") {
 		return fmt.Errorf("EVM execution fixtures require --evm-default-fixtures, --evm-tx-fixtures, or --evm-tx-fixtures-dir")
+	}
+	if err := verifyFixtureSourceDigest(*evmFixtures, *evmFixtureDir, *evmFixturesSHA256, "evm-tx-fixtures-sha256"); err != nil {
+		return err
+	}
+	if err := verifyFixtureSourceDigest(*evmExecutionFixtures, *evmExecutionFixtureDir, *evmExecutionFixturesSHA256, "evm-execution-fixtures-sha256"); err != nil {
+		return err
 	}
 	inputs, err := loadStartInputs(*home, *configPath, *genesisPath, *keyPath, []string(rotationKeys), true)
 	if err != nil {
@@ -287,6 +297,61 @@ func jsonFilePaths(root string) ([]string, error) {
 		return nil, fmt.Errorf("no JSON fixture files found under %s", root)
 	}
 	return paths, nil
+}
+
+func verifyFixtureSourceDigest(filePath string, dirPath string, expected string, label string) error {
+	expected = strings.ToLower(strings.TrimSpace(expected))
+	if expected == "" {
+		return nil
+	}
+	if len(expected) != 64 {
+		return fmt.Errorf("%s must be a 64-character SHA-256 hex digest", label)
+	}
+	if _, err := hex.DecodeString(expected); err != nil {
+		return fmt.Errorf("%s must be a valid SHA-256 hex digest: %w", label, err)
+	}
+	if filePath == "" && dirPath == "" {
+		return fmt.Errorf("%s requires --evm-tx-fixtures, --evm-tx-fixtures-dir, --evm-execution-fixtures, or --evm-execution-fixtures-dir", label)
+	}
+	actual, err := fixtureSourceSHA256(filePath, dirPath)
+	if err != nil {
+		return err
+	}
+	if actual != expected {
+		return fmt.Errorf("%s mismatch: expected %s got %s", label, expected, actual)
+	}
+	return nil
+}
+
+func fixtureSourceSHA256(filePath string, dirPath string) (string, error) {
+	if filePath != "" {
+		raw, err := os.ReadFile(filePath)
+		if err != nil {
+			return "", err
+		}
+		sum := sha256.Sum256(raw)
+		return hex.EncodeToString(sum[:]), nil
+	}
+	paths, err := jsonFilePaths(dirPath)
+	if err != nil {
+		return "", err
+	}
+	hasher := sha256.New()
+	for _, path := range paths {
+		relative, err := filepath.Rel(dirPath, path)
+		if err != nil {
+			return "", err
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		_, _ = hasher.Write([]byte(filepath.ToSlash(relative)))
+		_, _ = hasher.Write([]byte{0})
+		_, _ = hasher.Write(raw)
+		_, _ = hasher.Write([]byte{0})
+	}
+	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
 func loadTransactionFixtureCorpus(paths []string) ([]ethcompat.TransactionFixture, error) {

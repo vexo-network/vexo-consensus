@@ -453,11 +453,13 @@ type JSONRPCError struct {
 }
 
 type web3FilterStore struct {
-	mu      sync.Mutex
-	nextID  uint64
-	max     int
-	order   []string
-	filters map[string]web3Filter
+	mu             sync.Mutex
+	nextID         uint64
+	max            int
+	order          []string
+	filters        map[string]web3Filter
+	onChange       func(Web3FilterStoreSnapshot) error
+	lastPersistErr error
 }
 
 type Web3FilterStoreSnapshot struct {
@@ -6130,10 +6132,14 @@ func newWeb3FilterStore() *web3FilterStore {
 
 func newWeb3FilterStoreWithConfig(cfg Config) (*web3FilterStore, error) {
 	filters := newWeb3FilterStore()
-	if strings.TrimSpace(cfg.Web3FilterSnapshotPath) == "" {
+	snapshotPath := strings.TrimSpace(cfg.Web3FilterSnapshotPath)
+	if snapshotPath == "" {
 		return filters, nil
 	}
-	snapshot, err := loadWeb3FilterStoreSnapshot(cfg.Web3FilterSnapshotPath)
+	filters.setOnChange(func(snapshot Web3FilterStoreSnapshot) error {
+		return saveWeb3FilterStoreSnapshotAtomic(snapshotPath, snapshot)
+	})
+	snapshot, err := loadWeb3FilterStoreSnapshot(snapshotPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return filters, nil
 	}
@@ -6198,28 +6204,29 @@ func saveWeb3FilterStoreSnapshotAtomic(path string, snapshot Web3FilterStoreSnap
 
 func (store *web3FilterStore) addLog(filter web3Filter, logs []any, latestHeight uint64) string {
 	store.mu.Lock()
-	defer store.mu.Unlock()
 	store.nextID++
 	id := hexQuantity(store.nextID)
 	filter.Type = "log"
 	filter.LastHeight = latestHeight
 	filter.SeenLogs = web3SeenLogSet(logs)
 	store.addLocked(id, filter)
+	store.mu.Unlock()
+	store.persistAfterChange()
 	return id
 }
 
 func (store *web3FilterStore) addBlock(latestHeight uint64) string {
 	store.mu.Lock()
-	defer store.mu.Unlock()
 	store.nextID++
 	id := hexQuantity(store.nextID)
 	store.addLocked(id, web3Filter{Type: "block", LastHeight: latestHeight})
+	store.mu.Unlock()
+	store.persistAfterChange()
 	return id
 }
 
 func (store *web3FilterStore) addPending(hashes []types.Hash) string {
 	store.mu.Lock()
-	defer store.mu.Unlock()
 	store.nextID++
 	id := hexQuantity(store.nextID)
 	seen := make(map[string]bool, len(hashes))
@@ -6227,6 +6234,8 @@ func (store *web3FilterStore) addPending(hashes []types.Hash) string {
 		seen[web3HashString(hash)] = true
 	}
 	store.addLocked(id, web3Filter{Type: "pending", SeenPending: seen})
+	store.mu.Unlock()
+	store.persistAfterChange()
 	return id
 }
 
@@ -6239,31 +6248,37 @@ func (store *web3FilterStore) get(id string) (web3Filter, bool) {
 
 func (store *web3FilterStore) mark(id string, height uint64) {
 	store.mu.Lock()
-	defer store.mu.Unlock()
 	filter, found := store.filters[id]
 	if !found {
+		store.mu.Unlock()
 		return
 	}
 	filter.LastHeight = height
 	store.filters[id] = filter
+	store.mu.Unlock()
+	store.persistAfterChange()
 }
 
 func (store *web3FilterStore) replace(id string, filter web3Filter) {
 	store.mu.Lock()
-	defer store.mu.Unlock()
 	if _, found := store.filters[id]; !found {
+		store.mu.Unlock()
 		return
 	}
 	store.filters[id] = filter
+	store.mu.Unlock()
+	store.persistAfterChange()
 }
 
 func (store *web3FilterStore) remove(id string) bool {
 	store.mu.Lock()
-	defer store.mu.Unlock()
 	if _, found := store.filters[id]; !found {
+		store.mu.Unlock()
 		return false
 	}
 	store.removeLocked(id)
+	store.mu.Unlock()
+	store.persistAfterChange()
 	return true
 }
 
@@ -6294,6 +6309,10 @@ func (store *web3FilterStore) removeLocked(id string) {
 func (store *web3FilterStore) Snapshot() Web3FilterStoreSnapshot {
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	return store.snapshotLocked()
+}
+
+func (store *web3FilterStore) snapshotLocked() Web3FilterStoreSnapshot {
 	filters := make([]web3Filter, 0, len(store.order))
 	for _, id := range store.order {
 		filter, found := store.filters[id]
@@ -6313,6 +6332,34 @@ func (store *web3FilterStore) Snapshot() Web3FilterStoreSnapshot {
 		Order:   append([]string(nil), store.order...),
 		Filters: filters,
 	}
+}
+
+func (store *web3FilterStore) setOnChange(callback func(Web3FilterStoreSnapshot) error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.onChange = callback
+}
+
+func (store *web3FilterStore) persistAfterChange() {
+	store.mu.Lock()
+	callback := store.onChange
+	if callback == nil {
+		store.mu.Unlock()
+		return
+	}
+	snapshot := store.snapshotLocked()
+	store.mu.Unlock()
+
+	err := callback(snapshot)
+	store.mu.Lock()
+	store.lastPersistErr = err
+	store.mu.Unlock()
+}
+
+func (store *web3FilterStore) persistError() error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return store.lastPersistErr
 }
 
 func (store *web3FilterStore) Restore(snapshot Web3FilterStoreSnapshot) {

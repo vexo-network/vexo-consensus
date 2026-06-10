@@ -49,6 +49,7 @@ type Evidence struct {
 	SDKConformance       string
 	ExternalAudit        string
 	BLSAudit             string
+	BLSAuditSHA256       string
 	VRFAudit             string
 	AllowExternalPending bool
 	Exists               func(string) bool
@@ -94,6 +95,9 @@ func Build(version string, pack Pack, evidence Evidence) Document {
 	document.addFileCheck("sdk_conformance_evidence", evidence.SDKConformance, "SDK evidence must cover SDK/API conformance for modules/RPC/storage/crypto/transport", evidence)
 	document.addExternalCheck("external_security_audit", evidence.ExternalAudit, evidence.AllowExternalPending, "external audit disposition must exist before public production release", evidence)
 	document.addExternalCheck("bls_adapter_audit", evidence.BLSAudit, evidence.AllowExternalPending, "audited BLS adapter and dependency audit evidence must exist when BLS is enabled", evidence)
+	if strings.TrimSpace(evidence.BLSAuditSHA256) != "" {
+		document.addCheck("bls_adapter_audit_digest", evidenceFileSHA256OK(evidence.BLSAudit, evidence.BLSAuditSHA256, evidence), "BLS audit evidence digest must match the configured crypto audit_evidence_sha256 pin")
+	}
 	document.addExternalCheck("vrf_adapter_audit", evidence.VRFAudit, evidence.AllowExternalPending, "audited VRF adapter/KMS evidence must cover TLS/mTLS, auth, replay protection, and key custody", evidence)
 	if !document.OK {
 		document.NextActions = []string{
@@ -137,6 +141,25 @@ func evidenceFileOK(name string, path string, evidence Evidence) bool {
 		return false
 	}
 	return EvidenceCheckContentOK(name, path, data) && evidenceFileManifestOK(name, path, data, evidence)
+}
+
+func evidenceFileSHA256OK(path string, expected string, evidence Evidence) bool {
+	if path == "" || evidence.ReadFile == nil || !evidence.Exists(path) {
+		return false
+	}
+	normalizedExpected := strings.ToLower(strings.TrimSpace(expected))
+	if len(normalizedExpected) != 64 {
+		return false
+	}
+	if _, err := hex.DecodeString(normalizedExpected); err != nil {
+		return false
+	}
+	data, err := evidence.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]) == normalizedExpected
 }
 
 func evidenceManifestOK(evidence Evidence) bool {

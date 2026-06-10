@@ -179,16 +179,17 @@ type runtimeP2PConfig struct {
 }
 
 type runtimeConsensusConfig struct {
-	LoopEnabled       bool   `json:"loop_enabled"`
-	Interval          string `json:"interval,omitempty"`
-	TimeoutPropose    string `json:"timeout_propose,omitempty"`
-	TimeoutPrevote    string `json:"timeout_prevote,omitempty"`
-	TimeoutPrecommit  string `json:"timeout_precommit,omitempty"`
-	TimeoutCommit     string `json:"timeout_commit,omitempty"`
-	RoundTimeout      string `json:"round_timeout,omitempty"`
-	MaxBlockBytes     int64  `json:"max_block_bytes,omitempty"`
-	CreateEmptyBlocks bool   `json:"create_empty_blocks"`
-	ExecutionCommit   string `json:"execution_commit,omitempty"`
+	LoopEnabled         bool   `json:"loop_enabled"`
+	Interval            string `json:"interval,omitempty"`
+	TimeoutPropose      string `json:"timeout_propose,omitempty"`
+	TimeoutPrevote      string `json:"timeout_prevote,omitempty"`
+	TimeoutPrecommit    string `json:"timeout_precommit,omitempty"`
+	TimeoutCommit       string `json:"timeout_commit,omitempty"`
+	RoundTimeout        string `json:"round_timeout,omitempty"`
+	MaxBlockBytes       int64  `json:"max_block_bytes,omitempty"`
+	CreateEmptyBlocks   bool   `json:"create_empty_blocks"`
+	ExecutionCommit     string `json:"execution_commit,omitempty"`
+	AllowUnsafeQCCommit bool   `json:"allow_unsafe_qc_commit,omitempty"`
 }
 
 type runtimeLogConfig struct {

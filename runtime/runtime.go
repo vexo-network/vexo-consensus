@@ -60,12 +60,21 @@ func New(cfg config.Config, application app.Application, initialValidators []val
 	return nil, ErrDurableStoreRequired
 }
 
-// NewEphemeral creates an in-memory runtime for isolated tests and examples.
+// NewEphemeralForTesting creates an in-memory runtime for isolated tests and examples.
 //
 // Do not use it for a running network: it does not persist validator registry,
 // governance, slashing, mempool, block, state, or finality-proof data.
-func NewEphemeral(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower) (*Runtime, error) {
+func NewEphemeralForTesting(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower) (*Runtime, error) {
 	return newWithStoreAndCryptoRegistry(context.Background(), cfg, application, initialValidators, governancePower, nil, crypto.NewRuntimeSuiteRegistry(), true)
+}
+
+// NewEphemeral creates an in-memory runtime for isolated tests and examples.
+//
+// Deprecated: use NewEphemeralForTesting. Running networks must use NewWithStore
+// or NewWithStoreAndCryptoRegistry so validator, governance, slashing, block,
+// state, and finality-proof data survive restart.
+func NewEphemeral(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower) (*Runtime, error) {
+	return NewEphemeralForTesting(cfg, application, initialValidators, governancePower)
 }
 
 func NewWithStore(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower, storage store.Store) (*Runtime, error) {

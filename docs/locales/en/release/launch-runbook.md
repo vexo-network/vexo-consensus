@@ -116,14 +116,16 @@ go run ./cmd/vexod release gate \
   --formal-safety-evidence dist/formal-safety-evidence.json \
   --sdk-conformance-evidence dist/sdk-conformance-evidence.json \
   --external-audit dist/external-audit.pdf \
-  --bls-audit dist/bls-audit.pdf
+  --bls-audit dist/bls-audit.pdf \
+  --bls-audit-sha256 <sha256> \
+  --vrf-audit dist/vrf-audit.pdf
 ```
 
 `release collect-evidence` only marks snapshot/replay evidence as passing when the sampled validators expose both a positive snapshot height and healthy replay diagnostics. If that check is false, run the snapshot restore/replay drill before packaging the release.
 
 `network analyze-longrun` should pass before `longrun-evidence.json` is accepted by reviewers. It verifies that the evidence still shows validator participation, submitted load, height growth, ops-threshold health, snapshot health, and replay health instead of merely proving that a JSON file exists.
 
-`--evm-default-fixtures` is intentionally small enough for CI but not superficial: it exercises dynamic-fee calls, contract creation, access-list metadata, protected legacy signing, unprotected legacy rejection, chain-ID mismatch rejection, malformed raw input rejection, fee-cap rejection, geth VM call return data, contract creation execution, revert behavior, and persistent storage writes. Add `--evm-tx-fixtures <file>` or `--evm-tx-fixtures-dir <dir>` for chain-specific raw transaction scenarios and `--evm-execution-fixtures <file>` or `--evm-execution-fixtures-dir <dir>` for chain-specific contract, precompile, blob, opcode, and account-abstraction execution scenarios before a public compatibility claim.
+`--evm-default-fixtures` is intentionally small enough for CI but not superficial: it exercises dynamic-fee calls, contract creation, CREATE2, access-list metadata, protected legacy signing, unprotected legacy rejection, chain-ID mismatch rejection, malformed raw input rejection, fee-cap rejection, geth VM call return data, contract creation execution, revert behavior, persistent storage writes, event logs, value transfer, precompile execution, access-list gas semantics, and blob-hash semantics. Add `--evm-tx-fixtures <file>` or `--evm-tx-fixtures-dir <dir>` for chain-specific raw transaction scenarios and `--evm-execution-fixtures <file>` or `--evm-execution-fixtures-dir <dir>` for chain-specific contract, precompile, blob, opcode, and account-abstraction execution scenarios before a public compatibility claim. Pin those external corpora with `--evm-tx-fixtures-sha256` and `--evm-execution-fixtures-sha256`.
 
 `relayer soak-plan` emits a runnable `relayer run` config that alternates acknowledgement and timeout jobs, uses checkpoint state to prevent duplicate submissions, and keeps transient proof/RPC failures visible in soak output. Archive the generated plan and any checkpoint/log evidence when IBC is part of the launch surface.
 

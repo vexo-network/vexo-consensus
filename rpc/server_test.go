@@ -2048,6 +2048,20 @@ func TestServerShutdownPersistsWeb3FilterStore(t *testing.T) {
 	}
 }
 
+func TestServerPersistsWeb3FilterStoreOnMutation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "filters.json")
+	server := NewServer(fakeStatusProvider{status: node.Status{Running: true}}, Config{Web3FilterSnapshotPath: path})
+	filterID := server.filterStore.addBlock(12)
+
+	restored, err := newWeb3FilterStoreWithConfig(Config{Web3FilterSnapshotPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := restored.get(filterID); !found {
+		t.Fatalf("expected mutation to persist filter %s", filterID)
+	}
+}
+
 func TestServerReportsCorruptWeb3FilterSnapshot(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "filters.json")
 	if err := os.WriteFile(path, []byte("{not-json"), 0o644); err != nil {

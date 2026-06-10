@@ -727,6 +727,7 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 			MaxBlockBytes:       runtime.Consensus.MaxBlockBytes,
 			CreateEmptyBlocks:   runtime.Consensus.CreateEmptyBlocks,
 			ExecutionCommitMode: vexonode.ExecutionCommitMode(runtime.Consensus.ExecutionCommit),
+			AllowUnsafeQCCommit: runtime.Consensus.AllowUnsafeQCCommit,
 		},
 		LogFormat: runtime.Log.Format,
 		LogLevel:  runtime.Log.Level,
@@ -831,12 +832,16 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 		cfg.ConsensusLoop.RoundTimeout = duration
 	}
 	switch cfg.ConsensusLoop.ExecutionCommitMode {
-	case "", vexonode.ExecutionCommitModeQC, vexonode.ExecutionCommitModeFinalized:
+	case "", vexonode.ExecutionCommitModeFinalized:
+	case vexonode.ExecutionCommitModeQC:
+		if !cfg.ConsensusLoop.AllowUnsafeQCCommit {
+			return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.execution_commit=%q requires allow_unsafe_qc_commit=true: %w", vexonode.ExecutionCommitModeQC, vexoconfig.ErrUnsafeNetworkConfig)
+		}
 	default:
 		return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.execution_commit: %w", vexonode.ErrInvalidLoopConfig)
 	}
-	if cfg.ConsensusLoop.ExecutionCommitMode != vexonode.ExecutionCommitModeFinalized {
-		return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.execution_commit must be %q: %w", vexonode.ExecutionCommitModeFinalized, vexoconfig.ErrUnsafeNetworkConfig)
+	if document.RequireNetworkSafety && cfg.ConsensusLoop.ExecutionCommitMode != vexonode.ExecutionCommitModeFinalized {
+		return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.execution_commit must be %q when require_network_safety=true: %w", vexonode.ExecutionCommitModeFinalized, vexoconfig.ErrUnsafeNetworkConfig)
 	}
 	if err := validateRuntimeNetworkSafety(cfg); err != nil {
 		return startRuntimeConfig{}, err
