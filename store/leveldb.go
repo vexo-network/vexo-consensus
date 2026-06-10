@@ -8,6 +8,7 @@ import (
 
 	"github.com/syndtr/goleveldb/leveldb"
 	leveldberrors "github.com/syndtr/goleveldb/leveldb/errors"
+	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/syndtr/goleveldb/leveldb/util"
 	"github.com/vexo-network/vexo-consensus/stateproof"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -33,8 +34,13 @@ var (
 )
 
 type LevelDBStore struct {
-	db         *leveldb.DB
-	evidenceMu sync.Mutex
+	db           *leveldb.DB
+	writeOptions *opt.WriteOptions
+	evidenceMu   sync.Mutex
+}
+
+type LevelDBOptions struct {
+	SyncWrites bool
 }
 
 type kvHistoryRecord struct {
@@ -46,11 +52,30 @@ type kvHistoryRecord struct {
 }
 
 func OpenLevelDB(path string) (*LevelDBStore, error) {
+	return OpenLevelDBWithOptions(path, LevelDBOptions{SyncWrites: true})
+}
+
+func OpenLevelDBWithOptions(path string, options LevelDBOptions) (*LevelDBStore, error) {
 	db, err := leveldb.OpenFile(path, nil)
 	if err != nil {
 		return nil, err
 	}
-	return &LevelDBStore{db: db}, nil
+	return &LevelDBStore{
+		db:           db,
+		writeOptions: &opt.WriteOptions{Sync: options.SyncWrites},
+	}, nil
+}
+
+func (store *LevelDBStore) writeBatch(batch *leveldb.Batch) error {
+	return store.db.Write(batch, store.writeOptions)
+}
+
+func (store *LevelDBStore) put(key []byte, value []byte) error {
+	return store.db.Put(key, value, store.writeOptions)
+}
+
+func (store *LevelDBStore) delete(key []byte) error {
+	return store.db.Delete(key, store.writeOptions)
 }
 
 func (store *LevelDBStore) IsNotFound(err error) bool {
@@ -83,7 +108,7 @@ func (store *LevelDBStore) SaveBlock(ctx context.Context, record BlockRecord) er
 		return err
 	}
 	batch.Put(blockIndexKey, encodedIndex)
-	return store.db.Write(batch, nil)
+	return store.writeBatch(batch)
 }
 
 func (store *LevelDBStore) BlockByHeight(ctx context.Context, height types.Height) (BlockRecord, error) {
@@ -194,7 +219,7 @@ func (store *LevelDBStore) PruneBelow(ctx context.Context, retainFrom types.Heig
 		}
 		batch.Put(blockIndexKey, encodedIndex)
 	}
-	if err := store.db.Write(batch, nil); err != nil {
+	if err := store.writeBatch(batch); err != nil {
 		return PruneResult{}, err
 	}
 	return result, nil
@@ -237,7 +262,7 @@ func (store *LevelDBStore) SaveState(ctx context.Context, state StateRecord) err
 	batch := new(leveldb.Batch)
 	batch.Put(stateLatestKey, encoded)
 	batch.Put(stateHeightKey(state.Height), encoded)
-	return store.db.Write(batch, nil)
+	return store.writeBatch(batch)
 }
 
 func (store *LevelDBStore) SaveSchemaState(ctx context.Context, state upgrade.State) error {
@@ -250,7 +275,7 @@ func (store *LevelDBStore) SaveSchemaState(ctx context.Context, state upgrade.St
 	if err != nil {
 		return err
 	}
-	return store.db.Put(schemaStateKey, encoded, nil)
+	return store.put(schemaStateKey, encoded)
 }
 
 func (store *LevelDBStore) SchemaState(ctx context.Context) (upgrade.State, error) {
@@ -289,7 +314,7 @@ func (store *LevelDBStore) SaveUpgradePlan(ctx context.Context, plan upgrade.Pla
 	batch := new(leveldb.Batch)
 	batch.Put(upgradePlanHeightKey(plan.Height), encoded)
 	batch.Put(upgradePlanNameKey(plan.Name), encoded)
-	return store.db.Write(batch, nil)
+	return store.writeBatch(batch)
 }
 
 func (store *LevelDBStore) UpgradePlanByHeight(ctx context.Context, height types.Height) (upgrade.Plan, bool, error) {
@@ -398,7 +423,7 @@ func (store *LevelDBStore) SaveStateRoot(ctx context.Context, record StateRootRe
 	if err != nil {
 		return err
 	}
-	return store.db.Put(stateRootKey(record.Height, record.Namespace), encoded, nil)
+	return store.put(stateRootKey(record.Height, record.Namespace), encoded)
 }
 
 func (store *LevelDBStore) CommitBlockState(ctx context.Context, block BlockRecord, state StateRecord, roots []StateRootRecord) error {
@@ -486,7 +511,7 @@ func (store *LevelDBStore) commitBlockStateBatch(ctx context.Context, writes []K
 		}
 		batch.Put(stateRootKey(root.Height, root.Namespace), encodedRoot)
 	}
-	return store.db.Write(batch, nil)
+	return store.writeBatch(batch)
 }
 
 func (store *LevelDBStore) StateRoot(ctx context.Context, height types.Height, namespace string) (StateRootRecord, error) {
@@ -540,7 +565,7 @@ func (store *LevelDBStore) SaveFinalityProof(ctx context.Context, proof Finality
 	batch := new(leveldb.Batch)
 	batch.Put(finalityHeightKey(proof.Header.Height), encoded)
 	batch.Put(finalityLatestKey, encoded)
-	return store.db.Write(batch, nil)
+	return store.writeBatch(batch)
 }
 
 func (store *LevelDBStore) FinalityProof(ctx context.Context, height types.Height) (FinalityProofRecord, error) {
@@ -629,7 +654,7 @@ func (store *LevelDBStore) Set(ctx context.Context, namespace string, key []byte
 	if len(key) == 0 {
 		return ErrInvalidKey
 	}
-	return store.db.Put(kvKey(namespace, key), append([]byte(nil), value...), nil)
+	return store.put(kvKey(namespace, key), append([]byte(nil), value...))
 }
 
 func (store *LevelDBStore) SetWithUpgradePlans(ctx context.Context, namespace string, key []byte, value []byte, plans []upgrade.Plan) error {
@@ -661,7 +686,7 @@ func (store *LevelDBStore) SetWithUpgradePlans(ctx context.Context, namespace st
 		batch.Put(upgradePlanHeightKey(plan.Height), encodedPlans[index])
 		batch.Put(upgradePlanNameKey(plan.Name), encodedPlans[index])
 	}
-	return store.db.Write(batch, nil)
+	return store.writeBatch(batch)
 }
 
 func (store *LevelDBStore) Get(ctx context.Context, namespace string, key []byte) ([]byte, error) {
@@ -752,7 +777,7 @@ func (store *LevelDBStore) Delete(ctx context.Context, namespace string, key []b
 	if len(key) == 0 {
 		return ErrInvalidKey
 	}
-	return store.db.Delete(kvKey(namespace, key), nil)
+	return store.delete(kvKey(namespace, key))
 }
 
 func (store *LevelDBStore) SetBatch(ctx context.Context, writes []KVWrite) error {
@@ -776,7 +801,7 @@ func (store *LevelDBStore) SetBatch(ctx context.Context, writes []KVWrite) error
 		}
 		batch.Put(key, append([]byte(nil), write.Value...))
 	}
-	return store.db.Write(batch, nil)
+	return store.writeBatch(batch)
 }
 
 func (store *LevelDBStore) Root(ctx context.Context, namespace string) (types.Hash, error) {
@@ -984,7 +1009,7 @@ func (store *LevelDBStore) ImportNamespace(ctx context.Context, namespace string
 		}
 		batch.Put(kvKey(namespace, pair.Key), append([]byte(nil), pair.Value...))
 	}
-	return store.db.Write(batch, nil)
+	return store.writeBatch(batch)
 }
 
 func (store *LevelDBStore) RecoverIndexes(ctx context.Context) (RecoverResult, error) {
@@ -1023,7 +1048,7 @@ func (store *LevelDBStore) RecoverIndexes(ctx context.Context) (RecoverResult, e
 		batch.Put(evidenceIndexKey, encoded)
 		result.RecoveredIndexes++
 	}
-	if err := store.db.Write(batch, nil); err != nil {
+	if err := store.writeBatch(batch); err != nil {
 		return RecoverResult{}, err
 	}
 	result.BlockIndexKeys = blockIndex.TotalBlocks

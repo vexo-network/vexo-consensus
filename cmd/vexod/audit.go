@@ -196,8 +196,11 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 		}
 	}
 	if runtimeConfig.RPCEnabled {
-		document.addCheck("rpc_admin_token", strictSeverity(strict), runtimeConfig.RPCAdminToken != "", "protect admin RPC endpoints with an admin token")
-		document.addCheck("rpc_private_or_admin", strictSeverity(strict), isPrivateListenAddress(runtimeConfig.RPCAddress) || runtimeConfig.RPCAdminToken != "", "public RPC listeners need admin-token protection")
+		hasRPCAdminAuth := runtimeConfig.RPCAdminToken != "" || len(runtimeConfig.RPCAdminTokens) > 0
+		document.addCheck("rpc_admin_token", strictSeverity(strict), hasRPCAdminAuth, "protect admin RPC endpoints with an admin token")
+		document.addCheck("rpc_private_or_admin", strictSeverity(strict), isPrivateListenAddress(runtimeConfig.RPCAddress) || hasRPCAdminAuth, "public RPC listeners need admin-token protection")
+		document.addCheck("rpc_tls_identity", strictSeverity(strict), isPrivateListenAddress(runtimeConfig.RPCAddress) || (runtimeConfig.RPCTLSCertPath != "" && runtimeConfig.RPCTLSKeyPath != ""), "public RPC listeners need TLS cert/key identity")
+		document.addCheck("rpc_mtls_ca", "warning", isPrivateListenAddress(runtimeConfig.RPCAddress) || runtimeConfig.RPCTLSCAPath != "", "configure RPC TLS CA trust roots to require client certificates on public admin/API endpoints")
 		document.addCheck("rpc_pprof_loopback", strictSeverity(strict), !runtimeConfig.RPCEnablePprof || isLoopbackListenAddress(runtimeConfig.RPCAddress), "pprof should only be exposed on loopback interfaces")
 		document.addCheck("rpc_request_limit", "warning", runtimeConfig.RPCMaxRequestBytes > 0, "set --rpc-max-request-bytes to bound request memory")
 		document.addCheck("rpc_rate_limit", "warning", runtimeConfig.RPCRateLimitMaxRequests > 0, "set --rpc-rate-limit-max to reduce RPC floods")

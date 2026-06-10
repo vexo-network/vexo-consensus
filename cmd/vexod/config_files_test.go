@@ -475,6 +475,33 @@ func TestRuntimeConfigLoadsP2PTLSFromSplitNetworkConfig(t *testing.T) {
 	}
 }
 
+func TestRuntimeConfigLoadsRPCTLSFromSplitNetworkConfig(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	networkDocument, err := readNetworkConfigDocument(filepath.Join(home, networkConfigFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	networkDocument.RPC.TLSCertPath = "tls/rpc.crt"
+	networkDocument.RPC.TLSKeyPath = "tls/rpc.key"
+	networkDocument.RPC.TLSCAPath = "tls/rpc-ca.crt"
+	networkDocument.RPC.TLSServerName = "rpc.validator.internal"
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+
+	runtimeConfig, err := loadStartRuntimeConfig(home, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtimeConfig.RPCTLSCertPath != filepath.Join(home, "tls/rpc.crt") ||
+		runtimeConfig.RPCTLSKeyPath != filepath.Join(home, "tls/rpc.key") ||
+		runtimeConfig.RPCTLSCAPath != filepath.Join(home, "tls/rpc-ca.crt") ||
+		runtimeConfig.RPCTLSServerName != "rpc.validator.internal" {
+		t.Fatalf("expected resolved rpc TLS config, got %+v", runtimeConfig)
+	}
+}
+
 func TestLoadP2PTLSConfigRequiresCAForConfiguredIdentity(t *testing.T) {
 	_, err := loadP2PTLSConfig(startRuntimeConfig{
 		P2PTLSCertPath: "tls/node.crt",
@@ -482,6 +509,24 @@ func TestLoadP2PTLSConfigRequiresCAForConfiguredIdentity(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected p2p tls identity without ca to fail")
+	}
+}
+
+func TestLoadRPCTLSConfigRejectsPartialIdentity(t *testing.T) {
+	_, err := loadRPCTLSConfig(startRuntimeConfig{RPCTLSCertPath: "tls/rpc.crt"})
+	if err == nil || !strings.Contains(err.Error(), "cert and key") {
+		t.Fatalf("expected rpc tls partial identity error, got %v", err)
+	}
+}
+
+func TestLoadRPCTLSConfigRequiresCAForServerName(t *testing.T) {
+	_, err := loadRPCTLSConfig(startRuntimeConfig{
+		RPCTLSCertPath:   "tls/rpc.crt",
+		RPCTLSKeyPath:    "tls/rpc.key",
+		RPCTLSServerName: "rpc.validator.internal",
+	})
+	if err == nil || !strings.Contains(err.Error(), "server name requires") {
+		t.Fatalf("expected rpc tls server name ca error, got %v", err)
 	}
 }
 

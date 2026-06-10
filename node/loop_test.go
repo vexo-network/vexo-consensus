@@ -28,3 +28,11 @@ func TestStepConsensusRejectsQCExecutionCommitWithoutUnsafeOptIn(t *testing.T) {
 		t.Fatalf("expected invalid loop config, got %v", err)
 	}
 }
+
+func TestCommitReadyBlockRejectsUnsafeQCCommitAPI(t *testing.T) {
+	node := &Node{}
+	_, committed, err := node.CommitReadyBlock(context.Background())
+	if !errors.Is(err, ErrUnsafeQCCommit) || committed {
+		t.Fatalf("expected unsafe qc commit rejection, committed=%t err=%v", committed, err)
+	}
+}

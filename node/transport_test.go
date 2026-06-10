@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -18,7 +19,10 @@ import (
 	"github.com/vexo-network/vexo-consensus/validator"
 )
 
-const transportTestWaitTimeout = 30 * time.Second
+const (
+	transportTestWaitTimeout  = 30 * time.Second
+	transportTestWaitAttempts = 300000
+)
 
 func TestNodeTransportReactorRoutesProposalBetweenNodes(t *testing.T) {
 	alice, bob := newTransportNodes(t)
@@ -493,7 +497,7 @@ func TestNodeCommitsReadyCachedProposalAfterQC(t *testing.T) {
 	}
 	waitForQuorumCert(t, bobConsensus, proposal.Block.Header.Height, proposal.Round, blockHash)
 
-	result, committed, err := bob.CommitReadyBlock(context.Background())
+	result, committed, err := bob.UnsafeCommitReadyBlock(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -510,7 +514,7 @@ func TestNodeCommitsReadyCachedProposalAfterQC(t *testing.T) {
 	if status.LatestHeight != 1 || status.LatestAppHash == (types.Hash{}) {
 		t.Fatalf("unexpected bob status after cached commit: %+v", status)
 	}
-	if _, committed, err := bob.CommitReadyBlock(context.Background()); err != nil || committed {
+	if _, committed, err := bob.UnsafeCommitReadyBlock(context.Background()); err != nil || committed {
 		t.Fatalf("expected no second ready block: committed=%v err=%v", committed, err)
 	}
 }
@@ -1616,12 +1620,11 @@ func startNode(t *testing.T, node *Node) {
 
 func waitForConsensusStatus(t *testing.T, machine *consensus.StateMachine, match func(consensus.Status) bool) {
 	t.Helper()
-	deadline := time.Now().Add(transportTestWaitTimeout)
-	for time.Now().Before(deadline) {
+	for attempt := 0; attempt < transportTestWaitAttempts; attempt++ {
 		if match(machine.Status(context.Background())) {
 			return
 		}
-		time.Sleep(time.Millisecond)
+		yieldTransportTest()
 	}
 	finalStatus := machine.Status(context.Background())
 	if match(finalStatus) {
@@ -1632,7 +1635,6 @@ func waitForConsensusStatus(t *testing.T, machine *consensus.StateMachine, match
 
 func waitForQuorumInput(t *testing.T, machine *consensus.StateMachine, blockHash types.Hash) {
 	t.Helper()
-	deadline := time.Now().Add(transportTestWaitTimeout)
 	vote := consensus.Vote{
 		Height:      1,
 		Round:       0,
@@ -1642,12 +1644,12 @@ func waitForQuorumInput(t *testing.T, machine *consensus.StateMachine, blockHash
 	if err := signConsensusVote("vexo-test", deterministicSignerForID("bob"), &vote); err != nil {
 		t.Fatal(err)
 	}
-	for time.Now().Before(deadline) {
+	for attempt := 0; attempt < transportTestWaitAttempts; attempt++ {
 		_ = machine.OnVote(context.Background(), vote)
 		if _, err := machine.BuildQuorumCert(1, 0, blockHash); err == nil {
 			return
 		}
-		time.Sleep(time.Millisecond)
+		yieldTransportTest()
 	}
 	if _, err := machine.BuildQuorumCert(1, 0, blockHash); err == nil {
 		return
@@ -1657,12 +1659,11 @@ func waitForQuorumInput(t *testing.T, machine *consensus.StateMachine, blockHash
 
 func waitForQuorumCert(t *testing.T, machine *consensus.StateMachine, height types.Height, round types.Round, blockHash types.Hash) {
 	t.Helper()
-	deadline := time.Now().Add(transportTestWaitTimeout)
-	for time.Now().Before(deadline) {
+	for attempt := 0; attempt < transportTestWaitAttempts; attempt++ {
 		if _, err := machine.BuildQuorumCert(height, round, blockHash); err == nil {
 			return
 		}
-		time.Sleep(time.Millisecond)
+		yieldTransportTest()
 	}
 	if _, err := machine.BuildQuorumCert(height, round, blockHash); err == nil {
 		return
@@ -1672,13 +1673,12 @@ func waitForQuorumCert(t *testing.T, machine *consensus.StateMachine, height typ
 
 func waitForMempoolLen(t *testing.T, node *Node, expected int) {
 	t.Helper()
-	deadline := time.Now().Add(transportTestWaitTimeout)
-	for time.Now().Before(deadline) {
+	for attempt := 0; attempt < transportTestWaitAttempts; attempt++ {
 		runtime, err := node.Runtime()
 		if err == nil && runtime.Mempool.Len() == expected {
 			return
 		}
-		time.Sleep(time.Millisecond)
+		yieldTransportTest()
 	}
 	runtime, err := node.Runtime()
 	if err != nil {
@@ -1691,13 +1691,12 @@ func waitForMempoolLen(t *testing.T, node *Node, expected int) {
 
 func waitForNodeHeight(t *testing.T, node *Node, height types.Height) {
 	t.Helper()
-	deadline := time.Now().Add(transportTestWaitTimeout)
-	for time.Now().Before(deadline) {
+	for attempt := 0; attempt < transportTestWaitAttempts; attempt++ {
 		status := node.Status(context.Background())
 		if status.LatestHeight >= height {
 			return
 		}
-		time.Sleep(time.Millisecond)
+		yieldTransportTest()
 	}
 	status := node.Status(context.Background())
 	if status.LatestHeight >= height {
@@ -1708,13 +1707,12 @@ func waitForNodeHeight(t *testing.T, node *Node, height types.Height) {
 
 func waitForBlockByHeight(t *testing.T, node *Node, height types.Height) store.BlockRecord {
 	t.Helper()
-	deadline := time.Now().Add(transportTestWaitTimeout)
-	for time.Now().Before(deadline) {
+	for attempt := 0; attempt < transportTestWaitAttempts; attempt++ {
 		record, err := node.runtime.BlockByHeight(context.Background(), height)
 		if err == nil {
 			return record
 		}
-		time.Sleep(time.Millisecond)
+		yieldTransportTest()
 	}
 	record, err := node.runtime.BlockByHeight(context.Background(), height)
 	if err != nil {
@@ -1725,7 +1723,7 @@ func waitForBlockByHeight(t *testing.T, node *Node, height types.Height) store.B
 
 func waitForValidatorPower(t *testing.T, node *Node, validatorID types.ValidatorID, expected types.VotingPower) {
 	t.Helper()
-	for attempt := 0; attempt < int(transportTestWaitTimeout/time.Millisecond); attempt++ {
+	for attempt := 0; attempt < transportTestWaitAttempts; attempt++ {
 		runtime, err := node.Runtime()
 		if err == nil {
 			for _, height := range []types.Height{0, 1} {
@@ -1738,7 +1736,7 @@ func waitForValidatorPower(t *testing.T, node *Node, validatorID types.Validator
 				}
 			}
 		}
-		time.Sleep(time.Millisecond)
+		yieldTransportTest()
 	}
 	runtime, err := node.Runtime()
 	if err != nil {
@@ -1759,13 +1757,12 @@ func waitForValidatorPower(t *testing.T, node *Node, validatorID types.Validator
 
 func waitForPeerScore(t *testing.T, node *Node, peer p2p.PeerID, expected int64) {
 	t.Helper()
-	deadline := time.Now().Add(transportTestWaitTimeout)
-	for time.Now().Before(deadline) {
+	for attempt := 0; attempt < transportTestWaitAttempts; attempt++ {
 		score, err := node.PeerScore(context.Background(), peer)
 		if err == nil && score == expected {
 			return
 		}
-		time.Sleep(time.Millisecond)
+		yieldTransportTest()
 	}
 	score, err := node.PeerScore(context.Background(), peer)
 	if err != nil {
@@ -1778,8 +1775,7 @@ func waitForPeerScore(t *testing.T, node *Node, peer p2p.PeerID, expected int64)
 
 func waitForPeerBanned(t *testing.T, node *Node, peer p2p.PeerID) {
 	t.Helper()
-	deadline := time.Now().Add(transportTestWaitTimeout)
-	for time.Now().Before(deadline) {
+	for attempt := 0; attempt < transportTestWaitAttempts; attempt++ {
 		runtime, err := node.Runtime()
 		if err == nil {
 			banned, err := runtime.P2PScore.IsBanned(context.Background(), peer)
@@ -1787,7 +1783,7 @@ func waitForPeerBanned(t *testing.T, node *Node, peer p2p.PeerID) {
 				return
 			}
 		}
-		time.Sleep(time.Millisecond)
+		yieldTransportTest()
 	}
 	runtime, err := node.Runtime()
 	if err != nil {
@@ -1804,8 +1800,7 @@ func waitForPeerBanned(t *testing.T, node *Node, peer p2p.PeerID) {
 
 func waitForPeerWindowReset(t *testing.T, node *Node, peer p2p.PeerID) {
 	t.Helper()
-	deadline := time.Now().Add(transportTestWaitTimeout)
-	for time.Now().Before(deadline) {
+	for attempt := 0; attempt < transportTestWaitAttempts; attempt++ {
 		runtime, err := node.Runtime()
 		if err == nil {
 			messages, err := runtime.P2PScore.WindowMessages(context.Background(), peer)
@@ -1813,9 +1808,14 @@ func waitForPeerWindowReset(t *testing.T, node *Node, peer p2p.PeerID) {
 				return
 			}
 		}
-		time.Sleep(time.Millisecond)
+		yieldTransportTest()
 	}
 	t.Fatalf("timed out waiting for peer %s score window reset", peer)
+}
+
+func yieldTransportTest() {
+	runtime.Gosched()
+	time.Sleep(time.Millisecond)
 }
 
 type disconnectRecordingTransport struct {

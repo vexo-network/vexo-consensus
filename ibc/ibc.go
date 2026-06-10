@@ -358,7 +358,7 @@ func (keeper *Keeper) AcknowledgePacketWithProof(ctx context.Context, height typ
 	if clientID == "" {
 		return ErrInvalidClient
 	}
-	if err := keeper.VerifyPacketAcknowledgementProof(ctx, clientID, packet, proof, ack); err != nil {
+	if err := keeper.VerifyPacketAcknowledgementProofAt(ctx, clientID, height, packet, proof, ack); err != nil {
 		return err
 	}
 	return keeper.AcknowledgePacket(ctx, height, packet, ack)
@@ -414,7 +414,7 @@ func (keeper *Keeper) TimeoutPacketWithProof(ctx context.Context, height types.H
 	if clientID == "" {
 		return ErrInvalidClient
 	}
-	if err := keeper.VerifyPacketTimeoutProof(ctx, clientID, packet, proof); err != nil {
+	if err := keeper.VerifyPacketTimeoutProofAt(ctx, clientID, height, packet, proof); err != nil {
 		return err
 	}
 	return keeper.TimeoutPacket(ctx, height, packet)
@@ -504,10 +504,14 @@ func validateClientUpdateProof(client ClientState, latestHeight types.Height, la
 }
 
 func (keeper *Keeper) VerifyPacketCommitmentProof(ctx context.Context, clientID string, packet Packet, proof queryproof.Proof) error {
+	return keeper.VerifyPacketCommitmentProofAt(ctx, clientID, 0, packet, proof)
+}
+
+func (keeper *Keeper) VerifyPacketCommitmentProofAt(ctx context.Context, clientID string, currentHeight types.Height, packet Packet, proof queryproof.Proof) error {
 	if err := validatePacket(packet); err != nil {
 		return err
 	}
-	if err := keeper.VerifyClientProof(ctx, clientID, proof); err != nil {
+	if err := keeper.VerifyClientProofAt(ctx, clientID, currentHeight, proof); err != nil {
 		return err
 	}
 	if proof.Namespace != Namespace || !bytes.Equal(proof.Key, packetCommitmentKey(packet)) || !proof.Exists {
@@ -524,10 +528,14 @@ func (keeper *Keeper) VerifyPacketCommitmentProof(ctx context.Context, clientID 
 }
 
 func (keeper *Keeper) VerifyPacketAcknowledgementProof(ctx context.Context, clientID string, packet Packet, proof queryproof.Proof, ack []byte) error {
+	return keeper.VerifyPacketAcknowledgementProofAt(ctx, clientID, 0, packet, proof, ack)
+}
+
+func (keeper *Keeper) VerifyPacketAcknowledgementProofAt(ctx context.Context, clientID string, currentHeight types.Height, packet Packet, proof queryproof.Proof, ack []byte) error {
 	if len(ack) == 0 {
 		return ErrInvalidAck
 	}
-	receipt, err := keeper.verifiedPacketReceiptProof(ctx, clientID, packet, proof)
+	receipt, err := keeper.verifiedPacketReceiptProofAt(ctx, clientID, currentHeight, packet, proof)
 	if err != nil {
 		return err
 	}
@@ -538,10 +546,14 @@ func (keeper *Keeper) VerifyPacketAcknowledgementProof(ctx context.Context, clie
 }
 
 func (keeper *Keeper) VerifyPacketTimeoutProof(ctx context.Context, clientID string, packet Packet, proof queryproof.Proof) error {
+	return keeper.VerifyPacketTimeoutProofAt(ctx, clientID, 0, packet, proof)
+}
+
+func (keeper *Keeper) VerifyPacketTimeoutProofAt(ctx context.Context, clientID string, currentHeight types.Height, packet Packet, proof queryproof.Proof) error {
 	if err := validatePacket(packet); err != nil {
 		return err
 	}
-	if err := keeper.VerifyClientProof(ctx, clientID, proof); err != nil {
+	if err := keeper.VerifyClientProofAt(ctx, clientID, currentHeight, proof); err != nil {
 		return err
 	}
 	if proof.Namespace != Namespace || !bytes.Equal(proof.Key, packetCommitmentKey(packet)) {
@@ -561,10 +573,14 @@ func (keeper *Keeper) VerifyPacketTimeoutProof(ctx context.Context, clientID str
 }
 
 func (keeper *Keeper) verifiedPacketReceiptProof(ctx context.Context, clientID string, packet Packet, proof queryproof.Proof) (PacketReceipt, error) {
+	return keeper.verifiedPacketReceiptProofAt(ctx, clientID, 0, packet, proof)
+}
+
+func (keeper *Keeper) verifiedPacketReceiptProofAt(ctx context.Context, clientID string, currentHeight types.Height, packet Packet, proof queryproof.Proof) (PacketReceipt, error) {
 	if err := validatePacket(packet); err != nil {
 		return PacketReceipt{}, err
 	}
-	if err := keeper.VerifyClientProof(ctx, clientID, proof); err != nil {
+	if err := keeper.VerifyClientProofAt(ctx, clientID, currentHeight, proof); err != nil {
 		return PacketReceipt{}, err
 	}
 	if proof.Namespace != Namespace || !bytes.Equal(proof.Key, packetCommitmentKey(packet)) || !proof.Exists {

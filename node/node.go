@@ -29,6 +29,7 @@ var (
 	ErrLoopNotRunning       = errors.New("consensus loop is not running")
 	ErrFinalityNotFound     = errors.New("finality proof not found")
 	ErrInvalidLoopConfig    = errors.New("invalid consensus loop config")
+	ErrUnsafeQCCommit       = errors.New("unsafe qc commit requires explicit unsafe API")
 	ErrValidatorKeyMismatch = errors.New("validator signer public key does not match genesis validator public key")
 )
 

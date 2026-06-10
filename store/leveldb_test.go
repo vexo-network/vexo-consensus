@@ -60,6 +60,28 @@ func TestLevelDBStoreSavesAndLoadsBlockByHeightAndHash(t *testing.T) {
 	}
 }
 
+func TestOpenLevelDBDefaultsToSynchronousWrites(t *testing.T) {
+	store, err := OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, store)
+	if store.writeOptions == nil || !store.writeOptions.Sync {
+		t.Fatalf("expected synchronous writes by default, got %+v", store.writeOptions)
+	}
+}
+
+func TestOpenLevelDBWithOptionsCanDisableSynchronousWrites(t *testing.T) {
+	store, err := OpenLevelDBWithOptions(t.TempDir(), LevelDBOptions{SyncWrites: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, store)
+	if store.writeOptions == nil || store.writeOptions.Sync {
+		t.Fatalf("expected asynchronous test writes when disabled, got %+v", store.writeOptions)
+	}
+}
+
 func TestLevelDBStoreCommitBlockStatePersistsBlockStateAndRootsAtomically(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)

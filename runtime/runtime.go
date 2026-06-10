@@ -211,7 +211,7 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 	runtime.setApplicationBaseFee(baseFee)
 	runtime.setApplicationBlobBaseFee(runtime.CurrentBlobBaseFee())
 	if runtime.Store != nil {
-		appRuntime, ok := runtime.App.(*app.Runtime)
+		atomicApp, ok := runtime.App.(app.AtomicBlockApplication)
 		if !ok {
 			return app.FinalizeBlockResponse{}, ErrAtomicAppCommitUnavailable
 		}
@@ -219,7 +219,7 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 		if !ok {
 			return app.FinalizeBlockResponse{}, ErrAtomicAppCommitUnavailable
 		}
-		return runtime.executeBlockStaged(ctx, block, appRuntime, commitStore, baseFee, blobGasUsed)
+		return runtime.executeBlockStaged(ctx, block, atomicApp, commitStore, baseFee, blobGasUsed)
 	}
 	response, err := runtime.Executor.Execute(ctx, runtime.App, block)
 	if err != nil {
@@ -237,8 +237,8 @@ func (runtime *Runtime) ExecuteBlock(ctx context.Context, block types.Block) (ap
 	return response, nil
 }
 
-func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Block, application *app.Runtime, commitStore store.AppBlockCommitStore, baseFee uint64, blobGasUsed uint64) (app.FinalizeBlockResponse, error) {
-	response, writes, err := application.FinalizeBlockStaged(app.FinalizeBlockRequest{Block: block})
+func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Block, application app.AtomicBlockApplication, commitStore store.AppBlockCommitStore, baseFee uint64, blobGasUsed uint64) (app.FinalizeBlockResponse, error) {
+	response, writes, err := application.FinalizeBlockStagedContext(ctx, app.FinalizeBlockRequest{Block: block})
 	if err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
@@ -583,7 +583,7 @@ func (runtime *Runtime) moduleStateRootsWithWrites(ctx context.Context, height t
 }
 
 func (runtime *Runtime) AppModules() []app.Module {
-	appRuntime, ok := runtime.App.(*app.Runtime)
+	appRuntime, ok := runtime.App.(interface{ Modules() []app.Module })
 	if !ok {
 		return nil
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/vexo-network/vexo-consensus/events"
+	vexostore "github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -187,6 +188,13 @@ type ContextProcessProposalApplication interface {
 
 type ContextFinalizeBlockApplication interface {
 	FinalizeBlockContext(ctx context.Context, req FinalizeBlockRequest) (FinalizeBlockResponse, error)
+}
+
+type AtomicBlockApplication interface {
+	Application
+	FinalizeBlockStagedContext(ctx context.Context, req FinalizeBlockRequest) (FinalizeBlockResponse, []vexostore.KVWrite, error)
+	CommitStagedBlock(height types.Height, appHash types.Hash)
+	Modules() []Module
 }
 
 type ContextQueryApplication interface {

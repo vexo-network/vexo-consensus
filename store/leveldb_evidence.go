@@ -52,7 +52,7 @@ func (store *LevelDBStore) SaveEvidence(ctx context.Context, record EvidenceReco
 	batch := new(leveldb.Batch)
 	batch.Put(evidenceKey(key), encoded)
 	batch.Put(evidenceIndexKey, encodedIndex)
-	return store.db.Write(batch, nil)
+	return store.writeBatch(batch)
 }
 
 func (store *LevelDBStore) EvidenceByKey(ctx context.Context, key string) (EvidenceRecord, error) {

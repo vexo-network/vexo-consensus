@@ -64,7 +64,7 @@ func (node *Node) commitCandidateForMode(ctx context.Context, mode ExecutionComm
 		if !allowUnsafeQC {
 			return CommitReadyResult{}, false, ErrInvalidLoopConfig
 		}
-		return node.CommitReadyBlock(ctx)
+		return node.UnsafeCommitReadyBlock(ctx)
 	case "", ExecutionCommitModeFinalized:
 		return node.CommitFinalizedBlock(ctx)
 	default:

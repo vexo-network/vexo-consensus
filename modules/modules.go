@@ -12,19 +12,32 @@ import (
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
-func DefaultRegistry() vexoapp.Registry {
+func DefaultRegistry() (vexoapp.Registry, error) {
 	registry := vexoapp.NewRegistry()
-	_ = registry.Register(bank.ModuleName, func() vexoapp.Module { return bank.NewModule() })
-	_ = registry.Register(staking.ModuleName, func() vexoapp.Module { return staking.NewModule() })
-	_ = registry.Register(appgovernance.ModuleName, func() vexoapp.Module { return appgovernance.NewModule() })
-	_ = registry.Register(params.Namespace, func() vexoapp.Module { return params.NewModule(nil) })
-	_ = registry.Register(appibc.ModuleName, func() vexoapp.Module { return appibc.NewModule() })
-	_ = registry.Register(appevm.ModuleName, func() vexoapp.Module { return appevm.NewModule() })
-	return registry
+	for _, entry := range []struct {
+		name    string
+		factory vexoapp.ModuleFactory
+	}{
+		{bank.ModuleName, func() vexoapp.Module { return bank.NewModule() }},
+		{staking.ModuleName, func() vexoapp.Module { return staking.NewModule() }},
+		{appgovernance.ModuleName, func() vexoapp.Module { return appgovernance.NewModule() }},
+		{params.Namespace, func() vexoapp.Module { return params.NewModule(nil) }},
+		{appibc.ModuleName, func() vexoapp.Module { return appibc.NewModule() }},
+		{appevm.ModuleName, func() vexoapp.Module { return appevm.NewModule() }},
+	} {
+		if err := registry.Register(entry.name, entry.factory); err != nil {
+			return vexoapp.Registry{}, err
+		}
+	}
+	return registry, nil
 }
 
 func Build(cfg config.ApplicationConfig) ([]vexoapp.Module, error) {
-	return DefaultRegistry().Build(cfg.Modules)
+	registry, err := DefaultRegistry()
+	if err != nil {
+		return nil, err
+	}
+	return registry.Build(cfg.Modules)
 }
 
 func BuildWithExecution(cfg config.ApplicationConfig, execution config.ExecutionConfig) ([]vexoapp.Module, error) {
@@ -50,25 +63,37 @@ func BuildWithChainConfig(chain config.Config) ([]vexoapp.Module, error) {
 		evmModule = module
 	}
 	registry := vexoapp.NewRegistry()
-	_ = registry.Register(bank.ModuleName, func() vexoapp.Module {
+	if err := registry.Register(bank.ModuleName, func() vexoapp.Module {
 		return bank.NewModuleWithMintAuthority(types.Address(chain.Bank.MintAuthority))
-	})
-	_ = registry.Register(staking.ModuleName, func() vexoapp.Module {
+	}); err != nil {
+		return nil, err
+	}
+	if err := registry.Register(staking.ModuleName, func() vexoapp.Module {
 		return staking.NewModuleWithPolicy(staking.Policy{
 			UnbondingDelay:   types.Height(chain.Staking.UnbondingDelay),
 			FeeCollector:     types.Address(chain.Execution.FeeCollector),
 			MaxCommissionBPS: chain.Staking.MaxCommissionBPS,
 		})
-	})
-	_ = registry.Register(appgovernance.ModuleName, func() vexoapp.Module { return appgovernance.NewModule() })
-	_ = registry.Register(params.Namespace, func() vexoapp.Module { return params.NewModule(nil) })
-	_ = registry.Register(appibc.ModuleName, func() vexoapp.Module { return appibc.NewModule() })
-	_ = registry.Register(appevm.ModuleName, func() vexoapp.Module {
+	}); err != nil {
+		return nil, err
+	}
+	if err := registry.Register(appgovernance.ModuleName, func() vexoapp.Module { return appgovernance.NewModule() }); err != nil {
+		return nil, err
+	}
+	if err := registry.Register(params.Namespace, func() vexoapp.Module { return params.NewModule(nil) }); err != nil {
+		return nil, err
+	}
+	if err := registry.Register(appibc.ModuleName, func() vexoapp.Module { return appibc.NewModule() }); err != nil {
+		return nil, err
+	}
+	if err := registry.Register(appevm.ModuleName, func() vexoapp.Module {
 		if evmModule != nil {
 			return evmModule
 		}
 		return appevm.NewModule()
-	})
+	}); err != nil {
+		return nil, err
+	}
 	return registry.Build(chain.Application.Modules)
 }
 
@@ -82,7 +107,11 @@ func moduleEnabled(modules []string, name string) bool {
 }
 
 func BuildCLICommands(cfg config.ApplicationConfig) ([]vexoapp.CLICommand, error) {
-	return DefaultRegistry().BuildCLICommands(cfg.Modules)
+	registry, err := DefaultRegistry()
+	if err != nil {
+		return nil, err
+	}
+	return registry.BuildCLICommands(cfg.Modules)
 }
 
 func NewRuntime(chainID string, cfg config.ApplicationConfig) (*vexoapp.Runtime, error) {

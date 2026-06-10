@@ -58,12 +58,16 @@ Operators may use one root token or scoped tokens in `network_config.json`:
       "prune-token": ["prune"],
       "replay-token": ["replay"],
       "ops-token": ["recovery", "consensus"]
-    }
+    },
+    "tls_cert_path": "tls/rpc.crt",
+    "tls_key_path": "tls/rpc.key",
+    "tls_ca_path": "tls/rpc-ca.crt",
+    "tls_server_name": "rpc.validator.internal"
   }
 }
 ```
 
-Supported scopes are `recovery`, `prune`, `replay`, and `consensus`. A scoped token with `["*"]` is equivalent to a root admin token. RPC middleware emits structured admin audit events when an audit sink is configured by the embedding node.
+Supported scopes are `recovery`, `prune`, `replay`, and `consensus`. A scoped token with `["*"]` is equivalent to a root admin token. RPC middleware emits structured admin audit events when an audit sink is configured by the embedding node. `tls_cert_path` and `tls_key_path` must be configured together; `tls_ca_path` enables client-certificate verification; `tls_server_name` requires a CA trust root. Public RPC listeners should use TLS/mTLS plus an admin token or scoped token set.
 
 `/v1/replay` accepts `strict: true` to require isolated re-execution from genesis or a retained historical snapshot. Non-strict replay may fall back to stored block/state consistency checks when isolated replay prerequisites are unavailable; strict replay fails closed instead.
 
@@ -75,6 +79,8 @@ Supported scopes are `recovery`, `prune`, `replay`, and `consensus`. A scoped to
 - Mutating endpoints must remain admin-token protected.
 - Admin-token checks must fail closed when token configuration is absent.
 - JSON decoders for public endpoints should reject unknown fields where request safety matters.
+- Web3 `safe` and `finalized` block tags must fail closed when no finality proof or finalized height is available; they must not silently fall back to `latest`.
+- `eth_gasPrice` must fail closed when base-fee state is unavailable; it must not return `0x0` unless a future version explicitly defines a zero-fee policy.
 
 ## Compatibility Aliases
 

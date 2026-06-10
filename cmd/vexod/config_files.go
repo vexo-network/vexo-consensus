@@ -143,6 +143,10 @@ type runtimeRPCConfig struct {
 	Address               string              `json:"address,omitempty"`
 	AdminToken            string              `json:"admin_token,omitempty"`
 	AdminTokens           map[string][]string `json:"admin_tokens,omitempty"`
+	TLSCertPath           string              `json:"tls_cert_path,omitempty"`
+	TLSKeyPath            string              `json:"tls_key_path,omitempty"`
+	TLSCAPath             string              `json:"tls_ca_path,omitempty"`
+	TLSServerName         string              `json:"tls_server_name,omitempty"`
 	EnablePprof           bool                `json:"enable_pprof,omitempty"`
 	RequestTimeout        string              `json:"request_timeout,omitempty"`
 	ShutdownTimeout       string              `json:"shutdown_timeout,omitempty"`
@@ -1342,6 +1346,10 @@ func runtimeRPCConfigSet(rpc runtimeRPCConfig) bool {
 		rpc.Address != "" ||
 		rpc.AdminToken != "" ||
 		len(rpc.AdminTokens) > 0 ||
+		rpc.TLSCertPath != "" ||
+		rpc.TLSKeyPath != "" ||
+		rpc.TLSCAPath != "" ||
+		rpc.TLSServerName != "" ||
 		rpc.EnablePprof ||
 		rpc.RequestTimeout != "" ||
 		rpc.MaxRequestBytes != 0 ||

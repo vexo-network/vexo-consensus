@@ -2353,6 +2353,32 @@ func TestHandlerServesWeb3WebSocketFullPendingTransactionSubscriptions(t *testin
 	}
 }
 
+func TestHandlerWeb3GasPriceFailsClosedWhenBaseFeeUnavailable(t *testing.T) {
+	handler := NewHandler(&fakeStatusProvider{status: node.Status{ChainID: "vexo-chain", LatestHeight: 7}})
+
+	var response JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":1,"method":"eth_gasPrice","params":[]}`, http.StatusOK, &response)
+	if response.Error == nil || !strings.Contains(response.Error.Message, "gas price is unavailable") {
+		t.Fatalf("expected gas price fail-closed error, got %+v", response)
+	}
+}
+
+func TestHandlerWeb3FinalizedTagFailsClosedWithoutFinalityProof(t *testing.T) {
+	handler := NewHandler(&fakeStatusProvider{
+		status: node.Status{ChainID: "vexo-chain", LatestHeight: 7},
+		latest: 7,
+		blocks: map[types.Height]store.BlockRecord{
+			7: {Block: types.Block{Header: types.Header{ChainID: "vexo-chain", Height: 7}}, Hash: types.Hash{7}},
+		},
+	})
+
+	var response JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":2,"method":"eth_getBlockByNumber","params":["finalized",false]}`, http.StatusOK, &response)
+	if response.Error == nil || !strings.Contains(response.Error.Message, "finalized block is unavailable") {
+		t.Fatalf("expected finalized fail-closed error, got %+v", response)
+	}
+}
+
 func TestHandlerDetectsWebSocketUpgrade(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/web3", nil)
 	request.Header.Set("Upgrade", "websocket")

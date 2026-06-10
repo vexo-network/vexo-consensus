@@ -785,6 +785,10 @@ type CommitReadyResult struct {
 }
 
 func (node *Node) CommitReadyBlock(ctx context.Context) (CommitReadyResult, bool, error) {
+	return CommitReadyResult{}, false, ErrUnsafeQCCommit
+}
+
+func (node *Node) UnsafeCommitReadyBlock(ctx context.Context) (CommitReadyResult, bool, error) {
 	machine, err := node.Consensus()
 	if err != nil {
 		return CommitReadyResult{}, false, err

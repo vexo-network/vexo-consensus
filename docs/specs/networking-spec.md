@@ -56,6 +56,16 @@ gRPC transport TLS is configured only through `network_config.json`:
 
 Relative TLS paths are resolved against the node home directory. Operators should keep public dial addresses in `p2p.peers`/`p2p.seeds`, local bind addresses in `p2p.listen_address`, and certificate trust material in these TLS fields rather than passing long-lived host or TLS state on the `start` command line.
 
+### RPC TLS
+
+HTTP RPC can also be bound with TLS from `network_config.json`:
+
+- `rpc.tls_cert_path` and `rpc.tls_key_path` configure the RPC server certificate and must be set together.
+- `rpc.tls_ca_path` enables client-certificate verification and turns the listener into mTLS.
+- `rpc.tls_server_name` is allowed only when `rpc.tls_ca_path` is configured, so pinned-name validation cannot be accidentally used without a trust root.
+
+Relative RPC TLS paths are resolved against the node home directory. Public RPC listeners should combine TLS/mTLS with `rpc.admin_token` or scoped `rpc.admin_tokens`; private loopback listeners may omit TLS for local operator workflows.
+
 ## Peer Scoring
 
 Peers are scored by:

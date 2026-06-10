@@ -60,6 +60,10 @@ type startRuntimeConfig struct {
 	RPCAddress              string
 	RPCAdminToken           string
 	RPCAdminTokens          map[string][]string
+	RPCTLSCertPath          string
+	RPCTLSKeyPath           string
+	RPCTLSCAPath            string
+	RPCTLSServerName        string
 	RPCEnablePprof          bool
 	RPCRequestTimeout       time.Duration
 	ShutdownTimeout         time.Duration
@@ -443,9 +447,15 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			_ = withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop)
 			return err
 		}
+		rpcTLSConfig, err := loadRPCTLSConfig(runtimeConfig)
+		if err != nil {
+			_ = withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop)
+			return err
+		}
 		address, shutdown, err := startRPCServerWithConfig(node, runtimeConfig.RPCAddress, vexorpc.Config{
 			AdminToken:                  runtimeConfig.RPCAdminToken,
 			AdminTokens:                 runtimeConfig.RPCAdminTokens,
+			TLSConfig:                   rpcTLSConfig,
 			EnablePprof:                 runtimeConfig.RPCEnablePprof,
 			RequestTimeout:              runtimeConfig.RPCRequestTimeout,
 			MaxRequestBytes:             runtimeConfig.RPCMaxRequestBytes,
@@ -464,7 +474,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			return err
 		}
 		rpcShutdown = shutdown
-		logEvent("rpc_listening", map[string]any{"rpc_address": address, "pprof": runtimeConfig.RPCEnablePprof})
+		logEvent("rpc_listening", map[string]any{"rpc_address": address, "pprof": runtimeConfig.RPCEnablePprof, "tls": rpcTLSConfig != nil})
 	}
 	if p2pWire != nil {
 		logEvent("p2p_listening", map[string]any{"p2p_address": p2pWire.Address(), "p2p_peers": len(runtimeConfig.P2PPeers), "p2p_seeds": len(runtimeConfig.P2PSeeds)})
@@ -680,6 +690,10 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 		RPCAddress:              runtime.RPC.Address,
 		RPCAdminToken:           runtime.RPC.AdminToken,
 		RPCAdminTokens:          cloneStringSliceMap(runtime.RPC.AdminTokens),
+		RPCTLSCertPath:          resolveOptionalPath(home, runtime.RPC.TLSCertPath),
+		RPCTLSKeyPath:           resolveOptionalPath(home, runtime.RPC.TLSKeyPath),
+		RPCTLSCAPath:            resolveOptionalPath(home, runtime.RPC.TLSCAPath),
+		RPCTLSServerName:        runtime.RPC.TLSServerName,
 		RPCEnablePprof:          runtime.RPC.EnablePprof,
 		RPCMaxRequestBytes:      runtime.RPC.MaxRequestBytes,
 		RPCWeb3MaxSubscriptions: runtime.RPC.Web3MaxSubscriptions,
@@ -1129,6 +1143,47 @@ func loadP2PTLSConfig(runtimeConfig startRuntimeConfig) (*tls.Config, error) {
 		pool := x509.NewCertPool()
 		if !pool.AppendCertsFromPEM(caBytes) {
 			return nil, errors.New("p2p tls ca file does not contain PEM certificates")
+		}
+		tlsConfig.RootCAs = pool
+		tlsConfig.ClientCAs = pool
+		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+	return tlsConfig, nil
+}
+
+func loadRPCTLSConfig(runtimeConfig startRuntimeConfig) (*tls.Config, error) {
+	if runtimeConfig.RPCTLSCertPath == "" &&
+		runtimeConfig.RPCTLSKeyPath == "" &&
+		runtimeConfig.RPCTLSCAPath == "" &&
+		runtimeConfig.RPCTLSServerName == "" {
+		return nil, nil
+	}
+	if (runtimeConfig.RPCTLSCertPath == "") != (runtimeConfig.RPCTLSKeyPath == "") {
+		return nil, errors.New("rpc tls cert and key must be configured together")
+	}
+	if runtimeConfig.RPCTLSCertPath == "" {
+		return nil, errors.New("rpc tls cert and key are required when rpc tls is configured")
+	}
+	if runtimeConfig.RPCTLSServerName != "" && runtimeConfig.RPCTLSCAPath == "" {
+		return nil, errors.New("rpc tls server name requires a tls ca path")
+	}
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		ServerName: runtimeConfig.RPCTLSServerName,
+	}
+	certificate, err := tls.LoadX509KeyPair(runtimeConfig.RPCTLSCertPath, runtimeConfig.RPCTLSKeyPath)
+	if err != nil {
+		return nil, err
+	}
+	tlsConfig.Certificates = []tls.Certificate{certificate}
+	if runtimeConfig.RPCTLSCAPath != "" {
+		caBytes, err := os.ReadFile(runtimeConfig.RPCTLSCAPath)
+		if err != nil {
+			return nil, err
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caBytes) {
+			return nil, errors.New("rpc tls ca file does not contain PEM certificates")
 		}
 		tlsConfig.RootCAs = pool
 		tlsConfig.ClientCAs = pool

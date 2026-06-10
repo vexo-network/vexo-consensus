@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -60,6 +61,7 @@ type Config struct {
 	AdminToken                    string
 	AdminTokens                   map[string][]string
 	AdminAuditSink                func(AdminAuditEvent)
+	TLSConfig                     *tls.Config
 	EnablePprof                   bool
 	AllowUnprotectedLegacyTx      bool
 	EVMChainConfigJSON            string
@@ -483,6 +485,7 @@ func NewServer(provider StatusProvider, cfg Config) *Server {
 			Addr:              cfg.Address,
 			Handler:           handler,
 			ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+			TLSConfig:         cfg.TLSConfig,
 		},
 	}
 }
@@ -491,7 +494,12 @@ func (server *Server) Start(listener net.Listener) error {
 	if listener == nil {
 		return errors.New("listener is required")
 	}
-	err := server.server.Serve(listener)
+	var err error
+	if server.server.TLSConfig != nil {
+		err = server.server.ServeTLS(listener, "", "")
+	} else {
+		err = server.server.Serve(listener)
+	}
 	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
 		return nil
 	}
@@ -1393,10 +1401,12 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 				if state.NextBaseFee > 0 {
 					return hexQuantity(state.NextBaseFee), nil
 				}
-				return hexQuantity(state.BaseFee), nil
+				if state.BaseFee > 0 {
+					return hexQuantity(state.BaseFee), nil
+				}
 			}
 		}
-		return hexQuantity(0), nil
+		return nil, &JSONRPCError{Code: -32000, Message: "gas price is unavailable"}
 	case "eth_blobBaseFee":
 		return hexQuantity(web3LatestBlobBaseFee(ctx, provider)), nil
 	case "eth_maxPriorityFeePerGas":
@@ -5341,11 +5351,15 @@ func web3BlockGasUsed(results []types.Result) uint64 {
 }
 
 func web3BlockGasLimit(results []types.Result) string {
+	return hexQuantity(web3BlockGasLimitValue(results))
+}
+
+func web3BlockGasLimitValue(results []types.Result) uint64 {
 	used := web3BlockGasUsed(results)
 	if used > defaultWeb3BlockGasLimit {
-		return hexQuantity(used)
+		return used
 	}
-	return hexQuantity(defaultWeb3BlockGasLimit)
+	return defaultWeb3BlockGasLimit
 }
 
 func web3BlockGasUsedRatio(ctx context.Context, provider StatusProvider, height types.Height) float64 {
@@ -5360,7 +5374,11 @@ func web3BlockGasUsedRatio(ctx context.Context, provider StatusProvider, height 
 	if web3BlockGasUsed(record.TxResults) == 0 {
 		return 0
 	}
-	return 1
+	gasLimit := web3BlockGasLimitValue(record.TxResults)
+	if gasLimit == 0 {
+		return 0
+	}
+	return float64(web3BlockGasUsed(record.TxResults)) / float64(gasLimit)
 }
 
 func web3BlockRecordParam(ctx context.Context, provider StatusProvider, raw json.RawMessage) (store.BlockRecord, *JSONRPCError) {
@@ -5475,9 +5493,6 @@ func web3FinalizedHeight(ctx context.Context, provider StatusProvider) (types.He
 		if err != nil && !errors.Is(err, node.ErrFinalityNotFound) && !errors.Is(err, store.ErrBlockNotFound) && !errors.Is(err, store.ErrBlockIndexNotFound) {
 			return 0, &JSONRPCError{Code: -32000, Message: err.Error()}
 		}
-	}
-	if status.LatestHeight > 0 {
-		return status.LatestHeight, nil
 	}
 	return 0, &JSONRPCError{Code: -32000, Message: "finalized block is unavailable"}
 }
