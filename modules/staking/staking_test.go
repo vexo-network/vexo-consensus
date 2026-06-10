@@ -542,6 +542,17 @@ func TestStakingModuleDistributesFeesAndClaimsRewards(t *testing.T) {
 	}
 }
 
+func TestStakingFeeDistributionRequiresSnapshotWhenFeesExist(t *testing.T) {
+	storage := newBatchOnlyStore()
+	module := NewModule()
+	if err := setBankBalance(context.Background(), storage, defaultFeeCollector, 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := module.EndBlock(vexoapp.Context{Height: 1, Store: storage}); !errors.Is(err, ErrStakingSnapshot) {
+		t.Fatalf("expected snapshot requirement when fees exist, got %v", err)
+	}
+}
+
 func TestStakingModuleUsesConfiguredFeeCollector(t *testing.T) {
 	storage := newStakingStore(t)
 	module := NewModuleWithFeeCollector("treasury")

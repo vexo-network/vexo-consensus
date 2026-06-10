@@ -188,7 +188,7 @@ Archive:
 - release pack and signed checksums
 - launch metrics, logs, pprof samples, peer score snapshots, and final split config files
 - docs quality report and localized documentation manifest
-- long-run, chaos, adversarial, fuzz, snapshot, replay, signer, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, ops runbook, formal safety, and SDK conformance evidence with category-specific passing content plus `evidence-manifest.json` SHA-256 bindings
+- long-run, chaos, adversarial, fuzz, snapshot, replay, signer, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, ops runbook, formal safety, and SDK conformance evidence with category-specific passing content plus `evidence-manifest.json` SHA-256, provenance, and public-release attestation bindings
 
 After launch, schedule:
 

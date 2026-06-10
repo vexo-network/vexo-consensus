@@ -1810,37 +1810,102 @@ func accountStateRequestHeight(data []byte) (uint64, error) {
 }
 
 func ethereumAccountAtHeight(ctx context.Context, stateStore vexoapp.StateStore, address types.Address, height uint64) (ethcompat.AccountState, bool, error) {
-	accounts, err := ethereumAccountsForProof(ctx, stateStore, height)
+	if stateStore == nil {
+		return ethcompat.AccountState{}, false, ErrStoreMissing
+	}
+	if height == 0 {
+		return ethereumAccountFromCurrentState(ctx, stateStore, address)
+	}
+	if _, err := ethereumStateSnapshotMetaAt(ctx, stateStore, height); err != nil {
+		return ethcompat.AccountState{}, false, err
+	}
+	value, err := stateStore.Get(ctx, ethereumStateSnapshotNamespace, ethereumStateSnapshotAccountKey(height, address))
+	if errors.Is(err, vexostore.ErrKeyNotFound) {
+		return ethcompat.AccountState{}, false, nil
+	}
 	if err != nil {
 		return ethcompat.AccountState{}, false, err
 	}
-	target := canonicalAddressKey(address)
-	for _, account := range accounts {
-		if canonicalAddressKey(types.Address(account.Address)) == target {
-			if account.Storage == nil {
-				account.Storage = map[string][]byte{}
-			}
-			return account, true, nil
-		}
+	var account ethcompat.AccountState
+	if err := json.Unmarshal(value, &account); err != nil {
+		return ethcompat.AccountState{}, false, err
 	}
-	return ethcompat.AccountState{}, false, nil
+	if account.Storage == nil {
+		account.Storage = map[string][]byte{}
+	}
+	return account, true, nil
 }
 
 func ethereumAccountFromCurrentState(ctx context.Context, stateStore vexoapp.StateStore, address types.Address) (ethcompat.AccountState, bool, error) {
-	accounts, err := ethereumAccountsFromStore(ctx, stateStore)
+	if stateStore == nil {
+		return ethcompat.AccountState{}, false, ErrStoreMissing
+	}
+	account := ethcompat.AccountState{Address: canonicalAddressKey(address), Storage: map[string][]byte{}}
+	found := false
+	value, err := stateStore.Get(ctx, bankNamespace, evmBankKey(address))
+	if errors.Is(err, vexostore.ErrKeyNotFound) {
+		err = nil
+	}
 	if err != nil {
 		return ethcompat.AccountState{}, false, err
 	}
-	target := canonicalAddressKey(address)
-	for _, account := range accounts {
-		if canonicalAddressKey(types.Address(account.Address)) == target {
-			if account.Storage == nil {
-				account.Storage = map[string][]byte{}
-			}
+	if len(value) > 0 {
+		balance, balanceHex, err := decodeEthereumBalance(value)
+		if err != nil {
+			return ethcompat.AccountState{}, false, err
+		}
+		account.Balance = balance
+		account.BalanceHex = balanceHex
+		found = true
+	}
+	value, err = stateStore.Get(ctx, authNamespace, evmNonceKey(address))
+	if errors.Is(err, vexostore.ErrKeyNotFound) {
+		err = nil
+	}
+	if err != nil {
+		return ethcompat.AccountState{}, false, err
+	}
+	if len(value) > 0 {
+		if len(value) != 8 {
+			return ethcompat.AccountState{}, false, ErrInvalidEVMTx
+		}
+		account.Nonce = binary.BigEndian.Uint64(value)
+		found = true
+	}
+	value, err = stateStore.Get(ctx, ModuleName, codeKey(address))
+	if errors.Is(err, vexostore.ErrKeyNotFound) {
+		err = nil
+	}
+	if err != nil {
+		return ethcompat.AccountState{}, false, err
+	}
+	if len(value) > 0 {
+		account.Code = append([]byte(nil), value...)
+		found = true
+	}
+	prefixStore, ok := stateStore.(vexostore.PrefixKVStore)
+	if !ok {
+		if found {
 			return account, true, nil
 		}
+		return ethcompat.AccountState{}, false, nil
 	}
-	return ethcompat.AccountState{}, false, nil
+	pairs, err := prefixStore.ExportPrefix(ctx, ModuleName, storageAccountPrefix(address))
+	if err != nil {
+		return ethcompat.AccountState{}, false, err
+	}
+	for _, pair := range pairs {
+		_, slot, ok := ethereumStorageKeyParts(pair.Key)
+		if !ok {
+			continue
+		}
+		account.Storage[slot] = append([]byte(nil), pair.Value...)
+		found = true
+	}
+	if !found {
+		return ethcompat.AccountState{}, false, nil
+	}
+	return account, true, nil
 }
 
 func persistEthereumStateSnapshot(ctx context.Context, stateStore vexoapp.StateStore, height uint64) error {

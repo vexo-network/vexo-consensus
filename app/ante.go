@@ -282,10 +282,25 @@ func (keeper AnteKeeper) collectFee(ctx context.Context, store StateStore, meta 
 	if new(big.Int).Add(collectorBalance, fee).BitLen() > 256 {
 		return ErrInsufficientFeeBalance
 	}
-	if err := setBankBalanceBig(ctx, store, meta.Signer, new(big.Int).Sub(balance, fee)); err != nil {
+	writes := []vexostore.KVWrite{
+		{
+			Namespace: "bank",
+			Key:       bankBalanceKey(meta.Signer),
+			Value:     encodeBankBalanceBig(new(big.Int).Sub(balance, fee)),
+		},
+		{
+			Namespace: "bank",
+			Key:       bankBalanceKey(collector),
+			Value:     encodeBankBalanceBig(new(big.Int).Add(collectorBalance, fee)),
+		},
+	}
+	if batch, ok := store.(vexostore.BatchKVStore); ok {
+		return batch.SetBatch(ctx, writes)
+	}
+	if err := store.Set(ctx, writes[0].Namespace, writes[0].Key, writes[0].Value); err != nil {
 		return err
 	}
-	return setBankBalanceBig(ctx, store, collector, new(big.Int).Add(collectorBalance, fee))
+	return store.Set(ctx, writes[1].Namespace, writes[1].Key, writes[1].Value)
 }
 
 func (keeper AnteKeeper) verifySignature(ctx Context, tx types.Tx) error {

@@ -30,6 +30,7 @@ var (
 	ErrDoubleSign              = errors.New("remote signer double-sign guard rejected conflicting request")
 	ErrMissingKMSSigner        = errors.New("kms signer is required")
 	ErrRemotePublicKeyMismatch = errors.New("remote signer public key mismatch")
+	ErrRemoteSignatureInvalid  = errors.New("remote signer returned invalid signature")
 	ErrMissingGuardPath        = errors.New("double-sign guard path is required")
 	ErrMissingNonceGuardPath   = errors.New("remote signer nonce guard path is required")
 )
@@ -231,7 +232,11 @@ func (signer RemoteSigner) signWithPolicy(ctx context.Context, message []byte, p
 	if err != nil {
 		return nil, err
 	}
-	return types.Signature(signature), nil
+	typedSignature := types.Signature(signature)
+	if signer.verifier != nil && !signer.verifier.Verify(signer.publicKey, message, typedSignature) {
+		return nil, ErrRemoteSignatureInvalid
+	}
+	return typedSignature, nil
 }
 
 func (signer RemoteSigner) Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool {

@@ -63,9 +63,14 @@ type EvidenceManifest struct {
 }
 
 type EvidenceManifestEntry struct {
-	Name   string `json:"name"`
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
+	Name            string `json:"name"`
+	Path            string `json:"path"`
+	SHA256          string `json:"sha256"`
+	SchemaVersion   string `json:"schema_version,omitempty"`
+	Provenance      string `json:"provenance,omitempty"`
+	Signature       string `json:"signature,omitempty"`
+	SignaturePath   string `json:"signature_path,omitempty"`
+	SignatureSHA256 string `json:"signature_sha256,omitempty"`
 }
 
 func Build(version string, pack Pack, evidence Evidence) Document {
@@ -82,6 +87,7 @@ func Build(version string, pack Pack, evidence Evidence) Document {
 		document.addCheck("pack_"+check.Name, check.OK, check.Message)
 	}
 	document.addCheck("evidence_manifest", evidenceManifestOK(evidence), "evidence manifest must exist and bind evidence artifact names, paths, and sha256 hashes")
+	document.addCheck("evidence_manifest_attestation", evidenceManifestAttestedOK(evidence) || privateReleaseCandidateVersion(version), "public releases must bind every evidence entry to provenance and a detached/signature attestation")
 	document.addFileCheck("chaos_evidence", evidence.Chaos, "chaos test evidence must exist and semantically cover chaos/fault scenarios", evidence)
 	document.addFileCheck("kms_signer_evidence", evidence.KMS, "KMS/remote signer evidence must cover signer policy and double-sign protection", evidence)
 	document.addFileCheck("snapshot_replay_evidence", evidence.Snapshot, "snapshot evidence must cover snapshot restore and replay consistency", evidence)
@@ -194,6 +200,11 @@ func evidenceManifestOK(evidence Evidence) bool {
 		if _, err := hex.DecodeString(normalizedHash); err != nil {
 			return false
 		}
+		if strings.TrimSpace(entry.SignaturePath) != "" || strings.TrimSpace(entry.SignatureSHA256) != "" {
+			if !manifestEntrySignatureOK(entry, evidence) {
+				return false
+			}
+		}
 		key := strings.ToLower(entry.Name + "\x00" + entry.Path)
 		if _, duplicate := seen[key]; duplicate {
 			return false
@@ -201,6 +212,42 @@ func evidenceManifestOK(evidence Evidence) bool {
 		seen[key] = struct{}{}
 	}
 	return true
+}
+
+func evidenceManifestAttestedOK(evidence Evidence) bool {
+	manifest, ok := readEvidenceManifest(evidence)
+	if !ok || len(manifest.Evidence) == 0 {
+		return false
+	}
+	for _, entry := range manifest.Evidence {
+		if strings.TrimSpace(entry.Provenance) == "" {
+			return false
+		}
+		if strings.TrimSpace(entry.Signature) == "" && !manifestEntrySignatureOK(entry, evidence) {
+			return false
+		}
+	}
+	return true
+}
+
+func manifestEntrySignatureOK(entry EvidenceManifestEntry, evidence Evidence) bool {
+	path := strings.TrimSpace(entry.SignaturePath)
+	expected := strings.ToLower(strings.TrimSpace(entry.SignatureSHA256))
+	if path == "" || expected == "" || evidence.Exists == nil || evidence.ReadFile == nil || !evidence.Exists(path) {
+		return false
+	}
+	if len(expected) != 64 {
+		return false
+	}
+	if _, err := hex.DecodeString(expected); err != nil {
+		return false
+	}
+	data, err := evidence.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]) == expected
 }
 
 func evidenceFileManifestOK(name string, path string, data []byte, evidence Evidence) bool {

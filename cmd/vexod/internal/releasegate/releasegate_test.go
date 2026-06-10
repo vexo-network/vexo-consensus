@@ -244,9 +244,12 @@ func TestBuildValidatesEvidenceManifestHash(t *testing.T) {
 	manifest, err := json.Marshal(EvidenceManifest{
 		SchemaVersion: "v1",
 		Evidence: []EvidenceManifestEntry{{
-			Name:   "chaos_evidence",
-			Path:   "chaos.json",
-			SHA256: hex.EncodeToString(sum[:]),
+			Name:          "chaos_evidence",
+			Path:          "chaos.json",
+			SHA256:        hex.EncodeToString(sum[:]),
+			SchemaVersion: "v1",
+			Provenance:    "test harness",
+			Signature:     "test-signature",
 		}},
 	})
 	if err != nil {
@@ -278,9 +281,12 @@ func TestBuildRejectsEvidenceManifestMismatch(t *testing.T) {
 	manifest, err := json.Marshal(EvidenceManifest{
 		SchemaVersion: "v1",
 		Evidence: []EvidenceManifestEntry{{
-			Name:   "chaos_evidence",
-			Path:   "chaos.json",
-			SHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			Name:          "chaos_evidence",
+			Path:          "chaos.json",
+			SHA256:        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			SchemaVersion: "v1",
+			Provenance:    "test harness",
+			Signature:     "test-signature",
 		}},
 	})
 	if err != nil {
@@ -305,6 +311,23 @@ func TestBuildRejectsEvidenceManifestMismatch(t *testing.T) {
 	})
 	if releaseGateCheckOK(document.Checks, "chaos_evidence") {
 		t.Fatalf("expected manifest hash mismatch to fail chaos evidence: %+v", document.Checks)
+	}
+}
+
+func TestBuildRequiresAttestedEvidenceManifestForPublicRelease(t *testing.T) {
+	evidence := completeReleaseGateEvidence(false)
+	files := completeReleaseGateEvidenceFiles(false)
+	files["evidence-manifest.json"] = releaseGateManifestWithoutAttestation(files)
+	evidence.ReadFile = func(path string) ([]byte, error) {
+		return files[path], nil
+	}
+	document := Build("v1.2.3", Pack{OK: true}, evidence)
+	if document.OK || releaseGateCheckOK(document.Checks, "evidence_manifest_attestation") {
+		t.Fatalf("expected public release to reject unattested evidence manifest: %+v", document.Checks)
+	}
+	document = Build("v1.2.3-rc1", Pack{OK: true}, evidence)
+	if !releaseGateCheckOK(document.Checks, "evidence_manifest_attestation") {
+		t.Fatalf("expected private/RC release to allow unattested manifest during evidence collection: %+v", document.Checks)
 	}
 }
 
@@ -376,6 +399,26 @@ func completeReleaseGateEvidenceFiles(skipExternal bool) map[string][]byte {
 }
 
 func releaseGateManifestForEvidence(files map[string][]byte) []byte {
+	entries := make([]EvidenceManifestEntry, 0, len(files))
+	for path, data := range files {
+		if path == "evidence-manifest.json" {
+			continue
+		}
+		sum := sha256.Sum256(data)
+		entries = append(entries, EvidenceManifestEntry{
+			Name:          releaseGateEvidenceName(path),
+			Path:          path,
+			SHA256:        hex.EncodeToString(sum[:]),
+			SchemaVersion: "v1",
+			Provenance:    "test harness",
+			Signature:     "test-signature-" + hex.EncodeToString(sum[:8]),
+		})
+	}
+	encoded, _ := json.Marshal(EvidenceManifest{SchemaVersion: "v1", Evidence: entries})
+	return encoded
+}
+
+func releaseGateManifestWithoutAttestation(files map[string][]byte) []byte {
 	entries := make([]EvidenceManifestEntry, 0, len(files))
 	for path, data := range files {
 		if path == "evidence-manifest.json" {

@@ -51,6 +51,25 @@ func TestRemoteSignerSignsThroughHTTPAdapter(t *testing.T) {
 	}
 }
 
+func TestRemoteSignerRejectsInvalidRemoteSignature(t *testing.T) {
+	baseSigner, err := GenerateEd25519Signer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewEncoder(writer).Encode(remoteSignResponse{Signature: base64.StdEncoding.EncodeToString([]byte("not-a-valid-signature"))})
+	}))
+	defer server.Close()
+
+	remoteSigner, err := NewRemoteSigner(server.URL, baseSigner.PublicKey(), Ed25519Signer{}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := remoteSigner.Sign([]byte("remote-sign")); !errors.Is(err, ErrRemoteSignatureInvalid) {
+		t.Fatalf("expected invalid remote signature rejection, got %v", err)
+	}
+}
+
 func TestRemoteSignerUsesCallerContext(t *testing.T) {
 	baseSigner, err := GenerateEd25519Signer()
 	if err != nil {

@@ -1142,10 +1142,22 @@ func buildReleaseEvidenceManifest(distDir string) (releasegate.EvidenceManifest,
 			return releasegate.EvidenceManifest{}, err
 		}
 		manifest.Evidence = append(manifest.Evidence, releasegate.EvidenceManifestEntry{
-			Name:   candidate.Name,
-			Path:   path,
-			SHA256: sum,
+			Name:          candidate.Name,
+			Path:          path,
+			SHA256:        sum,
+			SchemaVersion: "v1",
+			Provenance:    "vexod release evidence-manifest",
 		})
+		signaturePath := path + ".sig"
+		if fileExists(signaturePath) {
+			signatureSum, err := fileSHA256(signaturePath)
+			if err != nil {
+				return releasegate.EvidenceManifest{}, err
+			}
+			last := len(manifest.Evidence) - 1
+			manifest.Evidence[last].SignaturePath = signaturePath
+			manifest.Evidence[last].SignatureSHA256 = signatureSum
+		}
 	}
 	sort.Slice(manifest.Evidence, func(left int, right int) bool {
 		return manifest.Evidence[left].Name < manifest.Evidence[right].Name

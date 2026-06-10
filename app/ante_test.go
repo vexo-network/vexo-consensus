@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
+	"github.com/vexo-network/vexo-consensus/kvbatch"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -89,6 +90,15 @@ type rejectingTxVerifier struct{}
 
 func (rejectingTxVerifier) Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool {
 	return false
+}
+
+type failingAnteBatchStore struct {
+	store.Store
+	err error
+}
+
+func (storage failingAnteBatchStore) SetBatch(ctx context.Context, writes []kvbatch.KVWrite) error {
+	return storage.err
 }
 
 func TestAnteKeeperTracksNonceAcrossCommittedTxs(t *testing.T) {
@@ -190,6 +200,38 @@ func TestAnteKeeperCollectsFeeAndReportsGas(t *testing.T) {
 	}
 	if keeper.GasUsed(tx) != 99 || keeper.FeePaid(tx) != 7 {
 		t.Fatalf("unexpected gas/fee metadata: gas=%d fee=%d", keeper.GasUsed(tx), keeper.FeePaid(tx))
+	}
+}
+
+func TestAnteKeeperFeeBatchFailureDoesNotMutateBalances(t *testing.T) {
+	base, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer base.Close()
+	storage := failingAnteBatchStore{Store: base, err: errors.New("batch failed")}
+	if err := setBankBalance(context.Background(), storage, "alice", 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := setBankBalance(context.Background(), storage, "treasury", 1); err != nil {
+		t.Fatal(err)
+	}
+
+	keeper := NewAnteKeeper(AnteConfig{MinFee: 1, FeeCollector: "treasury"})
+	tx := types.Tx("bank:send:signer=alice:nonce=1:fee=7:gas=99")
+	if err := keeper.AfterTx(Context{Store: storage}, tx); err == nil {
+		t.Fatal("expected fee batch failure")
+	}
+	alice, err := bankBalance(context.Background(), storage, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	treasury, err := bankBalance(context.Background(), storage, "treasury")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alice != 100 || treasury != 1 {
+		t.Fatalf("expected unchanged balances after failed fee batch, alice=%d treasury=%d", alice, treasury)
 	}
 }
 

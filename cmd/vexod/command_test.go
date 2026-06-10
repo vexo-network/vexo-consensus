@@ -1036,9 +1036,12 @@ func writeReleaseEvidenceManifest(dist string, files []string) error {
 		}
 		sum := sha256.Sum256(data)
 		manifest.Evidence = append(manifest.Evidence, releasegate.EvidenceManifestEntry{
-			Name:   name,
-			Path:   path,
-			SHA256: hex.EncodeToString(sum[:]),
+			Name:          name,
+			Path:          path,
+			SHA256:        hex.EncodeToString(sum[:]),
+			SchemaVersion: "v1",
+			Provenance:    "test harness",
+			Signature:     "test-signature-" + hex.EncodeToString(sum[:8]),
 		})
 	}
 	encoded, err := json.Marshal(manifest)

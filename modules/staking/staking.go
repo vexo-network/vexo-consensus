@@ -681,13 +681,13 @@ type unbondingEntry struct {
 }
 
 func (module *Module) distributeFees(ctx context.Context, store vexoapp.StateStore) error {
-	snapshot, ok := store.(vexostore.SnapshotKVStore)
-	if !ok {
-		return nil
-	}
 	collectorBalance, err := bankBalanceBig(ctx, store, module.feeCollector)
 	if err != nil || collectorBalance.Sign() == 0 {
 		return err
+	}
+	snapshot, ok := store.(vexostore.SnapshotKVStore)
+	if !ok {
+		return ErrStakingSnapshot
 	}
 	pairs, err := snapshot.ExportNamespace(ctx, ModuleName)
 	if err != nil {
