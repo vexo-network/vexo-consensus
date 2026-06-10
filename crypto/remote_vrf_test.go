@@ -105,3 +105,16 @@ func TestRemoteVRFAdapterHonorsCanceledContext(t *testing.T) {
 		t.Fatalf("expected canceled verify context to fail closed")
 	}
 }
+
+func TestRemoteVRFAdapterRejectsPartialTLSConfig(t *testing.T) {
+	_, err := NewRemoteVRFAdapter(config.VRFConfig{
+		AdapterName:       VRFAdapterRemoteHTTPName,
+		ProductionAdapter: true,
+		AuditReport:       "remote-vrf-audit",
+		KeySource:         "remote-http:https://vrf.example",
+		TLSCertPath:       "client.crt",
+	})
+	if !errors.Is(err, ErrInvalidRemoteVRFTLS) {
+		t.Fatalf("expected invalid TLS config, got %v", err)
+	}
+}

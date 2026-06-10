@@ -33,6 +33,7 @@ type ConsensusLoopConfig struct {
 	MaxBlockBytes       int64
 	CreateEmptyBlocks   bool
 	ExecutionCommitMode ExecutionCommitMode
+	AllowUnsafeQCCommit bool
 }
 
 func DefaultConsensusLoopConfig() ConsensusLoopConfig {

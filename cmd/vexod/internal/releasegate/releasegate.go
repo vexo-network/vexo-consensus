@@ -49,6 +49,7 @@ type Evidence struct {
 	SDKConformance       string
 	ExternalAudit        string
 	BLSAudit             string
+	VRFAudit             string
 	AllowExternalPending bool
 	Exists               func(string) bool
 	ReadFile             func(string) ([]byte, error)
@@ -93,6 +94,7 @@ func Build(version string, pack Pack, evidence Evidence) Document {
 	document.addFileCheck("sdk_conformance_evidence", evidence.SDKConformance, "SDK evidence must cover SDK/API conformance for modules/RPC/storage/crypto/transport", evidence)
 	document.addExternalCheck("external_security_audit", evidence.ExternalAudit, evidence.AllowExternalPending, "external audit disposition must exist before public production release", evidence)
 	document.addExternalCheck("bls_adapter_audit", evidence.BLSAudit, evidence.AllowExternalPending, "audited BLS adapter and dependency audit evidence must exist when BLS is enabled", evidence)
+	document.addExternalCheck("vrf_adapter_audit", evidence.VRFAudit, evidence.AllowExternalPending, "audited VRF adapter/KMS evidence must cover TLS/mTLS, auth, replay protection, and key custody", evidence)
 	if !document.OK {
 		document.NextActions = []string{
 			"collect missing evidence artifacts and rerun release gate",
@@ -628,6 +630,8 @@ func semanticRequirements(name string) [][]string {
 		return [][]string{{"external", "security"}, {"audit", "disposition"}}
 	case "bls_adapter_audit":
 		return [][]string{{"bls"}, {"adapter", "implementation", "blst", "supranational"}, {"audit", "dependency"}, {"version", "dependency version", "pinned"}, {"subgroup", "rogue"}, {"proof of possession", "proof-of-possession", "pop"}, {"key validation", "key-validation"}}
+	case "vrf_adapter_audit":
+		return [][]string{{"vrf"}, {"adapter", "implementation", "remote", "ecvrf"}, {"audit", "dependency"}, {"tls", "mtls", "mutual tls", "certificate"}, {"auth", "token", "authorization"}, {"nonce", "replay"}, {"custody", "kms", "hsm"}}
 	default:
 		return nil
 	}

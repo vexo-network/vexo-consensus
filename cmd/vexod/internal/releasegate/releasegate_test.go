@@ -314,6 +314,7 @@ func completeReleaseGateEvidence(skipExternal bool) Evidence {
 	if !skipExternal {
 		evidence.ExternalAudit = "audit.pdf"
 		evidence.BLSAudit = "bls.pdf"
+		evidence.VRFAudit = "vrf.pdf"
 	}
 	return evidence
 }
@@ -335,6 +336,7 @@ func completeReleaseGateEvidenceFiles(skipExternal bool) map[string][]byte {
 	if !skipExternal {
 		files["audit.pdf"] = semanticEvidenceContentForPath("audit.pdf")
 		files["bls.pdf"] = semanticEvidenceContentForPath("bls.pdf")
+		files["vrf.pdf"] = semanticEvidenceContentForPath("vrf.pdf")
 	}
 	return files
 }
@@ -384,6 +386,8 @@ func releaseGateEvidenceName(path string) string {
 		return "external_security_audit"
 	case "bls.pdf":
 		return "bls_adapter_audit"
+	case "vrf.pdf":
+		return "vrf_adapter_audit"
 	default:
 		return path
 	}
@@ -415,6 +419,8 @@ func semanticEvidenceContentForPath(path string) []byte {
 		return []byte(`external security audit disposition evidence passed`)
 	case "bls.pdf":
 		return []byte(`bls blst adapter implementation audit pinned dependency version subgroup rogue-key proof-of-possession key-validation evidence passed`)
+	case "vrf.pdf":
+		return []byte(`vrf remote adapter implementation ecvrf audit dependency tls mtls certificate auth token nonce replay custody kms hsm evidence passed`)
 	default:
 		return []byte(`{"ok":true,"summary":"longrun duration height validator soak evidence passed"}`)
 	}

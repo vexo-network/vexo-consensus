@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"math"
 	"math/big"
 	"strings"
 	"testing"
@@ -69,22 +68,50 @@ func TestStakingModuleReadsEVMStyleBankBalance(t *testing.T) {
 	}
 }
 
-func TestStakingModuleRejectsBankBalanceAboveUint64(t *testing.T) {
+func TestStakingModuleDelegatesFromUint256BankBalance(t *testing.T) {
 	storage := newStakingStore(t)
 	module := NewModuleWithUnbondingDelay(10)
 	publicKey := base64.StdEncoding.EncodeToString([]byte("validator-key"))
-	overflow := new(big.Int).SetUint64(math.MaxUint64)
-	overflow.Add(overflow, big.NewInt(1))
-	if err := storage.Set(context.Background(), bankNamespace, bankBalanceKey("alice"), overflow.Bytes()); err != nil {
+	largeBalance := new(big.Int).Lsh(big.NewInt(1), 80)
+	if err := setBankBalanceBig(context.Background(), storage, "alice", largeBalance); err != nil {
 		t.Fatal(err)
 	}
 
-	result := module.DeliverTx(vexoapp.Context{Height: 7, Store: storage}, types.Tx("staking:delegate:alice:validator-1:1:"+publicKey))
-	if result.Code == 0 {
-		t.Fatalf("expected delegate overflow rejection, got %+v", result)
+	result := module.DeliverTx(vexoapp.Context{Height: 7, Store: storage}, types.Tx("staking:delegate:alice:validator-1:10:"+publicKey))
+	if result.Code != 0 {
+		t.Fatalf("unexpected delegate result for uint256 balance: %+v", result)
 	}
-	if !strings.Contains(result.Log, ErrStakeOverflow.Error()) {
-		t.Fatalf("expected overflow error, got %+v", result)
+	balance, err := bankBalanceBig(context.Background(), storage, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := new(big.Int).Sub(largeBalance, big.NewInt(10))
+	if balance.Cmp(expected) != 0 {
+		t.Fatalf("expected remaining balance %s, got %s", expected, balance)
+	}
+}
+
+func TestStakingModuleRejectsUint256RewardOverflow(t *testing.T) {
+	storage := newStakingStore(t)
+	module := NewModuleWithUnbondingDelay(10)
+	maxUint256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+	if err := setBankBalanceBig(context.Background(), storage, "alice", big.NewInt(1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Set(context.Background(), ModuleName, rewardKey("alice", "validator-1"), maxUint256.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+
+	result := module.DeliverTx(vexoapp.Context{Height: 7, Store: storage}, types.Tx("staking:claim-rewards:alice:validator-1"))
+	if result.Code == 0 || !strings.Contains(result.Log, ErrStakeOverflow.Error()) {
+		t.Fatalf("expected reward overflow rejection, got %+v", result)
+	}
+	balance, err := bankBalanceBig(context.Background(), storage, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance.Cmp(big.NewInt(1)) != 0 {
+		t.Fatalf("expected unchanged balance 1, got %s", balance)
 	}
 }
 

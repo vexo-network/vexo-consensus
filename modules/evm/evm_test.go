@@ -166,6 +166,24 @@ func (zeroGasVM) Execute(ctx context.Context, invocation contract.Invocation) (c
 	return contract.Result{}, nil
 }
 
+func TestModuleStateBackendQueryDocumentsRuntimeContract(t *testing.T) {
+	module := NewModule()
+	response := module.Query(vexoapp.Context{}, vexoapp.QueryRequest{Path: []string{"state-backend"}})
+	if response.Code != 0 {
+		t.Fatalf("unexpected state backend query response: %+v", response)
+	}
+	var info StateBackendInfo
+	if err := json.Unmarshal(response.Value, &info); err != nil {
+		t.Fatal(err)
+	}
+	if info.ExecutionBackend != "go-ethereum/core/vm" || !info.NativeCoinSharedWithEVM || info.NativeBalanceBits != 256 {
+		t.Fatalf("unexpected state backend info: %+v", info)
+	}
+	if len(info.LinkedVMs) != 1 || info.LinkedVMs[0] != "evm" {
+		t.Fatalf("expected linked geth-backed evm VM, got %+v", info.LinkedVMs)
+	}
+}
+
 func TestModuleExecutesAndPersistsReceiptsCodeAndLogs(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {

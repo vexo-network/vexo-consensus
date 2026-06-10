@@ -20,3 +20,11 @@ func TestStepConsensusRejectsUnknownExecutionCommitMode(t *testing.T) {
 		t.Fatalf("expected invalid loop config, got %v", err)
 	}
 }
+
+func TestStepConsensusRejectsQCExecutionCommitWithoutUnsafeOptIn(t *testing.T) {
+	node := &Node{}
+	_, err := node.StepConsensusWithConfig(context.Background(), ConsensusLoopConfig{ExecutionCommitMode: ExecutionCommitModeQC})
+	if !errors.Is(err, ErrInvalidLoopConfig) {
+		t.Fatalf("expected invalid loop config, got %v", err)
+	}
+}

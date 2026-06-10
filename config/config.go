@@ -110,6 +110,10 @@ type VRFConfig struct {
 	AdapterName       string
 	AuditReport       string
 	KeySource         string
+	TLSCertPath       string
+	TLSKeyPath        string
+	TLSCAPath         string
+	TLSServerName     string
 }
 
 func Default(chainID string) Config {

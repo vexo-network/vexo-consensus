@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -25,6 +27,7 @@ const (
 
 var ErrMissingRemoteVRFURL = errors.New("remote vrf url is required")
 var ErrRemoteVRFReplay = errors.New("remote vrf response failed nonce binding")
+var ErrInvalidRemoteVRFTLS = errors.New("invalid remote vrf tls configuration")
 
 type RemoteVRFAdapter struct {
 	baseURL     string
@@ -75,12 +78,52 @@ func NewRemoteVRFAdapter(cfg config.VRFConfig) (VRFAdapter, error) {
 	if baseURL == "" {
 		return nil, ErrMissingRemoteVRFURL
 	}
+	client, err := remoteVRFHTTPClient(cfg)
+	if err != nil {
+		return nil, err
+	}
 	return RemoteVRFAdapter{
 		baseURL:     strings.TrimRight(baseURL, "/"),
 		authToken:   os.Getenv(remoteVRFTokenEnv),
-		client:      &http.Client{Timeout: 5 * time.Second},
+		client:      client,
 		auditReport: cfg.AuditReport,
 		keySource:   cfg.KeySource,
+	}, nil
+}
+
+func remoteVRFHTTPClient(cfg config.VRFConfig) (*http.Client, error) {
+	tlsConfigured := cfg.TLSCertPath != "" || cfg.TLSKeyPath != "" || cfg.TLSCAPath != "" || cfg.TLSServerName != ""
+	if !tlsConfigured {
+		return &http.Client{Timeout: 5 * time.Second}, nil
+	}
+	if (cfg.TLSCertPath == "") != (cfg.TLSKeyPath == "") {
+		return nil, ErrInvalidRemoteVRFTLS
+	}
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+	if cfg.TLSServerName != "" {
+		tlsConfig.ServerName = cfg.TLSServerName
+	}
+	if cfg.TLSCAPath != "" {
+		caPEM, err := os.ReadFile(cfg.TLSCAPath)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidRemoteVRFTLS, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return nil, ErrInvalidRemoteVRFTLS
+		}
+		tlsConfig.RootCAs = pool
+	}
+	if cfg.TLSCertPath != "" {
+		cert, err := tls.LoadX509KeyPair(cfg.TLSCertPath, cfg.TLSKeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidRemoteVRFTLS, err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+	return &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: tlsConfig},
 	}, nil
 }
 

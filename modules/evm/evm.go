@@ -160,6 +160,25 @@ type AccountStateRequest struct {
 	Height uint64 `json:"height,omitempty"`
 }
 
+type StateBackendInfo struct {
+	Name                    string   `json:"name"`
+	Version                 string   `json:"version"`
+	ExecutionBackend        string   `json:"execution_backend"`
+	LinkedVMs               []string `json:"linked_vms,omitempty"`
+	AccountNamespace        string   `json:"account_namespace"`
+	AuthNamespace           string   `json:"auth_namespace"`
+	EthereumSnapshotNS      string   `json:"ethereum_snapshot_namespace"`
+	NativeBalanceNamespace  string   `json:"native_balance_namespace"`
+	NativeBalanceKeyFormat  string   `json:"native_balance_key_format"`
+	NativeBalanceBits       uint64   `json:"native_balance_bits"`
+	NativeCoinSharedWithEVM bool     `json:"native_coin_shared_with_evm"`
+	HistoricalSnapshots     bool     `json:"historical_snapshots"`
+	StateRootProofs         bool     `json:"state_root_proofs"`
+	StorageProofs           bool     `json:"storage_proofs"`
+	StrictStateRootCapable  bool     `json:"strict_state_root_capable"`
+	GethLibraryBoundary     string   `json:"geth_library_boundary"`
+}
+
 type ethereumStateSnapshotMeta struct {
 	Height    uint64 `json:"height"`
 	StateRoot string `json:"state_root"`
@@ -392,6 +411,9 @@ func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoap
 	if req.Path[0] == "call" {
 		return module.queryCall(ctx, req.Data)
 	}
+	if req.Path[0] == "state-backend" || req.Path[0] == "state_backend" {
+		return module.queryStateBackend()
+	}
 	if ctx.Store == nil {
 		return vexoapp.QueryResponse{Code: 1, Log: ErrStoreMissing.Error()}
 	}
@@ -551,6 +573,34 @@ func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoap
 	default:
 		return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
 	}
+}
+
+func (module Module) queryStateBackend() vexoapp.QueryResponse {
+	info := StateBackendInfo{
+		Name:                    "vexo-evm-state",
+		Version:                 "1",
+		ExecutionBackend:        "go-ethereum/core/vm",
+		AccountNamespace:        ModuleName,
+		AuthNamespace:           authNamespace,
+		EthereumSnapshotNS:      ethereumStateSnapshotNamespace,
+		NativeBalanceNamespace:  bankNamespace,
+		NativeBalanceKeyFormat:  "canonical 20-byte hex address under bank/balances/{address}",
+		NativeBalanceBits:       256,
+		NativeCoinSharedWithEVM: true,
+		HistoricalSnapshots:     true,
+		StateRootProofs:         true,
+		StorageProofs:           true,
+		StrictStateRootCapable:  true,
+		GethLibraryBoundary:     "EVM opcode execution and Ethereum tx decoding stay inside the geth-backed VM adapter; Vexo owns consensus, storage, native coin accounting, and networking.",
+	}
+	if module.registry != nil {
+		info.LinkedVMs = module.registry.Names()
+	}
+	encoded, err := json.Marshal(info)
+	if err != nil {
+		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
+	}
+	return vexoapp.QueryResponse{Value: encoded}
 }
 
 func (module Module) Events(ctx vexoapp.Context, tx types.Tx, result types.Result) []events.Event {

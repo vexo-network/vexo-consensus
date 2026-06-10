@@ -756,6 +756,7 @@ func TestRunReleaseGatePassesWithEvidence(t *testing.T) {
 		"sdk-conformance-evidence.json",
 		"external-audit.pdf",
 		"bls-audit.pdf",
+		"vrf-audit.pdf",
 	}
 	for _, name := range required {
 		if err := os.WriteFile(filepath.Join(dist, name), releaseEvidenceFixture(name), 0o644); err != nil {
@@ -786,6 +787,7 @@ func TestRunReleaseGatePassesWithEvidence(t *testing.T) {
 		"--sdk-conformance-evidence", filepath.Join(dist, "sdk-conformance-evidence.json"),
 		"--external-audit", filepath.Join(dist, "external-audit.pdf"),
 		"--bls-audit", filepath.Join(dist, "bls-audit.pdf"),
+		"--vrf-audit", filepath.Join(dist, "vrf-audit.pdf"),
 		"--json",
 	}); err != nil {
 		t.Fatal(err)
@@ -794,7 +796,7 @@ func TestRunReleaseGatePassesWithEvidence(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if !document.OK || !releaseReadinessCheckOK(document.Checks, "external_security_audit") || !releaseReadinessCheckOK(document.Checks, "bls_adapter_audit") {
+	if !document.OK || !releaseReadinessCheckOK(document.Checks, "external_security_audit") || !releaseReadinessCheckOK(document.Checks, "bls_adapter_audit") || !releaseReadinessCheckOK(document.Checks, "vrf_adapter_audit") {
 		t.Fatalf("expected release gate to pass: %+v", document)
 	}
 }
@@ -967,6 +969,7 @@ func writeReleaseEvidenceManifest(dist string, files []string) error {
 		"sdk-conformance-evidence.json":         "sdk_conformance_evidence",
 		"external-audit.pdf":                    "external_security_audit",
 		"bls-audit.pdf":                         "bls_adapter_audit",
+		"vrf-audit.pdf":                         "vrf_adapter_audit",
 	}
 	for _, file := range files {
 		name, ok := nameByFile[file]
@@ -1015,6 +1018,8 @@ func releaseEvidenceFixture(name string) []byte {
 		return []byte("external security audit disposition evidence passed")
 	case name == "bls-audit.pdf":
 		return []byte("bls blst adapter implementation audit pinned dependency version subgroup rogue-key proof-of-possession key-validation evidence passed")
+	case name == "vrf-audit.pdf":
+		return []byte("vrf remote adapter implementation ecvrf audit dependency tls mtls certificate auth token nonce replay custody kms hsm evidence passed")
 	case strings.HasSuffix(name, ".json"):
 		if value, ok := summary[name]; ok {
 			return []byte(`{"ok":true,"summary":"` + value + `","checks":[{"ok":true,"name":"` + name + `"}]}`)

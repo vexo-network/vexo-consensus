@@ -173,7 +173,9 @@ The bridge supports single requests, batch requests, notifications, string block
 ### Native Coin and State
 
 - Vexo native coin and EVM account balances are one asset. EVM balance writes persist to the canonical `bank` namespace, and `eth_getBalance`/`eth_getProof` reconstruct Ethereum account proofs from committed Vexo state.
+- Staking, bank, and EVM value paths share the same canonical native balance storage. Staking stake/voting power remains `uint64` for consensus accounting, while spendable native balances and EVM value balances are encoded as unsigned 256-bit quantities.
 - The EVM module stores nonce writes in the canonical account sequence namespace and snapshots Ethereum account/code/storage state during `EndBlock` for retained historical Web3 reads.
+- Module query path `evm/state-backend` returns the active EVM state backend contract, linked VM names, native balance namespace, 256-bit balance width, snapshot support, proof support, and the geth library boundary.
 - Mixed Vexo module blocks use deterministic Vexo roots where Ethereum transaction/receipt trie roots would be misleading. Blocks containing only Ethereum raw transactions with EVM receipts compute Ethereum-style transaction and receipt roots with go-ethereum `DeriveSha`.
 - `eth_getTransactionReceipt` reports per-transaction `gasUsed` and block-relative `cumulativeGasUsed`; `eth_getBlockReceipts` returns the same receipt semantics for every EVM receipt in the block.
 - When `execution.strict_evm_state_root` is enabled, Web3 block responses and `newHeads` fail closed if a retained EVM state root is unavailable instead of substituting the Vexo app hash.

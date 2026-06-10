@@ -105,7 +105,7 @@ func init() {
 
 The built-in ECVRF adapter is registered as `ecvrf-p256-sha256-tai-v1`. It uses P-256/SHA-256 try-and-increment ECVRF proofs. Validators may put a base64 VRF public key in metadata key `vrf_public_key`; otherwise committee selection falls back to the validator consensus public key.
 
-The built-in remote VRF adapter is registered as `remote-vrf-http-v1`. Set `vrf.adapter_name` to that value and `vrf.key_source` to `remote-http:<base-url>` or the plain HTTPS base URL. The adapter calls `POST /prove` with base64 `public_key`, `seed`, a random `nonce`, `issued_at_unix_nano`, `deadline_unix_nano`, and domain `vexo.remote_vrf.prove.v1`; the response must echo the same `nonce` and return base64 `output` plus `proof`. It calls `POST /verify` with the same challenge fields and domain `vexo.remote_vrf.verify.v1`; verification only succeeds when the service returns `{ "valid": true, "nonce": "<same nonce>" }`. If the `VEXO_REMOTE_VRF_TOKEN` environment variable is set, requests include `Authorization: Bearer <token>`. This is the preferred integration point for KMS/HSM-backed VRF custody, but the remote service still needs independent audit evidence matching `vrf.audit_report` and operational evidence for availability, replay protection, nonce/audit logging, and key access policy.
+The built-in remote VRF adapter is registered as `remote-vrf-http-v1`. Set `vrf.adapter_name` to that value and `vrf.key_source` to `remote-http:<base-url>` or the plain HTTPS base URL. The adapter calls `POST /prove` with base64 `public_key`, `seed`, a random `nonce`, `issued_at_unix_nano`, `deadline_unix_nano`, and domain `vexo.remote_vrf.prove.v1`; the response must echo the same `nonce` and return base64 `output` plus `proof`. It calls `POST /verify` with the same challenge fields and domain `vexo.remote_vrf.verify.v1`; verification only succeeds when the service returns `{ "valid": true, "nonce": "<same nonce>" }`. If the `VEXO_REMOTE_VRF_TOKEN` environment variable is set, requests include `Authorization: Bearer <token>`. `vrf.tls_cert_path`, `vrf.tls_key_path`, `vrf.tls_ca_path`, and `vrf.tls_server_name` enable mTLS or pinned CA validation for the remote prover. Cert/key must be configured together; invalid TLS material fails adapter construction instead of silently falling back to unauthenticated HTTP. This is the preferred integration point for KMS/HSM-backed VRF custody, but the remote service still needs independent audit evidence matching `vrf.audit_report` and operational evidence for availability, replay protection, nonce/audit logging, TLS/mTLS, authorization, and key access policy.
 
 Remote VRF implementations should use the context-aware `ProveWithContext` and `VerifyWithContext` methods whenever selection is driven by consensus or RPC deadlines. The legacy `Prove` and `Verify` methods are convenience wrappers; production paths should propagate cancellation so a slow remote prover cannot outlive the block or request timeout.
 
@@ -119,6 +119,23 @@ Prefer encrypted VRF key documents referenced from `consensus_config.json`:
     "audit_report": "operator-audit-reference",
     "key_source": "config.vrf.keys",
     "production_adapter": true
+  }
+}
+```
+
+For a remote VRF prover, prefer HTTPS plus mTLS/pinned CA:
+
+```json
+{
+  "vrf": {
+    "adapter_name": "remote-vrf-http-v1",
+    "audit_report": "operator-remote-vrf-audit",
+    "key_source": "remote-http:https://vrf.example.internal",
+    "production_adapter": true,
+    "tls_cert_path": "vrf-client.crt",
+    "tls_key_path": "vrf-client.key",
+    "tls_ca_path": "vrf-ca.pem",
+    "tls_server_name": "vrf.example.internal"
   }
 }
 ```

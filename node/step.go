@@ -27,7 +27,7 @@ func (node *Node) StepConsensusWithConfig(ctx context.Context, cfg ConsensusLoop
 	defer node.stepMu.Unlock()
 
 	cfg = normalizeConsensusLoopConfig(cfg)
-	commit, committed, err := node.commitCandidateForMode(ctx, cfg.ExecutionCommitMode)
+	commit, committed, err := node.commitCandidateForMode(ctx, cfg.ExecutionCommitMode, cfg.AllowUnsafeQCCommit)
 	if err != nil {
 		return ConsensusStepResult{}, err
 	}
@@ -58,9 +58,12 @@ func (node *Node) StepConsensusWithConfig(ctx context.Context, cfg ConsensusLoop
 	}, nil
 }
 
-func (node *Node) commitCandidateForMode(ctx context.Context, mode ExecutionCommitMode) (CommitReadyResult, bool, error) {
+func (node *Node) commitCandidateForMode(ctx context.Context, mode ExecutionCommitMode, allowUnsafeQC bool) (CommitReadyResult, bool, error) {
 	switch mode {
 	case ExecutionCommitModeQC:
+		if !allowUnsafeQC {
+			return CommitReadyResult{}, false, ErrInvalidLoopConfig
+		}
 		return node.CommitReadyBlock(ctx)
 	case "", ExecutionCommitModeFinalized:
 		return node.CommitFinalizedBlock(ctx)

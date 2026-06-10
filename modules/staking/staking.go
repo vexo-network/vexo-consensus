@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"math/bits"
 	"strconv"
 	"strings"
 
@@ -334,11 +333,12 @@ func (module *Module) delegate(ctx context.Context, store vexoapp.StateStore, de
 	if tombstoned {
 		return types.ValidatorUpdate{}, ErrValidatorTombstoned
 	}
-	balance, err := bankBalance(ctx, store, delegator)
+	balance, err := bankBalanceBig(ctx, store, delegator)
 	if err != nil {
 		return types.ValidatorUpdate{}, err
 	}
-	if balance < amount {
+	amountBig := new(big.Int).SetUint64(amount)
+	if balance.Cmp(amountBig) < 0 {
 		return types.ValidatorUpdate{}, ErrInsufficientBalance
 	}
 	currentStake, err := Stake(ctx, store, delegator, validatorID)
@@ -353,8 +353,9 @@ func (module *Module) delegate(ctx context.Context, store vexoapp.StateStore, de
 		return types.ValidatorUpdate{}, ErrStakeOverflow
 	}
 	newPower := currentPower + amount
+	newBalance := new(big.Int).Sub(balance, amountBig)
 	if err := applyAtomicWrites(ctx, store, []kvbatch.KVWrite{
-		{Namespace: bankNamespace, Key: bankBalanceKey(delegator), Value: encodeUint64(balance - amount)},
+		{Namespace: bankNamespace, Key: bankBalanceKey(delegator), Value: encodeBankBalanceBig(newBalance)},
 		{Namespace: ModuleName, Key: stakeKey(delegator, validatorID), Value: encodeUint64(currentStake + amount)},
 		{Namespace: ModuleName, Key: validatorPowerKey(validatorID), Value: encodeUint64(newPower)},
 		{Namespace: ModuleName, Key: validatorKeyKey(validatorID), Value: append([]byte(nil), publicKey...)},
@@ -541,7 +542,18 @@ func UnbondingAmount(ctx context.Context, store vexoapp.StateStore, delegator ty
 }
 
 func Rewards(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) (uint64, error) {
-	return getUint64(ctx, store, rewardKey(delegator, validatorID))
+	amount, err := RewardsBig(ctx, store, delegator, validatorID)
+	if err != nil {
+		return 0, err
+	}
+	if !amount.IsUint64() {
+		return 0, ErrStakeOverflow
+	}
+	return amount.Uint64(), nil
+}
+
+func RewardsBig(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) (*big.Int, error) {
+	return getModuleAmountBig(ctx, store, rewardKey(delegator, validatorID))
 }
 
 func Commission(ctx context.Context, store vexoapp.StateStore, validatorID types.ValidatorID) (uint64, error) {
@@ -577,23 +589,24 @@ func (module *Module) claimRewards(ctx context.Context, store vexoapp.StateStore
 	if delegator == "" || validatorID == "" {
 		return ErrInvalidStakingTx
 	}
-	reward, err := Rewards(ctx, store, delegator, validatorID)
+	reward, err := RewardsBig(ctx, store, delegator, validatorID)
 	if err != nil {
 		return err
 	}
-	if reward == 0 {
+	if reward.Sign() == 0 {
 		return ErrNoRewards
 	}
-	balance, err := bankBalance(ctx, store, delegator)
+	balance, err := bankBalanceBig(ctx, store, delegator)
 	if err != nil {
 		return err
 	}
-	if balance > ^uint64(0)-reward {
-		return ErrStakeOverflow
+	newBalance := new(big.Int).Add(balance, reward)
+	if err := validateBankBalanceBig(newBalance); err != nil {
+		return err
 	}
 	writes := []kvbatch.KVWrite{
-		{Namespace: bankNamespace, Key: bankBalanceKey(delegator), Value: encodeUint64(balance + reward)},
-		{Namespace: ModuleName, Key: rewardKey(delegator, validatorID), Value: encodeUint64(0)},
+		{Namespace: bankNamespace, Key: bankBalanceKey(delegator), Value: encodeBankBalanceBig(newBalance)},
+		{Namespace: ModuleName, Key: rewardKey(delegator, validatorID), Value: encodeBankBalanceBig(new(big.Int))},
 	}
 	return applyAtomicWrites(ctx, store, writes)
 }
@@ -625,12 +638,9 @@ func (module *Module) withdrawUnbonded(ctx context.Context, store vexoapp.StateS
 	if err != nil {
 		return err
 	}
-	balance, err := bankBalance(ctx, store, delegator)
+	balance, err := bankBalanceBig(ctx, store, delegator)
 	if err != nil {
 		return err
-	}
-	if balance > ^uint64(0)-amount {
-		return ErrStakeOverflow
 	}
 	writes, err := replaceUnbondingEntriesWrites(delegator, validatorID, pending)
 	if err != nil {
@@ -641,8 +651,12 @@ func (module *Module) withdrawUnbonded(ctx context.Context, store vexoapp.StateS
 			writes = append(writes, kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingEntryKey(delegator, validatorID, entry.ID), Delete: true})
 		}
 	}
+	newBalance := new(big.Int).Add(balance, new(big.Int).SetUint64(amount))
+	if err := validateBankBalanceBig(newBalance); err != nil {
+		return err
+	}
 	writes = append([]kvbatch.KVWrite{
-		{Namespace: bankNamespace, Key: bankBalanceKey(delegator), Value: encodeUint64(balance + amount)},
+		{Namespace: bankNamespace, Key: bankBalanceKey(delegator), Value: encodeBankBalanceBig(newBalance)},
 	}, writes...)
 	return applyAtomicWrites(ctx, store, writes)
 }
@@ -670,8 +684,8 @@ func (module *Module) distributeFees(ctx context.Context, store vexoapp.StateSto
 	if !ok {
 		return nil
 	}
-	collectorBalance, err := bankBalance(ctx, store, module.feeCollector)
-	if err != nil || collectorBalance == 0 {
+	collectorBalance, err := bankBalanceBig(ctx, store, module.feeCollector)
+	if err != nil || collectorBalance.Sign() == 0 {
 		return err
 	}
 	pairs, err := snapshot.ExportNamespace(ctx, ModuleName)
@@ -695,107 +709,117 @@ func (module *Module) distributeFees(ctx context.Context, store vexoapp.StateSto
 		}
 		stakeByValidator[delegation.validatorID] += delegation.stake
 	}
-	rewards := make(map[string]uint64)
-	distributed := uint64(0)
+	rewards := make(map[string]*big.Int)
+	distributed := new(big.Int)
 	for _, validator := range validators {
-		validatorFee := proportionalShare(collectorBalance, validator.power, totalPower)
-		if validatorFee == 0 {
+		validatorFee := proportionalShareBig(collectorBalance, validator.power, totalPower)
+		if validatorFee.Sign() == 0 {
 			continue
 		}
 		commissionBPS, err := Commission(ctx, store, validator.validatorID)
 		if err != nil {
 			return err
 		}
-		commission := proportionalShare(validatorFee, commissionBPS, commissionDenominatorBPS)
-		if commission > 0 {
+		commission := proportionalShareBig(validatorFee, commissionBPS, commissionDenominatorBPS)
+		if commission.Sign() > 0 {
 			if err := addReward(rewards, types.Address(validator.validatorID), validator.validatorID, commission); err != nil {
 				return err
 			}
 		}
-		validatorDistributed := commission
-		distributionPool := validatorFee - commission
+		validatorDistributed := new(big.Int).Set(commission)
+		distributionPool := new(big.Int).Sub(validatorFee, commission)
 		validatorDelegations := delegationsByValidator[validator.validatorID]
 		totalStake := stakeByValidator[validator.validatorID]
-		if distributionPool > 0 && (len(validatorDelegations) == 0 || totalStake == 0) {
+		if distributionPool.Sign() > 0 && (len(validatorDelegations) == 0 || totalStake == 0) {
 			if err := addReward(rewards, types.Address(validator.validatorID), validator.validatorID, distributionPool); err != nil {
 				return err
 			}
-			validatorDistributed += distributionPool
+			validatorDistributed.Add(validatorDistributed, distributionPool)
 		}
 		for _, delegation := range validatorDelegations {
-			share := proportionalShare(distributionPool, delegation.stake, totalStake)
-			if share == 0 {
+			share := proportionalShareBig(distributionPool, delegation.stake, totalStake)
+			if share.Sign() == 0 {
 				continue
 			}
 			if err := addReward(rewards, delegation.delegator, delegation.validatorID, share); err != nil {
 				return err
 			}
-			validatorDistributed += share
+			validatorDistributed.Add(validatorDistributed, share)
 		}
-		if validatorDistributed < validatorFee {
-			remainder := validatorFee - validatorDistributed
+		if validatorDistributed.Cmp(validatorFee) < 0 {
+			remainder := new(big.Int).Sub(validatorFee, validatorDistributed)
 			if err := addReward(rewards, types.Address(validator.validatorID), validator.validatorID, remainder); err != nil {
 				return err
 			}
 		}
-		if distributed > ^uint64(0)-validatorFee {
-			return ErrStakeOverflow
-		}
-		distributed += validatorFee
+		distributed.Add(distributed, validatorFee)
 	}
-	if distributed == 0 {
+	if distributed.Sign() == 0 {
 		return nil
 	}
+	collectorRemainder := new(big.Int).Sub(collectorBalance, distributed)
 	writes := []kvbatch.KVWrite{
-		{Namespace: bankNamespace, Key: bankBalanceKey(module.feeCollector), Value: encodeUint64(collectorBalance - distributed)},
+		{Namespace: bankNamespace, Key: bankBalanceKey(module.feeCollector), Value: encodeBankBalanceBig(collectorRemainder)},
 	}
 	for encodedKey, amount := range rewards {
 		delegator, validatorID := splitRewardMapKey(encodedKey)
-		current, err := Rewards(ctx, store, delegator, validatorID)
+		current, err := RewardsBig(ctx, store, delegator, validatorID)
 		if err != nil {
 			return err
 		}
-		if current > ^uint64(0)-amount {
-			return ErrStakeOverflow
+		nextReward := new(big.Int).Add(current, amount)
+		if err := validateBankBalanceBig(nextReward); err != nil {
+			return err
 		}
 		writes = append(writes, kvbatch.KVWrite{
 			Namespace: ModuleName,
 			Key:       rewardKey(delegator, validatorID),
-			Value:     encodeUint64(current + amount),
+			Value:     encodeBankBalanceBig(nextReward),
 		})
 	}
 	return applyAtomicWrites(ctx, store, writes)
 }
 
 func bankBalance(ctx context.Context, store vexoapp.StateStore, address types.Address) (uint64, error) {
-	value, err := store.Get(ctx, bankNamespace, bankBalanceKey(address))
-	if errors.Is(err, vexostore.ErrKeyNotFound) {
-		value, err = store.Get(ctx, bankNamespace, []byte(address))
-		if errors.Is(err, vexostore.ErrKeyNotFound) {
-			return 0, nil
-		}
-	}
+	amount, err := bankBalanceBig(ctx, store, address)
 	if err != nil {
 		return 0, err
 	}
-	if len(value) == 0 {
-		return 0, nil
-	}
-	if len(value) > 32 {
-		return 0, ErrInvalidStakeRecord
-	}
-	if len(value) == 8 {
-		return binary.BigEndian.Uint64(value), nil
-	}
-	amount := new(big.Int).SetBytes(value)
 	if !amount.IsUint64() {
 		return 0, ErrStakeOverflow
 	}
 	return amount.Uint64(), nil
 }
 
+func bankBalanceBig(ctx context.Context, store vexoapp.StateStore, address types.Address) (*big.Int, error) {
+	value, err := store.Get(ctx, bankNamespace, bankBalanceKey(address))
+	if errors.Is(err, vexostore.ErrKeyNotFound) {
+		value, err = store.Get(ctx, bankNamespace, []byte(address))
+		if errors.Is(err, vexostore.ErrKeyNotFound) {
+			return new(big.Int), nil
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(value) == 0 {
+		return new(big.Int), nil
+	}
+	if len(value) > 32 {
+		return nil, ErrInvalidStakeRecord
+	}
+	return new(big.Int).SetBytes(value), nil
+}
+
 func setBankBalance(ctx context.Context, store vexoapp.StateStore, address types.Address, amount uint64) error {
 	return setUint64(ctx, store, bankNamespace, bankBalanceKey(address), amount)
+}
+
+func setBankBalanceBig(ctx context.Context, store vexoapp.StateStore, address types.Address, amount *big.Int) error {
+	if err := validateBankBalanceBig(amount); err != nil {
+		return err
+	}
+	return store.Set(ctx, bankNamespace, bankBalanceKey(address), encodeBankBalanceBig(amount))
 }
 
 func bankBalanceKey(address types.Address) []byte {
@@ -1069,12 +1093,16 @@ func parseStakeKey(key string) (types.Address, types.ValidatorID, bool) {
 	return types.Address(parts[1]), types.ValidatorID(parts[2]), true
 }
 
-func addReward(rewards map[string]uint64, delegator types.Address, validatorID types.ValidatorID, amount uint64) error {
-	key := rewardMapKey(delegator, validatorID)
-	if rewards[key] > ^uint64(0)-amount {
-		return ErrStakeOverflow
+func addReward(rewards map[string]*big.Int, delegator types.Address, validatorID types.ValidatorID, amount *big.Int) error {
+	if amount == nil || amount.Sign() < 0 {
+		return ErrInvalidStakeRecord
 	}
-	rewards[key] += amount
+	key := rewardMapKey(delegator, validatorID)
+	current := rewards[key]
+	if current == nil {
+		current = new(big.Int)
+	}
+	rewards[key] = new(big.Int).Add(current, amount)
 	return nil
 }
 
@@ -1088,12 +1116,37 @@ func splitRewardMapKey(key string) (types.Address, types.ValidatorID) {
 }
 
 func proportionalShare(total uint64, part uint64, whole uint64) uint64 {
-	if total == 0 || part == 0 || whole == 0 {
-		return 0
+	share := proportionalShareBig(new(big.Int).SetUint64(total), part, whole)
+	if !share.IsUint64() {
+		return ^uint64(0)
 	}
-	high, low := bits.Mul64(total, part)
-	share, _ := bits.Div64(high, low, whole)
+	return share.Uint64()
+}
+
+func proportionalShareBig(total *big.Int, part uint64, whole uint64) *big.Int {
+	if total == nil || total.Sign() == 0 || part == 0 || whole == 0 {
+		return new(big.Int)
+	}
+	share := new(big.Int).Mul(total, new(big.Int).SetUint64(part))
+	share.Div(share, new(big.Int).SetUint64(whole))
 	return share
+}
+
+func getModuleAmountBig(ctx context.Context, store vexoapp.StateStore, key []byte) (*big.Int, error) {
+	value, err := store.Get(ctx, ModuleName, key)
+	if errors.Is(err, vexostore.ErrKeyNotFound) {
+		return new(big.Int), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(value) == 0 {
+		return new(big.Int), nil
+	}
+	if len(value) > 32 {
+		return nil, ErrInvalidStakeRecord
+	}
+	return new(big.Int).SetBytes(value), nil
 }
 
 func getUint64(ctx context.Context, store vexoapp.StateStore, key []byte) (uint64, error) {
@@ -1131,6 +1184,27 @@ func encodeUint64(amount uint64) []byte {
 	encoded := make([]byte, 8)
 	binary.BigEndian.PutUint64(encoded, amount)
 	return encoded
+}
+
+func encodeBankBalanceBig(amount *big.Int) []byte {
+	if amount == nil || amount.Sign() == 0 {
+		return []byte{0}
+	}
+	if amount.Sign() < 0 {
+		return []byte{0}
+	}
+	encoded := amount.Bytes()
+	if len(encoded) > 32 {
+		return encoded
+	}
+	return encoded
+}
+
+func validateBankBalanceBig(amount *big.Int) error {
+	if amount == nil || amount.Sign() < 0 || amount.BitLen() > 256 {
+		return ErrStakeOverflow
+	}
+	return nil
 }
 
 func encodeSlashMarker(receipt slashing.PenaltyReceipt) []byte {

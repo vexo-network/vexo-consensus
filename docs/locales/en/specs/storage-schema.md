@@ -65,9 +65,10 @@ Module data is stored by namespace and key.
 
 Common framework namespaces:
 
-- `bank`: account balances used by native bank transfers, fees, staking, and EVM value transfers
+- `bank`: unsigned 256-bit account balances used by native bank transfers, fees, staking reward/withdraw paths, and EVM value transfers
 - `events`: indexed transaction event records and attribute indexes
 - `evm`: contract VM code, storage slots, receipts, global log index, and address log index
+- `evm_ethstate`: retained Ethereum account/code/storage snapshots keyed by height for `eth_getBalance`, `eth_getProof`, historical calls, and strict EVM state-root checks
 - `ibc`: client, connection, channel, packet commitment, and receipt records
 - `params`: chain-wide module parameter values and metadata
 - `staking`: delegated stake, validator power, validator public keys, commission basis points, entry-based unbonding release records, unbonding custody balances, jail flags, and pending reward balances

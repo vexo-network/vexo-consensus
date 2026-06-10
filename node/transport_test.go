@@ -538,7 +538,7 @@ func TestNodeStepConsensusProposesThenCommitsReadyBlock(t *testing.T) {
 	if err := alice.SubmitTx(context.Background(), []byte("bank:step")); err != nil {
 		t.Fatal(err)
 	}
-	proposeStep, err := alice.StepConsensusWithConfig(context.Background(), ConsensusLoopConfig{MaxBlockBytes: 1024, CreateEmptyBlocks: true, ExecutionCommitMode: ExecutionCommitModeQC})
+	proposeStep, err := alice.StepConsensusWithConfig(context.Background(), ConsensusLoopConfig{MaxBlockBytes: 1024, CreateEmptyBlocks: true, ExecutionCommitMode: ExecutionCommitModeQC, AllowUnsafeQCCommit: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -547,7 +547,7 @@ func TestNodeStepConsensusProposesThenCommitsReadyBlock(t *testing.T) {
 	}
 	waitForQuorumCert(t, bobConsensus, proposeStep.Proposal.Block.Header.Height, proposeStep.Proposal.Round, proposeStep.BlockHash)
 
-	commitStep, err := bob.StepConsensusWithConfig(context.Background(), ConsensusLoopConfig{MaxBlockBytes: 1024, CreateEmptyBlocks: true, ExecutionCommitMode: ExecutionCommitModeQC})
+	commitStep, err := bob.StepConsensusWithConfig(context.Background(), ConsensusLoopConfig{MaxBlockBytes: 1024, CreateEmptyBlocks: true, ExecutionCommitMode: ExecutionCommitModeQC, AllowUnsafeQCCommit: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,7 +561,7 @@ func TestNodeStepConsensusProposesThenCommitsReadyBlock(t *testing.T) {
 	if status.LatestHeight != 1 {
 		t.Fatalf("expected bob committed height 1, got %+v", status)
 	}
-	emptyProposalStep, err := bob.StepConsensusWithConfig(context.Background(), ConsensusLoopConfig{MaxBlockBytes: 1024, CreateEmptyBlocks: true, ExecutionCommitMode: ExecutionCommitModeQC})
+	emptyProposalStep, err := bob.StepConsensusWithConfig(context.Background(), ConsensusLoopConfig{MaxBlockBytes: 1024, CreateEmptyBlocks: true, ExecutionCommitMode: ExecutionCommitModeQC, AllowUnsafeQCCommit: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1144,7 +1144,7 @@ func TestNodeBackgroundConsensusLoopCommitsAcrossPeers(t *testing.T) {
 	startNode(t, carol)
 	defer carol.Stop(context.Background())
 
-	loopConfig := ConsensusLoopConfig{Interval: 10 * time.Millisecond, RoundTimeout: time.Hour, MaxBlockBytes: 1024, CreateEmptyBlocks: true, ExecutionCommitMode: ExecutionCommitModeQC}
+	loopConfig := ConsensusLoopConfig{Interval: 10 * time.Millisecond, RoundTimeout: time.Hour, MaxBlockBytes: 1024, CreateEmptyBlocks: true, ExecutionCommitMode: ExecutionCommitModeQC, AllowUnsafeQCCommit: true}
 	for _, node := range []*Node{alice, bob, carol} {
 		if err := node.StartConsensusLoop(context.Background(), loopConfig); err != nil {
 			t.Fatal(err)
@@ -1258,7 +1258,7 @@ func TestNodeConsensusLoopCommitsEmptyBlocks(t *testing.T) {
 	}
 	machine.StartRound(1, 0)
 
-	loopConfig := ConsensusLoopConfig{Interval: time.Millisecond, RoundTimeout: time.Hour, MaxBlockBytes: 1024, CreateEmptyBlocks: true, ExecutionCommitMode: ExecutionCommitModeQC}
+	loopConfig := ConsensusLoopConfig{Interval: time.Millisecond, RoundTimeout: time.Hour, MaxBlockBytes: 1024, CreateEmptyBlocks: true, ExecutionCommitMode: ExecutionCommitModeQC, AllowUnsafeQCCommit: true}
 	if err := alice.StartConsensusLoop(context.Background(), loopConfig); err != nil {
 		t.Fatal(err)
 	}
@@ -1290,7 +1290,7 @@ func TestNodeConsensusLoopSkipsEmptyBlocksWhenDisabled(t *testing.T) {
 	}
 	machine.StartRound(1, 0)
 
-	loopConfig := ConsensusLoopConfig{Interval: time.Millisecond, RoundTimeout: time.Hour, MaxBlockBytes: 1024, CreateEmptyBlocks: false, ExecutionCommitMode: ExecutionCommitModeQC}
+	loopConfig := ConsensusLoopConfig{Interval: time.Millisecond, RoundTimeout: time.Hour, MaxBlockBytes: 1024, CreateEmptyBlocks: false, ExecutionCommitMode: ExecutionCommitModeQC, AllowUnsafeQCCommit: true}
 	if err := alice.StartConsensusLoop(context.Background(), loopConfig); err != nil {
 		t.Fatal(err)
 	}
