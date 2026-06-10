@@ -13,14 +13,23 @@ import (
 var ErrEmptySigner = errors.New("empty signer in quorum certificate")
 
 func (proof Proof) HeaderHash() types.Hash {
+	return hashHeader(proof.Header)
+}
+
+func (link CommitLink) HeaderHash() types.Hash {
+	return hashHeader(link.Header)
+}
+
+func hashHeader(header types.Header) types.Hash {
 	hasher := sha256.New()
-	hasher.Write([]byte(proof.Header.ChainID))
-	writeUint64(hasher, uint64(proof.Header.Height))
-	writeUint64(hasher, uint64(proof.Header.TimeUnixNano))
-	hasher.Write(proof.Header.PreviousBlockHash[:])
-	hasher.Write(proof.Header.AppHash[:])
-	hasher.Write(proof.Header.ValidatorSetHash[:])
-	hasher.Write(proof.Header.ConsensusHash[:])
+	hasher.Write([]byte(header.ChainID))
+	writeUint64(hasher, uint64(header.Height))
+	writeUint64(hasher, uint64(header.TimeUnixNano))
+	hasher.Write(header.PreviousBlockHash[:])
+	hasher.Write(header.AppHash[:])
+	hasher.Write(header.ValidatorSetHash[:])
+	hasher.Write(header.ConsensusHash[:])
+	hasher.Write(header.TxRoot[:])
 
 	var hash types.Hash
 	copy(hash[:], hasher.Sum(nil))

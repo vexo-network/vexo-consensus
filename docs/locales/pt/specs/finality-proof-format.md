@@ -48,7 +48,7 @@ Este documento ajuda a entender campos de finality proof, ordem de verificação
 - `Proof.ValidatorSetHash == loaded_set.Hash()`
 - `Header.ValidatorSetHash == loaded_set.Hash()`
 - `QuorumCert.Height == Header.Height`
-- `QuorumCert.BlockHash == HeaderHash(Header)`
+- `QuorumCert.BlockHash == Proof.BlockHash == HeaderHash(Header)`
 - `finality.AttackDetector`
 - `--validator-set`
 - `BLSAdapter`

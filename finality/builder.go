@@ -17,5 +17,5 @@ func NewProof(header types.Header, quorumCert QuorumCert) Proof {
 }
 
 func HeaderHash(header types.Header) types.Hash {
-	return NewProof(header, QuorumCert{}).HeaderHash()
+	return hashHeader(header)
 }

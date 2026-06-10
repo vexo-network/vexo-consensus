@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type Check struct {
@@ -529,20 +530,37 @@ func collectedEvidenceOK(item map[string]any) bool {
 }
 
 func networkLongRunEvidenceOK(item map[string]any) bool {
-	if _, found := item["nodes"]; !found {
-		return true
+	if _, found := item["evidence_type"]; found {
+		return collectedLongRunEvidenceOK(item)
 	}
-	nodes, found := evidenceArray(item["nodes"])
-	if !found || len(nodes) == 0 {
+	validators, found := numericEvidenceValue(item["validators"])
+	if !found || validators < 4 {
 		return false
 	}
-	if load, found := evidenceMap(item["load"]); found {
-		if submitted, found := numericEvidenceValue(load["submitted"]); found && submitted == 0 {
-			return false
-		}
-		if failed, found := numericEvidenceValue(load["failed"]); found && failed > 0 {
-			return false
-		}
+	durationText, found := evidenceString(item["duration"])
+	if !found {
+		return false
+	}
+	duration, err := time.ParseDuration(durationText)
+	if err != nil || duration < time.Hour {
+		return false
+	}
+	if rate, found := numericEvidenceValue(item["rate"]); !found || rate <= 0 {
+		return false
+	}
+	load, found := evidenceMap(item["load"])
+	if !found {
+		return false
+	}
+	if submitted, found := numericEvidenceValue(load["submitted"]); !found || submitted == 0 {
+		return false
+	}
+	if failed, found := numericEvidenceValue(load["failed"]); !found || failed > 0 {
+		return false
+	}
+	nodes, found := evidenceArray(item["nodes"])
+	if !found || len(nodes) < int(validators) {
+		return false
 	}
 	for _, node := range nodes {
 		nodeMap, ok := evidenceMap(node)
@@ -554,17 +572,56 @@ func networkLongRunEvidenceOK(item map[string]any) bool {
 		}
 		before, beforeOK := evidenceMap(nodeMap["before"])
 		after, afterOK := evidenceMap(nodeMap["after"])
-		if beforeOK && afterOK {
-			beforeHeight, beforeFound := numericEvidenceValue(before["latest_height"])
-			afterHeight, afterFound := numericEvidenceValue(after["latest_height"])
-			if beforeFound && afterFound && afterHeight <= beforeHeight {
-				return false
-			}
+		if !beforeOK || !afterOK {
+			return false
+		}
+		beforeHeight, beforeFound := numericEvidenceValue(before["latest_height"])
+		afterHeight, afterFound := numericEvidenceValue(after["latest_height"])
+		if !beforeFound || !afterFound || afterHeight <= beforeHeight {
+			return false
 		}
 		if report, found := evidenceMap(nodeMap["report"]); found {
 			if okValue, found := report["ok"].(bool); found && !okValue {
 				return false
 			}
+		} else {
+			return false
+		}
+	}
+	return true
+}
+
+func collectedLongRunEvidenceOK(item map[string]any) bool {
+	durationText, found := evidenceString(item["duration"])
+	if !found {
+		return false
+	}
+	duration, err := time.ParseDuration(durationText)
+	if err != nil || duration < time.Hour {
+		return false
+	}
+	rpcs := evidenceRPCs(item)
+	if len(rpcs) < 4 {
+		return false
+	}
+	for _, rpcValue := range rpcs {
+		if errorsValue, found := evidenceArray(rpcValue["errors"]); found && len(errorsValue) > 0 {
+			return false
+		}
+		baseline, baselineFound := evidenceMap(rpcValue["baseline"])
+		final, finalFound := evidenceMap(rpcValue["final"])
+		if !baselineFound || !finalFound {
+			return false
+		}
+		baselineStatus, baselineStatusFound := evidenceMap(baseline["status"])
+		finalStatus, finalStatusFound := evidenceMap(final["status"])
+		if !baselineStatusFound || !finalStatusFound {
+			return false
+		}
+		baselineHeight, baselineHeightFound := numericEvidenceValue(baselineStatus["latest_height"])
+		finalHeight, finalHeightFound := numericEvidenceValue(finalStatus["latest_height"])
+		if !baselineHeightFound || !finalHeightFound || finalHeight <= baselineHeight {
+			return false
 		}
 	}
 	return true

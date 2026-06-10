@@ -48,7 +48,7 @@
 - `Proof.ValidatorSetHash == loaded_set.Hash()`
 - `Header.ValidatorSetHash == loaded_set.Hash()`
 - `QuorumCert.Height == Header.Height`
-- `QuorumCert.BlockHash == HeaderHash(Header)`
+- `QuorumCert.BlockHash == Proof.BlockHash == HeaderHash(Header)`
 - `finality.AttackDetector`
 - `--validator-set`
 - `BLSAdapter`

@@ -27,6 +27,7 @@ var ErrAtomicAppCommitUnavailable = errors.New("atomic app block commit store is
 var ErrDurableStoreRequired = errors.New("durable store is required; use NewEphemeral only for isolated tests and examples")
 var ErrUpgradeExecutorMissing = errors.New("upgrade executor is required")
 var ErrBlobGasLimitExceeded = errors.New("block blob gas exceeds configured max blob gas")
+var ErrValidatorRegistryCommitFailed = errors.New("validator registry post-commit reconciliation failed")
 
 type Runtime struct {
 	Config             config.Config
@@ -330,8 +331,10 @@ func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Bloc
 	if stagedValidatorRegistry != nil {
 		if err := stagedValidatorRegistry.CommitStagedValidatorUpdates(ctx, validatorUpdateHeight, response.ValidatorUpdates); err != nil {
 			atomic.AddUint64(&runtime.reconcileFailures, 1)
-			_, _ = runtime.Recover(ctx)
-			return response, nil
+			if _, recoverErr := runtime.Recover(ctx); recoverErr != nil {
+				return response, errors.Join(ErrValidatorRegistryCommitFailed, err, recoverErr)
+			}
+			return response, errors.Join(ErrValidatorRegistryCommitFailed, err)
 		}
 	}
 	return response, nil

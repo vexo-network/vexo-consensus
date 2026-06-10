@@ -92,14 +92,15 @@ const (
 )
 
 const (
-	NetworkSafeVRFAdapterECVRFP256  = "ecvrf-p256-sha256-tai-v1"
-	NetworkSafeVRFAuditReport       = "built-in-ecvrf-p256-runtime-validation"
-	NetworkSafeVRFKeySource         = "local-encrypted-or-remote-kms"
-	NetworkSafeBLSAdapterBLST       = "blst-bls12381-minpk-v1"
-	NetworkSafeBLSAuditReport       = "ncc-group-blst-security-assessment"
-	NetworkSafeBLSDependencyAudit   = "github.com/supranational/blst@v0.3.16"
-	NetworkSafeBLSAuditEvidence     = "fe4310147a3d182952ba9a44ab94e6fe9fb2c160913248984973cd052b2dfb95"
-	NetworkSafeBLSAuditEvidencePath = "docs/security/blst-audit-evidence.json"
+	DefaultEVMChainID               uint64 = 83960
+	NetworkSafeVRFAdapterECVRFP256         = "ecvrf-p256-sha256-tai-v1"
+	NetworkSafeVRFAuditReport              = "built-in-ecvrf-p256-runtime-validation"
+	NetworkSafeVRFKeySource                = "local-encrypted-or-remote-kms"
+	NetworkSafeBLSAdapterBLST              = "blst-bls12381-minpk-v1"
+	NetworkSafeBLSAuditReport              = "ncc-group-blst-security-assessment"
+	NetworkSafeBLSDependencyAudit          = "github.com/supranational/blst@v0.3.16"
+	NetworkSafeBLSAuditEvidence            = "fe4310147a3d182952ba9a44ab94e6fe9fb2c160913248984973cd052b2dfb95"
+	NetworkSafeBLSAuditEvidencePath        = "docs/security/blst-audit-evidence.json"
 )
 
 type CryptoConfig struct {
@@ -130,7 +131,7 @@ func Default(chainID string) Config {
 			Modules: []string{"bank", "staking", "governance", "params", "ibc"},
 		},
 		Execution: ExecutionConfig{
-			EVMChainID:               1,
+			EVMChainID:               DefaultEVMChainID,
 			MaxGas:                   10_000_000,
 			TargetGas:                5_000_000,
 			BlobBaseFee:              1,

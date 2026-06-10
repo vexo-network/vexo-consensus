@@ -484,6 +484,53 @@ func TestRuntimeStagedValidatorUpdatesRollbackWhenCommitFails(t *testing.T) {
 	}
 }
 
+func TestRuntimeReportsStagedValidatorReconcileFailure(t *testing.T) {
+	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{&validatorUpdateModule{
+		runtimeModule: runtimeModule{name: "staking"},
+		updates: []types.ValidatorUpdate{
+			{ID: "alice", Address: "alice", VotingPower: 2},
+		},
+	}}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	runtime, err := NewWithStore(config.Default("vexo-test"), application, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+	}, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storeRegistry, ok := runtime.Validators.(*validator.StoreRegistry)
+	if !ok {
+		t.Fatalf("expected store registry, got %T", runtime.Validators)
+	}
+	runtime.Validators = failingStagedValidatorRegistry{StoreRegistry: storeRegistry}
+	initialSet, err := runtime.Validators.ValidatorSet(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = runtime.ExecuteBlock(context.Background(), types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 5, ValidatorSetHash: initialSet.Hash()},
+		Txs:    []types.Tx{[]byte("staking:update")},
+	})
+	if !errors.Is(err, ErrValidatorRegistryCommitFailed) {
+		t.Fatalf("expected validator reconcile error, got %v", err)
+	}
+	if failures := runtime.PostCommitReconciliationFailures(); failures != 1 {
+		t.Fatalf("expected one reconcile failure, got %d", failures)
+	}
+	if _, err := storage.StateByHeight(context.Background(), 5); err != nil {
+		t.Fatalf("block/state commit should remain durable before reconcile failure report: %v", err)
+	}
+}
+
 func TestRuntimeExecuteBlockRemovesValidatorFromUpdates(t *testing.T) {
 	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{&validatorUpdateModule{
 		runtimeModule: runtimeModule{name: "staking"},
@@ -683,5 +730,13 @@ type failingAppCommitStore struct {
 }
 
 func (failingAppCommitStore) CommitBlockStateWithWrites(ctx context.Context, writes []store.KVWrite, block store.BlockRecord, state store.StateRecord, roots []store.StateRootRecord) error {
+	return errRuntimeCommitFailed
+}
+
+type failingStagedValidatorRegistry struct {
+	*validator.StoreRegistry
+}
+
+func (registry failingStagedValidatorRegistry) CommitStagedValidatorUpdates(ctx context.Context, height types.Height, updates []types.ValidatorUpdate) error {
 	return errRuntimeCommitFailed
 }

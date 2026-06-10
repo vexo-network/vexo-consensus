@@ -69,14 +69,14 @@ func validCommitChain(proof Proof, signers []types.ValidatorID) []CommitLink {
 		PreviousBlockHash: proof.BlockHash,
 		ValidatorSetHash:  proof.Header.ValidatorSetHash,
 	}
-	firstHash := types.Hash{2}
+	firstHash := HeaderHash(firstHeader)
 	secondHeader := types.Header{
 		ChainID:           proof.Header.ChainID,
 		Height:            proof.Header.Height + 2,
 		PreviousBlockHash: firstHash,
 		ValidatorSetHash:  proof.Header.ValidatorSetHash,
 	}
-	secondHash := types.Hash{3}
+	secondHash := HeaderHash(secondHeader)
 	return []CommitLink{
 		{
 			Header:    firstHeader,
@@ -102,6 +102,22 @@ func validCommitChain(proof Proof, signers []types.ValidatorID) []CommitLink {
 				VotingPower: types.VotingPower(len(signers)),
 			},
 		},
+	}
+}
+
+func TestVerifierRejectsCommitChainHeaderHashMismatch(t *testing.T) {
+	set := testValidatorSet(t, []validator.Validator{
+		{ID: "a", VotingPower: 1, PublicKey: []byte("a-pub")},
+		{ID: "b", VotingPower: 1, PublicKey: []byte("b-pub")},
+		{ID: "c", VotingPower: 1, PublicKey: []byte("c-pub")},
+	})
+	proof := validProof(set, []types.ValidatorID{"a", "b"})
+	proof.CommitChain = validCommitChain(proof, []types.ValidatorID{"a", "b"})
+	proof.CommitChain[0].Header.AppHash = types.Hash{9}
+
+	err := NewStrictVerifier(set, acceptSignatureVerifier{}).VerifyFinalityProof(proof)
+	if !errors.Is(err, ErrBlockHashMismatch) {
+		t.Fatalf("expected commit-chain header hash mismatch, got %v", err)
 	}
 }
 

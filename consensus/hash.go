@@ -8,16 +8,37 @@ import (
 )
 
 func HashBlock(block types.Block) types.Hash {
+	header := block.Header
+	if header.TxRoot == (types.Hash{}) {
+		header.TxRoot = TxRoot(block.Txs)
+	}
+	return HashHeader(header)
+}
+
+func HashHeader(header types.Header) types.Hash {
 	hasher := sha256.New()
 
-	writeUint64(hasher, uint64(block.Header.Height))
-	writeUint64(hasher, uint64(block.Header.TimeUnixNano))
-	hasher.Write(block.Header.PreviousBlockHash[:])
-	hasher.Write(block.Header.AppHash[:])
-	hasher.Write(block.Header.ValidatorSetHash[:])
-	hasher.Write(block.Header.ConsensusHash[:])
+	hasher.Write([]byte(header.ChainID))
+	writeUint64(hasher, uint64(header.Height))
+	writeUint64(hasher, uint64(header.TimeUnixNano))
+	hasher.Write(header.PreviousBlockHash[:])
+	hasher.Write(header.AppHash[:])
+	hasher.Write(header.ValidatorSetHash[:])
+	hasher.Write(header.ConsensusHash[:])
+	hasher.Write(header.TxRoot[:])
 
-	for _, tx := range block.Txs {
+	var hash types.Hash
+	copy(hash[:], hasher.Sum(nil))
+	return hash
+}
+
+func TxRoot(txs []types.Tx) types.Hash {
+	if len(txs) == 0 {
+		return types.Hash{}
+	}
+	hasher := sha256.New()
+
+	for _, tx := range txs {
 		writeUint64(hasher, uint64(len(tx)))
 		hasher.Write(tx)
 	}

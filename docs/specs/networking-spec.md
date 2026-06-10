@@ -34,6 +34,8 @@ A production handshake should bind:
 
 Peers failing handshake authentication are rejected before gossip admission. When a shared P2P auth secret is configured, Vexo handshakes send a derived HMAC proof over the protocol/network/chain/genesis/node tuple, timestamp, and nonce rather than the raw secret. The receiver rejects stale or replayed auth proofs, so a captured handshake cannot be reused as a later peer admission token.
 
+When authenticated P2P is required, the gRPC transport also signs a canonical handshake payload with the node signer. The signed payload binds protocol version, network ID, chain ID, genesis hash, node ID, advertised listen address, discovered peers, and a random signature nonce. Signature fields are preserved by the binary stream codec, verified before peer admission, and rejected on nonce replay.
+
 ## Address Roles
 
 Vexo separates local bind addresses, peer dial addresses, and public advertised addresses:

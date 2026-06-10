@@ -189,6 +189,9 @@ func (verifier Verifier) verifyCommitChain(ctx context.Context, proof Proof) err
 		if link.BlockHash == (types.Hash{}) {
 			return ErrCommitChainBroken
 		}
+		if link.BlockHash != link.HeaderHash() {
+			return ErrBlockHashMismatch
+		}
 		if link.Header.ChainID != proof.Header.ChainID {
 			return ErrCommitChainBroken
 		}

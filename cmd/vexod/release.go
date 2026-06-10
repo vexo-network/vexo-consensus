@@ -851,12 +851,31 @@ func newCollectedEvidence(evidenceType string, duration time.Duration, summary s
 		SchemaVersion: "v1",
 		EvidenceType:  evidenceType,
 		GeneratedAt:   time.Now().UTC().Format(time.RFC3339),
-		Duration:      duration.String(),
+		Duration:      releaseEvidenceDurationString(duration),
 		OK:            collectedChecksOK(checks),
 		Summary:       summary,
 		Checks:        checks,
 		RPCs:          observations,
 	}
+}
+
+func releaseEvidenceDurationString(duration time.Duration) string {
+	if duration <= 0 {
+		return "0s"
+	}
+	for _, unit := range []struct {
+		suffix string
+		value  time.Duration
+	}{
+		{suffix: "h", value: time.Hour},
+		{suffix: "m", value: time.Minute},
+		{suffix: "s", value: time.Second},
+	} {
+		if duration >= unit.value && duration%unit.value == 0 {
+			return strconv.FormatInt(int64(duration/unit.value), 10) + unit.suffix
+		}
+	}
+	return duration.String()
 }
 
 func releaseCollectedEvidenceFile(evidenceType string) string {

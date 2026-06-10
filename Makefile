@@ -15,6 +15,7 @@ GPG ?= gpg
 RC_LOAD_DURATION ?= 1h
 RC_LONGRUN_DURATION ?= 168h
 RC_CHAOS_DURATION ?= 24h
+RC_CHAOS_TIMEOUT ?= 60s
 RC_RATE ?= 50
 RC_EVM_CONFORMANCE_FLAGS ?=
 
@@ -136,19 +137,21 @@ docker-image:
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		-t $(IMAGE):$(IMAGE_TAG) .
 
-release-candidate: release ops-verify network-e2e
+release-candidate: release-candidate-real
+
+release-candidate-real: release ops-verify network-e2e
 	test -n "$(RC_EVM_CONFORMANCE_FLAGS)"
 	rm -rf /tmp/vexo-rc-conformance
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod init validator --home /tmp/vexo-rc-conformance --chain-id vexo-rc --validator validator-1 --overwrite
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod ops conformance --home /tmp/vexo-rc-conformance --strict $(RC_EVM_CONFORMANCE_FLAGS) --json > $(DIST_DIR)/sdk-conformance-evidence.json
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network load --validators 4 --duration $(RC_LOAD_DURATION) --rate $(RC_RATE)
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network longrun --validators 4 --duration $(RC_LONGRUN_DURATION) --rate $(RC_RATE) --output $(DIST_DIR)/longrun-evidence.json
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network chaos-plan --validators 4 --duration $(RC_CHAOS_DURATION) --regions 3
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network longrun-plan --validators 4 --duration $(RC_LONGRUN_DURATION) --regions 3 --hosts 4
+	@set -e; \
+		stop_network() { GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network stop --validators 4 || true; }; \
+		trap stop_network EXIT; \
+		GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network up --validators 4 --timeout 30s --overwrite --keep-running; \
+		GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network load --validators 4 --duration $(RC_LOAD_DURATION) --rate $(RC_RATE); \
+		GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network longrun --validators 4 --duration $(RC_LONGRUN_DURATION) --rate $(RC_RATE) --output $(DIST_DIR)/longrun-evidence.json; \
+		GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network chaos --validators 4 --timeout $(RC_CHAOS_TIMEOUT)
 	$(MAKE) release-evidence-manifest
-
-release-candidate-real:
-	$(MAKE) release-candidate
 
 release-candidate-plan: release ops-verify
 	rm -rf /tmp/vexo-rc-conformance

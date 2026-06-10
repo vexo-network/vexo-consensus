@@ -98,6 +98,7 @@ type Header struct {
 	AppHash           Hash
 	ValidatorSetHash  Hash
 	ConsensusHash     Hash
+	TxRoot            Hash
 }
 
 type Block struct {

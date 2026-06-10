@@ -976,27 +976,30 @@ func TestRunReleaseEvidenceManifestSignsEntries(t *testing.T) {
 }
 
 func TestCollectedReleaseEvidenceDocumentsPassSemanticGate(t *testing.T) {
-	observations := []releaseRPCObservation{{
-		RPC: "http://validator-1:26657",
-		Baseline: releaseRPCSnapshot{Status: map[string]any{
-			"latest_height": float64(1),
-			"peer_count":    float64(1),
-		}},
-		Final: releaseRPCSnapshot{
-			Status: map[string]any{
-				"latest_height": float64(2),
-				"peer_count":    float64(1),
+	observations := make([]releaseRPCObservation, 0, 4)
+	for index := 1; index <= 4; index++ {
+		observations = append(observations, releaseRPCObservation{
+			RPC: "http://validator-" + strconv.Itoa(index) + ":26657",
+			Baseline: releaseRPCSnapshot{Status: map[string]any{
+				"latest_height": float64(10),
+				"peer_count":    float64(3),
+			}},
+			Final: releaseRPCSnapshot{
+				Status: map[string]any{
+					"latest_height": float64(20 + index),
+					"peer_count":    float64(3),
+				},
+				Metrics:  map[string]any{"height_rate": float64(1), "commit_latency_p95_nanos": float64(100)},
+				Peers:    map[string]any{"peers": []any{map[string]any{"id": "peer-1"}}},
+				Finality: map[string]any{"strict": true, "height": float64(20 + index)},
+				Snapshot: map[string]any{"height": float64(20 + index), "chunks": float64(1)},
+				Diagnostics: map[string]any{
+					"replay_healthy": true,
+				},
 			},
-			Metrics:  map[string]any{"height_rate": float64(1), "commit_latency_p95_nanos": float64(100)},
-			Peers:    map[string]any{"peers": []any{map[string]any{"id": "peer-1"}}},
-			Finality: map[string]any{"strict": true, "height": float64(2)},
-			Snapshot: map[string]any{"height": float64(2), "chunks": float64(1)},
-			Diagnostics: map[string]any{
-				"replay_healthy": true,
-			},
-		},
-	}}
-	documents := buildCollectedReleaseEvidenceDocuments(time.Minute, observations)
+		})
+	}
+	documents := buildCollectedReleaseEvidenceDocuments(time.Hour, observations)
 	if !collectedEvidenceAllOK(documents) {
 		t.Fatalf("expected collected evidence to pass: %+v", documents)
 	}
@@ -1127,6 +1130,9 @@ func releaseEvidenceFixture(name string) []byte {
 		return []byte("vrf remote adapter implementation ecvrf audit dependency tls mtls certificate auth token nonce replay custody kms hsm evidence passed")
 	case strings.HasSuffix(name, ".json"):
 		if value, ok := summary[name]; ok {
+			if name == "longrun-evidence.json" {
+				return []byte(`{"ok":true,"validators":4,"duration":"1h","rate":50,"summary":"` + value + `","checks":[{"ok":true,"name":"` + name + `"}],"load":{"submitted":100,"failed":0},"nodes":[{"validator_id":"validator-1","before":{"latest_height":1},"after":{"latest_height":11},"report":{"ok":true}},{"validator_id":"validator-2","before":{"latest_height":1},"after":{"latest_height":12},"report":{"ok":true}},{"validator_id":"validator-3","before":{"latest_height":1},"after":{"latest_height":13},"report":{"ok":true}},{"validator_id":"validator-4","before":{"latest_height":1},"after":{"latest_height":14},"report":{"ok":true}}]}`)
+			}
 			if name == "sdk-conformance-evidence.json" {
 				return []byte(`{"ok":true,"summary":"` + value + ` opcode","checks":[{"ok":true,"name":"` + name + `"}],"evm_fixtures":{"ok":true,"total":1,"passed":1,"failed":0,"coverage_ok":true,"required_categories":["raw_transaction"],"covered_categories":["raw_transaction"],"results":[{"ok":true,"name":"tx"}]},"evm_execution":{"ok":true,"total":1,"passed":1,"failed":0,"coverage_ok":true,"required_categories":["opcode"],"covered_categories":["opcode"],"results":[{"ok":true,"name":"vm"}]}}`)
 			}

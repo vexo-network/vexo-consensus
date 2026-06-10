@@ -145,6 +145,7 @@ func (machine *StateMachine) CreateProposal(block types.Block, round types.Round
 	block.Header.ChainID = machine.chainID
 	block.Header.ValidatorSetHash = machine.validatorSet.Hash()
 	block.Txs = fairordering.SortTxsWithSalt(block.Txs, machine.orderingSalt(block.Header.Height))
+	block.Header.TxRoot = TxRoot(block.Txs)
 	if block.Header.ConsensusHash == (types.Hash{}) && len(block.Txs) > 0 {
 		block = dataavailability.AttachCommitment(block)
 	}

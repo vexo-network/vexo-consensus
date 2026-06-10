@@ -10,7 +10,7 @@ This spec defines the proof format verified by light clients and full nodes.
 
 - `Header`: finalized block header
 - `BlockHash`: finalized block hash
-- `QuorumCert`: QC for the finalized header hash
+- `QuorumCert`: QC for the finalized block hash
 - `CommitChain`: descendant proposal links that prove the HotStuff-style 3-chain commit decision
 - `ValidatorSetHeight`: height whose validator set is used for verification
 - `ValidatorSetHash`: hash of the validator set used for verification
@@ -28,6 +28,7 @@ The header hash covers:
 - app hash
 - validator set hash
 - consensus/data availability chunk root
+- transaction root
 
 ## Quorum Certificate Fields
 
@@ -63,13 +64,13 @@ When a node commits a certified block, the block record also stores the QC that 
 4. Verify `Proof.ValidatorSetHash == loaded_set.Hash()`.
 5. Verify `Header.ValidatorSetHash == loaded_set.Hash()`.
 6. Verify `QuorumCert.Height == Header.Height`.
-7. Verify `QuorumCert.BlockHash == HeaderHash(Header)`.
+7. Verify `QuorumCert.BlockHash == Proof.BlockHash == HeaderHash(Header)`. `Header.TxRoot` must already commit to the block transaction list, so this hash is the consensus block hash, not a header-only shortcut.
 8. Parse signer bitmap and reject unknown or duplicate signers.
 9. Recompute signer voting power and require quorum.
 10. If QC voting power is present, require it to match recomputed voting power.
 11. Verify aggregate/multisignature over finality sign bytes.
 12. For external/light-client strict verification, require `CommitChain` to contain at least two links. Compatibility-only verification may accept a bare block QC, but that proof is not sufficient for 3-chain finality.
-13. Verify each link extends the previous block hash by exactly one height.
+13. Verify each link block hash matches `HeaderHash(link.Header)` and extends the previous block hash by exactly one height.
 14. Verify each link QC signs the previous block hash under the same validator-set hash and consensus vote domain.
 
 ## Accountable Safety Detection

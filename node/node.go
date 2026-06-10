@@ -78,6 +78,8 @@ type Node struct {
 	consensusWAL   *consensus.WAL
 	signer         vexocrypto.Signer
 	eventLogger    EventLogger
+	scoreDirty     bool
+	scoreLastSaved time.Time
 	running        bool
 	startedAt      time.Time
 }
@@ -451,8 +453,11 @@ func (node *Node) Status(ctx context.Context) Status {
 	if status.LatestFinalizedHeight == 0 {
 		if proofStore, ok := node.runtime.Store.(store.FinalityProofStore); ok && proofStore != nil {
 			if proof, err := proofStore.LatestFinalityProof(ctx); err == nil {
-				status.LatestFinalizedHeight = proof.Header.Height
-				status.LatestFinalizedHash = proof.BlockHash
+				loaded := finalityProofFromRecord(proof)
+				if loaded.HasThreeChainCommitProof() {
+					status.LatestFinalizedHeight = loaded.Header.Height
+					status.LatestFinalizedHash = loaded.BlockHash
+				}
 			}
 		}
 	}

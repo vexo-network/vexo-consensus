@@ -48,7 +48,7 @@ Tài liệu này giúp hiểu các trường finality proof, thứ tự xác min
 - `Proof.ValidatorSetHash == loaded_set.Hash()`
 - `Header.ValidatorSetHash == loaded_set.Hash()`
 - `QuorumCert.Height == Header.Height`
-- `QuorumCert.BlockHash == HeaderHash(Header)`
+- `QuorumCert.BlockHash == Proof.BlockHash == HeaderHash(Header)`
 - `finality.AttackDetector`
 - `--validator-set`
 - `BLSAdapter`

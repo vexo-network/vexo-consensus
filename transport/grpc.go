@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/p2p"
+	"github.com/vexo-network/vexo-consensus/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -45,6 +46,7 @@ var (
 	ErrChainIDMismatch     = errors.New("chain id mismatch")
 	ErrGenesisHashMismatch = errors.New("genesis hash mismatch")
 	ErrAuthTokenMismatch   = errors.New("p2p auth token mismatch")
+	ErrHandshakeSignature  = errors.New("p2p handshake signature invalid")
 	ErrMessageTooLarge     = errors.New("p2p message too large")
 	ErrPeerBackoffActive   = errors.New("peer reconnect backoff active")
 	ErrTLSRequired         = errors.New("p2p tls is required")
@@ -58,31 +60,46 @@ type Handshake struct {
 	NodeID          p2p.PeerID            `json:"node_id"`
 	ListenAddr      string                `json:"listen_addr,omitempty"`
 	AuthToken       string                `json:"auth_token,omitempty"`
+	SignatureNonce  string                `json:"signature_nonce,omitempty"`
+	NodePublicKey   types.PublicKey       `json:"node_public_key,omitempty"`
+	Signature       types.Signature       `json:"signature,omitempty"`
 	KnownPeers      map[p2p.PeerID]string `json:"known_peers,omitempty"`
 }
 
+type HandshakeSigner interface {
+	PublicKey() types.PublicKey
+	Sign(message []byte) (types.Signature, error)
+}
+
+type HandshakeSignatureVerifier interface {
+	Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool
+}
+
 type GRPCConfig struct {
-	PeerID            p2p.PeerID
-	ListenAddr        string
-	Peers             map[p2p.PeerID]string
-	DialTimeout       time.Duration
-	ProtocolVersion   string
-	NetworkID         string
-	ChainID           string
-	GenesisHash       string
-	MaxMessageBytes   uint64
-	TLSConfig         *tls.Config
-	RequireTLS        bool
-	MaxPeers          int
-	ReconnectBackoff  time.Duration
-	ReconnectInterval time.Duration
-	SubscriberBuffer  int
-	AuthToken         string
-	PeerLearned       func(p2p.PeerID, string)
-	PeerAttempted     func(p2p.PeerID)
-	PeerDialResult    func(p2p.PeerID, bool)
-	PeerEvent         func(PeerEvent)
-	PeerGate          func(context.Context, p2p.PeerID) error
+	PeerID                    p2p.PeerID
+	ListenAddr                string
+	Peers                     map[p2p.PeerID]string
+	DialTimeout               time.Duration
+	ProtocolVersion           string
+	NetworkID                 string
+	ChainID                   string
+	GenesisHash               string
+	MaxMessageBytes           uint64
+	TLSConfig                 *tls.Config
+	RequireTLS                bool
+	MaxPeers                  int
+	ReconnectBackoff          time.Duration
+	ReconnectInterval         time.Duration
+	SubscriberBuffer          int
+	AuthToken                 string
+	PeerLearned               func(p2p.PeerID, string)
+	PeerAttempted             func(p2p.PeerID)
+	PeerDialResult            func(p2p.PeerID, bool)
+	PeerEvent                 func(PeerEvent)
+	PeerGate                  func(context.Context, p2p.PeerID) error
+	HandshakeSigner           HandshakeSigner
+	HandshakeVerifier         HandshakeSignatureVerifier
+	RequireHandshakeSignature bool
 }
 
 type PeerEvent struct {
@@ -95,25 +112,28 @@ type PeerEvent struct {
 }
 
 type GRPCTransport struct {
-	peerID            p2p.PeerID
-	listenAddr        string
-	dialTimeout       time.Duration
-	protocolVersion   string
-	networkID         string
-	chainID           string
-	genesisHash       string
-	maxMessageBytes   uint64
-	tlsConfig         *tls.Config
-	maxPeers          int
-	reconnectBackoff  time.Duration
-	reconnectInterval time.Duration
-	subscriberBuffer  int
-	authToken         string
-	peerLearned       func(p2p.PeerID, string)
-	peerAttempted     func(p2p.PeerID)
-	peerDialResult    func(p2p.PeerID, bool)
-	peerEvent         func(PeerEvent)
-	peerGates         []func(context.Context, p2p.PeerID) error
+	peerID                    p2p.PeerID
+	listenAddr                string
+	dialTimeout               time.Duration
+	protocolVersion           string
+	networkID                 string
+	chainID                   string
+	genesisHash               string
+	maxMessageBytes           uint64
+	tlsConfig                 *tls.Config
+	maxPeers                  int
+	reconnectBackoff          time.Duration
+	reconnectInterval         time.Duration
+	subscriberBuffer          int
+	authToken                 string
+	peerLearned               func(p2p.PeerID, string)
+	peerAttempted             func(p2p.PeerID)
+	peerDialResult            func(p2p.PeerID, bool)
+	peerEvent                 func(PeerEvent)
+	peerGates                 []func(context.Context, p2p.PeerID) error
+	handshakeSigner           HandshakeSigner
+	handshakeVerifier         HandshakeSignatureVerifier
+	requireHandshakeSignature bool
 
 	mu              sync.RWMutex
 	listener        net.Listener
@@ -193,6 +213,9 @@ func encodeGRPCStreamMessage(message *grpcStreamMessage) ([]byte, error) {
 		writeBinaryString(&buffer, string(message.Handshake.NodeID))
 		writeBinaryString(&buffer, message.Handshake.ListenAddr)
 		writeBinaryString(&buffer, message.Handshake.AuthToken)
+		writeBinaryString(&buffer, message.Handshake.SignatureNonce)
+		writeBinaryBytes(&buffer, message.Handshake.NodePublicKey)
+		writeBinaryBytes(&buffer, message.Handshake.Signature)
 		writeBinaryPeerMap(&buffer, message.Handshake.KnownPeers)
 	} else {
 		buffer.WriteByte(0)
@@ -254,6 +277,18 @@ func decodeGRPCStreamMessage(data []byte) (*grpcStreamMessage, error) {
 		if err != nil {
 			return nil, err
 		}
+		signatureNonce, err := readBinaryString(reader)
+		if err != nil {
+			return nil, err
+		}
+		nodePublicKey, err := readBinaryBytes(reader)
+		if err != nil {
+			return nil, err
+		}
+		signature, err := readBinaryBytes(reader)
+		if err != nil {
+			return nil, err
+		}
 		knownPeers, err := readBinaryPeerMap(reader)
 		if err != nil {
 			return nil, err
@@ -266,6 +301,9 @@ func decodeGRPCStreamMessage(data []byte) (*grpcStreamMessage, error) {
 			NodeID:          p2p.PeerID(nodeID),
 			ListenAddr:      listenAddr,
 			AuthToken:       authToken,
+			SignatureNonce:  signatureNonce,
+			NodePublicKey:   types.PublicKey(nodePublicKey),
+			Signature:       types.Signature(signature),
 			KnownPeers:      knownPeers,
 		}
 	default:
@@ -415,32 +453,35 @@ func NewGRPCTransport(config GRPCConfig) (*GRPCTransport, error) {
 		peerOrder = append(peerOrder, peerID)
 	}
 	return &GRPCTransport{
-		peerID:            config.PeerID,
-		listenAddr:        config.ListenAddr,
-		dialTimeout:       config.DialTimeout,
-		protocolVersion:   config.ProtocolVersion,
-		networkID:         config.NetworkID,
-		chainID:           config.ChainID,
-		genesisHash:       config.GenesisHash,
-		maxMessageBytes:   config.MaxMessageBytes,
-		tlsConfig:         tlsConfig,
-		maxPeers:          config.MaxPeers,
-		reconnectBackoff:  config.ReconnectBackoff,
-		reconnectInterval: config.ReconnectInterval,
-		subscriberBuffer:  config.SubscriberBuffer,
-		authToken:         config.AuthToken,
-		peerLearned:       config.PeerLearned,
-		peerAttempted:     config.PeerAttempted,
-		peerDialResult:    config.PeerDialResult,
-		peerEvent:         config.PeerEvent,
-		peerGates:         compactPeerGates(config.PeerGate),
-		peers:             peers,
-		peerOrder:         peerOrder,
-		connections:       make(map[p2p.PeerID]*grpc.ClientConn),
-		sessions:          make(map[p2p.PeerID]*grpcPeerSession),
-		backoffUntil:      make(map[p2p.PeerID]time.Time),
-		authNonces:        make(map[string]time.Time),
-		subscribers:       make(map[p2p.Topic][]chan Envelope),
+		peerID:                    config.PeerID,
+		listenAddr:                config.ListenAddr,
+		dialTimeout:               config.DialTimeout,
+		protocolVersion:           config.ProtocolVersion,
+		networkID:                 config.NetworkID,
+		chainID:                   config.ChainID,
+		genesisHash:               config.GenesisHash,
+		maxMessageBytes:           config.MaxMessageBytes,
+		tlsConfig:                 tlsConfig,
+		maxPeers:                  config.MaxPeers,
+		reconnectBackoff:          config.ReconnectBackoff,
+		reconnectInterval:         config.ReconnectInterval,
+		subscriberBuffer:          config.SubscriberBuffer,
+		authToken:                 config.AuthToken,
+		peerLearned:               config.PeerLearned,
+		peerAttempted:             config.PeerAttempted,
+		peerDialResult:            config.PeerDialResult,
+		peerEvent:                 config.PeerEvent,
+		peerGates:                 compactPeerGates(config.PeerGate),
+		handshakeSigner:           config.HandshakeSigner,
+		handshakeVerifier:         config.HandshakeVerifier,
+		requireHandshakeSignature: config.RequireHandshakeSignature,
+		peers:                     peers,
+		peerOrder:                 peerOrder,
+		connections:               make(map[p2p.PeerID]*grpc.ClientConn),
+		sessions:                  make(map[p2p.PeerID]*grpcPeerSession),
+		backoffUntil:              make(map[p2p.PeerID]time.Time),
+		authNonces:                make(map[string]time.Time),
+		subscribers:               make(map[p2p.Topic][]chan Envelope),
 	}, nil
 }
 
@@ -697,6 +738,7 @@ func (transport *GRPCTransport) AuthTokenConfigured() bool {
 func (transport *GRPCTransport) LocalHandshake() Handshake {
 	transport.mu.RLock()
 	listenAddr := transport.listenAddr
+	signer := transport.handshakeSigner
 	knownPeers := make(map[p2p.PeerID]string, len(transport.peers)+1)
 	for peerID, address := range transport.peers {
 		knownPeers[peerID] = address
@@ -705,7 +747,7 @@ func (transport *GRPCTransport) LocalHandshake() Handshake {
 		knownPeers[transport.peerID] = listenAddr
 	}
 	transport.mu.RUnlock()
-	return Handshake{
+	handshake := Handshake{
 		ProtocolVersion: transport.protocolVersion,
 		NetworkID:       transport.networkID,
 		ChainID:         transport.chainID,
@@ -715,6 +757,14 @@ func (transport *GRPCTransport) LocalHandshake() Handshake {
 		AuthToken:       transport.authProof(transport.peerID),
 		KnownPeers:      knownPeers,
 	}
+	if signer != nil {
+		handshake.SignatureNonce = randomAuthNonce()
+		handshake.NodePublicKey = append(types.PublicKey(nil), signer.PublicKey()...)
+		if signature, err := signer.Sign(handshakeSignaturePayload(handshake)); err == nil {
+			handshake.Signature = append(types.Signature(nil), signature...)
+		}
+	}
+	return handshake
 }
 
 func (transport *GRPCTransport) Gossip(stream grpc.BidiStreamingServer[grpcStreamMessage, grpcStreamMessage]) error {
@@ -1127,7 +1177,58 @@ func (transport *GRPCTransport) validateHandshake(handshake Handshake) error {
 	if handshake.NodeID == "" {
 		return fmt.Errorf("%w: missing node id", ErrHandshakeFailed)
 	}
+	if err := transport.validateHandshakeSignature(handshake); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (transport *GRPCTransport) validateHandshakeSignature(handshake Handshake) error {
+	hasSignatureMaterial := len(handshake.NodePublicKey) > 0 || len(handshake.Signature) > 0 || handshake.SignatureNonce != ""
+	if !transport.requireHandshakeSignature && !hasSignatureMaterial {
+		return nil
+	}
+	if len(handshake.NodePublicKey) == 0 || len(handshake.Signature) == 0 || handshake.SignatureNonce == "" {
+		return ErrHandshakeSignature
+	}
+	if transport.handshakeVerifier == nil {
+		return ErrHandshakeSignature
+	}
+	if !transport.handshakeVerifier.Verify(handshake.NodePublicKey, handshakeSignaturePayload(handshake), handshake.Signature) {
+		return ErrHandshakeSignature
+	}
+	if !transport.markAuthNonce(handshake.NodeID, "sig:"+handshake.SignatureNonce, time.Now()) {
+		return ErrHandshakeSignature
+	}
+	return nil
+}
+
+func handshakeSignaturePayload(handshake Handshake) []byte {
+	var builder strings.Builder
+	builder.WriteString("vexo-p2p-handshake-v1\n")
+	builder.WriteString(handshake.ProtocolVersion)
+	builder.WriteByte('\n')
+	builder.WriteString(handshake.NetworkID)
+	builder.WriteByte('\n')
+	builder.WriteString(handshake.ChainID)
+	builder.WriteByte('\n')
+	builder.WriteString(handshake.GenesisHash)
+	builder.WriteByte('\n')
+	builder.WriteString(string(handshake.NodeID))
+	builder.WriteByte('\n')
+	builder.WriteString(handshake.ListenAddr)
+	builder.WriteByte('\n')
+	builder.WriteString(handshake.SignatureNonce)
+	builder.WriteByte('\n')
+	if len(handshake.KnownPeers) > 0 {
+		peers := make([]string, 0, len(handshake.KnownPeers))
+		for peerID, address := range handshake.KnownPeers {
+			peers = append(peers, string(peerID)+"="+address)
+		}
+		sort.Strings(peers)
+		builder.WriteString(strings.Join(peers, "\n"))
+	}
+	return []byte(builder.String())
 }
 
 func (transport *GRPCTransport) authProof(nodeID p2p.PeerID) string {

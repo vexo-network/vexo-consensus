@@ -56,6 +56,7 @@ type startInputs struct {
 }
 
 type startRuntimeConfig struct {
+	RequireNetworkSafety    bool
 	RPCEnabled              bool
 	RPCAddress              string
 	RPCAdminToken           string
@@ -692,6 +693,7 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 		runtime = defaultRuntimeConfig(document.ValidatorID)
 	}
 	cfg := startRuntimeConfig{
+		RequireNetworkSafety:    document.RequireNetworkSafety,
 		RPCEnabled:              runtime.RPC.Enabled,
 		RPCAddress:              runtime.RPC.Address,
 		RPCAdminToken:           runtime.RPC.AdminToken,
@@ -874,6 +876,9 @@ func validateRuntimeNetworkSafety(cfg startRuntimeConfig) error {
 	}
 	if cfg.RPCEnabled && len(cfg.RPCEVMAccountKeys) > 0 && !isPrivateListenAddress(cfg.RPCAddress) {
 		return fmt.Errorf("runtime.rpc.evm_account_private_keys are only allowed on private rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
+	}
+	if cfg.RPCEnabled && cfg.RequireNetworkSafety && len(cfg.RPCEVMAccountKeys) > 0 {
+		return fmt.Errorf("runtime.rpc.evm_account_private_keys are not allowed when require_network_safety=true; use evm_account_key_envs or an external signer: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
 	if cfg.RPCEnabled && len(cfg.RPCEVMAccountKeyEnvs) > 0 && !isPrivateListenAddress(cfg.RPCAddress) {
 		return fmt.Errorf("runtime.rpc.evm_account_key_envs are only allowed on private rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
@@ -1078,18 +1083,22 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 	}
 	peers := mergePeerMaps(addrBook.PeerMap(p2p.PeerID(inputs.Config.ValidatorID)), runtimeConfig.P2PPeers, runtimeConfig.P2PSeeds)
 	var grpcTransport *transport.GRPCTransport
+	requireHandshakeSignature := requiresAuthenticatedP2P(runtimeConfig) && inputs.Signer != nil
 	grpcTransport, err = transport.NewGRPCTransport(transport.GRPCConfig{
-		PeerID:          p2p.PeerID(inputs.Config.ValidatorID),
-		ListenAddr:      runtimeConfig.P2PListenAddress,
-		Peers:           peers,
-		NetworkID:       networkID,
-		ChainID:         inputs.Config.Chain.ChainID,
-		GenesisHash:     genesisHash(inputs.Genesis),
-		MaxMessageBytes: runtimeConfig.P2PMaxMessageBytes,
-		MaxPeers:        runtimeConfig.P2PMaxPeers,
-		AuthToken:       runtimeConfig.P2PAuthToken,
-		TLSConfig:       tlsConfig,
-		RequireTLS:      requiresAuthenticatedP2P(runtimeConfig),
+		PeerID:                    p2p.PeerID(inputs.Config.ValidatorID),
+		ListenAddr:                runtimeConfig.P2PListenAddress,
+		Peers:                     peers,
+		NetworkID:                 networkID,
+		ChainID:                   inputs.Config.Chain.ChainID,
+		GenesisHash:               genesisHash(inputs.Genesis),
+		MaxMessageBytes:           runtimeConfig.P2PMaxMessageBytes,
+		MaxPeers:                  runtimeConfig.P2PMaxPeers,
+		AuthToken:                 runtimeConfig.P2PAuthToken,
+		TLSConfig:                 tlsConfig,
+		RequireTLS:                requiresAuthenticatedP2P(runtimeConfig),
+		HandshakeSigner:           inputs.Signer,
+		HandshakeVerifier:         inputs.Signer,
+		RequireHandshakeSignature: requireHandshakeSignature,
 		PeerLearned: func(peerID p2p.PeerID, address string) {
 			addrBook.Add(peerID, address, "handshake", false)
 			_ = addrBook.Save()

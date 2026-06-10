@@ -161,11 +161,16 @@ func TestEvidenceSemanticValidation(t *testing.T) {
 func TestTypedNetworkLongRunEvidenceValidation(t *testing.T) {
 	passing := []byte(`{
 		"ok":true,
+		"validators":4,
+		"duration":"1h",
+		"rate":50,
 		"summary":"longrun duration height validator per-node distributed soak evidence passed",
 		"load":{"submitted":10,"failed":0},
 		"nodes":[
 			{"validator_id":"validator-1","before":{"latest_height":1},"after":{"latest_height":5},"report":{"ok":true}},
-			{"validator_id":"validator-2","before":{"latest_height":2},"after":{"latest_height":6},"report":{"ok":true}}
+			{"validator_id":"validator-2","before":{"latest_height":2},"after":{"latest_height":6},"report":{"ok":true}},
+			{"validator_id":"validator-3","before":{"latest_height":3},"after":{"latest_height":7},"report":{"ok":true}},
+			{"validator_id":"validator-4","before":{"latest_height":4},"after":{"latest_height":8},"report":{"ok":true}}
 		]
 	}`)
 	if !EvidenceCheckContentOK("longrun_evidence", "longrun.json", passing) {
@@ -174,9 +179,17 @@ func TestTypedNetworkLongRunEvidenceValidation(t *testing.T) {
 
 	noGrowth := []byte(`{
 		"ok":true,
+		"validators":4,
+		"duration":"1h",
+		"rate":50,
 		"summary":"longrun duration height validator per-node distributed soak evidence passed",
 		"load":{"submitted":10,"failed":0},
-		"nodes":[{"validator_id":"validator-1","before":{"latest_height":5},"after":{"latest_height":5},"report":{"ok":true}}]
+		"nodes":[
+			{"validator_id":"validator-1","before":{"latest_height":5},"after":{"latest_height":5},"report":{"ok":true}},
+			{"validator_id":"validator-2","before":{"latest_height":2},"after":{"latest_height":6},"report":{"ok":true}},
+			{"validator_id":"validator-3","before":{"latest_height":3},"after":{"latest_height":7},"report":{"ok":true}},
+			{"validator_id":"validator-4","before":{"latest_height":4},"after":{"latest_height":8},"report":{"ok":true}}
+		]
 	}`)
 	if EvidenceCheckContentOK("longrun_evidence", "longrun.json", noGrowth) {
 		t.Fatalf("expected longrun evidence without height growth to fail")
@@ -184,9 +197,17 @@ func TestTypedNetworkLongRunEvidenceValidation(t *testing.T) {
 
 	loadFailure := []byte(`{
 		"ok":true,
+		"validators":4,
+		"duration":"1h",
+		"rate":50,
 		"summary":"longrun duration height validator per-node distributed soak evidence passed",
 		"load":{"submitted":10,"failed":1},
-		"nodes":[{"validator_id":"validator-1","before":{"latest_height":1},"after":{"latest_height":5},"report":{"ok":true}}]
+		"nodes":[
+			{"validator_id":"validator-1","before":{"latest_height":1},"after":{"latest_height":5},"report":{"ok":true}},
+			{"validator_id":"validator-2","before":{"latest_height":2},"after":{"latest_height":6},"report":{"ok":true}},
+			{"validator_id":"validator-3","before":{"latest_height":3},"after":{"latest_height":7},"report":{"ok":true}},
+			{"validator_id":"validator-4","before":{"latest_height":4},"after":{"latest_height":8},"report":{"ok":true}}
+		]
 	}`)
 	if EvidenceCheckContentOK("longrun_evidence", "longrun.json", loadFailure) {
 		t.Fatalf("expected longrun evidence with failed load to fail")
@@ -535,6 +556,6 @@ func semanticEvidenceContentForPath(path string) []byte {
 	case "vrf.pdf":
 		return []byte(`vrf remote adapter implementation ecvrf audit dependency tls mtls certificate auth token nonce replay custody kms hsm evidence passed`)
 	default:
-		return []byte(`{"ok":true,"summary":"longrun duration height validator soak evidence passed"}`)
+		return []byte(`{"ok":true,"validators":4,"duration":"1h","rate":50,"summary":"longrun duration height validator distributed per_node soak evidence passed","load":{"submitted":100,"failed":0},"nodes":[{"validator_id":"validator-1","before":{"latest_height":1},"after":{"latest_height":11},"report":{"ok":true}},{"validator_id":"validator-2","before":{"latest_height":1},"after":{"latest_height":12},"report":{"ok":true}},{"validator_id":"validator-3","before":{"latest_height":1},"after":{"latest_height":13},"report":{"ok":true}},{"validator_id":"validator-4","before":{"latest_height":1},"after":{"latest_height":14},"report":{"ok":true}}]}`)
 	}
 }

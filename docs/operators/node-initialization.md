@@ -140,7 +140,7 @@ Example `module_config.json`:
     "RequireNonce": true,
     "MinFee": 1,
     "BaseFee": 1,
-    "EVMChainID": 1,
+    "EVMChainID": 83960,
     "DynamicBaseFee": true,
     "TargetGas": 5000000,
     "BaseFeeChangeDenominator": 8,

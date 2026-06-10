@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/p2p"
+	"github.com/vexo-network/vexo-consensus/types"
 )
 
 func TestGRPCTransportEmitsPeerConfigurationEvents(t *testing.T) {
@@ -80,6 +82,9 @@ func TestGRPCBinaryCodecRoundTrip(t *testing.T) {
 			NodeID:          "alice",
 			ListenAddr:      "127.0.0.1:26656",
 			AuthToken:       "shared-secret",
+			SignatureNonce:  "nonce-1",
+			NodePublicKey:   types.PublicKey("public-key"),
+			Signature:       types.Signature("signature"),
 			KnownPeers:      map[p2p.PeerID]string{"bob": "127.0.0.1:26657"},
 		},
 		Envelope: &grpcEnvelope{
@@ -105,6 +110,9 @@ func TestGRPCBinaryCodecRoundTrip(t *testing.T) {
 	}
 	if decoded.Handshake.AuthToken != original.Handshake.AuthToken {
 		t.Fatalf("unexpected decoded auth token: %+v", decoded.Handshake)
+	}
+	if decoded.Handshake.SignatureNonce != original.Handshake.SignatureNonce || string(decoded.Handshake.NodePublicKey) != string(original.Handshake.NodePublicKey) || string(decoded.Handshake.Signature) != string(original.Handshake.Signature) {
+		t.Fatalf("unexpected decoded handshake signature fields: %+v", decoded.Handshake)
 	}
 	if decoded.Handshake.KnownPeers["bob"] != "127.0.0.1:26657" {
 		t.Fatalf("unexpected decoded known peers: %+v", decoded.Handshake.KnownPeers)
@@ -501,6 +509,73 @@ func TestGRPCTransportRejectsReplayedAuthProof(t *testing.T) {
 	if err := transport.validateHandshake(handshake); !errors.Is(err, ErrAuthTokenMismatch) {
 		t.Fatalf("expected replayed proof rejection, got %v", err)
 	}
+}
+
+func TestGRPCTransportValidatesSignedHandshake(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer := testHandshakeSigner{publicKey: publicKey, privateKey: privateKey}
+	verifier := testHandshakeVerifier{}
+	alice, err := NewGRPCTransport(GRPCConfig{
+		PeerID:                    "alice",
+		NetworkID:                 "vexo-network",
+		ChainID:                   "vexo-test",
+		GenesisHash:               GenesisHash([]byte("genesis")),
+		HandshakeSigner:           signer,
+		HandshakeVerifier:         verifier,
+		RequireHandshakeSignature: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, err := NewGRPCTransport(GRPCConfig{
+		PeerID:                    "bob",
+		NetworkID:                 "vexo-network",
+		ChainID:                   "vexo-test",
+		GenesisHash:               GenesisHash([]byte("genesis")),
+		HandshakeVerifier:         verifier,
+		RequireHandshakeSignature: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handshake := alice.LocalHandshake()
+	handshake.NodeID = "alice"
+	if err := bob.validateHandshake(handshake); err != nil {
+		t.Fatalf("expected signed handshake to verify, got %v", err)
+	}
+	replayed := alice.LocalHandshake()
+	replayed.SignatureNonce = handshake.SignatureNonce
+	replayed.Signature = handshake.Signature
+	if err := bob.validateHandshake(replayed); !errors.Is(err, ErrHandshakeSignature) {
+		t.Fatalf("expected replayed signed handshake rejection, got %v", err)
+	}
+	handshake = alice.LocalHandshake()
+	handshake.ListenAddr = "127.0.0.1:9999"
+	if err := bob.validateHandshake(handshake); !errors.Is(err, ErrHandshakeSignature) {
+		t.Fatalf("expected tampered signed handshake rejection, got %v", err)
+	}
+}
+
+type testHandshakeSigner struct {
+	publicKey  ed25519.PublicKey
+	privateKey ed25519.PrivateKey
+}
+
+func (signer testHandshakeSigner) PublicKey() types.PublicKey {
+	return types.PublicKey(append([]byte(nil), signer.publicKey...))
+}
+
+func (signer testHandshakeSigner) Sign(message []byte) (types.Signature, error) {
+	return types.Signature(ed25519.Sign(signer.privateKey, message)), nil
+}
+
+type testHandshakeVerifier struct{}
+
+func (testHandshakeVerifier) Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool {
+	return ed25519.Verify(ed25519.PublicKey(publicKey), message, signature)
 }
 
 func TestGRPCTransportReconnectLoopEstablishesPeerSession(t *testing.T) {

@@ -394,6 +394,12 @@ func TestRuntimeConfigLoadsEVMAccountKeysFromSplitNetworkConfig(t *testing.T) {
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
 		t.Fatal(err)
 	}
+	document, err := readConfigDocument(filepath.Join(home, configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	document.RequireNetworkSafety = false
+	writeTestJSON(t, filepath.Join(home, configFileName), document)
 	networkDocument, err := readNetworkConfigDocument(filepath.Join(home, networkConfigFileName))
 	if err != nil {
 		t.Fatal(err)
@@ -974,10 +980,18 @@ func TestLoadStartRuntimeConfigRejectsManagedEVMKeysOnPublicRPC(t *testing.T) {
 
 	networkDocument.RPC.Address = "127.0.0.1:26657"
 	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
-	if _, err := loadStartRuntimeConfig(home, path); err != nil {
-		t.Fatalf("expected private rpc managed account config to load, got %v", err)
+	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected require_network_safety to reject direct private key config even on private rpc, got %v", err)
 	}
 
+	document.RequireNetworkSafety = false
+	writeTestJSON(t, path, document)
+	if _, err := loadStartRuntimeConfig(home, path); err != nil {
+		t.Fatalf("expected private rpc managed account config to load when network safety gate is disabled, got %v", err)
+	}
+
+	document.RequireNetworkSafety = true
+	writeTestJSON(t, path, document)
 	networkDocument.RPC.Address = "0.0.0.0:26657"
 	networkDocument.RPC.EVMAccountPrivateKeys = nil
 	networkDocument.RPC.EVMAccountKeyEnvs = []string{"VEXO_EVM_KEY"}
