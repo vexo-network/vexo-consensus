@@ -119,6 +119,34 @@ func TestRemoteSignerServiceRequiresAuthToken(t *testing.T) {
 	}
 }
 
+func TestRemoteSignerBearerAuthUsesExactBearerToken(t *testing.T) {
+	if !remoteSignerBearerAuthorized("Bearer secret", "secret") {
+		t.Fatal("expected exact bearer token to authorize")
+	}
+	for _, header := range []string{"secret", "Bearer secret ", "Bearer SECRET", "Bearer secret\n", "Bearer wrong"} {
+		if remoteSignerBearerAuthorized(header, "secret") {
+			t.Fatalf("expected header %q to be rejected", header)
+		}
+	}
+}
+
+func TestRemoteSignerNonceIsRandomHex(t *testing.T) {
+	first, err := newRemoteSignerNonce()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := newRemoteSignerNonce()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 32 || len(second) != 32 {
+		t.Fatalf("expected 16-byte hex nonces, got %q %q", first, second)
+	}
+	if first == second {
+		t.Fatal("expected unique nonces")
+	}
+}
+
 func TestRemoteSignerServicePersistsReplayNonces(t *testing.T) {
 	baseSigner, err := GenerateEd25519Signer()
 	if err != nil {

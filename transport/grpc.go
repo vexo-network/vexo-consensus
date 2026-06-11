@@ -1011,22 +1011,21 @@ func (transport *GRPCTransport) peerSession(ctx context.Context, peerID p2p.Peer
 	if err != nil {
 		return nil, fmt.Errorf("dial peer connection: %w", err)
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("dial context expired after peer connection: %w", err)
-	}
 	transport.mu.RLock()
 	rootCtx := transport.rootCtx
 	transport.mu.RUnlock()
 	if rootCtx == nil {
 		rootCtx = context.Background()
 	}
+	handshakeCtx, cancelHandshake := context.WithTimeout(rootCtx, transport.dialTimeout)
+	defer cancelHandshake()
 	streamCtx, cancel := context.WithCancel(rootCtx)
 	stopDialCancel := make(chan struct{})
 	dialCancelStopped := make(chan struct{})
 	go func() {
 		defer close(dialCancelStopped)
 		select {
-		case <-ctx.Done():
+		case <-handshakeCtx.Done():
 			cancel()
 		case <-stopDialCancel:
 		}
@@ -1068,11 +1067,11 @@ func (transport *GRPCTransport) peerSession(ctx context.Context, peerID p2p.Peer
 		failHandshake()
 		return nil, fmt.Errorf("%w: expected peer %s got %s", ErrHandshakeFailed, peerID, remote.Handshake.NodeID)
 	}
-	if err := transport.validateHandshake(ctx, *remote.Handshake); err != nil {
+	if err := transport.validateHandshake(handshakeCtx, *remote.Handshake); err != nil {
 		failHandshake()
 		return nil, fmt.Errorf("validate remote handshake: %w", err)
 	}
-	if err := transport.checkPeerGate(ctx, remote.Handshake.NodeID); err != nil {
+	if err := transport.checkPeerGate(handshakeCtx, remote.Handshake.NodeID); err != nil {
 		failHandshake()
 		return nil, fmt.Errorf("remote peer gate: %w", err)
 	}

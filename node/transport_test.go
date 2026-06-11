@@ -1529,8 +1529,21 @@ func TestNodeRecoversDesyncedRoundWhenMempoolHasTx(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if proposed || blockHash != (types.Hash{}) {
+		t.Fatalf("expected bob not to jump before a full proposer rotation, proposed=%v proposal=%+v hash=%x", proposed, proposal, blockHash)
+	}
+
+	machine.StartRound(1, 3)
+	proposal, blockHash, proposed, err = bob.TickConsensusWithConfig(context.Background(), ConsensusLoopConfig{
+		MaxBlockBytes:       1024,
+		CreateEmptyBlocks:   false,
+		ExecutionCommitMode: ExecutionCommitModeFinalized,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !proposed || proposal.Proposer != "bob" || proposal.Round != 4 || blockHash == (types.Hash{}) {
-		t.Fatalf("expected bob to jump to its next proposer round, proposed=%v proposal=%+v hash=%x", proposed, proposal, blockHash)
+		t.Fatalf("expected bob to recover after a full proposer rotation, proposed=%v proposal=%+v hash=%x", proposed, proposal, blockHash)
 	}
 }
 

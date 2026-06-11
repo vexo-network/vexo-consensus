@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -14,7 +15,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"time"
 
@@ -33,6 +33,7 @@ var (
 	ErrRemoteSignatureInvalid  = errors.New("remote signer returned invalid signature")
 	ErrMissingGuardPath        = errors.New("double-sign guard path is required")
 	ErrMissingNonceGuardPath   = errors.New("remote signer nonce guard path is required")
+	ErrRemoteNonceUnavailable  = errors.New("remote signer nonce entropy is unavailable")
 )
 
 type SignType string
@@ -196,11 +197,15 @@ func (signer RemoteSigner) signWithPolicy(ctx context.Context, message []byte, p
 	if signer.requirePolicy && policy == nil {
 		return nil, ErrMissingSignPolicy
 	}
+	nonce, err := newRemoteSignerNonce()
+	if err != nil {
+		return nil, err
+	}
 	payload := remoteSignRequest{
 		PublicKey: base64.StdEncoding.EncodeToString(signer.publicKey),
 		Message:   base64.StdEncoding.EncodeToString(message),
 		Policy:    policy,
-		Nonce:     newRemoteSignerNonce(),
+		Nonce:     nonce,
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -576,7 +581,7 @@ func (service *RemoteSignerService) ServeHTTP(writer http.ResponseWriter, reques
 		return
 	}
 	if service.policy.AuthToken != "" {
-		if request.Header.Get("Authorization") != "Bearer "+service.policy.AuthToken {
+		if !remoteSignerBearerAuthorized(request.Header.Get("Authorization"), service.policy.AuthToken) {
 			http.Error(writer, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -635,12 +640,19 @@ func (service *RemoteSignerService) seenNonce(nonce string) (bool, error) {
 	return service.nonceGuard.Remember(nonce)
 }
 
-func newRemoteSignerNonce() string {
+func newRemoteSignerNonce() (string, error) {
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
-		return strconv.FormatInt(time.Now().UnixNano(), 10)
+		return "", ErrRemoteNonceUnavailable
 	}
-	return hex.EncodeToString(nonce[:])
+	return hex.EncodeToString(nonce[:]), nil
+}
+
+func remoteSignerBearerAuthorized(header string, token string) bool {
+	expected := "Bearer " + token
+	headerDigest := sha256.Sum256([]byte(header))
+	expectedDigest := sha256.Sum256([]byte(expected))
+	return subtle.ConstantTimeCompare(headerDigest[:], expectedDigest[:]) == 1
 }
 
 func (policy RemoteSignerPolicy) Validate(signPolicy *SignPolicy) error {

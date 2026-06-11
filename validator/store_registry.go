@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"sync"
 
 	vexostore "github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -22,6 +23,7 @@ type KVStore interface {
 }
 
 type StoreRegistry struct {
+	mu              sync.Mutex
 	store           KVStore
 	policy          AdmissionPolicy
 	effectiveHeight types.Height
@@ -64,6 +66,12 @@ func NewStoreRegistry(ctx context.Context, store KVStore, policy AdmissionPolicy
 }
 
 func (registry *StoreRegistry) SetEffectiveHeight(height types.Height) {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	registry.setEffectiveHeightLocked(height)
+}
+
+func (registry *StoreRegistry) setEffectiveHeightLocked(height types.Height) {
 	if height == 0 {
 		height = 1
 	}
@@ -71,9 +79,11 @@ func (registry *StoreRegistry) SetEffectiveHeight(height types.Height) {
 }
 
 func (registry *StoreRegistry) ValidatorSet(ctx context.Context, height types.Height) (Set, error) {
+	registry.mu.Lock()
 	if height == 0 {
 		height = registry.effectiveHeight
 	}
+	registry.mu.Unlock()
 	document, err := registry.loadLatest(ctx, height)
 	if err != nil {
 		return nil, err
@@ -82,17 +92,22 @@ func (registry *StoreRegistry) ValidatorSet(ctx context.Context, height types.He
 }
 
 func (registry *StoreRegistry) ApplyJoin(ctx context.Context, candidate Candidate) (Validator, error) {
-	return registry.ApplyJoinAt(ctx, registry.effectiveHeight, candidate)
+	registry.mu.Lock()
+	height := registry.effectiveHeight
+	registry.mu.Unlock()
+	return registry.ApplyJoinAt(ctx, height, candidate)
 }
 
 func (registry *StoreRegistry) ApplyJoinAt(ctx context.Context, height types.Height, candidate Candidate) (Validator, error) {
 	if candidate.Address == "" {
 		return Validator{}, ErrMissingCandidateID
 	}
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
 	if height == 0 {
 		height = registry.effectiveHeight
 	}
-	registry.SetEffectiveHeight(height)
+	registry.setEffectiveHeightLocked(height)
 	validators, err := registry.currentValidators(ctx)
 	if err != nil {
 		return Validator{}, err
@@ -128,14 +143,19 @@ func (registry *StoreRegistry) ApplyJoinAt(ctx context.Context, height types.Hei
 }
 
 func (registry *StoreRegistry) ApplyLeave(ctx context.Context, id types.ValidatorID) error {
-	return registry.ApplyLeaveAt(ctx, registry.effectiveHeight, id)
+	registry.mu.Lock()
+	height := registry.effectiveHeight
+	registry.mu.Unlock()
+	return registry.ApplyLeaveAt(ctx, height, id)
 }
 
 func (registry *StoreRegistry) ApplyLeaveAt(ctx context.Context, height types.Height, id types.ValidatorID) error {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
 	if height == 0 {
 		height = registry.effectiveHeight
 	}
-	registry.SetEffectiveHeight(height)
+	registry.setEffectiveHeightLocked(height)
 	validators, err := registry.currentValidators(ctx)
 	if err != nil {
 		return err
@@ -154,17 +174,22 @@ func (registry *StoreRegistry) ApplyLeaveAt(ctx context.Context, height types.He
 }
 
 func (registry *StoreRegistry) UpdateVotingPower(ctx context.Context, id types.ValidatorID, power types.VotingPower) error {
-	return registry.UpdateVotingPowerAt(ctx, registry.effectiveHeight, id, power)
+	registry.mu.Lock()
+	height := registry.effectiveHeight
+	registry.mu.Unlock()
+	return registry.UpdateVotingPowerAt(ctx, height, id, power)
 }
 
 func (registry *StoreRegistry) UpdateVotingPowerAt(ctx context.Context, height types.Height, id types.ValidatorID, power types.VotingPower) error {
 	if power == 0 {
 		return ErrZeroVotingPower
 	}
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
 	if height == 0 {
 		height = registry.effectiveHeight
 	}
-	registry.SetEffectiveHeight(height)
+	registry.setEffectiveHeightLocked(height)
 	validators, err := registry.currentValidators(ctx)
 	if err != nil {
 		return err
@@ -185,6 +210,8 @@ func (registry *StoreRegistry) UpdateVotingPowerAt(ctx context.Context, height t
 }
 
 func (registry *StoreRegistry) StageValidatorUpdatesAt(ctx context.Context, height types.Height, updates []types.ValidatorUpdate) (Set, []vexostore.KVWrite, error) {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
 	if height == 0 {
 		height = registry.effectiveHeight
 	}
@@ -267,10 +294,12 @@ func (registry *StoreRegistry) StageValidatorUpdatesAt(ctx context.Context, heig
 }
 
 func (registry *StoreRegistry) CommitStagedValidatorUpdates(ctx context.Context, height types.Height, updates []types.ValidatorUpdate) error {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
 	if height == 0 {
 		height = registry.effectiveHeight
 	}
-	registry.SetEffectiveHeight(height)
+	registry.setEffectiveHeightLocked(height)
 	if len(registry.pendingEvents[height]) > 0 {
 		registry.events = append(registry.events, registry.pendingEvents[height]...)
 		delete(registry.pendingEvents, height)
@@ -278,14 +307,16 @@ func (registry *StoreRegistry) CommitStagedValidatorUpdates(ctx context.Context,
 	}
 	previous := Set(newSetSnapshot(nil))
 	if height > 1 {
-		if set, err := registry.ValidatorSet(ctx, height-1); err == nil {
-			previous = set
+		if validators, err := registry.validatorsAt(ctx, height-1); err == nil {
+			previous = newSetSnapshot(sortedValidatorMap(validators))
 		}
 	}
-	current, err := registry.ValidatorSet(ctx, height)
+	validators, err := registry.validatorsAt(ctx, height)
 	if err != nil {
 		return err
 	}
+	current := newSetSnapshot(sortedValidatorMap(validators))
+	currentHash := current.Hash()
 	for _, update := range updates {
 		if update.ID == "" {
 			update.ID = types.ValidatorID(update.Address)
@@ -297,11 +328,11 @@ func (registry *StoreRegistry) CommitStagedValidatorUpdates(ctx context.Context,
 		_, previousFound := previous.Get(update.ID)
 		switch {
 		case !currentFound && previousFound:
-			registry.recordEvent(ctx, height, RotationEventLeave, update.ID, 0)
+			registry.recordEventLocked(height, RotationEventLeave, update.ID, 0, currentHash)
 		case currentFound && !previousFound:
-			registry.recordEvent(ctx, height, RotationEventJoin, update.ID, currentValidator.VotingPower)
+			registry.recordEventLocked(height, RotationEventJoin, update.ID, currentValidator.VotingPower, currentHash)
 		case currentFound && previousFound:
-			registry.recordEvent(ctx, height, RotationEventPowerChange, update.ID, currentValidator.VotingPower)
+			registry.recordEventLocked(height, RotationEventPowerChange, update.ID, currentValidator.VotingPower, currentHash)
 		}
 	}
 	return nil
@@ -335,6 +366,8 @@ func (registry *StoreRegistry) stageRotationEvents(height types.Height, previous
 }
 
 func (registry *StoreRegistry) RotationEvents() []RotationEvent {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
 	return append([]RotationEvent(nil), registry.events...)
 }
 
@@ -343,12 +376,18 @@ func (registry *StoreRegistry) recordEvent(ctx context.Context, height types.Hei
 	if err != nil {
 		return
 	}
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	registry.recordEventLocked(height, eventType, validatorID, power, set.Hash())
+}
+
+func (registry *StoreRegistry) recordEventLocked(height types.Height, eventType RotationEventType, validatorID types.ValidatorID, power types.VotingPower, validatorSetHash types.Hash) {
 	registry.events = append(registry.events, RotationEvent{
 		Height:           height,
 		Type:             eventType,
 		ValidatorID:      validatorID,
 		VotingPower:      power,
-		ValidatorSetHash: set.Hash(),
+		ValidatorSetHash: validatorSetHash,
 	})
 }
 

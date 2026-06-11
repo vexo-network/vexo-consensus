@@ -153,6 +153,9 @@ func (node *Node) nextLocalProposerRound(ctx context.Context, height types.Heigh
 	if len(validators) == 0 {
 		return 0, false, ErrMissingValidators
 	}
+	if uint64(round) < uint64(len(validators)) {
+		return 0, false, nil
+	}
 	for offset := 1; offset <= len(validators); offset++ {
 		candidateRound := round + types.Round(offset)
 		proposer, err := SelectProposer(validators, height, candidateRound)

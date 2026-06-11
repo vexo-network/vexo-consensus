@@ -128,3 +128,66 @@ make sign-release VERSION=<version>
 - upgrade rollback and migration failure handling
 - RPC admin access controls and rate limits
 - release artifact reproducibility and signing
+
+## Practical Audit Walkthrough
+
+Auditors should review the project in the same order a validator would trust it:
+
+1. **Build boundary**: verify `go.mod`, release flags, cgo/no-cgo behavior, checksums, SBOM, and the exact binary under test.
+2. **Genesis/config boundary**: verify chain ID, genesis hash, validator set, BLS/VRF metadata, split config files, peer addresses, TLS/auth settings, base fee, gas policy, and mempool WAL path.
+3. **Key boundary**: verify validator key custody, remote signer policy, double-sign guard durability, nonce replay store, remote VRF key custody, and operator rotation procedure.
+4. **Consensus boundary**: verify proposal validation, vote domain separation, QC verification, three-chain proof verification, validator-set hash binding, and accountable evidence.
+5. **Execution boundary**: verify staged app writes, block/state/root batch commit, replay isolation, staking/slashing accounting, bank mint authority, EVM native balance movement, and fee collection.
+6. **Networking boundary**: verify chain/genesis-bound handshake, peer score caps, rate limits, bans, reconnect/backoff, auth replay protection, and public advertised address policy.
+7. **Recovery boundary**: verify WAL replay/compaction, snapshot verification, restore behavior, pruning retention, index repair, and recovery report output.
+8. **Release boundary**: verify evidence manifest, external audit artifacts, conformance corpora, long-run reports, chaos reports, and launch runbook.
+
+Each boundary should have at least one negative test: wrong chain ID, wrong validator set, replayed nonce, corrupt WAL, tampered snapshot, stale evidence, insufficient fee, invalid raw EVM tx, or missing release evidence.
+
+## Remote Signer Audit Notes
+
+Remote signer review should not stop at “HTTP endpoint signs bytes.” The signer is part of consensus safety.
+
+Required checks:
+
+- Requests include policy fields: `chain_id`, `height`, `round`, `type`, and domain.
+- The service rejects missing policy when policy is required.
+- Authorization is enabled for non-local deployments and compared without early string-return behavior.
+- Nonces are generated from cryptographic randomness and signer-side replay state is durable.
+- Double-sign guard state is durable and rejects conflicting messages at the same height/round/type/domain.
+- The signer refuses public-key mismatch and never signs for an unexpected validator key.
+- TLS/mTLS, pinned CA, or an equivalent authenticated transport is documented for the deployment path.
+- Logs show request metadata and rejection reasons without leaking messages that reveal private key material, auth tokens, or passphrases.
+
+Evidence should include a successful signing request, replay rejection, double-sign rejection, wrong-chain rejection, wrong-type rejection, signer restart with guard state intact, and signer timeout behavior under node consensus timeout.
+
+## EVM/Web3 Audit Notes
+
+The EVM module uses go-ethereum for execution, but Vexo remains its own network. Auditors should separate the two questions:
+
+1. **Execution semantics**: does the geth-backed VM execute raw Ethereum transactions, gas rules, precompiles, logs, receipts, state overrides, blob sidecars, and traces correctly for the configured hard fork?
+2. **Network semantics**: does Vexo map those results into native Vexo blocks, bank balances, fees, base fee, finality, pruning, and RPC responses deterministically?
+
+Required negative tests include invalid signatures, wrong chain ID, fee cap below base fee, priority fee above fee cap, invalid blob sidecar proof, insufficient native balance, nonce replay, over-gas-limit tx, malformed access list, and historical proof after pruning.
+
+Do not require Ethereum devp2p, miner, or Engine API behavior unless the launch explicitly decides to implement those roles. They are not part of Vexo's current compatibility target.
+
+## Snapshot and WAL Audit Notes
+
+State sync and mempool durability are high-risk because bugs appear only during restart or recovery.
+
+For snapshots:
+
+- Validate document schema, chain ID, checksum, state height, state roots, and module KV roots before writing.
+- Restore into a clean data directory during drills.
+- Run index recovery after restore.
+- Verify `/v1/recovery/report`, latest state, query proofs, and finality proof compatibility after restore.
+
+For mempool WAL:
+
+- Append should fsync each accepted tx or batch event.
+- Replay should tolerate a partial final record but reject corrupt middle records.
+- Compaction should write a complete replacement file and atomically swap it into place.
+- Reopened mempool should contain pending txs and exclude committed txs.
+
+Release evidence should include at least one forced restart during load and one compaction/replay drill.

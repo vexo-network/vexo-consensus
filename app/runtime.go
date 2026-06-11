@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/vexo-network/vexo-consensus/events"
 	"github.com/vexo-network/vexo-consensus/fairordering"
@@ -25,6 +26,7 @@ type ModuleRouter interface {
 }
 
 type Runtime struct {
+	mu          sync.RWMutex
 	chainID     string
 	evmChainID  uint64
 	modules     []Module
@@ -38,6 +40,8 @@ type Runtime struct {
 }
 
 func (runtime *Runtime) WithEVMChainID(chainID uint64) *Runtime {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
 	runtime.evmChainID = chainID
 	return runtime
 }
@@ -61,23 +65,29 @@ func NewRuntime(chainID string, modules []Module, router ModuleRouter) (*Runtime
 }
 
 func (runtime *Runtime) WithStore(store StateStore) *Runtime {
+	runtime.mu.Lock()
 	runtime.store = store
+	runtime.mu.Unlock()
 	runtime.bindStore()
 	return runtime
 }
 
 func (runtime *Runtime) BindStore() error {
-	return runtime.bindStoreWithContext(runtime.newContext(runtime.height, types.Header{}))
+	return runtime.bindStoreWithContext(runtime.newContext(runtime.currentHeight(), types.Header{}))
 }
 
 func (runtime *Runtime) WithAnte(ante AnteHandler) *Runtime {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
 	runtime.ante = ante
 	return runtime
 }
 
 func (runtime *Runtime) SetBaseFee(baseFee uint64) {
+	runtime.mu.Lock()
 	runtime.baseFee = baseFee
 	setter, ok := runtime.ante.(BaseFeeSetter)
+	runtime.mu.Unlock()
 	if !ok {
 		return
 	}
@@ -85,10 +95,20 @@ func (runtime *Runtime) SetBaseFee(baseFee uint64) {
 }
 
 func (runtime *Runtime) SetBlobBaseFee(blobBaseFee uint64) {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
 	runtime.blobBaseFee = blobBaseFee
 }
 
 func (runtime *Runtime) NewReplayApp(store StateStore) (Application, error) {
+	runtime.mu.RLock()
+	chainID := runtime.chainID
+	evmChainID := runtime.evmChainID
+	router := runtime.router
+	ante := runtime.ante
+	baseFee := runtime.baseFee
+	blobBaseFee := runtime.blobBaseFee
+	runtime.mu.RUnlock()
 	modules := make([]Module, 0, len(runtime.modules))
 	for _, module := range runtime.modules {
 		if cloner, ok := module.(ModuleCloner); ok {
@@ -100,14 +120,14 @@ func (runtime *Runtime) NewReplayApp(store StateStore) (Application, error) {
 		}
 		modules = append(modules, module)
 	}
-	replayRuntime, err := NewRuntime(runtime.chainID, modules, runtime.router)
+	replayRuntime, err := NewRuntime(chainID, modules, router)
 	if err != nil {
 		return nil, err
 	}
-	replayRuntime.evmChainID = runtime.evmChainID
-	replayRuntime.ante = runtime.ante
-	replayRuntime.baseFee = runtime.baseFee
-	replayRuntime.blobBaseFee = runtime.blobBaseFee
+	replayRuntime.evmChainID = evmChainID
+	replayRuntime.ante = ante
+	replayRuntime.baseFee = baseFee
+	replayRuntime.blobBaseFee = blobBaseFee
 	if store != nil {
 		replayRuntime.WithStore(store)
 	}
@@ -117,12 +137,16 @@ func (runtime *Runtime) NewReplayApp(store StateStore) (Application, error) {
 func (runtime *Runtime) InitChain(req InitChainRequest) (InitChainResponse, error) {
 	chainID := req.ChainID
 	if chainID == "" {
+		runtime.mu.RLock()
 		chainID = runtime.chainID
+		runtime.mu.RUnlock()
 	}
 	if chainID == "" {
 		return InitChainResponse{}, ErrEmptyChainID
 	}
+	runtime.mu.Lock()
 	runtime.chainID = chainID
+	runtime.mu.Unlock()
 
 	ctx := runtime.newContext(0, types.Header{})
 	if err := runtime.bindStoreWithContext(ctx); err != nil {
@@ -133,8 +157,11 @@ func (runtime *Runtime) InitChain(req InitChainRequest) (InitChainResponse, erro
 			return InitChainResponse{}, err
 		}
 	}
-	runtime.appHash = runtime.computeAppHashWithContext(ctx.GoContext())
-	return InitChainResponse{AppHash: runtime.appHash}, nil
+	appHash := runtime.computeAppHashWithContext(ctx.GoContext())
+	runtime.mu.Lock()
+	runtime.appHash = appHash
+	runtime.mu.Unlock()
+	return InitChainResponse{AppHash: appHash}, nil
 }
 
 func (runtime *Runtime) CheckTx(tx types.Tx) CheckTxResponse {
@@ -142,7 +169,7 @@ func (runtime *Runtime) CheckTx(tx types.Tx) CheckTxResponse {
 }
 
 func (runtime *Runtime) CheckTxContext(goCtx context.Context, tx types.Tx) CheckTxResponse {
-	ctx := runtime.newContextWithGoContext(goCtx, runtime.height, types.Header{})
+	ctx := runtime.newContextWithGoContext(goCtx, runtime.currentHeight(), types.Header{})
 	select {
 	case <-ctx.GoContext().Done():
 		return CheckTxResponse{Result: types.Result{Code: 1, Log: ctx.GoContext().Err().Error()}}
@@ -226,7 +253,7 @@ func (runtime *Runtime) FinalizeBlock(req FinalizeBlockRequest) (FinalizeBlockRe
 }
 
 func (runtime *Runtime) FinalizeBlockContext(goCtx context.Context, req FinalizeBlockRequest) (FinalizeBlockResponse, error) {
-	return runtime.finalizeBlockWithStore(goCtx, req, runtime.store, true)
+	return runtime.finalizeBlockWithStore(goCtx, req, runtime.currentStore(), true)
 }
 
 func (runtime *Runtime) FinalizeBlockStaged(req FinalizeBlockRequest) (FinalizeBlockResponse, []kvbatch.KVWrite, error) {
@@ -234,11 +261,12 @@ func (runtime *Runtime) FinalizeBlockStaged(req FinalizeBlockRequest) (FinalizeB
 }
 
 func (runtime *Runtime) FinalizeBlockStagedContext(goCtx context.Context, req FinalizeBlockRequest) (FinalizeBlockResponse, []kvbatch.KVWrite, error) {
-	if runtime.store == nil {
+	store := runtime.currentStore()
+	if store == nil {
 		response, err := runtime.finalizeBlockWithStore(goCtx, req, nil, true)
 		return response, nil, err
 	}
-	staged := NewStagedStore(runtime.store)
+	staged := NewStagedStore(store)
 	response, err := runtime.finalizeBlockWithStore(goCtx, req, staged, false)
 	if err != nil {
 		return FinalizeBlockResponse{}, nil, err
@@ -247,6 +275,8 @@ func (runtime *Runtime) FinalizeBlockStagedContext(goCtx context.Context, req Fi
 }
 
 func (runtime *Runtime) CommitStagedBlock(height types.Height, appHash types.Hash) {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
 	runtime.height = height
 	runtime.appHash = appHash
 }
@@ -327,8 +357,10 @@ func (runtime *Runtime) finalizeBlockWithStore(goCtx context.Context, req Finali
 
 	appHash := runtime.computeAppHashAtHeight(ctx.GoContext(), req.Block.Header.Height, executionStore)
 	if updateRuntime {
+		runtime.mu.Lock()
 		runtime.height = req.Block.Header.Height
 		runtime.appHash = appHash
+		runtime.mu.Unlock()
 	}
 	return FinalizeBlockResponse{
 		Results:          results,
@@ -380,17 +412,21 @@ func (runtime *Runtime) validateModuleTx(ctx Context, tx types.Tx, payload types
 }
 
 func (runtime *Runtime) Commit() (CommitResponse, error) {
+	runtime.mu.RLock()
+	defer runtime.mu.RUnlock()
 	return CommitResponse{Height: runtime.height, AppHash: runtime.appHash}, nil
 }
 
 func (runtime *Runtime) Restore(height types.Height, appHash types.Hash) {
+	runtime.mu.Lock()
 	runtime.height = height
 	runtime.appHash = appHash
+	runtime.mu.Unlock()
 	runtime.bindStore()
 }
 
 func (runtime *Runtime) bindStore() {
-	_ = runtime.bindStoreWithContext(runtime.newContext(runtime.height, types.Header{}))
+	_ = runtime.bindStoreWithContext(runtime.newContext(runtime.currentHeight(), types.Header{}))
 }
 
 func (runtime *Runtime) bindStoreWithContext(ctx Context) error {
@@ -422,7 +458,7 @@ func (runtime *Runtime) QueryContext(goCtx context.Context, req QueryRequest) Qu
 	if len(req.Path) == 0 || req.Path[0] == "" {
 		return QueryResponse{Code: 1, Log: "query module is required"}
 	}
-	ctx := runtime.newContextWithGoContext(goCtx, runtime.height, types.Header{})
+	ctx := runtime.newContextWithGoContext(goCtx, runtime.currentHeight(), types.Header{})
 	for _, module := range runtime.modules {
 		if module.Name() != req.Path[0] {
 			continue
@@ -447,19 +483,28 @@ func (runtime *Runtime) newContextWithGoContext(goCtx context.Context, height ty
 	if goCtx == nil {
 		goCtx = context.Background()
 	}
+	runtime.mu.RLock()
+	chainID := runtime.chainID
+	evmChainID := runtime.evmChainID
+	baseFee := runtime.baseFee
+	blobBaseFee := runtime.blobBaseFee
+	store := runtime.store
+	runtime.mu.RUnlock()
 	return Context{
 		Ctx:         goCtx,
-		ChainID:     runtime.chainID,
-		EVMChainID:  runtime.evmChainID,
-		BaseFee:     runtime.baseFee,
-		BlobBaseFee: runtime.blobBaseFee,
+		ChainID:     chainID,
+		EVMChainID:  evmChainID,
+		BaseFee:     baseFee,
+		BlobBaseFee: blobBaseFee,
 		Height:      height,
 		Header:      header,
-		Store:       runtime.store,
+		Store:       store,
 	}
 }
 
 func (runtime *Runtime) Modules() []Module {
+	runtime.mu.RLock()
+	defer runtime.mu.RUnlock()
 	return append([]Module(nil), runtime.modules...)
 }
 
@@ -478,7 +523,10 @@ func (runtime *Runtime) collectValidatorUpdates(ctx Context) []types.ValidatorUp
 }
 
 func (runtime *Runtime) orderingSalt(height types.Height) []byte {
-	return fairordering.HeightSalt(runtime.chainID, height)
+	runtime.mu.RLock()
+	chainID := runtime.chainID
+	runtime.mu.RUnlock()
+	return fairordering.HeightSalt(chainID, height)
 }
 
 func cloneValidatorUpdate(update types.ValidatorUpdate) types.ValidatorUpdate {
@@ -507,7 +555,7 @@ func (runtime *Runtime) computeAppHash() types.Hash {
 }
 
 func (runtime *Runtime) computeAppHashWithContext(goCtx context.Context) types.Hash {
-	return runtime.computeAppHashAtHeight(goCtx, runtime.height, runtime.store)
+	return runtime.computeAppHashAtHeight(goCtx, runtime.currentHeight(), runtime.currentStore())
 }
 
 func (runtime *Runtime) computeAppHashAtHeight(goCtx context.Context, height types.Height, stateStore StateStore) types.Hash {
@@ -515,7 +563,11 @@ func (runtime *Runtime) computeAppHashAtHeight(goCtx context.Context, height typ
 		goCtx = context.Background()
 	}
 	hasher := sha256.New()
-	hasher.Write([]byte(runtime.chainID))
+	runtime.mu.RLock()
+	chainID := runtime.chainID
+	modules := append([]Module(nil), runtime.modules...)
+	runtime.mu.RUnlock()
+	hasher.Write([]byte(chainID))
 
 	var heightBuffer [8]byte
 	binary.BigEndian.PutUint64(heightBuffer[:], uint64(height))
@@ -523,7 +575,7 @@ func (runtime *Runtime) computeAppHashAtHeight(goCtx context.Context, height typ
 
 	rootStore, ok := stateStore.(StateRootStore)
 	if ok {
-		for _, module := range runtime.modules {
+		for _, module := range modules {
 			root, err := rootStore.Root(goCtx, module.Name())
 			if err != nil {
 				continue
@@ -536,4 +588,16 @@ func (runtime *Runtime) computeAppHashAtHeight(goCtx context.Context, height typ
 	var hash types.Hash
 	copy(hash[:], hasher.Sum(nil))
 	return hash
+}
+
+func (runtime *Runtime) currentHeight() types.Height {
+	runtime.mu.RLock()
+	defer runtime.mu.RUnlock()
+	return runtime.height
+}
+
+func (runtime *Runtime) currentStore() StateStore {
+	runtime.mu.RLock()
+	defer runtime.mu.RUnlock()
+	return runtime.store
 }

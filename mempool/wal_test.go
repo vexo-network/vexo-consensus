@@ -3,6 +3,7 @@ package mempool
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -139,5 +140,50 @@ func TestDurableDAGRejectsCorruptWALMiddle(t *testing.T) {
 
 	if _, err := OpenDurableDAG(ctx, path, NewFIFO(FIFOConfig{Author: "alice"})); err == nil {
 		t.Fatal("expected corrupt middle WAL record to fail instead of silently dropping data")
+	}
+}
+
+func TestDurableDAGCompactRewritesAtomicallyAndKeepsWALUsable(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mempool.wal")
+
+	dag, err := OpenDurableDAG(ctx, path, NewFIFO(FIFOConfig{Author: "alice"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dag.AddTx(ctx, []byte("tx-1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := dag.AddTx(ctx, []byte("tx-2")); err != nil {
+		t.Fatal(err)
+	}
+	if err := dag.MarkCommitted(ctx, []types.Tx{[]byte("tx-1")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := dag.CompactWAL(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path + ".compact.tmp"); !os.IsNotExist(err) {
+		t.Fatalf("expected compact temp file to be removed, got %v", err)
+	}
+	if err := dag.AddTx(ctx, []byte("tx-3")); err != nil {
+		t.Fatal(err)
+	}
+	if err := dag.wal.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := OpenDurableDAG(ctx, path, NewFIFO(FIFOConfig{Author: "alice"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.wal.Close()
+	pending, err := reopened.PendingTxs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 2 || string(pending[0]) != "tx-2" || string(pending[1]) != "tx-3" {
+		t.Fatalf("expected compacted WAL to replay only live txs, got %q", pending)
 	}
 }

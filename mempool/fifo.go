@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/types"
@@ -34,6 +35,7 @@ type FIFOConfig struct {
 }
 
 type FIFO struct {
+	mu           sync.Mutex
 	config       FIFOConfig
 	txs          []types.Tx
 	index        map[types.Hash]int
@@ -53,6 +55,12 @@ func NewFIFO(config FIFOConfig) *FIFO {
 }
 
 func (pool *FIFO) CheckTx(ctx context.Context, tx types.Tx) error {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	return pool.checkTxLocked(ctx, tx)
+}
+
+func (pool *FIFO) checkTxLocked(ctx context.Context, tx types.Tx) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -88,14 +96,41 @@ func (pool *FIFO) CheckTx(ctx context.Context, tx types.Tx) error {
 }
 
 func (pool *FIFO) AddTx(ctx context.Context, tx types.Tx) error {
-	if err := pool.CheckTx(ctx, tx); err != nil {
+	return pool.addTxWithHook(ctx, tx, nil)
+}
+
+func (pool *FIFO) addTxWithHook(ctx context.Context, tx types.Tx, beforeCommit func() error) error {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	if err := pool.checkTxLocked(ctx, tx); err != nil {
 		return err
+	}
+	if beforeCommit != nil {
+		if err := beforeCommit(); err != nil {
+			return err
+		}
 	}
 	if replaced := pool.replaceTxUnchecked(tx); replaced {
 		return nil
 	}
-
 	return pool.addTxUnchecked(tx)
+}
+
+func (pool *FIFO) markCommittedWithHook(ctx context.Context, committed []types.Tx, beforeCommit func() error) error {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	if err := pool.checkContext(ctx); err != nil {
+		return err
+	}
+	if len(committed) == 0 {
+		return nil
+	}
+	if beforeCommit != nil {
+		if err := beforeCommit(); err != nil {
+			return err
+		}
+	}
+	return pool.markCommittedLocked(committed)
 }
 
 func (pool *FIFO) addTxUnchecked(tx types.Tx) error {
@@ -132,6 +167,8 @@ func (pool *FIFO) replaceTxUnchecked(tx types.Tx) bool {
 }
 
 func (pool *FIFO) BuildBatch(ctx context.Context, maxBytes int64) (Batch, error) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
 	select {
 	case <-ctx.Done():
 		return Batch{}, ctx.Err()
@@ -147,7 +184,7 @@ func (pool *FIFO) BuildBatch(ctx context.Context, maxBytes int64) (Batch, error)
 		Txs:    make([]types.Tx, 0, len(pool.txs)),
 	}
 
-	txs := pool.orderedTxs()
+	txs := pool.orderedTxsLocked()
 	for _, tx := range txs {
 		txSize := int64(len(tx))
 		if len(batch.Txs) > 0 && totalBytes+txSize > maxBytes {
@@ -165,21 +202,27 @@ func (pool *FIFO) BuildBatch(ctx context.Context, maxBytes int64) (Batch, error)
 }
 
 func (pool *FIFO) PendingTxs(ctx context.Context) ([]types.Tx, error) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
 	}
 
-	return pool.orderedTxs(), nil
+	return pool.orderedTxsLocked(), nil
 }
 
 func (pool *FIFO) MarkCommitted(ctx context.Context, committed []types.Tx) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	if err := pool.checkContext(ctx); err != nil {
+		return err
 	}
+	return pool.markCommittedLocked(committed)
+}
+
+func (pool *FIFO) markCommittedLocked(committed []types.Tx) error {
 	if len(committed) == 0 {
 		return nil
 	}
@@ -205,6 +248,12 @@ func (pool *FIFO) MarkCommitted(ctx context.Context, committed []types.Tx) error
 }
 
 func (pool *FIFO) orderedTxs() []types.Tx {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	return pool.orderedTxsLocked()
+}
+
+func (pool *FIFO) orderedTxsLocked() []types.Tx {
 	ordered := make([]types.Tx, 0, len(pool.txs))
 	for _, tx := range pool.txs {
 		ordered = append(ordered, append(types.Tx(nil), tx...))
@@ -265,6 +314,8 @@ func (pool *FIFO) markSeen(hash types.Hash) {
 }
 
 func (pool *FIFO) Len() int {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
 	return len(pool.txs)
 }
 
@@ -307,6 +358,15 @@ func (pool *FIFO) checkReplacement(tx types.Tx) error {
 		return ErrReplacementUnderpriced
 	}
 	return nil
+}
+
+func (pool *FIFO) checkContext(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
+	}
 }
 
 func containsTx(txs []types.Tx, target types.Tx) bool {

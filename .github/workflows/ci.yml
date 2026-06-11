@@ -24,11 +24,17 @@ jobs:
       - name: Vet
         run: make vet
 
+      - name: Race
+        run: make race
+
       - name: Docs
         run: make docs-check
 
       - name: Build
         run: make build
+
+      - name: Network E2E
+        run: make network-e2e
 
       - name: Release candidate smoke
         run: make release-candidate VERSION=ci

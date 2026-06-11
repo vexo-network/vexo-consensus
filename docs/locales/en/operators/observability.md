@@ -81,6 +81,41 @@ Tune numbers for the actual validator count, block interval, latency, and hardwa
 | Reconciliation failures | `vexo_post_commit_reconciliation_failures > 0` | Durable evidence or commit repair needed |
 | Banned peer spike | banned peers rises suddenly | Attack, misconfigured peers, or scoring threshold issue |
 
+## Suggested Starting Thresholds
+
+Use these as initial alert values, then tune after a real long-run baseline:
+
+| Signal | Warning | Critical | First Action |
+|---|---:|---:|---|
+| Height rate | below 50% of expected for 2 windows | zero growth for 2-3 block intervals | compare all validators, check proposer/signing/peer logs |
+| Finalized height lag | grows for 5 minutes | grows while executed height keeps increasing for 10 minutes | inspect QC/finality proof logs and validator-set hash |
+| Active peers | below quorum connectivity target | zero active peers | check advertised address, TLS/auth, genesis/chain ID mismatch |
+| Round timeouts | 3x normal baseline | continuous timeout loop | raise timeout budget or investigate latency/partition |
+| Proposal latency p95 | above 50% of `timeout_propose` | above 80% of `timeout_propose` | profile proposer, mempool, DA commitment, disk |
+| Vote latency p95 | above 50% of prevote/precommit budget | above 80% of budget | inspect CPU, signer, transport, gossip backpressure |
+| Commit latency p95 | above 50% of block interval | above 80% of block interval | inspect LevelDB, state roots, EVM execution, snapshots |
+| Mempool size | increasing for 5 minutes | near `max_txs` or sustained replacement churn | inspect base fee, min fee, tx validity, spam |
+| Signer failures | any non-zero value | repeated failures in one height window | stop validator if double-sign guard or key mismatch appears |
+| Snapshot health | one failed check | repeated failed export/verify/restore | pause state-sync serving and run recovery report |
+| Replay health | one strict replay failure | replay mismatch at latest safe height | preserve data dir and halt unsafe upgrade/release |
+| Banned peers | sudden spike | many peers banned after config rollout | check score caps, auth token, TLS CA, and clock skew |
+
+The most important rule: alert on **change over time**. A single number can be misleading; height rate, finality lag, peer churn, mempool growth, and signer failures together tell the real story.
+
+## Incident Triage Matrix
+
+| Situation | Likely Layer | What To Preserve | Safe Next Step |
+|---|---|---|---|
+| Height stopped, peers healthy | consensus/signer/runtime | consensus logs, signer logs, mempool sample | verify proposer key and round timeout logs |
+| Peers dropped after deploy | networking/config | network config, TLS certs, addrbook, peer logs | roll back advertised address/TLS/auth change |
+| App hashes differ at same height | execution/storage | data dirs, block records, app logs, replay output | halt affected nodes and run strict replay |
+| Finality proof rejected | finality/validator set | proof JSON, validator set at proof height | verify validator-set hash and sign bytes domain |
+| Snapshot restore fails | state sync/storage | snapshot file, checksum, state roots, restore logs | do not retry against live data; restore into clean dir |
+| Remote signer rejects requests | key custody | signer audit log, guard file, nonce file, node logs | distinguish policy rejection from transport outage |
+| Banned peers spike | P2P/security | peer score snapshots and ban reasons | inspect malformed gossip or shared wrong config |
+
+During incidents, prefer preserving data over “cleaning up.” Deleting WALs, addrbooks, signer guards, or LevelDB directories can destroy the evidence needed to distinguish a bug from operator error.
+
 ## Log Events to Keep
 
 Structured logs should be retained with node ID, validator ID, chain ID, height, round, block hash, and peer ID where relevant.
@@ -132,3 +167,15 @@ A useful dashboard usually has five rows:
 5. **Recovery and safety**: snapshot health, replay health, signer failures, reconciliation failures.
 
 Keep dashboards boring. The goal is not to show every internal counter; it is to make dangerous states obvious before validators diverge or users notice stalled transactions.
+
+## Release Evidence From Observability
+
+For a release candidate, observability is not just live monitoring. It becomes evidence:
+
+1. Collect baseline `/v1/status`, `/v1/metrics`, `/v1/diagnostics`, `/v1/finality/latest`, and `/v1/recovery/report` from every validator.
+2. Run load for the chosen duration and rate.
+3. Inject at least one restart, one peer disruption, and one snapshot export/verify/restore drill.
+4. Collect final metrics from every validator.
+5. Store the before/after samples, logs, pprof samples, signer audit logs, and evidence manifest in `dist/`.
+
+A good evidence bundle lets a reviewer answer: did height grow, did finality progress, did peers recover, did txs commit, did snapshots verify, did replay stay healthy, did signers avoid double-signing, and did the exact release binary produce the results?

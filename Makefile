@@ -22,7 +22,7 @@ RC_EVM_CONFORMANCE_FLAGS ?=
 FUZZ_PARALLEL ?= 1
 NETWORK_E2E_GO_TIMEOUT ?= 120000s
 
-.PHONY: all build test vet check docs-check evm-conformance fuzz-smoke ops-verify network-e2e coverage release checksums sbom release-manifest release-audit-pack release-evidence-manifest sign-release docker-image release-candidate release-candidate-real release-candidate-plan clean
+.PHONY: all build test vet race check docs-check evm-conformance fuzz-smoke ops-verify network-e2e coverage release checksums sbom release-manifest release-audit-pack release-evidence-manifest sign-release docker-image release-candidate release-candidate-real release-candidate-plan clean
 
 all: check build
 
@@ -37,6 +37,10 @@ test:
 vet:
 	mkdir -p $(GOCACHE_DIR)
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) vet ./...
+
+race:
+	mkdir -p $(GOCACHE_DIR)
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test -race -p 1 -timeout=30000s ./...
 
 check: test vet docs-check evm-conformance
 

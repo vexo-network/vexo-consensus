@@ -2682,6 +2682,82 @@ func TestRunSnapshotExportAndRestore(t *testing.T) {
 	}
 }
 
+func TestRunSnapshotRestoreRejectsTamperedKVBeforeWritingState(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage, err := store.OpenLevelDB(cfg.StoreDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Set(context.Background(), "bank", []byte("alice"), []byte("100")); err != nil {
+		t.Fatal(err)
+	}
+	root, err := storage.Root(context.Background(), "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.SaveState(context.Background(), store.StateRecord{Height: 3, AppHash: types.Hash{1}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.SaveStateRoot(context.Background(), store.StateRootRecord{Height: 3, Namespace: "bank", Root: root}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshotPath := filepath.Join(t.TempDir(), "snapshot.json")
+	if err := runSnapshot(&bytes.Buffer{}, []string{"export", "--home", home, "--output", snapshotPath}); err != nil {
+		t.Fatal(err)
+	}
+	document, err := readSnapshotDocument(snapshotPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(document.KV) == 0 {
+		t.Fatal("expected exported KV")
+	}
+	document.KV[0].Value = []byte("999")
+	tamperedPath := filepath.Join(t.TempDir(), "tampered.json")
+	tamperedFile, err := os.OpenFile(tamperedPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeSnapshotDocument(tamperedFile, document); err != nil {
+		_ = tamperedFile.Close()
+		t.Fatal(err)
+	}
+	if err := tamperedFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	restoreHome := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", restoreHome, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runSnapshot(&bytes.Buffer{}, []string{"restore", "--home", restoreHome, "--input", tamperedPath}); err == nil {
+		t.Fatal("expected tampered snapshot restore to fail")
+	}
+	restoreConfig, err := loadNodeConfig(filepath.Join(restoreHome, configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoreStore, err := store.OpenLevelDB(restoreConfig.StoreDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restoreStore.Close()
+	if _, err := restoreStore.LatestState(context.Background()); !errors.Is(err, store.ErrStateNotFound) {
+		t.Fatalf("expected restore to fail before writing state, got %v", err)
+	}
+}
+
 func TestRunSnapshotChunkExportRestore(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {

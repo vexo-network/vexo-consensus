@@ -11,6 +11,13 @@ A release should provide:
 - version compatibility matrix
 - release candidate soak-test evidence
 
+The release pipeline has two jobs:
+
+1. **Build trust in the artifact**: the binary, checksum, SBOM, Docker image inputs, release manifest, and evidence manifest must all describe the same source revision.
+2. **Build trust in the behavior**: tests, E2E runs, conformance fixtures, chaos, long-run evidence, signer evidence, and audit evidence must prove that the artifact can run the target network safely.
+
+Do not treat a generated plan as launch evidence. A plan tells operators what to run; evidence proves it already ran.
+
 ## Release Commands
 
 Build cross-platform binaries, checksums, SBOM, and manifest:
@@ -37,12 +44,16 @@ Run CI-safe release candidate verification. This builds artifacts, runs checks, 
 make release-candidate VERSION=0.1.0-rc.1
 ```
 
+The CI-safe target is intentionally conservative about runtime side effects. It is useful on every pull request because it catches build, docs, conformance smoke, release packing, and evidence-manifest regressions. It does not replace multi-host long-run or external audit evidence.
+
 Run a real soak release candidate only when external EVM/Web3 corpora are pinned and the machine is allowed to run the network load/longrun harness:
 
 ```bash
 make release-candidate-real VERSION=0.1.0-rc.1 \
   RC_EVM_CONFORMANCE_FLAGS="--evm-tx-fixtures fixtures/evm/raw.json --evm-tx-fixtures-sha256 <sha256> --evm-execution-fixtures fixtures/evm/execution.json --evm-execution-fixtures-sha256 <sha256>"
 ```
+
+The real target should be run from a clean checkout on a machine that can open local ports, run the built binary, and keep the network alive long enough to collect evidence. For a public release candidate, archive the command line, environment, git commit, generated configs, genesis, validator IDs, binary checksums, and all evidence JSON next to the release artifacts.
 
 Generate or refresh the SHA-256-bound evidence manifest after collecting evidence files:
 
@@ -81,15 +92,47 @@ Before publishing a release candidate, run:
 
 ```bash
 make check
+make race
 make network-e2e
 make ops-verify
 ```
 
 `make network-e2e` builds the real `vexod` binary, initializes a four-validator network, starts the validators, submits a signed-shape smoke transaction, waits for height growth, and stops every process. It is intentionally separate from ordinary unit tests because it opens local ports and verifies process-level behavior.
 
+`make race` runs Go's race detector across the package tree. It is slower than unit tests and should run in CI for release branches because P2P, RPC, mempool, and consensus paths are concurrent by design.
+
 The target uses `NETWORK_E2E_GO_TIMEOUT` for the Go test process timeout and defaults to `120000s` in this repository's duration convention. The inner network harness still has its own startup/smoke timeout. Keep the outer timeout larger than the inner timeout so failures report the actual network error instead of a generic test-process deadline.
 
 Successful E2E means more than “processes started”: it proves the generated split configs are loadable, node keys can sign P2P handshakes, peers connect, the smoke transaction is accepted through the configured fee/gas/nonce path, a non-empty block is proposed even when empty blocks are disabled, and every validator can be stopped cleanly.
+
+## CI Gates
+
+The repository CI should run the following gates on pull requests:
+
+| Gate | Command | What It Catches |
+|---|---|---|
+| Unit/integration tests | `make test` | deterministic package behavior and storage/runtime regressions |
+| Static checks | `make vet` | common Go correctness mistakes |
+| Race detector | `make race` | concurrent map/state/race bugs in node, transport, RPC, mempool, and tests |
+| Documentation quality | `make docs-check` | locale tree drift, canonical hash drift, placeholders, thin translations |
+| Build | `make build` | binary link and ldflag problems |
+| Built-binary network E2E | `make network-e2e` | init/start/peer/tx/height/stop behavior with the actual binary |
+| Release smoke | `make release-candidate VERSION=ci` | release artifact, SBOM, docs, conformance-smoke, and evidence-manifest regressions |
+
+If any gate is too slow for every PR, keep it as a required release-branch or nightly check. Do not remove it silently; document the reason and keep a visible replacement gate.
+
+## Evidence Quality Rules
+
+Good release evidence is:
+
+- **Exact**: generated from the release candidate binary, config schema, genesis, and module set.
+- **Machine-readable**: JSON or structured text that a release gate can parse.
+- **Hashed**: bound into `evidence-manifest.json` by SHA-256.
+- **Signed when public**: attested with the release evidence key or a detached Ed25519 signature.
+- **Specific**: describes validator count, duration, rates, thresholds, pass/fail checks, and observed failures.
+- **Non-placeholder**: not dry-run, not plan-only, not mock-only, and not produced by an unrelated binary.
+
+Bad evidence is a screenshot saying “looked fine,” a shell transcript without the binary hash, a local one-node run used to justify a multi-validator public launch, or a document that says an audit will happen later.
 
 Generate launch parameter recommendations for the target network:
 
@@ -164,6 +207,8 @@ Builds use:
 - Docker build args for version metadata
 
 For stricter reproducibility, set a deterministic `BUILD_DATE`, use a clean checkout, and compare `checksums.txt` across builders.
+
+When BLS is built with the `blst` adapter, remember that release binaries default to `CGO_ENABLED=0`. The no-cgo artifact fails closed unless an audited adapter is registered in that build. If a launch requires the built-in blst adapter at runtime, build and test an explicit cgo-enabled artifact and attach its dependency/audit evidence.
 
 ## Signed Binaries
 

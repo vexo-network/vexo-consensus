@@ -15,6 +15,29 @@ A Vexo network is production-ready only when four layers are ready at the same t
 
 Code alone is not enough. The release process intentionally rejects plan-only, dry-run, placeholder, mock, built-in-only, or unpinned evidence for public release claims.
 
+## How To Use This Guide
+
+Read this guide in three passes:
+
+1. **Architecture pass**: understand which subsystem owns each safety boundary. Do not tune config until you know whether a behavior belongs to consensus, runtime, storage, crypto, networking, or an app module.
+2. **Operator pass**: walk the checklists with the exact genesis, split config files, validator keys, node keys, and binary that will be launched.
+3. **Evidence pass**: attach machine-readable proof that the exact candidate was tested. Screenshots and manual notes are useful context, but the release gate should consume JSON/text artifacts with hashes.
+
+If a feature is present in code but lacks release evidence, treat it as **not proven**. If a feature is documented but cannot be configured or tested, treat the document as a bug. If an exception is intentional, write it into the launch runbook with an owner and rollback condition.
+
+## Readiness Levels
+
+Vexo avoids config-level “dev/localnet/production mode” labels. A network is just a network. Readiness comes from the properties of the config, keys, evidence, and release artifact:
+
+| Level | What It Means | Acceptable Use |
+|---|---|---|
+| Experimental | Feature can run, but safety evidence is missing or uses deterministic/test-only dependencies | local development and private research |
+| Candidate | Config passes safety validation and CI-safe release checks, but long-run or external evidence is still being collected | private release candidate and validator rehearsal |
+| Launch-ready | Exact binary/config/genesis passed network E2E, long-run, chaos, signer, economics, upgrade, state-sync, and EVM/Web3 evidence gates | public launch preparation |
+| Operating | The live network has dashboards, alerts, incident process, upgrade policy, validator support, and archived release evidence | value-bearing operation |
+
+Never promote a network by changing a mode flag. Promote it by replacing weak assumptions with verified evidence.
+
 ## System Map
 
 | Area | Primary Packages | Primary Docs | What Must Be Proven |
@@ -60,6 +83,24 @@ The safest operator workflow is: initialize node home, review all split config f
 - Pruning must preserve whatever retention window is required for RPC history, EVM state snapshots, IBC proofs, and audit queries.
 - Custom stores must implement atomic batch semantics when modules require multi-key writes.
 - Schema versions must be checked on startup before accepting new blocks.
+- Mempool WAL compaction should write a complete replacement file, fsync it, and atomically swap it into place. A compaction crash must not corrupt the current pending transaction log.
+- Snapshot restore should validate checksums, chain ID, state height, state roots, and KV-derived roots before it writes into a node store. A tampered snapshot must fail before mutating state.
+
+### Storage Failure Model
+
+Operators should understand what happens if the machine dies at each boundary:
+
+| Boundary | Required Behavior |
+|---|---|
+| During `CheckTx` | tx may be absent after restart unless WAL append completed |
+| After WAL append before block inclusion | tx should replay as pending |
+| During WAL compaction | old WAL or fully compacted WAL should survive; never a half-written replacement |
+| During staged app execution | staged writes must be discarded if block execution fails |
+| During block/state commit | app KV writes, block record, state record, roots, and validator update writes should land in one store batch |
+| After block commit before process state update | recovery should read durable state and rebuild in-memory indexes |
+| During snapshot restore | invalid documents must fail before writing; valid documents should be followed by index recovery |
+
+This is the difference between “the database contains bytes” and “the node can safely decide its last committed height.”
 
 ## EVM and Native Coin Checklist
 
@@ -72,6 +113,21 @@ The built-in EVM module targets Ethereum execution and Web3 JSON-RPC semantics i
 - `eth_getProof`, historical state reads, and pruning behavior must be tested for the chosen retention policy.
 - Public release claims require external raw-transaction and geth VM execution corpora pinned by SHA-256.
 
+### EVM Readiness Explained
+
+Using go-ethereum as a library is the right maintenance boundary: when geth changes, Vexo should mostly update `go.mod` and keep the adapter surface stable. That does not automatically prove user-facing equivalence. The following paths still need evidence for every release candidate that claims EVM/Web3 readiness:
+
+| Area | What To Prove |
+|---|---|
+| Raw tx decode | legacy, access-list, dynamic-fee, blob, set-code, chain ID, signature recovery, fee cap errors |
+| Execution | call, create, create2, precompiles, refunds, access list warming, storage writes, logs, revert data, SELFDESTRUCT-era behavior for the configured hard fork |
+| Native accounting | EVM value, gas fee, blob fee, refunds, and fee collector must move the same native Vexo asset used by bank/staking |
+| RPC shape | block, receipt, transaction, fee history, filter, trace, proof, and estimate responses must match common Ethereum client expectations |
+| Tooling | ethers, web3.js, MetaMask, Hardhat, Foundry, and indexers should pass the supported method set |
+| History/pruning | `eth_getProof`, logs, receipts, traces, and historical state reads must either work inside the configured retention window or fail predictably |
+
+Unsupported Ethereum namespaces are intentional when they refer to Ethereum node roles Vexo does not implement, such as devp2p mining or Engine API. Unsupported execution or JSON-RPC semantics inside the supported namespace are not intentional; they should be treated as conformance bugs.
+
 ## Crypto and Key Custody Checklist
 
 - BLS validators need proof-of-possession metadata and audit evidence for the selected adapter.
@@ -80,6 +136,18 @@ The built-in EVM module targets Ethereum execution and Web3 JSON-RPC semantics i
 - Remote signers must enforce height/round/type sign policy and keep a durable double-sign guard.
 - Remote signer and remote VRF services need replay-nonce storage, auth, TLS/mTLS or pinned CA, audit logs, and key access controls.
 - Operators should document key generation, backup, rotation, revocation, and incident response before joining a public network.
+
+### Remote Signer Minimum Bar
+
+A validator remote signer is allowed to be simple, but it must be strict:
+
+1. The node must send chain ID, height, round, sign type, and domain with every consensus/finality signing request.
+2. The signer must reject missing policy, wrong chain ID, disallowed sign type, out-of-window height, replayed nonce, and conflicting double-sign attempts.
+3. The signer process must keep nonce and double-sign guard state on durable storage.
+4. The transport must use at least bearer auth and should use TLS/mTLS or a pinned CA when it leaves localhost.
+5. Signer logs should be retained as security evidence, but private key material, passphrases, and auth tokens must never be logged.
+
+If any item is missing, run the validator as a private rehearsal only.
 
 ## Networking Checklist
 
@@ -124,6 +192,20 @@ Before a production release candidate, collect evidence from the exact binary, c
 - SDK and EVM/Web3 conformance evidence, including external fixture corpora when EVM is enabled.
 - External security audit and crypto adapter audit evidence.
 - Signed checksums, SBOM, release manifest, and evidence manifest with SHA-256 bindings.
+
+### Release Blockers
+
+Stop the release if any of these are true:
+
+- `release gate` fails or accepts only plan/dry-run/mock evidence.
+- EVM/Web3 is enabled but external raw-transaction and execution fixture corpora are missing.
+- BLS/VRF are configured but audit/dependency/key-source evidence is missing or digest-pinning does not match.
+- Network E2E cannot start validators, submit a tx, increase height, and stop cleanly with the built binary.
+- Long-run or chaos evidence cannot show height growth, no conflicting finality, snapshot/replay health, and signer health.
+- Any validator key, node key, auth token, or private config was committed to the repository.
+- Recovery report shows block/state/root mismatch on a candidate data directory.
+
+Release blockers are not documentation tasks. Fix the code, config, or evidence first; then update documentation to describe the verified behavior.
 
 ## Common Failure Modes
 

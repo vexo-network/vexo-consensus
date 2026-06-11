@@ -3,6 +3,7 @@ package mempool
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -14,6 +15,7 @@ var (
 )
 
 type DAG struct {
+	mu       sync.Mutex
 	base     *FIFO
 	batches  map[types.Hash]Batch
 	children map[types.Hash]map[types.Hash]bool
@@ -38,27 +40,25 @@ func (dag *DAG) CheckTx(ctx context.Context, tx types.Tx) error {
 }
 
 func (dag *DAG) AddTx(ctx context.Context, tx types.Tx) error {
-	if err := dag.base.CheckTx(ctx, tx); err != nil {
-		return err
-	}
-	if dag.wal != nil {
-		if err := dag.wal.AppendAddTx(ctx, tx); err != nil {
-			return err
+	dag.mu.Lock()
+	defer dag.mu.Unlock()
+	return dag.base.addTxWithHook(ctx, tx, func() error {
+		if dag.wal != nil {
+			return dag.wal.AppendAddTx(ctx, tx)
 		}
-	}
-	if dag.base.replaceTxUnchecked(tx) {
 		return nil
-	}
-	return dag.base.addTxUnchecked(tx)
+	})
 }
 
 func (dag *DAG) BuildBatch(ctx context.Context, maxBytes int64) (Batch, error) {
+	dag.mu.Lock()
+	defer dag.mu.Unlock()
 	batch, err := dag.base.BuildBatch(ctx, maxBytes)
 	if err != nil {
 		return Batch{}, err
 	}
 
-	batch.Parents = dag.currentTips()
+	batch.Parents = dag.currentTipsLocked()
 	batch.ID = HashBatch(batch)
 	return batch, nil
 }
@@ -68,22 +68,28 @@ func (dag *DAG) PendingTxs(ctx context.Context) ([]types.Tx, error) {
 }
 
 func (dag *DAG) MarkCommitted(ctx context.Context, txs []types.Tx) error {
-	if dag.wal != nil {
-		if err := dag.wal.AppendMarkCommitted(ctx, txs); err != nil {
-			return err
+	dag.mu.Lock()
+	defer dag.mu.Unlock()
+	return dag.base.markCommittedWithHook(ctx, txs, func() error {
+		if dag.wal != nil {
+			return dag.wal.AppendMarkCommitted(ctx, txs)
 		}
-	}
-	return dag.base.MarkCommitted(ctx, txs)
+		return nil
+	})
 }
 
 func (dag *DAG) CompactWAL(ctx context.Context) error {
 	if dag == nil || dag.wal == nil {
 		return nil
 	}
+	dag.mu.Lock()
+	defer dag.mu.Unlock()
 	return dag.wal.Compact(ctx, dag)
 }
 
 func (dag *DAG) AddBatch(ctx context.Context, batch Batch) error {
+	dag.mu.Lock()
+	defer dag.mu.Unlock()
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -112,6 +118,8 @@ func (dag *DAG) AddBatch(ctx context.Context, batch Batch) error {
 }
 
 func (dag *DAG) AttachWAL(wal *WAL) {
+	dag.mu.Lock()
+	defer dag.mu.Unlock()
 	dag.wal = wal
 }
 
@@ -130,6 +138,8 @@ func (dag *DAG) addBatchUnchecked(batch Batch) {
 }
 
 func (dag *DAG) GetBatch(ctx context.Context, id types.Hash) (Batch, error) {
+	dag.mu.Lock()
+	defer dag.mu.Unlock()
 	select {
 	case <-ctx.Done():
 		return Batch{}, ctx.Err()
@@ -144,6 +154,8 @@ func (dag *DAG) GetBatch(ctx context.Context, id types.Hash) (Batch, error) {
 }
 
 func (dag *DAG) ReadyBatches(ctx context.Context) ([]Batch, error) {
+	dag.mu.Lock()
+	defer dag.mu.Unlock()
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -163,10 +175,18 @@ func (dag *DAG) Len() int {
 }
 
 func (dag *DAG) BatchCount() int {
+	dag.mu.Lock()
+	defer dag.mu.Unlock()
 	return len(dag.batches)
 }
 
 func (dag *DAG) currentTips() []types.Hash {
+	dag.mu.Lock()
+	defer dag.mu.Unlock()
+	return dag.currentTipsLocked()
+}
+
+func (dag *DAG) currentTipsLocked() []types.Hash {
 	tips := make([]types.Hash, 0, len(dag.tips))
 	for tip := range dag.tips {
 		tips = append(tips, tip)

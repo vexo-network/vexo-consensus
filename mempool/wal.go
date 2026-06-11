@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/vexo-network/vexo-consensus/types"
@@ -30,6 +31,7 @@ type WALEvent struct {
 
 type WAL struct {
 	mu   sync.Mutex
+	path string
 	file *os.File
 }
 
@@ -37,11 +39,15 @@ func OpenWAL(path string) (*WAL, error) {
 	if path == "" {
 		return nil, ErrInvalidWALPath
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o600)
+	file, err := openWALFile(path)
 	if err != nil {
 		return nil, err
 	}
-	return &WAL{file: file}, nil
+	return &WAL{path: path, file: file}, nil
+}
+
+func openWALFile(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o600)
 }
 
 func OpenDurableDAG(ctx context.Context, path string, base *FIFO) (*DAG, error) {
@@ -150,20 +156,34 @@ func (wal *WAL) Compact(ctx context.Context, dag *DAG) error {
 	wal.mu.Lock()
 	defer wal.mu.Unlock()
 
-	if err := wal.file.Truncate(0); err != nil {
+	if wal.path == "" {
+		return ErrInvalidWALPath
+	}
+	tempPath := wal.path + ".compact.tmp"
+	if err := os.MkdirAll(filepath.Dir(wal.path), 0o700); err != nil {
 		return err
 	}
-	if _, err := wal.file.Seek(0, io.SeekStart); err != nil {
+	tempFile, err := os.OpenFile(tempPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
 		return err
 	}
-	encoder := json.NewEncoder(wal.file)
+	cleanupTemp := true
+	defer func() {
+		if cleanupTemp {
+			_ = os.Remove(tempPath)
+		}
+	}()
+
+	encoder := json.NewEncoder(tempFile)
 	for _, tx := range dag.base.orderedTxs() {
 		select {
 		case <-ctx.Done():
+			_ = tempFile.Close()
 			return ctx.Err()
 		default:
 		}
 		if err := encoder.Encode(WALEvent{Op: walOpAddTx, Tx: tx}); err != nil {
+			_ = tempFile.Close()
 			return err
 		}
 	}
@@ -179,10 +199,12 @@ func (wal *WAL) Compact(ctx context.Context, dag *DAG) error {
 		}
 		for _, parent := range batch.Parents {
 			if err := emitBatch(parent); err != nil {
+				_ = tempFile.Close()
 				return err
 			}
 		}
 		if err := encoder.Encode(WALEvent{Op: walOpAddBatch, Batch: cloneBatch(batch)}); err != nil {
+			_ = tempFile.Close()
 			return err
 		}
 		emitted[id] = true
@@ -190,10 +212,35 @@ func (wal *WAL) Compact(ctx context.Context, dag *DAG) error {
 	}
 	for id := range dag.batches {
 		if err := emitBatch(id); err != nil {
+			_ = tempFile.Close()
 			return err
 		}
 	}
-	return wal.file.Sync()
+	if err := tempFile.Sync(); err != nil {
+		_ = tempFile.Close()
+		return err
+	}
+	if err := tempFile.Close(); err != nil {
+		return err
+	}
+	if err := wal.file.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, wal.path); err != nil {
+		reopened, reopenErr := openWALFile(wal.path)
+		if reopenErr == nil {
+			wal.file = reopened
+		}
+		return errors.Join(err, reopenErr)
+	}
+	cleanupTemp = false
+	syncDirectory(filepath.Dir(wal.path))
+	reopened, err := openWALFile(wal.path)
+	if err != nil {
+		return err
+	}
+	wal.file = reopened
+	return nil
 }
 
 func (wal *WAL) Close() error {
@@ -214,4 +261,13 @@ func (wal *WAL) append(ctx context.Context, event WALEvent) error {
 		return err
 	}
 	return wal.file.Sync()
+}
+
+func syncDirectory(path string) {
+	dir, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	_ = dir.Sync()
+	_ = dir.Close()
 }

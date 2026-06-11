@@ -516,8 +516,11 @@ type networkSmokeResult struct {
 }
 
 type networkStatusResponse struct {
-	LatestHeight uint64 `json:"latest_height"`
-	PeerCount    int    `json:"peer_count"`
+	LatestHeight        uint64 `json:"latest_height"`
+	PeerCount           int    `json:"peer_count"`
+	ActivePeerCount     int    `json:"active_peer_count"`
+	ConfiguredPeerCount int    `json:"configured_peer_count"`
+	ScoredPeerCount     int    `json:"scored_peer_count"`
 }
 
 type networkMetricsResponse struct {
@@ -1608,9 +1611,13 @@ func waitNetworkHeight(ctx context.Context, client http.Client, address string, 
 }
 
 func waitNetworkPeerCount(ctx context.Context, client http.Client, address string, minPeers int) error {
+	var lastStatus networkStatusResponse
 	for {
 		status, err := networkStatus(ctx, client, address)
-		if err == nil && status.PeerCount >= minPeers {
+		if err == nil {
+			lastStatus = status
+		}
+		if err == nil && effectiveNetworkActivePeerCount(status) >= minPeers {
 			return nil
 		}
 		select {
@@ -1618,10 +1625,17 @@ func waitNetworkPeerCount(ctx context.Context, client http.Client, address strin
 			if err != nil {
 				return err
 			}
-			return fmt.Errorf("peer count below target")
+			return fmt.Errorf("active peer count below target: active=%d configured=%d scored=%d compatible=%d target=%d", lastStatus.ActivePeerCount, lastStatus.ConfiguredPeerCount, lastStatus.ScoredPeerCount, lastStatus.PeerCount, minPeers)
 		case <-time.After(25 * time.Millisecond):
 		}
 	}
+}
+
+func effectiveNetworkActivePeerCount(status networkStatusResponse) int {
+	if status.ActivePeerCount > 0 || status.ConfiguredPeerCount > 0 || status.ScoredPeerCount > 0 {
+		return status.ActivePeerCount
+	}
+	return status.PeerCount
 }
 
 func waitNetworkHeights(ctx context.Context, client http.Client, nodes []networkNodeRuntimePlan, targetHeight uint64) ([]networkSmokeResult, error) {

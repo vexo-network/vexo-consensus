@@ -16,6 +16,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/vexo-network/vexo-consensus/stateproof"
 	"github.com/vexo-network/vexo-consensus/store"
 )
 
@@ -247,7 +248,7 @@ func runSnapshotRestore(writer io.Writer, args []string) error {
 		return err
 	}
 	defer storage.Close()
-	if err := restoreSnapshotDocument(storage, document); err != nil {
+	if err := restoreSnapshotDocumentWithContext(context.Background(), storage, document); err != nil {
 		return err
 	}
 	fmt.Fprintf(writer, "snapshot restored\n")
@@ -293,10 +294,11 @@ func runSnapshotChunkRestore(writer io.Writer, args []string) error {
 		return err
 	}
 	defer storage.Close()
-	if err := restoreSnapshotDocument(storage, document); err != nil {
+	ctx := context.Background()
+	if err := restoreSnapshotDocumentWithContext(ctx, storage, document); err != nil {
 		return err
 	}
-	if _, err := storage.RecoverIndexes(context.Background()); err != nil {
+	if _, err := storage.RecoverIndexes(ctx); err != nil {
 		return err
 	}
 	fmt.Fprintf(writer, "snapshot chunks restored\n")
@@ -370,10 +372,11 @@ func runSnapshotSync(writer io.Writer, args []string) error {
 		return err
 	}
 	defer storage.Close()
-	if err := restoreSnapshotDocument(storage, document); err != nil {
+	ctx := context.Background()
+	if err := restoreSnapshotDocumentWithContext(ctx, storage, document); err != nil {
 		return err
 	}
-	if _, err := storage.RecoverIndexes(context.Background()); err != nil {
+	if _, err := storage.RecoverIndexes(ctx); err != nil {
 		return err
 	}
 	fmt.Fprintf(writer, "snapshot synced\n")
@@ -623,7 +626,14 @@ func snapshotDocumentFromChunks(chunks []snapshotChunkDocument) (snapshotDocumen
 }
 
 func restoreSnapshotDocument(storage store.Store, document snapshotDocument) error {
+	return restoreSnapshotDocumentWithContext(context.Background(), storage, document)
+}
+
+func restoreSnapshotDocumentWithContext(ctx context.Context, storage store.Store, document snapshotDocument) error {
 	if err := validateSnapshotDocument(document, ""); err != nil {
+		return err
+	}
+	if err := validateSnapshotKVRoots(document); err != nil {
 		return err
 	}
 	importer, canImportKV := storage.(store.SnapshotKVStore)
@@ -632,20 +642,20 @@ func restoreSnapshotDocument(storage store.Store, document snapshotDocument) err
 	}
 	if canImportKV {
 		for _, namespace := range document.Modules {
-			if err := importer.ImportNamespace(context.Background(), namespace, kvForNamespace(document.KV, namespace)); err != nil {
+			if err := importer.ImportNamespace(ctx, namespace, kvForNamespace(document.KV, namespace)); err != nil {
 				return err
 			}
 		}
 	}
-	if err := storage.SaveState(context.Background(), document.State); err != nil {
+	if err := storage.SaveState(ctx, document.State); err != nil {
 		return err
 	}
 	for _, root := range document.StateRoots {
-		if err := storage.SaveStateRoot(context.Background(), root); err != nil {
+		if err := storage.SaveStateRoot(ctx, root); err != nil {
 			return err
 		}
 		if len(document.KV) > 0 {
-			actualRoot, err := storage.Root(context.Background(), root.Namespace)
+			actualRoot, err := storage.Root(ctx, root.Namespace)
 			if err != nil {
 				return err
 			}
@@ -655,6 +665,33 @@ func restoreSnapshotDocument(storage store.Store, document snapshotDocument) err
 		}
 	}
 	return nil
+}
+
+func validateSnapshotKVRoots(document snapshotDocument) error {
+	if len(document.KV) == 0 {
+		return nil
+	}
+	for _, root := range document.StateRoots {
+		actualRoot, err := stateproof.Root(root.Namespace, snapshotStateProofPairs(kvForNamespace(document.KV, root.Namespace)))
+		if err != nil {
+			return err
+		}
+		if actualRoot != root.Root {
+			return fmt.Errorf("snapshot state root mismatch for namespace %q", root.Namespace)
+		}
+	}
+	return nil
+}
+
+func snapshotStateProofPairs(pairs []store.KVPair) []stateproof.Pair {
+	out := make([]stateproof.Pair, 0, len(pairs))
+	for _, pair := range pairs {
+		out = append(out, stateproof.Pair{
+			Key:   append([]byte(nil), pair.Key...),
+			Value: append([]byte(nil), pair.Value...),
+		})
+	}
+	return out
 }
 
 func downloadSnapshotDocument(url string, timeout time.Duration) (snapshotDocument, error) {
