@@ -84,3 +84,8 @@
 ## Канонический источник
 
 - [Английский канонический документ](../../en/specs/networking-spec.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Тайминги peer и постоянные peers
+
+Временный dial failure сам по себе не ban configured peer или seed. Он остается в backoff и диагностике; ban должен опираться на поведенческие доказательства: malicious gossip, auth failure или rate-limit abuse. `p2p.dial_timeout` задавайте с учетом межрегиональной задержки и стоимости TLS/auth.

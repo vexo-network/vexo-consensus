@@ -84,3 +84,8 @@ Ce document aide à comprendre P2P handshake, gossip, peer scoring et politique 
 ## Source canonique
 
 - [Document canonique anglais](../../en/specs/networking-spec.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Timing peer et peers permanents
+
+Un simple échec dial temporaire ne ban pas un configured peer ni un seed. L’échec reste visible dans le backoff et les diagnostics ; le ban doit venir de preuves de comportement comme gossip malveillant, échec d’authentification ou rate-limit abuse. Ajustez `p2p.dial_timeout` selon la latence multi-région et le coût TLS/auth.

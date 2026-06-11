@@ -157,6 +157,11 @@ func (keeper *StoreKeeper) Execute(ctx context.Context, proposalID uint64) error
 	appliedBefore := len(document.Applied)
 	memory := keeper.memory(document)
 	if err := memory.Execute(ctx, proposalID); err != nil {
+		if errors.Is(err, ErrProposalRejected) {
+			if saveErr := keeper.save(ctx, documentFromMemory(memory)); saveErr != nil {
+				return saveErr
+			}
+		}
 		return err
 	}
 	updated := documentFromMemory(memory)

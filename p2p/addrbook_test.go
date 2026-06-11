@@ -116,6 +116,12 @@ func TestAddrBookEvictsOnlyNonPermanentBannedPeers(t *testing.T) {
 	if _, found := book.peers["seed"]; !found {
 		t.Fatalf("expected permanent seed retained: %+v", book.peers)
 	}
+	if book.IsBanned("seed") {
+		t.Fatalf("expected permanent seed not banned by transient dial failure: %+v", book.peers["seed"])
+	}
+	if failures := book.peers["seed"].Failures; failures != 1 {
+		t.Fatalf("expected permanent seed failure count retained for diagnostics, got %d", failures)
+	}
 }
 
 func TestAddrBookIsBannedExpiresTemporaryBan(t *testing.T) {

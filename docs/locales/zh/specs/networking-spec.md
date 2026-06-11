@@ -84,3 +84,8 @@
 ## 规范来源
 
 - [英文规范文档](../../en/specs/networking-spec.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Peer 时序与固定 Peer
+
+仅因为临时 dial 失败，不会 ban configured peer 或 seed。失败会进入 backoff 和诊断信息；ban 应来自恶意 gossip、认证失败或 rate-limit abuse 等行为证据。`p2p.dial_timeout` 应根据跨区域延迟以及 TLS/auth 成本来设置。

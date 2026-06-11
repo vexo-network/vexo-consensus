@@ -87,12 +87,15 @@ type startRuntimeConfig struct {
 	P2PNodeID               p2p.PeerID
 	P2PNodeKeyPath          string
 	P2PListenAddress        string
+	P2PDialTimeout          time.Duration
 	P2PPeers                map[p2p.PeerID]string
 	P2PSeeds                map[p2p.PeerID]string
 	P2PNetworkID            string
 	P2PMaxMessageBytes      uint64
 	P2PMaxPeers             int
 	P2PAuthToken            string
+	P2PAuthReplayPath       string
+	P2PRequireAuthReplay    bool
 	P2PTLSCertPath          string
 	P2PTLSKeyPath           string
 	P2PTLSCAPath            string
@@ -717,10 +720,13 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 		P2PNodeID:               p2p.PeerID(runtime.P2P.NodeID),
 		P2PNodeKeyPath:          resolveOptionalPath(home, runtime.P2P.NodeKeyPath),
 		P2PListenAddress:        runtime.P2P.ListenAddress,
+		P2PDialTimeout:          10 * time.Second,
 		P2PNetworkID:            runtime.P2P.NetworkID,
 		P2PMaxMessageBytes:      runtime.P2P.MaxMessageBytes,
 		P2PMaxPeers:             runtime.P2P.MaxPeers,
 		P2PAuthToken:            runtime.P2P.AuthToken,
+		P2PAuthReplayPath:       resolveOptionalPath(home, runtime.P2P.AuthReplayPath),
+		P2PRequireAuthReplay:    runtime.P2P.RequireAuthReplayStore,
 		P2PTLSCertPath:          resolveOptionalPath(home, runtime.P2P.TLSCertPath),
 		P2PTLSKeyPath:           resolveOptionalPath(home, runtime.P2P.TLSKeyPath),
 		P2PTLSCAPath:            resolveOptionalPath(home, runtime.P2P.TLSCAPath),
@@ -752,6 +758,16 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 	}
 	if cfg.P2PListenAddress == "" {
 		cfg.P2PListenAddress = defaultP2PAddress
+	}
+	if runtime.P2P.DialTimeout != "" {
+		duration, err := time.ParseDuration(runtime.P2P.DialTimeout)
+		if err != nil {
+			return startRuntimeConfig{}, fmt.Errorf("runtime.p2p.dial_timeout: %w", err)
+		}
+		if duration <= 0 {
+			return startRuntimeConfig{}, fmt.Errorf("runtime.p2p.dial_timeout: %w", vexoconfig.ErrInvalidConfig)
+		}
+		cfg.P2PDialTimeout = duration
 	}
 	if cfg.P2PNodeID == "" {
 		cfg.P2PNodeID = p2p.PeerID(defaultP2PNodeID(document.ValidatorID, home))
@@ -884,6 +900,12 @@ func validateRuntimeNetworkSafety(cfg startRuntimeConfig) error {
 		if cfg.P2PTLSCertPath == "" || cfg.P2PTLSKeyPath == "" || cfg.P2PTLSCAPath == "" {
 			return fmt.Errorf("runtime.p2p tls cert, key, and ca paths are required for public peer connections: %w", vexoconfig.ErrUnsafeNetworkConfig)
 		}
+		if cfg.P2PAuthReplayPath == "" {
+			return fmt.Errorf("runtime.p2p.auth_replay_path is required for public peer connections: %w", vexoconfig.ErrUnsafeNetworkConfig)
+		}
+	}
+	if cfg.P2PRequireAuthReplay && cfg.P2PAuthReplayPath == "" {
+		return fmt.Errorf("runtime.p2p.require_auth_replay_store requires runtime.p2p.auth_replay_path: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
 	if cfg.RPCEnabled && cfg.RPCAdminToken == "" && len(cfg.RPCAdminTokens) == 0 && !isPrivateListenAddress(cfg.RPCAddress) {
 		return fmt.Errorf("runtime.rpc.admin_token or scoped runtime.rpc.admin_tokens is required for public rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
@@ -957,6 +979,8 @@ func runtimeConfigIsZero(runtime runtimeConfig) bool {
 		runtime.P2P.MaxMessageBytes == 0 &&
 		runtime.P2P.MaxPeers == 0 &&
 		runtime.P2P.AuthToken == "" &&
+		runtime.P2P.AuthReplayPath == "" &&
+		runtime.P2P.RequireAuthReplayStore == false &&
 		runtime.P2P.TLSCertPath == "" &&
 		runtime.P2P.TLSKeyPath == "" &&
 		runtime.P2P.TLSCAPath == "" &&
@@ -987,6 +1011,33 @@ func signerFromKeyDocuments(documents []vexocrypto.KeyDocument) (vexocrypto.Sign
 	return vexocrypto.NewKeyRingPolicySignerFromDocuments(resolvePassphrase(""), documents...)
 }
 
+func validateStartupKeyCustody(inputs startInputs, runtimeConfig startRuntimeConfig) error {
+	if !inputs.Config.RequireNetworkSafety || inputs.Config.ValidatorID == "" || inputs.Plan.KeyPath == "" {
+		return nil
+	}
+	if !nodeHasPublicExposure(runtimeConfig) {
+		return nil
+	}
+	document, err := vexocrypto.LoadKeyDocument(inputs.Plan.KeyPath)
+	if err != nil {
+		return fmt.Errorf("validator key custody: %w", err)
+	}
+	if document.Type == vexocrypto.KeyTypeRemote {
+		return nil
+	}
+	if document.Encryption == nil {
+		return fmt.Errorf("validator key must be encrypted or remote when public listeners are configured: %w", vexoconfig.ErrUnsafeNetworkConfig)
+	}
+	return nil
+}
+
+func nodeHasPublicExposure(cfg startRuntimeConfig) bool {
+	if cfg.RPCEnabled && !isPrivateListenAddress(cfg.RPCAddress) {
+		return true
+	}
+	return cfg.P2PEnabled && requiresAuthenticatedP2P(cfg)
+}
+
 func loadP2PHandshakeSigner(runtimeConfig startRuntimeConfig, fallback vexocrypto.Signer) (vexocrypto.Signer, error) {
 	if runtimeConfig.P2PNodeKeyPath == "" {
 		return fallback, nil
@@ -997,6 +1048,9 @@ func loadP2PHandshakeSigner(runtimeConfig startRuntimeConfig, fallback vexocrypt
 			return fallback, nil
 		}
 		return nil, fmt.Errorf("runtime.p2p.node_key_path: %w", err)
+	}
+	if requiresAuthenticatedP2P(runtimeConfig) && document.Type != vexocrypto.KeyTypeRemote && document.Encryption == nil {
+		return nil, fmt.Errorf("runtime.p2p.node_key_path must reference an encrypted key document or remote key for public peer authentication: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
 	signer, err := document.SignerWithPassphrase(resolvePassphrase(""))
 	if err != nil {
@@ -1035,6 +1089,9 @@ func buildStartNode(inputs startInputs) (*vexonode.Node, error) {
 
 func buildRuntimeNode(inputs startInputs, runtimeConfig startRuntimeConfig) (*vexonode.Node, *transport.GRPCTransport, error) {
 	runtimeConfig = applyNetworkRuntimeDefaults(inputs, runtimeConfig)
+	if err := validateStartupKeyCustody(inputs, runtimeConfig); err != nil {
+		return nil, nil, err
+	}
 	application, err := appmodules.NewRuntimeWithChainConfig(inputs.Config.Chain.ChainID, inputs.Config.Chain)
 	if err != nil {
 		return nil, nil, err
@@ -1139,16 +1196,26 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 	peers := mergePeerMaps(addrBook.PeerMap(peerID), runtimeConfig.P2PPeers, runtimeConfig.P2PSeeds)
 	var grpcTransport *transport.GRPCTransport
 	requireHandshakeSignature := requiresAuthenticatedP2P(runtimeConfig)
+	var authReplayStore transport.AuthReplayStore
+	if runtimeConfig.P2PAuthReplayPath != "" {
+		authReplayStore, err = transport.NewFileAuthReplayStore(runtimeConfig.P2PAuthReplayPath)
+		if err != nil {
+			return nil, err
+		}
+	}
 	grpcTransport, err = transport.NewGRPCTransport(transport.GRPCConfig{
 		PeerID:                    peerID,
 		ListenAddr:                runtimeConfig.P2PListenAddress,
 		Peers:                     peers,
+		DialTimeout:               runtimeConfig.P2PDialTimeout,
 		NetworkID:                 networkID,
 		ChainID:                   inputs.Config.Chain.ChainID,
 		GenesisHash:               genesisHash(inputs.Genesis),
 		MaxMessageBytes:           runtimeConfig.P2PMaxMessageBytes,
 		MaxPeers:                  runtimeConfig.P2PMaxPeers,
 		AuthToken:                 runtimeConfig.P2PAuthToken,
+		AuthReplayStore:           authReplayStore,
+		RequireAuthReplayStore:    runtimeConfig.P2PRequireAuthReplay || requireHandshakeSignature,
 		TLSConfig:                 tlsConfig,
 		RequireTLS:                requiresAuthenticatedP2P(runtimeConfig),
 		HandshakeSigner:           handshakeSigner,

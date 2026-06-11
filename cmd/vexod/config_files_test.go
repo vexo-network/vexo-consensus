@@ -62,6 +62,17 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 			t.Fatalf("expected validator key file %s: %v", fileName, err)
 		}
 	}
+	nodeKeyDocument, err := vexocrypto.LoadKeyDocument(filepath.Join(home, nodeKeyFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodeAccount, err := keyDocumentAccountAddress(nodeKeyDocument)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(genesis.AppState["bank:"+string(nodeAccount)]) == 0 {
+		t.Fatalf("expected node account %s funded in genesis app state", nodeAccount)
+	}
 	configBytes, err := os.ReadFile(filepath.Join(home, configFileName))
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +100,11 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 		moduleDocument.Execution.MinGas == 0 ||
 		moduleDocument.Execution.AllowUnprotectedLegacyTx ||
 		moduleDocument.Bank.MintAuthority != "governance" ||
-		moduleDocument.Governance.Timelock == 0 {
+		moduleDocument.Governance.Timelock == 0 ||
+		!moduleDocument.Governance.RequireDeposit ||
+		moduleDocument.Governance.MinDeposit != "1avxo" ||
+		moduleDocument.Governance.DepositEscrow == "" ||
+		moduleDocument.Governance.RejectedDeposits == "" {
 		t.Fatalf("unexpected module config: %+v", moduleDocument)
 	}
 	networkDocument, err := readNetworkConfigDocument(filepath.Join(home, networkConfigFileName))
@@ -101,6 +116,7 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 		!networkDocument.P2P.Enabled ||
 		networkDocument.P2P.NodeID != "alice" ||
 		networkDocument.P2P.NodeKeyPath != nodeKeyFileName ||
+		networkDocument.P2P.AuthReplayPath == "" ||
 		networkDocument.PeerScoring.InitialScore == 0 {
 		t.Fatalf("unexpected network config: %+v", networkDocument)
 	}
@@ -157,6 +173,17 @@ func TestRunInitWritesNetworkFiles(t *testing.T) {
 		if len(genesis.Validators) != 4 || genesis.Governance[genesis.Validators[index-1].Address] != 1 {
 			t.Fatalf("unexpected genesis for %s: %+v", validatorID, genesis)
 		}
+		nodeKeyDocument, err := vexocrypto.LoadKeyDocument(filepath.Join(nodeHome, nodeKeyFileName))
+		if err != nil {
+			t.Fatal(err)
+		}
+		nodeAccount, err := keyDocumentAccountAddress(nodeKeyDocument)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(genesis.AppState["bank:"+string(nodeAccount)]) == 0 {
+			t.Fatalf("expected node account %s funded in network genesis for %s", nodeAccount, validatorID)
+		}
 		validatorInfo := genesis.Validators[index-1]
 		if len(validatorInfo.PublicKey) == 0 ||
 			validatorInfo.Metadata["p2p_address"] != networkP2PAddress(index) ||
@@ -183,6 +210,9 @@ func TestRunInitWritesNetworkFiles(t *testing.T) {
 		}
 		if networkDocument.P2P.NodeID != validatorID || networkDocument.P2P.NodeKeyPath != nodeKeyFileName {
 			t.Fatalf("expected p2p node identity for %s, got %+v", validatorID, networkDocument.P2P)
+		}
+		if networkDocument.P2P.AuthReplayPath == "" {
+			t.Fatalf("expected p2p auth replay path for %s, got %+v", validatorID, networkDocument.P2P)
 		}
 		consensusDocument, err := readConsensusConfigDocument(filepath.Join(nodeHome, consensusConfigFileName))
 		if err != nil {
@@ -277,6 +307,29 @@ func TestRunInitNetworkBLSWritesProofOfPossession(t *testing.T) {
 		!consensusDocument.Crypto.ProductionAdapter ||
 		consensusDocument.Crypto.AdapterName != vexocrypto.BLSAdapterBLSTName {
 		t.Fatalf("expected BLST consensus crypto config, got %+v", consensusDocument.Crypto)
+	}
+}
+
+func TestRunInitNetworkEd25519WritesEd25519CryptoConfig(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validators", "2", "--key-type", "ed25519"}); err != nil {
+		t.Fatal(err)
+	}
+	keyDocument, err := vexocrypto.LoadKeyDocument(filepath.Join(home, "validator-1", keyFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keyDocument.Type != vexocrypto.KeyTypeEd25519 {
+		t.Fatalf("unexpected key document: %+v", keyDocument)
+	}
+	consensusDocument, err := readConsensusConfigDocument(filepath.Join(home, "validator-1", consensusConfigFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if consensusDocument.Crypto.Backend != config.CryptoBackendEd25519 ||
+		consensusDocument.Crypto.ProductionAdapter ||
+		consensusDocument.Crypto.AdapterName != "" {
+		t.Fatalf("expected Ed25519 consensus crypto config, got %+v", consensusDocument.Crypto)
 	}
 }
 
@@ -512,6 +565,49 @@ func TestRuntimeConfigLoadsP2PTLSFromSplitNetworkConfig(t *testing.T) {
 		runtimeConfig.P2PTLSCAPath != expectedCA ||
 		runtimeConfig.P2PTLSServerName != "validator.internal" {
 		t.Fatalf("expected resolved p2p TLS config, got %+v", runtimeConfig)
+	}
+}
+
+func TestRuntimeConfigLoadsP2PAuthReplayPathFromSplitNetworkConfig(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	networkDocument, err := readNetworkConfigDocument(filepath.Join(home, networkConfigFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	networkDocument.P2P.AuthReplayPath = "security/p2p-auth-replay.jsonl"
+	networkDocument.P2P.RequireAuthReplayStore = true
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+
+	runtimeConfig, err := loadStartRuntimeConfig(home, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtimeConfig.P2PAuthReplayPath != filepath.Join(home, "security/p2p-auth-replay.jsonl") || !runtimeConfig.P2PRequireAuthReplay {
+		t.Fatalf("expected resolved p2p auth replay config, got %+v", runtimeConfig)
+	}
+}
+
+func TestRuntimeConfigLoadsP2PDialTimeoutFromSplitNetworkConfig(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	networkDocument, err := readNetworkConfigDocument(filepath.Join(home, networkConfigFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	networkDocument.P2P.DialTimeout = "12s"
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+
+	runtimeConfig, err := loadStartRuntimeConfig(home, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtimeConfig.P2PDialTimeout != 12*time.Second {
+		t.Fatalf("expected 12s p2p dial timeout, got %s", runtimeConfig.P2PDialTimeout)
 	}
 }
 
@@ -971,6 +1067,7 @@ func TestLoadStartRuntimeConfigRequiresFinalizedCommitWhenNetworkSafetyIsRequire
 	networkDocument.P2P.TLSCertPath = "tls/node.crt"
 	networkDocument.P2P.TLSKeyPath = "tls/node.key"
 	networkDocument.P2P.TLSCAPath = "tls/ca.crt"
+	networkDocument.P2P.AuthReplayPath = ""
 	writeTestJSON(t, path, document)
 	writeTestJSON(t, filepath.Join(home, consensusConfigFileName), consensusDocument)
 	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
@@ -981,8 +1078,13 @@ func TestLoadStartRuntimeConfigRequiresFinalizedCommitWhenNetworkSafetyIsRequire
 	}
 	consensusDocument.Consensus.ExecutionCommit = string(vexonode.ExecutionCommitModeFinalized)
 	writeTestJSON(t, filepath.Join(home, consensusConfigFileName), consensusDocument)
+	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected missing p2p auth replay path to fail network safety boundary, got %v", err)
+	}
+	networkDocument.P2P.AuthReplayPath = "data/p2p_auth_replay.jsonl"
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
 	if _, err := loadStartRuntimeConfig(home, path); err != nil {
-		t.Fatalf("expected finalized commit to satisfy runtime safety boundary, got %v", err)
+		t.Fatalf("expected durable auth replay path to satisfy runtime safety boundary, got %v", err)
 	}
 
 	networkDocument.P2P.TLSCAPath = ""
@@ -1053,6 +1155,27 @@ func TestLoadStartRuntimeConfigRejectsManagedEVMKeysOnPublicRPC(t *testing.T) {
 	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
 	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrUnsafeNetworkConfig) {
 		t.Fatalf("expected public rpc hot key env config to fail network safety boundary, got %v", err)
+	}
+}
+
+func TestValidateStartupKeyCustodyRejectsPlaintextValidatorKeyOnPublicListener(t *testing.T) {
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := loadStartInputs(home, "", "", "", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeConfig := startRuntimeConfig{
+		RequireNetworkSafety: true,
+		RPCEnabled:           true,
+		RPCAddress:           "0.0.0.0:26657",
+		RPCAdminToken:        "secret",
+		P2PEnabled:           false,
+	}
+	if err := validateStartupKeyCustody(inputs, runtimeConfig); !errors.Is(err, config.ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected plaintext local validator key to fail public custody check, got %v", err)
 	}
 }
 

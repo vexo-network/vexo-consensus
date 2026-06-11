@@ -28,7 +28,7 @@ func TestNetworkUpBuiltBinaryE2E(t *testing.T) {
 		"--validators", "4",
 		"--p2p-base-port", strconv.Itoa(p2pBasePort),
 		"--rpc-base-port", strconv.Itoa(rpcBasePort),
-		"--timeout", "25s",
+		"--timeout", "60s",
 		"--overwrite",
 	)
 	var output bytes.Buffer

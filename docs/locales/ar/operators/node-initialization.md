@@ -79,3 +79,8 @@
 ## المصدر المعتمد
 
 - [الوثيقة الإنجليزية المرجعية](../../en/operators/node-initialization.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## ملاحظة تشغيل حديثة
+
+عند إنشاء home جديد للعقدة يجب مراجعة `p2p.dial_timeout` و `p2p.auth_replay_path` و `p2p.require_auth_replay_store` داخل `network_config.json` معًا. القيمة الافتراضية `10s` تشمل TCP dial و TLS و signed handshake وفحص replay-store. في الشبكات العامة يجب أن تبقى هذه القيم ضمن ملف config المراجع، لا ضمن shell flags مخفية.

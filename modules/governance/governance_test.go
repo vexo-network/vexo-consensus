@@ -190,6 +190,104 @@ func TestGovernanceModuleDerivesVotingPowerFromStakingState(t *testing.T) {
 	}
 }
 
+func TestGovernanceModuleEscrowsAndRefundsProposalDeposit(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	runtime, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{bank.NewModule(), staking.NewModule(), NewModule()}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.WithStore(storage)
+	if _, err := runtime.InitChain(vexoapp.InitChainRequest{Genesis: governanceTestGenesis("alice", 10)}); err != nil {
+		t.Fatal(err)
+	}
+	finalizeGovernanceBlock(t, runtime, 1, []types.Tx{governanceTestDelegateTx("alice", "validator-1", 1)})
+	finalizeGovernanceBlock(t, runtime, 2, []types.Tx{governanceSubmitJSONTx(`{"submitter":"alice","title":"deposit","type":"parameter_change","deposit":"3avxo","changes":[{"module":"execution","key":"max_gas","value":"20000000"}]}`)})
+
+	assertBankBalance(t, storage, "alice", "6")
+	assertBankBalance(t, storage, governanceEscrowAddress, "3")
+
+	finalizeGovernanceBlock(t, runtime, 3, []types.Tx{[]byte("governance:vote:1:alice:yes")})
+	finalizeGovernanceBlock(t, runtime, 4, []types.Tx{[]byte("governance:execute:1")})
+
+	assertBankBalance(t, storage, "alice", "9")
+	assertBankBalance(t, storage, governanceEscrowAddress, "0")
+}
+
+func TestGovernanceModuleRequiresConfiguredProposalDeposit(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	policy := vexogov.TallyPolicy{
+		QuorumPower:       1,
+		YesThresholdPower: 1,
+		VotingPeriod:      1,
+		RequireDeposit:    true,
+		MinDeposit:        "3avxo",
+		DepositDenom:      "avxo",
+	}
+	runtime, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{bank.NewModule(), staking.NewModule(), NewModuleWithPolicy(policy)}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.WithStore(storage)
+	if _, err := runtime.InitChain(vexoapp.InitChainRequest{Genesis: governanceTestGenesis("alice", 10)}); err != nil {
+		t.Fatal(err)
+	}
+	finalizeGovernanceBlock(t, runtime, 1, []types.Tx{governanceTestDelegateTx("alice", "validator-1", 1)})
+	if _, err := runtime.FinalizeBlock(vexoapp.FinalizeBlockRequest{Block: types.Block{Header: types.Header{ChainID: "vexo-test", Height: 2}, Txs: []types.Tx{[]byte("governance:submit:alice:no-deposit:execution:max_gas:20000000")}}}); err == nil {
+		t.Fatal("expected proposal without required deposit to fail")
+	}
+	if _, err := runtime.FinalizeBlock(vexoapp.FinalizeBlockRequest{Block: types.Block{Header: types.Header{ChainID: "vexo-test", Height: 2}, Txs: []types.Tx{[]byte("governance:submit:alice:too-low:execution:max_gas:20000000:2avxo")}}}); err == nil {
+		t.Fatal("expected proposal below minimum deposit to fail")
+	}
+	finalizeGovernanceBlock(t, runtime, 2, []types.Tx{[]byte("governance:submit:alice:with-deposit:execution:max_gas:20000000:3avxo")})
+	assertBankBalance(t, storage, "alice", "6")
+	assertBankBalance(t, storage, governanceEscrowAddress, "3")
+}
+
+func TestGovernanceModuleSlashesRejectedProposalDeposit(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	policy := vexogov.TallyPolicy{QuorumPower: 1, YesThresholdPower: 2, VotingPeriod: 1}
+	runtime, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{bank.NewModule(), staking.NewModule(), NewModuleWithPolicy(policy)}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.WithStore(storage)
+	if _, err := runtime.InitChain(vexoapp.InitChainRequest{Genesis: governanceTestGenesis("alice", 10)}); err != nil {
+		t.Fatal(err)
+	}
+	finalizeGovernanceBlock(t, runtime, 1, []types.Tx{governanceTestDelegateTx("alice", "validator-1", 1)})
+	finalizeGovernanceBlock(t, runtime, 2, []types.Tx{governanceSubmitJSONTx(`{"submitter":"alice","title":"reject","type":"parameter_change","deposit":"3avxo","changes":[{"module":"execution","key":"max_gas","value":"20000000"}]}`)})
+	finalizeGovernanceBlock(t, runtime, 3, []types.Tx{[]byte("governance:vote:1:alice:yes")})
+	finalizeGovernanceBlock(t, runtime, 4, []types.Tx{[]byte("governance:execute:1")})
+
+	assertBankBalance(t, storage, "alice", "6")
+	assertBankBalance(t, storage, governanceEscrowAddress, "0")
+	assertBankBalance(t, storage, governanceRejectedDepositAddress, "3")
+	result, err := runtime.FinalizeBlock(vexoapp.FinalizeBlockRequest{Block: types.Block{Header: types.Header{Height: 5}, Txs: []types.Tx{[]byte("governance:execute:1")}}})
+	if err == nil || result.AppHash != (types.Hash{}) {
+		t.Fatalf("expected duplicate rejected execute to fail without block commit, result=%+v err=%v", result, err)
+	}
+	assertBankBalance(t, storage, governanceRejectedDepositAddress, "3")
+	proposal := runtime.Query(vexoapp.QueryRequest{Path: []string{"governance", "proposal", "1"}})
+	if proposal.Code != 0 || !strings.Contains(string(proposal.Value), `"Rejected":true`) {
+		t.Fatalf("expected rejected proposal query, got %+v", proposal)
+	}
+}
+
 func TestGovernanceModuleQueryRejectsInvalidRequests(t *testing.T) {
 	module := NewModule()
 	for _, req := range []vexoapp.QueryRequest{
@@ -328,6 +426,21 @@ func governanceTestGenesis(address types.Address, balance uint64) vexoapp.Genesi
 
 func governanceTestDelegateTx(delegator types.Address, validatorID types.ValidatorID, amount uint64) types.Tx {
 	return []byte("staking:delegate:" + string(delegator) + ":" + string(validatorID) + ":" + strconv.FormatUint(amount, 10) + ":cHVibGljLWtleQ==")
+}
+
+func governanceSubmitJSONTx(payload string) types.Tx {
+	return types.Tx("governance:submit-json:" + base64.RawStdEncoding.EncodeToString([]byte(payload)))
+}
+
+func assertBankBalance(t *testing.T, storage vexoapp.StateStore, address types.Address, expected string) {
+	t.Helper()
+	balance, err := bank.BalanceBig(context.Background(), storage, address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance.String() != expected {
+		t.Fatalf("expected %s balance %s, got %s", address, expected, balance.String())
+	}
 }
 
 func TestGovernanceQueryJSONIsValid(t *testing.T) {

@@ -75,3 +75,8 @@ Dokumen ini membantu memahami spesifikasi normatif state machine konsensus dan m
 ## Sumber kanonik
 
 - [Dokumen kanonik bahasa Inggris](../../en/specs/consensus-spec.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Empty block dan round recovery
+
+Dengan `create_empty_blocks=false`, height yang stabil saat mempool kosong adalah kondisi idle normal. Saat transaksi masuk, node dapat maju ke local proposer round berikutnya untuk membuat block transaksi, tetapi aturan QC/finality tetap berlaku.

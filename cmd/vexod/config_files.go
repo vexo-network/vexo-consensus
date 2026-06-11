@@ -19,6 +19,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/config"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
+	"github.com/vexo-network/vexo-consensus/economics"
 	"github.com/vexo-network/vexo-consensus/governance"
 	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/node"
@@ -164,22 +165,25 @@ type runtimeRPCConfig struct {
 }
 
 type runtimeP2PConfig struct {
-	Enabled          bool              `json:"enabled"`
-	NodeID           string            `json:"node_id,omitempty"`
-	NodeKeyPath      string            `json:"node_key_path,omitempty"`
-	ListenAddress    string            `json:"listen_address,omitempty"`
-	NetworkID        string            `json:"network_id,omitempty"`
-	MaxMessageBytes  uint64            `json:"max_message_bytes,omitempty"`
-	MaxPeers         int               `json:"max_peers,omitempty"`
-	AuthToken        string            `json:"auth_token,omitempty"`
-	TLSCertPath      string            `json:"tls_cert_path,omitempty"`
-	TLSKeyPath       string            `json:"tls_key_path,omitempty"`
-	TLSCAPath        string            `json:"tls_ca_path,omitempty"`
-	TLSServerName    string            `json:"tls_server_name,omitempty"`
-	AddrBookPath     string            `json:"addr_book_path,omitempty"`
-	AddrBookMaxFails int               `json:"addr_book_max_failures,omitempty"`
-	Peers            map[string]string `json:"peers,omitempty"`
-	Seeds            map[string]string `json:"seeds,omitempty"`
+	Enabled                bool              `json:"enabled"`
+	NodeID                 string            `json:"node_id,omitempty"`
+	NodeKeyPath            string            `json:"node_key_path,omitempty"`
+	ListenAddress          string            `json:"listen_address,omitempty"`
+	DialTimeout            string            `json:"dial_timeout,omitempty"`
+	NetworkID              string            `json:"network_id,omitempty"`
+	MaxMessageBytes        uint64            `json:"max_message_bytes,omitempty"`
+	MaxPeers               int               `json:"max_peers,omitempty"`
+	AuthToken              string            `json:"auth_token,omitempty"`
+	AuthReplayPath         string            `json:"auth_replay_path,omitempty"`
+	RequireAuthReplayStore bool              `json:"require_auth_replay_store,omitempty"`
+	TLSCertPath            string            `json:"tls_cert_path,omitempty"`
+	TLSKeyPath             string            `json:"tls_key_path,omitempty"`
+	TLSCAPath              string            `json:"tls_ca_path,omitempty"`
+	TLSServerName          string            `json:"tls_server_name,omitempty"`
+	AddrBookPath           string            `json:"addr_book_path,omitempty"`
+	AddrBookMaxFails       int               `json:"addr_book_max_failures,omitempty"`
+	Peers                  map[string]string `json:"peers,omitempty"`
+	Seeds                  map[string]string `json:"seeds,omitempty"`
 }
 
 type runtimeConsensusConfig struct {
@@ -510,11 +514,19 @@ func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validat
 		if err != nil {
 			return networkDocument{}, err
 		}
+		nodePublicKey, err := decodeOptionalBase64(nodeKeyDocument.PublicKey)
+		if err != nil {
+			return networkDocument{}, err
+		}
 		operatorAddress, err := address.ValidatorOperatorFromPublicKey(publicKey)
 		if err != nil {
 			return networkDocument{}, err
 		}
 		accountAddress, err := address.AccountFromPublicKey(publicKey)
+		if err != nil {
+			return networkDocument{}, err
+		}
+		nodeAccountAddress, err := address.AccountFromPublicKey(nodePublicKey)
 		if err != nil {
 			return networkDocument{}, err
 		}
@@ -540,7 +552,8 @@ func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validat
 			Metadata:    metadata,
 		})
 		governance[string(operatorAddress)] = 1
-		appState["bank:"+string(accountAddress)] = base64.StdEncoding.EncodeToString([]byte("1000000000000000000000000"))
+		appState["bank:"+string(accountAddress)] = encodedGenesisAccountBalance()
+		appState["bank:"+string(nodeAccountAddress)] = encodedGenesisAccountBalance()
 	}
 	genesis := genesisDocument{
 		SchemaVersion: genesisSchemaVersion,
@@ -912,16 +925,14 @@ func writeValidatorInitFilesWithKeyType(home string, chainID string, validatorID
 	if err != nil {
 		return "", "", "", err
 	}
-	if keyType == vexocrypto.KeyTypeBLS {
-		consensusPath := resolveConsensusConfigPath(home, "")
-		consensusDocument, err := readConsensusConfigDocument(consensusPath)
-		if err != nil {
-			return "", "", "", err
-		}
-		applyConsensusCryptoForKeyType(&consensusDocument, keyType)
-		if err := writeJSONFile(consensusPath, consensusDocument); err != nil {
-			return "", "", "", err
-		}
+	consensusPath := resolveConsensusConfigPath(home, "")
+	consensusDocument, err := readConsensusConfigDocument(consensusPath)
+	if err != nil {
+		return "", "", "", err
+	}
+	applyConsensusCryptoForKeyType(&consensusDocument, keyType)
+	if err := writeJSONFile(consensusPath, consensusDocument); err != nil {
+		return "", "", "", err
 	}
 	if err := vexocrypto.SaveKeyDocument(keyPath, keyDocument); err != nil {
 		return "", "", "", err
@@ -932,8 +943,7 @@ func writeValidatorInitFilesWithKeyType(home string, chainID string, validatorID
 	if err := vexocrypto.SaveKeyDocument(vrfKeyPath, vrfKeyDocument); err != nil {
 		return "", "", "", err
 	}
-	consensusPath := resolveConsensusConfigPath(home, "")
-	consensusDocument, err := readConsensusConfigDocument(consensusPath)
+	consensusDocument, err = readConsensusConfigDocument(consensusPath)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -946,6 +956,9 @@ func writeValidatorInitFilesWithKeyType(home string, chainID string, validatorID
 		return "", "", "", err
 	}
 	if err := applyValidatorKeyToGenesisDocument(&genesisDocument, validatorID, keyDocument); err != nil {
+		return "", "", "", err
+	}
+	if err := applyAccountKeyFundingToGenesisDocument(&genesisDocument, nodeKeyDocument); err != nil {
 		return "", "", "", err
 	}
 	if err := writeJSONFile(genesisPath, genesisDocument); err != nil {
@@ -1039,6 +1052,26 @@ func applyValidatorKeyToGenesisDocument(document *genesisDocument, validatorID s
 		return nil
 	}
 	return fmt.Errorf("validator %q not found in genesis", validatorID)
+}
+
+func applyAccountKeyFundingToGenesisDocument(document *genesisDocument, keyDocument vexocrypto.KeyDocument) error {
+	publicKey, err := decodeOptionalBase64(keyDocument.PublicKey)
+	if err != nil {
+		return err
+	}
+	accountAddress, err := address.AccountFromPublicKey(publicKey)
+	if err != nil {
+		return err
+	}
+	if document.AppState == nil {
+		document.AppState = map[string]string{}
+	}
+	document.AppState["bank:"+string(accountAddress)] = encodedGenesisAccountBalance()
+	return nil
+}
+
+func encodedGenesisAccountBalance() string {
+	return base64.StdEncoding.EncodeToString([]byte("1000000000000000000000000"))
 }
 
 func copyKeyDocumentValidatorMetadata(metadata map[string]string, keyDocument vexocrypto.KeyDocument) {
@@ -1459,11 +1492,16 @@ func hasLegacyLogConfig(document logConfigDocument) bool {
 
 func runtimeP2PConfigSet(config runtimeP2PConfig) bool {
 	return config.Enabled ||
+		config.NodeID != "" ||
+		config.NodeKeyPath != "" ||
 		config.ListenAddress != "" ||
+		config.DialTimeout != "" ||
 		config.NetworkID != "" ||
 		config.MaxMessageBytes != 0 ||
 		config.MaxPeers != 0 ||
 		config.AuthToken != "" ||
+		config.AuthReplayPath != "" ||
+		config.RequireAuthReplayStore ||
 		config.TLSCertPath != "" ||
 		config.TLSKeyPath != "" ||
 		config.TLSCAPath != "" ||
@@ -1583,6 +1621,11 @@ func applyDefaultNetworkSafetyModuleConfig(cfg *config.Config) {
 	cfg.Execution.StrictEVMStateRoot = true
 	cfg.Execution.AllowUnprotectedLegacyTx = false
 	cfg.Bank.MintAuthority = "governance"
+	cfg.Governance.RequireDeposit = true
+	cfg.Governance.MinDeposit = "1avxo"
+	cfg.Governance.DepositDenom = economics.AtomicDenom
+	cfg.Governance.DepositEscrow = "module:governance:deposit_escrow"
+	cfg.Governance.RejectedDeposits = "module:governance:rejected_deposits"
 }
 
 func defaultNetworkConfigDocument(chainID string, dataDir string, validatorID string) networkConfigDocument {
@@ -1627,15 +1670,25 @@ func applyDefaultNetworkSafetyConsensusConfig(cfg *config.Config) {
 }
 
 func applyConsensusCryptoForKeyType(document *consensusConfigDocument, keyType string) {
-	if document == nil || keyType != vexocrypto.KeyTypeBLS {
+	if document == nil {
 		return
 	}
-	document.Crypto.Backend = config.CryptoBackendBLS
-	document.Crypto.ProductionAdapter = true
-	document.Crypto.AdapterName = config.NetworkSafeBLSAdapterBLST
-	document.Crypto.AuditReport = config.NetworkSafeBLSAuditReport
-	document.Crypto.DependencyAudit = config.NetworkSafeBLSDependencyAudit
-	document.Crypto.AuditEvidenceSHA256 = config.NetworkSafeBLSAuditEvidence
+	switch keyType {
+	case vexocrypto.KeyTypeBLS:
+		document.Crypto.Backend = config.CryptoBackendBLS
+		document.Crypto.ProductionAdapter = true
+		document.Crypto.AdapterName = config.NetworkSafeBLSAdapterBLST
+		document.Crypto.AuditReport = config.NetworkSafeBLSAuditReport
+		document.Crypto.DependencyAudit = config.NetworkSafeBLSDependencyAudit
+		document.Crypto.AuditEvidenceSHA256 = config.NetworkSafeBLSAuditEvidence
+	case vexocrypto.KeyTypeEd25519:
+		document.Crypto.Backend = config.CryptoBackendEd25519
+		document.Crypto.ProductionAdapter = false
+		document.Crypto.AdapterName = ""
+		document.Crypto.AuditReport = ""
+		document.Crypto.DependencyAudit = ""
+		document.Crypto.AuditEvidenceSHA256 = ""
+	}
 }
 
 func defaultMempoolConfigDocument(chainID string, dataDir string) mempoolConfigDocument {
@@ -1684,6 +1737,8 @@ func defaultRuntimeConfig(validatorID string) runtimeConfig {
 			NodeID:           defaultP2PNodeID(validatorID, ""),
 			NodeKeyPath:      nodeKeyFileName,
 			ListenAddress:    defaultP2PAddress,
+			DialTimeout:      "10s",
+			AuthReplayPath:   filepath.Join("data", "p2p_auth_replay.jsonl"),
 			AddrBookMaxFails: 3,
 			Peers:            map[string]string{},
 			Seeds:            map[string]string{},

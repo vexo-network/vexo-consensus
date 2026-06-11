@@ -100,3 +100,8 @@
 - `signature_algorithm`
 - `signature_public_key`
 - `vexo-release-evidence-attestation-v1`
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## 네트워크 E2E 해석
+
+`make network-e2e`는 단순 빌드 테스트가 아니라 실제 바이너리로 4개 validator를 띄우고 signed-shape smoke transaction, peer 연결, height 증가, clean stop까지 확인합니다. `NETWORK_E2E_GO_TIMEOUT`은 외부 Go test 제한이고, 내부 network timeout보다 충분히 커야 실제 실패 원인이 로그에 남습니다.

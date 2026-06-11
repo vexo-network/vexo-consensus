@@ -28,9 +28,9 @@ func (node *Node) SubmitTx(ctx context.Context, tx types.Tx) error {
 		return nil
 	}
 	if err := wire.Publish(ctx, p2p.TopicTx, append([]byte(nil), tx...)); err != nil {
-		return err
+		node.logEvent("tx_gossip_failed", map[string]any{"error": err.Error()})
 	}
-	node.wakeConsensus(ctx)
+	node.wakeConsensus(context.Background())
 	return nil
 }
 
@@ -64,6 +64,28 @@ func (node *Node) PendingTxs(ctx context.Context) ([]types.Tx, error) {
 		copied = append(copied, append(types.Tx(nil), tx...))
 	}
 	return copied, nil
+}
+
+func (node *Node) mempoolHasPendingTx(ctx context.Context) bool {
+	runtime, err := node.Runtime()
+	if err != nil || runtime.Mempool == nil {
+		return false
+	}
+	select {
+	case <-ctx.Done():
+		return false
+	default:
+	}
+	return runtime.Mempool.Len() > 0
+}
+
+func (node *Node) hasPendingProposalAtHeight(height types.Height) bool {
+	for _, proposal := range node.pendingProposals() {
+		if proposal.Block.Header.Height == height {
+			return true
+		}
+	}
+	return false
 }
 
 func (node *Node) ProposeFromMempool(ctx context.Context, maxBytes int64) (consensus.Proposal, types.Hash, error) {

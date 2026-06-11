@@ -2358,6 +2358,46 @@ func TestNetworkLoadPayloadUsesRealisticNonce(t *testing.T) {
 	}
 }
 
+func TestSignedNetworkPayloadUsesFundedNodeAccount(t *testing.T) {
+	home := t.TempDir()
+	if _, err := writeNetworkFilesWithPorts(home, "vexo-test", 1, true, defaultP2PBasePort, defaultRPCBasePort); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := buildNetworkRuntimePlan(home, 1, "/bin/vexod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodeDocument, err := vexocrypto.LoadKeyDocument(filepath.Join(plan.Nodes[0].Home, nodeKeyFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := keyDocumentAccountAddress(nodeDocument)
+	if err != nil {
+		t.Fatal(err)
+	}
+	genesis, err := readGenesisDocument(filepath.Join(plan.Nodes[0].Home, genesisFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if genesis.AppState["bank:"+string(account)] == "" {
+		t.Fatalf("expected node account %s to be funded in genesis: %+v", account, genesis.AppState)
+	}
+	tx, err := signedNetworkPayload("vexo-test", plan.Nodes[0], defaultNetworkSmokeTxPrefix, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := vexoapp.VerifySignedTx("vexo-test", tx, vexocrypto.Ed25519Signer{}); err != nil {
+		t.Fatalf("expected smoke tx to verify with node account key: %v", err)
+	}
+	_, payload, err := vexoapp.DecodeSignedTx(tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(payload), "signer="+string(account)) || !strings.Contains(string(payload), "bank:send:"+string(account)+":") {
+		t.Fatalf("expected payload to use node account %s, got %s", account, payload)
+	}
+}
+
 func TestRunInitWritesNetworkFilesWithCustomPorts(t *testing.T) {
 	home := t.TempDir()
 	var output bytes.Buffer
@@ -3096,7 +3136,7 @@ func TestRunNetworkSmokePlanSubmitsTxAndWaitsForHeight(t *testing.T) {
 		case request.Method == http.MethodGet && request.URL.Path == "/healthz":
 			return jsonHTTPResponse(http.StatusOK, `{"ok":true}`), nil
 		case request.Method == http.MethodGet && request.URL.Path == "/v1/status":
-			return jsonHTTPResponse(http.StatusOK, `{"chain_id":"vexo-test","running":true,"latest_height":`+strconv.FormatUint(heights[address], 10)+`}`), nil
+			return jsonHTTPResponse(http.StatusOK, `{"chain_id":"vexo-test","running":true,"latest_height":`+strconv.FormatUint(heights[address], 10)+`,"peer_count":1}`), nil
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/tx":
 			txSubmitted = true
 			var payload struct {

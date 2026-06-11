@@ -18,6 +18,7 @@ RC_CHAOS_DURATION ?= 24h
 RC_CHAOS_TIMEOUT ?= 60s
 RC_RATE ?= 50
 RC_EVM_CONFORMANCE_FLAGS ?=
+NETWORK_E2E_GO_TIMEOUT ?= 120000s
 
 .PHONY: all build test vet check docs-check evm-conformance fuzz-smoke ops-verify network-e2e coverage release checksums sbom release-manifest release-audit-pack release-evidence-manifest sign-release docker-image release-candidate release-candidate-real release-candidate-plan clean
 
@@ -81,7 +82,7 @@ ops-verify: check fuzz-smoke
 
 network-e2e: build
 	mkdir -p $(GOCACHE_DIR)
-	VEXO_NETWORK_E2E=1 VEXO_NETWORK_E2E_BINARY=$$(pwd)/$(BUILD_DIR)/$(BINARY) GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test -timeout=30000s ./cmd/vexod -run TestNetworkUpBuiltBinaryE2E -count=1
+	VEXO_NETWORK_E2E=1 VEXO_NETWORK_E2E_BINARY=$$(pwd)/$(BUILD_DIR)/$(BINARY) GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test -timeout=$(NETWORK_E2E_GO_TIMEOUT) ./cmd/vexod -run TestNetworkUpBuiltBinaryE2E -count=1
 
 coverage:
 	mkdir -p $(GOCACHE_DIR)

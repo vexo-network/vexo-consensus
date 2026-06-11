@@ -79,3 +79,8 @@ Ce document aide à comprendre l’initialisation des nœuds archive/validator e
 ## Source canonique
 
 - [Document canonique anglais](../../en/operators/node-initialization.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Note opérationnelle récente
+
+Pour un nouveau répertoire de nœud, vérifiez ensemble `p2p.dial_timeout`, `p2p.auth_replay_path` et `p2p.require_auth_replay_store` dans `network_config.json`. Le timeout par défaut `10s` couvre le dial TCP, TLS, le signed handshake et la vérification replay-store. Sur un réseau public, ces paramètres doivent rester dans la configuration revue, pas dans des flags shell cachés.

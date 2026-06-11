@@ -517,6 +517,7 @@ type networkSmokeResult struct {
 
 type networkStatusResponse struct {
 	LatestHeight uint64 `json:"latest_height"`
+	PeerCount    int    `json:"peer_count"`
 }
 
 type networkMetricsResponse struct {
@@ -535,8 +536,9 @@ func runNetworkUp(ctx context.Context, writer io.Writer, args []string) error {
 	validators := flags.Int("validators", 4, "validator count")
 	p2pBasePort := flags.Int("p2p-base-port", defaultP2PBasePort, "first network P2P port")
 	rpcBasePort := flags.Int("rpc-base-port", defaultRPCBasePort, "first network RPC port")
+	keyType := flags.String("key-type", vexocrypto.KeyTypeBLS, "validator consensus key type: bls or ed25519")
 	binaryPath := flags.String("binary", "", "vexod binary path; defaults to current executable")
-	timeoutValue := flags.String("timeout", "20s", "startup and smoke test timeout")
+	timeoutValue := flags.String("timeout", "60s", "startup and smoke test timeout")
 	tx := flags.String("tx", defaultNetworkSmokeTxPrefix, "transaction payload template to submit; nonce suffix is appended when needed")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing network files")
 	keepRunning := flags.Bool("keep-running", false, "leave nodes running after smoke test")
@@ -556,7 +558,14 @@ func runNetworkUp(ctx context.Context, writer io.Writer, args []string) error {
 		writeNetworkUpPlan(writer, plan, *chainID, timeout, *tx, *overwrite, *keepRunning)
 		return nil
 	}
-	networkFiles, err := writeNetworkFilesWithPorts(*home, *chainID, *validators, *overwrite, *p2pBasePort, *rpcBasePort)
+	networkFiles, err := writeNetworkFilesWithOptionsAndKeyType(*home, *chainID, *validators, *overwrite, networkAddressOptions{
+		P2PBasePort:     *p2pBasePort,
+		RPCBasePort:     *rpcBasePort,
+		P2PPortStep:     10,
+		RPCPortStep:     10,
+		P2PHostTemplate: "127.0.0.1",
+		RPCHostTemplate: "127.0.0.1",
+	}, *keyType, false, "")
 	if err != nil {
 		return err
 	}
@@ -1261,6 +1270,13 @@ func runNetworkSmokePlan(ctx context.Context, client http.Client, plan networkRu
 			return nil, fmt.Errorf("%s health: %w", localNode.ValidatorID, err)
 		}
 	}
+	if len(plan.Nodes) > 1 {
+		for _, localNode := range plan.Nodes {
+			if err := waitNetworkPeerCount(ctx, client, localNode.RPCAddress, len(plan.Nodes)-1); err != nil {
+				return nil, fmt.Errorf("%s peers: %w", localNode.ValidatorID, err)
+			}
+		}
+	}
 	firstNode := plan.Nodes[0]
 	statusBefore, err := networkStatus(ctx, client, firstNode.RPCAddress)
 	if err != nil {
@@ -1496,11 +1512,11 @@ func networkSurvivorNode(plan networkRuntimePlan, targetIndex int) networkNodeRu
 }
 
 func signedNetworkPayload(chainID string, localNode networkNodeRuntimePlan, txPrefix string, sequence uint64) (types.Tx, error) {
-	keyDocument, err := vexocrypto.LoadKeyDocument(filepath.Join(localNode.Home, keyFileName))
+	keyDocument, err := loadNetworkTxKeyDocument(localNode)
 	if err != nil {
 		return nil, err
 	}
-	signer, err := keyDocument.SignerWithPassphrase("")
+	signer, err := keyDocument.SignerWithPassphrase(resolvePassphrase(""))
 	if err != nil {
 		return nil, err
 	}
@@ -1513,6 +1529,17 @@ func signedNetworkPayload(chainID string, localNode networkNodeRuntimePlan, txPr
 		return payload, nil
 	}
 	return vexoapp.SignTx(chainID, payload, signer)
+}
+
+func loadNetworkTxKeyDocument(localNode networkNodeRuntimePlan) (vexocrypto.KeyDocument, error) {
+	nodeKeyDocument, err := vexocrypto.LoadKeyDocument(filepath.Join(localNode.Home, nodeKeyFileName))
+	if err == nil {
+		return nodeKeyDocument, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return vexocrypto.KeyDocument{}, err
+	}
+	return vexocrypto.LoadKeyDocument(filepath.Join(localNode.Home, keyFileName))
 }
 
 func networkPlanChainID(plan networkRuntimePlan) (string, error) {
@@ -1575,6 +1602,23 @@ func waitNetworkHeight(ctx context.Context, client http.Client, address string, 
 				return networkStatusResponse{}, err
 			}
 			return networkStatusResponse{}, ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+}
+
+func waitNetworkPeerCount(ctx context.Context, client http.Client, address string, minPeers int) error {
+	for {
+		status, err := networkStatus(ctx, client, address)
+		if err == nil && status.PeerCount >= minPeers {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("peer count below target")
 		case <-time.After(25 * time.Millisecond):
 		}
 	}

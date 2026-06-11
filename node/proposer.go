@@ -89,6 +89,16 @@ func (node *Node) tickConsensusWithProposalOptions(ctx context.Context, cfg Cons
 		return consensus.Proposal{}, types.Hash{}, false, err
 	}
 	if !isProposer {
+		if node.shouldRecoverProposerRound(ctx, height, status.Round, options) {
+			recoveryRound, ok, err := node.nextLocalProposerRound(ctx, height, status.Round)
+			if err != nil {
+				return consensus.Proposal{}, types.Hash{}, false, err
+			}
+			if ok {
+				machine.StartRound(height, recoveryRound)
+				return node.tickConsensusWithProposalOptions(ctx, cfg, options)
+			}
+		}
 		return consensus.Proposal{}, types.Hash{}, false, nil
 	}
 	if node.hasProposed(height, status.Round) {
@@ -100,12 +110,13 @@ func (node *Node) tickConsensusWithProposalOptions(ctx context.Context, cfg Cons
 		if err != nil {
 			return consensus.Proposal{}, types.Hash{}, false, ErrConsensusOffline
 		}
-		if err := node.broadcastAncestorProposals(ctx, reactor, proposal.Block.Header.Height); err != nil {
-			return consensus.Proposal{}, types.Hash{}, false, err
-		}
-		if err := reactor.BroadcastProposal(ctx, proposal); err != nil {
-			return consensus.Proposal{}, types.Hash{}, false, err
-		}
+		node.broadcastAncestorProposals(reactor, proposal.Block.Header.Height)
+		node.broadcastConsensusAsync("proposal_broadcast_failed", map[string]any{
+			"height": proposal.Block.Header.Height,
+			"round":  proposal.Round,
+		}, func(ctx context.Context) error {
+			return reactor.BroadcastProposal(ctx, proposal)
+		})
 		return consensus.Proposal{}, types.Hash{}, false, nil
 	}
 	proposal, blockHash, err := node.ProposeFromMempoolWithOptions(ctx, cfg.MaxBlockBytes, options)
@@ -117,4 +128,40 @@ func (node *Node) tickConsensusWithProposalOptions(ctx context.Context, cfg Cons
 	}
 	node.markProposed(proposal.Block.Header.Height, proposal.Round)
 	return proposal, blockHash, true, nil
+}
+
+func (node *Node) shouldRecoverProposerRound(ctx context.Context, height types.Height, round types.Round, options ProposalOptions) bool {
+	if round == 0 || options.ForceEmpty {
+		return false
+	}
+	if node.hasPendingProposalAtHeight(height) {
+		return false
+	}
+	return node.mempoolHasPendingTx(ctx)
+}
+
+func (node *Node) nextLocalProposerRound(ctx context.Context, height types.Height, round types.Round) (types.Round, bool, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return 0, false, err
+	}
+	validatorSet, err := runtime.Validators.ValidatorSet(ctx, height)
+	if err != nil {
+		return 0, false, err
+	}
+	validators := validatorSet.List()
+	if len(validators) == 0 {
+		return 0, false, ErrMissingValidators
+	}
+	for offset := 1; offset <= len(validators); offset++ {
+		candidateRound := round + types.Round(offset)
+		proposer, err := SelectProposer(validators, height, candidateRound)
+		if err != nil {
+			return 0, false, err
+		}
+		if proposer == node.cfg.ValidatorID {
+			return candidateRound, true, nil
+		}
+	}
+	return 0, false, nil
 }

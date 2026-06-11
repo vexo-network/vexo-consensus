@@ -16,10 +16,11 @@ type deploymentTemplateDocument struct {
 }
 
 type deploymentChainTemplate struct {
-	Execution deploymentExecutionTemplate `json:"execution"`
-	Mempool   deploymentMempoolTemplate   `json:"mempool"`
-	Validator deploymentValidatorTemplate `json:"validator"`
-	Committee deploymentCommitteeTemplate `json:"committee"`
+	Execution  deploymentExecutionTemplate  `json:"execution"`
+	Mempool    deploymentMempoolTemplate    `json:"mempool"`
+	Governance deploymentGovernanceTemplate `json:"governance"`
+	Validator  deploymentValidatorTemplate  `json:"validator"`
+	Committee  deploymentCommitteeTemplate  `json:"committee"`
 }
 
 type deploymentExecutionTemplate struct {
@@ -56,6 +57,14 @@ type deploymentMempoolTemplate struct {
 	MaxTxs             int    `json:"max_txs"`
 	SeenTTL            string `json:"seen_ttl"`
 	WALPath            string `json:"wal_path"`
+}
+
+type deploymentGovernanceTemplate struct {
+	RequireDeposit   bool   `json:"require_deposit"`
+	MinDeposit       string `json:"min_deposit"`
+	DepositDenom     string `json:"deposit_denom"`
+	DepositEscrow    string `json:"deposit_escrow"`
+	RejectedDeposits string `json:"rejected_deposits"`
 }
 
 type deploymentValidatorTemplate struct {
@@ -100,6 +109,7 @@ func runConfigDeploymentTemplate(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "deployment parameter template\n")
 	fmt.Fprintf(writer, "execution: require_signed=%t require_nonce=%t min_fee=%d base_fee=%d blob_base_fee=%d dynamic_base_fee=%t dynamic_blob_base_fee=%t target_gas=%d target_blob_gas=%d min_gas=%d max_gas=%d fee_denom=%s gas_denom=%s strict_evm_state_root=%t\n", document.Chain.Execution.RequireSigned, document.Chain.Execution.RequireNonce, document.Chain.Execution.MinFee, document.Chain.Execution.BaseFee, document.Chain.Execution.BlobBaseFee, document.Chain.Execution.DynamicBaseFee, document.Chain.Execution.DynamicBlobBaseFee, document.Chain.Execution.TargetGas, document.Chain.Execution.TargetBlobGas, document.Chain.Execution.MinGas, document.Chain.Execution.MaxGas, document.Chain.Execution.FeeDenom, document.Chain.Execution.GasDenom, document.Chain.Execution.StrictEVMStateRoot)
 	fmt.Fprintf(writer, "mempool: min_fee=%d priority=%t replacement=%t replacement_bump_bps=%d max_txs=%d seen_ttl=%s wal_path=%s\n", document.Chain.Mempool.MinFee, document.Chain.Mempool.EnablePriority, document.Chain.Mempool.EnableReplacement, document.Chain.Mempool.ReplacementBumpBPS, document.Chain.Mempool.MaxTxs, document.Chain.Mempool.SeenTTL, document.Chain.Mempool.WALPath)
+	fmt.Fprintf(writer, "governance: require_deposit=%t min_deposit=%s deposit_denom=%s escrow=%s rejected_deposits=%s\n", document.Chain.Governance.RequireDeposit, document.Chain.Governance.MinDeposit, document.Chain.Governance.DepositDenom, document.Chain.Governance.DepositEscrow, document.Chain.Governance.RejectedDeposits)
 	fmt.Fprintf(writer, "validator: permissionless=%t min_stake=%d remote_signer=%t\n", document.Chain.Validator.Permissionless, document.Chain.Validator.MinStake, document.Chain.Validator.RemoteSigner)
 	fmt.Fprintf(writer, "committee: size=%d epoch_length=%d regions=%d\n", document.Chain.Committee.Size, document.Chain.Committee.EpochLength, document.Chain.Committee.Regions)
 	fmt.Fprintf(writer, "runtime: rpc_max_request_bytes=%d rpc_rate_limit_max=%d p2p_max_message_bytes=%d\n", document.Runtime.RPCMaxRequestBytes, document.Runtime.RPCRateLimitMaxRequests, document.Runtime.P2PMaxMessageBytes)
@@ -148,6 +158,13 @@ func buildDeploymentTemplateDocument() deploymentTemplateDocument {
 				MaxTxs:             50_000,
 				SeenTTL:            "10m0s",
 				WALPath:            "data/mempool.wal",
+			},
+			Governance: deploymentGovernanceTemplate{
+				RequireDeposit:   true,
+				MinDeposit:       "1avxo",
+				DepositDenom:     "avxo",
+				DepositEscrow:    "module:governance:deposit_escrow",
+				RejectedDeposits: "module:governance:rejected_deposits",
 			},
 			Validator: deploymentValidatorTemplate{
 				Permissionless: true,

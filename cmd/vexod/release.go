@@ -15,11 +15,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/vexo-network/vexo-consensus/cmd/vexod/internal/releasegate"
 	"github.com/vexo-network/vexo-consensus/committee"
@@ -315,8 +316,14 @@ func releaseReadMarkdownFiles(root string) (map[string]string, error) {
 }
 
 func releaseContainsPlaceholder(body string) bool {
+	lower := strings.ToLower(body)
+	normalized := releaseNormalizeWhitespace(lower)
 	for _, forbidden := range []string{"todo", "tbd", "placeholder", "coming soon", "translation pending", "machine translation pending"} {
-		if releasePlaceholderPattern(forbidden).MatchString(body) {
+		haystack := lower
+		if strings.Contains(forbidden, " ") {
+			haystack = normalized
+		}
+		if releaseContainsBoundedPhrase(haystack, forbidden) {
 			return true
 		}
 	}
@@ -341,12 +348,43 @@ func releaseLocalizedBoilerplateLeak(locale string, body string) string {
 	return ""
 }
 
-func releasePlaceholderPattern(value string) *regexp.Regexp {
-	quoted := regexp.QuoteMeta(value)
-	if strings.Contains(value, " ") {
-		quoted = strings.ReplaceAll(quoted, `\ `, `\s+`)
+func releaseNormalizeWhitespace(value string) string {
+	return strings.Join(strings.Fields(value), " ")
+}
+
+func releaseContainsBoundedPhrase(body string, phrase string) bool {
+	if phrase == "" {
+		return false
 	}
-	return regexp.MustCompile(`(?i)(^|[^[:alpha:]])` + quoted + `($|[^[:alpha:]])`)
+	offset := 0
+	for {
+		index := strings.Index(body[offset:], phrase)
+		if index < 0 {
+			return false
+		}
+		index += offset
+		end := index + len(phrase)
+		if releaseBoundaryBefore(body, index) && releaseBoundaryAfter(body, end) {
+			return true
+		}
+		offset = index + 1
+	}
+}
+
+func releaseBoundaryBefore(body string, index int) bool {
+	if index <= 0 {
+		return true
+	}
+	r, _ := utf8.DecodeLastRuneInString(body[:index])
+	return !unicode.IsLetter(r)
+}
+
+func releaseBoundaryAfter(body string, index int) bool {
+	if index >= len(body) {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(body[index:])
+	return !unicode.IsLetter(r)
 }
 
 func sortedStringMapKeys(values map[string]string) []string {

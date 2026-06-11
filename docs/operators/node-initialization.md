@@ -22,6 +22,14 @@ vexod init validator \
 
 Set `VEXO_KEY_PASSPHRASE` before running this command, or pass `--passphrase` for a one-off local setup. `--encrypt-keys` encrypts `validator.key.json`, `node.key.json`, and `validator.vrf.key.json`.
 
+Key custody rule of thumb:
+
+- `validator.key.json` signs consensus proposals, votes, timeout votes, and finality-related messages.
+- `node.key.json` signs P2P handshakes only; it must never be reused as the validator consensus key.
+- `validator.vrf.key.json` proves committee randomness and should be treated like validator custody material.
+- Public listeners must use encrypted local key documents or remote signer/KMS-style key documents. If a node exposes public RPC or authenticated public P2P while `require_network_safety=true`, startup rejects plaintext local validator keys.
+- Generated keys are written with filesystem mode `0600`; still prefer a remote signer/KMS for long-lived validators.
+
 For a BLS consensus key:
 
 ```bash
@@ -102,6 +110,10 @@ Node homes use separate config files so operators can edit one subsystem without
 
 `network_config.json` RPC settings also include `shutdown_timeout`, `web3_max_subscriptions_per_connection`, and `web3_idle_timeout`. `shutdown_timeout` bounds graceful shutdown for the consensus loop, RPC server, and node transport so operators do not wait forever on a stuck stop path. The generated default is `10s`; Web3 subscriptions default to 256 per connection with a `2m` idle timeout so public RPC endpoints cannot accumulate unbounded idle subscriptions.
 
+`network_config.json` P2P settings include `auth_replay_path`, `require_auth_replay_store`, and `dial_timeout`. The generated default writes nonce replay evidence to `data/p2p_auth_replay.jsonl` and uses a `10s` outbound dial timeout. For private loopback testing the replay store is mostly harmless bookkeeping; for public authenticated P2P it is a safety requirement because it prevents a captured signed handshake nonce from being replayed after restart. `dial_timeout` should be long enough for TLS, signed handshake verification, and cross-region latency; setting it too low makes healthy peers look flaky and can slow liveness after restarts.
+
+If a field changes network behavior, edit the split config file and commit or distribute that reviewed file. Do not rely on long `vexod start` flags for runtime behavior. The start command intentionally rejects consensus timing, empty-block, P2P auth, RPC admin, and managed Web3 key flags so operators do not accidentally run different behavior from the reviewed config.
+
 ## Key Types
 
 Validator init defaults to `--key-type bls` because network-safety validation requires audited BLS aggregate finality. `--key-type ed25519` remains available for private experiments and custom deployments outside the network-safety gate. `--encrypt-keys` should be used for any non-throwaway node home. Standalone key generation also supports VRF keys:
@@ -175,6 +187,26 @@ Example `module_config.json`:
 }
 ```
 
+Governance policy also lives in `module_config.json`. Generated network-safe configs require a proposal deposit:
+
+```json
+{
+  "governance": {
+    "QuorumPower": 1,
+    "YesThresholdPower": 1,
+    "VotingPeriod": 100,
+    "Timelock": 10,
+    "RequireDeposit": true,
+    "MinDeposit": "1avxo",
+    "DepositDenom": "avxo",
+    "DepositEscrow": "module:governance:deposit_escrow",
+    "RejectedDeposits": "module:governance:rejected_deposits"
+  }
+}
+```
+
+The deposit is native balance escrowed from the proposal submitter. Passing proposals refund the deposit; rejected proposals move it to `RejectedDeposits`. Use an address controlled by your treasury/community-pool module if rejected deposits should fund a treasury instead of the default module account.
+
 Example `network_config.json`:
 
 ```json
@@ -191,6 +223,9 @@ Example `network_config.json`:
     "node_id": "validator-1",
     "node_key_path": "node.key.json",
     "listen_address": "0.0.0.0:26656",
+    "dial_timeout": "10s",
+    "auth_replay_path": "data/p2p_auth_replay.jsonl",
+    "require_auth_replay_store": true,
     "tls_cert_path": "tls/node.crt",
     "tls_key_path": "tls/node.key",
     "tls_ca_path": "tls/ca.crt",
@@ -276,6 +311,9 @@ Peer and listen addresses live in `network_config.json`:
     "node_id": "validator-1",
     "node_key_path": "node.key.json",
     "listen_address": "0.0.0.0:26656",
+    "dial_timeout": "10s",
+    "auth_replay_path": "data/p2p_auth_replay.jsonl",
+    "require_auth_replay_store": true,
     "tls_cert_path": "tls/node.crt",
     "tls_key_path": "tls/node.key",
     "tls_ca_path": "tls/ca.crt",
@@ -303,7 +341,7 @@ Do not put long-lived host or `host:port` settings on the `vexod start` command 
 
 Keep `p2p.node_id` stable for the lifetime of the node home. `p2p.node_key_path` should point to `node.key.json` or another local/managed key document used only for peer handshake signing. Peer maps should use peer node IDs, not account addresses or validator operator names unless those are intentionally the same.
 
-For encrypted and authenticated gRPC peer transport, also set `p2p.tls_cert_path`, `p2p.tls_key_path`, `p2p.tls_ca_path`, and optionally `p2p.tls_server_name` in `network_config.json`. Relative TLS paths are resolved from the node home directory.
+For encrypted and authenticated gRPC peer transport, also set `p2p.tls_cert_path`, `p2p.tls_key_path`, `p2p.tls_ca_path`, and optionally `p2p.tls_server_name` in `network_config.json`. Relative TLS paths are resolved from the node home directory. Keep `p2p.dial_timeout` in the same file so every operator uses the same reconnect behavior; do not hide peer timing in shell scripts.
 
 ## Consensus Timing
 
@@ -334,6 +372,8 @@ Consensus loop timing lives in `consensus_config.json`:
 
 `round_timeout` is kept only as a compatibility aggregate. Prefer the Tendermint-style timeout fields above.
 
+When `create_empty_blocks` is false, height can remain unchanged while the mempool is empty. That is expected: the chain is waiting for useful work instead of committing empty blocks. When a transaction appears and local consensus round state has drifted past another proposer, the node advances to the next round where its validator is proposer and builds from the mempool. This recovery path keeps transaction-triggered liveness without re-enabling empty-block spam.
+
 ## Multi-Validator Network
 
 For a generated network:
@@ -351,6 +391,8 @@ Each generated validator home receives:
 - its own split config files: `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json`, and `log_config.json`
 - a shared `genesis.json`
 - `network_config.json` peer entries for the other validators
+
+`vexod network up` and `make network-e2e` use a process-level timeout while waiting for all validators to start, submit the smoke transaction, and observe height growth. The default command timeout is intentionally longer than the consensus interval because it covers process startup, LevelDB open, P2P signed handshakes, TLS/auth checks, transaction admission, and finality. If you lower consensus timeouts aggressively, keep the network-up timeout large enough to diagnose startup errors instead of killing the harness too early.
 
 For containerized or multi-host networks, put topology values in a JSON file:
 

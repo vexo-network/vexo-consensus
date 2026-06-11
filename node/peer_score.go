@@ -10,7 +10,10 @@ import (
 	"github.com/vexo-network/vexo-consensus/transport"
 )
 
-const peerScorePersistMinInterval = time.Second
+const (
+	peerScorePersistMinInterval = time.Second
+	peerGateScoreLookupTimeout  = 2 * time.Second
+)
 
 func (node *Node) observePeerMessage(ctx context.Context, peer p2p.PeerID, valid bool) bool {
 	if peer == "" {
@@ -89,7 +92,9 @@ func (node *Node) configureTransportPeerGate(runtime *vexoruntime.Runtime) {
 		return
 	}
 	gate := func(ctx context.Context, peer p2p.PeerID) error {
-		banned, err := runtime.P2PScore.IsBanned(ctx, peer)
+		scoreCtx, cancel := peerGateScoreContext(ctx)
+		defer cancel()
+		banned, err := runtime.P2PScore.IsBanned(scoreCtx, peer)
 		if err != nil {
 			return err
 		}
@@ -107,6 +112,10 @@ func (node *Node) configureTransportPeerGate(runtime *vexoruntime.Runtime) {
 		return
 	}
 	gated.SetPeerGate(gate)
+}
+
+func peerGateScoreContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), peerGateScoreLookupTimeout)
 }
 
 func (node *Node) disconnectPeer(peer p2p.PeerID) {

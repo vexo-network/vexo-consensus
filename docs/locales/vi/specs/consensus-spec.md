@@ -75,3 +75,8 @@ Tài liệu này giúp hiểu đặc tả chuẩn của state machine đồng th
 ## Nguồn chuẩn
 
 - [Tài liệu chuẩn tiếng Anh](../../en/specs/consensus-spec.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Empty block và phục hồi round
+
+Khi `create_empty_blocks=false`, height đứng yên lúc mempool rỗng là trạng thái idle bình thường. Khi có transaction, node có thể tiến tới local proposer round tiếp theo để tạo block giao dịch, nhưng các quy tắc QC/finality vẫn giữ nguyên.

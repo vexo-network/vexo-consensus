@@ -106,3 +106,8 @@ En una publicación pública, cada entrada de `evidence-manifest.json` debe veri
 - `signature_algorithm`
 - `signature_public_key`
 - `vexo-release-evidence-attestation-v1`
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Cómo leer el E2E de red
+
+`make network-e2e` no es solo un test de build: arranca 4 validators con el binario real y verifica signed-shape smoke transaction, conexión peer, crecimiento de height y clean stop. `NETWORK_E2E_GO_TIMEOUT` es el límite externo de Go test y debe superar el timeout interno de red.

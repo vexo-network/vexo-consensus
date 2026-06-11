@@ -143,6 +143,8 @@ vexod ops conformance --home .vexo --json
 vexod release readiness --json
 ```
 
+Governance JSON proposal deposits are native bank balances. When a store-backed runtime processes a proposal with `deposit`, the submitter's funds move into the governance escrow account, successful execution refunds the deposit, and a rejected proposal moves the deposit into the rejected-deposit module account. All of those writes participate in the staged block commit path.
+
 Common RPC reads:
 
 ```bash

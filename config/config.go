@@ -184,6 +184,9 @@ func Default(chainID string) Config {
 			YesThresholdPower: 1,
 			VotingPeriod:      100,
 			Timelock:          10,
+			DepositDenom:      economics.AtomicDenom,
+			DepositEscrow:     "module:governance:deposit_escrow",
+			RejectedDeposits:  "module:governance:rejected_deposits",
 		},
 		P2P: p2p.ScoreConfig{
 			InitialScore:              100,
@@ -229,6 +232,11 @@ func NetworkSafeTemplate(chainID string, dataDir string) Config {
 	cfg.Execution.AllowUnprotectedLegacyTx = false
 	cfg.Execution.StrictEVMStateRoot = true
 	cfg.Bank.MintAuthority = "governance"
+	cfg.Governance.RequireDeposit = true
+	cfg.Governance.MinDeposit = "1" + economics.AtomicDenom
+	cfg.Governance.DepositDenom = economics.AtomicDenom
+	cfg.Governance.DepositEscrow = "module:governance:deposit_escrow"
+	cfg.Governance.RejectedDeposits = "module:governance:rejected_deposits"
 	cfg.Mempool.MinFee = 1
 	cfg.Mempool.EnablePriority = true
 	cfg.Mempool.EnableReplacement = true
@@ -328,6 +336,21 @@ func (config Config) Validate() error {
 		config.Governance.Timelock == 0 {
 		return ErrInvalidConfig
 	}
+	if config.Governance.DepositDenom != "" && !isKnownDenom(config.Governance.DepositDenom) {
+		return ErrInvalidConfig
+	}
+	if strings.TrimSpace(config.Governance.MinDeposit) != "" {
+		amount, err := economics.ParseAmountBig(config.Governance.MinDeposit)
+		if err != nil || amount == nil || amount.Sign() <= 0 {
+			return ErrInvalidConfig
+		}
+	}
+	if config.Governance.RequireDeposit && strings.TrimSpace(config.Governance.MinDeposit) == "" {
+		return ErrInvalidConfig
+	}
+	if config.Governance.RequireDeposit && (config.Governance.DepositEscrow == "" || config.Governance.RejectedDeposits == "") {
+		return ErrInvalidConfig
+	}
 	if config.P2P.InitialScore <= config.P2P.BanThreshold ||
 		(config.P2P.MaxScore > 0 && config.P2P.MaxScore < config.P2P.InitialScore) ||
 		config.P2P.ValidMessageReward < 0 ||
@@ -390,6 +413,10 @@ func (config Config) ValidateNetworkSafety() error {
 	if config.Mempool.SeenTTL <= 0 {
 		return ErrUnsafeNetworkConfig
 	}
+	if !config.Governance.RequireDeposit || strings.TrimSpace(config.Governance.MinDeposit) == "" ||
+		config.Governance.DepositEscrow == "" || config.Governance.RejectedDeposits == "" {
+		return ErrUnsafeNetworkConfig
+	}
 	if config.P2P.MaxScore <= 0 ||
 		config.P2P.MaxTotalMessagesPerWindow <= config.P2P.MaxMessagesPerWindow ||
 		config.P2P.BanDuration <= 0 ||
@@ -436,4 +463,9 @@ func validCommitteeBackend(backend committee.Backend) bool {
 	default:
 		return false
 	}
+}
+
+func isKnownDenom(denom string) bool {
+	_, found := economics.DenomFactor(denom)
+	return found
 }

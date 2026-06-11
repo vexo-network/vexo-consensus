@@ -19,8 +19,8 @@ func governanceCLICommand() vexoapp.CLICommand {
 		Usage:       "governance <command>",
 		Description: "governance proposal, voting, execution, and query commands",
 		Examples: []string{
-			"governance tx submit alice max-gas execution max_gas 20000000",
-			`governance tx submit-json '{"submitter":"alice","title":"upgrade","changes":[{"module":"execution","key":"max_gas","value":"20000000"}]}'`,
+			"governance tx submit alice max-gas execution max_gas 20000000 100avxo",
+			`governance tx submit-json '{"submitter":"alice","title":"upgrade","deposit":"100avxo","changes":[{"module":"execution","key":"max_gas","value":"20000000"}]}'`,
 			"governance tx vote 1 alice yes",
 			"governance query tally 1",
 		},
@@ -32,14 +32,15 @@ func governanceCLICommand() vexoapp.CLICommand {
 				Children: []vexoapp.CLICommand{
 					{
 						Name:        "submit",
-						Usage:       "governance tx submit <submitter> <title> <module> <key> <value>",
-						Description: "build a parameter-change proposal transaction",
+						Usage:       "governance tx submit <submitter> <title> <module> <key> <value> [deposit]",
+						Description: "build a parameter-change proposal transaction with an optional deposit",
 						Args: []vexoapp.CLIArg{
 							{Name: "submitter", Description: "proposal submitter address"},
 							{Name: "title", Description: "short proposal title without ':'"},
 							{Name: "module", Description: "target module name"},
 							{Name: "key", Description: "target parameter key"},
 							{Name: "value", Description: "new parameter value without ':'"},
+							{Name: "deposit", Description: "optional proposal deposit such as 100avxo"},
 						},
 						Run: runSubmitCLI,
 					},
@@ -114,13 +115,17 @@ func runSubmitCLI(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(args) != 5 {
-		return vexoapp.ErrCLIUsage("governance tx submit <submitter> <title> <module> <key> <value>")
+	if len(args) != 5 && len(args) != 6 {
+		return vexoapp.ErrCLIUsage("governance tx submit <submitter> <title> <module> <key> <value> [deposit]")
+	}
+	txArgs := []string{args[0], args[1], args[2], args[3], args[4]}
+	if len(args) == 6 {
+		txArgs = append(txArgs, args[5])
 	}
 	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
 		Module: ModuleName,
 		Action: "submit",
-		Args:   []string{args[0], args[1], args[2], args[3], args[4]},
+		Args:   txArgs,
 		Tags:   tags,
 	})
 	if err != nil {

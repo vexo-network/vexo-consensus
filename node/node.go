@@ -233,7 +233,15 @@ func (node *Node) Start(ctx context.Context) error {
 		reactor.SetPeerScoring(node.admitPeerMessage, node.observePeerMessage)
 		node.configureTransportPeerGate(runtime)
 		if voter, ok := receiver.(*autoVoteReactor); ok {
-			voter.broadcastVote = reactor.BroadcastVote
+			voter.broadcastVote = func(ctx context.Context, vote consensus.Vote) error {
+				node.broadcastConsensusAsync("vote_broadcast_failed", map[string]any{
+					"height": vote.Height,
+					"round":  vote.Round,
+				}, func(ctx context.Context) error {
+					return reactor.BroadcastVote(ctx, vote)
+				})
+				return nil
+			}
 		}
 		if err := reactor.Start(ctx); err != nil {
 			consensusWAL.Close()

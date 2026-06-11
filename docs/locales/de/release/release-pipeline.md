@@ -106,3 +106,8 @@ Für öffentliche Releases muss jeder Eintrag in `evidence-manifest.json` mit ei
 - `signature_algorithm`
 - `signature_public_key`
 - `vexo-release-evidence-attestation-v1`
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Netzwerk-E2E verstehen
+
+`make network-e2e` ist mehr als ein Build-Test: Es startet 4 validators mit dem echten Binary und prüft signed-shape smoke transaction, peer Verbindung, height Fortschritt und clean stop. `NETWORK_E2E_GO_TIMEOUT` ist die äußere Go-test Grenze und muss größer sein als der interne network timeout.

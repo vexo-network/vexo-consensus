@@ -75,3 +75,8 @@
 ## المصدر المعتمد
 
 - [الوثيقة الإنجليزية المرجعية](../../en/specs/consensus-spec.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## الكتل الفارغة واستعادة Round
+
+مع `create_empty_blocks=false` فإن ثبات height عندما يكون mempool فارغًا هو حالة idle طبيعية. عند وصول معاملة يمكن للعقدة الانتقال إلى local proposer round التالي وبناء block بالمعاملة، مع بقاء قواعد QC/finality كما هي.

@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"os"
 	"runtime"
@@ -10,9 +11,11 @@ import (
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/consensus"
+	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/fairordering"
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/p2p"
+	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/transport"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -1021,6 +1024,20 @@ func TestNodeDisconnectsPeerWhenScoreBanApplies(t *testing.T) {
 	}
 }
 
+func TestNodeSubmitTxAcceptsLocalMempoolWhenGossipFails(t *testing.T) {
+	wire := newDisconnectRecordingTransport("alice")
+	wire.publishErr = context.DeadlineExceeded
+	node := newTestNode(t)
+	node.WithTransport(wire)
+	startNode(t, node)
+	defer node.Stop(context.Background())
+
+	if err := node.SubmitTx(context.Background(), []byte("bank:gossip-failure-local-accept")); err != nil {
+		t.Fatalf("expected local tx acceptance despite gossip failure, got %v", err)
+	}
+	waitForMempoolLen(t, node, 1)
+}
+
 func TestNodeTreatsFutureCommitGossipAsValidRace(t *testing.T) {
 	cfg := DefaultConfig("vexo-test", t.TempDir())
 	cfg.ValidatorID = "alice"
@@ -1139,6 +1156,43 @@ func TestNodePersistsPeerScoresAcrossRestart(t *testing.T) {
 	}
 }
 
+func TestNodeTransportPeerGateIgnoresCanceledStreamContextForScoreLookup(t *testing.T) {
+	wire := newDisconnectRecordingTransport("alice")
+	node := &Node{wire: wire}
+	scoreKeeper := p2p.NewScoreKeeper(p2p.ScoreConfig{
+		InitialScore:       1,
+		InvalidMessageCost: 2,
+		BanThreshold:       0,
+		BanDuration:        time.Hour,
+	})
+	node.configureTransportPeerGate(&vexoruntime.Runtime{P2PScore: scoreKeeper})
+
+	wire.mu.Lock()
+	if len(wire.gates) != 1 {
+		wire.mu.Unlock()
+		t.Fatalf("expected one peer gate, got %d", len(wire.gates))
+	}
+	gate := wire.gates[0]
+	wire.mu.Unlock()
+
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := gate(canceledCtx, "bob"); err != nil {
+		t.Fatalf("canceled stream context must not reject an unbanned peer, got %v", err)
+	}
+	expiredCtx, expiredCancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Millisecond))
+	defer expiredCancel()
+	if err := gate(expiredCtx, "carol"); err != nil {
+		t.Fatalf("expired stream context must not reject an unbanned peer, got %v", err)
+	}
+	if err := scoreKeeper.ObserveMessage(context.Background(), "bob", false); !errors.Is(err, p2p.ErrPeerBanned) {
+		t.Fatalf("expected bob to be banned, got %v", err)
+	}
+	if err := gate(canceledCtx, "bob"); !errors.Is(err, p2p.ErrPeerBanned) {
+		t.Fatalf("expected banned peer rejection even with canceled stream context, got %v", err)
+	}
+}
+
 func TestNodeBackgroundConsensusLoopCommitsAcrossPeers(t *testing.T) {
 	alice, bob, carol := newConsensusLoopNodes(t)
 	startNode(t, alice)
@@ -1177,6 +1231,28 @@ func TestNodeBackgroundConsensusLoopCommitsAcrossPeers(t *testing.T) {
 			t.Fatalf("expected loop not running, got %v", err)
 		}
 	}
+}
+
+func TestNodeBackgroundConsensusLoopCommitsAcrossPeersWithBLS(t *testing.T) {
+	alice, bob, carol := newBLSConsensusLoopNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+	startNode(t, carol)
+	defer carol.Stop(context.Background())
+
+	loopConfig := ConsensusLoopConfig{Interval: 10 * time.Millisecond, RoundTimeout: time.Hour, MaxBlockBytes: 1024, CreateEmptyBlocks: true, ExecutionCommitMode: ExecutionCommitModeQC, AllowUnsafeQCCommit: true}
+	for _, node := range []*Node{alice, bob, carol} {
+		if err := node.StartConsensusLoop(context.Background(), loopConfig); err != nil {
+			t.Fatal(err)
+		}
+		defer node.StopConsensusLoop(context.Background())
+	}
+
+	waitForNodeHeight(t, alice, 1)
+	waitForNodeHeight(t, bob, 1)
+	waitForNodeHeight(t, carol, 1)
 }
 
 func TestNodeTimeoutRoundBroadcastsAndAdvancesPeers(t *testing.T) {
@@ -1431,6 +1507,33 @@ func TestNodeSkippedProposerRecoversOnNextRound(t *testing.T) {
 	}
 }
 
+func TestNodeRecoversDesyncedRoundWhenMempoolHasTx(t *testing.T) {
+	_, bob, _ := newConsensusLoopNodes(t)
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+
+	if err := bob.SubmitTx(context.Background(), []byte("bank:recover-desynced-round")); err != nil {
+		t.Fatal(err)
+	}
+	machine, err := bob.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(1, 2)
+
+	proposal, blockHash, proposed, err := bob.TickConsensusWithConfig(context.Background(), ConsensusLoopConfig{
+		MaxBlockBytes:       1024,
+		CreateEmptyBlocks:   false,
+		ExecutionCommitMode: ExecutionCommitModeFinalized,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !proposed || proposal.Proposer != "bob" || proposal.Round != 4 || blockHash == (types.Hash{}) {
+		t.Fatalf("expected bob to jump to its next proposer round, proposed=%v proposal=%+v hash=%x", proposed, proposal, blockHash)
+	}
+}
+
 func newTransportNodes(t *testing.T) (*Node, *Node) {
 	t.Helper()
 	bus := transport.NewInMemoryBus()
@@ -1484,7 +1587,51 @@ func newConsensusLoopNodes(t *testing.T) (*Node, *Node, *Node) {
 	return alice, bob, carol
 }
 
+func newBLSConsensusLoopNodes(t *testing.T) (*Node, *Node, *Node) {
+	t.Helper()
+	bus := transport.NewInMemoryBus()
+	signers := map[types.ValidatorID]vexocrypto.BLSTBLSAdapter{}
+	for _, validatorID := range []types.ValidatorID{"alice", "bob", "carol"} {
+		signer, err := vexocrypto.NewBLSTBLSAdapterFromSeed([]byte("vexo-bls-consensus-loop-" + string(validatorID) + "-seed-0001"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		signers[validatorID] = signer
+	}
+	genesis := Genesis{
+		ChainID:    "vexo-test",
+		Validators: make([]validator.Validator, 0, len(signers)),
+		Governance: map[types.Address]types.VotingPower{"alice": 1, "bob": 1, "carol": 1},
+	}
+	for _, validatorID := range []types.ValidatorID{"alice", "bob", "carol"} {
+		signer := signers[validatorID]
+		proof, err := signer.ProofOfPossession()
+		if err != nil {
+			t.Fatal(err)
+		}
+		genesis.Validators = append(genesis.Validators, validator.Validator{
+			ID:          validatorID,
+			Address:     types.Address(validatorID),
+			VotingPower: 1,
+			Stake:       1,
+			PublicKey:   signer.PublicKey(),
+			Metadata: map[string]string{
+				vexocrypto.BLSProofOfPossessionMetadataKey: base64.StdEncoding.EncodeToString(proof),
+				"bls_adapter": vexocrypto.BLSAdapterBLSTName,
+			},
+		})
+	}
+	alice := newConsensusLoopNodeWithSigner(t, bus, genesis, "alice", signers["alice"])
+	bob := newConsensusLoopNodeWithSigner(t, bus, genesis, "bob", signers["bob"])
+	carol := newConsensusLoopNodeWithSigner(t, bus, genesis, "carol", signers["carol"])
+	return alice, bob, carol
+}
+
 func newConsensusLoopNode(t *testing.T, bus *transport.InMemoryBus, genesis Genesis, validatorID types.ValidatorID) *Node {
+	return newConsensusLoopNodeWithSigner(t, bus, genesis, validatorID, deterministicSignerForID(validatorID))
+}
+
+func newConsensusLoopNodeWithSigner(t *testing.T, bus *transport.InMemoryBus, genesis Genesis, validatorID types.ValidatorID, signer vexocrypto.Signer) *Node {
 	t.Helper()
 	wire, err := bus.NewPeer(p2p.PeerID(validatorID))
 	if err != nil {
@@ -1497,7 +1644,7 @@ func newConsensusLoopNode(t *testing.T, bus *transport.InMemoryBus, genesis Gene
 		t.Fatal(err)
 	}
 	node.WithTransport(wire)
-	node.WithSigner(deterministicSignerForID(validatorID))
+	node.WithSigner(signer)
 	return node
 }
 
@@ -1824,6 +1971,7 @@ type disconnectRecordingTransport struct {
 	started      bool
 	disconnected map[p2p.PeerID]bool
 	gates        []func(context.Context, p2p.PeerID) error
+	publishErr   error
 }
 
 func newDisconnectRecordingTransport(peerID p2p.PeerID) *disconnectRecordingTransport {
@@ -1848,7 +1996,7 @@ func (wire *disconnectRecordingTransport) Stop(ctx context.Context) error {
 }
 
 func (wire *disconnectRecordingTransport) Publish(ctx context.Context, topic p2p.Topic, data []byte) error {
-	return nil
+	return wire.publishErr
 }
 
 func (wire *disconnectRecordingTransport) Send(ctx context.Context, to p2p.PeerID, topic p2p.Topic, data []byte) error {

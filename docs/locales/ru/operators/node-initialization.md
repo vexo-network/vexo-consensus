@@ -79,3 +79,8 @@
 ## Канонический источник
 
 - [Английский канонический документ](../../en/operators/node-initialization.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Актуальная эксплуатационная заметка
+
+Для нового home узла проверяйте вместе `p2p.dial_timeout`, `p2p.auth_replay_path` и `p2p.require_auth_replay_store` в `network_config.json`. Значение `10s` покрывает TCP dial, TLS, signed handshake и replay-store. В публичной сети эти параметры должны быть частью проверяемой конфигурации, а не скрытыми shell flags.

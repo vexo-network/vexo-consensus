@@ -179,7 +179,7 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 	document := auditDocument{OK: true, Strict: strict}
 	keyDocument, keyErr := vexocrypto.LoadKeyDocument(inputs.Plan.KeyPath)
 	document.addCheck("config_valid", "error", inputs.Config.Chain.Validate() == nil, "chain config must pass validation")
-	document.addCheck("network_safety_config", strictSeverity(strict), inputs.Config.Chain.ValidateNetworkSafety() == nil, "network safety config must use audited BLS aggregate finality, signed/nonced txs, min fee, base fee, gas floor, priority mempool, and durable mempool WAL")
+	document.addCheck("network_safety_config", strictSeverity(strict), inputs.Config.Chain.ValidateNetworkSafety() == nil, "network safety config must use audited BLS aggregate finality, signed/nonced txs, min fee, base fee, gas floor, priority mempool, durable mempool WAL, and governance deposit policy")
 	document.addCheck("genesis_valid", "error", inputs.Genesis.Validate(inputs.Config.Chain.ChainID) == nil, "genesis must match chain id and validator set")
 	document.addCheck("key_loadable", "error", keyErr == nil, "validator key document must be loadable")
 

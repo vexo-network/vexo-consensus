@@ -184,7 +184,7 @@ func (book *AddrBook) MarkFailure(peerID PeerID, banDuration time.Duration) {
 	now := book.now().UTC()
 	peer.LastFailure = now.Format(time.RFC3339Nano)
 	peer.Failures++
-	if book.maxFailures > 0 && int(peer.Failures) >= book.maxFailures {
+	if !peer.Permanent && book.maxFailures > 0 && int(peer.Failures) >= book.maxFailures {
 		peer.Banned = true
 		if banDuration > 0 {
 			peer.BannedUntil = now.Add(banDuration).Format(time.RFC3339Nano)

@@ -75,3 +75,8 @@
 ## 规范来源
 
 - [英文规范文档](../../en/specs/consensus-spec.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## 空块与 Round 恢复
+
+当 `create_empty_blocks=false` 且 mempool 为空时，height 看起来不增长是正常 idle 状态。交易进入后，即使当前 round 的 proposer 不是本节点，节点也可以移动到下一个 local proposer round 来构造交易块，但仍必须经过 QC/finality 规则。

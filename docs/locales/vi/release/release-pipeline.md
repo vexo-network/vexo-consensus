@@ -106,3 +106,8 @@ Với bản phát hành công khai, mỗi mục trong `evidence-manifest.json` p
 - `--vrf-audit`
 - `--vrf-audit-sha256`
 - `vrf.audit_evidence_sha256`
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Đọc kết quả network E2E
+
+`make network-e2e` không chỉ là build test: nó chạy 4 validators bằng binary thật và kiểm tra signed-shape smoke transaction, peer connection, height growth, và clean stop. `NETWORK_E2E_GO_TIMEOUT` là giới hạn Go test bên ngoài và phải lớn hơn network timeout bên trong.

@@ -106,3 +106,8 @@
 ## VRF audit evidence SHA-256
 
 يجب أن يثبت `release gate` أدلة تدقيق VRF عبر SHA-256 كما يفعل مع BLS. يجب أن يكون ملف `--vrf-audit` داخل `evidence-manifest.json`، وأن يطابق `--vrf-audit-sha256` محتوى الملف بدقة. عند استخدام config يكون `vrf.audit_evidence_sha256` هو digest pin الافتراضي. هذه القاعدة تربط VRF service و KMS/HSM custody و TLS/mTLS أو pinned CA و auth token ودفاع nonce replay بأدلة الإصدار.
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## قراءة اختبار Network E2E
+
+`make network-e2e` ليس build test فقط؛ بل يشغل 4 validators بالـ binary الحقيقي ويتحقق من signed-shape smoke transaction واتصال peer ونمو height و clean stop. `NETWORK_E2E_GO_TIMEOUT` هو حد Go test الخارجي ويجب أن يكون أكبر من network timeout الداخلي.

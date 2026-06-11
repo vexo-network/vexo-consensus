@@ -75,3 +75,8 @@ Este documento ayuda a entender especificación normativa de la state machine de
 ## Fuente canónica
 
 - [Documento canónico en inglés](../../en/specs/consensus-spec.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Bloques vacíos y recuperación de round
+
+Con `create_empty_blocks=false`, una height estable con mempool vacío es un estado idle normal. Cuando entra una transacción, el nodo puede avanzar al siguiente local proposer round para construir un bloque con transacciones, manteniendo las reglas QC/finality.

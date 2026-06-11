@@ -195,6 +195,18 @@ func BalanceBig(ctx context.Context, store vexoapp.StateStore, address types.Add
 	return new(big.Int).SetBytes(value), nil
 }
 
+func TransferBig(ctx context.Context, store vexoapp.StateStore, from types.Address, to types.Address, amount *big.Int) error {
+	return send(ctx, store, from, to, amount)
+}
+
+func MintBig(ctx context.Context, store vexoapp.StateStore, to types.Address, amount *big.Int) error {
+	return mint(ctx, store, to, amount)
+}
+
+func ParseAmountBig(value string) (*big.Int, error) {
+	return parseAmountBig(value)
+}
+
 func mint(ctx context.Context, store vexoapp.StateStore, to types.Address, amount *big.Int) error {
 	if to == "" || amount == nil || amount.Sign() <= 0 {
 		return ErrInvalidBankTx

@@ -75,3 +75,8 @@
 ## 正規原文
 
 - [英語の正規文書](../../en/specs/consensus-spec.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## 空ブロックと Round 回復
+
+`create_empty_blocks=false` で mempool が空なら、height が止まって見えるのは正常な idle 状態です。取引が入ると、現在 round の proposer でなくても次の local proposer round に進んで取引ブロックを作れます。ただし QC/finality ルールは変わりません。

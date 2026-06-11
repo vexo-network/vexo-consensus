@@ -21,6 +21,7 @@ import (
 const (
 	maxPendingVoteBlocks    = 256
 	maxPendingVotesPerBlock = 1024
+	consensusGossipTimeout  = 15 * time.Second
 )
 
 type autoVoteReactor struct {
@@ -117,7 +118,6 @@ func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consens
 	}
 	if err := reactor.broadcastVote(ctx, vote); err != nil {
 		reactor.reportError("vote_broadcast_failed", err)
-		return err
 	}
 	return nil
 }
@@ -331,15 +331,19 @@ func (node *Node) ProposeBlock(ctx context.Context, block types.Block) (consensu
 			}
 			return consensus.Proposal{}, types.Hash{}, err
 		}
-		if err := node.broadcastAncestorProposals(ctx, reactor, proposal.Block.Header.Height); err != nil {
-			return consensus.Proposal{}, types.Hash{}, err
-		}
-		if err := reactor.BroadcastProposal(ctx, proposal); err != nil {
-			return consensus.Proposal{}, types.Hash{}, err
-		}
-		if err := reactor.BroadcastVote(ctx, vote); err != nil {
-			return consensus.Proposal{}, types.Hash{}, err
-		}
+		node.broadcastAncestorProposals(reactor, proposal.Block.Header.Height)
+		node.broadcastConsensusAsync("proposal_broadcast_failed", map[string]any{
+			"height": proposal.Block.Header.Height,
+			"round":  proposal.Round,
+		}, func(ctx context.Context) error {
+			return reactor.BroadcastProposal(ctx, proposal)
+		})
+		node.broadcastConsensusAsync("vote_broadcast_failed", map[string]any{
+			"height": vote.Height,
+			"round":  vote.Round,
+		}, func(ctx context.Context) error {
+			return reactor.BroadcastVote(ctx, vote)
+		})
 		node.logEvent("block_proposed", map[string]any{
 			"chain_id":   proposal.Block.Header.ChainID,
 			"height":     proposal.Block.Header.Height,
@@ -357,9 +361,9 @@ func (node *Node) ProposeBlock(ctx context.Context, block types.Block) (consensu
 	return consensus.Proposal{}, types.Hash{}, consensus.ErrStaleProposal
 }
 
-func (node *Node) broadcastAncestorProposals(ctx context.Context, reactor *consensus.TransportReactor, beforeHeight types.Height) error {
+func (node *Node) broadcastAncestorProposals(reactor *consensus.TransportReactor, beforeHeight types.Height) {
 	if reactor == nil || beforeHeight <= 1 {
-		return nil
+		return
 	}
 	pending := node.pendingProposals()
 	proposals := make([]consensus.Proposal, 0, len(pending))
@@ -376,11 +380,14 @@ func (node *Node) broadcastAncestorProposals(ctx context.Context, reactor *conse
 		if proposal.Block.Header.Height == 0 || proposal.Block.Header.Height >= beforeHeight {
 			continue
 		}
-		if err := reactor.BroadcastProposal(ctx, proposal); err != nil {
-			return err
-		}
+		proposal := proposal
+		node.broadcastConsensusAsync("ancestor_proposal_broadcast_failed", map[string]any{
+			"height": proposal.Block.Header.Height,
+			"round":  proposal.Round,
+		}, func(ctx context.Context) error {
+			return reactor.BroadcastProposal(ctx, proposal)
+		})
 	}
-	return nil
 }
 
 func (node *Node) voteLocalProposal(ctx context.Context, proposal consensus.Proposal, blockHash types.Hash) (consensus.Vote, error) {
@@ -435,9 +442,12 @@ func (node *Node) VoteBlock(ctx context.Context, height types.Height, round type
 	if err := machine.OnVote(ctx, vote); err != nil {
 		return finality.QuorumCert{}, false, err
 	}
-	if err := reactor.BroadcastVote(ctx, vote); err != nil {
-		return finality.QuorumCert{}, false, err
-	}
+	node.broadcastConsensusAsync("vote_broadcast_failed", map[string]any{
+		"height": vote.Height,
+		"round":  vote.Round,
+	}, func(ctx context.Context) error {
+		return reactor.BroadcastVote(ctx, vote)
+	})
 	qc, err := machine.BuildQuorumCert(height, round, blockHash)
 	if err != nil {
 		return finality.QuorumCert{}, false, nil
@@ -466,9 +476,12 @@ func (node *Node) TimeoutRound(ctx context.Context) (finality.TimeoutCert, bool,
 		status = machine.Status(ctx)
 	}
 	if vote, ok := node.cachedTimeoutVote(status.Height, status.Round); ok {
-		if err := reactor.BroadcastTimeoutVote(ctx, vote); err != nil {
-			return finality.TimeoutCert{}, false, err
-		}
+		node.broadcastConsensusAsync("timeout_vote_broadcast_failed", map[string]any{
+			"height": vote.Height,
+			"round":  vote.Round,
+		}, func(ctx context.Context) error {
+			return reactor.BroadcastTimeoutVote(ctx, vote)
+		})
 		return finality.TimeoutCert{}, false, nil
 	}
 	vote := consensus.TimeoutVote{
@@ -491,14 +504,43 @@ func (node *Node) TimeoutRound(ctx context.Context) (finality.TimeoutCert, bool,
 	if errors.Is(err, consensus.ErrStaleTimeoutCert) {
 		return finality.TimeoutCert{}, false, nil
 	}
-	if err := reactor.BroadcastTimeoutVote(ctx, vote); err != nil {
-		return finality.TimeoutCert{}, false, err
-	}
+	node.broadcastConsensusAsync("timeout_vote_broadcast_failed", map[string]any{
+		"height": vote.Height,
+		"round":  vote.Round,
+	}, func(ctx context.Context) error {
+		return reactor.BroadcastTimeoutVote(ctx, vote)
+	})
 	if err != nil {
 		return finality.TimeoutCert{}, false, nil
 	}
 	node.metrics.observeVoteLatency(time.Since(started))
 	return timeoutCert, true, nil
+}
+
+func (node *Node) logConsensusBroadcastFailure(event string, err error, fields map[string]any) {
+	if err == nil {
+		return
+	}
+	if fields == nil {
+		fields = make(map[string]any)
+	}
+	fields["error"] = err.Error()
+	node.logEvent(event, fields)
+}
+
+func (node *Node) broadcastConsensusAsync(event string, fields map[string]any, broadcast func(context.Context) error) {
+	if broadcast == nil {
+		return
+	}
+	copiedFields := make(map[string]any, len(fields))
+	for key, value := range fields {
+		copiedFields[key] = value
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), consensusGossipTimeout)
+		defer cancel()
+		node.logConsensusBroadcastFailure(event, broadcast(ctx), copiedFields)
+	}()
 }
 
 func (node *Node) CommitBlock(ctx context.Context, block types.Block, quorumCert finality.QuorumCert) (app.FinalizeBlockResponse, error) {

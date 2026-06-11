@@ -79,3 +79,8 @@
 ## प्रामाणिक स्रोत
 
 - [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/operators/node-initialization.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## नवीन संचालन नोट
+
+नए node home में `network_config.json` के `p2p.dial_timeout`, `p2p.auth_replay_path`, और `p2p.require_auth_replay_store` को साथ में जाँचें। डिफ़ॉल्ट `10s` TCP dial, TLS, signed handshake, और replay-store check को कवर करता है। सार्वजनिक नेटवर्क में इन्हें shell flags में छिपाने के बजाय review की गई config में रखें।

@@ -84,3 +84,8 @@ Este documento ajuda a entender P2P handshake, gossip, peer scoring e política 
 ## Fonte canônica
 
 - [Documento canônico em inglês](../../en/specs/networking-spec.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Timing de peers e peers permanentes
+
+Uma falha temporária de dial não bane sozinha um configured peer ou seed. A falha aparece no backoff e nos diagnósticos; ban deve vir de evidência de comportamento como gossip malicioso, falha de autenticação ou rate-limit abuse. Ajuste `p2p.dial_timeout` pela latência multi-região e custo TLS/auth.

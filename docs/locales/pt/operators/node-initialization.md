@@ -79,3 +79,8 @@ Este documento ajuda a entender inicialização de nós archive/validator e uso 
 ## Fonte canônica
 
 - [Documento canônico em inglês](../../en/operators/node-initialization.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Nota operacional recente
+
+Em um novo home de nó, revise juntos `p2p.dial_timeout`, `p2p.auth_replay_path` e `p2p.require_auth_replay_store` em `network_config.json`. O padrão `10s` cobre TCP dial, TLS, signed handshake e replay-store. Em redes públicas, mantenha isso na configuração revisada, não escondido em flags de shell.

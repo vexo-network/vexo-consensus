@@ -79,7 +79,9 @@ func BuildWithChainConfig(chain config.Config) ([]vexoapp.Module, error) {
 	}); err != nil {
 		return nil, err
 	}
-	if err := registry.Register(appgovernance.ModuleName, func() vexoapp.Module { return appgovernance.NewModule() }); err != nil {
+	if err := registry.Register(appgovernance.ModuleName, func() vexoapp.Module {
+		return appgovernance.NewModuleWithPolicy(chain.Governance)
+	}); err != nil {
 		return nil, err
 	}
 	if err := registry.Register(params.Namespace, func() vexoapp.Module { return params.NewModule(nil) }); err != nil {

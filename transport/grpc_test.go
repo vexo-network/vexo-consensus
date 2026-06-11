@@ -12,6 +12,8 @@ import (
 	"errors"
 	"math/big"
 	"net"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -401,6 +403,30 @@ func TestGRPCTransportReusesPeerStreamSession(t *testing.T) {
 	}
 }
 
+func TestGRPCTransportStartContextCancelDoesNotStopPeerSessions(t *testing.T) {
+	alice, err := NewGRPCTransport(GRPCConfig{PeerID: "alice", ListenAddr: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob := newStartedGRPCPeer(t, "bob", GRPCConfig{})
+	defer stopGRPCPeer(t, bob)
+	startCtx, cancelStart := context.WithCancel(context.Background())
+	if err := alice.Start(startCtx); err != nil {
+		t.Fatal(err)
+	}
+	defer stopGRPCPeer(t, alice)
+	cancelStart()
+	alice.SetPeer("bob", bob.Address())
+	bobTxs, err := bob.Subscribe(context.Background(), p2p.TopicTx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := alice.Send(context.Background(), "bob", p2p.TopicTx, []byte("after-start-cancel")); err != nil {
+		t.Fatalf("transport lifetime must not be tied to start context: %v", err)
+	}
+	assertEnvelope(t, bobTxs, "alice", "bob", p2p.TopicTx, "after-start-cancel")
+}
+
 func TestGRPCTransportRejectsOversizedMessage(t *testing.T) {
 	config := GRPCConfig{
 		NetworkID:       "vexo-network",
@@ -538,6 +564,106 @@ func TestGRPCTransportRejectsReplayedAuthProof(t *testing.T) {
 	}
 	if err := transport.validateHandshake(handshake); !errors.Is(err, ErrAuthTokenMismatch) {
 		t.Fatalf("expected replayed proof rejection, got %v", err)
+	}
+}
+
+func TestGRPCTransportRejectsReplayedAuthProofAfterRestart(t *testing.T) {
+	path := t.TempDir() + "/auth-replay.jsonl"
+	firstStore, err := NewFileAuthReplayStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := NewGRPCTransport(GRPCConfig{
+		PeerID:          "alice",
+		AuthToken:       "shared-secret",
+		AuthReplayStore: firstStore,
+		NetworkID:       "vexo-network",
+		ChainID:         "vexo-test",
+		GenesisHash:     GenesisHash([]byte("genesis")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handshake := Handshake{
+		ProtocolVersion: GRPCProtocolVersion,
+		NetworkID:       "vexo-network",
+		ChainID:         "vexo-test",
+		GenesisHash:     GenesisHash([]byte("genesis")),
+		NodeID:          "bob",
+		AuthToken:       first.authProof("bob"),
+	}
+	if err := first.validateHandshake(handshake); err != nil {
+		t.Fatalf("expected first proof to pass, got %v", err)
+	}
+	secondStore, err := NewFileAuthReplayStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewGRPCTransport(GRPCConfig{
+		PeerID:          "alice",
+		AuthToken:       "shared-secret",
+		AuthReplayStore: secondStore,
+		NetworkID:       "vexo-network",
+		ChainID:         "vexo-test",
+		GenesisHash:     GenesisHash([]byte("genesis")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.validateHandshake(handshake); !errors.Is(err, ErrAuthTokenMismatch) {
+		t.Fatalf("expected replay rejection after restart, got %v", err)
+	}
+}
+
+func TestGRPCTransportCanRequireDurableAuthReplayStore(t *testing.T) {
+	_, err := NewGRPCTransport(GRPCConfig{
+		PeerID:                 "alice",
+		AuthToken:              "shared-secret",
+		RequireAuthReplayStore: true,
+	})
+	if !errors.Is(err, ErrAuthReplayStore) {
+		t.Fatalf("expected auth replay store requirement, got %v", err)
+	}
+}
+
+func TestFileAuthReplayStoreCompactsExpiredRecords(t *testing.T) {
+	path := t.TempDir() + "/auth-replay.jsonl"
+	store, err := NewFileAuthReplayStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := store.MarkAuthNonce(context.Background(), "alice", "old", now.Add(time.Second), now); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkAuthNonce(context.Background(), "alice", "fresh", now.Add(time.Hour), now); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Compact(context.Background(), now.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	compacted, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(compacted), "old") || !strings.Contains(string(compacted), "fresh") {
+		t.Fatalf("expected expired nonce to be compacted away, got %s", compacted)
+	}
+}
+
+func TestGRPCBinaryCodecRejectsOversizedLength(t *testing.T) {
+	var input bytes.Buffer
+	input.WriteByte(grpcCodecVersion)
+	input.WriteByte(0)
+	input.WriteByte(1)
+	var length [4]byte
+	length[0] = 0xff
+	length[1] = 0xff
+	length[2] = 0xff
+	length[3] = 0xff
+	input.Write(length[:])
+	if _, err := decodeGRPCStreamMessage(input.Bytes()); !errors.Is(err, ErrMessageTooLarge) {
+		t.Fatalf("expected oversized codec error, got %v", err)
 	}
 }
 

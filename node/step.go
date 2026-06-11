@@ -18,7 +18,7 @@ type ConsensusStepResult struct {
 func (node *Node) StepConsensus(ctx context.Context, maxBytes int64) (ConsensusStepResult, error) {
 	return node.StepConsensusWithConfig(ctx, ConsensusLoopConfig{
 		MaxBlockBytes:     maxBytes,
-		CreateEmptyBlocks: true,
+		CreateEmptyBlocks: false,
 	})
 }
 

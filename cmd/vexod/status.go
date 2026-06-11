@@ -45,6 +45,13 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "execution.max_blob_sidecar_blobs: %d\n", cfg.Execution.MaxBlobSidecarBlobs)
 	fmt.Fprintf(writer, "execution.max_blob_sidecar_bytes: %d\n", cfg.Execution.MaxBlobSidecarBytes)
 	fmt.Fprintf(writer, "bank.mint_authority: %s\n", cfg.Bank.MintAuthority)
+	fmt.Fprintf(writer, "governance.quorum_power: %d\n", cfg.Governance.QuorumPower)
+	fmt.Fprintf(writer, "governance.yes_threshold_power: %d\n", cfg.Governance.YesThresholdPower)
+	fmt.Fprintf(writer, "governance.voting_period: %d\n", cfg.Governance.VotingPeriod)
+	fmt.Fprintf(writer, "governance.timelock: %d\n", cfg.Governance.Timelock)
+	fmt.Fprintf(writer, "governance.require_deposit: %t\n", cfg.Governance.RequireDeposit)
+	fmt.Fprintf(writer, "governance.min_deposit: %s\n", cfg.Governance.MinDeposit)
+	fmt.Fprintf(writer, "governance.deposit_denom: %s\n", cfg.Governance.DepositDenom)
 	fmt.Fprintf(writer, "validator.permissionless: %t\n", cfg.Validator.Permissionless)
 	fmt.Fprintf(writer, "validator.min_stake: %d\n", cfg.Validator.MinStake)
 	fmt.Fprintf(writer, "committee.epoch_length: %d\n", cfg.Committee.EpochLength)
@@ -123,6 +130,7 @@ type statusDocument struct {
 	Application      applicationStatus          `json:"application"`
 	Execution        executionStatus            `json:"execution"`
 	Bank             bankStatus                 `json:"bank"`
+	Governance       governanceStatus           `json:"governance"`
 	Validator        validatorStatus            `json:"validator"`
 	Committee        committeeStatus            `json:"committee"`
 	Mempool          mempoolStatus              `json:"mempool"`
@@ -177,6 +185,19 @@ type executionStatus struct {
 
 type bankStatus struct {
 	MintAuthority string `json:"mint_authority,omitempty"`
+}
+
+type governanceStatus struct {
+	QuorumPower       types.VotingPower `json:"quorum_power"`
+	YesThresholdPower types.VotingPower `json:"yes_threshold_power"`
+	VetoPower         types.VotingPower `json:"veto_power,omitempty"`
+	VotingPeriod      uint64            `json:"voting_period"`
+	Timelock          uint64            `json:"timelock"`
+	RequireDeposit    bool              `json:"require_deposit"`
+	MinDeposit        string            `json:"min_deposit,omitempty"`
+	DepositDenom      string            `json:"deposit_denom,omitempty"`
+	DepositEscrow     string            `json:"deposit_escrow,omitempty"`
+	RejectedDeposits  string            `json:"rejected_deposits,omitempty"`
 }
 
 type validatorStatus struct {
@@ -273,6 +294,18 @@ func newStatusDocument(cfg config.Config) statusDocument {
 		},
 		Bank: bankStatus{
 			MintAuthority: cfg.Bank.MintAuthority,
+		},
+		Governance: governanceStatus{
+			QuorumPower:       cfg.Governance.QuorumPower,
+			YesThresholdPower: cfg.Governance.YesThresholdPower,
+			VetoPower:         cfg.Governance.VetoPower,
+			VotingPeriod:      cfg.Governance.VotingPeriod,
+			Timelock:          cfg.Governance.Timelock,
+			RequireDeposit:    cfg.Governance.RequireDeposit,
+			MinDeposit:        cfg.Governance.MinDeposit,
+			DepositDenom:      cfg.Governance.DepositDenom,
+			DepositEscrow:     string(cfg.Governance.DepositEscrow),
+			RejectedDeposits:  string(cfg.Governance.RejectedDeposits),
 		},
 		Validator: validatorStatus{
 			Permissionless: cfg.Validator.Permissionless,

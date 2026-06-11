@@ -23,6 +23,9 @@ func TestWriteStatus(t *testing.T) {
 		"execution.fee_collector: fee_collector",
 		"execution.allow_unprotected_legacy_tx: false",
 		"bank.mint_authority:",
+		"governance.quorum_power: 1",
+		"governance.require_deposit: false",
+		"governance.deposit_denom: avxo",
 		"validator.permissionless: true",
 		"committee.size: 128",
 		"committee.min_voting_power: 1",
@@ -124,6 +127,9 @@ func TestWriteStatusJSON(t *testing.T) {
 	}
 	if document.Bank.MintAuthority != "" {
 		t.Fatalf("unexpected bank status: %+v", document.Bank)
+	}
+	if document.Governance.QuorumPower != 1 || document.Governance.RequireDeposit || document.Governance.DepositDenom != "avxo" {
+		t.Fatalf("unexpected governance status: %+v", document.Governance)
 	}
 	if document.Mempool.MinFee != 0 || document.Mempool.EnablePriority || !document.Mempool.EnableReplacement || document.Mempool.ReplacementBumpBPS != 1000 {
 		t.Fatalf("unexpected mempool status: %+v", document.Mempool)

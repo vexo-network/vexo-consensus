@@ -84,3 +84,8 @@
 ## 正規原文
 
 - [英語の正規文書](../../en/specs/networking-spec.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Peer タイミングと永続 Peer
+
+一時的な dial 失敗だけでは configured peer や seed を ban しません。失敗は backoff と診断に残りますが、ban は悪意ある gossip、認証失敗、rate-limit abuse などの行動証拠で判断します。`p2p.dial_timeout` はリージョン間遅延と TLS/auth コストを見て設定します。

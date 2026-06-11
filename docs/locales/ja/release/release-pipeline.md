@@ -106,3 +106,8 @@
 - `signature_algorithm`
 - `signature_public_key`
 - `vexo-release-evidence-attestation-v1`
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## ネットワーク E2E の読み方
+
+`make network-e2e` は単なる build test ではありません。実バイナリで 4 validator を起動し、signed-shape smoke transaction、peer 接続、height 増加、clean stop を確認します。`NETWORK_E2E_GO_TIMEOUT` は外側の Go test 制限で、内側の network timeout より十分大きくします。

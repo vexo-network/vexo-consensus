@@ -79,3 +79,8 @@
 ## 规范来源
 
 - [英文规范文档](../../en/operators/node-initialization.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## 最新运维说明
+
+新的节点目录需要一起审查 `network_config.json` 中的 `p2p.dial_timeout`, `p2p.auth_replay_path`, `p2p.require_auth_replay_store`。默认 `10s` dial timeout 覆盖 TCP 连接、TLS、signed handshake 和 replay-store 检查。公网部署时不要把这些行为藏在 shell flag 中，应放入配置审查流程。

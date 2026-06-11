@@ -79,3 +79,8 @@
 ## 규범 원문
 
 - [영어 정본 문서](../../en/operators/node-initialization.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## 최신 운영 메모
+
+새 네트워크 홈은 `network_config.json` 안의 `p2p.dial_timeout`, `p2p.auth_replay_path`, `p2p.require_auth_replay_store`를 함께 검토해야 합니다. 기본 `10s` dial timeout은 TCP 연결, TLS, signed handshake, replay-store 검사를 모두 포함합니다. 공개 네트워크에서는 이 값을 shell flag로 숨기지 말고 config review 대상에 포함하세요.

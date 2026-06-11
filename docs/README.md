@@ -109,6 +109,14 @@ Do not call a feature production-ready just because code exists. A production cl
 
 `vexod status --json` follows the same rule. The `features` map says whether a code path is enabled by config. The `feature_assurance` map says whether that enabled feature is merely implemented, requires operator artifacts, requires release evidence, or requires external audit evidence.
 
+Operator-facing safety defaults live in split config files rather than command flags. When reviewing a node home, check these first:
+
+- `network_config.json:p2p.auth_replay_path` for restart-safe P2P handshake replay protection
+- `network_config.json:p2p.node_key_path` for the peer-authentication key, separate from validator consensus custody
+- `module_config.json:governance.RequireDeposit` and `module_config.json:governance.MinDeposit` for proposal spam/economic-friction policy
+- `consensus_config.json:consensus.execution_commit` for the execution/finality boundary
+- `mempool_config.json:mempool.WALPath` for restart-safe pending transaction recovery
+
 ## Documentation Review Checklist
 
 Before merging documentation changes:

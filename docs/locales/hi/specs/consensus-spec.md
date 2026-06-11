@@ -75,3 +75,8 @@
 ## प्रामाणिक स्रोत
 
 - [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/specs/consensus-spec.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Empty blocks और round recovery
+
+`create_empty_blocks=false` होने पर खाली mempool में height स्थिर दिखना सामान्य idle अवस्था है। transaction आने पर node अगले local proposer round तक आगे बढ़कर transaction block बना सकता है, लेकिन QC/finality नियम वही रहते हैं।

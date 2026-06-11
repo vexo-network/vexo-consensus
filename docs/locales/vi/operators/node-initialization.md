@@ -79,3 +79,8 @@ Tài liệu này giúp hiểu khởi tạo node archive/validator và vận hàn
 ## Nguồn chuẩn
 
 - [Tài liệu chuẩn tiếng Anh](../../en/operators/node-initialization.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Ghi chú vận hành mới
+
+Với node home mới, hãy kiểm tra cùng lúc `p2p.dial_timeout`, `p2p.auth_replay_path`, và `p2p.require_auth_replay_store` trong `network_config.json`. Mặc định `10s` bao gồm TCP dial, TLS, signed handshake, và replay-store check. Với mạng công khai, hãy để các giá trị này trong config được review thay vì shell flags ẩn.

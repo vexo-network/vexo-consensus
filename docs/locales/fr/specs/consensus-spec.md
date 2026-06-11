@@ -75,3 +75,8 @@ Ce document aide à comprendre la spécification normative de la state machine d
 ## Source canonique
 
 - [Document canonique anglais](../../en/specs/consensus-spec.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Blocs vides et reprise de round
+
+Avec `create_empty_blocks=false`, une height stable quand le mempool est vide signifie un état idle normal. Quand une transaction arrive, le nœud peut avancer vers son prochain local proposer round pour produire un bloc de transactions, tout en conservant les règles QC/finality.

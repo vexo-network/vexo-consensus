@@ -84,3 +84,8 @@
 ## المصدر المعتمد
 
 - [الوثيقة الإنجليزية المرجعية](../../en/specs/networking-spec.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## توقيت Peer والـ Peers الدائمة
+
+فشل dial مؤقت لا يؤدي وحده إلى ban لـ configured peer أو seed. يسجل الفشل في backoff والتشخيص؛ أما ban فيجب أن يعتمد على دليل سلوك مثل malicious gossip أو auth failure أو rate-limit abuse. اضبط `p2p.dial_timeout` وفق تأخير المناطق وتكلفة TLS/auth.

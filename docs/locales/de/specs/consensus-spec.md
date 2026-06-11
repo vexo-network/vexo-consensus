@@ -75,3 +75,8 @@ Dieses Dokument hilft dabei, die normative Spezifikation der Konsens-State-Machi
 ## Kanonische Quelle
 
 - [Englisches kanonisches Dokument](../../en/specs/consensus-spec.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Leere Blöcke und Round-Recovery
+
+Mit `create_empty_blocks=false` ist eine stabile height bei leerem mempool ein normaler idle Zustand. Sobald eine Transaktion ankommt, kann der Node zur nächsten local proposer round wechseln und einen Transaktionsblock bauen; QC/finality Regeln bleiben unverändert.

@@ -84,3 +84,8 @@ Dokumen ini membantu memahami P2P handshake, gossip, peer scoring, dan kebijakan
 ## Sumber kanonik
 
 - [Dokumen kanonik bahasa Inggris](../../en/specs/networking-spec.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Timing peer dan peer permanen
+
+Kegagalan dial sementara saja tidak akan ban configured peer atau seed. Kegagalan tetap masuk backoff dan diagnostics; ban harus berasal dari bukti perilaku seperti malicious gossip, auth failure, atau rate-limit abuse. Atur `p2p.dial_timeout` berdasarkan latensi multi-region dan biaya TLS/auth.

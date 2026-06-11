@@ -27,6 +27,11 @@ type TallyPolicy struct {
 	VetoPower         types.VotingPower
 	VotingPeriod      uint64
 	Timelock          uint64
+	RequireDeposit    bool
+	MinDeposit        string
+	DepositDenom      string
+	DepositEscrow     types.Address
+	RejectedDeposits  types.Address
 }
 
 type VoteRecord struct {
@@ -50,6 +55,7 @@ type ProposalState struct {
 	VotingEndsAt    uint64
 	ExecutableAt    uint64
 	Executed        bool
+	Rejected        bool
 	Votes           map[types.Address]VoteRecord
 	ExecutedChanges []ParameterChange
 }
@@ -179,6 +185,9 @@ func (keeper *InMemoryKeeper) Execute(ctx context.Context, proposalID uint64) er
 	if state.Executed {
 		return ErrProposalExecuted
 	}
+	if state.Rejected {
+		return ErrProposalRejected
+	}
 	if keeper.now < state.VotingEndsAt {
 		return ErrVotingPeriodOpen
 	}
@@ -186,6 +195,7 @@ func (keeper *InMemoryKeeper) Execute(ctx context.Context, proposalID uint64) er
 		return ErrTimelockActive
 	}
 	if !keeper.passes(state) {
+		state.Rejected = true
 		return ErrProposalRejected
 	}
 

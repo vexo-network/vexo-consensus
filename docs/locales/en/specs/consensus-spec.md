@@ -66,6 +66,20 @@ In both modes, finality proofs remain tied to the consensus finality rule and th
 - Eventually, network delay becomes bounded long enough for quorum communication.
 - Less than one-third of voting power is Byzantine.
 - Timeout certificates advance rounds when proposals or votes stall.
+- Peer dial, TLS, auth, and signed-handshake timeouts are long enough for the target network latency envelope.
+
+## Empty Blocks and Round Recovery
+
+`create_empty_blocks = false` changes only when proposals are created; it does not weaken safety. A validator should not propose an empty block just to advance height. If every mempool is empty, the latest height can remain stable and that is normal idle behavior.
+
+When a valid transaction enters the mempool, the local consensus loop checks whether it is proposer for the current height and round. If not, and no proposal for that height is already pending, it advances to the next local proposer round and builds the transaction proposal there. This avoids the common single-node test failure mode where a node has useful transactions but its round counter drifted past another validator's proposer slot. The recovery is conservative:
+
+- it never runs while forced empty-block creation is active;
+- it never replaces a pending proposal for the same height;
+- it only scans within the current validator set size;
+- it still requires the normal QC/finality path before state commitment.
+
+Operators should therefore read `latest_height = 0` with an empty mempool as idle, not failed. Read `latest_height` stuck with non-empty mempool, rising round timeouts, or failed peer handshakes as a liveness incident.
 
 ## Evidence
 

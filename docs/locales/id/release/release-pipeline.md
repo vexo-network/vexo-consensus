@@ -106,3 +106,8 @@ Untuk rilis publik, setiap entri di `evidence-manifest.json` harus diverifikasi 
 - `signature_algorithm`
 - `signature_public_key`
 - `vexo-release-evidence-attestation-v1`
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Membaca network E2E
+
+`make network-e2e` bukan hanya build test: target ini menjalankan 4 validators dengan binary nyata dan memverifikasi signed-shape smoke transaction, peer connection, height growth, dan clean stop. `NETWORK_E2E_GO_TIMEOUT` adalah batas luar Go test dan harus lebih besar dari network timeout internal.

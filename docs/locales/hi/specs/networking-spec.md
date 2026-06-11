@@ -84,3 +84,8 @@
 ## प्रामाणिक स्रोत
 
 - [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/specs/networking-spec.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Peer timing और permanent peers
+
+सिर्फ अस्थायी dial failure से configured peer या seed ban नहीं होता। failure backoff और diagnostics में दिखता है; ban malicious gossip, auth failure, या rate-limit abuse जैसे व्यवहार प्रमाण से होना चाहिए। `p2p.dial_timeout` multi-region latency और TLS/auth cost देखकर सेट करें।

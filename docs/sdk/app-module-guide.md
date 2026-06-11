@@ -206,6 +206,25 @@ vexod staking tx withdraw-unbonded alice validator-1 --fee 1 --gas 1000 --signer
 vexod governance tx submit-json '{"submitter":"alice","title":"multi-change","description":"raise throughput safely","metadata_uri":"ipfs://proposal","type":"parameter_change","deposit":"100avxo","changes":[{"module":"execution","key":"max_gas","value":"20000000"},{"module":"mempool","key":"max_txs","value":"50000"}]}'
 ```
 
+`deposit` is not only proposal metadata on store-backed runtimes. The governance module validates it against `module_config.json:governance`, escrows native bank balance from the submitter, refunds it when the proposal executes successfully, and moves it to the configured rejected-deposit module account when execution resolves a rejected proposal. Because normal block execution uses a staged store, the proposal state and bank custody writes commit atomically with the block.
+
+Important governance policy fields:
+
+- `RequireDeposit`: rejects proposals with no deposit when true.
+- `MinDeposit`: minimum native amount, for example `1avxo` or `0.01vexo`.
+- `DepositDenom`: accepted suffix for human-readable deposits; raw digits are interpreted as atomic units.
+- `DepositEscrow`: module account that holds deposits while voting/execution is pending.
+- `RejectedDeposits`: destination for deposits attached to rejected proposals.
+
+Both transaction forms support deposits:
+
+```bash
+vexod governance tx submit alice max-gas execution max_gas 20000000 100avxo
+vexod governance tx submit-json '{"submitter":"alice","title":"multi-change","deposit":"100avxo","changes":[{"module":"execution","key":"max_gas","value":"20000000"}]}'
+```
+
+Custom modules should not debit proposal deposits themselves. Let the governance module handle escrow/refund/slash, and expose only deterministic parameter changes or module messages that governance can execute after tally and timelock checks.
+
 ## Genesis
 
 `InitGenesis` receives module-specific genesis values in `app.GenesisState`. Existing bank genesis keys use `bank:<address>`.

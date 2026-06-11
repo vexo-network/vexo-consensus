@@ -84,3 +84,8 @@ Tài liệu này giúp hiểu P2P handshake, gossip, peer scoring và chính sá
 ## Nguồn chuẩn
 
 - [Tài liệu chuẩn tiếng Anh](../../en/specs/networking-spec.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Thời gian peer và peer cố định
+
+Một dial failure tạm thời không tự ban configured peer hoặc seed. Lỗi vẫn nằm trong backoff và diagnostics; ban cần dựa trên bằng chứng hành vi như malicious gossip, auth failure, hoặc rate-limit abuse. Đặt `p2p.dial_timeout` theo độ trễ đa vùng và chi phí TLS/auth.

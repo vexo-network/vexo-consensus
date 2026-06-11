@@ -106,3 +106,8 @@
 - `signature_algorithm`
 - `signature_public_key`
 - `vexo-release-evidence-attestation-v1`
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## Как читать network E2E
+
+`make network-e2e` — не только build test: он запускает 4 validators реальным binary и проверяет signed-shape smoke transaction, peer connection, рост height и clean stop. `NETWORK_E2E_GO_TIMEOUT` — внешний лимит Go test и должен быть больше внутреннего network timeout.

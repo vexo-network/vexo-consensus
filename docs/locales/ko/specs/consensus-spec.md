@@ -75,3 +75,8 @@
 ## 규범 원문
 
 - [영어 정본 문서](../../en/specs/consensus-spec.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## 빈 블록과 라운드 회복
+
+`create_empty_blocks=false`이면 mempool이 비어 있을 때 height가 멈춰 보일 수 있습니다. 이는 정상 idle 상태입니다. 거래가 들어오면 노드는 현재 round에서 제안자가 아니더라도 다음 local proposer round로 이동해 거래 블록을 만들 수 있으며, 그래도 QC/finality 규칙은 그대로 적용됩니다.

@@ -95,6 +95,12 @@ func TestConfigValidateRejectsUnsafeSettings(t *testing.T) {
 		{name: "zero governance yes threshold", mutate: func(cfg *Config) { cfg.Governance.YesThresholdPower = 0 }},
 		{name: "zero governance voting period", mutate: func(cfg *Config) { cfg.Governance.VotingPeriod = 0 }},
 		{name: "zero governance timelock", mutate: func(cfg *Config) { cfg.Governance.Timelock = 0 }},
+		{name: "unknown governance deposit denom", mutate: func(cfg *Config) { cfg.Governance.DepositDenom = "unknown" }},
+		{name: "invalid governance min deposit", mutate: func(cfg *Config) { cfg.Governance.MinDeposit = "bad" }},
+		{name: "required governance deposit without minimum", mutate: func(cfg *Config) {
+			cfg.Governance.RequireDeposit = true
+			cfg.Governance.MinDeposit = ""
+		}},
 		{name: "initial score at ban threshold", mutate: func(cfg *Config) { cfg.P2P.InitialScore = cfg.P2P.BanThreshold }},
 		{name: "initial score below ban threshold", mutate: func(cfg *Config) { cfg.P2P.InitialScore = cfg.P2P.BanThreshold - 1 }},
 		{name: "max score below initial score", mutate: func(cfg *Config) { cfg.P2P.MaxScore = cfg.P2P.InitialScore - 1 }},
@@ -142,6 +148,10 @@ func TestValidateNetworkSafetyRejectsDeterministicCrypto(t *testing.T) {
 	cfg.Execution.MinFee = 1
 	cfg.Execution.BaseFee = 1
 	cfg.Execution.MinGas = 1
+	cfg.Governance.RequireDeposit = true
+	cfg.Governance.MinDeposit = "1avxo"
+	cfg.Governance.DepositEscrow = "module:governance:deposit_escrow"
+	cfg.Governance.RejectedDeposits = "module:governance:rejected_deposits"
 	cfg.Mempool.MinFee = 1
 	cfg.Mempool.EnablePriority = true
 	cfg.Mempool.SeenTTL = time.Hour
@@ -164,6 +174,10 @@ func TestValidateNetworkSafetyRejectsHardenedEd25519Config(t *testing.T) {
 	cfg.Execution.MinFee = 1
 	cfg.Execution.BaseFee = 1
 	cfg.Execution.MinGas = 1
+	cfg.Governance.RequireDeposit = true
+	cfg.Governance.MinDeposit = "1avxo"
+	cfg.Governance.DepositEscrow = "module:governance:deposit_escrow"
+	cfg.Governance.RejectedDeposits = "module:governance:rejected_deposits"
 	cfg.Mempool.MinFee = 1
 	cfg.Mempool.EnablePriority = true
 	cfg.Mempool.WALPath = "mempool.wal"
@@ -190,7 +204,9 @@ func TestNetworkSafeTemplatePassesNetworkSafety(t *testing.T) {
 		cfg.VRF.AuditEvidenceSHA256 == "" ||
 		cfg.Mempool.WALPath == "" ||
 		!cfg.Execution.RequireSigned ||
-		!cfg.Execution.RequireNonce {
+		!cfg.Execution.RequireNonce ||
+		!cfg.Governance.RequireDeposit ||
+		cfg.Governance.MinDeposit == "" {
 		t.Fatalf("unexpected network-safe template: %+v", cfg)
 	}
 }
@@ -234,6 +250,10 @@ func TestValidateNetworkSafetyAcceptsHardenedBLSTConfig(t *testing.T) {
 	cfg.Execution.MinFee = 1
 	cfg.Execution.BaseFee = 1
 	cfg.Execution.MinGas = 1
+	cfg.Governance.RequireDeposit = true
+	cfg.Governance.MinDeposit = "1avxo"
+	cfg.Governance.DepositEscrow = "module:governance:deposit_escrow"
+	cfg.Governance.RejectedDeposits = "module:governance:rejected_deposits"
 	cfg.Mempool.MinFee = 1
 	cfg.Mempool.EnablePriority = true
 	cfg.Mempool.WALPath = "mempool.wal"

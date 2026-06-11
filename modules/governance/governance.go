@@ -5,11 +5,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"math/big"
 	"strconv"
 	"strings"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/economics"
 	vexogov "github.com/vexo-network/vexo-consensus/governance"
+	"github.com/vexo-network/vexo-consensus/modules/bank"
 	"github.com/vexo-network/vexo-consensus/modules/staking"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -26,6 +29,12 @@ var (
 	ErrInvalidGovernanceTx     = errors.New("invalid governance transaction")
 	ErrGovernanceRequired      = errors.New("missing governance keeper")
 	ErrNoGovernanceVotingPower = errors.New("governance voting power is not available from staking state")
+	ErrInvalidProposalDeposit  = errors.New("invalid governance proposal deposit")
+)
+
+const (
+	governanceEscrowAddress          types.Address = "module:governance:deposit_escrow"
+	governanceRejectedDepositAddress types.Address = "module:governance:rejected_deposits"
 )
 
 type Module struct {
@@ -48,6 +57,21 @@ func NewModule() *Module {
 		QuorumPower:       1,
 		YesThresholdPower: 1,
 		VotingPeriod:      1,
+	}
+	policy = normalizeGovernancePolicy(policy)
+	return &Module{keeper: vexogov.NewInMemoryKeeper(policy, nil), policy: policy, useStorePath: true}
+}
+
+func NewModuleWithPolicy(policy vexogov.TallyPolicy) *Module {
+	policy = normalizeGovernancePolicy(policy)
+	if policy.QuorumPower == 0 {
+		policy.QuorumPower = 1
+	}
+	if policy.YesThresholdPower == 0 {
+		policy.YesThresholdPower = 1
+	}
+	if policy.VotingPeriod == 0 {
+		policy.VotingPeriod = 1
 	}
 	return &Module{keeper: vexogov.NewInMemoryKeeper(policy, nil), policy: policy, useStorePath: true}
 }
@@ -106,11 +130,11 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		return types.Result{Code: 2, Log: ErrInvalidGovernanceTx.Error()}
 	}
 	switch {
-	case len(parts) == 7 && parts[1] == "submit":
+	case (len(parts) == 7 || len(parts) == 8) && parts[1] == "submit":
 		if err := ctx.ConsumeGas(submitGasCost); err != nil {
 			return types.Result{Code: 5, Log: err.Error()}
 		}
-		id, err := module.submit(goCtx, parts)
+		id, err := module.submit(ctx, parts)
 		if err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
@@ -119,7 +143,7 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		if err := ctx.ConsumeGas(submitGasCost); err != nil {
 			return types.Result{Code: 5, Log: err.Error()}
 		}
-		id, err := module.submitJSON(goCtx, parts[2])
+		id, err := module.submitJSON(ctx, parts[2])
 		if err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
@@ -140,7 +164,26 @@ func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 		if err != nil {
 			return types.Result{Code: 3, Log: err.Error()}
 		}
+		state, found, err := module.proposal(goCtx, proposalID)
+		if err != nil {
+			return types.Result{Code: 4, Log: err.Error()}
+		}
+		if !found {
+			return types.Result{Code: 4, Log: vexogov.ErrProposalNotFound.Error()}
+		}
+		if state.Rejected {
+			return types.Result{Code: 4, Log: vexogov.ErrProposalRejected.Error()}
+		}
 		if err := module.keeper.Execute(goCtx, proposalID); err != nil {
+			if errors.Is(err, vexogov.ErrProposalRejected) {
+				if slashErr := module.slashDeposit(ctx, state); slashErr != nil {
+					return types.Result{Code: 4, Log: slashErr.Error()}
+				}
+				return types.Result{Data: []byte("proposal_rejected")}
+			}
+			return types.Result{Code: 4, Log: err.Error()}
+		}
+		if err := module.refundDeposit(ctx, state); err != nil {
 			return types.Result{Code: 4, Log: err.Error()}
 		}
 		return types.Result{}
@@ -156,7 +199,7 @@ func (module *Module) EndBlock(ctx vexoapp.Context) error {
 func (module *Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
 	parts := governanceTxParts(tx)
 	switch {
-	case len(parts) == 7 && parts[1] == "submit":
+	case (len(parts) == 7 || len(parts) == 8) && parts[1] == "submit":
 		return submitGasCost, nil
 	case len(parts) == 3 && parts[1] == "submit-json":
 		return submitGasCost, nil
@@ -211,14 +254,24 @@ func (module *Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoa
 	return vexoapp.QueryResponse{Code: 2, Log: "invalid governance query"}
 }
 
-func (module *Module) submit(ctx context.Context, parts []string) (uint64, error) {
-	return module.keeper.SubmitProposal(ctx, vexogov.Proposal{
+func (module *Module) submit(ctx vexoapp.Context, parts []string) (uint64, error) {
+	proposal := vexogov.Proposal{
 		Submitter: types.Address(parts[2]),
 		Title:     parts[3],
 		Changes: []vexogov.ParameterChange{
 			{Module: parts[4], Key: parts[5], Value: []byte(parts[6])},
 		},
-	})
+	}
+	if len(parts) == 8 {
+		proposal.Deposit = strings.TrimSpace(parts[7])
+	}
+	if _, err := module.validateProposalDeposit(proposal.Deposit); err != nil {
+		return 0, err
+	}
+	if err := module.escrowDeposit(ctx, proposal); err != nil {
+		return 0, err
+	}
+	return module.keeper.SubmitProposal(ctx.GoContext(), proposal)
 }
 
 type proposalJSONPayload struct {
@@ -237,7 +290,8 @@ type proposalJSONParameterChange struct {
 	Value  string `json:"value"`
 }
 
-func (module *Module) submitJSON(ctx context.Context, encodedPayload string) (uint64, error) {
+func (module *Module) submitJSON(ctx vexoapp.Context, encodedPayload string) (uint64, error) {
+	goCtx := ctx.GoContext()
 	rawPayload, err := base64.RawStdEncoding.DecodeString(encodedPayload)
 	if err != nil {
 		rawPayload, err = base64.StdEncoding.DecodeString(encodedPayload)
@@ -266,12 +320,123 @@ func (module *Module) submitJSON(ctx context.Context, encodedPayload string) (ui
 			Value:  []byte(change.Value),
 		})
 	}
-	return module.keeper.SubmitProposal(ctx, vexogov.Proposal{
+	proposal := vexogov.Proposal{
 		Submitter:   types.Address(payload.Submitter),
 		Title:       payload.Title,
 		Description: proposalDescription(payload),
+		Deposit:     strings.TrimSpace(payload.Deposit),
 		Changes:     changes,
-	})
+	}
+	if _, err := module.validateProposalDeposit(proposal.Deposit); err != nil {
+		return 0, err
+	}
+	if err := module.escrowDeposit(ctx, proposal); err != nil {
+		return 0, err
+	}
+	return module.keeper.SubmitProposal(goCtx, proposal)
+}
+
+func (module *Module) escrowDeposit(ctx vexoapp.Context, proposal vexogov.Proposal) error {
+	if ctx.Store == nil || strings.TrimSpace(proposal.Deposit) == "" {
+		return nil
+	}
+	amount, err := module.validateProposalDeposit(proposal.Deposit)
+	if err != nil {
+		return err
+	}
+	return bank.TransferBig(ctx.GoContext(), ctx.Store, proposal.Submitter, module.depositEscrowAddress(), amount)
+}
+
+func (module *Module) refundDeposit(ctx vexoapp.Context, state vexogov.ProposalState) error {
+	if ctx.Store == nil || strings.TrimSpace(state.Proposal.Deposit) == "" {
+		return nil
+	}
+	amount, err := module.validateProposalDeposit(state.Proposal.Deposit)
+	if err != nil {
+		return err
+	}
+	return bank.TransferBig(ctx.GoContext(), ctx.Store, module.depositEscrowAddress(), state.Proposal.Submitter, amount)
+}
+
+func (module *Module) slashDeposit(ctx vexoapp.Context, state vexogov.ProposalState) error {
+	if ctx.Store == nil || strings.TrimSpace(state.Proposal.Deposit) == "" {
+		return nil
+	}
+	amount, err := module.validateProposalDeposit(state.Proposal.Deposit)
+	if err != nil {
+		return err
+	}
+	return bank.TransferBig(ctx.GoContext(), ctx.Store, module.depositEscrowAddress(), module.rejectedDepositAddress(), amount)
+}
+
+func (module *Module) validateProposalDeposit(value string) (*big.Int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		if module.policy.RequireDeposit {
+			return nil, ErrInvalidProposalDeposit
+		}
+		return nil, nil
+	}
+	if suffix := amountDenomSuffix(value); suffix != "" && module.policy.DepositDenom != "" && suffix != module.policy.DepositDenom {
+		return nil, ErrInvalidProposalDeposit
+	}
+	amount, err := bank.ParseAmountBig(value)
+	if err != nil || amount == nil || amount.Sign() <= 0 {
+		return nil, ErrInvalidProposalDeposit
+	}
+	if strings.TrimSpace(module.policy.MinDeposit) != "" {
+		minimum, err := bank.ParseAmountBig(module.policy.MinDeposit)
+		if err != nil || minimum == nil || minimum.Sign() <= 0 {
+			return nil, ErrInvalidProposalDeposit
+		}
+		if amount.Cmp(minimum) < 0 {
+			return nil, ErrInvalidProposalDeposit
+		}
+	}
+	return amount, nil
+}
+
+func normalizeGovernancePolicy(policy vexogov.TallyPolicy) vexogov.TallyPolicy {
+	if policy.DepositDenom == "" {
+		policy.DepositDenom = economics.AtomicDenom
+	}
+	if policy.DepositEscrow == "" {
+		policy.DepositEscrow = governanceEscrowAddress
+	}
+	if policy.RejectedDeposits == "" {
+		policy.RejectedDeposits = governanceRejectedDepositAddress
+	}
+	return policy
+}
+
+func (module *Module) depositEscrowAddress() types.Address {
+	if module.policy.DepositEscrow != "" {
+		return module.policy.DepositEscrow
+	}
+	return governanceEscrowAddress
+}
+
+func (module *Module) rejectedDepositAddress() types.Address {
+	if module.policy.RejectedDeposits != "" {
+		return module.policy.RejectedDeposits
+	}
+	return governanceRejectedDepositAddress
+}
+
+func amountDenomSuffix(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if value == "" {
+		return ""
+	}
+	index := len(value)
+	for index > 0 {
+		char := value[index-1]
+		if char < 'a' || char > 'z' {
+			break
+		}
+		index--
+	}
+	return value[index:]
 }
 
 func proposalDescription(payload proposalJSONPayload) string {

@@ -84,3 +84,8 @@
 ## 규범 원문
 
 - [영어 정본 문서](../../en/specs/networking-spec.md)
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## 피어 타이밍과 영구 피어
+
+일시적인 dial 실패만으로 configured peer 또는 seed를 ban하지 않습니다. 실패는 backoff와 진단 정보에 남지만, ban은 악성 gossip, 인증 실패, rate-limit abuse 같은 행동 증거에 의해 결정됩니다. `p2p.dial_timeout`은 지역 간 지연과 TLS/auth 비용을 고려해 정해야 합니다.

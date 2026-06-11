@@ -106,3 +106,8 @@
 - `signature_algorithm`
 - `signature_public_key`
 - `vexo-release-evidence-attestation-v1`
+<!-- vexo-docs-ops-update-2026-06 -->
+
+## 网络 E2E 的含义
+
+`make network-e2e` 不只是构建测试；它用真实二进制启动 4 个 validator，验证 signed-shape smoke transaction、peer 连接、height 增长和 clean stop。`NETWORK_E2E_GO_TIMEOUT` 是外层 Go test 限制，必须大于内部 network timeout 才能保留真实失败原因。

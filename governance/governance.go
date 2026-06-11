@@ -16,6 +16,7 @@ type Proposal struct {
 	ID          uint64
 	Title       string
 	Description string
+	Deposit     string
 	Changes     []ParameterChange
 	Submitter   types.Address
 }
