@@ -45,6 +45,12 @@ Tài liệu này giúp hiểu checklist vận hành và quy trình trước khi 
 - `release-audit-pack.json`
 - `evidence-manifest.json`
 - `--evidence-manifest`
+- `--sdk-conformance-evidence`
+- `--evm-web3-conformance-evidence`
+- `evm_fixtures`
+- `evm_execution`
+- `web3_rpc`
+- `evm_corpus`
 - `--evm-default-fixtures`
 - `chain_id`
 
@@ -56,6 +62,10 @@ Tài liệu này giúp hiểu checklist vận hành và quy trình trước khi 
 - Genesis Gate
 - Launch Window
 - Postlaunch Archive
+
+## Bằng chứng tương thích EVM/Web3
+
+Trước khi phát hành công khai, hãy lưu `--evm-web3-conformance-evidence` tách biệt với `--sdk-conformance-evidence`. Tệp này phải có `evm_fixtures`, `evm_execution`, `web3_rpc` và `evm_corpus` để `release gate` có thể từ chối các bản tóm tắt không kiểm chứng được.
 
 ## VRF audit evidence SHA-256
 

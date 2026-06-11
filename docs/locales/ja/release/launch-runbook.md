@@ -45,6 +45,12 @@
 - `release-audit-pack.json`
 - `evidence-manifest.json`
 - `--evidence-manifest`
+- `--sdk-conformance-evidence`
+- `--evm-web3-conformance-evidence`
+- `evm_fixtures`
+- `evm_execution`
+- `web3_rpc`
+- `evm_corpus`
 - `--evm-default-fixtures`
 - `chain_id`
 
@@ -60,6 +66,10 @@
 - Genesis Gate
 - Launch Window
 - Postlaunch Archive
+
+## EVM/Web3 適合性証跡
+
+公開リリース前に、`--evm-web3-conformance-evidence` を `--sdk-conformance-evidence` とは別に保管してください。このファイルには `evm_fixtures`、`evm_execution`、`web3_rpc`、`evm_corpus` が必要で、`release gate` が検証不能な要約を拒否できるようにします。
 
 ## VRF audit evidence SHA-256
 

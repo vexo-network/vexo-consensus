@@ -45,6 +45,12 @@ Dokumen ini membantu memahami checklist operator dan prosedur sebelum peluncuran
 - `release-audit-pack.json`
 - `evidence-manifest.json`
 - `--evidence-manifest`
+- `--sdk-conformance-evidence`
+- `--evm-web3-conformance-evidence`
+- `evm_fixtures`
+- `evm_execution`
+- `web3_rpc`
+- `evm_corpus`
 - `--evm-default-fixtures`
 - `chain_id`
 
@@ -60,6 +66,10 @@ Dokumen ini membantu memahami checklist operator dan prosedur sebelum peluncuran
 - Genesis Gate
 - Launch Window
 - Postlaunch Archive
+
+## Bukti kesesuaian EVM/Web3
+
+Sebelum rilis publik, arsipkan `--evm-web3-conformance-evidence` terpisah dari `--sdk-conformance-evidence`. File tersebut harus memuat `evm_fixtures`, `evm_execution`, `web3_rpc`, dan `evm_corpus` agar `release gate` dapat menolak ringkasan yang tidak bisa diverifikasi.
 
 ## VRF audit evidence SHA-256
 

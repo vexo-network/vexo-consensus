@@ -61,9 +61,9 @@
 - Launch Window
 - Postlaunch Archive
 
-## Release candidate command updates
+## 릴리즈 후보 명령 업데이트
 
-Use `vexod ops conformance --evm-default-fixtures` when a chain-specific Ethereum fixture corpus is not ready yet; add `--evm-tx-fixtures` later for chain-specific Web3/EVM cases. Use `vexod release gate --evidence-manifest dist/evidence-manifest.json` so long-run, chaos, signer, snapshot, P2P, state-sync, economics, governance, MEV, ops, formal-safety, SDK, external-audit, and BLS evidence are hash-bound before publication.
+체인별 Ethereum fixture corpus가 아직 준비되지 않았다면 `vexod ops conformance --evm-default-fixtures`로 CI 수준 smoke evidence를 만들 수 있습니다. 단, 공개 릴리즈에서는 `--evm-tx-fixtures`, `--evm-tx-fixtures-dir`, `--evm-execution-fixtures`, `--evm-execution-fixtures-dir`로 체인별 Web3/EVM corpus를 붙이고, 결과를 `dist/evm-web3-conformance-evidence.json`으로 보관하세요. `vexod release gate --evidence-manifest dist/evidence-manifest.json`에는 long-run, chaos, signer, snapshot, P2P, state-sync, economics, governance, MEV, ops, formal-safety, SDK, EVM/Web3, external-audit, BLS, VRF evidence가 모두 hash-bound 되어야 합니다.
 
 ## VRF audit evidence SHA-256
 

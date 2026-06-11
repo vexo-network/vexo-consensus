@@ -44,6 +44,7 @@ Dieses Dokument hilft dabei, das Release-Gate gegenüber Cosmos/Tendermint-ähnl
 - `--formal-safety-evidence`
 - `--fuzz-evidence`
 - `--sdk-conformance-evidence`
+- `--evm-web3-conformance-evidence`
 - `--p2p-scale-evidence`
 - `--state-sync-light-client-evidence`
 - `--snapshot-evidence`

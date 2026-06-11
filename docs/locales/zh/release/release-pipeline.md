@@ -51,6 +51,12 @@
 - `release-audit-pack.json`
 - `evidence-manifest.json`
 - `--evidence-manifest`
+- `--sdk-conformance-evidence`
+- `--evm-web3-conformance-evidence`
+- `evm_fixtures`
+- `evm_execution`
+- `web3_rpc`
+- `evm_corpus`
 - `CGO_ENABLED=0`
 - `go build -trimpath`
 - `BUILD_DATE`
@@ -78,6 +84,10 @@
 - Audit Pack
 - Release Candidate Soak Test
 - 发布运行手册
+
+## EVM/Web3 合规证据
+
+`--sdk-conformance-evidence` 和 `--evm-web3-conformance-evidence` 是两类独立证据。仅写一句 “EVM passed” 不够；EVM/Web3 证据必须包含可机器检查的 `evm_fixtures`、`evm_execution`、`web3_rpc` 和 `evm_corpus`，并且在公开声明兼容性前通过 SHA-256 绑定到 `evidence-manifest.json`。
 
 ## VRF audit evidence SHA-256
 

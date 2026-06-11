@@ -9,6 +9,7 @@ Vexo should not claim public production readiness unless every row has attached 
 | Operational history | Many years of public-network incidents, fixes, and operator practice | `--longrun-evidence`, `--chaos-evidence`, `--ops-runbook-evidence` |
 | Independent review | External audits, ecosystem scrutiny, and battle-tested assumptions | `--external-audit`, `--formal-safety-evidence`, `--fuzz-evidence` |
 | Ecosystem | Mature SDK modules, IBC, wallets, explorers, tooling, and tutorials | `--sdk-conformance-evidence` plus chain-specific integration evidence |
+| EVM/Web3 surface | Widely tested wallets, JSON-RPC clients, transaction formats, VM execution, traces, fees, blobs, and accounting | `--evm-web3-conformance-evidence` with pinned transaction/execution fixture corpora |
 | P2P maturity | Proven seed/addrbook behavior, reconnects, peer exchange, and DoS hardening | `--p2p-scale-evidence` |
 | State sync/light clients | Widely exercised snapshot and light-client verification flows | `--state-sync-light-client-evidence`, `--snapshot-evidence` |
 | Validator economics | Mature staking, slashing, unbonding, commission, rewards, and tombstone flows | `--validator-economics-evidence` |

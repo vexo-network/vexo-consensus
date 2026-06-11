@@ -51,6 +51,12 @@ Dokumen ini membantu memahami pipeline rilis dengan binary bertanda tangan, chec
 - `release-audit-pack.json`
 - `evidence-manifest.json`
 - `--evidence-manifest`
+- `--sdk-conformance-evidence`
+- `--evm-web3-conformance-evidence`
+- `evm_fixtures`
+- `evm_execution`
+- `web3_rpc`
+- `evm_corpus`
 - `CGO_ENABLED=0`
 - `go build -trimpath`
 - `BUILD_DATE`
@@ -78,6 +84,10 @@ Dokumen ini membantu memahami pipeline rilis dengan binary bertanda tangan, chec
 - Audit Pack
 - Release Candidate Soak Test
 - Runbook peluncuran
+
+## Bukti kesesuaian EVM/Web3
+
+`--sdk-conformance-evidence` dan `--evm-web3-conformance-evidence` adalah bukti yang berbeda. Ringkasan teks seperti “EVM passed” tidak cukup; bukti EVM/Web3 harus memuat bagian yang dapat dibaca mesin: `evm_fixtures`, `evm_execution`, `web3_rpc`, dan `evm_corpus`, lalu diikat ke `evidence-manifest.json` dengan SHA-256 sebelum ada klaim kompatibilitas publik.
 
 ## VRF audit evidence SHA-256
 

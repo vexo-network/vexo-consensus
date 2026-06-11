@@ -45,6 +45,12 @@
 - `release-audit-pack.json`
 - `evidence-manifest.json`
 - `--evidence-manifest`
+- `--sdk-conformance-evidence`
+- `--evm-web3-conformance-evidence`
+- `evm_fixtures`
+- `evm_execution`
+- `web3_rpc`
+- `evm_corpus`
 - `--evm-default-fixtures`
 - `chain_id`
 
@@ -60,6 +66,10 @@
 - Genesis Gate
 - Launch Window
 - Postlaunch Archive
+
+## EVM/Web3 合规证据
+
+公开发布前，请将 `--evm-web3-conformance-evidence` 与 `--sdk-conformance-evidence` 分开归档。该文件必须包含 `evm_fixtures`、`evm_execution`、`web3_rpc` 和 `evm_corpus`，这样 `release gate` 才能拒绝无法验证的摘要。
 
 ## VRF audit evidence SHA-256
 

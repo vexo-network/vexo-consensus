@@ -54,6 +54,7 @@ type releaseRequiredFiles struct {
 	LongRunEvidence     string `json:"longrun_evidence,omitempty"`
 	AdversarialEvidence string `json:"adversarial_evidence,omitempty"`
 	FuzzEvidence        string `json:"fuzz_evidence,omitempty"`
+	EVMWeb3Conformance  string `json:"evm_web3_conformance_evidence,omitempty"`
 }
 
 type releasePackageCheck struct {
@@ -391,13 +392,15 @@ func runReleasePack(writer io.Writer, args []string) error {
 	longRunEvidence := flags.String("longrun-evidence", "", "long-run harness evidence JSON path")
 	adversarialEvidence := flags.String("adversarial-evidence", "", "consensus adversarial simulation evidence JSON path")
 	fuzzEvidence := flags.String("fuzz-evidence", "", "fuzz/property test output evidence path")
+	evmWeb3ConformanceEvidence := flags.String("evm-web3-conformance-evidence", "", "EVM/Web3 conformance evidence path")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	document, err := buildReleaseAuditPackWithEvidence(*distDir, *versionValue, *requireSignature, releaseEvidenceInputs{
-		LongRun:     *longRunEvidence,
-		Adversarial: *adversarialEvidence,
-		Fuzz:        *fuzzEvidence,
+		LongRun:            *longRunEvidence,
+		Adversarial:        *adversarialEvidence,
+		Fuzz:               *fuzzEvidence,
+		EVMWeb3Conformance: *evmWeb3ConformanceEvidence,
 	})
 	if err != nil {
 		return err
@@ -501,7 +504,8 @@ func runReleaseGate(writer io.Writer, args []string) error {
 	mevFeeMarketEvidence := flags.String("mev-fee-market-evidence", "", "MEV, fair ordering, fee-market, and mempool evidence path")
 	opsRunbookEvidence := flags.String("ops-runbook-evidence", "", "operator runbook, alert threshold, and incident drill evidence path")
 	formalSafetyEvidence := flags.String("formal-safety-evidence", "", "formal safety argument, invariant, and adversarial evidence path")
-	sdkConformanceEvidence := flags.String("sdk-conformance-evidence", "", "SDK/API module, storage, crypto, transport, RPC, EVM, and Web3 conformance evidence path")
+	sdkConformanceEvidence := flags.String("sdk-conformance-evidence", "", "SDK/API module, storage, crypto, transport, RPC, IBC, relayer, and proof conformance evidence path")
+	evmWeb3ConformanceEvidence := flags.String("evm-web3-conformance-evidence", "", "EVM/Web3 conformance evidence path for Ethereum-format transactions, geth VM execution, JSON-RPC clients, traces, gas, fees, blobs, and native-coin accounting")
 	externalAudit := flags.String("external-audit", "", "external security audit report or disposition path")
 	blsAudit := flags.String("bls-audit", "", "audited BLS adapter/dependency audit evidence path")
 	blsAuditSHA256 := flags.String("bls-audit-sha256", "", "expected SHA-256 of BLS audit evidence; defaults to crypto.audit_evidence_sha256 from --config when BLS is configured")
@@ -532,9 +536,10 @@ func runReleaseGate(writer io.Writer, args []string) error {
 		manifestPath = filepath.Join(*distDir, "evidence-manifest.json")
 	}
 	pack, err := buildReleaseAuditPackWithEvidence(*distDir, *versionValue, *requireSignature, releaseEvidenceInputs{
-		LongRun:     *longRunEvidence,
-		Adversarial: *adversarialEvidence,
-		Fuzz:        *fuzzEvidence,
+		LongRun:            *longRunEvidence,
+		Adversarial:        *adversarialEvidence,
+		Fuzz:               *fuzzEvidence,
+		EVMWeb3Conformance: *evmWeb3ConformanceEvidence,
 	})
 	if err != nil {
 		return err
@@ -552,6 +557,7 @@ func runReleaseGate(writer io.Writer, args []string) error {
 		OpsRunbook:           *opsRunbookEvidence,
 		FormalSafety:         *formalSafetyEvidence,
 		SDKConformance:       *sdkConformanceEvidence,
+		EVMWeb3Conformance:   *evmWeb3ConformanceEvidence,
 		ExternalAudit:        *externalAudit,
 		BLSAudit:             *blsAudit,
 		BLSAuditSHA256:       blsDigestPin,
@@ -1096,7 +1102,7 @@ func buildProductionReadinessDocument() productionReadinessDocument {
 			"go run ./cmd/vexod release launch-checklist --json",
 			"go run ./cmd/vexod release readiness --json",
 			"go run ./cmd/vexod config tune --validators <n> --tps <target> --regions <r> --latency <duration> --json",
-			"go run ./cmd/vexod release gate --dist dist --version <version> --evidence-manifest dist/evidence-manifest.json --longrun-evidence dist/longrun-evidence.json --chaos-evidence dist/chaos-evidence.json --adversarial-evidence dist/adversarial-evidence.json --fuzz-evidence dist/fuzz-evidence.txt --kms-evidence dist/kms-evidence.json --snapshot-evidence dist/snapshot-replay-evidence.json --p2p-scale-evidence dist/p2p-scale-evidence.json --state-sync-light-client-evidence dist/state-sync-light-client-evidence.json --validator-economics-evidence dist/validator-economics-evidence.json --upgrade-governance-evidence dist/upgrade-governance-evidence.json --mev-fee-market-evidence dist/mev-fee-market-evidence.json --ops-runbook-evidence dist/ops-runbook-evidence.json --formal-safety-evidence dist/formal-safety-evidence.json --sdk-conformance-evidence dist/sdk-conformance-evidence.json --external-audit dist/external-audit.pdf --bls-audit dist/bls-audit.pdf --bls-audit-sha256 <sha256> --vrf-audit dist/vrf-audit.pdf --vrf-audit-sha256 <sha256>",
+			"go run ./cmd/vexod release gate --dist dist --version <version> --evidence-manifest dist/evidence-manifest.json --longrun-evidence dist/longrun-evidence.json --chaos-evidence dist/chaos-evidence.json --adversarial-evidence dist/adversarial-evidence.json --fuzz-evidence dist/fuzz-evidence.txt --kms-evidence dist/kms-evidence.json --snapshot-evidence dist/snapshot-replay-evidence.json --p2p-scale-evidence dist/p2p-scale-evidence.json --state-sync-light-client-evidence dist/state-sync-light-client-evidence.json --validator-economics-evidence dist/validator-economics-evidence.json --upgrade-governance-evidence dist/upgrade-governance-evidence.json --mev-fee-market-evidence dist/mev-fee-market-evidence.json --ops-runbook-evidence dist/ops-runbook-evidence.json --formal-safety-evidence dist/formal-safety-evidence.json --sdk-conformance-evidence dist/sdk-conformance-evidence.json --evm-web3-conformance-evidence dist/evm-web3-conformance-evidence.json --external-audit dist/external-audit.pdf --bls-audit dist/bls-audit.pdf --bls-audit-sha256 <sha256> --vrf-audit dist/vrf-audit.pdf --vrf-audit-sha256 <sha256>",
 			"go run ./cmd/vexod network scale-plan --validators <n> --regions <r> --hosts <h> --json",
 			"go run ./cmd/vexod snapshot drill-plan --input snapshot.json --chain-id <chain-id> --json",
 			"go run ./cmd/vexod slashing lifecycle-plan --type conflicting_vote --validator <id> --height <h> --current-height <h> --json",
@@ -1163,6 +1169,7 @@ type releaseGateInputs struct {
 	OpsRunbook           string
 	FormalSafety         string
 	SDKConformance       string
+	EVMWeb3Conformance   string
 	ExternalAudit        string
 	BLSAudit             string
 	BLSAuditSHA256       string
@@ -1196,6 +1203,7 @@ func buildReleaseGateDocument(versionValue string, pack releaseAuditPack, inputs
 		OpsRunbook:           inputs.OpsRunbook,
 		FormalSafety:         inputs.FormalSafety,
 		SDKConformance:       inputs.SDKConformance,
+		EVMWeb3Conformance:   inputs.EVMWeb3Conformance,
 		ExternalAudit:        inputs.ExternalAudit,
 		BLSAudit:             inputs.BLSAudit,
 		BLSAuditSHA256:       inputs.BLSAuditSHA256,
@@ -1363,6 +1371,7 @@ func releaseEvidenceCandidates() []releaseEvidenceCandidate {
 		{Name: "ops_runbook_evidence", File: "ops-runbook-evidence.json"},
 		{Name: "formal_safety_evidence", File: "formal-safety-evidence.json"},
 		{Name: "sdk_conformance_evidence", File: "sdk-conformance-evidence.json"},
+		{Name: "evm_web3_conformance_evidence", File: "evm-web3-conformance-evidence.json"},
 		{Name: "external_security_audit", File: "external-audit.pdf"},
 		{Name: "bls_adapter_audit", File: "bls-audit.pdf"},
 		{Name: "vrf_adapter_audit", File: "vrf-audit.pdf"},
@@ -1426,9 +1435,10 @@ func buildLaunchChecklistDocument() launchChecklistDocument {
 }
 
 type releaseEvidenceInputs struct {
-	LongRun     string
-	Adversarial string
-	Fuzz        string
+	LongRun            string
+	Adversarial        string
+	Fuzz               string
+	EVMWeb3Conformance string
 }
 
 func buildReleaseAuditPack(distDir string, versionValue string, requireSignature bool) (releaseAuditPack, error) {
@@ -1446,9 +1456,10 @@ func buildReleaseAuditPackWithEvidence(distDir string, versionValue string, requ
 		SBOMModules:         "sbom-go-modules.json",
 		SBOMGoVersion:       "sbom-go-version.txt",
 		Signature:           "checksums.txt.asc",
-		LongRunEvidence:     filepath.Base(evidence.LongRun),
-		AdversarialEvidence: filepath.Base(evidence.Adversarial),
-		FuzzEvidence:        filepath.Base(evidence.Fuzz),
+		LongRunEvidence:     optionalBase(evidence.LongRun),
+		AdversarialEvidence: optionalBase(evidence.Adversarial),
+		FuzzEvidence:        optionalBase(evidence.Fuzz),
+		EVMWeb3Conformance:  optionalBase(evidence.EVMWeb3Conformance),
 	}
 	required.SignatureFound = fileExists(filepath.Join(distDir, required.Signature))
 	document := releaseAuditPack{
@@ -1471,6 +1482,7 @@ func buildReleaseAuditPackWithEvidence(distDir string, versionValue string, requ
 	document.addEvidenceCheck("longrun_evidence", evidence.LongRun, "longrun harness evidence JSON should be attached for release candidates")
 	document.addEvidenceCheck("adversarial_evidence", evidence.Adversarial, "consensus adversarial simulation evidence should be attached for release candidates")
 	document.addEvidenceCheck("fuzz_evidence", evidence.Fuzz, "fuzz/property test output should be attached for release candidates")
+	document.addEvidenceCheck("evm_web3_conformance_evidence", evidence.EVMWeb3Conformance, "EVM/Web3 conformance evidence should be attached before compatibility release claims")
 	return document, nil
 }
 
@@ -1537,6 +1549,13 @@ func fileSHA256(path string) (string, error) {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func optionalBase(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return ""
+	}
+	return filepath.Base(path)
 }
 
 func writeReleaseAuditPack(writer io.Writer, document releaseAuditPack) error {

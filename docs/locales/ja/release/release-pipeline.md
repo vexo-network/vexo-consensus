@@ -51,6 +51,12 @@
 - `release-audit-pack.json`
 - `evidence-manifest.json`
 - `--evidence-manifest`
+- `--sdk-conformance-evidence`
+- `--evm-web3-conformance-evidence`
+- `evm_fixtures`
+- `evm_execution`
+- `web3_rpc`
+- `evm_corpus`
 - `CGO_ENABLED=0`
 - `go build -trimpath`
 - `BUILD_DATE`
@@ -78,6 +84,10 @@
 - Audit Pack
 - Release Candidate Soak Test
 - ローンチランブック
+
+## EVM/Web3 適合性証跡
+
+`--sdk-conformance-evidence` と `--evm-web3-conformance-evidence` は別々の証跡です。“EVM passed” という要約だけでは不十分です。EVM/Web3 証跡には機械判定できる `evm_fixtures`、`evm_execution`、`web3_rpc`、`evm_corpus` を含め、公開互換性を主張する前に SHA-256 で `evidence-manifest.json` へ結び付けてください。
 
 ## VRF audit evidence SHA-256
 

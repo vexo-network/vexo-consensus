@@ -45,6 +45,12 @@
 - `release-audit-pack.json`
 - `evidence-manifest.json`
 - `--evidence-manifest`
+- `--sdk-conformance-evidence`
+- `--evm-web3-conformance-evidence`
+- `evm_fixtures`
+- `evm_execution`
+- `web3_rpc`
+- `evm_corpus`
 - `--evm-default-fixtures`
 - `chain_id`
 
@@ -56,6 +62,10 @@
 - Genesis Gate
 - Launch Window
 - Postlaunch Archive
+
+## دليل توافق EVM/Web3
+
+قبل فتح الإصدار العام، احفظ دليل `--evm-web3-conformance-evidence` منفصلاً عن `--sdk-conformance-evidence`. يجب أن يتضمن الملف `evm_fixtures` و`evm_execution` و`web3_rpc` و`evm_corpus` حتى يستطيع `release gate` رفض الملخصات غير القابلة للتحقق.
 
 ## المصدر المعتمد
 

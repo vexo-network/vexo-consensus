@@ -44,6 +44,7 @@ Ce document aide à comprendre la porte de release face aux attentes de style Co
 - `--formal-safety-evidence`
 - `--fuzz-evidence`
 - `--sdk-conformance-evidence`
+- `--evm-web3-conformance-evidence`
 - `--p2p-scale-evidence`
 - `--state-sync-light-client-evidence`
 - `--snapshot-evidence`

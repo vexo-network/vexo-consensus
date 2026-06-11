@@ -44,6 +44,7 @@ Dokumen ini membantu memahami release gate terhadap ekspektasi bergaya Cosmos/Te
 - `--formal-safety-evidence`
 - `--fuzz-evidence`
 - `--sdk-conformance-evidence`
+- `--evm-web3-conformance-evidence`
 - `--p2p-scale-evidence`
 - `--state-sync-light-client-evidence`
 - `--snapshot-evidence`

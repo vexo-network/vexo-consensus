@@ -45,6 +45,12 @@
 - `release-audit-pack.json`
 - `evidence-manifest.json`
 - `--evidence-manifest`
+- `--sdk-conformance-evidence`
+- `--evm-web3-conformance-evidence`
+- `evm_fixtures`
+- `evm_execution`
+- `web3_rpc`
+- `evm_corpus`
 - `--evm-default-fixtures`
 - `chain_id`
 
@@ -60,6 +66,10 @@
 - Genesis Gate
 - Launch Window
 - Postlaunch Archive
+
+## Доказательства совместимости EVM/Web3
+
+Перед публичным релизом храните `--evm-web3-conformance-evidence` отдельно от `--sdk-conformance-evidence`. Файл должен содержать `evm_fixtures`, `evm_execution`, `web3_rpc` и `evm_corpus`, чтобы `release gate` мог отклонять непроверяемые сводки.
 
 ## VRF audit evidence SHA-256
 

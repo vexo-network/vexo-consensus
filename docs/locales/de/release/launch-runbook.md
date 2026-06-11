@@ -45,6 +45,12 @@ Dieses Dokument hilft dabei, Operator-Checkliste und Ablauf vor dem Netzwerkstar
 - `release-audit-pack.json`
 - `evidence-manifest.json`
 - `--evidence-manifest`
+- `--sdk-conformance-evidence`
+- `--evm-web3-conformance-evidence`
+- `evm_fixtures`
+- `evm_execution`
+- `web3_rpc`
+- `evm_corpus`
 - `--evm-default-fixtures`
 - `chain_id`
 
@@ -60,6 +66,10 @@ Dieses Dokument hilft dabei, Operator-Checkliste und Ablauf vor dem Netzwerkstar
 - Genesis Gate
 - Launch Window
 - Postlaunch Archive
+
+## EVM/Web3-Konformitätsnachweis
+
+Vor einer öffentlichen Freigabe archivierst du `--evm-web3-conformance-evidence` getrennt von `--sdk-conformance-evidence`. Die Datei muss `evm_fixtures`, `evm_execution`, `web3_rpc` und `evm_corpus` enthalten, damit `release gate` nicht prüfbare Zusammenfassungen ablehnen kann.
 
 ## VRF audit evidence SHA-256
 

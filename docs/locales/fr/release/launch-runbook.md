@@ -45,6 +45,12 @@ Ce document aide à comprendre la checklist opérateur et la procédure d’exé
 - `release-audit-pack.json`
 - `evidence-manifest.json`
 - `--evidence-manifest`
+- `--sdk-conformance-evidence`
+- `--evm-web3-conformance-evidence`
+- `evm_fixtures`
+- `evm_execution`
+- `web3_rpc`
+- `evm_corpus`
 - `--evm-default-fixtures`
 - `chain_id`
 
@@ -60,6 +66,10 @@ Ce document aide à comprendre la checklist opérateur et la procédure d’exé
 - Genesis Gate
 - Launch Window
 - Postlaunch Archive
+
+## Preuve de conformité EVM/Web3
+
+Avant une publication publique, archivez `--evm-web3-conformance-evidence` séparément de `--sdk-conformance-evidence`. Le fichier doit contenir `evm_fixtures`, `evm_execution`, `web3_rpc` et `evm_corpus` afin que `release gate` puisse rejeter les résumés non vérifiables.
 
 ## VRF audit evidence SHA-256
 

@@ -50,6 +50,7 @@ type Evidence struct {
 	OpsRunbook           string
 	FormalSafety         string
 	SDKConformance       string
+	EVMWeb3Conformance   string
 	ExternalAudit        string
 	BLSAudit             string
 	BLSAuditSHA256       string
@@ -117,6 +118,7 @@ func Build(version string, pack Pack, evidence Evidence) Document {
 	document.addFileCheck("ops_runbook_evidence", evidence.OpsRunbook, "ops evidence must cover runbooks plus alert/incident/metrics handling", evidence)
 	document.addFileCheck("formal_safety_evidence", evidence.FormalSafety, "formal safety evidence must cover safety plus invariants/adversarial/property output", evidence)
 	document.addFileCheck("sdk_conformance_evidence", evidence.SDKConformance, "SDK evidence must cover SDK/API conformance for modules/RPC/storage/crypto/transport", evidence)
+	document.addFileCheck("evm_web3_conformance_evidence", evidence.EVMWeb3Conformance, "EVM/Web3 evidence must cover Ethereum-format transactions, geth VM execution fixtures, JSON-RPC clients, traces, gas, fees, blobs, and native-coin accounting", evidence)
 	allowExternalPending := evidence.AllowExternalPending && privateReleaseCandidateVersion(version)
 	if evidence.AllowExternalPending && !privateReleaseCandidateVersion(version) {
 		document.addCheck("external_pending_scope", false, "pending external audit evidence is only allowed for private rc/alpha/beta/private version labels")
@@ -547,6 +549,8 @@ func typedEvidenceOK(name string, value any) bool {
 		return opsRunbookEvidenceOK(item)
 	case "sdk_conformance_evidence":
 		return sdkConformanceEvidenceOK(item)
+	case "evm_web3_conformance_evidence":
+		return evmWeb3ConformanceEvidenceOK(item)
 	default:
 		return true
 	}
@@ -782,6 +786,22 @@ func sdkConformanceEvidenceOK(item map[string]any) bool {
 	return true
 }
 
+func evmWeb3ConformanceEvidenceOK(item map[string]any) bool {
+	evmFixtures, hasEVMFixtures := evidenceMap(item["evm_fixtures"])
+	if !hasEVMFixtures || !jsonEvidenceOK(evmFixtures) {
+		return false
+	}
+	evmExecution, hasEVMExecution := evidenceMap(item["evm_execution"])
+	if !hasEVMExecution || !jsonEvidenceOK(evmExecution) {
+		return false
+	}
+	web3RPC, hasWeb3RPC := evidenceMap(item["web3_rpc"])
+	if !hasWeb3RPC || !jsonEvidenceOK(web3RPC) {
+		return false
+	}
+	return evmCorpusEvidenceOK(item)
+}
+
 func evmCorpusEvidenceOK(item map[string]any) bool {
 	corpus, found := evidenceMap(item["evm_corpus"])
 	if !found {
@@ -966,7 +986,9 @@ func semanticRequirements(name string) [][]string {
 	case "formal_safety_evidence":
 		return [][]string{{"safety"}, {"invariant", "adversarial", "property", "proof"}}
 	case "sdk_conformance_evidence":
-		return [][]string{{"sdk", "api"}, {"conformance", "module", "rpc", "storage", "crypto", "transport"}, {"ibc", "relayer", "proof"}, {"evm", "web3", "ethereum"}, {"fixture", "fixtures"}, {"transaction", "raw tx", "raw transaction"}, {"execution", "vm", "opcode"}}
+		return [][]string{{"sdk", "api"}, {"conformance", "module", "rpc", "storage", "crypto", "transport"}, {"ibc", "relayer", "proof"}}
+	case "evm_web3_conformance_evidence":
+		return [][]string{{"evm", "web3", "ethereum"}, {"fixture", "fixtures"}, {"transaction", "raw tx", "raw transaction"}, {"execution", "vm", "opcode"}, {"json-rpc", "json rpc", "rpc"}, {"trace", "debug"}, {"gas"}, {"fee", "base fee", "base-fee"}, {"blob", "eip-4844"}, {"native coin", "native-coin", "vexo"}}
 	case "external_security_audit":
 		return [][]string{{"external", "security"}, {"audit", "disposition"}}
 	case "bls_adapter_audit":

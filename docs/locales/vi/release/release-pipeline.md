@@ -51,6 +51,12 @@ Tài liệu này giúp hiểu pipeline phát hành với binary đã ký, checks
 - `release-audit-pack.json`
 - `evidence-manifest.json`
 - `--evidence-manifest`
+- `--sdk-conformance-evidence`
+- `--evm-web3-conformance-evidence`
+- `evm_fixtures`
+- `evm_execution`
+- `web3_rpc`
+- `evm_corpus`
 - `CGO_ENABLED=0`
 - `go build -trimpath`
 - `BUILD_DATE`
@@ -74,6 +80,10 @@ Tài liệu này giúp hiểu pipeline phát hành với binary đã ký, checks
 - Audit Pack
 - Release Candidate Soak Test
 - Sổ tay ra mắt
+
+## Bằng chứng tương thích EVM/Web3
+
+`--sdk-conformance-evidence` và `--evm-web3-conformance-evidence` là hai bằng chứng riêng. Một dòng tóm tắt kiểu “EVM passed” là chưa đủ; bằng chứng EVM/Web3 phải có các phần máy đọc được `evm_fixtures`, `evm_execution`, `web3_rpc` và `evm_corpus`, rồi được gắn với `evidence-manifest.json` bằng SHA-256 trước mọi tuyên bố tương thích công khai.
 
 ## VRF audit evidence SHA-256
 

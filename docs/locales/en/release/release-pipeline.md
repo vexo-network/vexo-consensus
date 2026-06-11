@@ -99,6 +99,7 @@ go run ./cmd/vexod release gate \
   --ops-runbook-evidence dist/ops-runbook-evidence.json \
   --formal-safety-evidence dist/formal-safety-evidence.json \
   --sdk-conformance-evidence dist/sdk-conformance-evidence.json \
+  --evm-web3-conformance-evidence dist/evm-web3-conformance-evidence.json \
   --external-audit dist/external-audit.pdf \
   --bls-audit dist/bls-audit.pdf \
   --bls-audit-sha256 <sha256> \
@@ -124,7 +125,7 @@ Evidence attestation signs the canonical tuple `name`, `path`, and `sha256` for 
 - `release-audit-pack.json`
 - `evidence-manifest.json`, binding each release evidence file name/path to its SHA-256 hash, provenance, signature algorithm, public key, and verified public-release attestation. If `<evidence-file>.sig` exists next to an evidence file, `release evidence-manifest` records the detached signature path and signature SHA-256; `release gate` verifies the Ed25519 signature before publication.
 - `longrun-analysis.json` and optional `docs-quality.json` when produced by the release pipeline
-- long-run, chaos, adversarial, fuzz, signer, snapshot/replay, P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, SDK conformance including EVM/Web3 conformance, external-audit, and BLS-audit evidence files with passing content when preparing a release candidate
+- long-run, chaos, adversarial, fuzz, signer, snapshot/replay, P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, SDK conformance, separate EVM/Web3 conformance, external-audit, and BLS-audit evidence files with passing content when preparing a release candidate
 
 ## Reproducibility Notes
 
@@ -166,10 +167,11 @@ go run ./cmd/vexod release pack --dist dist --version 0.1.0 --require-signature
 go run ./cmd/vexod release pack --dist dist --version 0.1.0 \
   --longrun-evidence dist/longrun-evidence.json \
   --adversarial-evidence dist/adversarial-evidence.json \
-  --fuzz-evidence dist/fuzz-evidence.txt
+  --fuzz-evidence dist/fuzz-evidence.txt \
+  --evm-web3-conformance-evidence dist/evm-web3-conformance-evidence.json
 ```
 
-The generated pack lists artifact SHA-256 values, required release files, signature status, attached long-run/adversarial/fuzz evidence, and the external audit checklist. `release gate` adds the stricter publish/no-publish decision by requiring category-specific chaos, signer, snapshot/replay, P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, SDK conformance including EVM/Web3 fixtures, evidence-manifest SHA-256/provenance/attestation bindings, external audit, and BLS audit evidence.
+The generated pack lists artifact SHA-256 values, required release files, signature status, attached long-run/adversarial/fuzz/EVM-Web3 evidence, and the external audit checklist. `release gate` adds the stricter publish/no-publish decision by requiring category-specific chaos, signer, snapshot/replay, P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, SDK conformance, separate EVM/Web3 conformance fixtures, evidence-manifest SHA-256/provenance/attestation bindings, external audit, and BLS audit evidence.
 
 ## Release Candidate Soak Test
 

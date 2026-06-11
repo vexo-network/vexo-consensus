@@ -51,6 +51,12 @@ Este documento ajuda a entender pipeline de release com binários assinados, che
 - `release-audit-pack.json`
 - `evidence-manifest.json`
 - `--evidence-manifest`
+- `--sdk-conformance-evidence`
+- `--evm-web3-conformance-evidence`
+- `evm_fixtures`
+- `evm_execution`
+- `web3_rpc`
+- `evm_corpus`
 - `CGO_ENABLED=0`
 - `go build -trimpath`
 - `BUILD_DATE`
@@ -78,6 +84,10 @@ Este documento ajuda a entender pipeline de release com binários assinados, che
 - Audit Pack
 - Release Candidate Soak Test
 - Runbook de lançamento
+
+## Evidência de conformidade EVM/Web3
+
+`--sdk-conformance-evidence` e `--evm-web3-conformance-evidence` são evidências separadas. Um resumo dizendo que “EVM passed” não basta; a evidência EVM/Web3 deve incluir as seções legíveis por máquina `evm_fixtures`, `evm_execution`, `web3_rpc` e `evm_corpus`, e precisa estar vinculada ao `evidence-manifest.json` por SHA-256 antes de qualquer declaração pública de compatibilidade.
 
 ## VRF audit evidence SHA-256
 

@@ -564,6 +564,9 @@ func TestRunReleasePackCanRequireSignature(t *testing.T) {
 	if document.OK || document.Required.SignatureFound {
 		t.Fatalf("expected unsigned release to fail signature check: %+v", document)
 	}
+	if document.Required.LongRunEvidence != "" || document.Required.AdversarialEvidence != "" || document.Required.FuzzEvidence != "" || document.Required.EVMWeb3Conformance != "" {
+		t.Fatalf("optional evidence paths must remain empty when not provided: %+v", document.Required)
+	}
 }
 
 func TestRunReleasePackIncludesEvidenceFiles(t *testing.T) {
@@ -576,6 +579,7 @@ func TestRunReleasePackIncludesEvidenceFiles(t *testing.T) {
 	longrun := filepath.Join(dist, "longrun-evidence.json")
 	adversarial := filepath.Join(dist, "adversarial-evidence.json")
 	fuzz := filepath.Join(dist, "fuzz-evidence.txt")
+	evmWeb3 := filepath.Join(dist, "evm-web3-conformance-evidence.json")
 	if err := os.WriteFile(longrun, releaseEvidenceFixture("longrun-evidence.json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -583,6 +587,9 @@ func TestRunReleasePackIncludesEvidenceFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(fuzz, []byte("fuzz evidence passed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evmWeb3, releaseEvidenceFixture("evm-web3-conformance-evidence.json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -594,6 +601,7 @@ func TestRunReleasePackIncludesEvidenceFiles(t *testing.T) {
 		"--longrun-evidence", longrun,
 		"--adversarial-evidence", adversarial,
 		"--fuzz-evidence", fuzz,
+		"--evm-web3-conformance-evidence", evmWeb3,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -601,10 +609,10 @@ func TestRunReleasePackIncludesEvidenceFiles(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if !document.OK || document.Required.LongRunEvidence != "longrun-evidence.json" || document.Required.AdversarialEvidence != "adversarial-evidence.json" || document.Required.FuzzEvidence != "fuzz-evidence.txt" {
+	if !document.OK || document.Required.LongRunEvidence != "longrun-evidence.json" || document.Required.AdversarialEvidence != "adversarial-evidence.json" || document.Required.FuzzEvidence != "fuzz-evidence.txt" || document.Required.EVMWeb3Conformance != "evm-web3-conformance-evidence.json" {
 		t.Fatalf("unexpected release evidence pack: %+v", document)
 	}
-	if !releaseCheckOK(document, "longrun_evidence") || !releaseCheckOK(document, "adversarial_evidence") || !releaseCheckOK(document, "fuzz_evidence") {
+	if !releaseCheckOK(document, "longrun_evidence") || !releaseCheckOK(document, "adversarial_evidence") || !releaseCheckOK(document, "fuzz_evidence") || !releaseCheckOK(document, "evm_web3_conformance_evidence") {
 		t.Fatalf("expected evidence checks ok: %+v", document.Checks)
 	}
 }
@@ -770,6 +778,7 @@ func TestRunReleaseGatePassesWithEvidence(t *testing.T) {
 		"ops-runbook-evidence.json",
 		"formal-safety-evidence.json",
 		"sdk-conformance-evidence.json",
+		"evm-web3-conformance-evidence.json",
 		"external-audit.pdf",
 		"bls-audit.pdf",
 		"vrf-audit.pdf",
@@ -813,6 +822,7 @@ func TestRunReleaseGatePassesWithEvidence(t *testing.T) {
 		"--ops-runbook-evidence", filepath.Join(dist, "ops-runbook-evidence.json"),
 		"--formal-safety-evidence", filepath.Join(dist, "formal-safety-evidence.json"),
 		"--sdk-conformance-evidence", filepath.Join(dist, "sdk-conformance-evidence.json"),
+		"--evm-web3-conformance-evidence", filepath.Join(dist, "evm-web3-conformance-evidence.json"),
 		"--external-audit", filepath.Join(dist, "external-audit.pdf"),
 		"--bls-audit", filepath.Join(dist, "bls-audit.pdf"),
 		"--bls-audit-sha256", blsAuditDigest,
@@ -848,6 +858,7 @@ func TestRunReleaseGatePassesWithEvidence(t *testing.T) {
 		"--ops-runbook-evidence", filepath.Join(dist, "ops-runbook-evidence.json"),
 		"--formal-safety-evidence", filepath.Join(dist, "formal-safety-evidence.json"),
 		"--sdk-conformance-evidence", filepath.Join(dist, "sdk-conformance-evidence.json"),
+		"--evm-web3-conformance-evidence", filepath.Join(dist, "evm-web3-conformance-evidence.json"),
 		"--external-audit", filepath.Join(dist, "external-audit.pdf"),
 		"--bls-audit", filepath.Join(dist, "bls-audit.pdf"),
 		"--bls-audit-sha256", strings.Repeat("0", 64),
@@ -882,6 +893,7 @@ func TestRunReleaseGatePassesWithEvidence(t *testing.T) {
 		"--ops-runbook-evidence", filepath.Join(dist, "ops-runbook-evidence.json"),
 		"--formal-safety-evidence", filepath.Join(dist, "formal-safety-evidence.json"),
 		"--sdk-conformance-evidence", filepath.Join(dist, "sdk-conformance-evidence.json"),
+		"--evm-web3-conformance-evidence", filepath.Join(dist, "evm-web3-conformance-evidence.json"),
 		"--external-audit", filepath.Join(dist, "external-audit.pdf"),
 		"--bls-audit", filepath.Join(dist, "bls-audit.pdf"),
 		"--bls-audit-sha256", blsAuditDigest,
@@ -950,7 +962,7 @@ func TestRunReleaseGateRejectsEvidenceManifestHashMismatch(t *testing.T) {
 
 func TestRunReleaseEvidenceManifestGeneratesHashes(t *testing.T) {
 	dist := t.TempDir()
-	for _, name := range []string{"longrun-evidence.json", "sdk-conformance-evidence.json"} {
+	for _, name := range []string{"longrun-evidence.json", "sdk-conformance-evidence.json", "evm-web3-conformance-evidence.json"} {
 		if err := os.WriteFile(filepath.Join(dist, name), releaseEvidenceFixture(name), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -967,7 +979,7 @@ func TestRunReleaseEvidenceManifestGeneratesHashes(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.SchemaVersion != "v1" || len(manifest.Evidence) != 2 {
+	if manifest.SchemaVersion != "v1" || len(manifest.Evidence) != 3 {
 		t.Fatalf("unexpected generated manifest: %+v", manifest)
 	}
 	for _, entry := range manifest.Evidence {
@@ -1120,6 +1132,7 @@ func writeReleaseEvidenceManifest(dist string, files []string) error {
 		"ops-runbook-evidence.json":             "ops_runbook_evidence",
 		"formal-safety-evidence.json":           "formal_safety_evidence",
 		"sdk-conformance-evidence.json":         "sdk_conformance_evidence",
+		"evm-web3-conformance-evidence.json":    "evm_web3_conformance_evidence",
 		"external-audit.pdf":                    "external_security_audit",
 		"bls-audit.pdf":                         "bls_adapter_audit",
 		"vrf-audit.pdf":                         "vrf_adapter_audit",
@@ -1174,7 +1187,8 @@ func releaseEvidenceFixture(name string) []byte {
 		"mev-fee-market-evidence.json":          "mev fee market fair mempool ordering replacement evidence passed",
 		"ops-runbook-evidence.json":             "ops runbook alert incident metrics evidence passed",
 		"formal-safety-evidence.json":           "safety invariant adversarial property proof evidence passed",
-		"sdk-conformance-evidence.json":         "sdk api conformance module rpc storage crypto transport ibc relayer proof evm web3 ethereum raw transaction fixtures vm execution evidence passed",
+		"sdk-conformance-evidence.json":         "sdk api conformance module rpc storage crypto transport ibc relayer proof evidence passed",
+		"evm-web3-conformance-evidence.json":    "evm web3 ethereum json-rpc trace debug gas base-fee fee blob native-coin vexo raw transaction fixtures vm execution opcode evidence passed",
 	}
 	switch {
 	case name == "fuzz-evidence.txt":
@@ -1190,8 +1204,8 @@ func releaseEvidenceFixture(name string) []byte {
 			if name == "longrun-evidence.json" {
 				return []byte(`{"ok":true,"validators":4,"duration":"1h","rate":50,"summary":"` + value + `","checks":[{"ok":true,"name":"` + name + `"}],"load":{"submitted":100,"failed":0},"nodes":[{"validator_id":"validator-1","before":{"latest_height":1},"after":{"latest_height":11},"report":{"ok":true}},{"validator_id":"validator-2","before":{"latest_height":1},"after":{"latest_height":12},"report":{"ok":true}},{"validator_id":"validator-3","before":{"latest_height":1},"after":{"latest_height":13},"report":{"ok":true}},{"validator_id":"validator-4","before":{"latest_height":1},"after":{"latest_height":14},"report":{"ok":true}}]}`)
 			}
-			if name == "sdk-conformance-evidence.json" {
-				return []byte(`{"ok":true,"summary":"` + value + ` opcode","checks":[{"ok":true,"name":"` + name + `"}],"evm_fixtures":{"ok":true,"total":1,"passed":1,"failed":0,"coverage_ok":true,"required_categories":["raw_transaction"],"covered_categories":["raw_transaction"],"results":[{"ok":true,"name":"tx"}]},"evm_execution":{"ok":true,"total":1,"passed":1,"failed":0,"coverage_ok":true,"required_categories":["opcode"],"covered_categories":["opcode"],"results":[{"ok":true,"name":"vm"}]},"evm_corpus":{"transaction":{"source":"file","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","fixture_count":1},"execution":{"source":"file","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","fixture_count":1}}}`)
+			if name == "evm-web3-conformance-evidence.json" {
+				return []byte(`{"ok":true,"summary":"` + value + ` opcode","checks":[{"ok":true,"name":"` + name + `"}],"evm_fixtures":{"ok":true,"total":1,"passed":1,"failed":0,"coverage_ok":true,"required_categories":["raw_transaction"],"covered_categories":["raw_transaction"],"results":[{"ok":true,"name":"tx"}]},"evm_execution":{"ok":true,"total":1,"passed":1,"failed":0,"coverage_ok":true,"required_categories":["opcode"],"covered_categories":["opcode"],"results":[{"ok":true,"name":"vm"}]},"web3_rpc":{"ok":true,"total":1,"passed":1,"failed":0,"coverage_ok":true,"required_categories":["json_rpc","trace","gas","fee","blob","native_coin"],"covered_categories":["json_rpc","trace","gas","fee","blob","native_coin"],"results":[{"ok":true,"name":"web3"}]},"evm_corpus":{"transaction":{"source":"file","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","fixture_count":1},"execution":{"source":"file","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","fixture_count":1}}}`)
 			}
 			return []byte(`{"ok":true,"summary":"` + value + `","checks":[{"ok":true,"name":"` + name + `"}]}`)
 		}

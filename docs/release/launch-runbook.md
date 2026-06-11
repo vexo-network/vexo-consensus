@@ -68,12 +68,15 @@ make release VERSION=<version>
 make sign-release VERSION=<version>
 go run ./cmd/vexod ops conformance \
   --home .vexo \
+  --json > dist/sdk-conformance-evidence.json
+go run ./cmd/vexod ops conformance \
+  --home .vexo \
   --evm-tx-fixtures-dir ./fixtures/evm/transactions \
   --evm-tx-fixtures-sha256 <tx-fixture-corpus-sha256> \
   --evm-execution-fixtures-dir ./fixtures/evm/execution \
   --evm-execution-fixtures-sha256 <execution-fixture-corpus-sha256> \
   --strict \
-  --json > dist/sdk-conformance-evidence.json
+  --json > dist/evm-web3-conformance-evidence.json
 go run ./cmd/vexod relayer soak-plan \
   --source-rpc http://validator-1.example:26657 \
   --dest-rpc http://validator-2.example:26657 \
@@ -98,6 +101,7 @@ go run ./cmd/vexod release pack \
   --longrun-evidence dist/longrun-evidence.json \
   --adversarial-evidence dist/adversarial-evidence.json \
   --fuzz-evidence dist/fuzz-evidence.txt \
+  --evm-web3-conformance-evidence dist/evm-web3-conformance-evidence.json \
   --output dist/release-audit-pack.json
 go run ./cmd/vexod release gate \
   --dist dist \
@@ -117,6 +121,7 @@ go run ./cmd/vexod release gate \
   --ops-runbook-evidence dist/ops-runbook-evidence.json \
   --formal-safety-evidence dist/formal-safety-evidence.json \
   --sdk-conformance-evidence dist/sdk-conformance-evidence.json \
+  --evm-web3-conformance-evidence dist/evm-web3-conformance-evidence.json \
   --external-audit dist/external-audit.pdf \
   --bls-audit dist/bls-audit.pdf \
   --bls-audit-sha256 <sha256> \
@@ -130,7 +135,7 @@ go run ./cmd/vexod release gate \
 
 `--evm-default-fixtures` is intentionally small enough for CI but not enough for strict launch evidence. Strict EVM/Web3 evidence must use `--evm-tx-fixtures` or `--evm-tx-fixtures-dir` for chain-specific raw transaction scenarios and `--evm-execution-fixtures` or `--evm-execution-fixtures-dir` for contract, precompile, blob, opcode, and account-abstraction execution scenarios. Pin those external corpora with `--evm-tx-fixtures-sha256` and `--evm-execution-fixtures-sha256`; strict conformance exits non-zero if the corpus or digest pin is missing.
 
-SDK conformance evidence that claims EVM/Web3 coverage must include the machine-readable `evm_fixtures`, `evm_execution`, and `evm_corpus` reports emitted by `vexod ops conformance`. `evm_corpus` records the transaction fixture source, execution fixture source, SHA-256 digest, fixture count, and pinning status. A JSON file that only says “EVM fixtures passed” in a summary string is rejected by the release gate.
+EVM/Web3 conformance evidence is separate from SDK conformance and is attached with `--evm-web3-conformance-evidence`. It must include the machine-readable `evm_fixtures`, `evm_execution`, `web3_rpc`, and `evm_corpus` reports emitted by `vexod ops conformance`. `evm_corpus` records the transaction fixture source, execution fixture source, SHA-256 digest, fixture count, and pinning status. A JSON file that only says “EVM fixtures passed” in a summary string is rejected by the release gate.
 
 `relayer soak-plan` emits a runnable `relayer run` config that alternates acknowledgement and timeout jobs, uses checkpoint state to prevent duplicate submissions, and keeps transient proof/RPC failures visible in soak output. Archive the generated plan and any checkpoint/log evidence when IBC is part of the launch surface.
 
@@ -191,7 +196,7 @@ Archive:
 - release pack and signed checksums
 - launch metrics, logs, pprof samples, peer score snapshots, and final split config files
 - docs quality report and localized documentation manifest
-- long-run, chaos, adversarial, fuzz, snapshot, replay, signer, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, ops runbook, formal safety, and SDK conformance evidence with category-specific passing content plus `evidence-manifest.json` SHA-256, provenance, Ed25519 public key, and verified public-release attestation bindings
+- long-run, chaos, adversarial, fuzz, snapshot, replay, signer, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, ops runbook, formal safety, SDK conformance, and EVM/Web3 conformance evidence with category-specific passing content plus `evidence-manifest.json` SHA-256, provenance, Ed25519 public key, and verified public-release attestation bindings
 
 After launch, schedule:
 

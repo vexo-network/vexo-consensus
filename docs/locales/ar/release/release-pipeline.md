@@ -51,6 +51,12 @@
 - `release-audit-pack.json`
 - `evidence-manifest.json`
 - `--evidence-manifest`
+- `--sdk-conformance-evidence`
+- `--evm-web3-conformance-evidence`
+- `evm_fixtures`
+- `evm_execution`
+- `web3_rpc`
+- `evm_corpus`
 - `CGO_ENABLED=0`
 - `go build -trimpath`
 - `BUILD_DATE`
@@ -74,6 +80,10 @@
 - Audit Pack
 - Release Candidate Soak Test
 - دليل الإطلاق
+
+## دليل توافق EVM/Web3
+
+يجب أن يبقى دليل `--sdk-conformance-evidence` منفصلاً عن دليل `--evm-web3-conformance-evidence`. لا يكفي نص عام يقول إن EVM يعمل؛ يجب أن يحتوي دليل EVM/Web3 على أقسام آلية قابلة للفحص هي `evm_fixtures` و`evm_execution` و`web3_rpc` و`evm_corpus`، وأن يكون مربوطاً بـ `evidence-manifest.json` عبر SHA-256 قبل أي ادعاء توافق عام.
 
 ## المصدر المعتمد
 
