@@ -190,6 +190,21 @@ func (transport *TCPTransport) KnownPeers() map[p2p.PeerID]string {
 	return transport.peerAddresses()
 }
 
+func (transport *TCPTransport) ConfiguredPeerIDs() []p2p.PeerID {
+	transport.mu.RLock()
+	defer transport.mu.RUnlock()
+	peers := make([]p2p.PeerID, 0, len(transport.peers))
+	for peerID := range transport.peers {
+		peers = append(peers, peerID)
+	}
+	sort.Slice(peers, func(left int, right int) bool { return peers[left] < peers[right] })
+	return peers
+}
+
+func (transport *TCPTransport) ActivePeerIDs() []p2p.PeerID {
+	return nil
+}
+
 func (transport *TCPTransport) acceptLoop(listener net.Listener) {
 	for {
 		connection, err := listener.Accept()

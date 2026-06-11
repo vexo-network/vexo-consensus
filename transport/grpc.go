@@ -777,6 +777,30 @@ func (transport *GRPCTransport) KnownPeers() map[p2p.PeerID]string {
 	return transport.peerAddresses()
 }
 
+func (transport *GRPCTransport) ConfiguredPeerIDs() []p2p.PeerID {
+	transport.mu.RLock()
+	defer transport.mu.RUnlock()
+	peers := make([]p2p.PeerID, 0, len(transport.peers))
+	for peerID := range transport.peers {
+		peers = append(peers, peerID)
+	}
+	sort.Slice(peers, func(left int, right int) bool { return peers[left] < peers[right] })
+	return peers
+}
+
+func (transport *GRPCTransport) ActivePeerIDs() []p2p.PeerID {
+	transport.mu.RLock()
+	defer transport.mu.RUnlock()
+	peers := make([]p2p.PeerID, 0, len(transport.sessions))
+	for peerID, session := range transport.sessions {
+		if session != nil {
+			peers = append(peers, peerID)
+		}
+	}
+	sort.Slice(peers, func(left int, right int) bool { return peers[left] < peers[right] })
+	return peers
+}
+
 func (transport *GRPCTransport) DroppedMessages() uint64 {
 	transport.mu.RLock()
 	defer transport.mu.RUnlock()
@@ -833,7 +857,7 @@ func (transport *GRPCTransport) Gossip(stream grpc.BidiStreamingServer[grpcStrea
 		transport.emitPeerEvent(PeerEvent{Type: "peer_handshake_failed", Reason: "missing handshake"})
 		return fmt.Errorf("%w: missing handshake", ErrHandshakeFailed)
 	}
-	if err := transport.validateHandshake(*first.Handshake); err != nil {
+	if err := transport.validateHandshake(stream.Context(), *first.Handshake); err != nil {
 		transport.emitPeerEvent(PeerEvent{Type: "peer_handshake_failed", PeerID: first.Handshake.NodeID, Address: first.Handshake.ListenAddr, Reason: err.Error()})
 		return err
 	}
@@ -1044,7 +1068,7 @@ func (transport *GRPCTransport) peerSession(ctx context.Context, peerID p2p.Peer
 		failHandshake()
 		return nil, fmt.Errorf("%w: expected peer %s got %s", ErrHandshakeFailed, peerID, remote.Handshake.NodeID)
 	}
-	if err := transport.validateHandshake(*remote.Handshake); err != nil {
+	if err := transport.validateHandshake(ctx, *remote.Handshake); err != nil {
 		failHandshake()
 		return nil, fmt.Errorf("validate remote handshake: %w", err)
 	}
@@ -1278,7 +1302,7 @@ func normalizeGRPCError(err error) error {
 	}
 }
 
-func (transport *GRPCTransport) validateHandshake(handshake Handshake) error {
+func (transport *GRPCTransport) validateHandshake(ctx context.Context, handshake Handshake) error {
 	if handshake.ProtocolVersion != transport.protocolVersion {
 		return fmt.Errorf("%w: local=%s remote=%s", ErrProtocolMismatch, transport.protocolVersion, handshake.ProtocolVersion)
 	}
@@ -1292,20 +1316,20 @@ func (transport *GRPCTransport) validateHandshake(handshake Handshake) error {
 		return fmt.Errorf("%w: local=%s remote=%s", ErrGenesisHashMismatch, transport.genesisHash, handshake.GenesisHash)
 	}
 	if transport.authToken != "" || handshake.AuthToken != "" {
-		if transport.authToken == "" || handshake.AuthToken == "" || !transport.verifyAuthProof(handshake.NodeID, handshake.AuthToken) {
+		if transport.authToken == "" || handshake.AuthToken == "" || !transport.verifyAuthProof(ctx, handshake.NodeID, handshake.AuthToken) {
 			return ErrAuthTokenMismatch
 		}
 	}
 	if handshake.NodeID == "" {
 		return fmt.Errorf("%w: missing node id", ErrHandshakeFailed)
 	}
-	if err := transport.validateHandshakeSignature(handshake); err != nil {
+	if err := transport.validateHandshakeSignature(ctx, handshake); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (transport *GRPCTransport) validateHandshakeSignature(handshake Handshake) error {
+func (transport *GRPCTransport) validateHandshakeSignature(ctx context.Context, handshake Handshake) error {
 	hasSignatureMaterial := len(handshake.NodePublicKey) > 0 || len(handshake.Signature) > 0 || handshake.SignatureNonce != ""
 	if !transport.requireHandshakeSignature && !hasSignatureMaterial {
 		return nil
@@ -1319,7 +1343,7 @@ func (transport *GRPCTransport) validateHandshakeSignature(handshake Handshake) 
 	if !transport.handshakeVerifier.Verify(handshake.NodePublicKey, handshakeSignaturePayload(handshake), handshake.Signature) {
 		return ErrHandshakeSignature
 	}
-	if !transport.markAuthNonce(handshake.NodeID, "sig:"+handshake.SignatureNonce, time.Now()) {
+	if !transport.markAuthNonce(ctx, handshake.NodeID, "sig:"+handshake.SignatureNonce, time.Now()) {
 		return ErrHandshakeSignature
 	}
 	return nil
@@ -1366,7 +1390,7 @@ func (transport *GRPCTransport) authProof(nodeID p2p.PeerID) string {
 	return handshakeAuthVersion + ":" + strconv.FormatInt(timestamp, 10) + ":" + nonce + ":" + signature
 }
 
-func (transport *GRPCTransport) verifyAuthProof(nodeID p2p.PeerID, proof string) bool {
+func (transport *GRPCTransport) verifyAuthProof(ctx context.Context, nodeID p2p.PeerID, proof string) bool {
 	parts := strings.Split(proof, ":")
 	if len(parts) != 4 || parts[0] != handshakeAuthVersion {
 		return false
@@ -1384,13 +1408,16 @@ func (transport *GRPCTransport) verifyAuthProof(nodeID p2p.PeerID, proof string)
 	if !hmac.Equal([]byte(parts[3]), []byte(expected)) {
 		return false
 	}
-	return transport.markAuthNonce(nodeID, parts[2], now)
+	return transport.markAuthNonce(ctx, nodeID, parts[2], now)
 }
 
-func (transport *GRPCTransport) markAuthNonce(nodeID p2p.PeerID, nonce string, now time.Time) bool {
+func (transport *GRPCTransport) markAuthNonce(ctx context.Context, nodeID p2p.PeerID, nonce string, now time.Time) bool {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	key := string(nodeID) + ":" + nonce
 	if transport.authReplayStore != nil {
-		return transport.authReplayStore.MarkAuthNonce(context.Background(), nodeID, nonce, now.Add(handshakeAuthTTL), now) == nil
+		return transport.authReplayStore.MarkAuthNonce(ctx, nodeID, nonce, now.Add(handshakeAuthTTL), now) == nil
 	}
 	transport.mu.Lock()
 	defer transport.mu.Unlock()

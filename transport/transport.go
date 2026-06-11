@@ -52,6 +52,11 @@ type PeerExchangeTransport interface {
 	KnownPeers() map[p2p.PeerID]string
 }
 
+type PeerStatsTransport interface {
+	ConfiguredPeerIDs() []p2p.PeerID
+	ActivePeerIDs() []p2p.PeerID
+}
+
 type InMemoryBus struct {
 	mu          sync.RWMutex
 	subscribers map[p2p.Topic]map[p2p.PeerID][]chan Envelope

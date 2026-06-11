@@ -952,7 +952,7 @@ func TestNodeReportsPeerScoreSnapshots(t *testing.T) {
 		t.Fatalf("unexpected carol snapshot: %+v", snapshot[1])
 	}
 	status := alice.Status(context.Background())
-	if status.PeerCount != 2 || status.BannedPeers != 0 || len(status.Peers) != 2 {
+	if status.PeerCount != 2 || status.ScoredPeerCount != 2 || status.BannedPeers != 0 || len(status.Peers) != 2 {
 		t.Fatalf("unexpected peer status: %+v", status)
 	}
 	if status.Peers[0].Peer != "bob" || status.Peers[1].Peer != "carol" {

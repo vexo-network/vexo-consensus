@@ -33,15 +33,18 @@ func statusResponse(status node.Status) StatusResponse {
 		startedAtUnix = status.StartedAt.Unix()
 	}
 	response := StatusResponse{
-		ChainID:       status.ChainID,
-		EVMChainID:    status.EVMChainID,
-		Running:       status.Running,
-		StartedAtUnix: startedAtUnix,
-		LatestHeight:  uint64(status.LatestHeight),
-		LatestAppHash: hex.EncodeToString(status.LatestAppHash[:]),
-		DataDir:       status.DataDir,
-		PeerCount:     status.PeerCount,
-		BannedPeers:   status.BannedPeers,
+		ChainID:             status.ChainID,
+		EVMChainID:          status.EVMChainID,
+		Running:             status.Running,
+		StartedAtUnix:       startedAtUnix,
+		LatestHeight:        uint64(status.LatestHeight),
+		LatestAppHash:       hex.EncodeToString(status.LatestAppHash[:]),
+		DataDir:             status.DataDir,
+		PeerCount:           status.PeerCount,
+		ActivePeerCount:     status.ActivePeerCount,
+		ConfiguredPeerCount: status.ConfiguredPeerCount,
+		ScoredPeerCount:     status.ScoredPeerCount,
+		BannedPeers:         status.BannedPeers,
 	}
 	if status.LatestFinalizedHeight > 0 {
 		response.LatestFinalizedHeight = uint64(status.LatestFinalizedHeight)
@@ -66,6 +69,9 @@ func metricsResponse(metrics node.Metrics) MetricsResponse {
 		TotalVotingPower:        metrics.TotalVotingPower,
 		ValidatorSetHash:        hex.EncodeToString(metrics.ValidatorSetHash[:]),
 		PeerCount:               metrics.PeerCount,
+		ActivePeerCount:         metrics.ActivePeerCount,
+		ConfiguredPeerCount:     metrics.ConfiguredPeerCount,
+		ScoredPeerCount:         metrics.ScoredPeerCount,
 		BannedPeers:             metrics.BannedPeers,
 		PeerWindowMessages:      metrics.PeerWindowMessages,
 		ConsensusLoopRunning:    metrics.ConsensusLoopRunning,
@@ -168,7 +174,10 @@ func metricsText(metrics node.Metrics) string {
 	writeGauge("vexo_total_blocks", "Total locally stored blocks.", metrics.TotalBlocks)
 	writeGauge("vexo_validator_count", "Current validator count.", uint64(metrics.ValidatorCount))
 	writeGauge("vexo_total_voting_power", "Current total validator voting power.", metrics.TotalVotingPower)
-	writeGauge("vexo_peer_count", "Known peer count.", uint64(metrics.PeerCount))
+	writeGauge("vexo_peer_count", "Connected peer count when available, otherwise scored peer count for backwards compatibility.", uint64(metrics.PeerCount))
+	writeGauge("vexo_active_peer_count", "Active transport peer session count.", uint64(metrics.ActivePeerCount))
+	writeGauge("vexo_configured_peer_count", "Configured or learned transport peer count.", uint64(metrics.ConfiguredPeerCount))
+	writeGauge("vexo_scored_peer_count", "Peer score table entry count.", uint64(metrics.ScoredPeerCount))
 	writeGauge("vexo_banned_peers", "Banned peer count.", uint64(metrics.BannedPeers))
 	writeGauge("vexo_peer_window_messages", "Peer messages observed in the current score window.", metrics.PeerWindowMessages)
 	writeGauge("vexo_consensus_loop_running", "Whether the local consensus loop is running.", boolGauge(metrics.ConsensusLoopRunning))

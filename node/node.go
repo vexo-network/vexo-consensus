@@ -44,6 +44,9 @@ type Status struct {
 	LatestFinalizedHash   types.Hash
 	DataDir               string
 	PeerCount             int
+	ActivePeerCount       int
+	ConfiguredPeerCount   int
+	ScoredPeerCount       int
 	BannedPeers           int
 	Peers                 []p2p.PeerSnapshot
 }
@@ -454,13 +457,18 @@ func (node *Node) Status(ctx context.Context) Status {
 		peers, err := node.runtime.P2PScore.Snapshot(ctx)
 		if err == nil {
 			status.Peers = peers
-			status.PeerCount = len(peers)
+			status.ScoredPeerCount = len(peers)
 			for _, peer := range peers {
 				if peer.Banned {
 					status.BannedPeers++
 				}
 			}
 		}
+	}
+	status.ConfiguredPeerCount, status.ActivePeerCount = node.peerCountsLocked()
+	status.PeerCount = status.ActivePeerCount
+	if status.PeerCount == 0 {
+		status.PeerCount = status.ScoredPeerCount
 	}
 	if node.consensus != nil {
 		decisions := node.consensus.CommitDecisions()
@@ -482,4 +490,17 @@ func (node *Node) Status(ctx context.Context) Status {
 		}
 	}
 	return status
+}
+
+func (node *Node) peerCountsLocked() (configured int, active int) {
+	if node.wire == nil {
+		return 0, 0
+	}
+	if stats, ok := node.wire.(transport.PeerStatsTransport); ok {
+		return len(stats.ConfiguredPeerIDs()), len(stats.ActivePeerIDs())
+	}
+	if exchange, ok := node.wire.(transport.PeerExchangeTransport); ok {
+		return len(exchange.KnownPeers()), 0
+	}
+	return 0, 0
 }

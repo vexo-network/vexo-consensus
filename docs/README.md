@@ -17,6 +17,7 @@ Use the path that matches what you are trying to do. If you are not sure, start 
 
 | Goal | Read First | Then Verify |
 |---|---|---|
+| Decide whether a network is production-ready | Production readiness guide | Release gate, evidence manifest, security assumptions |
 | Understand the protocol | Consensus overview, consensus spec, finality proof format | Safety assumptions, validator lifecycle, evidence rules |
 | Build an app chain | App module guide, tx format, storage schema | Module store writes, gas/fee policy, RPC compatibility |
 | Enable EVM features | EVM/native accounting, tx format, RPC versioning | Native balance accounting, gas/base fee behavior, Web3 compatibility evidence |
@@ -25,12 +26,19 @@ Use the path that matches what you are trying to do. If you are not sure, start 
 
 If you are new to the project, start in this order:
 
-1. [Consensus Protocol Overview](./consensus-protocol.md)
-2. [Consensus Spec](./specs/consensus-spec.md)
-3. [Transaction Format](./specs/tx-format.md)
-4. [Validator Lifecycle](./specs/validator-lifecycle.md)
-5. [Node Initialization](./operators/node-initialization.md)
-6. [Security Audit Readiness](./security/audit-readiness.md)
+1. [Production Readiness Guide](./production-readiness.md)
+2. [Consensus Protocol Overview](./consensus-protocol.md)
+3. [Consensus Spec](./specs/consensus-spec.md)
+4. [Transaction Format](./specs/tx-format.md)
+5. [Validator Lifecycle](./specs/validator-lifecycle.md)
+6. [Node Initialization](./operators/node-initialization.md)
+7. [Security Audit Readiness](./security/audit-readiness.md)
+
+## Start Here
+
+| Document | Purpose |
+|---|---|
+| [Production Readiness Guide](./production-readiness.md) | Single map of protocol, runtime, operations, evidence, and release readiness |
 
 ## Protocol Specs
 
@@ -59,6 +67,7 @@ If you are new to the project, start in this order:
 |---|---|
 | [Node Initialization](./operators/node-initialization.md) | Initialize validator/archive nodes and manage split subsystem config files |
 | [Adding a Validator](./operators/add-validator.md) | Operator flow for adding a validator and verifying height-specific validator-set updates |
+| [Observability Guide](./operators/observability.md) | Status, metrics, logs, alert thresholds, and first-response playbooks |
 | [Launch Runbook](./release/launch-runbook.md) | Operator launch flow, halt criteria, monitoring, and postlaunch archive requirements |
 | [Release Pipeline](./release/release-pipeline.md) | Build, sign, package, and gate release artifacts |
 | [Cosmos/Tendermint Comparison Gate](./release/cosmos-comparison-gate.md) | Maps Tendermint/Cosmos maturity advantages to required Vexo release evidence |

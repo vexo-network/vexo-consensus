@@ -23,6 +23,9 @@ type Metrics struct {
 	TotalVotingPower        uint64
 	ValidatorSetHash        types.Hash
 	PeerCount               int
+	ActivePeerCount         int
+	ConfiguredPeerCount     int
+	ScoredPeerCount         int
 	BannedPeers             int
 	PeerWindowMessages      uint64
 	ConsensusLoopRunning    bool
@@ -47,14 +50,17 @@ type Metrics struct {
 func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
 	status := node.Status(ctx)
 	metrics := Metrics{
-		ChainID:            status.ChainID,
-		Running:            status.Running,
-		DataDir:            status.DataDir,
-		LatestHeight:       status.LatestHeight,
-		LatestAppHash:      status.LatestAppHash,
-		PeerCount:          status.PeerCount,
-		BannedPeers:        status.BannedPeers,
-		PeerWindowMessages: peerWindowMessages(status.Peers),
+		ChainID:             status.ChainID,
+		Running:             status.Running,
+		DataDir:             status.DataDir,
+		LatestHeight:        status.LatestHeight,
+		LatestAppHash:       status.LatestAppHash,
+		PeerCount:           status.PeerCount,
+		ActivePeerCount:     status.ActivePeerCount,
+		ConfiguredPeerCount: status.ConfiguredPeerCount,
+		ScoredPeerCount:     status.ScoredPeerCount,
+		BannedPeers:         status.BannedPeers,
+		PeerWindowMessages:  peerWindowMessages(status.Peers),
 	}
 	if !status.StartedAt.IsZero() {
 		metrics.StartedAtUnix = status.StartedAt.Unix()

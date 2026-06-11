@@ -31,10 +31,17 @@ Build Docker image with pinned metadata:
 make docker-image VERSION=0.1.0 IMAGE=vexo-consensus IMAGE_TAG=0.1.0
 ```
 
-Run release candidate verification:
+Run CI-safe release candidate verification. This builds artifacts, runs checks, and writes plan/evidence metadata without starting the 168-hour soak path:
 
 ```bash
 make release-candidate VERSION=0.1.0-rc.1
+```
+
+Run a real soak release candidate only when external EVM/Web3 corpora are pinned and the machine is allowed to run the network load/longrun harness:
+
+```bash
+make release-candidate-real VERSION=0.1.0-rc.1 \
+  RC_EVM_CONFORMANCE_FLAGS="--evm-tx-fixtures fixtures/evm/raw.json --evm-tx-fixtures-sha256 <sha256> --evm-execution-fixtures fixtures/evm/execution.json --evm-execution-fixtures-sha256 <sha256>"
 ```
 
 Generate or refresh the SHA-256-bound evidence manifest after collecting evidence files:
@@ -193,24 +200,31 @@ go run ./cmd/vexod release pack --dist dist --version 0.1.0 \
 
 The generated pack lists artifact SHA-256 values, required release files, signature status, attached long-run/adversarial/fuzz/EVM-Web3 evidence, and the external audit checklist. `release gate` adds the stricter publish/no-publish decision by requiring category-specific chaos, signer, snapshot/replay, P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, SDK conformance, separate EVM/Web3 conformance fixtures, evidence-manifest SHA-256/provenance/attestation bindings, external audit, and BLS audit evidence.
 
-## Release Candidate Soak Test
+## Release Candidate Targets
 
-The `release-candidate` target runs:
+The default `release-candidate` target is CI-safe and maps to `release-candidate-plan`. It runs:
 
 - full test/vet check
 - fuzz smoke tests
 - ops verification
-- built-binary network E2E (`make network-e2e`)
 - adversarial simulation
-- SDK/EVM conformance evidence. If the `evm` module is enabled, `vexod ops conformance` treats missing `--evm-default-fixtures`, `--evm-tx-fixtures`, or `--evm-tx-fixtures-dir` as an error, not a warning. The built-in fixture set is a baseline for dynamic-fee, access-list, protected legacy, unprotected legacy rejection, chain-ID, malformed raw, fee-cap behavior, geth VM call return data, contract creation execution, CREATE2, revert behavior, persistent storage writes, event logs, value transfer, precompile execution, access-list gas semantics, and blob-hash semantics. Every EVM claim must include `evm_fixtures`, `evm_execution`, and `evm_corpus` with transaction and execution corpus SHA-256 values. Strict release conformance must use an external raw transaction corpus plus an external geth VM execution corpus, both pinned by SHA-256, through `RC_EVM_CONFORMANCE_FLAGS`.
-- network load harness (`make release-candidate` runs real load; `make release-candidate-plan` writes `*-plan` files only and those files are intentionally rejected as release evidence)
+- SDK/EVM conformance plan using built-in fixtures
+- network load plan files only; plan files are intentionally rejected as final release evidence
 - chaos plan
 - IBC relayer soak plan with `vexod relayer soak-plan --json`
 - 7-day multi-host longrun plan
-- longrun harness evidence (`RC_LONGRUN_DURATION` defaults to 168h; `release-candidate-plan` keeps short dry-run planning separate from `longrun-evidence.json`)
-- longrun analysis with `vexod network analyze-longrun`
 - locale and canonical documentation quality with `vexod release docs-quality`
-- evidence manifest generation for whatever RC evidence files are present in `dist/`
+- evidence manifest generation for whatever RC files are present in `dist/`
+
+The `release-candidate-real` target runs the operational soak path:
+
+- everything in the default release and ops verification path
+- built-binary network E2E (`make network-e2e`)
+- strict SDK/EVM conformance evidence. If the `evm` module is enabled, `vexod ops conformance --strict` requires external raw transaction and geth VM execution fixture corpora, both pinned by SHA-256 through `RC_EVM_CONFORMANCE_FLAGS`.
+- live network load harness
+- longrun harness evidence (`RC_LONGRUN_DURATION` defaults to 168h)
+- chaos execution
+- evidence manifest generation for the produced evidence files
 
 Real release candidates should run `network longrun` on independent machines and attach the generated evidence JSON plus metrics, logs, pprof, snapshot, replay, KMS signing, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, SDK conformance, EVM/Web3 raw transaction conformance, geth VM execution conformance, BLS adapter audit, and VRF adapter/KMS/TLS audit evidence.
 The longrun harness distributes load across validator RPC endpoints and records per-validator submission counts in the evidence payload. The analyzer should pass before the evidence is attached to the release gate. Relayer soak plans should include both acknowledgement and timeout jobs and should be archived with checkpoint state. Upgrade plans that rely on no-op schema migrations must explicitly set `allow_noop_migrations=true`; `vexod upgrade apply --allow-empty-migrations` rejects plans that do not opt in. Public release gates require `--bls-audit` evidence plus `--bls-audit-sha256` or `--config <path>` with `crypto.audit_evidence_sha256` when BLS is configured, and `--vrf-audit` evidence plus `--vrf-audit-sha256` or `--config <path>` with `vrf.audit_evidence_sha256` when VRF committee selection is configured. The repository includes `docs/security/blst-audit-evidence.json`, `docs/security/ecvrf-audit-evidence.json`, and their SHA-256 pins for the built-in adapter metadata; launch teams should still attach their target-release BLS and VRF audit artifacts covering adapter implementation, dependency audit, TLS/mTLS or pinned CA, authorization, nonce replay defense, and KMS/HSM custody policy.

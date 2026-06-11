@@ -51,6 +51,29 @@ func TestGRPCTransportEmitsPeerConfigurationEvents(t *testing.T) {
 	}
 }
 
+func TestGRPCTransportReportsConfiguredAndActivePeers(t *testing.T) {
+	alice, bob, carol := newStartedGRPCPeers(t)
+	defer stopGRPCPeer(t, alice)
+	defer stopGRPCPeer(t, bob)
+	defer stopGRPCPeer(t, carol)
+
+	configured := alice.ConfiguredPeerIDs()
+	if len(configured) != 2 || configured[0] != "bob" || configured[1] != "carol" {
+		t.Fatalf("unexpected configured peers: %v", configured)
+	}
+	if active := alice.ActivePeerIDs(); len(active) != 0 {
+		t.Fatalf("expected no active session before publish, got %v", active)
+	}
+	if err := alice.Publish(context.Background(), p2p.TopicTx, []byte("tx")); err != nil {
+		t.Fatal(err)
+	}
+	waitForGRPCSessionCount(t, alice, 2)
+	active := alice.ActivePeerIDs()
+	if len(active) != 2 || active[0] != "bob" || active[1] != "carol" {
+		t.Fatalf("unexpected active peers: %v", active)
+	}
+}
+
 func TestGRPCTransportPublishBroadcastsToConfiguredPeers(t *testing.T) {
 	alice, bob, carol := newStartedGRPCPeers(t)
 	defer stopGRPCPeer(t, alice)
@@ -559,10 +582,10 @@ func TestGRPCTransportRejectsReplayedAuthProof(t *testing.T) {
 		NodeID:          "bob",
 		AuthToken:       transport.authProof("bob"),
 	}
-	if err := transport.validateHandshake(handshake); err != nil {
+	if err := transport.validateHandshake(context.Background(), handshake); err != nil {
 		t.Fatalf("expected first proof to pass, got %v", err)
 	}
-	if err := transport.validateHandshake(handshake); !errors.Is(err, ErrAuthTokenMismatch) {
+	if err := transport.validateHandshake(context.Background(), handshake); !errors.Is(err, ErrAuthTokenMismatch) {
 		t.Fatalf("expected replayed proof rejection, got %v", err)
 	}
 }
@@ -592,7 +615,7 @@ func TestGRPCTransportRejectsReplayedAuthProofAfterRestart(t *testing.T) {
 		NodeID:          "bob",
 		AuthToken:       first.authProof("bob"),
 	}
-	if err := first.validateHandshake(handshake); err != nil {
+	if err := first.validateHandshake(context.Background(), handshake); err != nil {
 		t.Fatalf("expected first proof to pass, got %v", err)
 	}
 	secondStore, err := NewFileAuthReplayStore(path)
@@ -610,7 +633,7 @@ func TestGRPCTransportRejectsReplayedAuthProofAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := second.validateHandshake(handshake); !errors.Is(err, ErrAuthTokenMismatch) {
+	if err := second.validateHandshake(context.Background(), handshake); !errors.Is(err, ErrAuthTokenMismatch) {
 		t.Fatalf("expected replay rejection after restart, got %v", err)
 	}
 }
@@ -705,18 +728,18 @@ func TestGRPCTransportValidatesSignedHandshake(t *testing.T) {
 	}
 	handshake := alice.LocalHandshake()
 	handshake.NodeID = "alice"
-	if err := bob.validateHandshake(handshake); err != nil {
+	if err := bob.validateHandshake(context.Background(), handshake); err != nil {
 		t.Fatalf("expected signed handshake to verify, got %v", err)
 	}
 	replayed := alice.LocalHandshake()
 	replayed.SignatureNonce = handshake.SignatureNonce
 	replayed.Signature = handshake.Signature
-	if err := bob.validateHandshake(replayed); !errors.Is(err, ErrHandshakeSignature) {
+	if err := bob.validateHandshake(context.Background(), replayed); !errors.Is(err, ErrHandshakeSignature) {
 		t.Fatalf("expected replayed signed handshake rejection, got %v", err)
 	}
 	handshake = alice.LocalHandshake()
 	handshake.ListenAddr = "127.0.0.1:9999"
-	if err := bob.validateHandshake(handshake); !errors.Is(err, ErrHandshakeSignature) {
+	if err := bob.validateHandshake(context.Background(), handshake); !errors.Is(err, ErrHandshakeSignature) {
 		t.Fatalf("expected tampered signed handshake rejection, got %v", err)
 	}
 }

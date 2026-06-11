@@ -116,6 +116,9 @@ type StatusResponse struct {
 	LatestFinalizedHash   string `json:"latest_finalized_hash,omitempty"`
 	DataDir               string `json:"data_dir"`
 	PeerCount             int    `json:"peer_count"`
+	ActivePeerCount       int    `json:"active_peer_count"`
+	ConfiguredPeerCount   int    `json:"configured_peer_count"`
+	ScoredPeerCount       int    `json:"scored_peer_count"`
 	BannedPeers           int    `json:"banned_peers"`
 }
 
@@ -134,6 +137,9 @@ type MetricsResponse struct {
 	TotalVotingPower        uint64  `json:"total_voting_power"`
 	ValidatorSetHash        string  `json:"validator_set_hash"`
 	PeerCount               int     `json:"peer_count"`
+	ActivePeerCount         int     `json:"active_peer_count"`
+	ConfiguredPeerCount     int     `json:"configured_peer_count"`
+	ScoredPeerCount         int     `json:"scored_peer_count"`
 	BannedPeers             int     `json:"banned_peers"`
 	PeerWindowMessages      uint64  `json:"peer_window_messages"`
 	ConsensusLoopRunning    bool    `json:"consensus_loop_running"`

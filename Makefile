@@ -9,6 +9,7 @@ COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS ?= -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)
 RELEASE_TARGETS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
+RELEASE_CGO_ENABLED ?= 0
 IMAGE ?= vexo-consensus
 IMAGE_TAG ?= $(VERSION)
 GPG ?= gpg
@@ -18,6 +19,7 @@ RC_CHAOS_DURATION ?= 24h
 RC_CHAOS_TIMEOUT ?= 60s
 RC_RATE ?= 50
 RC_EVM_CONFORMANCE_FLAGS ?=
+FUZZ_PARALLEL ?= 1
 NETWORK_E2E_GO_TIMEOUT ?= 120000s
 
 .PHONY: all build test vet check docs-check evm-conformance fuzz-smoke ops-verify network-e2e coverage release checksums sbom release-manifest release-audit-pack release-evidence-manifest sign-release docker-image release-candidate release-candidate-real release-candidate-plan clean
@@ -51,13 +53,13 @@ evm-conformance:
 
 fuzz-smoke:
 	mkdir -p $(GOCACHE_DIR)
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./app -run '^$$' -fuzz=FuzzDecodeSignedTx -fuzztime=1s
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./consensus -run '^$$' -fuzz=FuzzDecodeWireMessage -fuzztime=1s
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./dataavailability -run '^$$' -fuzz=FuzzVerify -fuzztime=1s
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./fairordering -run '^$$' -fuzz=FuzzSortTxsWithSalt -fuzztime=1s
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./mempool -run '^$$' -fuzz=FuzzFIFOAddAndBuildBatch -fuzztime=1s
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./rpc -run '^$$' -fuzz=FuzzSubmitTxRequest -fuzztime=1s
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./rpc -run '^$$' -fuzz=FuzzSubmitEvidenceRequest -fuzztime=1s
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./app -run '^$$' -fuzz=FuzzDecodeSignedTx -fuzztime=1s -parallel=$(FUZZ_PARALLEL)
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./consensus -run '^$$' -fuzz=FuzzDecodeWireMessage -fuzztime=1s -parallel=$(FUZZ_PARALLEL)
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./dataavailability -run '^$$' -fuzz=FuzzVerify -fuzztime=1s -parallel=$(FUZZ_PARALLEL)
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./fairordering -run '^$$' -fuzz=FuzzSortTxsWithSalt -fuzztime=1s -parallel=$(FUZZ_PARALLEL)
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./mempool -run '^$$' -fuzz=FuzzFIFOAddAndBuildBatch -fuzztime=1s -parallel=$(FUZZ_PARALLEL)
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./rpc -run '^$$' -fuzz=FuzzSubmitTxRequest -fuzztime=1s -parallel=$(FUZZ_PARALLEL)
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./rpc -run '^$$' -fuzz=FuzzSubmitEvidenceRequest -fuzztime=1s -parallel=$(FUZZ_PARALLEL)
 
 ops-verify: check fuzz-smoke
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod config audit-pack --json
@@ -97,7 +99,7 @@ release: check
 		out="$(DIST_DIR)/$(BINARY)-$(VERSION)-$${goos}-$${goarch}"; \
 		if [ "$$goos" = "windows" ]; then out="$$out.exe"; fi; \
 		echo "building $$out"; \
-		GOOS=$$goos GOARCH=$$goarch CGO_ENABLED=0 $(GO) build $(GOFLAGS) -trimpath -ldflags "$(LDFLAGS)" -o "$$out" ./cmd/vexod; \
+		GOOS=$$goos GOARCH=$$goarch CGO_ENABLED=$(RELEASE_CGO_ENABLED) $(GO) build $(GOFLAGS) -trimpath -ldflags "$(LDFLAGS)" -o "$$out" ./cmd/vexod; \
 	done
 	$(MAKE) checksums
 	$(MAKE) sbom
@@ -105,7 +107,7 @@ release: check
 	$(MAKE) release-audit-pack
 
 checksums:
-	cd $(DIST_DIR) && shasum -a 256 * > checksums.txt
+	cd $(DIST_DIR) && LC_ALL=C LANG=C shasum -a 256 * > checksums.txt
 
 sbom:
 	mkdir -p $(DIST_DIR)
@@ -138,10 +140,10 @@ docker-image:
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		-t $(IMAGE):$(IMAGE_TAG) .
 
-release-candidate: release-candidate-real
+release-candidate: release-candidate-plan
 
 release-candidate-real: release ops-verify network-e2e
-	test -n "$(RC_EVM_CONFORMANCE_FLAGS)"
+	@test -n "$(RC_EVM_CONFORMANCE_FLAGS)" || { echo "release-candidate-real requires RC_EVM_CONFORMANCE_FLAGS with externally pinned EVM/Web3 fixture corpora"; exit 1; }
 	rm -rf /tmp/vexo-rc-conformance
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod init validator --home /tmp/vexo-rc-conformance --chain-id vexo-rc --validator validator-1 --overwrite
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod ops conformance --home /tmp/vexo-rc-conformance --strict $(RC_EVM_CONFORMANCE_FLAGS) --json > $(DIST_DIR)/sdk-conformance-evidence.json

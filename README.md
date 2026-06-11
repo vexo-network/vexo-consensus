@@ -169,6 +169,7 @@ vexod governance --help
 Start with the documentation index:
 
 - [Documentation Index](./docs/README.md)
+- [Production Readiness Guide](./docs/production-readiness.md)
 
 Core specs:
 
@@ -191,6 +192,7 @@ Operations and release:
 
 - [Node Initialization](./docs/operators/node-initialization.md)
 - [Adding a Validator](./docs/operators/add-validator.md)
+- [Observability Guide](./docs/operators/observability.md)
 - [Security Audit Readiness](./docs/security/audit-readiness.md)
 - [Launch Runbook](./docs/release/launch-runbook.md)
 - [Release Pipeline](./docs/release/release-pipeline.md)
@@ -218,6 +220,8 @@ Build release artifacts locally:
 ```bash
 make release VERSION=0.1.0-rc.1
 ```
+
+Default release artifacts use `RELEASE_CGO_ENABLED=0` for reproducible cross-target builds. The `supranational/blst` BLS adapter is cgo-backed, so BLS-capable artifacts must be built per target with `RELEASE_CGO_ENABLED=1` and the required audit/key-custody evidence.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request.
 

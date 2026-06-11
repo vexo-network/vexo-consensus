@@ -407,13 +407,16 @@ func TestHandlerReportsHealthStatusAndPeers(t *testing.T) {
 	appHash := types.Hash{1, 2, 3}
 	bannedUntil := time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
 	handler := NewHandler(fakeStatusProvider{status: node.Status{
-		ChainID:       "vexo-test",
-		Running:       true,
-		LatestHeight:  7,
-		LatestAppHash: appHash,
-		DataDir:       "/tmp/vexo",
-		PeerCount:     2,
-		BannedPeers:   1,
+		ChainID:             "vexo-test",
+		Running:             true,
+		LatestHeight:        7,
+		LatestAppHash:       appHash,
+		DataDir:             "/tmp/vexo",
+		PeerCount:           2,
+		ActivePeerCount:     1,
+		ConfiguredPeerCount: 3,
+		ScoredPeerCount:     2,
+		BannedPeers:         1,
 		Peers: []p2p.PeerSnapshot{
 			{Peer: "alice", Score: 12, WindowMessages: 3},
 			{Peer: "mallory", Score: -1, Banned: true, BannedUntil: bannedUntil, WindowMessages: 9},
@@ -437,7 +440,7 @@ func TestHandlerReportsHealthStatusAndPeers(t *testing.T) {
 	if status.ChainID != "vexo-test" || !status.Running || status.LatestHeight != 7 {
 		t.Fatalf("unexpected status: %+v", status)
 	}
-	if status.LatestAppHash[:6] != "010203" || status.PeerCount != 2 || status.BannedPeers != 1 {
+	if status.LatestAppHash[:6] != "010203" || status.PeerCount != 2 || status.ActivePeerCount != 1 || status.ConfiguredPeerCount != 3 || status.ScoredPeerCount != 2 || status.BannedPeers != 1 {
 		t.Fatalf("unexpected status metrics: %+v", status)
 	}
 
@@ -517,6 +520,9 @@ func TestHandlerReportsMetrics(t *testing.T) {
 		TotalVotingPower:       100,
 		ValidatorSetHash:       types.Hash{4, 5, 6},
 		PeerCount:              3,
+		ActivePeerCount:        2,
+		ConfiguredPeerCount:    4,
+		ScoredPeerCount:        3,
 		BannedPeers:            1,
 		PeerWindowMessages:     12,
 		ConsensusLoopRunning:   true,
@@ -528,7 +534,7 @@ func TestHandlerReportsMetrics(t *testing.T) {
 	if metrics.ChainID != "vexo-test" || !metrics.Running || metrics.StartedAtUnix != 1710000000 || metrics.UptimeSeconds != 42 || metrics.LatestHeight != 9 || metrics.TotalBlocks != 9 {
 		t.Fatalf("unexpected metrics identity: %+v", metrics)
 	}
-	if metrics.ValidatorCount != 4 || metrics.TotalVotingPower != 100 || metrics.PeerCount != 3 || metrics.BannedPeers != 1 || !metrics.ConsensusLoopRunning || metrics.ReconciliationFailures != 2 {
+	if metrics.ValidatorCount != 4 || metrics.TotalVotingPower != 100 || metrics.PeerCount != 3 || metrics.ActivePeerCount != 2 || metrics.ConfiguredPeerCount != 4 || metrics.ScoredPeerCount != 3 || metrics.BannedPeers != 1 || !metrics.ConsensusLoopRunning || metrics.ReconciliationFailures != 2 {
 		t.Fatalf("unexpected metrics counters: %+v", metrics)
 	}
 	if metrics.LatestAppHash[:6] != "010203" || metrics.ValidatorSetHash[:6] != "040506" {
@@ -548,6 +554,9 @@ func TestHandlerReportsMetricsText(t *testing.T) {
 		ValidatorCount:         4,
 		TotalVotingPower:       100,
 		PeerCount:              3,
+		ActivePeerCount:        2,
+		ConfiguredPeerCount:    4,
+		ScoredPeerCount:        3,
 		BannedPeers:            1,
 		PeerWindowMessages:     12,
 		ConsensusLoopRunning:   true,
@@ -565,6 +574,9 @@ func TestHandlerReportsMetricsText(t *testing.T) {
 		"vexo_validator_count 4",
 		"vexo_total_voting_power 100",
 		"vexo_peer_count 3",
+		"vexo_active_peer_count 2",
+		"vexo_configured_peer_count 4",
+		"vexo_scored_peer_count 3",
 		"vexo_banned_peers 1",
 		"vexo_peer_window_messages 12",
 		"vexo_consensus_loop_running 1",

@@ -18,7 +18,8 @@
   ],
   "top_level_documents": [
     "README.md",
-    "consensus-protocol.md"
+    "consensus-protocol.md",
+    "production-readiness.md"
   ],
   "document_sets": [
     "operators",
@@ -45,16 +46,18 @@
   "translation_policy": "Locale directories mirror the canonical English document tree. Commands, config keys, RPC methods, and code identifiers must remain unchanged across translations.",
   "ci_policy": "go test ./cmd/vexod -run TestDocsLocalesMirrorCanonicalTree and make docs-check fail when any locale misses or adds a Markdown path outside the canonical tree.",
   "canonical_hashes": {
-    "README.md": "6e9e8420a3523f7fee26f36f993e7c2c93b5546d41ffef685594a0479d59fed7",
+    "README.md": "b3763fbd384e29a95dd2b07b31eecafdb81bbbea3593cd8d457914c917e96004",
     "consensus-protocol.md": "a22134a854a0ff0ffd6a686f07053f9dd7f3c50947e6383c8e21448998f810bd",
     "operators/add-validator.md": "e179c0f86fa3f14403c9a1a0eb55354bc8bdb5d71b23778571e4d68c68acae0e",
     "operators/node-initialization.md": "165b89b62a563c5b5fc7f7a9fb09eb2d02038946c91ebf89c599fc8f36a2d490",
+    "operators/observability.md": "1c67c3ba9a245ca28ddf5514436be9851fef02cec1d47f75d21867817e0b6b54",
+    "production-readiness.md": "8610e6ac6371651fffcaf1a59ce0717de0fb2e64ead13b3f506de4b1bd0297ce",
     "release/cosmos-comparison-gate.md": "7674da13bf525c3180aa729e260c45c8b04655abae6f5c3bc64cece674237549",
     "release/launch-runbook.md": "7005625ec586a07a21181dd87d4108ba600974898b8b5dea0bdb6346da194f04",
-    "release/release-pipeline.md": "11ff518c6be7ab502f669f8d5bf37991760472218a97985b0d0a4c76c48446ac",
+    "release/release-pipeline.md": "7d4e8d1060c30e14308e3f6a020c4b42db0ed6acb7ede8107985bd392f3fbcac",
     "release/version-compatibility.md": "382dfa986cdc1a4cc861cdc4ff05c986967cfbf495a1c14b70e9fcbcf3c99c5b",
     "sdk/app-module-guide.md": "262af1284ccc02fc06182b158fe3ba66c914dc086b12c84a29c1b305d1c954dc",
-    "sdk/custom-crypto-backend.md": "2ab7923125e847206f2b1ee16d480f93ed2550f64c8f8a86de356ba2956d6474",
+    "sdk/custom-crypto-backend.md": "06a34ed88c1689aa18758a224f47b0af4ff01f8126fd3e97ad7737b673e170ad",
     "sdk/custom-storage-transport.md": "ffccc2cc51e642ce2f21e69bd0003799021e0d0a7a3621377a395a5c4453288d",
     "sdk/rpc-api-versioning.md": "b4b99dc17a6c249f5f4ed3d6d5e3cd4f807c1edbd9d429f976948d25fa37e4e7",
     "security/audit-readiness.md": "ab43145d086716a48b44181b22dccd4e0054ccff91e6d4a6bb6bb2a62e7f894f",
