@@ -77,11 +77,11 @@
 - SBOM
 - Audit Pack
 - Release Candidate Soak Test
-- Launch Runbook
+- 출시 런북
 
-## Release gate evidence binding
+## 릴리즈 게이트 증거 바인딩
 
-`release gate` now expects evidence artifacts to be bound through `evidence-manifest.json`. The manifest records each evidence `name`, `path`, and `sha256`, and the gate rejects evidence whose file content does not match the manifest hash. Keep command-line flags such as `--evidence-manifest`, `--sdk-conformance-evidence`, `--external-audit`, and `--bls-audit` untranslated so operators can copy the exact interface names. Use `make release-candidate-real` when the release candidate must run real load and long-run checks instead of plan-only dry runs.
+`release gate`는 이제 릴리즈 증거 산출물을 `evidence-manifest.json`으로 묶어서 검증합니다. Manifest는 각 증거의 `name`, `path`, `sha256`을 기록하고, 실제 파일 내용이 manifest 해시와 다르면 gate가 실패합니다. 운영자가 그대로 복사할 수 있어야 하므로 `--evidence-manifest`, `--sdk-conformance-evidence`, `--external-audit`, `--bls-audit` 같은 CLI 플래그와 JSON 필드명은 번역하지 않습니다. 실제 릴리즈 후보에서 부하 테스트와 장기 실행 검증이 필요하면 plan-only dry run 대신 `make release-candidate-real`을 사용하세요.
 
 ## VRF audit evidence SHA-256
 
@@ -89,7 +89,7 @@
 
 ## 규범 원문
 
-- [English canonical document](../../en/release/release-pipeline.md)
+- [영어 정본 문서](../../en/release/release-pipeline.md)
 
 ## 릴리즈 증거 attestation 용어
 

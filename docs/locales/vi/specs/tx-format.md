@@ -74,4 +74,4 @@ Tài liệu này giúp hiểu quy tắc transaction format, signing, fee và gas
 
 ## Nguồn chuẩn
 
-- [English canonical document](../../en/specs/tx-format.md)
+- [Tài liệu chuẩn tiếng Anh](../../en/specs/tx-format.md)

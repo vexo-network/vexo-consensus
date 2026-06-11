@@ -66,4 +66,4 @@ A entrega de auditoria deve incluir VRF adapter audit evidence além de BLS. Fix
 
 ## Fonte canônica
 
-- [English canonical document](../../en/security/audit-readiness.md)
+- [Documento canônico em inglês](../../en/security/audit-readiness.md)

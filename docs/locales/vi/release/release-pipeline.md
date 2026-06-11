@@ -73,7 +73,7 @@ Tài liệu này giúp hiểu pipeline phát hành với binary đã ký, checks
 - SBOM
 - Audit Pack
 - Release Candidate Soak Test
-- Launch Runbook
+- Sổ tay ra mắt
 
 ## VRF audit evidence SHA-256
 
@@ -81,7 +81,7 @@ Tài liệu này giúp hiểu pipeline phát hành với binary đã ký, checks
 
 ## Nguồn chuẩn
 
-- [English canonical document](../../en/release/release-pipeline.md)
+- [Tài liệu chuẩn tiếng Anh](../../en/release/release-pipeline.md)
 
 ## Thuật ngữ attestation cho bằng chứng release
 

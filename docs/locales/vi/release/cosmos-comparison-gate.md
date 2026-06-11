@@ -61,4 +61,4 @@ Tài liệu này giúp hiểu cổng kiểm tra release so với kỳ vọng ki�
 
 ## Nguồn chuẩn
 
-- [English canonical document](../../en/release/cosmos-comparison-gate.md)
+- [Tài liệu chuẩn tiếng Anh](../../en/release/cosmos-comparison-gate.md)

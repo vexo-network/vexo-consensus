@@ -76,4 +76,4 @@ Ce document aide à comprendre la création d’un app module et son intégratio
 
 ## Source canonique
 
-- [English canonical document](../../en/sdk/app-module-guide.md)
+- [Document canonique anglais](../../en/sdk/app-module-guide.md)

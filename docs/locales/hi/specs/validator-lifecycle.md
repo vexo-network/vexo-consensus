@@ -54,6 +54,6 @@
 - Slashing
 - Jail and Unbonding
 
-## Canonical source
+## प्रामाणिक स्रोत
 
-- [English canonical document](../../en/specs/validator-lifecycle.md)
+- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/specs/validator-lifecycle.md)

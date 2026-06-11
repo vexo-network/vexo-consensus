@@ -56,4 +56,4 @@ Dokumen ini membantu memahami lifecycle validator join, rotation, jail, slashing
 
 ## Sumber kanonik
 
-- [English canonical document](../../en/specs/validator-lifecycle.md)
+- [Dokumen kanonik bahasa Inggris](../../en/specs/validator-lifecycle.md)

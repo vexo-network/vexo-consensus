@@ -74,4 +74,4 @@ Dokumen ini membantu memahami aturan transaction format, signing, fee, dan gas d
 
 ## Sumber kanonik
 
-- [English canonical document](../../en/specs/tx-format.md)
+- [Dokumen kanonik bahasa Inggris](../../en/specs/tx-format.md)

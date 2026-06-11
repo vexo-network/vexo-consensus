@@ -78,4 +78,4 @@
 
 ## المصدر المعتمد
 
-- [English canonical document](../../en/operators/node-initialization.md)
+- [الوثيقة الإنجليزية المرجعية](../../en/operators/node-initialization.md)

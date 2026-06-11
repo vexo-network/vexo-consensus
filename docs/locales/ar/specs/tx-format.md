@@ -74,4 +74,4 @@
 
 ## المصدر المعتمد
 
-- [English canonical document](../../en/specs/tx-format.md)
+- [الوثيقة الإنجليزية المرجعية](../../en/specs/tx-format.md)

@@ -76,4 +76,4 @@ Este documento ayuda a entender creación de app module e integración con CLI/R
 
 ## Fuente canónica
 
-- [English canonical document](../../en/sdk/app-module-guide.md)
+- [Documento canónico en inglés](../../en/sdk/app-module-guide.md)

@@ -980,6 +980,21 @@ func TestRunReleaseEvidenceManifestGeneratesHashes(t *testing.T) {
 	}
 }
 
+func TestRunReleaseEvidenceManifestRejectsPlanOnlyCandidate(t *testing.T) {
+	dist := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dist, "longrun-evidence.json"), []byte(`network longrun plan --dry-run estimated transactions only`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := runCommand(&bytes.Buffer{}, &bytes.Buffer{}, []string{
+		"release", "evidence-manifest",
+		"--dist", dist,
+		"--json",
+	})
+	if err == nil {
+		t.Fatal("expected plan-only longrun evidence candidate to fail manifest generation")
+	}
+}
+
 func TestRunReleaseEvidenceManifestSignsEntries(t *testing.T) {
 	dist := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dist, "longrun-evidence.json"), releaseEvidenceFixture("longrun-evidence.json"), 0o644); err != nil {

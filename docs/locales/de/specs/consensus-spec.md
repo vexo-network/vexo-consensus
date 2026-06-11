@@ -74,4 +74,4 @@ Dieses Dokument hilft dabei, die normative Spezifikation der Konsens-State-Machi
 
 ## Kanonische Quelle
 
-- [English canonical document](../../en/specs/consensus-spec.md)
+- [Englisches kanonisches Dokument](../../en/specs/consensus-spec.md)

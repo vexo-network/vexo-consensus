@@ -69,4 +69,4 @@ Dieses Dokument hilft dabei, die konsistente Verbindung von native coin und EVM 
 
 ## Kanonische Quelle
 
-- [English canonical document](../../en/specs/evm-native-accounting.md)
+- [Englisches kanonisches Dokument](../../en/specs/evm-native-accounting.md)

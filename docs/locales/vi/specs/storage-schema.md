@@ -78,4 +78,4 @@ Tài liệu này giúp hiểu namespace durable storage, key schema và recovery
 
 ## Nguồn chuẩn
 
-- [English canonical document](../../en/specs/storage-schema.md)
+- [Tài liệu chuẩn tiếng Anh](../../en/specs/storage-schema.md)

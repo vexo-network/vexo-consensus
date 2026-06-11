@@ -78,4 +78,4 @@
 
 ## المصدر المعتمد
 
-- [English canonical document](../../en/specs/storage-schema.md)
+- [الوثيقة الإنجليزية المرجعية](../../en/specs/storage-schema.md)

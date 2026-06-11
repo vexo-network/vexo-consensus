@@ -1,4 +1,4 @@
-# Launch Runbook
+# Sổ tay ra mắt
 
 > Locale: vi · Tiếng Việt
 > Tài liệu này là tài liệu đồng hành tiếng Việt để đọc cùng nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.
@@ -50,7 +50,7 @@ Tài liệu này giúp hiểu checklist vận hành và quy trình trước khi 
 
 ## Cấu trúc nguồn tiếng Anh
 
-- Launch Runbook
+- Sổ tay ra mắt
 - Prelaunch Gate
 - Release Candidate Gate
 - Genesis Gate
@@ -63,7 +63,7 @@ Khi kiểm tra release candidate, hãy truyền cả BLS và VRF audit evidence 
 
 ## Nguồn chuẩn
 
-- [English canonical document](../../en/release/launch-runbook.md)
+- [Tài liệu chuẩn tiếng Anh](../../en/release/launch-runbook.md)
 - `--bls-audit`
 - `--bls-audit-sha256`
 - `--vrf-audit`

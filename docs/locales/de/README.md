@@ -55,4 +55,4 @@ Dieses Dokument hilft dabei, den Dokumentationsindex und die empfohlene Lesereih
 
 ## Kanonische Quelle
 
-- [English canonical document](../en/README.md)
+- [Englisches kanonisches Dokument](../en/README.md)

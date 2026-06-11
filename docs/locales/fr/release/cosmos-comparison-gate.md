@@ -61,4 +61,4 @@ Ce document aide à comprendre la porte de release face aux attentes de style Co
 
 ## Source canonique
 
-- [English canonical document](../../en/release/cosmos-comparison-gate.md)
+- [Document canonique anglais](../../en/release/cosmos-comparison-gate.md)

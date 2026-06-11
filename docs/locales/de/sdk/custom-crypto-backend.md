@@ -82,7 +82,7 @@ Der VRF backend muss eine ebenso klare Audit-Grenze wie BLS zeigen. Setze `vrf.a
 
 ## Kanonische Quelle
 
-- [English canonical document](../../en/sdk/custom-crypto-backend.md)
+- [Englisches kanonisches Dokument](../../en/sdk/custom-crypto-backend.md)
 
 ## Remote VRF service
 

@@ -73,11 +73,11 @@
 - SBOM
 - Audit Pack
 - Release Candidate Soak Test
-- Launch Runbook
+- دليل الإطلاق
 
 ## المصدر المعتمد
 
-- [English canonical document](../../en/release/release-pipeline.md)
+- [الوثيقة الإنجليزية المرجعية](../../en/release/release-pipeline.md)
 
 ## مصطلحات attestation لأدلة الإصدار
 

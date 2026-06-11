@@ -68,4 +68,4 @@
 
 ## 正規原文
 
-- [English canonical document](../../en/specs/finality-proof-format.md)
+- [英語の正規文書](../../en/specs/finality-proof-format.md)

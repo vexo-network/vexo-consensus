@@ -75,7 +75,7 @@
 
 ## المصدر المعتمد
 
-- [English canonical document](../../en/sdk/rpc-api-versioning.md)
+- [الوثيقة الإنجليزية المرجعية](../../en/sdk/rpc-api-versioning.md)
 
 ## RPC capability discovery
 

@@ -52,4 +52,4 @@
 
 ## Канонический источник
 
-- [English canonical document](../../en/sdk/custom-storage-transport.md)
+- [Английский канонический документ](../../en/sdk/custom-storage-transport.md)

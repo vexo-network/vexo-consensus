@@ -68,4 +68,4 @@
 
 ## Канонический источник
 
-- [English canonical document](../../en/specs/finality-proof-format.md)
+- [Английский канонический документ](../../en/specs/finality-proof-format.md)

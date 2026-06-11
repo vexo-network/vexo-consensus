@@ -519,6 +519,12 @@ func NewServer(provider StatusProvider, cfg Config) *Server {
 	}
 }
 
+// NewNetworkSafeServer builds an RPC server with fail-closed capability checks.
+//
+// Use this constructor for running nodes and SDK integrations that should fail
+// during startup when any built-in node RPC capability is missing. NewServer is
+// intentionally lower-level and may expose 501 responses for omitted optional
+// provider interfaces.
 func NewNetworkSafeServer(provider StatusProvider, cfg Config) (*Server, error) {
 	server := NewServer(provider, NetworkSafeConfig(cfg))
 	if err := server.StartupError(); err != nil {
@@ -567,15 +573,26 @@ func (server *Server) saveWeb3FilterSnapshot() error {
 	return saveWeb3FilterStoreSnapshotAtomic(server.web3FilterSnapshotPath, server.filterStore.Snapshot())
 }
 
+// NewHandler returns a low-level RPC handler for tests and custom embedders.
+//
+// Running nodes should prefer NewNetworkSafeServer or
+// NewNetworkSafeHandlerWithConfig so missing provider capabilities fail at
+// startup instead of surfacing as 501 responses after the RPC listener starts.
 func NewHandler(provider StatusProvider) http.Handler {
 	return NewHandlerWithConfig(provider, Config{})
 }
 
+// NewHandlerWithConfig returns a low-level RPC handler for tests and custom
+// embedders. It does not enable the network-safety capability set by default.
+//
+// Use NewNetworkSafeHandlerWithConfig for public or validator node RPC surfaces.
 func NewHandlerWithConfig(provider StatusProvider, cfg Config) http.Handler {
 	filters, _ := newWeb3FilterStoreWithConfig(cfg)
 	return newHandlerWithConfig(provider, cfg, filters)
 }
 
+// NewNetworkSafeHandlerWithConfig returns an RPC handler that fails closed when
+// any required node capability is missing.
 func NewNetworkSafeHandlerWithConfig(provider StatusProvider, cfg Config) (http.Handler, error) {
 	cfg = NetworkSafeConfig(cfg)
 	if err := validateRequiredCapabilities(provider, cfg); err != nil {

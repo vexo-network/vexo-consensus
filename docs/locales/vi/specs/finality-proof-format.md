@@ -68,4 +68,4 @@ Tài liệu này giúp hiểu các trường finality proof, thứ tự xác min
 
 ## Nguồn chuẩn
 
-- [English canonical document](../../en/specs/finality-proof-format.md)
+- [Tài liệu chuẩn tiếng Anh](../../en/specs/finality-proof-format.md)

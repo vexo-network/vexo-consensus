@@ -77,7 +77,7 @@ Dokumen ini membantu memahami pipeline rilis dengan binary bertanda tangan, chec
 - SBOM
 - Audit Pack
 - Release Candidate Soak Test
-- Launch Runbook
+- Runbook peluncuran
 
 ## VRF audit evidence SHA-256
 
@@ -85,7 +85,7 @@ Dokumen ini membantu memahami pipeline rilis dengan binary bertanda tangan, chec
 
 ## Sumber kanonik
 
-- [English canonical document](../../en/release/release-pipeline.md)
+- [Dokumen kanonik bahasa Inggris](../../en/release/release-pipeline.md)
 
 ## Istilah attestation bukti rilis
 

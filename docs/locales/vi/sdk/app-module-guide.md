@@ -76,4 +76,4 @@ Tài liệu này giúp hiểu tạo app module mới và kết nối với CLI/R
 
 ## Nguồn chuẩn
 
-- [English canonical document](../../en/sdk/app-module-guide.md)
+- [Tài liệu chuẩn tiếng Anh](../../en/sdk/app-module-guide.md)

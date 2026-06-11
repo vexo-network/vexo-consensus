@@ -55,4 +55,4 @@
 
 ## 正規原文
 
-- [English canonical document](../en/README.md)
+- [英語の正規文書](../en/README.md)

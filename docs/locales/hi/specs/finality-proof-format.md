@@ -66,6 +66,6 @@
 - Ed25519 Model
 - BLS Model
 
-## Canonical source
+## प्रामाणिक स्रोत
 
-- [English canonical document](../../en/specs/finality-proof-format.md)
+- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/specs/finality-proof-format.md)

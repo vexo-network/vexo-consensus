@@ -69,4 +69,4 @@
 
 ## المصدر المعتمد
 
-- [English canonical document](../../en/operators/add-validator.md)
+- [الوثيقة الإنجليزية المرجعية](../../en/operators/add-validator.md)

@@ -76,4 +76,4 @@ Dokumen ini membantu memahami membuat app module baru dan menghubungkannya ke CL
 
 ## Sumber kanonik
 
-- [English canonical document](../../en/sdk/app-module-guide.md)
+- [Dokumen kanonik bahasa Inggris](../../en/sdk/app-module-guide.md)

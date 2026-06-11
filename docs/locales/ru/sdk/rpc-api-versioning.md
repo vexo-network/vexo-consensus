@@ -75,7 +75,7 @@
 
 ## Канонический источник
 
-- [English canonical document](../../en/sdk/rpc-api-versioning.md)
+- [Английский канонический документ](../../en/sdk/rpc-api-versioning.md)
 
 ## RPC capability discovery
 

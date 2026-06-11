@@ -74,4 +74,4 @@ Dokumen ini membantu memahami spesifikasi normatif state machine konsensus dan m
 
 ## Sumber kanonik
 
-- [English canonical document](../../en/specs/consensus-spec.md)
+- [Dokumen kanonik bahasa Inggris](../../en/specs/consensus-spec.md)

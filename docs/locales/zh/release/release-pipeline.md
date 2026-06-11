@@ -77,7 +77,7 @@
 - SBOM
 - Audit Pack
 - Release Candidate Soak Test
-- Launch Runbook
+- 发布运行手册
 
 ## VRF audit evidence SHA-256
 
@@ -85,7 +85,7 @@
 
 ## 规范来源
 
-- [English canonical document](../../en/release/release-pipeline.md)
+- [英文规范文档](../../en/release/release-pipeline.md)
 
 ## 发布证据 attestation 术语
 

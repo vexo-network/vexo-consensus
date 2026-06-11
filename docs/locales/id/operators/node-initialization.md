@@ -78,4 +78,4 @@ Dokumen ini membantu memahami inisialisasi node archive/validator dan pengelolaa
 
 ## Sumber kanonik
 
-- [English canonical document](../../en/operators/node-initialization.md)
+- [Dokumen kanonik bahasa Inggris](../../en/operators/node-initialization.md)

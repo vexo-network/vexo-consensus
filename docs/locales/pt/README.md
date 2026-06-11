@@ -55,4 +55,4 @@ Este documento ajuda a entender o índice da documentação e a ordem de leitura
 
 ## Fonte canônica
 
-- [English canonical document](../en/README.md)
+- [Documento canônico em inglês](../en/README.md)

@@ -74,4 +74,4 @@
 
 ## 规范来源
 
-- [English canonical document](../../en/specs/consensus-spec.md)
+- [英文规范文档](../../en/specs/consensus-spec.md)

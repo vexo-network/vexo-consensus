@@ -66,4 +66,4 @@ Les éléments remis aux auditeurs doivent inclure l’audit VRF adapter en plus
 
 ## Source canonique
 
-- [English canonical document](../../en/security/audit-readiness.md)
+- [Document canonique anglais](../../en/security/audit-readiness.md)

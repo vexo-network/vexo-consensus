@@ -53,6 +53,6 @@
 - Writing New Docs
 - Documentation Review Checklist
 
-## Canonical source
+## प्रामाणिक स्रोत
 
-- [English canonical document](../en/README.md)
+- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../en/README.md)

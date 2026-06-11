@@ -78,4 +78,4 @@ Ce document aide à comprendre l’initialisation des nœuds archive/validator e
 
 ## Source canonique
 
-- [English canonical document](../../en/operators/node-initialization.md)
+- [Document canonique anglais](../../en/operators/node-initialization.md)

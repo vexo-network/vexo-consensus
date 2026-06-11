@@ -74,4 +74,4 @@ Ce document aide à comprendre transaction format, signing, fee et règles de ga
 
 ## Source canonique
 
-- [English canonical document](../../en/specs/tx-format.md)
+- [Document canonique anglais](../../en/specs/tx-format.md)

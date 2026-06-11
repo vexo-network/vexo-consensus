@@ -57,4 +57,4 @@ Ce document aide à comprendre la matrice de compatibilité de versions et les c
 
 ## Source canonique
 
-- [English canonical document](../../en/release/version-compatibility.md)
+- [Document canonique anglais](../../en/release/version-compatibility.md)

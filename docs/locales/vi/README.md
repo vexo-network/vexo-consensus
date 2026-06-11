@@ -55,4 +55,4 @@ Tài liệu này giúp hiểu mục lục tài liệu và thứ tự đọc khuy
 
 ## Nguồn chuẩn
 
-- [English canonical document](../en/README.md)
+- [Tài liệu chuẩn tiếng Anh](../en/README.md)

@@ -69,4 +69,4 @@
 
 ## Канонический источник
 
-- [English canonical document](../../en/operators/add-validator.md)
+- [Английский канонический документ](../../en/operators/add-validator.md)

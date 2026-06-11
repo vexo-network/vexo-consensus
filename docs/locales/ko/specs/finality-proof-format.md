@@ -68,4 +68,4 @@
 
 ## 규범 원문
 
-- [English canonical document](../../en/specs/finality-proof-format.md)
+- [영어 정본 문서](../../en/specs/finality-proof-format.md)

@@ -66,4 +66,4 @@
 
 ## 规范来源
 
-- [English canonical document](../../en/security/audit-readiness.md)
+- [英文规范文档](../../en/security/audit-readiness.md)

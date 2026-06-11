@@ -61,4 +61,4 @@ Este documento ayuda a entender la puerta de release frente a expectativas tipo 
 
 ## Fuente canónica
 
-- [English canonical document](../../en/release/cosmos-comparison-gate.md)
+- [Documento canónico en inglés](../../en/release/cosmos-comparison-gate.md)

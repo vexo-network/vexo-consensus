@@ -58,4 +58,4 @@
 
 ## Канонический источник
 
-- [English canonical document](../en/consensus-protocol.md)
+- [Английский канонический документ](../en/consensus-protocol.md)

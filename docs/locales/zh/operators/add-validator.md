@@ -69,4 +69,4 @@
 
 ## 规范来源
 
-- [English canonical document](../../en/operators/add-validator.md)
+- [英文规范文档](../../en/operators/add-validator.md)

@@ -52,4 +52,4 @@
 
 ## 규범 원문
 
-- [English canonical document](../../en/sdk/custom-storage-transport.md)
+- [영어 정본 문서](../../en/sdk/custom-storage-transport.md)

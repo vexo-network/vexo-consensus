@@ -77,7 +77,7 @@ Dieses Dokument hilft dabei, die Release-Pipeline mit signierten Binaries, Check
 - SBOM
 - Audit Pack
 - Release Candidate Soak Test
-- Launch Runbook
+- Start-Runbook
 
 ## VRF audit evidence SHA-256
 
@@ -85,7 +85,7 @@ Dieses Dokument hilft dabei, die Release-Pipeline mit signierten Binaries, Check
 
 ## Kanonische Quelle
 
-- [English canonical document](../../en/release/release-pipeline.md)
+- [Englisches kanonisches Dokument](../../en/release/release-pipeline.md)
 
 ## Begriffe für Release-Evidence-Attestation
 

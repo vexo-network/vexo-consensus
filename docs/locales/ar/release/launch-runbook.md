@@ -1,4 +1,4 @@
-# Launch Runbook
+# دليل الإطلاق
 
 > Locale: ar · العربية
 > هذا المستند مستنداً مساعداً بالعربية يُقرأ مع المصدر الإنجليزي. تبقى قرارات البروتوكول والأمان والإصدار معيارية في النص الإنجليزي.
@@ -50,7 +50,7 @@
 
 ## بنية المصدر الإنجليزي
 
-- Launch Runbook
+- دليل الإطلاق
 - Prelaunch Gate
 - Release Candidate Gate
 - Genesis Gate
@@ -59,7 +59,7 @@
 
 ## المصدر المعتمد
 
-- [English canonical document](../../en/release/launch-runbook.md)
+- [الوثيقة الإنجليزية المرجعية](../../en/release/launch-runbook.md)
 - `--bls-audit`
 - `--bls-audit-sha256`
 - `--vrf-audit`

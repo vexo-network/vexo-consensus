@@ -69,4 +69,4 @@
 
 ## المصدر المعتمد
 
-- [English canonical document](../../en/specs/evm-native-accounting.md)
+- [الوثيقة الإنجليزية المرجعية](../../en/specs/evm-native-accounting.md)

@@ -56,4 +56,4 @@ Dieses Dokument hilft dabei, validator join, rotation, jail, slashing und leave 
 
 ## Kanonische Quelle
 
-- [English canonical document](../../en/specs/validator-lifecycle.md)
+- [Englisches kanonisches Dokument](../../en/specs/validator-lifecycle.md)

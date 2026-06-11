@@ -58,4 +58,4 @@ Este documento ajuda a entender o modelo de consenso, termos execution/commit/fi
 
 ## Fonte canônica
 
-- [English canonical document](../en/consensus-protocol.md)
+- [Documento canônico em inglês](../en/consensus-protocol.md)

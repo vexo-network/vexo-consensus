@@ -69,4 +69,4 @@ Ce document aide à comprendre l’ajout d’un validator, la validation de conf
 
 ## Source canonique
 
-- [English canonical document](../../en/operators/add-validator.md)
+- [Document canonique anglais](../../en/operators/add-validator.md)

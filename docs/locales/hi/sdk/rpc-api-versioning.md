@@ -73,9 +73,9 @@
 - Web3 EVM Configuration
 - Operational Compatibility
 
-## Canonical source
+## प्रामाणिक स्रोत
 
-- [English canonical document](../../en/sdk/rpc-api-versioning.md)
+- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/sdk/rpc-api-versioning.md)
 
 ## RPC capability discovery
 

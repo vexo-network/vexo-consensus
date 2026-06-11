@@ -52,4 +52,4 @@
 
 ## 正規原文
 
-- [English canonical document](../../en/sdk/custom-storage-transport.md)
+- [英語の正規文書](../../en/sdk/custom-storage-transport.md)

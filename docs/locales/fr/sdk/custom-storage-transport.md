@@ -52,4 +52,4 @@ Ce document aide à comprendre l’implémentation et l’enregistrement de cust
 
 ## Source canonique
 
-- [English canonical document](../../en/sdk/custom-storage-transport.md)
+- [Document canonique anglais](../../en/sdk/custom-storage-transport.md)

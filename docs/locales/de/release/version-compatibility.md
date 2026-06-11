@@ -57,4 +57,4 @@ Dieses Dokument hilft dabei, Version-Kompatibilitätsmatrix und Upgrade-Entschei
 
 ## Kanonische Quelle
 
-- [English canonical document](../../en/release/version-compatibility.md)
+- [Englisches kanonisches Dokument](../../en/release/version-compatibility.md)

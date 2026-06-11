@@ -57,4 +57,4 @@ Dokumen ini membantu memahami matriks kompatibilitas versi dan kriteria upgrade 
 
 ## Sumber kanonik
 
-- [English canonical document](../../en/release/version-compatibility.md)
+- [Dokumen kanonik bahasa Inggris](../../en/release/version-compatibility.md)

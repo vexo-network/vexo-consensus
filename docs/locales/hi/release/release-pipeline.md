@@ -77,15 +77,15 @@
 - SBOM
 - Audit Pack
 - Release Candidate Soak Test
-- Launch Runbook
+- लॉन्च रनबुक
 
 ## VRF audit evidence SHA-256
 
 `release gate` केवल BLS audit evidence को नहीं, VRF audit evidence को भी SHA-256 से pin करता है। `--vrf-audit` file को `evidence-manifest.json` में होना चाहिए, और `--vrf-audit-sha256` file content से बिल्कुल मेल खाना चाहिए। config के साथ `vrf.audit_evidence_sha256` default digest pin है। यह नियम VRF service, KMS/HSM custody, TLS/mTLS या pinned CA, auth token और nonce replay defense को release evidence से जोड़ता है।
 
-## Canonical source
+## प्रामाणिक स्रोत
 
-- [English canonical document](../../en/release/release-pipeline.md)
+- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/release/release-pipeline.md)
 
 ## रिलीज़ evidence attestation शब्द
 

@@ -69,4 +69,4 @@ Dieses Dokument hilft dabei, das Hinzuf√ºgen eines Validators, Konfigurationspr√
 
 ## Kanonische Quelle
 
-- [English canonical document](../../en/operators/add-validator.md)
+- [Englisches kanonisches Dokument](../../en/operators/add-validator.md)

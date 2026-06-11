@@ -59,6 +59,6 @@
 - Required Evidence Properties
 - Release Rule
 
-## Canonical source
+## प्रामाणिक स्रोत
 
-- [English canonical document](../../en/release/cosmos-comparison-gate.md)
+- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/release/cosmos-comparison-gate.md)

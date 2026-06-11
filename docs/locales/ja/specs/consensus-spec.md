@@ -74,4 +74,4 @@
 
 ## 正規原文
 
-- [English canonical document](../../en/specs/consensus-spec.md)
+- [英語の正規文書](../../en/specs/consensus-spec.md)

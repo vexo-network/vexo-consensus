@@ -74,4 +74,4 @@ Este documento ajuda a entender especificação normativa da state machine de co
 
 ## Fonte canônica
 
-- [English canonical document](../../en/specs/consensus-spec.md)
+- [Documento canônico em inglês](../../en/specs/consensus-spec.md)

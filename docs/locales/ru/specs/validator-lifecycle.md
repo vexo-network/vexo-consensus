@@ -56,4 +56,4 @@
 
 ## Канонический источник
 
-- [English canonical document](../../en/specs/validator-lifecycle.md)
+- [Английский канонический документ](../../en/specs/validator-lifecycle.md)

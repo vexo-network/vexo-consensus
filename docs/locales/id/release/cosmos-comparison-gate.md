@@ -61,4 +61,4 @@ Dokumen ini membantu memahami release gate terhadap ekspektasi bergaya Cosmos/Te
 
 ## Sumber kanonik
 
-- [English canonical document](../../en/release/cosmos-comparison-gate.md)
+- [Dokumen kanonik bahasa Inggris](../../en/release/cosmos-comparison-gate.md)

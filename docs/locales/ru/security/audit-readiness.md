@@ -66,4 +66,4 @@
 
 ## Канонический источник
 
-- [English canonical document](../../en/security/audit-readiness.md)
+- [Английский канонический документ](../../en/security/audit-readiness.md)

@@ -78,4 +78,4 @@ Dokumen ini membantu memahami namespace durable storage, key schema, dan recover
 
 ## Sumber kanonik
 
-- [English canonical document](../../en/specs/storage-schema.md)
+- [Dokumen kanonik bahasa Inggris](../../en/specs/storage-schema.md)

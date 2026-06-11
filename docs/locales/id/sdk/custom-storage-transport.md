@@ -52,4 +52,4 @@ Dokumen ini membantu memahami implementasi dan registrasi custom storage serta t
 
 ## Sumber kanonik
 
-- [English canonical document](../../en/sdk/custom-storage-transport.md)
+- [Dokumen kanonik bahasa Inggris](../../en/sdk/custom-storage-transport.md)

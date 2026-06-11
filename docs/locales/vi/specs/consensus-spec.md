@@ -74,4 +74,4 @@ Tài liệu này giúp hiểu đặc tả chuẩn của state machine đồng th
 
 ## Nguồn chuẩn
 
-- [English canonical document](../../en/specs/consensus-spec.md)
+- [Tài liệu chuẩn tiếng Anh](../../en/specs/consensus-spec.md)

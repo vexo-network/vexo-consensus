@@ -56,4 +56,4 @@ Este documento ajuda a entender ciclo validator join, rotation, jail, slashing e
 
 ## Fonte canônica
 
-- [English canonical document](../../en/specs/validator-lifecycle.md)
+- [Documento canônico em inglês](../../en/specs/validator-lifecycle.md)

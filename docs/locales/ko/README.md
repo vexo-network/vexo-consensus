@@ -33,7 +33,7 @@
 | app module을 붙이는 개발자 | [App Module Guide](./sdk/app-module-guide.md) | [Transaction Format](./specs/tx-format.md), [RPC API Versioning](./sdk/rpc-api-versioning.md) |
 | EVM 기능을 붙이거나 검토하는 개발자 | [EVM and Native Accounting](./specs/evm-native-accounting.md) | [Transaction Format](./specs/tx-format.md), [RPC API Versioning](./sdk/rpc-api-versioning.md) |
 | validator/operator | [Node Initialization](./operators/node-initialization.md) | [Adding a Validator](./operators/add-validator.md), [Networking Spec](./specs/networking-spec.md) |
-| 릴리즈 담당자 | [Release Pipeline](./release/release-pipeline.md) | [Launch Runbook](./release/launch-runbook.md), [Version Compatibility Matrix](./release/version-compatibility.md) |
+| 릴리즈 담당자 | [Release Pipeline](./release/release-pipeline.md) | [출시 런북](./release/launch-runbook.md), [Version Compatibility Matrix](./release/version-compatibility.md) |
 | 보안 검토자 | [Security Audit Readiness](./security/audit-readiness.md) | [Consensus Spec](./specs/consensus-spec.md), [Storage Schema](./specs/storage-schema.md) |
 
 ## Protocol Specs
@@ -63,7 +63,7 @@
 |---|---|
 | [Node Initialization](./operators/node-initialization.md) | validator/archive node home 생성, split config 운용 |
 | [Adding a Validator](./operators/add-validator.md) | validator 추가 흐름, height-specific validator set 검증 |
-| [Launch Runbook](./release/launch-runbook.md) | 네트워크 출시 전후 체크리스트, halt 기준, postlaunch archive |
+| [출시 런북](./release/launch-runbook.md) | 네트워크 출시 전후 체크리스트, halt 기준, postlaunch archive |
 | [Release Pipeline](./release/release-pipeline.md) | signed binary, checksum, SBOM, reproducible artifact |
 | [Cosmos/Tendermint Comparison Gate](./release/cosmos-comparison-gate.md) | Tendermint/Cosmos 스타일 기대치와 Vexo release evidence 비교 |
 | [Version Compatibility Matrix](./release/version-compatibility.md) | binary, config, store, app, RPC, proof format 호환성 |
@@ -96,4 +96,4 @@
 
 ## 규범 원문
 
-- [English canonical document](../en/README.md)
+- [영어 정본 문서](../en/README.md)

@@ -1,4 +1,4 @@
-# Launch Runbook
+# План запуска
 
 > Locale: ru · Русский
 > Этот документ — русский сопроводительный документ к английскому источнику. Протокол, безопасность и решения о release остаются нормативными на английском языке.
@@ -54,7 +54,7 @@
 - `--vrf-audit-sha256`
 ## Структура английского источника
 
-- Launch Runbook
+- План запуска
 - Prelaunch Gate
 - Release Candidate Gate
 - Genesis Gate
@@ -67,4 +67,4 @@
 
 ## Канонический источник
 
-- [English canonical document](../../en/release/launch-runbook.md)
+- [Английский канонический документ](../../en/release/launch-runbook.md)

@@ -78,4 +78,4 @@
 
 ## Канонический источник
 
-- [English canonical document](../../en/specs/storage-schema.md)
+- [Английский канонический документ](../../en/specs/storage-schema.md)

@@ -82,7 +82,7 @@ VRF backend harus membuka audit boundary sejelas BLS. Isi `vrf.adapter_name`, `v
 
 ## Sumber kanonik
 
-- [English canonical document](../../en/sdk/custom-crypto-backend.md)
+- [Dokumen kanonik bahasa Inggris](../../en/sdk/custom-crypto-backend.md)
 
 ## Remote VRF service
 

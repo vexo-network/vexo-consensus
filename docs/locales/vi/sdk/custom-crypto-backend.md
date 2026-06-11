@@ -78,7 +78,7 @@ VRF backend phải thể hiện audit boundary rõ như BLS. Điền `vrf.adapte
 
 ## Nguồn chuẩn
 
-- [English canonical document](../../en/sdk/custom-crypto-backend.md)
+- [Tài liệu chuẩn tiếng Anh](../../en/sdk/custom-crypto-backend.md)
 - `vrf.dependency_audit`
 - `vrf.audit_evidence_sha256`
 - `ecvrf-p256-sha256-tai-v1`

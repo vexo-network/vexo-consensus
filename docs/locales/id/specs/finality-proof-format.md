@@ -68,4 +68,4 @@ Dokumen ini membantu memahami field finality proof, urutan verifikasi, dan valid
 
 ## Sumber kanonik
 
-- [English canonical document](../../en/specs/finality-proof-format.md)
+- [Dokumen kanonik bahasa Inggris](../../en/specs/finality-proof-format.md)

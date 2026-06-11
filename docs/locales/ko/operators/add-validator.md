@@ -69,4 +69,4 @@
 
 ## 규범 원문
 
-- [English canonical document](../../en/operators/add-validator.md)
+- [영어 정본 문서](../../en/operators/add-validator.md)

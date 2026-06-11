@@ -69,4 +69,4 @@ Este documento ayuda a entender conexión coherente entre native coin y EVM gas/
 
 ## Fuente canónica
 
-- [English canonical document](../../en/specs/evm-native-accounting.md)
+- [Documento canónico en inglés](../../en/specs/evm-native-accounting.md)

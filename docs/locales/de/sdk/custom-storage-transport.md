@@ -52,4 +52,4 @@ Dieses Dokument hilft dabei, Implementierung und Registrierung von custom storag
 
 ## Kanonische Quelle
 
-- [English canonical document](../../en/sdk/custom-storage-transport.md)
+- [Englisches kanonisches Dokument](../../en/sdk/custom-storage-transport.md)

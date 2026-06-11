@@ -83,4 +83,4 @@
 
 ## 规范来源
 
-- [English canonical document](../../en/specs/networking-spec.md)
+- [英文规范文档](../../en/specs/networking-spec.md)

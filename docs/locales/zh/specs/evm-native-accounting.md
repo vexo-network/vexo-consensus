@@ -69,4 +69,4 @@
 
 ## 规范来源
 
-- [English canonical document](../../en/specs/evm-native-accounting.md)
+- [英文规范文档](../../en/specs/evm-native-accounting.md)

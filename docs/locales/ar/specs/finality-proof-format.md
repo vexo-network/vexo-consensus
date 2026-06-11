@@ -68,4 +68,4 @@
 
 ## المصدر المعتمد
 
-- [English canonical document](../../en/specs/finality-proof-format.md)
+- [الوثيقة الإنجليزية المرجعية](../../en/specs/finality-proof-format.md)

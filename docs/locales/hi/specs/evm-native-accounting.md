@@ -67,6 +67,6 @@
 - Compatibility Boundary
 - Failure Modes
 
-## Canonical source
+## प्रामाणिक स्रोत
 
-- [English canonical document](../../en/specs/evm-native-accounting.md)
+- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/specs/evm-native-accounting.md)

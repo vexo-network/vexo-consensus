@@ -55,6 +55,6 @@
 - Upgrade Compatibility Checklist
 - Rollback Drill
 
-## Canonical source
+## प्रामाणिक स्रोत
 
-- [English canonical document](../../en/release/version-compatibility.md)
+- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/release/version-compatibility.md)

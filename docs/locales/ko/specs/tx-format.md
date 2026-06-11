@@ -74,4 +74,4 @@
 
 ## 규범 원문
 
-- [English canonical document](../../en/specs/tx-format.md)
+- [영어 정본 문서](../../en/specs/tx-format.md)

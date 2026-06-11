@@ -57,4 +57,4 @@
 
 ## المصدر المعتمد
 
-- [English canonical document](../../en/release/version-compatibility.md)
+- [الوثيقة الإنجليزية المرجعية](../../en/release/version-compatibility.md)

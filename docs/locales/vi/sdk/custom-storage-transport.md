@@ -52,4 +52,4 @@ Tài liệu này giúp hiểu triển khai và đăng ký custom storage cùng t
 
 ## Nguồn chuẩn
 
-- [English canonical document](../../en/sdk/custom-storage-transport.md)
+- [Tài liệu chuẩn tiếng Anh](../../en/sdk/custom-storage-transport.md)

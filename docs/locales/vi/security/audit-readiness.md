@@ -62,7 +62,7 @@ Hồ sơ audit phải có VRF adapter audit evidence ngoài BLS. Pin SHA-256 c�
 
 ## Nguồn chuẩn
 
-- [English canonical document](../../en/security/audit-readiness.md)
+- [Tài liệu chuẩn tiếng Anh](../../en/security/audit-readiness.md)
 - `crypto.audit_evidence_sha256`
 - `vrf.dependency_audit`
 - `vrf.audit_evidence_sha256`

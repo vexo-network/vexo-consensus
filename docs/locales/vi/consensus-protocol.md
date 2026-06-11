@@ -58,4 +58,4 @@ Tài liệu này giúp hiểu mô hình đồng thuận, thuật ngữ execution
 
 ## Nguồn chuẩn
 
-- [English canonical document](../en/consensus-protocol.md)
+- [Tài liệu chuẩn tiếng Anh](../en/consensus-protocol.md)

@@ -52,4 +52,4 @@
 
 ## المصدر المعتمد
 
-- [English canonical document](../../en/sdk/custom-storage-transport.md)
+- [الوثيقة الإنجليزية المرجعية](../../en/sdk/custom-storage-transport.md)

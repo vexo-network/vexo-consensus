@@ -58,4 +58,4 @@ Dieses Dokument hilft dabei, das Konsensmodell, execution/commit/finality-Begrif
 
 ## Kanonische Quelle
 
-- [English canonical document](../en/consensus-protocol.md)
+- [Englisches kanonisches Dokument](../en/consensus-protocol.md)

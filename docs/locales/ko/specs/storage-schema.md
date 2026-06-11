@@ -78,4 +78,4 @@
 
 ## 규범 원문
 
-- [English canonical document](../../en/specs/storage-schema.md)
+- [영어 정본 문서](../../en/specs/storage-schema.md)

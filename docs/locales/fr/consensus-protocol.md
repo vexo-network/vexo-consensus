@@ -58,4 +58,4 @@ Ce document aide à comprendre le modèle de consensus, les termes execution/com
 
 ## Source canonique
 
-- [English canonical document](../en/consensus-protocol.md)
+- [Document canonique anglais](../en/consensus-protocol.md)

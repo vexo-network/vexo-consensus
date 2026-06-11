@@ -72,6 +72,6 @@
 - Load Test Payloads
 - CLI Examples
 
-## Canonical source
+## प्रामाणिक स्रोत
 
-- [English canonical document](../../en/specs/tx-format.md)
+- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/specs/tx-format.md)

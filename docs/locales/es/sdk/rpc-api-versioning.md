@@ -75,7 +75,7 @@ Este documento ayuda a entender versionado de RPC API, alias de compatibilidad y
 
 ## Fuente canónica
 
-- [English canonical document](../../en/sdk/rpc-api-versioning.md)
+- [Documento canónico en inglés](../../en/sdk/rpc-api-versioning.md)
 
 ## RPC capability discovery
 

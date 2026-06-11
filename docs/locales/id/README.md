@@ -55,4 +55,4 @@ Dokumen ini membantu memahami indeks dokumentasi dan urutan baca yang disarankan
 
 ## Sumber kanonik
 
-- [English canonical document](../en/README.md)
+- [Dokumen kanonik bahasa Inggris](../en/README.md)

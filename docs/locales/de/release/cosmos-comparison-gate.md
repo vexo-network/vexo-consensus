@@ -61,4 +61,4 @@ Dieses Dokument hilft dabei, das Release-Gate gegenüber Cosmos/Tendermint-ähnl
 
 ## Kanonische Quelle
 
-- [English canonical document](../../en/release/cosmos-comparison-gate.md)
+- [Englisches kanonisches Dokument](../../en/release/cosmos-comparison-gate.md)

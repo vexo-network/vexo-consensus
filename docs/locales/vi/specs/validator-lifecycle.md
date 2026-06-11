@@ -56,4 +56,4 @@ Tài liệu này giúp hiểu vòng đời validator join, rotation, jail, slash
 
 ## Nguồn chuẩn
 
-- [English canonical document](../../en/specs/validator-lifecycle.md)
+- [Tài liệu chuẩn tiếng Anh](../../en/specs/validator-lifecycle.md)

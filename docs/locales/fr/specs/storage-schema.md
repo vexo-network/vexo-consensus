@@ -78,4 +78,4 @@ Ce document aide à comprendre les namespaces de durable storage, key schema et 
 
 ## Source canonique
 
-- [English canonical document](../../en/specs/storage-schema.md)
+- [Document canonique anglais](../../en/specs/storage-schema.md)

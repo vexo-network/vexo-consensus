@@ -75,7 +75,7 @@ Tài liệu này giúp hiểu quản lý phiên bản RPC API, alias tương th�
 
 ## Nguồn chuẩn
 
-- [English canonical document](../../en/sdk/rpc-api-versioning.md)
+- [Tài liệu chuẩn tiếng Anh](../../en/sdk/rpc-api-versioning.md)
 
 ## RPC capability discovery
 

@@ -76,4 +76,4 @@ Dieses Dokument hilft dabei, das Erstellen eines app module und die Anbindung an
 
 ## Kanonische Quelle
 
-- [English canonical document](../../en/sdk/app-module-guide.md)
+- [Englisches kanonisches Dokument](../../en/sdk/app-module-guide.md)

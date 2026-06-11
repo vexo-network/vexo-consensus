@@ -61,4 +61,4 @@
 
 ## Канонический источник
 
-- [English canonical document](../../en/release/cosmos-comparison-gate.md)
+- [Английский канонический документ](../../en/release/cosmos-comparison-gate.md)

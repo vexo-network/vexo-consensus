@@ -56,6 +56,6 @@
 - Crypto Boundary
 - Operational Boundary
 
-## Canonical source
+## प्रामाणिक स्रोत
 
-- [English canonical document](../en/consensus-protocol.md)
+- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../en/consensus-protocol.md)

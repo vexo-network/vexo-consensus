@@ -82,7 +82,7 @@ VRF backend должен показывать такую же чёткую audit
 
 ## Канонический источник
 
-- [English canonical document](../../en/sdk/custom-crypto-backend.md)
+- [Английский канонический документ](../../en/sdk/custom-crypto-backend.md)
 
 ## Remote VRF service
 

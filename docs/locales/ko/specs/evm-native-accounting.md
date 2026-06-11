@@ -96,4 +96,4 @@ Vexo는 Ethereum node가 아니라 Vexo consensus 위에 EVM 실행 환경을 �
 
 ## 규범 원문
 
-- [English canonical document](../../en/specs/evm-native-accounting.md)
+- [영어 정본 문서](../../en/specs/evm-native-accounting.md)

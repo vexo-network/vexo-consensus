@@ -260,6 +260,7 @@ func buildReleaseDocsQualityDocument(docsDir string, minBytes int) (releaseDocsQ
 			addCheck("locale_length", locale, relative, len(strings.TrimSpace(body)) >= minBytes, fmt.Sprintf("localized document must be at least %d bytes", minBytes))
 			addCheck("locale_sections", locale, relative, strings.Count(body, "\n## ") >= 2, "localized document must keep multiple explanatory sections")
 			addCheck("locale_no_placeholders", locale, relative, !releaseContainsPlaceholder(body), "localized document must not contain placeholder translation text")
+			addCheck("locale_no_untranslated_boilerplate", locale, relative, releaseLocalizedBoilerplateLeak(locale, body) == "", "localized document must not keep English boilerplate headings or canonical-source labels")
 		}
 	}
 	return document, nil
@@ -319,6 +320,24 @@ func releaseContainsPlaceholder(body string) bool {
 		}
 	}
 	return false
+}
+
+func releaseLocalizedBoilerplateLeak(locale string, body string) string {
+	if locale == "en" {
+		return ""
+	}
+	for _, forbidden := range []string{
+		"## Canonical source",
+		"- [English canonical document]",
+		"# Launch Runbook",
+		"- Launch Runbook",
+		"[Launch Runbook](",
+	} {
+		if strings.Contains(body, forbidden) {
+			return forbidden
+		}
+	}
+	return ""
 }
 
 func releasePlaceholderPattern(value string) *regexp.Regexp {
@@ -1202,6 +1221,9 @@ func buildReleaseEvidenceManifestWithOptions(distDir string, options releaseEvid
 		if !fileExists(path) {
 			continue
 		}
+		if err := validateReleaseEvidenceManifestCandidate(candidate, path); err != nil {
+			return releasegate.EvidenceManifest{}, err
+		}
 		sum, err := fileSHA256(path)
 		if err != nil {
 			return releasegate.EvidenceManifest{}, err
@@ -1240,6 +1262,22 @@ func buildReleaseEvidenceManifestWithOptions(distDir string, options releaseEvid
 		return manifest.Evidence[left].Name < manifest.Evidence[right].Name
 	})
 	return manifest, nil
+}
+
+func validateReleaseEvidenceManifestCandidate(candidate releaseEvidenceCandidate, path string) error {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".json", ".txt":
+	default:
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if !releasegate.EvidenceCheckContentOK(candidate.Name, path, data) {
+		return fmt.Errorf("release evidence candidate %s at %s failed semantic evidence checks", candidate.Name, path)
+	}
+	return nil
 }
 
 func releaseEvidenceSignaturePublicKey(artifactPath string) string {

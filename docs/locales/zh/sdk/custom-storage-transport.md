@@ -52,4 +52,4 @@
 
 ## 规范来源
 
-- [English canonical document](../../en/sdk/custom-storage-transport.md)
+- [英文规范文档](../../en/sdk/custom-storage-transport.md)

@@ -76,4 +76,4 @@
 
 ## 규범 원문
 
-- [English canonical document](../../en/sdk/app-module-guide.md)
+- [영어 정본 문서](../../en/sdk/app-module-guide.md)

@@ -74,4 +74,4 @@
 
 ## Канонический источник
 
-- [English canonical document](../../en/specs/tx-format.md)
+- [Английский канонический документ](../../en/specs/tx-format.md)

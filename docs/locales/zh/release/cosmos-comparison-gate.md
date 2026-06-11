@@ -61,4 +61,4 @@
 
 ## 规范来源
 
-- [English canonical document](../../en/release/cosmos-comparison-gate.md)
+- [英文规范文档](../../en/release/cosmos-comparison-gate.md)

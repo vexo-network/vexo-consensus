@@ -75,7 +75,7 @@
 
 ## 正規原文
 
-- [English canonical document](../../en/sdk/rpc-api-versioning.md)
+- [英語の正規文書](../../en/sdk/rpc-api-versioning.md)
 
 ## RPC capability discovery
 

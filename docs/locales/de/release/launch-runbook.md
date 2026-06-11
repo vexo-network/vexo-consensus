@@ -1,4 +1,4 @@
-# Launch Runbook
+# Start-Runbook
 
 > Locale: de · Deutsch
 > Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
@@ -54,7 +54,7 @@ Dieses Dokument hilft dabei, Operator-Checkliste und Ablauf vor dem Netzwerkstar
 - `--vrf-audit-sha256`
 ## Struktur der englischen Quelle
 
-- Launch Runbook
+- Start-Runbook
 - Prelaunch Gate
 - Release Candidate Gate
 - Genesis Gate
@@ -67,4 +67,4 @@ Beim Prüfen eines release candidate übergibst du `release gate` sowohl BLS- al
 
 ## Kanonische Quelle
 
-- [English canonical document](../../en/release/launch-runbook.md)
+- [Englisches kanonisches Dokument](../../en/release/launch-runbook.md)

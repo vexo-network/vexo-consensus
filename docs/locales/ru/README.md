@@ -55,4 +55,4 @@
 
 ## Канонический источник
 
-- [English canonical document](../en/README.md)
+- [Английский канонический документ](../en/README.md)

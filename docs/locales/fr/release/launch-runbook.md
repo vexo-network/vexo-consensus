@@ -1,4 +1,4 @@
-# Launch Runbook
+# Runbook de lancement
 
 > Locale: fr · Français
 > Ce document est un document d’accompagnement français à lire avec la source anglaise. Les décisions de protocole, de sécurité et de release restent normatives en anglais.
@@ -54,7 +54,7 @@ Ce document aide à comprendre la checklist opérateur et la procédure d’exé
 - `--vrf-audit-sha256`
 ## Structure de la source anglaise
 
-- Launch Runbook
+- Runbook de lancement
 - Prelaunch Gate
 - Release Candidate Gate
 - Genesis Gate
@@ -67,4 +67,4 @@ Pour valider un release candidate, passez à `release gate` les digest d’audit
 
 ## Source canonique
 
-- [English canonical document](../../en/release/launch-runbook.md)
+- [Document canonique anglais](../../en/release/launch-runbook.md)

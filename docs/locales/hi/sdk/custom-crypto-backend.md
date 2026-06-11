@@ -80,9 +80,9 @@
 
 VRF backend को BLS जैसी स्पष्ट audit boundary दिखानी चाहिए। `vrf.adapter_name`, `vrf.audit_report`, `vrf.dependency_audit`, `vrf.audit_evidence_sha256` और `vrf.key_source` भरें; adapter metadata और config अलग हों तो runtime fail closed होना चाहिए। built-in ECVRF adapter go.mod dependency pin और audit evidence digest जाँचता है, जबकि remote VRF adapter बाहरी KMS/HSM audit reference इस्तेमाल करता है।
 
-## Canonical source
+## प्रामाणिक स्रोत
 
-- [English canonical document](../../en/sdk/custom-crypto-backend.md)
+- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/sdk/custom-crypto-backend.md)
 
 ## Remote VRF service
 

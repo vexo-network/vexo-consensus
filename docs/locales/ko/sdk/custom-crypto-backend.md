@@ -112,7 +112,7 @@ VRF backend도 BLS와 같은 수준으로 감사 경계를 드러내야 합니�
 
 ## 규범 원문
 
-- [English canonical document](../../en/sdk/custom-crypto-backend.md)
+- [영어 정본 문서](../../en/sdk/custom-crypto-backend.md)
 
 ## Remote VRF service
 

@@ -58,4 +58,4 @@ Dokumen ini membantu memahami model konsensus, istilah execution/commit/finality
 
 ## Sumber kanonik
 
-- [English canonical document](../en/consensus-protocol.md)
+- [Dokumen kanonik bahasa Inggris](../en/consensus-protocol.md)

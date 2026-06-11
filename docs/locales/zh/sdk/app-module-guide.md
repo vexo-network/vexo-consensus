@@ -76,4 +76,4 @@
 
 ## 规范来源
 
-- [English canonical document](../../en/sdk/app-module-guide.md)
+- [英文规范文档](../../en/sdk/app-module-guide.md)

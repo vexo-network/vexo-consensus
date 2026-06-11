@@ -1,4 +1,4 @@
-# Launch Runbook
+# ローンチランブック
 
 > Locale: ja · 日本語
 > この文書は英語原文と併読するための日本語 補助文書です。プロトコル、セキュリティ、リリース判断は英語原文を規範とします。
@@ -54,7 +54,7 @@
 - `--vrf-audit-sha256`
 ## 英語原文の構造
 
-- Launch Runbook
+- ローンチランブック
 - Prelaunch Gate
 - Release Candidate Gate
 - Genesis Gate
@@ -67,4 +67,4 @@ release candidate を検証するときは、`release gate` に BLS と VRF の 
 
 ## 正規原文
 
-- [English canonical document](../../en/release/launch-runbook.md)
+- [英語の正規文書](../../en/release/launch-runbook.md)

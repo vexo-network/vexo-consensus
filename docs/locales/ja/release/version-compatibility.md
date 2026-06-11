@@ -57,4 +57,4 @@
 
 ## 正規原文
 
-- [English canonical document](../../en/release/version-compatibility.md)
+- [英語の正規文書](../../en/release/version-compatibility.md)

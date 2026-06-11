@@ -57,4 +57,4 @@ Este documento ayuda a entender matriz de compatibilidad de versiones y criterio
 
 ## Fuente canónica
 
-- [English canonical document](../../en/release/version-compatibility.md)
+- [Documento canónico en inglés](../../en/release/version-compatibility.md)

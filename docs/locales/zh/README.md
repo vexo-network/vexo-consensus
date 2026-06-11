@@ -55,4 +55,4 @@
 
 ## 规范来源
 
-- [English canonical document](../en/README.md)
+- [英文规范文档](../en/README.md)

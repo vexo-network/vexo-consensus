@@ -77,7 +77,7 @@
 - SBOM
 - Audit Pack
 - Release Candidate Soak Test
-- Launch Runbook
+- ローンチランブック
 
 ## VRF audit evidence SHA-256
 
@@ -85,7 +85,7 @@
 
 ## 正規原文
 
-- [English canonical document](../../en/release/release-pipeline.md)
+- [英語の正規文書](../../en/release/release-pipeline.md)
 
 ## リリース証拠 attestation 用語
 

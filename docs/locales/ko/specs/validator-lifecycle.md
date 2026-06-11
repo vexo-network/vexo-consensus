@@ -56,4 +56,4 @@
 
 ## 규범 원문
 
-- [English canonical document](../../en/specs/validator-lifecycle.md)
+- [영어 정본 문서](../../en/specs/validator-lifecycle.md)

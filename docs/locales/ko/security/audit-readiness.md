@@ -66,4 +66,4 @@
 
 ## 규범 원문
 
-- [English canonical document](../../en/security/audit-readiness.md)
+- [영어 정본 문서](../../en/security/audit-readiness.md)

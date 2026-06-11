@@ -66,4 +66,4 @@
 
 ## 正規原文
 
-- [English canonical document](../../en/security/audit-readiness.md)
+- [英語の正規文書](../../en/security/audit-readiness.md)

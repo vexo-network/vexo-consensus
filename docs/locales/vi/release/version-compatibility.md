@@ -57,4 +57,4 @@ Tài liệu này giúp hiểu ma trận tương thích phiên bản và tiêu ch
 
 ## Nguồn chuẩn
 
-- [English canonical document](../../en/release/version-compatibility.md)
+- [Tài liệu chuẩn tiếng Anh](../../en/release/version-compatibility.md)

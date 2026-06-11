@@ -68,4 +68,4 @@
 
 ## 规范来源
 
-- [English canonical document](../../en/specs/finality-proof-format.md)
+- [英文规范文档](../../en/specs/finality-proof-format.md)

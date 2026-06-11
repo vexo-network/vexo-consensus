@@ -82,7 +82,7 @@ VRF backend 也要像 BLS 一样暴露清晰的审计边界。请填写 `vrf.ada
 
 ## 规范来源
 
-- [English canonical document](../../en/sdk/custom-crypto-backend.md)
+- [英文规范文档](../../en/sdk/custom-crypto-backend.md)
 
 ## Remote VRF service
 

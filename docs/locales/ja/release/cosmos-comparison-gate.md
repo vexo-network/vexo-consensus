@@ -61,4 +61,4 @@
 
 ## 正規原文
 
-- [English canonical document](../../en/release/cosmos-comparison-gate.md)
+- [英語の正規文書](../../en/release/cosmos-comparison-gate.md)

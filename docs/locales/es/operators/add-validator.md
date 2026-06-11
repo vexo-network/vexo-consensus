@@ -69,4 +69,4 @@ Este documento ayuda a entender el alta de un validator, validación de configur
 
 ## Fuente canónica
 
-- [English canonical document](../../en/operators/add-validator.md)
+- [Documento canónico en inglés](../../en/operators/add-validator.md)

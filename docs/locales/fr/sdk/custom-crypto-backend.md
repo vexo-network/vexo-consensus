@@ -82,7 +82,7 @@ Le VRF backend doit exposer une frontière d’audit aussi claire que BLS. Rense
 
 ## Source canonique
 
-- [English canonical document](../../en/sdk/custom-crypto-backend.md)
+- [Document canonique anglais](../../en/sdk/custom-crypto-backend.md)
 
 ## Remote VRF service
 

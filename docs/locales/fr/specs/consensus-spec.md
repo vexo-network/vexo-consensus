@@ -74,4 +74,4 @@ Ce document aide à comprendre la spécification normative de la state machine d
 
 ## Source canonique
 
-- [English canonical document](../../en/specs/consensus-spec.md)
+- [Document canonique anglais](../../en/specs/consensus-spec.md)

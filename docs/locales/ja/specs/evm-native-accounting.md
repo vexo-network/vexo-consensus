@@ -69,4 +69,4 @@
 
 ## 正規原文
 
-- [English canonical document](../../en/specs/evm-native-accounting.md)
+- [英語の正規文書](../../en/specs/evm-native-accounting.md)

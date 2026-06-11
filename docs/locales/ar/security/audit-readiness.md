@@ -58,7 +58,7 @@
 
 ## المصدر المعتمد
 
-- [English canonical document](../../en/security/audit-readiness.md)
+- [الوثيقة الإنجليزية المرجعية](../../en/security/audit-readiness.md)
 - `crypto.audit_evidence_sha256`
 - `vrf.dependency_audit`
 - `vrf.audit_evidence_sha256`

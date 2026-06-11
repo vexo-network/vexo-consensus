@@ -72,6 +72,6 @@
 - Liveness Assumptions
 - Evidence
 
-## Canonical source
+## प्रामाणिक स्रोत
 
-- [English canonical document](../../en/specs/consensus-spec.md)
+- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/specs/consensus-spec.md)

@@ -55,4 +55,4 @@
 
 ## المصدر المعتمد
 
-- [English canonical document](../en/README.md)
+- [الوثيقة الإنجليزية المرجعية](../en/README.md)

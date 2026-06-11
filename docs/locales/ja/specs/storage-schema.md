@@ -78,4 +78,4 @@
 
 ## 正規原文
 
-- [English canonical document](../../en/specs/storage-schema.md)
+- [英語の正規文書](../../en/specs/storage-schema.md)

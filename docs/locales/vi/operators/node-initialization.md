@@ -78,4 +78,4 @@ Tài liệu này giúp hiểu khởi tạo node archive/validator và vận hàn
 
 ## Nguồn chuẩn
 
-- [English canonical document](../../en/operators/node-initialization.md)
+- [Tài liệu chuẩn tiếng Anh](../../en/operators/node-initialization.md)

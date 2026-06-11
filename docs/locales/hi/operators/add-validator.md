@@ -67,6 +67,6 @@
 - 7. Monitor
 - Safety Notes
 
-## Canonical source
+## प्रामाणिक स्रोत
 
-- [English canonical document](../../en/operators/add-validator.md)
+- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/operators/add-validator.md)

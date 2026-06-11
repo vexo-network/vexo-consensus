@@ -101,7 +101,28 @@ func validateLocalizedMarkdownBody(locale string, relative string, body string) 
 	if strings.Count(body, "\n## ") < 2 {
 		return &docsLocaleQualityError{locale: locale, relative: relative, reason: "localized document must keep multiple explanatory sections"}
 	}
+	if reason := localizedBoilerplateLeak(locale, body); reason != "" {
+		return &docsLocaleQualityError{locale: locale, relative: relative, reason: reason}
+	}
 	return nil
+}
+
+func localizedBoilerplateLeak(locale string, body string) string {
+	if locale == "en" {
+		return ""
+	}
+	for _, forbidden := range []string{
+		"## Canonical source",
+		"- [English canonical document]",
+		"# Launch Runbook",
+		"- Launch Runbook",
+		"[Launch Runbook](",
+	} {
+		if strings.Contains(body, forbidden) {
+			return "localized document contains untranslated boilerplate: " + forbidden
+		}
+	}
+	return ""
 }
 
 func placeholderPattern(value string) *regexp.Regexp {

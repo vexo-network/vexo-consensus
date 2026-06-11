@@ -69,4 +69,4 @@ Tài liệu này giúp hiểu liên kết nhất quán native coin với EVM gas
 
 ## Nguồn chuẩn
 
-- [English canonical document](../../en/specs/evm-native-accounting.md)
+- [Tài liệu chuẩn tiếng Anh](../../en/specs/evm-native-accounting.md)

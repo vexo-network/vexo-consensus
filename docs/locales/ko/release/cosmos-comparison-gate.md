@@ -61,4 +61,4 @@
 
 ## 규범 원문
 
-- [English canonical document](../../en/release/cosmos-comparison-gate.md)
+- [영어 정본 문서](../../en/release/cosmos-comparison-gate.md)

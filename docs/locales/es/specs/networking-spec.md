@@ -83,4 +83,4 @@ Este documento ayuda a entender P2P handshake, gossip, peer scoring y política 
 
 ## Fuente canónica
 
-- [English canonical document](../../en/specs/networking-spec.md)
+- [Documento canónico en inglés](../../en/specs/networking-spec.md)

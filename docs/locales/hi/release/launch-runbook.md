@@ -1,4 +1,4 @@
-# Launch Runbook
+# लॉन्च रनबुक
 
 > Locale: hi · हिन्दी
 > यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
@@ -54,7 +54,7 @@
 - `--vrf-audit-sha256`
 ## अंग्रेज़ी source की संरचना
 
-- Launch Runbook
+- लॉन्च रनबुक
 - Prelaunch Gate
 - Release Candidate Gate
 - Genesis Gate
@@ -65,6 +65,6 @@
 
 release candidate जाँचते समय `release gate` को BLS और VRF दोनों audit evidence digest दें। कम से कम `--bls-audit`, `--bls-audit-sha256`, `--vrf-audit`, `--vrf-audit-sha256` और `--evidence-manifest` साथ चलाएँ, फिर हर evidence file का SHA-256 manifest से मिलाएँ।
 
-## Canonical source
+## प्रामाणिक स्रोत
 
-- [English canonical document](../../en/release/launch-runbook.md)
+- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/release/launch-runbook.md)

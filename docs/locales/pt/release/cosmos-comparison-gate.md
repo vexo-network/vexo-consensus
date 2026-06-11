@@ -61,4 +61,4 @@ Este documento ajuda a entender o gate de release frente a expectativas estilo C
 
 ## Fonte canônica
 
-- [English canonical document](../../en/release/cosmos-comparison-gate.md)
+- [Documento canônico em inglês](../../en/release/cosmos-comparison-gate.md)

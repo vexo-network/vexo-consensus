@@ -69,4 +69,4 @@ Tài liệu này giúp hiểu quy trình thêm validator, xác thực cấu hìn
 
 ## Nguồn chuẩn
 
-- [English canonical document](../../en/operators/add-validator.md)
+- [Tài liệu chuẩn tiếng Anh](../../en/operators/add-validator.md)

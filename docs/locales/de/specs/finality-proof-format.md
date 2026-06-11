@@ -68,4 +68,4 @@ Dieses Dokument hilft dabei, finality proof Felder, Prüfreihenfolge und validat
 
 ## Kanonische Quelle
 
-- [English canonical document](../../en/specs/finality-proof-format.md)
+- [Englisches kanonisches Dokument](../../en/specs/finality-proof-format.md)

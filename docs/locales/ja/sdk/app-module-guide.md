@@ -76,4 +76,4 @@
 
 ## 正規原文
 
-- [English canonical document](../../en/sdk/app-module-guide.md)
+- [英語の正規文書](../../en/sdk/app-module-guide.md)

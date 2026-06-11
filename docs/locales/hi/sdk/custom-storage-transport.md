@@ -50,6 +50,6 @@
 - Transport Requirements
 - Compatibility
 
-## Canonical source
+## प्रामाणिक स्रोत
 
-- [English canonical document](../../en/sdk/custom-storage-transport.md)
+- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/sdk/custom-storage-transport.md)

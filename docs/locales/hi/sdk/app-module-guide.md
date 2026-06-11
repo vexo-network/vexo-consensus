@@ -74,6 +74,6 @@
 - CLI Commands
 - Tests
 
-## Canonical source
+## प्रामाणिक स्रोत
 
-- [English canonical document](../../en/sdk/app-module-guide.md)
+- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/sdk/app-module-guide.md)

@@ -56,4 +56,4 @@
 
 ## المصدر المعتمد
 
-- [English canonical document](../../en/specs/validator-lifecycle.md)
+- [الوثيقة الإنجليزية المرجعية](../../en/specs/validator-lifecycle.md)

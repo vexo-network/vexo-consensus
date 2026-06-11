@@ -83,4 +83,4 @@
 
 ## المصدر المعتمد
 
-- [English canonical document](../../en/specs/networking-spec.md)
+- [الوثيقة الإنجليزية المرجعية](../../en/specs/networking-spec.md)

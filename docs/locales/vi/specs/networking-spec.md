@@ -83,4 +83,4 @@ Tài liệu này giúp hiểu P2P handshake, gossip, peer scoring và chính sá
 
 ## Nguồn chuẩn
 
-- [English canonical document](../../en/specs/networking-spec.md)
+- [Tài liệu chuẩn tiếng Anh](../../en/specs/networking-spec.md)

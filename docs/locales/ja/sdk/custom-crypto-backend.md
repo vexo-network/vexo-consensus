@@ -82,7 +82,7 @@ VRF backend も BLS と同じ水準で監査境界を示す必要があります
 
 ## 正規原文
 
-- [English canonical document](../../en/sdk/custom-crypto-backend.md)
+- [英語の正規文書](../../en/sdk/custom-crypto-backend.md)
 
 ## Remote VRF service
 

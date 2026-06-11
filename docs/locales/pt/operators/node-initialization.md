@@ -78,4 +78,4 @@ Este documento ajuda a entender inicialização de nós archive/validator e uso 
 
 ## Fonte canônica
 
-- [English canonical document](../../en/operators/node-initialization.md)
+- [Documento canônico em inglês](../../en/operators/node-initialization.md)

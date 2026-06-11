@@ -52,4 +52,4 @@ Este documento ajuda a entender implementação e registro de custom storage e t
 
 ## Fonte canônica
 
-- [English canonical document](../../en/sdk/custom-storage-transport.md)
+- [Documento canônico em inglês](../../en/sdk/custom-storage-transport.md)

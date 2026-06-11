@@ -78,4 +78,4 @@
 
 ## 规范来源
 
-- [English canonical document](../../en/specs/storage-schema.md)
+- [英文规范文档](../../en/specs/storage-schema.md)

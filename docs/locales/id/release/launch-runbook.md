@@ -1,4 +1,4 @@
-# Launch Runbook
+# Runbook peluncuran
 
 > Locale: id · Bahasa Indonesia
 > Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
@@ -54,7 +54,7 @@ Dokumen ini membantu memahami checklist operator dan prosedur sebelum peluncuran
 - `--vrf-audit-sha256`
 ## Struktur sumber Inggris
 
-- Launch Runbook
+- Runbook peluncuran
 - Prelaunch Gate
 - Release Candidate Gate
 - Genesis Gate
@@ -67,4 +67,4 @@ Saat memvalidasi release candidate, berikan digest BLS dan VRF audit evidence ke
 
 ## Sumber kanonik
 
-- [English canonical document](../../en/release/launch-runbook.md)
+- [Dokumen kanonik bahasa Inggris](../../en/release/launch-runbook.md)

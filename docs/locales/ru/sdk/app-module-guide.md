@@ -76,4 +76,4 @@
 
 ## Канонический источник
 
-- [English canonical document](../../en/sdk/app-module-guide.md)
+- [Английский канонический документ](../../en/sdk/app-module-guide.md)

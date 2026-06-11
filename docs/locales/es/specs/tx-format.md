@@ -74,4 +74,4 @@ Este documento ayuda a entender transaction format, signing, fee y reglas de gas
 
 ## Fuente canónica
 
-- [English canonical document](../../en/specs/tx-format.md)
+- [Documento canónico en inglés](../../en/specs/tx-format.md)

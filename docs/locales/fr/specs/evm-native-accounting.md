@@ -69,4 +69,4 @@ Ce document aide à comprendre l’alignement entre native coin et EVM gas/accou
 
 ## Source canonique
 
-- [English canonical document](../../en/specs/evm-native-accounting.md)
+- [Document canonique anglais](../../en/specs/evm-native-accounting.md)

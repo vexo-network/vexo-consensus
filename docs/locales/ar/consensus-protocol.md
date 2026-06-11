@@ -58,4 +58,4 @@
 
 ## المصدر المعتمد
 
-- [English canonical document](../en/consensus-protocol.md)
+- [الوثيقة الإنجليزية المرجعية](../en/consensus-protocol.md)

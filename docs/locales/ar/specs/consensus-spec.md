@@ -74,4 +74,4 @@
 
 ## المصدر المعتمد
 
-- [English canonical document](../../en/specs/consensus-spec.md)
+- [الوثيقة الإنجليزية المرجعية](../../en/specs/consensus-spec.md)

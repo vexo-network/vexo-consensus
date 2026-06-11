@@ -68,4 +68,4 @@ Ce document aide à comprendre les champs finality proof, l’ordre de vérifica
 
 ## Source canonique
 
-- [English canonical document](../../en/specs/finality-proof-format.md)
+- [Document canonique anglais](../../en/specs/finality-proof-format.md)

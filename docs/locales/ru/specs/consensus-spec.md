@@ -74,4 +74,4 @@
 
 ## Канонический источник
 
-- [English canonical document](../../en/specs/consensus-spec.md)
+- [Английский канонический документ](../../en/specs/consensus-spec.md)

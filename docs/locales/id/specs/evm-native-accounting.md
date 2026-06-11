@@ -69,4 +69,4 @@ Dokumen ini membantu memahami penyelarasan native coin dengan EVM gas/accounting
 
 ## Sumber kanonik
 
-- [English canonical document](../../en/specs/evm-native-accounting.md)
+- [Dokumen kanonik bahasa Inggris](../../en/specs/evm-native-accounting.md)

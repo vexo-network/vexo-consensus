@@ -66,4 +66,4 @@ Audit-Unterlagen müssen neben BLS auch VRF adapter audit evidence enthalten. Pi
 
 ## Kanonische Quelle
 
-- [English canonical document](../../en/security/audit-readiness.md)
+- [Englisches kanonisches Dokument](../../en/security/audit-readiness.md)

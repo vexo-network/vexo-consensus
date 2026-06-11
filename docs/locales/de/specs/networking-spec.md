@@ -83,4 +83,4 @@ Dieses Dokument hilft dabei, P2P handshake, gossip, peer scoring und ban policy 
 
 ## Kanonische Quelle
 
-- [English canonical document](../../en/specs/networking-spec.md)
+- [Englisches kanonisches Dokument](../../en/specs/networking-spec.md)

@@ -76,6 +76,6 @@
 - Snapshot Validation
 - Schema Migration
 
-## Canonical source
+## प्रामाणिक स्रोत
 
-- [English canonical document](../../en/specs/storage-schema.md)
+- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/specs/storage-schema.md)

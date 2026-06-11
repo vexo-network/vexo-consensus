@@ -75,7 +75,7 @@
 
 ## 规范来源
 
-- [English canonical document](../../en/sdk/rpc-api-versioning.md)
+- [英文规范文档](../../en/sdk/rpc-api-versioning.md)
 
 ## RPC capability discovery
 

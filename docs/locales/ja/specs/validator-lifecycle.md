@@ -56,4 +56,4 @@
 
 ## 正規原文
 
-- [English canonical document](../../en/specs/validator-lifecycle.md)
+- [英語の正規文書](../../en/specs/validator-lifecycle.md)

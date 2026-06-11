@@ -78,4 +78,4 @@
 
 ## 正規原文
 
-- [English canonical document](../../en/operators/node-initialization.md)
+- [英語の正規文書](../../en/operators/node-initialization.md)

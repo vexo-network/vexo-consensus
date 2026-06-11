@@ -64,6 +64,6 @@
 
 Audit सामग्री में BLS के साथ VRF adapter audit evidence भी होनी चाहिए। `docs/security/ecvrf-audit-evidence.json` जैसे file का SHA-256 `vrf.audit_evidence_sha256` या `--vrf-audit-sha256` में pin करें, और dependency audit, key custody, TLS/mTLS या pinned CA, auth, replay defense और service availability को एक ही boundary में जाँचें।
 
-## Canonical source
+## प्रामाणिक स्रोत
 
-- [English canonical document](../../en/security/audit-readiness.md)
+- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/security/audit-readiness.md)

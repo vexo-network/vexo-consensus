@@ -66,4 +66,4 @@ Materi audit harus mencakup VRF adapter audit evidence selain BLS. Pin SHA-256 f
 
 ## Sumber kanonik
 
-- [English canonical document](../../en/security/audit-readiness.md)
+- [Dokumen kanonik bahasa Inggris](../../en/security/audit-readiness.md)

@@ -75,7 +75,7 @@
 
 ## 규범 원문
 
-- [English canonical document](../../en/sdk/rpc-api-versioning.md)
+- [영어 정본 문서](../../en/sdk/rpc-api-versioning.md)
 
 ## RPC capability discovery
 

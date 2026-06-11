@@ -74,7 +74,7 @@
 
 ## المصدر المعتمد
 
-- [English canonical document](../../en/sdk/custom-crypto-backend.md)
+- [الوثيقة الإنجليزية المرجعية](../../en/sdk/custom-crypto-backend.md)
 - `vrf.dependency_audit`
 - `vrf.audit_evidence_sha256`
 - `ecvrf-p256-sha256-tai-v1`

@@ -78,4 +78,4 @@
 
 ## Канонический источник
 
-- [English canonical document](../../en/operators/node-initialization.md)
+- [Английский канонический документ](../../en/operators/node-initialization.md)

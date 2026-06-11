@@ -69,4 +69,4 @@ Este documento ajuda a entender adição de validator, validação de configura�
 
 ## Fonte canônica
 
-- [English canonical document](../../en/operators/add-validator.md)
+- [Documento canônico em inglês](../../en/operators/add-validator.md)

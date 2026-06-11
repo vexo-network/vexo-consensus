@@ -69,4 +69,4 @@ Dokumen ini membantu memahami proses menambah validator, validasi konfigurasi, d
 
 ## Sumber kanonik
 
-- [English canonical document](../../en/operators/add-validator.md)
+- [Dokumen kanonik bahasa Inggris](../../en/operators/add-validator.md)

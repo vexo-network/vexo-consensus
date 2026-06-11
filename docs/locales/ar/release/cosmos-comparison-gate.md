@@ -61,4 +61,4 @@
 
 ## المصدر المعتمد
 
-- [English canonical document](../../en/release/cosmos-comparison-gate.md)
+- [الوثيقة الإنجليزية المرجعية](../../en/release/cosmos-comparison-gate.md)

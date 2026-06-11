@@ -83,4 +83,4 @@
 
 ## 正規原文
 
-- [English canonical document](../../en/specs/networking-spec.md)
+- [英語の正規文書](../../en/specs/networking-spec.md)

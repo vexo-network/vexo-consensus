@@ -57,4 +57,4 @@
 
 ## Канонический источник
 
-- [English canonical document](../../en/release/version-compatibility.md)
+- [Английский канонический документ](../../en/release/version-compatibility.md)

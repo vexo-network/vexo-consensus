@@ -76,4 +76,4 @@
 
 ## المصدر المعتمد
 
-- [English canonical document](../../en/sdk/app-module-guide.md)
+- [الوثيقة الإنجليزية المرجعية](../../en/sdk/app-module-guide.md)

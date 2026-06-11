@@ -83,4 +83,4 @@
 
 ## Канонический источник
 
-- [English canonical document](../../en/specs/networking-spec.md)
+- [Английский канонический документ](../../en/specs/networking-spec.md)

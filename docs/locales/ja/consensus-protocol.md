@@ -58,4 +58,4 @@
 
 ## 正規原文
 
-- [English canonical document](../en/consensus-protocol.md)
+- [英語の正規文書](../en/consensus-protocol.md)

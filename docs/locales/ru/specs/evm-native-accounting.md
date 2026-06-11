@@ -69,4 +69,4 @@
 
 ## Канонический источник
 
-- [English canonical document](../../en/specs/evm-native-accounting.md)
+- [Английский канонический документ](../../en/specs/evm-native-accounting.md)
