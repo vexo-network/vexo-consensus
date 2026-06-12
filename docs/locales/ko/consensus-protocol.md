@@ -1,4 +1,4 @@
-# Consensus Protocol Overview
+# 합의 프로토콜 개요
 
 > Locale: ko · 한국어
 > 이 문서는 영어 원문을 함께 읽기 위한 한국어 보조 문서입니다. 프로토콜, 보안, 릴리즈 판단은 영어 원문이 규범입니다.
@@ -49,7 +49,7 @@
 
 ## 영어 원문 구조
 
-- Consensus Protocol Overview
+- 합의 프로토콜 개요
 - Model
 - Execution Terms
 - Safety Boundary

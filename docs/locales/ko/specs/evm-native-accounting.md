@@ -1,4 +1,4 @@
-# EVM and Native Accounting
+# EVM과 네이티브 회계
 
 > Locale: ko · 한국어
 > 이 문서는 영어 원문을 함께 읽기 위한 한국어 보조 문서입니다. 프로토콜, 보안, 릴리즈 판단은 영어 원문이 규범입니다.
@@ -96,11 +96,11 @@ Vexo는 Ethereum node가 아니라 Vexo consensus 위에 EVM 실행 환경을 �
 
 ## 영어 원문 구조
 
-- EVM and Native Accounting
+- EVM과 네이티브 회계
 - Core Rule
 - Amount Encoding
 - Fee Accounting
-- EVM Execution
+- EVM 실행
 - State Root Policy
 - Compatibility Boundary
 - Failure Modes

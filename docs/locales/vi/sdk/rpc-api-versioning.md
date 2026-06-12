@@ -62,7 +62,7 @@ Tài liệu này giúp hiểu quản lý phiên bản RPC API, alias tương th�
 ## Cấu trúc nguồn tiếng Anh
 
 - RPC API Versioning
-- Stability Goal
+- Mục tiêu ổn định
 - Current Stable API
 - Versioning Rules
 - Compatibility Aliases
@@ -81,4 +81,4 @@ Tài liệu này giúp hiểu quản lý phiên bản RPC API, alias tương th�
 
 Giao diện RPC capability discovery mới cho biết provider capability nào thật sự được gắn vào node. Operator gọi `/v1/capabilities`; tích hợp SDK dùng `rpc.Config.RequiredCapabilities` hoặc `rpc.Config.RequireAllCapabilities` để startup fail closed khi thiếu capability.
 
-Keep these interface names unchanged: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
+Giữ nguyên các tên interface sau: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.

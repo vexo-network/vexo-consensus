@@ -1,4 +1,4 @@
-# Consensus Protocol Overview
+# Resumen del protocolo de consenso
 
 > Locale: es · Español
 > Este documento es un documento de acompañamiento en español para leer junto con la fuente inglesa. Las decisiones de protocolo, seguridad y release siguen siendo normativas en inglés.
@@ -49,7 +49,7 @@ Este documento ayuda a entender el modelo de consenso, términos execution/commi
 
 ## Estructura de la fuente inglesa
 
-- Consensus Protocol Overview
+- Resumen del protocolo de consenso
 - Model
 - Execution Terms
 - Safety Boundary

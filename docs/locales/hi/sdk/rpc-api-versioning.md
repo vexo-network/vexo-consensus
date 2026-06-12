@@ -62,7 +62,7 @@
 ## अंग्रेज़ी source की संरचना
 
 - RPC API Versioning
-- Stability Goal
+- स्थिरता लक्ष्य
 - Current Stable API
 - Versioning Rules
 - Compatibility Aliases
@@ -81,4 +81,4 @@
 
 नई RPC capability discovery interface बताती है कि कौन सी provider capabilities सच में जुड़ी हैं। Operator `/v1/capabilities` कॉल करता है; SDK integrations `rpc.Config.RequiredCapabilities` या `rpc.Config.RequireAllCapabilities` से startup पर missing capability को fail closed कर सकते हैं।
 
-Keep these interface names unchanged: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
+इन interface names को बदले बिना रखें: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.

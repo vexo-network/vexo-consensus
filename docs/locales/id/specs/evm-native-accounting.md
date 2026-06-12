@@ -1,4 +1,4 @@
-# EVM and Native Accounting
+# EVM dan akuntansi native
 
 > Locale: id · Bahasa Indonesia
 > Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
@@ -58,11 +58,11 @@ Dokumen ini membantu memahami penyelarasan native coin dengan EVM gas/accounting
 
 ## Struktur sumber Inggris
 
-- EVM and Native Accounting
+- EVM dan akuntansi native
 - Core Rule
 - Amount Encoding
 - Fee Accounting
-- EVM Execution
+- Eksekusi EVM
 - State Root Policy
 - Compatibility Boundary
 - Failure Modes

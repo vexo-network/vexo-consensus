@@ -3,11 +3,11 @@
 > Locale: vi · Tiếng Việt
 > Quyết định bảo mật và phát hành phải dựa trên nguồn tiếng Anh và kết quả release gate.
 
-## Overview
+## Tổng quan
 
 Tài liệu này giải thích những điều phải xác minh trước khi gọi một mạng Vexo là sẵn sàng production.
 
-This localized guide keeps commands, JSON fields, RPC methods, config keys, and package names unchanged so examples remain copy-pasteable across languages.
+Tài liệu bản địa hóa này giữ nguyên lệnh, trường JSON, phương thức RPC, khóa cấu hình và tên package để ví dụ có thể sao chép giữa các ngôn ngữ.
 
 ## Vì sao quan trọng
 
@@ -28,7 +28,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - **Configuration review**: Review `config.json`, `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json`, and `log_config.json` before `vexod start`.
 - **Release decision**: Attach evidence from the exact binary, genesis, config schema, module set, and validator topology that will be released.
 
-## Interface names kept unchanged
+## Tên interface cần giữ nguyên
 
 - `vexod validate --home <home>`
 - `vexod config audit --home <home> --strict`
@@ -48,7 +48,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - `mempool_config.json`
 - `release gate`
 
-## Common mistakes
+## Lỗi thường gặp
 
 - Do not assume configured peers are connected peers; active sessions must be checked separately.
 - Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
@@ -57,4 +57,4 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## Tham chiếu chuẩn
 
-- [Normative source](../en/production-readiness.md)
+- [Nguồn chuẩn](../en/production-readiness.md)

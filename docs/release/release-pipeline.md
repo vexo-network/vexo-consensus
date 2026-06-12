@@ -38,18 +38,25 @@ Build Docker image with pinned metadata:
 make docker-image VERSION=0.1.0 IMAGE=vexo-consensus IMAGE_TAG=0.1.0
 ```
 
-Run CI-safe release candidate verification. This builds artifacts, runs checks, and writes plan/evidence metadata without starting the 168-hour soak path:
+Run the release-candidate gate. This is intentionally the real gate: it builds release artifacts, requires BLS-capable release settings, runs built-binary E2E, and requires externally pinned EVM/Web3 fixture corpora before it can pass:
 
 ```bash
-make release-candidate VERSION=0.1.0-rc.1
+make release-candidate VERSION=0.1.0-rc.1 \
+  RELEASE_CGO_ENABLED=1 \
+  RC_EVM_CONFORMANCE_FLAGS="--evm-tx-fixtures fixtures/evm/raw.json --evm-tx-fixtures-sha256 <sha256> --evm-execution-fixtures fixtures/evm/execution.json --evm-execution-fixtures-sha256 <sha256>"
 ```
 
-The CI-safe target is intentionally conservative about runtime side effects. It is useful on every pull request because it catches build, docs, conformance smoke, release packing, and evidence-manifest regressions. It does not replace multi-host long-run or external audit evidence.
+For pull requests or quick artifact smoke tests, use the explicit plan target instead. Plan output is never acceptable as public release evidence:
 
-Run a real soak release candidate only when external EVM/Web3 corpora are pinned and the machine is allowed to run the network load/longrun harness:
+```bash
+make release-candidate-plan VERSION=ci
+```
+
+Use the real release-candidate target only when external EVM/Web3 corpora are pinned and the machine is allowed to run the network load/longrun harness:
 
 ```bash
 make release-candidate-real VERSION=0.1.0-rc.1 \
+  RELEASE_CGO_ENABLED=1 \
   RC_EVM_CONFORMANCE_FLAGS="--evm-tx-fixtures fixtures/evm/raw.json --evm-tx-fixtures-sha256 <sha256> --evm-execution-fixtures fixtures/evm/execution.json --evm-execution-fixtures-sha256 <sha256>"
 ```
 
@@ -117,7 +124,8 @@ The repository CI should run the following gates on pull requests:
 | Documentation quality | `make docs-check` | locale tree drift, canonical hash drift, placeholders, thin translations |
 | Build | `make build` | binary link and ldflag problems |
 | Built-binary network E2E | `make network-e2e` | init/start/peer/tx/height/stop behavior with the actual binary |
-| Release smoke | `make release-candidate VERSION=ci` | release artifact, SBOM, docs, conformance-smoke, and evidence-manifest regressions |
+| Release plan smoke | `make release-candidate-plan VERSION=ci` | portable release artifact, SBOM, docs, conformance-smoke, and evidence-manifest regressions without pretending to be final evidence |
+| Real release candidate | `make release-candidate VERSION=<rc> RELEASE_CGO_ENABLED=1 RC_EVM_CONFORMANCE_FLAGS=...` | BLS-capable release artifact, built-binary E2E, strict EVM/Web3 corpus evidence, live load, longrun, chaos, and evidence manifest |
 
 If any gate is too slow for every PR, keep it as a required release-branch or nightly check. Do not remove it silently; document the reason and keep a visible replacement gate.
 
@@ -199,16 +207,18 @@ Evidence attestation signs the canonical tuple `name`, `path`, and `sha256` for 
 
 ## Reproducibility Notes
 
-Builds use:
+Public release-candidate builds use:
 
-- `CGO_ENABLED=0`
+- `RELEASE_CGO_ENABLED=1` so the cgo-backed `supranational/blst` adapter is actually present in the built binary
 - `go build -trimpath`
 - explicit version, commit, and build date ldflags
 - Docker build args for version metadata
 
 For stricter reproducibility, set a deterministic `BUILD_DATE`, use a clean checkout, and compare `checksums.txt` across builders.
 
-When BLS is built with the `blst` adapter, remember that release binaries default to `CGO_ENABLED=0`. The no-cgo artifact fails closed unless an audited adapter is registered in that build. If a launch requires the built-in blst adapter at runtime, build and test an explicit cgo-enabled artifact and attach its dependency/audit evidence.
+The default `make release-candidate` path fails closed unless `RELEASE_CGO_ENABLED=1` is set. A no-cgo artifact is allowed only through `make release-portable RELEASE_REQUIRE_BLS=0`; that artifact is for non-BLS portability smoke checks and must not be published as BLS-capable release evidence.
+
+When `RELEASE_CGO_ENABLED=1` and `RELEASE_TARGETS` is not set, the Makefile builds only the current host target. This avoids silently attempting cgo cross-compilation without a matching C toolchain. If a release needs multiple operating systems or architectures, set `RELEASE_TARGETS` explicitly and run the build on workers that provide the required cgo cross-compilers.
 
 ## Signed Binaries
 
@@ -247,23 +257,9 @@ The generated pack lists artifact SHA-256 values, required release files, signat
 
 ## Release Candidate Targets
 
-The default `release-candidate` target is CI-safe and maps to `release-candidate-plan`. It runs:
+The default `release-candidate` target maps to `release-candidate-real`. It is intentionally not CI-safe unless the runner has local port access, BLS/cgo toolchains, and externally pinned EVM/Web3 corpora. It runs:
 
-- full test/vet check
-- fuzz smoke tests
-- ops verification
-- adversarial simulation
-- SDK/EVM conformance plan using built-in fixtures
-- network load plan files only; plan files are intentionally rejected as final release evidence
-- chaos plan
-- IBC relayer soak plan with `vexod relayer soak-plan --json`
-- 7-day multi-host longrun plan
-- locale and canonical documentation quality with `vexod release docs-quality`
-- evidence manifest generation for whatever RC files are present in `dist/`
-
-The `release-candidate-real` target runs the operational soak path:
-
-- everything in the default release and ops verification path
+- everything in the release and ops verification path
 - built-binary network E2E (`make network-e2e`)
 - strict SDK/EVM conformance evidence. If the `evm` module is enabled, `vexod ops conformance --strict` requires external raw transaction and geth VM execution fixture corpora, both pinned by SHA-256 through `RC_EVM_CONFORMANCE_FLAGS`.
 - live network load harness
@@ -271,7 +267,7 @@ The `release-candidate-real` target runs the operational soak path:
 - chaos execution
 - evidence manifest generation for the produced evidence files
 
-Real release candidates should run `network longrun` on independent machines and attach the generated evidence JSON plus metrics, logs, pprof, snapshot, replay, KMS signing, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, SDK conformance, EVM/Web3 raw transaction conformance, geth VM execution conformance, BLS adapter audit, and VRF adapter/KMS/TLS audit evidence.
+The explicit `release-candidate-plan` target remains available for PR smoke and operator planning. It sets `RELEASE_REQUIRE_BLS=0`, uses built-in EVM smoke fixtures, writes dry-run network plans, and is deliberately rejected by release evidence gates as final proof. Real release candidates should run `network longrun` on independent machines and attach the generated evidence JSON plus metrics, logs, pprof, snapshot, replay, KMS signing, P2P scale, light-client, economics, governance-upgrade, MEV/fee-market, SDK conformance, EVM/Web3 raw transaction conformance, geth VM execution conformance, BLS adapter audit, and VRF adapter/KMS/TLS audit evidence.
 The longrun harness distributes load across validator RPC endpoints and records per-validator submission counts in the evidence payload. The analyzer should pass before the evidence is attached to the release gate. Relayer soak plans should include both acknowledgement and timeout jobs and should be archived with checkpoint state. Upgrade plans that rely on no-op schema migrations must explicitly set `allow_noop_migrations=true`; `vexod upgrade apply --allow-empty-migrations` rejects plans that do not opt in. Public release gates require `--bls-audit` evidence plus `--bls-audit-sha256` or `--config <path>` with `crypto.audit_evidence_sha256` when BLS is configured, and `--vrf-audit` evidence plus `--vrf-audit-sha256` or `--config <path>` with `vrf.audit_evidence_sha256` when VRF committee selection is configured. The repository includes `docs/security/blst-audit-evidence.json`, `docs/security/ecvrf-audit-evidence.json`, and their SHA-256 pins for the built-in adapter metadata; launch teams should still attach their target-release BLS and VRF audit artifacts covering adapter implementation, dependency audit, TLS/mTLS or pinned CA, authorization, nonce replay defense, and KMS/HSM custody policy.
 
 ## Launch Runbook

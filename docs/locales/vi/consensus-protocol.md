@@ -1,4 +1,4 @@
-# Consensus Protocol Overview
+# Tổng quan giao thức đồng thuận
 
 > Locale: vi · Tiếng Việt
 > Tài liệu này là tài liệu đồng hành tiếng Việt để đọc cùng nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.
@@ -49,7 +49,7 @@ Tài liệu này giúp hiểu mô hình đồng thuận, thuật ngữ execution
 
 ## Cấu trúc nguồn tiếng Anh
 
-- Consensus Protocol Overview
+- Tổng quan giao thức đồng thuận
 - Model
 - Execution Terms
 - Safety Boundary

@@ -53,7 +53,7 @@
 - Threat Model
 - Assets
 - Adversaries
-- Security Goals
+- सुरक्षा लक्ष्य
 - Security Assumptions
 - Known Limitations
 - Formal-ish Safety Argument

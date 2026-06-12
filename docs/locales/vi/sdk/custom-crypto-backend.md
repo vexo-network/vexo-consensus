@@ -63,7 +63,7 @@ Tài liệu này giúp hiểu tích hợp custom crypto backend như BLS, VRF v�
 ## Cấu trúc nguồn tiếng Anh
 
 - Custom Crypto Backend Guide
-- Goal
+- Mục tiêu
 - Interfaces
 - Runtime Suite
 - Domain Separation
@@ -88,4 +88,4 @@ VRF backend phải thể hiện audit boundary rõ như BLS. Điền `vrf.adapte
 
 `vexod keys serve-vrf` cung cấp `POST /prove` và `POST /verify` bằng ECVRF key, còn `vexod keys verify-vrf` kiểm tra remote prover end-to-end. Giữ nguyên `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, `vexo.remote_vrf.verify.v1`.
 
-Keep these interface names unchanged: `vexod keys serve-vrf`, `vexod keys verify-vrf`, `POST /prove`, `POST /verify`, `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, `vexo.remote_vrf.verify.v1`.
+Giữ nguyên các tên interface sau: `vexod keys serve-vrf`, `vexod keys verify-vrf`, `POST /prove`, `POST /verify`, `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, `vexo.remote_vrf.verify.v1`.

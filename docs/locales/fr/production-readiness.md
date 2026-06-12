@@ -3,11 +3,11 @@
 > Locale: fr · Français
 > Les décisions de sécurité et de publication se valident avec la source anglaise et le résultat du release gate.
 
-## Overview
+## Vue d’ensemble
 
 Ce document explique ce qui doit être vérifié avant de qualifier un réseau Vexo de prêt pour la production.
 
-This localized guide keeps commands, JSON fields, RPC methods, config keys, and package names unchanged so examples remain copy-pasteable across languages.
+Ce document localisé conserve les commandes, champs JSON, méthodes RPC, clés de configuration et noms de paquets afin que les exemples restent copiables dans toutes les langues.
 
 ## Pourquoi c’est important
 
@@ -28,7 +28,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - **Configuration review**: Review `config.json`, `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json`, and `log_config.json` before `vexod start`.
 - **Release decision**: Attach evidence from the exact binary, genesis, config schema, module set, and validator topology that will be released.
 
-## Interface names kept unchanged
+## Noms d’interface à conserver
 
 - `vexod validate --home <home>`
 - `vexod config audit --home <home> --strict`
@@ -48,7 +48,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - `mempool_config.json`
 - `release gate`
 
-## Common mistakes
+## Erreurs courantes
 
 - Do not assume configured peers are connected peers; active sessions must be checked separately.
 - Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
@@ -57,4 +57,4 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## Référence normative
 
-- [Normative source](../en/production-readiness.md)
+- [Source normative](../en/production-readiness.md)

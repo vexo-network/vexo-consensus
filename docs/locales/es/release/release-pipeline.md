@@ -57,11 +57,13 @@ Este documento ayuda a entender pipeline de release con binarios firmados, check
 - `evm_execution`
 - `web3_rpc`
 - `evm_corpus`
-- `CGO_ENABLED=0`
+- `RELEASE_CGO_ENABLED=1`
 - `go build -trimpath`
 - `BUILD_DATE`
 - `release-candidate`
 - `release-candidate-real`
+- `release-candidate-plan`
+- `make release-portable RELEASE_REQUIRE_BLS=0`
 - `make network-e2e`
 - `RC_DRY_RUN=1`
 - `network longrun`
@@ -75,7 +77,7 @@ Este documento ayuda a entender pipeline de release con binarios firmados, check
 ## Estructura de la fuente inglesa
 
 - Release Pipeline
-- Goals
+- Objetivos
 - Release Commands
 - Artifacts
 - Reproducibility Notes
@@ -88,6 +90,10 @@ Este documento ayuda a entender pipeline de release con binarios firmados, check
 ## Evidencia de conformidad EVM/Web3
 
 `--sdk-conformance-evidence` y `--evm-web3-conformance-evidence` son evidencias separadas. Un resumen textual que diga que “EVM passed” no es suficiente; la evidencia EVM/Web3 debe incluir las secciones legibles por máquina `evm_fixtures`, `evm_execution`, `web3_rpc` y `evm_corpus`, y debe estar enlazada a `evidence-manifest.json` por SHA-256 antes de cualquier afirmación pública de compatibilidad.
+
+## Política de release candidate
+
+Una release candidate pública usa por defecto `make release-candidate`. Ese target es el gate real, entra en `release-candidate-real` y exige `RELEASE_CGO_ENABLED=1` para que el artifact incluya realmente el adapter BLS `supranational/blst` basado en cgo. `make release-candidate-plan` solo sirve para PR smoke y planificación operativa; usa fixtures integradas y planes dry-run, por lo que no debe presentarse como evidence final. Si necesita un artifact no-cgo, use `make release-portable RELEASE_REQUIRE_BLS=0`, pero no lo publique como release BLS-capable. Cuando `RELEASE_CGO_ENABLED=1` y `RELEASE_TARGETS` no está definido, el Makefile compila solo el target del host actual. Para varios OS/arquitecturas, defina `RELEASE_TARGETS` explícitamente en runners con los cross-compilers cgo necesarios.
 
 ## VRF audit evidence SHA-256
 

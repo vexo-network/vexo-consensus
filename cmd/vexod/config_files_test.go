@@ -1158,6 +1158,28 @@ func TestLoadStartRuntimeConfigRejectsManagedEVMKeysOnPublicRPC(t *testing.T) {
 	}
 }
 
+func TestLoadStartRuntimeConfigRequiresTLSOnPublicRPC(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, configFileName)
+	document := defaultConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	document.RequireNetworkSafety = false
+	networkDocument := defaultNetworkConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	networkDocument.RPC.Address = "0.0.0.0:26657"
+	networkDocument.RPC.AdminToken = "secret"
+	writeTestJSON(t, path, document)
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+
+	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected public rpc without tls to fail network safety boundary, got %v", err)
+	}
+	networkDocument.RPC.TLSCertPath = "tls/rpc.crt"
+	networkDocument.RPC.TLSKeyPath = "tls/rpc.key"
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+	if cfg, err := loadStartRuntimeConfig(home, path); err != nil || cfg.RPCTLSCertPath == "" || cfg.RPCTLSKeyPath == "" {
+		t.Fatalf("expected public rpc with tls identity to load, cfg=%+v err=%v", cfg, err)
+	}
+}
+
 func TestValidateStartupKeyCustodyRejectsPlaintextValidatorKeyOnPublicListener(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {

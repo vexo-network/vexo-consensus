@@ -53,7 +53,7 @@ Este documento ayuda a entender threat model, supuestos de seguridad y evidencia
 - Threat Model
 - Assets
 - Adversaries
-- Security Goals
+- Objetivos de seguridad
 - Security Assumptions
 - Known Limitations
 - Formal-ish Safety Argument

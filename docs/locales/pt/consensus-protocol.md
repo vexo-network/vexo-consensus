@@ -1,4 +1,4 @@
-# Consensus Protocol Overview
+# Visão geral do protocolo de consenso
 
 > Locale: pt · Português
 > Este documento é um documento de apoio em português para ser lido junto da fonte inglesa. Decisões de protocolo, segurança e release continuam normativas em inglês.
@@ -49,7 +49,7 @@ Este documento ajuda a entender o modelo de consenso, termos execution/commit/fi
 
 ## Estrutura da fonte inglesa
 
-- Consensus Protocol Overview
+- Visão geral do protocolo de consenso
 - Model
 - Execution Terms
 - Safety Boundary

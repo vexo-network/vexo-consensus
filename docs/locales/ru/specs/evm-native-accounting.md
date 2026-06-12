@@ -1,4 +1,4 @@
-# EVM and Native Accounting
+# EVM и нативный учёт
 
 > Locale: ru · Русский
 > Этот документ — русский сопроводительный документ к английскому источнику. Протокол, безопасность и решения о release остаются нормативными на английском языке.
@@ -58,11 +58,11 @@
 
 ## Структура английского источника
 
-- EVM and Native Accounting
+- EVM и нативный учёт
 - Core Rule
 - Amount Encoding
 - Fee Accounting
-- EVM Execution
+- Исполнение EVM
 - State Root Policy
 - Compatibility Boundary
 - Failure Modes

@@ -1,4 +1,4 @@
-# EVM and Native Accounting
+# EVM والمحاسبة الأصلية
 
 > Locale: ar · العربية
 > هذا المستند مستنداً مساعداً بالعربية يُقرأ مع المصدر الإنجليزي. تبقى قرارات البروتوكول والأمان والإصدار معيارية في النص الإنجليزي.
@@ -58,11 +58,11 @@
 
 ## بنية المصدر الإنجليزي
 
-- EVM and Native Accounting
+- EVM والمحاسبة الأصلية
 - Core Rule
 - Amount Encoding
 - Fee Accounting
-- EVM Execution
+- تنفيذ EVM
 - State Root Policy
 - Compatibility Boundary
 - Failure Modes

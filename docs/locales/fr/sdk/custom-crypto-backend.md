@@ -67,7 +67,7 @@ Ce document aide à comprendre l’intégration de custom crypto backend comme B
 ## Structure de la source anglaise
 
 - Custom Crypto Backend Guide
-- Goal
+- Objectif
 - Interfaces
 - Runtime Suite
 - Domain Separation
@@ -88,4 +88,4 @@ Le VRF backend doit exposer une frontière d’audit aussi claire que BLS. Rense
 
 `vexod keys serve-vrf` expose `POST /prove` et `POST /verify` avec une clé ECVRF, et `vexod keys verify-vrf` valide le remote prover de bout en bout. Gardez `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1` et `vexo.remote_vrf.verify.v1` inchangés.
 
-Keep these interface names unchanged: `vexod keys serve-vrf`, `vexod keys verify-vrf`, `POST /prove`, `POST /verify`, `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, `vexo.remote_vrf.verify.v1`.
+Conservez ces noms d’interface inchangés : `vexod keys serve-vrf`, `vexod keys verify-vrf`, `POST /prove`, `POST /verify`, `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, `vexo.remote_vrf.verify.v1`.

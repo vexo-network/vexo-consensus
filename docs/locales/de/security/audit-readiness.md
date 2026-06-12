@@ -53,7 +53,7 @@ Dieses Dokument hilft dabei, Threat Model, Sicherheitsannahmen und Audit-Nachwei
 - Threat Model
 - Assets
 - Adversaries
-- Security Goals
+- Sicherheitsziele
 - Security Assumptions
 - Known Limitations
 - Formal-ish Safety Argument

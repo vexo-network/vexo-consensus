@@ -53,7 +53,7 @@ Ce document aide à comprendre le threat model, les hypothèses de sécurité et
 - Threat Model
 - Assets
 - Adversaries
-- Security Goals
+- Objectifs de sécurité
 - Security Assumptions
 - Known Limitations
 - Formal-ish Safety Argument

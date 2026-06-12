@@ -8,8 +8,15 @@ VERSION ?= dev
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS ?= -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)
-RELEASE_TARGETS ?= linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 RELEASE_CGO_ENABLED ?= 0
+RELEASE_REQUIRE_BLS ?= 1
+DEFAULT_RELEASE_TARGETS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
+HOST_RELEASE_TARGET := $(shell $(GO) env GOOS)/$(shell $(GO) env GOARCH)
+ifeq ($(RELEASE_CGO_ENABLED),1)
+RELEASE_TARGETS ?= $(HOST_RELEASE_TARGET)
+else
+RELEASE_TARGETS ?= $(DEFAULT_RELEASE_TARGETS)
+endif
 IMAGE ?= vexo-consensus
 IMAGE_TAG ?= $(VERSION)
 GPG ?= gpg
@@ -22,7 +29,7 @@ RC_EVM_CONFORMANCE_FLAGS ?=
 FUZZ_PARALLEL ?= 1
 NETWORK_E2E_GO_TIMEOUT ?= 120000s
 
-.PHONY: all build test vet race check docs-check evm-conformance fuzz-smoke ops-verify network-e2e coverage release checksums sbom release-manifest release-audit-pack release-evidence-manifest sign-release docker-image release-candidate release-candidate-real release-candidate-plan clean
+.PHONY: all build test vet race check docs-check evm-conformance fuzz-smoke ops-verify network-e2e coverage release release-preflight release-portable checksums sbom release-manifest release-audit-pack release-evidence-manifest sign-release docker-image release-candidate release-candidate-real release-candidate-plan clean
 
 all: check build
 
@@ -95,7 +102,14 @@ coverage:
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test -p 1 -timeout=30000s -coverprofile=coverage.out ./...
 	$(GO) tool cover -html=coverage.out -o coverage.html
 
-release: check
+release-preflight:
+	@if [ "$(RELEASE_REQUIRE_BLS)" = "1" ] && [ "$(RELEASE_CGO_ENABLED)" != "1" ]; then \
+		echo "release requires RELEASE_CGO_ENABLED=1 because network-safe BLS uses the cgo-backed supranational/blst adapter"; \
+		echo "for non-BLS smoke artifacts only, run: make release-portable RELEASE_REQUIRE_BLS=0"; \
+		exit 1; \
+	fi
+
+release: check release-preflight
 	rm -rf $(DIST_DIR)
 	mkdir -p $(DIST_DIR)
 	@for target in $(RELEASE_TARGETS); do \
@@ -144,7 +158,10 @@ docker-image:
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		-t $(IMAGE):$(IMAGE_TAG) .
 
-release-candidate: release-candidate-plan
+release-portable: RELEASE_REQUIRE_BLS=0
+release-portable: release
+
+release-candidate: release-candidate-real
 
 release-candidate-real: release ops-verify network-e2e
 	@test -n "$(RC_EVM_CONFORMANCE_FLAGS)" || { echo "release-candidate-real requires RC_EVM_CONFORMANCE_FLAGS with externally pinned EVM/Web3 fixture corpora"; exit 1; }
@@ -160,6 +177,7 @@ release-candidate-real: release ops-verify network-e2e
 		GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod network chaos --validators 4 --timeout $(RC_CHAOS_TIMEOUT)
 	$(MAKE) release-evidence-manifest
 
+release-candidate-plan: RELEASE_REQUIRE_BLS=0
 release-candidate-plan: release ops-verify
 	rm -rf /tmp/vexo-rc-conformance
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod init validator --home /tmp/vexo-rc-conformance --chain-id vexo-rc --validator validator-1 --overwrite

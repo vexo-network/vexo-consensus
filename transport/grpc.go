@@ -52,6 +52,7 @@ var (
 	ErrPeerBackoffActive   = errors.New("peer reconnect backoff active")
 	ErrPeerDialInProgress  = errors.New("peer dial already in progress")
 	ErrTLSRequired         = errors.New("p2p tls is required")
+	ErrAuthTokenRequired   = errors.New("p2p auth token is required")
 	ErrAuthNonceReplay     = errors.New("p2p auth nonce replay")
 	ErrAuthReplayStore     = errors.New("p2p auth replay store is required")
 )
@@ -516,6 +517,27 @@ func NewGRPCTransport(config GRPCConfig) (*GRPCTransport, error) {
 		authNonces:                make(map[string]time.Time),
 		subscribers:               make(map[p2p.Topic][]chan Envelope),
 	}, nil
+}
+
+// NewNetworkSafeGRPCTransport constructs a transport for public/value-bearing
+// nodes and fails closed when authentication, replay protection, TLS, or
+// signed peer identity are missing. NewGRPCTransport remains available for
+// tests, private harnesses, and SDK embedders that intentionally choose a
+// weaker boundary.
+func NewNetworkSafeGRPCTransport(config GRPCConfig) (*GRPCTransport, error) {
+	if !config.RequireTLS || config.TLSConfig == nil {
+		return nil, ErrTLSRequired
+	}
+	if config.AuthToken == "" {
+		return nil, ErrAuthTokenRequired
+	}
+	if !config.RequireAuthReplayStore || config.AuthReplayStore == nil {
+		return nil, ErrAuthReplayStore
+	}
+	if !config.RequireHandshakeSignature || config.HandshakeSigner == nil || config.HandshakeVerifier == nil {
+		return nil, ErrHandshakeSignature
+	}
+	return NewGRPCTransport(config)
 }
 
 func GenesisHash(data []byte) string {

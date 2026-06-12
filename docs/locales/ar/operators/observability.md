@@ -3,11 +3,11 @@
 > Locale: ar · العربية
 > قرارات الأمان والإصدار تعتمد على المصدر الإنجليزي ونتيجة release gate.
 
-## Overview
+## نظرة عامة
 
 تشرح هذه الوثيقة كيف يقيّم المشغّل صحة عقدة Vexo عبر الحالة والمقاييس والسجلات والتنبيهات.
 
-This localized guide keeps commands, JSON fields, RPC methods, config keys, and package names unchanged so examples remain copy-pasteable across languages.
+يحافظ هذا الدليل المحلي على الأوامر وحقول JSON وطرق RPC ومفاتيح الإعداد وأسماء الحزم كما هي، حتى تبقى الأمثلة قابلة للنسخ عبر اللغات.
 
 ## لماذا هذا مهم
 
@@ -28,7 +28,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - **Alert flow**: Alert on stalled height, stalled finality, zero active peers, timeout spikes, high commit latency, mempool pressure, replay failure, and signer failures.
 - **Incident flow**: Preserve logs, metrics, configs, genesis, binary hash, and evidence files before deleting data or restarting repeatedly.
 
-## Interface names kept unchanged
+## أسماء الواجهات التي لا تُترجم
 
 - `vexod validate --home <home>`
 - `vexod config audit --home <home> --strict`
@@ -48,7 +48,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - `mempool_config.json`
 - `release gate`
 
-## Common mistakes
+## أخطاء شائعة
 
 - Do not assume configured peers are connected peers; active sessions must be checked separately.
 - Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
@@ -57,4 +57,4 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## المرجع المعياري
 
-- [Normative source](../../en/operators/observability.md)
+- [المصدر المعياري](../../en/operators/observability.md)

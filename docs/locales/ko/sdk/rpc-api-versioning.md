@@ -62,7 +62,7 @@
 ## 영어 원문 구조
 
 - RPC API Versioning
-- Stability Goal
+- 안정성 목표
 - Current Stable API
 - Versioning Rules
 - Compatibility Aliases
@@ -81,4 +81,4 @@
 
 새 RPC capability discovery 인터페이스입니다. 운영자는 `/v1/capabilities`로 실제 연결된 provider 기능을 확인하고, SDK 임베더는 `rpc.Config.RequiredCapabilities` 또는 `rpc.Config.RequireAllCapabilities`로 누락된 기능을 시작 시점에 실패 처리할 수 있습니다.
 
-Keep these interface names unchanged: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
+다음 인터페이스 이름은 그대로 유지하세요: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.

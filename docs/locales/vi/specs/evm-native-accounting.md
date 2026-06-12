@@ -1,4 +1,4 @@
-# EVM and Native Accounting
+# EVM và kế toán native
 
 > Locale: vi · Tiếng Việt
 > Tài liệu này là tài liệu đồng hành tiếng Việt để đọc cùng nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.
@@ -58,11 +58,11 @@ Tài liệu này giúp hiểu liên kết nhất quán native coin với EVM gas
 
 ## Cấu trúc nguồn tiếng Anh
 
-- EVM and Native Accounting
+- EVM và kế toán native
 - Core Rule
 - Amount Encoding
 - Fee Accounting
-- EVM Execution
+- Thực thi EVM
 - State Root Policy
 - Compatibility Boundary
 - Failure Modes

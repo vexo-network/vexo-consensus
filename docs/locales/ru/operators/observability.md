@@ -3,11 +3,11 @@
 > Locale: ru · Русский
 > Решения по безопасности и релизу подтверждаются английским источником и результатом release gate.
 
-## Overview
+## Обзор
 
 Этот документ объясняет, как оценивать здоровье узла Vexo по статусу, метрикам, логам и alert-правилам.
 
-This localized guide keeps commands, JSON fields, RPC methods, config keys, and package names unchanged so examples remain copy-pasteable across languages.
+Этот локализованный документ сохраняет команды, JSON-поля, RPC-методы, ключи конфигурации и имена пакетов без перевода, чтобы примеры можно было копировать в любой языковой версии.
 
 ## Почему это важно
 
@@ -28,7 +28,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - **Alert flow**: Alert on stalled height, stalled finality, zero active peers, timeout spikes, high commit latency, mempool pressure, replay failure, and signer failures.
 - **Incident flow**: Preserve logs, metrics, configs, genesis, binary hash, and evidence files before deleting data or restarting repeatedly.
 
-## Interface names kept unchanged
+## Имена интерфейсов без перевода
 
 - `vexod validate --home <home>`
 - `vexod config audit --home <home> --strict`
@@ -48,7 +48,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - `mempool_config.json`
 - `release gate`
 
-## Common mistakes
+## Частые ошибки
 
 - Do not assume configured peers are connected peers; active sessions must be checked separately.
 - Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
@@ -57,4 +57,4 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## Нормативная ссылка
 
-- [Normative source](../../en/operators/observability.md)
+- [Нормативный источник](../../en/operators/observability.md)

@@ -57,11 +57,13 @@ Dieses Dokument hilft dabei, die Release-Pipeline mit signierten Binaries, Check
 - `evm_execution`
 - `web3_rpc`
 - `evm_corpus`
-- `CGO_ENABLED=0`
+- `RELEASE_CGO_ENABLED=1`
 - `go build -trimpath`
 - `BUILD_DATE`
 - `release-candidate`
 - `release-candidate-real`
+- `release-candidate-plan`
+- `make release-portable RELEASE_REQUIRE_BLS=0`
 - `make network-e2e`
 - `RC_DRY_RUN=1`
 - `network longrun`
@@ -75,7 +77,7 @@ Dieses Dokument hilft dabei, die Release-Pipeline mit signierten Binaries, Check
 ## Struktur der englischen Quelle
 
 - Release Pipeline
-- Goals
+- Ziels
 - Release Commands
 - Artifacts
 - Reproducibility Notes
@@ -88,6 +90,10 @@ Dieses Dokument hilft dabei, die Release-Pipeline mit signierten Binaries, Check
 ## EVM/Web3-Konformitätsnachweis
 
 `--sdk-conformance-evidence` und `--evm-web3-conformance-evidence` bleiben getrennte Nachweise. Eine reine Zusammenfassung wie “EVM passed” reicht nicht aus; der EVM/Web3-Nachweis muss die maschinenlesbaren Abschnitte `evm_fixtures`, `evm_execution`, `web3_rpc` und `evm_corpus` enthalten und vor öffentlichen Kompatibilitätsaussagen per SHA-256 an `evidence-manifest.json` gebunden sein.
+
+## Richtlinie für Release Candidates
+
+Öffentliche Release Candidates verwenden standardmäßig `make release-candidate`. Dieses Target ist das echte Gate, führt zu `release-candidate-real` und verlangt `RELEASE_CGO_ENABLED=1`, damit das Artifact den cgo-basierten BLS-Adapter `supranational/blst` wirklich enthält. `make release-candidate-plan` ist nur für PR-Smoke-Tests und Betriebsplanung gedacht; es nutzt eingebaute Fixtures und Dry-run-Pläne und darf nicht als finale Release-Evidence gelten. Ein no-cgo Artifact ist nur mit `make release-portable RELEASE_REQUIRE_BLS=0` zulässig und darf nicht als BLS-fähige Release veröffentlicht werden. Wenn `RELEASE_CGO_ENABLED=1` gesetzt ist und `RELEASE_TARGETS` fehlt, baut das Makefile nur das aktuelle Host-Target. Für mehrere OS/Architektur-Artefakte muss `RELEASE_TARGETS` explizit auf Runnern mit passenden cgo-Cross-Compilern gesetzt werden.
 
 ## VRF audit evidence SHA-256
 

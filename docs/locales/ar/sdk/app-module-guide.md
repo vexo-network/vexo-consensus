@@ -62,7 +62,7 @@
 ## بنية المصدر الإنجليزي
 
 - App Module Guide
-- Goal
+- الهدف
 - Module Interface
 - Transaction Routing
 - Module Configuration

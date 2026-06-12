@@ -57,11 +57,13 @@
 - `evm_execution`
 - `web3_rpc`
 - `evm_corpus`
-- `CGO_ENABLED=0`
+- `RELEASE_CGO_ENABLED=1`
 - `go build -trimpath`
 - `BUILD_DATE`
 - `release-candidate`
 - `release-candidate-real`
+- `release-candidate-plan`
+- `make release-portable RELEASE_REQUIRE_BLS=0`
 - `make network-e2e`
 - `RC_DRY_RUN=1`
 - `network longrun`
@@ -75,7 +77,7 @@
 ## अंग्रेज़ी source की संरचना
 
 - Release Pipeline
-- Goals
+- लक्ष्यs
 - Release Commands
 - Artifacts
 - Reproducibility Notes
@@ -88,6 +90,10 @@
 ## EVM/Web3 अनुरूपता प्रमाण
 
 `--sdk-conformance-evidence` और `--evm-web3-conformance-evidence` अलग-अलग प्रमाण हैं। केवल “EVM passed” जैसा सारांश पर्याप्त नहीं है; EVM/Web3 प्रमाण में मशीन-पठनीय `evm_fixtures`, `evm_execution`, `web3_rpc` और `evm_corpus` अनुभाग होने चाहिए, और किसी भी सार्वजनिक compatibility दावे से पहले उसे SHA-256 के साथ `evidence-manifest.json` से बाँधना चाहिए।
+
+## रिलीज़ कैंडिडेट नीति
+
+सार्वजनिक release candidate के लिए डिफ़ॉल्ट `make release-candidate` का उपयोग करें। यह वास्तविक gate है, `release-candidate-real` पर जाता है, और BLS artifact के लिए `RELEASE_CGO_ENABLED=1` मांगता है ताकि cgo-backed `supranational/blst` adapter सच में binary में हो। `make release-candidate-plan` केवल PR smoke और operator planning के लिए है; यह built-in fixtures और dry-run plans प्रयोग करता है, इसलिए इसे अंतिम release evidence नहीं माना जाना चाहिए। no-cgo artifact चाहिए तो `make release-portable RELEASE_REQUIRE_BLS=0` प्रयोग करें, लेकिन उसे BLS-capable release के रूप में प्रकाशित न करें। यदि `RELEASE_CGO_ENABLED=1` है और `RELEASE_TARGETS` सेट नहीं है, तो Makefile केवल वर्तमान host target बनाता है। कई OS/architecture artifacts के लिए `RELEASE_TARGETS` स्पष्ट रूप से ऐसे runner पर सेट करें जिसमें आवश्यक cgo cross-compilers हों।
 
 ## VRF audit evidence SHA-256
 

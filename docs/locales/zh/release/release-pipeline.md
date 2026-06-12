@@ -57,11 +57,13 @@
 - `evm_execution`
 - `web3_rpc`
 - `evm_corpus`
-- `CGO_ENABLED=0`
+- `RELEASE_CGO_ENABLED=1`
 - `go build -trimpath`
 - `BUILD_DATE`
 - `release-candidate`
 - `release-candidate-real`
+- `release-candidate-plan`
+- `make release-portable RELEASE_REQUIRE_BLS=0`
 - `make network-e2e`
 - `RC_DRY_RUN=1`
 - `network longrun`
@@ -75,7 +77,7 @@
 ## 英文原文结构
 
 - Release Pipeline
-- Goals
+- 目标s
 - Release Commands
 - Artifacts
 - Reproducibility Notes
@@ -88,6 +90,10 @@
 ## EVM/Web3 合规证据
 
 `--sdk-conformance-evidence` 和 `--evm-web3-conformance-evidence` 是两类独立证据。仅写一句 “EVM passed” 不够；EVM/Web3 证据必须包含可机器检查的 `evm_fixtures`、`evm_execution`、`web3_rpc` 和 `evm_corpus`，并且在公开声明兼容性前通过 SHA-256 绑定到 `evidence-manifest.json`。
+
+## 发布候选策略
+
+公开发布候选版本应使用默认的 `make release-candidate`。该 target 是真实 gate，会进入 `release-candidate-real`，并要求 `RELEASE_CGO_ENABLED=1`，确保包含 cgo-backed `supranational/blst` BLS adapter。`make release-candidate-plan` 只用于 PR smoke 和运维计划检查；它使用内置 fixture 与 dry-run plan，不能作为最终发布 evidence。若需要 no-cgo artifact，只能使用 `make release-portable RELEASE_REQUIRE_BLS=0`，并且不得声明为 BLS-capable release。 当 `RELEASE_CGO_ENABLED=1` 且未设置 `RELEASE_TARGETS` 时，Makefile 只构建当前 host target。若需要多个 OS/architecture artifact，请在具备对应 cgo cross-compiler 的 runner 上显式设置 `RELEASE_TARGETS`。
 
 ## VRF audit evidence SHA-256
 

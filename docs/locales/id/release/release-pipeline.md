@@ -57,11 +57,13 @@ Dokumen ini membantu memahami pipeline rilis dengan binary bertanda tangan, chec
 - `evm_execution`
 - `web3_rpc`
 - `evm_corpus`
-- `CGO_ENABLED=0`
+- `RELEASE_CGO_ENABLED=1`
 - `go build -trimpath`
 - `BUILD_DATE`
 - `release-candidate`
 - `release-candidate-real`
+- `release-candidate-plan`
+- `make release-portable RELEASE_REQUIRE_BLS=0`
 - `make network-e2e`
 - `RC_DRY_RUN=1`
 - `network longrun`
@@ -75,7 +77,7 @@ Dokumen ini membantu memahami pipeline rilis dengan binary bertanda tangan, chec
 ## Struktur sumber Inggris
 
 - Release Pipeline
-- Goals
+- Tujuans
 - Release Commands
 - Artifacts
 - Reproducibility Notes
@@ -88,6 +90,10 @@ Dokumen ini membantu memahami pipeline rilis dengan binary bertanda tangan, chec
 ## Bukti kesesuaian EVM/Web3
 
 `--sdk-conformance-evidence` dan `--evm-web3-conformance-evidence` adalah bukti yang berbeda. Ringkasan teks seperti “EVM passed” tidak cukup; bukti EVM/Web3 harus memuat bagian yang dapat dibaca mesin: `evm_fixtures`, `evm_execution`, `web3_rpc`, dan `evm_corpus`, lalu diikat ke `evidence-manifest.json` dengan SHA-256 sebelum ada klaim kompatibilitas publik.
+
+## Kebijakan release candidate
+
+Release candidate publik memakai `make release-candidate` secara default. Target ini adalah gate nyata, masuk ke `release-candidate-real`, dan mewajibkan `RELEASE_CGO_ENABLED=1` agar artifact benar-benar memuat adapter BLS `supranational/blst` berbasis cgo. `make release-candidate-plan` hanya untuk PR smoke dan perencanaan operator; target itu memakai fixture bawaan dan dry-run plan, jadi tidak boleh dipakai sebagai evidence final. Jika perlu artifact no-cgo, gunakan `make release-portable RELEASE_REQUIRE_BLS=0`, tetapi jangan mengumumkannya sebagai release BLS-capable. Jika `RELEASE_CGO_ENABLED=1` dan `RELEASE_TARGETS` tidak diatur, Makefile hanya membangun target host saat ini. Untuk artifact multi OS/architecture, set `RELEASE_TARGETS` secara eksplisit pada runner yang memiliki cgo cross-compiler yang sesuai.
 
 ## VRF audit evidence SHA-256
 

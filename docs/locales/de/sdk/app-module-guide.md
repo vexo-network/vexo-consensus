@@ -62,7 +62,7 @@ Dieses Dokument hilft dabei, das Erstellen eines app module und die Anbindung an
 ## Struktur der englischen Quelle
 
 - App Module Guide
-- Goal
+- Ziel
 - Module Interface
 - Transaction Routing
 - Module Configuration

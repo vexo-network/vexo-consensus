@@ -62,7 +62,7 @@ Este documento ayuda a entender creación de app module e integración con CLI/R
 ## Estructura de la fuente inglesa
 
 - App Module Guide
-- Goal
+- Objetivo
 - Module Interface
 - Transaction Routing
 - Module Configuration

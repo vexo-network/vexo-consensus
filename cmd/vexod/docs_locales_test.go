@@ -73,6 +73,9 @@ func TestDocsLocalesMirrorCanonicalTree(t *testing.T) {
 		}
 		localeFiles := readMarkdownFiles(t, localeDir)
 		for relative, body := range localeFiles {
+			if stale := staleReleasePolicy(relative, body); stale != "" {
+				t.Fatalf("locale %s document %s contains stale release policy: %s", locale, relative, stale)
+			}
 			if locale == manifest.CanonicalLocale {
 				continue
 			}
@@ -107,11 +110,42 @@ func validateLocalizedMarkdownBody(locale string, relative string, body string) 
 	return nil
 }
 
+func staleReleasePolicy(relative string, body string) string {
+	if filepath.Base(relative) != "release-pipeline.md" && relative != "README.md" {
+		return ""
+	}
+	for _, forbidden := range []string{
+		"Builds use:\n\n- `CGO_ENABLED=0`",
+		"Default release artifacts use `RELEASE_CGO_ENABLED=0`",
+		"release binaries default to `CGO_ENABLED=0`",
+		"`CGO_ENABLED=0`\n- `go build -trimpath`",
+	} {
+		if strings.Contains(body, forbidden) {
+			return forbidden
+		}
+	}
+	return ""
+}
+
 func localizedBoilerplateLeak(locale string, body string) string {
 	if locale == "en" {
 		return ""
 	}
 	for _, forbidden := range []string{
+		"This localized guide keeps commands",
+		"Interface names kept unchanged",
+		"Common mistakes",
+		"Normative source",
+		"Normative reference",
+		"## Overview",
+		"## Goal",
+		"## Goals",
+		"## Why it matters",
+		"## Must verify",
+		"## Operational actions",
+		"## Stability Goal",
+		"## Security Goals",
+		"Keep these interface names unchanged:",
 		"## Canonical source",
 		"- [English canonical document]",
 		"# Launch Runbook",

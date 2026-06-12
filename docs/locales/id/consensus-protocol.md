@@ -1,4 +1,4 @@
-# Consensus Protocol Overview
+# Ringkasan protokol konsensus
 
 > Locale: id · Bahasa Indonesia
 > Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
@@ -49,7 +49,7 @@ Dokumen ini membantu memahami model konsensus, istilah execution/commit/finality
 
 ## Struktur sumber Inggris
 
-- Consensus Protocol Overview
+- Ringkasan protokol konsensus
 - Model
 - Execution Terms
 - Safety Boundary

@@ -3,11 +3,11 @@
 > Locale: ko · 한국어
 > 보안·릴리즈 판단은 영어 정본과 release gate 결과를 기준으로 확정합니다.
 
-## Overview
+## 개요
 
 이 문서는 Vexo 기반 네트워크를 실제 운영 수준으로 판단하기 위해 무엇을 확인해야 하는지 설명합니다.
 
-This localized guide keeps commands, JSON fields, RPC methods, config keys, and package names unchanged so examples remain copy-pasteable across languages.
+이 현지화 문서는 명령어, JSON 필드, RPC 메서드, 설정 키, 패키지 이름을 그대로 유지해 모든 언어에서 예제를 그대로 복사해 실행할 수 있게 합니다.
 
 ## 왜 중요한가
 
@@ -28,7 +28,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - **Configuration review**: Review `config.json`, `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json`, and `log_config.json` before `vexod start`.
 - **Release decision**: Attach evidence from the exact binary, genesis, config schema, module set, and validator topology that will be released.
 
-## Interface names kept unchanged
+## 그대로 유지할 인터페이스 이름
 
 - `vexod validate --home <home>`
 - `vexod config audit --home <home> --strict`
@@ -48,7 +48,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - `mempool_config.json`
 - `release gate`
 
-## Common mistakes
+## 자주 하는 실수
 
 - Do not assume configured peers are connected peers; active sessions must be checked separately.
 - Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
@@ -57,4 +57,4 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## 규범 원문
 
-- [Normative source](../en/production-readiness.md)
+- [규범 원문](../en/production-readiness.md)

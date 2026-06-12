@@ -62,7 +62,7 @@
 ## بنية المصدر الإنجليزي
 
 - RPC API Versioning
-- Stability Goal
+- هدف الاستقرار
 - Current Stable API
 - Versioning Rules
 - Compatibility Aliases
@@ -81,4 +81,4 @@
 
 واجهة RPC capability discovery الجديدة توضّح وظائف provider المتصلة فعلياً. يستخدم المشغّل `/v1/capabilities`، وتستخدم تكاملات SDK `rpc.Config.RequiredCapabilities` أو `rpc.Config.RequireAllCapabilities` للفشل عند التشغيل إذا كانت قدرة مطلوبة ناقصة.
 
-Keep these interface names unchanged: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
+اترك أسماء الواجهات التالية كما هي: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.

@@ -62,7 +62,7 @@
 ## Структура английского источника
 
 - App Module Guide
-- Goal
+- Цель
 - Module Interface
 - Transaction Routing
 - Module Configuration

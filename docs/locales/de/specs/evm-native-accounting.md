@@ -1,4 +1,4 @@
-# EVM and Native Accounting
+# EVM und native Buchführung
 
 > Locale: de · Deutsch
 > Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
@@ -58,11 +58,11 @@ Dieses Dokument hilft dabei, die konsistente Verbindung von native coin und EVM 
 
 ## Struktur der englischen Quelle
 
-- EVM and Native Accounting
+- EVM und native Buchführung
 - Core Rule
 - Amount Encoding
 - Fee Accounting
-- EVM Execution
+- EVM-Ausführung
 - State Root Policy
 - Compatibility Boundary
 - Failure Modes

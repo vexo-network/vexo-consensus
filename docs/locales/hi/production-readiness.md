@@ -3,11 +3,11 @@
 > Locale: hi · हिन्दी
 > security और release निर्णय English source और release gate result से तय होते हैं।
 
-## Overview
+## सारांश
 
 यह दस्तावेज बताता है कि Vexo आधारित नेटवर्क को production-ready कहने से पहले किन बातों की जाँच जरूरी है।
 
-This localized guide keeps commands, JSON fields, RPC methods, config keys, and package names unchanged so examples remain copy-pasteable across languages.
+यह स्थानीयकृत गाइड commands, JSON fields, RPC methods, config keys और package names को वैसा ही रखती है ताकि examples हर भाषा में सीधे copy किए जा सकें।
 
 ## यह क्यों जरूरी है
 
@@ -28,7 +28,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - **Configuration review**: Review `config.json`, `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json`, and `log_config.json` before `vexod start`.
 - **Release decision**: Attach evidence from the exact binary, genesis, config schema, module set, and validator topology that will be released.
 
-## Interface names kept unchanged
+## अपरिवर्तित interface names
 
 - `vexod validate --home <home>`
 - `vexod config audit --home <home> --strict`
@@ -48,7 +48,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - `mempool_config.json`
 - `release gate`
 
-## Common mistakes
+## सामान्य गलतियाँ
 
 - Do not assume configured peers are connected peers; active sessions must be checked separately.
 - Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
@@ -57,4 +57,4 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## मानक संदर्भ
 
-- [Normative source](../en/production-readiness.md)
+- [मानक स्रोत](../en/production-readiness.md)

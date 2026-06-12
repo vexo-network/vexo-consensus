@@ -58,6 +58,7 @@ Review split config files before starting validators. Do not hide network behavi
 
 1. `config.json`: chain ID, validator ID, data directory, split config paths.
 2. `network_config.json`: RPC/P2P listen addresses, advertised addresses, seeds, peers, TLS, admin auth, peer score bounds, replay path.
+   - Public RPC listeners must set `rpc.tls_cert_path` and `rpc.tls_key_path`; admin tokens alone are not enough for a public listener. Use `rpc.tls_ca_path` when mTLS/client certificates are part of the operator boundary.
 3. `consensus_config.json`: timeout values, empty-block policy, execution commit mode, crypto backend, validator admission, committee selection.
 4. `module_config.json`: enabled app modules, execution gas/fee policy, governance policy, staking policy, EVM chain ID.
 5. `mempool_config.json`: max txs, WAL path, minimum fee, priority/replacement behavior, recheck policy.
@@ -144,7 +145,7 @@ A validator remote signer is allowed to be simple, but it must be strict:
 1. The node must send chain ID, height, round, sign type, and domain with every consensus/finality signing request.
 2. The signer must reject missing policy, wrong chain ID, disallowed sign type, out-of-window height, replayed nonce, and conflicting double-sign attempts.
 3. The signer process must keep nonce and double-sign guard state on durable storage.
-4. The transport must use at least bearer auth and should use TLS/mTLS or a pinned CA when it leaves localhost.
+4. The transport must use bearer auth plus TLS/mTLS or a pinned CA when it leaves localhost; public RPC/P2P listeners fail startup without the required TLS identity material.
 5. Signer logs should be retained as security evidence, but private key material, passphrases, and auth tokens must never be logged.
 
 If any item is missing, run the validator as a private rehearsal only.

@@ -1,4 +1,4 @@
-# Consensus Protocol Overview
+# コンセンサスプロトコル概要
 
 > Locale: ja · 日本語
 > この文書は英語原文と併読するための日本語 補助文書です。プロトコル、セキュリティ、リリース判断は英語原文を規範とします。
@@ -49,7 +49,7 @@
 
 ## 英語原文の構造
 
-- Consensus Protocol Overview
+- コンセンサスプロトコル概要
 - Model
 - Execution Terms
 - Safety Boundary

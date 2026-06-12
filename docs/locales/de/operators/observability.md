@@ -3,11 +3,11 @@
 > Locale: de · Deutsch
 > Sicherheits- und Release-Entscheidungen werden anhand der englischen Quelle und des release gate getroffen.
 
-## Overview
+## Überblick
 
 Dieses Dokument erklärt, wie Betreiber den Zustand eines Vexo-Knotens über Status, Metriken, Logs und Alarme beurteilen.
 
-This localized guide keeps commands, JSON fields, RPC methods, config keys, and package names unchanged so examples remain copy-pasteable across languages.
+Dieses lokalisierte Dokument lässt Befehle, JSON-Felder, RPC-Methoden, Konfigurationsschlüssel und Paketnamen unverändert, damit Beispiele sprachübergreifend kopierbar bleiben.
 
 ## Warum es wichtig ist
 
@@ -28,7 +28,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - **Alert flow**: Alert on stalled height, stalled finality, zero active peers, timeout spikes, high commit latency, mempool pressure, replay failure, and signer failures.
 - **Incident flow**: Preserve logs, metrics, configs, genesis, binary hash, and evidence files before deleting data or restarting repeatedly.
 
-## Interface names kept unchanged
+## Unveränderte Schnittstellennamen
 
 - `vexod validate --home <home>`
 - `vexod config audit --home <home> --strict`
@@ -48,7 +48,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - `mempool_config.json`
 - `release gate`
 
-## Common mistakes
+## Häufige Fehler
 
 - Do not assume configured peers are connected peers; active sessions must be checked separately.
 - Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
@@ -57,4 +57,4 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## Normative Referenz
 
-- [Normative source](../../en/operators/observability.md)
+- [Normative Quelle](../../en/operators/observability.md)

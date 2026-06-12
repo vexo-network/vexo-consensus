@@ -1,4 +1,4 @@
-# EVM and Native Accounting
+# EVM e contabilidade nativa
 
 > Locale: pt · Português
 > Este documento é um documento de apoio em português para ser lido junto da fonte inglesa. Decisões de protocolo, segurança e release continuam normativas em inglês.
@@ -58,11 +58,11 @@ Este documento ajuda a entender conexão consistente entre native coin e EVM gas
 
 ## Estrutura da fonte inglesa
 
-- EVM and Native Accounting
+- EVM e contabilidade nativa
 - Core Rule
 - Amount Encoding
 - Fee Accounting
-- EVM Execution
+- Execução EVM
 - State Root Policy
 - Compatibility Boundary
 - Failure Modes

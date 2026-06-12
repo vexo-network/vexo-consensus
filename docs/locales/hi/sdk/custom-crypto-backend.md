@@ -67,7 +67,7 @@
 ## अंग्रेज़ी source की संरचना
 
 - Custom Crypto Backend Guide
-- Goal
+- लक्ष्य
 - Interfaces
 - Runtime Suite
 - Domain Separation
@@ -88,4 +88,4 @@ VRF backend को BLS जैसी स्पष्ट audit boundary दिख�
 
 `vexod keys serve-vrf` ECVRF key से `POST /prove` और `POST /verify` देता है, और `vexod keys verify-vrf` remote prover को end-to-end जाँचता है। `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, `vexo.remote_vrf.verify.v1` नाम unchanged रखें।
 
-Keep these interface names unchanged: `vexod keys serve-vrf`, `vexod keys verify-vrf`, `POST /prove`, `POST /verify`, `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, `vexo.remote_vrf.verify.v1`.
+इन interface names को बदले बिना रखें: `vexod keys serve-vrf`, `vexod keys verify-vrf`, `POST /prove`, `POST /verify`, `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, `vexo.remote_vrf.verify.v1`.

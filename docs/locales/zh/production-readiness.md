@@ -3,11 +3,11 @@
 > Locale: zh · 中文
 > 安全和发布判断必须以英文规范文档和 release gate 结果为准。
 
-## Overview
+## 概览
 
 本文说明在把 Vexo 网络称为生产可用之前，必须验证哪些协议、运行时、运维和证据条件。
 
-This localized guide keeps commands, JSON fields, RPC methods, config keys, and package names unchanged so examples remain copy-pasteable across languages.
+本地化文档会保留命令、JSON 字段、RPC 方法、配置键和包名不变，确保不同语言中的示例都可以直接复制使用。
 
 ## 为什么重要
 
@@ -28,7 +28,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - **Configuration review**: Review `config.json`, `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json`, and `log_config.json` before `vexod start`.
 - **Release decision**: Attach evidence from the exact binary, genesis, config schema, module set, and validator topology that will be released.
 
-## Interface names kept unchanged
+## 保持不变的接口名称
 
 - `vexod validate --home <home>`
 - `vexod config audit --home <home> --strict`
@@ -48,7 +48,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - `mempool_config.json`
 - `release gate`
 
-## Common mistakes
+## 常见错误
 
 - Do not assume configured peers are connected peers; active sessions must be checked separately.
 - Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
@@ -57,4 +57,4 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## 规范参考
 
-- [Normative source](../en/production-readiness.md)
+- [规范原文](../en/production-readiness.md)

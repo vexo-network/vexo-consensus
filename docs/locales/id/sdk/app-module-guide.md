@@ -62,7 +62,7 @@ Dokumen ini membantu memahami membuat app module baru dan menghubungkannya ke CL
 ## Struktur sumber Inggris
 
 - App Module Guide
-- Goal
+- Tujuan
 - Module Interface
 - Transaction Routing
 - Module Configuration

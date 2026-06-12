@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -879,6 +880,43 @@ func TestGRPCTransportValidationAndContext(t *testing.T) {
 	}
 	if err := alice.Send(context.Background(), "bob", p2p.TopicTx, []byte("tx")); !errors.Is(err, ErrTransportClosed) {
 		t.Fatalf("expected closed transport, got %v", err)
+	}
+}
+
+func TestNewNetworkSafeGRPCTransportFailsClosed(t *testing.T) {
+	if _, err := NewNetworkSafeGRPCTransport(GRPCConfig{PeerID: "alice"}); !errors.Is(err, ErrTLSRequired) {
+		t.Fatalf("expected tls requirement, got %v", err)
+	}
+	caCert, caKey, certPool := newTestCertificateAuthority(t)
+	tlsConfig := newTestPeerTLSConfig(t, caCert, caKey, certPool, "alice")
+	if _, err := NewNetworkSafeGRPCTransport(GRPCConfig{PeerID: "alice", TLSConfig: tlsConfig, RequireTLS: true}); !errors.Is(err, ErrAuthTokenRequired) {
+		t.Fatalf("expected auth token requirement, got %v", err)
+	}
+	replayStore, err := NewFileAuthReplayStore(filepath.Join(t.TempDir(), "auth-replay.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer := testHandshakeSigner{publicKey: publicKey, privateKey: privateKey}
+	transport, err := NewNetworkSafeGRPCTransport(GRPCConfig{
+		PeerID:                    "alice",
+		TLSConfig:                 tlsConfig,
+		RequireTLS:                true,
+		AuthToken:                 "shared-token",
+		AuthReplayStore:           replayStore,
+		RequireAuthReplayStore:    true,
+		HandshakeSigner:           signer,
+		HandshakeVerifier:         testHandshakeVerifier{},
+		RequireHandshakeSignature: true,
+	})
+	if err != nil {
+		t.Fatalf("expected complete network-safe config to pass, got %v", err)
+	}
+	if transport.transportCredentials() == nil {
+		t.Fatal("expected tls transport credentials")
 	}
 }
 

@@ -218,10 +218,12 @@ make ops-verify
 Build release artifacts locally:
 
 ```bash
-make release VERSION=0.1.0-rc.1
+RELEASE_CGO_ENABLED=1 make release VERSION=0.1.0-rc.1
 ```
 
-Default release artifacts use `RELEASE_CGO_ENABLED=0` for reproducible cross-target builds. The `supranational/blst` BLS adapter is cgo-backed, so BLS-capable artifacts must be built per target with `RELEASE_CGO_ENABLED=1` and the required audit/key-custody evidence.
+Release artifacts fail closed unless BLS-capable builds set `RELEASE_CGO_ENABLED=1`, because the built-in `supranational/blst` adapter is cgo-backed. Use `make release-portable RELEASE_REQUIRE_BLS=0` only for non-BLS portability smoke artifacts; do not publish those as BLS-capable release evidence.
+
+When `RELEASE_CGO_ENABLED=1` and `RELEASE_TARGETS` is not set, `make release` builds the current host target only. Set `RELEASE_TARGETS` explicitly only when the runner has matching cgo cross-compilers for every requested target.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request.
 

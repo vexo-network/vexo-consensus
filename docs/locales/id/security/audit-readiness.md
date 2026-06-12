@@ -53,7 +53,7 @@ Dokumen ini membantu memahami threat model, asumsi keamanan, dan bukti audit dan
 - Threat Model
 - Assets
 - Adversaries
-- Security Goals
+- Tujuan keamanan
 - Security Assumptions
 - Known Limitations
 - Formal-ish Safety Argument

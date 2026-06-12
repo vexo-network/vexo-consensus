@@ -3,11 +3,11 @@
 > Locale: hi · हिन्दी
 > security और release निर्णय English source और release gate result से तय होते हैं।
 
-## Overview
+## सारांश
 
 यह दस्तावेज बताता है कि status, metrics, logs और alerts से Vexo node की health कैसे समझें।
 
-This localized guide keeps commands, JSON fields, RPC methods, config keys, and package names unchanged so examples remain copy-pasteable across languages.
+यह स्थानीयकृत गाइड commands, JSON fields, RPC methods, config keys और package names को वैसा ही रखती है ताकि examples हर भाषा में सीधे copy किए जा सकें।
 
 ## यह क्यों जरूरी है
 
@@ -28,7 +28,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - **Alert flow**: Alert on stalled height, stalled finality, zero active peers, timeout spikes, high commit latency, mempool pressure, replay failure, and signer failures.
 - **Incident flow**: Preserve logs, metrics, configs, genesis, binary hash, and evidence files before deleting data or restarting repeatedly.
 
-## Interface names kept unchanged
+## अपरिवर्तित interface names
 
 - `vexod validate --home <home>`
 - `vexod config audit --home <home> --strict`
@@ -48,7 +48,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - `mempool_config.json`
 - `release gate`
 
-## Common mistakes
+## सामान्य गलतियाँ
 
 - Do not assume configured peers are connected peers; active sessions must be checked separately.
 - Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
@@ -57,4 +57,4 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## मानक संदर्भ
 
-- [Normative source](../../en/operators/observability.md)
+- [मानक स्रोत](../../en/operators/observability.md)

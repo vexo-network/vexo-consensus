@@ -1,4 +1,4 @@
-# EVM and Native Accounting
+# EVM और native accounting
 
 > Locale: hi · हिन्दी
 > यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
@@ -58,11 +58,11 @@
 
 ## अंग्रेज़ी source की संरचना
 
-- EVM and Native Accounting
+- EVM और native accounting
 - Core Rule
 - Amount Encoding
 - Fee Accounting
-- EVM Execution
+- EVM execution
 - State Root Policy
 - Compatibility Boundary
 - Failure Modes

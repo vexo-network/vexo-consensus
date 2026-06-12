@@ -62,7 +62,7 @@ Dokumen ini membantu memahami versioning RPC API, alias kompatibilitas, dan kebi
 ## Struktur sumber Inggris
 
 - RPC API Versioning
-- Stability Goal
+- Tujuan stabilitas
 - Current Stable API
 - Versioning Rules
 - Compatibility Aliases
@@ -81,4 +81,4 @@ Dokumen ini membantu memahami versioning RPC API, alias kompatibilitas, dan kebi
 
 Interface RPC capability discovery baru menunjukkan fungsi provider yang benar-benar terpasang. Operator memanggil `/v1/capabilities`; integrasi SDK memakai `rpc.Config.RequiredCapabilities` atau `rpc.Config.RequireAllCapabilities` agar startup fail closed saat capability hilang.
 
-Keep these interface names unchanged: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
+Biarkan nama interface berikut tetap sama: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.

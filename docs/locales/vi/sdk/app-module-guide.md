@@ -62,7 +62,7 @@ Tài liệu này giúp hiểu tạo app module mới và kết nối với CLI/R
 ## Cấu trúc nguồn tiếng Anh
 
 - App Module Guide
-- Goal
+- Mục tiêu
 - Module Interface
 - Transaction Routing
 - Module Configuration

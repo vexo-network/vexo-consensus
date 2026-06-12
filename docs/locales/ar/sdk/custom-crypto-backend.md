@@ -63,7 +63,7 @@
 ## بنية المصدر الإنجليزي
 
 - Custom Crypto Backend Guide
-- Goal
+- الهدف
 - Interfaces
 - Runtime Suite
 - Domain Separation
@@ -88,4 +88,4 @@
 
 `vexod keys serve-vrf` يوفّر `POST /prove` و `POST /verify` باستخدام ECVRF key، و `vexod keys verify-vrf` يتحقق من remote prover من البداية للنهاية. أبقِ `VEXO_REMOTE_VRF_TOKEN` و `remote-vrf-http-v1` و `vexo.remote_vrf.prove.v1` و `vexo.remote_vrf.verify.v1` كما هي.
 
-Keep these interface names unchanged: `vexod keys serve-vrf`, `vexod keys verify-vrf`, `POST /prove`, `POST /verify`, `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, `vexo.remote_vrf.verify.v1`.
+اترك أسماء الواجهات التالية كما هي: `vexod keys serve-vrf`, `vexod keys verify-vrf`, `POST /prove`, `POST /verify`, `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, `vexo.remote_vrf.verify.v1`.

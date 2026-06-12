@@ -67,7 +67,7 @@
 ## Структура английского источника
 
 - Custom Crypto Backend Guide
-- Goal
+- Цель
 - Interfaces
 - Runtime Suite
 - Domain Separation
@@ -88,4 +88,4 @@ VRF backend должен показывать такую же чёткую audit
 
 `vexod keys serve-vrf` публикует `POST /prove` и `POST /verify` на базе ECVRF key, а `vexod keys verify-vrf` проверяет remote prover end-to-end. Имена `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1` и `vexo.remote_vrf.verify.v1` не переводятся.
 
-Keep these interface names unchanged: `vexod keys serve-vrf`, `vexod keys verify-vrf`, `POST /prove`, `POST /verify`, `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, `vexo.remote_vrf.verify.v1`.
+Оставляйте эти имена интерфейсов без изменений: `vexod keys serve-vrf`, `vexod keys verify-vrf`, `POST /prove`, `POST /verify`, `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, `vexo.remote_vrf.verify.v1`.

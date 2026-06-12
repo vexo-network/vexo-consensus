@@ -62,7 +62,7 @@
 ## 영어 원문 구조
 
 - App Module Guide
-- Goal
+- 목표
 - Module Interface
 - Transaction Routing
 - Module Configuration

@@ -3,11 +3,11 @@
 > Locale: id · Bahasa Indonesia
 > Keputusan keamanan dan rilis harus mengikuti sumber Inggris dan hasil release gate.
 
-## Overview
+## Ringkasan
 
 Dokumen ini menjelaskan cara menilai kesehatan node Vexo melalui status, metrik, log, dan alert.
 
-This localized guide keeps commands, JSON fields, RPC methods, config keys, and package names unchanged so examples remain copy-pasteable across languages.
+Panduan lokal ini mempertahankan command, field JSON, metode RPC, key konfigurasi, dan nama package agar contoh tetap bisa disalin di semua bahasa.
 
 ## Mengapa penting
 
@@ -28,7 +28,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - **Alert flow**: Alert on stalled height, stalled finality, zero active peers, timeout spikes, high commit latency, mempool pressure, replay failure, and signer failures.
 - **Incident flow**: Preserve logs, metrics, configs, genesis, binary hash, and evidence files before deleting data or restarting repeatedly.
 
-## Interface names kept unchanged
+## Nama interface yang dipertahankan
 
 - `vexod validate --home <home>`
 - `vexod config audit --home <home> --strict`
@@ -48,7 +48,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - `mempool_config.json`
 - `release gate`
 
-## Common mistakes
+## Kesalahan umum
 
 - Do not assume configured peers are connected peers; active sessions must be checked separately.
 - Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
@@ -57,4 +57,4 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## Referensi normatif
 
-- [Normative source](../../en/operators/observability.md)
+- [Sumber normatif](../../en/operators/observability.md)

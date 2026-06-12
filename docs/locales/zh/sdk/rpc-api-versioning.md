@@ -62,7 +62,7 @@
 ## 英文原文结构
 
 - RPC API Versioning
-- Stability Goal
+- 稳定性目标
 - Current Stable API
 - Versioning Rules
 - Compatibility Aliases
@@ -81,4 +81,4 @@
 
 新的 RPC capability discovery 接口用于检查节点实际挂载的 provider 功能。运行方可以调用 `/v1/capabilities`，SDK 集成方可以使用 `rpc.Config.RequiredCapabilities` 或 `rpc.Config.RequireAllCapabilities` 在启动时 fail closed。
 
-Keep these interface names unchanged: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
+以下接口名称必须保持不变： `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.

@@ -910,6 +910,9 @@ func validateRuntimeNetworkSafety(cfg startRuntimeConfig) error {
 	if cfg.RPCEnabled && cfg.RPCAdminToken == "" && len(cfg.RPCAdminTokens) == 0 && !isPrivateListenAddress(cfg.RPCAddress) {
 		return fmt.Errorf("runtime.rpc.admin_token or scoped runtime.rpc.admin_tokens is required for public rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
+	if cfg.RPCEnabled && !isPrivateListenAddress(cfg.RPCAddress) && (cfg.RPCTLSCertPath == "" || cfg.RPCTLSKeyPath == "") {
+		return fmt.Errorf("runtime.rpc tls cert and key are required for public rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
+	}
 	if cfg.RPCEnabled && len(cfg.RPCEVMAccountKeys) > 0 && !isPrivateListenAddress(cfg.RPCAddress) {
 		return fmt.Errorf("runtime.rpc.evm_account_private_keys are only allowed on private rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
@@ -1203,7 +1206,7 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 			return nil, err
 		}
 	}
-	grpcTransport, err = transport.NewGRPCTransport(transport.GRPCConfig{
+	grpcConfig := transport.GRPCConfig{
 		PeerID:                    peerID,
 		ListenAddr:                runtimeConfig.P2PListenAddress,
 		Peers:                     peers,
@@ -1246,7 +1249,12 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 			}
 			return nil
 		},
-	})
+	}
+	if requiresAuthenticatedP2P(runtimeConfig) {
+		grpcTransport, err = transport.NewNetworkSafeGRPCTransport(grpcConfig)
+	} else {
+		grpcTransport, err = transport.NewGRPCTransport(grpcConfig)
+	}
 	if err != nil {
 		return nil, err
 	}

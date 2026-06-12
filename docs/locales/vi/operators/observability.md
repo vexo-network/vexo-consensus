@@ -3,11 +3,11 @@
 > Locale: vi · Tiếng Việt
 > Quyết định bảo mật và phát hành phải dựa trên nguồn tiếng Anh và kết quả release gate.
 
-## Overview
+## Tổng quan
 
 Tài liệu này giải thích cách đánh giá sức khỏe node Vexo bằng status, metrics, logs và alert.
 
-This localized guide keeps commands, JSON fields, RPC methods, config keys, and package names unchanged so examples remain copy-pasteable across languages.
+Tài liệu bản địa hóa này giữ nguyên lệnh, trường JSON, phương thức RPC, khóa cấu hình và tên package để ví dụ có thể sao chép giữa các ngôn ngữ.
 
 ## Vì sao quan trọng
 
@@ -28,7 +28,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - **Alert flow**: Alert on stalled height, stalled finality, zero active peers, timeout spikes, high commit latency, mempool pressure, replay failure, and signer failures.
 - **Incident flow**: Preserve logs, metrics, configs, genesis, binary hash, and evidence files before deleting data or restarting repeatedly.
 
-## Interface names kept unchanged
+## Tên interface cần giữ nguyên
 
 - `vexod validate --home <home>`
 - `vexod config audit --home <home> --strict`
@@ -48,7 +48,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - `mempool_config.json`
 - `release gate`
 
-## Common mistakes
+## Lỗi thường gặp
 
 - Do not assume configured peers are connected peers; active sessions must be checked separately.
 - Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
@@ -57,4 +57,4 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## Tham chiếu chuẩn
 
-- [Normative source](../../en/operators/observability.md)
+- [Nguồn chuẩn](../../en/operators/observability.md)

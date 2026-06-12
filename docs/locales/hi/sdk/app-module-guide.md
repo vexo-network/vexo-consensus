@@ -62,7 +62,7 @@
 ## अंग्रेज़ी source की संरचना
 
 - App Module Guide
-- Goal
+- लक्ष्य
 - Module Interface
 - Transaction Routing
 - Module Configuration

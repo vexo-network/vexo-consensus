@@ -223,6 +223,7 @@ func buildReleaseDocsQualityDocument(docsDir string, minBytes int) (releaseDocsQ
 			if readErr != nil {
 				return releaseDocsQualityDocument{}, readErr
 			}
+			addCheck("canonical_no_stale_release_policy", manifest.CanonicalLocale, relative, releaseContainsStaleReleasePolicy(relative, string(data)) == "", "canonical release docs must describe current BLS/cgo release policy")
 			hash := fmt.Sprintf("%x", sha256.Sum256(data))
 			addCheck("canonical_hash", manifest.CanonicalLocale, relative, manifest.CanonicalHashes[relative] == hash, "canonical document hash must match manifest")
 		}
@@ -254,6 +255,7 @@ func buildReleaseDocsQualityDocument(docsDir string, minBytes int) (releaseDocsQ
 			return releaseDocsQualityDocument{}, err
 		}
 		for relative, body := range localeFiles {
+			addCheck("locale_no_stale_release_policy", locale, relative, releaseContainsStaleReleasePolicy(relative, body) == "", "localized release docs must describe current BLS/cgo release policy")
 			if locale == manifest.CanonicalLocale {
 				continue
 			}
@@ -266,6 +268,23 @@ func buildReleaseDocsQualityDocument(docsDir string, minBytes int) (releaseDocsQ
 		}
 	}
 	return document, nil
+}
+
+func releaseContainsStaleReleasePolicy(relative string, body string) string {
+	if filepath.Base(relative) != "release-pipeline.md" && relative != "README.md" {
+		return ""
+	}
+	for _, forbidden := range []string{
+		"Builds use:\n\n- `CGO_ENABLED=0`",
+		"Default release artifacts use `RELEASE_CGO_ENABLED=0`",
+		"release binaries default to `CGO_ENABLED=0`",
+		"`CGO_ENABLED=0`\n- `go build -trimpath`",
+	} {
+		if strings.Contains(body, forbidden) {
+			return forbidden
+		}
+	}
+	return ""
 }
 
 func releaseMarkdownTree(root string, include func(string) bool) ([]string, error) {
@@ -335,6 +354,20 @@ func releaseLocalizedBoilerplateLeak(locale string, body string) string {
 		return ""
 	}
 	for _, forbidden := range []string{
+		"This localized guide keeps commands",
+		"Interface names kept unchanged",
+		"Common mistakes",
+		"Normative source",
+		"Normative reference",
+		"## Overview",
+		"## Goal",
+		"## Goals",
+		"## Why it matters",
+		"## Must verify",
+		"## Operational actions",
+		"## Stability Goal",
+		"## Security Goals",
+		"Keep these interface names unchanged:",
 		"## Canonical source",
 		"- [English canonical document]",
 		"# Launch Runbook",

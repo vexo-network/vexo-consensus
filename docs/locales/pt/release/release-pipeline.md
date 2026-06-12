@@ -57,11 +57,13 @@ Este documento ajuda a entender pipeline de release com binários assinados, che
 - `evm_execution`
 - `web3_rpc`
 - `evm_corpus`
-- `CGO_ENABLED=0`
+- `RELEASE_CGO_ENABLED=1`
 - `go build -trimpath`
 - `BUILD_DATE`
 - `release-candidate`
 - `release-candidate-real`
+- `release-candidate-plan`
+- `make release-portable RELEASE_REQUIRE_BLS=0`
 - `make network-e2e`
 - `RC_DRY_RUN=1`
 - `network longrun`
@@ -75,7 +77,7 @@ Este documento ajuda a entender pipeline de release com binários assinados, che
 ## Estrutura da fonte inglesa
 
 - Release Pipeline
-- Goals
+- Objetivos
 - Release Commands
 - Artifacts
 - Reproducibility Notes
@@ -88,6 +90,10 @@ Este documento ajuda a entender pipeline de release com binários assinados, che
 ## Evidência de conformidade EVM/Web3
 
 `--sdk-conformance-evidence` e `--evm-web3-conformance-evidence` são evidências separadas. Um resumo dizendo que “EVM passed” não basta; a evidência EVM/Web3 deve incluir as seções legíveis por máquina `evm_fixtures`, `evm_execution`, `web3_rpc` e `evm_corpus`, e precisa estar vinculada ao `evidence-manifest.json` por SHA-256 antes de qualquer declaração pública de compatibilidade.
+
+## Política de release candidate
+
+Uma release candidate pública usa por padrão `make release-candidate`. Esse target é o gate real, aponta para `release-candidate-real` e exige `RELEASE_CGO_ENABLED=1` para que o artifact inclua de fato o adapter BLS `supranational/blst` baseado em cgo. `make release-candidate-plan` serve apenas para PR smoke e planejamento operacional; ele usa fixtures embutidas e planos dry-run, portanto não deve ser entregue como evidence final. Se precisar de um artifact no-cgo, use `make release-portable RELEASE_REQUIRE_BLS=0`, mas não o publique como release BLS-capable. Quando `RELEASE_CGO_ENABLED=1` e `RELEASE_TARGETS` não está definido, o Makefile compila apenas o target do host atual. Para vários OS/arquiteturas, defina `RELEASE_TARGETS` explicitamente em runners com os cross-compilers cgo necessários.
 
 ## VRF audit evidence SHA-256
 

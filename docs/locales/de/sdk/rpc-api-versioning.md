@@ -62,7 +62,7 @@ Dieses Dokument hilft dabei, RPC-API-Versionierung, Kompatibilitätsaliasse und 
 ## Struktur der englischen Quelle
 
 - RPC API Versioning
-- Stability Goal
+- Stabilitätsziel
 - Current Stable API
 - Versioning Rules
 - Compatibility Aliases
@@ -81,4 +81,4 @@ Dieses Dokument hilft dabei, RPC-API-Versionierung, Kompatibilitätsaliasse und 
 
 Die neue RPC capability discovery Schnittstelle zeigt, welche provider Funktionen wirklich angebunden sind. Betreiber nutzen `/v1/capabilities`; SDK-Integrationen setzen `rpc.Config.RequiredCapabilities` oder `rpc.Config.RequireAllCapabilities`, damit fehlende Funktionen schon beim Start fehlschlagen.
 
-Keep these interface names unchanged: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
+Diese Schnittstellennamen unverändert lassen: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.

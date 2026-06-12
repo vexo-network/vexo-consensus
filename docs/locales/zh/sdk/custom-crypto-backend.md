@@ -67,7 +67,7 @@
 ## 英文原文结构
 
 - Custom Crypto Backend Guide
-- Goal
+- 目标
 - Interfaces
 - Runtime Suite
 - Domain Separation
@@ -88,4 +88,4 @@ VRF backend 也要像 BLS 一样暴露清晰的审计边界。请填写 `vrf.ada
 
 `vexod keys serve-vrf` 使用 ECVRF key 提供 `POST /prove` 和 `POST /verify`，`vexod keys verify-vrf` 用于端到端检查 remote prover。`VEXO_REMOTE_VRF_TOKEN`、`remote-vrf-http-v1`、`vexo.remote_vrf.prove.v1`、`vexo.remote_vrf.verify.v1` 保持不翻译。
 
-Keep these interface names unchanged: `vexod keys serve-vrf`, `vexod keys verify-vrf`, `POST /prove`, `POST /verify`, `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, `vexo.remote_vrf.verify.v1`.
+以下接口名称必须保持不变： `vexod keys serve-vrf`, `vexod keys verify-vrf`, `POST /prove`, `POST /verify`, `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, `vexo.remote_vrf.verify.v1`.

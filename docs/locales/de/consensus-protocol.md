@@ -1,4 +1,4 @@
-# Consensus Protocol Overview
+# Überblick über das Konsensprotokoll
 
 > Locale: de · Deutsch
 > Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
@@ -49,7 +49,7 @@ Dieses Dokument hilft dabei, das Konsensmodell, execution/commit/finality-Begrif
 
 ## Struktur der englischen Quelle
 
-- Consensus Protocol Overview
+- Überblick über das Konsensprotokoll
 - Model
 - Execution Terms
 - Safety Boundary

@@ -1,4 +1,4 @@
-# Consensus Protocol Overview
+# Consensus Protocol का सारांश
 
 > Locale: hi · हिन्दी
 > यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
@@ -49,7 +49,7 @@
 
 ## अंग्रेज़ी source की संरचना
 
-- Consensus Protocol Overview
+- Consensus Protocol का सारांश
 - Model
 - Execution Terms
 - Safety Boundary

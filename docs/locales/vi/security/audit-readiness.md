@@ -49,7 +49,7 @@ Tài liệu này giúp hiểu threat model, giả định bảo mật và bằng
 - Threat Model
 - Assets
 - Adversaries
-- Security Goals
+- Mục tiêu bảo mật
 - Security Assumptions
 - Known Limitations
 - Formal-ish Safety Argument

@@ -3,11 +3,11 @@
 > Locale: zh · 中文
 > 安全和发布判断必须以英文规范文档和 release gate 结果为准。
 
-## Overview
+## 概览
 
 本文说明如何通过状态、指标、日志和告警判断 Vexo 节点是否健康。
 
-This localized guide keeps commands, JSON fields, RPC methods, config keys, and package names unchanged so examples remain copy-pasteable across languages.
+本地化文档会保留命令、JSON 字段、RPC 方法、配置键和包名不变，确保不同语言中的示例都可以直接复制使用。
 
 ## 为什么重要
 
@@ -28,7 +28,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - **Alert flow**: Alert on stalled height, stalled finality, zero active peers, timeout spikes, high commit latency, mempool pressure, replay failure, and signer failures.
 - **Incident flow**: Preserve logs, metrics, configs, genesis, binary hash, and evidence files before deleting data or restarting repeatedly.
 
-## Interface names kept unchanged
+## 保持不变的接口名称
 
 - `vexod validate --home <home>`
 - `vexod config audit --home <home> --strict`
@@ -48,7 +48,7 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 - `mempool_config.json`
 - `release gate`
 
-## Common mistakes
+## 常见错误
 
 - Do not assume configured peers are connected peers; active sessions must be checked separately.
 - Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
@@ -57,4 +57,4 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## 规范参考
 
-- [Normative source](../../en/operators/observability.md)
+- [规范原文](../../en/operators/observability.md)

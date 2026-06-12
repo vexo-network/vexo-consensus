@@ -57,11 +57,13 @@ Ce document aide à comprendre le pipeline de release avec binaires signés, che
 - `evm_execution`
 - `web3_rpc`
 - `evm_corpus`
-- `CGO_ENABLED=0`
+- `RELEASE_CGO_ENABLED=1`
 - `go build -trimpath`
 - `BUILD_DATE`
 - `release-candidate`
 - `release-candidate-real`
+- `release-candidate-plan`
+- `make release-portable RELEASE_REQUIRE_BLS=0`
 - `make network-e2e`
 - `RC_DRY_RUN=1`
 - `network longrun`
@@ -75,7 +77,7 @@ Ce document aide à comprendre le pipeline de release avec binaires signés, che
 ## Structure de la source anglaise
 
 - Release Pipeline
-- Goals
+- Objectifs
 - Release Commands
 - Artifacts
 - Reproducibility Notes
@@ -88,6 +90,10 @@ Ce document aide à comprendre le pipeline de release avec binaires signés, che
 ## Preuve de conformité EVM/Web3
 
 `--sdk-conformance-evidence` et `--evm-web3-conformance-evidence` restent deux preuves séparées. Un simple résumé indiquant que “EVM passed” ne suffit pas ; la preuve EVM/Web3 doit inclure les sections lisibles par machine `evm_fixtures`, `evm_execution`, `web3_rpc` et `evm_corpus`, puis être liée à `evidence-manifest.json` par SHA-256 avant toute annonce publique de compatibilité.
+
+## Politique de release candidate
+
+Une release candidate publique utilise par défaut `make release-candidate`. Cette cible est le vrai gate, pointe vers `release-candidate-real` et exige `RELEASE_CGO_ENABLED=1` afin que l’artifact contienne réellement l’adapter BLS `supranational/blst` basé sur cgo. `make release-candidate-plan` sert uniquement au PR smoke et à la planification opérateur ; il utilise des fixtures intégrées et des plans dry-run, donc il ne doit pas être fourni comme evidence finale. Pour produire un artifact no-cgo, utilisez `make release-portable RELEASE_REQUIRE_BLS=0`, mais ne le publiez pas comme release BLS-capable. Quand `RELEASE_CGO_ENABLED=1` et que `RELEASE_TARGETS` n’est pas défini, le Makefile construit seulement la cible du host courant. Pour plusieurs OS/architectures, définissez `RELEASE_TARGETS` explicitement sur des runners qui possèdent les cross-compilers cgo requis.
 
 ## VRF audit evidence SHA-256
 

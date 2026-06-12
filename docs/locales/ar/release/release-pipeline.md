@@ -57,11 +57,13 @@
 - `evm_execution`
 - `web3_rpc`
 - `evm_corpus`
-- `CGO_ENABLED=0`
+- `RELEASE_CGO_ENABLED=1`
 - `go build -trimpath`
 - `BUILD_DATE`
 - `release-candidate`
 - `release-candidate-real`
+- `release-candidate-plan`
+- `make release-portable RELEASE_REQUIRE_BLS=0`
 - `make network-e2e`
 - `RC_DRY_RUN=1`
 - `network longrun`
@@ -71,7 +73,7 @@
 ## بنية المصدر الإنجليزي
 
 - Release Pipeline
-- Goals
+- الهدفs
 - Release Commands
 - Artifacts
 - Reproducibility Notes
@@ -102,6 +104,10 @@
 - `--vrf-audit`
 - `--vrf-audit-sha256`
 - `vrf.audit_evidence_sha256`
+
+## سياسة مرشح الإصدار
+
+يستخدم مرشح الإصدار العام الهدف الافتراضي `make release-candidate`. هذا هو gate الحقيقي، ويتصل بـ `release-candidate-real`، ويتطلب `RELEASE_CGO_ENABLED=1` حتى يحتوي artifact فعلياً على adapter BLS ‏`supranational/blst` المعتمد على cgo. الهدف `make release-candidate-plan` مخصص فقط لاختبار PR smoke وتخطيط التشغيل؛ لأنه يستخدم fixtures مدمجة وخطط dry-run، فلا يجوز تقديمه كـ evidence نهائي للإصدار. إذا احتجت إلى artifact بدون cgo فاستخدم `make release-portable RELEASE_REQUIRE_BLS=0`، ولا تعلنه كإصدار BLS-capable. عند تفعيل `RELEASE_CGO_ENABLED=1` من دون تحديد `RELEASE_TARGETS`، يبني Makefile هدف host الحالي فقط. إذا احتجت إلى artifacts لعدة أنظمة أو معماريات، فحدد `RELEASE_TARGETS` صراحة على runners تحتوي على cgo cross-compilers المناسبة.
 
 ## VRF audit evidence SHA-256
 

@@ -62,7 +62,7 @@ Ce document aide à comprendre la création d’un app module et son intégratio
 ## Structure de la source anglaise
 
 - App Module Guide
-- Goal
+- Objectif
 - Module Interface
 - Transaction Routing
 - Module Configuration

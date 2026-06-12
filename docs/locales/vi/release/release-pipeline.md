@@ -57,11 +57,13 @@ Tài liệu này giúp hiểu pipeline phát hành với binary đã ký, checks
 - `evm_execution`
 - `web3_rpc`
 - `evm_corpus`
-- `CGO_ENABLED=0`
+- `RELEASE_CGO_ENABLED=1`
 - `go build -trimpath`
 - `BUILD_DATE`
 - `release-candidate`
 - `release-candidate-real`
+- `release-candidate-plan`
+- `make release-portable RELEASE_REQUIRE_BLS=0`
 - `make network-e2e`
 - `RC_DRY_RUN=1`
 - `network longrun`
@@ -71,7 +73,7 @@ Tài liệu này giúp hiểu pipeline phát hành với binary đã ký, checks
 ## Cấu trúc nguồn tiếng Anh
 
 - Release Pipeline
-- Goals
+- Mục tiêus
 - Release Commands
 - Artifacts
 - Reproducibility Notes
@@ -84,6 +86,10 @@ Tài liệu này giúp hiểu pipeline phát hành với binary đã ký, checks
 ## Bằng chứng tương thích EVM/Web3
 
 `--sdk-conformance-evidence` và `--evm-web3-conformance-evidence` là hai bằng chứng riêng. Một dòng tóm tắt kiểu “EVM passed” là chưa đủ; bằng chứng EVM/Web3 phải có các phần máy đọc được `evm_fixtures`, `evm_execution`, `web3_rpc` và `evm_corpus`, rồi được gắn với `evidence-manifest.json` bằng SHA-256 trước mọi tuyên bố tương thích công khai.
+
+## Chính sách release candidate
+
+Release candidate công khai dùng mặc định `make release-candidate`. Target này là gate thật, đi vào `release-candidate-real` và yêu cầu `RELEASE_CGO_ENABLED=1` để artifact thực sự chứa adapter BLS `supranational/blst` dựa trên cgo. `make release-candidate-plan` chỉ dùng cho PR smoke và lập kế hoạch vận hành; nó dùng fixture tích hợp và dry-run plan, nên không được nộp làm evidence cuối cùng. Nếu cần artifact no-cgo, dùng `make release-portable RELEASE_REQUIRE_BLS=0`, nhưng không được công bố nó là release BLS-capable. Khi `RELEASE_CGO_ENABLED=1` và không đặt `RELEASE_TARGETS`, Makefile chỉ build target của host hiện tại. Nếu cần artifact cho nhiều OS/architecture, hãy đặt `RELEASE_TARGETS` rõ ràng trên runner có cgo cross-compiler phù hợp.
 
 ## VRF audit evidence SHA-256
 
