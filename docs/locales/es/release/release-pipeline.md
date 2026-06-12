@@ -62,6 +62,7 @@ Este documento ayuda a entender pipeline de release con binarios firmados, check
 - `BUILD_DATE`
 - `release-candidate`
 - `release-candidate-real`
+- `release-candidate-smoke`
 - `release-candidate-plan`
 - `make release-portable RELEASE_REQUIRE_BLS=0`
 - `make network-e2e`
@@ -157,6 +158,7 @@ Este apéndice asegura que la traducción conserve las interfaces ejecutables y 
 - `make vet` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `make docs-check` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `make build` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `make release-candidate-smoke VERSION=ci`
 - `make release-candidate-plan VERSION=ci` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `make release-candidate VERSION=<rc> RELEASE_CGO_ENABLED=1 RC_EVM_CONFORMANCE_FLAGS=...` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `evidence-manifest.json` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.

@@ -562,7 +562,8 @@ func (node *Node) signConsensusProposal(proposal *consensus.Proposal) error {
 	signer := node.signer
 	node.mu.Unlock()
 	if signer == nil {
-		return nil
+		node.metrics.observeSigningFailure()
+		return ErrMissingSigner
 	}
 	signature, err := signWithConsensusPolicy(signer, vexocrypto.SignPolicy{
 		ChainID: proposal.Block.Header.ChainID,
@@ -593,7 +594,7 @@ func (node *Node) signConsensusVote(vote *consensus.Vote) error {
 
 func signConsensusVote(chainID string, signer vexocrypto.Signer, vote *consensus.Vote) error {
 	if signer == nil {
-		return nil
+		return ErrMissingSigner
 	}
 	signature, err := signWithConsensusPolicy(signer, vexocrypto.SignPolicy{
 		ChainID: chainID,
@@ -615,7 +616,8 @@ func (node *Node) signConsensusTimeoutVote(vote *consensus.TimeoutVote) error {
 	chainID := node.cfg.Chain.ChainID
 	node.mu.Unlock()
 	if signer == nil {
-		return nil
+		node.metrics.observeSigningFailure()
+		return ErrMissingSigner
 	}
 	signature, err := signWithConsensusPolicy(signer, vexocrypto.SignPolicy{
 		ChainID: chainID,

@@ -62,6 +62,7 @@
 - `BUILD_DATE`
 - `release-candidate`
 - `release-candidate-real`
+- `release-candidate-smoke`
 - `release-candidate-plan`
 - `make release-portable RELEASE_REQUIRE_BLS=0`
 - `make network-e2e`
@@ -157,6 +158,7 @@
 - `make vet` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `make docs-check` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `make build` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `make release-candidate-smoke VERSION=ci`
 - `make release-candidate-plan VERSION=ci` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `make release-candidate VERSION=<rc> RELEASE_CGO_ENABLED=1 RC_EVM_CONFORMANCE_FLAGS=...` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `evidence-manifest.json` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

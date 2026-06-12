@@ -62,6 +62,7 @@ Tài liệu này giúp hiểu pipeline phát hành với binary đã ký, checks
 - `BUILD_DATE`
 - `release-candidate`
 - `release-candidate-real`
+- `release-candidate-smoke`
 - `release-candidate-plan`
 - `make release-portable RELEASE_REQUIRE_BLS=0`
 - `make network-e2e`
@@ -157,6 +158,7 @@ Phụ lục này bảo đảm bản dịch vẫn giữ các giao diện có th�
 - `make vet` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `make docs-check` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `make build` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `make release-candidate-smoke VERSION=ci`
 - `make release-candidate-plan VERSION=ci` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `make release-candidate VERSION=<rc> RELEASE_CGO_ENABLED=1 RC_EVM_CONFORMANCE_FLAGS=...` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `evidence-manifest.json` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.

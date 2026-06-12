@@ -392,7 +392,7 @@ func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Bloc
 			if _, recoverErr := runtime.Recover(ctx); recoverErr != nil {
 				return response, errors.Join(ErrValidatorRegistryCommitFailed, err, recoverErr)
 			}
-			return response, errors.Join(ErrValidatorRegistryCommitFailed, err)
+			return response, nil
 		}
 	}
 	return response, nil

@@ -46,11 +46,13 @@ make release-candidate VERSION=0.1.0-rc.1 \
   RC_EVM_CONFORMANCE_FLAGS="--evm-tx-fixtures fixtures/evm/raw.json --evm-tx-fixtures-sha256 <sha256> --evm-execution-fixtures fixtures/evm/execution.json --evm-execution-fixtures-sha256 <sha256>"
 ```
 
-For pull requests or quick artifact smoke tests, use the explicit plan target instead. Plan output is never acceptable as public release evidence:
+For pull requests or quick artifact smoke tests, use the explicit smoke target instead. It intentionally routes to the plan target and produces non-launch evidence so CI cannot accidentally claim a real release candidate:
 
 ```bash
-make release-candidate-plan VERSION=ci
+make release-candidate-smoke VERSION=ci
 ```
+
+`make release-candidate-plan VERSION=ci` remains available for operators who want the same smoke behavior under the older explicit name. Plan output is never acceptable as public release evidence.
 
 Use the real release-candidate target only when external EVM/Web3 corpora are pinned and the machine is allowed to run the network load/longrun harness:
 
@@ -124,7 +126,7 @@ The repository CI should run the following gates on pull requests:
 | Documentation quality | `make docs-check` | locale tree drift, canonical hash drift, placeholders, thin translations |
 | Build | `make build` | binary link and ldflag problems |
 | Built-binary network E2E | `make network-e2e` | init/start/peer/tx/height/stop behavior with the actual binary |
-| Release plan smoke | `make release-candidate-plan VERSION=ci` | portable release artifact, SBOM, docs, conformance-smoke, and evidence-manifest regressions without pretending to be final evidence |
+| Release plan smoke | `make release-candidate-smoke VERSION=ci` | portable release artifact, SBOM, docs, conformance-smoke, and evidence-manifest regressions without pretending to be final evidence |
 | Real release candidate | `make release-candidate VERSION=<rc> RELEASE_CGO_ENABLED=1 RC_EVM_CONFORMANCE_FLAGS=...` | BLS-capable release artifact, built-binary E2E, strict EVM/Web3 corpus evidence, live load, longrun, chaos, and evidence manifest |
 
 If any gate is too slow for every PR, keep it as a required release-branch or nightly check. Do not remove it silently; document the reason and keep a visible replacement gate.

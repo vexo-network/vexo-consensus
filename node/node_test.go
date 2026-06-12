@@ -740,6 +740,41 @@ func TestNodeSignsConsensusMessagesWithDomains(t *testing.T) {
 	}
 }
 
+func TestNodeConsensusSigningFailsClosedWithoutSigner(t *testing.T) {
+	node, err := New(DefaultConfig("vexo-test", t.TempDir()), validGenesis(), newTestApplication(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	proposal := consensus.Proposal{
+		Block:    types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1}},
+		Round:    0,
+		Proposer: "alice",
+	}
+	if err := node.signConsensusProposal(&proposal); !errors.Is(err, ErrMissingSigner) {
+		t.Fatalf("expected proposal signing to fail closed, got %v", err)
+	}
+	if len(proposal.Signature) != 0 {
+		t.Fatal("proposal must not be signed without a signer")
+	}
+
+	vote := consensus.Vote{Height: 1, Round: 0, BlockHash: types.Hash{1}, ValidatorID: "alice"}
+	if err := node.signConsensusVote(&vote); !errors.Is(err, ErrMissingSigner) {
+		t.Fatalf("expected vote signing to fail closed, got %v", err)
+	}
+	if len(vote.Signature) != 0 {
+		t.Fatal("vote must not be signed without a signer")
+	}
+
+	timeoutVote := consensus.TimeoutVote{Height: 1, Round: 0, ValidatorID: "alice"}
+	if err := node.signConsensusTimeoutVote(&timeoutVote); !errors.Is(err, ErrMissingSigner) {
+		t.Fatalf("expected timeout vote signing to fail closed, got %v", err)
+	}
+	if len(timeoutVote.Signature) != 0 {
+		t.Fatal("timeout vote must not be signed without a signer")
+	}
+}
+
 func TestNodeRejectsCommitGossipWithInvalidAggregateSignature(t *testing.T) {
 	signer, err := vexocrypto.NewDeterministicSigner([]byte("alice-key"))
 	if err != nil {

@@ -208,6 +208,8 @@ Run the standard checks:
 make check
 ```
 
+CI uses `make release-candidate-smoke VERSION=ci` for pull-request release-path coverage. Use `make release-candidate VERSION=<rc>` only for a real candidate with externally pinned EVM/Web3 corpora, BLS-capable release settings, network E2E, live load, long-run, chaos, and release evidence artifacts.
+
 Run additional security and operations smoke checks:
 
 ```bash

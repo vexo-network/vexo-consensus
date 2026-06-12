@@ -484,7 +484,7 @@ func TestRuntimeStagedValidatorUpdatesRollbackWhenCommitFails(t *testing.T) {
 	}
 }
 
-func TestRuntimeReportsStagedValidatorReconcileFailure(t *testing.T) {
+func TestRuntimeRecoversStagedValidatorReconcileFailure(t *testing.T) {
 	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{&validatorUpdateModule{
 		runtimeModule: runtimeModule{name: "staking"},
 		updates: []types.ValidatorUpdate{
@@ -516,18 +516,25 @@ func TestRuntimeReportsStagedValidatorReconcileFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = runtime.ExecuteBlock(context.Background(), types.Block{
+	if _, err := runtime.ExecuteBlock(context.Background(), types.Block{
 		Header: types.Header{ChainID: "vexo-test", Height: 5, ValidatorSetHash: initialSet.Hash()},
 		Txs:    []types.Tx{[]byte("staking:update")},
-	})
-	if !errors.Is(err, ErrValidatorRegistryCommitFailed) {
-		t.Fatalf("expected validator reconcile error, got %v", err)
+	}); err != nil {
+		t.Fatalf("post-commit reconcile failure should recover without failing committed block: %v", err)
 	}
 	if failures := runtime.PostCommitReconciliationFailures(); failures != 1 {
 		t.Fatalf("expected one reconcile failure, got %d", failures)
 	}
 	if _, err := storage.StateByHeight(context.Background(), 5); err != nil {
 		t.Fatalf("block/state commit should remain durable before reconcile failure report: %v", err)
+	}
+	recoveredSet, err := runtime.Validators.ValidatorSet(context.Background(), 6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alice, found := recoveredSet.Get("alice")
+	if !found || alice.VotingPower != 2 {
+		t.Fatalf("expected recovered validator power 2, got %+v found=%v", alice, found)
 	}
 }
 
