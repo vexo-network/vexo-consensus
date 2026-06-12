@@ -1,0 +1,61 @@
+name: release-candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release candidate version, for example 0.1.0-rc.1
+        required: true
+      rc_evm_conformance_flags:
+        description: Flags pointing to externally pinned EVM/Web3 fixture corpora
+        required: true
+      rc_load_duration:
+        description: Live load duration
+        required: true
+        default: 1h
+      rc_longrun_duration:
+        description: Long-run validation duration
+        required: true
+        default: 168h
+      rc_chaos_duration:
+        description: Chaos validation duration
+        required: true
+        default: 24h
+      rc_rate:
+        description: Load rate in tx/s
+        required: true
+        default: "50"
+
+jobs:
+  release-candidate:
+    runs-on: [self-hosted, linux, vexo-rc]
+    timeout-minutes: 10080
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Real release candidate gate
+        env:
+          RELEASE_CGO_ENABLED: "1"
+          RC_EVM_CONFORMANCE_FLAGS: ${{ inputs.rc_evm_conformance_flags }}
+          RC_LOAD_DURATION: ${{ inputs.rc_load_duration }}
+          RC_LONGRUN_DURATION: ${{ inputs.rc_longrun_duration }}
+          RC_CHAOS_DURATION: ${{ inputs.rc_chaos_duration }}
+          RC_RATE: ${{ inputs.rc_rate }}
+        run: make release-candidate VERSION=${{ inputs.version }}
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vexo-release-candidate-${{ inputs.version }}
+          path: |
+            dist/**
+            /tmp/vexo-docs-quality.json
+            /tmp/vexo-evm-conformance.json
+          if-no-files-found: warn

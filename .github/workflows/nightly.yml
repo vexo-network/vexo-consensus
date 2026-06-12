@@ -1,0 +1,43 @@
+name: nightly
+
+on:
+  schedule:
+    - cron: "17 18 * * *"
+  workflow_dispatch:
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Race tests
+        run: make race
+
+      - name: Network E2E
+        run: make network-e2e
+
+      - name: Fuzz smoke
+        run: make fuzz-smoke
+
+      - name: Release path smoke
+        run: make release-candidate-smoke VERSION=nightly
+
+      - name: Upload smoke artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vexo-nightly-smoke
+          path: |
+            dist/**
+            /tmp/vexo-docs-quality.json
+            /tmp/vexo-evm-conformance.json
+          if-no-files-found: warn
+

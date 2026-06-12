@@ -1,0 +1,57 @@
+groups:
+  - name: vexo-node-health
+    rules:
+      - alert: VexoNodeDown
+        expr: vexo_node_running == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Vexo node runtime is stopped
+          description: The node is reachable but reports vexo_node_running=0.
+
+      - alert: VexoHeightStalled
+        expr: increase(vexo_latest_height[2m]) < 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Vexo block height is stalled
+          description: Height has not increased during the last two minutes.
+
+      - alert: VexoNoActivePeers
+        expr: vexo_active_peer_count == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Vexo node has no active peers
+          description: Check network_config.json, node-key handshake, seeds, firewalls, and peer bans.
+
+      - alert: VexoPeerBanDetected
+        expr: increase(vexo_banned_peers[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: Vexo peer ban count increased
+          description: Investigate invalid messages, rate limits, chain ID mismatch, or hostile peers.
+
+      - alert: VexoConsensusLoopStopped
+        expr: vexo_consensus_loop_running == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: Vexo consensus loop is stopped
+          description: Validator process is up but consensus loop is not running.
+
+      - alert: VexoPostCommitReconciliation
+        expr: increase(vexo_post_commit_reconciliation_failures[10m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: Vexo post-commit reconciliation occurred
+          description: Durable commit recovery repaired or detected a partial post-commit state. Archive logs and run recovery checks.
+

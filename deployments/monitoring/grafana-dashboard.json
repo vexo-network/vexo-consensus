@@ -1,0 +1,75 @@
+{
+  "title": "Vexo Consensus Overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "tags": ["vexo", "consensus", "validator"],
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Latest Height",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "max(vexo_latest_height)", "legendFormat": "height"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Height Growth",
+      "gridPos": {"x": 6, "y": 0, "w": 12, "h": 4},
+      "targets": [{"expr": "increase(vexo_latest_height[1m])", "legendFormat": "{{instance}}"}]
+    },
+    {
+      "type": "stat",
+      "title": "Active Peers",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "min(vexo_active_peer_count)", "legendFormat": "min peers"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Peer Health",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 6},
+      "targets": [
+        {"expr": "vexo_active_peer_count", "legendFormat": "{{instance}} active"},
+        {"expr": "vexo_configured_peer_count", "legendFormat": "{{instance}} configured"},
+        {"expr": "vexo_banned_peers", "legendFormat": "{{instance}} banned"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Consensus Status",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 6},
+      "targets": [
+        {"expr": "vexo_consensus_loop_running", "legendFormat": "{{instance}} loop"},
+        {"expr": "vexo_post_commit_reconciliation_failures", "legendFormat": "{{instance}} reconciliation"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Validator Set",
+      "gridPos": {"x": 0, "y": 10, "w": 12, "h": 6},
+      "targets": [
+        {"expr": "vexo_validator_count", "legendFormat": "{{instance}} validators"},
+        {"expr": "vexo_total_voting_power", "legendFormat": "{{instance}} voting power"}
+      ]
+    },
+    {
+      "type": "logs",
+      "title": "Operator Notes",
+      "gridPos": {"x": 12, "y": 10, "w": 12, "h": 6},
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "expr": "{job=\"vexo-validators\"} |= \"block_committed\"",
+          "legendFormat": "commits"
+        }
+      ]
+    }
+  ]
+}
+
