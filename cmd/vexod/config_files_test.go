@@ -117,6 +117,9 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 		networkDocument.P2P.NodeID != "alice" ||
 		networkDocument.P2P.NodeKeyPath != nodeKeyFileName ||
 		networkDocument.P2P.AuthReplayPath == "" ||
+		networkDocument.StateSync.Enabled ||
+		networkDocument.StateSync.Timeout == "" ||
+		networkDocument.StateSync.MaxSnapshotBytes == 0 ||
 		networkDocument.PeerScoring.InitialScore == 0 {
 		t.Fatalf("unexpected network config: %+v", networkDocument)
 	}
@@ -1023,6 +1026,60 @@ func TestLoadStartRuntimeConfigParsesWeb3SubscriptionLimits(t *testing.T) {
 	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
 	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrInvalidConfig) {
 		t.Fatalf("expected invalid zero web3 idle timeout, got %v", err)
+	}
+}
+
+func TestLoadStartRuntimeConfigParsesStateSyncConfig(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, configFileName)
+	document := defaultConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	networkDocument := defaultNetworkConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	networkDocument.StateSync = runtimeStateSyncConfig{
+		Enabled:           true,
+		SnapshotURLs:      []string{"http://127.0.0.1:26657/v1/snapshot/export"},
+		Timeout:           "7s",
+		MinHeight:         100,
+		RequireFresh:      true,
+		TrustLocalHigher:  true,
+		MaxSnapshotBytes:  1024,
+		RetryAllSnapshots: true,
+	}
+	writeTestJSON(t, path, document)
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+
+	cfg, err := loadStartRuntimeConfig(home, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.StateSync.Enabled ||
+		len(cfg.StateSync.SnapshotURLs) != 1 ||
+		cfg.StateSync.SnapshotURLs[0] != "http://127.0.0.1:26657/v1/snapshot/export" ||
+		cfg.StateSync.Timeout != "7s" ||
+		cfg.StateSync.MinHeight != 100 ||
+		!cfg.StateSync.RequireFresh ||
+		!cfg.StateSync.TrustLocalHigher ||
+		cfg.StateSync.MaxSnapshotBytes != 1024 ||
+		!cfg.StateSync.RetryAllSnapshots {
+		t.Fatalf("unexpected state sync runtime config: %+v", cfg.StateSync)
+	}
+
+	networkDocument.StateSync.Timeout = "0s"
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrInvalidConfig) {
+		t.Fatalf("expected invalid zero state sync timeout, got %v", err)
+	}
+
+	networkDocument.StateSync.Timeout = "7s"
+	networkDocument.StateSync.SnapshotURLs = []string{"file:///tmp/snapshot.json"}
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrInvalidConfig) {
+		t.Fatalf("expected invalid state sync URL scheme, got %v", err)
+	}
+
+	networkDocument.StateSync.SnapshotURLs = nil
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected missing state sync URL rejection, got %v", err)
 	}
 }
 

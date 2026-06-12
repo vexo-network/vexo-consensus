@@ -112,6 +112,27 @@ Node homes use separate config files so operators can edit one subsystem without
 
 `network_config.json` P2P settings include `auth_replay_path`, `require_auth_replay_store`, and `dial_timeout`. The generated default writes nonce replay evidence to `data/p2p_auth_replay.jsonl` and uses a `10s` outbound dial timeout. For private loopback testing the replay store is mostly harmless bookkeeping; for public authenticated P2P it is a safety requirement because it prevents a captured signed handshake nonce from being replayed after restart. `dial_timeout` should be long enough for TLS, signed handshake verification, and cross-region latency; setting it too low makes healthy peers look flaky and can slow liveness after restarts.
 
+`network_config.json` also owns startup state sync. This is useful for archive nodes, replacement validators, or nodes restored onto a clean machine. When `state_sync.enabled` is true, `vexod start` downloads the first valid snapshot from `state_sync.snapshot_urls`, verifies chain ID, checksum, state roots, and KV namespaces, restores it into LevelDB, rebuilds indexes, and only then starts the node. If local state already satisfies `state_sync.min_height` and `state_sync.trust_local_higher` is true, startup logs `state_sync_skipped` and keeps the local store.
+
+Example `state_sync` block:
+
+```json
+{
+  "state_sync": {
+    "enabled": true,
+    "snapshot_urls": ["https://snapshots.example.com/vexo-chain/latest.json"],
+    "timeout": "30s",
+    "min_height": 1000000,
+    "require_fresh": true,
+    "trust_local_higher": true,
+    "max_snapshot_bytes": 268435456,
+    "retry_all_snapshots": true
+  }
+}
+```
+
+Startup logs `state_sync_candidate_failed` for a fetch error, `state_sync_candidate_rejected` for an invalid or stale snapshot, and `state_sync_applied` after a verified restore. Keep `max_snapshot_bytes` below the largest snapshot your infrastructure intentionally serves, but high enough for normal state growth. Do not point public nodes at an unauthenticated third-party snapshot source unless the operator has an out-of-band trust policy and finality/light-client evidence for that source.
+
 If a field changes network behavior, edit the split config file and commit or distribute that reviewed file. Do not rely on long `vexod start` flags for runtime behavior. The start command intentionally rejects consensus timing, empty-block, P2P auth, RPC admin, and managed Web3 key flags so operators do not accidentally run different behavior from the reviewed config.
 
 ## Key Types

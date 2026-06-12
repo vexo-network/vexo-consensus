@@ -3031,6 +3031,143 @@ func TestRunSnapshotFetchAndSyncFromRPCExport(t *testing.T) {
 	}
 }
 
+func TestMaybeRunStartupStateSyncFetchesSnapshotBeforeNodeStart(t *testing.T) {
+	sourceStore, err := store.OpenLevelDB(filepath.Join(t.TempDir(), "source-store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sourceStore.Set(context.Background(), "bank", []byte("alice"), []byte("100")); err != nil {
+		t.Fatal(err)
+	}
+	sourceRoot, err := sourceStore.Root(context.Background(), "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sourceStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	document := snapshotDocumentFromState("vexo-test", []string{"bank"}, store.StateRecord{
+		Height:           9,
+		AppHash:          types.Hash{9},
+		LastBlockHash:    types.Hash{10},
+		ValidatorSetHash: types.Hash{11},
+	}, []store.StateRootRecord{{Height: 9, Namespace: "bank", Root: sourceRoot}}, []store.KVPair{{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")}})
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/bad" {
+			http.Error(writer, "not ready", http.StatusServiceUnavailable)
+			return
+		}
+		if request.URL.Path != "/snapshot/export" {
+			http.NotFound(writer, request)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		if err := writeSnapshotDocument(writer, document); err != nil {
+			t.Fatal(err)
+		}
+	}))
+	defer server.Close()
+
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := loadStartInputs(home, "", "", "", nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []string
+	logEvent := func(event string, fields map[string]any) {
+		events = append(events, event)
+	}
+	runtimeConfig := startRuntimeConfig{
+		StateSync: runtimeStateSyncConfig{
+			Enabled:           true,
+			SnapshotURLs:      []string{server.URL + "/bad", server.URL + "/snapshot/export"},
+			Timeout:           "2s",
+			MinHeight:         8,
+			RequireFresh:      true,
+			TrustLocalHigher:  true,
+			MaxSnapshotBytes:  1 << 20,
+			RetryAllSnapshots: true,
+		},
+	}
+	if err := maybeRunStartupStateSync(context.Background(), inputs, runtimeConfig, logEvent); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage, err := store.OpenLevelDB(cfg.StoreDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	state, err := storage.LatestState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := storage.StateRoot(context.Background(), 9, "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := storage.Get(context.Background(), "bank", []byte("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Height != 9 || root.Root != sourceRoot || string(value) != "100" {
+		t.Fatalf("unexpected startup state sync state=%+v root=%+v value=%q", state, root, value)
+	}
+	if !stringSliceContains(events, "state_sync_candidate_failed") || !stringSliceContains(events, "state_sync_applied") {
+		t.Fatalf("expected retry and apply events, got %v", events)
+	}
+}
+
+func TestMaybeRunStartupStateSyncRejectsOversizedSnapshot(t *testing.T) {
+	document := snapshotDocumentFromState("vexo-test", []string{"bank"}, store.StateRecord{
+		Height:           9,
+		AppHash:          types.Hash{9},
+		LastBlockHash:    types.Hash{10},
+		ValidatorSetHash: types.Hash{11},
+	}, []store.StateRootRecord{{Height: 9, Namespace: "bank", Root: types.Hash{12}}}, []store.KVPair{{Namespace: "bank", Key: []byte("alice"), Value: bytes.Repeat([]byte("x"), 256)}})
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if err := writeSnapshotDocument(writer, document); err != nil {
+			t.Fatal(err)
+		}
+	}))
+	defer server.Close()
+
+	home := t.TempDir()
+	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := loadStartInputs(home, "", "", "", nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = maybeRunStartupStateSync(context.Background(), inputs, startRuntimeConfig{StateSync: runtimeStateSyncConfig{
+		Enabled:          true,
+		SnapshotURLs:     []string{server.URL},
+		Timeout:          "2s",
+		MinHeight:        1,
+		RequireFresh:     true,
+		MaxSnapshotBytes: 32,
+	}}, func(string, map[string]any) {})
+	if err == nil || !strings.Contains(err.Error(), "exceeds max bytes") {
+		t.Fatalf("expected oversized snapshot rejection, got %v", err)
+	}
+}
+
+func stringSliceContains(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
+}
+
 func TestRunDoctorReportsOperationalReadinessAndRepairsIndexes(t *testing.T) {
 	home := t.TempDir()
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test", "--validator", "alice"}); err != nil {

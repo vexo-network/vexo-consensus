@@ -108,10 +108,11 @@ type moduleConfigDocument struct {
 }
 
 type networkConfigDocument struct {
-	SchemaVersion string           `json:"schema_version"`
-	RPC           runtimeRPCConfig `json:"rpc"`
-	P2P           runtimeP2PConfig `json:"p2p"`
-	PeerScoring   p2p.ScoreConfig  `json:"peer_scoring"`
+	SchemaVersion string                 `json:"schema_version"`
+	RPC           runtimeRPCConfig       `json:"rpc"`
+	P2P           runtimeP2PConfig       `json:"p2p"`
+	StateSync     runtimeStateSyncConfig `json:"state_sync,omitempty"`
+	PeerScoring   p2p.ScoreConfig        `json:"peer_scoring"`
 }
 
 type consensusConfigDocument struct {
@@ -137,6 +138,7 @@ type logConfigDocument struct {
 type runtimeConfig struct {
 	RPC       runtimeRPCConfig       `json:"rpc,omitempty"`
 	P2P       runtimeP2PConfig       `json:"p2p,omitempty"`
+	StateSync runtimeStateSyncConfig `json:"state_sync,omitempty"`
 	Consensus runtimeConsensusConfig `json:"consensus,omitempty"`
 	Log       runtimeLogConfig       `json:"log,omitempty"`
 }
@@ -184,6 +186,17 @@ type runtimeP2PConfig struct {
 	AddrBookMaxFails       int               `json:"addr_book_max_failures,omitempty"`
 	Peers                  map[string]string `json:"peers,omitempty"`
 	Seeds                  map[string]string `json:"seeds,omitempty"`
+}
+
+type runtimeStateSyncConfig struct {
+	Enabled           bool     `json:"enabled,omitempty"`
+	SnapshotURLs      []string `json:"snapshot_urls,omitempty"`
+	Timeout           string   `json:"timeout,omitempty"`
+	MinHeight         uint64   `json:"min_height,omitempty"`
+	RequireFresh      bool     `json:"require_fresh,omitempty"`
+	TrustLocalHigher  bool     `json:"trust_local_higher,omitempty"`
+	MaxSnapshotBytes  int64    `json:"max_snapshot_bytes,omitempty"`
+	RetryAllSnapshots bool     `json:"retry_all_snapshots,omitempty"`
 }
 
 type runtimeConsensusConfig struct {
@@ -1439,6 +1452,7 @@ func hasLegacyNetworkConfig(document networkConfigDocument) bool {
 	}
 	return runtimeRPCConfigSet(document.RPC) ||
 		runtimeP2PConfigSet(document.P2P) ||
+		runtimeStateSyncConfigSet(document.StateSync) ||
 		document.PeerScoring != (p2p.ScoreConfig{})
 }
 
@@ -1510,6 +1524,17 @@ func runtimeP2PConfigSet(config runtimeP2PConfig) bool {
 		config.AddrBookMaxFails != 0 ||
 		len(config.Peers) > 0 ||
 		len(config.Seeds) > 0
+}
+
+func runtimeStateSyncConfigSet(config runtimeStateSyncConfig) bool {
+	return config.Enabled ||
+		len(config.SnapshotURLs) > 0 ||
+		config.Timeout != "" ||
+		config.MinHeight != 0 ||
+		config.RequireFresh ||
+		config.TrustLocalHigher ||
+		config.MaxSnapshotBytes != 0 ||
+		config.RetryAllSnapshots
 }
 
 func validatorAdmissionConfigSet(config validator.AdmissionConfig) bool {
@@ -1635,6 +1660,7 @@ func defaultNetworkConfigDocument(chainID string, dataDir string, validatorID st
 		SchemaVersion: networkSchemaVersion,
 		RPC:           runtime.RPC,
 		P2P:           runtime.P2P,
+		StateSync:     runtime.StateSync,
 		PeerScoring:   cfg.P2P,
 	}
 }
@@ -1743,6 +1769,14 @@ func defaultRuntimeConfig(validatorID string) runtimeConfig {
 			Peers:            map[string]string{},
 			Seeds:            map[string]string{},
 		},
+		StateSync: runtimeStateSyncConfig{
+			Enabled:           false,
+			Timeout:           defaultStateSyncTimeout.String(),
+			RequireFresh:      true,
+			TrustLocalHigher:  true,
+			MaxSnapshotBytes:  defaultStateSyncSnapshotMaxBytes,
+			RetryAllSnapshots: true,
+		},
 		Consensus: runtimeConsensusConfig{
 			LoopEnabled:       loopEnabled,
 			Interval:          "50ms",
@@ -1816,6 +1850,7 @@ func networkConfigFromConfig(cfg config.Config, runtime runtimeConfig) networkCo
 		SchemaVersion: networkSchemaVersion,
 		RPC:           runtime.RPC,
 		P2P:           runtime.P2P,
+		StateSync:     runtime.StateSync,
 		PeerScoring:   cfg.P2P,
 	}
 }

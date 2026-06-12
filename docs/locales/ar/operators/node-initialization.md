@@ -85,6 +85,27 @@
 
 عند إنشاء home جديد للعقدة يجب مراجعة `p2p.dial_timeout` و `p2p.auth_replay_path` و `p2p.require_auth_replay_store` داخل `network_config.json` معًا. القيمة الافتراضية `10s` تشمل TCP dial و TLS و signed handshake وفحص replay-store. في الشبكات العامة يجب أن تبقى هذه القيم ضمن ملف config المراجع، لا ضمن shell flags مخفية.
 
+## مزامنة الحالة عند التشغيل
+
+كتلة `state_sync` داخل `network_config.json` مخصصة لعقد archive الجديدة، أو validator البديل، أو العقدة التي أُعيد بناؤها على جهاز نظيف. عندما تكون `state_sync.enabled` بقيمة true، يحاول `vexod start` عناوين `state_sync.snapshot_urls` بالترتيب، ويتحقق من chain ID و checksum و state root و KV namespace، ثم يستعيد البيانات إلى LevelDB ويعيد بناء الفهارس قبل تشغيل العقدة. إذا كان التخزين المحلي وصل إلى `state_sync.min_height` وكانت `state_sync.trust_local_higher` بقيمة true، يحتفظ node بالـ store المحلي ويسجل `state_sync_skipped`.
+
+```json
+{
+  "state_sync": {
+    "enabled": true,
+    "snapshot_urls": ["https://snapshots.example.com/vexo-chain/latest.json"],
+    "timeout": "30s",
+    "min_height": 1000000,
+    "require_fresh": true,
+    "trust_local_higher": true,
+    "max_snapshot_bytes": 268435456,
+    "retry_all_snapshots": true
+  }
+}
+```
+
+راقب `state_sync_candidate_failed` و `state_sync_candidate_rejected` و `state_sync_applied`. في الشبكات العامة لا تستخدم snapshot من طرف ثالث بلا سياسة ثقة وبلا finality/light-client evidence.
+
 <!-- vexo-docs:technical-parity -->
 ## ملحق التكافؤ التقني
 

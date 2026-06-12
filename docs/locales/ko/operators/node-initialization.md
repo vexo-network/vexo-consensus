@@ -85,6 +85,27 @@
 
 새 네트워크 홈은 `network_config.json` 안의 `p2p.dial_timeout`, `p2p.auth_replay_path`, `p2p.require_auth_replay_store`를 함께 검토해야 합니다. 기본 `10s` dial timeout은 TCP 연결, TLS, signed handshake, replay-store 검사를 모두 포함합니다. 공개 네트워크에서는 이 값을 shell flag로 숨기지 말고 config review 대상에 포함하세요.
 
+## 시작 시 State Sync
+
+`network_config.json`의 `state_sync` 블록은 새 archive 노드, 교체 validator, 깨끗한 머신에 복구한 노드가 시작 전에 검증된 snapshot으로 상태를 채우는 경로입니다. `state_sync.enabled`가 true이면 `vexod start`는 `state_sync.snapshot_urls`를 순서대로 시도하고, chain ID, checksum, state root, KV namespace를 검증한 뒤 LevelDB에 복원하고 index를 재생성한 다음 노드를 시작합니다. 로컬 상태가 이미 `state_sync.min_height` 이상이고 `state_sync.trust_local_higher`가 true이면 로컬 store를 유지하며 `state_sync_skipped`를 기록합니다.
+
+```json
+{
+  "state_sync": {
+    "enabled": true,
+    "snapshot_urls": ["https://snapshots.example.com/vexo-chain/latest.json"],
+    "timeout": "30s",
+    "min_height": 1000000,
+    "require_fresh": true,
+    "trust_local_higher": true,
+    "max_snapshot_bytes": 268435456,
+    "retry_all_snapshots": true
+  }
+}
+```
+
+운영 로그에서 `state_sync_candidate_failed`, `state_sync_candidate_rejected`, `state_sync_applied`를 확인하세요. 공개 네트워크에서는 snapshot 제공자를 신뢰할 수 있는 운영 주체로 제한하고, finality/light-client evidence 없이 임의의 third-party snapshot을 사용하지 마세요.
+
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록
 

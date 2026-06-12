@@ -85,6 +85,27 @@
 
 Для нового home узла проверяйте вместе `p2p.dial_timeout`, `p2p.auth_replay_path` и `p2p.require_auth_replay_store` в `network_config.json`. Значение `10s` покрывает TCP dial, TLS, signed handshake и replay-store. В публичной сети эти параметры должны быть частью проверяемой конфигурации, а не скрытыми shell flags.
 
+## State Sync при запуске
+
+Блок `state_sync` в `network_config.json` нужен новым archive-нодам, заменяемым validator и нодам, восстановленным на чистой машине. Когда `state_sync.enabled` равно true, `vexod start` по порядку пробует `state_sync.snapshot_urls`, проверяет chain ID, checksum, state root и KV namespace, восстанавливает данные в LevelDB, пересоздает индексы и только затем запускает ноду. Если локальное состояние уже достигло `state_sync.min_height`, а `state_sync.trust_local_higher` равно true, локальный store сохраняется и пишется событие `state_sync_skipped`.
+
+```json
+{
+  "state_sync": {
+    "enabled": true,
+    "snapshot_urls": ["https://snapshots.example.com/vexo-chain/latest.json"],
+    "timeout": "30s",
+    "min_height": 1000000,
+    "require_fresh": true,
+    "trust_local_higher": true,
+    "max_snapshot_bytes": 268435456,
+    "retry_all_snapshots": true
+  }
+}
+```
+
+Проверяйте `state_sync_candidate_failed`, `state_sync_candidate_rejected` и `state_sync_applied`. В публичной сети не используйте сторонний snapshot без политики доверия и finality/light-client evidence.
+
 <!-- vexo-docs:technical-parity -->
 ## Приложение о техническом соответствии
 

@@ -85,6 +85,27 @@
 
 नए node home में `network_config.json` के `p2p.dial_timeout`, `p2p.auth_replay_path`, और `p2p.require_auth_replay_store` को साथ में जाँचें। डिफ़ॉल्ट `10s` TCP dial, TLS, signed handshake, और replay-store check को कवर करता है। सार्वजनिक नेटवर्क में इन्हें shell flags में छिपाने के बजाय review की गई config में रखें।
 
+## शुरू होते समय State Sync
+
+`network_config.json` का `state_sync` ब्लॉक नए archive node, replacement validator, या साफ मशीन पर restore किए गए node के लिए है। जब `state_sync.enabled` true होता है, `vexod start` `state_sync.snapshot_urls` को क्रम से आज़माता है, chain ID, checksum, state root और KV namespace की जांच करता है, LevelDB में restore करता है, indexes फिर बनाता है, और उसके बाद node शुरू करता है। अगर local state पहले से `state_sync.min_height` तक पहुंच चुका है और `state_sync.trust_local_higher` true है, तो local store रखा जाता है और `state_sync_skipped` log होता है।
+
+```json
+{
+  "state_sync": {
+    "enabled": true,
+    "snapshot_urls": ["https://snapshots.example.com/vexo-chain/latest.json"],
+    "timeout": "30s",
+    "min_height": 1000000,
+    "require_fresh": true,
+    "trust_local_higher": true,
+    "max_snapshot_bytes": 268435456,
+    "retry_all_snapshots": true
+  }
+}
+```
+
+Operator को `state_sync_candidate_failed`, `state_sync_candidate_rejected`, और `state_sync_applied` logs देखने चाहिए। public network में trust policy और finality/light-client evidence के बिना third-party snapshot source का उपयोग न करें।
+
 <!-- vexo-docs:technical-parity -->
 ## तकनीकी समानता परिशिष्ट
 

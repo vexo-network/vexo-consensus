@@ -143,6 +143,7 @@ type releaseDocsLocaleManifest struct {
 }
 
 const releaseTechnicalParityMarker = "<!-- vexo-docs:technical-parity -->"
+const releaseMinimumLocalizedDepthPercent = 35
 
 func runReleaseDocsQuality(writer io.Writer, args []string) error {
 	flags := flag.NewFlagSet("release docs-quality", flag.ContinueOnError)
@@ -274,7 +275,7 @@ func buildReleaseDocsQualityDocument(docsDir string, minBytes int) (releaseDocsQ
 			addCheck("locale_no_untranslated_boilerplate", locale, relative, releaseLocalizedBoilerplateLeak(locale, body) == "", "localized document must not keep English boilerplate headings or canonical-source labels")
 			addCheck("locale_technical_parity_appendix", locale, relative, strings.Contains(body, releaseTechnicalParityMarker), "localized document must include a technical parity appendix")
 			canonicalBody := canonicalBodies[relative]
-			addCheck("locale_relative_depth", locale, relative, len([]byte(body))*100 >= len([]byte(canonicalBody))*22, "localized document must be at least 22% of canonical depth including technical parity notes")
+			addCheck("locale_relative_depth", locale, relative, len([]byte(body))*100 >= len([]byte(canonicalBody))*releaseMinimumLocalizedDepthPercent, fmt.Sprintf("localized document must be at least %d%% of canonical depth including technical parity notes", releaseMinimumLocalizedDepthPercent))
 			missingTerms := releaseMissingStableDocTerms(body, releaseStableDocTerms(canonicalBody))
 			addCheck("locale_stable_terms", locale, relative, len(missingTerms) == 0, "localized document must preserve canonical commands, config keys, RPC methods, and package terms")
 		}

@@ -85,6 +85,27 @@ Tài liệu này giúp hiểu khởi tạo node archive/validator và vận hàn
 
 Với node home mới, hãy kiểm tra cùng lúc `p2p.dial_timeout`, `p2p.auth_replay_path`, và `p2p.require_auth_replay_store` trong `network_config.json`. Mặc định `10s` bao gồm TCP dial, TLS, signed handshake, và replay-store check. Với mạng công khai, hãy để các giá trị này trong config được review thay vì shell flags ẩn.
 
+## State Sync khi khởi động
+
+Khối `state_sync` trong `network_config.json` dùng cho node archive mới, validator thay thế hoặc node được khôi phục trên máy sạch. Khi `state_sync.enabled` là true, `vexod start` thử lần lượt `state_sync.snapshot_urls`, kiểm tra chain ID, checksum, state root và KV namespace, khôi phục vào LevelDB, dựng lại index rồi mới khởi động node. Nếu trạng thái cục bộ đã đạt `state_sync.min_height` và `state_sync.trust_local_higher` là true, node giữ store cục bộ và ghi log `state_sync_skipped`.
+
+```json
+{
+  "state_sync": {
+    "enabled": true,
+    "snapshot_urls": ["https://snapshots.example.com/vexo-chain/latest.json"],
+    "timeout": "30s",
+    "min_height": 1000000,
+    "require_fresh": true,
+    "trust_local_higher": true,
+    "max_snapshot_bytes": 268435456,
+    "retry_all_snapshots": true
+  }
+}
+```
+
+Hãy theo dõi `state_sync_candidate_failed`, `state_sync_candidate_rejected` và `state_sync_applied`. Với mạng công khai, không dùng nguồn snapshot bên thứ ba nếu chưa có trust policy và finality/light-client evidence.
+
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật
 

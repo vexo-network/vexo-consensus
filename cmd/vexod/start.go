@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -24,14 +25,17 @@ import (
 	vexonode "github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	vexorpc "github.com/vexo-network/vexo-consensus/rpc"
+	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/transport"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
 const (
-	defaultRPCAddress      = "127.0.0.1:26657"
-	defaultP2PAddress      = "127.0.0.1:26656"
-	defaultShutdownTimeout = 10 * time.Second
+	defaultRPCAddress                = "127.0.0.1:26657"
+	defaultP2PAddress                = "127.0.0.1:26656"
+	defaultShutdownTimeout           = 10 * time.Second
+	defaultStateSyncTimeout          = 30 * time.Second
+	defaultStateSyncSnapshotMaxBytes = int64(256 * 1024 * 1024)
 )
 
 type startPlanDocument struct {
@@ -102,6 +106,7 @@ type startRuntimeConfig struct {
 	P2PTLSServerName        string
 	AddrBookPath            string
 	AddrBookMaxFailures     int
+	StateSync               runtimeStateSyncConfig
 }
 
 type stringListFlags []string
@@ -409,6 +414,9 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 		runtimeConfig.LogLevel = "info"
 	}
 	logEvent := newOperationalLogger(writer, runtimeConfig.LogFormat, runtimeConfig.LogLevel)
+	if err := maybeRunStartupStateSync(ctx, inputs, runtimeConfig, logEvent); err != nil {
+		return err
+	}
 	node, p2pWire, err := buildRuntimeNode(inputs, runtimeConfig)
 	if err != nil {
 		return err
@@ -509,6 +517,108 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 	}
 	logEvent("node_stopped", map[string]any{"chain_id": inputs.Plan.ChainID})
 	return nil
+}
+
+func maybeRunStartupStateSync(ctx context.Context, inputs startInputs, runtimeConfig startRuntimeConfig, logEvent vexonode.EventLogger) error {
+	stateSync := runtimeConfig.StateSync
+	if !stateSync.Enabled {
+		return nil
+	}
+	if logEvent == nil {
+		logEvent = func(string, map[string]any) {}
+	}
+	if len(stateSync.SnapshotURLs) == 0 {
+		return fmt.Errorf("network_config.json:state_sync.snapshot_urls is required when state sync is enabled: %w", vexoconfig.ErrUnsafeNetworkConfig)
+	}
+	timeout, err := parseDurationOrDefault(stateSync.Timeout, defaultStateSyncTimeout)
+	if err != nil {
+		return fmt.Errorf("state_sync.timeout: %w", err)
+	}
+	maxSnapshotBytes := stateSync.MaxSnapshotBytes
+	if maxSnapshotBytes == 0 {
+		maxSnapshotBytes = defaultStateSyncSnapshotMaxBytes
+	}
+	storage, err := store.OpenLevelDB(inputs.Config.StoreDir())
+	if err != nil {
+		return err
+	}
+	defer storage.Close()
+	localState, localErr := storage.LatestState(ctx)
+	localFound := localErr == nil
+	if localErr != nil && !errors.Is(localErr, store.ErrStateNotFound) {
+		return localErr
+	}
+	if localFound && stateSync.TrustLocalHigher {
+		minHeight := types.Height(stateSync.MinHeight)
+		if stateSync.MinHeight == 0 || localState.Height >= minHeight {
+			logEvent("state_sync_skipped", map[string]any{"reason": "local_state_satisfies_threshold", "local_height": localState.Height, "min_height": stateSync.MinHeight})
+			return nil
+		}
+	}
+	var lastErr error
+	for _, snapshotURL := range stateSync.SnapshotURLs {
+		snapshotURL = strings.TrimSpace(snapshotURL)
+		if snapshotURL == "" {
+			continue
+		}
+		document, err := downloadSnapshotDocumentWithLimitContext(ctx, snapshotURL, timeout, maxSnapshotBytes)
+		if err != nil {
+			lastErr = err
+			logEvent("state_sync_candidate_failed", map[string]any{"url": snapshotURL, "error": err.Error()})
+			if !stateSync.RetryAllSnapshots {
+				return err
+			}
+			continue
+		}
+		if err := validateStartupStateSyncCandidate(document, inputs.Config.Chain.ChainID, localState, localFound, stateSync); err != nil {
+			lastErr = err
+			logEvent("state_sync_candidate_rejected", map[string]any{"url": snapshotURL, "height": document.State.Height, "error": err.Error()})
+			if !stateSync.RetryAllSnapshots {
+				return err
+			}
+			continue
+		}
+		if err := restoreSnapshotDocumentWithContext(ctx, storage, document); err != nil {
+			return err
+		}
+		if _, err := storage.RecoverIndexes(ctx); err != nil {
+			return err
+		}
+		logEvent("state_sync_applied", map[string]any{"url": snapshotURL, "height": document.State.Height, "modules": document.Modules})
+		return nil
+	}
+	if lastErr != nil {
+		return fmt.Errorf("state sync failed for all configured snapshots: %w", lastErr)
+	}
+	return errors.New("state sync failed: no usable snapshot URLs configured")
+}
+
+func validateStartupStateSyncCandidate(document snapshotDocument, chainID string, localState store.StateRecord, localFound bool, stateSync runtimeStateSyncConfig) error {
+	if err := validateSnapshotDocument(document, chainID); err != nil {
+		return err
+	}
+	if stateSync.RequireFresh && stateSync.MinHeight > 0 && document.State.Height < types.Height(stateSync.MinHeight) {
+		return fmt.Errorf("snapshot height %d is below required state_sync.min_height %d", document.State.Height, stateSync.MinHeight)
+	}
+	if localFound && document.State.Height <= localState.Height {
+		return fmt.Errorf("snapshot height %d is not newer than local height %d", document.State.Height, localState.Height)
+	}
+	return nil
+}
+
+func parseDurationOrDefault(value string, fallback time.Duration) (time.Duration, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback, nil
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, err
+	}
+	if duration <= 0 {
+		return 0, vexoconfig.ErrInvalidConfig
+	}
+	return duration, nil
 }
 
 func withShutdownContext(parent context.Context, timeout time.Duration, run func(context.Context) error) error {
@@ -692,6 +802,7 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 	runtime := runtimeConfig{
 		RPC:       networkDocument.RPC,
 		P2P:       networkDocument.P2P,
+		StateSync: networkDocument.StateSync,
 		Consensus: consensusDocument.Consensus,
 		Log:       logDocument.Log,
 	}
@@ -735,6 +846,7 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 		AddrBookMaxFailures:     runtime.P2P.AddrBookMaxFails,
 		P2PPeers:                stringPeerMap(runtime.P2P.Peers),
 		P2PSeeds:                stringPeerMap(runtime.P2P.Seeds),
+		StateSync:               runtime.StateSync,
 		ConsensusLoopEnabled:    runtime.Consensus.LoopEnabled,
 		ConsensusLoop: vexonode.ConsensusLoopConfig{
 			MaxBlockBytes:       runtime.Consensus.MaxBlockBytes,
@@ -869,6 +981,9 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 	if document.RequireNetworkSafety && cfg.ConsensusLoop.ExecutionCommitMode != vexonode.ExecutionCommitModeFinalized {
 		return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.execution_commit must be %q when require_network_safety=true: %w", vexonode.ExecutionCommitModeFinalized, vexoconfig.ErrUnsafeNetworkConfig)
 	}
+	if err := validateStateSyncRuntimeConfig(cfg.StateSync); err != nil {
+		return startRuntimeConfig{}, err
+	}
 	if err := validateRuntimeNetworkSafety(cfg); err != nil {
 		return startRuntimeConfig{}, err
 	}
@@ -884,6 +999,35 @@ func cloneStringSliceMap(values map[string][]string) map[string][]string {
 		cloned[key] = append([]string(nil), value...)
 	}
 	return cloned
+}
+
+func validateStateSyncRuntimeConfig(stateSync runtimeStateSyncConfig) error {
+	if _, err := parseDurationOrDefault(stateSync.Timeout, defaultStateSyncTimeout); err != nil {
+		return fmt.Errorf("runtime.state_sync.timeout: %w", err)
+	}
+	if stateSync.MaxSnapshotBytes < 0 {
+		return fmt.Errorf("runtime.state_sync.max_snapshot_bytes: %w", vexoconfig.ErrInvalidConfig)
+	}
+	if !stateSync.Enabled {
+		return nil
+	}
+	if len(stateSync.SnapshotURLs) == 0 {
+		return fmt.Errorf("runtime.state_sync.snapshot_urls is required when enabled: %w", vexoconfig.ErrUnsafeNetworkConfig)
+	}
+	for _, rawURL := range stateSync.SnapshotURLs {
+		rawURL = strings.TrimSpace(rawURL)
+		if rawURL == "" {
+			return fmt.Errorf("runtime.state_sync.snapshot_urls contains an empty URL: %w", vexoconfig.ErrInvalidConfig)
+		}
+		parsed, err := url.Parse(rawURL)
+		if err != nil || parsed.Host == "" {
+			return fmt.Errorf("runtime.state_sync.snapshot_urls contains invalid URL %q: %w", rawURL, vexoconfig.ErrInvalidConfig)
+		}
+		if parsed.Scheme != "http" && parsed.Scheme != "https" {
+			return fmt.Errorf("runtime.state_sync.snapshot_urls URL %q must use http or https: %w", rawURL, vexoconfig.ErrInvalidConfig)
+		}
+	}
+	return nil
 }
 
 func validateRuntimeNetworkSafety(cfg startRuntimeConfig) error {
@@ -992,6 +1136,7 @@ func runtimeConfigIsZero(runtime runtimeConfig) bool {
 		runtime.P2P.AddrBookMaxFails == 0 &&
 		len(runtime.P2P.Peers) == 0 &&
 		len(runtime.P2P.Seeds) == 0 &&
+		!runtimeStateSyncConfigSet(runtime.StateSync) &&
 		runtime.Consensus == (runtimeConsensusConfig{}) &&
 		runtime.Log == (runtimeLogConfig{})
 }

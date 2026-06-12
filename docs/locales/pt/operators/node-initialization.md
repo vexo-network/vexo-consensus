@@ -85,6 +85,27 @@ Este documento ajuda a entender inicialização de nós archive/validator e uso 
 
 Em um novo home de nó, revise juntos `p2p.dial_timeout`, `p2p.auth_replay_path` e `p2p.require_auth_replay_store` em `network_config.json`. O padrão `10s` cobre TCP dial, TLS, signed handshake e replay-store. Em redes públicas, mantenha isso na configuração revisada, não escondido em flags de shell.
 
+## State Sync na inicialização
+
+O bloco `state_sync` em `network_config.json` atende novos nós archive, validator substitutos e nós restaurados em uma máquina limpa. Quando `state_sync.enabled` é true, `vexod start` tenta `state_sync.snapshot_urls` em ordem, verifica chain ID, checksum, state root e KV namespace, restaura no LevelDB, reconstrói índices e só então inicia o nó. Se o estado local já atende `state_sync.min_height` e `state_sync.trust_local_higher` é true, o store local é mantido e `state_sync_skipped` é registrado.
+
+```json
+{
+  "state_sync": {
+    "enabled": true,
+    "snapshot_urls": ["https://snapshots.example.com/vexo-chain/latest.json"],
+    "timeout": "30s",
+    "min_height": 1000000,
+    "require_fresh": true,
+    "trust_local_higher": true,
+    "max_snapshot_bytes": 268435456,
+    "retry_all_snapshots": true
+  }
+}
+```
+
+Monitore `state_sync_candidate_failed`, `state_sync_candidate_rejected` e `state_sync_applied`. Em rede pública, não use snapshot de terceiros sem política de confiança e finality/light-client evidence.
+
 <!-- vexo-docs:technical-parity -->
 ## Apêndice de paridade técnica
 

@@ -695,11 +695,26 @@ func snapshotStateProofPairs(pairs []store.KVPair) []stateproof.Pair {
 }
 
 func downloadSnapshotDocument(url string, timeout time.Duration) (snapshotDocument, error) {
+	return downloadSnapshotDocumentWithLimit(url, timeout, 32*1024*1024)
+}
+
+func downloadSnapshotDocumentWithLimit(url string, timeout time.Duration, maxBytes int64) (snapshotDocument, error) {
+	return downloadSnapshotDocumentWithLimitContext(context.Background(), url, timeout, maxBytes)
+}
+
+func downloadSnapshotDocumentWithLimitContext(ctx context.Context, url string, timeout time.Duration, maxBytes int64) (snapshotDocument, error) {
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
+	if maxBytes <= 0 {
+		maxBytes = 32 * 1024 * 1024
+	}
 	client := http.Client{Timeout: timeout}
-	response, err := client.Get(url)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return snapshotDocument{}, err
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		return snapshotDocument{}, err
 	}
@@ -707,8 +722,15 @@ func downloadSnapshotDocument(url string, timeout time.Duration) (snapshotDocume
 	if response.StatusCode != http.StatusOK {
 		return snapshotDocument{}, fmt.Errorf("snapshot download failed: status %d", response.StatusCode)
 	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxBytes+1))
+	if err != nil {
+		return snapshotDocument{}, err
+	}
+	if int64(len(data)) > maxBytes {
+		return snapshotDocument{}, fmt.Errorf("snapshot download exceeds max bytes %d", maxBytes)
+	}
 	var document snapshotDocument
-	decoder := json.NewDecoder(io.LimitReader(response.Body, 32*1024*1024))
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&document); err != nil {
 		return snapshotDocument{}, err

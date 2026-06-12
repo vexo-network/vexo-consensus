@@ -85,14 +85,14 @@ func TestDocsLocalesMirrorCanonicalTree(t *testing.T) {
 			if body == canonicalLocaleFiles[relative] {
 				t.Fatalf("locale %s document %s is identical to canonical English", locale, relative)
 			}
-			if err := validateLocalizedMarkdownBody(locale, relative, body); err != nil {
+			if err := validateLocalizedMarkdownBody(locale, relative, body, canonicalLocaleFiles[relative]); err != nil {
 				t.Fatal(err)
 			}
 		}
 	}
 }
 
-func validateLocalizedMarkdownBody(locale string, relative string, body string) error {
+func validateLocalizedMarkdownBody(locale string, relative string, body string, canonicalBody string) error {
 	if len(strings.TrimSpace(body)) < 1500 {
 		return &docsLocaleQualityError{locale: locale, relative: relative, reason: "localized document is too short to be useful"}
 	}
@@ -109,6 +109,12 @@ func validateLocalizedMarkdownBody(locale string, relative string, body string) 
 	}
 	if reason := localizedBoilerplateLeak(locale, body); reason != "" {
 		return &docsLocaleQualityError{locale: locale, relative: relative, reason: reason}
+	}
+	if len([]byte(body))*100 < len([]byte(canonicalBody))*releaseMinimumLocalizedDepthPercent {
+		return &docsLocaleQualityError{locale: locale, relative: relative, reason: fmt.Sprintf("localized document is below %d%% of canonical depth", releaseMinimumLocalizedDepthPercent)}
+	}
+	if missingTerms := releaseMissingStableDocTerms(body, releaseStableDocTerms(canonicalBody)); len(missingTerms) > 0 {
+		return &docsLocaleQualityError{locale: locale, relative: relative, reason: "localized document is missing stable terms: " + strings.Join(missingTerms, ", ")}
 	}
 	return nil
 }

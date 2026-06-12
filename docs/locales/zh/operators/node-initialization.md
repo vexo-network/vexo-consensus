@@ -85,6 +85,27 @@
 
 新的节点目录需要一起审查 `network_config.json` 中的 `p2p.dial_timeout`, `p2p.auth_replay_path`, `p2p.require_auth_replay_store`。默认 `10s` dial timeout 覆盖 TCP 连接、TLS、signed handshake 和 replay-store 检查。公网部署时不要把这些行为藏在 shell flag 中，应放入配置审查流程。
 
+## 启动时 State Sync
+
+`network_config.json` 中的 `state_sync` 块用于新 archive 节点、替换 validator 或在干净机器上恢复的节点。`state_sync.enabled` 为 true 时，`vexod start` 会按顺序尝试 `state_sync.snapshot_urls`，校验 chain ID、checksum、state root 和 KV namespace，然后写入 LevelDB、重建索引，最后才启动节点。如果本地状态已经达到 `state_sync.min_height`，并且 `state_sync.trust_local_higher` 为 true，节点会保留本地 store 并记录 `state_sync_skipped`。
+
+```json
+{
+  "state_sync": {
+    "enabled": true,
+    "snapshot_urls": ["https://snapshots.example.com/vexo-chain/latest.json"],
+    "timeout": "30s",
+    "min_height": 1000000,
+    "require_fresh": true,
+    "trust_local_higher": true,
+    "max_snapshot_bytes": 268435456,
+    "retry_all_snapshots": true
+  }
+}
+```
+
+运维人员应检查 `state_sync_candidate_failed`、`state_sync_candidate_rejected` 和 `state_sync_applied` 日志。公开网络不要使用没有信任策略和 finality/light-client evidence 的第三方 snapshot 源。
+
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录
 
