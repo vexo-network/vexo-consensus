@@ -213,9 +213,6 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 		}
 	}
 	if runtimeConfig.RPCEnabled {
-		hasRPCAdminAuth := runtimeConfig.RPCAdminToken != "" || len(runtimeConfig.RPCAdminTokens) > 0
-		document.addCheck("rpc_admin_token", strictSeverity(strict), hasRPCAdminAuth, "protect admin RPC endpoints with an admin token")
-		document.addCheck("rpc_private_or_admin", strictSeverity(strict), isPrivateListenAddress(runtimeConfig.RPCAddress) || hasRPCAdminAuth, "public RPC listeners need admin-token protection")
 		document.addCheck("rpc_tls_identity", strictSeverity(strict), isPrivateListenAddress(runtimeConfig.RPCAddress) || (runtimeConfig.RPCTLSCertPath != "" && runtimeConfig.RPCTLSKeyPath != ""), "public RPC listeners need TLS cert/key identity")
 		document.addCheck("rpc_mtls_ca", "warning", isPrivateListenAddress(runtimeConfig.RPCAddress) || runtimeConfig.RPCTLSCAPath != "", "configure RPC TLS CA trust roots to require client certificates on public admin/API endpoints")
 		document.addCheck("rpc_pprof_loopback", strictSeverity(strict), !runtimeConfig.RPCEnablePprof || isLoopbackListenAddress(runtimeConfig.RPCAddress), "pprof should only be exposed on loopback interfaces")
@@ -223,7 +220,6 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 		document.addCheck("rpc_rate_limit", "warning", runtimeConfig.RPCRateLimitMaxRequests > 0, "set --rpc-rate-limit-max to reduce RPC floods")
 	}
 	if runtimeConfig.P2PEnabled {
-		document.addCheck("p2p_auth_token", strictSeverity(strict), runtimeConfig.P2PAuthToken != "", "set a P2P auth token to harden handshakes")
 		document.addCheck("p2p_tls_identity", strictSeverity(strict), runtimeConfig.P2PTLSCertPath != "" && runtimeConfig.P2PTLSKeyPath != "", "configure P2P TLS cert/key identity for encrypted peer transport")
 		document.addCheck("p2p_mtls_ca", strictSeverity(strict), runtimeConfig.P2PTLSCAPath != "", "configure P2P TLS CA trust roots so peers verify client certificates")
 		document.addCheck("p2p_message_limit", "warning", runtimeConfig.P2PMaxMessageBytes > 0, "set --p2p-max-message-bytes to bound peer payloads")

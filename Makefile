@@ -33,7 +33,7 @@ RC_EVM_CONFORMANCE_FLAGS ?=
 FUZZ_PARALLEL ?= 1
 NETWORK_E2E_GO_TIMEOUT ?= 120000s
 
-.PHONY: all build test vet race check docs-check evm-conformance fuzz-smoke ops-verify network-e2e coverage release release-preflight release-portable checksums sbom release-manifest release-audit-pack release-evidence-manifest sign-release docker-image release-candidate release-candidate-real release-candidate-smoke release-candidate-plan clean
+.PHONY: all build test vet race check docs-check evm-conformance fuzz-smoke ops-verify network-e2e coverage release release-preflight release-portable checksums sbom release-manifest release-audit-pack release-evidence-manifest sign-release docker-image docker-image-cgo docker-image-nocgo release-candidate release-candidate-real release-candidate-smoke release-candidate-plan clean
 
 all: check build
 
@@ -156,11 +156,24 @@ sign-release:
 	$(GPG) --batch --yes --armor --detach-sign --output $(DIST_DIR)/checksums.txt.asc $(DIST_DIR)/checksums.txt
 
 docker-image:
+	$(MAKE) docker-image-nocgo
+
+docker-image-nocgo:
 	docker build \
+		-f Dockerfile.nocgo \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg COMMIT=$(COMMIT) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t $(IMAGE):$(IMAGE_TAG)-nocgo \
 		-t $(IMAGE):$(IMAGE_TAG) .
+
+docker-image-cgo:
+	docker build \
+		-f Dockerfile.cgo \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		-t $(IMAGE):$(IMAGE_TAG)-cgo .
 
 release-portable: RELEASE_REQUIRE_BLS=0
 release-portable: release

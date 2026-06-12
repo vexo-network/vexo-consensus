@@ -51,6 +51,7 @@ func registerPprofHandlers(mux *http.ServeMux) {
 }
 
 func applyMiddleware(handler http.Handler, cfg Config) http.Handler {
+	handler = cors(handler, cfg)
 	if cfg.RequestTimeout > 0 {
 		handler = requestTimeout(handler, cfg.RequestTimeout)
 	}
@@ -62,6 +63,39 @@ func applyMiddleware(handler http.Handler, cfg Config) http.Handler {
 		handler = newRateLimiter(window, cfg.RateLimitMaxRequests).Handler(handler)
 	}
 	return handler
+}
+
+func cors(next http.Handler, cfg Config) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		origin := strings.TrimSpace(request.Header.Get("Origin"))
+		if origin != "" {
+			writer.Header().Set("Access-Control-Allow-Origin", corsAllowedOrigin(origin, cfg))
+			writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+			writer.Header().Set("Access-Control-Max-Age", "600")
+			writer.Header().Add("Vary", "Origin")
+			writer.Header().Add("Vary", "Access-Control-Request-Method")
+			writer.Header().Add("Vary", "Access-Control-Request-Headers")
+		}
+		if request.Method == http.MethodOptions {
+			writer.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(writer, request)
+	})
+}
+
+func corsAllowedOrigin(origin string, cfg Config) string {
+	if len(cfg.CORSAllowedOrigins) == 0 {
+		return "*"
+	}
+	for _, allowed := range cfg.CORSAllowedOrigins {
+		allowed = strings.TrimSpace(allowed)
+		if allowed == "*" || allowed == origin {
+			return allowed
+		}
+	}
+	return cfg.CORSAllowedOrigins[0]
 }
 
 func requestTimeout(next http.Handler, timeout time.Duration) http.Handler {
@@ -146,9 +180,8 @@ func allowPost(writer http.ResponseWriter, request *http.Request) bool {
 
 func allowAdmin(writer http.ResponseWriter, request *http.Request, cfg Config, scope string) bool {
 	if cfg.AdminToken == "" && len(cfg.AdminTokens) == 0 {
-		auditAdmin(cfg, request, scope, false, "not_configured")
-		writeJSON(writer, http.StatusUnauthorized, map[string]string{"error": "admin authorization is not configured"})
-		return false
+		auditAdmin(cfg, request, scope, true, "not_configured_open")
+		return true
 	}
 	const prefix = "Bearer "
 	header := request.Header.Get("Authorization")

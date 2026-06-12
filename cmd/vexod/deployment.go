@@ -181,8 +181,8 @@ func buildDeploymentTemplateDocument() deploymentTemplateDocument {
 			RPCMaxRequestBytes:      1_048_576,
 			RPCRateLimitMaxRequests: 100,
 			P2PMaxMessageBytes:      1_048_576,
-			P2PAuthTokenRequired:    true,
-			RPCAdminTokenRequired:   true,
+			P2PAuthTokenRequired:    false,
+			RPCAdminTokenRequired:   false,
 			PprofLoopbackOnly:       true,
 		},
 		Validation: deploymentValidationTemplate{

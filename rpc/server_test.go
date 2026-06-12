@@ -1953,6 +1953,53 @@ func TestHandlerWeb3UsesConfiguredEVMChainID(t *testing.T) {
 	}
 }
 
+func TestHandlerAllowsWeb3CORSPreflightForRemix(t *testing.T) {
+	handler := NewHandlerWithConfig(fakeStatusProvider{}, Config{CORSAllowedOrigins: []string{"https://remix.ethereum.org"}})
+	request := httptest.NewRequest(http.MethodOptions, "/web3", nil)
+	request.Header.Set("Origin", "https://remix.ethereum.org")
+	request.Header.Set("Access-Control-Request-Method", "POST")
+	request.Header.Set("Access-Control-Request-Headers", "content-type")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("expected preflight success, got %d body=%s", response.Code, response.Body.String())
+	}
+	if got := response.Header().Get("Access-Control-Allow-Origin"); got != "https://remix.ethereum.org" {
+		t.Fatalf("unexpected allow origin %q", got)
+	}
+	if !strings.Contains(response.Header().Get("Access-Control-Allow-Methods"), "POST") {
+		t.Fatalf("expected POST in CORS methods, got %q", response.Header().Get("Access-Control-Allow-Methods"))
+	}
+}
+
+func TestHandlerAddsCORSHeadersToWeb3ChainID(t *testing.T) {
+	handler := NewHandlerWithConfig(fakeStatusProvider{
+		status: node.Status{ChainID: "vexo-chain", EVMChainID: 2026, Running: true},
+	}, Config{})
+	request := httptest.NewRequest(http.MethodPost, "/web3", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", "https://remix.ethereum.org")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected eth_chainId success, got %d body=%s", response.Code, response.Body.String())
+	}
+	if got := response.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("expected default permissive CORS origin for Web3 tooling, got %q", got)
+	}
+	var payload JSONRPCResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Error != nil || payload.Result != "0x7ea" {
+		t.Fatalf("unexpected chain id payload: %+v", payload)
+	}
+}
+
 func TestHandlerWeb3ManagedAccountSigning(t *testing.T) {
 	const privateKeyHex = "4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5"
 	key, err := gethcrypto.HexToECDSA(privateKeyHex)
@@ -3389,6 +3436,18 @@ func TestHandlerAcceptsAdminTokenForPrune(t *testing.T) {
 	postJSONWithToken(t, handler, "/prune", `{"retain_from_height":3}`, "secret", http.StatusOK, &response)
 	if response.RetainFromHeight != 3 || len(provider.prunedHeights) != 1 {
 		t.Fatalf("unexpected authorized prune: response=%+v heights=%+v", response, provider.prunedHeights)
+	}
+}
+
+func TestHandlerAllowsAdminRouteWhenNoTokenConfigured(t *testing.T) {
+	provider := &fakeStatusProvider{pruneResult: store.PruneResult{RetainFromHeight: 3, PrunedBlocks: 1}}
+	handler := NewHandlerWithConfig(provider, Config{})
+
+	var response PruneResponse
+	postJSON(t, handler, "/prune", `{"retain_from_height":3}`, http.StatusOK, &response)
+
+	if response.RetainFromHeight != 3 || len(provider.prunedHeights) != 1 {
+		t.Fatalf("unexpected tokenless admin prune: response=%+v heights=%+v", response, provider.prunedHeights)
 	}
 }
 

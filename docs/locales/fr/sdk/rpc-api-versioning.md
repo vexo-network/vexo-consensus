@@ -84,6 +84,8 @@ La nouvelle interface RPC capability discovery permet de vérifier les fonctionn
 Conservez ces noms d’interface inchangés : `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
 
 <!-- vexo-docs:technical-parity -->
+- `admin_token` and `admin_tokens` are stable configuration keys and must remain unchanged when describing optional bearer-token enforcement.
+
 ## Annexe de parité technique
 
 Cette annexe garantit que la traduction conserve les interfaces exécutables et les sections clés du document canonique anglais. Les commandes, clés de configuration, méthodes RPC et noms de paquets restent inchangés dans toutes les langues.

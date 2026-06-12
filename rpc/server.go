@@ -63,6 +63,7 @@ type Config struct {
 	AdminToken                    string
 	AdminTokens                   map[string][]string
 	AdminAuditSink                func(AdminAuditEvent)
+	CORSAllowedOrigins            []string
 	TLSConfig                     *tls.Config
 	EnablePprof                   bool
 	AllowUnprotectedLegacyTx      bool

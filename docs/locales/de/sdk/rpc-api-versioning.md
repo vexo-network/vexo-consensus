@@ -84,6 +84,8 @@ Die neue RPC capability discovery Schnittstelle zeigt, welche provider Funktione
 Diese Schnittstellennamen unverändert lassen: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
 
 <!-- vexo-docs:technical-parity -->
+- `admin_token` and `admin_tokens` are stable configuration keys and must remain unchanged when describing optional bearer-token enforcement.
+
 ## Anhang zur technischen Parität
 
 Dieser Anhang stellt sicher, dass die Übersetzung die ausführbaren Schnittstellen und Kernabschnitte des englischen Referenzdokuments nicht verliert. Befehle, Konfigurationsschlüssel, RPC-Methoden und Paketnamen bleiben in allen Sprachen unverändert.

@@ -1038,21 +1038,15 @@ func validateRuntimeNetworkSafety(cfg startRuntimeConfig) error {
 		if cfg.P2PNodeKeyPath == "" {
 			return fmt.Errorf("runtime.p2p.node_key_path is required for public peer connections: %w", vexoconfig.ErrUnsafeNetworkConfig)
 		}
-		if cfg.P2PAuthToken == "" {
-			return fmt.Errorf("runtime.p2p.auth_token is required for public peer connections: %w", vexoconfig.ErrUnsafeNetworkConfig)
-		}
 		if cfg.P2PTLSCertPath == "" || cfg.P2PTLSKeyPath == "" || cfg.P2PTLSCAPath == "" {
 			return fmt.Errorf("runtime.p2p tls cert, key, and ca paths are required for public peer connections: %w", vexoconfig.ErrUnsafeNetworkConfig)
 		}
-		if cfg.P2PAuthReplayPath == "" {
+		if cfg.P2PAuthToken != "" && cfg.P2PAuthReplayPath == "" {
 			return fmt.Errorf("runtime.p2p.auth_replay_path is required for public peer connections: %w", vexoconfig.ErrUnsafeNetworkConfig)
 		}
 	}
 	if cfg.P2PRequireAuthReplay && cfg.P2PAuthReplayPath == "" {
 		return fmt.Errorf("runtime.p2p.require_auth_replay_store requires runtime.p2p.auth_replay_path: %w", vexoconfig.ErrUnsafeNetworkConfig)
-	}
-	if cfg.RPCEnabled && cfg.RPCAdminToken == "" && len(cfg.RPCAdminTokens) == 0 && !isPrivateListenAddress(cfg.RPCAddress) {
-		return fmt.Errorf("runtime.rpc.admin_token or scoped runtime.rpc.admin_tokens is required for public rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
 	if cfg.RPCEnabled && !isPrivateListenAddress(cfg.RPCAddress) && (cfg.RPCTLSCertPath == "" || cfg.RPCTLSKeyPath == "") {
 		return fmt.Errorf("runtime.rpc tls cert and key are required for public rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)

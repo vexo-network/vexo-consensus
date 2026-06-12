@@ -3,9 +3,21 @@ image:
   tag: dev
   pullPolicy: IfNotPresent
 
-replicaCount: 4
-
 chainId: vexo-chain
+
+validators:
+  - name: validator-1
+    configSecretName: vexo-validator-1-config
+    keySecretName: vexo-validator-1-keys
+  - name: validator-2
+    configSecretName: vexo-validator-2-config
+    keySecretName: vexo-validator-2-keys
+  - name: validator-3
+    configSecretName: vexo-validator-3-config
+    keySecretName: vexo-validator-3-keys
+  - name: validator-4
+    configSecretName: vexo-validator-4-config
+    keySecretName: vexo-validator-4-keys
 
 service:
   rpcPort: 26657
@@ -42,4 +54,3 @@ configSecretName: ""
 keySecretName: ""
 
 extraEnv: []
-

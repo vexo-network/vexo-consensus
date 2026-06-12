@@ -3453,7 +3453,7 @@ func TestRunConfigAuditReportsProductionWarnings(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if !document.OK || document.Strict || !auditContains(document, "key_encrypted_or_remote", false) || !auditContains(document, "p2p_auth_token", false) {
+	if !document.OK || document.Strict || !auditContains(document, "key_encrypted_or_remote", false) || !auditContains(document, "p2p_tls_identity", false) {
 		t.Fatalf("unexpected non-strict audit document: %+v", document)
 	}
 }
@@ -3494,7 +3494,7 @@ func TestRunConfigAuditPackAndDeploymentTemplate(t *testing.T) {
 	if err := json.Unmarshal(deploymentOutput.Bytes(), &deployment); err != nil {
 		t.Fatal(err)
 	}
-	if !deployment.Chain.Execution.RequireSigned || !deployment.Chain.Mempool.EnablePriority || !deployment.Runtime.P2PAuthTokenRequired {
+	if !deployment.Chain.Execution.RequireSigned || !deployment.Chain.Mempool.EnablePriority || deployment.Runtime.P2PAuthTokenRequired || deployment.Runtime.RPCAdminTokenRequired {
 		t.Fatalf("unexpected deployment template: %+v", deployment)
 	}
 }

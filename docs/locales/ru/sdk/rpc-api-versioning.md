@@ -84,6 +84,8 @@
 Оставляйте эти имена интерфейсов без изменений: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
 
 <!-- vexo-docs:technical-parity -->
+- `admin_token` and `admin_tokens` are stable configuration keys and must remain unchanged when describing optional bearer-token enforcement.
+
 ## Приложение о техническом соответствии
 
 Это приложение помогает убедиться, что перевод сохраняет исполняемые интерфейсы и ключевые разделы английского канонического документа. Команды, ключи конфигурации, методы RPC и имена пакетов остаются неизменными на всех языках.

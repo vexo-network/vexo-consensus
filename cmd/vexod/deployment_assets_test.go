@@ -12,10 +12,18 @@ func TestDeploymentAssetsCoverOperationsPaths(t *testing.T) {
 	root := repoRoot(t)
 	requiredFiles := []string{
 		"deployments/README.md",
+		"Dockerfile.cgo",
+		"Dockerfile.nocgo",
 		"deployments/docker/compose.single-host.init.yml",
+		"deployments/docker/compose.single-host.init.build.cgo.yml",
+		"deployments/docker/compose.single-host.init.build.nocgo.yml",
 		"deployments/docker/compose.single-host.yml",
+		"deployments/docker/compose.single-host.build.cgo.yml",
+		"deployments/docker/compose.single-host.build.nocgo.yml",
 		"deployments/docker/compose.multi-host.init.yml",
 		"deployments/docker/compose.multi-host.yml",
+		"deployments/docker/compose.multi-host.build.cgo.yml",
+		"deployments/docker/compose.multi-host.build.nocgo.yml",
 		"deployments/monitoring/prometheus.yml",
 		"deployments/monitoring/vexo-alerts.yml",
 		"deployments/monitoring/alertmanager.yml",
@@ -85,6 +93,37 @@ func TestReleaseCandidateWorkflowIsNotPRSyntheticSmoke(t *testing.T) {
 		!strings.Contains(nightly, "make network-e2e") ||
 		!strings.Contains(nightly, "make release-candidate-smoke VERSION=nightly") {
 		t.Fatalf("nightly workflow must cover race, network E2E, and release-path smoke")
+	}
+}
+
+func TestHelmChartUsesValidatorScopedSecrets(t *testing.T) {
+	root := repoRoot(t)
+	values := readRepoFile(t, root, "deployments/helm/vexo-consensus/values.yaml")
+	statefulSet := readRepoFile(t, root, "deployments/helm/vexo-consensus/templates/statefulset.yaml")
+
+	for _, expected := range []string{
+		"validators:",
+		"name: validator-1",
+		"configSecretName: vexo-validator-1-config",
+		"keySecretName: vexo-validator-1-keys",
+	} {
+		if !strings.Contains(values, expected) {
+			t.Fatalf("helm values must define validator-scoped secret settings; missing %q", expected)
+		}
+	}
+	for _, expected := range []string{
+		"range $index, $validator := $validators",
+		"replicas: 1",
+		"vexo.network/validator",
+		"$validator.configSecretName",
+		"$validator.keySecretName",
+	} {
+		if !strings.Contains(statefulSet, expected) {
+			t.Fatalf("statefulset template must isolate validator pods and secrets; missing %q", expected)
+		}
+	}
+	if strings.Contains(values, "replicaCount:") {
+		t.Fatalf("helm chart must not use one replicaCount with shared validator secrets")
 	}
 }
 

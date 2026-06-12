@@ -143,9 +143,9 @@ Score persistence should not be on the consensus hot path. Implementations shoul
 - global score windows
 - invalid-message penalties
 - peer bans and disconnects
-- admin-token protection for mutating RPC endpoints
+- operator-boundary protection for mutating RPC endpoints, with optional bearer-token enforcement
 
-Admin RPC endpoints must fail closed when no admin token is configured.
+Admin RPC endpoints enforce bearer tokens when configured; when no token is configured, they must remain behind loopback, private networking, mTLS, or an authenticated gateway.
 
 ## Operational Signals
 

@@ -1,0 +1,11 @@
+services:
+  validator:
+    image: ${VEXO_IMAGE:-vexo-consensus:nocgo}
+    build:
+      context: ../..
+      dockerfile: Dockerfile.nocgo
+      args:
+        VERSION: ${VERSION:-dev}
+        COMMIT: ${COMMIT:-unknown}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+

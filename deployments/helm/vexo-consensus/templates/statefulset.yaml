@@ -1,60 +1,74 @@
+{{- $root := . -}}
+{{- $defaultValidator := dict "name" "validator-1" "configSecretName" .Values.configSecretName "keySecretName" .Values.keySecretName -}}
+{{- $validators := .Values.validators | default (list $defaultValidator) -}}
+{{- range $index, $validator := $validators }}
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ include "vexo-consensus.fullname" . }}
+  name: {{ include "vexo-consensus.fullname" $root }}-{{ required "validator name is required" $validator.name }}
   labels:
-    app.kubernetes.io/name: {{ include "vexo-consensus.name" . }}
-    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/name: {{ include "vexo-consensus.name" $root }}
+    app.kubernetes.io/instance: {{ $root.Release.Name }}
+    app.kubernetes.io/component: validator
+    vexo.network/validator: {{ $validator.name | quote }}
 spec:
-  serviceName: {{ include "vexo-consensus.fullname" . }}
-  replicas: {{ .Values.replicaCount }}
+  serviceName: {{ include "vexo-consensus.fullname" $root }}
+  replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ include "vexo-consensus.name" . }}
-      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/name: {{ include "vexo-consensus.name" $root }}
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
+      app.kubernetes.io/component: validator
+      vexo.network/validator: {{ $validator.name | quote }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: {{ include "vexo-consensus.name" . }}
-        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/name: {{ include "vexo-consensus.name" $root }}
+        app.kubernetes.io/instance: {{ $root.Release.Name }}
+        app.kubernetes.io/component: validator
+        vexo.network/validator: {{ $validator.name | quote }}
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/path: /metrics/text
-        prometheus.io/port: "{{ .Values.service.rpcPort }}"
+        prometheus.io/port: "{{ $root.Values.service.rpcPort }}"
     spec:
       securityContext:
-{{ toYaml .Values.podSecurityContext | indent 8 }}
+{{ toYaml $root.Values.podSecurityContext | indent 8 }}
       nodeSelector:
-{{ toYaml .Values.nodeSelector | indent 8 }}
+{{ toYaml $root.Values.nodeSelector | indent 8 }}
       tolerations:
-{{ toYaml .Values.tolerations | indent 8 }}
+{{ toYaml $root.Values.tolerations | indent 8 }}
       affinity:
-{{ toYaml .Values.affinity | indent 8 }}
+{{ toYaml $root.Values.affinity | indent 8 }}
       containers:
         - name: vexod
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: "{{ $root.Values.image.repository }}:{{ $root.Values.image.tag }}"
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
           securityContext:
-{{ toYaml .Values.securityContext | indent 12 }}
+{{ toYaml $root.Values.securityContext | indent 12 }}
           args:
             - start
             - --home
             - /var/lib/vexo
           ports:
             - name: rpc
-              containerPort: {{ .Values.service.rpcPort }}
+              containerPort: {{ $root.Values.service.rpcPort }}
             - name: p2p
-              containerPort: {{ .Values.service.p2pPort }}
+              containerPort: {{ $root.Values.service.p2pPort }}
           env:
             - name: VEXO_CHAIN_ID
-              value: {{ .Values.chainId | quote }}
-{{- with .Values.extraEnv }}
+              value: {{ $root.Values.chainId | quote }}
+            - name: VEXO_VALIDATOR_ID
+              value: {{ $validator.name | quote }}
+{{- with $root.Values.extraEnv }}
 {{ toYaml . | indent 12 }}
 {{- end }}
           volumeMounts:
             - name: data
               mountPath: /var/lib/vexo
-{{- if .Values.configSecretName }}
+{{- $configSecret := default $root.Values.configSecretName $validator.configSecretName }}
+{{- if $configSecret }}
             - name: config
               mountPath: /var/lib/vexo/config.json
               subPath: config.json
@@ -84,7 +98,8 @@ spec:
               subPath: genesis.json
               readOnly: true
 {{- end }}
-{{- if .Values.keySecretName }}
+{{- $keySecret := default $root.Values.keySecretName $validator.keySecretName }}
+{{- if $keySecret }}
             - name: keys
               mountPath: /var/lib/vexo/validator.key.json
               subPath: validator.key.json
@@ -107,26 +122,27 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 2
           resources:
-{{ toYaml .Values.resources | indent 12 }}
+{{ toYaml $root.Values.resources | indent 12 }}
       volumes:
-{{- if .Values.configSecretName }}
+{{- if $configSecret }}
         - name: config
           secret:
-            secretName: {{ .Values.configSecretName }}
+            secretName: {{ $configSecret }}
 {{- end }}
-{{- if .Values.keySecretName }}
+{{- if $keySecret }}
         - name: keys
           secret:
-            secretName: {{ .Values.keySecretName }}
+            secretName: {{ $keySecret }}
 {{- end }}
   volumeClaimTemplates:
     - metadata:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
-{{- if .Values.storage.className }}
-        storageClassName: {{ .Values.storage.className | quote }}
+{{- if $root.Values.storage.className }}
+        storageClassName: {{ $root.Values.storage.className | quote }}
 {{- end }}
         resources:
           requests:
-            storage: {{ .Values.storage.size }}
+            storage: {{ $root.Values.storage.size }}
+{{- end }}

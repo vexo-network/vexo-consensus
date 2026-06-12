@@ -17,7 +17,7 @@ It is written for operators who need practical signals: what to watch, what each
 | `/v1/recovery/report` | Crash/restart consistency diagnostics |
 | `/v1/snapshot` | Snapshot health and export metadata |
 
-Admin endpoints such as prune, replay, and consensus control must be protected with scoped admin tokens and should normally be reachable only through an operator network or authenticated gateway.
+Admin endpoints such as prune, replay, and consensus control should normally be reachable only through loopback, an operator network, mTLS, or an authenticated gateway. Scoped admin tokens remain optional and are enforced when configured.
 
 ## Reading `/v1/status`
 
@@ -98,7 +98,7 @@ Use these as initial alert values, then tune after a real long-run baseline:
 | Signer failures | any non-zero value | repeated failures in one height window | stop validator if double-sign guard or key mismatch appears |
 | Snapshot health | one failed check | repeated failed export/verify/restore | pause state-sync serving and run recovery report |
 | Replay health | one strict replay failure | replay mismatch at latest safe height | preserve data dir and halt unsafe upgrade/release |
-| Banned peers | sudden spike | many peers banned after config rollout | check score caps, auth token, TLS CA, and clock skew |
+| Banned peers | sudden spike | many peers banned after config rollout | check score caps, TLS CA, peer identity, optional auth proof, and clock skew |
 
 The most important rule: alert on **change over time**. A single number can be misleading; height rate, finality lag, peer churn, mempool growth, and signer failures together tell the real story.
 

@@ -21,7 +21,7 @@ Do not launch if:
 - deterministic crypto is enabled for a network that is expected to carry real value or public validator traffic
 - validator homes fail strict config audit
 - remote signer policy or double-sign guard is not verified
-- RPC admin token is missing while admin endpoints are enabled
+- public RPC lacks TLS or an operator access boundary while admin endpoints are enabled
 - peer scoring has no `MaxScore`, ban threshold, or window limits
 - public validator metadata contains Docker-only service names instead of externally resolvable addresses
 - parameter tuning output is missing or has failed validation checks
