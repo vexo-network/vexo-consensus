@@ -117,3 +117,90 @@
 ## ネットワーク E2E の読み方
 
 `make network-e2e` は単なる build test ではありません。実バイナリで 4 validator を起動し、signed-shape smoke transaction、peer 接続、height 増加、clean stop を確認します。`NETWORK_E2E_GO_TIMEOUT` は外側の Go test 制限で、内側の network timeout より十分大きくします。
+
+<!-- vexo-docs:technical-parity -->
+## 技術的同等性付録
+
+この付録は、英語正本にある実行可能なインターフェイスと主要セクションを翻訳版でも漏らさないための検証用要約です。コマンド、設定キー、RPC メソッド、パッケージ名は全言語でそのまま維持します。
+
+### セクション追跡
+- section: Goals — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Release Commands — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: CI Gates — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Evidence Quality Rules — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Artifacts — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Reproducibility Notes — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Signed Binaries — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: SBOM — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Audit Pack — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Release Candidate Targets — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Launch Runbook — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+
+### そのまま維持するインターフェイス
+- `network analyze-longrun` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `release collect-evidence` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `ops-runbook` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `p2p-scale` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `state-sync-light-client` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `snapshot-replay` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `make check` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `make fuzz-smoke` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexod consensus adversarial` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexod ops conformance` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexod network longrun` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexod network chaos-plan` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `make network-e2e` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexod` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `make race` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `NETWORK_E2E_GO_TIMEOUT` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `make test` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `make vet` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `make docs-check` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `make build` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `make release-candidate-plan VERSION=ci` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `make release-candidate VERSION=<rc> RELEASE_CGO_ENABLED=1 RC_EVM_CONFORMANCE_FLAGS=...` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `evidence-manifest.json` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--allow-external-pending` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--private-rc` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexo-release-evidence-attestation-v1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `release evidence-manifest` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--signing-key` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--signing-key-env` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `<evidence-file>.sig` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `<evidence-file>.sig.pub` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `<evidence-file>.pub` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `dist/` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexod-<version>-<os>-<arch>` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `checksums.txt` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `checksums.txt.asc` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `sbom-go-modules.json` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `sbom-go-version.txt` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `release-manifest.json` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `release-audit-pack.json` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `longrun-analysis.json` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `docs-quality.json` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `RELEASE_CGO_ENABLED=1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `supranational/blst` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `go build -trimpath` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `BUILD_DATE` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `make release-candidate` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `make release-portable RELEASE_REQUIRE_BLS=0` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `RELEASE_TARGETS` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `release-candidate` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `release-candidate-real` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexod ops conformance --strict` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `RC_EVM_CONFORMANCE_FLAGS` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `RC_LONGRUN_DURATION` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `release-candidate-plan` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `RELEASE_REQUIRE_BLS=0` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `allow_noop_migrations=true` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexod upgrade apply --allow-empty-migrations` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--bls-audit` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--bls-audit-sha256` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--config <path>` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `crypto.audit_evidence_sha256` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--vrf-audit` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--vrf-audit-sha256` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vrf.audit_evidence_sha256` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `docs/security/blst-audit-evidence.json` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `docs/security/ecvrf-audit-evidence.json` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

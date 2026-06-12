@@ -77,3 +77,103 @@
 ## 规范来源
 
 - [英文规范文档](../../en/sdk/app-module-guide.md)
+
+<!-- vexo-docs:technical-parity -->
+## 技术等价附录
+
+本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+
+### 章节追踪
+- section: Goal — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Module Interface — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Transaction Routing — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Module Configuration — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: State — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Events and Query Proofs — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: IBC and Contract Extension Points — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Genesis — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Ante Handling — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: CLI Commands — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Tests — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+
+### 保持不变的接口
+- `app.Module` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `app.QueryHandler` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `app.ValidatorUpdateProvider` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `app.TxEventEmitter` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `app.PruneHook` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `bank:` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `module_config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `module_config_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `network_config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `consensus_config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `mempool_config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `log_config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `app.Context.Store` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `ctx.GoContext()` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `params:set:<authority>:<module>:<key>:<base64-value>` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `params/param/<module>/<key>` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `events.Indexer` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `queryproof.Build` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `queryproof.Verify` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `contract.Result` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `modules/evm/backend/geth` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `modules/evm/ethcompat` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `evm state-backend` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `github.com/ethereum/go-ethereum` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--evm-tx-fixtures-sha256` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--evm-execution-fixtures-sha256` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_sendRawTransaction` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `execution.allow_unprotected_legacy_tx` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getProof` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `evm/storage/{address}/{slot}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `evm_ethstate/{height}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `state_diff` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vm_trace` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getBalance` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getTransactionCount` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getCode` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getStorageAt` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_call` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_estimateGas` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `params.ChainConfig` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_createAccessList` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getTransactionReceipt` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getBlockReceipts` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getTransactionByHash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getLogs` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `relayer_config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `ibc/capabilities` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo-queryproof` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `client-create` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--authority` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--signer` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `client-update` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `proof_json_base64` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/state/latest` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `relayer client-update --source-rpc` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `failure_backoff` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc_modules` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_web3Capabilities` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `web3_clientVersion` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `web3_sha3` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `net_version` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `net_listening` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `net_peerCount` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_chainId` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_protocolVersion` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_syncing` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_mining` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_hashrate` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_accounts` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_coinbase` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_blockNumber` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getBlockByNumber` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getBlockByHash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getBlockTransactionCountByNumber` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getBlockTransactionCountByHash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getTransactionByBlockNumberAndIndex` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getTransactionByBlockHashAndIndex` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getUncleCountByBlockNumber` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getUncleCountByBlockHash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

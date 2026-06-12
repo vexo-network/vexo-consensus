@@ -96,6 +96,9 @@ func validateLocalizedMarkdownBody(locale string, relative string, body string) 
 	if len(strings.TrimSpace(body)) < 1500 {
 		return &docsLocaleQualityError{locale: locale, relative: relative, reason: "localized document is too short to be useful"}
 	}
+	if !strings.Contains(body, "<!-- vexo-docs:technical-parity -->") {
+		return &docsLocaleQualityError{locale: locale, relative: relative, reason: "localized document is missing technical parity appendix"}
+	}
 	for _, forbidden := range []string{"todo", "tbd", "placeholder", "coming soon", "translation pending", "machine translation pending"} {
 		if placeholderPattern(forbidden).MatchString(body) {
 			return &docsLocaleQualityError{locale: locale, relative: relative, reason: "localized document contains placeholder text: " + forbidden}

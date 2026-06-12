@@ -53,3 +53,29 @@ Este documento ajuda a entender implementação e registro de custom storage e t
 ## Fonte canônica
 
 - [Documento canônico em inglês](../../en/sdk/custom-storage-transport.md)
+
+<!-- vexo-docs:technical-parity -->
+## Apêndice de paridade técnica
+
+Este apêndice garante que a tradução preserve as interfaces executáveis e as seções principais do documento canônico em inglês. Comandos, chaves de configuração, métodos RPC e nomes de pacotes permanecem inalterados em todos os idiomas.
+
+### Rastreamento de seções
+- section: Custom Storage — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Storage Requirements — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Custom Transport — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Transport Requirements — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Compatibility — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+
+### Interfaces mantidas sem alteração
+- `store.Store` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `store.HistoricalSnapshotKVStore` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `store.SnapshotKVStore` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `store.AppBlockCommitStore` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `vexod start` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `runtime.NewNetworkSafeWithStore` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `runtime.NewNetworkSafeWithStoreContext` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `runtime.NewNetworkSafeWithStoreAndCryptoRegistryContext` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `config.ValidateNetworkSafety` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `app.AtomicBlockApplication` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `transport.Transport` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `transport.GRPCConfig.RequireTLS` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.

@@ -89,3 +89,52 @@ Este documento ajuda a entender P2P handshake, gossip, peer scoring e política 
 ## Timing de peers e peers permanentes
 
 Uma falha temporária de dial não bane sozinha um configured peer ou seed. A falha aparece no backoff e nos diagnósticos; ban deve vir de evidência de comportamento como gossip malicioso, falha de autenticação ou rate-limit abuse. Ajuste `p2p.dial_timeout` pela latência multi-região e custo TLS/auth.
+
+<!-- vexo-docs:technical-parity -->
+## Apêndice de paridade técnica
+
+Este apêndice garante que a tradução preserve as interfaces executáveis e as seções principais do documento canônico em inglês. Comandos, chaves de configuração, métodos RPC e nomes de pacotes permanecem inalterados em todos os idiomas.
+
+### Rastreamento de seções
+- section: Scope — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Transport — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Topics — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Handshake — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Wire Compatibility — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Address Roles — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Peer Scoring — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Reconnect and Backoff — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: DoS/DDOS Defenses — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Operational Signals — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+
+### Interfaces mantidas sem alteração
+- `validator_id` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `network_config.json:p2p.node_id` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `node_id` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `node.key.json` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `vexod` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `network_config.json:p2p.auth_replay_path` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `network_config.json:p2p.node_key_path` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `p2p.dial_timeout` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `signature_nonce` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `node_public_key` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `network_config.json` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `rpc.address` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `p2p.listen_address` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `p2p.peers` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `p2p.seeds` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `p2p_address` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `rpc_address` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `host:port` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `0.0.0.0:26656` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `[::]:26656` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `p2p.tls_cert_path` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `p2p.tls_key_path` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `p2p.tls_ca_path` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `p2p.tls_server_name` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `rpc.tls_cert_path` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `rpc.tls_key_path` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `rpc.tls_ca_path` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `rpc.tls_server_name` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `rpc.admin_token` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `rpc.admin_tokens` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.

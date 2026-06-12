@@ -78,3 +78,42 @@ Ao validar um release candidate, passe ao `release gate` os digests de auditoria
 ## Fonte canônica
 
 - [Documento canônico em inglês](../../en/release/launch-runbook.md)
+
+<!-- vexo-docs:technical-parity -->
+## Apêndice de paridade técnica
+
+Este apêndice garante que a tradução preserve as interfaces executáveis e as seções principais do documento canônico em inglês. Comandos, chaves de configuração, métodos RPC e nomes de pacotes permanecem inalterados em todos os idiomas.
+
+### Rastreamento de seções
+- section: Prelaunch Gate — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Release Candidate Gate — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Genesis Gate — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Launch Window — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Postlaunch Archive — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+
+### Interfaces mantidas sem alteração
+- `release docs-quality` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `checksums.txt` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `sbom-go-modules.json` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `sbom-go-version.txt` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `release-manifest.json` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `release-audit-pack.json` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `release collect-evidence` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `network analyze-longrun` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `longrun-evidence.json` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `--evm-default-fixtures` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `--evm-tx-fixtures` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `--evm-tx-fixtures-dir` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `--evm-execution-fixtures` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `--evm-execution-fixtures-dir` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `--evm-tx-fixtures-sha256` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `--evm-execution-fixtures-sha256` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `--evm-web3-conformance-evidence` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `evm_fixtures` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `evm_execution` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `web3_rpc` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `evm_corpus` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `vexod ops conformance` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `relayer soak-plan` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `chain_id` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `evidence-manifest.json` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.

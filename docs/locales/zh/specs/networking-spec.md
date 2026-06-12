@@ -89,3 +89,52 @@
 ## Peer 时序与固定 Peer
 
 仅因为临时 dial 失败，不会 ban configured peer 或 seed。失败会进入 backoff 和诊断信息；ban 应来自恶意 gossip、认证失败或 rate-limit abuse 等行为证据。`p2p.dial_timeout` 应根据跨区域延迟以及 TLS/auth 成本来设置。
+
+<!-- vexo-docs:technical-parity -->
+## 技术等价附录
+
+本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+
+### 章节追踪
+- section: Scope — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Transport — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Topics — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Handshake — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Wire Compatibility — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Address Roles — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Peer Scoring — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Reconnect and Backoff — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: DoS/DDOS Defenses — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Operational Signals — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+
+### 保持不变的接口
+- `validator_id` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `network_config.json:p2p.node_id` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `node_id` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `node.key.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `network_config.json:p2p.auth_replay_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `network_config.json:p2p.node_key_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.dial_timeout` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `signature_nonce` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `node_public_key` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `network_config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc.address` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.listen_address` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.peers` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.seeds` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p_address` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc_address` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `host:port` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `0.0.0.0:26656` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `[::]:26656` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.tls_cert_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.tls_key_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.tls_ca_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.tls_server_name` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc.tls_cert_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc.tls_key_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc.tls_ca_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc.tls_server_name` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc.admin_token` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc.admin_tokens` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

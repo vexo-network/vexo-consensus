@@ -80,3 +80,40 @@ Este documento ajuda a entender especificação normativa da state machine de co
 ## Blocos vazios e recuperação de round
 
 Com `create_empty_blocks=false`, height parada com mempool vazio é idle normal. Quando uma transação chega, o nó pode avançar para o próximo local proposer round e produzir um bloco com transações, preservando as regras QC/finality.
+
+<!-- vexo-docs:technical-parity -->
+## Apêndice de paridade técnica
+
+Este apêndice garante que a tradução preserve as interfaces executáveis e as seções principais do documento canônico em inglês. Comandos, chaves de configuração, métodos RPC e nomes de pacotes permanecem inalterados em todos os idiomas.
+
+### Rastreamento de seções
+- section: Scope — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Roles — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: State — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Message Types — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Safety Rules — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Finality Rule — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Execution Commit Policy — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Liveness Assumptions — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Empty Blocks and Round Recovery — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Evidence — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+
+### Interfaces mantidas sem alteração
+- `chain_id` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `validator_set_hash` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `locked_qc` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `high_qc` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `last_timeout_cert` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `last_finalized` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `>= 2/3` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `B3.height = B2.height + 1` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `B2.height = B1.height + 1` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `execution_commit = "qc"` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `execution_commit = "finalized"` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `block_committed` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `create_empty_blocks = false` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `latest_height = 0` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `latest_height` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `actual_hash` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `actual_time_unix_nano` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `parity_shards` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.

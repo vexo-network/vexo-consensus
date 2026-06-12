@@ -69,3 +69,38 @@
 ## 正規原文
 
 - [英語の正規文書](../../en/specs/finality-proof-format.md)
+
+<!-- vexo-docs:technical-parity -->
+## 技術的同等性付録
+
+この付録は、英語正本にある実行可能なインターフェイスと主要セクションを翻訳版でも漏らさないための検証用要約です。コマンド、設定キー、RPC メソッド、パッケージ名は全言語でそのまま維持します。
+
+### セクション追跡
+- section: Scope — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Proof Fields — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Header Fields — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Quorum Certificate Fields — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Commit Chain Fields — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Verification Algorithm — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Accountable Safety Detection — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Ed25519 Model — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: BLS Model — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+
+### そのまま維持するインターフェイス
+- `finality.Proof` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/finality/latest` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/finality/{height}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `strict: true` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/status.latest_height` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/finality/*` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `Proof.ValidatorSetHeight <= Header.Height` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `Proof.ValidatorSetHash == loaded_set.Hash()` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `Header.ValidatorSetHash == loaded_set.Hash()` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `QuorumCert.Height == Header.Height` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `QuorumCert.BlockHash == Proof.BlockHash == HeaderHash(Header)` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `Header.TxRoot` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `HeaderHash(link.Header)` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `finality.AttackDetector` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--validator-set` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `blst-bls12381-minpk-v1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `supranational/blst` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

@@ -153,10 +153,10 @@ func validBLSAuditEvidenceDigest(value string) bool {
 func dependencyAuditMatchesBuildInfo(dependencyAudit string) bool {
 	dependencyAudit = strings.TrimSpace(dependencyAudit)
 	if auditReference := strings.TrimPrefix(dependencyAudit, "external:"); auditReference != dependencyAudit {
-		return len(strings.TrimSpace(auditReference)) >= 16
+		return auditReferenceHasPinnedDigest(auditReference)
 	}
 	if auditReference := strings.TrimPrefix(dependencyAudit, "remote:"); auditReference != dependencyAudit {
-		return len(strings.TrimSpace(auditReference)) >= 16
+		return auditReferenceHasPinnedDigest(auditReference)
 	}
 	modulePath, version, ok := splitDependencyAudit(dependencyAudit)
 	if !ok {
@@ -180,6 +180,24 @@ func dependencyAuditMatchesBuildInfo(dependencyAudit string) bool {
 	}
 	if runningUnderGoTest() {
 		return dependencyAudit == blstBLSDependencyTag || dependencyAudit == ecvrfDependencyTag
+	}
+	return false
+}
+
+func auditReferenceHasPinnedDigest(auditReference string) bool {
+	auditReference = strings.TrimSpace(auditReference)
+	for _, marker := range []string{"sha256:", "sha256=", "@sha256:"} {
+		index := strings.LastIndex(auditReference, marker)
+		if index < 0 {
+			continue
+		}
+		digest := strings.TrimSpace(auditReference[index+len(marker):])
+		if len(digest) < 64 {
+			return false
+		}
+		digest = digest[:64]
+		decoded, err := hex.DecodeString(digest)
+		return err == nil && len(decoded) == 32
 	}
 	return false
 }

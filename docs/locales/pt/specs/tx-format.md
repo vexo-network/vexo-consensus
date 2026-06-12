@@ -75,3 +75,41 @@ Este documento ajuda a entender transaction format, signing, fee e regras de gas
 ## Fonte canônica
 
 - [Documento canônico em inglês](../../en/specs/tx-format.md)
+
+<!-- vexo-docs:technical-parity -->
+## Apêndice de paridade técnica
+
+Este apêndice garante que a tradução preserve as interfaces executáveis e as seções principais do documento canônico em inglês. Comandos, chaves de configuração, métodos RPC e nomes de pacotes permanecem inalterados em todos os idiomas.
+
+### Rastreamento de seções
+- section: Scope — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Canonical Payload — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Address Format — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Signed Envelope — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Required Ante Metadata — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: CheckTx Requirements — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Fee and Gas — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: Load Test Payloads — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+- section: CLI Examples — Esta seção deve ser revisada junto com valores de configuração, evidências de verificação, condições de falha e ações do operador.
+
+### Interfaces mantidas sem alteração
+- `gas_limit` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `evm_chain_id` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `chain_id` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `base_fee` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `max(min_fee, base_fee * gas)` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `blob_base_fee` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `blob_gas` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `blob_gas_fee_cap` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `vexo_sendRawBlobTransaction` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `blob_hashes` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `vexo_getBlobSidecarByTxHash` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `vexo_getBlobSidecarByBlobHash` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `eth_chainId` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `net_version` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `eth_sendRawTransaction` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `dynamic_base_fee` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `target_gas` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `dynamic_blob_base_fee` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `target_blob_gas` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `bank:send` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.

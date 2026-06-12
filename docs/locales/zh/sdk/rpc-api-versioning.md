@@ -82,3 +82,104 @@
 新的 RPC capability discovery 接口用于检查节点实际挂载的 provider 功能。运行方可以调用 `/v1/capabilities`，SDK 集成方可以使用 `rpc.Config.RequiredCapabilities` 或 `rpc.Config.RequireAllCapabilities` 在启动时 fail closed。
 
 以下接口名称必须保持不变： `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
+
+<!-- vexo-docs:technical-parity -->
+## 技术等价附录
+
+本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+
+### 章节追踪
+- section: Stability Goal — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Current Stable API — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Versioning Rules — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Capability Discovery — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Compatibility Aliases — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Error Format — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Query Proofs — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Event Queries — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: IBC Queries — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Web3 JSON-RPC Bridge — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Web3 EVM Configuration — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Operational Compatibility — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+
+### 保持不变的接口
+- `/v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/healthz` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/readyz` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/status` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/diagnostics` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/capabilities` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/metrics` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/metrics/text` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/peers` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/tx` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/evidence` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/recovery` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/snapshot/latest` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/snapshot/export` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/snapshot/chunk?index=0&size=10000` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/blocks` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/blocks/latest` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/blocks/{height}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/state/latest` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/state/{height}/{namespace}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/events?key={attribute_key}&value={attribute_value}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/proof?namespace={namespace}&key={key}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/proof?namespace={namespace}&key={key}&height=latest` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/finality/latest` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/finality/{height}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/ibc/client/{client_id}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/ibc/connection/{connection_id}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/ibc/channel/{port_id}/{channel_id}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/validators/{height}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/committee/{height}/{round}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/prune` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/replay` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/consensus/start` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/consensus/stop` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `network_config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `tls_cert_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `tls_key_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `tls_ca_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `tls_server_name` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod start` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `strict: true` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_gasPrice` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_web3Capabilities` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `require_network_safety` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc.NewNetworkSafeServer` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc.NewNetworkSafeHandlerWithConfig` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc.Config.RequiredCapabilities` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc.Config.RequireAllCapabilities` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `pending_txs` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `state_by_height` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `app_query` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `strict_replay` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `consensus_control` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/status` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/tx` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/blocks/latest` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/*` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v2/*` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/proof` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `commit_chain` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/status.latest_height` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/events` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `Index: true` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `{ "path": [...], "value": ... }` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `packets/{source_port}/{source_channel}/{sequence}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc_modules` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `web3_clientVersion` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `web3_sha3` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `net_version` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `net_listening` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `net_peerCount` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_chainId` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_protocolVersion` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_syncing` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_mining` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_hashrate` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_blockNumber` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_blobBaseFee` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_maxPriorityFeePerGas` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_feeHistory` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

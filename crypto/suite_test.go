@@ -75,10 +75,10 @@ func TestDependencyAuditReferences(t *testing.T) {
 		value  string
 		expect bool
 	}{
-		{name: "external reference", value: "external:independent-audit-2026", expect: true},
-		{name: "remote reference", value: "remote:kms-vrf-audit-evidence-2026", expect: true},
-		{name: "short external reference", value: "external:short", expect: false},
-		{name: "short remote reference", value: "remote:short", expect: false},
+		{name: "external reference", value: "external:independent-audit-2026@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", expect: true},
+		{name: "remote reference", value: "remote:kms-vrf-audit-evidence-2026#sha256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", expect: true},
+		{name: "short external reference", value: "external:independent-audit-2026", expect: false},
+		{name: "short remote reference", value: "remote:kms-vrf-audit-evidence-2026", expect: false},
 		{name: "malformed module pin", value: "github.com/example/module", expect: false},
 	}
 	for _, test := range tests {

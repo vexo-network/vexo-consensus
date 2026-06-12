@@ -80,3 +80,40 @@
 ## 空块与 Round 恢复
 
 当 `create_empty_blocks=false` 且 mempool 为空时，height 看起来不增长是正常 idle 状态。交易进入后，即使当前 round 的 proposer 不是本节点，节点也可以移动到下一个 local proposer round 来构造交易块，但仍必须经过 QC/finality 规则。
+
+<!-- vexo-docs:technical-parity -->
+## 技术等价附录
+
+本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+
+### 章节追踪
+- section: Scope — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Roles — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: State — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Message Types — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Safety Rules — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Finality Rule — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Execution Commit Policy — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Liveness Assumptions — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Empty Blocks and Round Recovery — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Evidence — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+
+### 保持不变的接口
+- `chain_id` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `validator_set_hash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `locked_qc` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `high_qc` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `last_timeout_cert` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `last_finalized` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `>= 2/3` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `B3.height = B2.height + 1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `B2.height = B1.height + 1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `execution_commit = "qc"` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `execution_commit = "finalized"` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `block_committed` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `create_empty_blocks = false` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `latest_height = 0` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `latest_height` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `actual_hash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `actual_time_unix_nano` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `parity_shards` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

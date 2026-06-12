@@ -58,3 +58,83 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 ## 规范参考
 
 - [规范原文](../../en/operators/observability.md)
+
+<!-- vexo-docs:technical-parity -->
+## 技术等价附录
+
+本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+
+### 章节追踪
+- section: Core Endpoints — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Reading `/v1/status` — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Prometheus Metrics — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Suggested Alert Rules — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Suggested Starting Thresholds — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Incident Triage Matrix — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Log Events to Keep — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: First Response Playbook — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Dashboard Layout — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Release Evidence From Observability — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+
+### 保持不变的接口
+- `/v1/status` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/metrics` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/metrics/text` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/diagnostics` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/finality/latest` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/state/latest` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/recovery/report` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/snapshot` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `latest_height` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `latest_finalized_height` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `latest_app_hash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `peer_count` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `active_peer_count` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `configured_peer_count` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `scored_peer_count` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `banned_peers` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `banned_peers=0` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_node_running` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_latest_height` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_peer_count` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_active_peer_count` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_configured_peer_count` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_scored_peer_count` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_banned_peers` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_height_rate_per_minute` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_round_timeouts` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_proposal_latency_p95_nanos` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_vote_latency_p95_nanos` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_commit_latency_p95_nanos` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_mempool_size` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_snapshot_healthy` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_replay_healthy` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_validator_signing_failures` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_post_commit_reconciliation_failures` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_node_running == 0` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_active_peer_count == 0` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_snapshot_healthy == 0` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_replay_healthy == 0` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_validator_signing_failures > 0` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_post_commit_reconciliation_failures > 0` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `timeout_propose` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `max_txs` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `node_running` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc_listening` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p_listening` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `peer_configured` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `peer_connected` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `peer_disconnected` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `peer_dial_failed` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `peer_banned` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `consensus_loop_running` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `block_committed` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `round_timeout` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `validator_signing_failure` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `evidence_received` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `evidence_applied` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `snapshot_exported` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `replay_checked` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `upgrade_halt` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `upgrade_applied` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `dist/` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

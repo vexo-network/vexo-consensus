@@ -8,8 +8,12 @@ VERSION ?= dev
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS ?= -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(BUILD_DATE)
-RELEASE_CGO_ENABLED ?= 0
 RELEASE_REQUIRE_BLS ?= 1
+ifeq ($(RELEASE_REQUIRE_BLS),1)
+RELEASE_CGO_ENABLED ?= 1
+else
+RELEASE_CGO_ENABLED ?= 0
+endif
 DEFAULT_RELEASE_TARGETS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 HOST_RELEASE_TARGET := $(shell $(GO) env GOOS)/$(shell $(GO) env GOARCH)
 ifeq ($(RELEASE_CGO_ENABLED),1)

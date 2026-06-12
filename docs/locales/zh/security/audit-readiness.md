@@ -67,3 +67,37 @@
 ## 规范来源
 
 - [英文规范文档](../../en/security/audit-readiness.md)
+## 审计准备补充说明
+
+审计人员首先关注证据是否可复现，而不只是代码是否存在。因此，威胁模型、已知限制、BLS/VRF 审计材料、EVM conformance 结果、longrun/chaos 结果、KMS 签名证据以及 snapshot/replay 证据，都必须来自同一个候选二进制文件和同一组配置。运营者不应隐藏例外情况，而应记录 release gate 拒绝的项目、负责人以及重新验证条件。
+审计材料还应说明每一项证据的采集时间、命令、输入文件、输出文件、哈希值和签名者。若某项证据来自外部系统，例如 KMS、HSM、云监控或第三方审计报告，文档必须写清楚信任边界、访问控制、轮换策略以及失败时的回滚步骤。这样读者才能判断该网络是否只是“能运行”，还是已经具备可追责、可复现、可恢复的发布条件。
+在提交审计包之前，团队应重新运行 release gate、docs-quality、EVM/Web3 conformance、state sync 验证和网络 E2E，并确认所有输出都写入 evidence manifest。任何手工步骤都需要负责人、时间戳和回滚条件，否则不能作为公开发布的安全依据。
+此外，审计说明必须区分“代码已经实现”“测试已经通过”“外部证据已经归档”这三种状态。只有当三者都指向同一版本、同一 commit、同一 genesis 和同一配置文件时，运营者才可以把该功能写入发布声明。
+
+<!-- vexo-docs:technical-parity -->
+## 技术等价附录
+
+本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+
+### 章节追踪
+- section: Scope — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Threat Model — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Security Assumptions — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Known Limitations — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Formal-ish Safety Argument — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Required Evidence for Audit — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Auditor Focus Areas — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Practical Audit Walkthrough — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Remote Signer Audit Notes — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: EVM/Web3 Audit Notes — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Snapshot and WAL Audit Notes — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+
+### 保持不变的接口
+- `docs/security/blst-audit-evidence.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `remote-vrf-http-v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod keys serve-vrf` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `release collect-evidence` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/*` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `chain_id` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `go.mod` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/recovery/report` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

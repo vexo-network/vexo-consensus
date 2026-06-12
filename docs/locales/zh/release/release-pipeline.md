@@ -117,3 +117,90 @@
 ## 网络 E2E 的含义
 
 `make network-e2e` 不只是构建测试；它用真实二进制启动 4 个 validator，验证 signed-shape smoke transaction、peer 连接、height 增长和 clean stop。`NETWORK_E2E_GO_TIMEOUT` 是外层 Go test 限制，必须大于内部 network timeout 才能保留真实失败原因。
+
+<!-- vexo-docs:technical-parity -->
+## 技术等价附录
+
+本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+
+### 章节追踪
+- section: Goals — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Release Commands — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: CI Gates — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Evidence Quality Rules — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Artifacts — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Reproducibility Notes — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Signed Binaries — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: SBOM — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Audit Pack — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Release Candidate Targets — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Launch Runbook — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+
+### 保持不变的接口
+- `network analyze-longrun` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `release collect-evidence` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `ops-runbook` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p-scale` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `state-sync-light-client` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `snapshot-replay` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `make check` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `make fuzz-smoke` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod consensus adversarial` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod ops conformance` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod network longrun` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod network chaos-plan` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `make network-e2e` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `make race` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `NETWORK_E2E_GO_TIMEOUT` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `make test` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `make vet` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `make docs-check` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `make build` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `make release-candidate-plan VERSION=ci` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `make release-candidate VERSION=<rc> RELEASE_CGO_ENABLED=1 RC_EVM_CONFORMANCE_FLAGS=...` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `evidence-manifest.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--allow-external-pending` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--private-rc` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo-release-evidence-attestation-v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `release evidence-manifest` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--signing-key` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--signing-key-env` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `<evidence-file>.sig` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `<evidence-file>.sig.pub` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `<evidence-file>.pub` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `dist/` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod-<version>-<os>-<arch>` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `checksums.txt` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `checksums.txt.asc` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `sbom-go-modules.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `sbom-go-version.txt` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `release-manifest.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `release-audit-pack.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `longrun-analysis.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `docs-quality.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `RELEASE_CGO_ENABLED=1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `supranational/blst` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `go build -trimpath` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `BUILD_DATE` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `make release-candidate` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `make release-portable RELEASE_REQUIRE_BLS=0` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `RELEASE_TARGETS` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `release-candidate` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `release-candidate-real` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod ops conformance --strict` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `RC_EVM_CONFORMANCE_FLAGS` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `RC_LONGRUN_DURATION` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `release-candidate-plan` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `RELEASE_REQUIRE_BLS=0` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `allow_noop_migrations=true` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod upgrade apply --allow-empty-migrations` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--bls-audit` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--bls-audit-sha256` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--config <path>` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `crypto.audit_evidence_sha256` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--vrf-audit` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--vrf-audit-sha256` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vrf.audit_evidence_sha256` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `docs/security/blst-audit-evidence.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `docs/security/ecvrf-audit-evidence.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

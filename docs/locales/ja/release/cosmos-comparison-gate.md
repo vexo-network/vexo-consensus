@@ -63,3 +63,30 @@
 ## 正規原文
 
 - [英語の正規文書](../../en/release/cosmos-comparison-gate.md)
+
+<!-- vexo-docs:technical-parity -->
+## 技術的同等性付録
+
+この付録は、英語正本にある実行可能なインターフェイスと主要セクションを翻訳版でも漏らさないための検証用要約です。コマンド、設定キー、RPC メソッド、パッケージ名は全言語でそのまま維持します。
+
+### セクション追跡
+- section: Required Evidence Properties — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Release Rule — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+
+### そのまま維持するインターフェイス
+- `--longrun-evidence` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--chaos-evidence` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--ops-runbook-evidence` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--external-audit` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--formal-safety-evidence` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--fuzz-evidence` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--sdk-conformance-evidence` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--evm-web3-conformance-evidence` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--p2p-scale-evidence` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--state-sync-light-client-evidence` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--snapshot-evidence` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--validator-economics-evidence` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--upgrade-governance-evidence` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--mev-fee-market-evidence` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--kms-evidence` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--bls-audit` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

@@ -75,3 +75,41 @@
 ## 规范来源
 
 - [英文规范文档](../../en/specs/tx-format.md)
+
+<!-- vexo-docs:technical-parity -->
+## 技术等价附录
+
+本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+
+### 章节追踪
+- section: Scope — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Canonical Payload — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Address Format — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Signed Envelope — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Required Ante Metadata — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: CheckTx Requirements — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Fee and Gas — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Load Test Payloads — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: CLI Examples — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+
+### 保持不变的接口
+- `gas_limit` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `evm_chain_id` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `chain_id` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `base_fee` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `max(min_fee, base_fee * gas)` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `blob_base_fee` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `blob_gas` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `blob_gas_fee_cap` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_sendRawBlobTransaction` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `blob_hashes` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_getBlobSidecarByTxHash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_getBlobSidecarByBlobHash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_chainId` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `net_version` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_sendRawTransaction` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `dynamic_base_fee` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `target_gas` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `dynamic_blob_base_fee` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `target_blob_gas` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `bank:send` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

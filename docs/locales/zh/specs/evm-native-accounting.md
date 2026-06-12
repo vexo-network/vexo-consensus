@@ -70,3 +70,30 @@
 ## 规范来源
 
 - [英文规范文档](../../en/specs/evm-native-accounting.md)
+
+<!-- vexo-docs:technical-parity -->
+## 技术等价附录
+
+本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+
+### 章节追踪
+- section: Core Rule — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Amount Encoding — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Fee Accounting — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: EVM Execution — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: State Root Policy — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Compatibility Boundary — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Failure Modes — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+
+### 保持不变的接口
+- `base_fee * gas` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `contract.Invocation` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `value_hex` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `gas_price_hex` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `max_fee_per_gas_hex` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `max_priority_fee_per_gas_hex` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getBalance` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_sendRawBlobTransaction` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_sendRawBlobTransaction` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_sendRawTransaction` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `execution.strict_evm_state_root` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

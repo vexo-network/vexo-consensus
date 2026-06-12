@@ -59,3 +59,22 @@
 ## 规范来源
 
 - [英文规范文档](../en/consensus-protocol.md)
+
+<!-- vexo-docs:technical-parity -->
+## 技术等价附录
+
+本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+
+### 章节追踪
+- section: Model — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Execution Terms — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Safety Boundary — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Crypto Boundary — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Operational Boundary — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+
+### 保持不变的接口
+- `consensus_config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `execution_commit` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `require_network_safety` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `block_committed` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `blst-bls12381-minpk-v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

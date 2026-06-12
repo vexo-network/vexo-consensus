@@ -112,10 +112,18 @@ func TestInvalidProposalHashEvidenceVerifiesReasonSpecificProof(t *testing.T) {
 	if err := VerifyInvalidProposalEvidence(evidence); !errors.Is(err, ErrInvalidProposalContext) {
 		t.Fatalf("expected standalone context rejection, got %v", err)
 	}
-	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedValidatorSetHash: types.Hash{1}}); err != nil {
+	context := InvalidProposalVerificationContext{ExpectedValidatorSetHash: types.Hash{1}}
+	bound, err := BindInvalidProposalEvidenceContext(evidence, context)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedValidatorSetHash: types.Hash{9}}); !errors.Is(err, ErrInvalidProposal) {
+	context.ContextProofHash = context.ProofHash()
+	if err := VerifyInvalidProposalEvidenceWithContext(bound, context); err != nil {
+		t.Fatal(err)
+	}
+	mismatchedContext := InvalidProposalVerificationContext{ExpectedValidatorSetHash: types.Hash{9}}
+	mismatchedContext.ContextProofHash = mismatchedContext.ProofHash()
+	if err := VerifyInvalidProposalEvidenceWithContext(bound, mismatchedContext); !errors.Is(err, ErrInvalidProposal) {
 		t.Fatalf("expected context mismatch rejection, got %v", err)
 	}
 	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{}); !errors.Is(err, ErrInvalidProposalContext) {
@@ -361,13 +369,25 @@ func TestInvalidProposalTxValidityEvidenceRequiresResultHashContext(t *testing.T
 	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{}); !errors.Is(err, ErrInvalidProposalContext) {
 		t.Fatalf("expected missing context rejection, got %v", err)
 	}
-	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedTxResultsHash: types.Hash{9}}); !errors.Is(err, ErrInvalidProposal) {
-		t.Fatalf("expected context mismatch rejection, got %v", err)
-	}
-	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedTxResultsHash: expected}); err != nil {
+	wrongContext := InvalidProposalVerificationContext{ExpectedTxResultsHash: types.Hash{9}}
+	wrongContext.ContextProofHash = wrongContext.ProofHash()
+	boundWrong, err := BindInvalidProposalEvidenceContext(evidence, wrongContext)
+	if err != nil {
 		t.Fatal(err)
 	}
-	decoded, err := DecodeInvalidProposalProof(evidence.Proof)
+	if err := VerifyInvalidProposalEvidenceWithContext(boundWrong, wrongContext); !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected context mismatch rejection, got %v", err)
+	}
+	context := InvalidProposalVerificationContext{ExpectedTxResultsHash: expected}
+	bound, err := BindInvalidProposalEvidenceContext(evidence, context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	context.ContextProofHash = context.ProofHash()
+	if err := VerifyInvalidProposalEvidenceWithContext(bound, context); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeInvalidProposalProof(bound.Proof)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,8 +396,8 @@ func TestInvalidProposalTxValidityEvidenceRequiresResultHashContext(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	evidence.Proof = encoded
-	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedTxResultsHash: expected}); !errors.Is(err, ErrInvalidProposal) {
+	bound.Proof = encoded
+	if err := VerifyInvalidProposalEvidenceWithContext(bound, context); !errors.Is(err, ErrInvalidProposal) {
 		t.Fatalf("expected missing execution proof rejection, got %v", err)
 	}
 }
@@ -476,10 +496,16 @@ func TestInvalidProposalTxExecutionEvidenceBindsResultArrays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedTxResultsHash: expected}); err != nil {
+	context := InvalidProposalVerificationContext{ExpectedTxResultsHash: expected}
+	bound, err := BindInvalidProposalEvidenceContext(evidence, context)
+	if err != nil {
 		t.Fatal(err)
 	}
-	decoded, err := DecodeInvalidProposalProof(evidence.Proof)
+	context.ContextProofHash = context.ProofHash()
+	if err := VerifyInvalidProposalEvidenceWithContext(bound, context); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeInvalidProposalProof(bound.Proof)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,8 +517,8 @@ func TestInvalidProposalTxExecutionEvidenceBindsResultArrays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	evidence.Proof = tamperedProof
-	if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{ExpectedTxResultsHash: expected}); !errors.Is(err, ErrInvalidProposal) {
+	bound.Proof = tamperedProof
+	if err := VerifyInvalidProposalEvidenceWithContext(bound, context); !errors.Is(err, ErrInvalidProposal) {
 		t.Fatalf("expected tampered execution proof rejection, got %v", err)
 	}
 	_, err = NewInvalidProposalTxExecutionEvidence(proposal, expectedResults[:1], actualResults, 1, "bad lengths")

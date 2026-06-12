@@ -57,3 +57,23 @@
 ## 规范来源
 
 - [英文规范文档](../../en/specs/validator-lifecycle.md)
+
+<!-- vexo-docs:technical-parity -->
+## 技术等价附录
+
+本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+
+### 章节追踪
+- section: Scope — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Admission — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Validator Set — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Rotation — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Evidence Lifecycle — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Slashing — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Jail and Unbonding — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+
+### 保持不变的接口
+- `vexovaloper...` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexovalcons...` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo...` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `staking tx withdraw-unbonded` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

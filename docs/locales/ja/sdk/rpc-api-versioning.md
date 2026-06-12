@@ -82,3 +82,104 @@
 新しい RPC capability discovery インターフェースです。運用者は `/v1/capabilities` で実際に接続された provider 機能を確認し、SDK 側は `rpc.Config.RequiredCapabilities` または `rpc.Config.RequireAllCapabilities` で起動時に fail closed にできます。
 
 次のインターフェイス名は変更しないでください: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
+
+<!-- vexo-docs:technical-parity -->
+## 技術的同等性付録
+
+この付録は、英語正本にある実行可能なインターフェイスと主要セクションを翻訳版でも漏らさないための検証用要約です。コマンド、設定キー、RPC メソッド、パッケージ名は全言語でそのまま維持します。
+
+### セクション追跡
+- section: Stability Goal — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Current Stable API — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Versioning Rules — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Capability Discovery — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Compatibility Aliases — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Error Format — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Query Proofs — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Event Queries — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: IBC Queries — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Web3 JSON-RPC Bridge — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Web3 EVM Configuration — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Operational Compatibility — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+
+### そのまま維持するインターフェイス
+- `/v1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/healthz` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/readyz` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/status` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/diagnostics` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/capabilities` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/metrics` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/metrics/text` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/peers` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/tx` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/evidence` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/recovery` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/snapshot/latest` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/snapshot/export` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/snapshot/chunk?index=0&size=10000` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/blocks` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/blocks/latest` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/blocks/{height}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/state/latest` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/state/{height}/{namespace}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/events?key={attribute_key}&value={attribute_value}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/proof?namespace={namespace}&key={key}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/proof?namespace={namespace}&key={key}&height=latest` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/finality/latest` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/finality/{height}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/ibc/client/{client_id}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/ibc/connection/{connection_id}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/ibc/channel/{port_id}/{channel_id}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/validators/{height}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/committee/{height}/{round}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/prune` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/replay` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/consensus/start` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/consensus/stop` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `network_config.json` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `tls_cert_path` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `tls_key_path` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `tls_ca_path` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `tls_server_name` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexod start` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `strict: true` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `eth_gasPrice` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexo_web3Capabilities` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `require_network_safety` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `rpc.NewNetworkSafeServer` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `rpc.NewNetworkSafeHandlerWithConfig` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `rpc.Config.RequiredCapabilities` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `rpc.Config.RequireAllCapabilities` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `pending_txs` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `state_by_height` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `app_query` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `strict_replay` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `consensus_control` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/status` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/tx` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/blocks/latest` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/*` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v2/*` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/proof` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `commit_chain` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/status.latest_height` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/events` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `Index: true` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `{ "path": [...], "value": ... }` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `packets/{source_port}/{source_channel}/{sequence}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `rpc_modules` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `web3_clientVersion` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `web3_sha3` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `net_version` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `net_listening` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `net_peerCount` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `eth_chainId` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `eth_protocolVersion` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `eth_syncing` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `eth_mining` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `eth_hashrate` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `eth_blockNumber` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `eth_blobBaseFee` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `eth_maxPriorityFeePerGas` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `eth_feeHistory` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

@@ -142,6 +142,8 @@ type releaseDocsLocaleManifest struct {
 	CanonicalHashes   map[string]string `json:"canonical_hashes"`
 }
 
+const releaseTechnicalParityMarker = "<!-- vexo-docs:technical-parity -->"
+
 func runReleaseDocsQuality(writer io.Writer, args []string) error {
 	flags := flag.NewFlagSet("release docs-quality", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -215,16 +217,21 @@ func buildReleaseDocsQualityDocument(docsDir string, minBytes int) (releaseDocsQ
 	}
 	document.DocumentCount = len(canonical)
 	addCheck("canonical_docs_present", "", "", len(canonical) > 0, "canonical documentation tree must contain markdown files")
+	canonicalBodies := make(map[string]string, len(canonical))
+	for _, relative := range canonical {
+		data, readErr := os.ReadFile(filepath.Join(docsDir, relative))
+		if readErr != nil {
+			return releaseDocsQualityDocument{}, readErr
+		}
+		canonicalBodies[relative] = string(data)
+	}
 	if len(manifest.CanonicalHashes) == 0 {
 		addCheck("canonical_hashes", "", "locales/manifest.json", false, "manifest must bind canonical docs by SHA-256")
 	} else {
 		for _, relative := range canonical {
-			data, readErr := os.ReadFile(filepath.Join(docsDir, relative))
-			if readErr != nil {
-				return releaseDocsQualityDocument{}, readErr
-			}
-			addCheck("canonical_no_stale_release_policy", manifest.CanonicalLocale, relative, releaseContainsStaleReleasePolicy(relative, string(data)) == "", "canonical release docs must describe current BLS/cgo release policy")
-			hash := fmt.Sprintf("%x", sha256.Sum256(data))
+			body := canonicalBodies[relative]
+			addCheck("canonical_no_stale_release_policy", manifest.CanonicalLocale, relative, releaseContainsStaleReleasePolicy(relative, body) == "", "canonical release docs must describe current BLS/cgo release policy")
+			hash := fmt.Sprintf("%x", sha256.Sum256([]byte(body)))
 			addCheck("canonical_hash", manifest.CanonicalLocale, relative, manifest.CanonicalHashes[relative] == hash, "canonical document hash must match manifest")
 		}
 		if diff := stringSetDiffStrings(canonical, sortedStringMapKeys(manifest.CanonicalHashes)); len(diff) > 0 {
@@ -265,6 +272,11 @@ func buildReleaseDocsQualityDocument(docsDir string, minBytes int) (releaseDocsQ
 			addCheck("locale_sections", locale, relative, strings.Count(body, "\n## ") >= 2, "localized document must keep multiple explanatory sections")
 			addCheck("locale_no_placeholders", locale, relative, !releaseContainsPlaceholder(body), "localized document must not contain placeholder translation text")
 			addCheck("locale_no_untranslated_boilerplate", locale, relative, releaseLocalizedBoilerplateLeak(locale, body) == "", "localized document must not keep English boilerplate headings or canonical-source labels")
+			addCheck("locale_technical_parity_appendix", locale, relative, strings.Contains(body, releaseTechnicalParityMarker), "localized document must include a technical parity appendix")
+			canonicalBody := canonicalBodies[relative]
+			addCheck("locale_relative_depth", locale, relative, len([]byte(body))*100 >= len([]byte(canonicalBody))*22, "localized document must be at least 22% of canonical depth including technical parity notes")
+			missingTerms := releaseMissingStableDocTerms(body, releaseStableDocTerms(canonicalBody))
+			addCheck("locale_stable_terms", locale, relative, len(missingTerms) == 0, "localized document must preserve canonical commands, config keys, RPC methods, and package terms")
 		}
 	}
 	return document, nil
@@ -379,6 +391,73 @@ func releaseLocalizedBoilerplateLeak(locale string, body string) string {
 		}
 	}
 	return ""
+}
+
+func releaseStableDocTerms(body string) []string {
+	terms := make([]string, 0)
+	seen := make(map[string]struct{})
+	for offset := 0; offset < len(body); {
+		start := strings.Index(body[offset:], "`")
+		if start < 0 {
+			break
+		}
+		start += offset
+		end := strings.Index(body[start+1:], "`")
+		if end < 0 {
+			break
+		}
+		end += start + 1
+		term := strings.TrimSpace(body[start+1 : end])
+		offset = end + 1
+		if !releaseStableDocTerm(term) {
+			continue
+		}
+		if _, found := seen[term]; found {
+			continue
+		}
+		seen[term] = struct{}{}
+		terms = append(terms, term)
+		if len(terms) >= 80 {
+			break
+		}
+	}
+	return terms
+}
+
+func releaseStableDocTerm(term string) bool {
+	if term == "" || strings.Contains(term, "\n") || len(term) > 96 {
+		return false
+	}
+	if strings.HasPrefix(term, "vexod") ||
+		strings.HasPrefix(term, "make ") ||
+		strings.HasPrefix(term, "go ") ||
+		strings.HasPrefix(term, "/v1") ||
+		strings.HasPrefix(term, "/metrics") ||
+		strings.HasPrefix(term, "eth_") ||
+		strings.HasPrefix(term, "debug_") ||
+		strings.HasPrefix(term, "trace_") ||
+		strings.HasSuffix(term, ".json") ||
+		strings.Contains(term, "/") ||
+		strings.Contains(term, ".") ||
+		strings.Contains(term, "_") ||
+		strings.Contains(term, "-") ||
+		strings.Contains(term, ":") {
+		return true
+	}
+	return false
+}
+
+func releaseMissingStableDocTerms(body string, terms []string) []string {
+	missing := make([]string, 0)
+	for _, term := range terms {
+		if !strings.Contains(body, "`"+term+"`") && !strings.Contains(body, term) {
+			missing = append(missing, term)
+			if len(missing) >= 8 {
+				break
+			}
+		}
+	}
+	return missing
 }
 
 func releaseNormalizeWhitespace(value string) string {

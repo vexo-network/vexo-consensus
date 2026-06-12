@@ -78,3 +78,42 @@
 ## 规范来源
 
 - [英文规范文档](../../en/release/launch-runbook.md)
+
+<!-- vexo-docs:technical-parity -->
+## 技术等价附录
+
+本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+
+### 章节追踪
+- section: Prelaunch Gate — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Release Candidate Gate — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Genesis Gate — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Launch Window — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Postlaunch Archive — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+
+### 保持不变的接口
+- `release docs-quality` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `checksums.txt` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `sbom-go-modules.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `sbom-go-version.txt` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `release-manifest.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `release-audit-pack.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `release collect-evidence` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `network analyze-longrun` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `longrun-evidence.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--evm-default-fixtures` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--evm-tx-fixtures` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--evm-tx-fixtures-dir` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--evm-execution-fixtures` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--evm-execution-fixtures-dir` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--evm-tx-fixtures-sha256` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--evm-execution-fixtures-sha256` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--evm-web3-conformance-evidence` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `evm_fixtures` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `evm_execution` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `web3_rpc` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `evm_corpus` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod ops conformance` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `relayer soak-plan` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `chain_id` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `evidence-manifest.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

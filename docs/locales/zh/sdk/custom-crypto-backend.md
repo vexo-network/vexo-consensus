@@ -89,3 +89,87 @@ VRF backend 也要像 BLS 一样暴露清晰的审计边界。请填写 `vrf.ada
 `vexod keys serve-vrf` 使用 ECVRF key 提供 `POST /prove` 和 `POST /verify`，`vexod keys verify-vrf` 用于端到端检查 remote prover。`VEXO_REMOTE_VRF_TOKEN`、`remote-vrf-http-v1`、`vexo.remote_vrf.prove.v1`、`vexo.remote_vrf.verify.v1` 保持不翻译。
 
 以下接口名称必须保持不变： `vexod keys serve-vrf`, `vexod keys verify-vrf`, `POST /prove`, `POST /verify`, `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, `vexo.remote_vrf.verify.v1`.
+
+<!-- vexo-docs:technical-parity -->
+## 技术等价附录
+
+本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+
+### 章节追踪
+- section: Goal — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Interfaces — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Runtime Suite — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Domain Separation — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Production BLS Requirements — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Production VRF Requirements — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Remote Signer Requirements — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Test Backends — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+
+### 保持不变的接口
+- `vexo-consensus` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `supranational/blst` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo.consensus.proposal.v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo.consensus.vote.v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo.consensus.timeout_vote.v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo.finality.proof.v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `crypto.adapter_name` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `BLSAdapter.Metadata().Name` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `crypto.audit_evidence_sha256` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `bls_pop` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `blst-bls12381-minpk-v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `github.com/supranational/blst` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `RELEASE_CGO_ENABLED=1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `RELEASE_REQUIRE_BLS=1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `make release-portable RELEASE_REQUIRE_BLS=0` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `circl-bls12381-g1sigg2-basic-v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `bls_proof_of_possession` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vrf.adapter_name` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vrf.audit_report` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vrf.dependency_audit` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vrf.audit_evidence_sha256` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vrf.key_source` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `committee.backend` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `crypto.NewProductionVRF` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `production_adapter: true` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `ecvrf-p256-sha256-tai-v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vrf_public_key` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `remote-vrf-http-v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `remote-http:<base-url>` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `POST /prove` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `public_key` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `issued_at_unix_nano` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `deadline_unix_nano` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo.remote_vrf.prove.v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `POST /verify` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo.remote_vrf.verify.v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `{ "valid": true, "nonce": "<same nonce>" }` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `VEXO_REMOTE_VRF_TOKEN` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `Authorization: Bearer <token>` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vrf.tls_cert_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vrf.tls_key_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vrf.tls_ca_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vrf.tls_server_name` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `keys serve-vrf` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--auth-token` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--auth-token-env` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod keys serve-vrf` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `crypto.NewRemoteVRFService` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--home` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `remote-vrf-nonces.jsonl` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `remote-vrf-audit.jsonl` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--nonce-path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--audit-log` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `crypto.RemoteVRFServiceConfig.ReplayStore` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `RequireDurableReplayStore: true` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `crypto.NewFileRemoteVRFReplayStore` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `consensus_config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vrf_key_paths` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `VEXO_KEY_PASSPHRASE` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vrf.keys` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod keys serve-remote` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--guard-path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `consensus_proposal` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `consensus_vote` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `consensus_timeout_vote` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `finality_proof` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

@@ -84,3 +84,99 @@
 ## 最新运维说明
 
 新的节点目录需要一起审查 `network_config.json` 中的 `p2p.dial_timeout`, `p2p.auth_replay_path`, `p2p.require_auth_replay_store`。默认 `10s` dial timeout 覆盖 TCP 连接、TLS、signed handshake 和 replay-store 检查。公网部署时不要把这些行为藏在 shell flag 中，应放入配置审查流程。
+
+<!-- vexo-docs:technical-parity -->
+## 技术等价附录
+
+本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+
+### 章节追踪
+- section: Validator Node — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Archive Node — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Split Configuration Files — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Key Types — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Config-Based Peers — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Consensus Timing — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Multi-Validator Network — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+
+### 保持不变的接口
+- `network_config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod start` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--timeout-propose` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--create-empty-blocks` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--p2p-auth-token` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--rpc-admin-token` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--evm-account-key-env` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--evm-account-key` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `validator_id` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `VEXO_KEY_PASSPHRASE` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--passphrase` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--encrypt-keys` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `validator.key.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `node.key.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `validator.vrf.key.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `require_network_safety=true` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--key-type bls` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `blst-bls12381-minpk-v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `genesis.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `bls_pop` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `module_config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `consensus_config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `mempool_config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `log_config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `data/` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `network_config.json:p2p.node_key_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `shutdown_timeout` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `web3_max_subscriptions_per_connection` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `web3_idle_timeout` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `auth_replay_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `require_auth_replay_store` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `dial_timeout` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `data/p2p_auth_replay.jsonl` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--key-type ed25519` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vrf_key_paths` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vrf_public_key` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `<home>/<name>_config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc.evm_account_key_envs` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc.evm_account_private_keys` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_accounts` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_sign` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_signTransaction` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_sendTransaction` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `evm_account_key_envs` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod config paths --home <home>` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `"require_network_safety": true` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `execution_commit` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `require_network_safety` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `host:port` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc.address` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.listen_address` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.peers` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.seeds` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.node_id` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.node_key_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.tls_cert_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.tls_key_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.tls_ca_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.tls_server_name` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.dial_timeout` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `timeout_propose` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `timeout_prevote` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `timeout_precommit` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `timeout_commit` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `create_empty_blocks: false` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `execution_commit: "finalized"` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `execution_commit: "qc"` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `round_timeout` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `create_empty_blocks` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod network up` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `make network-e2e` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p_host_template` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc_host_template` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `validator-%d` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p_advertise_host_template` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc_advertise_host_template` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p_listen_host` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc_listen_host` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

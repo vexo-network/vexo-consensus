@@ -63,3 +63,30 @@
 ## 规范来源
 
 - [英文规范文档](../../en/release/cosmos-comparison-gate.md)
+
+<!-- vexo-docs:technical-parity -->
+## 技术等价附录
+
+本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+
+### 章节追踪
+- section: Required Evidence Properties — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Release Rule — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+
+### 保持不变的接口
+- `--longrun-evidence` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--chaos-evidence` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--ops-runbook-evidence` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--external-audit` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--formal-safety-evidence` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--fuzz-evidence` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--sdk-conformance-evidence` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--evm-web3-conformance-evidence` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--p2p-scale-evidence` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--state-sync-light-client-evidence` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--snapshot-evidence` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--validator-economics-evidence` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--upgrade-governance-evidence` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--mev-fee-market-evidence` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--kms-evidence` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--bls-audit` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

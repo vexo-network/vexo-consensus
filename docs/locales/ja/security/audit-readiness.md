@@ -67,3 +67,34 @@
 ## 正規原文
 
 - [英語の正規文書](../../en/security/audit-readiness.md)
+## 監査準備の補足説明
+
+監査者は、コードが存在するかだけでなく、証拠が再現できるかを最初に確認します。そのため、脅威モデル、既知の制限、BLS/VRF 監査資料、EVM conformance 結果、longrun/chaos 結果、KMS 署名証拠、snapshot/replay 証拠は、同じ候補バイナリと同じ設定から生成されている必要があります。運用者は例外を隠さず、release gate が拒否した項目、担当者、再検証条件を runbook に残すべきです。
+
+<!-- vexo-docs:technical-parity -->
+## 技術的同等性付録
+
+この付録は、英語正本にある実行可能なインターフェイスと主要セクションを翻訳版でも漏らさないための検証用要約です。コマンド、設定キー、RPC メソッド、パッケージ名は全言語でそのまま維持します。
+
+### セクション追跡
+- section: Scope — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Threat Model — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Security Assumptions — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Known Limitations — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Formal-ish Safety Argument — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Required Evidence for Audit — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Auditor Focus Areas — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Practical Audit Walkthrough — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Remote Signer Audit Notes — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: EVM/Web3 Audit Notes — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Snapshot and WAL Audit Notes — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+
+### そのまま維持するインターフェイス
+- `docs/security/blst-audit-evidence.json` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `remote-vrf-http-v1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexod keys serve-vrf` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `release collect-evidence` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/*` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `chain_id` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `go.mod` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/recovery/report` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

@@ -61,7 +61,7 @@ func TestNewVRFLoadsRegisteredProductionAdapter(t *testing.T) {
 		ProductionAdapter:   true,
 		AdapterName:         "global-test-vrf",
 		AuditReport:         "audit-2026",
-		DependencyAudit:     "external:global-test-vrf-audit-2026",
+		DependencyAudit:     "external:global-test-vrf-audit-2026@sha256:" + strings.Repeat("a", 64),
 		AuditEvidenceSHA256: strings.Repeat("a", 64),
 		KeySource:           "kms",
 	})
@@ -167,7 +167,7 @@ func (adapter testVRFAdapter) Metadata() VRFAdapterMetadata {
 		Version:              "v1",
 		Audited:              true,
 		AuditReport:          adapter.auditReport,
-		DependencyAudit:      "external:global-test-vrf-audit-2026",
+		DependencyAudit:      "external:global-test-vrf-audit-2026@sha256:" + strings.Repeat("a", 64),
 		KeySource:            adapter.keySource,
 		DomainSeparation:     true,
 		ProofVerification:    true,

@@ -78,3 +78,42 @@ release candidate を検証するときは、`release gate` に BLS と VRF の 
 ## 正規原文
 
 - [英語の正規文書](../../en/release/launch-runbook.md)
+
+<!-- vexo-docs:technical-parity -->
+## 技術的同等性付録
+
+この付録は、英語正本にある実行可能なインターフェイスと主要セクションを翻訳版でも漏らさないための検証用要約です。コマンド、設定キー、RPC メソッド、パッケージ名は全言語でそのまま維持します。
+
+### セクション追跡
+- section: Prelaunch Gate — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Release Candidate Gate — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Genesis Gate — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Launch Window — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Postlaunch Archive — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+
+### そのまま維持するインターフェイス
+- `release docs-quality` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `checksums.txt` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `sbom-go-modules.json` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `sbom-go-version.txt` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `release-manifest.json` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `release-audit-pack.json` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `release collect-evidence` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `network analyze-longrun` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `longrun-evidence.json` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--evm-default-fixtures` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--evm-tx-fixtures` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--evm-tx-fixtures-dir` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--evm-execution-fixtures` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--evm-execution-fixtures-dir` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--evm-tx-fixtures-sha256` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--evm-execution-fixtures-sha256` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--evm-web3-conformance-evidence` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `evm_fixtures` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `evm_execution` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `web3_rpc` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `evm_corpus` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexod ops conformance` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `relayer soak-plan` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `chain_id` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `evidence-manifest.json` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

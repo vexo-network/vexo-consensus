@@ -89,3 +89,87 @@ VRF backend も BLS と同じ水準で監査境界を示す必要があります
 `vexod keys serve-vrf` は ECVRF key で `POST /prove` と `POST /verify` を提供し、`vexod keys verify-vrf` は remote prover を end-to-end で確認します。`VEXO_REMOTE_VRF_TOKEN`、`remote-vrf-http-v1`、`vexo.remote_vrf.prove.v1`、`vexo.remote_vrf.verify.v1` は翻訳しません。
 
 次のインターフェイス名は変更しないでください: `vexod keys serve-vrf`, `vexod keys verify-vrf`, `POST /prove`, `POST /verify`, `VEXO_REMOTE_VRF_TOKEN`, `remote-vrf-http-v1`, `vexo.remote_vrf.prove.v1`, `vexo.remote_vrf.verify.v1`.
+
+<!-- vexo-docs:technical-parity -->
+## 技術的同等性付録
+
+この付録は、英語正本にある実行可能なインターフェイスと主要セクションを翻訳版でも漏らさないための検証用要約です。コマンド、設定キー、RPC メソッド、パッケージ名は全言語でそのまま維持します。
+
+### セクション追跡
+- section: Goal — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Interfaces — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Runtime Suite — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Domain Separation — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Production BLS Requirements — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Production VRF Requirements — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Remote Signer Requirements — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Test Backends — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+
+### そのまま維持するインターフェイス
+- `vexo-consensus` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `supranational/blst` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexo.consensus.proposal.v1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexo.consensus.vote.v1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexo.consensus.timeout_vote.v1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexo.finality.proof.v1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `crypto.adapter_name` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `BLSAdapter.Metadata().Name` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `crypto.audit_evidence_sha256` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `bls_pop` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `blst-bls12381-minpk-v1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `github.com/supranational/blst` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `RELEASE_CGO_ENABLED=1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `RELEASE_REQUIRE_BLS=1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `make release-portable RELEASE_REQUIRE_BLS=0` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `circl-bls12381-g1sigg2-basic-v1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `bls_proof_of_possession` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vrf.adapter_name` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vrf.audit_report` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vrf.dependency_audit` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vrf.audit_evidence_sha256` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vrf.key_source` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `committee.backend` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `crypto.NewProductionVRF` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `production_adapter: true` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `ecvrf-p256-sha256-tai-v1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vrf_public_key` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `remote-vrf-http-v1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `remote-http:<base-url>` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `POST /prove` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `public_key` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `issued_at_unix_nano` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `deadline_unix_nano` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexo.remote_vrf.prove.v1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `POST /verify` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexo.remote_vrf.verify.v1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `{ "valid": true, "nonce": "<same nonce>" }` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `VEXO_REMOTE_VRF_TOKEN` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `Authorization: Bearer <token>` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vrf.tls_cert_path` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vrf.tls_key_path` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vrf.tls_ca_path` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vrf.tls_server_name` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `keys serve-vrf` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--auth-token` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--auth-token-env` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexod keys serve-vrf` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `crypto.NewRemoteVRFService` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--home` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `remote-vrf-nonces.jsonl` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `remote-vrf-audit.jsonl` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--nonce-path` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--audit-log` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `crypto.RemoteVRFServiceConfig.ReplayStore` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `RequireDurableReplayStore: true` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `crypto.NewFileRemoteVRFReplayStore` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `consensus_config.json` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexod` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vrf_key_paths` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `VEXO_KEY_PASSPHRASE` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vrf.keys` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexod keys serve-remote` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--guard-path` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `consensus_proposal` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `consensus_vote` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `consensus_timeout_vote` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `finality_proof` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

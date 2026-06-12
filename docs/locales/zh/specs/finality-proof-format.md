@@ -69,3 +69,38 @@
 ## 规范来源
 
 - [英文规范文档](../../en/specs/finality-proof-format.md)
+
+<!-- vexo-docs:technical-parity -->
+## 技术等价附录
+
+本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+
+### 章节追踪
+- section: Scope — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Proof Fields — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Header Fields — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Quorum Certificate Fields — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Commit Chain Fields — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Verification Algorithm — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Accountable Safety Detection — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Ed25519 Model — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: BLS Model — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+
+### 保持不变的接口
+- `finality.Proof` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/finality/latest` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/finality/{height}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `strict: true` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/status.latest_height` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/finality/*` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `Proof.ValidatorSetHeight <= Header.Height` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `Proof.ValidatorSetHash == loaded_set.Hash()` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `Header.ValidatorSetHash == loaded_set.Hash()` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `QuorumCert.Height == Header.Height` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `QuorumCert.BlockHash == Proof.BlockHash == HeaderHash(Header)` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `Header.TxRoot` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `HeaderHash(link.Header)` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `finality.AttackDetector` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--validator-set` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `blst-bls12381-minpk-v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `supranational/blst` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

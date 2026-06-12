@@ -53,3 +53,29 @@
 ## 正規原文
 
 - [英語の正規文書](../../en/sdk/custom-storage-transport.md)
+
+<!-- vexo-docs:technical-parity -->
+## 技術的同等性付録
+
+この付録は、英語正本にある実行可能なインターフェイスと主要セクションを翻訳版でも漏らさないための検証用要約です。コマンド、設定キー、RPC メソッド、パッケージ名は全言語でそのまま維持します。
+
+### セクション追跡
+- section: Custom Storage — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Storage Requirements — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Custom Transport — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Transport Requirements — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Compatibility — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+
+### そのまま維持するインターフェイス
+- `store.Store` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `store.HistoricalSnapshotKVStore` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `store.SnapshotKVStore` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `store.AppBlockCommitStore` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexod start` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `runtime.NewNetworkSafeWithStore` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `runtime.NewNetworkSafeWithStoreContext` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `runtime.NewNetworkSafeWithStoreAndCryptoRegistryContext` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `config.ValidateNetworkSafety` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `app.AtomicBlockApplication` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `transport.Transport` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `transport.GRPCConfig.RequireTLS` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

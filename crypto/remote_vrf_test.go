@@ -61,7 +61,7 @@ func TestRemoteVRFAdapterProvesAndVerifiesThroughHTTP(t *testing.T) {
 		AdapterName:         VRFAdapterRemoteHTTPName,
 		ProductionAdapter:   true,
 		AuditReport:         "remote-vrf-audit",
-		DependencyAudit:     "external:remote-vrf-service-audit-2026",
+		DependencyAudit:     "external:remote-vrf-service-audit-2026@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		AuditEvidenceSHA256: strings.Repeat("b", 64),
 		KeySource:           "remote-http:" + server.URL,
 	})
@@ -82,7 +82,7 @@ func TestRemoteVRFAdapterProvesAndVerifiesThroughHTTP(t *testing.T) {
 		AdapterName:         VRFAdapterRemoteHTTPName,
 		ProductionAdapter:   true,
 		AuditReport:         "remote-vrf-audit",
-		DependencyAudit:     "external:remote-vrf-service-audit-2026",
+		DependencyAudit:     "external:remote-vrf-service-audit-2026@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		AuditEvidenceSHA256: strings.Repeat("b", 64),
 		KeySource:           "remote-http:" + server.URL,
 	}); err != nil {
@@ -95,7 +95,7 @@ func TestRemoteVRFAdapterHonorsCanceledContext(t *testing.T) {
 		AdapterName:         VRFAdapterRemoteHTTPName,
 		ProductionAdapter:   true,
 		AuditReport:         "remote-vrf-audit",
-		DependencyAudit:     "external:remote-vrf-service-audit-2026",
+		DependencyAudit:     "external:remote-vrf-service-audit-2026@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		AuditEvidenceSHA256: strings.Repeat("b", 64),
 		KeySource:           "remote-http:http://127.0.0.1:1",
 	})

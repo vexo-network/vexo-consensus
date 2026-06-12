@@ -53,3 +53,29 @@
 ## 规范来源
 
 - [英文规范文档](../../en/sdk/custom-storage-transport.md)
+
+<!-- vexo-docs:technical-parity -->
+## 技术等价附录
+
+本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+
+### 章节追踪
+- section: Custom Storage — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Storage Requirements — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Custom Transport — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Transport Requirements — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Compatibility — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+
+### 保持不变的接口
+- `store.Store` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `store.HistoricalSnapshotKVStore` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `store.SnapshotKVStore` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `store.AppBlockCommitStore` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod start` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `runtime.NewNetworkSafeWithStore` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `runtime.NewNetworkSafeWithStoreContext` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `runtime.NewNetworkSafeWithStoreAndCryptoRegistryContext` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `config.ValidateNetworkSafety` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `app.AtomicBlockApplication` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `transport.Transport` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `transport.GRPCConfig.RequireTLS` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

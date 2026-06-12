@@ -79,3 +79,38 @@
 ## 规范来源
 
 - [英文规范文档](../../en/specs/storage-schema.md)
+
+<!-- vexo-docs:technical-parity -->
+## 技术等价附录
+
+本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+
+### 章节追踪
+- section: Scope — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Backend — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Records — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Indexes — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: EVM Records — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Recovery Rules — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Snapshot Validation — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Schema Migration — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+
+### 保持不变的接口
+- `store.Store` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `evm_ethstate` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getBalance` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getProof` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `bank/{0x_address}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `auth/nonce/{0x_address}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `evm/code/{0x_address}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `evm/storage/{0x_address}/{slot}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `evm_ethstate/{height}/meta` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `evm_ethstate/{height}/accounts/{0x_address}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `evm_ethstate/{height}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `seen_ttl` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `code/{address}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `storage/{address}/{slot}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `receipts/{tx_hash}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `logs/by_height/{height}/{tx_hash}/{log_index}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `logs/by_address/{address}/{height}/{tx_hash}/{log_index}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `logs/{address}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

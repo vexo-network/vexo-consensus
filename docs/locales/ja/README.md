@@ -56,3 +56,34 @@
 ## 正規原文
 
 - [英語の正規文書](../en/README.md)
+
+<!-- vexo-docs:technical-parity -->
+## 技術的同等性付録
+
+この付録は、英語正本にある実行可能なインターフェイスと主要セクションを翻訳版でも漏らさないための検証用要約です。コマンド、設定キー、RPC メソッド、パッケージ名は全言語でそのまま維持します。
+
+### セクション追跡
+- section: How to Read This Set — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Start Here — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Protocol Specs — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: SDK and Extension Guides — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Operations and Release — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Security — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Localized Documentation — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Writing New Docs — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Production Claim Rule — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Documentation Review Checklist — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+
+### そのまま維持するインターフェイス
+- `vexo-consensus` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/*` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `make docs-check` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexod status --json` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `feature_assurance` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `network_config.json:p2p.auth_replay_path` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `network_config.json:p2p.node_key_path` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `module_config.json:governance.RequireDeposit` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `module_config.json:governance.MinDeposit` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `consensus_config.json:consensus.execution_commit` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `mempool_config.json:mempool.WALPath` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

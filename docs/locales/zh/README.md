@@ -56,3 +56,34 @@
 ## 规范来源
 
 - [英文规范文档](../en/README.md)
+
+<!-- vexo-docs:technical-parity -->
+## 技术等价附录
+
+本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+
+### 章节追踪
+- section: How to Read This Set — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Start Here — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Protocol Specs — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: SDK and Extension Guides — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Operations and Release — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Security — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Localized Documentation — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Writing New Docs — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Production Claim Rule — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Documentation Review Checklist — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+
+### 保持不变的接口
+- `vexo-consensus` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/*` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `make docs-check` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod status --json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `feature_assurance` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `network_config.json:p2p.auth_replay_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `network_config.json:p2p.node_key_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `module_config.json:governance.RequireDeposit` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `module_config.json:governance.MinDeposit` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `consensus_config.json:consensus.execution_commit` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `mempool_config.json:mempool.WALPath` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

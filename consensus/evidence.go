@@ -858,6 +858,9 @@ func VerifyInvalidProposalEvidenceWithContext(evidence slashing.Evidence, contex
 	if err := verifyInvalidProposalEnvelope(decoded, evidence.Validator, evidence.Height, evidence.Round); err != nil {
 		return err
 	}
+	if err := verifyInvalidProposalBoundContext(decoded, context); err != nil {
+		return err
+	}
 	switch decoded.Reason {
 	case InvalidProposalReasonValidatorSetHash:
 		if context.ExpectedValidatorSetHash == (types.Hash{}) {
@@ -915,25 +918,6 @@ func VerifyInvalidProposalEvidenceWithBoundContext(evidence slashing.Evidence, c
 	if evidence.Type != slashing.EvidenceInvalidProposal {
 		return slashing.ErrUnknownEvidenceType
 	}
-	decoded, err := DecodeInvalidProposalProof(evidence.Proof)
-	if err != nil {
-		return err
-	}
-	if invalidProposalReasonRequiresContext(decoded.Reason) {
-		if decoded.ContextProofHash == (types.Hash{}) {
-			return ErrInvalidProposalContext
-		}
-		computed := context.ProofHash()
-		if computed == (types.Hash{}) {
-			return ErrInvalidProposalContext
-		}
-		if context.ContextProofHash == (types.Hash{}) {
-			return ErrInvalidProposalContext
-		}
-		if context.ContextProofHash != computed {
-			return ErrInvalidProposalContext
-		}
-	}
 	return VerifyInvalidProposalEvidenceWithContext(evidence, context)
 }
 
@@ -948,6 +932,23 @@ func invalidProposalReasonRequiresContext(reason InvalidProposalReason) bool {
 		entry, ok := invalidProposalVerifierEntryFor(reason)
 		return ok && entry.requireContext
 	}
+}
+
+func verifyInvalidProposalBoundContext(decoded InvalidProposalProof, context InvalidProposalVerificationContext) error {
+	if !invalidProposalReasonRequiresContext(decoded.Reason) {
+		return nil
+	}
+	if decoded.ContextProofHash == (types.Hash{}) || context.ContextProofHash == (types.Hash{}) {
+		return ErrInvalidProposalContext
+	}
+	computed := context.ProofHash()
+	if computed == (types.Hash{}) || context.ContextProofHash != computed {
+		return ErrInvalidProposalContext
+	}
+	if decoded.ContextProofHash != computed {
+		return ErrInvalidProposal
+	}
+	return nil
 }
 
 func verifyInvalidProposalStateProof(decoded InvalidProposalProof, context InvalidProposalVerificationContext, height types.Height) error {

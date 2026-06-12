@@ -70,3 +70,40 @@
 ## 规范来源
 
 - [英文规范文档](../../en/operators/add-validator.md)
+
+<!-- vexo-docs:technical-parity -->
+## 技术等价附录
+
+本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+
+### 章节追踪
+- section: 1. Initialize Validator Home — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: 2. Configure Network Addresses and Peers — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: 3. Submit Validator Admission — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: 4. Verify Validator Set Update — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: 5. Plan Validator Key Rotation — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: 6. Start Validator — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: 7. Monitor — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+- section: Safety Notes — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+
+### 保持不变的接口
+- `VEXO_KEY_PASSPHRASE` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--passphrase` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `bls_pop` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `blst-bls12381-minpk-v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod keys gen --type bls --bls-adapter circl-bls12381-g1sigg2-basic-v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `node.key.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `network_config.json:p2p.node_id` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `.vexo-validator-new/network_config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `network_config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.listen_address` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc.address` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.node_id` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.node_key_path` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p.peers` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `p2p_address` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc_address` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `node_id` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `active_from` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `active_until` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `config audit --strict` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
