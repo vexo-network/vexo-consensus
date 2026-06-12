@@ -30,6 +30,8 @@ Vexo의 native coin과 EVM 계정 잔액은 서로 다른 자산이 아닙니다
 - EVM의 `value`, gas fee, blob fee는 모두 native coin 회계와 연결됩니다.
 - `eth_getBalance`로 보는 `0x` 계정 잔액과 native bank store의 해당 계정 잔액은 같은 경제 상태를 바라봅니다.
 - 일반 Vexo tx는 ante layer에서 fee를 차감하고, raw Ethereum tx는 EVM state transition에서 gas/value 처리를 수행합니다.
+- `value`, `gasPrice`, `maxFeePerGas`, `maxPriorityFeePerGas`, `maxFeePerBlobGas`, `effectiveGasPrice`는 `uint64`보다 커도 잘리지 않고 Ethereum hex quantity 형태로 Web3 RPC에 표시됩니다.
+- EVM simulation/query 경로는 `value_hex`, `gas_price_hex`, `max_fee_per_gas_hex`, `max_priority_fee_per_gas_hex`를 지원합니다. 작은 값용 numeric field도 남아 있지만, hex field와 값이 충돌하면 안전하게 거절합니다.
 
 ## Web3 사용 시 주의점
 
@@ -80,6 +82,15 @@ Vexo는 Ethereum node가 아니라 Vexo consensus 위에 EVM 실행 환경을 �
 - `value`
 - `uint256`
 - `contract.Invocation`
+- `gasPrice`
+- `maxFeePerGas`
+- `maxPriorityFeePerGas`
+- `maxFeePerBlobGas`
+- `effectiveGasPrice`
+- `value_hex`
+- `gas_price_hex`
+- `max_fee_per_gas_hex`
+- `max_priority_fee_per_gas_hex`
 - `eth_getBalance`
 - `bank query balance`
 

@@ -2482,8 +2482,11 @@ type web3CallRequest struct {
 	ValueHex                  string                                 `json:"value_hex,omitempty"`
 	Height                    uint64                                 `json:"height,omitempty"`
 	GasPrice                  uint64                                 `json:"gas_price,omitempty"`
+	GasPriceHex               string                                 `json:"gas_price_hex,omitempty"`
 	MaxFeePerGas              uint64                                 `json:"max_fee_per_gas,omitempty"`
+	MaxFeePerGasHex           string                                 `json:"max_fee_per_gas_hex,omitempty"`
 	MaxPriorityFeePerGas      uint64                                 `json:"max_priority_fee_per_gas,omitempty"`
+	MaxPriorityFeePerGasHex   string                                 `json:"max_priority_fee_per_gas_hex,omitempty"`
 	BaseFee                   uint64                                 `json:"base_fee,omitempty"`
 	BlobBaseFee               uint64                                 `json:"blob_base_fee,omitempty"`
 	BlobHashes                []string                               `json:"blob_hashes,omitempty"`
@@ -3543,16 +3546,16 @@ func web3PendingTransaction(tx types.Tx) any {
 		"to":               details.To,
 		"value":            web3TxValueHex(details),
 		"gas":              hexQuantity(details.Gas),
-		"gasPrice":         hexQuantity(details.GasPrice),
+		"gasPrice":         web3TxGasPriceHex(details),
 		"input":            details.Input,
 		"type":             hexQuantity(details.Type),
 		"chainId":          hexQuantity(details.ChainID),
 	}
-	if details.MaxFeePerGas > 0 {
-		transaction["maxFeePerGas"] = hexQuantity(details.MaxFeePerGas)
+	if details.MaxFeePerGas > 0 || details.MaxFeePerGasHex != "" {
+		transaction["maxFeePerGas"] = web3TxMaxFeePerGasHex(details)
 	}
-	if details.MaxPriorityFeePerGas > 0 {
-		transaction["maxPriorityFeePerGas"] = hexQuantity(details.MaxPriorityFeePerGas)
+	if details.MaxPriorityFeePerGas > 0 || details.MaxPriorityFeePerGasHex != "" {
+		transaction["maxPriorityFeePerGas"] = web3TxMaxPriorityFeePerGasHex(details)
 	}
 	return transaction
 }
@@ -4463,8 +4466,12 @@ func web3PreparedEVMCall(ctx context.Context, provider StatusProvider, cfg Confi
 	baseFee := web3BaseFeeAtHeight(ctx, provider, types.Height(call.Height))
 	call.BaseFee = baseFee
 	call.BlobBaseFee = web3BlobBaseFeeAtHeight(ctx, provider, types.Height(call.Height))
-	if call.GasPrice == 0 && call.MaxFeePerGas > 0 {
-		call.GasPrice = web3EffectiveCallGasPrice(baseFee, call.MaxFeePerGas, call.MaxPriorityFeePerGas)
+	if call.GasPrice == 0 && call.GasPriceHex == "" && (call.MaxFeePerGas > 0 || call.MaxFeePerGasHex != "") {
+		gasPrice := web3EffectiveCallGasPriceBig(baseFee, web3CallQuantityBig(call.MaxFeePerGasHex, call.MaxFeePerGas), web3CallQuantityBig(call.MaxPriorityFeePerGasHex, call.MaxPriorityFeePerGas))
+		call.GasPriceHex = hexQuantityBig(gasPrice)
+		if gasPrice.IsUint64() {
+			call.GasPrice = gasPrice.Uint64()
+		}
 	}
 	if overrides, rpcErr := web3StateOverridesParam(params); rpcErr != nil {
 		return web3CallRequest{}, rpcErr
@@ -4495,6 +4502,30 @@ func web3EffectiveCallGasPrice(baseFee uint64, maxFeePerGas uint64, maxPriorityF
 		return maxFeePerGas
 	}
 	return capWithTip
+}
+
+func web3EffectiveCallGasPriceBig(baseFee uint64, maxFeePerGas *big.Int, maxPriorityFeePerGas *big.Int) *big.Int {
+	if maxFeePerGas == nil || maxFeePerGas.Sign() == 0 {
+		return new(big.Int).SetUint64(baseFee)
+	}
+	capWithTip := new(big.Int).SetUint64(baseFee)
+	if maxPriorityFeePerGas != nil {
+		capWithTip.Add(capWithTip, maxPriorityFeePerGas)
+	}
+	if capWithTip.Cmp(maxFeePerGas) > 0 {
+		return new(big.Int).Set(maxFeePerGas)
+	}
+	return capWithTip
+}
+
+func web3CallQuantityBig(hexValue string, fallback uint64) *big.Int {
+	if hexValue != "" {
+		parsed, ok := new(big.Int).SetString(strings.TrimPrefix(hexValue, "0x"), 16)
+		if ok && parsed.Sign() >= 0 {
+			return parsed
+		}
+	}
+	return new(big.Int).SetUint64(fallback)
 }
 
 func web3EVMCallRequest(ctx context.Context, provider StatusProvider, call web3CallRequest) (web3EVMCallResponse, *JSONRPCError) {
@@ -5087,10 +5118,8 @@ func web3TransactionFromReceipt(ctx context.Context, provider StatusProvider, va
 		return nil, &JSONRPCError{Code: -32000, Message: "missing EVM receipt hash"}
 	}
 	blockHash, txIndex, tx, foundTx := web3ReceiptBlockLocation(ctx, provider, receipt)
-	gasPrice := uint64(0)
 	details := web3TxDetails{Nonce: 0, Gas: receipt.GasUsed, GasPrice: 0, Value: 0, Input: receipt.Output}
 	if foundTx {
-		gasPrice = web3EffectiveGasPrice(tx)
 		details = web3TransactionDetails(tx)
 	}
 	to := receipt.To
@@ -5107,7 +5136,7 @@ func web3TransactionFromReceipt(ctx context.Context, provider StatusProvider, va
 		"to":               to,
 		"value":            web3TxValueHex(details),
 		"gas":              hexQuantity(details.Gas),
-		"gasPrice":         hexQuantity(gasPrice),
+		"gasPrice":         web3TxGasPriceHex(details),
 		"input":            details.Input,
 		"type":             hexQuantity(details.Type),
 		"chainId":          hexQuantity(details.ChainID),
@@ -5149,7 +5178,7 @@ func web3ReceiptObject(ctx context.Context, provider StatusProvider, value []byt
 		"logs":              logs,
 		"logsBloom":         web3ReceiptBloom(ctx, provider, receipt),
 		"status":            hexQuantity(uint64(receipt.Status)),
-		"effectiveGasPrice": hexQuantity(web3EffectiveGasPriceFromReceipt(ctx, provider, receipt)),
+		"effectiveGasPrice": web3EffectiveGasPriceHexFromReceipt(ctx, provider, receipt),
 		"type":              hexQuantity(web3TransactionTypeFromReceipt(ctx, provider, receipt)),
 	}, nil
 }
@@ -5166,19 +5195,19 @@ func web3TransactionFromBlockRecord(record store.BlockRecord, index int, hashTex
 		"to":               details.To,
 		"value":            web3TxValueHex(details),
 		"gas":              hexQuantity(details.Gas),
-		"gasPrice":         hexQuantity(details.GasPrice),
+		"gasPrice":         web3TxGasPriceHex(details),
 		"input":            details.Input,
 		"type":             hexQuantity(details.Type),
 		"chainId":          hexQuantity(details.ChainID),
 	}
-	if details.MaxFeePerGas > 0 {
-		transaction["maxFeePerGas"] = hexQuantity(details.MaxFeePerGas)
+	if details.MaxFeePerGas > 0 || details.MaxFeePerGasHex != "" {
+		transaction["maxFeePerGas"] = web3TxMaxFeePerGasHex(details)
 	}
-	if details.MaxPriorityFeePerGas > 0 {
-		transaction["maxPriorityFeePerGas"] = hexQuantity(details.MaxPriorityFeePerGas)
+	if details.MaxPriorityFeePerGas > 0 || details.MaxPriorityFeePerGasHex != "" {
+		transaction["maxPriorityFeePerGas"] = web3TxMaxPriorityFeePerGasHex(details)
 	}
-	if details.BlobGasFeeCap > 0 {
-		transaction["maxFeePerBlobGas"] = hexQuantity(details.BlobGasFeeCap)
+	if details.BlobGasFeeCap > 0 || details.BlobGasFeeCapHex != "" {
+		transaction["maxFeePerBlobGas"] = web3TxBlobGasFeeCapHex(details)
 	}
 	if len(details.BlobHashes) > 0 {
 		transaction["blobVersionedHashes"] = append([]string(nil), details.BlobHashes...)
@@ -5202,43 +5231,64 @@ func web3TransactionFromBlockRecord(record store.BlockRecord, index int, hashTex
 }
 
 func web3EffectiveGasPrice(tx types.Tx) uint64 {
-	if gasPrice, found := vexoapp.TxUintTag(tx, ethcompat.TagGasPrice); found {
-		return gasPrice
-	}
-	meta := vexoapp.ParseTxMeta(tx)
-	if meta.Fee == 0 || meta.Gas == 0 {
+	price, found := web3EffectiveGasPriceBig(tx)
+	if !found || !price.IsUint64() {
 		return 0
 	}
-	return meta.Fee / meta.Gas
+	return price.Uint64()
+}
+
+func web3EffectiveGasPriceBig(tx types.Tx) (*big.Int, bool) {
+	if gasPrice, found := vexoapp.TxAmountBigTag(tx, ethcompat.TagGasPrice); found {
+		return gasPrice, true
+	}
+	meta := vexoapp.ParseTxMeta(tx)
+	if meta.FeeBig == nil || meta.FeeBig.Sign() == 0 || meta.Gas == 0 {
+		return nil, false
+	}
+	return new(big.Int).Div(new(big.Int).Set(meta.FeeBig), new(big.Int).SetUint64(meta.Gas)), true
+}
+
+func web3EffectiveGasPriceHex(tx types.Tx) string {
+	price, found := web3EffectiveGasPriceBig(tx)
+	if !found {
+		return hexQuantity(0)
+	}
+	return hexQuantityBig(price)
 }
 
 type web3TxDetails struct {
-	From                 any
-	To                   any
-	Input                string
-	Nonce                uint64
-	Gas                  uint64
-	GasPrice             uint64
-	MaxFeePerGas         uint64
-	MaxPriorityFeePerGas uint64
-	BlobGasFeeCap        uint64
-	BlobHashes           []string
-	Value                uint64
-	ValueHex             string
-	Type                 uint64
-	ChainID              uint64
+	From                    any
+	To                      any
+	Input                   string
+	Nonce                   uint64
+	Gas                     uint64
+	GasPrice                uint64
+	GasPriceHex             string
+	MaxFeePerGas            uint64
+	MaxFeePerGasHex         string
+	MaxPriorityFeePerGas    uint64
+	MaxPriorityFeePerGasHex string
+	BlobGasFeeCap           uint64
+	BlobGasFeeCapHex        string
+	BlobHashes              []string
+	Value                   uint64
+	ValueHex                string
+	Type                    uint64
+	ChainID                 uint64
 }
 
 func web3TransactionDetails(tx types.Tx) web3TxDetails {
 	meta := vexoapp.ParseTxMeta(tx)
 	details := web3TxDetails{
-		From:     nil,
-		To:       nil,
-		Input:    "0x" + hex.EncodeToString(tx),
-		Nonce:    meta.Nonce,
-		Gas:      meta.Gas,
-		GasPrice: web3EffectiveGasPrice(tx),
-		Type:     0,
+		From:        nil,
+		To:          nil,
+		Input:       "0x" + hex.EncodeToString(tx),
+		Nonce:       meta.Nonce,
+		Gas:         meta.Gas,
+		GasPrice:    web3EffectiveGasPrice(tx),
+		GasPriceHex: web3EffectiveGasPriceHex(tx),
+		Type:        0,
 	}
 	if meta.Signer != "" {
 		details.From = string(meta.Signer)
@@ -5249,14 +5299,14 @@ func web3TransactionDetails(tx types.Tx) web3TxDetails {
 	if txType, found := vexoapp.TxUintTag(tx, ethcompat.TagType); found {
 		details.Type = txType
 	}
-	if maxFee, found := vexoapp.TxUintTag(tx, ethcompat.TagMaxFeePerGas); found {
-		details.MaxFeePerGas = maxFee
+	if maxFee, found := vexoapp.TxAmountBigTag(tx, ethcompat.TagMaxFeePerGas); found {
+		setWeb3TxQuantity(&details.MaxFeePerGas, &details.MaxFeePerGasHex, maxFee)
 	}
-	if maxPriority, found := vexoapp.TxUintTag(tx, ethcompat.TagMaxPriorityFeePerGas); found {
-		details.MaxPriorityFeePerGas = maxPriority
+	if maxPriority, found := vexoapp.TxAmountBigTag(tx, ethcompat.TagMaxPriorityFeePerGas); found {
+		setWeb3TxQuantity(&details.MaxPriorityFeePerGas, &details.MaxPriorityFeePerGasHex, maxPriority)
 	}
-	if blobGasFeeCap, found := vexoapp.TxUintTag(tx, ethcompat.TagBlobGasFeeCap); found {
-		details.BlobGasFeeCap = blobGasFeeCap
+	if blobGasFeeCap, found := vexoapp.TxAmountBigTag(tx, ethcompat.TagBlobGasFeeCap); found {
+		setWeb3TxQuantity(&details.BlobGasFeeCap, &details.BlobGasFeeCapHex, blobGasFeeCap)
 	}
 	details.BlobHashes = web3BlobVersionedHashes(tx)
 	if value, found := vexoapp.TxTag(tx, ethcompat.TagValue); found {
@@ -5301,11 +5351,49 @@ func setWeb3TxValue(details *web3TxDetails, decimal string) {
 	}
 }
 
+func setWeb3TxQuantity(compat *uint64, hexValue *string, value *big.Int) {
+	if value == nil || value.Sign() < 0 {
+		return
+	}
+	*hexValue = hexQuantityBig(value)
+	if value.IsUint64() {
+		*compat = value.Uint64()
+	}
+}
+
 func web3TxValueHex(details web3TxDetails) string {
 	if details.ValueHex != "" {
 		return details.ValueHex
 	}
 	return hexQuantity(details.Value)
+}
+
+func web3TxGasPriceHex(details web3TxDetails) string {
+	if details.GasPriceHex != "" {
+		return details.GasPriceHex
+	}
+	return hexQuantity(details.GasPrice)
+}
+
+func web3TxMaxFeePerGasHex(details web3TxDetails) string {
+	if details.MaxFeePerGasHex != "" {
+		return details.MaxFeePerGasHex
+	}
+	return hexQuantity(details.MaxFeePerGas)
+}
+
+func web3TxMaxPriorityFeePerGasHex(details web3TxDetails) string {
+	if details.MaxPriorityFeePerGasHex != "" {
+		return details.MaxPriorityFeePerGasHex
+	}
+	return hexQuantity(details.MaxPriorityFeePerGas)
+}
+
+func web3TxBlobGasFeeCapHex(details web3TxDetails) string {
+	if details.BlobGasFeeCapHex != "" {
+		return details.BlobGasFeeCapHex
+	}
+	return hexQuantity(details.BlobGasFeeCap)
 }
 
 func web3TxValueDecimal(details web3TxDetails) string {
@@ -5385,6 +5473,14 @@ func web3EffectiveGasPriceFromReceipt(ctx context.Context, provider StatusProvid
 		return 0
 	}
 	return web3EffectiveGasPrice(tx)
+}
+
+func web3EffectiveGasPriceHexFromReceipt(ctx context.Context, provider StatusProvider, receipt web3Receipt) string {
+	_, _, tx, found := web3ReceiptBlockLocation(ctx, provider, receipt)
+	if !found {
+		return hexQuantity(0)
+	}
+	return web3EffectiveGasPriceHex(tx)
 }
 
 func web3TransactionTypeFromReceipt(ctx context.Context, provider StatusProvider, receipt web3Receipt) uint64 {
@@ -5729,28 +5825,40 @@ func evmCallParam(params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
 		}
 	}
 	gasPrice := uint64(0)
+	gasPriceHex := ""
 	maxFeePerGas := uint64(0)
+	maxFeePerGasHex := ""
 	maxPriorityFeePerGas := uint64(0)
+	maxPriorityFeePerGasHex := ""
 	nonce := uint64(0)
 	switch {
 	case payload.GasPrice != "":
-		value, err := parseHexQuantity(payload.GasPrice)
-		if err != nil {
+		value, err := parseHexQuantityBig(payload.GasPrice)
+		if err != nil || value.BitLen() > 256 {
 			return web3CallRequest{}, &JSONRPCError{Code: -32602, Message: "invalid gasPrice quantity"}
 		}
-		gasPrice = value
+		gasPriceHex = hexQuantityBig(value)
+		if value.IsUint64() {
+			gasPrice = value.Uint64()
+		}
 	case payload.MaxFeePerGas != "":
-		value, err := parseHexQuantity(payload.MaxFeePerGas)
-		if err != nil {
+		value, err := parseHexQuantityBig(payload.MaxFeePerGas)
+		if err != nil || value.BitLen() > 256 {
 			return web3CallRequest{}, &JSONRPCError{Code: -32602, Message: "invalid maxFeePerGas quantity"}
 		}
-		maxFeePerGas = value
+		maxFeePerGasHex = hexQuantityBig(value)
+		if value.IsUint64() {
+			maxFeePerGas = value.Uint64()
+		}
 		if payload.MaxPriorityFeePerGas != "" {
-			priority, err := parseHexQuantity(payload.MaxPriorityFeePerGas)
-			if err != nil {
+			priority, err := parseHexQuantityBig(payload.MaxPriorityFeePerGas)
+			if err != nil || priority.BitLen() > 256 {
 				return web3CallRequest{}, &JSONRPCError{Code: -32602, Message: "invalid maxPriorityFeePerGas quantity"}
 			}
-			maxPriorityFeePerGas = priority
+			maxPriorityFeePerGasHex = hexQuantityBig(priority)
+			if priority.IsUint64() {
+				maxPriorityFeePerGas = priority.Uint64()
+			}
 		}
 	}
 	if payload.Nonce != "" {
@@ -5783,8 +5891,11 @@ func evmCallParam(params []json.RawMessage) (web3CallRequest, *JSONRPCError) {
 		Value:                     callValue,
 		ValueHex:                  callValueHex,
 		GasPrice:                  gasPrice,
+		GasPriceHex:               gasPriceHex,
 		MaxFeePerGas:              maxFeePerGas,
+		MaxFeePerGasHex:           maxFeePerGasHex,
 		MaxPriorityFeePerGas:      maxPriorityFeePerGas,
+		MaxPriorityFeePerGasHex:   maxPriorityFeePerGasHex,
 		Nonce:                     nonce,
 		AccessList:                web3ContractAccessList(payload.AccessList),
 		SetCodeAuthorizationsJSON: setCodeAuthorizationsJSON,

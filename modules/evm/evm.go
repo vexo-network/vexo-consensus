@@ -110,8 +110,11 @@ type CallRequest struct {
 	ValueHex                  string                       `json:"value_hex,omitempty"`
 	Height                    uint64                       `json:"height,omitempty"`
 	GasPrice                  uint64                       `json:"gas_price,omitempty"`
+	GasPriceHex               string                       `json:"gas_price_hex,omitempty"`
 	MaxFeePerGas              uint64                       `json:"max_fee_per_gas,omitempty"`
+	MaxFeePerGasHex           string                       `json:"max_fee_per_gas_hex,omitempty"`
 	MaxPriorityFeePerGas      uint64                       `json:"max_priority_fee_per_gas,omitempty"`
+	MaxPriorityFeePerGasHex   string                       `json:"max_priority_fee_per_gas_hex,omitempty"`
 	BaseFee                   uint64                       `json:"base_fee,omitempty"`
 	BlobBaseFee               uint64                       `json:"blob_base_fee,omitempty"`
 	BlobHashes                []string                     `json:"blob_hashes,omitempty"`
@@ -906,6 +909,18 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 	if err != nil {
 		return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
 	}
+	gasPrice, err := callRequestQuantity(request.GasPrice, request.GasPriceHex)
+	if err != nil {
+		return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
+	}
+	gasFeeCap, err := callRequestQuantity(request.MaxFeePerGas, request.MaxFeePerGasHex)
+	if err != nil {
+		return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
+	}
+	gasTipCap, err := callRequestQuantity(request.MaxPriorityFeePerGas, request.MaxPriorityFeePerGasHex)
+	if err != nil {
+		return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
+	}
 	timestamp := headerUnixSeconds(ctx.Header)
 	if request.BlockOverride.Timestamp > 0 {
 		timestamp = request.BlockOverride.Timestamp
@@ -937,9 +952,12 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 		BlockNumber:               blockNumber,
 		Timestamp:                 timestamp,
 		BlockGasLimit:             blockGasLimit,
-		GasPrice:                  request.GasPrice,
-		GasFeeCap:                 request.MaxFeePerGas,
-		GasTipCap:                 request.MaxPriorityFeePerGas,
+		GasPrice:                  uint64Amount(gasPrice),
+		GasPriceBig:               gasPrice,
+		GasFeeCap:                 uint64Amount(gasFeeCap),
+		GasFeeCapBig:              gasFeeCap,
+		GasTipCap:                 uint64Amount(gasTipCap),
+		GasTipCapBig:              gasTipCap,
 		BaseFee:                   baseFee,
 		BlobBaseFee:               blobBaseFee,
 		BlobHashes:                parseBlobHashes(request.BlobHashes),
@@ -990,6 +1008,27 @@ func callRequestValue(request CallRequest) (*big.Int, error) {
 		return parsed, nil
 	}
 	return new(big.Int).SetUint64(request.Value), nil
+}
+
+func callRequestQuantity(compat uint64, hexValue string) (*big.Int, error) {
+	var parsed *big.Int
+	if hexValue != "" {
+		if !strings.HasPrefix(hexValue, "0x") {
+			return nil, ErrInvalidEVMQuery
+		}
+		value, ok := new(big.Int).SetString(strings.TrimPrefix(hexValue, "0x"), 16)
+		if !ok || value.Sign() < 0 || value.BitLen() > 256 {
+			return nil, ErrInvalidEVMQuery
+		}
+		parsed = value
+	}
+	if parsed != nil {
+		if compat != 0 && (!parsed.IsUint64() || parsed.Uint64() != compat) {
+			return nil, ErrInvalidEVMQuery
+		}
+		return parsed, nil
+	}
+	return new(big.Int).SetUint64(compat), nil
 }
 
 func (module Module) estimateInvocationGas(ctx vexoapp.Context, invocation contract.Invocation) (uint64, error) {

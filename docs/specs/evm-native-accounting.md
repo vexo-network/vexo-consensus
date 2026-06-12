@@ -39,6 +39,8 @@ The built-in EVM adapter preserves Ethereum 256-bit value and fee fields.
 - Raw Ethereum transaction `value`, effective gas price, fee cap, priority fee cap, blob fee cap, and total fee are decoded as `uint256`-compatible values.
 - Canonical Vexo wrapper tags store those values as decimal strings even when they exceed `uint64`.
 - The geth-backed VM adapter receives 256-bit gas price and fee-cap fields through the `contract.Invocation` boundary.
+- Web3 transaction, pending transaction, and receipt responses expose `value`, `gasPrice`, `maxFeePerGas`, `maxPriorityFeePerGas`, `maxFeePerBlobGas`, and `effectiveGasPrice` as Ethereum hex quantities without truncating values above `uint64`.
+- EVM module call queries accept `value_hex`, `gas_price_hex`, `max_fee_per_gas_hex`, and `max_priority_fee_per_gas_hex` so simulation paths can preserve full `uint256` semantics. The legacy numeric fields remain for small callers and are rejected when they conflict with the explicit hex encoding.
 - VM balance writes are persisted as native bank balances, so `eth_getBalance` and `bank query balance` observe the same underlying asset for Ethereum `0x` accounts.
 - EVM receipts report `gasUsed` for the transaction and `cumulativeGasUsed` as the sum of receipt gas used earlier in the same block plus the current transaction, matching Web3 client expectations.
 - Blob transactions are accepted through `eth_sendRawBlobTransaction` or `vexo_sendRawBlobTransaction` with an explicit sidecar. `eth_sendRawTransaction` rejects blob transactions that reference blob hashes without sidecar data, because Vexo does not rely on Ethereum devp2p sidecar propagation.

@@ -1897,6 +1897,28 @@ func TestWeb3EVMCallUsesHistoricalFeeContext(t *testing.T) {
 	if call.GasPrice != 5 || call.MaxFeePerGas != 10 || call.MaxPriorityFeePerGas != 2 {
 		t.Fatalf("expected EIP-1559 effective call gas price, got %+v", call)
 	}
+	largeMaxFee := new(big.Int).Lsh(big.NewInt(1), 80)
+	largePriority := new(big.Int).Lsh(big.NewInt(1), 79)
+	largePayload := `{"jsonrpc":"2.0","id":3,"method":"eth_call","params":[{"to":"0x000000000000000000000000000000000000beef","data":"0x","maxFeePerGas":"0x` + largeMaxFee.Text(16) + `","maxPriorityFeePerGas":"0x` + largePriority.Text(16) + `"},"0x7"]}`
+	var largeFee JSONRPCResponse
+	postJSON(t, handler, "/web3", largePayload, http.StatusOK, &largeFee)
+	if largeFee.Error != nil {
+		t.Fatalf("unexpected large dynamic fee eth_call response: %+v", largeFee)
+	}
+	call = web3CallRequest{}
+	if err := json.Unmarshal(provider.appQueryData, &call); err != nil {
+		t.Fatal(err)
+	}
+	expectedEffective := new(big.Int).Add(largePriority, big.NewInt(3))
+	if call.GasPrice != 0 || call.GasPriceHex != "0x"+expectedEffective.Text(16) || call.MaxFeePerGasHex != "0x"+largeMaxFee.Text(16) || call.MaxPriorityFeePerGasHex != "0x"+largePriority.Text(16) {
+		t.Fatalf("expected uint256 EIP-1559 fee context, got %+v", call)
+	}
+	tooLargeGasPrice := new(big.Int).Lsh(big.NewInt(1), 256)
+	var tooLarge JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":4,"method":"eth_call","params":[{"to":"0x000000000000000000000000000000000000beef","data":"0x","gasPrice":"0x`+tooLargeGasPrice.Text(16)+`"},"0x7"]}`, http.StatusOK, &tooLarge)
+	if tooLarge.Error == nil || !strings.Contains(tooLarge.Error.Message, "invalid gasPrice quantity") {
+		t.Fatalf("expected oversized gasPrice rejection, got %+v", tooLarge)
+	}
 }
 
 func TestHandlerWeb3UsesConfiguredEVMChainID(t *testing.T) {
@@ -2203,6 +2225,59 @@ func TestWeb3TransactionDetailsPreservesUint256Value(t *testing.T) {
 	details := web3TransactionDetails(tx)
 	if details.Value != 0 || details.ValueHex != "0x"+value.Text(16) || web3TxValueHex(details) != "0x"+value.Text(16) {
 		t.Fatalf("unexpected uint256 transaction value details: %+v", details)
+	}
+}
+
+func TestWeb3TransactionDetailsPreservesUint256FeeQuantities(t *testing.T) {
+	gasPrice := new(big.Int).Lsh(big.NewInt(1), 80)
+	maxFee := new(big.Int).Add(new(big.Int).Lsh(big.NewInt(1), 81), big.NewInt(7))
+	maxPriority := new(big.Int).Add(new(big.Int).Lsh(big.NewInt(1), 79), big.NewInt(3))
+	blobFeeCap := new(big.Int).Add(new(big.Int).Lsh(big.NewInt(1), 78), big.NewInt(5))
+	fee := new(big.Int).Mul(gasPrice, big.NewInt(21000))
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
+		Module: "evm",
+		Action: "call",
+		Args:   []string{"evm", "0xaaaa", "0xbbbb", "call", "00", "21000", "0"},
+		Tags: map[string]string{
+			"fee":                             fee.String(),
+			"gas":                             "21000",
+			ethcompat.TagGasPrice:             gasPrice.String(),
+			ethcompat.TagMaxFeePerGas:         maxFee.String(),
+			ethcompat.TagMaxPriorityFeePerGas: maxPriority.String(),
+			ethcompat.TagBlobGasFeeCap:        blobFeeCap.String(),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	details := web3TransactionDetails(tx)
+	if details.GasPrice != 0 || web3TxGasPriceHex(details) != "0x"+gasPrice.Text(16) {
+		t.Fatalf("unexpected gas price details: %+v", details)
+	}
+	if details.MaxFeePerGas != 0 || web3TxMaxFeePerGasHex(details) != "0x"+maxFee.Text(16) {
+		t.Fatalf("unexpected max fee details: %+v", details)
+	}
+	if details.MaxPriorityFeePerGas != 0 || web3TxMaxPriorityFeePerGasHex(details) != "0x"+maxPriority.Text(16) {
+		t.Fatalf("unexpected priority fee details: %+v", details)
+	}
+	if details.BlobGasFeeCap != 0 || web3TxBlobGasFeeCapHex(details) != "0x"+blobFeeCap.Text(16) {
+		t.Fatalf("unexpected blob fee cap details: %+v", details)
+	}
+	record := store.BlockRecord{
+		Block: types.Block{
+			Header: types.Header{Height: 3},
+			Txs:    []types.Tx{tx},
+		},
+	}
+	rendered, ok := web3TransactionFromBlockRecord(record, 0, "0xhash", tx).(map[string]any)
+	if !ok {
+		t.Fatal("expected transaction object")
+	}
+	if rendered["gasPrice"] != "0x"+gasPrice.Text(16) ||
+		rendered["maxFeePerGas"] != "0x"+maxFee.Text(16) ||
+		rendered["maxPriorityFeePerGas"] != "0x"+maxPriority.Text(16) ||
+		rendered["maxFeePerBlobGas"] != "0x"+blobFeeCap.Text(16) {
+		t.Fatalf("unexpected rendered EVM fee quantities: %+v", rendered)
 	}
 }
 

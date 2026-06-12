@@ -853,6 +853,58 @@ func TestModuleQueryCallAcceptsUint256ValueWeiAndRejectsConflict(t *testing.T) {
 	}
 }
 
+func TestModuleQueryCallAcceptsUint256FeeQuantities(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	vm := &recordingInvocationVM{}
+	registry := contract.NewRegistry()
+	if err := registry.Register(vm); err != nil {
+		t.Fatal(err)
+	}
+	module := NewModuleWithRegistry(registry)
+	contractAddress := types.Address("0x000000000000000000000000000000000000bbbb")
+	if err := storage.Set(context.Background(), ModuleName, codeKey(contractAddress), []byte{0x60, 0x00}); err != nil {
+		t.Fatal(err)
+	}
+	gasPrice := new(big.Int).Lsh(big.NewInt(1), 80)
+	gasFeeCap := new(big.Int).Add(new(big.Int).Lsh(big.NewInt(1), 81), big.NewInt(7))
+	gasTipCap := new(big.Int).Add(new(big.Int).Lsh(big.NewInt(1), 79), big.NewInt(3))
+	request := CallRequest{
+		VM:                      "evm",
+		From:                    "0x000000000000000000000000000000000000aaaa",
+		To:                      string(contractAddress),
+		Method:                  "call",
+		Input:                   "0x00",
+		GasLimit:                100000,
+		GasPriceHex:             "0x" + gasPrice.Text(16),
+		MaxFeePerGasHex:         "0x" + gasFeeCap.Text(16),
+		MaxPriorityFeePerGasHex: "0x" + gasTipCap.Text(16),
+	}
+	encoded, _ := json.Marshal(request)
+	response := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 1, Store: storage}, vexoapp.QueryRequest{Path: []string{"call"}, Data: encoded})
+	if response.Code != 0 {
+		t.Fatalf("query call failed: %+v", response)
+	}
+	if vm.invocation.GasPrice != 0 || vm.invocation.GasPriceBig == nil || vm.invocation.GasPriceBig.Cmp(gasPrice) != 0 {
+		t.Fatalf("expected uint256 gas price, got compat=%d big=%v", vm.invocation.GasPrice, vm.invocation.GasPriceBig)
+	}
+	if vm.invocation.GasFeeCap != 0 || vm.invocation.GasFeeCapBig == nil || vm.invocation.GasFeeCapBig.Cmp(gasFeeCap) != 0 {
+		t.Fatalf("expected uint256 gas fee cap, got compat=%d big=%v", vm.invocation.GasFeeCap, vm.invocation.GasFeeCapBig)
+	}
+	if vm.invocation.GasTipCap != 0 || vm.invocation.GasTipCapBig == nil || vm.invocation.GasTipCapBig.Cmp(gasTipCap) != 0 {
+		t.Fatalf("expected uint256 gas tip cap, got compat=%d big=%v", vm.invocation.GasTipCap, vm.invocation.GasTipCapBig)
+	}
+	request.GasPrice = 1
+	encoded, _ = json.Marshal(request)
+	response = module.Query(vexoapp.Context{Ctx: context.Background(), Height: 1, Store: storage}, vexoapp.QueryRequest{Path: []string{"call"}, Data: encoded})
+	if response.Code == 0 {
+		t.Fatalf("expected conflicting gas price encodings to fail, got %+v", response)
+	}
+}
+
 func TestModulePersistsCodeWritesAccountDeletionsAndActualGas(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
