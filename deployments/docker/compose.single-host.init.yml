@@ -16,9 +16,5 @@ services:
       - /etc/vexo/topology.json
       - --overwrite
     volumes:
-      - vexo-single-data:/var/lib/vexo
+      - ./vexo-single-data:/var/lib/vexo
       - ./topology.single-host.json:/etc/vexo/topology.json:ro
-
-volumes:
-  vexo-single-data:
-    name: vexo-single-data

@@ -4,7 +4,7 @@ x-vexo-node: &vexo-node
   image: ${VEXO_IMAGE:-vexo-consensus:dev}
   restart: unless-stopped
   volumes:
-    - vexo-single-data:/var/lib/vexo
+    - ./vexo-single-data:/var/lib/vexo
   networks:
     - vexo-single
 
