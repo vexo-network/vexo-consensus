@@ -57,112 +57,140 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 
 ## Quick Start
 
+This section is the shortest path from a fresh checkout to a running network. For the full operator explanation, read [Node Initialization](./docs/operators/node-initialization.md) and [Docker Deployment](./deployments/docker/README.md).
+
+### 1. Build the binary
+
 Prerequisites:
 
 - Go 1.26 or newer
 - `make`
-
-Build and inspect the CLI:
+- Docker only if you want the container examples
 
 ```bash
 make build
-./bin/vexod help
+./bin/vexod --help
 ./bin/vexod version
 ```
 
-Run the test suite:
+Run the normal local checks:
 
 ```bash
 make check
 ```
 
-Initialize and validate a validator home:
+### 2. Start one validator node
+
+Use this when you only want to inspect the generated files and run a single process:
 
 ```bash
-VEXO_KEY_PASSPHRASE='change-me' ./bin/vexod init validator --home .vexo --chain-id vexo-chain --validator validator-1 --encrypt-keys --overwrite
+export VEXO_KEY_PASSPHRASE='change-me'
+./bin/vexod init validator \
+  --home .vexo \
+  --chain-id vexo-chain \
+  --validator validator-1 \
+  --encrypt-keys \
+  --overwrite
+
 ./bin/vexod validate --home .vexo
+./bin/vexod config audit --home .vexo --strict
+./bin/vexod start --home .vexo
 ```
 
-The generated home uses split subsystem config files:
-
-- `.vexo/config.json` for node identity, chain ID, data path, and split config pointers
-- `.vexo/module_config.json` for application modules, execution policy, and governance policy
-- `.vexo/network_config.json` for RPC/P2P listen addresses, peers, seeds, and peer scoring
-- `.vexo/consensus_config.json` for consensus timing, crypto, validator admission, and committee policy
-- `.vexo/mempool_config.json` for mempool limits, fees, priority, and WAL policy
-- `.vexo/log_config.json` for log format, level, and operational event logging
-
-## Common CLI Commands
+In another terminal:
 
 ```bash
-vexod help
-vexod status --json
-vexod config show --home .vexo
-vexod config audit --home .vexo --strict
-vexod config tune --validators 64 --tps 5000 --regions 4 --latency 120ms --json
-vexod keys gen --home .vexo-bls --type bls
-VEXO_KEY_PASSPHRASE='change-me' vexod keys gen --home .vexo-vrf --type vrf --encrypt
-vexod keys rotation-plan --home .vexo --key validator.key.json --key next-validator.key.json
-vexod start --home .vexo --rotation-key next-validator.key.json --dry-run
-vexod tx build --module bank --action send --args alice,bob,25 --tags fee=1gvxo,gas=1000,signer=alice,nonce=1
-curl -s http://127.0.0.1:26657/ -d '{"jsonrpc":"2.0","id":1,"method":"vexo_web3Capabilities","params":[]}'
-vexod ibc query capabilities
-vexod proof query --home .vexo --namespace bank --key alice
-vexod proof verify --input proof.json --chain-id vexo-chain --height 10
-vexod proof verify-ibc --home .vexo --client-id 07-vexo-0 --input ibc-proof.json
-vexod proof da-export --tx-hex 68656c6c6f --tx-hex 776f726c64 --data-shards 4 --parity-shards 2 > da-bundle.json
-vexod proof da-proof --tx-hex 68656c6c6f --tx-hex 776f726c64 --index 0 > da-proof.json
-vexod proof da-verify --input da-proof.json
-vexod proof da-recover --input da-bundle.json --drop 0 --drop 1
-vexod ibc tx client-create 07-vexo-0 counterparty 10 <validator-set-hash> <state-root> --signer relayer
-vexod ibc tx client-update 07-vexo-0 11 <validator-set-hash> <state-root> --fee 1 --gas 1000 --signer relayer --nonce 1
-vexod relayer client-update --source-rpc 127.0.0.1:26657 --rpc 127.0.0.1:27657 --client-id 07-vexo-0 --fee 1 --gas 1000 --signer relayer --nonce 1 --submit
-vexod ibc tx connection-open-init connection-0 07-vexo-0 connection-1 --fee 1 --gas 1000 --signer relayer --nonce 1
-vexod ibc tx channel-open-init transfer channel-0 connection-0 channel-1 ordered --fee 1 --gas 1000 --signer relayer --nonce 1
-vexod ibc tx packet-send 1 transfer channel-0 transfer channel-1 payload --fee 1 --gas 1000 --signer relayer --nonce 1
-vexod ibc tx packet-ack 1 transfer channel-0 transfer channel-1 payload ack --fee 1 --gas 1000 --signer relayer --nonce 2
-vexod ibc tx packet-timeout 1 transfer channel-0 transfer channel-1 payload 100 --fee 1 --gas 1000 --signer relayer --nonce 3
-vexod relayer discover --rpc 127.0.0.1:26657 --json
-vexod relayer packet-ack --rpc 127.0.0.1:26657 --proof-rpc 127.0.0.1:26657 --sequence 1 --source-port transfer --source-channel channel-0 --destination-port transfer --destination-channel channel-1 --data payload --ack ack --fee 1 --gas 1000 --signer relayer --nonce 2 --submit
-vexod relayer loop --mode timeout --rpc 127.0.0.1:26657 --proof-rpc 127.0.0.1:26657 --sequence 1 --source-port transfer --source-channel channel-0 --destination-port transfer --destination-channel channel-1 --data payload --timeout-height 100 --interval 5s --continue-on-error --state relayer_state.json --submit
-vexod relayer run --config relayer_config.json
-vexod evm tx call evm 0xaaaa 0xbbbb transfer aabb 100000 --fee 1 --gas 100000 --signer 0xaaaa --nonce 1
-vexod staking tx set-commission validator-1 500 --signer validator-1
-vexod staking query rewards alice validator-1
-vexod staking tx claim-rewards alice validator-1 --fee 1 --gas 1000 --signer alice --nonce 2
-vexod staking query unbonding-balance alice validator-1
-vexod staking tx withdraw-unbonded alice validator-1 --fee 1 --gas 1000 --signer alice --nonce 3
-vexod governance tx submit-json '{"submitter":"alice","title":"multi-change","description":"raise throughput safely","metadata_uri":"ipfs://proposal","type":"parameter_change","deposit":"100avxo","changes":[{"module":"execution","key":"max_gas","value":"20000000"},{"module":"mempool","key":"max_txs","value":"50000"}]}'
-curl -s -X POST http://127.0.0.1:26657/ -d '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}'
-vexod ibc packet send --sequence 1 --source-port transfer --source-channel channel-0 --destination-port transfer --destination-channel channel-1 --data payload
-vexod consensus adversarial --json
-vexod snapshot chunk-export --home .vexo --output-dir snapshot-chunks --chunk-size 10000
-vexod snapshot chunk-restore --home .vexo-restore --input-dir snapshot-chunks
-vexod snapshot drill-plan --input snapshot.json --chain-id vexo-chain --json
-vexod ops conformance --home .vexo --json
-vexod release readiness --json
+curl -s http://127.0.0.1:26657/v1/status
+curl -s http://127.0.0.1:26657/v1/diagnostics
+curl -s http://127.0.0.1:26657/v1/metrics
 ```
 
-Governance JSON proposal deposits are native bank balances. When a store-backed runtime processes a proposal with `deposit`, the submitter's funds move into the governance escrow account, successful execution refunds the deposit, and a rejected proposal moves the deposit into the rejected-deposit module account. All of those writes participate in the staged block commit path.
+If `consensus_config.json` has `"create_empty_blocks": false`, height can stay unchanged until a transaction enters the mempool. That is expected.
 
-Common RPC reads:
+### 3. Start a 4-validator Docker network
+
+Use this when you want to see peers connect and blocks commit on one machine:
 
 ```bash
-curl 'http://127.0.0.1:26657/v1/status'
-curl 'http://127.0.0.1:26657/v1/events?key=sender&value=alice'
-curl 'http://127.0.0.1:26657/v1/proof?namespace=bank&key=alice'
-curl 'http://127.0.0.1:26657/v1/finality/latest'
-curl 'http://127.0.0.1:26657/v1/ibc/client/07-vexo-0'
-curl 'http://127.0.0.1:26657/v1/ibc/proof/packet/1/transfer/channel-0/transfer/channel-1'
+docker compose \
+  -f deployments/docker/compose.single-host.init.yml \
+  -f deployments/docker/compose.single-host.init.build.cgo.yml \
+  run --rm init
+
+docker compose \
+  -f deployments/docker/compose.single-host.yml \
+  -f deployments/docker/compose.single-host.build.cgo.yml \
+  up --build
 ```
 
-Module commands are contributed by application modules:
+Status endpoints from the host:
 
 ```bash
-vexod bank --help
-vexod staking --help
-vexod governance --help
+curl -s http://127.0.0.1:28657/v1/status
+curl -s http://127.0.0.1:28667/v1/status
+curl -s http://127.0.0.1:28677/v1/status
+curl -s http://127.0.0.1:28687/v1/status
 ```
+
+Stop it with:
+
+```bash
+docker compose -f deployments/docker/compose.single-host.yml down
+```
+
+### 4. Connect Remix or another Web3 tool
+
+Vexo exposes Ethereum-style JSON-RPC methods under `/web3`. Browser tools such as Remix need CORS preflight support, which the RPC server enables by default.
+
+Use this custom provider URL:
+
+```text
+http://127.0.0.1:28657/web3
+```
+
+Quick checks:
+
+```bash
+curl -s http://127.0.0.1:28657/web3 \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'
+
+curl -s http://127.0.0.1:28657/web3 \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"vexo_web3Capabilities","params":[]}'
+```
+
+If Remix shows `Failed to fetch eth_chainId`, check that the URL ends with `/web3`, the node RPC port is reachable from the browser, and the Docker host port is the exposed host port such as `28657`, not the container-internal `26657`.
+
+### 5. Know the generated files
+
+Node behavior is configured through files, not long `start` flags:
+
+- `.vexo/config.json`: node identity, chain ID, data path, and split config pointers
+- `.vexo/module_config.json`: app modules, execution policy, EVM chain ID, gas, fees, and governance policy
+- `.vexo/network_config.json`: RPC/P2P listen addresses, peers, seeds, TLS, Web3 RPC, state sync, and peer scoring
+- `.vexo/consensus_config.json`: consensus timing, empty-block policy, finality/execution boundary, crypto, VRF, and committee policy
+- `.vexo/mempool_config.json`: mempool size, fees, replacement policy, TTL, and WAL persistence
+- `.vexo/log_config.json`: log format, level, block commit logs, and peer event logs
+- `.vexo/genesis.json`: immutable genesis validators, validator metadata, and module genesis state
+
+### 6. Useful commands after startup
+
+```bash
+./bin/vexod status --json
+./bin/vexod config show --home .vexo
+./bin/vexod config paths --home .vexo
+./bin/vexod doctor --home .vexo
+./bin/vexod bank --help
+./bin/vexod staking --help
+./bin/vexod governance --help
+./bin/vexod evm --help
+./bin/vexod proof --help
+./bin/vexod snapshot --help
+./bin/vexod release readiness --json
+```
+
+Governance proposal deposits are native bank balances. Store-backed execution escrows a proposal deposit from the submitter, refunds it when execution succeeds, and moves it to the rejected-deposit module account when a proposal is rejected.
 
 ## Documentation
 

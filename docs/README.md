@@ -24,15 +24,35 @@ Use the path that matches what you are trying to do. If you are not sure, start 
 | Run nodes | Node initialization, adding a validator, networking spec | Split config files, peer identity, key custody, status/metrics |
 | Prepare a release | Audit readiness, release pipeline, launch runbook | Required evidence files, release gate output, rollback plan |
 
-If you are new to the project, start in this order:
+If you are new to the project and just want to run something, start here:
+
+1. [Node Initialization](./operators/node-initialization.md) to build, initialize, start, query, and troubleshoot a node.
+2. [Docker Deployment](../deployments/docker/README.md) to run a four-validator network on one host or prepare multi-host homes.
+3. [Observability Guide](./operators/observability.md) to know which metrics and logs prove the network is alive.
+4. [RPC API Versioning](./sdk/rpc-api-versioning.md) to connect Vexo RPC, the Web3 endpoint, Remix, and Web3 clients.
+
+If you are reviewing the protocol or preparing a release, use this order:
 
 1. [Production Readiness Guide](./production-readiness.md)
 2. [Consensus Protocol Overview](./consensus-protocol.md)
 3. [Consensus Spec](./specs/consensus-spec.md)
-4. [Transaction Format](./specs/tx-format.md)
-5. [Validator Lifecycle](./specs/validator-lifecycle.md)
-6. [Node Initialization](./operators/node-initialization.md)
+4. [Finality Proof Format](./specs/finality-proof-format.md)
+5. [Transaction Format](./specs/tx-format.md)
+6. [Validator Lifecycle](./specs/validator-lifecycle.md)
 7. [Security Audit Readiness](./security/audit-readiness.md)
+
+## Copy-Paste Start Paths
+
+| Task | Command Path |
+|---|---|
+| Build local binary | Run the build command, then inspect CLI help |
+| Create one validator home | Run the validator initialization command from the node guide |
+| Validate one home | Run validation and strict config audit for that home |
+| Run one node | Start the node from the reviewed home directory |
+| Query one node | Request the status endpoint from the configured RPC address |
+| Run Docker four-validator network | Run the single-host init compose, then the single-host run compose |
+| Connect Remix | Use the Docker validator 1 Web3 provider URL shown in the node and Docker guides |
+| Check Web3 chain ID | Send an Ethereum JSON-RPC chain-ID request to the Web3 endpoint |
 
 ## Start Here
 

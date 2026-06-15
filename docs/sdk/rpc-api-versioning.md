@@ -181,6 +181,24 @@ The generated config alternates acknowledgement and timeout jobs, uses checkpoin
 
 The Web3 bridge provides Ethereum execution and wallet/tooling compatibility inside a Vexo network. It does not expose Ethereum devp2p, Ethereum fork choice, or Ethereum sync semantics. Vexo nodes keep Vexo consensus, validator lifecycle, P2P, state sync, and block formats.
 
+Web3 methods are served at the Web3 endpoint. Versioned Vexo operational APIs stay under the versioned Vexo API namespace.
+
+Minimal chain-ID check:
+
+```bash
+curl -s http://127.0.0.1:26657/web3 \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'
+```
+
+Single-host Docker exposes validator 1 on host port `28657`, so Remix or browser tooling should use:
+
+```text
+http://127.0.0.1:28657/web3
+```
+
+The RPC handler responds to browser CORS preflight requests. If Remix reports a failed chain-ID fetch, the usual cause is the wrong URL or port: use the Web3 endpoint path, and use the host-mapped Docker port such as `28657` rather than the container-internal `26657`.
+
 ### Supported Method Groups
 
 The bridge supports single requests, batch requests, notifications, string block tags, EIP-1898 selectors, and these method families:

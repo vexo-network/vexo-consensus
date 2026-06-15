@@ -161,7 +161,13 @@ func runReleaseDocsQuality(writer io.Writer, args []string) error {
 	if *jsonOutput {
 		encoder := json.NewEncoder(writer)
 		encoder.SetIndent("", "  ")
-		return encoder.Encode(document)
+		if err := encoder.Encode(document); err != nil {
+			return err
+		}
+		if !document.OK {
+			return errors.New("release docs quality failed")
+		}
+		return nil
 	}
 	status := "ok"
 	if !document.OK {
@@ -181,6 +187,9 @@ func runReleaseDocsQuality(writer io.Writer, args []string) error {
 			fmt.Fprintf(writer, " path=%s", check.Path)
 		}
 		fmt.Fprintf(writer, " ok=%t %s\n", check.OK, check.Message)
+	}
+	if !document.OK {
+		return errors.New("release docs quality failed")
 	}
 	return nil
 }

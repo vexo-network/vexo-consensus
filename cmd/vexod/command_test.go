@@ -1097,6 +1097,27 @@ func TestRunReleaseDocsQuality(t *testing.T) {
 	}
 }
 
+func TestRunReleaseDocsQualityFailsClosed(t *testing.T) {
+	docs := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(docs, "locales", "en"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docs, "README.md"), []byte("# Docs\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(docs, "locales", "en", "README.md"), []byte("# Docs\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"schema_version":"v0","canonical_locale":"en","locales":["en"],"canonical_hashes":{}}`
+	if err := os.WriteFile(filepath.Join(docs, "locales", "manifest.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	if err := runRelease(&output, []string{"docs-quality", "--docs", docs, "--json"}); err == nil {
+		t.Fatalf("expected docs quality failure to return an error, output=%s", output.String())
+	}
+}
+
 func releaseCheckOK(document releaseAuditPack, name string) bool {
 	for _, check := range document.Checks {
 		if check.Name == name {
