@@ -3,6 +3,22 @@
 > Locale: ko · 한국어
 > 이 문서는 영어 원문을 함께 읽기 위한 한국어 보조 문서입니다. 프로토콜, 보안, 릴리즈 판단은 영어 원문이 규범입니다.
 
+
+## 먼저 읽을 순서
+
+이 문서는 validator를 네트워크에 추가하는 절차를 설명합니다. 처음이라면 아래 순서로 읽는 것이 좋습니다.
+
+1. Initialize Validator Home
+2. Configure Network Addresses and Peers
+3. Submit Validator Admission
+4. Verify Validator Set Update
+5. Plan Validator Key Rotation
+6. Start Validator
+7. Monitor
+8. Safety Notes
+
+이 순서는 실제 운영 절차와 같습니다. 먼저 새 validator 홈과 키를 만들고, 그다음 네트워크 주소와 피어를 맞춘 뒤, admission과 validator set 반영을 확인하고, 마지막으로 회전·시작·모니터링·안전 메모를 확인하면 됩니다.
+
 ## 문서 개요
 
 이 문서는 validator 추가 절차, 설정 검증, staking 확인을 이해하고 실제 구현·운영 판단에 연결하도록 돕습니다. 예제와 식별자는 구현 호환성을 위해 영어 표기를 유지하지만, 읽는 흐름과 운영상 판단 기준은 한국어로 설명합니다.

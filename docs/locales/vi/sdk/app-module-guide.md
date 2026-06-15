@@ -3,6 +3,19 @@
 > Locale: vi · Tiếng Việt
 > Tài liệu này là tài liệu đồng hành tiếng Việt để đọc cùng nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.
 
+## Thứ tự nên đọc
+
+Tài liệu này giải thích cách thêm application module vào Vexo. Nếu đây là lần đầu bạn gắn module, hãy đọc theo thứ tự sau.
+
+1. Module interface
+2. Transaction routing
+3. Module configuration
+4. State and events
+5. Genesis and ante handling
+6. CLI commands and tests
+
+Thứ tự này gần như trùng với công việc thực tế: định hình module, quyết định cách nó nhận transaction, xác định state nó sở hữu, rồi nối CLI và test vào.
+
 ## Tổng quan
 
 Tài liệu này giúp hiểu tạo app module mới và kết nối với CLI/RPC/lưu trữ trạng thái và liên hệ nội dung đó với quyết định triển khai, vận hành.

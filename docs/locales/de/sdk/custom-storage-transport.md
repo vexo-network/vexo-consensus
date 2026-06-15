@@ -3,6 +3,19 @@
 > Locale: de · Deutsch
 > Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
 
+
+## Reihenfolge zum Einstieg
+
+Dieses Dokument erklärt, wie man einen custom storage und transport adapter implementiert und registriert. Wenn du zum ersten Mal damit arbeitest, lies in dieser Reihenfolge.
+
+1. Custom Storage
+2. Storage Requirements
+3. Custom Transport
+4. Transport Requirements
+5. Compatibility
+
+Diese Reihenfolge entspricht den Risiken, die du zuerst prüfen solltest: zuerst sehen, ob der Storage Crash, Pruning, Snapshot und Replay aushält, dann prüfen, ob der Transport Authentifizierung, Versionsaushandlung, Reconnect und Bannung korrekt behandelt.
+
 ## Überblick
 
 Dieses Dokument hilft dabei, Implementierung und Registrierung von custom storage und transport adapter zu verstehen und mit Implementierungs- sowie Betriebsentscheidungen zu verbinden.

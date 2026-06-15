@@ -3,6 +3,21 @@
 > Locale: hi · हिन्दी
 > यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
 
+
+## पहले क्या पढ़ें
+
+यह दस्तावेज़ बताता है कि custom crypto backend कैसे जोड़ें। पहली बार पढ़ते समय यह क्रम सबसे अच्छा है।
+
+1. Interfaces
+2. Runtime Suite
+3. Domain Separation
+4. Production BLS Requirements
+5. VRF Backend Requirements
+6. Remote Signer Requirements
+7. Test Backends
+
+यह क्रम उन निर्णयों के अनुसार है जिन्हें पहले लेना पड़ता है: कौन सा backend चाहिए, फिर sign bytes और domain तय करें, और अंत में जाँचें कि वह production के लिए उपयुक्त है या नहीं।
+
 ## सारांश
 
 यह दस्तावेज़ BLS, VRF और signer जैसे custom crypto backend जोड़ना को समझने और उसे implementation व operation decisions से जोड़ने में मदद करता है।

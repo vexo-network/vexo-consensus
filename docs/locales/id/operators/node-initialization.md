@@ -3,6 +3,28 @@
 > Locale: id · Bahasa Indonesia
 > Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
 
+
+## Urutan baca
+
+Dokumen ini berguna untuk orang yang pertama kali membuat node home maupun yang sudah menjalankan node. Jika ini bacaan pertama, ikuti urutan ini.
+
+1. Apa yang sedang Anda bangun
+2. Menjalankan lokal dalam lima menit
+3. Jaringan lokal empat validator
+4. Web3 dan Remix
+5. Validator Node
+6. Archive Node
+7. Split Configuration Files
+8. Which File Do I Edit?
+9. Key Types
+10. Config-Based Peers
+11. Consensus Timing
+12. Multi-Validator Network
+13. Troubleshooting
+14. Minimal Operator Checklist
+
+Urutan ini sesuai dengan hal yang perlu diperiksa operator lebih dulu: pahami dulu apa itu node home, pastikan local start berhasil, bedakan validator dan archive, lalu periksa peers, timing, dan penanganan kegagalan.
+
 ## Gambaran umum
 
 Dokumen ini membantu memahami inisialisasi node archive/validator dan pengelolaan file konfigurasi terpisah dan menghubungkannya dengan keputusan implementasi serta operasi.

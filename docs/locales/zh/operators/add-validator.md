@@ -3,6 +3,22 @@
 > Locale: zh · 中文
 > 本文档是配合英文原文阅读的中文 辅助文档。协议、安全和发布判断以英文原文为准。
 
+
+## 先读什么
+
+本文档说明如何把 validator 加入网络。第一次阅读时，建议按下面顺序看。
+
+1. Initialize Validator Home
+2. Configure Network Addresses and Peers
+3. Submit Validator Admission
+4. Verify Validator Set Update
+5. Plan Validator Key Rotation
+6. Start Validator
+7. Monitor
+8. Safety Notes
+
+这个顺序对应实际运维流程：先创建新的 validator home 和 key，再设置网络地址与 peers，然后检查 admission 和 validator set 是否生效，最后查看轮换、启动、监控和安全说明。
+
 ## 文档概览
 
 本文档帮助你理解 添加 validator 的流程、配置校验和 staking 检查，并把它连接到实际实现和运维判断。

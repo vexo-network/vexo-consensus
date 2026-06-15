@@ -3,6 +3,28 @@
 > Locale: ja · 日本語
 > この文書は英語原文と併読するための日本語 補助文書です。プロトコル、セキュリティ、リリース判断は英語原文を規範とします。
 
+
+## 最初に読む順序
+
+この文書は、最初に node home を作る人にも、すでに運用している人にも向けた案内です。初めて読むなら、次の順で進めると分かりやすいです。
+
+1. 何を作っているか
+2. 5分で動かすローカル実行
+3. 4 validator のローカルネットワーク
+4. Web3 と Remix
+5. Validator Node
+6. Archive Node
+7. Split Configuration Files
+8. Which File Do I Edit?
+9. Key Types
+10. Config-Based Peers
+11. Consensus Timing
+12. Multi-Validator Network
+13. Troubleshooting
+14. Minimal Operator Checklist
+
+この順番は、実際に運用者が最初に確認すべき順番でもあります。まず node home の意味を理解し、その後ローカル起動を確認し、validator と archive の違いを見て、最後に peer、タイミング、障害対応を確認します。
+
 ## 文書概要
 
 この文書は archive ノードと validator ノードの初期化、分割設定ファイルの運用を理解し、実装・運用判断へつなげるためのものです。

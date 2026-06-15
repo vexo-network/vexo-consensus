@@ -3,6 +3,22 @@
 > Locale: ja · 日本語
 > この文書は英語原文と併読するための日本語 補助文書です。プロトコル、セキュリティ、リリース判断は英語原文を規範とします。
 
+
+## 最初に読む順序
+
+この文書は validator をネットワークに追加する手順を説明します。初めて読むなら、次の順で進めると分かりやすいです。
+
+1. Initialize Validator Home
+2. Configure Network Addresses and Peers
+3. Submit Validator Admission
+4. Verify Validator Set Update
+5. Plan Validator Key Rotation
+6. Start Validator
+7. Monitor
+8. Safety Notes
+
+この順番は実際の運用手順そのものです。まず新しい validator home と key を作成し、次にネットワーク address と peers を合わせ、そのあと admission と validator set 反映を確認し、最後に rotation、起動、監視、安全メモを確認します。
+
 ## 文書概要
 
 この文書は validator 追加手順、設定検証、staking 確認を理解し、実装・運用判断へつなげるためのものです。

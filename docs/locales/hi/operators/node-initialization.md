@@ -3,6 +3,28 @@
 > Locale: hi · हिन्दी
 > यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
 
+
+## पहले क्या पढ़ें
+
+यह दस्तावेज़ उन लोगों के लिए है जो पहली बार node home बनाते हैं और उन लोगों के लिए भी जो पहले से nodes चला रहे हैं। पहली बार पढ़ रहे हों तो इस क्रम में पढ़ें।
+
+1. आप क्या बना रहे हैं
+2. पाँच मिनट में लोकल रन
+3. चार-validators वाला लोकल नेटवर्क
+4. Web3 और Remix
+5. Validator Node
+6. Archive Node
+7. Split Configuration Files
+8. Which File Do I Edit?
+9. Key Types
+10. Config-Based Peers
+11. Consensus Timing
+12. Multi-Validator Network
+13. Troubleshooting
+14. Minimal Operator Checklist
+
+यह क्रम उसी जाँच से मेल खाता है जो operator को सबसे पहले करनी चाहिए: node home का अर्थ समझना, local start की पुष्टि करना, validator और archive का अंतर देखना, और फिर peers, timing और failure handling की समीक्षा करना।
+
 ## सारांश
 
 यह दस्तावेज़ archive और validator nodes की initialization तथा split config files का संचालन को समझने और उसे implementation व operation decisions से जोड़ने में मदद करता है।

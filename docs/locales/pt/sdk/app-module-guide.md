@@ -3,6 +3,19 @@
 > Locale: pt · Português
 > Este documento é um documento de apoio em português para ser lido junto da fonte inglesa. Decisões de protocolo, segurança e release continuam normativas em inglês.
 
+## Ordem de leitura
+
+Este documento explica como adicionar um application module ao Vexo. Se for a sua primeira integração, leia nesta ordem.
+
+1. Module interface
+2. Transaction routing
+3. Module configuration
+4. State and events
+5. Genesis and ante handling
+6. CLI commands and tests
+
+Essa ordem acompanha o trabalho real: definir a forma do módulo, decidir como ele recebe transações, esclarecer qual state ele controla e, por fim, ligar CLI e testes.
+
 ## Visão geral
 
 Este documento ajuda a entender criação de app module e integração com CLI/RPC/armazenamento de estado e a conectar isso a decisões de implementação e operação.

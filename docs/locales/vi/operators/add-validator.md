@@ -3,6 +3,22 @@
 > Locale: vi · Tiếng Việt
 > Tài liệu này là tài liệu đồng hành tiếng Việt để đọc cùng nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.
 
+
+## Thứ tự nên đọc
+
+Tài liệu này giải thích cách thêm validator vào mạng Vexo. Nếu đây là lần đầu, hãy đọc theo thứ tự sau.
+
+1. Initialize Validator Home
+2. Configure Network Addresses and Peers
+3. Submit Validator Admission
+4. Verify Validator Set Update
+5. Plan Validator Key Rotation
+6. Start Validator
+7. Monitor
+8. Safety Notes
+
+Thứ tự này khớp với quy trình vận hành thực tế: tạo validator home và key mới trước, rồi cấu hình địa chỉ mạng và peers, sau đó kiểm tra admission và validator set update, cuối cùng xem rotation, start, monitoring và ghi chú an toàn.
+
 ## Tổng quan
 
 Tài liệu này giúp hiểu quy trình thêm validator, xác thực cấu hình và kiểm tra staking và liên hệ nội dung đó với quyết định triển khai, vận hành.

@@ -3,6 +3,19 @@
 > Locale: zh · 中文
 > 本文档是配合英文原文阅读的中文 辅助文档。协议、安全和发布判断以英文原文为准。
 
+## 先读什么
+
+本文档说明如何向 Vexo 添加 application module。第一次接 module 时，建议按下面顺序阅读。
+
+1. Module interface
+2. Transaction routing
+3. Module configuration
+4. State and events
+5. Genesis and ante handling
+6. CLI commands and tests
+
+这个顺序基本对应实际开发流程：先定义 module 形状，再决定它如何接收 transaction，接着明确它拥有哪些 state，最后把 CLI 和 test 接上去。
+
 ## 文档概览
 
 本文档帮助你理解 创建新的 app module 并接入 CLI/RPC/状态存储的方法，并把它连接到实际实现和运维判断。

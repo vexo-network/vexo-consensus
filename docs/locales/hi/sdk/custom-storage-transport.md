@@ -3,6 +3,19 @@
 > Locale: hi · हिन्दी
 > यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
 
+
+## पहले क्या पढ़ें
+
+यह दस्तावेज़ बताता है कि custom storage और transport adapter कैसे implement और register करें। पहली बार पढ़ रहे हों तो इस क्रम में पढ़ें।
+
+1. Custom Storage
+2. Storage Requirements
+3. Custom Transport
+4. Transport Requirements
+5. Compatibility
+
+यह क्रम उन जोखिमों से मेल खाता है जिन्हें पहले जाँचना चाहिए: storage crash, pruning, snapshot और replay सहन कर सकता है या नहीं, और उसके बाद देखना कि transport authentication, version negotiation, reconnect और ban को सही तरीके से संभालता है या नहीं।
+
 ## सारांश
 
 यह दस्तावेज़ custom storage और transport adapter लागू व register करना को समझने और उसे implementation व operation decisions से जोड़ने में मदद करता है।

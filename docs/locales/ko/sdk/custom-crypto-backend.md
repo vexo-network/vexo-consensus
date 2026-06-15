@@ -3,6 +3,21 @@
 > Locale: ko · 한국어
 > 이 문서는 영어 원문을 함께 읽기 위한 한국어 보조 문서입니다. 프로토콜, 보안, 릴리즈 판단은 영어 원문이 규범입니다.
 
+
+## 먼저 읽을 순서
+
+이 문서는 custom crypto backend를 추가하는 방법을 설명합니다. 처음 읽는다면 아래 순서가 가장 빠릅니다.
+
+1. Interfaces
+2. Runtime Suite
+3. Domain Separation
+4. Production BLS Requirements
+5. VRF Backend Requirements
+6. Remote Signer Requirements
+7. Test Backends
+
+이 순서는 실제로 무엇을 먼저 결정해야 하는지와 같습니다. 어떤 backend가 필요한지 고르고, 그다음 sign bytes와 domain을 고정한 뒤, 생산 환경에서 쓸 수 있는지 확인하면 됩니다.
+
 ## 문서 개요
 
 이 문서는 BLS, VRF, signer 등 custom crypto backend 연결 방식을 이해하고 실제 구현·운영 판단에 연결하도록 돕습니다. 예제와 식별자는 구현 호환성을 위해 영어 표기를 유지하지만, 읽는 흐름과 운영상 판단 기준은 한국어로 설명합니다.

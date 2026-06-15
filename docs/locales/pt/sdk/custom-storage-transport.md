@@ -3,6 +3,19 @@
 > Locale: pt · Português
 > Este documento é um documento de apoio em português para ser lido junto da fonte inglesa. Decisões de protocolo, segurança e release continuam normativas em inglês.
 
+
+## Ordem de leitura
+
+Este documento explica como implementar e registrar um custom storage e um transport adapter. Se for a sua primeira vez, leia nesta ordem.
+
+1. Custom Storage
+2. Storage Requirements
+3. Custom Transport
+4. Transport Requirements
+5. Compatibility
+
+Essa ordem corresponde aos riscos que você deve verificar primeiro: ver se o storage aguenta crash, pruning, snapshot e replay, e depois confirmar se o transporte trata autenticação, negociação de versão, reconexão e banimento corretamente.
+
 ## Visão geral
 
 Este documento ajuda a entender implementação e registro de custom storage e transport adapter e a conectar isso a decisões de implementação e operação.

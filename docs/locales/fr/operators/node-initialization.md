@@ -3,6 +3,28 @@
 > Locale: fr · Français
 > Ce document est un document d’accompagnement français à lire avec la source anglaise. Les décisions de protocole, de sécurité et de release restent normatives en anglais.
 
+
+## Ordre de lecture
+
+Ce document s'adresse à la fois aux personnes qui créent un node home pour la première fois et à celles qui exploitent déjà un nœud. Si c'est votre première lecture, suivez cet ordre.
+
+1. Ce que vous construisez
+2. Exécution locale en cinq minutes
+3. Réseau local à quatre validateurs
+4. Web3 et Remix
+5. Validator Node
+6. Archive Node
+7. Split Configuration Files
+8. Which File Do I Edit?
+9. Key Types
+10. Config-Based Peers
+11. Consensus Timing
+12. Multi-Validator Network
+13. Troubleshooting
+14. Minimal Operator Checklist
+
+Cet ordre correspond aux vérifications que l'opérateur doit faire en premier : comprendre ce qu'est un node home, valider le lancement local, distinguer validator et archive, puis vérifier les peers, le timing et la gestion des incidents.
+
 ## Vue d’ensemble
 
 Ce document aide à comprendre l’initialisation des nœuds archive/validator et l’exploitation des fichiers de configuration séparés et à relier ce sujet aux décisions d’implémentation et d’exploitation.

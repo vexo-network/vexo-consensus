@@ -3,6 +3,19 @@
 > Locale: ja · 日本語
 > この文書は英語原文と併読するための日本語 補助文書です。プロトコル、セキュリティ、リリース判断は英語原文を規範とします。
 
+## 最初に読む順序
+
+この文書は Vexo に application module を追加する方法を説明します。初めて module を追加するなら、次の順で読むと分かりやすいです。
+
+1. Module interface
+2. Transaction routing
+3. Module configuration
+4. State and events
+5. Genesis and ante handling
+6. CLI commands and tests
+
+この順番は、実際の実装順ともほぼ一致します。module の形を決め、transaction をどう受け取るかを決め、どの state を持つかを決めたあと、CLI と test をつなげます。
+
 ## 文書概要
 
 この文書は 新しい app module を作り CLI/RPC/状態保存へ接続する方法を理解し、実装・運用判断へつなげるためのものです。

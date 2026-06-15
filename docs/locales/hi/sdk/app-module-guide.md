@@ -3,6 +3,19 @@
 > Locale: hi · हिन्दी
 > यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
 
+## पहले क्या पढ़ें
+
+यह दस्तावेज़ बताता है कि Vexo में application module कैसे जोड़ा जाए। अगर आप पहली बार module जोड़ रहे हैं, तो इस क्रम में पढ़ें.
+
+1. Module interface
+2. Transaction routing
+3. Module configuration
+4. State and events
+5. Genesis and ante handling
+6. CLI commands and tests
+
+यह क्रम असल काम के क्रम से मेल खाता है: पहले module का आकार तय करें, फिर यह तय करें कि वह transactions कैसे लेगा, फिर उसका state क्या होगा, और अंत में CLI और tests को जोड़ें.
+
 ## सारांश
 
 यह दस्तावेज़ नया app module बनाना और CLI/RPC/state storage से जोड़ना को समझने और उसे implementation व operation decisions से जोड़ने में मदद करता है।

@@ -3,6 +3,28 @@
 > Locale: de · Deutsch
 > Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
 
+
+## Reihenfolge zum Einstieg
+
+Dieses Dokument richtet sich sowohl an Personen, die zum ersten Mal einen node home anlegen, als auch an Betreiber, die bereits Nodes verwalten. Wenn du neu bist, lies in dieser Reihenfolge.
+
+1. Was du baust
+2. Fünf-Minuten-Lokalrun
+3. Lokales Netzwerk mit vier Validatoren
+4. Web3 und Remix
+5. Validator Node
+6. Archive Node
+7. Split Configuration Files
+8. Which File Do I Edit?
+9. Key Types
+10. Config-Based Peers
+11. Consensus Timing
+12. Multi-Validator Network
+13. Troubleshooting
+14. Minimal Operator Checklist
+
+Diese Reihenfolge entspricht dem, was ein Operator zuerst prüfen muss: erst verstehen, was ein node home ist, dann den lokalen Start bestätigen, den Unterschied zwischen Validator und Archive sehen und am Ende Peers, Timing und Fehlerbehandlung prüfen.
+
 ## Überblick
 
 Dieses Dokument hilft dabei, Initialisierung von Archive- und Validator-Nodes sowie getrennte Konfigurationsdateien zu verstehen und mit Implementierungs- sowie Betriebsentscheidungen zu verbinden.

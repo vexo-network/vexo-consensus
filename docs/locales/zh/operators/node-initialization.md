@@ -3,6 +3,28 @@
 > Locale: zh · 中文
 > 本文档是配合英文原文阅读的中文 辅助文档。协议、安全和发布判断以英文原文为准。
 
+
+## 先读什么
+
+本文档面向第一次创建 node home 的人，也面向已经在运维节点的人。第一次阅读时，建议按下面顺序看。
+
+1. 你在构建什么
+2. 五分钟本地运行
+3. 四验证者本地网络
+4. Web3 和 Remix
+5. Validator Node
+6. Archive Node
+7. Split Configuration Files
+8. Which File Do I Edit?
+9. Key Types
+10. Config-Based Peers
+11. Consensus Timing
+12. Multi-Validator Network
+13. Troubleshooting
+14. Minimal Operator Checklist
+
+这个顺序就是运维时最先要确认的顺序：先理解 node home 是什么，再在本地启动确认二进制可用，然后区分 validator 和 archive，最后检查 peer、时序和故障处理。
+
 ## 文档概览
 
 本文档帮助你理解 archive 节点与 validator 节点初始化，以及拆分配置文件的运维，并把它连接到实际实现和运维判断。

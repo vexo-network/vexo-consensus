@@ -3,6 +3,19 @@
 > Locale: ja · 日本語
 > この文書は英語原文と併読するための日本語 補助文書です。プロトコル、セキュリティ、リリース判断は英語原文を規範とします。
 
+
+## 最初に読む順序
+
+この文書は custom storage と transport adapter の実装・登録方法を説明します。初めて実装するなら、次の順で読むと分かりやすいです。
+
+1. Custom Storage
+2. Storage Requirements
+3. Custom Transport
+4. Transport Requirements
+5. Compatibility
+
+この順番は、実際に最初に確認すべきリスクの順でもあります。まず storage が crash、pruning、snapshot、replay に耐えられるかを確認し、そのあと transport が認証、バージョン交渉、再接続、遮断を正しく扱うかを見ます。
+
 ## 文書概要
 
 この文書は custom storage と transport adapter を実装・登録する方法を理解し、実装・運用判断へつなげるためのものです。

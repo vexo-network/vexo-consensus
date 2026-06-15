@@ -3,6 +3,22 @@
 > Locale: fr · Français
 > Ce document est un document d’accompagnement français à lire avec la source anglaise. Les décisions de protocole, de sécurité et de release restent normatives en anglais.
 
+
+## Ordre de lecture
+
+Ce document explique comment ajouter un validator à un réseau Vexo. Si c'est votre première lecture, suivez cet ordre.
+
+1. Initialize Validator Home
+2. Configure Network Addresses and Peers
+3. Submit Validator Admission
+4. Verify Validator Set Update
+5. Plan Validator Key Rotation
+6. Start Validator
+7. Monitor
+8. Safety Notes
+
+Cet ordre correspond au déroulé opérationnel réel : créer d'abord le nouveau validator home et les clés, configurer ensuite les adresses réseau et les peers, vérifier l'admission et la prise en compte dans le validator set, puis contrôler la rotation des clés, le démarrage, la supervision et les notes de sécurité.
+
 ## Vue d’ensemble
 
 Ce document aide à comprendre l’ajout d’un validator, la validation de configuration et les contrôles de staking et à relier ce sujet aux décisions d’implémentation et d’exploitation.

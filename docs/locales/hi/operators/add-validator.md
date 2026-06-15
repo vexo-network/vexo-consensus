@@ -3,6 +3,22 @@
 > Locale: hi · हिन्दी
 > यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
 
+
+## पहले क्या पढ़ें
+
+यह दस्तावेज़ बताता है कि Vexo नेटवर्क में validator कैसे जोड़ें। पहली बार पढ़ रहे हों तो इस क्रम में पढ़ें।
+
+1. Initialize Validator Home
+2. Configure Network Addresses and Peers
+3. Submit Validator Admission
+4. Verify Validator Set Update
+5. Plan Validator Key Rotation
+6. Start Validator
+7. Monitor
+8. Safety Notes
+
+यह क्रम वास्तविक संचालन प्रक्रिया से मेल खाता है: पहले नया validator home और keys बनाइए, फिर network addresses और peers सेट कीजिए, उसके बाद admission और validator set update जाँचिए, और अंत में rotation, startup, monitoring और safety notes देखें।
+
 ## सारांश
 
 यह दस्तावेज़ validator जोड़ने की प्रक्रिया, config validation और staking checks को समझने और उसे implementation व operation decisions से जोड़ने में मदद करता है।

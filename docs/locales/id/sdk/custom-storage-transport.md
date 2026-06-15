@@ -3,6 +3,19 @@
 > Locale: id · Bahasa Indonesia
 > Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
 
+
+## Urutan baca
+
+Dokumen ini menjelaskan cara mengimplementasikan dan mendaftarkan custom storage dan transport adapter. Jika ini pertama kali, baca dengan urutan berikut.
+
+1. Custom Storage
+2. Storage Requirements
+3. Custom Transport
+4. Transport Requirements
+5. Compatibility
+
+Urutan ini sesuai dengan risiko yang perlu dicek lebih dulu: pastikan storage tetap aman saat crash, pruning, snapshot, dan replay, lalu pastikan transport menangani autentikasi, negosiasi versi, reconnect, dan ban dengan benar.
+
 ## Gambaran umum
 
 Dokumen ini membantu memahami implementasi dan registrasi custom storage serta transport adapter dan menghubungkannya dengan keputusan implementasi serta operasi.

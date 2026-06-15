@@ -3,6 +3,19 @@
 > Locale: zh · 中文
 > 本文档是配合英文原文阅读的中文 辅助文档。协议、安全和发布判断以英文原文为准。
 
+
+## 先读什么
+
+本文档说明如何实现并注册 custom storage 和 transport adapter。第一次实现时，建议按下面顺序阅读。
+
+1. Custom Storage
+2. Storage Requirements
+3. Custom Transport
+4. Transport Requirements
+5. Compatibility
+
+这个顺序基本对应你真正需要先确认的风险：先看 storage 能否扛住崩溃、pruning、snapshot 和 replay，再看 transport 是否正确处理认证、版本协商、重连和封禁。
+
 ## 文档概览
 
 本文档帮助你理解 实现并注册 custom storage 和 transport adapter 的方法，并把它连接到实际实现和运维判断。

@@ -3,6 +3,21 @@
 > Locale: id · Bahasa Indonesia
 > Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
 
+
+## Urutan baca
+
+Dokumen ini menjelaskan cara menambahkan custom crypto backend. Untuk bacaan pertama, ikuti urutan ini.
+
+1. Interfaces
+2. Runtime Suite
+3. Domain Separation
+4. Production BLS Requirements
+5. VRF Backend Requirements
+6. Remote Signer Requirements
+7. Test Backends
+
+Urutan ini mengikuti keputusan yang harus dibuat lebih dulu: pilih backend yang dibutuhkan, lalu kunci sign bytes dan domain, dan terakhir pastikan backend tersebut layak dipakai di production.
+
 ## Gambaran umum
 
 Dokumen ini membantu memahami integrasi custom crypto backend seperti BLS, VRF, dan signer dan menghubungkannya dengan keputusan implementasi serta operasi.

@@ -3,6 +3,19 @@
 > Locale: vi · Tiếng Việt
 > Tài liệu này là tài liệu đồng hành tiếng Việt để đọc cùng nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.
 
+
+## Thứ tự nên đọc
+
+Tài liệu này giải thích cách triển khai và đăng ký custom storage và transport adapter. Nếu đây là lần đầu, hãy đọc theo thứ tự sau.
+
+1. Custom Storage
+2. Storage Requirements
+3. Custom Transport
+4. Transport Requirements
+5. Compatibility
+
+Thứ tự này khớp với các rủi ro cần kiểm tra trước: xem storage có chịu được crash, pruning, snapshot và replay hay không, rồi kiểm tra transport có xử lý xác thực, thương lượng phiên bản, kết nối lại và chặn tốt hay không.
+
 ## Tổng quan
 
 Tài liệu này giúp hiểu triển khai và đăng ký custom storage cùng transport adapter và liên hệ nội dung đó với quyết định triển khai, vận hành.

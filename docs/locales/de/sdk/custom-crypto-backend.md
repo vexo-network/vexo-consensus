@@ -3,6 +3,21 @@
 > Locale: de · Deutsch
 > Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
 
+
+## Reihenfolge zum Einstieg
+
+Dieses Dokument erklärt, wie man einen custom crypto backend ergänzt. Beim ersten Lesen hilft diese Reihenfolge.
+
+1. Interfaces
+2. Runtime Suite
+3. Domain Separation
+4. Production BLS Requirements
+5. VRF Backend Requirements
+6. Remote Signer Requirements
+7. Test Backends
+
+Diese Reihenfolge folgt den Entscheidungen, die zuerst fallen müssen: zuerst klären, welcher Backend-Typ gebraucht wird, dann sign bytes und domain fixieren und zuletzt prüfen, ob er produktiv einsetzbar ist.
+
 ## Überblick
 
 Dieses Dokument hilft dabei, die Integration von custom crypto backends wie BLS, VRF und Signer zu verstehen und mit Implementierungs- sowie Betriebsentscheidungen zu verbinden.

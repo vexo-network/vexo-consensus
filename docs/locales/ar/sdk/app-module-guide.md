@@ -3,6 +3,19 @@
 > Locale: ar · العربية
 > هذا المستند مستنداً مساعداً بالعربية يُقرأ مع المصدر الإنجليزي. تبقى قرارات البروتوكول والأمان والإصدار معيارية في النص الإنجليزي.
 
+## ترتيب القراءة
+
+تشرح هذه الوثيقة كيفية إضافة application module إلى Vexo. إذا كانت هذه أول مرة تربط فيها module، فاقرأ بهذا الترتيب.
+
+1. Module interface
+2. Transaction routing
+3. Module configuration
+4. State and events
+5. Genesis and ante handling
+6. CLI commands and tests
+
+هذا الترتيب يطابق عملياً خطوات العمل: تحديد شكل module، ثم طريقة استقباله للـ transactions، ثم تحديد الـ state الذي يملكه، وأخيراً ربط CLI و tests.
+
 ## نظرة عامة
 
 يساعد هذا المستند على فهم إنشاء app module وربطه مع CLI/RPC وتخزين الحالة وربط ذلك بقرارات التنفيذ والتشغيل.

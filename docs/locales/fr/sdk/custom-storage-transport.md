@@ -3,6 +3,19 @@
 > Locale: fr · Français
 > Ce document est un document d’accompagnement français à lire avec la source anglaise. Les décisions de protocole, de sécurité et de release restent normatives en anglais.
 
+
+## Ordre de lecture
+
+Ce document explique comment implémenter et enregistrer un custom storage et un transport adapter. Si c'est votre première implémentation, lisez dans cet ordre.
+
+1. Custom Storage
+2. Storage Requirements
+3. Custom Transport
+4. Transport Requirements
+5. Compatibility
+
+Cet ordre correspond aux risques à vérifier en premier : d'abord voir si le stockage résiste à un crash, au pruning, au snapshot et au replay, puis vérifier que le transport gère correctement l'authentification, la négociation de version, la reconnexion et le bannissement.
+
 ## Vue d’ensemble
 
 Ce document aide à comprendre l’implémentation et l’enregistrement de custom storage et transport adapter et à relier ce sujet aux décisions d’implémentation et d’exploitation.

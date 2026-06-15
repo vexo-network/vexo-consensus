@@ -3,6 +3,19 @@
 > Locale: ko · 한국어
 > 이 문서는 영어 원문을 함께 읽기 위한 한국어 보조 문서입니다. 프로토콜, 보안, 릴리즈 판단은 영어 원문이 규범입니다.
 
+## 먼저 읽을 순서
+
+이 문서는 Vexo에 application module을 추가하는 방법을 설명합니다. 처음 module을 붙인다면 아래 순서로 읽는 것이 좋습니다.
+
+1. Module interface
+2. Transaction routing
+3. Module configuration
+4. State and events
+5. Genesis and ante handling
+6. CLI commands and tests
+
+이 순서는 보통 실제로 하게 되는 작업 순서와 같습니다. module의 모양을 정하고, transaction을 어떻게 받는지 정하고, 어떤 state를 소유하는지 정한 뒤, CLI와 test가 그 module을 어떻게 다룰지 연결하면 됩니다.
+
 ## 문서 개요
 
 이 문서는 새 app module을 만들고 CLI/RPC/상태 저장과 연결하는 방법을 이해하고 실제 구현·운영 판단에 연결하도록 돕습니다. 예제와 식별자는 구현 호환성을 위해 영어 표기를 유지하지만, 읽는 흐름과 운영상 판단 기준은 한국어로 설명합니다.

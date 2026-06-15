@@ -3,6 +3,28 @@
 > Locale: ko · 한국어
 > 이 문서는 영어 원문을 함께 읽기 위한 한국어 보조 문서입니다. 프로토콜, 보안, 릴리즈 판단은 영어 원문이 규범입니다.
 
+
+## 먼저 읽을 순서
+
+이 문서는 노드 홈을 처음 만드는 사람부터 이미 운영 중인 노드를 점검하는 사람까지를 위한 안내서입니다. 처음이라면 아래 순서로 읽으세요.
+
+1. 무엇을 만들고 있는가
+2. 5분 로컬 실행
+3. 4개 검증자 로컬 네트워크
+4. Web3와 Remix
+5. Validator Node
+6. Archive Node
+7. Split Configuration Files
+8. Which File Do I Edit?
+9. Key Types
+10. Config-Based Peers
+11. Consensus Timing
+12. Multi-Validator Network
+13. Troubleshooting
+14. Minimal Operator Checklist
+
+이 순서는 실제로 운영자가 먼저 확인해야 하는 순서와 같습니다. 먼저 node home이 무엇인지 이해하고, 그다음 로컬에서 기동을 확인한 뒤, validator와 archive의 차이를 보고, 마지막으로 피어·타이밍·장애 대응을 점검하면 됩니다.
+
 ## 문서 개요
 
 이 문서는 archive 노드와 validator 노드 초기화, 분리된 config 파일 운용을 이해하고 실제 구현·운영 판단에 연결하도록 돕습니다. 예제와 식별자는 구현 호환성을 위해 영어 표기를 유지하지만, 읽는 흐름과 운영상 판단 기준은 한국어로 설명합니다.

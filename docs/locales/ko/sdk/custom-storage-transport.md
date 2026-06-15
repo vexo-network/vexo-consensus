@@ -3,6 +3,19 @@
 > Locale: ko · 한국어
 > 이 문서는 영어 원문을 함께 읽기 위한 한국어 보조 문서입니다. 프로토콜, 보안, 릴리즈 판단은 영어 원문이 규범입니다.
 
+
+## 먼저 읽을 순서
+
+이 문서는 custom storage와 transport adapter를 구현하고 등록하는 방법을 설명합니다. 처음 구현한다면 아래 순서로 읽는 것이 좋습니다.
+
+1. Custom Storage
+2. Storage Requirements
+3. Custom Transport
+4. Transport Requirements
+5. Compatibility
+
+이 순서는 보통 실제로 확인해야 하는 위험 순서와 같습니다. 먼저 저장소가 crash, pruning, snapshot, replay를 버티는지 보고, 그다음 transport가 인증·버전 협상·재접속·차단을 제대로 다루는지 확인하면 됩니다.
+
 ## 문서 개요
 
 이 문서는 custom storage와 transport adapter를 구현하고 등록하는 방법을 이해하고 실제 구현·운영 판단에 연결하도록 돕습니다. 예제와 식별자는 구현 호환성을 위해 영어 표기를 유지하지만, 읽는 흐름과 운영상 판단 기준은 한국어로 설명합니다.

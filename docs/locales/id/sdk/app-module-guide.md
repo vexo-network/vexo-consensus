@@ -3,6 +3,19 @@
 > Locale: id · Bahasa Indonesia
 > Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
 
+## Urutan baca
+
+Dokumen ini menjelaskan cara menambahkan application module ke Vexo. Jika baru pertama kali memasang module, baca dengan urutan berikut.
+
+1. Module interface
+2. Transaction routing
+3. Module configuration
+4. State and events
+5. Genesis and ante handling
+6. CLI commands and tests
+
+Urutan ini hampir sama dengan pekerjaan nyata: tentukan bentuk module, tentukan cara menerima transaction, tentukan state yang dimiliki, lalu sambungkan CLI dan test.
+
 ## Gambaran umum
 
 Dokumen ini membantu memahami membuat app module baru dan menghubungkannya ke CLI/RPC/penyimpanan state dan menghubungkannya dengan keputusan implementasi serta operasi.

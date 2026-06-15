@@ -3,6 +3,21 @@
 > Locale: vi · Tiếng Việt
 > Tài liệu này là tài liệu đồng hành tiếng Việt để đọc cùng nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.
 
+
+## Thứ tự nên đọc
+
+Tài liệu này giải thích cách thêm custom crypto backend. Nếu đọc lần đầu, hãy theo thứ tự này.
+
+1. Interfaces
+2. Runtime Suite
+3. Domain Separation
+4. Production BLS Requirements
+5. VRF Backend Requirements
+6. Remote Signer Requirements
+7. Test Backends
+
+Thứ tự này bám theo các quyết định cần chốt sớm nhất: chọn backend cần dùng, cố định sign bytes và domain, rồi kiểm tra xem nó có dùng được cho production hay không.
+
 ## Tổng quan
 
 Tài liệu này giúp hiểu tích hợp custom crypto backend như BLS, VRF và signer và liên hệ nội dung đó với quyết định triển khai, vận hành.

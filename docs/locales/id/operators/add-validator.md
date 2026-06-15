@@ -3,6 +3,22 @@
 > Locale: id · Bahasa Indonesia
 > Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
 
+
+## Urutan baca
+
+Dokumen ini menjelaskan cara menambahkan validator ke jaringan Vexo. Jika ini pertama kali, baca dengan urutan berikut.
+
+1. Initialize Validator Home
+2. Configure Network Addresses and Peers
+3. Submit Validator Admission
+4. Verify Validator Set Update
+5. Plan Validator Key Rotation
+6. Start Validator
+7. Monitor
+8. Safety Notes
+
+Urutan ini mengikuti alur operasional sebenarnya: buat dulu validator home dan keys baru, lalu atur network addresses dan peers, setelah itu periksa admission dan validator set update, lalu cek rotasi, start, monitoring, dan catatan keamanan.
+
 ## Gambaran umum
 
 Dokumen ini membantu memahami proses menambah validator, validasi konfigurasi, dan pemeriksaan staking dan menghubungkannya dengan keputusan implementasi serta operasi.

@@ -3,6 +3,28 @@
 > Locale: vi · Tiếng Việt
 > Tài liệu này là tài liệu đồng hành tiếng Việt để đọc cùng nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.
 
+
+## Thứ tự nên đọc
+
+Tài liệu này dành cho cả người lần đầu tạo node home lẫn người đã vận hành node. Nếu đây là lần đọc đầu, hãy theo thứ tự sau.
+
+1. Bạn đang xây dựng gì
+2. Chạy local trong năm phút
+3. Mạng local bốn validator
+4. Web3 và Remix
+5. Validator Node
+6. Archive Node
+7. Split Configuration Files
+8. Which File Do I Edit?
+9. Key Types
+10. Config-Based Peers
+11. Consensus Timing
+12. Multi-Validator Network
+13. Troubleshooting
+14. Minimal Operator Checklist
+
+Thứ tự này khớp với những gì operator cần kiểm tra trước: hiểu node home là gì, xác nhận chạy local, phân biệt validator và archive, rồi kiểm tra peers, timing và cách xử lý lỗi.
+
 ## Tổng quan
 
 Tài liệu này giúp hiểu khởi tạo node archive/validator và vận hành các file cấu hình tách biệt và liên hệ nội dung đó với quyết định triển khai, vận hành.
