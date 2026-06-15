@@ -1,116 +1,229 @@
+> Locale: ru · Русский
+
 # Инициализация узла
 
-> Locale: ru · Русский
-> Этот документ — русский сопроводительный документ к английскому источнику. Протокол, безопасность и решения о release остаются нормативными на английском языке.
+В этом руководстве объясняется, как инициализировать дома валидатора и узла архива, запустить их, проверить их работоспособность и подключить клиентов.
 
+Одноранговое соединение должно быть настроено в `network_config.json`, а не передаваться повторно в командной строке `start`.
 
-## С чего начать
+Поведение во время выполнения, которое влияет на консенсус, RPC, P2P, ведение журнала или управляемые учетные записи Web3, определяется только файлом конфигурации. `vexod start` отклоняет такие флаги, как `--timeout-propose`, `--create-empty-blocks`, `--p2p-auth-token`, `--rpc-admin-token`, `--evm-account-key-env` и `--evm-account-key`; Вместо этого отредактируйте разделенные файлы конфигурации, чтобы каждый оператор проверял одно и то же детерминированное поведение узла.
 
-Этот документ полезен и тем, кто впервые создаёт node home, и тем, кто уже администрирует ноды. Если вы читаете его впервые, идите в таком порядке.
+Переключателя режима узла нет. Дом узла определяется его файлами конфигурации, происхождением, материалом ключа и наличием `validator_id` плюс подписывающей стороны.
 
-1. Что вы собираете
-2. Локальный запуск за пять минут
-3. Локальная сеть из четырёх валидаторов
-4. Web3 и Remix
-5. Validator Node
-6. Archive Node
-7. Split Configuration Files
-8. Which File Do I Edit?
-9. Key Types
-10. Config-Based Peers
-11. Consensus Timing
-12. Multi-Validator Network
-13. Troubleshooting
-14. Minimal Operator Checklist
+## Что вы строите
 
-Такой порядок совпадает с тем, что оператор должен проверить в первую очередь: понять, что такое node home, убедиться в локальном запуске, отличить validator от archive, а затем проверить peers, тайминг и поведение при сбоях.
+Домашняя страница узла Vexo — это каталог, содержащий все, что необходимо узлу для запуска:
+```text
+.vexo-validator-1/
+  config.json             # chain ID, validator ID, data dir, split config paths
+  module_config.json      # app modules, signed tx policy, fees, gas, EVM chain ID
+  network_config.json     # RPC, Web3, P2P, peers, state sync, peer scoring
+  consensus_config.json   # consensus timings, finality execution policy, empty blocks
+  mempool_config.json     # tx queue, fee filters, replacement, WAL
+  log_config.json         # structured logs, block commit logs, peer logs
+  genesis.json            # initial validators and genesis app state
+  validator.key.json      # validator consensus signer, validator nodes only
+  node.key.json           # P2P identity signer, validators and archives
+  validator.vrf.key.json  # VRF key for committee randomness when enabled
+  data/                   # LevelDB chain/app/evidence/snapshot state
+```
+Важное правило простое: инициализируйте один раз, отредактируйте файлы конфигурации, затем запустите. Не скрывайте поведение сети внутри флагов оболочки.
 
-## Обзор
+## Пятиминутный локальный бег
 
-Этот документ помогает понять инициализацию archive и validator узлов и работу с разделёнными config-файлами и связать это с решениями по реализации и эксплуатации.
+Используйте этот процесс, если хотите убедиться, что двоичный файл работает, прежде чем думать о развертывании на нескольких хостах.
+```bash
+make build
+export VEXO_KEY_PASSPHRASE='change-me'
 
-- Canonical path: `docs/operators/node-initialization.md`
-- Locale path: `docs/locales/ru/operators/node-initialization.md`
+./bin/vexod init validator \
+  --home .vexo-validator-1 \
+  --chain-id vexo-chain \
+  --validator validator-1 \
+  --encrypt-keys \
+  --overwrite
 
-## Зачем читать этот документ
+./bin/vexod validate --home .vexo-validator-1
+./bin/vexod config audit --home .vexo-validator-1 --strict
+./bin/vexod start --home .vexo-validator-1
+```
+В другом терминале:
+```bash
+curl -s http://127.0.0.1:26657/v1/status
+curl -s http://127.0.0.1:26657/v1/diagnostics
+curl -s http://127.0.0.1:26657/v1/metrics
+```
+Ожидаемая форма статуса:
+```json
+{
+  "chain_id": "vexo-chain",
+  "running": true,
+  "latest_height": 0,
+  "peer_count": 0,
+  "banned_peers": 0
+}
+```
+Последняя высота может оставаться равной нулю при запуске одного узла или пустого мемпула, когда создание пустого блока отключено. Это не означает, что процесс нарушен. Это означает, что узел не производит пустые блоки. Добавьте транзакции или запустите тестовую сеть с несколькими валидаторами, чтобы наблюдать за непрерывными фиксациями.
 
-- инициализацию archive и validator узлов и работу с разделёнными config-файлами
-- Сначала проверьте MUST/SHOULD/MAY в английском источнике.
-- Этот локализованный документ помогает пониманию; audit, release и security решения принимаются по английскому источнику.
+## Локальная сеть с четырьмя валидаторами
 
-## Что нужно уметь после чтения
+Используйте этот процесс, если вам нужно одноранговое соединение, ротация предлагающих, журналы фиксации блоков и рост высоты.
+```bash
+make build
 
-- Объяснить, какое решение по реализации или эксплуатации поддерживает этот документ.
-- Связать нормативные требования английского источника с текущей конфигурацией сети.
-- Перед копированием примеров проверить chain ID, validator ID, fee/gas и peer-адреса.
+./bin/vexod network init \
+  --home .vexo-network \
+  --chain-id vexo-chain \
+  --validators 4 \
+  --overwrite
 
-## Чеклист безопасного использования
+./bin/vexod network up \
+  --home .vexo-network \
+  --validators 4 \
+  --keep-running
+```
+Полезные проверки:
+```bash
+curl -s http://127.0.0.1:26657/v1/status
+curl -s http://127.0.0.1:26667/v1/status
+curl -s http://127.0.0.1:26677/v1/status
+curl -s http://127.0.0.1:26687/v1/status
+```
+Если ведение журнала фиксации блока включено в `log_config.json`, журналы валидатора включают такие события, как:
+```json
+{"event":"block_committed","height":12,"round":0,"tx_count":0}
+```
+Остановите созданную локальную сеть с помощью:
+```bash
+./bin/vexod network stop --home .vexo-network --validators 4
+```
+## Web3 и ремикс
 
-- Сначала проверьте MUST/SHOULD/MAY в английском источнике.
-- Не переводите команды, config key, имена RPC, JSON-поля и идентификаторы кода.
-- Перед копированием примеров адаптируйте chain ID, validator ID, fee/gas и peer-адреса к своей сети.
-- После изменений выполните `make docs-check`, чтобы проверить locale tree и translation guards.
+JSON-RPC в стиле Ethereum находится в конечной точке Web3, а не в версионном пространстве имен операционного API Vexo.
 
-## На что обратить внимание
+Для однохостового валидатора Docker 1 URL-адрес пользовательского поставщика Remix:
+```text
+http://127.0.0.1:28657/web3
+```
+Для прямого локального узла с портом RPC по умолчанию:
+```text
+http://127.0.0.1:26657/web3
+```
+Проверьте тот же вызов, который делает Remix:
+```bash
+curl -s http://127.0.0.1:26657/web3 \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'
+```
+Если браузер сообщает, что не удалось получить идентификатор цепочки, проверьте их по порядку:
 
-- Этот локализованный документ помогает пониманию; audit, release и security решения принимаются по английскому источнику.
-- При изменении реализации обновляйте английский источник и все локализованные документы в одном изменении.
+1. URL-адрес заканчивается путем к конечной точке Web3.
+2. Браузер может подключиться к хост-порту. Примеры Docker предоставляют `28657`, `28667`, `28677` и `28687`; внутри контейнера порт RPC по-прежнему равен `26657`.
+3. Сервер RPC запущен; запросить конечную точку состояния на том же хосте и порту.
+4. CORS разрешен конфигурацией `network_config.json`/RPC. Обработчик по умолчанию разрешает предварительную проверку браузера, если не установлен пользовательский список CORS.
+5. Цепочка имеет ненулевой идентификатор цепочки EVM в `module_config.json`.
 
-## Интерфейсы, которые нужно сохранить
+## Узел валидатора
 
-- `network_config.json`
-- `start`
-- `vexod start`
-- `--timeout-propose`
-- `--create-empty-blocks`
-- `--p2p-auth-token`
-- `--rpc-admin-token`
-- `--evm-account-key-env`
-- `--evm-account-key`
-- `validator_id`
-- `init validator`
-- `VEXO_KEY_PASSPHRASE`
-- `--passphrase`
-- `--encrypt-keys`
-- `validator.key.json`
-- `validator.vrf.key.json`
-- `--key-type bls`
-- `genesis.json`
-- `bls_pop`
+Используйте `init validator`, когда узел будет предлагать, голосовать, подписывать консенсусные сообщения и участвовать в ротации валидаторов.
+```bash
+vexod init validator \
+  --home .vexo-validator-1 \
+  --chain-id vexo-chain \
+  --validator validator-1 \
+  --encrypt-keys
+```
+Установите `VEXO_KEY_PASSPHRASE` перед запуском этой команды или передайте `--passphrase` для одноразовой локальной настройки. `--encrypt-keys` шифрует `validator.key.json`, `node.key.json` и `validator.vrf.key.json`.
+
+Основное правило хранения:
+
+- `validator.key.json` подписывает согласованные предложения, голосования, голосования по тайм-ауту и сообщения, связанные с окончательностью.
+- `node.key.json` подписывает только P2P-рукопожатия; его никогда нельзя использовать повторно в качестве консенсусного ключа валидатора.
+- `validator.vrf.key.json` доказывает случайность комитета и должен рассматриваться как материал, хранимый валидатором.
+- Публичные прослушиватели должны использовать зашифрованные локальные ключевые документы или ключевые документы в стиле удаленной подписывающей стороны/KMS. Если узел предоставляет общедоступный RPC или аутентифицированный общедоступный P2P в то время как `require_network_safety=true`, запуск отклоняет локальные ключи валидатора в виде открытого текста.
+- Сгенерированные ключи записываются в режиме файловой системы `0600`; по-прежнему предпочитают удаленную подписывающую сторону/KMS для долгоживущих валидаторов.
+
+Для консенсусного ключа BLS:
+```bash
+vexod init validator \
+  --home .vexo-validator-1 \
+  --chain-id vexo-chain \
+  --validator validator-1 \
+  --key-type bls \
+  --encrypt-keys
+```
+`--key-type bls` записывает ключевой документ BLS `blst-bls12381-minpk-v1` и копирует подтверждение владения в метаданные валидатора `genesis.json` как `bls_pop`.
+
+Это создает:
+
 - `config.json`
 - `module_config.json`
+- `network_config.json`
 - `consensus_config.json`
 - `mempool_config.json`
-
+- `log_config.json`
+- `genesis.json`
+- `validator.key.json`
 - `node.key.json`
-- `p2p.node_id`
-- `p2p.node_key_path`
-- `node_id`
-- `node_key_path`
-## Структура английского источника
+- `validator.vrf.key.json`
+- `data/`
 
-- Node Initialization
-- Validator Node
-- Archive Node
-- Split Configuration Files
-- Key Types
-- Config-Based Peers
-- Consensus Timing
-- Multi-Validator Network
+`validator.key.json` является подписывающим лицом консенсуса. `node.key.json` — это подписывающая сторона P2P-подтверждения, на которую ссылается `network_config.json:p2p.node_key_path`. Они намеренно разделены, поэтому узлы архива и валидаторы могут использовать один и тот же транспорт, не передавая каждому узлу ключ подписи валидатора.
 
-## Канонический источник
+Запустите его с помощью сети, управляемой конфигурацией:
+```bash
+vexod start --home .vexo-validator-1
+```
+После запуска прочитайте логи. Исправный валидатор должен генерировать события запуска узла, прослушивания RPC, прослушивания P2P и, после фиксации блоков, события фиксации блока. Если создание пустого блока отключено, отсутствие журналов фиксации блоков может просто означать отсутствие транзакций.
 
-- [Английский канонический документ](../../en/operators/node-initialization.md)
-<!-- vexo-docs-ops-update-2026-06 -->
+## Архивный узел
 
-## Актуальная эксплуатационная заметка
+Используйте `init archive`, когда узел должен хранить данные цепочки, предоставлять RPC, синхронизироваться с узлами и избегать подписи валидатора.
+```bash
+vexod init archive \
+  --home .vexo-archive-1 \
+  --chain-id vexo-chain \
+  --bootstrap-peer validator-1=seed-1.example.com:26656
+```
+Это создает:
 
-Для нового home узла проверяйте вместе `p2p.dial_timeout`, `p2p.auth_replay_path` и `p2p.require_auth_replay_store` в `network_config.json`. Значение `10s` покрывает TCP dial, TLS, signed handshake и replay-store. В публичной сети эти параметры должны быть частью проверяемой конфигурации, а не скрытыми shell flags.
+- `config.json`
+- `module_config.json`
+- `network_config.json`
+- `consensus_config.json`
+- `mempool_config.json`
+- `log_config.json`
+- `genesis.json`
+- `node.key.json`
+- `data/`
 
-## Синхронизация состояния при запуске при запуске
+Он **не** создает `validator.key.json`.
 
-Блок `state_sync` в `network_config.json` нужен новым archive-нодам, заменяемым validator и нодам, восстановленным на чистой машине. Когда `state_sync.enabled` равно true, `vexod start` по порядку пробует `state_sync.snapshot_urls`, проверяет chain ID, checksum, state root и KV namespace, восстанавливает данные в LevelDB, пересоздает индексы и только затем запускает ноду. Если локальное состояние уже достигло `state_sync.min_height`, а `state_sync.trust_local_higher` равно true, локальный store сохраняется и пишется событие `state_sync_skipped`.
+Начните с:
+```bash
+vexod start --home .vexo-archive-1
+```
+Узлы архива не подписывают консенсусные голоса. Они полезны для RPC, индексирования, синхронизации состояния, предоставления исторических доказательств и хранения более широкой истории запросов, чем сокращение валидаторов.
 
+## Разделение файлов конфигурации
+
+Дома узлов используют отдельные файлы конфигурации, поэтому операторы могут редактировать одну подсистему, не смешивая несвязанные настройки:
+
+- `config.json` содержит идентификатор узла, идентификатор цепочки, путь к данным и указатели на разделенные файлы конфигурации.
+- `module_config.json` содержит выбор модуля приложения, политику выполнения/анте и политику управления на уровне модуля.
+- `network_config.json` содержит RPC, идентификатор узла P2P, настройки прослушивания/однорангового узла/задания, настройки TLS/аутентификации и политику оценки одноранговых узлов.
+- `consensus_config.json` содержит время цикла консенсуса, политику пустых блоков, криптографический бэкэнд, VRF, допуск валидатора и политику комитета.
+- `mempool_config.json` содержит размер мемпула, плату, приоритет, WAL, дубликаты и политику TTL.
+- `log_config.json` содержит формат журнала, уровень, регистрацию событий фиксации блока и регистрацию событий однорангового узла.
+- `genesis.json` содержит неизменяемые валидаторы генезиса, метаданные валидатора и состояние модуля генезиса.
+
+`network_config.json` Настройки RPC также включают `shutdown_timeout`, `web3_max_subscriptions_per_connection` и `web3_idle_timeout`. `shutdown_timeout` ограничивает корректное завершение работы цикла консенсуса, сервера RPC и транспорта узла, чтобы операторы не ждали вечно на пути зависшей остановки. Сгенерированное значение по умолчанию — `10s`; Подписки Web3 по умолчанию составляют 256 на одно соединение с тайм-аутом простоя `2m`, поэтому общедоступные конечные точки RPC не могут накапливать неограниченные простаивающие подписки.
+
+`network_config.json` Настройки P2P включают `auth_replay_path`, `require_auth_replay_store` и `dial_timeout`. Сгенерированное значение по умолчанию записывает подтверждение повтора nonce в `data/p2p_auth_replay.jsonl` и использует тайм-аут исходящего набора `10s`. Для частного шлейфового тестирования хранилище повторов в основном представляет собой безобидную бухгалтерию; для P2P с общедоступной аутентификацией это требование безопасности, поскольку оно предотвращает повторное воспроизведение захваченного подписанного nonce рукопожатия после перезапуска. `dial_timeout` должен быть достаточно длинным для TLS, проверки подписанного рукопожатия и межрегиональной задержки; если установить слишком низкое значение, здоровые одноранговые узлы будут выглядеть нестабильными и могут замедлить работу после перезапуска.
+
+`network_config.json` также владеет синхронизацией состояния запуска. Это полезно для узлов архива, заменяющих валидаторов или узлов, восстановленных на чистой машине. Когда `state_sync.enabled` имеет значение true, `vexod start` загружает первый действительный снимок из `state_sync.snapshot_urls`, проверяет идентификатор цепочки, контрольную сумму, корни состояний и пространства имен KV, восстанавливает его в LevelDB, перестраивает индексы и только затем запускает узел. Если локальное состояние уже соответствует `state_sync.min_height` и `state_sync.trust_local_higher` истинно, при запуске регистрируется `state_sync_skipped` и сохраняется локальное хранилище.
+
+Пример блока `state_sync`:
 ```json
 {
   "state_sync": {
@@ -125,8 +238,341 @@
   }
 }
 ```
+В журнале запуска регистрируется `state_sync_candidate_failed` при ошибке выборки, `state_sync_candidate_rejected` при недействительном или устаревшем снимке и `state_sync_applied` после проверенного восстановления. Держите `max_snapshot_bytes` ниже самого большого снимка, который намеренно обслуживает ваша инфраструктура, но достаточно высоко для нормального роста состояния. Не направляйте общедоступные узлы на неаутентифицированный сторонний источник моментальных снимков, если только у оператора нет внеполосной политики доверия и доказательства окончательности/легкого клиента для этого источника.
 
-Проверяйте `state_sync_candidate_failed`, `state_sync_candidate_rejected` и `state_sync_applied`. В публичной сети не используйте сторонний snapshot без политики доверия и finality/light-client evidence.
+Если поле меняет поведение сети, отредактируйте разделенный файл конфигурации и зафиксируйте или распространите этот проверенный файл. Не полагайтесь на длинные флаги `vexod start` для поведения во время выполнения. Команда start намеренно отклоняет флаги согласованного времени, пустого блока, аутентификации P2P, администратора RPC и управляемых ключей Web3, чтобы операторы случайно не запускали поведение, отличное от проверенной конфигурации.
+
+## Какой файл мне редактировать?
+
+| Цель | Файл | Поле |
+|---|---|---|
+| Изменить порт привязки RPC | `network_config.json` | `rpc.address` |
+| Изменить порт привязки P2P | `network_config.json` | `p2p.listen_address` |
+| Добавить постоянные узлы | `network_config.json` | `p2p.peers` |
+| Добавить начальные пиры | `network_config.json` | `p2p.seeds` |
+| Включить/отключить пустые блоки | `consensus_config.json` | консенсусное поле пустого блока |
+| Настройте тайм-ауты консенсуса | `consensus_config.json` | поля предложения, предварительного голосования, предварительной фиксации и тайм-аута фиксации |
+| Требовать окончательного исполнения | `consensus_config.json` | поле консенсуса выполнения-фиксации |
+| Включить/отключить модули | `module_config.json` | список модулей приложения |
+| Изменить идентификатор цепочки EVM | `module_config.json` | Поле идентификатора цепочки выполнения EVM |
+| Настройте базовую плату/газ | `module_config.json` | месторождения с базовой комиссией, динамической комиссией, целевым газом и максимальным газом |
+| Настроить мемпул WAL | `mempool_config.json` | Путь WAL в мемпуле |
+| Журналы фиксации блоков управления | `log_config.json` | поле событий фиксации журнала |
+| Журналы контроля одноранговых узлов | `log_config.json` | поле журнала одноранговых событий |
+
+Если сомневаетесь, запустите:
+```bash
+vexod config paths --home .vexo-validator-1
+vexod config show --home .vexo-validator-1
+vexod doctor --home .vexo-validator-1
+```
+## Типы ключей
+
+По умолчанию для инициализации валидатора установлено значение `--key-type bls`, поскольку для проверки сетевой безопасности требуется проверенная совокупная завершенность BLS. `--key-type ed25519` остается доступным для частных экспериментов и пользовательских развертываний за пределами шлюза сетевой безопасности. `--encrypt-keys` следует использовать для любого неодноразового узла узла. Автономное создание ключей также поддерживает ключи VRF:
+```bash
+vexod keys gen --home .vexo-ed25519 --type ed25519
+vexod keys gen --home .vexo-bls --type bls
+vexod keys gen --home .vexo-bls-circl --type bls --bls-adapter circl-bls12381-g1sigg2-basic-v1
+VEXO_KEY_PASSPHRASE='change-me' vexod keys gen --home .vexo-vrf --type vrf --encrypt
+```
+Ключи VRF не являются подписантами консенсуса. Они используются для выбора комитетов, поддерживаемых VRF, и на них следует ссылаться от `consensus_config.json` до `vrf_key_paths` плюс ключ метаданных валидатора `vrf_public_key`, если этот бэкэнд включен.
+
+`config.json` указывает на разделенные файлы конфигурации:
+```json
+{
+  "schema_version": "v1",
+  "chain_id": "vexo-chain",
+  "module_config_path": "module_config.json",
+  "network_config_path": "network_config.json",
+  "consensus_config_path": "consensus_config.json",
+  "mempool_config_path": "mempool_config.json",
+  "log_config_path": "log_config.json"
+}
+```
+Каждый путь может быть абсолютным или относительным к исходному узлу. Если этот параметр опущен, `vexod` использует файл по умолчанию `<home>/<name>_config.json`.
+
+Пример `module_config.json`:
+```json
+{
+  "schema_version": "v1",
+  "application": {
+    "Modules": ["bank", "staking", "governance", "params", "ibc"]
+  },
+  "execution": {
+    "RequireSigned": true,
+    "RequireNonce": true,
+    "MinFee": 1,
+    "BaseFee": 1,
+    "EVMChainID": 83960,
+    "DynamicBaseFee": true,
+    "TargetGas": 5000000,
+    "BaseFeeChangeDenominator": 8,
+    "MinBaseFee": 1,
+    "MaxBaseFee": 0,
+    "MinGas": 1,
+    "MaxGas": 10000000,
+    "FeeCollector": "fee_collector",
+    "FeeDenom": "avxo",
+    "DisplayDenom": "vexo",
+    "DisplayExponent": 18,
+    "GasDenom": "gas"
+  },
+  "bank": {
+    "MintAuthority": "governance"
+  },
+  "staking": {
+    "UnbondingDelay": 1209600,
+    "MaxCommissionBPS": 10000
+  },
+  "governance": {
+    "QuorumPower": 1,
+    "YesThresholdPower": 1,
+    "VetoPower": 1,
+    "VotingPeriod": 10,
+    "Timelock": 10
+  }
+}
+```
+Политика управления также находится в `module_config.json`. Для создания безопасных для сети конфигураций требуется внести залог:
+```json
+{
+  "governance": {
+    "QuorumPower": 1,
+    "YesThresholdPower": 1,
+    "VotingPeriod": 100,
+    "Timelock": 10,
+    "RequireDeposit": true,
+    "MinDeposit": "1avxo",
+    "DepositDenom": "avxo",
+    "DepositEscrow": "module:governance:deposit_escrow",
+    "RejectedDeposits": "module:governance:rejected_deposits"
+  }
+}
+```
+Депозит представляет собой собственный баланс, депонированный отправителем предложения. Проходящие предложения по возврату депозита; отклоненные предложения переместите его в `RejectedDeposits`. Используйте адрес, контролируемый вашим модулем казначейства/пула сообщества, если отклоненные депозиты должны финансировать казначейство вместо учетной записи модуля по умолчанию.
+
+Пример `network_config.json`:
+```json
+{
+  "schema_version": "v1",
+  "rpc": {
+    "enabled": true,
+    "address": "0.0.0.0:26657",
+    "evm_account_key_envs": [],
+    "evm_account_private_keys": []
+  },
+  "p2p": {
+    "enabled": true,
+    "node_id": "validator-1",
+    "node_key_path": "node.key.json",
+    "listen_address": "0.0.0.0:26656",
+    "dial_timeout": "10s",
+    "auth_replay_path": "data/p2p_auth_replay.jsonl",
+    "require_auth_replay_store": true,
+    "tls_cert_path": "tls/node.crt",
+    "tls_key_path": "tls/node.key",
+    "tls_ca_path": "tls/ca.crt",
+    "tls_server_name": "validator.example.com",
+    "peers": {
+      "validator-1": "seed-1.example.com:26656"
+    }
+  },
+  "peer_scoring": {
+    "InitialScore": 100,
+    "MaxScore": 1000,
+    "BanThreshold": 0
+  }
+}
+```
+`rpc.evm_account_key_envs` и `rpc.evm_account_private_keys` являются необязательными и вспомогательными методами управляемой учетной записи Web3, такими как `eth_accounts`, `eth_sign`, `eth_signTransaction` и `eth_sendTransaction`. Предпочитайте `evm_account_key_envs`, чтобы закрытый ключ вводился средой процесса или менеджером секретов, а не сохранялся в JSON. Сохраняйте оба списка пустыми для нормальной работы валидатора, если только этот узел намеренно не действует как конечная точка локального горячего кошелька Web3. Безопасность запуска отклоняет управляемые горячие клавиши EVM на общедоступных прослушивателях RPC.
+
+Пример `consensus_config.json`:
+```json
+{
+  "schema_version": "v1",
+  "consensus": {
+    "loop_enabled": true,
+    "interval": "50ms",
+    "timeout_propose": "3s",
+    "timeout_prevote": "1s",
+    "timeout_precommit": "1s",
+    "timeout_commit": "1s",
+    "max_block_bytes": 1048576,
+    "create_empty_blocks": false,
+    "execution_commit": "finalized"
+  },
+  "vrf_key_paths": ["validator.vrf.key.json"]
+}
+```
+`vrf_key_paths` разрешаются относительно каталога, содержащего `consensus_config.json`. Используйте зашифрованные ключевые документы и предоставьте `VEXO_KEY_PASSPHRASE` процессу узла, когда хранение локального ключа VRF неизбежно. Не помещайте необработанные частные скаляры VRF непосредственно в `consensus_config.json` для сетей, управляемых оператором.
+
+Используйте `vexod config paths --home <home>` для проверки всех разрешенных путей.
+
+В конфигурации архива есть:
+```json
+{
+  "schema_version": "v1",
+  "validator_id": "",
+  "chain_id": "vexo-chain",
+  "consensus_config_path": "consensus_config.json"
+}
+```
+Архив `consensus_config.json` отключает локальный цикл консенсуса:
+```json
+{
+  "schema_version": "v1",
+  "consensus": {
+    "loop_enabled": false
+  }
+}
+```
+Сгенерированные дома валидаторов по умолчанию устанавливают `"require_network_safety": true` в `config.json`. Это не режим; это ворота безопасности стартапа, которые отклоняют детерминистическую криптографию, неподписанные/неподписанные транзакции, отсутствующие минимальные комиссии/газовые уровни, отсутствующий WAL долговременного мемпула, отсутствующую политику замены для транзакций с одним и тем же подписантом/нонсом, небезопасную случайность комитета и значения `execution_commit`, отличные от `finalized`.
+
+Когда `require_network_safety` включен, запустите:
+```bash
+vexod config audit --home <home> --strict
+```
+перед запуском узла. Аудит должен пройти для каждого валидатора и дома архива, которые участвуют в одной сети.
+
+## Пиры на основе конфигурации
+
+Адреса однорангового узла и прослушивания находятся в `network_config.json`:
+```json
+{
+  "p2p": {
+    "enabled": true,
+    "node_id": "validator-1",
+    "node_key_path": "node.key.json",
+    "listen_address": "0.0.0.0:26656",
+    "dial_timeout": "10s",
+    "auth_replay_path": "data/p2p_auth_replay.jsonl",
+    "require_auth_replay_store": true,
+    "tls_cert_path": "tls/node.crt",
+    "tls_key_path": "tls/node.key",
+    "tls_ca_path": "tls/ca.crt",
+    "tls_server_name": "validator.example.com",
+    "peers": {
+      "validator-1": "seed-1.example.com:26656",
+      "validator-2": "seed-2.example.com:26656"
+    },
+    "seeds": {
+      "seed-1": "seed-1.example.com:26656"
+    }
+  }
+}
+```
+`vexod start` автоматически загружает эти узлы:
+```bash
+vexod start --home .vexo-archive-1
+```
+Постоянные одноранговые узлы и начальные узлы настраиваются в `network_config.json`; `vexod start` не принимает переопределения однорангового или начального хоста.
+
+Не указывайте параметры долгоживущего хоста или `host:port` в командной строке `vexod start`. Вместо этого отредактируйте `rpc.address`, `p2p.listen_address`, `p2p.peers` и `p2p.seeds` в `network_config.json`.
+
+Сохраняйте стабильность `p2p.node_id` на протяжении всего срока службы домашнего узла. `p2p.node_key_path` должен указывать на `node.key.json` или другой локальный/управляемый ключевой документ, используемый только для подписания рукопожатия между узлами. Карты одноранговых узлов должны использовать идентификаторы одноранговых узлов, а не адреса учетных записей или имена операторов валидатора, если они намеренно не совпадают.
+
+Для зашифрованного и аутентифицированного однорангового транспорта gRPC также установите `p2p.tls_cert_path`, `p2p.tls_key_path`, `p2p.tls_ca_path` и, дополнительно, `p2p.tls_server_name` в `network_config.json`. Относительные пути TLS разрешаются из домашнего каталога узла. Сохраните `p2p.dial_timeout` в одном файле, чтобы каждый оператор использовал одно и то же поведение повторного подключения; не скрывайте синхронизацию одноранговых узлов в сценариях оболочки.
+
+## Сроки достижения консенсуса
+
+Время цикла консенсуса находится в `consensus_config.json`:
+```json
+{
+  "consensus": {
+    "loop_enabled": true,
+    "interval": "50ms",
+    "timeout_propose": "3s",
+    "timeout_prevote": "1s",
+    "timeout_precommit": "1s",
+    "timeout_commit": "1s",
+    "max_block_bytes": 1048576,
+    "create_empty_blocks": false,
+    "execution_commit": "finalized"
+  }
+}
+```
+- `timeout_propose` определяет, как долго раунд ожидает предложения.
+- `timeout_prevote` управляет окном сбора голосов.
+- `timeout_precommit` управляет окном сбора сертификатов фиксации.
+- `timeout_commit` контролирует минимальную задержку после зафиксированного блока.
+- `create_empty_blocks: false` означает, что узел предлагает только тогда, когда транзакции доступны.
+- `execution_commit: "finalized"` ожидает решения о окончательности трех цепочек HotStuff перед выполнением финализированного предка и является сгенерированным валидатором по умолчанию. `execution_commit: "qc"` немедленно выполняет и сохраняет блоки, сертифицированные QC, но шлюз безопасности отклоняет их.
+
+`round_timeout` сохраняется только как совокупность совместимости. Предпочитайте поля тайм-аута в стиле Tendermint, указанные выше.
+
+Если `create_empty_blocks` имеет значение false, высота может оставаться неизменной, пока мемпул пуст. Это ожидаемо: цепочка ждет полезной работы вместо того, чтобы фиксировать пустые блоки. Когда появляется транзакция и состояние локального консенсусного раунда проходит мимо другого предлагающего, узел переходит к следующему раунду, где его валидатором является предлагающий и строит из мемпула. Этот путь восстановления сохраняет работоспособность, вызванную транзакциями, без повторного включения спама в виде пустых блоков.
+
+## Сеть мультивалидаторов
+
+Для сгенерированной сети:
+```bash
+vexod network init \
+  --home .vexo-network \
+  --chain-id vexo-chain \
+  --validators 4
+```
+Каждый сгенерированный дом валидатора получает:
+
+- свой `validator.key.json`
+- собственные разделенные файлы конфигурации: `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json` и `log_config.json`.
+- общий `genesis.json`
+- `network_config.json` одноранговых записей для других валидаторов
+
+`vexod network up` и `make network-e2e` используют тайм-аут на уровне процесса, ожидая запуска всех валидаторов, отправки транзакции дыма и наблюдения за ростом высоты. Тайм-аут команды по умолчанию намеренно больше, чем согласованный интервал, поскольку он охватывает запуск процесса, открытие LevelDB, подписанные P2P рукопожатия, проверки TLS/аутентификации, прием транзакции и завершение. Если вы резко снижаете тайм-ауты консенсуса, держите тайм-аут подключения к сети достаточно большим, чтобы диагностировать ошибки запуска, а не отключать систему слишком рано.
+
+Для контейнерных сетей или сетей с несколькими хостами поместите значения топологии в файл JSON:
+```json
+{
+  "p2p_base_port": 26656,
+  "rpc_base_port": 26657,
+  "p2p_port_step": 0,
+  "rpc_port_step": 0,
+  "p2p_host_template": "validator-%d",
+  "rpc_host_template": "validator-%d",
+  "p2p_advertise_host_template": "validator-%d.public.example.com",
+  "rpc_advertise_host_template": "rpc-%d.public.example.com",
+  "p2p_listen_host": "0.0.0.0",
+  "rpc_listen_host": "0.0.0.0"
+}
+```
+- `p2p_host_template` и `rpc_host_template` — это цели набора, записанные в список одноранговых узлов `network_config.json` каждого узла. В Docker это могут быть имена сервисов, например `validator-%d`.
+- `p2p_advertise_host_template` и `rpc_advertise_host_template` — это общедоступные адреса, записанные в метаданные валидатора в `genesis.json`. Используйте здесь DNS-имена или общедоступные IP-адреса для общедоступных сетей.
+- `p2p_listen_host` и `rpc_listen_host` являются локальными узлами привязки. Используйте `0.0.0.0` для контейнеров или серверов, которые должны прослушивать все интерфейсы.
+— Не используйте повторно имена служб, предназначенных только для Docker, в качестве объявленных общедоступных адресов, если только сеть не является намеренно частной.
+
+Затем сгенерируйте дома узлов из этого файла:
+```bash
+vexod network init \
+  --home .vexo-network \
+  --chain-id vexo-chain \
+  --validators 4 \
+  --network-config ./topology.json
+```
+## Устранение неполадок
+
+| Симптом | Наиболее вероятная причина | Что проверить |
+|---|---|---|
+| `latest_height` не увеличивается | Пустые блоки отключены и нет txs, недостаточно валидаторов онлайн или недоступна подписывающая сторона | `consensus_config.json`, журналы валидатора, `/v1/diagnostics` |
+| `peer_count` — это `0` | Адреса узлов недоступны или `network_config.json` был сгенерирован для неправильных имен хостов | `p2p.peers`, порты хоста контейнера, DNS, брандмауэр |
+| ошибка `p2p auth replay store` | Публичный/аутентифицированный P2P требует надежного хранилища повторов | `p2p.auth_replay_path` и разрешение на запись под домом |
+| `eth_chainId` не работает в Remix | Неправильный URL-адрес, неправильный порт хоста или CORS/предварительная проверка браузера заблокированы пользовательской конфигурацией | Используйте URL-адрес конечной точки Web3, а затем напрямую скрутите ту же конечную точку |
+| `config audit --strict` не работает | Ворота безопасности обнаружили небезопасное свойство конфигурации | Прочтите неудачную проверку, затем отредактируйте разделенный файл конфигурации, который она называет |
+| `no block_committed logs` | Ведение журнала отключено или блоки не создаются | `log_config.json`, `create_empty_blocks`, содержимое мемпула |
+| `managed EVM key rejected` | Горячие закрытые ключи настраиваются на общедоступном прослушивателе RPC | Удалите `evm_account_private_keys` или сохраните RPC в секрете |
+
+## Минимальный контрольный список для оператора
+
+Прежде чем передать узел домой другой машине или оператору:
+
+- `vexod validate --home <home>` проходит.
+- `vexod config audit --home <home> --strict` соответствует именно этому дому.
+- `config.json`, разделенные файлы конфигурации, `genesis.json` и общедоступные метаданные валидатора проверяются.
+- `validator.key.json`, `node.key.json` и `validator.vrf.key.json` зашифрованы или заменены ключевыми документами удаленной подписывающей стороны/KMS.
+- `network_config.json:p2p.peers` содержит адреса, которые можно набирать с целевого компьютера, а не имена только для Docker, если только узел фактически не работает внутри этой сети Docker.
+- `network_config.json` общедоступные прослушиватели RPC/P2P имеют материал TLS, когда `require_network_safety` включен.
+- `module_config.json:execution.EVMChainID` устанавливается перед подключением кошельков Web3 или Remix.
+- `mempool_config.json` имеет путь WAL, если узел должен восстановить ожидающие транзакции после перезапуска.
+- `log_config.json` включает фиксацию блоков и журналы одноранговых узлов во время работы сети.
 
 <!-- vexo-docs:technical-parity -->
 ## Приложение о техническом соответствии

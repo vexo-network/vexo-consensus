@@ -1,91 +1,155 @@
-# 添加验证人
-
 > Locale: zh · 中文
-> 本文档是配合英文原文阅读的中文 辅助文档。协议、安全和发布判断以英文原文为准。
 
+# 添加验证器
 
-## 先读什么
+本指南描述了向 Vexo 网络添加验证器的操作流程。
 
-本文档说明如何把 validator 加入网络。第一次阅读时，建议按下面顺序看。
+确切的准入路径取决于链的质押和治理政策。至少，验证器必须以链状态表示，具有有效的凭证，并成为高度版本验证器集更新的一部分。
 
-1. Initialize Validator Home
-2. Configure Network Addresses and Peers
-3. Submit Validator Admission
-4. Verify Validator Set Update
-5. Plan Validator Key Rotation
-6. Start Validator
-7. Monitor
-8. Safety Notes
+## 1. 初始化验证器主页
+```bash
+vexod init validator \
+  --home .vexo-validator-new \
+  --chain-id vexo-chain \
+  --validator validator-new \
+  --encrypt-keys
+```
+对于 BLS 验证器密钥：
+```bash
+vexod init validator \
+  --home .vexo-validator-new \
+  --chain-id vexo-chain \
+  --validator validator-new \
+  --key-type bls \
+  --encrypt-keys
+```
+在运行这些命令之前设置 `VEXO_KEY_PASSPHRASE` ，或传递 `--passphrase` 进行一次性本地设置。
 
-这个顺序对应实际运维流程：先创建新的 validator home 和 key，再设置网络地址与 peers，然后检查 admission 和 validator set 是否生效，最后查看轮换、启动、监控和安全说明。
+当允许 BLS 验证器加入现有链时，请将生成的 `bls_pop` 元数据包含在验证器更新提案中。
+默认 BLS 键路径使用 `blst-bls12381-minpk-v1`；仅将 `vexod keys gen --type bls --bls-adapter circl-bls12381-g1sigg2-basic-v1` 用于参考/兼容性测试。
 
-## 文档概览
+归档生成的公钥：
+```bash
+vexod keys show --home .vexo-validator-new --json
+```
+同时保留生成的 `node.key.json`。它为 `network_config.json:p2p.node_id` 签署 P2P 握手；它不是验证者共识密钥，不应重复用作帐户密钥。
 
-本文档帮助你理解 添加 validator 的流程、配置校验和 staking 检查，并把它连接到实际实现和运维判断。
+## 2. 配置网络地址和对等点
 
-- Canonical path: `docs/operators/add-validator.md`
-- Locale path: `docs/locales/zh/operators/add-validator.md`
+编辑 `.vexo-validator-new/network_config.json` 并设置本地监听地址和持久对等点：
+```json
+{
+  "schema_version": "v1",
+  "rpc": {
+    "enabled": true,
+    "address": "0.0.0.0:26657"
+  },
+  "p2p": {
+    "enabled": true,
+    "node_id": "validator-new",
+    "node_key_path": "node.key.json",
+    "listen_address": "0.0.0.0:26656",
+    "peers": {
+      "validator-1": "validator-1.example.com:26656",
+      "validator-2": "validator-2.example.com:26656",
+      "validator-3": "validator-3.example.com:26656"
+    }
+  },
+  "peer_scoring": {
+    "InitialScore": 100,
+    "MaxScore": 1000,
+    "BanThreshold": 0
+  }
+}
+```
+不要依赖生产验证器的长期命令行网络覆盖。将持久对等地址保留在 `network_config.json` 中。
 
-## 为什么阅读本文档
+使用单独的地址角色：
 
-- 添加 validator 的流程、配置校验和 staking 检查
-- 先在英文原文中确认 MUST/SHOULD/MAY 语句。
-- 此本地化文档用于帮助理解；审计、发布和安全判断以英文原文为准。
+- `p2p.listen_address` 和 `rpc.address` 是该机器或容器的本地绑定地址。
+- `p2p.node_id` 是该节点的对等身份。同伴学会后保持稳定。
+- `p2p.node_key_path` 指向该对等身份的本地握手签名密钥。
+- `p2p.peers` 包含该节点用于联系其他对等点的拨号目标；映射键应该是远程节点的 `p2p.node_id` 值。
+- 验证器元数据 `p2p_address` 和 `rpc_address` 应包含公共公布的地址，而不是仅限 Docker 的服务名称，除非网络有意设为私有。
 
-## 读完后应能做到
+## 3. 提交验证者准入
 
-- 说明本文档支持哪些实现或运维决策。
-- 把英文原文中的规范要求与当前网络配置对应起来。
-- 复制示例前检查 chain ID、validator ID、fee/gas 和 peer 地址。
+例如质押流程，构建一个质押交易：
+```bash
+vexod staking --help
+```
+验证者准入交易应包括：
 
-## 安全使用检查清单
+- 验证者ID
+- 验证者地址
+- 共识公钥
+- 投票权或股权参考
+- 验证者佣金基点，如果链允许自助佣金更新
+- P2P `node_id` 元数据（如果链使用创世/验证器元数据来预置对等映射）
+- 公共P2P地址元数据
+- 公共 RPC 地址元数据（如果是公共的）
+- 启用 BLS 时的 BLS 所有权证明元数据
 
-- 先在英文原文中确认 MUST/SHOULD/MAY 语句。
-- 不要翻译命令、config key、RPC 名称、JSON 字段和代码标识符。
-- 复制示例值前，请确认 chain ID、validator ID、fee/gas 和 peer 地址适合你的网络。
-- 修改文档后运行 `make docs-check` 检查 locale tree 和翻译 guard。
+验证器更新必须在特定高度生效并产生新的验证器集哈希。
 
-## 注意事项
+验证人激活后，运营商可以通过质押模块公开奖励状态：
+```bash
+vexod staking query commission validator-1
+vexod staking query rewards alice validator-1
+```
+## 4. 验证验证器集更新
 
-- 此本地化文档用于帮助理解；审计、发布和安全判断以英文原文为准。
-- 实现变更时，英文文档和所有本地化文档应在同一变更中更新。
+更新高度后：
+```bash
+curl http://127.0.0.1:26657/v1/validators/<height>
+```
+检查：
 
-## 必须保持原样的接口
+- 验证器出现在特定高度集中
+- 投票权正确
+- 验证器集哈希值按预期更改
+- 最终性证明参考正确的验证器设置高度
 
-- `VEXO_KEY_PASSPHRASE`
-- `--passphrase`
-- `bls_pop`
-- `.vexo-validator-new/network_config.json`
-- `network_config.json`
-- `p2p.listen_address`
-- `rpc.address`
-- `p2p.peers`
-- `p2p_address`
-- `rpc_address`
-- `active_from`
-- `active_until`
-- `config audit --strict`
+## 5. 计划验证器密钥轮换
 
-- `node.key.json`
-- `p2p.node_id`
-- `p2p.node_key_path`
-- `node_id`
-- `node_key_path`
-## 英文原文结构
+可以通过使用不重叠的 `active_from` 和 `active_until` 元数据准备下一个密钥文档来轮换验证器密钥，然后使用额外的轮换密钥启动节点：
+```bash
+vexod keys gen --home .vexo-validator-new --path next-validator.key.json --id key-2 --active-from 1001
+vexod keys rotation-plan --home .vexo-validator-new --key validator.key.json --key next-validator.key.json
+vexod start --home .vexo-validator-new --rotation-key next-validator.key.json --dry-run
+```
+签名时，节点使用活动窗口包含共识高度的密钥。远程签名者密钥文档保留相同的策略、身份验证令牌和双重签名防护要求。
 
-- Adding a Validator
-- 1. Initialize Validator Home
-- 2. Configure Network Addresses and Peers
-- 3. Submit Validator Admission
-- 4. Verify Validator Set Update
-- 5. Plan Validator Key Rotation
-- 6. Start Validator
-- 7. Monitor
-- Safety Notes
+## 6. 启动验证器
+```bash
+vexod config audit --home .vexo-validator-new --strict
+vexod start --home .vexo-validator-new
+```
+启动时没有网络模式开关。当网络预计满足公共网络安全假设时，请在启动前使用 `config audit --strict` 。
 
-## 规范来源
+## 7. 监控
 
-- [英文规范文档](../../en/operators/add-validator.md)
+观看：
+
+- 提案/投票延迟
+- 回合超时
+- 验证器签名失败
+- 同行禁令
+- 内存池大小
+- 提交延迟
+- 快照/重播健康状况
+
+用途：
+```bash
+vexod ops thresholds --json
+vexod ops incident --metrics-file current.json --previous-metrics-file previous.json --window 1m
+```
+## 安全注意事项
+
+- 切勿在独立链上重复使用验证器密钥。
+- 为生产验证器启用远程签名者策略。
+- 请勿接纳没有持有证明或同等流氓密钥防御的 BLS 验证者。
+- 如果没有经过验证的证据与正确的证据高度验证器集相关联，请勿削减或监禁验证器。
 
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录

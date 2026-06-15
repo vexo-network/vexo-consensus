@@ -1,63 +1,198 @@
-# 운영 가시성 가이드
-
 > Locale: ko · 한국어
-> 보안·릴리즈 판단은 영어 정본과 release gate 결과를 기준으로 확정합니다.
 
-## 개요
+# 관찰성 가이드
 
-이 문서는 노드가 건강한지 상태, metrics, logs, alert 기준으로 판단하는 방법을 설명합니다.
+이 가이드에서는 RPC, 메트릭, 로그 및 릴리스 증거를 통해 Vexo 노드가 정상인지 확인하는 방법을 설명합니다.
 
-이 현지화 문서는 명령어, JSON 필드, RPC 메서드, 설정 키, 패키지 이름을 그대로 유지해 모든 언어에서 예제를 그대로 복사해 실행할 수 있게 합니다.
+무엇을 관찰해야 하는지, 각 숫자가 무엇을 의미하는지, 언제 값을 위험한 것으로 취급해야 하는지 등 실용적인 신호가 필요한 운영자를 위해 작성되었습니다.
 
-## 왜 중요한가
+## 한눈에 보기
 
-이 가이드는 RPC, metrics, logs, release evidence를 통해 Vexo 노드가 건강한지 판단하는 방법을 설명합니다.
+노드가 잘못된 것 같으면 다음을 순서대로 확인하세요.
 
-## 반드시 확인할 것
+1. `/v1/status`의 `running` 및 `latest_height`
+2. `latest_finalized_height` 및 피어 수
+3. `round_timeout`, 제안/투표 대기 시간, 멤풀 크기 및 커밋 대기 시간 측정항목
+4. 서명자 실패, 스냅샷 상태 및 재생 상태
+5. 피어 금지 및 피어 다이얼 실패
 
-- **Height and finality**: `latest_height`, `latest_finalized_height`, height rate, and finality proof availability show whether consensus and execution are progressing.
-- **Peer health**: `peer_count` is compatibility summary; prefer `active_peer_count`, `configured_peer_count`, and `scored_peer_count` to separate live sessions from configured addresses.
-- **Latency and timeout**: `round_timeouts`, proposal latency, vote latency, and commit latency show whether timeout values still fit the real network.
-- **Execution pressure**: `mempool_size`, gas/base-fee behavior, tx count, and commit p95/p99 show whether block capacity and storage are under pressure.
-- **Recovery readiness**: `snapshot_healthy`, `replay_healthy`, recovery reports, and state-root checks show whether a node can safely restart or sync.
-- **Custody and safety**: `validator_signing_failures`, remote signer logs, ban spikes, and reconciliation failures require immediate operator review.
+이 순서는 "프로세스가 살아있다"와 "체인이 실제로 안전하게 진행되고 있다"를 구분하기 때문에 중요합니다.
 
-## 운영자가 할 일
+## 핵심 엔드포인트
 
-- **Status flow**: Start with `/v1/status`, then compare `/v1/metrics`, `/metrics/text`, `/v1/diagnostics`, `/v1/finality/latest`, and recovery reports.
-- **Alert flow**: Alert on stalled height, stalled finality, zero active peers, timeout spikes, high commit latency, mempool pressure, replay failure, and signer failures.
-- **Incident flow**: Preserve logs, metrics, configs, genesis, binary hash, and evidence files before deleting data or restarting repeatedly.
+| 엔드포인트 | 사용 |
+|---|---|
+| `/v1/status` | 빠른 프로세스, 높이, 앱 해시, 최종성 및 피어 요약 |
+| `/v1/metrics` | 대시보드 및 자동화를 위한 JSON 지표 |
+| `/metrics/text` | Prometheus 호환 텍스트 측정항목 |
+| `/v1/diagnostics` | 결합된 준비 상태, 기능, 상태, 피어, 스토리지 및 메트릭 검사 |
+| `/v1/finality/latest` | 라이트 클라이언트 및 안전 검사를 위한 최신 최종 증명 |
+| `/v1/state/latest` | 최신 상태 루트 및 유효성 검사기 세트 바인딩 |
+| `/v1/recovery/report` | 충돌/재시작 일관성 진단 |
+| `/v1/snapshot` | 스냅샷 상태 및 메타데이터 내보내기 |
 
-## 그대로 유지할 인터페이스 이름
+정리, 재생, 합의 제어와 같은 관리 엔드포인트는 일반적으로 루프백, 운영자 네트워크, mTLS 또는 인증된 게이트웨이를 통해서만 연결할 수 있어야 합니다. 범위가 지정된 관리 토큰은 선택 사항으로 유지되며 구성 시 적용됩니다.
 
-- `vexod validate --home <home>`
-- `vexod config audit --home <home> --strict`
-- `/v1/status`
-- `/v1/metrics`
-- `/metrics/text`
-- `/v1/diagnostics`
-- `peer_count`
-- `active_peer_count`
-- `configured_peer_count`
-- `scored_peer_count`
-- `latest_height`
-- `latest_finalized_height`
-- `network_config.json`
-- `consensus_config.json`
-- `module_config.json`
-- `mempool_config.json`
-- `release gate`
+## `/v1/status` 읽기
 
-## 자주 하는 실수
+중요 필드:
 
-- 설정된 peer가 실제로 연결됐다고 가정하지 마세요. 활성 세션을 별도로 확인해야 합니다.
-- release evidence 없이 BLS, VRF, EVM, state sync, governance를 production-ready라고 부르지 마세요.
-- Do not use private operator shortcuts, managed hot keys, or local-only settings on public RPC/P2P listeners.
-- Do not delete node data before collecting recovery reports, logs, and evidence when an incident happens.
+| 필드 | 의미 | 운영자 노트 |
+|---|---|---|
+| `running` | 노드 프로세스가 시작되었으며 런타임 상태를 소유합니다 | `true` 자체적으로 합의 활성을 증명하지 않습니다 |
+| `latest_height` | 최신 로컬 커밋 앱 높이 | 라이브 검증인 네트워크에서 시간이 지남에 따라 증가해야 함 |
+| `latest_finalized_height` | 최신 HotStuff 3체인 최종 높이 | 실행/커밋된 높이보다 무기한 지연되어서는 안 됩니다. |
+| `latest_app_hash` | 앱 커밋 해시 | 같은 높이의 동료와 일치해야 합니다 |
+| `peer_count` | 이전 버전과 호환되는 연결/점수 피어 요약 | 아래의 보다 구체적인 동료 필드를 선호하세요 |
+| `active_peer_count` | 전송이 보고할 수 있는 활성 전송 세션 | 라이브 P2P 연결을 위한 최고의 빠른 신호 |
+| `configured_peer_count` | 피어 주소 구성 또는 학습 | 접근성이 보장되지 않습니다 |
+| `scored_peer_count` | 점수표에 알려진 동료 | 라이브 세션 증거가 아닌 금지/비율 제한 기록에 유용합니다. |
+| `banned_peers` | 현재 점수 정책에 따라 금지된 피어 | 스파이크는 공격, 잘못된 피어 구성 또는 너무 엄격한 제한을 나타냅니다 |
 
-## 규범 원문
+4-검증기 단일 호스트 네트워크의 건강한 예: `running=true`, `latest_height` 증가, `latest_finalized_height` 존재, `3` 근처의 `active_peer_count` 및 `banned_peers=0`.
 
-- [규범 원문](../../en/operators/observability.md)
+## 프로메테우스 측정항목
+
+텍스트 끝점은 다음과 같은 게이지를 노출합니다.
+
+- `vexo_node_running`
+- `vexo_latest_height`
+- `vexo_peer_count`
+- `vexo_active_peer_count`
+- `vexo_configured_peer_count`
+- `vexo_scored_peer_count`
+- `vexo_banned_peers`
+- `vexo_height_rate_per_minute`
+- `vexo_round_timeouts`
+- `vexo_proposal_latency_p95_nanos`
+- `vexo_vote_latency_p95_nanos`
+- `vexo_commit_latency_p95_nanos`
+- `vexo_mempool_size`
+- `vexo_snapshot_healthy`
+- `vexo_replay_healthy`
+- `vexo_validator_signing_failures`
+- `vexo_post_commit_reconciliation_failures`
+
+`vexo_peer_count`은 이전 대시보드에 대해 유지됩니다. 새 대시보드에서는 `vexo_active_peer_count`, `vexo_configured_peer_count` 및 `vexo_scored_peer_count`을 별도로 차트로 작성해야 합니다.
+
+## 제안된 경고 규칙
+
+실제 유효성 검사기 수, 블록 간격, 대기 시간 및 하드웨어에 대한 숫자를 조정합니다. 이는 보편적 상수가 아닌 시작점입니다.
+
+| 경고 | 시작 조건 | 왜 |
+|---|---|---|
+| 노드 다운 | 1분 동안 `vexo_node_running == 0` | 프로세스/런타임이 중지됨 |
+| 높이가 멈췄습니다 | `latest_height` 2-3개의 예상 블록 간격에 대해 변경되지 않음 | 합의 또는 실행 중단 |
+| 최종성 지연 | 블록이 계속 실행되는 동안 `latest_finalized_height`은 변경되지 않습니다 | 최종 경로 또는 쿼럼 문제 |
+| 활성 피어 없음 | 비격리 노드에서 1분 동안 `vexo_active_peer_count == 0` | P2P 중단, 인증 불일치 또는 주소 문제 |
+| 동료 수가 너무 적음 | 쿼럼 연결 대상 아래의 활성 피어 | 파티션 또는 부트스트랩 문제 |
+| 라운드 시간 초과 스파이크 | 시간 초과 카운터가 일반 기준보다 빠르게 증가 | 지연 시간, 제안자 실패 또는 네트워크 파티션 |
+| 커밋 대기 시간이 높음 | p95/p99가 합의 시간 초과 예산에 접근 | 저장/런타임 과부하 |
+| 멤풀 압력 | mempool 크기가 몇 분 동안 증가합니다 | 수수료 정책, 스팸, 차단 용량 문제 |
+| 비정상 스냅샷 | `vexo_snapshot_healthy == 0` | 상태 동기화/복구 위험 |
+| 건강에 해로운 재생 | `vexo_replay_healthy == 0` | 결정성 또는 상태 일관성 위험 |
+| 서명자 실패 | `vexo_validator_signing_failures > 0` | KMS/원격 서명자/정책 실패 |
+| 조정 실패 | `vexo_post_commit_reconciliation_failures > 0` | 지속 가능한 증거 또는 커밋 수리가 필요함 |
+| 금지된 피어 스파이크 | 금지된 동료가 갑자기 증가 | 공격, 잘못 구성된 피어 또는 점수 임계값 문제 |
+
+## 권장 시작 임계값
+
+이를 초기 경고 값으로 사용한 다음 실제 장기 기준선 이후에 조정합니다.
+
+| 신호 | 경고 | 심각 | 첫 번째 조치 |
+|---|---:|---:|---|
+| 신장률 | 2개 창에 대한 예상 값의 50% 미만 | 2-3 블록 간격 동안 성장 없음 | 모든 검증인 비교, 제안자/서명/피어 로그 확인 |
+| 최종 높이 지연 | 5분 동안 성장 | 실행 높이가 10분 동안 계속 증가하는 동안 | QC/최종성 증명 로그 및 유효성 검사기 세트 해시 검사 |
+| 활성 피어 | 쿼럼 연결 대상보다 낮음 | 활성 피어가 없습니다 | 광고된 주소, TLS/인증, 제네시스/체인 ID 불일치 확인 |
+| 라운드 시간 초과 | 3x 일반 기준선 | 지속적인 시간 초과 루프 | 시간 초과 예산을 늘리거나 대기 시간/파티션을 조사 |
+| 제안 지연 시간 p95 | `timeout_propose`의 50% 이상 | `timeout_propose`의 80% 이상 | 프로필 제안자, mempool, DA 약정, 디스크 |
+| 투표 지연 p95 | 사전 투표/사전 커밋 예산의 50% 이상 | 예산의 80% 이상 | CPU, 서명자, 전송, 가십 배압 검사 |
+| 커밋 대기 시간 p95 | 블록 간격의 50% 이상 | 블록 간격의 80% 이상 | LevelDB, 상태 루트, EVM 실행, 스냅샷 검사 |
+| 멤풀 크기 | 5분 동안 증가 | `max_txs` 근처 또는 지속적인 교체 이탈 | 기본 수수료, 최소 수수료, TX 유효성, 스팸 검사 |
+| 서명자 실패 | 0이 아닌 값 | 하나의 높이 창에서 반복되는 실패 | 이중 서명 가드 또는 키 불일치가 나타나면 유효성 검사기 중지 |
+| 스냅샷 상태 | 하나의 실패 확인 | 내보내기/확인/복원 실패가 반복됨 | 상태 동기화 제공을 일시 중지하고 복구 보고서 실행 |
+| 재생 상태 | 하나의 엄격한 재생 실패 | 최신 안전 높이에서 불일치 재생 | 데이터 디렉토리를 보존하고 안전하지 않은 업그레이드/릴리스를 중지 |
+| 금지된 동료 | 갑작스런 스파이크 | 구성 출시 후 많은 동료가 금지됨 | 점수 상한선, TLS CA, 피어 ID, 선택적 인증 증명 및 시계 왜곡 확인 |
+
+가장 중요한 규칙: **시간 경과에 따른 변화**에 대한 경고입니다. 단일 숫자는 오해의 소지가 있을 수 있습니다. 높이 비율, 최종 지연, 피어 이탈, 멤풀 증가, 서명자 실패 등이 함께 실제 상황을 말해줍니다.
+
+## 사고 분류 매트릭스
+
+| 상황 | 가능성 있는 레이어 | 무엇을 보존해야 할까요 | 안전한 다음 단계 |
+|---|---|---|---|
+| 키가 멈췄고 동료는 건강합니다 | 합의/서명자/런타임 | 합의 로그, 서명자 로그, mempool 샘플 | 제안자 키 확인 및 시간 초과 로그 라운드 |
+| 배포 후 피어가 삭제됨 | 네트워킹/구성 | 네트워크 구성, TLS 인증서, 주소록, 피어 로그 | 공지된 주소/TLS/인증 변경 롤백 |
+| 앱 해시는 동일한 높이에서 다릅니다 | 실행/저장 | 데이터 디렉토리, 블록 기록, 앱 로그, 재생 출력 | 영향을 받은 노드를 중지하고 엄격한 재생을 실행 |
+| 최종 증명이 거부됨 | 완결성/검증기 세트 | 증명 JSON, 유효성 검사기가 증명 높이로 설정됨 | 검증인이 설정한 해시를 확인하고 바이트 도메인에 서명 |
+| 스냅샷 복원 실패 | 상태 동기화/저장 | 스냅샷 파일, 체크섬, 상태 루트, 복원 로그 | 라이브 데이터에 대해 재시도하지 마세요. 깨끗한 디렉토리로 복원 |
+| 원격 서명자가 요청을 거부함 | 열쇠 보관 | 서명자 감사 로그, 가드 파일, nonce 파일, 노드 로그 | 정책 거부와 전송 중단을 구별 |
+| 금지된 피어 스파이크 | P2P/보안 | 동료 점수 스냅샷 및 금지 이유 | 잘못된 소문이나 공유된 잘못된 구성을 검사하세요 |
+
+사고가 발생하는 동안 "정리"보다 데이터 보존을 선호합니다. WAL, addrbook, 서명자 가드 또는 LevelDB 디렉토리를 삭제하면 버그와 운영자 오류를 구별하는 데 필요한 증거가 파괴될 수 있습니다.
+
+## 보관할 이벤트 로그
+
+구조화된 로그는 해당되는 경우 노드 ID, 검증자 ID, 체인 ID, 높이, 라운드, 블록 해시 및 피어 ID와 함께 보관되어야 합니다.
+
+중요한 이벤트:
+
+- `node_running`
+- `rpc_listening`
+- `p2p_listening`
+- `peer_configured`
+- `peer_connected`
+- `peer_disconnected`
+- `peer_dial_failed`
+- `peer_banned`
+- `consensus_loop_running`
+- `block_committed`
+- `round_timeout`
+- `validator_signing_failure`
+- `evidence_received`
+- `evidence_applied`
+- `snapshot_exported`
+- `replay_checked`
+- `upgrade_halt`
+- `upgrade_applied`
+
+릴리스 후보의 경우 메트릭 샘플, pprof 샘플, 구성 파일, 제네시스, 바이너리 체크섬 및 증거 매니페스트와 함께 로그를 보관합니다.
+
+## 첫 번째 응답 플레이북
+
+운영자가 문제를 발견한 경우:
+
+1. 최소 2개의 검증인에서 `/v1/status`을 확인하세요.
+2. `latest_height`, `latest_finalized_height`, `latest_app_hash` 및 피어 수를 비교합니다.
+3. `/v1/diagnostics`에서 누락된 기능이나 비정상 스토리지/재생/스냅샷 검사를 확인하세요.
+4. 피어 이벤트 로그에서 인증, TLS, 제네시스, 체인 ID 또는 백오프 오류를 검사합니다.
+5. tx가 포함되지 않은 경우 mempool 및 기본 수수료 지표를 검사합니다.
+6. 검증인 서명이 실패할 경우 서명자와 원격 서명자 로그를 확인합니다.
+7. 데이터를 삭제하거나 수정하기 전에 복구 보고서를 내보내십시오.
+8. 완결성 충돌이 의심되는 경우 자동화를 중지하고 로그/증거를 보존하고 완결성 충돌 감지를 실행합니다.
+
+## 대시보드 레이아웃
+
+유용한 대시보드에는 일반적으로 5개의 행이 있습니다.
+
+1. **활성**: 노드 실행, 최신 높이, 최종 높이, 높이 비율.
+2. **합의 대기 시간**: 라운드 시간 초과, 제안/투표/커밋 p95 및 p99.
+3. **네트워크**: 활성/구성/점수를 매긴 피어, 금지된 피어, 피어 창 메시지.
+4. **실행**: 멤풀 크기, 가스/기본 요금, 전송 횟수, 커밋 대기 시간.
+5. **복구 및 안전**: 스냅샷 상태, 재생 상태, 서명자 실패, 조정 실패.
+
+대시보드를 지루하게 만드세요. 목표는 모든 내부 카운터를 표시하는 것이 아닙니다. 검증인이 갈라지거나 사용자가 거래 중단을 발견하기 전에 위험한 상태를 명백하게 만드는 것입니다.
+
+## 관찰 가능성의 증거 공개
+
+릴리스 후보의 경우 관찰 가능성은 단순한 실시간 모니터링이 아닙니다. 증거가 됩니다:
+
+1. 모든 검증인으로부터 기준선 `/v1/status`, `/v1/metrics`, `/v1/diagnostics`, `/v1/finality/latest` 및 `/v1/recovery/report`을 수집합니다.
+2. 선택한 기간과 속도에 따라 부하를 실행합니다.
+3. 최소한 한 번의 재시작, 한 번의 피어 중단 및 한 번의 스냅샷 내보내기/확인/복원 드릴을 삽입합니다.
+4. 모든 검증인으로부터 최종 지표를 수집합니다.
+5. 이전/이후 샘플, 로그, pprof 샘플, 서명자 감사 로그 및 증거 매니페스트를 `dist/`에 저장합니다.
+
+좋은 증거 번들은 검토자가 답변할 수 있도록 해줍니다. 높이가 증가했는지, 최종성 진행이 있었는지, 동료가 복구되었는지, txs가 커밋되었는지, 스냅샷이 확인되었는지, 재생이 정상적으로 유지되었는지, 서명자가 이중 서명을 피했는지, 정확한 릴리스 바이너리가 결과를 생성했는지 등이 있습니다.
 
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록

@@ -1,75 +1,28 @@
-# التوثيق
-
 > Locale: ar · العربية
-> هذا المستند مستنداً مساعداً بالعربية يُقرأ مع المصدر الإنجليزي. تبقى قرارات البروتوكول والأمان والإصدار معيارية في النص الإنجليزي.
 
-## البدء السريع
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-- ابنِ الملف التنفيذي باستخدام `make build`.
-- أنشئ validator home عبر `vexod init validator --home .vexo-validator-1 --chain-id vexo-chain --validator validator-1 --encrypt-keys`، ثم تحقّق منه بـ `vexod validate --home .vexo-validator-1` و `vexod config audit --home .vexo-validator-1 --strict`، وبعدها شغّل `vexod start --home .vexo-validator-1`.
-- شغّل شبكة Docker أولاً بـ `docker compose -f deployments/docker/compose.single-host-init.yml up` ثم `docker compose -f deployments/docker/compose.single-host.yml up`.
-- يجب أن يشير Remix إلى `http://127.0.0.1:28657/web3`؛ وللتحقق من chain ID استخدم `curl -s http://127.0.0.1:26657/web3 -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'`.
-- بعد تعديل المستندات شغّل `make docs-check` للتحقق من locale tree وحراس الترجمة.
-## نظرة عامة
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-يساعد هذا المستند على فهم فهرس الوثائق وترتيب القراءة الموصى به وربط ذلك بقرارات التنفيذ والتشغيل.
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-- Canonical path: `docs/README.md`
-- Locale path: `docs/locales/ar/README.md`
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-## لماذا تقرأ هذا المستند
+| المهمة | مسار الأوامر |
+|---|---|
+| بناء ثنائي محلي | __ VEXO_CODE _0__ |
+| إنشاء منزل مدقق واحد | __ VEXO_CODE _1__ |
+| التحقق من منزل واحد | __ VEXO_CODE _2__ و __ VEXO_CODE _3__ |
+| تشغيل عقدة واحدة | __ VEXO_CODE _4__ |
+| الاستعلام عن عقدة واحدة |' curl - s __ VEXO_URL _0__ |
+| تشغيل شبكة Docker رباعية المصادقة | __ VEXO_CODE _5__ متبوعة بـ__ VEXO_CODE _6__ |
+| Connect Remix | استخدم أداة التحقق من Docker 1 Web3 URL `__ VEXO_URL _1__ |
+| تحقق من معرف سلسلة Web3 | __ VEXO_CODE _7__ |
 
-- فهرس الوثائق وترتيب القراءة الموصى به
-- تحقق أولاً من عبارات MUST/SHOULD/MAY في المصدر الإنجليزي.
-- هذا المستند المحلي يساعد على الفهم؛ قرارات audit وrelease وsecurity تُحسم بالمصدر الإنجليزي.
+## البداية السريعة
 
-## ما الذي يجب أن تستطيع فعله بعد القراءة
-
-- شرح قرار التنفيذ أو التشغيل الذي يدعمه هذا المستند.
-- ربط المتطلبات المعيارية في المصدر الإنجليزي بإعدادات الشبكة الحالية.
-- التحقق من chain ID وvalidator ID وfee/gas وعناوين peer قبل نسخ الأمثلة.
-
-## قائمة تحقق للاستخدام الآمن
-
-- تحقق أولاً من عبارات MUST/SHOULD/MAY في المصدر الإنجليزي.
-- لا تترجم الأوامر أو config key أو أسماء RPC أو حقول JSON أو معرّفات الكود.
-- قبل نسخ الأمثلة، طابق chain ID وvalidator ID وfee/gas وعناوين peer مع شبكتك.
-- بعد تعديل الوثائق، شغّل `make docs-check` للتحقق من locale tree وحراس الترجمة.
-
-## نقاط يجب الانتباه لها
-
-- هذا المستند المحلي يساعد على الفهم؛ قرارات audit وrelease وsecurity تُحسم بالمصدر الإنجليزي.
-- عند تغير التنفيذ، حدّث المصدر الإنجليزي وكل المستندات المحلية في نفس التغيير.
-
-## واجهات يجب الحفاظ عليها كما هي
-
-- `vexo-consensus`
-- `/v1/*`
-- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
-- `make docs-check`
-
-## بنية المصدر الإنجليزي
-
-- Documentation
-- How to Read This Set
-- Protocol Specs
-- SDK and Extension Guides
-- Operations and Release
-- Security
-- Localized Documentation
-- Writing New Docs
-- Documentation Review Checklist
-
-## المصدر المعتمد
-
-- [الوثيقة الإنجليزية المرجعية](../en/README.md)
-
-## قائمة المصطلحات التي تُحفظ كما هي
-
-المصطلحات التالية لا تُترجم.
-
-- `vexo-consensus`
 - `make build`
+- `vexod init validator --home .vexo-validator-1 --chain-id vexo-chain --validator validator-1 --encrypt-keys`
 - `vexod validate --home .vexo-validator-1`
 - `vexod config audit --home .vexo-validator-1 --strict`
 - `vexod start --home .vexo-validator-1`
@@ -77,17 +30,29 @@
 - `docker compose -f deployments/docker/compose.single-host-init.yml up`
 - `docker compose -f deployments/docker/compose.single-host.yml up`
 - `http://127.0.0.1:28657/web3`
-- `/v1/*`
-- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
-- `make docs-check`
-- `vexod status --json`
-- `feature_assurance`
-- `network_config.json:p2p.auth_replay_path`
-- `network_config.json:p2p.node_key_path`
-- `module_config.json:governance.RequireDeposit`
-- `module_config.json:governance.MinDeposit`
-- `consensus_config.json:consensus.execution_commit`
-- `mempool_config.json:mempool.WALPath`
+## ابدأ هنا
+
+| مستند | الغرض |
+|---|---|
+| [دليل جاهزية الإنتاج ](./production-readiness.md) | خريطة واحدة للبروتوكول ووقت التشغيل والعمليات والأدلة وجاهزية الإصدار |
+
+## مواصفات البروتوكول
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+| [مصفوفة توافق الإصدار](./release/version-compatibility.md) | توقعات التوافق عبر تنسيقات BINARY و CONFIG و STORE و APP و RPC و PROVE |
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 <!-- vexo-docs:technical-parity -->
 ## ملحق التكافؤ التقني

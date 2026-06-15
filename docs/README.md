@@ -9,7 +9,7 @@ It is written for people who need to understand, build, operate, review, or rele
 3. **What must be true for it to be safe?**
 4. **What evidence proves it is ready for a real network?**
 
-English is the canonical source for protocol, security, release, SDK, command, config, and RPC behavior. Localized documents mirror this tree and help non-English readers, but release and audit decisions must always be checked against the English source.
+English is the canonical source for protocol, security, release, SDK, command, config, and RPC behavior. Localized documents mirror this tree as direct translations and help non-English readers, but release and audit decisions must always be checked against the English source.
 
 ## Fastest Way In
 
@@ -112,7 +112,7 @@ If you are reviewing the protocol or preparing a release, use this order:
 
 ## Localized Documentation
 
-Locale files are not allowed to drift from the canonical tree. They keep commands, JSON fields, RPC names, config keys, and code identifiers unchanged so examples stay copy-pasteable across languages.
+Locale files are not allowed to drift from the canonical tree. They are direct translations that keep commands, JSON fields, RPC names, config keys, and code identifiers unchanged so examples stay copy-pasteable across languages.
 
 | Document | Purpose |
 |---|---|

@@ -1,64 +1,30 @@
-# Überblick über das Konsensprotokoll
-
 > Locale: de · Deutsch
-> Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
 
-## Überblick
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-Dieses Dokument hilft dabei, das Konsensmodell, execution/commit/finality-Begriffe und die Sicherheitsgrenze zu verstehen und mit Implementierungs- sowie Betriebsentscheidungen zu verbinden.
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-- Canonical path: `docs/consensus-protocol.md`
-- Locale path: `docs/locales/de/consensus-protocol.md`
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-## Warum dieses Dokument lesen
+- weniger als ein Drittel der byzantinischen Stimmrechte
+- Domain-getrennte Unterschriften für Vorschlag, Abstimmung, Timeout-Abstimmung und Finalität
+- Validator-Set-Hash-Bindung in der jeweiligen Proofhöhe
+- eindeutige bekannte Unterzeichner in QCs und Finalitätsnachweisen
+- rechenschaftspflichtige Beweise für die Äquivokation des Validators
+- Ablehnung widersprüchlicher Commit-Entscheidungen in der gleichen endgültigen Höhe
 
-- das Konsensmodell, execution/commit/finality-Begriffe und die Sicherheitsgrenze
-- Prüfe zuerst MUST/SHOULD/MAY-Sätze in der englischen Quelle.
-- Dieses lokalisierte Dokument unterstützt das Verständnis; Audit-, Release- und Sicherheitsentscheidungen erfolgen anhand der englischen Quelle.
+## Krypto-Grenze
 
-## Was danach möglich sein sollte
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-- Erklären, welche Implementierungs- oder Betriebsentscheidung dieses Dokument unterstützt.
-- Normative Anforderungen der englischen Quelle mit der aktuellen Netzwerkkonfiguration verbinden.
-- Vor dem Kopieren von Beispielen chain ID, validator ID, fee/gas und Peer-Adressen prüfen.
+- strenges Konfigurations-Audit für jede Unterkunft des Validierers
+- Release-Gate-Nachweis
+- externe Sicherheitsüberprüfung
+- Langfristige Beweise für mehrere Hosts und Chaos
+- Unterzeichner/KMS-Richtliniennachweis
+- kettenspezifische Überprüfung der Wirtschafts- und Governance-Politik
 
-## Checkliste für sichere Nutzung
-
-- Prüfe zuerst MUST/SHOULD/MAY-Sätze in der englischen Quelle.
-- Übersetze keine Befehle, config key, RPC-Namen, JSON-Felder oder Code-Bezeichner.
-- Passe Beispielwerte vor dem Kopieren an chain ID, validator ID, fee/gas und Peer-Adressen deines Netzwerks an.
-- Nach Änderungen `make docs-check` ausführen, um locale tree und Übersetzungs-Guards zu prüfen.
-
-## Worauf zu achten ist
-
-- Dieses lokalisierte Dokument unterstützt das Verständnis; Audit-, Release- und Sicherheitsentscheidungen erfolgen anhand der englischen Quelle.
-- Bei Implementierungsänderungen müssen englische Quelle und alle lokalisierten Dokumente im selben Change aktualisiert werden.
-
-## Unverändert zu behaltende Schnittstellen
-
-- `FinalizeBlock`
-- `consensus_config.json`
-- `execution_commit`
-- `finalized`
-- `qc`
-- `require_network_safety`
-- `block_committed`
-- `deterministic`
-- `ed25519`
-- `bls`
-
-## Struktur der englischen Quelle
-
-- Überblick über das Konsensprotokoll
-- Model
-- Execution Terms
-- Safety Boundary
-- Crypto Boundary
-- Operational Boundary
-
-## Kanonische Quelle
-
-- [Englisches kanonisches Dokument](../en/consensus-protocol.md)
+Sehen Sie sich [Security Audit Readiness](./security/audit-readiness.md) und [Release Pipeline](./release/release-pipeline.md) an, bevor Sie eine Version als produktionsbereit behandeln.
 
 <!-- vexo-docs:technical-parity -->
 ## Anhang zur technischen Parität

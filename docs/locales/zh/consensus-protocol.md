@@ -1,64 +1,72 @@
-# 共识协议概览
-
 > Locale: zh · 中文
-> 本文档是配合英文原文阅读的中文 辅助文档。协议、安全和发布判断以英文原文为准。
 
-## 文档概览
+# 共识协议概述
 
-本文档帮助你理解 共识模型、execution/commit/finality 术语以及安全边界，并把它连接到实际实现和运维判断。
+此页面是 Vexo 共识文档的高级入口点。有关更广泛的文档地图，请参阅[文档](./README.md)。
 
-- Canonical path: `docs/consensus-protocol.md`
-- Locale path: `docs/locales/zh/consensus-protocol.md`
+有关规范详细信息，请使用规范文件：
 
-## 为什么阅读本文档
+- [共识规范](./specs/consensus-spec.md)
+- [最终性证明格式](./specs/finality-proof-format.md)
+- [验证器生命周期](./specs/validator-lifecycle.md)
+- [存储架构](./specs/storage-schema.md)
+- [网络规范](./specs/networking-spec.md)
+- [交易格式](./specs/tx-format.md)
 
-- 共识模型、execution/commit/finality 术语以及安全边界
-- 先在英文原文中确认 MUST/SHOULD/MAY 语句。
-- 此本地化文档用于帮助理解；审计、发布和安全判断以英文原文为准。
+## 型号
 
-## 读完后应能做到
+Vexo 使用 HotStuff 风格的 BFT 核心，具有提案、投票、法定人数证书、超时证书、锁定 QC 安全性和三链最终性。
 
-- 说明本文档支持哪些实现或运维决策。
-- 把英文原文中的规范要求与当前网络配置对应起来。
-- 复制示例前检查 chain ID、validator ID、fee/gas 和 peer 地址。
+仅当区块扩展了锁定的 QC 或携带至少与锁一样新的合理 QC 时，才可以安全地对区块进行投票。当三链规则证明安全的父/祖父母链扩展时，区块就被最终确定。
 
-## 安全使用检查清单
+该实现将三链决策绑定到显式的块、父代和祖父母高度。区块QC必须证明父代高度/哈希，父代QC必须证明祖父母高度/哈希；在记录最终决定之前，合成的或高度跳跃的 QC 链将被拒绝。
 
-- 先在英文原文中确认 MUST/SHOULD/MAY 语句。
-- 不要翻译命令、config key、RPC 名称、JSON 字段和代码标识符。
-- 复制示例值前，请确认 chain ID、validator ID、fee/gas 和 peer 地址适合你的网络。
-- 修改文档后运行 `make docs-check` 检查 locale tree 和翻译 guard。
+## 执行条款
 
-## 注意事项
+Vexo 一贯使用这些术语：
 
-- 此本地化文档用于帮助理解；审计、发布和安全判断以英文原文为准。
-- 实现变更时，英文文档和所有本地化文档应在同一变更中更新。
+- **QC 认证**：一个区块有足够的选票来形成法定人数证书。
+- **最终确定**：HotStuff 三链规则最终确定了祖先块。
+- **已执行**：应用程序已为块运行 `FinalizeBlock`。
+- **状态已提交**：应用程序 KV 写入、块记录、状态记录和模块状态根已持久提交。
 
-## 必须保持原样的接口
+节点执行路径使用两个独立的边界：
 
-- `FinalizeBlock`
-- `consensus_config.json`
-- `execution_commit`
-- `finalized`
-- `qc`
-- `require_network_safety`
-- `block_committed`
-- `deterministic`
-- `ed25519`
-- `bls`
+- **执行提交边界**：QC认证的块可以作为应用程序写入+块记录+状态记录+状态根来执行和原子地持久化。
+- **共识最终性边界**：三链规则最终确定了祖先，并且是轻客户端最终性证明的唯一来源。
 
-## 英文原文结构
+`consensus_config.json` 通过 `execution_commit` 公开此选择。生成的验证器主目录默认为 `finalized`，它仅执行三链最终性规则选择的祖先，因此状态提交与更严格的最终性边界保持一致。较低延迟的 `qc` 边界仍然可用于自定义部署，但 `require_network_safety` 拒绝它。操作员和 SDK 用户应将 `block_committed` 日志视为已配置执行边界的状态提交事件。最终性证明描述了验证者设置高度的共识最终性。
 
-- 共识协议概览
-- Model
-- Execution Terms
-- Safety Boundary
-- Crypto Boundary
-- Operational Boundary
+## 安全边界
 
-## 规范来源
+安全取决于：
 
-- [英文规范文档](../en/consensus-protocol.md)
+- 不到三分之一的拜占庭投票权
+- 域分离的提案、投票、超时投票和最终签名
+- 验证器设置哈希绑定在相关的证明高度
+- QC 和最终性证明中唯一的已知签名者
+- 验证者模棱两可的可靠证据
+- 在相同的最终高度拒绝冲突的提交决策
+
+## 加密边界
+
+- `deterministic` 仅供测试，未通过网络安全验证。
+- 支持 `ed25519` 用于公共网络测试和启动准备。
+- `bls` 默认为 `blst-bls12381-minpk-v1` 并需要拥有证明或等效的流氓密钥防御、子组检查、公钥验证、依赖性审计证据和发布门证据。内置 CIRCL 适配器仍然是运行时接口的参考集成，并不是生产安全豁免。
+- 网络安全验证需要 VRF 适配器元数据以供 VRF 委员会选择。内置ECVRF适配器可以满足运行时接口；确定性 VRF 仍仅供测试，不应用于价值承载网络。
+
+## 操作边界
+
+该代码包括面向生产的检查，但公共部署仍然需要：
+
+- 对每个验证器主页进行严格的配置审核
+- 释放门证据
+- 外部安全审查
+- 多主机长期和混沌证据
+- 签名者/KMS 策略证据
+- 针对特定链条的经济和治理政策审查
+
+在将版本视为生产就绪之前，请参阅[安全审核准备情况](./security/audit-readiness.md)和[发布管道](./release/release-pipeline.md)。
 
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录

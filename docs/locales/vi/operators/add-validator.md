@@ -1,91 +1,155 @@
+> Locale: vi · Tiếng Việt
+
 # Thêm trình xác thực
 
-> Locale: vi · Tiếng Việt
-> Tài liệu này là tài liệu đồng hành tiếng Việt để đọc cùng nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.
+Hướng dẫn này mô tả quy trình vận hành để thêm trình xác nhận vào mạng Vexo.
 
+Con đường tiếp nhận chính xác phụ thuộc vào chính sách quản trị và đặt cọc của chuỗi. Tối thiểu, trình xác thực phải được thể hiện ở trạng thái chuỗi, có thông tin xác thực hợp lệ và trở thành một phần của bản cập nhật bộ trình xác thực có phiên bản cao.
 
-## Thứ tự nên đọc
+## 1. Khởi tạo Trang chủ Trình xác thực
+```bash
+vexod init validator \
+  --home .vexo-validator-new \
+  --chain-id vexo-chain \
+  --validator validator-new \
+  --encrypt-keys
+```
+Đối với khóa xác thực BLS:
+```bash
+vexod init validator \
+  --home .vexo-validator-new \
+  --chain-id vexo-chain \
+  --validator validator-new \
+  --key-type bls \
+  --encrypt-keys
+```
+Đặt `VEXO_KEY_PASSPHRASE` trước khi chạy các lệnh này hoặc chuyển `--passphrase` để thiết lập cục bộ một lần.
 
-Tài liệu này giải thích cách thêm validator vào mạng Vexo. Nếu đây là lần đầu, hãy đọc theo thứ tự sau.
+Khi thừa nhận trình xác thực BLS vào chuỗi hiện có, hãy bao gồm siêu dữ liệu `bls_pop` đã tạo trong đề xuất cập nhật trình xác thực.
+Đường dẫn khóa BLS mặc định sử dụng `blst-bls12381-minpk-v1`; chỉ sử dụng `vexod keys gen --type bls --bls-adapter circl-bls12381-g1sigg2-basic-v1` để kiểm tra tính tương thích/tham chiếu.
 
-1. Initialize Validator Home
-2. Configure Network Addresses and Peers
-3. Submit Validator Admission
-4. Verify Validator Set Update
-5. Plan Validator Key Rotation
-6. Start Validator
-7. Monitor
-8. Safety Notes
+Lưu trữ khóa công khai được tạo:
+```bash
+vexod keys show --home .vexo-validator-new --json
+```
+Đồng thời giữ `node.key.json` đã tạo. Nó ký kết bắt tay P2P cho `network_config.json:p2p.node_id`; nó không phải là khóa đồng thuận của người xác nhận và không được sử dụng lại làm khóa tài khoản.
 
-Thứ tự này khớp với quy trình vận hành thực tế: tạo validator home và key mới trước, rồi cấu hình địa chỉ mạng và peers, sau đó kiểm tra admission và validator set update, cuối cùng xem rotation, start, monitoring và ghi chú an toàn.
+## 2. Cấu hình địa chỉ mạng và các mạng ngang hàng
 
-## Tổng quan
+Chỉnh sửa `.vexo-validator-new/network_config.json` và đặt địa chỉ nghe cục bộ cộng với các địa chỉ ngang hàng liên tục:
+```json
+{
+  "schema_version": "v1",
+  "rpc": {
+    "enabled": true,
+    "address": "0.0.0.0:26657"
+  },
+  "p2p": {
+    "enabled": true,
+    "node_id": "validator-new",
+    "node_key_path": "node.key.json",
+    "listen_address": "0.0.0.0:26656",
+    "peers": {
+      "validator-1": "validator-1.example.com:26656",
+      "validator-2": "validator-2.example.com:26656",
+      "validator-3": "validator-3.example.com:26656"
+    }
+  },
+  "peer_scoring": {
+    "InitialScore": 100,
+    "MaxScore": 1000,
+    "BanThreshold": 0
+  }
+}
+```
+Không dựa vào các phần ghi đè mạng dòng lệnh tồn tại lâu dài cho trình xác thực sản xuất. Giữ các địa chỉ ngang hàng liên tục trong `network_config.json`.
 
-Tài liệu này giúp hiểu quy trình thêm validator, xác thực cấu hình và kiểm tra staking và liên hệ nội dung đó với quyết định triển khai, vận hành.
+Sử dụng vai trò địa chỉ riêng biệt:
 
-- Canonical path: `docs/operators/add-validator.md`
-- Locale path: `docs/locales/vi/operators/add-validator.md`
+- `p2p.listen_address` và `rpc.address` là địa chỉ liên kết cục bộ cho máy hoặc vùng chứa này.
+- `p2p.node_id` là danh tính ngang hàng của nút này. Giữ nó ổn định sau khi các đồng nghiệp đã học được nó.
+- `p2p.node_key_path` trỏ đến khóa ký kết bắt tay cục bộ cho danh tính ngang hàng đó.
+- `p2p.peers` chứa các mục tiêu quay số mà nút này sử dụng để tiếp cận các nút ngang hàng khác; khóa bản đồ phải là giá trị `p2p.node_id` của các nút từ xa.
+- siêu dữ liệu của trình xác thực `p2p_address` và `rpc_address` phải chứa các địa chỉ được quảng cáo công khai, không phải tên dịch vụ chỉ dành cho Docker, trừ khi mạng được đặt ở chế độ riêng tư có chủ ý.
 
-## Vì sao nên đọc tài liệu này
+## 3. Gửi Người xác nhận nhập học
 
-- quy trình thêm validator, xác thực cấu hình và kiểm tra staking
-- Trước hết hãy kiểm tra các câu MUST/SHOULD/MAY trong nguồn tiếng Anh.
-- Tài liệu bản địa hóa này hỗ trợ hiểu nội dung; audit, release và security decisions được quyết định theo nguồn tiếng Anh.
+Ví dụ: luồng đặt cược, xây dựng giao dịch đặt cược:
+```bash
+vexod staking --help
+```
+Giao dịch tiếp nhận trình xác thực phải bao gồm:
 
-## Sau khi đọc cần làm được
+- ID người xác thực
+- địa chỉ xác thực
+- Khóa công khai đồng thuận
+- quyền biểu quyết hoặc tham chiếu cổ phần
+- điểm cơ bản hoa hồng xác thực, nếu chuỗi cho phép cập nhật hoa hồng tự phục vụ
+- Siêu dữ liệu P2P `node_id` nếu chuỗi sử dụng siêu dữ liệu gốc/trình xác thực để chèn sẵn các bản đồ ngang hàng
+- siêu dữ liệu địa chỉ P2P công cộng
+- siêu dữ liệu địa chỉ RPC công khai, nếu công khai
+- Siêu dữ liệu bằng chứng sở hữu BLS khi BLS được bật
 
-- Giải thích tài liệu này hỗ trợ quyết định triển khai hoặc vận hành nào.
-- Liên hệ yêu cầu chuẩn trong nguồn tiếng Anh với cấu hình mạng hiện tại.
-- Kiểm tra chain ID, validator ID, fee/gas và địa chỉ peer trước khi sao chép ví dụ.
+Bản cập nhật trình xác thực phải có hiệu lực ở một độ cao cụ thể và tạo ra hàm băm do trình xác thực mới đặt.
 
-## Checklist sử dụng an toàn
+Sau khi trình xác thực hoạt động, người vận hành có thể hiển thị trạng thái phần thưởng thông qua mô-đun đặt cược:
+```bash
+vexod staking query commission validator-1
+vexod staking query rewards alice validator-1
+```
+## 4. Xác minh cập nhật bộ trình xác thực
 
-- Trước hết hãy kiểm tra các câu MUST/SHOULD/MAY trong nguồn tiếng Anh.
-- Không dịch lệnh, config key, tên RPC, trường JSON hoặc định danh mã.
-- Trước khi sao chép ví dụ, hãy chỉnh chain ID, validator ID, fee/gas và địa chỉ peer theo mạng của bạn.
-- Sau khi sửa tài liệu, chạy `make docs-check` để kiểm tra locale tree và translation guards.
+Sau khi cập nhật chiều cao:
+```bash
+curl http://127.0.0.1:26657/v1/validators/<height>
+```
+Kiểm tra:
 
-## Điểm cần chú ý
+- trình xác thực xuất hiện trong tập hợp chiều cao cụ thể
+- quyền biểu quyết là chính xác
+- hàm băm của bộ xác thực đã thay đổi như mong đợi
+- bằng chứng cuối cùng tham chiếu chiều cao được xác thực chính xác
 
-- Tài liệu bản địa hóa này hỗ trợ hiểu nội dung; audit, release và security decisions được quyết định theo nguồn tiếng Anh.
-- Khi implementation thay đổi, cập nhật nguồn tiếng Anh và tất cả tài liệu bản địa hóa trong cùng một thay đổi.
+## 5. Lập kế hoạch xoay khóa trình xác thực
 
-## Giao diện cần giữ nguyên
+Bạn có thể xoay khóa trình xác thực bằng cách chuẩn bị tài liệu khóa tiếp theo với siêu dữ liệu `active_from` và `active_until` không chồng chéo, sau đó bắt đầu nút bằng khóa xoay bổ sung:
+```bash
+vexod keys gen --home .vexo-validator-new --path next-validator.key.json --id key-2 --active-from 1001
+vexod keys rotation-plan --home .vexo-validator-new --key validator.key.json --key next-validator.key.json
+vexod start --home .vexo-validator-new --rotation-key next-validator.key.json --dry-run
+```
+Tại thời điểm ký, nút sử dụng khóa có cửa sổ hoạt động chứa chiều cao đồng thuận. Các tài liệu chính của người ký từ xa giữ nguyên chính sách, mã thông báo xác thực và các yêu cầu bảo vệ ký kép.
 
-- `VEXO_KEY_PASSPHRASE`
-- `--passphrase`
-- `bls_pop`
-- `.vexo-validator-new/network_config.json`
-- `network_config.json`
-- `p2p.listen_address`
-- `rpc.address`
-- `p2p.peers`
-- `p2p_address`
-- `rpc_address`
-- `active_from`
-- `active_until`
-- `config audit --strict`
+## 6. Bắt đầu Trình xác thực
+```bash
+vexod config audit --home .vexo-validator-new --strict
+vexod start --home .vexo-validator-new
+```
+Khởi động không có chuyển đổi chế độ mạng. Sử dụng `config audit --strict` trước khi khởi động khi mạng dự kiến ​​sẽ đáp ứng các giả định về an toàn mạng công cộng.
 
-- `node.key.json`
-- `p2p.node_id`
-- `p2p.node_key_path`
-- `node_id`
-- `node_key_path`
-## Cấu trúc nguồn tiếng Anh
+## 7. Màn hình
 
-- Adding a Validator
-- 1. Initialize Validator Home
-- 2. Configure Network Addresses and Peers
-- 3. Submit Validator Admission
-- 4. Verify Validator Set Update
-- 5. Plan Validator Key Rotation
-- 6. Start Validator
-- 7. Monitor
-- Safety Notes
+Xem:
 
-## Nguồn chuẩn
+- độ trễ đề xuất/bỏ phiếu
+- thời gian chờ của vòng
+- lỗi ký xác thực
+- lệnh cấm ngang hàng
+- kích thước mempool
+- độ trễ cam kết
+- ảnh chụp nhanh / phát lại sức khỏe
 
-- [Tài liệu chuẩn tiếng Anh](../../en/operators/add-validator.md)
+sử dụng:
+```bash
+vexod ops thresholds --json
+vexod ops incident --metrics-file current.json --previous-metrics-file previous.json --window 1m
+```
+## Lưu ý an toàn
+
+- Không bao giờ sử dụng lại khóa xác thực trên các chuỗi độc lập.
+- Luôn bật chính sách người ký từ xa cho người xác nhận sản xuất.
+- Không thừa nhận trình xác thực BLS mà không có bằng chứng sở hữu hoặc biện pháp bảo vệ khóa lừa đảo tương đương.
+- Không chém hoặc bỏ tù người xác thực mà không có bằng chứng được xác minh gắn với bộ trình xác thực có chiều cao bằng chứng chính xác.
 
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật

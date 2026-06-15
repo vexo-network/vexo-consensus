@@ -1,7 +1,7 @@
 # Matriks kompatibilitas versi
 
 > Locale: id · Bahasa Indonesia
-> Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
+> Dokumen ini adalah terjemahan langsung ke Bahasa Indonesia dari sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
 
 
 ## Urutan baca
@@ -38,7 +38,7 @@ Dokumen ini membantu memahami matriks kompatibilitas versi dan kriteria upgrade 
 - Periksa dulu kalimat MUST/SHOULD/MAY di sumber Inggris.
 - Jangan menerjemahkan perintah, config key, nama RPC, field JSON, atau identifier kode.
 - Sebelum menyalin contoh, sesuaikan chain ID, validator ID, fee/gas, dan alamat peer dengan jaringan Anda.
-- Setelah mengubah dokumen, jalankan `make docs-check` untuk memeriksa locale tree dan translation guards.
+- Setelah mengubah dokumen, jalankan `make docs-check` untuk memeriksa pohon lokal dan pemeriksaan terjemahan.
 
 ## Hal yang perlu diperhatikan
 

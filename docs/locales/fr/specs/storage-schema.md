@@ -1,7 +1,7 @@
 # Schéma de stockage
 
 > Locale: fr · Français
-> Ce document est un document d’accompagnement français à lire avec la source anglaise. Les décisions de protocole, de sécurité et de release restent normatives en anglais.
+> Ce document est une traduction directe en français de la source anglaise. Les décisions de protocole, de sécurité et de release restent normatives en anglais.
 
 
 ## Ordre de lecture
@@ -43,7 +43,7 @@ Ce document aide à comprendre les namespaces de durable storage, key schema et 
 - Vérifiez d’abord les phrases MUST/SHOULD/MAY dans la source anglaise.
 - Ne traduisez pas les commandes, config key, noms RPC, champs JSON ni identifiants de code.
 - Avant de copier des exemples, adaptez chain ID, validator ID, fee/gas et adresses peer à votre réseau.
-- Après modification, exécutez `make docs-check` pour vérifier le locale tree et les garde-fous de traduction.
+- Après modification, exécutez `make docs-check` pour vérifier l’arborescence locale et les garde-fous de traduction.
 
 ## Points d’attention
 

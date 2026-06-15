@@ -1,16 +1,16 @@
 # Documentation Locales
 
-English (`en`) is the canonical technical documentation set. Every other locale mirrors the same document tree so contributors can review a localized page next to the exact English source without changing links, release evidence paths, or audit references.
+English (`en`) is the canonical technical documentation set. Every other locale mirrors the same document tree as a direct translation so contributors can read the same content in their own language without changing links, release evidence paths, or audit references.
 
-Localized pages are written as companion documents: they explain the purpose of the canonical page, preserve interface names exactly, and give readers a checklist for safe use. Protocol rules, release gates, security assumptions, command semantics, config keys, RPC names, JSON fields, and code identifiers remain normative in English.
+Localized pages are translations of the canonical pages: they preserve interface names exactly and keep the same document structure, but the explanatory text is rewritten in the target language instead of being treated as a separate companion note. Protocol rules, release gates, security assumptions, command semantics, config keys, RPC names, JSON fields, and code identifiers remain normative in English.
 
 ## How To Read Localized Docs
 
-Use the localized page when you want the explanation in your language. Open the English page next to it when you need the exact command, config key, JSON field, or release requirement that must stay normative.
+Use the localized page when you want the explanation in your language. Open the English page next to it when you need the exact command, config key, JSON field, or release requirement that remains normative.
 
 In practice:
 
-- **Use the locale page** for reader guidance, safety notes, and a plain-language summary.
+- **Use the locale page** for the same content in the target language.
 - **Use the English source** for commands, RPC methods, config keys, package paths, and release or security decisions.
 - **Treat release evidence as separate from translation quality**; a translated page can still be a bad release claim if the underlying artifact is missing.
 
@@ -45,13 +45,13 @@ In practice:
 
 ## What a Good Locale Page Must Include
 
-Each localized page should make three things obvious:
+Each localized page should be a faithful translation of the canonical page and make three things obvious:
 
 1. **Purpose:** what the canonical document is for and who should read it.
 2. **Safe-use checklist:** what a reader must verify before copying commands, changing config, or making release/security decisions.
 3. **Canonical link:** the exact English document that remains authoritative.
 
-Do not make localized pages vague shells. If a locale page only lists identifiers and does not explain how the document is used, improve it before release.
+Do not turn localized pages into vague summaries. If a locale page only lists identifiers and does not explain how the document is used, improve it before release.
 
 For reader quality, every locale page should also include:
 
@@ -61,7 +61,7 @@ For reader quality, every locale page should also include:
 - a short warning when code exists but external release evidence is still required
 - enough context for a new contributor to know which English page to open next
 
-Localized pages may be shorter than the English canonical page, but they should never be empty wrappers. A reader should leave the page knowing what matters, what can be copied, what must be changed, and what must be verified.
+Localized pages may be shorter than the English canonical page, but they should not become wrappers or summaries. A reader should leave the page knowing what matters, what can be copied, what must be changed, and what must be verified.
 
 ## Adding a New Locale
 

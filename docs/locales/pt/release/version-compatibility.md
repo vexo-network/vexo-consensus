@@ -1,7 +1,7 @@
 # Matriz de compatibilidade de versões
 
 > Locale: pt · Português
-> Este documento é um documento de apoio em português para ser lido junto da fonte inglesa. Decisões de protocolo, segurança e release continuam normativas em inglês.
+> Este documento é uma tradução direta para o português da fonte inglesa. Decisões de protocolo, segurança e release continuam normativas em inglês.
 
 
 ## Ordem de leitura
@@ -25,7 +25,7 @@ Este documento ajuda a entender matriz de compatibilidade de versões e critéri
 
 - matriz de compatibilidade de versões e critérios de upgrade
 - Confira primeiro as frases MUST/SHOULD/MAY na fonte inglesa.
-- Este documento localizado ajuda na compreensão; auditoria, release e segurança são decididos pela fonte inglesa.
+- Esta página é uma tradução direta do original em inglês; auditoria, release e segurança continuam sendo decididos pela fonte inglesa.
 
 ## O que você deve conseguir fazer
 
@@ -38,11 +38,11 @@ Este documento ajuda a entender matriz de compatibilidade de versões e critéri
 - Confira primeiro as frases MUST/SHOULD/MAY na fonte inglesa.
 - Não traduza comandos, config key, nomes RPC, campos JSON nem identificadores de código.
 - Antes de copiar exemplos, ajuste chain ID, validator ID, fee/gas e endereços peer para sua rede.
-- Após alterar documentos, execute `make docs-check` para verificar locale tree e guards de tradução.
+- Após alterar os documentos, execute `make docs-check` para verificar a árvore local e os controles de tradução.
 
 ## Pontos de atenção
 
-- Este documento localizado ajuda na compreensão; auditoria, release e segurança são decididos pela fonte inglesa.
+- Esta página é uma tradução direta do original em inglês; auditoria, release e segurança continuam sendo decididos pela fonte inglesa.
 - Quando a implementação mudar, atualize a fonte inglesa e todos os documentos localizados na mesma alteração.
 
 ## Interfaces que devem ser preservadas

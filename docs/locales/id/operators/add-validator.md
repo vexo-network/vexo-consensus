@@ -1,91 +1,155 @@
-# Menambahkan validator
-
 > Locale: id · Bahasa Indonesia
-> Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
 
+# Menambahkan Validator
 
-## Urutan baca
+Panduan ini menjelaskan alur operator untuk menambahkan validator ke jaringan Vexo.
 
-Dokumen ini menjelaskan cara menambahkan validator ke jaringan Vexo. Jika ini pertama kali, baca dengan urutan berikut.
+Jalur penerimaan yang tepat bergantung pada kebijakan pertaruhan dan tata kelola rantai. Minimal, validator harus diwakili dalam status rantai, memiliki kredensial yang valid, dan menjadi bagian dari pembaruan set validator berversi tinggi.
 
-1. Initialize Validator Home
-2. Configure Network Addresses and Peers
-3. Submit Validator Admission
-4. Verify Validator Set Update
-5. Plan Validator Key Rotation
-6. Start Validator
-7. Monitor
-8. Safety Notes
+## 1. Inisialisasi Beranda Validator
+```bash
+vexod init validator \
+  --home .vexo-validator-new \
+  --chain-id vexo-chain \
+  --validator validator-new \
+  --encrypt-keys
+```
+Untuk kunci validator BLS:
+```bash
+vexod init validator \
+  --home .vexo-validator-new \
+  --chain-id vexo-chain \
+  --validator validator-new \
+  --key-type bls \
+  --encrypt-keys
+```
+Setel `VEXO_KEY_PASSPHRASE` sebelum menjalankan perintah ini, atau teruskan `--passphrase` untuk pengaturan lokal satu kali.
 
-Urutan ini mengikuti alur operasional sebenarnya: buat dulu validator home dan keys baru, lalu atur network addresses dan peers, setelah itu periksa admission dan validator set update, lalu cek rotasi, start, monitoring, dan catatan keamanan.
+Saat menerima validator BLS ke rantai yang ada, sertakan metadata `bls_pop` yang dihasilkan dalam proposal pembaruan validator.
+Jalur kunci BLS default menggunakan `blst-bls12381-minpk-v1`; gunakan `vexod keys gen --type bls --bls-adapter circl-bls12381-g1sigg2-basic-v1` hanya untuk referensi/pengujian kompatibilitas.
 
-## Gambaran umum
+Arsipkan kunci publik yang dihasilkan:
+```bash
+vexod keys show --home .vexo-validator-new --json
+```
+Simpan juga `node.key.json` yang dihasilkan. Ia menandatangani jabat tangan P2P untuk `network_config.json:p2p.node_id`; ini bukan kunci konsensus validator dan tidak boleh digunakan kembali sebagai kunci akun.
 
-Dokumen ini membantu memahami proses menambah validator, validasi konfigurasi, dan pemeriksaan staking dan menghubungkannya dengan keputusan implementasi serta operasi.
+## 2. Konfigurasikan Alamat Jaringan dan Rekan
 
-- Canonical path: `docs/operators/add-validator.md`
-- Locale path: `docs/locales/id/operators/add-validator.md`
+Edit `.vexo-validator-new/network_config.json` dan tetapkan alamat pendengaran lokal ditambah rekan-rekan yang persisten:
+```json
+{
+  "schema_version": "v1",
+  "rpc": {
+    "enabled": true,
+    "address": "0.0.0.0:26657"
+  },
+  "p2p": {
+    "enabled": true,
+    "node_id": "validator-new",
+    "node_key_path": "node.key.json",
+    "listen_address": "0.0.0.0:26656",
+    "peers": {
+      "validator-1": "validator-1.example.com:26656",
+      "validator-2": "validator-2.example.com:26656",
+      "validator-3": "validator-3.example.com:26656"
+    }
+  },
+  "peer_scoring": {
+    "InitialScore": 100,
+    "MaxScore": 1000,
+    "BanThreshold": 0
+  }
+}
+```
+Jangan mengandalkan penggantian jaringan baris perintah yang berumur panjang untuk validator produksi. Simpan alamat rekan yang persisten di `network_config.json`.
 
-## Mengapa membaca dokumen ini
+Gunakan peran alamat terpisah:
 
-- proses menambah validator, validasi konfigurasi, dan pemeriksaan staking
-- Periksa dulu kalimat MUST/SHOULD/MAY di sumber Inggris.
-- Dokumen lokal ini membantu pemahaman; keputusan audit, rilis, dan keamanan ditentukan dari sumber Inggris.
+- `p2p.listen_address` dan `rpc.address` adalah alamat pengikatan lokal untuk mesin atau kontainer ini.
+- `p2p.node_id` adalah identitas rekan node ini. Jaga agar tetap stabil setelah rekan-rekan mempelajarinya.
+- `p2p.node_key_path` menunjuk ke kunci penandatanganan jabat tangan lokal untuk identitas rekan tersebut.
+- `p2p.peers` berisi target panggilan yang digunakan node ini untuk menjangkau rekan lainnya; kunci peta harus berupa nilai `p2p.node_id` node jarak jauh.
+- metadata validator `p2p_address` dan `rpc_address` harus berisi alamat publik yang diiklankan, bukan nama layanan khusus Docker, kecuali jaringan tersebut sengaja dibuat pribadi.
 
-## Yang seharusnya bisa dilakukan
+## 3. Kirimkan Tiket Masuk Validator
 
-- Menjelaskan keputusan implementasi atau operasi yang didukung dokumen ini.
-- Menghubungkan persyaratan normatif dari sumber Inggris dengan konfigurasi jaringan saat ini.
-- Memeriksa chain ID, validator ID, fee/gas, dan alamat peer sebelum menyalin contoh.
+Misalnya alur staking, buat transaksi staking:
+```bash
+vexod staking --help
+```
+Transaksi penerimaan validator harus mencakup:
 
-## Checklist penggunaan aman
+- ID validator
+- alamat validator
+- kunci publik konsensus
+- hak suara atau referensi pasak
+- poin dasar komisi validator, jika rantai mengizinkan pembaruan komisi layanan mandiri
+- Metadata P2P `node_id` jika rantai menggunakan metadata genesis/validator untuk melakukan preseed peta rekan
+- metadata alamat P2P publik
+- metadata alamat RPC publik, jika publik
+- Metadata bukti kepemilikan BLS saat BLS diaktifkan
 
-- Periksa dulu kalimat MUST/SHOULD/MAY di sumber Inggris.
-- Jangan menerjemahkan perintah, config key, nama RPC, field JSON, atau identifier kode.
-- Sebelum menyalin contoh, sesuaikan chain ID, validator ID, fee/gas, dan alamat peer dengan jaringan Anda.
-- Setelah mengubah dokumen, jalankan `make docs-check` untuk memeriksa locale tree dan translation guards.
+Pembaruan validator harus efektif pada tingkat tertentu dan menghasilkan hash set validator baru.
 
-## Hal yang perlu diperhatikan
+Setelah validator aktif, operator dapat mengekspos status reward melalui modul staking:
+```bash
+vexod staking query commission validator-1
+vexod staking query rewards alice validator-1
+```
+## 4. Verifikasi Pembaruan Set Validator
 
-- Dokumen lokal ini membantu pemahaman; keputusan audit, rilis, dan keamanan ditentukan dari sumber Inggris.
-- Jika implementasi berubah, perbarui sumber Inggris dan semua dokumen lokal dalam perubahan yang sama.
+Setelah ketinggian pembaruan:
+```bash
+curl http://127.0.0.1:26657/v1/validators/<height>
+```
+Periksa:
 
-## Interface yang harus dipertahankan
+- validator muncul di set ketinggian tertentu
+- hak suara benar
+- hash set validator berubah seperti yang diharapkan
+- bukti finalitas merujuk pada ketinggian set validator yang benar
 
-- `VEXO_KEY_PASSPHRASE`
-- `--passphrase`
-- `bls_pop`
-- `.vexo-validator-new/network_config.json`
-- `network_config.json`
-- `p2p.listen_address`
-- `rpc.address`
-- `p2p.peers`
-- `p2p_address`
-- `rpc_address`
-- `active_from`
-- `active_until`
-- `config audit --strict`
+## 5. Rencanakan Rotasi Kunci Validator
 
-- `node.key.json`
-- `p2p.node_id`
-- `p2p.node_key_path`
-- `node_id`
-- `node_key_path`
-## Struktur sumber Inggris
+Kunci validator dapat dirotasi dengan menyiapkan dokumen kunci berikutnya dengan metadata `active_from` dan `active_until` yang tidak tumpang tindih, lalu memulai node dengan kunci rotasi tambahan:
+```bash
+vexod keys gen --home .vexo-validator-new --path next-validator.key.json --id key-2 --active-from 1001
+vexod keys rotation-plan --home .vexo-validator-new --key validator.key.json --key next-validator.key.json
+vexod start --home .vexo-validator-new --rotation-key next-validator.key.json --dry-run
+```
+Pada waktu penandatanganan, node menggunakan kunci yang jendela aktifnya berisi ketinggian konsensus. Dokumen kunci penanda tangan jarak jauh mempertahankan kebijakan, token autentikasi, dan persyaratan perlindungan tanda tangan ganda yang sama.
 
-- Adding a Validator
-- 1. Initialize Validator Home
-- 2. Configure Network Addresses and Peers
-- 3. Submit Validator Admission
-- 4. Verify Validator Set Update
-- 5. Plan Validator Key Rotation
-- 6. Start Validator
-- 7. Monitor
-- Safety Notes
+## 6. Mulai Validator
+```bash
+vexod config audit --home .vexo-validator-new --strict
+vexod start --home .vexo-validator-new
+```
+Startup tidak memiliki saklar mode jaringan. Gunakan `config audit --strict` sebelum memulai ketika jaringan diharapkan memenuhi asumsi keamanan jaringan publik.
 
-## Sumber kanonik
+## 7. Pantau
 
-- [Dokumen kanonik bahasa Inggris](../../en/operators/add-validator.md)
+Tonton:
+
+- latensi proposal/suara
+- batas waktu putaran
+- kegagalan penandatanganan validator
+- larangan teman sebaya
+- ukuran mempool
+- melakukan latensi
+- kesehatan snapshot/putar ulang
+
+Gunakan:
+```bash
+vexod ops thresholds --json
+vexod ops incident --metrics-file current.json --previous-metrics-file previous.json --window 1m
+```
+## Catatan Keamanan
+
+- Jangan pernah menggunakan kembali kunci validator di seluruh rantai independen.
+- Tetap mengaktifkan kebijakan penandatanganan jarak jauh untuk validator produksi.
+- Jangan menerima validator BLS tanpa bukti kepemilikan atau pertahanan kunci palsu yang setara.
+- Jangan memangkas atau memenjarakan validator tanpa bukti terverifikasi yang terkait dengan kumpulan validator tinggi bukti yang benar.
 
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis

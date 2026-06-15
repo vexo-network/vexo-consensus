@@ -1,75 +1,28 @@
-# Dokumentasi
-
 > Locale: id · Bahasa Indonesia
-> Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+| Tugas | Jalur Perintah |
+|---|---|
+| Bangun biner lokal | __ VEXO_CODE_0 __ |
+| Buat satu rumah validator | __ VEXO_CODE_1 __ |
+| Validasi satu rumah | __ VEXO_CODE_2__dan __ VEXO_CODE_3 __ |
+| Jalankan satu simpul | __ VEXO_CODE_4 __ |
+| Kueri satu simpul |' curl - s __ VEXO_URL_0 __ |
+| Jalankan jaringan validator empat Docker | __ VEXO_CODE_5 __ diikuti oleh __ VEXO_CODE_6 __ |
+| Hubungkan Remix | Gunakan validator Docker 1 URL Web3 `__ VEXO_URL_1 __ |
+| Periksa ID rantai Web3 | __ VEXO_CODE_7 __ |
 
 ## Mulai cepat
 
-- Gunakan `make build` untuk membangun binary.
-- Buat validator home dengan `vexod init validator --home .vexo-validator-1 --chain-id vexo-chain --validator validator-1 --encrypt-keys`, lalu periksa dengan `vexod validate --home .vexo-validator-1` dan `vexod config audit --home .vexo-validator-1 --strict`, kemudian jalankan `vexod start --home .vexo-validator-1`.
-- Jalankan jaringan Docker terlebih dahulu dengan `docker compose -f deployments/docker/compose.single-host-init.yml up`, lalu `docker compose -f deployments/docker/compose.single-host.yml up`.
-- Remix harus mengarah ke `http://127.0.0.1:28657/web3`; untuk cek chain ID gunakan `curl -s http://127.0.0.1:26657/web3 -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'`.
-- Setelah mengubah dokumen, jalankan `make docs-check` untuk memeriksa locale tree dan translation guards.
-## Gambaran umum
-
-Dokumen ini membantu memahami indeks dokumentasi dan urutan baca yang disarankan dan menghubungkannya dengan keputusan implementasi serta operasi.
-
-- Canonical path: `docs/README.md`
-- Locale path: `docs/locales/id/README.md`
-
-## Mengapa membaca dokumen ini
-
-- indeks dokumentasi dan urutan baca yang disarankan
-- Periksa dulu kalimat MUST/SHOULD/MAY di sumber Inggris.
-- Dokumen lokal ini membantu pemahaman; keputusan audit, rilis, dan keamanan ditentukan dari sumber Inggris.
-
-## Yang seharusnya bisa dilakukan
-
-- Menjelaskan keputusan implementasi atau operasi yang didukung dokumen ini.
-- Menghubungkan persyaratan normatif dari sumber Inggris dengan konfigurasi jaringan saat ini.
-- Memeriksa chain ID, validator ID, fee/gas, dan alamat peer sebelum menyalin contoh.
-
-## Checklist penggunaan aman
-
-- Periksa dulu kalimat MUST/SHOULD/MAY di sumber Inggris.
-- Jangan menerjemahkan perintah, config key, nama RPC, field JSON, atau identifier kode.
-- Sebelum menyalin contoh, sesuaikan chain ID, validator ID, fee/gas, dan alamat peer dengan jaringan Anda.
-- Setelah mengubah dokumen, jalankan `make docs-check` untuk memeriksa locale tree dan translation guards.
-
-## Hal yang perlu diperhatikan
-
-- Dokumen lokal ini membantu pemahaman; keputusan audit, rilis, dan keamanan ditentukan dari sumber Inggris.
-- Jika implementasi berubah, perbarui sumber Inggris dan semua dokumen lokal dalam perubahan yang sama.
-
-## Interface yang harus dipertahankan
-
-- `vexo-consensus`
-- `/v1/*`
-- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
-- `make docs-check`
-
-## Struktur sumber Inggris
-
-- Documentation
-- How to Read This Set
-- Protocol Specs
-- SDK and Extension Guides
-- Operations and Release
-- Security
-- Localized Documentation
-- Writing New Docs
-- Documentation Review Checklist
-
-## Sumber kanonik
-
-- [Dokumen kanonik bahasa Inggris](../en/README.md)
-
-## Daftar istilah yang dipertahankan
-
-Istilah berikut tidak diterjemahkan.
-
-- `vexo-consensus`
 - `make build`
+- `vexod init validator --home .vexo-validator-1 --chain-id vexo-chain --validator validator-1 --encrypt-keys`
 - `vexod validate --home .vexo-validator-1`
 - `vexod config audit --home .vexo-validator-1 --strict`
 - `vexod start --home .vexo-validator-1`
@@ -77,17 +30,29 @@ Istilah berikut tidak diterjemahkan.
 - `docker compose -f deployments/docker/compose.single-host-init.yml up`
 - `docker compose -f deployments/docker/compose.single-host.yml up`
 - `http://127.0.0.1:28657/web3`
-- `/v1/*`
-- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
-- `make docs-check`
-- `vexod status --json`
-- `feature_assurance`
-- `network_config.json:p2p.auth_replay_path`
-- `network_config.json:p2p.node_key_path`
-- `module_config.json:governance.RequireDeposit`
-- `module_config.json:governance.MinDeposit`
-- `consensus_config.json:consensus.execution_commit`
-- `mempool_config.json:mempool.WALPath`
+## Mulai Di Sini
+
+| Dokumen | Tujuan |
+|---|---|
+| [Panduan Kesiapan Produksi ](./ production-readiness.md) | Peta tunggal protokol, runtime, operasi, bukti, dan kesiapan rilis |
+
+## Spesifikasi Protokol
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+| [Matriks Kompatibilitas Versi ](./ release/version-compatibility.md) | Ekspektasi kompatibilitas di seluruh format biner, konfigurasi, toko, aplikasi, RPC, dan bukti |
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis

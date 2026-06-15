@@ -46,7 +46,7 @@
   "translation_policy": "Locale directories mirror the canonical English document tree. Commands, config keys, RPC methods, and code identifiers must remain unchanged across translations.",
   "ci_policy": "go test ./cmd/vexod -run TestDocsLocalesMirrorCanonicalTree and make docs-check fail when any locale misses or adds a Markdown path outside the canonical tree.",
   "canonical_hashes": {
-    "README.md": "cc4c5a869bf501c1fc5fdd1de11c1a2b300a0080fcd6b3ddb555dc61d0df4f83",
+    "README.md": "eb647ebd93bb1894d9a50d90a9b323086504b9ab5d4eb21c604897becac65834",
     "consensus-protocol.md": "a22134a854a0ff0ffd6a686f07053f9dd7f3c50947e6383c8e21448998f810bd",
     "operators/add-validator.md": "e179c0f86fa3f14403c9a1a0eb55354bc8bdb5d71b23778571e4d68c68acae0e",
     "operators/node-initialization.md": "f82ecd5613b913625e55593f63920aefab01bd72e2721efa85b6d69cda9434ba",

@@ -1,63 +1,198 @@
+> Locale: ja · 日本語
+
 # 可観測性ガイド
 
-> Locale: ja · 日本語
-> セキュリティとリリース判断は英語の正本と release gate の結果で確定します。
+このガイドでは、RPC、メトリクス、ログ、リリース証拠から Vexo ノードが正常かどうかを判断する方法について説明します。
+
+これは、何を監視すべきか、それぞれの数値が何を意味するのか、いつ値を危険なものとして扱う必要があるのか​​など、実用的なシグナルを必要とするオペレーター向けに書かれています。
 
 ## 概要
 
-この文書は、状態、メトリクス、ログ、アラートで Vexo ノードの健全性を判断する方法を説明します。
+ノードが間違っていると思われる場合は、以下を順番に確認してください。
 
-このローカライズ文書では、コマンド、JSON フィールド、RPC メソッド、設定キー、パッケージ名をそのまま残し、どの言語でも例をコピーして使えるようにします。
+1. `/v1/status` の `running` および `latest_height`
+2. `latest_finalized_height` とピア数
+3. `round_timeout`、提案/投票レイテンシ、メモリプール サイズ、およびコミットレイテンシのメトリクス
+4. 署名者の失敗、スナップショットの健全性、およびリプレイの健全性
+5. ピア禁止とピアダイヤル障害
 
-## なぜ重要か
+この順序が重要なのは、「プロセスが生きていること」と「チェーンが実際に安全に進んでいること」を区別するためです。
 
-このガイドでは、RPC、メトリクス、ログ、リリース証跡から Vexo ノードが正常かどうかを判断する方法を説明します。
+## コアエンドポイント
 
-## 必ず確認すること
+|エンドポイント |使用 |
+|---|---|
+| `/v1/status` |高速プロセス、高さ、アプリ ハッシュ、ファイナリティ、ピアの概要 |
+| `/v1/metrics` |ダッシュボードと自動化のための JSON メトリクス |
+| `/metrics/text` | Prometheus 互換のテキスト メトリック |
+| `/v1/diagnostics` |準備状況、機能、ステータス、ピア、ストレージ、メトリクスのチェックを組み合わせて行う |
+| `/v1/finality/latest` |ライトクライアントと安全性チェックのための最新のファイナリティ証明 |
+| `/v1/state/latest` |最新の状態のルートとバリデータセットのバインディング |
+| `/v1/recovery/report` |クラッシュ/再起動の整合性診断 |
+| `/v1/snapshot` |スナップショットの健全性とメタデータのエクスポート |
 
-- **Height and finality**: `latest_height`, `latest_finalized_height`, height rate, and finality proof availability show whether consensus and execution are progressing.
-- **Peer health**: `peer_count` is compatibility summary; prefer `active_peer_count`, `configured_peer_count`, and `scored_peer_count` to separate live sessions from configured addresses.
-- **Latency and timeout**: `round_timeouts`, proposal latency, vote latency, and commit latency show whether timeout values still fit the real network.
-- **Execution pressure**: `mempool_size`, gas/base-fee behavior, tx count, and commit p95/p99 show whether block capacity and storage are under pressure.
-- **Recovery readiness**: `snapshot_healthy`, `replay_healthy`, recovery reports, and state-root checks show whether a node can safely restart or sync.
-- **Custody and safety**: `validator_signing_failures`, remote signer logs, ban spikes, and reconciliation failures require immediate operator review.
+プルーン、リプレイ、コンセンサス制御などの管理エンドポイントは、通常、ループバック、オペレータ ネットワーク、mTLS、または認証されたゲートウェイを介してのみ到達可能である必要があります。スコープ付き管理者トークンはオプションのままで、構成時に強制されます。
 
-## 運用者の作業
+## `/v1/status` を読み取っています
 
-- **Status flow**: Start with `/v1/status`, then compare `/v1/metrics`, `/metrics/text`, `/v1/diagnostics`, `/v1/finality/latest`, and recovery reports.
-- **Alert flow**: Alert on stalled height, stalled finality, zero active peers, timeout spikes, high commit latency, mempool pressure, replay failure, and signer failures.
-- **Incident flow**: Preserve logs, metrics, configs, genesis, binary hash, and evidence files before deleting data or restarting repeatedly.
+重要なフィールド:
 
-## 変更しないインターフェイス名
+|フィールド |意味 |オペレーターメモ |
+|---|---|---|
+| `running` |ノード プロセスが開始され、実行時状態を所有しています。 `true` だけではコンセンサスの有効性を証明できません。
+| `latest_height` |最新のローカルコミットされたアプリの高さ |ライブバリデーターネットワークでは時間の経過とともに増加する必要があります。
+| `latest_finalized_height` |最新の HotStuff 3 チェーンの最終高さ |実行/コミットされた高さから無限に遅れてはいけません。
+| `latest_app_hash` |アプリのコミットハッシュ |同じ高さのピアと一致する必要があります。
+| `peer_count` |下位互換性のある接続/スコアリングされたピアの概要 |以下のより具体的なピア フィールドを優先します。
+| `active_peer_count` |アクティブなトランスポート セッション (トランスポートがレポートできる場合)ライブ P2P 接続に最適なクイック シグナル |
+| `configured_peer_count` |設定または学習されたピア アドレス |到達可能性は保証されません |
+| `scored_peer_count` |スコア テーブルで認識されているピア |ライブセッションの証拠ではなく、禁止/レート制限の履歴に役立ちます |
+| `banned_peers` |現在スコア ポリシーによって禁止されているピア |スパイクは、攻撃、不正なピア構成、または厳しすぎる制限を示します。
 
-- `vexod validate --home <home>`
-- `vexod config audit --home <home> --strict`
-- `/v1/status`
-- `/v1/metrics`
-- `/metrics/text`
-- `/v1/diagnostics`
-- `peer_count`
-- `active_peer_count`
-- `configured_peer_count`
-- `scored_peer_count`
-- `latest_height`
-- `latest_finalized_height`
-- `network_config.json`
-- `consensus_config.json`
-- `module_config.json`
-- `mempool_config.json`
-- `release gate`
+4 つのバリデーターによる単一ホスト ネットワークの正常な例: `running=true`、`latest_height` が増加、`latest_finalized_height` が存在、`3` に近い `active_peer_count`、および `banned_peers=0`。
 
-## よくある間違い
+## プロメテウスのメトリクス
 
-- 設定済みの peer が実際に接続されているとは限りません。アクティブなセッションを別途確認してください。
-- リリース証跡なしに BLS、VRF、EVM、state sync、または governance を本番対応とみなさないでください。
-- Do not use private operator shortcuts, managed hot keys, or local-only settings on public RPC/P2P listeners.
-- Do not delete node data before collecting recovery reports, logs, and evidence when an incident happens.
+テキスト エンドポイントは次のようなゲージを公開します。
 
-## 規範参照
+- `vexo_node_running`
+- `vexo_latest_height`
+- `vexo_peer_count`
+- `vexo_active_peer_count`
+- `vexo_configured_peer_count`
+- `vexo_scored_peer_count`
+- `vexo_banned_peers`
+- `vexo_height_rate_per_minute`
+- `vexo_round_timeouts`
+- `vexo_proposal_latency_p95_nanos`
+- `vexo_vote_latency_p95_nanos`
+- `vexo_commit_latency_p95_nanos`
+- `vexo_mempool_size`
+- `vexo_snapshot_healthy`
+- `vexo_replay_healthy`
+- `vexo_validator_signing_failures`
+- `vexo_post_commit_reconciliation_failures`
 
-- [規範となる原文](../../en/operators/observability.md)
+`vexo_peer_count` は古いダッシュボード用に保持されます。新しいダッシュボードでは、`vexo_active_peer_count`、`vexo_configured_peer_count`、`vexo_scored_peer_count` を個別にグラフ化する必要があります。
+
+## 推奨されるアラート ルール
+
+実際のバリデータ数、ブロック間隔、レイテンシ、ハードウェアの数値を調整します。これらは出発点であり、普遍的な定数ではありません。
+
+|警告 |開始条件 |なぜ |
+|---|---|---|
+|ノードダウン | `vexo_node_running == 0` 1 分間 |プロセス/ランタイムが停止しました |
+|高さが失速した | `latest_height` は、予想される 2 ～ 3 ブロック間隔では変更されません。コンセンサスまたは実行が停止している |
+|ファイナリティが行き詰まった | `latest_finalized_height` ブロックの実行中は変更されません |ファイナリティ パスまたはクォーラムの問題 |
+|アクティブなピアはありません | `vexo_active_peer_count == 0` 非分離ノードで 1 分間 | P2P の停​​止、認証の不一致、またはアドレスの問題 |
+|ピア数が少なすぎます |アクティブなピアがクォーラム接続目標を下回っています。パーティションまたはブートストラップの問題 |
+|ラウンドタイムアウトスパイク |タイムアウト カウンタは通常のベースラインよりも速く増加します。遅延、プロポーザー障害、またはネットワーク分割 |
+|コミットのレイテンシが高い | p95/p99 はコンセンサス タイムアウトの予算に近づく |ストア/ランタイムの過負荷 |
+|メンプールの圧力 | mempool サイズは数分間増加します。料金ポリシー、スパム、またはブロック容量の問題 |
+|スナップショットが異常 | `vexo_snapshot_healthy == 0` |状態の同期/回復のリスク |
+|不健全な再生 | `vexo_replay_healthy == 0` |決定論または状態一貫性のリスク |
+|署名者の失敗 | `vexo_validator_signing_failures > 0` | KMS/リモート署名者/ポリシーの失敗 |
+|調整の失敗 | `vexo_post_commit_reconciliation_failures > 0` |永続的な証拠または修理が必要です |
+|ピアスパイクの禁止 |禁止されたピアが突然増加 |攻撃、ピアの設定ミス、またはスコアしきい値の問題 |
+
+## 推奨される開始しきい値
+
+これらを初期アラート値として使用し、実際の長期ベースラインの後に調整します。
+
+|信号 |警告 |クリティカル |最初のアクション |
+|---|---:|---:|---|
+|身長率 | 2 つのウィンドウでは予想の 50% 未満 | 2 ～ 3 ブロック間隔では増加がゼロ |すべてのバリデータを比較し、提案者/署名/ピアのログを確認します。
+|完成した高さラグ | 5分間成長します |実行された高さが 10 分間増加し続ける間、成長します。 QC/ファイナリティ証明ログとバリデータセットハッシュを検査 |
+|アクティブなピア |クォーラム接続目標を下回っています |アクティブなピアはゼロ |アドバタイズされたアドレス、TLS/認証、ジェネシス/チェーン ID の不一致をチェックする |
+|ラウンドのタイムアウト |通常のベースラインの 3 倍 |連続タイムアウトループ |タイムアウト バジェットを増やすか、レイテンシ/パーティションを調査する |
+|提案の待ち時間 p95 | `timeout_propose` の 50% 以上 | `timeout_propose` の 80% 以上 |プロファイル プロポーザー、メモリプール、DA コミットメント、ディスク |
+|投票待ち時間 p95 |事前投票/事前コミット予算の 50% 以上 |予算の 80% 以上 | CPU、署名者、トランスポート、ゴシップバックプレッシャーを検査 |
+|コミットレイテンシ p95 |ブロック間隔の 50% 以上 |ブロック間隔の 80% 以上 | LevelDB、状態ルート、EVM 実行、スナップショットを検査 |
+|メンプールのサイズ | 5分間増加 | `max_txs` に近い、または継続的な交換チャーン |基本料金、最低料金、TX の有効性、スパムを検査 |
+|署名者の失敗 |ゼロ以外の任意の値 | 1 つの高さウィンドウで繰り返される失敗 |二重署名ガードまたはキーの不一致が表示された場合はバリデーターを停止します。
+|スナップショットの状態 | 1 つのチェックに失敗しました |エクスポート/検証/復元の失敗が繰り返されました。状態同期の提供を一時停止し、回復レポートを実行します。
+|リプレイヘルス | 1 つの厳密なリプレイ失敗 |最新の安全な高さでの不一致を再生 |データ ディレクトリを保存し、安全でないアップグレード/リリースを停止します。
+|禁止されたピア |突然のスパイク |構成のロールアウト後に多くのピアが禁止されました。スコア キャップ、TLS CA、ピア ID、オプションの認証証明、およびクロック スキューをチェックします。
+
+最も重要なルール: **時間の経過による変化**に関するアラート。単一の数字は誤解を招く可能性があります。高さの割合、ファイナリティのラグ、ピアのチャーン、メンプールの増加、署名者の失敗がすべて本当のことを物語っています。
+
+## インシデントトリアージマトリックス
+
+|状況 |可能性の高いレイヤー |何を保存するか |安全な次のステップ |
+|---|---|---|---|
+|身長は止まり、仲間は健康です |コンセンサス/署名者/ランタイム |コンセンサス ログ、署名者ログ、mempool サンプル |プロポーザーキーを検証し、タイムアウトログをラウンドします。
+|デプロイ後にピアが削除されました |ネットワーク/構成 |ネットワーク構成、TLS 証明書、アドレスブック、ピア ログ |アドバタイズされたアドレス/TLS/認証の変更をロールバックする |
+|アプリのハッシュは同じ高さでも異なります |実行/保存 |データ ディレクトリ、ブロック レコード、アプリ ログ、リプレイ出力 |影響を受けるノードを停止し、厳密なリプレイを実行します。
+|ファイナリティ証明が拒否されました |ファイナリティ/バリデータセット |証明 JSON、検証高さに設定されたバリデータ |検証セットのハッシュと署名バイトのドメインを検証します。
+|スナップショットの復元が失敗する |状態の同期/ストレージ |スナップショット ファイル、チェックサム、状態ルート、復元ログ |ライブデータに対して再試行しないでください。クリーンなディレクトリに復元 |
+|リモート署名者がリクエストを拒否する |鍵の保管 |署名者監査ログ、ガード ファイル、nonce ファイル、ノード ログ |ポリシーの拒否とトランスポートの停止を区別する |
+|禁止されたピアの急増 | P2P/セキュリティ |ピアスコアのスナップショットと禁止理由 |不正なゴシップや共有された間違った設定を検査します。
+
+インシデント発生時には、「クリーンアップ」よりもデータの保存を優先します。 WAL、addrbook、署名者ガード、または LevelDB ディレクトリを削除すると、バグとオペレータ エラーを区別するために必要な証拠が失われる可能性があります。
+
+## 保存するログイベント
+
+構造化ログは、ノード ID、バリデーター ID、チェーン ID、高さ、ラウンド、ブロック ハッシュ、および必要に応じてピア ID とともに保持する必要があります。
+
+重要なイベント:
+
+- `node_running`
+- `rpc_listening`
+- `p2p_listening`
+- `peer_configured`
+- `peer_connected`
+- `peer_disconnected`
+- `peer_dial_failed`
+- `peer_banned`
+- `consensus_loop_running`
+- `block_committed`
+- `round_timeout`
+- `validator_signing_failure`
+- `evidence_received`
+- `evidence_applied`
+- `snapshot_exported`
+- `replay_checked`
+- `upgrade_halt`
+- `upgrade_applied`
+
+リリース候補の場合は、メトリクス サンプル、pprof サンプル、構成ファイル、ジェネシス、バイナリ チェックサム、証拠マニフェストとともにログをアーカイブします。
+
+## 最初の対応ハンドブック
+
+オペレーターが問題を発見した場合:
+
+1. 少なくとも 2 つのバリデーターで `/v1/status` を確認します。
+2. `latest_height`、`latest_finalized_height`、`latest_app_hash`、およびピア数を比較します。
+3. `/v1/diagnostics` で欠落している機能、または異常なストレージ/リプレイ/スナップショットのチェックをチェックします。
+4. ピア イベント ログで認証、TLS、生成、チェーン ID、またはバックオフ エラーを検査します。
+5. TX が含まれていない場合は、メモリプールと基本料金のメトリクスを検査します。
+6. バリデーターの署名が失敗した場合は、署名者とリモート署名者のログを確認します。
+7. データを削除または変更する前に、回復レポートをエクスポートします。
+8. ファイナリティの競合が疑われる場合は、自動化を停止し、ログ/証拠を保存し、ファイナリティの競合検出を実行します。
+
+## ダッシュボードのレイアウト
+
+便利なダッシュボードには通常、次の 5 つの行があります。
+
+1. **ライブネス**: 実行中のノード、最新の高さ、最終的な高さ、高さの割合。
+2. **コンセンサス レイテンシ**: ラウンド タイムアウト、提案/投票/コミット p95 および p99。
+3. **ネットワーク**: アクティブ/構成/スコアリングされたピア、禁止されたピア、ピア ウィンドウ メッセージ。
+4. **実行**: メモリプール サイズ、ガス/基本料金、TX カウント、コミット レイテンシー。
+5. **回復と安全性**: スナップショットの健全性、再生の健全性、署名者の失敗、調整の失敗。
+
+ダッシュボードを退屈なままにしておきます。目標は、すべての内部カウンターを表示することではありません。バリデーターが分岐したり、ユーザーがトランザクションの停止に気づく前に、危険な状態を明らかにするためです。
+
+## 可観測性から証拠を解放する
+
+リリース候補の場合、可観測性はライブ監視だけではありません。それは証拠になります：
+
+1. すべてのバリデータからベースライン `/v1/status`、`/v1/metrics`、`/v1/diagnostics`、`/v1/finality/latest`、および `/v1/recovery/report` を収集します。
+2. 選択した期間とレートで負荷を実行します。
+3. 少なくとも 1 回の再起動、1 回のピア中断、および 1 回のスナップショットのエクスポート/検証/復元ドリルを挿入します。
+4. すべてのバリデーターから最終的なメトリクスを収集します。
+5. 前後のサンプル、ログ、pprof サンプル、署名者監査ログ、証拠マニフェストを `dist/` に保存します。
+
+優れた証拠バンドルにより、レビュー担当者は次のような答えを得ることができます: 高さは増加したか、ファイナリティは進歩したか、ピアは回復したか、txs はコミットしたか、スナップショットは検証したか、リプレイは正常に保たれたか、署名者は二重署名を回避したか、正確なリリース バイナリが結果を生成したか?
 
 <!-- vexo-docs:technical-parity -->
 ## 技術的同等性付録

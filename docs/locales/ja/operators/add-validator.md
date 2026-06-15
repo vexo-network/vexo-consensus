@@ -1,91 +1,155 @@
-# バリデータの追加
-
 > Locale: ja · 日本語
-> この文書は英語原文と併読するための日本語 補助文書です。プロトコル、セキュリティ、リリース判断は英語原文を規範とします。
 
+# バリデーターの追加
 
-## 最初に読む順序
+このガイドでは、Vexo ネットワークにバリデーターを追加するためのオペレーター フローについて説明します。
 
-この文書は validator をネットワークに追加する手順を説明します。初めて読むなら、次の順で進めると分かりやすいです。
+正確な入場経路は、チェーンのステーキングとガバナンスポリシーによって異なります。少なくとも、バリデーターはチェーン状態で表され、有効な資格情報を持ち、高さバージョン管理されたバリデーター セット更新の一部になる必要があります。
 
-1. Initialize Validator Home
-2. Configure Network Addresses and Peers
-3. Submit Validator Admission
-4. Verify Validator Set Update
-5. Plan Validator Key Rotation
-6. Start Validator
-7. Monitor
-8. Safety Notes
+## 1. バリデーターホームの初期化
+```bash
+vexod init validator \
+  --home .vexo-validator-new \
+  --chain-id vexo-chain \
+  --validator validator-new \
+  --encrypt-keys
+```
+BLS バリデーターキーの場合:
+```bash
+vexod init validator \
+  --home .vexo-validator-new \
+  --chain-id vexo-chain \
+  --validator validator-new \
+  --key-type bls \
+  --encrypt-keys
+```
+これらのコマンドを実行する前に `VEXO_KEY_PASSPHRASE` を設定するか、1 回限りのローカル セットアップの場合は `--passphrase` を渡します。
 
-この順番は実際の運用手順そのものです。まず新しい validator home と key を作成し、次にネットワーク address と peers を合わせ、そのあと admission と validator set 反映を確認し、最後に rotation、起動、監視、安全メモを確認します。
+BLS バリデーターを既存のチェーンに許可する場合は、生成された `bls_pop` メタデータをバリデーター更新提案に含めます。
+デフォルトの BLS キー パスは `blst-bls12381-minpk-v1` を使用します。 `vexod keys gen --type bls --bls-adapter circl-bls12381-g1sigg2-basic-v1` は参照/互換性テストのみに使用してください。
 
-## 文書概要
+生成された公開キーをアーカイブします。
+```bash
+vexod keys show --home .vexo-validator-new --json
+```
+生成された `node.key.json` も保持します。 `network_config.json:p2p.node_id` の P2P ハンドシェイクに署名します。これはバリデーターコンセンサスキーではないため、アカウントキーとして再利用しないでください。
 
-この文書は validator 追加手順、設定検証、staking 確認を理解し、実装・運用判断へつなげるためのものです。
+## 2. ネットワークアドレスとピアを構成する
 
-- Canonical path: `docs/operators/add-validator.md`
-- Locale path: `docs/locales/ja/operators/add-validator.md`
+`.vexo-validator-new/network_config.json` を編集し、ローカル リッスン アドレスと永続ピアを設定します。
+```json
+{
+  "schema_version": "v1",
+  "rpc": {
+    "enabled": true,
+    "address": "0.0.0.0:26657"
+  },
+  "p2p": {
+    "enabled": true,
+    "node_id": "validator-new",
+    "node_key_path": "node.key.json",
+    "listen_address": "0.0.0.0:26656",
+    "peers": {
+      "validator-1": "validator-1.example.com:26656",
+      "validator-2": "validator-2.example.com:26656",
+      "validator-3": "validator-3.example.com:26656"
+    }
+  },
+  "peer_scoring": {
+    "InitialScore": 100,
+    "MaxScore": 1000,
+    "BanThreshold": 0
+  }
+}
+```
+実稼働バリデータの長期間有効なコマンドライン ネットワーク オーバーライドに依存しないでください。永続的なピア アドレスを `network_config.json` に保持します。
 
-## この文書を読む理由
+別のアドレスの役割を使用します。
 
-- validator 追加手順、設定検証、staking 確認
-- 英語原文の MUST/SHOULD/MAY 文を先に確認します。
-- このローカライズ文書は理解補助です。監査、リリース、セキュリティ判断は英語原文で確定します。
+- `p2p.listen_address` および `rpc.address` は、このマシンまたはコンテナーのローカル バインド アドレスです。
+- `p2p.node_id` は、このノードのピア ID です。仲間が学習した後も安定した状態に保ちます。
+- `p2p.node_key_path` は、そのピア ID のローカル ハンドシェイク署名キーを指します。
+- `p2p.peers` には、このノードが他のピ​​アに接続するために使用するダイヤル ターゲットが含まれます。マップ キーはリモート ノードの `p2p.node_id` 値である必要があります。
+- バリデーターのメタデータ `p2p_address` および `rpc_address` には、ネットワークが意図的にプライベートでない限り、Docker 専用のサービス名ではなく、パブリックにアドバタイズされたアドレスを含める必要があります。
 
-## 読後にできるべきこと
+## 3. バリデータの承認を送信する
 
-- この文書がどの実装・運用判断を支えるか説明できるようにします。
-- 英語原文の規範要件を現在のネットワーク設定と対応づけます。
-- 例をコピーする前に chain ID、validator ID、fee/gas、peer アドレスを確認します。
+たとえばステーキング フローでは、ステーキング トランザクションを構築します。
+```bash
+vexod staking --help
+```
+バリデーター許可トランザクションには以下を含める必要があります。
 
-## 安全利用チェックリスト
+- バリデータID
+- バリデータアドレス
+- コンセンサス公開鍵
+- 議決権または出資基準
+- バリデータコミッションベーシスポイント（チェーンがセルフサービスコミッション更新を許可する場合）
+- P2P `node_id` メタデータ (チェーンがジェネシス/バリデーターメタデータを使用してピアマップを事前シードする場合)
+- パブリック P2P アドレス メタデータ
+- パブリック RPC アドレス メタデータ (パブリックの場合)
+- BLS が有効な場合の BLS 所有証明メタデータ
 
-- 英語原文の MUST/SHOULD/MAY 文を先に確認します。
-- コマンド、config key、RPC 名、JSON フィールド、コード識別子は翻訳しません。
-- 例の値をコピーする前に chain ID、validator ID、fee/gas、peer アドレスが自分のネットワークに合うか確認します。
-- 文書を変更したら `make docs-check` で locale tree と翻訳 guard を確認します。
+バリデーターの更新は特定の高さで有効になり、新しいバリデーターセットのハッシュを生成する必要があります。
 
-## 注意点
+バリデーターがアクティブになった後、オペレーターはステーキング モジュールを通じて報酬の状態を公開できます。
+```bash
+vexod staking query commission validator-1
+vexod staking query rewards alice validator-1
+```
+## 4. バリデーターセットの更新を確認する
 
-- このローカライズ文書は理解補助です。監査、リリース、セキュリティ判断は英語原文で確定します。
-- 実装が変わった場合は英語文書と全ローカライズ文書を同じ変更で更新してください。
+更新後の高さ:
+```bash
+curl http://127.0.0.1:26657/v1/validators/<height>
+```
+確認してください:
 
-## 原文のまま保持するインターフェース
+- バリデーターは高さ固有のセットに表示されます
+- 投票権は正しい
+- バリデーターセットのハッシュが期待どおりに変更されました
+- ファイナリティプルーフは正しいバリデータセットの高さを参照します
 
-- `VEXO_KEY_PASSPHRASE`
-- `--passphrase`
-- `bls_pop`
-- `.vexo-validator-new/network_config.json`
-- `network_config.json`
-- `p2p.listen_address`
-- `rpc.address`
-- `p2p.peers`
-- `p2p_address`
-- `rpc_address`
-- `active_from`
-- `active_until`
-- `config audit --strict`
+## 5. バリデータキーのローテーションを計画する
 
-- `node.key.json`
-- `p2p.node_id`
-- `p2p.node_key_path`
-- `node_id`
-- `node_key_path`
-## 英語原文の構造
+バリデーターキーをローテーションするには、重複しない `active_from` および `active_until` メタデータを含む次のキードキュメントを準備し、追加のローテーションキーでノードを開始します。
+```bash
+vexod keys gen --home .vexo-validator-new --path next-validator.key.json --id key-2 --active-from 1001
+vexod keys rotation-plan --home .vexo-validator-new --key validator.key.json --key next-validator.key.json
+vexod start --home .vexo-validator-new --rotation-key next-validator.key.json --dry-run
+```
+署名時に、ノードはアクティブ ウィンドウにコンセンサスの高さが含まれるキーを使用します。リモート署名者の鍵ドキュメントは、同じポリシー、認証トークン、および二重署名ガード要件を維持します。
 
-- Adding a Validator
-- 1. Initialize Validator Home
-- 2. Configure Network Addresses and Peers
-- 3. Submit Validator Admission
-- 4. Verify Validator Set Update
-- 5. Plan Validator Key Rotation
-- 6. Start Validator
-- 7. Monitor
-- Safety Notes
+## 6. バリデーターの開始
+```bash
+vexod config audit --home .vexo-validator-new --strict
+vexod start --home .vexo-validator-new
+```
+スタートアップにはネットワーク モード スイッチがありません。ネットワークがパブリック ネットワークの安全性の前提を満たすことが期待される場合は、起動前に `config audit --strict` を使用します。
 
-## 正規原文
+## 7. モニター
 
-- [英語の正規文書](../../en/operators/add-validator.md)
+見る:
+
+- 提案/投票の待ち時間
+- ラウンドタイムアウト
+- バリデーター署名の失敗
+- ピアバン
+- メンプールのサイズ
+- コミットレイテンシ
+- スナップショット/リプレイの状態
+
+使用:
+```bash
+vexod ops thresholds --json
+vexod ops incident --metrics-file current.json --previous-metrics-file previous.json --window 1m
+```
+## 安全上の注意事項
+
+- 独立したチェーン間でバリデーターキーを再利用しないでください。
+- 運用バリデータに対してリモート署名者ポリシーを有効にしたままにします。
+- 所有証明または同等の不正キー防御を持たない BLS バリデータを許可しないでください。
+- 正しい証拠の高さのバリデーターセットに関連付けられた検証済みの証拠なしに、バリデーターを切りつけたり刑務所に入れたりしないでください。
 
 <!-- vexo-docs:technical-parity -->
 ## 技術的同等性付録

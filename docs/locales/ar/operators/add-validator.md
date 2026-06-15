@@ -1,91 +1,155 @@
-# إضافة مدقق
-
 > Locale: ar · العربية
-> هذا المستند مستنداً مساعداً بالعربية يُقرأ مع المصدر الإنجليزي. تبقى قرارات البروتوكول والأمان والإصدار معيارية في النص الإنجليزي.
 
+# إضافة المدقق
 
-## ترتيب القراءة
+يصف هذا الدليل تدفق المشغل لإضافة أداة التحقق إلى شبكة Vexo.
 
-تشرح هذه الوثيقة كيفية إضافة validator إلى شبكة Vexo. إذا كانت هذه أول قراءة لك، فاقرأ بهذا الترتيب.
+يعتمد مسار القبول الدقيق على سياسة الستايشن والحوكمة الخاصة بالسلسلة. على الأقل، يجب أن يتم تمثيل المدقق في حالة السلسلة، وأن يكون لديه بيانات اعتماد صالحة، وأن يصبح جزءًا من تحديث مجموعة أداة التحقق من الإصدار المرتفع.
 
-1. Initialize Validator Home
-2. Configure Network Addresses and Peers
-3. Submit Validator Admission
-4. Verify Validator Set Update
-5. Plan Validator Key Rotation
-6. Start Validator
-7. Monitor
-8. Safety Notes
+## 1. تهيئة الصفحة الرئيسية لأداة التحقق
+```bash
+vexod init validator \
+  --home .vexo-validator-new \
+  --chain-id vexo-chain \
+  --validator validator-new \
+  --encrypt-keys
+```
+للحصول على مفتاح التحقق من صحة BLS:
+```bash
+vexod init validator \
+  --home .vexo-validator-new \
+  --chain-id vexo-chain \
+  --validator validator-new \
+  --key-type bls \
+  --encrypt-keys
+```
+قم بتعيين `VEXO_KEY_PASSPHRASE` قبل تشغيل هذه الأوامر، أو قم بتمرير `--passphrase` لإعداد محلي لمرة واحدة.
 
-هذا الترتيب يطابق مسار التشغيل الفعلي: إنشاء validator home والمفاتيح أولاً، ثم ضبط عناوين الشبكة وpeers، وبعد ذلك التحقق من admission وتحديث validator set، وأخيراً مراجعة التدوير والتشغيل والمراقبة وملاحظات الأمان.
+عند قبول مدقق BLS في سلسلة موجودة، قم بتضمين البيانات التعريفية `bls_pop` التي تم إنشاؤها في مقترح تحديث أداة التحقق.
+يستخدم مسار مفتاح BLS الافتراضي `blst-bls12381-minpk-v1`؛ استخدم `vexod keys gen --type bls --bls-adapter circl-bls12381-g1sigg2-basic-v1` فقط للاختبار المرجعي/التوافق.
 
-## نظرة عامة
+أرشفة المفتاح العام الذي تم إنشاؤه:
+```bash
+vexod keys show --home .vexo-validator-new --json
+```
+احتفظ أيضًا بـ `node.key.json` الذي تم إنشاؤه. يقوم بتوقيع مصافحة P2P لـ `network_config.json:p2p.node_id`؛ إنه ليس مفتاح إجماع المدقق ولا ينبغي إعادة استخدامه كمفتاح حساب.
 
-يساعد هذا المستند على فهم إضافة validator والتحقق من الإعدادات وفحوصات stakingوربط ذلك بقرارات التنفيذ والتشغيل.
+## 2. تكوين عناوين الشبكة والأقران
 
-- Canonical path: `docs/operators/add-validator.md`
-- Locale path: `docs/locales/ar/operators/add-validator.md`
+تحرير `.vexo-validator-new/network_config.json` وتعيين عناوين الاستماع المحلية بالإضافة إلى النظراء الدائمين:
+```json
+{
+  "schema_version": "v1",
+  "rpc": {
+    "enabled": true,
+    "address": "0.0.0.0:26657"
+  },
+  "p2p": {
+    "enabled": true,
+    "node_id": "validator-new",
+    "node_key_path": "node.key.json",
+    "listen_address": "0.0.0.0:26656",
+    "peers": {
+      "validator-1": "validator-1.example.com:26656",
+      "validator-2": "validator-2.example.com:26656",
+      "validator-3": "validator-3.example.com:26656"
+    }
+  },
+  "peer_scoring": {
+    "InitialScore": 100,
+    "MaxScore": 1000,
+    "BanThreshold": 0
+  }
+}
+```
+لا تعتمد على تجاوزات شبكة سطر الأوامر طويلة الأمد لمدققي الإنتاج. احتفظ بعناوين النظراء الدائمة في `network_config.json`.
 
-## لماذا تقرأ هذا المستند
+استخدم أدوار عنوان منفصلة:
 
-- إضافة validator والتحقق من الإعدادات وفحوصات staking
-- تحقق أولاً من عبارات MUST/SHOULD/MAY في المصدر الإنجليزي.
-- هذا المستند المحلي يساعد على الفهم؛ قرارات audit وrelease وsecurity تُحسم بالمصدر الإنجليزي.
+- `p2p.listen_address` و`rpc.address` هما عنوانا ربط محليان لهذا الجهاز أو الحاوية.
+- `p2p.node_id` هي هوية النظير لهذه العقدة. حافظ على ثباتها بعد أن يتعلمها أقرانك.
+- `p2p.node_key_path` يشير إلى مفتاح توقيع المصافحة المحلي لهوية النظير تلك.
+- `p2p.peers` يحتوي على أهداف الاتصال التي تستخدمها هذه العقدة للوصول إلى أقرانهم الآخرين؛ يجب أن تكون مفاتيح الخريطة هي قيم `p2p.node_id` للعقد البعيدة.
+- يجب أن تحتوي البيانات التعريفية للمدقق `p2p_address` و`rpc_address` على عناوين عامة مُعلن عنها، وليس أسماء خدمة Docker فقط، ما لم تكن الشبكة خاصة عن قصد.
 
-## ما الذي يجب أن تستطيع فعله بعد القراءة
+## 3. إرسال قبول المدقق
 
-- شرح قرار التنفيذ أو التشغيل الذي يدعمه هذا المستند.
-- ربط المتطلبات المعيارية في المصدر الإنجليزي بإعدادات الشبكة الحالية.
-- التحقق من chain ID وvalidator ID وfee/gas وعناوين peer قبل نسخ الأمثلة.
+على سبيل المثال، تدفقات الستاكينغ، أنشئ معاملة الستاكينغ:
+```bash
+vexod staking --help
+```
+يجب أن تتضمن معاملة قبول المدقق ما يلي:
 
-## قائمة تحقق للاستخدام الآمن
+- معرف المدقق
+- عنوان المدقق
+- المفتاح العام المتفق عليه
+- قوة التصويت أو مرجع الحصة
+- نقاط أساس عمولة المدقق، إذا كانت السلسلة تسمح بتحديثات عمولة الخدمة الذاتية
+- البيانات التعريفية P2P `node_id` إذا كانت السلسلة تستخدم البيانات التعريفية للتكوين/المدقق لوضع خرائط الأقران مسبقًا
+- البيانات التعريفية لعنوان P2P العام
+- بيانات التعريف العامة لعنوان RPC، إذا كانت عامة
+- البيانات الوصفية لإثبات الحيازة BLS عند تمكين BLS
 
-- تحقق أولاً من عبارات MUST/SHOULD/MAY في المصدر الإنجليزي.
-- لا تترجم الأوامر أو config key أو أسماء RPC أو حقول JSON أو معرّفات الكود.
-- قبل نسخ الأمثلة، طابق chain ID وvalidator ID وfee/gas وعناوين peer مع شبكتك.
-- بعد تعديل الوثائق، شغّل `make docs-check` للتحقق من locale tree وحراس الترجمة.
+يجب أن يصبح تحديث أداة التحقق من الصحة ساريًا على ارتفاع محدد وينتج عنه تجزئة جديدة لمجموعة أداة التحقق من الصحة.
 
-## نقاط يجب الانتباه لها
+بعد تنشيط أداة التحقق من الصحة، يمكن للمشغلين الكشف عن حالة المكافأة من خلال وحدة التوقيع المساحي:
+```bash
+vexod staking query commission validator-1
+vexod staking query rewards alice validator-1
+```
+## 4. تحقق من تحديث مجموعة أداة التحقق
 
-- هذا المستند المحلي يساعد على الفهم؛ قرارات audit وrelease وsecurity تُحسم بالمصدر الإنجليزي.
-- عند تغير التنفيذ، حدّث المصدر الإنجليزي وكل المستندات المحلية في نفس التغيير.
+بعد ارتفاع التحديث:
+```bash
+curl http://127.0.0.1:26657/v1/validators/<height>
+```
+تحقق:
 
-## واجهات يجب الحفاظ عليها كما هي
+- يظهر المدقق في مجموعة الارتفاع المحددة
+- قوة التصويت صحيحة
+- تم تغيير تجزئة مجموعة المدقق كما هو متوقع
+- تشير البراهين النهائية إلى الارتفاع الصحيح الذي حددته أداة التحقق من الصحة
 
-- `VEXO_KEY_PASSPHRASE`
-- `--passphrase`
-- `bls_pop`
-- `.vexo-validator-new/network_config.json`
-- `network_config.json`
-- `p2p.listen_address`
-- `rpc.address`
-- `p2p.peers`
-- `p2p_address`
-- `rpc_address`
-- `active_from`
-- `active_until`
-- `config audit --strict`
+## 5. دوران مفتاح التحقق من الخطة
 
-- `node.key.json`
-- `p2p.node_id`
-- `p2p.node_key_path`
-- `node_id`
-- `node_key_path`
-## بنية المصدر الإنجليزي
+يمكن تدوير مفاتيح التحقق من خلال إعداد مستند رئيسي تالي ببيانات تعريفية غير متداخلة `active_from` و`active_until`، ثم بدء العقدة بمفتاح التدوير الإضافي:
+```bash
+vexod keys gen --home .vexo-validator-new --path next-validator.key.json --id key-2 --active-from 1001
+vexod keys rotation-plan --home .vexo-validator-new --key validator.key.json --key next-validator.key.json
+vexod start --home .vexo-validator-new --rotation-key next-validator.key.json --dry-run
+```
+في وقت التوقيع، تستخدم العقدة المفتاح الذي تحتوي نافذته النشطة على الارتفاع المتفق عليه. تحتفظ المستندات الرئيسية للموقع عن بعد بنفس السياسة ورمز المصادقة ومتطلبات حماية التوقيع المزدوج.
 
-- Adding a Validator
-- 1. Initialize Validator Home
-- 2. Configure Network Addresses and Peers
-- 3. Submit Validator Admission
-- 4. Verify Validator Set Update
-- 5. Plan Validator Key Rotation
-- 6. Start Validator
-- 7. Monitor
-- Safety Notes
+## 6. ابدأ أداة التحقق
+```bash
+vexod config audit --home .vexo-validator-new --strict
+vexod start --home .vexo-validator-new
+```
+لا يحتوي بدء التشغيل على مفتاح وضع الشبكة. استخدم `config audit --strict` قبل بدء التشغيل عندما يكون من المتوقع أن تستوفي الشبكة افتراضات أمان الشبكة العامة.
 
-## المصدر المعتمد
+## 7. مراقب
 
-- [الوثيقة الإنجليزية المرجعية](../../en/operators/add-validator.md)
+شاهد:
+
+- اقتراح / الكمون التصويت
+- مهلات الجولة
+- فشل توقيع المدقق
+- حظر الأقران
+- حجم الذاكرة
+- ارتكاب الكمون
+- لقطة / إعادة الصحة
+
+استخدم:
+```bash
+vexod ops thresholds --json
+vexod ops incident --metrics-file current.json --previous-metrics-file previous.json --window 1m
+```
+## ملاحظات السلامة
+
+- لا تعيد استخدام مفاتيح التحقق مطلقًا عبر السلاسل المستقلة.
+- حافظ على تمكين سياسة التوقيع عن بعد لمدققي الإنتاج.
+- لا تقبل مدقق BLS بدون إثبات الحيازة أو ما يعادله من الدفاع المارق.
+- لا تقطع أو تسجن أي مدقق دون وجود أدلة تم التحقق منها مرتبطة بمجموعة أدوات التحقق الصحيحة من ارتفاع الأدلة.
 
 <!-- vexo-docs:technical-parity -->
 ## ملحق التكافؤ التقني

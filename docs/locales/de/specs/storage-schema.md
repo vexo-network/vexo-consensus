@@ -1,7 +1,7 @@
 # Speicherschema
 
 > Locale: de · Deutsch
-> Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
+> Dieses Dokument ist eine direkte deutsche Übersetzung der englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
 
 
 ## Reihenfolge zum Einstieg
@@ -43,7 +43,7 @@ Dieses Dokument hilft dabei, durable storage namespaces, key schema und recovery
 - Prüfe zuerst MUST/SHOULD/MAY-Sätze in der englischen Quelle.
 - Übersetze keine Befehle, config key, RPC-Namen, JSON-Felder oder Code-Bezeichner.
 - Passe Beispielwerte vor dem Kopieren an chain ID, validator ID, fee/gas und Peer-Adressen deines Netzwerks an.
-- Nach Änderungen `make docs-check` ausführen, um locale tree und Übersetzungs-Guards zu prüfen.
+- Nach Änderungen `make docs-check` ausführen, um den lokalen Dokumentbaum und die Übersetzungs-Guards zu prüfen.
 
 ## Worauf zu achten ist
 

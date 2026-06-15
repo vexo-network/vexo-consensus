@@ -1,64 +1,30 @@
-# Aperçu du protocole de consensus
-
 > Locale: fr · Français
-> Ce document est un document d’accompagnement français à lire avec la source anglaise. Les décisions de protocole, de sécurité et de release restent normatives en anglais.
 
-## Vue d’ensemble
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-Ce document aide à comprendre le modèle de consensus, les termes execution/commit/finality et la limite de sécurité et à relier ce sujet aux décisions d’implémentation et d’exploitation.
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-- Canonical path: `docs/consensus-protocol.md`
-- Locale path: `docs/locales/fr/consensus-protocol.md`
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-## Pourquoi lire ce document
+- moins d'un tiers du pouvoir de vote byzantin
+- signatures de proposition, de vote, de timeout-vote et de finalité séparées par domaine
+- liaison de hachage définie par le validateur à la hauteur de preuve pertinente
+- signataires connus uniques dans les QC et preuves de finalité
+- preuve responsable de l'équivoque du validateur
+- rejet des décisions d'engagement contradictoires à la même hauteur finalisée
 
-- le modèle de consensus, les termes execution/commit/finality et la limite de sécurité
-- Vérifiez d’abord les phrases MUST/SHOULD/MAY dans la source anglaise.
-- Ce document localisé aide à la compréhension ; l’audit, le release et la sécurité se décident sur la source anglaise.
+## Limite cryptographique
 
-## Ce que vous devez savoir faire
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-- Expliquer quelle décision d’implémentation ou d’exploitation ce document soutient.
-- Relier les exigences normatives de la source anglaise à la configuration réseau actuelle.
-- Vérifier chain ID, validator ID, fee/gas et adresses peer avant de copier les exemples.
+- audit de configuration strict pour chaque maison de validateur
+- preuve de release-gate
+- examen externe de la sécurité
+- preuves multi-hôtes à long terme et du chaos
+- signataire/KMS preuve de politique
+- examen de la politique économique et de gouvernance spécifique à la chaîne
 
-## Checklist d’utilisation sûre
-
-- Vérifiez d’abord les phrases MUST/SHOULD/MAY dans la source anglaise.
-- Ne traduisez pas les commandes, config key, noms RPC, champs JSON ni identifiants de code.
-- Avant de copier des exemples, adaptez chain ID, validator ID, fee/gas et adresses peer à votre réseau.
-- Après modification, exécutez `make docs-check` pour vérifier le locale tree et les garde-fous de traduction.
-
-## Points d’attention
-
-- Ce document localisé aide à la compréhension ; l’audit, le release et la sécurité se décident sur la source anglaise.
-- Quand l’implémentation change, mettez à jour la source anglaise et tous les documents localisés dans le même changement.
-
-## Interfaces à conserver telles quelles
-
-- `FinalizeBlock`
-- `consensus_config.json`
-- `execution_commit`
-- `finalized`
-- `qc`
-- `require_network_safety`
-- `block_committed`
-- `deterministic`
-- `ed25519`
-- `bls`
-
-## Structure de la source anglaise
-
-- Vue d’ensemble du protocole de consensus
-- Model
-- Execution Terms
-- Safety Boundary
-- Crypto Boundary
-- Operational Boundary
-
-## Source canonique
-
-- [Document canonique anglais](../en/consensus-protocol.md)
+Voir [Security Audit Readiness](./security/audit-readiness.md) et [Release Pipeline](./release/release-pipeline.md) avant de traiter une version comme prête pour la production.
 
 <!-- vexo-docs:technical-parity -->
 ## Annexe de parité technique

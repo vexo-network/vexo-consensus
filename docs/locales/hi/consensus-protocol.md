@@ -1,64 +1,30 @@
-# सहमति प्रोटोकॉल का अवलोकन
-
 > Locale: hi · हिन्दी
-> यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
 
-## सारांश
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-यह दस्तावेज़ consensus model, execution/commit/finality terminology और safety boundary को समझने और उसे implementation व operation decisions से जोड़ने में मदद करता है।
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-- Canonical path: `docs/consensus-protocol.md`
-- Locale path: `docs/locales/hi/consensus-protocol.md`
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-## यह दस्तावेज़ क्यों पढ़ें
+- एक - तिहाई से भी कम बीजान्टिन मतदान शक्ति
+- डोमेन से अलग किए गए प्रस्ताव, वोट, टाइमआउट - वोट और अंतिम हस्ताक्षर
+- प्रासंगिक प्रमाण ऊंचाई पर सत्यापनकर्ता - सेट हैश बाइंडिंग
+- क्यूसी और फ़ाइनल प्रूफ़ में विशिष्ट ज्ञात हस्ताक्षरकर्ता
+- सत्यापनकर्ता के इक्विवोकेशन के लिए जवाबदेह सबूत
+- एक ही अंतिम ऊंचाई पर परस्पर विरोधी प्रतिबद्ध निर्णयों की अस्वीकृति
 
-- consensus model, execution/commit/finality terminology और safety boundary
-- पहले अंग्रेज़ी source में MUST/SHOULD/MAY statements जाँचें।
-- यह स्थानीयकृत दस्तावेज़ समझने में मदद करता है; audit, release और security decisions अंग्रेज़ी source से तय होते हैं।
+## क्रिप्टो सीमा
 
-## पढ़ने के बाद क्या कर पाना चाहिए
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-- समझाना कि यह दस्तावेज़ किस implementation या operation decision में मदद करता है।
-- अंग्रेज़ी source की normative requirements को वर्तमान network configuration से जोड़ना।
-- examples copy करने से पहले chain ID, validator ID, fee/gas और peer addresses जाँचना।
+- हर वैलिडेटर घर के लिए सख्त कॉन्फ़िगरेशन ऑडिट
+- रिलीज़ - गेट सबूत
+- बाहरी सुरक्षा समीक्षा
+- लंबे समय तक चलने वाले कई मेज़बान और अराजकता के सबूत
+- हस्ताक्षरकर्ता/केएमएस नीति साक्ष्य
+- चेन - विशिष्ट आर्थिक और शासन नीति की समीक्षा
 
-## सुरक्षित उपयोग checklist
-
-- पहले अंग्रेज़ी source में MUST/SHOULD/MAY statements जाँचें।
-- commands, config key, RPC names, JSON fields और code identifiers का अनुवाद न करें।
-- examples copy करने से पहले chain ID, validator ID, fee/gas और peer addresses अपनी network settings से मिलाएँ।
-- documentation बदलने के बाद `make docs-check` चलाकर locale tree और translation guards जाँचें।
-
-## ध्यान रखने योग्य बातें
-
-- यह स्थानीयकृत दस्तावेज़ समझने में मदद करता है; audit, release और security decisions अंग्रेज़ी source से तय होते हैं।
-- implementation बदलने पर अंग्रेज़ी source और सभी स्थानीयकृत दस्तावेज़ को उसी change में update करें।
-
-## ज्यों-का-त्यों रखने वाले interfaces
-
-- `FinalizeBlock`
-- `consensus_config.json`
-- `execution_commit`
-- `finalized`
-- `qc`
-- `require_network_safety`
-- `block_committed`
-- `deterministic`
-- `ed25519`
-- `bls`
-
-## अंग्रेज़ी source की संरचना
-
-- Consensus Protocol का सारांश
-- Model
-- Execution Terms
-- Safety Boundary
-- Crypto Boundary
-- Operational Boundary
-
-## प्रामाणिक स्रोत
-
-- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../en/consensus-protocol.md)
+रिलीज़ को प्रोडक्शन के लिए तैयार मानने से पहले [Security Audit Readiness ](./ security/audit-readiness.md) और [Release Pipeline ](./ release/release-pipeline.md) देखें।
 
 <!-- vexo-docs:technical-parity -->
 ## तकनीकी समानता परिशिष्ट

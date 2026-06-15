@@ -1,7 +1,7 @@
 # 发布流水线
 
 > Locale: zh · 中文
-> 本文档是配合英文原文阅读的中文 辅助文档。协议、安全和发布判断以英文原文为准。
+> 本文档是英文原文的中文直译。协议、安全和发布判断以英文原文为准。
 
 
 ## 先读什么
@@ -46,7 +46,7 @@
 - 先在英文原文中确认 MUST/SHOULD/MAY 语句。
 - 不要翻译命令、config key、RPC 名称、JSON 字段和代码标识符。
 - 复制示例值前，请确认 chain ID、validator ID、fee/gas 和 peer 地址适合你的网络。
-- 修改文档后运行 `make docs-check` 检查 locale tree 和翻译 guard。
+- 修改文档后运行 `make docs-check` 检查本地文档树和翻译检查。
 
 ## 注意事项
 

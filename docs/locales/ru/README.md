@@ -1,75 +1,28 @@
-# Документация
-
 > Locale: ru · Русский
-> Этот документ — русский сопроводительный документ к английскому источнику. Протокол, безопасность и решения о release остаются нормативными на английском языке.
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+| Задача | Путь к команде |
+|---|---|
+| Построить локальный двоичный файл | `make build` |
+| Создайте один валидатор | `vexod init validator --home .vexo-validator-1 --chain-id vexo-chain --validator validator-1 --encrypt-keys` |
+| Подтвердить одно жилье | `vexod validate --home .vexo-validator-1` и `vexod config audit --home .vexo-validator-1 --strict` |
+| Запустите один узел | `vexod start --home .vexo-validator-1` |
+| Запрос одного узла | `curl -s http://127.0.0.1:26657/v1/status` |
+| Запустите сеть Docker с четырьмя валидаторами | __ VEXO_CODE_5__, а затем __ VEXO_CODE_6__ |
+| Подключить ремикс | Используйте Docker validator 1 Web3 URL `http://127.0.0.1:28657/web3` |
+| Проверьте идентификатор сети Web3 | `curl -s http://127.0.0.1:26657/web3 -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'` |
 
 ## Быстрый старт
 
-- Соберите бинарник командой `make build`.
-- Создайте validator home через `vexod init validator --home .vexo-validator-1 --chain-id vexo-chain --validator validator-1 --encrypt-keys`, затем проверьте его `vexod validate --home .vexo-validator-1` и `vexod config audit --home .vexo-validator-1 --strict`, после чего запускайте `vexod start --home .vexo-validator-1`.
-- Docker-сеть запускайте сначала через `docker compose -f deployments/docker/compose.single-host-init.yml up`, затем через `docker compose -f deployments/docker/compose.single-host.yml up`.
-- Remix должен указывать на `http://127.0.0.1:28657/web3`; chain ID проверьте командой `curl -s http://127.0.0.1:26657/web3 -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'`.
-- После правок запускайте `make docs-check`, чтобы проверить locale tree и translation guards.
-## Обзор
-
-Этот документ помогает понять индекс документации и рекомендуемый порядок чтения и связать это с решениями по реализации и эксплуатации.
-
-- Canonical path: `docs/README.md`
-- Locale path: `docs/locales/ru/README.md`
-
-## Зачем читать этот документ
-
-- индекс документации и рекомендуемый порядок чтения
-- Сначала проверьте MUST/SHOULD/MAY в английском источнике.
-- Этот локализованный документ помогает пониманию; audit, release и security решения принимаются по английскому источнику.
-
-## Что нужно уметь после чтения
-
-- Объяснить, какое решение по реализации или эксплуатации поддерживает этот документ.
-- Связать нормативные требования английского источника с текущей конфигурацией сети.
-- Перед копированием примеров проверить chain ID, validator ID, fee/gas и peer-адреса.
-
-## Чеклист безопасного использования
-
-- Сначала проверьте MUST/SHOULD/MAY в английском источнике.
-- Не переводите команды, config key, имена RPC, JSON-поля и идентификаторы кода.
-- Перед копированием примеров адаптируйте chain ID, validator ID, fee/gas и peer-адреса к своей сети.
-- После изменений выполните `make docs-check`, чтобы проверить locale tree и translation guards.
-
-## На что обратить внимание
-
-- Этот локализованный документ помогает пониманию; audit, release и security решения принимаются по английскому источнику.
-- При изменении реализации обновляйте английский источник и все локализованные документы в одном изменении.
-
-## Интерфейсы, которые нужно сохранить
-
-- `vexo-consensus`
-- `/v1/*`
-- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
-- `make docs-check`
-
-## Структура английского источника
-
-- Documentation
-- How to Read This Set
-- Protocol Specs
-- SDK and Extension Guides
-- Operations and Release
-- Security
-- Localized Documentation
-- Writing New Docs
-- Documentation Review Checklist
-
-## Канонический источник
-
-- [Английский канонический документ](../en/README.md)
-
-## Список неизменяемых терминов
-
-Следующие термины не переводятся.
-
-- `vexo-consensus`
 - `make build`
+- `vexod init validator --home .vexo-validator-1 --chain-id vexo-chain --validator validator-1 --encrypt-keys`
 - `vexod validate --home .vexo-validator-1`
 - `vexod config audit --home .vexo-validator-1 --strict`
 - `vexod start --home .vexo-validator-1`
@@ -77,17 +30,29 @@
 - `docker compose -f deployments/docker/compose.single-host-init.yml up`
 - `docker compose -f deployments/docker/compose.single-host.yml up`
 - `http://127.0.0.1:28657/web3`
-- `/v1/*`
-- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
-- `make docs-check`
-- `vexod status --json`
-- `feature_assurance`
-- `network_config.json:p2p.auth_replay_path`
-- `network_config.json:p2p.node_key_path`
-- `module_config.json:governance.RequireDeposit`
-- `module_config.json:governance.MinDeposit`
-- `consensus_config.json:consensus.execution_commit`
-- `mempool_config.json:mempool.WALPath`
+## Начните здесь
+
+| Документ | Цель |
+|---|---|
+| [Руководство по готовности производства](./production-readiness.md) | Единая карта протокола, времени выполнения, операций, доказательств и готовности к выпуску |
+
+## Спецификации протокола
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+| [Матрица совместимости версий](./release/version-compatibility.md) | Ожидания совместимости для двоичных файлов, конфигураций, хранилищ, приложений, RPC и контрольных форматов |
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 <!-- vexo-docs:technical-parity -->
 ## Приложение о техническом соответствии

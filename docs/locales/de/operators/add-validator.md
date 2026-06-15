@@ -1,91 +1,155 @@
-# Validator hinzufügen
-
 > Locale: de · Deutsch
-> Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
 
+# Hinzufügen eines Validators
 
-## Reihenfolge zum Einstieg
+In dieser Anleitung wird der Bedienerablauf zum Hinzufügen eines Validators zu einem Vexo-Netzwerk beschrieben.
 
-Dieses Dokument erklärt, wie man einen Validator zu einem Vexo-Netzwerk hinzufügt. Wenn du neu bist, lies in dieser Reihenfolge.
+Der genaue Zulassungspfad hängt von der Einsatz- und Governance-Richtlinie der Kette ab. Der Validator muss mindestens im Kettenstatus dargestellt werden, über gültige Anmeldeinformationen verfügen und Teil einer Aktualisierung des Validatorsatzes mit Höhenversion sein.
 
-1. Initialize Validator Home
-2. Configure Network Addresses and Peers
-3. Submit Validator Admission
-4. Verify Validator Set Update
-5. Plan Validator Key Rotation
-6. Start Validator
-7. Monitor
-8. Safety Notes
+## 1. Validator Home initialisieren
+```bash
+vexod init validator \
+  --home .vexo-validator-new \
+  --chain-id vexo-chain \
+  --validator validator-new \
+  --encrypt-keys
+```
+Für einen BLS-Validierungsschlüssel:
+```bash
+vexod init validator \
+  --home .vexo-validator-new \
+  --chain-id vexo-chain \
+  --validator validator-new \
+  --key-type bls \
+  --encrypt-keys
+```
+Legen Sie `VEXO_KEY_PASSPHRASE` fest, bevor Sie diese Befehle ausführen, oder übergeben Sie `--passphrase` für eine einmalige lokale Einrichtung.
 
-Diese Reihenfolge entspricht dem echten Betriebsablauf: zuerst neuen Validator-Home und Schlüssel anlegen, dann Netzwerkadressen und Peers konfigurieren, anschließend Admission und Validator-Set-Update prüfen und zuletzt Rotation, Start, Monitoring und Sicherheitshinweise ansehen.
+Wenn Sie einen BLS-Validator in eine bestehende Kette aufnehmen, schließen Sie die generierten `bls_pop`-Metadaten in den Validator-Aktualisierungsvorschlag ein.
+Der Standard-BLS-Schlüsselpfad verwendet `blst-bls12381-minpk-v1`; Verwenden Sie `vexod keys gen --type bls --bls-adapter circl-bls12381-g1sigg2-basic-v1` nur für Referenz-/Kompatibilitätstests.
 
-## Überblick
+Archivieren Sie den generierten öffentlichen Schlüssel:
+```bash
+vexod keys show --home .vexo-validator-new --json
+```
+Behalten Sie auch den generierten `node.key.json` bei. Es signiert P2P-Handshakes für `network_config.json:p2p.node_id`; Es handelt sich nicht um einen Validator-Konsensschlüssel und sollte nicht als Kontoschlüssel wiederverwendet werden.
 
-Dieses Dokument hilft dabei, das Hinzufügen eines Validators, Konfigurationsprüfung und Staking-Kontrollen zu verstehen und mit Implementierungs- sowie Betriebsentscheidungen zu verbinden.
+## 2. Netzwerkadressen und Peers konfigurieren
 
-- Canonical path: `docs/operators/add-validator.md`
-- Locale path: `docs/locales/de/operators/add-validator.md`
+Bearbeiten Sie `.vexo-validator-new/network_config.json` und legen Sie lokale Abhöradressen sowie persistente Peers fest:
+```json
+{
+  "schema_version": "v1",
+  "rpc": {
+    "enabled": true,
+    "address": "0.0.0.0:26657"
+  },
+  "p2p": {
+    "enabled": true,
+    "node_id": "validator-new",
+    "node_key_path": "node.key.json",
+    "listen_address": "0.0.0.0:26656",
+    "peers": {
+      "validator-1": "validator-1.example.com:26656",
+      "validator-2": "validator-2.example.com:26656",
+      "validator-3": "validator-3.example.com:26656"
+    }
+  },
+  "peer_scoring": {
+    "InitialScore": 100,
+    "MaxScore": 1000,
+    "BanThreshold": 0
+  }
+}
+```
+Verlassen Sie sich bei Produktionsvalidatoren nicht auf langlebige Befehlszeilen-Netzwerküberschreibungen. Behalten Sie persistente Peer-Adressen in `network_config.json`.
 
-## Warum dieses Dokument lesen
+Verwenden Sie separate Adressrollen:
 
-- das Hinzufügen eines Validators, Konfigurationsprüfung und Staking-Kontrollen
-- Prüfe zuerst MUST/SHOULD/MAY-Sätze in der englischen Quelle.
-- Dieses lokalisierte Dokument unterstützt das Verständnis; Audit-, Release- und Sicherheitsentscheidungen erfolgen anhand der englischen Quelle.
+- `p2p.listen_address` und `rpc.address` sind lokale Bindungsadressen für diesen Computer oder Container.
+– `p2p.node_id` ist die Peer-Identität dieses Knotens. Halten Sie es stabil, nachdem Ihre Kollegen es gelernt haben.
+– `p2p.node_key_path` verweist auf den lokalen Handshake-Signaturschlüssel für diese Peer-Identität.
+– `p2p.peers` enthält Wählziele, die dieser Knoten verwendet, um andere Peers zu erreichen; Kartenschlüssel sollten die `p2p.node_id`-Werte der Remote-Knoten sein.
+– Die Validator-Metadaten `p2p_address` und `rpc_address` sollten öffentlich angekündigte Adressen enthalten, keine Nur-Docker-Dienstnamen, es sei denn, das Netzwerk ist absichtlich privat.
 
-## Was danach möglich sein sollte
+## 3. Validator-Zulassung einreichen
 
-- Erklären, welche Implementierungs- oder Betriebsentscheidung dieses Dokument unterstützt.
-- Normative Anforderungen der englischen Quelle mit der aktuellen Netzwerkkonfiguration verbinden.
-- Vor dem Kopieren von Beispielen chain ID, validator ID, fee/gas und Peer-Adressen prüfen.
+Erstellen Sie zum Beispiel Absteckflüsse eine Abstecktransaktion:
+```bash
+vexod staking --help
+```
+Die Zulassungstransaktion des Validators sollte Folgendes umfassen:
 
-## Checkliste für sichere Nutzung
+- Validator-ID
+- Validator-Adresse
+- Konsens öffentlicher Schlüssel
+- Stimmrechts- oder Anteilsreferenz
+- Validator-Provisionsbasispunkte, wenn die Kette Self-Service-Provisionsaktualisierungen zulässt
+- P2P-`node_id`-Metadaten, wenn die Kette Genesis-/Validator-Metadaten verwendet, um Peer-Maps vorab zu erstellen
+- Metadaten öffentlicher P2P-Adressen
+– öffentliche RPC-Adressmetadaten, falls öffentlich
+– BLS-Besitznachweis-Metadaten, wenn BLS aktiviert ist
 
-- Prüfe zuerst MUST/SHOULD/MAY-Sätze in der englischen Quelle.
-- Übersetze keine Befehle, config key, RPC-Namen, JSON-Felder oder Code-Bezeichner.
-- Passe Beispielwerte vor dem Kopieren an chain ID, validator ID, fee/gas und Peer-Adressen deines Netzwerks an.
-- Nach Änderungen `make docs-check` ausführen, um locale tree und Übersetzungs-Guards zu prüfen.
+Das Validator-Update muss bei einer bestimmten Höhe wirksam werden und einen neuen vom Validator festgelegten Hash erzeugen.
 
-## Worauf zu achten ist
+Nachdem der Validator aktiv ist, können Betreiber den Belohnungsstatus über das Absteckmodul offenlegen:
+```bash
+vexod staking query commission validator-1
+vexod staking query rewards alice validator-1
+```
+## 4. Überprüfen Sie die Aktualisierung des Validator-Sets
 
-- Dieses lokalisierte Dokument unterstützt das Verständnis; Audit-, Release- und Sicherheitsentscheidungen erfolgen anhand der englischen Quelle.
-- Bei Implementierungsänderungen müssen englische Quelle und alle lokalisierten Dokumente im selben Change aktualisiert werden.
+Nach der Aktualisierung der Höhe:
+```bash
+curl http://127.0.0.1:26657/v1/validators/<height>
+```
+Überprüfen Sie:
 
-## Unverändert zu behaltende Schnittstellen
+- Validator erscheint im höhenspezifischen Satz
+- Das Stimmrecht ist korrekt
+- Der vom Validator festgelegte Hash wurde wie erwartet geändert
+- Endgültigkeitsnachweise beziehen sich auf die korrekte Höhe des Validatorsatzes
 
-- `VEXO_KEY_PASSPHRASE`
-- `--passphrase`
-- `bls_pop`
-- `.vexo-validator-new/network_config.json`
-- `network_config.json`
-- `p2p.listen_address`
-- `rpc.address`
-- `p2p.peers`
-- `p2p_address`
-- `rpc_address`
-- `active_from`
-- `active_until`
-- `config audit --strict`
+## 5. Planen Sie die Validator-Schlüsselrotation
 
-- `node.key.json`
-- `p2p.node_id`
-- `p2p.node_key_path`
-- `node_id`
-- `node_key_path`
-## Struktur der englischen Quelle
+Validatorschlüssel können rotiert werden, indem ein nächstes Schlüsseldokument mit nicht überlappenden Metadaten `active_from` und `active_until` vorbereitet und dann der Knoten mit dem zusätzlichen Rotationsschlüssel gestartet wird:
+```bash
+vexod keys gen --home .vexo-validator-new --path next-validator.key.json --id key-2 --active-from 1001
+vexod keys rotation-plan --home .vexo-validator-new --key validator.key.json --key next-validator.key.json
+vexod start --home .vexo-validator-new --rotation-key next-validator.key.json --dry-run
+```
+Zum Zeitpunkt der Signatur verwendet der Knoten den Schlüssel, dessen aktives Fenster die Konsenshöhe enthält. Für Remote-Signer-Schlüsseldokumente gelten dieselben Richtlinien-, Authentifizierungstoken- und Doppelsignaturschutzanforderungen.
 
-- Adding a Validator
-- 1. Initialize Validator Home
-- 2. Configure Network Addresses and Peers
-- 3. Submit Validator Admission
-- 4. Verify Validator Set Update
-- 5. Plan Validator Key Rotation
-- 6. Start Validator
-- 7. Monitor
-- Safety Notes
+## 6. Validator starten
+```bash
+vexod config audit --home .vexo-validator-new --strict
+vexod start --home .vexo-validator-new
+```
+Beim Start gibt es keinen Netzwerkmodusschalter. Verwenden Sie `config audit --strict` vor dem Start, wenn erwartet wird, dass das Netzwerk die Sicherheitsannahmen des öffentlichen Netzwerks erfüllt.
 
-## Kanonische Quelle
+## 7. Überwachen
 
-- [Englisches kanonisches Dokument](../../en/operators/add-validator.md)
+Anschauen:
+
+- Vorschlags-/Abstimmungslatenz
+- Runden-Timeouts
+- Validator-Signaturfehler
+- Peer-Verbote
+- Mempool-Größe
+- Latenz begehen
+- Snapshot-/Replay-Zustand
+
+Verwendung:
+```bash
+vexod ops thresholds --json
+vexod ops incident --metrics-file current.json --previous-metrics-file previous.json --window 1m
+```
+## Sicherheitshinweise
+
+- Verwenden Sie Prüfschlüssel niemals über unabhängige Ketten hinweg wieder.
+– Lassen Sie die Remote-Signer-Richtlinie für Produktionsvalidatoren aktiviert.
+- Lassen Sie einen BLS-Validator nicht ohne einen Besitznachweis oder eine gleichwertige Abwehr gegen betrügerische Schlüssel zu.
+- Zerschneiden oder sperren Sie einen Validator nicht ein, ohne dass verifizierte Beweise mit dem korrekten Validatorsatz für die Beweishöhe verknüpft sind.
 
 <!-- vexo-docs:technical-parity -->
 ## Anhang zur technischen Parität

@@ -1,7 +1,7 @@
 # सहमति विनिर्देश
 
 > Locale: hi · हिन्दी
-> यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
+> यह दस्तावेज़ अंग्रेज़ी source का सीधा हिन्दी अनुवाद है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
 
 
 ## पहले क्या पढ़ें
@@ -45,7 +45,7 @@
 - पहले अंग्रेज़ी source में MUST/SHOULD/MAY statements जाँचें।
 - commands, config key, RPC names, JSON fields और code identifiers का अनुवाद न करें।
 - examples copy करने से पहले chain ID, validator ID, fee/gas और peer addresses अपनी network settings से मिलाएँ।
-- documentation बदलने के बाद `make docs-check` चलाकर locale tree और translation guards जाँचें।
+- दस्तावेज़ बदलने के बाद `make docs-check` चलाकर स्थानीय दस्तावेज़ वृक्ष और अनुवाद जाँचें।
 
 ## ध्यान रखने योग्य बातें
 

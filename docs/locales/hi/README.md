@@ -1,75 +1,28 @@
-# दस्तावेज़
-
 > Locale: hi · हिन्दी
-> यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+| टास्क | कमांड पाथ |
+|---|---|
+| स्थानीय बाइनरी बनाएँ | __ VEXO_CODE_0 __ |
+| एक वैलिडेटर होम बनाएँ | __ VEXO_CODE_1 __ |
+| एक घर की पुष्टि करें | __ VEXO_CODE_2 __और __ VEXO_CODE_3 __ |
+| एक नोड चलाएं | __ VEXO_CODE_4 __ |
+| क्वेरी वन नोड |' curl - s __ VEXO_URL_0 __ |
+| डॉकर फोर - वैलिडेटर नेटवर्क चलाएं | __ VEXO_CODE_5 __ इसके बाद __ VEXO_CODE_6 __ |
+| कनेक्ट रीमिक्स | डॉकर सत्यापनकर्ता 1 वेब 3 यूआरएल `__VEXO_URL_1 __ का उपयोग करें |
+| वेब3 चेन आईडी की जाँच करें | __ VEXO_CODE_7__ |
 
 ## त्वरित शुरुआत
 
-- `make build` से बाइनरी बनाइए.
-- `vexod init validator --home .vexo-validator-1 --chain-id vexo-chain --validator validator-1 --encrypt-keys` से validator home बनाइए, फिर `vexod validate --home .vexo-validator-1` और `vexod config audit --home .vexo-validator-1 --strict` से जाँच करके `vexod start --home .vexo-validator-1` चलाइए.
-- Docker नेटवर्क पहले `docker compose -f deployments/docker/compose.single-host-init.yml up` और फिर `docker compose -f deployments/docker/compose.single-host.yml up` से चलाइए.
-- Remix के लिए `http://127.0.0.1:28657/web3` इस्तेमाल करें; chain ID जाँचने के लिए `curl -s http://127.0.0.1:26657/web3 -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'` चलाइए.
-- दस्तावेज़ बदलने के बाद `make docs-check` चलाकर locale tree और translation guards जाँचिए.
-## सारांश
-
-यह दस्तावेज़ documentation index और सुझाया गया पढ़ने का क्रम को समझने और उसे implementation व operation decisions से जोड़ने में मदद करता है।
-
-- Canonical path: `docs/README.md`
-- Locale path: `docs/locales/hi/README.md`
-
-## यह दस्तावेज़ क्यों पढ़ें
-
-- documentation index और सुझाया गया पढ़ने का क्रम
-- पहले अंग्रेज़ी source में MUST/SHOULD/MAY statements जाँचें।
-- यह स्थानीयकृत दस्तावेज़ समझने में मदद करता है; audit, release और security decisions अंग्रेज़ी source से तय होते हैं।
-
-## पढ़ने के बाद क्या कर पाना चाहिए
-
-- समझाना कि यह दस्तावेज़ किस implementation या operation decision में मदद करता है।
-- अंग्रेज़ी source की normative requirements को वर्तमान network configuration से जोड़ना।
-- examples copy करने से पहले chain ID, validator ID, fee/gas और peer addresses जाँचना।
-
-## सुरक्षित उपयोग checklist
-
-- पहले अंग्रेज़ी source में MUST/SHOULD/MAY statements जाँचें।
-- commands, config key, RPC names, JSON fields और code identifiers का अनुवाद न करें।
-- examples copy करने से पहले chain ID, validator ID, fee/gas और peer addresses अपनी network settings से मिलाएँ।
-- documentation बदलने के बाद `make docs-check` चलाकर locale tree और translation guards जाँचें।
-
-## ध्यान रखने योग्य बातें
-
-- यह स्थानीयकृत दस्तावेज़ समझने में मदद करता है; audit, release और security decisions अंग्रेज़ी source से तय होते हैं।
-- implementation बदलने पर अंग्रेज़ी source और सभी स्थानीयकृत दस्तावेज़ को उसी change में update करें।
-
-## ज्यों-का-त्यों रखने वाले interfaces
-
-- `vexo-consensus`
-- `/v1/*`
-- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
-- `make docs-check`
-
-## अंग्रेज़ी source की संरचना
-
-- Documentation
-- How to Read This Set
-- Protocol Specs
-- SDK and Extension Guides
-- Operations and Release
-- Security
-- Localized Documentation
-- Writing New Docs
-- Documentation Review Checklist
-
-## प्रामाणिक स्रोत
-
-- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../en/README.md)
-
-## संरक्षित शब्द-सूची
-
-नीचे दिए गए शब्द अनुवादित नहीं किए जाते।
-
-- `vexo-consensus`
 - `make build`
+- `vexod init validator --home .vexo-validator-1 --chain-id vexo-chain --validator validator-1 --encrypt-keys`
 - `vexod validate --home .vexo-validator-1`
 - `vexod config audit --home .vexo-validator-1 --strict`
 - `vexod start --home .vexo-validator-1`
@@ -77,17 +30,29 @@
 - `docker compose -f deployments/docker/compose.single-host-init.yml up`
 - `docker compose -f deployments/docker/compose.single-host.yml up`
 - `http://127.0.0.1:28657/web3`
-- `/v1/*`
-- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
-- `make docs-check`
-- `vexod status --json`
-- `feature_assurance`
-- `network_config.json:p2p.auth_replay_path`
-- `network_config.json:p2p.node_key_path`
-- `module_config.json:governance.RequireDeposit`
-- `module_config.json:governance.MinDeposit`
-- `consensus_config.json:consensus.execution_commit`
-- `mempool_config.json:mempool.WALPath`
+## यहाँ से शुरू करें
+
+| दस्तावेज़ | उद्देश्य |
+|---|---|
+| [उत्पादन तत्परता मार्गदर्शिका ](./ production-readiness.md) | प्रोटोकॉल, रनटाइम, संचालन, साक्ष्य और रिलीज तत्परता का एकल मानचित्र |
+
+## प्रोटोकॉल ऐनक
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+| [संस्करण संगतता मैट्रिक्स ](./ release/version-compatibility.md) | द्विआधारी, कॉन्फ़िगरेशन, स्टोर, ऐप, आरपीसी और प्रूफ प्रारूपों में संगतता अपेक्षाएं |
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 <!-- vexo-docs:technical-parity -->
 ## तकनीकी समानता परिशिष्ट

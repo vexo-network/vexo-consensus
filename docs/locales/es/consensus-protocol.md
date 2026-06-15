@@ -1,64 +1,30 @@
-# Resumen del protocolo de consenso
-
 > Locale: es · Español
-> Este documento es un documento de acompañamiento en español para leer junto con la fuente inglesa. Las decisiones de protocolo, seguridad y release siguen siendo normativas en inglés.
 
-## Resumen
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-Este documento ayuda a entender el modelo de consenso, términos execution/commit/finality y límite de seguridad y a conectarlo con decisiones de implementación y operación.
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-- Canonical path: `docs/consensus-protocol.md`
-- Locale path: `docs/locales/es/consensus-protocol.md`
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-## Por qué leer este documento
+- menos de un tercio del poder de voto bizantino
+- propuestas separadas por dominio, votación, votación de tiempo de espera y firmas de firmeza
+- enlace hash de conjunto de validador a la altura de prueba relevante
+- firmantes únicos conocidos en controles de calidad y pruebas de firmeza
+- evidencia responsable del equívoco del validador
+- rechazo de decisiones de compromiso conflictivas a la misma altura finalizada
 
-- el modelo de consenso, términos execution/commit/finality y límite de seguridad
-- Revise primero las frases MUST/SHOULD/MAY en la fuente inglesa.
-- Este documento localizado ayuda a comprender; auditoría, release y seguridad se deciden con la fuente inglesa.
+## Crypto Boundary
 
-## Qué debería poder hacer después
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-- Explicar qué decisión de implementación u operación apoya este documento.
-- Relacionar los requisitos normativos de la fuente inglesa con la configuración actual de la red.
-- Verificar chain ID, validator ID, fee/gas y direcciones peer antes de copiar ejemplos.
+- auditoría de configuración estricta para cada casa de validador
+- evidencia de release-gate
+- revisión DE seguridad externa
+- evidencia de caos y a largo plazo para varios anfitriones
+- evidencia DE LA política del firmante/KMS
+- revisión DE LA política económica Y DE gobernanza específica DE LA cadena
 
-## Checklist de uso seguro
-
-- Revise primero las frases MUST/SHOULD/MAY en la fuente inglesa.
-- No traduzca comandos, config key, nombres RPC, campos JSON ni identificadores de código.
-- Antes de copiar ejemplos, adapte chain ID, validator ID, fee/gas y direcciones peer a su red.
-- Después de modificar documentación, ejecute `make docs-check` para verificar locale tree y guards de traducción.
-
-## Puntos de atención
-
-- Este documento localizado ayuda a comprender; auditoría, release y seguridad se deciden con la fuente inglesa.
-- Si cambia la implementación, actualice la fuente inglesa y todos los documentos localizados en el mismo cambio.
-
-## Interfaces que deben conservarse
-
-- `FinalizeBlock`
-- `consensus_config.json`
-- `execution_commit`
-- `finalized`
-- `qc`
-- `require_network_safety`
-- `block_committed`
-- `deterministic`
-- `ed25519`
-- `bls`
-
-## Estructura de la fuente inglesa
-
-- Resumen del protocolo de consenso
-- Model
-- Execution Terms
-- Safety Boundary
-- Crypto Boundary
-- Operational Boundary
-
-## Fuente canónica
-
-- [Documento canónico en inglés](../en/consensus-protocol.md)
+Consulte [Security Audit Readiness](./security/audit-readiness.md) y [Release Pipeline](./release/release-pipeline.md) antes de tratar una versión como lista para producción.
 
 <!-- vexo-docs:technical-parity -->
 ## Apéndice de paridad técnica

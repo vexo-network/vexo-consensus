@@ -1,7 +1,7 @@
 # Sổ tay ra mắt
 
 > Locale: vi · Tiếng Việt
-> Tài liệu này là tài liệu đồng hành tiếng Việt để đọc cùng nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.
+> Đây là bản dịch trực tiếp sang tiếng Việt của nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.
 
 
 ## Thứ tự nên đọc
@@ -41,7 +41,7 @@ Tài liệu này giúp hiểu checklist vận hành và quy trình trước khi 
 - Trước hết hãy kiểm tra các câu MUST/SHOULD/MAY trong nguồn tiếng Anh.
 - Không dịch lệnh, config key, tên RPC, trường JSON hoặc định danh mã.
 - Trước khi sao chép ví dụ, hãy chỉnh chain ID, validator ID, fee/gas và địa chỉ peer theo mạng của bạn.
-- Sau khi sửa tài liệu, chạy `make docs-check` để kiểm tra locale tree và translation guards.
+- Sau khi sửa tài liệu, chạy `make docs-check` để kiểm tra cây tài liệu bản địa và các kiểm tra dịch thuật.
 
 ## Điểm cần chú ý
 

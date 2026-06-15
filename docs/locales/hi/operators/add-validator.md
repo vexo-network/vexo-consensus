@@ -1,91 +1,155 @@
-# एक वैलिडेटर जोड़ें
-
 > Locale: hi · हिन्दी
-> यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
 
+# एक सत्यापनकर्ता जोड़ना
 
-## पहले क्या पढ़ें
+यह मार्गदर्शिका वेक्सो नेटवर्क में एक सत्यापनकर्ता जोड़ने के लिए ऑपरेटर प्रवाह का वर्णन करती है।
 
-यह दस्तावेज़ बताता है कि Vexo नेटवर्क में validator कैसे जोड़ें। पहली बार पढ़ रहे हों तो इस क्रम में पढ़ें।
+सटीक प्रवेश पथ श्रृंखला की हिस्सेदारी और शासन नीति पर निर्भर करता है। कम से कम, सत्यापनकर्ता को श्रृंखला स्थिति में प्रस्तुत किया जाना चाहिए, वैध क्रेडेंशियल होना चाहिए, और ऊंचाई-संस्करण वाले सत्यापनकर्ता सेट अपडेट का हिस्सा बनना चाहिए।
 
-1. Initialize Validator Home
-2. Configure Network Addresses and Peers
-3. Submit Validator Admission
-4. Verify Validator Set Update
-5. Plan Validator Key Rotation
-6. Start Validator
-7. Monitor
-8. Safety Notes
+## 1. वैलिडेटर होम आरंभ करें
+```bash
+vexod init validator \
+  --home .vexo-validator-new \
+  --chain-id vexo-chain \
+  --validator validator-new \
+  --encrypt-keys
+```
+बीएलएस सत्यापनकर्ता कुंजी के लिए:
+```bash
+vexod init validator \
+  --home .vexo-validator-new \
+  --chain-id vexo-chain \
+  --validator validator-new \
+  --key-type bls \
+  --encrypt-keys
+```
+इन आदेशों को चलाने से पहले `VEXO_KEY_PASSPHRASE` सेट करें, या एकबारगी स्थानीय सेटअप के लिए `--passphrase` पास करें।
 
-यह क्रम वास्तविक संचालन प्रक्रिया से मेल खाता है: पहले नया validator home और keys बनाइए, फिर network addresses और peers सेट कीजिए, उसके बाद admission और validator set update जाँचिए, और अंत में rotation, startup, monitoring और safety notes देखें।
+मौजूदा श्रृंखला में बीएलएस सत्यापनकर्ता को स्वीकार करते समय, सत्यापनकर्ता अद्यतन प्रस्ताव में उत्पन्न `bls_pop` मेटाडेटा शामिल करें।
+डिफ़ॉल्ट BLS कुंजी पथ `blst-bls12381-minpk-v1` का उपयोग करता है; केवल संदर्भ/संगतता परीक्षण के लिए `vexod keys gen --type bls --bls-adapter circl-bls12381-g1sigg2-basic-v1` का उपयोग करें।
 
-## सारांश
+उत्पन्न सार्वजनिक कुंजी को संग्रहीत करें:
+```bash
+vexod keys show --home .vexo-validator-new --json
+```
+जनरेट किए गए `node.key.json` को भी रखें। यह `network_config.json:p2p.node_id` के लिए P2P हैंडशेक पर हस्ताक्षर करता है; यह एक सत्यापनकर्ता सर्वसम्मति कुंजी नहीं है और इसे खाता कुंजी के रूप में पुन: उपयोग नहीं किया जाना चाहिए।
 
-यह दस्तावेज़ validator जोड़ने की प्रक्रिया, config validation और staking checks को समझने और उसे implementation व operation decisions से जोड़ने में मदद करता है।
+## 2. नेटवर्क पते और साथियों को कॉन्फ़िगर करें
 
-- Canonical path: `docs/operators/add-validator.md`
-- Locale path: `docs/locales/hi/operators/add-validator.md`
+`.vexo-validator-new/network_config.json` को संपादित करें और स्थानीय श्रवण पते और लगातार साथियों को सेट करें:
+```json
+{
+  "schema_version": "v1",
+  "rpc": {
+    "enabled": true,
+    "address": "0.0.0.0:26657"
+  },
+  "p2p": {
+    "enabled": true,
+    "node_id": "validator-new",
+    "node_key_path": "node.key.json",
+    "listen_address": "0.0.0.0:26656",
+    "peers": {
+      "validator-1": "validator-1.example.com:26656",
+      "validator-2": "validator-2.example.com:26656",
+      "validator-3": "validator-3.example.com:26656"
+    }
+  },
+  "peer_scoring": {
+    "InitialScore": 100,
+    "MaxScore": 1000,
+    "BanThreshold": 0
+  }
+}
+```
+उत्पादन सत्यापनकर्ताओं के लिए लंबे समय तक चलने वाली कमांड-लाइन नेटवर्किंग ओवरराइड पर भरोसा न करें। लगातार सहकर्मी पते `network_config.json` में रखें।
 
-## यह दस्तावेज़ क्यों पढ़ें
+अलग-अलग पता भूमिकाओं का उपयोग करें:
 
-- validator जोड़ने की प्रक्रिया, config validation और staking checks
-- पहले अंग्रेज़ी source में MUST/SHOULD/MAY statements जाँचें।
-- यह स्थानीयकृत दस्तावेज़ समझने में मदद करता है; audit, release और security decisions अंग्रेज़ी source से तय होते हैं।
+- `p2p.listen_address` और `rpc.address` इस मशीन या कंटेनर के लिए स्थानीय बाइंड पते हैं।
+- `p2p.node_id` इस नोड की सहकर्मी पहचान है। साथियों द्वारा इसे सीख लेने के बाद इसे स्थिर रखें।
+- `p2p.node_key_path` उस सहकर्मी की पहचान के लिए स्थानीय हैंडशेक हस्ताक्षर कुंजी की ओर इशारा करता है।
+- `p2p.peers` में डायल लक्ष्य शामिल हैं जिनका उपयोग यह नोड अन्य साथियों तक पहुंचने के लिए करता है; मानचित्र कुंजियाँ दूरस्थ नोड्स के `p2p.node_id` मान होनी चाहिए।
+- सत्यापनकर्ता मेटाडेटा `p2p_address` और `rpc_address` में सार्वजनिक विज्ञापित पते होने चाहिए, न कि केवल डॉकर सेवा नाम, जब तक कि नेटवर्क जानबूझकर निजी न हो।
 
-## पढ़ने के बाद क्या कर पाना चाहिए
+## 3. सत्यापनकर्ता प्रवेश जमा करें
 
-- समझाना कि यह दस्तावेज़ किस implementation या operation decision में मदद करता है।
-- अंग्रेज़ी source की normative requirements को वर्तमान network configuration से जोड़ना।
-- examples copy करने से पहले chain ID, validator ID, fee/gas और peer addresses जाँचना।
+उदाहरण के लिए स्टेकिंग प्रवाह, एक स्टेकिंग लेनदेन बनाएं:
+```bash
+vexod staking --help
+```
+सत्यापनकर्ता प्रवेश लेनदेन में शामिल होना चाहिए:
 
-## सुरक्षित उपयोग checklist
+- सत्यापनकर्ता आईडी
+- सत्यापनकर्ता पता
+- सर्वसम्मति सार्वजनिक कुंजी
+- मतदान शक्ति या हिस्सेदारी संदर्भ
+- सत्यापनकर्ता कमीशन आधार अंक, यदि श्रृंखला स्व-सेवा कमीशन अपडेट की अनुमति देती है
+- P2P `node_id` मेटाडेटा यदि श्रृंखला सहकर्मी मानचित्रों को पूर्वनिर्धारित करने के लिए उत्पत्ति/सत्यापनकर्ता मेटाडेटा का उपयोग करती है
+- सार्वजनिक पी2पी पता मेटाडेटा
+- सार्वजनिक आरपीसी पता मेटाडेटा, यदि सार्वजनिक है
+- बीएलएस सक्षम होने पर बीएलएस कब्जे का सबूत मेटाडेटा
 
-- पहले अंग्रेज़ी source में MUST/SHOULD/MAY statements जाँचें।
-- commands, config key, RPC names, JSON fields और code identifiers का अनुवाद न करें।
-- examples copy करने से पहले chain ID, validator ID, fee/gas और peer addresses अपनी network settings से मिलाएँ।
-- documentation बदलने के बाद `make docs-check` चलाकर locale tree और translation guards जाँचें।
+सत्यापनकर्ता अद्यतन एक विशिष्ट ऊंचाई पर प्रभावी होना चाहिए और एक नया सत्यापनकर्ता-सेट हैश उत्पन्न करना चाहिए।
 
-## ध्यान रखने योग्य बातें
+सत्यापनकर्ता सक्रिय होने के बाद, ऑपरेटर स्टेकिंग मॉड्यूल के माध्यम से इनाम स्थिति को उजागर कर सकते हैं:
+```bash
+vexod staking query commission validator-1
+vexod staking query rewards alice validator-1
+```
+## 4. सत्यापनकर्ता सेट अद्यतन सत्यापित करें
 
-- यह स्थानीयकृत दस्तावेज़ समझने में मदद करता है; audit, release और security decisions अंग्रेज़ी source से तय होते हैं।
-- implementation बदलने पर अंग्रेज़ी source और सभी स्थानीयकृत दस्तावेज़ को उसी change में update करें।
+अद्यतन ऊंचाई के बाद:
+```bash
+curl http://127.0.0.1:26657/v1/validators/<height>
+```
+जांचें:
 
-## ज्यों-का-त्यों रखने वाले interfaces
+- सत्यापनकर्ता ऊंचाई-विशिष्ट सेट में दिखाई देता है
+-मतदान शक्ति सही है
+- सत्यापनकर्ता-सेट हैश अपेक्षा के अनुरूप बदल गया
+- अंतिम प्रमाण सही सत्यापनकर्ता-सेट ऊंचाई का संदर्भ देते हैं
 
-- `VEXO_KEY_PASSPHRASE`
-- `--passphrase`
-- `bls_pop`
-- `.vexo-validator-new/network_config.json`
-- `network_config.json`
-- `p2p.listen_address`
-- `rpc.address`
-- `p2p.peers`
-- `p2p_address`
-- `rpc_address`
-- `active_from`
-- `active_until`
-- `config audit --strict`
+## 5. सत्यापनकर्ता कुंजी रोटेशन की योजना बनाएं
 
-- `node.key.json`
-- `p2p.node_id`
-- `p2p.node_key_path`
-- `node_id`
-- `node_key_path`
-## अंग्रेज़ी source की संरचना
+गैर-अतिव्यापी `active_from` और `active_until` मेटाडेटा के साथ अगला कुंजी दस्तावेज़ तैयार करके सत्यापनकर्ता कुंजियों को घुमाया जा सकता है, फिर अतिरिक्त रोटेशन कुंजी के साथ नोड शुरू किया जा सकता है:
+```bash
+vexod keys gen --home .vexo-validator-new --path next-validator.key.json --id key-2 --active-from 1001
+vexod keys rotation-plan --home .vexo-validator-new --key validator.key.json --key next-validator.key.json
+vexod start --home .vexo-validator-new --rotation-key next-validator.key.json --dry-run
+```
+हस्ताक्षर करते समय, नोड उस कुंजी का उपयोग करता है जिसकी सक्रिय विंडो में सर्वसम्मति की ऊंचाई होती है। दूरस्थ हस्ताक्षरकर्ता कुंजी दस्तावेज़ समान नीति, ऑथ-टोकन और डबल-साइन गार्ड आवश्यकताओं को रखते हैं।
 
-- Adding a Validator
-- 1. Initialize Validator Home
-- 2. Configure Network Addresses and Peers
-- 3. Submit Validator Admission
-- 4. Verify Validator Set Update
-- 5. Plan Validator Key Rotation
-- 6. Start Validator
-- 7. Monitor
-- Safety Notes
+## 6. सत्यापनकर्ता प्रारंभ करें
+```bash
+vexod config audit --home .vexo-validator-new --strict
+vexod start --home .vexo-validator-new
+```
+स्टार्टअप में कोई नेटवर्क मोड स्विच नहीं है। स्टार्टअप से पहले `config audit --strict` का उपयोग करें जब नेटवर्क से सार्वजनिक-नेटवर्क सुरक्षा मान्यताओं को पूरा करने की उम्मीद की जाती है।
 
-## प्रामाणिक स्रोत
+## 7. मॉनिटर
 
-- [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/operators/add-validator.md)
+देखें:
+
+- प्रस्ताव/वोट विलंबता
+- राउंड टाइमआउट
+- सत्यापनकर्ता के हस्ताक्षर विफल
+- सहकर्मी प्रतिबंध
+- मेमपूल आकार
+- विलंबता प्रतिबद्ध
+- स्नैपशॉट/रीप्ले स्वास्थ्य
+
+उपयोग करें:
+```bash
+vexod ops thresholds --json
+vexod ops incident --metrics-file current.json --previous-metrics-file previous.json --window 1m
+```
+## सुरक्षा नोट
+
+- स्वतंत्र श्रृंखलाओं में कभी भी सत्यापनकर्ता कुंजियों का पुन: उपयोग न करें।
+- उत्पादन सत्यापनकर्ताओं के लिए दूरस्थ हस्ताक्षरकर्ता नीति सक्षम रखें।
+- कब्जे के सबूत या समकक्ष दुष्ट-कुंजी बचाव के बिना बीएलएस सत्यापनकर्ता को स्वीकार न करें।
+- सही साक्ष्य-ऊंचाई सत्यापनकर्ता सेट से जुड़े सत्यापित साक्ष्य के बिना किसी सत्यापनकर्ता को न काटें या जेल न भेजें।
 
 <!-- vexo-docs:technical-parity -->
 ## तकनीकी समानता परिशिष्ट
