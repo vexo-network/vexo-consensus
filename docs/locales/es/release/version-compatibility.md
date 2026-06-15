@@ -1,4 +1,4 @@
-# Version Compatibility Matrix
+# Matriz de compatibilidad de versiones
 
 > Locale: es · Español
 > Este documento es un documento de acompañamiento en español para leer junto con la fuente inglesa. Las decisiones de protocolo, seguridad y release siguen siendo normativas en inglés.

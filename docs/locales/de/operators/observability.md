@@ -1,4 +1,4 @@
-# Observability Guide
+# Leitfaden zur Beobachtbarkeit
 
 > Locale: de · Deutsch
 > Sicherheits- und Release-Entscheidungen werden anhand der englischen Quelle und des release gate getroffen.
@@ -11,7 +11,7 @@ Dieses lokalisierte Dokument lässt Befehle, JSON-Felder, RPC-Methoden, Konfigur
 
 ## Warum es wichtig ist
 
-Vexo combines BFT consensus, application modules, native accounting, optional EVM execution, validator economics, peer networking, and release evidence. A reader should be able to explain not just that a feature exists, but how to operate it safely and how to prove that it works on the target network.
+Dieser Leitfaden erklärt, wie man über RPC, Metriken, Logs und Release-Evidence erkennt, ob ein Vexo-Knoten gesund ist.
 
 ## Unbedingt prüfen
 
@@ -50,8 +50,8 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## Häufige Fehler
 
-- Do not assume configured peers are connected peers; active sessions must be checked separately.
-- Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
+- Gehen Sie nicht davon aus, dass konfigurierte Peers بالفعل verbunden sind; aktive Sitzungen müssen separat geprüft werden.
+- Bezeichnen Sie BLS, VRF, EVM, State Sync oder Governance nicht als produktionsreif, ohne Release-Evidence.
 - Do not use private operator shortcuts, managed hot keys, or local-only settings on public RPC/P2P listeners.
 - Do not delete node data before collecting recovery reports, logs, and evidence when an incident happens.
 

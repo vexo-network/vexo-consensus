@@ -1,4 +1,4 @@
-# Documentation
+# 문서
 
 > Locale: ko · 한국어
 > 이 문서는 `vexo-consensus` 문서 세트를 한국어로 읽기 위한 지역화 문서입니다. 프로토콜 규칙, 보안 판단, 릴리즈 판단, 명령어 의미, config key, RPC 이름은 영어 원문이 규범입니다.

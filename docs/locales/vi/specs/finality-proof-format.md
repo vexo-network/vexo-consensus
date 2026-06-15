@@ -1,4 +1,4 @@
-# Finality Proof Format
+# Định dạng bằng chứng finality
 
 > Locale: vi · Tiếng Việt
 > Tài liệu này là tài liệu đồng hành tiếng Việt để đọc cùng nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.

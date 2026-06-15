@@ -1,4 +1,4 @@
-# Release Pipeline
+# Pipeline de lançamento
 
 > Locale: pt · Português
 > Este documento é um documento de apoio em português para ser lido junto da fonte inglesa. Decisões de protocolo, segurança e release continuam normativas em inglês.

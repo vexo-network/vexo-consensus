@@ -1,4 +1,4 @@
-# Vue d’ensemble du protocole de consensus
+# Aperçu du protocole de consensus
 
 > Locale: fr · Français
 > Ce document est un document d’accompagnement français à lire avec la source anglaise. Les décisions de protocole, de sécurité et de release restent normatives en anglais.

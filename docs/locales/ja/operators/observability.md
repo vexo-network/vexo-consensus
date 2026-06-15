@@ -1,4 +1,4 @@
-# Observability Guide
+# 可観測性ガイド
 
 > Locale: ja · 日本語
 > セキュリティとリリース判断は英語の正本と release gate の結果で確定します。
@@ -11,7 +11,7 @@
 
 ## なぜ重要か
 
-Vexo combines BFT consensus, application modules, native accounting, optional EVM execution, validator economics, peer networking, and release evidence. A reader should be able to explain not just that a feature exists, but how to operate it safely and how to prove that it works on the target network.
+このガイドでは、RPC、メトリクス、ログ、リリース証跡から Vexo ノードが正常かどうかを判断する方法を説明します。
 
 ## 必ず確認すること
 
@@ -50,8 +50,8 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## よくある間違い
 
-- Do not assume configured peers are connected peers; active sessions must be checked separately.
-- Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
+- 設定済みの peer が実際に接続されているとは限りません。アクティブなセッションを別途確認してください。
+- リリース証跡なしに BLS、VRF、EVM、state sync、または governance を本番対応とみなさないでください。
 - Do not use private operator shortcuts, managed hot keys, or local-only settings on public RPC/P2P listeners.
 - Do not delete node data before collecting recovery reports, logs, and evidence when an incident happens.
 

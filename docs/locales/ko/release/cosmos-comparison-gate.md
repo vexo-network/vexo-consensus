@@ -1,4 +1,4 @@
-# Cosmos/Tendermint Comparison Gate
+# Cosmos/Tendermint 비교 게이트
 
 > Locale: ko · 한국어
 > 이 문서는 영어 원문을 함께 읽기 위한 한국어 보조 문서입니다. 프로토콜, 보안, 릴리즈 판단은 영어 원문이 규범입니다.

@@ -1,4 +1,4 @@
-# Observability Guide
+# Hướng dẫn quan sát
 
 > Locale: vi · Tiếng Việt
 > Quyết định bảo mật và phát hành phải dựa trên nguồn tiếng Anh và kết quả release gate.
@@ -11,7 +11,7 @@ Tài liệu bản địa hóa này giữ nguyên lệnh, trường JSON, phươn
 
 ## Vì sao quan trọng
 
-Vexo combines BFT consensus, application modules, native accounting, optional EVM execution, validator economics, peer networking, and release evidence. A reader should be able to explain not just that a feature exists, but how to operate it safely and how to prove that it works on the target network.
+Hướng dẫn này giải thích cách nhận biết một node Vexo có khỏe hay không từ RPC, metrics, logs và bằng chứng phát hành.
 
 ## Cần xác minh
 
@@ -50,8 +50,8 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## Lỗi thường gặp
 
-- Do not assume configured peers are connected peers; active sessions must be checked separately.
-- Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
+- Đừng mặc định rằng các peer đã cấu hình là đã kết nối; phải kiểm tra riêng các phiên đang hoạt động.
+- Đừng gọi BLS, VRF, EVM, state sync hoặc governance là sẵn sàng sản xuất nếu chưa có bằng chứng phát hành.
 - Do not use private operator shortcuts, managed hot keys, or local-only settings on public RPC/P2P listeners.
 - Do not delete node data before collecting recovery reports, logs, and evidence when an incident happens.
 

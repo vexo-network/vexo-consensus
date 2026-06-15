@@ -1,4 +1,4 @@
-# Custom Storage and Transport Guide
+# Guide du stockage et du transport personnalisés
 
 > Locale: fr · Français
 > Ce document est un document d’accompagnement français à lire avec la source anglaise. Les décisions de protocole, de sécurité et de release restent normatives en anglais.

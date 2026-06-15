@@ -1,4 +1,4 @@
-# RPC API Versioning
+# Versi API RPC
 
 > Locale: id · Bahasa Indonesia
 > Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.

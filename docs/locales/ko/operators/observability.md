@@ -1,4 +1,4 @@
-# Observability Guide
+# 운영 가시성 가이드
 
 > Locale: ko · 한국어
 > 보안·릴리즈 판단은 영어 정본과 release gate 결과를 기준으로 확정합니다.
@@ -11,7 +11,7 @@
 
 ## 왜 중요한가
 
-Vexo combines BFT consensus, application modules, native accounting, optional EVM execution, validator economics, peer networking, and release evidence. A reader should be able to explain not just that a feature exists, but how to operate it safely and how to prove that it works on the target network.
+이 가이드는 RPC, metrics, logs, release evidence를 통해 Vexo 노드가 건강한지 판단하는 방법을 설명합니다.
 
 ## 반드시 확인할 것
 
@@ -50,8 +50,8 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## 자주 하는 실수
 
-- Do not assume configured peers are connected peers; active sessions must be checked separately.
-- Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
+- 설정된 peer가 실제로 연결됐다고 가정하지 마세요. 활성 세션을 별도로 확인해야 합니다.
+- release evidence 없이 BLS, VRF, EVM, state sync, governance를 production-ready라고 부르지 마세요.
 - Do not use private operator shortcuts, managed hot keys, or local-only settings on public RPC/P2P listeners.
 - Do not delete node data before collecting recovery reports, logs, and evidence when an incident happens.
 

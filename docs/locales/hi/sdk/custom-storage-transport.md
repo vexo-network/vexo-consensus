@@ -1,4 +1,4 @@
-# Custom Storage and Transport Guide
+# कस्टम स्टोरेज और ट्रांसपोर्ट मार्गदर्शिका
 
 > Locale: hi · हिन्दी
 > यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।

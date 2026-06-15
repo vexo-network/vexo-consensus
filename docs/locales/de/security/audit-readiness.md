@@ -1,4 +1,4 @@
-# Security Audit Readiness
+# Vorbereitung auf das Sicherheitsaudit
 
 > Locale: de · Deutsch
 > Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.

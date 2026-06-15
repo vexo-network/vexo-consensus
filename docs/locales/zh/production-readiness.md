@@ -1,4 +1,4 @@
-# Production Readiness Guide
+# 生产就绪指南
 
 > Locale: zh · 中文
 > 安全和发布判断必须以英文规范文档和 release gate 结果为准。
@@ -11,7 +11,7 @@
 
 ## 为什么重要
 
-Vexo combines BFT consensus, application modules, native accounting, optional EVM execution, validator economics, peer networking, and release evidence. A reader should be able to explain not just that a feature exists, but how to operate it safely and how to prove that it works on the target network.
+Vexo 将 BFT 共识、应用模块、原生记账、可选 EVM 执行、验证人经济、peer 网络和发布证据结合在一起。读者不仅要能说明某个功能存在，还要能说明如何安全地运行它，以及如何证明它在目标网络上可用。
 
 ## 必须验证
 
@@ -50,8 +50,8 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## 常见错误
 
-- Do not assume configured peers are connected peers; active sessions must be checked separately.
-- Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
+- 不要默认已配置的 peer 就是已连接的 peer；活跃会话必须单独检查。
+- 没有发布证据时，不要把 BLS、VRF、EVM、state sync 或治理称为生产就绪。
 - Do not use private operator shortcuts, managed hot keys, or local-only settings on public RPC/P2P listeners.
 - Do not delete node data before collecting recovery reports, logs, and evidence when an incident happens.
 

@@ -1,4 +1,4 @@
-# Production Readiness Guide
+# Guía de preparación para producción
 
 > Locale: es · Español
 > Las decisiones de seguridad y publicación se confirman con la fuente inglesa y el release gate.
@@ -11,7 +11,7 @@ Esta guía localizada mantiene sin cambios los comandos, campos JSON, métodos R
 
 ## Por qué importa
 
-Vexo combines BFT consensus, application modules, native accounting, optional EVM execution, validator economics, peer networking, and release evidence. A reader should be able to explain not just that a feature exists, but how to operate it safely and how to prove that it works on the target network.
+Vexo combina consenso BFT, módulos de aplicación, contabilidad nativa, ejecución EVM opcional, economía de validadores, red de pares y evidencia de release. El lector debe poder explicar no solo que una función existe, sino cómo operarla con seguridad y cómo demostrar que funciona en la red objetivo.
 
 ## Qué verificar
 
@@ -50,8 +50,8 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## Errores comunes
 
-- Do not assume configured peers are connected peers; active sessions must be checked separately.
-- Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
+- No asuma que los pares configurados están conectados; las sesiones activas deben comprobarse por separado.
+- No declare BLS, VRF, EVM, state sync o gobernanza listos para producción sin evidencia de release.
 - Do not use private operator shortcuts, managed hot keys, or local-only settings on public RPC/P2P listeners.
 - Do not delete node data before collecting recovery reports, logs, and evidence when an incident happens.
 

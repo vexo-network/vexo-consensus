@@ -1,4 +1,4 @@
-# Production Readiness Guide
+# उत्पादन-तैयारी मार्गदर्शिका
 
 > Locale: hi · हिन्दी
 > security और release निर्णय English source और release gate result से तय होते हैं।
@@ -11,7 +11,7 @@
 
 ## यह क्यों जरूरी है
 
-Vexo combines BFT consensus, application modules, native accounting, optional EVM execution, validator economics, peer networking, and release evidence. A reader should be able to explain not just that a feature exists, but how to operate it safely and how to prove that it works on the target network.
+Vexo में BFT consensus, application modules, native accounting, optional EVM execution, validator economics, peer networking, और release evidence शामिल हैं। पाठक यह बता सके कि कोई फीचर है भी, तो उसे सुरक्षित तरीके से कैसे चलाना है और target network पर यह कैसे साबित करना है।
 
 ## क्या सत्यापित करना है
 
@@ -50,8 +50,8 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## सामान्य गलतियाँ
 
-- Do not assume configured peers are connected peers; active sessions must be checked separately.
-- Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
+- यह न मानें कि configured peers connected हैं; active sessions को अलग से जाँचना होगा।
+- release evidence के बिना BLS, VRF, EVM, state sync, या governance को production-ready न कहें।
 - Do not use private operator shortcuts, managed hot keys, or local-only settings on public RPC/P2P listeners.
 - Do not delete node data before collecting recovery reports, logs, and evidence when an incident happens.
 

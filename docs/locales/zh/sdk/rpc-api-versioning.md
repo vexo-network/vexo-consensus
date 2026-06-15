@@ -1,4 +1,4 @@
-# RPC API Versioning
+# RPC API 版本管理
 
 > Locale: zh · 中文
 > 本文档是配合英文原文阅读的中文 辅助文档。协议、安全和发布判断以英文原文为准。

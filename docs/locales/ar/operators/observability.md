@@ -1,4 +1,4 @@
-# Observability Guide
+# دليل المراقبة
 
 > Locale: ar · العربية
 > قرارات الأمان والإصدار تعتمد على المصدر الإنجليزي ونتيجة release gate.
@@ -11,7 +11,7 @@
 
 ## لماذا هذا مهم
 
-Vexo combines BFT consensus, application modules, native accounting, optional EVM execution, validator economics, peer networking, and release evidence. A reader should be able to explain not just that a feature exists, but how to operate it safely and how to prove that it works on the target network.
+يشرح هذا الدليل كيف نعرف ما إذا كانت عقدة Vexo سليمة من خلال RPC والقياسات والسجلات وأدلة الإطلاق.
 
 ## ما يجب التحقق منه
 
@@ -50,8 +50,8 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## أخطاء شائعة
 
-- Do not assume configured peers are connected peers; active sessions must be checked separately.
-- Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
+- لا تفترض أن الأقران المُهيّئين متصلون فعلاً؛ يجب التحقق من الجلسات النشطة بشكل منفصل.
+- لا تُعلن BLS أو VRF أو EVM أو state sync أو الحوكمة جاهزة للإنتاج دون أدلة إطلاق.
 - Do not use private operator shortcuts, managed hot keys, or local-only settings on public RPC/P2P listeners.
 - Do not delete node data before collecting recovery reports, logs, and evidence when an incident happens.
 

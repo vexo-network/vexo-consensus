@@ -1,4 +1,4 @@
-# Production Readiness Guide
+# Panduan kesiapan produksi
 
 > Locale: id · Bahasa Indonesia
 > Keputusan keamanan dan rilis harus mengikuti sumber Inggris dan hasil release gate.
@@ -11,7 +11,7 @@ Panduan lokal ini mempertahankan command, field JSON, metode RPC, key konfiguras
 
 ## Mengapa penting
 
-Vexo combines BFT consensus, application modules, native accounting, optional EVM execution, validator economics, peer networking, and release evidence. A reader should be able to explain not just that a feature exists, but how to operate it safely and how to prove that it works on the target network.
+Vexo menggabungkan konsensus BFT, modul aplikasi, akuntansi native, eksekusi EVM opsional, ekonomi validator, jaringan peer, dan bukti rilis. Pembaca harus bisa menjelaskan bukan hanya bahwa fitur ada, tetapi juga bagaimana mengoperasikannya dengan aman dan bagaimana membuktikan bahwa fitur itu bekerja di jaringan target.
 
 ## Yang wajib diverifikasi
 
@@ -50,8 +50,8 @@ Vexo combines BFT consensus, application modules, native accounting, optional EV
 
 ## Kesalahan umum
 
-- Do not assume configured peers are connected peers; active sessions must be checked separately.
-- Do not call BLS, VRF, EVM, state sync, or governance production-ready without release evidence.
+- Jangan menganggap peer yang dikonfigurasi sudah tersambung; sesi aktif harus dicek terpisah.
+- Jangan menyebut BLS, VRF, EVM, state sync, atau governance siap produksi tanpa bukti rilis.
 - Do not use private operator shortcuts, managed hot keys, or local-only settings on public RPC/P2P listeners.
 - Do not delete node data before collecting recovery reports, logs, and evidence when an incident happens.
 

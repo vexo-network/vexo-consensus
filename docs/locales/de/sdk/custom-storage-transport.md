@@ -1,4 +1,4 @@
-# Custom Storage and Transport Guide
+# Leitfaden für benutzerdefinierte Speicherung und Übertragung
 
 > Locale: de · Deutsch
 > Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
