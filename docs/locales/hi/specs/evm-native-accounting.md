@@ -3,6 +3,21 @@
 > Locale: hi · हिन्दी
 > यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
 
+
+## पहले क्या पढ़ें
+
+यह दस्तावेज़ Evm Native Accounting की normative specification बताता है। पहली बार पढ़ रहे हों तो इस क्रम में पढ़ें।
+
+1. Core Rule
+2. Amount Encoding
+3. Fee Accounting
+4. EVM Execution
+5. State Root Policy
+6. Compatibility Boundary
+7. Failure Modes
+
+यह क्रम पढ़ने के सही तरीके से मेल खाता है: पहले scope और state, फिर message, safety और liveness नियम, और अंत में evidence।
+
 ## सारांश
 
 यह दस्तावेज़ native coin और EVM gas/accounting को consistent तरीके से जोड़ना को समझने और उसे implementation व operation decisions से जोड़ने में मदद करता है।

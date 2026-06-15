@@ -3,6 +3,17 @@
 > Locale: de · Deutsch
 > Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
 
+
+## Reihenfolge zum Einstieg
+
+Dieses Dokument erklärt den Release- und Betriebsablauf von Version Compatibility. Wenn du neu bist, lies in dieser Reihenfolge.
+
+1. Current Matrix
+2. Upgrade Compatibility Checklist
+3. Rollback Drill
+
+Diese Reihenfolge entspricht der praktischen Nutzung: zuerst Ziele und Gates, dann Artefakte und Evidence-Anforderungen, und zuletzt die Ausführungsschritte.
+
 ## Überblick
 
 Dieses Dokument hilft dabei, Version-Kompatibilitätsmatrix und Upgrade-Entscheidungskriterien zu verstehen und mit Implementierungs- sowie Betriebsentscheidungen zu verbinden.

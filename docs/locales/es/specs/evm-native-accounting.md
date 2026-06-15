@@ -3,6 +3,21 @@
 > Locale: es · Español
 > Este documento es un documento de acompañamiento en español para leer junto con la fuente inglesa. Las decisiones de protocolo, seguridad y release siguen siendo normativas en inglés.
 
+
+## Orden de lectura
+
+Este documento explica la especificación normativa de Evm Native Accounting. Si es tu primera lectura, sigue este orden.
+
+1. Core Rule
+2. Amount Encoding
+3. Fee Accounting
+4. EVM Execution
+5. State Root Policy
+6. Compatibility Boundary
+7. Failure Modes
+
+Ese orden coincide con la forma correcta de leerlo: primero el alcance y el estado, luego las reglas de mensajes, seguridad y vivacidad, y al final las evidencias.
+
 ## Resumen
 
 Este documento ayuda a entender conexión coherente entre native coin y EVM gas/accounting y a conectarlo con decisiones de implementación y operación.

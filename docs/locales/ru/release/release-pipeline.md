@@ -3,6 +3,25 @@
 > Locale: ru · Русский
 > Этот документ — русский сопроводительный документ к английскому источнику. Протокол, безопасность и решения о release остаются нормативными на английском языке.
 
+
+## С чего начать
+
+Этот документ объясняет release- и operational-процесс Release Pipeline. Если вы читаете впервые, идите в таком порядке.
+
+1. Goals
+2. Release Commands
+3. CI Gates
+4. Evidence Quality Rules
+5. Artifacts
+6. Reproducibility Notes
+7. Signed Binaries
+8. SBOM
+9. Audit Pack
+10. Release Candidate Targets
+11. Launch Runbook
+
+Такой порядок совпадает с практическим использованием: сначала цели и gates, затем артефакты и требования к evidence, и в конце шаги выполнения.
+
 ## Обзор
 
 Этот документ помогает понять release pipeline с подписанными бинарями, checksums и SBOM и связать это с решениями по реализации и эксплуатации.

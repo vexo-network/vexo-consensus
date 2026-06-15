@@ -3,6 +3,22 @@
 > Locale: fr · Français
 > Ce document est un document d’accompagnement français à lire avec la source anglaise. Les décisions de protocole, de sécurité et de release restent normatives en anglais.
 
+
+## Ordre de lecture
+
+Ce document explique la spécification normative de Storage Schema. Si c'est votre première lecture, suivez cet ordre.
+
+1. Scope
+2. Backend
+3. Records
+4. Indexes
+5. EVM Records
+6. Recovery Rules
+7. Snapshot Validation
+8. Schema Migration
+
+Cet ordre correspond à la manière de lire le document : d'abord le périmètre et l'état, puis les règles des messages, de sûreté et de vivacité, et enfin les preuves.
+
 ## Vue d’ensemble
 
 Ce document aide à comprendre les namespaces de durable storage, key schema et recovery marker et à relier ce sujet aux décisions d’implémentation et d’exploitation.

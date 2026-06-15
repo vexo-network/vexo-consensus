@@ -3,6 +3,24 @@
 > Locale: ja · 日本語
 > この文書は英語原文と併読するための日本語 補助文書です。プロトコル、セキュリティ、リリース判断は英語原文を規範とします。
 
+
+## 最初に読む順序
+
+この文書は Consensus Spec の規範仕様を説明します。初めて読むなら、次の順で進めると分かりやすいです。
+
+1. Scope
+2. Roles
+3. State
+4. Message Types
+5. Safety Rules
+6. Finality Rule
+7. Execution Commit Policy
+8. Liveness Assumptions
+9. Empty Blocks and Round Recovery
+10. Evidence
+
+この順番は、まず範囲と状態を理解し、次にメッセージ、safety、liveness の規則を確認し、最後に evidence を読む流れです。
+
 ## 文書概要
 
 この文書は 合意 state machine の規範仕様を理解し、実装・運用判断へつなげるためのものです。

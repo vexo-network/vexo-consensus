@@ -3,6 +3,25 @@
 > Locale: es · Español
 > Este documento es un documento de acompañamiento en español para leer junto con la fuente inglesa. Las decisiones de protocolo, seguridad y release siguen siendo normativas en inglés.
 
+
+## Orden de lectura
+
+Este documento explica el flujo de release y operación de Release Pipeline. Si es tu primera lectura, sigue este orden.
+
+1. Goals
+2. Release Commands
+3. CI Gates
+4. Evidence Quality Rules
+5. Artifacts
+6. Reproducibility Notes
+7. Signed Binaries
+8. SBOM
+9. Audit Pack
+10. Release Candidate Targets
+11. Launch Runbook
+
+Ese orden coincide con el uso real: primero los objetivos y gates, luego los artefactos y requisitos de evidencia, y al final los pasos de ejecución.
+
 ## Resumen
 
 Este documento ayuda a entender pipeline de release con binarios firmados, checksums y SBOM y a conectarlo con decisiones de implementación y operación.

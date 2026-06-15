@@ -107,7 +107,7 @@ Ce document aide à comprendre l’initialisation des nœuds archive/validator e
 
 Pour un nouveau répertoire de nœud, vérifiez ensemble `p2p.dial_timeout`, `p2p.auth_replay_path` et `p2p.require_auth_replay_store` dans `network_config.json`. Le timeout par défaut `10s` couvre le dial TCP, TLS, le signed handshake et la vérification replay-store. Sur un réseau public, ces paramètres doivent rester dans la configuration revue, pas dans des flags shell cachés.
 
-## State Sync au démarrage
+## Synchronisation d’état au démarrage au démarrage
 
 Le bloc `state_sync` de `network_config.json` sert aux nouveaux nœuds archive, aux validator de remplacement et aux nœuds restaurés sur une machine propre. Quand `state_sync.enabled` vaut true, `vexod start` essaie les URL de `state_sync.snapshot_urls`, vérifie chain ID, checksum, state root et KV namespace, restaure dans LevelDB, reconstruit les index, puis démarre le nœud. Si l'état local atteint déjà `state_sync.min_height` et que `state_sync.trust_local_higher` vaut true, le nœud garde le store local et journalise `state_sync_skipped`.
 

@@ -3,6 +3,21 @@
 > Locale: fr · Français
 > Ce document est un document d’accompagnement français à lire avec la source anglaise. Les décisions de protocole, de sécurité et de release restent normatives en anglais.
 
+
+## Ordre de lecture
+
+Ce document explique la spécification normative de Validator Lifecycle. Si c'est votre première lecture, suivez cet ordre.
+
+1. Scope
+2. Admission
+3. Validator Set
+4. Rotation
+5. Evidence Lifecycle
+6. Slashing
+7. Jail and Unbonding
+
+Cet ordre correspond à la manière de lire le document : d'abord le périmètre et l'état, puis les règles des messages, de sûreté et de vivacité, et enfin les preuves.
+
 ## Vue d’ensemble
 
 Ce document aide à comprendre le cycle validator join, rotation, jail, slashing et leave et à relier ce sujet aux décisions d’implémentation et d’exploitation.

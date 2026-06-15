@@ -3,6 +3,16 @@
 > Locale: id · Bahasa Indonesia
 > Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
 
+
+## Urutan baca
+
+Dokumen ini menjelaskan alur release dan operasi dari Cosmos Comparison Gate. Jika ini bacaan pertama, ikuti urutan ini.
+
+1. Required Evidence Properties
+2. Release Rule
+
+Urutan ini sesuai dengan penggunaan nyata: mulai dari tujuan dan gate, lalu artefak dan kebutuhan evidence, lalu langkah eksekusi.
+
 ## Gambaran umum
 
 Dokumen ini membantu memahami release gate terhadap ekspektasi bergaya Cosmos/Tendermint dan menghubungkannya dengan keputusan implementasi serta operasi.

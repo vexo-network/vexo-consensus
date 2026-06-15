@@ -3,6 +3,23 @@
 > Locale: ja · 日本語
 > この文書は英語原文と併読するための日本語 補助文書です。プロトコル、セキュリティ、リリース判断は英語原文を規範とします。
 
+
+## 最初に読む順序
+
+この文書は Tx Format の規範仕様を説明します。初めて読むなら、次の順で進めると分かりやすいです。
+
+1. Scope
+2. Canonical Payload
+3. Address Format
+4. Signed Envelope
+5. Required Ante Metadata
+6. CheckTx Requirements
+7. Fee and Gas
+8. Load Test Payloads
+9. CLI Examples
+
+この順番は、まず範囲と状態を理解し、次にメッセージ、safety、liveness の規則を確認し、最後に evidence を読む流れです。
+
 ## 文書概要
 
 この文書は transaction format、signing、fee、gas ルールを理解し、実装・運用判断へつなげるためのものです。

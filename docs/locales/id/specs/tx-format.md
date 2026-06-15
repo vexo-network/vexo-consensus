@@ -3,6 +3,23 @@
 > Locale: id · Bahasa Indonesia
 > Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
 
+
+## Urutan baca
+
+Dokumen ini menjelaskan spesifikasi normatif dari Tx Format. Jika ini bacaan pertama, ikuti urutan ini.
+
+1. Scope
+2. Canonical Payload
+3. Address Format
+4. Signed Envelope
+5. Required Ante Metadata
+6. CheckTx Requirements
+7. Fee and Gas
+8. Load Test Payloads
+9. CLI Examples
+
+Urutan ini sesuai dengan cara membaca yang benar: mulai dari scope dan state, lalu aturan message, safety, dan liveness, lalu evidence di bagian akhir.
+
 ## Gambaran umum
 
 Dokumen ini membantu memahami aturan transaction format, signing, fee, dan gas dan menghubungkannya dengan keputusan implementasi serta operasi.

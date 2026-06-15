@@ -3,6 +3,21 @@
 > Locale: vi · Tiếng Việt
 > Tài liệu này là tài liệu đồng hành tiếng Việt để đọc cùng nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.
 
+
+## Thứ tự nên đọc
+
+Tài liệu này giải thích đặc tả quy phạm của Evm Native Accounting. Nếu đây là lần đọc đầu, hãy theo thứ tự này.
+
+1. Core Rule
+2. Amount Encoding
+3. Fee Accounting
+4. EVM Execution
+5. State Root Policy
+6. Compatibility Boundary
+7. Failure Modes
+
+Thứ tự này khớp với cách đọc đúng: trước hết là phạm vi và trạng thái, sau đó là quy tắc message, safety và liveness, và cuối cùng là evidence.
+
 ## Tổng quan
 
 Tài liệu này giúp hiểu liên kết nhất quán native coin với EVM gas/accounting và liên hệ nội dung đó với quyết định triển khai, vận hành.

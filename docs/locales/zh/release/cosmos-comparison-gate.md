@@ -3,6 +3,16 @@
 > Locale: zh · 中文
 > 本文档是配合英文原文阅读的中文 辅助文档。协议、安全和发布判断以英文原文为准。
 
+
+## 先读什么
+
+本文档说明 Cosmos Comparison Gate 的发布与运维流程。第一次阅读时，建议按下面顺序看。
+
+1. Required Evidence Properties
+2. Release Rule
+
+这个顺序对应实际使用方式：先看目标和 gate，再看产物与证据要求，最后看执行步骤。
+
 ## 文档概览
 
 本文档帮助你理解 相对于 Cosmos/Tendermint 风格预期的发布门禁，并把它连接到实际实现和运维判断。

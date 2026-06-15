@@ -3,6 +3,17 @@
 > Locale: id · Bahasa Indonesia
 > Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
 
+
+## Urutan baca
+
+Dokumen ini menjelaskan alur release dan operasi dari Version Compatibility. Jika ini bacaan pertama, ikuti urutan ini.
+
+1. Current Matrix
+2. Upgrade Compatibility Checklist
+3. Rollback Drill
+
+Urutan ini sesuai dengan penggunaan nyata: mulai dari tujuan dan gate, lalu artefak dan kebutuhan evidence, lalu langkah eksekusi.
+
 ## Gambaran umum
 
 Dokumen ini membantu memahami matriks kompatibilitas versi dan kriteria upgrade dan menghubungkannya dengan keputusan implementasi serta operasi.

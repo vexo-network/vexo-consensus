@@ -3,6 +3,23 @@
 > Locale: vi · Tiếng Việt
 > Tài liệu này là tài liệu đồng hành tiếng Việt để đọc cùng nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.
 
+
+## Thứ tự nên đọc
+
+Tài liệu này giải thích đặc tả quy phạm của Finality Proof Format. Nếu đây là lần đọc đầu, hãy theo thứ tự này.
+
+1. Scope
+2. Proof Fields
+3. Header Fields
+4. Quorum Certificate Fields
+5. Commit Chain Fields
+6. Verification Algorithm
+7. Accountable Safety Detection
+8. Ed25519 Model
+9. BLS Model
+
+Thứ tự này khớp với cách đọc đúng: trước hết là phạm vi và trạng thái, sau đó là quy tắc message, safety và liveness, và cuối cùng là evidence.
+
 ## Tổng quan
 
 Tài liệu này giúp hiểu các trường finality proof, thứ tự xác minh và validator set binding và liên hệ nội dung đó với quyết định triển khai, vận hành.

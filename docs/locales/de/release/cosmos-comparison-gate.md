@@ -3,6 +3,16 @@
 > Locale: de · Deutsch
 > Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
 
+
+## Reihenfolge zum Einstieg
+
+Dieses Dokument erklärt den Release- und Betriebsablauf von Cosmos Comparison Gate. Wenn du neu bist, lies in dieser Reihenfolge.
+
+1. Required Evidence Properties
+2. Release Rule
+
+Diese Reihenfolge entspricht der praktischen Nutzung: zuerst Ziele und Gates, dann Artefakte und Evidence-Anforderungen, und zuletzt die Ausführungsschritte.
+
 ## Überblick
 
 Dieses Dokument hilft dabei, das Release-Gate gegenüber Cosmos/Tendermint-ähnlichen Erwartungen zu verstehen und mit Implementierungs- sowie Betriebsentscheidungen zu verbinden.

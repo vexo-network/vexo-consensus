@@ -3,6 +3,24 @@
 > Locale: hi · हिन्दी
 > यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
 
+
+## पहले क्या पढ़ें
+
+यह दस्तावेज़ Consensus Spec की normative specification बताता है। पहली बार पढ़ रहे हों तो इस क्रम में पढ़ें।
+
+1. Scope
+2. Roles
+3. State
+4. Message Types
+5. Safety Rules
+6. Finality Rule
+7. Execution Commit Policy
+8. Liveness Assumptions
+9. Empty Blocks and Round Recovery
+10. Evidence
+
+यह क्रम पढ़ने के सही तरीके से मेल खाता है: पहले scope और state, फिर message, safety और liveness नियम, और अंत में evidence।
+
 ## सारांश
 
 यह दस्तावेज़ consensus state machine की normative specification को समझने और उसे implementation व operation decisions से जोड़ने में मदद करता है।

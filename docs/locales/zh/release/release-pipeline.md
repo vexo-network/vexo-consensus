@@ -3,6 +3,25 @@
 > Locale: zh · 中文
 > 本文档是配合英文原文阅读的中文 辅助文档。协议、安全和发布判断以英文原文为准。
 
+
+## 先读什么
+
+本文档说明 Release Pipeline 的发布与运维流程。第一次阅读时，建议按下面顺序看。
+
+1. Goals
+2. Release Commands
+3. CI Gates
+4. Evidence Quality Rules
+5. Artifacts
+6. Reproducibility Notes
+7. Signed Binaries
+8. SBOM
+9. Audit Pack
+10. Release Candidate Targets
+11. Launch Runbook
+
+这个顺序对应实际使用方式：先看目标和 gate，再看产物与证据要求，最后看执行步骤。
+
 ## 文档概览
 
 本文档帮助你理解 包含签名二进制、checksums 和 SBOM 的发布流水线，并把它连接到实际实现和运维判断。

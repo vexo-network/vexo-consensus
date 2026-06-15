@@ -3,6 +3,22 @@
 > Locale: id · Bahasa Indonesia
 > Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
 
+
+## Urutan baca
+
+Dokumen ini menjelaskan spesifikasi normatif dari Storage Schema. Jika ini bacaan pertama, ikuti urutan ini.
+
+1. Scope
+2. Backend
+3. Records
+4. Indexes
+5. EVM Records
+6. Recovery Rules
+7. Snapshot Validation
+8. Schema Migration
+
+Urutan ini sesuai dengan cara membaca yang benar: mulai dari scope dan state, lalu aturan message, safety, dan liveness, lalu evidence di bagian akhir.
+
 ## Gambaran umum
 
 Dokumen ini membantu memahami namespace durable storage, key schema, dan recovery marker dan menghubungkannya dengan keputusan implementasi serta operasi.

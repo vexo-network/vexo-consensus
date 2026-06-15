@@ -3,6 +3,22 @@
 > Locale: vi · Tiếng Việt
 > Tài liệu này là tài liệu đồng hành tiếng Việt để đọc cùng nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.
 
+
+## Thứ tự nên đọc
+
+Tài liệu này giải thích đặc tả quy phạm của Storage Schema. Nếu đây là lần đọc đầu, hãy theo thứ tự này.
+
+1. Scope
+2. Backend
+3. Records
+4. Indexes
+5. EVM Records
+6. Recovery Rules
+7. Snapshot Validation
+8. Schema Migration
+
+Thứ tự này khớp với cách đọc đúng: trước hết là phạm vi và trạng thái, sau đó là quy tắc message, safety và liveness, và cuối cùng là evidence.
+
 ## Tổng quan
 
 Tài liệu này giúp hiểu namespace durable storage, key schema và recovery marker và liên hệ nội dung đó với quyết định triển khai, vận hành.

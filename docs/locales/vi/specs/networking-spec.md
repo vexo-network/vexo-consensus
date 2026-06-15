@@ -3,6 +3,24 @@
 > Locale: vi · Tiếng Việt
 > Tài liệu này là tài liệu đồng hành tiếng Việt để đọc cùng nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.
 
+
+## Thứ tự nên đọc
+
+Tài liệu này giải thích đặc tả quy phạm của Networking Spec. Nếu đây là lần đọc đầu, hãy theo thứ tự này.
+
+1. Scope
+2. Transport
+3. Topics
+4. Handshake
+5. Wire Compatibility
+6. Address Roles
+7. Peer Scoring
+8. Reconnect and Backoff
+9. DoS/DDOS Defenses
+10. Operational Signals
+
+Thứ tự này khớp với cách đọc đúng: trước hết là phạm vi và trạng thái, sau đó là quy tắc message, safety và liveness, và cuối cùng là evidence.
+
 ## Tổng quan
 
 Tài liệu này giúp hiểu P2P handshake, gossip, peer scoring và chính sách ban và liên hệ nội dung đó với quyết định triển khai, vận hành.

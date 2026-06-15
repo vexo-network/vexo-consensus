@@ -3,6 +3,25 @@
 > Locale: hi · हिन्दी
 > यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
 
+
+## पहले क्या पढ़ें
+
+यह दस्तावेज़ Release Pipeline की release और operations प्रक्रिया बताता है। पहली बार पढ़ रहे हों तो इस क्रम में पढ़ें।
+
+1. Goals
+2. Release Commands
+3. CI Gates
+4. Evidence Quality Rules
+5. Artifacts
+6. Reproducibility Notes
+7. Signed Binaries
+8. SBOM
+9. Audit Pack
+10. Release Candidate Targets
+11. Launch Runbook
+
+यह क्रम practical उपयोग से मेल खाता है: पहले goals और gates, फिर artifacts और evidence requirements, और अंत में execution steps।
+
 ## सारांश
 
 यह दस्तावेज़ signed binaries, checksums और SBOM वाली release pipeline को समझने और उसे implementation व operation decisions से जोड़ने में मदद करता है।

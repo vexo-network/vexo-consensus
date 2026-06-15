@@ -3,6 +3,16 @@
 > Locale: pt · Português
 > Este documento é um documento de apoio em português para ser lido junto da fonte inglesa. Decisões de protocolo, segurança e release continuam normativas em inglês.
 
+
+## Ordem de leitura
+
+Este documento explica o fluxo de release e operação de Cosmos Comparison Gate. Se esta for a sua primeira leitura, siga esta ordem.
+
+1. Required Evidence Properties
+2. Release Rule
+
+Essa ordem corresponde ao uso real: primeiro os objetivos e gates, depois os artefatos e requisitos de evidência, e por fim as etapas de execução.
+
 ## Visão geral
 
 Este documento ajuda a entender o gate de release frente a expectativas estilo Cosmos/Tendermint e a conectar isso a decisões de implementação e operação.

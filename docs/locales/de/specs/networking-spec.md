@@ -3,6 +3,24 @@
 > Locale: de · Deutsch
 > Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
 
+
+## Reihenfolge zum Einstieg
+
+Dieses Dokument erklärt die normative Spezifikation von Networking Spec. Wenn du neu bist, lies in dieser Reihenfolge.
+
+1. Scope
+2. Transport
+3. Topics
+4. Handshake
+5. Wire Compatibility
+6. Address Roles
+7. Peer Scoring
+8. Reconnect and Backoff
+9. DoS/DDOS Defenses
+10. Operational Signals
+
+Diese Reihenfolge passt zur Art, wie man das Dokument liest: zuerst Umfang und Zustand, dann Nachrichten-, Safety- und Liveness-Regeln, und am Ende die Beweise.
+
 ## Überblick
 
 Dieses Dokument hilft dabei, P2P handshake, gossip, peer scoring und ban policy zu verstehen und mit Implementierungs- sowie Betriebsentscheidungen zu verbinden.

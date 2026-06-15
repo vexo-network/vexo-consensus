@@ -3,6 +3,23 @@
 > Locale: id · Bahasa Indonesia
 > Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
 
+
+## Urutan baca
+
+Dokumen ini menjelaskan spesifikasi normatif dari Finality Proof Format. Jika ini bacaan pertama, ikuti urutan ini.
+
+1. Scope
+2. Proof Fields
+3. Header Fields
+4. Quorum Certificate Fields
+5. Commit Chain Fields
+6. Verification Algorithm
+7. Accountable Safety Detection
+8. Ed25519 Model
+9. BLS Model
+
+Urutan ini sesuai dengan cara membaca yang benar: mulai dari scope dan state, lalu aturan message, safety, dan liveness, lalu evidence di bagian akhir.
+
 ## Gambaran umum
 
 Dokumen ini membantu memahami field finality proof, urutan verifikasi, dan validator set binding dan menghubungkannya dengan keputusan implementasi serta operasi.

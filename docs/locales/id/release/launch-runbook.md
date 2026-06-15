@@ -3,6 +3,20 @@
 > Locale: id · Bahasa Indonesia
 > Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
 
+
+## Urutan baca
+
+Dokumen ini menjelaskan alur release dan operasi dari Launch Runbook. Jika ini bacaan pertama, ikuti urutan ini.
+
+1. At a Glance
+2. Prelaunch Gate
+3. Release Candidate Gate
+4. Genesis Gate
+5. Launch Window
+6. Postlaunch Archive
+
+Urutan ini sesuai dengan penggunaan nyata: mulai dari tujuan dan gate, lalu artefak dan kebutuhan evidence, lalu langkah eksekusi.
+
 ## Gambaran umum
 
 Dokumen ini membantu memahami checklist operator dan prosedur sebelum peluncuran jaringan dan menghubungkannya dengan keputusan implementasi serta operasi.

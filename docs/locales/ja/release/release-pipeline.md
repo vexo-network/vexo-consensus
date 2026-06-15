@@ -3,6 +3,25 @@
 > Locale: ja · 日本語
 > この文書は英語原文と併読するための日本語 補助文書です。プロトコル、セキュリティ、リリース判断は英語原文を規範とします。
 
+
+## 最初に読む順序
+
+この文書は Release Pipeline の release と運用手順を説明します。初めて読むなら、次の順で進めると分かりやすいです。
+
+1. Goals
+2. Release Commands
+3. CI Gates
+4. Evidence Quality Rules
+5. Artifacts
+6. Reproducibility Notes
+7. Signed Binaries
+8. SBOM
+9. Audit Pack
+10. Release Candidate Targets
+11. Launch Runbook
+
+この順番は、まず目的と gate を理解し、次に artifact と evidence 要件を確認し、最後に実行手順へ進む流れです。
+
 ## 文書概要
 
 この文書は 署名付きバイナリ、checksums、SBOM を含むリリースパイプラインを理解し、実装・運用判断へつなげるためのものです。

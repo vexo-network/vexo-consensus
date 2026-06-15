@@ -3,6 +3,24 @@
 > Locale: de · Deutsch
 > Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
 
+
+## Reihenfolge zum Einstieg
+
+Dieses Dokument erklärt die normative Spezifikation von Consensus Spec. Wenn du neu bist, lies in dieser Reihenfolge.
+
+1. Scope
+2. Roles
+3. State
+4. Message Types
+5. Safety Rules
+6. Finality Rule
+7. Execution Commit Policy
+8. Liveness Assumptions
+9. Empty Blocks and Round Recovery
+10. Evidence
+
+Diese Reihenfolge passt zur Art, wie man das Dokument liest: zuerst Umfang und Zustand, dann Nachrichten-, Safety- und Liveness-Regeln, und am Ende die Beweise.
+
 ## Überblick
 
 Dieses Dokument hilft dabei, die normative Spezifikation der Konsens-State-Machine zu verstehen und mit Implementierungs- sowie Betriebsentscheidungen zu verbinden.

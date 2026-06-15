@@ -3,6 +3,23 @@
 > Locale: fr · Français
 > Ce document est un document d’accompagnement français à lire avec la source anglaise. Les décisions de protocole, de sécurité et de release restent normatives en anglais.
 
+
+## Ordre de lecture
+
+Ce document explique la spécification normative de Tx Format. Si c'est votre première lecture, suivez cet ordre.
+
+1. Scope
+2. Canonical Payload
+3. Address Format
+4. Signed Envelope
+5. Required Ante Metadata
+6. CheckTx Requirements
+7. Fee and Gas
+8. Load Test Payloads
+9. CLI Examples
+
+Cet ordre correspond à la manière de lire le document : d'abord le périmètre et l'état, puis les règles des messages, de sûreté et de vivacité, et enfin les preuves.
+
 ## Vue d’ensemble
 
 Ce document aide à comprendre transaction format, signing, fee et règles de gas et à relier ce sujet aux décisions d’implémentation et d’exploitation.

@@ -3,6 +3,17 @@
 > Locale: vi · Tiếng Việt
 > Tài liệu này là tài liệu đồng hành tiếng Việt để đọc cùng nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.
 
+
+## Thứ tự nên đọc
+
+Tài liệu này giải thích quy trình release và vận hành của Version Compatibility. Nếu đây là lần đọc đầu, hãy theo thứ tự này.
+
+1. Current Matrix
+2. Upgrade Compatibility Checklist
+3. Rollback Drill
+
+Thứ tự này khớp với cách sử dụng thực tế: trước hết là mục tiêu và gate, sau đó là artifact và yêu cầu evidence, và cuối cùng là các bước thực thi.
+
 ## Tổng quan
 
 Tài liệu này giúp hiểu ma trận tương thích phiên bản và tiêu chí nâng cấp và liên hệ nội dung đó với quyết định triển khai, vận hành.

@@ -3,6 +3,16 @@
 > Locale: ja · 日本語
 > この文書は英語原文と併読するための日本語 補助文書です。プロトコル、セキュリティ、リリース判断は英語原文を規範とします。
 
+
+## 最初に読む順序
+
+この文書は Cosmos Comparison Gate の release と運用手順を説明します。初めて読むなら、次の順で進めると分かりやすいです。
+
+1. Required Evidence Properties
+2. Release Rule
+
+この順番は、まず目的と gate を理解し、次に artifact と evidence 要件を確認し、最後に実行手順へ進む流れです。
+
 ## 文書概要
 
 この文書は Cosmos/Tendermint 風の期待値に対するリリースゲートを理解し、実装・運用判断へつなげるためのものです。

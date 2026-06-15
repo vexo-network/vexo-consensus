@@ -3,6 +3,24 @@
 > Locale: vi · Tiếng Việt
 > Tài liệu này là tài liệu đồng hành tiếng Việt để đọc cùng nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.
 
+
+## Thứ tự nên đọc
+
+Tài liệu này giải thích đặc tả quy phạm của Consensus Spec. Nếu đây là lần đọc đầu, hãy theo thứ tự này.
+
+1. Scope
+2. Roles
+3. State
+4. Message Types
+5. Safety Rules
+6. Finality Rule
+7. Execution Commit Policy
+8. Liveness Assumptions
+9. Empty Blocks and Round Recovery
+10. Evidence
+
+Thứ tự này khớp với cách đọc đúng: trước hết là phạm vi và trạng thái, sau đó là quy tắc message, safety và liveness, và cuối cùng là evidence.
+
 ## Tổng quan
 
 Tài liệu này giúp hiểu đặc tả chuẩn của state machine đồng thuận và liên hệ nội dung đó với quyết định triển khai, vận hành.

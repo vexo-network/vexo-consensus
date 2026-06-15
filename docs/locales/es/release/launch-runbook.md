@@ -3,6 +3,20 @@
 > Locale: es · Español
 > Este documento es un documento de acompañamiento en español para leer junto con la fuente inglesa. Las decisiones de protocolo, seguridad y release siguen siendo normativas en inglés.
 
+
+## Orden de lectura
+
+Este documento explica el flujo de release y operación de Launch Runbook. Si es tu primera lectura, sigue este orden.
+
+1. At a Glance
+2. Prelaunch Gate
+3. Release Candidate Gate
+4. Genesis Gate
+5. Launch Window
+6. Postlaunch Archive
+
+Ese orden coincide con el uso real: primero los objetivos y gates, luego los artefactos y requisitos de evidencia, y al final los pasos de ejecución.
+
 ## Resumen
 
 Este documento ayuda a entender checklist operativa y procedimiento antes del lanzamiento de red y a conectarlo con decisiones de implementación y operación.

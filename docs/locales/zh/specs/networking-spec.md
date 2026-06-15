@@ -3,6 +3,24 @@
 > Locale: zh · 中文
 > 本文档是配合英文原文阅读的中文 辅助文档。协议、安全和发布判断以英文原文为准。
 
+
+## 先读什么
+
+本文档说明 Networking Spec 的规范定义。第一次阅读时，建议按下面顺序看。
+
+1. Scope
+2. Transport
+3. Topics
+4. Handshake
+5. Wire Compatibility
+6. Address Roles
+7. Peer Scoring
+8. Reconnect and Backoff
+9. DoS/DDOS Defenses
+10. Operational Signals
+
+这个顺序对应你的阅读方式：先看范围和状态，再看消息、正确性与活性规则，最后看证据。
+
 ## 文档概览
 
 本文档帮助你理解 P2P handshake、gossip、peer scoring 和 ban 策略，并把它连接到实际实现和运维判断。

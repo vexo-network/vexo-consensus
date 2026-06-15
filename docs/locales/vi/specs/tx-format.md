@@ -3,6 +3,23 @@
 > Locale: vi · Tiếng Việt
 > Tài liệu này là tài liệu đồng hành tiếng Việt để đọc cùng nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.
 
+
+## Thứ tự nên đọc
+
+Tài liệu này giải thích đặc tả quy phạm của Tx Format. Nếu đây là lần đọc đầu, hãy theo thứ tự này.
+
+1. Scope
+2. Canonical Payload
+3. Address Format
+4. Signed Envelope
+5. Required Ante Metadata
+6. CheckTx Requirements
+7. Fee and Gas
+8. Load Test Payloads
+9. CLI Examples
+
+Thứ tự này khớp với cách đọc đúng: trước hết là phạm vi và trạng thái, sau đó là quy tắc message, safety và liveness, và cuối cùng là evidence.
+
 ## Tổng quan
 
 Tài liệu này giúp hiểu quy tắc transaction format, signing, fee và gas và liên hệ nội dung đó với quyết định triển khai, vận hành.

@@ -3,6 +3,25 @@
 > Locale: vi · Tiếng Việt
 > Tài liệu này là tài liệu đồng hành tiếng Việt để đọc cùng nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.
 
+
+## Thứ tự nên đọc
+
+Tài liệu này giải thích quy trình release và vận hành của Release Pipeline. Nếu đây là lần đọc đầu, hãy theo thứ tự này.
+
+1. Goals
+2. Release Commands
+3. CI Gates
+4. Evidence Quality Rules
+5. Artifacts
+6. Reproducibility Notes
+7. Signed Binaries
+8. SBOM
+9. Audit Pack
+10. Release Candidate Targets
+11. Launch Runbook
+
+Thứ tự này khớp với cách sử dụng thực tế: trước hết là mục tiêu và gate, sau đó là artifact và yêu cầu evidence, và cuối cùng là các bước thực thi.
+
 ## Tổng quan
 
 Tài liệu này giúp hiểu pipeline phát hành với binary đã ký, checksums và SBOM và liên hệ nội dung đó với quyết định triển khai, vận hành.

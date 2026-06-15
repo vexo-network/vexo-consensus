@@ -3,6 +3,23 @@
 > Locale: zh · 中文
 > 本文档是配合英文原文阅读的中文 辅助文档。协议、安全和发布判断以英文原文为准。
 
+
+## 先读什么
+
+本文档说明 Tx Format 的规范定义。第一次阅读时，建议按下面顺序看。
+
+1. Scope
+2. Canonical Payload
+3. Address Format
+4. Signed Envelope
+5. Required Ante Metadata
+6. CheckTx Requirements
+7. Fee and Gas
+8. Load Test Payloads
+9. CLI Examples
+
+这个顺序对应你的阅读方式：先看范围和状态，再看消息、正确性与活性规则，最后看证据。
+
 ## 文档概览
 
 本文档帮助你理解 transaction format、signing、fee 和 gas 规则，并把它连接到实际实现和运维判断。

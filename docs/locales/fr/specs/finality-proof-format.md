@@ -3,6 +3,23 @@
 > Locale: fr · Français
 > Ce document est un document d’accompagnement français à lire avec la source anglaise. Les décisions de protocole, de sécurité et de release restent normatives en anglais.
 
+
+## Ordre de lecture
+
+Ce document explique la spécification normative de Finality Proof Format. Si c'est votre première lecture, suivez cet ordre.
+
+1. Scope
+2. Proof Fields
+3. Header Fields
+4. Quorum Certificate Fields
+5. Commit Chain Fields
+6. Verification Algorithm
+7. Accountable Safety Detection
+8. Ed25519 Model
+9. BLS Model
+
+Cet ordre correspond à la manière de lire le document : d'abord le périmètre et l'état, puis les règles des messages, de sûreté et de vivacité, et enfin les preuves.
+
 ## Vue d’ensemble
 
 Ce document aide à comprendre les champs finality proof, l’ordre de vérification et le validator set binding et à relier ce sujet aux décisions d’implémentation et d’exploitation.

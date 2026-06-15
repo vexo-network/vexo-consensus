@@ -3,6 +3,24 @@
 > Locale: fr · Français
 > Ce document est un document d’accompagnement français à lire avec la source anglaise. Les décisions de protocole, de sécurité et de release restent normatives en anglais.
 
+
+## Ordre de lecture
+
+Ce document explique la spécification normative de Consensus Spec. Si c'est votre première lecture, suivez cet ordre.
+
+1. Scope
+2. Roles
+3. State
+4. Message Types
+5. Safety Rules
+6. Finality Rule
+7. Execution Commit Policy
+8. Liveness Assumptions
+9. Empty Blocks and Round Recovery
+10. Evidence
+
+Cet ordre correspond à la manière de lire le document : d'abord le périmètre et l'état, puis les règles des messages, de sûreté et de vivacité, et enfin les preuves.
+
 ## Vue d’ensemble
 
 Ce document aide à comprendre la spécification normative de la state machine de consensus et à relier ce sujet aux décisions d’implémentation et d’exploitation.

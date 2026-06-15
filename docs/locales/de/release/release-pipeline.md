@@ -3,6 +3,25 @@
 > Locale: de · Deutsch
 > Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
 
+
+## Reihenfolge zum Einstieg
+
+Dieses Dokument erklärt den Release- und Betriebsablauf von Release Pipeline. Wenn du neu bist, lies in dieser Reihenfolge.
+
+1. Goals
+2. Release Commands
+3. CI Gates
+4. Evidence Quality Rules
+5. Artifacts
+6. Reproducibility Notes
+7. Signed Binaries
+8. SBOM
+9. Audit Pack
+10. Release Candidate Targets
+11. Launch Runbook
+
+Diese Reihenfolge entspricht der praktischen Nutzung: zuerst Ziele und Gates, dann Artefakte und Evidence-Anforderungen, und zuletzt die Ausführungsschritte.
+
 ## Überblick
 
 Dieses Dokument hilft dabei, die Release-Pipeline mit signierten Binaries, Checksums und SBOM zu verstehen und mit Implementierungs- sowie Betriebsentscheidungen zu verbinden.

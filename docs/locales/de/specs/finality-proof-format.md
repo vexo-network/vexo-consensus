@@ -3,6 +3,23 @@
 > Locale: de · Deutsch
 > Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
 
+
+## Reihenfolge zum Einstieg
+
+Dieses Dokument erklärt die normative Spezifikation von Finality Proof Format. Wenn du neu bist, lies in dieser Reihenfolge.
+
+1. Scope
+2. Proof Fields
+3. Header Fields
+4. Quorum Certificate Fields
+5. Commit Chain Fields
+6. Verification Algorithm
+7. Accountable Safety Detection
+8. Ed25519 Model
+9. BLS Model
+
+Diese Reihenfolge passt zur Art, wie man das Dokument liest: zuerst Umfang und Zustand, dann Nachrichten-, Safety- und Liveness-Regeln, und am Ende die Beweise.
+
 ## Überblick
 
 Dieses Dokument hilft dabei, finality proof Felder, Prüfreihenfolge und validator set binding zu verstehen und mit Implementierungs- sowie Betriebsentscheidungen zu verbinden.

@@ -3,6 +3,22 @@
 > Locale: de · Deutsch
 > Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
 
+
+## Reihenfolge zum Einstieg
+
+Dieses Dokument erklärt die normative Spezifikation von Storage Schema. Wenn du neu bist, lies in dieser Reihenfolge.
+
+1. Scope
+2. Backend
+3. Records
+4. Indexes
+5. EVM Records
+6. Recovery Rules
+7. Snapshot Validation
+8. Schema Migration
+
+Diese Reihenfolge passt zur Art, wie man das Dokument liest: zuerst Umfang und Zustand, dann Nachrichten-, Safety- und Liveness-Regeln, und am Ende die Beweise.
+
 ## Überblick
 
 Dieses Dokument hilft dabei, durable storage namespaces, key schema und recovery marker zu verstehen und mit Implementierungs- sowie Betriebsentscheidungen zu verbinden.

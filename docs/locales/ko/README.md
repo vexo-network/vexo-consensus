@@ -43,7 +43,7 @@
 | 릴리즈 담당자 | [Release Pipeline](./release/release-pipeline.md) | [출시 런북](./release/launch-runbook.md), [Version Compatibility Matrix](./release/version-compatibility.md) |
 | 보안 검토자 | [Security Audit Readiness](./security/audit-readiness.md) | [Consensus Spec](./specs/consensus-spec.md), [Storage Schema](./specs/storage-schema.md) |
 
-## Protocol Specs
+## 프로토콜 사양
 
 | 문서 | 다루는 내용 |
 |---|---|
@@ -55,7 +55,7 @@
 | [EVM and Native Accounting](./specs/evm-native-accounting.md) | native coin과 EVM balance/gas/accounting 연결 방식 |
 | [Validator Lifecycle](./specs/validator-lifecycle.md) | validator admission, rotation, slashing, jailing, unbonding |
 
-## SDK and Extension Guides
+## SDK 및 확장 가이드
 
 | 문서 | 다루는 내용 |
 |---|---|
@@ -64,7 +64,7 @@
 | [Custom Storage and Transport](./sdk/custom-storage-transport.md) | store 또는 peer transport adapter 구현 |
 | [RPC API Versioning](./sdk/rpc-api-versioning.md) | `/v1/*` endpoint 안정성, compatibility alias, Web3/EVM RPC 경계 |
 
-## Operations and Release
+## 운영 및 릴리즈
 
 | 문서 | 다루는 내용 |
 |---|---|
@@ -75,7 +75,7 @@
 | [Cosmos/Tendermint Comparison Gate](./release/cosmos-comparison-gate.md) | Tendermint/Cosmos 스타일 기대치와 Vexo release evidence 비교 |
 | [Version Compatibility Matrix](./release/version-compatibility.md) | binary, config, store, app, RPC, proof format 호환성 |
 
-## Security
+## 보안
 
 | 문서 | 다루는 내용 |
 |---|---|

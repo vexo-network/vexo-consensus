@@ -3,6 +3,20 @@
 > Locale: de · Deutsch
 > Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
 
+
+## Reihenfolge zum Einstieg
+
+Dieses Dokument erklärt den Release- und Betriebsablauf von Launch Runbook. Wenn du neu bist, lies in dieser Reihenfolge.
+
+1. At a Glance
+2. Prelaunch Gate
+3. Release Candidate Gate
+4. Genesis Gate
+5. Launch Window
+6. Postlaunch Archive
+
+Diese Reihenfolge entspricht der praktischen Nutzung: zuerst Ziele und Gates, dann Artefakte und Evidence-Anforderungen, und zuletzt die Ausführungsschritte.
+
 ## Überblick
 
 Dieses Dokument hilft dabei, Operator-Checkliste und Ablauf vor dem Netzwerkstart zu verstehen und mit Implementierungs- sowie Betriebsentscheidungen zu verbinden.

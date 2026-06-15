@@ -3,6 +3,17 @@
 > Locale: es · Español
 > Este documento es un documento de acompañamiento en español para leer junto con la fuente inglesa. Las decisiones de protocolo, seguridad y release siguen siendo normativas en inglés.
 
+
+## Orden de lectura
+
+Este documento explica el flujo de release y operación de Version Compatibility. Si es tu primera lectura, sigue este orden.
+
+1. Current Matrix
+2. Upgrade Compatibility Checklist
+3. Rollback Drill
+
+Ese orden coincide con el uso real: primero los objetivos y gates, luego los artefactos y requisitos de evidencia, y al final los pasos de ejecución.
+
 ## Resumen
 
 Este documento ayuda a entender matriz de compatibilidad de versiones y criterios de upgrade y a conectarlo con decisiones de implementación y operación.

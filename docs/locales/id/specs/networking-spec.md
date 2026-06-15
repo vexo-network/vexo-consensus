@@ -3,6 +3,24 @@
 > Locale: id · Bahasa Indonesia
 > Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
 
+
+## Urutan baca
+
+Dokumen ini menjelaskan spesifikasi normatif dari Networking Spec. Jika ini bacaan pertama, ikuti urutan ini.
+
+1. Scope
+2. Transport
+3. Topics
+4. Handshake
+5. Wire Compatibility
+6. Address Roles
+7. Peer Scoring
+8. Reconnect and Backoff
+9. DoS/DDOS Defenses
+10. Operational Signals
+
+Urutan ini sesuai dengan cara membaca yang benar: mulai dari scope dan state, lalu aturan message, safety, dan liveness, lalu evidence di bagian akhir.
+
 ## Gambaran umum
 
 Dokumen ini membantu memahami P2P handshake, gossip, peer scoring, dan kebijakan ban dan menghubungkannya dengan keputusan implementasi serta operasi.

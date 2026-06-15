@@ -3,6 +3,24 @@
 > Locale: ko · 한국어
 > 이 문서는 영어 원문을 함께 읽기 위한 한국어 보조 문서입니다. 프로토콜, 보안, 릴리즈 판단은 영어 원문이 규범입니다.
 
+
+## 먼저 읽을 순서
+
+이 문서는 Networking Spec의 규범 규격을 설명합니다. 처음이라면 아래 순서로 읽는 것이 좋습니다.
+
+1. Scope
+2. Transport
+3. Topics
+4. Handshake
+5. Wire Compatibility
+6. Address Roles
+7. Peer Scoring
+8. Reconnect and Backoff
+9. DoS/DDOS Defenses
+10. Operational Signals
+
+이 순서는 먼저 범위와 상태를 이해하고, 그다음 메시지/안전/진행성 규칙을 확인한 뒤, 마지막으로 증거를 읽는 흐름과 같습니다.
+
 ## 문서 개요
 
 이 문서는 P2P handshake, gossip, peer scoring, ban 정책을 이해하고 실제 구현·운영 판단에 연결하도록 돕습니다. 예제와 식별자는 구현 호환성을 위해 영어 표기를 유지하지만, 읽는 흐름과 운영상 판단 기준은 한국어로 설명합니다.

@@ -3,6 +3,16 @@
 > Locale: hi · हिन्दी
 > यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
 
+
+## पहले क्या पढ़ें
+
+यह दस्तावेज़ Cosmos Comparison Gate की release और operations प्रक्रिया बताता है। पहली बार पढ़ रहे हों तो इस क्रम में पढ़ें।
+
+1. Required Evidence Properties
+2. Release Rule
+
+यह क्रम practical उपयोग से मेल खाता है: पहले goals और gates, फिर artifacts और evidence requirements, और अंत में execution steps।
+
 ## सारांश
 
 यह दस्तावेज़ Cosmos/Tendermint शैली की अपेक्षाओं के विरुद्ध release gate को समझने और उसे implementation व operation decisions से जोड़ने में मदद करता है।

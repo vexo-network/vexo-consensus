@@ -3,6 +3,21 @@
 > Locale: de · Deutsch
 > Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
 
+
+## Reihenfolge zum Einstieg
+
+Dieses Dokument erklärt die normative Spezifikation von Evm Native Accounting. Wenn du neu bist, lies in dieser Reihenfolge.
+
+1. Core Rule
+2. Amount Encoding
+3. Fee Accounting
+4. EVM Execution
+5. State Root Policy
+6. Compatibility Boundary
+7. Failure Modes
+
+Diese Reihenfolge passt zur Art, wie man das Dokument liest: zuerst Umfang und Zustand, dann Nachrichten-, Safety- und Liveness-Regeln, und am Ende die Beweise.
+
 ## Überblick
 
 Dieses Dokument hilft dabei, die konsistente Verbindung von native coin und EVM gas/accounting zu verstehen und mit Implementierungs- sowie Betriebsentscheidungen zu verbinden.

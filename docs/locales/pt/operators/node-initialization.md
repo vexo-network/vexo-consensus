@@ -107,7 +107,7 @@ Este documento ajuda a entender inicialização de nós archive/validator e uso 
 
 Em um novo home de nó, revise juntos `p2p.dial_timeout`, `p2p.auth_replay_path` e `p2p.require_auth_replay_store` em `network_config.json`. O padrão `10s` cobre TCP dial, TLS, signed handshake e replay-store. Em redes públicas, mantenha isso na configuração revisada, não escondido em flags de shell.
 
-## State Sync na inicialização
+## Sincronização de estado na inicialização na inicialização
 
 O bloco `state_sync` em `network_config.json` atende novos nós archive, validator substitutos e nós restaurados em uma máquina limpa. Quando `state_sync.enabled` é true, `vexod start` tenta `state_sync.snapshot_urls` em ordem, verifica chain ID, checksum, state root e KV namespace, restaura no LevelDB, reconstrói índices e só então inicia o nó. Se o estado local já atende `state_sync.min_height` e `state_sync.trust_local_higher` é true, o store local é mantido e `state_sync_skipped` é registrado.
 

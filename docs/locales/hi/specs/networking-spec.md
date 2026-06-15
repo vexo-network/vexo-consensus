@@ -3,6 +3,24 @@
 > Locale: hi · हिन्दी
 > यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
 
+
+## पहले क्या पढ़ें
+
+यह दस्तावेज़ Networking Spec की normative specification बताता है। पहली बार पढ़ रहे हों तो इस क्रम में पढ़ें।
+
+1. Scope
+2. Transport
+3. Topics
+4. Handshake
+5. Wire Compatibility
+6. Address Roles
+7. Peer Scoring
+8. Reconnect and Backoff
+9. DoS/DDOS Defenses
+10. Operational Signals
+
+यह क्रम पढ़ने के सही तरीके से मेल खाता है: पहले scope और state, फिर message, safety और liveness नियम, और अंत में evidence।
+
 ## सारांश
 
 यह दस्तावेज़ P2P handshake, gossip, peer scoring और ban policy को समझने और उसे implementation व operation decisions से जोड़ने में मदद करता है।

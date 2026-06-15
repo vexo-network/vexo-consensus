@@ -3,6 +3,21 @@
 > Locale: ja · 日本語
 > この文書は英語原文と併読するための日本語 補助文書です。プロトコル、セキュリティ、リリース判断は英語原文を規範とします。
 
+
+## 最初に読む順序
+
+この文書は Evm Native Accounting の規範仕様を説明します。初めて読むなら、次の順で進めると分かりやすいです。
+
+1. Core Rule
+2. Amount Encoding
+3. Fee Accounting
+4. EVM Execution
+5. State Root Policy
+6. Compatibility Boundary
+7. Failure Modes
+
+この順番は、まず範囲と状態を理解し、次にメッセージ、safety、liveness の規則を確認し、最後に evidence を読む流れです。
+
 ## 文書概要
 
 この文書は native coin と EVM gas/accounting を一貫して接続する方法を理解し、実装・運用判断へつなげるためのものです。

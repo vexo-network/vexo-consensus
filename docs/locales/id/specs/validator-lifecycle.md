@@ -3,6 +3,21 @@
 > Locale: id · Bahasa Indonesia
 > Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
 
+
+## Urutan baca
+
+Dokumen ini menjelaskan spesifikasi normatif dari Validator Lifecycle. Jika ini bacaan pertama, ikuti urutan ini.
+
+1. Scope
+2. Admission
+3. Validator Set
+4. Rotation
+5. Evidence Lifecycle
+6. Slashing
+7. Jail and Unbonding
+
+Urutan ini sesuai dengan cara membaca yang benar: mulai dari scope dan state, lalu aturan message, safety, dan liveness, lalu evidence di bagian akhir.
+
 ## Gambaran umum
 
 Dokumen ini membantu memahami lifecycle validator join, rotation, jail, slashing, dan leave dan menghubungkannya dengan keputusan implementasi serta operasi.

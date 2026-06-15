@@ -107,7 +107,7 @@ Dokumen ini membantu memahami inisialisasi node archive/validator dan pengelolaa
 
 Untuk node home baru, tinjau `p2p.dial_timeout`, `p2p.auth_replay_path`, dan `p2p.require_auth_replay_store` di `network_config.json` secara bersama. Default `10s` mencakup TCP dial, TLS, signed handshake, dan replay-store check. Untuk jaringan publik, simpan perilaku ini di config yang direview, bukan di shell flags tersembunyi.
 
-## State Sync saat startup
+## Sinkronisasi state saat startup saat startup
 
 Blok `state_sync` di `network_config.json` digunakan untuk node archive baru, validator pengganti, atau node yang dipulihkan di mesin bersih. Jika `state_sync.enabled` bernilai true, `vexod start` mencoba `state_sync.snapshot_urls` secara berurutan, memverifikasi chain ID, checksum, state root, dan KV namespace, lalu memulihkan ke LevelDB, membangun ulang indeks, dan baru menjalankan node. Jika state lokal sudah mencapai `state_sync.min_height` dan `state_sync.trust_local_higher` true, store lokal dipertahankan dan `state_sync_skipped` dicatat.
 

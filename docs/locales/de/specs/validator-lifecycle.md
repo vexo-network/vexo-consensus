@@ -3,6 +3,21 @@
 > Locale: de · Deutsch
 > Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
 
+
+## Reihenfolge zum Einstieg
+
+Dieses Dokument erklärt die normative Spezifikation von Validator Lifecycle. Wenn du neu bist, lies in dieser Reihenfolge.
+
+1. Scope
+2. Admission
+3. Validator Set
+4. Rotation
+5. Evidence Lifecycle
+6. Slashing
+7. Jail and Unbonding
+
+Diese Reihenfolge passt zur Art, wie man das Dokument liest: zuerst Umfang und Zustand, dann Nachrichten-, Safety- und Liveness-Regeln, und am Ende die Beweise.
+
 ## Überblick
 
 Dieses Dokument hilft dabei, validator join, rotation, jail, slashing und leave lifecycle zu verstehen und mit Implementierungs- sowie Betriebsentscheidungen zu verbinden.

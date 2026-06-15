@@ -3,6 +3,21 @@
 > Locale: hi · हिन्दी
 > यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
 
+
+## पहले क्या पढ़ें
+
+यह दस्तावेज़ Validator Lifecycle की normative specification बताता है। पहली बार पढ़ रहे हों तो इस क्रम में पढ़ें।
+
+1. Scope
+2. Admission
+3. Validator Set
+4. Rotation
+5. Evidence Lifecycle
+6. Slashing
+7. Jail and Unbonding
+
+यह क्रम पढ़ने के सही तरीके से मेल खाता है: पहले scope और state, फिर message, safety और liveness नियम, और अंत में evidence।
+
 ## सारांश
 
 यह दस्तावेज़ validator join, rotation, jail, slashing और leave lifecycle को समझने और उसे implementation व operation decisions से जोड़ने में मदद करता है।

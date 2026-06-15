@@ -3,6 +3,20 @@
 > Locale: ja · 日本語
 > この文書は英語原文と併読するための日本語 補助文書です。プロトコル、セキュリティ、リリース判断は英語原文を規範とします。
 
+
+## 最初に読む順序
+
+この文書は Launch Runbook の release と運用手順を説明します。初めて読むなら、次の順で進めると分かりやすいです。
+
+1. At a Glance
+2. Prelaunch Gate
+3. Release Candidate Gate
+4. Genesis Gate
+5. Launch Window
+6. Postlaunch Archive
+
+この順番は、まず目的と gate を理解し、次に artifact と evidence 要件を確認し、最後に実行手順へ進む流れです。
+
 ## 文書概要
 
 この文書は ネットワーク開始前の運用チェックリストと実行手順を理解し、実装・運用判断へつなげるためのものです。

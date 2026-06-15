@@ -3,6 +3,25 @@
 > Locale: id · Bahasa Indonesia
 > Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
 
+
+## Urutan baca
+
+Dokumen ini menjelaskan alur release dan operasi dari Release Pipeline. Jika ini bacaan pertama, ikuti urutan ini.
+
+1. Goals
+2. Release Commands
+3. CI Gates
+4. Evidence Quality Rules
+5. Artifacts
+6. Reproducibility Notes
+7. Signed Binaries
+8. SBOM
+9. Audit Pack
+10. Release Candidate Targets
+11. Launch Runbook
+
+Urutan ini sesuai dengan penggunaan nyata: mulai dari tujuan dan gate, lalu artefak dan kebutuhan evidence, lalu langkah eksekusi.
+
 ## Gambaran umum
 
 Dokumen ini membantu memahami pipeline rilis dengan binary bertanda tangan, checksums, dan SBOM dan menghubungkannya dengan keputusan implementasi serta operasi.
