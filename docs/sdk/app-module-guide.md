@@ -4,6 +4,19 @@
 
 This guide explains how to add an application module to Vexo.
 
+## Start Here
+
+If you are adding a module for the first time, read the sections in this order:
+
+1. Module interface
+2. Transaction routing
+3. Module configuration
+4. State and events
+5. Genesis and ante handling
+6. CLI commands and tests
+
+That order matches the work you usually have to do: define the module shape, decide how it receives transactions, decide what state it owns, then teach the CLI and tests how to drive it.
+
 ## Module Interface
 
 Implement `app.Module`:

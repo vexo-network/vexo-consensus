@@ -22,6 +22,8 @@ Snapshot support implements `store.SnapshotKVStore`:
 
 Historical snapshot support is required for runtime construction. Custom stores that only implement latest-state reads are rejected because historical query proofs, replay, light-client proof serving, Web3 historical account state, and state-sync verification must fail at startup rather than later under load.
 
+If you are deciding whether a storage backend is ready, ask one simple question: can it still recover the same chain after a crash, a pruning pass, a snapshot restore, and a historical proof request? If the answer is no, it is not ready for a Vexo network that keeps real history.
+
 ## Storage Requirements
 
 A production storage backend must guarantee:
@@ -63,6 +65,8 @@ A production transport should provide:
 - TLS or an equivalent authenticated encryption layer for public peer links
 - config-file wiring for cert/key/CA/server-name material instead of long-lived command-line overrides
 - `transport.GRPCConfig.RequireTLS` when the caller wants construction to fail instead of silently falling back to insecure gRPC credentials
+
+In practice, a transport is not production-ready until a restart, a peer ban, and a reconnect all leave the peer graph in a state the node can explain from logs and metrics alone.
 
 ## Compatibility
 

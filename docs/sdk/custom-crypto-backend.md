@@ -4,6 +4,17 @@
 
 This guide explains how to add a custom crypto backend, including audited BLS and VRF adapters.
 
+## Start Here
+
+If you only need the shortest path:
+
+1. Decide whether you need a consensus signer, a finality verifier, a BLS adapter, a VRF adapter, or a remote signer.
+2. Check the domain-separation rules before wiring any signing code.
+3. Read the production requirements for the backend you plan to use.
+4. Finish by reviewing the remote-signer policy and test-backend warnings.
+
+That order keeps you from skipping the safety boundary that matters most for your deployment.
+
 `vexo-consensus` ships adapter contracts, registry hooks, metadata validation, runtime wiring, a `supranational/blst` BLS12-381 min-pk adapter, a CIRCL-backed BLS12-381 reference adapter, and an ECVRF P-256 adapter. Operators can register audited adapters for value-bearing deployments, and audit evidence, key custody, and release-gate validation remain deployment responsibilities.
 
 ## Interfaces
