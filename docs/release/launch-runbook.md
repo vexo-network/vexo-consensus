@@ -2,6 +2,16 @@
 
 This runbook defines the minimum operator flow for launching an independent Vexo network.
 
+## At a Glance
+
+Launches are easiest to think about in three phases:
+
+1. **Prelaunch** — validate config, docs, release artifacts, and evidence before any validator starts.
+2. **Launch window** — start the network, watch height/finality/peer health, and stop if safety drifts.
+3. **Postlaunch archive** — preserve the exact files, logs, metrics, and evidence bundle that prove what ran.
+
+If you only remember one rule, remember this: never “fix” a launch by changing the binary on the fly. Re-run the gate with the reviewed artifact instead.
+
 ## Prelaunch Gate
 
 Run these checks from a clean checkout:

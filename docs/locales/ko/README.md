@@ -3,6 +3,13 @@
 > Locale: ko · 한국어
 > 이 문서는 `vexo-consensus` 문서 세트를 한국어로 읽기 위한 지역화 문서입니다. 프로토콜 규칙, 보안 판단, 릴리즈 판단, 명령어 의미, config key, RPC 이름은 영어 원문이 규범입니다.
 
+## 빠른 시작 경로
+
+- `make build`로 바이너리를 빌드합니다.
+- `vexod init validator --home .vexo-validator-1 --chain-id vexo-chain --validator validator-1 --encrypt-keys`로 validator home을 만들고, `vexod validate --home .vexo-validator-1`와 `vexod config audit --home .vexo-validator-1 --strict`로 검증한 뒤 `vexod start --home .vexo-validator-1`로 시작합니다.
+- Docker 네트워크는 `docker compose -f deployments/docker/compose.single-host-init.yml up` 다음 `docker compose -f deployments/docker/compose.single-host.yml up` 순서로 실행합니다.
+- Remix는 `http://127.0.0.1:28657/web3`를 사용하고, chain ID 확인은 `curl -s http://127.0.0.1:26657/web3 -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'`로 합니다.
+- 문서를 바꾼 뒤에는 `make docs-check`를 실행해 로케일 트리와 번역 가드를 확인합니다.
 ## 이 문서 세트의 목적
 
 `vexo-consensus`는 독립적인 PoS 네트워크를 만들기 위한 합의·런타임 프레임워크입니다. 이 문서 세트는 코드를 처음 보는 개발자, 노드를 운영하는 validator/operator, 릴리즈를 준비하는 maintainer, 감사를 준비하는 security reviewer가 같은 기준으로 프로젝트를 이해하도록 돕습니다.
@@ -97,6 +104,31 @@
 ## 규범 원문
 
 - [영어 정본 문서](../en/README.md)
+
+## 용어 보존 목록
+
+아래 용어는 번역하지 않고 그대로 유지합니다.
+
+- `vexo-consensus`
+- `make build`
+- `vexod validate --home .vexo-validator-1`
+- `vexod config audit --home .vexo-validator-1 --strict`
+- `vexod start --home .vexo-validator-1`
+- `curl -s http://127.0.0.1:26657/v1/status`
+- `docker compose -f deployments/docker/compose.single-host-init.yml up`
+- `docker compose -f deployments/docker/compose.single-host.yml up`
+- `http://127.0.0.1:28657/web3`
+- `/v1/*`
+- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
+- `make docs-check`
+- `vexod status --json`
+- `feature_assurance`
+- `network_config.json:p2p.auth_replay_path`
+- `network_config.json:p2p.node_key_path`
+- `module_config.json:governance.RequireDeposit`
+- `module_config.json:governance.MinDeposit`
+- `consensus_config.json:consensus.execution_commit`
+- `mempool_config.json:mempool.WALPath`
 
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록

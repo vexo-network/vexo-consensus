@@ -4,6 +4,18 @@ This guide explains how to tell whether a Vexo node is healthy from RPC, metrics
 
 It is written for operators who need practical signals: what to watch, what each number means, and when a value should be treated as dangerous.
 
+## At a Glance
+
+If a node looks wrong, check these in order:
+
+1. `running` and `latest_height` in `/v1/status`
+2. `latest_finalized_height` and peer counts
+3. `round_timeout`, proposal/vote latency, mempool size, and commit latency metrics
+4. signer failures, snapshot health, and replay health
+5. peer bans and peer-dial failures
+
+That order matters because it separates “the process is alive” from “the chain is actually making safe progress.”
+
 ## Core Endpoints
 
 | Endpoint | Use |

@@ -4,6 +4,16 @@ English (`en`) is the canonical technical documentation set. Every other locale 
 
 Localized pages are written as companion documents: they explain the purpose of the canonical page, preserve interface names exactly, and give readers a checklist for safe use. Protocol rules, release gates, security assumptions, command semantics, config keys, RPC names, JSON fields, and code identifiers remain normative in English.
 
+## How To Read Localized Docs
+
+Use the localized page when you want the explanation in your language. Open the English page next to it when you need the exact command, config key, JSON field, or release requirement that must stay normative.
+
+In practice:
+
+- **Use the locale page** for reader guidance, safety notes, and a plain-language summary.
+- **Use the English source** for commands, RPC methods, config keys, package paths, and release or security decisions.
+- **Treat release evidence as separate from translation quality**; a translated page can still be a bad release claim if the underlying artifact is missing.
+
 `make docs-check` enforces the locale tree. A documentation change fails if a locale is missing a Markdown path, adds a non-canonical path, omits its locale marker, or is accidentally copied byte-for-byte from the English source. `vexod release docs-quality --docs docs --json` exposes the same release-facing quality gate as a machine-readable artifact for release candidates.
 
 | Locale | Directory |

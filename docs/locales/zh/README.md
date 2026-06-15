@@ -3,6 +3,13 @@
 > Locale: zh · 中文
 > 本文档是配合英文原文阅读的中文 辅助文档。协议、安全和发布判断以英文原文为准。
 
+## 快速上手
+
+- 用 `make build` 构建二进制。
+- 用 `vexod init validator --home .vexo-validator-1 --chain-id vexo-chain --validator validator-1 --encrypt-keys` 创建 validator home，然后用 `vexod validate --home .vexo-validator-1` 和 `vexod config audit --home .vexo-validator-1 --strict` 检查，再用 `vexod start --home .vexo-validator-1` 启动。
+- Docker 网络按 `docker compose -f deployments/docker/compose.single-host-init.yml up`，再 `docker compose -f deployments/docker/compose.single-host.yml up` 的顺序运行。
+- Remix 使用 `http://127.0.0.1:28657/web3`，chain ID 可用 `curl -s http://127.0.0.1:26657/web3 -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'` 检查。
+- 修改文档后运行 `make docs-check`，确认 locale tree 和翻译 guard。
 ## 文档概览
 
 本文档帮助你理解 文档索引和推荐阅读顺序，并把它连接到实际实现和运维判断。
@@ -56,6 +63,31 @@
 ## 规范来源
 
 - [英文规范文档](../en/README.md)
+
+## 保留术语清单
+
+下面这些术语不翻译，必须原样保留。
+
+- `vexo-consensus`
+- `make build`
+- `vexod validate --home .vexo-validator-1`
+- `vexod config audit --home .vexo-validator-1 --strict`
+- `vexod start --home .vexo-validator-1`
+- `curl -s http://127.0.0.1:26657/v1/status`
+- `docker compose -f deployments/docker/compose.single-host-init.yml up`
+- `docker compose -f deployments/docker/compose.single-host.yml up`
+- `http://127.0.0.1:28657/web3`
+- `/v1/*`
+- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
+- `make docs-check`
+- `vexod status --json`
+- `feature_assurance`
+- `network_config.json:p2p.auth_replay_path`
+- `network_config.json:p2p.node_key_path`
+- `module_config.json:governance.RequireDeposit`
+- `module_config.json:governance.MinDeposit`
+- `consensus_config.json:consensus.execution_commit`
+- `mempool_config.json:mempool.WALPath`
 
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录

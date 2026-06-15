@@ -11,6 +11,17 @@ It is written for people who need to understand, build, operate, review, or rele
 
 English is the canonical source for protocol, security, release, SDK, command, config, and RPC behavior. Localized documents mirror this tree and help non-English readers, but release and audit decisions must always be checked against the English source.
 
+## Fastest Way In
+
+If you only have a few minutes, read the docs in this order:
+
+1. [`Node Initialization`](./operators/node-initialization.md) to learn how to create a node home, edit split config files, and start a validator or archive node.
+2. [`Docker Deployment`](../deployments/docker/README.md) to run the same binary in a single-host four-node setup or prepare a multi-host network.
+3. [`Observability Guide`](./operators/observability.md) to learn the first signals that matter when the node is alive but unhealthy.
+4. [`RPC API Versioning`](./sdk/rpc-api-versioning.md) to connect wallets, Remix, and Web3 tooling to the Vexo RPC/Web3 endpoints.
+
+If you are reviewing a release candidate, start with [`Production Readiness`](./production-readiness.md) and [`Release Pipeline`](./release/release-pipeline.md) before looking at the deeper specs.
+
 ## How to Read This Set
 
 Use the path that matches what you are trying to do. If you are not sure, start with the first row.
@@ -45,14 +56,14 @@ If you are reviewing the protocol or preparing a release, use this order:
 
 | Task | Command Path |
 |---|---|
-| Build local binary | Run the build command, then inspect CLI help |
-| Create one validator home | Run the validator initialization command from the node guide |
-| Validate one home | Run validation and strict config audit for that home |
-| Run one node | Start the node from the reviewed home directory |
-| Query one node | Request the status endpoint from the configured RPC address |
-| Run Docker four-validator network | Run the single-host init compose, then the single-host run compose |
-| Connect Remix | Use the Docker validator 1 Web3 provider URL shown in the node and Docker guides |
-| Check Web3 chain ID | Send an Ethereum JSON-RPC chain-ID request to the Web3 endpoint |
+| Build local binary | `make build` |
+| Create one validator home | `vexod init validator --home .vexo-validator-1 --chain-id vexo-chain --validator validator-1 --encrypt-keys` |
+| Validate one home | `vexod validate --home .vexo-validator-1` and `vexod config audit --home .vexo-validator-1 --strict` |
+| Run one node | `vexod start --home .vexo-validator-1` |
+| Query one node | `curl -s http://127.0.0.1:26657/v1/status` |
+| Run Docker four-validator network | `docker compose -f deployments/docker/compose.single-host-init.yml up` followed by `docker compose -f deployments/docker/compose.single-host.yml up` |
+| Connect Remix | Use the Docker validator 1 Web3 URL `http://127.0.0.1:28657/web3` |
+| Check Web3 chain ID | `curl -s http://127.0.0.1:26657/web3 -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'` |
 
 ## Start Here
 

@@ -3,6 +3,13 @@
 > Locale: ar · العربية
 > هذا المستند مستنداً مساعداً بالعربية يُقرأ مع المصدر الإنجليزي. تبقى قرارات البروتوكول والأمان والإصدار معيارية في النص الإنجليزي.
 
+## البدء السريع
+
+- ابنِ الملف التنفيذي باستخدام `make build`.
+- أنشئ validator home عبر `vexod init validator --home .vexo-validator-1 --chain-id vexo-chain --validator validator-1 --encrypt-keys`، ثم تحقّق منه بـ `vexod validate --home .vexo-validator-1` و `vexod config audit --home .vexo-validator-1 --strict`، وبعدها شغّل `vexod start --home .vexo-validator-1`.
+- شغّل شبكة Docker أولاً بـ `docker compose -f deployments/docker/compose.single-host-init.yml up` ثم `docker compose -f deployments/docker/compose.single-host.yml up`.
+- يجب أن يشير Remix إلى `http://127.0.0.1:28657/web3`؛ وللتحقق من chain ID استخدم `curl -s http://127.0.0.1:26657/web3 -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'`.
+- بعد تعديل المستندات شغّل `make docs-check` للتحقق من locale tree وحراس الترجمة.
 ## نظرة عامة
 
 يساعد هذا المستند على فهم فهرس الوثائق وترتيب القراءة الموصى به وربط ذلك بقرارات التنفيذ والتشغيل.
@@ -56,6 +63,31 @@
 ## المصدر المعتمد
 
 - [الوثيقة الإنجليزية المرجعية](../en/README.md)
+
+## قائمة المصطلحات التي تُحفظ كما هي
+
+المصطلحات التالية لا تُترجم.
+
+- `vexo-consensus`
+- `make build`
+- `vexod validate --home .vexo-validator-1`
+- `vexod config audit --home .vexo-validator-1 --strict`
+- `vexod start --home .vexo-validator-1`
+- `curl -s http://127.0.0.1:26657/v1/status`
+- `docker compose -f deployments/docker/compose.single-host-init.yml up`
+- `docker compose -f deployments/docker/compose.single-host.yml up`
+- `http://127.0.0.1:28657/web3`
+- `/v1/*`
+- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
+- `make docs-check`
+- `vexod status --json`
+- `feature_assurance`
+- `network_config.json:p2p.auth_replay_path`
+- `network_config.json:p2p.node_key_path`
+- `module_config.json:governance.RequireDeposit`
+- `module_config.json:governance.MinDeposit`
+- `consensus_config.json:consensus.execution_commit`
+- `mempool_config.json:mempool.WALPath`
 
 <!-- vexo-docs:technical-parity -->
 ## ملحق التكافؤ التقني

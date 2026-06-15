@@ -3,6 +3,13 @@
 > Locale: ru · Русский
 > Этот документ — русский сопроводительный документ к английскому источнику. Протокол, безопасность и решения о release остаются нормативными на английском языке.
 
+## Быстрый старт
+
+- Соберите бинарник командой `make build`.
+- Создайте validator home через `vexod init validator --home .vexo-validator-1 --chain-id vexo-chain --validator validator-1 --encrypt-keys`, затем проверьте его `vexod validate --home .vexo-validator-1` и `vexod config audit --home .vexo-validator-1 --strict`, после чего запускайте `vexod start --home .vexo-validator-1`.
+- Docker-сеть запускайте сначала через `docker compose -f deployments/docker/compose.single-host-init.yml up`, затем через `docker compose -f deployments/docker/compose.single-host.yml up`.
+- Remix должен указывать на `http://127.0.0.1:28657/web3`; chain ID проверьте командой `curl -s http://127.0.0.1:26657/web3 -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'`.
+- После правок запускайте `make docs-check`, чтобы проверить locale tree и translation guards.
 ## Обзор
 
 Этот документ помогает понять индекс документации и рекомендуемый порядок чтения и связать это с решениями по реализации и эксплуатации.
@@ -56,6 +63,31 @@
 ## Канонический источник
 
 - [Английский канонический документ](../en/README.md)
+
+## Список неизменяемых терминов
+
+Следующие термины не переводятся.
+
+- `vexo-consensus`
+- `make build`
+- `vexod validate --home .vexo-validator-1`
+- `vexod config audit --home .vexo-validator-1 --strict`
+- `vexod start --home .vexo-validator-1`
+- `curl -s http://127.0.0.1:26657/v1/status`
+- `docker compose -f deployments/docker/compose.single-host-init.yml up`
+- `docker compose -f deployments/docker/compose.single-host.yml up`
+- `http://127.0.0.1:28657/web3`
+- `/v1/*`
+- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
+- `make docs-check`
+- `vexod status --json`
+- `feature_assurance`
+- `network_config.json:p2p.auth_replay_path`
+- `network_config.json:p2p.node_key_path`
+- `module_config.json:governance.RequireDeposit`
+- `module_config.json:governance.MinDeposit`
+- `consensus_config.json:consensus.execution_commit`
+- `mempool_config.json:mempool.WALPath`
 
 <!-- vexo-docs:technical-parity -->
 ## Приложение о техническом соответствии

@@ -3,6 +3,13 @@
 > Locale: id · Bahasa Indonesia
 > Dokumen ini adalah dokumen pendamping Bahasa Indonesia untuk dibaca bersama sumber Inggris. Keputusan protokol, keamanan, dan rilis tetap normatif dalam bahasa Inggris.
 
+## Mulai cepat
+
+- Gunakan `make build` untuk membangun binary.
+- Buat validator home dengan `vexod init validator --home .vexo-validator-1 --chain-id vexo-chain --validator validator-1 --encrypt-keys`, lalu periksa dengan `vexod validate --home .vexo-validator-1` dan `vexod config audit --home .vexo-validator-1 --strict`, kemudian jalankan `vexod start --home .vexo-validator-1`.
+- Jalankan jaringan Docker terlebih dahulu dengan `docker compose -f deployments/docker/compose.single-host-init.yml up`, lalu `docker compose -f deployments/docker/compose.single-host.yml up`.
+- Remix harus mengarah ke `http://127.0.0.1:28657/web3`; untuk cek chain ID gunakan `curl -s http://127.0.0.1:26657/web3 -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'`.
+- Setelah mengubah dokumen, jalankan `make docs-check` untuk memeriksa locale tree dan translation guards.
 ## Gambaran umum
 
 Dokumen ini membantu memahami indeks dokumentasi dan urutan baca yang disarankan dan menghubungkannya dengan keputusan implementasi serta operasi.
@@ -56,6 +63,31 @@ Dokumen ini membantu memahami indeks dokumentasi dan urutan baca yang disarankan
 ## Sumber kanonik
 
 - [Dokumen kanonik bahasa Inggris](../en/README.md)
+
+## Daftar istilah yang dipertahankan
+
+Istilah berikut tidak diterjemahkan.
+
+- `vexo-consensus`
+- `make build`
+- `vexod validate --home .vexo-validator-1`
+- `vexod config audit --home .vexo-validator-1 --strict`
+- `vexod start --home .vexo-validator-1`
+- `curl -s http://127.0.0.1:26657/v1/status`
+- `docker compose -f deployments/docker/compose.single-host-init.yml up`
+- `docker compose -f deployments/docker/compose.single-host.yml up`
+- `http://127.0.0.1:28657/web3`
+- `/v1/*`
+- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
+- `make docs-check`
+- `vexod status --json`
+- `feature_assurance`
+- `network_config.json:p2p.auth_replay_path`
+- `network_config.json:p2p.node_key_path`
+- `module_config.json:governance.RequireDeposit`
+- `module_config.json:governance.MinDeposit`
+- `consensus_config.json:consensus.execution_commit`
+- `mempool_config.json:mempool.WALPath`
 
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis

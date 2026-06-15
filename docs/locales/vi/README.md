@@ -3,6 +3,13 @@
 > Locale: vi · Tiếng Việt
 > Tài liệu này là tài liệu đồng hành tiếng Việt để đọc cùng nguồn tiếng Anh. Các quyết định về giao thức, bảo mật và phát hành lấy bản tiếng Anh làm chuẩn.
 
+## Bắt đầu nhanh
+
+- Dùng `make build` để biên dịch binary.
+- Tạo validator home bằng `vexod init validator --home .vexo-validator-1 --chain-id vexo-chain --validator validator-1 --encrypt-keys`, rồi kiểm tra bằng `vexod validate --home .vexo-validator-1` và `vexod config audit --home .vexo-validator-1 --strict`, sau đó chạy `vexod start --home .vexo-validator-1`.
+- Chạy mạng Docker trước với `docker compose -f deployments/docker/compose.single-host-init.yml up`, rồi `docker compose -f deployments/docker/compose.single-host.yml up`.
+- Remix phải trỏ tới `http://127.0.0.1:28657/web3`; để kiểm tra chain ID dùng `curl -s http://127.0.0.1:26657/web3 -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'`.
+- Sau khi sửa tài liệu, chạy `make docs-check` để kiểm tra locale tree và translation guards.
 ## Tổng quan
 
 Tài liệu này giúp hiểu mục lục tài liệu và thứ tự đọc khuyến nghị và liên hệ nội dung đó với quyết định triển khai, vận hành.
@@ -56,6 +63,31 @@ Tài liệu này giúp hiểu mục lục tài liệu và thứ tự đọc khuy
 ## Nguồn chuẩn
 
 - [Tài liệu chuẩn tiếng Anh](../en/README.md)
+
+## Danh sách thuật ngữ giữ nguyên
+
+Những thuật ngữ dưới đây không được dịch.
+
+- `vexo-consensus`
+- `make build`
+- `vexod validate --home .vexo-validator-1`
+- `vexod config audit --home .vexo-validator-1 --strict`
+- `vexod start --home .vexo-validator-1`
+- `curl -s http://127.0.0.1:26657/v1/status`
+- `docker compose -f deployments/docker/compose.single-host-init.yml up`
+- `docker compose -f deployments/docker/compose.single-host.yml up`
+- `http://127.0.0.1:28657/web3`
+- `/v1/*`
+- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
+- `make docs-check`
+- `vexod status --json`
+- `feature_assurance`
+- `network_config.json:p2p.auth_replay_path`
+- `network_config.json:p2p.node_key_path`
+- `module_config.json:governance.RequireDeposit`
+- `module_config.json:governance.MinDeposit`
+- `consensus_config.json:consensus.execution_commit`
+- `mempool_config.json:mempool.WALPath`
 
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật

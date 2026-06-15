@@ -3,6 +3,13 @@
 > Locale: hi · हिन्दी
 > यह दस्तावेज़ अंग्रेज़ी source के साथ पढ़ने के लिए हिन्दी सहायक दस्तावेज़ है। protocol, security और release निर्णयों के लिए अंग्रेज़ी source ही मानक है।
 
+## त्वरित शुरुआत
+
+- `make build` से बाइनरी बनाइए.
+- `vexod init validator --home .vexo-validator-1 --chain-id vexo-chain --validator validator-1 --encrypt-keys` से validator home बनाइए, फिर `vexod validate --home .vexo-validator-1` और `vexod config audit --home .vexo-validator-1 --strict` से जाँच करके `vexod start --home .vexo-validator-1` चलाइए.
+- Docker नेटवर्क पहले `docker compose -f deployments/docker/compose.single-host-init.yml up` और फिर `docker compose -f deployments/docker/compose.single-host.yml up` से चलाइए.
+- Remix के लिए `http://127.0.0.1:28657/web3` इस्तेमाल करें; chain ID जाँचने के लिए `curl -s http://127.0.0.1:26657/web3 -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'` चलाइए.
+- दस्तावेज़ बदलने के बाद `make docs-check` चलाकर locale tree और translation guards जाँचिए.
 ## सारांश
 
 यह दस्तावेज़ documentation index और सुझाया गया पढ़ने का क्रम को समझने और उसे implementation व operation decisions से जोड़ने में मदद करता है।
@@ -56,6 +63,31 @@
 ## प्रामाणिक स्रोत
 
 - [अंग्रेज़ी प्रामाणिक दस्तावेज़](../en/README.md)
+
+## संरक्षित शब्द-सूची
+
+नीचे दिए गए शब्द अनुवादित नहीं किए जाते।
+
+- `vexo-consensus`
+- `make build`
+- `vexod validate --home .vexo-validator-1`
+- `vexod config audit --home .vexo-validator-1 --strict`
+- `vexod start --home .vexo-validator-1`
+- `curl -s http://127.0.0.1:26657/v1/status`
+- `docker compose -f deployments/docker/compose.single-host-init.yml up`
+- `docker compose -f deployments/docker/compose.single-host.yml up`
+- `http://127.0.0.1:28657/web3`
+- `/v1/*`
+- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
+- `make docs-check`
+- `vexod status --json`
+- `feature_assurance`
+- `network_config.json:p2p.auth_replay_path`
+- `network_config.json:p2p.node_key_path`
+- `module_config.json:governance.RequireDeposit`
+- `module_config.json:governance.MinDeposit`
+- `consensus_config.json:consensus.execution_commit`
+- `mempool_config.json:mempool.WALPath`
 
 <!-- vexo-docs:technical-parity -->
 ## तकनीकी समानता परिशिष्ट

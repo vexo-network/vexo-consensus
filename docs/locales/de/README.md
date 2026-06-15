@@ -3,6 +3,13 @@
 > Locale: de · Deutsch
 > Dieses Dokument ist ein deutsches Begleitdokument zur englischen Quelle. Protokoll-, Sicherheits- und Release-Entscheidungen bleiben im Englischen normativ.
 
+## Schnellstart
+
+- Mit `make build` das Binary bauen.
+- Mit `vexod init validator --home .vexo-validator-1 --chain-id vexo-chain --validator validator-1 --encrypt-keys` ein Validator-Home anlegen, dann mit `vexod validate --home .vexo-validator-1` und `vexod config audit --home .vexo-validator-1 --strict` prüfen und anschließend mit `vexod start --home .vexo-validator-1` starten.
+- Das Docker-Netzwerk zuerst mit `docker compose -f deployments/docker/compose.single-host-init.yml up`, danach mit `docker compose -f deployments/docker/compose.single-host.yml up` ausführen.
+- Remix verwendet `http://127.0.0.1:28657/web3`; die Chain-ID prüfen Sie mit `curl -s http://127.0.0.1:26657/web3 -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'`.
+- Nach Änderungen `make docs-check` ausführen, um Locale-Tree und Übersetzungs-Guards zu prüfen.
 ## Überblick
 
 Dieses Dokument hilft dabei, den Dokumentationsindex und die empfohlene Lesereihenfolge zu verstehen und mit Implementierungs- sowie Betriebsentscheidungen zu verbinden.
@@ -56,6 +63,31 @@ Dieses Dokument hilft dabei, den Dokumentationsindex und die empfohlene Lesereih
 ## Kanonische Quelle
 
 - [Englisches kanonisches Dokument](../en/README.md)
+
+## Liste der unveränderten Begriffe
+
+Die folgenden Begriffe bleiben unverändert.
+
+- `vexo-consensus`
+- `make build`
+- `vexod validate --home .vexo-validator-1`
+- `vexod config audit --home .vexo-validator-1 --strict`
+- `vexod start --home .vexo-validator-1`
+- `curl -s http://127.0.0.1:26657/v1/status`
+- `docker compose -f deployments/docker/compose.single-host-init.yml up`
+- `docker compose -f deployments/docker/compose.single-host.yml up`
+- `http://127.0.0.1:28657/web3`
+- `/v1/*`
+- `docs/locales/{en,ko,zh,ja,fr,de,es,pt,ru,ar,hi,id,vi}/`
+- `make docs-check`
+- `vexod status --json`
+- `feature_assurance`
+- `network_config.json:p2p.auth_replay_path`
+- `network_config.json:p2p.node_key_path`
+- `module_config.json:governance.RequireDeposit`
+- `module_config.json:governance.MinDeposit`
+- `consensus_config.json:consensus.execution_commit`
+- `mempool_config.json:mempool.WALPath`
 
 <!-- vexo-docs:technical-parity -->
 ## Anhang zur technischen Parität
