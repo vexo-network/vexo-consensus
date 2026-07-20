@@ -1884,13 +1884,45 @@ func TestModuleValidateTxRejectsTamperedEthereumRawEconomics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	canonical.Tags["fee"] = "1"
+	canonical.Tags["nonce"] = "999"
 	tampered, err := vexoapp.BuildCanonicalTx(canonical)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := (Module{}).ValidateTx(vexoapp.Context{ChainID: "vexo-chain"}, tampered); !errors.Is(err, ethcompat.ErrSignatureMismatch) {
 		t.Fatalf("expected tampered Ethereum raw tx to be rejected, got %v", err)
+	}
+}
+
+func TestModuleValidateTxAllowsBaseFeeChangeWhenRawTxRemainsValid(t *testing.T) {
+	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	chainID := ethcompat.ChainNumericID("vexo-chain")
+	tx := gethtypes.NewTx(&gethtypes.DynamicFeeTx{
+		ChainID:   new(big.Int).SetUint64(chainID),
+		Nonce:     2,
+		GasTipCap: big.NewInt(3),
+		GasFeeCap: big.NewInt(10),
+		Gas:       100_000,
+		Value:     big.NewInt(0),
+		Data:      mustHexBytes(t, "6000"),
+	})
+	signed, err := gethtypes.SignTx(tx, gethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := ethcompat.DecodeRawTransaction("0x"+hex.EncodeToString(raw), ethcompat.DecodeOptions{ChainID: ethcompat.ChainNumericID("vexo-chain"), BaseFee: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := (Module{}).ValidateTx(vexoapp.Context{ChainID: "vexo-chain", EVMChainID: chainID, BaseFee: 2}, decoded.Tx); err != nil {
+		t.Fatalf("expected base fee change to remain valid when fee cap still covers it: %v", err)
 	}
 }
 
@@ -1966,4 +1998,13 @@ func mustGetStoreValue(t *testing.T, storage vexoapp.StateStore, namespace strin
 		t.Fatal(err)
 	}
 	return value
+}
+
+func mustHexBytes(t *testing.T, hexValue string) []byte {
+	t.Helper()
+	bytes, err := hex.DecodeString(hexValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bytes
 }

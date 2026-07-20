@@ -3005,8 +3005,5 @@ func (module Module) validateEthereumRawTx(ctx vexoapp.Context, tx types.Tx) err
 		BlobBaseFee:            ctx.BlobBaseFee,
 		AllowUnprotectedLegacy: module.policy.AllowUnprotectedLegacyTx,
 	}
-	if ctx.BaseFee > 0 || ctx.BlobBaseFee > 0 {
-		return ethcompat.ValidateCanonicalTxForExecution(tx, options)
-	}
-	return ethcompat.ValidateCanonicalTxWithOptions(tx, options)
+	return ethcompat.ValidateCanonicalTxForExecution(tx, options)
 }
