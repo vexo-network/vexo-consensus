@@ -62,8 +62,13 @@ Ví dụ lành mạnh cho mạng một máy chủ có 4 trình xác thực: `run
 - `vexo_configured_peer_count`
 - `vexo_scored_peer_count`
 - `vexo_banned_peers`
+- `vexo_quorum_health_ratio`
 - `vexo_height_rate_per_minute`
+- `vexo_adaptive_round_timeout_enabled`
 - `vexo_round_timeouts`
+- `vexo_adaptive_round_timeout_nanos`
+- `vexo_recovery_finality_gate_enabled`
+- `vexo_recovery_finality_deferrals`
 - `vexo_proposal_latency_p95_nanos`
 - `vexo_vote_latency_p95_nanos`
 - `vexo_commit_latency_p95_nanos`
@@ -73,7 +78,7 @@ Ví dụ lành mạnh cho mạng một máy chủ có 4 trình xác thực: `run
 - `vexo_validator_signing_failures`
 - `vexo_post_commit_reconciliation_failures`
 
-`vexo_peer_count` được giữ lại cho các trang tổng quan cũ hơn. Trang tổng quan mới phải lập biểu đồ `vexo_active_peer_count`, `vexo_configured_peer_count` và `vexo_scored_peer_count` riêng biệt.
+`vexo_peer_count` được giữ lại cho các trang tổng quan cũ hơn. Trang tổng quan mới phải lập biểu đồ `vexo_active_peer_count`, `vexo_configured_peer_count`, `vexo_scored_peer_count` và `vexo_quorum_health_ratio` riêng biệt.
 
 ## Quy tắc cảnh báo được đề xuất
 
@@ -87,12 +92,19 @@ Ví dụ lành mạnh cho mạng một máy chủ có 4 trình xác thực: `run
 | Không có đồng nghiệp tích cực | `vexo_active_peer_count == 0` trong 1 phút trên nút không bị cô lập | P2P ngừng hoạt động, xác thực không khớp hoặc vấn đề về địa chỉ |
 | Số lượng ngang hàng quá thấp | các đồng nghiệp tích cực dưới mục tiêu kết nối đại biểu | Vấn đề về phân vùng hoặc bootstrap |
 | Tăng đột biến thời gian chờ tròn | bộ đếm thời gian chờ tăng nhanh hơn mức cơ bản bình thường | Độ trễ, lỗi của người đề xuất hoặc phân vùng mạng |
+| Chính sách thích ứng tắt | `vexo_adaptive_round_timeout_enabled == 0` trên nút lẽ ra phải chạy nhịp thích ứng | Cấu hình hoặc thử nghiệm đã tắt bộ điều chỉnh nhịp |
+| Thời gian chờ thích ứng cao | `vexo_adaptive_round_timeout_nanos` tăng cao hơn nhiều so với đường cơ sở khi khởi động | Độ trễ mạng tăng vọt hoặc hình thành quorum chậm hơn |
+| Thiếu peer làm tăng thời gian chờ | `vexo_active_peer_count` giảm xuống dưới `vexo_configured_peer_count` và thời gian chờ thích ứng tăng | Sức khỏe quorum đang xấu đi và bộ điều chỉnh nhịp đang bù lại |
+| Tỷ lệ quorum thấp | `vexo_quorum_health_ratio < 0.75` trong nhiều cửa sổ | Không đủ peer đang hoạt động cho đường đi đề xuất/biểu quyết ổn định |
+| Proposer backoff đang hoạt động | `vexo_quorum_health_ratio < 0.75` và nhịp đề xuất khối chậm lại | Nút đang chờ sức khỏe quorum phục hồi |
 | Cam kết độ trễ cao | p95/p99 tiếp cận ngân sách hết thời gian đồng thuận | Quá tải lưu trữ/thời gian chạy |
 | Áp lực Mempool | kích thước mempool tăng lên trong vài phút | Chính sách phí, thư rác hoặc vấn đề về dung lượng chặn |
 | Ảnh chụp không tốt | `vexo_snapshot_healthy == 0` | Rủi ro đồng bộ/khôi phục trạng thái |
 | Phát lại không lành mạnh | `vexo_replay_healthy == 0` | Tính quyết định hoặc rủi ro nhất quán trạng thái |
 | Người ký thất bại | `vexo_validator_signing_failures > 0` | KMS/người ký từ xa/lỗi chính sách |
 | Hòa giải thất bại | `vexo_post_commit_reconciliation_failures > 0` | Bằng chứng lâu dài hoặc cam kết sửa chữa cần thiết |
+| Cổng phục hồi tắt | `vexo_recovery_finality_gate_enabled == 0` trên nút lẽ ra phải áp dụng cổng phục hồi | Các commit đã hoàn tất có thể đi qua cổng an toàn phục hồi |
+| Trì hoãn phục hồi | `vexo_recovery_finality_deferrals` tăng | Các commit đã hoàn tất đang bị hoãn do không khớp phục hồi |
 | Bị cấm ngang hàng | đồng nghiệp bị cấm tăng đột ngột | Tấn công, cấu hình sai các đồng nghiệp hoặc vấn đề về ngưỡng ghi điểm |
 
 ## Ngưỡng bắt đầu được đề xuất
@@ -236,8 +248,13 @@ Phụ lục này bảo đảm bản dịch vẫn giữ các giao diện có th�
 - `vexo_configured_peer_count` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `vexo_scored_peer_count` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `vexo_banned_peers` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `vexo_quorum_health_ratio` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `vexo_height_rate_per_minute` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `vexo_adaptive_round_timeout_enabled` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `vexo_round_timeouts` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `vexo_adaptive_round_timeout_nanos` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `vexo_recovery_finality_gate_enabled` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `vexo_recovery_finality_deferrals` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `vexo_proposal_latency_p95_nanos` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `vexo_vote_latency_p95_nanos` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `vexo_commit_latency_p95_nanos` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
