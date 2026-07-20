@@ -2688,7 +2688,7 @@ func web3FullTransactionParam(params []json.RawMessage, index int) bool {
 
 func web3BlockTransactionCount(record store.BlockRecord) any {
 	if record.Block.Header.Height == 0 {
-		return nil
+		return hexQuantity(0)
 	}
 	return hexQuantity(uint64(len(record.Block.Txs)))
 }
@@ -2987,7 +2987,37 @@ func web3RawTransaction(tx types.Tx) any {
 
 func web3BlockFromRecord(ctx context.Context, provider StatusProvider, cfg Config, record store.BlockRecord, fullTransactions bool) (any, *JSONRPCError) {
 	if record.Block.Header.Height == 0 {
-		return nil, nil
+		stateRoot := "0x" + strings.Repeat("0", 64)
+		if status := provider.Status(ctx); status.LatestAppHash != (types.Hash{}) {
+			stateRoot = "0x" + hex.EncodeToString(status.LatestAppHash[:])
+		}
+		return map[string]any{
+			"number":           "0x0",
+			"hash":             "0x" + strings.Repeat("0", 64),
+			"parentHash":       "0x" + strings.Repeat("0", 64),
+			"nonce":            "0x0000000000000000",
+			"sha3Uncles":       "0x" + strings.Repeat("0", 64),
+			"mixHash":          "0x" + strings.Repeat("0", 64),
+			"logsBloom":        "0x" + strings.Repeat("0", 512),
+			"transactionsRoot": "0x" + strings.Repeat("0", 64),
+			"stateRoot":        stateRoot,
+			"receiptsRoot":     "0x" + strings.Repeat("0", 64),
+			"miner":            "0x0000000000000000000000000000000000000000",
+			"difficulty":       "0x0",
+			"totalDifficulty":  "0x0",
+			"extraData":        "0x",
+			"size":             "0x0",
+			"gasLimit":         "0x0",
+			"gasUsed":          "0x0",
+			"baseFeePerGas":    "0x0",
+			"blobGasUsed":      "0x0",
+			"excessBlobGas":    "0x0",
+			"timestamp":        "0x0",
+			"transactions":     []any{},
+			"uncles":           []any{},
+			"withdrawals":      []any{},
+			"withdrawalsRoot":  "0x" + strings.Repeat("0", 64),
+		}, nil
 	}
 	stateRoot, ok := web3StateRoot(ctx, provider, cfg, record)
 	if !ok {

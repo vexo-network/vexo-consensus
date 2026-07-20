@@ -1,0 +1,70 @@
+{
+  "schema_version": "v1",
+  "application": {
+    "CoreModules": [
+      "bank",
+      "staking",
+      "governance",
+      "params",
+      "ibc"
+    ],
+    "Modules": [
+      "bank",
+      "staking",
+      "governance",
+      "params",
+      "ibc"
+    ]
+  },
+  "execution": {
+    "MinFee": 1,
+    "BaseFee": 1,
+    "BlobBaseFee": 1,
+    "EVMChainID": 83960,
+    "DynamicBaseFee": true,
+    "DynamicBlobBaseFee": true,
+    "TargetGas": 5000000,
+    "TargetBlobGas": 393216,
+    "MaxBlobGas": 786432,
+    "BaseFeeChangeDenominator": 8,
+    "BlobFeeChangeDenominator": 6,
+    "MinBaseFee": 1,
+    "MaxBaseFee": 0,
+    "MinBlobBaseFee": 1,
+    "MaxBlobBaseFee": 0,
+    "MinGas": 1,
+    "MaxGas": 10000000,
+    "RequireNonce": true,
+    "RequireSigned": true,
+    "FeeCollector": "fee_collector",
+    "FeeDenom": "avxo",
+    "DisplayDenom": "vexo",
+    "DisplayExponent": 18,
+    "GasDenom": "gas",
+    "EVMForkPreset": "latest",
+    "EVMChainConfigJSON": "",
+    "StrictEVMStateRoot": true,
+    "AllowUnprotectedLegacyTx": false,
+    "MaxBlobSidecarBlobs": 6,
+    "MaxBlobSidecarBytes": 2097152
+  },
+  "bank": {
+    "MintAuthority": "governance"
+  },
+  "staking": {
+    "UnbondingDelay": 1209600,
+    "MaxCommissionBPS": 10000
+  },
+  "governance": {
+    "QuorumPower": 1,
+    "YesThresholdPower": 1,
+    "VetoPower": 0,
+    "VotingPeriod": 100,
+    "Timelock": 10,
+    "RequireDeposit": true,
+    "MinDeposit": "1avxo",
+    "DepositDenom": "avxo",
+    "DepositEscrow": "module:governance:deposit_escrow",
+    "RejectedDeposits": "module:governance:rejected_deposits"
+  }
+}

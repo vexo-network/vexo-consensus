@@ -1,0 +1,12 @@
+{
+  "schema_version": "v1",
+  "require_network_safety": true,
+  "data_dir": "/var/lib/vexo/network/validator-3/data",
+  "validator_id": "validator-3",
+  "chain_id": "vexo-chain",
+  "module_config_path": "module_config.json",
+  "network_config_path": "network_config.json",
+  "consensus_config_path": "consensus_config.json",
+  "mempool_config_path": "mempool_config.json",
+  "log_config_path": "log_config.json"
+}

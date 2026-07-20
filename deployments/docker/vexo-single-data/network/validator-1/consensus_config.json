@@ -1,0 +1,50 @@
+{
+  "schema_version": "v1",
+  "consensus": {
+    "loop_enabled": true,
+    "interval": "50ms",
+    "timeout_propose": "3s",
+    "timeout_prevote": "1s",
+    "timeout_precommit": "1s",
+    "timeout_commit": "1s",
+    "round_timeout": "3s",
+    "max_block_bytes": 1048576,
+    "create_empty_blocks": false,
+    "execution_commit": "finalized",
+    "adaptive_round_timeout_enabled": true,
+    "recovery_finality_gate_enabled": true
+  },
+  "crypto": {
+    "backend": "bls",
+    "production_adapter": true,
+    "adapter_name": "blst-bls12381-minpk-v1",
+    "audit_report": "ncc-group-blst-security-assessment",
+    "dependency_audit": "github.com/supranational/blst@v0.3.16",
+    "audit_evidence_sha256": "fe4310147a3d182952ba9a44ab94e6fe9fb2c160913248984973cd052b2dfb95"
+  },
+  "vrf": {
+    "production_adapter": true,
+    "adapter_name": "ecvrf-p256-sha256-tai-v1",
+    "audit_report": "built-in-ecvrf-p256-runtime-validation",
+    "dependency_audit": "github.com/vechain/go-ecvrf@v0.0.0-20251211112124-5d5a3ef70fc9",
+    "audit_evidence_sha256": "d391193d5a9e5da40a6e77171782083c6e2c2a055afccede6eb5f0e1896f8b1f",
+    "key_source": "consensus_config.vrf_key_paths"
+  },
+  "vrf_key_paths": [
+    "validator.vrf.key.json"
+  ],
+  "validator": {
+    "Permissionless": true,
+    "MinStake": 1,
+    "MaxValidators": 0,
+    "Whitelist": null,
+    "RequirePublicKey": false
+  },
+  "committee": {
+    "EpochLength": 100,
+    "CommitteeSize": 128,
+    "VRFThreshold": null,
+    "MinVotingPower": 1,
+    "Backend": "vrf"
+  }
+}

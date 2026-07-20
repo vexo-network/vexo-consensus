@@ -1,0 +1,9 @@
+{
+  "schema_version": "v1",
+  "log": {
+    "format": "text",
+    "level": "info",
+    "commit_events": true,
+    "peer_events": true
+  }
+}

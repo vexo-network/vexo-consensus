@@ -1,0 +1,46 @@
+{
+  "schema_version": "v1",
+  "rpc": {
+    "enabled": true,
+    "address": "0.0.0.0:26657",
+    "shutdown_timeout": "10s",
+    "web3_max_subscriptions_per_connection": 256,
+    "web3_idle_timeout": "2m",
+    "web3_filter_snapshot": "data/web3_filters.json"
+  },
+  "p2p": {
+    "enabled": true,
+    "node_id": "validator-1",
+    "node_key_path": "node.key.json",
+    "listen_address": "0.0.0.0:26656",
+    "dial_timeout": "10s",
+    "auth_token": "5e0c451363c10e3067a2193395b9d7cb0d10f252dd3d535066ee430cd5f8b496",
+    "auth_replay_path": "data/p2p_auth_replay.jsonl",
+    "addr_book_max_failures": 3,
+    "peers": {
+      "validator-2": "validator-2:26656",
+      "validator-3": "validator-3:26656",
+      "validator-4": "validator-4:26656"
+    }
+  },
+  "state_sync": {
+    "timeout": "30s",
+    "require_fresh": true,
+    "trust_local_higher": true,
+    "max_snapshot_bytes": 268435456,
+    "retry_all_snapshots": true
+  },
+  "peer_scoring": {
+    "InitialScore": 100,
+    "MaxScore": 1000,
+    "ValidMessageReward": 1,
+    "InvalidMessageCost": 10,
+    "RateLimitCost": 5,
+    "BanThreshold": 0,
+    "MaxMessagesPerWindow": 1000,
+    "MaxTotalMessagesPerWindow": 100000,
+    "WindowResetInterval": 1000000000,
+    "ScoreRecovery": 1,
+    "BanDuration": 600000000000
+  }
+}

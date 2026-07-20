@@ -2681,6 +2681,28 @@ func TestHandlerWeb3GasPriceFailsClosedWhenBaseFeeUnavailable(t *testing.T) {
 	}
 }
 
+func TestHandlerWeb3LatestBlockFallsBackToGenesisShapeWhenNoBlocksExist(t *testing.T) {
+	handler := NewHandler(&fakeStatusProvider{
+		status: node.Status{ChainID: "vexo-chain", Running: true, LatestHeight: 0},
+	})
+
+	var response JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["latest",false]}`, http.StatusOK, &response)
+	if response.Error != nil {
+		t.Fatalf("unexpected latest block error: %+v", response)
+	}
+	block, ok := response.Result.(map[string]any)
+	if !ok || block["number"] != "0x0" || block["parentHash"] != "0x0000000000000000000000000000000000000000000000000000000000000000" || block["hash"] == nil {
+		t.Fatalf("unexpected genesis-shaped latest block: %+v", response.Result)
+	}
+
+	response = JSONRPCResponse{}
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":2,"method":"eth_getBlockTransactionCountByNumber","params":["latest"]}`, http.StatusOK, &response)
+	if response.Error != nil || response.Result != "0x0" {
+		t.Fatalf("unexpected latest block transaction count: %+v", response)
+	}
+}
+
 func TestHandlerWeb3FinalizedTagFailsClosedWithoutFinalityProof(t *testing.T) {
 	handler := NewHandler(&fakeStatusProvider{
 		status: node.Status{ChainID: "vexo-chain", LatestHeight: 7},

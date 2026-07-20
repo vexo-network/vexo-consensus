@@ -1,0 +1,29 @@
+{
+  "schema_version": "v1",
+  "peers": [
+    {
+      "id": "validator-2",
+      "address": "validator-2:26656",
+      "source": "cli-peer",
+      "last_seen": "2026-07-20T10:05:21.768203527Z",
+      "last_attempt": "2026-07-20T10:05:21.758118715Z",
+      "permanent": true
+    },
+    {
+      "id": "validator-3",
+      "address": "validator-3:26656",
+      "source": "cli-peer",
+      "last_seen": "2026-07-20T10:05:21.769684821Z",
+      "last_attempt": "2026-07-20T10:05:21.758238632Z",
+      "permanent": true
+    },
+    {
+      "id": "validator-4",
+      "address": "validator-4:26656",
+      "source": "cli-peer",
+      "last_seen": "2026-07-20T10:05:21.77409833Z",
+      "last_attempt": "2026-07-20T10:05:21.75825184Z",
+      "permanent": true
+    }
+  ]
+}
