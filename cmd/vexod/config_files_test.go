@@ -88,7 +88,13 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(moduleDocument.Application.Modules) != 5 ||
+	if len(moduleDocument.Application.CoreModules) != 5 ||
+		moduleDocument.Application.CoreModules[0] != "bank" ||
+		moduleDocument.Application.CoreModules[1] != "staking" ||
+		moduleDocument.Application.CoreModules[2] != "governance" ||
+		moduleDocument.Application.CoreModules[3] != "params" ||
+		moduleDocument.Application.CoreModules[4] != "ibc" ||
+		len(moduleDocument.Application.Modules) != 5 ||
 		moduleDocument.Execution.MaxGas == 0 ||
 		moduleDocument.Execution.FeeDenom != "avxo" ||
 		moduleDocument.Execution.DisplayDenom != "vexo" ||
@@ -433,7 +439,7 @@ func TestLoadNodeConfigMergesModuleConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Chain.Application.Modules) != 1 || cfg.Chain.Application.Modules[0] != "bank" {
+	if len(cfg.Chain.Application.CoreModules) != 5 || len(cfg.Chain.Application.Modules) != 1 || cfg.Chain.Application.Modules[0] != "bank" {
 		t.Fatalf("expected module config override, got %+v", cfg.Chain.Application)
 	}
 	if !cfg.Chain.Execution.RequireSigned || cfg.Chain.Execution.MinFee != 7 || cfg.Chain.Execution.FeeCollector != "collector" || cfg.Chain.Execution.FeeDenom != "avxo" {
@@ -760,7 +766,7 @@ func TestLoadNodeConfigUsesDefaultModuleConfigWhenSplitFileMissing(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Chain.Application.Modules) != 5 || cfg.Chain.Execution.MaxGas == 0 || cfg.Chain.Governance.Timelock == 0 {
+	if len(cfg.Chain.Application.CoreModules) != 5 || len(cfg.Chain.Application.Modules) != 5 || cfg.Chain.Execution.MaxGas == 0 || cfg.Chain.Governance.Timelock == 0 {
 		t.Fatalf("expected default module config fallback, got %+v", cfg.Chain)
 	}
 }

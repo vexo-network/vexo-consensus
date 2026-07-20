@@ -16,6 +16,16 @@ func TestDefaultConfigIsValid(t *testing.T) {
 	}
 }
 
+func TestDefaultApplicationModulesArePinned(t *testing.T) {
+	cfg := Default("vexo-test")
+	if !sameStringSlice(cfg.Application.CoreModules, DefaultApplicationModules()) {
+		t.Fatalf("unexpected core modules: %+v", cfg.Application.CoreModules)
+	}
+	if !sameStringSlice(cfg.Application.Modules, DefaultApplicationModules()) {
+		t.Fatalf("unexpected application modules: %+v", cfg.Application.Modules)
+	}
+}
+
 func TestConfigValidateRejectsMissingChainID(t *testing.T) {
 	if err := Default("").Validate(); !errors.Is(err, ErrMissingChainID) {
 		t.Fatalf("expected missing chain id, got %v", err)
@@ -61,6 +71,11 @@ func TestConfigValidateRejectsUnsafeSettings(t *testing.T) {
 		{name: "zero mempool tx count", mutate: func(cfg *Config) { cfg.Mempool.MaxTxs = 0 }},
 		{name: "negative mempool tx count", mutate: func(cfg *Config) { cfg.Mempool.MaxTxs = -1 }},
 		{name: "negative mempool seen ttl", mutate: func(cfg *Config) { cfg.Mempool.SeenTTL = -time.Second }},
+		{name: "mismatched core modules", mutate: func(cfg *Config) { cfg.Application.CoreModules = []string{"bank"} }},
+		{name: "core modules not prefix of enabled modules", mutate: func(cfg *Config) {
+			cfg.Application.CoreModules = DefaultApplicationModules()
+			cfg.Application.Modules = []string{"bank", "governance", "staking", "params", "ibc"}
+		}},
 		{name: "zero target gas", mutate: func(cfg *Config) { cfg.Execution.TargetGas = 0 }},
 		{name: "zero max gas", mutate: func(cfg *Config) { cfg.Execution.MaxGas = 0 }},
 		{name: "target gas above max gas", mutate: func(cfg *Config) {

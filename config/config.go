@@ -38,7 +38,8 @@ type Config struct {
 }
 
 type ApplicationConfig struct {
-	Modules []string
+	CoreModules []string
+	Modules     []string
 }
 
 type ExecutionConfig struct {
@@ -106,6 +107,10 @@ const (
 	NetworkSafeBLSAuditEvidencePath        = "docs/security/blst-audit-evidence.json"
 )
 
+func DefaultApplicationModules() []string {
+	return []string{"bank", "staking", "governance", "params", "ibc"}
+}
+
 type CryptoConfig struct {
 	Backend             CryptoBackend `json:"backend"`
 	ProductionAdapter   bool          `json:"production_adapter"`
@@ -133,7 +138,8 @@ func Default(chainID string) Config {
 	return Config{
 		ChainID: chainID,
 		Application: ApplicationConfig{
-			Modules: []string{"bank", "staking", "governance", "params", "ibc"},
+			CoreModules: DefaultApplicationModules(),
+			Modules:     DefaultApplicationModules(),
 		},
 		Execution: ExecutionConfig{
 			EVMChainID:               DefaultEVMChainID,
@@ -256,6 +262,19 @@ func (config Config) Validate() error {
 	if config.ChainID == "" {
 		return ErrMissingChainID
 	}
+	if len(config.Application.CoreModules) > 0 {
+		if !sameStringSlice(config.Application.CoreModules, DefaultApplicationModules()) {
+			return ErrInvalidConfig
+		}
+		enabledModules := config.Application.Modules
+		if len(enabledModules) == 0 {
+			enabledModules = config.Application.CoreModules
+		}
+		if len(enabledModules) < len(config.Application.CoreModules) ||
+			!sameStringSlice(enabledModules[:len(config.Application.CoreModules)], config.Application.CoreModules) {
+			return ErrInvalidConfig
+		}
+	}
 	if !validCryptoBackend(config.Crypto.Backend) {
 		return ErrInvalidConfig
 	}
@@ -373,6 +392,18 @@ func (config Config) Validate() error {
 		return ErrInvalidConfig
 	}
 	return nil
+}
+
+func sameStringSlice(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func (config Config) ValidateNetworkSafety() error {
