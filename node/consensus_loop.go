@@ -920,12 +920,20 @@ func (node *Node) CommitFinalizedBlock(ctx context.Context) (CommitReadyResult, 
 	if err != nil {
 		return CommitReadyResult{}, false, err
 	}
+	report, reportErr := node.RecoveryReport(ctx, false)
 	decisions := machine.CommitDecisions()
 	if len(decisions) == 0 {
 		return CommitReadyResult{}, false, nil
 	}
 	pending := node.pendingProposals()
 	for _, decision := range decisions {
+		if reportErr == nil && !recoveryFinalityAllowsCommit(report, decision.CommittedHeight) {
+			node.logEvent("recovery_finality_deferred", map[string]any{
+				"height":      decision.CommittedHeight,
+				"safe_height": report.SafeHeight,
+			})
+			continue
+		}
 		proposal, found := pending[decision.CommittedBlockHash]
 		if !found {
 			continue

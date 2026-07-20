@@ -387,6 +387,22 @@ func TestSafeRecoveryHeightUsesLastConsistentState(t *testing.T) {
 	}
 }
 
+func TestRecoveryFinalityAllowsCommitUsesSafeHeightFloor(t *testing.T) {
+	report := RecoveryReport{LatestStateHeight: 10, LatestBlock: 8, SafeHeight: 8}
+	if !recoveryFinalityAllowsCommit(report, 8) {
+		t.Fatal("expected commit at safe height to be allowed")
+	}
+	if recoveryFinalityAllowsCommit(report, 9) {
+		t.Fatal("expected commit above safe height to be deferred")
+	}
+	if !recoveryFinalityAllowsCommit(RecoveryReport{LatestStateHeight: 10, LatestBlock: 10, SafeHeight: 10}, 10) {
+		t.Fatal("expected consistent recovery report to allow commit")
+	}
+	if !recoveryFinalityAllowsCommit(RecoveryReport{}, 42) {
+		t.Fatal("expected empty recovery report to allow commit")
+	}
+}
+
 func TestNodePruneBelowRemovesOldBlocks(t *testing.T) {
 	node := newTestNode(t)
 	if err := node.Start(context.Background()); err != nil {

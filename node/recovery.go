@@ -90,3 +90,13 @@ func safeRecoveryHeight(stateHeight types.Height, blockHeight types.Height) type
 	}
 	return blockHeight
 }
+
+func recoveryFinalityAllowsCommit(report RecoveryReport, committedHeight types.Height) bool {
+	if report.LatestStateHeight == 0 || report.LatestBlock == 0 {
+		return true
+	}
+	if report.LatestStateHeight == report.LatestBlock {
+		return true
+	}
+	return committedHeight <= report.SafeHeight
+}
