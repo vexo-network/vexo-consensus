@@ -6,11 +6,11 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-| __VEXO_CODE _0__ | الأقران المحظورون حاليًا بموجب سياسة الدرجات | تشير المسامير إلى الهجوم أو تكوين الأقران السيئ أو الحدود الصارمة للغاية |
+| `vexo_peer_count` | الأقران المحظورون حاليًا بموجب سياسة الدرجات | تشير المسامير إلى الهجوم أو تكوين الأقران السيئ أو الحدود الصارمة للغاية |
 
 QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-__VEXO_CODE _0__ محفوظ للوحات المعلومات القديمة. يجب أن ترسم لوحات المعلومات الجديدة __ VEXO_CODE _1 __ و __ VEXO_CODE _2__ و __VEXO_CODE _3__ بشكل منفصل.
+`vexo_peer_count` محفوظ للوحات المعلومات القديمة. يجب أن ترسم لوحات المعلومات الجديدة `vexo_active_peer_count` و`vexo_configured_peer_count` و`vexo_scored_peer_count` بشكل منفصل.
 
 ## قواعد التنبيه المقترحة
 
@@ -98,8 +98,16 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 - `vexo_replay_healthy`
 - `vexo_validator_signing_failures`
 - `vexo_post_commit_reconciliation_failures`
+- `vexo_adaptive_round_timeout_enabled`
+- `vexo_adaptive_round_timeout_nanos`
+- `vexo_quorum_health_ratio`
+- `vexo_recovery_finality_gate_enabled`
+- `vexo_recovery_finality_deferrals`
 - `vexo_node_running == 0`
 - `vexo_active_peer_count == 0`
+- `vexo_adaptive_round_timeout_enabled == 0`
+- `vexo_quorum_health_ratio < 0.75`
+- `vexo_recovery_finality_gate_enabled == 0`
 - `vexo_snapshot_healthy == 0`
 - `vexo_replay_healthy == 0`
 - `vexo_validator_signing_failures > 0`

@@ -98,8 +98,16 @@ Cette annexe conserve les noms techniques qui doivent rester identiques à la ve
 - `vexo_replay_healthy`
 - `vexo_validator_signing_failures`
 - `vexo_post_commit_reconciliation_failures`
+- `vexo_adaptive_round_timeout_enabled`
+- `vexo_adaptive_round_timeout_nanos`
+- `vexo_quorum_health_ratio`
+- `vexo_recovery_finality_gate_enabled`
+- `vexo_recovery_finality_deferrals`
 - `vexo_node_running == 0`
 - `vexo_active_peer_count == 0`
+- `vexo_adaptive_round_timeout_enabled == 0`
+- `vexo_quorum_health_ratio < 0.75`
+- `vexo_recovery_finality_gate_enabled == 0`
 - `vexo_snapshot_healthy == 0`
 - `vexo_replay_healthy == 0`
 - `vexo_validator_signing_failures > 0`

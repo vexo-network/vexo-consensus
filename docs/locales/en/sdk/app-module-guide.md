@@ -44,12 +44,13 @@ Enabled modules are configured in the node home's `module_config.json`, not in `
 {
   "schema_version": "v1",
   "application": {
+    "CoreModules": ["bank", "staking", "governance", "params", "ibc"],
     "Modules": ["bank", "staking", "governance", "params", "ibc"]
   }
 }
 ```
 
-`config.json` may point to a custom module file through `module_config_path`. Keep module defaults, module enablement, execution policy, and governance policy in `module_config.json` so application developers can change module behavior without touching `network_config.json`, `consensus_config.json`, `mempool_config.json`, or `log_config.json`.
+`config.json` may point to a custom module file through `module_config_path`. Keep module defaults, module enablement, execution policy, and governance policy in `module_config.json` so application developers can change module behavior without touching `network_config.json`, `consensus_config.json`, `mempool_config.json`, or `log_config.json`. Treat `CoreModules` as the chain-wide stable module backbone, and let `Modules` extend that backbone with optional capabilities that remain compatible with the same consensus state.
 
 ## State
 

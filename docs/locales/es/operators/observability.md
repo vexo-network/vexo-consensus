@@ -10,7 +10,7 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-`vexo_peer_count` se mantiene para los paneles más antiguos. Los nuevos paneles deben mostrar __ VEXO_CODE_1__, __ VEXO_CODE_2__ y __ VEXO_CODE_3__ por separado.
+`vexo_peer_count` se mantiene para los paneles más antiguos. Los nuevos paneles deben mostrar `vexo_active_peer_count`, `vexo_configured_peer_count` y `vexo_scored_peer_count` por separado.
 
 ## Reglas de alerta sugeridas
 
@@ -98,8 +98,16 @@ Este apéndice conserva nombres técnicos que deben permanecer iguales a la vers
 - `vexo_replay_healthy`
 - `vexo_validator_signing_failures`
 - `vexo_post_commit_reconciliation_failures`
+- `vexo_adaptive_round_timeout_enabled`
+- `vexo_adaptive_round_timeout_nanos`
+- `vexo_quorum_health_ratio`
+- `vexo_recovery_finality_gate_enabled`
+- `vexo_recovery_finality_deferrals`
 - `vexo_node_running == 0`
 - `vexo_active_peer_count == 0`
+- `vexo_adaptive_round_timeout_enabled == 0`
+- `vexo_quorum_health_ratio < 0.75`
+- `vexo_recovery_finality_gate_enabled == 0`
 - `vexo_snapshot_healthy == 0`
 - `vexo_replay_healthy == 0`
 - `vexo_validator_signing_failures > 0`

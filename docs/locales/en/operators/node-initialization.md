@@ -170,6 +170,7 @@ Example `module_config.json`:
 {
   "schema_version": "v1",
   "application": {
+    "CoreModules": ["bank", "staking", "governance", "params", "ibc"],
     "Modules": ["bank", "staking", "governance", "params", "ibc"]
   },
   "execution": {
@@ -207,6 +208,8 @@ Example `module_config.json`:
   }
 }
 ```
+
+`CoreModules` is the chain-wide stable backbone. `Modules` may extend that backbone with optional capabilities, but the core prefix must remain intact across all validators that participate in the same consensus state.
 
 Governance policy also lives in `module_config.json`. Generated network-safe configs require a proposal deposit:
 

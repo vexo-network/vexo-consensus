@@ -6,11 +6,11 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-| __VEXO_CODE_0 __ | Rekan saat ini dilarang oleh kebijakan skor | Paku menunjukkan serangan, konfigurasi rekan yang buruk, atau batas yang terlalu ketat |
+| `vexo_peer_count` | Rekan saat ini dilarang oleh kebijakan skor | Paku menunjukkan serangan, konfigurasi rekan yang buruk, atau batas yang terlalu ketat |
 
 QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-__ VEXO_CODE_0 __ disimpan untuk dasbor lama. Dasbor baru harus memetakan __ VEXO_CODE_1 __, __ VEXO_CODE_2 __, dan __VEXO_CODE_3 __ secara terpisah.
+`vexo_peer_count` disimpan untuk dasbor lama. Dasbor baru harus memetakan `vexo_active_peer_count`, `vexo_configured_peer_count`, dan `vexo_scored_peer_count` secara terpisah.
 
 ## Aturan Peringatan yang Disarankan
 
@@ -98,8 +98,16 @@ Lampiran ini mempertahankan nama teknis yang harus tetap sama dengan versi kanon
 - `vexo_replay_healthy`
 - `vexo_validator_signing_failures`
 - `vexo_post_commit_reconciliation_failures`
+- `vexo_adaptive_round_timeout_enabled`
+- `vexo_adaptive_round_timeout_nanos`
+- `vexo_quorum_health_ratio`
+- `vexo_recovery_finality_gate_enabled`
+- `vexo_recovery_finality_deferrals`
 - `vexo_node_running == 0`
 - `vexo_active_peer_count == 0`
+- `vexo_adaptive_round_timeout_enabled == 0`
+- `vexo_quorum_health_ratio < 0.75`
+- `vexo_recovery_finality_gate_enabled == 0`
 - `vexo_snapshot_healthy == 0`
 - `vexo_replay_healthy == 0`
 - `vexo_validator_signing_failures > 0`
