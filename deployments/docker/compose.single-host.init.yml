@@ -3,6 +3,8 @@ name: vexo-single-init
 services:
   init:
     image: ${VEXO_IMAGE:-vexo-consensus:dev}
+    environment:
+      VEXO_KEY_PASSPHRASE: ${VEXO_KEY_PASSPHRASE:?set VEXO_KEY_PASSPHRASE}
     command:
       - network
       - init
@@ -14,6 +16,7 @@ services:
       - ${VEXO_VALIDATORS:-4}
       - --network-config
       - /etc/vexo/topology.json
+      - --encrypt-keys
       - --overwrite
     volumes:
       - ./vexo-single-data:/var/lib/vexo

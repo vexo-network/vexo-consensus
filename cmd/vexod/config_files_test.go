@@ -37,6 +37,20 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	}
 	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
 	if err != nil {
+		moduleDocument, readErr := readModuleConfigDocument(filepath.Join(home, moduleConfigFileName))
+		t.Logf("read module err=%v", readErr)
+		if readErr == nil {
+			configDocument, configReadErr := readConfigDocument(filepath.Join(home, configFileName))
+			t.Logf("read config err=%v", configReadErr)
+			networkDocument, _ := readNetworkConfigDocument(filepath.Join(home, networkConfigFileName))
+			consensusDocument, _ := readConsensusConfigDocument(filepath.Join(home, consensusConfigFileName))
+			mempoolDocument, _ := readMempoolConfigDocument(filepath.Join(home, mempoolConfigFileName))
+			if configReadErr == nil {
+				debugCfg := configFromConfigDocuments(configDocument, moduleDocument, networkDocument, consensusDocument, mempoolDocument)
+				t.Logf("debug config: app=%+v exec=%+v bank=%+v staking=%+v gov=%+v mempool=%+v p2p=%+v", debugCfg.Application, debugCfg.Execution, debugCfg.Bank, debugCfg.Staking, debugCfg.Governance, debugCfg.Mempool, debugCfg.P2P)
+				t.Logf("debug validate: %v", debugCfg.Validate())
+			}
+		}
 		t.Fatal(err)
 	}
 	if cfg.Chain.ChainID != "vexo-test" || cfg.DataDir != filepath.Join(home, "data") || cfg.ValidatorID != "alice" {
@@ -168,6 +182,7 @@ func TestRunInitWritesNetworkFiles(t *testing.T) {
 	if !strings.Contains(output.String(), "initialized vexo network") || !strings.Contains(output.String(), "validators: 4") {
 		t.Fatalf("unexpected network output:\n%s", output.String())
 	}
+	var sharedP2PAuthToken string
 
 	for index := 1; index <= 4; index++ {
 		validatorID := networkValidatorID(index)
@@ -224,8 +239,24 @@ func TestRunInitWritesNetworkFiles(t *testing.T) {
 		if networkDocument.P2P.NodeID != validatorID || networkDocument.P2P.NodeKeyPath != nodeKeyFileName {
 			t.Fatalf("expected p2p node identity for %s, got %+v", validatorID, networkDocument.P2P)
 		}
-		if networkDocument.P2P.AuthReplayPath == "" {
+		if networkDocument.P2P.AuthToken == "" ||
+			networkDocument.P2P.AuthReplayPath == "" ||
+			networkDocument.P2P.TLSCertPath != filepath.Join("tls", "node.crt") ||
+			networkDocument.P2P.TLSKeyPath != filepath.Join("tls", "node.key") ||
+			networkDocument.P2P.TLSCAPath != filepath.Join("tls", "ca.crt") ||
+			networkDocument.RPC.TLSCertPath != filepath.Join("tls", "node.crt") ||
+			networkDocument.RPC.TLSKeyPath != filepath.Join("tls", "node.key") {
 			t.Fatalf("expected p2p auth replay path for %s, got %+v", validatorID, networkDocument.P2P)
+		}
+		if index == 1 {
+			sharedP2PAuthToken = networkDocument.P2P.AuthToken
+		} else if networkDocument.P2P.AuthToken != sharedP2PAuthToken {
+			t.Fatalf("expected shared p2p auth token for %s, got %+v", validatorID, networkDocument.P2P)
+		}
+		for _, fileName := range []string{"tls/ca.crt", "tls/node.crt", "tls/node.key"} {
+			if _, err := os.Stat(filepath.Join(nodeHome, fileName)); err != nil {
+				t.Fatalf("expected tls artifact %s for %s: %v", fileName, validatorID, err)
+			}
 		}
 		consensusDocument, err := readConsensusConfigDocument(filepath.Join(nodeHome, consensusConfigFileName))
 		if err != nil {
@@ -428,8 +459,8 @@ func TestLoadNodeConfigMergesModuleConfig(t *testing.T) {
 	}
 	moduleDocument := moduleConfigDocument{
 		SchemaVersion: moduleSchemaVersion,
-		Application:   config.ApplicationConfig{Modules: []string{"bank"}},
-		Execution:     config.ExecutionConfig{RequireSigned: true, RequireNonce: true, MinFee: 7, MinGas: 3, MaxGas: 99, FeeCollector: "collector"},
+		Application:   config.ApplicationConfig{Modules: append(config.DefaultApplicationModules(), "custom")},
+		Execution:     config.ExecutionConfig{RequireSigned: true, RequireNonce: true, MinFee: 7, MinGas: 3, TargetGas: 50, MaxGas: 99, FeeCollector: "collector"},
 		Bank:          config.BankConfig{MintAuthority: "governance"},
 		Governance:    governance.TallyPolicy{QuorumPower: 2, YesThresholdPower: 2, VotingPeriod: 9, Timelock: 4, VetoPower: 1},
 	}
@@ -439,7 +470,7 @@ func TestLoadNodeConfigMergesModuleConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Chain.Application.CoreModules) != 5 || len(cfg.Chain.Application.Modules) != 1 || cfg.Chain.Application.Modules[0] != "bank" {
+	if len(cfg.Chain.Application.CoreModules) != 5 || len(cfg.Chain.Application.Modules) != 6 || cfg.Chain.Application.Modules[5] != "custom" {
 		t.Fatalf("expected module config override, got %+v", cfg.Chain.Application)
 	}
 	if !cfg.Chain.Execution.RequireSigned || cfg.Chain.Execution.MinFee != 7 || cfg.Chain.Execution.FeeCollector != "collector" || cfg.Chain.Execution.FeeDenom != "avxo" {

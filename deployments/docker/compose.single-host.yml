@@ -3,6 +3,8 @@ name: vexo-single
 x-vexo-node: &vexo-node
   image: ${VEXO_IMAGE:-vexo-consensus:dev}
   restart: unless-stopped
+  environment:
+    VEXO_KEY_PASSPHRASE: ${VEXO_KEY_PASSPHRASE:?set VEXO_KEY_PASSPHRASE}
   volumes:
     - ./vexo-single-data:/var/lib/vexo
   networks:
@@ -16,8 +18,6 @@ services:
       - --home
       - /var/lib/vexo/network/validator-1
       - --run
-      - --log-format
-      - json
     ports:
       - "28657:26657"
       - "28656:26656"
@@ -29,8 +29,6 @@ services:
       - --home
       - /var/lib/vexo/network/validator-2
       - --run
-      - --log-format
-      - json
     ports:
       - "28667:26657"
       - "28666:26656"
@@ -42,8 +40,6 @@ services:
       - --home
       - /var/lib/vexo/network/validator-3
       - --run
-      - --log-format
-      - json
     ports:
       - "28677:26657"
       - "28676:26656"
@@ -55,8 +51,6 @@ services:
       - --home
       - /var/lib/vexo/network/validator-4
       - --run
-      - --log-format
-      - json
     ports:
       - "28687:26657"
       - "28686:26656"

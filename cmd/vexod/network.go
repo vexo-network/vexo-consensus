@@ -654,6 +654,8 @@ func runNetworkInit(writer io.Writer, args []string) error {
 	p2pPortStep := flags.Int("p2p-port-step", 10, "P2P port increment per validator")
 	rpcPortStep := flags.Int("rpc-port-step", 10, "RPC port increment per validator")
 	networkConfigPath := flags.String("network-config", "", "network topology config file for generated validator addresses")
+	encryptKeys := flags.Bool("encrypt-keys", false, "encrypt generated validator and VRF key files")
+	passphrase := flags.String("passphrase", "", "key encryption passphrase; prefer VEXO_KEY_PASSPHRASE")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing network files")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -662,6 +664,12 @@ func runNetworkInit(writer io.Writer, args []string) error {
 		"--home", *home,
 		"--chain-id", *chainID,
 		"--validators", strconv.Itoa(*validators),
+	}
+	if *encryptKeys {
+		initArgs = append(initArgs, "--encrypt-keys")
+	}
+	if *passphrase != "" {
+		initArgs = append(initArgs, "--passphrase", *passphrase)
 	}
 	if *networkConfigPath != "" {
 		initArgs = append(initArgs, "--network-config", *networkConfigPath)

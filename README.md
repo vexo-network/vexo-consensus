@@ -100,9 +100,9 @@ export VEXO_KEY_PASSPHRASE='change-me'
 In another terminal:
 
 ```bash
-curl -s http://127.0.0.1:26657/v1/status
-curl -s http://127.0.0.1:26657/v1/diagnostics
-curl -s http://127.0.0.1:26657/v1/metrics
+curl -sk https://127.0.0.1:26657/v1/status
+curl -sk https://127.0.0.1:26657/v1/diagnostics
+curl -sk https://127.0.0.1:26657/v1/metrics
 ```
 
 If `consensus_config.json` has `"create_empty_blocks": false`, height can stay unchanged until a transaction enters the mempool. That is expected.
@@ -112,6 +112,8 @@ If `consensus_config.json` has `"create_empty_blocks": false`, height can stay u
 Use this when you want to see peers connect and blocks commit on one machine:
 
 ```bash
+export VEXO_KEY_PASSPHRASE='change-me'
+
 docker compose \
   -f deployments/docker/compose.single-host.init.yml \
   -f deployments/docker/compose.single-host.init.build.cgo.yml \
@@ -126,10 +128,10 @@ docker compose \
 Status endpoints from the host:
 
 ```bash
-curl -s http://127.0.0.1:28657/v1/status
-curl -s http://127.0.0.1:28667/v1/status
-curl -s http://127.0.0.1:28677/v1/status
-curl -s http://127.0.0.1:28687/v1/status
+curl -sk https://127.0.0.1:28657/v1/status
+curl -sk https://127.0.0.1:28667/v1/status
+curl -sk https://127.0.0.1:28677/v1/status
+curl -sk https://127.0.0.1:28687/v1/status
 ```
 
 Stop it with:
