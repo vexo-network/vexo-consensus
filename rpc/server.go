@@ -1509,18 +1509,7 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 	case "eth_getUncleByBlockNumberAndIndex", "eth_getUncleByBlockHashAndIndex":
 		return nil, nil
 	case "eth_gasPrice":
-		if query, ok := provider.(ChainQueryProvider); ok {
-			state, err := query.LatestState(ctx)
-			if err == nil {
-				if state.NextBaseFee > 0 {
-					return hexQuantity(state.NextBaseFee), nil
-				}
-				if state.BaseFee > 0 {
-					return hexQuantity(state.BaseFee), nil
-				}
-			}
-		}
-		return nil, &JSONRPCError{Code: -32000, Message: "gas price is unavailable"}
+		return hexQuantity(web3LatestBaseFee(ctx, provider)), nil
 	case "eth_blobBaseFee":
 		return hexQuantity(web3LatestBlobBaseFee(ctx, provider)), nil
 	case "eth_maxPriorityFeePerGas":
