@@ -537,9 +537,28 @@ func (node *Node) broadcastConsensusAsync(event string, fields map[string]any, b
 		copiedFields[key] = value
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), consensusGossipTimeout)
-		defer cancel()
-		node.logConsensusBroadcastFailure(event, broadcast(ctx), copiedFields)
+		deadline := time.Now().Add(consensusGossipTimeout)
+		var lastErr error
+		for attempt := 0; ; attempt++ {
+			if time.Now().After(deadline) {
+				break
+			}
+			attemptCtx, cancel := context.WithTimeout(context.Background(), time.Until(deadline))
+			lastErr = broadcast(attemptCtx)
+			cancel()
+			if lastErr == nil {
+				return
+			}
+			sleep := time.Duration(250*(attempt+1)) * time.Millisecond
+			if sleep > 2*time.Second {
+				sleep = 2 * time.Second
+			}
+			if time.Now().Add(sleep).After(deadline) {
+				break
+			}
+			time.Sleep(sleep)
+		}
+		node.logConsensusBroadcastFailure(event, lastErr, copiedFields)
 	}()
 }
 
