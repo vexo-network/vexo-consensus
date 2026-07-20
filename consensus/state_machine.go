@@ -141,6 +141,9 @@ func (machine *StateMachine) CreateProposal(block types.Block, round types.Round
 
 	if justifyQC.Height == 0 {
 		justifyQC = machine.blockTree.HighQC()
+		if isBetterQC(machine.lockedQC, justifyQC) {
+			justifyQC = machine.lockedQC
+		}
 	}
 	block.Header.ChainID = machine.chainID
 	block.Header.ValidatorSetHash = machine.validatorSet.Hash()

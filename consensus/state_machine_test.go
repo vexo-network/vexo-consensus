@@ -178,6 +178,34 @@ func TestStateMachineCreateProposalUsesHighQC(t *testing.T) {
 	}
 }
 
+func TestStateMachineCreateProposalUsesLockedQCWhenHigherThanHighQC(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lockedQC := finality.QuorumCert{Height: 4, Round: 2, BlockHash: types.Hash{4}}
+	machine.lockedQC = lockedQC
+
+	proposal, err := machine.CreateProposal(types.Block{Header: types.Header{Height: 5}}, 0, "a", finality.QuorumCert{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal.JustifyQC.BlockHash != lockedQC.BlockHash || proposal.JustifyQC.Height != lockedQC.Height {
+		t.Fatalf("expected locked qc to seed proposal, got %+v want %+v", proposal.JustifyQC, lockedQC)
+	}
+	if proposal.Block.Header.PreviousBlockHash != lockedQC.BlockHash {
+		t.Fatalf("expected proposal parent to follow locked qc, got %x want %x", proposal.Block.Header.PreviousBlockHash, lockedQC.BlockHash)
+	}
+}
+
 func TestStateMachineCreateProposalKeepsExplicitQC(t *testing.T) {
 	set := newTestValidatorSet([]validator.Validator{
 		{ID: "a", VotingPower: 1},
