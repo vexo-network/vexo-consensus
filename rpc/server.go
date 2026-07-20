@@ -107,20 +107,21 @@ type HealthResponse struct {
 }
 
 type StatusResponse struct {
-	ChainID               string `json:"chain_id"`
-	EVMChainID            uint64 `json:"evm_chain_id,omitempty"`
-	Running               bool   `json:"running"`
-	StartedAtUnix         int64  `json:"started_at_unix,omitempty"`
-	LatestHeight          uint64 `json:"latest_height"`
-	LatestAppHash         string `json:"latest_app_hash"`
-	LatestFinalizedHeight uint64 `json:"latest_finalized_height,omitempty"`
-	LatestFinalizedHash   string `json:"latest_finalized_hash,omitempty"`
-	DataDir               string `json:"data_dir"`
-	PeerCount             int    `json:"peer_count"`
-	ActivePeerCount       int    `json:"active_peer_count"`
-	ConfiguredPeerCount   int    `json:"configured_peer_count"`
-	ScoredPeerCount       int    `json:"scored_peer_count"`
-	BannedPeers           int    `json:"banned_peers"`
+	ChainID               string  `json:"chain_id"`
+	EVMChainID            uint64  `json:"evm_chain_id,omitempty"`
+	Running               bool    `json:"running"`
+	StartedAtUnix         int64   `json:"started_at_unix,omitempty"`
+	LatestHeight          uint64  `json:"latest_height"`
+	LatestAppHash         string  `json:"latest_app_hash"`
+	LatestFinalizedHeight uint64  `json:"latest_finalized_height,omitempty"`
+	LatestFinalizedHash   string  `json:"latest_finalized_hash,omitempty"`
+	DataDir               string  `json:"data_dir"`
+	PeerCount             int     `json:"peer_count"`
+	ActivePeerCount       int     `json:"active_peer_count"`
+	ConfiguredPeerCount   int     `json:"configured_peer_count"`
+	ScoredPeerCount       int     `json:"scored_peer_count"`
+	BannedPeers           int     `json:"banned_peers"`
+	QuorumHealthRatio     float64 `json:"quorum_health_ratio"`
 }
 
 type MetricsResponse struct {
@@ -144,6 +145,7 @@ type MetricsResponse struct {
 	ConfiguredPeerCount         int     `json:"configured_peer_count"`
 	ScoredPeerCount             int     `json:"scored_peer_count"`
 	BannedPeers                 int     `json:"banned_peers"`
+	QuorumHealthRatio           float64 `json:"quorum_health_ratio"`
 	PeerWindowMessages          uint64  `json:"peer_window_messages"`
 	ConsensusLoopRunning        bool    `json:"consensus_loop_running"`
 	HeightRatePerMinute         float64 `json:"height_rate_per_minute"`

@@ -708,6 +708,9 @@ func TestNodeMetricsExposeObservedConsensusCounters(t *testing.T) {
 	if !metrics.AdaptiveRoundTimeoutEnabled || !metrics.RecoveryFinalityGateEnabled {
 		t.Fatalf("expected adaptive policies enabled in metrics: %+v", metrics)
 	}
+	if metrics.QuorumHealthRatio != 0 {
+		t.Fatalf("expected zero quorum health ratio without peers, got %+v", metrics)
+	}
 	if metrics.AdaptiveRoundTimeoutNanos == 0 || metrics.RecoveryFinalityDeferrals != 1 {
 		t.Fatalf("expected adaptive timeout and recovery deferral metrics: %+v", metrics)
 	}

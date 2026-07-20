@@ -524,6 +524,7 @@ func TestHandlerReportsMetrics(t *testing.T) {
 		ConfiguredPeerCount:         4,
 		ScoredPeerCount:             3,
 		BannedPeers:                 1,
+		QuorumHealthRatio:           0.5,
 		PeerWindowMessages:          12,
 		ConsensusLoopRunning:        true,
 		AdaptiveRoundTimeoutEnabled: true,
@@ -538,7 +539,7 @@ func TestHandlerReportsMetrics(t *testing.T) {
 	if metrics.ChainID != "vexo-test" || !metrics.Running || metrics.StartedAtUnix != 1710000000 || metrics.UptimeSeconds != 42 || metrics.LatestHeight != 9 || metrics.TotalBlocks != 9 {
 		t.Fatalf("unexpected metrics identity: %+v", metrics)
 	}
-	if metrics.ValidatorCount != 4 || metrics.TotalVotingPower != 100 || metrics.PeerCount != 3 || metrics.ActivePeerCount != 2 || metrics.ConfiguredPeerCount != 4 || metrics.ScoredPeerCount != 3 || metrics.BannedPeers != 1 || !metrics.ConsensusLoopRunning || metrics.ReconciliationFailures != 2 || metrics.AdaptiveRoundTimeoutNanos != 250000000 || metrics.RecoveryFinalityDeferrals != 3 {
+	if metrics.ValidatorCount != 4 || metrics.TotalVotingPower != 100 || metrics.PeerCount != 3 || metrics.ActivePeerCount != 2 || metrics.ConfiguredPeerCount != 4 || metrics.ScoredPeerCount != 3 || metrics.BannedPeers != 1 || metrics.QuorumHealthRatio != 0.5 || !metrics.ConsensusLoopRunning || metrics.ReconciliationFailures != 2 || metrics.AdaptiveRoundTimeoutNanos != 250000000 || metrics.RecoveryFinalityDeferrals != 3 {
 		t.Fatalf("unexpected metrics counters: %+v", metrics)
 	}
 	if !metrics.AdaptiveRoundTimeoutEnabled || !metrics.RecoveryFinalityGateEnabled {
@@ -565,6 +566,7 @@ func TestHandlerReportsMetricsText(t *testing.T) {
 		ConfiguredPeerCount:         4,
 		ScoredPeerCount:             3,
 		BannedPeers:                 1,
+		QuorumHealthRatio:           0.5,
 		PeerWindowMessages:          12,
 		ConsensusLoopRunning:        true,
 		AdaptiveRoundTimeoutEnabled: true,
@@ -589,6 +591,7 @@ func TestHandlerReportsMetricsText(t *testing.T) {
 		"vexo_configured_peer_count 4",
 		"vexo_scored_peer_count 3",
 		"vexo_banned_peers 1",
+		"vexo_quorum_health_ratio 0.500000",
 		"vexo_peer_window_messages 12",
 		"vexo_consensus_loop_running 1",
 		"vexo_adaptive_round_timeout_enabled 1",

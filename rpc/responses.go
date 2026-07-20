@@ -75,6 +75,7 @@ func metricsResponse(metrics node.Metrics) MetricsResponse {
 		ConfiguredPeerCount:         metrics.ConfiguredPeerCount,
 		ScoredPeerCount:             metrics.ScoredPeerCount,
 		BannedPeers:                 metrics.BannedPeers,
+		QuorumHealthRatio:           metrics.QuorumHealthRatio,
 		PeerWindowMessages:          metrics.PeerWindowMessages,
 		ConsensusLoopRunning:        metrics.ConsensusLoopRunning,
 		HeightRatePerMinute:         metrics.HeightRatePerMinute,
@@ -169,6 +170,11 @@ func metricsText(metrics node.Metrics) string {
 		fmt.Fprintf(&builder, "# TYPE %s gauge\n", name)
 		fmt.Fprintf(&builder, "%s %d\n", name, value)
 	}
+	writeFloatGauge := func(name string, help string, value float64) {
+		fmt.Fprintf(&builder, "# HELP %s %s\n", name, help)
+		fmt.Fprintf(&builder, "# TYPE %s gauge\n", name)
+		fmt.Fprintf(&builder, "%s %.6f\n", name, value)
+	}
 	writeGauge("vexo_node_running", "Whether the node is running.", boolGauge(metrics.Running))
 	writeGauge("vexo_started_at_unix", "Node process start timestamp in unix seconds.", uint64(metrics.StartedAtUnix))
 	writeGauge("vexo_uptime_seconds", "Node uptime in seconds.", metrics.UptimeSeconds)
@@ -183,6 +189,7 @@ func metricsText(metrics node.Metrics) string {
 	writeGauge("vexo_configured_peer_count", "Configured or learned transport peer count.", uint64(metrics.ConfiguredPeerCount))
 	writeGauge("vexo_scored_peer_count", "Peer score table entry count.", uint64(metrics.ScoredPeerCount))
 	writeGauge("vexo_banned_peers", "Banned peer count.", uint64(metrics.BannedPeers))
+	writeFloatGauge("vexo_quorum_health_ratio", "Active peer count divided by configured peer count.", metrics.QuorumHealthRatio)
 	writeGauge("vexo_peer_window_messages", "Peer messages observed in the current score window.", metrics.PeerWindowMessages)
 	writeGauge("vexo_consensus_loop_running", "Whether the local consensus loop is running.", boolGauge(metrics.ConsensusLoopRunning))
 	writeGauge("vexo_adaptive_round_timeout_enabled", "Whether the adaptive consensus round timeout policy is enabled.", boolGauge(metrics.AdaptiveRoundTimeoutEnabled))

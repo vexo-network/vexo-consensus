@@ -29,6 +29,7 @@ type Metrics struct {
 	ConfiguredPeerCount         int
 	ScoredPeerCount             int
 	BannedPeers                 int
+	QuorumHealthRatio           float64
 	PeerWindowMessages          uint64
 	ConsensusLoopRunning        bool
 	HeightRatePerMinute         float64
@@ -74,6 +75,9 @@ func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
 		ScoredPeerCount:             status.ScoredPeerCount,
 		BannedPeers:                 status.BannedPeers,
 		PeerWindowMessages:          peerWindowMessages(status.Peers),
+	}
+	if status.ConfiguredPeerCount > 0 {
+		metrics.QuorumHealthRatio = float64(status.ActivePeerCount) / float64(status.ConfiguredPeerCount)
 	}
 	if !status.StartedAt.IsZero() {
 		metrics.StartedAtUnix = status.StartedAt.Unix()
