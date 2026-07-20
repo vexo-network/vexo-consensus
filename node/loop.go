@@ -126,6 +126,7 @@ func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig,
 	defer ticker.Stop()
 	lastTimeout := time.Now()
 	lastCommit := time.Time{}
+	adaptiveRoundTimeout := cfg.roundTimeout()
 	for {
 		if !lastCommit.IsZero() && cfg.TimeoutCommit > 0 {
 			if remaining := cfg.TimeoutCommit - time.Since(lastCommit); remaining > 0 {
@@ -144,16 +145,20 @@ func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig,
 			})
 		}
 		if result.Committed || result.Proposed {
+			snapshot := node.metrics.snapshot()
+			adaptiveRoundTimeout = recommendAdaptiveRoundTimeout(cfg.roundTimeout(), adaptiveRoundTimeout, snapshot, true, false)
 			lastTimeout = time.Now()
 		}
 		if result.Committed {
 			lastCommit = time.Now()
 		}
-		if !result.Committed && !result.Proposed && time.Since(lastTimeout) >= cfg.roundTimeout() {
+		if !result.Committed && !result.Proposed && time.Since(lastTimeout) >= adaptiveRoundTimeout {
 			node.metrics.observeRoundTimeout()
 			if _, _, err := node.TimeoutRound(ctx); err != nil && errors.Is(err, ErrNodeNotRunning) {
 				return
 			}
+			snapshot := node.metrics.snapshot()
+			adaptiveRoundTimeout = recommendAdaptiveRoundTimeout(cfg.roundTimeout(), adaptiveRoundTimeout, snapshot, false, true)
 			lastTimeout = time.Now()
 		}
 
