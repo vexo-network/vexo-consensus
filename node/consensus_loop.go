@@ -928,6 +928,7 @@ func (node *Node) CommitFinalizedBlock(ctx context.Context) (CommitReadyResult, 
 	pending := node.pendingProposals()
 	for _, decision := range decisions {
 		if reportErr == nil && !recoveryFinalityAllowsCommit(report, decision.CommittedHeight) {
+			node.metrics.observeRecoveryFinalityDeferral()
 			node.logEvent("recovery_finality_deferred", map[string]any{
 				"height":      decision.CommittedHeight,
 				"safe_height": report.SafeHeight,

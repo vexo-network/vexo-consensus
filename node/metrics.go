@@ -9,42 +9,44 @@ import (
 )
 
 type Metrics struct {
-	ChainID                 string
-	Running                 bool
-	StartedAtUnix           int64
-	UptimeSeconds           uint64
-	DataDir                 string
-	LatestHeight            types.Height
-	LatestAppHash           types.Hash
-	EarliestBlockHeight     types.Height
-	LatestBlockHeight       types.Height
-	TotalBlocks             uint64
-	ValidatorCount          int
-	TotalVotingPower        uint64
-	ValidatorSetHash        types.Hash
-	PeerCount               int
-	ActivePeerCount         int
-	ConfiguredPeerCount     int
-	ScoredPeerCount         int
-	BannedPeers             int
-	PeerWindowMessages      uint64
-	ConsensusLoopRunning    bool
-	HeightRatePerMinute     float64
-	RoundTimeouts           uint64
-	ProposalLatencyNanos    uint64
-	ProposalLatencyP95Nanos uint64
-	ProposalLatencyP99Nanos uint64
-	VoteLatencyNanos        uint64
-	VoteLatencyP95Nanos     uint64
-	VoteLatencyP99Nanos     uint64
-	MempoolSize             uint64
-	CommitLatencyNanos      uint64
-	CommitLatencyP95Nanos   uint64
-	CommitLatencyP99Nanos   uint64
-	SnapshotHealthy         bool
-	ReplayHealthy           bool
-	SigningFailures         uint64
-	ReconciliationFailures  uint64
+	ChainID                   string
+	Running                   bool
+	StartedAtUnix             int64
+	UptimeSeconds             uint64
+	DataDir                   string
+	LatestHeight              types.Height
+	LatestAppHash             types.Hash
+	EarliestBlockHeight       types.Height
+	LatestBlockHeight         types.Height
+	TotalBlocks               uint64
+	ValidatorCount            int
+	TotalVotingPower          uint64
+	ValidatorSetHash          types.Hash
+	PeerCount                 int
+	ActivePeerCount           int
+	ConfiguredPeerCount       int
+	ScoredPeerCount           int
+	BannedPeers               int
+	PeerWindowMessages        uint64
+	ConsensusLoopRunning      bool
+	HeightRatePerMinute       float64
+	RoundTimeouts             uint64
+	AdaptiveRoundTimeoutNanos uint64
+	RecoveryFinalityDeferrals uint64
+	ProposalLatencyNanos      uint64
+	ProposalLatencyP95Nanos   uint64
+	ProposalLatencyP99Nanos   uint64
+	VoteLatencyNanos          uint64
+	VoteLatencyP95Nanos       uint64
+	VoteLatencyP99Nanos       uint64
+	MempoolSize               uint64
+	CommitLatencyNanos        uint64
+	CommitLatencyP95Nanos     uint64
+	CommitLatencyP99Nanos     uint64
+	SnapshotHealthy           bool
+	ReplayHealthy             bool
+	SigningFailures           uint64
+	ReconciliationFailures    uint64
 }
 
 func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
@@ -68,6 +70,8 @@ func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
 	}
 	snapshot := node.metrics.snapshot()
 	metrics.RoundTimeouts = snapshot.roundTimeouts
+	metrics.AdaptiveRoundTimeoutNanos = snapshot.adaptiveTimeoutNanos
+	metrics.RecoveryFinalityDeferrals = snapshot.recoveryDeferrals
 	metrics.ProposalLatencyNanos = snapshot.proposalLatencyNanos
 	metrics.ProposalLatencyP95Nanos = snapshot.proposalP95Nanos
 	metrics.ProposalLatencyP99Nanos = snapshot.proposalP99Nanos

@@ -147,6 +147,7 @@ func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig,
 		if result.Committed || result.Proposed {
 			snapshot := node.metrics.snapshot()
 			adaptiveRoundTimeout = recommendAdaptiveRoundTimeout(cfg.roundTimeout(), adaptiveRoundTimeout, snapshot, true, false)
+			node.metrics.observeAdaptiveTimeout(adaptiveRoundTimeout)
 			lastTimeout = time.Now()
 		}
 		if result.Committed {
@@ -159,6 +160,7 @@ func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig,
 			}
 			snapshot := node.metrics.snapshot()
 			adaptiveRoundTimeout = recommendAdaptiveRoundTimeout(cfg.roundTimeout(), adaptiveRoundTimeout, snapshot, false, true)
+			node.metrics.observeAdaptiveTimeout(adaptiveRoundTimeout)
 			lastTimeout = time.Now()
 		}
 

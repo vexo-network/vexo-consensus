@@ -691,6 +691,8 @@ func TestNodeNetworkSafetyRejectsMismatchedValidatorSigner(t *testing.T) {
 func TestNodeMetricsExposeObservedConsensusCounters(t *testing.T) {
 	node := newTestNode(t)
 	node.metrics.observeRoundTimeout()
+	node.metrics.observeAdaptiveTimeout(200 * time.Millisecond)
+	node.metrics.observeRecoveryFinalityDeferral()
 	node.metrics.observeSigningFailure()
 	node.metrics.observeProposalLatency(2 * time.Millisecond)
 	node.metrics.observeVoteLatency(3 * time.Millisecond)
@@ -702,6 +704,9 @@ func TestNodeMetricsExposeObservedConsensusCounters(t *testing.T) {
 	}
 	if metrics.RoundTimeouts != 1 || metrics.SigningFailures != 1 {
 		t.Fatalf("unexpected counters: %+v", metrics)
+	}
+	if metrics.AdaptiveRoundTimeoutNanos == 0 || metrics.RecoveryFinalityDeferrals != 1 {
+		t.Fatalf("expected adaptive timeout and recovery deferral metrics: %+v", metrics)
 	}
 	if metrics.ProposalLatencyNanos == 0 || metrics.VoteLatencyNanos == 0 || metrics.CommitLatencyNanos == 0 {
 		t.Fatalf("expected latency metrics to be populated: %+v", metrics)
