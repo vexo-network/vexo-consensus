@@ -1363,9 +1363,9 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 		return nil, err
 	}
 	peers := mergePeerMaps(addrBook.PeerMap(peerID), runtimeConfig.P2PPeers, runtimeConfig.P2PSeeds)
-	var grpcTransport *transport.GRPCTransport
 	requireHandshakeSignature := requiresAuthenticatedP2P(runtimeConfig)
 	var authReplayStore transport.AuthReplayStore
+	var grpcTransport *transport.GRPCTransport
 	if runtimeConfig.P2PAuthReplayPath != "" {
 		authReplayStore, err = transport.NewFileAuthReplayStore(runtimeConfig.P2PAuthReplayPath)
 		if err != nil {
@@ -1416,11 +1416,7 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 			return nil
 		},
 	}
-	if requiresAuthenticatedP2P(runtimeConfig) {
-		grpcTransport, err = transport.NewNetworkSafeGRPCTransport(grpcConfig)
-	} else {
-		grpcTransport, err = transport.NewGRPCTransport(grpcConfig)
-	}
+	grpcTransport, err = transport.NewGRPCTransport(grpcConfig)
 	if err != nil {
 		return nil, err
 	}
