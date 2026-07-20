@@ -241,9 +241,6 @@ func (runtime *Runtime) ProcessProposalContext(goCtx context.Context, req Proces
 		if err := runtime.validateModuleTx(ctx, tx, payload, module); err != nil {
 			return ProcessProposalResponse{Accepted: false, Reason: err.Error()}
 		}
-		if err := runtime.checkEstimatedGas(ctx, tx, payload, module); err != nil {
-			return ProcessProposalResponse{Accepted: false, Reason: err.Error()}
-		}
 	}
 	return ProcessProposalResponse{Accepted: true}
 }
@@ -314,9 +311,6 @@ func (runtime *Runtime) finalizeBlockWithStore(goCtx context.Context, req Finali
 		payload := TxPayload(tx)
 		module, err := runtime.router.RouteTx(txCtx, payload, runtime.modules)
 		if err != nil {
-			return FinalizeBlockResponse{}, err
-		}
-		if err := runtime.checkEstimatedGas(txCtx, tx, payload, module); err != nil {
 			return FinalizeBlockResponse{}, err
 		}
 		result := module.DeliverTx(txCtx, payload)
