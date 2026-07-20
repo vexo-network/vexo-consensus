@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/config"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
@@ -564,6 +565,50 @@ func TestRuntimeConfigLoadsEVMAccountKeyEnvsFromSplitNetworkConfig(t *testing.T)
 	}
 	if len(keys) != 2 || keys[0] != "0xabc" || keys[1] != "0xdef" {
 		t.Fatalf("expected keys from envs, got %+v", keys)
+	}
+}
+
+func TestWriteNetworkFilesWithWeb3DevAccountsSeedsManagedAccount(t *testing.T) {
+	home := t.TempDir()
+	network, err := writeNetworkFilesWithOptionsAndKeyType(home, "vexo-test", 2, true, networkAddressOptions{}, vexocrypto.KeyTypeBLS, false, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(network.Nodes) != 2 {
+		t.Fatalf("expected two nodes, got %+v", network.Nodes)
+	}
+	networkDocument, err := readNetworkConfigDocument(network.Nodes[0].NetworkConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !networkDocument.RPC.EVMManagedAccounts || len(networkDocument.RPC.EVMAccountPrivateKeys) != 1 {
+		t.Fatalf("expected managed EVM account config, got %+v", networkDocument.RPC)
+	}
+	moduleDocument, err := readModuleConfigDocument(network.Nodes[0].ModuleConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(moduleDocument.Application.Modules) != 6 || moduleDocument.Application.Modules[5] != "evm" {
+		t.Fatalf("expected evm module enabled for web3 dev accounts, got %+v", moduleDocument.Application.Modules)
+	}
+	key, err := gethcrypto.HexToECDSA(strings.TrimPrefix(networkDocument.RPC.EVMAccountPrivateKeys[0], "0x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	evmAddress := strings.ToLower(gethcrypto.PubkeyToAddress(key.PublicKey).Hex())
+	genesisDocument, err := readGenesisDocument(network.Nodes[0].GenesisPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if genesisDocument.AppState["bank:"+evmAddress] == "" {
+		t.Fatalf("expected managed EVM account %s to be funded in genesis", evmAddress)
+	}
+	configDocument, err := readConfigDocument(network.Nodes[0].ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configDocument.RequireNetworkSafety {
+		t.Fatalf("expected web3 dev account init to disable network safety for local docker deployment")
 	}
 }
 

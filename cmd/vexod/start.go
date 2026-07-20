@@ -1082,13 +1082,13 @@ func validateRuntimeNetworkSafety(cfg startRuntimeConfig) error {
 	if cfg.P2PRequireAuthReplay && cfg.P2PAuthReplayPath == "" {
 		return fmt.Errorf("runtime.p2p.require_auth_replay_store requires runtime.p2p.auth_replay_path: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
-	if cfg.RPCEnabled && len(cfg.RPCEVMAccountKeys) > 0 && !isPrivateListenAddress(cfg.RPCAddress) {
+	if cfg.RPCEnabled && cfg.RequireNetworkSafety && len(cfg.RPCEVMAccountKeys) > 0 && !isPrivateListenAddress(cfg.RPCAddress) {
 		return fmt.Errorf("runtime.rpc.evm_account_private_keys are only allowed on private rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
 	if cfg.RPCEnabled && cfg.RequireNetworkSafety && len(cfg.RPCEVMAccountKeys) > 0 {
 		return fmt.Errorf("runtime.rpc.evm_account_private_keys are not allowed when require_network_safety=true; use evm_account_key_envs or an external signer: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
-	if cfg.RPCEnabled && len(cfg.RPCEVMAccountKeyEnvs) > 0 && !isPrivateListenAddress(cfg.RPCAddress) {
+	if cfg.RPCEnabled && cfg.RequireNetworkSafety && len(cfg.RPCEVMAccountKeyEnvs) > 0 && !isPrivateListenAddress(cfg.RPCAddress) {
 		return fmt.Errorf("runtime.rpc.evm_account_key_envs are only allowed on private rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
 	return nil

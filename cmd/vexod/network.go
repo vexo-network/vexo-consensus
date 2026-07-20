@@ -568,7 +568,7 @@ func runNetworkUp(ctx context.Context, writer io.Writer, args []string) error {
 		RPCPortStep:     10,
 		P2PHostTemplate: "127.0.0.1",
 		RPCHostTemplate: "127.0.0.1",
-	}, *keyType, false, "")
+	}, *keyType, false, "", true)
 	if err != nil {
 		return err
 	}
@@ -654,6 +654,7 @@ func runNetworkInit(writer io.Writer, args []string) error {
 	p2pPortStep := flags.Int("p2p-port-step", 10, "P2P port increment per validator")
 	rpcPortStep := flags.Int("rpc-port-step", 10, "RPC port increment per validator")
 	networkConfigPath := flags.String("network-config", "", "network topology config file for generated validator addresses")
+	web3DevAccounts := flags.Bool("web3-dev-accounts", false, "generate prefunded Web3 managed accounts for local Remix deployment")
 	encryptKeys := flags.Bool("encrypt-keys", false, "encrypt generated validator and VRF key files")
 	passphrase := flags.String("passphrase", "", "key encryption passphrase; prefer VEXO_KEY_PASSPHRASE")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing network files")
@@ -680,6 +681,9 @@ func runNetworkInit(writer io.Writer, args []string) error {
 			"--p2p-port-step", strconv.Itoa(*p2pPortStep),
 			"--rpc-port-step", strconv.Itoa(*rpcPortStep),
 		)
+	}
+	if *web3DevAccounts {
+		initArgs = append(initArgs, "--web3-dev-accounts")
 	}
 	if *overwrite {
 		initArgs = append(initArgs, "--overwrite")
@@ -967,7 +971,7 @@ func writeNetworkUpPlan(writer io.Writer, plan networkRuntimePlan, chainID strin
 	fmt.Fprintf(writer, "rpc-base-port: %d\n", plan.RPCBasePort)
 	fmt.Fprintf(writer, "timeout: %s\n", timeout)
 	fmt.Fprintf(writer, "tx: %s\n", tx)
-	initCommand := fmt.Sprintf("network init --home %s --chain-id %s --validators %d --p2p-base-port %d --rpc-base-port %d", plan.Home, chainID, plan.Validators, plan.P2PBasePort, plan.RPCBasePort)
+	initCommand := fmt.Sprintf("network init --home %s --chain-id %s --validators %d --p2p-base-port %d --rpc-base-port %d --web3-dev-accounts", plan.Home, chainID, plan.Validators, plan.P2PBasePort, plan.RPCBasePort)
 	if overwrite {
 		initCommand += " --overwrite"
 	}

@@ -117,7 +117,7 @@ export VEXO_KEY_PASSPHRASE='change-me'
 docker compose \
   -f deployments/docker/compose.single-host.init.yml \
   -f deployments/docker/compose.single-host.init.build.cgo.yml \
-  run --rm init
+  run --build --rm init
 
 docker compose \
   -f deployments/docker/compose.single-host.yml \
@@ -149,6 +149,8 @@ Use this custom provider URL:
 ```text
 http://127.0.0.1:28657/web3
 ```
+
+For the Docker single-host network, the init step seeds a prefunded local Web3 account on each validator so Remix can deploy contracts with `eth_sendTransaction` out of the box. Use that only for local development.
 
 Quick checks:
 
