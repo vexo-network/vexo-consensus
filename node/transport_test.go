@@ -1547,6 +1547,35 @@ func TestNodeRecoversDesyncedRoundWhenMempoolHasTx(t *testing.T) {
 	}
 }
 
+func TestNodeSkipsProposerRecoveryWhenQuorumHealthIsLow(t *testing.T) {
+	alice, bob, _ := newConsensusLoopNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+	startNode(t, bob)
+	defer bob.Stop(context.Background())
+
+	if err := bob.SubmitTx(context.Background(), []byte("bank:quorum-health-backoff")); err != nil {
+		t.Fatal(err)
+	}
+	machine, err := bob.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(1, 2)
+
+	proposal, blockHash, proposed, err := bob.TickConsensusWithConfig(context.Background(), ConsensusLoopConfig{
+		MaxBlockBytes:       1024,
+		CreateEmptyBlocks:   false,
+		ExecutionCommitMode: ExecutionCommitModeFinalized,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposed || blockHash != (types.Hash{}) {
+		t.Fatalf("expected quorum-health backoff to prevent proposer jump, proposed=%v proposal=%+v hash=%x", proposed, proposal, blockHash)
+	}
+}
+
 func newTransportNodes(t *testing.T) (*Node, *Node) {
 	t.Helper()
 	bus := transport.NewInMemoryBus()
