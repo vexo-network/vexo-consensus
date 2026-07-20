@@ -1916,6 +1916,15 @@ func normalizeExecutionConfig(execution config.ExecutionConfig) config.Execution
 	if execution.EVMChainID == 0 {
 		execution.EVMChainID = defaults.EVMChainID
 	}
+	if execution.TargetGas == 0 {
+		execution.TargetGas = defaults.TargetGas
+	}
+	if execution.MaxGas == 0 {
+		execution.MaxGas = defaults.MaxGas
+	}
+	if execution.BaseFeeChangeDenominator == 0 {
+		execution.BaseFeeChangeDenominator = defaults.BaseFeeChangeDenominator
+	}
 	if execution.BlobBaseFee == 0 {
 		execution.BlobBaseFee = defaults.BlobBaseFee
 	}
@@ -1928,8 +1937,14 @@ func normalizeExecutionConfig(execution config.ExecutionConfig) config.Execution
 	if execution.BlobFeeChangeDenominator == 0 {
 		execution.BlobFeeChangeDenominator = defaults.BlobFeeChangeDenominator
 	}
+	if execution.MinBaseFee == 0 {
+		execution.MinBaseFee = defaults.MinBaseFee
+	}
 	if execution.MinBlobBaseFee == 0 {
 		execution.MinBlobBaseFee = defaults.MinBlobBaseFee
+	}
+	if execution.MinGas == 0 {
+		execution.MinGas = defaults.MinGas
 	}
 	if execution.FeeCollector == "" {
 		execution.FeeCollector = defaults.FeeCollector

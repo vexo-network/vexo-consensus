@@ -181,8 +181,8 @@ func buildDeploymentTemplateDocument() deploymentTemplateDocument {
 			RPCMaxRequestBytes:      1_048_576,
 			RPCRateLimitMaxRequests: 100,
 			P2PMaxMessageBytes:      1_048_576,
-			P2PAuthTokenRequired:    false,
-			RPCAdminTokenRequired:   false,
+			P2PAuthTokenRequired:    true,
+			RPCAdminTokenRequired:   true,
 			PprofLoopbackOnly:       true,
 		},
 		Validation: deploymentValidationTemplate{
@@ -202,6 +202,7 @@ func buildDeploymentTemplateDocument() deploymentTemplateDocument {
 		Notes: []string{
 			"Tune fee, stake, and rate-limit values against real traffic before launch.",
 			"Use remote signer/KMS or encrypted local keys; never ship unencrypted validator keys.",
+			"Require authenticated P2P and admin access for production deployments, even when the network remains private.",
 			"BLS defaults to the supranational/blst min-pk adapter; attach adapter/dependency audit evidence and proof-of-possession metadata before launch.",
 		},
 	}

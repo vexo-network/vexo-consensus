@@ -45,3 +45,64 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+<!-- vexo-docs:technical-parity -->
+## तकनीकी समानता परिशिष्ट
+
+यह परिशिष्ट उन तकनीकी नामों को सुरक्षित रखता है जो कैनॉनिकल संस्करण के साथ समान रहेंगे:
+
+- `rpc_listening` — यह नाम रन उदाहरणों और कॉन्फ़िगरेशन सत्यापन में बिना बदलाव के उपयोग होता है।
+- `p2p_listening` — यह नाम रन उदाहरणों और कॉन्फ़िगरेशन सत्यापन में बिना बदलाव के उपयोग होता है।
+- `peer_configured` — यह नाम रन उदाहरणों और कॉन्फ़िगरेशन सत्यापन में बिना बदलाव के उपयोग होता है।
+- `peer_connected` — यह नाम रन उदाहरणों और कॉन्फ़िगरेशन सत्यापन में बिना बदलाव के उपयोग होता है।
+- `peer_disconnected` — यह नाम रन उदाहरणों और कॉन्फ़िगरेशन सत्यापन में बिना बदलाव के उपयोग होता है।
+- `peer_dial_failed` — यह नाम रन उदाहरणों और कॉन्फ़िगरेशन सत्यापन में बिना बदलाव के उपयोग होता है।
+- `peer_banned` — यह नाम रन उदाहरणों और कॉन्फ़िगरेशन सत्यापन में बिना बदलाव के उपयोग होता है।
+- `consensus_loop_running` — यह नाम रन उदाहरणों और कॉन्फ़िगरेशन सत्यापन में बिना बदलाव के उपयोग होता है।
+- `block_committed` — यह नाम रन उदाहरणों और कॉन्फ़िगरेशन सत्यापन में बिना बदलाव के उपयोग होता है।
+- `round_timeout` — यह नाम रन उदाहरणों और कॉन्फ़िगरेशन सत्यापन में बिना बदलाव के उपयोग होता है।
+- `validator_signing_failure` — यह नाम रन उदाहरणों और कॉन्फ़िगरेशन सत्यापन में बिना बदलाव के उपयोग होता है।
+- `evidence_received` — यह नाम रन उदाहरणों और कॉन्फ़िगरेशन सत्यापन में बिना बदलाव के उपयोग होता है।
+- `evidence_applied` — यह नाम रन उदाहरणों और कॉन्फ़िगरेशन सत्यापन में बिना बदलाव के उपयोग होता है।
+- `snapshot_exported` — यह नाम रन उदाहरणों और कॉन्फ़िगरेशन सत्यापन में बिना बदलाव के उपयोग होता है।
+- `replay_checked` — यह नाम रन उदाहरणों और कॉन्फ़िगरेशन सत्यापन में बिना बदलाव के उपयोग होता है।
+- `upgrade_halt` — यह नाम रन उदाहरणों और कॉन्फ़िगरेशन सत्यापन में बिना बदलाव के उपयोग होता है।
+- `upgrade_applied` — यह नाम रन उदाहरणों और कॉन्फ़िगरेशन सत्यापन में बिना बदलाव के उपयोग होता है।
+- `dist/` — यह नाम रन उदाहरणों और कॉन्फ़िगरेशन सत्यापन में बिना बदलाव के उपयोग होता है।
+- `/v1/status`
+- `/v1/metrics`
+- `/metrics/text`
+- `/v1/diagnostics`
+- `/v1/finality/latest`
+- `/v1/state/latest`
+- `/v1/recovery/report`
+- `/v1/snapshot`
+- `configured_peer_count`
+- `scored_peer_count`
+- `vexo_configured_peer_count`
+- `vexo_scored_peer_count`
+- `latest_height`
+- `latest_finalized_height`
+- `latest_app_hash`
+- `banned_peers=0`
+- `vexo_node_running`
+- `vexo_latest_height`
+- `vexo_peer_count`
+- `vexo_banned_peers`
+- `vexo_height_rate_per_minute`
+- `vexo_round_timeouts`
+- `vexo_proposal_latency_p95_nanos`
+- `vexo_vote_latency_p95_nanos`
+- `vexo_commit_latency_p95_nanos`
+- `vexo_mempool_size`
+- `vexo_snapshot_healthy`
+- `vexo_replay_healthy`
+- `vexo_validator_signing_failures`
+- `vexo_post_commit_reconciliation_failures`
+- `vexo_node_running == 0`
+- `vexo_active_peer_count == 0`
+- `vexo_snapshot_healthy == 0`
+- `vexo_replay_healthy == 0`
+- `vexo_validator_signing_failures > 0`
+- `vexo_post_commit_reconciliation_failures > 0`
+- `timeout_propose`
+- `max_txs`

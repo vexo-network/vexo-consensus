@@ -61,6 +61,21 @@ func TestConfigValidateRejectsUnsafeSettings(t *testing.T) {
 		{name: "zero mempool tx count", mutate: func(cfg *Config) { cfg.Mempool.MaxTxs = 0 }},
 		{name: "negative mempool tx count", mutate: func(cfg *Config) { cfg.Mempool.MaxTxs = -1 }},
 		{name: "negative mempool seen ttl", mutate: func(cfg *Config) { cfg.Mempool.SeenTTL = -time.Second }},
+		{name: "zero target gas", mutate: func(cfg *Config) { cfg.Execution.TargetGas = 0 }},
+		{name: "zero max gas", mutate: func(cfg *Config) { cfg.Execution.MaxGas = 0 }},
+		{name: "target gas above max gas", mutate: func(cfg *Config) {
+			cfg.Execution.TargetGas = 11
+			cfg.Execution.MaxGas = 10
+		}},
+		{name: "zero target blob gas", mutate: func(cfg *Config) { cfg.Execution.TargetBlobGas = 0 }},
+		{name: "zero max blob gas", mutate: func(cfg *Config) { cfg.Execution.MaxBlobGas = 0 }},
+		{name: "target blob gas above max blob gas", mutate: func(cfg *Config) {
+			cfg.Execution.TargetBlobGas = 11
+			cfg.Execution.MaxBlobGas = 10
+		}},
+		{name: "zero base fee change denominator", mutate: func(cfg *Config) { cfg.Execution.BaseFeeChangeDenominator = 0 }},
+		{name: "zero blob fee change denominator", mutate: func(cfg *Config) { cfg.Execution.BlobFeeChangeDenominator = 0 }},
+		{name: "zero min gas", mutate: func(cfg *Config) { cfg.Execution.MinGas = 0 }},
 		{name: "signed execution without mint authority", mutate: func(cfg *Config) { cfg.Execution.RequireSigned = true }},
 		{name: "zero staking unbonding delay", mutate: func(cfg *Config) { cfg.Staking.UnbondingDelay = 0 }},
 		{name: "zero staking commission cap", mutate: func(cfg *Config) { cfg.Staking.MaxCommissionBPS = 0 }},
@@ -84,6 +99,11 @@ func TestConfigValidateRejectsUnsafeSettings(t *testing.T) {
 			cfg.Execution.DynamicBaseFee = true
 			cfg.Execution.BaseFee = 1
 			cfg.Execution.TargetGas = 0
+		}},
+		{name: "dynamic base fee without base fee change denominator", mutate: func(cfg *Config) {
+			cfg.Execution.DynamicBaseFee = true
+			cfg.Execution.BaseFee = 1
+			cfg.Execution.BaseFeeChangeDenominator = 0
 		}},
 		{name: "dynamic base fee invalid bounds", mutate: func(cfg *Config) {
 			cfg.Execution.DynamicBaseFee = true

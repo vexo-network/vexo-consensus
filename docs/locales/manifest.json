@@ -47,10 +47,10 @@
   "ci_policy": "go test ./cmd/vexod -run TestDocsLocalesMirrorCanonicalTree and make docs-check fail when any locale misses or adds a Markdown path outside the canonical tree.",
   "canonical_hashes": {
     "README.md": "eb647ebd93bb1894d9a50d90a9b323086504b9ab5d4eb21c604897becac65834",
-    "consensus-protocol.md": "a22134a854a0ff0ffd6a686f07053f9dd7f3c50947e6383c8e21448998f810bd",
+    "consensus-protocol.md": "0f64a56309a3bce8110babe8622ede1072c5a9a554760ad1145d8d36cdc00a00",
     "operators/add-validator.md": "e179c0f86fa3f14403c9a1a0eb55354bc8bdb5d71b23778571e4d68c68acae0e",
     "operators/node-initialization.md": "f82ecd5613b913625e55593f63920aefab01bd72e2721efa85b6d69cda9434ba",
-    "operators/observability.md": "71c8c80c7fbf5aa6f5b4f448a14c9bf6c702eb74bd56ca59238e8d90324e2839",
+    "operators/observability.md": "753dbe2de9e0975507442a0c95a85cb29b7cba610fb9fe5a61e061ce7ea19816",
     "production-readiness.md": "671b0e5f89568f9560f2226f99bc40900ce5aed1ef7979a3472917b9cd995cb6",
     "release/cosmos-comparison-gate.md": "7674da13bf525c3180aa729e260c45c8b04655abae6f5c3bc64cece674237549",
     "release/launch-runbook.md": "8f839ac66263a7297e426ad1ab9ffa60e8123cdd6892037c65b858582bbfb0e0",

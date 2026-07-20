@@ -145,6 +145,7 @@ func Default(chainID string) Config {
 			BaseFeeChangeDenominator: 8,
 			BlobFeeChangeDenominator: 6,
 			MinBlobBaseFee:           1,
+			MinGas:                   1,
 			FeeCollector:             "fee_collector",
 			FeeDenom:                 economics.AtomicDenom,
 			DisplayDenom:             economics.DisplayDenom,
@@ -258,25 +259,32 @@ func (config Config) Validate() error {
 	if !validCryptoBackend(config.Crypto.Backend) {
 		return ErrInvalidConfig
 	}
+	if config.Execution.TargetGas == 0 ||
+		config.Execution.MaxGas == 0 ||
+		config.Execution.TargetGas > config.Execution.MaxGas ||
+		config.Execution.BaseFeeChangeDenominator == 0 ||
+		config.Execution.MinGas == 0 {
+		return ErrInvalidConfig
+	}
 	if config.Execution.MaxGas > 0 && config.Execution.MinGas > config.Execution.MaxGas {
 		return ErrInvalidConfig
 	}
 	if config.Execution.EVMChainID == 0 {
 		return ErrInvalidConfig
 	}
+	if config.Execution.TargetBlobGas == 0 ||
+		config.Execution.MaxBlobGas == 0 ||
+		config.Execution.TargetBlobGas > config.Execution.MaxBlobGas ||
+		config.Execution.BlobFeeChangeDenominator == 0 {
+		return ErrInvalidConfig
+	}
 	if config.Execution.DynamicBaseFee &&
 		(config.Execution.BaseFee == 0 ||
-			config.Execution.TargetGas == 0 ||
-			config.Execution.BaseFeeChangeDenominator == 0 ||
 			(config.Execution.MaxBaseFee > 0 && config.Execution.MinBaseFee > config.Execution.MaxBaseFee)) {
 		return ErrInvalidConfig
 	}
 	if config.Execution.DynamicBlobBaseFee &&
 		(config.Execution.BlobBaseFee == 0 ||
-			config.Execution.TargetBlobGas == 0 ||
-			config.Execution.MaxBlobGas == 0 ||
-			config.Execution.TargetBlobGas > config.Execution.MaxBlobGas ||
-			config.Execution.BlobFeeChangeDenominator == 0 ||
 			(config.Execution.MaxBlobBaseFee > 0 && config.Execution.MinBlobBaseFee > config.Execution.MaxBlobBaseFee)) {
 		return ErrInvalidConfig
 	}
