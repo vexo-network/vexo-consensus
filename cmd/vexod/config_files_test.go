@@ -129,6 +129,10 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	}
 	if !consensusDocument.Consensus.LoopEnabled ||
 		consensusDocument.Consensus.ExecutionCommit != string(vexonode.ExecutionCommitModeFinalized) ||
+		consensusDocument.Consensus.AdaptiveRoundTimeoutEnabled == nil ||
+		!(*consensusDocument.Consensus.AdaptiveRoundTimeoutEnabled) ||
+		consensusDocument.Consensus.RecoveryFinalityGateEnabled == nil ||
+		!(*consensusDocument.Consensus.RecoveryFinalityGateEnabled) ||
 		consensusDocument.Committee.CommitteeSize == 0 ||
 		consensusDocument.Committee.Backend != committee.BackendVRF ||
 		consensusDocument.VRF.AdapterName != vexocrypto.VRFAdapterECVRFP256Name ||
@@ -1106,8 +1110,29 @@ func TestLoadStartRuntimeConfigParsesConsensusTimeoutsAndEmptyBlocks(t *testing.
 		cfg.ConsensusLoop.TimeoutPrecommit != 2*time.Second ||
 		cfg.ConsensusLoop.TimeoutCommit != 250*time.Millisecond ||
 		!cfg.ConsensusLoop.CreateEmptyBlocks ||
+		!cfg.ConsensusLoop.AdaptiveRoundTimeoutEnabled ||
+		!cfg.ConsensusLoop.RecoveryFinalityGateEnabled ||
 		cfg.ConsensusLoop.ExecutionCommitMode != vexonode.ExecutionCommitModeFinalized {
 		t.Fatalf("unexpected consensus runtime config: %+v", cfg.ConsensusLoop)
+	}
+}
+
+func TestLoadStartRuntimeConfigHonorsConsensusFeatureDisables(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, configFileName)
+	document := defaultConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	consensusDocument := defaultConsensusConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	consensusDocument.Consensus.AdaptiveRoundTimeoutEnabled = boolPtr(false)
+	consensusDocument.Consensus.RecoveryFinalityGateEnabled = boolPtr(false)
+	writeTestJSON(t, path, document)
+	writeTestJSON(t, filepath.Join(home, consensusConfigFileName), consensusDocument)
+
+	cfg, err := loadStartRuntimeConfig(home, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ConsensusLoop.AdaptiveRoundTimeoutEnabled || cfg.ConsensusLoop.RecoveryFinalityGateEnabled {
+		t.Fatalf("expected consensus feature toggles to be loadable, got %+v", cfg.ConsensusLoop)
 	}
 }
 

@@ -200,17 +200,19 @@ type runtimeStateSyncConfig struct {
 }
 
 type runtimeConsensusConfig struct {
-	LoopEnabled         bool   `json:"loop_enabled"`
-	Interval            string `json:"interval,omitempty"`
-	TimeoutPropose      string `json:"timeout_propose,omitempty"`
-	TimeoutPrevote      string `json:"timeout_prevote,omitempty"`
-	TimeoutPrecommit    string `json:"timeout_precommit,omitempty"`
-	TimeoutCommit       string `json:"timeout_commit,omitempty"`
-	RoundTimeout        string `json:"round_timeout,omitempty"`
-	MaxBlockBytes       int64  `json:"max_block_bytes,omitempty"`
-	CreateEmptyBlocks   bool   `json:"create_empty_blocks"`
-	ExecutionCommit     string `json:"execution_commit,omitempty"`
-	AllowUnsafeQCCommit bool   `json:"allow_unsafe_qc_commit,omitempty"`
+	LoopEnabled                 bool   `json:"loop_enabled"`
+	Interval                    string `json:"interval,omitempty"`
+	TimeoutPropose              string `json:"timeout_propose,omitempty"`
+	TimeoutPrevote              string `json:"timeout_prevote,omitempty"`
+	TimeoutPrecommit            string `json:"timeout_precommit,omitempty"`
+	TimeoutCommit               string `json:"timeout_commit,omitempty"`
+	RoundTimeout                string `json:"round_timeout,omitempty"`
+	MaxBlockBytes               int64  `json:"max_block_bytes,omitempty"`
+	CreateEmptyBlocks           bool   `json:"create_empty_blocks"`
+	ExecutionCommit             string `json:"execution_commit,omitempty"`
+	AllowUnsafeQCCommit         bool   `json:"allow_unsafe_qc_commit,omitempty"`
+	AdaptiveRoundTimeoutEnabled *bool  `json:"adaptive_round_timeout_enabled,omitempty"`
+	RecoveryFinalityGateEnabled *bool  `json:"recovery_finality_gate_enabled,omitempty"`
 }
 
 type runtimeLogConfig struct {
@@ -1778,16 +1780,18 @@ func defaultRuntimeConfig(validatorID string) runtimeConfig {
 			RetryAllSnapshots: true,
 		},
 		Consensus: runtimeConsensusConfig{
-			LoopEnabled:       loopEnabled,
-			Interval:          "50ms",
-			TimeoutPropose:    "3s",
-			TimeoutPrevote:    "1s",
-			TimeoutPrecommit:  "1s",
-			TimeoutCommit:     "1s",
-			RoundTimeout:      "3s",
-			MaxBlockBytes:     1024 * 1024,
-			CreateEmptyBlocks: false,
-			ExecutionCommit:   string(node.ExecutionCommitModeFinalized),
+			LoopEnabled:                 loopEnabled,
+			Interval:                    "50ms",
+			TimeoutPropose:              "3s",
+			TimeoutPrevote:              "1s",
+			TimeoutPrecommit:            "1s",
+			TimeoutCommit:               "1s",
+			RoundTimeout:                "3s",
+			MaxBlockBytes:               1024 * 1024,
+			CreateEmptyBlocks:           false,
+			ExecutionCommit:             string(node.ExecutionCommitModeFinalized),
+			AdaptiveRoundTimeoutEnabled: boolPtr(true),
+			RecoveryFinalityGateEnabled: boolPtr(true),
 		},
 		Log: runtimeLogConfig{
 			Format:       "text",
