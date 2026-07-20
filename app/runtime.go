@@ -241,6 +241,9 @@ func (runtime *Runtime) ProcessProposalContext(goCtx context.Context, req Proces
 		if err := runtime.validateModuleTx(ctx, tx, payload, module); err != nil {
 			return ProcessProposalResponse{Accepted: false, Reason: err.Error()}
 		}
+		if err := runtime.checkEstimatedGas(ctx, tx, payload, module); err != nil {
+			return ProcessProposalResponse{Accepted: false, Reason: err.Error()}
+		}
 	}
 	return ProcessProposalResponse{Accepted: true}
 }
