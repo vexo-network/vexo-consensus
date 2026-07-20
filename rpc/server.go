@@ -2162,10 +2162,13 @@ func web3TransactionGasPrice(ctx context.Context, provider StatusProvider, paylo
 			if price == 0 {
 				price = state.BaseFee
 			}
+			if price == 0 {
+				price = 1
+			}
 			return new(big.Int).SetUint64(price), nil
 		}
 	}
-	return big.NewInt(0), nil
+	return big.NewInt(1), nil
 }
 
 func web3TransactionBig(value string, message string) (*big.Int, *JSONRPCError) {
@@ -3263,7 +3266,7 @@ func web3MaxPriorityFeePerGas(ctx context.Context, provider StatusProvider) stri
 			return hexQuantity(1)
 		}
 	}
-	return hexQuantity(0)
+	return hexQuantity(1)
 }
 
 func web3FeeHistory(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
@@ -4805,16 +4808,19 @@ func web3BlockOverrideParam(params []json.RawMessage) (evmmodule.CallBlockOverri
 func web3LatestBaseFee(ctx context.Context, provider StatusProvider) uint64 {
 	query, ok := provider.(ChainQueryProvider)
 	if !ok {
-		return 0
+		return 1
 	}
 	state, err := query.LatestState(ctx)
 	if err != nil {
-		return 0
+		return 1
 	}
 	if state.NextBaseFee > 0 {
 		return state.NextBaseFee
 	}
-	return state.BaseFee
+	if state.BaseFee > 0 {
+		return state.BaseFee
+	}
+	return 1
 }
 
 func web3CreateAccessList(ctx context.Context, provider StatusProvider, cfg Config, params []json.RawMessage) (any, *JSONRPCError) {

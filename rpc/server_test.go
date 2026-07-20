@@ -2676,8 +2676,8 @@ func TestHandlerWeb3GasPriceFailsClosedWhenBaseFeeUnavailable(t *testing.T) {
 
 	var response JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":1,"method":"eth_gasPrice","params":[]}`, http.StatusOK, &response)
-	if response.Error != nil || response.Result != "0x0" {
-		t.Fatalf("expected zero gas price fallback, got %+v", response)
+	if response.Error != nil || response.Result != "0x1" {
+		t.Fatalf("expected minimal gas price fallback, got %+v", response)
 	}
 }
 
