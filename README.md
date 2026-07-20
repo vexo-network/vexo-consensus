@@ -100,9 +100,9 @@ export VEXO_KEY_PASSPHRASE='change-me'
 In another terminal:
 
 ```bash
-curl -sk https://127.0.0.1:26657/v1/status
-curl -sk https://127.0.0.1:26657/v1/diagnostics
-curl -sk https://127.0.0.1:26657/v1/metrics
+curl -s http://127.0.0.1:26657/v1/status
+curl -s http://127.0.0.1:26657/v1/diagnostics
+curl -s http://127.0.0.1:26657/v1/metrics
 ```
 
 If `consensus_config.json` has `"create_empty_blocks": false`, height can stay unchanged until a transaction enters the mempool. That is expected.
@@ -128,10 +128,10 @@ docker compose \
 Status endpoints from the host:
 
 ```bash
-curl -sk https://127.0.0.1:28657/v1/status
-curl -sk https://127.0.0.1:28667/v1/status
-curl -sk https://127.0.0.1:28677/v1/status
-curl -sk https://127.0.0.1:28687/v1/status
+curl -s http://127.0.0.1:28657/v1/status
+curl -s http://127.0.0.1:28667/v1/status
+curl -s http://127.0.0.1:28677/v1/status
+curl -s http://127.0.0.1:28687/v1/status
 ```
 
 Stop it with:
@@ -170,7 +170,7 @@ Node behavior is configured through files, not long `start` flags:
 
 - `.vexo/config.json`: node identity, chain ID, data path, and split config pointers
 - `.vexo/module_config.json`: app modules, execution policy, EVM chain ID, gas, fees, and governance policy
-- `.vexo/network_config.json`: RPC/P2P listen addresses, peers, seeds, TLS, Web3 RPC, state sync, and peer scoring
+- `.vexo/network_config.json`: RPC/P2P listen addresses, peers, seeds, Web3 RPC, state sync, and peer scoring
 - `.vexo/consensus_config.json`: consensus timing, empty-block policy, finality/execution boundary, crypto, VRF, and committee policy
 - `.vexo/mempool_config.json`: mempool size, fees, replacement policy, TTL, and WAL persistence
 - `.vexo/log_config.json`: log format, level, block commit logs, and peer event logs

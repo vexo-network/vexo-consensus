@@ -1,0 +1,17 @@
+{
+  "schema_version": "v1",
+  "peers": [
+    {
+      "peer": "validator-1",
+      "score": 189
+    },
+    {
+      "peer": "validator-2",
+      "score": 188
+    },
+    {
+      "peer": "validator-3",
+      "score": 187
+    }
+  ]
+}

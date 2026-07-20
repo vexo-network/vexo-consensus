@@ -1,0 +1,15 @@
+{
+  "schema_version": "v1",
+  "mempool": {
+    "Author": "",
+    "MaxTxBytes": 1048576,
+    "MaxTxs": 100000,
+    "AllowDuplicate": false,
+    "SeenTTL": 3600000000000,
+    "MinFee": 1,
+    "EnablePriority": true,
+    "WALPath": "/var/lib/vexo/network/validator-2/data/mempool.wal",
+    "EnableReplacement": true,
+    "ReplacementBumpBPS": 1000
+  }
+}

@@ -239,24 +239,16 @@ func TestRunInitWritesNetworkFiles(t *testing.T) {
 		if networkDocument.P2P.NodeID != validatorID || networkDocument.P2P.NodeKeyPath != nodeKeyFileName {
 			t.Fatalf("expected p2p node identity for %s, got %+v", validatorID, networkDocument.P2P)
 		}
-		if networkDocument.P2P.AuthToken == "" ||
-			networkDocument.P2P.AuthReplayPath == "" ||
-			networkDocument.P2P.TLSCertPath != filepath.Join("tls", "node.crt") ||
-			networkDocument.P2P.TLSKeyPath != filepath.Join("tls", "node.key") ||
-			networkDocument.P2P.TLSCAPath != filepath.Join("tls", "ca.crt") ||
-			networkDocument.RPC.TLSCertPath != filepath.Join("tls", "node.crt") ||
-			networkDocument.RPC.TLSKeyPath != filepath.Join("tls", "node.key") {
-			t.Fatalf("expected p2p auth replay path for %s, got %+v", validatorID, networkDocument.P2P)
+		if networkDocument.P2P.AuthToken == "" || networkDocument.P2P.AuthReplayPath == "" {
+			t.Fatalf("expected p2p auth settings for %s, got %+v", validatorID, networkDocument.P2P)
 		}
 		if index == 1 {
 			sharedP2PAuthToken = networkDocument.P2P.AuthToken
 		} else if networkDocument.P2P.AuthToken != sharedP2PAuthToken {
 			t.Fatalf("expected shared p2p auth token for %s, got %+v", validatorID, networkDocument.P2P)
 		}
-		for _, fileName := range []string{"tls/ca.crt", "tls/node.crt", "tls/node.key"} {
-			if _, err := os.Stat(filepath.Join(nodeHome, fileName)); err != nil {
-				t.Fatalf("expected tls artifact %s for %s: %v", fileName, validatorID, err)
-			}
+		if _, err := os.Stat(filepath.Join(nodeHome, "tls")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("expected no tls directory for %s, got err=%v", validatorID, err)
 		}
 		consensusDocument, err := readConsensusConfigDocument(filepath.Join(nodeHome, consensusConfigFileName))
 		if err != nil {
@@ -1205,12 +1197,6 @@ func TestLoadStartRuntimeConfigRequiresFinalizedCommitWhenNetworkSafetyIsRequire
 	if _, err := loadStartRuntimeConfig(home, path); err != nil {
 		t.Fatalf("expected durable auth replay path to satisfy runtime safety boundary, got %v", err)
 	}
-
-	networkDocument.P2P.TLSCAPath = ""
-	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
-	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrUnsafeNetworkConfig) {
-		t.Fatalf("expected missing p2p mtls ca to fail network safety boundary, got %v", err)
-	}
 }
 
 func TestLoadStartRuntimeConfigRequiresExplicitUnsafeOptInForQCCommit(t *testing.T) {
@@ -1277,7 +1263,7 @@ func TestLoadStartRuntimeConfigRejectsManagedEVMKeysOnPublicRPC(t *testing.T) {
 	}
 }
 
-func TestLoadStartRuntimeConfigRequiresTLSOnPublicRPC(t *testing.T) {
+func TestLoadStartRuntimeConfigAllowsPublicHTTPRPC(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, configFileName)
 	document := defaultConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
@@ -1288,14 +1274,12 @@ func TestLoadStartRuntimeConfigRequiresTLSOnPublicRPC(t *testing.T) {
 	writeTestJSON(t, path, document)
 	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
 
-	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrUnsafeNetworkConfig) {
-		t.Fatalf("expected public rpc without tls to fail network safety boundary, got %v", err)
+	cfg, err := loadStartRuntimeConfig(home, path)
+	if err != nil {
+		t.Fatalf("expected public rpc over http to load, cfg=%+v err=%v", cfg, err)
 	}
-	networkDocument.RPC.TLSCertPath = "tls/rpc.crt"
-	networkDocument.RPC.TLSKeyPath = "tls/rpc.key"
-	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
-	if cfg, err := loadStartRuntimeConfig(home, path); err != nil || cfg.RPCTLSCertPath == "" || cfg.RPCTLSKeyPath == "" {
-		t.Fatalf("expected public rpc with tls identity to load, cfg=%+v err=%v", cfg, err)
+	if cfg.RPCTLSCertPath != "" || cfg.RPCTLSKeyPath != "" || cfg.RPCTLSCAPath != "" || cfg.RPCTLSServerName != "" {
+		t.Fatalf("expected no rpc tls config, got %+v", cfg)
 	}
 }
 

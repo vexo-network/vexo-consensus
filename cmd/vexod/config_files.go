@@ -507,7 +507,6 @@ func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validat
 	keys := make([]vexocrypto.KeyDocument, 0, validatorCount)
 	nodeKeys := make([]vexocrypto.KeyDocument, 0, validatorCount)
 	vrfKeys := make([]vexocrypto.KeyDocument, 0, validatorCount)
-	tlsArtifacts := make([]networkTLSArtifacts, 0, validatorCount)
 	for index := 1; index <= validatorCount; index++ {
 		validatorID := networkValidatorID(index)
 		nodeID := defaultP2PNodeID(validatorID, filepath.Join(home, validatorID))
@@ -534,11 +533,6 @@ func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validat
 			return networkDocument{}, err
 		}
 		vrfKeys = append(vrfKeys, vrfKeyDocument)
-		tlsArtifact, err := newNetworkTLSArtifacts(validatorID, index, options)
-		if err != nil {
-			return networkDocument{}, err
-		}
-		tlsArtifacts = append(tlsArtifacts, tlsArtifact)
 		publicKey, err := decodeOptionalBase64(keyDocument.PublicKey)
 		if err != nil {
 			return networkDocument{}, err
@@ -649,19 +643,10 @@ func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validat
 		consensusCfg.VRFKeyPaths = []string{defaultVRFKeyFileName}
 		mempoolCfg := defaultMempoolConfigDocument(chainID, dataDir)
 		logCfg := defaultLogConfigDocument(chainID, dataDir, validatorID)
-		tlsArtifact := tlsArtifacts[index-1]
-		networkCfg.P2P.TLSCertPath = tlsArtifact.CertPath
-		networkCfg.P2P.TLSKeyPath = tlsArtifact.KeyPath
-		networkCfg.P2P.TLSCAPath = tlsArtifact.CAPath
 		networkCfg.P2P.AuthToken = sharedP2PAuthToken
-		networkCfg.RPC.TLSCertPath = tlsArtifact.CertPath
-		networkCfg.RPC.TLSKeyPath = tlsArtifact.KeyPath
 		networkCfg.RPC.Address = networkRPCListenAddressWithOptions(index, options)
 		networkCfg.P2P.ListenAddress = networkP2PListenAddressWithOptions(index, options)
 		networkCfg.P2P.Peers = networkConfigPeers(validators, validatorID, options)
-		if err := writeNetworkTLSArtifacts(nodeHome, tlsArtifact, index, options); err != nil {
-			return networkDocument{}, err
-		}
 		if err := writeJSONFile(configPath, cfg); err != nil {
 			return networkDocument{}, err
 		}
@@ -721,55 +706,7 @@ func generateNetworkAuthToken() (string, error) {
 	return hex.EncodeToString(token), nil
 }
 
-type networkTLSArtifacts struct {
-	CAPath   string
-	CertPath string
-	KeyPath  string
-}
-
-func newNetworkTLSArtifacts(validatorID string, index int, options networkAddressOptions) (networkTLSArtifacts, error) {
-	_ = validatorID
-	_ = index
-	_ = options
-	return networkTLSArtifacts{
-		CAPath:   filepath.Join("tls", "ca.crt"),
-		CertPath: filepath.Join("tls", "node.crt"),
-		KeyPath:  filepath.Join("tls", "node.key"),
-	}, nil
-}
-
-func writeNetworkTLSArtifacts(nodeHome string, artifact networkTLSArtifacts, index int, options networkAddressOptions) error {
-	tlsDir := filepath.Join(nodeHome, "tls")
-	if err := os.MkdirAll(tlsDir, 0o755); err != nil {
-		return err
-	}
-	sans := buildNetworkTLSSubjectAltNames(index, options)
-	caCertPEM, leafCertPEM, leafKeyPEM, err := generateNetworkTLSMaterial(filepath.Base(nodeHome), sans)
-	if err != nil {
-		return err
-	}
-	files := map[string][]byte{
-		artifact.CAPath:   caCertPEM,
-		artifact.CertPath: leafCertPEM,
-		artifact.KeyPath:  leafKeyPEM,
-	}
-	for relPath, data := range files {
-		path := filepath.Join(nodeHome, relPath)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return err
-		}
-		mode := os.FileMode(0o644)
-		if strings.HasSuffix(path, ".key") {
-			mode = 0o600
-		}
-		if err := os.WriteFile(path, data, mode); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func generateNetworkTLSMaterial(commonName string, sans networkTLSSubjectAltNames) ([]byte, []byte, []byte, error) {
+func generateNetworkTLSCA(commonName string) ([]byte, *x509.Certificate, *ecdsa.PrivateKey, error) {
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, nil, err
@@ -780,7 +717,7 @@ func generateNetworkTLSMaterial(commonName string, sans networkTLSSubjectAltName
 	}
 	caTemplate := &x509.Certificate{
 		SerialNumber:          caSerial,
-		Subject:               pkix.Name{CommonName: commonName + " network CA"},
+		Subject:               pkix.Name{CommonName: commonName},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(3650 * 24 * time.Hour),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
@@ -793,7 +730,13 @@ func generateNetworkTLSMaterial(commonName string, sans networkTLSSubjectAltName
 		return nil, nil, nil, err
 	}
 	caCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCertDER})
+	return caCertPEM, caTemplate, caKey, nil
+}
 
+func generateNetworkTLSMaterial(commonName string, sans networkTLSSubjectAltNames, caCert *x509.Certificate, caKey *ecdsa.PrivateKey) ([]byte, []byte, []byte, error) {
+	if caCert == nil || caKey == nil {
+		return nil, nil, nil, errors.New("shared network ca is required")
+	}
 	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, nil, err
@@ -814,7 +757,7 @@ func generateNetworkTLSMaterial(commonName string, sans networkTLSSubjectAltName
 		DNSNames:    sans.dnsNames(commonName),
 		IPAddresses: sans.ipAddresses(),
 	}
-	leafCertDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, caTemplate, &leafKey.PublicKey, caKey)
+	leafCertDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, caCert, &leafKey.PublicKey, caKey)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -823,7 +766,55 @@ func generateNetworkTLSMaterial(commonName string, sans networkTLSSubjectAltName
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return caCertPEM, leafCertPEM, leafKeyPEM, nil
+	return leafCertPEM, leafKeyPEM, nil, nil
+}
+
+type networkTLSArtifacts struct {
+	CAPath   string
+	CertPath string
+	KeyPath  string
+}
+
+func newNetworkTLSArtifacts(validatorID string, index int, options networkAddressOptions) (networkTLSArtifacts, error) {
+	_ = validatorID
+	_ = index
+	_ = options
+	return networkTLSArtifacts{
+		CAPath:   filepath.Join("tls", "ca.crt"),
+		CertPath: filepath.Join("tls", "node.crt"),
+		KeyPath:  filepath.Join("tls", "node.key"),
+	}, nil
+}
+
+func writeNetworkTLSArtifacts(nodeHome string, artifact networkTLSArtifacts, index int, options networkAddressOptions, sharedCA []byte, sharedCACert *x509.Certificate, sharedCAKey *ecdsa.PrivateKey) error {
+	tlsDir := filepath.Join(nodeHome, "tls")
+	if err := os.MkdirAll(tlsDir, 0o755); err != nil {
+		return err
+	}
+	sans := buildNetworkTLSSubjectAltNames(index, options)
+	leafCertPEM, leafKeyPEM, _, err := generateNetworkTLSMaterial(filepath.Base(nodeHome), sans, sharedCACert, sharedCAKey)
+	if err != nil {
+		return err
+	}
+	files := map[string][]byte{
+		artifact.CAPath:   sharedCA,
+		artifact.CertPath: leafCertPEM,
+		artifact.KeyPath:  leafKeyPEM,
+	}
+	for relPath, data := range files {
+		path := filepath.Join(nodeHome, relPath)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		mode := os.FileMode(0o644)
+		if strings.HasSuffix(path, ".key") {
+			mode = 0o600
+		}
+		if err := os.WriteFile(path, data, mode); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type networkTLSSubjectAltNames struct {

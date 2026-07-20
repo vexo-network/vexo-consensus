@@ -107,16 +107,16 @@ Single-host listen and peer hosts are defined in `topology.single-host.json`; ed
 Query validator RPC endpoints from the host:
 
 ```bash
-curl -sk https://127.0.0.1:28657/v1/status
-curl -sk https://127.0.0.1:28667/v1/status
-curl -sk https://127.0.0.1:28677/v1/status
-curl -sk https://127.0.0.1:28687/v1/status
+curl -s http://127.0.0.1:28657/v1/status
+curl -s http://127.0.0.1:28667/v1/status
+curl -s http://127.0.0.1:28677/v1/status
+curl -s http://127.0.0.1:28687/v1/status
 ```
 
 Check Web3/Remix JSON-RPC on validator 1:
 
 ```bash
-curl -sk https://127.0.0.1:28657/web3 \
+curl -s http://127.0.0.1:28657/web3 \
   -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'
 ```
@@ -196,8 +196,8 @@ Repeat the same pattern for validators 3 and 4.
 After a host starts, verify its local RPC:
 
 ```bash
-curl -sk https://127.0.0.1:26657/v1/status
-curl -sk https://127.0.0.1:26657/v1/diagnostics
+curl -s http://127.0.0.1:26657/v1/status
+curl -s http://127.0.0.1:26657/v1/diagnostics
 ```
 
 Then check another host can dial the advertised P2P address from `network_config.json:p2p.peers`. If the generated peer map contains Docker-only names such as `validator-1`, regenerate with a multi-host topology file that uses real DNS names or IP addresses.

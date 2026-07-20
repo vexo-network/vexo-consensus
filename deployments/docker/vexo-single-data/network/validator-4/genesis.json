@@ -1,0 +1,90 @@
+{
+  "schema_version": "v1",
+  "chain_id": "vexo-chain",
+  "validators": [
+    {
+      "id": "validator-1",
+      "address": "vexovaloper1n80uy587qsusvnx700ufgrkjfhvxkysk0tvmmt",
+      "public_key": "rdlzSSZVZL63Vg8x4QUdraehWQAV51hyyOPAGBVkygTMKqkqflX3rEO4lUECbU3o",
+      "voting_power": 1,
+      "stake": 1,
+      "metadata": {
+        "account_address": "vexo1g9txwertc0a47qlggs8rh7uvmc2x6ar4spqg72",
+        "bls_adapter": "blst-bls12381-minpk-v1",
+        "bls_pop": "gewPa0eCgpOhldKo4v0H2IAkMWnjFU0p7+kW0XlxWeEFwtNHQDEgGWGrkc40d+1LB/2c7t2NXMJAHPHEMdJOXFCFpkDrF7aZThqEQlRjvnoc0g6l6Xyg2/zrgU/362/j",
+        "consensus_address": "vexovalcons13dzkmll93daglgd92rfpn6d26u30y83sp5c6m6",
+        "node_id": "validator-1",
+        "operator_address": "vexovaloper1n80uy587qsusvnx700ufgrkjfhvxkysk0tvmmt",
+        "p2p_address": "validator-1:26656",
+        "rpc_address": "validator-1:26657"
+      }
+    },
+    {
+      "id": "validator-2",
+      "address": "vexovaloper1kvvel6rrwth9sucyy5dah6kvhgxx96wpwtzya7",
+      "public_key": "q07wLmDKBbCXh2xnNhzzVc07YPmHVfY0dPhlw2zYyx+gEh2PhNAzCaV163oenckE",
+      "voting_power": 1,
+      "stake": 1,
+      "metadata": {
+        "account_address": "vexo1c9qe8pzpwcpfnmxv96zvrwsa9r5pupdkw0cfu2",
+        "bls_adapter": "blst-bls12381-minpk-v1",
+        "bls_pop": "hLTX9ocsVSWfiTQnTXDJxC+5eeiVFdMBZk5bn1aKiyl7cU9xrhb/2Q4d5dtUhLXUD0VtrCuCEj8myMaW6BbXT7V2+gbgyhzx5Q2wHkX1GxVBBO7xT6mXaxxRtuoHbX0B",
+        "consensus_address": "vexovalcons1wtgggvk07payfc0fz5sw4ppw07kumr34hhjl95",
+        "node_id": "validator-2",
+        "operator_address": "vexovaloper1kvvel6rrwth9sucyy5dah6kvhgxx96wpwtzya7",
+        "p2p_address": "validator-2:26656",
+        "rpc_address": "validator-2:26657"
+      }
+    },
+    {
+      "id": "validator-3",
+      "address": "vexovaloper1wna2qm4j6r790wh0gn03yfr5n9hy0nngwksnl9",
+      "public_key": "i4CsGFbdA3OPXUY3+d2XtU1YhR7yfV83DjQ8R855MLax6pfpP4Ahw6p2MRbHboie",
+      "voting_power": 1,
+      "stake": 1,
+      "metadata": {
+        "account_address": "vexo162l8yt9rua7jkjsywlwq5e70fr47ayj0nx93yy",
+        "bls_adapter": "blst-bls12381-minpk-v1",
+        "bls_pop": "qbR8AZZjbK5wA5xlgFt5hmMVRV8wTY7c2SQXvQM57W4mFeFo9tO88lHbglh6HegvD8g0saLTOJ7iI9O/SItH8IIViqTY5tzq2iQs0o45IDeTbLBviScB+AMdIPblxgjt",
+        "consensus_address": "vexovalcons1c69suag6ys4x6rf25u30wt6e6axq9hkycn39wr",
+        "node_id": "validator-3",
+        "operator_address": "vexovaloper1wna2qm4j6r790wh0gn03yfr5n9hy0nngwksnl9",
+        "p2p_address": "validator-3:26656",
+        "rpc_address": "validator-3:26657"
+      }
+    },
+    {
+      "id": "validator-4",
+      "address": "vexovaloper1kpwe9zvke5llm8hckv9gryltxr6pp3r98t0fyu",
+      "public_key": "lecid9D9eQupJURDV/gpVg0r9D3G2jSz7Egf3lw2UcYhm/eACTHdnAUf1Qrqo7hz",
+      "voting_power": 1,
+      "stake": 1,
+      "metadata": {
+        "account_address": "vexo1h49lf372uka4dt4rx7vysm9uw9jxy6g4ap9c9v",
+        "bls_adapter": "blst-bls12381-minpk-v1",
+        "bls_pop": "hSO1+VZQWxtvAlghnlFznGgXpcJbfR5ddH1yWLjvG6LeX51hWA7CgGYW7NCbxYOBExmljdUCVO0PbOGeB6eG81emDQymR2XRqQM23r3sgA7JiqWuA7z+M7TnxI3TFBK+",
+        "consensus_address": "vexovalcons1ucwa8d3eaecgf0rfaus3jq0fz457vadpkzww33",
+        "node_id": "validator-4",
+        "operator_address": "vexovaloper1kpwe9zvke5llm8hckv9gryltxr6pp3r98t0fyu",
+        "p2p_address": "validator-4:26656",
+        "rpc_address": "validator-4:26657"
+      }
+    }
+  ],
+  "app_state": {
+    "bank:vexo162l8yt9rua7jkjsywlwq5e70fr47ayj0nx93yy": "MTAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMA==",
+    "bank:vexo17vfdx972yjl9yvndxnc59e08ume50wgnn4r0dy": "MTAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMA==",
+    "bank:vexo1c0528et4pfgf46pjd3qf4nq2pmeu4ry4lkymwh": "MTAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMA==",
+    "bank:vexo1c9qe8pzpwcpfnmxv96zvrwsa9r5pupdkw0cfu2": "MTAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMA==",
+    "bank:vexo1g9txwertc0a47qlggs8rh7uvmc2x6ar4spqg72": "MTAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMA==",
+    "bank:vexo1h49lf372uka4dt4rx7vysm9uw9jxy6g4ap9c9v": "MTAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMA==",
+    "bank:vexo1m0ftatrzq3s40gueswcx04cg8dke4m55prc2a0": "MTAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMA==",
+    "bank:vexo1rxvp674a6c6nvmkwdrfe9sxzsy60p6gc4q7f4x": "MTAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMA=="
+  },
+  "governance": {
+    "vexovaloper1kpwe9zvke5llm8hckv9gryltxr6pp3r98t0fyu": 1,
+    "vexovaloper1kvvel6rrwth9sucyy5dah6kvhgxx96wpwtzya7": 1,
+    "vexovaloper1n80uy587qsusvnx700ufgrkjfhvxkysk0tvmmt": 1,
+    "vexovaloper1wna2qm4j6r790wh0gn03yfr5n9hy0nngwksnl9": 1
+  }
+}

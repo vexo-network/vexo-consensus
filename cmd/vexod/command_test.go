@@ -3474,7 +3474,7 @@ func TestRunConfigAuditReportsProductionWarnings(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if !document.OK || document.Strict || !auditContains(document, "key_encrypted_or_remote", false) || !auditContains(document, "p2p_tls_identity", false) {
+	if !document.OK || document.Strict || !auditContains(document, "key_encrypted_or_remote", false) || !auditContains(document, "rpc_http_public", true) || !auditContains(document, "p2p_auth_token", true) || !auditContains(document, "p2p_auth_replay", true) {
 		t.Fatalf("unexpected non-strict audit document: %+v", document)
 	}
 }

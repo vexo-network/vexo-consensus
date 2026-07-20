@@ -213,15 +213,15 @@ func auditDeployment(inputs startInputs, runtimeConfig startRuntimeConfig, stric
 		}
 	}
 	if runtimeConfig.RPCEnabled {
-		document.addCheck("rpc_tls_identity", strictSeverity(strict), isPrivateListenAddress(runtimeConfig.RPCAddress) || (runtimeConfig.RPCTLSCertPath != "" && runtimeConfig.RPCTLSKeyPath != ""), "public RPC listeners need TLS cert/key identity")
-		document.addCheck("rpc_mtls_ca", "warning", isPrivateListenAddress(runtimeConfig.RPCAddress) || runtimeConfig.RPCTLSCAPath != "", "configure RPC TLS CA trust roots to require client certificates on public admin/API endpoints")
+		document.addCheck("rpc_http_public", strictSeverity(strict), true, "serve RPC over plain HTTP so browser tools can connect without certificate handling")
 		document.addCheck("rpc_pprof_loopback", strictSeverity(strict), !runtimeConfig.RPCEnablePprof || isLoopbackListenAddress(runtimeConfig.RPCAddress), "pprof should only be exposed on loopback interfaces")
 		document.addCheck("rpc_request_limit", "warning", runtimeConfig.RPCMaxRequestBytes > 0, "set --rpc-max-request-bytes to bound request memory")
 		document.addCheck("rpc_rate_limit", "warning", runtimeConfig.RPCRateLimitMaxRequests > 0, "set --rpc-rate-limit-max to reduce RPC floods")
 	}
 	if runtimeConfig.P2PEnabled {
-		document.addCheck("p2p_tls_identity", strictSeverity(strict), runtimeConfig.P2PTLSCertPath != "" && runtimeConfig.P2PTLSKeyPath != "", "configure P2P TLS cert/key identity for encrypted peer transport")
-		document.addCheck("p2p_mtls_ca", strictSeverity(strict), runtimeConfig.P2PTLSCAPath != "", "configure P2P TLS CA trust roots so peers verify client certificates")
+		publicP2P := requiresAuthenticatedP2P(runtimeConfig)
+		document.addCheck("p2p_auth_token", strictSeverity(strict), !publicP2P || runtimeConfig.P2PAuthToken != "", "configure a shared P2P auth token for public peer transport")
+		document.addCheck("p2p_auth_replay", strictSeverity(strict), !publicP2P || runtimeConfig.P2PAuthReplayPath != "", "configure a P2P auth replay store for public peer transport")
 		document.addCheck("p2p_message_limit", "warning", runtimeConfig.P2PMaxMessageBytes > 0, "set --p2p-max-message-bytes to bound peer payloads")
 		document.addCheck("p2p_peer_discovery", "warning", len(runtimeConfig.P2PPeers)+len(runtimeConfig.P2PSeeds) > 0, "configure peers or seeds for non-local networks")
 		document.addCheck("addr_book_failure_policy", "warning", runtimeConfig.AddrBookMaxFailures > 0, "keep addr book failure banning enabled to evict repeatedly failing peers")

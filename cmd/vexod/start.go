@@ -445,6 +445,10 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 	if err := node.Start(ctx); err != nil {
 		return err
 	}
+	if err := waitForP2PPeerReadiness(ctx, node, runtimeConfig, logEvent); err != nil {
+		_ = withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop)
+		return err
+	}
 	consensusLoopStarted := false
 	if runtimeConfig.ConsensusLoopEnabled {
 		if err := node.StartConsensusLoop(ctx, runtimeConfig.ConsensusLoop); err != nil {
@@ -462,15 +466,10 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			_ = withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop)
 			return err
 		}
-		rpcTLSConfig, err := loadRPCTLSConfig(runtimeConfig)
-		if err != nil {
-			_ = withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop)
-			return err
-		}
 		address, shutdown, err := startRPCServerWithConfig(node, runtimeConfig.RPCAddress, vexorpc.Config{
 			AdminToken:                  runtimeConfig.RPCAdminToken,
 			AdminTokens:                 runtimeConfig.RPCAdminTokens,
-			TLSConfig:                   rpcTLSConfig,
+			TLSConfig:                   nil,
 			EnablePprof:                 runtimeConfig.RPCEnablePprof,
 			RequestTimeout:              runtimeConfig.RPCRequestTimeout,
 			MaxRequestBytes:             runtimeConfig.RPCMaxRequestBytes,
@@ -491,7 +490,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			return err
 		}
 		rpcShutdown = shutdown
-		logEvent("rpc_listening", map[string]any{"rpc_address": address, "pprof": runtimeConfig.RPCEnablePprof, "tls": rpcTLSConfig != nil})
+		logEvent("rpc_listening", map[string]any{"rpc_address": address, "pprof": runtimeConfig.RPCEnablePprof, "tls": false})
 	}
 	if p2pWire != nil {
 		logEvent("p2p_listening", map[string]any{"p2p_address": p2pWire.Address(), "p2p_peers": len(runtimeConfig.P2PPeers), "p2p_seeds": len(runtimeConfig.P2PSeeds)})
@@ -517,6 +516,42 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 	}
 	logEvent("node_stopped", map[string]any{"chain_id": inputs.Plan.ChainID})
 	return nil
+}
+
+func waitForP2PPeerReadiness(ctx context.Context, node *vexonode.Node, runtimeConfig startRuntimeConfig, logEvent vexonode.EventLogger) error {
+	expectedPeers := len(runtimeConfig.P2PPeers)
+	if expectedPeers <= 0 {
+		return nil
+	}
+	waitTimeout := runtimeConfig.P2PDialTimeout * 3
+	if waitTimeout < 15*time.Second {
+		waitTimeout = 15 * time.Second
+	}
+	if waitTimeout > 60*time.Second {
+		waitTimeout = 60 * time.Second
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, waitTimeout)
+	defer cancel()
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		status := node.Status(waitCtx)
+		if status.ActivePeerCount >= expectedPeers {
+			if logEvent != nil {
+				logEvent("p2p_peer_readiness_ready", map[string]any{
+					"active_peers":     status.ActivePeerCount,
+					"configured_peers": status.ConfiguredPeerCount,
+					"target_peers":     expectedPeers,
+				})
+			}
+			return nil
+		}
+		select {
+		case <-waitCtx.Done():
+			return fmt.Errorf("timed out waiting for p2p peers: active=%d configured=%d target=%d", status.ActivePeerCount, status.ConfiguredPeerCount, expectedPeers)
+		case <-ticker.C:
+		}
+	}
 }
 
 func maybeRunStartupStateSync(ctx context.Context, inputs startInputs, runtimeConfig startRuntimeConfig, logEvent vexonode.EventLogger) error {
@@ -1040,18 +1075,12 @@ func validateRuntimeNetworkSafety(cfg startRuntimeConfig) error {
 		if cfg.P2PNodeKeyPath == "" {
 			return fmt.Errorf("runtime.p2p.node_key_path is required for public peer connections: %w", vexoconfig.ErrUnsafeNetworkConfig)
 		}
-		if cfg.P2PTLSCertPath == "" || cfg.P2PTLSKeyPath == "" || cfg.P2PTLSCAPath == "" {
-			return fmt.Errorf("runtime.p2p tls cert, key, and ca paths are required for public peer connections: %w", vexoconfig.ErrUnsafeNetworkConfig)
-		}
 		if cfg.P2PAuthToken != "" && cfg.P2PAuthReplayPath == "" {
 			return fmt.Errorf("runtime.p2p.auth_replay_path is required for public peer connections: %w", vexoconfig.ErrUnsafeNetworkConfig)
 		}
 	}
 	if cfg.P2PRequireAuthReplay && cfg.P2PAuthReplayPath == "" {
 		return fmt.Errorf("runtime.p2p.require_auth_replay_store requires runtime.p2p.auth_replay_path: %w", vexoconfig.ErrUnsafeNetworkConfig)
-	}
-	if cfg.RPCEnabled && !isPrivateListenAddress(cfg.RPCAddress) && (cfg.RPCTLSCertPath == "" || cfg.RPCTLSKeyPath == "") {
-		return fmt.Errorf("runtime.rpc tls cert and key are required for public rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
 	if cfg.RPCEnabled && len(cfg.RPCEVMAccountKeys) > 0 && !isPrivateListenAddress(cfg.RPCAddress) {
 		return fmt.Errorf("runtime.rpc.evm_account_private_keys are only allowed on private rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
@@ -1324,10 +1353,6 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 	if requiresAuthenticatedP2P(runtimeConfig) && handshakeSigner == nil {
 		return nil, fmt.Errorf("runtime.p2p.node_key_path is required for authenticated P2P handshake: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
-	tlsConfig, err := loadP2PTLSConfig(runtimeConfig)
-	if err != nil {
-		return nil, err
-	}
 	addrBook, err := p2p.OpenAddrBookWithPolicy(runtimeConfig.AddrBookPath, runtimeConfig.AddrBookMaxFailures)
 	if err != nil {
 		return nil, err
@@ -1360,8 +1385,8 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 		AuthToken:                 runtimeConfig.P2PAuthToken,
 		AuthReplayStore:           authReplayStore,
 		RequireAuthReplayStore:    runtimeConfig.P2PRequireAuthReplay || requireHandshakeSignature,
-		TLSConfig:                 tlsConfig,
-		RequireTLS:                requiresAuthenticatedP2P(runtimeConfig),
+		TLSConfig:                 nil,
+		RequireTLS:                false,
 		HandshakeSigner:           handshakeSigner,
 		HandshakeVerifier:         handshakeSigner,
 		RequireHandshakeSignature: requireHandshakeSignature,
