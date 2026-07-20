@@ -11,7 +11,7 @@ const (
 	adaptiveRoundTimeoutMaxFactor         = 8
 )
 
-func recommendAdaptiveRoundTimeout(base time.Duration, current time.Duration, snapshot nodeMetricsSnapshot, progressed bool, timedOut bool) time.Duration {
+func recommendAdaptiveRoundTimeout(base time.Duration, current time.Duration, snapshot nodeMetricsSnapshot, progressed bool, timedOut bool, activePeers int, configuredPeers int) time.Duration {
 	if base <= 0 {
 		base = defaultConsensusTimeoutPropose + defaultConsensusTimeoutPrevote + defaultConsensusTimeoutPrecommit
 	}
@@ -29,6 +29,9 @@ func recommendAdaptiveRoundTimeout(base time.Duration, current time.Duration, sn
 		if observedBudget > candidate {
 			candidate = observedBudget
 		}
+	}
+	if peerBudget := peerAwareAdaptiveRoundTimeoutFloor(base, activePeers, configuredPeers); peerBudget > candidate {
+		candidate = peerBudget
 	}
 
 	next := current
@@ -62,6 +65,27 @@ func recommendAdaptiveRoundTimeout(base time.Duration, current time.Duration, sn
 		next = maxTimeout
 	}
 	return next
+}
+
+func peerAwareAdaptiveRoundTimeoutFloor(base time.Duration, activePeers int, configuredPeers int) time.Duration {
+	if base <= 0 {
+		return 0
+	}
+	if configuredPeers <= 0 {
+		return base
+	}
+	if activePeers <= 0 {
+		return growDuration(base, 2, 1)
+	}
+	if activePeers >= configuredPeers {
+		return base
+	}
+	deficit := configuredPeers - activePeers
+	floor := base * time.Duration(configuredPeers+deficit) / time.Duration(configuredPeers)
+	if floor < base {
+		return base
+	}
+	return floor
 }
 
 func growDuration(value time.Duration, numerator int, denominator int) time.Duration {

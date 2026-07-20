@@ -91,6 +91,7 @@ Tune numbers for the actual validator count, block interval, latency, and hardwa
 | Round timeout spike | timeout counter grows faster than normal baseline | Latency, proposer failure, or network partition |
 | Adaptive policy off | `vexo_adaptive_round_timeout_enabled == 0` on a node that should be running adaptive pacing | Config or experiment disabled the pacemaker |
 | Adaptive timeout high | `vexo_adaptive_round_timeout_nanos` grows well above the launch baseline | Network latency spike or slower quorum formation |
+| Missing peers widen timeout | `vexo_active_peer_count` falls below `vexo_configured_peer_count` and the adaptive timeout rises | Quorum health is degrading and the pacemaker is compensating |
 | Commit latency high | p95/p99 approaches consensus timeout budget | Store/runtime overload |
 | Mempool pressure | mempool size grows for several minutes | Fee policy, spam, or block capacity issue |
 | Snapshot unhealthy | `vexo_snapshot_healthy == 0` | State sync/recovery risk |

@@ -141,6 +141,7 @@ func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig,
 			}
 		}
 		result, err := node.StepConsensusWithConfig(ctx, cfg)
+		configuredPeers, activePeers := node.currentConsensusPeerCounts()
 		if err != nil {
 			if errors.Is(err, ErrNodeNotRunning) {
 				return
@@ -152,7 +153,7 @@ func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig,
 		if result.Committed || result.Proposed {
 			if adaptiveEnabled {
 				snapshot := node.metrics.snapshot()
-				adaptiveRoundTimeout = recommendAdaptiveRoundTimeout(cfg.roundTimeout(), adaptiveRoundTimeout, snapshot, true, false)
+				adaptiveRoundTimeout = recommendAdaptiveRoundTimeout(cfg.roundTimeout(), adaptiveRoundTimeout, snapshot, true, false, activePeers, configuredPeers)
 				node.metrics.observeAdaptiveTimeout(adaptiveRoundTimeout)
 			}
 			lastTimeout = time.Now()
@@ -167,7 +168,7 @@ func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig,
 			}
 			if adaptiveEnabled {
 				snapshot := node.metrics.snapshot()
-				adaptiveRoundTimeout = recommendAdaptiveRoundTimeout(cfg.roundTimeout(), adaptiveRoundTimeout, snapshot, false, true)
+				adaptiveRoundTimeout = recommendAdaptiveRoundTimeout(cfg.roundTimeout(), adaptiveRoundTimeout, snapshot, false, true, activePeers, configuredPeers)
 				node.metrics.observeAdaptiveTimeout(adaptiveRoundTimeout)
 			}
 			lastTimeout = time.Now()
@@ -179,6 +180,12 @@ func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig,
 		case <-ticker.C:
 		}
 	}
+}
+
+func (node *Node) currentConsensusPeerCounts() (int, int) {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	return node.peerCountsLocked()
 }
 
 func (node *Node) clearConsensusLoop(done chan struct{}) {
