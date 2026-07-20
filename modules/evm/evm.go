@@ -47,6 +47,7 @@ type Module struct {
 
 type Policy struct {
 	EVMChainID               uint64
+	EVMForkPreset            string
 	GethChainConfigJSON      string
 	AllowUnprotectedLegacyTx bool
 	MaxBlobSidecarBlobs      uint64
@@ -204,19 +205,23 @@ func NewModule() Module {
 
 func DefaultPolicy() Policy {
 	return Policy{
+		EVMForkPreset:       gethbackend.DefaultForkPreset,
 		MaxBlobSidecarBlobs: 6,
 		MaxBlobSidecarBytes: 2 * 1024 * 1024,
 	}
 }
 
 func NewModuleWithPolicy(policy Policy) (Module, error) {
+	if policy.EVMForkPreset == "" {
+		policy.EVMForkPreset = gethbackend.DefaultForkPreset
+	}
 	if policy.MaxBlobSidecarBlobs == 0 {
 		policy.MaxBlobSidecarBlobs = DefaultPolicy().MaxBlobSidecarBlobs
 	}
 	if policy.MaxBlobSidecarBytes == 0 {
 		policy.MaxBlobSidecarBytes = DefaultPolicy().MaxBlobSidecarBytes
 	}
-	vm, err := gethbackend.NewWithChainConfigJSON(policy.GethChainConfigJSON, policy.EVMChainID)
+	vm, err := gethbackend.NewWithChainConfigPresetJSON(policy.EVMForkPreset, policy.GethChainConfigJSON, policy.EVMChainID)
 	if err != nil {
 		return Module{}, err
 	}

@@ -20,6 +20,7 @@ import (
 	gethparams "github.com/ethereum/go-ethereum/params"
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/contract"
+	gethbackend "github.com/vexo-network/vexo-consensus/modules/evm/backend/geth"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -495,7 +496,7 @@ func IntrinsicGas(data []byte, accessList []contract.AccessListEntry, contractCr
 }
 
 func IntrinsicGasWithChainConfigJSON(data []byte, accessList []contract.AccessListEntry, contractCreation bool, timestamp uint64, chainConfigJSON string) (uint64, error) {
-	chainConfig := gethparams.AllDevChainProtocolChanges
+	chainConfig := gethbackend.VexoDefaultChainConfig
 	if strings.TrimSpace(chainConfigJSON) != "" {
 		var custom gethparams.ChainConfig
 		if err := json.Unmarshal([]byte(chainConfigJSON), &custom); err != nil {

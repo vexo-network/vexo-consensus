@@ -190,3 +190,8 @@ Lampiran ini memastikan terjemahan tetap membawa antarmuka yang dapat dijalankan
 - `eth_getTransactionByBlockHashAndIndex` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.
 - `eth_getUncleCountByBlockNumber` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.
 - `eth_getUncleCountByBlockHash` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.
+
+## Stable Terms
+
+- `execution.evm_fork_preset = "latest"`
+- `execution.evm_chain_config_json`

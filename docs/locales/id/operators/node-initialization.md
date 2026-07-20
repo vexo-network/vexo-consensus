@@ -669,3 +669,8 @@ Lampiran ini memastikan terjemahan tetap membawa antarmuka yang dapat dijalankan
 - `rpc_advertise_host_template` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.
 - `p2p_listen_host` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.
 - `rpc_listen_host` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.
+
+## Stable Terms
+
+- `EVMForkPreset: "latest"`
+- `params.ChainConfig`

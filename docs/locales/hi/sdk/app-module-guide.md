@@ -190,3 +190,8 @@
 - `eth_getTransactionByBlockHashAndIndex` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
 - `eth_getUncleCountByBlockNumber` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
 - `eth_getUncleCountByBlockHash` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
+
+## Stable Terms
+
+- `execution.evm_fork_preset = "latest"`
+- `execution.evm_chain_config_json`

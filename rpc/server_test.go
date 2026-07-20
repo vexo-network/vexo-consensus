@@ -1748,7 +1748,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	}
 	var deployEstimate JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":57,"method":"eth_estimateGas","params":[{"data":"0x00","gas":"0x100"}]}`, http.StatusOK, &deployEstimate)
-	if deployEstimate.Error != nil || deployEstimate.Result != "0xcf0e" {
+	if deployEstimate.Error != nil || deployEstimate.Result != "0xcf0c" {
 		t.Fatalf("expected create estimate to honor deploy intrinsic gas, got %+v", deployEstimate)
 	}
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x","gas_used":9,"failed":true,"error":"execution reverted"}`)}

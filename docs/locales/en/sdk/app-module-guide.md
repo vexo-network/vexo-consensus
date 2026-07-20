@@ -259,3 +259,8 @@ Every module should test:
 - ante compatibility
 - deterministic state roots
 - validator updates, if any
+
+## Stable Terms
+
+- `execution.evm_fork_preset = "latest"`
+- `execution.evm_chain_config_json`

@@ -175,6 +175,14 @@ func TestConfigValidateAllowsOptionalSafetyKnobs(t *testing.T) {
 	}
 }
 
+func TestConfigValidateAllowsLondonForkPreset(t *testing.T) {
+	cfg := Default("vexo-test")
+	cfg.Execution.EVMForkPreset = "london"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected london fork preset to be valid, got %v", err)
+	}
+}
+
 func TestValidateNetworkSafetyRejectsDeterministicCrypto(t *testing.T) {
 	cfg := Default("vexo-test")
 	cfg.Execution.RequireSigned = true

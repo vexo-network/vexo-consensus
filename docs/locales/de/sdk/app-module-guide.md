@@ -190,3 +190,8 @@ Dieser Anhang stellt sicher, dass die Übersetzung die ausführbaren Schnittstel
 - `eth_getTransactionByBlockHashAndIndex` — Dieser Name wird in ausführbaren Beispielen und Konfigurationsprüfungen unverändert verwendet und darf nicht übersetzt werden.
 - `eth_getUncleCountByBlockNumber` — Dieser Name wird in ausführbaren Beispielen und Konfigurationsprüfungen unverändert verwendet und darf nicht übersetzt werden.
 - `eth_getUncleCountByBlockHash` — Dieser Name wird in ausführbaren Beispielen und Konfigurationsprüfungen unverändert verwendet und darf nicht übersetzt werden.
+
+## Stable Terms
+
+- `execution.evm_fork_preset = "latest"`
+- `execution.evm_chain_config_json`

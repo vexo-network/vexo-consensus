@@ -157,7 +157,7 @@ func Default(chainID string) Config {
 			DisplayDenom:             economics.DisplayDenom,
 			DisplayExponent:          18,
 			GasDenom:                 "gas",
-			EVMForkPreset:            "latest",
+			EVMForkPreset:            "london",
 			StrictEVMStateRoot:       true,
 			MaxBlobSidecarBlobs:      6,
 			MaxBlobSidecarBytes:      2 * 1024 * 1024,
@@ -311,6 +311,7 @@ func (config Config) Validate() error {
 		return ErrInvalidConfig
 	}
 	if config.Execution.EVMForkPreset != "" &&
+		config.Execution.EVMForkPreset != "london" &&
 		config.Execution.EVMForkPreset != "latest" &&
 		config.Execution.EVMForkPreset != "custom" {
 		return ErrInvalidConfig

@@ -669,3 +669,8 @@ Phụ lục này bảo đảm bản dịch vẫn giữ các giao diện có th�
 - `rpc_advertise_host_template` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `p2p_listen_host` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `rpc_listen_host` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+
+## Stable Terms
+
+- `EVMForkPreset: "latest"`
+- `params.ChainConfig`

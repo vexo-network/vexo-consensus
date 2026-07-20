@@ -190,3 +190,8 @@
 - `eth_getTransactionByBlockHashAndIndex` — Это имя используется без изменений в исполняемых примерах и проверке конфигурации, поэтому его нельзя переводить.
 - `eth_getUncleCountByBlockNumber` — Это имя используется без изменений в исполняемых примерах и проверке конфигурации, поэтому его нельзя переводить.
 - `eth_getUncleCountByBlockHash` — Это имя используется без изменений в исполняемых примерах и проверке конфигурации, поэтому его нельзя переводить.
+
+## Stable Terms
+
+- `execution.evm_fork_preset = "latest"`
+- `execution.evm_chain_config_json`

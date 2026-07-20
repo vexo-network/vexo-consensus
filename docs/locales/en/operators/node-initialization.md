@@ -449,3 +449,8 @@ vexod network init \
   --validators 4 \
   --network-config ./topology.json
 ```
+
+## Stable Terms
+
+- `EVMForkPreset: "latest"`
+- `params.ChainConfig`

@@ -113,6 +113,20 @@ func TestModuleInitErrorFailsClosed(t *testing.T) {
 	}
 }
 
+func TestModuleDefaultsToLondonForkPreset(t *testing.T) {
+	module := NewModule()
+	if module.policy.EVMForkPreset != "london" {
+		t.Fatalf("expected default module fork preset london, got %q", module.policy.EVMForkPreset)
+	}
+	policyModule, err := NewModuleWithPolicy(Policy{EVMChainID: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if policyModule.policy.EVMForkPreset != "london" {
+		t.Fatalf("expected policy module fork preset london, got %q", policyModule.policy.EVMForkPreset)
+	}
+}
+
 func (storage *nonBatchStore) Set(ctx context.Context, namespace string, key []byte, value []byte) error {
 	storage.values[namespace+"/"+string(key)] = append([]byte(nil), value...)
 	return nil

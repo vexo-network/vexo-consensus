@@ -669,3 +669,8 @@ Cette annexe garantit que la traduction conserve les interfaces exécutables et 
 - `rpc_advertise_host_template` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
 - `p2p_listen_host` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
 - `rpc_listen_host` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+
+## Stable Terms
+
+- `EVMForkPreset: "latest"`
+- `params.ChainConfig`
