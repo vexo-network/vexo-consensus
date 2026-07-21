@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/upgrade"
@@ -25,6 +26,8 @@ func runUpgradeWithContext(ctx context.Context, writer io.Writer, args []string)
 	switch args[0] {
 	case "plan":
 		return runUpgradePlan(writer, args[1:])
+	case "update":
+		return runUpgradeUpdate(writer, args[1:])
 	case "apply":
 		return runUpgradeApplyWithContext(ctx, writer, args[1:])
 	case "rollback-plan":
@@ -52,6 +55,83 @@ type upgradeRollbackPlanCheck struct {
 	Name    string `json:"name"`
 	OK      bool   `json:"ok"`
 	Message string `json:"message"`
+}
+
+func runUpgradeUpdate(writer io.Writer, args []string) error {
+	flags := flag.NewFlagSet("upgrade update", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	name := flags.String("name", "", "upgrade name")
+	versionValue := flags.String("version", "", "target binary version")
+	height := flags.Uint64("height", 1, "governance-approved upgrade height")
+	configFrom := flags.Uint64("config-from", 1, "current config schema version")
+	configTo := flags.Uint64("config-to", 1, "target config schema version")
+	storeFrom := flags.Uint64("store-from", 1, "current store schema version")
+	storeTo := flags.Uint64("store-to", 1, "target store schema version")
+	appFrom := flags.Uint64("app-from", 1, "current app module state schema version")
+	appTo := flags.Uint64("app-to", 1, "target app module state schema version")
+	governanceProposal := flags.String("proposal", "", "governance proposal identifier")
+	rollbackBinary := flags.String("rollback-binary", "", "rollback binary version or artifact")
+	allowNoopMigrations := flags.Bool("allow-noop-migrations", true, "explicitly mark this plan as allowing no-op schema migrations")
+	planFile := flags.String("plan-file", "", "write the generated plan to this file")
+	jsonOutput := flags.Bool("json", false, "write JSON output")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*versionValue) == "" {
+		return errors.New("version is required")
+	}
+	plan := upgrade.Plan{
+		Name:                strings.TrimSpace(*name),
+		Height:              types.Height(*height),
+		BinaryVersion:       strings.TrimSpace(*versionValue),
+		ConfigSchemaFrom:    *configFrom,
+		ConfigSchemaTo:      *configTo,
+		StoreSchemaFrom:     *storeFrom,
+		StoreSchemaTo:       *storeTo,
+		AppStateSchemaFrom:  *appFrom,
+		AppStateSchemaTo:    *appTo,
+		GovernanceProposal:  strings.TrimSpace(*governanceProposal),
+		RollbackBinary:      strings.TrimSpace(*rollbackBinary),
+		AllowNoopMigrations: *allowNoopMigrations,
+	}
+	if plan.Name == "" {
+		plan.Name = plan.BinaryVersion
+	}
+	if err := upgrade.ValidatePlan(plan); err != nil {
+		return err
+	}
+	if *planFile != "" {
+		data, err := json.MarshalIndent(plan, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(*planFile, append(data, '\n'), 0o644); err != nil {
+			return err
+		}
+	}
+	if *jsonOutput {
+		encoder := json.NewEncoder(writer)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(plan)
+	}
+	fmt.Fprintf(writer, "upgrade update\n")
+	fmt.Fprintf(writer, "name: %s\n", plan.Name)
+	fmt.Fprintf(writer, "version: %s\n", plan.BinaryVersion)
+	fmt.Fprintf(writer, "height: %d\n", plan.Height)
+	fmt.Fprintf(writer, "config_schema: %d -> %d\n", plan.ConfigSchemaFrom, plan.ConfigSchemaTo)
+	fmt.Fprintf(writer, "store_schema: %d -> %d\n", plan.StoreSchemaFrom, plan.StoreSchemaTo)
+	fmt.Fprintf(writer, "app_state_schema: %d -> %d\n", plan.AppStateSchemaFrom, plan.AppStateSchemaTo)
+	if plan.GovernanceProposal != "" {
+		fmt.Fprintf(writer, "governance_proposal: %s\n", plan.GovernanceProposal)
+	}
+	if plan.RollbackBinary != "" {
+		fmt.Fprintf(writer, "rollback_binary: %s\n", plan.RollbackBinary)
+	}
+	if *planFile != "" {
+		fmt.Fprintf(writer, "plan_file: %s\n", *planFile)
+	}
+	fmt.Fprintf(writer, "allow_noop_migrations: %t\n", plan.AllowNoopMigrations)
+	return nil
 }
 
 func runUpgradePlan(writer io.Writer, args []string) error {

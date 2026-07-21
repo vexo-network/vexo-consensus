@@ -278,6 +278,36 @@ func TestStateMachineCreateProposalKeepsExplicitQC(t *testing.T) {
 	}
 }
 
+func TestStateMachineCreateProposalNormalizesMismatchedParentToChosenQC(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lockedQC := finality.QuorumCert{Height: 3, Round: 1, BlockHash: types.Hash{3}}
+	staleParent := types.Hash{9}
+	proposal, err := machine.CreateProposal(types.Block{Header: types.Header{
+		Height:            4,
+		PreviousBlockHash: staleParent,
+	}}, 0, "a", lockedQC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal.JustifyQC.BlockHash != lockedQC.BlockHash {
+		t.Fatalf("expected chosen qc to remain stable, got %+v", proposal.JustifyQC)
+	}
+	if proposal.Block.Header.PreviousBlockHash != lockedQC.BlockHash {
+		t.Fatalf("expected mismatched parent to be normalized to qc, got %x want %x", proposal.Block.Header.PreviousBlockHash, lockedQC.BlockHash)
+	}
+}
+
 func TestStateMachineRejectsUnsafeForkBelowLockedQC(t *testing.T) {
 	set := newTestValidatorSet([]validator.Validator{
 		{ID: "a", VotingPower: 1},

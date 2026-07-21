@@ -248,6 +248,31 @@ func TestRunUpgradePlan(t *testing.T) {
 	}
 }
 
+func TestRunUpgradeUpdateUsesVersionDefaults(t *testing.T) {
+	home := t.TempDir()
+	planFile := filepath.Join(home, "plan.json")
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"upgrade", "update",
+		"--version", "v0.2.1",
+		"--plan-file", planFile,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"upgrade update", "version: v0.2.1", "allow_noop_migrations: true", "plan_file:"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected upgrade update output to contain %q, got:\n%s", expected, output.String())
+		}
+	}
+	data, err := os.ReadFile(planFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"binary_version": "v0.2.1"`) || !strings.Contains(string(data), `"name": "v0.2.1"`) {
+		t.Fatalf("unexpected generated plan:\n%s", string(data))
+	}
+}
+
 func TestRunUpgradeApplyPersistsExecutionRecord(t *testing.T) {
 	home := t.TempDir()
 	planFile := filepath.Join(home, "plan.json")
