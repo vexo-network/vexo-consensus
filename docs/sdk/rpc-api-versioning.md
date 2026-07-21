@@ -59,16 +59,12 @@ Operators may use one root token or scoped tokens in `network_config.json`:
       "prune-token": ["prune"],
       "replay-token": ["replay"],
       "ops-token": ["recovery", "consensus"]
-    },
-    "tls_cert_path": "tls/rpc.crt",
-    "tls_key_path": "tls/rpc.key",
-    "tls_ca_path": "tls/rpc-ca.crt",
-    "tls_server_name": "rpc.validator.internal"
+    }
   }
 }
 ```
 
-Supported scopes are `recovery`, `prune`, `replay`, and `consensus`. A scoped token with `["*"]` is equivalent to a root admin token. RPC middleware emits structured admin audit events when an audit sink is configured by the embedding node. `tls_cert_path` and `tls_key_path` must be configured together; `tls_ca_path` enables client-certificate verification; `tls_server_name` requires a CA trust root. Public RPC listeners must configure TLS cert/key before `vexod start` will pass safety validation. Add scoped admin tokens only when the deployment wants bearer-token checks in addition to TLS or gateway policy. Add `tls_ca_path` when the deployment requires mTLS/client-certificate authentication.
+Supported scopes are `recovery`, `prune`, `replay`, and `consensus`. A scoped token with `["*"]` is equivalent to a root admin token. RPC middleware emits structured admin audit events when an audit sink is configured by the embedding node. Add scoped admin tokens only when the deployment wants bearer-token checks in addition to gateway policy.
 
 `/v1/replay` accepts `strict: true` to require isolated re-execution from genesis or a retained historical snapshot. Non-strict replay may fall back to stored block/state consistency checks when isolated replay prerequisites are unavailable; strict replay fails closed instead.
 
