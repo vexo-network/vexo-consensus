@@ -1977,6 +1977,7 @@ func TestHandlerAllowsWeb3CORSPreflightForRemix(t *testing.T) {
 	request.Header.Set("Origin", "https://remix.ethereum.org")
 	request.Header.Set("Access-Control-Request-Method", "POST")
 	request.Header.Set("Access-Control-Request-Headers", "content-type")
+	request.Header.Set("Access-Control-Request-Private-Network", "true")
 	response := httptest.NewRecorder()
 
 	handler.ServeHTTP(response, request)
@@ -1989,6 +1990,9 @@ func TestHandlerAllowsWeb3CORSPreflightForRemix(t *testing.T) {
 	}
 	if !strings.Contains(response.Header().Get("Access-Control-Allow-Methods"), "POST") {
 		t.Fatalf("expected POST in CORS methods, got %q", response.Header().Get("Access-Control-Allow-Methods"))
+	}
+	if got := response.Header().Get("Access-Control-Allow-Private-Network"); got != "true" {
+		t.Fatalf("expected private network preflight allow header, got %q", got)
 	}
 }
 
@@ -2008,6 +2012,9 @@ func TestHandlerAddsCORSHeadersToWeb3ChainID(t *testing.T) {
 	}
 	if got := response.Header().Get("Access-Control-Allow-Origin"); got != "*" {
 		t.Fatalf("expected default permissive CORS origin for Web3 tooling, got %q", got)
+	}
+	if got := response.Header().Get("Access-Control-Allow-Private-Network"); got != "" {
+		t.Fatalf("did not expect private-network header on non-private request, got %q", got)
 	}
 	var payload JSONRPCResponse
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {

@@ -72,6 +72,10 @@ func cors(next http.Handler, cfg Config) http.Handler {
 			writer.Header().Set("Access-Control-Allow-Origin", corsAllowedOrigin(origin, cfg))
 			writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 			writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+			if strings.EqualFold(strings.TrimSpace(request.Header.Get("Access-Control-Request-Private-Network")), "true") {
+				writer.Header().Set("Access-Control-Allow-Private-Network", "true")
+				writer.Header().Add("Vary", "Access-Control-Request-Private-Network")
+			}
 			writer.Header().Set("Access-Control-Max-Age", "600")
 			writer.Header().Add("Vary", "Origin")
 			writer.Header().Add("Vary", "Access-Control-Request-Method")

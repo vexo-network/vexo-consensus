@@ -121,6 +121,8 @@ For Docker single-host validator 1, Remix custom provider URL is:
 http://127.0.0.1:28657/web3
 ```
 
+If `network_config.json` enables RPC TLS, use the matching https://127.0.0.1:28657/web3 URL instead of HTTP.
+
 For a direct local node with the default RPC port:
 
 ```text

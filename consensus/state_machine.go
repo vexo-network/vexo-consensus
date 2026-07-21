@@ -140,10 +140,7 @@ func (machine *StateMachine) CreateProposal(block types.Block, round types.Round
 	}
 
 	if justifyQC.Height == 0 {
-		justifyQC = machine.blockTree.HighQC()
-		if isBetterQC(machine.lockedQC, justifyQC) {
-			justifyQC = machine.lockedQC
-		}
+		justifyQC = machine.proposalQC()
 	}
 	block.Header.ChainID = machine.chainID
 	block.Header.ValidatorSetHash = machine.validatorSet.Hash()
@@ -608,6 +605,23 @@ func (machine *StateMachine) isSafeVoteTarget(node BlockNode) bool {
 		return true
 	}
 	return node.Hash == machine.lockedQC.BlockHash || machine.blockTree.Extends(node.Hash, machine.lockedQC.BlockHash)
+}
+
+func (machine *StateMachine) proposalQC() finality.QuorumCert {
+	highQC := machine.blockTree.HighQC()
+	if highQC.Height == 0 {
+		return machine.lockedQC
+	}
+	if machine.lockedQC.Height == 0 {
+		return highQC
+	}
+	if machine.blockTree.Extends(highQC.BlockHash, machine.lockedQC.BlockHash) {
+		return highQC
+	}
+	if isBetterQC(machine.lockedQC, highQC) {
+		return machine.lockedQC
+	}
+	return machine.lockedQC
 }
 
 func (machine *StateMachine) updateLockedQC(qc finality.QuorumCert) {

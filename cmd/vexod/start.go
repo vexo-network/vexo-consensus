@@ -466,10 +466,15 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			_ = withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop)
 			return err
 		}
+		rpcTLSConfig, err := loadRPCTLSConfig(runtimeConfig)
+		if err != nil {
+			_ = withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop)
+			return err
+		}
 		address, shutdown, err := startRPCServerWithConfig(node, runtimeConfig.RPCAddress, vexorpc.Config{
 			AdminToken:                  runtimeConfig.RPCAdminToken,
 			AdminTokens:                 runtimeConfig.RPCAdminTokens,
-			TLSConfig:                   nil,
+			TLSConfig:                   rpcTLSConfig,
 			EnablePprof:                 runtimeConfig.RPCEnablePprof,
 			RequestTimeout:              runtimeConfig.RPCRequestTimeout,
 			MaxRequestBytes:             runtimeConfig.RPCMaxRequestBytes,
@@ -490,7 +495,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			return err
 		}
 		rpcShutdown = shutdown
-		logEvent("rpc_listening", map[string]any{"rpc_address": address, "pprof": runtimeConfig.RPCEnablePprof, "tls": false})
+		logEvent("rpc_listening", map[string]any{"rpc_address": address, "pprof": runtimeConfig.RPCEnablePprof, "tls": rpcTLSConfig != nil})
 	}
 	if p2pWire != nil {
 		logEvent("p2p_listening", map[string]any{"p2p_address": p2pWire.Address(), "p2p_peers": len(runtimeConfig.P2PPeers), "p2p_seeds": len(runtimeConfig.P2PSeeds)})
