@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
@@ -46,6 +47,26 @@ type networkNodeRuntimePlan struct {
 	LogPath     string
 	Args        []string
 	command     *exec.Cmd
+}
+
+type networkNonceTracker struct {
+	mu            sync.Mutex
+	nextByAccount map[string]uint64
+}
+
+func newNetworkNonceTracker() *networkNonceTracker {
+	return &networkNonceTracker{nextByAccount: make(map[string]uint64)}
+}
+
+func (tracker *networkNonceTracker) Next(account string) uint64 {
+	tracker.mu.Lock()
+	defer tracker.mu.Unlock()
+	next := tracker.nextByAccount[account]
+	if next == 0 {
+		next = 1
+	}
+	tracker.nextByAccount[account] = next + 1
+	return next
 }
 
 func runNetwork(writer io.Writer, args []string) error {
@@ -1280,6 +1301,7 @@ func runNetworkSmokePlan(ctx context.Context, client http.Client, plan networkRu
 	if len(plan.Nodes) == 0 {
 		return nil, errors.New("network has no nodes")
 	}
+	nonceTracker := newNetworkNonceTracker()
 	for _, localNode := range plan.Nodes {
 		if err := waitNetworkHealth(ctx, client, localNode.RPCAddress); err != nil {
 			return nil, fmt.Errorf("%s health: %w", localNode.ValidatorID, err)
@@ -1298,7 +1320,7 @@ func runNetworkSmokePlan(ctx context.Context, client http.Client, plan networkRu
 		return nil, err
 	}
 	for _, localNode := range plan.Nodes {
-		tx, err := signedNetworkPayload(chainID, localNode, txPrefix, 1)
+		tx, err := signedNetworkPayload(chainID, localNode, txPrefix, nonceTracker.Next(localNode.ValidatorID))
 		if err != nil {
 			return nil, err
 		}
@@ -1318,6 +1340,7 @@ func runNetworkChaosPlanExecution(ctx context.Context, writer io.Writer, client 
 	if len(plan.Nodes) < 2 {
 		return errors.New("chaos run requires at least two validators")
 	}
+	nonceTracker := newNetworkNonceTracker()
 	target := plan.Nodes[targetIndex]
 	survivor := networkSurvivorNode(plan, targetIndex)
 	for _, localNode := range plan.Nodes {
@@ -1338,7 +1361,7 @@ func runNetworkChaosPlanExecution(ctx context.Context, writer io.Writer, client 
 	}
 	_ = os.Remove(target.PIDPath)
 	fmt.Fprintf(writer, "chaos stopped %s pid=%d\n", target.ValidatorID, pid)
-	tx, err := signedNetworkPayload(chainID, survivor, txPrefix, 1)
+	tx, err := signedNetworkPayload(chainID, survivor, txPrefix, nonceTracker.Next(survivor.ValidatorID))
 	if err != nil {
 		return fmt.Errorf("%s tx during chaos: %w", survivor.ValidatorID, err)
 	}
@@ -1489,6 +1512,7 @@ func runNetworkLoadPlan(ctx context.Context, client http.Client, plan networkRun
 	if len(plan.Nodes) == 0 {
 		return networkLoadResult{Duration: time.Since(started), Failed: 1}
 	}
+	nonceTracker := newNetworkNonceTracker()
 	interval := networkSecond / time.Duration(rate)
 	if interval <= 0 {
 		interval = time.Nanosecond
@@ -1504,7 +1528,7 @@ func runNetworkLoadPlan(ctx context.Context, client http.Client, plan networkRun
 		case <-ticker.C:
 			sequence := result.Submitted + result.Failed + 1
 			target := plan.Nodes[int((sequence-1)%uint64(len(plan.Nodes)))]
-			payload, err := signedNetworkPayload(chainID, target, txPrefix, sequence)
+			payload, err := signedNetworkPayload(chainID, target, txPrefix, nonceTracker.Next(target.ValidatorID))
 			if err != nil {
 				result.Failed++
 				continue

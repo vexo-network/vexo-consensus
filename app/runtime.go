@@ -289,7 +289,10 @@ func (runtime *Runtime) finalizeBlockWithStore(goCtx context.Context, req Finali
 	}
 	proposalResponse := runtime.ProcessProposalContext(goCtx, ProcessProposalRequest{Block: req.Block})
 	if !proposalResponse.Accepted {
-		return FinalizeBlockResponse{}, ErrProposalRejected
+		if proposalResponse.Reason == "" {
+			return FinalizeBlockResponse{}, ErrProposalRejected
+		}
+		return FinalizeBlockResponse{}, fmt.Errorf("%w: %s", ErrProposalRejected, proposalResponse.Reason)
 	}
 
 	ctx := runtime.newContextWithGoContext(goCtx, req.Block.Header.Height, req.Block.Header)

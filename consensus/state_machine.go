@@ -144,10 +144,8 @@ func (machine *StateMachine) CreateProposal(block types.Block, round types.Round
 	}
 	block.Header.ChainID = machine.chainID
 	block.Header.ValidatorSetHash = machine.validatorSet.Hash()
-	if justifyQC.Height > 0 {
-		if block.Header.PreviousBlockHash == (types.Hash{}) || block.Header.PreviousBlockHash != justifyQC.BlockHash {
-			block.Header.PreviousBlockHash = justifyQC.BlockHash
-		}
+	if block.Header.PreviousBlockHash == (types.Hash{}) && justifyQC.Height > 0 {
+		block.Header.PreviousBlockHash = justifyQC.BlockHash
 	}
 	block.Txs = fairordering.SortTxsWithSalt(block.Txs, machine.orderingSalt(block.Header.Height))
 	block.Header.TxRoot = TxRoot(block.Txs)
