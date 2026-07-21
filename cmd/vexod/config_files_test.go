@@ -591,6 +591,9 @@ func TestWriteNetworkFilesWithWeb3DevAccountsSeedsManagedAccount(t *testing.T) {
 	if len(moduleDocument.Application.Modules) != 6 || moduleDocument.Application.Modules[5] != "evm" {
 		t.Fatalf("expected evm module enabled for web3 dev accounts, got %+v", moduleDocument.Application.Modules)
 	}
+	if moduleDocument.Execution.EVMForkPreset != "latest" {
+		t.Fatalf("expected current Remix bytecode support, got EVM fork preset %q", moduleDocument.Execution.EVMForkPreset)
+	}
 	key, err := gethcrypto.HexToECDSA(strings.TrimPrefix(networkDocument.RPC.EVMAccountPrivateKeys[0], "0x"))
 	if err != nil {
 		t.Fatal(err)
@@ -609,6 +612,21 @@ func TestWriteNetworkFilesWithWeb3DevAccountsSeedsManagedAccount(t *testing.T) {
 	}
 	if configDocument.RequireNetworkSafety {
 		t.Fatalf("expected web3 dev account init to disable network safety for local docker deployment")
+	}
+}
+
+func TestNormalizeManagedWeb3ForkPresetForStart(t *testing.T) {
+	chain := config.Default("vexo-test")
+	chain.Execution.EVMForkPreset = "london"
+
+	normalized := normalizeManagedWeb3ForkPreset(chain, startRuntimeConfig{RPCEVMManagedAccounts: true})
+	if normalized.Execution.EVMForkPreset != "latest" {
+		t.Fatalf("expected managed Web3 runtime to force latest fork preset, got %q", normalized.Execution.EVMForkPreset)
+	}
+
+	unchanged := normalizeManagedWeb3ForkPreset(chain, startRuntimeConfig{RPCEVMManagedAccounts: false})
+	if unchanged.Execution.EVMForkPreset != "london" {
+		t.Fatalf("expected non-managed runtime to preserve fork preset, got %q", unchanged.Execution.EVMForkPreset)
 	}
 }
 

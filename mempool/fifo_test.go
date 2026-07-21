@@ -243,6 +243,59 @@ func TestFIFOPendingTxsPrunesReplayRejectedTxs(t *testing.T) {
 	}
 }
 
+func TestFIFOPendingTxsRetainsFutureNonce(t *testing.T) {
+	pool := NewFIFO(FIFOConfig{
+		ReplayCheckTx: func(ctx context.Context, tx types.Tx) error {
+			switch string(tx) {
+			case "future":
+				return ErrTxNotReady
+			case "invalid":
+				return errors.New("invalid transaction")
+			default:
+				return nil
+			}
+		},
+	})
+	for _, tx := range []types.Tx{[]byte("ready"), []byte("future"), []byte("invalid")} {
+		if err := pool.AddTx(context.Background(), tx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pending, err := pool.PendingTxs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(pending, []types.Tx{[]byte("ready"), []byte("future")}) {
+		t.Fatalf("unexpected pending transactions: %q", pending)
+	}
+}
+
+func TestFIFOSnapshotTxsDoesNotReplayCheckTx(t *testing.T) {
+	replayChecks := 0
+	pool := NewFIFO(FIFOConfig{
+		ReplayCheckTx: func(ctx context.Context, tx types.Tx) error {
+			replayChecks++
+			return nil
+		},
+	})
+	if err := pool.AddTx(context.Background(), []byte("evm:pending")); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := pool.SnapshotTxs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot) != 1 || string(snapshot[0]) != "evm:pending" || replayChecks != 0 {
+		t.Fatalf("snapshot unexpectedly replayed CheckTx: txs=%q checks=%d", snapshot, replayChecks)
+	}
+	if _, err := pool.PendingTxs(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if replayChecks != 1 {
+		t.Fatalf("expected stateful pending query to replay once, got %d", replayChecks)
+	}
+}
+
 func TestFIFOPrunesExpiredSeenCache(t *testing.T) {
 	pool := NewFIFO(FIFOConfig{SeenTTL: time.Minute})
 	now := time.Unix(100, 0)
@@ -324,6 +377,21 @@ func TestFIFOReplacesSameSignerNonceWithBumpedPrice(t *testing.T) {
 	}
 	if len(pending) != 1 || string(pending[0]) != "bank:send:fee=110:priority=1:signer=alice:nonce=7" {
 		t.Fatalf("unexpected replacement pending txs: %q", pending)
+	}
+}
+
+func TestFIFOMarkCommittedRemovesSameSignerNonceReplacement(t *testing.T) {
+	pool := NewFIFO(FIFOConfig{EnableReplacement: true})
+	local := types.Tx("bank:send:fee=110:signer=alice:nonce=7")
+	committed := types.Tx("bank:send:fee=120:signer=alice:nonce=7")
+	if err := pool.AddTx(context.Background(), local); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.MarkCommitted(context.Background(), []types.Tx{committed}); err != nil {
+		t.Fatal(err)
+	}
+	if pool.Len() != 0 {
+		t.Fatalf("same-nonce replacement survived commit: %q", pool.txs)
 	}
 }
 

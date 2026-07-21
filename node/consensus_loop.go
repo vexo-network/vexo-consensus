@@ -545,11 +545,27 @@ func (node *Node) broadcastConsensusAsync(event string, fields map[string]any, b
 	if broadcast == nil {
 		return
 	}
+	key := fmt.Sprintf("%s:%v:%v", event, fields["height"], fields["round"])
+	node.broadcastMu.Lock()
+	if node.broadcasts == nil {
+		node.broadcasts = make(map[string]struct{})
+	}
+	if _, found := node.broadcasts[key]; found {
+		node.broadcastMu.Unlock()
+		return
+	}
+	node.broadcasts[key] = struct{}{}
+	node.broadcastMu.Unlock()
 	copiedFields := make(map[string]any, len(fields))
 	for key, value := range fields {
 		copiedFields[key] = value
 	}
 	go func() {
+		defer func() {
+			node.broadcastMu.Lock()
+			delete(node.broadcasts, key)
+			node.broadcastMu.Unlock()
+		}()
 		deadline := time.Now().Add(consensusGossipTimeout)
 		var lastErr error
 		for attempt := 0; ; attempt++ {
@@ -710,6 +726,18 @@ func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert
 	if quorumCert.BlockHash != blockHash {
 		return app.FinalizeBlockResponse{}, fmt.Errorf("%w: block hash mismatch", ErrInvalidCommitQC)
 	}
+	node.commitMu.Lock()
+	defer node.commitMu.Unlock()
+	node.admissionMu.Lock()
+	defer node.admissionMu.Unlock()
+	if committedHeight, ok := node.currentCommitHeight(ctx); ok {
+		if block.Header.Height <= committedHeight {
+			return app.FinalizeBlockResponse{}, fmt.Errorf("%w: height=%d committed=%d", ErrBlockAlreadyCommitted, block.Header.Height, committedHeight)
+		}
+		if block.Header.Height != committedHeight+1 {
+			return app.FinalizeBlockResponse{}, fmt.Errorf("%w: height=%d expected=%d", ErrNonSequentialCommit, block.Header.Height, committedHeight+1)
+		}
+	}
 
 	runtime, err := node.Runtime()
 	if err != nil {
@@ -758,11 +786,15 @@ func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert
 	if err := node.persistFinalityDecisions(ctx, runtime, machine); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
-	nextHeight := block.Header.Height + 1
-	if err := machine.UpdateValidatorSetFromRegistry(ctx, runtime.Validators, nextHeight); err != nil {
+	nextRegistryHeight := block.Header.Height + 1
+	if err := machine.UpdateValidatorSetFromRegistry(ctx, runtime.Validators, nextRegistryHeight); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
-	machine.StartRound(nextHeight, 0)
+	nextConsensusHeight := nextRegistryHeight
+	if highQC := machine.HighQC(ctx); highQC.Height >= nextConsensusHeight {
+		nextConsensusHeight = highQC.Height + 1
+	}
+	machine.StartRound(nextConsensusHeight, 0)
 	node.logEvent("block_committed", map[string]any{
 		"chain_id":   block.Header.ChainID,
 		"height":     block.Header.Height,
@@ -962,6 +994,10 @@ func (node *Node) CommitFinalizedBlock(ctx context.Context) (CommitReadyResult, 
 	}
 	pending := node.pendingProposals()
 	for _, decision := range decisions {
+		if node.hasCommitted(ctx, decision.CommittedHeight) {
+			node.removePending(decision.CommittedBlockHash)
+			continue
+		}
 		if node.loopConfig.RecoveryFinalityGateEnabled && reportErr == nil && !recoveryFinalityAllowsCommit(report, decision.CommittedHeight) {
 			node.metrics.observeRecoveryFinalityDeferral()
 			node.logEvent("recovery_finality_deferred", map[string]any{
@@ -978,6 +1014,10 @@ func (node *Node) CommitFinalizedBlock(ctx context.Context) (CommitReadyResult, 
 			continue
 		}
 		response, err := node.commitBlock(ctx, proposal.Block, decision.CommitQC, false, true)
+		if errors.Is(err, ErrBlockAlreadyCommitted) {
+			node.removePending(decision.CommittedBlockHash)
+			continue
+		}
 		if err != nil {
 			return CommitReadyResult{}, false, err
 		}
@@ -992,6 +1032,9 @@ func (node *Node) CommitFinalizedBlock(ctx context.Context) (CommitReadyResult, 
 }
 
 func (node *Node) cacheProposal(proposal consensus.Proposal, blockHash types.Hash) {
+	if node.hasCommitted(context.Background(), proposal.Block.Header.Height) {
+		return
+	}
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	if node.pending == nil {

@@ -2,6 +2,7 @@ package geth
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"math/big"
 	"strings"
@@ -84,6 +85,35 @@ func (reader testStateReader) BlockHash(ctx context.Context, height uint64) (typ
 	return hash, nil
 }
 
+func TestEthereumMessagePreservesSimulationFlagsForRawTx(t *testing.T) {
+	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	chainID := big.NewInt(77)
+	to := gethcommon.HexToAddress("0x000000000000000000000000000000000000beef")
+	tx := gethtypes.NewTransaction(7, to, big.NewInt(0), 21_000, big.NewInt(1), nil)
+	signed, err := gethtypes.SignTx(tx, gethtypes.NewEIP155Signer(chainID), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := ethereumMessage(contract.Invocation{
+		RawEthereumTx:      "0x" + hex.EncodeToString(raw),
+		BaseFee:            1,
+		EthereumSimulation: true,
+	}, gethcrypto.PubkeyToAddress(key.PublicKey), to, uint256.NewInt(0), 21_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !message.SkipNonceChecks || !message.SkipTransactionChecks {
+		t.Fatalf("raw transaction dropped simulation flags: %+v", message)
+	}
+}
+
 func TestGethBackendExecutesDeployAndCall(t *testing.T) {
 	vm := New()
 	if vm.Name() != GethVMName {
@@ -116,6 +146,45 @@ func TestGethBackendExecutesDeployAndCall(t *testing.T) {
 	}
 	if len(call.Output) != 32 || call.Output[31] != 0x2a {
 		t.Fatalf("unexpected call output %x", call.Output)
+	}
+}
+
+func TestGethBackendLatestPresetSupportsCurrentSolidityMcopy(t *testing.T) {
+	code := []byte{
+		0x60, 0x2a, 0x60, 0x00, 0x52, // mstore(0, 42)
+		0x60, 0x20, 0x60, 0x00, 0x60, 0x20, 0x5e, // mcopy(32, 0, 32)
+		0x60, 0x20, 0x60, 0x20, 0xf3, // return(32, 32)
+	}
+	londonResult, err := New().Execute(context.Background(), contract.Invocation{
+		Method:   "call",
+		Caller:   "0x000000000000000000000000000000000000aaaa",
+		Contract: "0x000000000000000000000000000000000000bbbb",
+		Code:     code,
+		GasLimit: 100_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !londonResult.Failed {
+		t.Fatal("London must reject Cancun MCOPY bytecode")
+	}
+
+	latest, err := NewWithChainConfigPresetJSON(LatestForkPreset, "", 83960)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := latest.Execute(context.Background(), contract.Invocation{
+		Method:   "call",
+		Caller:   "0x000000000000000000000000000000000000aaaa",
+		Contract: "0x000000000000000000000000000000000000bbbb",
+		Code:     code,
+		GasLimit: 100_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Failed || len(result.Output) != 32 || result.Output[31] != 0x2a {
+		t.Fatalf("expected current Solidity bytecode to return 42, got failed=%v error=%q output=%x", result.Failed, result.Error, result.Output)
 	}
 }
 

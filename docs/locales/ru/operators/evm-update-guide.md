@@ -173,4 +173,6 @@ Rollback должен одновременно вернуть последнюю
 - Сохраняйте без изменений и `make evm-conformance`, `make network-e2e`, `--evm-default-fixtures`, `--evm-tx-fixtures`, `--evm-execution-fixtures`, `--evm-web3-conformance-evidence`.
 - Операционный вопрос остаётся простым: сохраняет ли это обновление execution в стиле Ethereum и одновременно соответствует ли оно безопасности Vexo consensus и release?
 
+- Keep `go test -race ./rpc -count=1` in the verification matrix to catch managed nonce allocation and pending-state races.
+
 <!-- vexo-docs:technical-parity -->

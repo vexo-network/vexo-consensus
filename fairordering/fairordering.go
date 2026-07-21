@@ -2,6 +2,7 @@ package fairordering
 
 import (
 	"bytes"
+	"container/heap"
 	"crypto/sha256"
 	"encoding/binary"
 	"sort"
@@ -42,24 +43,22 @@ func SortTxs(txs []types.Tx) []types.Tx {
 }
 
 func SortTxsWithSalt(txs []types.Tx, salt []byte) []types.Tx {
-	ordered := cloneTxs(txs)
-	sort.SliceStable(ordered, func(left, right int) bool {
-		leftSigner, leftSignerFound := mempool.TxSigner(ordered[left])
-		rightSigner, rightSignerFound := mempool.TxSigner(ordered[right])
-		if leftSignerFound && rightSignerFound && leftSigner == rightSigner {
-			leftNonce, leftNonceFound := mempool.TxNonce(ordered[left])
-			rightNonce, rightNonceFound := mempool.TxNonce(ordered[right])
-			if leftNonceFound && rightNonceFound && leftNonce != rightNonce {
-				return leftNonce < rightNonce
-			}
+	chains := transactionChains(txs, salt)
+	queue := make(transactionQueue, 0, len(chains))
+	for _, chain := range chains {
+		queue = append(queue, newTransactionCandidate(chain, salt))
+	}
+	heap.Init(&queue)
+
+	ordered := make([]types.Tx, 0, len(txs))
+	for queue.Len() > 0 {
+		candidate := heap.Pop(&queue).(transactionCandidate)
+		ordered = append(ordered, append(types.Tx(nil), candidate.tx...))
+		candidate.chain.index++
+		if candidate.chain.index < len(candidate.chain.txs) {
+			heap.Push(&queue, newTransactionCandidate(candidate.chain, salt))
 		}
-		leftHash := HashTxWithSalt(salt, ordered[left])
-		rightHash := HashTxWithSalt(salt, ordered[right])
-		if leftHash != rightHash {
-			return bytes.Compare(leftHash[:], rightHash[:]) < 0
-		}
-		return bytes.Compare(ordered[left], ordered[right]) < 0
-	})
+	}
 	return ordered
 }
 
@@ -68,32 +67,96 @@ func IsOrdered(txs []types.Tx) bool {
 }
 
 func IsOrderedWithSalt(txs []types.Tx, salt []byte) bool {
-	for index := 1; index < len(txs); index++ {
-		previousSigner, previousSignerFound := mempool.TxSigner(txs[index-1])
-		currentSigner, currentSignerFound := mempool.TxSigner(txs[index])
-		if previousSignerFound && currentSignerFound && previousSigner == currentSigner {
-			previousNonce, previousNonceFound := mempool.TxNonce(txs[index-1])
-			currentNonce, currentNonceFound := mempool.TxNonce(txs[index])
-			if previousNonceFound && currentNonceFound {
-				if previousNonce > currentNonce {
-					return false
-				}
-				continue
-			}
-		}
-		previousHash := HashTxWithSalt(salt, txs[index-1])
-		currentHash := HashTxWithSalt(salt, txs[index])
-		if previousHash == currentHash {
-			if bytes.Compare(txs[index-1], txs[index]) > 0 {
-				return false
-			}
-			continue
-		}
-		if bytes.Compare(previousHash[:], currentHash[:]) > 0 {
+	ordered := SortTxsWithSalt(txs, salt)
+	for index := range txs {
+		if !bytes.Equal(txs[index], ordered[index]) {
 			return false
 		}
 	}
 	return true
+}
+
+type transactionChain struct {
+	txs   []types.Tx
+	index int
+}
+
+type transactionCandidate struct {
+	chain *transactionChain
+	tx    types.Tx
+	hash  types.Hash
+}
+
+type transactionQueue []transactionCandidate
+
+func (queue transactionQueue) Len() int { return len(queue) }
+
+func (queue transactionQueue) Less(left, right int) bool {
+	if queue[left].hash != queue[right].hash {
+		return bytes.Compare(queue[left].hash[:], queue[right].hash[:]) < 0
+	}
+	return bytes.Compare(queue[left].tx, queue[right].tx) < 0
+}
+
+func (queue transactionQueue) Swap(left, right int) {
+	queue[left], queue[right] = queue[right], queue[left]
+}
+
+func (queue *transactionQueue) Push(value any) {
+	*queue = append(*queue, value.(transactionCandidate))
+}
+
+func (queue *transactionQueue) Pop() any {
+	previous := *queue
+	last := len(previous) - 1
+	value := previous[last]
+	previous[last] = transactionCandidate{}
+	*queue = previous[:last]
+	return value
+}
+
+func transactionChains(txs []types.Tx, salt []byte) []*transactionChain {
+	bySigner := make(map[string][]types.Tx)
+	chains := make([]*transactionChain, 0, len(txs))
+	for _, original := range txs {
+		tx := append(types.Tx(nil), original...)
+		signer, signerFound := mempool.TxSigner(tx)
+		_, nonceFound := mempool.TxNonce(tx)
+		if !signerFound || !nonceFound {
+			chains = append(chains, &transactionChain{txs: []types.Tx{tx}})
+			continue
+		}
+		bySigner[signer] = append(bySigner[signer], tx)
+	}
+
+	signers := make([]string, 0, len(bySigner))
+	for signer := range bySigner {
+		signers = append(signers, string(signer))
+	}
+	sort.Strings(signers)
+	for _, signerText := range signers {
+		signerTxs := bySigner[signerText]
+		sort.Slice(signerTxs, func(left, right int) bool {
+			leftNonce, _ := mempool.TxNonce(signerTxs[left])
+			rightNonce, _ := mempool.TxNonce(signerTxs[right])
+			if leftNonce != rightNonce {
+				return leftNonce < rightNonce
+			}
+			leftHash := HashTxWithSalt(salt, signerTxs[left])
+			rightHash := HashTxWithSalt(salt, signerTxs[right])
+			if leftHash != rightHash {
+				return bytes.Compare(leftHash[:], rightHash[:]) < 0
+			}
+			return bytes.Compare(signerTxs[left], signerTxs[right]) < 0
+		})
+		chains = append(chains, &transactionChain{txs: signerTxs})
+	}
+	return chains
+}
+
+func newTransactionCandidate(chain *transactionChain, salt []byte) transactionCandidate {
+	tx := chain.txs[chain.index]
+	return transactionCandidate{chain: chain, tx: tx, hash: HashTxWithSalt(salt, tx)}
 }
 
 func cloneTxs(txs []types.Tx) []types.Tx {

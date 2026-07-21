@@ -173,4 +173,6 @@ Phụ lục này giữ cho hướng dẫn phù hợp với phần còn lại c�
 - Giữ nguyên cả `make evm-conformance`, `make network-e2e`, `--evm-default-fixtures`, `--evm-tx-fixtures`, `--evm-execution-fixtures`, và `--evm-web3-conformance-evidence`.
 - Câu hỏi vận hành vẫn rất đơn giản: bản cập nhật này có giữ được execution kiểu Ethereum mà vẫn phù hợp với Vexo consensus và release safety không?
 
+- Keep `go test -race ./rpc -count=1` in the verification matrix to catch managed nonce allocation and pending-state races.
+
 <!-- vexo-docs:technical-parity -->

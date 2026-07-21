@@ -173,4 +173,6 @@ Este apêndice mantém o guia alinhado com o restante da árvore documental.
 - Mantenha também sem alteração `make evm-conformance`, `make network-e2e`, `--evm-default-fixtures`, `--evm-tx-fixtures`, `--evm-execution-fixtures` e `--evm-web3-conformance-evidence`.
 - A pergunta operacional continua simples: esta atualização preserva execução estilo Ethereum e ainda se encaixa na segurança de Vexo consensus e release?
 
+- Keep `go test -race ./rpc -count=1` in the verification matrix to catch managed nonce allocation and pending-state races.
+
 <!-- vexo-docs:technical-parity -->

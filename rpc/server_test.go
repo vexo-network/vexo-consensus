@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -106,6 +107,59 @@ type fakeStatusProvider struct {
 	pendingHashes         []types.Hash
 	pendingTxs            []types.Tx
 	pendingErr            error
+}
+
+type concurrentManagedProvider struct {
+	*fakeStatusProvider
+	mu      sync.Mutex
+	pending []types.Tx
+}
+
+func (provider *concurrentManagedProvider) AppQuery(ctx context.Context, path []string, data []byte) (vexoapp.QueryResponse, error) {
+	// Widen the nonce-read window so the test deterministically detects a
+	// missing RPC-side allocation lock under concurrent requests.
+	time.Sleep(2 * time.Millisecond)
+	return provider.appQueryResponse, provider.appQueryErr
+}
+
+func (provider *concurrentManagedProvider) SubmitTx(ctx context.Context, tx types.Tx) error {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	if provider.submitErr != nil {
+		return provider.submitErr
+	}
+	provider.pending = append(provider.pending, append(types.Tx(nil), tx...))
+	return nil
+}
+
+func (provider *concurrentManagedProvider) PendingTxHashes(ctx context.Context) ([]types.Hash, error) {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	hashes := make([]types.Hash, 0, len(provider.pending))
+	for _, tx := range provider.pending {
+		hashes = append(hashes, mempool.HashTx(tx))
+	}
+	return hashes, nil
+}
+
+func (provider *concurrentManagedProvider) PendingTxs(ctx context.Context) ([]types.Tx, error) {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	txs := make([]types.Tx, 0, len(provider.pending))
+	for _, tx := range provider.pending {
+		txs = append(txs, append(types.Tx(nil), tx...))
+	}
+	return txs, nil
+}
+
+func (provider *concurrentManagedProvider) pendingSnapshot() []types.Tx {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	txs := make([]types.Tx, 0, len(provider.pending))
+	for _, tx := range provider.pending {
+		txs = append(txs, append(types.Tx(nil), tx...))
+	}
+	return txs
 }
 
 func (provider fakeStatusProvider) Status(ctx context.Context) node.Status {
@@ -1810,6 +1864,32 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	}
 }
 
+func TestWeb3PendingReceiptDoesNotScanCommittedBlocks(t *testing.T) {
+	const pendingHash = "0x9999999999999999999999999999999999999999999999999999999999999999"
+	pendingTx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
+		Module: "evm",
+		Action: "call",
+		Args:   []string{"evm", "0xaaaa", "0xbbbb", "call", "abcd", "21000", "5"},
+		Tags: map[string]string{
+			ethcompat.TagHash: pendingHash,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &fakeStatusProvider{
+		status:           node.Status{LatestHeight: 100},
+		pendingTxs:       []types.Tx{pendingTx},
+		appQueryResponse: vexoapp.QueryResponse{Code: 3},
+		blockErr:         errors.New("committed block scan must not run for a pending receipt"),
+	}
+	var response JSONRPCResponse
+	postJSON(t, NewHandler(provider), "/web3", `{"jsonrpc":"2.0","id":1,"method":"eth_getTransactionReceipt","params":["`+pendingHash+`"]}`, http.StatusOK, &response)
+	if response.Error != nil || response.Result != nil {
+		t.Fatalf("expected a null pending receipt without block scan, got %+v", response)
+	}
+}
+
 func TestWeb3ReceiptUsesBlockCumulativeGas(t *testing.T) {
 	txHash1 := "0x1111111111111111111111111111111111111111111111111111111111111111"
 	txHash2 := "0x2222222222222222222222222222222222222222222222222222222222222222"
@@ -2098,6 +2178,86 @@ func TestHandlerWeb3ManagedAccountSigning(t *testing.T) {
 	submitted := string(provider.submitted[0])
 	if result, ok := sendTx.Result.(string); !ok || !strings.HasPrefix(result, "0x") || !strings.Contains(submitted, "eth_hash="+result) || !strings.Contains(submitted, ethcompat.TagRaw+"=") {
 		t.Fatalf("unexpected send transaction result=%+v submitted=%q", sendTx.Result, submitted)
+	}
+
+	provider.pendingTxs = append(provider.pendingTxs, provider.submitted[0])
+	provider.submitted = nil
+	var nextTx JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":7,"method":"eth_sendTransaction","params":[`+txJSON+`]}`, http.StatusOK, &nextTx)
+	if nextTx.Error != nil || len(provider.submitted) != 1 {
+		t.Fatalf("unexpected second eth_sendTransaction response=%+v submitted=%d", nextTx, len(provider.submitted))
+	}
+	details := web3TransactionDetails(provider.submitted[0])
+	if details.Nonce != 8 {
+		t.Fatalf("expected pending-aware managed nonce 8, got %d", details.Nonce)
+	}
+}
+
+func TestHandlerWeb3ManagedAccountAllocatesConcurrentNonces(t *testing.T) {
+	const privateKeyHex = "4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5"
+	key, err := gethcrypto.HexToECDSA(privateKeyHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := gethcrypto.PubkeyToAddress(key.PublicKey).Hex()
+	provider := &concurrentManagedProvider{fakeStatusProvider: &fakeStatusProvider{
+		status:           node.Status{ChainID: "vexo-chain", EVMChainID: 77, Running: true, LatestHeight: 3},
+		state:            store.StateRecord{Height: 3, BaseFee: 9, NextBaseFee: 11},
+		appQueryResponse: vexoapp.QueryResponse{Value: []byte(`{"address":"` + address + `","balance":1000000000000,"nonce":7,"code":""}`)},
+	}}
+	handler := NewHandlerWithConfig(provider, Config{EnableEVMManagedAccounts: true, EVMAccountPrivateKeys: []string{privateKeyHex}})
+	txJSON := `{"from":"` + address + `","to":"0x000000000000000000000000000000000000beef","value":"0x1","gas":"0x5208","gasPrice":"0xb"}`
+
+	const requestCount = 16
+	start := make(chan struct{})
+	errorsFound := make(chan error, requestCount)
+	var group sync.WaitGroup
+	for index := 0; index < requestCount; index++ {
+		group.Add(1)
+		go func(id int) {
+			defer group.Done()
+			<-start
+			body := `{"jsonrpc":"2.0","id":` + strconv.Itoa(id+1) + `,"method":"eth_sendTransaction","params":[` + txJSON + `]}`
+			request := httptest.NewRequest(http.MethodPost, "/web3", strings.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusOK {
+				errorsFound <- errors.New(response.Body.String())
+				return
+			}
+			var payload JSONRPCResponse
+			if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+				errorsFound <- err
+				return
+			}
+			if payload.Error != nil {
+				errorsFound <- errors.New(payload.Error.Message)
+			}
+		}(index)
+	}
+	close(start)
+	group.Wait()
+	close(errorsFound)
+	for err := range errorsFound {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	pending := provider.pendingSnapshot()
+	if len(pending) != requestCount {
+		t.Fatalf("expected %d admitted transactions, got %d", requestCount, len(pending))
+	}
+	nonces := make([]uint64, 0, len(pending))
+	for _, tx := range pending {
+		nonces = append(nonces, web3TransactionDetails(tx).Nonce)
+	}
+	sort.Slice(nonces, func(left, right int) bool { return nonces[left] < nonces[right] })
+	for index, nonce := range nonces {
+		if expected := uint64(index + 7); nonce != expected {
+			t.Fatalf("managed nonce allocation gap or duplicate: got %v", nonces)
+		}
 	}
 }
 

@@ -121,7 +121,18 @@ The EVM update is not done until all of these are true:
 
 If a proxy deploy works but upgrade fails, the change is not shippable yet. Treat that as a release blocker, not a warning.
 
-### 6. Refresh evidence
+### 6. Verify pending nonce and deterministic ordering
+
+Managed `eth_sendTransaction` requests that omit `nonce` must treat pending-state lookup, signing, and mempool admission as one atomic allocation step. Otherwise, concurrent requests can sign the same nonce even when sequential requests appear healthy. `eth_signTransaction` only signs and does not reserve a nonce; callers that later use `eth_sendRawTransaction` remain responsible for coordinating their own nonce allocation.
+
+The consensus transaction order must also satisfy both properties below:
+
+- the same transaction set produces the same order regardless of local mempool arrival order
+- transactions from one signer preserve ascending nonce dependencies
+
+Exercise this with concurrent managed-account submissions and with permuted proposal inputs. Confirm that all transactions receive distinct contiguous nonces, commit successfully, and produce no `invalid transaction nonce`, `unsafe proposal`, or double-sign log entries.
+
+### 7. Refresh evidence
 
 When the EVM surface changes, update the release evidence bundle:
 
@@ -142,6 +153,7 @@ Use this as the merge gate:
 | `make evm-conformance` | Catches fork-rule and execution regressions |
 | `go test ./modules/evm -count=1` | Verifies receipts, logs, storage, balances, and snapshots |
 | `go test ./rpc -count=1` | Verifies Web3 request and response compatibility |
+| `go test -race ./rpc -count=1` | Detects managed nonce allocation and pending-state races |
 | `make network-e2e` | Confirms the node still starts, peers, and commits |
 | Docker single-host smoke | Confirms the path used by Remix and browser tools |
 | Contract deploy | Confirms transaction admission and receipt generation |
@@ -159,6 +171,8 @@ Roll back the EVM update when any of the following happens:
 - `eth_call` or `eth_estimateGas` diverge from the expected fork rules
 - receipts, logs, or proofs stop matching the committed state
 - proxy or upgrade transactions begin to fail
+- concurrent managed transactions reuse, skip, or stall a pending nonce
+- proposal ordering changes when the same transaction set arrives in a different order
 - the release evidence no longer matches the current code path
 
 Rollback should restore the last known good adapter version, config defaults, and fixture set together.

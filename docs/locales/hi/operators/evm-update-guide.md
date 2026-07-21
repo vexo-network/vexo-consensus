@@ -173,4 +173,6 @@ rollback को last known good adapter version, config defaults, और fixture
 - `make evm-conformance`, `make network-e2e`, `--evm-default-fixtures`, `--evm-tx-fixtures`, `--evm-execution-fixtures`, और `--evm-web3-conformance-evidence` भी वैसे ही रखें।
 - operational question सरल है: क्या यह update Ethereum-style execution को preserve करता है और साथ ही Vexo consensus तथा release safety के अनुरूप है?
 
+- Keep `go test -race ./rpc -count=1` in the verification matrix to catch managed nonce allocation and pending-state races.
+
 <!-- vexo-docs:technical-parity -->

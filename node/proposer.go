@@ -210,6 +210,9 @@ func (node *Node) nextLocalProposerRound(ctx context.Context, height types.Heigh
 }
 
 func (node *Node) cachedProposalStillValid(ctx context.Context, proposal consensus.Proposal) bool {
+	if node.hasCommitted(ctx, proposal.Block.Header.Height) {
+		return false
+	}
 	runtime, err := node.Runtime()
 	if err != nil {
 		return false
@@ -219,6 +222,15 @@ func (node *Node) cachedProposalStillValid(ctx context.Context, proposal consens
 		return false
 	}
 	status := machine.Status(ctx)
+	blockHash := consensus.HashBlock(proposal.Block)
+	// A proposal that is certified, or is an ancestor of the certified tip,
+	// must remain available until the finalized execution path consumes it.
+	// Re-evaluating it against a newer locked QC would incorrectly classify
+	// the certified proposal itself as unsafe because its justify QC is its
+	// parent QC.
+	if machine.IsAncestorOfHighQC(blockHash) {
+		return true
+	}
 	if proposal.Block.Header.Height < status.Height {
 		return false
 	}

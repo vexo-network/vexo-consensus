@@ -22,7 +22,7 @@ const LOCALES = {
 };
 
 const MYMEMORY_ENDPOINT = 'https://api.mymemory.translated.net/get';
-const MAX_CHUNK_CHARS = 1000;
+const MAX_CHUNK_CHARS = 320;
 
 function usage() {
   console.error([
@@ -63,7 +63,7 @@ function localeLabel(locale) {
 }
 
 function placeholderPrefix(kind, index) {
-  return `__VEXO_${kind}_${index}__`;
+  return `VEXO${kind}${index}X`;
 }
 
 function sleep(ms) {
@@ -166,6 +166,32 @@ function splitParagraphs(text, maxChars = MAX_CHUNK_CHARS) {
       const lines = paragraph.split('\n');
       let lineBuffer = '';
       for (const line of lines) {
+        if (line.length > maxChars) {
+          if (lineBuffer) {
+            chunks.push(lineBuffer);
+            lineBuffer = '';
+          }
+          let wordBuffer = '';
+          for (const word of line.split(/\s+/)) {
+            if (!word) {
+              continue;
+            }
+            if (!wordBuffer) {
+              wordBuffer = word;
+              continue;
+            }
+            if ((wordBuffer.length + 1 + word.length) <= maxChars) {
+              wordBuffer += ` ${word}`;
+            } else {
+              chunks.push(wordBuffer);
+              wordBuffer = word;
+            }
+          }
+          if (wordBuffer) {
+            chunks.push(wordBuffer);
+          }
+          continue;
+        }
         if (!lineBuffer) {
           lineBuffer = line;
           continue;
@@ -215,6 +241,9 @@ async function translateTextOnce(text, targetLocale) {
       const translated = payload?.responseData?.translatedText;
       if (typeof translated !== 'string') {
         throw new Error(`translate failed for ${targetLocale}: missing translatedText`);
+      }
+      if (translated.includes('QUERY LENGTH LIMIT EXCEEDED') || translated.includes('MAX ALLOWED QUERY')) {
+        throw new Error(`translate failed for ${targetLocale}: query length limit exceeded`);
       }
       const restored = urlGuard.restore(codeGuard.restore(translated));
       await sleep(4000);

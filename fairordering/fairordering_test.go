@@ -86,6 +86,34 @@ func TestSortTxsWithSaltPreservesSignerNonceOrder(t *testing.T) {
 	}
 }
 
+func TestSortTxsWithSaltIsPermutationInvariantWithNonceDependencies(t *testing.T) {
+	txs := []types.Tx{
+		[]byte("bank:send:alice:bob:1:signer=alice:nonce=1"),
+		[]byte("bank:send:alice:bob:1:signer=alice:nonce=2"),
+		[]byte("bank:send:carol:dave:1:signer=carol:nonce=1"),
+		[]byte("bank:send:carol:dave:1:signer=carol:nonce=2"),
+		[]byte("bank:send:unsigned"),
+	}
+	salt := HeightSalt("vexo-test", 17)
+	want := SortTxsWithSalt(txs, salt)
+	permuted := cloneTxs(txs)
+	var verifyPermutations func(int)
+	verifyPermutations = func(index int) {
+		if index == len(permuted) {
+			if got := SortTxsWithSalt(permuted, salt); !equalTxs(got, want) {
+				t.Fatalf("permutation changed canonical order: got %q want %q", got, want)
+			}
+			return
+		}
+		for swap := index; swap < len(permuted); swap++ {
+			permuted[index], permuted[swap] = permuted[swap], permuted[index]
+			verifyPermutations(index + 1)
+			permuted[index], permuted[swap] = permuted[swap], permuted[index]
+		}
+	}
+	verifyPermutations(0)
+}
+
 func equalTxs(left []types.Tx, right []types.Tx) bool {
 	if len(left) != len(right) {
 		return false

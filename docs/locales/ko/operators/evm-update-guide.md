@@ -173,4 +173,6 @@ release evidence에는 무엇이 바뀌었는지, 무엇을 테스트했는지, 
 - `make evm-conformance`, `make network-e2e`, `--evm-default-fixtures`, `--evm-tx-fixtures`, `--evm-execution-fixtures`, `--evm-web3-conformance-evidence`의 철자도 그대로 유지합니다.
 - 운영 질문은 단순해야 합니다. 이번 업데이트가 Ethereum-style execution을 유지하면서도 Vexo consensus와 release safety에 맞는가?
 
+- Keep `go test -race ./rpc -count=1` in the verification matrix to catch managed nonce allocation and pending-state races.
+
 <!-- vexo-docs:technical-parity -->

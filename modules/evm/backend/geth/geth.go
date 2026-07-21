@@ -237,8 +237,8 @@ func ethereumMessage(invocation contract.Invocation, caller gethcommon.Address, 
 		if err != nil {
 			return nil, err
 		}
-		msg.SkipNonceChecks = false
-		msg.SkipTransactionChecks = false
+		msg.SkipNonceChecks = invocation.EthereumSimulation
+		msg.SkipTransactionChecks = invocation.EthereumSimulation
 		return msg, nil
 	}
 	var to *gethcommon.Address

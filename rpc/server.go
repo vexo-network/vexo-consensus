@@ -82,6 +82,7 @@ type Config struct {
 	Web3FilterSnapshotPath        string
 	RequiredCapabilities          []string
 	RequireAllCapabilities        bool
+	managedTransactionMu          *sync.Mutex
 }
 
 type AdminAuditEvent struct {
@@ -630,6 +631,9 @@ func newHandlerWithConfig(provider StatusProvider, cfg Config, filters *web3Filt
 	}
 	if filters == nil {
 		filters = newWeb3FilterStore()
+	}
+	if cfg.managedTransactionMu == nil {
+		cfg.managedTransactionMu = &sync.Mutex{}
 	}
 	mux := http.NewServeMux()
 	if cfg.EnablePprof {
@@ -1964,6 +1968,13 @@ func web3SendTransaction(ctx context.Context, provider StatusProvider, cfg Confi
 	if !ok {
 		return nil, &JSONRPCError{Code: -32000, Message: "transaction submission is unavailable"}
 	}
+	// A managed transaction without an explicit nonce derives it from committed
+	// and pending state. Keep nonce selection, signing, and admission atomic so
+	// concurrent JSON-RPC requests cannot sign the same sequence number.
+	if cfg.managedTransactionMu != nil {
+		cfg.managedTransactionMu.Lock()
+		defer cfg.managedTransactionMu.Unlock()
+	}
 	signed, raw, rpcErr := web3SignEthereumTransaction(ctx, provider, cfg, params)
 	if rpcErr != nil {
 		return nil, rpcErr
@@ -2138,7 +2149,11 @@ func web3TransactionNonce(ctx context.Context, provider StatusProvider, payload 
 	if rpcErr != nil {
 		return 0, rpcErr
 	}
-	return account.Nonce, nil
+	nonce, err := web3PendingSequence(ctx, provider, payload.From, account.Nonce)
+	if err != nil {
+		return 0, &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	return nonce, nil
 }
 
 func web3TransactionGas(payload web3TransactionCall) (uint64, *JSONRPCError) {
@@ -2686,12 +2701,22 @@ func web3BlockTransactionCount(record store.BlockRecord) any {
 }
 
 func web3PendingSequence(ctx context.Context, provider StatusProvider, address string, sequence uint64) (uint64, error) {
-	txs, rpcErr := web3PendingTxs(ctx, provider)
-	if rpcErr != nil {
-		if rpcErr.Message == "pending transaction query is unavailable" {
-			return sequence, nil
+	var txs []types.Tx
+	if snapshot, ok := provider.(PendingTxSnapshotProvider); ok {
+		var err error
+		txs, err = snapshot.PendingTxSnapshot(ctx)
+		if err != nil {
+			return 0, err
 		}
-		return sequence, errors.New(rpcErr.Message)
+	} else {
+		var rpcErr *JSONRPCError
+		txs, rpcErr = web3PendingTxs(ctx, provider)
+		if rpcErr != nil {
+			if rpcErr.Message == "pending transaction query is unavailable" {
+				return sequence, nil
+			}
+			return 0, errors.New(rpcErr.Message)
+		}
 	}
 	candidates := make([]uint64, 0)
 	for _, tx := range txs {
@@ -2836,12 +2861,22 @@ func web3PendingTransactionByHash(ctx context.Context, provider StatusProvider, 
 }
 
 func web3PendingTxByHash(ctx context.Context, provider StatusProvider, hash string) (types.Tx, bool, *JSONRPCError) {
-	txs, rpcErr := web3PendingTxs(ctx, provider)
-	if rpcErr != nil {
-		if rpcErr.Message == "pending transaction query is unavailable" {
-			return nil, false, nil
+	var txs []types.Tx
+	if snapshot, ok := provider.(PendingTxSnapshotProvider); ok {
+		var err error
+		txs, err = snapshot.PendingTxSnapshot(ctx)
+		if err != nil {
+			return nil, false, &JSONRPCError{Code: -32000, Message: err.Error()}
 		}
-		return nil, false, rpcErr
+	} else {
+		var rpcErr *JSONRPCError
+		txs, rpcErr = web3PendingTxs(ctx, provider)
+		if rpcErr != nil {
+			if rpcErr.Message == "pending transaction query is unavailable" {
+				return nil, false, nil
+			}
+			return nil, false, rpcErr
+		}
 	}
 	for _, tx := range txs {
 		if web3TxMatchesHash(tx, hash) {
@@ -3356,6 +3391,11 @@ func web3ReceiptValueByHash(ctx context.Context, provider StatusProvider, hash s
 			}
 			return response.Value, true, nil
 		}
+	}
+	if _, pending, rpcErr := web3PendingTxByHash(ctx, provider, hash); rpcErr != nil {
+		return nil, false, rpcErr
+	} else if pending {
+		return nil, false, nil
 	}
 	record, index, _, found, rpcErr := web3CommittedTxByHash(ctx, provider, hash)
 	if rpcErr != nil || !found {
@@ -5157,9 +5197,15 @@ func web3TransactionFromReceipt(ctx context.Context, provider StatusProvider, va
 	if foundTx {
 		details = web3TransactionDetails(tx)
 	}
-	to := receipt.To
-	if to == "" && receipt.ContractAddress != "" {
-		to = receipt.ContractAddress
+	var to any
+	if receipt.To != "" {
+		to = receipt.To
+	}
+	if foundTx {
+		to = details.To
+	}
+	if receipt.ContractAddress != "" {
+		to = nil
 	}
 	return map[string]any{
 		"hash":             receipt.TxHash,
@@ -5261,9 +5307,12 @@ func web3TransactionFromBlockRecord(record store.BlockRecord, index int, hashTex
 		transaction["gas"] = hexQuantity(record.TxResults[index].GasUsed)
 		return transaction
 	}
-	to := receipt.To
-	if to == "" && receipt.ContractAddress != "" {
-		to = receipt.ContractAddress
+	to := details.To
+	if receipt.To != "" {
+		to = receipt.To
+	}
+	if receipt.ContractAddress != "" {
+		to = nil
 	}
 	transaction["from"] = receipt.From
 	transaction["to"] = to

@@ -67,8 +67,10 @@ func (node *Node) StartConsensusLoop(ctx context.Context, cfg ConsensusLoopConfi
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
+	wake := make(chan struct{}, 1)
 	node.loopCancel = cancel
 	node.loopDone = done
+	node.loopWake = wake
 	node.loopConfig = cfg
 	node.mu.Unlock()
 
@@ -78,6 +80,7 @@ func (node *Node) StartConsensusLoop(ctx context.Context, cfg ConsensusLoopConfi
 		if node.loopDone == done {
 			node.loopCancel = nil
 			node.loopDone = nil
+			node.loopWake = nil
 			node.loopConfig = ConsensusLoopConfig{}
 		}
 		node.mu.Unlock()
@@ -85,7 +88,7 @@ func (node *Node) StartConsensusLoop(ctx context.Context, cfg ConsensusLoopConfi
 		return err
 	}
 
-	go node.runConsensusLoop(runCtx, cfg, done)
+	go node.runConsensusLoop(runCtx, cfg, done, wake)
 	return nil
 }
 
@@ -109,6 +112,7 @@ func (node *Node) StopConsensusLoop(ctx context.Context) error {
 	}
 	node.loopCancel = nil
 	node.loopDone = nil
+	node.loopWake = nil
 	node.loopConfig = ConsensusLoopConfig{}
 	node.mu.Unlock()
 
@@ -122,24 +126,15 @@ func (node *Node) ConsensusLoopRunning() bool {
 	return node.loopCancel != nil
 }
 
-func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig, done chan struct{}) {
+func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig, done chan struct{}, wake <-chan struct{}) {
 	defer node.clearConsensusLoop(done)
 	defer close(done)
 
-	ticker := time.NewTicker(cfg.Interval)
-	defer ticker.Stop()
 	lastTimeout := time.Now()
 	lastCommit := time.Time{}
 	adaptiveRoundTimeout := cfg.roundTimeout()
 	adaptiveEnabled := cfg.AdaptiveRoundTimeoutEnabled
 	for {
-		if !lastCommit.IsZero() && cfg.TimeoutCommit > 0 {
-			if remaining := cfg.TimeoutCommit - time.Since(lastCommit); remaining > 0 {
-				if !sleepConsensusLoop(ctx, remaining) {
-					return
-				}
-			}
-		}
 		result, err := node.StepConsensusWithConfig(ctx, cfg)
 		configuredPeers, activePeers := node.currentConsensusPeerCounts()
 		if err != nil {
@@ -174,10 +169,14 @@ func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig,
 			lastTimeout = time.Now()
 		}
 
-		select {
-		case <-ctx.Done():
+		wait := cfg.Interval
+		if !lastCommit.IsZero() && cfg.TimeoutCommit > wait {
+			if remaining := cfg.TimeoutCommit - time.Since(lastCommit); remaining > wait {
+				wait = remaining
+			}
+		}
+		if !waitConsensusLoop(ctx, wake, wait) {
 			return
-		case <-ticker.C:
 		}
 	}
 }
@@ -196,6 +195,7 @@ func (node *Node) clearConsensusLoop(done chan struct{}) {
 	}
 	node.loopCancel = nil
 	node.loopDone = nil
+	node.loopWake = nil
 	node.loopConfig = ConsensusLoopConfig{}
 }
 
@@ -239,12 +239,14 @@ func (cfg ConsensusLoopConfig) roundTimeout() time.Duration {
 	return cfg.TimeoutPropose + cfg.TimeoutPrevote + cfg.TimeoutPrecommit
 }
 
-func sleepConsensusLoop(ctx context.Context, duration time.Duration) bool {
+func waitConsensusLoop(ctx context.Context, wake <-chan struct{}, duration time.Duration) bool {
 	timer := time.NewTimer(duration)
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
 		return false
+	case <-wake:
+		return true
 	case <-timer.C:
 		return true
 	}

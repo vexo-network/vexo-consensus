@@ -1526,6 +1526,14 @@ func runNetworkLoadPlan(ctx context.Context, client http.Client, plan networkRun
 			result.Duration = time.Since(started)
 			return result
 		case <-ticker.C:
+			// A tick and cancellation can become ready together. Re-check the
+			// context so a completed load window never emits one extra tx.
+			select {
+			case <-ctx.Done():
+				result.Duration = time.Since(started)
+				return result
+			default:
+			}
 			sequence := result.Submitted + result.Failed + 1
 			target := plan.Nodes[int((sequence-1)%uint64(len(plan.Nodes)))]
 			payload, err := signedNetworkPayload(chainID, target, txPrefix, nonceTracker.Next(target.ValidatorID))

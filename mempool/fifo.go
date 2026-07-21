@@ -19,6 +19,7 @@ var (
 	ErrInvalidMaxBytes        = errors.New("max bytes must be greater than zero")
 	ErrInsufficientFee        = errors.New("transaction fee is below minimum")
 	ErrReplacementUnderpriced = errors.New("replacement transaction is underpriced")
+	ErrTxNotReady             = errors.New("transaction is not executable yet")
 )
 
 type FIFOConfig struct {
@@ -213,6 +214,22 @@ func (pool *FIFO) PendingTxs(ctx context.Context) ([]types.Tx, error) {
 	return pool.liveTxsLocked(ctx), nil
 }
 
+// SnapshotTxs returns the currently admitted entries without replaying CheckTx.
+// Proposal construction still uses PendingTxs and performs the stateful replay
+// check; read-only RPC polling should not execute transactions again.
+func (pool *FIFO) SnapshotTxs(ctx context.Context) ([]types.Tx, error) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	if err := pool.checkContext(ctx); err != nil {
+		return nil, err
+	}
+	txs := make([]types.Tx, 0, len(pool.txs))
+	for _, tx := range pool.txs {
+		txs = append(txs, append(types.Tx(nil), tx...))
+	}
+	return txs, nil
+}
+
 func (pool *FIFO) MarkCommitted(ctx context.Context, committed []types.Tx) error {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
@@ -313,6 +330,10 @@ func (pool *FIFO) liveTxsLocked(ctx context.Context) []types.Tx {
 	for _, tx := range pool.txs {
 		if pool.config.ReplayCheckTx != nil {
 			if err := pool.config.ReplayCheckTx(ctx, append(types.Tx(nil), tx...)); err != nil {
+				if errors.Is(err, ErrTxNotReady) {
+					live = append(live, append(types.Tx(nil), tx...))
+					continue
+				}
 				removed = true
 				pool.markSeen(HashTx(tx))
 				continue
@@ -436,9 +457,15 @@ func (pool *FIFO) checkContext(ctx context.Context) error {
 }
 
 func containsTx(txs []types.Tx, target types.Tx) bool {
+	targetKey, targetHasKey := ReplacementKey(target)
 	for _, tx := range txs {
 		if bytes.Equal(tx, target) {
 			return true
+		}
+		if targetHasKey {
+			if key, found := ReplacementKey(tx); found && key == targetKey {
+				return true
+			}
 		}
 	}
 	return false

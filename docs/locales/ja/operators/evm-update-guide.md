@@ -173,4 +173,6 @@ rollback では、最後に正常確認できた adapter version、config defaul
 - `make evm-conformance`、`make network-e2e`、`--evm-default-fixtures`、`--evm-tx-fixtures`、`--evm-execution-fixtures`、`--evm-web3-conformance-evidence` の綴りもそのまま維持します。
 - 運用上の問いは単純です。この更新は Ethereum-style execution を保ちながら、Vexo consensus と release safety に適合しているか?
 
+- Keep `go test -race ./rpc -count=1` in the verification matrix to catch managed nonce allocation and pending-state races.
+
 <!-- vexo-docs:technical-parity -->

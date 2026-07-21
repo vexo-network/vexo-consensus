@@ -198,6 +198,12 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 		return fmt.Errorf("%w: justify qc must match parent block", ErrInvalidProposal)
 	}
 	blockHash := machine.hashBlock(proposal.Block)
+	if known, found := machine.blockTree.Get(blockHash); found && known.QuorumCert.Height > 0 {
+		if err := machine.applyKnownCommitRules(); err != nil {
+			return err
+		}
+		return ErrStaleProposal
+	}
 	if proposal.Block.Header.Height < machine.status.Height ||
 		(proposal.Block.Header.Height == machine.status.Height && proposal.Round < machine.status.Round) {
 		machine.blockTree.Insert(proposal.Block, blockHash, proposal.JustifyQC)
@@ -595,6 +601,19 @@ func (machine *StateMachine) IsSafeProposal(proposal Proposal) bool {
 	machine.mu.Lock()
 	defer machine.mu.Unlock()
 	return machine.isSafeProposal(proposal)
+}
+
+// IsAncestorOfHighQC reports whether blockHash is on the certified branch.
+// Certified ancestors must remain available until the three-chain commit rule
+// finalizes them, even after the state machine advances to a higher height.
+func (machine *StateMachine) IsAncestorOfHighQC(blockHash types.Hash) bool {
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
+	highQC := machine.blockTree.HighQC()
+	if highQC.BlockHash == (types.Hash{}) || blockHash == (types.Hash{}) {
+		return false
+	}
+	return blockHash == highQC.BlockHash || machine.blockTree.Extends(highQC.BlockHash, blockHash)
 }
 
 func (machine *StateMachine) isSafeVoteTarget(node BlockNode) bool {

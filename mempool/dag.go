@@ -67,6 +67,10 @@ func (dag *DAG) PendingTxs(ctx context.Context) ([]types.Tx, error) {
 	return dag.base.PendingTxs(ctx)
 }
 
+func (dag *DAG) SnapshotTxs(ctx context.Context) ([]types.Tx, error) {
+	return dag.base.SnapshotTxs(ctx)
+}
+
 func (dag *DAG) MarkCommitted(ctx context.Context, txs []types.Tx) error {
 	dag.mu.Lock()
 	defer dag.mu.Unlock()

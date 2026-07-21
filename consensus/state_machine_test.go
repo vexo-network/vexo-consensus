@@ -133,6 +133,9 @@ func TestStateMachineStoresVoteQuorumCertInBlockTree(t *testing.T) {
 	if highQC := machine.HighQC(context.Background()); highQC.BlockHash != blockHash || highQC.Height != 1 {
 		t.Fatalf("expected highQC to track vote quorum cert, got %+v", highQC)
 	}
+	if err := machine.OnProposal(context.Background(), Proposal{Block: block, Proposer: "a"}); !errors.Is(err, ErrStaleProposal) {
+		t.Fatalf("expected duplicate certified proposal to be idempotent, got %v", err)
+	}
 }
 
 func TestStateMachineCreateProposalUsesHighQC(t *testing.T) {

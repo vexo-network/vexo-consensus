@@ -1,4 +1,5 @@
-FROM golang:1.26-bookworm AS builder
+ARG GO_VERSION=1.26.5
+FROM golang:${GO_VERSION}-bookworm AS builder
 
 ARG VERSION=dev
 ARG COMMIT=unknown
@@ -32,4 +33,3 @@ WORKDIR /var/lib/vexo
 USER nonroot:nonroot
 ENTRYPOINT ["/usr/local/bin/vexod"]
 CMD ["status"]
-

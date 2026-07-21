@@ -173,4 +173,6 @@ Cette annexe garde le guide de mise à jour aligné avec le reste de l’arbores
 - Conservez aussi l’orthographe de `make evm-conformance`, `make network-e2e`, `--evm-default-fixtures`, `--evm-tx-fixtures`, `--evm-execution-fixtures` et `--evm-web3-conformance-evidence`.
 - La question opérationnelle reste simple : cette mise à jour préserve-t-elle l’exécution de style Ethereum tout en restant compatible avec la sécurité de Vexo consensus et de release ?
 
+- Keep `go test -race ./rpc -count=1` in the verification matrix to catch managed nonce allocation and pending-state races.
+
 <!-- vexo-docs:technical-parity -->

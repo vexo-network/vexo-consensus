@@ -46,6 +46,10 @@ type PendingTxsProvider interface {
 	PendingTxs(ctx context.Context) ([]types.Tx, error)
 }
 
+type PendingTxSnapshotProvider interface {
+	PendingTxSnapshot(ctx context.Context) ([]types.Tx, error)
+}
+
 type EvidenceSubmitter interface {
 	SubmitEvidence(ctx context.Context, evidence slashing.Evidence) (consensus.SlashResult, bool, error)
 }

@@ -106,7 +106,7 @@ func (node *Node) acceptCommitMessage(ctx context.Context, from p2p.PeerID, data
 		node.observePeerMessage(ctx, from, true)
 		return
 	}
-	if _, err := node.commitBlock(ctx, message.Block, message.QuorumCert, false, false); err != nil {
+	if _, err := node.commitBlock(ctx, message.Block, message.QuorumCert, false, false); err != nil && !errors.Is(err, ErrBlockAlreadyCommitted) {
 		node.observePeerMessage(ctx, from, true)
 		return
 	}

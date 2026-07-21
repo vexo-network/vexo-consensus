@@ -173,4 +173,6 @@ http://127.0.0.1:28657/web3
 - احتفظ أيضًا بتهجئة `make evm-conformance` و`make network-e2e` و`--evm-default-fixtures` و`--evm-tx-fixtures` و`--evm-execution-fixtures` و`--evm-web3-conformance-evidence` كما هي.
 - السؤال التشغيلي يبقى بسيطًا: هل يحافظ هذا التحديث على التنفيذ بأسلوب Ethereum مع بقائه منسجمًا مع أمان Vexo consensus وrelease safety؟
 
+- Keep `go test -race ./rpc -count=1` in the verification matrix to catch managed nonce allocation and pending-state races.
+
 <!-- vexo-docs:technical-parity -->

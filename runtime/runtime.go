@@ -221,15 +221,9 @@ func newWithStoreAndCryptoRegistry(ctx context.Context, cfg config.Config, appli
 		}
 		fifoConfig.ReplayCheckTx = func(ctx context.Context, tx types.Tx) error {
 			if checker, ok := application.(app.ContextCheckTxApplication); ok {
-				if result := checker.CheckTxContext(ctx, tx); result.Result.Code != 0 {
-					return errors.New(result.Result.Log)
-				}
-				return nil
+				return mempoolReplayCheckResult(checker.CheckTxContext(ctx, tx))
 			}
-			if result := application.CheckTx(tx); result.Result.Code != 0 {
-				return errors.New(result.Result.Log)
-			}
-			return nil
+			return mempoolReplayCheckResult(application.CheckTx(tx))
 		}
 	}
 	dag := mempool.NewDAG(mempool.NewFIFO(fifoConfig))
@@ -243,9 +237,11 @@ func newWithStoreAndCryptoRegistry(ctx context.Context, cfg config.Config, appli
 	if storage != nil {
 		removed, err := dag.RetainTxs(ctx, func(tx types.Tx) bool {
 			if checker, ok := application.(app.ContextCheckTxApplication); ok {
-				return checker.CheckTxContext(ctx, tx).Result.Code == 0
+				err := mempoolReplayCheckResult(checker.CheckTxContext(ctx, tx))
+				return err == nil || errors.Is(err, mempool.ErrTxNotReady)
 			}
-			return application.CheckTx(tx).Result.Code == 0
+			err := mempoolReplayCheckResult(application.CheckTx(tx))
+			return err == nil || errors.Is(err, mempool.ErrTxNotReady)
 		})
 		if err != nil {
 			return nil, err
@@ -288,6 +284,16 @@ func newWithStoreAndCryptoRegistry(ctx context.Context, cfg config.Config, appli
 		currentBaseFee:     cfg.Execution.BaseFee,
 		currentBlobBaseFee: cfg.Execution.BlobBaseFee,
 	}, nil
+}
+
+func mempoolReplayCheckResult(response app.CheckTxResponse) error {
+	if response.Result.Code == 0 {
+		return nil
+	}
+	if nonce, expected, ok := app.ParseInvalidNonceLog(response.Result.Log); ok && nonce > expected {
+		return mempool.ErrTxNotReady
+	}
+	return errors.New(response.Result.Log)
 }
 
 func (runtime *Runtime) WithUpgrade(plan upgrade.Plan, state upgrade.State, executor upgrade.Executor) *Runtime {

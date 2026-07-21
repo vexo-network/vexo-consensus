@@ -531,7 +531,7 @@ func waitForP2PPeerReadiness(ctx context.Context, node *vexonode.Node, runtimeCo
 	defer ticker.Stop()
 	for {
 		status := node.Status(waitCtx)
-		if bestPeerCount(status.ActivePeerCount, status.PeerCount, status.ConfiguredPeerCount, status.ScoredPeerCount) >= expectedPeers {
+		if hasRequiredActivePeers(status.ActivePeerCount, expectedPeers) {
 			if logEvent != nil {
 				logEvent("p2p_peer_readiness_ready", map[string]any{
 					"active_peers":     status.ActivePeerCount,
@@ -547,6 +547,10 @@ func waitForP2PPeerReadiness(ctx context.Context, node *vexonode.Node, runtimeCo
 		case <-ticker.C:
 		}
 	}
+}
+
+func hasRequiredActivePeers(activePeers int, expectedPeers int) bool {
+	return expectedPeers <= 0 || activePeers >= expectedPeers
 }
 
 func maybeRunStartupStateSync(ctx context.Context, inputs startInputs, runtimeConfig startRuntimeConfig, logEvent vexonode.EventLogger) error {
@@ -1259,10 +1263,12 @@ func buildRuntimeNode(inputs startInputs, runtimeConfig startRuntimeConfig) (*ve
 	if err := validateStartupKeyCustody(inputs, runtimeConfig); err != nil {
 		return nil, nil, err
 	}
-	application, err := appmodules.NewRuntimeWithChainConfig(inputs.Config.Chain.ChainID, inputs.Config.Chain)
+	chainConfig := normalizeManagedWeb3ForkPreset(inputs.Config.Chain, runtimeConfig)
+	application, err := appmodules.NewRuntimeWithChainConfig(chainConfig.ChainID, chainConfig)
 	if err != nil {
 		return nil, nil, err
 	}
+	inputs.Config.Chain = chainConfig
 	node, err := vexonode.New(inputs.Config, inputs.Genesis, application)
 	if err != nil {
 		return nil, nil, err
@@ -1277,6 +1283,13 @@ func buildRuntimeNode(inputs startInputs, runtimeConfig startRuntimeConfig) (*ve
 		return node, wire, nil
 	}
 	return node, nil, nil
+}
+
+func normalizeManagedWeb3ForkPreset(chain vexoconfig.Config, runtimeConfig startRuntimeConfig) vexoconfig.Config {
+	if runtimeConfig.RPCEVMManagedAccounts && chain.Execution.EVMForkPreset != "latest" {
+		chain.Execution.EVMForkPreset = "latest"
+	}
+	return chain
 }
 
 func applyNetworkRuntimeDefaults(inputs startInputs, runtimeConfig startRuntimeConfig) startRuntimeConfig {

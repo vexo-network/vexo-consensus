@@ -49,7 +49,7 @@
     "README.md": "eb647ebd93bb1894d9a50d90a9b323086504b9ab5d4eb21c604897becac65834",
     "consensus-protocol.md": "0f64a56309a3bce8110babe8622ede1072c5a9a554760ad1145d8d36cdc00a00",
     "operators/add-validator.md": "e179c0f86fa3f14403c9a1a0eb55354bc8bdb5d71b23778571e4d68c68acae0e",
-    "operators/evm-update-guide.md": "f79da3caed6320de70340cd91e05ad77e028ef5d42223bc2eacd45d45187436e",
+    "operators/evm-update-guide.md": "bb8bacfd3819ea791f3456ea826f439dc0f818d8cdc7cc9a26eb320b26671523",
     "operators/node-initialization.md": "4367b69c2d79e1d4b8df5d312aee3794f5d5762027f430234923e9e3300245b6",
     "operators/observability.md": "753dbe2de9e0975507442a0c95a85cb29b7cba610fb9fe5a61e061ce7ea19816",
     "production-readiness.md": "671b0e5f89568f9560f2226f99bc40900ce5aed1ef7979a3472917b9cd995cb6",
