@@ -32,7 +32,7 @@ type FIFOConfig struct {
 	WALPath            string
 	EnableReplacement  bool
 	ReplacementBumpBPS uint64
-	ReplayCheckTx      func(context.Context, types.Tx) error
+	ReplayCheckTx      func(context.Context, types.Tx) error `json:"-"`
 }
 
 type FIFO struct {
