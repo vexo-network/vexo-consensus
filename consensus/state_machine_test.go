@@ -611,13 +611,8 @@ func TestStateMachineRejectsInvalidVoteFields(t *testing.T) {
 			expected: ErrInvalidVote,
 		},
 		{
-			name:     "future height",
-			vote:     Vote{Height: 2, Round: 1, BlockHash: types.Hash{1}, ValidatorID: "a"},
-			expected: ErrInvalidVote,
-		},
-		{
-			name:     "future round",
-			vote:     Vote{Height: 1, Round: 2, BlockHash: types.Hash{1}, ValidatorID: "a"},
+			name:     "unknown block",
+			vote:     Vote{Height: 1, Round: 1, BlockHash: types.Hash{1}, ValidatorID: "a"},
 			expected: ErrInvalidVote,
 		},
 	}
@@ -629,6 +624,53 @@ func TestStateMachineRejectsInvalidVoteFields(t *testing.T) {
 				t.Fatalf("expected %v, got %v", testCase.expected, err)
 			}
 		})
+	}
+}
+
+func TestStateMachineAcceptsFutureVoteForKnownBlock(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	block := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHash: set.Hash()}}
+	blockHash := HashBlock(block)
+	if err := machine.OnProposal(context.Background(), Proposal{Block: block, Round: 0, Proposer: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := machine.OnVote(context.Background(), Vote{Height: 1, Round: 1, BlockHash: blockHash, ValidatorID: "a"}); err != nil {
+		t.Fatalf("expected future-round vote to be accepted for known block, got %v", err)
+	}
+}
+
+func TestStateMachineAcceptsFutureHeightVoteForKnownBlock(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(1, 0)
+
+	block := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 2, ValidatorSetHash: set.Hash()}}
+	blockHash := HashBlock(block)
+	machine.blockTree.Insert(block, blockHash, finality.QuorumCert{})
+	if err := machine.OnVote(context.Background(), Vote{Height: 2, Round: 0, BlockHash: blockHash, ValidatorID: "a"}); err != nil {
+		t.Fatalf("expected future-height vote to be accepted for known block, got %v", err)
 	}
 }
 

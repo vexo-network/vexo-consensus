@@ -149,6 +149,55 @@ func TestNodePersistsRuntimeStore(t *testing.T) {
 	}
 }
 
+func TestNodeInvalidatesStaleCachedProposalBeforeRebroadcast(t *testing.T) {
+	application := newTestApplication(t)
+	if runtimeApp, ok := application.(*vexoapp.Runtime); ok {
+		runtimeApp.WithAnte(vexoapp.NewAnteKeeper(vexoapp.AnteConfig{RequireNonce: true}))
+	}
+	node, err := New(DefaultConfig("vexo-test", t.TempDir()), validGenesis(), application)
+	if err != nil {
+		t.Fatal(err)
+	}
+	node = node.WithSigner(deterministicSignerForID("alice"))
+	if err := node.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer node.Stop(context.Background())
+
+	machine, err := node.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(1, 0)
+
+	block := types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 1},
+		Txs:    []types.Tx{[]byte("bank:send:signer=alice:nonce=1")},
+	}
+	proposal, err := machine.CreateProposal(block, 0, "alice", finality.QuorumCert{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := node.signConsensusProposal(&proposal); err != nil {
+		t.Fatal(err)
+	}
+	hash := consensus.HashBlock(proposal.Block)
+	node.cacheProposal(proposal, hash)
+	node.markProposed(1, 0)
+
+	runtime, err := node.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := vexoapp.NewAccountKeeper().SetSequence(context.Background(), runtime.Store, types.Address("alice"), 2); err != nil {
+		t.Fatal(err)
+	}
+
+	if valid := node.cachedProposalStillValid(context.Background(), proposal); valid {
+		t.Fatal("expected cached proposal to become stale after nonce advancement")
+	}
+}
+
 func TestNodeConsensusWALPreventsDoubleSignAfterRestart(t *testing.T) {
 	dataDir := t.TempDir()
 	node := newTestNodeWithDataDir(t, dataDir)

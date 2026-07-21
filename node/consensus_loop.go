@@ -1026,6 +1026,12 @@ func (node *Node) removeProposedAtOrBelow(height types.Height) {
 	}
 }
 
+func (node *Node) removeProposed(height types.Height, round types.Round) {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	delete(node.proposed, proposalRound{height: height, round: round})
+}
+
 func (node *Node) cachedTimeoutVote(height types.Height, round types.Round) (consensus.TimeoutVote, bool) {
 	node.mu.Lock()
 	defer node.mu.Unlock()

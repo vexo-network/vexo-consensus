@@ -296,12 +296,6 @@ func (machine *StateMachine) validateVote(vote Vote) error {
 	if node.Block.Header.Height != vote.Height {
 		return fmt.Errorf("%w: target height mismatch", ErrInvalidVote)
 	}
-	if machine.status.Height > 0 && vote.Height > machine.status.Height {
-		return fmt.Errorf("%w: future height", ErrInvalidVote)
-	}
-	if vote.Height == machine.status.Height && vote.Round > machine.status.Round {
-		return fmt.Errorf("%w: future round", ErrInvalidVote)
-	}
 	if !machine.isSafeVoteTarget(node) {
 		return ErrUnsafeVote
 	}

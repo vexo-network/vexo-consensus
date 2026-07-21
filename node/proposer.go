@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sort"
 
+	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
@@ -106,18 +107,23 @@ func (node *Node) tickConsensusWithProposalOptions(ctx context.Context, cfg Cons
 		if !ok {
 			return consensus.Proposal{}, types.Hash{}, false, nil
 		}
-		reactor, err := node.ConsensusReactor()
-		if err != nil {
-			return consensus.Proposal{}, types.Hash{}, false, ErrConsensusOffline
+		if !node.cachedProposalStillValid(ctx, proposal) {
+			node.removePending(consensus.HashBlock(proposal.Block))
+			node.removeProposed(height, status.Round)
+		} else {
+			reactor, err := node.ConsensusReactor()
+			if err != nil {
+				return consensus.Proposal{}, types.Hash{}, false, ErrConsensusOffline
+			}
+			node.broadcastAncestorProposals(reactor, proposal.Block.Header.Height)
+			node.broadcastConsensusAsync("proposal_broadcast_failed", map[string]any{
+				"height": proposal.Block.Header.Height,
+				"round":  proposal.Round,
+			}, func(ctx context.Context) error {
+				return reactor.BroadcastProposal(ctx, proposal)
+			})
+			return consensus.Proposal{}, types.Hash{}, false, nil
 		}
-		node.broadcastAncestorProposals(reactor, proposal.Block.Header.Height)
-		node.broadcastConsensusAsync("proposal_broadcast_failed", map[string]any{
-			"height": proposal.Block.Header.Height,
-			"round":  proposal.Round,
-		}, func(ctx context.Context) error {
-			return reactor.BroadcastProposal(ctx, proposal)
-		})
-		return consensus.Proposal{}, types.Hash{}, false, nil
 	}
 	proposal, blockHash, err := node.ProposeFromMempoolWithOptions(ctx, cfg.MaxBlockBytes, options)
 	if errors.Is(err, ErrEmptyProposal) {
@@ -199,4 +205,16 @@ func (node *Node) nextLocalProposerRound(ctx context.Context, height types.Heigh
 		}
 	}
 	return 0, false, nil
+}
+
+func (node *Node) cachedProposalStillValid(ctx context.Context, proposal consensus.Proposal) bool {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return false
+	}
+	appRuntime, ok := runtime.App.(*app.Runtime)
+	if !ok || appRuntime == nil {
+		return false
+	}
+	return appRuntime.ProcessProposalContext(ctx, app.ProcessProposalRequest{Block: proposal.Block}).Accepted
 }
