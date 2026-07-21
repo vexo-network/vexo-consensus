@@ -178,15 +178,15 @@ func (pool *FIFO) BuildBatch(ctx context.Context, maxBytes int64) (Batch, error)
 	if maxBytes <= 0 {
 		return Batch{}, ErrInvalidMaxBytes
 	}
+	liveTxs := pool.liveTxsLocked(ctx)
 
 	var totalBytes int64
 	batch := Batch{
 		Author: pool.config.Author,
-		Txs:    make([]types.Tx, 0, len(pool.txs)),
+		Txs:    make([]types.Tx, 0, len(liveTxs)),
 	}
 
-	txs := pool.orderedTxsLocked()
-	for _, tx := range txs {
+	for _, tx := range liveTxs {
 		txSize := int64(len(tx))
 		if len(batch.Txs) > 0 && totalBytes+txSize > maxBytes {
 			break
@@ -210,8 +210,7 @@ func (pool *FIFO) PendingTxs(ctx context.Context) ([]types.Tx, error) {
 		return nil, ctx.Err()
 	default:
 	}
-
-	return pool.orderedTxsLocked(), nil
+	return pool.liveTxsLocked(ctx), nil
 }
 
 func (pool *FIFO) MarkCommitted(ctx context.Context, committed []types.Tx) error {
@@ -306,6 +305,44 @@ func (pool *FIFO) orderedTxsLocked() []types.Tx {
 		return bytes.Compare(leftHash[:], rightHash[:]) < 0
 	})
 	return ordered
+}
+
+func (pool *FIFO) liveTxsLocked(ctx context.Context) []types.Tx {
+	live := make([]types.Tx, 0, len(pool.txs))
+	removed := false
+	for _, tx := range pool.txs {
+		if pool.config.ReplayCheckTx != nil {
+			if err := pool.config.ReplayCheckTx(ctx, append(types.Tx(nil), tx...)); err != nil {
+				removed = true
+				pool.markSeen(HashTx(tx))
+				continue
+			}
+		}
+		live = append(live, append(types.Tx(nil), tx...))
+	}
+	if removed {
+		pool.txs = live
+		pool.rebuildIndex()
+	}
+	if !pool.config.EnablePriority {
+		return live
+	}
+	sort.SliceStable(live, func(left, right int) bool {
+		leftPriority := TxPriority(live[left])
+		rightPriority := TxPriority(live[right])
+		if leftPriority != rightPriority {
+			return leftPriority > rightPriority
+		}
+		leftFee := TxFee(live[left])
+		rightFee := TxFee(live[right])
+		if leftFee != rightFee {
+			return leftFee > rightFee
+		}
+		leftHash := HashTx(live[left])
+		rightHash := HashTx(live[right])
+		return bytes.Compare(leftHash[:], rightHash[:]) < 0
+	})
+	return live
 }
 
 func (pool *FIFO) seenRecently(hash types.Hash) bool {

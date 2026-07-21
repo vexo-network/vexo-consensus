@@ -216,6 +216,33 @@ func TestFIFORejectsRecentlySeenCommittedTx(t *testing.T) {
 	}
 }
 
+func TestFIFOPendingTxsPrunesReplayRejectedTxs(t *testing.T) {
+	pool := NewFIFO(FIFOConfig{
+		ReplayCheckTx: func(ctx context.Context, tx types.Tx) error {
+			if string(tx) == "bank:send:signer=alice:nonce=0" {
+				return ErrDuplicateTx
+			}
+			return nil
+		},
+	})
+	if err := pool.AddTx(context.Background(), []byte("bank:send:signer=alice:nonce=0")); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.AddTx(context.Background(), []byte("bank:send:signer=alice:nonce=1")); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := pool.PendingTxs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || string(pending[0]) != "bank:send:signer=alice:nonce=1" {
+		t.Fatalf("expected replay rejected tx to be pruned, got %q", pending)
+	}
+	if pool.Len() != 1 {
+		t.Fatalf("expected pool to retain only live txs, got len %d", pool.Len())
+	}
+}
+
 func TestFIFOPrunesExpiredSeenCache(t *testing.T) {
 	pool := NewFIFO(FIFOConfig{SeenTTL: time.Minute})
 	now := time.Unix(100, 0)
