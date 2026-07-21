@@ -531,7 +531,7 @@ func waitForP2PPeerReadiness(ctx context.Context, node *vexonode.Node, runtimeCo
 	defer ticker.Stop()
 	for {
 		status := node.Status(waitCtx)
-		if status.ActivePeerCount >= expectedPeers {
+		if bestPeerCount(status.ActivePeerCount, status.PeerCount, status.ConfiguredPeerCount, status.ScoredPeerCount) >= expectedPeers {
 			if logEvent != nil {
 				logEvent("p2p_peer_readiness_ready", map[string]any{
 					"active_peers":     status.ActivePeerCount,
@@ -1203,6 +1203,9 @@ func nodeHasPublicExposure(cfg startRuntimeConfig) bool {
 }
 
 func loadP2PHandshakeSigner(runtimeConfig startRuntimeConfig, fallback vexocrypto.Signer) (vexocrypto.Signer, error) {
+	if !requiresAuthenticatedP2P(runtimeConfig) {
+		return nil, nil
+	}
 	if runtimeConfig.P2PNodeKeyPath == "" {
 		return fallback, nil
 	}

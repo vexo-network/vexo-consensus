@@ -2420,6 +2420,34 @@ func TestNetworkNonceTrackerUsesPerAccountSequences(t *testing.T) {
 	}
 }
 
+func TestEffectiveNetworkActivePeerCountUsesBestAvailableSignal(t *testing.T) {
+	status := networkStatusResponse{
+		ActivePeerCount:     0,
+		PeerCount:           3,
+		ConfiguredPeerCount: 4,
+		ScoredPeerCount:     2,
+	}
+	if actual := effectiveNetworkActivePeerCount(status); actual != 4 {
+		t.Fatalf("expected best available peer count 4, got %d", actual)
+	}
+}
+
+func TestLoadP2PHandshakeSignerSkipsPrivateLoopbackNetworks(t *testing.T) {
+	signer, err := loadP2PHandshakeSigner(startRuntimeConfig{
+		P2PEnabled:       true,
+		P2PListenAddress: "127.0.0.1:26656",
+		P2PPeers: map[p2p.PeerID]string{
+			"validator-2": "127.0.0.1:26666",
+		},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if signer != nil {
+		t.Fatalf("expected private loopback network to skip handshake signer, got %T", signer)
+	}
+}
+
 func TestRunNetworkLoadPlanUsesPerAccountSequences(t *testing.T) {
 	home := t.TempDir()
 	if _, err := writeNetworkFilesWithPorts(home, "vexo-test", 2, true, defaultP2PBasePort, defaultRPCBasePort); err != nil {

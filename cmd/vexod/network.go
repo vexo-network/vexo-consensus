@@ -1668,10 +1668,18 @@ func waitNetworkPeerCount(ctx context.Context, client http.Client, address strin
 }
 
 func effectiveNetworkActivePeerCount(status networkStatusResponse) int {
-	if status.ActivePeerCount > 0 || status.ConfiguredPeerCount > 0 || status.ScoredPeerCount > 0 {
-		return status.ActivePeerCount
+	return bestPeerCount(status.ActivePeerCount, status.PeerCount, status.ConfiguredPeerCount, status.ScoredPeerCount)
+}
+
+func bestPeerCount(active int, peer int, configured int, scored int) int {
+	candidates := []int{active, peer, configured, scored}
+	best := 0
+	for _, candidate := range candidates {
+		if candidate > best {
+			best = candidate
+		}
 	}
-	return status.PeerCount
+	return best
 }
 
 func waitNetworkHeights(ctx context.Context, client http.Client, nodes []networkNodeRuntimePlan, targetHeight uint64) ([]networkSmokeResult, error) {
