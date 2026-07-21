@@ -1301,14 +1301,14 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	var pendingTxByHash JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":99,"method":"eth_getTransactionByHash","params":["0x9999999999999999999999999999999999999999999999999999999999999999"]}`, http.StatusOK, &pendingTxByHash)
 	pendingTxByHashResult, ok := pendingTxByHash.Result.(map[string]any)
-	if pendingTxByHash.Error != nil || !ok || pendingTxByHashResult["hash"] != "0x9999999999999999999999999999999999999999999999999999999999999999" || pendingTxByHashResult["blockHash"] != nil {
+	if pendingTxByHash.Error != nil || !ok || pendingTxByHashResult["hash"] != "0x9999999999999999999999999999999999999999999999999999999999999999" || pendingTxByHashResult["blockHash"] != nil || pendingTxByHashResult["r"] == nil || pendingTxByHashResult["s"] == nil || pendingTxByHashResult["v"] == nil {
 		t.Fatalf("unexpected pending tx by hash: %+v", pendingTxByHash)
 	}
 	provider.pendingTxs = nil
 	var scannedTxByHash JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":103,"method":"eth_getTransactionByHash","params":["`+blockTxHashText+`"]}`, http.StatusOK, &scannedTxByHash)
 	scannedTxByHashResult, ok := scannedTxByHash.Result.(map[string]any)
-	if scannedTxByHash.Error != nil || !ok || scannedTxByHashResult["hash"] != blockTxHashText || scannedTxByHashResult["blockNumber"] != "0xc" {
+	if scannedTxByHash.Error != nil || !ok || scannedTxByHashResult["hash"] != blockTxHashText || scannedTxByHashResult["blockNumber"] != "0xc" || scannedTxByHashResult["r"] == nil || scannedTxByHashResult["s"] == nil || scannedTxByHashResult["v"] == nil {
 		t.Fatalf("unexpected scanned tx by hash: %+v", scannedTxByHash)
 	}
 	provider.pendingTxs = []types.Tx{pendingTx}
@@ -1418,7 +1418,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("unexpected transaction error: %+v", txByHash)
 	}
 	txResult, ok := txByHash.Result.(map[string]any)
-	if !ok || txResult["hash"] != blockTxHashText || txResult["blockNumber"] != "0xc" || txResult["gasPrice"] != "0x2" {
+	if !ok || txResult["hash"] != blockTxHashText || txResult["blockNumber"] != "0xc" || txResult["gasPrice"] != "0x2" || txResult["r"] == nil || txResult["s"] == nil || txResult["v"] == nil {
 		t.Fatalf("unexpected transaction response: %+v", txByHash.Result)
 	}
 

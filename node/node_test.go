@@ -310,6 +310,79 @@ func TestNodeConsensusWALPreventsDoubleSignAfterRestart(t *testing.T) {
 	}
 }
 
+func TestNodeSkipsDoubleSignForSecondProposalInSameRound(t *testing.T) {
+	node := newTestNode(t)
+	node.cfg.ValidatorID = "alice"
+	node = node.WithSigner(deterministicSignerForID("alice"))
+	if err := node.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer node.Stop(context.Background())
+
+	machine, err := node.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(1, 0)
+
+	firstProposal, err := machine.CreateProposal(types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 1},
+		Txs:    []types.Tx{[]byte("bank:first")},
+	}, 0, "alice", finality.QuorumCert{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := node.signConsensusProposal(&firstProposal); err != nil {
+		t.Fatal(err)
+	}
+
+	secondProposal, err := machine.CreateProposal(types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 1},
+		Txs:    []types.Tx{[]byte("bank:second")},
+	}, 0, "alice", finality.QuorumCert{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := node.signConsensusProposal(&secondProposal); err != nil {
+		t.Fatal(err)
+	}
+
+	reactor := &autoVoteReactor{
+		machine:     machine,
+		chainID:     node.cfg.Chain.ChainID,
+		validatorID: node.cfg.ValidatorID,
+		signer:      node.signer,
+		wal:         node.consensusWAL,
+	}
+	if err := reactor.OnProposal(context.Background(), firstProposal); err != nil {
+		t.Fatal(err)
+	}
+	if cached, ok := reactor.cachedLocalVote(1, 0); !ok || cached.BlockHash != consensus.HashBlock(firstProposal.Block) {
+		t.Fatalf("expected cached local vote for round, got ok=%t vote=%+v", ok, cached)
+	}
+	if err := reactor.OnProposal(context.Background(), secondProposal); err != nil && !errors.Is(err, consensus.ErrUnsafeProposal) && !errors.Is(err, consensus.ErrStaleProposal) {
+		t.Fatal(err)
+	}
+
+	wal := node.consensusWAL
+	if wal == nil {
+		t.Fatal("expected consensus WAL")
+	}
+	events, err := wal.Replay()
+	if err != nil {
+		t.Fatal(err)
+	}
+	voteEvents := 0
+	for _, event := range events {
+		if event.Type == consensus.WALEventVote {
+			voteEvents++
+		}
+	}
+	if voteEvents != 1 {
+		t.Fatalf("expected one recorded vote, got %d events=%+v", voteEvents, events)
+	}
+}
+
 func TestNodeQueriesBlocks(t *testing.T) {
 	node := newTestNode(t)
 	if err := node.Start(context.Background()); err != nil {

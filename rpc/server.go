@@ -3579,6 +3579,9 @@ func web3PendingTransaction(tx types.Tx) any {
 		"input":            details.Input,
 		"type":             hexQuantity(details.Type),
 		"chainId":          hexQuantity(details.ChainID),
+		"r":                details.R,
+		"s":                details.S,
+		"v":                details.V,
 	}
 	if details.MaxFeePerGas > 0 || details.MaxFeePerGasHex != "" {
 		transaction["maxFeePerGas"] = web3TxMaxFeePerGasHex(details)
@@ -5172,6 +5175,9 @@ func web3TransactionFromReceipt(ctx context.Context, provider StatusProvider, va
 		"input":            details.Input,
 		"type":             hexQuantity(details.Type),
 		"chainId":          hexQuantity(details.ChainID),
+		"r":                details.R,
+		"s":                details.S,
+		"v":                details.V,
 	}, nil
 }
 
@@ -5231,6 +5237,9 @@ func web3TransactionFromBlockRecord(record store.BlockRecord, index int, hashTex
 		"input":            details.Input,
 		"type":             hexQuantity(details.Type),
 		"chainId":          hexQuantity(details.ChainID),
+		"r":                details.R,
+		"s":                details.S,
+		"v":                details.V,
 	}
 	if details.MaxFeePerGas > 0 || details.MaxFeePerGasHex != "" {
 		transaction["maxFeePerGas"] = web3TxMaxFeePerGasHex(details)
@@ -5308,6 +5317,9 @@ type web3TxDetails struct {
 	ValueHex                string
 	Type                    uint64
 	ChainID                 uint64
+	R                       string `json:"r"`
+	S                       string `json:"s"`
+	V                       string `json:"v"`
 }
 
 func web3TransactionDetails(tx types.Tx) web3TxDetails {
@@ -5325,6 +5337,7 @@ func web3TransactionDetails(tx types.Tx) web3TxDetails {
 	if meta.Signer != "" {
 		details.From = string(meta.Signer)
 	}
+	details.R, details.S, details.V = web3TransactionSignature(tx)
 	if chainID, found := vexoapp.TxUintTag(tx, ethcompat.TagChainID); found {
 		details.ChainID = chainID
 	}
@@ -5381,6 +5394,23 @@ func setWeb3TxValue(details *web3TxDetails, decimal string) {
 	if value.IsUint64() {
 		details.Value = value.Uint64()
 	}
+}
+
+func web3TransactionSignature(tx types.Tx) (string, string, string) {
+	rawHex, found := vexoapp.TxTag(tx, ethcompat.TagRaw)
+	if !found || rawHex == "" {
+		return "0x0", "0x0", "0x0"
+	}
+	raw, err := hex.DecodeString(strings.TrimPrefix(rawHex, "0x"))
+	if err != nil || len(raw) == 0 {
+		return "0x0", "0x0", "0x0"
+	}
+	var ethTx gethtypes.Transaction
+	if err := ethTx.UnmarshalBinary(raw); err != nil {
+		return "0x0", "0x0", "0x0"
+	}
+	v, r, s := ethTx.RawSignatureValues()
+	return hexQuantityBig(r), hexQuantityBig(s), hexQuantityBig(v)
 }
 
 func setWeb3TxQuantity(compat *uint64, hexValue *string, value *big.Int) {

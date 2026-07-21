@@ -47,9 +47,8 @@ type autoVoteReactor struct {
 }
 
 type voteRound struct {
-	height    types.Height
-	round     types.Round
-	blockHash types.Hash
+	height types.Height
+	round  types.Round
 }
 
 type unknownVoteKey struct {
@@ -89,7 +88,7 @@ func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consens
 	if reactor.onProposalAccepted != nil {
 		reactor.onProposalAccepted(proposal, blockHash)
 	}
-	vote, cached := reactor.cachedLocalVote(proposal.Block.Header.Height, proposal.Round, blockHash)
+	vote, cached := reactor.cachedLocalVote(proposal.Block.Header.Height, proposal.Round)
 	if !cached {
 		vote = consensus.Vote{
 			Height:      proposal.Block.Header.Height,
@@ -111,6 +110,8 @@ func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consens
 			}
 		}
 		reactor.cacheLocalVote(vote)
+	} else if vote.BlockHash != blockHash {
+		return nil
 	}
 	if err := reactor.machine.OnVote(ctx, vote); err != nil {
 		reactor.reportError("local_vote_rejected", err)
@@ -127,10 +128,10 @@ func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consens
 	return nil
 }
 
-func (reactor *autoVoteReactor) cachedLocalVote(height types.Height, round types.Round, blockHash types.Hash) (consensus.Vote, bool) {
+func (reactor *autoVoteReactor) cachedLocalVote(height types.Height, round types.Round) (consensus.Vote, bool) {
 	reactor.mu.Lock()
 	defer reactor.mu.Unlock()
-	vote, ok := reactor.localVotes[voteRound{height: height, round: round, blockHash: blockHash}]
+	vote, ok := reactor.localVotes[voteRound{height: height, round: round}]
 	return vote, ok
 }
 
@@ -140,7 +141,7 @@ func (reactor *autoVoteReactor) cacheLocalVote(vote consensus.Vote) {
 	if reactor.localVotes == nil {
 		reactor.localVotes = make(map[voteRound]consensus.Vote)
 	}
-	reactor.localVotes[voteRound{height: vote.Height, round: vote.Round, blockHash: vote.BlockHash}] = vote
+	reactor.localVotes[voteRound{height: vote.Height, round: vote.Round}] = vote
 }
 
 func (reactor *autoVoteReactor) OnVote(ctx context.Context, vote consensus.Vote) error {
