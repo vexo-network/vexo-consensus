@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,6 +32,7 @@ type autoVoteReactor struct {
 	signer             vexocrypto.Signer
 	broadcastVote      func(context.Context, consensus.Vote) error
 	onProposalAccepted func(consensus.Proposal, types.Hash)
+	onProposalRejected func(consensus.Proposal, error)
 	onVoteAccepted     func(context.Context)
 	onEvidence         func(context.Context, slashing.Evidence)
 	onError            func(string, error)
@@ -78,6 +80,9 @@ func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consens
 			return nil
 		}
 		reactor.reportError("proposal_rejected", err)
+		if reactor.onProposalRejected != nil {
+			reactor.onProposalRejected(proposal, err)
+		}
 		return err
 	}
 	blockHash := consensus.HashBlock(proposal.Block)
@@ -716,6 +721,9 @@ func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert
 
 	response, err := runtime.ExecuteCertifiedBlock(ctx, block, quorumCert)
 	if err != nil {
+		if strings.Contains(err.Error(), "invalid transaction nonce") {
+			node.removeNonceInvalidProposalTxs(block, quorumCert.Round)
+		}
 		return app.FinalizeBlockResponse{}, err
 	}
 	var commitProof finality.Proof

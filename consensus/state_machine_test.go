@@ -321,6 +321,42 @@ func TestStateMachineRejectsUnsafeForkBelowLockedQC(t *testing.T) {
 	}
 }
 
+func TestStateMachineIsSafeProposalRejectsForkBelowLockedQC(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+		{ID: "c", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	machine.lockedQC = finality.QuorumCert{Height: 2, Round: 1, BlockHash: types.Hash{7}}
+
+	fork := Proposal{
+		Block: types.Block{Header: types.Header{
+			ChainID:           "vexo-test",
+			Height:            2,
+			PreviousBlockHash: types.Hash{9},
+			ValidatorSetHash:  set.Hash(),
+		}},
+		Proposer: "a",
+		JustifyQC: finality.QuorumCert{
+			Height:    1,
+			Round:     0,
+			BlockHash: types.Hash{9},
+		},
+	}
+	if safe := machine.IsSafeProposal(fork); safe {
+		t.Fatal("expected fork below locked qc to be unsafe")
+	}
+}
+
 func TestStateMachineRejectsUnsafeVoteBelowLockedQC(t *testing.T) {
 	set := newTestValidatorSet([]validator.Validator{
 		{ID: "a", VotingPower: 1},

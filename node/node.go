@@ -221,6 +221,7 @@ func (node *Node) Start(ctx context.Context) error {
 				validatorID:        node.cfg.ValidatorID,
 				signer:             node.signer,
 				onProposalAccepted: node.cacheProposal,
+				onProposalRejected: node.handleRejectedProposal,
 				onVoteAccepted:     node.wakeConsensus,
 				onEvidence:         node.handleLocalEvidence,
 				onError: func(event string, err error) {

@@ -198,6 +198,73 @@ func TestNodeInvalidatesStaleCachedProposalBeforeRebroadcast(t *testing.T) {
 	}
 }
 
+func TestNodeRemovesNonceInvalidProposalTxs(t *testing.T) {
+	application := newTestApplication(t)
+	if runtimeApp, ok := application.(*vexoapp.Runtime); ok {
+		runtimeApp.WithAnte(vexoapp.NewAnteKeeper(vexoapp.AnteConfig{RequireNonce: true}))
+	}
+	node, err := New(DefaultConfig("vexo-test", t.TempDir()), validGenesis(), application)
+	if err != nil {
+		t.Fatal(err)
+	}
+	node = node.WithSigner(deterministicSignerForID("alice"))
+	if err := node.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer node.Stop(context.Background())
+
+	runtime, err := node.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx := types.Tx("bank:send:signer=alice:nonce=1")
+	if err := runtime.Mempool.AddTx(context.Background(), tx); err != nil {
+		t.Fatal(err)
+	}
+	node.removeNonceInvalidProposalTxs(types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 1},
+		Txs:    []types.Tx{tx},
+	}, 0)
+
+	pending, err := runtime.Mempool.PendingTxs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("expected nonce-invalid txs to be removed, got %q", pending)
+	}
+}
+
+func TestNodeClearsRejectedProposalCacheOnUnsafeProposal(t *testing.T) {
+	node := newTestNode(t)
+	if err := node.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer node.Stop(context.Background())
+
+	proposal := consensus.Proposal{
+		Block: types.Block{
+			Header: types.Header{
+				ChainID: "vexo-test",
+				Height:  1,
+			},
+		},
+		Round: 0,
+	}
+	hash := consensus.HashBlock(proposal.Block)
+	node.cacheProposal(proposal, hash)
+	node.markProposed(1, 0)
+
+	node.handleRejectedProposal(proposal, consensus.ErrUnsafeProposal)
+
+	if _, _, ok := node.cachedProposalForRound(1, 0); ok {
+		t.Fatal("expected rejected proposal to be removed from cache")
+	}
+	if node.hasProposed(1, 0) {
+		t.Fatal("expected rejected proposal to be removed from proposed set")
+	}
+}
+
 func TestNodeConsensusWALPreventsDoubleSignAfterRestart(t *testing.T) {
 	dataDir := t.TempDir()
 	node := newTestNodeWithDataDir(t, dataDir)

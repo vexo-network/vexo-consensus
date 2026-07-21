@@ -591,6 +591,12 @@ func (machine *StateMachine) isSafeProposal(proposal Proposal) bool {
 	return parentHash == machine.lockedQC.BlockHash || machine.blockTree.Extends(parentHash, machine.lockedQC.BlockHash)
 }
 
+func (machine *StateMachine) IsSafeProposal(proposal Proposal) bool {
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
+	return machine.isSafeProposal(proposal)
+}
+
 func (machine *StateMachine) isSafeVoteTarget(node BlockNode) bool {
 	if machine.lockedQC.Height == 0 {
 		return true

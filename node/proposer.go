@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/consensus"
+	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
@@ -212,9 +214,45 @@ func (node *Node) cachedProposalStillValid(ctx context.Context, proposal consens
 	if err != nil {
 		return false
 	}
-	appRuntime, ok := runtime.App.(*app.Runtime)
-	if !ok || appRuntime == nil {
+	machine, err := node.Consensus()
+	if err != nil {
 		return false
 	}
+	if !machine.IsSafeProposal(proposal) {
+		return false
+	}
+	appRuntime, ok := runtime.App.(*app.Runtime)
+	if !ok || appRuntime == nil {
+		return true
+	}
 	return appRuntime.ProcessProposalContext(ctx, app.ProcessProposalRequest{Block: proposal.Block}).Accepted
+}
+
+func (node *Node) handleRejectedProposal(proposal consensus.Proposal, err error) {
+	if err == nil {
+		return
+	}
+	node.removePending(consensus.HashBlock(proposal.Block))
+	node.removeProposed(proposal.Block.Header.Height, proposal.Round)
+	if !strings.Contains(err.Error(), "invalid transaction nonce") {
+		return
+	}
+	node.removeNonceInvalidProposalTxs(proposal.Block, proposal.Round)
+}
+
+func (node *Node) removeNonceInvalidProposalTxs(block types.Block, round types.Round) {
+	runtime, runtimeErr := node.Runtime()
+	if runtimeErr != nil || runtime == nil || runtime.Mempool == nil {
+		return
+	}
+	rejected := make(map[types.Hash]struct{}, len(block.Txs))
+	for _, tx := range block.Txs {
+		rejected[mempool.HashTx(tx)] = struct{}{}
+	}
+	_, _ = runtime.Mempool.RetainTxs(context.Background(), func(tx types.Tx) bool {
+		_, found := rejected[mempool.HashTx(tx)]
+		return !found
+	})
+	node.removePending(consensus.HashBlock(block))
+	node.removeProposed(block.Header.Height, round)
 }
