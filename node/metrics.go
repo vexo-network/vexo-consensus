@@ -9,58 +9,75 @@ import (
 )
 
 type Metrics struct {
-	ChainID                 string
-	Running                 bool
-	StartedAtUnix           int64
-	UptimeSeconds           uint64
-	DataDir                 string
-	LatestHeight            types.Height
-	LatestAppHash           types.Hash
-	EarliestBlockHeight     types.Height
-	LatestBlockHeight       types.Height
-	TotalBlocks             uint64
-	ValidatorCount          int
-	TotalVotingPower        uint64
-	ValidatorSetHash        types.Hash
-	PeerCount               int
-	ActivePeerCount         int
-	ConfiguredPeerCount     int
-	ScoredPeerCount         int
-	BannedPeers             int
-	PeerWindowMessages      uint64
-	ConsensusLoopRunning    bool
-	HeightRatePerMinute     float64
-	RoundTimeouts           uint64
-	ProposalLatencyNanos    uint64
-	ProposalLatencyP95Nanos uint64
-	ProposalLatencyP99Nanos uint64
-	VoteLatencyNanos        uint64
-	VoteLatencyP95Nanos     uint64
-	VoteLatencyP99Nanos     uint64
-	MempoolSize             uint64
-	CommitLatencyNanos      uint64
-	CommitLatencyP95Nanos   uint64
-	CommitLatencyP99Nanos   uint64
-	SnapshotHealthy         bool
-	ReplayHealthy           bool
-	SigningFailures         uint64
-	ReconciliationFailures  uint64
+	ChainID                     string
+	Running                     bool
+	StartedAtUnix               int64
+	UptimeSeconds               uint64
+	DataDir                     string
+	AdaptiveRoundTimeoutEnabled bool
+	RecoveryFinalityGateEnabled bool
+	LatestHeight                types.Height
+	LatestAppHash               types.Hash
+	EarliestBlockHeight         types.Height
+	LatestBlockHeight           types.Height
+	TotalBlocks                 uint64
+	ValidatorCount              int
+	TotalVotingPower            uint64
+	ValidatorSetHash            types.Hash
+	PeerCount                   int
+	ActivePeerCount             int
+	ConfiguredPeerCount         int
+	ScoredPeerCount             int
+	BannedPeers                 int
+	QuorumHealthRatio           float64
+	PeerWindowMessages          uint64
+	ConsensusLoopRunning        bool
+	HeightRatePerMinute         float64
+	RoundTimeouts               uint64
+	AdaptiveRoundTimeoutNanos   uint64
+	RecoveryFinalityDeferrals   uint64
+	ProposalLatencyNanos        uint64
+	ProposalLatencyP95Nanos     uint64
+	ProposalLatencyP99Nanos     uint64
+	VoteLatencyNanos            uint64
+	VoteLatencyP95Nanos         uint64
+	VoteLatencyP99Nanos         uint64
+	MempoolSize                 uint64
+	CommitLatencyNanos          uint64
+	CommitLatencyP95Nanos       uint64
+	CommitLatencyP99Nanos       uint64
+	SnapshotHealthy             bool
+	ReplayHealthy               bool
+	SigningFailures             uint64
+	ReconciliationFailures      uint64
 }
 
 func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
 	status := node.Status(ctx)
+	node.mu.Lock()
+	loopConfig := node.loopConfig
+	consensusLoopRunning := node.loopCancel != nil
+	node.mu.Unlock()
+	if loopConfig == (ConsensusLoopConfig{}) {
+		loopConfig = DefaultConsensusLoopConfig()
+	}
 	metrics := Metrics{
-		ChainID:             status.ChainID,
-		Running:             status.Running,
-		DataDir:             status.DataDir,
-		LatestHeight:        status.LatestHeight,
-		LatestAppHash:       status.LatestAppHash,
-		PeerCount:           status.PeerCount,
-		ActivePeerCount:     status.ActivePeerCount,
-		ConfiguredPeerCount: status.ConfiguredPeerCount,
-		ScoredPeerCount:     status.ScoredPeerCount,
-		BannedPeers:         status.BannedPeers,
-		PeerWindowMessages:  peerWindowMessages(status.Peers),
+		ChainID:                     status.ChainID,
+		Running:                     status.Running,
+		DataDir:                     status.DataDir,
+		AdaptiveRoundTimeoutEnabled: loopConfig.AdaptiveRoundTimeoutEnabled,
+		RecoveryFinalityGateEnabled: loopConfig.RecoveryFinalityGateEnabled,
+		LatestHeight:                status.LatestHeight,
+		LatestAppHash:               status.LatestAppHash,
+		PeerCount:                   status.PeerCount,
+		ActivePeerCount:             status.ActivePeerCount,
+		ConfiguredPeerCount:         status.ConfiguredPeerCount,
+		ScoredPeerCount:             status.ScoredPeerCount,
+		BannedPeers:                 status.BannedPeers,
+		PeerWindowMessages:          peerWindowMessages(status.Peers),
+	}
+	if status.ConfiguredPeerCount > 0 {
+		metrics.QuorumHealthRatio = float64(status.ActivePeerCount) / float64(status.ConfiguredPeerCount)
 	}
 	if !status.StartedAt.IsZero() {
 		metrics.StartedAtUnix = status.StartedAt.Unix()
@@ -68,6 +85,8 @@ func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
 	}
 	snapshot := node.metrics.snapshot()
 	metrics.RoundTimeouts = snapshot.roundTimeouts
+	metrics.AdaptiveRoundTimeoutNanos = snapshot.adaptiveTimeoutNanos
+	metrics.RecoveryFinalityDeferrals = snapshot.recoveryDeferrals
 	metrics.ProposalLatencyNanos = snapshot.proposalLatencyNanos
 	metrics.ProposalLatencyP95Nanos = snapshot.proposalP95Nanos
 	metrics.ProposalLatencyP99Nanos = snapshot.proposalP99Nanos
@@ -85,9 +104,9 @@ func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
 		metrics.HeightRatePerMinute = float64(status.LatestHeight) / (float64(metrics.UptimeSeconds) / 60)
 	}
 
-	node.mu.Lock()
-	metrics.ConsensusLoopRunning = node.loopCancel != nil
-	node.mu.Unlock()
+	metrics.AdaptiveRoundTimeoutEnabled = loopConfig.AdaptiveRoundTimeoutEnabled
+	metrics.RecoveryFinalityGateEnabled = loopConfig.RecoveryFinalityGateEnabled
+	metrics.ConsensusLoopRunning = consensusLoopRunning
 
 	if !status.Running {
 		return metrics, nil

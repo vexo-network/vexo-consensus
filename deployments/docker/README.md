@@ -53,7 +53,9 @@ This is the easiest way to see four validators connect, gossip, and commit block
 Initialize the network files:
 
 ```bash
-docker compose -f deployments/docker/compose.single-host.init.yml run --rm init
+export VEXO_KEY_PASSPHRASE='change-me'
+
+docker compose -f deployments/docker/compose.single-host.init.yml run --build --rm init
 ```
 
 Build and initialize with the no-cgo image:
@@ -62,7 +64,7 @@ Build and initialize with the no-cgo image:
 docker compose \
   -f deployments/docker/compose.single-host.init.yml \
   -f deployments/docker/compose.single-host.init.build.nocgo.yml \
-  run --rm init
+  run --build --rm init
 ```
 
 Build and initialize with the cgo image:
@@ -71,7 +73,7 @@ Build and initialize with the cgo image:
 docker compose \
   -f deployments/docker/compose.single-host.init.yml \
   -f deployments/docker/compose.single-host.init.build.cgo.yml \
-  run --rm init
+  run --build --rm init
 ```
 
 Run the validators:
@@ -105,10 +107,10 @@ Single-host listen and peer hosts are defined in `topology.single-host.json`; ed
 Query validator RPC endpoints from the host:
 
 ```bash
-curl http://127.0.0.1:28657/v1/status
-curl http://127.0.0.1:28667/v1/status
-curl http://127.0.0.1:28677/v1/status
-curl http://127.0.0.1:28687/v1/status
+curl -s http://127.0.0.1:28657/v1/status
+curl -s http://127.0.0.1:28667/v1/status
+curl -s http://127.0.0.1:28677/v1/status
+curl -s http://127.0.0.1:28687/v1/status
 ```
 
 Check Web3/Remix JSON-RPC on validator 1:
@@ -124,6 +126,8 @@ For Remix, use:
 ```text
 http://127.0.0.1:28657/web3
 ```
+
+The single-host init flow now also seeds a local Web3 managed account for each validator, so Remix contract deployment can use `eth_sendTransaction` without extra wallet setup. That account is intended for local development only.
 
 Do not use `http://127.0.0.1:26657/web3` from the host for the single-host compose network. `26657` is the container-internal RPC port; `28657` is the host port for validator 1.
 
@@ -144,14 +148,16 @@ docker volume rm vexo-single-data
 Generate all validator homes once on a trusted machine:
 
 ```bash
-docker compose -f deployments/docker/compose.multi-host.init.yml run --rm init
+export VEXO_KEY_PASSPHRASE='change-me'
+
+docker compose -f deployments/docker/compose.multi-host.init.yml run --build --rm init
 ```
 
 Before running init, edit `deployments/docker/topology.multi-host.json` so `p2p_host_template` and `rpc_host_template` match dialable hostnames for the machines that will run the validators. `p2p_advertise_host_template` and `rpc_advertise_host_template` should be stable public DNS names or public IP addresses if external peers need to discover the validators. To use a different topology file:
 
 ```bash
 VEXO_TOPOLOGY_CONFIG="$PWD/my-topology.json" \
-docker compose -f deployments/docker/compose.multi-host.init.yml run --rm init
+docker compose -f deployments/docker/compose.multi-host.init.yml run --build --rm init
 ```
 
 Distribute each directory to its host:

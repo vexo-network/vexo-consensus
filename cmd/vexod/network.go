@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
@@ -46,6 +47,26 @@ type networkNodeRuntimePlan struct {
 	LogPath     string
 	Args        []string
 	command     *exec.Cmd
+}
+
+type networkNonceTracker struct {
+	mu            sync.Mutex
+	nextByAccount map[string]uint64
+}
+
+func newNetworkNonceTracker() *networkNonceTracker {
+	return &networkNonceTracker{nextByAccount: make(map[string]uint64)}
+}
+
+func (tracker *networkNonceTracker) Next(account string) uint64 {
+	tracker.mu.Lock()
+	defer tracker.mu.Unlock()
+	next := tracker.nextByAccount[account]
+	if next == 0 {
+		next = 1
+	}
+	tracker.nextByAccount[account] = next + 1
+	return next
 }
 
 func runNetwork(writer io.Writer, args []string) error {
@@ -568,7 +589,7 @@ func runNetworkUp(ctx context.Context, writer io.Writer, args []string) error {
 		RPCPortStep:     10,
 		P2PHostTemplate: "127.0.0.1",
 		RPCHostTemplate: "127.0.0.1",
-	}, *keyType, false, "")
+	}, *keyType, false, "", true)
 	if err != nil {
 		return err
 	}
@@ -654,6 +675,9 @@ func runNetworkInit(writer io.Writer, args []string) error {
 	p2pPortStep := flags.Int("p2p-port-step", 10, "P2P port increment per validator")
 	rpcPortStep := flags.Int("rpc-port-step", 10, "RPC port increment per validator")
 	networkConfigPath := flags.String("network-config", "", "network topology config file for generated validator addresses")
+	web3DevAccounts := flags.Bool("web3-dev-accounts", false, "generate prefunded Web3 managed accounts for local Remix deployment")
+	encryptKeys := flags.Bool("encrypt-keys", false, "encrypt generated validator and VRF key files")
+	passphrase := flags.String("passphrase", "", "key encryption passphrase; prefer VEXO_KEY_PASSPHRASE")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing network files")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -662,6 +686,12 @@ func runNetworkInit(writer io.Writer, args []string) error {
 		"--home", *home,
 		"--chain-id", *chainID,
 		"--validators", strconv.Itoa(*validators),
+	}
+	if *encryptKeys {
+		initArgs = append(initArgs, "--encrypt-keys")
+	}
+	if *passphrase != "" {
+		initArgs = append(initArgs, "--passphrase", *passphrase)
 	}
 	if *networkConfigPath != "" {
 		initArgs = append(initArgs, "--network-config", *networkConfigPath)
@@ -672,6 +702,9 @@ func runNetworkInit(writer io.Writer, args []string) error {
 			"--p2p-port-step", strconv.Itoa(*p2pPortStep),
 			"--rpc-port-step", strconv.Itoa(*rpcPortStep),
 		)
+	}
+	if *web3DevAccounts {
+		initArgs = append(initArgs, "--web3-dev-accounts")
 	}
 	if *overwrite {
 		initArgs = append(initArgs, "--overwrite")
@@ -959,7 +992,7 @@ func writeNetworkUpPlan(writer io.Writer, plan networkRuntimePlan, chainID strin
 	fmt.Fprintf(writer, "rpc-base-port: %d\n", plan.RPCBasePort)
 	fmt.Fprintf(writer, "timeout: %s\n", timeout)
 	fmt.Fprintf(writer, "tx: %s\n", tx)
-	initCommand := fmt.Sprintf("network init --home %s --chain-id %s --validators %d --p2p-base-port %d --rpc-base-port %d", plan.Home, chainID, plan.Validators, plan.P2PBasePort, plan.RPCBasePort)
+	initCommand := fmt.Sprintf("network init --home %s --chain-id %s --validators %d --p2p-base-port %d --rpc-base-port %d --web3-dev-accounts", plan.Home, chainID, plan.Validators, plan.P2PBasePort, plan.RPCBasePort)
 	if overwrite {
 		initCommand += " --overwrite"
 	}
@@ -1268,6 +1301,7 @@ func runNetworkSmokePlan(ctx context.Context, client http.Client, plan networkRu
 	if len(plan.Nodes) == 0 {
 		return nil, errors.New("network has no nodes")
 	}
+	nonceTracker := newNetworkNonceTracker()
 	for _, localNode := range plan.Nodes {
 		if err := waitNetworkHealth(ctx, client, localNode.RPCAddress); err != nil {
 			return nil, fmt.Errorf("%s health: %w", localNode.ValidatorID, err)
@@ -1286,7 +1320,7 @@ func runNetworkSmokePlan(ctx context.Context, client http.Client, plan networkRu
 		return nil, err
 	}
 	for _, localNode := range plan.Nodes {
-		tx, err := signedNetworkPayload(chainID, localNode, txPrefix, 1)
+		tx, err := signedNetworkPayload(chainID, localNode, txPrefix, nonceTracker.Next(localNode.ValidatorID))
 		if err != nil {
 			return nil, err
 		}
@@ -1306,6 +1340,7 @@ func runNetworkChaosPlanExecution(ctx context.Context, writer io.Writer, client 
 	if len(plan.Nodes) < 2 {
 		return errors.New("chaos run requires at least two validators")
 	}
+	nonceTracker := newNetworkNonceTracker()
 	target := plan.Nodes[targetIndex]
 	survivor := networkSurvivorNode(plan, targetIndex)
 	for _, localNode := range plan.Nodes {
@@ -1326,7 +1361,7 @@ func runNetworkChaosPlanExecution(ctx context.Context, writer io.Writer, client 
 	}
 	_ = os.Remove(target.PIDPath)
 	fmt.Fprintf(writer, "chaos stopped %s pid=%d\n", target.ValidatorID, pid)
-	tx, err := signedNetworkPayload(chainID, survivor, txPrefix, 1)
+	tx, err := signedNetworkPayload(chainID, survivor, txPrefix, nonceTracker.Next(survivor.ValidatorID))
 	if err != nil {
 		return fmt.Errorf("%s tx during chaos: %w", survivor.ValidatorID, err)
 	}
@@ -1477,6 +1512,7 @@ func runNetworkLoadPlan(ctx context.Context, client http.Client, plan networkRun
 	if len(plan.Nodes) == 0 {
 		return networkLoadResult{Duration: time.Since(started), Failed: 1}
 	}
+	nonceTracker := newNetworkNonceTracker()
 	interval := networkSecond / time.Duration(rate)
 	if interval <= 0 {
 		interval = time.Nanosecond
@@ -1492,7 +1528,7 @@ func runNetworkLoadPlan(ctx context.Context, client http.Client, plan networkRun
 		case <-ticker.C:
 			sequence := result.Submitted + result.Failed + 1
 			target := plan.Nodes[int((sequence-1)%uint64(len(plan.Nodes)))]
-			payload, err := signedNetworkPayload(chainID, target, txPrefix, sequence)
+			payload, err := signedNetworkPayload(chainID, target, txPrefix, nonceTracker.Next(target.ValidatorID))
 			if err != nil {
 				result.Failed++
 				continue
@@ -1632,10 +1668,18 @@ func waitNetworkPeerCount(ctx context.Context, client http.Client, address strin
 }
 
 func effectiveNetworkActivePeerCount(status networkStatusResponse) int {
-	if status.ActivePeerCount > 0 || status.ConfiguredPeerCount > 0 || status.ScoredPeerCount > 0 {
-		return status.ActivePeerCount
+	return bestPeerCount(status.ActivePeerCount, status.PeerCount, status.ConfiguredPeerCount, status.ScoredPeerCount)
+}
+
+func bestPeerCount(active int, peer int, configured int, scored int) int {
+	candidates := []int{active, peer, configured, scored}
+	best := 0
+	for _, candidate := range candidates {
+		if candidate > best {
+			best = candidate
+		}
 	}
-	return status.PeerCount
+	return best
 }
 
 func waitNetworkHeights(ctx context.Context, client http.Client, nodes []networkNodeRuntimePlan, targetHeight uint64) ([]networkSmokeResult, error) {

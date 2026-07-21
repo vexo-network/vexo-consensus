@@ -17,6 +17,7 @@ func TestWriteStatus(t *testing.T) {
 	expectedParts := []string{
 		"vexo-consensus status",
 		"chain_id: vexo-test",
+		"application.core_modules: [bank staking governance params ibc]",
 		"application.modules: [bank staking governance params ibc]",
 		"execution.max_gas: 10000000",
 		"execution.require_signed: false",
@@ -111,7 +112,13 @@ func TestWriteStatusJSON(t *testing.T) {
 	if document.SchemaVersion != "v1" || document.ChainID != "vexo-test" {
 		t.Fatalf("unexpected document identity: %+v", document)
 	}
-	if len(document.Application.Modules) != 5 ||
+	if len(document.Application.CoreModules) != 5 ||
+		document.Application.CoreModules[0] != "bank" ||
+		document.Application.CoreModules[1] != "staking" ||
+		document.Application.CoreModules[2] != "governance" ||
+		document.Application.CoreModules[3] != "params" ||
+		document.Application.CoreModules[4] != "ibc" ||
+		len(document.Application.Modules) != 5 ||
 		document.Application.Modules[0] != "bank" ||
 		document.Application.Modules[1] != "staking" ||
 		document.Application.Modules[2] != "governance" ||

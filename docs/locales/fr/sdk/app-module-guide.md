@@ -190,3 +190,8 @@ Cette annexe garantit que la traduction conserve les interfaces exécutables et 
 - `eth_getTransactionByBlockHashAndIndex` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
 - `eth_getUncleCountByBlockNumber` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
 - `eth_getUncleCountByBlockHash` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+
+## Stable Terms
+
+- `execution.evm_fork_preset = "latest"`
+- `execution.evm_chain_config_json`

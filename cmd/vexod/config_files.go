@@ -1,20 +1,29 @@
 package main
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/vexo-network/vexo-consensus/address"
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/config"
@@ -200,17 +209,19 @@ type runtimeStateSyncConfig struct {
 }
 
 type runtimeConsensusConfig struct {
-	LoopEnabled         bool   `json:"loop_enabled"`
-	Interval            string `json:"interval,omitempty"`
-	TimeoutPropose      string `json:"timeout_propose,omitempty"`
-	TimeoutPrevote      string `json:"timeout_prevote,omitempty"`
-	TimeoutPrecommit    string `json:"timeout_precommit,omitempty"`
-	TimeoutCommit       string `json:"timeout_commit,omitempty"`
-	RoundTimeout        string `json:"round_timeout,omitempty"`
-	MaxBlockBytes       int64  `json:"max_block_bytes,omitempty"`
-	CreateEmptyBlocks   bool   `json:"create_empty_blocks"`
-	ExecutionCommit     string `json:"execution_commit,omitempty"`
-	AllowUnsafeQCCommit bool   `json:"allow_unsafe_qc_commit,omitempty"`
+	LoopEnabled                 bool   `json:"loop_enabled"`
+	Interval                    string `json:"interval,omitempty"`
+	TimeoutPropose              string `json:"timeout_propose,omitempty"`
+	TimeoutPrevote              string `json:"timeout_prevote,omitempty"`
+	TimeoutPrecommit            string `json:"timeout_precommit,omitempty"`
+	TimeoutCommit               string `json:"timeout_commit,omitempty"`
+	RoundTimeout                string `json:"round_timeout,omitempty"`
+	MaxBlockBytes               int64  `json:"max_block_bytes,omitempty"`
+	CreateEmptyBlocks           bool   `json:"create_empty_blocks"`
+	ExecutionCommit             string `json:"execution_commit,omitempty"`
+	AllowUnsafeQCCommit         bool   `json:"allow_unsafe_qc_commit,omitempty"`
+	AdaptiveRoundTimeoutEnabled *bool  `json:"adaptive_round_timeout_enabled,omitempty"`
+	RecoveryFinalityGateEnabled *bool  `json:"recovery_finality_gate_enabled,omitempty"`
 }
 
 type runtimeLogConfig struct {
@@ -258,6 +269,7 @@ func runInit(writer io.Writer, args []string) error {
 	p2pPortStep := flags.Int("p2p-port-step", 10, "P2P port increment per validator")
 	rpcPortStep := flags.Int("rpc-port-step", 10, "RPC port increment per validator")
 	networkConfigPath := flags.String("network-config", "", "network topology config file for generated validator addresses")
+	web3DevAccounts := flags.Bool("web3-dev-accounts", false, "generate prefunded Web3 managed accounts for local Remix deployment")
 	encryptKeys := flags.Bool("encrypt-keys", false, "encrypt generated validator and VRF key files")
 	passphrase := flags.String("passphrase", "", "key encryption passphrase; prefer VEXO_KEY_PASSPHRASE")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing files")
@@ -278,7 +290,7 @@ func runInit(writer io.Writer, args []string) error {
 			}
 			options = loadedOptions
 		}
-		network, err := writeNetworkFilesWithOptionsAndKeyType(*home, *chainID, *validatorCount, *overwrite, options, *keyType, *encryptKeys, resolvePassphrase(*passphrase))
+		network, err := writeNetworkFilesWithOptionsAndKeyType(*home, *chainID, *validatorCount, *overwrite, options, *keyType, *encryptKeys, resolvePassphrase(*passphrase), *web3DevAccounts)
 		if err != nil {
 			return err
 		}
@@ -290,7 +302,7 @@ func runInit(writer io.Writer, args []string) error {
 		}
 		return nil
 	}
-	configPath, genesisPath, keyPath, err := writeValidatorInitFilesWithKeyType(*home, *chainID, *validatorID, defaultP2PAddress, defaultRPCAddress, *overwrite, *keyType, *encryptKeys, resolvePassphrase(*passphrase))
+	configPath, genesisPath, keyPath, err := writeValidatorInitFilesWithKeyType(*home, *chainID, *validatorID, defaultP2PAddress, defaultRPCAddress, *overwrite, *keyType, *encryptKeys, resolvePassphrase(*passphrase), *web3DevAccounts)
 	if err != nil {
 		return err
 	}
@@ -315,13 +327,14 @@ func runInitValidator(writer io.Writer, args []string) error {
 	chainID := flags.String("chain-id", defaultChainID, "chain id")
 	validatorID := flags.String("validator", defaultValidatorID, "local validator id")
 	keyType := flags.String("key-type", vexocrypto.KeyTypeBLS, "validator key type: bls or ed25519")
+	web3DevAccounts := flags.Bool("web3-dev-accounts", false, "generate prefunded Web3 managed accounts for local Remix deployment")
 	encryptKeys := flags.Bool("encrypt-keys", false, "encrypt generated validator and VRF key files")
 	passphrase := flags.String("passphrase", "", "key encryption passphrase; prefer VEXO_KEY_PASSPHRASE")
 	overwrite := flags.Bool("overwrite", false, "overwrite existing files")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	configPath, genesisPath, keyPath, err := writeValidatorInitFilesWithKeyType(*home, *chainID, *validatorID, defaultP2PAddress, defaultRPCAddress, *overwrite, *keyType, *encryptKeys, resolvePassphrase(*passphrase))
+	configPath, genesisPath, keyPath, err := writeValidatorInitFilesWithKeyType(*home, *chainID, *validatorID, defaultP2PAddress, defaultRPCAddress, *overwrite, *keyType, *encryptKeys, resolvePassphrase(*passphrase), *web3DevAccounts)
 	if err != nil {
 		return err
 	}
@@ -467,10 +480,10 @@ func readNetworkAddressOptions(path string) (networkAddressOptions, error) {
 }
 
 func writeNetworkFilesWithOptions(home string, chainID string, validatorCount int, overwrite bool, options networkAddressOptions) (networkDocument, error) {
-	return writeNetworkFilesWithOptionsAndKeyType(home, chainID, validatorCount, overwrite, options, vexocrypto.KeyTypeBLS, false, "")
+	return writeNetworkFilesWithOptionsAndKeyType(home, chainID, validatorCount, overwrite, options, vexocrypto.KeyTypeBLS, false, "", false)
 }
 
-func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validatorCount int, overwrite bool, options networkAddressOptions, keyType string, encryptKeys bool, passphrase string) (networkDocument, error) {
+func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validatorCount int, overwrite bool, options networkAddressOptions, keyType string, encryptKeys bool, passphrase string, web3DevAccounts bool) (networkDocument, error) {
 	if home == "" {
 		home = defaultHomeDir
 	}
@@ -497,6 +510,7 @@ func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validat
 	keys := make([]vexocrypto.KeyDocument, 0, validatorCount)
 	nodeKeys := make([]vexocrypto.KeyDocument, 0, validatorCount)
 	vrfKeys := make([]vexocrypto.KeyDocument, 0, validatorCount)
+	managedEVMKeys := make([]string, 0, validatorCount)
 	for index := 1; index <= validatorCount; index++ {
 		validatorID := networkValidatorID(index)
 		nodeID := defaultP2PNodeID(validatorID, filepath.Join(home, validatorID))
@@ -514,6 +528,15 @@ func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validat
 			return networkDocument{}, err
 		}
 		nodeKeys = append(nodeKeys, nodeKeyDocument)
+		if web3DevAccounts {
+			evmKey, err := gethcrypto.GenerateKey()
+			if err != nil {
+				return networkDocument{}, err
+			}
+			managedEVMKeys = append(managedEVMKeys, "0x"+hex.EncodeToString(gethcrypto.FromECDSA(evmKey)))
+			evmAddress := strings.ToLower(gethcrypto.PubkeyToAddress(evmKey.PublicKey).Hex())
+			appState["bank:"+evmAddress] = encodedGenesisAccountBalance()
+		}
 		vrfKeyDocument, err := vexocrypto.GenerateECVRFP256KeyDocument()
 		if err != nil {
 			return networkDocument{}, err
@@ -577,6 +600,10 @@ func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validat
 	}
 
 	network := networkDocument{Home: home, Nodes: make([]networkNodeDocument, 0, validatorCount)}
+	sharedP2PAuthToken, err := generateNetworkAuthToken()
+	if err != nil {
+		return networkDocument{}, err
+	}
 	for index := 1; index <= validatorCount; index++ {
 		validatorID := networkValidatorID(index)
 		nodeHome := filepath.Join(home, validatorID)
@@ -620,15 +647,24 @@ func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validat
 			return networkDocument{}, err
 		}
 		cfg := defaultConfigDocument(chainID, dataDir, validatorID)
-		moduleCfg := defaultModuleConfigDocument(chainID)
+		if web3DevAccounts {
+			cfg.RequireNetworkSafety = false
+		}
+		moduleCfg := defaultModuleConfigDocumentWithWeb3(chainID, web3DevAccounts)
 		networkCfg := defaultNetworkConfigDocument(chainID, dataDir, validatorID)
 		networkCfg.P2P.NodeID = defaultP2PNodeID(validatorID, nodeHome)
 		networkCfg.P2P.NodeKeyPath = nodeKeyFileName
+		if web3DevAccounts {
+			networkCfg.RPC.EVMManagedAccounts = true
+			networkCfg.RPC.EVMAccountPrivateKeys = []string{managedEVMKeys[index-1]}
+			networkCfg.RPC.EVMAccountKeyEnvs = nil
+		}
 		consensusCfg := defaultConsensusConfigDocument(chainID, dataDir, validatorID)
 		applyConsensusCryptoForKeyType(&consensusCfg, keyType)
 		consensusCfg.VRFKeyPaths = []string{defaultVRFKeyFileName}
 		mempoolCfg := defaultMempoolConfigDocument(chainID, dataDir)
 		logCfg := defaultLogConfigDocument(chainID, dataDir, validatorID)
+		networkCfg.P2P.AuthToken = sharedP2PAuthToken
 		networkCfg.RPC.Address = networkRPCListenAddressWithOptions(index, options)
 		networkCfg.P2P.ListenAddress = networkP2PListenAddressWithOptions(index, options)
 		networkCfg.P2P.Peers = networkConfigPeers(validators, validatorID, options)
@@ -681,6 +717,221 @@ func writeNetworkFilesWithOptionsAndKeyType(home string, chainID string, validat
 		})
 	}
 	return network, nil
+}
+
+func generateNetworkAuthToken() (string, error) {
+	token := make([]byte, 32)
+	if _, err := rand.Read(token); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(token), nil
+}
+
+func generateNetworkTLSCA(commonName string) ([]byte, *x509.Certificate, *ecdsa.PrivateKey, error) {
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	caSerial, err := randomSerialNumber()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	caTemplate := &x509.Certificate{
+		SerialNumber:          caSerial,
+		Subject:               pkix.Name{CommonName: commonName},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(3650 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		MaxPathLenZero:        true,
+	}
+	caCertDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	caCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCertDER})
+	return caCertPEM, caTemplate, caKey, nil
+}
+
+func generateNetworkTLSMaterial(commonName string, sans networkTLSSubjectAltNames, caCert *x509.Certificate, caKey *ecdsa.PrivateKey) ([]byte, []byte, []byte, error) {
+	if caCert == nil || caKey == nil {
+		return nil, nil, nil, errors.New("shared network ca is required")
+	}
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	leafSerial, err := randomSerialNumber()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	leafTemplate := &x509.Certificate{
+		SerialNumber: leafSerial,
+		Subject: pkix.Name{
+			CommonName: commonName,
+		},
+		NotBefore:   time.Now().Add(-time.Hour),
+		NotAfter:    time.Now().Add(3650 * 24 * time.Hour),
+		KeyUsage:    x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+		DNSNames:    sans.dnsNames(commonName),
+		IPAddresses: sans.ipAddresses(),
+	}
+	leafCertDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, caCert, &leafKey.PublicKey, caKey)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	leafCertPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafCertDER})
+	leafKeyPEM, err := encodeECPrivateKeyPEM(leafKey)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return leafCertPEM, leafKeyPEM, nil, nil
+}
+
+type networkTLSArtifacts struct {
+	CAPath   string
+	CertPath string
+	KeyPath  string
+}
+
+func newNetworkTLSArtifacts(validatorID string, index int, options networkAddressOptions) (networkTLSArtifacts, error) {
+	_ = validatorID
+	_ = index
+	_ = options
+	return networkTLSArtifacts{
+		CAPath:   filepath.Join("tls", "ca.crt"),
+		CertPath: filepath.Join("tls", "node.crt"),
+		KeyPath:  filepath.Join("tls", "node.key"),
+	}, nil
+}
+
+func writeNetworkTLSArtifacts(nodeHome string, artifact networkTLSArtifacts, index int, options networkAddressOptions, sharedCA []byte, sharedCACert *x509.Certificate, sharedCAKey *ecdsa.PrivateKey) error {
+	tlsDir := filepath.Join(nodeHome, "tls")
+	if err := os.MkdirAll(tlsDir, 0o755); err != nil {
+		return err
+	}
+	sans := buildNetworkTLSSubjectAltNames(index, options)
+	leafCertPEM, leafKeyPEM, _, err := generateNetworkTLSMaterial(filepath.Base(nodeHome), sans, sharedCACert, sharedCAKey)
+	if err != nil {
+		return err
+	}
+	files := map[string][]byte{
+		artifact.CAPath:   sharedCA,
+		artifact.CertPath: leafCertPEM,
+		artifact.KeyPath:  leafKeyPEM,
+	}
+	for relPath, data := range files {
+		path := filepath.Join(nodeHome, relPath)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		mode := os.FileMode(0o644)
+		if strings.HasSuffix(path, ".key") {
+			mode = 0o600
+		}
+		if err := os.WriteFile(path, data, mode); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type networkTLSSubjectAltNames struct {
+	dns []string
+	ip  []net.IP
+}
+
+func (s networkTLSSubjectAltNames) dnsNames(commonName string) []string {
+	values := make([]string, 0, len(s.dns)+2)
+	seen := make(map[string]struct{})
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		values = append(values, value)
+	}
+	add(commonName)
+	add("localhost")
+	for _, value := range s.dns {
+		add(value)
+	}
+	return values
+}
+
+func (s networkTLSSubjectAltNames) ipAddresses() []net.IP {
+	values := make([]net.IP, 0, len(s.ip)+2)
+	seen := make(map[string]struct{})
+	add := func(ip net.IP) {
+		if ip == nil {
+			return
+		}
+		key := ip.String()
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		values = append(values, ip)
+	}
+	add(net.ParseIP("127.0.0.1"))
+	add(net.ParseIP("::1"))
+	for _, ip := range s.ip {
+		add(ip)
+	}
+	return values
+}
+
+func buildNetworkTLSSubjectAltNames(index int, options networkAddressOptions) networkTLSSubjectAltNames {
+	hostValues := []string{
+		formatNetworkHostTemplate(options.P2PHostTemplate, index),
+		formatNetworkHostTemplate(options.RPCHostTemplate, index),
+		formatNetworkHostTemplate(options.P2PAdvertiseHostTemplate, index),
+		formatNetworkHostTemplate(options.RPCAdvertiseHostTemplate, index),
+	}
+	ipValues := make([]net.IP, 0, 2)
+	for _, host := range hostValues {
+		if ip := net.ParseIP(host); ip != nil {
+			ipValues = append(ipValues, ip)
+		}
+	}
+	return networkTLSSubjectAltNames{dns: hostValues, ip: ipValues}
+}
+
+func formatNetworkHostTemplate(template string, index int) string {
+	template = strings.TrimSpace(template)
+	if template == "" {
+		return ""
+	}
+	if strings.Contains(template, "%") {
+		return fmt.Sprintf(template, index)
+	}
+	return template
+}
+
+func encodeECPrivateKeyPEM(key *ecdsa.PrivateKey) ([]byte, error) {
+	keyBytes, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return nil, err
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes}), nil
+}
+
+func randomSerialNumber() (*big.Int, error) {
+	limit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serial, err := rand.Int(rand.Reader, limit)
+	if err != nil {
+		return nil, err
+	}
+	if serial.Sign() == 0 {
+		return big.NewInt(1), nil
+	}
+	return serial, nil
 }
 
 func normalizeNetworkAddressOptions(options networkAddressOptions) networkAddressOptions {
@@ -818,7 +1069,7 @@ func runValidate(writer io.Writer, args []string) error {
 	return nil
 }
 
-func writeInitFiles(home string, chainID string, validatorID string, overwrite bool) (string, string, error) {
+func writeInitFiles(home string, chainID string, validatorID string, overwrite bool, web3DevAccounts bool) (string, string, error) {
 	if home == "" {
 		home = defaultHomeDir
 	}
@@ -857,7 +1108,7 @@ func writeInitFiles(home string, chainID string, validatorID string, overwrite b
 		}
 	}
 	cfg := defaultConfigDocument(chainID, dataDir, validatorID)
-	moduleCfg := defaultModuleConfigDocument(chainID)
+	moduleCfg := defaultModuleConfigDocumentWithWeb3(chainID, web3DevAccounts)
 	networkCfg := defaultNetworkConfigDocument(chainID, dataDir, validatorID)
 	consensusCfg := defaultConsensusConfigDocument(chainID, dataDir, validatorID)
 	applyConsensusCryptoForKeyType(&consensusCfg, vexocrypto.KeyTypeBLS)
@@ -889,10 +1140,10 @@ func writeInitFiles(home string, chainID string, validatorID string, overwrite b
 }
 
 func writeValidatorInitFiles(home string, chainID string, validatorID string, p2pAddress string, rpcAddress string, overwrite bool) (string, string, string, error) {
-	return writeValidatorInitFilesWithKeyType(home, chainID, validatorID, p2pAddress, rpcAddress, overwrite, vexocrypto.KeyTypeBLS, false, "")
+	return writeValidatorInitFilesWithKeyType(home, chainID, validatorID, p2pAddress, rpcAddress, overwrite, vexocrypto.KeyTypeBLS, false, "", false)
 }
 
-func writeValidatorInitFilesWithKeyType(home string, chainID string, validatorID string, p2pAddress string, rpcAddress string, overwrite bool, keyType string, encryptKeys bool, passphrase string) (string, string, string, error) {
+func writeValidatorInitFilesWithKeyType(home string, chainID string, validatorID string, p2pAddress string, rpcAddress string, overwrite bool, keyType string, encryptKeys bool, passphrase string, web3DevAccounts bool) (string, string, string, error) {
 	if home == "" {
 		home = defaultHomeDir
 	}
@@ -914,6 +1165,8 @@ func writeValidatorInitFilesWithKeyType(home string, chainID string, validatorID
 			}
 		}
 	}
+	var managedEVMKey string
+	var managedEVMAddress string
 	keyDocument, err := generateConsensusKeyDocument(keyType)
 	if err != nil {
 		return "", "", "", err
@@ -934,7 +1187,15 @@ func writeValidatorInitFilesWithKeyType(home string, chainID string, validatorID
 	if err != nil {
 		return "", "", "", err
 	}
-	configPath, genesisPath, err := writeInitFiles(home, chainID, validatorID, overwrite)
+	if web3DevAccounts {
+		evmKey, err := gethcrypto.GenerateKey()
+		if err != nil {
+			return "", "", "", err
+		}
+		managedEVMKey = "0x" + hex.EncodeToString(gethcrypto.FromECDSA(evmKey))
+		managedEVMAddress = strings.ToLower(gethcrypto.PubkeyToAddress(evmKey.PublicKey).Hex())
+	}
+	configPath, genesisPath, err := writeInitFiles(home, chainID, validatorID, overwrite, web3DevAccounts)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -974,6 +1235,9 @@ func writeValidatorInitFilesWithKeyType(home string, chainID string, validatorID
 	if err := applyAccountKeyFundingToGenesisDocument(&genesisDocument, nodeKeyDocument); err != nil {
 		return "", "", "", err
 	}
+	if web3DevAccounts {
+		genesisDocument.AppState["bank:"+managedEVMAddress] = encodedGenesisAccountBalance()
+	}
 	if err := writeJSONFile(genesisPath, genesisDocument); err != nil {
 		return "", "", "", err
 	}
@@ -985,10 +1249,21 @@ func writeValidatorInitFilesWithKeyType(home string, chainID string, validatorID
 	if err != nil {
 		return "", "", "", err
 	}
+	if web3DevAccounts {
+		document.RequireNetworkSafety = false
+	}
 	networkDocument.RPC.Address = p2pOrDefault(rpcAddress, defaultRPCAddress)
 	networkDocument.P2P.ListenAddress = p2pOrDefault(p2pAddress, defaultP2PAddress)
 	networkDocument.P2P.NodeID = defaultP2PNodeID(validatorID, home)
 	networkDocument.P2P.NodeKeyPath = nodeKeyFileName
+	if web3DevAccounts {
+		networkDocument.RPC.EVMManagedAccounts = true
+		networkDocument.RPC.EVMAccountPrivateKeys = []string{managedEVMKey}
+		networkDocument.RPC.EVMAccountKeyEnvs = nil
+	}
+	if err := writeJSONFile(configPath, document); err != nil {
+		return "", "", "", err
+	}
 	if err := writeJSONFile(resolveNetworkConfigPath(home, document.NetworkConfigPath), networkDocument); err != nil {
 		return "", "", "", err
 	}
@@ -1126,7 +1401,7 @@ func writeArchiveInitFiles(home string, chainID string, p2pAddress string, rpcAd
 		return "", "", "", err
 	}
 	document := defaultConfigDocument(chainID, filepath.Join(home, "data"), "")
-	moduleDocument := defaultModuleConfigDocument(chainID)
+	moduleDocument := defaultModuleConfigDocumentWithWeb3(chainID, false)
 	networkDocument := defaultNetworkConfigDocument(chainID, filepath.Join(home, "data"), "")
 	consensusDocument := defaultConsensusConfigDocument(chainID, filepath.Join(home, "data"), "")
 	mempoolDocument := defaultMempoolConfigDocument(chainID, filepath.Join(home, "data"))
@@ -1627,9 +1902,25 @@ func defaultConfigDocument(chainID string, dataDir string, validatorID string) c
 }
 
 func defaultModuleConfigDocument(chainID string) moduleConfigDocument {
+	return defaultModuleConfigDocumentWithWeb3(chainID, false)
+}
+
+func defaultModuleConfigDocumentWithWeb3(chainID string, web3DevAccounts bool) moduleConfigDocument {
 	cfg := config.Default(chainID)
 	applyDefaultNetworkSafetyModuleConfig(&cfg)
+	if web3DevAccounts {
+		cfg.Application.Modules = appendModuleIfMissing(cfg.Application.Modules, "evm")
+	}
 	return moduleConfigFromConfig(cfg)
+}
+
+func appendModuleIfMissing(modules []string, name string) []string {
+	for _, module := range modules {
+		if module == name {
+			return modules
+		}
+	}
+	return append(modules, name)
 }
 
 func applyDefaultNetworkSafetyModuleConfig(cfg *config.Config) {
@@ -1778,16 +2069,18 @@ func defaultRuntimeConfig(validatorID string) runtimeConfig {
 			RetryAllSnapshots: true,
 		},
 		Consensus: runtimeConsensusConfig{
-			LoopEnabled:       loopEnabled,
-			Interval:          "50ms",
-			TimeoutPropose:    "3s",
-			TimeoutPrevote:    "1s",
-			TimeoutPrecommit:  "1s",
-			TimeoutCommit:     "1s",
-			RoundTimeout:      "3s",
-			MaxBlockBytes:     1024 * 1024,
-			CreateEmptyBlocks: false,
-			ExecutionCommit:   string(node.ExecutionCommitModeFinalized),
+			LoopEnabled:                 loopEnabled,
+			Interval:                    "50ms",
+			TimeoutPropose:              "3s",
+			TimeoutPrevote:              "1s",
+			TimeoutPrecommit:            "1s",
+			TimeoutCommit:               "1s",
+			RoundTimeout:                "3s",
+			MaxBlockBytes:               1024 * 1024,
+			CreateEmptyBlocks:           false,
+			ExecutionCommit:             string(node.ExecutionCommitModeFinalized),
+			AdaptiveRoundTimeoutEnabled: boolPtr(true),
+			RecoveryFinalityGateEnabled: boolPtr(true),
 		},
 		Log: runtimeLogConfig{
 			Format:       "text",
@@ -1886,8 +2179,11 @@ func configFromConfigDocuments(document configDocument, moduleDocument moduleCon
 		chainID = document.Chain.ChainID
 	}
 	cfg := config.Default(chainID)
+	if len(moduleDocument.Application.CoreModules) > 0 {
+		cfg.Application.CoreModules = append([]string(nil), moduleDocument.Application.CoreModules...)
+	}
 	if moduleDocument.Application.Modules != nil {
-		cfg.Application = moduleDocument.Application
+		cfg.Application.Modules = append([]string(nil), moduleDocument.Application.Modules...)
 	}
 	cfg.Execution = moduleDocument.Execution
 	cfg.Execution = normalizeExecutionConfig(cfg.Execution)
@@ -1912,6 +2208,15 @@ func normalizeExecutionConfig(execution config.ExecutionConfig) config.Execution
 	if execution.EVMChainID == 0 {
 		execution.EVMChainID = defaults.EVMChainID
 	}
+	if execution.TargetGas == 0 {
+		execution.TargetGas = defaults.TargetGas
+	}
+	if execution.MaxGas == 0 {
+		execution.MaxGas = defaults.MaxGas
+	}
+	if execution.BaseFeeChangeDenominator == 0 {
+		execution.BaseFeeChangeDenominator = defaults.BaseFeeChangeDenominator
+	}
 	if execution.BlobBaseFee == 0 {
 		execution.BlobBaseFee = defaults.BlobBaseFee
 	}
@@ -1924,8 +2229,14 @@ func normalizeExecutionConfig(execution config.ExecutionConfig) config.Execution
 	if execution.BlobFeeChangeDenominator == 0 {
 		execution.BlobFeeChangeDenominator = defaults.BlobFeeChangeDenominator
 	}
+	if execution.MinBaseFee == 0 {
+		execution.MinBaseFee = defaults.MinBaseFee
+	}
 	if execution.MinBlobBaseFee == 0 {
 		execution.MinBlobBaseFee = defaults.MinBlobBaseFee
+	}
+	if execution.MinGas == 0 {
+		execution.MinGas = defaults.MinGas
 	}
 	if execution.FeeCollector == "" {
 		execution.FeeCollector = defaults.FeeCollector

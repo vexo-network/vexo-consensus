@@ -669,3 +669,8 @@ Este apéndice asegura que la traducción conserve las interfaces ejecutables y 
 - `rpc_advertise_host_template` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `p2p_listen_host` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `rpc_listen_host` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+
+## Stable Terms
+
+- `EVMForkPreset: "latest"`
+- `params.ChainConfig`

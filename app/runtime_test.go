@@ -85,6 +85,28 @@ func TestRuntimePrepareProposalFiltersInvalidTxs(t *testing.T) {
 	}
 }
 
+func TestRuntimeProposalAndFinalizeDoNotDependOnGasEstimation(t *testing.T) {
+	module := &gasEstimatingModule{
+		recordingModule: recordingModule{name: "bank"},
+		estimateErr:     errors.New("estimate failed"),
+	}
+	runtime, err := NewRuntime("vexo-test", []Module{module}, PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	block := types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 1},
+		Txs:    []types.Tx{[]byte("bank:send")},
+	}
+	if response := runtime.ProcessProposal(ProcessProposalRequest{Block: block}); !response.Accepted {
+		t.Fatalf("expected proposal to be accepted without gas estimation dependency, got %+v", response)
+	}
+	if _, err := runtime.FinalizeBlock(FinalizeBlockRequest{Block: block}); err != nil {
+		t.Fatalf("expected finalization to succeed without gas estimation dependency, got %v", err)
+	}
+}
+
 func TestRuntimePrepareProposalSortsAcceptedTxs(t *testing.T) {
 	runtime, err := NewRuntime("vexo-test", []Module{&recordingModule{name: "bank"}}, PrefixRouter{})
 	if err != nil {
@@ -527,6 +549,18 @@ func (module *recordingModule) ValidateTx(ctx Context, tx types.Tx) error {
 
 func (module *recordingModule) EndBlock(ctx Context) error {
 	return module.endErr
+}
+
+type gasEstimatingModule struct {
+	recordingModule
+	estimateErr error
+}
+
+func (module *gasEstimatingModule) EstimateGas(ctx Context, tx types.Tx) (uint64, error) {
+	if module.estimateErr != nil {
+		return 0, module.estimateErr
+	}
+	return uint64(len(tx)), nil
 }
 
 type statefulModule struct {

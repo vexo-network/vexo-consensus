@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"math"
 	"math/big"
 	"strings"
@@ -102,7 +103,7 @@ func (keeper AnteKeeper) CheckTx(ctx Context, tx types.Tx) error {
 		return err
 	}
 	if meta.Nonce != expected {
-		return ErrInvalidNonce
+		return invalidNonceError(meta, expected)
 	}
 	return nil
 }
@@ -129,7 +130,7 @@ func (keeper AnteKeeper) CheckBlock(ctx Context, txs []types.Tx) error {
 			}
 		}
 		if meta.Nonce != expected {
-			return ErrInvalidNonce
+			return invalidNonceError(meta, expected)
 		}
 		nextBySigner[meta.Signer] = expected + 1
 	}
@@ -346,6 +347,13 @@ func (keeper AnteKeeper) expectedSequence(ctx context.Context, store StateStore,
 		return keeper.accounts.Sequence(ctx, store, signer)
 	}
 	return keeper.accounts.NextSequence(ctx, store, signer)
+}
+
+func invalidNonceError(meta TxMeta, expected uint64) error {
+	if meta.Signer == "" || !meta.HasNonce {
+		return ErrInvalidNonce
+	}
+	return fmt.Errorf("%w: signer=%s nonce=%d expected=%d", ErrInvalidNonce, meta.Signer, meta.Nonce, expected)
 }
 
 func isEthereumRawTx(tx types.Tx) bool {

@@ -669,3 +669,8 @@ vexod network init \
 - `rpc_advertise_host_template` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `p2p_listen_host` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `rpc_listen_host` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+
+## Stable Terms
+
+- `EVMForkPreset: "latest"`
+- `params.ChainConfig`

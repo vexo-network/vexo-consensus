@@ -1,88 +1,75 @@
 > Locale: ko · 한국어
 
-# 합의 프로토콜 개요
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-이 페이지는 Vexo 합의 문서의 상위 수준 진입점입니다. 더 광범위한 문서 맵을 보려면 [문서](./README.md)를 참조하세요.
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-규범적인 세부정보를 보려면 사양 파일을 사용하세요.
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-- [합의 스펙](./specs/consensus-spec.md)
-- [최종성 증명 형식](./specs/finality-proof-format.md)
-- [검증기 수명주기](./specs/validator-lifecycle.md)
-- [스토리지 스키마](./specs/storage-schema.md)
-- [네트워킹 사양](./specs/networking-spec.md)
-- [거래 형식](./specs/tx-format.md)
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-## 모델
+- 비잔틴 투표력의 1/3 미만
+- 도메인으로 구분된 제안서, 투표, 시간 초과 투표 및 최종 서명
+- 관련 증명 높이에서 검증인 설정 해시 바인딩
+- QC 및 최종 증명에서 고유한 알려진 서명자
+- 검증인 모호성에 대한 책임 있는 증거
+- 동일한 최종 높이에서 상충되는 커밋 결정 거부
 
-Vexo는 제안, 투표, 정족수 인증서, 시간 초과 인증서, 잠긴 QC 안전 및 3체인 최종성을 갖춘 HotStuff 스타일 BFT 코어를 사용합니다.
+# # 암호화폐 경계
 
-블록은 잠긴 QC를 확장하거나 적어도 잠금만큼 새로운 정당화 QC를 수행하는 경우에만 투표하기에 안전합니다. 3체인 규칙이 안전한 상위/조상 체인 확장을 입증하면 블록이 확정됩니다.
-
-구현은 3개 체인 결정을 명시적인 블록, 부모 및 조부모 높이에 바인딩합니다. 블록 QC는 상위 높이/해시를 인증해야 하며, 상위 QC는 조부모 높이/해시를 인증해야 합니다. 합성 또는 높이 건너뛰기 QC 체인은 최종 결정이 기록되기 전에 거부됩니다.
-
-## 실행 조건
-
-Vexo는 다음 용어를 일관되게 사용합니다.
-
-- **QC 인증**: 블록은 정족수 인증서를 형성하기에 충분한 투표권을 가집니다.
-- **완결됨**: HotStuff 3체인 규칙이 상위 블록을 마무리합니다.
-- **실행됨**: 애플리케이션이 블록에 대해 `FinalizeBlock`을 실행했습니다.
-- **상태 커밋**: 애플리케이션 KV 쓰기, 블록 레코드, 상태 레코드 및 모듈 상태 루트가 지속적으로 커밋되었습니다.
-
-노드 실행 경로는 두 가지 별도의 경계를 사용합니다.
-
-- **실행 커밋 경계**: QC 인증 블록을 실행하고 앱 쓰기 + 블록 기록 + 상태 기록 + 상태 루트로 원자적으로 유지할 수 있습니다.
-- **합의 최종성 경계**: 3체인 규칙은 조상을 확정하며 라이트 클라이언트 최종성 증명의 유일한 소스입니다.
-
-`consensus_config.json`은 `execution_commit`를 통해 이 선택 사항을 노출합니다. 생성된 검증자 홈의 기본값은 `finalized`입니다. 이는 3체인 완결성 규칙에 의해 선택된 조상만 실행하므로 상태 커밋이 더 엄격한 완결성 경계에 맞춰집니다. 지연 시간이 짧은 `qc` 경계는 사용자 지정 배포에 계속 사용할 수 있지만 `require_network_safety`에서는 이를 거부합니다. 운영자와 SDK 사용자는 `block_committed` 로그를 구성된 실행 경계에 대한 상태 커밋 이벤트로 처리해야 합니다. 최종성 증명은 검증인이 설정한 높이에서의 합의 최종성을 설명합니다.
-
-## 안전 경계
-
-안전은 다음에 달려 있습니다.
-
-- 비잔틴 투표권의 1/3 미만
-- 도메인 분리 제안, 투표, 타임아웃 투표, 최종 서명
-- 관련 증명 높이에서 유효성 검사기 설정 해시 바인딩
-- QC 및 최종 증명의 고유한 알려진 서명자
-- 검증인의 모호함에 대한 책임 있는 증거
-- 동일한 최종 높이에서 충돌하는 커밋 결정 거부
-
-## 암호화폐 경계
-
-- `deterministic`은 테스트 전용이며 네트워크 안전 검증에 실패합니다.
-- `ed25519`은 공용 네트워크 테스트 및 출시 준비를 위해 지원됩니다.
-- `bls`의 기본값은 `blst-bls12381-minpk-v1`이며 소유 증명 또는 이에 상응하는 불량 키 방어, 하위 그룹 확인, 공개 키 유효성 검사, 종속성 감사 증거 및 릴리스 게이트 증거가 필요합니다. 내장된 CIRCL 어댑터는 런타임 인터페이스에 대한 참조 통합으로 유지되며 생산 안전 포기가 아닙니다.
-- 네트워크 안전 검증에는 VRF 위원회 선택을 위한 VRF 어댑터 메타데이터가 필요합니다. 내장된 ECVRF 어댑터는 런타임 인터페이스를 충족할 수 있습니다. 결정론적 VRF는 테스트 전용으로 유지되며 가치를 지닌 네트워크에 사용해서는 안 됩니다.
-
-## 운영 경계
-
-코드에는 프로덕션 지향 검사가 포함되어 있지만 공개 배포에는 여전히 다음이 필요합니다.
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 - 모든 검증인 홈에 대한 엄격한 구성 감사
 - 릴리스 게이트 증거
 - 외부 보안 검토
-- 다중 호스트 장기 및 카오스 증거
+- 멀티 호스트 장기 숙박 및 혼돈의 증거
 - 서명자/KMS 정책 증거
 - 체인별 경제 및 거버넌스 정책 검토
 
-릴리스를 프로덕션 준비 상태로 처리하기 전에 [보안 감사 준비](./security/audit-readiness.md) 및 [릴리스 파이프라인](./release/release-pipeline.md)을 참조하세요.
+릴리스를 프로덕션 준비 상태로 처리하기 전에 [보안 감사 준비] (./security/audit-readiness.md) 및 [릴리스 파이프라인] (./release/release-pipeline.md) 을 참조하십시오.
 
 <!-- vexo-docs:technical-parity -->
-## 기술 동등성 부록
+## 기술적 동등성 부록
 
-이 부록은 영어 정본의 실행 가능한 인터페이스와 핵심 섹션을 번역본에서도 빠뜨리지 않기 위한 검증용 요약입니다. 명령어, 설정 키, RPC 메서드, 패키지 이름은 모든 언어에서 그대로 유지합니다.
+이 부록은 번역본이 영어 원문과 같은 인터페이스와 운영 경계를 유지하는지 확인하기 위한 요약입니다. 명령, 설정 키, RPC 경로, 코드 식별자는 번역하지 않습니다. 대신 의미를 한국어로 풀어 쓰고, 실제 배포에서 바뀌면 안 되는 값은 그대로 적습니다.
+`require_network_safety` 와 `block_committed` 는 특히 그대로 유지해야 하는 핵심 용어입니다.
+- `config.json`
+- `module_config.json`
+- `network_config.json`
+- `consensus_config.json`
+- `mempool_config.json`
+- `log_config.json`
 
 ### 섹션 추적
-- section: Model — 이 섹션은 설정값, 검증 증거, 실패 조건, 운영자가 취해야 할 조치를 함께 확인해야 합니다.
-- section: Execution Terms — 이 섹션은 설정값, 검증 증거, 실패 조건, 운영자가 취해야 할 조치를 함께 확인해야 합니다.
-- section: Safety Boundary — 이 섹션은 설정값, 검증 증거, 실패 조건, 운영자가 취해야 할 조치를 함께 확인해야 합니다.
-- section: Crypto Boundary — 이 섹션은 설정값, 검증 증거, 실패 조건, 운영자가 취해야 할 조치를 함께 확인해야 합니다.
-- section: Operational Boundary — 이 섹션은 설정값, 검증 증거, 실패 조건, 운영자가 취해야 할 조치를 함께 확인해야 합니다.
+- section: Model - HotStuff 스타일 BFT, three-chain finality, QC, timeout certificate, locked-QC safety를 함께 읽어야 합니다.
+- section: Execution Terms - QC certified, finalized, executed, state committed의 차이를 구분해야 합니다.
+- section: Safety Boundary - 1/3 미만 Byzantine, domain separation, validator-set hash binding, accountable evidence를 확인해야 합니다.
+- section: Crypto Boundary - `deterministic`, `ed25519`, `bls`, `blst-bls12381-minpk-v1`, `ecvrf-p256-sha256-tai-v1` 를 동일한 기준으로 봐야 합니다.
+- section: Operational Boundary - `vexo_quorum_health_ratio`, `adaptive_round_timeout_enabled`, `recovery_finality_gate_enabled` 와 snapshot/replay health를 함께 봐야 합니다.
 
-### 그대로 유지되는 인터페이스
-- `consensus_config.json` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
-- `execution_commit` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
-- `require_network_safety` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
-- `block_committed` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
-- `blst-bls12381-minpk-v1` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+### 유지해야 할 인터페이스
+- `/v1/status`
+- `/v1/metrics`
+- `/v1/diagnostics`
+- `/v1/finality/latest`
+- `/v1/state/latest`
+- `/v1/recovery/report`
+- `execution_commit`
+- `finalized`
+- `qc`
+- `adaptive_round_timeout_enabled`
+- `recovery_finality_gate_enabled`
+- `vexo_quorum_health_ratio`
+- `blst-bls12381-minpk-v1`
+- `ecvrf-p256-sha256-tai-v1`
+- `proof-of-possession`
+- `remote signer`
+- `three-chain finality`
+
+## 운영 메모
+
+검증인 홈을 새로 만들 때는 `config.json` 과 분리된 `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json`, `log_config.json` 을 함께 점검해야 합니다. 실제 운영에서는 `vexo_quorum_health_ratio` 와 `adaptive_round_timeout_enabled` 를 함께 보고, 피어 수만으로 건강도를 판단하지 않는 것이 좋습니다.
+
+- `execution_commit=finalized` 를 우선으로 둡니다.
+- `qc` 경로는 통제된 시험망에서만 사용합니다.
+- `recovery_finality_gate_enabled` 와 snapshot/replay health를 함께 확인합니다.

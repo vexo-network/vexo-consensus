@@ -62,8 +62,13 @@
 - `vexo_configured_peer_count`
 - `vexo_scored_peer_count`
 - `vexo_banned_peers`
+- `vexo_quorum_health_ratio`
 - `vexo_height_rate_per_minute`
+- `vexo_adaptive_round_timeout_enabled`
 - `vexo_round_timeouts`
+- `vexo_adaptive_round_timeout_nanos`
+- `vexo_recovery_finality_gate_enabled`
+- `vexo_recovery_finality_deferrals`
 - `vexo_proposal_latency_p95_nanos`
 - `vexo_vote_latency_p95_nanos`
 - `vexo_commit_latency_p95_nanos`
@@ -73,7 +78,7 @@
 - `vexo_validator_signing_failures`
 - `vexo_post_commit_reconciliation_failures`
 
-`vexo_peer_count` は古いダッシュボード用に保持されます。新しいダッシュボードでは、`vexo_active_peer_count`、`vexo_configured_peer_count`、`vexo_scored_peer_count` を個別にグラフ化する必要があります。
+`vexo_peer_count` は古いダッシュボード用に保持されます。新しいダッシュボードでは、`vexo_active_peer_count`、`vexo_configured_peer_count`、`vexo_scored_peer_count`、`vexo_quorum_health_ratio` を個別にグラフ化する必要があります。
 
 ## 推奨されるアラート ルール
 
@@ -87,12 +92,19 @@
 |アクティブなピアはありません | `vexo_active_peer_count == 0` 非分離ノードで 1 分間 | P2P の停​​止、認証の不一致、またはアドレスの問題 |
 |ピア数が少なすぎます |アクティブなピアがクォーラム接続目標を下回っています。パーティションまたはブートストラップの問題 |
 |ラウンドタイムアウトスパイク |タイムアウト カウンタは通常のベースラインよりも速く増加します。遅延、プロポーザー障害、またはネットワーク分割 |
+|適応ポリシー無効 | `vexo_adaptive_round_timeout_enabled == 0` を、適応ペーシングを実行するはずのノードで確認 | 設定または実験でペースメーカーが無効化されています |
+|適応タイムアウト高値 | `vexo_adaptive_round_timeout_nanos` が起動時ベースラインを大きく上回る | ネットワーク遅延の急増またはクォーラム形成の低下 |
+|不足ピアでタイムアウト拡大 | `vexo_active_peer_count` が `vexo_configured_peer_count` を下回り、適応タイムアウトが上昇 | クォーラムの健全性が低下し、ペースメーカーが補償しています |
+|クォーラム比率が低い | `vexo_quorum_health_ratio < 0.75` が複数ウィンドウ継続 | 安定した提案/投票経路に十分なアクティブピアがいません |
+|プロポーザー退避中 | `vexo_quorum_health_ratio < 0.75` でブロック提案の間隔が遅くなる | ノードはクォーラム健全性の回復を待っています |
 |コミットのレイテンシが高い | p95/p99 はコンセンサス タイムアウトの予算に近づく |ストア/ランタイムの過負荷 |
 |メンプールの圧力 | mempool サイズは数分間増加します。料金ポリシー、スパム、またはブロック容量の問題 |
 |スナップショットが異常 | `vexo_snapshot_healthy == 0` |状態の同期/回復のリスク |
 |不健全な再生 | `vexo_replay_healthy == 0` |決定論または状態一貫性のリスク |
 |署名者の失敗 | `vexo_validator_signing_failures > 0` | KMS/リモート署名者/ポリシーの失敗 |
 |調整の失敗 | `vexo_post_commit_reconciliation_failures > 0` |永続的な証拠または修理が必要です |
+|回復ゲート無効 | `vexo_recovery_finality_gate_enabled == 0` を、回復ゲーティングを強制するはずのノードで確認 | 最終化されたコミットが回復安全ゲートをすり抜ける可能性があります |
+|回復保留の増加 | `vexo_recovery_finality_deferrals` が増加 | 回復の不一致によって最終化コミットが保留されています |
 |ピアスパイクの禁止 |禁止されたピアが突然増加 |攻撃、ピアの設定ミス、またはスコアしきい値の問題 |
 
 ## 推奨される開始しきい値
@@ -236,8 +248,13 @@
 - `vexo_configured_peer_count` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `vexo_scored_peer_count` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `vexo_banned_peers` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexo_quorum_health_ratio` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `vexo_height_rate_per_minute` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexo_adaptive_round_timeout_enabled` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `vexo_round_timeouts` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexo_adaptive_round_timeout_nanos` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexo_recovery_finality_gate_enabled` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexo_recovery_finality_deferrals` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `vexo_proposal_latency_p95_nanos` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `vexo_vote_latency_p95_nanos` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `vexo_commit_latency_p95_nanos` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

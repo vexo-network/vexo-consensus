@@ -248,6 +248,31 @@ func TestRunUpgradePlan(t *testing.T) {
 	}
 }
 
+func TestRunUpgradeUpdateUsesVersionDefaults(t *testing.T) {
+	home := t.TempDir()
+	planFile := filepath.Join(home, "plan.json")
+	var output bytes.Buffer
+	if err := runCommand(&output, &bytes.Buffer{}, []string{
+		"upgrade", "update",
+		"--version", "v0.2.1",
+		"--plan-file", planFile,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"upgrade update", "version: v0.2.1", "allow_noop_migrations: true", "plan_file:"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected upgrade update output to contain %q, got:\n%s", expected, output.String())
+		}
+	}
+	data, err := os.ReadFile(planFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"binary_version": "v0.2.1"`) || !strings.Contains(string(data), `"name": "v0.2.1"`) {
+		t.Fatalf("unexpected generated plan:\n%s", string(data))
+	}
+}
+
 func TestRunUpgradeApplyPersistsExecutionRecord(t *testing.T) {
 	home := t.TempDir()
 	planFile := filepath.Join(home, "plan.json")
@@ -2379,6 +2404,124 @@ func TestNetworkLoadPayloadUsesRealisticNonce(t *testing.T) {
 	}
 }
 
+func TestNetworkNonceTrackerUsesPerAccountSequences(t *testing.T) {
+	tracker := newNetworkNonceTracker()
+	if next := tracker.Next("validator-1"); next != 1 {
+		t.Fatalf("expected first nonce for validator-1 to be 1, got %d", next)
+	}
+	if next := tracker.Next("validator-2"); next != 1 {
+		t.Fatalf("expected first nonce for validator-2 to be 1, got %d", next)
+	}
+	if next := tracker.Next("validator-1"); next != 2 {
+		t.Fatalf("expected second nonce for validator-1 to be 2, got %d", next)
+	}
+	if next := tracker.Next("validator-2"); next != 2 {
+		t.Fatalf("expected second nonce for validator-2 to be 2, got %d", next)
+	}
+}
+
+func TestEffectiveNetworkActivePeerCountUsesBestAvailableSignal(t *testing.T) {
+	status := networkStatusResponse{
+		ActivePeerCount:     0,
+		PeerCount:           3,
+		ConfiguredPeerCount: 4,
+		ScoredPeerCount:     2,
+	}
+	if actual := effectiveNetworkActivePeerCount(status); actual != 4 {
+		t.Fatalf("expected best available peer count 4, got %d", actual)
+	}
+}
+
+func TestLoadP2PHandshakeSignerSkipsPrivateLoopbackNetworks(t *testing.T) {
+	signer, err := loadP2PHandshakeSigner(startRuntimeConfig{
+		P2PEnabled:       true,
+		P2PListenAddress: "127.0.0.1:26656",
+		P2PPeers: map[p2p.PeerID]string{
+			"validator-2": "127.0.0.1:26666",
+		},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if signer != nil {
+		t.Fatalf("expected private loopback network to skip handshake signer, got %T", signer)
+	}
+}
+
+func TestRunNetworkLoadPlanUsesPerAccountSequences(t *testing.T) {
+	home := t.TempDir()
+	if _, err := writeNetworkFilesWithPorts(home, "vexo-test", 2, true, defaultP2PBasePort, defaultRPCBasePort); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := buildNetworkRuntimePlan(home, 2, "/bin/vexod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key0, err := loadNetworkTxKeyDocument(plan.Nodes[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	account0, err := keyDocumentAccountAddress(key0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key1, err := loadNetworkTxKeyDocument(plan.Nodes[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	account1, err := keyDocumentAccountAddress(key1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	submitted := make([]string, 0, 3)
+	client := http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		switch {
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/tx":
+			var payload struct {
+				Tx string `json:"tx"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				return nil, err
+			}
+			decodedTx, err := base64.StdEncoding.DecodeString(payload.Tx)
+			if err != nil {
+				return nil, err
+			}
+			_, decodedPayload, err := vexoapp.DecodeSignedTx(types.Tx(decodedTx))
+			if err != nil {
+				return nil, err
+			}
+			submitted = append(submitted, string(decodedPayload))
+			if len(submitted) == 3 {
+				cancel()
+			}
+			return jsonHTTPResponse(http.StatusAccepted, `{"accepted":true}`), nil
+		default:
+			return jsonHTTPResponse(http.StatusOK, `{"ok":true}`), nil
+		}
+	})}
+
+	result := runNetworkLoadPlan(ctx, client, plan, "vexo-test", 1000, defaultNetworkLoadTxPrefix)
+	if result.Failed != 0 {
+		t.Fatalf("expected load plan to submit cleanly, got %+v", result)
+	}
+	if len(submitted) != 3 {
+		t.Fatalf("expected three submitted txs, got %d: %v", len(submitted), submitted)
+	}
+	if !strings.Contains(submitted[0], "signer="+string(account0)) || !strings.Contains(submitted[0], ":nonce=1") {
+		t.Fatalf("expected first tx to use account %s nonce 1, got %s", account0, submitted[0])
+	}
+	if !strings.Contains(submitted[1], "signer="+string(account1)) || !strings.Contains(submitted[1], ":nonce=1") {
+		t.Fatalf("expected second tx to use account %s nonce 1, got %s", account1, submitted[1])
+	}
+	if !strings.Contains(submitted[2], "signer="+string(account0)) || !strings.Contains(submitted[2], ":nonce=2") {
+		t.Fatalf("expected third tx to use account %s nonce 2, got %s", account0, submitted[2])
+	}
+}
+
 func TestSignedNetworkPayloadUsesFundedNodeAccount(t *testing.T) {
 	home := t.TempDir()
 	if _, err := writeNetworkFilesWithPorts(home, "vexo-test", 1, true, defaultP2PBasePort, defaultRPCBasePort); err != nil {
@@ -3474,7 +3617,7 @@ func TestRunConfigAuditReportsProductionWarnings(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if !document.OK || document.Strict || !auditContains(document, "key_encrypted_or_remote", false) || !auditContains(document, "p2p_tls_identity", false) {
+	if !document.OK || document.Strict || !auditContains(document, "key_encrypted_or_remote", false) || !auditContains(document, "rpc_http_public", true) || !auditContains(document, "p2p_auth_token", true) || !auditContains(document, "p2p_auth_replay", true) {
 		t.Fatalf("unexpected non-strict audit document: %+v", document)
 	}
 }
@@ -3515,7 +3658,7 @@ func TestRunConfigAuditPackAndDeploymentTemplate(t *testing.T) {
 	if err := json.Unmarshal(deploymentOutput.Bytes(), &deployment); err != nil {
 		t.Fatal(err)
 	}
-	if !deployment.Chain.Execution.RequireSigned || !deployment.Chain.Mempool.EnablePriority || deployment.Runtime.P2PAuthTokenRequired || deployment.Runtime.RPCAdminTokenRequired {
+	if !deployment.Chain.Execution.RequireSigned || !deployment.Chain.Mempool.EnablePriority || !deployment.Runtime.P2PAuthTokenRequired || !deployment.Runtime.RPCAdminTokenRequired {
 		t.Fatalf("unexpected deployment template: %+v", deployment)
 	}
 }

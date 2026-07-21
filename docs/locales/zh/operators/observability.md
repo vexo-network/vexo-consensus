@@ -62,8 +62,13 @@
 - `vexo_configured_peer_count`
 - `vexo_scored_peer_count`
 - `vexo_banned_peers`
+- `vexo_quorum_health_ratio`
 - `vexo_height_rate_per_minute`
+- `vexo_adaptive_round_timeout_enabled`
 - `vexo_round_timeouts`
+- `vexo_adaptive_round_timeout_nanos`
+- `vexo_recovery_finality_gate_enabled`
+- `vexo_recovery_finality_deferrals`
 - `vexo_proposal_latency_p95_nanos`
 - `vexo_vote_latency_p95_nanos`
 - `vexo_commit_latency_p95_nanos`
@@ -73,7 +78,7 @@
 - `vexo_validator_signing_failures`
 - `vexo_post_commit_reconciliation_failures`
 
-`vexo_peer_count` 保留用于较旧的仪表板。新仪表板应分别绘制 `vexo_active_peer_count`、`vexo_configured_peer_count` 和 `vexo_scored_peer_count` 图表。
+`vexo_peer_count` 保留用于较旧的仪表板。新仪表板应分别绘制 `vexo_active_peer_count`、`vexo_configured_peer_count`、`vexo_scored_peer_count` 和 `vexo_quorum_health_ratio` 图表。
 
 ## 建议的警报规则
 
@@ -87,12 +92,19 @@
 |没有活跃的同行 |在非隔离节点上 `vexo_active_peer_count == 0` 1 分钟 | P2P 中断、身份验证不匹配或地址问题 |
 |同行人数太少 |活动对等点低于仲裁连接目标 |分区或引导程序问题 |
 |回合超时秒杀|超时计数器的增长速度快于正常基线 |延迟、提议者失败或网络分区 |
+|自适应策略关闭| 在应运行自适应节奏的节点上出现 `vexo_adaptive_round_timeout_enabled == 0` | 配置或实验关闭了节拍器 |
+|自适应超时偏高| `vexo_adaptive_round_timeout_nanos` 远高于启动基线 | 网络延迟激增或法定人数形成变慢 |
+|缺少对等节点导致超时扩大| `vexo_active_peer_count` 低于 `vexo_configured_peer_count`，同时自适应超时上升 | 法定人数健康状况下降，节拍器正在补偿 |
+|法定人数比率偏低| 多个窗口内 `vexo_quorum_health_ratio < 0.75` | 稳定的提议/投票路径缺少足够的活跃对等节点 |
+|提议者回退激活| `vexo_quorum_health_ratio < 0.75` 且区块提议节奏放缓 | 节点正在等待法定人数健康恢复 |
 |提交延迟高 | p95/p99 接近共识超时预算 |存储/运行时过载 |
 |内存池压力 |内存池大小增长了几分钟 |费用政策、垃圾邮件或区块容量问题 |
 |快照不健康 | `vexo_snapshot_healthy == 0` |状态同步/恢复风险 |
 |重播不健康| `vexo_replay_healthy == 0` |决定论或状态一致性风险|
 |签名者失败 | `vexo_validator_signing_failures > 0` | KMS/远程签名者/策略失败 |
 |协调失败 | `vexo_post_commit_reconciliation_failures > 0` |需要持久证据或进行维修|
+|恢复门关闭 | 在应强制恢复门的节点上出现 `vexo_recovery_finality_gate_enabled == 0` | 已完成的提交可能绕过恢复安全门 |
+|恢复延后 | `vexo_recovery_finality_deferrals` 增加 | 已完成的提交因恢复不一致而被延后 |
 |禁止同行秒杀|同行封禁率骤然上升|攻击、错误配置的对等点或评分阈值问题 |
 
 ## 建议的起始阈值
@@ -236,8 +248,13 @@
 - `vexo_configured_peer_count` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `vexo_scored_peer_count` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `vexo_banned_peers` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_quorum_health_ratio` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `vexo_height_rate_per_minute` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_adaptive_round_timeout_enabled` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `vexo_round_timeouts` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_adaptive_round_timeout_nanos` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_recovery_finality_gate_enabled` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_recovery_finality_deferrals` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `vexo_proposal_latency_p95_nanos` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `vexo_vote_latency_p95_nanos` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `vexo_commit_latency_p95_nanos` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

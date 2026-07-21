@@ -11,6 +11,8 @@ const metricsDurationWindowSize = 256
 
 type nodeMetrics struct {
 	roundTimeouts        atomic.Uint64
+	adaptiveTimeoutNanos atomic.Uint64
+	recoveryDeferrals    atomic.Uint64
 	proposalLatencyNanos atomic.Uint64
 	voteLatencyNanos     atomic.Uint64
 	commitLatencyNanos   atomic.Uint64
@@ -25,6 +27,8 @@ type nodeMetrics struct {
 
 type nodeMetricsSnapshot struct {
 	roundTimeouts        uint64
+	adaptiveTimeoutNanos uint64
+	recoveryDeferrals    uint64
 	proposalLatencyNanos uint64
 	voteLatencyNanos     uint64
 	commitLatencyNanos   uint64
@@ -42,6 +46,14 @@ type nodeMetricsSnapshot struct {
 
 func (metrics *nodeMetrics) observeRoundTimeout() {
 	metrics.roundTimeouts.Add(1)
+}
+
+func (metrics *nodeMetrics) observeAdaptiveTimeout(duration time.Duration) {
+	storeDurationNanos(&metrics.adaptiveTimeoutNanos, duration)
+}
+
+func (metrics *nodeMetrics) observeRecoveryFinalityDeferral() {
+	metrics.recoveryDeferrals.Add(1)
 }
 
 func (metrics *nodeMetrics) observeProposalLatency(duration time.Duration) {
@@ -75,6 +87,8 @@ func (metrics *nodeMetrics) snapshot() nodeMetricsSnapshot {
 	commitP95, commitP99 := metrics.commitWindow.percentiles()
 	return nodeMetricsSnapshot{
 		roundTimeouts:        metrics.roundTimeouts.Load(),
+		adaptiveTimeoutNanos: metrics.adaptiveTimeoutNanos.Load(),
+		recoveryDeferrals:    metrics.recoveryDeferrals.Load(),
 		proposalLatencyNanos: metrics.proposalLatencyNanos.Load(),
 		voteLatencyNanos:     metrics.voteLatencyNanos.Load(),
 		commitLatencyNanos:   metrics.commitLatencyNanos.Load(),

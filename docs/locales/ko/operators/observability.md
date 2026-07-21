@@ -62,8 +62,13 @@
 - `vexo_configured_peer_count`
 - `vexo_scored_peer_count`
 - `vexo_banned_peers`
+- `vexo_quorum_health_ratio`
 - `vexo_height_rate_per_minute`
+- `vexo_adaptive_round_timeout_enabled`
 - `vexo_round_timeouts`
+- `vexo_adaptive_round_timeout_nanos`
+- `vexo_recovery_finality_gate_enabled`
+- `vexo_recovery_finality_deferrals`
 - `vexo_proposal_latency_p95_nanos`
 - `vexo_vote_latency_p95_nanos`
 - `vexo_commit_latency_p95_nanos`
@@ -73,7 +78,7 @@
 - `vexo_validator_signing_failures`
 - `vexo_post_commit_reconciliation_failures`
 
-`vexo_peer_count`은 이전 대시보드에 대해 유지됩니다. 새 대시보드에서는 `vexo_active_peer_count`, `vexo_configured_peer_count` 및 `vexo_scored_peer_count`을 별도로 차트로 작성해야 합니다.
+`vexo_peer_count`은 이전 대시보드에 대해 유지됩니다. 새 대시보드에서는 `vexo_active_peer_count`, `vexo_configured_peer_count`, `vexo_scored_peer_count` 및 `vexo_quorum_health_ratio`를 별도로 차트로 작성해야 합니다.
 
 ## 제안된 경고 규칙
 
@@ -87,12 +92,19 @@
 | 활성 피어 없음 | 비격리 노드에서 1분 동안 `vexo_active_peer_count == 0` | P2P 중단, 인증 불일치 또는 주소 문제 |
 | 동료 수가 너무 적음 | 쿼럼 연결 대상 아래의 활성 피어 | 파티션 또는 부트스트랩 문제 |
 | 라운드 시간 초과 스파이크 | 시간 초과 카운터가 일반 기준보다 빠르게 증가 | 지연 시간, 제안자 실패 또는 네트워크 파티션 |
+| 적응 정책 꺼짐 | 적응형 페이싱을 실행해야 하는 노드에서 `vexo_adaptive_round_timeout_enabled == 0` | 설정 또는 실험으로 페이스메이커가 비활성화됨 |
+| 적응형 시간 초과 높음 | `vexo_adaptive_round_timeout_nanos`가 시작 기준을 크게 초과 | 네트워크 지연 급증 또는 쿼럼 형성 저하 |
+| 누락된 피어로 시간 초과 확대 | `vexo_active_peer_count`가 `vexo_configured_peer_count`보다 낮고 적응형 시간 초과가 증가 | 쿼럼 상태가 저하되고 페이스메이커가 이를 보정 중 |
+| 쿼럼 비율 낮음 | 여러 창에서 `vexo_quorum_health_ratio < 0.75` | 안정적인 제안/투표 경로에 충분한 활성 피어가 없음 |
+| 제안자 백오프 활성 | `vexo_quorum_health_ratio < 0.75` 상태에서 블록 제안 주기가 느려짐 | 노드가 쿼럼 상태 회복을 기다리는 중 |
 | 커밋 대기 시간이 높음 | p95/p99가 합의 시간 초과 예산에 접근 | 저장/런타임 과부하 |
 | 멤풀 압력 | mempool 크기가 몇 분 동안 증가합니다 | 수수료 정책, 스팸, 차단 용량 문제 |
 | 비정상 스냅샷 | `vexo_snapshot_healthy == 0` | 상태 동기화/복구 위험 |
 | 건강에 해로운 재생 | `vexo_replay_healthy == 0` | 결정성 또는 상태 일관성 위험 |
 | 서명자 실패 | `vexo_validator_signing_failures > 0` | KMS/원격 서명자/정책 실패 |
 | 조정 실패 | `vexo_post_commit_reconciliation_failures > 0` | 지속 가능한 증거 또는 커밋 수리가 필요함 |
+| 복구 게이트 꺼짐 | 복구 게이팅을 강제해야 하는 노드에서 `vexo_recovery_finality_gate_enabled == 0` | 최종 커밋이 복구 안전 게이트를 우회할 수 있음 |
+| 복구 보류 증가 | `vexo_recovery_finality_deferrals`가 증가 | 복구 불일치로 인해 최종 커밋이 보류됨 |
 | 금지된 피어 스파이크 | 금지된 동료가 갑자기 증가 | 공격, 잘못 구성된 피어 또는 점수 임계값 문제 |
 
 ## 권장 시작 임계값
@@ -236,8 +248,13 @@
 - `vexo_configured_peer_count` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `vexo_scored_peer_count` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `vexo_banned_peers` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `vexo_quorum_health_ratio` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `vexo_height_rate_per_minute` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `vexo_adaptive_round_timeout_enabled` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `vexo_round_timeouts` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `vexo_adaptive_round_timeout_nanos` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `vexo_recovery_finality_gate_enabled` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `vexo_recovery_finality_deferrals` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `vexo_proposal_latency_p95_nanos` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `vexo_vote_latency_p95_nanos` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `vexo_commit_latency_p95_nanos` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.

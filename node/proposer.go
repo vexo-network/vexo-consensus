@@ -137,7 +137,39 @@ func (node *Node) shouldRecoverProposerRound(ctx context.Context, height types.H
 	if node.hasPendingProposalAtHeight(height) {
 		return false
 	}
+	if !node.quorumHealthAllowsProposerRecovery(ctx, height) {
+		return false
+	}
 	return node.mempoolHasPendingTx(ctx)
+}
+
+func (node *Node) quorumHealthAllowsProposerRecovery(ctx context.Context, height types.Height) bool {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return true
+	}
+	validatorSet, err := runtime.Validators.ValidatorSet(ctx, height)
+	if err != nil {
+		return true
+	}
+	validatorCount := len(validatorSet.List())
+	if validatorCount <= 1 {
+		return true
+	}
+	status := node.Status(ctx)
+	if status.ActivePeerCount <= 0 {
+		return true
+	}
+	if status.ActivePeerCount < validatorCount-1 {
+		return false
+	}
+	if status.ConfiguredPeerCount > 0 {
+		ratio := float64(status.ActivePeerCount) / float64(status.ConfiguredPeerCount)
+		if ratio < 0.75 {
+			return false
+		}
+	}
+	return true
 }
 
 func (node *Node) nextLocalProposerRound(ctx context.Context, height types.Height, round types.Round) (types.Round, bool, error) {

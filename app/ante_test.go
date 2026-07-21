@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"math/big"
+	"strings"
 	"testing"
 
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
@@ -201,6 +203,35 @@ func TestAnteKeeperCollectsFeeAndReportsGas(t *testing.T) {
 	if keeper.GasUsed(tx) != 99 || keeper.FeePaid(tx) != 7 {
 		t.Fatalf("unexpected gas/fee metadata: gas=%d fee=%d", keeper.GasUsed(tx), keeper.FeePaid(tx))
 	}
+}
+
+func TestAnteKeeperReportsDetailedNonceMismatch(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	if err := setBankBalance(context.Background(), storage, "alice", 100); err != nil {
+		t.Fatal(err)
+	}
+	if err := keeperAccountSequenceForTest(storage, "alice", 1); err != nil {
+		t.Fatal(err)
+	}
+
+	keeper := NewAnteKeeper(AnteConfig{RequireNonce: true})
+	err = keeper.CheckTx(Context{Store: storage}, []byte("bank:send:fee=1:gas=10:signer=alice:nonce=3"))
+	if !errors.Is(err, ErrInvalidNonce) {
+		t.Fatalf("expected invalid nonce, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "signer=alice") || !strings.Contains(err.Error(), "nonce=3") {
+		t.Fatalf("expected detailed nonce mismatch, got %v", err)
+	}
+}
+
+func keeperAccountSequenceForTest(storage StateStore, signer string, sequence uint64) error {
+	var encoded [8]byte
+	binary.BigEndian.PutUint64(encoded[:], sequence)
+	return storage.Set(context.Background(), "auth", []byte("nonce/"+signer), encoded[:])
 }
 
 func TestAnteKeeperFeeBatchFailureDoesNotMutateBalances(t *testing.T) {

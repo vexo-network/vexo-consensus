@@ -61,6 +61,31 @@ func TestSortTxsWithSaltIsDeterministicAndSaltSensitive(t *testing.T) {
 	}
 }
 
+func TestSortTxsWithSaltPreservesSignerNonceOrder(t *testing.T) {
+	txs := []types.Tx{
+		[]byte("bank:send:alice:bob:1:signer=alice:nonce=3"),
+		[]byte("bank:send:alice:bob:1:signer=alice:nonce=1"),
+		[]byte("bank:send:alice:bob:1:signer=alice:nonce=2"),
+		[]byte("bank:send:carol:dave:1:signer=carol:nonce=1"),
+	}
+	ordered := SortTxsWithSalt(txs, HeightSalt("vexo-test", 5))
+	if !IsOrderedWithSalt(ordered, HeightSalt("vexo-test", 5)) {
+		t.Fatalf("expected signer nonce order to validate, got %q", ordered)
+	}
+	seenAlice := make([]string, 0, 3)
+	for _, tx := range ordered {
+		if bytes.Contains(tx, []byte("signer=alice")) {
+			seenAlice = append(seenAlice, string(tx))
+		}
+	}
+	if len(seenAlice) != 3 ||
+		seenAlice[0] != "bank:send:alice:bob:1:signer=alice:nonce=1" ||
+		seenAlice[1] != "bank:send:alice:bob:1:signer=alice:nonce=2" ||
+		seenAlice[2] != "bank:send:alice:bob:1:signer=alice:nonce=3" {
+		t.Fatalf("expected alice nonce order to be ascending, got %q", seenAlice)
+	}
+}
+
 func equalTxs(left []types.Tx, right []types.Tx) bool {
 	if len(left) != len(right) {
 		return false

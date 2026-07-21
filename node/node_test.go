@@ -387,6 +387,22 @@ func TestSafeRecoveryHeightUsesLastConsistentState(t *testing.T) {
 	}
 }
 
+func TestRecoveryFinalityAllowsCommitUsesSafeHeightFloor(t *testing.T) {
+	report := RecoveryReport{LatestStateHeight: 10, LatestBlock: 8, SafeHeight: 8}
+	if !recoveryFinalityAllowsCommit(report, 8) {
+		t.Fatal("expected commit at safe height to be allowed")
+	}
+	if recoveryFinalityAllowsCommit(report, 9) {
+		t.Fatal("expected commit above safe height to be deferred")
+	}
+	if !recoveryFinalityAllowsCommit(RecoveryReport{LatestStateHeight: 10, LatestBlock: 10, SafeHeight: 10}, 10) {
+		t.Fatal("expected consistent recovery report to allow commit")
+	}
+	if !recoveryFinalityAllowsCommit(RecoveryReport{}, 42) {
+		t.Fatal("expected empty recovery report to allow commit")
+	}
+}
+
 func TestNodePruneBelowRemovesOldBlocks(t *testing.T) {
 	node := newTestNode(t)
 	if err := node.Start(context.Background()); err != nil {
@@ -675,6 +691,8 @@ func TestNodeNetworkSafetyRejectsMismatchedValidatorSigner(t *testing.T) {
 func TestNodeMetricsExposeObservedConsensusCounters(t *testing.T) {
 	node := newTestNode(t)
 	node.metrics.observeRoundTimeout()
+	node.metrics.observeAdaptiveTimeout(200 * time.Millisecond)
+	node.metrics.observeRecoveryFinalityDeferral()
 	node.metrics.observeSigningFailure()
 	node.metrics.observeProposalLatency(2 * time.Millisecond)
 	node.metrics.observeVoteLatency(3 * time.Millisecond)
@@ -686,6 +704,15 @@ func TestNodeMetricsExposeObservedConsensusCounters(t *testing.T) {
 	}
 	if metrics.RoundTimeouts != 1 || metrics.SigningFailures != 1 {
 		t.Fatalf("unexpected counters: %+v", metrics)
+	}
+	if !metrics.AdaptiveRoundTimeoutEnabled || !metrics.RecoveryFinalityGateEnabled {
+		t.Fatalf("expected adaptive policies enabled in metrics: %+v", metrics)
+	}
+	if metrics.QuorumHealthRatio != 0 {
+		t.Fatalf("expected zero quorum health ratio without peers, got %+v", metrics)
+	}
+	if metrics.AdaptiveRoundTimeoutNanos == 0 || metrics.RecoveryFinalityDeferrals != 1 {
+		t.Fatalf("expected adaptive timeout and recovery deferral metrics: %+v", metrics)
 	}
 	if metrics.ProposalLatencyNanos == 0 || metrics.VoteLatencyNanos == 0 || metrics.CommitLatencyNanos == 0 {
 		t.Fatalf("expected latency metrics to be populated: %+v", metrics)

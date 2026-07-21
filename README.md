@@ -112,10 +112,12 @@ If `consensus_config.json` has `"create_empty_blocks": false`, height can stay u
 Use this when you want to see peers connect and blocks commit on one machine:
 
 ```bash
+export VEXO_KEY_PASSPHRASE='change-me'
+
 docker compose \
   -f deployments/docker/compose.single-host.init.yml \
   -f deployments/docker/compose.single-host.init.build.cgo.yml \
-  run --rm init
+  run --build --rm init
 
 docker compose \
   -f deployments/docker/compose.single-host.yml \
@@ -148,6 +150,8 @@ Use this custom provider URL:
 http://127.0.0.1:28657/web3
 ```
 
+For the Docker single-host network, the init step seeds a prefunded local Web3 account on each validator so Remix can deploy contracts with `eth_sendTransaction` out of the box. Use that only for local development.
+
 Quick checks:
 
 ```bash
@@ -168,7 +172,7 @@ Node behavior is configured through files, not long `start` flags:
 
 - `.vexo/config.json`: node identity, chain ID, data path, and split config pointers
 - `.vexo/module_config.json`: app modules, execution policy, EVM chain ID, gas, fees, and governance policy
-- `.vexo/network_config.json`: RPC/P2P listen addresses, peers, seeds, TLS, Web3 RPC, state sync, and peer scoring
+- `.vexo/network_config.json`: RPC/P2P listen addresses, peers, seeds, Web3 RPC, state sync, and peer scoring
 - `.vexo/consensus_config.json`: consensus timing, empty-block policy, finality/execution boundary, crypto, VRF, and committee policy
 - `.vexo/mempool_config.json`: mempool size, fees, replacement policy, TTL, and WAL persistence
 - `.vexo/log_config.json`: log format, level, block commit logs, and peer event logs

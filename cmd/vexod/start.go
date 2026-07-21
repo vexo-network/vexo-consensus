@@ -65,10 +65,6 @@ type startRuntimeConfig struct {
 	RPCAddress              string
 	RPCAdminToken           string
 	RPCAdminTokens          map[string][]string
-	RPCTLSCertPath          string
-	RPCTLSKeyPath           string
-	RPCTLSCAPath            string
-	RPCTLSServerName        string
 	RPCEnablePprof          bool
 	RPCRequestTimeout       time.Duration
 	ShutdownTimeout         time.Duration
@@ -445,6 +441,10 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 	if err := node.Start(ctx); err != nil {
 		return err
 	}
+	if err := waitForP2PPeerReadiness(ctx, node, runtimeConfig, logEvent); err != nil {
+		_ = withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop)
+		return err
+	}
 	consensusLoopStarted := false
 	if runtimeConfig.ConsensusLoopEnabled {
 		if err := node.StartConsensusLoop(ctx, runtimeConfig.ConsensusLoop); err != nil {
@@ -462,15 +462,9 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			_ = withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop)
 			return err
 		}
-		rpcTLSConfig, err := loadRPCTLSConfig(runtimeConfig)
-		if err != nil {
-			_ = withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop)
-			return err
-		}
 		address, shutdown, err := startRPCServerWithConfig(node, runtimeConfig.RPCAddress, vexorpc.Config{
 			AdminToken:                  runtimeConfig.RPCAdminToken,
 			AdminTokens:                 runtimeConfig.RPCAdminTokens,
-			TLSConfig:                   rpcTLSConfig,
 			EnablePprof:                 runtimeConfig.RPCEnablePprof,
 			RequestTimeout:              runtimeConfig.RPCRequestTimeout,
 			MaxRequestBytes:             runtimeConfig.RPCMaxRequestBytes,
@@ -491,7 +485,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			return err
 		}
 		rpcShutdown = shutdown
-		logEvent("rpc_listening", map[string]any{"rpc_address": address, "pprof": runtimeConfig.RPCEnablePprof, "tls": rpcTLSConfig != nil})
+		logEvent("rpc_listening", map[string]any{"rpc_address": address, "pprof": runtimeConfig.RPCEnablePprof, "tls": false})
 	}
 	if p2pWire != nil {
 		logEvent("p2p_listening", map[string]any{"p2p_address": p2pWire.Address(), "p2p_peers": len(runtimeConfig.P2PPeers), "p2p_seeds": len(runtimeConfig.P2PSeeds)})
@@ -517,6 +511,42 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 	}
 	logEvent("node_stopped", map[string]any{"chain_id": inputs.Plan.ChainID})
 	return nil
+}
+
+func waitForP2PPeerReadiness(ctx context.Context, node *vexonode.Node, runtimeConfig startRuntimeConfig, logEvent vexonode.EventLogger) error {
+	expectedPeers := len(runtimeConfig.P2PPeers)
+	if expectedPeers <= 0 {
+		return nil
+	}
+	waitTimeout := runtimeConfig.P2PDialTimeout * 3
+	if waitTimeout < 15*time.Second {
+		waitTimeout = 15 * time.Second
+	}
+	if waitTimeout > 60*time.Second {
+		waitTimeout = 60 * time.Second
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, waitTimeout)
+	defer cancel()
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		status := node.Status(waitCtx)
+		if bestPeerCount(status.ActivePeerCount, status.PeerCount, status.ConfiguredPeerCount, status.ScoredPeerCount) >= expectedPeers {
+			if logEvent != nil {
+				logEvent("p2p_peer_readiness_ready", map[string]any{
+					"active_peers":     status.ActivePeerCount,
+					"configured_peers": status.ConfiguredPeerCount,
+					"target_peers":     expectedPeers,
+				})
+			}
+			return nil
+		}
+		select {
+		case <-waitCtx.Done():
+			return fmt.Errorf("timed out waiting for p2p peers: active=%d configured=%d target=%d", status.ActivePeerCount, status.ConfiguredPeerCount, expectedPeers)
+		case <-ticker.C:
+		}
+	}
 }
 
 func maybeRunStartupStateSync(ctx context.Context, inputs startInputs, runtimeConfig startRuntimeConfig, logEvent vexonode.EventLogger) error {
@@ -815,10 +845,6 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 		RPCAddress:              runtime.RPC.Address,
 		RPCAdminToken:           runtime.RPC.AdminToken,
 		RPCAdminTokens:          cloneStringSliceMap(runtime.RPC.AdminTokens),
-		RPCTLSCertPath:          resolveOptionalPath(home, runtime.RPC.TLSCertPath),
-		RPCTLSKeyPath:           resolveOptionalPath(home, runtime.RPC.TLSKeyPath),
-		RPCTLSCAPath:            resolveOptionalPath(home, runtime.RPC.TLSCAPath),
-		RPCTLSServerName:        runtime.RPC.TLSServerName,
 		RPCEnablePprof:          runtime.RPC.EnablePprof,
 		RPCMaxRequestBytes:      runtime.RPC.MaxRequestBytes,
 		RPCWeb3MaxSubscriptions: runtime.RPC.Web3MaxSubscriptions,
@@ -849,10 +875,12 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 		StateSync:               runtime.StateSync,
 		ConsensusLoopEnabled:    runtime.Consensus.LoopEnabled,
 		ConsensusLoop: vexonode.ConsensusLoopConfig{
-			MaxBlockBytes:       runtime.Consensus.MaxBlockBytes,
-			CreateEmptyBlocks:   runtime.Consensus.CreateEmptyBlocks,
-			ExecutionCommitMode: vexonode.ExecutionCommitMode(runtime.Consensus.ExecutionCommit),
-			AllowUnsafeQCCommit: runtime.Consensus.AllowUnsafeQCCommit,
+			MaxBlockBytes:               runtime.Consensus.MaxBlockBytes,
+			CreateEmptyBlocks:           runtime.Consensus.CreateEmptyBlocks,
+			ExecutionCommitMode:         vexonode.ExecutionCommitMode(runtime.Consensus.ExecutionCommit),
+			AllowUnsafeQCCommit:         runtime.Consensus.AllowUnsafeQCCommit,
+			AdaptiveRoundTimeoutEnabled: runtime.Consensus.AdaptiveRoundTimeoutEnabled == nil || *runtime.Consensus.AdaptiveRoundTimeoutEnabled,
+			RecoveryFinalityGateEnabled: runtime.Consensus.RecoveryFinalityGateEnabled == nil || *runtime.Consensus.RecoveryFinalityGateEnabled,
 		},
 		LogFormat: runtime.Log.Format,
 		LogLevel:  runtime.Log.Level,
@@ -1038,9 +1066,6 @@ func validateRuntimeNetworkSafety(cfg startRuntimeConfig) error {
 		if cfg.P2PNodeKeyPath == "" {
 			return fmt.Errorf("runtime.p2p.node_key_path is required for public peer connections: %w", vexoconfig.ErrUnsafeNetworkConfig)
 		}
-		if cfg.P2PTLSCertPath == "" || cfg.P2PTLSKeyPath == "" || cfg.P2PTLSCAPath == "" {
-			return fmt.Errorf("runtime.p2p tls cert, key, and ca paths are required for public peer connections: %w", vexoconfig.ErrUnsafeNetworkConfig)
-		}
 		if cfg.P2PAuthToken != "" && cfg.P2PAuthReplayPath == "" {
 			return fmt.Errorf("runtime.p2p.auth_replay_path is required for public peer connections: %w", vexoconfig.ErrUnsafeNetworkConfig)
 		}
@@ -1048,16 +1073,13 @@ func validateRuntimeNetworkSafety(cfg startRuntimeConfig) error {
 	if cfg.P2PRequireAuthReplay && cfg.P2PAuthReplayPath == "" {
 		return fmt.Errorf("runtime.p2p.require_auth_replay_store requires runtime.p2p.auth_replay_path: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
-	if cfg.RPCEnabled && !isPrivateListenAddress(cfg.RPCAddress) && (cfg.RPCTLSCertPath == "" || cfg.RPCTLSKeyPath == "") {
-		return fmt.Errorf("runtime.rpc tls cert and key are required for public rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
-	}
-	if cfg.RPCEnabled && len(cfg.RPCEVMAccountKeys) > 0 && !isPrivateListenAddress(cfg.RPCAddress) {
+	if cfg.RPCEnabled && cfg.RequireNetworkSafety && len(cfg.RPCEVMAccountKeys) > 0 && !isPrivateListenAddress(cfg.RPCAddress) {
 		return fmt.Errorf("runtime.rpc.evm_account_private_keys are only allowed on private rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
 	if cfg.RPCEnabled && cfg.RequireNetworkSafety && len(cfg.RPCEVMAccountKeys) > 0 {
 		return fmt.Errorf("runtime.rpc.evm_account_private_keys are not allowed when require_network_safety=true; use evm_account_key_envs or an external signer: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
-	if cfg.RPCEnabled && len(cfg.RPCEVMAccountKeyEnvs) > 0 && !isPrivateListenAddress(cfg.RPCAddress) {
+	if cfg.RPCEnabled && cfg.RequireNetworkSafety && len(cfg.RPCEVMAccountKeyEnvs) > 0 && !isPrivateListenAddress(cfg.RPCAddress) {
 		return fmt.Errorf("runtime.rpc.evm_account_key_envs are only allowed on private rpc listeners: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
 	return nil
@@ -1181,6 +1203,9 @@ func nodeHasPublicExposure(cfg startRuntimeConfig) bool {
 }
 
 func loadP2PHandshakeSigner(runtimeConfig startRuntimeConfig, fallback vexocrypto.Signer) (vexocrypto.Signer, error) {
+	if !requiresAuthenticatedP2P(runtimeConfig) {
+		return nil, nil
+	}
 	if runtimeConfig.P2PNodeKeyPath == "" {
 		return fallback, nil
 	}
@@ -1322,10 +1347,6 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 	if requiresAuthenticatedP2P(runtimeConfig) && handshakeSigner == nil {
 		return nil, fmt.Errorf("runtime.p2p.node_key_path is required for authenticated P2P handshake: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
-	tlsConfig, err := loadP2PTLSConfig(runtimeConfig)
-	if err != nil {
-		return nil, err
-	}
 	addrBook, err := p2p.OpenAddrBookWithPolicy(runtimeConfig.AddrBookPath, runtimeConfig.AddrBookMaxFailures)
 	if err != nil {
 		return nil, err
@@ -1336,9 +1357,9 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 		return nil, err
 	}
 	peers := mergePeerMaps(addrBook.PeerMap(peerID), runtimeConfig.P2PPeers, runtimeConfig.P2PSeeds)
-	var grpcTransport *transport.GRPCTransport
 	requireHandshakeSignature := requiresAuthenticatedP2P(runtimeConfig)
 	var authReplayStore transport.AuthReplayStore
+	var grpcTransport *transport.GRPCTransport
 	if runtimeConfig.P2PAuthReplayPath != "" {
 		authReplayStore, err = transport.NewFileAuthReplayStore(runtimeConfig.P2PAuthReplayPath)
 		if err != nil {
@@ -1358,8 +1379,8 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 		AuthToken:                 runtimeConfig.P2PAuthToken,
 		AuthReplayStore:           authReplayStore,
 		RequireAuthReplayStore:    runtimeConfig.P2PRequireAuthReplay || requireHandshakeSignature,
-		TLSConfig:                 tlsConfig,
-		RequireTLS:                requiresAuthenticatedP2P(runtimeConfig),
+		TLSConfig:                 nil,
+		RequireTLS:                false,
 		HandshakeSigner:           handshakeSigner,
 		HandshakeVerifier:         handshakeSigner,
 		RequireHandshakeSignature: requireHandshakeSignature,
@@ -1389,11 +1410,7 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 			return nil
 		},
 	}
-	if requiresAuthenticatedP2P(runtimeConfig) {
-		grpcTransport, err = transport.NewNetworkSafeGRPCTransport(grpcConfig)
-	} else {
-		grpcTransport, err = transport.NewGRPCTransport(grpcConfig)
-	}
+	grpcTransport, err = transport.NewGRPCTransport(grpcConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -1435,47 +1452,6 @@ func loadP2PTLSConfig(runtimeConfig startRuntimeConfig) (*tls.Config, error) {
 		pool := x509.NewCertPool()
 		if !pool.AppendCertsFromPEM(caBytes) {
 			return nil, errors.New("p2p tls ca file does not contain PEM certificates")
-		}
-		tlsConfig.RootCAs = pool
-		tlsConfig.ClientCAs = pool
-		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
-	}
-	return tlsConfig, nil
-}
-
-func loadRPCTLSConfig(runtimeConfig startRuntimeConfig) (*tls.Config, error) {
-	if runtimeConfig.RPCTLSCertPath == "" &&
-		runtimeConfig.RPCTLSKeyPath == "" &&
-		runtimeConfig.RPCTLSCAPath == "" &&
-		runtimeConfig.RPCTLSServerName == "" {
-		return nil, nil
-	}
-	if (runtimeConfig.RPCTLSCertPath == "") != (runtimeConfig.RPCTLSKeyPath == "") {
-		return nil, errors.New("rpc tls cert and key must be configured together")
-	}
-	if runtimeConfig.RPCTLSCertPath == "" {
-		return nil, errors.New("rpc tls cert and key are required when rpc tls is configured")
-	}
-	if runtimeConfig.RPCTLSServerName != "" && runtimeConfig.RPCTLSCAPath == "" {
-		return nil, errors.New("rpc tls server name requires a tls ca path")
-	}
-	tlsConfig := &tls.Config{
-		MinVersion: tls.VersionTLS13,
-		ServerName: runtimeConfig.RPCTLSServerName,
-	}
-	certificate, err := tls.LoadX509KeyPair(runtimeConfig.RPCTLSCertPath, runtimeConfig.RPCTLSKeyPath)
-	if err != nil {
-		return nil, err
-	}
-	tlsConfig.Certificates = []tls.Certificate{certificate}
-	if runtimeConfig.RPCTLSCAPath != "" {
-		caBytes, err := os.ReadFile(runtimeConfig.RPCTLSCAPath)
-		if err != nil {
-			return nil, err
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(caBytes) {
-			return nil, errors.New("rpc tls ca file does not contain PEM certificates")
 		}
 		tlsConfig.RootCAs = pool
 		tlsConfig.ClientCAs = pool
