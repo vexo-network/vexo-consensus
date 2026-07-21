@@ -370,6 +370,8 @@ func (node *Node) broadcastAncestorProposals(reactor *consensus.TransportReactor
 	if reactor == nil || beforeHeight <= 1 {
 		return
 	}
+	ctx := context.Background()
+	node.pruneStalePendingProposals(ctx)
 	pending := node.pendingProposals()
 	proposals := make([]consensus.Proposal, 0, len(pending))
 	for _, proposal := range pending {
@@ -383,6 +385,11 @@ func (node *Node) broadcastAncestorProposals(reactor *consensus.TransportReactor
 	})
 	for _, proposal := range proposals {
 		if proposal.Block.Header.Height == 0 || proposal.Block.Header.Height >= beforeHeight {
+			continue
+		}
+		if !node.cachedProposalStillValid(ctx, proposal) {
+			node.removePending(consensus.HashBlock(proposal.Block))
+			node.removeProposed(proposal.Block.Header.Height, proposal.Round)
 			continue
 		}
 		proposal := proposal

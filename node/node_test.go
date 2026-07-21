@@ -196,6 +196,24 @@ func TestNodeInvalidatesStaleCachedProposalBeforeRebroadcast(t *testing.T) {
 	if valid := node.cachedProposalStillValid(context.Background(), proposal); valid {
 		t.Fatal("expected cached proposal to become stale after nonce advancement")
 	}
+
+	machine, err = node.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(2, 0)
+	ancestor := consensus.Proposal{
+		Block: types.Block{
+			Header: types.Header{
+				ChainID: "vexo-test",
+				Height:  1,
+			},
+		},
+		Round: 0,
+	}
+	if valid := node.cachedProposalStillValid(context.Background(), ancestor); valid {
+		t.Fatal("expected cached ancestor proposal to become stale after height advance")
+	}
 }
 
 func TestNodeRemovesNonceInvalidProposalTxs(t *testing.T) {

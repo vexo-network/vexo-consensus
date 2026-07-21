@@ -218,6 +218,13 @@ func (node *Node) cachedProposalStillValid(ctx context.Context, proposal consens
 	if err != nil {
 		return false
 	}
+	status := machine.Status(ctx)
+	if proposal.Block.Header.Height < status.Height {
+		return false
+	}
+	if proposal.Block.Header.Height == status.Height && proposal.Round < status.Round {
+		return false
+	}
 	if !machine.IsSafeProposal(proposal) {
 		return false
 	}
@@ -238,6 +245,16 @@ func (node *Node) handleRejectedProposal(proposal consensus.Proposal, err error)
 		return
 	}
 	node.removeNonceInvalidProposalTxs(proposal.Block, proposal.Round)
+}
+
+func (node *Node) pruneStalePendingProposals(ctx context.Context) {
+	for _, proposal := range node.pendingProposals() {
+		if node.cachedProposalStillValid(ctx, proposal) {
+			continue
+		}
+		node.removePending(consensus.HashBlock(proposal.Block))
+		node.removeProposed(proposal.Block.Header.Height, proposal.Round)
+	}
 }
 
 func (node *Node) removeNonceInvalidProposalTxs(block types.Block, round types.Round) {
