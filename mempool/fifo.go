@@ -32,6 +32,7 @@ type FIFOConfig struct {
 	WALPath            string
 	EnableReplacement  bool
 	ReplacementBumpBPS uint64
+	ReplayCheckTx      func(context.Context, types.Tx) error
 }
 
 type FIFO struct {
@@ -245,6 +246,34 @@ func (pool *FIFO) markCommittedLocked(committed []types.Tx) error {
 	pool.txs = remaining
 	pool.rebuildIndex()
 	return nil
+}
+
+func (pool *FIFO) RetainTxs(ctx context.Context, keep func(types.Tx) bool) (int, error) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	if err := pool.checkContext(ctx); err != nil {
+		return 0, err
+	}
+	if keep == nil {
+		return 0, nil
+	}
+
+	remaining := make([]types.Tx, 0, len(pool.txs))
+	removed := 0
+	for _, tx := range pool.txs {
+		if keep(tx) {
+			remaining = append(remaining, tx)
+			continue
+		}
+		removed++
+		pool.markSeen(HashTx(tx))
+	}
+	if removed == 0 {
+		return 0, nil
+	}
+	pool.txs = remaining
+	pool.rebuildIndex()
+	return removed, nil
 }
 
 func (pool *FIFO) orderedTxs() []types.Tx {

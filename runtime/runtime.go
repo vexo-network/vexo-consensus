@@ -215,6 +215,23 @@ func newWithStoreAndCryptoRegistry(ctx context.Context, cfg config.Config, appli
 	if fifoConfig.Author == "" && len(initialValidators) > 0 {
 		fifoConfig.Author = initialValidators[0].ID
 	}
+	if storage != nil {
+		if appRuntime, ok := application.(*app.Runtime); ok {
+			appRuntime.WithStore(storage)
+		}
+		fifoConfig.ReplayCheckTx = func(ctx context.Context, tx types.Tx) error {
+			if checker, ok := application.(app.ContextCheckTxApplication); ok {
+				if result := checker.CheckTxContext(ctx, tx); result.Result.Code != 0 {
+					return errors.New(result.Result.Log)
+				}
+				return nil
+			}
+			if result := application.CheckTx(tx); result.Result.Code != 0 {
+				return errors.New(result.Result.Log)
+			}
+			return nil
+		}
+	}
 	dag := mempool.NewDAG(mempool.NewFIFO(fifoConfig))
 	if fifoConfig.WALPath != "" {
 		durableDAG, err := mempool.OpenDurableDAG(ctx, fifoConfig.WALPath, mempool.NewFIFO(fifoConfig))
@@ -224,8 +241,19 @@ func newWithStoreAndCryptoRegistry(ctx context.Context, cfg config.Config, appli
 		dag = durableDAG
 	}
 	if storage != nil {
-		if appRuntime, ok := application.(*app.Runtime); ok {
-			appRuntime.WithStore(storage)
+		removed, err := dag.RetainTxs(ctx, func(tx types.Tx) bool {
+			if checker, ok := application.(app.ContextCheckTxApplication); ok {
+				return checker.CheckTxContext(ctx, tx).Result.Code == 0
+			}
+			return application.CheckTx(tx).Result.Code == 0
+		})
+		if err != nil {
+			return nil, err
+		}
+		if removed > 0 {
+			if err := dag.CompactWAL(ctx); err != nil {
+				return nil, err
+			}
 		}
 	}
 	slashingKeeper := consensus.SlashingKeeper(slashing.NewInMemoryKeeper(nil))

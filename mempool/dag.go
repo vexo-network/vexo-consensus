@@ -78,6 +78,12 @@ func (dag *DAG) MarkCommitted(ctx context.Context, txs []types.Tx) error {
 	})
 }
 
+func (dag *DAG) RetainTxs(ctx context.Context, keep func(types.Tx) bool) (int, error) {
+	dag.mu.Lock()
+	defer dag.mu.Unlock()
+	return dag.base.RetainTxs(ctx, keep)
+}
+
 func (dag *DAG) CompactWAL(ctx context.Context) error {
 	if dag == nil || dag.wal == nil {
 		return nil

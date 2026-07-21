@@ -3,10 +3,12 @@ package runtime
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/config"
+	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
@@ -198,6 +200,74 @@ func TestRuntimeReplayStrictDoesNotFallbackToStoredRange(t *testing.T) {
 	}
 	if _, err := runtime.ReplayIsolated(context.Background(), 2, 2); err == nil {
 		t.Fatal("expected isolated replay to reject stored-range fallback")
+	}
+}
+
+func TestRuntimeSkipsInvalidReplayTxs(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{&runtimeModule{name: "bank"}}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer := types.Address("alice")
+	if err := vexoapp.NewAccountKeeper().SetSequence(context.Background(), storage, signer, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	walPath := filepath.Join(t.TempDir(), "mempool.wal")
+	wal, err := mempool.OpenWAL(walPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := wal.AppendAddTx(context.Background(), []byte("bank:send:fee=1:gas=1:signer=alice:nonce=0")); err != nil {
+		t.Fatal(err)
+	}
+	if err := wal.AppendAddTx(context.Background(), []byte("bank:send:fee=1:gas=1:signer=alice:nonce=2")); err != nil {
+		t.Fatal(err)
+	}
+	if err := wal.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	invalidTx := []byte("bank:send:fee=1:gas=1:signer=alice:nonce=0")
+	validTx := []byte("bank:send:fee=1:gas=1:signer=alice:nonce=2")
+	application.WithStore(storage).WithAnte(vexoapp.NewAnteKeeper(vexoapp.AnteConfig{RequireNonce: true}))
+	if result := application.CheckTxContext(context.Background(), invalidTx); result.Result.Code == 0 {
+		t.Fatalf("expected nonce replay to be rejected before runtime startup, got %+v", result)
+	}
+	if result := application.CheckTxContext(context.Background(), validTx); result.Result.Code != 0 {
+		t.Fatalf("expected replay-valid tx to pass before runtime startup, got %+v", result)
+	}
+
+	cfg := config.Default("vexo-test")
+	cfg.Mempool.WALPath = walPath
+	runtime, err := NewWithStore(cfg, application, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+	}, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if runtimeApp, ok := runtime.App.(*vexoapp.Runtime); ok {
+		if result := runtimeApp.CheckTxContext(context.Background(), invalidTx); result.Result.Code == 0 {
+			t.Fatalf("expected bound runtime to reject nonce replay, got %+v", result)
+		}
+		if result := runtimeApp.CheckTxContext(context.Background(), validTx); result.Result.Code != 0 {
+			t.Fatalf("expected bound runtime to accept replay-valid tx, got %+v", result)
+		}
+	}
+
+	pending, err := runtime.Mempool.PendingTxs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || string(pending[0]) != string(validTx) {
+		t.Fatalf("expected stale replay tx to be skipped, got %q", pending)
 	}
 }
 
