@@ -537,9 +537,28 @@ func (node *Node) broadcastConsensusAsync(event string, fields map[string]any, b
 		copiedFields[key] = value
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), consensusGossipTimeout)
-		defer cancel()
-		node.logConsensusBroadcastFailure(event, broadcast(ctx), copiedFields)
+		deadline := time.Now().Add(consensusGossipTimeout)
+		var lastErr error
+		for attempt := 0; ; attempt++ {
+			if time.Now().After(deadline) {
+				break
+			}
+			attemptCtx, cancel := context.WithTimeout(context.Background(), time.Until(deadline))
+			lastErr = broadcast(attemptCtx)
+			cancel()
+			if lastErr == nil {
+				return
+			}
+			sleep := time.Duration(250*(attempt+1)) * time.Millisecond
+			if sleep > 2*time.Second {
+				sleep = 2 * time.Second
+			}
+			if time.Now().Add(sleep).After(deadline) {
+				break
+			}
+			time.Sleep(sleep)
+		}
+		node.logConsensusBroadcastFailure(event, lastErr, copiedFields)
 	}()
 }
 
@@ -920,12 +939,21 @@ func (node *Node) CommitFinalizedBlock(ctx context.Context) (CommitReadyResult, 
 	if err != nil {
 		return CommitReadyResult{}, false, err
 	}
+	report, reportErr := node.RecoveryReport(ctx, false)
 	decisions := machine.CommitDecisions()
 	if len(decisions) == 0 {
 		return CommitReadyResult{}, false, nil
 	}
 	pending := node.pendingProposals()
 	for _, decision := range decisions {
+		if node.loopConfig.RecoveryFinalityGateEnabled && reportErr == nil && !recoveryFinalityAllowsCommit(report, decision.CommittedHeight) {
+			node.metrics.observeRecoveryFinalityDeferral()
+			node.logEvent("recovery_finality_deferred", map[string]any{
+				"height":      decision.CommittedHeight,
+				"safe_height": report.SafeHeight,
+			})
+			continue
+		}
 		proposal, found := pending[decision.CommittedBlockHash]
 		if !found {
 			continue

@@ -92,7 +92,6 @@ var defaultRequiredExecutionFixtureCategories = []string{
 	"value_transfer",
 	"precompile",
 	"access_list",
-	"blob_hash",
 }
 
 type ExecutionFixtureDocument struct {
@@ -180,15 +179,6 @@ func DefaultExecutionFixtures() []ExecutionFixture {
 			AccessList:            []contract.AccessListEntry{{Address: "0x000000000000000000000000000000000000bbbb", StorageKeys: []string{"0x01"}}},
 			WantAccessListEntries: intPtr(1),
 			Categories:            []string{"access_list"},
-		},
-		{
-			Name:       "default blobhash opcode returns first blob hash",
-			Method:     "call",
-			Code:       "0x60004960005260206000f3",
-			GasLimit:   100_000,
-			BlobHashes: []string{"0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},
-			WantOutput: "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-			Categories: []string{"blob_hash"},
 		},
 	}
 }

@@ -113,7 +113,7 @@ func TestBuildWithChainConfigWiresEVMPolicy(t *testing.T) {
 	cfg := config.Default("vexo-test")
 	cfg.Application.Modules = []string{"evm"}
 	cfg.Execution.EVMChainID = 77
-	cfg.Execution.EVMChainConfigJSON = `{"chainId":77,"homesteadBlock":0,"eip150Block":0,"eip155Block":0,"eip158Block":0,"byzantiumBlock":0,"constantinopleBlock":0,"petersburgBlock":0,"istanbulBlock":0,"berlinBlock":0,"londonBlock":0,"shanghaiTime":0}`
+	cfg.Execution.EVMForkPreset = "latest"
 	cfg.Execution.MaxBlobSidecarBlobs = 2
 	cfg.Execution.MaxBlobSidecarBytes = 1000
 	modules, err := BuildWithChainConfig(cfg)

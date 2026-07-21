@@ -60,8 +60,13 @@ The text endpoint exposes gauges such as:
 - `vexo_configured_peer_count`
 - `vexo_scored_peer_count`
 - `vexo_banned_peers`
+- `vexo_quorum_health_ratio`
 - `vexo_height_rate_per_minute`
+- `vexo_adaptive_round_timeout_enabled`
 - `vexo_round_timeouts`
+- `vexo_adaptive_round_timeout_nanos`
+- `vexo_recovery_finality_gate_enabled`
+- `vexo_recovery_finality_deferrals`
 - `vexo_proposal_latency_p95_nanos`
 - `vexo_vote_latency_p95_nanos`
 - `vexo_commit_latency_p95_nanos`
@@ -85,12 +90,19 @@ Tune numbers for the actual validator count, block interval, latency, and hardwa
 | No active peers | `vexo_active_peer_count == 0` for 1 minute on a non-isolated node | P2P outage, auth mismatch, or address problem |
 | Peer count too low | active peers below quorum connectivity target | Partition or bootstrap problem |
 | Round timeout spike | timeout counter grows faster than normal baseline | Latency, proposer failure, or network partition |
+| Adaptive policy off | `vexo_adaptive_round_timeout_enabled == 0` on a node that should be running adaptive pacing | Config or experiment disabled the pacemaker |
+| Adaptive timeout high | `vexo_adaptive_round_timeout_nanos` grows well above the launch baseline | Network latency spike or slower quorum formation |
+| Missing peers widen timeout | `vexo_active_peer_count` falls below `vexo_configured_peer_count` and the adaptive timeout rises | Quorum health is degrading and the pacemaker is compensating |
+| Quorum ratio low | `vexo_quorum_health_ratio < 0.75` for several windows | Not enough active peers for a stable proposer/vote path |
+| Proposer backoff active | `vexo_quorum_health_ratio < 0.75` and block proposal cadence slows | The node is deliberately waiting for quorum health to recover |
 | Commit latency high | p95/p99 approaches consensus timeout budget | Store/runtime overload |
 | Mempool pressure | mempool size grows for several minutes | Fee policy, spam, or block capacity issue |
 | Snapshot unhealthy | `vexo_snapshot_healthy == 0` | State sync/recovery risk |
 | Replay unhealthy | `vexo_replay_healthy == 0` | Determinism or state consistency risk |
 | Signer failures | `vexo_validator_signing_failures > 0` | KMS/remote signer/policy failure |
 | Reconciliation failures | `vexo_post_commit_reconciliation_failures > 0` | Durable evidence or commit repair needed |
+| Recovery gate off | `vexo_recovery_finality_gate_enabled == 0` on a node expected to enforce recovery gating | Finalized commits may bypass the recovery safety gate |
+| Recovery deferrals | `vexo_recovery_finality_deferrals` increases | Finality commits are being deferred by a recovery mismatch |
 | Banned peer spike | banned peers rises suddenly | Attack, misconfigured peers, or scoring threshold issue |
 
 ## Suggested Starting Thresholds

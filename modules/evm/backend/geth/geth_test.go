@@ -144,7 +144,10 @@ func TestRunExecutionFixturesJSON(t *testing.T) {
 }
 
 func TestGethBackendPassesBlobHashesToEVM(t *testing.T) {
-	vm := New()
+	vm, err := NewWithChainConfigPresetJSON(LatestForkPreset, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	blobHash := types.Hash(gethcommon.HexToHash("0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"))
 	result, err := vm.Execute(context.Background(), contract.Invocation{
 		Method:      "call",
@@ -297,12 +300,29 @@ func TestGethBackendChainConfigJSONValidation(t *testing.T) {
 	if _, err := NewWithChainConfigJSON(`{"chainId":1,"shanghaiTime":1,"londonBlock":2}`, 1); err == nil {
 		t.Fatalf("expected fork order validation failure")
 	}
-	if normalizedChainConfig(nil) != VexoDefaultChainConfig || VexoDefaultChainConfig != gethparams.AllDevChainProtocolChanges {
-		t.Fatalf("expected nil config to normalize to Vexo default protocol changes")
+	if normalizedChainConfig(nil) != VexoDefaultChainConfig || VexoDefaultChainConfig != VexoLondonChainConfig {
+		t.Fatalf("expected nil config to normalize to Vexo london protocol changes")
 	}
 	custom := &gethparams.ChainConfig{ChainID: big.NewInt(999)}
 	if normalizedChainConfig(custom) != custom {
 		t.Fatalf("expected custom config pointer to be preserved")
+	}
+}
+
+func TestGethBackendChainConfigPresetSelection(t *testing.T) {
+	london, err := ChainConfigForPreset(DefaultForkPreset, 777)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if london.ChainID == nil || london.ChainID.Uint64() != 777 || london.LondonBlock == nil || london.LondonBlock.Uint64() != 0 || london.ShanghaiTime != nil || london.CancunTime != nil {
+		t.Fatalf("unexpected london preset config: %+v", london)
+	}
+	latest, err := ChainConfigForPreset(LatestForkPreset, 888)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.ChainID == nil || latest.ChainID.Uint64() != 888 || latest.LondonBlock == nil || latest.LondonBlock.Uint64() != 0 || latest.ShanghaiTime == nil || latest.CancunTime == nil {
+		t.Fatalf("unexpected latest preset config: %+v", latest)
 	}
 }
 

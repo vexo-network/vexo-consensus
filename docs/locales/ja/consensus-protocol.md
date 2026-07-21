@@ -1,88 +1,75 @@
 > Locale: ja · 日本語
 
-# コンセンサスプロトコルの概要
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-このページは、Vexo コンセンサス ドキュメントの高レベルのエントリ ポイントです。より広範なドキュメント マップについては、[ドキュメント](./README.md) を参照してください。
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-標準的な詳細については、仕様ファイルを使用してください。
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-- [コンセンサス仕様](./specs/consensus-spec.md)
-- [ファイナリティプルーフフォーマット](./specs/finality-proof-format.md)
-- [バリデーターのライフサイクル](./specs/validator-lifecycle.md)
-- [ストレージスキーマ](./specs/storage-schema.md)
-- [ネットワーク仕様](./specs/networking-spec.md)
-- [トランザクションフォーマット](./specs/tx-format.md)
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-## モデル
+-ビザンチンの投票権の3分の1未満
+-ドメイン区切りの提案、投票、タイムアウト投票、および最終署名
+-関連する証明高さでのバリデータセットハッシュバインド
+- QCおよび最終性証明における固有の既知の署名者
+-検証者の曖昧さに対する説明責任のある証拠
+-同じ確定した高さで競合するコミット決定を拒否する
 
-Vexo は、提案、投票、クォーラム証明書、タイムアウト証明書、ロックされた QC 安全性、および 3 チェーンのファイナリティを備えた HotStuff スタイルの BFT コアを使用します。
+##暗号境界
 
-ブロックは、ロックされた QC を拡張するか、少なくともロックと同じくらい新しい正当化 QC を保持する場合にのみ、安全に投票できます。ブロックは、3 チェーン ルールによって安全な親/祖父母チェーン拡張が証明されたときにファイナライズされます。
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-実装では、3 チェーンの決定を明示的なブロック、親、および祖父母の高さにバインドします。ブロック QC は親の高さ/ハッシュを認証し、親 QC は祖父母の高さ/ハッシュを認証する必要があります。合成または高さスキップされた QC チェーンは、ファイナリティ決定が記録される前に拒否されます。
+-すべてのバリデータホームの厳格な構成監査
+-リリースゲートの証拠
+-外部セキュリティレビュー
+-複数ホストによる長期滞在と混沌の証拠
+-署名者/KMSポリシーの証拠
+-チェーン固有の経済とガバナンス政策の見直し
 
-## 実行条件
-
-Vexo は次の用語を一貫して使用します。
-
-- **QC 認定済み**: ブロックにはクォーラム証明書を形成するのに十分な投票があります。
-- **ファイナライズ済み**: HotStuff 3 チェーン ルールにより、祖先ブロックがファイナライズされます。
-- **実行**: アプリケーションはブロックに対して `FinalizeBlock` を実行しました。
-- **コミットされた状態**: アプリケーション KV 書き込み、ブロック レコード、状態レコード、およびモジュール状態ルートが永続的にコミットされました。
-
-ノードの実行パスは、次の 2 つの個別の境界を使用します。
-
-- **実行コミット境界**: QC 認定ブロックは、アプリの書き込み + ブロック レコード + 状態レコード + 状態ルートとして実行され、アトミックに永続化できます。
-- **コンセンサスファイナリティ境界**: 3 チェーン ルールは祖先をファイナライズし、ライトクライアントファイナリティ証明の唯一のソースです。
-
-`consensus_config.json` は、`execution_commit` を通じてこの選択を公開します。生成されたバリデーター ホームのデフォルトは `finalized` です。これは、3 チェーンのファイナリティ ルールによって選択された祖先のみを実行するため、ステート コミットはより厳密なファイナリティ境界と一致します。低レイテンシの `qc` 境界はカスタム デプロイメントに引き続き使用できますが、 `require_network_safety` はそれを拒否します。オペレーターと SDK ユーザーは、`block_committed` ログを、構成された実行境界の状態コミット イベントとして扱う必要があります。ファイナリティ証明は、バリデータセットの高さでのコンセンサスのファイナリティを記述します。
-
-## 安全境界線
-
-安全性は以下によって決まります。
-
-- ビザンチンの投票力は 3 分の 1 未満
-- ドメイン分離された提案、投票、タイムアウト投票、ファイナリティ署名
-- 関連するプルーフ高さでのバリデーターセットのハッシュバインディング
-- QC およびファイナリティ証明における固有の既知の署名者
-- バリデーターの曖昧さに対する責任ある証拠
-- 同じ最終的な高さでの競合するコミット決定の拒否
-
-## 暗号境界
-
-- `deterministic` はテスト専用であり、ネットワークの安全性の検証に失敗します。
-- `ed25519` は、パブリック ネットワークのテストと起動準備のためにサポートされています。
-- `bls` のデフォルトは `blst-bls12381-minpk-v1` であり、所有証明または同等の不正キー防御、サブグループ チェック、公開キー検証、依存関係監査証拠、およびリリース ゲート証拠が必要です。組み込みの CIRCL アダプターは、ランタイム インターフェイスの参照統合のままであり、運用上の安全性を免除されるものではありません。
-- ネットワークの安全性の検証には、VRF 委員会の選択用の VRF アダプタ メタデータが必要です。組み込みの ECVRF アダプターはランタイム インターフェイスを満たすことができます。決定論的 VRF はテスト専用のままであり、価値のあるネットワークには使用しないでください。
-
-## 運用境界
-
-コードには運用指向のチェックが含まれていますが、パブリック デプロイメントでは引き続き以下が必要です。
-
-- すべてのバリデーターホームに対する厳密な構成監査
-- リリースゲートの証拠
-- 外部セキュリティレビュー
-- マルチホストの長期実行とカオスの証拠
-- 署名者/KMS ポリシーの証拠
-- チェーン固有の経済およびガバナンス政策のレビュー
-
-リリースを運用準備完了として扱う前に、[セキュリティ監査の準備](./security/audit-readiness.md) および [リリース パイプライン](./release/release-pipeline.md) を参照してください。
+リリースを本番環境に対応したものとして扱う前に、[セキュリティ監査の準備状況](./security/audit-readiness.md)と[リリースパイプライン](./release/release-pipeline.md)を参照してください。
 
 <!-- vexo-docs:technical-parity -->
 ## 技術的同等性付録
 
-この付録は、英語正本にある実行可能なインターフェイスと主要セクションを翻訳版でも漏らさないための検証用要約です。コマンド、設定キー、RPC メソッド、パッケージ名は全言語でそのまま維持します。
+この付録は、翻訳版が英語正本と同じ実行可能インターフェイスと運用境界を保っているかを確認するための要約です。コマンド、設定キー、RPC パス、コード識別子は翻訳しません。意味だけを日本語で補足し、実運用で変えてはいけない値はそのまま残します。
+`require_network_safety` と `block_committed` は、特にそのまま残すべき重要な用語です。
+- `config.json`
+- `module_config.json`
+- `network_config.json`
+- `consensus_config.json`
+- `mempool_config.json`
+- `log_config.json`
 
 ### セクション追跡
-- section: Model — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
-- section: Execution Terms — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
-- section: Safety Boundary — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
-- section: Crypto Boundary — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
-- section: Operational Boundary — このセクションでは、設定値、検証証拠、失敗条件、運用者が取るべき対応をまとめて確認します。
+- section: Model - HotStuff 風 BFT、three-chain finality、QC、timeout certificate、locked-QC safety をまとめて確認します。
+- section: Execution Terms - QC certified、finalized、executed、state committed の違いをはっきり区別します。
+- section: Safety Boundary - 3分の1未満の Byzantine、domain separation、validator-set hash binding、accountable evidence を扱います。
+- section: Crypto Boundary - `deterministic`、`ed25519`、`bls`、`blst-bls12381-minpk-v1`、`ecvrf-p256-sha256-tai-v1` を同じ基準で確認します。
+- section: Operational Boundary - `vexo_quorum_health_ratio`、`adaptive_round_timeout_enabled`、`recovery_finality_gate_enabled`、snapshot/replay health を一緒に見ます。
 
 ### そのまま維持するインターフェイス
-- `consensus_config.json` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
-- `execution_commit` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
-- `require_network_safety` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
-- `block_committed` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
-- `blst-bls12381-minpk-v1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/v1/status`
+- `/v1/metrics`
+- `/v1/diagnostics`
+- `/v1/finality/latest`
+- `/v1/state/latest`
+- `/v1/recovery/report`
+- `execution_commit`
+- `finalized`
+- `qc`
+- `adaptive_round_timeout_enabled`
+- `recovery_finality_gate_enabled`
+- `vexo_quorum_health_ratio`
+- `blst-bls12381-minpk-v1`
+- `ecvrf-p256-sha256-tai-v1`
+- `proof-of-possession`
+- `remote signer`
+- `three-chain finality`
+
+## 運用メモ
+
+バリデータホームを用意するときは、`config.json` だけでなく `module_config.json`、`network_config.json`、`consensus_config.json`、`mempool_config.json`、`log_config.json` をまとめて確認します。実運用では `vexo_quorum_health_ratio` と `adaptive_round_timeout_enabled` を並べて見て、ピア数だけで健全性を判断しないことが大切です。
+
+- `execution_commit=finalized` を優先します。
+- `qc` 経路は管理された試験網だけで使います。
+- `recovery_finality_gate_enabled` と snapshot/replay health を同時に確認します。

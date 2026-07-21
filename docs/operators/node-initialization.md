@@ -343,6 +343,7 @@ Example `module_config.json`:
     "MinFee": 1,
     "BaseFee": 1,
     "EVMChainID": 83960,
+    "EVMForkPreset": "london",
     "DynamicBaseFee": true,
     "TargetGas": 5000000,
     "BaseFeeChangeDenominator": 8,
@@ -372,6 +373,8 @@ Example `module_config.json`:
   }
 }
 ```
+
+The built-in EVM defaults to the London fork preset, which keeps EIP-1559 gas pricing, access lists, and standard Ethereum JSON-RPC behavior aligned with Remix and common wallet tooling. Use `EVMForkPreset: "latest"` only if you intentionally want the newest dev-chain protocol changes, or `EVMChainConfigJSON` if you need an explicit custom `params.ChainConfig`.
 
 Governance policy also lives in `module_config.json`. Generated network-safe configs require a proposal deposit:
 

@@ -190,3 +190,8 @@ Phụ lục này bảo đảm bản dịch vẫn giữ các giao diện có th�
 - `eth_getTransactionByBlockHashAndIndex` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `eth_getUncleCountByBlockNumber` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `eth_getUncleCountByBlockHash` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+
+## Stable Terms
+
+- `execution.evm_fork_preset = "latest"`
+- `execution.evm_chain_config_json`

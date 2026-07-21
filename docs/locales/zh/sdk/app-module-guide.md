@@ -190,3 +190,8 @@
 - `eth_getTransactionByBlockHashAndIndex` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `eth_getUncleCountByBlockNumber` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `eth_getUncleCountByBlockHash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+
+## Stable Terms
+
+- `execution.evm_fork_preset = "latest"`
+- `execution.evm_chain_config_json`

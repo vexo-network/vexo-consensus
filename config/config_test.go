@@ -16,6 +16,16 @@ func TestDefaultConfigIsValid(t *testing.T) {
 	}
 }
 
+func TestDefaultApplicationModulesArePinned(t *testing.T) {
+	cfg := Default("vexo-test")
+	if !sameStringSlice(cfg.Application.CoreModules, DefaultApplicationModules()) {
+		t.Fatalf("unexpected core modules: %+v", cfg.Application.CoreModules)
+	}
+	if !sameStringSlice(cfg.Application.Modules, DefaultApplicationModules()) {
+		t.Fatalf("unexpected application modules: %+v", cfg.Application.Modules)
+	}
+}
+
 func TestConfigValidateRejectsMissingChainID(t *testing.T) {
 	if err := Default("").Validate(); !errors.Is(err, ErrMissingChainID) {
 		t.Fatalf("expected missing chain id, got %v", err)
@@ -61,6 +71,26 @@ func TestConfigValidateRejectsUnsafeSettings(t *testing.T) {
 		{name: "zero mempool tx count", mutate: func(cfg *Config) { cfg.Mempool.MaxTxs = 0 }},
 		{name: "negative mempool tx count", mutate: func(cfg *Config) { cfg.Mempool.MaxTxs = -1 }},
 		{name: "negative mempool seen ttl", mutate: func(cfg *Config) { cfg.Mempool.SeenTTL = -time.Second }},
+		{name: "mismatched core modules", mutate: func(cfg *Config) { cfg.Application.CoreModules = []string{"bank"} }},
+		{name: "core modules not prefix of enabled modules", mutate: func(cfg *Config) {
+			cfg.Application.CoreModules = DefaultApplicationModules()
+			cfg.Application.Modules = []string{"bank", "governance", "staking", "params", "ibc"}
+		}},
+		{name: "zero target gas", mutate: func(cfg *Config) { cfg.Execution.TargetGas = 0 }},
+		{name: "zero max gas", mutate: func(cfg *Config) { cfg.Execution.MaxGas = 0 }},
+		{name: "target gas above max gas", mutate: func(cfg *Config) {
+			cfg.Execution.TargetGas = 11
+			cfg.Execution.MaxGas = 10
+		}},
+		{name: "zero target blob gas", mutate: func(cfg *Config) { cfg.Execution.TargetBlobGas = 0 }},
+		{name: "zero max blob gas", mutate: func(cfg *Config) { cfg.Execution.MaxBlobGas = 0 }},
+		{name: "target blob gas above max blob gas", mutate: func(cfg *Config) {
+			cfg.Execution.TargetBlobGas = 11
+			cfg.Execution.MaxBlobGas = 10
+		}},
+		{name: "zero base fee change denominator", mutate: func(cfg *Config) { cfg.Execution.BaseFeeChangeDenominator = 0 }},
+		{name: "zero blob fee change denominator", mutate: func(cfg *Config) { cfg.Execution.BlobFeeChangeDenominator = 0 }},
+		{name: "zero min gas", mutate: func(cfg *Config) { cfg.Execution.MinGas = 0 }},
 		{name: "signed execution without mint authority", mutate: func(cfg *Config) { cfg.Execution.RequireSigned = true }},
 		{name: "zero staking unbonding delay", mutate: func(cfg *Config) { cfg.Staking.UnbondingDelay = 0 }},
 		{name: "zero staking commission cap", mutate: func(cfg *Config) { cfg.Staking.MaxCommissionBPS = 0 }},
@@ -84,6 +114,11 @@ func TestConfigValidateRejectsUnsafeSettings(t *testing.T) {
 			cfg.Execution.DynamicBaseFee = true
 			cfg.Execution.BaseFee = 1
 			cfg.Execution.TargetGas = 0
+		}},
+		{name: "dynamic base fee without base fee change denominator", mutate: func(cfg *Config) {
+			cfg.Execution.DynamicBaseFee = true
+			cfg.Execution.BaseFee = 1
+			cfg.Execution.BaseFeeChangeDenominator = 0
 		}},
 		{name: "dynamic base fee invalid bounds", mutate: func(cfg *Config) {
 			cfg.Execution.DynamicBaseFee = true
@@ -137,6 +172,14 @@ func TestConfigValidateAllowsOptionalSafetyKnobs(t *testing.T) {
 	cfg.P2P.BanDuration = 0
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("expected optional zero settings to be valid, got %v", err)
+	}
+}
+
+func TestConfigValidateAllowsLondonForkPreset(t *testing.T) {
+	cfg := Default("vexo-test")
+	cfg.Execution.EVMForkPreset = "london"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected london fork preset to be valid, got %v", err)
 	}
 }
 

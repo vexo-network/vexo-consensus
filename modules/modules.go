@@ -54,6 +54,7 @@ func BuildWithChainConfig(chain config.Config) ([]vexoapp.Module, error) {
 	if moduleEnabled(chain.Application.Modules, appevm.ModuleName) {
 		module, err := appevm.NewModuleWithPolicy(appevm.Policy{
 			EVMChainID:               chain.Execution.EVMChainID,
+			EVMForkPreset:            chain.Execution.EVMForkPreset,
 			GethChainConfigJSON:      chain.Execution.EVMChainConfigJSON,
 			AllowUnprotectedLegacyTx: chain.Execution.AllowUnprotectedLegacyTx,
 			MaxBlobSidecarBlobs:      chain.Execution.MaxBlobSidecarBlobs,

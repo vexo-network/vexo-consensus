@@ -349,3 +349,8 @@ CLI는 로컬 상태 변경을 직접 실행하지 않고 트랜잭션 페이로
 - `eth_getTransactionByBlockHashAndIndex` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `eth_getUncleCountByBlockNumber` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `eth_getUncleCountByBlockHash` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+
+## Stable Terms
+
+- `execution.evm_fork_preset = "latest"`
+- `execution.evm_chain_config_json`

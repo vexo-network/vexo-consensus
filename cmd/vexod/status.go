@@ -13,6 +13,7 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	features := statusFeatures(cfg)
 	fmt.Fprintf(writer, "vexo-consensus status\n")
 	fmt.Fprintf(writer, "chain_id: %s\n", cfg.ChainID)
+	fmt.Fprintf(writer, "application.core_modules: %v\n", cfg.Application.CoreModules)
 	fmt.Fprintf(writer, "application.modules: %v\n", cfg.Application.Modules)
 	fmt.Fprintf(writer, "execution.min_fee: %d\n", cfg.Execution.MinFee)
 	fmt.Fprintf(writer, "execution.base_fee: %d\n", cfg.Execution.BaseFee)
@@ -147,7 +148,8 @@ type assuranceStatus struct {
 }
 
 type applicationStatus struct {
-	Modules []string `json:"modules"`
+	CoreModules []string `json:"core_modules"`
+	Modules     []string `json:"modules"`
 }
 
 type executionStatus struct {
@@ -258,7 +260,8 @@ func newStatusDocument(cfg config.Config) statusDocument {
 		SchemaVersion: "v1",
 		ChainID:       cfg.ChainID,
 		Application: applicationStatus{
-			Modules: append([]string(nil), cfg.Application.Modules...),
+			CoreModules: append([]string(nil), cfg.Application.CoreModules...),
+			Modules:     append([]string(nil), cfg.Application.Modules...),
 		},
 		Execution: executionStatus{
 			MinFee:                   cfg.Execution.MinFee,

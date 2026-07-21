@@ -107,59 +107,65 @@ type HealthResponse struct {
 }
 
 type StatusResponse struct {
-	ChainID               string `json:"chain_id"`
-	EVMChainID            uint64 `json:"evm_chain_id,omitempty"`
-	Running               bool   `json:"running"`
-	StartedAtUnix         int64  `json:"started_at_unix,omitempty"`
-	LatestHeight          uint64 `json:"latest_height"`
-	LatestAppHash         string `json:"latest_app_hash"`
-	LatestFinalizedHeight uint64 `json:"latest_finalized_height,omitempty"`
-	LatestFinalizedHash   string `json:"latest_finalized_hash,omitempty"`
-	DataDir               string `json:"data_dir"`
-	PeerCount             int    `json:"peer_count"`
-	ActivePeerCount       int    `json:"active_peer_count"`
-	ConfiguredPeerCount   int    `json:"configured_peer_count"`
-	ScoredPeerCount       int    `json:"scored_peer_count"`
-	BannedPeers           int    `json:"banned_peers"`
+	ChainID               string  `json:"chain_id"`
+	EVMChainID            uint64  `json:"evm_chain_id,omitempty"`
+	Running               bool    `json:"running"`
+	StartedAtUnix         int64   `json:"started_at_unix,omitempty"`
+	LatestHeight          uint64  `json:"latest_height"`
+	LatestAppHash         string  `json:"latest_app_hash"`
+	LatestFinalizedHeight uint64  `json:"latest_finalized_height,omitempty"`
+	LatestFinalizedHash   string  `json:"latest_finalized_hash,omitempty"`
+	DataDir               string  `json:"data_dir"`
+	PeerCount             int     `json:"peer_count"`
+	ActivePeerCount       int     `json:"active_peer_count"`
+	ConfiguredPeerCount   int     `json:"configured_peer_count"`
+	ScoredPeerCount       int     `json:"scored_peer_count"`
+	BannedPeers           int     `json:"banned_peers"`
+	QuorumHealthRatio     float64 `json:"quorum_health_ratio"`
 }
 
 type MetricsResponse struct {
-	ChainID                 string  `json:"chain_id"`
-	Running                 bool    `json:"running"`
-	StartedAtUnix           int64   `json:"started_at_unix,omitempty"`
-	UptimeSeconds           uint64  `json:"uptime_seconds"`
-	DataDir                 string  `json:"data_dir"`
-	LatestHeight            uint64  `json:"latest_height"`
-	LatestAppHash           string  `json:"latest_app_hash"`
-	EarliestBlockHeight     uint64  `json:"earliest_block_height"`
-	LatestBlockHeight       uint64  `json:"latest_block_height"`
-	TotalBlocks             uint64  `json:"total_blocks"`
-	ValidatorCount          int     `json:"validator_count"`
-	TotalVotingPower        uint64  `json:"total_voting_power"`
-	ValidatorSetHash        string  `json:"validator_set_hash"`
-	PeerCount               int     `json:"peer_count"`
-	ActivePeerCount         int     `json:"active_peer_count"`
-	ConfiguredPeerCount     int     `json:"configured_peer_count"`
-	ScoredPeerCount         int     `json:"scored_peer_count"`
-	BannedPeers             int     `json:"banned_peers"`
-	PeerWindowMessages      uint64  `json:"peer_window_messages"`
-	ConsensusLoopRunning    bool    `json:"consensus_loop_running"`
-	HeightRatePerMinute     float64 `json:"height_rate_per_minute"`
-	RoundTimeouts           uint64  `json:"round_timeouts"`
-	ProposalLatencyNanos    uint64  `json:"proposal_latency_nanos"`
-	ProposalLatencyP95Nanos uint64  `json:"proposal_latency_p95_nanos"`
-	ProposalLatencyP99Nanos uint64  `json:"proposal_latency_p99_nanos"`
-	VoteLatencyNanos        uint64  `json:"vote_latency_nanos"`
-	VoteLatencyP95Nanos     uint64  `json:"vote_latency_p95_nanos"`
-	VoteLatencyP99Nanos     uint64  `json:"vote_latency_p99_nanos"`
-	MempoolSize             uint64  `json:"mempool_size"`
-	CommitLatencyNanos      uint64  `json:"commit_latency_nanos"`
-	CommitLatencyP95Nanos   uint64  `json:"commit_latency_p95_nanos"`
-	CommitLatencyP99Nanos   uint64  `json:"commit_latency_p99_nanos"`
-	SnapshotHealthy         bool    `json:"snapshot_healthy"`
-	ReplayHealthy           bool    `json:"replay_healthy"`
-	SigningFailures         uint64  `json:"validator_signing_failures"`
-	ReconciliationFailures  uint64  `json:"post_commit_reconciliation_failures"`
+	ChainID                     string  `json:"chain_id"`
+	Running                     bool    `json:"running"`
+	StartedAtUnix               int64   `json:"started_at_unix,omitempty"`
+	UptimeSeconds               uint64  `json:"uptime_seconds"`
+	DataDir                     string  `json:"data_dir"`
+	AdaptiveRoundTimeoutEnabled bool    `json:"adaptive_round_timeout_enabled"`
+	RecoveryFinalityGateEnabled bool    `json:"recovery_finality_gate_enabled"`
+	LatestHeight                uint64  `json:"latest_height"`
+	LatestAppHash               string  `json:"latest_app_hash"`
+	EarliestBlockHeight         uint64  `json:"earliest_block_height"`
+	LatestBlockHeight           uint64  `json:"latest_block_height"`
+	TotalBlocks                 uint64  `json:"total_blocks"`
+	ValidatorCount              int     `json:"validator_count"`
+	TotalVotingPower            uint64  `json:"total_voting_power"`
+	ValidatorSetHash            string  `json:"validator_set_hash"`
+	PeerCount                   int     `json:"peer_count"`
+	ActivePeerCount             int     `json:"active_peer_count"`
+	ConfiguredPeerCount         int     `json:"configured_peer_count"`
+	ScoredPeerCount             int     `json:"scored_peer_count"`
+	BannedPeers                 int     `json:"banned_peers"`
+	QuorumHealthRatio           float64 `json:"quorum_health_ratio"`
+	PeerWindowMessages          uint64  `json:"peer_window_messages"`
+	ConsensusLoopRunning        bool    `json:"consensus_loop_running"`
+	HeightRatePerMinute         float64 `json:"height_rate_per_minute"`
+	RoundTimeouts               uint64  `json:"round_timeouts"`
+	AdaptiveRoundTimeoutNanos   uint64  `json:"adaptive_round_timeout_nanos"`
+	RecoveryFinalityDeferrals   uint64  `json:"recovery_finality_deferrals"`
+	ProposalLatencyNanos        uint64  `json:"proposal_latency_nanos"`
+	ProposalLatencyP95Nanos     uint64  `json:"proposal_latency_p95_nanos"`
+	ProposalLatencyP99Nanos     uint64  `json:"proposal_latency_p99_nanos"`
+	VoteLatencyNanos            uint64  `json:"vote_latency_nanos"`
+	VoteLatencyP95Nanos         uint64  `json:"vote_latency_p95_nanos"`
+	VoteLatencyP99Nanos         uint64  `json:"vote_latency_p99_nanos"`
+	MempoolSize                 uint64  `json:"mempool_size"`
+	CommitLatencyNanos          uint64  `json:"commit_latency_nanos"`
+	CommitLatencyP95Nanos       uint64  `json:"commit_latency_p95_nanos"`
+	CommitLatencyP99Nanos       uint64  `json:"commit_latency_p99_nanos"`
+	SnapshotHealthy             bool    `json:"snapshot_healthy"`
+	ReplayHealthy               bool    `json:"replay_healthy"`
+	SigningFailures             uint64  `json:"validator_signing_failures"`
+	ReconciliationFailures      uint64  `json:"post_commit_reconciliation_failures"`
 }
 
 type DiagnosticsResponse struct {
@@ -1503,18 +1509,7 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 	case "eth_getUncleByBlockNumberAndIndex", "eth_getUncleByBlockHashAndIndex":
 		return nil, nil
 	case "eth_gasPrice":
-		if query, ok := provider.(ChainQueryProvider); ok {
-			state, err := query.LatestState(ctx)
-			if err == nil {
-				if state.NextBaseFee > 0 {
-					return hexQuantity(state.NextBaseFee), nil
-				}
-				if state.BaseFee > 0 {
-					return hexQuantity(state.BaseFee), nil
-				}
-			}
-		}
-		return nil, &JSONRPCError{Code: -32000, Message: "gas price is unavailable"}
+		return hexQuantity(web3LatestBaseFee(ctx, provider)), nil
 	case "eth_blobBaseFee":
 		return hexQuantity(web3LatestBlobBaseFee(ctx, provider)), nil
 	case "eth_maxPriorityFeePerGas":
@@ -2167,10 +2162,13 @@ func web3TransactionGasPrice(ctx context.Context, provider StatusProvider, paylo
 			if price == 0 {
 				price = state.BaseFee
 			}
+			if price == 0 {
+				price = 1
+			}
 			return new(big.Int).SetUint64(price), nil
 		}
 	}
-	return big.NewInt(0), nil
+	return big.NewInt(1), nil
 }
 
 func web3TransactionBig(value string, message string) (*big.Int, *JSONRPCError) {
@@ -2682,7 +2680,7 @@ func web3FullTransactionParam(params []json.RawMessage, index int) bool {
 
 func web3BlockTransactionCount(record store.BlockRecord) any {
 	if record.Block.Header.Height == 0 {
-		return nil
+		return hexQuantity(0)
 	}
 	return hexQuantity(uint64(len(record.Block.Txs)))
 }
@@ -2981,7 +2979,37 @@ func web3RawTransaction(tx types.Tx) any {
 
 func web3BlockFromRecord(ctx context.Context, provider StatusProvider, cfg Config, record store.BlockRecord, fullTransactions bool) (any, *JSONRPCError) {
 	if record.Block.Header.Height == 0 {
-		return nil, nil
+		stateRoot := "0x" + strings.Repeat("0", 64)
+		if status := provider.Status(ctx); status.LatestAppHash != (types.Hash{}) {
+			stateRoot = "0x" + hex.EncodeToString(status.LatestAppHash[:])
+		}
+		return map[string]any{
+			"number":           "0x0",
+			"hash":             "0x" + strings.Repeat("0", 64),
+			"parentHash":       "0x" + strings.Repeat("0", 64),
+			"nonce":            "0x0000000000000000",
+			"sha3Uncles":       "0x" + strings.Repeat("0", 64),
+			"mixHash":          "0x" + strings.Repeat("0", 64),
+			"logsBloom":        "0x" + strings.Repeat("0", 512),
+			"transactionsRoot": "0x" + strings.Repeat("0", 64),
+			"stateRoot":        stateRoot,
+			"receiptsRoot":     "0x" + strings.Repeat("0", 64),
+			"miner":            "0x0000000000000000000000000000000000000000",
+			"difficulty":       "0x0",
+			"totalDifficulty":  "0x0",
+			"extraData":        "0x",
+			"size":             "0x0",
+			"gasLimit":         "0x0",
+			"gasUsed":          "0x0",
+			"baseFeePerGas":    "0x0",
+			"blobGasUsed":      "0x0",
+			"excessBlobGas":    "0x0",
+			"timestamp":        "0x0",
+			"transactions":     []any{},
+			"uncles":           []any{},
+			"withdrawals":      []any{},
+			"withdrawalsRoot":  "0x" + strings.Repeat("0", 64),
+		}, nil
 	}
 	stateRoot, ok := web3StateRoot(ctx, provider, cfg, record)
 	if !ok {
@@ -3238,7 +3266,7 @@ func web3MaxPriorityFeePerGas(ctx context.Context, provider StatusProvider) stri
 			return hexQuantity(1)
 		}
 	}
-	return hexQuantity(0)
+	return hexQuantity(1)
 }
 
 func web3FeeHistory(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
@@ -4780,16 +4808,19 @@ func web3BlockOverrideParam(params []json.RawMessage) (evmmodule.CallBlockOverri
 func web3LatestBaseFee(ctx context.Context, provider StatusProvider) uint64 {
 	query, ok := provider.(ChainQueryProvider)
 	if !ok {
-		return 0
+		return 1
 	}
 	state, err := query.LatestState(ctx)
 	if err != nil {
-		return 0
+		return 1
 	}
 	if state.NextBaseFee > 0 {
 		return state.NextBaseFee
 	}
-	return state.BaseFee
+	if state.BaseFee > 0 {
+		return state.BaseFee
+	}
+	return 1
 }
 
 func web3CreateAccessList(ctx context.Context, provider StatusProvider, cfg Config, params []json.RawMessage) (any, *JSONRPCError) {

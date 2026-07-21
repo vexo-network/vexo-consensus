@@ -261,6 +261,7 @@ func TestRuntimeUpdatesAndRecoversDynamicBlobBaseFee(t *testing.T) {
 
 func TestRuntimeRejectsBlockAboveMaxBlobGas(t *testing.T) {
 	cfg := config.Default("vexo-test")
+	cfg.Execution.TargetBlobGas = 5
 	cfg.Execution.MaxBlobGas = 10
 	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{&runtimeModule{name: "bank"}}, vexoapp.PrefixRouter{})
 	if err != nil {

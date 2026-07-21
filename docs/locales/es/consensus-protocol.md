@@ -6,6 +6,8 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+
 - menos de un tercio del poder de voto bizantino
 - propuestas separadas por dominio, votación, votación de tiempo de espera y firmas de firmeza
 - enlace hash de conjunto de validador a la altura de prueba relevante
@@ -25,22 +27,49 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 - revisión DE LA política económica Y DE gobernanza específica DE LA cadena
 
 Consulte [Security Audit Readiness](./security/audit-readiness.md) y [Release Pipeline](./release/release-pipeline.md) antes de tratar una versión como lista para producción.
-
 <!-- vexo-docs:technical-parity -->
 ## Apéndice de paridad técnica
 
-Este apéndice asegura que la traducción conserve las interfaces ejecutables y las secciones clave del documento canónico en inglés. Los comandos, claves de configuración, métodos RPC y nombres de paquetes se mantienen sin cambios en todos los idiomas.
+Este apéndice conserva los términos técnicos y las interfaces que no deben cambiar entre la versión canónica y la traducción.
 
 ### Seguimiento de secciones
-- section: Model — Esta sección debe revisarse junto con valores de configuración, evidencia de verificación, condiciones de fallo y acciones del operador.
-- section: Execution Terms — Esta sección debe revisarse junto con valores de configuración, evidencia de verificación, condiciones de fallo y acciones del operador.
-- section: Safety Boundary — Esta sección debe revisarse junto con valores de configuración, evidencia de verificación, condiciones de fallo y acciones del operador.
-- section: Crypto Boundary — Esta sección debe revisarse junto con valores de configuración, evidencia de verificación, condiciones de fallo y acciones del operador.
-- section: Operational Boundary — Esta sección debe revisarse junto con valores de configuración, evidencia de verificación, condiciones de fallo y acciones del operador.
+- section: Model - HotStuff, finalización de tres cadenas, QC, timeout certificate y locked-QC safety deben leerse juntos.
+- section: Execution Terms - la diferencia entre qc certified, finalized, executed y state committed debe mantenerse clara.
+- section: Safety Boundary - verificar el umbral byzantino inferior a un tercio, la separación por dominio, el hash del validator set y la accountable evidence.
+- section: Crypto Boundary - conservar los identificadores `deterministic`, `ed25519`, `bls`, `blst-bls12381-minpk-v1` y `ecvrf-p256-sha256-tai-v1`.
+- section: Operational Boundary - leer juntos `vexo_quorum_health_ratio`, `adaptive_round_timeout_enabled`, `recovery_finality_gate_enabled` y las señales de snapshot/replay.
+- `require_network_safety` y `block_committed` deben permanecer visibles tal cual en la traducción.
+- `config.json`
+- `module_config.json`
+- `network_config.json`
+- `consensus_config.json`
+- `mempool_config.json`
+- `log_config.json`
 
-### Interfaces conservadas sin cambios
-- `consensus_config.json` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
-- `execution_commit` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
-- `require_network_safety` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
-- `block_committed` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
-- `blst-bls12381-minpk-v1` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+### Interfaces que se conservan
+- `/v1/status`
+- `/v1/metrics`
+- `/v1/diagnostics`
+- `/v1/finality/latest`
+- `/v1/state/latest`
+- `/v1/recovery/report`
+- `execution_commit`
+- `finalized`
+- `qc`
+- `adaptive_round_timeout_enabled`
+- `recovery_finality_gate_enabled`
+- `vexo_quorum_health_ratio`
+- `blst-bls12381-minpk-v1`
+- `ecvrf-p256-sha256-tai-v1`
+- `proof-of-possession`
+- `remote signer`
+- `three-chain finality`
+
+## Notas operativas
+
+Al crear un nuevo home de validador, revise `config.json` junto con `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json` y `log_config.json`.
+En producción, `vexo_quorum_health_ratio` y `adaptive_round_timeout_enabled` deben observarse juntos.
+
+- `execution_commit=finalized` tiene prioridad.
+- `qc` solo debe activarse en redes de prueba controladas.
+- `recovery_finality_gate_enabled` debe verificarse con pruebas de snapshot y replay.

@@ -62,8 +62,13 @@ O ponto final do texto expõe medidores como:
 - `vexo_configured_peer_count`
 - `vexo_scored_peer_count`
 - `vexo_banned_peers`
+- `vexo_quorum_health_ratio`
 - `vexo_height_rate_per_minute`
+- `vexo_adaptive_round_timeout_enabled`
 - `vexo_round_timeouts`
+- `vexo_adaptive_round_timeout_nanos`
+- `vexo_recovery_finality_gate_enabled`
+- `vexo_recovery_finality_deferrals`
 - `vexo_proposal_latency_p95_nanos`
 - `vexo_vote_latency_p95_nanos`
 - `vexo_commit_latency_p95_nanos`
@@ -73,7 +78,7 @@ O ponto final do texto expõe medidores como:
 - `vexo_validator_signing_failures`
 - `vexo_post_commit_reconciliation_failures`
 
-`vexo_peer_count` é mantido para painéis mais antigos. Novos painéis devem representar `vexo_active_peer_count`, `vexo_configured_peer_count` e `vexo_scored_peer_count` separadamente.
+`vexo_peer_count` é mantido para painéis mais antigos. Novos painéis devem representar `vexo_active_peer_count`, `vexo_configured_peer_count`, `vexo_scored_peer_count` e `vexo_quorum_health_ratio` separadamente.
 
 ## Regras de alerta sugeridas
 
@@ -87,12 +92,19 @@ Ajuste os números para a contagem real do validador, intervalo de bloqueio, lat
 | Nenhum par ativo | `vexo_active_peer_count == 0` por 1 minuto em um nó não isolado | Interrupção de P2P, incompatibilidade de autenticação ou problema de endereço |
 | Contagem de pares muito baixa | peers ativos abaixo da meta de conectividade de quorum | Problema de partição ou bootstrap |
 | Pico de tempo limite da rodada | contador de tempo limite cresce mais rápido que a linha de base normal | Latência, falha do proponente ou partição de rede |
+| Política adaptativa desligada | `vexo_adaptive_round_timeout_enabled == 0` em um nó que deveria executar o ritmo adaptativo | Configuração ou experimento desativou o marcapasso |
+| Tempo limite adaptativo alto | `vexo_adaptive_round_timeout_nanos` cresce muito acima da linha de base de inicialização | Pico de latência da rede ou formação de quórum mais lenta |
+| Pares ausentes ampliam o tempo limite | `vexo_active_peer_count` cai abaixo de `vexo_configured_peer_count` e o tempo limite adaptativo aumenta | A saúde do quórum está piorando e o marcapasso está compensando |
+| Relação de quórum baixa | `vexo_quorum_health_ratio < 0.75` por várias janelas | Não há pares ativos suficientes para um caminho estável de proposta/voto |
+| Backoff do proponente ativo | `vexo_quorum_health_ratio < 0.75` e o ritmo de proposta de bloco desacelera | O nó está aguardando a recuperação da saúde do quórum |
 | Confirmar latência alta | p95/p99 se aproxima do orçamento de tempo limite de consenso | Sobrecarga de armazenamento/tempo de execução |
 | Pressão de Mempool | o tamanho do mempool aumenta por vários minutos | Política de taxas, spam ou problema de capacidade de bloqueio |
 | Instantâneo insalubre | `vexo_snapshot_healthy == 0` | Risco de sincronização/recuperação de estado |
 | Repetir insalubre | `vexo_replay_healthy == 0` | Determinismo ou risco de consistência estatal |
 | Falhas do signatário | `vexo_validator_signing_failures > 0` | KMS/signatário remoto/falha na política |
 | Falhas de reconciliação | `vexo_post_commit_reconciliation_failures > 0` | Evidência durável ou reparo necessário |
+| Gate de recuperação desligado | `vexo_recovery_finality_gate_enabled == 0` em um nó que deveria impor o gate de recuperação | Commits finalizados podem contornar o gate de segurança da recuperação |
+| Adiamentos de recuperação | `vexo_recovery_finality_deferrals` aumenta | Commits finalizados estão sendo adiados por divergência de recuperação |
 | Pico de pares banido | pares banidos sobe repentinamente | Ataque, pares mal configurados ou problema de limite de pontuação |
 
 ## Limites iniciais sugeridos
@@ -236,8 +248,13 @@ Este apêndice garante que a tradução preserve as interfaces executáveis e as
 - `vexo_configured_peer_count` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `vexo_scored_peer_count` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `vexo_banned_peers` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `vexo_quorum_health_ratio` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `vexo_height_rate_per_minute` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `vexo_adaptive_round_timeout_enabled` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `vexo_round_timeouts` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `vexo_adaptive_round_timeout_nanos` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `vexo_recovery_finality_gate_enabled` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `vexo_recovery_finality_deferrals` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `vexo_proposal_latency_p95_nanos` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `vexo_vote_latency_p95_nanos` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `vexo_commit_latency_p95_nanos` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.

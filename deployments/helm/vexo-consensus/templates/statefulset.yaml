@@ -33,6 +33,7 @@ spec:
         prometheus.io/path: /metrics/text
         prometheus.io/port: "{{ $root.Values.service.rpcPort }}"
     spec:
+      terminationGracePeriodSeconds: 30
       securityContext:
 {{ toYaml $root.Values.podSecurityContext | indent 8 }}
       nodeSelector:
@@ -115,6 +116,13 @@ spec:
               port: rpc
             periodSeconds: 5
             timeoutSeconds: 2
+          startupProbe:
+            httpGet:
+              path: /v1/status
+              port: rpc
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 24
           livenessProbe:
             httpGet:
               path: /v1/status

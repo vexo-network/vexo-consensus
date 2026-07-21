@@ -4,13 +4,13 @@ services:
   validator:
     image: ${VEXO_IMAGE:-vexo-consensus:dev}
     restart: unless-stopped
+    environment:
+      VEXO_KEY_PASSPHRASE: ${VEXO_KEY_PASSPHRASE:?set VEXO_KEY_PASSPHRASE}
     command:
       - start
       - --home
       - /var/lib/vexo/${VEXO_VALIDATOR_ID:?set VEXO_VALIDATOR_ID}
       - --run
-      - --log-format
-      - json
     volumes:
       - ${VEXO_VALIDATOR_HOME:?set VEXO_VALIDATOR_HOME}:/var/lib/vexo/${VEXO_VALIDATOR_ID}
     ports:

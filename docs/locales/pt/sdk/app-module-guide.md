@@ -190,3 +190,8 @@ Este apêndice garante que a tradução preserve as interfaces executáveis e as
 - `eth_getTransactionByBlockHashAndIndex` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `eth_getUncleCountByBlockNumber` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `eth_getUncleCountByBlockHash` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+
+## Stable Terms
+
+- `execution.evm_fork_preset = "latest"`
+- `execution.evm_chain_config_json`

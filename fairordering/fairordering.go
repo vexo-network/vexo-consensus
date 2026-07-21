@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"sort"
 
+	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -43,6 +44,15 @@ func SortTxs(txs []types.Tx) []types.Tx {
 func SortTxsWithSalt(txs []types.Tx, salt []byte) []types.Tx {
 	ordered := cloneTxs(txs)
 	sort.SliceStable(ordered, func(left, right int) bool {
+		leftSigner, leftSignerFound := mempool.TxSigner(ordered[left])
+		rightSigner, rightSignerFound := mempool.TxSigner(ordered[right])
+		if leftSignerFound && rightSignerFound && leftSigner == rightSigner {
+			leftNonce, leftNonceFound := mempool.TxNonce(ordered[left])
+			rightNonce, rightNonceFound := mempool.TxNonce(ordered[right])
+			if leftNonceFound && rightNonceFound && leftNonce != rightNonce {
+				return leftNonce < rightNonce
+			}
+		}
 		leftHash := HashTxWithSalt(salt, ordered[left])
 		rightHash := HashTxWithSalt(salt, ordered[right])
 		if leftHash != rightHash {
@@ -59,6 +69,18 @@ func IsOrdered(txs []types.Tx) bool {
 
 func IsOrderedWithSalt(txs []types.Tx, salt []byte) bool {
 	for index := 1; index < len(txs); index++ {
+		previousSigner, previousSignerFound := mempool.TxSigner(txs[index-1])
+		currentSigner, currentSignerFound := mempool.TxSigner(txs[index])
+		if previousSignerFound && currentSignerFound && previousSigner == currentSigner {
+			previousNonce, previousNonceFound := mempool.TxNonce(txs[index-1])
+			currentNonce, currentNonceFound := mempool.TxNonce(txs[index])
+			if previousNonceFound && currentNonceFound {
+				if previousNonce > currentNonce {
+					return false
+				}
+				continue
+			}
+		}
 		previousHash := HashTxWithSalt(salt, txs[index-1])
 		currentHash := HashTxWithSalt(salt, txs[index])
 		if previousHash == currentHash {

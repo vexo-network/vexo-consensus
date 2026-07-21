@@ -506,27 +506,32 @@ func TestHandlerReportsNotReadyWhenNodeStopped(t *testing.T) {
 
 func TestHandlerReportsMetrics(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{metrics: node.Metrics{
-		ChainID:                "vexo-test",
-		Running:                true,
-		StartedAtUnix:          1710000000,
-		UptimeSeconds:          42,
-		DataDir:                "/tmp/vexo",
-		LatestHeight:           9,
-		LatestAppHash:          types.Hash{1, 2, 3},
-		EarliestBlockHeight:    1,
-		LatestBlockHeight:      9,
-		TotalBlocks:            9,
-		ValidatorCount:         4,
-		TotalVotingPower:       100,
-		ValidatorSetHash:       types.Hash{4, 5, 6},
-		PeerCount:              3,
-		ActivePeerCount:        2,
-		ConfiguredPeerCount:    4,
-		ScoredPeerCount:        3,
-		BannedPeers:            1,
-		PeerWindowMessages:     12,
-		ConsensusLoopRunning:   true,
-		ReconciliationFailures: 2,
+		ChainID:                     "vexo-test",
+		Running:                     true,
+		StartedAtUnix:               1710000000,
+		UptimeSeconds:               42,
+		DataDir:                     "/tmp/vexo",
+		LatestHeight:                9,
+		LatestAppHash:               types.Hash{1, 2, 3},
+		EarliestBlockHeight:         1,
+		LatestBlockHeight:           9,
+		TotalBlocks:                 9,
+		ValidatorCount:              4,
+		TotalVotingPower:            100,
+		ValidatorSetHash:            types.Hash{4, 5, 6},
+		PeerCount:                   3,
+		ActivePeerCount:             2,
+		ConfiguredPeerCount:         4,
+		ScoredPeerCount:             3,
+		BannedPeers:                 1,
+		QuorumHealthRatio:           0.5,
+		PeerWindowMessages:          12,
+		ConsensusLoopRunning:        true,
+		AdaptiveRoundTimeoutEnabled: true,
+		RecoveryFinalityGateEnabled: true,
+		AdaptiveRoundTimeoutNanos:   250000000,
+		RecoveryFinalityDeferrals:   3,
+		ReconciliationFailures:      2,
 	}})
 
 	var metrics MetricsResponse
@@ -534,8 +539,11 @@ func TestHandlerReportsMetrics(t *testing.T) {
 	if metrics.ChainID != "vexo-test" || !metrics.Running || metrics.StartedAtUnix != 1710000000 || metrics.UptimeSeconds != 42 || metrics.LatestHeight != 9 || metrics.TotalBlocks != 9 {
 		t.Fatalf("unexpected metrics identity: %+v", metrics)
 	}
-	if metrics.ValidatorCount != 4 || metrics.TotalVotingPower != 100 || metrics.PeerCount != 3 || metrics.ActivePeerCount != 2 || metrics.ConfiguredPeerCount != 4 || metrics.ScoredPeerCount != 3 || metrics.BannedPeers != 1 || !metrics.ConsensusLoopRunning || metrics.ReconciliationFailures != 2 {
+	if metrics.ValidatorCount != 4 || metrics.TotalVotingPower != 100 || metrics.PeerCount != 3 || metrics.ActivePeerCount != 2 || metrics.ConfiguredPeerCount != 4 || metrics.ScoredPeerCount != 3 || metrics.BannedPeers != 1 || metrics.QuorumHealthRatio != 0.5 || !metrics.ConsensusLoopRunning || metrics.ReconciliationFailures != 2 || metrics.AdaptiveRoundTimeoutNanos != 250000000 || metrics.RecoveryFinalityDeferrals != 3 {
 		t.Fatalf("unexpected metrics counters: %+v", metrics)
+	}
+	if !metrics.AdaptiveRoundTimeoutEnabled || !metrics.RecoveryFinalityGateEnabled {
+		t.Fatalf("expected policy toggles in metrics: %+v", metrics)
 	}
 	if metrics.LatestAppHash[:6] != "010203" || metrics.ValidatorSetHash[:6] != "040506" {
 		t.Fatalf("unexpected metrics hashes: %+v", metrics)
@@ -544,23 +552,28 @@ func TestHandlerReportsMetrics(t *testing.T) {
 
 func TestHandlerReportsMetricsText(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{metrics: node.Metrics{
-		Running:                true,
-		StartedAtUnix:          1710000000,
-		UptimeSeconds:          42,
-		LatestHeight:           9,
-		EarliestBlockHeight:    1,
-		LatestBlockHeight:      9,
-		TotalBlocks:            9,
-		ValidatorCount:         4,
-		TotalVotingPower:       100,
-		PeerCount:              3,
-		ActivePeerCount:        2,
-		ConfiguredPeerCount:    4,
-		ScoredPeerCount:        3,
-		BannedPeers:            1,
-		PeerWindowMessages:     12,
-		ConsensusLoopRunning:   true,
-		ReconciliationFailures: 2,
+		Running:                     true,
+		StartedAtUnix:               1710000000,
+		UptimeSeconds:               42,
+		LatestHeight:                9,
+		EarliestBlockHeight:         1,
+		LatestBlockHeight:           9,
+		TotalBlocks:                 9,
+		ValidatorCount:              4,
+		TotalVotingPower:            100,
+		PeerCount:                   3,
+		ActivePeerCount:             2,
+		ConfiguredPeerCount:         4,
+		ScoredPeerCount:             3,
+		BannedPeers:                 1,
+		QuorumHealthRatio:           0.5,
+		PeerWindowMessages:          12,
+		ConsensusLoopRunning:        true,
+		AdaptiveRoundTimeoutEnabled: true,
+		RecoveryFinalityGateEnabled: true,
+		AdaptiveRoundTimeoutNanos:   250000000,
+		RecoveryFinalityDeferrals:   3,
+		ReconciliationFailures:      2,
 	}})
 
 	body := getText(t, handler, "/metrics/text", http.StatusOK)
@@ -578,8 +591,13 @@ func TestHandlerReportsMetricsText(t *testing.T) {
 		"vexo_configured_peer_count 4",
 		"vexo_scored_peer_count 3",
 		"vexo_banned_peers 1",
+		"vexo_quorum_health_ratio 0.500000",
 		"vexo_peer_window_messages 12",
 		"vexo_consensus_loop_running 1",
+		"vexo_adaptive_round_timeout_enabled 1",
+		"vexo_recovery_finality_gate_enabled 1",
+		"vexo_adaptive_round_timeout_nanos 250000000",
+		"vexo_recovery_finality_deferrals 3",
 		"vexo_post_commit_reconciliation_failures 2",
 	} {
 		if !strings.Contains(body, expected) {
@@ -1730,7 +1748,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	}
 	var deployEstimate JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":57,"method":"eth_estimateGas","params":[{"data":"0x00","gas":"0x100"}]}`, http.StatusOK, &deployEstimate)
-	if deployEstimate.Error != nil || deployEstimate.Result != "0xcf0e" {
+	if deployEstimate.Error != nil || deployEstimate.Result != "0xcf0c" {
 		t.Fatalf("expected create estimate to honor deploy intrinsic gas, got %+v", deployEstimate)
 	}
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x","gas_used":9,"failed":true,"error":"execution reverted"}`)}
@@ -1959,6 +1977,7 @@ func TestHandlerAllowsWeb3CORSPreflightForRemix(t *testing.T) {
 	request.Header.Set("Origin", "https://remix.ethereum.org")
 	request.Header.Set("Access-Control-Request-Method", "POST")
 	request.Header.Set("Access-Control-Request-Headers", "content-type")
+	request.Header.Set("Access-Control-Request-Private-Network", "true")
 	response := httptest.NewRecorder()
 
 	handler.ServeHTTP(response, request)
@@ -1971,6 +1990,9 @@ func TestHandlerAllowsWeb3CORSPreflightForRemix(t *testing.T) {
 	}
 	if !strings.Contains(response.Header().Get("Access-Control-Allow-Methods"), "POST") {
 		t.Fatalf("expected POST in CORS methods, got %q", response.Header().Get("Access-Control-Allow-Methods"))
+	}
+	if got := response.Header().Get("Access-Control-Allow-Private-Network"); got != "true" {
+		t.Fatalf("expected private network preflight allow header, got %q", got)
 	}
 }
 
@@ -1990,6 +2012,9 @@ func TestHandlerAddsCORSHeadersToWeb3ChainID(t *testing.T) {
 	}
 	if got := response.Header().Get("Access-Control-Allow-Origin"); got != "*" {
 		t.Fatalf("expected default permissive CORS origin for Web3 tooling, got %q", got)
+	}
+	if got := response.Header().Get("Access-Control-Allow-Private-Network"); got != "" {
+		t.Fatalf("did not expect private-network header on non-private request, got %q", got)
 	}
 	var payload JSONRPCResponse
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
@@ -2658,8 +2683,30 @@ func TestHandlerWeb3GasPriceFailsClosedWhenBaseFeeUnavailable(t *testing.T) {
 
 	var response JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":1,"method":"eth_gasPrice","params":[]}`, http.StatusOK, &response)
-	if response.Error == nil || !strings.Contains(response.Error.Message, "gas price is unavailable") {
-		t.Fatalf("expected gas price fail-closed error, got %+v", response)
+	if response.Error != nil || response.Result != "0x1" {
+		t.Fatalf("expected minimal gas price fallback, got %+v", response)
+	}
+}
+
+func TestHandlerWeb3LatestBlockFallsBackToGenesisShapeWhenNoBlocksExist(t *testing.T) {
+	handler := NewHandler(&fakeStatusProvider{
+		status: node.Status{ChainID: "vexo-chain", Running: true, LatestHeight: 0},
+	})
+
+	var response JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["latest",false]}`, http.StatusOK, &response)
+	if response.Error != nil {
+		t.Fatalf("unexpected latest block error: %+v", response)
+	}
+	block, ok := response.Result.(map[string]any)
+	if !ok || block["number"] != "0x0" || block["parentHash"] != "0x0000000000000000000000000000000000000000000000000000000000000000" || block["hash"] == nil {
+		t.Fatalf("unexpected genesis-shaped latest block: %+v", response.Result)
+	}
+
+	response = JSONRPCResponse{}
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":2,"method":"eth_getBlockTransactionCountByNumber","params":["latest"]}`, http.StatusOK, &response)
+	if response.Error != nil || response.Result != "0x0" {
+		t.Fatalf("unexpected latest block transaction count: %+v", response)
 	}
 }
 

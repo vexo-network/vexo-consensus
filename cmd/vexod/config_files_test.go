@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/config"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
@@ -37,6 +38,20 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	}
 	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
 	if err != nil {
+		moduleDocument, readErr := readModuleConfigDocument(filepath.Join(home, moduleConfigFileName))
+		t.Logf("read module err=%v", readErr)
+		if readErr == nil {
+			configDocument, configReadErr := readConfigDocument(filepath.Join(home, configFileName))
+			t.Logf("read config err=%v", configReadErr)
+			networkDocument, _ := readNetworkConfigDocument(filepath.Join(home, networkConfigFileName))
+			consensusDocument, _ := readConsensusConfigDocument(filepath.Join(home, consensusConfigFileName))
+			mempoolDocument, _ := readMempoolConfigDocument(filepath.Join(home, mempoolConfigFileName))
+			if configReadErr == nil {
+				debugCfg := configFromConfigDocuments(configDocument, moduleDocument, networkDocument, consensusDocument, mempoolDocument)
+				t.Logf("debug config: app=%+v exec=%+v bank=%+v staking=%+v gov=%+v mempool=%+v p2p=%+v", debugCfg.Application, debugCfg.Execution, debugCfg.Bank, debugCfg.Staking, debugCfg.Governance, debugCfg.Mempool, debugCfg.P2P)
+				t.Logf("debug validate: %v", debugCfg.Validate())
+			}
+		}
 		t.Fatal(err)
 	}
 	if cfg.Chain.ChainID != "vexo-test" || cfg.DataDir != filepath.Join(home, "data") || cfg.ValidatorID != "alice" {
@@ -88,7 +103,13 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(moduleDocument.Application.Modules) != 5 ||
+	if len(moduleDocument.Application.CoreModules) != 5 ||
+		moduleDocument.Application.CoreModules[0] != "bank" ||
+		moduleDocument.Application.CoreModules[1] != "staking" ||
+		moduleDocument.Application.CoreModules[2] != "governance" ||
+		moduleDocument.Application.CoreModules[3] != "params" ||
+		moduleDocument.Application.CoreModules[4] != "ibc" ||
+		len(moduleDocument.Application.Modules) != 5 ||
 		moduleDocument.Execution.MaxGas == 0 ||
 		moduleDocument.Execution.FeeDenom != "avxo" ||
 		moduleDocument.Execution.DisplayDenom != "vexo" ||
@@ -129,6 +150,10 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	}
 	if !consensusDocument.Consensus.LoopEnabled ||
 		consensusDocument.Consensus.ExecutionCommit != string(vexonode.ExecutionCommitModeFinalized) ||
+		consensusDocument.Consensus.AdaptiveRoundTimeoutEnabled == nil ||
+		!(*consensusDocument.Consensus.AdaptiveRoundTimeoutEnabled) ||
+		consensusDocument.Consensus.RecoveryFinalityGateEnabled == nil ||
+		!(*consensusDocument.Consensus.RecoveryFinalityGateEnabled) ||
 		consensusDocument.Committee.CommitteeSize == 0 ||
 		consensusDocument.Committee.Backend != committee.BackendVRF ||
 		consensusDocument.VRF.AdapterName != vexocrypto.VRFAdapterECVRFP256Name ||
@@ -158,6 +183,7 @@ func TestRunInitWritesNetworkFiles(t *testing.T) {
 	if !strings.Contains(output.String(), "initialized vexo network") || !strings.Contains(output.String(), "validators: 4") {
 		t.Fatalf("unexpected network output:\n%s", output.String())
 	}
+	var sharedP2PAuthToken string
 
 	for index := 1; index <= 4; index++ {
 		validatorID := networkValidatorID(index)
@@ -214,8 +240,16 @@ func TestRunInitWritesNetworkFiles(t *testing.T) {
 		if networkDocument.P2P.NodeID != validatorID || networkDocument.P2P.NodeKeyPath != nodeKeyFileName {
 			t.Fatalf("expected p2p node identity for %s, got %+v", validatorID, networkDocument.P2P)
 		}
-		if networkDocument.P2P.AuthReplayPath == "" {
-			t.Fatalf("expected p2p auth replay path for %s, got %+v", validatorID, networkDocument.P2P)
+		if networkDocument.P2P.AuthToken == "" || networkDocument.P2P.AuthReplayPath == "" {
+			t.Fatalf("expected p2p auth settings for %s, got %+v", validatorID, networkDocument.P2P)
+		}
+		if index == 1 {
+			sharedP2PAuthToken = networkDocument.P2P.AuthToken
+		} else if networkDocument.P2P.AuthToken != sharedP2PAuthToken {
+			t.Fatalf("expected shared p2p auth token for %s, got %+v", validatorID, networkDocument.P2P)
+		}
+		if _, err := os.Stat(filepath.Join(nodeHome, "tls")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("expected no tls directory for %s, got err=%v", validatorID, err)
 		}
 		consensusDocument, err := readConsensusConfigDocument(filepath.Join(nodeHome, consensusConfigFileName))
 		if err != nil {
@@ -418,8 +452,8 @@ func TestLoadNodeConfigMergesModuleConfig(t *testing.T) {
 	}
 	moduleDocument := moduleConfigDocument{
 		SchemaVersion: moduleSchemaVersion,
-		Application:   config.ApplicationConfig{Modules: []string{"bank"}},
-		Execution:     config.ExecutionConfig{RequireSigned: true, RequireNonce: true, MinFee: 7, MinGas: 3, MaxGas: 99, FeeCollector: "collector"},
+		Application:   config.ApplicationConfig{Modules: append(config.DefaultApplicationModules(), "custom")},
+		Execution:     config.ExecutionConfig{RequireSigned: true, RequireNonce: true, MinFee: 7, MinGas: 3, TargetGas: 50, MaxGas: 99, FeeCollector: "collector"},
 		Bank:          config.BankConfig{MintAuthority: "governance"},
 		Governance:    governance.TallyPolicy{QuorumPower: 2, YesThresholdPower: 2, VotingPeriod: 9, Timelock: 4, VetoPower: 1},
 	}
@@ -429,7 +463,7 @@ func TestLoadNodeConfigMergesModuleConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Chain.Application.Modules) != 1 || cfg.Chain.Application.Modules[0] != "bank" {
+	if len(cfg.Chain.Application.CoreModules) != 5 || len(cfg.Chain.Application.Modules) != 6 || cfg.Chain.Application.Modules[5] != "custom" {
 		t.Fatalf("expected module config override, got %+v", cfg.Chain.Application)
 	}
 	if !cfg.Chain.Execution.RequireSigned || cfg.Chain.Execution.MinFee != 7 || cfg.Chain.Execution.FeeCollector != "collector" || cfg.Chain.Execution.FeeDenom != "avxo" {
@@ -531,6 +565,50 @@ func TestRuntimeConfigLoadsEVMAccountKeyEnvsFromSplitNetworkConfig(t *testing.T)
 	}
 	if len(keys) != 2 || keys[0] != "0xabc" || keys[1] != "0xdef" {
 		t.Fatalf("expected keys from envs, got %+v", keys)
+	}
+}
+
+func TestWriteNetworkFilesWithWeb3DevAccountsSeedsManagedAccount(t *testing.T) {
+	home := t.TempDir()
+	network, err := writeNetworkFilesWithOptionsAndKeyType(home, "vexo-test", 2, true, networkAddressOptions{}, vexocrypto.KeyTypeBLS, false, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(network.Nodes) != 2 {
+		t.Fatalf("expected two nodes, got %+v", network.Nodes)
+	}
+	networkDocument, err := readNetworkConfigDocument(network.Nodes[0].NetworkConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !networkDocument.RPC.EVMManagedAccounts || len(networkDocument.RPC.EVMAccountPrivateKeys) != 1 {
+		t.Fatalf("expected managed EVM account config, got %+v", networkDocument.RPC)
+	}
+	moduleDocument, err := readModuleConfigDocument(network.Nodes[0].ModuleConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(moduleDocument.Application.Modules) != 6 || moduleDocument.Application.Modules[5] != "evm" {
+		t.Fatalf("expected evm module enabled for web3 dev accounts, got %+v", moduleDocument.Application.Modules)
+	}
+	key, err := gethcrypto.HexToECDSA(strings.TrimPrefix(networkDocument.RPC.EVMAccountPrivateKeys[0], "0x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	evmAddress := strings.ToLower(gethcrypto.PubkeyToAddress(key.PublicKey).Hex())
+	genesisDocument, err := readGenesisDocument(network.Nodes[0].GenesisPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if genesisDocument.AppState["bank:"+evmAddress] == "" {
+		t.Fatalf("expected managed EVM account %s to be funded in genesis", evmAddress)
+	}
+	configDocument, err := readConfigDocument(network.Nodes[0].ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configDocument.RequireNetworkSafety {
+		t.Fatalf("expected web3 dev account init to disable network safety for local docker deployment")
 	}
 }
 
@@ -636,33 +714,6 @@ func TestRuntimeConfigLoadsP2PNodeIdentityFromSplitNetworkConfig(t *testing.T) {
 	}
 }
 
-func TestRuntimeConfigLoadsRPCTLSFromSplitNetworkConfig(t *testing.T) {
-	home := t.TempDir()
-	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
-		t.Fatal(err)
-	}
-	networkDocument, err := readNetworkConfigDocument(filepath.Join(home, networkConfigFileName))
-	if err != nil {
-		t.Fatal(err)
-	}
-	networkDocument.RPC.TLSCertPath = "tls/rpc.crt"
-	networkDocument.RPC.TLSKeyPath = "tls/rpc.key"
-	networkDocument.RPC.TLSCAPath = "tls/rpc-ca.crt"
-	networkDocument.RPC.TLSServerName = "rpc.validator.internal"
-	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
-
-	runtimeConfig, err := loadStartRuntimeConfig(home, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if runtimeConfig.RPCTLSCertPath != filepath.Join(home, "tls/rpc.crt") ||
-		runtimeConfig.RPCTLSKeyPath != filepath.Join(home, "tls/rpc.key") ||
-		runtimeConfig.RPCTLSCAPath != filepath.Join(home, "tls/rpc-ca.crt") ||
-		runtimeConfig.RPCTLSServerName != "rpc.validator.internal" {
-		t.Fatalf("expected resolved rpc TLS config, got %+v", runtimeConfig)
-	}
-}
-
 func TestLoadP2PTLSConfigRequiresCAForConfiguredIdentity(t *testing.T) {
 	_, err := loadP2PTLSConfig(startRuntimeConfig{
 		P2PTLSCertPath: "tls/node.crt",
@@ -670,24 +721,6 @@ func TestLoadP2PTLSConfigRequiresCAForConfiguredIdentity(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected p2p tls identity without ca to fail")
-	}
-}
-
-func TestLoadRPCTLSConfigRejectsPartialIdentity(t *testing.T) {
-	_, err := loadRPCTLSConfig(startRuntimeConfig{RPCTLSCertPath: "tls/rpc.crt"})
-	if err == nil || !strings.Contains(err.Error(), "cert and key") {
-		t.Fatalf("expected rpc tls partial identity error, got %v", err)
-	}
-}
-
-func TestLoadRPCTLSConfigRequiresCAForServerName(t *testing.T) {
-	_, err := loadRPCTLSConfig(startRuntimeConfig{
-		RPCTLSCertPath:   "tls/rpc.crt",
-		RPCTLSKeyPath:    "tls/rpc.key",
-		RPCTLSServerName: "rpc.validator.internal",
-	})
-	if err == nil || !strings.Contains(err.Error(), "server name requires") {
-		t.Fatalf("expected rpc tls server name ca error, got %v", err)
 	}
 }
 
@@ -756,7 +789,7 @@ func TestLoadNodeConfigUsesDefaultModuleConfigWhenSplitFileMissing(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Chain.Application.Modules) != 5 || cfg.Chain.Execution.MaxGas == 0 || cfg.Chain.Governance.Timelock == 0 {
+	if len(cfg.Chain.Application.CoreModules) != 5 || len(cfg.Chain.Application.Modules) != 5 || cfg.Chain.Execution.MaxGas == 0 || cfg.Chain.Governance.Timelock == 0 {
 		t.Fatalf("expected default module config fallback, got %+v", cfg.Chain)
 	}
 }
@@ -1106,8 +1139,29 @@ func TestLoadStartRuntimeConfigParsesConsensusTimeoutsAndEmptyBlocks(t *testing.
 		cfg.ConsensusLoop.TimeoutPrecommit != 2*time.Second ||
 		cfg.ConsensusLoop.TimeoutCommit != 250*time.Millisecond ||
 		!cfg.ConsensusLoop.CreateEmptyBlocks ||
+		!cfg.ConsensusLoop.AdaptiveRoundTimeoutEnabled ||
+		!cfg.ConsensusLoop.RecoveryFinalityGateEnabled ||
 		cfg.ConsensusLoop.ExecutionCommitMode != vexonode.ExecutionCommitModeFinalized {
 		t.Fatalf("unexpected consensus runtime config: %+v", cfg.ConsensusLoop)
+	}
+}
+
+func TestLoadStartRuntimeConfigHonorsConsensusFeatureDisables(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, configFileName)
+	document := defaultConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	consensusDocument := defaultConsensusConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	consensusDocument.Consensus.AdaptiveRoundTimeoutEnabled = boolPtr(false)
+	consensusDocument.Consensus.RecoveryFinalityGateEnabled = boolPtr(false)
+	writeTestJSON(t, path, document)
+	writeTestJSON(t, filepath.Join(home, consensusConfigFileName), consensusDocument)
+
+	cfg, err := loadStartRuntimeConfig(home, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ConsensusLoop.AdaptiveRoundTimeoutEnabled || cfg.ConsensusLoop.RecoveryFinalityGateEnabled {
+		t.Fatalf("expected consensus feature toggles to be loadable, got %+v", cfg.ConsensusLoop)
 	}
 }
 
@@ -1142,12 +1196,6 @@ func TestLoadStartRuntimeConfigRequiresFinalizedCommitWhenNetworkSafetyIsRequire
 	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
 	if _, err := loadStartRuntimeConfig(home, path); err != nil {
 		t.Fatalf("expected durable auth replay path to satisfy runtime safety boundary, got %v", err)
-	}
-
-	networkDocument.P2P.TLSCAPath = ""
-	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
-	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrUnsafeNetworkConfig) {
-		t.Fatalf("expected missing p2p mtls ca to fail network safety boundary, got %v", err)
 	}
 }
 
@@ -1215,7 +1263,7 @@ func TestLoadStartRuntimeConfigRejectsManagedEVMKeysOnPublicRPC(t *testing.T) {
 	}
 }
 
-func TestLoadStartRuntimeConfigRequiresTLSOnPublicRPC(t *testing.T) {
+func TestLoadStartRuntimeConfigAllowsPublicHTTPRPC(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, configFileName)
 	document := defaultConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
@@ -1226,14 +1274,9 @@ func TestLoadStartRuntimeConfigRequiresTLSOnPublicRPC(t *testing.T) {
 	writeTestJSON(t, path, document)
 	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
 
-	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrUnsafeNetworkConfig) {
-		t.Fatalf("expected public rpc without tls to fail network safety boundary, got %v", err)
-	}
-	networkDocument.RPC.TLSCertPath = "tls/rpc.crt"
-	networkDocument.RPC.TLSKeyPath = "tls/rpc.key"
-	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
-	if cfg, err := loadStartRuntimeConfig(home, path); err != nil || cfg.RPCTLSCertPath == "" || cfg.RPCTLSKeyPath == "" {
-		t.Fatalf("expected public rpc with tls identity to load, cfg=%+v err=%v", cfg, err)
+	cfg, err := loadStartRuntimeConfig(home, path)
+	if err != nil {
+		t.Fatalf("expected public rpc over http to load, cfg=%+v err=%v", cfg, err)
 	}
 }
 

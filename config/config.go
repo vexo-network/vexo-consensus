@@ -38,7 +38,8 @@ type Config struct {
 }
 
 type ApplicationConfig struct {
-	Modules []string
+	CoreModules []string
+	Modules     []string
 }
 
 type ExecutionConfig struct {
@@ -106,6 +107,10 @@ const (
 	NetworkSafeBLSAuditEvidencePath        = "docs/security/blst-audit-evidence.json"
 )
 
+func DefaultApplicationModules() []string {
+	return []string{"bank", "staking", "governance", "params", "ibc"}
+}
+
 type CryptoConfig struct {
 	Backend             CryptoBackend `json:"backend"`
 	ProductionAdapter   bool          `json:"production_adapter"`
@@ -133,7 +138,8 @@ func Default(chainID string) Config {
 	return Config{
 		ChainID: chainID,
 		Application: ApplicationConfig{
-			Modules: []string{"bank", "staking", "governance", "params", "ibc"},
+			CoreModules: DefaultApplicationModules(),
+			Modules:     DefaultApplicationModules(),
 		},
 		Execution: ExecutionConfig{
 			EVMChainID:               DefaultEVMChainID,
@@ -145,12 +151,13 @@ func Default(chainID string) Config {
 			BaseFeeChangeDenominator: 8,
 			BlobFeeChangeDenominator: 6,
 			MinBlobBaseFee:           1,
+			MinGas:                   1,
 			FeeCollector:             "fee_collector",
 			FeeDenom:                 economics.AtomicDenom,
 			DisplayDenom:             economics.DisplayDenom,
 			DisplayExponent:          18,
 			GasDenom:                 "gas",
-			EVMForkPreset:            "latest",
+			EVMForkPreset:            "london",
 			StrictEVMStateRoot:       true,
 			MaxBlobSidecarBlobs:      6,
 			MaxBlobSidecarBytes:      2 * 1024 * 1024,
@@ -255,7 +262,27 @@ func (config Config) Validate() error {
 	if config.ChainID == "" {
 		return ErrMissingChainID
 	}
+	if len(config.Application.CoreModules) > 0 {
+		if !sameStringSlice(config.Application.CoreModules, DefaultApplicationModules()) {
+			return ErrInvalidConfig
+		}
+		enabledModules := config.Application.Modules
+		if len(enabledModules) == 0 {
+			enabledModules = config.Application.CoreModules
+		}
+		if len(enabledModules) < len(config.Application.CoreModules) ||
+			!sameStringSlice(enabledModules[:len(config.Application.CoreModules)], config.Application.CoreModules) {
+			return ErrInvalidConfig
+		}
+	}
 	if !validCryptoBackend(config.Crypto.Backend) {
+		return ErrInvalidConfig
+	}
+	if config.Execution.TargetGas == 0 ||
+		config.Execution.MaxGas == 0 ||
+		config.Execution.TargetGas > config.Execution.MaxGas ||
+		config.Execution.BaseFeeChangeDenominator == 0 ||
+		config.Execution.MinGas == 0 {
 		return ErrInvalidConfig
 	}
 	if config.Execution.MaxGas > 0 && config.Execution.MinGas > config.Execution.MaxGas {
@@ -264,19 +291,19 @@ func (config Config) Validate() error {
 	if config.Execution.EVMChainID == 0 {
 		return ErrInvalidConfig
 	}
+	if config.Execution.TargetBlobGas == 0 ||
+		config.Execution.MaxBlobGas == 0 ||
+		config.Execution.TargetBlobGas > config.Execution.MaxBlobGas ||
+		config.Execution.BlobFeeChangeDenominator == 0 {
+		return ErrInvalidConfig
+	}
 	if config.Execution.DynamicBaseFee &&
 		(config.Execution.BaseFee == 0 ||
-			config.Execution.TargetGas == 0 ||
-			config.Execution.BaseFeeChangeDenominator == 0 ||
 			(config.Execution.MaxBaseFee > 0 && config.Execution.MinBaseFee > config.Execution.MaxBaseFee)) {
 		return ErrInvalidConfig
 	}
 	if config.Execution.DynamicBlobBaseFee &&
 		(config.Execution.BlobBaseFee == 0 ||
-			config.Execution.TargetBlobGas == 0 ||
-			config.Execution.MaxBlobGas == 0 ||
-			config.Execution.TargetBlobGas > config.Execution.MaxBlobGas ||
-			config.Execution.BlobFeeChangeDenominator == 0 ||
 			(config.Execution.MaxBlobBaseFee > 0 && config.Execution.MinBlobBaseFee > config.Execution.MaxBlobBaseFee)) {
 		return ErrInvalidConfig
 	}
@@ -284,6 +311,7 @@ func (config Config) Validate() error {
 		return ErrInvalidConfig
 	}
 	if config.Execution.EVMForkPreset != "" &&
+		config.Execution.EVMForkPreset != "london" &&
 		config.Execution.EVMForkPreset != "latest" &&
 		config.Execution.EVMForkPreset != "custom" {
 		return ErrInvalidConfig
@@ -365,6 +393,18 @@ func (config Config) Validate() error {
 		return ErrInvalidConfig
 	}
 	return nil
+}
+
+func sameStringSlice(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func (config Config) ValidateNetworkSafety() error {

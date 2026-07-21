@@ -1,88 +1,75 @@
 > Locale: zh · 中文
 
-# 共识协议概述
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-此页面是 Vexo 共识文档的高级入口点。有关更广泛的文档地图，请参阅[文档](./README.md)。
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-有关规范详细信息，请使用规范文件：
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-- [共识规范](./specs/consensus-spec.md)
-- [最终性证明格式](./specs/finality-proof-format.md)
-- [验证器生命周期](./specs/validator-lifecycle.md)
-- [存储架构](./specs/storage-schema.md)
-- [网络规范](./specs/networking-spec.md)
-- [交易格式](./specs/tx-format.md)
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-## 型号
+-不到三分之一的拜占庭投票权
+-域分隔的提案、投票、超时投票和最终签名
+-在相关证明高度的验证器集哈希绑定
+-质量控制和最终证明中唯一的已知签名者
+-验证者模棱两可的可问责证据
+-在相同的最终高度拒绝冲突的提交决策
 
-Vexo 使用 HotStuff 风格的 BFT 核心，具有提案、投票、法定人数证书、超时证书、锁定 QC 安全性和三链最终性。
+# #加密边界
 
-仅当区块扩展了锁定的 QC 或携带至少与锁一样新的合理 QC 时，才可以安全地对区块进行投票。当三链规则证明安全的父/祖父母链扩展时，区块就被最终确定。
+QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
-该实现将三链决策绑定到显式的块、父代和祖父母高度。区块QC必须证明父代高度/哈希，父代QC必须证明祖父母高度/哈希；在记录最终决定之前，合成的或高度跳跃的 QC 链将被拒绝。
+-对每个验证程序主页进行严格的配置审核
+-释放门证据
+-外部安全审查
+-多房东长期和混乱的证据
+-签名人/KMS政策证据
+-特定于链的经济和治理政策审查
 
-## 执行条款
-
-Vexo 一贯使用这些术语：
-
-- **QC 认证**：一个区块有足够的选票来形成法定人数证书。
-- **最终确定**：HotStuff 三链规则最终确定了祖先块。
-- **已执行**：应用程序已为块运行 `FinalizeBlock`。
-- **状态已提交**：应用程序 KV 写入、块记录、状态记录和模块状态根已持久提交。
-
-节点执行路径使用两个独立的边界：
-
-- **执行提交边界**：QC认证的块可以作为应用程序写入+块记录+状态记录+状态根来执行和原子地持久化。
-- **共识最终性边界**：三链规则最终确定了祖先，并且是轻客户端最终性证明的唯一来源。
-
-`consensus_config.json` 通过 `execution_commit` 公开此选择。生成的验证器主目录默认为 `finalized`，它仅执行三链最终性规则选择的祖先，因此状态提交与更严格的最终性边界保持一致。较低延迟的 `qc` 边界仍然可用于自定义部署，但 `require_network_safety` 拒绝它。操作员和 SDK 用户应将 `block_committed` 日志视为已配置执行边界的状态提交事件。最终性证明描述了验证者设置高度的共识最终性。
-
-## 安全边界
-
-安全取决于：
-
-- 不到三分之一的拜占庭投票权
-- 域分离的提案、投票、超时投票和最终签名
-- 验证器设置哈希绑定在相关的证明高度
-- QC 和最终性证明中唯一的已知签名者
-- 验证者模棱两可的可靠证据
-- 在相同的最终高度拒绝冲突的提交决策
-
-## 加密边界
-
-- `deterministic` 仅供测试，未通过网络安全验证。
-- 支持 `ed25519` 用于公共网络测试和启动准备。
-- `bls` 默认为 `blst-bls12381-minpk-v1` 并需要拥有证明或等效的流氓密钥防御、子组检查、公钥验证、依赖性审计证据和发布门证据。内置 CIRCL 适配器仍然是运行时接口的参考集成，并不是生产安全豁免。
-- 网络安全验证需要 VRF 适配器元数据以供 VRF 委员会选择。内置ECVRF适配器可以满足运行时接口；确定性 VRF 仍仅供测试，不应用于价值承载网络。
-
-## 操作边界
-
-该代码包括面向生产的检查，但公共部署仍然需要：
-
-- 对每个验证器主页进行严格的配置审核
-- 释放门证据
-- 外部安全审查
-- 多主机长期和混沌证据
-- 签名者/KMS 策略证据
-- 针对特定链条的经济和治理政策审查
-
-在将版本视为生产就绪之前，请参阅[安全审核准备情况](./security/audit-readiness.md)和[发布管道](./release/release-pipeline.md)。
+在将版本视为生产就绪之前，请参阅[安全审核就绪](./security/audit-readiness.md)和[发布管道](./release/release-pipeline.md)。
 
 <!-- vexo-docs:technical-parity -->
-## 技术等价附录
+## 技术等价性附录
 
-本附录用于确保译文没有遗漏英文正本中的可执行接口和关键章节。命令、配置键、RPC 方法和包名在所有语言中保持不变。
+这个附录的作用，是确认译文和英文正本保留了同样的可执行接口与运维边界。命令、配置键、RPC 路径和代码标识符都不要翻译。下面的中文只是解释含义，但软件和运维必须看到的那些名字仍然保持原样。
+`require_network_safety` 和 `block_committed` 是必须保持原样的关键术语。
+- `config.json`
+- `module_config.json`
+- `network_config.json`
+- `consensus_config.json`
+- `mempool_config.json`
+- `log_config.json`
 
-### 章节追踪
-- section: Model — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
-- section: Execution Terms — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
-- section: Safety Boundary — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
-- section: Crypto Boundary — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
-- section: Operational Boundary — 本节需要同时检查配置值、验证证据、失败条件以及运营者应采取的操作。
+### 章节跟踪
+- section: Model - HotStuff、three-chain finality、QC、timeout certificate、locked-QC safety 需要一起阅读。
+- section: Execution Terms - QC certified、finalized、executed、state committed 的运维含义不同。
+- section: Safety Boundary - 少于三分之一的 Byzantine 投票权、domain separation、validator-set hash binding、accountable evidence 都是安全要求。
+- section: Crypto Boundary - `deterministic`、`ed25519`、`bls`、`blst-bls12381-minpk-v1`、`ecvrf-p256-sha256-tai-v1` 需要统一对待。
+- section: Operational Boundary - `vexo_quorum_health_ratio`、`adaptive_round_timeout_enabled`、`recovery_finality_gate_enabled` 和 snapshot/replay health 是运维信号。
 
 ### 保持不变的接口
-- `consensus_config.json` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
-- `execution_commit` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
-- `require_network_safety` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
-- `block_committed` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
-- `blst-bls12381-minpk-v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/status`
+- `/v1/metrics`
+- `/v1/diagnostics`
+- `/v1/finality/latest`
+- `/v1/state/latest`
+- `/v1/recovery/report`
+- `execution_commit`
+- `finalized`
+- `qc`
+- `adaptive_round_timeout_enabled`
+- `recovery_finality_gate_enabled`
+- `vexo_quorum_health_ratio`
+- `blst-bls12381-minpk-v1`
+- `ecvrf-p256-sha256-tai-v1`
+- `proof-of-possession`
+- `remote signer`
+- `three-chain finality`
+
+## 运维备注
+
+创建验证人 home 时，除了 `config.json` 之外，还要一起检查 `module_config.json`、`network_config.json`、`consensus_config.json`、`mempool_config.json` 和 `log_config.json`。在真实运维里，最好把 `vexo_quorum_health_ratio` 和 `adaptive_round_timeout_enabled` 放在一起看，不要只盯着对等节点数量。
+
+- 优先使用 `execution_commit=finalized`。
+- `qc` 路径只应保留给受控测试网。
+- 同时检查 `recovery_finality_gate_enabled` 与 snapshot/replay health。

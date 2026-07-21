@@ -11,6 +11,9 @@ func TestNormalizeConsensusLoopConfigDefaultsExecutionCommitMode(t *testing.T) {
 	if cfg.ExecutionCommitMode != ExecutionCommitModeFinalized {
 		t.Fatalf("expected finalized execution commit mode, got %q", cfg.ExecutionCommitMode)
 	}
+	if !cfg.AdaptiveRoundTimeoutEnabled || !cfg.RecoveryFinalityGateEnabled {
+		t.Fatalf("expected adaptive pacing and recovery gate enabled by default, got adaptive=%t recovery=%t", cfg.AdaptiveRoundTimeoutEnabled, cfg.RecoveryFinalityGateEnabled)
+	}
 }
 
 func TestStepConsensusRejectsUnknownExecutionCommitMode(t *testing.T) {
