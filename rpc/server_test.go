@@ -1896,8 +1896,19 @@ func TestWeb3PendingReceiptDoesNotScanCommittedBlocks(t *testing.T) {
 func TestWeb3ReceiptUsesBlockCumulativeGas(t *testing.T) {
 	txHash1 := "0x1111111111111111111111111111111111111111111111111111111111111111"
 	txHash2 := "0x2222222222222222222222222222222222222222222222222222222222222222"
-	receipt1 := web3Receipt{TxHash: txHash1, Height: 3, Status: 1, From: "0xaaaa", To: "0xbbbb", GasUsed: 7}
-	receipt2 := web3Receipt{TxHash: txHash2, Height: 3, Status: 1, From: "0xcccc", To: "0xdddd", GasUsed: 11}
+	receipt1 := web3Receipt{
+		TxHash: txHash1, Height: 3, Status: 1, From: "0xaaaa", To: "0xbbbb", GasUsed: 7,
+		Logs: []any{
+			map[string]any{"address": "0xbbbb", "topics": []any{"0x01"}, "data": "0x01"},
+			map[string]any{"address": "0xbbbb", "topics": []any{"0x02"}, "data": "0x02"},
+		},
+	}
+	receipt2 := web3Receipt{
+		TxHash: txHash2, Height: 3, Status: 1, From: "0xcccc", To: "0xdddd", GasUsed: 11,
+		Logs: []any{
+			map[string]any{"address": "0xdddd", "topics": []any{"0x03"}, "data": "0x03"},
+		},
+	}
 	encoded1, err := json.Marshal(receipt1)
 	if err != nil {
 		t.Fatal(err)
@@ -1931,6 +1942,26 @@ func TestWeb3ReceiptUsesBlockCumulativeGas(t *testing.T) {
 	receiptObject, ok := object.(map[string]any)
 	if !ok || receiptObject["transactionIndex"] != "0x1" || receiptObject["gasUsed"] != "0xb" || receiptObject["cumulativeGasUsed"] != "0x12" {
 		t.Fatalf("unexpected cumulative receipt object: %+v", object)
+	}
+	logs, ok := receiptObject["logs"].([]any)
+	if !ok || len(logs) != 1 {
+		t.Fatalf("unexpected receipt logs: %+v", receiptObject["logs"])
+	}
+	log, ok := logs[0].(map[string]any)
+	expectedBlockHash := "0x03" + strings.Repeat("00", 31)
+	if !ok ||
+		log["blockHash"] != expectedBlockHash ||
+		log["blockNumber"] != "0x3" ||
+		log["transactionHash"] != txHash2 ||
+		log["transactionIndex"] != "0x1" ||
+		log["logIndex"] != "0x2" ||
+		log["removed"] != false {
+		t.Fatalf("receipt log is not Ethereum-compatible: %+v", logs[0])
+	}
+	blockTx := web3TransactionFromBlockRecord(provider.blocks[3], 1, txHash2, provider.blocks[3].Block.Txs[1])
+	blockTxObject, ok := blockTx.(map[string]any)
+	if !ok || blockTxObject["gas"] != "0x5208" {
+		t.Fatalf("transaction gas must remain the submitted gas limit: %+v", blockTx)
 	}
 }
 
@@ -2867,7 +2898,17 @@ func TestHandlerWeb3LatestBlockFallsBackToGenesisShapeWhenNoBlocksExist(t *testi
 	}
 
 	response = JSONRPCResponse{}
-	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":2,"method":"eth_getBlockTransactionCountByNumber","params":["latest"]}`, http.StatusOK, &response)
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":2,"method":"eth_getBlockByNumber","params":["0x0",true]}`, http.StatusOK, &response)
+	if response.Error != nil {
+		t.Fatalf("unexpected explicit genesis block error: %+v", response)
+	}
+	block, ok = response.Result.(map[string]any)
+	if !ok || block["number"] != "0x0" || block["transactions"] == nil {
+		t.Fatalf("unexpected explicit genesis block: %+v", response.Result)
+	}
+
+	response = JSONRPCResponse{}
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":3,"method":"eth_getBlockTransactionCountByNumber","params":["latest"]}`, http.StatusOK, &response)
 	if response.Error != nil || response.Result != "0x0" {
 		t.Fatalf("unexpected latest block transaction count: %+v", response)
 	}

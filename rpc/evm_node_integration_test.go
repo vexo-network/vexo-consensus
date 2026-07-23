@@ -190,6 +190,7 @@ func TestWeb3DeploysCurrentSolidityBytecodeThroughRunningNode(t *testing.T) {
 	if code := web3NodeCall[string](t, handler, "eth_getCode", tpsCheckAddress, "latest"); code == "0x" {
 		t.Fatalf("TpsCheck deployment produced no runtime code: receipt=%+v", tpsCheckReceipt)
 	}
+	assertWeb3MinedReceiptLogs(t, tpsCheckReceipt)
 }
 
 func TestWeb3DeployAndUpgradeAcrossFourValidatorConsensus(t *testing.T) {
@@ -624,4 +625,24 @@ func web3NodeCall[T any](t *testing.T, handler http.Handler, method string, para
 		t.Fatalf("decode %s result %s: %v", method, envelope.Result, err)
 	}
 	return result
+}
+
+func assertWeb3MinedReceiptLogs(t *testing.T, receipt map[string]any) {
+	t.Helper()
+	logs, ok := receipt["logs"].([]any)
+	if !ok || len(logs) == 0 {
+		t.Fatalf("expected mined receipt logs: %+v", receipt)
+	}
+	for _, value := range logs {
+		log, ok := value.(map[string]any)
+		if !ok ||
+			log["blockHash"] == nil ||
+			log["blockNumber"] == nil ||
+			log["transactionHash"] == nil ||
+			log["transactionIndex"] == nil ||
+			log["logIndex"] == nil ||
+			log["removed"] != false {
+			t.Fatalf("receipt log is not Ethereum-compatible: %+v", value)
+		}
+	}
 }
