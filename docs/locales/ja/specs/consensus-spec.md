@@ -97,7 +97,7 @@
 
 ## 空ブロックと Round 回復
 
-`create_empty_blocks=false` で mempool が空なら、height が止まって見えるのは正常な idle 状態です。取引が入ると、現在 round の proposer でなくても次の local proposer round に進んで取引ブロックを作れます。ただし QC/finality ルールは変わりません。
+`create_empty_blocks=false` で mempool が空なら、height が止まって見えるのは正常な idle 状態です。取引が入っても、ノードは現在の `(height, round)` の決定的な proposer の場合だけ提案し、proposer でないノードがローカルで別の round に進むことはありません。round は有効な timeout certificate または certified finality 遷移によってのみ進み、実行・保存エラーは timeout として扱いません。
 
 <!-- vexo-docs:technical-parity -->
 ## 技術的同等性付録

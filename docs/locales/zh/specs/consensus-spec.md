@@ -97,7 +97,7 @@
 
 ## 空块与 Round 恢复
 
-当 `create_empty_blocks=false` 且 mempool 为空时，height 看起来不增长是正常 idle 状态。交易进入后，即使当前 round 的 proposer 不是本节点，节点也可以移动到下一个 local proposer round 来构造交易块，但仍必须经过 QC/finality 规则。
+当 `create_empty_blocks=false` 且 mempool 为空时，height 看起来不增长是正常 idle 状态。交易进入后，节点只有在当前 `(height, round)` 的确定性 proposer 身份属于自己时才提议；非 proposer 不会在本地跳到其他 round。round 只能通过有效的 timeout certificate 或已认证的 finality 转换推进，执行或存储错误不会被当作 timeout。
 
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录

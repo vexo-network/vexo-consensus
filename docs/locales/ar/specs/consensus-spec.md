@@ -97,7 +97,7 @@
 
 ## الكتل الفارغة واستعادة Round
 
-مع `create_empty_blocks=false` فإن ثبات height عندما يكون mempool فارغًا هو حالة idle طبيعية. عند وصول معاملة يمكن للعقدة الانتقال إلى local proposer round التالي وبناء block بالمعاملة، مع بقاء قواعد QC/finality كما هي.
+مع `create_empty_blocks=false` فإن ثبات height عندما يكون mempool فارغًا هو حالة idle طبيعية. عند وصول معاملة لا يقترح العقدة إلا إذا كانت proposer الحتمية للزوج `(height, round)` الحالي، ولا تقفز محليًا إلى round آخر. لا تتقدم round إلا عبر timeout certificate صالح أو انتقال finality معتمد، ولا تُعامل أخطاء التنفيذ والتخزين كـ timeout.
 
 <!-- vexo-docs:technical-parity -->
 ## ملحق التكافؤ التقني

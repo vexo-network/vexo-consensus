@@ -740,10 +740,11 @@ func (runtime *Runtime) NewConsensusStateMachineWithSignatures(ctx context.Conte
 		return nil, err
 	}
 	return consensus.NewStateMachine(consensus.StateMachineConfig{
-		ChainID:      runtime.Config.ChainID,
-		ValidatorSet: validatorSet,
-		Signatures:   signatures,
-		Aggregator:   runtime.Crypto.ConsensusAggregator,
+		ChainID:                  runtime.Config.ChainID,
+		ValidatorSet:             validatorSet,
+		Signatures:               signatures,
+		Aggregator:               runtime.Crypto.ConsensusAggregator,
+		EnforceProposerSelection: true,
 	})
 }
 

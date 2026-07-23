@@ -72,12 +72,12 @@ In both modes, finality proofs remain tied to the consensus finality rule and th
 
 `create_empty_blocks = false` changes only when proposals are created; it does not weaken safety. A validator should not propose an empty block just to advance height. If every mempool is empty, the latest height can remain stable and that is normal idle behavior.
 
-When a valid transaction enters the mempool, the local consensus loop checks whether it is proposer for the current height and round. If not, and no proposal for that height is already pending, it advances to the next local proposer round and builds the transaction proposal there. This avoids the common single-node test failure mode where a node has useful transactions but its round counter drifted past another validator's proposer slot. The recovery is conservative:
+When a valid transaction enters the mempool, the local consensus loop proposes only when this validator is the deterministic proposer for the current `(height, round)`. A non-proposer never jumps to another round locally. Rounds advance only through a valid timeout certificate or a certified finality transition, and a failed block execution or storage step is not treated as a timeout. This prevents multiple validators from proposing different blocks for the same `(height, round)` and prevents a failed transaction from consuming rounds.
 
-- it never runs while forced empty-block creation is active;
-- it never replaces a pending proposal for the same height;
-- it only scans within the current validator set size;
-- it still requires the normal QC/finality path before state commitment.
+- idle consensus with no pending work does not consume rounds;
+- a proposer change requires the normal timeout-certificate or finality path;
+- a pending proposal is never replaced by an uncertified local recovery proposal;
+- state commitment still requires the normal QC/finality path.
 
 Operators should therefore read `latest_height = 0` with an empty mempool as idle, not failed. Read `latest_height` stuck with non-empty mempool, rising round timeouts, or failed peer handshakes as a liveness incident.
 

@@ -97,7 +97,7 @@ Tài liệu này giúp hiểu đặc tả chuẩn của state machine đồng th
 
 ## Empty block và phục hồi round
 
-Khi `create_empty_blocks=false`, height đứng yên lúc mempool rỗng là trạng thái idle bình thường. Khi có transaction, node có thể tiến tới local proposer round tiếp theo để tạo block giao dịch, nhưng các quy tắc QC/finality vẫn giữ nguyên.
+Khi `create_empty_blocks=false`, height đứng yên lúc mempool rỗng là trạng thái idle bình thường. Khi có transaction, node chỉ đề xuất khi là proposer xác định của `(height, round)` hiện tại; non-proposer không tự nhảy sang round khác. Round chỉ tiến qua timeout certificate hợp lệ hoặc chuyển đổi finality đã chứng nhận, và lỗi thực thi hoặc lưu trữ không được coi là timeout.
 
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật

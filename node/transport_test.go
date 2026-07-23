@@ -641,6 +641,9 @@ func TestNodeCommitGossipSyncsPeerThatMissedProposal(t *testing.T) {
 	if !ok {
 		quorumCert = forceTestQuorumCert(t, aliceConsensus, proposal.Block.Header.Height, proposal.Round, blockHash)
 	}
+	// Proposals must be created by the scheduled proposer. For this fixture,
+	// rotate the manually constructed chain to alice's scheduled rounds.
+	aliceConsensus.StartRound(2, 2)
 	parentProposal, parentHash, err := alice.ProposeBlock(context.Background(), types.Block{
 		Header: types.Header{Height: 2},
 	})
@@ -654,6 +657,7 @@ func TestNodeCommitGossipSyncsPeerThatMissedProposal(t *testing.T) {
 	if !ok {
 		parentQC = forceTestQuorumCert(t, aliceConsensus, parentProposal.Block.Header.Height, parentProposal.Round, parentHash)
 	}
+	aliceConsensus.StartRound(3, 1)
 	childProposal, childHash, err := alice.ProposeBlock(context.Background(), types.Block{
 		Header: types.Header{Height: 3},
 	})
@@ -1404,7 +1408,7 @@ func TestNodeConsensusLoopSkipsEmptyBlocksWhenDisabled(t *testing.T) {
 	}
 	machine.StartRound(1, 0)
 
-	loopConfig := ConsensusLoopConfig{Interval: time.Millisecond, RoundTimeout: time.Hour, MaxBlockBytes: 1024, CreateEmptyBlocks: false, ExecutionCommitMode: ExecutionCommitModeQC, AllowUnsafeQCCommit: true}
+	loopConfig := ConsensusLoopConfig{Interval: time.Millisecond, RoundTimeout: 5 * time.Millisecond, MaxBlockBytes: 1024, CreateEmptyBlocks: false, ExecutionCommitMode: ExecutionCommitModeQC, AllowUnsafeQCCommit: true}
 	if err := alice.StartConsensusLoop(context.Background(), loopConfig); err != nil {
 		t.Fatal(err)
 	}
@@ -1413,6 +1417,9 @@ func TestNodeConsensusLoopSkipsEmptyBlocksWhenDisabled(t *testing.T) {
 	time.Sleep(25 * time.Millisecond)
 	if status := alice.Status(context.Background()); status.LatestHeight != 0 {
 		t.Fatalf("expected no empty block commits, got %+v", status)
+	}
+	if status := machine.Status(context.Background()); status.Height != 1 || status.Round != 0 {
+		t.Fatalf("expected idle consensus to remain at height 1 round 0, got %+v", status)
 	}
 	if err := alice.SubmitTx(context.Background(), []byte("bank:tx-only-block")); err != nil {
 		t.Fatal(err)
@@ -1705,61 +1712,19 @@ func TestNodeSkippedProposerRecoversOnNextRound(t *testing.T) {
 	}
 }
 
-func TestNodeRecoversDesyncedRoundWhenMempoolHasTx(t *testing.T) {
+func TestNodeDoesNotSkipRoundsWithoutTimeoutCertificate(t *testing.T) {
 	_, bob, _ := newConsensusLoopNodes(t)
 	startNode(t, bob)
 	defer bob.Stop(context.Background())
 
-	if err := bob.SubmitTx(context.Background(), []byte("bank:recover-desynced-round")); err != nil {
+	if err := bob.SubmitTx(context.Background(), []byte("bank:no-uncertified-round-skip")); err != nil {
 		t.Fatal(err)
 	}
 	machine, err := bob.Consensus()
 	if err != nil {
 		t.Fatal(err)
 	}
-	machine.StartRound(1, 2)
-
-	proposal, blockHash, proposed, err := bob.TickConsensusWithConfig(context.Background(), ConsensusLoopConfig{
-		MaxBlockBytes:       1024,
-		CreateEmptyBlocks:   false,
-		ExecutionCommitMode: ExecutionCommitModeFinalized,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if proposed || blockHash != (types.Hash{}) {
-		t.Fatalf("expected bob not to jump before a full proposer rotation, proposed=%v proposal=%+v hash=%x", proposed, proposal, blockHash)
-	}
-
 	machine.StartRound(1, 3)
-	proposal, blockHash, proposed, err = bob.TickConsensusWithConfig(context.Background(), ConsensusLoopConfig{
-		MaxBlockBytes:       1024,
-		CreateEmptyBlocks:   false,
-		ExecutionCommitMode: ExecutionCommitModeFinalized,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !proposed || proposal.Proposer != "bob" || proposal.Round != 4 || blockHash == (types.Hash{}) {
-		t.Fatalf("expected bob to recover after a full proposer rotation, proposed=%v proposal=%+v hash=%x", proposed, proposal, blockHash)
-	}
-}
-
-func TestNodeSkipsProposerRecoveryWhenQuorumHealthIsLow(t *testing.T) {
-	alice, bob, _ := newConsensusLoopNodes(t)
-	startNode(t, alice)
-	defer alice.Stop(context.Background())
-	startNode(t, bob)
-	defer bob.Stop(context.Background())
-
-	if err := bob.SubmitTx(context.Background(), []byte("bank:quorum-health-backoff")); err != nil {
-		t.Fatal(err)
-	}
-	machine, err := bob.Consensus()
-	if err != nil {
-		t.Fatal(err)
-	}
-	machine.StartRound(1, 2)
 
 	proposal, blockHash, proposed, err := bob.TickConsensusWithConfig(context.Background(), ConsensusLoopConfig{
 		MaxBlockBytes:       1024,
@@ -1770,7 +1735,10 @@ func TestNodeSkipsProposerRecoveryWhenQuorumHealthIsLow(t *testing.T) {
 		t.Fatal(err)
 	}
 	if proposed || blockHash != (types.Hash{}) {
-		t.Fatalf("expected quorum-health backoff to prevent proposer jump, proposed=%v proposal=%+v hash=%x", proposed, proposal, blockHash)
+		t.Fatalf("expected bob not to skip to its proposer round, proposed=%v proposal=%+v hash=%x", proposed, proposal, blockHash)
+	}
+	if status := machine.Status(context.Background()); status.Height != 1 || status.Round != 3 {
+		t.Fatalf("expected round to remain unchanged without a timeout certificate, got %+v", status)
 	}
 }
 

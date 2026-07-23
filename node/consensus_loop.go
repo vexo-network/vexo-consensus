@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -904,7 +905,15 @@ func (node *Node) persistFinalityDecisions(ctx context.Context, runtime *vexorun
 		} else {
 			continue
 		}
-		if err := proofStore.SaveFinalityProof(ctx, finalityProofRecord(proof)); err != nil {
+		record := finalityProofRecord(proof)
+		stored, err := proofStore.FinalityProof(ctx, decision.CommittedHeight)
+		if err == nil && reflect.DeepEqual(stored, record) {
+			continue
+		}
+		if err != nil && !errors.Is(err, store.ErrFinalityNotFound) {
+			return err
+		}
+		if err := proofStore.SaveFinalityProof(ctx, record); err != nil {
 			return err
 		}
 	}

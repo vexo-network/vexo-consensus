@@ -97,7 +97,7 @@
 
 ## 빈 블록과 라운드 회복
 
-`create_empty_blocks=false`이면 mempool이 비어 있을 때 height가 멈춰 보일 수 있습니다. 이는 정상 idle 상태입니다. 거래가 들어오면 노드는 현재 round에서 제안자가 아니더라도 다음 local proposer round로 이동해 거래 블록을 만들 수 있으며, 그래도 QC/finality 규칙은 그대로 적용됩니다.
+`create_empty_blocks=false`이면 mempool이 비어 있을 때 height가 멈춰 보일 수 있습니다. 이는 정상 idle 상태입니다. 거래가 들어와도 노드는 현재 `(height, round)`의 결정적 proposer일 때만 제안하며, proposer가 아니라고 로컬에서 다른 round로 건너뛰지 않습니다. round는 유효한 timeout certificate 또는 certified finality 전환으로만 진행되고, 블록 실행·저장 오류는 timeout으로 처리되지 않습니다.
 
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록

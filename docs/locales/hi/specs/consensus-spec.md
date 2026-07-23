@@ -97,7 +97,7 @@
 
 ## Empty blocks और round recovery
 
-`create_empty_blocks=false` होने पर खाली mempool में height स्थिर दिखना सामान्य idle अवस्था है। transaction आने पर node अगले local proposer round तक आगे बढ़कर transaction block बना सकता है, लेकिन QC/finality नियम वही रहते हैं।
+`create_empty_blocks=false` होने पर खाली mempool में height स्थिर दिखना सामान्य idle अवस्था है। transaction आने पर node केवल वर्तमान `(height, round)` का deterministic proposer होने पर ही proposal बनाता है; non-proposer स्थानीय रूप से दूसरी round पर नहीं कूदता। round केवल valid timeout certificate या certified finality transition से आगे बढ़ती है, और execution या storage failure को timeout नहीं माना जाता।
 
 <!-- vexo-docs:technical-parity -->
 ## तकनीकी समानता परिशिष्ट

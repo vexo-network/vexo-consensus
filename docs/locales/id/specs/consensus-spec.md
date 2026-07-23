@@ -97,7 +97,7 @@ Dokumen ini membantu memahami spesifikasi normatif state machine konsensus dan m
 
 ## Empty block dan round recovery
 
-Dengan `create_empty_blocks=false`, height yang stabil saat mempool kosong adalah kondisi idle normal. Saat transaksi masuk, node dapat maju ke local proposer round berikutnya untuk membuat block transaksi, tetapi aturan QC/finality tetap berlaku.
+Dengan `create_empty_blocks=false`, height yang stabil saat mempool kosong adalah kondisi idle normal. Saat transaksi masuk, node hanya mengusulkan jika menjadi proposer deterministik untuk `(height, round)` saat ini; non-proposer tidak melompati round secara lokal. Round hanya maju melalui timeout certificate yang valid atau transisi finality tersertifikasi, dan kegagalan eksekusi atau penyimpanan tidak dianggap sebagai timeout.
 
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis

@@ -53,3 +53,12 @@ func TestConsensusLoopWakeInterruptsCommitDelay(t *testing.T) {
 		t.Fatalf("wake signal did not interrupt commit delay: %s", elapsed)
 	}
 }
+
+func TestConsensusLoopDoesNotTimeoutAfterStepFailure(t *testing.T) {
+	if shouldTimeoutConsensusRound(errors.New("block execution failed"), true, false, false, time.Now().Add(-time.Hour), time.Millisecond) {
+		t.Fatal("a failed consensus step must not advance the round")
+	}
+	if !shouldTimeoutConsensusRound(nil, true, false, false, time.Now().Add(-time.Hour), time.Millisecond) {
+		t.Fatal("a healthy stalled step should still advance the round after timeout")
+	}
+}

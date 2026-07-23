@@ -97,7 +97,7 @@ Ce document aide à comprendre la spécification normative de la state machine d
 
 ## Blocs vides et reprise de round
 
-Avec `create_empty_blocks=false`, une height stable quand le mempool est vide signifie un état idle normal. Quand une transaction arrive, le nœud peut avancer vers son prochain local proposer round pour produire un bloc de transactions, tout en conservant les règles QC/finality.
+Avec `create_empty_blocks=false`, une height stable quand le mempool est vide signifie un état idle normal. Quand une transaction arrive, le nœud ne propose que s'il est le proposer déterministe du `(height, round)` courant; un nœud qui n'est pas proposer ne saute pas localement vers un autre round. Les rounds n'avancent qu'avec un timeout certificate valide ou une transition de finality certifiée, et les erreurs d'exécution ou de stockage ne sont pas traitées comme un timeout.
 
 <!-- vexo-docs:technical-parity -->
 ## Annexe de parité technique

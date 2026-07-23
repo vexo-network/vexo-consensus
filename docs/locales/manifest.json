@@ -62,7 +62,7 @@
     "sdk/custom-storage-transport.md": "09e952add6cf9d50451ce57667716b41a07bf6a9ad2c6d554dd6a192f4f45c38",
     "sdk/rpc-api-versioning.md": "3cfe218535580c1e3100e16b61209b2978fd7d3323b8a1d893c15e5ce2f70cb9",
     "security/audit-readiness.md": "c6650100fa25c9c7839b0448583b357902daf203d4d9aac797550abd8672b92d",
-    "specs/consensus-spec.md": "ec1b5d530cafde3f7063b665990a2aed0c3a5a1a283c60d705077518b3a163a1",
+    "specs/consensus-spec.md": "74a2ea9ff8686d5b85cc46c37a86501c009fa46d458796b552b132307aaddbfd",
     "specs/evm-native-accounting.md": "b4ad0f896172fe705f1f7f9044de8e3972caf5b7943df37fa26c175144b4fe49",
     "specs/finality-proof-format.md": "fa480a7ec2672f46344e064eaff062414e1bdd7d58c0945187bd7834db05bce1",
     "specs/networking-spec.md": "2db4b453e68f25da0c064c84a7e036a9c66d4abee5000442b0d354de6ce67932",

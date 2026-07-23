@@ -97,7 +97,7 @@ Dieses Dokument hilft dabei, die normative Spezifikation der Konsens-State-Machi
 
 ## Leere Blöcke und Round-Recovery
 
-Mit `create_empty_blocks=false` ist eine stabile height bei leerem mempool ein normaler idle Zustand. Sobald eine Transaktion ankommt, kann der Node zur nächsten local proposer round wechseln und einen Transaktionsblock bauen; QC/finality Regeln bleiben unverändert.
+Mit `create_empty_blocks=false` ist eine stabile height bei leerem mempool ein normaler idle Zustand. Sobald eine Transaktion ankommt, schlägt der Node nur vor, wenn er der deterministische Proposer für das aktuelle `(height, round)` ist; ein Nicht-Proposer überspringt lokal keine Runde. Runden ändern sich nur durch ein gültiges timeout certificate oder einen zertifizierten finality Übergang, und Ausführungs- oder Speicherfehler gelten nicht als timeout.
 
 <!-- vexo-docs:technical-parity -->
 ## Anhang zur technischen Parität

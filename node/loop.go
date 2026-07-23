@@ -141,6 +141,10 @@ func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig,
 			if errors.Is(err, ErrNodeNotRunning) {
 				return
 			}
+			// A failed step is not a consensus timeout. Restart the timeout
+			// window after storage or execution recovers instead of skipping
+			// rounds while retrying the same transaction.
+			lastTimeout = time.Now()
 			node.logEvent("consensus_step_failed", map[string]any{
 				"error": err.Error(),
 			})
@@ -156,7 +160,13 @@ func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig,
 		if result.Committed {
 			lastCommit = time.Now()
 		}
-		if !result.Committed && !result.Proposed && time.Since(lastTimeout) >= adaptiveRoundTimeout {
+		workPending := node.consensusWorkPending(ctx, cfg)
+		if !workPending {
+			// Idle time must not consume consensus rounds. Start a fresh timeout
+			// window when a transaction or finality task actually appears.
+			lastTimeout = time.Now()
+		}
+		if shouldTimeoutConsensusRound(err, workPending, result.Committed, result.Proposed, lastTimeout, adaptiveRoundTimeout) {
 			node.metrics.observeRoundTimeout()
 			if _, _, err := node.TimeoutRound(ctx); err != nil && errors.Is(err, ErrNodeNotRunning) {
 				return
@@ -179,6 +189,20 @@ func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig,
 			return
 		}
 	}
+}
+
+func shouldTimeoutConsensusRound(stepErr error, workPending, committed, proposed bool, lastTimeout time.Time, roundTimeout time.Duration) bool {
+	if stepErr != nil || !workPending || committed || proposed || roundTimeout <= 0 {
+		return false
+	}
+	return time.Since(lastTimeout) >= roundTimeout
+}
+
+func (node *Node) consensusWorkPending(ctx context.Context, cfg ConsensusLoopConfig) bool {
+	if cfg.CreateEmptyBlocks || node.mempoolHasPendingTx(ctx) {
+		return true
+	}
+	return node.needsFinalityProgress(ctx, cfg.ExecutionCommitMode)
 }
 
 func (node *Node) currentConsensusPeerCounts() (int, int) {

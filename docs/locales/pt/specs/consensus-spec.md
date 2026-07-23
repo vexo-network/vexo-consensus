@@ -97,7 +97,7 @@ Este documento ajuda a entender especificação normativa da state machine de co
 
 ## Blocos vazios e recuperação de round
 
-Com `create_empty_blocks=false`, height parada com mempool vazio é idle normal. Quando uma transação chega, o nó pode avançar para o próximo local proposer round e produzir um bloco com transações, preservando as regras QC/finality.
+Com `create_empty_blocks=false`, height parada com mempool vazio é idle normal. Quando uma transação chega, o nó só propõe se for o proposer determinístico do `(height, round)` atual; um non-proposer não salta localmente para outra round. As rounds só avançam por um timeout certificate válido ou uma transição de finality certificada, e falhas de execução ou armazenamento não são tratadas como timeout.
 
 <!-- vexo-docs:technical-parity -->
 ## Apêndice de paridade técnica

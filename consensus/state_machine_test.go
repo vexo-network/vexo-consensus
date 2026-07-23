@@ -797,6 +797,35 @@ func TestStateMachineRejectsUnknownProposalProposer(t *testing.T) {
 	}
 }
 
+func TestStateMachineEnforcesScheduledProposer(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "carol", VotingPower: 1},
+		{ID: "alice", VotingPower: 1},
+		{ID: "bob", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:                  "vexo-test",
+		ValidatorSet:             set,
+		EnforceProposerSelection: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(1, 0)
+
+	block := types.Block{Header: types.Header{Height: 1}}
+	if _, err := machine.CreateProposal(block, 0, "bob", finality.QuorumCert{}); !errors.Is(err, ErrUnexpectedProposer) {
+		t.Fatalf("expected non-scheduled proposer rejection, got %v", err)
+	}
+	proposal, err := machine.CreateProposal(block, 0, "alice", finality.QuorumCert{})
+	if err != nil {
+		t.Fatalf("expected scheduled proposer to create proposal: %v", err)
+	}
+	if err := machine.OnProposal(context.Background(), proposal); err != nil {
+		t.Fatalf("expected scheduled proposal to be accepted: %v", err)
+	}
+}
+
 func TestStateMachineRejectsWrongChainProposal(t *testing.T) {
 	set := newTestValidatorSet([]validator.Validator{
 		{ID: "a", VotingPower: 1},
