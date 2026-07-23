@@ -461,7 +461,7 @@ func TestNodeTickConsensusDoesNotReproposeSameRound(t *testing.T) {
 	}
 }
 
-func TestNodeTickConsensusSuppressesReproposalAfterLocalVoteFailure(t *testing.T) {
+func TestNodeTickConsensusSuppressesProposalAfterRecordedLocalVote(t *testing.T) {
 	alice, bob, carol := newConsensusLoopNodes(t)
 	startNode(t, alice)
 	defer alice.Stop(context.Background())
@@ -486,11 +486,14 @@ func TestNodeTickConsensusSuppressesReproposalAfterLocalVoteFailure(t *testing.T
 		t.Fatal(err)
 	}
 
-	_, _, _, err := alice.TickConsensus(context.Background(), 1024)
-	if !errors.Is(err, consensus.ErrDoubleSignDetected) {
-		t.Fatalf("expected local vote failure from WAL guard, got %v", err)
-	}
 	_, _, proposed, err := alice.TickConsensus(context.Background(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposed {
+		t.Fatal("expected proposal suppressed by recorded local vote")
+	}
+	_, _, proposed, err = alice.TickConsensus(context.Background(), 1024)
 	if err != nil {
 		t.Fatal(err)
 	}

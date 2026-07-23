@@ -127,8 +127,18 @@ func (node *Node) tickConsensusWithProposalOptions(ctx context.Context, cfg Cons
 			return consensus.Proposal{}, types.Hash{}, false, nil
 		}
 	}
+	alreadyVoted, err := node.hasRecordedLocalVote(height, status.Round)
+	if err != nil {
+		return consensus.Proposal{}, types.Hash{}, false, err
+	}
+	if alreadyVoted {
+		return consensus.Proposal{}, types.Hash{}, false, nil
+	}
 	proposal, blockHash, err := node.ProposeFromMempoolWithOptions(ctx, cfg.MaxBlockBytes, options)
 	if errors.Is(err, ErrEmptyProposal) {
+		return consensus.Proposal{}, types.Hash{}, false, nil
+	}
+	if errors.Is(err, ErrLocalVoteRecorded) {
 		return consensus.Proposal{}, types.Hash{}, false, nil
 	}
 	if err != nil {

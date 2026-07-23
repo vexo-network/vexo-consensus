@@ -32,6 +32,7 @@ var (
 	ErrUnsafeQCCommit        = errors.New("unsafe qc commit requires explicit unsafe API")
 	ErrBlockAlreadyCommitted = errors.New("block height is already committed")
 	ErrNonSequentialCommit   = errors.New("block commit height is not sequential")
+	ErrLocalVoteRecorded     = errors.New("local vote already recorded for a different block")
 	ErrValidatorKeyMismatch  = errors.New("validator signer public key does not match genesis validator public key")
 )
 
@@ -67,6 +68,7 @@ type Node struct {
 	runtime        *vexoruntime.Runtime
 	consensus      *consensus.StateMachine
 	reactor        *consensus.TransportReactor
+	localVoter     *autoVoteReactor
 	txCancel       context.CancelFunc
 	txDone         chan struct{}
 	commitCancel   context.CancelFunc
@@ -219,27 +221,31 @@ func (node *Node) Start(ctx context.Context) error {
 		storage.Close()
 		return err
 	}
+	var localVoter *autoVoteReactor
+	if node.cfg.ValidatorID != "" {
+		localVoter = &autoVoteReactor{
+			machine:            consensusState,
+			chainID:            node.cfg.Chain.ChainID,
+			validatorID:        node.cfg.ValidatorID,
+			signer:             node.signer,
+			onProposalAccepted: node.cacheProposal,
+			onProposalRejected: node.handleRejectedProposal,
+			onVoteAccepted:     node.wakeConsensus,
+			onEvidence:         node.handleLocalEvidence,
+			onError: func(event string, err error) {
+				node.logEvent(event, map[string]any{"error": err.Error()})
+			},
+			onProposalLatency: node.metrics.observeProposalLatency,
+			onVoteLatency:     node.metrics.observeVoteLatency,
+			onSigningFailure:  node.metrics.observeSigningFailure,
+			wal:               consensusWAL,
+		}
+	}
 	var reactor *consensus.TransportReactor
 	if node.wire != nil {
 		receiver := consensus.Reactor(consensusState)
-		if node.cfg.ValidatorID != "" {
-			receiver = &autoVoteReactor{
-				machine:            consensusState,
-				chainID:            node.cfg.Chain.ChainID,
-				validatorID:        node.cfg.ValidatorID,
-				signer:             node.signer,
-				onProposalAccepted: node.cacheProposal,
-				onProposalRejected: node.handleRejectedProposal,
-				onVoteAccepted:     node.wakeConsensus,
-				onEvidence:         node.handleLocalEvidence,
-				onError: func(event string, err error) {
-					node.logEvent(event, map[string]any{"error": err.Error()})
-				},
-				onProposalLatency: node.metrics.observeProposalLatency,
-				onVoteLatency:     node.metrics.observeVoteLatency,
-				onSigningFailure:  node.metrics.observeSigningFailure,
-				wal:               consensusWAL,
-			}
+		if localVoter != nil {
+			receiver = localVoter
 		}
 		reactor = consensus.NewTransportReactor(node.wire, receiver)
 		reactor.SetPeerScoring(node.admitPeerMessage, node.observePeerMessage)
@@ -287,6 +293,7 @@ func (node *Node) Start(ctx context.Context) error {
 	node.consensus = consensusState
 	node.consensusWAL = consensusWAL
 	node.reactor = reactor
+	node.localVoter = localVoter
 	node.pending = make(map[types.Hash]consensus.Proposal)
 	node.proposed = make(map[proposalRound]struct{})
 	node.store = storage
@@ -398,6 +405,7 @@ func (node *Node) Stop(ctx context.Context) error {
 	node.consensus = nil
 	node.consensusWAL = nil
 	node.reactor = nil
+	node.localVoter = nil
 	node.txCancel = nil
 	node.txDone = nil
 	node.commitCancel = nil

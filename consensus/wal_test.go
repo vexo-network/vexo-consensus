@@ -30,6 +30,16 @@ func TestWALRecordsAndReplaysVotes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
+	recordedHash, found, err := reopened.RecordedVote("alice", 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || recordedHash != vote.BlockHash {
+		t.Fatalf("expected recorded vote %x, got found=%t hash=%x", vote.BlockHash, found, recordedHash)
+	}
+	if _, found, err := reopened.RecordedVote("alice", 2, 0); err != nil || found {
+		t.Fatalf("expected missing vote lookup, got found=%t err=%v", found, err)
+	}
 	if err := reopened.RecordVote(vote); err != nil {
 		t.Fatal(err)
 	}

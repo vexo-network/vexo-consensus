@@ -497,6 +497,9 @@ func TestHandlerReportsHealthStatusAndPeers(t *testing.T) {
 	if status.LatestAppHash[:6] != "010203" || status.PeerCount != 2 || status.ActivePeerCount != 1 || status.ConfiguredPeerCount != 3 || status.ScoredPeerCount != 2 || status.BannedPeers != 1 {
 		t.Fatalf("unexpected status metrics: %+v", status)
 	}
+	if status.QuorumHealthRatio != 1.0/3.0 {
+		t.Fatalf("unexpected quorum health ratio: %+v", status)
+	}
 
 	var peers PeersResponse
 	getJSON(t, handler, "/peers", http.StatusOK, &peers)

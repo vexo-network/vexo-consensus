@@ -383,6 +383,253 @@ func TestNodeSkipsDoubleSignForSecondProposalInSameRound(t *testing.T) {
 	}
 }
 
+func TestAutoVoteReactorRestoresRecordedVoteAfterRestart(t *testing.T) {
+	dataDir := t.TempDir()
+	firstNode := newTestNodeWithDataDir(t, dataDir)
+	firstNode.cfg.ValidatorID = "alice"
+	if err := firstNode.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	firstMachine, err := firstNode.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstProposal, err := firstMachine.CreateProposal(types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 1},
+		Txs:    []types.Tx{[]byte("bank:first")},
+	}, 0, "alice", finality.QuorumCert{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := firstNode.signConsensusProposal(&firstProposal); err != nil {
+		t.Fatal(err)
+	}
+	firstReactor := &autoVoteReactor{
+		machine:     firstMachine,
+		chainID:     firstNode.cfg.Chain.ChainID,
+		validatorID: firstNode.cfg.ValidatorID,
+		signer:      firstNode.signer,
+		wal:         firstNode.consensusWAL,
+	}
+	if err := firstReactor.OnProposal(context.Background(), firstProposal); err != nil {
+		t.Fatal(err)
+	}
+	firstHash := consensus.HashBlock(firstProposal.Block)
+	if err := firstNode.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted := newTestNodeWithDataDir(t, dataDir)
+	restarted.cfg.ValidatorID = "alice"
+	if err := restarted.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Stop(context.Background())
+	restartedMachine, err := restarted.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflictingProposal, err := restartedMachine.CreateProposal(types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 1},
+		Txs:    []types.Tx{[]byte("bank:second")},
+	}, 0, "alice", finality.QuorumCert{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.signConsensusProposal(&conflictingProposal); err != nil {
+		t.Fatal(err)
+	}
+	reported := false
+	restartedReactor := &autoVoteReactor{
+		machine:     restartedMachine,
+		chainID:     restarted.cfg.Chain.ChainID,
+		validatorID: restarted.cfg.ValidatorID,
+		signer:      restarted.signer,
+		wal:         restarted.consensusWAL,
+		onError:     func(string, error) { reported = true },
+	}
+	if err := restartedReactor.OnProposal(context.Background(), conflictingProposal); err != nil {
+		t.Fatalf("restored vote should suppress conflicting re-sign, got %v", err)
+	}
+	if reported {
+		t.Fatal("restored vote was reported as an operational error")
+	}
+	if cached, ok := restartedReactor.cachedLocalVote(1, 0); !ok || cached.BlockHash != firstHash {
+		t.Fatalf("expected restored local vote %x, got ok=%t vote=%+v", firstHash, ok, cached)
+	}
+	events, err := restarted.consensusWAL.Replay()
+	if err != nil {
+		t.Fatal(err)
+	}
+	voteEvents := 0
+	for _, event := range events {
+		if event.Type == consensus.WALEventVote {
+			voteEvents++
+		}
+	}
+	if voteEvents != 1 {
+		t.Fatalf("expected restart to preserve one recorded vote, got %d", voteEvents)
+	}
+}
+
+func TestNodeLocalProposerRestoresRecordedVoteAfterRestart(t *testing.T) {
+	dataDir := t.TempDir()
+	firstNode := newTestNodeWithDataDir(t, dataDir)
+	firstNode.cfg.ValidatorID = "alice"
+	if err := firstNode.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	firstMachine, err := firstNode.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstProposal, err := firstMachine.CreateProposal(types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 1},
+		Txs:    []types.Tx{[]byte("bank:first")},
+	}, 0, "alice", finality.QuorumCert{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := firstNode.signConsensusProposal(&firstProposal); err != nil {
+		t.Fatal(err)
+	}
+	if err := firstMachine.OnProposal(context.Background(), firstProposal); err != nil {
+		t.Fatal(err)
+	}
+	firstHash := consensus.HashBlock(firstProposal.Block)
+	if _, selected, err := firstNode.voteLocalProposal(context.Background(), firstProposal, firstHash); err != nil || !selected {
+		t.Fatalf("expected initial local vote, selected=%t err=%v", selected, err)
+	}
+	if err := firstNode.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted := newTestNodeWithDataDir(t, dataDir)
+	restarted.cfg.ValidatorID = "alice"
+	if err := restarted.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Stop(context.Background())
+	restartedMachine, err := restarted.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflictingProposal, err := restartedMachine.CreateProposal(types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 1},
+		Txs:    []types.Tx{[]byte("bank:second")},
+	}, 0, "alice", finality.QuorumCert{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.signConsensusProposal(&conflictingProposal); err != nil {
+		t.Fatal(err)
+	}
+	if err := restartedMachine.OnProposal(context.Background(), conflictingProposal); err != nil {
+		t.Fatal(err)
+	}
+	vote, selected, err := restarted.voteLocalProposal(context.Background(), conflictingProposal, consensus.HashBlock(conflictingProposal.Block))
+	if err != nil {
+		t.Fatalf("restored local proposer vote should not fail, got %v", err)
+	}
+	if selected || vote.BlockHash != firstHash {
+		t.Fatalf("expected prior vote %x to suppress conflicting proposal, selected=%t vote=%+v", firstHash, selected, vote)
+	}
+}
+
+func TestAutoVoteReactorSerializesCompetingLocalVotes(t *testing.T) {
+	wal, err := consensus.OpenWAL(t.TempDir() + "/consensus.wal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wal.Close()
+	reactor := &autoVoteReactor{
+		chainID:     "vexo-test",
+		validatorID: "alice",
+		signer:      deterministicSignerForID("alice"),
+		wal:         wal,
+	}
+	proposals := []consensus.Proposal{
+		{Block: types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1}, Txs: []types.Tx{[]byte("bank:first")}}, Round: 0},
+		{Block: types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1}, Txs: []types.Tx{[]byte("bank:second")}}, Round: 0},
+	}
+	type result struct {
+		selected bool
+		err      error
+	}
+	start := make(chan struct{})
+	results := make(chan result, len(proposals))
+	for _, proposal := range proposals {
+		proposal := proposal
+		go func() {
+			<-start
+			_, selected, err := reactor.localVote(proposal.Block.Header.Height, proposal.Round, consensus.HashBlock(proposal.Block))
+			results <- result{selected: selected, err: err}
+		}()
+	}
+	close(start)
+	selected := 0
+	for range proposals {
+		result := <-results
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		if result.selected {
+			selected++
+		}
+	}
+	if selected != 1 {
+		t.Fatalf("expected exactly one competing proposal to be selected, got %d", selected)
+	}
+	events, err := wal.Replay()
+	if err != nil {
+		t.Fatal(err)
+	}
+	voteEvents := 0
+	for _, event := range events {
+		if event.Type == consensus.WALEventVote {
+			voteEvents++
+		}
+	}
+	if voteEvents != 1 {
+		t.Fatalf("expected one WAL vote for competing proposals, got %d", voteEvents)
+	}
+}
+
+func TestAutoVoteReactorIgnoresStaleVotes(t *testing.T) {
+	runningNode := newTestNode(t)
+	runningNode.cfg.ValidatorID = "alice"
+	if err := runningNode.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer runningNode.Stop(context.Background())
+
+	machine, err := runningNode.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(2, 0)
+	vote := consensus.Vote{
+		Height:      1,
+		Round:       0,
+		BlockHash:   types.Hash{1},
+		ValidatorID: runningNode.cfg.ValidatorID,
+	}
+	if err := signConsensusVote(runningNode.cfg.Chain.ChainID, runningNode.signer, &vote); err != nil {
+		t.Fatal(err)
+	}
+	reported := false
+	reactor := &autoVoteReactor{
+		machine: machine,
+		onError: func(string, error) { reported = true },
+	}
+	if err := reactor.OnVote(context.Background(), vote); err != nil {
+		t.Fatalf("stale vote should be ignored, got %v", err)
+	}
+	if reported {
+		t.Fatal("stale vote was reported as an operational error")
+	}
+}
+
 func TestNodeQueriesBlocks(t *testing.T) {
 	node := newTestNode(t)
 	if err := node.Start(context.Background()); err != nil {

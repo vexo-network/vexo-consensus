@@ -788,6 +788,24 @@ func TestGRPCTransportReconnectLoopEstablishesPeerSession(t *testing.T) {
 	waitForGRPCSessionCount(t, alice, 1)
 }
 
+func TestGRPCTransportKeepsSessionAfterHandshakeDeadline(t *testing.T) {
+	dialTimeout := 50 * time.Millisecond
+	alice := newStartedGRPCPeer(t, "alice", GRPCConfig{
+		ReconnectInterval: 10 * time.Millisecond,
+		DialTimeout:       dialTimeout,
+	})
+	bob := newStartedGRPCPeer(t, "bob", GRPCConfig{})
+	defer stopGRPCPeer(t, alice)
+	defer stopGRPCPeer(t, bob)
+
+	alice.SetPeer("bob", bob.Address())
+	waitForGRPCSessionCount(t, alice, 1)
+	time.Sleep(3 * dialTimeout)
+	if active := alice.ActivePeerIDs(); len(active) != 1 || active[0] != "bob" {
+		t.Fatalf("successful session was canceled after handshake deadline: %v", active)
+	}
+}
+
 func TestGRPCTransportEstablishesPreconfiguredAuthenticatedFullMesh(t *testing.T) {
 	const peerCount = 4
 	addresses := make([]string, peerCount)

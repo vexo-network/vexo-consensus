@@ -1042,27 +1042,9 @@ func (transport *GRPCTransport) peerSession(ctx context.Context, peerID p2p.Peer
 	handshakeCtx, cancelHandshake := context.WithTimeout(rootCtx, transport.dialTimeout)
 	defer cancelHandshake()
 	streamCtx, cancel := context.WithCancel(rootCtx)
-	stopDialCancel := make(chan struct{})
-	dialCancelStopped := make(chan struct{})
-	go func() {
-		defer close(dialCancelStopped)
-		select {
-		case <-handshakeCtx.Done():
-			cancel()
-		case <-stopDialCancel:
-		}
-	}()
-	relayStopped := false
-	stopDialCancelRelay := func() {
-		if relayStopped {
-			return
-		}
-		relayStopped = true
-		close(stopDialCancel)
-		<-dialCancelStopped
-	}
+	handshakeTimer := time.AfterFunc(transport.dialTimeout, cancel)
 	failHandshake := func() {
-		stopDialCancelRelay()
+		handshakeTimer.Stop()
 		cancel()
 		transport.closePeerConnection(peerID)
 	}
@@ -1098,7 +1080,10 @@ func (transport *GRPCTransport) peerSession(ctx context.Context, peerID p2p.Peer
 		return nil, fmt.Errorf("remote peer gate: %w", err)
 	}
 	transport.learnHandshakePeers(*remote.Handshake)
-	stopDialCancelRelay()
+	if !handshakeTimer.Stop() || streamCtx.Err() != nil {
+		failHandshake()
+		return nil, fmt.Errorf("handshake deadline exceeded: %w", context.DeadlineExceeded)
+	}
 	session = &grpcPeerSession{stream: stream, cancel: cancel}
 	transport.mu.Lock()
 	defer transport.mu.Unlock()
@@ -1142,7 +1127,7 @@ func (transport *GRPCTransport) peerSessionLock(peerID p2p.PeerID) *sync.Mutex {
 func (transport *GRPCTransport) monitorPeerSession(peerID p2p.PeerID, session *grpcPeerSession) {
 	for {
 		if _, err := session.stream.Recv(); err != nil {
-			transport.closePeerSessionIfCurrent(peerID, session)
+			transport.closePeerSessionIfCurrent(peerID, session, err.Error())
 			return
 		}
 	}
@@ -1160,16 +1145,20 @@ func (transport *GRPCTransport) closePeerConnection(peerID p2p.PeerID) {
 	transport.closePeerConnectionLocked(peerID)
 }
 
-func (transport *GRPCTransport) closePeerSessionIfCurrent(peerID p2p.PeerID, session *grpcPeerSession) {
+func (transport *GRPCTransport) closePeerSessionIfCurrent(peerID p2p.PeerID, session *grpcPeerSession, reason string) {
 	transport.mu.Lock()
 	defer transport.mu.Unlock()
 	if transport.sessions[peerID] != session {
 		return
 	}
-	transport.closePeerSessionLocked(peerID)
+	transport.closePeerSessionWithReasonLocked(peerID, reason)
 }
 
 func (transport *GRPCTransport) closePeerSessionLocked(peerID p2p.PeerID) {
+	transport.closePeerSessionWithReasonLocked(peerID, "")
+}
+
+func (transport *GRPCTransport) closePeerSessionWithReasonLocked(peerID p2p.PeerID, reason string) {
 	session := transport.sessions[peerID]
 	if session == nil {
 		return
@@ -1177,7 +1166,7 @@ func (transport *GRPCTransport) closePeerSessionLocked(peerID p2p.PeerID) {
 	_ = session.stream.CloseSend()
 	session.cancel()
 	delete(transport.sessions, peerID)
-	transport.emitPeerEventLocked(PeerEvent{Type: "peer_disconnected", PeerID: peerID})
+	transport.emitPeerEventLocked(PeerEvent{Type: "peer_disconnected", PeerID: peerID, Reason: reason})
 }
 
 func (transport *GRPCTransport) closePeerConnectionLocked(peerID p2p.PeerID) {

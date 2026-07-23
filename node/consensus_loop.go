@@ -40,6 +40,7 @@ type autoVoteReactor struct {
 	onVoteLatency      func(time.Duration)
 	onSigningFailure   func()
 	wal                *consensus.WAL
+	localVoteMu        sync.Mutex
 	mu                 sync.Mutex
 	pendingVotes       map[types.Hash][]consensus.Vote
 	localVotes         map[voteRound]consensus.Vote
@@ -88,32 +89,17 @@ func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consens
 	if reactor.onProposalAccepted != nil {
 		reactor.onProposalAccepted(proposal, blockHash)
 	}
-	vote, cached := reactor.cachedLocalVote(proposal.Block.Header.Height, proposal.Round)
-	if !cached {
-		vote = consensus.Vote{
-			Height:      proposal.Block.Header.Height,
-			Round:       proposal.Round,
-			BlockHash:   blockHash,
-			ValidatorID: reactor.validatorID,
-		}
-		if err := signConsensusVote(reactor.chainID, reactor.signer, &vote); err != nil {
-			if reactor.onSigningFailure != nil {
-				reactor.onSigningFailure()
-			}
-			reactor.reportError("vote_sign_failed", err)
-			return err
-		}
-		if reactor.wal != nil {
-			if err := reactor.wal.RecordVote(vote); err != nil {
-				reactor.reportError("vote_wal_failed", err)
-				return err
-			}
-		}
-		reactor.cacheLocalVote(vote)
-	} else if vote.BlockHash != blockHash {
+	vote, selected, err := reactor.localVote(proposal.Block.Header.Height, proposal.Round, blockHash)
+	if err != nil {
+		return err
+	}
+	if !selected {
 		return nil
 	}
 	if err := reactor.machine.OnVote(ctx, vote); err != nil {
+		if errors.Is(err, consensus.ErrStaleVote) {
+			return nil
+		}
 		reactor.reportError("local_vote_rejected", err)
 		return err
 	}
@@ -126,6 +112,82 @@ func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consens
 		reactor.reportError("vote_broadcast_failed", err)
 	}
 	return nil
+}
+
+func (reactor *autoVoteReactor) localVote(height types.Height, round types.Round, blockHash types.Hash) (consensus.Vote, bool, error) {
+	reactor.localVoteMu.Lock()
+	defer reactor.localVoteMu.Unlock()
+
+	if vote, cached := reactor.cachedLocalVote(height, round); cached {
+		return vote, vote.BlockHash == blockHash, nil
+	}
+	if reactor.wal != nil {
+		recordedHash, recorded, err := reactor.wal.RecordedVote(reactor.validatorID, height, round)
+		if err != nil {
+			reactor.reportError("vote_wal_restore_failed", err)
+			return consensus.Vote{}, false, err
+		}
+		if recorded {
+			vote, err := reactor.signLocalVote(height, round, recordedHash)
+			if err != nil {
+				return consensus.Vote{}, false, err
+			}
+			reactor.cacheLocalVote(vote)
+			return vote, recordedHash == blockHash, nil
+		}
+	}
+	vote, err := reactor.signLocalVote(height, round, blockHash)
+	if err != nil {
+		return consensus.Vote{}, false, err
+	}
+	if reactor.wal != nil {
+		if err := reactor.wal.RecordVote(vote); err != nil {
+			reactor.reportError("vote_wal_failed", err)
+			return consensus.Vote{}, false, err
+		}
+	}
+	reactor.cacheLocalVote(vote)
+	return vote, true, nil
+}
+
+func (reactor *autoVoteReactor) hasLocalVote(height types.Height, round types.Round) (bool, error) {
+	reactor.localVoteMu.Lock()
+	defer reactor.localVoteMu.Unlock()
+	if _, cached := reactor.cachedLocalVote(height, round); cached {
+		return true, nil
+	}
+	if reactor.wal == nil {
+		return false, nil
+	}
+	_, recorded, err := reactor.wal.RecordedVote(reactor.validatorID, height, round)
+	return recorded, err
+}
+
+func (node *Node) hasRecordedLocalVote(height types.Height, round types.Round) (bool, error) {
+	node.mu.Lock()
+	voter := node.localVoter
+	node.mu.Unlock()
+	if voter == nil {
+		return false, nil
+	}
+	return voter.hasLocalVote(height, round)
+}
+
+func (reactor *autoVoteReactor) signLocalVote(height types.Height, round types.Round, blockHash types.Hash) (consensus.Vote, error) {
+	vote := consensus.Vote{
+		Height:      height,
+		Round:       round,
+		BlockHash:   blockHash,
+		ValidatorID: reactor.validatorID,
+	}
+	if err := signConsensusVote(reactor.chainID, reactor.signer, &vote); err != nil {
+		if reactor.onSigningFailure != nil {
+			reactor.onSigningFailure()
+		}
+		reactor.reportError("vote_sign_failed", err)
+		return consensus.Vote{}, err
+	}
+	return vote, nil
 }
 
 func (reactor *autoVoteReactor) cachedLocalVote(height types.Height, round types.Round) (consensus.Vote, bool) {
@@ -156,6 +218,9 @@ func (reactor *autoVoteReactor) OnVote(ctx context.Context, vote consensus.Vote)
 	if errors.Is(err, consensus.ErrUnknownVoteBlock) {
 		reactor.publishUnknownVoteEvidence(ctx, vote)
 		reactor.cachePendingVote(vote)
+		return nil
+	}
+	if errors.Is(err, consensus.ErrStaleVote) {
 		return nil
 	}
 	if err != nil {
@@ -329,13 +394,18 @@ func (node *Node) ProposeBlock(ctx context.Context, block types.Block) (consensu
 		blockHash := consensus.HashBlock(proposal.Block)
 		node.markProposed(proposal.Block.Header.Height, proposal.Round)
 		node.cacheProposal(proposal, blockHash)
-		vote, err := node.voteLocalProposal(ctx, proposal, blockHash)
+		vote, selected, err := node.voteLocalProposal(ctx, proposal, blockHash)
 		if err != nil {
 			if errors.Is(err, consensus.ErrStaleVote) {
 				lastErr = err
 				continue
 			}
 			return consensus.Proposal{}, types.Hash{}, err
+		}
+		if !selected {
+			node.removePending(blockHash)
+			node.removeProposed(proposal.Block.Header.Height, proposal.Round)
+			return consensus.Proposal{}, types.Hash{}, ErrLocalVoteRecorded
 		}
 		node.broadcastAncestorProposals(reactor, proposal.Block.Header.Height)
 		node.broadcastConsensusAsync("proposal_broadcast_failed", map[string]any{
@@ -403,27 +473,25 @@ func (node *Node) broadcastAncestorProposals(reactor *consensus.TransportReactor
 	}
 }
 
-func (node *Node) voteLocalProposal(ctx context.Context, proposal consensus.Proposal, blockHash types.Hash) (consensus.Vote, error) {
-	vote := consensus.Vote{
-		Height:      proposal.Block.Header.Height,
-		Round:       proposal.Round,
-		BlockHash:   blockHash,
-		ValidatorID: node.cfg.ValidatorID,
+func (node *Node) voteLocalProposal(ctx context.Context, proposal consensus.Proposal, blockHash types.Hash) (consensus.Vote, bool, error) {
+	node.mu.Lock()
+	voter := node.localVoter
+	node.mu.Unlock()
+	if voter == nil {
+		return consensus.Vote{}, false, ErrMissingValidatorID
 	}
-	if err := node.signConsensusVote(&vote); err != nil {
-		return consensus.Vote{}, err
-	}
-	if err := node.recordConsensusVote(vote); err != nil {
-		return consensus.Vote{}, err
+	vote, selected, err := voter.localVote(proposal.Block.Header.Height, proposal.Round, blockHash)
+	if err != nil || !selected {
+		return vote, selected, err
 	}
 	machine, err := node.Consensus()
 	if err != nil {
-		return consensus.Vote{}, err
+		return consensus.Vote{}, false, err
 	}
 	if err := machine.OnVote(ctx, vote); err != nil {
-		return consensus.Vote{}, err
+		return consensus.Vote{}, false, err
 	}
-	return vote, nil
+	return vote, true, nil
 }
 
 func (node *Node) VoteBlock(ctx context.Context, height types.Height, round types.Round, blockHash types.Hash) (finality.QuorumCert, bool, error) {
@@ -440,17 +508,18 @@ func (node *Node) VoteBlock(ctx context.Context, height types.Height, round type
 		return finality.QuorumCert{}, false, ErrConsensusOffline
 	}
 
-	vote := consensus.Vote{
-		Height:      height,
-		Round:       round,
-		BlockHash:   blockHash,
-		ValidatorID: node.cfg.ValidatorID,
+	node.mu.Lock()
+	voter := node.localVoter
+	node.mu.Unlock()
+	if voter == nil {
+		return finality.QuorumCert{}, false, ErrMissingValidatorID
 	}
-	if err := node.signConsensusVote(&vote); err != nil {
+	vote, selected, err := voter.localVote(height, round, blockHash)
+	if err != nil {
 		return finality.QuorumCert{}, false, err
 	}
-	if err := node.recordConsensusVote(vote); err != nil {
-		return finality.QuorumCert{}, false, err
+	if !selected {
+		return finality.QuorumCert{}, false, ErrLocalVoteRecorded
 	}
 	if err := machine.OnVote(ctx, vote); err != nil {
 		return finality.QuorumCert{}, false, err

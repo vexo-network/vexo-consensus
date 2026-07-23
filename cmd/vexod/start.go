@@ -441,7 +441,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 	if err := node.Start(ctx); err != nil {
 		return err
 	}
-	if err := waitForP2PPeerReadiness(ctx, node, runtimeConfig, logEvent); err != nil {
+	if err := waitForP2PPeerReadiness(ctx, p2pWire, runtimeConfig, logEvent); err != nil {
 		_ = withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop)
 		return err
 	}
@@ -513,9 +513,9 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 	return nil
 }
 
-func waitForP2PPeerReadiness(ctx context.Context, node *vexonode.Node, runtimeConfig startRuntimeConfig, logEvent vexonode.EventLogger) error {
+func waitForP2PPeerReadiness(ctx context.Context, wire *transport.GRPCTransport, runtimeConfig startRuntimeConfig, logEvent vexonode.EventLogger) error {
 	expectedPeers := len(runtimeConfig.P2PPeers)
-	if expectedPeers <= 0 {
+	if expectedPeers <= 0 || wire == nil {
 		return nil
 	}
 	waitTimeout := runtimeConfig.P2PDialTimeout * 3
@@ -529,13 +529,25 @@ func waitForP2PPeerReadiness(ctx context.Context, node *vexonode.Node, runtimeCo
 	defer cancel()
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
+	lastActivePeers := -1
+	lastConfiguredPeers := -1
 	for {
-		status := node.Status(waitCtx)
-		if hasRequiredActivePeers(status.ActivePeerCount, expectedPeers) {
+		activePeers := len(wire.ActivePeerIDs())
+		configuredPeers := len(wire.ConfiguredPeerIDs())
+		if logEvent != nil && (activePeers != lastActivePeers || configuredPeers != lastConfiguredPeers) {
+			logEvent("p2p_peer_readiness_observed", map[string]any{
+				"active_peers":     activePeers,
+				"configured_peers": configuredPeers,
+				"target_peers":     expectedPeers,
+			})
+			lastActivePeers = activePeers
+			lastConfiguredPeers = configuredPeers
+		}
+		if hasRequiredActivePeers(activePeers, expectedPeers) {
 			if logEvent != nil {
 				logEvent("p2p_peer_readiness_ready", map[string]any{
-					"active_peers":     status.ActivePeerCount,
-					"configured_peers": status.ConfiguredPeerCount,
+					"active_peers":     activePeers,
+					"configured_peers": configuredPeers,
 					"target_peers":     expectedPeers,
 				})
 			}
@@ -543,7 +555,7 @@ func waitForP2PPeerReadiness(ctx context.Context, node *vexonode.Node, runtimeCo
 		}
 		select {
 		case <-waitCtx.Done():
-			return fmt.Errorf("timed out waiting for p2p peers: active=%d configured=%d target=%d", status.ActivePeerCount, status.ConfiguredPeerCount, expectedPeers)
+			return fmt.Errorf("timed out waiting for p2p peers: active=%d configured=%d target=%d", activePeers, configuredPeers, expectedPeers)
 		case <-ticker.C:
 		}
 	}
