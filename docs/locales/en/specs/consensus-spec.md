@@ -68,6 +68,24 @@ In both modes, finality proofs remain tied to the consensus finality rule and th
 - Timeout certificates advance rounds when proposals or votes stall.
 - Peer dial, TLS, auth, and signed-handshake timeouts are long enough for the target network latency envelope.
 
+## Adaptive Round Timeout Policy
+
+When `adaptive_round_timeout_enabled = true`, the node computes a bounded operational timeout from the configured base budget, rolling p95 proposal/vote/commit processing latency, progress or timeout outcome, and active-peer deficit. A timeout grows the current budget by 1.5x, successful progress decays it by 0.8x, observed processing latency contributes a 3x safety budget, and the result is clamped between the base and 8x the base.
+
+This policy changes only when the node attempts timeout recovery. It does not change proposer selection, proposal validity, the safe-vote predicate, quorum power, QC verification, or the three-chain finality rule. Idle time and local execution/storage errors do not consume rounds.
+
+## Recovery Finality Gate
+
+When `recovery_finality_gate_enabled = true`, the finalized execution path compares durable application-state and block-index heights. If both exist and differ, the node computes the safe recovery height as their minimum and defers finalized application commits above that boundary. The gate is a local persistence restriction; it is not an extra vote phase or a network-wide certificate.
+
+Operators can observe the enabled policy, current adaptive timeout, processing latency, and recovery deferrals through `/v1/metrics` and `/metrics/text`.
+
+## Deterministic Transaction Ordering
+
+Proposal construction derives a height-specific salt from `chain_id` and height. It groups transactions with signer/nonce metadata into per-signer chains, sorts each chain by ascending nonce, and deterministically merges chain heads by salted transaction hash. Proposal validation recomputes the same order.
+
+The rule removes local mempool arrival order from an identical candidate set and preserves nonce dependencies. It does not guarantee first-seen fairness, censorship resistance, confidentiality, or a formal order-fairness property.
+
 ## Empty Blocks and Round Recovery
 
 `create_empty_blocks = false` changes only when proposals are created; it does not weaken safety. A validator should not propose an empty block just to advance height. If every mempool is empty, the latest height can remain stable and that is normal idle behavior.

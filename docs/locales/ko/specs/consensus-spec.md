@@ -99,6 +99,18 @@
 
 `create_empty_blocks=false`이면 mempool이 비어 있을 때 height가 멈춰 보일 수 있습니다. 이는 정상 idle 상태입니다. 거래가 들어와도 노드는 현재 `(height, round)`의 결정적 proposer일 때만 제안하며, proposer가 아니라고 로컬에서 다른 round로 건너뛰지 않습니다. round는 유효한 timeout certificate 또는 certified finality 전환으로만 진행되고, 블록 실행·저장 오류는 timeout으로 처리되지 않습니다.
 
+## 적응형 라운드 timeout
+
+`adaptive_round_timeout_enabled = true`이면 base timeout, proposal/vote/commit 처리 시간의 rolling p95, 진행 성공 여부, active peer 부족을 사용해 timeout을 계산합니다. timeout 발생 시 1.5배로 증가하고, 진행 성공 시 0.8배로 감소하며, 관측 처리 시간의 3배를 안전 예산으로 반영해 base와 base의 8배 사이로 제한합니다. 이 정책은 safe-vote, proposer, quorum power, QC, three-chain finality를 바꾸지 않습니다.
+
+## 복구 최종성 gate
+
+`recovery_finality_gate_enabled = true`이고 내구성 application state 높이와 block index 높이가 다르면 두 높이의 최솟값을 safe recovery height로 사용합니다. 그보다 높은 finalized application commit은 일치가 복구될 때까지 지연됩니다. 현재 timeout과 복구 지연은 `/v1/metrics`와 `/metrics/text`에서 관측할 수 있습니다.
+
+## 결정적 트랜잭션 순서
+
+Proposal은 `chain_id`와 height로 salt를 만들고 signer별 transaction chain을 nonce 오름차순으로 정렬한 뒤 salted transaction hash로 각 chain head를 병합합니다. 동일 candidate set에서는 mempool 도착 순서를 제거하지만 first-seen fairness, censorship resistance, confidentiality 또는 형식적 order fairness를 보장하지 않습니다.
+
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록
 

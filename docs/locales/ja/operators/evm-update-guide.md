@@ -175,4 +175,14 @@ rollback では、最後に正常確認できた adapter version、config defaul
 
 - Keep `go test -race ./rpc -count=1` in the verification matrix to catch managed nonce allocation and pending-state races.
 
+## マイニング済みオブジェクトの互換性
+
+Remix と ethers は receipt 成功後も transaction と block を再解析します。マイニング済み transaction の `gas` は送信時の gas limit を保持し、実消費量は receipt の `gasUsed` に記録します。適用可能な `v`、`r`、`s`、`yParity` と、null ではない `blockHash`、`blockNumber`、`transactionIndex` も必要です。
+
+Receipt は `transactionHash`、`transactionIndex`、`blockHash`、`blockNumber`、`from`、`to`、`contractAddress`、`status`、`gasUsed`、`cumulativeGasUsed`、`type`、`logs` を含み、各 log は `logIndex` と `removed` を含む位置情報を持ちます。`eth_getBlockByNumber` の genesis `0x0` は null ではなく zero parent hash を返し、`eth_getTransactionByHash`、`eth_getTransactionReceipt`、`eth_getBlockByNumber` の位置が一致しなければなりません。`status = 0x1` だけでは互換性の証明になりません。
+
+## Proxy とアップグレードの再検証
+
+同一 account と endpoint で implementation V1、初期化 calldata 付き proxy、proxy state read、implementation V2、認可された UUPS upgrade、storage preservation の順に確認します。transaction hash、block hash、contract address、nonce、status、gas limit、gas used を記録します。wallet cancellation と送信済み transaction failure を区別し、`invalid transaction nonce` の場合は pending nonce allocation と mempool state を同時に調べます。
+
 <!-- vexo-docs:technical-parity -->

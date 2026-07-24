@@ -99,6 +99,18 @@ Dokumen ini membantu memahami spesifikasi normatif state machine konsensus dan m
 
 Dengan `create_empty_blocks=false`, height yang stabil saat mempool kosong adalah kondisi idle normal. Saat transaksi masuk, node hanya mengusulkan jika menjadi proposer deterministik untuk `(height, round)` saat ini; non-proposer tidak melompati round secara lokal. Round hanya maju melalui timeout certificate yang valid atau transisi finality tersertifikasi, dan kegagalan eksekusi atau penyimpanan tidak dianggap sebagai timeout.
 
+## Timeout ronde adaptif
+
+Saat `adaptive_round_timeout_enabled = true`, node menghitung timeout dari nilai dasar, rolling p95 pemrosesan proposal/vote/commit, hasil progress, dan defisit peer aktif. Timeout menaikkan budget 1,5 kali, progress berhasil menerapkan 0,8, latency teramati memberi margin 3 kali, lalu hasil dibatasi antara base dan 8 kali base. Safe-vote, proposer, quorum power, QC, dan three-chain finality tidak berubah.
+
+## Gerbang finalitas pemulihan
+
+Saat `recovery_finality_gate_enabled = true` dan durable application state height berbeda dari block index height, nilai minimum menjadi safe recovery height. Finalized application commit di atasnya ditunda hingga konsistensi pulih. Timeout saat ini dan penundaan pemulihan dapat diamati melalui `/v1/metrics` dan `/metrics/text`.
+
+## Pengurutan transaksi deterministik
+
+Proposal membuat salt dari `chain_id` dan height, mengurutkan transaction chain tiap signer menurut nonce naik, lalu menggabungkan chain head berdasarkan salted transaction hash. Untuk candidate set yang sama, urutan kedatangan lokal mempool dihilangkan, tetapi first-seen fairness, censorship resistance, confidentiality, atau order fairness formal tidak dijamin.
+
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis
 

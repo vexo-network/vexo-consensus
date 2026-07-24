@@ -99,6 +99,18 @@
 
 `create_empty_blocks=false` होने पर खाली mempool में height स्थिर दिखना सामान्य idle अवस्था है। transaction आने पर node केवल वर्तमान `(height, round)` का deterministic proposer होने पर ही proposal बनाता है; non-proposer स्थानीय रूप से दूसरी round पर नहीं कूदता। round केवल valid timeout certificate या certified finality transition से आगे बढ़ती है, और execution या storage failure को timeout नहीं माना जाता।
 
+## Adaptive round timeout
+
+`adaptive_round_timeout_enabled = true` होने पर node base timeout, proposal/vote/commit processing के rolling p95, progress outcome और active peer deficit से timeout निकालता है। Timeout पर budget 1.5 गुना, सफल progress पर 0.8 गुना होता है; observed processing latency 3 गुना safety budget देती है और परिणाम base से 8 गुना base के बीच सीमित रहता है। Safe-vote, proposer, quorum power, QC और three-chain finality नहीं बदलते।
+
+## Recovery finality gate
+
+`recovery_finality_gate_enabled = true` पर durable application state और block index height अलग हों तो उनका न्यूनतम safe recovery height होता है। उससे ऊपर finalized application commits consistency लौटने तक टलते हैं। वर्तमान timeout और recovery deferrals `/v1/metrics` तथा `/metrics/text` पर दिखते हैं।
+
+## Deterministic transaction ordering
+
+Proposal `chain_id` और height से salt बनाता है, हर signer की transaction chain को nonce के बढ़ते क्रम में रखता है और salted transaction hash से chain heads merge करता है। समान candidate set में local mempool arrival order हटता है, पर first-seen fairness, censorship resistance, confidentiality या formal order fairness की guarantee नहीं मिलती।
+
 <!-- vexo-docs:technical-parity -->
 ## तकनीकी समानता परिशिष्ट
 

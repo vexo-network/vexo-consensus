@@ -108,6 +108,20 @@ Check at least these behaviors:
 
 Then deploy a simple contract, deploy a proxy contract, and exercise the upgrade path with the same RPC endpoint the wallet or tool will use in production.
 
+### 4.1 Verify mined object compatibility
+
+Deployment tools do more than poll a receipt status. Ethers and Remix may reconstruct the mined transaction, parse its signature, inspect the containing block, and normalize receipt logs. Verify all of these invariants:
+
+- a mined transaction keeps the submitted gas limit in `gas`; execution consumption belongs in receipt `gasUsed`
+- legacy and typed transaction objects expose the applicable signature fields, including `v`, `r`, `s`, and `yParity`
+- mined transactions expose non-null `blockHash`, `blockNumber`, and `transactionIndex`
+- receipts expose `transactionHash`, `transactionIndex`, `blockHash`, `blockNumber`, `from`, `to`, `contractAddress`, `status`, `gasUsed`, `cumulativeGasUsed`, `type`, and `logs`
+- every mined log exposes `blockHash`, `blockNumber`, `transactionHash`, `transactionIndex`, `logIndex`, and `removed`
+- `eth_getBlockByNumber` returns a valid genesis response for `0x0`, including a zero parent hash rather than `null`
+- `eth_getTransactionByHash`, `eth_getTransactionReceipt`, and `eth_getBlockByNumber` agree on transaction and block location
+
+A receipt with `status = 0x1` is not enough if the client cannot parse the corresponding transaction or block object.
+
 ### 5. Confirm proxy and upgrade behavior
 
 The EVM update is not done until all of these are true:
@@ -120,6 +134,18 @@ The EVM update is not done until all of these are true:
 - the block producer accepts the resulting transactions without unsafe proposal errors
 
 If a proxy deploy works but upgrade fails, the change is not shippable yet. Treat that as a release blocker, not a warning.
+
+Use the same account and endpoint for the complete sequence:
+
+1. deploy implementation V1 and wait for its receipt
+2. deploy the proxy with V1 initialization calldata and wait for its receipt
+3. read initialized state through the proxy
+4. deploy implementation V2 and wait for its receipt
+5. submit the authorized UUPS upgrade through the proxy
+6. read the version and pre-upgrade storage through the proxy
+7. query all deployment and upgrade transactions through both transaction and receipt methods
+
+Record every transaction hash, block hash, contract address, nonce, status, gas limit, gas used, and post-upgrade read. A wallet popup cancellation is not a node result; distinguish a user-rejected signature from a submitted transaction whose receipt or follow-up lookup is malformed.
 
 ### 6. Verify pending nonce and deterministic ordering
 

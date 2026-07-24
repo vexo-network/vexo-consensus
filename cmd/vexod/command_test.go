@@ -1209,6 +1209,28 @@ func TestRunReleaseDocsQuality(t *testing.T) {
 	}
 }
 
+func TestReleasePlaceholderTermDistinguishesTODOFromLocalizedWords(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "explicit TODO marker", body: "TODO: translate this paragraph", want: "TODO"},
+		{name: "uppercase TBD marker", body: "TBD before publication", want: "tbd"},
+		{name: "provider error", body: "QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS", want: "query length limit exceeded"},
+		{name: "Spanish accented word", body: "## Metodo\n\nEl metodo es reproducible.", want: ""},
+		{name: "Spanish accented word with accent", body: "## Metodo\n\nEl Metodo y el M\u00e9todo son reproducibles.", want: ""},
+		{name: "Portuguese natural word", body: "Todos os validadores devem concordar.", want: ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := releasePlaceholderTerm(test.body); got != test.want {
+				t.Fatalf("releasePlaceholderTerm(%q) = %q, want %q", test.body, got, test.want)
+			}
+		})
+	}
+}
+
 func TestRunReleaseDocsQualityFailsClosed(t *testing.T) {
 	docs := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(docs, "locales", "en"), 0o755); err != nil {

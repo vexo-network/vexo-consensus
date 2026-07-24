@@ -9,7 +9,20 @@ It is written for people who need to understand, build, operate, review, or rele
 3. **What must be true for it to be safe?**
 4. **What evidence proves it is ready for a real network?**
 
-English is the canonical source for protocol, security, release, SDK, command, config, and RPC behavior. Localized documents mirror this tree and help non-English readers, but release and audit decisions must always be checked against the English source.
+English is the canonical source for protocol, security, release, SDK, command, config, and RPC behavior. Localized documents mirror this tree as direct translations and help non-English readers, but release and audit decisions must always be checked against the English source.
+
+## Fastest Way In
+
+If you only have a few minutes, read the docs in this order:
+
+1. [`Node Initialization`](./operators/node-initialization.md) to learn how to create a node home, edit split config files, and start a validator or archive node.
+2. [`Docker Deployment`](../../../deployments/docker/README.md) to run the same binary in a single-host four-node setup or prepare a multi-host network.
+3. [`Observability Guide`](./operators/observability.md) to learn the first signals that matter when the node is alive but unhealthy.
+4. [`RPC API Versioning`](./sdk/rpc-api-versioning.md) to connect wallets, Remix, and Web3 tooling to the Vexo RPC/Web3 endpoints.
+
+If you are reviewing a release candidate, start with [`Production Readiness`](./production-readiness.md) and [`Release Pipeline`](./release/release-pipeline.md) before looking at the deeper specs.
+
+If you are preparing an academic paper, start with [`Adaptive Recovery-Gated HotStuff Research Draft`](./research/adaptive-recovery-hotstuff-paper.md). It separates implemented mechanisms, hypotheses, prior art, experiment design, and claims that still require evidence.
 
 ## How to Read This Set
 
@@ -17,20 +30,49 @@ Use the path that matches what you are trying to do. If you are not sure, start 
 
 | Goal | Read First | Then Verify |
 |---|---|---|
+| Decide whether a network is production-ready | Production readiness guide | Release gate, evidence manifest, security assumptions |
 | Understand the protocol | Consensus overview, consensus spec, finality proof format | Safety assumptions, validator lifecycle, evidence rules |
 | Build an app chain | App module guide, tx format, storage schema | Module store writes, gas/fee policy, RPC compatibility |
 | Enable EVM features | EVM/native accounting, tx format, RPC versioning | Native balance accounting, gas/base fee behavior, Web3 compatibility evidence |
 | Run nodes | Node initialization, adding a validator, networking spec | Split config files, peer identity, key custody, status/metrics |
 | Prepare a release | Audit readiness, release pipeline, launch runbook | Required evidence files, release gate output, rollback plan |
+| Prepare a paper | Research draft and reproducibility protocol | Source mapping, prior art, hypotheses, raw experiment artifacts, ethics |
 
-If you are new to the project, start in this order:
+If you are new to the project and just want to run something, start here:
 
-1. [Consensus Protocol Overview](./consensus-protocol.md)
-2. [Consensus Spec](./specs/consensus-spec.md)
-3. [Transaction Format](./specs/tx-format.md)
-4. [Validator Lifecycle](./specs/validator-lifecycle.md)
-5. [Node Initialization](./operators/node-initialization.md)
-6. [Security Audit Readiness](./security/audit-readiness.md)
+1. [Node Initialization](./operators/node-initialization.md) to build, initialize, start, query, and troubleshoot a node.
+2. [Docker Deployment](../../../deployments/docker/README.md) to run a four-validator network on one host or prepare multi-host homes.
+3. [Observability Guide](./operators/observability.md) to know which metrics and logs prove the network is alive.
+4. [RPC API Versioning](./sdk/rpc-api-versioning.md) to connect Vexo RPC, the Web3 endpoint, Remix, and Web3 clients.
+
+If you are reviewing the protocol or preparing a release, use this order:
+
+1. [Production Readiness Guide](./production-readiness.md)
+2. [Consensus Protocol Overview](./consensus-protocol.md)
+3. [Consensus Spec](./specs/consensus-spec.md)
+4. [Finality Proof Format](./specs/finality-proof-format.md)
+5. [Transaction Format](./specs/tx-format.md)
+6. [Validator Lifecycle](./specs/validator-lifecycle.md)
+7. [Security Audit Readiness](./security/audit-readiness.md)
+
+## Copy-Paste Start Paths
+
+| Task | Command Path |
+|---|---|
+| Build local binary | `make build` |
+| Create one validator home | `vexod init validator --home .vexo-validator-1 --chain-id vexo-chain --validator validator-1 --encrypt-keys` |
+| Validate one home | `vexod validate --home .vexo-validator-1` and `vexod config audit --home .vexo-validator-1 --strict` |
+| Run one node | `vexod start --home .vexo-validator-1` |
+| Query one node | `curl -s http://127.0.0.1:26657/v1/status` |
+| Run Docker four-validator network | `docker compose -f deployments/docker/compose.single-host-init.yml up` followed by `docker compose -f deployments/docker/compose.single-host.yml up` |
+| Connect Remix | Use the Docker validator 1 Web3 URL `http://127.0.0.1:28657/web3` |
+| Check Web3 chain ID | `curl -s http://127.0.0.1:26657/web3 -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'` |
+
+## Start Here
+
+| Document | Purpose |
+|---|---|
+| [Production Readiness Guide](./production-readiness.md) | Single map of protocol, runtime, operations, evidence, and release readiness |
 
 ## Protocol Specs
 
@@ -59,6 +101,7 @@ If you are new to the project, start in this order:
 |---|---|
 | [Node Initialization](./operators/node-initialization.md) | Initialize validator/archive nodes and manage split subsystem config files |
 | [Adding a Validator](./operators/add-validator.md) | Operator flow for adding a validator and verifying height-specific validator-set updates |
+| [Observability Guide](./operators/observability.md) | Status, metrics, logs, alert thresholds, and first-response playbooks |
 | [Launch Runbook](./release/launch-runbook.md) | Operator launch flow, halt criteria, monitoring, and postlaunch archive requirements |
 | [Release Pipeline](./release/release-pipeline.md) | Build, sign, package, and gate release artifacts |
 | [Cosmos/Tendermint Comparison Gate](./release/cosmos-comparison-gate.md) | Maps Tendermint/Cosmos maturity advantages to required Vexo release evidence |
@@ -70,19 +113,27 @@ If you are new to the project, start in this order:
 |---|---|
 | [Security Audit Readiness](./security/audit-readiness.md) | Threat model, assumptions, limitations, safety argument, and required audit evidence |
 
-## Localized Documentation
-
-Locale files are not allowed to drift from the canonical tree. They keep commands, JSON fields, RPC names, config keys, and code identifiers unchanged so examples stay copy-pasteable across languages.
+## Research and Publication
 
 | Document | Purpose |
 |---|---|
-| [Documentation Locales](./locales/README.md) | Locale directory map and translation policy |
-| [English Canonical Docs](./locales/en/README.md) | Normative English documentation tree |
-| [Korean Docs](./locales/ko/README.md) | Korean locale tree |
-| [Chinese Docs](./locales/zh/README.md) | Chinese locale tree |
-| [Japanese Docs](./locales/ja/README.md) | Japanese locale tree |
-| [French Docs](./locales/fr/README.md) | French locale tree |
-| [German Docs](./locales/de/README.md) | German locale tree |
+| [Adaptive Recovery-Gated HotStuff Research Draft](./research/adaptive-recovery-hotstuff-paper.md) | Paper-style protocol description, novelty boundary, implementation mapping, experiment design, correctness scope, reproducibility, and research ethics |
+
+The research document is intentionally conservative. It does not claim that PoS, BFT, or HotStuff is new, and it does not turn unmeasured hypotheses into performance results.
+
+## Localized Documentation
+
+Locale files are not allowed to drift from the canonical tree. They are direct translations that keep commands, JSON fields, RPC names, config keys, and code identifiers unchanged so examples stay copy-pasteable across languages.
+
+| Document | Purpose |
+|---|---|
+| [Documentation Locales](../README.md) | Locale directory map and translation policy |
+| [English Canonical Docs](./README.md) | Normative English documentation tree |
+| [Korean Docs](../ko/README.md) | Korean locale tree |
+| [Chinese Docs](../zh/README.md) | Chinese locale tree |
+| [Japanese Docs](../ja/README.md) | Japanese locale tree |
+| [French Docs](../fr/README.md) | French locale tree |
+| [German Docs](../de/README.md) | German locale tree |
 
 ## Writing New Docs
 

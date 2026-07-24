@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -99,10 +98,8 @@ func validateLocalizedMarkdownBody(locale string, relative string, body string, 
 	if !strings.Contains(body, "<!-- vexo-docs:technical-parity -->") {
 		return &docsLocaleQualityError{locale: locale, relative: relative, reason: "localized document is missing technical parity appendix"}
 	}
-	for _, forbidden := range []string{"todo", "tbd", "placeholder", "coming soon", "translation pending", "machine translation pending"} {
-		if placeholderPattern(forbidden).MatchString(body) {
-			return &docsLocaleQualityError{locale: locale, relative: relative, reason: "localized document contains placeholder text: " + forbidden}
-		}
+	if placeholder := releasePlaceholderTerm(body); placeholder != "" {
+		return &docsLocaleQualityError{locale: locale, relative: relative, reason: "localized document contains placeholder text: " + placeholder}
 	}
 	if strings.Count(body, "\n## ") < 2 {
 		return &docsLocaleQualityError{locale: locale, relative: relative, reason: "localized document must keep multiple explanatory sections"}
@@ -166,14 +163,6 @@ func localizedBoilerplateLeak(locale string, body string) string {
 		}
 	}
 	return ""
-}
-
-func placeholderPattern(value string) *regexp.Regexp {
-	quoted := regexp.QuoteMeta(value)
-	if strings.Contains(value, " ") {
-		quoted = strings.ReplaceAll(quoted, `\ `, `\s+`)
-	}
-	return regexp.MustCompile(`(?i)(^|[^[:alpha:]])` + quoted + `($|[^[:alpha:]])`)
 }
 
 type docsLocaleQualityError struct {

@@ -83,6 +83,10 @@
 
 다음 인터페이스 이름은 그대로 유지하세요: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
 
+## 채굴된 EVM 객체 계약
+
+채굴된 transaction response의 `gas`는 제출한 gas limit을 유지하고, 실제 사용량은 receipt의 `gasUsed`에 둡니다. 적용 가능한 `v`, `r`, `s`, `yParity`와 non-null block location을 반환하며 receipt log도 block, transaction, log index를 포함해야 합니다. ethers와 Remix는 receipt가 성공한 뒤 이 객체를 다시 파싱하므로 이는 표시용 필드가 아니라 호환성 계약입니다. `eth_getBlockByNumber`는 genesis `0x0`을 지원하고 parent hash에 malformed `null` 대신 zero hash를 사용합니다.
+
 <!-- vexo-docs:technical-parity -->
 - `admin_token` and `admin_tokens` are stable configuration keys and must remain unchanged when describing optional bearer-token enforcement.
 

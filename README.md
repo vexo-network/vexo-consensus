@@ -234,6 +234,10 @@ Operations and release:
 - [Version Compatibility Matrix](./docs/release/version-compatibility.md)
 - [Docker Deployment](./deployments/docker/README.md)
 
+Research:
+
+- [Adaptive Recovery-Gated HotStuff Research Draft](./docs/research/adaptive-recovery-hotstuff-paper.md)
+
 ## Contributing
 
 Run the standard checks:

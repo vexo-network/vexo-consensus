@@ -19,6 +19,14 @@ A block is safe to vote for only when it extends the locked QC or carries a just
 
 The implementation binds the three-chain decision to explicit block, parent, and grandparent heights. The block QC must certify the parent height/hash, and the parent QC must certify the grandparent height/hash; synthetic or height-skipped QC chains are rejected before a finality decision is recorded.
 
+## Protocol Identity and Research Boundary
+
+Vexo is not a new name for the unmodified HotStuff protocol, and it is not the same protocol or implementation as AptosBFT, DiemBFT, Jolteon, Ditto, Tendermint, or CometBFT. It reuses established HotStuff-style safety concepts inside a separate Go runtime and adds implementation-level policies for adaptive round timing, durable recovery, deterministic transaction ordering, modular execution, and height-versioned validator sets.
+
+The active consensus vote path uses the full height-versioned validator set and deterministic proposer selection. The repository's VRF committee selector is available through the committee component and query surface, but it is not yet connected to proposal eligibility or quorum formation. Documentation and papers must therefore describe VRF committee consensus as future work, not as an enabled consensus property.
+
+For the paper-style contribution statement, implementation mapping, prior-art comparison, and experiment protocol, see [Adaptive Recovery-Gated HotStuff for Modular Proof-of-Stake Networks](./research/adaptive-recovery-hotstuff-paper.md).
+
 ## Execution Terms
 
 Vexo uses these terms consistently:

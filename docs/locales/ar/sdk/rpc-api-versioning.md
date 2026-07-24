@@ -83,6 +83,10 @@
 
 اترك أسماء الواجهات التالية كما هي: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
 
+## عقد كائنات EVM المعدنة
+
+يحتفظ `gas` في المعاملة المعدنة بالحد المرسل، ويوضع الاستهلاك الفعلي في `gasUsed` داخل receipt. تعرض الاستجابة حقول `v` و`r` و`s` و`yParity` المناسبة وموقع كتلة غير null، كما يتضمن receipt log مؤشرات الكتلة والمعاملة والسجل. يعيد ethers وRemix تحليل هذه الكائنات بعد نجاح receipt، لذا فهي عقد توافق. يدعم `eth_getBlockByNumber` كتلة genesis `0x0` ويستخدم zero hash للأصل بدلا من `null` غير صالح.
+
 <!-- vexo-docs:technical-parity -->
 - `admin_token` and `admin_tokens` are stable configuration keys and must remain unchanged when describing optional bearer-token enforcement.
 

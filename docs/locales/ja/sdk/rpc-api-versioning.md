@@ -83,6 +83,10 @@
 
 次のインターフェイス名は変更しないでください: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
 
+## マイニング済み EVM オブジェクト契約
+
+マイニング済み transaction response の `gas` は送信時の gas limit を保持し、実使用量は receipt の `gasUsed` に置きます。適用可能な `v`、`r`、`s`、`yParity` と non-null block location を返し、receipt log も block、transaction、log index を含めます。ethers と Remix は receipt 成功後にこれらを再解析するため、表示用ではなく互換性契約です。`eth_getBlockByNumber` は genesis `0x0` をサポートし、parent hash に不正な `null` ではなく zero hash を使います。
+
 <!-- vexo-docs:technical-parity -->
 - `admin_token` and `admin_tokens` are stable configuration keys and must remain unchanged when describing optional bearer-token enforcement.
 

@@ -1,12 +1,12 @@
 > Locale: ar · العربية
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+# الوثائق
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+هذا الدليل هو المرجع العملي لـ `vexo-consensus`. وهو موجه للمطورين والمشغلين ومسؤولي الإصدار والمراجعين الذين يحتاجون إلى فهم الشبكة من دون استنتاج سلوكها من الشفرة وحدها.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+يجب أن تشرح كل صفحة مسؤولية المكون والملفات والأوامر ومفاتيح الإعداد وواجهات API التي تنفذه، وشروط السلامة والأدلة اللازمة قبل تشغيل شبكة حقيقية. تبقى الإنجليزية المصدر المعياري للبروتوكول والأمان والإصدار وSDK والأوامر والإعداد وRPC؛ تساعد هذه الترجمة على القراءة لكنها لا تحل محل النص الإنجليزي في قرارات التدقيق.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+للبدء استخدم الأوامر أدناه ثم اقرأ `Node Initialization` و`Docker Deployment` و`Observability Guide` و`RPC API Versioning`.
 
 | المهمة | مسار الأوامر |
 |---|---|
@@ -38,21 +38,27 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 ## مواصفات البروتوكول
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+- تصف [Consensus Spec](./specs/consensus-spec.md) و[Finality Proof Format](./specs/finality-proof-format.md) و[Validator Lifecycle](./specs/validator-lifecycle.md) السلامة والنهائية وتغييرات validator set.
+- تغطي [Networking Spec](./specs/networking-spec.md) و[Storage Schema](./specs/storage-schema.md) و[Transaction Format](./specs/tx-format.md) النقل والاسترداد الدائم وقبول المعاملات.
+- تحدد [EVM and Native Accounting](./specs/evm-native-accounting.md) الحد بين الحساب الأصلي وحساب EVM.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## SDK والتوسعة
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+تشرح [App Module Guide](./sdk/app-module-guide.md) و[Custom Crypto Backend](./sdk/custom-crypto-backend.md) و[Custom Storage and Transport](./sdk/custom-storage-transport.md) و`RPC API Versioning` كيفية توسيع runtime من دون كسر عقود الإجماع أو RPC.
 
-| [مصفوفة توافق الإصدار](./release/version-compatibility.md) | توقعات التوافق عبر تنسيقات BINARY و CONFIG و STORE و APP و RPC و PROVE |
+## التشغيل والإصدار والأمان
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+يشكل `Node Initialization` و[Adding a Validator](./operators/add-validator.md) و`Observability Guide` و[دليل الإطلاق](./release/launch-runbook.md) و`Release Pipeline` و[Version Compatibility Matrix](./release/version-compatibility.md) مسار المشغل. توثق [Security Audit Readiness](./security/audit-readiness.md) نموذج التهديد والأدلة الإلزامية.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## قاعدة النضج
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+وجود الشفرة وحده لا يثبت الجاهزية للإنتاج. يلزم إجراء اختبارات unit وadversarial وE2E وحفظ آثار التشغيل والافتراضات وأنماط الفشل ونتائج release gate. تبقى الأوامر وأساليب RPC ومفاتيح الإعداد متطابقة في جميع الترجمات.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## البحث والنشر
+
+عند إعداد ورقة علمية، ابدأ بـ [`Adaptive Recovery-Gated HotStuff Research Draft`](./research/adaptive-recovery-hotstuff-paper.md). تفصل الوثيقة الآليات المنفذة فعليا، ومنها مهلة الجولة المتكيفة وبوابة النهائية أثناء الاسترداد والترتيب الحتمي للمعاملات، عن الأعمال السابقة. كما تجمع أسئلة البحث والفرضيات وبروتوكول التجربة والآثار القابلة لإعادة الإنتاج وضوابط أخلاقيات البحث. لا تعرض أداء غير مقاس بوصفه نتيجة، ولا تدعي أن PoS أو BFT أو HotStuff بحد ذاتها مساهمة جديدة.
+
+تبقى أسماء الوثائق المعيارية التالية كما هي للتنقل بين اللغات: `Node Initialization` و`Docker Deployment` و`Observability Guide` و`RPC API Versioning` و`Production Readiness` و`Release Pipeline` و`Adaptive Recovery-Gated HotStuff Research Draft`.
 
 <!-- vexo-docs:technical-parity -->
 ## ملحق التكافؤ التقني

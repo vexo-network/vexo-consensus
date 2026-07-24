@@ -1,12 +1,12 @@
 > Locale: es · Español
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+# Documentación
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Este directorio es el manual práctico de `vexo-consensus`. Está dirigido a desarrolladores, operadores, responsables de versiones y revisores que necesitan comprender la red sin deducir su comportamiento únicamente del código fuente.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Cada página debe explicar la responsabilidad del componente, los archivos, comandos, claves de configuración y API que lo implementan, sus condiciones de seguridad y la evidencia necesaria antes de una red real. El inglés sigue siendo la fuente normativa para protocolo, seguridad, versiones, SDK, comandos, configuración y RPC; esta traducción ayuda a leer, pero no sustituye la fuente inglesa en decisiones de auditoría.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Para empezar, use los comandos siguientes y después lea `Node Initialization`, `Docker Deployment`, `Observability Guide` y `RPC API Versioning`.
 
 | Tarea | Ruta de comando |
 |---|---|
@@ -38,21 +38,27 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 ## Especificaciones del protocolo
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+- [Consensus Spec](./specs/consensus-spec.md), [Finality Proof Format](./specs/finality-proof-format.md) y [Validator Lifecycle](./specs/validator-lifecycle.md) describen seguridad, finalidad y cambios del validator set.
+- [Networking Spec](./specs/networking-spec.md), [Storage Schema](./specs/storage-schema.md) y [Transaction Format](./specs/tx-format.md) cubren transporte, recuperación durable y admisión de transacciones.
+- [EVM and Native Accounting](./specs/evm-native-accounting.md) define la frontera entre contabilidad nativa y EVM.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## SDK y extensiones
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+[App Module Guide](./sdk/app-module-guide.md), [Custom Crypto Backend](./sdk/custom-crypto-backend.md), [Custom Storage and Transport](./sdk/custom-storage-transport.md) y `RPC API Versioning` explican cómo extender el runtime sin romper los contratos de consenso o RPC.
 
-| [Matriz de compatibilidad de versiones](./release/version-compatibility.md) | Expectativas de compatibilidad en formatos binarios, config, store, app, RPC y proof |
+## Operación, versiones y seguridad
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+`Node Initialization`, [Adding a Validator](./operators/add-validator.md), `Observability Guide`, [Guía de lanzamiento](./release/launch-runbook.md), `Release Pipeline` y [Version Compatibility Matrix](./release/version-compatibility.md) forman el recorrido operativo. [Security Audit Readiness](./security/audit-readiness.md) documenta el modelo de amenazas y la evidencia obligatoria.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## Regla de madurez
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+La existencia de código no demuestra preparación para producción. Se requieren pruebas unitarias, adversariales y E2E, artefactos operativos, supuestos y modos de fallo, y resultados del release gate. Los comandos, métodos RPC y claves de configuración permanecen idénticos en todas las traducciones.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## Investigación y publicación
+
+Para preparar un artículo, comience con [`Adaptive Recovery-Gated HotStuff Research Draft`](./research/adaptive-recovery-hotstuff-paper.md). El documento separa los mecanismos realmente implementados, como el tiempo de ronda adaptativo, la compuerta de finalidad durante recuperación y el orden determinista de transacciones, de los trabajos previos. Reúne preguntas de investigación, hipótesis, protocolo experimental, artefactos reproducibles y ética de investigación. No presenta rendimiento sin medir como resultado ni afirma que PoS, BFT o HotStuff sean contribuciones nuevas.
+
+Los nombres normativos preservados para navegar entre idiomas son `Node Initialization`, `Docker Deployment`, `Observability Guide`, `RPC API Versioning`, `Production Readiness`, `Release Pipeline` y `Adaptive Recovery-Gated HotStuff Research Draft`.
 
 <!-- vexo-docs:technical-parity -->
 ## Apéndice de paridad técnica

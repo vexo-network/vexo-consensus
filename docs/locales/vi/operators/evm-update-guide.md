@@ -175,4 +175,14 @@ Phụ lục này giữ cho hướng dẫn phù hợp với phần còn lại c�
 
 - Keep `go test -race ./rpc -count=1` in the verification matrix to catch managed nonce allocation and pending-state races.
 
+## Tương thích đối tượng đã khai thác
+
+Remix và ethers phân tích lại transaction cùng block sau receipt. `gas` của transaction đã khai thác phải giữ gas limit đã gửi, còn mức tiêu thụ thật nằm trong `gasUsed` của receipt. Các trường áp dụng `v`, `r`, `s`, `yParity` và `blockHash`, `blockNumber`, `transactionIndex` không null cũng là bắt buộc.
+
+Receipt gồm `transactionHash`, `transactionIndex`, `blockHash`, `blockNumber`, `from`, `to`, `contractAddress`, `status`, `gasUsed`, `cumulativeGasUsed`, `type`, `logs`; mỗi log có `logIndex`, `removed` và vị trí. Với genesis `0x0`, `eth_getBlockByNumber` trả zero parent hash thay vì null. `eth_getTransactionByHash`, `eth_getTransactionReceipt` và `eth_getBlockByNumber` phải thống nhất vị trí. Chỉ `status = 0x1` không đủ chứng minh tương thích.
+
+## Xác minh lại proxy và upgrade
+
+Dùng cùng account và endpoint để lần lượt deploy implementation V1, proxy kèm initialization calldata, đọc state, deploy implementation V2, thực hiện UUPS upgrade được ủy quyền và xác nhận storage được giữ nguyên. Ghi transaction hash, block hash, contract address, nonce, status, gas limit và gas used. Phân biệt hủy ở wallet với lỗi sau khi gửi; khi có `invalid transaction nonce`, kiểm tra đồng thời pending nonce allocation và mempool.
+
 <!-- vexo-docs:technical-parity -->

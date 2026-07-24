@@ -175,4 +175,14 @@ Dieser Anhang hält den Leitfaden mit dem Rest der Dokumentation in Einklang.
 
 - Keep `go test -race ./rpc -count=1` in the verification matrix to catch managed nonce allocation and pending-state races.
 
+## Kompatibilität geminter Objekte
+
+Remix und ethers parsen Transaktion und Block auch nach einem erfolgreichen Receipt erneut. `gas` der geminten Transaktion muss das gesendete Gaslimit behalten; der tatsächliche Verbrauch gehört in `gasUsed` des Receipts. Die anwendbaren Felder `v`, `r`, `s`, `yParity` sowie nicht leere `blockHash`, `blockNumber` und `transactionIndex` sind erforderlich.
+
+Das Receipt enthält `transactionHash`, `transactionIndex`, `blockHash`, `blockNumber`, `from`, `to`, `contractAddress`, `status`, `gasUsed`, `cumulativeGasUsed`, `type` und `logs`; jeder Log enthält zusätzlich `logIndex`, `removed` und seine Position. Für Genesis `0x0` muss `eth_getBlockByNumber` einen zero parent hash statt null liefern. `eth_getTransactionByHash`, `eth_getTransactionReceipt` und `eth_getBlockByNumber` müssen dieselbe Position ausweisen. `status = 0x1` allein beweist keine Kompatibilität.
+
+## Proxy und Upgrade erneut prüfen
+
+Mit demselben Konto und Endpoint werden implementation V1, Proxy mit Initialisierungs-calldata, State-Lesezugriff, implementation V2, autorisiertes UUPS upgrade und Storage-Erhalt nacheinander geprüft. Transaction hash, block hash, contract address, nonce, status, gas limit und gas used werden archiviert. Eine Wallet-Ablehnung ist von einem Fehler nach Übermittlung zu unterscheiden; bei `invalid transaction nonce` sind pending nonce allocation und mempool gemeinsam zu untersuchen.
+
 <!-- vexo-docs:technical-parity -->

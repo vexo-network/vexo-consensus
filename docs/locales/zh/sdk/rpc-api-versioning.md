@@ -83,6 +83,10 @@
 
 以下接口名称必须保持不变： `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
 
+## 已挖掘 EVM 对象契约
+
+已挖掘 transaction response 的 `gas` 保留提交时的 gas limit，实际消耗写入 receipt 的 `gasUsed`。响应应提供适用的 `v`、`r`、`s`、`yParity` 和非空 block location，receipt log 也必须包含 block、transaction 与 log index。ethers 和 Remix 会在 receipt 成功后重新解析这些对象，因此它们属于兼容性契约而非展示字段。`eth_getBlockByNumber` 支持 genesis `0x0`，parent hash 使用 zero hash 而不是错误的 `null`。
+
 <!-- vexo-docs:technical-parity -->
 - `admin_token` and `admin_tokens` are stable configuration keys and must remain unchanged when describing optional bearer-token enforcement.
 

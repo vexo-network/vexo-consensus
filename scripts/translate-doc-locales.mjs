@@ -22,7 +22,8 @@ const LOCALES = {
 };
 
 const MYMEMORY_ENDPOINT = 'https://api.mymemory.translated.net/get';
-const MAX_CHUNK_CHARS = 320;
+const MAX_CHUNK_CHARS = Number.parseInt(process.env.VEXO_TRANSLATION_CHUNK_CHARS ?? '320', 10);
+const REQUEST_DELAY_MS = Number.parseInt(process.env.VEXO_TRANSLATION_DELAY_MS ?? '4000', 10);
 
 function usage() {
   console.error([
@@ -74,6 +75,25 @@ function protectInlineCode(text) {
   const placeholders = [];
   const protectedText = text.replace(/`[^`\n]+`/g, (match) => {
     const token = placeholderPrefix('CODE', placeholders.length);
+    placeholders.push({ token, value: match });
+    return token;
+  });
+  return {
+    text: protectedText,
+    restore(value) {
+      let output = value;
+      for (const { token, value: original } of placeholders) {
+        output = output.split(token).join(original);
+      }
+      return output;
+    },
+  };
+}
+
+function protectHTMLComments(text) {
+  const placeholders = [];
+  const protectedText = text.replace(/<!--[\s\S]*?-->/g, (match) => {
+    const token = placeholderPrefix('COMMENT', placeholders.length);
     placeholders.push({ token, value: match });
     return token;
   });
@@ -227,7 +247,8 @@ function splitParagraphs(text, maxChars = MAX_CHUNK_CHARS) {
 }
 
 async function translateTextOnce(text, targetLocale) {
-  const urlGuard = protectCommonURLs(text);
+  const commentGuard = protectHTMLComments(text);
+  const urlGuard = protectCommonURLs(commentGuard.text);
   const codeGuard = protectInlineCode(urlGuard.text);
   const body = new URLSearchParams({
     q: codeGuard.text,
@@ -245,8 +266,10 @@ async function translateTextOnce(text, targetLocale) {
       if (translated.includes('QUERY LENGTH LIMIT EXCEEDED') || translated.includes('MAX ALLOWED QUERY')) {
         throw new Error(`translate failed for ${targetLocale}: query length limit exceeded`);
       }
-      const restored = urlGuard.restore(codeGuard.restore(translated));
-      await sleep(4000);
+      const restored = commentGuard.restore(urlGuard.restore(codeGuard.restore(translated)));
+      if (REQUEST_DELAY_MS > 0) {
+        await sleep(REQUEST_DELAY_MS);
+      }
       return restored;
     }
     if (response.status !== 429 && response.status < 500) {

@@ -175,4 +175,14 @@ Rollback должен одновременно вернуть последнюю
 
 - Keep `go test -race ./rpc -count=1` in the verification matrix to catch managed nonce allocation and pending-state races.
 
+## Совместимость добытых объектов
+
+Remix и ethers повторно разбирают транзакцию и блок после получения receipt. Поле `gas` добытой транзакции должно сохранять отправленный gas limit, а фактический расход находится в `gasUsed` receipt. Нужны применимые поля `v`, `r`, `s`, `yParity` и ненулевые `blockHash`, `blockNumber`, `transactionIndex`.
+
+Receipt содержит `transactionHash`, `transactionIndex`, `blockHash`, `blockNumber`, `from`, `to`, `contractAddress`, `status`, `gasUsed`, `cumulativeGasUsed`, `type`, `logs`; каждый log также содержит `logIndex`, `removed` и местоположение. Для genesis `0x0` метод `eth_getBlockByNumber` возвращает zero parent hash, а не null. `eth_getTransactionByHash`, `eth_getTransactionReceipt` и `eth_getBlockByNumber` должны указывать одинаковое местоположение. Одного `status = 0x1` недостаточно.
+
+## Повторная проверка proxy и upgrade
+
+С одной учетной записью и endpoint последовательно разверните implementation V1, proxy с initialization calldata, прочитайте состояние, разверните implementation V2, выполните разрешенный UUPS upgrade и проверьте сохранность storage. Запишите transaction hash, block hash, contract address, nonce, status, gas limit и gas used. Отличайте отмену wallet от ошибки после отправки; при `invalid transaction nonce` совместно исследуйте pending nonce allocation и mempool.
+
 <!-- vexo-docs:technical-parity -->

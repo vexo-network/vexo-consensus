@@ -83,6 +83,10 @@ Interface RPC capability discovery baru menunjukkan fungsi provider yang benar-b
 
 Biarkan nama interface berikut tetap sama: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
 
+## Kontrak objek EVM yang telah ditambang
+
+Pada mined transaction response, `gas` mempertahankan gas limit yang dikirim dan pemakaian aktual berada di `gasUsed` pada receipt. Respons menyediakan bidang yang berlaku `v`, `r`, `s`, `yParity`, lokasi block yang tidak null, sedangkan receipt log berisi index block, transaction, dan log. ethers serta Remix mengurai objek ini lagi setelah receipt berhasil, sehingga bidang tersebut adalah kontrak kompatibilitas. `eth_getBlockByNumber` mendukung genesis `0x0` dan memakai zero hash untuk parent, bukan `null` yang tidak valid.
+
 <!-- vexo-docs:technical-parity -->
 - `admin_token` and `admin_tokens` are stable configuration keys and must remain unchanged when describing optional bearer-token enforcement.
 

@@ -175,4 +175,14 @@ http://127.0.0.1:28657/web3
 
 - Keep `go test -race ./rpc -count=1` in the verification matrix to catch managed nonce allocation and pending-state races.
 
+## توافق الكائنات المعدنة
+
+يعيد Remix وethers تحليل المعاملة والكتلة بعد receipt. يجب أن يحتفظ حقل `gas` في المعاملة المعدنة بحد gas المرسل، بينما يوضع الاستهلاك الفعلي في `gasUsed` داخل receipt. كما تلزم حقول التوقيع المناسبة `v` و`r` و`s` و`yParity` وقيم غير null لكل من `blockHash` و`blockNumber` و`transactionIndex`.
+
+يتضمن receipt الحقول `transactionHash` و`transactionIndex` و`blockHash` و`blockNumber` و`from` و`to` و`contractAddress` و`status` و`gasUsed` و`cumulativeGasUsed` و`type` و`logs`، ويتضمن كل log كذلك `logIndex` و`removed` وموقعه. عند genesis `0x0` يعيد `eth_getBlockByNumber` zero parent hash لا null. يجب أن تتفق `eth_getTransactionByHash` و`eth_getTransactionReceipt` و`eth_getBlockByNumber` على الموقع. لا يكفي `status = 0x1` وحده لإثبات التوافق.
+
+## إعادة التحقق من proxy وupgrade
+
+باستخدام الحساب وendpoint نفسيهما، انشر implementation V1 ثم proxy مع initialization calldata، واقرأ الحالة، وانشر implementation V2، ونفذ UUPS upgrade المصرح، وتحقق من بقاء storage. سجل transaction hash وblock hash وcontract address وnonce وstatus وgas limit وgas used. ميز إلغاء wallet عن فشل بعد الإرسال؛ وعند `invalid transaction nonce` افحص pending nonce allocation وmempool معا.
+
 <!-- vexo-docs:technical-parity -->

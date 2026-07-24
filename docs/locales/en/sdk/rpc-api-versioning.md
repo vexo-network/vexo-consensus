@@ -59,16 +59,12 @@ Operators may use one root token or scoped tokens in `network_config.json`:
       "prune-token": ["prune"],
       "replay-token": ["replay"],
       "ops-token": ["recovery", "consensus"]
-    },
-    "tls_cert_path": "tls/rpc.crt",
-    "tls_key_path": "tls/rpc.key",
-    "tls_ca_path": "tls/rpc-ca.crt",
-    "tls_server_name": "rpc.validator.internal"
+    }
   }
 }
 ```
 
-Supported scopes are `recovery`, `prune`, `replay`, and `consensus`. A scoped token with `["*"]` is equivalent to a root admin token. RPC middleware emits structured admin audit events when an audit sink is configured by the embedding node. `tls_cert_path` and `tls_key_path` must be configured together; `tls_ca_path` enables client-certificate verification; `tls_server_name` requires a CA trust root. Public RPC listeners must configure TLS cert/key before `vexod start` will pass safety validation. Add scoped admin tokens only when the deployment wants bearer-token checks in addition to TLS or gateway policy. Add `tls_ca_path` when the deployment requires mTLS/client-certificate authentication.
+Supported scopes are `recovery`, `prune`, `replay`, and `consensus`. A scoped token with `["*"]` is equivalent to a root admin token. RPC middleware emits structured admin audit events when an audit sink is configured by the embedding node. Add scoped admin tokens only when the deployment wants bearer-token checks in addition to gateway policy.
 
 `/v1/replay` accepts `strict: true` to require isolated re-execution from genesis or a retained historical snapshot. Non-strict replay may fall back to stored block/state consistency checks when isolated replay prerequisites are unavailable; strict replay fails closed instead.
 
@@ -181,6 +177,24 @@ The generated config alternates acknowledgement and timeout jobs, uses checkpoin
 
 The Web3 bridge provides Ethereum execution and wallet/tooling compatibility inside a Vexo network. It does not expose Ethereum devp2p, Ethereum fork choice, or Ethereum sync semantics. Vexo nodes keep Vexo consensus, validator lifecycle, P2P, state sync, and block formats.
 
+Web3 methods are served at the Web3 endpoint. Versioned Vexo operational APIs stay under the versioned Vexo API namespace.
+
+Minimal chain-ID check:
+
+```bash
+curl -s http://127.0.0.1:26657/web3 \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'
+```
+
+Single-host Docker exposes validator 1 on host port `28657`, so Remix or browser tooling should use:
+
+```text
+http://127.0.0.1:28657/web3
+```
+
+The RPC handler responds to browser CORS preflight requests. If Remix reports a failed chain-ID fetch, the usual cause is the wrong URL or port: use the Web3 endpoint path, and use the host-mapped Docker port such as `28657` rather than the container-internal `26657`.
+
 ### Supported Method Groups
 
 The bridge supports single requests, batch requests, notifications, string block tags, EIP-1898 selectors, and these method families:
@@ -209,6 +223,8 @@ The bridge supports single requests, batch requests, notifications, string block
 - Module query path `evm/state-backend` returns the active EVM state backend contract, linked VM names, native balance namespace, 256-bit balance width, snapshot support, proof support, and the geth library boundary.
 - Mixed Vexo module blocks use deterministic Vexo roots where Ethereum transaction/receipt trie roots would be misleading. Blocks containing only Ethereum raw transactions with EVM receipts compute Ethereum-style transaction and receipt roots with go-ethereum `DeriveSha`.
 - `eth_getTransactionReceipt` reports per-transaction `gasUsed` and block-relative `cumulativeGasUsed`; `eth_getBlockReceipts` returns the same receipt semantics for every EVM receipt in the block.
+- Mined transaction responses preserve the original transaction gas limit in `gas`, expose applicable signature fields (`v`, `r`, `s`, and `yParity`), and include non-null block location. Receipt logs include their block, transaction, and log indexes. This is required because clients such as ethers and Remix parse the mined transaction and block after a receipt succeeds.
+- `eth_getBlockByNumber` supports genesis block `0x0`; Ethereum-shaped block responses use a zero hash for the genesis parent instead of returning a malformed `null` hash.
 - Web3 block responses and `newHeads` fail closed if a retained EVM state root is unavailable; the RPC server never substitutes the Vexo app hash for Ethereum-compatible `stateRoot`.
 
 ### Calls, Gas, and Traces

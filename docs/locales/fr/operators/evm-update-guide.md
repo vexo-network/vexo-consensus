@@ -175,4 +175,14 @@ Cette annexe garde le guide de mise à jour aligné avec le reste de l’arbores
 
 - Keep `go test -race ./rpc -count=1` in the verification matrix to catch managed nonce allocation and pending-state races.
 
+## Compatibilité des objets minés
+
+Remix et ethers analysent de nouveau la transaction et le bloc après le reçu. Le champ `gas` d'une transaction minée doit conserver la limite soumise; la consommation réelle appartient à `gasUsed` dans le reçu. Les champs applicables `v`, `r`, `s`, `yParity` ainsi que `blockHash`, `blockNumber` et `transactionIndex` non nuls sont obligatoires.
+
+Le reçu contient `transactionHash`, `transactionIndex`, `blockHash`, `blockNumber`, `from`, `to`, `contractAddress`, `status`, `gasUsed`, `cumulativeGasUsed`, `type` et `logs`; chaque log fournit aussi `logIndex`, `removed` et sa localisation. Pour le genesis `0x0`, `eth_getBlockByNumber` renvoie un zero parent hash et non null. `eth_getTransactionByHash`, `eth_getTransactionReceipt` et `eth_getBlockByNumber` doivent convenir de la même localisation. `status = 0x1` ne suffit pas à prouver la compatibilité.
+
+## Nouvelle validation du proxy et de l'upgrade
+
+Avec le même compte et endpoint, déployez implementation V1, le proxy avec calldata d'initialisation, lisez l'état via le proxy, déployez implementation V2, exécutez l'UUPS upgrade autorisé et contrôlez la conservation du storage. Archivez transaction hash, block hash, contract address, nonce, status, gas limit et gas used. Distinguez une annulation du wallet d'un échec après soumission; pour `invalid transaction nonce`, inspectez ensemble l'allocation pending nonce et le mempool.
+
 <!-- vexo-docs:technical-parity -->

@@ -175,4 +175,14 @@ Lampiran ini menjaga panduan tetap selaras dengan tree dokumentasi lainnya.
 
 - Keep `go test -race ./rpc -count=1` in the verification matrix to catch managed nonce allocation and pending-state races.
 
+## Kompatibilitas objek yang telah ditambang
+
+Remix dan ethers mengurai kembali transaksi serta blok setelah receipt. `gas` pada transaksi yang telah ditambang harus mempertahankan gas limit yang dikirim, sedangkan konsumsi aktual berada pada `gasUsed` di receipt. Bidang yang berlaku `v`, `r`, `s`, `yParity` serta `blockHash`, `blockNumber`, dan `transactionIndex` yang tidak null juga wajib.
+
+Receipt berisi `transactionHash`, `transactionIndex`, `blockHash`, `blockNumber`, `from`, `to`, `contractAddress`, `status`, `gasUsed`, `cumulativeGasUsed`, `type`, `logs`; setiap log memiliki `logIndex`, `removed`, dan lokasinya. Untuk genesis `0x0`, `eth_getBlockByNumber` mengembalikan zero parent hash, bukan null. `eth_getTransactionByHash`, `eth_getTransactionReceipt`, dan `eth_getBlockByNumber` harus menunjukkan lokasi yang sama. `status = 0x1` saja tidak membuktikan kompatibilitas.
+
+## Validasi ulang proxy dan upgrade
+
+Dengan akun dan endpoint yang sama, deploy implementation V1, proxy dengan initialization calldata, baca state, deploy implementation V2, jalankan UUPS upgrade yang berwenang, lalu konfirmasi storage tetap tersimpan. Catat transaction hash, block hash, contract address, nonce, status, gas limit, dan gas used. Bedakan pembatalan wallet dari kegagalan setelah pengiriman; untuk `invalid transaction nonce`, periksa pending nonce allocation dan mempool bersama-sama.
+
 <!-- vexo-docs:technical-parity -->
