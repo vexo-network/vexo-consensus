@@ -97,7 +97,19 @@
 
 ## الكتل الفارغة واستعادة Round
 
-مع `create_empty_blocks=false` فإن ثبات height عندما يكون mempool فارغًا هو حالة idle طبيعية. عند وصول معاملة يمكن للعقدة الانتقال إلى local proposer round التالي وبناء block بالمعاملة، مع بقاء قواعد QC/finality كما هي.
+مع `create_empty_blocks=false` فإن ثبات height عندما يكون mempool فارغًا هو حالة idle طبيعية. عند وصول معاملة لا يقترح العقدة إلا إذا كانت proposer الحتمية للزوج `(height, round)` الحالي، ولا تقفز محليًا إلى round آخر. لا تتقدم round إلا عبر timeout certificate صالح أو انتقال finality معتمد، ولا تُعامل أخطاء التنفيذ والتخزين كـ timeout.
+
+## مهلة الجولة المتكيفة
+
+عندما تكون `adaptive_round_timeout_enabled = true` تحسب العقدة timeout من القيمة الأساسية وp95 المتحرك لمعالجة proposal/vote/commit ونتيجة التقدم وعجز peers النشطة. تضرب المهلة الميزانية في 1.5، ويطبق التقدم الناجح 0.8، وتضيف المدة المقاسة هامش أمان بثلاثة أضعاف، مع تقييد النتيجة بين الأساس وثمانية أمثاله. لا تتغير safe-vote أو proposer أو quorum power أو QC أو three-chain finality.
+
+## بوابة نهائية الاسترداد
+
+عندما تكون `recovery_finality_gate_enabled = true` وتختلف ارتفاعات application state وblock index الدائمة، يصبح أصغرهما safe recovery height. تؤجل finalized application commits الأعلى حتى تستعاد المطابقة. تعرض `/v1/metrics` و`/metrics/text` المهلة الحالية وتأجيلات الاسترداد.
+
+## الترتيب الحتمي للمعاملات
+
+تشتق proposal قيمة salt من `chain_id` وheight، وترتب transaction chain لكل signer حسب nonce تصاعديا، ثم تدمج الرؤوس وفق salted transaction hash. يزيل ذلك ترتيب وصول mempool المحلي لنفس candidate set، لكنه لا يضمن first-seen fairness أو censorship resistance أو confidentiality أو order fairness رسمية.
 
 <!-- vexo-docs:technical-parity -->
 ## ملحق التكافؤ التقني

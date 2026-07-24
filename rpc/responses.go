@@ -46,6 +46,9 @@ func statusResponse(status node.Status) StatusResponse {
 		ScoredPeerCount:     status.ScoredPeerCount,
 		BannedPeers:         status.BannedPeers,
 	}
+	if status.ConfiguredPeerCount > 0 {
+		response.QuorumHealthRatio = float64(status.ActivePeerCount) / float64(status.ConfiguredPeerCount)
+	}
 	if status.LatestFinalizedHeight > 0 {
 		response.LatestFinalizedHeight = uint64(status.LatestFinalizedHeight)
 		response.LatestFinalizedHash = hex.EncodeToString(status.LatestFinalizedHash[:])

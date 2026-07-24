@@ -173,4 +173,16 @@ release evidence에는 무엇이 바뀌었는지, 무엇을 테스트했는지, 
 - `make evm-conformance`, `make network-e2e`, `--evm-default-fixtures`, `--evm-tx-fixtures`, `--evm-execution-fixtures`, `--evm-web3-conformance-evidence`의 철자도 그대로 유지합니다.
 - 운영 질문은 단순해야 합니다. 이번 업데이트가 Ethereum-style execution을 유지하면서도 Vexo consensus와 release safety에 맞는가?
 
+- Keep `go test -race ./rpc -count=1` in the verification matrix to catch managed nonce allocation and pending-state races.
+
+## 채굴된 객체 호환성
+
+Remix와 ethers는 receipt 이후에도 트랜잭션과 블록을 다시 파싱합니다. 채굴된 트랜잭션의 `gas`에는 제출한 gas limit을 유지하고 실제 소비량은 receipt의 `gasUsed`에 기록해야 합니다. 적용 가능한 `v`, `r`, `s`, `yParity`와 null이 아닌 `blockHash`, `blockNumber`, `transactionIndex`도 반환해야 합니다.
+
+Receipt는 `transactionHash`, `transactionIndex`, `blockHash`, `blockNumber`, `from`, `to`, `contractAddress`, `status`, `gasUsed`, `cumulativeGasUsed`, `type`, `logs`를 포함하고, 각 log는 `logIndex`와 `removed`를 포함한 위치 정보를 가져야 합니다. `eth_getBlockByNumber`의 genesis `0x0`은 null이 아닌 zero parent hash를 반환해야 하며 `eth_getTransactionByHash`, `eth_getTransactionReceipt`, `eth_getBlockByNumber`의 위치 정보가 일치해야 합니다. `status = 0x1`만으로는 호환성이 입증되지 않습니다.
+
+## Proxy 및 업그레이드 재검증
+
+같은 계정과 endpoint에서 implementation V1 배포, 초기화 calldata를 포함한 proxy 배포, proxy 상태 읽기, implementation V2 배포, 권한 있는 UUPS upgrade, storage 보존 확인 순서로 실행합니다. 모든 transaction hash, block hash, contract address, nonce, status, gas limit, gas used를 기록합니다. 지갑 취소와 제출된 트랜잭션 실패를 구분하고 `invalid transaction nonce`가 보이면 pending nonce 배정과 mempool 상태를 함께 조사합니다.
+
 <!-- vexo-docs:technical-parity -->

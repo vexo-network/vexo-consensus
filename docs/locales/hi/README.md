@@ -1,12 +1,12 @@
 > Locale: hi · हिन्दी
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+# दस्तावेज
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+यह directory `vexo-consensus` की व्यावहारिक manual है। यह developers, operators, release maintainers और reviewers के लिए है जिन्हें केवल source code से अनुमान लगाए बिना network समझना है।
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+हर page को component की जिम्मेदारी, implementation files, commands, config keys और APIs, safety conditions तथा real network से पहले जरूरी evidence समझाना चाहिए। Protocol, security, release, SDK, command, config और RPC behavior के लिए English normative source है; यह translation पढ़ने में सहायता देती है, audit निर्णय में English source को नहीं बदलती।
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+शुरू करने के लिए नीचे के commands चलाएं और फिर `Node Initialization`, `Docker Deployment`, `Observability Guide` तथा `RPC API Versioning` पढ़ें।
 
 | टास्क | कमांड पाथ |
 |---|---|
@@ -34,25 +34,31 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 | दस्तावेज़ | उद्देश्य |
 |---|---|
-| [उत्पादन तत्परता मार्गदर्शिका ](./ production-readiness.md) | प्रोटोकॉल, रनटाइम, संचालन, साक्ष्य और रिलीज तत्परता का एकल मानचित्र |
+| [उत्पादन तत्परता मार्गदर्शिका](./production-readiness.md) | प्रोटोकॉल, रनटाइम, संचालन, साक्ष्य और रिलीज तत्परता का एकल मानचित्र |
 
 ## प्रोटोकॉल ऐनक
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+- [Consensus Spec](./specs/consensus-spec.md), [Finality Proof Format](./specs/finality-proof-format.md) और [Validator Lifecycle](./specs/validator-lifecycle.md) safety, finality और validator set changes बताते हैं।
+- [Networking Spec](./specs/networking-spec.md), [Storage Schema](./specs/storage-schema.md) और [Transaction Format](./specs/tx-format.md) transport, durable recovery और transaction admission बताते हैं।
+- [EVM and Native Accounting](./specs/evm-native-accounting.md) native और EVM accounting की सीमा तय करता है।
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## SDK और extensions
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+[App Module Guide](./sdk/app-module-guide.md), [Custom Crypto Backend](./sdk/custom-crypto-backend.md), [Custom Storage and Transport](./sdk/custom-storage-transport.md) और `RPC API Versioning` runtime को consensus या RPC contract तोड़े बिना बढ़ाने का तरीका बताते हैं।
 
-| [संस्करण संगतता मैट्रिक्स ](./ release/version-compatibility.md) | द्विआधारी, कॉन्फ़िगरेशन, स्टोर, ऐप, आरपीसी और प्रूफ प्रारूपों में संगतता अपेक्षाएं |
+## Operations, release और security
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+`Node Initialization`, [Adding a Validator](./operators/add-validator.md), `Observability Guide`, [लॉन्च रनबुक](./release/launch-runbook.md), `Release Pipeline` और [Version Compatibility Matrix](./release/version-compatibility.md) operator path बनाते हैं। [Security Audit Readiness](./security/audit-readiness.md) threat model और अनिवार्य evidence देता है।
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## Maturity rule
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+केवल code होना production readiness सिद्ध नहीं करता। Unit, adversarial और E2E tests, operational artifacts, assumptions, failure modes और release gate results जरूरी हैं। Commands, RPC methods और config keys हर translation में समान रहते हैं।
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## शोध और प्रकाशन
+
+शोध-पत्र तैयार करते समय [`Adaptive Recovery-Gated HotStuff Research Draft`](./research/adaptive-recovery-hotstuff-paper.md) से शुरू करें। यह दस्तावेज लागू किए गए adaptive round timeout, recovery finality gate और deterministic transaction ordering को पूर्व कार्य से अलग करता है तथा शोध प्रश्न, परिकल्पनाएं, प्रयोग प्रक्रिया, पुनरुत्पाद्य artefacts और शोध नैतिकता एक स्थान पर देता है। बिना मापे प्रदर्शन को परिणाम नहीं बताया गया है और PoS, BFT या HotStuff को स्वयं नई खोज नहीं माना गया है।
+
+भाषाओं के बीच समान दस्तावेज पहचानने के लिए `Node Initialization`, `Docker Deployment`, `Observability Guide`, `RPC API Versioning`, `Production Readiness`, `Release Pipeline` और `Adaptive Recovery-Gated HotStuff Research Draft` नाम अपरिवर्तित रखे गए हैं।
 
 <!-- vexo-docs:technical-parity -->
 ## तकनीकी समानता परिशिष्ट

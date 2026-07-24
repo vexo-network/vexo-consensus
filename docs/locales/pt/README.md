@@ -1,12 +1,12 @@
 > Locale: pt · Português
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+# Documentação
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Este diretório é o manual prático do `vexo-consensus`. Destina-se a developers, operadores, responsáveis por release e revisores que precisam entender a rede sem deduzir seu comportamento apenas do código-fonte.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Cada página deve explicar responsabilidade, arquivos, comandos, chaves de configuração e APIs da implementação, condições de segurança e evidências exigidas antes de uma rede real. O inglês continua sendo a fonte normativa para protocolo, segurança, release, SDK, comandos, configuração e RPC; esta tradução auxilia a leitura, mas não substitui a fonte inglesa em decisões de auditoria.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Para começar, use os comandos abaixo e depois leia `Node Initialization`, `Docker Deployment`, `Observability Guide` e `RPC API Versioning`.
 
 | Tarefa | Caminho do Comando |
 |---|---|
@@ -38,21 +38,27 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 ## Especificações do protocolo
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+- [Consensus Spec](./specs/consensus-spec.md), [Finality Proof Format](./specs/finality-proof-format.md) e [Validator Lifecycle](./specs/validator-lifecycle.md) descrevem segurança, finalidade e mudanças no validator set.
+- [Networking Spec](./specs/networking-spec.md), [Storage Schema](./specs/storage-schema.md) e [Transaction Format](./specs/tx-format.md) cobrem transporte, recuperação durável e admissão de transações.
+- [EVM and Native Accounting](./specs/evm-native-accounting.md) define a fronteira entre contabilidade nativa e EVM.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## SDK e extensões
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+[App Module Guide](./sdk/app-module-guide.md), [Custom Crypto Backend](./sdk/custom-crypto-backend.md), [Custom Storage and Transport](./sdk/custom-storage-transport.md) e `RPC API Versioning` mostram como estender o runtime sem quebrar contratos de consenso ou RPC.
 
-| [Matriz de compatibilidade de versões](./release/version-compatibility.md) | Expectativas de compatibilidade em formatos binários, config, store, app, RPC e proof |
+## Operação, release e segurança
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+`Node Initialization`, [Adding a Validator](./operators/add-validator.md), `Observability Guide`, [Runbook de lançamento](./release/launch-runbook.md), `Release Pipeline` e [Version Compatibility Matrix](./release/version-compatibility.md) formam o percurso operacional. [Security Audit Readiness](./security/audit-readiness.md) registra o modelo de ameaça e evidências obrigatórias.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## Regra de maturidade
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Código existente não comprova prontidão para produção. São necessários testes unitários, adversariais e E2E, artefatos operacionais, suposições e modos de falha e resultados do release gate. Comandos, métodos RPC e chaves de configuração permanecem iguais em todas as traduções.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## Pesquisa e publicação
+
+Para preparar um artigo, comece por [`Adaptive Recovery-Gated HotStuff Research Draft`](./research/adaptive-recovery-hotstuff-paper.md). O documento separa os mecanismos realmente implementados, como timeout adaptativo de rodada, barreira de finalidade durante recuperação e ordenação determinística de transações, dos trabalhos anteriores. Ele reúne perguntas de pesquisa, hipóteses, protocolo experimental, artefatos reproduzíveis e ética de pesquisa. Desempenho ainda não medido não é apresentado como resultado, e PoS, BFT ou HotStuff não são reivindicados como novas invenções.
+
+Os nomes normativos mantidos para navegação entre idiomas são `Node Initialization`, `Docker Deployment`, `Observability Guide`, `RPC API Versioning`, `Production Readiness`, `Release Pipeline` e `Adaptive Recovery-Gated HotStuff Research Draft`.
 
 <!-- vexo-docs:technical-parity -->
 ## Apêndice de paridade técnica

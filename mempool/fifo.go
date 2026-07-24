@@ -19,6 +19,7 @@ var (
 	ErrInvalidMaxBytes        = errors.New("max bytes must be greater than zero")
 	ErrInsufficientFee        = errors.New("transaction fee is below minimum")
 	ErrReplacementUnderpriced = errors.New("replacement transaction is underpriced")
+	ErrTxNotReady             = errors.New("transaction is not executable yet")
 )
 
 type FIFOConfig struct {
@@ -32,6 +33,7 @@ type FIFOConfig struct {
 	WALPath            string
 	EnableReplacement  bool
 	ReplacementBumpBPS uint64
+	ReplayCheckTx      func(context.Context, types.Tx) error `json:"-"`
 }
 
 type FIFO struct {
@@ -177,15 +179,15 @@ func (pool *FIFO) BuildBatch(ctx context.Context, maxBytes int64) (Batch, error)
 	if maxBytes <= 0 {
 		return Batch{}, ErrInvalidMaxBytes
 	}
+	liveTxs := pool.liveTxsLocked(ctx)
 
 	var totalBytes int64
 	batch := Batch{
 		Author: pool.config.Author,
-		Txs:    make([]types.Tx, 0, len(pool.txs)),
+		Txs:    make([]types.Tx, 0, len(liveTxs)),
 	}
 
-	txs := pool.orderedTxsLocked()
-	for _, tx := range txs {
+	for _, tx := range liveTxs {
 		txSize := int64(len(tx))
 		if len(batch.Txs) > 0 && totalBytes+txSize > maxBytes {
 			break
@@ -209,8 +211,23 @@ func (pool *FIFO) PendingTxs(ctx context.Context) ([]types.Tx, error) {
 		return nil, ctx.Err()
 	default:
 	}
+	return pool.liveTxsLocked(ctx), nil
+}
 
-	return pool.orderedTxsLocked(), nil
+// SnapshotTxs returns the currently admitted entries without replaying CheckTx.
+// Proposal construction still uses PendingTxs and performs the stateful replay
+// check; read-only RPC polling should not execute transactions again.
+func (pool *FIFO) SnapshotTxs(ctx context.Context) ([]types.Tx, error) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	if err := pool.checkContext(ctx); err != nil {
+		return nil, err
+	}
+	txs := make([]types.Tx, 0, len(pool.txs))
+	for _, tx := range pool.txs {
+		txs = append(txs, append(types.Tx(nil), tx...))
+	}
+	return txs, nil
 }
 
 func (pool *FIFO) MarkCommitted(ctx context.Context, committed []types.Tx) error {
@@ -247,6 +264,34 @@ func (pool *FIFO) markCommittedLocked(committed []types.Tx) error {
 	return nil
 }
 
+func (pool *FIFO) RetainTxs(ctx context.Context, keep func(types.Tx) bool) (int, error) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	if err := pool.checkContext(ctx); err != nil {
+		return 0, err
+	}
+	if keep == nil {
+		return 0, nil
+	}
+
+	remaining := make([]types.Tx, 0, len(pool.txs))
+	removed := 0
+	for _, tx := range pool.txs {
+		if keep(tx) {
+			remaining = append(remaining, tx)
+			continue
+		}
+		removed++
+		pool.markSeen(HashTx(tx))
+	}
+	if removed == 0 {
+		return 0, nil
+	}
+	pool.txs = remaining
+	pool.rebuildIndex()
+	return removed, nil
+}
+
 func (pool *FIFO) orderedTxs() []types.Tx {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
@@ -277,6 +322,48 @@ func (pool *FIFO) orderedTxsLocked() []types.Tx {
 		return bytes.Compare(leftHash[:], rightHash[:]) < 0
 	})
 	return ordered
+}
+
+func (pool *FIFO) liveTxsLocked(ctx context.Context) []types.Tx {
+	live := make([]types.Tx, 0, len(pool.txs))
+	removed := false
+	for _, tx := range pool.txs {
+		if pool.config.ReplayCheckTx != nil {
+			if err := pool.config.ReplayCheckTx(ctx, append(types.Tx(nil), tx...)); err != nil {
+				if errors.Is(err, ErrTxNotReady) {
+					live = append(live, append(types.Tx(nil), tx...))
+					continue
+				}
+				removed = true
+				pool.markSeen(HashTx(tx))
+				continue
+			}
+		}
+		live = append(live, append(types.Tx(nil), tx...))
+	}
+	if removed {
+		pool.txs = live
+		pool.rebuildIndex()
+	}
+	if !pool.config.EnablePriority {
+		return live
+	}
+	sort.SliceStable(live, func(left, right int) bool {
+		leftPriority := TxPriority(live[left])
+		rightPriority := TxPriority(live[right])
+		if leftPriority != rightPriority {
+			return leftPriority > rightPriority
+		}
+		leftFee := TxFee(live[left])
+		rightFee := TxFee(live[right])
+		if leftFee != rightFee {
+			return leftFee > rightFee
+		}
+		leftHash := HashTx(live[left])
+		rightHash := HashTx(live[right])
+		return bytes.Compare(leftHash[:], rightHash[:]) < 0
+	})
+	return live
 }
 
 func (pool *FIFO) seenRecently(hash types.Hash) bool {
@@ -370,9 +457,15 @@ func (pool *FIFO) checkContext(ctx context.Context) error {
 }
 
 func containsTx(txs []types.Tx, target types.Tx) bool {
+	targetKey, targetHasKey := ReplacementKey(target)
 	for _, tx := range txs {
 		if bytes.Equal(tx, target) {
 			return true
+		}
+		if targetHasKey {
+			if key, found := ReplacementKey(tx); found && key == targetKey {
+				return true
+			}
 		}
 	}
 	return false

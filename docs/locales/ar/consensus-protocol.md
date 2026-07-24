@@ -1,12 +1,24 @@
 > Locale: ar · العربية
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+# نظرة عامة على بروتوكول الإجماع
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+هذه الصفحة هي المدخل العام لوثائق إجماع Vexo. توجد التفاصيل المعيارية في [Consensus Spec](./specs/consensus-spec.md) و[Finality Proof Format](./specs/finality-proof-format.md) و[Validator Lifecycle](./specs/validator-lifecycle.md) و[Storage Schema](./specs/storage-schema.md) و[Networking Spec](./specs/networking-spec.md) و[Transaction Format](./specs/tx-format.md).
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## النموذج
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+يستخدم Vexo نواة BFT على نمط HotStuff تتضمن proposal وvote وquorum certificate(QC) وtimeout certificate وقاعدة locked-QC ونهائية السلاسل الثلاث. يكون التصويت للكتلة آمنا فقط عندما تمتد من locked QC أو تحمل justify QC لا يقل حداثة عنه. ترفض سلاسل QC الاصطناعية أو التي تتجاوز ارتفاعا من دون ربط صريح لارتفاعات وتجزئات الكتلة والأصل والجد قبل تقرير النهائية.
+
+## هوية البروتوكول وحد البحث
+
+Vexo ليس اسما جديدا لـ HotStuff غير المعدل، ولا يطابق بروتوكول أو تنفيذ AptosBFT أو DiemBFT أو Jolteon أو Ditto أو Tendermint أو CometBFT. فهو يجمع في Go runtime مستقل مفاهيم أمان HotStuff مع توقيت جولة متكيف واسترداد دائم وترتيب حتمي للمعاملات وتنفيذ معياري وvalidator sets ذات إصدارات حسب الارتفاع.
+
+يستخدم مسار التصويت الفعلي validator set الكامل للارتفاع وproposer حتميا. يتوفر VRF committee selector كمكون وواجهة استعلام، لكنه لا يتحكم بعد في proposal eligibility أو quorum formation. لذلك يوصف كعمل مستقبلي لا كخاصية مفعلة. راجع [Adaptive Recovery-Gated HotStuff for Modular Proof-of-Stake Networks](./research/adaptive-recovery-hotstuff-paper.md) لحدود المساهمة وبروتوكول التجربة.
+
+## حد التنفيذ والاسترداد
+
+شهادة QC ونهائية HotStuff وتنفيذ التطبيق وcommit الحالة أحداث منفصلة. ينفذ الإعداد الافتراضي `execution_commit=finalized` السلف الذي تختاره قاعدة السلاسل الثلاث فقط. يتحكم pacemaker المتكيف و`recovery_finality_gate_enabled` في التأخير والاسترداد من دون تغيير proposer أو quorum power أو safe-vote أو قاعدة النهائية.
+
+## حد السلامة
 
 - أقل من ثلث قوة التصويت البيزنطية
 - توقيعات الاقتراح والتصويت ومهلة التصويت والنهائية المفصولة عن النطاق
@@ -17,7 +29,10 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 ## حدود العملات المشفرة
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+- backend المسمى `deterministic` مخصص للاختبار ولا يجتاز تحقق network safety.
+- يدعم `ed25519` اختبارات الشبكات العامة والاستعداد للإطلاق.
+- يستخدم `bls` افتراضيا `blst-bls12381-minpk-v1` ويتطلب proof-of-possession وفحص المجموعة الفرعية والتحقق من المفتاح وتدقيق الاعتماديات ودليل release-gate.
+- يتطلب التحقق بيانات VRF adapter الوصفية، لكن ذلك لا يعني أن VRF committee جزء من مسار الإجماع الفعلي.
 
 - تدقيق صارم للتكوين لكل منزل مدقق
 - أدلة بوابة الإصدار

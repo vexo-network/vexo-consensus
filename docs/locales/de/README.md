@@ -1,12 +1,12 @@
 > Locale: de · Deutsch
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+# Dokumentation
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Dieses Verzeichnis ist das praktische Handbuch für `vexo-consensus`. Es richtet sich an Entwickler, Betreiber, Release-Verantwortliche und Prüfer, die das Netzwerk verstehen müssen, ohne sein Verhalten allein aus dem Quellcode abzuleiten.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Jede Seite soll Verantwortung, implementierende Dateien, Befehle, Konfigurationsschlüssel und APIs, Sicherheitsbedingungen sowie erforderliche Nachweise erklären. Englisch bleibt die normative Quelle für Protokoll, Sicherheit, Release, SDK, Befehle, Konfiguration und RPC; diese Übersetzung unterstützt das Lesen, ersetzt aber bei Audit- und Release-Entscheidungen nicht die englische Quelle.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Für den Einstieg führen Sie die folgenden Befehle aus und lesen anschließend `Node Initialization`, `Docker Deployment`, `Observability Guide` und `RPC API Versioning`.
 
 | Aufgabe | Befehlspfad |
 |---|---|
@@ -38,21 +38,27 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 ## Protokollspezifikationen
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+- [Consensus Spec](./specs/consensus-spec.md), [Finality Proof Format](./specs/finality-proof-format.md) und [Validator Lifecycle](./specs/validator-lifecycle.md) beschreiben Sicherheit, Finalität und Änderungen des validator set.
+- [Networking Spec](./specs/networking-spec.md), [Storage Schema](./specs/storage-schema.md) und [Transaction Format](./specs/tx-format.md) behandeln Transport, dauerhafte Wiederherstellung und Transaktionsannahme.
+- [EVM and Native Accounting](./specs/evm-native-accounting.md) definiert die Grenze zwischen nativer und EVM-Abrechnung.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## SDK und Erweiterungen
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+[App Module Guide](./sdk/app-module-guide.md), [Custom Crypto Backend](./sdk/custom-crypto-backend.md), [Custom Storage and Transport](./sdk/custom-storage-transport.md) und `RPC API Versioning` zeigen, wie die Runtime erweitert wird, ohne Konsens- oder RPC-Verträge zu brechen.
 
-| [Versionskompatibilitätsmatrix](./release/version-compatibility.md) | Kompatibilitätserwartungen für Binär-, Konfigurations-, Speicher-, App-, RPC- und Proof-Formate |
+## Betrieb, Release und Sicherheit
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+`Node Initialization`, [Adding a Validator](./operators/add-validator.md), `Observability Guide`, [Launch-Betriebshandbuch](./release/launch-runbook.md), `Release Pipeline` und [Version Compatibility Matrix](./release/version-compatibility.md) bilden den Betreiberpfad. [Security Audit Readiness](./security/audit-readiness.md) dokumentiert Bedrohungsmodell und Pflichtnachweise.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## Reifegradregel
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Vorhandener Code allein belegt keine Produktionsreife. Erforderlich sind Unit-, adversariale und E2E-Tests, Betriebsartefakte, Annahmen und Fehlermodi sowie Ergebnisse des Release Gates. Befehle, RPC-Methoden und Konfigurationsschlüssel bleiben in allen Übersetzungen identisch.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## Forschung und Veröffentlichung
+
+Für die Vorbereitung einer Veröffentlichung beginnen Sie mit [`Adaptive Recovery-Gated HotStuff Research Draft`](./research/adaptive-recovery-hotstuff-paper.md). Das Dokument grenzt die tatsächlich implementierten Mechanismen, insbesondere adaptive Runden-Timeouts, das Recovery-Finalitäts-Gate und deterministische Transaktionsreihenfolge, von früheren Arbeiten ab. Es beschreibt Forschungsfragen, Hypothesen, Versuchsablauf, reproduzierbare Artefakte und Forschungsethik. Nicht gemessene Leistung wird nicht als Ergebnis dargestellt; PoS, BFT und HotStuff selbst werden nicht als neue Beiträge beansprucht.
+
+Für die sprachübergreifende Navigation bleiben die normativen Namen `Node Initialization`, `Docker Deployment`, `Observability Guide`, `RPC API Versioning`, `Production Readiness`, `Release Pipeline` und `Adaptive Recovery-Gated HotStuff Research Draft` unverändert.
 
 <!-- vexo-docs:technical-parity -->
 ## Anhang zur technischen Parität

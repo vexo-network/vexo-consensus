@@ -97,7 +97,19 @@ Ce document aide à comprendre la spécification normative de la state machine d
 
 ## Blocs vides et reprise de round
 
-Avec `create_empty_blocks=false`, une height stable quand le mempool est vide signifie un état idle normal. Quand une transaction arrive, le nœud peut avancer vers son prochain local proposer round pour produire un bloc de transactions, tout en conservant les règles QC/finality.
+Avec `create_empty_blocks=false`, une height stable quand le mempool est vide signifie un état idle normal. Quand une transaction arrive, le nœud ne propose que s'il est le proposer déterministe du `(height, round)` courant; un nœud qui n'est pas proposer ne saute pas localement vers un autre round. Les rounds n'avancent qu'avec un timeout certificate valide ou une transition de finality certifiée, et les erreurs d'exécution ou de stockage ne sont pas traitées comme un timeout.
+
+## Timeout de ronde adaptatif
+
+Lorsque `adaptive_round_timeout_enabled = true`, le noeud calcule le timeout à partir du délai de base, du p95 glissant du traitement proposal/vote/commit, du résultat de progression et du déficit de pairs actifs. Un timeout multiplie le budget par 1,5; un progrès réussi applique 0,8; la latence observée apporte une marge de 3 fois, bornée entre la base et 8 fois la base. Cette politique ne change ni safe-vote, proposer, quorum power, QC ni three-chain finality.
+
+## Barrière de finalité pendant la récupération
+
+Avec `recovery_finality_gate_enabled = true`, si les hauteurs durables de l'application state et du block index diffèrent, leur minimum devient la safe recovery height. Les commits applicatifs finalized au-dessus sont différés jusqu'au rétablissement de la cohérence. Le timeout courant et les reports sont exposés par `/v1/metrics` et `/metrics/text`.
+
+## Ordre déterministe des transactions
+
+La proposal dérive un salt de `chain_id` et de la hauteur, trie chaque chaîne de signer par nonce croissant, puis fusionne les têtes par salted transaction hash. Pour un même candidate set, l'ordre d'arrivée au mempool est supprimé, sans garantir first-seen fairness, censorship resistance, confidentiality ni une propriété formelle d'order fairness.
 
 <!-- vexo-docs:technical-parity -->
 ## Annexe de parité technique

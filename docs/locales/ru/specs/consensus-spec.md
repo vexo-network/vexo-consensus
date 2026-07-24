@@ -97,7 +97,19 @@
 
 ## Пустые блоки и восстановление round
 
-При `create_empty_blocks=false` стабильная height с пустым mempool означает нормальный idle. Когда появляется транзакция, узел может перейти к следующему local proposer round и создать блок с транзакцией, при этом правила QC/finality остаются прежними.
+При `create_empty_blocks=false` стабильная height с пустым mempool означает нормальный idle. Когда появляется транзакция, узел предлагает блок только если является детерминированным proposer для текущей пары `(height, round)`; non-proposer не перескакивает локально на другой round. Round продвигается только через действительный timeout certificate или сертифицированный переход finality, а ошибки выполнения и хранения не считаются timeout.
+
+## Адаптивный timeout раунда
+
+При `adaptive_round_timeout_enabled = true` узел вычисляет timeout из базового значения, скользящего p95 обработки proposal/vote/commit, результата прогресса и дефицита активных peers. Timeout увеличивает бюджет в 1,5 раза, успешный прогресс умножает на 0,8, измеренная задержка дает трехкратный запас; результат ограничен базой и восьмикратной базой. Safe-vote, proposer, quorum power, QC и three-chain finality не меняются.
+
+## Шлюз финальности восстановления
+
+При `recovery_finality_gate_enabled = true`, если надежные высоты application state и block index различаются, их минимум становится safe recovery height. Finalized application commits выше границы откладываются до восстановления согласованности. Текущий timeout и отсрочки доступны через `/v1/metrics` и `/metrics/text`.
+
+## Детерминированный порядок транзакций
+
+Proposal выводит salt из `chain_id` и height, сортирует transaction chain каждого signer по возрастанию nonce и объединяет головы по salted transaction hash. Для одинакового candidate set устраняется локальный порядок прихода в mempool, но не гарантируются first-seen fairness, censorship resistance, confidentiality или формальная order fairness.
 
 <!-- vexo-docs:technical-parity -->
 ## Приложение о техническом соответствии

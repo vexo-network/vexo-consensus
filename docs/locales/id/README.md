@@ -1,12 +1,12 @@
 > Locale: id · Bahasa Indonesia
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+# Dokumentasi
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Direktori ini adalah panduan praktis `vexo-consensus`. Panduan ditujukan bagi developer, operator, pengelola release, dan reviewer yang harus memahami jaringan tanpa menebak perilakunya hanya dari source code.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Setiap halaman harus menjelaskan tanggung jawab komponen, file, command, config key, dan API yang menerapkannya, syarat keselamatan, serta bukti sebelum dipakai pada jaringan nyata. Bahasa Inggris tetap menjadi sumber normatif untuk protocol, security, release, SDK, command, config, dan RPC; terjemahan ini membantu pembacaan tetapi tidak menggantikan sumber Inggris untuk keputusan audit.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Untuk memulai, jalankan command di bawah lalu baca `Node Initialization`, `Docker Deployment`, `Observability Guide`, dan `RPC API Versioning`.
 
 | Tugas | Jalur Perintah |
 |---|---|
@@ -34,25 +34,31 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 | Dokumen | Tujuan |
 |---|---|
-| [Panduan Kesiapan Produksi ](./ production-readiness.md) | Peta tunggal protokol, runtime, operasi, bukti, dan kesiapan rilis |
+| [Panduan Kesiapan Produksi](./production-readiness.md) | Peta tunggal protokol, runtime, operasi, bukti, dan kesiapan rilis |
 
 ## Spesifikasi Protokol
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+- [Consensus Spec](./specs/consensus-spec.md), [Finality Proof Format](./specs/finality-proof-format.md), dan [Validator Lifecycle](./specs/validator-lifecycle.md) menjelaskan keselamatan, finalitas, dan perubahan validator set.
+- [Networking Spec](./specs/networking-spec.md), [Storage Schema](./specs/storage-schema.md), dan [Transaction Format](./specs/tx-format.md) mencakup transport, durable recovery, dan transaction admission.
+- [EVM and Native Accounting](./specs/evm-native-accounting.md) menetapkan batas accounting native dan EVM.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## SDK dan ekstensi
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+[App Module Guide](./sdk/app-module-guide.md), [Custom Crypto Backend](./sdk/custom-crypto-backend.md), [Custom Storage and Transport](./sdk/custom-storage-transport.md), dan `RPC API Versioning` menjelaskan cara memperluas runtime tanpa merusak kontrak consensus atau RPC.
 
-| [Matriks Kompatibilitas Versi ](./ release/version-compatibility.md) | Ekspektasi kompatibilitas di seluruh format biner, konfigurasi, toko, aplikasi, RPC, dan bukti |
+## Operasi, release, dan keamanan
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+`Node Initialization`, [Adding a Validator](./operators/add-validator.md), `Observability Guide`, [Runbook peluncuran](./release/launch-runbook.md), `Release Pipeline`, dan [Version Compatibility Matrix](./release/version-compatibility.md) membentuk jalur operator. [Security Audit Readiness](./security/audit-readiness.md) mencatat threat model dan bukti wajib.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## Aturan kematangan
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Keberadaan code saja tidak membuktikan kesiapan produksi. Diperlukan unit, adversarial, dan E2E test, artefak operasional, asumsi, mode kegagalan, serta hasil release gate. Command, metode RPC, dan config key tetap identik di semua terjemahan.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## Riset dan publikasi
+
+Untuk menyiapkan makalah, mulai dari [`Adaptive Recovery-Gated HotStuff Research Draft`](./research/adaptive-recovery-hotstuff-paper.md). Dokumen ini memisahkan mekanisme yang benar-benar telah diterapkan, termasuk timeout ronde adaptif, gerbang finalitas saat pemulihan, dan pengurutan transaksi deterministik, dari penelitian terdahulu. Dokumen tersebut merangkum pertanyaan riset, hipotesis, protokol eksperimen, artefak yang dapat direproduksi, dan etika penelitian. Kinerja yang belum diukur tidak ditulis sebagai hasil, dan PoS, BFT, maupun HotStuff tidak diklaim sebagai temuan baru.
+
+Nama normatif yang dipertahankan untuk navigasi lintas bahasa adalah `Node Initialization`, `Docker Deployment`, `Observability Guide`, `RPC API Versioning`, `Production Readiness`, `Release Pipeline`, dan `Adaptive Recovery-Gated HotStuff Research Draft`.
 
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis

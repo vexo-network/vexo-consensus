@@ -173,4 +173,16 @@ release evidence 应该写清楚改了什么、测了什么、验证了哪个 co
 - `make evm-conformance`、`make network-e2e`、`--evm-default-fixtures`、`--evm-tx-fixtures`、`--evm-execution-fixtures`、`--evm-web3-conformance-evidence` 的拼写也保持不变。
 - 运维上只需要回答一个简单问题：这次更新是否在保持 Ethereum-style execution 的同时，仍然符合 Vexo consensus 和 release safety？
 
+- Keep `go test -race ./rpc -count=1` in the verification matrix to catch managed nonce allocation and pending-state races.
+
+## 已挖掘对象兼容性
+
+Remix 和 ethers 在 receipt 成功后仍会重新解析交易和区块。已挖掘交易的 `gas` 必须保留提交时的 gas limit，实际消耗写入 receipt 的 `gasUsed`。还必须返回适用的 `v`、`r`、`s`、`yParity` 以及非空 `blockHash`、`blockNumber`、`transactionIndex`。
+
+Receipt 必须包含 `transactionHash`、`transactionIndex`、`blockHash`、`blockNumber`、`from`、`to`、`contractAddress`、`status`、`gasUsed`、`cumulativeGasUsed`、`type`、`logs`，每条 log 还应包含 `logIndex` 和 `removed` 等位置信息。`eth_getBlockByNumber` 查询 genesis `0x0` 时必须返回 zero parent hash 而非 null；`eth_getTransactionByHash`、`eth_getTransactionReceipt`、`eth_getBlockByNumber` 的位置必须一致。只有 `status = 0x1` 不能证明兼容。
+
+## Proxy 与升级复验
+
+使用同一账户和 endpoint 依次部署 implementation V1、带初始化 calldata 的 proxy、读取 proxy 状态、部署 implementation V2、执行授权 UUPS upgrade 并确认 storage 保留。记录每个 transaction hash、block hash、contract address、nonce、status、gas limit 和 gas used。应区分钱包取消与已提交交易失败；出现 `invalid transaction nonce` 时同时检查 pending nonce 分配和 mempool 状态。
+
 <!-- vexo-docs:technical-parity -->

@@ -27,6 +27,37 @@ const (
 	transportTestWaitAttempts = 300000
 )
 
+func TestNodeCoalescesConsensusBroadcastRetries(t *testing.T) {
+	node := &Node{}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var startedOnce sync.Once
+	var callMu sync.Mutex
+	calls := 0
+	broadcast := func(context.Context) error {
+		callMu.Lock()
+		calls++
+		callMu.Unlock()
+		startedOnce.Do(func() { close(started) })
+		<-release
+		return nil
+	}
+	fields := map[string]any{"height": types.Height(1), "round": types.Round(0)}
+	node.broadcastConsensusAsync("vote_broadcast_failed", fields, broadcast)
+	<-started
+	for attempt := 0; attempt < 100; attempt++ {
+		node.broadcastConsensusAsync("vote_broadcast_failed", fields, broadcast)
+	}
+	runtime.Gosched()
+	callMu.Lock()
+	got := calls
+	callMu.Unlock()
+	close(release)
+	if got != 1 {
+		t.Fatalf("expected one in-flight broadcast, got %d", got)
+	}
+}
+
 func TestNodeTransportReactorRoutesProposalBetweenNodes(t *testing.T) {
 	alice, bob := newTransportNodes(t)
 	startNode(t, alice)
@@ -430,7 +461,7 @@ func TestNodeTickConsensusDoesNotReproposeSameRound(t *testing.T) {
 	}
 }
 
-func TestNodeTickConsensusSuppressesReproposalAfterLocalVoteFailure(t *testing.T) {
+func TestNodeTickConsensusSuppressesProposalAfterRecordedLocalVote(t *testing.T) {
 	alice, bob, carol := newConsensusLoopNodes(t)
 	startNode(t, alice)
 	defer alice.Stop(context.Background())
@@ -455,11 +486,14 @@ func TestNodeTickConsensusSuppressesReproposalAfterLocalVoteFailure(t *testing.T
 		t.Fatal(err)
 	}
 
-	_, _, _, err := alice.TickConsensus(context.Background(), 1024)
-	if !errors.Is(err, consensus.ErrDoubleSignDetected) {
-		t.Fatalf("expected local vote failure from WAL guard, got %v", err)
-	}
 	_, _, proposed, err := alice.TickConsensus(context.Background(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposed {
+		t.Fatal("expected proposal suppressed by recorded local vote")
+	}
+	_, _, proposed, err = alice.TickConsensus(context.Background(), 1024)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -607,6 +641,9 @@ func TestNodeCommitGossipSyncsPeerThatMissedProposal(t *testing.T) {
 	if !ok {
 		quorumCert = forceTestQuorumCert(t, aliceConsensus, proposal.Block.Header.Height, proposal.Round, blockHash)
 	}
+	// Proposals must be created by the scheduled proposer. For this fixture,
+	// rotate the manually constructed chain to alice's scheduled rounds.
+	aliceConsensus.StartRound(2, 2)
 	parentProposal, parentHash, err := alice.ProposeBlock(context.Background(), types.Block{
 		Header: types.Header{Height: 2},
 	})
@@ -620,6 +657,7 @@ func TestNodeCommitGossipSyncsPeerThatMissedProposal(t *testing.T) {
 	if !ok {
 		parentQC = forceTestQuorumCert(t, aliceConsensus, parentProposal.Block.Header.Height, parentProposal.Round, parentHash)
 	}
+	aliceConsensus.StartRound(3, 1)
 	childProposal, childHash, err := alice.ProposeBlock(context.Background(), types.Block{
 		Header: types.Header{Height: 3},
 	})
@@ -1370,7 +1408,7 @@ func TestNodeConsensusLoopSkipsEmptyBlocksWhenDisabled(t *testing.T) {
 	}
 	machine.StartRound(1, 0)
 
-	loopConfig := ConsensusLoopConfig{Interval: time.Millisecond, RoundTimeout: time.Hour, MaxBlockBytes: 1024, CreateEmptyBlocks: false, ExecutionCommitMode: ExecutionCommitModeQC, AllowUnsafeQCCommit: true}
+	loopConfig := ConsensusLoopConfig{Interval: time.Millisecond, RoundTimeout: 5 * time.Millisecond, MaxBlockBytes: 1024, CreateEmptyBlocks: false, ExecutionCommitMode: ExecutionCommitModeQC, AllowUnsafeQCCommit: true}
 	if err := alice.StartConsensusLoop(context.Background(), loopConfig); err != nil {
 		t.Fatal(err)
 	}
@@ -1379,6 +1417,9 @@ func TestNodeConsensusLoopSkipsEmptyBlocksWhenDisabled(t *testing.T) {
 	time.Sleep(25 * time.Millisecond)
 	if status := alice.Status(context.Background()); status.LatestHeight != 0 {
 		t.Fatalf("expected no empty block commits, got %+v", status)
+	}
+	if status := machine.Status(context.Background()); status.Height != 1 || status.Round != 0 {
+		t.Fatalf("expected idle consensus to remain at height 1 round 0, got %+v", status)
 	}
 	if err := alice.SubmitTx(context.Background(), []byte("bank:tx-only-block")); err != nil {
 		t.Fatal(err)
@@ -1461,6 +1502,170 @@ func TestNodeStepFinalizedModeProgressesTxWithEmptyBlocksDisabled(t *testing.T) 
 	}
 }
 
+func TestNodeStepAdvancesCertifiedHeightForNewTransaction(t *testing.T) {
+	bus := transport.NewInMemoryBus()
+	genesis := Genesis{
+		ChainID: "vexo-test",
+		Validators: []validator.Validator{
+			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("alice")},
+		},
+		Governance: map[types.Address]types.VotingPower{"alice": 1},
+	}
+	alice := newConsensusLoopNode(t, bus, genesis, "alice")
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+
+	machine, err := alice.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(1, 0)
+	if _, _, err := alice.ProposeBlock(context.Background(), types.Block{Header: types.Header{Height: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	if highQC := machine.HighQC(context.Background()); highQC.Height != 1 {
+		t.Fatalf("expected certified height 1, got %+v", highQC)
+	}
+	if err := alice.SubmitTx(context.Background(), []byte("bank:advance-certified-height")); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := alice.StepConsensusWithConfig(context.Background(), ConsensusLoopConfig{
+		MaxBlockBytes:       1024,
+		CreateEmptyBlocks:   false,
+		ExecutionCommitMode: ExecutionCommitModeFinalized,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Proposed || result.Proposal.Block.Header.Height != 2 || len(result.Proposal.Block.Txs) != 1 {
+		t.Fatalf("expected transaction proposal at certified height + 1, got %+v", result)
+	}
+}
+
+func TestNodeStepFinalizedModeProgressesSequentialTransactions(t *testing.T) {
+	bus := transport.NewInMemoryBus()
+	genesis := Genesis{
+		ChainID: "vexo-test",
+		Validators: []validator.Validator{
+			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("alice")},
+		},
+		Governance: map[types.Address]types.VotingPower{"alice": 1},
+	}
+	alice := newConsensusLoopNode(t, bus, genesis, "alice")
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+
+	machine, err := alice.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(1, 0)
+	loopConfig := ConsensusLoopConfig{Interval: time.Millisecond, RoundTimeout: time.Hour, MaxBlockBytes: 1024, CreateEmptyBlocks: false, ExecutionCommitMode: ExecutionCommitModeFinalized}
+	driveUntilMempoolEmpty := func(tx types.Tx) {
+		t.Helper()
+		if err := alice.SubmitTx(context.Background(), tx); err != nil {
+			t.Fatal(err)
+		}
+		for step := 0; step < 24; step++ {
+			pending, err := alice.PendingTxs(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(pending) == 0 {
+				return
+			}
+			if _, err := alice.StepConsensusWithConfig(context.Background(), loopConfig); err != nil {
+				t.Fatalf("step %d failed: %v", step, err)
+			}
+		}
+		proposalHeights := make([]types.Height, 0, len(alice.pendingProposals()))
+		for _, proposal := range alice.pendingProposals() {
+			proposalHeights = append(proposalHeights, proposal.Block.Header.Height)
+		}
+		pending, _ := alice.PendingTxs(context.Background())
+		t.Fatalf("transaction did not commit: tx=%q app=%+v machine=%+v high_qc=%+v decisions=%+v pending_txs=%q pending_proposal_heights=%v", tx, alice.Status(context.Background()), machine.Status(context.Background()), machine.HighQC(context.Background()), machine.CommitDecisions(), pending, proposalHeights)
+	}
+
+	driveUntilMempoolEmpty(types.Tx("bank:finalized-sequential-one"))
+	driveUntilMempoolEmpty(types.Tx("bank:finalized-sequential-two"))
+	if status := alice.Status(context.Background()); status.LatestHeight < 4 {
+		t.Fatalf("expected certification blocks and both transaction blocks to execute, got %+v", status)
+	}
+}
+
+func TestNodeDoesNotReexecuteLateFinalizedProposal(t *testing.T) {
+	bus := transport.NewInMemoryBus()
+	genesis := Genesis{
+		ChainID: "vexo-test",
+		Validators: []validator.Validator{
+			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("alice")},
+		},
+		Governance: map[types.Address]types.VotingPower{"alice": 1},
+	}
+	alice := newConsensusLoopNode(t, bus, genesis, "alice")
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+
+	machine, err := alice.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(1, 0)
+	if err := alice.SubmitTx(context.Background(), []byte("bank:late-finalized-proposal")); err != nil {
+		t.Fatal(err)
+	}
+
+	loopConfig := ConsensusLoopConfig{Interval: time.Millisecond, RoundTimeout: time.Hour, MaxBlockBytes: 1024, CreateEmptyBlocks: false, ExecutionCommitMode: ExecutionCommitModeFinalized}
+	var transactionProposal consensus.Proposal
+	var committed CommitReadyResult
+	for step := 0; step < 24; step++ {
+		result, err := alice.StepConsensusWithConfig(context.Background(), loopConfig)
+		if err != nil {
+			t.Fatalf("step %d failed: %v", step, err)
+		}
+		if result.Proposed && len(result.Proposal.Block.Txs) > 0 {
+			transactionProposal = result.Proposal
+		}
+		if result.Committed {
+			committed = result.Commit
+			break
+		}
+	}
+	if transactionProposal.Block.Header.Height != 1 || committed.Block.Header.Height != 1 {
+		t.Fatalf("expected height-1 transaction proposal and commit, proposal=%+v commit=%+v", transactionProposal.Block.Header, committed.Block.Header)
+	}
+	if _, err := alice.CommitBlock(context.Background(), committed.Block, committed.QuorumCert); !errors.Is(err, ErrBlockAlreadyCommitted) {
+		t.Fatalf("expected duplicate commit rejection, got %v", err)
+	}
+
+	lateReceiver := &autoVoteReactor{
+		machine:            machine,
+		chainID:            "vexo-test",
+		validatorID:        "alice",
+		signer:             deterministicSignerForID("alice"),
+		onProposalAccepted: alice.cacheProposal,
+	}
+	if err := lateReceiver.OnProposal(context.Background(), transactionProposal); err != nil {
+		t.Fatalf("late finalized proposal handling failed: %v", err)
+	}
+	transactionHash := consensus.HashBlock(transactionProposal.Block)
+	if _, found := alice.pendingProposals()[transactionHash]; found {
+		t.Fatal("late finalized proposal was cached for execution again")
+	}
+
+	// Simulate a legacy pending entry that survived a restart or raced with a commit.
+	alice.mu.Lock()
+	alice.pending[transactionHash] = transactionProposal
+	alice.mu.Unlock()
+	if _, committedAgain, err := alice.CommitFinalizedBlock(context.Background()); err != nil || committedAgain {
+		t.Fatalf("already executed finality decision was reconsidered: committed=%t err=%v", committedAgain, err)
+	}
+	if _, found := alice.pendingProposals()[transactionHash]; found {
+		t.Fatal("already committed pending proposal was not pruned")
+	}
+}
+
 func TestNodeSkippedProposerRecoversOnNextRound(t *testing.T) {
 	alice, bob, carol := newConsensusLoopNodes(t)
 	startNode(t, alice)
@@ -1507,61 +1712,19 @@ func TestNodeSkippedProposerRecoversOnNextRound(t *testing.T) {
 	}
 }
 
-func TestNodeRecoversDesyncedRoundWhenMempoolHasTx(t *testing.T) {
+func TestNodeDoesNotSkipRoundsWithoutTimeoutCertificate(t *testing.T) {
 	_, bob, _ := newConsensusLoopNodes(t)
 	startNode(t, bob)
 	defer bob.Stop(context.Background())
 
-	if err := bob.SubmitTx(context.Background(), []byte("bank:recover-desynced-round")); err != nil {
+	if err := bob.SubmitTx(context.Background(), []byte("bank:no-uncertified-round-skip")); err != nil {
 		t.Fatal(err)
 	}
 	machine, err := bob.Consensus()
 	if err != nil {
 		t.Fatal(err)
 	}
-	machine.StartRound(1, 2)
-
-	proposal, blockHash, proposed, err := bob.TickConsensusWithConfig(context.Background(), ConsensusLoopConfig{
-		MaxBlockBytes:       1024,
-		CreateEmptyBlocks:   false,
-		ExecutionCommitMode: ExecutionCommitModeFinalized,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if proposed || blockHash != (types.Hash{}) {
-		t.Fatalf("expected bob not to jump before a full proposer rotation, proposed=%v proposal=%+v hash=%x", proposed, proposal, blockHash)
-	}
-
 	machine.StartRound(1, 3)
-	proposal, blockHash, proposed, err = bob.TickConsensusWithConfig(context.Background(), ConsensusLoopConfig{
-		MaxBlockBytes:       1024,
-		CreateEmptyBlocks:   false,
-		ExecutionCommitMode: ExecutionCommitModeFinalized,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !proposed || proposal.Proposer != "bob" || proposal.Round != 4 || blockHash == (types.Hash{}) {
-		t.Fatalf("expected bob to recover after a full proposer rotation, proposed=%v proposal=%+v hash=%x", proposed, proposal, blockHash)
-	}
-}
-
-func TestNodeSkipsProposerRecoveryWhenQuorumHealthIsLow(t *testing.T) {
-	alice, bob, _ := newConsensusLoopNodes(t)
-	startNode(t, alice)
-	defer alice.Stop(context.Background())
-	startNode(t, bob)
-	defer bob.Stop(context.Background())
-
-	if err := bob.SubmitTx(context.Background(), []byte("bank:quorum-health-backoff")); err != nil {
-		t.Fatal(err)
-	}
-	machine, err := bob.Consensus()
-	if err != nil {
-		t.Fatal(err)
-	}
-	machine.StartRound(1, 2)
 
 	proposal, blockHash, proposed, err := bob.TickConsensusWithConfig(context.Background(), ConsensusLoopConfig{
 		MaxBlockBytes:       1024,
@@ -1572,7 +1735,10 @@ func TestNodeSkipsProposerRecoveryWhenQuorumHealthIsLow(t *testing.T) {
 		t.Fatal(err)
 	}
 	if proposed || blockHash != (types.Hash{}) {
-		t.Fatalf("expected quorum-health backoff to prevent proposer jump, proposed=%v proposal=%+v hash=%x", proposed, proposal, blockHash)
+		t.Fatalf("expected bob not to skip to its proposer round, proposed=%v proposal=%+v hash=%x", proposed, proposal, blockHash)
+	}
+	if status := machine.Status(context.Background()); status.Height != 1 || status.Round != 3 {
+		t.Fatalf("expected round to remain unchanged without a timeout certificate, got %+v", status)
 	}
 }
 

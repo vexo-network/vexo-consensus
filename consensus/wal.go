@@ -133,6 +133,35 @@ func (wal *WAL) RecordVote(vote Vote) error {
 	})
 }
 
+// RecordedVote returns the block previously selected by a validator for a
+// height and round. Callers use it to restore the local anti-double-sign
+// decision before signing again after a restart.
+func (wal *WAL) RecordedVote(validatorID types.ValidatorID, height types.Height, round types.Round) (types.Hash, bool, error) {
+	wal.mu.Lock()
+	defer wal.mu.Unlock()
+	if err := wal.ensureOpen(); err != nil {
+		return types.Hash{}, false, err
+	}
+	votes := wal.votes[validatorID]
+	if votes == nil {
+		return types.Hash{}, false, nil
+	}
+	encoded, ok := votes[voteKey{Height: height, Round: round}]
+	if !ok {
+		return types.Hash{}, false, nil
+	}
+	decoded, err := hex.DecodeString(encoded)
+	if err != nil {
+		return types.Hash{}, false, fmt.Errorf("decode recorded vote hash: %w", err)
+	}
+	var blockHash types.Hash
+	if len(decoded) != len(blockHash) {
+		return types.Hash{}, false, fmt.Errorf("decode recorded vote hash: expected %d bytes, got %d", len(blockHash), len(decoded))
+	}
+	copy(blockHash[:], decoded)
+	return blockHash, true, nil
+}
+
 func (wal *WAL) RecordTimeoutVote(vote TimeoutVote) error {
 	wal.mu.Lock()
 	defer wal.mu.Unlock()

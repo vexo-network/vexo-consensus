@@ -27,6 +27,7 @@ import (
 	ibckeeper "github.com/vexo-network/vexo-consensus/ibc"
 	gethbackend "github.com/vexo-network/vexo-consensus/modules/evm/backend/geth"
 	"github.com/vexo-network/vexo-consensus/modules/evm/ethcompat"
+	vexonode "github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/ops"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	"github.com/vexo-network/vexo-consensus/queryproof"
@@ -36,6 +37,92 @@ import (
 )
 
 var commandReleaseTestPrivateKey = ed25519.NewKeyFromSeed(bytes.Repeat([]byte{9}, ed25519.SeedSize))
+
+func TestP2PPeerReadinessRequiresActiveSessions(t *testing.T) {
+	if hasRequiredActivePeers(0, 3) || hasRequiredActivePeers(2, 3) {
+		t.Fatal("configured peers must not satisfy active peer readiness")
+	}
+	if !hasRequiredActivePeers(3, 3) || !hasRequiredActivePeers(0, 0) {
+		t.Fatal("expected active peer target to satisfy readiness")
+	}
+}
+
+func TestBuiltRuntimeNodesEstablishConfiguredPeerSessions(t *testing.T) {
+	const validatorCount = 4
+	p2pBasePort, rpcBasePort := reserveNetworkE2EPorts(t)
+	home := t.TempDir()
+	_, err := writeNetworkFilesWithOptionsAndKeyType(home, "vexo-test", validatorCount, true, networkAddressOptions{
+		P2PBasePort:     p2pBasePort,
+		RPCBasePort:     rpcBasePort,
+		P2PPortStep:     10,
+		RPCPortStep:     10,
+		P2PHostTemplate: "127.0.0.1",
+		RPCHostTemplate: "127.0.0.1",
+	}, vexocrypto.KeyTypeBLS, false, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	nodes := make([]*vexonode.Node, 0, validatorCount)
+	wires := make([]*transport.GRPCTransport, 0, validatorCount)
+	eventLogs := make([][]transport.PeerEvent, validatorCount)
+	var eventMu sync.Mutex
+	for index := 1; index <= validatorCount; index++ {
+		nodeHome := filepath.Join(home, networkValidatorID(index))
+		inputs, err := loadStartInputs(nodeHome, "", "", "", nil, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		runtimeConfig, err := loadStartRuntimeConfig(nodeHome, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		node, wire, err := buildRuntimeNode(inputs, runtimeConfig)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wireIndex := index - 1
+		wire.SetPeerEventHook(func(event transport.PeerEvent) {
+			eventMu.Lock()
+			eventLogs[wireIndex] = append(eventLogs[wireIndex], event)
+			eventMu.Unlock()
+		})
+		nodes = append(nodes, node)
+		wires = append(wires, wire)
+	}
+	for _, node := range nodes {
+		if err := node.Start(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		node := node
+		t.Cleanup(func() { _ = node.Stop(context.Background()) })
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		ready := true
+		for _, wire := range wires {
+			if len(wire.ActivePeerIDs()) != validatorCount-1 {
+				ready = false
+				break
+			}
+		}
+		if ready {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	for index, wire := range wires {
+		t.Logf("validator-%d configured=%v active=%v", index+1, wire.ConfiguredPeerIDs(), wire.ActivePeerIDs())
+		eventMu.Lock()
+		events := append([]transport.PeerEvent(nil), eventLogs[index]...)
+		eventMu.Unlock()
+		for _, event := range events {
+			t.Logf("validator-%d event=%s peer=%s direction=%s reason=%s", index+1, event.Type, event.PeerID, event.Direction, event.Reason)
+		}
+	}
+	t.Fatal("runtime nodes did not establish the configured full mesh")
+}
 
 func TestRunCommandHelpAndVersion(t *testing.T) {
 	for _, args := range [][]string{{"help"}, {"--help"}, {"-h"}} {
@@ -1119,6 +1206,28 @@ func TestRunReleaseDocsQuality(t *testing.T) {
 	}
 	if !document.OK || document.LocaleCount < 2 || document.DocumentCount == 0 {
 		t.Fatalf("expected docs quality gate to pass: %+v", document)
+	}
+}
+
+func TestReleasePlaceholderTermDistinguishesTODOFromLocalizedWords(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "explicit TODO marker", body: "TODO: translate this paragraph", want: "TODO"},
+		{name: "uppercase TBD marker", body: "TBD before publication", want: "tbd"},
+		{name: "provider error", body: "QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS", want: "query length limit exceeded"},
+		{name: "Spanish accented word", body: "## Metodo\n\nEl metodo es reproducible.", want: ""},
+		{name: "Spanish accented word with accent", body: "## Metodo\n\nEl Metodo y el M\u00e9todo son reproducibles.", want: ""},
+		{name: "Portuguese natural word", body: "Todos os validadores devem concordar.", want: ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := releasePlaceholderTerm(test.body); got != test.want {
+				t.Fatalf("releasePlaceholderTerm(%q) = %q, want %q", test.body, got, test.want)
+			}
+		})
 	}
 }
 

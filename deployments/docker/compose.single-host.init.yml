@@ -20,5 +20,9 @@ services:
       - --encrypt-keys
       - --overwrite
     volumes:
-      - ./vexo-single-data:/var/lib/vexo
+      - vexo-single-data:/var/lib/vexo
       - ./topology.single-host.json:/etc/vexo/topology.json:ro
+
+volumes:
+  vexo-single-data:
+    name: ${VEXO_SINGLE_DATA_VOLUME:-vexo-single-data}

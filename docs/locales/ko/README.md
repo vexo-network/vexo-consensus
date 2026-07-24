@@ -18,7 +18,7 @@
 시간이 많지 않다면 아래 순서로 읽으면 됩니다.
 
 1. [`Node Initialization`](./operators/node-initialization.md) — 노드 홈을 만들고, 분리된 config 파일을 편집하고, validator 노드나 archive 노드를 시작하는 방법을 봅니다.
-2. [`Docker Deployment`](../deployments/docker/README.md) — 단일 호스트 4노드 배포를 실행하거나 멀티 호스트 네트워크를 준비합니다.
+2. [`Docker Deployment`](../../../deployments/docker/README.md) — 단일 호스트 4노드 배포를 실행하거나 멀티 호스트 네트워크를 준비합니다.
 3. [`Observability Guide`](./operators/observability.md) — 노드가 살아 있지만 비정상일 때 가장 먼저 봐야 할 신호를 확인합니다.
 4. [`RPC API Versioning`](./sdk/rpc-api-versioning.md) — 지갑, Remix, Web3 도구를 Vexo RPC/Web3 엔드포인트에 연결하는 규칙을 확인합니다.
 
@@ -114,20 +114,20 @@
 
 | 문서 | 목적 |
 |---|---|
-| [Documentation Locales](./locales/README.md) | locale 디렉터리 맵과 번역 정책 |
-| [English Canonical Docs](./locales/en/README.md) | 규범적 영어 문서 트리 |
-| [Korean Docs](./locales/ko/README.md) | 한국어 locale 트리 |
-| [Chinese Docs](./locales/zh/README.md) | 중국어 locale 트리 |
-| [Japanese Docs](./locales/ja/README.md) | 일본어 locale 트리 |
-| [French Docs](./locales/fr/README.md) | 프랑스어 locale 트리 |
-| [German Docs](./locales/de/README.md) | 독일어 locale 트리 |
-| [Spanish Docs](./locales/es/README.md) | 스페인어 locale 트리 |
-| [Portuguese Docs](./locales/pt/README.md) | 포르투갈어 locale 트리 |
-| [Russian Docs](./locales/ru/README.md) | 러시아어 locale 트리 |
-| [Arabic Docs](./locales/ar/README.md) | 아랍어 locale 트리 |
-| [Hindi Docs](./locales/hi/README.md) | 힌디어 locale 트리 |
-| [Indonesian Docs](./locales/id/README.md) | 인도네시아어 locale 트리 |
-| [Vietnamese Docs](./locales/vi/README.md) | 베트남어 locale 트리 |
+| [Documentation Locales](../README.md) | locale 디렉터리 맵과 번역 정책 |
+| [English Canonical Docs](../en/README.md) | 규범적 영어 문서 트리 |
+| [Korean Docs](./README.md) | 한국어 locale 트리 |
+| [Chinese Docs](../zh/README.md) | 중국어 locale 트리 |
+| [Japanese Docs](../ja/README.md) | 일본어 locale 트리 |
+| [French Docs](../fr/README.md) | 프랑스어 locale 트리 |
+| [German Docs](../de/README.md) | 독일어 locale 트리 |
+| [Spanish Docs](../es/README.md) | 스페인어 locale 트리 |
+| [Portuguese Docs](../pt/README.md) | 포르투갈어 locale 트리 |
+| [Russian Docs](../ru/README.md) | 러시아어 locale 트리 |
+| [Arabic Docs](../ar/README.md) | 아랍어 locale 트리 |
+| [Hindi Docs](../hi/README.md) | 힌디어 locale 트리 |
+| [Indonesian Docs](../id/README.md) | 인도네시아어 locale 트리 |
+| [Vietnamese Docs](../vi/README.md) | 베트남어 locale 트리 |
 
 ## 새 문서 작성
 
@@ -171,6 +171,12 @@
 - 명령어, RPC 이름, config key, JSON field, package name은 그대로 유지합니다.
 - `make docs-check`를 실행합니다.
 - 명령어 예제, config schema, generated artifact가 바뀌었다면 더 넓은 프로젝트 검증도 실행합니다.
+
+## 연구 및 논문 작성
+
+논문을 준비할 때는 [`Adaptive Recovery-Gated HotStuff Research Draft`](./research/adaptive-recovery-hotstuff-paper.md)부터 읽으세요. 이 문서는 구현된 적응형 라운드 타임아웃, 복구 최종성 게이트, 결정적 트랜잭션 순서를 선행 연구와 구분하고, 연구 질문, 가설, 실험 절차, 재현성 산출물, 연구 윤리를 한곳에 정리합니다. 측정하지 않은 성능을 결과처럼 주장하지 않으며 PoS, BFT, HotStuff 자체를 새 기여로 주장하지 않습니다.
+
+언어별 탐색에서 사용하는 정본 문서명은 `Node Initialization`, `Docker Deployment`, `Observability Guide`, `RPC API Versioning`, `Production Readiness`, `Release Pipeline`, `Adaptive Recovery-Gated HotStuff Research Draft`입니다.
 
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록

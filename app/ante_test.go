@@ -228,6 +228,16 @@ func TestAnteKeeperReportsDetailedNonceMismatch(t *testing.T) {
 	}
 }
 
+func TestParseInvalidNonceLog(t *testing.T) {
+	nonce, expected, ok := ParseInvalidNonceLog("invalid transaction nonce: signer=alice nonce=7 expected=6")
+	if !ok || nonce != 7 || expected != 6 {
+		t.Fatalf("unexpected parsed nonce mismatch: nonce=%d expected=%d ok=%t", nonce, expected, ok)
+	}
+	if _, _, ok := ParseInvalidNonceLog("invalid transaction gas"); ok {
+		t.Fatal("non-nonce error was parsed as a nonce mismatch")
+	}
+}
+
 func keeperAccountSequenceForTest(storage StateStore, signer string, sequence uint64) error {
 	var encoded [8]byte
 	binary.BigEndian.PutUint64(encoded[:], sequence)

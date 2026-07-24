@@ -1769,7 +1769,16 @@ func hasLegacyMempoolConfig(document mempoolConfigDocument) bool {
 	if document.SchemaVersion == "" {
 		return false
 	}
-	return document.Mempool != (mempool.FIFOConfig{})
+	return document.Mempool.Author != "" ||
+		document.Mempool.MaxTxBytes != 0 ||
+		document.Mempool.MaxTxs != 0 ||
+		document.Mempool.AllowDuplicate ||
+		document.Mempool.SeenTTL != 0 ||
+		document.Mempool.MinFee != 0 ||
+		document.Mempool.EnablePriority ||
+		document.Mempool.WALPath != "" ||
+		document.Mempool.EnableReplacement ||
+		document.Mempool.ReplacementBumpBPS != 0
 }
 
 func hasLegacyLogConfig(document logConfigDocument) bool {
@@ -1910,6 +1919,10 @@ func defaultModuleConfigDocumentWithWeb3(chainID string, web3DevAccounts bool) m
 	applyDefaultNetworkSafetyModuleConfig(&cfg)
 	if web3DevAccounts {
 		cfg.Application.Modules = appendModuleIfMissing(cfg.Application.Modules, "evm")
+		// Local Web3 networks must accept bytecode emitted by current Remix and
+		// Solidity releases. Production networks keep the explicit London default
+		// and should schedule fork changes through normal governance.
+		cfg.Execution.EVMForkPreset = "latest"
 	}
 	return moduleConfigFromConfig(cfg)
 }

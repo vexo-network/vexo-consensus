@@ -1,12 +1,12 @@
 > Locale: vi · Tiếng Việt
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+# Tài liệu
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Thư mục này là hướng dẫn thực hành cho `vexo-consensus`. Nội dung dành cho developer, operator, người phụ trách release và reviewer cần hiểu mạng mà không suy đoán hành vi chỉ từ source code.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Mỗi trang phải giải thích trách nhiệm của component, file, command, config key và API triển khai nó, điều kiện an toàn và bằng chứng cần có trước mạng thực. Tiếng Anh vẫn là nguồn chuẩn tắc cho protocol, security, release, SDK, command, config và RPC; bản dịch hỗ trợ đọc nhưng không thay thế nguồn tiếng Anh trong quyết định audit.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Để bắt đầu, chạy các command bên dưới rồi đọc `Node Initialization`, `Docker Deployment`, `Observability Guide` và `RPC API Versioning`.
 
 | Nhiệm vụ | Đường dẫn lệnh |
 |---|---|
@@ -38,21 +38,27 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 ## Thông số kỹ thuật của giao thức
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+- [Consensus Spec](./specs/consensus-spec.md), [Finality Proof Format](./specs/finality-proof-format.md) và [Validator Lifecycle](./specs/validator-lifecycle.md) mô tả an toàn, finality và thay đổi validator set.
+- [Networking Spec](./specs/networking-spec.md), [Storage Schema](./specs/storage-schema.md) và [Transaction Format](./specs/tx-format.md) bao phủ transport, durable recovery và transaction admission.
+- [EVM and Native Accounting](./specs/evm-native-accounting.md) xác định ranh giới accounting native và EVM.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## SDK và mở rộng
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+[App Module Guide](./sdk/app-module-guide.md), [Custom Crypto Backend](./sdk/custom-crypto-backend.md), [Custom Storage and Transport](./sdk/custom-storage-transport.md) và `RPC API Versioning` giải thích cách mở rộng runtime mà không phá vỡ hợp đồng consensus hay RPC.
 
-| [Ma trận tương thích phiên bản](./release/version-compatibility.md) | Các kỳ vọng về khả năng tương thích trên các định dạng nhị phân, cấu hình, cửa hàng, ứng dụng, RPC và bằng chứng |
+## Vận hành, release và bảo mật
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+`Node Initialization`, [Adding a Validator](./operators/add-validator.md), `Observability Guide`, [Sổ tay ra mắt](./release/launch-runbook.md), `Release Pipeline` và [Version Compatibility Matrix](./release/version-compatibility.md) tạo thành lộ trình operator. [Security Audit Readiness](./security/audit-readiness.md) ghi lại threat model và bằng chứng bắt buộc.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## Quy tắc trưởng thành
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Chỉ có code không chứng minh sẵn sàng production. Cần unit, adversarial và E2E test, artefact vận hành, giả định, failure mode và kết quả release gate. Command, phương thức RPC và config key giữ nguyên trong mọi bản dịch.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## Nghiên cứu và công bố
+
+Khi chuẩn bị bài báo, hãy bắt đầu với [`Adaptive Recovery-Gated HotStuff Research Draft`](./research/adaptive-recovery-hotstuff-paper.md). Tài liệu phân biệt các cơ chế đã thực sự được triển khai, gồm timeout vòng thích ứng, cổng finality khi phục hồi và thứ tự giao dịch tất định, với các công trình trước đó. Tài liệu tập hợp câu hỏi nghiên cứu, giả thuyết, quy trình thực nghiệm, hiện vật tái lập và nguyên tắc đạo đức nghiên cứu. Hiệu năng chưa được đo không được trình bày như kết quả, và PoS, BFT hay HotStuff không được tuyên bố là đóng góp mới.
+
+Các tên tài liệu chuẩn được giữ nguyên để điều hướng xuyên ngôn ngữ gồm `Node Initialization`, `Docker Deployment`, `Observability Guide`, `RPC API Versioning`, `Production Readiness`, `Release Pipeline` và `Adaptive Recovery-Gated HotStuff Research Draft`.
 
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật

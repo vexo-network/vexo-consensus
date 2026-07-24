@@ -83,6 +83,10 @@ A nova interface RPC capability discovery mostra quais funções provider estão
 
 Mantenha estes nomes de interface inalterados: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
 
+## Contrato dos objetos EVM minerados
+
+Numa transação minerada, `gas` preserva o limite enviado e o consumo real aparece em `gasUsed` no receipt. A resposta expõe os campos aplicáveis `v`, `r`, `s`, `yParity`, localização de bloco não nula e índices de bloco, transação e log em cada receipt log. ethers e Remix analisam esses objetos após o sucesso do receipt; portanto, eles fazem parte do contrato de compatibilidade. `eth_getBlockByNumber` suporta genesis `0x0` e usa zero hash para o parent em vez de `null` malformado.
+
 <!-- vexo-docs:technical-parity -->
 - `admin_token` and `admin_tokens` are stable configuration keys and must remain unchanged when describing optional bearer-token enforcement.
 

@@ -215,6 +215,17 @@ func newWithStoreAndCryptoRegistry(ctx context.Context, cfg config.Config, appli
 	if fifoConfig.Author == "" && len(initialValidators) > 0 {
 		fifoConfig.Author = initialValidators[0].ID
 	}
+	if storage != nil {
+		if appRuntime, ok := application.(*app.Runtime); ok {
+			appRuntime.WithStore(storage)
+		}
+		fifoConfig.ReplayCheckTx = func(ctx context.Context, tx types.Tx) error {
+			if checker, ok := application.(app.ContextCheckTxApplication); ok {
+				return mempoolReplayCheckResult(checker.CheckTxContext(ctx, tx))
+			}
+			return mempoolReplayCheckResult(application.CheckTx(tx))
+		}
+	}
 	dag := mempool.NewDAG(mempool.NewFIFO(fifoConfig))
 	if fifoConfig.WALPath != "" {
 		durableDAG, err := mempool.OpenDurableDAG(ctx, fifoConfig.WALPath, mempool.NewFIFO(fifoConfig))
@@ -224,8 +235,21 @@ func newWithStoreAndCryptoRegistry(ctx context.Context, cfg config.Config, appli
 		dag = durableDAG
 	}
 	if storage != nil {
-		if appRuntime, ok := application.(*app.Runtime); ok {
-			appRuntime.WithStore(storage)
+		removed, err := dag.RetainTxs(ctx, func(tx types.Tx) bool {
+			if checker, ok := application.(app.ContextCheckTxApplication); ok {
+				err := mempoolReplayCheckResult(checker.CheckTxContext(ctx, tx))
+				return err == nil || errors.Is(err, mempool.ErrTxNotReady)
+			}
+			err := mempoolReplayCheckResult(application.CheckTx(tx))
+			return err == nil || errors.Is(err, mempool.ErrTxNotReady)
+		})
+		if err != nil {
+			return nil, err
+		}
+		if removed > 0 {
+			if err := dag.CompactWAL(ctx); err != nil {
+				return nil, err
+			}
 		}
 	}
 	slashingKeeper := consensus.SlashingKeeper(slashing.NewInMemoryKeeper(nil))
@@ -260,6 +284,16 @@ func newWithStoreAndCryptoRegistry(ctx context.Context, cfg config.Config, appli
 		currentBaseFee:     cfg.Execution.BaseFee,
 		currentBlobBaseFee: cfg.Execution.BlobBaseFee,
 	}, nil
+}
+
+func mempoolReplayCheckResult(response app.CheckTxResponse) error {
+	if response.Result.Code == 0 {
+		return nil
+	}
+	if nonce, expected, ok := app.ParseInvalidNonceLog(response.Result.Log); ok && nonce > expected {
+		return mempool.ErrTxNotReady
+	}
+	return errors.New(response.Result.Log)
 }
 
 func (runtime *Runtime) WithUpgrade(plan upgrade.Plan, state upgrade.State, executor upgrade.Executor) *Runtime {
@@ -706,10 +740,11 @@ func (runtime *Runtime) NewConsensusStateMachineWithSignatures(ctx context.Conte
 		return nil, err
 	}
 	return consensus.NewStateMachine(consensus.StateMachineConfig{
-		ChainID:      runtime.Config.ChainID,
-		ValidatorSet: validatorSet,
-		Signatures:   signatures,
-		Aggregator:   runtime.Crypto.ConsensusAggregator,
+		ChainID:                  runtime.Config.ChainID,
+		ValidatorSet:             validatorSet,
+		Signatures:               signatures,
+		Aggregator:               runtime.Crypto.ConsensusAggregator,
+		EnforceProposerSelection: true,
 	})
 }
 

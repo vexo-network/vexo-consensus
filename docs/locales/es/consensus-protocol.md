@@ -1,12 +1,24 @@
 > Locale: es · Español
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+# Descripción del protocolo de consenso
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Esta página es la entrada de alto nivel a la documentación de consenso de Vexo. Los detalles normativos están en [Consensus Spec](./specs/consensus-spec.md), [Finality Proof Format](./specs/finality-proof-format.md), [Validator Lifecycle](./specs/validator-lifecycle.md), [Storage Schema](./specs/storage-schema.md), [Networking Spec](./specs/networking-spec.md) y [Transaction Format](./specs/tx-format.md).
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## Modelo
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Vexo usa un núcleo BFT de estilo HotStuff con proposal, vote, quorum certificate(QC), timeout certificate, seguridad locked-QC y finalidad de tres cadenas. Solo es seguro votar un bloque si extiende el locked QC o incluye un justify QC igual o más reciente. Las cadenas QC sintéticas o con saltos de altura, sin enlazar explícitamente alturas y hashes de bloque, padre y abuelo, se rechazan antes de registrar finalidad.
+
+## Identidad del protocolo y límite de investigación
+
+Vexo no es un nombre nuevo para HotStuff sin modificar ni el mismo protocolo o implementación que AptosBFT, DiemBFT, Jolteon, Ditto, Tendermint o CometBFT. Un runtime Go independiente combina conceptos de seguridad de la familia HotStuff con tiempos de ronda adaptativos, recuperación durable, orden determinista de transacciones, ejecución modular y validator sets versionados por altura.
+
+La ruta activa de votos usa el validator set completo de cada altura y proposer determinista. El selector VRF committee está disponible como componente y consulta, pero todavía no controla proposal eligibility ni quorum formation. Por ello debe documentarse como trabajo futuro. Consulte [Adaptive Recovery-Gated HotStuff for Modular Proof-of-Stake Networks](./research/adaptive-recovery-hotstuff-paper.md) para la contribución y el protocolo experimental.
+
+## Límite de ejecución y recuperación
+
+Certificación QC, finalidad HotStuff, ejecución de aplicación y commit de estado son eventos distintos. El valor predeterminado `execution_commit=finalized` ejecuta solo el ancestro elegido por la regla de tres cadenas. El pacemaker adaptativo y `recovery_finality_gate_enabled` controlan latencia y recuperación, pero no cambian proposer, quorum power, safe-vote ni finalidad.
+
+## Límite de seguridad
 
 - menos de un tercio del poder de voto bizantino
 - propuestas separadas por dominio, votación, votación de tiempo de espera y firmas de firmeza
@@ -15,9 +27,12 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 - evidencia responsable del equívoco del validador
 - rechazo de decisiones de compromiso conflictivas a la misma altura finalizada
 
-## Crypto Boundary
+## Límite criptográfico
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+- El backend `deterministic` es exclusivo de pruebas y no supera la validación network safety.
+- `ed25519` se admite para pruebas de red pública y preparación del lanzamiento.
+- `bls` usa por defecto `blst-bls12381-minpk-v1` y exige proof-of-possession, comprobación de subgrupo, validación de claves, auditoría de dependencias y evidencia release-gate.
+- La validación requiere metadatos del adaptador VRF, pero eso no significa que VRF committee esté en la ruta activa de consenso.
 
 - auditoría de configuración estricta para cada casa de validador
 - evidencia de release-gate

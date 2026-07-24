@@ -83,6 +83,10 @@
 
 Оставляйте эти имена интерфейсов без изменений: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
 
+## Контракт добытых объектов EVM
+
+В добытой транзакции `gas` сохраняет отправленный лимит, а фактический расход находится в `gasUsed` receipt. Ответ содержит применимые `v`, `r`, `s`, `yParity`, ненулевое местоположение блока, а receipt log включает индексы блока, транзакции и log. ethers и Remix повторно разбирают эти объекты после receipt, поэтому это контракт совместимости. `eth_getBlockByNumber` поддерживает genesis `0x0` и использует zero hash для parent вместо некорректного `null`.
+
 <!-- vexo-docs:technical-parity -->
 - `admin_token` and `admin_tokens` are stable configuration keys and must remain unchanged when describing optional bearer-token enforcement.
 

@@ -97,7 +97,19 @@ Este documento ayuda a entender especificación normativa de la state machine de
 
 ## Bloques vacíos y recuperación de round
 
-Con `create_empty_blocks=false`, una height estable con mempool vacío es un estado idle normal. Cuando entra una transacción, el nodo puede avanzar al siguiente local proposer round para construir un bloque con transacciones, manteniendo las reglas QC/finality.
+Con `create_empty_blocks=false`, una height estable con mempool vacío es un estado idle normal. Cuando entra una transacción, el nodo solo propone si es el proposer determinista del `(height, round)` actual; un nodo que no es proposer no salta localmente a otra round. Las rounds solo avanzan mediante un timeout certificate válido o una transición de finality certificada, y los errores de ejecución o almacenamiento no se tratan como timeout.
+
+## Timeout de ronda adaptativo
+
+Con `adaptive_round_timeout_enabled = true`, el nodo calcula el timeout usando el valor base, el p95 móvil del procesamiento proposal/vote/commit, el resultado del progreso y el déficit de peers activos. Un timeout multiplica por 1,5, el progreso reduce por 0,8 y la latencia observada aporta un margen de 3 veces, limitado entre la base y 8 veces la base. No cambia safe-vote, proposer, quorum power, QC ni three-chain finality.
+
+## Compuerta de finalidad durante recuperación
+
+Con `recovery_finality_gate_enabled = true`, si difieren las alturas durables de application state y block index, su mínimo es la safe recovery height. Los finalized application commits superiores se aplazan hasta recuperar la coherencia. El timeout actual y los aplazamientos se observan mediante `/v1/metrics` y `/metrics/text`.
+
+## Orden determinista de transacciones
+
+La proposal deriva un salt de `chain_id` y height, ordena por nonce ascendente la transaction chain de cada signer y fusiona sus cabeceras por salted transaction hash. Para el mismo candidate set elimina el orden local de llegada al mempool, pero no garantiza first-seen fairness, censorship resistance, confidentiality ni order fairness formal.
 
 <!-- vexo-docs:technical-parity -->
 ## Apéndice de paridad técnica

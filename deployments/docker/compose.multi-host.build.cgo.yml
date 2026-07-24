@@ -5,7 +5,7 @@ services:
       context: ../..
       dockerfile: Dockerfile.cgo
       args:
+        GO_VERSION: ${VEXO_GO_VERSION:-1.26.5}
         VERSION: ${VERSION:-dev}
         COMMIT: ${COMMIT:-unknown}
         BUILD_DATE: ${BUILD_DATE:-unknown}
-

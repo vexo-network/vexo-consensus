@@ -97,7 +97,19 @@
 
 ## 空ブロックと Round 回復
 
-`create_empty_blocks=false` で mempool が空なら、height が止まって見えるのは正常な idle 状態です。取引が入ると、現在 round の proposer でなくても次の local proposer round に進んで取引ブロックを作れます。ただし QC/finality ルールは変わりません。
+`create_empty_blocks=false` で mempool が空なら、height が止まって見えるのは正常な idle 状態です。取引が入っても、ノードは現在の `(height, round)` の決定的な proposer の場合だけ提案し、proposer でないノードがローカルで別の round に進むことはありません。round は有効な timeout certificate または certified finality 遷移によってのみ進み、実行・保存エラーは timeout として扱いません。
+
+## 適応型ラウンド timeout
+
+`adaptive_round_timeout_enabled = true` の場合、base timeout、proposal/vote/commit 処理時間の rolling p95、進捗結果、active peer 不足から timeout を算出します。timeout 後は 1.5 倍、成功後は 0.8 倍とし、観測処理時間の 3 倍を安全予算に加え、base から base の 8 倍に clamp します。safe-vote、proposer、quorum power、QC、three-chain finality は変更しません。
+
+## 復旧 finality gate
+
+`recovery_finality_gate_enabled = true` で永続 application state height と block index height が異なる場合、その最小値を safe recovery height とします。境界より上の finalized application commit は整合性が戻るまで延期されます。現在の timeout と recovery deferral は `/v1/metrics` と `/metrics/text` で確認できます。
+
+## 決定的 transaction ordering
+
+Proposal は `chain_id` と height から salt を作り、signer ごとの transaction chain を nonce 昇順に並べ、salted transaction hash で chain head を merge します。同じ candidate set で mempool arrival order を除きますが、first-seen fairness、censorship resistance、confidentiality、形式的 order fairness は保証しません。
 
 <!-- vexo-docs:technical-parity -->
 ## 技術的同等性付録

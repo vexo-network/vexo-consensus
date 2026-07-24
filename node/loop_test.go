@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestNormalizeConsensusLoopConfigDefaultsExecutionCommitMode(t *testing.T) {
@@ -37,5 +38,27 @@ func TestCommitReadyBlockRejectsUnsafeQCCommitAPI(t *testing.T) {
 	_, committed, err := node.CommitReadyBlock(context.Background())
 	if !errors.Is(err, ErrUnsafeQCCommit) || committed {
 		t.Fatalf("expected unsafe qc commit rejection, committed=%t err=%v", committed, err)
+	}
+}
+
+func TestConsensusLoopWakeInterruptsCommitDelay(t *testing.T) {
+	wake := make(chan struct{}, 1)
+	wake <- struct{}{}
+
+	started := time.Now()
+	if !waitConsensusLoop(context.Background(), wake, time.Hour) {
+		t.Fatal("expected wake signal to resume consensus loop")
+	}
+	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
+		t.Fatalf("wake signal did not interrupt commit delay: %s", elapsed)
+	}
+}
+
+func TestConsensusLoopDoesNotTimeoutAfterStepFailure(t *testing.T) {
+	if shouldTimeoutConsensusRound(errors.New("block execution failed"), true, false, false, time.Now().Add(-time.Hour), time.Millisecond) {
+		t.Fatal("a failed consensus step must not advance the round")
+	}
+	if !shouldTimeoutConsensusRound(nil, true, false, false, time.Now().Add(-time.Hour), time.Millisecond) {
+		t.Fatal("a healthy stalled step should still advance the round after timeout")
 	}
 }

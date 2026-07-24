@@ -29,7 +29,7 @@
 時間があまりないなら、次の順で読むと把握しやすいです。
 
 1. [`Node Initialization`](./operators/node-initialization.md) — node home の作成、分割された config ファイルの編集、validator node / archive node の起動方法。
-2. [`Docker Deployment`](../deployments/docker/README.md) — 単一ホストの 4 ノード構成を動かす方法、または multi-host ネットワークの準備方法。
+2. [`Docker Deployment`](../../../deployments/docker/README.md) — 単一ホストの 4 ノード構成を動かす方法、または multi-host ネットワークの準備方法。
 3. [`Observability Guide`](./operators/observability.md) — ノードは生きているが正常ではないときに、まず見るべき signal。
 4. [`RPC API Versioning`](./sdk/rpc-api-versioning.md) — wallet、Remix、Web3 ツールを Vexo の RPC/Web3 endpoint に接続するための規則。
 
@@ -112,20 +112,20 @@ locale file は canonical tree から逸脱してはいけません。command、
 
 | 文書 | 目的 |
 |---|---|
-| [Documentation Locales](./locales/README.md) | locale ディレクトリの対応表と翻訳ポリシー |
-| [English Canonical Docs](./locales/en/README.md) | 規範となる英語文書ツリー |
-| [Japanese Docs](./locales/ja/README.md) | 日本語 locale ツリー |
-| [Korean Docs](./locales/ko/README.md) | 韓国語 locale ツリー |
-| [Chinese Docs](./locales/zh/README.md) | 中国語 locale ツリー |
-| [French Docs](./locales/fr/README.md) | フランス語 locale ツリー |
-| [German Docs](./locales/de/README.md) | ドイツ語 locale ツリー |
-| [Spanish Docs](./locales/es/README.md) | スペイン語 locale ツリー |
-| [Portuguese Docs](./locales/pt/README.md) | ポルトガル語 locale ツリー |
-| [Russian Docs](./locales/ru/README.md) | ロシア語 locale ツリー |
-| [Arabic Docs](./locales/ar/README.md) | アラビア語 locale ツリー |
-| [Hindi Docs](./locales/hi/README.md) | ヒンディー語 locale ツリー |
-| [Indonesian Docs](./locales/id/README.md) | インドネシア語 locale ツリー |
-| [Vietnamese Docs](./locales/vi/README.md) | ベトナム語 locale ツリー |
+| [Documentation Locales](../README.md) | locale ディレクトリの対応表と翻訳ポリシー |
+| [English Canonical Docs](../en/README.md) | 規範となる英語文書ツリー |
+| [Japanese Docs](./README.md) | 日本語 locale ツリー |
+| [Korean Docs](../ko/README.md) | 韓国語 locale ツリー |
+| [Chinese Docs](../zh/README.md) | 中国語 locale ツリー |
+| [French Docs](../fr/README.md) | フランス語 locale ツリー |
+| [German Docs](../de/README.md) | ドイツ語 locale ツリー |
+| [Spanish Docs](../es/README.md) | スペイン語 locale ツリー |
+| [Portuguese Docs](../pt/README.md) | ポルトガル語 locale ツリー |
+| [Russian Docs](../ru/README.md) | ロシア語 locale ツリー |
+| [Arabic Docs](../ar/README.md) | アラビア語 locale ツリー |
+| [Hindi Docs](../hi/README.md) | ヒンディー語 locale ツリー |
+| [Indonesian Docs](../id/README.md) | インドネシア語 locale ツリー |
+| [Vietnamese Docs](../vi/README.md) | ベトナム語 locale ツリー |
 
 ## 新しい文書を書くとき
 
@@ -169,6 +169,12 @@ locale file は canonical tree から逸脱してはいけません。command、
 - command、RPC 名、config key、JSON field、package name はそのまま維持されている。
 - `make docs-check` を実行した。
 - command example、config schema、generated artifact が変わった場合は、より広い project check も実行した。
+
+## 研究と論文作成
+
+論文を準備する場合は、最初に [`Adaptive Recovery-Gated HotStuff Research Draft`](./research/adaptive-recovery-hotstuff-paper.md) を参照してください。この文書は、実装済みの適応型ラウンドタイムアウト、復旧ファイナリティゲート、決定的トランザクション順序を先行研究と区別し、研究課題、仮説、実験手順、再現可能な成果物、研究倫理をまとめています。未測定の性能を結果として扱わず、PoS、BFT、HotStuff 自体を新規貢献とは主張しません。
+
+言語間で同じ文書を識別するため、規範文書名 `Node Initialization`、`Docker Deployment`、`Observability Guide`、`RPC API Versioning`、`Production Readiness`、`Release Pipeline`、`Adaptive Recovery-Gated HotStuff Research Draft` は維持します。
 
 <!-- vexo-docs:technical-parity -->
 ## 技術的同等性付録

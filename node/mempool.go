@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"errors"
+	"sort"
 
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/consensus"
@@ -17,10 +18,7 @@ func (node *Node) SubmitTx(ctx context.Context, tx types.Tx) error {
 	if err != nil {
 		return err
 	}
-	if response := checkTxWithContext(ctx, runtime.App, tx); response.Result.Code != 0 {
-		return appCheckError(response.Result.Log)
-	}
-	if err := runtime.Mempool.AddTx(ctx, tx); err != nil {
+	if err := node.admitMempoolTx(ctx, runtime.App, runtime.Mempool, tx); err != nil {
 		return err
 	}
 	wire, ok := node.runningTransport()
@@ -64,6 +62,14 @@ func (node *Node) PendingTxs(ctx context.Context) ([]types.Tx, error) {
 		copied = append(copied, append(types.Tx(nil), tx...))
 	}
 	return copied, nil
+}
+
+func (node *Node) PendingTxSnapshot(ctx context.Context) ([]types.Tx, error) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return nil, err
+	}
+	return runtime.Mempool.SnapshotTxs(ctx)
 }
 
 func (node *Node) mempoolHasPendingTx(ctx context.Context) bool {
@@ -215,11 +221,7 @@ func (node *Node) acceptGossipTx(ctx context.Context, from p2p.PeerID, tx types.
 	if err != nil {
 		return
 	}
-	if response := checkTxWithContext(ctx, runtime.App, tx); response.Result.Code != 0 {
-		node.observePeerMessage(ctx, from, false)
-		return
-	}
-	if err := runtime.Mempool.AddTx(ctx, tx); err != nil {
+	if err := node.admitMempoolTx(ctx, runtime.App, runtime.Mempool, tx); err != nil {
 		if errors.Is(err, mempool.ErrDuplicateTx) {
 			node.observePeerMessage(ctx, from, true)
 			return
@@ -228,6 +230,56 @@ func (node *Node) acceptGossipTx(ctx context.Context, from p2p.PeerID, tx types.
 		return
 	}
 	node.observePeerMessage(ctx, from, true)
+	node.wakeConsensus(context.Background())
+}
+
+func (node *Node) admitMempoolTx(ctx context.Context, application app.Application, pool *mempool.DAG, tx types.Tx) error {
+	node.admissionMu.Lock()
+	defer node.admissionMu.Unlock()
+
+	response := checkTxWithContext(ctx, application, tx)
+	if response.Result.Code != 0 {
+		checker, ok := application.(app.ContextCheckTxsApplication)
+		if !ok {
+			return appCheckError(response.Result.Log)
+		}
+		candidateSigner, signerFound := mempool.TxSigner(tx)
+		_, nonceFound := mempool.TxNonce(tx)
+		if !signerFound || !nonceFound {
+			return appCheckError(response.Result.Log)
+		}
+		pending, err := pool.SnapshotTxs(ctx)
+		if err != nil {
+			return err
+		}
+		candidateKey, candidateHasKey := mempool.ReplacementKey(tx)
+		sequence := make([]types.Tx, 0, len(pending)+1)
+		for _, pendingTx := range pending {
+			pendingSigner, found := mempool.TxSigner(pendingTx)
+			if !found || pendingSigner != candidateSigner {
+				continue
+			}
+			if candidateHasKey {
+				if pendingKey, found := mempool.ReplacementKey(pendingTx); found && pendingKey == candidateKey {
+					continue
+				}
+			}
+			sequence = append(sequence, pendingTx)
+		}
+		sequence = append(sequence, append(types.Tx(nil), tx...))
+		sort.SliceStable(sequence, func(left, right int) bool {
+			leftNonce, leftFound := mempool.TxNonce(sequence[left])
+			rightNonce, rightFound := mempool.TxNonce(sequence[right])
+			if leftFound && rightFound && leftNonce != rightNonce {
+				return leftNonce < rightNonce
+			}
+			return left < right
+		})
+		if batchResponse := checker.CheckTxsContext(ctx, sequence); batchResponse.Result.Code != 0 {
+			return appCheckError(batchResponse.Result.Log)
+		}
+	}
+	return pool.AddTx(ctx, tx)
 }
 
 func (node *Node) runningTransport() (transport.Transport, bool) {
@@ -240,26 +292,15 @@ func (node *Node) runningTransport() (transport.Transport, bool) {
 }
 
 func (node *Node) wakeConsensus(ctx context.Context) {
-	if !node.ConsensusLoopRunning() {
+	node.mu.Lock()
+	wake := node.loopWake
+	node.mu.Unlock()
+	if wake == nil {
 		return
 	}
-	node.mu.Lock()
-	cfg := node.loopConfig
-	node.mu.Unlock()
-	for attempt := 0; attempt < 4; attempt++ {
-		result, err := node.StepConsensusWithConfig(ctx, cfg)
-		if err != nil {
-			node.logEvent("consensus_wake_failed", map[string]any{
-				"attempt": attempt,
-				"error":   err.Error(),
-			})
-			return
-		}
-		if !result.Committed && !result.Proposed {
-			return
-		}
-		if result.Committed {
-			return
-		}
+	select {
+	case <-ctx.Done():
+	case wake <- struct{}{}:
+	default:
 	}
 }

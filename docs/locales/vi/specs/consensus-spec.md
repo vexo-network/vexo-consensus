@@ -97,7 +97,19 @@ Tài liệu này giúp hiểu đặc tả chuẩn của state machine đồng th
 
 ## Empty block và phục hồi round
 
-Khi `create_empty_blocks=false`, height đứng yên lúc mempool rỗng là trạng thái idle bình thường. Khi có transaction, node có thể tiến tới local proposer round tiếp theo để tạo block giao dịch, nhưng các quy tắc QC/finality vẫn giữ nguyên.
+Khi `create_empty_blocks=false`, height đứng yên lúc mempool rỗng là trạng thái idle bình thường. Khi có transaction, node chỉ đề xuất khi là proposer xác định của `(height, round)` hiện tại; non-proposer không tự nhảy sang round khác. Round chỉ tiến qua timeout certificate hợp lệ hoặc chuyển đổi finality đã chứng nhận, và lỗi thực thi hoặc lưu trữ không được coi là timeout.
+
+## Timeout vòng thích ứng
+
+Khi `adaptive_round_timeout_enabled = true`, node tính timeout từ giá trị cơ sở, rolling p95 của xử lý proposal/vote/commit, kết quả progress và thiếu hụt peer hoạt động. Timeout tăng ngân sách 1,5 lần, progress thành công áp dụng 0,8, latency quan sát tạo biên an toàn 3 lần, rồi giới hạn giữa base và 8 lần base. Safe-vote, proposer, quorum power, QC và three-chain finality không đổi.
+
+## Cổng finality khi phục hồi
+
+Khi `recovery_finality_gate_enabled = true` và durable application state height khác block index height, giá trị nhỏ hơn là safe recovery height. Finalized application commit cao hơn bị hoãn tới khi khôi phục nhất quán. Timeout hiện tại và recovery deferral được quan sát qua `/v1/metrics` và `/metrics/text`.
+
+## Thứ tự giao dịch tất định
+
+Proposal tạo salt từ `chain_id` và height, sắp transaction chain của mỗi signer theo nonce tăng dần, rồi hợp nhất chain head bằng salted transaction hash. Với cùng candidate set, quy tắc loại bỏ thứ tự đến cục bộ của mempool nhưng không đảm bảo first-seen fairness, censorship resistance, confidentiality hay order fairness chính thức.
 
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật

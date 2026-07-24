@@ -68,16 +68,34 @@ In both modes, finality proofs remain tied to the consensus finality rule and th
 - Timeout certificates advance rounds when proposals or votes stall.
 - Peer dial, TLS, auth, and signed-handshake timeouts are long enough for the target network latency envelope.
 
+## Adaptive Round Timeout Policy
+
+When `adaptive_round_timeout_enabled = true`, the node computes a bounded operational timeout from the configured base budget, rolling p95 proposal/vote/commit processing latency, progress or timeout outcome, and active-peer deficit. A timeout grows the current budget by 1.5x, successful progress decays it by 0.8x, observed processing latency contributes a 3x safety budget, and the result is clamped between the base and 8x the base.
+
+This policy changes only when the node attempts timeout recovery. It does not change proposer selection, proposal validity, the safe-vote predicate, quorum power, QC verification, or the three-chain finality rule. Idle time and local execution/storage errors do not consume rounds.
+
+## Recovery Finality Gate
+
+When `recovery_finality_gate_enabled = true`, the finalized execution path compares durable application-state and block-index heights. If both exist and differ, the node computes the safe recovery height as their minimum and defers finalized application commits above that boundary. The gate is a local persistence restriction; it is not an extra vote phase or a network-wide certificate.
+
+Operators can observe the enabled policy, current adaptive timeout, processing latency, and recovery deferrals through `/v1/metrics` and `/metrics/text`.
+
+## Deterministic Transaction Ordering
+
+Proposal construction derives a height-specific salt from `chain_id` and height. It groups transactions with signer/nonce metadata into per-signer chains, sorts each chain by ascending nonce, and deterministically merges chain heads by salted transaction hash. Proposal validation recomputes the same order.
+
+The rule removes local mempool arrival order from an identical candidate set and preserves nonce dependencies. It does not guarantee first-seen fairness, censorship resistance, confidentiality, or a formal order-fairness property.
+
 ## Empty Blocks and Round Recovery
 
 `create_empty_blocks = false` changes only when proposals are created; it does not weaken safety. A validator should not propose an empty block just to advance height. If every mempool is empty, the latest height can remain stable and that is normal idle behavior.
 
-When a valid transaction enters the mempool, the local consensus loop checks whether it is proposer for the current height and round. If not, and no proposal for that height is already pending, it advances to the next local proposer round and builds the transaction proposal there. This avoids the common single-node test failure mode where a node has useful transactions but its round counter drifted past another validator's proposer slot. The recovery is conservative:
+When a valid transaction enters the mempool, the local consensus loop proposes only when this validator is the deterministic proposer for the current `(height, round)`. A non-proposer never jumps to another round locally. Rounds advance only through a valid timeout certificate or a certified finality transition, and a failed block execution or storage step is not treated as a timeout. This prevents multiple validators from proposing different blocks for the same `(height, round)` and prevents a failed transaction from consuming rounds.
 
-- it never runs while forced empty-block creation is active;
-- it never replaces a pending proposal for the same height;
-- it only scans within the current validator set size;
-- it still requires the normal QC/finality path before state commitment.
+- idle consensus with no pending work does not consume rounds;
+- a proposer change requires the normal timeout-certificate or finality path;
+- a pending proposal is never replaced by an uncertified local recovery proposal;
+- state commitment still requires the normal QC/finality path.
 
 Operators should therefore read `latest_height = 0` with an empty mempool as idle, not failed. Read `latest_height` stuck with non-empty mempool, rising round timeouts, or failed peer handshakes as a liveness incident.
 

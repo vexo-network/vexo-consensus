@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"errors"
+	"fmt"
 	"math/big"
 	"net"
 	"os"
@@ -785,6 +786,124 @@ func TestGRPCTransportReconnectLoopEstablishesPeerSession(t *testing.T) {
 
 	alice.SetPeer("bob", bob.Address())
 	waitForGRPCSessionCount(t, alice, 1)
+}
+
+func TestGRPCTransportKeepsSessionAfterHandshakeDeadline(t *testing.T) {
+	dialTimeout := 50 * time.Millisecond
+	alice := newStartedGRPCPeer(t, "alice", GRPCConfig{
+		ReconnectInterval: 10 * time.Millisecond,
+		DialTimeout:       dialTimeout,
+	})
+	bob := newStartedGRPCPeer(t, "bob", GRPCConfig{})
+	defer stopGRPCPeer(t, alice)
+	defer stopGRPCPeer(t, bob)
+
+	alice.SetPeer("bob", bob.Address())
+	waitForGRPCSessionCount(t, alice, 1)
+	time.Sleep(3 * dialTimeout)
+	if active := alice.ActivePeerIDs(); len(active) != 1 || active[0] != "bob" {
+		t.Fatalf("successful session was canceled after handshake deadline: %v", active)
+	}
+}
+
+func TestGRPCTransportEstablishesPreconfiguredAuthenticatedFullMesh(t *testing.T) {
+	const peerCount = 4
+	addresses := make([]string, peerCount)
+	reservations := make([]net.Listener, 0, peerCount)
+	for index := range addresses {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		reservations = append(reservations, listener)
+		addresses[index] = listener.Addr().String()
+	}
+	for _, listener := range reservations {
+		if err := listener.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	peers := make([]*GRPCTransport, 0, peerCount)
+	for index := range addresses {
+		peerID := p2p.PeerID(fmt.Sprintf("validator-%d", index+1))
+		configuredPeers := make(map[p2p.PeerID]string, peerCount-1)
+		for remoteIndex, address := range addresses {
+			if remoteIndex == index {
+				continue
+			}
+			configuredPeers[p2p.PeerID(fmt.Sprintf("validator-%d", remoteIndex+1))] = address
+		}
+		peerHome := t.TempDir()
+		addressBook, err := p2p.OpenAddrBookWithPolicy(filepath.Join(peerHome, "addrbook.json"), 3)
+		if err != nil {
+			t.Fatal(err)
+		}
+		addressBook.Merge(configuredPeers, "cli-peer", true)
+		if err := addressBook.Save(); err != nil {
+			t.Fatal(err)
+		}
+		replayStore, err := NewFileAuthReplayStore(filepath.Join(peerHome, "auth-replay.jsonl"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		scoreKeeper := p2p.NewScoreKeeper(p2p.ScoreConfig{InitialScore: 100, MaxScore: 1000, BanThreshold: 0})
+		peer, err := NewGRPCTransport(GRPCConfig{
+			PeerID:            peerID,
+			ListenAddr:        addresses[index],
+			Peers:             configuredPeers,
+			DialTimeout:       500 * time.Millisecond,
+			ReconnectInterval: 10 * time.Millisecond,
+			NetworkID:         "vexo-network",
+			ChainID:           "vexo-test",
+			GenesisHash:       GenesisHash([]byte("genesis")),
+			AuthToken:         "shared-token",
+			AuthReplayStore:   replayStore,
+			PeerLearned: func(remoteID p2p.PeerID, address string) {
+				addressBook.Add(remoteID, address, "handshake", false)
+				_ = addressBook.Save()
+			},
+			PeerAttempted: func(remoteID p2p.PeerID) {
+				addressBook.MarkAttempt(remoteID)
+				_ = addressBook.Save()
+			},
+			PeerDialResult: func(remoteID p2p.PeerID, success bool) {
+				if success {
+					addressBook.MarkSuccess(remoteID)
+				} else {
+					addressBook.MarkFailure(remoteID, time.Minute)
+				}
+				_ = addressBook.Save()
+			},
+			PeerGate: func(ctx context.Context, remoteID p2p.PeerID) error {
+				if addressBook.IsBanned(remoteID) {
+					return p2p.ErrPeerBanned
+				}
+				banned, err := scoreKeeper.IsBanned(ctx, remoteID)
+				if err != nil {
+					return err
+				}
+				if banned {
+					return p2p.ErrPeerBanned
+				}
+				return nil
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		peers = append(peers, peer)
+	}
+	for _, peer := range peers {
+		if err := peer.Start(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		peer := peer
+		t.Cleanup(func() { stopGRPCPeer(t, peer) })
+	}
+	for _, peer := range peers {
+		waitForGRPCSessionCount(t, peer, peerCount-1)
+	}
 }
 
 func TestGRPCTransportDiscoversPeersFromHandshake(t *testing.T) {

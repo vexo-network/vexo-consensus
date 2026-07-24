@@ -97,7 +97,19 @@
 
 ## 空块与 Round 恢复
 
-当 `create_empty_blocks=false` 且 mempool 为空时，height 看起来不增长是正常 idle 状态。交易进入后，即使当前 round 的 proposer 不是本节点，节点也可以移动到下一个 local proposer round 来构造交易块，但仍必须经过 QC/finality 规则。
+当 `create_empty_blocks=false` 且 mempool 为空时，height 看起来不增长是正常 idle 状态。交易进入后，节点只有在当前 `(height, round)` 的确定性 proposer 身份属于自己时才提议；非 proposer 不会在本地跳到其他 round。round 只能通过有效的 timeout certificate 或已认证的 finality 转换推进，执行或存储错误不会被当作 timeout。
+
+## 自适应轮次 timeout
+
+当 `adaptive_round_timeout_enabled = true` 时，节点根据 base timeout、proposal/vote/commit 处理延迟的 rolling p95、进展结果和 active peer 缺口计算 timeout。超时后扩大 1.5 倍，成功进展后缩小到 0.8 倍，观测延迟贡献 3 倍安全预算，最终限制在 base 到 8 倍 base 之间。该策略不改变 safe-vote、proposer、quorum power、QC 或 three-chain finality。
+
+## 恢复终局性 gate
+
+当 `recovery_finality_gate_enabled = true` 且持久 application state 与 block index 高度不一致时，两者最小值成为 safe recovery height。高于该边界的 finalized application commit 会延迟到状态重新一致。当前 timeout 和恢复延迟可通过 `/v1/metrics` 与 `/metrics/text` 观测。
+
+## 确定性交易顺序
+
+Proposal 由 `chain_id` 和 height 生成 salt，将每个 signer 的 transaction chain 按 nonce 升序排列，再按 salted transaction hash 合并 chain head。相同 candidate set 不再依赖 mempool 到达顺序，但不保证 first-seen fairness、censorship resistance、confidentiality 或形式化 order fairness。
 
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录

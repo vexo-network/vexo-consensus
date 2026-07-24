@@ -5,6 +5,7 @@ services:
       context: ../..
       dockerfile: Dockerfile.nocgo
       args:
+        GO_VERSION: ${VEXO_GO_VERSION:-1.26.5}
         VERSION: ${VERSION:-dev}
         COMMIT: ${COMMIT:-unknown}
         BUILD_DATE: ${BUILD_DATE:-unknown}
@@ -20,4 +21,3 @@ services:
   validator-4:
     image: ${VEXO_IMAGE:-vexo-consensus:nocgo}
     build: *vexo-nocgo-build
-

@@ -82,6 +82,7 @@ type Config struct {
 	Web3FilterSnapshotPath        string
 	RequiredCapabilities          []string
 	RequireAllCapabilities        bool
+	managedTransactionMu          *sync.Mutex
 }
 
 type AdminAuditEvent struct {
@@ -630,6 +631,9 @@ func newHandlerWithConfig(provider StatusProvider, cfg Config, filters *web3Filt
 	}
 	if filters == nil {
 		filters = newWeb3FilterStore()
+	}
+	if cfg.managedTransactionMu == nil {
+		cfg.managedTransactionMu = &sync.Mutex{}
 	}
 	mux := http.NewServeMux()
 	if cfg.EnablePprof {
@@ -1964,6 +1968,13 @@ func web3SendTransaction(ctx context.Context, provider StatusProvider, cfg Confi
 	if !ok {
 		return nil, &JSONRPCError{Code: -32000, Message: "transaction submission is unavailable"}
 	}
+	// A managed transaction without an explicit nonce derives it from committed
+	// and pending state. Keep nonce selection, signing, and admission atomic so
+	// concurrent JSON-RPC requests cannot sign the same sequence number.
+	if cfg.managedTransactionMu != nil {
+		cfg.managedTransactionMu.Lock()
+		defer cfg.managedTransactionMu.Unlock()
+	}
 	signed, raw, rpcErr := web3SignEthereumTransaction(ctx, provider, cfg, params)
 	if rpcErr != nil {
 		return nil, rpcErr
@@ -2138,7 +2149,11 @@ func web3TransactionNonce(ctx context.Context, provider StatusProvider, payload 
 	if rpcErr != nil {
 		return 0, rpcErr
 	}
-	return account.Nonce, nil
+	nonce, err := web3PendingSequence(ctx, provider, payload.From, account.Nonce)
+	if err != nil {
+		return 0, &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	return nonce, nil
 }
 
 func web3TransactionGas(payload web3TransactionCall) (uint64, *JSONRPCError) {
@@ -2629,7 +2644,7 @@ func web3BlockByNumber(ctx context.Context, provider StatusProvider, params []js
 		record, queryErr = blockProvider.BlockByHeight(ctx, index.EarliestHeight)
 	default:
 		height, err := parseHexQuantity(tag)
-		if err != nil || height == 0 {
+		if err != nil {
 			return store.BlockRecord{}, &JSONRPCError{Code: -32602, Message: "invalid block number tag"}
 		}
 		record, queryErr = blockProvider.BlockByHeight(ctx, types.Height(height))
@@ -2686,12 +2701,22 @@ func web3BlockTransactionCount(record store.BlockRecord) any {
 }
 
 func web3PendingSequence(ctx context.Context, provider StatusProvider, address string, sequence uint64) (uint64, error) {
-	txs, rpcErr := web3PendingTxs(ctx, provider)
-	if rpcErr != nil {
-		if rpcErr.Message == "pending transaction query is unavailable" {
-			return sequence, nil
+	var txs []types.Tx
+	if snapshot, ok := provider.(PendingTxSnapshotProvider); ok {
+		var err error
+		txs, err = snapshot.PendingTxSnapshot(ctx)
+		if err != nil {
+			return 0, err
 		}
-		return sequence, errors.New(rpcErr.Message)
+	} else {
+		var rpcErr *JSONRPCError
+		txs, rpcErr = web3PendingTxs(ctx, provider)
+		if rpcErr != nil {
+			if rpcErr.Message == "pending transaction query is unavailable" {
+				return sequence, nil
+			}
+			return 0, errors.New(rpcErr.Message)
+		}
 	}
 	candidates := make([]uint64, 0)
 	for _, tx := range txs {
@@ -2836,12 +2861,22 @@ func web3PendingTransactionByHash(ctx context.Context, provider StatusProvider, 
 }
 
 func web3PendingTxByHash(ctx context.Context, provider StatusProvider, hash string) (types.Tx, bool, *JSONRPCError) {
-	txs, rpcErr := web3PendingTxs(ctx, provider)
-	if rpcErr != nil {
-		if rpcErr.Message == "pending transaction query is unavailable" {
-			return nil, false, nil
+	var txs []types.Tx
+	if snapshot, ok := provider.(PendingTxSnapshotProvider); ok {
+		var err error
+		txs, err = snapshot.PendingTxSnapshot(ctx)
+		if err != nil {
+			return nil, false, &JSONRPCError{Code: -32000, Message: err.Error()}
 		}
-		return nil, false, rpcErr
+	} else {
+		var rpcErr *JSONRPCError
+		txs, rpcErr = web3PendingTxs(ctx, provider)
+		if rpcErr != nil {
+			if rpcErr.Message == "pending transaction query is unavailable" {
+				return nil, false, nil
+			}
+			return nil, false, rpcErr
+		}
 	}
 	for _, tx := range txs {
 		if web3TxMatchesHash(tx, hash) {
@@ -3357,6 +3392,11 @@ func web3ReceiptValueByHash(ctx context.Context, provider StatusProvider, hash s
 			return response.Value, true, nil
 		}
 	}
+	if _, pending, rpcErr := web3PendingTxByHash(ctx, provider, hash); rpcErr != nil {
+		return nil, false, rpcErr
+	} else if pending {
+		return nil, false, nil
+	}
 	record, index, _, found, rpcErr := web3CommittedTxByHash(ctx, provider, hash)
 	if rpcErr != nil || !found {
 		return nil, false, rpcErr
@@ -3579,6 +3619,9 @@ func web3PendingTransaction(tx types.Tx) any {
 		"input":            details.Input,
 		"type":             hexQuantity(details.Type),
 		"chainId":          hexQuantity(details.ChainID),
+		"r":                details.R,
+		"s":                details.S,
+		"v":                details.V,
 	}
 	if details.MaxFeePerGas > 0 || details.MaxFeePerGasHex != "" {
 		transaction["maxFeePerGas"] = web3TxMaxFeePerGasHex(details)
@@ -5033,12 +5076,18 @@ func web3LogsForFilter(ctx context.Context, provider StatusProvider, cfg Config,
 		maxResults = defaultMaxWeb3LogResults
 	}
 	results := make([]any, 0)
+	locationCache := make(map[uint64]map[string]web3LogLocation)
 	appendMatching := func(logs []any) *JSONRPCError {
 		for _, log := range logs {
 			if !web3LogMatchesFilter(log, filter) {
 				continue
 			}
-			results = append(results, web3NormalizeLog(log))
+			location, found := web3ResolveLogLocation(ctx, provider, log, locationCache)
+			if found {
+				results = append(results, web3NormalizeLogAt(log, location))
+			} else {
+				results = append(results, web3NormalizeLog(log))
+			}
 			if len(results) > maxResults {
 				return &JSONRPCError{Code: -32005, Message: "eth_getLogs result limit exceeded"}
 			}
@@ -5065,6 +5114,68 @@ func web3LogsForFilter(ctx context.Context, provider StatusProvider, cfg Config,
 		}
 	}
 	return results, nil
+}
+
+func web3ResolveLogLocation(
+	ctx context.Context,
+	provider StatusProvider,
+	value any,
+	cache map[uint64]map[string]web3LogLocation,
+) (web3LogLocation, bool) {
+	log, ok := value.(map[string]any)
+	if !ok {
+		return web3LogLocation{}, false
+	}
+	height := web3LogBlockNumber(log)
+	txHash := web3LogString(log, "transaction_hash", "transactionHash", "tx_hash")
+	if height == 0 || txHash == "" {
+		return web3LogLocation{}, false
+	}
+	locations, cached := cache[height]
+	if !cached {
+		locations = web3LogLocationsAtHeight(ctx, provider, height)
+		cache[height] = locations
+	}
+	location, found := locations[strings.ToLower(txHash)]
+	if !found {
+		return web3LogLocation{}, false
+	}
+	localIndex, _ := web3LogUintValue(log, "log_index", "logIndex")
+	location.LogIndex += localIndex
+	return location, true
+}
+
+func web3LogLocationsAtHeight(ctx context.Context, provider StatusProvider, height uint64) map[string]web3LogLocation {
+	locations := make(map[string]web3LogLocation)
+	blockProvider, ok := provider.(BlockProvider)
+	if !ok {
+		return locations
+	}
+	record, err := blockProvider.BlockByHeight(ctx, types.Height(height))
+	if err != nil {
+		return locations
+	}
+	blockHash := "0x" + hex.EncodeToString(record.Hash[:])
+	var logIndexBase uint64
+	for index, tx := range record.Block.Txs {
+		txHash := web3TxHash(tx)
+		locations[strings.ToLower(txHash)] = web3LogLocation{
+			Mined:            true,
+			BlockHash:        blockHash,
+			BlockNumber:      height,
+			TransactionHash:  txHash,
+			TransactionIndex: uint64(index),
+			LogIndex:         logIndexBase,
+		}
+		if index >= len(record.TxResults) {
+			continue
+		}
+		receipt, ok := web3ReceiptFromResult(record.TxResults[index])
+		if ok {
+			logIndexBase += uint64(len(receipt.Logs))
+		}
+	}
+	return locations
 }
 
 func web3FilterChanges(ctx context.Context, provider StatusProvider, cfg Config, filter web3Filter, onlyChanges bool) (any, *JSONRPCError) {
@@ -5154,9 +5265,15 @@ func web3TransactionFromReceipt(ctx context.Context, provider StatusProvider, va
 	if foundTx {
 		details = web3TransactionDetails(tx)
 	}
-	to := receipt.To
-	if to == "" && receipt.ContractAddress != "" {
-		to = receipt.ContractAddress
+	var to any
+	if receipt.To != "" {
+		to = receipt.To
+	}
+	if foundTx {
+		to = details.To
+	}
+	if receipt.ContractAddress != "" {
+		to = nil
 	}
 	return map[string]any{
 		"hash":             receipt.TxHash,
@@ -5172,6 +5289,9 @@ func web3TransactionFromReceipt(ctx context.Context, provider StatusProvider, va
 		"input":            details.Input,
 		"type":             hexQuantity(details.Type),
 		"chainId":          hexQuantity(details.ChainID),
+		"r":                details.R,
+		"s":                details.S,
+		"v":                details.V,
 	}, nil
 }
 
@@ -5183,7 +5303,7 @@ func web3ReceiptObject(ctx context.Context, provider StatusProvider, value []byt
 	if receipt.TxHash == "" {
 		return nil, &JSONRPCError{Code: -32000, Message: "missing EVM receipt hash"}
 	}
-	blockHash, txIndex, _, _ := web3ReceiptBlockLocation(ctx, provider, receipt)
+	blockHash, txIndex, _, foundLocation := web3ReceiptBlockLocation(ctx, provider, receipt)
 	cumulativeGasUsed := web3CumulativeGasUsed(ctx, provider, receipt, txIndex)
 	to := any(receipt.To)
 	if receipt.To == "" {
@@ -5194,8 +5314,19 @@ func web3ReceiptObject(ctx context.Context, provider StatusProvider, value []byt
 		contractAddress = receipt.ContractAddress
 	}
 	logs := make([]any, 0, len(receipt.Logs))
-	for _, log := range receipt.Logs {
-		logs = append(logs, web3NormalizeLog(log))
+	logIndexBase := web3ReceiptLogIndexBase(ctx, provider, receipt, txIndex)
+	for index, log := range receipt.Logs {
+		location := web3LogLocation{
+			BlockNumber:     receipt.Height,
+			TransactionHash: receipt.TxHash,
+			LogIndex:        logIndexBase + uint64(index),
+		}
+		if foundLocation {
+			location.Mined = true
+			location.BlockHash, _ = blockHash.(string)
+			location.TransactionIndex = txIndex
+		}
+		logs = append(logs, web3NormalizeLogAt(log, location))
 	}
 	return map[string]any{
 		"transactionHash":   receipt.TxHash,
@@ -5231,6 +5362,9 @@ func web3TransactionFromBlockRecord(record store.BlockRecord, index int, hashTex
 		"input":            details.Input,
 		"type":             hexQuantity(details.Type),
 		"chainId":          hexQuantity(details.ChainID),
+		"r":                details.R,
+		"s":                details.S,
+		"v":                details.V,
 	}
 	if details.MaxFeePerGas > 0 || details.MaxFeePerGasHex != "" {
 		transaction["maxFeePerGas"] = web3TxMaxFeePerGasHex(details)
@@ -5249,16 +5383,17 @@ func web3TransactionFromBlockRecord(record store.BlockRecord, index int, hashTex
 	}
 	receipt, ok := web3ReceiptFromResult(record.TxResults[index])
 	if !ok {
-		transaction["gas"] = hexQuantity(record.TxResults[index].GasUsed)
 		return transaction
 	}
-	to := receipt.To
-	if to == "" && receipt.ContractAddress != "" {
-		to = receipt.ContractAddress
+	to := details.To
+	if receipt.To != "" {
+		to = receipt.To
+	}
+	if receipt.ContractAddress != "" {
+		to = nil
 	}
 	transaction["from"] = receipt.From
 	transaction["to"] = to
-	transaction["gas"] = hexQuantity(receipt.GasUsed)
 	return transaction
 }
 
@@ -5308,6 +5443,9 @@ type web3TxDetails struct {
 	ValueHex                string
 	Type                    uint64
 	ChainID                 uint64
+	R                       string `json:"r"`
+	S                       string `json:"s"`
+	V                       string `json:"v"`
 }
 
 func web3TransactionDetails(tx types.Tx) web3TxDetails {
@@ -5325,6 +5463,7 @@ func web3TransactionDetails(tx types.Tx) web3TxDetails {
 	if meta.Signer != "" {
 		details.From = string(meta.Signer)
 	}
+	details.R, details.S, details.V = web3TransactionSignature(tx)
 	if chainID, found := vexoapp.TxUintTag(tx, ethcompat.TagChainID); found {
 		details.ChainID = chainID
 	}
@@ -5381,6 +5520,23 @@ func setWeb3TxValue(details *web3TxDetails, decimal string) {
 	if value.IsUint64() {
 		details.Value = value.Uint64()
 	}
+}
+
+func web3TransactionSignature(tx types.Tx) (string, string, string) {
+	rawHex, found := vexoapp.TxTag(tx, ethcompat.TagRaw)
+	if !found || rawHex == "" {
+		return "0x0", "0x0", "0x0"
+	}
+	raw, err := hex.DecodeString(strings.TrimPrefix(rawHex, "0x"))
+	if err != nil || len(raw) == 0 {
+		return "0x0", "0x0", "0x0"
+	}
+	var ethTx gethtypes.Transaction
+	if err := ethTx.UnmarshalBinary(raw); err != nil {
+		return "0x0", "0x0", "0x0"
+	}
+	v, r, s := ethTx.RawSignatureValues()
+	return hexQuantityBig(r), hexQuantityBig(s), hexQuantityBig(v)
 }
 
 func setWeb3TxQuantity(compat *uint64, hexValue *string, value *big.Int) {
@@ -5553,6 +5709,30 @@ func web3CumulativeGasUsed(ctx context.Context, provider StatusProvider, receipt
 		return receipt.GasUsed
 	}
 	return cumulative
+}
+
+func web3ReceiptLogIndexBase(ctx context.Context, provider StatusProvider, receipt web3Receipt, txIndex uint64) uint64 {
+	blockProvider, ok := provider.(BlockProvider)
+	if !ok || receipt.Height == 0 || txIndex == 0 {
+		return 0
+	}
+	record, err := blockProvider.BlockByHeight(ctx, types.Height(receipt.Height))
+	if err != nil {
+		return 0
+	}
+	limit := txIndex
+	if limit > uint64(len(record.TxResults)) {
+		limit = uint64(len(record.TxResults))
+	}
+	var base uint64
+	for index := uint64(0); index < limit; index++ {
+		previous, ok := web3ReceiptFromResult(record.TxResults[index])
+		if !ok {
+			continue
+		}
+		base += uint64(len(previous.Logs))
+	}
+	return base
 }
 
 func web3ReceiptBlockLocation(ctx context.Context, provider StatusProvider, receipt web3Receipt) (any, uint64, types.Tx, bool) {
@@ -6233,23 +6413,57 @@ func web3LogMatchesFilter(value any, filter web3Filter) bool {
 	return true
 }
 
+type web3LogLocation struct {
+	Mined            bool
+	BlockHash        string
+	BlockNumber      uint64
+	TransactionHash  string
+	TransactionIndex uint64
+	LogIndex         uint64
+}
+
 func web3NormalizeLog(value any) any {
+	return web3NormalizeLogAt(value, web3LogLocation{})
+}
+
+func web3NormalizeLogAt(value any, location web3LogLocation) any {
 	log, ok := value.(map[string]any)
 	if !ok {
 		return value
 	}
-	normalized := make(map[string]any, len(log)+3)
+	normalized := make(map[string]any, len(log)+6)
 	for key, item := range log {
 		normalized[key] = item
 	}
-	if blockNumber := web3LogBlockNumber(log); blockNumber > 0 {
+	blockNumber := web3LogBlockNumber(log)
+	if blockNumber == 0 {
+		blockNumber = location.BlockNumber
+	}
+	if blockNumber > 0 {
 		normalized["blockNumber"] = hexQuantity(blockNumber)
 	}
-	if txHash := web3LogString(log, "transaction_hash", "transactionHash", "tx_hash"); txHash != "" {
+	txHash := web3LogString(log, "transaction_hash", "transactionHash", "tx_hash")
+	if txHash == "" {
+		txHash = location.TransactionHash
+	}
+	if txHash != "" {
 		normalized["transactionHash"] = txHash
 	}
-	if logIndex := web3LogUint(log, "log_index", "logIndex"); logIndex > 0 {
-		normalized["logIndex"] = hexQuantity(logIndex)
+	logIndex, foundLogIndex := web3LogUintValue(log, "log_index", "logIndex")
+	if !foundLogIndex || location.Mined {
+		logIndex = location.LogIndex
+	}
+	normalized["logIndex"] = hexQuantity(logIndex)
+	if location.Mined {
+		normalized["blockHash"] = location.BlockHash
+		normalized["transactionIndex"] = hexQuantity(location.TransactionIndex)
+		normalized["removed"] = false
+	}
+	if _, found := normalized["topics"]; !found {
+		normalized["topics"] = []any{}
+	}
+	if _, found := normalized["data"]; !found {
+		normalized["data"] = "0x"
 	}
 	return normalized
 }
@@ -6289,6 +6503,11 @@ func web3LogString(log map[string]any, keys ...string) string {
 }
 
 func web3LogUint(log map[string]any, keys ...string) uint64 {
+	value, _ := web3LogUintValue(log, keys...)
+	return value
+}
+
+func web3LogUintValue(log map[string]any, keys ...string) (uint64, bool) {
 	for _, key := range keys {
 		value, found := log[key]
 		if !found {
@@ -6297,25 +6516,25 @@ func web3LogUint(log map[string]any, keys ...string) uint64 {
 		switch typed := value.(type) {
 		case float64:
 			if typed >= 0 {
-				return uint64(typed)
+				return uint64(typed), true
 			}
 		case uint64:
-			return typed
+			return typed, true
 		case string:
 			if strings.HasPrefix(typed, "0x") {
 				parsed, err := parseHexQuantity(typed)
 				if err == nil {
-					return parsed
+					return parsed, true
 				}
 				continue
 			}
 			parsed, err := strconv.ParseUint(typed, 10, 64)
 			if err == nil {
-				return parsed
+				return parsed, true
 			}
 		}
 	}
-	return 0
+	return 0, false
 }
 
 func web3SeenLogSet(logs []any) map[string]bool {

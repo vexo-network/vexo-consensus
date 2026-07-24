@@ -1,8 +1,5 @@
 # EVM Update Guide
 
-> Locale: en · English
-> This page mirrors the canonical English source. Protocol, security, and release decisions use the canonical English document.
-
 This guide explains how to update the built-in EVM stack without breaking chain ID handling, Web3 compatibility, or release evidence. It is written for operators and maintainers who need to bump go-ethereum, adjust fork presets, or change EVM behavior in a controlled release.
 
 ## What Counts as an EVM Update
@@ -111,6 +108,20 @@ Check at least these behaviors:
 
 Then deploy a simple contract, deploy a proxy contract, and exercise the upgrade path with the same RPC endpoint the wallet or tool will use in production.
 
+### 4.1 Verify mined object compatibility
+
+Deployment tools do more than poll a receipt status. Ethers and Remix may reconstruct the mined transaction, parse its signature, inspect the containing block, and normalize receipt logs. Verify all of these invariants:
+
+- a mined transaction keeps the submitted gas limit in `gas`; execution consumption belongs in receipt `gasUsed`
+- legacy and typed transaction objects expose the applicable signature fields, including `v`, `r`, `s`, and `yParity`
+- mined transactions expose non-null `blockHash`, `blockNumber`, and `transactionIndex`
+- receipts expose `transactionHash`, `transactionIndex`, `blockHash`, `blockNumber`, `from`, `to`, `contractAddress`, `status`, `gasUsed`, `cumulativeGasUsed`, `type`, and `logs`
+- every mined log exposes `blockHash`, `blockNumber`, `transactionHash`, `transactionIndex`, `logIndex`, and `removed`
+- `eth_getBlockByNumber` returns a valid genesis response for `0x0`, including a zero parent hash rather than `null`
+- `eth_getTransactionByHash`, `eth_getTransactionReceipt`, and `eth_getBlockByNumber` agree on transaction and block location
+
+A receipt with `status = 0x1` is not enough if the client cannot parse the corresponding transaction or block object.
+
 ### 5. Confirm proxy and upgrade behavior
 
 The EVM update is not done until all of these are true:
@@ -124,7 +135,30 @@ The EVM update is not done until all of these are true:
 
 If a proxy deploy works but upgrade fails, the change is not shippable yet. Treat that as a release blocker, not a warning.
 
-### 6. Refresh evidence
+Use the same account and endpoint for the complete sequence:
+
+1. deploy implementation V1 and wait for its receipt
+2. deploy the proxy with V1 initialization calldata and wait for its receipt
+3. read initialized state through the proxy
+4. deploy implementation V2 and wait for its receipt
+5. submit the authorized UUPS upgrade through the proxy
+6. read the version and pre-upgrade storage through the proxy
+7. query all deployment and upgrade transactions through both transaction and receipt methods
+
+Record every transaction hash, block hash, contract address, nonce, status, gas limit, gas used, and post-upgrade read. A wallet popup cancellation is not a node result; distinguish a user-rejected signature from a submitted transaction whose receipt or follow-up lookup is malformed.
+
+### 6. Verify pending nonce and deterministic ordering
+
+Managed `eth_sendTransaction` requests that omit `nonce` must treat pending-state lookup, signing, and mempool admission as one atomic allocation step. Otherwise, concurrent requests can sign the same nonce even when sequential requests appear healthy. `eth_signTransaction` only signs and does not reserve a nonce; callers that later use `eth_sendRawTransaction` remain responsible for coordinating their own nonce allocation.
+
+The consensus transaction order must also satisfy both properties below:
+
+- the same transaction set produces the same order regardless of local mempool arrival order
+- transactions from one signer preserve ascending nonce dependencies
+
+Exercise this with concurrent managed-account submissions and with permuted proposal inputs. Confirm that all transactions receive distinct contiguous nonces, commit successfully, and produce no `invalid transaction nonce`, `unsafe proposal`, or double-sign log entries.
+
+### 7. Refresh evidence
 
 When the EVM surface changes, update the release evidence bundle:
 
@@ -145,6 +179,7 @@ Use this as the merge gate:
 | `make evm-conformance` | Catches fork-rule and execution regressions |
 | `go test ./modules/evm -count=1` | Verifies receipts, logs, storage, balances, and snapshots |
 | `go test ./rpc -count=1` | Verifies Web3 request and response compatibility |
+| `go test -race ./rpc -count=1` | Detects managed nonce allocation and pending-state races |
 | `make network-e2e` | Confirms the node still starts, peers, and commits |
 | Docker single-host smoke | Confirms the path used by Remix and browser tools |
 | Contract deploy | Confirms transaction admission and receipt generation |
@@ -162,6 +197,8 @@ Roll back the EVM update when any of the following happens:
 - `eth_call` or `eth_estimateGas` diverge from the expected fork rules
 - receipts, logs, or proofs stop matching the committed state
 - proxy or upgrade transactions begin to fail
+- concurrent managed transactions reuse, skip, or stall a pending nonce
+- proposal ordering changes when the same transaction set arrives in a different order
 - the release evidence no longer matches the current code path
 
 Rollback should restore the last known good adapter version, config defaults, and fixture set together.

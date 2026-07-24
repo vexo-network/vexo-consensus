@@ -18,19 +18,22 @@ import (
 )
 
 var (
-	ErrMissingApplication   = errors.New("application is required")
-	ErrNodeAlreadyRunning   = errors.New("node already running")
-	ErrNodeNotRunning       = errors.New("node is not running")
-	ErrMissingValidatorID   = errors.New("validator id is required")
-	ErrConsensusOffline     = errors.New("consensus reactor is unavailable")
-	ErrInvalidCommitQC      = errors.New("invalid commit quorum certificate")
-	ErrEmptyProposal        = errors.New("proposal has no transactions")
-	ErrLoopAlreadyRunning   = errors.New("consensus loop already running")
-	ErrLoopNotRunning       = errors.New("consensus loop is not running")
-	ErrFinalityNotFound     = errors.New("finality proof not found")
-	ErrInvalidLoopConfig    = errors.New("invalid consensus loop config")
-	ErrUnsafeQCCommit       = errors.New("unsafe qc commit requires explicit unsafe API")
-	ErrValidatorKeyMismatch = errors.New("validator signer public key does not match genesis validator public key")
+	ErrMissingApplication    = errors.New("application is required")
+	ErrNodeAlreadyRunning    = errors.New("node already running")
+	ErrNodeNotRunning        = errors.New("node is not running")
+	ErrMissingValidatorID    = errors.New("validator id is required")
+	ErrConsensusOffline      = errors.New("consensus reactor is unavailable")
+	ErrInvalidCommitQC       = errors.New("invalid commit quorum certificate")
+	ErrEmptyProposal         = errors.New("proposal has no transactions")
+	ErrLoopAlreadyRunning    = errors.New("consensus loop already running")
+	ErrLoopNotRunning        = errors.New("consensus loop is not running")
+	ErrFinalityNotFound      = errors.New("finality proof not found")
+	ErrInvalidLoopConfig     = errors.New("invalid consensus loop config")
+	ErrUnsafeQCCommit        = errors.New("unsafe qc commit requires explicit unsafe API")
+	ErrBlockAlreadyCommitted = errors.New("block height is already committed")
+	ErrNonSequentialCommit   = errors.New("block commit height is not sequential")
+	ErrLocalVoteRecorded     = errors.New("local vote already recorded for a different block")
+	ErrValidatorKeyMismatch  = errors.New("validator signer public key does not match genesis validator public key")
 )
 
 type Status struct {
@@ -59,9 +62,13 @@ type Node struct {
 
 	mu             sync.Mutex
 	stepMu         sync.Mutex
+	commitMu       sync.Mutex
+	admissionMu    sync.Mutex
+	broadcastMu    sync.Mutex
 	runtime        *vexoruntime.Runtime
 	consensus      *consensus.StateMachine
 	reactor        *consensus.TransportReactor
+	localVoter     *autoVoteReactor
 	txCancel       context.CancelFunc
 	txDone         chan struct{}
 	commitCancel   context.CancelFunc
@@ -72,10 +79,12 @@ type Node struct {
 	scoreDone      chan struct{}
 	loopCancel     context.CancelFunc
 	loopDone       chan struct{}
+	loopWake       chan struct{}
 	loopConfig     ConsensusLoopConfig
 	pending        map[types.Hash]consensus.Proposal
 	proposed       map[proposalRound]struct{}
 	timeoutVotes   map[proposalRound]consensus.TimeoutVote
+	broadcasts     map[string]struct{}
 	metrics        nodeMetrics
 	store          store.Store
 	consensusWAL   *consensus.WAL
@@ -119,6 +128,7 @@ func New(cfg Config, genesis Genesis, application app.Application) (*Node, error
 		pending:      make(map[types.Hash]consensus.Proposal),
 		proposed:     make(map[proposalRound]struct{}),
 		timeoutVotes: make(map[proposalRound]consensus.TimeoutVote),
+		broadcasts:   make(map[string]struct{}),
 	}, nil
 }
 
@@ -211,26 +221,31 @@ func (node *Node) Start(ctx context.Context) error {
 		storage.Close()
 		return err
 	}
+	var localVoter *autoVoteReactor
+	if node.cfg.ValidatorID != "" {
+		localVoter = &autoVoteReactor{
+			machine:            consensusState,
+			chainID:            node.cfg.Chain.ChainID,
+			validatorID:        node.cfg.ValidatorID,
+			signer:             node.signer,
+			onProposalAccepted: node.cacheProposal,
+			onProposalRejected: node.handleRejectedProposal,
+			onVoteAccepted:     node.wakeConsensus,
+			onEvidence:         node.handleLocalEvidence,
+			onError: func(event string, err error) {
+				node.logEvent(event, map[string]any{"error": err.Error()})
+			},
+			onProposalLatency: node.metrics.observeProposalLatency,
+			onVoteLatency:     node.metrics.observeVoteLatency,
+			onSigningFailure:  node.metrics.observeSigningFailure,
+			wal:               consensusWAL,
+		}
+	}
 	var reactor *consensus.TransportReactor
 	if node.wire != nil {
 		receiver := consensus.Reactor(consensusState)
-		if node.cfg.ValidatorID != "" {
-			receiver = &autoVoteReactor{
-				machine:            consensusState,
-				chainID:            node.cfg.Chain.ChainID,
-				validatorID:        node.cfg.ValidatorID,
-				signer:             node.signer,
-				onProposalAccepted: node.cacheProposal,
-				onVoteAccepted:     node.wakeConsensus,
-				onEvidence:         node.handleLocalEvidence,
-				onError: func(event string, err error) {
-					node.logEvent(event, map[string]any{"error": err.Error()})
-				},
-				onProposalLatency: node.metrics.observeProposalLatency,
-				onVoteLatency:     node.metrics.observeVoteLatency,
-				onSigningFailure:  node.metrics.observeSigningFailure,
-				wal:               consensusWAL,
-			}
+		if localVoter != nil {
+			receiver = localVoter
 		}
 		reactor = consensus.NewTransportReactor(node.wire, receiver)
 		reactor.SetPeerScoring(node.admitPeerMessage, node.observePeerMessage)
@@ -278,6 +293,7 @@ func (node *Node) Start(ctx context.Context) error {
 	node.consensus = consensusState
 	node.consensusWAL = consensusWAL
 	node.reactor = reactor
+	node.localVoter = localVoter
 	node.pending = make(map[types.Hash]consensus.Proposal)
 	node.proposed = make(map[proposalRound]struct{})
 	node.store = storage
@@ -389,6 +405,7 @@ func (node *Node) Stop(ctx context.Context) error {
 	node.consensus = nil
 	node.consensusWAL = nil
 	node.reactor = nil
+	node.localVoter = nil
 	node.txCancel = nil
 	node.txDone = nil
 	node.commitCancel = nil
@@ -399,6 +416,7 @@ func (node *Node) Stop(ctx context.Context) error {
 	node.scoreDone = nil
 	node.loopCancel = nil
 	node.loopDone = nil
+	node.loopWake = nil
 	node.store = nil
 	node.startedAt = time.Time{}
 	return err

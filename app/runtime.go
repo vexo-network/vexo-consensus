@@ -194,6 +194,13 @@ func (runtime *Runtime) CheckTxContext(goCtx context.Context, tx types.Tx) Check
 	return CheckTxResponse{Result: types.Result{}}
 }
 
+func (runtime *Runtime) CheckTxsContext(goCtx context.Context, txs []types.Tx) CheckTxResponse {
+	if err := runtime.validateTxsContext(goCtx, runtime.currentHeight(), types.Header{}, txs); err != nil {
+		return CheckTxResponse{Result: types.Result{Code: 1, Log: err.Error()}}
+	}
+	return CheckTxResponse{Result: types.Result{}}
+}
+
 func (runtime *Runtime) PrepareProposal(req PrepareProposalRequest) (PrepareProposalResponse, error) {
 	return runtime.PrepareProposalContext(context.Background(), req)
 }
@@ -204,8 +211,12 @@ func (runtime *Runtime) PrepareProposalContext(goCtx context.Context, req Prepar
 		return PrepareProposalResponse{}, goCtx.Err()
 	default:
 	}
-	accepted := make([]types.Tx, 0, len(req.Txs))
-	for _, tx := range req.Txs {
+	ordered := fairordering.SortTxsWithSalt(req.Txs, runtime.orderingSalt(req.Height))
+	if len(ordered) > 0 && runtime.CheckTxsContext(goCtx, ordered).Result.Code == 0 {
+		return PrepareProposalResponse{Txs: ordered}, nil
+	}
+	accepted := make([]types.Tx, 0, len(ordered))
+	for _, tx := range ordered {
 		if runtime.CheckTxContext(goCtx, tx).Result.Code == 0 {
 			accepted = append(accepted, append(types.Tx(nil), tx...))
 		}
@@ -226,26 +237,38 @@ func (runtime *Runtime) ProcessProposalContext(goCtx context.Context, req Proces
 	if !fairordering.IsOrderedWithSalt(req.Block.Txs, runtime.orderingSalt(req.Block.Header.Height)) {
 		return ProcessProposalResponse{Accepted: false, Reason: "transaction ordering mismatch"}
 	}
-	ctx := runtime.newContextWithGoContext(goCtx, req.Block.Header.Height, req.Block.Header)
+	if err := runtime.validateTxsContext(goCtx, req.Block.Header.Height, req.Block.Header, req.Block.Txs); err != nil {
+		return ProcessProposalResponse{Accepted: false, Reason: err.Error()}
+	}
+	return ProcessProposalResponse{Accepted: true}
+}
+
+func (runtime *Runtime) validateTxsContext(goCtx context.Context, height types.Height, header types.Header, txs []types.Tx) error {
+	select {
+	case <-goCtx.Done():
+		return goCtx.Err()
+	default:
+	}
+	ctx := runtime.newContextWithGoContext(goCtx, height, header)
 	if runtime.ante != nil {
-		if err := runtime.ante.CheckBlock(ctx, req.Block.Txs); err != nil {
-			return ProcessProposalResponse{Accepted: false, Reason: err.Error()}
+		if err := runtime.ante.CheckBlock(ctx, txs); err != nil {
+			return err
 		}
 	}
-	for _, tx := range req.Block.Txs {
+	for _, tx := range txs {
 		payload := TxPayload(tx)
 		module, err := runtime.router.RouteTx(ctx, payload, runtime.modules)
 		if err != nil {
-			return ProcessProposalResponse{Accepted: false, Reason: "invalid transaction"}
+			return errors.New("invalid transaction")
 		}
 		if err := runtime.validateModuleTx(ctx, tx, payload, module); err != nil {
-			return ProcessProposalResponse{Accepted: false, Reason: err.Error()}
+			return err
 		}
 		if err := runtime.checkEstimatedGas(ctx, tx, payload, module); err != nil {
-			return ProcessProposalResponse{Accepted: false, Reason: err.Error()}
+			return err
 		}
 	}
-	return ProcessProposalResponse{Accepted: true}
+	return nil
 }
 
 func (runtime *Runtime) FinalizeBlock(req FinalizeBlockRequest) (FinalizeBlockResponse, error) {
