@@ -1,12 +1,24 @@
 > Locale: zh · 中文
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+# 共识协议概览
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+本文是理解 Vexo 共识的高层入口。规范细节以 [Consensus Spec](./specs/consensus-spec.md)、[Finality Proof Format](./specs/finality-proof-format.md)、[Validator Lifecycle](./specs/validator-lifecycle.md)、[Storage Schema](./specs/storage-schema.md)、[Networking Spec](./specs/networking-spec.md) 和 [Transaction Format](./specs/tx-format.md) 为准。
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## 模型
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Vexo 使用 HotStuff 风格的 BFT 核心，包含 proposal、vote、quorum certificate(QC)、timeout certificate、locked-QC 安全规则和 three-chain finality。只有扩展 locked QC，或携带不早于当前锁的 justify QC 时，区块才可安全投票。未明确绑定区块、父区块和祖父区块高度及哈希的合成 QC 或跳高 QC 链会在终局性决定前被拒绝。
+
+## 协议身份与研究边界
+
+Vexo 不是原始 HotStuff 的新名称，也不等同于 AptosBFT、DiemBFT、Jolteon、Ditto、Tendermint 或 CometBFT。它在独立 Go 运行时中复用 HotStuff 系列安全概念，并组合自适应轮次计时、持久恢复、确定性交易排序、模块化执行和按高度版本化的 validator set。
+
+当前投票路径使用完整的按高度版本化 validator set 和确定性 proposer。仓库中的 VRF committee selector 可由组件和查询接口访问，但尚未连接到 proposal 资格或 quorum 形成。因此，VRF committee 共识只能作为后续研究，而不能写成已启用特性。贡献边界和实验协议见 [Adaptive Recovery-Gated HotStuff for Modular Proof-of-Stake Networks](./research/adaptive-recovery-hotstuff-paper.md)。
+
+## 执行与恢复边界
+
+QC 认证、HotStuff 终局化、应用执行和状态提交是不同事件。默认 `execution_commit=finalized` 只执行 three-chain 规则选出的祖先。自适应 pacemaker 和 `recovery_finality_gate_enabled` 仅控制延迟与重启恢复，不改变 proposer 选择、quorum power、safe-vote 规则或 three-chain finality。
+
+## 安全边界
 
 -不到三分之一的拜占庭投票权
 -域分隔的提案、投票、超时投票和最终签名
@@ -15,9 +27,12 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 -验证者模棱两可的可问责证据
 -在相同的最终高度拒绝冲突的提交决策
 
-# #加密边界
+## 密码学边界
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+- `deterministic` backend 仅用于测试，不能通过 network safety 校验。
+- `ed25519` 可用于公开网络测试和上线准备。
+- `bls` 默认使用 `blst-bls12381-minpk-v1`，并要求 proof-of-possession、subgroup 检查、公钥验证、依赖审计及 release-gate 证据。
+- network safety 校验需要 VRF adapter metadata，但这并不表示 VRF committee 已进入活动共识路径。
 
 -对每个验证程序主页进行严格的配置审核
 -释放门证据

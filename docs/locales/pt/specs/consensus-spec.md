@@ -97,7 +97,19 @@ Este documento ajuda a entender especificação normativa da state machine de co
 
 ## Blocos vazios e recuperação de round
 
-Com `create_empty_blocks=false`, height parada com mempool vazio é idle normal. Quando uma transação chega, o nó pode avançar para o próximo local proposer round e produzir um bloco com transações, preservando as regras QC/finality.
+Com `create_empty_blocks=false`, height parada com mempool vazio é idle normal. Quando uma transação chega, o nó só propõe se for o proposer determinístico do `(height, round)` atual; um non-proposer não salta localmente para outra round. As rounds só avançam por um timeout certificate válido ou uma transição de finality certificada, e falhas de execução ou armazenamento não são tratadas como timeout.
+
+## Timeout adaptativo de rodada
+
+Com `adaptive_round_timeout_enabled = true`, o nó calcula o timeout usando valor base, p95 móvel do processamento proposal/vote/commit, resultado de progresso e déficit de peers ativos. Um timeout multiplica o orçamento por 1,5, progresso bem-sucedido aplica 0,8 e a latência observada fornece margem de 3 vezes, limitada entre a base e 8 vezes a base. Safe-vote, proposer, quorum power, QC e three-chain finality não mudam.
+
+## Barreira de finalidade na recuperação
+
+Com `recovery_finality_gate_enabled = true`, se as alturas duráveis de application state e block index diferirem, o mínimo torna-se a safe recovery height. Finalized application commits acima dela são adiados até restaurar a consistência. Timeout atual e adiamentos podem ser observados em `/v1/metrics` e `/metrics/text`.
+
+## Ordem determinística das transações
+
+A proposal deriva um salt de `chain_id` e height, ordena a transaction chain de cada signer por nonce crescente e mescla as cabeças por salted transaction hash. Para o mesmo candidate set, remove a ordem local de chegada ao mempool, mas não garante first-seen fairness, censorship resistance, confidentiality nem order fairness formal.
 
 <!-- vexo-docs:technical-parity -->
 ## Apêndice de paridade técnica

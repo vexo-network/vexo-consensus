@@ -357,18 +357,36 @@ func releaseReadMarkdownFiles(root string) (map[string]string, error) {
 }
 
 func releaseContainsPlaceholder(body string) bool {
+	return releasePlaceholderTerm(body) != ""
+}
+
+func releasePlaceholderTerm(body string) string {
+	// Keep the conventional uppercase TODO marker distinct from natural words in
+	// translated prose, including words that contain accented characters.
+	if releaseContainsBoundedPhrase(body, "TODO") {
+		return "TODO"
+	}
 	lower := strings.ToLower(body)
 	normalized := releaseNormalizeWhitespace(lower)
-	for _, forbidden := range []string{"todo", "tbd", "placeholder", "coming soon", "translation pending", "machine translation pending"} {
+	for _, forbidden := range []string{
+		"tbd",
+		"placeholder",
+		"coming soon",
+		"translation pending",
+		"machine translation pending",
+		"query length limit exceeded",
+		"max allowed query",
+		"mymemory warning",
+	} {
 		haystack := lower
 		if strings.Contains(forbidden, " ") {
 			haystack = normalized
 		}
 		if releaseContainsBoundedPhrase(haystack, forbidden) {
-			return true
+			return forbidden
 		}
 	}
-	return false
+	return ""
 }
 
 func releaseLocalizedBoilerplateLeak(locale string, body string) string {

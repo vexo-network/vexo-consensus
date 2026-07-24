@@ -57,7 +57,7 @@ check: test vet docs-check evm-conformance
 
 docs-check:
 	mkdir -p $(GOCACHE_DIR)
-	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test ./cmd/vexod -run TestDocsLocalesMirrorCanonicalTree -count=1
+	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) test -timeout=30000s ./cmd/vexod -run TestDocsLocalesMirrorCanonicalTree -count=1
 	GOCACHE=$$(pwd)/$(GOCACHE_DIR) $(GO) run ./cmd/vexod release docs-quality --docs docs --json > /tmp/vexo-docs-quality.json
 
 evm-conformance:

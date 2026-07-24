@@ -1,12 +1,24 @@
 > Locale: vi · Tiếng Việt
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+# Tổng quan giao thức đồng thuận
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Đây là điểm vào cấp cao của tài liệu đồng thuận Vexo. Chi tiết chuẩn tắc nằm trong [Consensus Spec](./specs/consensus-spec.md), [Finality Proof Format](./specs/finality-proof-format.md), [Validator Lifecycle](./specs/validator-lifecycle.md), [Storage Schema](./specs/storage-schema.md), [Networking Spec](./specs/networking-spec.md) và [Transaction Format](./specs/tx-format.md).
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## Mô hình
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Vexo dùng lõi BFT kiểu HotStuff với proposal, vote, quorum certificate(QC), timeout certificate, an toàn locked-QC và finality ba chuỗi. Chỉ an toàn khi bỏ phiếu cho block nếu nó mở rộng locked QC hoặc mang justify QC ít nhất mới bằng lock. Chuỗi QC tổng hợp hoặc bỏ qua height mà không ràng buộc rõ height và hash của block, parent và grandparent sẽ bị từ chối trước quyết định finality.
+
+## Danh tính giao thức và ranh giới nghiên cứu
+
+Vexo không phải tên mới của HotStuff nguyên bản, cũng không phải cùng giao thức hoặc implementation với AptosBFT, DiemBFT, Jolteon, Ditto, Tendermint hay CometBFT. Một Go runtime riêng kết hợp khái niệm an toàn HotStuff với thời gian vòng thích ứng, phục hồi bền vững, thứ tự giao dịch tất định, thực thi mô-đun và validator set được phiên bản hóa theo height.
+
+Đường vote đang hoạt động dùng toàn bộ validator set của height và proposer tất định. VRF committee selector có trong component và query nhưng chưa quyết định proposal eligibility hoặc quorum formation. Vì vậy phải mô tả đây là nghiên cứu tương lai. Xem [Adaptive Recovery-Gated HotStuff for Modular Proof-of-Stake Networks](./research/adaptive-recovery-hotstuff-paper.md) về phạm vi đóng góp và quy trình thực nghiệm.
+
+## Ranh giới thực thi và phục hồi
+
+QC certification, HotStuff finalization, application execution và state commit là các sự kiện riêng. Mặc định `execution_commit=finalized` chỉ thực thi ancestor do quy tắc ba chuỗi chọn. Pacemaker thích ứng và `recovery_finality_gate_enabled` điều khiển độ trễ và phục hồi, không đổi proposer, quorum power, safe-vote hay finality.
+
+## Ranh giới an toàn
 
 - ít hơn một phần ba quyền biểu quyết của Byzantine
 - đề xuất, bỏ phiếu, bỏ phiếu theo thời gian chờ và chữ ký cuối cùng được phân tách theo miền
@@ -17,7 +29,10 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 ## Ranh giới tiền điện tử
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+- Backend `deterministic` chỉ dành cho thử nghiệm và không vượt qua kiểm tra network safety.
+- `ed25519` được hỗ trợ cho thử nghiệm mạng công khai và chuẩn bị ra mắt.
+- `bls` mặc định dùng `blst-bls12381-minpk-v1` và yêu cầu proof-of-possession, kiểm tra subgroup, xác thực public key, audit dependency và bằng chứng release-gate.
+- Kiểm tra yêu cầu metadata VRF adapter, nhưng điều đó không có nghĩa VRF committee nằm trên đường đồng thuận đang hoạt động.
 
 - kiểm tra cấu hình nghiêm ngặt cho mọi nhà xác thực
 - bằng chứng cổng thông tin

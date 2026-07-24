@@ -18,7 +18,7 @@
 如果时间不多，可以按下面顺序阅读：
 
 1. [`Node Initialization`](./operators/node-initialization.md) — 了解如何创建 node home、编辑分离的 config 文件，以及启动 validator 或 archive node。
-2. [`Docker Deployment`](../deployments/docker/README.md) — 运行单主机 4 节点部署，或准备多主机网络。
+2. [`Docker Deployment`](../../../deployments/docker/README.md) — 运行单主机 4 节点部署，或准备多主机网络。
 3. [`Observability Guide`](./operators/observability.md) — 查看节点活着但不正常时最先要看的信号。
 4. [`RPC API Versioning`](./sdk/rpc-api-versioning.md) — 了解如何把钱包、Remix 和 Web3 工具连接到 Vexo 的 RPC/Web3 端点。
 
@@ -114,20 +114,20 @@ locale 文件不能偏离 canonical tree。它们是在不改变命令、JSON �
 
 | 文档 | 目的 |
 |---|---|
-| [Documentation Locales](./locales/README.md) | locale 目录映射和翻译政策 |
-| [English Canonical Docs](./locales/en/README.md) | 规范性的英文文档树 |
-| [Chinese Docs](./locales/zh/README.md) | 中文 locale 树 |
-| [Korean Docs](./locales/ko/README.md) | 韩语 locale 树 |
-| [Japanese Docs](./locales/ja/README.md) | 日语 locale 树 |
-| [French Docs](./locales/fr/README.md) | 法语 locale 树 |
-| [German Docs](./locales/de/README.md) | 德语 locale 树 |
-| [Spanish Docs](./locales/es/README.md) | 西班牙语 locale 树 |
-| [Portuguese Docs](./locales/pt/README.md) | 葡萄牙语 locale 树 |
-| [Russian Docs](./locales/ru/README.md) | 俄语 locale 树 |
-| [Arabic Docs](./locales/ar/README.md) | 阿拉伯语 locale 树 |
-| [Hindi Docs](./locales/hi/README.md) | 印地语 locale 树 |
-| [Indonesian Docs](./locales/id/README.md) | 印度尼西亚语 locale 树 |
-| [Vietnamese Docs](./locales/vi/README.md) | 越南语 locale 树 |
+| [Documentation Locales](../README.md) | locale 目录映射和翻译政策 |
+| [English Canonical Docs](../en/README.md) | 规范性的英文文档树 |
+| [Chinese Docs](./README.md) | 中文 locale 树 |
+| [Korean Docs](../ko/README.md) | 韩语 locale 树 |
+| [Japanese Docs](../ja/README.md) | 日语 locale 树 |
+| [French Docs](../fr/README.md) | 法语 locale 树 |
+| [German Docs](../de/README.md) | 德语 locale 树 |
+| [Spanish Docs](../es/README.md) | 西班牙语 locale 树 |
+| [Portuguese Docs](../pt/README.md) | 葡萄牙语 locale 树 |
+| [Russian Docs](../ru/README.md) | 俄语 locale 树 |
+| [Arabic Docs](../ar/README.md) | 阿拉伯语 locale 树 |
+| [Hindi Docs](../hi/README.md) | 印地语 locale 树 |
+| [Indonesian Docs](../id/README.md) | 印度尼西亚语 locale 树 |
+| [Vietnamese Docs](../vi/README.md) | 越南语 locale 树 |
 
 ## 编写新文档
 
@@ -171,6 +171,12 @@ locale 文件不能偏离 canonical tree。它们是在不改变命令、JSON �
 - 命令、RPC 名称、config key、JSON field 和 package name 都保持不变。
 - 运行 `make docs-check`。
 - 如果命令示例、config schema 或生成物有变化，再运行更宽的项目检查。
+
+## 研究与论文写作
+
+准备论文时，请先阅读 [`Adaptive Recovery-Gated HotStuff Research Draft`](./research/adaptive-recovery-hotstuff-paper.md)。该文档把已经实现的自适应轮次超时、恢复终局性门控和确定性交易排序与既有工作区分开，并集中说明研究问题、假设、实验流程、可复现产物及研究伦理。文档不会把尚未测量的性能写成实验结果，也不会把 PoS、BFT 或 HotStuff 本身宣称为新贡献。
+
+跨语言导航保留以下规范文档名称：`Node Initialization`、`Docker Deployment`、`Observability Guide`、`RPC API Versioning`、`Production Readiness`、`Release Pipeline`、`Adaptive Recovery-Gated HotStuff Research Draft`。
 
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录

@@ -97,7 +97,19 @@ Dieses Dokument hilft dabei, die normative Spezifikation der Konsens-State-Machi
 
 ## Leere Blöcke und Round-Recovery
 
-Mit `create_empty_blocks=false` ist eine stabile height bei leerem mempool ein normaler idle Zustand. Sobald eine Transaktion ankommt, kann der Node zur nächsten local proposer round wechseln und einen Transaktionsblock bauen; QC/finality Regeln bleiben unverändert.
+Mit `create_empty_blocks=false` ist eine stabile height bei leerem mempool ein normaler idle Zustand. Sobald eine Transaktion ankommt, schlägt der Node nur vor, wenn er der deterministische Proposer für das aktuelle `(height, round)` ist; ein Nicht-Proposer überspringt lokal keine Runde. Runden ändern sich nur durch ein gültiges timeout certificate oder einen zertifizierten finality Übergang, und Ausführungs- oder Speicherfehler gelten nicht als timeout.
+
+## Adaptives Runden-Timeout
+
+Bei `adaptive_round_timeout_enabled = true` berechnet der Knoten das Timeout aus Basiswert, rollierendem p95 der proposal/vote/commit-Verarbeitung, Fortschritt und Defizit aktiver Peers. Ein Timeout erhöht den Wert um Faktor 1,5, Erfolg senkt ihn mit Faktor 0,8, die gemessene Verarbeitung liefert eine dreifache Sicherheitsmarge; der Wert bleibt zwischen Basis und achtfacher Basis. Safe-vote, proposer, quorum power, QC und three-chain finality bleiben unverändert.
+
+## Recovery-Finalitäts-Gate
+
+Bei `recovery_finality_gate_enabled = true` wird bei unterschiedlichen dauerhaften Höhen von application state und block index deren Minimum zur safe recovery height. Finalized application commits darüber werden bis zur Wiederherstellung der Konsistenz zurückgestellt. Aktuelles Timeout und Recovery-Aufschübe sind über `/v1/metrics` und `/metrics/text` sichtbar.
+
+## Deterministische Transaktionsreihenfolge
+
+Eine proposal leitet aus `chain_id` und Höhe einen Salt ab, sortiert die transaction chain jedes Signers nach aufsteigendem nonce und führt die Köpfe nach salted transaction hash zusammen. Für denselben candidate set entfällt die lokale mempool-Ankunftsreihenfolge; first-seen fairness, censorship resistance, confidentiality und formale order fairness werden nicht garantiert.
 
 <!-- vexo-docs:technical-parity -->
 ## Anhang zur technischen Parität

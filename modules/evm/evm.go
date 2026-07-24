@@ -672,12 +672,13 @@ func (module Module) deliverCall(ctx vexoapp.Context, tx types.Tx, args []string
 	if err != nil {
 		return types.Result{Code: 3, Log: err.Error()}
 	}
-	code, err := loadCode(ctx.GoContext(), ctx.Store, invocation.Contract)
+	state := evmStateReader{store: ctx.Store}
+	code, err := state.Code(ctx.GoContext(), invocation.Contract)
 	if err != nil {
 		return types.Result{Code: 4, Log: err.Error()}
 	}
 	invocation.Code = code
-	invocation.State = evmStateReader{store: ctx.Store}
+	invocation.State = state
 	invocation.BlockNumber = uint64(ctx.Height)
 	invocation.Timestamp = headerUnixSeconds(ctx.Header)
 	invocation.BlockGasLimit = ctx.GasLimit()
@@ -1040,6 +1041,9 @@ func (module Module) estimateInvocationGas(ctx vexoapp.Context, invocation contr
 	if module.registry == nil {
 		return 0, ErrVMRegistryEmpty
 	}
+	// Ante validation owns nonce checks; gas estimation must not reject a
+	// transaction solely because its predecessor is still in the mempool.
+	invocation.EthereumSimulation = true
 	result, err := module.registry.Execute(ctx.GoContext(), invocation)
 	if err != nil {
 		return 0, err
@@ -2539,11 +2543,14 @@ func (reader evmSnapshotStateReader) Storage(ctx context.Context, address types.
 	if account.Storage == nil {
 		return nil, nil
 	}
-	value := account.Storage[normalizeSlot(slot)]
-	if len(value) == 0 {
-		value = account.Storage[slot]
+	normalized := normalizeSlot(slot)
+	keys := []string{normalized, strings.TrimPrefix(normalized, "0x"), slot, strings.TrimPrefix(slot, "0x")}
+	for _, key := range keys {
+		if value := account.Storage[key]; len(value) > 0 {
+			return append([]byte(nil), value...), nil
+		}
 	}
-	return append([]byte(nil), value...), nil
+	return nil, nil
 }
 
 func (reader evmSnapshotStateReader) Balance(ctx context.Context, address types.Address) (uint64, error) {

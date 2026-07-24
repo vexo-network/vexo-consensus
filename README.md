@@ -152,6 +152,8 @@ http://127.0.0.1:28657/web3
 
 For the Docker single-host network, the init step seeds a prefunded local Web3 account on each validator so Remix can deploy contracts with `eth_sendTransaction` out of the box. Use that only for local development.
 
+That local Web3 profile uses the `latest` EVM fork preset for bytecode produced by current Remix/Solidity releases. Production network defaults remain pinned to London unless an operator deliberately schedules a fork change.
+
 Quick checks:
 
 ```bash
@@ -231,6 +233,10 @@ Operations and release:
 - [Cosmos/Tendermint Comparison Gate](./docs/release/cosmos-comparison-gate.md)
 - [Version Compatibility Matrix](./docs/release/version-compatibility.md)
 - [Docker Deployment](./deployments/docker/README.md)
+
+Research:
+
+- [Adaptive Recovery-Gated HotStuff Research Draft](./docs/research/adaptive-recovery-hotstuff-paper.md)
 
 ## Contributing
 

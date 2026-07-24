@@ -784,7 +784,7 @@ func TestModuleEstimateEthereumDeployUsesRawTxGasLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gas != 17 || vm.invocation.GasLimit != decoded.Gas {
+	if gas != 17 || vm.invocation.GasLimit != decoded.Gas || !vm.invocation.EthereumSimulation {
 		t.Fatalf("expected estimate to use raw tx gas limit %d, got gas=%d invocation=%+v", decoded.Gas, gas, vm.invocation)
 	}
 }
@@ -1331,7 +1331,7 @@ func TestModuleEstimateGasCurrentAccountAndSnapshotReaders(t *testing.T) {
 		BalanceHex: "0x4d",
 		Nonce:      6,
 		Code:       []byte{0x60, 0x02},
-		Storage:    map[string][]byte{normalizeSlot("0x01"): {0x03}},
+		Storage:    map[string][]byte{strings.TrimPrefix(normalizeSlot("0x01"), "0x"): {0x03}},
 	}})
 	if code, err := reader.Code(context.Background(), address); err != nil || !bytes.Equal(code, []byte{0x60, 0x02}) {
 		t.Fatalf("unexpected snapshot code=%x err=%v", code, err)
@@ -1746,6 +1746,43 @@ func TestDefaultModuleExecutesEthereumRawContractCreation(t *testing.T) {
 	}
 }
 
+func TestDefaultModuleExecutesEthereumRawEOATransfer(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	chainID := ethcompat.ChainNumericID("vexo-chain")
+	to := gethcommon.HexToAddress("0x000000000000000000000000000000000000beef")
+	rawTx := signedEthereumTransferTx(t, chainID, 2, to, 7)
+	decoded, err := ethcompat.DecodeRawTransaction(rawTx, ethcompat.DecodeOptions{ChainID: chainID, BaseFee: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	setTestEVMBalance(t, storage, decoded.From, 1_000_000)
+	setTestEVMNonce(t, storage, decoded.From, decoded.Nonce)
+	module := NewModule()
+	result := module.DeliverTx(vexoapp.Context{
+		Ctx:        context.Background(),
+		ChainID:    "vexo-chain",
+		EVMChainID: chainID,
+		BaseFee:    1,
+		Height:     1,
+		Store:      storage,
+		Gas:        vexoapp.NewGasMeter(decoded.Gas),
+	}, decoded.Tx)
+	if result.Code != 0 {
+		t.Fatalf("ethereum EOA transfer failed: %+v", result)
+	}
+	var receipt Receipt
+	if err := json.Unmarshal(result.Data, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.Status != 1 || !strings.EqualFold(receipt.To, to.Hex()) {
+		t.Fatalf("unexpected EOA transfer receipt: %+v", receipt)
+	}
+}
+
 func TestModulePersistsAndQueriesBlobSidecar(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
@@ -1986,6 +2023,24 @@ func signedEthereumCreateTx(t *testing.T, chainID uint64, initCode string) strin
 		Data:      data,
 	})
 	signed, err := gethtypes.SignTx(tx, gethtypes.LatestSignerForChainID(new(big.Int).SetUint64(chainID)), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := signed.MarshalBinary()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "0x" + hex.EncodeToString(raw)
+}
+
+func signedEthereumTransferTx(t *testing.T, chainID uint64, nonce uint64, to gethcommon.Address, value uint64) string {
+	t.Helper()
+	key, err := gethcrypto.HexToECDSA("4c0883a69102937d6231471b5dbb6204fe51296170827944f3a7f3f43347a8a5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx := gethtypes.NewTransaction(nonce, to, new(big.Int).SetUint64(value), 21_000, big.NewInt(1), nil)
+	signed, err := gethtypes.SignTx(tx, gethtypes.NewEIP155Signer(new(big.Int).SetUint64(chainID)), key)
 	if err != nil {
 		t.Fatal(err)
 	}

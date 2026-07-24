@@ -22,6 +22,8 @@ If you only have a few minutes, read the docs in this order:
 
 If you are reviewing a release candidate, start with [`Production Readiness`](./production-readiness.md) and [`Release Pipeline`](./release/release-pipeline.md) before looking at the deeper specs.
 
+If you are preparing an academic paper, start with [`Adaptive Recovery-Gated HotStuff Research Draft`](./research/adaptive-recovery-hotstuff-paper.md). It separates implemented mechanisms, hypotheses, prior art, experiment design, and claims that still require evidence.
+
 ## How to Read This Set
 
 Use the path that matches what you are trying to do. If you are not sure, start with the first row.
@@ -34,6 +36,7 @@ Use the path that matches what you are trying to do. If you are not sure, start 
 | Enable EVM features | EVM/native accounting, tx format, RPC versioning | Native balance accounting, gas/base fee behavior, Web3 compatibility evidence |
 | Run nodes | Node initialization, adding a validator, networking spec | Split config files, peer identity, key custody, status/metrics |
 | Prepare a release | Audit readiness, release pipeline, launch runbook | Required evidence files, release gate output, rollback plan |
+| Prepare a paper | Research draft and reproducibility protocol | Source mapping, prior art, hypotheses, raw experiment artifacts, ethics |
 
 If you are new to the project and just want to run something, start here:
 
@@ -109,6 +112,14 @@ If you are reviewing the protocol or preparing a release, use this order:
 | Document | Purpose |
 |---|---|
 | [Security Audit Readiness](./security/audit-readiness.md) | Threat model, assumptions, limitations, safety argument, and required audit evidence |
+
+## Research and Publication
+
+| Document | Purpose |
+|---|---|
+| [Adaptive Recovery-Gated HotStuff Research Draft](./research/adaptive-recovery-hotstuff-paper.md) | Paper-style protocol description, novelty boundary, implementation mapping, experiment design, correctness scope, reproducibility, and research ethics |
+
+The research document is intentionally conservative. It does not claim that PoS, BFT, or HotStuff is new, and it does not turn unmeasured hypotheses into performance results.
 
 ## Localized Documentation
 

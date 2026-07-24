@@ -178,6 +178,10 @@ type ContextCheckTxApplication interface {
 	CheckTxContext(ctx context.Context, tx types.Tx) CheckTxResponse
 }
 
+type ContextCheckTxsApplication interface {
+	CheckTxsContext(ctx context.Context, txs []types.Tx) CheckTxResponse
+}
+
 type ContextPrepareProposalApplication interface {
 	PrepareProposalContext(ctx context.Context, req PrepareProposalRequest) (PrepareProposalResponse, error)
 }

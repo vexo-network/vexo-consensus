@@ -70,6 +70,11 @@ func OpenDurableDAG(ctx context.Context, path string, base *FIFO) (*DAG, error) 
 		}
 		switch event.Op {
 		case walOpAddTx:
+			if dag.base.config.ReplayCheckTx != nil {
+				if err := dag.base.config.ReplayCheckTx(ctx, event.Tx); err != nil {
+					continue
+				}
+			}
 			if err := dag.base.AddTx(ctx, event.Tx); err != nil && !errors.Is(err, ErrDuplicateTx) {
 				_ = wal.Close()
 				return nil, err

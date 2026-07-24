@@ -85,6 +85,40 @@ func TestRuntimePrepareProposalFiltersInvalidTxs(t *testing.T) {
 	}
 }
 
+func TestRuntimePrepareProposalAcceptsContiguousPendingNonces(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	runtime, err := NewRuntime("vexo-test", []Module{&recordingModule{name: "bank"}}, PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.WithStore(storage).WithAnte(NewAnteKeeper(AnteConfig{RequireNonce: true}))
+	first := types.Tx("bank:first:signer=alice:nonce=1")
+	second := types.Tx("bank:second:signer=alice:nonce=2")
+	if response := runtime.CheckTx(second); response.Result.Code == 0 {
+		t.Fatal("future nonce unexpectedly passed single-transaction CheckTx")
+	}
+
+	prepared, err := runtime.PrepareProposal(PrepareProposalRequest{Height: 1, Txs: []types.Tx{second, first}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(prepared.Txs, []types.Tx{first, second}) {
+		t.Fatalf("expected contiguous nonce sequence, got %q", prepared.Txs)
+	}
+	block := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1}, Txs: prepared.Txs}
+	if response := runtime.ProcessProposal(ProcessProposalRequest{Block: block}); !response.Accepted {
+		t.Fatalf("contiguous nonce proposal was rejected: %+v", response)
+	}
+	if _, err := runtime.FinalizeBlock(FinalizeBlockRequest{Block: block}); err != nil {
+		t.Fatalf("contiguous nonce block failed execution: %v", err)
+	}
+}
+
 func TestRuntimeProposalAndFinalizeDoNotDependOnGasEstimation(t *testing.T) {
 	module := &gasEstimatingModule{
 		recordingModule: recordingModule{name: "bank"},

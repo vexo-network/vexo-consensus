@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"strconv"
 	"strings"
 
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
@@ -354,6 +355,35 @@ func invalidNonceError(meta TxMeta, expected uint64) error {
 		return ErrInvalidNonce
 	}
 	return fmt.Errorf("%w: signer=%s nonce=%d expected=%d", ErrInvalidNonce, meta.Signer, meta.Nonce, expected)
+}
+
+func ParseInvalidNonceLog(log string) (uint64, uint64, bool) {
+	if !strings.Contains(log, ErrInvalidNonce.Error()) {
+		return 0, 0, false
+	}
+	var nonce uint64
+	var expected uint64
+	nonceFound := false
+	expectedFound := false
+	for _, field := range strings.Fields(log) {
+		if value, found := strings.CutPrefix(field, "nonce="); found {
+			parsed, err := strconv.ParseUint(value, 10, 64)
+			if err != nil {
+				return 0, 0, false
+			}
+			nonce = parsed
+			nonceFound = true
+		}
+		if value, found := strings.CutPrefix(field, "expected="); found {
+			parsed, err := strconv.ParseUint(value, 10, 64)
+			if err != nil {
+				return 0, 0, false
+			}
+			expected = parsed
+			expectedFound = true
+		}
+	}
+	return nonce, expected, nonceFound && expectedFound
 }
 
 func isEthereumRawTx(tx types.Tx) bool {

@@ -133,6 +133,9 @@ func TestStateMachineStoresVoteQuorumCertInBlockTree(t *testing.T) {
 	if highQC := machine.HighQC(context.Background()); highQC.BlockHash != blockHash || highQC.Height != 1 {
 		t.Fatalf("expected highQC to track vote quorum cert, got %+v", highQC)
 	}
+	if err := machine.OnProposal(context.Background(), Proposal{Block: block, Proposer: "a"}); !errors.Is(err, ErrStaleProposal) {
+		t.Fatalf("expected duplicate certified proposal to be idempotent, got %v", err)
+	}
 }
 
 func TestStateMachineCreateProposalUsesHighQC(t *testing.T) {
@@ -318,6 +321,42 @@ func TestStateMachineRejectsUnsafeForkBelowLockedQC(t *testing.T) {
 	err = machine.OnProposal(context.Background(), Proposal{Block: fork, Proposer: "a"})
 	if !errors.Is(err, ErrUnsafeProposal) {
 		t.Fatalf("expected unsafe proposal, got %v", err)
+	}
+}
+
+func TestStateMachineIsSafeProposalRejectsForkBelowLockedQC(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+		{ID: "c", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	machine.lockedQC = finality.QuorumCert{Height: 2, Round: 1, BlockHash: types.Hash{7}}
+
+	fork := Proposal{
+		Block: types.Block{Header: types.Header{
+			ChainID:           "vexo-test",
+			Height:            2,
+			PreviousBlockHash: types.Hash{9},
+			ValidatorSetHash:  set.Hash(),
+		}},
+		Proposer: "a",
+		JustifyQC: finality.QuorumCert{
+			Height:    1,
+			Round:     0,
+			BlockHash: types.Hash{9},
+		},
+	}
+	if safe := machine.IsSafeProposal(fork); safe {
+		t.Fatal("expected fork below locked qc to be unsafe")
 	}
 }
 
@@ -611,13 +650,8 @@ func TestStateMachineRejectsInvalidVoteFields(t *testing.T) {
 			expected: ErrInvalidVote,
 		},
 		{
-			name:     "future height",
-			vote:     Vote{Height: 2, Round: 1, BlockHash: types.Hash{1}, ValidatorID: "a"},
-			expected: ErrInvalidVote,
-		},
-		{
-			name:     "future round",
-			vote:     Vote{Height: 1, Round: 2, BlockHash: types.Hash{1}, ValidatorID: "a"},
+			name:     "unknown block",
+			vote:     Vote{Height: 1, Round: 1, BlockHash: types.Hash{1}, ValidatorID: "a"},
 			expected: ErrInvalidVote,
 		},
 	}
@@ -629,6 +663,53 @@ func TestStateMachineRejectsInvalidVoteFields(t *testing.T) {
 				t.Fatalf("expected %v, got %v", testCase.expected, err)
 			}
 		})
+	}
+}
+
+func TestStateMachineAcceptsFutureVoteForKnownBlock(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	block := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHash: set.Hash()}}
+	blockHash := HashBlock(block)
+	if err := machine.OnProposal(context.Background(), Proposal{Block: block, Round: 0, Proposer: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := machine.OnVote(context.Background(), Vote{Height: 1, Round: 1, BlockHash: blockHash, ValidatorID: "a"}); err != nil {
+		t.Fatalf("expected future-round vote to be accepted for known block, got %v", err)
+	}
+}
+
+func TestStateMachineAcceptsFutureHeightVoteForKnownBlock(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:      "vexo-test",
+		ValidatorSet: set,
+		Aggregator:   testAggregateSigner{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(1, 0)
+
+	block := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 2, ValidatorSetHash: set.Hash()}}
+	blockHash := HashBlock(block)
+	machine.blockTree.Insert(block, blockHash, finality.QuorumCert{})
+	if err := machine.OnVote(context.Background(), Vote{Height: 2, Round: 0, BlockHash: blockHash, ValidatorID: "a"}); err != nil {
+		t.Fatalf("expected future-height vote to be accepted for known block, got %v", err)
 	}
 }
 
@@ -713,6 +794,35 @@ func TestStateMachineRejectsUnknownProposalProposer(t *testing.T) {
 	})
 	if !errors.Is(err, ErrUnknownValidator) {
 		t.Fatalf("expected unknown proposer, got %v", err)
+	}
+}
+
+func TestStateMachineEnforcesScheduledProposer(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "carol", VotingPower: 1},
+		{ID: "alice", VotingPower: 1},
+		{ID: "bob", VotingPower: 1},
+	})
+	machine, err := NewStateMachine(StateMachineConfig{
+		ChainID:                  "vexo-test",
+		ValidatorSet:             set,
+		EnforceProposerSelection: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(1, 0)
+
+	block := types.Block{Header: types.Header{Height: 1}}
+	if _, err := machine.CreateProposal(block, 0, "bob", finality.QuorumCert{}); !errors.Is(err, ErrUnexpectedProposer) {
+		t.Fatalf("expected non-scheduled proposer rejection, got %v", err)
+	}
+	proposal, err := machine.CreateProposal(block, 0, "alice", finality.QuorumCert{})
+	if err != nil {
+		t.Fatalf("expected scheduled proposer to create proposal: %v", err)
+	}
+	if err := machine.OnProposal(context.Background(), proposal); err != nil {
+		t.Fatalf("expected scheduled proposal to be accepted: %v", err)
 	}
 }
 

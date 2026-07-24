@@ -39,10 +39,13 @@ func (node *Node) StepConsensusWithConfig(ctx context.Context, cfg ConsensusLoop
 	}
 
 	proposalOptions := ProposalOptions{AllowEmpty: cfg.CreateEmptyBlocks}
-	if node.needsFinalityProgress(ctx, cfg.ExecutionCommitMode) {
+	needsEmptyFinalityBlock := node.needsFinalityProgress(ctx, cfg.ExecutionCommitMode)
+	if needsEmptyFinalityBlock || node.mempoolHasPendingTx(ctx) {
 		if err := node.advanceFinalityRound(ctx); err != nil {
 			return ConsensusStepResult{}, err
 		}
+	}
+	if needsEmptyFinalityBlock {
 		proposalOptions.AllowEmpty = true
 		proposalOptions.ForceEmpty = true
 	}

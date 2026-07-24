@@ -441,7 +441,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 	if err := node.Start(ctx); err != nil {
 		return err
 	}
-	if err := waitForP2PPeerReadiness(ctx, node, runtimeConfig, logEvent); err != nil {
+	if err := waitForP2PPeerReadiness(ctx, p2pWire, runtimeConfig, logEvent); err != nil {
 		_ = withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop)
 		return err
 	}
@@ -513,9 +513,9 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 	return nil
 }
 
-func waitForP2PPeerReadiness(ctx context.Context, node *vexonode.Node, runtimeConfig startRuntimeConfig, logEvent vexonode.EventLogger) error {
+func waitForP2PPeerReadiness(ctx context.Context, wire *transport.GRPCTransport, runtimeConfig startRuntimeConfig, logEvent vexonode.EventLogger) error {
 	expectedPeers := len(runtimeConfig.P2PPeers)
-	if expectedPeers <= 0 {
+	if expectedPeers <= 0 || wire == nil {
 		return nil
 	}
 	waitTimeout := runtimeConfig.P2PDialTimeout * 3
@@ -529,13 +529,25 @@ func waitForP2PPeerReadiness(ctx context.Context, node *vexonode.Node, runtimeCo
 	defer cancel()
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
+	lastActivePeers := -1
+	lastConfiguredPeers := -1
 	for {
-		status := node.Status(waitCtx)
-		if bestPeerCount(status.ActivePeerCount, status.PeerCount, status.ConfiguredPeerCount, status.ScoredPeerCount) >= expectedPeers {
+		activePeers := len(wire.ActivePeerIDs())
+		configuredPeers := len(wire.ConfiguredPeerIDs())
+		if logEvent != nil && (activePeers != lastActivePeers || configuredPeers != lastConfiguredPeers) {
+			logEvent("p2p_peer_readiness_observed", map[string]any{
+				"active_peers":     activePeers,
+				"configured_peers": configuredPeers,
+				"target_peers":     expectedPeers,
+			})
+			lastActivePeers = activePeers
+			lastConfiguredPeers = configuredPeers
+		}
+		if hasRequiredActivePeers(activePeers, expectedPeers) {
 			if logEvent != nil {
 				logEvent("p2p_peer_readiness_ready", map[string]any{
-					"active_peers":     status.ActivePeerCount,
-					"configured_peers": status.ConfiguredPeerCount,
+					"active_peers":     activePeers,
+					"configured_peers": configuredPeers,
 					"target_peers":     expectedPeers,
 				})
 			}
@@ -543,10 +555,14 @@ func waitForP2PPeerReadiness(ctx context.Context, node *vexonode.Node, runtimeCo
 		}
 		select {
 		case <-waitCtx.Done():
-			return fmt.Errorf("timed out waiting for p2p peers: active=%d configured=%d target=%d", status.ActivePeerCount, status.ConfiguredPeerCount, expectedPeers)
+			return fmt.Errorf("timed out waiting for p2p peers: active=%d configured=%d target=%d", activePeers, configuredPeers, expectedPeers)
 		case <-ticker.C:
 		}
 	}
+}
+
+func hasRequiredActivePeers(activePeers int, expectedPeers int) bool {
+	return expectedPeers <= 0 || activePeers >= expectedPeers
 }
 
 func maybeRunStartupStateSync(ctx context.Context, inputs startInputs, runtimeConfig startRuntimeConfig, logEvent vexonode.EventLogger) error {
@@ -1259,10 +1275,12 @@ func buildRuntimeNode(inputs startInputs, runtimeConfig startRuntimeConfig) (*ve
 	if err := validateStartupKeyCustody(inputs, runtimeConfig); err != nil {
 		return nil, nil, err
 	}
-	application, err := appmodules.NewRuntimeWithChainConfig(inputs.Config.Chain.ChainID, inputs.Config.Chain)
+	chainConfig := normalizeManagedWeb3ForkPreset(inputs.Config.Chain, runtimeConfig)
+	application, err := appmodules.NewRuntimeWithChainConfig(chainConfig.ChainID, chainConfig)
 	if err != nil {
 		return nil, nil, err
 	}
+	inputs.Config.Chain = chainConfig
 	node, err := vexonode.New(inputs.Config, inputs.Genesis, application)
 	if err != nil {
 		return nil, nil, err
@@ -1277,6 +1295,13 @@ func buildRuntimeNode(inputs startInputs, runtimeConfig startRuntimeConfig) (*ve
 		return node, wire, nil
 	}
 	return node, nil, nil
+}
+
+func normalizeManagedWeb3ForkPreset(chain vexoconfig.Config, runtimeConfig startRuntimeConfig) vexoconfig.Config {
+	if runtimeConfig.RPCEVMManagedAccounts && chain.Execution.EVMForkPreset != "latest" {
+		chain.Execution.EVMForkPreset = "latest"
+	}
+	return chain
 }
 
 func applyNetworkRuntimeDefaults(inputs startInputs, runtimeConfig startRuntimeConfig) startRuntimeConfig {

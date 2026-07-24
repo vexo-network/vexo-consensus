@@ -83,6 +83,10 @@ Die neue RPC capability discovery Schnittstelle zeigt, welche provider Funktione
 
 Diese Schnittstellennamen unverändert lassen: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
 
+## Vertrag für geminte EVM-Objekte
+
+Bei einer geminten Transaktion behält `gas` das gesendete Limit; der tatsächliche Verbrauch steht in `gasUsed` des Receipts. Die Antwort enthält die anwendbaren Felder `v`, `r`, `s`, `yParity`, eine nicht leere Blockposition und für Receipt-Logs Block-, Transaktions- und Log-Index. ethers und Remix parsen diese Objekte nach dem Receipt-Erfolg erneut, daher sind sie Teil des Kompatibilitätsvertrags. `eth_getBlockByNumber` unterstützt Genesis `0x0` und verwendet für den Parent einen zero hash statt eines fehlerhaften `null`.
+
 <!-- vexo-docs:technical-parity -->
 - `admin_token` and `admin_tokens` are stable configuration keys and must remain unchanged when describing optional bearer-token enforcement.
 

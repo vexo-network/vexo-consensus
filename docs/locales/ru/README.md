@@ -1,12 +1,12 @@
 > Locale: ru · Русский
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+# Документация
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Этот каталог является практическим руководством по `vexo-consensus`. Он предназначен для разработчиков, операторов, ответственных за выпуск и аудиторов, которым нужно понимать сеть, не выводя ее поведение только из исходного кода.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Каждая страница должна объяснять ответственность компонента, реализующие его файлы, команды, ключи конфигурации и API, условия безопасности и доказательства для реальной сети. Английский остается нормативным источником для протокола, безопасности, выпуска, SDK, команд, конфигурации и RPC; перевод помогает чтению, но не заменяет английский текст при аудите.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Для начала выполните приведенные ниже команды, затем прочтите `Node Initialization`, `Docker Deployment`, `Observability Guide` и `RPC API Versioning`.
 
 | Задача | Путь к команде |
 |---|---|
@@ -38,21 +38,27 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 ## Спецификации протокола
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+- [Consensus Spec](./specs/consensus-spec.md), [Finality Proof Format](./specs/finality-proof-format.md) и [Validator Lifecycle](./specs/validator-lifecycle.md) описывают безопасность, финальность и изменения validator set.
+- [Networking Spec](./specs/networking-spec.md), [Storage Schema](./specs/storage-schema.md) и [Transaction Format](./specs/tx-format.md) охватывают транспорт, надежное восстановление и прием транзакций.
+- [EVM and Native Accounting](./specs/evm-native-accounting.md) определяет границу нативного и EVM-учета.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## SDK и расширения
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+[App Module Guide](./sdk/app-module-guide.md), [Custom Crypto Backend](./sdk/custom-crypto-backend.md), [Custom Storage and Transport](./sdk/custom-storage-transport.md) и `RPC API Versioning` объясняют расширение runtime без нарушения контрактов консенсуса и RPC.
 
-| [Матрица совместимости версий](./release/version-compatibility.md) | Ожидания совместимости для двоичных файлов, конфигураций, хранилищ, приложений, RPC и контрольных форматов |
+## Эксплуатация, выпуск и безопасность
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+`Node Initialization`, [Adding a Validator](./operators/add-validator.md), `Observability Guide`, [Регламент запуска](./release/launch-runbook.md), `Release Pipeline` и [Version Compatibility Matrix](./release/version-compatibility.md) образуют путь оператора. [Security Audit Readiness](./security/audit-readiness.md) фиксирует модель угроз и обязательные доказательства.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## Правило зрелости
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Наличие кода не доказывает готовность к production. Нужны unit, adversarial и E2E тесты, операционные артефакты, предположения, режимы отказа и результаты release gate. Команды, методы RPC и ключи конфигурации одинаковы во всех переводах.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## Исследование и публикация
+
+При подготовке статьи начните с [`Adaptive Recovery-Gated HotStuff Research Draft`](./research/adaptive-recovery-hotstuff-paper.md). Документ отделяет действительно реализованные механизмы, включая адаптивный тайм-аут раунда, шлюз финальности при восстановлении и детерминированный порядок транзакций, от предшествующих работ. В нем собраны исследовательские вопросы, гипотезы, экспериментальный протокол, воспроизводимые артефакты и правила исследовательской этики. Неизмеренная производительность не выдается за результат, а PoS, BFT и HotStuff сами по себе не заявляются как новые вклады.
+
+Для межъязыковой навигации сохраняются нормативные названия `Node Initialization`, `Docker Deployment`, `Observability Guide`, `RPC API Versioning`, `Production Readiness`, `Release Pipeline` и `Adaptive Recovery-Gated HotStuff Research Draft`.
 
 <!-- vexo-docs:technical-parity -->
 ## Приложение о техническом соответствии

@@ -129,6 +129,8 @@ http://127.0.0.1:28657/web3
 
 The single-host init flow now also seeds a local Web3 managed account for each validator, so Remix contract deployment can use `eth_sendTransaction` without extra wallet setup. That account is intended for local development only.
 
+The generated local Web3 network explicitly uses `execution.evm_fork_preset = "latest"` so bytecode from current Remix/Solidity releases, including Cancun opcodes such as `MCOPY`, can execute. Production network generation keeps the conservative London default; schedule production fork changes explicitly instead of copying this development setting.
+
 Do not use `http://127.0.0.1:26657/web3` from the host for the single-host compose network. `26657` is the container-internal RPC port; `28657` is the host port for validator 1.
 
 Stop the network:
@@ -142,6 +144,10 @@ Remove the generated Docker volume:
 ```bash
 docker volume rm vexo-single-data
 ```
+
+The single-host init and validator compose files share this named volume. If a wallet starts again at nonce `0` while the validators expect nonce `1`, stop every validator, remove this volume, run the init command exactly once, and then start the validators. Removing an old `deployments/docker/vexo-single-data` directory is only needed when migrating from an earlier bind-mount version of these compose files.
+
+For isolated CI or parallel local runs, set `VEXO_SINGLE_DATA_VOLUME` and the `VEXO_RPC_PORT_1` through `VEXO_RPC_PORT_4` and `VEXO_P2P_PORT_1` through `VEXO_P2P_PORT_4` variables. Defaults remain `vexo-single-data`, RPC ports `28657/28667/28677/28687`, and P2P ports `28656/28666/28676/28686`.
 
 ## Multi-Host 4-Validator Template
 
@@ -236,6 +242,7 @@ Runtime behavior comes from those files. The run compose file does not pass peer
 | No more logs after startup | Normal if only startup events are emitted or logs are waiting for block commits | Query `/v1/status`; if `latest_height` increases, the network is healthy |
 | `latest_height` is stuck | Empty mempool with empty blocks disabled, validator quorum missing, or peers not connected | Check `peer_count`, validator logs, and `consensus_config.json:create_empty_blocks` |
 | Remix says `Failed to fetch eth_chainId` | Wrong URL or host port | Use `http://127.0.0.1:28657/web3` for single-host validator 1 |
+| Validators repeatedly reject `nonce=0 expected=1` after a reset | An old single-host state volume was reused | Stop the compose stack, remove `vexo-single-data`, initialize once, and restart all validators |
 | Peer count is lower than expected | Wrong peer hostnames, Docker network mismatch, or firewall | Check generated `network_config.json:p2p.peers` |
 | BLS build fails in CI | cgo cross-compilation attempted without a matching C toolchain | Use `Dockerfile.cgo` on a cgo-capable runner or build no-cgo only for portability smoke |
 

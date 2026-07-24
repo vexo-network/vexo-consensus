@@ -1,12 +1,24 @@
 > Locale: id · Bahasa Indonesia
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+# Ikhtisar protokol konsensus
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Halaman ini adalah pintu masuk tingkat tinggi untuk dokumentasi konsensus Vexo. Rincian normatif berada di [Consensus Spec](./specs/consensus-spec.md), [Finality Proof Format](./specs/finality-proof-format.md), [Validator Lifecycle](./specs/validator-lifecycle.md), [Storage Schema](./specs/storage-schema.md), [Networking Spec](./specs/networking-spec.md), dan [Transaction Format](./specs/tx-format.md).
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## Model
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+Vexo memakai inti BFT bergaya HotStuff dengan proposal, vote, quorum certificate(QC), timeout certificate, keamanan locked-QC, dan finalitas tiga rantai. Sebuah blok aman untuk dipilih hanya jika memperpanjang locked QC atau membawa justify QC yang setidaknya sama baru. Rantai QC sintetis atau yang melompati height tanpa mengikat height dan hash blok, parent, serta grandparent secara eksplisit ditolak sebelum keputusan finalitas.
+
+## Identitas protokol dan batas riset
+
+Vexo bukan nama baru untuk HotStuff tanpa modifikasi dan bukan protokol atau implementasi yang sama dengan AptosBFT, DiemBFT, Jolteon, Ditto, Tendermint, atau CometBFT. Runtime Go yang terpisah menggabungkan konsep keselamatan HotStuff dengan waktu ronde adaptif, pemulihan durable, urutan transaksi deterministik, eksekusi modular, dan validator set berversi menurut height.
+
+Jalur vote aktif memakai seluruh validator set pada height dan proposer deterministik. VRF committee selector tersedia sebagai komponen dan query, tetapi belum menentukan proposal eligibility atau quorum formation. Karena itu fitur tersebut harus ditulis sebagai pekerjaan lanjutan. Lihat [Adaptive Recovery-Gated HotStuff for Modular Proof-of-Stake Networks](./research/adaptive-recovery-hotstuff-paper.md) untuk batas kontribusi dan protokol eksperimen.
+
+## Batas eksekusi dan pemulihan
+
+Sertifikasi QC, finalisasi HotStuff, eksekusi aplikasi, dan commit state adalah peristiwa berbeda. Nilai default `execution_commit=finalized` hanya mengeksekusi ancestor yang dipilih aturan tiga rantai. Pacemaker adaptif dan `recovery_finality_gate_enabled` mengendalikan latensi serta pemulihan tanpa mengubah proposer, quorum power, safe-vote, atau finality.
+
+## Batas keselamatan
 
 - kurang dari sepertiga suara Bizantium
 - proposal yang dipisahkan domain, pemungutan suara, timeout - vote, dan tanda tangan finalitas
@@ -17,7 +29,10 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 ## Batas Kripto
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+- Backend `deterministic` hanya untuk pengujian dan gagal dalam validasi network safety.
+- `ed25519` didukung untuk pengujian jaringan publik dan persiapan peluncuran.
+- `bls` secara default memakai `blst-bls12381-minpk-v1` dan membutuhkan proof-of-possession, pemeriksaan subgroup, validasi public key, audit dependensi, serta bukti release-gate.
+- Validasi membutuhkan metadata VRF adapter, tetapi hal itu tidak berarti VRF committee aktif pada jalur konsensus.
 
 - audit konfigurasi yang ketat untuk setiap rumah validator
 - bukti release - gate
@@ -26,7 +41,7 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 - bukti kebijakan penandatangan/KMS
 - tinjauan kebijakan ekonomi dan tata kelola khusus rantai
 
-Lihat [Kesiapan Audit Keamanan ](./ security/audit-readiness.md) dan [Release Pipeline ](./ release/release-pipeline.md) sebelum memperlakukan rilis sebagai siap produksi.
+Lihat [Kesiapan Audit Keamanan](./security/audit-readiness.md) dan [Release Pipeline](./release/release-pipeline.md) sebelum memperlakukan rilis sebagai siap produksi.
 <!-- vexo-docs:technical-parity -->
 ## Lampiran kesetaraan teknis
 

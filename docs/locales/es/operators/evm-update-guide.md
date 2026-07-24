@@ -173,4 +173,16 @@ Este apéndice mantiene la guía alineada con el resto del árbol documental.
 - Mantenga también sin cambios `make evm-conformance`, `make network-e2e`, `--evm-default-fixtures`, `--evm-tx-fixtures`, `--evm-execution-fixtures` y `--evm-web3-conformance-evidence`.
 - La pregunta operativa sigue siendo simple: ¿esta actualización preserva la ejecución estilo Ethereum y al mismo tiempo encaja con la seguridad de Vexo consensus y release?
 
+- Keep `go test -race ./rpc -count=1` in the verification matrix to catch managed nonce allocation and pending-state races.
+
+## Compatibilidad de objetos minados
+
+Remix y ethers vuelven a analizar la transacción y el bloque después del recibo. El `gas` de una transacción minada conserva el gas limit enviado; el consumo real pertenece a `gasUsed` del recibo. También son obligatorios los campos aplicables `v`, `r`, `s`, `yParity` y valores no nulos para `blockHash`, `blockNumber` y `transactionIndex`.
+
+El recibo contiene `transactionHash`, `transactionIndex`, `blockHash`, `blockNumber`, `from`, `to`, `contractAddress`, `status`, `gasUsed`, `cumulativeGasUsed`, `type` y `logs`; cada log incluye `logIndex`, `removed` y su ubicación. Para genesis `0x0`, `eth_getBlockByNumber` devuelve zero parent hash y no null. `eth_getTransactionByHash`, `eth_getTransactionReceipt` y `eth_getBlockByNumber` deben coincidir en la ubicación. `status = 0x1` por sí solo no demuestra compatibilidad.
+
+## Revalidar proxy y upgrade
+
+Con la misma cuenta y endpoint, despliegue implementation V1, proxy con calldata de inicialización, lea el estado, despliegue implementation V2, ejecute el UUPS upgrade autorizado y confirme que se conserva el storage. Registre transaction hash, block hash, contract address, nonce, status, gas limit y gas used. Distinga una cancelación de wallet de un fallo tras el envío; ante `invalid transaction nonce`, revise conjuntamente pending nonce allocation y mempool.
+
 <!-- vexo-docs:technical-parity -->

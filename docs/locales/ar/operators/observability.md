@@ -1,14 +1,20 @@
 > Locale: ar · العربية
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+# دليل الرصد
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+يشرح هذا الدليل تقييم صحة عقدة Vexo من RPC والمقاييس والسجلات وأدلة الإصدار. افحص أولا `running` و`latest_height`، ثم `latest_finalized_height` وpeers النشطة، ثم latency و`round_timeout`، وأخيرا signer وsnapshot وreplay والحظر. تشغيل العملية لا يثبت تقدم الإجماع بأمان.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## نقاط النهاية والحالة
+
+استخدم `/v1/status` للارتفاع وapp hash والنهائية وpeers، و`/v1/metrics` لـ JSON، و`/metrics/text` لـ Prometheus، و`/v1/diagnostics` للجاهزية، و`/v1/finality/latest` و`/v1/state/latest` و`/v1/recovery/report` و`/v1/snapshot` للأدلة والاسترداد. يجب حماية admin endpoints عبر loopback أو شبكة المشغل أو mTLS أو gateway موثقة.
+
+تعني `running=true` في `/v1/status` أن runtime بدأ فقط. يجب أن يتقدم `latest_height` و`latest_finalized_height`، وأن يتطابق `latest_app_hash` بين peers عند الارتفاع نفسه، وأن يستخدم `active_peer_count` لقياس الجلسات الفعلية بدلا من peers المهيأة أو المسجلة في score فقط.
 
 | `vexo_peer_count` | الأقران المحظورون حاليًا بموجب سياسة الدرجات | تشير المسامير إلى الهجوم أو تكوين الأقران السيئ أو الحدود الصارمة للغاية |
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## مقاييس Prometheus
+
+راقب `vexo_node_running` و`vexo_latest_height` و`vexo_active_peer_count` و`vexo_configured_peer_count` و`vexo_quorum_health_ratio` و`vexo_height_rate_per_minute` و`vexo_round_timeouts` و`vexo_adaptive_round_timeout_nanos` وp95 للـ proposal/vote/commit و`vexo_mempool_size` و`vexo_snapshot_healthy` و`vexo_replay_healthy` و`vexo_validator_signing_failures` و`vexo_recovery_finality_deferrals`.
 
 `vexo_peer_count` محفوظ للوحات المعلومات القديمة. يجب أن ترسم لوحات المعلومات الجديدة `vexo_active_peer_count` و`vexo_configured_peer_count` و`vexo_scored_peer_count` بشكل منفصل.
 
@@ -16,35 +22,49 @@ QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
 
 قم بضبط الأرقام لعدد المدقق الفعلي، والفاصل الزمني للكتلة، والكمون، والأجهزة. هذه هي نقاط البداية، وليست ثوابت عالمية.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
-
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
-
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+| التنبيه | شرط البداية | الإجراء |
+|---|---|---|
+| توقف الارتفاع | لا تقدم خلال فترتين أو ثلاث | قارن validators وproposer وsigner وpeers |
+| توقف النهائية | التنفيذ يتقدم وfinalized height لا يتقدم | افحص QC وproof وvalidator-set hash |
+| لا peers نشطة | `vexo_active_peer_count == 0` لدقيقة | افحص العنوان والهوية وauth وchain ID |
+| quorum ضعيف | `vexo_quorum_health_ratio < 0.75` لعدة نوافذ | افحص partition وlatency وفقد peers |
+| timeout مرتفع | العداد أو timeout المتكيف فوق baseline | افحص الشبكة وproposer وCPU والقرص وsigner |
+| تأجيل الاسترداد | زيادة `vexo_recovery_finality_deferrals` | صدر recovery report قبل تعديل البيانات |
 
 ## عتبات البدء المقترحة
 
 استخدم هذه القيم كقيم تنبيه أولية، ثم اضبطها بعد خط أساس حقيقي طويل المدى:
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
-
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+| الإشارة | تحذير | حرج |
+|---|---|---|
+| معدل الارتفاع | أقل من 50% من baseline | لا نمو |
+| peers النشطة | دون هدف quorum | صفر |
+| latency p95 | أكثر من 50% من الميزانية | أكثر من 80% |
+| signer | أي خطأ | أخطاء متكررة في ارتفاع واحد |
+| snapshot أو replay | فشل فحص واحد | فشل متكرر أو divergence |
 
 أهم قاعدة: التنبيه على **التغيير بمرور الوقت**. يمكن أن يكون الرقم الواحد مضللًا ؛ فمعدل الارتفاع، وتأخر النهاية، وزبد الأقران، ونمو الميمبول، وفشل الموقعين معًا تروي القصة الحقيقية.
 
 ## مصفوفة فرز الحوادث
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+| الحالة | الطبقة المحتملة | الخطوة الآمنة |
+|---|---|---|
+| توقف الارتفاع وpeers سليمة | consensus أو signer أو runtime | احفظ السجلات وافحص proposer/timeout |
+| فقد peers بعد النشر | network أو config | احفظ config وتراجع عن address/auth |
+| اختلاف app hashes | execution أو storage | أوقف العقد المتأثرة وشغل strict replay |
+| رفض finality proof | finality أو validator set | تحقق من height وset hash وsignature domain |
+| فشل استعادة snapshot | state sync أو storage | استعد إلى directory نظيف |
+| رفض remote signer | custody أو policy | ميز رفض السياسة عن عطل النقل |
 
 | ارتفاع الأقران المحظورين | نظير إلى نظير/الأمان | لقطات نتائج الأقران وأسباب الحظر | فحص النميمة المشوهة أو التكوين الخاطئ المشترك |
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+أثناء الحادث حافظ على WAL وaddrbook وsigner guard وdata directory وconfig والسجلات. حذفها يدمر الأدلة اللازمة للتمييز بين bug وخطأ المشغل.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+## السجلات والاستجابة الأولى
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+يجب أن تحمل الأحداث المنظمة node ID وvalidator ID وchain ID وheight وround وblock hash وpeer ID. احتفظ بـ `peer_connected` و`peer_dial_failed` و`block_committed` و`round_timeout` و`validator_signing_failure` و`snapshot_exported` و`replay_checked` و`upgrade_halt` و`upgrade_applied`.
 
-QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS
+قارن `/v1/status` على validator اثنين على الأقل، ثم افحص `/v1/diagnostics` وسجلات peers وmempool ومقاييس fees وsigner وأخيرا `/v1/recovery/report`. أرشف metrics وpprof وconfigs وgenesis وbinary checksums وevidence manifests مع سجلات release candidate.
 <!-- vexo-docs:technical-parity -->
 ## ملحق التكافؤ التقني
 

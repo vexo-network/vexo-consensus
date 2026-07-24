@@ -83,6 +83,10 @@
 
 इन interface names को बदले बिना रखें: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
 
+## Mined EVM object contract
+
+Mined transaction response में `gas` भेजा गया gas limit रखता है और वास्तविक उपयोग receipt के `gasUsed` में आता है। लागू `v`, `r`, `s`, `yParity`, non-null block location तथा receipt log के block, transaction और log index भी लौटने चाहिए। ethers और Remix receipt सफल होने के बाद इन objects को दोबारा parse करते हैं, इसलिए ये display fields नहीं बल्कि compatibility contract हैं। `eth_getBlockByNumber` genesis `0x0` को support करता है और parent के लिए malformed `null` के बजाय zero hash देता है।
+
 <!-- vexo-docs:technical-parity -->
 - `admin_token` and `admin_tokens` are stable configuration keys and must remain unchanged when describing optional bearer-token enforcement.
 

@@ -20,48 +20,51 @@ import (
 )
 
 var (
-	ErrUnknownValidator  = errors.New("unknown validator")
-	ErrConflictingVote   = errors.New("conflicting vote")
-	ErrNoQuorum          = errors.New("not enough voting power for quorum")
-	ErrInvalidProposal   = errors.New("invalid proposal")
-	ErrStaleProposal     = errors.New("stale proposal")
-	ErrInvalidVote       = errors.New("invalid vote")
-	ErrUnknownVoteBlock  = errors.New("vote target block not found")
-	ErrStaleVote         = errors.New("stale vote")
-	ErrUnsafeProposal    = errors.New("unsafe proposal")
-	ErrUnsafeVote        = errors.New("unsafe vote")
-	ErrAggregateRequired = errors.New("aggregate signer is required")
-	ErrMissingSignature  = errors.New("vote signature is required")
-	ErrConflictingCommit = safety.ErrConflictingCommit
+	ErrUnknownValidator   = errors.New("unknown validator")
+	ErrConflictingVote    = errors.New("conflicting vote")
+	ErrNoQuorum           = errors.New("not enough voting power for quorum")
+	ErrInvalidProposal    = errors.New("invalid proposal")
+	ErrStaleProposal      = errors.New("stale proposal")
+	ErrInvalidVote        = errors.New("invalid vote")
+	ErrUnknownVoteBlock   = errors.New("vote target block not found")
+	ErrStaleVote          = errors.New("stale vote")
+	ErrUnsafeProposal     = errors.New("unsafe proposal")
+	ErrUnexpectedProposer = errors.New("unexpected proposer")
+	ErrUnsafeVote         = errors.New("unsafe vote")
+	ErrAggregateRequired  = errors.New("aggregate signer is required")
+	ErrMissingSignature   = errors.New("vote signature is required")
+	ErrConflictingCommit  = safety.ErrConflictingCommit
 )
 
 type StateMachineConfig struct {
-	ChainID      string
-	ValidatorSet validator.Set
-	HashBlock    func(types.Block) types.Hash
-	Signatures   signatureVerifier
-	Aggregator   aggregateSigner
+	ChainID                  string
+	ValidatorSet             validator.Set
+	HashBlock                func(types.Block) types.Hash
+	Signatures               signatureVerifier
+	Aggregator               aggregateSigner
+	EnforceProposerSelection bool
 }
 
 type StateMachine struct {
-	mu           sync.Mutex
-	chainID      string
-	validatorSet validator.Set
-	hashBlock    func(types.Block) types.Hash
-	signatures   signatureVerifier
-	aggregator   aggregateSigner
-	status       Status
-	votes        map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote
-	votedVotes   map[types.Height]map[types.Round]map[types.ValidatorID]Vote
-	evidence     []slashing.Evidence
-	timeouts     *TimeoutCollector
-	pacemaker    *Pacemaker
-	blockTree    *BlockTree
-	lockedQC     finality.QuorumCert
-	commitRule   ThreeChainCommitRule
-	committed    []CommitDecision
-	committedSet map[types.Hash]struct{}
-	commitIndex  safety.CommitIndex
+	mu                       sync.Mutex
+	chainID                  string
+	validatorSet             validator.Set
+	hashBlock                func(types.Block) types.Hash
+	signatures               signatureVerifier
+	aggregator               aggregateSigner
+	enforceProposerSelection bool
+	status                   Status
+	votes                    map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote
+	votedVotes               map[types.Height]map[types.Round]map[types.ValidatorID]Vote
+	evidence                 []slashing.Evidence
+	timeouts                 *TimeoutCollector
+	pacemaker                *Pacemaker
+	blockTree                *BlockTree
+	lockedQC                 finality.QuorumCert
+	commitRule               ThreeChainCommitRule
+	committed                []CommitDecision
+	committedSet             map[types.Hash]struct{}
+	commitIndex              safety.CommitIndex
 }
 
 func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
@@ -77,11 +80,12 @@ func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
 	}
 
 	return &StateMachine{
-		chainID:      config.ChainID,
-		validatorSet: config.ValidatorSet,
-		hashBlock:    hashBlock,
-		signatures:   config.Signatures,
-		aggregator:   config.Aggregator,
+		chainID:                  config.ChainID,
+		validatorSet:             config.ValidatorSet,
+		hashBlock:                hashBlock,
+		signatures:               config.Signatures,
+		aggregator:               config.Aggregator,
+		enforceProposerSelection: config.EnforceProposerSelection,
 		status: Status{
 			ChainID:          config.ChainID,
 			Phase:            PhasePropose,
@@ -138,6 +142,9 @@ func (machine *StateMachine) CreateProposal(block types.Block, round types.Round
 	if _, found := machine.validatorSet.Get(proposer); !found {
 		return Proposal{}, ErrUnknownValidator
 	}
+	if err := machine.validateProposer(block.Header.Height, round, proposer); err != nil {
+		return Proposal{}, err
+	}
 
 	if justifyQC.Height == 0 {
 		justifyQC = machine.proposalQC()
@@ -173,6 +180,9 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 	if _, found := machine.validatorSet.Get(proposal.Proposer); !found {
 		return ErrUnknownValidator
 	}
+	if err := machine.validateProposer(proposal.Block.Header.Height, proposal.Round, proposal.Proposer); err != nil {
+		return err
+	}
 	if err := machine.verifyProposalSignature(proposal); err != nil {
 		return err
 	}
@@ -198,6 +208,12 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 		return fmt.Errorf("%w: justify qc must match parent block", ErrInvalidProposal)
 	}
 	blockHash := machine.hashBlock(proposal.Block)
+	if known, found := machine.blockTree.Get(blockHash); found && known.QuorumCert.Height > 0 {
+		if err := machine.applyKnownCommitRules(); err != nil {
+			return err
+		}
+		return ErrStaleProposal
+	}
 	if proposal.Block.Header.Height < machine.status.Height ||
 		(proposal.Block.Header.Height == machine.status.Height && proposal.Round < machine.status.Round) {
 		machine.blockTree.Insert(proposal.Block, blockHash, proposal.JustifyQC)
@@ -218,6 +234,20 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 	machine.status.Height = proposal.Block.Header.Height
 	machine.status.Round = proposal.Round
 	machine.status.Phase = PhaseVote
+	return nil
+}
+
+func (machine *StateMachine) validateProposer(height types.Height, round types.Round, proposer types.ValidatorID) error {
+	if !machine.enforceProposerSelection {
+		return nil
+	}
+	expected, ok := validator.SelectProposer(machine.validatorSet.List(), height, round)
+	if !ok {
+		return fmt.Errorf("%w: no active validators", ErrUnexpectedProposer)
+	}
+	if expected != proposer {
+		return fmt.Errorf("%w: height=%d round=%d expected=%s actual=%s", ErrUnexpectedProposer, height, round, expected, proposer)
+	}
 	return nil
 }
 
@@ -295,12 +325,6 @@ func (machine *StateMachine) validateVote(vote Vote) error {
 	}
 	if node.Block.Header.Height != vote.Height {
 		return fmt.Errorf("%w: target height mismatch", ErrInvalidVote)
-	}
-	if machine.status.Height > 0 && vote.Height > machine.status.Height {
-		return fmt.Errorf("%w: future height", ErrInvalidVote)
-	}
-	if vote.Height == machine.status.Height && vote.Round > machine.status.Round {
-		return fmt.Errorf("%w: future round", ErrInvalidVote)
 	}
 	if !machine.isSafeVoteTarget(node) {
 		return ErrUnsafeVote
@@ -595,6 +619,25 @@ func (machine *StateMachine) isSafeProposal(proposal Proposal) bool {
 	}
 	parentHash := proposal.Block.Header.PreviousBlockHash
 	return parentHash == machine.lockedQC.BlockHash || machine.blockTree.Extends(parentHash, machine.lockedQC.BlockHash)
+}
+
+func (machine *StateMachine) IsSafeProposal(proposal Proposal) bool {
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
+	return machine.isSafeProposal(proposal)
+}
+
+// IsAncestorOfHighQC reports whether blockHash is on the certified branch.
+// Certified ancestors must remain available until the three-chain commit rule
+// finalizes them, even after the state machine advances to a higher height.
+func (machine *StateMachine) IsAncestorOfHighQC(blockHash types.Hash) bool {
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
+	highQC := machine.blockTree.HighQC()
+	if highQC.BlockHash == (types.Hash{}) || blockHash == (types.Hash{}) {
+		return false
+	}
+	return blockHash == highQC.BlockHash || machine.blockTree.Extends(highQC.BlockHash, blockHash)
 }
 
 func (machine *StateMachine) isSafeVoteTarget(node BlockNode) bool {

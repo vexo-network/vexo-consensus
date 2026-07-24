@@ -173,4 +173,16 @@ rollback को last known good adapter version, config defaults, और fixture
 - `make evm-conformance`, `make network-e2e`, `--evm-default-fixtures`, `--evm-tx-fixtures`, `--evm-execution-fixtures`, और `--evm-web3-conformance-evidence` भी वैसे ही रखें।
 - operational question सरल है: क्या यह update Ethereum-style execution को preserve करता है और साथ ही Vexo consensus तथा release safety के अनुरूप है?
 
+- Keep `go test -race ./rpc -count=1` in the verification matrix to catch managed nonce allocation and pending-state races.
+
+## Mined object compatibility
+
+Remix और ethers receipt के बाद transaction तथा block को फिर parse करते हैं। mined transaction का `gas` भेजा गया gas limit रखे और वास्तविक खर्च receipt के `gasUsed` में हो। लागू `v`, `r`, `s`, `yParity` तथा non-null `blockHash`, `blockNumber`, `transactionIndex` भी जरूरी हैं।
+
+Receipt में `transactionHash`, `transactionIndex`, `blockHash`, `blockNumber`, `from`, `to`, `contractAddress`, `status`, `gasUsed`, `cumulativeGasUsed`, `type`, `logs` हों और प्रत्येक log में `logIndex`, `removed` सहित location हो। Genesis `0x0` के लिए `eth_getBlockByNumber` null के बजाय zero parent hash दे। `eth_getTransactionByHash`, `eth_getTransactionReceipt` और `eth_getBlockByNumber` की location समान होनी चाहिए। केवल `status = 0x1` compatibility सिद्ध नहीं करता।
+
+## Proxy और upgrade पुनः सत्यापन
+
+एक ही account और endpoint से implementation V1, initialization calldata वाला proxy, proxy state read, implementation V2, authorized UUPS upgrade और storage preservation क्रमशः जांचें। Transaction hash, block hash, contract address, nonce, status, gas limit और gas used दर्ज करें। Wallet cancellation को submitted transaction failure से अलग रखें; `invalid transaction nonce` मिलने पर pending nonce allocation और mempool दोनों जांचें।
+
 <!-- vexo-docs:technical-parity -->

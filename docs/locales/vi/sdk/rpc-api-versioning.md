@@ -83,6 +83,10 @@ Giao diện RPC capability discovery mới cho biết provider capability nào t
 
 Giữ nguyên các tên interface sau: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
 
+## Hợp đồng đối tượng EVM đã khai thác
+
+Trong mined transaction response, `gas` giữ gas limit đã gửi và mức sử dụng thật nằm ở `gasUsed` của receipt. Phản hồi cung cấp các trường áp dụng `v`, `r`, `s`, `yParity`, vị trí block không null; receipt log cũng có chỉ mục block, transaction và log. ethers cùng Remix phân tích lại các đối tượng này sau khi receipt thành công, nên đây là hợp đồng tương thích. `eth_getBlockByNumber` hỗ trợ genesis `0x0` và dùng zero hash cho parent thay vì `null` không hợp lệ.
+
 <!-- vexo-docs:technical-parity -->
 - `admin_token` and `admin_tokens` are stable configuration keys and must remain unchanged when describing optional bearer-token enforcement.
 

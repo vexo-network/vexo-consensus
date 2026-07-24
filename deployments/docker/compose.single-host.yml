@@ -6,7 +6,7 @@ x-vexo-node: &vexo-node
   environment:
     VEXO_KEY_PASSPHRASE: ${VEXO_KEY_PASSPHRASE:?set VEXO_KEY_PASSPHRASE}
   volumes:
-    - ./vexo-single-data:/var/lib/vexo
+    - vexo-single-data:/var/lib/vexo
   networks:
     - vexo-single
 
@@ -19,8 +19,8 @@ services:
       - /var/lib/vexo/network/validator-1
       - --run
     ports:
-      - "28657:26657"
-      - "28656:26656"
+      - "${VEXO_RPC_PORT_1:-28657}:26657"
+      - "${VEXO_P2P_PORT_1:-28656}:26656"
 
   validator-2:
     <<: *vexo-node
@@ -30,8 +30,8 @@ services:
       - /var/lib/vexo/network/validator-2
       - --run
     ports:
-      - "28667:26657"
-      - "28666:26656"
+      - "${VEXO_RPC_PORT_2:-28667}:26657"
+      - "${VEXO_P2P_PORT_2:-28666}:26656"
 
   validator-3:
     <<: *vexo-node
@@ -41,8 +41,8 @@ services:
       - /var/lib/vexo/network/validator-3
       - --run
     ports:
-      - "28677:26657"
-      - "28676:26656"
+      - "${VEXO_RPC_PORT_3:-28677}:26657"
+      - "${VEXO_P2P_PORT_3:-28676}:26656"
 
   validator-4:
     <<: *vexo-node
@@ -52,13 +52,13 @@ services:
       - /var/lib/vexo/network/validator-4
       - --run
     ports:
-      - "28687:26657"
-      - "28686:26656"
+      - "${VEXO_RPC_PORT_4:-28687}:26657"
+      - "${VEXO_P2P_PORT_4:-28686}:26656"
 
 networks:
   vexo-single:
 
 volumes:
   vexo-single-data:
-    name: vexo-single-data
+    name: ${VEXO_SINGLE_DATA_VOLUME:-vexo-single-data}
     external: true
