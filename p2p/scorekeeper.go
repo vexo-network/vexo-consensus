@@ -12,7 +12,14 @@ import (
 	"time"
 )
 
-const ScoreKeeperVersionV1 = "v1"
+const (
+	ScoreKeeperVersionV1 = "v1"
+
+	// DefaultMaxTrackedPeers bounds the per-peer score table when
+	// ScoreConfig.MaxTrackedPeers is unset. Identities are free to mint, so an
+	// unbounded table would let any connected peer grow memory without limit.
+	DefaultMaxTrackedPeers = 4096
+)
 
 var (
 	ErrPeerBanned               = errors.New("peer is banned")
@@ -32,6 +39,7 @@ type ScoreConfig struct {
 	WindowResetInterval       time.Duration
 	ScoreRecovery             int64
 	BanDuration               time.Duration
+	MaxTrackedPeers           int
 }
 
 type PeerState struct {
@@ -83,6 +91,9 @@ func NewScoreKeeper(config ScoreConfig) *ScoreKeeper {
 	if config.RateLimitCost == 0 {
 		config.RateLimitCost = 1
 	}
+	if config.MaxTrackedPeers <= 0 {
+		config.MaxTrackedPeers = DefaultMaxTrackedPeers
+	}
 	return &ScoreKeeper{
 		config: config,
 		peers:  make(map[PeerID]PeerState),
@@ -108,24 +119,24 @@ func (keeper *ScoreKeeper) AdmitMessage(ctx context.Context, peer PeerID) error 
 	state := keeper.state(peer)
 	state = keeper.expireBan(state)
 	if state.Banned {
-		keeper.peers[peer] = state
+		keeper.track(peer, state)
 		return ErrPeerBanned
 	}
 	state.WindowMessages++
 	if keeper.config.MaxMessagesPerWindow > 0 && state.WindowMessages > keeper.config.MaxMessagesPerWindow {
 		state.Score = subtractScore(state.Score, keeper.config.RateLimitCost)
 		state = keeper.applyBan(state)
-		keeper.peers[peer] = state
+		keeper.track(peer, state)
 		return ErrRateLimitExceeded
 	}
 	keeper.totalWindowMessages++
 	if keeper.config.MaxTotalMessagesPerWindow > 0 && keeper.totalWindowMessages > keeper.config.MaxTotalMessagesPerWindow {
 		state.Score = subtractScore(state.Score, keeper.config.RateLimitCost)
 		state = keeper.applyBan(state)
-		keeper.peers[peer] = state
+		keeper.track(peer, state)
 		return ErrRateLimitExceeded
 	}
-	keeper.peers[peer] = state
+	keeper.track(peer, state)
 	return nil
 }
 
@@ -141,7 +152,7 @@ func (keeper *ScoreKeeper) ScoreMessage(ctx context.Context, peer PeerID, valid 
 	state := keeper.state(peer)
 	state = keeper.expireBan(state)
 	if state.Banned {
-		keeper.peers[peer] = state
+		keeper.track(peer, state)
 		return ErrPeerBanned
 	}
 	if valid {
@@ -150,7 +161,7 @@ func (keeper *ScoreKeeper) ScoreMessage(ctx context.Context, peer PeerID, valid 
 		state.Score = subtractScore(state.Score, keeper.config.InvalidMessageCost)
 	}
 	state = keeper.applyBan(state)
-	keeper.peers[peer] = state
+	keeper.track(peer, state)
 
 	if state.Banned {
 		return ErrPeerBanned
@@ -196,7 +207,11 @@ func (keeper *ScoreKeeper) IsBanned(ctx context.Context, peer PeerID) (bool, err
 	}
 	keeper.mu.Lock()
 	defer keeper.mu.Unlock()
-	state := keeper.expireBan(keeper.state(peer))
+	state, tracked := keeper.peers[peer]
+	if !tracked {
+		return false, nil
+	}
+	state = keeper.expireBan(state)
 	keeper.peers[peer] = state
 	return state.Banned, nil
 }
@@ -368,9 +383,9 @@ func (keeper *ScoreKeeper) restore(document ScoreDocument) {
 	keeper.mu.Lock()
 	defer keeper.mu.Unlock()
 
-	peers := make(map[PeerID]PeerState, len(document.Peers))
+	restored := make([]restoredPeer, 0, len(document.Peers))
 	for _, record := range document.Peers {
-		if record.Peer == "" {
+		if !ValidPeerID(record.Peer) {
 			continue
 		}
 		score := record.Score
@@ -387,11 +402,70 @@ func (keeper *ScoreKeeper) restore(document ScoreDocument) {
 				state.BannedUntil = bannedUntil
 			}
 		}
-		state = keeper.expireBan(state)
-		peers[record.Peer] = state
+		restored = append(restored, restoredPeer{peer: record.Peer, state: keeper.expireBan(state)})
+	}
+	// A persisted table larger than the bound keeps bans and penalties first so
+	// the cap can never be used to launder a banned identity.
+	sort.SliceStable(restored, func(left int, right int) bool {
+		return keeper.restorePriority(restored[left].state) < keeper.restorePriority(restored[right].state)
+	})
+	if len(restored) > keeper.config.MaxTrackedPeers {
+		restored = restored[:keeper.config.MaxTrackedPeers]
+	}
+	peers := make(map[PeerID]PeerState, len(restored))
+	for _, entry := range restored {
+		peers[entry.peer] = entry.state
 	}
 	keeper.peers = peers
 	keeper.totalWindowMessages = document.TotalWindowMessages
+}
+
+type restoredPeer struct {
+	peer  PeerID
+	state PeerState
+}
+
+func (keeper *ScoreKeeper) restorePriority(state PeerState) int {
+	switch {
+	case state.Banned:
+		return 0
+	case state.Score < keeper.config.InitialScore:
+		return 1
+	default:
+		return 2
+	}
+}
+
+// track stores state for peer while keeping the table within MaxTrackedPeers.
+// When the table is full it evicts an idle, healthy peer; if every tracked peer
+// is banned or penalized the new peer stays untracked (it is still subject to
+// the global rate limit) so that existing penalties are never displaced.
+func (keeper *ScoreKeeper) track(peer PeerID, state PeerState) {
+	if _, tracked := keeper.peers[peer]; !tracked && len(keeper.peers) >= keeper.config.MaxTrackedPeers {
+		victim, found := keeper.evictionVictim()
+		if !found {
+			return
+		}
+		delete(keeper.peers, victim)
+	}
+	keeper.peers[peer] = state
+}
+
+func (keeper *ScoreKeeper) evictionVictim() (PeerID, bool) {
+	var victim PeerID
+	var victimMessages uint64
+	found := false
+	for peer, state := range keeper.peers {
+		if state.Banned || state.Score < keeper.config.InitialScore {
+			continue
+		}
+		if !found || state.WindowMessages < victimMessages || (state.WindowMessages == victimMessages && peer < victim) {
+			victim = peer
+			victimMessages = state.WindowMessages
+			found = true
+		}
+	}
+	return victim, found
 }
 
 func (keeper *ScoreKeeper) state(peer PeerID) PeerState {

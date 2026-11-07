@@ -67,31 +67,42 @@ func TestRunProofDetectFinalityConflict(t *testing.T) {
 	}
 }
 
-func signedFinalityProof(t *testing.T, validatorSet validator.Set, signers map[types.ValidatorID]vexocrypto.Ed25519Signer, blockHash types.Hash, signerIDs []types.ValidatorID) finality.Proof {
+// signedFinalityProof builds a finality proof under the 2-chain commit rule: the block at height 1
+// with the given application hash, certified in view 0, and its child certified in view 1.
+func signedFinalityProof(t *testing.T, validatorSet validator.Set, signers map[types.ValidatorID]vexocrypto.Ed25519Signer, appHash types.Hash, signerIDs []types.ValidatorID) finality.Proof {
 	t.Helper()
 	header := types.Header{
-		ChainID:          "vexo-test",
-		Height:           1,
-		AppHash:          blockHash,
-		ConsensusHash:    blockHash,
-		ValidatorSetHash: validatorSet.Hash(),
-	}
-	proof := finality.Proof{
-		Header:             header,
-		BlockHash:          blockHash,
-		ValidatorSetHeight: header.Height,
+		ChainID:            "vexo-test",
+		Height:             1,
+		AppHash:            appHash,
+		ConsensusHash:      appHash,
+		ValidatorSetHeight: finality.FirstValidatorSetHeight,
 		ValidatorSetHash:   validatorSet.Hash(),
-		QuorumCert: finality.QuorumCert{
-			Height:    header.Height,
-			Round:     0,
-			BlockHash: blockHash,
-			Signers:   finality.EncodeSigners(signerIDs),
-		},
+	}
+	childHeader := types.Header{
+		ChainID:            header.ChainID,
+		Height:             header.Height + 1,
+		Round:              1,
+		JustifyRound:       0,
+		PreviousBlockHash:  finality.HeaderHash(header),
+		ValidatorSetHeight: finality.ChildValidatorSetHeight(header),
+		ValidatorSetHash:   validatorSet.Hash(),
+	}
+	return finality.NewProof(header, signedQuorumCert(t, validatorSet, signers, header, 0, signerIDs)).
+		WithChild(childHeader, signedQuorumCert(t, validatorSet, signers, childHeader, 1, signerIDs))
+}
+
+func signedQuorumCert(t *testing.T, validatorSet validator.Set, signers map[types.ValidatorID]vexocrypto.Ed25519Signer, header types.Header, round types.Round, signerIDs []types.ValidatorID) finality.QuorumCert {
+	t.Helper()
+	cert := finality.QuorumCert{
+		Height:    header.Height,
+		Round:     round,
+		BlockHash: finality.HeaderHash(header),
+		Signers:   finality.EncodeSigners(signerIDs),
 	}
 	signatures := make([]types.Signature, 0, len(signerIDs))
 	for _, id := range signerIDs {
-		signer := signers[id]
-		signature, err := vexocrypto.SignWithDomain(signer, vexocrypto.DomainConsensusVote, proof.SignBytes())
+		signature, err := vexocrypto.SignWithDomain(signers[id], vexocrypto.DomainConsensusVote, cert.SignBytes())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -100,14 +111,14 @@ func signedFinalityProof(t *testing.T, validatorSet validator.Set, signers map[t
 		if !found {
 			t.Fatalf("missing validator %s", id)
 		}
-		proof.QuorumCert.VotingPower += validatorInfo.VotingPower
+		cert.VotingPower += validatorInfo.VotingPower
 	}
 	aggregate, err := vexocrypto.CombineEd25519Signatures(signatures)
 	if err != nil {
 		t.Fatal(err)
 	}
-	proof.QuorumCert.Signature = aggregate
-	return proof
+	cert.Signature = aggregate
+	return cert
 }
 
 func writeJSON(t *testing.T, path string, value any) string {

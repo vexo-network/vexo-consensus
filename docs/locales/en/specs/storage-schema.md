@@ -70,8 +70,8 @@ Common framework namespaces:
 
 - `bank`: unsigned 256-bit account balances used by native bank transfers, fees, staking reward/withdraw paths, and EVM value transfers
 - `events`: indexed transaction event records and attribute indexes
-- `evm`: contract VM code, storage slots, receipts, global log index, and address log index
-- `evm_ethstate`: retained Ethereum account/code/storage snapshots keyed by height for `eth_getBalance`, `eth_getProof`, historical calls, and strict EVM state-root checks
+- `evm`: contract VM code and storage slots
+- `evm_receipts`: receipts, receipt-location index, global log index, address log index, and blob sidecars; written with each block but outside the app hash, so pruning it below the retained height is local to the node
 - `ibc`: client, connection, channel, packet commitment, and receipt records
 - `params`: chain-wide module parameter values and metadata
 - `staking`: delegated stake, validator power, validator public keys, commission basis points, entry-based unbonding release records, unbonding custody balances, jail flags, and pending reward balances
@@ -88,12 +88,10 @@ The Web3 bridge reconstructs Ethereum account/storage tries from these committed
 - `auth/nonce/{0x_address}` for account nonces
 - `evm/code/{0x_address}` for account code hashes
 - `evm/storage/{0x_address}/{slot}` for account storage roots and storage proofs
-- `evm_ethstate/{height}/meta` for the retained Ethereum state root
-- `evm_ethstate/{height}/accounts/{0x_address}` for retained account/storage proof inputs
 
-Latest `eth_getProof` and latest Web3 `stateRoot` are generated from the live reconstructed go-ethereum MPT. Historical `eth_getProof` and historical Web3 block `stateRoot` use the retained auxiliary `evm_ethstate/{height}` snapshots written during `EndBlock`. Runtime pruning calls module pruning hooks, and the EVM module deletes Ethereum snapshots below the retained height so archival nodes keep proofs while pruned nodes fail old proof requests explicitly. The auxiliary namespace is not an application module root, so pruning retained Web3 proof snapshots does not mutate consensus application state.
+Latest `eth_getProof` and latest Web3 `stateRoot` are generated from the live reconstructed go-ethereum MPT. Historical `eth_getProof`, historical calls, historical account/code/storage reads and historical Web3 block `stateRoot` read the same keys as of the requested height from the store's state history; the EVM module keeps no per-block copy of the Ethereum state. A height whose state record is not held (never committed, pruned, or below a restored snapshot) fails explicitly.
 
-LevelDB also writes height-versioned KV history records for each atomic block write. Historical query proofs rebuild the namespace at the requested height from those records, then verify membership with a compact Merkle path or non-membership with compact adjacent-neighbor absence proofs. Verifiers still accept legacy full namespace absence witnesses for compatibility. Evidence records are monotonic for the `Applied` flag: once an evidence record is marked applied, later pending saves in the same process cannot downgrade it back to unapplied.
+LevelDB keeps state history as per-key versions: a block's writes at its height, a direct write at the next committed height, and a key's prior value at height 0 on its first change, so genesis values stay readable. Storage grows with the number of changes, never with the state size per block, and `PruneBelow` drops the versions no retained height reads. Historical query proofs rebuild the namespace at the requested height from those records, then verify membership with a compact Merkle path or non-membership with compact adjacent-neighbor absence proofs. Verifiers still accept legacy full namespace absence witnesses for compatibility. Evidence records are monotonic for the `Applied` flag: once an evidence record is marked applied, later pending saves in the same process cannot downgrade it back to unapplied.
 
 When an app block produces validator updates, the store-backed validator registry stages the height `H + 1` validator-set snapshot as KV writes and commits those writes in the same LevelDB batch as app writes, block metadata, state metadata, and state roots. If the block commit fails, the future validator-set snapshot is not persisted.
 
@@ -142,3 +140,7 @@ Legacy array-style `logs` and `logs/{address}` values remain query-compatible, b
 ## Schema Migration
 
 Store migrations must be height-gated through an upgrade plan and support rollback on failure.
+- `evm_receipts`: address-scoped log index.
+- `receipt_index/{tx_hash}`: address-scoped log index.
+- `blob_sidecars/by_tx/{tx_hash}`: address-scoped log index.
+- `blob_sidecars/by_blob/{blob_hash}`: address-scoped log index.

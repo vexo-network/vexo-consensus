@@ -188,3 +188,7 @@ VRF backend も BLS と同じ水準で監査境界を示す必要があります
 - `consensus_vote` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `consensus_timeout_vote` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `finality_proof` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexo.remote_signer.probe.v1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `(chain_id, height, round, type, domain)` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `remote_signer_probe` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexod keys verify-remote` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

@@ -182,7 +182,7 @@ func TestRemoteKeyDocumentAppliesPolicyAndGuardMetadata(t *testing.T) {
 	if _, err := remoteSigner.Sign([]byte("raw-message")); !errors.Is(err, ErrMissingSignPolicy) {
 		t.Fatalf("expected raw signing to require policy, got %v", err)
 	}
-	if remoteSigner.guard == nil || remoteSigner.guard.snapshotPath != guardPath {
+	if remoteSigner.guard == nil || remoteSigner.guard.path != guardPath {
 		t.Fatalf("expected file-backed guard from metadata, got %+v", remoteSigner.guard)
 	}
 }
@@ -234,4 +234,86 @@ func withPublicKey(document KeyDocument, publicKey string) KeyDocument {
 func withPrivateKey(document KeyDocument, privateKey string) KeyDocument {
 	document.PrivateKey = privateKey
 	return document
+}
+
+func TestDecryptKeyMaterialRejectsMalformedEncryption(t *testing.T) {
+	document, err := GenerateEd25519KeyDocument()
+	if err != nil {
+		t.Fatal(err)
+	}
+	encrypted, err := document.Encrypted("secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decryptKeyMaterial(*encrypted.Encryption, "secret"); err != nil {
+		t.Fatalf("expected untouched encryption to decrypt: %v", err)
+	}
+
+	cases := []struct {
+		name   string
+		mutate func(*KeyEncryption)
+	}{
+		{name: "short nonce", mutate: func(e *KeyEncryption) { e.Nonce = base64.StdEncoding.EncodeToString(make([]byte, 8)) }},
+		{name: "long nonce", mutate: func(e *KeyEncryption) { e.Nonce = base64.StdEncoding.EncodeToString(make([]byte, 16)) }},
+		{name: "empty nonce", mutate: func(e *KeyEncryption) { e.Nonce = "" }},
+		{name: "undecodable nonce", mutate: func(e *KeyEncryption) { e.Nonce = "%%%" }},
+		{name: "pbkdf2 sha256", mutate: func(e *KeyEncryption) { e.KDF = "pbkdf2-sha256" }},
+		{name: "pbkdf2 sha512", mutate: func(e *KeyEncryption) { e.KDF = "pbkdf2-sha512" }},
+		{name: "unknown kdf", mutate: func(e *KeyEncryption) { e.KDF = "scrypt" }},
+		{name: "empty kdf", mutate: func(e *KeyEncryption) { e.KDF = "" }},
+		{name: "unknown algorithm", mutate: func(e *KeyEncryption) { e.Algorithm = "aes-128-gcm" }},
+		{name: "zero iterations", mutate: func(e *KeyEncryption) { e.Iterations = 0 }},
+		{name: "negative iterations", mutate: func(e *KeyEncryption) { e.Iterations = -1 }},
+		{name: "weak iterations", mutate: func(e *KeyEncryption) { e.Iterations = minKDFIterations - 1 }},
+		{name: "excessive iterations", mutate: func(e *KeyEncryption) { e.Iterations = maxKDFIterations + 1 }},
+		{name: "huge iterations", mutate: func(e *KeyEncryption) { e.Iterations = 1 << 40 }},
+		{name: "zero memory", mutate: func(e *KeyEncryption) { e.MemoryKiB = 0 }},
+		{name: "weak memory", mutate: func(e *KeyEncryption) { e.MemoryKiB = minKDFMemoryKiB - 1 }},
+		{name: "excessive memory", mutate: func(e *KeyEncryption) { e.MemoryKiB = maxKDFMemoryKiB + 1 }},
+		{name: "zero parallelism", mutate: func(e *KeyEncryption) { e.Parallelism = 0 }},
+		{name: "excessive parallelism", mutate: func(e *KeyEncryption) { e.Parallelism = maxKDFParallelism + 1 }},
+		{name: "short salt", mutate: func(e *KeyEncryption) { e.Salt = base64.StdEncoding.EncodeToString(make([]byte, minKDFSaltBytes-1)) }},
+		{name: "empty salt", mutate: func(e *KeyEncryption) { e.Salt = "" }},
+		{name: "long salt", mutate: func(e *KeyEncryption) { e.Salt = base64.StdEncoding.EncodeToString(make([]byte, maxKDFSaltBytes+1)) }},
+		{name: "undecodable ciphertext", mutate: func(e *KeyEncryption) { e.Ciphertext = "%%%" }},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			encryption := *encrypted.Encryption
+			testCase.mutate(&encryption)
+			if _, err := decryptKeyMaterial(encryption, "secret"); !errors.Is(err, ErrInvalidKeyEncryption) {
+				t.Fatalf("expected invalid key encryption, got %v", err)
+			}
+		})
+	}
+
+	wrongPassphrase := *encrypted.Encryption
+	if _, err := decryptKeyMaterial(wrongPassphrase, "wrong"); err == nil || errors.Is(err, ErrInvalidKeyEncryption) {
+		t.Fatalf("expected an authentication failure for a wrong passphrase, got %v", err)
+	}
+	truncated := *encrypted.Encryption
+	truncated.Ciphertext = base64.StdEncoding.EncodeToString([]byte("short"))
+	if _, err := decryptKeyMaterial(truncated, "secret"); err == nil {
+		t.Fatal("expected truncated ciphertext to fail")
+	}
+}
+
+func TestEncryptedKeyDocumentWithShortNonceFailsWithoutPanicking(t *testing.T) {
+	document, err := GenerateEd25519KeyDocument()
+	if err != nil {
+		t.Fatal(err)
+	}
+	encrypted, err := document.Encrypted("secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encryption := *encrypted.Encryption
+	encryption.Nonce = base64.StdEncoding.EncodeToString([]byte("short"))
+	encrypted.Encryption = &encryption
+	if _, err := encrypted.Ed25519SignerWithPassphrase("secret"); !errors.Is(err, ErrInvalidKeyEncryption) {
+		t.Fatalf("expected invalid key encryption for a short nonce, got %v", err)
+	}
+	if _, err := encrypted.Decrypted("secret"); !errors.Is(err, ErrInvalidKeyEncryption) {
+		t.Fatalf("expected invalid key encryption for a short nonce, got %v", err)
+	}
 }

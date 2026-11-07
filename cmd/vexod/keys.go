@@ -385,10 +385,7 @@ func runKeysVerifyRemote(writer io.Writer, args []string) error {
 	path := flags.String("path", "", "key file path")
 	challenge := flags.String("challenge", "vexo-remote-signer-check", "challenge message to sign")
 	chainID := flags.String("chain-id", defaultChainID, "chain id for remote signer policy")
-	height := flags.Uint64("height", 1, "height for remote signer policy")
-	round := flags.Uint64("round", 0, "round for remote signer policy")
-	signType := flags.String("type", string(vexocrypto.SignTypeConsensusVote), "sign type for remote signer policy")
-	domain := flags.String("domain", string(vexocrypto.DomainConsensusVote), "signature domain for remote signer policy")
+	height := flags.Uint64("height", 1, "height for remote signer policy; must be inside the signer's allowed range")
 	jsonOutput := flags.Bool("json", false, "write JSON output")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -402,13 +399,18 @@ func runKeysVerifyRemote(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	message := []byte(*challenge)
+	// The challenge is signed in the probe domain, which no verifier accepts and which the
+	// signer's double-sign guard does not track, so checking a live signer never moves a
+	// consensus high-water mark.
 	policy := vexocrypto.SignPolicy{
 		ChainID: *chainID,
 		Height:  types.Height(*height),
-		Round:   types.Round(*round),
-		Type:    vexocrypto.SignType(*signType),
-		Domain:  vexocrypto.Domain(*domain),
+		Type:    vexocrypto.SignTypeRemoteSignerProbe,
+		Domain:  vexocrypto.DomainRemoteSignerProbe,
+	}
+	message, err := vexocrypto.DomainMessage(policy.Domain, []byte(*challenge))
+	if err != nil {
+		return err
 	}
 	signature, err := signer.SignWithPolicy(policy, message)
 	if err != nil {
@@ -433,7 +435,7 @@ func runKeysVerifyRemote(writer io.Writer, args []string) error {
 	fmt.Fprintf(writer, "remote signer verified\n")
 	fmt.Fprintf(writer, "path: %s\n", keyPath)
 	fmt.Fprintf(writer, "remote_url: %s\n", document.Metadata.RemoteURL)
-	fmt.Fprintf(writer, "policy: %s\n", policy.GuardKey())
+	fmt.Fprintf(writer, "policy: %s/%d/%s/%s\n", policy.ChainID, policy.Height, policy.Type, policy.Domain)
 	fmt.Fprintf(writer, "signature: %s\n", base64.StdEncoding.EncodeToString(signature))
 	return nil
 }
@@ -485,7 +487,7 @@ func runKeysServeRemote(writer io.Writer, args []string) error {
 		ChainID:       *chainID,
 		MinHeight:     types.Height(*minHeight),
 		MaxHeight:     types.Height(*maxHeight),
-		AllowedTypes:  []vexocrypto.SignType{vexocrypto.SignTypeConsensusProposal, vexocrypto.SignTypeConsensusVote, vexocrypto.SignTypeConsensusTimeoutVote, vexocrypto.SignTypeFinalityProof},
+		AllowedTypes:  []vexocrypto.SignType{vexocrypto.SignTypeConsensusProposal, vexocrypto.SignTypeConsensusVote, vexocrypto.SignTypeConsensusTimeoutVote, vexocrypto.SignTypeRemoteSignerProbe},
 		RequirePolicy: true,
 		AuthToken:     resolvedAuthToken,
 	}, guard, nonceGuard)

@@ -140,7 +140,7 @@ If a browser says the chain-ID fetch failed, check these in order:
 1. The URL ends with the Web3 endpoint path.
 2. The browser can reach the host port. Docker examples expose `28657`, `28667`, `28677`, and `28687`; inside the container the RPC port is still `26657`.
 3. The RPC server is running; query the status endpoint on the same host and port.
-4. CORS is allowed by `network_config.json`/RPC config. The default handler allows browser preflight when no custom CORS list is set.
+4. CORS is closed by default. List the browser origin (for Remix, `https://remix.ethereum.org`) in `rpc.cors_allowed_origins` in `network_config.json`.
 5. The chain has a non-zero EVM chain ID in `module_config.json`.
 
 ## Validator Node
@@ -243,7 +243,7 @@ Node homes use separate config files so operators can edit one subsystem without
 - `module_config.json` contains application module selection, execution/ante policy, and module-level governance policy.
 - `network_config.json` contains RPC, P2P node identity, listen/peer/seed settings, TLS/auth settings, and peer-scoring policy.
 - `consensus_config.json` contains consensus loop timing, empty-block policy, crypto backend, VRF, validator admission, and committee policy.
-- `mempool_config.json` contains mempool size, fee, priority, WAL, duplicate, and TTL policy.
+- `mempool_config.json` contains mempool size (`MaxTxs`, `MaxTotalBytes`, `MaxTxsPerSender`, `MaxTxBytes`), fee, priority, WAL, duplicate, and TTL policy. All size bounds must be positive; a full pool admits a new transaction only by evicting pending transactions that pay strictly less.
 - `log_config.json` contains log format, level, block commit event logging, and peer event logging.
 - `genesis.json` contains immutable genesis validators, validator metadata, and genesis module state.
 
@@ -251,7 +251,7 @@ Node homes use separate config files so operators can edit one subsystem without
 
 `network_config.json` P2P settings include `auth_replay_path`, `require_auth_replay_store`, and `dial_timeout`. The generated default writes nonce replay evidence to `data/p2p_auth_replay.jsonl` and uses a `10s` outbound dial timeout. For private loopback testing the replay store is mostly harmless bookkeeping; for public authenticated P2P it is a safety requirement because it prevents a captured signed handshake nonce from being replayed after restart. `dial_timeout` should be long enough for TLS, signed handshake verification, and cross-region latency; setting it too low makes healthy peers look flaky and can slow liveness after restarts.
 
-`network_config.json` also owns startup state sync. This is useful for archive nodes, replacement validators, or nodes restored onto a clean machine. When `state_sync.enabled` is true, `vexod start` downloads the first valid snapshot from `state_sync.snapshot_urls`, verifies chain ID, checksum, state roots, and KV namespaces, restores it into LevelDB, rebuilds indexes, and only then starts the node. If local state already satisfies `state_sync.min_height` and `state_sync.trust_local_higher` is true, startup logs `state_sync_skipped` and keeps the local store.
+`network_config.json` also owns startup state sync. This is useful for archive nodes, replacement validators, or nodes restored onto a clean machine. When `state_sync.enabled` is true, `vexod start` asks each of `state_sync.snapshot_urls` for the snapshot anchored to the trusted block `state_sync.trust_height` / `state_sync.trust_hash` (the URL gets a `height` query parameter), and restores the first one that proves to be the state of that block: its header must hash to `trust_hash`, the namespace roots of its KV pairs must recompute the app hash the header commits (the state after block `ValidatorSetHeight - 1`), it must carry exactly the namespaces of the replicated state, and its validator registry must hold no set past the header's `ValidatorSetHeight` and the set at that height must hash to the header's `ValidatorSetHash`. Only then does it restore into LevelDB, rebuild indexes, and start the node. A snapshot source is therefore never trusted; the trusted block hash must come from somewhere else, such as a validator you trust or a node you run. `vexod snapshot restore`, `chunk-restore`, and `sync` take the same trust as `--trust-height` and `--trust-hash`, and `vexod snapshot export --height` exports the snapshot a given committed block anchors. If local state already satisfies `state_sync.min_height` and `state_sync.trust_local_higher` is true, startup logs `state_sync_skipped` and keeps the local store.
 
 Example `state_sync` block:
 
@@ -265,12 +265,14 @@ Example `state_sync` block:
     "require_fresh": true,
     "trust_local_higher": true,
     "max_snapshot_bytes": 268435456,
-    "retry_all_snapshots": true
+    "retry_all_snapshots": true,
+    "trust_height": 1000002,
+    "trust_hash": "<hex block hash of height 1000002 from a source you trust>"
   }
 }
 ```
 
-Startup logs `state_sync_candidate_failed` for a fetch error, `state_sync_candidate_rejected` for an invalid or stale snapshot, and `state_sync_applied` after a verified restore. Keep `max_snapshot_bytes` below the largest snapshot your infrastructure intentionally serves, but high enough for normal state growth. Do not point public nodes at an unauthenticated third-party snapshot source unless the operator has an out-of-band trust policy and finality/light-client evidence for that source.
+Startup logs `state_sync_candidate_failed` for a fetch error, `state_sync_candidate_rejected` for an invalid or stale snapshot, and `state_sync_applied` after a verified restore. Keep `max_snapshot_bytes` below the largest snapshot your infrastructure intentionally serves, but high enough for normal state growth. The snapshot source needs no trust, but the trusted block hash does: a wrong `trust_hash` makes the node adopt whatever chain that hash names.
 
 If a field changes network behavior, edit the split config file and commit or distribute that reviewed file. Do not rely on long `vexod start` flags for runtime behavior. The start command intentionally rejects consensus timing, empty-block, P2P auth, RPC admin, and managed Web3 key flags so operators do not accidentally run different behavior from the reviewed config.
 
@@ -279,6 +281,9 @@ If a field changes network behavior, edit the split config file and commit or di
 | Goal | File | Field |
 |---|---|---|
 | Change RPC bind port | `network_config.json` | `rpc.address` |
+| Enable the admin endpoints | `network_config.json` | `rpc.admin_token` or `rpc.admin_tokens` (disabled until set) |
+| Serve admin endpoints under a DNS name | `network_config.json` | `rpc.allowed_hosts` (IP literals and `localhost` are always accepted) |
+| Let a browser origin call the RPC | `network_config.json` | `rpc.cors_allowed_origins` (closed by default) |
 | Change P2P bind port | `network_config.json` | `p2p.listen_address` |
 | Add persistent peers | `network_config.json` | `p2p.peers` |
 | Add seed peers | `network_config.json` | `p2p.seeds` |
@@ -335,7 +340,7 @@ Example `module_config.json`:
 {
   "schema_version": "v1",
   "application": {
-    "Modules": ["bank", "staking", "governance", "params", "ibc"]
+    "Modules": ["bank", "staking", "governance", "params", "ibc", "slashing"]
   },
   "execution": {
     "RequireSigned": true,
@@ -622,7 +627,7 @@ vexod network init \
 | `latest_height` does not increase | Empty-blocks disabled and no txs, not enough validators online, or signer unavailable | `consensus_config.json`, validator logs, `/v1/diagnostics` |
 | `peer_count` is `0` | Peer addresses are not reachable or `network_config.json` was generated for the wrong hostnames | `p2p.peers`, container host ports, DNS, firewall |
 | `p2p auth replay store` error | Public/authenticated P2P requires durable replay storage | `p2p.auth_replay_path` and write permission under the home |
-| `eth_chainId` fails in Remix | Wrong URL, wrong host port, or browser CORS/preflight blocked by custom config | Use the Web3 endpoint URL, then curl the same endpoint directly |
+| `eth_chainId` fails in Remix | Wrong URL, wrong host port, or the browser origin is missing from `rpc.cors_allowed_origins` | Use the Web3 endpoint URL, then curl the same endpoint directly |
 | `config audit --strict` fails | Safety gate found an unsafe config property | Read the failing check, then edit the split config file it names |
 | `no block_committed logs` | Logging disabled or no blocks are being created | `log_config.json`, `create_empty_blocks`, mempool contents |
 | `managed EVM key rejected` | Hot private keys are configured on a public RPC listener | Remove `evm_account_private_keys` or keep RPC private |

@@ -9,7 +9,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
-func TestApplicationBlockExecutorExecutesAcceptedProposal(t *testing.T) {
+func TestApplicationBlockExecutorExecutesCertifiedBlock(t *testing.T) {
 	application := &executorApplication{accepted: true}
 	block := types.Block{Header: types.Header{Height: 1}, Txs: []types.Tx{[]byte("tx")}}
 
@@ -25,11 +25,18 @@ func TestApplicationBlockExecutorExecutesAcceptedProposal(t *testing.T) {
 	}
 }
 
-func TestApplicationBlockExecutorRejectsProposal(t *testing.T) {
+// A finalized block must execute on every node: ProcessProposal is the vote
+// gate and is not re-applied at execution time.
+func TestApplicationBlockExecutorDoesNotReapplyVoteGate(t *testing.T) {
 	application := &executorApplication{accepted: false}
-	_, err := ApplicationBlockExecutor{}.Execute(context.Background(), application, types.Block{})
-	if !errors.Is(err, app.ErrProposalRejected) {
-		t.Fatalf("expected proposal rejected, got %v", err)
+	if _, err := (ApplicationBlockExecutor{}).Execute(context.Background(), application, types.Block{Header: types.Header{Height: 1}}); err != nil {
+		t.Fatalf("certified block must execute even when ProcessProposal would reject it: %v", err)
+	}
+	if application.processed {
+		t.Fatal("execution must not call ProcessProposal")
+	}
+	if !application.finalized {
+		t.Fatal("expected app finalized")
 	}
 }
 
@@ -58,13 +65,17 @@ func TestApplicationBlockExecutorUsesContextAwareApplication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !application.processContext || !application.finalizeContext {
-		t.Fatalf("expected context-aware process/finalize path, got process=%t finalize=%t", application.processContext, application.finalizeContext)
+	if !application.finalizeContext {
+		t.Fatal("expected context-aware finalize path")
+	}
+	if application.processContext {
+		t.Fatal("execution must not call ProcessProposal")
 	}
 }
 
 type executorApplication struct {
 	accepted    bool
+	processed   bool
 	finalized   bool
 	finalizeErr error
 }
@@ -82,6 +93,7 @@ func (application *executorApplication) PrepareProposal(req app.PrepareProposalR
 }
 
 func (application *executorApplication) ProcessProposal(req app.ProcessProposalRequest) app.ProcessProposalResponse {
+	application.processed = true
 	return app.ProcessProposalResponse{Accepted: application.accepted}
 }
 

@@ -17,14 +17,15 @@ func TestWriteStatus(t *testing.T) {
 	expectedParts := []string{
 		"vexo-consensus status",
 		"chain_id: vexo-test",
-		"application.core_modules: [bank staking governance params ibc]",
-		"application.modules: [bank staking governance params ibc]",
+		"application.core_modules: [bank staking governance params ibc slashing]",
+		"application.modules: [bank staking governance params ibc slashing]",
 		"execution.max_gas: 10000000",
 		"execution.require_signed: false",
 		"execution.fee_collector: fee_collector",
 		"execution.allow_unprotected_legacy_tx: false",
+		"execution.rpc_gas_cap: 50000000",
 		"bank.mint_authority:",
-		"governance.quorum_power: 1",
+		"governance.quorum_bps: 3340",
 		"governance.require_deposit: false",
 		"governance.deposit_denom: avxo",
 		"validator.permissionless: true",
@@ -112,18 +113,20 @@ func TestWriteStatusJSON(t *testing.T) {
 	if document.SchemaVersion != "v1" || document.ChainID != "vexo-test" {
 		t.Fatalf("unexpected document identity: %+v", document)
 	}
-	if len(document.Application.CoreModules) != 5 ||
+	if len(document.Application.CoreModules) != 6 ||
 		document.Application.CoreModules[0] != "bank" ||
 		document.Application.CoreModules[1] != "staking" ||
 		document.Application.CoreModules[2] != "governance" ||
 		document.Application.CoreModules[3] != "params" ||
 		document.Application.CoreModules[4] != "ibc" ||
-		len(document.Application.Modules) != 5 ||
+		document.Application.CoreModules[5] != "slashing" ||
+		len(document.Application.Modules) != 6 ||
 		document.Application.Modules[0] != "bank" ||
 		document.Application.Modules[1] != "staking" ||
 		document.Application.Modules[2] != "governance" ||
 		document.Application.Modules[3] != "params" ||
-		document.Application.Modules[4] != "ibc" {
+		document.Application.Modules[4] != "ibc" ||
+		document.Application.Modules[5] != "slashing" {
 		t.Fatalf("unexpected application status: %+v", document.Application)
 	}
 	if !document.Validator.Permissionless || document.Validator.MinStake != 1 {
@@ -135,13 +138,13 @@ func TestWriteStatusJSON(t *testing.T) {
 	if document.Bank.MintAuthority != "" {
 		t.Fatalf("unexpected bank status: %+v", document.Bank)
 	}
-	if document.Governance.QuorumPower != 1 || document.Governance.RequireDeposit || document.Governance.DepositDenom != "avxo" {
+	if document.Governance.QuorumBPS != 3340 || document.Governance.RequireDeposit || document.Governance.DepositDenom != "avxo" {
 		t.Fatalf("unexpected governance status: %+v", document.Governance)
 	}
 	if document.Mempool.MinFee != 0 || document.Mempool.EnablePriority || !document.Mempool.EnableReplacement || document.Mempool.ReplacementBumpBPS != 1000 {
 		t.Fatalf("unexpected mempool status: %+v", document.Mempool)
 	}
-	if document.Execution.FeeDenom != "avxo" || document.Execution.DisplayDenom != "vexo" || document.Execution.DisplayExponent != 18 || document.Execution.GasDenom != "gas" || document.Execution.AllowUnprotectedLegacyTx {
+	if document.Execution.FeeDenom != "avxo" || document.Execution.DisplayDenom != "vexo" || document.Execution.DisplayExponent != 18 || document.Execution.GasDenom != "gas" || document.Execution.AllowUnprotectedLegacyTx || document.Execution.RPCGasCap != config.DefaultRPCGasCap {
 		t.Fatalf("unexpected execution status: %+v", document.Execution)
 	}
 	if document.Storage.Backend != "leveldb" {

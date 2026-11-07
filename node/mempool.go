@@ -8,12 +8,46 @@ import (
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/mempool"
+	appslashing "github.com/vexo-network/vexo-consensus/modules/slashing"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	"github.com/vexo-network/vexo-consensus/transport"
+	"github.com/vexo-network/vexo-consensus/txcodec"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
+const (
+	// maxAdmissionSequence bounds the transactions one admission validates
+	// together: the pending transactions of the signer plus the candidate. It
+	// caps the work a single rejected transaction can cause.
+	maxAdmissionSequence = 64
+
+	// maxAdmissionAttempts bounds how often one admission repeats its checks
+	// because a block committed while they ran.
+	maxAdmissionAttempts = 3
+)
+
+var (
+	// ErrAdmissionSequenceTooLong rejects a transaction whose signer already has
+	// too many pending transactions to validate together with it.
+	ErrAdmissionSequenceTooLong = errors.New("signer has too many pending transactions to admit another")
+
+	// ErrAdmissionStateChanged reports that blocks kept committing while a
+	// transaction was checked, so no verdict described the state it would run
+	// against. The submitter may retry.
+	ErrAdmissionStateChanged = errors.New("committed state changed during transaction admission")
+)
+
 func (node *Node) SubmitTx(ctx context.Context, tx types.Tx) error {
+	if isUnsignedEvidenceTx(tx) {
+		// Evidence enters the mempool only through the evidence pool, as the one transaction of
+		// its offence.
+		evidence, err := appslashing.DecodeEvidenceTx(tx)
+		if err != nil {
+			return err
+		}
+		_, err = node.SubmitEvidence(ctx, evidence)
+		return err
+	}
 	runtime, err := node.Runtime()
 	if err != nil {
 		return err
@@ -214,6 +248,10 @@ func (node *Node) consumeTxGossip(ctx context.Context, events <-chan transport.E
 }
 
 func (node *Node) acceptGossipTx(ctx context.Context, from p2p.PeerID, tx types.Tx) {
+	if isUnsignedEvidenceTx(tx) {
+		node.acceptEvidenceMessage(ctx, from, tx)
+		return
+	}
 	if !node.admitPeerMessage(ctx, from) {
 		return
 	}
@@ -226,6 +264,10 @@ func (node *Node) acceptGossipTx(ctx context.Context, from p2p.PeerID, tx types.
 			node.observePeerMessage(ctx, from, true)
 			return
 		}
+		if errors.Is(err, ErrAdmissionStateChanged) {
+			// Local churn, not a verdict on the peer or its transaction.
+			return
+		}
 		node.observePeerMessage(ctx, from, false)
 		return
 	}
@@ -233,53 +275,128 @@ func (node *Node) acceptGossipTx(ctx context.Context, from p2p.PeerID, tx types.
 	node.wakeConsensus(context.Background())
 }
 
+// admitMempoolTx checks tx against the committed state and adds it to the pool.
+//
+// The checks can be expensive: a transaction the application rejects on its own
+// is re-checked together with the pending transactions of its signer, which
+// scans the pool and validates the whole sequence. They run without
+// admissionMu, which commitBlock holds while it executes a block, so a slow
+// admission never stalls a commit. Only the final step holds the lock: it
+// re-checks that no block committed since the checks started, because a verdict
+// about an older state must not put a transaction into the pool that the commit
+// just removed or invalidated, and adds the transaction. If a block did commit,
+// the checks run again against the new state.
 func (node *Node) admitMempoolTx(ctx context.Context, application app.Application, pool *mempool.DAG, tx types.Tx) error {
-	node.admissionMu.Lock()
-	defer node.admissionMu.Unlock()
-
-	response := checkTxWithContext(ctx, application, tx)
-	if response.Result.Code != 0 {
-		checker, ok := application.(app.ContextCheckTxsApplication)
-		if !ok {
-			return appCheckError(response.Result.Log)
-		}
-		candidateSigner, signerFound := mempool.TxSigner(tx)
-		_, nonceFound := mempool.TxNonce(tx)
-		if !signerFound || !nonceFound {
-			return appCheckError(response.Result.Log)
-		}
-		pending, err := pool.SnapshotTxs(ctx)
-		if err != nil {
+	for attempt := 0; attempt < maxAdmissionAttempts; attempt++ {
+		checkedAt, _ := node.currentCommitHeight(ctx)
+		if err := checkAdmission(ctx, application, pool, tx); err != nil {
 			return err
 		}
-		candidateKey, candidateHasKey := mempool.ReplacementKey(tx)
-		sequence := make([]types.Tx, 0, len(pending)+1)
-		for _, pendingTx := range pending {
-			pendingSigner, found := mempool.TxSigner(pendingTx)
-			if !found || pendingSigner != candidateSigner {
-				continue
-			}
-			if candidateHasKey {
-				if pendingKey, found := mempool.ReplacementKey(pendingTx); found && pendingKey == candidateKey {
-					continue
-				}
-			}
-			sequence = append(sequence, pendingTx)
-		}
-		sequence = append(sequence, append(types.Tx(nil), tx...))
-		sort.SliceStable(sequence, func(left, right int) bool {
-			leftNonce, leftFound := mempool.TxNonce(sequence[left])
-			rightNonce, rightFound := mempool.TxNonce(sequence[right])
-			if leftFound && rightFound && leftNonce != rightNonce {
-				return leftNonce < rightNonce
-			}
-			return left < right
-		})
-		if batchResponse := checker.CheckTxsContext(ctx, sequence); batchResponse.Result.Code != 0 {
-			return appCheckError(batchResponse.Result.Log)
+		added, err := node.addAdmittedTx(ctx, pool, tx, checkedAt)
+		if added || err != nil {
+			return err
 		}
 	}
-	return pool.AddTx(ctx, tx)
+	return ErrAdmissionStateChanged
+}
+
+// addAdmittedTx adds tx to the pool under admissionMu, provided the committed
+// height is still checkedAt, the one the checks read. added reports whether it
+// was; the error is then the pool's verdict on tx.
+func (node *Node) addAdmittedTx(ctx context.Context, pool *mempool.DAG, tx types.Tx, checkedAt types.Height) (added bool, err error) {
+	node.admissionMu.Lock()
+	defer node.admissionMu.Unlock()
+	if committed, _ := node.currentCommitHeight(ctx); committed != checkedAt {
+		return false, nil
+	}
+	return true, pool.AddTx(ctx, tx)
+}
+
+// checkAdmission decides whether tx may enter the pool. A transaction the
+// application accepts on its own is admitted. One it rejects can still be
+// executable behind the pending transactions of its signer (a nonce gap, fees
+// that are only affordable in sequence), so it is validated together with
+// them.
+func checkAdmission(ctx context.Context, application app.Application, pool *mempool.DAG, tx types.Tx) error {
+	response := checkTxWithContext(ctx, application, tx)
+	if response.Result.Code == 0 {
+		return nil
+	}
+	rejection := appCheckError(response.Result.Log)
+	checker, ok := application.(app.ContextCheckTxsApplication)
+	if !ok {
+		return rejection
+	}
+	candidate, ok := slotOf(tx)
+	if !ok || !candidate.hasNonce {
+		return rejection
+	}
+	sequence, err := signerSequence(ctx, pool, candidate, tx)
+	if err != nil {
+		return err
+	}
+	if batch := checker.CheckTxsContext(ctx, sequence); batch.Result.Code != 0 {
+		return appCheckError(batch.Result.Log)
+	}
+	return nil
+}
+
+// txSlot is the account sequence position a transaction occupies. A transaction
+// without a nonce still belongs to its signer, whose balance it spends, but
+// occupies no nonce.
+type txSlot struct {
+	signer   string
+	nonce    uint64
+	hasNonce bool
+}
+
+// slotOf parses the signer and nonce of tx; ok is false when tx does not parse
+// or names no signer, so it belongs to no account sequence.
+func slotOf(tx types.Tx) (txSlot, bool) {
+	meta, err := txcodec.ParseMeta(tx)
+	if err != nil || meta.Signer == "" {
+		return txSlot{}, false
+	}
+	return txSlot{signer: txcodec.NormalizeAddress(meta.Signer), nonce: meta.Nonce, hasNonce: meta.HasNonce}, true
+}
+
+// signerSequence returns the transactions that must be admissible together for
+// tx to be executable: the pending transactions of its signer other than the
+// one tx replaces, and tx itself. Transactions without a nonce come first in
+// pool order, then the nonced ones in nonce order. It fails with
+// ErrAdmissionSequenceTooLong when that sequence exceeds maxAdmissionSequence.
+func signerSequence(ctx context.Context, pool *mempool.DAG, candidate txSlot, tx types.Tx) ([]types.Tx, error) {
+	pending, err := pool.SnapshotTxs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	type sequenced struct {
+		tx   types.Tx
+		slot txSlot
+	}
+	sequence := []sequenced{{tx: append(types.Tx(nil), tx...), slot: candidate}}
+	for _, pendingTx := range pending {
+		slot, ok := slotOf(pendingTx)
+		if !ok || slot.signer != candidate.signer || (slot.hasNonce && slot.nonce == candidate.nonce) {
+			continue
+		}
+		if len(sequence) >= maxAdmissionSequence {
+			return nil, ErrAdmissionSequenceTooLong
+		}
+		sequence = append(sequence, sequenced{tx: pendingTx, slot: slot})
+	}
+	sort.SliceStable(sequence, func(left, right int) bool {
+		first, second := sequence[left].slot, sequence[right].slot
+		if first.hasNonce != second.hasNonce {
+			return !first.hasNonce
+		}
+		return first.nonce < second.nonce
+	})
+	txs := make([]types.Tx, 0, len(sequence))
+	for _, item := range sequence {
+		txs = append(txs, item.tx)
+	}
+	return txs, nil
 }
 
 func (node *Node) runningTransport() (transport.Transport, bool) {

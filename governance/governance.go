@@ -36,10 +36,16 @@ type Keeper interface {
 	Execute(ctx context.Context, proposalID uint64) error
 }
 
+// OperationalKeeper is a Keeper whose clock and power source are set by its owner. A keeper holds no
+// ambient state between uses: the owner sets the time and the powers it wants applied right before it
+// calls the keeper, and builds a new keeper for every operation that runs against a store.
 type OperationalKeeper interface {
 	Keeper
 	SetTime(now uint64)
 	SetVotingPower(voter types.Address, power types.VotingPower)
+	// SetTotalPower sets the bonded power a proposal submitted next snapshots as the base of its
+	// basis-point thresholds. Without it the keeper snapshots the sum of its voting powers.
+	SetTotalPower(power types.VotingPower)
 	Proposal(proposalID uint64) (ProposalState, bool)
 	AppliedChanges() []ParameterChange
 	Tally(proposalID uint64) (TallyResult, bool)
@@ -49,6 +55,7 @@ type ContextOperationalKeeper interface {
 	OperationalKeeper
 	SetTimeContext(ctx context.Context, now uint64) error
 	SetVotingPowerContext(ctx context.Context, voter types.Address, power types.VotingPower) error
+	SetTotalPowerContext(ctx context.Context, power types.VotingPower) error
 }
 
 type ContextQueryKeeper interface {

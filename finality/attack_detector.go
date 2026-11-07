@@ -18,8 +18,15 @@ type proofVerifier interface {
 	VerifyFinalityProofWithContext(ctx context.Context, proof Proof) error
 }
 
-type validatorSetProvider interface {
+// ValidatorSetSource returns the validator set of a registry height, the height a block header
+// names in ValidatorSetHeight.
+type ValidatorSetSource interface {
 	ValidatorSet(ctx context.Context, height types.Height) (validator.Set, error)
+}
+
+// StaticValidatorSets serves one validator set for every registry height.
+func StaticValidatorSets(validatorSet validator.Set) ValidatorSetSource {
+	return staticValidatorSetProvider{validatorSet: validatorSet}
 }
 
 type staticValidatorSetProvider struct {
@@ -63,7 +70,7 @@ func (violation AccountableSafetyViolation) MeetsFaultThreshold() bool {
 
 type AttackDetector struct {
 	verifier proofVerifier
-	sets     validatorSetProvider
+	sets     ValidatorSetSource
 	proofs   map[types.Height]Proof
 }
 
@@ -75,7 +82,7 @@ func NewAttackDetector(validatorSet validator.Set, signatures SignatureVerifier)
 	}
 }
 
-func NewRegistryAttackDetector(registry validator.Registry, signatures SignatureVerifier) *AttackDetector {
+func NewRegistryAttackDetector(registry ValidatorSetSource, signatures SignatureVerifier) *AttackDetector {
 	return &AttackDetector{
 		verifier: NewRegistryVerifier(registry, signatures),
 		sets:     registry,
@@ -111,11 +118,15 @@ func (detector *AttackDetector) ObserveWithContext(ctx context.Context, proof Pr
 	return violation, err
 }
 
+// DetectAccountableSafetyViolation compares two finality proofs for the same height. The proofs must
+// already have been accepted by a Verifier, so each shows a block that is final under the 2-chain
+// commit rule: two merely certified blocks at one height are normal after a view change and prove
+// no fault. The result lists the validators whose votes appear in both proofs.
 func DetectAccountableSafetyViolation(validatorSet validator.Set, first Proof, second Proof) (*AccountableSafetyViolation, error) {
 	return DetectAccountableSafetyViolationWithContext(context.Background(), staticValidatorSetProvider{validatorSet: validatorSet}, first, second)
 }
 
-func DetectAccountableSafetyViolationWithContext(ctx context.Context, sets validatorSetProvider, first Proof, second Proof) (*AccountableSafetyViolation, error) {
+func DetectAccountableSafetyViolationWithContext(ctx context.Context, sets ValidatorSetSource, first Proof, second Proof) (*AccountableSafetyViolation, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -124,8 +135,8 @@ func DetectAccountableSafetyViolationWithContext(ctx context.Context, sets valid
 	if first.Header.Height != second.Header.Height {
 		return nil, ErrHeightMismatch
 	}
-	firstBlockHash := proofBlockHash(first)
-	secondBlockHash := proofBlockHash(second)
+	firstBlockHash := HeaderHash(first.Header)
+	secondBlockHash := HeaderHash(second.Header)
 	if firstBlockHash == secondBlockHash {
 		return nil, ErrNoFinalityConflict
 	}
@@ -138,7 +149,7 @@ func DetectAccountableSafetyViolationWithContext(ctx context.Context, sets valid
 	if sets == nil {
 		return nil, ErrFinalitySetUnavailable
 	}
-	validatorSet, err := sets.ValidatorSet(ctx, first.ValidatorSetHeight)
+	validatorSet, err := sets.ValidatorSet(ctx, first.Header.ValidatorSetHeight)
 	if err != nil {
 		return nil, err
 	}
@@ -178,16 +189,6 @@ func DetectAccountableSafetyViolationWithContext(ctx context.Context, sets valid
 		TotalVotingPower:      validatorSet.TotalVotingPower(),
 		FaultPowerThreshold:   faultPowerThreshold(validatorSet.TotalVotingPower()),
 	}, nil
-}
-
-func proofBlockHash(proof Proof) types.Hash {
-	if proof.BlockHash != (types.Hash{}) {
-		return proof.BlockHash
-	}
-	if proof.QuorumCert.BlockHash != (types.Hash{}) {
-		return proof.QuorumCert.BlockHash
-	}
-	return proof.HeaderHash()
 }
 
 func overlappingVotingPower(validatorSet validator.Set, firstSigners []types.ValidatorID, secondSigners []types.ValidatorID) ([]types.ValidatorID, types.VotingPower, error) {

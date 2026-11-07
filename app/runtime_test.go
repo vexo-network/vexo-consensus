@@ -224,20 +224,40 @@ func TestRuntimeRunsModuleTxValidatorInAdmissionPaths(t *testing.T) {
 	}
 }
 
-func TestRuntimeFinalizeRejectsBadProposal(t *testing.T) {
-	runtime, err := NewRuntime("vexo-test", []Module{&recordingModule{name: "bank"}}, PrefixRouter{})
+// A transaction nobody can route is a failed result, not a reason to abort the
+// block: FinalizeBlock never fails because of transaction content.
+func TestRuntimeFinalizeFailsUnroutableTxWithoutAbortingTheBlock(t *testing.T) {
+	module := &recordingModule{name: "bank"}
+	runtime, err := NewRuntime("vexo-test", []Module{module}, PrefixRouter{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = runtime.FinalizeBlock(FinalizeBlockRequest{
+	response, err := runtime.FinalizeBlock(FinalizeBlockRequest{
 		Block: types.Block{
 			Header: types.Header{Height: 1},
-			Txs:    []types.Tx{[]byte("bad")},
+			Txs: fairordering.SortTxsWithSalt(
+				[]types.Tx{[]byte("bad"), []byte("bank:send")},
+				fairordering.HeightSalt("vexo-test", 1),
+			),
 		},
 	})
-	if !errors.Is(err, ErrProposalRejected) {
-		t.Fatalf("expected proposal rejected, got %v", err)
+	if err != nil {
+		t.Fatalf("a bad transaction must not fail the block, got %v", err)
+	}
+	failed, delivered := 0, 0
+	for _, result := range response.Results {
+		if result.Code != 0 {
+			failed++
+		} else {
+			delivered++
+		}
+	}
+	if failed != 1 || delivered != 1 || len(response.TxEvents) != 2 {
+		t.Fatalf("expected one failed and one delivered result with aligned events, got %+v", response)
+	}
+	if !reflect.DeepEqual(module.delivered, []string{"bank:send"}) {
+		t.Fatalf("unexpected delivered txs: %v", module.delivered)
 	}
 }
 
@@ -259,20 +279,93 @@ func TestRuntimePropagatesModuleErrors(t *testing.T) {
 	}
 }
 
-func TestRuntimeRejectsFailedDeliverTx(t *testing.T) {
-	runtime, err := NewRuntime("vexo-test", []Module{&recordingModule{name: "bank", deliverCode: 7, deliverLog: "deliver failed"}}, PrefixRouter{})
+// Regression: one failing transaction used to abort FinalizeBlock, so a single
+// user could stall the chain. The failure is the transaction's result; the rest
+// of the block executes.
+func TestRuntimeFinalizeRecordsFailedDeliverTxAndContinues(t *testing.T) {
+	module := &scriptedModule{name: "bank"}
+	runtime, err := NewRuntime("vexo-test", []Module{module}, PrefixRouter{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = runtime.FinalizeBlock(FinalizeBlockRequest{
+	response, err := runtime.FinalizeBlock(FinalizeBlockRequest{
 		Block: types.Block{
 			Header: types.Header{Height: 1},
-			Txs:    []types.Tx{[]byte("bank:send")},
+			Txs: fairordering.SortTxsWithSalt(
+				[]types.Tx{[]byte("bank:fail"), []byte("bank:ok")},
+				fairordering.HeightSalt("vexo-test", 1),
+			),
 		},
 	})
-	if err == nil || err.Error() != "deliver failed" {
-		t.Fatalf("expected deliver failed, got %v", err)
+	if err != nil {
+		t.Fatalf("a failing transaction must not abort the block, got %v", err)
+	}
+	codes := map[string]uint32{}
+	for index, result := range response.Results {
+		codes[module.order[index]] = result.Code
+	}
+	if codes["bank:fail"] != 7 || codes["bank:ok"] != 0 {
+		t.Fatalf("expected the failure to be recorded and the next transaction to run, got %v", codes)
+	}
+}
+
+// A failed transaction's writes are discarded, a successful one's are kept.
+func TestRuntimeFinalizeDiscardsWritesOfFailedTx(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	module := &scriptedModule{name: "bank", writeBeforeFailure: true}
+	runtime, err := NewRuntime("vexo-test", []Module{module}, PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.WithStore(storage)
+
+	response, writes, err := runtime.FinalizeBlockStaged(FinalizeBlockRequest{
+		Block: types.Block{
+			Header: types.Header{Height: 1},
+			Txs: fairordering.SortTxsWithSalt(
+				[]types.Tx{[]byte("bank:fail"), []byte("bank:ok")},
+				fairordering.HeightSalt("vexo-test", 1),
+			),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Results) != 2 {
+		t.Fatalf("expected two results, got %d", len(response.Results))
+	}
+	var sawOK bool
+	for _, write := range writes {
+		if write.Namespace == "bank" && string(write.Key) == "fail" {
+			t.Fatalf("a failed transaction's write reached the block: %+v", writes)
+		}
+		sawOK = sawOK || (write.Namespace == "bank" && string(write.Key) == "ok")
+	}
+	if !sawOK {
+		t.Fatalf("a successful transaction's write is missing from the block: %+v", writes)
+	}
+}
+
+// A panicking module fails its transaction; it must not take the node down.
+func TestRuntimeFinalizeRecoversModulePanic(t *testing.T) {
+	module := &scriptedModule{name: "bank", panicOnFail: true}
+	runtime, err := NewRuntime("vexo-test", []Module{module}, PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := runtime.FinalizeBlock(FinalizeBlockRequest{
+		Block: types.Block{Header: types.Header{Height: 1}, Txs: []types.Tx{[]byte("bank:fail")}},
+	})
+	if err != nil {
+		t.Fatalf("a panic must be a failed result, got %v", err)
+	}
+	if response.Results[0].Code == 0 || response.Results[0].Log != errModulePanic.Error() {
+		t.Fatalf("expected a panic result, got %+v", response.Results[0])
 	}
 }
 
@@ -447,10 +540,10 @@ func TestRuntimeStagedAppHashUsesBlockHeight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.AppHash == runtime.computeAppHashAtHeight(context.Background(), 0, storage) {
+	if response.AppHash == mustAppHash(t, runtime, 0, storage) {
 		t.Fatal("expected staged app hash to include block height, not previous runtime height")
 	}
-	if response.AppHash != runtime.computeAppHashAtHeight(context.Background(), 5, storage) {
+	if response.AppHash != mustAppHash(t, runtime, 5, storage) {
 		t.Fatal("expected staged app hash to match the finalized block height")
 	}
 }
@@ -672,4 +765,53 @@ func encodeTestBalance(balance uint64) []byte {
 
 func decodeTestBalance(value []byte) uint64 {
 	return binary.BigEndian.Uint64(value)
+}
+
+// scriptedModule runs the actions of the transactions it is handed: "fail"
+// fails (optionally by panicking, optionally after writing), every other action
+// writes its name under the bank namespace and succeeds. It records every
+// transaction in delivery order.
+type scriptedModule struct {
+	name               string
+	order              []string
+	writeBeforeFailure bool
+	panicOnFail        bool
+}
+
+func (module *scriptedModule) Name() string { return module.name }
+
+func (module *scriptedModule) InitGenesis(ctx Context, genesis GenesisState) error { return nil }
+
+func (module *scriptedModule) BeginBlock(ctx Context, header types.Header) error { return nil }
+
+func (module *scriptedModule) EndBlock(ctx Context) error { return nil }
+
+func (module *scriptedModule) DeliverTx(ctx Context, tx types.Tx) types.Result {
+	module.order = append(module.order, string(tx))
+	canonical, err := ParseCanonicalTx(tx)
+	if err != nil {
+		return types.Result{Code: 2, Log: err.Error()}
+	}
+	failing := canonical.Action == "fail"
+	if ctx.Store != nil && (!failing || module.writeBeforeFailure) {
+		if err := ctx.Store.Set(ctx.GoContext(), "bank", []byte(canonical.Action), []byte("1")); err != nil {
+			return types.Result{Code: 3, Log: err.Error()}
+		}
+	}
+	if failing {
+		if module.panicOnFail {
+			panic("scripted panic")
+		}
+		return types.Result{Code: 7, Log: "deliver failed"}
+	}
+	return types.Result{}
+}
+
+func mustAppHash(t *testing.T, runtime *Runtime, height types.Height, storage StateStore) types.Hash {
+	t.Helper()
+	hash, err := runtime.computeAppHash(context.Background(), height, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return hash
 }

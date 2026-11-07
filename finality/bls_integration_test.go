@@ -2,6 +2,7 @@ package finality
 
 import (
 	"encoding/base64"
+	"errors"
 	"testing"
 
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
@@ -9,58 +10,76 @@ import (
 	"github.com/vexo-network/vexo-consensus/validator"
 )
 
-func TestVerifierUsesBLSRegisteredKeyVerifier(t *testing.T) {
-	set := testValidatorSet(t, []validator.Validator{
-		{
-			ID:          "a",
-			VotingPower: 1,
-			PublicKey:   []byte("a-bls"),
-			Metadata: map[string]string{
-				vexocrypto.BLSProofOfPossessionMetadataKey: base64.StdEncoding.EncodeToString([]byte("a-pop")),
-			},
+func blsValidator(id types.ValidatorID, key string, proof string) validator.Validator {
+	return validator.Validator{
+		ID:          id,
+		VotingPower: 1,
+		PublicKey:   []byte(key),
+		Metadata: map[string]string{
+			vexocrypto.BLSProofOfPossessionMetadataKey: base64.StdEncoding.EncodeToString([]byte(proof)),
 		},
-		{
-			ID:          "b",
-			VotingPower: 1,
-			PublicKey:   []byte("b-bls"),
-			Metadata: map[string]string{
-				vexocrypto.BLSProofOfPossessionMetadataKey: base64.StdEncoding.EncodeToString([]byte("b-pop")),
-			},
-		},
-		{
-			ID:          "c",
-			VotingPower: 1,
-			PublicKey:   []byte("c-bls"),
-			Metadata: map[string]string{
-				vexocrypto.BLSProofOfPossessionMetadataKey: base64.StdEncoding.EncodeToString([]byte("c-pop")),
-			},
-		},
-	})
-	adapter := finalityBLSAdapter{}
-	credentials, err := vexocrypto.ValidateBLSValidatorSet(adapter, set)
-	if err != nil {
-		t.Fatal(err)
 	}
-	verifier, err := vexocrypto.NewBLSAggregateVerifier(adapter, credentials)
+}
+
+func TestVerifierUsesBLSKeyRegistry(t *testing.T) {
+	set := testValidatorSet(t, []validator.Validator{
+		blsValidator("a", "a-bls", "a-pop"),
+		blsValidator("b", "b-bls", "b-pop"),
+		blsValidator("c", "c-bls", "c-pop"),
+	})
+	registry, err := vexocrypto.NewBLSKeyRegistry(finalityBLSAdapter{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	proof := validProof(set, []types.ValidatorID{"a", "b"})
 	proof.QuorumCert.Signature = []byte("aggregate")
-	if err := NewVerifier(set, verifier).VerifyFinalityProof(proof); err != nil {
+	proof.CommitChain[0].QuorumCert.Signature = []byte("aggregate")
+	verifier := NewVerifier(set, registry)
+
+	// Keys whose proof of possession was never verified do not verify, whatever the signature.
+	if err := verifier.VerifyFinalityProof(proof); !errors.Is(err, ErrMissingQCSignature) {
+		t.Fatalf("expected unregistered bls keys to fail closed, got %v", err)
+	}
+
+	if err := registry.RegisterValidators(set.List()); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifier.VerifyFinalityProof(proof); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestVerifierRejectsBLSKeysWithoutProofOfPossession(t *testing.T) {
+	registeredSet := testValidatorSet(t, []validator.Validator{
+		blsValidator("a", "a-bls", "a-pop"),
+		blsValidator("b", "b-bls", "b-pop"),
+		blsValidator("c", "c-bls", "c-pop"),
+	})
+	registry, err := vexocrypto.NewBLSKeyRegistry(finalityBLSAdapter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.RegisterValidators(registeredSet.List()); err != nil {
 		t.Fatal(err)
 	}
 
-	tamperedSet := testValidatorSet(t, []validator.Validator{
+	// A set that swaps in a key nobody proved possession of cannot be registered, and its
+	// proofs cannot be verified.
+	rogueValidators := []validator.Validator{
 		{ID: "a", VotingPower: 1, PublicKey: []byte("mallory-bls")},
-		{ID: "b", VotingPower: 1, PublicKey: []byte("b-bls")},
-		{ID: "c", VotingPower: 1, PublicKey: []byte("c-bls")},
-	})
-	tamperedProof := validProof(tamperedSet, []types.ValidatorID{"a", "b"})
-	tamperedProof.QuorumCert.Signature = []byte("aggregate")
-	if err := NewVerifier(tamperedSet, verifier).VerifyFinalityProof(tamperedProof); err == nil {
-		t.Fatal("expected unregistered bls key to fail finality verification")
+		blsValidator("b", "b-bls", "b-pop"),
+		blsValidator("c", "c-bls", "c-pop"),
+	}
+	if err := registry.RegisterValidators(rogueValidators); !errors.Is(err, vexocrypto.ErrMissingBLSProof) {
+		t.Fatalf("expected a key without proof of possession to be refused, got %v", err)
+	}
+	rogueSet := testValidatorSet(t, rogueValidators)
+	rogueProof := validProof(rogueSet, []types.ValidatorID{"a", "b"})
+	rogueProof.QuorumCert.Signature = []byte("aggregate")
+	rogueProof.CommitChain[0].QuorumCert.Signature = []byte("aggregate")
+	if err := NewVerifier(rogueSet, registry).VerifyFinalityProof(rogueProof); !errors.Is(err, ErrMissingQCSignature) {
+		t.Fatalf("expected the unregistered bls key to fail finality verification, got %v", err)
 	}
 }
 

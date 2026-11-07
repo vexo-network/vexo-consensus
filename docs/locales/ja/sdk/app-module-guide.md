@@ -141,7 +141,6 @@
 - `execution.allow_unprotected_legacy_tx` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `eth_getProof` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `evm/storage/{address}/{slot}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
-- `evm_ethstate/{height}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `state_diff` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `vm_trace` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `eth_getBalance` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
@@ -195,3 +194,4 @@
 
 - `execution.evm_fork_preset = "latest"`
 - `execution.evm_chain_config_json`
+- `evm_receipts`

@@ -8,11 +8,27 @@ import (
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
+// ErrInvalidUpdate matches, through errors.Is, every error that rejects the content of a
+// validator update (as opposed to a storage failure or a cancelled context). Callers that must
+// not abort on bad content, such as block execution, use it to tell the two apart.
+var ErrInvalidUpdate = errors.New("invalid validator update")
+
+// invalidUpdateError is a sentinel for a validator update that is rejected on its content.
+type invalidUpdateError string
+
+func (err invalidUpdateError) Error() string {
+	return string(err)
+}
+
+func (err invalidUpdateError) Is(target error) bool {
+	return target == ErrInvalidUpdate
+}
+
 var (
-	ErrValidatorExists    = errors.New("validator already exists")
-	ErrValidatorNotFound  = errors.New("validator not found")
-	ErrZeroVotingPower    = errors.New("voting power must be greater than zero")
-	ErrMissingCandidateID = errors.New("candidate address is required")
+	ErrValidatorExists    error = invalidUpdateError("validator already exists")
+	ErrValidatorNotFound  error = invalidUpdateError("validator not found")
+	ErrZeroVotingPower    error = invalidUpdateError("voting power must be greater than zero")
+	ErrMissingCandidateID error = invalidUpdateError("candidate address is required")
 )
 
 type InMemoryRegistry struct {

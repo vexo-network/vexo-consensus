@@ -121,3 +121,12 @@ Este apêndice garante que a tradução preserve as interfaces executáveis e as
 - `--validator-set` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `blst-bls12381-minpk-v1` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `supranational/blst` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `consensus.TwoChainCommitRule` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `1..Header.Height` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `0 < Proof.ValidatorSetHeight <= Header.Height` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `link.BlockHash == HeaderHash(link.Header)` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `link.Header.Height == Header.Height + 1` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `link.Header.PreviousBlockHash == Proof.BlockHash` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `link.QuorumCert` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `link.QuorumCert.Round == QuorumCert.Round + 1` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `RuntimeSuite.RegisterValidators` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.

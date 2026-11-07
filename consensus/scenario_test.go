@@ -18,12 +18,12 @@ func TestScenarioRunnerFinalizesLongLinearChain(t *testing.T) {
 	if len(result.Blocks) != 12 {
 		t.Fatalf("expected 12 blocks, got %d", len(result.Blocks))
 	}
-	if len(result.Finalized) != 10 {
-		t.Fatalf("expected 10 finalized blocks, got %d", len(result.Finalized))
+	if len(result.Finalized) != 11 {
+		t.Fatalf("expected 11 finalized blocks, got %d", len(result.Finalized))
 	}
-	expectedFinalized := result.Blocks[9].BlockHash
+	expectedFinalized := result.Blocks[10].BlockHash
 	if result.LastFinalized != expectedFinalized {
-		t.Fatal("expected latest finalized block to lag chain head by two blocks")
+		t.Fatal("expected latest finalized block to lag chain head by one block")
 	}
 	if machine.Status(context.Background()).LastFinalized != result.LastFinalized {
 		t.Fatal("expected machine status to match scenario result")
@@ -48,8 +48,8 @@ func TestScenarioRunnerHandlesTimeoutsAndForkAttempts(t *testing.T) {
 	if result.RejectedForks != 4 {
 		t.Fatalf("expected 4 rejected forks, got %d", result.RejectedForks)
 	}
-	if len(result.Finalized) != 13 {
-		t.Fatalf("expected 13 finalized blocks, got %d", len(result.Finalized))
+	if len(result.Finalized) != 14 {
+		t.Fatalf("expected 14 finalized blocks, got %d", len(result.Finalized))
 	}
 	for _, timeoutCert := range result.Timeouts {
 		if timeoutCert.HighQC.Height == 0 {

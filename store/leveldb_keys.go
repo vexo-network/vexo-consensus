@@ -120,15 +120,6 @@ func evidenceKeyString(key []byte) string {
 	return string(key[len(evidencePrefix):])
 }
 
-func stringSliceContains(items []string, target string) bool {
-	for _, item := range items {
-		if item == target {
-			return true
-		}
-	}
-	return false
-}
-
 func writeUint64(writer byteWriter, value uint64) {
 	var buffer [8]byte
 	binary.BigEndian.PutUint64(buffer[:], value)

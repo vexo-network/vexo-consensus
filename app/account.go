@@ -21,7 +21,7 @@ func (keeper AccountKeeper) Sequence(ctx context.Context, store StateStore, sign
 	if store == nil || signer == "" {
 		return 0, ErrInvalidAccountSequence
 	}
-	value, err := store.Get(ctx, "auth", nonceKey(signer))
+	value, err := store.Get(ctx, "auth", NonceKey(signer))
 	if errors.Is(err, vexostore.ErrKeyNotFound) {
 		return 0, nil
 	}
@@ -48,9 +48,12 @@ func (keeper AccountKeeper) SetSequence(ctx context.Context, store StateStore, s
 	}
 	var encoded [8]byte
 	binary.BigEndian.PutUint64(encoded[:], sequence)
-	return store.Set(ctx, "auth", nonceKey(signer), encoded[:])
+	return store.Set(ctx, "auth", NonceKey(signer), encoded[:])
 }
 
-func nonceKey(signer types.Address) []byte {
-	return []byte("nonce/" + string(signer))
+// NonceKey is the single auth-namespace key holding an account's sequence.
+// The ante handler and the EVM module share it, so the account sequence and
+// the EVM account nonce can never drift apart.
+func NonceKey(signer types.Address) []byte {
+	return []byte("nonce/" + NormalizeActor(signer))
 }

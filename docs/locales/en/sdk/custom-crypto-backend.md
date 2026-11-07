@@ -40,7 +40,9 @@ All signatures must use explicit domains:
 - `vexo.consensus.proposal.v1`
 - `vexo.consensus.vote.v1`
 - `vexo.consensus.timeout_vote.v1`
-- `vexo.finality.proof.v1`
+- `vexo.remote_signer.probe.v1` (operator challenges only; no verifier accepts it)
+
+Finality proofs carry no signature domain of their own: a quorum certificate aggregates votes signed in `vexo.consensus.vote.v1`.
 
 Never sign raw messages directly in production paths.
 
@@ -178,26 +180,20 @@ At startup, `vexod` resolves relative `vrf_key_paths` from the directory contain
 
 ## Remote Signer Requirements
 
-Remote signers must enforce their own policy tuple:
+Remote signers must not trust the policy a caller declares. A node that is buggy or compromised can declare anything, so the signer reads what the bytes it is asked to sign commit to: the domain-separated message carries the statement kind (proposal, vote or timeout vote), the height and the view (`Round` is the global view). The declared policy `(chain_id, height, round, type, domain)` is only checked for consistency with those bytes and against the operator's allowed chain, height range and types.
 
-```text
-(chain_id, height, round, type, domain)
-```
+The signer keeps a monotonic high-water mark per public key and statement kind: the highest view it has signed and the digest of the bytes signed at that view. A statement is signed only when its view is above the mark, or when it is byte-identical to the statement already signed at the mark. Everything else is refused, including every older view, because the signer keeps no history below the mark. The mark is durable before the signature is released, so it survives a restart and a compromised node process. It is bounded state, one record per key and kind, so the guard file does not grow with the chain. Views are compared, not heights: after a fork a higher view legitimately extends a lower block.
 
-They must reject conflicting messages for the same tuple even if the node process restarts or is compromised.
-
-`vexo-consensus` also provides a node-side and HTTP KMS/HSM `DoubleSignGuard` helper plus a durable remote-signer nonce replay guard. For built-in serving, run `vexod keys serve-remote` with durable `--guard-path` and `--nonce-path`; external production KMS/HSM implementations must keep equivalent durable policy and replay-nonce databases. The guard key includes domain separation:
-
-```text
-chain_id/height/round/type/domain
-```
+`vexo-consensus` provides this as a node-side and HTTP KMS/HSM `DoubleSignGuard` helper plus a durable remote-signer nonce replay guard. For built-in serving, run `vexod keys serve-remote` with durable `--guard-path` and `--nonce-path`; external production KMS/HSM implementations must keep an equivalent durable high-water mark and replay-nonce database. A guard file written by an older signer (per-message records) is refused at load: confirm the last view the key signed before replacing it.
 
 Valid sign type and domain pairs are:
 
 - `consensus_proposal` → `vexo.consensus.proposal.v1`
 - `consensus_vote` → `vexo.consensus.vote.v1`
 - `consensus_timeout_vote` → `vexo.consensus.timeout_vote.v1`
-- `finality_proof` → `vexo.finality.proof.v1`
+- `remote_signer_probe` → `vexo.remote_signer.probe.v1`
+
+`vexod keys verify-remote` signs its challenge with the probe pair, which the guard does not track, so checking a live signer never moves a consensus mark.
 
 ## Test Backends
 

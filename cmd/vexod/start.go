@@ -65,7 +65,12 @@ type startRuntimeConfig struct {
 	RPCAddress              string
 	RPCAdminToken           string
 	RPCAdminTokens          map[string][]string
+	RPCCORSAllowedOrigins   []string
+	RPCAllowedHosts         []string
 	RPCEnablePprof          bool
+	RPCTLSCertPath          string
+	RPCTLSKeyPath           string
+	RPCTLSCAPath            string
 	RPCRequestTimeout       time.Duration
 	ShutdownTimeout         time.Duration
 	RPCMaxRequestBytes      int64
@@ -462,9 +467,17 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			_ = withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop)
 			return err
 		}
+		rpcTLS, err := loadRPCTLSConfig(runtimeConfig)
+		if err != nil {
+			_ = withShutdownContext(ctx, runtimeConfig.ShutdownTimeout, node.Stop)
+			return fmt.Errorf("load rpc tls config: %w", err)
+		}
 		address, shutdown, err := startRPCServerWithConfig(node, runtimeConfig.RPCAddress, vexorpc.Config{
+			TLSConfig:                   rpcTLS,
 			AdminToken:                  runtimeConfig.RPCAdminToken,
 			AdminTokens:                 runtimeConfig.RPCAdminTokens,
+			CORSAllowedOrigins:          runtimeConfig.RPCCORSAllowedOrigins,
+			AllowedHosts:                runtimeConfig.RPCAllowedHosts,
 			EnablePprof:                 runtimeConfig.RPCEnablePprof,
 			RequestTimeout:              runtimeConfig.RPCRequestTimeout,
 			MaxRequestBytes:             runtimeConfig.RPCMaxRequestBytes,
@@ -477,6 +490,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			AllowUnprotectedLegacyTx:    inputs.Config.Chain.Execution.AllowUnprotectedLegacyTx,
 			EVMChainConfigJSON:          inputs.Config.Chain.Execution.EVMChainConfigJSON,
 			StrictEVMStateRoot:          inputs.Config.Chain.Execution.StrictEVMStateRoot,
+			RPCGasCap:                   inputs.Config.Chain.Execution.RPCGasCap,
 			EnableEVMManagedAccounts:    runtimeConfig.RPCEVMManagedAccounts,
 			EVMAccountPrivateKeys:       evmAccountKeys,
 		}, serverErr)
@@ -485,7 +499,7 @@ func runStartNode(ctx context.Context, writer io.Writer, inputs startInputs, run
 			return err
 		}
 		rpcShutdown = shutdown
-		logEvent("rpc_listening", map[string]any{"rpc_address": address, "pprof": runtimeConfig.RPCEnablePprof, "tls": false})
+		logEvent("rpc_listening", map[string]any{"rpc_address": address, "pprof": runtimeConfig.RPCEnablePprof, "tls": rpcTLS != nil})
 	}
 	if p2pWire != nil {
 		logEvent("p2p_listening", map[string]any{"p2p_address": p2pWire.Address(), "p2p_peers": len(runtimeConfig.P2PPeers), "p2p_seeds": len(runtimeConfig.P2PSeeds)})
@@ -576,6 +590,10 @@ func maybeRunStartupStateSync(ctx context.Context, inputs startInputs, runtimeCo
 	if len(stateSync.SnapshotURLs) == 0 {
 		return fmt.Errorf("network_config.json:state_sync.snapshot_urls is required when state sync is enabled: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
+	trust, err := parseSnapshotTrust(stateSync.TrustHeight, stateSync.TrustHash)
+	if err != nil {
+		return fmt.Errorf("network_config.json:state_sync.trust_height and trust_hash: %w: %w", err, vexoconfig.ErrUnsafeNetworkConfig)
+	}
 	timeout, err := parseDurationOrDefault(stateSync.Timeout, defaultStateSyncTimeout)
 	if err != nil {
 		return fmt.Errorf("state_sync.timeout: %w", err)
@@ -607,7 +625,11 @@ func maybeRunStartupStateSync(ctx context.Context, inputs startInputs, runtimeCo
 		if snapshotURL == "" {
 			continue
 		}
-		document, err := downloadSnapshotDocumentWithLimitContext(ctx, snapshotURL, timeout, maxSnapshotBytes)
+		exportURL, err := snapshotExportURL(snapshotURL, trust.Height)
+		if err != nil {
+			return err
+		}
+		document, err := downloadSnapshotDocumentWithLimitContext(ctx, exportURL, timeout, maxSnapshotBytes)
 		if err != nil {
 			lastErr = err
 			logEvent("state_sync_candidate_failed", map[string]any{"url": snapshotURL, "error": err.Error()})
@@ -616,7 +638,7 @@ func maybeRunStartupStateSync(ctx context.Context, inputs startInputs, runtimeCo
 			}
 			continue
 		}
-		if err := validateStartupStateSyncCandidate(document, inputs.Config.Chain.ChainID, localState, localFound, stateSync); err != nil {
+		if err := validateStartupStateSyncCandidate(ctx, document, inputs.Config.Chain, localState, localFound, stateSync, trust); err != nil {
 			lastErr = err
 			logEvent("state_sync_candidate_rejected", map[string]any{"url": snapshotURL, "height": document.State.Height, "error": err.Error()})
 			if !stateSync.RetryAllSnapshots {
@@ -624,7 +646,7 @@ func maybeRunStartupStateSync(ctx context.Context, inputs startInputs, runtimeCo
 			}
 			continue
 		}
-		if err := restoreSnapshotDocumentWithContext(ctx, storage, document); err != nil {
+		if err := restoreSnapshotDocumentWithContext(ctx, storage, document, inputs.Config.Chain, trust); err != nil {
 			return err
 		}
 		if _, err := storage.RecoverIndexes(ctx); err != nil {
@@ -639,8 +661,13 @@ func maybeRunStartupStateSync(ctx context.Context, inputs startInputs, runtimeCo
 	return errors.New("state sync failed: no usable snapshot URLs configured")
 }
 
-func validateStartupStateSyncCandidate(document snapshotDocument, chainID string, localState store.StateRecord, localFound bool, stateSync runtimeStateSyncConfig) error {
-	if err := validateSnapshotDocument(document, chainID); err != nil {
+// validateStartupStateSyncCandidate checks a downloaded snapshot before it is restored, so a
+// snapshot that is not the state of the trusted block lets state sync try the next source.
+func validateStartupStateSyncCandidate(ctx context.Context, document snapshotDocument, chain vexoconfig.Config, localState store.StateRecord, localFound bool, stateSync runtimeStateSyncConfig, trust snapshotTrust) error {
+	if err := validateSnapshotDocument(document, chain.ChainID); err != nil {
+		return err
+	}
+	if err := verifySnapshotTrust(ctx, document, chain, trust); err != nil {
 		return err
 	}
 	if stateSync.RequireFresh && stateSync.MinHeight > 0 && document.State.Height < types.Height(stateSync.MinHeight) {
@@ -861,7 +888,12 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 		RPCAddress:              runtime.RPC.Address,
 		RPCAdminToken:           runtime.RPC.AdminToken,
 		RPCAdminTokens:          cloneStringSliceMap(runtime.RPC.AdminTokens),
+		RPCCORSAllowedOrigins:   append([]string(nil), runtime.RPC.CORSAllowedOrigins...),
+		RPCAllowedHosts:         append([]string(nil), runtime.RPC.AllowedHosts...),
 		RPCEnablePprof:          runtime.RPC.EnablePprof,
+		RPCTLSCertPath:          resolveOptionalPath(home, runtime.RPC.TLSCertPath),
+		RPCTLSKeyPath:           resolveOptionalPath(home, runtime.RPC.TLSKeyPath),
+		RPCTLSCAPath:            resolveOptionalPath(home, runtime.RPC.TLSCAPath),
 		RPCMaxRequestBytes:      runtime.RPC.MaxRequestBytes,
 		RPCWeb3MaxSubscriptions: runtime.RPC.Web3MaxSubscriptions,
 		RPCWeb3FilterSnapshot:   resolveOptionalPath(home, runtime.RPC.Web3FilterSnapshot),
@@ -1058,6 +1090,9 @@ func validateStateSyncRuntimeConfig(stateSync runtimeStateSyncConfig) error {
 	if len(stateSync.SnapshotURLs) == 0 {
 		return fmt.Errorf("runtime.state_sync.snapshot_urls is required when enabled: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
+	if _, err := parseSnapshotTrust(stateSync.TrustHeight, stateSync.TrustHash); err != nil {
+		return fmt.Errorf("runtime.state_sync.trust_height and trust_hash: %w: %w", err, vexoconfig.ErrUnsafeNetworkConfig)
+	}
 	for _, rawURL := range stateSync.SnapshotURLs {
 		rawURL = strings.TrimSpace(rawURL)
 		if rawURL == "" {
@@ -1085,6 +1120,12 @@ func validateRuntimeNetworkSafety(cfg startRuntimeConfig) error {
 		if cfg.P2PAuthToken != "" && cfg.P2PAuthReplayPath == "" {
 			return fmt.Errorf("runtime.p2p.auth_replay_path is required for public peer connections: %w", vexoconfig.ErrUnsafeNetworkConfig)
 		}
+	}
+	if cfg.RequireNetworkSafety && cfg.P2PEnabled && requiresAuthenticatedP2P(cfg) && (cfg.P2PTLSCertPath == "" || cfg.P2PTLSKeyPath == "" || cfg.P2PTLSCAPath == "") {
+		return fmt.Errorf("runtime.p2p.tls_cert_path, tls_key_path and tls_ca_path are required for public peer connections when require_network_safety=true: %w", vexoconfig.ErrUnsafeNetworkConfig)
+	}
+	if cfg.RequireNetworkSafety && cfg.RPCEnabled && (cfg.RPCAdminToken != "" || len(cfg.RPCAdminTokens) > 0) && !isLoopbackListenAddress(cfg.RPCAddress) && (cfg.RPCTLSCertPath == "" || cfg.RPCTLSKeyPath == "") {
+		return fmt.Errorf("runtime.rpc admin tokens on a non-loopback listener require runtime.rpc.tls_cert_path and tls_key_path when require_network_safety=true: %w", vexoconfig.ErrUnsafeNetworkConfig)
 	}
 	if cfg.P2PRequireAuthReplay && cfg.P2PAuthReplayPath == "" {
 		return fmt.Errorf("runtime.p2p.require_auth_replay_store requires runtime.p2p.auth_replay_path: %w", vexoconfig.ErrUnsafeNetworkConfig)
@@ -1138,6 +1179,9 @@ func runtimeConfigIsZero(runtime runtimeConfig) bool {
 	return runtime.RPC.Enabled == false &&
 		runtime.RPC.Address == "" &&
 		runtime.RPC.AdminToken == "" &&
+		len(runtime.RPC.AdminTokens) == 0 &&
+		len(runtime.RPC.CORSAllowedOrigins) == 0 &&
+		len(runtime.RPC.AllowedHosts) == 0 &&
 		runtime.RPC.EnablePprof == false &&
 		runtime.RPC.RequestTimeout == "" &&
 		runtime.RPC.ShutdownTimeout == "" &&
@@ -1381,7 +1425,20 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 	if err := addrBook.Save(); err != nil {
 		return nil, err
 	}
-	peers := mergePeerMaps(addrBook.PeerMap(peerID), runtimeConfig.P2PPeers, runtimeConfig.P2PSeeds)
+	// Only operator-configured peers are dialled as configured peers. Entries the address book
+	// learned from the network stay unverified dial candidates in the transport's bounded learned
+	// pool, so a restart never lets them displace operator peers under the MaxPeers cap.
+	peers := mergePeerMaps(addrBook.PermanentPeerMap(peerID), runtimeConfig.P2PPeers, runtimeConfig.P2PSeeds)
+	learnedPeers := addrBook.LearnedPeerMap(peerID)
+	for learnedID := range learnedPeers {
+		if _, configured := peers[learnedID]; configured {
+			delete(learnedPeers, learnedID)
+		}
+	}
+	tlsConfig, err := loadP2PTLSConfig(runtimeConfig)
+	if err != nil {
+		return nil, fmt.Errorf("load p2p tls config: %w", err)
+	}
 	requireHandshakeSignature := requiresAuthenticatedP2P(runtimeConfig)
 	var authReplayStore transport.AuthReplayStore
 	var grpcTransport *transport.GRPCTransport
@@ -1395,6 +1452,7 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 		PeerID:                    peerID,
 		ListenAddr:                runtimeConfig.P2PListenAddress,
 		Peers:                     peers,
+		LearnedPeers:              learnedPeers,
 		DialTimeout:               runtimeConfig.P2PDialTimeout,
 		NetworkID:                 networkID,
 		ChainID:                   inputs.Config.Chain.ChainID,
@@ -1404,29 +1462,31 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 		AuthToken:                 runtimeConfig.P2PAuthToken,
 		AuthReplayStore:           authReplayStore,
 		RequireAuthReplayStore:    runtimeConfig.P2PRequireAuthReplay || requireHandshakeSignature,
-		TLSConfig:                 nil,
-		RequireTLS:                false,
+		TLSConfig:                 tlsConfig,
+		RequireTLS:                tlsConfig != nil,
 		HandshakeSigner:           handshakeSigner,
 		HandshakeVerifier:         handshakeSigner,
 		RequireHandshakeSignature: requireHandshakeSignature,
 		PeerLearned: func(peerID p2p.PeerID, address string) {
 			addrBook.Add(peerID, address, "handshake", false)
-			_ = addrBook.Save()
+			addrBook.SaveDeferred()
 		},
 		PeerAttempted: func(peerID p2p.PeerID) {
 			addrBook.MarkAttempt(peerID)
-			_ = addrBook.Save()
+			addrBook.SaveDeferred()
 		},
 		PeerDialResult: func(peerID p2p.PeerID, success bool) {
 			if success {
 				addrBook.MarkSuccess(peerID)
 			} else {
 				addrBook.MarkFailure(peerID, inputs.Config.Chain.P2P.BanDuration)
-				if addrBook.EvictBanned() > 0 && grpcTransport != nil {
+				// The ban record stays in the address book until it expires, so a banned peer
+				// cannot come back by being learned again.
+				if addrBook.IsBanned(peerID) && grpcTransport != nil {
 					grpcTransport.RemovePeer(peerID)
 				}
 			}
-			_ = addrBook.Save()
+			addrBook.SaveDeferred()
 		},
 		PeerGate: func(ctx context.Context, peerID p2p.PeerID) error {
 			if addrBook.IsBanned(peerID) {
@@ -1434,12 +1494,44 @@ func buildGRPCTransport(inputs startInputs, runtimeConfig startRuntimeConfig) (*
 			}
 			return nil
 		},
+		// The hooks above save the address book behind; a stopped transport writes it once
+		// more and leaves no save pending.
+		Stopped: addrBook.Close,
 	}
 	grpcTransport, err = transport.NewGRPCTransport(grpcConfig)
 	if err != nil {
 		return nil, err
 	}
 	return grpcTransport, nil
+}
+
+// loadRPCTLSConfig returns the TLS configuration the RPC listener serves with, or nil when no RPC
+// certificate is configured. A CA path additionally requires and verifies client certificates.
+func loadRPCTLSConfig(runtimeConfig startRuntimeConfig) (*tls.Config, error) {
+	if runtimeConfig.RPCTLSCertPath == "" && runtimeConfig.RPCTLSKeyPath == "" && runtimeConfig.RPCTLSCAPath == "" {
+		return nil, nil
+	}
+	if runtimeConfig.RPCTLSCertPath == "" || runtimeConfig.RPCTLSKeyPath == "" {
+		return nil, errors.New("rpc tls cert and key must be configured together")
+	}
+	certificate, err := tls.LoadX509KeyPair(runtimeConfig.RPCTLSCertPath, runtimeConfig.RPCTLSKeyPath)
+	if err != nil {
+		return nil, err
+	}
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}
+	if runtimeConfig.RPCTLSCAPath != "" {
+		caBytes, err := os.ReadFile(runtimeConfig.RPCTLSCAPath)
+		if err != nil {
+			return nil, err
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caBytes) {
+			return nil, errors.New("rpc tls ca file does not contain PEM certificates")
+		}
+		tlsConfig.ClientCAs = pool
+		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+	}
+	return tlsConfig, nil
 }
 
 func loadP2PTLSConfig(runtimeConfig startRuntimeConfig) (*tls.Config, error) {

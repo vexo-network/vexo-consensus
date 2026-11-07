@@ -70,11 +70,15 @@ func TestConfigValidateRejectsUnsafeSettings(t *testing.T) {
 		{name: "negative mempool tx bytes", mutate: func(cfg *Config) { cfg.Mempool.MaxTxBytes = -1 }},
 		{name: "zero mempool tx count", mutate: func(cfg *Config) { cfg.Mempool.MaxTxs = 0 }},
 		{name: "negative mempool tx count", mutate: func(cfg *Config) { cfg.Mempool.MaxTxs = -1 }},
+		{name: "unbounded mempool bytes", mutate: func(cfg *Config) { cfg.Mempool.MaxTotalBytes = 0 }},
+		{name: "mempool bytes below one transaction", mutate: func(cfg *Config) { cfg.Mempool.MaxTotalBytes = cfg.Mempool.MaxTxBytes - 1 }},
+		{name: "unbounded mempool sender share", mutate: func(cfg *Config) { cfg.Mempool.MaxTxsPerSender = 0 }},
+		{name: "negative mempool sender share", mutate: func(cfg *Config) { cfg.Mempool.MaxTxsPerSender = -1 }},
 		{name: "negative mempool seen ttl", mutate: func(cfg *Config) { cfg.Mempool.SeenTTL = -time.Second }},
 		{name: "mismatched core modules", mutate: func(cfg *Config) { cfg.Application.CoreModules = []string{"bank"} }},
 		{name: "core modules not prefix of enabled modules", mutate: func(cfg *Config) {
 			cfg.Application.CoreModules = DefaultApplicationModules()
-			cfg.Application.Modules = []string{"bank", "governance", "staking", "params", "ibc"}
+			cfg.Application.Modules = []string{"bank", "governance", "staking", "params", "ibc", "slashing"}
 		}},
 		{name: "zero target gas", mutate: func(cfg *Config) { cfg.Execution.TargetGas = 0 }},
 		{name: "zero max gas", mutate: func(cfg *Config) { cfg.Execution.MaxGas = 0 }},
@@ -106,6 +110,7 @@ func TestConfigValidateRejectsUnsafeSettings(t *testing.T) {
 		{name: "invalid evm chain config json", mutate: func(cfg *Config) { cfg.Execution.EVMChainConfigJSON = "{invalid" }},
 		{name: "zero max blob sidecar blobs", mutate: func(cfg *Config) { cfg.Execution.MaxBlobSidecarBlobs = 0 }},
 		{name: "zero max blob sidecar bytes", mutate: func(cfg *Config) { cfg.Execution.MaxBlobSidecarBytes = 0 }},
+		{name: "zero rpc gas cap", mutate: func(cfg *Config) { cfg.Execution.RPCGasCap = 0 }},
 		{name: "dynamic base fee without base fee", mutate: func(cfg *Config) {
 			cfg.Execution.DynamicBaseFee = true
 			cfg.Execution.BaseFee = 0
@@ -126,8 +131,11 @@ func TestConfigValidateRejectsUnsafeSettings(t *testing.T) {
 			cfg.Execution.MinBaseFee = 10
 			cfg.Execution.MaxBaseFee = 5
 		}},
-		{name: "zero governance quorum", mutate: func(cfg *Config) { cfg.Governance.QuorumPower = 0 }},
-		{name: "zero governance yes threshold", mutate: func(cfg *Config) { cfg.Governance.YesThresholdPower = 0 }},
+		{name: "zero governance quorum", mutate: func(cfg *Config) { cfg.Governance.QuorumBPS = 0 }},
+		{name: "zero governance yes threshold", mutate: func(cfg *Config) { cfg.Governance.YesThresholdBPS = 0 }},
+		{name: "governance quorum above all bonded power", mutate: func(cfg *Config) { cfg.Governance.QuorumBPS = 10001 }},
+		{name: "governance yes threshold above all bonded power", mutate: func(cfg *Config) { cfg.Governance.YesThresholdBPS = 10001 }},
+		{name: "governance veto above all bonded power", mutate: func(cfg *Config) { cfg.Governance.VetoBPS = 10001 }},
 		{name: "zero governance voting period", mutate: func(cfg *Config) { cfg.Governance.VotingPeriod = 0 }},
 		{name: "zero governance timelock", mutate: func(cfg *Config) { cfg.Governance.Timelock = 0 }},
 		{name: "unknown governance deposit denom", mutate: func(cfg *Config) { cfg.Governance.DepositDenom = "unknown" }},
@@ -167,7 +175,7 @@ func TestConfigValidateAllowsOptionalSafetyKnobs(t *testing.T) {
 	cfg := Default("vexo-test")
 	cfg.Validator.MaxValidators = 0
 	cfg.Committee.MinVotingPower = 0
-	cfg.Governance.VetoPower = 0
+	cfg.Governance.VetoBPS = 0
 	cfg.P2P.ValidMessageReward = 0
 	cfg.P2P.BanDuration = 0
 	if err := cfg.Validate(); err != nil {

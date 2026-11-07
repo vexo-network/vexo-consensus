@@ -188,3 +188,7 @@ VRF backend 也要像 BLS 一样暴露清晰的审计边界。请填写 `vrf.ada
 - `consensus_vote` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `consensus_timeout_vote` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `finality_proof` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo.remote_signer.probe.v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `(chain_id, height, round, type, domain)` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `remote_signer_probe` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod keys verify-remote` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

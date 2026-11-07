@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,6 +16,7 @@ import (
 var (
 	ErrMissingUpgradeName    = errors.New("upgrade name is required")
 	ErrMissingUpgradeHeight  = errors.New("upgrade height is required")
+	ErrPlanNotInFuture       = errors.New("upgrade plan height is not above the current height")
 	ErrRollbackRequired      = errors.New("upgrade rollback required")
 	ErrMigrationNotFound     = errors.New("migration not found")
 	ErrStoreVersionMismatch  = errors.New("store schema version mismatch")
@@ -90,9 +92,13 @@ type Recorder interface {
 }
 
 type PlanStore interface {
+	// SaveUpgradePlan schedules plan; it fails with ErrPlanNotInFuture when the chain already
+	// reached the plan's height.
 	SaveUpgradePlan(ctx context.Context, plan Plan) error
 	UpgradePlanByHeight(ctx context.Context, height types.Height) (Plan, bool, error)
 	UpgradePlanByName(ctx context.Context, name string) (Plan, bool, error)
+	// NextUpgradePlan returns the scheduled plan with the lowest height at or above height.
+	NextUpgradePlan(ctx context.Context, height types.Height) (Plan, bool, error)
 }
 
 type Executor struct {
@@ -134,6 +140,18 @@ func ValidatePlan(plan Plan) error {
 	}
 	if plan.Height == 0 {
 		return ErrMissingUpgradeHeight
+	}
+	return nil
+}
+
+// ValidateSchedule checks that plan can still run on a chain that has reached currentHeight: a plan
+// for a height the chain has passed would never be applied, and would silently skip its migrations.
+func ValidateSchedule(plan Plan, currentHeight types.Height) error {
+	if err := ValidatePlan(plan); err != nil {
+		return err
+	}
+	if plan.Height <= currentHeight {
+		return fmt.Errorf("%w: plan %q is for height %d, the chain is at %d", ErrPlanNotInFuture, plan.Name, plan.Height, currentHeight)
 	}
 	return nil
 }

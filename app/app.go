@@ -20,6 +20,9 @@ type Context struct {
 	TxResults   []types.Result
 	Store       StateStore
 	Gas         *GasMeter
+	// GenesisValidators is the genesis validator set. It is set only while
+	// InitChain runs the modules' InitGenesis and is nil in every other context.
+	GenesisValidators []types.ValidatorUpdate
 }
 
 func (ctx Context) GoContext() context.Context {
@@ -57,6 +60,11 @@ type StateStore interface {
 
 type StateRootStore interface {
 	StateStore
+	NamespaceRoots
+}
+
+// NamespaceRoots reports the state root of a namespace.
+type NamespaceRoots interface {
 	Root(ctx context.Context, namespace string) (types.Hash, error)
 }
 
@@ -72,10 +80,6 @@ type Module interface {
 
 type ModuleCloner interface {
 	CloneModule() Module
-}
-
-type StoreBinder interface {
-	BindStore(ctx Context) error
 }
 
 type ValidatorUpdateProvider interface {
@@ -94,6 +98,17 @@ type TxValidator interface {
 	ValidateTx(ctx Context, tx types.Tx) error
 }
 
+// BlockExclusiveTx is implemented by a module whose transactions can be redundant with each other
+// within one block: every one of them is valid against the committed state, but only the first to
+// execute takes effect. ExclusiveTxKey names what a transaction is exclusive in; a block with two
+// transactions of one module and one key is invalid, and a proposer never builds one.
+//
+// The runtime asks for the key only of a transaction that passed validation, in the order of the
+// block, so the key may rely on that validation. The key is a pure function of the transaction.
+type BlockExclusiveTx interface {
+	ExclusiveTxKey(tx types.Tx) (string, error)
+}
+
 type PruneHook interface {
 	Prune(ctx Context, retainFrom types.Height) error
 }
@@ -109,6 +124,9 @@ type TxEventEmitter interface {
 type InitChainRequest struct {
 	ChainID string
 	Genesis GenesisState
+	// Validators is the genesis validator set handed to every module's
+	// InitGenesis through Context.GenesisValidators.
+	Validators []types.ValidatorUpdate
 }
 
 type InitChainResponse struct {
@@ -146,6 +164,22 @@ type FinalizeBlockResponse struct {
 	TxEvents         [][]events.Event
 	AppHash          types.Hash
 	ValidatorUpdates []types.ValidatorUpdate
+	// FeeMarket reports the fees the block was priced at and the fees the next
+	// block is priced at. Both are application state, so every node derives the
+	// same values from the same blocks.
+	FeeMarket FeeMarketReport
+}
+
+// FeeMarketReport is the fee market of one block: BaseFee and BlobBaseFee are
+// what the block's transactions were priced against, NextBaseFee and
+// NextBlobBaseFee what the block moved them to, and BlobGasUsed the blob gas
+// the block consumed.
+type FeeMarketReport struct {
+	BaseFee         uint64
+	NextBaseFee     uint64
+	BlobBaseFee     uint64
+	NextBlobBaseFee uint64
+	BlobGasUsed     uint64
 }
 
 type CommitResponse struct {

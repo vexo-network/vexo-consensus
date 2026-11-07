@@ -135,14 +135,17 @@ func (session *web3SubscriptionSession) subscribe(params []json.RawMessage) (str
 	switch subscriptionType {
 	case "newHeads":
 	case "logs":
-		filter, rpcErr := web3LogFilterParam(session.ctx, session.provider, session.cfg, params[1:])
+		filter, rpcErr := web3LogFilterParam(session.ctx, session.provider, params[1:])
 		if rpcErr != nil {
 			return "", rpcErr
 		}
-		subscription.Filter = filter
-		if logs, rpcErr := web3LogsForFilter(session.ctx, session.provider, session.cfg, filter); rpcErr == nil {
-			subscription.LastLogIndex = len(logs)
+		// A subscription delivers the logs of blocks committed after it was
+		// created, so its window starts past the current head instead of
+		// re-reading the chain behind it on every tick.
+		if head := uint64(status.LatestHeight); filter.FromBlock <= head {
+			filter.FromBlock = head + 1
 		}
+		subscription.Filter = filter
 	case "newPendingTransactions":
 		pendingProvider, ok := session.provider.(PendingTxProvider)
 		if !ok {
@@ -263,7 +266,19 @@ func (session *web3SubscriptionSession) publishHeads(subscription web3Subscripti
 }
 
 func (session *web3SubscriptionSession) publishLogs(subscription web3Subscription) web3Subscription {
-	logs, rpcErr := web3LogsForFilter(session.ctx, session.provider, session.cfg, subscription.Filter)
+	latest := uint64(session.provider.Status(session.ctx).LatestHeight)
+	// The window is the blocks committed since the last delivered one, cut to
+	// the widest range a log query may cover, so a subscriber that fell far
+	// behind catches up in several windows instead of stalling on an
+	// over-wide one.
+	window := subscription.Filter
+	if window.ToBlock > latest {
+		window.ToBlock = latest
+	}
+	if width := session.cfg.logMaxBlockRange(); window.FromBlock <= window.ToBlock && window.ToBlock-window.FromBlock >= width {
+		window.ToBlock = window.FromBlock + width - 1
+	}
+	logs, rpcErr := web3LogsForFilter(session.ctx, session.provider, session.cfg, window)
 	if rpcErr != nil {
 		return subscription
 	}
@@ -273,7 +288,14 @@ func (session *web3SubscriptionSession) publishLogs(subscription web3Subscriptio
 		subscription.LastLogIndex = index + 1
 		sent++
 	}
-	subscription.LastHeight = uint64(session.provider.Status(session.ctx).LatestHeight)
+	// Once the window is delivered the next one starts after it.
+	if subscription.LastLogIndex == len(logs) {
+		if next := window.ToBlock + 1; next > subscription.Filter.FromBlock {
+			subscription.Filter.FromBlock = next
+		}
+		subscription.LastLogIndex = 0
+	}
+	subscription.LastHeight = latest
 	return subscription
 }
 

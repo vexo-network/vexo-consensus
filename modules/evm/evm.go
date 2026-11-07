@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/contract"
 	"github.com/vexo-network/vexo-consensus/events"
 	gethbackend "github.com/vexo-network/vexo-consensus/modules/evm/backend/geth"
@@ -25,9 +26,41 @@ import (
 
 const ModuleName = "evm"
 
-const ethereumStateSnapshotNamespace = "evm_ethstate"
 const authNamespace = "auth"
 const bankNamespace = "bank"
+
+// ReceiptNamespace holds receipts, receipt locations, logs and blob sidecars.
+// They are written with their block but are not consensus state: the app hash
+// does not cover the namespace and no transaction outcome reads it, so a node
+// may prune it below its retained height without diverging from the chain.
+// The first receipt stored for a transaction hash stays; a later one with the
+// same hash (possible only for transactions without replay protection) does
+// not replace it.
+const ReceiptNamespace = "evm_receipts"
+
+// MaxLogBlockRange is the most blocks one logs query may cover.
+const MaxLogBlockRange = 10_000
+
+// MaxLogQueryResults is the most logs one logs query returns as its result. A query that matches
+// more returns MaxLogQueryResults+1 logs, so the caller can tell that the result was cut off.
+const MaxLogQueryResults = 10_000
+
+// MaxLogTopics is the number of topic positions an EVM log has, and MaxLogTopicOptions the most
+// alternatives one position of a logs query may accept.
+const (
+	MaxLogTopics       = 4
+	MaxLogTopicOptions = 32
+)
+
+// defaultFeeCollector is the bank account credited with EVM priority fees when
+// the policy does not name another one.
+const defaultFeeCollector types.Address = "fee_collector"
+
+// coinbaseAlias is the block coinbase every execution runs under. The bank
+// fee collector is a named account that has no 20-byte EVM address, so the
+// executor pays tips to this alias and sweeps whatever balance it ends up
+// holding into the configured fee collector inside the same write batch.
+const coinbaseAlias types.Address = "0x0000000000000000000000000000000000000fee"
 
 var (
 	ErrInvalidEVMTx          = errors.New("invalid EVM transaction")
@@ -37,12 +70,14 @@ var (
 	ErrVMRegistryEmpty       = errors.New("EVM VM registry is required")
 	ErrVMBackendUnavailable  = errors.New("EVM VM backend is unavailable")
 	ErrAtomicStoreRequired   = errors.New("EVM module requires an atomic batch store")
+	ErrNonceMismatch         = errors.New("EVM transaction nonce does not match the account nonce")
 )
 
 type Module struct {
 	registry *contract.Registry
 	policy   Policy
 	initErr  error
+	roots    *stateRootCache
 }
 
 type Policy struct {
@@ -52,6 +87,15 @@ type Policy struct {
 	AllowUnprotectedLegacyTx bool
 	MaxBlobSidecarBlobs      uint64
 	MaxBlobSidecarBytes      uint64
+	// FeeCollector is the bank account credited with EVM priority fees.
+	FeeCollector types.Address
+	// RPCGasCap bounds the gas of one read-only execution (evm/call query). It is a node-local
+	// limit and never applies to block execution.
+	RPCGasCap uint64
+	// MaxTxGas bounds the gas of one transaction's execution. It is the chain's
+	// execution.max_gas, a consensus parameter: every validator executes a block under the
+	// same bound, whatever its own RPC limits.
+	MaxTxGas uint64
 }
 
 type Receipt struct {
@@ -67,7 +111,6 @@ type Receipt struct {
 	Output          string `json:"output,omitempty"`
 	Logs            []Log  `json:"logs,omitempty"`
 	StateDiff       any    `json:"state_diff,omitempty"`
-	VMTrace         any    `json:"vm_trace,omitempty"`
 }
 
 type ReceiptIndex struct {
@@ -124,6 +167,23 @@ type CallRequest struct {
 	StateOverrides            map[string]CallStateOverride `json:"state_overrides,omitempty"`
 	BlockOverride             CallBlockOverride            `json:"block_override,omitempty"`
 	SetCodeAuthorizationsJSON string                       `json:"set_code_authorizations_json,omitempty"`
+	// Trace asks for a bounded opcode trace in CallResponse.VMTrace. Only the
+	// debug and trace RPC methods set it.
+	Trace bool `json:"trace,omitempty"`
+}
+
+// LogsRequest bounds a logs query to the inclusive block range
+// [FromBlock, ToBlock]. A zero ToBlock, or one past the latest block, means
+// the latest block. Topics filters like eth_getLogs: position i accepts any of
+// Topics[i] (compared case-insensitively), and an empty position accepts every
+// topic. Limit is the most logs the query returns; zero, or anything above
+// MaxLogQueryResults+1, means MaxLogQueryResults+1. The query stops reading
+// once it holds Limit matching logs.
+type LogsRequest struct {
+	FromBlock uint64     `json:"from_block,omitempty"`
+	ToBlock   uint64     `json:"to_block,omitempty"`
+	Topics    [][]string `json:"topics,omitempty"`
+	Limit     uint64     `json:"limit,omitempty"`
 }
 
 type CallResponse struct {
@@ -177,7 +237,6 @@ type StateBackendInfo struct {
 	LinkedVMs               []string `json:"linked_vms,omitempty"`
 	AccountNamespace        string   `json:"account_namespace"`
 	AuthNamespace           string   `json:"auth_namespace"`
-	EthereumSnapshotNS      string   `json:"ethereum_snapshot_namespace"`
 	NativeBalanceNamespace  string   `json:"native_balance_namespace"`
 	NativeBalanceKeyFormat  string   `json:"native_balance_key_format"`
 	NativeBalanceBits       uint64   `json:"native_balance_bits"`
@@ -189,18 +248,12 @@ type StateBackendInfo struct {
 	GethLibraryBoundary     string   `json:"geth_library_boundary"`
 }
 
-type ethereumStateSnapshotMeta struct {
-	Height          uint64 `json:"height"`
-	StateRoot       string `json:"state_root"`
-	ReferenceHeight uint64 `json:"reference_height,omitempty"`
-}
-
 func NewModule() Module {
 	registry := contract.NewRegistry()
 	if err := registry.Register(gethbackend.New()); err != nil {
-		return Module{policy: DefaultPolicy(), initErr: fmt.Errorf("%w: register geth EVM backend: %v", ErrVMBackendUnavailable, err)}
+		return Module{policy: DefaultPolicy(), roots: newStateRootCache(), initErr: fmt.Errorf("%w: register geth EVM backend: %v", ErrVMBackendUnavailable, err)}
 	}
-	return Module{registry: registry, policy: DefaultPolicy()}
+	return Module{registry: registry, policy: DefaultPolicy(), roots: newStateRootCache()}
 }
 
 func DefaultPolicy() Policy {
@@ -208,6 +261,9 @@ func DefaultPolicy() Policy {
 		EVMForkPreset:       gethbackend.DefaultForkPreset,
 		MaxBlobSidecarBlobs: 6,
 		MaxBlobSidecarBytes: 2 * 1024 * 1024,
+		FeeCollector:        defaultFeeCollector,
+		RPCGasCap:           config.DefaultRPCGasCap,
+		MaxTxGas:            config.DefaultMaxGas,
 	}
 }
 
@@ -221,6 +277,15 @@ func NewModuleWithPolicy(policy Policy) (Module, error) {
 	if policy.MaxBlobSidecarBytes == 0 {
 		policy.MaxBlobSidecarBytes = DefaultPolicy().MaxBlobSidecarBytes
 	}
+	if policy.FeeCollector == "" {
+		policy.FeeCollector = DefaultPolicy().FeeCollector
+	}
+	if policy.RPCGasCap == 0 {
+		policy.RPCGasCap = DefaultPolicy().RPCGasCap
+	}
+	if policy.MaxTxGas == 0 {
+		policy.MaxTxGas = DefaultPolicy().MaxTxGas
+	}
 	vm, err := gethbackend.NewWithChainConfigPresetJSON(policy.EVMForkPreset, policy.GethChainConfigJSON, policy.EVMChainID)
 	if err != nil {
 		return Module{}, err
@@ -229,21 +294,21 @@ func NewModuleWithPolicy(policy Policy) (Module, error) {
 	if err := registry.Register(vm); err != nil {
 		return Module{}, err
 	}
-	return Module{registry: registry, policy: policy}, nil
+	return Module{registry: registry, policy: policy, roots: newStateRootCache()}, nil
 }
 
 func NewModuleWithRegistry(registry *contract.Registry) Module {
-	return Module{registry: registry, policy: DefaultPolicy()}
+	return Module{registry: registry, policy: DefaultPolicy(), roots: newStateRootCache()}
 }
 
 func (module Module) CloneModule() vexoapp.Module {
-	return Module{registry: module.registry, policy: module.policy, initErr: module.initErr}
+	return Module{registry: module.registry, policy: module.policy, initErr: module.initErr, roots: newStateRootCache()}
 }
 
 func (module Module) Name() string { return ModuleName }
 
 func (module Module) ReplayNamespaces() []string {
-	return []string{ModuleName, ethereumStateSnapshotNamespace, bankNamespace, authNamespace}
+	return []string{ModuleName, bankNamespace, authNamespace}
 }
 
 func (Module) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisState) error {
@@ -294,55 +359,9 @@ func latestBlockContextKey() []byte {
 	return []byte("meta/latest_block_context")
 }
 
-func (module Module) ValidateTx(ctx vexoapp.Context, tx types.Tx) error {
-	if module.initErr != nil {
-		return module.initErr
-	}
-	if err := module.validateEthereumRawTx(ctx, tx); err != nil {
-		return err
-	}
-	_, err := module.blobSidecarBundleFromTx(tx)
-	return err
-}
-
-func (module Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
-	if module.initErr != nil {
-		return types.Result{Code: 1, Log: module.initErr.Error()}
-	}
-	if ctx.Store == nil {
-		return types.Result{Code: 1, Log: ErrStoreMissing.Error()}
-	}
-	if module.registry == nil {
-		return types.Result{Code: 1, Log: ErrVMRegistryEmpty.Error()}
-	}
-	canonical, err := vexoapp.ParseCanonicalTx(tx)
-	if err != nil || canonical.Module != ModuleName {
-		return types.Result{Code: 2, Log: ErrInvalidEVMTx.Error()}
-	}
-	switch canonical.Action {
-	case "call":
-		if err := module.validateEthereumRawTx(ctx, tx); err != nil {
-			return types.Result{Code: 3, Log: err.Error()}
-		}
-		return module.deliverCall(ctx, tx, canonical.Args)
-	case "deploy":
-		return module.deliverDeploy(ctx, tx, canonical.Args)
-	case "eth_deploy":
-		if err := module.validateEthereumRawTx(ctx, tx); err != nil {
-			return types.Result{Code: 3, Log: err.Error()}
-		}
-		return module.deliverEthereumDeploy(ctx, tx, canonical.Args)
-	default:
-		return types.Result{Code: 2, Log: ErrInvalidEVMTx.Error()}
-	}
-}
-
 func (Module) EndBlock(ctx vexoapp.Context) error {
 	if ctx.Store == nil || ctx.Height == 0 {
 		return nil
-	}
-	if err := persistEthereumStateSnapshot(ctx.GoContext(), ctx.Store, uint64(ctx.Height)); err != nil {
-		return err
 	}
 	return persistReceiptIndexes(ctx.GoContext(), ctx.Store, ctx.TxResults)
 }
@@ -351,83 +370,11 @@ func (Module) Prune(ctx vexoapp.Context, retainFrom types.Height) error {
 	if ctx.Store == nil || retainFrom == 0 {
 		return nil
 	}
-	prefixStore, ok := ctx.Store.(vexostore.PrefixKVStore)
-	if !ok {
-		return nil
-	}
-	pairs, err := prefixStore.ExportPrefix(ctx.GoContext(), ethereumStateSnapshotNamespace, nil)
+	writes, err := evmHistoryPruneWrites(ctx.GoContext(), ctx.Store, uint64(retainFrom))
 	if err != nil {
 		return err
 	}
-	writes := make([]vexostore.KVWrite, 0)
-	for _, pair := range pairs {
-		height, ok := ethereumStateSnapshotHeightFromKey(pair.Key)
-		if !ok || height >= uint64(retainFrom) {
-			continue
-		}
-		writes = append(writes, vexostore.KVWrite{
-			Namespace: ethereumStateSnapshotNamespace,
-			Key:       append([]byte(nil), pair.Key...),
-			Delete:    true,
-		})
-	}
-	pruneWrites, err := evmHistoryPruneWrites(ctx.GoContext(), ctx.Store, uint64(retainFrom))
-	if err != nil {
-		return err
-	}
-	writes = append(writes, pruneWrites...)
 	return applyKVWrites(ctx.GoContext(), ctx.Store, writes)
-}
-
-func (module Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
-	if module.initErr != nil {
-		return 0, module.initErr
-	}
-	canonical, err := vexoapp.ParseCanonicalTx(tx)
-	if err != nil || canonical.Module != ModuleName {
-		return 0, ErrInvalidEVMTx
-	}
-	switch canonical.Action {
-	case "call":
-		invocation, err := callInvocationFromArgs(canonical.Args)
-		if err != nil {
-			return 0, err
-		}
-		if ctx.Store != nil {
-			state := evmStateReader{store: ctx.Store}
-			code, err := state.Code(ctx.GoContext(), invocation.Contract)
-			if err != nil {
-				return 0, err
-			}
-			invocation.Code = code
-			invocation.State = state
-		}
-		invocation.ReadOnly = false
-		invocation.BlockNumber = uint64(ctx.Height)
-		invocation.Timestamp = headerUnixSeconds(ctx.Header)
-		invocation.BlockGasLimit = ctx.GasLimit()
-		invocation.GasPrice = txGasPrice(tx)
-		invocation.GasFeeCap = txGasFeeCap(tx)
-		invocation.GasTipCap = txGasTipCap(tx)
-		invocation.BaseFee = txExecutionBaseFee(ctx, tx)
-		invocation.BlobBaseFee = txExecutionBlobBaseFee(ctx, tx)
-		invocation.BlobGasFeeCap = txBlobGasFeeCap(tx)
-		applyInvocationGasPricing(tx, &invocation)
-		invocation.BlobHashes = txBlobHashes(tx)
-		invocation.Coinbase = types.Address("fee_collector")
-		invocation.Nonce = txNonce(tx)
-		invocation.EthereumTx = ethcompat.IsEthereumTx(tx)
-		invocation.RawEthereumTx = txRawEthereum(tx)
-		return module.estimateInvocationGas(ctx, invocation)
-	case "deploy", "eth_deploy":
-		invocation, err := module.deployInvocationForEstimate(ctx, canonical.Action, canonical.Args, tx)
-		if err != nil {
-			return 0, err
-		}
-		return module.estimateInvocationGas(ctx, invocation)
-	default:
-		return 0, ErrInvalidEVMTx
-	}
 }
 
 func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoapp.QueryResponse {
@@ -448,7 +395,7 @@ func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoap
 	}
 	switch req.Path[0] {
 	case "eth_state_root":
-		return queryEthereumStateRoot(ctx, req.Data)
+		return queryEthereumStateRoot(ctx, module.roots, req.Data)
 	case "eth_proof":
 		return queryEthereumProof(ctx, req.Data)
 	case "account":
@@ -463,8 +410,8 @@ func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoap
 		found := false
 		if height > 0 {
 			account, found, err = ethereumAccountAtHeight(ctx.GoContext(), ctx.Store, types.Address(req.Path[1]), height)
-			if errors.Is(err, vexostore.ErrKeyNotFound) {
-				return vexoapp.QueryResponse{Code: 3, Log: "Ethereum state snapshot not found"}
+			if isHistoricalStateUnavailable(err) {
+				return vexoapp.QueryResponse{Code: 3, Log: errHistoricalStateNotFound}
 			}
 			if err != nil {
 				return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
@@ -508,7 +455,7 @@ func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoap
 		if len(req.Path) != 2 {
 			return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
 		}
-		txHash, err := ctx.Store.Get(ctx.GoContext(), ModuleName, blobSidecarHashIndexKey(req.Path[1]))
+		txHash, err := ctx.Store.Get(ctx.GoContext(), ReceiptNamespace, blobSidecarHashIndexKey(req.Path[1]))
 		if errors.Is(err, vexostore.ErrKeyNotFound) {
 			return vexoapp.QueryResponse{Code: 3, Log: "EVM blob sidecar not found"}
 		}
@@ -526,8 +473,8 @@ func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoap
 		}
 		if height > 0 {
 			account, found, err := ethereumAccountAtHeight(ctx.GoContext(), ctx.Store, types.Address(req.Path[1]), height)
-			if errors.Is(err, vexostore.ErrKeyNotFound) {
-				return vexoapp.QueryResponse{Code: 3, Log: "Ethereum state snapshot not found"}
+			if isHistoricalStateUnavailable(err) {
+				return vexoapp.QueryResponse{Code: 3, Log: errHistoricalStateNotFound}
 			}
 			if err != nil {
 				return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
@@ -557,8 +504,8 @@ func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoap
 		}
 		if height > 0 {
 			account, found, err := ethereumAccountAtHeight(ctx.GoContext(), ctx.Store, types.Address(req.Path[1]), height)
-			if errors.Is(err, vexostore.ErrKeyNotFound) {
-				return vexoapp.QueryResponse{Code: 3, Log: "Ethereum state snapshot not found"}
+			if isHistoricalStateUnavailable(err) {
+				return vexoapp.QueryResponse{Code: 3, Log: errHistoricalStateNotFound}
 			}
 			if err != nil {
 				return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
@@ -592,13 +539,13 @@ func (module Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoap
 		return vexoapp.QueryResponse{Value: encoded}
 	case "logs":
 		if len(req.Path) == 1 {
-			return queryLogs(ctx, globalLogPrefix(), globalLogsKey())
+			return queryLogs(ctx, req.Data, globalLogHeightPrefix)
 		}
 		if len(req.Path) != 2 {
 			return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
 		}
 		address := types.Address(req.Path[1])
-		return queryLogs(ctx, addressLogPrefix(address), logsKey(address))
+		return queryLogs(ctx, req.Data, func(height uint64) []byte { return addressLogHeightPrefix(address, height) })
 	default:
 		return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
 	}
@@ -616,7 +563,6 @@ func (module Module) queryStateBackend() vexoapp.QueryResponse {
 		GethReplace:             gethDependency.Replace,
 		AccountNamespace:        ModuleName,
 		AuthNamespace:           authNamespace,
-		EthereumSnapshotNS:      ethereumStateSnapshotNamespace,
 		NativeBalanceNamespace:  bankNamespace,
 		NativeBalanceKeyFormat:  "canonical 20-byte hex address under bank/balances/{address}",
 		NativeBalanceBits:       256,
@@ -662,216 +608,6 @@ func (module Module) Events(ctx vexoapp.Context, tx types.Tx, result types.Resul
 		}
 	}
 	return []events.Event{{Type: "evm_" + canonical.Action, Attributes: attributes}}
-}
-
-func (module Module) deliverCall(ctx vexoapp.Context, tx types.Tx, args []string) types.Result {
-	if _, err := module.blobSidecarBundleFromTx(tx); err != nil {
-		return types.Result{Code: 3, Log: err.Error()}
-	}
-	invocation, err := callInvocationFromArgs(args)
-	if err != nil {
-		return types.Result{Code: 3, Log: err.Error()}
-	}
-	state := evmStateReader{store: ctx.Store}
-	code, err := state.Code(ctx.GoContext(), invocation.Contract)
-	if err != nil {
-		return types.Result{Code: 4, Log: err.Error()}
-	}
-	invocation.Code = code
-	invocation.State = state
-	invocation.BlockNumber = uint64(ctx.Height)
-	invocation.Timestamp = headerUnixSeconds(ctx.Header)
-	invocation.BlockGasLimit = ctx.GasLimit()
-	invocation.GasPrice = txGasPrice(tx)
-	invocation.GasFeeCap = txGasFeeCap(tx)
-	invocation.GasTipCap = txGasTipCap(tx)
-	invocation.BaseFee = txExecutionBaseFee(ctx, tx)
-	invocation.BlobBaseFee = txExecutionBlobBaseFee(ctx, tx)
-	invocation.BlobGasFeeCap = txBlobGasFeeCap(tx)
-	applyInvocationGasPricing(tx, &invocation)
-	invocation.BlobHashes = txBlobHashes(tx)
-	invocation.Coinbase = types.Address("fee_collector")
-	invocation.AccessList = accessListFromTx(tx)
-	invocation.Nonce = txNonce(tx)
-	invocation.EthereumTx = ethcompat.IsEthereumTx(tx)
-	invocation.RawEthereumTx = txRawEthereum(tx)
-	result, err := module.registry.Execute(ctx.GoContext(), invocation)
-	if err != nil {
-		return types.Result{Code: 4, Log: err.Error()}
-	}
-	if err := ctx.ConsumeGas(result.GasUsed); err != nil {
-		return types.Result{Code: 6, Log: err.Error()}
-	}
-	if err := persistExecutionResult(ctx.GoContext(), ctx.Store, invocation.Contract, result); err != nil {
-		return types.Result{Code: 4, Log: err.Error()}
-	}
-	receipt := receiptFromResult(tx, ctx.Height, invocation, "", result)
-	if err := persistReceipt(ctx.GoContext(), ctx.Store, receipt); err != nil {
-		return types.Result{Code: 4, Log: err.Error()}
-	}
-	if err := module.persistBlobSidecar(ctx.GoContext(), ctx.Store, tx); err != nil {
-		return types.Result{Code: 4, Log: err.Error()}
-	}
-	encoded, err := json.Marshal(receipt)
-	if err != nil {
-		return types.Result{Code: 4, Log: err.Error()}
-	}
-	return types.Result{Data: encoded, GasUsed: result.GasUsed}
-}
-
-func (module Module) deliverDeploy(ctx vexoapp.Context, tx types.Tx, args []string) types.Result {
-	if len(args) != 4 && len(args) != 5 {
-		return types.Result{Code: 3, Log: ErrInvalidEVMTx.Error()}
-	}
-	code, err := hex.DecodeString(strings.TrimPrefix(args[2], "0x"))
-	if err != nil || len(code) == 0 {
-		return types.Result{Code: 3, Log: ErrInvalidEVMTx.Error()}
-	}
-	value := new(big.Int)
-	if len(args) == 5 {
-		value, err = parseAmountBig(args[4])
-		if err != nil {
-			return types.Result{Code: 3, Log: ErrInvalidEVMTx.Error()}
-		}
-	}
-	salt := create2Salt(args[3])
-	contractAddress := createAddress(types.Address(args[1]), code, salt)
-	invocation := contract.Invocation{
-		VM:            args[0],
-		Caller:        types.Address(args[1]),
-		Contract:      contractAddress,
-		Method:        "deploy",
-		Input:         code,
-		GasLimit:      txGasLimit(tx, ctx.GasLimit()),
-		Value:         uint64Amount(value),
-		ValueBig:      value,
-		Salt:          salt[:],
-		State:         evmStateReader{store: ctx.Store},
-		BlockNumber:   uint64(ctx.Height),
-		Timestamp:     headerUnixSeconds(ctx.Header),
-		BlockGasLimit: ctx.GasLimit(),
-		GasPrice:      txGasPrice(tx),
-		GasFeeCap:     txGasFeeCap(tx),
-		GasTipCap:     txGasTipCap(tx),
-		BaseFee:       txExecutionBaseFee(ctx, tx),
-		BlobBaseFee:   txExecutionBlobBaseFee(ctx, tx),
-		BlobGasFeeCap: txBlobGasFeeCap(tx),
-		BlobHashes:    txBlobHashes(tx),
-		Coinbase:      types.Address("fee_collector"),
-		AccessList:    accessListFromTx(tx),
-		Nonce:         txNonce(tx),
-		EthereumTx:    ethcompat.IsEthereumTx(tx),
-		RawEthereumTx: txRawEthereum(tx),
-	}
-	applyInvocationGasPricing(tx, &invocation)
-	result, err := module.registry.Execute(ctx.GoContext(), invocation)
-	if err != nil {
-		return types.Result{Code: 4, Log: err.Error()}
-	}
-	if err := ctx.ConsumeGas(result.GasUsed); err != nil {
-		return types.Result{Code: 6, Log: err.Error()}
-	}
-	if !result.Failed {
-		deployedCode := result.DeployedCode
-		if len(deployedCode) == 0 {
-			deployedCode = code
-		}
-		if err := ctx.Store.Set(ctx.GoContext(), ModuleName, codeKey(contractAddress), deployedCode); err != nil {
-			return types.Result{Code: 4, Log: err.Error()}
-		}
-	}
-	if err := persistExecutionResult(ctx.GoContext(), ctx.Store, invocation.Contract, result); err != nil {
-		return types.Result{Code: 4, Log: err.Error()}
-	}
-	receipt := receiptFromResult(tx, ctx.Height, invocation, string(contractAddress), result)
-	if err := persistReceipt(ctx.GoContext(), ctx.Store, receipt); err != nil {
-		return types.Result{Code: 4, Log: err.Error()}
-	}
-	encoded, err := json.Marshal(receipt)
-	if err != nil {
-		return types.Result{Code: 4, Log: err.Error()}
-	}
-	return types.Result{Data: encoded, GasUsed: result.GasUsed}
-}
-
-func (module Module) deliverEthereumDeploy(ctx vexoapp.Context, tx types.Tx, args []string) types.Result {
-	if _, err := module.blobSidecarBundleFromTx(tx); err != nil {
-		return types.Result{Code: 3, Log: err.Error()}
-	}
-	if len(args) != 5 {
-		return types.Result{Code: 3, Log: ErrInvalidEVMTx.Error()}
-	}
-	code, err := hex.DecodeString(strings.TrimPrefix(args[2], "0x"))
-	if err != nil || len(code) == 0 {
-		return types.Result{Code: 3, Log: ErrInvalidEVMTx.Error()}
-	}
-	nonce, err := strconv.ParseUint(args[3], 10, 64)
-	if err != nil {
-		return types.Result{Code: 3, Log: ErrInvalidEVMTx.Error()}
-	}
-	value, err := parseAmountBig(args[4])
-	if err != nil {
-		return types.Result{Code: 3, Log: ErrInvalidEVMTx.Error()}
-	}
-	contractAddress := createLegacyAddress(types.Address(args[1]), nonce)
-	invocation := contract.Invocation{
-		VM:            args[0],
-		Caller:        types.Address(args[1]),
-		Contract:      contractAddress,
-		Method:        "deploy",
-		Input:         code,
-		GasLimit:      txGasLimit(tx, ctx.GasLimit()),
-		Value:         uint64Amount(value),
-		ValueBig:      value,
-		State:         evmStateReader{store: ctx.Store},
-		BlockNumber:   uint64(ctx.Height),
-		Timestamp:     headerUnixSeconds(ctx.Header),
-		BlockGasLimit: ctx.GasLimit(),
-		GasPrice:      txGasPrice(tx),
-		GasFeeCap:     txGasFeeCap(tx),
-		GasTipCap:     txGasTipCap(tx),
-		BaseFee:       txExecutionBaseFee(ctx, tx),
-		BlobBaseFee:   txExecutionBlobBaseFee(ctx, tx),
-		BlobGasFeeCap: txBlobGasFeeCap(tx),
-		BlobHashes:    txBlobHashes(tx),
-		Coinbase:      types.Address("fee_collector"),
-		AccessList:    accessListFromTx(tx),
-		Nonce:         nonce,
-		EthereumTx:    ethcompat.IsEthereumTx(tx),
-		RawEthereumTx: txRawEthereum(tx),
-	}
-	applyInvocationGasPricing(tx, &invocation)
-	result, err := module.registry.Execute(ctx.GoContext(), invocation)
-	if err != nil {
-		return types.Result{Code: 4, Log: err.Error()}
-	}
-	if err := ctx.ConsumeGas(result.GasUsed); err != nil {
-		return types.Result{Code: 6, Log: err.Error()}
-	}
-	if !result.Failed {
-		deployedCode := result.DeployedCode
-		if len(deployedCode) == 0 {
-			deployedCode = code
-		}
-		if err := ctx.Store.Set(ctx.GoContext(), ModuleName, codeKey(contractAddress), deployedCode); err != nil {
-			return types.Result{Code: 4, Log: err.Error()}
-		}
-	}
-	if err := persistExecutionResult(ctx.GoContext(), ctx.Store, invocation.Contract, result); err != nil {
-		return types.Result{Code: 4, Log: err.Error()}
-	}
-	receipt := receiptFromResult(tx, ctx.Height, invocation, string(contractAddress), result)
-	if err := persistReceipt(ctx.GoContext(), ctx.Store, receipt); err != nil {
-		return types.Result{Code: 4, Log: err.Error()}
-	}
-	if err := module.persistBlobSidecar(ctx.GoContext(), ctx.Store, tx); err != nil {
-		return types.Result{Code: 4, Log: err.Error()}
-	}
-	encoded, err := json.Marshal(receipt)
-	if err != nil {
-		return types.Result{Code: 4, Log: err.Error()}
-	}
-	return types.Result{Data: encoded, GasUsed: result.GasUsed}
 }
 
 func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryResponse {
@@ -949,7 +685,7 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 		Contract:                  types.Address(request.To),
 		Method:                    request.Method,
 		Input:                     input,
-		GasLimit:                  request.GasLimit,
+		GasLimit:                  module.queryGasLimit(request.GasLimit),
 		Value:                     uint64Amount(callValue),
 		ValueBig:                  callValue,
 		Code:                      code,
@@ -967,11 +703,12 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 		BaseFee:                   baseFee,
 		BlobBaseFee:               blobBaseFee,
 		BlobHashes:                parseBlobHashes(request.BlobHashes),
-		Coinbase:                  types.Address("fee_collector"),
+		Coinbase:                  coinbaseAlias,
 		AccessList:                append([]contract.AccessListEntry(nil), request.AccessList...),
 		Nonce:                     request.Nonce,
 		EthereumSimulation:        true,
 		SetCodeAuthorizationsJSON: request.SetCodeAuthorizationsJSON,
+		Trace:                     request.Trace,
 	})
 	if err != nil {
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
@@ -989,6 +726,17 @@ func (module Module) queryCall(ctx vexoapp.Context, data []byte) vexoapp.QueryRe
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
 	}
 	return vexoapp.QueryResponse{Value: encoded}
+}
+
+// queryGasLimit bounds the gas one read-only execution may spend. A query runs
+// on the node that serves it, outside any block's gas accounting, so an
+// unbounded request would let a single caller occupy the node for as long as
+// the interpreter runs. A request without a limit gets the cap itself.
+func (module Module) queryGasLimit(requested uint64) uint64 {
+	if gasCap := module.gasCap(); requested == 0 || requested > gasCap {
+		return gasCap
+	}
+	return requested
 }
 
 func callRequestValue(request CallRequest) (*big.Int, error) {
@@ -1054,79 +802,6 @@ func (module Module) estimateInvocationGas(ctx vexoapp.Context, invocation contr
 	return result.GasUsed, nil
 }
 
-func (module Module) deployInvocationForEstimate(ctx vexoapp.Context, action string, args []string, tx types.Tx) (contract.Invocation, error) {
-	switch action {
-	case "deploy":
-		if len(args) != 4 && len(args) != 5 {
-			return contract.Invocation{}, ErrInvalidEVMTx
-		}
-		code, err := hex.DecodeString(strings.TrimPrefix(args[2], "0x"))
-		if err != nil || len(code) == 0 {
-			return contract.Invocation{}, ErrInvalidEVMTx
-		}
-		value := new(big.Int)
-		if len(args) == 5 {
-			value, err = parseAmountBig(args[4])
-			if err != nil {
-				return contract.Invocation{}, ErrInvalidEVMTx
-			}
-		}
-		salt := create2Salt(args[3])
-		return module.prepareDeployInvocation(ctx, tx, args[0], types.Address(args[1]), createAddress(types.Address(args[1]), code, salt), code, value, salt[:]), nil
-	case "eth_deploy":
-		if len(args) != 5 {
-			return contract.Invocation{}, ErrInvalidEVMTx
-		}
-		code, err := hex.DecodeString(strings.TrimPrefix(args[2], "0x"))
-		if err != nil || len(code) == 0 {
-			return contract.Invocation{}, ErrInvalidEVMTx
-		}
-		nonce, err := strconv.ParseUint(args[3], 10, 64)
-		if err != nil {
-			return contract.Invocation{}, ErrInvalidEVMTx
-		}
-		value, err := parseAmountBig(args[4])
-		if err != nil {
-			return contract.Invocation{}, ErrInvalidEVMTx
-		}
-		return module.prepareDeployInvocation(ctx, tx, args[0], types.Address(args[1]), createLegacyAddress(types.Address(args[1]), nonce), code, value, nil), nil
-	default:
-		return contract.Invocation{}, ErrInvalidEVMTx
-	}
-}
-
-func (Module) prepareDeployInvocation(ctx vexoapp.Context, tx types.Tx, vm string, caller types.Address, contractAddress types.Address, code []byte, value *big.Int, salt []byte) contract.Invocation {
-	invocation := contract.Invocation{
-		VM:            vm,
-		Caller:        caller,
-		Contract:      contractAddress,
-		Method:        "deploy",
-		Input:         code,
-		GasLimit:      txGasLimit(tx, ctx.GasLimit()),
-		Value:         uint64Amount(value),
-		ValueBig:      value,
-		Salt:          append([]byte(nil), salt...),
-		State:         evmStateReader{store: ctx.Store},
-		BlockNumber:   uint64(ctx.Height),
-		Timestamp:     headerUnixSeconds(ctx.Header),
-		BlockGasLimit: ctx.GasLimit(),
-		GasPrice:      txGasPrice(tx),
-		GasFeeCap:     txGasFeeCap(tx),
-		GasTipCap:     txGasTipCap(tx),
-		BaseFee:       txExecutionBaseFee(ctx, tx),
-		BlobBaseFee:   txExecutionBlobBaseFee(ctx, tx),
-		BlobGasFeeCap: txBlobGasFeeCap(tx),
-		BlobHashes:    txBlobHashes(tx),
-		Coinbase:      types.Address("fee_collector"),
-		AccessList:    accessListFromTx(tx),
-		Nonce:         txNonce(tx),
-		EthereumTx:    ethcompat.IsEthereumTx(tx),
-		RawEthereumTx: txRawEthereum(tx),
-	}
-	applyInvocationGasPricing(tx, &invocation)
-	return invocation
-}
-
 func accessListFromTx(tx types.Tx) []contract.AccessListEntry {
 	encoded, found := vexoapp.TxTag(tx, ethcompat.TagAccessList)
 	if !found || encoded == "" {
@@ -1137,41 +812,6 @@ func accessListFromTx(tx types.Tx) []contract.AccessListEntry {
 		return nil
 	}
 	return entries
-}
-
-func callInvocationFromArgs(args []string) (contract.Invocation, error) {
-	if len(args) != 6 && len(args) != 7 {
-		return contract.Invocation{}, ErrInvalidEVMTx
-	}
-	input, err := hex.DecodeString(strings.TrimPrefix(args[4], "0x"))
-	if err != nil {
-		return contract.Invocation{}, ErrInvalidEVMTx
-	}
-	gasLimit, err := strconv.ParseUint(args[5], 10, 64)
-	if err != nil {
-		return contract.Invocation{}, ErrInvalidEVMTx
-	}
-	value := new(big.Int)
-	if len(args) == 7 {
-		value, err = parseAmountBig(args[6])
-		if err != nil {
-			return contract.Invocation{}, ErrInvalidEVMTx
-		}
-	}
-	invocation := contract.Invocation{
-		VM:       args[0],
-		Caller:   types.Address(args[1]),
-		Contract: types.Address(args[2]),
-		Method:   args[3],
-		Input:    input,
-		GasLimit: gasLimit,
-		Value:    uint64Amount(value),
-		ValueBig: value,
-	}
-	if invocation.VM == "" || invocation.Caller == "" || invocation.Contract == "" || invocation.Method == "" {
-		return contract.Invocation{}, ErrInvalidEVMTx
-	}
-	return invocation, nil
 }
 
 func parseAmountBig(raw string) (*big.Int, error) {
@@ -1194,7 +834,7 @@ func uint64Amount(value *big.Int) uint64 {
 
 func receiptFromResult(tx types.Tx, height types.Height, invocation contract.Invocation, contractAddress string, result contract.Result) Receipt {
 	receipt := Receipt{
-		TxHash:          txHash(tx),
+		TxHash:          TxHash(tx),
 		Height:          uint64(height),
 		Status:          1,
 		From:            string(invocation.Caller),
@@ -1204,7 +844,6 @@ func receiptFromResult(tx types.Tx, height types.Height, invocation contract.Inv
 		Output:          "0x" + hex.EncodeToString(result.Output),
 		Logs:            make([]Log, 0, len(result.Logs)),
 		StateDiff:       stateDiffFromResult(result, types.Address(receiptTargetAddress(invocation, contractAddress))),
-		VMTrace:         result.VMTrace,
 	}
 	if result.Failed {
 		receipt.Status = 0
@@ -1219,7 +858,7 @@ func receiptFromResult(tx types.Tx, height types.Height, invocation contract.Inv
 			Topics:          append([]string(nil), log.Topics...),
 			Data:            "0x" + hex.EncodeToString(log.Data),
 			BlockNumber:     uint64(height),
-			TransactionHash: txHash(tx),
+			TransactionHash: TxHash(tx),
 			LogIndex:        uint64(index),
 			Meta:            cloneMap(log.Meta),
 		})
@@ -1326,20 +965,43 @@ func hexQuantityBigLocal(value *big.Int) string {
 	return "0x" + value.Text(16)
 }
 
-func persistReceipt(ctx context.Context, store vexoapp.StateStore, receipt Receipt) error {
+// receiptWrites returns the writes that store a receipt and its logs. A
+// receipt is written once: a second transaction resolving to the same hash is
+// rejected instead of replacing the first receipt.
+func receiptWrites(ctx context.Context, store vexoapp.StateStore, receipt Receipt) ([]vexostore.KVWrite, error) {
+	key := receiptKey(receipt.TxHash)
+	if _, err := store.Get(ctx, ReceiptNamespace, key); err == nil {
+		return nil, nil
+	} else if !errors.Is(err, vexostore.ErrKeyNotFound) {
+		return nil, err
+	}
 	encoded, err := json.Marshal(receipt)
+	if err != nil {
+		return nil, err
+	}
+	writes := []vexostore.KVWrite{{Namespace: ReceiptNamespace, Key: key, Value: encoded}}
+	for _, log := range receipt.Logs {
+		if log.Address == "" {
+			continue
+		}
+		encodedLog, err := json.Marshal(log)
+		if err != nil {
+			return nil, err
+		}
+		writes = append(writes,
+			vexostore.KVWrite{Namespace: ReceiptNamespace, Key: globalLogKey(log), Value: encodedLog},
+			vexostore.KVWrite{Namespace: ReceiptNamespace, Key: addressLogKey(log), Value: encodedLog},
+		)
+	}
+	return writes, nil
+}
+
+func persistReceipt(ctx context.Context, store vexoapp.StateStore, receipt Receipt) error {
+	writes, err := receiptWrites(ctx, store, receipt)
 	if err != nil {
 		return err
 	}
-	if err := store.Set(ctx, ModuleName, receiptKey(receipt.TxHash), encoded); err != nil {
-		return err
-	}
-	for _, log := range receipt.Logs {
-		if err := persistLog(ctx, store, log); err != nil {
-			return err
-		}
-	}
-	return nil
+	return applyKVWrites(ctx, store, writes)
 }
 
 func blobSidecarBundleFromTx(tx types.Tx) (ethcompat.BlobSidecarBundle, error) {
@@ -1373,34 +1035,41 @@ func persistBlobSidecar(ctx context.Context, store vexoapp.StateStore, tx types.
 }
 
 func (module Module) persistBlobSidecar(ctx context.Context, store vexoapp.StateStore, tx types.Tx) error {
+	writes, err := module.blobSidecarWrites(tx)
+	if err != nil {
+		return err
+	}
+	return applyKVWrites(ctx, store, writes)
+}
+
+// blobSidecarWrites returns the writes that store the blob sidecar a
+// transaction carries, or none when it carries no blobs.
+func (module Module) blobSidecarWrites(tx types.Tx) ([]vexostore.KVWrite, error) {
 	bundle, err := module.blobSidecarBundleFromTx(tx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if len(bundle.BlobHashes) == 0 {
-		return nil
+		return nil, nil
 	}
-	record := BlobSidecarRecord{TxHash: txHash(tx), Sidecar: bundle}
+	record := BlobSidecarRecord{TxHash: TxHash(tx), Sidecar: bundle}
 	encoded, err := json.Marshal(record)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	writes := []vexostore.KVWrite{{
-		Namespace: ModuleName,
+		Namespace: ReceiptNamespace,
 		Key:       blobSidecarKey(record.TxHash),
 		Value:     encoded,
 	}}
 	for _, blobHash := range bundle.BlobHashes {
 		writes = append(writes, vexostore.KVWrite{
-			Namespace: ModuleName,
+			Namespace: ReceiptNamespace,
 			Key:       blobSidecarHashIndexKey(blobHash),
 			Value:     []byte(record.TxHash),
 		})
 	}
-	if batchStore, ok := store.(vexostore.BatchKVStore); ok {
-		return batchStore.SetBatch(ctx, writes)
-	}
-	return ErrAtomicStoreRequired
+	return writes, nil
 }
 
 func (module Module) validateBlobSidecarLimits(encoded string, bundle ethcompat.BlobSidecarBundle) error {
@@ -1432,7 +1101,7 @@ func persistReceiptIndexes(ctx context.Context, store vexoapp.StateStore, result
 			return err
 		}
 		writes = append(writes, vexostore.KVWrite{
-			Namespace: ModuleName,
+			Namespace: ReceiptNamespace,
 			Key:       receiptIndexKey(receipt.TxHash),
 			Value:     encoded,
 		})
@@ -1661,22 +1330,8 @@ func nonceKVWrites(writes []contract.NonceWrite) ([]vexostore.KVWrite, error) {
 	return kvWrites, nil
 }
 
-func persistLog(ctx context.Context, store vexoapp.StateStore, log Log) error {
-	if log.Address == "" {
-		return nil
-	}
-	encoded, err := json.Marshal(log)
-	if err != nil {
-		return err
-	}
-	if err := store.Set(ctx, ModuleName, globalLogKey(log), encoded); err != nil {
-		return err
-	}
-	return store.Set(ctx, ModuleName, addressLogKey(log), encoded)
-}
-
 func queryJSON(ctx vexoapp.Context, key []byte) vexoapp.QueryResponse {
-	value, err := ctx.Store.Get(ctx.GoContext(), ModuleName, key)
+	value, err := ctx.Store.Get(ctx.GoContext(), ReceiptNamespace, key)
 	if errors.Is(err, vexostore.ErrKeyNotFound) {
 		return vexoapp.QueryResponse{Code: 3, Log: "EVM state not found"}
 	}
@@ -1686,36 +1341,114 @@ func queryJSON(ctx vexoapp.Context, key []byte) vexoapp.QueryResponse {
 	return vexoapp.QueryResponse{Value: append([]byte(nil), value...)}
 }
 
-func queryLogs(ctx vexoapp.Context, prefix []byte, legacyKey []byte) vexoapp.QueryResponse {
-	if prefixStore, ok := ctx.Store.(vexostore.PrefixKVStore); ok {
-		pairs, err := prefixStore.ExportPrefix(ctx.GoContext(), ModuleName, prefix)
+// queryLogs returns the logs of the blocks a LogsRequest covers that match its
+// topics, reading one height prefix at a time. A request is held to the
+// committed chain, to MaxLogBlockRange blocks and to its result limit, so no
+// query reads more of the log index than that window or holds more logs than
+// it may return, whatever the request asks for.
+func queryLogs(ctx vexoapp.Context, data []byte, heightPrefix func(height uint64) []byte) vexoapp.QueryResponse {
+	var request LogsRequest
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &request); err != nil {
+			return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
+		}
+	}
+	topics, ok := normalizeLogTopics(request.Topics)
+	if !ok {
+		return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
+	}
+	limit := request.Limit
+	if limit == 0 || limit > MaxLogQueryResults+1 {
+		limit = MaxLogQueryResults + 1
+	}
+	prefixStore, ok := ctx.Store.(vexostore.PrefixKVStore)
+	if !ok {
+		return vexoapp.QueryResponse{Code: 1, Log: ErrStoreMissing.Error()}
+	}
+	latest := uint64(ctx.Height)
+	toBlock := request.ToBlock
+	if toBlock == 0 || toBlock > latest {
+		toBlock = latest
+	}
+	if request.FromBlock > toBlock {
+		return vexoapp.QueryResponse{Value: []byte("[]")}
+	}
+	if toBlock-request.FromBlock >= MaxLogBlockRange {
+		return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
+	}
+	logs := make([]Log, 0)
+scan:
+	for height := request.FromBlock; ; height++ {
+		pairs, err := prefixStore.ExportPrefix(ctx.GoContext(), ReceiptNamespace, heightPrefix(height))
 		if err != nil {
 			return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
 		}
-		if len(pairs) > 0 {
-			logs := make([]Log, 0, len(pairs))
-			for _, pair := range pairs {
-				var log Log
-				if err := json.Unmarshal(pair.Value, &log); err != nil {
-					return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
-				}
-				logs = append(logs, log)
-			}
-			encoded, err := json.Marshal(logs)
-			if err != nil {
+		for _, pair := range pairs {
+			var log Log
+			if err := json.Unmarshal(pair.Value, &log); err != nil {
 				return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
 			}
-			return vexoapp.QueryResponse{Value: encoded}
+			if !logMatchesTopics(log, topics) {
+				continue
+			}
+			logs = append(logs, log)
+			if uint64(len(logs)) >= limit {
+				break scan
+			}
+		}
+		if height == toBlock {
+			break
 		}
 	}
-	value, err := ctx.Store.Get(ctx.GoContext(), ModuleName, legacyKey)
-	if errors.Is(err, vexostore.ErrKeyNotFound) {
-		return vexoapp.QueryResponse{Value: []byte("[]")}
-	}
+	encoded, err := json.Marshal(logs)
 	if err != nil {
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
 	}
-	return vexoapp.QueryResponse{Value: append([]byte(nil), value...)}
+	return vexoapp.QueryResponse{Value: encoded}
+}
+
+// normalizeLogTopics lowercases a topic filter and rejects one that is larger than a log can be
+// matched against.
+func normalizeLogTopics(topics [][]string) ([][]string, bool) {
+	if len(topics) > MaxLogTopics {
+		return nil, false
+	}
+	normalized := make([][]string, len(topics))
+	for index, options := range topics {
+		if len(options) > MaxLogTopicOptions {
+			return nil, false
+		}
+		for _, option := range options {
+			if option == "" {
+				return nil, false
+			}
+			normalized[index] = append(normalized[index], strings.ToLower(option))
+		}
+	}
+	return normalized, true
+}
+
+func logMatchesTopics(log Log, topics [][]string) bool {
+	for index, accepted := range topics {
+		if len(accepted) == 0 {
+			continue
+		}
+		if index >= len(log.Topics) {
+			return false
+		}
+		actual := strings.ToLower(log.Topics[index])
+		found := false
+		for _, topic := range accepted {
+			if actual == topic {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 func evmHistoryPruneWrites(ctx context.Context, store vexoapp.StateStore, retainFrom uint64) ([]vexostore.KVWrite, error) {
@@ -1723,7 +1456,7 @@ func evmHistoryPruneWrites(ctx context.Context, store vexoapp.StateStore, retain
 	if !ok {
 		return nil, nil
 	}
-	pairs, err := prefixStore.ExportPrefix(ctx, ModuleName, []byte("receipt_index/"))
+	pairs, err := prefixStore.ExportPrefix(ctx, ReceiptNamespace, []byte("receipt_index/"))
 	if err != nil {
 		return nil, err
 	}
@@ -1741,13 +1474,13 @@ func evmHistoryPruneWrites(ctx context.Context, store vexoapp.StateStore, retain
 			return nil, err
 		}
 		writes = append(writes,
-			deleteWrite(ModuleName, append([]byte(nil), pair.Key...)),
-			deleteWrite(ModuleName, receiptKey(index.TxHash)),
+			deleteWrite(ReceiptNamespace, append([]byte(nil), pair.Key...)),
+			deleteWrite(ReceiptNamespace, receiptKey(index.TxHash)),
 		)
 		for _, log := range receipt.Logs {
 			writes = append(writes,
-				deleteWrite(ModuleName, globalLogKey(log)),
-				deleteWrite(ModuleName, addressLogKey(log)),
+				deleteWrite(ReceiptNamespace, globalLogKey(log)),
+				deleteWrite(ReceiptNamespace, addressLogKey(log)),
 			)
 		}
 		blobRecord, found, err := loadBlobSidecarForPrune(ctx, store, index.TxHash)
@@ -1755,9 +1488,9 @@ func evmHistoryPruneWrites(ctx context.Context, store vexoapp.StateStore, retain
 			return nil, err
 		}
 		if found {
-			writes = append(writes, deleteWrite(ModuleName, blobSidecarKey(index.TxHash)))
+			writes = append(writes, deleteWrite(ReceiptNamespace, blobSidecarKey(index.TxHash)))
 			for _, blobHash := range blobRecord.Sidecar.BlobHashes {
-				writes = append(writes, deleteWrite(ModuleName, blobSidecarHashIndexKey(blobHash)))
+				writes = append(writes, deleteWrite(ReceiptNamespace, blobSidecarHashIndexKey(blobHash)))
 			}
 		}
 	}
@@ -1765,7 +1498,7 @@ func evmHistoryPruneWrites(ctx context.Context, store vexoapp.StateStore, retain
 }
 
 func loadReceiptForPrune(ctx context.Context, store vexoapp.StateStore, txHash string) (Receipt, error) {
-	value, err := store.Get(ctx, ModuleName, receiptKey(txHash))
+	value, err := store.Get(ctx, ReceiptNamespace, receiptKey(txHash))
 	if errors.Is(err, vexostore.ErrKeyNotFound) {
 		return Receipt{TxHash: txHash}, nil
 	}
@@ -1780,7 +1513,7 @@ func loadReceiptForPrune(ctx context.Context, store vexoapp.StateStore, txHash s
 }
 
 func loadBlobSidecarForPrune(ctx context.Context, store vexoapp.StateStore, txHash string) (BlobSidecarRecord, bool, error) {
-	value, err := store.Get(ctx, ModuleName, blobSidecarKey(txHash))
+	value, err := store.Get(ctx, ReceiptNamespace, blobSidecarKey(txHash))
 	if errors.Is(err, vexostore.ErrKeyNotFound) {
 		return BlobSidecarRecord{}, false, nil
 	}
@@ -1808,32 +1541,17 @@ func deleteWrite(namespace string, key []byte) vexostore.KVWrite {
 	return vexostore.KVWrite{Namespace: namespace, Key: append([]byte(nil), key...), Delete: true}
 }
 
-func queryEthereumStateRoot(ctx vexoapp.Context, data []byte) vexoapp.QueryResponse {
+func queryEthereumStateRoot(ctx vexoapp.Context, roots *stateRootCache, data []byte) vexoapp.QueryResponse {
 	var request StateRootRequest
 	if len(data) > 0 {
 		if err := json.Unmarshal(data, &request); err != nil {
 			return vexoapp.QueryResponse{Code: 2, Log: err.Error()}
 		}
 	}
-	if request.Height > 0 {
-		meta, err := ethereumStateSnapshotMetaAt(ctx.GoContext(), ctx.Store, request.Height)
-		if errors.Is(err, vexostore.ErrKeyNotFound) {
-			return vexoapp.QueryResponse{Code: 3, Log: "Ethereum state snapshot not found"}
-		}
-		if err != nil {
-			return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
-		}
-		encoded, err := json.Marshal(map[string]string{"state_root": meta.StateRoot})
-		if err != nil {
-			return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
-		}
-		return vexoapp.QueryResponse{Value: encoded}
+	root, err := roots.stateRoot(ctx.GoContext(), ctx.Store, request.Height)
+	if isHistoricalStateUnavailable(err) {
+		return vexoapp.QueryResponse{Code: 3, Log: errHistoricalStateNotFound}
 	}
-	accounts, err := ethereumAccountsFromStore(ctx.GoContext(), ctx.Store)
-	if err != nil {
-		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
-	}
-	root, err := ethcompat.StateRoot(accounts)
 	if err != nil {
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
 	}
@@ -1852,11 +1570,11 @@ func queryEthereumProof(ctx vexoapp.Context, data []byte) vexoapp.QueryResponse 
 	if request.Address == "" {
 		return vexoapp.QueryResponse{Code: 2, Log: ErrInvalidEVMQuery.Error()}
 	}
-	accounts, err := ethereumAccountsForProof(ctx.GoContext(), ctx.Store, request.Height)
+	accounts, err := ethereumAccountsAtHeight(ctx.GoContext(), ctx.Store, request.Height)
+	if isHistoricalStateUnavailable(err) {
+		return vexoapp.QueryResponse{Code: 3, Log: errHistoricalStateNotFound}
+	}
 	if err != nil {
-		if errors.Is(err, vexostore.ErrKeyNotFound) {
-			return vexoapp.QueryResponse{Code: 3, Log: "Ethereum state snapshot not found"}
-		}
 		return vexoapp.QueryResponse{Code: 4, Log: err.Error()}
 	}
 	proof, err := ethcompat.GetProof(accounts, request.Address, request.StorageKeys)
@@ -1882,31 +1600,11 @@ func accountStateRequestHeight(data []byte) (uint64, error) {
 }
 
 func ethereumAccountAtHeight(ctx context.Context, stateStore vexoapp.StateStore, address types.Address, height uint64) (ethcompat.AccountState, bool, error) {
-	if stateStore == nil {
-		return ethcompat.AccountState{}, false, ErrStoreMissing
-	}
-	if height == 0 {
-		return ethereumAccountFromCurrentState(ctx, stateStore, address)
-	}
-	accountHeight, err := ethereumStateSnapshotAccountHeight(ctx, stateStore, height)
+	view, err := stateAtHeight(stateStore, height)
 	if err != nil {
 		return ethcompat.AccountState{}, false, err
 	}
-	value, err := stateStore.Get(ctx, ethereumStateSnapshotNamespace, ethereumStateSnapshotAccountKey(accountHeight, address))
-	if errors.Is(err, vexostore.ErrKeyNotFound) {
-		return ethcompat.AccountState{}, false, nil
-	}
-	if err != nil {
-		return ethcompat.AccountState{}, false, err
-	}
-	var account ethcompat.AccountState
-	if err := json.Unmarshal(value, &account); err != nil {
-		return ethcompat.AccountState{}, false, err
-	}
-	if account.Storage == nil {
-		account.Storage = map[string][]byte{}
-	}
-	return account, true, nil
+	return ethereumAccountFromCurrentState(ctx, view, address)
 }
 
 func ethereumAccountFromCurrentState(ctx context.Context, stateStore vexoapp.StateStore, address types.Address) (ethcompat.AccountState, bool, error) {
@@ -1981,129 +1679,14 @@ func ethereumAccountFromCurrentState(ctx context.Context, stateStore vexoapp.Sta
 	return account, true, nil
 }
 
-func persistEthereumStateSnapshot(ctx context.Context, stateStore vexoapp.StateStore, height uint64) error {
-	accounts, err := ethereumAccountsFromStore(ctx, stateStore)
-	if err != nil {
-		return err
-	}
-	root, err := ethcompat.StateRoot(accounts)
-	if err != nil {
-		return err
-	}
-	meta := ethereumStateSnapshotMeta{Height: height, StateRoot: root}
-	if height > 0 {
-		previousMeta, err := ethereumStateSnapshotMetaAt(ctx, stateStore, height-1)
-		if err == nil && previousMeta.StateRoot == root {
-			meta.ReferenceHeight = previousMeta.Height
-			if previousMeta.ReferenceHeight > 0 {
-				meta.ReferenceHeight = previousMeta.ReferenceHeight
-			}
-		} else if err != nil && !errors.Is(err, vexostore.ErrKeyNotFound) {
-			return err
-		}
-	}
-	encodedMeta, err := json.Marshal(meta)
-	if err != nil {
-		return err
-	}
-	writes := []vexostore.KVWrite{{
-		Namespace: ethereumStateSnapshotNamespace,
-		Key:       ethereumStateSnapshotMetaKey(height),
-		Value:     encodedMeta,
-	}}
-	if meta.ReferenceHeight == 0 {
-		for _, account := range accounts {
-			encodedAccount, err := json.Marshal(account)
-			if err != nil {
-				return err
-			}
-			writes = append(writes, vexostore.KVWrite{
-				Namespace: ethereumStateSnapshotNamespace,
-				Key:       ethereumStateSnapshotAccountKey(height, types.Address(account.Address)),
-				Value:     encodedAccount,
-			})
-		}
-	}
-	return applyKVWrites(ctx, stateStore, writes)
-}
-
-func ethereumAccountsForProof(ctx context.Context, stateStore vexoapp.StateStore, height uint64) ([]ethcompat.AccountState, error) {
-	if height == 0 {
-		return ethereumAccountsFromStore(ctx, stateStore)
-	}
-	return ethereumAccountsFromSnapshot(ctx, stateStore, height)
-}
-
-func ethereumStateSnapshotMetaAt(ctx context.Context, stateStore vexoapp.StateStore, height uint64) (ethereumStateSnapshotMeta, error) {
-	if stateStore == nil {
-		return ethereumStateSnapshotMeta{}, ErrStoreMissing
-	}
-	value, err := stateStore.Get(ctx, ethereumStateSnapshotNamespace, ethereumStateSnapshotMetaKey(height))
-	if err != nil {
-		return ethereumStateSnapshotMeta{}, err
-	}
-	var meta ethereumStateSnapshotMeta
-	if err := json.Unmarshal(value, &meta); err != nil {
-		return ethereumStateSnapshotMeta{}, err
-	}
-	if meta.Height != height || meta.StateRoot == "" {
-		return ethereumStateSnapshotMeta{}, ErrInvalidEVMQuery
-	}
-	if meta.ReferenceHeight >= height && meta.ReferenceHeight != 0 {
-		return ethereumStateSnapshotMeta{}, ErrInvalidEVMQuery
-	}
-	return meta, nil
-}
-
-func ethereumAccountsFromSnapshot(ctx context.Context, stateStore vexoapp.StateStore, height uint64) ([]ethcompat.AccountState, error) {
-	accountHeight, err := ethereumStateSnapshotAccountHeight(ctx, stateStore, height)
+// ethereumAccountsAtHeight returns every Ethereum account as of the committed
+// height, or as of the current state for height 0.
+func ethereumAccountsAtHeight(ctx context.Context, stateStore vexoapp.StateStore, height uint64) ([]ethcompat.AccountState, error) {
+	view, err := stateAtHeight(stateStore, height)
 	if err != nil {
 		return nil, err
 	}
-	prefixStore, ok := stateStore.(vexostore.PrefixKVStore)
-	if !ok {
-		return nil, ErrStoreMissing
-	}
-	pairs, err := prefixStore.ExportPrefix(ctx, ethereumStateSnapshotNamespace, ethereumStateSnapshotAccountPrefix(accountHeight))
-	if err != nil {
-		return nil, err
-	}
-	accounts := make([]ethcompat.AccountState, 0, len(pairs))
-	for _, pair := range pairs {
-		var account ethcompat.AccountState
-		if err := json.Unmarshal(pair.Value, &account); err != nil {
-			return nil, err
-		}
-		if account.Storage == nil {
-			account.Storage = map[string][]byte{}
-		}
-		accounts = append(accounts, account)
-	}
-	return accounts, nil
-}
-
-func ethereumStateSnapshotAccountHeight(ctx context.Context, stateStore vexoapp.StateStore, height uint64) (uint64, error) {
-	meta, err := ethereumStateSnapshotMetaAt(ctx, stateStore, height)
-	if err != nil {
-		return 0, err
-	}
-	root := meta.StateRoot
-	visited := map[uint64]struct{}{height: {}}
-	for meta.ReferenceHeight > 0 {
-		if _, duplicate := visited[meta.ReferenceHeight]; duplicate {
-			return 0, ErrInvalidEVMQuery
-		}
-		visited[meta.ReferenceHeight] = struct{}{}
-		nextMeta, err := ethereumStateSnapshotMetaAt(ctx, stateStore, meta.ReferenceHeight)
-		if err != nil {
-			return 0, err
-		}
-		if nextMeta.StateRoot != root {
-			return 0, ErrInvalidEVMQuery
-		}
-		meta = nextMeta
-	}
-	return meta.Height, nil
+	return ethereumAccountsFromStore(ctx, view)
 }
 
 func ethereumAccountsFromStore(ctx context.Context, stateStore vexoapp.StateStore) ([]ethcompat.AccountState, error) {
@@ -2190,30 +1773,6 @@ func ethereumStorageKeyParts(key []byte) (types.Address, string, bool) {
 	return types.Address(parts[0]), parts[1], true
 }
 
-func ethereumStateSnapshotMetaKey(height uint64) []byte {
-	return []byte(fmt.Sprintf("%020d/meta", height))
-}
-
-func ethereumStateSnapshotAccountPrefix(height uint64) []byte {
-	return []byte(fmt.Sprintf("%020d/accounts/", height))
-}
-
-func ethereumStateSnapshotAccountKey(height uint64, address types.Address) []byte {
-	return append(ethereumStateSnapshotAccountPrefix(height), []byte(canonicalAddressKey(address))...)
-}
-
-func ethereumStateSnapshotHeightFromKey(key []byte) (uint64, bool) {
-	raw := string(key)
-	if len(raw) < 21 || raw[20] != '/' {
-		return 0, false
-	}
-	height, err := strconv.ParseUint(raw[:20], 10, 64)
-	if err != nil || height == 0 {
-		return 0, false
-	}
-	return height, true
-}
-
 func createAddress(caller types.Address, code []byte, salt [32]byte) types.Address {
 	codeHash := keccak256(code)
 	seed := append([]byte{0xff}, addressBytes(caller)...)
@@ -2266,9 +1825,17 @@ func trimLeftZero(value []byte) []byte {
 	return value
 }
 
-func txHash(tx types.Tx) string {
-	if hash, found := vexoapp.TxTag(tx, ethcompat.TagHash); found && hash != "" {
-		return hash
+// TxHash returns the identity a transaction's receipt is stored under. An
+// Ethereum transaction is identified by the Ethereum hash of its signed raw
+// bytes and every other transaction by the SHA-256 of its payload. The eth_hash
+// tag is never trusted: it is unsigned, so honoring it would let any
+// transaction claim the hash of another and overwrite that transaction's
+// receipt.
+func TxHash(tx types.Tx) string {
+	if raw, found := vexoapp.TxTag(tx, ethcompat.TagRaw); found {
+		if hash, err := ethcompat.RawTransactionHash(raw); err == nil {
+			return hash
+		}
 	}
 	hash := sha256.Sum256(tx)
 	return "0x" + hex.EncodeToString(hash[:])
@@ -2294,32 +1861,29 @@ func codeKey(address types.Address) []byte {
 	return []byte("code/" + canonicalAddressKey(address))
 }
 
-func logsKey(address types.Address) []byte {
-	return []byte("logs/" + string(address))
+// globalLogHeightPrefix is the prefix of every log of one block, in the index
+// that spans all addresses.
+func globalLogHeightPrefix(height uint64) []byte {
+	return []byte(fmt.Sprintf("logs/by_height/%020d/", height))
 }
 
-func globalLogsKey() []byte {
-	return []byte("logs")
-}
-
-func globalLogPrefix() []byte {
-	return []byte("logs/by_height/")
-}
-
-func addressLogPrefix(address types.Address) []byte {
-	return []byte("logs/by_address/" + string(address) + "/")
+// addressLogHeightPrefix is the prefix of the logs one address emitted in one
+// block. The address is canonical, so a filter finds the logs of an address
+// whatever the case it spells it in.
+func addressLogHeightPrefix(address types.Address, height uint64) []byte {
+	return []byte(fmt.Sprintf("logs/by_address/%s/%020d/", canonicalAddressKey(address), height))
 }
 
 func globalLogKey(log Log) []byte {
-	return append(globalLogPrefix(), []byte(logOrderKey(log))...)
+	return append(globalLogHeightPrefix(log.BlockNumber), []byte(logOrderSuffix(log))...)
 }
 
 func addressLogKey(log Log) []byte {
-	return append(addressLogPrefix(types.Address(log.Address)), []byte(logOrderKey(log))...)
+	return append(addressLogHeightPrefix(types.Address(log.Address), log.BlockNumber), []byte(logOrderSuffix(log))...)
 }
 
-func logOrderKey(log Log) string {
-	return fmt.Sprintf("%020d/%s/%020d", log.BlockNumber, strings.TrimPrefix(log.TransactionHash, "0x"), log.LogIndex)
+func logOrderSuffix(log Log) string {
+	return fmt.Sprintf("%s/%020d", strings.TrimPrefix(log.TransactionHash, "0x"), log.LogIndex)
 }
 
 func storageKey(address types.Address, slot string) []byte {
@@ -2367,14 +1931,11 @@ func stateReaderForCall(ctx vexoapp.Context, height uint64) (callStateReader, er
 	if ctx.Store == nil {
 		return evmStateReader{}, nil
 	}
-	if height == 0 {
-		return evmStateReader{store: ctx.Store}, nil
-	}
-	accounts, err := ethereumAccountsForProof(ctx.GoContext(), ctx.Store, height)
+	view, err := stateAtHeight(ctx.Store, height)
 	if err != nil {
 		return nil, err
 	}
-	return newEVMSnapshotStateReader(ctx.Store, accounts), nil
+	return evmStateReader{store: view}, nil
 }
 
 type overrideStateReader struct {
@@ -2514,79 +2075,6 @@ func (reader evmStateReader) Code(ctx context.Context, address types.Address) ([
 	return append([]byte(nil), code...), nil
 }
 
-type evmSnapshotStateReader struct {
-	store    vexoapp.StateStore
-	accounts map[string]ethcompat.AccountState
-}
-
-func newEVMSnapshotStateReader(stateStore vexoapp.StateStore, accounts []ethcompat.AccountState) evmSnapshotStateReader {
-	reader := evmSnapshotStateReader{store: stateStore, accounts: make(map[string]ethcompat.AccountState, len(accounts))}
-	for _, account := range accounts {
-		if account.Storage == nil {
-			account.Storage = map[string][]byte{}
-		}
-		reader.accounts[canonicalAddressKey(types.Address(account.Address))] = account
-	}
-	return reader
-}
-
-func (reader evmSnapshotStateReader) account(address types.Address) ethcompat.AccountState {
-	return reader.accounts[canonicalAddressKey(address)]
-}
-
-func (reader evmSnapshotStateReader) Code(ctx context.Context, address types.Address) ([]byte, error) {
-	return append([]byte(nil), reader.account(address).Code...), nil
-}
-
-func (reader evmSnapshotStateReader) Storage(ctx context.Context, address types.Address, slot string) ([]byte, error) {
-	account := reader.account(address)
-	if account.Storage == nil {
-		return nil, nil
-	}
-	normalized := normalizeSlot(slot)
-	keys := []string{normalized, strings.TrimPrefix(normalized, "0x"), slot, strings.TrimPrefix(slot, "0x")}
-	for _, key := range keys {
-		if value := account.Storage[key]; len(value) > 0 {
-			return append([]byte(nil), value...), nil
-		}
-	}
-	return nil, nil
-}
-
-func (reader evmSnapshotStateReader) Balance(ctx context.Context, address types.Address) (uint64, error) {
-	balance, err := reader.BalanceBig(ctx, address)
-	if err != nil {
-		return 0, err
-	}
-	if balance == nil || balance.Sign() == 0 {
-		return 0, nil
-	}
-	if !balance.IsUint64() {
-		return 0, ErrInvalidEVMTx
-	}
-	return balance.Uint64(), nil
-}
-
-func (reader evmSnapshotStateReader) BalanceBig(ctx context.Context, address types.Address) (*big.Int, error) {
-	account := reader.account(address)
-	if account.BalanceHex != "" {
-		value, ok := new(big.Int).SetString(strings.TrimPrefix(account.BalanceHex, "0x"), 16)
-		if !ok || value.Sign() < 0 || value.BitLen() > 256 {
-			return nil, ErrInvalidEVMTx
-		}
-		return value, nil
-	}
-	return new(big.Int).SetUint64(account.Balance), nil
-}
-
-func (reader evmSnapshotStateReader) Nonce(ctx context.Context, address types.Address) (uint64, error) {
-	return reader.account(address).Nonce, nil
-}
-
-func (reader evmSnapshotStateReader) BlockHash(ctx context.Context, height uint64) (types.Hash, error) {
-	return evmStateReader{store: reader.store}.BlockHash(ctx, height)
-}
-
 func (reader evmStateReader) Storage(ctx context.Context, address types.Address, slot string) ([]byte, error) {
 	if reader.store == nil {
 		return nil, ErrStoreMissing
@@ -2621,10 +2109,7 @@ func (reader evmStateReader) BalanceBig(ctx context.Context, address types.Addre
 	}
 	value, err := reader.store.Get(ctx, "bank", evmBankKey(address))
 	if errors.Is(err, vexostore.ErrKeyNotFound) {
-		value, err = reader.store.Get(ctx, "bank", []byte(address))
-		if errors.Is(err, vexostore.ErrKeyNotFound) {
-			return new(big.Int), nil
-		}
+		return new(big.Int), nil
 	}
 	if err != nil {
 		return nil, err
@@ -2811,40 +2296,6 @@ func txGasLimit(tx types.Tx, fallback uint64) uint64 {
 	return fallback
 }
 
-func txBaseFee(tx types.Tx) uint64 {
-	if baseFee, found := vexoapp.TxUintTag(tx, ethcompat.TagBaseFee); found {
-		return baseFee
-	}
-	return 0
-}
-
-func txExecutionBaseFee(ctx vexoapp.Context, tx types.Tx) uint64 {
-	if ethcompat.IsEthereumTx(tx) && ctx.BaseFee > 0 {
-		return ctx.BaseFee
-	}
-	if baseFee := txBaseFee(tx); baseFee > 0 {
-		return baseFee
-	}
-	return ctx.BaseFee
-}
-
-func txBlobBaseFee(tx types.Tx) uint64 {
-	if blobBaseFee, found := vexoapp.TxUintTag(tx, ethcompat.TagBlobBaseFee); found {
-		return blobBaseFee
-	}
-	return 0
-}
-
-func txExecutionBlobBaseFee(ctx vexoapp.Context, tx types.Tx) uint64 {
-	if ethcompat.IsEthereumTx(tx) && ctx.BlobBaseFee > 0 {
-		return ctx.BlobBaseFee
-	}
-	if blobBaseFee := txBlobBaseFee(tx); blobBaseFee > 0 {
-		return blobBaseFee
-	}
-	return ctx.BlobBaseFee
-}
-
 func txBlobHashes(tx types.Tx) []types.Hash {
 	return parseBlobHashes(txBlobHashStrings(tx))
 }
@@ -2904,8 +2355,11 @@ func evmBankKey(address types.Address) []byte {
 	return []byte(canonicalAddressKey(address))
 }
 
+// evmNonceKey is the auth-namespace key of an account's nonce. It is the key
+// the ante handler keeps the account sequence under, so a nonce bumped by
+// either side is the nonce the other side checks.
 func evmNonceKey(address types.Address) []byte {
-	return []byte("nonce/" + canonicalAddressKey(address))
+	return vexoapp.NonceKey(address)
 }
 
 func create2Salt(raw string) [32]byte {
@@ -2951,19 +2405,11 @@ func rightMost20(raw []byte) []byte {
 	return padded
 }
 
+// canonicalAddressKey is the identity an account is stored under. It is the
+// identity the bank module and the ante handler use too, so the EVM sees the
+// balance and nonce of exactly the accounts they do.
 func canonicalAddressKey(address types.Address) string {
-	raw := string(address)
-	clean := strings.TrimPrefix(raw, "0x")
-	if len(clean)%2 == 1 {
-		clean = "0" + clean
-	}
-	decoded, err := hex.DecodeString(clean)
-	if err != nil || len(decoded) > 20 {
-		return raw
-	}
-	padded := make([]byte, 20)
-	copy(padded[20-len(decoded):], decoded)
-	return "0x" + hex.EncodeToString(padded)
+	return vexoapp.NormalizeActor(address)
 }
 
 func normalizeSlot(slot string) string {
@@ -2997,10 +2443,6 @@ func cloneMap(value map[string]string) map[string]string {
 		cloned[key] = item
 	}
 	return cloned
-}
-
-func validateEthereumRawTx(ctx vexoapp.Context, tx types.Tx) error {
-	return Module{policy: DefaultPolicy()}.validateEthereumRawTx(ctx, tx)
 }
 
 func (module Module) validateEthereumRawTx(ctx vexoapp.Context, tx types.Tx) error {

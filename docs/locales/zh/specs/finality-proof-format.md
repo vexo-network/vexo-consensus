@@ -121,3 +121,12 @@
 - `--validator-set` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `blst-bls12381-minpk-v1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `supranational/blst` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `consensus.TwoChainCommitRule` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `1..Header.Height` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `0 < Proof.ValidatorSetHeight <= Header.Height` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `link.BlockHash == HeaderHash(link.Header)` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `link.Header.Height == Header.Height + 1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `link.Header.PreviousBlockHash == Proof.BlockHash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `link.QuorumCert` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `link.QuorumCert.Round == QuorumCert.Round + 1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `RuntimeSuite.RegisterValidators` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

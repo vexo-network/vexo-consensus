@@ -1,11 +1,13 @@
 package crypto
 
 import (
+	"encoding/base64"
 	"errors"
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/types"
+	"github.com/vexo-network/vexo-consensus/validator"
 )
 
 func TestNewRuntimeSuiteDeterministic(t *testing.T) {
@@ -132,21 +134,44 @@ func TestRuntimeSuiteRejectsProductionBLSMetadataMismatch(t *testing.T) {
 	}
 }
 
-func TestRuntimeSuiteRegistryWrapsBLSFinalityWithValidatedCredentials(t *testing.T) {
+func TestRuntimeSuiteBLSFinalityVerifierFailsClosedUntilValidatorsAreRegistered(t *testing.T) {
 	suite, err := NewRuntimeSuiteRegistry().
 		RegisterBLS(func() (BLSAdapter, error) { return testBLSAdapter{safe: true}, nil }).
-		RegisterBLSValidatorCredentials([]BLSValidatorCredential{
-			{ValidatorID: "alice", PublicKey: []byte("alice-bls"), ProofOfPossession: []byte("alice-pop")},
-		}).
 		NewRuntimeSuite(config.CryptoConfig{Backend: config.CryptoBackendBLS})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !suite.FinalityVerifier.VerifyAggregate([]types.PublicKey{[]byte("alice-bls")}, []byte("message"), []byte("aggregate")) {
+	alice := []types.PublicKey{[]byte("alice-bls")}
+	if suite.FinalityVerifier.VerifyAggregate(alice, []byte("message"), []byte("aggregate")) {
+		t.Fatal("expected a key outside every registered validator set to fail")
+	}
+	if err := suite.RegisterValidators([]validator.Validator{
+		{ID: "alice", PublicKey: []byte("alice-bls"), VotingPower: 1, Metadata: map[string]string{
+			BLSProofOfPossessionMetadataKey: base64.StdEncoding.EncodeToString([]byte("alice-pop")),
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !suite.FinalityVerifier.VerifyAggregate(alice, []byte("message"), []byte("aggregate")) {
 		t.Fatal("expected registered bls key to verify")
 	}
 	if suite.FinalityVerifier.VerifyAggregate([]types.PublicKey{[]byte("mallory-bls")}, []byte("message"), []byte("aggregate")) {
 		t.Fatal("expected unregistered bls key to fail")
+	}
+	if err := suite.RegisterValidators([]validator.Validator{{ID: "mallory", PublicKey: []byte("mallory-bls"), VotingPower: 1}}); !errors.Is(err, ErrMissingBLSProof) {
+		t.Fatalf("expected a validator without a proof of possession to be rejected, got %v", err)
+	}
+}
+
+func TestRuntimeSuiteRegisterValidatorsIsNoopWithoutBLS(t *testing.T) {
+	for _, backend := range []config.CryptoBackend{config.CryptoBackendDeterministic, config.CryptoBackendEd25519} {
+		suite, err := NewRuntimeSuite(config.CryptoConfig{Backend: backend})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := suite.RegisterValidators([]validator.Validator{{ID: "alice", PublicKey: []byte("alice"), VotingPower: 1}}); err != nil {
+			t.Fatalf("%s: unexpected registration error %v", backend, err)
+		}
 	}
 }
 

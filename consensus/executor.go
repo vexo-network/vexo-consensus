@@ -7,6 +7,12 @@ import (
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
+// ApplicationBlockExecutor executes a certified block against the application.
+//
+// ProcessProposal is the vote gate: the proposal handler runs it before a
+// validator votes. A block that reached finality must execute on every node, so
+// Execute never re-applies the vote gate; a tx that fails is a non-zero Result
+// inside the FinalizeBlock response, not an error.
 type ApplicationBlockExecutor struct{}
 
 func (ApplicationBlockExecutor) Execute(ctx context.Context, application app.Application, block types.Block) (app.FinalizeBlockResponse, error) {
@@ -16,16 +22,6 @@ func (ApplicationBlockExecutor) Execute(ctx context.Context, application app.App
 	default:
 	}
 
-	processRequest := app.ProcessProposalRequest{Block: block}
-	var processResponse app.ProcessProposalResponse
-	if processor, ok := application.(app.ContextProcessProposalApplication); ok {
-		processResponse = processor.ProcessProposalContext(ctx, processRequest)
-	} else {
-		processResponse = application.ProcessProposal(processRequest)
-	}
-	if !processResponse.Accepted {
-		return app.FinalizeBlockResponse{}, app.ErrProposalRejected
-	}
 	finalizeRequest := app.FinalizeBlockRequest{Block: block}
 	if finalizer, ok := application.(app.ContextFinalizeBlockApplication); ok {
 		return finalizer.FinalizeBlockContext(ctx, finalizeRequest)

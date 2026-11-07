@@ -47,7 +47,7 @@ Admin endpoints:
 - `/v1/consensus/start`
 - `/v1/consensus/stop`
 
-Admin endpoints do not require bearer-token authorization by default. If `admin_token` or scoped `admin_tokens` are configured, the middleware enforces them; otherwise operators should expose these routes only on loopback, private networks, mTLS, or an authenticated gateway.
+Admin endpoints fail closed. Without `admin_token` or scoped `admin_tokens` every admin request is answered `401`; with them, each request needs `Authorization: Bearer <token>` (compared in constant time), a `Host` that is an IP literal, `localhost` or listed in `rpc.allowed_hosts`, and a `Content-Type: application/json` body on `POST`. Operators should still expose these routes only on loopback, private networks, mTLS, or an authenticated gateway.
 
 Operators may use one root token or scoped tokens in `network_config.json`:
 
@@ -64,7 +64,7 @@ Operators may use one root token or scoped tokens in `network_config.json`:
 }
 ```
 
-Supported scopes are `recovery`, `prune`, `replay`, and `consensus`. A scoped token with `["*"]` is equivalent to a root admin token. RPC middleware emits structured admin audit events when an audit sink is configured by the embedding node. Add scoped admin tokens only when the deployment wants bearer-token checks in addition to gateway policy.
+Supported scopes are `recovery`, `prune`, `replay`, `consensus` and `pprof` (the profiler, when `rpc.enable_pprof` is set). A scoped token with `["*"]` is equivalent to a root admin token. RPC middleware emits structured admin audit events when an audit sink is configured by the embedding node.
 
 `/v1/replay` accepts `strict: true` to require isolated re-execution from genesis or a retained historical snapshot. Non-strict replay may fall back to stored block/state consistency checks when isolated replay prerequisites are unavailable; strict replay fails closed instead.
 
@@ -193,7 +193,7 @@ Single-host Docker exposes validator 1 on host port `28657`, so Remix or browser
 http://127.0.0.1:28657/web3
 ```
 
-The RPC handler responds to browser CORS preflight requests. If Remix reports a failed chain-ID fetch, the usual cause is the wrong URL or port: use the Web3 endpoint path, and use the host-mapped Docker port such as `28657` rather than the container-internal `26657`.
+The RPC handler sends no CORS headers by default, so browser pages get no cross-origin access, and it refuses a WebSocket handshake that carries an unlisted `Origin`. List the origins that may call the API in `rpc.cors_allowed_origins` (for Remix: `https://remix.ethereum.org`); `"*"` allows every origin. `POST` requests must declare `Content-Type: application/json`, which makes a browser preflight the request. If Remix reports a failed chain-ID fetch, the usual cause is the wrong URL or port or an origin missing from the list: use the Web3 endpoint path, and use the host-mapped Docker port such as `28657` rather than the container-internal `26657`.
 
 ### Supported Method Groups
 

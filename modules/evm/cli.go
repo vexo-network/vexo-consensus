@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/types"
 )
 
 func (Module) CLICommands() []vexoapp.CLICommand {
@@ -20,8 +21,8 @@ func evmCLICommand() vexoapp.CLICommand {
 		Usage:       "evm <command>",
 		Description: "contract VM and Web3 bridge module commands",
 		Examples: []string{
-			"evm tx call evm 0xalice 0xcontract transfer aabbcc 100000",
-			"evm tx deploy evm 0xalice 60016000 salt1",
+			"evm tx call evm 0xaaaa 0xbbbb transfer aabbcc 100000 --nonce 1",
+			"evm tx deploy evm 0xaaaa 60016000 salt1 --nonce 2",
 			"evm query receipt <tx_hash>",
 		},
 		Children: []vexoapp.CLICommand{
@@ -30,8 +31,8 @@ func evmCLICommand() vexoapp.CLICommand {
 				Usage:       "evm tx <command>",
 				Description: "build contract VM transaction payloads",
 				Children: []vexoapp.CLICommand{
-					{Name: "call", Usage: "evm tx call <vm> <from> <to> <method> <input_hex> <gas_limit> [value]", Description: "build a contract VM call transaction", Run: runEVMCallCLI},
-					{Name: "deploy", Usage: "evm tx deploy <vm> <from> <code_hex> <salt> [value]", Description: "build a contract VM deployment transaction", Run: runEVMDeployCLI},
+					{Name: "call", Usage: "evm tx call <vm> <from> <to> <method> <input_hex> <gas_limit> [value]", Description: "build a contract VM call transaction signed as the from account", Run: runEVMCallCLI},
+					{Name: "deploy", Usage: "evm tx deploy <vm> <from> <code_hex> <salt> [value]", Description: "build a contract VM deployment transaction signed as the from account", Run: runEVMDeployCLI},
 				},
 			},
 			{
@@ -67,12 +68,7 @@ func runEVMCallCLI(writer io.Writer, args []string) error {
 		}
 		args[6] = value
 	}
-	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: "call", Args: args, Tags: tags})
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(writer, "tx: %s\n", tx)
-	return nil
+	return writeSignedActorTx(writer, "call", args, tags)
 }
 
 func runEVMDeployCLI(writer io.Writer, args []string) error {
@@ -90,8 +86,25 @@ func runEVMDeployCLI(writer io.Writer, args []string) error {
 		}
 		args[4] = value
 	}
-	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: "deploy", Args: args, Tags: tags})
+	return writeSignedActorTx(writer, "deploy", args, tags)
+}
+
+// writeSignedActorTx prints a native EVM transaction. Such a transaction acts
+// as its from account (args[1]), which only that account's signer may do, so
+// the signer tag defaults to the from account and naming any other signer is
+// refused here instead of by the chain.
+func writeSignedActorTx(writer io.Writer, action string, args []string, tags map[string]string) error {
+	if _, found := tags["signer"]; !found {
+		if tags == nil {
+			tags = map[string]string{}
+		}
+		tags["signer"] = args[1]
+	}
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{Module: ModuleName, Action: action, Args: args, Tags: tags})
 	if err != nil {
+		return err
+	}
+	if err := vexoapp.AuthorizeActor(tx, types.Address(args[1])); err != nil {
 		return err
 	}
 	fmt.Fprintf(writer, "tx: %s\n", tx)

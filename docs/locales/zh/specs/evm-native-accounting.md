@@ -112,3 +112,14 @@
 - `vexo_sendRawBlobTransaction` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `eth_sendRawTransaction` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `execution.strict_evm_state_root` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `min(max_priority_fee_per_gas, max_fee_per_gas - base_fee)` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `execution.fee_collector` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_deploy` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_raw` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_hash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `gas * max_fee_per_gas` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `nonce/<canonical address>` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `execution.rpc_gas_cap` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_call` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_estimateGas` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `eth_getLogs` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

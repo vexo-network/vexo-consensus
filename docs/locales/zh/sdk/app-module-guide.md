@@ -141,7 +141,6 @@
 - `execution.allow_unprotected_legacy_tx` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `eth_getProof` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `evm/storage/{address}/{slot}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
-- `evm_ethstate/{height}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `state_diff` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `vm_trace` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `eth_getBalance` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
@@ -195,3 +194,4 @@
 
 - `execution.evm_fork_preset = "latest"`
 - `execution.evm_chain_config_json`
+- `evm_receipts`

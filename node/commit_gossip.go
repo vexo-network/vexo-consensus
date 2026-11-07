@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/finality"
@@ -76,6 +77,15 @@ func (node *Node) consumeCommitGossip(ctx context.Context, events <-chan transpo
 	}
 }
 
+// acceptCommitMessage applies a commit gossiped by a peer and scores the peer.
+//
+// A message the node cannot judge yet, or no longer needs, is a race and counts
+// as valid: the block is already committed here, or it is ahead of this node.
+// A message for the next height must carry a finality proof that verifies in
+// full; every way in which it fails to verify counts as invalid, because the
+// sender vouched for a block it could not have finalized. Only a failure of
+// the node itself to run the verification (a stopped node, a cancelled
+// context, a missing signature verifier) leaves the peer unscored.
 func (node *Node) acceptCommitMessage(ctx context.Context, from p2p.PeerID, data []byte) {
 	if !node.admitPeerMessage(ctx, from) {
 		return
@@ -86,29 +96,22 @@ func (node *Node) acceptCommitMessage(ctx context.Context, from p2p.PeerID, data
 		return
 	}
 	commitHeight, ok := node.currentCommitHeight(ctx)
-	if !ok {
-		node.observePeerMessage(ctx, from, true)
-		return
-	}
-	if message.Block.Header.Height <= commitHeight {
-		node.observePeerMessage(ctx, from, true)
-		return
-	}
-	if message.Block.Header.Height > commitHeight+1 {
-		node.observePeerMessage(ctx, from, true)
-		return
-	}
-	if message.FinalityProof.Header.Height == 0 {
+	if !ok || message.Block.Header.Height <= commitHeight || message.Block.Header.Height > commitHeight+1 {
 		node.observePeerMessage(ctx, from, true)
 		return
 	}
 	if err := node.verifyCommitFinalityProof(ctx, message.Block, message.QuorumCert, message.FinalityProof); err != nil {
-		node.observePeerMessage(ctx, from, true)
+		if !commitVerificationUnavailable(err) {
+			node.observePeerMessage(ctx, from, false)
+		}
 		return
 	}
-	if _, err := node.commitBlock(ctx, message.Block, message.QuorumCert, false, false); err != nil && !errors.Is(err, ErrBlockAlreadyCommitted) {
-		node.observePeerMessage(ctx, from, true)
-		return
+	if _, err := node.commitBlock(ctx, message.Block, message.QuorumCert, false, false); err != nil &&
+		!errors.Is(err, ErrBlockAlreadyCommitted) && !errors.Is(err, ErrNonSequentialCommit) {
+		node.logEvent("commit_gossip_apply_failed", map[string]any{
+			"height": message.Block.Header.Height,
+			"error":  err.Error(),
+		})
 	}
 	node.observePeerMessage(ctx, from, true)
 }
@@ -118,7 +121,7 @@ func (node *Node) broadcastCommit(ctx context.Context, block types.Block, quorum
 	if !ok {
 		return nil
 	}
-	if proof.Header.Height == 0 || !proof.HasThreeChainCommitProof() {
+	if proof.Header.Height == 0 || !proof.HasCommitProof() {
 		return nil
 	}
 	data, err := encodeCommitMessage(block, quorumCert, proof)
@@ -128,6 +131,22 @@ func (node *Node) broadcastCommit(ctx context.Context, block types.Block, quorum
 	return wire.Publish(ctx, p2p.TopicCommit, data)
 }
 
+// errCommitVerifierUnavailable marks a failure to set up the verification of a
+// commit, as opposed to a commit that failed it.
+var errCommitVerifierUnavailable = errors.New("commit verifier unavailable")
+
+// commitVerificationUnavailable reports whether err means the node could not
+// run the verification, so the sender of the commit is not at fault.
+func commitVerificationUnavailable(err error) bool {
+	return errors.Is(err, errCommitVerifierUnavailable) ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, finality.ErrMissingSignatureVerifier) ||
+		errors.Is(err, consensus.ErrValidatorSetPending)
+}
+
+// verifyCommitCertificate checks that quorumCert is a quorum certificate of the
+// validator set the block's header names, for exactly this block.
 func (node *Node) verifyCommitCertificate(ctx context.Context, block types.Block, quorumCert finality.QuorumCert) error {
 	if quorumCert.Height != block.Header.Height {
 		return ErrInvalidCommitQC
@@ -136,46 +155,50 @@ func (node *Node) verifyCommitCertificate(ctx context.Context, block types.Block
 	if quorumCert.BlockHash != blockHash {
 		return ErrInvalidCommitQC
 	}
-	runtime, err := node.Runtime()
+	verifier, err := node.commitVerifier()
 	if err != nil {
 		return err
 	}
-	verifier, err := runtime.NewFinalityVerifier(ctx, block.Header.Height)
+	return verifier.VerifyBlockCertWithContext(ctx, block.Header, quorumCert)
+}
+
+// verifyCommitFinalityProof checks that a gossiped commit is final under the
+// 2-chain rule: block is the proven block B, quorumCert is QC(B), and the proof
+// carries the child C of B with QC(C) formed in the view after QC(B). The
+// proof must describe exactly the transmitted block, and the block body must
+// match its header, because a quorum certificate vouches for the header hash
+// and the transactions are only bound to it through the body checks. The
+// validator sets are the ones the headers name, which the quorums certified;
+// the proof does not choose them.
+func (node *Node) verifyCommitFinalityProof(ctx context.Context, block types.Block, quorumCert finality.QuorumCert, proof finality.Proof) error {
+	blockHash := consensus.HashBlock(block)
+	if proof.Header != block.Header || proof.BlockHash != blockHash {
+		return fmt.Errorf("%w: proof does not describe the committed block", ErrInvalidCommitQC)
+	}
+	if !sameQuorumCert(proof.QuorumCert, quorumCert) {
+		return fmt.Errorf("%w: proof certificate differs from the commit certificate", ErrInvalidCommitQC)
+	}
+	if proof.ValidatorSetHeight != block.Header.ValidatorSetHeight {
+		return fmt.Errorf("%w: validator set height %d for a block naming %d", finality.ErrHeightMismatch, proof.ValidatorSetHeight, block.Header.ValidatorSetHeight)
+	}
+	if err := consensus.VerifyBlockBody(block); err != nil {
+		return err
+	}
+	verifier, err := node.commitVerifier()
 	if err != nil {
 		return err
 	}
-	proof := finality.NewProof(block.Header, quorumCert)
-	proof.BlockHash = blockHash
 	return verifier.VerifyFinalityProofWithContext(ctx, proof)
 }
 
-func (node *Node) verifyCommitFinalityProof(ctx context.Context, block types.Block, quorumCert finality.QuorumCert, proof finality.Proof) error {
-	blockHash := consensus.HashBlock(block)
-	if proof.Header.Height != block.Header.Height || proof.BlockHash != blockHash {
-		return ErrInvalidCommitQC
-	}
-	if proof.Header != block.Header {
-		return ErrInvalidCommitQC
-	}
-	if !sameQuorumCert(proof.QuorumCert, quorumCert) {
-		return ErrInvalidCommitQC
-	}
-	if !proof.HasThreeChainCommitProof() {
-		return finality.ErrCommitChainTooShort
-	}
+// commitVerifier returns the verifier that checks each certified header against the validator
+// set the header names.
+func (node *Node) commitVerifier() (finality.RegistryVerifier, error) {
 	runtime, err := node.Runtime()
 	if err != nil {
-		return err
+		return finality.RegistryVerifier{}, fmt.Errorf("%w: %w", errCommitVerifierUnavailable, err)
 	}
-	validatorSetHeight := proof.ValidatorSetHeight
-	if validatorSetHeight == 0 {
-		validatorSetHeight = block.Header.Height
-	}
-	verifier, err := runtime.NewFinalityVerifier(ctx, validatorSetHeight)
-	if err != nil {
-		return err
-	}
-	return verifier.VerifyFinalityProofWithContext(ctx, proof)
+	return runtime.NewFinalityVerifier(), nil
 }
 
 func sameQuorumCert(left finality.QuorumCert, right finality.QuorumCert) bool {

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/big"
 	"net"
 	"net/http"
@@ -28,7 +29,6 @@ import (
 	"github.com/holiman/uint256"
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/committee"
-	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/events"
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/mempool"
@@ -42,6 +42,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
+	"golang.org/x/net/websocket"
 )
 
 type fakeStatusProvider struct {
@@ -52,6 +53,7 @@ type fakeStatusProvider struct {
 	metricsErr            error
 	snapshot              node.StateSnapshot
 	snapshotErr           error
+	snapshotBuilds        *int
 	recoveryReport        node.RecoveryReport
 	recoveryErr           error
 	recoveryRepairs       int
@@ -78,6 +80,7 @@ type fakeStatusProvider struct {
 	appQueryErr           error
 	appQueryPath          []string
 	appQueryData          []byte
+	onAppQuery            func(data []byte)
 	pruneResult           store.PruneResult
 	pruneErr              error
 	prunedHeights         []types.Height
@@ -94,8 +97,7 @@ type fakeStatusProvider struct {
 	validators            validator.Set
 	committee             committee.Committee
 	validatorErr          error
-	evidenceResult        consensus.SlashResult
-	evidenceApplied       bool
+	evidenceHash          types.Hash
 	evidenceErr           error
 	evidenceSubmitted     []slashing.Evidence
 	accountSequence       uint64
@@ -181,11 +183,23 @@ func (provider fakeStatusProvider) Metrics(ctx context.Context) (node.Metrics, e
 	return provider.metrics, nil
 }
 
-func (provider fakeStatusProvider) StateSnapshot(ctx context.Context) (node.StateSnapshot, error) {
+func (provider fakeStatusProvider) StateSnapshotHead(ctx context.Context) (node.StateSnapshotHead, error) {
+	if provider.snapshotErr != nil {
+		return node.StateSnapshotHead{}, provider.snapshotErr
+	}
+	return provider.snapshot.StateSnapshotHead, nil
+}
+
+func (provider fakeStatusProvider) StateSnapshot(ctx context.Context, blockHeight types.Height) (node.StateSnapshot, error) {
 	if provider.snapshotErr != nil {
 		return node.StateSnapshot{}, provider.snapshotErr
 	}
-	return provider.snapshot, nil
+	if provider.snapshotBuilds != nil {
+		*provider.snapshotBuilds++
+	}
+	snapshot := provider.snapshot
+	snapshot.Header.Height = blockHeight
+	return snapshot, nil
 }
 
 func (provider *fakeStatusProvider) RecoveryReport(ctx context.Context, repairIndexes bool) (node.RecoveryReport, error) {
@@ -334,6 +348,9 @@ func (provider *fakeStatusProvider) IBCQuery(ctx context.Context, path []string)
 func (provider *fakeStatusProvider) AppQuery(ctx context.Context, path []string, data []byte) (vexoapp.QueryResponse, error) {
 	provider.appQueryPath = append([]string(nil), path...)
 	provider.appQueryData = append([]byte(nil), data...)
+	if provider.onAppQuery != nil {
+		provider.onAppQuery(provider.appQueryData)
+	}
 	if provider.appQueryErr != nil {
 		return vexoapp.QueryResponse{}, provider.appQueryErr
 	}
@@ -449,12 +466,12 @@ func (provider fakeStatusProvider) Committee(ctx context.Context, height types.H
 	return provider.committee, nil
 }
 
-func (provider *fakeStatusProvider) SubmitEvidence(ctx context.Context, evidence slashing.Evidence) (consensus.SlashResult, bool, error) {
+func (provider *fakeStatusProvider) SubmitEvidence(ctx context.Context, evidence slashing.Evidence) (types.Hash, error) {
 	if provider.evidenceErr != nil {
-		return consensus.SlashResult{}, false, provider.evidenceErr
+		return types.Hash{}, provider.evidenceErr
 	}
 	provider.evidenceSubmitted = append(provider.evidenceSubmitted, evidence)
-	return provider.evidenceResult, provider.evidenceApplied, nil
+	return provider.evidenceHash, nil
 }
 
 func TestHandlerReportsHealthStatusAndPeers(t *testing.T) {
@@ -889,21 +906,45 @@ func TestHandlerRateLimitsRequests(t *testing.T) {
 	}
 }
 
-func TestHandlerServesPprofWhenEnabled(t *testing.T) {
-	enabled := NewHandlerWithConfig(fakeStatusProvider{}, Config{EnablePprof: true})
-	request := httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil)
-	response := httptest.NewRecorder()
-	enabled.ServeHTTP(response, request)
-	if response.Code != http.StatusOK {
-		t.Fatalf("expected pprof enabled status 200, got %d", response.Code)
+func TestHandlerServesPprofOnlyToAdminToken(t *testing.T) {
+	pprofStatus := func(handler http.Handler, authorization string) int {
+		request := httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil)
+		request.Host = "127.0.0.1:26657"
+		if authorization != "" {
+			request.Header.Set("Authorization", authorization)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response.Code
+	}
+
+	enabled := NewHandlerWithConfig(fakeStatusProvider{}, Config{EnablePprof: true, AdminToken: "secret"})
+	if status := pprofStatus(enabled, "Bearer secret"); status != http.StatusOK {
+		t.Fatalf("expected pprof to serve the admin token, got %d", status)
+	}
+	if status := pprofStatus(enabled, ""); status != http.StatusUnauthorized {
+		t.Fatalf("expected pprof to require a credential, got %d", status)
+	}
+	if status := pprofStatus(enabled, "Bearer wrong"); status != http.StatusForbidden {
+		t.Fatalf("expected pprof to refuse a wrong token, got %d", status)
+	}
+
+	scoped := NewHandlerWithConfig(fakeStatusProvider{}, Config{EnablePprof: true, AdminTokens: map[string][]string{"prune-only": {"prune"}, "profiler": {"pprof"}}})
+	if status := pprofStatus(scoped, "Bearer prune-only"); status != http.StatusForbidden {
+		t.Fatalf("expected a token without the pprof scope to be refused, got %d", status)
+	}
+	if status := pprofStatus(scoped, "Bearer profiler"); status != http.StatusOK {
+		t.Fatalf("expected the pprof scope to be accepted, got %d", status)
+	}
+
+	tokenless := NewHandlerWithConfig(fakeStatusProvider{}, Config{EnablePprof: true})
+	if status := pprofStatus(tokenless, ""); status != http.StatusUnauthorized {
+		t.Fatalf("expected pprof to stay closed without an admin token, got %d", status)
 	}
 
 	disabled := NewHandler(fakeStatusProvider{})
-	request = httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil)
-	response = httptest.NewRecorder()
-	disabled.ServeHTTP(response, request)
-	if response.Code != http.StatusNotFound {
-		t.Fatalf("expected pprof disabled status 404, got %d", response.Code)
+	if status := pprofStatus(disabled, ""); status != http.StatusNotFound {
+		t.Fatalf("expected pprof disabled status 404, got %d", status)
 	}
 }
 
@@ -919,6 +960,21 @@ func TestHandlerRateLimitSeparatesClientIPs(t *testing.T) {
 	var response map[string]string
 	requestJSON(t, handler, http.MethodGet, "/healthz", "", "10.0.0.1:1001", http.StatusTooManyRequests, &response)
 	requestJSON(t, handler, http.MethodGet, "/healthz", "", "10.0.0.2:1000", http.StatusOK, &health)
+}
+
+func TestHandlerRateLimitSharesBudgetAcrossIPv6Prefix(t *testing.T) {
+	handler := NewHandlerWithConfig(fakeStatusProvider{status: node.Status{Running: true}}, Config{
+		RateLimitWindow:      time.Hour,
+		RateLimitMaxRequests: 1,
+	})
+
+	var health HealthResponse
+	requestJSON(t, handler, http.MethodGet, "/healthz", "", "[2001:db8:0:1::1]:1000", http.StatusOK, &health)
+
+	var response map[string]string
+	requestJSON(t, handler, http.MethodGet, "/healthz", "", "[2001:db8:0:1::2]:1000", http.StatusTooManyRequests, &response)
+	requestJSON(t, handler, http.MethodGet, "/healthz", "", "[2001:db8:0:1:ffff:ffff:ffff:ffff]:1000", http.StatusTooManyRequests, &response)
+	requestJSON(t, handler, http.MethodGet, "/healthz", "", "[2001:db8:0:2::1]:1000", http.StatusOK, &health)
 }
 
 func TestHandlerRateLimitIgnoresForwardedForHeader(t *testing.T) {
@@ -970,21 +1026,22 @@ func TestHandlerSubmitsBase64Transaction(t *testing.T) {
 func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	blockHash := types.Hash{0xab}
 	parentHash := types.Hash{0xcd}
-	blockTxHashText := "0x8888888888888888888888888888888888888888888888888888888888888888"
 	blockTx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
 		Module: "evm",
 		Action: "call",
 		Args:   []string{"evm", "0xaaaa", "0xbbbb", "call", "1234", "7", "0"},
 		Tags: map[string]string{
-			"fee":             "14",
-			"gas":             "7",
-			ethcompat.TagRaw:  "0xabcdef",
-			ethcompat.TagHash: blockTxHashText,
+			"fee":            "14",
+			"gas":            "7",
+			ethcompat.TagRaw: "0xabcdef",
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The hash the EVM module stores the receipt under is derived from the
+	// transaction itself, never from a tag.
+	blockTxHashText := web3TxHash(blockTx)
 	block := store.BlockRecord{
 		Block: types.Block{
 			Header: types.Header{ChainID: "vexo-chain", Height: 12, PreviousBlockHash: parentHash, TimeUnixNano: int64(1700000000 * time.Second)},
@@ -1056,6 +1113,10 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider.pendingTxs = []types.Tx{pendingTx, queuedTx}
+	// A transaction is known by the hash derived from its own bytes; an
+	// unbacked eth_hash tag names nothing.
+	pendingHash := web3TxHash(pendingTx)
+	queuedHash := web3TxHash(queuedTx)
 	handler := NewHandler(provider)
 
 	var blockNumber JSONRPCResponse
@@ -1124,10 +1185,10 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	queuedContent, _ := contentResult["queued"].(map[string]any)
 	queuedFromContent, _ := queuedContent["0xaaaa"].(map[string]any)
 	queuedItem, _ := queuedFromContent["0x9"].(map[string]any)
-	if txpoolContent.Error != nil || !ok || pendingItem["hash"] != "0x9999999999999999999999999999999999999999999999999999999999999999" || pendingItem["to"] != "0xbbbb" {
+	if txpoolContent.Error != nil || !ok || pendingItem["hash"] != pendingHash || pendingItem["to"] != "0xbbbb" {
 		t.Fatalf("unexpected txpool content: %+v", txpoolContent)
 	}
-	if queuedItem["hash"] != "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" || queuedItem["to"] != "0xcccc" {
+	if queuedItem["hash"] != queuedHash || queuedItem["to"] != "0xcccc" {
 		t.Fatalf("unexpected queued txpool content: %+v", txpoolContent)
 	}
 	var txpoolContentFrom JSONRPCResponse
@@ -1145,7 +1206,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("unexpected pending transactions: %+v", pendingTransactions)
 	}
 	pendingObject, ok := pendingItems[0].(map[string]any)
-	if !ok || pendingObject["hash"] != "0x9999999999999999999999999999999999999999999999999999999999999999" || pendingObject["blockNumber"] != nil {
+	if !ok || pendingObject["hash"] != pendingHash || pendingObject["blockNumber"] != nil {
 		t.Fatalf("unexpected pending transaction object: %+v", pendingItems[0])
 	}
 	var txpoolInspect JSONRPCResponse
@@ -1332,7 +1393,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("unexpected raw tx by hash: %+v", rawByHash)
 	}
 	var pendingRawByHash JSONRPCResponse
-	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":98,"method":"eth_getRawTransactionByHash","params":["0x9999999999999999999999999999999999999999999999999999999999999999"]}`, http.StatusOK, &pendingRawByHash)
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":98,"method":"eth_getRawTransactionByHash","params":["`+pendingHash+`"]}`, http.StatusOK, &pendingRawByHash)
 	if pendingRawByHash.Error != nil || pendingRawByHash.Result != "0xbeef" {
 		t.Fatalf("unexpected pending raw tx by hash: %+v", pendingRawByHash)
 	}
@@ -1356,9 +1417,9 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("unexpected scanned trace transaction: %+v", scannedTransactionTrace)
 	}
 	var pendingTxByHash JSONRPCResponse
-	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":99,"method":"eth_getTransactionByHash","params":["0x9999999999999999999999999999999999999999999999999999999999999999"]}`, http.StatusOK, &pendingTxByHash)
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":99,"method":"eth_getTransactionByHash","params":["`+pendingHash+`"]}`, http.StatusOK, &pendingTxByHash)
 	pendingTxByHashResult, ok := pendingTxByHash.Result.(map[string]any)
-	if pendingTxByHash.Error != nil || !ok || pendingTxByHashResult["hash"] != "0x9999999999999999999999999999999999999999999999999999999999999999" || pendingTxByHashResult["blockHash"] != nil || pendingTxByHashResult["r"] == nil || pendingTxByHashResult["s"] == nil || pendingTxByHashResult["v"] == nil {
+	if pendingTxByHash.Error != nil || !ok || pendingTxByHashResult["hash"] != pendingHash || pendingTxByHashResult["blockHash"] != nil || pendingTxByHashResult["r"] == nil || pendingTxByHashResult["s"] == nil || pendingTxByHashResult["v"] == nil {
 		t.Fatalf("unexpected pending tx by hash: %+v", pendingTxByHash)
 	}
 	provider.pendingTxs = nil
@@ -1568,23 +1629,14 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if traceGet.Error != nil || !ok || traceGetResult["transactionHash"] != blockTxHashText {
 		t.Fatalf("unexpected trace_get: %+v", traceGet)
 	}
+	// Receipts persist no opcode trace, so a committed transaction has no child
+	// frames to report: whatever a receipt carries under vm_trace is ignored.
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"` + blockTxHashText + `","height":12,"status":1,"from":"0xaaaa","to":"0xbbbb","gas_used":7,"output":"0x1234","vm_trace":{"calls":[{"type":"CALL","from":"0xaaaa","to":"0xcccc","gas":"0x5","gasUsed":"0x3","input":"0x12","output":"0x34","value":"0x2"}]}}`)}
-	var nestedTransactionTrace JSONRPCResponse
-	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":112,"method":"trace_transaction","params":["`+blockTxHashText+`"]}`, http.StatusOK, &nestedTransactionTrace)
-	nestedTransactionTraceItems, ok := nestedTransactionTrace.Result.([]any)
-	if nestedTransactionTrace.Error != nil || !ok || len(nestedTransactionTraceItems) != 2 {
-		t.Fatalf("unexpected nested transaction trace: %+v", nestedTransactionTrace)
-	}
-	nestedChildTrace, ok := nestedTransactionTraceItems[1].(map[string]any)
-	if !ok || !web3TraceAddressEqual(nestedChildTrace["traceAddress"], []uint64{0}) {
-		t.Fatalf("unexpected nested child trace: %+v", nestedTransactionTraceItems[1])
-	}
-	var nestedTraceGet JSONRPCResponse
-	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":113,"method":"trace_get","params":["`+blockTxHashText+`",[0]]}`, http.StatusOK, &nestedTraceGet)
-	nestedTraceGetResult, ok := nestedTraceGet.Result.(map[string]any)
-	nestedTraceGetAction, _ := nestedTraceGetResult["action"].(map[string]any)
-	if nestedTraceGet.Error != nil || !ok || nestedTraceGetAction["to"] != "0xcccc" {
-		t.Fatalf("unexpected nested trace_get: %+v", nestedTraceGet)
+	var committedTransactionTrace JSONRPCResponse
+	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":112,"method":"trace_transaction","params":["`+blockTxHashText+`"]}`, http.StatusOK, &committedTransactionTrace)
+	committedTransactionTraceItems, ok := committedTransactionTrace.Result.([]any)
+	if committedTransactionTrace.Error != nil || !ok || len(committedTransactionTraceItems) != 1 {
+		t.Fatalf("a committed transaction reports only its top level call: %+v", committedTransactionTrace)
 	}
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"tx_hash":"` + blockTxHashText + `","height":12,"status":1,"from":"0xaaaa","to":"0xbbbb","gas_used":7,"output":"0x1234"}`)}
 	var replayTransaction JSONRPCResponse
@@ -1610,9 +1662,8 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":111,"method":"trace_replayTransaction","params":["`+blockTxHashText+`"]}`, http.StatusOK, &replayTransactionWithDiff)
 	replayTransactionWithDiffResult, ok := replayTransactionWithDiff.Result.(map[string]any)
 	replayStateDiff, stateDiffOK := replayTransactionWithDiffResult["stateDiff"].(map[string]any)
-	replayVMTrace, vmTraceOK := replayTransactionWithDiffResult["vmTrace"].(map[string]any)
-	if replayTransactionWithDiff.Error != nil || !ok || !stateDiffOK || replayStateDiff["0xbbbb"] == nil || !vmTraceOK || replayVMTrace["structLogs"] == nil {
-		t.Fatalf("unexpected replay transaction state diff: %+v", replayTransactionWithDiff)
+	if replayTransactionWithDiff.Error != nil || !ok || !stateDiffOK || replayStateDiff["0xbbbb"] == nil || replayTransactionWithDiffResult["vmTrace"] != nil {
+		t.Fatalf("a replay reports the persisted state diff and no opcode trace: %+v", replayTransactionWithDiff)
 	}
 	var replayBlock JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":94,"method":"trace_replayBlockTransactions","params":["latest",["trace"]]}`, http.StatusOK, &replayBlock)
@@ -1641,6 +1692,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("unexpected app query path: %+v", provider.appQueryPath)
 	}
 
+	provider.status.LatestHeight = 14
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`[
 		{"address":"0xcontract","topics":["0xaaa","0xbbb"],"data":"0x01","block_number":13,"transaction_hash":"0xabc","log_index":0},
 		{"address":"0xcontract","topics":["0xccc"],"data":"0x02","block_number":13,"transaction_hash":"0xdef","log_index":1}
@@ -1651,12 +1703,15 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if getLogs.Error != nil || !ok || len(filteredLogs) != 1 {
 		t.Fatalf("unexpected filtered logs: %+v", getLogs)
 	}
+	if string(provider.appQueryData) != `{"from_block":13,"to_block":13,"topics":[["0xaaa"]],"limit":10001}` {
+		t.Fatalf("the module must be asked for exactly the requested blocks, filtered by the topics and bounded by one log past the result limit, got %s", provider.appQueryData)
+	}
 	filteredLog, ok := filteredLogs[0].(map[string]any)
 	if !ok || filteredLog["blockNumber"] != "0xd" || filteredLog["transactionHash"] != "0xabc" {
 		t.Fatalf("unexpected normalized log: %+v", filteredLogs[0])
 	}
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`[
-		{"address":"0xcontract","topics":["0xaaa"],"data":"0x01","block_number":13,"transaction_hash":"0xabc","log_index":0}
+		{"address":"0xcontract","topics":["0xaaa"],"data":"0x01","block_number":14,"transaction_hash":"0xabc","log_index":0}
 	]`)}
 	var allLogs JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":43,"method":"eth_getLogs","params":[{}]}`, http.StatusOK, &allLogs)
@@ -1664,15 +1719,22 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 	if allLogs.Error != nil || !ok || len(allLogItems) != 1 || len(provider.appQueryPath) != 2 || provider.appQueryPath[0] != "evm" || provider.appQueryPath[1] != "logs" {
 		t.Fatalf("unexpected global logs response=%+v path=%+v", allLogs, provider.appQueryPath)
 	}
+	// As in Ethereum, a filter without bounds covers the latest block only.
+	if string(provider.appQueryData) != `{"from_block":14,"to_block":14,"limit":10001}` {
+		t.Fatalf("missing bounds must be resolved to the latest block before the module is asked, got %s", provider.appQueryData)
+	}
 	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`[
 		{"address":"0xcontract","topics":["0xaaa"],"data":"0x01","block_number":13,"transaction_hash":"0xabc","log_index":0},
 		{"address":"0xcontract","topics":["0xbbb"],"data":"0x02","block_number":14,"transaction_hash":"0xdef","log_index":1}
 	]`)}
 	limitedHandler := NewHandlerWithConfig(provider, Config{Web3LogMaxResults: 1})
 	var tooManyLogs JSONRPCResponse
-	postJSON(t, limitedHandler, "/", `{"jsonrpc":"2.0","id":44,"method":"eth_getLogs","params":[{"address":"0xcontract"}]}`, http.StatusOK, &tooManyLogs)
+	postJSON(t, limitedHandler, "/", `{"jsonrpc":"2.0","id":44,"method":"eth_getLogs","params":[{"address":"0xcontract","fromBlock":"0xd"}]}`, http.StatusOK, &tooManyLogs)
 	if tooManyLogs.Error == nil || tooManyLogs.Error.Code != -32005 {
 		t.Fatalf("expected log result limit error, got %+v", tooManyLogs)
+	}
+	if string(provider.appQueryData) != `{"from_block":13,"to_block":14,"limit":2}` {
+		t.Fatalf("the module must read no more than one log past the result limit, got %s", provider.appQueryData)
 	}
 	rangeLimitedHandler := NewHandlerWithConfig(provider, Config{Web3LogMaxBlockRange: 1})
 	var tooWideLogs JSONRPCResponse
@@ -1708,6 +1770,7 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 		t.Fatalf("unexpected uninstall response: %+v", uninstall)
 	}
 
+	provider.status.LatestHeight = 12
 	var blockFilterID JSONRPCResponse
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":36,"method":"eth_newBlockFilter","params":[]}`, http.StatusOK, &blockFilterID)
 	blockFilterText, ok := blockFilterID.Result.(string)
@@ -1868,18 +1931,15 @@ func TestHandlerServesWeb3JSONRPC(t *testing.T) {
 }
 
 func TestWeb3PendingReceiptDoesNotScanCommittedBlocks(t *testing.T) {
-	const pendingHash = "0x9999999999999999999999999999999999999999999999999999999999999999"
 	pendingTx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
 		Module: "evm",
 		Action: "call",
 		Args:   []string{"evm", "0xaaaa", "0xbbbb", "call", "abcd", "21000", "5"},
-		Tags: map[string]string{
-			ethcompat.TagHash: pendingHash,
-		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	pendingHash := web3TxHash(pendingTx)
 	provider := &fakeStatusProvider{
 		status:           node.Status{LatestHeight: 100},
 		pendingTxs:       []types.Tx{pendingTx},
@@ -1894,8 +1954,10 @@ func TestWeb3PendingReceiptDoesNotScanCommittedBlocks(t *testing.T) {
 }
 
 func TestWeb3ReceiptUsesBlockCumulativeGas(t *testing.T) {
-	txHash1 := "0x1111111111111111111111111111111111111111111111111111111111111111"
-	txHash2 := "0x2222222222222222222222222222222222222222222222222222222222222222"
+	tx1 := types.Tx("evm:call:fee=7:gas=21000:signer=0xaaaa:nonce=0")
+	tx2 := types.Tx("evm:call:fee=11:gas=21000:signer=0xcccc:nonce=0")
+	txHash1 := web3TxHash(tx1)
+	txHash2 := web3TxHash(tx2)
 	receipt1 := web3Receipt{
 		TxHash: txHash1, Height: 3, Status: 1, From: "0xaaaa", To: "0xbbbb", GasUsed: 7,
 		Logs: []any{
@@ -1922,10 +1984,7 @@ func TestWeb3ReceiptUsesBlockCumulativeGas(t *testing.T) {
 			3: {
 				Block: types.Block{
 					Header: types.Header{Height: 3},
-					Txs: []types.Tx{
-						types.Tx("evm:call:fee=7:gas=21000:signer=0xaaaa:nonce=0:eth_hash=" + txHash1),
-						types.Tx("evm:call:fee=11:gas=21000:signer=0xcccc:nonce=0:eth_hash=" + txHash2),
-					},
+					Txs:    []types.Tx{tx1, tx2},
 				},
 				Hash: types.Hash{3},
 				TxResults: []types.Result{
@@ -1992,6 +2051,231 @@ func TestHandlerWeb3StateRootFailsClosedWhenUnavailable(t *testing.T) {
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":2,"method":"eth_getBlockByNumber","params":["latest",false]}`, http.StatusOK, &response)
 	if response.Error == nil || response.Error.Code != -32000 || !strings.Contains(response.Error.Message, "EVM state root is unavailable") {
 		t.Fatalf("expected EVM state-root failure without fallback, got %+v", response)
+	}
+}
+
+func TestWeb3ReadOnlyExecutionGasIsHeldToTheRPCGasCap(t *testing.T) {
+	queriedCall := func(t *testing.T, provider *fakeStatusProvider) web3CallRequest {
+		t.Helper()
+		var call web3CallRequest
+		if err := json.Unmarshal(provider.appQueryData, &call); err != nil {
+			t.Fatal(err)
+		}
+		return call
+	}
+	defaultCap := evmmodule.DefaultPolicy().RPCGasCap
+	cases := []struct {
+		name string
+		cfg  Config
+		gas  string
+		want uint64
+	}{
+		{name: "a request for all the gas that exists runs with the default cap", gas: `,"gas":"0xffffffffffffffff"`, want: defaultCap},
+		{name: "a request above the configured cap runs with the cap", cfg: Config{RPCGasCap: 1_000_000}, gas: `,"gas":"0x1c9c380"`, want: 1_000_000},
+		{name: "a request under the cap is honoured", cfg: Config{RPCGasCap: 1_000_000}, gas: `,"gas":"0x186a0"`, want: 100_000},
+		{name: "a call naming no gas runs with the default block limit", want: defaultWeb3BlockGasLimit},
+		{name: "a call naming no gas is still held to a small cap", cfg: Config{RPCGasCap: 5_000_000}, want: 5_000_000},
+	}
+	methods := []struct {
+		method string
+		params func(gas string) string
+	}{
+		{method: "eth_call", params: func(gas string) string { return `[{"to":"0xbbbb"` + gas + `},"latest"]` }},
+		{method: "eth_createAccessList", params: func(gas string) string { return `[{"to":"0xbbbb"` + gas + `},"latest"]` }},
+		{method: "debug_traceCall", params: func(gas string) string { return `[{"to":"0xbbbb"` + gas + `},"latest",{}]` }},
+		{method: "trace_call", params: func(gas string) string { return `[{"to":"0xbbbb"` + gas + `},["trace"],"latest"]` }},
+	}
+	for _, test := range cases {
+		for _, method := range methods {
+			t.Run(test.name+"/"+method.method, func(t *testing.T) {
+				provider := &fakeStatusProvider{
+					status:           node.Status{ChainID: "vexo-chain", EVMChainID: 7, Running: true, LatestHeight: 9},
+					appQueryResponse: vexoapp.QueryResponse{Value: []byte(`{"output":"0x","gas_used":21000}`)},
+				}
+				handler := NewHandlerWithConfig(provider, test.cfg)
+				var response JSONRPCResponse
+				postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":1,"method":"`+method.method+`","params":`+method.params(test.gas)+`}`, http.StatusOK, &response)
+				if response.Error != nil {
+					t.Fatalf("unexpected %s response: %+v", method.method, response)
+				}
+				if call := queriedCall(t, provider); call.GasLimit != test.want {
+					t.Fatalf("%s executed with %d gas, want %d", method.method, call.GasLimit, test.want)
+				}
+			})
+		}
+	}
+}
+
+func TestWeb3OnlyTracingMethodsAskForAnOpcodeTrace(t *testing.T) {
+	provider := &fakeStatusProvider{
+		status:           node.Status{ChainID: "vexo-chain", EVMChainID: 7, Running: true, LatestHeight: 9},
+		appQueryResponse: vexoapp.QueryResponse{Value: []byte(`{"output":"0x","gas_used":21000}`)},
+	}
+	handler := NewHandler(provider)
+	traced := func(method string, params string) bool {
+		t.Helper()
+		var response JSONRPCResponse
+		postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":1,"method":"`+method+`","params":`+params+`}`, http.StatusOK, &response)
+		if response.Error != nil {
+			t.Fatalf("unexpected %s response: %+v", method, response)
+		}
+		var call web3CallRequest
+		if err := json.Unmarshal(provider.appQueryData, &call); err != nil {
+			t.Fatal(err)
+		}
+		return call.Trace
+	}
+	for method, params := range map[string]string{
+		"eth_call":             `[{"to":"0xbbbb"},"latest"]`,
+		"eth_estimateGas":      `[{"to":"0xbbbb"}]`,
+		"eth_createAccessList": `[{"to":"0xbbbb"},"latest"]`,
+	} {
+		if traced(method, params) {
+			t.Fatalf("%s must not record an opcode trace", method)
+		}
+	}
+	for method, params := range map[string]string{
+		"debug_traceCall": `[{"to":"0xbbbb"},"latest",{}]`,
+		"trace_call":      `[{"to":"0xbbbb"},["trace"],"latest"]`,
+	} {
+		if !traced(method, params) {
+			t.Fatalf("%s must record the opcode trace it returns", method)
+		}
+	}
+}
+
+func TestWeb3EstimateGasNeverProbesAboveTheRPCGasCap(t *testing.T) {
+	const gasCap = 400_000
+	const needed = 123_456
+	provider := &fakeStatusProvider{
+		status: node.Status{ChainID: "vexo-chain", EVMChainID: 7, Running: true, LatestHeight: 9},
+	}
+	probed := uint64(0)
+	provider.onAppQuery = func(data []byte) {
+		var call web3CallRequest
+		if err := json.Unmarshal(data, &call); err != nil {
+			t.Fatal(err)
+		}
+		if call.GasLimit > probed {
+			probed = call.GasLimit
+		}
+		if call.GasLimit < needed {
+			provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x","gas_used":21000,"failed":true,"error":"out of gas"}`)}
+			return
+		}
+		provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x","gas_used":21000}`)}
+	}
+	handler := NewHandlerWithConfig(provider, Config{RPCGasCap: gasCap})
+
+	var estimate JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":1,"method":"eth_estimateGas","params":[{"to":"0xbbbb","gas":"0xffffffffffff"}]}`, http.StatusOK, &estimate)
+	if estimate.Error != nil || estimate.Result != hexQuantity(needed) {
+		t.Fatalf("expected the search to settle on the gas the call needs, got %+v", estimate)
+	}
+	if probed != gasCap {
+		t.Fatalf("an unbounded request must be probed with exactly the cap (%d), the largest probe was %d", gasCap, probed)
+	}
+}
+
+func TestWeb3EstimateGasRejectsCallsWhoseIntrinsicGasExceedsTheCap(t *testing.T) {
+	provider := &fakeStatusProvider{
+		status:           node.Status{ChainID: "vexo-chain", EVMChainID: 7, Running: true, LatestHeight: 9},
+		appQueryResponse: vexoapp.QueryResponse{Value: []byte(`{"output":"0x","gas_used":21000}`)},
+	}
+	handler := NewHandlerWithConfig(provider, Config{RPCGasCap: 20_000})
+	var estimate JSONRPCResponse
+	postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":1,"method":"eth_estimateGas","params":[{"to":"0xbbbb"}]}`, http.StatusOK, &estimate)
+	if estimate.Error == nil || estimate.Error.Code != -32000 || !strings.Contains(estimate.Error.Message, "gas required exceeds allowance (20000)") {
+		t.Fatalf("expected the allowance error, got %+v", estimate)
+	}
+	if provider.appQueryData != nil {
+		t.Fatalf("a request that cannot fit the cap must not reach the interpreter, got %s", provider.appQueryData)
+	}
+}
+
+func TestWeb3EstimateGasStopsWhenTheRequestIsCancelled(t *testing.T) {
+	provider := &fakeStatusProvider{
+		status: node.Status{ChainID: "vexo-chain", EVMChainID: 7, Running: true, LatestHeight: 9},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	probes := 0
+	provider.onAppQuery = func(data []byte) {
+		probes++
+		if probes == 3 {
+			cancel()
+		}
+		// Every probe fails once the request is gone, exactly as a cancelled
+		// execution does; the search must not read that as "needs more gas".
+		if ctx.Err() != nil {
+			provider.appQueryResponse = vexoapp.QueryResponse{Code: 1, Log: ctx.Err().Error()}
+			return
+		}
+		provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`{"output":"0x","gas_used":21000}`)}
+	}
+	result, rpcErr := web3EstimateGas(ctx, provider, Config{}, []json.RawMessage{json.RawMessage(`{"to":"0xbbbb"}`)})
+	if rpcErr == nil || !strings.Contains(rpcErr.Message, "context canceled") {
+		t.Fatalf("a cancelled estimate must fail rather than report a bound, got result=%q err=%+v", result, rpcErr)
+	}
+	if probes > 4 {
+		t.Fatalf("the search kept probing after cancellation: %d probes", probes)
+	}
+}
+
+func TestWeb3GetLogsIsBoundedByTheChainHeadNotByTheCaller(t *testing.T) {
+	provider := &fakeStatusProvider{
+		status:           node.Status{ChainID: "vexo-chain", EVMChainID: 7, Running: true, LatestHeight: 1_000_005},
+		appQueryResponse: vexoapp.QueryResponse{Value: []byte(`[]`)},
+	}
+	queries := 0
+	provider.onAppQuery = func(data []byte) { queries++ }
+	handler := NewHandler(provider)
+	getLogs := func(filter string) JSONRPCResponse {
+		t.Helper()
+		var response JSONRPCResponse
+		postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":1,"method":"eth_getLogs","params":[`+filter+`]}`, http.StatusOK, &response)
+		return response
+	}
+
+	// Leaving the upper bound open must not let a filter read the whole chain.
+	response := getLogs(`{"fromBlock":"0x0"}`)
+	if response.Error == nil || response.Error.Code != -32602 || !strings.Contains(response.Error.Message, "block range") {
+		t.Fatalf("an open-ended filter from genesis must hit the range limit, got %+v", response)
+	}
+	response = getLogs(`{"fromBlock":"0x0","toBlock":"latest"}`)
+	if response.Error == nil || response.Error.Code != -32602 {
+		t.Fatalf("an explicit latest bound must hit the same limit, got %+v", response)
+	}
+	if queries != 0 {
+		t.Fatalf("a refused filter must not reach the log index, queried %d times", queries)
+	}
+
+	// A filter inside the limit reads exactly the blocks it names.
+	response = getLogs(`{"fromBlock":"0xf4240"}`)
+	if response.Error != nil || string(provider.appQueryData) != `{"from_block":1000000,"to_block":1000005,"limit":10001}` {
+		t.Fatalf("an open-ended filter near the head reads up to the head: response=%+v query=%s", response, provider.appQueryData)
+	}
+	response = getLogs(`{"fromBlock":"0xf4240","toBlock":"0xffffffffff"}`)
+	if response.Error != nil || string(provider.appQueryData) != `{"from_block":1000000,"to_block":1000005,"limit":10001}` {
+		t.Fatalf("a bound past the head stops at the head: response=%+v query=%s", response, provider.appQueryData)
+	}
+
+	// A window that starts after the head holds nothing and costs nothing.
+	queries = 0
+	response = getLogs(`{"fromBlock":"0x1000000"}`)
+	if items, ok := response.Result.([]any); response.Error != nil || !ok || len(items) != 0 {
+		t.Fatalf("a window past the head is empty, got %+v", response)
+	}
+	if queries != 0 {
+		t.Fatalf("a window past the head must not reach the log index, queried %d times", queries)
+	}
+
+	// The limit is the configured one, but never wider than the module reads.
+	wide := NewHandlerWithConfig(provider, Config{Web3LogMaxBlockRange: 1_000_000_000})
+	var wideResponse JSONRPCResponse
+	postJSON(t, wide, "/web3", `{"jsonrpc":"2.0","id":2,"method":"eth_getLogs","params":[{"fromBlock":"0x1"}]}`, http.StatusOK, &wideResponse)
+	if wideResponse.Error == nil || wideResponse.Error.Code != -32602 {
+		t.Fatalf("a configured limit above the module's own must be held to it, got %+v", wideResponse)
 	}
 }
 
@@ -2105,12 +2389,12 @@ func TestHandlerAllowsWeb3CORSPreflightForRemix(t *testing.T) {
 	if !strings.Contains(response.Header().Get("Access-Control-Allow-Methods"), "POST") {
 		t.Fatalf("expected POST in CORS methods, got %q", response.Header().Get("Access-Control-Allow-Methods"))
 	}
-	if got := response.Header().Get("Access-Control-Allow-Private-Network"); got != "true" {
-		t.Fatalf("expected private network preflight allow header, got %q", got)
+	if got := response.Header().Get("Access-Control-Allow-Private-Network"); got != "" {
+		t.Fatalf("private network access must never be granted, got %q", got)
 	}
 }
 
-func TestHandlerAddsCORSHeadersToWeb3ChainID(t *testing.T) {
+func TestHandlerSendsNoCORSHeadersByDefault(t *testing.T) {
 	handler := NewHandlerWithConfig(fakeStatusProvider{
 		status: node.Status{ChainID: "vexo-chain", EVMChainID: 2026, Running: true},
 	}, Config{})
@@ -2124,11 +2408,41 @@ func TestHandlerAddsCORSHeadersToWeb3ChainID(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("expected eth_chainId success, got %d body=%s", response.Code, response.Body.String())
 	}
-	if got := response.Header().Get("Access-Control-Allow-Origin"); got != "*" {
-		t.Fatalf("expected default permissive CORS origin for Web3 tooling, got %q", got)
+	for name := range response.Header() {
+		if strings.HasPrefix(name, "Access-Control-") {
+			t.Fatalf("expected no CORS headers by default, got %s=%q", name, response.Header().Get(name))
+		}
+	}
+
+	preflight := httptest.NewRequest(http.MethodOptions, "/web3", nil)
+	preflight.Header.Set("Origin", "https://remix.ethereum.org")
+	preflight.Header.Set("Access-Control-Request-Method", "POST")
+	preflightResponse := httptest.NewRecorder()
+	handler.ServeHTTP(preflightResponse, preflight)
+	if preflightResponse.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("expected a default preflight not to grant access, got %v", preflightResponse.Header())
+	}
+}
+
+func TestHandlerAddsCORSHeadersToListedWeb3Origin(t *testing.T) {
+	handler := NewHandlerWithConfig(fakeStatusProvider{
+		status: node.Status{ChainID: "vexo-chain", EVMChainID: 2026, Running: true},
+	}, Config{CORSAllowedOrigins: []string{"https://remix.ethereum.org"}})
+	request := httptest.NewRequest(http.MethodPost, "/web3", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", "https://remix.ethereum.org")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected eth_chainId success, got %d body=%s", response.Code, response.Body.String())
+	}
+	if got := response.Header().Get("Access-Control-Allow-Origin"); got != "https://remix.ethereum.org" {
+		t.Fatalf("expected the listed origin to be allowed, got %q", got)
 	}
 	if got := response.Header().Get("Access-Control-Allow-Private-Network"); got != "" {
-		t.Fatalf("did not expect private-network header on non-private request, got %q", got)
+		t.Fatalf("did not expect private-network header, got %q", got)
 	}
 	var payload JSONRPCResponse
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
@@ -2562,6 +2876,7 @@ func TestWeb3JSONRPCBatchAndNotifications(t *testing.T) {
 	}
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"jsonrpc":"2.0","method":"net_listening","params":[]}`))
+	request.Header.Set("Content-Type", "application/json")
 	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusNoContent || strings.TrimSpace(recorder.Body.String()) != "" {
 		t.Fatalf("unexpected notification response status=%d body=%q", recorder.Code, recorder.Body.String())
@@ -2740,10 +3055,13 @@ func TestHandlerServesWeb3WebSocketLogSubscriptions(t *testing.T) {
 	}
 
 	provider.status.LatestHeight = 2
-	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`[{"address":"0xcontract","data":"0x01"}]`)}
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`[{"address":"0xcontract","data":"0x01","block_number":2}]`)}
 	session.publish()
 	if len(sent) != 1 {
 		t.Fatalf("expected one log notification, got %+v", sent)
+	}
+	if string(provider.appQueryData) != `{"from_block":2,"to_block":2,"limit":10001}` {
+		t.Fatalf("a subscription must read only the blocks committed since it began, got %s", provider.appQueryData)
 	}
 	notification, ok := sent[0].(map[string]any)
 	if !ok {
@@ -2756,6 +3074,76 @@ func TestHandlerServesWeb3WebSocketLogSubscriptions(t *testing.T) {
 	result, ok := params["result"].(map[string]any)
 	if !ok || result["address"] != "0xcontract" || result["data"] != "0x01" {
 		t.Fatalf("unexpected log result: %+v", params["result"])
+	}
+}
+
+func TestWeb3LogSubscriptionReadsOnlyNewBlocks(t *testing.T) {
+	provider := &fakeStatusProvider{
+		status:           node.Status{ChainID: "vexo-chain", LatestHeight: 50_000},
+		appQueryResponse: vexoapp.QueryResponse{Value: []byte(`[]`)},
+	}
+	queries := 0
+	provider.onAppQuery = func(data []byte) { queries++ }
+	sent := make([]any, 0)
+	session := &web3SubscriptionSession{
+		provider: provider,
+		ctx:      context.Background(),
+		subs:     map[string]web3Subscription{},
+		send:     func(value any) { sent = append(sent, value) },
+	}
+	subscriptionID, rpcErr := session.subscribe([]json.RawMessage{json.RawMessage(`"logs"`), json.RawMessage(`{"address":"0xcontract","fromBlock":"0x0"}`)})
+	if rpcErr != nil || subscriptionID == "" {
+		t.Fatalf("a subscription on a long chain must not be refused: id=%q err=%+v", subscriptionID, rpcErr)
+	}
+	if queries != 0 {
+		t.Fatalf("subscribing must not read the chain behind the head, queried %d times", queries)
+	}
+	session.publish()
+	if queries != 0 {
+		t.Fatalf("a tick without a new block must not query the module, queried %d times", queries)
+	}
+
+	provider.status.LatestHeight = 50_001
+	provider.appQueryResponse = vexoapp.QueryResponse{Value: []byte(`[{"address":"0xcontract","data":"0x01","block_number":50001,"transaction_hash":"0xabc"}]`)}
+	session.publish()
+	if len(sent) != 1 || string(provider.appQueryData) != `{"from_block":50001,"to_block":50001,"limit":10001}` {
+		t.Fatalf("the first new block is read exactly once: sent=%d query=%s", len(sent), provider.appQueryData)
+	}
+	session.publish()
+	if len(sent) != 1 || queries != 1 {
+		t.Fatalf("a delivered block is never read again: sent=%d queries=%d", len(sent), queries)
+	}
+}
+
+func TestWeb3LogSubscriptionCatchesUpInBoundedWindows(t *testing.T) {
+	provider := &fakeStatusProvider{
+		status:           node.Status{ChainID: "vexo-chain", LatestHeight: 1},
+		appQueryResponse: vexoapp.QueryResponse{Value: []byte(`[]`)},
+	}
+	var windows []string
+	provider.onAppQuery = func(data []byte) { windows = append(windows, string(data)) }
+	session := &web3SubscriptionSession{
+		provider: provider,
+		cfg:      Config{Web3LogMaxBlockRange: 10},
+		ctx:      context.Background(),
+		subs:     map[string]web3Subscription{},
+		send:     func(value any) {},
+	}
+	if _, rpcErr := session.subscribe([]json.RawMessage{json.RawMessage(`"logs"`), json.RawMessage(`{"address":"0xcontract"}`)}); rpcErr != nil {
+		t.Fatal(rpcErr)
+	}
+	// The subscriber stalls while the chain moves 25 blocks ahead.
+	provider.status.LatestHeight = 26
+	for tick := 0; tick < 3; tick++ {
+		session.publish()
+	}
+	expected := []string{
+		`{"from_block":2,"to_block":11,"limit":10001}`,
+		`{"from_block":12,"to_block":21,"limit":10001}`,
+		`{"from_block":22,"to_block":26,"limit":10001}`,
+	}
+	if strings.Join(windows, "|") != strings.Join(expected, "|") {
+		t.Fatalf("a subscriber that fell behind must catch up window by window, got %v", windows)
 	}
 }
 
@@ -2831,7 +3219,6 @@ func TestHandlerServesWeb3WebSocketFullPendingTransactionSubscriptions(t *testin
 			"nonce":              "3",
 			"gas":                "21000",
 			"fee":                "42000",
-			ethcompat.TagHash:    "0x9999999999999999999999999999999999999999999999999999999999999999",
 			ethcompat.TagChainID: "1",
 		},
 	})
@@ -2867,7 +3254,7 @@ func TestHandlerServesWeb3WebSocketFullPendingTransactionSubscriptions(t *testin
 		t.Fatalf("unexpected full pending notification: %+v", notification)
 	}
 	result, ok := params["result"].(map[string]any)
-	if !ok || result["hash"] != "0x9999999999999999999999999999999999999999999999999999999999999999" || result["from"] != "0xaaaa" || result["blockHash"] != nil {
+	if !ok || result["hash"] != web3TxHash(pendingTx) || result["from"] != "0xaaaa" || result["blockHash"] != nil {
 		t.Fatalf("unexpected full pending result: %+v", params["result"])
 	}
 }
@@ -2927,6 +3314,46 @@ func TestHandlerWeb3FinalizedTagFailsClosedWithoutFinalityProof(t *testing.T) {
 	postJSON(t, handler, "/", `{"jsonrpc":"2.0","id":2,"method":"eth_getBlockByNumber","params":["finalized",false]}`, http.StatusOK, &response)
 	if response.Error == nil || !strings.Contains(response.Error.Message, "finalized block is unavailable") {
 		t.Fatalf("expected finalized fail-closed error, got %+v", response)
+	}
+}
+
+func TestHandlerRefusesWebSocketHandshakeFromUnlistedOrigin(t *testing.T) {
+	provider := fakeStatusProvider{status: node.Status{ChainID: "vexo-chain", EVMChainID: 2026, Running: true}}
+	dial := func(cfg Config, origin string) (*websocket.Conn, error) {
+		server := httptest.NewServer(NewHandlerWithConfig(provider, cfg))
+		t.Cleanup(server.Close)
+		config, err := websocket.NewConfig("ws"+strings.TrimPrefix(server.URL, "http")+"/web3", origin)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return websocket.DialConfig(config)
+	}
+
+	// A page on another origin could otherwise open a socket to a node on the visitor's network.
+	if conn, err := dial(Config{}, "https://attacker.example"); err == nil {
+		conn.Close()
+		t.Fatal("expected a handshake from an unlisted origin to be refused by default")
+	}
+	listed := Config{CORSAllowedOrigins: []string{"https://remix.ethereum.org"}}
+	if conn, err := dial(listed, "https://attacker.example"); err == nil {
+		conn.Close()
+		t.Fatal("expected a handshake from an unlisted origin to be refused")
+	}
+
+	conn, err := dial(listed, "https://remix.ethereum.org")
+	if err != nil {
+		t.Fatalf("expected a handshake from a listed origin to succeed: %v", err)
+	}
+	defer conn.Close()
+	if err := websocket.JSON.Send(conn, JSONRPCRequest{JSONRPC: "2.0", ID: json.RawMessage("1"), Method: "eth_chainId"}); err != nil {
+		t.Fatal(err)
+	}
+	var response JSONRPCResponse
+	if err := websocket.JSON.Receive(conn, &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Error != nil || response.Result != "0x7ea" {
+		t.Fatalf("unexpected chain id response: %+v", response)
 	}
 }
 
@@ -3012,44 +3439,45 @@ func TestHandlerRejectsNonPOSTTx(t *testing.T) {
 }
 
 func TestHandlerAcceptsEvidenceSubmission(t *testing.T) {
-	provider := &fakeStatusProvider{
-		evidenceApplied: true,
-		evidenceResult: consensus.SlashResult{
-			Receipt: slashing.PenaltyReceipt{
-				Penalty: slashing.Penalty{SlashFraction: "0.05", JailDuration: 120},
-			},
-			PreviousPower:  100,
-			RemainingPower: 95,
-		},
-	}
+	evidenceHash := types.Hash{0xe1, 0xd2}
+	provider := &fakeStatusProvider{evidenceHash: evidenceHash}
 	handler := NewHandler(provider)
 
 	var response SubmitEvidenceResponse
 	postJSON(t, handler, "/evidence", `{"type":"invalid_proposal","validator":"alice","height":7,"round":2,"proof":"cHJvb2Y="}`, http.StatusAccepted, &response)
 
-	if !response.Accepted || !response.Applied || response.Type != "invalid_proposal" || response.Validator != "alice" || response.Height != 7 || response.Round != 2 {
+	if !response.Accepted || response.EvidenceHash != hex.EncodeToString(evidenceHash[:]) || response.Type != "invalid_proposal" || response.Validator != "alice" || response.Height != 7 || response.Round != 2 {
 		t.Fatalf("unexpected evidence response: %+v", response)
-	}
-	if response.PreviousPower != 100 || response.RemainingPower != 95 || response.Penalty.SlashFraction != "0.05" || response.Penalty.JailDuration != 120 {
-		t.Fatalf("unexpected slashing result: %+v", response)
 	}
 	if len(provider.evidenceSubmitted) != 1 || string(provider.evidenceSubmitted[0].Proof) != "proof" {
 		t.Fatalf("unexpected submitted evidence: %+v", provider.evidenceSubmitted)
 	}
 }
 
-func TestHandlerAcceptsDuplicateEvidenceAsNotApplied(t *testing.T) {
-	provider := &fakeStatusProvider{evidenceApplied: false}
-	handler := NewHandler(provider)
+func TestHandlerReportsEvidenceSubmissionAsNotYetPunished(t *testing.T) {
+	handler := NewHandler(&fakeStatusProvider{})
 
-	var response SubmitEvidenceResponse
+	var response map[string]any
 	postJSON(t, handler, "/evidence", `{"type":"double_sign","validator":"alice","height":7,"proof":"plain-proof","encoding":"plain"}`, http.StatusAccepted, &response)
 
-	if !response.Accepted || response.Applied || response.PreviousPower != 0 || response.Penalty.SlashFraction != "" {
-		t.Fatalf("unexpected duplicate evidence response: %+v", response)
+	for _, field := range []string{"applied", "previous_power", "remaining_power", "penalty"} {
+		if _, present := response[field]; present {
+			t.Fatalf("expected evidence acceptance not to claim an applied penalty, found %q in %+v", field, response)
+		}
 	}
-	if len(provider.evidenceSubmitted) != 1 || string(provider.evidenceSubmitted[0].Proof) != "plain-proof" {
-		t.Fatalf("unexpected submitted duplicate evidence: %+v", provider.evidenceSubmitted)
+	if response["accepted"] != true || response["evidence_hash"] == "" {
+		t.Fatalf("unexpected evidence response: %+v", response)
+	}
+}
+
+func TestHandlerRejectsEvidenceThatTheNodeRefuses(t *testing.T) {
+	provider := &fakeStatusProvider{evidenceErr: errors.New("evidence failed verification")}
+
+	var response map[string]string
+	postJSON(t, NewHandler(provider), "/evidence", `{"type":"double_sign","validator":"alice","height":7,"proof":"cHJvb2Y="}`, http.StatusBadRequest, &response)
+
+	if response["error"] != "evidence failed verification" {
+		t.Fatalf("unexpected evidence error: %+v", response)
 	}
 }
 
@@ -3253,14 +3681,19 @@ func TestHandlerReportsFinalityProof(t *testing.T) {
 		t.Fatalf("unexpected finality by height: proof=%+v requested=%d", byHeight, provider.finalityHeight)
 	}
 
-	provider.finalityProof.CommitChain = []finality.CommitLink{
-		{Header: types.Header{ChainID: "vexo-test", Height: 8}, BlockHash: types.Hash{8}, QuorumCert: finality.QuorumCert{Height: 8, Round: 0, BlockHash: types.Hash{8}}},
-		{Header: types.Header{ChainID: "vexo-test", Height: 9}, BlockHash: types.Hash{9}, QuorumCert: finality.QuorumCert{Height: 9, Round: 0, BlockHash: types.Hash{9}}},
-	}
+	child := finality.CommitLink{Header: types.Header{ChainID: "vexo-test", Height: 8}, BlockHash: types.Hash{8}, QuorumCert: finality.QuorumCert{Height: 8, Round: 3, BlockHash: types.Hash{8}}}
+	provider.finalityProof.CommitChain = []finality.CommitLink{child}
 	var strictLatest FinalityProofResponse
 	getJSON(t, handler, "/v1/finality/latest?strict=1", http.StatusOK, &strictLatest)
-	if !strictLatest.Strict || len(strictLatest.CommitChain) != 2 {
+	if !strictLatest.Strict || len(strictLatest.CommitChain) != 1 || strictLatest.CommitChain[0].QuorumCert.Round != 3 {
 		t.Fatalf("unexpected strict finality proof: %+v", strictLatest)
+	}
+
+	// The 2-chain commit rule has exactly one child link: a longer chain is not a commit proof.
+	provider.finalityProof.CommitChain = []finality.CommitLink{child, child}
+	getJSON(t, handler, "/v1/finality/latest?strict=1", http.StatusNotFound, &strictError)
+	if strictError["error"] == "" {
+		t.Fatalf("expected strict finality error for a two-link chain, got %+v", strictError)
 	}
 }
 
@@ -3440,13 +3873,17 @@ func TestHandlerReportsStateProviderErrors(t *testing.T) {
 
 func TestHandlerReportsLatestSnapshot(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{snapshot: node.StateSnapshot{
-		Height:           5,
-		AppHash:          types.Hash{1},
-		LastBlockHash:    types.Hash{2},
-		ValidatorSetHash: types.Hash{3},
-		StateRoots: []store.StateRootRecord{
-			{Height: 5, Namespace: "bank", Root: types.Hash{4}},
-			{Height: 5, Namespace: "staking", Root: types.Hash{5}},
+		StateSnapshotHead: node.StateSnapshotHead{
+			State: store.StateRecord{
+				Height:           5,
+				AppHash:          types.Hash{1},
+				LastBlockHash:    types.Hash{2},
+				ValidatorSetHash: types.Hash{3},
+			},
+			StateRoots: []store.StateRootRecord{
+				{Height: 5, Namespace: "bank", Root: types.Hash{4}},
+				{Height: 5, Namespace: "staking", Root: types.Hash{5}},
+			},
 		},
 	}})
 
@@ -3462,12 +3899,16 @@ func TestHandlerReportsLatestSnapshot(t *testing.T) {
 
 func TestHandlerExportsRestorableSnapshotDocument(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{snapshot: node.StateSnapshot{
-		Height:           5,
-		AppHash:          types.Hash{1},
-		LastBlockHash:    types.Hash{2},
-		ValidatorSetHash: types.Hash{3},
-		StateRoots: []store.StateRootRecord{
-			{Height: 5, Namespace: "bank", Root: types.Hash{4}},
+		StateSnapshotHead: node.StateSnapshotHead{
+			State: store.StateRecord{
+				Height:           5,
+				AppHash:          types.Hash{1},
+				LastBlockHash:    types.Hash{2},
+				ValidatorSetHash: types.Hash{3},
+			},
+			StateRoots: []store.StateRootRecord{
+				{Height: 5, Namespace: "bank", Root: types.Hash{4}},
+			},
 		},
 		KV: []store.KVPair{{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")}},
 	}})
@@ -3490,12 +3931,16 @@ func TestHandlerExportsRestorableSnapshotDocument(t *testing.T) {
 
 func TestHandlerExportsSnapshotChunks(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{snapshot: node.StateSnapshot{
-		Height:           5,
-		AppHash:          types.Hash{1},
-		LastBlockHash:    types.Hash{2},
-		ValidatorSetHash: types.Hash{3},
-		StateRoots: []store.StateRootRecord{
-			{Height: 5, Namespace: "bank", Root: types.Hash{4}},
+		StateSnapshotHead: node.StateSnapshotHead{
+			State: store.StateRecord{
+				Height:           5,
+				AppHash:          types.Hash{1},
+				LastBlockHash:    types.Hash{2},
+				ValidatorSetHash: types.Hash{3},
+			},
+			StateRoots: []store.StateRootRecord{
+				{Height: 5, Namespace: "bank", Root: types.Hash{4}},
+			},
 		},
 		KV: []store.KVPair{
 			{Namespace: "bank", Key: []byte("carol"), Value: []byte("30")},
@@ -3526,13 +3971,74 @@ func TestHandlerExportsSnapshotChunks(t *testing.T) {
 	}
 }
 
+// Building an export copies the whole application state. Anonymous callers asking for the export
+// and its chunks must not each pay for a build: one build serves every request for one committed
+// block, and the latest snapshot needs none.
+func TestHandlerBuildsTheSnapshotExportOncePerCommittedBlock(t *testing.T) {
+	builds := 0
+	provider := &fakeStatusProvider{snapshotBuilds: &builds, snapshot: node.StateSnapshot{
+		StateSnapshotHead: node.StateSnapshotHead{
+			State: store.StateRecord{
+				Height:  5,
+				AppHash: types.Hash{1},
+			},
+			StateRoots: []store.StateRootRecord{{Height: 5, Namespace: "bank", Root: types.Hash{4}}},
+		},
+		KV: []store.KVPair{
+			{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")},
+			{Namespace: "bank", Key: []byte("bob"), Value: []byte("70")},
+		},
+	}}
+	handler := NewHandler(provider)
+	var latest StateSnapshotResponse
+	getJSON(t, handler, "/snapshot/latest", http.StatusOK, &latest)
+	if builds != 0 {
+		t.Fatalf("the latest snapshot needs no export, built %d", builds)
+	}
+	var export SnapshotExportResponse
+	for range 3 {
+		getJSON(t, handler, "/snapshot/export", http.StatusOK, &export)
+	}
+	var chunk SnapshotChunkResponse
+	getJSON(t, handler, "/snapshot/chunk?index=1&size=1", http.StatusOK, &chunk)
+	if builds != 1 || chunk.SnapshotChecksum != export.Checksum || string(chunk.KV[0].Key) != "bob" {
+		t.Fatalf("expected one build shared by every request, built %d chunk %+v", builds, chunk)
+	}
+
+	if export.Header.Height != 5 {
+		t.Fatalf("expected the export of the latest block to be anchored to it, got %+v", export.Header)
+	}
+
+	getJSON(t, handler, "/snapshot/export?height=3", http.StatusOK, &export)
+	if builds != 2 || export.Header.Height != 3 {
+		t.Fatalf("expected the export of another block to be built, built %d header %+v", builds, export.Header)
+	}
+	getJSON(t, handler, "/snapshot/chunk?height=3&index=0&size=1", http.StatusOK, &chunk)
+	getJSON(t, handler, "/snapshot/export?height=5", http.StatusOK, &export)
+	if builds != 2 || chunk.Header.Height != 3 || export.Header.Height != 5 {
+		t.Fatalf("expected the exports of both blocks to stay cached, built %d", builds)
+	}
+
+	provider.snapshot.State.Height = 6
+	provider.snapshot.State.AppHash = types.Hash{2}
+	getJSON(t, handler, "/snapshot/export", http.StatusOK, &export)
+	if builds != 3 || export.State.Height != 6 || export.Header.Height != 6 {
+		t.Fatalf("expected a new committed block to be exported anew, built %d export %+v", builds, export.State)
+	}
+	getJSON(t, handler, "/snapshot/export?height=x", http.StatusBadRequest, &struct{}{})
+}
+
 func TestHandlerRejectsInvalidSnapshotChunkQuery(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{snapshot: node.StateSnapshot{
-		Height:           5,
-		AppHash:          types.Hash{1},
-		LastBlockHash:    types.Hash{2},
-		ValidatorSetHash: types.Hash{3},
-		StateRoots:       []store.StateRootRecord{{Height: 5, Namespace: "bank", Root: types.Hash{4}}},
+		StateSnapshotHead: node.StateSnapshotHead{
+			State: store.StateRecord{
+				Height:           5,
+				AppHash:          types.Hash{1},
+				LastBlockHash:    types.Hash{2},
+				ValidatorSetHash: types.Hash{3},
+			},
+			StateRoots: []store.StateRootRecord{{Height: 5, Namespace: "bank", Root: types.Hash{4}}},
+		},
 	}})
 
 	var response map[string]string
@@ -3541,6 +4047,16 @@ func TestHandlerRejectsInvalidSnapshotChunkQuery(t *testing.T) {
 		t.Fatalf("expected invalid size error, got %+v", response)
 	}
 	getJSON(t, handler, "/snapshot/chunk?index=1&size=10", http.StatusBadRequest, &response)
+	if response["error"] == "" {
+		t.Fatalf("expected out of range error, got %+v", response)
+	}
+	response = nil
+	getJSON(t, handler, "/snapshot/chunk?index=0&size=100001", http.StatusBadRequest, &response)
+	if response["error"] == "" {
+		t.Fatalf("expected an oversized chunk to be refused, got %+v", response)
+	}
+	response = nil
+	getJSON(t, handler, "/snapshot/chunk?index=18446744073709551615&size=100000", http.StatusBadRequest, &response)
 	if response["error"] == "" {
 		t.Fatalf("expected out of range error, got %+v", response)
 	}
@@ -3667,15 +4183,14 @@ func TestHandlerRequiresAdminTokenForPrune(t *testing.T) {
 }
 
 func TestHandlerRejectsMalformedAdminAuthorizationScheme(t *testing.T) {
-	handler := NewHandlerWithConfig(&fakeStatusProvider{}, Config{AdminToken: "secret"})
-	request := httptest.NewRequest(http.MethodPost, "/prune", strings.NewReader(`{"retain_from_height":3}`))
-	request.Header.Set("Authorization", "Basic secret")
-	response := httptest.NewRecorder()
-
-	handler.ServeHTTP(response, request)
-
-	if response.Code != http.StatusUnauthorized {
-		t.Fatalf("expected malformed admin scheme to be unauthorized, got %d", response.Code)
+	provider := &fakeStatusProvider{}
+	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
+	for _, header := range []string{"Basic secret", "secret", "Bearer", "Bearer "} {
+		var response map[string]string
+		requestJSONWithHeaders(t, handler, http.MethodPost, "/prune", `{"retain_from_height":3}`, "192.0.2.1:1234", map[string]string{"Authorization": header}, http.StatusUnauthorized, &response)
+	}
+	if len(provider.prunedHeights) != 0 {
+		t.Fatalf("expected no prune for a malformed credential, got %+v", provider.prunedHeights)
 	}
 }
 
@@ -3690,15 +4205,87 @@ func TestHandlerAcceptsAdminTokenForPrune(t *testing.T) {
 	}
 }
 
-func TestHandlerAllowsAdminRouteWhenNoTokenConfigured(t *testing.T) {
+func TestHandlerAdminEndpointsFailClosedWithoutConfiguredToken(t *testing.T) {
 	provider := &fakeStatusProvider{pruneResult: store.PruneResult{RetainFromHeight: 3, PrunedBlocks: 1}}
 	handler := NewHandlerWithConfig(provider, Config{})
 
-	var response PruneResponse
-	postJSON(t, handler, "/prune", `{"retain_from_height":3}`, http.StatusOK, &response)
+	for _, endpoint := range []struct{ path, body string }{
+		{"/prune", `{"retain_from_height":3}`},
+		{"/replay", `{"all":true}`},
+		{"/consensus/start", `{}`},
+		{"/consensus/stop", `{}`},
+		{"/recovery", ``},
+	} {
+		for _, headers := range []map[string]string{nil, {"Authorization": "Bearer "}, {"Authorization": "Bearer secret"}} {
+			var response map[string]string
+			requestJSONWithHeaders(t, handler, http.MethodPost, endpoint.path, endpoint.body, "192.0.2.1:1234", headers, http.StatusUnauthorized, &response)
+			if response["error"] == "" {
+				t.Fatalf("expected an error for %s, got %+v", endpoint.path, response)
+			}
+		}
+	}
+	if len(provider.prunedHeights) != 0 || provider.recoveryRepairs != 0 {
+		t.Fatalf("expected no admin action without a configured token, got prune=%+v repairs=%d", provider.prunedHeights, provider.recoveryRepairs)
+	}
+}
 
-	if response.RetainFromHeight != 3 || len(provider.prunedHeights) != 1 {
-		t.Fatalf("unexpected tokenless admin prune: response=%+v heights=%+v", response, provider.prunedHeights)
+func TestHandlerAdminRejectsUnexpectedHost(t *testing.T) {
+	provider := &fakeStatusProvider{pruneResult: store.PruneResult{RetainFromHeight: 3, PrunedBlocks: 1}}
+	body := `{"retain_from_height":3}`
+	post := func(handler http.Handler, host string) int {
+		request := httptest.NewRequest(http.MethodPost, "/prune", strings.NewReader(body))
+		request.Host = host
+		request.RemoteAddr = "192.0.2.1:1234"
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Authorization", "Bearer secret")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response.Code
+	}
+
+	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
+	if status := post(handler, "rebind.attacker.test:26657"); status != http.StatusForbidden {
+		t.Fatalf("expected a rebound DNS name to be refused, got %d", status)
+	}
+	if len(provider.prunedHeights) != 0 {
+		t.Fatalf("expected no prune for a refused host, got %+v", provider.prunedHeights)
+	}
+	for _, host := range []string{"127.0.0.1:26657", "[::1]:26657", "localhost:26657"} {
+		if status := post(handler, host); status != http.StatusOK {
+			t.Fatalf("expected host %q to be accepted, got %d", host, status)
+		}
+	}
+
+	named := NewHandlerWithConfig(provider, Config{AdminToken: "secret", AllowedHosts: []string{"rpc.vexo.example"}})
+	if status := post(named, "rpc.vexo.example"); status != http.StatusOK {
+		t.Fatalf("expected a configured host name to be accepted, got %d", status)
+	}
+	if status := post(named, "rebind.attacker.test"); status != http.StatusForbidden {
+		t.Fatalf("expected an unlisted host name to be refused, got %d", status)
+	}
+}
+
+func TestHandlerStateChangingPostsRequireJSONContentType(t *testing.T) {
+	provider := &fakeStatusProvider{pruneResult: store.PruneResult{RetainFromHeight: 3, PrunedBlocks: 1}}
+	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
+	for _, path := range []string{"/tx", "/evidence", "/web3", "/prune", "/replay", "/consensus/start", "/consensus/stop", "/recovery"} {
+		for _, contentType := range []string{"", "text/plain", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x"} {
+			request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"retain_from_height":3}`))
+			request.Host = "127.0.0.1:26657"
+			request.RemoteAddr = "192.0.2.1:1234"
+			request.Header.Set("Authorization", "Bearer secret")
+			if contentType != "" {
+				request.Header.Set("Content-Type", contentType)
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusUnsupportedMediaType {
+				t.Fatalf("%s with content type %q: expected 415, got %d body=%s", path, contentType, response.Code, response.Body.String())
+			}
+		}
+	}
+	if len(provider.prunedHeights) != 0 || provider.recoveryRepairs != 0 {
+		t.Fatalf("expected no action for a non-JSON request, got prune=%+v repairs=%d", provider.prunedHeights, provider.recoveryRepairs)
 	}
 }
 
@@ -3788,17 +4375,7 @@ func TestHandlerReportsPruneErrors(t *testing.T) {
 }
 
 func TestHandlerRejectsNonPOSTPrune(t *testing.T) {
-	request := httptest.NewRequest(http.MethodGet, "/prune", nil)
-	response := httptest.NewRecorder()
-
-	NewHandler(&fakeStatusProvider{}).ServeHTTP(response, request)
-
-	if response.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("expected 405, got %d", response.Code)
-	}
-	if allow := response.Header().Get("Allow"); allow != http.MethodPost {
-		t.Fatalf("expected allow POST, got %q", allow)
-	}
+	assertAdminRejectsNonPOST(t, "/prune")
 }
 
 func TestHandlerReplaysStoredBlocks(t *testing.T) {
@@ -3954,17 +4531,7 @@ func TestHandlerReportsReplayErrors(t *testing.T) {
 }
 
 func TestHandlerRejectsNonPOSTReplay(t *testing.T) {
-	request := httptest.NewRequest(http.MethodGet, "/replay", nil)
-	response := httptest.NewRecorder()
-
-	NewHandler(&fakeStatusProvider{}).ServeHTTP(response, request)
-
-	if response.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("expected 405, got %d", response.Code)
-	}
-	if allow := response.Header().Get("Allow"); allow != http.MethodPost {
-		t.Fatalf("expected allow POST, got %q", allow)
-	}
+	assertAdminRejectsNonPOST(t, "/replay")
 }
 
 func TestHandlerStartsConsensusLoop(t *testing.T) {
@@ -4089,16 +4656,38 @@ func TestHandlerRejectsUnavailableConsensusController(t *testing.T) {
 
 func TestHandlerRejectsNonPOSTConsensusControl(t *testing.T) {
 	for _, path := range []string{"/consensus/start", "/consensus/stop"} {
+		assertAdminRejectsNonPOST(t, path)
+	}
+}
+
+// assertAdminRejectsNonPOST checks that an authorized non-POST request to an admin path is
+// answered 405, and that the same request without a credential is answered 401 first.
+func assertAdminRejectsNonPOST(t *testing.T, path string) {
+	t.Helper()
+	handler := NewHandlerWithConfig(&fakeStatusProvider{}, Config{AdminToken: "secret"})
+	for _, test := range []struct {
+		authorization string
+		status        int
+	}{
+		{authorization: "Bearer secret", status: http.StatusMethodNotAllowed},
+		{authorization: "", status: http.StatusUnauthorized},
+	} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.Host = "127.0.0.1:26657"
+		if test.authorization != "" {
+			request.Header.Set("Authorization", test.authorization)
+		}
 		response := httptest.NewRecorder()
 
-		NewHandler(&fakeStatusProvider{}).ServeHTTP(response, request)
+		handler.ServeHTTP(response, request)
 
-		if response.Code != http.StatusMethodNotAllowed {
-			t.Fatalf("expected 405 for %s, got %d", path, response.Code)
+		if response.Code != test.status {
+			t.Fatalf("expected %d for %s with authorization %q, got %d", test.status, path, test.authorization, response.Code)
 		}
-		if allow := response.Header().Get("Allow"); allow != http.MethodPost {
-			t.Fatalf("expected allow POST for %s, got %q", path, allow)
+		if test.status == http.StatusMethodNotAllowed {
+			if allow := response.Header().Get("Allow"); allow != http.MethodPost {
+				t.Fatalf("expected allow POST for %s, got %q", path, allow)
+			}
 		}
 	}
 }
@@ -4441,8 +5030,9 @@ func requestJSON(t *testing.T, handler http.Handler, method string, path string,
 func requestJSONWithHeaders(t *testing.T, handler http.Handler, method string, path string, body string, remoteAddr string, headers map[string]string, expectedStatus int, value any) {
 	t.Helper()
 	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	request.Host = "127.0.0.1:26657"
 	request.RemoteAddr = remoteAddr
-	if body != "" {
+	if method == http.MethodPost {
 		request.Header.Set("Content-Type", "application/json")
 	}
 	for key, value := range headers {
@@ -4460,5 +5050,60 @@ func requestJSONWithHeaders(t *testing.T, handler http.Handler, method string, p
 	}
 	if err := json.NewDecoder(response.Body).Decode(value); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Every address of a log filter is a scan of the block range and every topic option a comparison
+// per log, so a filter is held to what a log can be matched against before anything is read.
+func TestWeb3GetLogsBoundsTheFilterBeforeReading(t *testing.T) {
+	provider := &fakeStatusProvider{
+		status:           node.Status{ChainID: "vexo-chain", EVMChainID: 7, Running: true, LatestHeight: 100},
+		appQueryResponse: vexoapp.QueryResponse{Value: []byte(`[]`)},
+	}
+	queries := 0
+	provider.onAppQuery = func(data []byte) { queries++ }
+	handler := NewHandler(provider)
+	getLogs := func(filter string) JSONRPCResponse {
+		t.Helper()
+		var response JSONRPCResponse
+		postJSON(t, handler, "/web3", `{"jsonrpc":"2.0","id":1,"method":"eth_getLogs","params":[`+filter+`]}`, http.StatusOK, &response)
+		return response
+	}
+	list := func(count int, format string) string {
+		items := make([]string, 0, count)
+		for index := 0; index < count; index++ {
+			items = append(items, fmt.Sprintf(format, index))
+		}
+		return "[" + strings.Join(items, ",") + "]"
+	}
+
+	for name, filter := range map[string]string{
+		"too many addresses":       `{"address":` + list(maxWeb3LogAddresses+1, `"0x%040x"`) + `}`,
+		"too many topic positions": `{"topics":` + list(evmmodule.MaxLogTopics+1, `"0x%064x"`) + `}`,
+		"too many topic options":   `{"topics":[` + list(evmmodule.MaxLogTopicOptions+1, `"0x%064x"`) + `]}`,
+	} {
+		queries = 0
+		response := getLogs(filter)
+		if response.Error == nil || response.Error.Code != -32602 {
+			t.Fatalf("%s: expected an invalid params error, got %+v", name, response)
+		}
+		if queries != 0 {
+			t.Fatalf("%s: a refused filter must not reach the log index, queried %d times", name, queries)
+		}
+	}
+
+	// The same address named twice is read once.
+	queries = 0
+	if response := getLogs(`{"address":["0xabc","0xABC"],"fromBlock":"0x60"}`); response.Error != nil || queries != 1 {
+		t.Fatalf("a repeated address must be read once: response=%+v queries=%d", response, queries)
+	}
+	// The largest filter allowed is served.
+	queries = 0
+	if response := getLogs(`{"address":` + list(maxWeb3LogAddresses, `"0x%040x"`) + `,"topics":[` + list(evmmodule.MaxLogTopicOptions, `"0x%064x"`) + `]}`); response.Error != nil || queries != maxWeb3LogAddresses {
+		t.Fatalf("a filter at the bounds must be served: response=%+v queries=%d", response, queries)
+	}
+	// Without bounds a filter covers the latest block, not the chain since genesis.
+	if response := getLogs(`{}`); response.Error != nil || string(provider.appQueryData) != `{"from_block":100,"to_block":100,"limit":10001}` {
+		t.Fatalf("an unbounded filter covers the latest block: response=%+v query=%s", response, provider.appQueryData)
 	}
 }

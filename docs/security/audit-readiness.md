@@ -42,8 +42,8 @@ This package is intended for independent reviewers evaluating Vexo consensus, ne
 - Validator private keys or remote signer policies are not all compromised.
 - Value-bearing or public-validator networks use the audited BLS aggregate-finality path. Ed25519 remains useful for tests, private experiments, and custom deployments, but the network-safety gate requires BLS metadata and audit evidence pinning.
 - Local encrypted key documents use AES-256-GCM with Argon2id by default and keep legacy PBKDF2-SHA512 documents readable for migration; production operators should still prefer a remote signer/KMS for validator signing.
-- Remote signer/KMS enforces its own height/round/type/domain double-sign guard.
-- Operators configure TLS identity, optional RPC root or scoped admin tokens, optional P2P replay-resistant auth proofs, request limits, peer scoring, `MaxScore`, and ban thresholds. Admin RPC endpoints must stay behind an operator network, mTLS boundary, or authenticated gateway when bearer tokens are not configured, and embeddings should attach the RPC admin audit sink to their structured log pipeline.
+- Remote signer/KMS enforces its own double-sign guard from the bytes it signs: a per-key, per-statement-kind view high-water mark that refuses an older view and a conflicting statement at the same view, whatever policy the caller declares.
+- Operators configure TLS identity, optional RPC root or scoped admin tokens, optional P2P replay-resistant auth proofs, request limits, peer scoring, `MaxScore`, and ban thresholds. Admin RPC endpoints are disabled until bearer tokens are configured and must still stay behind an operator network, mTLS boundary, or authenticated gateway, and embeddings should attach the RPC admin audit sink to their structured log pipeline.
 - Public release candidates attach P2P scale, state-sync/light-client, validator economics, upgrade governance, MEV/fee-market, ops runbook, formal safety, and SDK conformance evidence with IBC/relayer/proof plus EVM/Web3 fixture results to `release gate`; the gate rejects missing, empty, malformed, explicitly failed, or category-mismatched evidence content.
 - Operators keep Docker-only service names out of public validator metadata unless the network is intentionally private and all peers resolve those names.
 - Storage backend preserves block/state/evidence durability or clearly reports recovery mismatch.
@@ -154,7 +154,7 @@ Required checks:
 - The service rejects missing policy when policy is required.
 - Authorization is enabled for non-local deployments and compared without early string-return behavior.
 - Nonces are generated from cryptographic randomness and signer-side replay state is durable.
-- Double-sign guard state is durable and rejects conflicting messages at the same height/round/type/domain.
+- Double-sign guard state is durable (written atomically before the signature is released) and rejects a conflicting statement at the signed view and every older view for the same key and statement kind.
 - The signer refuses public-key mismatch and never signs for an unexpected validator key.
 - TLS/mTLS, pinned CA, or an equivalent authenticated transport is documented for the deployment path.
 - Logs show request metadata and rejection reasons without leaking messages that reveal private key material, auth tokens, or passphrases.

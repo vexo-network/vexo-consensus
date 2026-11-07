@@ -157,6 +157,8 @@ type runtimeRPCConfig struct {
 	Address               string              `json:"address,omitempty"`
 	AdminToken            string              `json:"admin_token,omitempty"`
 	AdminTokens           map[string][]string `json:"admin_tokens,omitempty"`
+	CORSAllowedOrigins    []string            `json:"cors_allowed_origins,omitempty"`
+	AllowedHosts          []string            `json:"allowed_hosts,omitempty"`
 	TLSCertPath           string              `json:"tls_cert_path,omitempty"`
 	TLSKeyPath            string              `json:"tls_key_path,omitempty"`
 	TLSCAPath             string              `json:"tls_ca_path,omitempty"`
@@ -206,6 +208,10 @@ type runtimeStateSyncConfig struct {
 	TrustLocalHigher  bool     `json:"trust_local_higher,omitempty"`
 	MaxSnapshotBytes  int64    `json:"max_snapshot_bytes,omitempty"`
 	RetryAllSnapshots bool     `json:"retry_all_snapshots,omitempty"`
+	// TrustHeight and TrustHash name the block the operator trusts; state sync restores only the
+	// state that block's header commits (see verifySnapshotTrust).
+	TrustHeight uint64 `json:"trust_height,omitempty"`
+	TrustHash   string `json:"trust_hash,omitempty"`
 }
 
 type runtimeConsensusConfig struct {
@@ -1736,6 +1742,8 @@ func runtimeRPCConfigSet(rpc runtimeRPCConfig) bool {
 		rpc.Address != "" ||
 		rpc.AdminToken != "" ||
 		len(rpc.AdminTokens) > 0 ||
+		len(rpc.CORSAllowedOrigins) > 0 ||
+		len(rpc.AllowedHosts) > 0 ||
 		rpc.TLSCertPath != "" ||
 		rpc.TLSKeyPath != "" ||
 		rpc.TLSCAPath != "" ||
@@ -1772,6 +1780,8 @@ func hasLegacyMempoolConfig(document mempoolConfigDocument) bool {
 	return document.Mempool.Author != "" ||
 		document.Mempool.MaxTxBytes != 0 ||
 		document.Mempool.MaxTxs != 0 ||
+		document.Mempool.MaxTotalBytes != 0 ||
+		document.Mempool.MaxTxsPerSender != 0 ||
 		document.Mempool.AllowDuplicate ||
 		document.Mempool.SeenTTL != 0 ||
 		document.Mempool.MinFee != 0 ||
@@ -1818,7 +1828,9 @@ func runtimeStateSyncConfigSet(config runtimeStateSyncConfig) bool {
 		config.RequireFresh ||
 		config.TrustLocalHigher ||
 		config.MaxSnapshotBytes != 0 ||
-		config.RetryAllSnapshots
+		config.RetryAllSnapshots ||
+		config.TrustHeight != 0 ||
+		config.TrustHash != ""
 }
 
 func validatorAdmissionConfigSet(config validator.AdmissionConfig) bool {
@@ -2274,6 +2286,9 @@ func normalizeExecutionConfig(execution config.ExecutionConfig) config.Execution
 	}
 	if execution.MaxBlobSidecarBytes == 0 {
 		execution.MaxBlobSidecarBytes = defaults.MaxBlobSidecarBytes
+	}
+	if execution.RPCGasCap == 0 {
+		execution.RPCGasCap = defaults.RPCGasCap
 	}
 	return execution
 }

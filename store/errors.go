@@ -8,6 +8,7 @@ var (
 	ErrStateNotFound       = errors.New("state not found")
 	ErrStateRootNotFound   = errors.New("state root not found")
 	ErrEvidenceNotFound    = errors.New("evidence not found")
+	ErrEvidenceCorrupt     = errors.New("evidence record is corrupt")
 	ErrFinalityNotFound    = errors.New("finality proof not found")
 	ErrUpgradePlanNotFound = errors.New("upgrade plan not found")
 	ErrKeyNotFound         = errors.New("key not found")

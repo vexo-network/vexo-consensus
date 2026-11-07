@@ -188,3 +188,7 @@ Este apéndice asegura que la traducción conserve las interfaces ejecutables y 
 - `consensus_vote` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `consensus_timeout_vote` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `finality_proof` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `vexo.remote_signer.probe.v1` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `(chain_id, height, round, type, domain)` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `remote_signer_probe` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `vexod keys verify-remote` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.

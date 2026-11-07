@@ -1,7 +1,6 @@
 package consensus
 
 import (
-	"context"
 	"errors"
 
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
@@ -18,27 +17,12 @@ var (
 	ErrUnsupportedEvidenceProof        = errors.New("unsupported evidence proof")
 	ErrInvalidEvidenceVoteSignature    = errors.New("invalid evidence vote signature")
 	ErrInvalidEvidenceTimeoutSignature = errors.New("invalid evidence timeout vote signature")
-	ErrSlashingRegistryMismatch        = errors.New("slashing registry state does not match penalty receipt")
+	// ErrEvidenceNotSelfContained rejects evidence whose truth depends on data outside the proof and
+	// the validator set of its height, such as the application hash or the block timestamp of a
+	// height. Such evidence cannot be judged identically by every node, in particular by one that
+	// pruned the data, so block execution must not act on it.
+	ErrEvidenceNotSelfContained = errors.New("evidence is not decidable from the proof and the validator set")
 )
-
-type SlashResult struct {
-	Receipt        slashing.PenaltyReceipt
-	PreviousPower  types.VotingPower
-	RemainingPower types.VotingPower
-}
-
-type SlashingKeeper interface {
-	SubmitEvidence(ctx context.Context, evidence slashing.Evidence) error
-	ApplyPenaltyWithStake(ctx context.Context, evidence slashing.Evidence, currentPower types.VotingPower) (slashing.PenaltyReceipt, error)
-}
-
-type contextPenaltyReceiptReader interface {
-	PenaltyReceipt(ctx context.Context, evidence slashing.Evidence) (slashing.PenaltyReceipt, bool, error)
-}
-
-type memoryPenaltyReceiptReader interface {
-	PenaltyReceipt(evidence slashing.Evidence) (slashing.PenaltyReceipt, bool)
-}
 
 type EvidenceSignatureVerifier interface {
 	Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool
@@ -51,10 +35,9 @@ type EvidenceAggregateVerifier interface {
 type EvidenceVerifierBundle struct {
 	Signatures EvidenceSignatureVerifier
 	Finality   EvidenceAggregateVerifier
-}
-
-type EvidenceVerificationContext struct {
-	InvalidProposal InvalidProposalVerificationContext
+	// FinalitySets serves the validator sets the headers of a finality conflict name. Without it
+	// a conflict is judged with the set of the evidence height alone.
+	FinalitySets finality.ValidatorSetSource
 }
 
 func NewEvidenceVerifier(signatures EvidenceSignatureVerifier, finalityVerifier EvidenceAggregateVerifier) EvidenceVerifierBundle {
@@ -69,107 +52,26 @@ func (verifier EvidenceVerifierBundle) VerifyAggregate(publicKeys []types.Public
 	return verifier.Finality != nil && verifier.Finality.VerifyAggregate(publicKeys, message, signature)
 }
 
-func SubmitEvidenceForSlashing(ctx context.Context, keeper SlashingKeeper, registry validator.VersionedRegistry, verifier EvidenceSignatureVerifier, applyHeight types.Height, evidence slashing.Evidence) (SlashResult, error) {
-	return SubmitEvidenceForSlashingWithContext(ctx, keeper, registry, verifier, applyHeight, evidence, EvidenceVerificationContext{})
-}
-
-func SubmitEvidenceForSlashingWithContext(ctx context.Context, keeper SlashingKeeper, registry validator.VersionedRegistry, verifier EvidenceSignatureVerifier, applyHeight types.Height, evidence slashing.Evidence, verificationContext EvidenceVerificationContext) (SlashResult, error) {
-	if applyHeight == 0 {
-		applyHeight = evidence.Height
-	}
-	set, err := registry.ValidatorSet(ctx, evidence.Height)
-	if err != nil {
-		return SlashResult{}, err
-	}
-	validatorInfo, found := set.Get(evidence.Validator)
+// VerifyEvidence checks that evidence proves a fault of evidence.Validator, judging only from the
+// proof and validatorSet, the validator set in effect at evidence.Height. It has no side effects.
+// Evidence that is already normalized or still carries the legacy double_sign label is accepted.
+//
+// The accepted faults are decidable from those two inputs alone: conflicting votes, conflicting
+// timeout votes, a finality conflict, an unavailable-data proposal and an invalid proposal whose
+// invalidity is a data-availability or validator-set-hash mismatch. An invalid proposal that has
+// to be compared with other chain data is ErrEvidenceNotSelfContained. Deciding it from node-local
+// data would let a node that pruned that data disagree with the others about a block.
+//
+// For the BLS backend, validatorSet's keys must have been registered with the crypto suite behind
+// verifier, which verifies their proofs of possession.
+func VerifyEvidence(evidence slashing.Evidence, validatorSet validator.Set, verifier EvidenceVerifierBundle) error {
+	evidence = evidence.Normalize()
+	validatorInfo, found := validatorSet.Get(evidence.Validator)
 	if !found {
-		return SlashResult{}, ErrEvidenceValidatorNotFound
+		return ErrEvidenceValidatorNotFound
 	}
-	if err := verifyConsensusEvidence(evidence, set, validatorInfo, verifier, verificationContext); err != nil {
-		return SlashResult{}, err
-	}
-	receipt, receiptFound, err := penaltyReceipt(ctx, keeper, evidence)
-	if err != nil {
-		return SlashResult{}, err
-	}
-	applySet, err := registry.ValidatorSet(ctx, applyHeight)
-	if err != nil && !receiptFound {
-		return SlashResult{}, err
-	}
-	applyValidatorInfo, applyFound := validator.Validator{}, false
-	if err == nil {
-		applyValidatorInfo, applyFound = applySet.Get(evidence.Validator)
-	}
-	if err := keeper.SubmitEvidence(ctx, evidence); err != nil && !errors.Is(err, slashing.ErrDuplicateEvidence) {
-		return SlashResult{}, err
-	}
-	if !receiptFound {
-		basePower := validatorInfo.VotingPower
-		if applyFound {
-			basePower = applyValidatorInfo.VotingPower
-		}
-		receipt, err = keeper.ApplyPenaltyWithStake(ctx, evidence, basePower)
-	}
-	if err != nil {
-		return SlashResult{}, err
-	}
-	if applyFound {
-		if receipt.RemainingPower == 0 {
-			if err := registry.ApplyLeaveAt(ctx, applyHeight, evidence.Validator); err != nil {
-				return SlashResult{}, err
-			}
-		} else if applyValidatorInfo.VotingPower != receipt.RemainingPower {
-			if err := registry.UpdateVotingPowerAt(ctx, applyHeight, evidence.Validator, receipt.RemainingPower); err != nil {
-				return SlashResult{}, err
-			}
-		}
-		if err := verifySlashingRegistryApplication(ctx, registry, applyHeight, evidence.Validator, receipt.RemainingPower); err != nil {
-			return SlashResult{}, err
-		}
-	}
-
-	return SlashResult{
-		Receipt:        receipt,
-		PreviousPower:  receipt.PreviousPower,
-		RemainingPower: receipt.RemainingPower,
-	}, nil
-}
-
-func verifySlashingRegistryApplication(ctx context.Context, registry validator.VersionedRegistry, applyHeight types.Height, validatorID types.ValidatorID, remainingPower types.VotingPower) error {
-	set, err := registry.ValidatorSet(ctx, applyHeight)
-	if err != nil {
-		return err
-	}
-	validatorInfo, found := set.Get(validatorID)
-	if remainingPower == 0 {
-		if found {
-			return ErrSlashingRegistryMismatch
-		}
-		return nil
-	}
-	if !found || validatorInfo.VotingPower != remainingPower {
-		return ErrSlashingRegistryMismatch
-	}
-	return nil
-}
-
-func penaltyReceipt(ctx context.Context, keeper SlashingKeeper, evidence slashing.Evidence) (slashing.PenaltyReceipt, bool, error) {
-	if reader, ok := keeper.(contextPenaltyReceiptReader); ok {
-		return reader.PenaltyReceipt(ctx, evidence)
-	}
-	if reader, ok := keeper.(memoryPenaltyReceiptReader); ok {
-		receipt, found := reader.PenaltyReceipt(evidence)
-		return receipt, found, nil
-	}
-	return slashing.PenaltyReceipt{}, false, nil
-}
-
-func verifyConsensusEvidence(evidence slashing.Evidence, validatorSet validator.Set, validatorInfo validator.Validator, verifier EvidenceSignatureVerifier, verificationContext EvidenceVerificationContext) error {
 	switch evidence.Type {
-	case slashing.EvidenceDoubleSign, slashing.EvidenceConflictingVote:
-		if evidence.Type == slashing.EvidenceDoubleSign {
-			evidence.Type = slashing.EvidenceConflictingVote
-		}
+	case slashing.EvidenceConflictingVote:
 		if err := VerifyConflictingVoteEvidence(evidence); err != nil {
 			return err
 		}
@@ -177,7 +79,7 @@ func verifyConsensusEvidence(evidence slashing.Evidence, validatorSet validator.
 		if err != nil {
 			return err
 		}
-		if verifier == nil {
+		if verifier.Signatures == nil {
 			return ErrEvidenceSignatureVerifier
 		}
 		if !verifyDomainSignature(verifier, validatorInfo.PublicKey, vexocrypto.DomainConsensusVote, VoteSignBytes(decoded.First), decoded.First.Signature) ||
@@ -193,7 +95,7 @@ func verifyConsensusEvidence(evidence slashing.Evidence, validatorSet validator.
 		if err != nil {
 			return err
 		}
-		if verifier == nil {
+		if verifier.Signatures == nil {
 			return ErrEvidenceSignatureVerifier
 		}
 		if !verifyDomainSignature(verifier, validatorInfo.PublicKey, vexocrypto.DomainConsensusTimeoutVote, TimeoutVoteSignBytes(decoded.First), decoded.First.Signature) ||
@@ -206,44 +108,19 @@ func verifyConsensusEvidence(evidence slashing.Evidence, validatorSet validator.
 		if err != nil {
 			return err
 		}
-		invalidProposalContext := verificationContext.InvalidProposal
 		switch decoded.Reason {
 		case InvalidProposalReasonDAMismatch, InvalidProposalReasonMissingData:
-			if err := VerifyInvalidProposalEvidenceWithContext(evidence, invalidProposalContext); err != nil {
+			if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{}); err != nil {
 				return err
 			}
 		case InvalidProposalReasonValidatorSetHash:
-			if invalidProposalContext.ExpectedValidatorSetHash == (types.Hash{}) {
-				invalidProposalContext.ExpectedValidatorSetHash = validatorSet.Hash()
-			}
-			if err := VerifyInvalidProposalEvidenceWithBoundContext(evidence, invalidProposalContext); err != nil {
-				return err
-			}
-		case InvalidProposalReasonAppHash:
-			if err := VerifyInvalidProposalEvidenceWithBoundContext(evidence, invalidProposalContext); err != nil {
-				return err
-			}
-		case InvalidProposalReasonTimestamp:
-			if err := VerifyInvalidProposalEvidenceWithBoundContext(evidence, invalidProposalContext); err != nil {
-				return err
-			}
-		case InvalidProposalReasonTxValidity:
-			if err := VerifyInvalidProposalEvidenceWithBoundContext(evidence, invalidProposalContext); err != nil {
+			context := InvalidProposalVerificationContext{ExpectedValidatorSetHash: validatorSet.Hash()}
+			context.ContextProofHash = context.ProofHash()
+			if err := VerifyInvalidProposalEvidenceWithBoundContext(evidence, context); err != nil {
 				return err
 			}
 		default:
-			if !isCustomInvalidProposalReason(decoded.Reason) {
-				return ErrInvalidProposalContext
-			}
-			var err error
-			if invalidProposalReasonRequiresContext(decoded.Reason) {
-				err = VerifyInvalidProposalEvidenceWithBoundContext(evidence, invalidProposalContext)
-			} else {
-				err = VerifyInvalidProposalEvidenceWithContext(evidence, invalidProposalContext)
-			}
-			if err != nil {
-				return err
-			}
+			return ErrEvidenceNotSelfContained
 		}
 		return verifyProposalEvidenceSignature(decoded.Proposal, validatorInfo, verifier)
 	case slashing.EvidenceUnavailableData:
@@ -256,22 +133,18 @@ func verifyConsensusEvidence(evidence slashing.Evidence, validatorSet validator.
 		}
 		return verifyProposalEvidenceSignature(decoded.Proposal, validatorInfo, verifier)
 	case slashing.EvidenceFinalityConflict:
-		aggregateVerifier, ok := verifier.(EvidenceAggregateVerifier)
-		if !ok || aggregateVerifier == nil {
+		if verifier.Finality == nil {
 			return ErrEvidenceFinalityVerifier
 		}
-		return verifyFinalityConflictEvidence(evidence, validatorSet, aggregateVerifier)
+		sets := verifier.FinalitySets
+		if sets == nil {
+			sets = finality.StaticValidatorSets(validatorSet)
+		}
+		_, err := finality.VerifyConflictEvidence(sets, verifier, evidence)
+		return err
 	default:
 		return ErrUnsupportedEvidenceProof
 	}
-}
-
-func verifyFinalityConflictEvidence(evidence slashing.Evidence, validatorSet validator.Set, verifier EvidenceAggregateVerifier) error {
-	if verifier == nil {
-		return ErrEvidenceFinalityVerifier
-	}
-	_, err := finality.VerifyConflictEvidence(validatorSet, verifier, evidence)
-	return err
 }
 
 func verifyProposalEvidenceSignature(proposal Proposal, validatorInfo validator.Validator, verifier EvidenceSignatureVerifier) error {

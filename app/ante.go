@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -13,6 +12,7 @@ import (
 
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	vexostore "github.com/vexo-network/vexo-consensus/store"
+	"github.com/vexo-network/vexo-consensus/txcodec"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -21,20 +21,62 @@ var (
 	ErrInsufficientFeeBalance = errors.New("insufficient fee balance")
 	ErrInvalidGas             = errors.New("invalid transaction gas")
 	ErrMissingNonce           = errors.New("missing transaction nonce")
+	ErrMissingSigner          = errors.New("missing transaction signer")
 	ErrInvalidNonce           = errors.New("invalid transaction nonce")
 )
 
-type AnteConfig struct {
-	MinFee            uint64
-	BaseFee           uint64
-	MinGas            uint64
-	MaxGas            uint64
-	RequireNonce      bool
-	FeeCollector      string
-	RequireSigned     bool
-	SignatureVerifier TxSignatureVerifier
+// ethereumModuleName is the only module an Ethereum-authenticated transaction
+// may be addressed to.
+const ethereumModuleName = "evm"
+
+// TxAuthenticator authenticates a transaction that carries no signed envelope.
+type TxAuthenticator interface {
+	AuthenticateTx(ctx Context, tx types.Tx) error
 }
 
+type AnteConfig struct {
+	MinFee uint64
+	// BaseFee is the initial base fee per gas of the fee market. After the first
+	// block the base fee is the application state FinalizeBlock stores.
+	BaseFee       uint64
+	MinGas        uint64
+	MaxGas        uint64
+	RequireNonce  bool
+	FeeCollector  string
+	RequireSigned bool
+	// SignatureVerifier verifies signed envelopes; nil selects Ed25519.
+	SignatureVerifier TxSignatureVerifier
+	// EthereumAuthenticator authenticates unsigned Ethereum transactions
+	// (eth_raw/eth_hash tags) addressed to the evm module. Without one every
+	// transaction carrying an Ethereum tag is rejected.
+	EthereumAuthenticator TxAuthenticator
+	// EvidenceAuthenticator admits unsigned, fee-less misbehaviour evidence
+	// transactions addressed to the slashing module. The evidence carries the
+	// offender's own signatures, so the transaction needs no signer: the
+	// authenticator verifies those signatures against the validator set and
+	// rejects evidence whose offence is already punished. Without one every
+	// unsigned evidence transaction falls under RequireSigned.
+	EvidenceAuthenticator EvidenceAuthenticator
+	FeeMarket             FeeMarketConfig
+}
+
+// EvidenceAuthenticator authenticates an evidence transaction and reports the
+// gas its execution consumes.
+type EvidenceAuthenticator interface {
+	TxAuthenticator
+	EstimateGas(ctx Context, tx types.Tx) (uint64, error)
+}
+
+// evidenceModuleName and evidenceAction address the only transactions an
+// EvidenceAuthenticator may admit.
+const (
+	evidenceModuleName = "slashing"
+	evidenceAction     = "evidence"
+)
+
+// TxMeta is the execution metadata of a transaction. A transaction whose
+// metadata does not parse yields the zero value; consensus paths use the
+// strict parser instead and reject such a transaction.
 type TxMeta struct {
 	Signer   types.Address
 	Nonce    uint64
@@ -42,16 +84,6 @@ type TxMeta struct {
 	FeeBig   *big.Int
 	Gas      uint64
 	HasNonce bool
-}
-
-type AnteHandler interface {
-	CheckTx(ctx Context, tx types.Tx) error
-	CheckBlock(ctx Context, txs []types.Tx) error
-	BeforeTx(ctx Context, tx types.Tx) error
-	AfterTx(ctx Context, tx types.Tx) error
-	GasUsed(tx types.Tx) uint64
-	GasLimit(tx types.Tx) uint64
-	FeePaid(tx types.Tx) uint64
 }
 
 type AnteKeeper struct {
@@ -64,296 +96,483 @@ func NewAnteKeeper(config AnteConfig) *AnteKeeper {
 }
 
 func ParseTxMeta(tx types.Tx) TxMeta {
-	var meta TxMeta
-	if signer, found := TxTag(tx, "signer"); found {
-		meta.Signer = types.Address(signer)
+	parsed, err := txcodec.ParseMeta(tx)
+	if err != nil {
+		return TxMeta{}
 	}
-	if nonce, found := TxUintTag(tx, "nonce"); found {
-		meta.Nonce = nonce
-		meta.HasNonce = true
+	meta := TxMeta{
+		Signer:   types.Address(parsed.Signer),
+		Nonce:    parsed.Nonce,
+		HasNonce: parsed.HasNonce,
+		Fee:      parsed.FeeSaturated(),
+		Gas:      parsed.Gas,
 	}
-	if fee, found := TxAmountBigTag(tx, "fee"); found {
-		meta.FeeBig = fee
-		if fee.IsUint64() {
-			meta.Fee = fee.Uint64()
-		} else {
-			meta.Fee = math.MaxUint64
-		}
-	}
-	if gas, found := TxUintTag(tx, "gas"); found {
-		meta.Gas = gas
-	} else if gasLimit, found := TxUintTag(tx, "gas_limit"); found {
-		meta.Gas = gasLimit
+	if _, found := parsed.Tags[txcodec.TagFee]; found {
+		meta.FeeBig = parsed.Fee
 	}
 	return meta
 }
 
-func (keeper AnteKeeper) CheckTx(ctx Context, tx types.Tx) error {
-	if err := keeper.verifySignature(ctx, tx); err != nil {
-		return err
-	}
-	meta := ParseTxMeta(tx)
-	if err := keeper.validateMetaForTx(tx, meta); err != nil {
-		return err
-	}
-	if ctx.Store == nil || meta.Signer == "" || !meta.HasNonce {
-		return nil
-	}
-	expected, err := keeper.expectedSequence(ctx.GoContext(), ctx.Store, meta.Signer, tx)
+// admission is a transaction that passed every check that does not depend on
+// account state: its envelope and signature, its tag grammar, the Ethereum
+// authentication gate and the fee, gas and nonce rules.
+type admission struct {
+	tx       types.Tx
+	payload  types.Tx
+	meta     txcodec.Meta
+	payer    types.Address
+	ethereum bool
+	gasLimit uint64
+	blobGas  uint64
+}
+
+// parseAdmission unwraps and strictly parses tx. It is the first step of every
+// path, including a runtime without an ante handler: a transaction whose
+// envelope or tags are ambiguous is never executed.
+func parseAdmission(tx types.Tx) (admission, error) {
+	payload, err := txcodec.Unwrap(tx)
 	if err != nil {
-		return err
+		return admission{}, err
 	}
-	if meta.Nonce != expected {
-		return invalidNonceError(meta, expected)
+	meta, err := txcodec.ParseMeta(payload)
+	if err != nil {
+		return admission{}, err
+	}
+	return admission{tx: tx, payload: payload, meta: meta, payer: types.Address(meta.Signer)}, nil
+}
+
+// admit runs the stateless admission checks of tx against the context's chain
+// parameters and fee market state.
+func (keeper *AnteKeeper) admit(ctx Context, tx types.Tx) (admission, error) {
+	adm, err := parseAdmission(tx)
+	if err != nil {
+		return admission{}, err
+	}
+	signed := txcodec.IsSigned(tx)
+	if !signed && isEvidenceTx(adm) {
+		return keeper.admitEvidence(ctx, adm)
+	}
+	switch {
+	case txcodec.HasEthereumTag(adm.meta.Tags):
+		// Ethereum tags are never a way around the signature requirement: they
+		// are honoured only for an unsigned transaction addressed to the evm
+		// module whose raw signature the evm module verified.
+		if err := keeper.authenticateEthereum(ctx, adm, signed); err != nil {
+			return admission{}, err
+		}
+		adm.ethereum = true
+	case signed:
+		if err := VerifySignedTx(ctx.ChainID, tx, keeper.signatureVerifier()); err != nil {
+			return admission{}, err
+		}
+	case keeper.config.RequireSigned:
+		return admission{}, ErrInvalidSignedTx
+	}
+	adm.gasLimit = adm.meta.Gas
+	if adm.gasLimit == 0 {
+		adm.gasLimit = uint64(len(tx))
+	}
+	if adm.ethereum {
+		if value, found := adm.meta.Tags[txcodec.TagEthereumBlobGas]; found {
+			blobGas, err := strconv.ParseUint(value, 10, 64)
+			if err != nil {
+				return admission{}, ErrInvalidGas
+			}
+			adm.blobGas = blobGas
+		}
+		if err := keeper.validateEthereumMeta(adm.meta); err != nil {
+			return admission{}, err
+		}
+		return adm, nil
+	}
+	if err := keeper.validateMeta(ctx, adm.meta); err != nil {
+		return admission{}, err
+	}
+	return adm, nil
+}
+
+// isEvidenceTx reports whether adm is an unsigned evidence transaction: it is
+// addressed to slashing:evidence and carries no tags, so it names no signer,
+// fee or nonce that admission would otherwise have to check.
+func isEvidenceTx(adm admission) bool {
+	canonical, err := txcodec.ParseCanonical(adm.payload)
+	if err != nil {
+		return false
+	}
+	return canonical.Module == evidenceModuleName && canonical.Action == evidenceAction && len(canonical.Tags) == 0
+}
+
+// admitEvidence admits an unsigned evidence transaction only when the slashing
+// module authenticates its evidence. It pays no fee and bumps no nonce; its gas
+// is what its execution consumes, so it still counts against the block limit.
+func (keeper *AnteKeeper) admitEvidence(ctx Context, adm admission) (admission, error) {
+	authenticator := keeper.config.EvidenceAuthenticator
+	if authenticator == nil {
+		if keeper.config.RequireSigned {
+			return admission{}, ErrInvalidSignedTx
+		}
+		return admission{}, ErrInvalidTxSignature
+	}
+	if err := authenticator.AuthenticateTx(ctx, adm.payload); err != nil {
+		return admission{}, fmt.Errorf("%w: %v", ErrInvalidTxSignature, err)
+	}
+	gas, err := authenticator.EstimateGas(ctx, adm.payload)
+	if err != nil || gas == 0 {
+		return admission{}, ErrInvalidGas
+	}
+	if keeper.config.MaxGas > 0 && gas > keeper.config.MaxGas {
+		return admission{}, ErrInvalidGas
+	}
+	adm.payer = ""
+	adm.gasLimit = gas
+	return adm, nil
+}
+
+func (keeper *AnteKeeper) authenticateEthereum(ctx Context, adm admission, signed bool) error {
+	_, hasRaw := adm.meta.Tags[txcodec.TagEthereumRaw]
+	_, hasHash := adm.meta.Tags[txcodec.TagEthereumHash]
+	authenticator := keeper.config.EthereumAuthenticator
+	if signed || !hasRaw || !hasHash || authenticator == nil {
+		return ErrInvalidTxSignature
+	}
+	canonical, err := txcodec.ParseCanonical(adm.payload)
+	if err != nil || canonical.Module != ethereumModuleName {
+		return ErrInvalidTxSignature
+	}
+	if err := authenticator.AuthenticateTx(ctx, adm.tx); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidTxSignature, err)
 	}
 	return nil
 }
 
-func (keeper AnteKeeper) CheckBlock(ctx Context, txs []types.Tx) error {
-	nextBySigner := make(map[types.Address]uint64)
-	for _, tx := range txs {
-		if err := keeper.verifySignature(ctx, tx); err != nil {
+func (keeper *AnteKeeper) validateMeta(ctx Context, meta txcodec.Meta) error {
+	if meta.Fee.Cmp(new(big.Int).SetUint64(keeper.config.MinFee)) < 0 {
+		return ErrInsufficientFee
+	}
+	if ctx.BaseFee > 0 {
+		if meta.Gas == 0 {
+			return ErrInvalidGas
+		}
+		required := new(big.Int).Mul(new(big.Int).SetUint64(meta.Gas), new(big.Int).SetUint64(ctx.BaseFee))
+		if meta.Fee.Cmp(required) < 0 {
+			return ErrInsufficientFee
+		}
+	}
+	if err := keeper.validateGasAndNonce(meta); err != nil {
+		return err
+	}
+	if meta.Fee.Sign() > 0 && meta.Signer == "" {
+		return ErrMissingSigner
+	}
+	return nil
+}
+
+// validateEthereumMeta holds the rules for an authenticated Ethereum
+// transaction. The fee is not checked here: the evm module bounds the fee tag
+// by what the raw signature authorizes and executes the real fee market.
+func (keeper *AnteKeeper) validateEthereumMeta(meta txcodec.Meta) error {
+	if meta.Gas == 0 {
+		return ErrInvalidGas
+	}
+	return keeper.validateGasAndNonce(meta)
+}
+
+func (keeper *AnteKeeper) validateGasAndNonce(meta txcodec.Meta) error {
+	if keeper.config.MinGas > 0 && meta.Gas < keeper.config.MinGas {
+		return ErrInvalidGas
+	}
+	if keeper.config.MaxGas > 0 && meta.Gas > keeper.config.MaxGas {
+		return ErrInvalidGas
+	}
+	if keeper.config.RequireNonce && (meta.Signer == "" || !meta.HasNonce) {
+		return ErrMissingNonce
+	}
+	if meta.HasNonce && meta.Nonce == math.MaxUint64 {
+		return ErrInvalidNonce
+	}
+	return nil
+}
+
+// accountState is the account data the ante handler reads and writes: the
+// per-account sequence and the bank balances fees move between.
+type accountState interface {
+	sequence(address types.Address) (uint64, error)
+	setSequence(address types.Address, sequence uint64) error
+	balance(address types.Address) (*big.Int, error)
+	setBalance(address types.Address, balance *big.Int) error
+}
+
+// storeAccounts reads and writes the state store directly.
+type storeAccounts struct {
+	ctx      context.Context
+	store    StateStore
+	accounts AccountKeeper
+}
+
+func (accounts storeAccounts) sequence(address types.Address) (uint64, error) {
+	return accounts.accounts.Sequence(accounts.ctx, accounts.store, address)
+}
+
+func (accounts storeAccounts) setSequence(address types.Address, sequence uint64) error {
+	return accounts.accounts.SetSequence(accounts.ctx, accounts.store, address, sequence)
+}
+
+func (accounts storeAccounts) balance(address types.Address) (*big.Int, error) {
+	return bankBalanceBig(accounts.ctx, accounts.store, address)
+}
+
+func (accounts storeAccounts) setBalance(address types.Address, balance *big.Int) error {
+	return setBankBalanceBig(accounts.ctx, accounts.store, address, balance)
+}
+
+// cachedAccounts is a copy-on-write view over another accountState. Reads fall
+// through once and are cached, writes stay in memory: a simulation of a list of
+// transactions sees the fees and sequences of the transactions before it.
+type cachedAccounts struct {
+	base      accountState
+	sequences map[string]uint64
+	balances  map[string]*big.Int
+}
+
+func newCachedAccounts(base accountState) *cachedAccounts {
+	return &cachedAccounts{
+		base:      base,
+		sequences: make(map[string]uint64),
+		balances:  make(map[string]*big.Int),
+	}
+}
+
+func (accounts *cachedAccounts) sequence(address types.Address) (uint64, error) {
+	key := NormalizeActor(address)
+	if sequence, found := accounts.sequences[key]; found {
+		return sequence, nil
+	}
+	sequence, err := accounts.base.sequence(address)
+	if err != nil {
+		return 0, err
+	}
+	accounts.sequences[key] = sequence
+	return sequence, nil
+}
+
+func (accounts *cachedAccounts) setSequence(address types.Address, sequence uint64) error {
+	accounts.sequences[NormalizeActor(address)] = sequence
+	return nil
+}
+
+func (accounts *cachedAccounts) balance(address types.Address) (*big.Int, error) {
+	key := NormalizeActor(address)
+	if balance, found := accounts.balances[key]; found {
+		return new(big.Int).Set(balance), nil
+	}
+	balance, err := accounts.base.balance(address)
+	if err != nil {
+		return nil, err
+	}
+	accounts.balances[key] = new(big.Int).Set(balance)
+	return balance, nil
+}
+
+func (accounts *cachedAccounts) setBalance(address types.Address, balance *big.Int) error {
+	accounts.balances[NormalizeActor(address)] = new(big.Int).Set(balance)
+	return nil
+}
+
+// simulation applies the account-level admission of a list of transactions to a
+// private copy of the state, in order. It is how CheckTx, PrepareProposal and
+// ProcessProposal decide that a sender's nonces are consecutive and that its
+// fees are affordable together, not merely one at a time.
+type simulation struct {
+	keeper   *AnteKeeper
+	accounts *cachedAccounts
+}
+
+// newSimulation returns nil when there is nothing to simulate against: no ante
+// handler or no state store. A nil simulation accepts every transaction.
+func (keeper *AnteKeeper) newSimulation(ctx Context) *simulation {
+	if keeper == nil || ctx.Store == nil {
+		return nil
+	}
+	return &simulation{
+		keeper:   keeper,
+		accounts: newCachedAccounts(storeAccounts{ctx: ctx.GoContext(), store: ctx.Store, accounts: keeper.accounts}),
+	}
+}
+
+// apply admits adm after the transactions applied before it, or fails without
+// changing the simulated state.
+func (sim *simulation) apply(adm admission) error {
+	if sim == nil {
+		return nil
+	}
+	return sim.keeper.charge(sim.accounts, adm, true)
+}
+
+// charge validates the account-level admission of adm (the nonce is the
+// account's next one, the payer can afford the fee) and then applies it: the
+// fee moves to the collector and the sequence advances. Every validation
+// happens before the first write, so a rejected transaction changes nothing.
+//
+// The sequence of an Ethereum transaction belongs to the EVM, which advances it
+// when the transaction executes. Only a simulation advances it here, so the
+// next transaction of the same sender is checked against the right nonce.
+func (keeper *AnteKeeper) charge(accounts accountState, adm admission, simulate bool) error {
+	meta := adm.meta
+	if adm.payer == "" {
+		return nil
+	}
+	if meta.HasNonce {
+		current, err := accounts.sequence(adm.payer)
+		if err != nil {
 			return err
 		}
-		meta := ParseTxMeta(tx)
-		if err := keeper.validateMetaForTx(tx, meta); err != nil {
-			return err
-		}
-		if ctx.Store == nil || meta.Signer == "" || !meta.HasNonce {
-			continue
-		}
-		expected, found := nextBySigner[meta.Signer]
-		if !found {
-			var err error
-			expected, err = keeper.expectedSequence(ctx.GoContext(), ctx.Store, meta.Signer, tx)
-			if err != nil {
-				return err
+		expected := current
+		if !adm.ethereum {
+			if current == math.MaxUint64 {
+				return invalidNonceError(meta, current)
 			}
+			expected = current + 1
 		}
 		if meta.Nonce != expected {
 			return invalidNonceError(meta, expected)
 		}
-		nextBySigner[meta.Signer] = expected + 1
 	}
-	return nil
-}
-
-func (keeper AnteKeeper) BeforeTx(ctx Context, tx types.Tx) error {
-	return keeper.CheckTx(ctx, tx)
-}
-
-func (keeper AnteKeeper) AfterTx(ctx Context, tx types.Tx) error {
-	meta := ParseTxMeta(tx)
-	if ctx.Store == nil {
-		return nil
-	}
-	if !isEthereumRawTx(tx) {
-		if err := keeper.collectFee(ctx.GoContext(), ctx.Store, meta); err != nil {
+	if !adm.ethereum && meta.Fee.Sign() > 0 {
+		if err := keeper.transferFee(accounts, adm.payer, meta.Fee); err != nil {
 			return err
 		}
 	}
-	if meta.Signer == "" || !meta.HasNonce {
+	if !meta.HasNonce {
 		return nil
 	}
-	nextSequence := meta.Nonce
-	if isEthereumRawTx(tx) {
-		if meta.Nonce == math.MaxUint64 {
-			return ErrInvalidNonce
-		}
-		nextSequence = meta.Nonce + 1
-	}
-	return keeper.accounts.SetSequence(ctx.GoContext(), ctx.Store, meta.Signer, nextSequence)
-}
-
-func (keeper AnteKeeper) GasUsed(tx types.Tx) uint64 {
-	return keeper.GasLimit(tx)
-}
-
-func (keeper AnteKeeper) GasLimit(tx types.Tx) uint64 {
-	meta := ParseTxMeta(tx)
-	if meta.Gas > 0 {
-		return meta.Gas
-	}
-	return uint64(len(tx))
-}
-
-func (keeper AnteKeeper) FeePaid(tx types.Tx) uint64 {
-	fee := metaFeeBig(ParseTxMeta(tx))
-	if !fee.IsUint64() {
-		return math.MaxUint64
-	}
-	return fee.Uint64()
-}
-
-func (keeper *AnteKeeper) SetBaseFee(baseFee uint64) {
-	if keeper == nil {
-		return
-	}
-	keeper.config.BaseFee = baseFee
-}
-
-func (keeper AnteKeeper) validateMeta(meta TxMeta) error {
-	fee := metaFeeBig(meta)
-	if keeper.config.MinFee > 0 && fee.Cmp(new(big.Int).SetUint64(keeper.config.MinFee)) < 0 {
-		return ErrInsufficientFee
-	}
-	if keeper.config.BaseFee > 0 {
-		if meta.Gas == 0 {
-			return ErrInvalidGas
-		}
-		requiredFee := multiplyGasPriceBig(meta.Gas, keeper.config.BaseFee)
-		if fee.Cmp(requiredFee) < 0 {
-			return ErrInsufficientFee
-		}
-	}
-	if keeper.config.MinGas > 0 && meta.Gas < keeper.config.MinGas {
-		return ErrInvalidGas
-	}
-	if keeper.config.MaxGas > 0 && meta.Gas > keeper.config.MaxGas {
-		return ErrInvalidGas
-	}
-	if keeper.config.RequireNonce && (meta.Signer == "" || !meta.HasNonce) {
-		return ErrMissingNonce
+	switch {
+	case !adm.ethereum:
+		return accounts.setSequence(adm.payer, meta.Nonce)
+	case simulate:
+		return accounts.setSequence(adm.payer, meta.Nonce+1)
 	}
 	return nil
 }
 
-func (keeper AnteKeeper) validateMetaForTx(tx types.Tx, meta TxMeta) error {
-	if !isEthereumRawTx(tx) {
-		return keeper.validateMeta(meta)
+// transferFee moves fee from payer to the fee collector. A payer that is the
+// collector keeps its balance: crediting the collector from the same record
+// would otherwise write the balance twice and mint the fee.
+func (keeper *AnteKeeper) transferFee(accounts accountState, payer types.Address, fee *big.Int) error {
+	collector := keeper.feeCollector()
+	payerBalance, err := accounts.balance(payer)
+	if err != nil {
+		return err
 	}
-	if meta.Gas == 0 {
-		return ErrInvalidGas
+	if payerBalance.Cmp(fee) < 0 {
+		return ErrInsufficientFeeBalance
 	}
-	if keeper.config.MinGas > 0 && meta.Gas < keeper.config.MinGas {
-		return ErrInvalidGas
-	}
-	if keeper.config.MaxGas > 0 && meta.Gas > keeper.config.MaxGas {
-		return ErrInvalidGas
-	}
-	if keeper.config.RequireNonce && (meta.Signer == "" || !meta.HasNonce) {
-		return ErrMissingNonce
-	}
-	return nil
-}
-
-func multiplyGasPrice(gas uint64, baseFee uint64) (uint64, bool) {
-	if gas == 0 || baseFee == 0 {
-		return 0, true
-	}
-	if gas > math.MaxUint64/baseFee {
-		return 0, false
-	}
-	return gas * baseFee, true
-}
-
-func multiplyGasPriceBig(gas uint64, baseFee uint64) *big.Int {
-	return new(big.Int).Mul(new(big.Int).SetUint64(gas), new(big.Int).SetUint64(baseFee))
-}
-
-func metaFeeBig(meta TxMeta) *big.Int {
-	if meta.FeeBig == nil {
-		return new(big.Int).SetUint64(meta.Fee)
-	}
-	return new(big.Int).Set(meta.FeeBig)
-}
-
-func (keeper AnteKeeper) collectFee(ctx context.Context, store StateStore, meta TxMeta) error {
-	fee := metaFeeBig(meta)
-	if fee.Sign() == 0 {
+	if NormalizeActor(payer) == NormalizeActor(collector) {
 		return nil
 	}
-	if meta.Signer == "" {
-		return ErrMissingNonce
-	}
-	collector := types.Address(keeper.config.FeeCollector)
-	if collector == "" {
-		collector = "fee_collector"
-	}
-	balance, err := bankBalanceBig(ctx, store, meta.Signer)
+	collectorBalance, err := accounts.balance(collector)
 	if err != nil {
 		return err
 	}
-	if balance.Cmp(fee) < 0 {
+	credited := new(big.Int).Add(collectorBalance, fee)
+	if credited.BitLen() > 256 {
 		return ErrInsufficientFeeBalance
 	}
-	collectorBalance, err := bankBalanceBig(ctx, store, collector)
-	if err != nil {
+	if err := accounts.setBalance(payer, new(big.Int).Sub(payerBalance, fee)); err != nil {
 		return err
 	}
-	if new(big.Int).Add(collectorBalance, fee).BitLen() > 256 {
-		return ErrInsufficientFeeBalance
-	}
-	writes := []vexostore.KVWrite{
-		{
-			Namespace: "bank",
-			Key:       bankBalanceKey(meta.Signer),
-			Value:     encodeBankBalanceBig(new(big.Int).Sub(balance, fee)),
-		},
-		{
-			Namespace: "bank",
-			Key:       bankBalanceKey(collector),
-			Value:     encodeBankBalanceBig(new(big.Int).Add(collectorBalance, fee)),
-		},
-	}
-	if batch, ok := store.(vexostore.BatchKVStore); ok {
-		return batch.SetBatch(ctx, writes)
-	}
-	if err := store.Set(ctx, writes[0].Namespace, writes[0].Key, writes[0].Value); err != nil {
-		return err
-	}
-	return store.Set(ctx, writes[1].Namespace, writes[1].Key, writes[1].Value)
+	return accounts.setBalance(collector, credited)
 }
 
-func (keeper AnteKeeper) verifySignature(ctx Context, tx types.Tx) error {
-	if !IsSignedTx(tx) {
-		if _, found := TxTag(tx, "eth_raw"); found {
-			if _, hashFound := TxTag(tx, "eth_hash"); hashFound {
-				return nil
+// begin charges adm against the state in ctx.Store before the transaction
+// executes: the fee is paid and the sequence advanced whatever the module
+// does afterwards.
+func (keeper *AnteKeeper) begin(ctx Context, adm admission) error {
+	if ctx.Store == nil {
+		return nil
+	}
+	return keeper.charge(keeper.storeAccounts(ctx), adm, false)
+}
+
+// finish re-establishes the sequence after a native transaction executed: the
+// ante handler owns it, whatever a module wrote under the same key.
+func (keeper *AnteKeeper) finish(ctx Context, adm admission) error {
+	if ctx.Store == nil || adm.ethereum || adm.payer == "" || !adm.meta.HasNonce {
+		return nil
+	}
+	return keeper.accounts.SetSequence(ctx.GoContext(), ctx.Store, adm.payer, adm.meta.Nonce)
+}
+
+// fail charges an Ethereum transaction whose execution failed and was
+// discarded. The EVM wrote neither the fee nor the nonce, so the ante handler
+// consumes the nonce and collects the failure fee when the payer can afford
+// it; a payer that cannot is neither charged nor sequenced. It returns the fee
+// charged, nil when the transaction was not charged.
+func (keeper *AnteKeeper) fail(ctx Context, adm admission) (*big.Int, error) {
+	if ctx.Store == nil || !adm.ethereum || adm.payer == "" || !adm.meta.HasNonce {
+		return nil, nil
+	}
+	accounts := keeper.storeAccounts(ctx)
+	fee := ethereumFailureFee(ctx, adm.meta)
+	if fee.Sign() > 0 {
+		if err := keeper.transferFee(accounts, adm.payer, fee); err != nil {
+			if errors.Is(err, ErrInsufficientFeeBalance) {
+				return nil, nil
 			}
+			return nil, err
 		}
-		if keeper.config.RequireSigned {
-			return ErrInvalidSignedTx
-		}
-		return nil
 	}
-	return VerifySignedTx(ctx.ChainID, tx, keeper.signatureVerifier())
+	current, err := accounts.sequence(adm.payer)
+	if err != nil {
+		return nil, err
+	}
+	if current <= adm.meta.Nonce {
+		if err := accounts.setSequence(adm.payer, adm.meta.Nonce+1); err != nil {
+			return nil, err
+		}
+	}
+	return fee, nil
 }
 
-func (keeper AnteKeeper) signatureVerifier() vexocrypto.Signer {
+// ethereumFailureFee is what a failed Ethereum transaction pays: the fee tag,
+// but never less than its gas at the block's base fee. The fee tag is not
+// signed; the evm module bounds it from above by what the signature
+// authorizes, and that bound is at least the gas at the base fee, because a
+// transaction whose fee cap is below the base fee is not admitted. Without the
+// floor a relayer that leaves the tag out or sets it low would have block
+// space consumed for free.
+func ethereumFailureFee(ctx Context, meta txcodec.Meta) *big.Int {
+	fee := new(big.Int)
+	if meta.Fee != nil {
+		fee.Set(meta.Fee)
+	}
+	if ctx.BaseFee > 0 {
+		floor := new(big.Int).Mul(new(big.Int).SetUint64(meta.Gas), new(big.Int).SetUint64(ctx.BaseFee))
+		if fee.Cmp(floor) < 0 {
+			fee = floor
+		}
+	}
+	return fee
+}
+
+func (keeper *AnteKeeper) storeAccounts(ctx Context) storeAccounts {
+	return storeAccounts{ctx: ctx.GoContext(), store: ctx.Store, accounts: keeper.accounts}
+}
+
+func (keeper *AnteKeeper) feeCollector() types.Address {
+	if keeper.config.FeeCollector == "" {
+		return "fee_collector"
+	}
+	return types.Address(keeper.config.FeeCollector)
+}
+
+func (keeper *AnteKeeper) signatureVerifier() TxSignatureVerifier {
 	if keeper.config.SignatureVerifier != nil {
-		return signerVerifierAdapter{verifier: keeper.config.SignatureVerifier}
+		return keeper.config.SignatureVerifier
 	}
 	return vexocrypto.Ed25519Signer{}
 }
 
-type signerVerifierAdapter struct {
-	verifier TxSignatureVerifier
-}
-
-func (adapter signerVerifierAdapter) PublicKey() types.PublicKey {
-	return nil
-}
-
-func (adapter signerVerifierAdapter) Sign(message []byte) (types.Signature, error) {
-	return nil, ErrInvalidTxSignature
-}
-
-func (adapter signerVerifierAdapter) Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool {
-	return adapter.verifier != nil && adapter.verifier.Verify(publicKey, message, signature)
-}
-
-func (keeper AnteKeeper) expectedSequence(ctx context.Context, store StateStore, signer types.Address, tx types.Tx) (uint64, error) {
-	if isEthereumRawTx(tx) {
-		return keeper.accounts.Sequence(ctx, store, signer)
-	}
-	return keeper.accounts.NextSequence(ctx, store, signer)
-}
-
-func invalidNonceError(meta TxMeta, expected uint64) error {
-	if meta.Signer == "" || !meta.HasNonce {
-		return ErrInvalidNonce
-	}
+func invalidNonceError(meta txcodec.Meta, expected uint64) error {
 	return fmt.Errorf("%w: signer=%s nonce=%d expected=%d", ErrInvalidNonce, meta.Signer, meta.Nonce, expected)
 }
 
@@ -386,11 +605,6 @@ func ParseInvalidNonceLog(log string) (uint64, uint64, bool) {
 	return nonce, expected, nonceFound && expectedFound
 }
 
-func isEthereumRawTx(tx types.Tx) bool {
-	_, found := TxTag(tx, "eth_raw")
-	return found
-}
-
 func bankBalance(ctx context.Context, store StateStore, address types.Address) (uint64, error) {
 	balance, err := bankBalanceBig(ctx, store, address)
 	if err != nil {
@@ -405,10 +619,7 @@ func bankBalance(ctx context.Context, store StateStore, address types.Address) (
 func bankBalanceBig(ctx context.Context, store StateStore, address types.Address) (*big.Int, error) {
 	value, err := store.Get(ctx, "bank", bankBalanceKey(address))
 	if errors.Is(err, vexostore.ErrKeyNotFound) {
-		value, err = store.Get(ctx, "bank", []byte(address))
-		if errors.Is(err, vexostore.ErrKeyNotFound) {
-			return new(big.Int), nil
-		}
+		return new(big.Int), nil
 	}
 	if err != nil {
 		return nil, err
@@ -446,19 +657,5 @@ func encodeBankBalanceBig(balance *big.Int) []byte {
 }
 
 func bankBalanceKey(address types.Address) []byte {
-	raw := string(address)
-	if !strings.HasPrefix(raw, "0x") {
-		return []byte(address)
-	}
-	clean := strings.TrimPrefix(raw, "0x")
-	if len(clean)%2 == 1 {
-		clean = "0" + clean
-	}
-	decoded, err := hex.DecodeString(clean)
-	if err != nil || len(decoded) > 20 {
-		return []byte(address)
-	}
-	padded := make([]byte, 20)
-	copy(padded[20-len(decoded):], decoded)
-	return []byte("0x" + hex.EncodeToString(padded))
+	return []byte(txcodec.NormalizeAddress(string(address)))
 }

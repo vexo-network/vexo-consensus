@@ -11,11 +11,7 @@ import (
 )
 
 func TestAdversarialRunnerOfflineMinorityStillReachesQuorum(t *testing.T) {
-	machine, runner := newAdversarialRunner(t, []validator.Validator{
-		{ID: "a", VotingPower: 1},
-		{ID: "b", VotingPower: 1},
-		{ID: "c", VotingPower: 1},
-	})
+	machine, runner, _ := newAdversarialRunner(t, equalValidators("a", "b", "c"))
 	machine.StartRound(1, 0)
 
 	proposed, err := runner.Propose(context.Background(), types.Block{Header: types.Header{Height: 1}}, "a")
@@ -29,14 +25,13 @@ func TestAdversarialRunnerOfflineMinorityStillReachesQuorum(t *testing.T) {
 	if qc.VotingPower != 2 {
 		t.Fatalf("expected quorum with two validators, got %d", qc.VotingPower)
 	}
+	if err := machine.VerifyQuorumCert(qc); err != nil {
+		t.Fatalf("the quorum cert of the runner must verify: %v", err)
+	}
 }
 
 func TestAdversarialRunnerOfflineMajorityPreventsQuorum(t *testing.T) {
-	machine, runner := newAdversarialRunner(t, []validator.Validator{
-		{ID: "a", VotingPower: 1},
-		{ID: "b", VotingPower: 1},
-		{ID: "c", VotingPower: 1},
-	})
+	machine, runner, _ := newAdversarialRunner(t, equalValidators("a", "b", "c"))
 	machine.StartRound(1, 0)
 
 	proposed, err := runner.Propose(context.Background(), types.Block{Header: types.Header{Height: 1}}, "a")
@@ -53,7 +48,7 @@ func TestAdversarialRunnerOfflineMajorityPreventsQuorum(t *testing.T) {
 }
 
 func TestAdversarialRunnerWeightedOfflineQuorum(t *testing.T) {
-	machine, runner := newAdversarialRunner(t, []validator.Validator{
+	machine, runner, _ := newAdversarialRunner(t, []validator.Validator{
 		{ID: "a", VotingPower: 4},
 		{ID: "b", VotingPower: 2},
 		{ID: "c", VotingPower: 1},
@@ -77,23 +72,24 @@ func TestAdversarialRunnerWeightedOfflineQuorum(t *testing.T) {
 }
 
 func TestAdversarialRunnerConflictingVoteProducesEvidence(t *testing.T) {
-	machine, runner := newAdversarialRunner(t, []validator.Validator{
-		{ID: "a", VotingPower: 1},
-		{ID: "b", VotingPower: 1},
-		{ID: "c", VotingPower: 1},
-	})
+	machine, runner, _ := newAdversarialRunner(t, equalValidators("a", "b", "c"))
 	machine.StartRound(1, 0)
 
 	first, err := runner.Propose(context.Background(), types.Block{Header: types.Header{Height: 1}, Txs: []types.Tx{[]byte("first")}}, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := runner.Propose(context.Background(), types.Block{Header: types.Header{Height: 1}, Txs: []types.Tx{[]byte("second")}}, "a")
+	// A second block in the same view is refused outright; it exists only as the target of
+	// the equivocating vote.
+	if _, err := runner.Propose(context.Background(), types.Block{Header: types.Header{Height: 1}, Txs: []types.Tx{[]byte("second")}}, "a"); !errors.Is(err, ErrConflictingProposal) {
+		t.Fatalf("expected a second block in the same view to be refused, got %v", err)
+	}
+	secondProposal, err := machine.CreateProposal(types.Block{Header: types.Header{Height: 1}, Txs: []types.Tx{[]byte("second")}}, 0, "a", finality.QuorumCert{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = runner.VoteConflict(context.Background(), "a", first.BlockHash, second.BlockHash)
+	err = runner.VoteConflict(context.Background(), "a", first.BlockHash, machine.hashBlock(secondProposal.Block))
 	if !errors.Is(err, ErrConflictingVote) {
 		t.Fatalf("expected conflicting vote, got %v", err)
 	}
@@ -107,33 +103,28 @@ func TestAdversarialRunnerConflictingVoteProducesEvidence(t *testing.T) {
 }
 
 func TestAdversarialRunnerTimeoutEquivocationRejected(t *testing.T) {
-	machine, runner := newAdversarialRunner(t, []validator.Validator{
-		{ID: "a", VotingPower: 1},
-		{ID: "b", VotingPower: 1},
-		{ID: "c", VotingPower: 1},
-	})
-	machine.StartRound(1, 0)
+	machine, runner, cluster := newAdversarialRunner(t, equalValidators("a", "b", "c"))
+	machine.StartRound(2, 1)
 
 	err := runner.TimeoutEquivocation(
 		context.Background(),
 		"a",
-		finality.QuorumCert{Height: 1, Round: 0, BlockHash: types.Hash{1}},
-		finality.QuorumCert{Height: 1, Round: 0, BlockHash: types.Hash{2}},
+		cluster.qc(1, 0, types.Hash{1}),
+		finality.QuorumCert{},
 	)
 	if !errors.Is(err, ErrConflictingTimeoutVote) {
 		t.Fatalf("expected conflicting timeout vote, got %v", err)
 	}
+	if len(runner.Evidence()) != 1 {
+		t.Fatalf("expected the equivocation to become evidence, got %d", len(runner.Evidence()))
+	}
 }
 
 func TestAdversarialRunnerTimeoutQuorumWithOfflineMinority(t *testing.T) {
-	machine, runner := newAdversarialRunner(t, []validator.Validator{
-		{ID: "a", VotingPower: 1},
-		{ID: "b", VotingPower: 1},
-		{ID: "c", VotingPower: 1},
-	})
-	machine.StartRound(1, 0)
+	machine, runner, cluster := newAdversarialRunner(t, equalValidators("a", "b", "c"))
+	machine.StartRound(2, 1)
 
-	highQC := finality.QuorumCert{Height: 1, Round: 0, BlockHash: types.Hash{1}}
+	highQC := cluster.qc(1, 0, types.Hash{1})
 	timeoutCert, err := runner.TimeoutWith(context.Background(), highQC, "a", "b")
 	if err != nil {
 		t.Fatal(err)
@@ -141,24 +132,39 @@ func TestAdversarialRunnerTimeoutQuorumWithOfflineMinority(t *testing.T) {
 	if timeoutCert.HighQC.BlockHash != highQC.BlockHash {
 		t.Fatalf("expected timeout cert high qc, got %+v", timeoutCert.HighQC)
 	}
-	if machine.Status(context.Background()).Round != 1 {
+	if machine.Status(context.Background()).Round != 2 {
 		t.Fatal("expected timeout quorum to advance round")
 	}
 }
 
-func newAdversarialRunner(t *testing.T, validators []validator.Validator) (*StateMachine, *AdversarialRunner) {
+func TestAdversarialRunnerRefusesUnknownSigner(t *testing.T) {
+	machine, runner, _ := newAdversarialRunner(t, equalValidators("a", "b", "c"))
+	machine.StartRound(1, 0)
+
+	proposed, err := runner.Propose(context.Background(), types.Block{Header: types.Header{Height: 1}}, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.VoteWith(context.Background(), proposed.BlockHash, "stranger"); !errors.Is(err, ErrMissingSigner) {
+		t.Fatalf("expected a voter without a signing key to be refused, got %v", err)
+	}
+}
+
+func equalValidators(ids ...types.ValidatorID) []validator.Validator {
+	validators := make([]validator.Validator, 0, len(ids))
+	for _, id := range ids {
+		validators = append(validators, validator.Validator{ID: id, VotingPower: 1})
+	}
+	return validators
+}
+
+func newAdversarialRunner(t *testing.T, validators []validator.Validator) (*StateMachine, *AdversarialRunner, *testCluster) {
 	t.Helper()
-	machine, err := NewStateMachine(StateMachineConfig{
-		ChainID:      "vexo-test",
-		ValidatorSet: newTestValidatorSet(validators),
-		Aggregator:   testAggregateSigner{},
-	})
+	cluster := newTestCluster(t, validators...)
+	machine := cluster.newMachine()
+	runner, err := NewAdversarialRunner(machine, cluster.signers)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner, err := NewAdversarialRunner(machine)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return machine, runner
+	return machine, runner, cluster
 }

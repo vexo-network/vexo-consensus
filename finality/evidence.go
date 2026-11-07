@@ -1,6 +1,7 @@
 package finality
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 
@@ -40,17 +41,21 @@ func NewConflictEvidence(validatorSet validator.Set, first Proof, second Proof, 
 	}, nil
 }
 
+// DecodeConflictProof is strict: a proof has exactly one spelling, the one json.Marshal gives the
+// value it decodes to, and anything else is rejected (see slashing.DecodeProof).
 func DecodeConflictProof(proof []byte) (ConflictProof, error) {
-	var decoded ConflictProof
-	if err := json.Unmarshal(proof, &decoded); err != nil {
-		return ConflictProof{}, err
-	}
-	return decoded, nil
+	return slashing.DecodeProof[ConflictProof](proof)
 }
 
-func VerifyConflictEvidence(validatorSet validator.Set, signatures SignatureVerifier, evidence slashing.Evidence) (*AccountableSafetyViolation, error) {
+// VerifyConflictEvidence verifies that evidence proves two conflicting blocks final at one height
+// and that evidence.Validator certified both. Each certified header is checked against the set it
+// names, loaded from sets.
+func VerifyConflictEvidence(sets ValidatorSetSource, signatures SignatureVerifier, evidence slashing.Evidence) (*AccountableSafetyViolation, error) {
 	if evidence.Type != slashing.EvidenceFinalityConflict {
 		return nil, slashing.ErrUnknownEvidenceType
+	}
+	if sets == nil {
+		return nil, ErrFinalitySetUnavailable
 	}
 	decoded, err := DecodeConflictProof(evidence.Proof)
 	if err != nil {
@@ -61,14 +66,14 @@ func VerifyConflictEvidence(validatorSet validator.Set, signatures SignatureVeri
 		decoded.First.QuorumCert.Round != evidence.Round {
 		return nil, ErrHeightMismatch
 	}
-	verifier := NewVerifier(validatorSet, signatures)
+	verifier := NewRegistryVerifier(sets, signatures)
 	if err := verifier.VerifyFinalityProof(decoded.First); err != nil {
 		return nil, err
 	}
 	if err := verifier.VerifyFinalityProof(decoded.Second); err != nil {
 		return nil, err
 	}
-	violation, err := DetectAccountableSafetyViolation(validatorSet, decoded.First, decoded.Second)
+	violation, err := DetectAccountableSafetyViolationWithContext(context.Background(), sets, decoded.First, decoded.Second)
 	if err != nil {
 		return nil, err
 	}

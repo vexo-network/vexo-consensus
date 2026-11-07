@@ -30,13 +30,20 @@ func TestBankModuleInitializesGenesisAndQueriesBalance(t *testing.T) {
 	}
 }
 
+// testMintAuthority is the account the test modules allow to mint.
+const testMintAuthority types.Address = "governance"
+
+func newMintingModule() Module {
+	return NewModuleWithMintAuthority(testMintAuthority)
+}
+
 func TestBankModuleMintsAndSends(t *testing.T) {
 	storage := newBankStore(t)
-	module := NewModule()
-	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:mint:alice:100")); result.Code != 0 {
+	module := newMintingModule()
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:mint:alice:100:signer=governance")); result.Code != 0 {
 		t.Fatalf("unexpected mint result: %+v", result)
 	}
-	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:send:alice:bob:35")); result.Code != 0 {
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:send:alice:bob:35:signer=alice")); result.Code != 0 {
 		t.Fatalf("unexpected send result: %+v", result)
 	}
 
@@ -46,14 +53,14 @@ func TestBankModuleMintsAndSends(t *testing.T) {
 
 func TestBankModuleSupportsNativeEVM256BitBalances(t *testing.T) {
 	storage := newBankStore(t)
-	module := NewModule()
+	module := newMintingModule()
 	holder := types.Address("0x000000000000000000000000000000000000aaaa")
 	receiver := types.Address("0x000000000000000000000000000000000000bbbb")
 	huge := new(big.Int).Lsh(big.NewInt(1), 80)
-	if result := module.DeliverTx(vexoapp.Context{Store: storage}, types.Tx("bank:mint:"+string(holder)+":"+huge.String())); result.Code != 0 {
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, types.Tx("bank:mint:"+string(holder)+":"+huge.String()+":signer=governance")); result.Code != 0 {
 		t.Fatalf("unexpected huge mint result: %+v", result)
 	}
-	if result := module.DeliverTx(vexoapp.Context{Store: storage}, types.Tx("bank:send:"+string(holder)+":"+string(receiver)+":1000000000000000000")); result.Code != 0 {
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, types.Tx("bank:send:"+string(holder)+":"+string(receiver)+":1000000000000000000:signer="+string(holder))); result.Code != 0 {
 		t.Fatalf("unexpected huge send result: %+v", result)
 	}
 	holderBalance, err := BalanceBig(context.Background(), storage, holder)
@@ -79,13 +86,15 @@ func TestBankModuleSupportsNativeEVM256BitBalances(t *testing.T) {
 
 func TestBankModuleNormalizesEthereumHexAddressKeys(t *testing.T) {
 	storage := newBankStore(t)
-	module := NewModule()
+	module := newMintingModule()
 	lower := types.Address("0x000000000000000000000000000000000000bbbb")
 	checksum := types.Address("0x000000000000000000000000000000000000BbBB")
-	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:mint:"+string(lower)+":100")); result.Code != 0 {
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:mint:"+string(lower)+":100:signer=governance")); result.Code != 0 {
 		t.Fatalf("unexpected mint result: %+v", result)
 	}
-	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:send:"+string(checksum)+":alice:35")); result.Code != 0 {
+	// The signer names the account in lowercase, the transaction in checksum
+	// case: both normalize to the same account.
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:send:"+string(checksum)+":alice:35:signer="+string(lower))); result.Code != 0 {
 		t.Fatalf("unexpected send result: %+v", result)
 	}
 	assertBalance(t, storage, lower, 65)
@@ -95,8 +104,8 @@ func TestBankModuleNormalizesEthereumHexAddressKeys(t *testing.T) {
 
 func TestBankModuleIgnoresExecutionTags(t *testing.T) {
 	storage := newBankStore(t)
-	module := NewModule()
-	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:mint:alice:100:fee=1:gas=10:signer=alice:nonce=1")); result.Code != 0 {
+	module := newMintingModule()
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:mint:alice:100:fee=1:gas=10:signer=governance:nonce=1")); result.Code != 0 {
 		t.Fatalf("unexpected tagged mint result: %+v", result)
 	}
 	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:send:alice:bob:25:fee=1:gas=10:signer=alice:nonce=2")); result.Code != 0 {
@@ -113,12 +122,13 @@ func TestBankModuleIgnoresExecutionTags(t *testing.T) {
 
 func TestBankModuleRejectsInvalidTransactions(t *testing.T) {
 	storage := newBankStore(t)
-	module := NewModule()
+	module := newMintingModule()
 	for _, tx := range []types.Tx{
-		[]byte("bank:mint:alice:0"),
-		[]byte("bank:mint::10"),
-		[]byte("bank:send:alice:bob:1"),
-		[]byte("bank:send:alice::1"),
+		[]byte("bank:mint:alice:0:signer=governance"),
+		[]byte("bank:mint::10:signer=governance"),
+		[]byte("bank:send:alice:bob:1:signer=alice"),
+		[]byte("bank:send:alice::1:signer=alice"),
+		[]byte("bank:send:alice:bob:1:signer=alice:signer=governance"),
 		[]byte("bank:unknown"),
 		[]byte("staking:delegate"),
 	} {
@@ -131,18 +141,18 @@ func TestBankModuleRejectsInvalidTransactions(t *testing.T) {
 
 func TestBankModuleRejectsBalanceOverflow(t *testing.T) {
 	storage := newBankStore(t)
-	module := NewModule()
+	module := newMintingModule()
 	maxUint256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1)).String()
-	if result := module.DeliverTx(vexoapp.Context{Store: storage}, types.Tx("bank:mint:alice:"+maxUint256)); result.Code != 0 {
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, types.Tx("bank:mint:alice:"+maxUint256+":signer=governance")); result.Code != 0 {
 		t.Fatalf("unexpected max mint result: %+v", result)
 	}
-	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:mint:alice:1")); result.Code == 0 || result.Log != ErrBalanceOverflow.Error() {
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:mint:alice:1:signer=governance")); result.Code == 0 || result.Log != ErrBalanceOverflow.Error() {
 		t.Fatalf("expected mint overflow, got %+v", result)
 	}
-	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:mint:bob:1")); result.Code != 0 {
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:mint:bob:1:signer=governance")); result.Code != 0 {
 		t.Fatalf("unexpected bob mint result: %+v", result)
 	}
-	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:send:bob:alice:1")); result.Code == 0 || result.Log != ErrBalanceOverflow.Error() {
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:send:bob:alice:1:signer=bob")); result.Code == 0 || result.Log != ErrBalanceOverflow.Error() {
 		t.Fatalf("expected send overflow, got %+v", result)
 	}
 	alice, err := BalanceBig(context.Background(), storage, "alice")
@@ -157,12 +167,12 @@ func TestBankModuleRejectsBalanceOverflow(t *testing.T) {
 
 func TestBankModuleInvalidTxFloodDoesNotMutateState(t *testing.T) {
 	storage := newBankStore(t)
-	module := NewModule()
-	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:mint:alice:10")); result.Code != 0 {
+	module := newMintingModule()
+	if result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:mint:alice:10:signer=governance")); result.Code != 0 {
 		t.Fatalf("unexpected mint result: %+v", result)
 	}
 	for i := 0; i < 1000; i++ {
-		result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:send:alice:bob:999999"))
+		result := module.DeliverTx(vexoapp.Context{Store: storage}, []byte("bank:send:alice:bob:999999:signer=alice"))
 		if result.Code == 0 {
 			t.Fatalf("expected invalid flood tx %d to fail", i)
 		}
@@ -209,7 +219,7 @@ func TestBankModuleQueryRejectsInvalidRequests(t *testing.T) {
 
 func TestBankModuleWorksThroughAppRuntime(t *testing.T) {
 	storage := newBankStore(t)
-	runtime, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{NewModule()}, vexoapp.PrefixRouter{})
+	runtime, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{newMintingModule()}, vexoapp.PrefixRouter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,8 +232,8 @@ func TestBankModuleWorksThroughAppRuntime(t *testing.T) {
 			Header: types.Header{ChainID: "vexo-test", Height: 1},
 			Txs: fairordering.SortTxsWithSalt(
 				[]types.Tx{
-					[]byte("bank:send:alice:bob:40"),
-					[]byte("bank:mint:carol:7"),
+					[]byte("bank:send:alice:bob:40:signer=alice"),
+					[]byte("bank:mint:carol:7:signer=governance"),
 				},
 				fairordering.HeightSalt("vexo-test", 1),
 			),

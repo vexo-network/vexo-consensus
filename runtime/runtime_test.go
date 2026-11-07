@@ -10,9 +10,9 @@ import (
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/config"
+	"github.com/vexo-network/vexo-consensus/consensus"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
-	"github.com/vexo-network/vexo-consensus/modules/staking"
-	"github.com/vexo-network/vexo-consensus/slashing"
+	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/upgrade"
@@ -31,7 +31,7 @@ func TestRuntimeNewWiresModules(t *testing.T) {
 	if runtime.Config.ChainID != "vexo-test" {
 		t.Fatalf("unexpected chain id: %s", runtime.Config.ChainID)
 	}
-	if runtime.Validators == nil || runtime.Mempool == nil || runtime.Slashing == nil || runtime.Governance == nil || runtime.P2PScore == nil {
+	if runtime.Validators == nil || runtime.Mempool == nil || runtime.Governance == nil || runtime.P2PScore == nil {
 		t.Fatal("expected modules to be wired")
 	}
 }
@@ -140,7 +140,9 @@ func TestRuntimeBuildsConsensusStateMachine(t *testing.T) {
 	}
 }
 
-func TestRuntimeBuildsFinalityVerifier(t *testing.T) {
+// The finality verifier loads the set a header names; a registry height whose set the runtime has
+// not executed yet is pending, not answered with the latest set.
+func TestRuntimeFinalityVerifierRefusesValidatorSetsItHasNotExecuted(t *testing.T) {
 	cfg := config.Default("vexo-test")
 	runtime, err := NewEphemeral(cfg, noopApp{}, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: []byte("pub")},
@@ -148,9 +150,11 @@ func TestRuntimeBuildsFinalityVerifier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if _, err := runtime.NewFinalityVerifier(context.Background(), 1); err != nil {
-		t.Fatal(err)
+	verifier := runtime.NewFinalityVerifier()
+	header := types.Header{ChainID: "vexo-test", Height: 5, ValidatorSetHeight: 4}
+	err = verifier.VerifyBlockCertWithContext(context.Background(), header, finality.QuorumCert{Height: 5, BlockHash: finality.HeaderHash(header)})
+	if !errors.Is(err, consensus.ErrValidatorSetPending) {
+		t.Fatalf("expected a pending validator set, got %v", err)
 	}
 }
 
@@ -244,8 +248,8 @@ func TestRuntimeLoadsUpgradePlanFromStoreByHeight(t *testing.T) {
 	if _, err := runtime.ExecuteBlock(context.Background(), types.Block{Header: types.Header{ChainID: "vexo-test", Height: 2}}); err != nil {
 		t.Fatal(err)
 	}
-	if runtime.UpgradePlan == nil || runtime.UpgradePlan.Name != plan.Name {
-		t.Fatalf("expected runtime to load upgrade plan, got %+v", runtime.UpgradePlan)
+	if runtime.UpgradePlan != nil {
+		t.Fatalf("an applied upgrade plan must be cleared, got %+v", runtime.UpgradePlan)
 	}
 	schemaState, err := storage.SchemaState(context.Background())
 	if err != nil {
@@ -253,6 +257,65 @@ func TestRuntimeLoadsUpgradePlanFromStoreByHeight(t *testing.T) {
 	}
 	if schemaState.BinaryVersion != "v2.0.0" || schemaState.StoreSchemaVersion != 2 || schemaState.AppStateVersion != 2 {
 		t.Fatalf("unexpected schema state: %+v", schemaState)
+	}
+}
+
+// Once a plan is applied the runtime must look for the next one: a plan that stays loaded after it
+// ran would shadow every later plan, and the chain would never upgrade a second time.
+func TestRuntimePicksUpTheNextStoredUpgradePlanAfterOneIsApplied(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+
+	for _, plan := range []upgrade.Plan{
+		{Name: "v2", Height: 2, BinaryVersion: "v2.0.0", ConfigSchemaFrom: 1, ConfigSchemaTo: 2, StoreSchemaFrom: 1, StoreSchemaTo: 2, AppStateSchemaFrom: 1, AppStateSchemaTo: 2},
+		{Name: "v3", Height: 4, BinaryVersion: "v3.0.0", ConfigSchemaFrom: 2, ConfigSchemaTo: 3, StoreSchemaFrom: 2, StoreSchemaTo: 3, AppStateSchemaFrom: 2, AppStateSchemaTo: 3},
+	} {
+		if err := storage.SaveUpgradePlan(context.Background(), plan); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runtime, err := NewWithStore(config.Default("vexo-test"), newEmptyRuntimeApp(t), []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+	}, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := upgrade.NewRegistry()
+	for from := uint64(1); from <= 2; from++ {
+		registry.RegisterConfig(upgrade.Migration{From: from, To: from + 1})
+		registry.RegisterStore(upgrade.Migration{From: from, To: from + 1})
+		registry.RegisterAppState(upgrade.Migration{From: from, To: from + 1})
+	}
+	runtime.UpgradeExecutor = upgrade.NewExecutor(registry, upgrade.NewMemoryRecorder())
+	runtime.UpgradeState = upgrade.State{Height: 1, BinaryVersion: "v1.0.0", ConfigSchemaVersion: 1, StoreSchemaVersion: 1, AppStateVersion: 1}
+
+	for _, step := range []struct {
+		height types.Height
+		binary string
+	}{{2, "v2.0.0"}, {3, "v2.0.0"}, {4, "v3.0.0"}, {5, "v3.0.0"}} {
+		if _, err := runtime.ExecuteBlock(context.Background(), types.Block{Header: types.Header{ChainID: "vexo-test", Height: step.height}}); err != nil {
+			t.Fatalf("height %d: %v", step.height, err)
+		}
+		schemaState, err := storage.SchemaState(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if schemaState.BinaryVersion != step.binary {
+			t.Fatalf("height %d: expected binary %s, got %+v", step.height, step.binary, schemaState)
+		}
+	}
+	schemaState, err := storage.SchemaState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if schemaState.StoreSchemaVersion != 3 || schemaState.AppStateVersion != 3 || schemaState.ConfigSchemaVersion != 3 {
+		t.Fatalf("the second plan must migrate every schema to version 3, got %+v", schemaState)
+	}
+	if runtime.UpgradePlan != nil {
+		t.Fatalf("no plan is left to apply, got %+v", runtime.UpgradePlan)
 	}
 }
 
@@ -297,106 +360,6 @@ func TestRuntimeHaltsStoredUpgradePlanWithoutExecutorRecorder(t *testing.T) {
 	}
 	if !runtime.UpgradeHalted {
 		t.Fatal("expected runtime to halt when stored upgrade has no durable executor")
-	}
-}
-
-func TestRuntimeWithStoreUsesDurableSlashingKeeper(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := storage.Close(); err != nil {
-			t.Fatal(err)
-		}
-	})
-	runtime, err := NewWithStore(config.Default("vexo-test"), noopApp{}, []validator.Validator{
-		{ID: "alice", Address: "alice", VotingPower: 100, Stake: 100},
-	}, nil, storage)
-	if err != nil {
-		t.Fatal(err)
-	}
-	keeper, ok := runtime.Slashing.(*slashing.StoreKeeper)
-	if !ok {
-		t.Fatalf("expected durable slashing keeper, got %T", runtime.Slashing)
-	}
-
-	evidence := slashing.Evidence{Type: slashing.EvidenceDoubleSign, Validator: "alice", Height: 1, Round: 0, Proof: []byte("proof")}
-	if err := keeper.SubmitEvidence(context.Background(), evidence); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := keeper.ApplyPenaltyWithStake(context.Background(), evidence, 100); err != nil {
-		t.Fatal(err)
-	}
-
-	reopened, err := slashing.NewStoreKeeper(storage, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	receipt, found, err := reopened.PenaltyReceipt(context.Background(), evidence)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !found || receipt.RemainingPower >= receipt.PreviousPower {
-		t.Fatalf("expected persisted slashing receipt, got found=%t receipt=%+v", found, receipt)
-	}
-}
-
-func TestRuntimeAppliesStakingSlashingPenalty(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := storage.Close(); err != nil {
-			t.Fatal(err)
-		}
-	})
-	stakingModule := staking.NewModule()
-	application, err := app.NewRuntime("vexo-test", []app.Module{stakingModule}, app.PrefixRouter{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	runtime, err := NewWithStore(config.Default("vexo-test"), application, []validator.Validator{
-		{ID: "validator-1", Address: "validator-1", VotingPower: 100, Stake: 100},
-	}, nil, storage)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := storage.Set(context.Background(), "bank", []byte("alice"), encodeRuntimeTestUint64(100)); err != nil {
-		t.Fatal(err)
-	}
-	publicKey := base64.StdEncoding.EncodeToString([]byte("validator-key"))
-	result := stakingModule.DeliverTx(app.Context{Ctx: context.Background(), Height: 1, Store: storage}, types.Tx("staking:delegate:alice:validator-1:100:"+publicKey))
-	if result.Code != 0 {
-		t.Fatalf("unexpected delegate result: %+v", result)
-	}
-	receipt := slashing.PenaltyReceipt{
-		Evidence: slashing.Evidence{
-			Type:      slashing.EvidenceConflictingVote,
-			Validator: "validator-1",
-			Height:    1,
-			Proof:     []byte("runtime-proof"),
-		},
-		PreviousPower:  100,
-		RemainingPower: 75,
-	}
-	if err := runtime.ApplyStakingSlashingPenalty(context.Background(), receipt); err != nil {
-		t.Fatal(err)
-	}
-	if err := runtime.ApplyStakingSlashingPenalty(context.Background(), receipt); err != nil {
-		t.Fatal(err)
-	}
-	stake, err := staking.Stake(context.Background(), storage, "alice", "validator-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	power, err := staking.ValidatorPower(context.Background(), storage, "validator-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stake != 75 || power != 75 {
-		t.Fatalf("expected runtime staking slash to 75, stake=%d power=%d", stake, power)
 	}
 }
 
@@ -446,8 +409,12 @@ func TestRuntimeBuildsEd25519FinalityVerifier(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := runtime.NewFinalityVerifier(context.Background(), 1); err != nil {
-		t.Fatal(err)
+	// The set of the first block loads and its keys are admitted; only the header's set hash,
+	// which names no real set, is wrong.
+	header := types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHeight: 1, ValidatorSetHash: types.Hash{0xEE}}
+	err = runtime.NewFinalityVerifier().VerifyBlockCertWithContext(context.Background(), header, finality.QuorumCert{Height: 1, BlockHash: finality.HeaderHash(header)})
+	if !errors.Is(err, finality.ErrValidatorSetMismatch) {
+		t.Fatalf("expected a validator set mismatch, got %v", err)
 	}
 }
 
@@ -465,7 +432,8 @@ func TestRuntimeContextCancellation(t *testing.T) {
 	if _, err := runtime.NewConsensusStateMachine(ctx, 1); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected consensus context canceled, got %v", err)
 	}
-	if _, err := runtime.NewFinalityVerifier(ctx, 1); !errors.Is(err, context.Canceled) {
+	header := types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHeight: 1}
+	if err := runtime.NewFinalityVerifier().VerifyBlockCertWithContext(ctx, header, finality.QuorumCert{Height: 1, BlockHash: finality.HeaderHash(header)}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected finality context canceled, got %v", err)
 	}
 }

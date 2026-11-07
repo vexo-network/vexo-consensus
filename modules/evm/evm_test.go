@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/big"
 	"strings"
 	"testing"
@@ -24,12 +25,19 @@ import (
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
+// nativeTx authorizes a native EVM transaction the way a verified signer does:
+// the signer tag names the caller, the first argument after the VM.
+func nativeTx(tx string) types.Tx {
+	parts := strings.Split(tx, ":")
+	return types.Tx(tx + ":signer=" + parts[3])
+}
+
 type testVM struct{}
 
 func (testVM) Name() string { return "evm" }
 
 func (testVM) Execute(ctx context.Context, invocation contract.Invocation) (contract.Result, error) {
-	return contract.Result{
+	result := contract.Result{
 		Output:  append([]byte("out:"), invocation.Input...),
 		GasUsed: 7,
 		StorageWrites: []contract.StorageWrite{{
@@ -42,7 +50,13 @@ func (testVM) Execute(ctx context.Context, invocation contract.Invocation) (cont
 			Data:    []byte("log"),
 			Meta:    map[string]string{"method": invocation.Method},
 		}},
-	}, nil
+	}
+	if invocation.Method == "deploy" {
+		// The deployed runtime code is whatever the VM returns; here the init
+		// code is its own runtime code.
+		result.CodeWrites = []contract.CodeWrite{{Address: invocation.Contract, Code: append([]byte(nil), invocation.Input...)}}
+	}
+	return result, nil
 }
 
 type deletionVM struct{}
@@ -252,7 +266,7 @@ func TestModuleExecutesAndPersistsReceiptsCodeAndLogs(t *testing.T) {
 	}
 	module := NewModuleWithRegistry(registry)
 	ctx := vexoapp.Context{Ctx: context.Background(), Height: 3, Store: storage}
-	deployTx := types.Tx("evm:deploy:evm:0xaaaa:6001:salt")
+	deployTx := nativeTx("evm:deploy:evm:0xaaaa:6001:salt")
 	result := module.DeliverTx(ctx, deployTx)
 	if result.Code != 0 {
 		t.Fatalf("deploy failed: %+v", result)
@@ -268,7 +282,7 @@ func TestModuleExecutesAndPersistsReceiptsCodeAndLogs(t *testing.T) {
 	if codeQuery.Code != 0 || !strings.Contains(string(codeQuery.Value), `"code":"6001"`) {
 		t.Fatalf("unexpected code query: %+v", codeQuery)
 	}
-	callTx := types.Tx("evm:call:evm:0xaaaa:" + deployReceipt.ContractAddress + ":transfer:aabb:100000")
+	callTx := nativeTx("evm:call:evm:0xaaaa:" + deployReceipt.ContractAddress + ":transfer:aabb:100000")
 	result = module.DeliverTx(ctx, callTx)
 	if result.Code != 0 {
 		t.Fatalf("call failed: %+v", result)
@@ -499,9 +513,7 @@ func TestModuleQueryCallPassesWeb3ExecutionContext(t *testing.T) {
 	if err := storage.Set(context.Background(), ModuleName, codeKey(contractAddress), []byte{0x60, 0x00}); err != nil {
 		t.Fatal(err)
 	}
-	if err := persistEthereumStateSnapshot(context.Background(), storage, 77); err != nil {
-		t.Fatal(err)
-	}
+	commitTestEVMState(t, storage, 77)
 	request, _ := json.Marshal(CallRequest{
 		VM:       "evm",
 		From:     "0x000000000000000000000000000000000000aaaa",
@@ -635,7 +647,7 @@ func TestModulePersistsNonceWritesIntoEthereumAccountState(t *testing.T) {
 	}
 
 	ctx := vexoapp.Context{Ctx: context.Background(), Height: 4, Store: storage}
-	result := module.DeliverTx(ctx, types.Tx("evm:call:evm:"+string(caller)+":"+string(contractAddress)+":call:00:100000"))
+	result := module.DeliverTx(ctx, nativeTx("evm:call:evm:"+string(caller)+":"+string(contractAddress)+":call:00:100000"))
 	if result.Code != 0 {
 		t.Fatalf("call failed: %+v", result)
 	}
@@ -677,13 +689,14 @@ func TestModulePersistsUint256EVMBalancesForEthereumProofs(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := vexoapp.Context{Ctx: context.Background(), Height: 9, Store: storage}
-	result := module.DeliverTx(ctx, types.Tx("evm:call:evm:0x000000000000000000000000000000000000aaaa:"+string(contractAddress)+":call:00:100000"))
+	result := module.DeliverTx(ctx, nativeTx("evm:call:evm:0x000000000000000000000000000000000000aaaa:"+string(contractAddress)+":call:00:100000"))
 	if result.Code != 0 {
 		t.Fatalf("call failed: %+v", result)
 	}
 	if err := module.EndBlock(ctx); err != nil {
 		t.Fatal(err)
 	}
+	commitTestEVMState(t, storage, 9)
 	proofRequest, _ := json.Marshal(ProofRequest{Address: string(contractAddress), Height: 9})
 	proofQuery := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"eth_proof"}, Data: proofRequest})
 	if proofQuery.Code != 0 {
@@ -716,7 +729,7 @@ func TestModuleEVMNativeCoinUsesBankNamespaceAsCanonicalBalance(t *testing.T) {
 	}
 
 	ctx := vexoapp.Context{Ctx: context.Background(), Height: 10, Store: storage}
-	result := module.DeliverTx(ctx, types.Tx("evm:call:evm:0x000000000000000000000000000000000000aaaa:"+string(contractAddress)+":call:00:100000"))
+	result := module.DeliverTx(ctx, nativeTx("evm:call:evm:0x000000000000000000000000000000000000aaaa:"+string(contractAddress)+":call:00:100000"))
 	if result.Code != 0 {
 		t.Fatalf("call failed: %+v", result)
 	}
@@ -749,7 +762,7 @@ func TestModulePersistsFailedEVMReceiptWithoutFailingBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := vexoapp.Context{Ctx: context.Background(), Height: 4, Store: storage}
-	result := module.DeliverTx(ctx, types.Tx("evm:call:evm:"+string(caller)+":"+string(contractAddress)+":call:00:100000"))
+	result := module.DeliverTx(ctx, nativeTx("evm:call:evm:"+string(caller)+":"+string(contractAddress)+":call:00:100000"))
 	if result.Code != 0 {
 		t.Fatalf("expected failed EVM execution to produce successful block result, got %+v", result)
 	}
@@ -945,7 +958,7 @@ func TestModulePersistsCodeWritesAccountDeletionsAndActualGas(t *testing.T) {
 		Store:  storage,
 		Gas:    vexoapp.NewGasMeter(100),
 	}
-	result := module.DeliverTx(ctx, types.Tx("evm:call:evm:0x000000000000000000000000000000000000aaaa:"+string(contractAddress)+":call:00:100000"))
+	result := module.DeliverTx(ctx, nativeTx("evm:call:evm:0x000000000000000000000000000000000000aaaa:"+string(contractAddress)+":call:00:100000"))
 	if result.Code != 0 {
 		t.Fatalf("call failed: %+v", result)
 	}
@@ -1003,7 +1016,7 @@ func TestDefaultModuleRunsGethEVMBytecode(t *testing.T) {
 	ctx := vexoapp.Context{Ctx: context.Background(), Height: 7, Store: storage}
 
 	initCode := "600a600c600039600a6000f3602a60005260206000f3"
-	deployTx := types.Tx("evm:deploy:evm:0x000000000000000000000000000000000000aaaa:" + initCode + ":01")
+	deployTx := nativeTx("evm:deploy:evm:0x000000000000000000000000000000000000aaaa:" + initCode + ":01")
 	result := module.DeliverTx(ctx, deployTx)
 	if result.Code != 0 {
 		t.Fatalf("deploy failed: %+v", result)
@@ -1017,7 +1030,7 @@ func TestDefaultModuleRunsGethEVMBytecode(t *testing.T) {
 		t.Fatalf("expected runtime code, got %+v", codeQuery)
 	}
 
-	callTx := types.Tx("evm:call:evm:0x000000000000000000000000000000000000aaaa:" + deployReceipt.ContractAddress + ":call:00:100000")
+	callTx := nativeTx("evm:call:evm:0x000000000000000000000000000000000000aaaa:" + deployReceipt.ContractAddress + ":call:00:100000")
 	result = module.DeliverTx(ctx, callTx)
 	if result.Code != 0 {
 		t.Fatalf("call failed: %+v", result)
@@ -1029,9 +1042,8 @@ func TestDefaultModuleRunsGethEVMBytecode(t *testing.T) {
 	if callReceipt.Output != "0x000000000000000000000000000000000000000000000000000000000000002a" {
 		t.Fatalf("unexpected EVM output: %+v", callReceipt)
 	}
-	trace, ok := callReceipt.VMTrace.(map[string]any)
-	if !ok || trace["structLogs"] == nil {
-		t.Fatalf("expected geth-backed VM trace in receipt, got %+v", callReceipt.VMTrace)
+	if strings.Contains(string(result.Data), "vm_trace") || strings.Contains(string(result.Data), "structLogs") {
+		t.Fatalf("receipts must not persist opcode traces: %s", result.Data)
 	}
 }
 
@@ -1045,7 +1057,7 @@ func TestDefaultModulePersistsGethEVMStorageWrites(t *testing.T) {
 	ctx := vexoapp.Context{Ctx: context.Background(), Height: 8, Store: storage}
 
 	initCode := "6006600c60003960066000f3600160005500"
-	deployTx := types.Tx("evm:deploy:evm:0x000000000000000000000000000000000000aaaa:" + initCode + ":02")
+	deployTx := nativeTx("evm:deploy:evm:0x000000000000000000000000000000000000aaaa:" + initCode + ":02")
 	result := module.DeliverTx(ctx, deployTx)
 	if result.Code != 0 {
 		t.Fatalf("deploy failed: %+v", result)
@@ -1054,7 +1066,7 @@ func TestDefaultModulePersistsGethEVMStorageWrites(t *testing.T) {
 	if err := json.Unmarshal(result.Data, &deployReceipt); err != nil {
 		t.Fatal(err)
 	}
-	callTx := types.Tx("evm:call:evm:0x000000000000000000000000000000000000aaaa:" + deployReceipt.ContractAddress + ":call:00:100000")
+	callTx := nativeTx("evm:call:evm:0x000000000000000000000000000000000000aaaa:" + deployReceipt.ContractAddress + ":call:00:100000")
 	result = module.DeliverTx(ctx, callTx)
 	if result.Code != 0 {
 		t.Fatalf("call failed: %+v", result)
@@ -1075,7 +1087,7 @@ func TestDefaultModuleQueryCallAllowsStateChangingSimulationWithoutPersisting(t 
 	ctx := vexoapp.Context{Ctx: context.Background(), Height: 8, Store: storage}
 
 	initCode := "6006600c60003960066000f3600160005500"
-	deployTx := types.Tx("evm:deploy:evm:0x000000000000000000000000000000000000aaaa:" + initCode + ":03")
+	deployTx := nativeTx("evm:deploy:evm:0x000000000000000000000000000000000000aaaa:" + initCode + ":03")
 	result := module.DeliverTx(ctx, deployTx)
 	if result.Code != 0 {
 		t.Fatalf("deploy failed: %+v", result)
@@ -1302,7 +1314,7 @@ func TestModuleEstimateGasCurrentAccountAndSnapshotReaders(t *testing.T) {
 	}
 	setTestEVMBalance(t, storage, address, 123)
 	setTestEVMNonce(t, storage, address, 9)
-	callTx := types.Tx("evm:call:evm:" + string(caller) + ":" + string(address) + ":transfer:aabb:100000:gas_price=3:nonce=7")
+	callTx := nativeTx("evm:call:evm:" + string(caller) + ":" + string(address) + ":transfer:aabb:100000:gas_price=3:nonce=7")
 	gas, err := module.EstimateGas(ctx, callTx)
 	if err != nil || gas != 17 {
 		t.Fatalf("unexpected call estimate gas=%d err=%v", gas, err)
@@ -1310,11 +1322,11 @@ func TestModuleEstimateGasCurrentAccountAndSnapshotReaders(t *testing.T) {
 	if recorder.invocation.BlockNumber != 15 || recorder.invocation.Timestamp != 3 || recorder.invocation.BaseFee != 11 || recorder.invocation.BlobBaseFee != 5 || recorder.invocation.Nonce != 7 {
 		t.Fatalf("unexpected estimated invocation: %+v", recorder.invocation)
 	}
-	deployGas, err := module.EstimateGas(ctx, types.Tx("evm:deploy:evm:"+string(caller)+":6001:salt:1"))
+	deployGas, err := module.EstimateGas(ctx, nativeTx("evm:deploy:evm:"+string(caller)+":6001:salt:1"))
 	if err != nil || deployGas != 17 {
 		t.Fatalf("unexpected deploy estimate gas=%d err=%v", deployGas, err)
 	}
-	ethDeployGas, err := module.EstimateGas(ctx, types.Tx("evm:eth_deploy:evm:"+string(caller)+":6001:2:1"))
+	ethDeployGas, err := module.EstimateGas(ctx, nativeTx("evm:eth_deploy:evm:"+string(caller)+":6001:2:1"))
 	if err != nil || ethDeployGas != 17 {
 		t.Fatalf("unexpected eth deploy estimate gas=%d err=%v", ethDeployGas, err)
 	}
@@ -1325,14 +1337,28 @@ func TestModuleEstimateGasCurrentAccountAndSnapshotReaders(t *testing.T) {
 	if accountQuery.Code != 0 || !strings.Contains(string(accountQuery.Value), `"balance":123`) || !strings.Contains(string(accountQuery.Value), `"nonce":9`) {
 		t.Fatalf("unexpected current account query: %+v", accountQuery)
 	}
-	reader := newEVMSnapshotStateReader(storage, []ethcompat.AccountState{{
-		Address:    canonicalAddressKey(address),
-		Balance:    77,
-		BalanceHex: "0x4d",
-		Nonce:      6,
-		Code:       []byte{0x60, 0x02},
-		Storage:    map[string][]byte{strings.TrimPrefix(normalizeSlot("0x01"), "0x"): {0x03}},
-	}})
+	commitTestEVMState(t, storage, 1)
+	setTestEVMBalance(t, storage, address, 77)
+	setTestEVMNonce(t, storage, address, 6)
+	if err := storage.Set(context.Background(), ModuleName, codeKey(address), []byte{0x60, 0x02}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Set(context.Background(), ModuleName, storageKey(address, "0x01"), []byte{0x03}); err != nil {
+		t.Fatal(err)
+	}
+	commitTestEVMState(t, storage, 2)
+	setTestEVMBalance(t, storage, address, 1)
+	historical, err := stateReaderForCall(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balance, err := historical.Balance(context.Background(), address); err != nil || balance != 123 {
+		t.Fatalf("unexpected height 1 balance=%d err=%v", balance, err)
+	}
+	reader, err := stateReaderForCall(ctx, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if code, err := reader.Code(context.Background(), address); err != nil || !bytes.Equal(code, []byte{0x60, 0x02}) {
 		t.Fatalf("unexpected snapshot code=%x err=%v", code, err)
 	}
@@ -1376,7 +1402,7 @@ func TestModuleEstimateGasCurrentAccountAndSnapshotReaders(t *testing.T) {
 	if hashes := parseBlobHashes([]string{strings.Repeat("01", 32), "bad"}); hashes != nil {
 		t.Fatalf("expected invalid blob hashes to fail closed, got %+v", hashes)
 	}
-	if err := validateEthereumRawTx(ctx, types.Tx("evm:call:evm:a:b:c:d:1")); err != nil {
+	if err := NewModuleWithRegistry(contract.NewRegistry()).validateEthereumRawTx(ctx, types.Tx("evm:call:evm:a:b:c:d:1")); err != nil {
 		t.Fatalf("expected non-ethereum tx validation to no-op, got %v", err)
 	}
 }
@@ -1388,13 +1414,13 @@ func TestModuleEstimateGasRejectsZeroGasVMResult(t *testing.T) {
 	}
 	module := NewModuleWithRegistry(registry)
 	ctx := vexoapp.Context{Ctx: context.Background(), Height: 1}
-	tx := types.Tx("evm:call:evm:0x000000000000000000000000000000000000aaaa:0x000000000000000000000000000000000000beef:transfer:aabb:100000")
+	tx := nativeTx("evm:call:evm:0x000000000000000000000000000000000000aaaa:0x000000000000000000000000000000000000beef:transfer:aabb:100000")
 	if _, err := module.EstimateGas(ctx, tx); !errors.Is(err, ErrInvalidEVMGasEstimate) {
 		t.Fatalf("expected zero-gas estimate rejection, got %v", err)
 	}
 }
 
-func TestModulePersistsHistoricalEthereumStateSnapshots(t *testing.T) {
+func TestModuleServesHistoricalEthereumStateFromStoreVersions(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -1410,9 +1436,7 @@ func TestModulePersistsHistoricalEthereumStateSnapshots(t *testing.T) {
 	if err := storage.Set(context.Background(), ModuleName, storageKey(address, "0x01"), []byte{0x01}); err != nil {
 		t.Fatal(err)
 	}
-	if err := module.EndBlock(vexoapp.Context{Ctx: context.Background(), Height: 1, Store: storage}); err != nil {
-		t.Fatal(err)
-	}
+	commitTestEVMState(t, storage, 1)
 	setTestEVMBalance(t, storage, address, 20)
 	setTestEVMNonce(t, storage, address, 2)
 	if err := storage.Set(context.Background(), ModuleName, codeKey(address), []byte{0x60, 0x02}); err != nil {
@@ -1421,9 +1445,7 @@ func TestModulePersistsHistoricalEthereumStateSnapshots(t *testing.T) {
 	if err := storage.Set(context.Background(), ModuleName, storageKey(address, "0x01"), []byte{0x02}); err != nil {
 		t.Fatal(err)
 	}
-	if err := module.EndBlock(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}); err != nil {
-		t.Fatal(err)
-	}
+	commitTestEVMState(t, storage, 2)
 	firstRequest, _ := json.Marshal(ProofRequest{Address: string(address), Height: 1})
 	firstQuery := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}, vexoapp.QueryRequest{Path: []string{"eth_proof"}, Data: firstRequest})
 	if firstQuery.Code != 0 {
@@ -1467,70 +1489,45 @@ func TestModulePersistsHistoricalEthereumStateSnapshots(t *testing.T) {
 	}
 }
 
-func TestModuleReusesUnchangedEthereumStateSnapshotAccounts(t *testing.T) {
+// The module keeps no per-block copy of the Ethereum state: a block that
+// changes no account writes nothing for it, however many accounts exist, and
+// historical reads come from the store's versions of the keys that changed.
+func TestEndBlockWritesNoPerBlockCopyOfEthereumState(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer storage.Close()
 	module := NewModule()
-	address := types.Address("0x000000000000000000000000000000000000beef")
-	setTestEVMBalance(t, storage, address, 10)
-	if err := module.EndBlock(vexoapp.Context{Ctx: context.Background(), Height: 1, Store: storage}); err != nil {
-		t.Fatal(err)
+	for index := 0; index < 64; index++ {
+		setTestEVMBalance(t, storage, types.Address(fmt.Sprintf("0x%040x", index+1)), uint64(index+10))
 	}
-	if err := module.EndBlock(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}); err != nil {
-		t.Fatal(err)
-	}
-	meta, err := ethereumStateSnapshotMetaAt(context.Background(), storage, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if meta.ReferenceHeight != 1 {
-		t.Fatalf("expected unchanged snapshot to reference height 1, got %+v", meta)
-	}
-	if _, err := storage.Get(context.Background(), ethereumStateSnapshotNamespace, ethereumStateSnapshotAccountKey(2, address)); !errors.Is(err, store.ErrKeyNotFound) {
-		t.Fatalf("expected no duplicate account snapshot at height 2, got %v", err)
+	address := types.Address(fmt.Sprintf("0x%040x", 1))
+	for height := types.Height(1); height <= 3; height++ {
+		staged := vexoapp.NewStagedStore(storage)
+		if err := module.EndBlock(vexoapp.Context{Ctx: context.Background(), Height: height, Store: staged}); err != nil {
+			t.Fatal(err)
+		}
+		if writes := staged.Writes(); len(writes) != 0 {
+			t.Fatalf("EndBlock at height %d wrote %d keys for an unchanged state", height, len(writes))
+		}
+		commitTestEVMState(t, storage, height)
 	}
 	request, _ := json.Marshal(ProofRequest{Address: string(address), Height: 2})
-	query := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}, vexoapp.QueryRequest{Path: []string{"eth_proof"}, Data: request})
+	query := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 3, Store: storage}, vexoapp.QueryRequest{Path: []string{"eth_proof"}, Data: request})
 	if query.Code != 0 {
-		t.Fatalf("unexpected referenced proof query: %+v", query)
+		t.Fatalf("unexpected historical proof query: %+v", query)
 	}
 	var proof ethcompat.AccountProof
 	if err := json.Unmarshal(query.Value, &proof); err != nil {
 		t.Fatal(err)
 	}
 	if proof.Balance != "0xa" {
-		t.Fatalf("unexpected referenced snapshot proof: %+v", proof)
+		t.Fatalf("unexpected historical proof: %+v", proof)
 	}
-}
-
-func TestModuleSnapshotsUseStagedStoreOverlay(t *testing.T) {
-	storage, err := store.OpenLevelDB(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer storage.Close()
-	module := NewModule()
-	address := types.Address("0x000000000000000000000000000000000000beef")
-	setTestEVMBalance(t, storage, address, 10)
-	staged := vexoapp.NewStagedStore(storage)
-	setTestEVMBalance(t, staged, address, 25)
-	if err := module.EndBlock(vexoapp.Context{Ctx: context.Background(), Height: 3, Store: staged}); err != nil {
-		t.Fatal(err)
-	}
-	request, _ := json.Marshal(ProofRequest{Address: string(address), Height: 3})
-	query := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 3, Store: staged}, vexoapp.QueryRequest{Path: []string{"eth_proof"}, Data: request})
-	if query.Code != 0 {
-		t.Fatalf("unexpected staged proof query: %+v", query)
-	}
-	var proof ethcompat.AccountProof
-	if err := json.Unmarshal(query.Value, &proof); err != nil {
-		t.Fatal(err)
-	}
-	if proof.Balance != "0x19" {
-		t.Fatalf("expected staged balance in snapshot, got %+v", proof)
+	unavailable, _ := json.Marshal(ProofRequest{Address: string(address), Height: 9})
+	if query := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 3, Store: storage}, vexoapp.QueryRequest{Path: []string{"eth_proof"}, Data: unavailable}); query.Code != 3 {
+		t.Fatalf("expected an uncommitted height to be unavailable, got %+v", query)
 	}
 }
 
@@ -1548,20 +1545,7 @@ func TestEVMWritesRequireAtomicBatchStore(t *testing.T) {
 	}
 }
 
-func TestEthereumStateSnapshotRequiresAtomicBatchStore(t *testing.T) {
-	storage := newNonBatchStore()
-	address := types.Address("0x0000000000000000000000000000000000000abc")
-	setTestEVMBalance(t, storage, address, 25)
-	err := persistEthereumStateSnapshot(context.Background(), storage, 7)
-	if !errors.Is(err, ErrAtomicStoreRequired) {
-		t.Fatalf("expected atomic store error, got %v", err)
-	}
-	if _, err := storage.Get(context.Background(), ethereumStateSnapshotNamespace, ethereumStateSnapshotMetaKey(7)); err == nil {
-		t.Fatalf("expected no partial EVM snapshot metadata on non-batch store")
-	}
-}
-
-func TestModulePrunesHistoricalEthereumStateSnapshots(t *testing.T) {
+func TestPrunedHeightsHaveNoHistoricalEthereumState(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -1570,36 +1554,32 @@ func TestModulePrunesHistoricalEthereumStateSnapshots(t *testing.T) {
 	module := NewModule()
 	address := types.Address("0x000000000000000000000000000000000000beef")
 	setTestEVMBalance(t, storage, address, 10)
-	if err := module.EndBlock(vexoapp.Context{Ctx: context.Background(), Height: 1, Store: storage}); err != nil {
-		t.Fatal(err)
-	}
+	commitTestEVMState(t, storage, 1)
 	setTestEVMBalance(t, storage, address, 20)
-	if err := module.EndBlock(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}); err != nil {
+	commitTestEVMState(t, storage, 2)
+	setTestEVMBalance(t, storage, address, 30)
+	commitTestEVMState(t, storage, 3)
+	if _, err := storage.PruneBelow(context.Background(), 2); err != nil {
 		t.Fatal(err)
 	}
-	rootBeforePrune, err := storage.Root(context.Background(), ModuleName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := module.Prune(vexoapp.Context{Ctx: context.Background(), Store: storage}, 2); err != nil {
-		t.Fatal(err)
-	}
-	rootAfterPrune, err := storage.Root(context.Background(), ModuleName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rootAfterPrune != rootBeforePrune {
-		t.Fatalf("EVM snapshot pruning must not mutate consensus module root: before=%x after=%x", rootBeforePrune, rootAfterPrune)
-	}
+	ctx := vexoapp.Context{Ctx: context.Background(), Height: 3, Store: storage}
 	firstRequest, _ := json.Marshal(ProofRequest{Address: string(address), Height: 1})
-	firstQuery := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}, vexoapp.QueryRequest{Path: []string{"eth_proof"}, Data: firstRequest})
-	if firstQuery.Code == 0 {
-		t.Fatalf("expected pruned historical proof to be unavailable, got %+v", firstQuery)
+	if query := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"eth_proof"}, Data: firstRequest}); query.Code != 3 {
+		t.Fatalf("expected pruned historical proof to be unavailable, got %+v", query)
 	}
-	secondRequest, _ := json.Marshal(ProofRequest{Address: string(address), Height: 2})
-	secondQuery := module.Query(vexoapp.Context{Ctx: context.Background(), Height: 2, Store: storage}, vexoapp.QueryRequest{Path: []string{"eth_proof"}, Data: secondRequest})
-	if secondQuery.Code != 0 {
-		t.Fatalf("expected retained historical proof, got %+v", secondQuery)
+	for height, want := range map[uint64]string{2: "0x14", 3: "0x1e"} {
+		request, _ := json.Marshal(ProofRequest{Address: string(address), Height: height})
+		query := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"eth_proof"}, Data: request})
+		if query.Code != 0 {
+			t.Fatalf("expected retained historical proof at %d, got %+v", height, query)
+		}
+		var proof ethcompat.AccountProof
+		if err := json.Unmarshal(query.Value, &proof); err != nil {
+			t.Fatal(err)
+		}
+		if proof.Balance != want {
+			t.Fatalf("balance at height %d = %s, want %s", height, proof.Balance, want)
+		}
 	}
 }
 
@@ -1648,14 +1628,23 @@ func TestModulePrunesHistoricalEthereumReceiptsLogsAndBlobSidecars(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := storage.Set(ctx, ModuleName, blobSidecarKey(record.TxHash), encodedRecord); err != nil {
+	if err := storage.Set(ctx, ReceiptNamespace, blobSidecarKey(record.TxHash), encodedRecord); err != nil {
 		t.Fatal(err)
 	}
-	if err := storage.Set(ctx, ModuleName, blobSidecarHashIndexKey(record.Sidecar.BlobHashes[0]), []byte(record.TxHash)); err != nil {
+	if err := storage.Set(ctx, ReceiptNamespace, blobSidecarHashIndexKey(record.Sidecar.BlobHashes[0]), []byte(record.TxHash)); err != nil {
+		t.Fatal(err)
+	}
+	rootBefore, err := storage.Root(ctx, ModuleName)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := module.Prune(vexoapp.Context{Ctx: ctx, Store: storage}, 2); err != nil {
 		t.Fatal(err)
+	}
+	// Pruning is local: a node that prunes must keep computing the app hash
+	// every other node computes, so it may not touch the module's state.
+	if rootAfter, err := storage.Root(ctx, ModuleName); err != nil || rootAfter != rootBefore {
+		t.Fatalf("pruning receipts changed the consensus EVM root: before=%x after=%x err=%v", rootBefore, rootAfter, err)
 	}
 	for _, key := range [][]byte{
 		receiptKey(oldReceipt.TxHash),
@@ -1665,14 +1654,14 @@ func TestModulePrunesHistoricalEthereumReceiptsLogsAndBlobSidecars(t *testing.T)
 		blobSidecarKey(oldReceipt.TxHash),
 		blobSidecarHashIndexKey(record.Sidecar.BlobHashes[0]),
 	} {
-		if _, err := storage.Get(ctx, ModuleName, key); !errors.Is(err, store.ErrKeyNotFound) {
+		if _, err := storage.Get(ctx, ReceiptNamespace, key); !errors.Is(err, store.ErrKeyNotFound) {
 			t.Fatalf("expected old EVM history key %q to be pruned, got %v", key, err)
 		}
 	}
-	if _, err := storage.Get(ctx, ModuleName, receiptKey(newReceipt.TxHash)); err != nil {
+	if _, err := storage.Get(ctx, ReceiptNamespace, receiptKey(newReceipt.TxHash)); err != nil {
 		t.Fatalf("expected retained receipt, got %v", err)
 	}
-	if _, err := storage.Get(ctx, ModuleName, receiptIndexKey(newReceipt.TxHash)); err != nil {
+	if _, err := storage.Get(ctx, ReceiptNamespace, receiptIndexKey(newReceipt.TxHash)); err != nil {
 		t.Fatalf("expected retained receipt index, got %v", err)
 	}
 }
@@ -1816,7 +1805,7 @@ func TestModulePersistsAndQueriesBlobSidecar(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := vexoapp.Context{Ctx: context.Background(), Store: storage}
-	byTx := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"blob_sidecar", "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}})
+	byTx := module.Query(ctx, vexoapp.QueryRequest{Path: []string{"blob_sidecar", TxHash(tx)}})
 	if byTx.Code != 0 || !strings.Contains(string(byTx.Value), bundle.BlobHashes[0]) {
 		t.Fatalf("expected blob sidecar by tx hash, got %+v", byTx)
 	}
@@ -1856,6 +1845,7 @@ func TestModuleRejectsBlobSidecarPolicyViolations(t *testing.T) {
 		Action: "call",
 		Args:   []string{"evm", "0xaaaa", "0xbbbb", "call", "", "21000", "0"},
 		Tags: map[string]string{
+			"signer":                 "0xaaaa",
 			ethcompat.TagHash:        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			ethcompat.TagBlobHashes:  base64.RawStdEncoding.EncodeToString(encodedHashes),
 			ethcompat.TagBlobSidecar: encodedSidecar,
@@ -1890,6 +1880,7 @@ func TestModuleRejectsBlobSidecarPolicyViolations(t *testing.T) {
 		Action: "call",
 		Args:   []string{"evm", "0xaaaa", "0xbbbb", "call", "", "21000", "0"},
 		Tags: map[string]string{
+			"signer":                 "0xaaaa",
 			ethcompat.TagHash:        "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 			ethcompat.TagBlobHashes:  base64.RawStdEncoding.EncodeToString(twoBlobHashes),
 			ethcompat.TagBlobSidecar: twoBlobSidecar,
@@ -1904,6 +1895,21 @@ func TestModuleRejectsBlobSidecarPolicyViolations(t *testing.T) {
 	}
 	if err := limitedByCount.ValidateTx(vexoapp.Context{ChainID: "vexo-chain"}, twoBlobTx); !errors.Is(err, ethcompat.ErrInvalidBlobSidecar) {
 		t.Fatalf("expected sidecar blob count limit rejection, got %v", err)
+	}
+}
+
+// commitTestEVMState commits the store's state at height, as a block commit
+// does. Direct writes made before it take effect at its height.
+func commitTestEVMState(t *testing.T, storage *store.LevelDBStore, height types.Height) {
+	t.Helper()
+	if err := storage.CommitBlockStateWithWrites(
+		context.Background(),
+		nil,
+		store.BlockRecord{Block: types.Block{Header: types.Header{Height: height}}, Hash: types.Hash{byte(height), 0xe7}},
+		store.StateRecord{Height: height},
+		nil,
+	); err != nil {
+		t.Fatal(err)
 	}
 }
 

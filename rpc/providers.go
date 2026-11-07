@@ -5,7 +5,6 @@ import (
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/committee"
-	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/events"
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/node"
@@ -25,8 +24,13 @@ type MetricsProvider interface {
 	Metrics(ctx context.Context) (node.Metrics, error)
 }
 
+// SnapshotProvider exposes the latest committed state. StateSnapshotHead is cheap; StateSnapshot
+// copies every key-value pair of the application state.
 type SnapshotProvider interface {
-	StateSnapshot(ctx context.Context) (node.StateSnapshot, error)
+	StateSnapshotHead(ctx context.Context) (node.StateSnapshotHead, error)
+	// StateSnapshot exports the state committed block blockHeight anchors (see
+	// node.StateSnapshot); 0 selects the latest committed block.
+	StateSnapshot(ctx context.Context, blockHeight types.Height) (node.StateSnapshot, error)
 }
 
 type RecoveryProvider interface {
@@ -50,8 +54,11 @@ type PendingTxSnapshotProvider interface {
 	PendingTxSnapshot(ctx context.Context) ([]types.Tx, error)
 }
 
+// EvidenceSubmitter verifies, pools and gossips evidence. It changes no consensus state: the
+// returned hash identifies the evidence payload a reporter wraps in a transaction to bring it to a
+// block, and the offence is punished only when a block carries that transaction.
 type EvidenceSubmitter interface {
-	SubmitEvidence(ctx context.Context, evidence slashing.Evidence) (consensus.SlashResult, bool, error)
+	SubmitEvidence(ctx context.Context, evidence slashing.Evidence) (types.Hash, error)
 }
 
 type BlockProvider interface {

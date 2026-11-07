@@ -32,10 +32,11 @@ func TestStateMachineVerifiesProposalAndVoteDomains(t *testing.T) {
 		{ID: "c", PublicKey: thirdSigner.PublicKey(), VotingPower: 1},
 	})
 	machine, err := NewStateMachine(StateMachineConfig{
-		ChainID:      "vexo-test",
-		ValidatorSet: set,
-		Signatures:   vexocrypto.DeterministicSigner{},
-		Aggregator:   vexocrypto.DeterministicAggregateSigner{},
+		ChainID:           "vexo-test",
+		ValidatorSet:      set,
+		Signatures:        vexocrypto.DeterministicSigner{},
+		Aggregator:        vexocrypto.DeterministicAggregateSigner{},
+		AggregateVerifier: vexocrypto.DeterministicAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -122,10 +123,11 @@ func TestStateMachineVerifiesTimeoutVoteDomain(t *testing.T) {
 		{ID: "c", PublicKey: thirdSigner.PublicKey(), VotingPower: 1},
 	})
 	machine, err := NewStateMachine(StateMachineConfig{
-		ChainID:      "vexo-test",
-		ValidatorSet: set,
-		Signatures:   vexocrypto.DeterministicSigner{},
-		Aggregator:   vexocrypto.DeterministicAggregateSigner{},
+		ChainID:           "vexo-test",
+		ValidatorSet:      set,
+		Signatures:        vexocrypto.DeterministicSigner{},
+		Aggregator:        vexocrypto.DeterministicAggregateSigner{},
+		AggregateVerifier: vexocrypto.DeterministicAggregateSigner{},
 	})
 	if err != nil {
 		t.Fatal(err)

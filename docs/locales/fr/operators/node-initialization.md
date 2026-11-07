@@ -296,7 +296,7 @@ Exemple `module_config.json` :
 {
   "schema_version": "v1",
   "application": {
-    "Modules": ["bank", "staking", "governance", "params", "ibc"]
+    "Modules": ["bank", "staking", "governance", "params", "ibc", "slashing"]
   },
   "execution": {
     "RequireSigned": true,
@@ -674,3 +674,17 @@ Cette annexe garantit que la traduction conserve les interfaces exécutables et 
 
 - `EVMForkPreset: "latest"`
 - `params.ChainConfig`
+- `https://remix.ethereum.org` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `rpc.cors_allowed_origins` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `rpc.admin_token` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `rpc.admin_tokens` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `rpc.allowed_hosts` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `state_sync.trust_height` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `state_sync.trust_hash` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `trust_hash` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `ValidatorSetHeight - 1` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `vexod snapshot restore` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `chunk-restore` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `--trust-height` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `--trust-hash` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `vexod snapshot export --height` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.

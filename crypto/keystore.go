@@ -1,19 +1,14 @@
 package crypto
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ed25519"
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
-	"crypto/sha512"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash"
 	"os"
 	"time"
 
@@ -28,11 +23,26 @@ const (
 	KeyDocumentVersionV1  = "v1"
 	KeyEncryptionAESGCM   = "aes-256-gcm"
 	KeyKDFArgon2ID        = "argon2id"
-	KeyKDFPBKDF2SHA256    = "pbkdf2-sha256"
-	KeyKDFPBKDF2SHA512    = "pbkdf2-sha512"
 	defaultKDFIterations  = 2
 	defaultKDFMemoryKiB   = 19 * 1024
 	defaultKDFParallelism = 1
+)
+
+// Bounds on the argon2id parameters read from a key file. The lower bounds are the shipped
+// defaults, so a file cannot downgrade the cost of guessing its passphrase; the upper bounds stop
+// a hostile file from exhausting the CPU or memory of the process that opens it.
+const (
+	minKDFIterations  = defaultKDFIterations
+	maxKDFIterations  = 16
+	minKDFMemoryKiB   = defaultKDFMemoryKiB
+	maxKDFMemoryKiB   = 1 << 20
+	minKDFParallelism = defaultKDFParallelism
+	maxKDFParallelism = 16
+	minKDFSaltBytes   = 16
+	maxKDFSaltBytes   = 64
+	// keyEncryptionNonceBytes is the AES-GCM standard nonce size; any other length makes
+	// cipher.AEAD.Open panic.
+	keyEncryptionNonceBytes = 12
 )
 
 var (
@@ -326,25 +336,27 @@ func decryptKeyMaterial(encryption KeyEncryption, passphrase string) ([]byte, er
 	if passphrase == "" {
 		return nil, ErrMissingPassphrase
 	}
-	if encryption.Algorithm != KeyEncryptionAESGCM || encryption.Iterations <= 0 {
+	if encryption.Algorithm != KeyEncryptionAESGCM || encryption.KDF != KeyKDFArgon2ID {
+		return nil, ErrInvalidKeyEncryption
+	}
+	if encryption.Iterations < minKDFIterations || encryption.Iterations > maxKDFIterations ||
+		encryption.MemoryKiB < minKDFMemoryKiB || encryption.MemoryKiB > maxKDFMemoryKiB ||
+		encryption.Parallelism < minKDFParallelism || encryption.Parallelism > maxKDFParallelism {
 		return nil, ErrInvalidKeyEncryption
 	}
 	salt, err := base64.StdEncoding.DecodeString(encryption.Salt)
-	if err != nil {
+	if err != nil || len(salt) < minKDFSaltBytes || len(salt) > maxKDFSaltBytes {
 		return nil, ErrInvalidKeyEncryption
 	}
 	nonce, err := base64.StdEncoding.DecodeString(encryption.Nonce)
-	if err != nil {
+	if err != nil || len(nonce) != keyEncryptionNonceBytes {
 		return nil, ErrInvalidKeyEncryption
 	}
 	ciphertext, err := base64.StdEncoding.DecodeString(encryption.Ciphertext)
 	if err != nil {
 		return nil, ErrInvalidKeyEncryption
 	}
-	key, err := deriveKey(encryption, []byte(passphrase), salt, 32)
-	if err != nil {
-		return nil, err
-	}
+	key := deriveArgon2IDKey([]byte(passphrase), salt, encryption.Iterations, encryption.MemoryKiB, encryption.Parallelism, 32)
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
@@ -353,64 +365,12 @@ func decryptKeyMaterial(encryption KeyEncryption, passphrase string) ([]byte, er
 	if err != nil {
 		return nil, err
 	}
-	return aead.Open(nil, nonce, ciphertext, nil)
-}
-
-func deriveKey(encryption KeyEncryption, password []byte, salt []byte, keyLen int) ([]byte, error) {
-	switch encryption.KDF {
-	case KeyKDFArgon2ID:
-		memory := encryption.MemoryKiB
-		if memory == 0 {
-			memory = defaultKDFMemoryKiB
-		}
-		parallelism := encryption.Parallelism
-		if parallelism == 0 {
-			parallelism = defaultKDFParallelism
-		}
-		return deriveArgon2IDKey(password, salt, encryption.Iterations, memory, parallelism, uint32(keyLen)), nil
-	default:
-		hashFunc, err := keyDerivationHash(encryption.KDF)
-		if err != nil {
-			return nil, err
-		}
-		return pbkdf2Key(password, salt, encryption.Iterations, keyLen, hashFunc), nil
+	if len(nonce) != aead.NonceSize() {
+		return nil, ErrInvalidKeyEncryption
 	}
+	return aead.Open(nil, nonce, ciphertext, nil)
 }
 
 func deriveArgon2IDKey(password []byte, salt []byte, iterations int, memoryKiB uint32, parallelism uint8, keyLen uint32) []byte {
 	return argon2.IDKey(password, salt, uint32(iterations), memoryKiB, parallelism, keyLen)
-}
-
-func keyDerivationHash(kdf string) (func() hash.Hash, error) {
-	switch kdf {
-	case KeyKDFPBKDF2SHA256:
-		return sha256.New, nil
-	case KeyKDFPBKDF2SHA512:
-		return sha512.New, nil
-	default:
-		return nil, ErrInvalidKeyEncryption
-	}
-}
-
-func pbkdf2Key(password []byte, salt []byte, iterations int, keyLen int, hashFunc func() hash.Hash) []byte {
-	hashLength := hashFunc().Size()
-	blockCount := (keyLen + hashLength - 1) / hashLength
-	var derived bytes.Buffer
-	for block := 1; block <= blockCount; block++ {
-		mac := hmac.New(hashFunc, password)
-		mac.Write(salt)
-		mac.Write([]byte{byte(block >> 24), byte(block >> 16), byte(block >> 8), byte(block)})
-		sum := mac.Sum(nil)
-		output := append([]byte(nil), sum...)
-		for i := 1; i < iterations; i++ {
-			mac = hmac.New(hashFunc, password)
-			mac.Write(sum)
-			sum = mac.Sum(nil)
-			for j := range output {
-				output[j] ^= sum[j]
-			}
-		}
-		derived.Write(output)
-	}
-	return derived.Bytes()[:keyLen]
 }

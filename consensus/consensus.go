@@ -16,12 +16,16 @@ const (
 	PhaseCommit  Phase = "commit"
 )
 
+// Proposal carries a block proposed in a global view (Round). JustifyQC certifies the
+// parent block. TimeoutCert is required exactly when Round does not directly follow the
+// round of JustifyQC: it proves that a quorum timed out in view Round-1.
 type Proposal struct {
-	Block     types.Block
-	Round     types.Round
-	Proposer  types.ValidatorID
-	JustifyQC finality.QuorumCert
-	Signature types.Signature
+	Block       types.Block
+	Round       types.Round
+	Proposer    types.ValidatorID
+	JustifyQC   finality.QuorumCert
+	TimeoutCert finality.TimeoutCert
+	Signature   types.Signature
 }
 
 type Vote struct {

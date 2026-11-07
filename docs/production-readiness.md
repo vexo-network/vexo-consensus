@@ -47,7 +47,7 @@ Never promote a network by changing a mode flag. Promote it by replacing weak as
 | Runtime/app state | `app`, `runtime`, `modules/*`, `store`, `kvbatch` | `docs/sdk/app-module-guide.md`, `docs/specs/storage-schema.md` | Atomic staged commits, deterministic replay, schema compatibility, module-owned indexes |
 | Transactions/economics | `app`, `economics`, `mempool`, `modules/bank`, `modules/staking` | `docs/specs/tx-format.md`, `docs/specs/evm-native-accounting.md` | Signed tx admission, nonce policy, base fee/blob base fee, gas accounting, fee collection/distribution |
 | EVM/Web3 | `contract`, `modules/evm`, `rpc` | `docs/specs/evm-native-accounting.md`, `docs/sdk/rpc-api-versioning.md` | Geth-backed VM behavior, native balance integration, Web3 RPC conformance, external fixture corpus |
-| Crypto/key custody | `crypto`, `cmd/vexod keys` | `docs/sdk/custom-crypto-backend.md`, `docs/security/audit-readiness.md` | BLS/VRF metadata, PoP/rogue-key defense, remote signer policy, double-sign guard, audit evidence |
+| Crypto/key custody | `crypto`, `cmd/vexod keys` | `docs/sdk/custom-crypto-backend.md`, `docs/security/audit-readiness.md` | BLS/VRF metadata, PoP/rogue-key defense, remote signer policy, view high-water-mark double-sign guard, audit evidence |
 | Networking | `transport`, `p2p`, `node` | `docs/specs/networking-spec.md`, `docs/operators/node-initialization.md` | Chain/genesis-bound handshake, durable replay protection, peer scoring, ban/backoff, rate limits |
 | State sync/recovery | `store`, `runtime`, `node`, `queryproof` | `docs/specs/storage-schema.md`, `docs/release/launch-runbook.md` | Snapshot verification, replay health, pruning safety, latest safe height recovery |
 | Operations/release | `ops`, `cmd/vexod`, `rpc` | `docs/operators/observability.md`, `docs/release/release-pipeline.md` | Metrics thresholds, logs, signed artifacts, SBOM, evidence manifest, rollback plan |
@@ -134,7 +134,7 @@ Unsupported Ethereum namespaces are intentional when they refer to Ethereum node
 - BLS validators need proof-of-possession metadata and audit evidence for the selected adapter.
 - VRF committee selection needs verifiable proofs, audited metadata, and key-source evidence.
 - Deterministic crypto must remain test-only.
-- Remote signers must enforce height/round/type sign policy and keep a durable double-sign guard.
+- Remote signers must read the statement kind, height and view from the bytes they sign, enforce the sign policy on them, and keep a durable per-key view high-water-mark double-sign guard.
 - Remote signer and remote VRF services need replay-nonce storage, auth, TLS/mTLS or pinned CA, audit logs, and key access controls.
 - Operators should document key generation, backup, rotation, revocation, and incident response before joining a public network.
 

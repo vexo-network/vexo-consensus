@@ -3,6 +3,7 @@ package crypto
 import (
 	"encoding/base64"
 	"errors"
+	"sync"
 
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
@@ -11,13 +12,12 @@ import (
 const BLSProofOfPossessionMetadataKey = "bls_pop"
 
 var (
-	ErrMissingBLSValidatorID    = errors.New("bls validator id is required")
-	ErrMissingBLSPublicKey      = errors.New("bls public key is required")
-	ErrMissingBLSProof          = errors.New("bls proof of possession is required")
-	ErrInvalidBLSPublicKey      = errors.New("bls public key is invalid")
-	ErrInvalidBLSProof          = errors.New("bls proof of possession is invalid")
-	ErrDuplicateBLSPublicKey    = errors.New("duplicate bls public key")
-	ErrUnregisteredBLSPublicKey = errors.New("unregistered bls public key")
+	ErrMissingBLSValidatorID = errors.New("bls validator id is required")
+	ErrMissingBLSPublicKey   = errors.New("bls public key is required")
+	ErrMissingBLSProof       = errors.New("bls proof of possession is required")
+	ErrInvalidBLSPublicKey   = errors.New("bls public key is invalid")
+	ErrInvalidBLSProof       = errors.New("bls proof of possession is invalid")
+	ErrDuplicateBLSPublicKey = errors.New("duplicate bls public key")
 )
 
 type BLSValidatorCredential struct {
@@ -26,52 +26,100 @@ type BLSValidatorCredential struct {
 	ProofOfPossession types.Signature
 }
 
-type BLSAggregateVerifier struct {
-	adapter        BLSAdapter
-	registeredKeys map[string]struct{}
+// BLSKeyRegistry holds the BLS public keys whose proof of possession has been verified and
+// verifies aggregate signatures only over registered keys. Same-message aggregation is only sound
+// against rogue-key attacks when every aggregated key has proven possession of its secret, so an
+// unregistered key never verifies: the registry fails closed.
+//
+// Validator keys change with the validator set, so keys are registered per validator-set snapshot
+// with Register or RegisterValidators before that snapshot is used to verify a certificate.
+// Verified keys are kept for the life of the registry because certificates for older heights stay
+// verifiable against the older validator sets. The registry is safe for concurrent use.
+type BLSKeyRegistry struct {
+	adapter  BLSAdapter
+	mu       sync.RWMutex
+	verified map[string]string
 }
 
-func NewBLSAggregateVerifier(adapter BLSAdapter, credentials []BLSValidatorCredential) (BLSAggregateVerifier, error) {
+func NewBLSKeyRegistry(adapter BLSAdapter) (*BLSKeyRegistry, error) {
 	if err := ValidateBLSAdapter(adapter); err != nil {
-		return BLSAggregateVerifier{}, err
+		return nil, err
 	}
-	registeredKeys, err := ValidateBLSValidatorCredentials(adapter, credentials)
-	if err != nil {
-		return BLSAggregateVerifier{}, err
-	}
-	return BLSAggregateVerifier{adapter: adapter, registeredKeys: registeredKeys}, nil
+	return &BLSKeyRegistry{adapter: adapter, verified: make(map[string]string)}, nil
 }
 
-func (verifier BLSAggregateVerifier) VerifyAggregate(publicKeys []types.PublicKey, message []byte, signature types.AggregateSignature) bool {
-	if verifier.adapter == nil || len(publicKeys) == 0 {
+// Register verifies the credentials of one validator-set snapshot and records their keys. It is
+// all-or-nothing: when any credential is invalid, no key of the call is recorded. Credentials that
+// were already verified with the same proof are not verified again.
+func (registry *BLSKeyRegistry) Register(credentials []BLSValidatorCredential) error {
+	snapshotKeys := make(map[string]struct{}, len(credentials))
+	newlyVerified := make(map[string]string, len(credentials))
+	for _, credential := range credentials {
+		if credential.ValidatorID == "" {
+			return ErrMissingBLSValidatorID
+		}
+		if len(credential.PublicKey) == 0 {
+			return ErrMissingBLSPublicKey
+		}
+		if len(credential.ProofOfPossession) == 0 {
+			return ErrMissingBLSProof
+		}
+		key := string(credential.PublicKey)
+		if _, duplicate := snapshotKeys[key]; duplicate {
+			return ErrDuplicateBLSPublicKey
+		}
+		snapshotKeys[key] = struct{}{}
+		if registry.verifiedWith(key, string(credential.ProofOfPossession)) {
+			continue
+		}
+		if err := validateBLSCredentialKey(registry.adapter, credential.PublicKey, credential.ProofOfPossession); err != nil {
+			return err
+		}
+		newlyVerified[key] = string(credential.ProofOfPossession)
+	}
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	for key, proof := range newlyVerified {
+		registry.verified[key] = proof
+	}
+	return nil
+}
+
+// RegisterValidators registers the keys of one validator-set snapshot from the validators'
+// bls_pop metadata.
+func (registry *BLSKeyRegistry) RegisterValidators(validators []validator.Validator) error {
+	credentials, err := BLSValidatorCredentialsFromValidators(validators)
+	if err != nil {
+		return err
+	}
+	return registry.Register(credentials)
+}
+
+// VerifyAggregate verifies an aggregate signature over message by publicKeys. It returns false
+// unless every key has been registered with a verified proof of possession.
+func (registry *BLSKeyRegistry) VerifyAggregate(publicKeys []types.PublicKey, message []byte, signature types.AggregateSignature) bool {
+	if len(publicKeys) == 0 || !registry.allRegistered(publicKeys) {
 		return false
 	}
-	for _, publicKey := range publicKeys {
-		if len(publicKey) == 0 {
-			return false
-		}
-		if _, found := verifier.registeredKeys[string(publicKey)]; !found {
-			return false
-		}
-		if err := verifier.adapter.ValidatePublicKey(publicKey); err != nil {
-			return false
-		}
-	}
-	return verifier.adapter.VerifyAggregate(publicKeys, message, signature)
+	return registry.adapter.VerifyAggregate(publicKeys, message, signature)
 }
 
-func ValidateBLSValidatorSet(adapter BLSAdapter, validatorSet validator.Set) ([]BLSValidatorCredential, error) {
-	if validatorSet == nil {
-		return nil, ErrMissingBLSPublicKey
+func (registry *BLSKeyRegistry) verifiedWith(key string, proof string) bool {
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	verifiedProof, found := registry.verified[key]
+	return found && verifiedProof == proof
+}
+
+func (registry *BLSKeyRegistry) allRegistered(publicKeys []types.PublicKey) bool {
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	for _, publicKey := range publicKeys {
+		if _, found := registry.verified[string(publicKey)]; !found {
+			return false
+		}
 	}
-	credentials, err := BLSValidatorCredentialsFromValidators(validatorSet.List())
-	if err != nil {
-		return nil, err
-	}
-	if _, err := ValidateBLSValidatorCredentials(adapter, credentials); err != nil {
-		return nil, err
-	}
-	return credentials, nil
+	return true
 }
 
 func BLSValidatorCredentialsFromValidators(validators []validator.Validator) ([]BLSValidatorCredential, error) {
@@ -88,36 +136,6 @@ func BLSValidatorCredentialsFromValidators(validators []validator.Validator) ([]
 		})
 	}
 	return credentials, nil
-}
-
-func ValidateBLSValidatorCredentials(adapter BLSAdapter, credentials []BLSValidatorCredential) (map[string]struct{}, error) {
-	if err := ValidateBLSAdapter(adapter); err != nil {
-		return nil, err
-	}
-	registeredKeys := make(map[string]struct{}, len(credentials))
-	for _, credential := range credentials {
-		if credential.ValidatorID == "" {
-			return nil, ErrMissingBLSValidatorID
-		}
-		if len(credential.PublicKey) == 0 {
-			return nil, ErrMissingBLSPublicKey
-		}
-		if len(credential.ProofOfPossession) == 0 {
-			return nil, ErrMissingBLSProof
-		}
-		key := string(credential.PublicKey)
-		if _, found := registeredKeys[key]; found {
-			return nil, ErrDuplicateBLSPublicKey
-		}
-		if err := adapter.ValidatePublicKey(credential.PublicKey); err != nil {
-			return nil, ErrInvalidBLSPublicKey
-		}
-		if !adapter.VerifyProofOfPossession(credential.PublicKey, credential.ProofOfPossession) {
-			return nil, ErrInvalidBLSProof
-		}
-		registeredKeys[key] = struct{}{}
-	}
-	return registeredKeys, nil
 }
 
 func BLSProofOfPossessionFromMetadata(metadata map[string]string) (types.Signature, error) {

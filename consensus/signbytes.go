@@ -9,15 +9,18 @@ import (
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
+// ProposalSignBytes binds the proposer's signature to the block, its view, the
+// justifying quorum certificate and the timeout certificate that licenses a view jump.
 func ProposalSignBytes(proposal Proposal) []byte {
 	blockHash := HashBlock(proposal.Block)
-	message := make([]byte, 0, 128)
+	message := make([]byte, 0, 192)
 	message = append(message, []byte("proposal")...)
 	message = appendUint64(message, uint64(proposal.Block.Header.Height))
 	message = appendUint64(message, uint64(proposal.Round))
 	message = append(message, []byte(proposal.Proposer)...)
 	message = append(message, blockHash[:]...)
 	message = appendQuorumCert(message, proposal.JustifyQC)
+	message = appendTimeoutCert(message, proposal.TimeoutCert)
 	return message
 }
 
@@ -44,6 +47,17 @@ func appendQuorumCert(message []byte, quorumCert finality.QuorumCert) []byte {
 	return message
 }
 
+func appendTimeoutCert(message []byte, timeoutCert finality.TimeoutCert) []byte {
+	message = appendUint64(message, uint64(timeoutCert.Height))
+	message = appendUint64(message, uint64(timeoutCert.Round))
+	message = appendQuorumCert(message, timeoutCert.HighQC)
+	signersHash := sha256.Sum256([]byte(timeoutCert.Signers))
+	message = append(message, signersHash[:]...)
+	signatureHash := sha256.Sum256([]byte(timeoutCert.Signature))
+	message = append(message, signatureHash[:]...)
+	return message
+}
+
 func appendUint64(message []byte, value uint64) []byte {
 	var buffer [8]byte
 	binary.BigEndian.PutUint64(buffer[:], value)
@@ -56,4 +70,10 @@ type signatureVerifier interface {
 
 type aggregateSigner interface {
 	Aggregate(signatures []types.Signature) (types.AggregateSignature, error)
+}
+
+// aggregateVerifier verifies an aggregate signature over a single message by the
+// given public keys. The consensus domain is applied by the caller.
+type aggregateVerifier interface {
+	VerifyAggregate(publicKeys []types.PublicKey, message []byte, signature types.AggregateSignature) bool
 }

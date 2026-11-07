@@ -65,11 +65,8 @@ Tài liệu này giúp hiểu namespace durable storage, key schema và recovery
 - `auth/nonce/{0x_address}`
 - `evm/code/{0x_address}`
 - `evm/storage/{0x_address}/{slot}`
-- `evm_ethstate/{height}/meta`
-- `evm_ethstate/{height}/accounts/{0x_address}`
 - `eth_getProof`
 - `stateRoot`
-- `evm_ethstate/{height}`
 - `EndBlock`
 - `H + 1`
 - `seen_ttl`
@@ -113,16 +110,12 @@ Phụ lục này bảo đảm bản dịch vẫn giữ các giao diện có th�
 
 ### Giao diện giữ nguyên
 - `store.Store` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
-- `evm_ethstate` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `eth_getBalance` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `eth_getProof` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `bank/{0x_address}` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `auth/nonce/{0x_address}` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `evm/code/{0x_address}` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `evm/storage/{0x_address}/{slot}` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
-- `evm_ethstate/{height}/meta` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
-- `evm_ethstate/{height}/accounts/{0x_address}` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
-- `evm_ethstate/{height}` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `seen_ttl` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `code/{address}` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `storage/{address}/{slot}` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
@@ -130,3 +123,7 @@ Phụ lục này bảo đảm bản dịch vẫn giữ các giao diện có th�
 - `logs/by_height/{height}/{tx_hash}/{log_index}` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `logs/by_address/{address}/{height}/{tx_hash}/{log_index}` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `logs/{address}` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `evm_receipts` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `receipt_index/{tx_hash}` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `blob_sidecars/by_tx/{tx_hash}` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `blob_sidecars/by_blob/{blob_hash}` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.

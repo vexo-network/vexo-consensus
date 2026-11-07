@@ -1,9 +1,9 @@
 package bank
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -79,72 +79,107 @@ func (Module) BeginBlock(ctx vexoapp.Context, header types.Header) error {
 	return nil
 }
 
+// operation is a parsed bank transaction. Its amount is still text: gas is
+// charged before the amount is validated.
+type operation struct {
+	action string
+	from   types.Address
+	to     types.Address
+	amount string
+	gas    uint64
+}
+
+func parseOperation(tx types.Tx) (operation, error) {
+	canonical, err := vexoapp.ParseCanonicalTx(tx)
+	if err != nil || canonical.Module != ModuleName {
+		return operation{}, ErrInvalidBankTx
+	}
+	args := canonical.Args
+	switch {
+	case canonical.Action == "mint" && len(args) == 2:
+		return operation{action: canonical.Action, to: types.Address(args[0]), amount: args[1], gas: mintGasCost}, nil
+	case canonical.Action == "send" && len(args) == 3:
+		return operation{action: canonical.Action, from: types.Address(args[0]), to: types.Address(args[1]), amount: args[2], gas: sendGasCost}, nil
+	default:
+		return operation{}, ErrInvalidBankTx
+	}
+}
+
+// authorize requires that the transaction signer is allowed to perform the
+// operation: only the mint authority mints, and only the owner of an account
+// sends from it.
+func (module Module) authorize(tx types.Tx, op operation) error {
+	if op.action == "mint" {
+		return module.authorizeMint(tx)
+	}
+	return vexoapp.AuthorizeActor(tx, op.from)
+}
+
+// authorizeMint allows the configured mint authority only. A module without an
+// authority cannot mint at all.
+func (module Module) authorizeMint(tx types.Tx) error {
+	if module.mintAuthority == "" {
+		return ErrUnauthorizedMint
+	}
+	if err := vexoapp.AuthorizeActor(tx, module.mintAuthority); err != nil {
+		return ErrUnauthorizedMint
+	}
+	return nil
+}
+
 func (module Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 	if ctx.Store == nil {
 		return types.Result{Code: 1, Log: "missing bank store"}
 	}
-	parts := bankTxParts(tx)
-	if len(parts) == 0 || parts[0] != ModuleName {
-		return types.Result{Code: 2, Log: ErrInvalidBankTx.Error()}
+	op, err := parseOperation(tx)
+	if err != nil {
+		return types.Result{Code: 2, Log: err.Error()}
 	}
-	switch {
-	case len(parts) == 4 && parts[1] == "mint":
-		if err := ctx.ConsumeGas(mintGasCost); err != nil {
-			return types.Result{Code: 5, Log: err.Error()}
-		}
-		amount, err := parseAmountBig(parts[3])
-		if err != nil {
-			return types.Result{Code: 3, Log: err.Error()}
-		}
-		if err := module.authorizeMint(tx); err != nil {
-			return types.Result{Code: 4, Log: err.Error()}
-		}
-		if err := mint(ctx.GoContext(), ctx.Store, types.Address(parts[2]), amount); err != nil {
-			return types.Result{Code: 4, Log: err.Error()}
-		}
-		return types.Result{}
-	case len(parts) == 5 && parts[1] == "send":
-		if err := ctx.ConsumeGas(sendGasCost); err != nil {
-			return types.Result{Code: 5, Log: err.Error()}
-		}
-		amount, err := parseAmountBig(parts[4])
-		if err != nil {
-			return types.Result{Code: 3, Log: err.Error()}
-		}
-		if err := send(ctx.GoContext(), ctx.Store, types.Address(parts[2]), types.Address(parts[3]), amount); err != nil {
-			return types.Result{Code: 4, Log: err.Error()}
-		}
-		return types.Result{}
+	if err := ctx.ConsumeGas(op.gas); err != nil {
+		return types.Result{Code: 5, Log: err.Error()}
+	}
+	amount, err := parseAmountBig(op.amount)
+	if err != nil {
+		return types.Result{Code: 3, Log: err.Error()}
+	}
+	if err := module.authorize(tx, op); err != nil {
+		return types.Result{Code: 4, Log: err.Error()}
+	}
+	switch op.action {
+	case "mint":
+		err = mint(ctx.GoContext(), ctx.Store, op.to, amount)
 	default:
-		return types.Result{Code: 2, Log: ErrInvalidBankTx.Error()}
+		err = send(ctx.GoContext(), ctx.Store, op.from, op.to, amount)
 	}
+	if err != nil {
+		return types.Result{Code: 4, Log: err.Error()}
+	}
+	return types.Result{}
 }
 
 func (Module) EndBlock(ctx vexoapp.Context) error {
 	return nil
 }
 
-func (Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
-	parts := bankTxParts(tx)
-	switch {
-	case len(parts) == 4 && parts[1] == "mint":
-		return mintGasCost, nil
-	case len(parts) == 5 && parts[1] == "send":
-		return sendGasCost, nil
-	default:
-		return 0, ErrInvalidBankTx
+// ValidateTx rejects a transaction its signer may not perform before it is
+// admitted to a block.
+func (module Module) ValidateTx(ctx vexoapp.Context, tx types.Tx) error {
+	op, err := parseOperation(tx)
+	if err != nil {
+		return err
 	}
+	if _, err := parseAmountBig(op.amount); err != nil {
+		return err
+	}
+	return module.authorize(tx, op)
 }
 
-func (module Module) authorizeMint(tx types.Tx) error {
-	if module.mintAuthority == "" {
-		return nil
+func (Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
+	op, err := parseOperation(tx)
+	if err != nil {
+		return 0, err
 	}
-	signer, found := vexoapp.TxTag(tx, "signer")
-	if !found || types.Address(signer) != module.mintAuthority {
-		return ErrUnauthorizedMint
-	}
-	return nil
+	return op.gas, nil
 }
 
 func (Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoapp.QueryResponse {
@@ -178,10 +213,7 @@ func BalanceBig(ctx context.Context, store vexoapp.StateStore, address types.Add
 	}
 	value, err := store.Get(ctx, ModuleName, balanceKey(address))
 	if errors.Is(err, vexostore.ErrKeyNotFound) {
-		value, err = store.Get(ctx, ModuleName, []byte(address))
-		if errors.Is(err, vexostore.ErrKeyNotFound) {
-			return new(big.Int), nil
-		}
+		return new(big.Int), nil
 	}
 	if err != nil {
 		return nil, err
@@ -233,6 +265,12 @@ func send(ctx context.Context, store vexoapp.StateStore, from types.Address, to 
 	if fromBalance.Cmp(amount) < 0 {
 		return ErrInsufficientFunds
 	}
+	if bytes.Equal(balanceKey(from), balanceKey(to)) {
+		// Sending to oneself moves nothing. Both balances are the same record:
+		// writing a debited and a credited copy of it would keep the credit and
+		// mint the amount.
+		return nil
+	}
 	toBalance, err := BalanceBig(ctx, store, to)
 	if err != nil {
 		return err
@@ -281,19 +319,10 @@ func encodeBalanceBig(balance *big.Int) []byte {
 	return balance.Bytes()
 }
 
+// balanceKey is the storage key of an account. It is the identity transaction
+// signers are authorized against, so the two can never name different accounts.
 func balanceKey(address types.Address) []byte {
-	raw := string(address)
-	clean := strings.TrimPrefix(raw, "0x")
-	if len(clean)%2 == 1 {
-		clean = "0" + clean
-	}
-	decoded, err := hex.DecodeString(clean)
-	if err != nil || len(decoded) > 20 || !strings.HasPrefix(raw, "0x") {
-		return []byte(address)
-	}
-	padded := make([]byte, 20)
-	copy(padded[20-len(decoded):], decoded)
-	return []byte("0x" + hex.EncodeToString(padded))
+	return []byte(vexoapp.NormalizeActor(address))
 }
 
 func parseAmount(value string) (uint64, error) {
@@ -310,16 +339,4 @@ func parseAmountBig(value string) (*big.Int, error) {
 		return nil, ErrInvalidBankTx
 	}
 	return amount, nil
-}
-
-func bankTxParts(tx types.Tx) []string {
-	rawParts := strings.Split(string(tx), ":")
-	parts := make([]string, 0, len(rawParts))
-	for _, part := range rawParts {
-		if strings.Contains(part, "=") {
-			continue
-		}
-		parts = append(parts, part)
-	}
-	return parts
 }

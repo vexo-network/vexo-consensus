@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/vexo-network/vexo-consensus/types"
 )
 
 func TestApplyGovernanceUpgradeAtHeight(t *testing.T) {
@@ -155,5 +157,20 @@ func TestExecutorPersistsRollbackRequiredAndBlocksRetry(t *testing.T) {
 	}, plan)
 	if !errors.Is(err, ErrRollbackRequired) {
 		t.Fatalf("expected retry to stay blocked, got %v", err)
+	}
+}
+
+func TestValidateScheduleRequiresAFutureHeight(t *testing.T) {
+	plan := Plan{Name: "v2", Height: 10, BinaryVersion: "v2"}
+	for _, current := range []types.Height{10, 11, 1000} {
+		if err := ValidateSchedule(plan, current); !errors.Is(err, ErrPlanNotInFuture) {
+			t.Fatalf("a plan for height 10 must not be schedulable at chain height %d, got %v", current, err)
+		}
+	}
+	if err := ValidateSchedule(plan, 9); err != nil {
+		t.Fatalf("a plan for height 10 is schedulable at chain height 9: %v", err)
+	}
+	if err := ValidateSchedule(Plan{Height: 10}, 0); !errors.Is(err, ErrMissingUpgradeName) {
+		t.Fatalf("an invalid plan must be rejected before the height check, got %v", err)
 	}
 }

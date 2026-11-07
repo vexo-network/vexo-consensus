@@ -141,7 +141,6 @@ Este apêndice garante que a tradução preserve as interfaces executáveis e as
 - `execution.allow_unprotected_legacy_tx` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `eth_getProof` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `evm/storage/{address}/{slot}` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
-- `evm_ethstate/{height}` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `state_diff` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `vm_trace` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `eth_getBalance` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
@@ -195,3 +194,4 @@ Este apêndice garante que a tradução preserve as interfaces executáveis e as
 
 - `execution.evm_fork_preset = "latest"`
 - `execution.evm_chain_config_json`
+- `evm_receipts`

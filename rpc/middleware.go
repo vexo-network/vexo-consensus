@@ -2,14 +2,25 @@ package rpc
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"mime"
 	"net"
 	"net/http"
 	"net/http/pprof"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
 )
+
+// maxRateLimitBuckets bounds the rate limiter's memory: one bucket per client key,
+// and an IPv6 client is keyed by its /64, so a single host cannot mint keys.
+const maxRateLimitBuckets = 1 << 16
+
+// rateLimitSweepInterval is how often expired buckets are dropped. Expiry is otherwise
+// lazy, so a request costs one map lookup instead of a scan of every bucket.
+const rateLimitSweepInterval = time.Second
 
 type rateBucket struct {
 	WindowStart time.Time
@@ -17,11 +28,12 @@ type rateBucket struct {
 }
 
 type rateLimiter struct {
-	mu      sync.Mutex
-	now     func() time.Time
-	window  time.Duration
-	max     int
-	buckets map[string]rateBucket
+	mu        sync.Mutex
+	now       func() time.Time
+	window    time.Duration
+	max       int
+	buckets   map[string]rateBucket
+	nextSweep time.Time
 }
 
 func versionedHandler(handler http.Handler) http.Handler {
@@ -42,12 +54,22 @@ func versionedHandler(handler http.Handler) http.Handler {
 	})
 }
 
-func registerPprofHandlers(mux *http.ServeMux) {
-	mux.HandleFunc("/debug/pprof/", pprof.Index)
-	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+// registerPprofHandlers serves the profiler behind the admin token: its cmdline and heap
+// endpoints expose process arguments and memory, which include secrets.
+func registerPprofHandlers(mux *http.ServeMux, cfg Config) {
+	register := func(path string, handler http.HandlerFunc) {
+		mux.HandleFunc(path, func(writer http.ResponseWriter, request *http.Request) {
+			if !allowAdmin(writer, request, cfg, "pprof") {
+				return
+			}
+			handler(writer, request)
+		})
+	}
+	register("/debug/pprof/", pprof.Index)
+	register("/debug/pprof/cmdline", pprof.Cmdline)
+	register("/debug/pprof/profile", pprof.Profile)
+	register("/debug/pprof/symbol", pprof.Symbol)
+	register("/debug/pprof/trace", pprof.Trace)
 }
 
 func applyMiddleware(handler http.Handler, cfg Config) http.Handler {
@@ -65,21 +87,26 @@ func applyMiddleware(handler http.Handler, cfg Config) http.Handler {
 	return handler
 }
 
+// cors adds CORS headers only for origins the operator listed in CORSAllowedOrigins. With
+// no list a browser page gets no cross-origin access at all. A WebSocket handshake is not
+// subject to CORS, so one from an unlisted origin is refused here instead.
 func cors(next http.Handler, cfg Config) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		origin := strings.TrimSpace(request.Header.Get("Origin"))
+		allowedOrigin, allowed := corsAllowedOrigin(origin, cfg)
 		if origin != "" {
-			writer.Header().Set("Access-Control-Allow-Origin", corsAllowedOrigin(origin, cfg))
+			writer.Header().Add("Vary", "Origin")
+		}
+		if allowed {
+			writer.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 			writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 			writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
-			if strings.EqualFold(strings.TrimSpace(request.Header.Get("Access-Control-Request-Private-Network")), "true") {
-				writer.Header().Set("Access-Control-Allow-Private-Network", "true")
-				writer.Header().Add("Vary", "Access-Control-Request-Private-Network")
-			}
 			writer.Header().Set("Access-Control-Max-Age", "600")
-			writer.Header().Add("Vary", "Origin")
 			writer.Header().Add("Vary", "Access-Control-Request-Method")
 			writer.Header().Add("Vary", "Access-Control-Request-Headers")
+		} else if origin != "" && isWebSocketUpgrade(request) {
+			writeJSON(writer, http.StatusForbidden, map[string]string{"error": "websocket origin is not allowed"})
+			return
 		}
 		if request.Method == http.MethodOptions {
 			writer.WriteHeader(http.StatusNoContent)
@@ -89,17 +116,22 @@ func cors(next http.Handler, cfg Config) http.Handler {
 	})
 }
 
-func corsAllowedOrigin(origin string, cfg Config) string {
-	if len(cfg.CORSAllowedOrigins) == 0 {
-		return "*"
+// corsAllowedOrigin reports the Access-Control-Allow-Origin value for origin: the origin
+// itself when it is listed, "*" when the operator listed the wildcard.
+func corsAllowedOrigin(origin string, cfg Config) (string, bool) {
+	if origin == "" {
+		return "", false
 	}
 	for _, allowed := range cfg.CORSAllowedOrigins {
 		allowed = strings.TrimSpace(allowed)
-		if allowed == "*" || allowed == origin {
-			return allowed
+		if allowed == "*" {
+			return "*", true
+		}
+		if allowed == origin {
+			return origin, true
 		}
 	}
-	return cfg.CORSAllowedOrigins[0]
+	return "", false
 }
 
 func requestTimeout(next http.Handler, timeout time.Duration) http.Handler {
@@ -129,19 +161,28 @@ func (limiter *rateLimiter) Handler(next http.Handler) http.Handler {
 	})
 }
 
+// Allow counts the request against its client's window. Expired buckets are dropped by a
+// sweep at most once per rateLimitSweepInterval, and a client that has no bucket while the
+// table is full is refused until the sweep frees room.
 func (limiter *rateLimiter) Allow(request *http.Request) bool {
+	key := clientKey(request)
 	limiter.mu.Lock()
 	defer limiter.mu.Unlock()
 
 	now := limiter.now()
-	key := clientKey(request)
-	for bucketKey, bucket := range limiter.buckets {
-		if !bucket.WindowStart.IsZero() && now.Sub(bucket.WindowStart) >= limiter.window {
-			delete(limiter.buckets, bucketKey)
+	if !now.Before(limiter.nextSweep) {
+		for bucketKey, bucket := range limiter.buckets {
+			if now.Sub(bucket.WindowStart) >= limiter.window {
+				delete(limiter.buckets, bucketKey)
+			}
 		}
+		limiter.nextSweep = now.Add(min(limiter.window, rateLimitSweepInterval))
 	}
-	bucket := limiter.buckets[key]
-	if bucket.WindowStart.IsZero() || now.Sub(bucket.WindowStart) >= limiter.window {
+	bucket, found := limiter.buckets[key]
+	if !found && len(limiter.buckets) >= maxRateLimitBuckets {
+		return false
+	}
+	if !found || now.Sub(bucket.WindowStart) >= limiter.window {
 		limiter.buckets[key] = rateBucket{WindowStart: now, Count: 1}
 		return true
 	}
@@ -153,15 +194,28 @@ func (limiter *rateLimiter) Allow(request *http.Request) bool {
 	return true
 }
 
+// clientKey identifies the rate-limited client: its IPv4 address, or the /64 of its IPv6
+// address, since one host routinely controls a whole /64.
 func clientKey(request *http.Request) string {
 	host, _, err := net.SplitHostPort(request.RemoteAddr)
-	if err == nil && host != "" {
+	if err != nil {
+		host = request.RemoteAddr
+	}
+	if host == "" {
+		return "unknown"
+	}
+	address, err := netip.ParseAddr(host)
+	if err != nil {
 		return host
 	}
-	if request.RemoteAddr != "" {
-		return request.RemoteAddr
+	address = address.WithZone("").Unmap()
+	if address.Is6() {
+		prefix, err := address.Prefix(64)
+		if err == nil {
+			return prefix.String()
+		}
 	}
-	return "unknown"
+	return address.String()
 }
 
 func allowGet(writer http.ResponseWriter, request *http.Request) bool {
@@ -173,28 +227,48 @@ func allowGet(writer http.ResponseWriter, request *http.Request) bool {
 	return false
 }
 
+// allowPost admits state-changing requests: POST with a JSON body. Requiring the media type
+// keeps a cross-site form or text/plain request, which a browser sends without a preflight,
+// from reaching a handler.
 func allowPost(writer http.ResponseWriter, request *http.Request) bool {
-	if request.Method == http.MethodPost {
+	if request.Method != http.MethodPost {
+		writer.Header().Set("Allow", http.MethodPost)
+		writeJSON(writer, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return false
+	}
+	return requireJSONContentType(writer, request)
+}
+
+func requireJSONContentType(writer http.ResponseWriter, request *http.Request) bool {
+	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
+	if err == nil && mediaType == "application/json" {
 		return true
 	}
-	writer.Header().Set("Allow", http.MethodPost)
-	writeJSON(writer, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	writeJSON(writer, http.StatusUnsupportedMediaType, map[string]string{"error": "content type must be application/json"})
 	return false
 }
 
+// allowAdmin admits a request to an admin endpoint. It fails closed: with no admin token
+// configured nothing is authorized. The Host must be an IP literal, localhost or an
+// AllowedHosts entry, so a page cannot reach the endpoint through a rebound DNS name.
 func allowAdmin(writer http.ResponseWriter, request *http.Request, cfg Config, scope string) bool {
-	if cfg.AdminToken == "" && len(cfg.AdminTokens) == 0 {
-		auditAdmin(cfg, request, scope, true, "not_configured_open")
-		return true
+	if !adminHostAllowed(request.Host, cfg) {
+		auditAdmin(cfg, request, scope, false, "invalid_host")
+		writeJSON(writer, http.StatusForbidden, map[string]string{"error": "admin request host is not allowed"})
+		return false
 	}
-	const prefix = "Bearer "
-	header := request.Header.Get("Authorization")
-	if !strings.HasPrefix(header, prefix) {
+	if !adminConfigured(cfg) {
+		auditAdmin(cfg, request, scope, false, "not_configured")
+		writeJSON(writer, http.StatusUnauthorized, map[string]string{"error": "admin endpoints are disabled until an admin token is configured"})
+		return false
+	}
+	token, ok := bearerToken(request.Header.Get("Authorization"))
+	if !ok {
 		auditAdmin(cfg, request, scope, false, "missing_bearer")
+		writer.Header().Set("WWW-Authenticate", "Bearer")
 		writeJSON(writer, http.StatusUnauthorized, map[string]string{"error": "admin authorization is required"})
 		return false
 	}
-	token := strings.TrimPrefix(header, prefix)
 	if !adminTokenAllowed(cfg, token, scope) {
 		auditAdmin(cfg, request, scope, false, "invalid_or_insufficient_scope")
 		writeJSON(writer, http.StatusForbidden, map[string]string{"error": "admin authorization is invalid"})
@@ -204,18 +278,85 @@ func allowAdmin(writer http.ResponseWriter, request *http.Request, cfg Config, s
 	return true
 }
 
-func adminTokenAllowed(cfg Config, token string, scope string) bool {
-	if cfg.AdminToken != "" && subtle.ConstantTimeCompare([]byte(token), []byte(cfg.AdminToken)) == 1 {
+// allowAdminPost admits a state-changing admin request: authorized for the scope, POST,
+// and a JSON body. Authorization comes first so an unauthenticated caller learns nothing
+// about the endpoint.
+func allowAdminPost(writer http.ResponseWriter, request *http.Request, cfg Config, scope string) bool {
+	return allowAdmin(writer, request, cfg, scope) && allowPost(writer, request)
+}
+
+func adminConfigured(cfg Config) bool {
+	if cfg.AdminToken != "" {
 		return true
 	}
+	for token := range cfg.AdminTokens {
+		if token != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func bearerToken(header string) (string, bool) {
+	scheme, token, found := strings.Cut(header, " ")
+	if !found || !strings.EqualFold(scheme, "Bearer") || token == "" {
+		return "", false
+	}
+	return token, true
+}
+
+// adminHostAllowed reports whether the Host header names this server in a way a rebinding
+// attacker cannot: an IP literal (the browser connected to that address, so its origin is
+// that address), localhost, or a name the operator listed.
+func adminHostAllowed(hostport string, cfg Config) bool {
+	host := hostport
+	if withoutPort, _, err := net.SplitHostPort(hostport); err == nil {
+		host = withoutPort
+	}
+	host = strings.TrimSuffix(strings.ToLower(strings.Trim(host, "[]")), ".")
+	if host == "" {
+		return false
+	}
+	if _, err := netip.ParseAddr(host); err == nil || host == "localhost" {
+		return true
+	}
+	for _, allowed := range cfg.AllowedHosts {
+		allowed = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(allowed)), ".")
+		if allowed == "*" || allowed == host {
+			return true
+		}
+	}
+	return false
+}
+
+// adminTokenAllowed compares digests of the tokens, so neither the token length nor the
+// position of a match shows in the timing, and checks every configured token.
+func adminTokenAllowed(cfg Config, token string, scope string) bool {
+	if token == "" {
+		return false
+	}
+	presented := sha256.Sum256([]byte(token))
+	allowed := 0
+	if cfg.AdminToken != "" {
+		configured := sha256.Sum256([]byte(cfg.AdminToken))
+		allowed |= subtle.ConstantTimeCompare(presented[:], configured[:])
+	}
 	for configuredToken, scopes := range cfg.AdminTokens {
-		if subtle.ConstantTimeCompare([]byte(token), []byte(configuredToken)) != 1 {
+		if configuredToken == "" {
 			continue
 		}
-		for _, candidate := range scopes {
-			if candidate == "*" || candidate == scope {
-				return true
-			}
+		configured := sha256.Sum256([]byte(configuredToken))
+		if subtle.ConstantTimeCompare(presented[:], configured[:]) == 1 && adminScopeAllowed(scopes, scope) {
+			allowed = 1
+		}
+	}
+	return allowed == 1
+}
+
+func adminScopeAllowed(scopes []string, scope string) bool {
+	for _, candidate := range scopes {
+		if candidate == "*" || candidate == scope {
+			return true
 		}
 	}
 	return false

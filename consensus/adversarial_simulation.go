@@ -147,11 +147,13 @@ func simulateConflictingVoteEvidence(ctx context.Context, validators []validator
 	if err != nil {
 		return failedScenario("conflicting_vote", err)
 	}
-	second, err := runner.Propose(ctx, types.Block{Header: types.Header{Height: 1}, Txs: []types.Tx{[]byte("second")}}, validators[0].ID)
+	// The view already holds the first block, so the second block exists only as the
+	// target of the equivocating vote.
+	second, err := machine.CreateProposal(types.Block{Header: types.Header{Height: 1}, Txs: []types.Tx{[]byte("second")}}, 0, validators[0].ID, finality.QuorumCert{})
 	if err != nil {
 		return failedScenario("conflicting_vote", err)
 	}
-	err = runner.VoteConflict(ctx, validators[0].ID, first.BlockHash, second.BlockHash)
+	err = runner.VoteConflict(ctx, validators[0].ID, first.BlockHash, machine.hashBlock(second.Block))
 	rejected := errors.Is(err, ErrConflictingVote)
 	return scenarioReport("conflicting_vote", true, true, false, rejected, runner.Evidence(), machine)
 }
@@ -162,7 +164,15 @@ func simulateTimeoutEquivocationEvidence(ctx context.Context, validators []valid
 		return failedScenario("timeout_equivocation", err)
 	}
 	machine.StartRound(1, 0)
-	err = runner.TimeoutEquivocation(ctx, validators[0].ID, finality.QuorumCert{Height: 1, Round: 0, BlockHash: types.Hash{1}}, finality.QuorumCert{Height: 1, Round: 0, BlockHash: types.Hash{2}})
+	proposed, err := runner.Propose(ctx, types.Block{Header: types.Header{Height: 1}}, validators[0].ID)
+	if err != nil {
+		return failedScenario("timeout_equivocation", err)
+	}
+	qc, err := runner.VoteWith(ctx, proposed.BlockHash, validatorIDs(validators)...)
+	if err != nil {
+		return failedScenario("timeout_equivocation", err)
+	}
+	err = runner.TimeoutEquivocation(ctx, validators[0].ID, qc, finality.QuorumCert{})
 	rejected := errors.Is(err, ErrConflictingTimeoutVote)
 	return scenarioReport("timeout_equivocation", true, true, false, rejected, runner.Evidence(), machine)
 }
@@ -172,7 +182,7 @@ func simulateUnsafeForkRejection(ctx context.Context, validators []validator.Val
 	if err != nil {
 		return failedScenario("unsafe_fork", err)
 	}
-	driver, err := NewStepDriver(machine)
+	driver, err := NewStepDriver(machine, runner.signers)
 	if err != nil {
 		return failedScenario("unsafe_fork", err)
 	}
@@ -214,8 +224,14 @@ func partitionReachesQuorum(ctx context.Context, validators []validator.Validato
 	return err == nil
 }
 
+// simulationRunner builds a signing state machine over the validators. The validators get
+// deterministic simulation keys: the simulation signs on behalf of every one of them.
 func simulationRunner(validators []validator.Validator) (*StateMachine, *AdversarialRunner, error) {
-	registry, err := validator.NewInMemoryRegistry(nil, validators)
+	keyed, signers, err := NewSimulationValidators(validators)
+	if err != nil {
+		return nil, nil, err
+	}
+	registry, err := validator.NewInMemoryRegistry(nil, keyed)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -224,14 +240,16 @@ func simulationRunner(validators []validator.Validator) (*StateMachine, *Adversa
 		return nil, nil, err
 	}
 	machine, err := NewStateMachine(StateMachineConfig{
-		ChainID:      "vexo-test",
-		ValidatorSet: set,
-		Aggregator:   vexocrypto.DeterministicAggregateSigner{},
+		ChainID:           "vexo-test",
+		ValidatorSet:      set,
+		Signatures:        vexocrypto.DeterministicSigner{},
+		Aggregator:        vexocrypto.DeterministicAggregateSigner{},
+		AggregateVerifier: vexocrypto.DeterministicAggregateSigner{},
 	})
 	if err != nil {
 		return nil, nil, err
 	}
-	runner, err := NewAdversarialRunner(machine)
+	runner, err := NewAdversarialRunner(machine, signers)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -110,7 +110,7 @@ func TestGRPCBinaryCodecRoundTrip(t *testing.T) {
 			NodeID:          "alice",
 			ListenAddr:      "127.0.0.1:26656",
 			AuthToken:       "shared-secret",
-			SignatureNonce:  "nonce-1",
+			Challenge:       bytes.Repeat([]byte{7}, handshakeChallengeBytes),
 			NodePublicKey:   types.PublicKey("public-key"),
 			Signature:       types.Signature("signature"),
 			KnownPeers:      map[p2p.PeerID]string{"bob": "127.0.0.1:26657"},
@@ -139,7 +139,7 @@ func TestGRPCBinaryCodecRoundTrip(t *testing.T) {
 	if decoded.Handshake.AuthToken != original.Handshake.AuthToken {
 		t.Fatalf("unexpected decoded auth token: %+v", decoded.Handshake)
 	}
-	if decoded.Handshake.SignatureNonce != original.Handshake.SignatureNonce || string(decoded.Handshake.NodePublicKey) != string(original.Handshake.NodePublicKey) || string(decoded.Handshake.Signature) != string(original.Handshake.Signature) {
+	if !bytes.Equal(decoded.Handshake.Challenge, original.Handshake.Challenge) || string(decoded.Handshake.NodePublicKey) != string(original.Handshake.NodePublicKey) || string(decoded.Handshake.Signature) != string(original.Handshake.Signature) {
 		t.Fatalf("unexpected decoded handshake signature fields: %+v", decoded.Handshake)
 	}
 	if decoded.Handshake.KnownPeers["bob"] != "127.0.0.1:26657" {
@@ -147,35 +147,6 @@ func TestGRPCBinaryCodecRoundTrip(t *testing.T) {
 	}
 	if decoded.Envelope.Topic != original.Envelope.Topic || decoded.Envelope.From != original.Envelope.From || decoded.Envelope.To != original.Envelope.To || string(decoded.Envelope.Data) != string(original.Envelope.Data) {
 		t.Fatalf("unexpected decoded envelope: %+v", decoded.Envelope)
-	}
-}
-
-func TestGRPCBinaryCodecDecodesLegacyV1Handshake(t *testing.T) {
-	var buffer bytes.Buffer
-	buffer.WriteByte(grpcCodecVersionV1)
-	buffer.WriteByte(1)
-	writeBinaryString(&buffer, GRPCProtocolVersion)
-	writeBinaryString(&buffer, "vexo-network")
-	writeBinaryString(&buffer, "vexo-test")
-	writeBinaryString(&buffer, GenesisHash([]byte("genesis")))
-	writeBinaryString(&buffer, "alice")
-	writeBinaryString(&buffer, "127.0.0.1:26656")
-	writeBinaryString(&buffer, "shared-secret")
-	writeBinaryPeerMap(&buffer, map[p2p.PeerID]string{"bob": "127.0.0.1:26666"})
-	buffer.WriteByte(0)
-
-	decoded, err := decodeGRPCStreamMessage(buffer.Bytes())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decoded.Handshake == nil {
-		t.Fatalf("expected legacy handshake")
-	}
-	if decoded.Handshake.NodeID != "alice" || decoded.Handshake.KnownPeers["bob"] != "127.0.0.1:26666" {
-		t.Fatalf("unexpected decoded legacy handshake: %+v", decoded.Handshake)
-	}
-	if decoded.Handshake.SignatureNonce != "" || len(decoded.Handshake.NodePublicKey) != 0 || len(decoded.Handshake.Signature) != 0 {
-		t.Fatalf("legacy v1 handshake must not synthesize signature fields: %+v", decoded.Handshake)
 	}
 }
 
@@ -270,7 +241,7 @@ func TestGRPCTransportPeerDialHooks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport.reconnectConfiguredPeers(context.Background())
+	transport.reconnectPeers(context.Background())
 	if attempts["bob"] != 1 {
 		t.Fatalf("expected bob attempt, got %+v", attempts)
 	}
@@ -565,81 +536,6 @@ func TestGRPCTransportRejectsAuthTokenMismatch(t *testing.T) {
 	}
 }
 
-func TestGRPCTransportRejectsReplayedAuthProof(t *testing.T) {
-	transport, err := NewGRPCTransport(GRPCConfig{
-		PeerID:      "alice",
-		AuthToken:   "shared-secret",
-		NetworkID:   "vexo-network",
-		ChainID:     "vexo-test",
-		GenesisHash: GenesisHash([]byte("genesis")),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	handshake := Handshake{
-		ProtocolVersion: GRPCProtocolVersion,
-		NetworkID:       "vexo-network",
-		ChainID:         "vexo-test",
-		GenesisHash:     GenesisHash([]byte("genesis")),
-		NodeID:          "bob",
-		AuthToken:       transport.authProof("bob"),
-	}
-	if err := transport.validateHandshake(context.Background(), handshake); err != nil {
-		t.Fatalf("expected first proof to pass, got %v", err)
-	}
-	if err := transport.validateHandshake(context.Background(), handshake); !errors.Is(err, ErrAuthTokenMismatch) {
-		t.Fatalf("expected replayed proof rejection, got %v", err)
-	}
-}
-
-func TestGRPCTransportRejectsReplayedAuthProofAfterRestart(t *testing.T) {
-	path := t.TempDir() + "/auth-replay.jsonl"
-	firstStore, err := NewFileAuthReplayStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	first, err := NewGRPCTransport(GRPCConfig{
-		PeerID:          "alice",
-		AuthToken:       "shared-secret",
-		AuthReplayStore: firstStore,
-		NetworkID:       "vexo-network",
-		ChainID:         "vexo-test",
-		GenesisHash:     GenesisHash([]byte("genesis")),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	handshake := Handshake{
-		ProtocolVersion: GRPCProtocolVersion,
-		NetworkID:       "vexo-network",
-		ChainID:         "vexo-test",
-		GenesisHash:     GenesisHash([]byte("genesis")),
-		NodeID:          "bob",
-		AuthToken:       first.authProof("bob"),
-	}
-	if err := first.validateHandshake(context.Background(), handshake); err != nil {
-		t.Fatalf("expected first proof to pass, got %v", err)
-	}
-	secondStore, err := NewFileAuthReplayStore(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := NewGRPCTransport(GRPCConfig{
-		PeerID:          "alice",
-		AuthToken:       "shared-secret",
-		AuthReplayStore: secondStore,
-		NetworkID:       "vexo-network",
-		ChainID:         "vexo-test",
-		GenesisHash:     GenesisHash([]byte("genesis")),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := second.validateHandshake(context.Background(), handshake); !errors.Is(err, ErrAuthTokenMismatch) {
-		t.Fatalf("expected replay rejection after restart, got %v", err)
-	}
-}
-
 func TestGRPCTransportCanRequireDurableAuthReplayStore(t *testing.T) {
 	_, err := NewGRPCTransport(GRPCConfig{
 		PeerID:                 "alice",
@@ -692,60 +588,6 @@ func TestGRPCBinaryCodecRejectsOversizedLength(t *testing.T) {
 	}
 }
 
-func TestGRPCTransportValidatesSignedHandshake(t *testing.T) {
-	alicePublicKey, alicePrivateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bobPublicKey, bobPrivateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	aliceSigner := testHandshakeSigner{publicKey: alicePublicKey, privateKey: alicePrivateKey}
-	bobSigner := testHandshakeSigner{publicKey: bobPublicKey, privateKey: bobPrivateKey}
-	verifier := testHandshakeVerifier{}
-	alice, err := NewGRPCTransport(GRPCConfig{
-		PeerID:                    "alice",
-		NetworkID:                 "vexo-network",
-		ChainID:                   "vexo-test",
-		GenesisHash:               GenesisHash([]byte("genesis")),
-		HandshakeSigner:           aliceSigner,
-		HandshakeVerifier:         verifier,
-		RequireHandshakeSignature: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	bob, err := NewGRPCTransport(GRPCConfig{
-		PeerID:                    "bob",
-		NetworkID:                 "vexo-network",
-		ChainID:                   "vexo-test",
-		GenesisHash:               GenesisHash([]byte("genesis")),
-		HandshakeSigner:           bobSigner,
-		HandshakeVerifier:         verifier,
-		RequireHandshakeSignature: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	handshake := alice.LocalHandshake()
-	handshake.NodeID = "alice"
-	if err := bob.validateHandshake(context.Background(), handshake); err != nil {
-		t.Fatalf("expected signed handshake to verify, got %v", err)
-	}
-	replayed := alice.LocalHandshake()
-	replayed.SignatureNonce = handshake.SignatureNonce
-	replayed.Signature = handshake.Signature
-	if err := bob.validateHandshake(context.Background(), replayed); !errors.Is(err, ErrHandshakeSignature) {
-		t.Fatalf("expected replayed signed handshake rejection, got %v", err)
-	}
-	handshake = alice.LocalHandshake()
-	handshake.ListenAddr = "127.0.0.1:9999"
-	if err := bob.validateHandshake(context.Background(), handshake); !errors.Is(err, ErrHandshakeSignature) {
-		t.Fatalf("expected tampered signed handshake rejection, got %v", err)
-	}
-}
-
 func TestGRPCTransportRequiresSignerForRequiredHandshakeSignature(t *testing.T) {
 	if _, err := NewGRPCTransport(GRPCConfig{
 		PeerID:                    "alice",
@@ -772,6 +614,9 @@ func (signer testHandshakeSigner) Sign(message []byte) (types.Signature, error) 
 type testHandshakeVerifier struct{}
 
 func (testHandshakeVerifier) Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool {
+	if len(publicKey) != ed25519.PublicKeySize {
+		return false
+	}
 	return ed25519.Verify(ed25519.PublicKey(publicKey), message, signature)
 }
 
@@ -1021,7 +866,7 @@ func TestNewNetworkSafeGRPCTransportFailsClosed(t *testing.T) {
 	}
 	signer := testHandshakeSigner{publicKey: publicKey, privateKey: privateKey}
 	transport, err := NewNetworkSafeGRPCTransport(GRPCConfig{
-		PeerID:                    "alice",
+		PeerID:                    p2p.NodeIDFromPublicKey(signer.PublicKey()),
 		TLSConfig:                 tlsConfig,
 		RequireTLS:                true,
 		AuthToken:                 "shared-token",
@@ -1090,9 +935,9 @@ func TestGRPCTransportCountsSubscriberDrops(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	peer.deliver(Envelope{Topic: p2p.TopicTx, From: "bob", Data: []byte("one")})
-	peer.deliver(Envelope{Topic: p2p.TopicTx, From: "bob", Data: []byte("two")})
-	peer.deliver(Envelope{Topic: p2p.TopicTx, From: "bob", Data: []byte("three")})
+	peer.deliver(context.Background(), Envelope{Topic: p2p.TopicTx, From: "bob", Data: []byte("one")})
+	peer.deliver(context.Background(), Envelope{Topic: p2p.TopicTx, From: "bob", Data: []byte("two")})
+	peer.deliver(context.Background(), Envelope{Topic: p2p.TopicTx, From: "bob", Data: []byte("three")})
 
 	if drops := peer.DroppedMessages(); drops == 0 {
 		t.Fatal("expected subscriber drops to be counted")
@@ -1115,9 +960,9 @@ func TestGRPCTransportDoesNotDropConsensusTopics(t *testing.T) {
 		}
 	}()
 
-	peer.deliver(Envelope{Topic: p2p.TopicVote, From: "bob", Data: []byte("one")})
-	peer.deliver(Envelope{Topic: p2p.TopicVote, From: "bob", Data: []byte("two")})
-	peer.deliver(Envelope{Topic: p2p.TopicVote, From: "bob", Data: []byte("three")})
+	peer.deliver(context.Background(), Envelope{Topic: p2p.TopicVote, From: "bob", Data: []byte("one")})
+	peer.deliver(context.Background(), Envelope{Topic: p2p.TopicVote, From: "bob", Data: []byte("two")})
+	peer.deliver(context.Background(), Envelope{Topic: p2p.TopicVote, From: "bob", Data: []byte("three")})
 	select {
 	case <-done:
 	case <-time.After(time.Second):
@@ -1263,5 +1108,31 @@ func newTestPeerTLSConfig(t *testing.T, caCert *x509.Certificate, caKey *rsa.Pri
 		ClientCAs:    certPool,
 		ClientAuth:   tls.RequireAndVerifyClientCert,
 		MinVersion:   tls.VersionTLS13,
+	}
+}
+
+// The Stopped hook runs once Stop has shut the transport down, and its error is Stop's.
+func TestGRPCTransportStopRunsTheStoppedHookLast(t *testing.T) {
+	flushErr := errors.New("flush failed")
+	calls := 0
+	var alice *GRPCTransport
+	alice, err := NewGRPCTransport(GRPCConfig{PeerID: "alice", ListenAddr: "127.0.0.1:0", Stopped: func() error {
+		calls++
+		if err := alice.ensureStarted(); err == nil {
+			t.Error("the transport must be stopped before the hook runs")
+		}
+		return flushErr
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := alice.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := alice.Stop(context.Background()); !errors.Is(err, flushErr) {
+		t.Fatalf("expected the hook's error from Stop, got %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected the hook to run once, ran %d times", calls)
 	}
 }

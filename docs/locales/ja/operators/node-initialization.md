@@ -296,7 +296,7 @@ VRF キーはコンセンサス署名者ではありません。これらは VRF
 {
   "schema_version": "v1",
   "application": {
-    "Modules": ["bank", "staking", "governance", "params", "ibc"]
+    "Modules": ["bank", "staking", "governance", "params", "ibc", "slashing"]
   },
   "execution": {
     "RequireSigned": true,
@@ -674,3 +674,17 @@ vexod network init \
 
 - `EVMForkPreset: "latest"`
 - `params.ChainConfig`
+- `https://remix.ethereum.org` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `rpc.cors_allowed_origins` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `rpc.admin_token` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `rpc.admin_tokens` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `rpc.allowed_hosts` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `state_sync.trust_height` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `state_sync.trust_hash` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `trust_hash` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `ValidatorSetHeight - 1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexod snapshot restore` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `chunk-restore` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--trust-height` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `--trust-hash` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexod snapshot export --height` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

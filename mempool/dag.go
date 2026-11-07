@@ -51,13 +51,15 @@ func (dag *DAG) AddTx(ctx context.Context, tx types.Tx) error {
 }
 
 func (dag *DAG) BuildBatch(ctx context.Context, maxBytes int64) (Batch, error) {
-	dag.mu.Lock()
-	defer dag.mu.Unlock()
+	// The base pool replays application checks while it builds; that must not
+	// run under the DAG lock or every AddTx would wait behind it.
 	batch, err := dag.base.BuildBatch(ctx, maxBytes)
 	if err != nil {
 		return Batch{}, err
 	}
 
+	dag.mu.Lock()
+	defer dag.mu.Unlock()
 	batch.Parents = dag.currentTipsLocked()
 	batch.ID = HashBatch(batch)
 	return batch, nil
@@ -83,8 +85,6 @@ func (dag *DAG) MarkCommitted(ctx context.Context, txs []types.Tx) error {
 }
 
 func (dag *DAG) RetainTxs(ctx context.Context, keep func(types.Tx) bool) (int, error) {
-	dag.mu.Lock()
-	defer dag.mu.Unlock()
 	return dag.base.RetainTxs(ctx, keep)
 }
 

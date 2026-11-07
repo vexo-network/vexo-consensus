@@ -296,7 +296,7 @@ VRF 密钥不是共识签名者。它们用于 VRF 支持的委员会选择，�
 {
   "schema_version": "v1",
   "application": {
-    "Modules": ["bank", "staking", "governance", "params", "ibc"]
+    "Modules": ["bank", "staking", "governance", "params", "ibc", "slashing"]
   },
   "execution": {
     "RequireSigned": true,
@@ -674,3 +674,17 @@ vexod network init \
 
 - `EVMForkPreset: "latest"`
 - `params.ChainConfig`
+- `https://remix.ethereum.org` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc.cors_allowed_origins` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc.admin_token` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc.admin_tokens` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `rpc.allowed_hosts` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `state_sync.trust_height` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `state_sync.trust_hash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `trust_hash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `ValidatorSetHeight - 1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod snapshot restore` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `chunk-restore` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--trust-height` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `--trust-hash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod snapshot export --height` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

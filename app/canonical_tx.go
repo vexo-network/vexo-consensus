@@ -1,60 +1,37 @@
 package app
 
 import (
-	"errors"
+	"fmt"
 	"math/big"
 	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/vexo-network/vexo-consensus/economics"
+	"github.com/vexo-network/vexo-consensus/txcodec"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
+// The transaction grammar is parsed by txcodec, the single parser shared with
+// the mempool, so every layer reads a transaction identically.
 var (
-	ErrInvalidCanonicalTx = errors.New("invalid canonical transaction")
-	ErrMissingTxModule    = errors.New("missing transaction module")
-	ErrMissingTxAction    = errors.New("missing transaction action")
+	ErrInvalidCanonicalTx = txcodec.ErrInvalidCanonicalTx
+	ErrMissingTxModule    = txcodec.ErrMissingTxModule
+	ErrMissingTxAction    = txcodec.ErrMissingTxAction
 )
 
-type CanonicalTx struct {
-	Module string            `json:"module"`
-	Action string            `json:"action"`
-	Args   []string          `json:"args,omitempty"`
-	Tags   map[string]string `json:"tags,omitempty"`
-}
+// CanonicalTx is a parsed `module:action:arg...:key=value...` payload.
+type CanonicalTx = txcodec.Canonical
 
+// ParseCanonicalTx strictly parses tx, unwrapping a signed envelope first. A
+// signed transaction that does not decode and a payload that repeats a tag key
+// are errors.
 func ParseCanonicalTx(tx types.Tx) (CanonicalTx, error) {
-	payload := TxPayload(tx)
-	parts := strings.Split(string(payload), ":")
-	if len(parts) < 2 || parts[0] == "" {
-		return CanonicalTx{}, ErrMissingTxModule
-	}
-	if parts[1] == "" {
-		return CanonicalTx{}, ErrMissingTxAction
-	}
-	canonical := CanonicalTx{
-		Module: parts[0],
-		Action: parts[1],
-		Tags:   make(map[string]string),
-	}
-	for _, part := range parts[2:] {
-		key, value, found := strings.Cut(part, "=")
-		if found {
-			if key == "" {
-				return CanonicalTx{}, ErrInvalidCanonicalTx
-			}
-			canonical.Tags[key] = value
-			continue
-		}
-		canonical.Args = append(canonical.Args, part)
-	}
-	if len(canonical.Tags) == 0 {
-		canonical.Tags = nil
-	}
-	return canonical, nil
+	return txcodec.ParseCanonical(tx)
 }
 
+// BuildCanonicalTx serializes tx. Components that contain the field separator
+// or, for tag keys, the key/value separator cannot be represented unambiguously
+// and are rejected rather than silently reinterpreted by the parser.
 func BuildCanonicalTx(tx CanonicalTx) (types.Tx, error) {
 	if tx.Module == "" {
 		return nil, ErrMissingTxModule
@@ -63,8 +40,19 @@ func BuildCanonicalTx(tx CanonicalTx) (types.Tx, error) {
 		return nil, ErrMissingTxAction
 	}
 	parts := []string{tx.Module, tx.Action}
-	parts = append(parts, tx.Args...)
+	if strings.Contains(tx.Module, ":") || strings.Contains(tx.Action, ":") {
+		return nil, fmt.Errorf("%w: separator in module or action", ErrInvalidCanonicalTx)
+	}
+	for _, arg := range tx.Args {
+		if strings.Contains(arg, ":") {
+			return nil, fmt.Errorf("%w: separator in argument", ErrInvalidCanonicalTx)
+		}
+		parts = append(parts, arg)
+	}
 	for _, key := range CanonicalTagKeys(tx.Tags) {
+		if key == "" || strings.ContainsAny(key, ":=") || strings.Contains(tx.Tags[key], ":") {
+			return nil, fmt.Errorf("%w: invalid tag %q", ErrInvalidCanonicalTx, key)
+		}
 		parts = append(parts, key+"="+tx.Tags[key])
 	}
 	return types.Tx(strings.Join(parts, ":")), nil
@@ -113,7 +101,7 @@ func TxAmountBigTag(tx types.Tx, key string) (*big.Int, bool) {
 	if !found {
 		return nil, false
 	}
-	parsed, err := economics.ParseAmountBig(value)
+	parsed, err := txcodec.ParseAmount(value)
 	return parsed, err == nil
 }
 

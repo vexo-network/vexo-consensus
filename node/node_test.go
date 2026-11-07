@@ -12,11 +12,8 @@ import (
 	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/consensus"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
-	"github.com/vexo-network/vexo-consensus/dataavailability"
 	"github.com/vexo-network/vexo-consensus/finality"
-	appstaking "github.com/vexo-network/vexo-consensus/modules/staking"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
-	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
@@ -110,7 +107,7 @@ func TestNodePersistsRuntimeStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := runtime.ExecuteBlock(context.Background(), types.Block{
-		Header: types.Header{ChainID: "vexo-test", Height: 2},
+		Header: types.Header{ChainID: "vexo-test", Height: 2, ValidatorSetHeight: 1},
 		Txs:    []types.Tx{[]byte("bank:send")},
 	}); err != nil {
 		t.Fatal(err)
@@ -254,20 +251,21 @@ func TestNodeRemovesNonceInvalidProposalTxs(t *testing.T) {
 }
 
 func TestNodeClearsRejectedProposalCacheOnUnsafeProposal(t *testing.T) {
-	node := newTestNode(t)
-	if err := node.Start(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	node := newStartedValidator(t, t.TempDir())
 	defer node.Stop(context.Background())
 
-	proposal := consensus.Proposal{
-		Block: types.Block{
-			Header: types.Header{
-				ChainID: "vexo-test",
-				Height:  1,
-			},
-		},
-		Round: 0,
+	// Only an authentic proposal may evict the cached one, so the rejected proposal is signed by its
+	// proposer.
+	machine, err := node.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposal, err := machine.CreateProposal(types.Block{Header: types.Header{ChainID: "vexo-test"}}, 0, "alice", finality.QuorumCert{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := node.signConsensusProposal(&proposal); err != nil {
+		t.Fatal(err)
 	}
 	hash := consensus.HashBlock(proposal.Block)
 	node.cacheProposal(proposal, hash)
@@ -360,8 +358,13 @@ func TestNodeSkipsDoubleSignForSecondProposalInSameRound(t *testing.T) {
 	if cached, ok := reactor.cachedLocalVote(1, 0); !ok || cached.BlockHash != consensus.HashBlock(firstProposal.Block) {
 		t.Fatalf("expected cached local vote for round, got ok=%t vote=%+v", ok, cached)
 	}
-	if err := reactor.OnProposal(context.Background(), secondProposal); err != nil && !errors.Is(err, consensus.ErrUnsafeProposal) && !errors.Is(err, consensus.ErrStaleProposal) {
-		t.Fatal(err)
+	// A view has one proposal: the second block of the same proposer in the view is refused before
+	// the validator can sign a vote for it.
+	if err := reactor.OnProposal(context.Background(), secondProposal); !errors.Is(err, consensus.ErrConflictingProposal) {
+		t.Fatalf("expected the second proposal of the view to conflict, got %v", err)
+	}
+	if _, ok := reactor.cachedLocalVote(1, 0); !ok {
+		t.Fatal("expected the first local vote of the view to stay cached")
 	}
 
 	wal := node.consensusWAL
@@ -448,11 +451,24 @@ func TestAutoVoteReactorRestoresRecordedVoteAfterRestart(t *testing.T) {
 		wal:         restarted.consensusWAL,
 		onError:     func(string, error) { reported = true },
 	}
+	// The restart restored the view the validator voted in, so the machine refuses a second proposal
+	// of that view before any vote is signed. That is a stale proposal, not an operational error.
+	if state := restartedMachine.SafetyState(); state.LastVotedHeight != 1 || state.LastVotedRound != 0 {
+		t.Fatalf("expected the restart to restore the voted view, got %+v", state)
+	}
 	if err := restartedReactor.OnProposal(context.Background(), conflictingProposal); err != nil {
 		t.Fatalf("restored vote should suppress conflicting re-sign, got %v", err)
 	}
 	if reported {
 		t.Fatal("restored vote was reported as an operational error")
+	}
+	// The recorded vote is still restored from the WAL and still wins over a conflicting block.
+	restoredVote, selected, err := restartedReactor.localVote(1, 0, consensus.HashBlock(conflictingProposal.Block))
+	if err != nil {
+		t.Fatalf("restoring the recorded vote failed: %v", err)
+	}
+	if selected || restoredVote.BlockHash != firstHash {
+		t.Fatalf("expected recorded vote %x to suppress the conflicting block, selected=%t vote=%+v", firstHash, selected, restoredVote)
 	}
 	if cached, ok := restartedReactor.cachedLocalVote(1, 0); !ok || cached.BlockHash != firstHash {
 		t.Fatalf("expected restored local vote %x, got ok=%t vote=%+v", firstHash, ok, cached)
@@ -524,8 +540,10 @@ func TestNodeLocalProposerRestoresRecordedVoteAfterRestart(t *testing.T) {
 	if err := restarted.signConsensusProposal(&conflictingProposal); err != nil {
 		t.Fatal(err)
 	}
-	if err := restartedMachine.OnProposal(context.Background(), conflictingProposal); err != nil {
-		t.Fatal(err)
+	// The restart restored the view the validator voted in, so the machine already refuses the
+	// conflicting proposal of that view; the recorded vote must still win if the node asks anyway.
+	if err := restartedMachine.OnProposal(context.Background(), conflictingProposal); !errors.Is(err, consensus.ErrStaleProposal) {
+		t.Fatalf("expected the restored view to make the conflicting proposal stale, got %v", err)
 	}
 	vote, selected, err := restarted.voteLocalProposal(context.Background(), conflictingProposal, consensus.HashBlock(conflictingProposal.Block))
 	if err != nil {
@@ -761,40 +779,10 @@ func TestNodeMetricsReportsStoppedSnapshot(t *testing.T) {
 	}
 }
 
-func TestNodeStateSnapshotReportsLatestStateRoots(t *testing.T) {
-	node := newTestNode(t)
-	if err := node.Start(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	defer node.Stop(context.Background())
-
-	runtime, err := node.Runtime()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runtime.ExecuteBlock(context.Background(), types.Block{
-		Header: types.Header{ChainID: "vexo-test", Height: 2},
-		Txs:    []types.Tx{[]byte("bank:send")},
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	snapshot, err := node.StateSnapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if snapshot.Height != 2 || snapshot.AppHash == (types.Hash{}) || snapshot.LastBlockHash == (types.Hash{}) {
-		t.Fatalf("unexpected snapshot identity: %+v", snapshot)
-	}
-	if len(snapshot.StateRoots) != 1 || snapshot.StateRoots[0].Namespace != "bank" || snapshot.StateRoots[0].Root == (types.Hash{}) {
-		t.Fatalf("unexpected snapshot state roots: %+v", snapshot.StateRoots)
-	}
-}
-
 func TestNodeStateSnapshotRequiresRunningNode(t *testing.T) {
 	node := newTestNode(t)
 
-	if _, err := node.StateSnapshot(context.Background()); !errors.Is(err, ErrNodeNotRunning) {
+	if _, err := node.StateSnapshot(context.Background(), 0); !errors.Is(err, ErrNodeNotRunning) {
 		t.Fatalf("expected not running snapshot error, got %v", err)
 	}
 }
@@ -991,7 +979,7 @@ func TestNodeReplayAllAfterPruneRequiresStrictReplaySource(t *testing.T) {
 	}
 	for height := types.Height(1); height <= 4; height++ {
 		if _, err := runtime.ExecuteBlock(context.Background(), types.Block{
-			Header: types.Header{ChainID: "vexo-test", Height: height},
+			Header: types.Header{ChainID: "vexo-test", Height: height, ValidatorSetHeight: 1},
 			Txs:    []types.Tx{[]byte("bank:send")},
 		}); err != nil {
 			t.Fatal(err)
@@ -1029,7 +1017,7 @@ func TestNodeRecoversAfterPruneAndRestart(t *testing.T) {
 	}
 	for height := types.Height(1); height <= 4; height++ {
 		if _, err := runtime.ExecuteBlock(context.Background(), types.Block{
-			Header: types.Header{ChainID: "vexo-test", Height: height},
+			Header: types.Header{ChainID: "vexo-test", Height: height, ValidatorSetHeight: 1},
 			Txs:    []types.Tx{[]byte("bank:send")},
 		}); err != nil {
 			t.Fatal(err)
@@ -1363,320 +1351,6 @@ func TestNodeUsesPolicySignerForConsensusMessages(t *testing.T) {
 	}
 }
 
-func TestNodeReconcilesPendingEvidenceAfterRestart(t *testing.T) {
-	ctx := context.Background()
-	storage, err := store.OpenLevelDB(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer storage.Close()
-
-	signer := deterministicSignerForID("alice")
-	validators := []validator.Validator{
-		{ID: "alice", Address: "alice", VotingPower: 100, Stake: 100, PublicKey: signer.PublicKey()},
-	}
-	runtime, err := vexoruntime.NewWithStore(config.Default("vexo-test"), newTestApplication(t), validators, nil, storage)
-	if err != nil {
-		t.Fatal(err)
-	}
-	evidence, err := consensus.NewConflictingVoteEvidence(
-		signedNodeTestVote(t, signer, "alice", 1, 0, types.Hash{1}),
-		signedNodeTestVote(t, signer, "alice", 1, 0, types.Hash{2}),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := storage.SaveState(ctx, store.StateRecord{Height: 10}); err != nil {
-		t.Fatal(err)
-	}
-	if err := storage.SaveEvidence(ctx, store.EvidenceRecord{Evidence: evidence, Applied: false, CreatedAt: 1}); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := (&Node{}).reconcileEvidence(ctx, runtime); err != nil {
-		t.Fatal(err)
-	}
-	key := store.EvidenceKey(evidence)
-	record, err := storage.EvidenceByKey(ctx, key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !record.Applied {
-		t.Fatal("expected pending evidence to be marked applied")
-	}
-	set1, err := runtime.Validators.ValidatorSet(ctx, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	aliceAtEvidenceHeight, found := set1.Get("alice")
-	if !found || aliceAtEvidenceHeight.VotingPower != 100 {
-		t.Fatalf("evidence height set must stay intact, got %+v found=%t", aliceAtEvidenceHeight, found)
-	}
-	set10, err := runtime.Validators.ValidatorSet(ctx, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	aliceAtApplyHeight, found := set10.Get("alice")
-	if !found || aliceAtApplyHeight.VotingPower != 95 {
-		t.Fatalf("expected slash at apply height, got %+v found=%t", aliceAtApplyHeight, found)
-	}
-}
-
-func TestNodeReconcilesLegacyAppliedEvidenceAfterRestart(t *testing.T) {
-	ctx := context.Background()
-	storage, err := store.OpenLevelDB(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer storage.Close()
-
-	signer := deterministicSignerForID("alice")
-	validators := []validator.Validator{
-		{ID: "alice", Address: "alice", VotingPower: 100, Stake: 100, PublicKey: signer.PublicKey()},
-	}
-	runtime, err := vexoruntime.NewWithStore(config.Default("vexo-test"), newTestApplication(t), validators, nil, storage)
-	if err != nil {
-		t.Fatal(err)
-	}
-	evidence, err := consensus.NewConflictingVoteEvidence(
-		signedNodeTestVote(t, signer, "alice", 1, 0, types.Hash{1}),
-		signedNodeTestVote(t, signer, "alice", 1, 0, types.Hash{2}),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := storage.SaveState(ctx, store.StateRecord{Height: 10}); err != nil {
-		t.Fatal(err)
-	}
-	if err := storage.SaveEvidence(ctx, store.EvidenceRecord{Evidence: evidence, Applied: true, CreatedAt: 1}); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := (&Node{}).reconcileEvidence(ctx, runtime); err != nil {
-		t.Fatal(err)
-	}
-	receipt, found, err := runtime.Slashing.(*slashing.StoreKeeper).PenaltyReceipt(ctx, evidence)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !found || receipt.RemainingPower != 95 {
-		t.Fatalf("expected legacy applied evidence repair receipt, found=%t receipt=%+v", found, receipt)
-	}
-	setAtApplyHeight, err := runtime.Validators.ValidatorSet(ctx, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	alice, found := setAtApplyHeight.Get("alice")
-	if !found || alice.VotingPower != 95 {
-		t.Fatalf("expected repaired validator power, got %+v found=%t", alice, found)
-	}
-}
-
-func TestNodeEvidenceSlashesStakingLedger(t *testing.T) {
-	ctx := context.Background()
-	signer := deterministicSignerForID("alice")
-	stakingModule := appstaking.NewModule()
-	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{stakingModule}, vexoapp.PrefixRouter{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	genesis := Genesis{
-		ChainID: "vexo-test",
-		Validators: []validator.Validator{
-			{ID: "alice", Address: "alice", VotingPower: 100, Stake: 100, PublicKey: signer.PublicKey()},
-		},
-		Governance: map[types.Address]types.VotingPower{"alice": 100},
-	}
-	node, err := New(DefaultConfig("vexo-test", t.TempDir()), genesis, application)
-	if err != nil {
-		t.Fatal(err)
-	}
-	node.cfg.ValidatorID = "alice"
-	node.WithSigner(signer)
-	if err := node.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	defer node.Stop(ctx)
-
-	runtime, err := node.Runtime()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := runtime.Store.Set(ctx, "bank", []byte("alice"), encodeNodeTestUint64(100)); err != nil {
-		t.Fatal(err)
-	}
-	publicKey := base64.StdEncoding.EncodeToString(signer.PublicKey())
-	result := stakingModule.DeliverTx(vexoapp.Context{Ctx: ctx, Height: 1, Store: runtime.Store}, types.Tx("staking:delegate:alice:alice:100:"+publicKey))
-	if result.Code != 0 {
-		t.Fatalf("unexpected delegate result: %+v", result)
-	}
-	evidence, err := consensus.NewConflictingVoteEvidence(
-		signedNodeTestVote(t, signer, "alice", 1, 0, types.Hash{1}),
-		signedNodeTestVote(t, signer, "alice", 1, 0, types.Hash{2}),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	slashResult, applied, err := node.SubmitEvidence(ctx, evidence)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !applied || slashResult.RemainingPower != 95 {
-		t.Fatalf("expected evidence slash to 95, applied=%t result=%+v", applied, slashResult)
-	}
-	stake, err := appstaking.Stake(ctx, runtime.Store, "alice", "alice")
-	if err != nil {
-		t.Fatal(err)
-	}
-	power, err := appstaking.ValidatorPower(ctx, runtime.Store, "alice")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stake != 95 || power != 95 {
-		t.Fatalf("expected staking ledger slashed once, stake=%d power=%d", stake, power)
-	}
-	if _, _, err := node.SubmitEvidence(ctx, evidence); err != nil {
-		t.Fatal(err)
-	}
-	stake, err = appstaking.Stake(ctx, runtime.Store, "alice", "alice")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stake != 95 {
-		t.Fatalf("expected duplicate evidence not to slash staking twice, stake=%d", stake)
-	}
-}
-
-func TestNodeAppliesInvalidProposalEvidence(t *testing.T) {
-	signer := deterministicSignerForID("alice")
-	node := newTestNodeWithSigner(t, signer)
-	if err := node.Start(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	defer node.Stop(context.Background())
-
-	proposal := signedNodeTestProposal(t, signer, consensus.Proposal{
-		Block: types.Block{
-			Header: types.Header{
-				ChainID:       "vexo-test",
-				Height:        1,
-				ConsensusHash: dataavailability.Commitment([]types.Tx{[]byte("other")}),
-			},
-			Txs: []types.Tx{[]byte("tx")},
-		},
-		Round:    0,
-		Proposer: "alice",
-	})
-	evidence, err := consensus.NewInvalidProposalEvidence(proposal, string(consensus.InvalidProposalReasonDAMismatch))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	result, applied, err := node.SubmitEvidence(context.Background(), evidence)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !applied || result.RemainingPower != 1 {
-		t.Fatalf("expected invalid proposal evidence to apply with minimum remaining power, applied=%t result=%+v", applied, result)
-	}
-	runtime, err := node.Runtime()
-	if err != nil {
-		t.Fatal(err)
-	}
-	receipt, found, err := runtime.Slashing.(*slashing.StoreKeeper).PenaltyReceipt(context.Background(), evidence)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !found || receipt.Evidence.Type != slashing.EvidenceInvalidProposal {
-		t.Fatalf("expected invalid proposal receipt, found=%t receipt=%+v", found, receipt)
-	}
-}
-
-func TestNodeBuildsTxValidityEvidenceContextFromStoredBlockResults(t *testing.T) {
-	ctx := context.Background()
-	signer := deterministicSignerForID("alice")
-	node := newTestNodeWithSigner(t, signer)
-	if err := node.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	defer node.Stop(ctx)
-	runtime, err := node.Runtime()
-	if err != nil {
-		t.Fatal(err)
-	}
-	block := types.Block{
-		Header: types.Header{ChainID: "vexo-test", Height: 1},
-		Txs:    []types.Tx{[]byte("bank:send")},
-	}
-	response, err := runtime.ExecuteBlock(ctx, block)
-	if err != nil {
-		t.Fatal(err)
-	}
-	proposal := signedNodeTestProposal(t, signer, consensus.Proposal{
-		Block:    block,
-		Round:    0,
-		Proposer: "alice",
-	})
-	actualResults := make([]types.Result, len(response.Results))
-	copy(actualResults, response.Results)
-	actualResults[0] = types.Result{Code: 1, Log: "deterministic execution mismatch"}
-	evidence, err := consensus.NewInvalidProposalTxExecutionEvidence(
-		proposal,
-		response.Results,
-		actualResults,
-		0,
-		"deterministic execution mismatch",
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	verificationContext, err := node.evidenceVerificationContext(ctx, runtime, evidence)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if verificationContext.InvalidProposal.ExpectedTxResultsHash != consensus.HashTxResults(response.Results) {
-		t.Fatalf("expected tx result hash context, got %+v", verificationContext.InvalidProposal.ExpectedTxResultsHash)
-	}
-}
-
-func TestNodeBuildsTimestampEvidenceContextFromStoredBlock(t *testing.T) {
-	ctx := context.Background()
-	signer := deterministicSignerForID("alice")
-	node := newTestNodeWithSigner(t, signer)
-	if err := node.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	defer node.Stop(ctx)
-	runtime, err := node.Runtime()
-	if err != nil {
-		t.Fatal(err)
-	}
-	block := types.Block{
-		Header: types.Header{ChainID: "vexo-test", Height: 1, TimeUnixNano: 12345},
-	}
-	if _, err := runtime.ExecuteBlock(ctx, block); err != nil {
-		t.Fatal(err)
-	}
-	proposal := signedNodeTestProposal(t, signer, consensus.Proposal{
-		Block: types.Block{
-			Header: types.Header{ChainID: "vexo-test", Height: 1, TimeUnixNano: 99999},
-		},
-		Round:    0,
-		Proposer: "alice",
-	})
-	evidence, err := consensus.NewInvalidProposalTimestampEvidence(proposal, block.Header.TimeUnixNano, proposal.Block.Header.TimeUnixNano)
-	if err != nil {
-		t.Fatal(err)
-	}
-	verificationContext, err := node.evidenceVerificationContext(ctx, runtime, evidence)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if verificationContext.InvalidProposal.ExpectedTimeUnixNano != block.Header.TimeUnixNano {
-		t.Fatalf("expected timestamp context %d, got %+v", block.Header.TimeUnixNano, verificationContext.InvalidProposal.ExpectedTimeUnixNano)
-	}
-}
-
 func TestNodeReadsDurableFinalityProofWithoutLiveDecision(t *testing.T) {
 	ctx := context.Background()
 	storage, err := store.OpenLevelDB(t.TempDir())
@@ -1686,7 +1360,7 @@ func TestNodeReadsDurableFinalityProofWithoutLiveDecision(t *testing.T) {
 	defer storage.Close()
 
 	validatorSetHash := types.Hash{8}
-	block := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 3, ValidatorSetHash: validatorSetHash}}
+	block := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 3, Round: 1, JustifyRound: 0, ValidatorSetHeight: 2, ValidatorSetHash: validatorSetHash}}
 	blockHash := consensus.HashBlock(block)
 	if err := storage.SaveBlock(ctx, store.BlockRecord{Block: block, Hash: blockHash}); err != nil {
 		t.Fatal(err)
@@ -1701,21 +1375,16 @@ func TestNodeReadsDurableFinalityProofWithoutLiveDecision(t *testing.T) {
 	if err := storage.SaveFinalityProof(ctx, finalityProofRecord(proof)); err != nil {
 		t.Fatal(err)
 	}
-	child := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 4, PreviousBlockHash: blockHash, ValidatorSetHash: validatorSetHash}}
+	child := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 4, Round: 2, JustifyRound: 1, PreviousBlockHash: blockHash, ValidatorSetHeight: 3, ValidatorSetHash: validatorSetHash}}
 	childHash := consensus.HashBlock(child)
 	childQC := finality.QuorumCert{
 		Height:    4,
-		Round:     1,
+		Round:     2,
 		BlockHash: childHash,
 		Signers:   finality.EncodeSigners([]types.ValidatorID{"alice"}),
 	}
 	childQCRecord := finalityQuorumCertRecord(childQC)
 	if err := storage.SaveBlock(ctx, store.BlockRecord{Block: child, Hash: childHash, QuorumCert: &childQCRecord}); err != nil {
-		t.Fatal(err)
-	}
-	grandchild := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 5, PreviousBlockHash: childHash, ValidatorSetHash: validatorSetHash}}
-	grandchildHash := consensus.HashBlock(grandchild)
-	if err := storage.SaveBlock(ctx, store.BlockRecord{Block: grandchild, Hash: grandchildHash}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1728,17 +1397,17 @@ func TestNodeReadsDurableFinalityProofWithoutLiveDecision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Header.Height != 3 || loaded.QuorumCert.Round != 1 || !loaded.HasThreeChainCommitProof() {
+	if loaded.Header.Height != 3 || loaded.QuorumCert.Round != 1 || !loaded.HasCommitProof() {
 		t.Fatalf("unexpected durable proof: %+v", loaded)
 	}
-	if loaded.CommitChain[0].BlockHash != childHash || loaded.CommitChain[1].BlockHash != grandchildHash {
+	if loaded.CommitChain[0].BlockHash != childHash || loaded.CommitChain[0].QuorumCert.Round != 2 {
 		t.Fatalf("unexpected durable commit chain: %+v", loaded.CommitChain)
 	}
 	latest, err := node.LatestFinalityProof(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if latest.Header.Height != 3 || !latest.HasThreeChainCommitProof() {
+	if latest.Header.Height != 3 || !latest.HasCommitProof() {
 		t.Fatalf("unexpected latest durable proof: %+v", latest)
 	}
 }
@@ -1796,9 +1465,10 @@ func testCommitBlock(t *testing.T, node *Node, height types.Height) types.Block 
 		t.Fatal(err)
 	}
 	return types.Block{Header: types.Header{
-		ChainID:          "vexo-test",
-		Height:           height,
-		ValidatorSetHash: validatorSet.Hash(),
+		ChainID:            "vexo-test",
+		Height:             height,
+		ValidatorSetHeight: finality.FirstValidatorSetHeight,
+		ValidatorSetHash:   validatorSet.Hash(),
 	}}
 }
 

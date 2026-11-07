@@ -1,125 +1,73 @@
 package mempool
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"strconv"
-	"strings"
 
-	"github.com/vexo-network/vexo-consensus/economics"
+	"github.com/vexo-network/vexo-consensus/txcodec"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
+// The helpers below read transaction metadata through txcodec, the parser the
+// application runtime uses, so the pool and the ante handler can never
+// disagree about a signer, nonce or fee. A payload that does not parse has no
+// metadata; the pool itself rejects such payloads at admission.
+
+// TxFee returns the fee tag saturated to uint64.
 func TxFee(tx types.Tx) uint64 {
-	return txAmountTag(tx, "fee")
+	meta, err := txcodec.ParseMeta(tx)
+	if err != nil {
+		return 0
+	}
+	return meta.FeeSaturated()
 }
 
+// TxPriority returns the priority tag.
 func TxPriority(tx types.Tx) uint64 {
-	return txNumericTag(tx, "priority")
+	meta, err := txcodec.ParseMeta(tx)
+	if err != nil {
+		return 0
+	}
+	return meta.Priority
 }
 
+// TxNonce returns the nonce tag.
 func TxNonce(tx types.Tx) (uint64, bool) {
-	return txNumericTagFound(tx, "nonce")
+	meta, err := txcodec.ParseMeta(tx)
+	if err != nil || !meta.HasNonce {
+		return 0, false
+	}
+	return meta.Nonce, true
 }
 
+// TxSigner returns the normalized account identity named by the signer tag.
 func TxSigner(tx types.Tx) (string, bool) {
-	return txStringTag(tx, "signer")
+	meta, err := txcodec.ParseMeta(tx)
+	if err != nil || meta.Signer == "" {
+		return "", false
+	}
+	return txcodec.NormalizeAddress(meta.Signer), true
 }
 
+// ReplacementKey identifies the account sequence slot a transaction occupies.
 func ReplacementKey(tx types.Tx) (string, bool) {
-	signer, found := TxSigner(tx)
-	if !found || signer == "" {
+	meta, err := txcodec.ParseMeta(tx)
+	if err != nil {
 		return "", false
 	}
-	nonce, found := TxNonce(tx)
-	if !found {
+	return replacementKey(meta)
+}
+
+func replacementKey(meta txcodec.Meta) (string, bool) {
+	if meta.Signer == "" || !meta.HasNonce {
 		return "", false
 	}
-	return signer + "/" + strconv.FormatUint(nonce, 10), true
+	return txcodec.NormalizeAddress(meta.Signer) + "/" + strconv.FormatUint(meta.Nonce, 10), true
 }
 
-func txNumericTag(tx types.Tx, key string) uint64 {
-	value, _ := txNumericTagFound(tx, key)
-	return value
-}
-
-func txNumericTagFound(tx types.Tx, key string) (uint64, bool) {
-	payload := mempoolTxPayload(tx)
-	for _, part := range strings.Split(string(payload), ":") {
-		tagKey, tagValue, found := strings.Cut(part, "=")
-		if !found || tagKey != key {
-			continue
-		}
-		value, err := strconv.ParseUint(tagValue, 10, 64)
-		if err != nil {
-			return 0, false
-		}
-		return value, true
-	}
-	return 0, false
-}
-
-func txStringTag(tx types.Tx, key string) (string, bool) {
-	payload := mempoolTxPayload(tx)
-	for _, part := range strings.Split(string(payload), ":") {
-		tagKey, tagValue, found := strings.Cut(part, "=")
-		if !found || tagKey != key {
-			continue
-		}
-		return tagValue, true
-	}
-	return "", false
-}
-
-func txAmountTag(tx types.Tx, key string) uint64 {
-	payload := mempoolTxPayload(tx)
-	for _, part := range strings.Split(string(payload), ":") {
-		tagKey, tagValue, found := strings.Cut(part, "=")
-		if !found || tagKey != key {
-			continue
-		}
-		value, err := economics.ParseAmount(tagValue)
-		if err != nil {
-			return 0
-		}
-		return value
-	}
-	return 0
-}
-
-func mempoolTxPayload(tx types.Tx) types.Tx {
-	if !strings.HasPrefix(string(tx), "signed:") {
-		return tx
-	}
-	document, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(string(tx), "signed:"))
-	if err != nil {
-		return tx
-	}
-	var envelope struct {
-		SchemaVersion string `json:"schema_version"`
-		Payload       string `json:"payload"`
-	}
-	if err := json.Unmarshal(document, &envelope); err != nil {
-		return tx
-	}
-	if envelope.SchemaVersion != "v1" || envelope.Payload == "" {
-		return tx
-	}
-	payload, err := base64.StdEncoding.DecodeString(envelope.Payload)
-	if err != nil {
-		return tx
-	}
-	return types.Tx(payload)
-}
-
-func replacementPriceBumped(oldTx types.Tx, newTx types.Tx, bumpBPS uint64) bool {
+func replacementPriceBumped(oldFee uint64, oldPriority uint64, newFee uint64, newPriority uint64, bumpBPS uint64) bool {
 	if bumpBPS == 0 {
 		bumpBPS = 1000
 	}
-	oldFee := TxFee(oldTx)
-	newFee := TxFee(newTx)
-	oldPriority := TxPriority(oldTx)
-	newPriority := TxPriority(newTx)
 	if oldFee == 0 && oldPriority == 0 {
 		return newFee > 0 || newPriority > 0
 	}

@@ -13,7 +13,16 @@ import (
 	"time"
 )
 
-const AddrBookVersionV1 = "v1"
+const (
+	AddrBookVersionV1 = "v1"
+
+	// DefaultMaxLearnedPeers bounds the non-permanent entries an address book
+	// retains. Permanent (operator-configured) entries are never counted
+	// against, evicted by, or overwritten by learned entries.
+	DefaultMaxLearnedPeers = 1024
+
+	addrBookSaveDelay = time.Second
+)
 
 var ErrInvalidPeerAddress = errors.New("invalid peer address")
 var ErrUnsupportedAddrBookSchema = errors.New("unsupported addrbook schema")
@@ -22,8 +31,14 @@ type AddrBook struct {
 	mu          sync.Mutex
 	path        string
 	maxFailures int
+	maxLearned  int
 	peers       map[PeerID]AddrBookPeer
 	now         func() time.Time
+	saveTimer   *time.Timer
+	closed      bool
+	// saveMu serializes writes of the file, so a deferred save never interleaves with another
+	// save and none runs after Close returns.
+	saveMu sync.Mutex
 }
 
 type AddrBookDocument struct {
@@ -52,6 +67,7 @@ func OpenAddrBookWithPolicy(path string, maxFailures int) (*AddrBook, error) {
 	book := &AddrBook{
 		path:        path,
 		maxFailures: maxFailures,
+		maxLearned:  DefaultMaxLearnedPeers,
 		peers:       make(map[PeerID]AddrBookPeer),
 		now:         time.Now,
 	}
@@ -81,10 +97,34 @@ func (book *AddrBook) Load() error {
 	}
 	book.mu.Lock()
 	defer book.mu.Unlock()
+	learned := make([]AddrBookPeer, 0, len(document.Peers))
 	for _, peer := range document.Peers {
-		if peer.ID == "" || !ValidPeerAddress(peer.Address) {
+		if !ValidPeerID(peer.ID) || !ValidPeerAddress(peer.Address) {
 			continue
 		}
+		if peer.Permanent {
+			book.peers[peer.ID] = peer
+			continue
+		}
+		learned = append(learned, peer)
+	}
+	// A file that holds more learned entries than the bucket allows (for
+	// example one written before the bound existed) keeps bans first, so the
+	// cap cannot launder a ban, and then the most recently seen entries.
+	sort.Slice(learned, func(left int, right int) bool {
+		if learned[left].Banned != learned[right].Banned {
+			return learned[left].Banned
+		}
+		leftSeen, rightSeen := parseAddrBookTime(learned[left].LastSeen), parseAddrBookTime(learned[right].LastSeen)
+		if !leftSeen.Equal(rightSeen) {
+			return leftSeen.After(rightSeen)
+		}
+		return learned[left].ID < learned[right].ID
+	})
+	if len(learned) > book.maxLearned {
+		learned = learned[:book.maxLearned]
+	}
+	for _, peer := range learned {
 		book.peers[peer.ID] = peer
 	}
 	return nil
@@ -94,6 +134,12 @@ func (book *AddrBook) Save() error {
 	if book.path == "" {
 		return nil
 	}
+	book.saveMu.Lock()
+	defer book.saveMu.Unlock()
+	return book.saveLocked()
+}
+
+func (book *AddrBook) saveLocked() error {
 	if err := os.MkdirAll(filepath.Dir(book.path), 0o755); err != nil {
 		return err
 	}
@@ -108,39 +154,56 @@ func (book *AddrBook) Save() error {
 	return writeFileAtomic(book.path, append(data, '\n'), 0o600)
 }
 
+// Add records a peer. Unauthenticated sources (permanent=false) can only insert
+// new, bounded, non-permanent entries: they never rewrite the address of an
+// existing entry and never displace an operator-configured peer. Operator
+// configuration (permanent=true) is authoritative for the address of the peers
+// it names. Neither source clears a ban or a failure history: a ban only ends
+// when it expires or the entry is removed.
 func (book *AddrBook) Add(peerID PeerID, address string, source string, permanent bool) {
-	if peerID == "" || !ValidPeerAddress(address) {
-		return
-	}
 	book.mu.Lock()
 	defer book.mu.Unlock()
-	peer := book.peers[peerID]
-	peer.ID = peerID
-	peer.Address = address
-	peer.Source = source
-	peer.LastSeen = book.now().UTC().Format(time.RFC3339Nano)
-	peer.Failures = 0
-	peer.LastFailure = ""
-	peer.Banned = false
-	peer.BannedUntil = ""
-	peer.Permanent = peer.Permanent || permanent
-	book.peers[peerID] = peer
+	book.addLocked(peerID, address, source, permanent)
 }
 
+// Merge applies Add to every entry in a deterministic order, so which learned
+// entries fit into a full bucket does not depend on map iteration order.
 func (book *AddrBook) Merge(peers map[PeerID]string, source string, permanent bool) {
 	book.mu.Lock()
 	defer book.mu.Unlock()
-	for peerID, address := range peers {
-		book.addLocked(peerID, address, source, permanent)
+	peerIDs := make([]string, 0, len(peers))
+	for peerID := range peers {
+		peerIDs = append(peerIDs, string(peerID))
+	}
+	sort.Strings(peerIDs)
+	for _, peerID := range peerIDs {
+		book.addLocked(PeerID(peerID), peers[PeerID(peerID)], source, permanent)
 	}
 }
 
+// PeerMap returns every non-banned entry except exclude.
 func (book *AddrBook) PeerMap(exclude PeerID) map[PeerID]string {
+	return book.selectPeers(exclude, func(AddrBookPeer) bool { return true })
+}
+
+// PermanentPeerMap returns the non-banned operator-configured entries.
+func (book *AddrBook) PermanentPeerMap(exclude PeerID) map[PeerID]string {
+	return book.selectPeers(exclude, func(peer AddrBookPeer) bool { return peer.Permanent })
+}
+
+// LearnedPeerMap returns the non-banned entries learned from the network.
+// These are dial candidates that must be verified by a handshake; they are
+// never promoted to operator-configured peers.
+func (book *AddrBook) LearnedPeerMap(exclude PeerID) map[PeerID]string {
+	return book.selectPeers(exclude, func(peer AddrBookPeer) bool { return !peer.Permanent })
+}
+
+func (book *AddrBook) selectPeers(exclude PeerID, include func(AddrBookPeer) bool) map[PeerID]string {
 	book.mu.Lock()
 	defer book.mu.Unlock()
 	peers := make(map[PeerID]string, len(book.peers))
 	for peerID, peer := range book.peers {
-		if peerID == exclude || peer.Address == "" || book.peerBannedLocked(peer) {
+		if peerID == exclude || peer.Address == "" || !include(peer) || book.peerBannedLocked(peer) {
 			continue
 		}
 		peers[peerID] = peer.Address
@@ -169,8 +232,6 @@ func (book *AddrBook) MarkSuccess(peerID PeerID) {
 	peer.LastSeen = book.now().UTC().Format(time.RFC3339Nano)
 	peer.Failures = 0
 	peer.LastFailure = ""
-	peer.Banned = false
-	peer.BannedUntil = ""
 	book.peers[peerID] = peer
 }
 
@@ -217,20 +278,6 @@ func (book *AddrBook) IsBanned(peerID PeerID) bool {
 	return book.peerBannedLocked(peer)
 }
 
-func (book *AddrBook) EvictBanned() int {
-	book.mu.Lock()
-	defer book.mu.Unlock()
-	evicted := 0
-	for peerID, peer := range book.peers {
-		if !book.peerBannedLocked(peer) || peer.Permanent {
-			continue
-		}
-		delete(book.peers, peerID)
-		evicted++
-	}
-	return evicted
-}
-
 func (book *AddrBook) peerBannedLocked(peer AddrBookPeer) bool {
 	if !peer.Banned {
 		return false
@@ -258,20 +305,133 @@ func (book *AddrBook) Peers() []AddrBookPeer {
 }
 
 func (book *AddrBook) addLocked(peerID PeerID, address string, source string, permanent bool) {
-	if peerID == "" || !ValidPeerAddress(address) {
+	if !ValidPeerID(peerID) || !ValidPeerAddress(address) {
 		return
 	}
-	peer := book.peers[peerID]
-	peer.ID = peerID
-	peer.Address = address
-	peer.Source = source
-	peer.LastSeen = book.now().UTC().Format(time.RFC3339Nano)
-	peer.Failures = 0
-	peer.LastFailure = ""
-	peer.Banned = false
-	peer.BannedUntil = ""
-	peer.Permanent = peer.Permanent || permanent
-	book.peers[peerID] = peer
+	now := book.now().UTC().Format(time.RFC3339Nano)
+	existing, found := book.peers[peerID]
+	if found {
+		if !permanent {
+			return
+		}
+		existing.Address = address
+		existing.Source = source
+		existing.LastSeen = now
+		existing.Permanent = true
+		book.peers[peerID] = existing
+		return
+	}
+	if !permanent && !book.makeRoomLocked() {
+		return
+	}
+	book.peers[peerID] = AddrBookPeer{
+		ID:        peerID,
+		Address:   address,
+		Source:    source,
+		LastSeen:  now,
+		Permanent: permanent,
+	}
+}
+
+// makeRoomLocked reports whether one more learned entry fits, evicting the
+// stalest healthy learned entry when the learned bucket is full.
+func (book *AddrBook) makeRoomLocked() bool {
+	if book.maxLearned <= 0 {
+		return false
+	}
+	if book.learnedCountLocked() < book.maxLearned {
+		return true
+	}
+	victim, found := book.evictionVictimLocked()
+	if !found {
+		return false
+	}
+	delete(book.peers, victim)
+	return true
+}
+
+func (book *AddrBook) learnedCountLocked() int {
+	count := 0
+	for _, peer := range book.peers {
+		if !peer.Permanent {
+			count++
+		}
+	}
+	return count
+}
+
+// evictionVictimLocked picks the least recently seen learned entry that is not
+// under an active ban. Banned entries are kept so that a ban cannot be erased
+// by flooding the learned bucket with fresh identities.
+func (book *AddrBook) evictionVictimLocked() (PeerID, bool) {
+	var victim PeerID
+	var victimSeen time.Time
+	found := false
+	for peerID, peer := range book.peers {
+		if peer.Permanent || book.peerBannedLocked(peer) {
+			continue
+		}
+		seen := parseAddrBookTime(peer.LastSeen)
+		if !found || seen.Before(victimSeen) || (seen.Equal(victimSeen) && peerID < victim) {
+			victim = peerID
+			victimSeen = seen
+			found = true
+		}
+	}
+	return victim, found
+}
+
+func parseAddrBookTime(value string) time.Time {
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed
+}
+
+// SaveDeferred schedules a write-behind Save and coalesces bursts of
+// mutations into a single disk write.
+func (book *AddrBook) SaveDeferred() {
+	if book.path == "" {
+		return
+	}
+	book.mu.Lock()
+	defer book.mu.Unlock()
+	if book.saveTimer != nil || book.closed {
+		return
+	}
+	book.saveTimer = time.AfterFunc(addrBookSaveDelay, func() {
+		book.saveMu.Lock()
+		defer book.saveMu.Unlock()
+		book.mu.Lock()
+		book.saveTimer = nil
+		closed := book.closed
+		book.mu.Unlock()
+		if closed {
+			return
+		}
+		_ = book.saveLocked()
+	})
+}
+
+// Close cancels any pending deferred save, writes the book, and schedules no deferred save after
+// it: the owner of the file may be gone once Close returns. Save still writes on request.
+func (book *AddrBook) Close() error {
+	book.mu.Lock()
+	book.closed = true
+	book.mu.Unlock()
+	return book.Flush()
+}
+
+// Flush cancels any pending deferred save and writes the book immediately.
+func (book *AddrBook) Flush() error {
+	book.mu.Lock()
+	if book.saveTimer != nil {
+		book.saveTimer.Stop()
+		book.saveTimer = nil
+	}
+	book.mu.Unlock()
+	return book.Save()
 }
 
 func ValidPeerAddress(address string) bool {

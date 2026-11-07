@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/committee"
-	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/events"
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/node"
@@ -300,7 +299,7 @@ func finalityProofResponse(proof finality.Proof) FinalityProofResponse {
 		BlockHash:          hex.EncodeToString(proof.BlockHash[:]),
 		ValidatorSetHeight: uint64(proof.ValidatorSetHeight),
 		ValidatorSetHash:   hex.EncodeToString(proof.ValidatorSetHash[:]),
-		Strict:             proof.HasThreeChainCommitProof(),
+		Strict:             proof.HasCommitProof(),
 		Header:             headerResponse(proof.Header),
 		QuorumCert:         quorumCertResponse(proof.QuorumCert),
 		CommitChain:        commitChain,
@@ -357,59 +356,57 @@ func eventsResponse(key string, value string, records []events.Record) EventsRes
 	}
 }
 
-func stateSnapshotResponse(snapshot node.StateSnapshot) StateSnapshotResponse {
-	roots := make([]StateRootResponse, 0, len(snapshot.StateRoots))
-	for _, root := range snapshot.StateRoots {
+func stateSnapshotResponse(head node.StateSnapshotHead) StateSnapshotResponse {
+	roots := make([]StateRootResponse, 0, len(head.StateRoots))
+	for _, root := range head.StateRoots {
 		roots = append(roots, stateRootResponse(root))
 	}
 	return StateSnapshotResponse{
-		Height:           uint64(snapshot.Height),
-		AppHash:          hex.EncodeToString(snapshot.AppHash[:]),
-		LastBlockHash:    hex.EncodeToString(snapshot.LastBlockHash[:]),
-		ValidatorSetHash: hex.EncodeToString(snapshot.ValidatorSetHash[:]),
+		Height:           uint64(head.State.Height),
+		AppHash:          hex.EncodeToString(head.State.AppHash[:]),
+		LastBlockHash:    hex.EncodeToString(head.State.LastBlockHash[:]),
+		ValidatorSetHash: hex.EncodeToString(head.State.ValidatorSetHash[:]),
 		StateRoots:       roots,
 	}
 }
 
 func snapshotExportResponse(snapshot node.StateSnapshot) SnapshotExportResponse {
+	modules := append([]string(nil), snapshot.Namespaces...)
+	sort.Strings(modules)
 	response := SnapshotExportResponse{
 		SchemaVersion: "v1",
-		State: store.StateRecord{
-			Height:           snapshot.Height,
-			AppHash:          snapshot.AppHash,
-			LastBlockHash:    snapshot.LastBlockHash,
-			ValidatorSetHash: snapshot.ValidatorSetHash,
-		},
-		StateRoots: sortedStateRoots(snapshot.StateRoots),
-		KV:         sortedKVPairs(snapshot.KV),
+		ChainID:       snapshot.ChainID,
+		Modules:       modules,
+		Header:        snapshot.Header,
+		State:         snapshot.State,
+		StateRoots:    sortedStateRoots(snapshot.StateRoots),
+		KV:            sortedKVPairs(snapshot.KV),
 	}
 	response.Checksum = snapshotChecksum(response)
 	return response
 }
 
-func snapshotChunkResponse(snapshot node.StateSnapshot, index uint64, size uint64) (SnapshotChunkResponse, error) {
-	export := snapshotExportResponse(snapshot)
-	kv := sortedKVPairs(export.KV)
+// snapshotChunkResponse returns chunk index of export, whose key-value pairs are already sorted.
+// size is at most maxSnapshotChunkSize, so the offsets below cannot overflow.
+func snapshotChunkResponse(export SnapshotExportResponse, index uint64, size uint64) (SnapshotChunkResponse, error) {
+	kv := export.KV
 	chunkCount := uint64(1)
 	if len(kv) > 0 {
-		chunkCount = uint64((len(kv) + int(size) - 1) / int(size))
+		chunkCount = (uint64(len(kv)) + size - 1) / size
 	}
 	if index >= chunkCount {
 		return SnapshotChunkResponse{}, fmt.Errorf("snapshot chunk index out of range: %d/%d", index, chunkCount)
 	}
-	start := int(index * size)
-	end := start + int(size)
-	if start > len(kv) {
-		start = len(kv)
-	}
-	if end > len(kv) {
-		end = len(kv)
-	}
+	start := min(index*size, uint64(len(kv)))
+	end := min(start+size, uint64(len(kv)))
 	chunk := SnapshotChunkResponse{
 		SchemaVersion:    "v1",
+		ChainID:          export.ChainID,
+		Modules:          append([]string(nil), export.Modules...),
+		Header:           export.Header,
 		State:            export.State,
 		StateRoots:       append([]store.StateRootRecord(nil), export.StateRoots...),
-		KV:               sortedKVPairs(kv[start:end]),
+		KV:               append([]store.KVPair(nil), kv[start:end]...),
 		ChunkIndex:       index,
 		ChunkCount:       chunkCount,
 		SnapshotChecksum: export.Checksum,
@@ -471,6 +468,7 @@ func stateRootResponse(root store.StateRootRecord) StateRootResponse {
 
 func snapshotChecksum(response SnapshotExportResponse) string {
 	response.Checksum = ""
+	response.Modules = sortedStrings(response.Modules)
 	response.StateRoots = sortedStateRoots(response.StateRoots)
 	response.KV = sortedKVPairs(response.KV)
 	data, _ := json.Marshal(response)
@@ -480,6 +478,7 @@ func snapshotChecksum(response SnapshotExportResponse) string {
 
 func snapshotChunkChecksum(response SnapshotChunkResponse) string {
 	response.ChunkChecksum = ""
+	response.Modules = sortedStrings(response.Modules)
 	response.StateRoots = sortedStateRoots(response.StateRoots)
 	response.KV = sortedKVPairs(response.KV)
 	data, _ := json.Marshal(response)
@@ -547,24 +546,15 @@ func writeConsensusLoopError(writer http.ResponseWriter, err error) {
 	writeError(writer, http.StatusInternalServerError, err.Error())
 }
 
-func evidenceResponse(evidence slashing.Evidence, result consensus.SlashResult, applied bool) SubmitEvidenceResponse {
-	response := SubmitEvidenceResponse{
-		Accepted:  true,
-		Applied:   applied,
-		Type:      string(evidence.Type),
-		Validator: string(evidence.Validator),
-		Height:    uint64(evidence.Height),
-		Round:     uint64(evidence.Round),
+func evidenceResponse(evidence slashing.Evidence, hash types.Hash) SubmitEvidenceResponse {
+	return SubmitEvidenceResponse{
+		Accepted:     true,
+		EvidenceHash: hex.EncodeToString(hash[:]),
+		Type:         string(evidence.Type),
+		Validator:    string(evidence.Validator),
+		Height:       uint64(evidence.Height),
+		Round:        uint64(evidence.Round),
 	}
-	if applied {
-		response.PreviousPower = uint64(result.PreviousPower)
-		response.RemainingPower = uint64(result.RemainingPower)
-		response.Penalty = PenaltyResponse{
-			SlashFraction: result.Receipt.Penalty.SlashFraction,
-			JailDuration:  result.Receipt.Penalty.JailDuration,
-		}
-	}
-	return response
 }
 
 func validatorSetResponse(height types.Height, validatorSet validator.Set) ValidatorSetResponse {
@@ -611,4 +601,10 @@ func committeeResponse(height types.Height, seed types.Hash, committeeResult com
 		Seed:    hex.EncodeToString(seed[:]),
 		Members: members,
 	}
+}
+
+func sortedStrings(values []string) []string {
+	sorted := append([]string(nil), values...)
+	sort.Strings(sorted)
+	return sorted
 }

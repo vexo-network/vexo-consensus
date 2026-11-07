@@ -31,6 +31,7 @@ The ante layer parses `fee` as a 256-bit atomic amount.
 - Non-Ethereum Vexo transactions pay fees from the signer balance to the configured fee collector.
 - Raw Ethereum transactions do not pay ante-layer fees; their gas/value accounting is executed by the EVM state transition and then persisted back into the same native balance namespace.
 - Raw Ethereum transaction fee metadata is still reported for block metrics and RPC surfaces. Balance mutation remains EVM-owned to avoid double charging the same native asset.
+- The priority fee of a raw Ethereum transaction (`min(max_priority_fee_per_gas, max_fee_per_gas - base_fee)` per gas used) is credited to the configured bank fee collector (`execution.fee_collector`) in the same atomic write batch as the rest of the execution. The base fee portion is burned. Execution runs under a fixed coinbase alias and the executor sweeps whatever that alias holds into the fee collector, so no balance is stranded on an address nobody controls.
 
 ## EVM Execution
 
@@ -44,6 +45,32 @@ The built-in EVM adapter preserves Ethereum 256-bit value and fee fields.
 - VM balance writes are persisted as native bank balances, so `eth_getBalance` and `bank query balance` observe the same underlying asset for Ethereum `0x` accounts.
 - EVM receipts report `gasUsed` for the transaction and `cumulativeGasUsed` as the sum of receipt gas used earlier in the same block plus the current transaction, matching Web3 client expectations.
 - Blob transactions are accepted through `eth_sendRawBlobTransaction` or `vexo_sendRawBlobTransaction` with an explicit sidecar. `eth_sendRawTransaction` rejects blob transactions that reference blob hashes without sidecar data, because Vexo does not rely on Ethereum devp2p sidecar propagation.
+
+## Authorization
+
+A transaction acts only as the account that signed it.
+
+- A native `evm call` or `evm deploy` names its caller in the first positional argument after the VM. The transaction must carry a `signer` tag that names the same account; addresses are compared canonically (`0x` hex addresses are lowercased and left-padded), so a differently cased spelling of the same address is accepted and any other account is rejected.
+- Native callers and call targets must be `0x` followed by 1 to 40 hex digits. Any other string would collapse onto a truncated or zero address inside the EVM and is rejected.
+- `eth_deploy` and Ethereum-flavored `call` transactions must carry the raw Ethereum transaction (`eth_raw`). The sender recovered from the raw signature must equal the `signer` tag and the caller argument, and every executable tag (nonce, gas, value, input, fee caps, access list, blob fields, `eth_hash`) must equal what the raw transaction encodes. The unsigned `fee` tag is bounded by what the signature authorizes (`gas * max_fee_per_gas`, plus blob gas times the blob fee cap).
+- The `eth_hash` tag is never trusted. An Ethereum transaction is known by the keccak256 of its raw bytes and any other transaction by the SHA-256 of its payload. A receipt is written once per hash; a transaction whose receipt already exists is rejected instead of replacing it.
+- The EVM account nonce and the ante account sequence are the same value under the same key (`auth` namespace, `nonce/<canonical address>`), so a nonce advanced by either side is the nonce the other side checks.
+
+## Rejection and Reverts
+
+An included transaction never fails the block because of its content.
+
+- A transaction that fails a deterministic pre-check is rejected: a non-zero result and no writes. This covers a nonce that does not match the account, insufficient funds for value plus maximum gas cost, gas below the intrinsic cost, a fee cap below the base fee, a gas limit above the execution limit, an unknown VM and malformed payloads. A rejected transaction leaves no receipt, no state change, no nonce bump and pays the fee collector nothing; the application runtime charges the fee tag and advances the sender sequence where the payer can afford it.
+- An EVM revert, out-of-gas or invalid opcode is an included transaction: result code 0, a receipt with status 0 and the gas it used.
+- Reader and store failures are infrastructure errors and are not recorded as a transaction outcome.
+- Execution results, receipts and consensus data carry no opcode trace. Traces are produced only on request by the debug and trace RPC methods and are size-bounded (4 MiB).
+
+## Resource Bounds
+
+- One execution never uses more gas than the transaction's own gas limit and the policy cap `execution.rpc_gas_cap` (default 50,000,000). The same cap bounds `eth_call` and `eth_estimateGas`; a request without a gas limit receives the cap and a limit above it is clamped to it. `eth_estimateGas` stops when the request context is cancelled.
+- `Snapshot` and `RevertToSnapshot` inside the interpreter cost in proportion to the state changed inside the reverted frame, not to the state the transaction touched so far.
+- `eth_getLogs` and the EVM `logs` query read only the blocks in `[fromBlock, toBlock]`. A missing `toBlock` is the latest block, a `toBlock` past the head stops at the head and a range wider than 10,000 blocks is rejected before any block is read. Log subscriptions deliver from the head at subscribe time.
+- A constructor that returns no runtime code deploys no code; the init code is never stored as contract code.
 
 ## State Root Policy
 
@@ -73,5 +100,7 @@ Implementations must fail closed when:
 - a fee collector balance would overflow 256 bits
 - an EVM state transition returns invalid balance writes
 - checksum/lowercase Ethereum address aliases would split account balance state
+- the caller of a native EVM transaction is not the account that signed it
+- an Ethereum transaction's sender, nonce or fee tags do not match its signed raw bytes
 - a Web3 block response cannot load the retained EVM state root while strict state-root mode is enabled
 - a blob transaction is submitted without the explicit blob sidecar required by Vexo RPC

@@ -28,10 +28,13 @@ type ScenarioResult struct {
 
 type ScenarioRunner struct {
 	driver *StepDriver
+	// parents records the parent of every block the scenario proposed. The state machine
+	// prunes finalized blocks from its tree, so the safety check cannot rely on the tree.
+	parents map[types.Hash]types.Hash
 }
 
 func NewScenarioRunner(driver *StepDriver) *ScenarioRunner {
-	return &ScenarioRunner{driver: driver}
+	return &ScenarioRunner{driver: driver, parents: make(map[types.Hash]types.Hash)}
 }
 
 func (runner *ScenarioRunner) Run(ctx context.Context, config ScenarioConfig) (ScenarioResult, error) {
@@ -53,7 +56,6 @@ func (runner *ScenarioRunner) Run(ctx context.Context, config ScenarioConfig) (S
 	for index := uint64(0); index < config.Blocks; index++ {
 		height := types.Height(index + 1)
 		if config.TimeoutEvery > 0 && index > 0 && index%config.TimeoutEvery == 0 {
-			runner.driver.machine.StartRound(height, 0)
 			timeoutCert, err := runner.driver.TimeoutQuorum(ctx, runner.driver.machine.blockTree.HighQC())
 			if err != nil {
 				return ScenarioResult{}, err
@@ -67,6 +69,7 @@ func (runner *ScenarioRunner) Run(ctx context.Context, config ScenarioConfig) (S
 			return ScenarioResult{}, err
 		}
 		result.Blocks = append(result.Blocks, blockResult)
+		runner.parents[blockResult.BlockHash] = blockResult.Proposal.Block.Header.PreviousBlockHash
 
 		if config.ForkEvery > 0 && index > 0 && index%config.ForkEvery == 0 {
 			if err := runner.tryUnsafeFork(ctx, height+1, proposer); err == nil {
@@ -94,18 +97,23 @@ func (runner *ScenarioRunner) tryUnsafeFork(ctx context.Context, height types.He
 	return err
 }
 
+// checkFinalityChain verifies that the finalized blocks form one chain: consecutive
+// heights, each block the child of the previous one.
 func (runner *ScenarioRunner) checkFinalityChain() error {
 	decisions := runner.driver.machine.CommitDecisions()
 	for index := 1; index < len(decisions); index++ {
-		previous := decisions[index-1].CommittedBlockHash
-		current := decisions[index].CommittedBlockHash
-		if previous == (types.Hash{}) || current == (types.Hash{}) {
+		previous := decisions[index-1]
+		current := decisions[index]
+		if previous.CommittedBlockHash == (types.Hash{}) || current.CommittedBlockHash == (types.Hash{}) {
 			return ErrSafetyInvariant
 		}
-		if current == previous {
+		if current.CommittedBlockHash == previous.CommittedBlockHash {
 			return ErrSafetyInvariant
 		}
-		if !runner.driver.machine.blockTree.Extends(current, previous) {
+		if current.CommittedHeight != previous.CommittedHeight+1 {
+			return ErrSafetyInvariant
+		}
+		if runner.parents[current.CommittedBlockHash] != previous.CommittedBlockHash {
 			return ErrSafetyInvariant
 		}
 	}

@@ -17,7 +17,7 @@ It is written for operators who need practical signals: what to watch, what each
 | `/v1/recovery/report` | Crash/restart consistency diagnostics |
 | `/v1/snapshot` | Snapshot health and export metadata |
 
-Admin endpoints such as prune, replay, and consensus control should normally be reachable only through loopback, an operator network, mTLS, or an authenticated gateway. Scoped admin tokens remain optional and are enforced when configured.
+Admin endpoints such as prune, replay, and consensus control should normally be reachable only through loopback, an operator network, mTLS, or an authenticated gateway. Admin endpoints are disabled until an admin token or scoped admin tokens are configured.
 
 ## Reading `/v1/status`
 

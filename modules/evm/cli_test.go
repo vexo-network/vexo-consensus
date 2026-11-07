@@ -2,8 +2,11 @@ package evm
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
+
+	vexoapp "github.com/vexo-network/vexo-consensus/app"
 )
 
 func TestCLICommandsBuildEVMTransactionsAndQueries(t *testing.T) {
@@ -19,8 +22,11 @@ func TestCLICommandsBuildEVMTransactionsAndQueries(t *testing.T) {
 	if err := command.Execute(&output, []string{"tx", "deploy", "evm", "0xaaaa", "6001", "salt"}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "tx: evm:deploy:evm:0xaaaa:6001:salt") {
-		t.Fatalf("unexpected deploy output: %s", output.String())
+	if !strings.Contains(output.String(), "tx: evm:deploy:evm:0xaaaa:6001:salt:signer=0xaaaa") {
+		t.Fatalf("a deployment must be signed as its from account by default: %s", output.String())
+	}
+	if err := command.Execute(&output, []string{"tx", "call", "evm", "0xaaaa", "0xbbbb", "transfer", "aabb", "100000", "--signer", "0xcccc"}); !errors.Is(err, vexoapp.ErrUnauthorizedActor) {
+		t.Fatalf("a transaction signed by another account must be refused when it is built, got %v", err)
 	}
 	output.Reset()
 	if err := command.Execute(&output, []string{"tx", "call", "evm", "0xaaaa", "0xbbbb", "transfer", "aabb", "100000", "0x10000000000000000"}); err != nil {

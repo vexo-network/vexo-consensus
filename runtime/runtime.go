@@ -2,8 +2,11 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/vexo-network/vexo-consensus/app"
@@ -11,13 +14,10 @@ import (
 	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/crypto"
-	"github.com/vexo-network/vexo-consensus/economics"
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/governance"
 	"github.com/vexo-network/vexo-consensus/mempool"
-	"github.com/vexo-network/vexo-consensus/modules/evm/ethcompat"
 	"github.com/vexo-network/vexo-consensus/p2p"
-	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/upgrade"
@@ -28,37 +28,32 @@ var ErrAtomicAppCommitUnavailable = errors.New("atomic app block commit store is
 var ErrDurableStoreRequired = errors.New("durable store is required; use NewEphemeral only for isolated tests and examples")
 var ErrEphemeralRuntimeNotAllowed = errors.New("ephemeral runtime requires a test/example/demo chain id; use NewEphemeralForTesting for tests or NewNetworkSafeWithStore for nodes")
 var ErrUpgradeExecutorMissing = errors.New("upgrade executor is required")
-var ErrBlobGasLimitExceeded = errors.New("block blob gas exceeds configured max blob gas")
-var ErrValidatorRegistryCommitFailed = errors.New("validator registry post-commit reconciliation failed")
 
 type Runtime struct {
-	Config             config.Config
-	App                app.Application
-	Executor           consensus.ApplicationBlockExecutor
-	Validators         validator.VersionedRegistry
-	Committee          committee.Selector
-	Mempool            *mempool.DAG
-	Slashing           consensus.SlashingKeeper
-	Governance         governance.OperationalKeeper
-	P2PScore           *p2p.ScoreKeeper
-	Crypto             crypto.RuntimeSuite
-	Store              store.Store
-	UpgradePlan        *upgrade.Plan
-	UpgradeExecutor    upgrade.Executor
-	UpgradeState       upgrade.State
-	UpgradeHalted      bool
-	currentBaseFee     uint64
-	currentBlobBaseFee uint64
-	reconcileFailures  uint64
+	Config          config.Config
+	App             app.Application
+	Executor        consensus.ApplicationBlockExecutor
+	Validators      validator.VersionedRegistry
+	Committee       committee.Selector
+	Mempool         *mempool.DAG
+	Governance      governance.OperationalKeeper
+	P2PScore        *p2p.ScoreKeeper
+	Crypto          crypto.RuntimeSuite
+	Store           store.Store
+	UpgradePlan     *upgrade.Plan
+	UpgradeExecutor upgrade.Executor
+	UpgradeState    upgrade.State
+	UpgradeHalted   bool
+
+	// evidenceMu serializes changes of the evidence pool, which is bounded and must not be
+	// overfilled by concurrent admissions.
+	evidenceMu        sync.Mutex
+	reconcileFailures uint64
 }
 
 type stagedValidatorUpdateRegistry interface {
 	StageValidatorUpdatesAt(ctx context.Context, height types.Height, updates []types.ValidatorUpdate) (validator.Set, []store.KVWrite, error)
 	CommitStagedValidatorUpdates(ctx context.Context, height types.Height, updates []types.ValidatorUpdate) error
-}
-
-type stakingPenaltyApplier interface {
-	ApplySlashingPenalty(ctx context.Context, store app.StateStore, receipt slashing.PenaltyReceipt) error
 }
 
 func New(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower) (*Runtime, error) {
@@ -199,15 +194,11 @@ func newWithStoreAndCryptoRegistry(ctx context.Context, cfg config.Config, appli
 	if err != nil {
 		return nil, err
 	}
-	if cfg.Crypto.Backend == config.CryptoBackendBLS && len(initialValidators) > 0 {
-		credentials, err := crypto.BLSValidatorCredentialsFromValidators(initialValidators)
-		if err != nil {
-			return nil, err
-		}
-		cryptoRegistry = cryptoRegistry.RegisterBLSValidatorCredentials(credentials)
-	}
 	cryptoSuite, err := cryptoRegistry.NewRuntimeSuite(cfg.Crypto)
 	if err != nil {
+		return nil, err
+	}
+	if err := cryptoSuite.RegisterValidators(initialValidators); err != nil {
 		return nil, err
 	}
 
@@ -252,14 +243,6 @@ func newWithStoreAndCryptoRegistry(ctx context.Context, cfg config.Config, appli
 			}
 		}
 	}
-	slashingKeeper := consensus.SlashingKeeper(slashing.NewInMemoryKeeper(nil))
-	if storage != nil {
-		storeKeeper, err := slashing.NewStoreKeeper(storage, nil)
-		if err != nil {
-			return nil, err
-		}
-		slashingKeeper = storeKeeper
-	}
 	governanceKeeper := governance.OperationalKeeper(governance.NewInMemoryKeeper(cfg.Governance, governancePower))
 	if storage != nil {
 		storeKeeper, err := governance.NewStoreKeeperContext(ctx, storage, cfg.Governance, governancePower)
@@ -270,19 +253,16 @@ func newWithStoreAndCryptoRegistry(ctx context.Context, cfg config.Config, appli
 	}
 
 	return &Runtime{
-		Config:             cfg,
-		App:                application,
-		Executor:           consensus.ApplicationBlockExecutor{},
-		Validators:         registry,
-		Committee:          selector,
-		Mempool:            dag,
-		Slashing:           slashingKeeper,
-		Governance:         governanceKeeper,
-		P2PScore:           p2p.NewScoreKeeper(cfg.P2P),
-		Crypto:             cryptoSuite,
-		Store:              storage,
-		currentBaseFee:     cfg.Execution.BaseFee,
-		currentBlobBaseFee: cfg.Execution.BlobBaseFee,
+		Config:     cfg,
+		App:        application,
+		Executor:   consensus.ApplicationBlockExecutor{},
+		Validators: registry,
+		Committee:  selector,
+		Mempool:    dag,
+		Governance: governanceKeeper,
+		P2PScore:   p2p.NewScoreKeeper(cfg.P2P),
+		Crypto:     cryptoSuite,
+		Store:      storage,
 	}, nil
 }
 
@@ -294,6 +274,92 @@ func mempoolReplayCheckResult(response app.CheckTxResponse) error {
 		return mempool.ErrTxNotReady
 	}
 	return errors.New(response.Result.Log)
+}
+
+// genesisNamespace and genesisKey locate the chain's InitChain request in the store. The namespace
+// belongs to no module, so the request is part of no state root.
+const genesisNamespace = "runtime"
+
+var genesisKey = []byte("init_chain")
+
+// genesisAppHashKey locates the app hash of the genesis state, the state block headers name
+// until the validator set first changes registry height.
+var genesisAppHashKey = []byte("init_chain_app_hash")
+
+// ErrAppHashUnavailable reports a height whose app hash the node does not hold: not executed
+// yet, pruned, or below the snapshot the node was restored from.
+var ErrAppHashUnavailable = errors.New("app hash of the height is not held")
+
+// InitChain initializes the application from the chain's genesis. It persists the request first, so
+// that a replay can initialize its own application from the same genesis; a restart after a crash
+// in between simply runs InitChain again with the same request.
+func (runtime *Runtime) InitChain(ctx context.Context, request app.InitChainRequest) (app.InitChainResponse, error) {
+	if runtime.Store != nil {
+		encoded, err := json.Marshal(request)
+		if err != nil {
+			return app.InitChainResponse{}, err
+		}
+		if err := runtime.Store.Set(ctx, genesisNamespace, genesisKey, encoded); err != nil {
+			return app.InitChainResponse{}, err
+		}
+	}
+	response, err := runtime.App.InitChain(request)
+	if err != nil {
+		return app.InitChainResponse{}, err
+	}
+	if runtime.Store != nil {
+		if err := runtime.Store.Set(ctx, genesisNamespace, genesisAppHashKey, response.AppHash[:]); err != nil {
+			return app.InitChainResponse{}, err
+		}
+	}
+	return response, nil
+}
+
+// AppHashAt returns the app hash of the state after executing block height, the genesis state
+// for height 0.
+func (runtime *Runtime) AppHashAt(ctx context.Context, height types.Height) (types.Hash, error) {
+	if runtime.Store == nil {
+		return types.Hash{}, ErrAppHashUnavailable
+	}
+	if height == 0 {
+		encoded, err := runtime.Store.Get(ctx, genesisNamespace, genesisAppHashKey)
+		if errors.Is(err, store.ErrKeyNotFound) {
+			return types.Hash{}, fmt.Errorf("%w: genesis", ErrAppHashUnavailable)
+		}
+		if err != nil {
+			return types.Hash{}, err
+		}
+		var hash types.Hash
+		if len(encoded) != len(hash) {
+			return types.Hash{}, fmt.Errorf("%w: genesis app hash has %d bytes", store.ErrInvalidStateRecord, len(encoded))
+		}
+		copy(hash[:], encoded)
+		return hash, nil
+	}
+	state, err := runtime.Store.StateByHeight(ctx, height)
+	if errors.Is(err, store.ErrStateNotFound) {
+		return types.Hash{}, fmt.Errorf("%w: height %d", ErrAppHashUnavailable, height)
+	}
+	if err != nil {
+		return types.Hash{}, err
+	}
+	return state.AppHash, nil
+}
+
+// storedInitChain returns the InitChain request the chain started from, if one was persisted.
+func (runtime *Runtime) storedInitChain(ctx context.Context) (app.InitChainRequest, bool, error) {
+	encoded, err := runtime.Store.Get(ctx, genesisNamespace, genesisKey)
+	if errors.Is(err, store.ErrKeyNotFound) {
+		return app.InitChainRequest{}, false, nil
+	}
+	if err != nil {
+		return app.InitChainRequest{}, false, err
+	}
+	var request app.InitChainRequest
+	if err := json.Unmarshal(encoded, &request); err != nil {
+		return app.InitChainRequest{}, false, err
+	}
+	return request, true, nil
 }
 
 func (runtime *Runtime) WithUpgrade(plan upgrade.Plan, state upgrade.State, executor upgrade.Executor) *Runtime {
@@ -322,13 +388,6 @@ func (runtime *Runtime) executeBlock(ctx context.Context, block types.Block, quo
 	if err := runtime.applyUpgradeHook(ctx, block.Header.Height); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
-	blobGasUsed, err := runtime.validateBlockBlobGas(block)
-	if err != nil {
-		return app.FinalizeBlockResponse{}, err
-	}
-	baseFee := runtime.CurrentBaseFee()
-	runtime.setApplicationBaseFee(baseFee)
-	runtime.setApplicationBlobBaseFee(runtime.CurrentBlobBaseFee())
 	if runtime.Store != nil {
 		atomicApp, ok := runtime.App.(app.AtomicBlockApplication)
 		if !ok {
@@ -338,31 +397,29 @@ func (runtime *Runtime) executeBlock(ctx context.Context, block types.Block, quo
 		if !ok {
 			return app.FinalizeBlockResponse{}, ErrAtomicAppCommitUnavailable
 		}
-		return runtime.executeBlockStaged(ctx, block, quorumCert, atomicApp, commitStore, baseFee, blobGasUsed)
+		return runtime.executeBlockStaged(ctx, block, quorumCert, atomicApp, commitStore)
 	}
 	response, err := runtime.Executor.Execute(ctx, runtime.App, block)
 	if err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
-	nextBaseFee := runtime.NextBaseFee(response)
-	nextBlobBaseFee := runtime.NextBlobBaseFee(blobGasUsed)
 	if len(response.ValidatorUpdates) > 0 {
 		if err := runtime.ApplyValidatorUpdatesAt(ctx, block.Header.Height+1, response.ValidatorUpdates); err != nil {
 			return app.FinalizeBlockResponse{}, err
 		}
 	}
-	runtime.currentBaseFee = nextBaseFee
-	runtime.currentBlobBaseFee = nextBlobBaseFee
 	return response, nil
 }
 
-func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Block, quorumCert *finality.QuorumCert, application app.AtomicBlockApplication, commitStore store.AppBlockCommitStore, baseFee uint64, blobGasUsed uint64) (app.FinalizeBlockResponse, error) {
+// executeBlockStaged executes block and commits it together with everything it changed in one
+// atomic write. The application is the only authority on what a block does: the fee market it
+// reports is what the state record keeps, and a validator update it reports can never fail the
+// block, because the registry skips an update it cannot apply.
+func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Block, quorumCert *finality.QuorumCert, application app.AtomicBlockApplication, commitStore store.AppBlockCommitStore) (app.FinalizeBlockResponse, error) {
 	response, writes, err := application.FinalizeBlockStagedContext(ctx, app.FinalizeBlockRequest{Block: block})
 	if err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
-	nextBaseFee := runtime.NextBaseFee(response)
-	nextBlobBaseFee := runtime.NextBlobBaseFee(blobGasUsed)
 	validatorSetHash := block.Header.ValidatorSetHash
 	validatorUpdateHeight := block.Header.Height + 1
 	var stagedValidatorRegistry stagedValidatorUpdateRegistry
@@ -387,7 +444,7 @@ func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Bloc
 		}
 	}
 	blockHash := consensus.HashBlock(block)
-	stateRoots, err := runtime.moduleStateRootsWithWrites(ctx, block.Header.Height, writes)
+	stateRoots, err := runtime.stateRootsWithWrites(ctx, block.Header.Height, writes)
 	if err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
@@ -402,34 +459,46 @@ func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Bloc
 		certRecord := storeQuorumCertRecord(*quorumCert)
 		blockRecord.QuorumCert = &certRecord
 	}
+	feeMarket := response.FeeMarket
 	stateRecord := store.StateRecord{
 		Height:           block.Header.Height,
 		AppHash:          response.AppHash,
 		LastBlockHash:    blockHash,
 		ValidatorSetHash: validatorSetHash,
-		BaseFee:          baseFee,
-		NextBaseFee:      nextBaseFee,
-		BlobBaseFee:      runtime.CurrentBlobBaseFee(),
-		NextBlobBaseFee:  nextBlobBaseFee,
-		BlobGasUsed:      blobGasUsed,
-		ExcessBlobGas:    excessBlobGas(blobGasUsed, runtime.Config.Execution.TargetBlobGas),
+		BaseFee:          feeMarket.BaseFee,
+		NextBaseFee:      feeMarket.NextBaseFee,
+		BlobBaseFee:      feeMarket.BlobBaseFee,
+		NextBlobBaseFee:  feeMarket.NextBlobBaseFee,
+		BlobGasUsed:      feeMarket.BlobGasUsed,
+		ExcessBlobGas:    excessBlobGas(feeMarket.BlobGasUsed, runtime.Config.Execution.TargetBlobGas),
 	}
 	if err := commitStore.CommitBlockStateWithWrites(ctx, writes, blockRecord, stateRecord, stateRoots); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
 	application.CommitStagedBlock(block.Header.Height, response.AppHash)
-	runtime.currentBaseFee = nextBaseFee
-	runtime.currentBlobBaseFee = nextBlobBaseFee
-	if stagedValidatorRegistry != nil {
-		if err := stagedValidatorRegistry.CommitStagedValidatorUpdates(ctx, validatorUpdateHeight, response.ValidatorUpdates); err != nil {
+	runtime.reconcileAfterCommit(ctx, stagedValidatorRegistry, validatorUpdateHeight, response.ValidatorUpdates)
+	return response, nil
+}
+
+// reconcileAfterCommit refreshes what is derived from the block that just committed: the registry's
+// in-memory rotation events and the evidence pool. Both are rebuilt from committed state (by the
+// registry on load, by ReconcileEvidence on start), so a failure is counted and never fails a block
+// that is already durable.
+func (runtime *Runtime) reconcileAfterCommit(ctx context.Context, registry stagedValidatorUpdateRegistry, validatorUpdateHeight types.Height, updates []types.ValidatorUpdate) {
+	if registry != nil {
+		if err := registry.CommitStagedValidatorUpdates(ctx, validatorUpdateHeight, updates); err != nil {
 			atomic.AddUint64(&runtime.reconcileFailures, 1)
-			if _, recoverErr := runtime.Recover(ctx); recoverErr != nil {
-				return response, errors.Join(ErrValidatorRegistryCommitFailed, err, recoverErr)
-			}
-			return response, nil
 		}
 	}
-	return response, nil
+	if len(updates) > 0 {
+		// The new validator set verifies the certificates of the next heights; admit its keys now.
+		if err := runtime.RegisterValidatorsAt(ctx, validatorUpdateHeight); err != nil {
+			atomic.AddUint64(&runtime.reconcileFailures, 1)
+		}
+	}
+	if err := runtime.pruneEvidence(ctx, validatorUpdateHeight); err != nil {
+		atomic.AddUint64(&runtime.reconcileFailures, 1)
+	}
 }
 
 func storeQuorumCertRecord(quorumCert finality.QuorumCert) store.QuorumCertRecord {
@@ -441,101 +510,6 @@ func storeQuorumCertRecord(quorumCert finality.QuorumCert) store.QuorumCertRecor
 		Signature:   quorumCert.Signature,
 		VotingPower: quorumCert.VotingPower,
 	}
-}
-
-func (runtime *Runtime) CurrentBaseFee() uint64 {
-	if runtime.currentBaseFee > 0 {
-		return runtime.currentBaseFee
-	}
-	return runtime.Config.Execution.BaseFee
-}
-
-func (runtime *Runtime) CurrentBlobBaseFee() uint64 {
-	if runtime.currentBlobBaseFee > 0 {
-		return runtime.currentBlobBaseFee
-	}
-	return runtime.Config.Execution.BlobBaseFee
-}
-
-func (runtime *Runtime) NextBaseFee(response app.FinalizeBlockResponse) uint64 {
-	current := runtime.CurrentBaseFee()
-	if !runtime.Config.Execution.DynamicBaseFee {
-		return current
-	}
-	return economics.NextBaseFee(economics.BaseFeeParams{
-		CurrentBaseFee:    current,
-		GasUsed:           totalGasUsed(response),
-		TargetGas:         runtime.Config.Execution.TargetGas,
-		ChangeDenominator: runtime.Config.Execution.BaseFeeChangeDenominator,
-		MinBaseFee:        runtime.Config.Execution.MinBaseFee,
-		MaxBaseFee:        runtime.Config.Execution.MaxBaseFee,
-	})
-}
-
-func (runtime *Runtime) NextBlobBaseFee(blobGasUsed uint64) uint64 {
-	current := runtime.CurrentBlobBaseFee()
-	if !runtime.Config.Execution.DynamicBlobBaseFee {
-		return current
-	}
-	return economics.NextBaseFee(economics.BaseFeeParams{
-		CurrentBaseFee:    current,
-		GasUsed:           blobGasUsed,
-		TargetGas:         runtime.Config.Execution.TargetBlobGas,
-		ChangeDenominator: runtime.Config.Execution.BlobFeeChangeDenominator,
-		MinBaseFee:        runtime.Config.Execution.MinBlobBaseFee,
-		MaxBaseFee:        runtime.Config.Execution.MaxBlobBaseFee,
-	})
-}
-
-func (runtime *Runtime) validateBlockBlobGas(block types.Block) (uint64, error) {
-	blobGasUsed := totalBlobGasUsed(block.Txs)
-	maxBlobGas := runtime.Config.Execution.MaxBlobGas
-	if maxBlobGas > 0 && blobGasUsed > maxBlobGas {
-		return 0, ErrBlobGasLimitExceeded
-	}
-	return blobGasUsed, nil
-}
-
-func (runtime *Runtime) setApplicationBaseFee(baseFee uint64) {
-	setter, ok := runtime.App.(interface{ SetBaseFee(uint64) })
-	if !ok {
-		return
-	}
-	setter.SetBaseFee(baseFee)
-}
-
-func (runtime *Runtime) setApplicationBlobBaseFee(blobBaseFee uint64) {
-	setter, ok := runtime.App.(interface{ SetBlobBaseFee(uint64) })
-	if !ok {
-		return
-	}
-	setter.SetBlobBaseFee(blobBaseFee)
-}
-
-func totalGasUsed(response app.FinalizeBlockResponse) uint64 {
-	var total uint64
-	for _, result := range response.Results {
-		if total > ^uint64(0)-result.GasUsed {
-			return ^uint64(0)
-		}
-		total += result.GasUsed
-	}
-	return total
-}
-
-func totalBlobGasUsed(txs []types.Tx) uint64 {
-	var total uint64
-	for _, tx := range txs {
-		blobGas, found := app.TxUintTag(tx, ethcompat.TagBlobGas)
-		if !found {
-			continue
-		}
-		if total > ^uint64(0)-blobGas {
-			return ^uint64(0)
-		}
-		total += blobGas
-	}
-	return total
 }
 
 func excessBlobGas(blobGasUsed uint64, target uint64) uint64 {
@@ -557,13 +531,16 @@ func cloneTxResults(results []types.Result) []types.Result {
 	return cloned
 }
 
+// applyUpgradeHook runs the scheduled upgrade plan once the chain reaches its height. The plan is
+// the next one at or above the height of the block, so a plan scheduled after an earlier one was
+// applied is picked up; an applied plan is cleared so it never runs, or blocks its successor, twice.
 func (runtime *Runtime) applyUpgradeHook(ctx context.Context, height types.Height) error {
 	if runtime.UpgradeHalted {
 		return upgrade.ErrRollbackRequired
 	}
 	if runtime.UpgradePlan == nil {
 		if planStore, ok := runtime.Store.(upgrade.PlanStore); ok {
-			plan, found, err := planStore.UpgradePlanByHeight(ctx, height)
+			plan, found, err := planStore.NextUpgradePlan(ctx, height)
 			if err != nil {
 				return err
 			}
@@ -606,6 +583,7 @@ func (runtime *Runtime) applyUpgradeHook(ctx context.Context, height types.Heigh
 				return err
 			}
 		}
+		runtime.UpgradePlan = nil
 	}
 	return nil
 }
@@ -614,59 +592,53 @@ func (runtime *Runtime) ApplyValidatorUpdates(ctx context.Context, updates []typ
 	return runtime.ApplyValidatorUpdatesAt(ctx, 0, updates)
 }
 
+// ApplyValidatorUpdatesAt applies the validator updates a block reported to the registry at height.
+// The block is already certified, so an update the registry rejects on its content (an unknown
+// validator, a join without a key or refused by the admission policy, a removal of the last
+// validator) is skipped; only a storage failure or a cancelled context is returned.
 func (runtime *Runtime) ApplyValidatorUpdatesAt(ctx context.Context, height types.Height, updates []types.ValidatorUpdate) error {
 	if height > 0 {
 		runtime.Validators.SetEffectiveHeight(height)
 	}
 	for _, update := range updates {
-		if update.ID == "" {
-			update.ID = types.ValidatorID(update.Address)
-		}
-		if update.Address == "" {
-			update.Address = types.Address(update.ID)
-		}
-		if update.VotingPower == 0 {
-			if err := runtime.Validators.ApplyLeaveAt(ctx, height, update.ID); err != nil {
-				return err
-			}
-			continue
-		}
-		if _, found := runtime.validatorByID(ctx, update.ID); found {
-			if err := runtime.Validators.UpdateVotingPowerAt(ctx, height, update.ID, update.VotingPower); err != nil {
-				return err
-			}
-			continue
-		}
-		stake := update.Stake
-		if stake == 0 {
-			stake = uint64(update.VotingPower)
-		}
-		if _, err := runtime.Validators.ApplyJoinAt(ctx, height, validator.Candidate{
-			Address:   update.Address,
-			PublicKey: update.PublicKey,
-			Stake:     stake,
-			Metadata:  update.Metadata,
-		}); err != nil {
+		if err := runtime.applyValidatorUpdate(ctx, height, update); err != nil && !errors.Is(err, validator.ErrInvalidUpdate) {
 			return err
 		}
 	}
 	return nil
 }
 
-func (runtime *Runtime) ApplyStakingSlashingPenalty(ctx context.Context, receipt slashing.PenaltyReceipt) error {
-	if runtime.Store == nil || receipt.Evidence.Validator == "" {
-		return nil
+func (runtime *Runtime) applyValidatorUpdate(ctx context.Context, height types.Height, update types.ValidatorUpdate) error {
+	if update.ID == "" {
+		update.ID = types.ValidatorID(update.Address)
 	}
-	for _, module := range runtime.AppModules() {
-		applier, ok := module.(stakingPenaltyApplier)
-		if !ok {
-			continue
-		}
-		if err := applier.ApplySlashingPenalty(ctx, runtime.Store, receipt); err != nil {
+	if update.Address == "" {
+		update.Address = types.Address(update.ID)
+	}
+	if update.VotingPower == 0 {
+		set, err := runtime.Validators.ValidatorSet(ctx, height)
+		if err != nil {
 			return err
 		}
+		if _, found := set.Get(update.ID); found && len(set.List()) == 1 {
+			return nil
+		}
+		return runtime.Validators.ApplyLeaveAt(ctx, height, update.ID)
 	}
-	return nil
+	if _, found := runtime.validatorByID(ctx, update.ID); found {
+		return runtime.Validators.UpdateVotingPowerAt(ctx, height, update.ID, update.VotingPower)
+	}
+	stake := update.Stake
+	if stake == 0 {
+		stake = uint64(update.VotingPower)
+	}
+	_, err := runtime.Validators.ApplyJoinAt(ctx, height, validator.Candidate{
+		Address:   update.Address,
+		PublicKey: update.PublicKey,
+		Stake:     stake,
+		Metadata:  update.Metadata,
+	})
+	return err
 }
 
 func (runtime *Runtime) validatorByID(ctx context.Context, id types.ValidatorID) (validator.Validator, bool) {
@@ -677,45 +649,40 @@ func (runtime *Runtime) validatorByID(ctx context.Context, id types.ValidatorID)
 	return validatorSet.Get(id)
 }
 
-func (runtime *Runtime) moduleStateRoots(ctx context.Context, height types.Height) ([]store.StateRootRecord, error) {
-	if runtime.Store == nil {
-		return nil, nil
+// StateNamespaces is every namespace of the replicated state, in a fixed order: the modules', the
+// runtime's own (account sequences and the fee market) and the validator registry. A block records a
+// state root for each of them and a snapshot carries each of them, so a node restored from a
+// snapshot holds the same state as the nodes that executed every block: without the sequences it
+// would accept replayed transactions, and without the registry's validator-set history it would judge
+// evidence of a past height differently from its peers.
+func (runtime *Runtime) StateNamespaces() []string {
+	modules := runtime.AppModules()
+	namespaces := make([]string, 0, len(modules)+3)
+	for _, module := range modules {
+		namespaces = append(namespaces, module.Name())
 	}
-	roots := make([]store.StateRootRecord, 0)
-	for _, module := range runtime.AppModules() {
-		root, err := runtime.Store.Root(ctx, module.Name())
-		if err != nil {
-			return nil, err
-		}
-		record := store.StateRootRecord{
-			Height:    height,
-			Namespace: module.Name(),
-			Root:      root,
-		}
-		roots = append(roots, record)
-	}
-	return roots, nil
+	namespaces = append(namespaces, app.CoreNamespaces()...)
+	return append(namespaces, validator.RegistryNamespace)
 }
 
-func (runtime *Runtime) moduleStateRootsWithWrites(ctx context.Context, height types.Height, writes []store.KVWrite) ([]store.StateRootRecord, error) {
+func (runtime *Runtime) stateRootsWithWrites(ctx context.Context, height types.Height, writes []store.KVWrite) ([]store.StateRootRecord, error) {
 	if runtime.Store == nil {
 		return nil, nil
 	}
-	rootStore, ok := runtime.Store.(store.RootWithWritesStore)
-	if !ok {
-		return runtime.moduleStateRoots(ctx, height)
+	root := runtime.Store.Root
+	if rootStore, ok := runtime.Store.(store.RootWithWritesStore); ok {
+		root = func(ctx context.Context, namespace string) (types.Hash, error) {
+			return rootStore.RootWithWrites(ctx, namespace, writes)
+		}
 	}
-	roots := make([]store.StateRootRecord, 0)
-	for _, module := range runtime.AppModules() {
-		root, err := rootStore.RootWithWrites(ctx, module.Name(), writes)
+	namespaces := runtime.StateNamespaces()
+	roots := make([]store.StateRootRecord, 0, len(namespaces))
+	for _, namespace := range namespaces {
+		hash, err := root(ctx, namespace)
 		if err != nil {
 			return nil, err
 		}
-		roots = append(roots, store.StateRootRecord{
-			Height:    height,
-			Namespace: module.Name(),
-			Root:      root,
-		})
+		roots = append(roots, store.StateRootRecord{Height: height, Namespace: namespace, Root: hash})
 	}
 	return roots, nil
 }
@@ -729,31 +696,70 @@ func (runtime *Runtime) AppModules() []app.Module {
 }
 
 func (runtime *Runtime) NewConsensusStateMachine(ctx context.Context, height types.Height) (*consensus.StateMachine, error) {
-	return runtime.NewConsensusStateMachineWithSignatures(ctx, height, runtime.Crypto.ConsensusVerifier)
-}
-
-func (runtime *Runtime) NewConsensusStateMachineWithSignatures(ctx context.Context, height types.Height, signatures interface {
-	Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool
-}) (*consensus.StateMachine, error) {
-	validatorSet, err := runtime.Validators.ValidatorSet(ctx, height)
+	validatorSet, err := runtime.registeredValidatorSet(ctx, height)
 	if err != nil {
 		return nil, err
 	}
 	return consensus.NewStateMachine(consensus.StateMachineConfig{
 		ChainID:                  runtime.Config.ChainID,
 		ValidatorSet:             validatorSet,
-		Signatures:               signatures,
+		Signatures:               runtime.Crypto.ConsensusVerifier,
 		Aggregator:               runtime.Crypto.ConsensusAggregator,
+		AggregateVerifier:        runtime.Crypto.FinalityVerifier,
 		EnforceProposerSelection: true,
+		// The machine outlives the context it is built in; an app hash lookup reads the store.
+		AppHashes: func(height types.Height) (types.Hash, error) {
+			return runtime.AppHashAt(context.Background(), height)
+		},
 	})
 }
 
-func (runtime *Runtime) NewFinalityVerifier(ctx context.Context, height types.Height) (finality.Verifier, error) {
+// NewFinalityVerifier returns a verifier that checks every certified header against the validator
+// set the header names, loaded (and admitted with the crypto suite) through registeredValidatorSet.
+func (runtime *Runtime) NewFinalityVerifier() finality.RegistryVerifier {
+	return finality.NewRegistryVerifier(registeredSets{runtime: runtime}, runtime.Crypto.FinalityVerifier)
+}
+
+// registeredSets serves the validator sets of the registry with their keys admitted. The set of
+// registry height h is fixed once block h-1 is executed; a later height is not known yet and fails
+// with consensus.ErrValidatorSetPending rather than returning the latest set in its place.
+type registeredSets struct {
+	runtime *Runtime
+}
+
+func (sets registeredSets) ValidatorSet(ctx context.Context, height types.Height) (validator.Set, error) {
+	if height == 0 {
+		return nil, consensus.ErrUnknownValidatorSet
+	}
+	commit, err := sets.runtime.App.Commit()
+	if err != nil {
+		return nil, err
+	}
+	if height > commit.Height+1 {
+		return nil, fmt.Errorf("%w: registry height %d after executed height %d", consensus.ErrValidatorSetPending, height, commit.Height)
+	}
+	return sets.runtime.registeredValidatorSet(ctx, height)
+}
+
+// RegisterValidatorsAt admits the consensus keys of the validator set in effect at height with the
+// crypto suite. The BLS backend verifies a certificate only over keys whose proof of possession it
+// checked, so every path that loads a validator set to verify certificates or evidence must call
+// it, or load the set through registeredValidatorSet, first.
+func (runtime *Runtime) RegisterValidatorsAt(ctx context.Context, height types.Height) error {
+	_, err := runtime.registeredValidatorSet(ctx, height)
+	return err
+}
+
+// registeredValidatorSet returns the validator set in effect at height after registering its keys.
+func (runtime *Runtime) registeredValidatorSet(ctx context.Context, height types.Height) (validator.Set, error) {
 	validatorSet, err := runtime.Validators.ValidatorSet(ctx, height)
 	if err != nil {
-		return finality.Verifier{}, err
+		return nil, err
 	}
-	return finality.NewVerifier(validatorSet, runtime.Crypto.FinalityVerifier), nil
+	if err := runtime.Crypto.RegisterValidators(validatorSet.List()); err != nil {
+		return nil, err
+	}
+	return validatorSet, nil
 }
 
 func (runtime *Runtime) Recover(ctx context.Context) (store.StateRecord, error) {
@@ -766,22 +772,12 @@ func (runtime *Runtime) Recover(ctx context.Context) (store.StateRecord, error) 
 	}
 	if appRuntime, ok := runtime.App.(*app.Runtime); ok {
 		appRuntime.Restore(state.Height, state.AppHash)
-		if err := appRuntime.BindStore(); err != nil {
-			return store.StateRecord{}, err
-		}
-	}
-	if state.NextBaseFee > 0 {
-		runtime.currentBaseFee = state.NextBaseFee
-	} else if state.BaseFee > 0 {
-		runtime.currentBaseFee = state.BaseFee
-	}
-	if state.NextBlobBaseFee > 0 {
-		runtime.currentBlobBaseFee = state.NextBlobBaseFee
-	} else if state.BlobBaseFee > 0 {
-		runtime.currentBlobBaseFee = state.BlobBaseFee
 	}
 	if state.Height > 0 && runtime.Validators != nil {
 		runtime.Validators.SetEffectiveHeight(state.Height + 1)
+		if err := runtime.RegisterValidatorsAt(ctx, state.Height+1); err != nil {
+			return store.StateRecord{}, err
+		}
 	}
 	return state, nil
 }

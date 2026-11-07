@@ -4,28 +4,21 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"strings"
 
 	"github.com/vexo-network/vexo-consensus/address"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
+	"github.com/vexo-network/vexo-consensus/txcodec"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
-const signedTxPrefix = "signed:"
-
 var (
-	ErrInvalidSignedTx       = errors.New("invalid signed transaction")
+	ErrInvalidSignedTx       = txcodec.ErrInvalidSignedTx
 	ErrInvalidTxSignature    = errors.New("invalid transaction signature")
 	ErrSignerAddressMismatch = errors.New("signer address does not match transaction public key")
 )
 
-type SignedTxEnvelope struct {
-	SchemaVersion string `json:"schema_version"`
-	ChainID       string `json:"chain_id"`
-	Payload       string `json:"payload"`
-	PublicKey     string `json:"public_key"`
-	Signature     string `json:"signature"`
-}
+// SignedTxEnvelope is the JSON document a signed transaction carries.
+type SignedTxEnvelope = txcodec.Envelope
 
 type TxSignatureVerifier interface {
 	Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool
@@ -50,7 +43,7 @@ func SignTx(chainID string, payload types.Tx, signer vexocrypto.Signer) (types.T
 	if err != nil {
 		return nil, err
 	}
-	return types.Tx(signedTxPrefix + base64.StdEncoding.EncodeToString(encoded)), nil
+	return types.Tx(txcodec.SignedPrefix + base64.StdEncoding.EncodeToString(encoded)), nil
 }
 
 func VerifySignedTx(chainID string, tx types.Tx, verifier TxSignatureVerifier) error {
@@ -75,41 +68,25 @@ func VerifySignedTx(chainID string, tx types.Tx, verifier TxSignatureVerifier) e
 	if !verifier.Verify(publicKey, SignedTxSignBytes(chainID, payload), signature) {
 		return ErrInvalidTxSignature
 	}
-	if err := validatePayloadSignerAddress(payload, publicKey); err != nil {
-		return err
-	}
-	return nil
+	return validatePayloadSignerAddress(payload, publicKey)
 }
 
+// DecodeSignedTx decodes a signed transaction into its envelope and payload.
+// A payload that is itself a signed transaction is rejected: nesting would let
+// the outer and inner signer disagree about who authorized the transaction.
 func DecodeSignedTx(tx types.Tx) (SignedTxEnvelope, types.Tx, error) {
-	if !IsSignedTx(tx) {
-		return SignedTxEnvelope{}, nil, ErrInvalidSignedTx
-	}
-	encoded := strings.TrimPrefix(string(tx), signedTxPrefix)
-	document, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return SignedTxEnvelope{}, nil, ErrInvalidSignedTx
-	}
-	var envelope SignedTxEnvelope
-	if err := json.Unmarshal(document, &envelope); err != nil {
-		return SignedTxEnvelope{}, nil, ErrInvalidSignedTx
-	}
-	if envelope.SchemaVersion != "v1" || envelope.Payload == "" || envelope.PublicKey == "" || envelope.Signature == "" {
-		return SignedTxEnvelope{}, nil, ErrInvalidSignedTx
-	}
-	payload, err := base64.StdEncoding.DecodeString(envelope.Payload)
-	if err != nil {
-		return SignedTxEnvelope{}, nil, ErrInvalidSignedTx
-	}
-	return envelope, types.Tx(payload), nil
+	return txcodec.DecodeEnvelope(tx)
 }
 
 func IsSignedTx(tx types.Tx) bool {
-	return strings.HasPrefix(string(tx), signedTxPrefix)
+	return txcodec.IsSigned(tx)
 }
 
+// TxPayload returns the payload of a signed transaction, or tx itself when it
+// is not a decodable signed transaction. Consensus paths use txcodec.Unwrap,
+// which rejects an undecodable signed transaction instead of reinterpreting it.
 func TxPayload(tx types.Tx) types.Tx {
-	_, payload, err := DecodeSignedTx(tx)
+	payload, err := txcodec.Unwrap(tx)
 	if err != nil {
 		return tx
 	}
@@ -125,16 +102,23 @@ func SignedTxSignBytes(chainID string, payload types.Tx) []byte {
 	return signBytes
 }
 
+// validatePayloadSignerAddress binds the signer tag of payload to publicKey. A
+// payload without a signer tag is not bound to any account; a payload whose
+// tags do not parse, or whose signer tag is empty, is rejected.
 func validatePayloadSignerAddress(payload types.Tx, publicKey types.PublicKey) error {
-	signer, found := TxTag(payload, "signer")
-	if !found || signer == "" {
+	tags, err := txcodec.Tags(payload)
+	if err != nil {
+		return err
+	}
+	signer, found := tags[txcodec.TagSigner]
+	if !found {
 		return nil
 	}
 	expected, err := address.AccountFromPublicKey(publicKey)
 	if err != nil {
 		return err
 	}
-	if signer != string(expected) {
+	if signer == "" || signer != string(expected) {
 		return ErrSignerAddressMismatch
 	}
 	return nil

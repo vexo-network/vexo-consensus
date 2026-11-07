@@ -2,15 +2,14 @@ package validator
 
 import (
 	"context"
-	"errors"
 	"fmt"
 )
 
 var (
-	ErrInsufficientStake   = errors.New("insufficient stake")
-	ErrValidatorSetFull    = errors.New("validator set full")
-	ErrCandidateDenied     = errors.New("candidate denied")
-	ErrMissingCandidateKey = errors.New("candidate public key is required")
+	ErrInsufficientStake   error = invalidUpdateError("insufficient stake")
+	ErrValidatorSetFull    error = invalidUpdateError("validator set full")
+	ErrCandidateDenied     error = invalidUpdateError("candidate denied")
+	ErrMissingCandidateKey error = invalidUpdateError("candidate public key is required")
 )
 
 type AdmissionConfig struct {

@@ -47,7 +47,7 @@ Admin endpoints:
 - `/v1/consensus/start`
 - `/v1/consensus/stop`
 
-Admin endpoints do not require bearer-token authorization by default. If `admin_token` or scoped `admin_tokens` are configured, the middleware enforces them; otherwise operators should expose these routes only on loopback, private networks, mTLS, or an authenticated gateway.
+Admin endpoints fail closed. Without `admin_token` or scoped `admin_tokens` every admin request is answered `401`; with them, each request needs `Authorization: Bearer <token>` (compared in constant time), a `Host` that is an IP literal, `localhost` or listed in `rpc.allowed_hosts`, and a `Content-Type: application/json` body on `POST`. Operators should still expose these routes only on loopback, private networks, mTLS, or an authenticated gateway.
 
 Operators may use one root token or scoped tokens in `network_config.json`:
 
@@ -64,7 +64,7 @@ Operators may use one root token or scoped tokens in `network_config.json`:
 }
 ```
 
-Supported scopes are `recovery`, `prune`, `replay`, and `consensus`. A scoped token with `["*"]` is equivalent to a root admin token. RPC middleware emits structured admin audit events when an audit sink is configured by the embedding node. Add scoped admin tokens only when the deployment wants bearer-token checks in addition to gateway policy.
+Supported scopes are `recovery`, `prune`, `replay`, `consensus` and `pprof` (the profiler, when `rpc.enable_pprof` is set). A scoped token with `["*"]` is equivalent to a root admin token. RPC middleware emits structured admin audit events when an audit sink is configured by the embedding node.
 
 `/v1/replay` accepts `strict: true` to require isolated re-execution from genesis or a retained historical snapshot. Non-strict replay may fall back to stored block/state consistency checks when isolated replay prerequisites are unavailable; strict replay fails closed instead.
 
@@ -193,7 +193,7 @@ Single-host Docker exposes validator 1 on host port `28657`, so Remix or browser
 http://127.0.0.1:28657/web3
 ```
 
-The RPC handler responds to browser CORS preflight requests. If Remix reports a failed chain-ID fetch, the usual cause is the wrong URL or port: use the Web3 endpoint path, and use the host-mapped Docker port such as `28657` rather than the container-internal `26657`.
+The RPC handler sends no CORS headers by default, so browser pages get no cross-origin access, and it refuses a WebSocket handshake that carries an unlisted `Origin`. List the origins that may call the API in `rpc.cors_allowed_origins` (for Remix: `https://remix.ethereum.org`); `"*"` allows every origin. `POST` requests must declare `Content-Type: application/json`, which makes a browser preflight the request. If Remix reports a failed chain-ID fetch, the usual cause is the wrong URL or port or an origin missing from the list: use the Web3 endpoint path, and use the host-mapped Docker port such as `28657` rather than the container-internal `26657`.
 
 ### Supported Method Groups
 
@@ -232,7 +232,9 @@ The bridge supports single requests, batch requests, notifications, string block
 - `eth_call`, `eth_estimateGas`, and `eth_createAccessList` run through a non-persisting geth `ApplyMessage` simulation path with requested block height, base fee, blob base fee, access list, optional EIP-7702 authorization list, state overrides, and block overrides.
 - Calls without explicit gas price or fee caps use zero-gas-price `NoBaseFee` read semantics; explicit fee fields still use geth state-transition checks.
 - Gas estimation applies go-ethereum intrinsic and floor-data gas rules, then probes the VM adapter and binary-searches the lowest non-failing gas limit.
-- Receipt-backed traces expose persisted state diff, VM trace frames, call trees, log data, and optional replay sections when the VM adapter provides them. Unknown optional tracer sections return `null` rather than failing the whole request.
+- Receipt-backed traces expose persisted state diff, call trees, log data, and optional replay sections. Receipts never persist opcode traces, so a committed transaction has no opcode frames; opcode-level `structLogs` come only from the explicit simulations `debug_traceCall` and `trace_call`, which re-execute the call, record a trace bounded to 4 MiB and discard it with the call. Unknown optional tracer sections return `null` rather than failing the whole request.
+- `eth_call`, `eth_estimateGas`, `debug_traceCall` and `trace_call` execute under `execution.rpc_gas_cap` (default 50,000,000 gas). A call without a gas limit runs with the cap, a limit above it is clamped, and `eth_estimateGas` returns `-32000 gas required exceeds allowance` when even the cap is not enough. Estimation stops as soon as the request is cancelled.
+- `eth_getLogs` and filter queries read only the blocks in `[fromBlock, toBlock]`. A missing `toBlock` means the latest block, a `toBlock` past the head stops at the head, and a window wider than `Web3LogMaxBlockRange` (at most 10,000 blocks) is rejected with `-32602` before any block is read. `logs` subscriptions deliver logs from the head at subscribe time onward.
 
 ### Mempool and Subscriptions
 

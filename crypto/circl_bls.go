@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/cloudflare/circl/ecc/bls12381"
 	circlbls "github.com/cloudflare/circl/sign/bls"
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -19,6 +20,12 @@ const (
 	circlBLSDependencyTag = "github.com/cloudflare/circl@v1.6.3"
 	circlBLSAuditBoundary = "operator-supplied-audit-required"
 )
+
+// blsProofOfPossessionDST is the hash-to-curve domain separation tag of proofs of possession. It
+// differs from every signing tag, so a proof of possession can never double as a signature over
+// another message, nor a signature as a proof of possession. Every BLS adapter uses it so proofs
+// stay interchangeable between adapters.
+const blsProofOfPossessionDST = "VEXO_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_V1"
 
 var ErrMissingBLSPrivateKey = errors.New("bls private key is required")
 
@@ -149,6 +156,9 @@ func (adapter CIRCLBLSAdapter) Verify(publicKey types.PublicKey, message []byte,
 	if err != nil {
 		return false
 	}
+	if len(signature) != bls12381.G2SizeCompressed {
+		return false
+	}
 	return circlbls.Verify(parsedPublicKey, blsMessage(message), circlbls.Signature(signature))
 }
 
@@ -165,7 +175,7 @@ func (adapter CIRCLBLSAdapter) Aggregate(signatures []types.Signature) (types.Ag
 }
 
 func (adapter CIRCLBLSAdapter) VerifyAggregate(publicKeys []types.PublicKey, message []byte, signature types.AggregateSignature) bool {
-	if len(publicKeys) == 0 {
+	if len(publicKeys) == 0 || len(signature) != bls12381.G2SizeCompressed {
 		return false
 	}
 	parsedPublicKeys := make([]*circlbls.PublicKey[circlbls.G1], 0, len(publicKeys))
@@ -192,16 +202,55 @@ func (adapter CIRCLBLSAdapter) ValidatePublicKey(publicKey types.PublicKey) erro
 	return err
 }
 
+// ProofOfPossession signs the prefixed public key under blsProofOfPossessionDST. circl's bls
+// package only hashes with its signing tags, so the proof is built on the pairing primitives.
 func (adapter CIRCLBLSAdapter) ProofOfPossession() (types.Signature, error) {
+	if adapter.privateKey == nil {
+		return nil, ErrMissingBLSPrivateKey
+	}
 	publicKey := adapter.PublicKey()
 	if len(publicKey) == 0 {
 		return nil, ErrMissingBLSPrivateKey
 	}
-	return adapter.Sign(blsProofOfPossessionMessage(publicKey))
+	privateKeyBytes, err := adapter.privateKey.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	var scalar bls12381.Scalar
+	if err := scalar.UnmarshalBinary(privateKeyBytes); err != nil {
+		return nil, ErrMissingBLSPrivateKey
+	}
+	var proof bls12381.G2
+	proof.Hash(blsProofOfPossessionMessage(publicKey), []byte(blsProofOfPossessionDST))
+	proof.ScalarMult(&scalar, &proof)
+	return types.Signature(proof.BytesCompressed()), nil
 }
 
+// VerifyProofOfPossession checks e(publicKey, H(publicKey)) == e(g1, proof) with H hashing under
+// blsProofOfPossessionDST.
 func (adapter CIRCLBLSAdapter) VerifyProofOfPossession(publicKey types.PublicKey, proof types.Signature) bool {
-	return adapter.Verify(publicKey, blsProofOfPossessionMessage(publicKey), proof)
+	if _, err := parseCIRCLBLSPublicKey(publicKey); err != nil {
+		return false
+	}
+	if len(proof) != bls12381.G2SizeCompressed {
+		return false
+	}
+	var parsedPublicKey bls12381.G1
+	if err := parsedPublicKey.SetBytes(publicKey); err != nil {
+		return false
+	}
+	var parsedProof bls12381.G2
+	if err := parsedProof.SetBytes(proof); err != nil {
+		return false
+	}
+	var hashed bls12381.G2
+	hashed.Hash(blsProofOfPossessionMessage(publicKey), []byte(blsProofOfPossessionDST))
+	product := bls12381.ProdPairFrac(
+		[]*bls12381.G1{&parsedPublicKey, bls12381.G1Generator()},
+		[]*bls12381.G2{&hashed, &parsedProof},
+		[]int{1, -1},
+	)
+	return product.IsIdentity()
 }
 
 func (adapter CIRCLBLSAdapter) Metadata() BLSAdapterMetadata {
@@ -222,6 +271,9 @@ func (adapter CIRCLBLSAdapter) Metadata() BLSAdapterMetadata {
 }
 
 func parseCIRCLBLSPublicKey(publicKey types.PublicKey) (*circlbls.PublicKey[circlbls.G1], error) {
+	if len(publicKey) != bls12381.G1SizeCompressed {
+		return nil, ErrInvalidBLSPublicKey
+	}
 	parsedPublicKey := new(circlbls.PublicKey[circlbls.G1])
 	if err := parsedPublicKey.UnmarshalBinary(publicKey); err != nil {
 		return nil, ErrInvalidBLSPublicKey

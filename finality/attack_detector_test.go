@@ -55,6 +55,56 @@ func TestAttackDetectorReportsConflictingFinalityProofs(t *testing.T) {
 	}
 }
 
+// Two certified blocks at one height are normal after a view change; only finality proofs conflict.
+func TestAttackDetectorRejectsCertifiedBlocksWithoutChild(t *testing.T) {
+	set := testValidatorSet(t, []validator.Validator{
+		{ID: "a", VotingPower: 1, PublicKey: []byte("a-pub")},
+		{ID: "b", VotingPower: 1, PublicKey: []byte("b-pub")},
+		{ID: "c", VotingPower: 1, PublicKey: []byte("c-pub")},
+		{ID: "d", VotingPower: 1, PublicKey: []byte("d-pub")},
+	})
+	first := validProof(set, []types.ValidatorID{"a", "b", "c"})
+	second := conflictingProof(set, first, types.Hash{2}, []types.ValidatorID{"a", "b", "d"})
+	first.CommitChain = nil
+	second.CommitChain = nil
+
+	detector := NewAttackDetector(set, acceptSignatureVerifier{})
+	if _, err := detector.Observe(first); !errors.Is(err, ErrCommitChainTooShort) {
+		t.Fatalf("expected a certified block without its child to be rejected, got %v", err)
+	}
+	if _, err := detector.Observe(second); !errors.Is(err, ErrCommitChainTooShort) {
+		t.Fatalf("expected a certified block without its child to be rejected, got %v", err)
+	}
+}
+
+func TestVerifyConflictEvidenceRequiresFinalityProofsAndVerifier(t *testing.T) {
+	set := testValidatorSet(t, []validator.Validator{
+		{ID: "a", VotingPower: 1, PublicKey: []byte("a-pub")},
+		{ID: "b", VotingPower: 1, PublicKey: []byte("b-pub")},
+		{ID: "c", VotingPower: 1, PublicKey: []byte("c-pub")},
+		{ID: "d", VotingPower: 1, PublicKey: []byte("d-pub")},
+	})
+	first := validProof(set, []types.ValidatorID{"a", "b", "c"})
+	second := conflictingProof(set, first, types.Hash{2}, []types.ValidatorID{"a", "b", "d"})
+	evidence, err := NewConflictEvidence(set, first, second, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyConflictEvidence(StaticValidatorSets(set), nil, evidence); !errors.Is(err, ErrMissingSignatureVerifier) {
+		t.Fatalf("expected evidence without a verifier to fail closed, got %v", err)
+	}
+
+	first.CommitChain = nil
+	second.CommitChain = nil
+	unfinal, err := NewConflictEvidence(set, first, second, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyConflictEvidence(StaticValidatorSets(set), acceptSignatureVerifier{}, unfinal); !errors.Is(err, ErrCommitChainTooShort) {
+		t.Fatalf("expected evidence of certified-only blocks to be rejected, got %v", err)
+	}
+}
+
 func TestAttackDetectorIgnoresSameFinalityBlock(t *testing.T) {
 	set := testValidatorSet(t, []validator.Validator{
 		{ID: "a", VotingPower: 1, PublicKey: []byte("a-pub")},
@@ -156,7 +206,7 @@ func TestNewConflictEvidenceRequiresAccountableSigner(t *testing.T) {
 	if evidence.Type != "finality_conflict" || evidence.Validator != "a" || evidence.Height != 1 {
 		t.Fatalf("unexpected evidence: %+v", evidence)
 	}
-	if _, err := VerifyConflictEvidence(set, acceptSignatureVerifier{}, evidence); err != nil {
+	if _, err := VerifyConflictEvidence(StaticValidatorSets(set), acceptSignatureVerifier{}, evidence); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := NewConflictEvidence(set, first, second, "c"); !errors.Is(err, ErrValidatorNotInFinalityConflict) {
@@ -164,20 +214,8 @@ func TestNewConflictEvidenceRequiresAccountableSigner(t *testing.T) {
 	}
 }
 
-func conflictingProof(set validator.Set, base Proof, blockHash types.Hash, signers []types.ValidatorID) Proof {
-	proof := base
-	proof.Header.AppHash = types.Hash{7}
-	proof.Header.ConsensusHash = blockHash
-	proof.BlockHash = blockHash
-	proof.QuorumCert.BlockHash = blockHash
-	proof.QuorumCert.Signers = EncodeSigners(signers)
-	proof.QuorumCert.Signature = types.AggregateSignature("conflicting-signature")
-	proof.QuorumCert.VotingPower = 0
-	for _, signer := range signers {
-		validatorInfo, found := set.Get(signer)
-		if found {
-			proof.QuorumCert.VotingPower += validatorInfo.VotingPower
-		}
-	}
-	return proof
+// conflictingProof is a complete proof for a different block at the same height as base, with the
+// same certification view, signed by the given validators.
+func conflictingProof(set validator.Set, base Proof, appHash types.Hash, signers []types.ValidatorID) Proof {
+	return proofAt(set, base.Header.Height, appHash, base.QuorumCert.Round, signers)
 }

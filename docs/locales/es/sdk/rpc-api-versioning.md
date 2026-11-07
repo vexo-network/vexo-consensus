@@ -191,3 +191,9 @@ Este apéndice asegura que la traducción conserve las interfaces ejecutables y 
 - `eth_blobBaseFee` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `eth_maxPriorityFeePerGas` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `eth_feeHistory` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `Authorization: Bearer <token>` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `rpc.allowed_hosts` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `Content-Type: application/json` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `rpc.enable_pprof` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `rpc.cors_allowed_origins` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `https://remix.ethereum.org` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.

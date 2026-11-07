@@ -42,7 +42,7 @@ const (
 	SignTypeConsensusProposal    SignType = "consensus_proposal"
 	SignTypeConsensusVote        SignType = "consensus_vote"
 	SignTypeConsensusTimeoutVote SignType = "consensus_timeout_vote"
-	SignTypeFinalityProof        SignType = "finality_proof"
+	SignTypeRemoteSignerProbe    SignType = "remote_signer_probe"
 )
 
 type SignPolicy struct {
@@ -53,10 +53,20 @@ type SignPolicy struct {
 	Domain  Domain       `json:"domain"`
 }
 
+// DoubleSignGuard refuses to sign a consensus statement that conflicts with, or falls
+// behind, what a key has already signed. It keeps one high-water mark per public key and
+// statement kind: the highest view signed and the digest of the bytes signed at that
+// view. The state is bounded by the number of keys, and persisted atomically when a mark
+// advances.
 type DoubleSignGuard struct {
-	mu           sync.Mutex
-	seen         map[string][32]byte
-	snapshotPath string
+	mu    sync.Mutex
+	marks map[string]map[SignType]highWaterMark
+	path  string
+}
+
+type highWaterMark struct {
+	view   types.Round
+	digest [sha256.Size]byte
 }
 
 type RemoteSignerNonceGuard struct {
@@ -108,9 +118,18 @@ type remoteSignResponse struct {
 	Signature string `json:"signature"`
 }
 
-type doubleSignGuardSnapshotDocument struct {
-	SchemaVersion string            `json:"schema_version"`
-	Records       map[string]string `json:"records"`
+// doubleSignGuardSchema names the high-water-mark state format. State written by the
+// earlier per-message record format carries another schema and is refused at load.
+const doubleSignGuardSchema = "high-water-mark/v1"
+
+type doubleSignGuardDocument struct {
+	SchemaVersion  string                                  `json:"schema_version"`
+	HighWaterMarks map[string]map[SignType]guardMarkRecord `json:"high_water_marks"`
+}
+
+type guardMarkRecord struct {
+	View   types.Round `json:"view"`
+	Digest string      `json:"digest"`
 }
 
 type remoteSignerNonceSnapshotDocument struct {
@@ -161,6 +180,12 @@ func (signer RemoteSigner) Sign(message []byte) (types.Signature, error) {
 }
 
 func (signer RemoteSigner) SignWithContext(ctx context.Context, message []byte) (types.Signature, error) {
+	if signer.requirePolicy {
+		return nil, ErrMissingSignPolicy
+	}
+	if err := signer.checkGuard(message); err != nil {
+		return nil, err
+	}
 	return signer.signWithPolicy(ctx, message, nil)
 }
 
@@ -174,12 +199,22 @@ func (signer RemoteSigner) SignWithPolicyContext(ctx context.Context, policy Sig
 	if err := policy.Validate(); err != nil {
 		return nil, err
 	}
-	if signer.guard != nil {
-		if err := signer.guard.CheckAndRemember(policy, message); err != nil {
-			return nil, err
-		}
+	if err := policy.Matches(message); err != nil {
+		return nil, err
+	}
+	if err := signer.checkGuard(message); err != nil {
+		return nil, err
 	}
 	return signer.signWithPolicy(ctx, message, &policy)
+}
+
+// checkGuard applies the double-sign guard to the bytes about to be signed, whether or not
+// the caller declared a policy.
+func (signer RemoteSigner) checkGuard(message []byte) error {
+	if signer.guard == nil {
+		return nil
+	}
+	return signer.guard.CheckAndRemember(signer.publicKey, message)
 }
 
 func (signer RemoteSigner) defaultContext() (context.Context, context.CancelFunc) {
@@ -193,9 +228,6 @@ func (signer RemoteSigner) defaultContext() (context.Context, context.CancelFunc
 func (signer RemoteSigner) signWithPolicy(ctx context.Context, message []byte, policy *SignPolicy) (types.Signature, error) {
 	if ctx == nil {
 		ctx = context.Background()
-	}
-	if signer.requirePolicy && policy == nil {
-		return nil, ErrMissingSignPolicy
 	}
 	nonce, err := newRemoteSignerNonce()
 	if err != nil {
@@ -255,128 +287,156 @@ func (policy SignPolicy) Validate() error {
 	if policy.ChainID == "" || policy.Height == 0 || policy.Type == "" || policy.Domain == "" {
 		return ErrMissingSignPolicy
 	}
-	expected, ok := signTypeDomains[policy.Type]
-	if !ok || expected != policy.Domain {
+	kind, ok := signKindOf(policy.Type)
+	if !ok || kind.domain != policy.Domain {
 		return ErrInvalidSignPolicy
 	}
 	return nil
 }
 
-var signTypeDomains = map[SignType]Domain{
-	SignTypeConsensusProposal:    DomainConsensusProposal,
-	SignTypeConsensusVote:        DomainConsensusVote,
-	SignTypeConsensusTimeoutVote: DomainConsensusTimeoutVote,
-	SignTypeFinalityProof:        DomainFinalityProof,
-}
-
 func NewDoubleSignGuard() *DoubleSignGuard {
-	return &DoubleSignGuard{seen: make(map[string][32]byte)}
+	return &DoubleSignGuard{marks: make(map[string]map[SignType]highWaterMark)}
 }
 
 func NewFileBackedDoubleSignGuard(path string) (*DoubleSignGuard, error) {
 	if path == "" {
 		return nil, ErrMissingGuardPath
 	}
-	guard, err := LoadDoubleSignGuard(path)
+	guard, err := loadDoubleSignGuard(path)
 	if errors.Is(err, os.ErrNotExist) {
 		guard = NewDoubleSignGuard()
+		guard.path = path
 		err = nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	guard.snapshotPath = path
 	return guard, nil
 }
 
-func NewDoubleSignGuardFromSnapshot(snapshot map[string]string) (*DoubleSignGuard, error) {
-	guard := NewDoubleSignGuard()
-	for key, encodedDigest := range snapshot {
-		digest, err := base64.StdEncoding.DecodeString(encodedDigest)
-		if err != nil {
-			return nil, err
-		}
-		if len(digest) != sha256.Size {
-			return nil, ErrDoubleSign
-		}
-		var fixed [32]byte
-		copy(fixed[:], digest)
-		guard.seen[key] = fixed
-	}
-	return guard, nil
-}
-
-func (guard *DoubleSignGuard) CheckAndRemember(policy SignPolicy, message []byte) error {
-	if err := policy.Validate(); err != nil {
+// CheckAndRemember decides from message alone whether publicKey may sign it. The
+// statement kind, height and view are read from the bytes, never from a declared policy.
+// A consensus statement is signed only when its view is above the key's high-water mark
+// for that kind, or when it is byte-identical to the statement already signed at the mark.
+// Anything at or below the mark that differs, including every older view, is refused: the
+// guard keeps no history below the mark, so it cannot show that an older statement does not
+// conflict. The mark is durable before CheckAndRemember returns nil.
+func (guard *DoubleSignGuard) CheckAndRemember(publicKey types.PublicKey, message []byte) error {
+	statement, err := parseSignMessage(message)
+	if err != nil {
 		return err
 	}
+	if !statement.guarded {
+		return nil
+	}
+	if len(publicKey) == 0 {
+		return ErrMissingRemotePublicKey
+	}
+	holder := base64.StdEncoding.EncodeToString(publicKey)
+	next := highWaterMark{view: statement.view, digest: sha256.Sum256(message)}
 	guard.mu.Lock()
 	defer guard.mu.Unlock()
-	if guard.seen == nil {
-		guard.seen = make(map[string][32]byte)
+	previous, found := guard.marks[holder][statement.signType]
+	if found {
+		switch {
+		case next.view < previous.view:
+			return fmt.Errorf("%w: %s view %d is below the high-water mark %d", ErrDoubleSign, statement.signType, next.view, previous.view)
+		case next.view == previous.view && next.digest != previous.digest:
+			return fmt.Errorf("%w: conflicting %s at view %d", ErrDoubleSign, statement.signType, next.view)
+		case next.view == previous.view:
+			return nil
+		}
 	}
-	key := policy.GuardKey()
-	digest := sha256.Sum256(message)
-	if previous, found := guard.seen[key]; found && previous != digest {
-		return ErrDoubleSign
+	if guard.marks == nil {
+		guard.marks = make(map[string]map[SignType]highWaterMark)
 	}
-	guard.seen[key] = digest
-	if guard.snapshotPath != "" {
-		return guard.saveLocked(guard.snapshotPath)
+	if guard.marks[holder] == nil {
+		guard.marks[holder] = make(map[SignType]highWaterMark)
+	}
+	guard.marks[holder][statement.signType] = next
+	if guard.path == "" {
+		return nil
+	}
+	if err := guard.saveLocked(); err != nil {
+		if found {
+			guard.marks[holder][statement.signType] = previous
+		} else {
+			delete(guard.marks[holder], statement.signType)
+			if len(guard.marks[holder]) == 0 {
+				delete(guard.marks, holder)
+			}
+		}
+		return err
 	}
 	return nil
 }
 
-func (guard *DoubleSignGuard) Snapshot() map[string]string {
-	guard.mu.Lock()
-	defer guard.mu.Unlock()
-	snapshot := make(map[string]string, len(guard.seen))
-	for key, digest := range guard.seen {
-		snapshot[key] = base64.StdEncoding.EncodeToString(digest[:])
-	}
-	return snapshot
-}
-
-func (policy SignPolicy) GuardKey() string {
-	return fmt.Sprintf("%s/%d/%d/%s/%s", policy.ChainID, policy.Height, policy.Round, policy.Type, policy.Domain)
-}
-
-func SaveDoubleSignGuard(path string, guard *DoubleSignGuard) error {
-	if path == "" {
-		return ErrMissingGuardPath
-	}
-	if guard == nil {
-		guard = NewDoubleSignGuard()
-	}
-	guard.mu.Lock()
-	defer guard.mu.Unlock()
-	return guard.saveLocked(path)
-}
-
-func LoadDoubleSignGuard(path string) (*DoubleSignGuard, error) {
+func loadDoubleSignGuard(path string) (*DoubleSignGuard, error) {
 	if path == "" {
 		return nil, ErrMissingGuardPath
 	}
-	file, err := os.Open(path)
+	encoded, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
-	var document doubleSignGuardSnapshotDocument
-	decoder := json.NewDecoder(file)
+	var header struct {
+		SchemaVersion string `json:"schema_version"`
+	}
+	if err := json.Unmarshal(encoded, &header); err != nil {
+		return nil, err
+	}
+	if header.SchemaVersion != doubleSignGuardSchema {
+		return nil, fmt.Errorf("%w: double-sign guard state schema %q is not %q; it was written by an older signer, so confirm the last view the key signed before replacing it",
+			ErrUnsupportedKeyVersion, header.SchemaVersion, doubleSignGuardSchema)
+	}
+	var document doubleSignGuardDocument
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&document); err != nil {
 		return nil, err
 	}
-	if document.SchemaVersion != KeyDocumentVersionV1 {
-		return nil, ErrUnsupportedKeyVersion
+	guard := NewDoubleSignGuard()
+	guard.path = path
+	for holder, records := range document.HighWaterMarks {
+		publicKey, err := base64.StdEncoding.DecodeString(holder)
+		if err != nil || len(publicKey) == 0 {
+			return nil, fmt.Errorf("%w: invalid public key %q", ErrDoubleSign, holder)
+		}
+		marks := make(map[SignType]highWaterMark, len(records))
+		for signType, record := range records {
+			if kind, known := signKindOf(signType); !known || !kind.guarded() {
+				return nil, fmt.Errorf("%w: unsupported statement kind %q", ErrDoubleSign, signType)
+			}
+			digest, err := base64.StdEncoding.DecodeString(record.Digest)
+			if err != nil || len(digest) != sha256.Size {
+				return nil, fmt.Errorf("%w: invalid digest for %s", ErrDoubleSign, signType)
+			}
+			mark := highWaterMark{view: record.View}
+			copy(mark.digest[:], digest)
+			marks[signType] = mark
+		}
+		guard.marks[holder] = marks
 	}
-	guard, err := NewDoubleSignGuardFromSnapshot(document.Records)
-	if err != nil {
-		return nil, err
-	}
-	guard.snapshotPath = path
 	return guard, nil
+}
+
+func (guard *DoubleSignGuard) saveLocked() error {
+	document := doubleSignGuardDocument{
+		SchemaVersion:  doubleSignGuardSchema,
+		HighWaterMarks: make(map[string]map[SignType]guardMarkRecord, len(guard.marks)),
+	}
+	for holder, marks := range guard.marks {
+		records := make(map[SignType]guardMarkRecord, len(marks))
+		for signType, mark := range marks {
+			records[signType] = guardMarkRecord{View: mark.view, Digest: base64.StdEncoding.EncodeToString(mark.digest[:])}
+		}
+		document.HighWaterMarks[holder] = records
+	}
+	encoded, err := json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(guard.path, append(encoded, '\n'))
 }
 
 func NewRemoteSignerNonceGuard() *RemoteSignerNonceGuard {
@@ -481,78 +541,46 @@ func (guard *RemoteSignerNonceGuard) saveLocked(path string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	tempPath := path + ".tmp"
-	file, err := os.OpenFile(tempPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err := file.Write(append(encoded, '\n')); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tempPath, path); err != nil {
-		return err
-	}
-	if dirFile, err := os.Open(filepath.Dir(path)); err == nil {
-		_ = dirFile.Sync()
-		_ = dirFile.Close()
-	}
-	return nil
+	return writeFileAtomic(path, append(encoded, '\n'))
 }
 
-func (guard *DoubleSignGuard) saveLocked(path string) error {
-	if path == "" {
-		return ErrMissingGuardPath
+// writeFileAtomic replaces path with data so that a crash leaves either the old or the new
+// content, never a mixture: it writes and syncs a private temporary file in the same
+// directory, renames it over path, and syncs the directory so the rename is durable.
+func writeFileAtomic(path string, data []byte) error {
+	directory := filepath.Dir(path)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return err
 	}
-	records := make(map[string]string, len(guard.seen))
-	for key, digest := range guard.seen {
-		records[key] = base64.StdEncoding.EncodeToString(digest[:])
-	}
-	document := doubleSignGuardSnapshotDocument{
-		SchemaVersion: KeyDocumentVersionV1,
-		Records:       records,
-	}
-	encoded, err := json.MarshalIndent(document, "", "  ")
+	file, err := os.CreateTemp(directory, filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	tempPath := path + ".tmp"
-	file, err := os.OpenFile(tempPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err := file.Write(append(encoded, '\n')); err != nil {
+	tempPath := file.Name()
+	if _, err := file.Write(data); err != nil {
 		_ = file.Close()
+		_ = os.Remove(tempPath)
 		return err
 	}
 	if err := file.Sync(); err != nil {
 		_ = file.Close()
+		_ = os.Remove(tempPath)
 		return err
 	}
 	if err := file.Close(); err != nil {
+		_ = os.Remove(tempPath)
 		return err
 	}
 	if err := os.Rename(tempPath, path); err != nil {
+		_ = os.Remove(tempPath)
 		return err
 	}
-	if dirFile, err := os.Open(filepath.Dir(path)); err == nil {
-		_ = dirFile.Sync()
-		_ = dirFile.Close()
+	dirFile, err := os.Open(directory)
+	if err != nil {
+		return err
 	}
-	return nil
+	defer dirFile.Close()
+	return dirFile.Sync()
 }
 
 func NewRemoteSignerService(signer Signer, policy RemoteSignerPolicy, guard *DoubleSignGuard) (*RemoteSignerService, error) {
@@ -614,15 +642,13 @@ func (service *RemoteSignerService) ServeHTTP(writer http.ResponseWriter, reques
 		http.Error(writer, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := service.policy.Validate(payload.Policy); err != nil {
+	if err := service.policy.Validate(payload.Policy, message); err != nil {
 		http.Error(writer, err.Error(), http.StatusForbidden)
 		return
 	}
-	if payload.Policy != nil {
-		if err := service.guard.CheckAndRemember(*payload.Policy, message); err != nil {
-			http.Error(writer, err.Error(), http.StatusForbidden)
-			return
-		}
+	if err := service.guard.CheckAndRemember(service.signer.PublicKey(), message); err != nil {
+		http.Error(writer, err.Error(), http.StatusForbidden)
+		return
 	}
 	signature, err := service.signer.Sign(message)
 	if err != nil {
@@ -655,7 +681,9 @@ func remoteSignerBearerAuthorized(header string, token string) bool {
 	return subtle.ConstantTimeCompare(headerDigest[:], expectedDigest[:]) == 1
 }
 
-func (policy RemoteSignerPolicy) Validate(signPolicy *SignPolicy) error {
+// Validate checks the policy a request declares against the service configuration and
+// against message, the bytes the service is about to sign.
+func (policy RemoteSignerPolicy) Validate(signPolicy *SignPolicy, message []byte) error {
 	if signPolicy == nil {
 		if policy.RequirePolicy {
 			return ErrMissingSignPolicy
@@ -663,6 +691,9 @@ func (policy RemoteSignerPolicy) Validate(signPolicy *SignPolicy) error {
 		return nil
 	}
 	if err := signPolicy.Validate(); err != nil {
+		return err
+	}
+	if err := signPolicy.Matches(message); err != nil {
 		return err
 	}
 	if policy.ChainID != "" && signPolicy.ChainID != policy.ChainID {

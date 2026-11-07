@@ -3,6 +3,9 @@ package governance
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math"
+	"math/big"
 
 	"github.com/vexo-network/vexo-consensus/types"
 )
@@ -14,6 +17,7 @@ var (
 	ErrProposalNotFound     = errors.New("proposal not found")
 	ErrDuplicateVote        = errors.New("duplicate vote")
 	ErrVotingPeriodOpen     = errors.New("voting period is still open")
+	ErrVotingPeriodClosed   = errors.New("voting period has ended")
 	ErrTimelockActive       = errors.New("proposal timelock is active")
 	ErrProposalRejected     = errors.New("proposal rejected")
 	ErrProposalExecuted     = errors.New("proposal already executed")
@@ -21,17 +25,30 @@ var (
 	ErrInvalidVoteOption    = errors.New("invalid vote option")
 )
 
+// BasisPoints is the denominator of the tally thresholds: 10000 basis points are all bonded power.
+const BasisPoints uint64 = 10000
+
+// TallyPolicy decides when a proposal passes. The thresholds are basis points of the bonded power
+// snapshotted when the proposal was submitted, so they scale with the stake instead of being a fixed
+// number that a growing or shrinking validator set makes meaningless.
+//
+// A proposal passes when
+//   - the votes cast reach QuorumBPS of the snapshot (when set),
+//   - veto votes stay below VetoBPS of the snapshot (when set),
+//   - yes votes reach YesThresholdBPS of the snapshot (when set) and outnumber the no votes.
+//
+// A non-zero threshold always needs at least one unit of power, however small the snapshot is.
 type TallyPolicy struct {
-	QuorumPower       types.VotingPower
-	YesThresholdPower types.VotingPower
-	VetoPower         types.VotingPower
-	VotingPeriod      uint64
-	Timelock          uint64
-	RequireDeposit    bool
-	MinDeposit        string
-	DepositDenom      string
-	DepositEscrow     types.Address
-	RejectedDeposits  types.Address
+	QuorumBPS        uint64
+	YesThresholdBPS  uint64
+	VetoBPS          uint64
+	VotingPeriod     uint64
+	Timelock         uint64
+	RequireDeposit   bool
+	MinDeposit       string
+	DepositDenom     string
+	DepositEscrow    types.Address
+	RejectedDeposits types.Address
 }
 
 type VoteRecord struct {
@@ -49,11 +66,17 @@ type TallyResult struct {
 	Passed  bool
 }
 
+// ProposalState is a proposal and everything decided about it. Votes are accepted from the block
+// after SubmittedAt up to and including VotingEndsAt; the proposal can be executed after VotingEndsAt
+// once the timelock has passed. SnapshotHeight and SnapshotPower fix the base of the tally when the
+// proposal is submitted.
 type ProposalState struct {
 	Proposal        Proposal
 	SubmittedAt     uint64
 	VotingEndsAt    uint64
 	ExecutableAt    uint64
+	SnapshotHeight  uint64
+	SnapshotPower   types.VotingPower
 	Executed        bool
 	Rejected        bool
 	Votes           map[types.Address]VoteRecord
@@ -61,12 +84,13 @@ type ProposalState struct {
 }
 
 type InMemoryKeeper struct {
-	policy    TallyPolicy
-	nextID    uint64
-	proposals map[uint64]*ProposalState
-	powers    map[types.Address]types.VotingPower
-	now       uint64
-	applied   []ParameterChange
+	policy     TallyPolicy
+	nextID     uint64
+	proposals  map[uint64]*ProposalState
+	powers     map[types.Address]types.VotingPower
+	totalPower types.VotingPower
+	now        uint64
+	applied    []ParameterChange
 }
 
 func NewInMemoryKeeper(policy TallyPolicy, votingPower map[types.Address]types.VotingPower) *InMemoryKeeper {
@@ -82,15 +106,22 @@ func NewInMemoryKeeper(policy TallyPolicy, votingPower map[types.Address]types.V
 	}
 }
 
+func contextError(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
+	}
+}
+
 func (keeper *InMemoryKeeper) SetTime(now uint64) {
 	keeper.now = now
 }
 
 func (keeper *InMemoryKeeper) SetTimeContext(ctx context.Context, now uint64) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := contextError(ctx); err != nil {
+		return err
 	}
 	keeper.SetTime(now)
 	return nil
@@ -104,51 +135,79 @@ func (keeper *InMemoryKeeper) SetVotingPower(voter types.Address, power types.Vo
 }
 
 func (keeper *InMemoryKeeper) SetVotingPowerContext(ctx context.Context, voter types.Address, power types.VotingPower) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := contextError(ctx); err != nil {
+		return err
 	}
 	keeper.SetVotingPower(voter, power)
 	return nil
 }
 
-func (keeper *InMemoryKeeper) SubmitProposal(ctx context.Context, proposal Proposal) (uint64, error) {
-	select {
-	case <-ctx.Done():
-		return 0, ctx.Err()
-	default:
-	}
+func (keeper *InMemoryKeeper) SetTotalPower(power types.VotingPower) {
+	keeper.totalPower = power
+}
 
-	if proposal.Title == "" {
-		return 0, ErrMissingProposalTitle
+func (keeper *InMemoryKeeper) SetTotalPowerContext(ctx context.Context, power types.VotingPower) error {
+	if err := contextError(ctx); err != nil {
+		return err
 	}
-	if proposal.Submitter == "" {
-		return 0, ErrMissingSubmitter
+	keeper.SetTotalPower(power)
+	return nil
+}
+
+// snapshotPower is the bonded power a new proposal snapshots.
+func (keeper *InMemoryKeeper) snapshotPower() types.VotingPower {
+	if keeper.totalPower > 0 {
+		return keeper.totalPower
 	}
-	if len(proposal.Changes) == 0 {
-		return 0, ErrNoProposalChanges
+	total := uint64(0)
+	for _, power := range keeper.powers {
+		if total > math.MaxUint64-uint64(power) {
+			return types.VotingPower(math.MaxUint64)
+		}
+		total += uint64(power)
+	}
+	return types.VotingPower(total)
+}
+
+func (keeper *InMemoryKeeper) SubmitProposal(ctx context.Context, proposal Proposal) (uint64, error) {
+	if err := contextError(ctx); err != nil {
+		return 0, err
+	}
+	if err := proposal.Validate(); err != nil {
+		return 0, err
+	}
+	executableAt := keeper.now + keeper.policy.VotingPeriod + keeper.policy.Timelock
+	plans, err := upgradePlans(proposal.Changes)
+	if err != nil {
+		return 0, err
+	}
+	for _, plan := range plans {
+		if uint64(plan.Height) <= executableAt {
+			return 0, fmt.Errorf("%w: plan %q height %d, earliest execution %d", ErrUpgradePlanNotInFuture, plan.Name, plan.Height, executableAt)
+		}
 	}
 
 	proposal.ID = keeper.nextID
 	keeper.nextID++
 	keeper.proposals[proposal.ID] = &ProposalState{
-		Proposal:     proposal,
-		SubmittedAt:  keeper.now,
-		VotingEndsAt: keeper.now + keeper.policy.VotingPeriod,
-		ExecutableAt: keeper.now + keeper.policy.VotingPeriod + keeper.policy.Timelock,
-		Votes:        make(map[types.Address]VoteRecord),
+		Proposal:       proposal,
+		SubmittedAt:    keeper.now,
+		VotingEndsAt:   keeper.now + keeper.policy.VotingPeriod,
+		ExecutableAt:   executableAt,
+		SnapshotHeight: keeper.now,
+		SnapshotPower:  keeper.snapshotPower(),
+		Votes:          make(map[types.Address]VoteRecord),
 	}
 	return proposal.ID, nil
 }
 
+// Vote records a vote with the power the keeper holds for the voter. Votes are refused once the
+// voting period has ended and on proposals that were already decided, so a result cannot change after
+// it was observed.
 func (keeper *InMemoryKeeper) Vote(ctx context.Context, proposalID uint64, voter types.Address, option VoteOption) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := contextError(ctx); err != nil {
+		return err
 	}
-
 	state, found := keeper.proposals[proposalID]
 	if !found {
 		return ErrProposalNotFound
@@ -158,6 +217,15 @@ func (keeper *InMemoryKeeper) Vote(ctx context.Context, proposalID uint64, voter
 	}
 	if !isValidVoteOption(option) {
 		return ErrInvalidVoteOption
+	}
+	if state.Executed {
+		return ErrProposalExecuted
+	}
+	if state.Rejected {
+		return ErrProposalRejected
+	}
+	if keeper.now > state.VotingEndsAt {
+		return ErrVotingPeriodClosed
 	}
 	if _, found := state.Votes[voter]; found {
 		return ErrDuplicateVote
@@ -172,12 +240,9 @@ func (keeper *InMemoryKeeper) Vote(ctx context.Context, proposalID uint64, voter
 }
 
 func (keeper *InMemoryKeeper) Execute(ctx context.Context, proposalID uint64) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
+	if err := contextError(ctx); err != nil {
+		return err
 	}
-
 	state, found := keeper.proposals[proposalID]
 	if !found {
 		return ErrProposalNotFound
@@ -188,13 +253,13 @@ func (keeper *InMemoryKeeper) Execute(ctx context.Context, proposalID uint64) er
 	if state.Rejected {
 		return ErrProposalRejected
 	}
-	if keeper.now < state.VotingEndsAt {
+	if keeper.now <= state.VotingEndsAt {
 		return ErrVotingPeriodOpen
 	}
 	if keeper.now < state.ExecutableAt {
 		return ErrTimelockActive
 	}
-	if !keeper.passes(state) {
+	if !keeper.policy.passes(state.SnapshotPower, tallyVotes(state)) {
 		state.Rejected = true
 		return ErrProposalRejected
 	}
@@ -214,10 +279,8 @@ func (keeper *InMemoryKeeper) Proposal(proposalID uint64) (ProposalState, bool) 
 }
 
 func (keeper *InMemoryKeeper) ProposalContext(ctx context.Context, proposalID uint64) (ProposalState, bool, error) {
-	select {
-	case <-ctx.Done():
-		return ProposalState{}, false, ctx.Err()
-	default:
+	if err := contextError(ctx); err != nil {
+		return ProposalState{}, false, err
 	}
 	state, found := keeper.Proposal(proposalID)
 	return state, found, nil
@@ -228,10 +291,8 @@ func (keeper *InMemoryKeeper) AppliedChanges() []ParameterChange {
 }
 
 func (keeper *InMemoryKeeper) AppliedChangesContext(ctx context.Context) ([]ParameterChange, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	if err := contextError(ctx); err != nil {
+		return nil, err
 	}
 	return keeper.AppliedChanges(), nil
 }
@@ -241,26 +302,20 @@ func (keeper *InMemoryKeeper) Tally(proposalID uint64) (TallyResult, bool) {
 	if !found {
 		return TallyResult{}, false
 	}
-	result := keeper.tally(state)
-	result.Passed = keeper.passesTally(result)
+	result := tallyVotes(state)
+	result.Passed = keeper.policy.passes(state.SnapshotPower, result)
 	return result, true
 }
 
 func (keeper *InMemoryKeeper) TallyContext(ctx context.Context, proposalID uint64) (TallyResult, bool, error) {
-	select {
-	case <-ctx.Done():
-		return TallyResult{}, false, ctx.Err()
-	default:
+	if err := contextError(ctx); err != nil {
+		return TallyResult{}, false, err
 	}
 	tally, found := keeper.Tally(proposalID)
 	return tally, found, nil
 }
 
-func (keeper *InMemoryKeeper) passes(state *ProposalState) bool {
-	return keeper.passesTally(keeper.tally(state))
-}
-
-func (keeper *InMemoryKeeper) tally(state *ProposalState) TallyResult {
+func tallyVotes(state *ProposalState) TallyResult {
 	var result TallyResult
 	for _, vote := range state.Votes {
 		result.Total += vote.Power
@@ -278,17 +333,32 @@ func (keeper *InMemoryKeeper) tally(state *ProposalState) TallyResult {
 	return result
 }
 
-func (keeper *InMemoryKeeper) passesTally(result TallyResult) bool {
-	if keeper.policy.QuorumPower > 0 && result.Total < keeper.policy.QuorumPower {
+// passes applies the policy to a tally over a snapshot of bonded power.
+func (policy TallyPolicy) passes(snapshot types.VotingPower, result TallyResult) bool {
+	if policy.QuorumBPS > 0 && uint64(result.Total) < requiredPower(snapshot, policy.QuorumBPS) {
 		return false
 	}
-	if keeper.policy.VetoPower > 0 && result.Veto >= keeper.policy.VetoPower {
+	if policy.VetoBPS > 0 && uint64(result.Veto) >= requiredPower(snapshot, policy.VetoBPS) {
 		return false
 	}
-	if keeper.policy.YesThresholdPower > 0 {
-		return result.Yes >= keeper.policy.YesThresholdPower
+	if policy.YesThresholdBPS > 0 && uint64(result.Yes) < requiredPower(snapshot, policy.YesThresholdBPS) {
+		return false
 	}
 	return result.Yes > result.No
+}
+
+// requiredPower is ceil(snapshot * bps / 10000), computed without overflow and never below one.
+func requiredPower(snapshot types.VotingPower, bps uint64) uint64 {
+	if bps > BasisPoints {
+		bps = BasisPoints
+	}
+	required := new(big.Int).Mul(new(big.Int).SetUint64(uint64(snapshot)), new(big.Int).SetUint64(bps))
+	required.Add(required, new(big.Int).SetUint64(BasisPoints-1))
+	required.Div(required, new(big.Int).SetUint64(BasisPoints))
+	if required.Sign() == 0 {
+		return 1
+	}
+	return required.Uint64()
 }
 
 func cloneProposalState(state ProposalState) ProposalState {

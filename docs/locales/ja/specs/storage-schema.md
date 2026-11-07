@@ -65,11 +65,8 @@
 - `auth/nonce/{0x_address}`
 - `evm/code/{0x_address}`
 - `evm/storage/{0x_address}/{slot}`
-- `evm_ethstate/{height}/meta`
-- `evm_ethstate/{height}/accounts/{0x_address}`
 - `eth_getProof`
 - `stateRoot`
-- `evm_ethstate/{height}`
 - `EndBlock`
 - `H + 1`
 - `seen_ttl`
@@ -113,16 +110,12 @@
 
 ### そのまま維持するインターフェイス
 - `store.Store` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
-- `evm_ethstate` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `eth_getBalance` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `eth_getProof` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `bank/{0x_address}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `auth/nonce/{0x_address}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `evm/code/{0x_address}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `evm/storage/{0x_address}/{slot}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
-- `evm_ethstate/{height}/meta` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
-- `evm_ethstate/{height}/accounts/{0x_address}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
-- `evm_ethstate/{height}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `seen_ttl` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `code/{address}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `storage/{address}/{slot}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
@@ -130,3 +123,7 @@
 - `logs/by_height/{height}/{tx_hash}/{log_index}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `logs/by_address/{address}/{height}/{tx_hash}/{log_index}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `logs/{address}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `evm_receipts` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `receipt_index/{tx_hash}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `blob_sidecars/by_tx/{tx_hash}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `blob_sidecars/by_blob/{blob_hash}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

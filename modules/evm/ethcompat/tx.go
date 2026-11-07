@@ -55,6 +55,7 @@ var (
 	ErrUnprotectedLegacyTx   = errors.New("unprotected Ethereum legacy transaction is disabled")
 	ErrBlobFeeCapTooLow      = errors.New("Ethereum blob fee cap is below blob base fee")
 	ErrInvalidBlobSidecar    = errors.New("Ethereum blob sidecar proof is invalid")
+	ErrFeeNotAuthorized      = errors.New("Ethereum fee tag exceeds the fee the signature authorizes")
 )
 
 type DecodeOptions struct {
@@ -488,7 +489,46 @@ func ValidateCanonicalTxForExecution(tx types.Tx, options DecodeOptions) error {
 			return ErrSignatureMismatch
 		}
 	}
+	return validateFeeAuthorization(tx, decoded)
+}
+
+// validateFeeAuthorization bounds the fee tag, which the signature does not
+// cover and the wrapper may carry stale, by the most the Ethereum transaction
+// authorizes its sender to pay: gas times the fee cap plus blob gas times the
+// blob fee cap. The fee tag is what a transaction that fails after admission is
+// charged, so without the bound a relayer could bill the signer arbitrarily.
+func validateFeeAuthorization(tx types.Tx, decoded DecodedTransaction) error {
+	if _, found := vexoapp.TxTag(tx, "fee"); !found {
+		return nil
+	}
+	fee, valid := vexoapp.TxAmountBigTag(tx, "fee")
+	if !valid {
+		return ErrFeeNotAuthorized
+	}
+	limit := new(big.Int).Mul(new(big.Int).SetUint64(decoded.Gas), decoded.MaxFeePerGasBig)
+	if decoded.BlobGas > 0 && decoded.BlobGasFeeCapBig != nil {
+		limit.Add(limit, new(big.Int).Mul(new(big.Int).SetUint64(decoded.BlobGas), decoded.BlobGasFeeCapBig))
+	}
+	if fee.Cmp(limit) > 0 {
+		return ErrFeeNotAuthorized
+	}
 	return nil
+}
+
+// RawTransactionHash returns the Ethereum hash of a raw transaction, the
+// identity wallets and block explorers know it by. Unlike the eth_hash tag it
+// is derived from the signed bytes, so it cannot be claimed by another
+// transaction.
+func RawTransactionHash(rawHex string) (string, error) {
+	raw, err := hex.DecodeString(strings.TrimPrefix(normalizeHex(rawHex), "0x"))
+	if err != nil || len(raw) == 0 {
+		return "", ErrInvalidRawTransaction
+	}
+	var ethTx gethtypes.Transaction
+	if err := ethTx.UnmarshalBinary(raw); err != nil {
+		return "", fmt.Errorf("%w: %v", ErrInvalidRawTransaction, err)
+	}
+	return ethTx.Hash().Hex(), nil
 }
 
 func IntrinsicGas(data []byte, accessList []contract.AccessListEntry, contractCreation bool, timestamp uint64) (uint64, error) {

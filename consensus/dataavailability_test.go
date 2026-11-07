@@ -7,22 +7,15 @@ import (
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/dataavailability"
+	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/queryproof"
 	"github.com/vexo-network/vexo-consensus/stateproof"
 	"github.com/vexo-network/vexo-consensus/types"
-	"github.com/vexo-network/vexo-consensus/validator"
 )
 
 func TestStateMachineCreateProposalAttachesDataCommitment(t *testing.T) {
-	set := newTestValidatorSet([]validator.Validator{{ID: "a", VotingPower: 1}})
-	machine, err := NewStateMachine(StateMachineConfig{
-		ChainID:      "vexo-test",
-		ValidatorSet: set,
-		Aggregator:   testAggregateSigner{},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	cluster := newEqualTestCluster(t, "a")
+	machine := cluster.newMachine()
 
 	proposal, err := machine.CreateProposal(types.Block{
 		Header: types.Header{Height: 1},
@@ -34,59 +27,38 @@ func TestStateMachineCreateProposalAttachesDataCommitment(t *testing.T) {
 	if proposal.Block.Header.ConsensusHash != dataavailability.Commitment(proposal.Block.Txs) {
 		t.Fatal("expected proposal to attach data availability commitment")
 	}
+	if err := cluster.signers.signProposal(&proposal); err != nil {
+		t.Fatal(err)
+	}
 	if err := machine.OnProposal(context.Background(), proposal); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestStateMachineRejectsProposalWithMissingDataCommitment(t *testing.T) {
-	set := newTestValidatorSet([]validator.Validator{{ID: "a", VotingPower: 1}})
-	machine, err := NewStateMachine(StateMachineConfig{
-		ChainID:      "vexo-test",
-		ValidatorSet: set,
-		Aggregator:   testAggregateSigner{},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	cluster := newEqualTestCluster(t, "a")
+	machine := cluster.newMachine()
 
-	err = machine.OnProposal(context.Background(), Proposal{
-		Block: types.Block{
-			Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHash: set.Hash()},
-			Txs:    []types.Tx{[]byte("tx")},
-		},
-		Proposer: "a",
-	})
-	if !errors.Is(err, ErrInvalidProposal) {
-		t.Fatalf("expected invalid proposal, got %v", err)
+	block := cluster.block(1, types.Hash{})
+	block.Txs = []types.Tx{[]byte("tx")}
+	block.Header.TxRoot = TxRoot(block.Txs)
+	err := machine.OnProposal(context.Background(), cluster.proposal("a", block, 0, finality.QuorumCert{}, finality.TimeoutCert{}))
+	if !errors.Is(err, ErrInvalidProposal) || !errors.Is(err, dataavailability.ErrMissingData) {
+		t.Fatalf("expected invalid proposal for missing data commitment, got %v", err)
 	}
 }
 
 func TestStateMachineRejectsProposalWithWrongDataCommitment(t *testing.T) {
-	set := newTestValidatorSet([]validator.Validator{{ID: "a", VotingPower: 1}})
-	machine, err := NewStateMachine(StateMachineConfig{
-		ChainID:      "vexo-test",
-		ValidatorSet: set,
-		Aggregator:   testAggregateSigner{},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	cluster := newEqualTestCluster(t, "a")
+	machine := cluster.newMachine()
 
-	err = machine.OnProposal(context.Background(), Proposal{
-		Block: types.Block{
-			Header: types.Header{
-				ChainID:          "vexo-test",
-				Height:           1,
-				ValidatorSetHash: set.Hash(),
-				ConsensusHash:    dataavailability.Commitment([]types.Tx{[]byte("other")}),
-			},
-			Txs: []types.Tx{[]byte("tx")},
-		},
-		Proposer: "a",
-	})
-	if !errors.Is(err, ErrInvalidProposal) {
-		t.Fatalf("expected invalid proposal, got %v", err)
+	block := cluster.block(1, types.Hash{})
+	block.Txs = []types.Tx{[]byte("tx")}
+	block.Header.TxRoot = TxRoot(block.Txs)
+	block.Header.ConsensusHash = dataavailability.Commitment([]types.Tx{[]byte("other")})
+	err := machine.OnProposal(context.Background(), cluster.proposal("a", block, 0, finality.QuorumCert{}, finality.TimeoutCert{}))
+	if !errors.Is(err, ErrInvalidProposal) || !errors.Is(err, dataavailability.ErrCommitmentMismatch) {
+		t.Fatalf("expected invalid proposal for wrong data commitment, got %v", err)
 	}
 }
 

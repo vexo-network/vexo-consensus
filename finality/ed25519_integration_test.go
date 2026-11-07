@@ -28,21 +28,16 @@ func TestVerifierAcceptsEd25519MultiSignature(t *testing.T) {
 		{ID: "c", VotingPower: 1, PublicKey: thirdSigner.PublicKey()},
 	})
 	proof := validProof(set, []types.ValidatorID{"a", "b"})
+	signProof(t, &proof, vexocrypto.CombineEd25519Signatures, firstSigner, secondSigner)
 
-	firstSignature, err := vexocrypto.SignWithDomain(firstSigner, vexocrypto.DomainConsensusVote, proof.SignBytes())
-	if err != nil {
-		t.Fatal(err)
-	}
-	secondSignature, err := vexocrypto.SignWithDomain(secondSigner, vexocrypto.DomainConsensusVote, proof.SignBytes())
-	if err != nil {
-		t.Fatal(err)
-	}
-	proof.QuorumCert.Signature, err = vexocrypto.CombineEd25519Signatures([]types.Signature{firstSignature, secondSignature})
-	if err != nil {
+	verifier := NewVerifier(set, vexocrypto.Ed25519MultiVerifier{})
+	if err := verifier.VerifyFinalityProof(proof); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := NewVerifier(set, vexocrypto.Ed25519MultiVerifier{}).VerifyFinalityProof(proof); err != nil {
-		t.Fatal(err)
+	// Signatures of the block certificate are not valid for the child certificate.
+	proof.CommitChain[0].QuorumCert.Signature = proof.QuorumCert.Signature
+	if err := verifier.VerifyFinalityProof(proof); err == nil {
+		t.Fatal("expected the child certificate to need its own signatures")
 	}
 }

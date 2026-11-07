@@ -4,57 +4,37 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
-	"github.com/syndtr/goleveldb/leveldb"
 	leveldberrors "github.com/syndtr/goleveldb/leveldb/errors"
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
+// Evidence is stored one record per key: saving a record writes only that record, so the cost of a
+// save does not grow with the number of stored records, and no index exists that could disagree
+// with the records.
+
+// SaveEvidence stores record under the key of the offence its evidence proves, replacing an earlier
+// record of the same offence.
 func (store *LevelDBStore) SaveEvidence(ctx context.Context, record EvidenceRecord) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
-	store.evidenceMu.Lock()
-	defer store.evidenceMu.Unlock()
 	key := EvidenceKey(record.Evidence)
 	if key == "" {
 		return ErrInvalidKey
-	}
-	existing, err := store.EvidenceByKey(ctx, key)
-	if err != nil && !errors.Is(err, ErrEvidenceNotFound) {
-		return err
-	}
-	if err == nil {
-		if existing.Applied {
-			record.Applied = true
-		}
-		if record.CreatedAt == 0 {
-			record.CreatedAt = existing.CreatedAt
-		}
 	}
 	encoded, err := json.Marshal(record)
 	if err != nil {
 		return err
 	}
-	index, err := store.EvidenceIndex(ctx)
-	if err != nil && !errors.Is(err, ErrEvidenceNotFound) {
-		return err
-	}
-	if !stringSliceContains(index, key) {
-		index = append(index, key)
-	}
-	encodedIndex, err := json.Marshal(index)
-	if err != nil {
-		return err
-	}
-	batch := new(leveldb.Batch)
-	batch.Put(evidenceKey(key), encoded)
-	batch.Put(evidenceIndexKey, encodedIndex)
-	return store.writeBatch(batch)
+	return store.put(evidenceKey(key), encoded)
 }
 
+// EvidenceByKey returns the record stored under key; ErrEvidenceCorrupt reports a record that does
+// not decode.
 func (store *LevelDBStore) EvidenceByKey(ctx context.Context, key string) (EvidenceRecord, error) {
 	select {
 	case <-ctx.Done():
@@ -73,49 +53,53 @@ func (store *LevelDBStore) EvidenceByKey(ctx context.Context, key string) (Evide
 	}
 	var record EvidenceRecord
 	if err := json.Unmarshal(encoded, &record); err != nil {
-		return EvidenceRecord{}, err
+		return EvidenceRecord{}, fmt.Errorf("%w: %v", ErrEvidenceCorrupt, err)
 	}
 	return record, nil
 }
 
-func (store *LevelDBStore) EvidenceIndex(ctx context.Context) ([]string, error) {
+// DeleteEvidence removes the record stored under key; deleting a missing record is not an error.
+func (store *LevelDBStore) DeleteEvidence(ctx context.Context, key string) error {
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return ctx.Err()
 	default:
 	}
-	encoded, err := store.db.Get(evidenceIndexKey, nil)
-	if err != nil {
-		if errors.Is(err, leveldberrors.ErrNotFound) {
-			return nil, ErrEvidenceNotFound
-		}
-		return nil, err
+	if key == "" {
+		return ErrInvalidKey
 	}
-	var index []string
-	if err := json.Unmarshal(encoded, &index); err != nil {
-		return nil, err
-	}
-	return append([]string(nil), index...), nil
+	return store.delete(evidenceKey(key))
 }
 
-func (store *LevelDBStore) rebuildEvidenceIndex(ctx context.Context) ([]string, error) {
+// EvidenceIndex returns the keys of every stored record in key order, or ErrEvidenceNotFound when
+// there is none.
+func (store *LevelDBStore) EvidenceIndex(ctx context.Context) ([]string, error) {
+	keys, err := store.evidenceKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(keys) == 0 {
+		return nil, ErrEvidenceNotFound
+	}
+	return keys, nil
+}
+
+func (store *LevelDBStore) evidenceKeys(ctx context.Context) ([]string, error) {
 	iterator := store.db.NewIterator(util.BytesPrefix(evidencePrefix), nil)
 	defer iterator.Release()
-	index := make([]string, 0)
-	for ok := iterator.First(); ok; ok = iterator.Next() {
+	keys := make([]string, 0)
+	for iterator.Next() {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
 		}
-		key := evidenceKeyString(iterator.Key())
-		if key == "" || key == "index" {
-			continue
+		if key := evidenceKeyString(iterator.Key()); key != "" {
+			keys = append(keys, key)
 		}
-		index = append(index, key)
 	}
 	if err := iterator.Error(); err != nil {
 		return nil, err
 	}
-	return index, nil
+	return keys, nil
 }

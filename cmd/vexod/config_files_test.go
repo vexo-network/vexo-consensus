@@ -103,13 +103,14 @@ func TestRunInitWritesConfigAndGenesis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(moduleDocument.Application.CoreModules) != 5 ||
+	if len(moduleDocument.Application.CoreModules) != 6 ||
 		moduleDocument.Application.CoreModules[0] != "bank" ||
 		moduleDocument.Application.CoreModules[1] != "staking" ||
 		moduleDocument.Application.CoreModules[2] != "governance" ||
 		moduleDocument.Application.CoreModules[3] != "params" ||
 		moduleDocument.Application.CoreModules[4] != "ibc" ||
-		len(moduleDocument.Application.Modules) != 5 ||
+		moduleDocument.Application.CoreModules[5] != "slashing" ||
+		len(moduleDocument.Application.Modules) != 6 ||
 		moduleDocument.Execution.MaxGas == 0 ||
 		moduleDocument.Execution.FeeDenom != "avxo" ||
 		moduleDocument.Execution.DisplayDenom != "vexo" ||
@@ -455,7 +456,7 @@ func TestLoadNodeConfigMergesModuleConfig(t *testing.T) {
 		Application:   config.ApplicationConfig{Modules: append(config.DefaultApplicationModules(), "custom")},
 		Execution:     config.ExecutionConfig{RequireSigned: true, RequireNonce: true, MinFee: 7, MinGas: 3, TargetGas: 50, MaxGas: 99, FeeCollector: "collector"},
 		Bank:          config.BankConfig{MintAuthority: "governance"},
-		Governance:    governance.TallyPolicy{QuorumPower: 2, YesThresholdPower: 2, VotingPeriod: 9, Timelock: 4, VetoPower: 1},
+		Governance:    governance.TallyPolicy{QuorumBPS: 2000, YesThresholdBPS: 6000, VotingPeriod: 9, Timelock: 4, VetoBPS: 1000},
 	}
 	writeTestJSON(t, filepath.Join(home, moduleConfigFileName), moduleDocument)
 
@@ -463,7 +464,7 @@ func TestLoadNodeConfigMergesModuleConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Chain.Application.CoreModules) != 5 || len(cfg.Chain.Application.Modules) != 6 || cfg.Chain.Application.Modules[5] != "custom" {
+	if len(cfg.Chain.Application.CoreModules) != 6 || cfg.Chain.Application.CoreModules[5] != "slashing" || len(cfg.Chain.Application.Modules) != 7 || cfg.Chain.Application.Modules[6] != "custom" {
 		t.Fatalf("expected module config override, got %+v", cfg.Chain.Application)
 	}
 	if !cfg.Chain.Execution.RequireSigned || cfg.Chain.Execution.MinFee != 7 || cfg.Chain.Execution.FeeCollector != "collector" || cfg.Chain.Execution.FeeDenom != "avxo" {
@@ -588,7 +589,7 @@ func TestWriteNetworkFilesWithWeb3DevAccountsSeedsManagedAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(moduleDocument.Application.Modules) != 6 || moduleDocument.Application.Modules[5] != "evm" {
+	if len(moduleDocument.Application.Modules) != 7 || moduleDocument.Application.Modules[5] != "slashing" || moduleDocument.Application.Modules[6] != "evm" {
 		t.Fatalf("expected evm module enabled for web3 dev accounts, got %+v", moduleDocument.Application.Modules)
 	}
 	if moduleDocument.Execution.EVMForkPreset != "latest" {
@@ -807,7 +808,7 @@ func TestLoadNodeConfigUsesDefaultModuleConfigWhenSplitFileMissing(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Chain.Application.CoreModules) != 5 || len(cfg.Chain.Application.Modules) != 5 || cfg.Chain.Execution.MaxGas == 0 || cfg.Chain.Governance.Timelock == 0 {
+	if len(cfg.Chain.Application.CoreModules) != 6 || cfg.Chain.Application.CoreModules[5] != "slashing" || len(cfg.Chain.Application.Modules) != 6 || cfg.Chain.Application.Modules[5] != "slashing" || cfg.Chain.Execution.MaxGas == 0 || cfg.Chain.Governance.Timelock == 0 {
 		t.Fatalf("expected default module config fallback, got %+v", cfg.Chain)
 	}
 }
@@ -1094,6 +1095,8 @@ func TestLoadStartRuntimeConfigParsesStateSyncConfig(t *testing.T) {
 		TrustLocalHigher:  true,
 		MaxSnapshotBytes:  1024,
 		RetryAllSnapshots: true,
+		TrustHeight:       100,
+		TrustHash:         strings.Repeat("ab", 32),
 	}
 	writeTestJSON(t, path, document)
 	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
@@ -1110,9 +1113,18 @@ func TestLoadStartRuntimeConfigParsesStateSyncConfig(t *testing.T) {
 		!cfg.StateSync.RequireFresh ||
 		!cfg.StateSync.TrustLocalHigher ||
 		cfg.StateSync.MaxSnapshotBytes != 1024 ||
-		!cfg.StateSync.RetryAllSnapshots {
+		!cfg.StateSync.RetryAllSnapshots ||
+		cfg.StateSync.TrustHeight != 100 ||
+		cfg.StateSync.TrustHash != strings.Repeat("ab", 32) {
 		t.Fatalf("unexpected state sync runtime config: %+v", cfg.StateSync)
 	}
+
+	networkDocument.StateSync.TrustHash = ""
+	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)
+	if _, err := loadStartRuntimeConfig(home, path); !errors.Is(err, config.ErrUnsafeNetworkConfig) {
+		t.Fatalf("expected state sync without a trusted block to be refused, got %v", err)
+	}
+	networkDocument.StateSync.TrustHash = strings.Repeat("ab", 32)
 
 	networkDocument.StateSync.Timeout = "0s"
 	writeTestJSON(t, filepath.Join(home, networkConfigFileName), networkDocument)

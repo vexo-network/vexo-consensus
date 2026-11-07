@@ -76,9 +76,11 @@ func TestModuleSupportsProxyUpgradeFlow(t *testing.T) {
 	}
 }
 
+var proxyCallNonce uint64
+
 func deployEVMContract(t *testing.T, module Module, ctx vexoapp.Context, caller types.Address, creationCode string, salt string) Receipt {
 	t.Helper()
-	tx := types.Tx(fmt.Sprintf("evm:deploy:evm:%s:%s:%s", caller, creationCode, salt))
+	tx := nativeTx(fmt.Sprintf("evm:deploy:evm:%s:%s:%s", caller, creationCode, salt))
 	result := module.DeliverTx(ctx, tx)
 	if result.Code != 0 {
 		t.Fatalf("deploy failed: %+v", result)
@@ -98,7 +100,10 @@ func deployEVMContract(t *testing.T, module Module, ctx vexoapp.Context, caller 
 
 func callEVMContract(t *testing.T, module Module, ctx vexoapp.Context, caller types.Address, contract string, input []byte, method string) Receipt {
 	t.Helper()
-	tx := types.Tx(fmt.Sprintf("evm:call:evm:%s:%s:%s:0x%s:100000", caller, contract, method, hex.EncodeToString(input)))
+	// Every call is its own transaction: a receipt is keyed by the hash of the
+	// transaction bytes, so repeating a payload needs a fresh nonce.
+	proxyCallNonce++
+	tx := nativeTx(fmt.Sprintf("evm:call:evm:%s:%s:%s:0x%s:100000:nonce=%d", caller, contract, method, hex.EncodeToString(input), proxyCallNonce))
 	result := module.DeliverTx(ctx, tx)
 	if result.Code != 0 {
 		t.Fatalf("call failed: %+v", result)

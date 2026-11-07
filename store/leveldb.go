@@ -20,7 +20,6 @@ var (
 	blockHashPrefix         = []byte("block:hash:")
 	blockIndexKey           = []byte("block:index")
 	evidencePrefix          = []byte("evidence:")
-	evidenceIndexKey        = []byte("evidence:index")
 	finalityPrefix          = []byte("finality:height:")
 	finalityLatestKey       = []byte("finality:latest")
 	kvPrefix                = []byte("kv:")
@@ -36,7 +35,9 @@ var (
 type LevelDBStore struct {
 	db           *leveldb.DB
 	writeOptions *opt.WriteOptions
-	evidenceMu   sync.Mutex
+	// writeMu orders the writes that maintain state history: block commits,
+	// direct writes, imports and pruning each read the history they extend.
+	writeMu sync.Mutex
 }
 
 type LevelDBOptions struct {
@@ -174,6 +175,8 @@ func (store *LevelDBStore) PruneBelow(ctx context.Context, retainFrom types.Heig
 	if retainFrom == 0 {
 		return PruneResult{}, ErrInvalidPruneHeight
 	}
+	store.writeMu.Lock()
+	defer store.writeMu.Unlock()
 
 	index, err := store.BlockIndex(ctx)
 	if err != nil {
@@ -205,6 +208,11 @@ func (store *LevelDBStore) PruneBelow(ctx context.Context, retainFrom types.Heig
 	}
 	result.PrunedStates = prunedStates
 	result.PrunedStateRoots = prunedRoots
+	prunedVersions, err := store.pruneHistoryBelow(ctx, batch, retainFrom)
+	if err != nil {
+		return PruneResult{}, err
+	}
+	result.PrunedStateVersions = prunedVersions
 
 	newIndex, err := store.indexAfterPrune(ctx, retainFrom, index.LatestHeight)
 	if err != nil {
@@ -304,7 +312,11 @@ func (store *LevelDBStore) SaveUpgradePlan(ctx context.Context, plan upgrade.Pla
 		return ctx.Err()
 	default:
 	}
-	if err := upgrade.ValidatePlan(plan); err != nil {
+	currentHeight, err := store.currentHeight(ctx)
+	if err != nil {
+		return err
+	}
+	if err := upgrade.ValidateSchedule(plan, currentHeight); err != nil {
 		return err
 	}
 	encoded, err := json.Marshal(plan)
@@ -315,6 +327,18 @@ func (store *LevelDBStore) SaveUpgradePlan(ctx context.Context, plan upgrade.Pla
 	batch.Put(upgradePlanHeightKey(plan.Height), encoded)
 	batch.Put(upgradePlanNameKey(plan.Name), encoded)
 	return store.writeBatch(batch)
+}
+
+// currentHeight is the height of the latest committed state, zero before the first block.
+func (store *LevelDBStore) currentHeight(ctx context.Context) (types.Height, error) {
+	state, err := store.LatestState(ctx)
+	if errors.Is(err, ErrStateNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return state.Height, nil
 }
 
 func (store *LevelDBStore) UpgradePlanByHeight(ctx context.Context, height types.Height) (upgrade.Plan, bool, error) {
@@ -341,6 +365,23 @@ func (store *LevelDBStore) UpgradePlanByName(ctx context.Context, name string) (
 	return store.upgradePlan(upgradePlanNameKey(name))
 }
 
+// NextUpgradePlan returns the scheduled plan with the lowest height at or above height.
+func (store *LevelDBStore) NextUpgradePlan(ctx context.Context, height types.Height) (upgrade.Plan, bool, error) {
+	select {
+	case <-ctx.Done():
+		return upgrade.Plan{}, false, ctx.Err()
+	default:
+	}
+	heights := util.BytesPrefix(upgradePlanHeightPrefix)
+	heights.Start = upgradePlanHeightKey(height)
+	iterator := store.db.NewIterator(heights, nil)
+	defer iterator.Release()
+	if !iterator.Next() {
+		return upgrade.Plan{}, false, iterator.Error()
+	}
+	return decodeUpgradePlan(iterator.Value())
+}
+
 func (store *LevelDBStore) upgradePlan(key []byte) (upgrade.Plan, bool, error) {
 	encoded, err := store.db.Get(key, nil)
 	if err != nil {
@@ -349,6 +390,10 @@ func (store *LevelDBStore) upgradePlan(key []byte) (upgrade.Plan, bool, error) {
 		}
 		return upgrade.Plan{}, false, err
 	}
+	return decodeUpgradePlan(encoded)
+}
+
+func decodeUpgradePlan(encoded []byte) (upgrade.Plan, bool, error) {
 	var plan upgrade.Plan
 	if err := json.Unmarshal(encoded, &plan); err != nil {
 		return upgrade.Plan{}, false, err
@@ -478,21 +523,15 @@ func (store *LevelDBStore) commitBlockStateBatch(ctx context.Context, writes []K
 		return err
 	}
 
+	store.writeMu.Lock()
+	defer store.writeMu.Unlock()
 	batch := new(leveldb.Batch)
+	history := newHistoryBatch(store, batch, state.Height)
 	for _, write := range writes {
 		key := kvKey(write.Namespace, write.Key)
-		history := kvHistoryRecord{
-			Height:    state.Height,
-			Namespace: write.Namespace,
-			Key:       append([]byte(nil), write.Key...),
-			Value:     append([]byte(nil), write.Value...),
-			Deleted:   write.Delete,
-		}
-		encodedHistory, err := json.Marshal(history)
-		if err != nil {
+		if err := history.record(write); err != nil {
 			return err
 		}
-		batch.Put(kvHistoryKey(state.Height, write.Namespace, write.Key), encodedHistory)
 		if write.Delete {
 			batch.Delete(key)
 			continue
@@ -552,7 +591,8 @@ func (store *LevelDBStore) SaveFinalityProof(ctx context.Context, proof Finality
 		proof.QuorumCert.Height == 0 ||
 		proof.Header.Height != proof.QuorumCert.Height ||
 		proof.BlockHash == (types.Hash{}) ||
-		proof.QuorumCert.BlockHash != proof.BlockHash {
+		proof.QuorumCert.BlockHash != proof.BlockHash ||
+		!finalityRecordNamesItsHeader(proof) {
 		return ErrInvalidFinality
 	}
 	if err := validateFinalityCommitChainRecord(proof); err != nil {
@@ -604,7 +644,8 @@ func (store *LevelDBStore) getFinalityProof(key []byte, expectedHeight types.Hei
 	if proof.Header.Height == 0 ||
 		proof.QuorumCert.Height != proof.Header.Height ||
 		proof.BlockHash == (types.Hash{}) ||
-		proof.QuorumCert.BlockHash != proof.BlockHash {
+		proof.QuorumCert.BlockHash != proof.BlockHash ||
+		!finalityRecordNamesItsHeader(proof) {
 		return FinalityProofRecord{}, ErrInvalidFinality
 	}
 	if err := validateFinalityCommitChainRecord(proof); err != nil {
@@ -616,77 +657,49 @@ func (store *LevelDBStore) getFinalityProof(key []byte, expectedHeight types.Hei
 	return proof, nil
 }
 
+// finalityRecordNamesItsHeader reports whether the record's certificate is of the view the header
+// was proposed in and its validator set fields repeat the set the header names.
+func finalityRecordNamesItsHeader(proof FinalityProofRecord) bool {
+	return proof.QuorumCert.Round == proof.Header.Round &&
+		proof.ValidatorSetHeight == proof.Header.ValidatorSetHeight &&
+		proof.ValidatorSetHash == proof.Header.ValidatorSetHash
+}
+
+// validateFinalityCommitChainRecord checks the shape of the 2-chain commit link of a record. A record
+// without a link is a certified block still waiting for its child; a record with a link holds
+// exactly one: the child of the block, justified by the block's certificate and certified by its own
+// quorum certificate in the view it was proposed in, directly after the view of the block's
+// certificate. The child may name another validator set than the block: the set changes where the
+// chain proves a commit, which finality.Verifier checks together with the signatures.
 func validateFinalityCommitChainRecord(proof FinalityProofRecord) error {
 	if len(proof.CommitChain) == 0 {
 		return nil
 	}
-	if len(proof.CommitChain) < 2 {
+	if len(proof.CommitChain) != 1 {
 		return ErrInvalidFinality
 	}
-	previousHeader := proof.Header
-	previousHash := proof.BlockHash
-	for _, link := range proof.CommitChain {
-		if link.BlockHash == (types.Hash{}) ||
-			link.QuorumCert.Height == 0 ||
-			link.QuorumCert.BlockHash != previousHash ||
-			link.QuorumCert.Height != previousHeader.Height ||
-			link.Header.ChainID != proof.Header.ChainID ||
-			link.Header.Height != previousHeader.Height+1 ||
-			link.Header.PreviousBlockHash != previousHash ||
-			link.Header.ValidatorSetHash != proof.Header.ValidatorSetHash {
-			return ErrInvalidFinality
-		}
-		previousHeader = link.Header
-		previousHash = link.BlockHash
+	child := proof.CommitChain[0]
+	if child.BlockHash == (types.Hash{}) ||
+		child.QuorumCert.Height == 0 ||
+		child.QuorumCert.Height != child.Header.Height ||
+		child.QuorumCert.BlockHash != child.BlockHash ||
+		proof.QuorumCert.Round == ^types.Round(0) ||
+		child.QuorumCert.Round != proof.QuorumCert.Round+1 ||
+		child.Header.ChainID != proof.Header.ChainID ||
+		child.Header.Height != proof.Header.Height+1 ||
+		child.Header.PreviousBlockHash != proof.BlockHash ||
+		child.Header.JustifyRound != proof.Header.Round ||
+		child.QuorumCert.Round != child.Header.Round {
+		return ErrInvalidFinality
 	}
 	return nil
 }
 
+// Set, Delete and SetBatch write outside a block commit. Once the chain has a
+// committed state their writes take effect at the next committed height and are
+// versioned like a block's writes; before it they form the base state.
 func (store *LevelDBStore) Set(ctx context.Context, namespace string, key []byte, value []byte) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-	if namespace == "" {
-		return ErrInvalidNamespace
-	}
-	if len(key) == 0 {
-		return ErrInvalidKey
-	}
-	return store.put(kvKey(namespace, key), append([]byte(nil), value...))
-}
-
-func (store *LevelDBStore) SetWithUpgradePlans(ctx context.Context, namespace string, key []byte, value []byte, plans []upgrade.Plan) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-	if namespace == "" {
-		return ErrInvalidNamespace
-	}
-	if len(key) == 0 {
-		return ErrInvalidKey
-	}
-	encodedPlans := make([][]byte, 0, len(plans))
-	for _, plan := range plans {
-		if err := upgrade.ValidatePlan(plan); err != nil {
-			return err
-		}
-		encoded, err := json.Marshal(plan)
-		if err != nil {
-			return err
-		}
-		encodedPlans = append(encodedPlans, encoded)
-	}
-	batch := new(leveldb.Batch)
-	batch.Put(kvKey(namespace, key), append([]byte(nil), value...))
-	for index, plan := range plans {
-		batch.Put(upgradePlanHeightKey(plan.Height), encodedPlans[index])
-		batch.Put(upgradePlanNameKey(plan.Name), encodedPlans[index])
-	}
-	return store.writeBatch(batch)
+	return store.applyDirectWrites(ctx, []KVWrite{{Namespace: namespace, Key: key, Value: value}})
 }
 
 func (store *LevelDBStore) Get(ctx context.Context, namespace string, key []byte) ([]byte, error) {
@@ -712,96 +725,12 @@ func (store *LevelDBStore) Get(ctx context.Context, namespace string, key []byte
 	return append([]byte(nil), value...), nil
 }
 
-func (store *LevelDBStore) GetAt(ctx context.Context, height types.Height, namespace string, key []byte) ([]byte, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-	if height == 0 {
-		return nil, ErrStateNotFound
-	}
-	if namespace == "" {
-		return nil, ErrInvalidNamespace
-	}
-	if len(key) == 0 {
-		return nil, ErrInvalidKey
-	}
-
-	prefix := kvHistoryPrefixKey(namespace, key)
-	iterator := store.db.NewIterator(util.BytesPrefix(prefix), nil)
-	defer iterator.Release()
-
-	var selected kvHistoryRecord
-	var found bool
-	for iterator.Next() {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
-		recordHeight, ok := kvHistoryHeightFromKey(prefix, iterator.Key())
-		if !ok || recordHeight > height {
-			continue
-		}
-		var record kvHistoryRecord
-		if err := json.Unmarshal(iterator.Value(), &record); err != nil {
-			return nil, err
-		}
-		if record.Height != recordHeight || record.Namespace != namespace || string(record.Key) != string(key) {
-			return nil, ErrInvalidStateRecord
-		}
-		if !found || record.Height > selected.Height {
-			selected = record
-			found = true
-		}
-	}
-	if err := iterator.Error(); err != nil {
-		return nil, err
-	}
-	if !found || selected.Deleted {
-		return nil, ErrKeyNotFound
-	}
-	return append([]byte(nil), selected.Value...), nil
-}
-
 func (store *LevelDBStore) Delete(ctx context.Context, namespace string, key []byte) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-	if namespace == "" {
-		return ErrInvalidNamespace
-	}
-	if len(key) == 0 {
-		return ErrInvalidKey
-	}
-	return store.delete(kvKey(namespace, key))
+	return store.applyDirectWrites(ctx, []KVWrite{{Namespace: namespace, Key: key, Delete: true}})
 }
 
 func (store *LevelDBStore) SetBatch(ctx context.Context, writes []KVWrite) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-	batch := new(leveldb.Batch)
-	for _, write := range writes {
-		if write.Namespace == "" {
-			return ErrInvalidNamespace
-		}
-		if len(write.Key) == 0 {
-			return ErrInvalidKey
-		}
-		key := kvKey(write.Namespace, write.Key)
-		if write.Delete {
-			batch.Delete(key)
-			continue
-		}
-		batch.Put(key, append([]byte(nil), write.Value...))
-	}
-	return store.writeBatch(batch)
+	return store.applyDirectWrites(ctx, writes)
 }
 
 func (store *LevelDBStore) Root(ctx context.Context, namespace string) (types.Hash, error) {
@@ -920,60 +849,8 @@ func (store *LevelDBStore) ExportPrefix(ctx context.Context, namespace string, k
 	return pairs, nil
 }
 
-func (store *LevelDBStore) ExportNamespaceAt(ctx context.Context, height types.Height, namespace string) ([]KVPair, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-	if height == 0 {
-		return nil, ErrStateNotFound
-	}
-	if namespace == "" {
-		return nil, ErrInvalidNamespace
-	}
-	prefix := append([]byte(nil), kvHistoryPrefix...)
-	prefix = append(prefix, []byte(namespace)...)
-	prefix = append(prefix, ':')
-	iterator := store.db.NewIterator(util.BytesPrefix(prefix), nil)
-	defer iterator.Release()
-
-	selected := make(map[string]kvHistoryRecord)
-	for iterator.Next() {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
-		var record kvHistoryRecord
-		if err := json.Unmarshal(iterator.Value(), &record); err != nil {
-			return nil, err
-		}
-		if record.Namespace != namespace || record.Height == 0 || record.Height > height || len(record.Key) == 0 {
-			continue
-		}
-		key := string(record.Key)
-		if previous, found := selected[key]; !found || record.Height > previous.Height {
-			selected[key] = record
-		}
-	}
-	if err := iterator.Error(); err != nil {
-		return nil, err
-	}
-	pairs := make([]KVPair, 0, len(selected))
-	for _, record := range selected {
-		if record.Deleted {
-			continue
-		}
-		pairs = append(pairs, KVPair{
-			Namespace: namespace,
-			Key:       append([]byte(nil), record.Key...),
-			Value:     append([]byte(nil), record.Value...),
-		})
-	}
-	return pairs, nil
-}
-
+// ImportNamespace replaces namespace with pairs, which become its base state:
+// the namespace's versions are dropped with its old pairs.
 func (store *LevelDBStore) ImportNamespace(ctx context.Context, namespace string, pairs []KVPair) error {
 	select {
 	case <-ctx.Done():
@@ -983,7 +860,12 @@ func (store *LevelDBStore) ImportNamespace(ctx context.Context, namespace string
 	if namespace == "" {
 		return ErrInvalidNamespace
 	}
+	store.writeMu.Lock()
+	defer store.writeMu.Unlock()
 	batch := new(leveldb.Batch)
+	if err := store.deleteNamespaceHistory(ctx, batch, namespace); err != nil {
+		return err
+	}
 	prefix := kvNamespacePrefix(namespace)
 	iterator := store.db.NewIterator(util.BytesPrefix(prefix), nil)
 	for iterator.Next() {
@@ -1023,7 +905,7 @@ func (store *LevelDBStore) RecoverIndexes(ctx context.Context) (RecoverResult, e
 	if err != nil {
 		return RecoverResult{}, err
 	}
-	evidenceIndex, err := store.rebuildEvidenceIndex(ctx)
+	evidenceKeys, err := store.evidenceKeys(ctx)
 	if err != nil {
 		return RecoverResult{}, err
 	}
@@ -1038,21 +920,11 @@ func (store *LevelDBStore) RecoverIndexes(ctx context.Context) (RecoverResult, e
 		batch.Put(blockIndexKey, encoded)
 		result.RecoveredIndexes++
 	}
-	if len(evidenceIndex) == 0 {
-		batch.Delete(evidenceIndexKey)
-	} else {
-		encoded, err := json.Marshal(evidenceIndex)
-		if err != nil {
-			return RecoverResult{}, err
-		}
-		batch.Put(evidenceIndexKey, encoded)
-		result.RecoveredIndexes++
-	}
 	if err := store.writeBatch(batch); err != nil {
 		return RecoverResult{}, err
 	}
 	result.BlockIndexKeys = blockIndex.TotalBlocks
-	result.EvidenceKeys = uint64(len(evidenceIndex))
+	result.EvidenceKeys = uint64(len(evidenceKeys))
 	result.EarliestHeight = blockIndex.EarliestHeight
 	result.LatestHeight = blockIndex.LatestHeight
 	return result, nil

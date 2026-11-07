@@ -19,7 +19,6 @@ type slashingLifecyclePlanDocument struct {
 	EvidenceHeight types.Height             `json:"evidence_height"`
 	CurrentHeight  types.Height             `json:"current_height"`
 	ExpiresAt      types.Height             `json:"expires_at"`
-	AppealDeadline types.Height             `json:"appeal_deadline"`
 	CurrentPower   types.VotingPower        `json:"current_power"`
 	RemainingPower types.VotingPower        `json:"remaining_power"`
 	Penalty        slashing.Penalty         `json:"penalty"`
@@ -72,10 +71,9 @@ func runSlashingLifecyclePlan(writer io.Writer, args []string) error {
 }
 
 func buildSlashingLifecyclePlanDocument(evidenceType slashing.EvidenceType, validator types.ValidatorID, evidenceHeight types.Height, currentHeight types.Height, currentPower types.VotingPower) (slashingLifecyclePlanDocument, error) {
-	policy := slashing.DefaultPenaltyPolicy()
-	penalty, found := policy[evidenceType]
-	if !found {
-		return slashingLifecyclePlanDocument{}, slashing.ErrUnknownEvidenceType
+	penalty, err := slashing.DefaultPenaltyPolicy().Penalty(evidenceType)
+	if err != nil {
+		return slashingLifecyclePlanDocument{}, err
 	}
 	lifecycle := slashing.DefaultLifecyclePolicy()
 	remainingPower, err := slashing.ApplySlash(currentPower, penalty)
@@ -90,23 +88,22 @@ func buildSlashingLifecyclePlanDocument(evidenceType slashing.EvidenceType, vali
 		EvidenceHeight: evidenceHeight,
 		CurrentHeight:  currentHeight,
 		ExpiresAt:      evidenceHeight + lifecycle.EvidenceMaxAge,
-		AppealDeadline: evidenceHeight + lifecycle.AppealWindow,
 		CurrentPower:   currentPower,
 		RemainingPower: remainingPower,
 		Penalty:        penalty,
 		Steps: []string{
 			"validate evidence type, validator id, height, and proof before gossiping",
-			"deduplicate by stable evidence key before accepting into durable storage",
-			"hold evidence through the appeal window before final penalty execution",
-			"apply stake slash, jail validator, and block unbonding until release height",
-			"persist penalty receipt and validator set update proof",
-			"expire unapplied evidence after max age and archive all receipts for audit",
+			"deduplicate by stable offence key before accepting into the evidence pool",
+			"submit the evidence as a signed, fee-paying slashing transaction; nodes never apply a penalty outside a block",
+			"re-verify the evidence against the validator set of its height while executing the including block",
+			"apply stake slash and jail the validator; the voting power change takes effect at the next height",
+			"drop evidence once it is applied or older than the maximum age",
 		},
 	}
 	document.Checks = append(document.Checks, slashingLifecycleCheck{Name: "validator", OK: validator != "", Message: "validator id is required"})
 	document.Checks = append(document.Checks, slashingLifecycleCheck{Name: "height", OK: evidenceHeight > 0, Message: "evidence height is required"})
 	document.Checks = append(document.Checks, slashingLifecycleCheck{Name: "not_expired", OK: currentHeight < document.ExpiresAt, Message: "evidence must not be expired before penalty"})
-	document.Checks = append(document.Checks, slashingLifecycleCheck{Name: "appeal_window", OK: currentHeight >= document.AppealDeadline, Message: "appeal window should close before penalty is final"})
+	document.Checks = append(document.Checks, slashingLifecycleCheck{Name: "not_from_future", OK: evidenceHeight <= currentHeight, Message: "evidence must not claim a height the chain has not reached"})
 	document.Checks = append(document.Checks, slashingLifecycleCheck{Name: "stake_accounting", OK: remainingPower <= currentPower, Message: "remaining power must not exceed current power"})
 	document.Checks = append(document.Checks, slashingLifecycleCheck{Name: "runtime_proof_verifier", OK: !document.PlanOnly, Message: "evidence type has a concrete runtime proof decoder and verifier"})
 	for _, check := range document.Checks {
@@ -134,9 +131,8 @@ func writeSlashingLifecyclePlan(writer io.Writer, document slashingLifecyclePlan
 	fmt.Fprintf(writer, "height: %d\n", document.EvidenceHeight)
 	fmt.Fprintf(writer, "current_height: %d\n", document.CurrentHeight)
 	fmt.Fprintf(writer, "expires_at: %d\n", document.ExpiresAt)
-	fmt.Fprintf(writer, "appeal_deadline: %d\n", document.AppealDeadline)
 	fmt.Fprintf(writer, "power: %d -> %d\n", document.CurrentPower, document.RemainingPower)
-	fmt.Fprintf(writer, "slash_fraction: %s\n", document.Penalty.SlashFraction)
+	fmt.Fprintf(writer, "slash_bps: %d\n", document.Penalty.SlashBPS)
 	fmt.Fprintf(writer, "jail_duration: %d\n", document.Penalty.JailDuration)
 	fmt.Fprintf(writer, "checks:\n")
 	for _, check := range document.Checks {

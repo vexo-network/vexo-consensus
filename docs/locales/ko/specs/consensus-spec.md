@@ -95,6 +95,10 @@
 - [영어 정본 문서](../../en/specs/consensus-spec.md)
 <!-- vexo-docs-ops-update-2026-06 -->
 
+## 헤더 app hash
+
+블록 헤더의 `AppHash`는 블록 `ValidatorSetHeight - 1`을 실행한 뒤의 state app hash입니다(그 값이 `0`이면 genesis state). 즉 헤더의 validator set을 가져온 state입니다. proposer가 이 값을 채우고, validator는 자기 state의 같은 높이 app hash와 일치하는 proposal에만 투표하며, 노드는 `AppHash`가 자기 state와 다른 인증 블록을 실행하지 않습니다. 따라서 인증서는 그 높이의 application state를 보증하고, state sync 노드는 snapshot을 이 값과 대조합니다.
+
 ## 빈 블록과 라운드 회복
 
 `create_empty_blocks=false`이면 mempool이 비어 있을 때 height가 멈춰 보일 수 있습니다. 이는 정상 idle 상태입니다. 거래가 들어와도 노드는 현재 `(height, round)`의 결정적 proposer일 때만 제안하며, proposer가 아니라고 로컬에서 다른 round로 건너뛰지 않습니다. round는 유효한 timeout certificate 또는 certified finality 전환으로만 진행되고, 블록 실행·저장 오류는 timeout으로 처리되지 않습니다.

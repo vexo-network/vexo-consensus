@@ -3,13 +3,16 @@ package modules
 import (
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/config"
+	"github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/modules/bank"
 	appevm "github.com/vexo-network/vexo-consensus/modules/evm"
 	appgovernance "github.com/vexo-network/vexo-consensus/modules/governance"
 	appibc "github.com/vexo-network/vexo-consensus/modules/ibc"
+	appslashing "github.com/vexo-network/vexo-consensus/modules/slashing"
 	"github.com/vexo-network/vexo-consensus/modules/staking"
 	"github.com/vexo-network/vexo-consensus/params"
 	"github.com/vexo-network/vexo-consensus/types"
+	"github.com/vexo-network/vexo-consensus/validator"
 )
 
 var defaultModuleEntries = []struct {
@@ -21,6 +24,7 @@ var defaultModuleEntries = []struct {
 	{appgovernance.ModuleName, func() vexoapp.Module { return appgovernance.NewModule() }},
 	{params.Namespace, func() vexoapp.Module { return params.NewModule(nil) }},
 	{appibc.ModuleName, func() vexoapp.Module { return appibc.NewModule() }},
+	{appslashing.ModuleName, func() vexoapp.Module { return appslashing.NewModule() }},
 	{appevm.ModuleName, func() vexoapp.Module { return appevm.NewModule() }},
 }
 
@@ -59,11 +63,26 @@ func BuildWithChainConfig(chain config.Config) ([]vexoapp.Module, error) {
 			AllowUnprotectedLegacyTx: chain.Execution.AllowUnprotectedLegacyTx,
 			MaxBlobSidecarBlobs:      chain.Execution.MaxBlobSidecarBlobs,
 			MaxBlobSidecarBytes:      chain.Execution.MaxBlobSidecarBytes,
+			FeeCollector:             types.Address(chain.Execution.FeeCollector),
+			RPCGasCap:                chain.Execution.RPCGasCap,
+			MaxTxGas:                 chain.Execution.MaxGas,
 		})
 		if err != nil {
 			return nil, err
 		}
 		evmModule = module
+	}
+	var slashingModule vexoapp.Module
+	if moduleEnabled(chain.Application.Modules, appslashing.ModuleName) {
+		suite, err := crypto.NewRuntimeSuite(chain.Crypto)
+		if err != nil {
+			return nil, err
+		}
+		module, err := appslashing.NewModuleWithPolicy(appslashing.Policy{}, suite)
+		if err != nil {
+			return nil, err
+		}
+		slashingModule = module
 	}
 	registry := vexoapp.NewRegistry()
 	if err := registry.Register(bank.ModuleName, func() vexoapp.Module {
@@ -76,6 +95,8 @@ func BuildWithChainConfig(chain config.Config) ([]vexoapp.Module, error) {
 			UnbondingDelay:   types.Height(chain.Staking.UnbondingDelay),
 			FeeCollector:     types.Address(chain.Execution.FeeCollector),
 			MaxCommissionBPS: chain.Staking.MaxCommissionBPS,
+			CryptoBackend:    chain.Crypto.Backend,
+			Admission:        validator.NewConfigurableAdmissionPolicy(chain.Validator),
 		})
 	}); err != nil {
 		return nil, err
@@ -89,6 +110,14 @@ func BuildWithChainConfig(chain config.Config) ([]vexoapp.Module, error) {
 		return nil, err
 	}
 	if err := registry.Register(appibc.ModuleName, func() vexoapp.Module { return appibc.NewModule() }); err != nil {
+		return nil, err
+	}
+	if err := registry.Register(appslashing.ModuleName, func() vexoapp.Module {
+		if slashingModule != nil {
+			return slashingModule
+		}
+		return appslashing.NewModule()
+	}); err != nil {
 		return nil, err
 	}
 	if err := registry.Register(appevm.ModuleName, func() vexoapp.Module {
@@ -145,17 +174,7 @@ func NewRuntimeWithExecution(chainID string, cfg config.ApplicationConfig, execu
 		return nil, err
 	}
 	runtime.WithEVMChainID(execution.EVMChainID)
-	if execution.MinFee > 0 || execution.BaseFee > 0 || execution.MinGas > 0 || execution.MaxGas > 0 || execution.RequireNonce || execution.RequireSigned {
-		runtime.WithAnte(vexoapp.NewAnteKeeper(vexoapp.AnteConfig{
-			MinFee:        execution.MinFee,
-			BaseFee:       execution.BaseFee,
-			MinGas:        execution.MinGas,
-			MaxGas:        execution.MaxGas,
-			RequireNonce:  execution.RequireNonce,
-			RequireSigned: execution.RequireSigned,
-			FeeCollector:  execution.FeeCollector,
-		}))
-	}
+	runtime.WithAnte(newAnteKeeper(execution, modules))
 	return runtime, nil
 }
 
@@ -170,16 +189,46 @@ func NewRuntimeWithChainConfig(chainID string, chain config.Config) (*vexoapp.Ru
 	}
 	execution := chain.Execution
 	runtime.WithEVMChainID(execution.EVMChainID)
-	if execution.MinFee > 0 || execution.BaseFee > 0 || execution.MinGas > 0 || execution.MaxGas > 0 || execution.RequireNonce || execution.RequireSigned {
-		runtime.WithAnte(vexoapp.NewAnteKeeper(vexoapp.AnteConfig{
-			MinFee:        execution.MinFee,
-			BaseFee:       execution.BaseFee,
-			MinGas:        execution.MinGas,
-			MaxGas:        execution.MaxGas,
-			RequireNonce:  execution.RequireNonce,
-			RequireSigned: execution.RequireSigned,
-			FeeCollector:  execution.FeeCollector,
-		}))
-	}
+	runtime.WithAnte(newAnteKeeper(execution, modules))
 	return runtime, nil
+}
+
+// newAnteKeeper builds the transaction admission and fee rules from the
+// execution configuration. The ante is always installed: the fee market state
+// and the account sequences are consensus state whatever the thresholds are.
+// The evm module authenticates the unsigned Ethereum transactions addressed to
+// it; no other module can.
+func newAnteKeeper(execution config.ExecutionConfig, modules []vexoapp.Module) *vexoapp.AnteKeeper {
+	anteConfig := vexoapp.AnteConfig{
+		MinFee:        execution.MinFee,
+		BaseFee:       execution.BaseFee,
+		MinGas:        execution.MinGas,
+		MaxGas:        execution.MaxGas,
+		RequireNonce:  execution.RequireNonce,
+		RequireSigned: execution.RequireSigned,
+		FeeCollector:  execution.FeeCollector,
+		FeeMarket: vexoapp.FeeMarketConfig{
+			BlobBaseFee:              execution.BlobBaseFee,
+			DynamicBaseFee:           execution.DynamicBaseFee,
+			DynamicBlobBaseFee:       execution.DynamicBlobBaseFee,
+			TargetGas:                execution.TargetGas,
+			TargetBlobGas:            execution.TargetBlobGas,
+			MaxBlobGas:               execution.MaxBlobGas,
+			BaseFeeChangeDenominator: execution.BaseFeeChangeDenominator,
+			BlobFeeChangeDenominator: execution.BlobFeeChangeDenominator,
+			MinBaseFee:               execution.MinBaseFee,
+			MaxBaseFee:               execution.MaxBaseFee,
+			MinBlobBaseFee:           execution.MinBlobBaseFee,
+			MaxBlobBaseFee:           execution.MaxBlobBaseFee,
+		},
+	}
+	for _, module := range modules {
+		if authenticator, ok := module.(vexoapp.TxAuthenticator); ok && module.Name() == appevm.ModuleName {
+			anteConfig.EthereumAuthenticator = authenticator
+		}
+		if authenticator, ok := module.(vexoapp.EvidenceAuthenticator); ok && module.Name() == appslashing.ModuleName {
+			anteConfig.EvidenceAuthenticator = authenticator
+		}
+	}
+	return vexoapp.NewAnteKeeper(anteConfig)
 }

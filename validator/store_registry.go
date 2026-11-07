@@ -16,6 +16,11 @@ var ErrValidatorSetNotFound = errors.New("validator set not found")
 
 const validatorRegistryNamespace = "validator_registry"
 
+// RegistryNamespace is the state namespace that holds the validator-set snapshots of the store
+// registry. Code that reads past validator sets from state, such as the slashing module, depends on
+// it, so a replay must carry it into its own store.
+const RegistryNamespace = validatorRegistryNamespace
+
 type KVStore interface {
 	Set(ctx context.Context, namespace string, key []byte, value []byte) error
 	Get(ctx context.Context, namespace string, key []byte) ([]byte, error)
@@ -209,6 +214,17 @@ func (registry *StoreRegistry) UpdateVotingPowerAt(ctx context.Context, height t
 	return nil
 }
 
+// StageValidatorUpdatesAt computes the validator set that results from applying updates on top of
+// the set in effect at height and returns the writes that persist it. Staging never rejects an
+// update because of its content: block execution runs after a quorum certified the block, so an
+// update that cannot be applied is skipped deterministically instead. Only storage failures and a
+// cancelled context are returned as errors.
+//
+// Updates apply in two passes. Removals (voting power zero) of known validators run first, so the
+// slots they free are visible to admission, and then upserts run in order: a known validator takes
+// the new power, stake, key (when the update carries one) and metadata entries; an unknown validator
+// joins only when the update carries a public key and the admission policy accepts the candidate.
+// A removal that would leave the set empty is ignored.
 func (registry *StoreRegistry) StageValidatorUpdatesAt(ctx context.Context, height types.Height, updates []types.ValidatorUpdate) (Set, []vexostore.KVWrite, error) {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
@@ -220,6 +236,26 @@ func (registry *StoreRegistry) StageValidatorUpdatesAt(ctx context.Context, heig
 		return nil, nil, err
 	}
 	previous := newSetSnapshot(sortedValidatorMap(validators))
+	normalized := normalizeValidatorUpdates(updates)
+	if err := registry.applyValidatorUpdates(ctx, validators, normalized); err != nil {
+		return nil, nil, err
+	}
+	set := newSetSnapshot(sortedValidatorMap(validators))
+	writes, err := registry.snapshotWrites(ctx, height, set.List())
+	if err != nil {
+		return nil, nil, err
+	}
+	registry.stageRotationEvents(height, previous, set, normalized)
+	eventWrites, err := registry.rotationEventWrites(ctx, registry.pendingEvents[height])
+	if err != nil {
+		return nil, nil, err
+	}
+	writes = append(writes, eventWrites...)
+	return set, writes, nil
+}
+
+func normalizeValidatorUpdates(updates []types.ValidatorUpdate) []types.ValidatorUpdate {
+	normalized := make([]types.ValidatorUpdate, 0, len(updates))
 	for _, update := range updates {
 		if update.ID == "" {
 			update.ID = types.ValidatorID(update.Address)
@@ -228,45 +264,54 @@ func (registry *StoreRegistry) StageValidatorUpdatesAt(ctx context.Context, heig
 			update.Address = types.Address(update.ID)
 		}
 		if update.ID == "" {
-			return nil, nil, ErrMissingCandidateID
+			continue
 		}
-		if update.VotingPower == 0 {
-			if _, found := validators[update.ID]; !found {
-				return nil, nil, ErrValidatorNotFound
-			}
-			delete(validators, update.ID)
+		normalized = append(normalized, update)
+	}
+	return normalized
+}
+
+func (registry *StoreRegistry) applyValidatorUpdates(ctx context.Context, validators map[types.ValidatorID]Validator, updates []types.ValidatorUpdate) error {
+	removed := make(map[types.ValidatorID]Validator)
+	for _, update := range updates {
+		if update.VotingPower != 0 {
 			continue
 		}
 		if validatorInfo, found := validators[update.ID]; found {
-			validatorInfo.VotingPower = update.VotingPower
-			if update.Stake > 0 {
-				validatorInfo.Stake = update.Stake
-			}
-			if len(update.PublicKey) > 0 {
-				validatorInfo.PublicKey = append(types.PublicKey(nil), update.PublicKey...)
-			}
-			if update.Metadata != nil {
-				validatorInfo.Metadata = cloneMetadata(update.Metadata)
-			}
-			validators[update.ID] = validatorInfo
+			removed[update.ID] = validatorInfo
+			delete(validators, update.ID)
+		}
+	}
+	for _, update := range updates {
+		if update.VotingPower == 0 {
+			continue
+		}
+		if validatorInfo, found := validators[update.ID]; found {
+			validators[update.ID] = updatedValidator(validatorInfo, update)
+			continue
+		}
+		if len(update.PublicKey) == 0 {
 			continue
 		}
 		stake := update.Stake
 		if stake == 0 {
 			stake = uint64(update.VotingPower)
 		}
-		candidate := Candidate{
-			Address:   update.Address,
-			PublicKey: update.PublicKey,
-			Stake:     stake,
-			Metadata:  update.Metadata,
-		}
 		if registry.policy != nil {
+			candidate := Candidate{
+				Address:   update.Address,
+				PublicKey: update.PublicKey,
+				Stake:     stake,
+				Metadata:  update.Metadata,
+			}
 			if err := registry.policy.CanJoin(ctx, candidate, newSetSnapshot(sortedValidatorMap(validators))); err != nil {
-				return nil, nil, err
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return ctxErr
+				}
+				continue
 			}
 		}
-		validatorInfo := Validator{
+		validators[update.ID] = Validator{
 			ID:          update.ID,
 			Address:     update.Address,
 			PublicKey:   append(types.PublicKey(nil), update.PublicKey...),
@@ -274,23 +319,34 @@ func (registry *StoreRegistry) StageValidatorUpdatesAt(ctx context.Context, heig
 			Stake:       stake,
 			Metadata:    cloneMetadata(update.Metadata),
 		}
-		if validatorInfo.VotingPower == 0 {
-			return nil, nil, ErrZeroVotingPower
+	}
+	if len(validators) == 0 {
+		for id, validatorInfo := range removed {
+			validators[id] = validatorInfo
 		}
-		validators[update.ID] = validatorInfo
 	}
-	set := newSetSnapshot(sortedValidatorMap(validators))
-	writes, err := registry.snapshotWrites(ctx, height, set.List())
-	if err != nil {
-		return nil, nil, err
+	return nil
+}
+
+func updatedValidator(validatorInfo Validator, update types.ValidatorUpdate) Validator {
+	validatorInfo.VotingPower = update.VotingPower
+	if update.Stake > 0 {
+		validatorInfo.Stake = update.Stake
 	}
-	registry.stageRotationEvents(height, previous, set, updates)
-	eventWrites, err := registry.rotationEventWrites(ctx, registry.pendingEvents[height])
-	if err != nil {
-		return nil, nil, err
+	if len(update.PublicKey) > 0 {
+		validatorInfo.PublicKey = append(types.PublicKey(nil), update.PublicKey...)
 	}
-	writes = append(writes, eventWrites...)
-	return set, writes, nil
+	if len(update.Metadata) > 0 {
+		merged := cloneMetadata(validatorInfo.Metadata)
+		if merged == nil {
+			merged = make(map[string]string, len(update.Metadata))
+		}
+		for key, value := range update.Metadata {
+			merged[key] = value
+		}
+		validatorInfo.Metadata = merged
+	}
+	return validatorInfo
 }
 
 func (registry *StoreRegistry) CommitStagedValidatorUpdates(ctx context.Context, height types.Height, updates []types.ValidatorUpdate) error {
@@ -300,8 +356,8 @@ func (registry *StoreRegistry) CommitStagedValidatorUpdates(ctx context.Context,
 		height = registry.effectiveHeight
 	}
 	registry.setEffectiveHeightLocked(height)
-	if len(registry.pendingEvents[height]) > 0 {
-		registry.events = append(registry.events, registry.pendingEvents[height]...)
+	if staged, found := registry.pendingEvents[height]; found {
+		registry.events = append(registry.events, staged...)
 		delete(registry.pendingEvents, height)
 		return nil
 	}
@@ -316,25 +372,7 @@ func (registry *StoreRegistry) CommitStagedValidatorUpdates(ctx context.Context,
 		return err
 	}
 	current := newSetSnapshot(sortedValidatorMap(validators))
-	currentHash := current.Hash()
-	for _, update := range updates {
-		if update.ID == "" {
-			update.ID = types.ValidatorID(update.Address)
-		}
-		if update.ID == "" {
-			continue
-		}
-		currentValidator, currentFound := current.Get(update.ID)
-		_, previousFound := previous.Get(update.ID)
-		switch {
-		case !currentFound && previousFound:
-			registry.recordEventLocked(height, RotationEventLeave, update.ID, 0, currentHash)
-		case currentFound && !previousFound:
-			registry.recordEventLocked(height, RotationEventJoin, update.ID, currentValidator.VotingPower, currentHash)
-		case currentFound && previousFound:
-			registry.recordEventLocked(height, RotationEventPowerChange, update.ID, currentValidator.VotingPower, currentHash)
-		}
-	}
+	registry.events = append(registry.events, rotationEvents(height, previous, current, normalizeValidatorUpdates(updates))...)
 	return nil
 }
 
@@ -342,53 +380,38 @@ func (registry *StoreRegistry) stageRotationEvents(height types.Height, previous
 	if registry.pendingEvents == nil {
 		registry.pendingEvents = make(map[types.Height][]RotationEvent)
 	}
+	registry.pendingEvents[height] = rotationEvents(height, previous, current, updates)
+}
+
+// rotationEvents reports what the updates changed between two sets: a join, a leave, or a voting
+// power change for each updated validator once, in order of first appearance.
+func rotationEvents(height types.Height, previous Set, current Set, updates []types.ValidatorUpdate) []RotationEvent {
 	events := make([]RotationEvent, 0, len(updates))
 	currentHash := current.Hash()
+	seen := make(map[types.ValidatorID]struct{}, len(updates))
 	for _, update := range updates {
-		if update.ID == "" {
-			update.ID = types.ValidatorID(update.Address)
-		}
-		if update.ID == "" {
+		if _, duplicate := seen[update.ID]; duplicate {
 			continue
 		}
+		seen[update.ID] = struct{}{}
 		currentValidator, currentFound := current.Get(update.ID)
-		_, previousFound := previous.Get(update.ID)
+		previousValidator, previousFound := previous.Get(update.ID)
 		switch {
 		case !currentFound && previousFound:
 			events = append(events, RotationEvent{Height: height, Type: RotationEventLeave, ValidatorID: update.ID, ValidatorSetHash: currentHash})
 		case currentFound && !previousFound:
 			events = append(events, RotationEvent{Height: height, Type: RotationEventJoin, ValidatorID: update.ID, VotingPower: currentValidator.VotingPower, ValidatorSetHash: currentHash})
-		case currentFound && previousFound:
+		case currentFound && previousFound && currentValidator.VotingPower != previousValidator.VotingPower:
 			events = append(events, RotationEvent{Height: height, Type: RotationEventPowerChange, ValidatorID: update.ID, VotingPower: currentValidator.VotingPower, ValidatorSetHash: currentHash})
 		}
 	}
-	registry.pendingEvents[height] = events
+	return events
 }
 
 func (registry *StoreRegistry) RotationEvents() []RotationEvent {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
 	return append([]RotationEvent(nil), registry.events...)
-}
-
-func (registry *StoreRegistry) recordEvent(ctx context.Context, height types.Height, eventType RotationEventType, validatorID types.ValidatorID, power types.VotingPower) {
-	set, err := registry.ValidatorSet(ctx, height)
-	if err != nil {
-		return
-	}
-	registry.mu.Lock()
-	defer registry.mu.Unlock()
-	registry.recordEventLocked(height, eventType, validatorID, power, set.Hash())
-}
-
-func (registry *StoreRegistry) recordEventLocked(height types.Height, eventType RotationEventType, validatorID types.ValidatorID, power types.VotingPower, validatorSetHash types.Hash) {
-	registry.events = append(registry.events, RotationEvent{
-		Height:           height,
-		Type:             eventType,
-		ValidatorID:      validatorID,
-		VotingPower:      power,
-		ValidatorSetHash: validatorSetHash,
-	})
 }
 
 func (registry *StoreRegistry) currentValidators(ctx context.Context) (map[types.ValidatorID]Validator, error) {
@@ -575,4 +598,27 @@ func containsHeight(heights []types.Height, height types.Height) bool {
 		}
 	}
 	return false
+}
+
+// RegisteredHeights returns the registry heights store holds a validator set for, in ascending
+// order, or ErrValidatorSetNotFound when it holds none.
+func RegisteredHeights(ctx context.Context, store KVStore) ([]types.Height, error) {
+	if store == nil {
+		return nil, errors.New("validator registry store is required")
+	}
+	return (&StoreRegistry{store: store}).loadHeights(ctx)
+}
+
+// LoadValidatorSet reads the persisted validator set in effect at height. Unlike NewStoreRegistry it
+// never creates registry state: it returns ErrValidatorSetNotFound when no set was persisted yet.
+func LoadValidatorSet(ctx context.Context, store KVStore, height types.Height) (Set, error) {
+	if store == nil {
+		return nil, errors.New("validator registry store is required")
+	}
+	registry := &StoreRegistry{store: store}
+	document, err := registry.loadLatest(ctx, height)
+	if err != nil {
+		return nil, err
+	}
+	return newSetSnapshot(sortedValidators(document.Validators)), nil
 }

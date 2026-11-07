@@ -115,7 +115,7 @@ func buildDoctorDocument(home string, configPath string, genesisPath string, key
 	document.addCheck("latest_state", latestStateErr)
 	_, blockIndexErr := storage.BlockIndex(context.Background())
 	document.addCheck("block_index", blockIndexErr)
-	_, snapshotErr := buildSnapshotDocument(storage, cfg.Chain.ChainID, snapshotNamespaces(cfg.Chain.Application.Modules))
+	_, snapshotErr := buildSnapshotDocument(storage, cfg.Chain.ChainID, snapshotNamespaces(cfg.Chain.Application.Modules), 0)
 	document.addCheck("snapshot", snapshotErr)
 	return document
 }

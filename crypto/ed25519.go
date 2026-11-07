@@ -80,7 +80,15 @@ func (Ed25519MultiVerifier) VerifyAggregate(publicKeys []types.PublicKey, messag
 	if len(signature) != expectedLength {
 		return false
 	}
+	seen := make(map[string]struct{}, len(publicKeys))
 	for index, publicKey := range publicKeys {
+		if len(publicKey) != ed25519.PublicKeySize {
+			return false
+		}
+		if _, duplicate := seen[string(publicKey)]; duplicate {
+			return false
+		}
+		seen[string(publicKey)] = struct{}{}
 		start := index * ed25519.SignatureSize
 		end := start + ed25519.SignatureSize
 		if !ed25519.Verify(ed25519.PublicKey(publicKey), message, signature[start:end]) {

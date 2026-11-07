@@ -3,6 +3,7 @@ package validator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/store"
@@ -186,8 +187,8 @@ func TestStoreRegistryStagesCommitsLeavesAndRotationEvents(t *testing.T) {
 	if err := registry.ApplyLeave(context.Background(), "missing"); err != ErrValidatorNotFound {
 		t.Fatalf("expected missing leave rejection, got %v", err)
 	}
-	if _, _, err := registry.StageValidatorUpdatesAt(context.Background(), 4, []types.ValidatorUpdate{{ID: "charlie", VotingPower: 0}}); err != ErrValidatorNotFound {
-		t.Fatalf("expected zero-power missing update rejection, got %v", err)
+	if _, _, err := registry.StageValidatorUpdatesAt(context.Background(), 4, []types.ValidatorUpdate{{ID: "charlie", VotingPower: 0}}); err != nil {
+		t.Fatalf("a removal of an unknown validator must be skipped, got %v", err)
 	}
 	events := registry.RotationEvents()
 	if len(events) < 3 {
@@ -235,7 +236,7 @@ func TestStoreRegistryPersistsStagedRotationEventsBeforeInMemoryCommit(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, writes, err := registry.StageValidatorUpdatesAt(context.Background(), 2, []types.ValidatorUpdate{{ID: "bob", Address: "bob", VotingPower: 5, Stake: 5}})
+	_, writes, err := registry.StageValidatorUpdatesAt(context.Background(), 2, []types.ValidatorUpdate{{ID: "bob", Address: "bob", VotingPower: 5, Stake: 5, PublicKey: []byte("bob-pub")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,5 +250,165 @@ func TestStoreRegistryPersistsStagedRotationEventsBeforeInMemoryCommit(t *testin
 	events := reopened.RotationEvents()
 	if len(events) != 1 || events[0].Type != RotationEventJoin || events[0].ValidatorID != "bob" || events[0].Height != 2 {
 		t.Fatalf("expected staged rotation event to survive crash before in-memory commit, got %+v", events)
+	}
+}
+
+func stagedSet(t *testing.T, registry *StoreRegistry, storage *store.LevelDBStore, height types.Height, updates []types.ValidatorUpdate) Set {
+	t.Helper()
+	set, writes, err := registry.StageValidatorUpdatesAt(context.Background(), height, updates)
+	if err != nil {
+		t.Fatalf("staging must not fail on update content, got %v", err)
+	}
+	if err := storage.SetBatch(context.Background(), writes); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.CommitStagedValidatorUpdates(context.Background(), height, updates); err != nil {
+		t.Fatal(err)
+	}
+	return set
+}
+
+func newStagingRegistry(t *testing.T, policy AdmissionPolicy, validators []Validator) (*StoreRegistry, *store.LevelDBStore) {
+	t.Helper()
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { storage.Close() })
+	registry, err := NewStoreRegistry(context.Background(), storage, policy, 1, validators)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return registry, storage
+}
+
+// A certified block must never be aborted by a validator update the registry cannot apply.
+func TestStoreRegistryStagingSkipsInvalidUpdatesInsteadOfFailing(t *testing.T) {
+	policy := NewConfigurableAdmissionPolicy(AdmissionConfig{Permissionless: true, MinStake: 10, MaxValidators: 3})
+	registry, storage := newStagingRegistry(t, policy, []Validator{
+		{ID: "alice", Address: "alice", VotingPower: 10, Stake: 10, PublicKey: []byte("alice-pub")},
+	})
+	set := stagedSet(t, registry, storage, 2, []types.ValidatorUpdate{
+		{ID: "ghost", VotingPower: 0},
+		{ID: "bob", Address: "bob", VotingPower: 20, Stake: 20},
+		{ID: "carol", Address: "carol", VotingPower: 1, Stake: 1, PublicKey: []byte("carol-pub")},
+		{Address: "", VotingPower: 5},
+	})
+	if got := len(set.List()); got != 1 {
+		t.Fatalf("unknown removal, keyless join, under-staked join and anonymous update must be skipped, got %+v", set.List())
+	}
+	if _, found := set.Get("alice"); !found {
+		t.Fatal("alice must be untouched")
+	}
+}
+
+func TestStoreRegistryStagingEnforcesAdmissionForJoins(t *testing.T) {
+	policy := NewConfigurableAdmissionPolicy(AdmissionConfig{Permissionless: false, MinStake: 1, MaxValidators: 2, Whitelist: map[string]bool{"bob": true, "carol": true, "dave": true}})
+	registry, storage := newStagingRegistry(t, policy, []Validator{
+		{ID: "alice", Address: "alice", VotingPower: 10, Stake: 10, PublicKey: []byte("alice-pub")},
+	})
+	set := stagedSet(t, registry, storage, 2, []types.ValidatorUpdate{
+		{ID: "mallory", Address: "mallory", VotingPower: 1000, Stake: 1000, PublicKey: []byte("mallory-pub")},
+		{ID: "bob", Address: "bob", VotingPower: 5, Stake: 5, PublicKey: []byte("bob-pub")},
+		{ID: "carol", Address: "carol", VotingPower: 5, Stake: 5, PublicKey: []byte("carol-pub")},
+	})
+	if _, found := set.Get("mallory"); found {
+		t.Fatal("a non-whitelisted candidate must not join through a validator update")
+	}
+	if _, found := set.Get("bob"); !found {
+		t.Fatal("the whitelisted candidate that fits must join")
+	}
+	if _, found := set.Get("carol"); found {
+		t.Fatal("the set is full, carol must be skipped")
+	}
+}
+
+func TestStoreRegistryStagingAppliesRemovalsBeforeJoins(t *testing.T) {
+	policy := NewConfigurableAdmissionPolicy(AdmissionConfig{Permissionless: true, MinStake: 1, MaxValidators: 1})
+	registry, storage := newStagingRegistry(t, policy, []Validator{
+		{ID: "alice", Address: "alice", VotingPower: 10, Stake: 10, PublicKey: []byte("alice-pub")},
+	})
+	set := stagedSet(t, registry, storage, 2, []types.ValidatorUpdate{
+		{ID: "bob", Address: "bob", VotingPower: 7, Stake: 7, PublicKey: []byte("bob-pub")},
+		{ID: "alice", VotingPower: 0},
+	})
+	if _, found := set.Get("alice"); found {
+		t.Fatal("alice must leave")
+	}
+	if bob, found := set.Get("bob"); !found || bob.VotingPower != 7 {
+		t.Fatalf("bob must take the slot freed in the same block, got %+v found=%t", bob, found)
+	}
+}
+
+func TestStoreRegistryStagingNeverEmptiesTheSet(t *testing.T) {
+	registry, storage := newStagingRegistry(t, nil, []Validator{
+		{ID: "alice", Address: "alice", VotingPower: 10, Stake: 10, PublicKey: []byte("alice-pub")},
+		{ID: "bob", Address: "bob", VotingPower: 10, Stake: 10, PublicKey: []byte("bob-pub")},
+	})
+	set := stagedSet(t, registry, storage, 2, []types.ValidatorUpdate{
+		{ID: "alice", VotingPower: 0},
+		{ID: "bob", VotingPower: 0},
+	})
+	if len(set.List()) != 2 {
+		t.Fatalf("removals that would empty the set must be ignored, got %+v", set.List())
+	}
+}
+
+// Plain power updates must not clobber the key or the metadata of a validator.
+func TestStoreRegistryStagingKeepsKeyAndMergesMetadata(t *testing.T) {
+	registry, storage := newStagingRegistry(t, nil, []Validator{
+		{ID: "alice", Address: "alice-op", VotingPower: 10, Stake: 10, PublicKey: []byte("alice-pub"), Metadata: map[string]string{"bls_pop": "pop", "account_address": "acct"}},
+	})
+	set := stagedSet(t, registry, storage, 2, []types.ValidatorUpdate{{ID: "alice", VotingPower: 3, Stake: 3}})
+	alice, _ := set.Get("alice")
+	if string(alice.PublicKey) != "alice-pub" || alice.Metadata["bls_pop"] != "pop" || alice.Metadata["account_address"] != "acct" || alice.Address != "alice-op" || alice.VotingPower != 3 {
+		t.Fatalf("keyless power update must only change power, got %+v", alice)
+	}
+	set = stagedSet(t, registry, storage, 3, []types.ValidatorUpdate{{ID: "alice", VotingPower: 3, PublicKey: []byte("alice-rotated"), Metadata: map[string]string{"bls_pop": "pop2"}}})
+	alice, _ = set.Get("alice")
+	if string(alice.PublicKey) != "alice-rotated" || alice.Metadata["bls_pop"] != "pop2" || alice.Metadata["account_address"] != "acct" {
+		t.Fatalf("rotation must replace the key and merge metadata, got %+v", alice)
+	}
+}
+
+func TestValidatorUpdateContentErrorsAreClassified(t *testing.T) {
+	for _, err := range []error{
+		ErrMissingCandidateID, ErrValidatorNotFound, ErrValidatorExists, ErrZeroVotingPower,
+		ErrInsufficientStake, ErrValidatorSetFull, ErrCandidateDenied, ErrMissingCandidateKey,
+		fmt.Errorf("%w: address is not whitelisted", ErrCandidateDenied),
+	} {
+		if !errors.Is(err, ErrInvalidUpdate) {
+			t.Fatalf("%v must be classified as invalid update content", err)
+		}
+	}
+	if errors.Is(ErrValidatorSetNotFound, ErrInvalidUpdate) || errors.Is(context.Canceled, ErrInvalidUpdate) {
+		t.Fatal("storage and context errors are not update content errors")
+	}
+	if ErrValidatorNotFound.Error() != "validator not found" {
+		t.Fatalf("sentinel message changed: %q", ErrValidatorNotFound)
+	}
+}
+
+func TestLoadValidatorSetIsReadOnly(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	if _, err := LoadValidatorSet(context.Background(), storage, 1); !errors.Is(err, ErrValidatorSetNotFound) {
+		t.Fatalf("expected missing set, got %v", err)
+	}
+	if _, err := storage.Get(context.Background(), validatorRegistryNamespace, []byte("heights")); err == nil {
+		t.Fatal("loading a missing set must not create registry state")
+	}
+	if _, err := NewStoreRegistry(context.Background(), storage, nil, 1, []Validator{{ID: "alice", Address: "alice", VotingPower: 4, Stake: 4}}); err != nil {
+		t.Fatal(err)
+	}
+	set, err := LoadValidatorSet(context.Background(), storage, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alice, found := set.Get("alice"); !found || alice.VotingPower != 4 {
+		t.Fatalf("unexpected genesis set: %+v", set.List())
 	}
 }

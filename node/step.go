@@ -27,7 +27,11 @@ func (node *Node) StepConsensusWithConfig(ctx context.Context, cfg ConsensusLoop
 	defer node.stepMu.Unlock()
 
 	cfg = normalizeConsensusLoopConfig(cfg)
-	commit, committed, err := node.commitCandidateForMode(ctx, cfg.ExecutionCommitMode, cfg.AllowUnsafeQCCommit)
+	// A commit that failed after its block became durable is finished before anything else happens.
+	if err := node.reconcileCommitted(ctx); err != nil {
+		return ConsensusStepResult{}, err
+	}
+	commit, committed, err := node.commitCandidateForMode(ctx, cfg)
 	if err != nil {
 		return ConsensusStepResult{}, err
 	}
@@ -61,15 +65,15 @@ func (node *Node) StepConsensusWithConfig(ctx context.Context, cfg ConsensusLoop
 	}, nil
 }
 
-func (node *Node) commitCandidateForMode(ctx context.Context, mode ExecutionCommitMode, allowUnsafeQC bool) (CommitReadyResult, bool, error) {
-	switch mode {
+func (node *Node) commitCandidateForMode(ctx context.Context, cfg ConsensusLoopConfig) (CommitReadyResult, bool, error) {
+	switch cfg.ExecutionCommitMode {
 	case ExecutionCommitModeQC:
-		if !allowUnsafeQC {
+		if !cfg.AllowUnsafeQCCommit {
 			return CommitReadyResult{}, false, ErrInvalidLoopConfig
 		}
 		return node.UnsafeCommitReadyBlock(ctx)
 	case "", ExecutionCommitModeFinalized:
-		return node.CommitFinalizedBlock(ctx)
+		return node.commitFinalizedBlock(ctx, cfg.RecoveryFinalityGateEnabled)
 	default:
 		return CommitReadyResult{}, false, ErrInvalidLoopConfig
 	}
@@ -103,7 +107,8 @@ func (node *Node) advanceFinalityRound(ctx context.Context) error {
 	}
 	status := machine.Status(ctx)
 	if status.Height == 0 || highQC.Height >= status.Height {
-		machine.StartRound(highQC.Height+1, 0)
+		committed, _ := node.currentCommitHeight(ctx)
+		machine.StartRound(boundedNextHeight(committed, highQC.Height), 0)
 	}
 	return nil
 }

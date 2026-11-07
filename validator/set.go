@@ -32,6 +32,11 @@ func newSetSnapshot(validators []Validator) setSnapshot {
 	}
 }
 
+// NewSet returns an immutable validator set snapshot ordered by validator id.
+func NewSet(validators []Validator) Set {
+	return newSetSnapshot(sortedValidators(validators))
+}
+
 func (set setSnapshot) Hash() types.Hash {
 	return set.hash
 }

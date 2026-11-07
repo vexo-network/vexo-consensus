@@ -65,11 +65,8 @@ Este documento ayuda a entender namespace de durable storage, key schema y recov
 - `auth/nonce/{0x_address}`
 - `evm/code/{0x_address}`
 - `evm/storage/{0x_address}/{slot}`
-- `evm_ethstate/{height}/meta`
-- `evm_ethstate/{height}/accounts/{0x_address}`
 - `eth_getProof`
 - `stateRoot`
-- `evm_ethstate/{height}`
 - `EndBlock`
 - `H + 1`
 - `seen_ttl`
@@ -113,16 +110,12 @@ Este apéndice asegura que la traducción conserve las interfaces ejecutables y 
 
 ### Interfaces conservadas sin cambios
 - `store.Store` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
-- `evm_ethstate` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `eth_getBalance` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `eth_getProof` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `bank/{0x_address}` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `auth/nonce/{0x_address}` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `evm/code/{0x_address}` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `evm/storage/{0x_address}/{slot}` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
-- `evm_ethstate/{height}/meta` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
-- `evm_ethstate/{height}/accounts/{0x_address}` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
-- `evm_ethstate/{height}` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `seen_ttl` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `code/{address}` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `storage/{address}/{slot}` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
@@ -130,3 +123,7 @@ Este apéndice asegura que la traducción conserve las interfaces ejecutables y 
 - `logs/by_height/{height}/{tx_hash}/{log_index}` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `logs/by_address/{address}/{height}/{tx_hash}/{log_index}` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `logs/{address}` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `evm_receipts` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `receipt_index/{tx_hash}` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `blob_sidecars/by_tx/{tx_hash}` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `blob_sidecars/by_blob/{blob_hash}` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.

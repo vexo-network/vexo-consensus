@@ -2,9 +2,6 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"strconv"
 
 	"github.com/vexo-network/vexo-consensus/kvbatch"
 	"github.com/vexo-network/vexo-consensus/slashing"
@@ -59,6 +56,8 @@ type PruneResult struct {
 	PrunedBlocks     uint64
 	PrunedStates     uint64
 	PrunedStateRoots uint64
+	// PrunedStateVersions counts the key versions no retained height reads.
+	PrunedStateVersions uint64
 }
 
 type RetentionPolicy struct {
@@ -73,10 +72,9 @@ type RecoverResult struct {
 	RecoveredIndexes uint64
 }
 
+// EvidenceRecord is a piece of verified evidence a node holds until a block punishes the offence.
 type EvidenceRecord struct {
-	Evidence  slashing.Evidence
-	Applied   bool
-	CreatedAt int64
+	Evidence slashing.Evidence
 }
 
 type FinalityProofRecord struct {
@@ -103,12 +101,17 @@ type QuorumCertRecord struct {
 	VotingPower types.VotingPower
 }
 
+// EvidenceKey identifies the offence evidence proves, so every proof and every label of one offence
+// shares one record. It is empty for evidence that has no proof or names no offence.
 func EvidenceKey(evidence slashing.Evidence) string {
-	if evidence.Type == "" || evidence.Validator == "" || evidence.Height == 0 || len(evidence.Proof) == 0 {
+	if len(evidence.Proof) == 0 {
 		return ""
 	}
-	hash := sha256.Sum256(evidence.Proof)
-	return string(evidence.Type) + ":" + string(evidence.Validator) + ":" + strconv.FormatUint(uint64(evidence.Height), 10) + ":" + strconv.FormatUint(uint64(evidence.Round), 10) + ":" + hex.EncodeToString(hash[:])
+	key, err := slashing.OffenceKey(evidence)
+	if err != nil {
+		return ""
+	}
+	return key
 }
 
 type Store interface {
@@ -127,6 +130,7 @@ type Store interface {
 	StateRoot(ctx context.Context, height types.Height, namespace string) (StateRootRecord, error)
 	SaveEvidence(ctx context.Context, record EvidenceRecord) error
 	EvidenceByKey(ctx context.Context, key string) (EvidenceRecord, error)
+	DeleteEvidence(ctx context.Context, key string) error
 	EvidenceIndex(ctx context.Context) ([]string, error)
 	RecoverIndexes(ctx context.Context) (RecoverResult, error)
 	Compact(ctx context.Context) error
@@ -169,6 +173,10 @@ type HistoricalKVStore interface {
 
 type HistoricalSnapshotKVStore interface {
 	ExportNamespaceAt(ctx context.Context, height types.Height, namespace string) ([]KVPair, error)
+}
+
+type HistoricalPrefixKVStore interface {
+	ExportPrefixAt(ctx context.Context, height types.Height, namespace string, prefix []byte) ([]KVPair, error)
 }
 
 type BatchKVStore = kvbatch.BatchKVStore

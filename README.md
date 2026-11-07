@@ -142,7 +142,7 @@ docker compose -f deployments/docker/compose.single-host.yml down
 
 ### 4. Connect Remix or another Web3 tool
 
-Vexo exposes Ethereum-style JSON-RPC methods under `/web3`. Browser tools such as Remix need CORS preflight support, which the RPC server enables by default.
+Vexo exposes Ethereum-style JSON-RPC methods under `/web3`. Browser tools such as Remix need their origin in the CORS allow-list: add it to `rpc.cors_allowed_origins`. The RPC server sends no CORS headers by default.
 
 Use this custom provider URL:
 

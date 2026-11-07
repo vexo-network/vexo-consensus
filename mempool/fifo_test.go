@@ -391,7 +391,7 @@ func TestFIFOMarkCommittedRemovesSameSignerNonceReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	if pool.Len() != 0 {
-		t.Fatalf("same-nonce replacement survived commit: %q", pool.txs)
+		t.Fatalf("same-nonce replacement survived commit: %d pending", pool.Len())
 	}
 }
 
@@ -435,6 +435,8 @@ func signedTestMempoolPayload(t *testing.T, payload string) types.Tx {
 	document := map[string]string{
 		"schema_version": "v1",
 		"payload":        base64.StdEncoding.EncodeToString([]byte(payload)),
+		"public_key":     base64.StdEncoding.EncodeToString([]byte("public-key")),
+		"signature":      base64.StdEncoding.EncodeToString([]byte("signature")),
 	}
 	encoded, err := json.Marshal(document)
 	if err != nil {
@@ -444,14 +446,7 @@ func signedTestMempoolPayload(t *testing.T, payload string) types.Tx {
 }
 
 func TestTxFeeAndPriorityUnwrapSignedTx(t *testing.T) {
-	envelope, err := json.Marshal(map[string]string{
-		"schema_version": "v1",
-		"payload":        base64.StdEncoding.EncodeToString([]byte("bank:send:fee=42:priority=7")),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	signedTx := types.Tx("signed:" + base64.StdEncoding.EncodeToString(envelope))
+	signedTx := signedTestMempoolPayload(t, "bank:send:fee=42:priority=7")
 	if TxFee(signedTx) != 42 || TxPriority(signedTx) != 7 {
 		t.Fatalf("expected signed tx fee/priority, got fee=%d priority=%d", TxFee(signedTx), TxPriority(signedTx))
 	}

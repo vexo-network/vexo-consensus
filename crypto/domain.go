@@ -13,8 +13,14 @@ const (
 	DomainConsensusProposal    Domain = "vexo.consensus.proposal.v1"
 	DomainConsensusVote        Domain = "vexo.consensus.vote.v1"
 	DomainConsensusTimeoutVote Domain = "vexo.consensus.timeout_vote.v1"
-	DomainFinalityProof        Domain = "vexo.finality.proof.v1"
+	// DomainRemoteSignerProbe wraps operator challenges that prove a remote signer holds
+	// its key. No verifier accepts it, so a probe signature never authorizes anything.
+	DomainRemoteSignerProbe Domain = "vexo.remote_signer.probe.v1"
 )
+
+// domainMessageTag opens every domain-separated message: tag, NUL, domain, big-endian
+// payload length, payload. DomainMessage builds it and the remote signer guard parses it.
+const domainMessageTag = "VEXO-DOMAIN\x00"
 
 var ErrEmptyDomain = errors.New("signature domain is empty")
 
@@ -120,11 +126,9 @@ func DomainMessage(domain Domain, message []byte) ([]byte, error) {
 		return nil, ErrEmptyDomain
 	}
 
-	domainBytes := []byte(domain)
-	encoded := make([]byte, 0, len("VEXO-DOMAIN")+1+len(domainBytes)+8+len(message))
-	encoded = append(encoded, []byte("VEXO-DOMAIN")...)
-	encoded = append(encoded, 0)
-	encoded = append(encoded, domainBytes...)
+	encoded := make([]byte, 0, len(domainMessageTag)+len(domain)+8+len(message))
+	encoded = append(encoded, domainMessageTag...)
+	encoded = append(encoded, domain...)
 	encoded = binary.BigEndian.AppendUint64(encoded, uint64(len(message)))
 	encoded = append(encoded, message...)
 	return encoded, nil

@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"math/big"
 	"sort"
 	"strings"
@@ -27,6 +29,10 @@ import (
 
 const GethVMName = "evm"
 
+// maxTraceBytes bounds the serialized opcode trace of one traced execution.
+// Once the budget is spent the tracer stops recording; execution continues.
+const maxTraceBytes = 4 << 20
+
 type GethVM struct {
 	chainConfig *gethparams.ChainConfig
 }
@@ -41,7 +47,24 @@ func NewWithChainConfig(chainConfig *gethparams.ChainConfig) GethVM {
 
 func (GethVM) Name() string { return GethVMName }
 
+// Execute runs the invocation. A returned error is either a deterministic
+// rejection (errors.Is(err, contract.ErrTxRejected): the invocation is invalid
+// for the state it ran against) or an infrastructure failure (state reads,
+// cancellation) that must never be recorded as a transaction outcome.
 func (vm GethVM) Execute(ctx context.Context, invocation contract.Invocation) (contract.Result, error) {
+	if err := ctx.Err(); err != nil {
+		return contract.Result{}, err
+	}
+	result, err := vm.execute(ctx, invocation)
+	// Cancellation only stops the interpreter at jump instructions and looks
+	// like a clean stop, so a cancelled execution is discarded.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return contract.Result{}, ctxErr
+	}
+	return result, err
+}
+
+func (vm GethVM) execute(ctx context.Context, invocation contract.Invocation) (contract.Result, error) {
 	caller := gethAddress(invocation.Caller)
 	contractAddress := gethAddress(invocation.Contract)
 	stateDB := newGethStateDB(ctx, invocation)
@@ -53,19 +76,17 @@ func (vm GethVM) Execute(ctx context.Context, invocation contract.Invocation) (c
 		stateDB.SetCode(contractAddress, invocation.Code, gethtracing.CodeChangeUnspecified)
 	}
 
-	traceLogger := gethlogger.NewStructLogger(&gethlogger.Config{
-		EnableReturnData: true,
-		DisableStack:     false,
-		DisableStorage:   false,
-	})
+	trace := newExecutionTrace(invocation.Trace)
 	chainConfig := vm.activeChainConfig()
-	evmConfig := gethvm.Config{Tracer: traceLogger.Hooks()}
+	evmConfig := gethvm.Config{Tracer: trace.hooks()}
 	if invocation.EthereumSimulation {
 		evmConfig.NoBaseFee = true
 	}
 	evm := gethvm.NewEVM(gethBlockContext(invocation, stateDB), stateDB, chainConfig, evmConfig)
+	stopCancel := context.AfterFunc(ctx, evm.Cancel)
+	defer stopCancel()
 	if (invocation.EthereumTx || invocation.EthereumSimulation) && len(invocation.Salt) == 0 {
-		return vm.executeStateTransition(invocation, stateDB, evm, traceLogger, caller, contractAddress)
+		return vm.executeStateTransition(invocation, stateDB, evm, trace, caller, contractAddress)
 	}
 	evm.SetTxContext(gethvm.TxContext{
 		Origin:     caller,
@@ -78,7 +99,7 @@ func (vm GethVM) Execute(ctx context.Context, invocation contract.Invocation) (c
 		destination = &contractAddress
 	}
 	stateDB.Prepare(rules, caller, gethAddress(invocation.Coinbase), destination, gethvm.ActivePrecompiles(rules), gethAccessList(invocation.AccessList))
-	traceLogger.OnTxStart(evm.GetVMContext(), nil, caller)
+	trace.start(evm, caller)
 
 	gasLimit := invocation.GasLimit
 	if gasLimit == 0 {
@@ -87,7 +108,7 @@ func (vm GethVM) Execute(ctx context.Context, invocation contract.Invocation) (c
 	initialGas := gethvm.NewGasBudget(gasLimit)
 	value, err := invocationValue(invocation)
 	if err != nil {
-		return contract.Result{}, err
+		return contract.Result{}, contract.Rejected(err)
 	}
 	var output []byte
 	var left gethvm.GasBudget
@@ -104,12 +125,14 @@ func (vm GethVM) Execute(ctx context.Context, invocation contract.Invocation) (c
 	} else {
 		output, left, err = evm.Call(caller, contractAddress, invocation.Input, initialGas, value)
 	}
+	// A failed state read can masquerade as an execution failure or success;
+	// it is an infrastructure error, never a transaction outcome.
+	if stateDB.err != nil {
+		return contract.Result{}, stateDBFailure(stateDB.err)
+	}
 	if err != nil {
-		if stateDB.err != nil {
-			err = stateDB.err
-		}
-		traceLogger.OnTxEnd(&gethtypes.Receipt{GasUsed: left.Used(initialGas)}, err)
-		vmTrace, traceErr := gethVMTrace(traceLogger)
+		trace.end(left.Used(initialGas), err)
+		vmTrace, traceErr := trace.result()
 		if traceErr != nil {
 			return contract.Result{}, traceErr
 		}
@@ -126,11 +149,8 @@ func (vm GethVM) Execute(ctx context.Context, invocation contract.Invocation) (c
 			stateDB.AddLog(log)
 		}
 	}
-	if stateDB.err != nil {
-		return contract.Result{}, stateDB.err
-	}
-	traceLogger.OnTxEnd(&gethtypes.Receipt{GasUsed: left.Used(initialGas)}, nil)
-	vmTrace, err := gethVMTrace(traceLogger)
+	trace.end(left.Used(initialGas), nil)
+	vmTrace, err := trace.result()
 	if err != nil {
 		return contract.Result{}, err
 	}
@@ -158,10 +178,10 @@ func (vm GethVM) Execute(ctx context.Context, invocation contract.Invocation) (c
 	return result, nil
 }
 
-func (vm GethVM) executeStateTransition(invocation contract.Invocation, stateDB *gethStateDB, evm *gethvm.EVM, traceLogger *gethlogger.StructLogger, caller gethcommon.Address, contractAddress gethcommon.Address) (contract.Result, error) {
+func (vm GethVM) executeStateTransition(invocation contract.Invocation, stateDB *gethStateDB, evm *gethvm.EVM, trace executionTrace, caller gethcommon.Address, contractAddress gethcommon.Address) (contract.Result, error) {
 	value, err := invocationValue(invocation)
 	if err != nil {
-		return contract.Result{}, err
+		return contract.Result{}, contract.Rejected(err)
 	}
 	gasLimit := invocation.GasLimit
 	if gasLimit == 0 {
@@ -169,26 +189,28 @@ func (vm GethVM) executeStateTransition(invocation contract.Invocation, stateDB 
 	}
 	msg, err := ethereumMessage(invocation, caller, contractAddress, value, gasLimit)
 	if err != nil {
-		return contract.Result{}, err
+		return contract.Result{}, contract.Rejected(err)
 	}
 	blockGasLimit := invocation.BlockGasLimit
 	if blockGasLimit == 0 || blockGasLimit < gasLimit {
 		blockGasLimit = gasLimit
 	}
-	traceLogger.OnTxStart(evm.GetVMContext(), nil, caller)
+	trace.start(evm, caller)
 	execution, err := gethcore.ApplyMessage(evm, msg, gethcore.NewGasPool(blockGasLimit))
-	if err != nil {
-		if stateDB.err != nil {
-			err = stateDB.err
-		}
-		traceLogger.OnTxEnd(&gethtypes.Receipt{GasUsed: 0}, err)
-		return contract.Result{}, err
-	}
+	// A failed state read can corrupt the pre-checks (a missing balance reads
+	// as zero), so it takes precedence over any pre-check verdict.
 	if stateDB.err != nil {
-		return contract.Result{}, stateDB.err
+		return contract.Result{}, stateDBFailure(stateDB.err)
 	}
-	traceLogger.OnTxEnd(&gethtypes.Receipt{GasUsed: execution.UsedGas}, execution.Err)
-	vmTrace, err := gethVMTrace(traceLogger)
+	if err != nil {
+		// ApplyMessage only fails on consensus pre-checks (nonce, funds,
+		// intrinsic gas, fee caps, ...): a pure function of the message and the
+		// state it ran against, identical on every node.
+		trace.end(0, err)
+		return contract.Result{}, contract.Rejected(err)
+	}
+	trace.end(execution.UsedGas, execution.Err)
+	vmTrace, err := trace.result()
 	if err != nil {
 		return contract.Result{}, err
 	}
@@ -236,6 +258,11 @@ func ethereumMessage(invocation contract.Invocation, caller gethcommon.Address, 
 		msg, err := gethcore.TransactionToMessage(&tx, signer, new(big.Int).SetUint64(invocation.BaseFee))
 		if err != nil {
 			return nil, err
+		}
+		// The raw transaction names its own gas limit; the invocation's limit is
+		// what the caller is willing to let one execution spend.
+		if msg.GasLimit > gasLimit {
+			return nil, fmt.Errorf("%w: transaction gas limit %d exceeds execution limit %d", contract.ErrInvalidInvocation, msg.GasLimit, gasLimit)
 		}
 		msg.SkipNonceChecks = invocation.EthereumSimulation
 		msg.SkipTransactionChecks = invocation.EthereumSimulation
@@ -336,16 +363,65 @@ func gethAccessList(entries []contract.AccessListEntry) gethtypes.AccessList {
 	return out
 }
 
-func gethVMTrace(traceLogger *gethlogger.StructLogger) (any, error) {
-	raw, err := traceLogger.GetResult()
+// stateDBFailure classifies an error recorded by the state adapter. Reader
+// failures are infrastructure errors; a balance underflow or overflow is a
+// deterministic function of the state and the invocation.
+func stateDBFailure(err error) error {
+	if errors.Is(err, contract.ErrInvalidInvocation) {
+		return contract.Rejected(err)
+	}
+	return err
+}
+
+// executionTrace records an opt-in, size-bounded opcode trace. The zero value
+// records nothing: consensus execution, CheckTx and plain eth_call never
+// trace, only explicit debug and trace queries do.
+type executionTrace struct {
+	logger *gethlogger.StructLogger
+}
+
+func newExecutionTrace(enabled bool) executionTrace {
+	if !enabled {
+		return executionTrace{}
+	}
+	return executionTrace{logger: gethlogger.NewStructLogger(&gethlogger.Config{
+		EnableReturnData: true,
+		Limit:            maxTraceBytes,
+	})}
+}
+
+func (trace executionTrace) hooks() *gethtracing.Hooks {
+	if trace.logger == nil {
+		return nil
+	}
+	return trace.logger.Hooks()
+}
+
+func (trace executionTrace) start(evm *gethvm.EVM, from gethcommon.Address) {
+	if trace.logger != nil {
+		trace.logger.OnTxStart(evm.GetVMContext(), nil, from)
+	}
+}
+
+func (trace executionTrace) end(gasUsed uint64, err error) {
+	if trace.logger != nil {
+		trace.logger.OnTxEnd(&gethtypes.Receipt{GasUsed: gasUsed}, err)
+	}
+}
+
+func (trace executionTrace) result() (any, error) {
+	if trace.logger == nil {
+		return nil, nil
+	}
+	raw, err := trace.logger.GetResult()
 	if err != nil {
 		return nil, err
 	}
-	var trace map[string]any
-	if err := json.Unmarshal(raw, &trace); err != nil {
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return nil, err
 	}
-	return trace, nil
+	return decoded, nil
 }
 
 func gethBlockContext(invocation contract.Invocation, stateDB *gethStateDB) gethvm.BlockContext {
@@ -377,13 +453,15 @@ func gethBlockContext(invocation contract.Invocation, stateDB *gethStateDB) geth
 }
 
 type gethStateDB struct {
-	ctx          context.Context
-	reader       contract.StateReader
-	accounts     map[gethcommon.Address]*gethAccount
-	refund       uint64
-	logs         []*gethtypes.Log
-	preimages    map[gethcommon.Hash][]byte
-	snapshots    []gethSnapshot
+	ctx      context.Context
+	reader   contract.StateReader
+	accounts map[gethcommon.Address]*gethAccount
+	refund   uint64
+	logs     []*gethtypes.Log
+	// journal holds the inverse of every mutation; snapshots holds the journal
+	// length at each live Snapshot.
+	journal      []journalEntry
+	snapshots    []int
 	accessList   map[gethcommon.Address]map[gethcommon.Hash]struct{}
 	accessEvents *gethstate.AccessEvents
 	witness      *stateless.Witness
@@ -406,20 +484,11 @@ type gethAccount struct {
 	touched        bool
 }
 
-type gethSnapshot struct {
-	accounts   map[gethcommon.Address]*gethAccount
-	refund     uint64
-	logs       []*gethtypes.Log
-	preimages  map[gethcommon.Hash][]byte
-	accessList map[gethcommon.Address]map[gethcommon.Hash]struct{}
-}
-
 func newGethStateDB(ctx context.Context, invocation contract.Invocation) *gethStateDB {
 	return &gethStateDB{
 		ctx:          ctx,
 		reader:       invocation.State,
 		accounts:     make(map[gethcommon.Address]*gethAccount),
-		preimages:    make(map[gethcommon.Hash][]byte),
 		accessList:   make(map[gethcommon.Address]map[gethcommon.Hash]struct{}),
 		accessEvents: gethstate.NewAccessEvents(),
 		witness:      newGethWitness(ctx, invocation),
@@ -481,12 +550,14 @@ func (db *gethStateDB) CreateAccount(address gethcommon.Address) {
 
 func (db *gethStateDB) CreateContract(address gethcommon.Address) {
 	account := db.account(address)
+	db.journalAppend(journalEntry{kind: journalNewContract, address: address, flag: account.newContract})
 	account.newContract = true
 }
 
 func (db *gethStateDB) SubBalance(address gethcommon.Address, amount *uint256.Int, reason gethtracing.BalanceChangeReason) uint256.Int {
 	account := db.account(address)
 	previous := account.balance
+	db.journalBalance(address, previous)
 	if account.balance.Cmp(amount) < 0 {
 		account.balance.Clear()
 		db.setError(contract.ErrInvalidInvocation)
@@ -499,6 +570,7 @@ func (db *gethStateDB) SubBalance(address gethcommon.Address, amount *uint256.In
 func (db *gethStateDB) AddBalance(address gethcommon.Address, amount *uint256.Int, reason gethtracing.BalanceChangeReason) uint256.Int {
 	account := db.account(address)
 	previous := account.balance
+	db.journalBalance(address, previous)
 	account.balance.Add(&account.balance, amount)
 	return previous
 }
@@ -513,7 +585,9 @@ func (db *gethStateDB) GetNonce(address gethcommon.Address) uint64 {
 }
 
 func (db *gethStateDB) SetNonce(address gethcommon.Address, nonce uint64, reason gethtracing.NonceChangeReason) {
-	db.account(address).nonce = nonce
+	account := db.account(address)
+	db.journalAppend(journalEntry{kind: journalNonce, address: address, number: account.nonce})
+	account.nonce = nonce
 }
 
 func (db *gethStateDB) GetCodeHash(address gethcommon.Address) gethcommon.Hash {
@@ -530,6 +604,9 @@ func (db *gethStateDB) GetCode(address gethcommon.Address) []byte {
 
 func (db *gethStateDB) SetCode(address gethcommon.Address, code []byte, reason gethtracing.CodeChangeReason) []byte {
 	account := db.account(address)
+	// account.code is replaced, never mutated in place, so the journal can keep
+	// the previous slice itself.
+	db.journalAppend(journalEntry{kind: journalCode, address: address, code: account.code})
 	previous := append([]byte(nil), account.code...)
 	account.code = append([]byte(nil), code...)
 	return previous
@@ -540,10 +617,12 @@ func (db *gethStateDB) GetCodeSize(address gethcommon.Address) int {
 }
 
 func (db *gethStateDB) AddRefund(gas uint64) {
+	db.journalAppend(journalEntry{kind: journalRefund, number: db.refund})
 	db.refund += gas
 }
 
 func (db *gethStateDB) SubRefund(gas uint64) {
+	db.journalAppend(journalEntry{kind: journalRefund, number: db.refund})
 	if gas >= db.refund {
 		db.refund = 0
 		return
@@ -575,6 +654,7 @@ func (db *gethStateDB) GetState(address gethcommon.Address, slot gethcommon.Hash
 func (db *gethStateDB) SetState(address gethcommon.Address, slot gethcommon.Hash, value gethcommon.Hash) gethcommon.Hash {
 	account := db.account(address)
 	previous := db.GetState(address, slot)
+	db.journalAppend(journalEntry{kind: journalStorage, address: address, slot: slot, word: previous})
 	account.storage[slot] = value
 	return previous
 }
@@ -584,11 +664,15 @@ func (db *gethStateDB) GetTransientState(address gethcommon.Address, slot gethco
 }
 
 func (db *gethStateDB) SetTransientState(address gethcommon.Address, slot gethcommon.Hash, value gethcommon.Hash) {
-	db.account(address).transient[slot] = value
+	account := db.account(address)
+	db.journalAppend(journalEntry{kind: journalTransient, address: address, slot: slot, word: account.transient[slot]})
+	account.transient[slot] = value
 }
 
 func (db *gethStateDB) SelfDestruct(address gethcommon.Address) {
-	db.account(address).selfDestructed = true
+	account := db.account(address)
+	db.journalAppend(journalEntry{kind: journalSelfDestruct, address: address, flag: account.selfDestructed})
+	account.selfDestructed = true
 }
 
 func (db *gethStateDB) HasSelfDestructed(address gethcommon.Address) bool {
@@ -601,7 +685,9 @@ func (db *gethStateDB) Exist(address gethcommon.Address) bool {
 }
 
 func (db *gethStateDB) Touch(address gethcommon.Address) {
-	db.account(address).touched = true
+	account := db.account(address)
+	db.journalAppend(journalEntry{kind: journalTouch, address: address, flag: account.touched})
+	account.touched = true
 }
 
 func (db *gethStateDB) IsNewContract(address gethcommon.Address) bool {
@@ -627,14 +713,20 @@ func (db *gethStateDB) SlotInAccessList(address gethcommon.Address, slot gethcom
 }
 
 func (db *gethStateDB) AddAddressToAccessList(address gethcommon.Address) {
-	if db.accessList[address] == nil {
-		db.accessList[address] = make(map[gethcommon.Hash]struct{})
+	if db.accessList[address] != nil {
+		return
 	}
+	db.accessList[address] = make(map[gethcommon.Hash]struct{})
+	db.journalAppend(journalEntry{kind: journalAccessAddress, address: address})
 }
 
 func (db *gethStateDB) AddSlotToAccessList(address gethcommon.Address, slot gethcommon.Hash) {
 	db.AddAddressToAccessList(address)
+	if _, found := db.accessList[address][slot]; found {
+		return
+	}
 	db.accessList[address][slot] = struct{}{}
+	db.journalAppend(journalEntry{kind: journalAccessSlot, address: address, slot: slot})
 }
 
 func (db *gethStateDB) Prepare(rules gethparams.Rules, sender gethcommon.Address, coinbase gethcommon.Address, dest *gethcommon.Address, precompiles []gethcommon.Address, txAccesses gethtypes.AccessList) {
@@ -655,14 +747,7 @@ func (db *gethStateDB) Prepare(rules gethparams.Rules, sender gethcommon.Address
 }
 
 func (db *gethStateDB) Snapshot() int {
-	snapshot := gethSnapshot{
-		accounts:   cloneAccounts(db.accounts),
-		refund:     db.refund,
-		logs:       append([]*gethtypes.Log(nil), db.logs...),
-		preimages:  cloneBytesMap(db.preimages),
-		accessList: cloneAccessList(db.accessList),
-	}
-	db.snapshots = append(db.snapshots, snapshot)
+	db.snapshots = append(db.snapshots, len(db.journal))
 	return len(db.snapshots) - 1
 }
 
@@ -670,12 +755,7 @@ func (db *gethStateDB) RevertToSnapshot(id int) {
 	if id < 0 || id >= len(db.snapshots) {
 		return
 	}
-	snapshot := db.snapshots[id]
-	db.accounts = cloneAccounts(snapshot.accounts)
-	db.refund = snapshot.refund
-	db.logs = append([]*gethtypes.Log(nil), snapshot.logs...)
-	db.preimages = cloneBytesMap(snapshot.preimages)
-	db.accessList = cloneAccessList(snapshot.accessList)
+	db.revertJournal(db.snapshots[id])
 	db.snapshots = db.snapshots[:id]
 }
 
@@ -686,6 +766,7 @@ func (db *gethStateDB) AddLog(log *gethtypes.Log) {
 	copied := *log
 	copied.Topics = append([]gethcommon.Hash(nil), log.Topics...)
 	copied.Data = append([]byte(nil), log.Data...)
+	db.journalAppend(journalEntry{kind: journalLogs, number: uint64(len(db.logs))})
 	db.logs = append(db.logs, &copied)
 }
 
@@ -717,9 +798,9 @@ func (db *gethStateDB) LogsForBurnAccounts() []*gethtypes.Log {
 	return logs
 }
 
-func (db *gethStateDB) AddPreimage(hash gethcommon.Hash, preimage []byte) {
-	db.preimages[hash] = append([]byte(nil), preimage...)
-}
+// AddPreimage satisfies vm.StateDB. Preimages are never read back, so none are
+// retained.
+func (db *gethStateDB) AddPreimage(gethcommon.Hash, []byte) {}
 
 func (db *gethStateDB) Witness() *stateless.Witness {
 	return db.witness
@@ -996,46 +1077,4 @@ func (db *gethStateDB) loadStorage(address gethcommon.Address, slot gethcommon.H
 
 func gethAddress(address types.Address) gethcommon.Address {
 	return gethcommon.HexToAddress(string(address))
-}
-
-func cloneAccounts(accounts map[gethcommon.Address]*gethAccount) map[gethcommon.Address]*gethAccount {
-	cloned := make(map[gethcommon.Address]*gethAccount, len(accounts))
-	for address, account := range accounts {
-		copyAccount := *account
-		copyAccount.code = append([]byte(nil), account.code...)
-		copyAccount.committedCode = append([]byte(nil), account.committedCode...)
-		copyAccount.storage = make(map[gethcommon.Hash]gethcommon.Hash, len(account.storage))
-		for slot, value := range account.storage {
-			copyAccount.storage[slot] = value
-		}
-		copyAccount.committed = make(map[gethcommon.Hash]gethcommon.Hash, len(account.committed))
-		for slot, value := range account.committed {
-			copyAccount.committed[slot] = value
-		}
-		copyAccount.transient = make(map[gethcommon.Hash]gethcommon.Hash, len(account.transient))
-		for slot, value := range account.transient {
-			copyAccount.transient[slot] = value
-		}
-		cloned[address] = &copyAccount
-	}
-	return cloned
-}
-
-func cloneBytesMap(values map[gethcommon.Hash][]byte) map[gethcommon.Hash][]byte {
-	cloned := make(map[gethcommon.Hash][]byte, len(values))
-	for key, value := range values {
-		cloned[key] = append([]byte(nil), value...)
-	}
-	return cloned
-}
-
-func cloneAccessList(values map[gethcommon.Address]map[gethcommon.Hash]struct{}) map[gethcommon.Address]map[gethcommon.Hash]struct{} {
-	cloned := make(map[gethcommon.Address]map[gethcommon.Hash]struct{}, len(values))
-	for address, slots := range values {
-		cloned[address] = make(map[gethcommon.Hash]struct{}, len(slots))
-		for slot := range slots {
-			cloned[address][slot] = struct{}{}
-		}
-	}
-	return cloned
 }

@@ -5,30 +5,44 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
+	"sort"
 	"strconv"
 	"strings"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/kvbatch"
-	"github.com/vexo-network/vexo-consensus/slashing"
 	vexostore "github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
+	vexovalidator "github.com/vexo-network/vexo-consensus/validator"
 )
 
 const ModuleName = "staking"
 
 const (
 	delegateGasCost         uint64 = 50
+	createValidatorGasCost  uint64 = 200
 	undelegateGasCost       uint64 = 40
 	unjailGasCost           uint64 = 20
 	claimRewardsGasCost     uint64 = 20
 	withdrawUnbondedGasCost uint64 = 25
 	setCommissionGasCost    uint64 = 20
 )
+
+// Result codes of staking transactions. A transaction that fails because of its content returns one of
+// them; nothing in this module panics or aborts the block for transaction content.
+const (
+	codeNoStore      uint32 = 1
+	codeInvalidTx    uint32 = 2
+	codeBadArguments uint32 = 3
+	codeFailed       uint32 = 4
+	codeOutOfGas     uint32 = 5
+	codeUnauthorized uint32 = 6
+)
+
 const bankNamespace = "bank"
 const defaultFeeCollector types.Address = "fee_collector"
 const defaultUnbondingDelay types.Height = 1209600
@@ -36,10 +50,20 @@ const commissionDenominatorBPS uint64 = 10000
 
 var (
 	ErrInvalidStakingTx           = errors.New("invalid staking transaction")
+	ErrInvalidIdentity            = errors.New("invalid staking identifier")
 	ErrInsufficientBalance        = errors.New("insufficient balance for delegation")
 	ErrInsufficientStake          = errors.New("insufficient delegated stake")
 	ErrInvalidStakeRecord         = errors.New("invalid stake record")
 	ErrMissingValidatorKey        = errors.New("validator public key is required")
+	ErrInvalidConsensusKey        = errors.New("invalid validator consensus key")
+	ErrDuplicateConsensusKey      = errors.New("validator consensus key is already registered")
+	ErrValidatorNotFound          = errors.New("validator is not registered")
+	ErrValidatorExists            = errors.New("validator is already registered")
+	ErrValidatorNotJailed         = errors.New("validator is not jailed")
+	ErrJailNotExpired             = errors.New("validator jail has not expired")
+	ErrNoBondedStake              = errors.New("validator has no bonded stake")
+	ErrTooManyUnbondingEntries    = errors.New("too many unbonding entries")
+	ErrInvalidSlash               = errors.New("invalid slash request")
 	ErrStakingStoreRequired       = errors.New("missing staking store")
 	ErrStakeOverflow              = errors.New("staking amount overflow")
 	ErrNoRewards                  = errors.New("no staking rewards available")
@@ -47,23 +71,34 @@ var (
 	ErrUnbondingNotMature         = errors.New("unbonding balance is not mature")
 	ErrInvalidCommission          = errors.New("invalid validator commission")
 	ErrUnauthorizedStaking        = errors.New("unauthorized staking transaction")
-	ErrInvalidSlashReceipt        = errors.New("invalid staking slash receipt")
 	ErrValidatorTombstoned        = errors.New("validator is tombstoned")
 	ErrStakingSnapshot            = errors.New("staking snapshot export is required")
 	ErrStakingAtomicStoreRequired = errors.New("staking multi-key writes require atomic batch store")
+	ErrDuplicateGenesisStake      = errors.New("genesis stake names a delegation twice")
 )
 
 type Module struct {
-	unbondingDelay   types.Height
-	feeCollector     types.Address
-	maxCommissionBPS uint64
-	pending          []types.ValidatorUpdate
+	unbondingDelay      types.Height
+	feeCollector        types.Address
+	maxCommissionBPS    uint64
+	maxUnbondingEntries int
+	cryptoBackend       config.CryptoBackend
+	admission           vexovalidator.AdmissionPolicy
+	// touched holds the validators a transaction of the current block changed. Their updates are built
+	// from the state the block ends in, never from the state a transaction left behind.
+	touched map[types.ValidatorID]struct{}
 }
 
 type Policy struct {
 	UnbondingDelay   types.Height
 	FeeCollector     types.Address
 	MaxCommissionBPS uint64
+	// MaxUnbondingEntries caps the live unbonding entries of one delegator/validator pair.
+	MaxUnbondingEntries int
+	// CryptoBackend selects the consensus key format validators must register.
+	CryptoBackend config.CryptoBackend
+	// Admission, when set, decides which validators may enter the validator set.
+	Admission vexovalidator.AdmissionPolicy
 }
 
 func NewModule() *Module {
@@ -91,10 +126,19 @@ func NewModuleWithPolicy(policy Policy) *Module {
 	if policy.MaxCommissionBPS > commissionDenominatorBPS {
 		policy.MaxCommissionBPS = commissionDenominatorBPS
 	}
+	if policy.MaxUnbondingEntries <= 0 {
+		policy.MaxUnbondingEntries = defaultMaxUnbondingEntries
+	}
+	if policy.CryptoBackend == "" {
+		policy.CryptoBackend = config.CryptoBackendDeterministic
+	}
 	return &Module{
-		unbondingDelay:   policy.UnbondingDelay,
-		feeCollector:     policy.FeeCollector,
-		maxCommissionBPS: policy.MaxCommissionBPS,
+		unbondingDelay:      policy.UnbondingDelay,
+		feeCollector:        policy.FeeCollector,
+		maxCommissionBPS:    policy.MaxCommissionBPS,
+		maxUnbondingEntries: policy.MaxUnbondingEntries,
+		cryptoBackend:       policy.CryptoBackend,
+		admission:           policy.Admission,
 	}
 }
 
@@ -112,149 +156,295 @@ func (module *Module) FeeCollector() types.Address {
 
 func (module *Module) Policy() Policy {
 	return Policy{
-		UnbondingDelay:   module.unbondingDelay,
-		FeeCollector:     module.feeCollector,
-		MaxCommissionBPS: module.maxCommissionBPS,
+		UnbondingDelay:      module.unbondingDelay,
+		FeeCollector:        module.feeCollector,
+		MaxCommissionBPS:    module.maxCommissionBPS,
+		MaxUnbondingEntries: module.maxUnbondingEntries,
+		CryptoBackend:       module.cryptoBackend,
+		Admission:           module.admission,
 	}
 }
 
+// InitGenesis seeds the staking state of the genesis validator set. Explicit
+// "staking:stake:<delegator>:<validator>" entries of the app state add delegators to genesis
+// validators; every genesis validator is self-bonded by its operator for the rest of its power.
 func (module *Module) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisState) error {
 	if ctx.Store == nil {
 		return nil
 	}
-	for rawKey, rawValue := range genesis {
-		if !strings.HasPrefix(rawKey, ModuleName+":stake:") {
-			continue
-		}
-		parts := strings.Split(rawKey, ":")
-		if len(parts) != 4 {
-			return fmt.Errorf("%w: %s", ErrInvalidStakeRecord, rawKey)
-		}
-		amount, err := strconv.ParseUint(string(rawValue), 10, 64)
-		if err != nil {
-			return fmt.Errorf("%w: %s", ErrInvalidStakeRecord, rawKey)
-		}
-		if err := setStake(ctx.GoContext(), ctx.Store, types.Address(parts[2]), types.ValidatorID(parts[3]), amount); err != nil {
-			return err
+	stakes, err := genesisStakes(genesis)
+	if err != nil {
+		return err
+	}
+	if len(ctx.GenesisValidators) == 0 && len(stakes) == 0 {
+		return nil
+	}
+	return seedGenesisValidators(ctx.GoContext(), ctx.Store, ctx.GenesisValidators, stakes)
+}
+
+func genesisStakes(genesis vexoapp.GenesisState) ([]genesisStake, error) {
+	keys := make([]string, 0, len(genesis))
+	for rawKey := range genesis {
+		if strings.HasPrefix(rawKey, ModuleName+":stake:") {
+			keys = append(keys, rawKey)
 		}
 	}
-	return nil
+	sort.Strings(keys)
+	stakes := make([]genesisStake, 0, len(keys))
+	for _, rawKey := range keys {
+		parts := strings.Split(rawKey, ":")
+		if len(parts) != 4 {
+			return nil, fmt.Errorf("%w: %s", ErrInvalidStakeRecord, rawKey)
+		}
+		amount, err := strconv.ParseUint(string(genesis[rawKey]), 10, 64)
+		if err != nil || amount == 0 {
+			return nil, fmt.Errorf("%w: %s", ErrInvalidStakeRecord, rawKey)
+		}
+		stake := genesisStake{delegator: types.Address(parts[2]), validatorID: types.ValidatorID(parts[3]), amount: amount}
+		if validateDelegator(stake.delegator) != nil || validateValidatorID(stake.validatorID) != nil {
+			return nil, fmt.Errorf("%w: %s", ErrInvalidStakeRecord, rawKey)
+		}
+		stakes = append(stakes, stake)
+	}
+	return stakes, nil
 }
 
 func (module *Module) BeginBlock(ctx vexoapp.Context, header types.Header) error {
-	module.pending = module.pending[:0]
+	module.touched = nil
+	return nil
+}
+
+func failure(code uint32, err error) types.Result {
+	return types.Result{Code: code, Log: err.Error()}
+}
+
+// executionFailure classifies the error of a state transition: running out of gas and missing
+// authorization have their own codes, everything else is a failed execution.
+func executionFailure(err error) types.Result {
+	switch {
+	case errors.Is(err, vexoapp.ErrOutOfGas):
+		return failure(codeOutOfGas, err)
+	case errors.Is(err, ErrUnauthorizedStaking):
+		return failure(codeUnauthorized, err)
+	default:
+		return failure(codeFailed, err)
+	}
+}
+
+// authorize requires the transaction signer to be actor. Every action on behalf of an account named in
+// the transaction arguments must pass it before touching state.
+func authorize(tx types.Tx, actor types.Address) error {
+	if err := vexoapp.AuthorizeActor(tx, actor); err != nil {
+		return fmt.Errorf("%w: %w", ErrUnauthorizedStaking, err)
+	}
 	return nil
 }
 
 func (module *Module) DeliverTx(ctx vexoapp.Context, tx types.Tx) types.Result {
 	if ctx.Store == nil {
-		return types.Result{Code: 1, Log: ErrStakingStoreRequired.Error()}
+		return failure(codeNoStore, ErrStakingStoreRequired)
 	}
 	parts := stakingTxParts(tx)
-	if len(parts) == 0 || parts[0] != ModuleName {
-		return types.Result{Code: 2, Log: ErrInvalidStakingTx.Error()}
+	if len(parts) < 2 || parts[0] != ModuleName {
+		return failure(codeInvalidTx, ErrInvalidStakingTx)
 	}
 	switch {
-	case len(parts) == 6 && parts[1] == "delegate":
-		if err := ctx.ConsumeGas(delegateGasCost); err != nil {
-			return types.Result{Code: 5, Log: err.Error()}
-		}
-		amount, err := parseAmount(parts[4])
-		if err != nil {
-			return types.Result{Code: 3, Log: err.Error()}
-		}
-		publicKey, err := base64.StdEncoding.DecodeString(parts[5])
-		if err != nil || len(publicKey) == 0 {
-			return types.Result{Code: 3, Log: ErrMissingValidatorKey.Error()}
-		}
-		update, err := module.delegate(ctx.GoContext(), ctx.Store, types.Address(parts[2]), types.ValidatorID(parts[3]), amount, types.PublicKey(publicKey))
-		if err != nil {
-			return types.Result{Code: 4, Log: err.Error()}
-		}
-		module.pending = append(module.pending, update)
-		return types.Result{}
+	case len(parts) == 5 && parts[1] == "delegate":
+		return module.deliverDelegate(ctx, tx, parts)
+	case (len(parts) == 6 || len(parts) == 7) && parts[1] == "create-validator":
+		return module.deliverCreateValidator(ctx, tx, parts)
 	case len(parts) == 5 && parts[1] == "undelegate":
-		if err := ctx.ConsumeGas(undelegateGasCost); err != nil {
-			return types.Result{Code: 5, Log: err.Error()}
-		}
-		amount, err := parseAmount(parts[4])
-		if err != nil {
-			return types.Result{Code: 3, Log: err.Error()}
-		}
-		update, err := module.undelegate(ctx.GoContext(), ctx.Store, ctx.Height, types.Address(parts[2]), types.ValidatorID(parts[3]), amount)
-		if err != nil {
-			return types.Result{Code: 4, Log: err.Error()}
-		}
-		module.pending = append(module.pending, update)
-		return types.Result{}
+		return module.deliverUndelegate(ctx, tx, parts)
 	case len(parts) == 3 && parts[1] == "unjail":
-		if err := ctx.ConsumeGas(unjailGasCost); err != nil {
-			return types.Result{Code: 5, Log: err.Error()}
-		}
-		tombstoned, err := Tombstoned(ctx.GoContext(), ctx.Store, types.ValidatorID(parts[2]))
-		if err != nil {
-			return types.Result{Code: 4, Log: err.Error()}
-		}
-		if tombstoned {
-			return types.Result{Code: 4, Log: ErrValidatorTombstoned.Error()}
-		}
-		if err := ctx.Store.Delete(ctx.GoContext(), ModuleName, jailKey(types.ValidatorID(parts[2]))); err != nil {
-			return types.Result{Code: 4, Log: err.Error()}
-		}
-		return types.Result{}
+		return module.deliverUnjail(ctx, tx, parts)
 	case len(parts) == 4 && parts[1] == "claim-rewards":
-		if err := ctx.ConsumeGas(claimRewardsGasCost); err != nil {
-			return types.Result{Code: 5, Log: err.Error()}
-		}
-		if err := module.claimRewards(ctx.GoContext(), ctx.Store, types.Address(parts[2]), types.ValidatorID(parts[3])); err != nil {
-			return types.Result{Code: 4, Log: err.Error()}
-		}
-		return types.Result{}
+		return module.deliverClaimRewards(ctx, tx, parts)
 	case len(parts) == 4 && parts[1] == "withdraw-unbonded":
-		if err := ctx.ConsumeGas(withdrawUnbondedGasCost); err != nil {
-			return types.Result{Code: 5, Log: err.Error()}
-		}
-		if err := module.withdrawUnbonded(ctx.GoContext(), ctx.Store, ctx.Height, types.Address(parts[2]), types.ValidatorID(parts[3])); err != nil {
-			return types.Result{Code: 4, Log: err.Error()}
-		}
-		return types.Result{}
+		return module.deliverWithdrawUnbonded(ctx, tx, parts)
 	case len(parts) == 4 && parts[1] == "set-commission":
-		if err := ctx.ConsumeGas(setCommissionGasCost); err != nil {
-			return types.Result{Code: 5, Log: err.Error()}
-		}
-		commissionBPS, err := strconv.ParseUint(parts[3], 10, 64)
-		if err != nil {
-			return types.Result{Code: 3, Log: ErrInvalidCommission.Error()}
-		}
-		if err := module.setCommission(ctx.GoContext(), ctx.Store, tx, types.ValidatorID(parts[2]), commissionBPS); err != nil {
-			return types.Result{Code: 4, Log: err.Error()}
-		}
-		return types.Result{}
+		return module.deliverSetCommission(ctx, tx, parts)
 	default:
-		return types.Result{Code: 2, Log: ErrInvalidStakingTx.Error()}
+		return failure(codeInvalidTx, ErrInvalidStakingTx)
 	}
+}
+
+func parseDelegation(delegatorPart string, validatorPart string) (types.Address, types.ValidatorID, error) {
+	delegator := types.Address(delegatorPart)
+	validatorID := types.ValidatorID(validatorPart)
+	if err := validateDelegator(delegator); err != nil {
+		return "", "", err
+	}
+	if err := validateValidatorID(validatorID); err != nil {
+		return "", "", err
+	}
+	return delegator, validatorID, nil
+}
+
+func (module *Module) deliverDelegate(ctx vexoapp.Context, tx types.Tx, parts []string) types.Result {
+	if err := ctx.ConsumeGas(delegateGasCost); err != nil {
+		return failure(codeOutOfGas, err)
+	}
+	delegator, validatorID, err := parseDelegation(parts[2], parts[3])
+	if err != nil {
+		return failure(codeBadArguments, err)
+	}
+	amount, err := parseAmount(parts[4])
+	if err != nil {
+		return failure(codeBadArguments, err)
+	}
+	if err := authorize(tx, delegator); err != nil {
+		return executionFailure(err)
+	}
+	if err := module.delegate(ctx, delegator, validatorID, amount); err != nil {
+		return executionFailure(err)
+	}
+	return types.Result{}
+}
+
+func (module *Module) deliverCreateValidator(ctx vexoapp.Context, tx types.Tx, parts []string) types.Result {
+	if err := ctx.ConsumeGas(createValidatorGasCost); err != nil {
+		return failure(codeOutOfGas, err)
+	}
+	operator, validatorID, err := parseDelegation(parts[2], parts[3])
+	if err != nil {
+		return failure(codeBadArguments, err)
+	}
+	amount, err := parseAmount(parts[4])
+	if err != nil {
+		return failure(codeBadArguments, err)
+	}
+	publicKey, err := base64.RawStdEncoding.DecodeString(parts[5])
+	if err != nil || len(publicKey) == 0 {
+		return failure(codeBadArguments, ErrMissingValidatorKey)
+	}
+	proof := ""
+	if len(parts) == 7 {
+		proof = parts[6]
+	}
+	if err := module.createValidator(ctx, tx, operator, validatorID, amount, publicKey, proof); err != nil {
+		return executionFailure(err)
+	}
+	return types.Result{}
+}
+
+func (module *Module) deliverUndelegate(ctx vexoapp.Context, tx types.Tx, parts []string) types.Result {
+	if err := ctx.ConsumeGas(undelegateGasCost); err != nil {
+		return failure(codeOutOfGas, err)
+	}
+	delegator, validatorID, err := parseDelegation(parts[2], parts[3])
+	if err != nil {
+		return failure(codeBadArguments, err)
+	}
+	amount, err := parseAmount(parts[4])
+	if err != nil {
+		return failure(codeBadArguments, err)
+	}
+	if err := authorize(tx, delegator); err != nil {
+		return executionFailure(err)
+	}
+	if err := module.undelegate(ctx, delegator, validatorID, amount); err != nil {
+		return executionFailure(err)
+	}
+	return types.Result{}
+}
+
+func (module *Module) deliverUnjail(ctx vexoapp.Context, tx types.Tx, parts []string) types.Result {
+	if err := ctx.ConsumeGas(unjailGasCost); err != nil {
+		return failure(codeOutOfGas, err)
+	}
+	validatorID := types.ValidatorID(parts[2])
+	if err := validateValidatorID(validatorID); err != nil {
+		return failure(codeBadArguments, err)
+	}
+	if err := module.unjail(ctx, tx, validatorID); err != nil {
+		return executionFailure(err)
+	}
+	return types.Result{}
+}
+
+func (module *Module) deliverClaimRewards(ctx vexoapp.Context, tx types.Tx, parts []string) types.Result {
+	if err := ctx.ConsumeGas(claimRewardsGasCost); err != nil {
+		return failure(codeOutOfGas, err)
+	}
+	delegator, validatorID, err := parseDelegation(parts[2], parts[3])
+	if err != nil {
+		return failure(codeBadArguments, err)
+	}
+	if err := authorize(tx, delegator); err != nil {
+		return executionFailure(err)
+	}
+	if err := module.claimRewards(ctx.GoContext(), ctx.Store, delegator, validatorID); err != nil {
+		return executionFailure(err)
+	}
+	return types.Result{}
+}
+
+func (module *Module) deliverWithdrawUnbonded(ctx vexoapp.Context, tx types.Tx, parts []string) types.Result {
+	if err := ctx.ConsumeGas(withdrawUnbondedGasCost); err != nil {
+		return failure(codeOutOfGas, err)
+	}
+	delegator, validatorID, err := parseDelegation(parts[2], parts[3])
+	if err != nil {
+		return failure(codeBadArguments, err)
+	}
+	if err := authorize(tx, delegator); err != nil {
+		return executionFailure(err)
+	}
+	if err := module.withdrawUnbonded(ctx, delegator, validatorID); err != nil {
+		return executionFailure(err)
+	}
+	return types.Result{}
+}
+
+func (module *Module) deliverSetCommission(ctx vexoapp.Context, tx types.Tx, parts []string) types.Result {
+	if err := ctx.ConsumeGas(setCommissionGasCost); err != nil {
+		return failure(codeOutOfGas, err)
+	}
+	validatorID := types.ValidatorID(parts[2])
+	if err := validateValidatorID(validatorID); err != nil {
+		return failure(codeBadArguments, err)
+	}
+	commissionBPS, err := strconv.ParseUint(parts[3], 10, 64)
+	if err != nil {
+		return failure(codeBadArguments, ErrInvalidCommission)
+	}
+	if err := module.setCommission(ctx, tx, validatorID, commissionBPS); err != nil {
+		return executionFailure(err)
+	}
+	return types.Result{}
 }
 
 func (module *Module) EndBlock(ctx vexoapp.Context) error {
 	if ctx.Store == nil {
 		return nil
 	}
-	return module.distributeFees(ctx.GoContext(), ctx.Store)
+	if err := module.distributeFees(ctx.GoContext(), ctx.Store); err != nil {
+		return err
+	}
+	// ValidatorUpdates has no error to return, so a state that cannot be read must fail the block here,
+	// where every node sees it, instead of silently dropping an update on one of them.
+	_, err := module.touchedUpdates(ctx.GoContext(), ctx.Store)
+	return err
 }
 
 func (module *Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, error) {
 	parts := stakingTxParts(tx)
+	if len(parts) < 2 || parts[0] != ModuleName {
+		return 0, ErrInvalidStakingTx
+	}
 	switch {
-	case len(parts) == 6 && parts[1] == "delegate":
+	case len(parts) == 5 && parts[1] == "delegate":
 		return delegateGasCost, nil
+	case (len(parts) == 6 || len(parts) == 7) && parts[1] == "create-validator":
+		return createValidatorGasCost, nil
 	case len(parts) == 5 && parts[1] == "undelegate":
-		return undelegateGasCost, nil
+		return undelegateGasCost + unbondingEntryGasCost*module.estimateUnbondingEntries(ctx, parts[2], parts[3], 1), nil
 	case len(parts) == 3 && parts[1] == "unjail":
 		return unjailGasCost, nil
 	case len(parts) == 4 && parts[1] == "claim-rewards":
 		return claimRewardsGasCost, nil
 	case len(parts) == 4 && parts[1] == "withdraw-unbonded":
-		return withdrawUnbondedGasCost, nil
+		return withdrawUnbondedGasCost + unbondingEntryGasCost*module.estimateUnbondingEntries(ctx, parts[2], parts[3], 0), nil
 	case len(parts) == 4 && parts[1] == "set-commission":
 		return setCommissionGasCost, nil
 	default:
@@ -262,284 +452,299 @@ func (module *Module) EstimateGas(ctx vexoapp.Context, tx types.Tx) (uint64, err
 	}
 }
 
+// estimateUnbondingEntries counts the entries a transaction will touch: the live entries of the pair
+// plus extra new ones. Without readable state the estimate assumes an empty pair.
+func (module *Module) estimateUnbondingEntries(ctx vexoapp.Context, delegatorPart string, validatorPart string, extra uint64) uint64 {
+	if ctx.Store == nil {
+		return extra
+	}
+	entries, err := loadUnbondingEntries(ctx.GoContext(), ctx.Store, types.Address(delegatorPart), types.ValidatorID(validatorPart))
+	if err != nil {
+		return extra
+	}
+	return uint64(len(entries)) + extra
+}
+
+// ValidatorUpdates returns the validator set updates of the block: one update per validator touched by
+// a transaction, ordered by validator id. Each update is read from the state the block ended in,
+// after every module ran. The runtime keeps the last update of a validator whatever the order of the
+// modules, so an update frozen at the time of a transaction could undo a jail or slash that a module
+// registered before this one applied later in the block.
 func (module *Module) ValidatorUpdates(ctx vexoapp.Context) []types.ValidatorUpdate {
-	return append([]types.ValidatorUpdate(nil), module.pending...)
+	if len(module.touched) == 0 || ctx.Store == nil {
+		return nil
+	}
+	// EndBlock proved that the updates can be built; a failure now is a store fault, and reporting no
+	// update leaves the validator set as it was.
+	updates, err := module.touchedUpdates(ctx.GoContext(), ctx.Store)
+	if err != nil {
+		return nil
+	}
+	return updates
+}
+
+// touchedUpdates builds the current update of every touched validator, ordered by validator id. A
+// touched validator without a registration has nothing to report: its transaction did not survive.
+func (module *Module) touchedUpdates(ctx context.Context, store vexoapp.StateStore) ([]types.ValidatorUpdate, error) {
+	ids := make([]types.ValidatorID, 0, len(module.touched))
+	for validatorID := range module.touched {
+		ids = append(ids, validatorID)
+	}
+	sort.Slice(ids, func(left int, right int) bool { return ids[left] < ids[right] })
+	updates := make([]types.ValidatorUpdate, 0, len(ids))
+	for _, validatorID := range ids {
+		update, err := validatorUpdate(ctx, store, validatorID)
+		if errors.Is(err, ErrValidatorNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		updates = append(updates, update)
+	}
+	return updates, nil
+}
+
+func queryFailure(code uint32, err error) vexoapp.QueryResponse {
+	return vexoapp.QueryResponse{Code: code, Log: err.Error()}
+}
+
+func uintQueryResponse(value uint64, err error) vexoapp.QueryResponse {
+	if err != nil {
+		return queryFailure(3, err)
+	}
+	return vexoapp.QueryResponse{Value: []byte(strconv.FormatUint(value, 10))}
 }
 
 func (module *Module) Query(ctx vexoapp.Context, req vexoapp.QueryRequest) vexoapp.QueryResponse {
 	if ctx.Store == nil {
-		return vexoapp.QueryResponse{Code: 1, Log: ErrStakingStoreRequired.Error()}
+		return queryFailure(1, ErrStakingStoreRequired)
 	}
-	if len(req.Path) == 3 && req.Path[0] == "stake" {
-		amount, err := Stake(ctx.GoContext(), ctx.Store, types.Address(req.Path[1]), types.ValidatorID(req.Path[2]))
-		if err != nil {
-			return vexoapp.QueryResponse{Code: 3, Log: err.Error()}
+	goCtx := ctx.GoContext()
+	store := ctx.Store
+	for _, element := range req.Path {
+		if element != "" && strings.ContainsAny(element, "/\x00") {
+			return queryFailure(3, ErrInvalidIdentity)
 		}
-		return vexoapp.QueryResponse{Value: []byte(strconv.FormatUint(amount, 10))}
 	}
-	if len(req.Path) == 2 && req.Path[0] == "validator" {
-		power, err := ValidatorPower(ctx.GoContext(), ctx.Store, types.ValidatorID(req.Path[1]))
+	switch {
+	case len(req.Path) == 3 && req.Path[0] == "stake":
+		return uintQueryResponse(Stake(goCtx, store, types.Address(req.Path[1]), types.ValidatorID(req.Path[2])))
+	case len(req.Path) == 2 && req.Path[0] == "validator":
+		return uintQueryResponse(ValidatorPower(goCtx, store, types.ValidatorID(req.Path[1])))
+	case len(req.Path) == 3 && req.Path[0] == "unbonding":
+		releaseHeight, err := UnbondingReleaseHeight(goCtx, store, types.Address(req.Path[1]), types.ValidatorID(req.Path[2]))
+		return uintQueryResponse(uint64(releaseHeight), err)
+	case len(req.Path) == 3 && req.Path[0] == "unbonding-balance":
+		return uintQueryResponse(UnbondingAmount(goCtx, store, types.Address(req.Path[1]), types.ValidatorID(req.Path[2])))
+	case len(req.Path) == 3 && req.Path[0] == "rewards":
+		return uintQueryResponse(Rewards(goCtx, store, types.Address(req.Path[1]), types.ValidatorID(req.Path[2])))
+	case len(req.Path) == 2 && req.Path[0] == "commission":
+		return uintQueryResponse(Commission(goCtx, store, types.ValidatorID(req.Path[1])))
+	case len(req.Path) == 2 && req.Path[0] == "tombstone":
+		tombstoned, err := Tombstoned(goCtx, store, types.ValidatorID(req.Path[1]))
 		if err != nil {
-			return vexoapp.QueryResponse{Code: 3, Log: err.Error()}
-		}
-		return vexoapp.QueryResponse{Value: []byte(strconv.FormatUint(power, 10))}
-	}
-	if len(req.Path) == 3 && req.Path[0] == "unbonding" {
-		releaseHeight, err := UnbondingReleaseHeight(ctx.GoContext(), ctx.Store, types.Address(req.Path[1]), types.ValidatorID(req.Path[2]))
-		if err != nil {
-			return vexoapp.QueryResponse{Code: 3, Log: err.Error()}
-		}
-		return vexoapp.QueryResponse{Value: []byte(strconv.FormatUint(uint64(releaseHeight), 10))}
-	}
-	if len(req.Path) == 3 && req.Path[0] == "unbonding-balance" {
-		amount, err := UnbondingAmount(ctx.GoContext(), ctx.Store, types.Address(req.Path[1]), types.ValidatorID(req.Path[2]))
-		if err != nil {
-			return vexoapp.QueryResponse{Code: 3, Log: err.Error()}
-		}
-		return vexoapp.QueryResponse{Value: []byte(strconv.FormatUint(amount, 10))}
-	}
-	if len(req.Path) == 3 && req.Path[0] == "rewards" {
-		amount, err := Rewards(ctx.GoContext(), ctx.Store, types.Address(req.Path[1]), types.ValidatorID(req.Path[2]))
-		if err != nil {
-			return vexoapp.QueryResponse{Code: 3, Log: err.Error()}
-		}
-		return vexoapp.QueryResponse{Value: []byte(strconv.FormatUint(amount, 10))}
-	}
-	if len(req.Path) == 2 && req.Path[0] == "commission" {
-		commissionBPS, err := Commission(ctx.GoContext(), ctx.Store, types.ValidatorID(req.Path[1]))
-		if err != nil {
-			return vexoapp.QueryResponse{Code: 3, Log: err.Error()}
-		}
-		return vexoapp.QueryResponse{Value: []byte(strconv.FormatUint(commissionBPS, 10))}
-	}
-	if len(req.Path) == 2 && req.Path[0] == "tombstone" {
-		tombstoned, err := Tombstoned(ctx.GoContext(), ctx.Store, types.ValidatorID(req.Path[1]))
-		if err != nil {
-			return vexoapp.QueryResponse{Code: 3, Log: err.Error()}
+			return queryFailure(3, err)
 		}
 		return vexoapp.QueryResponse{Value: []byte(strconv.FormatBool(tombstoned))}
+	case len(req.Path) == 2 && req.Path[0] == "jail":
+		jailEnd, jailed, err := JailedUntil(goCtx, store, types.ValidatorID(req.Path[1]))
+		if err != nil {
+			return queryFailure(3, err)
+		}
+		if !jailed {
+			return vexoapp.QueryResponse{Value: []byte("0")}
+		}
+		return vexoapp.QueryResponse{Value: []byte(strconv.FormatUint(uint64(jailEnd), 10))}
+	case len(req.Path) == 2 && req.Path[0] == "operator":
+		record, found, err := loadValidator(goCtx, store, types.ValidatorID(req.Path[1]))
+		if err != nil {
+			return queryFailure(3, err)
+		}
+		if !found {
+			return queryFailure(3, ErrValidatorNotFound)
+		}
+		return vexoapp.QueryResponse{Value: []byte(record.Operator)}
+	default:
+		return vexoapp.QueryResponse{Code: 2, Log: "invalid staking query"}
 	}
-	return vexoapp.QueryResponse{Code: 2, Log: "invalid staking query"}
 }
 
-func (module *Module) delegate(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID, amount uint64, publicKey types.PublicKey) (types.ValidatorUpdate, error) {
-	if delegator == "" || validatorID == "" || amount == 0 {
-		return types.ValidatorUpdate{}, ErrInvalidStakingTx
-	}
-	tombstoned, err := Tombstoned(ctx, store, validatorID)
-	if err != nil {
-		return types.ValidatorUpdate{}, err
-	}
-	if tombstoned {
-		return types.ValidatorUpdate{}, ErrValidatorTombstoned
-	}
+// delegationWrites moves amount from the delegator's balance into stake with the validator and
+// records the height of the stake increase for governance snapshots.
+func delegationWrites(ctx context.Context, store vexoapp.StateStore, height types.Height, delegator types.Address, validatorID types.ValidatorID, amount uint64) ([]kvbatch.KVWrite, error) {
 	balance, err := bankBalanceBig(ctx, store, delegator)
 	if err != nil {
-		return types.ValidatorUpdate{}, err
+		return nil, err
 	}
 	amountBig := new(big.Int).SetUint64(amount)
 	if balance.Cmp(amountBig) < 0 {
-		return types.ValidatorUpdate{}, ErrInsufficientBalance
+		return nil, ErrInsufficientBalance
 	}
 	currentStake, err := Stake(ctx, store, delegator, validatorID)
 	if err != nil {
-		return types.ValidatorUpdate{}, err
+		return nil, err
 	}
 	currentPower, err := ValidatorPower(ctx, store, validatorID)
 	if err != nil {
-		return types.ValidatorUpdate{}, err
+		return nil, err
 	}
 	if currentPower > ^uint64(0)-amount || currentStake > ^uint64(0)-amount {
-		return types.ValidatorUpdate{}, ErrStakeOverflow
+		return nil, ErrStakeOverflow
 	}
-	newPower := currentPower + amount
-	newBalance := new(big.Int).Sub(balance, amountBig)
-	if err := applyAtomicWrites(ctx, store, []kvbatch.KVWrite{
-		{Namespace: bankNamespace, Key: bankBalanceKey(delegator), Value: encodeBankBalanceBig(newBalance)},
-		{Namespace: ModuleName, Key: stakeKey(delegator, validatorID), Value: encodeUint64(currentStake + amount)},
-		{Namespace: ModuleName, Key: validatorPowerKey(validatorID), Value: encodeUint64(newPower)},
-		{Namespace: ModuleName, Key: validatorKeyKey(validatorID), Value: append([]byte(nil), publicKey...)},
-	}); err != nil {
-		return types.ValidatorUpdate{}, err
+	writes := []kvbatch.KVWrite{
+		{Namespace: bankNamespace, Key: bankBalanceKey(delegator), Value: encodeBankBalanceBig(new(big.Int).Sub(balance, amountBig))},
 	}
-	return types.ValidatorUpdate{
-		ID:          validatorID,
-		Address:     types.Address(validatorID),
-		PublicKey:   append(types.PublicKey(nil), publicKey...),
-		VotingPower: types.VotingPower(newPower),
-		Stake:       newPower,
-		Metadata:    map[string]string{"source": "staking"},
-	}, nil
+	writes = append(writes, stakeWrites(delegator, validatorID, currentStake+amount)...)
+	return append(writes,
+		kvbatch.KVWrite{Namespace: ModuleName, Key: validatorPowerKey(validatorID), Value: encodeUint64(currentPower + amount)},
+		kvbatch.KVWrite{Namespace: ModuleName, Key: delegationHeightKey(delegator), Value: encodeUint64(uint64(height))},
+	), nil
 }
 
-func (module *Module) undelegate(ctx context.Context, store vexoapp.StateStore, height types.Height, delegator types.Address, validatorID types.ValidatorID, amount uint64) (types.ValidatorUpdate, error) {
-	if delegator == "" || validatorID == "" || amount == 0 {
-		return types.ValidatorUpdate{}, ErrInvalidStakingTx
+// stakeWrites sets the stake of one delegation, or removes the delegation for a stake of zero. The
+// stake lives under two keys, one per way it is read (see stakeKeyPrefix and validatorStakeKeyPrefix),
+// and every writer goes through here so that the two never disagree.
+func stakeWrites(delegator types.Address, validatorID types.ValidatorID, amount uint64) []kvbatch.KVWrite {
+	byDelegator := kvbatch.KVWrite{Namespace: ModuleName, Key: stakeKey(delegator, validatorID)}
+	byValidator := kvbatch.KVWrite{Namespace: ModuleName, Key: validatorStakeKey(validatorID, delegator)}
+	if amount == 0 {
+		byDelegator.Delete = true
+		byValidator.Delete = true
+	} else {
+		byDelegator.Value = encodeUint64(amount)
+		byValidator.Value = encodeUint64(amount)
 	}
-	currentStake, err := Stake(ctx, store, delegator, validatorID)
+	return []kvbatch.KVWrite{byDelegator, byValidator}
+}
+
+// delegate adds stake to a registered validator. It never touches the validator's key or metadata.
+//
+// A validator without power that is not jailed is outside the validator set. Delegating to it puts it
+// back, which is a join like the one of unjail and create-validator, so the admission policy decides
+// here. Otherwise the registry would refuse the join when the block's validator updates are applied,
+// while staking went on counting the validator's power: it would earn rewards and take a seat of
+// MaxValidators without ever being in the set.
+func (module *Module) delegate(ctx vexoapp.Context, delegator types.Address, validatorID types.ValidatorID, amount uint64) error {
+	goCtx := ctx.GoContext()
+	store := ctx.Store
+	record, found, err := loadValidator(goCtx, store, validatorID)
 	if err != nil {
-		return types.ValidatorUpdate{}, err
+		return err
+	}
+	if !found {
+		return ErrValidatorNotFound
+	}
+	status, err := loadValidatorStatus(goCtx, store, validatorID)
+	if err != nil {
+		return err
+	}
+	if status.tombstoned {
+		return ErrValidatorTombstoned
+	}
+	writes, err := delegationWrites(goCtx, store, ctx.Height, delegator, validatorID, amount)
+	if err != nil {
+		return err
+	}
+	if !status.jailed && status.power == 0 {
+		if err := module.admit(goCtx, store, vexovalidator.Candidate{
+			Address:   record.Address,
+			PublicKey: record.PublicKey,
+			Stake:     amount,
+			Metadata:  record.Metadata,
+		}, validatorID); err != nil {
+			return err
+		}
+	}
+	if err := applyAtomicWrites(goCtx, store, writes); err != nil {
+		return err
+	}
+	module.touch(validatorID)
+	return nil
+}
+
+// undelegate moves stake into one unbonding entry. The transaction reads the pair's live entries,
+// pays gas for each of them and writes only the entry it creates.
+func (module *Module) undelegate(ctx vexoapp.Context, delegator types.Address, validatorID types.ValidatorID, amount uint64) error {
+	goCtx := ctx.GoContext()
+	store := ctx.Store
+	if _, found, err := loadValidator(goCtx, store, validatorID); err != nil {
+		return err
+	} else if !found {
+		return ErrValidatorNotFound
+	}
+	currentStake, err := Stake(goCtx, store, delegator, validatorID)
+	if err != nil {
+		return err
 	}
 	if currentStake < amount {
-		return types.ValidatorUpdate{}, ErrInsufficientStake
+		return ErrInsufficientStake
 	}
-	currentPower, err := ValidatorPower(ctx, store, validatorID)
+	currentPower, err := ValidatorPower(goCtx, store, validatorID)
 	if err != nil {
-		return types.ValidatorUpdate{}, err
+		return err
 	}
 	if currentPower < amount {
-		return types.ValidatorUpdate{}, ErrInvalidStakeRecord
+		return ErrInvalidStakeRecord
 	}
-	newPower := currentPower - amount
-	entries, err := loadUnbondingEntries(ctx, store, delegator, validatorID)
-	if err != nil {
-		return types.ValidatorUpdate{}, err
-	}
-	unbondingAmount, err := sumUnbondingEntries(entries)
-	if err != nil {
-		return types.ValidatorUpdate{}, err
-	}
-	if unbondingAmount > ^uint64(0)-amount {
-		return types.ValidatorUpdate{}, ErrStakeOverflow
-	}
-	if uint64(height) > ^uint64(0)-uint64(module.unbondingDelay) {
-		return types.ValidatorUpdate{}, ErrStakeOverflow
-	}
-	releaseHeight := height + module.unbondingDelay
-	unbondingWrites, err := appendUnbondingEntryWrites(ctx, store, delegator, validatorID, entries, amount, releaseHeight)
-	if err != nil {
-		return types.ValidatorUpdate{}, err
-	}
-	writes := append([]kvbatch.KVWrite{
-		{Namespace: ModuleName, Key: stakeKey(delegator, validatorID), Value: encodeUint64(currentStake - amount)},
-		{Namespace: ModuleName, Key: validatorPowerKey(validatorID), Value: encodeUint64(newPower)},
-	}, unbondingWrites...)
-	if err := applyAtomicWrites(ctx, store, writes); err != nil {
-		return types.ValidatorUpdate{}, err
-	}
-	publicKey, err := store.Get(ctx, ModuleName, validatorKeyKey(validatorID))
-	if err != nil && !errors.Is(err, vexostore.ErrKeyNotFound) {
-		return types.ValidatorUpdate{}, err
-	}
-	return types.ValidatorUpdate{
-		ID:          validatorID,
-		Address:     types.Address(validatorID),
-		PublicKey:   append(types.PublicKey(nil), publicKey...),
-		VotingPower: types.VotingPower(newPower),
-		Stake:       newPower,
-		Metadata:    map[string]string{"source": "staking"},
-	}, nil
-}
-
-func (module *Module) ApplySlashingPenalty(ctx context.Context, store vexoapp.StateStore, receipt slashing.PenaltyReceipt) error {
-	if store == nil {
-		return ErrStakingStoreRequired
-	}
-	if receipt.Evidence.Validator == "" || receipt.PreviousPower == 0 || receipt.RemainingPower > receipt.PreviousPower {
-		return ErrInvalidSlashReceipt
-	}
-	markerKey := stakingSlashKey(receipt.Evidence)
-	if len(markerKey) == 0 {
-		return ErrInvalidSlashReceipt
-	}
-	if _, err := store.Get(ctx, ModuleName, markerKey); err == nil {
-		return nil
-	} else if err != nil && !errors.Is(err, vexostore.ErrKeyNotFound) {
-		return err
-	}
-
-	writes := []kvbatch.KVWrite{
-		{Namespace: ModuleName, Key: validatorPowerKey(receipt.Evidence.Validator), Value: encodeUint64(uint64(receipt.RemainingPower))},
-		{Namespace: ModuleName, Key: markerKey, Value: encodeSlashMarker(receipt)},
-	}
-	if receipt.RemainingPower == 0 {
-		writes = append(writes, kvbatch.KVWrite{Namespace: ModuleName, Key: tombstoneKey(receipt.Evidence.Validator), Value: encodeUint64(uint64(receipt.Evidence.Height))})
-	}
-	snapshot, ok := store.(vexostore.SnapshotKVStore)
-	if !ok {
-		return ErrStakingSnapshot
-	}
-	pairs, err := snapshot.ExportNamespace(ctx, ModuleName)
+	entries, err := loadUnbondingEntries(goCtx, store, delegator, validatorID)
 	if err != nil {
 		return err
 	}
-	for _, delegation := range delegationsForValidator(pairs, receipt.Evidence.Validator) {
-		nextStake := proportionalShare(delegation.stake, uint64(receipt.RemainingPower), uint64(receipt.PreviousPower))
-		write := kvbatch.KVWrite{
-			Namespace: ModuleName,
-			Key:       stakeKey(delegation.delegator, delegation.validatorID),
-			Value:     encodeUint64(nextStake),
-		}
-		if nextStake == 0 {
-			write.Delete = true
-			write.Value = nil
-		}
-		writes = append(writes, write)
+	if err := ctx.ConsumeGas(unbondingEntryGasCost * uint64(len(entries)+1)); err != nil {
+		return err
 	}
-	return applyAtomicWrites(ctx, store, writes)
+	if uint64(ctx.Height) > ^uint64(0)-uint64(module.unbondingDelay) {
+		return ErrStakeOverflow
+	}
+	created := unbondingEntry{CreatedHeight: ctx.Height, ReleaseHeight: ctx.Height + module.unbondingDelay, Amount: amount}
+	merged := false
+	for _, entry := range entries {
+		if entry.CreatedHeight == ctx.Height {
+			if entry.Amount > ^uint64(0)-amount {
+				return ErrStakeOverflow
+			}
+			created.Amount = entry.Amount + amount
+			merged = true
+		}
+	}
+	if !merged && len(entries) >= module.maxUnbondingEntries {
+		return ErrTooManyUnbondingEntries
+	}
+	unbonding, err := sumUnbondingEntries(entries)
+	if err != nil {
+		return err
+	}
+	if unbonding > ^uint64(0)-amount {
+		return ErrStakeOverflow
+	}
+	writes := stakeWrites(delegator, validatorID, currentStake-amount)
+	writes = append(writes,
+		kvbatch.KVWrite{Namespace: ModuleName, Key: validatorPowerKey(validatorID), Value: encodeUint64(currentPower - amount)},
+		kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingEntryKey(delegator, validatorID, created.CreatedHeight), Value: encodeUnbondingEntry(created)},
+	)
+	if err := applyAtomicWrites(goCtx, store, writes); err != nil {
+		return err
+	}
+	module.touch(validatorID)
+	return nil
 }
 
 func Stake(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) (uint64, error) {
+	if err := validateDelegator(delegator); err != nil {
+		return 0, err
+	}
+	if err := validateValidatorID(validatorID); err != nil {
+		return 0, err
+	}
 	return getUint64(ctx, store, stakeKey(delegator, validatorID))
 }
 
 func ValidatorPower(ctx context.Context, store vexoapp.StateStore, validatorID types.ValidatorID) (uint64, error) {
+	if err := validateValidatorID(validatorID); err != nil {
+		return 0, err
+	}
 	return getUint64(ctx, store, validatorPowerKey(validatorID))
-}
-
-func DelegatedPower(ctx context.Context, store vexoapp.StateStore, delegator types.Address) (types.VotingPower, error) {
-	if store == nil || delegator == "" {
-		return 0, ErrInvalidStakingTx
-	}
-	prefixStore, ok := store.(vexostore.PrefixKVStore)
-	if !ok {
-		return 0, ErrStakingSnapshot
-	}
-	pairs, err := prefixStore.ExportPrefix(ctx, ModuleName, []byte("stake/"+string(delegator)+"/"))
-	if err != nil {
-		return 0, err
-	}
-	total := uint64(0)
-	for _, pair := range pairs {
-		parsedDelegator, _, ok := parseStakeKey(string(pair.Key))
-		if !ok || parsedDelegator != delegator {
-			continue
-		}
-		stake, err := decodeUint64(pair.Value)
-		if err != nil {
-			return 0, err
-		}
-		if total > ^uint64(0)-stake {
-			return 0, ErrStakeOverflow
-		}
-		total += stake
-	}
-	return types.VotingPower(total), nil
-}
-
-func UnbondingReleaseHeight(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) (types.Height, error) {
-	entries, err := loadUnbondingEntries(ctx, store, delegator, validatorID)
-	if err != nil {
-		return 0, err
-	}
-	if len(entries) == 0 {
-		return 0, nil
-	}
-	releaseHeight := entries[0].ReleaseHeight
-	for _, entry := range entries[1:] {
-		if entry.ReleaseHeight < releaseHeight {
-			releaseHeight = entry.ReleaseHeight
-		}
-	}
-	return releaseHeight, nil
-}
-
-func UnbondingAmount(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) (uint64, error) {
-	entries, err := loadUnbondingEntries(ctx, store, delegator, validatorID)
-	if err != nil {
-		return 0, err
-	}
-	return sumUnbondingEntries(entries)
 }
 
 func Rewards(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) (uint64, error) {
@@ -554,16 +759,25 @@ func Rewards(ctx context.Context, store vexoapp.StateStore, delegator types.Addr
 }
 
 func RewardsBig(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) (*big.Int, error) {
+	if err := validateDelegator(delegator); err != nil {
+		return nil, err
+	}
+	if err := validateValidatorID(validatorID); err != nil {
+		return nil, err
+	}
 	return getModuleAmountBig(ctx, store, rewardKey(delegator, validatorID))
 }
 
 func Commission(ctx context.Context, store vexoapp.StateStore, validatorID types.ValidatorID) (uint64, error) {
+	if err := validateValidatorID(validatorID); err != nil {
+		return 0, err
+	}
 	return getUint64(ctx, store, commissionKey(validatorID))
 }
 
 func Tombstoned(ctx context.Context, store vexoapp.StateStore, validatorID types.ValidatorID) (bool, error) {
-	if validatorID == "" {
-		return false, ErrInvalidStakingTx
+	if err := validateValidatorID(validatorID); err != nil {
+		return false, err
 	}
 	_, err := store.Get(ctx, ModuleName, tombstoneKey(validatorID))
 	if errors.Is(err, vexostore.ErrKeyNotFound) {
@@ -575,21 +789,20 @@ func Tombstoned(ctx context.Context, store vexoapp.StateStore, validatorID types
 	return true, nil
 }
 
-func (module *Module) setCommission(ctx context.Context, store vexoapp.StateStore, tx types.Tx, validatorID types.ValidatorID, commissionBPS uint64) error {
-	if validatorID == "" || commissionBPS > module.maxCommissionBPS {
-		return ErrInvalidCommission
+// JailedUntil returns the height a validator's jail ends and whether the validator is jailed. A jailed
+// validator stays jailed until its operator unjails it, which is only possible once the jail ended.
+func JailedUntil(ctx context.Context, store vexoapp.StateStore, validatorID types.ValidatorID) (types.Height, bool, error) {
+	if err := validateValidatorID(validatorID); err != nil {
+		return 0, false, err
 	}
-	signer, found := vexoapp.TxTag(tx, "signer")
-	if !found || types.ValidatorID(signer) != validatorID {
-		return ErrUnauthorizedStaking
+	status, err := loadValidatorStatus(ctx, store, validatorID)
+	if err != nil {
+		return 0, false, err
 	}
-	return setUint64(ctx, store, ModuleName, commissionKey(validatorID), commissionBPS)
+	return status.jailEnd, status.jailed, nil
 }
 
 func (module *Module) claimRewards(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) error {
-	if delegator == "" || validatorID == "" {
-		return ErrInvalidStakingTx
-	}
 	reward, err := RewardsBig(ctx, store, delegator, validatorID)
 	if err != nil {
 		return err
@@ -605,32 +818,30 @@ func (module *Module) claimRewards(ctx context.Context, store vexoapp.StateStore
 	if err := validateBankBalanceBig(newBalance); err != nil {
 		return err
 	}
-	writes := []kvbatch.KVWrite{
+	return applyAtomicWrites(ctx, store, []kvbatch.KVWrite{
 		{Namespace: bankNamespace, Key: bankBalanceKey(delegator), Value: encodeBankBalanceBig(newBalance)},
 		{Namespace: ModuleName, Key: rewardKey(delegator, validatorID), Value: encodeBankBalanceBig(new(big.Int))},
-	}
-	return applyAtomicWrites(ctx, store, writes)
+	})
 }
 
-func (module *Module) withdrawUnbonded(ctx context.Context, store vexoapp.StateStore, height types.Height, delegator types.Address, validatorID types.ValidatorID) error {
-	if delegator == "" || validatorID == "" {
-		return ErrInvalidStakingTx
-	}
-	entries, err := loadUnbondingEntries(ctx, store, delegator, validatorID)
+func (module *Module) withdrawUnbonded(ctx vexoapp.Context, delegator types.Address, validatorID types.ValidatorID) error {
+	goCtx := ctx.GoContext()
+	store := ctx.Store
+	entries, err := loadUnbondingEntries(goCtx, store, delegator, validatorID)
 	if err != nil {
 		return err
 	}
 	if len(entries) == 0 {
 		return ErrNoUnbonding
 	}
+	if err := ctx.ConsumeGas(unbondingEntryGasCost * uint64(len(entries))); err != nil {
+		return err
+	}
 	matured := make([]unbondingEntry, 0, len(entries))
-	pending := make([]unbondingEntry, 0, len(entries))
 	for _, entry := range entries {
-		if height >= entry.ReleaseHeight {
+		if ctx.Height >= entry.ReleaseHeight {
 			matured = append(matured, entry)
-			continue
 		}
-		pending = append(pending, entry)
 	}
 	if len(matured) == 0 {
 		return ErrUnbondingNotMature
@@ -639,100 +850,110 @@ func (module *Module) withdrawUnbonded(ctx context.Context, store vexoapp.StateS
 	if err != nil {
 		return err
 	}
-	balance, err := bankBalanceBig(ctx, store, delegator)
+	balance, err := bankBalanceBig(goCtx, store, delegator)
 	if err != nil {
 		return err
-	}
-	writes, err := replaceUnbondingEntriesWrites(delegator, validatorID, pending)
-	if err != nil {
-		return err
-	}
-	for _, entry := range matured {
-		if !entry.legacy {
-			writes = append(writes, kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingEntryKey(delegator, validatorID, entry.ID), Delete: true})
-		}
 	}
 	newBalance := new(big.Int).Add(balance, new(big.Int).SetUint64(amount))
 	if err := validateBankBalanceBig(newBalance); err != nil {
 		return err
 	}
-	writes = append([]kvbatch.KVWrite{
-		{Namespace: bankNamespace, Key: bankBalanceKey(delegator), Value: encodeBankBalanceBig(newBalance)},
-	}, writes...)
-	return applyAtomicWrites(ctx, store, writes)
-}
-
-type validatorPowerRecord struct {
-	validatorID types.ValidatorID
-	power       uint64
+	writes := []kvbatch.KVWrite{{Namespace: bankNamespace, Key: bankBalanceKey(delegator), Value: encodeBankBalanceBig(newBalance)}}
+	for _, entry := range matured {
+		writes = append(writes, kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingEntryKey(delegator, validatorID, entry.CreatedHeight), Delete: true})
+	}
+	return applyAtomicWrites(goCtx, store, writes)
 }
 
 type delegationRecord struct {
-	delegator   types.Address
-	validatorID types.ValidatorID
-	stake       uint64
+	delegator types.Address
+	stake     uint64
 }
 
-type unbondingEntry struct {
-	ID            uint64       `json:"id"`
-	Amount        uint64       `json:"amount"`
-	ReleaseHeight types.Height `json:"release_height"`
-	legacy        bool
+// loadValidatorDelegations returns the non-empty delegations of one validator ordered by delegator,
+// and their total stake. It reads the validator's own prefix of the stake index, so its cost follows
+// the delegations of that validator and not the delegations of the chain.
+func loadValidatorDelegations(ctx context.Context, store vexoapp.StateStore, validatorID types.ValidatorID) ([]delegationRecord, uint64, error) {
+	prefixStore, err := prefixStoreOf(store)
+	if err != nil {
+		return nil, 0, err
+	}
+	pairs, err := prefixStore.ExportPrefix(ctx, ModuleName, validatorStakePrefix(validatorID))
+	if err != nil {
+		return nil, 0, err
+	}
+	delegations := make([]delegationRecord, 0, len(pairs))
+	total := uint64(0)
+	for _, pair := range pairs {
+		indexed, delegator, ok := parseValidatorStakeKey(string(pair.Key))
+		if !ok || indexed != validatorID {
+			return nil, 0, ErrInvalidStakeRecord
+		}
+		stake, err := decodeUint64(pair.Value)
+		if err != nil {
+			return nil, 0, err
+		}
+		if stake == 0 {
+			continue
+		}
+		if total > ^uint64(0)-stake {
+			return nil, 0, ErrStakeOverflow
+		}
+		total += stake
+		delegations = append(delegations, delegationRecord{delegator: delegator, stake: stake})
+	}
+	return delegations, total, nil
 }
 
+// distributeFees pays the fee collector's balance out as staking rewards, in proportion to the
+// power of the validators that are in the set. Jailed and tombstoned validators earn nothing.
+// Commission and rounding dust go to the validator's operator.
 func (module *Module) distributeFees(ctx context.Context, store vexoapp.StateStore) error {
 	collectorBalance, err := bankBalanceBig(ctx, store, module.feeCollector)
 	if err != nil || collectorBalance.Sign() == 0 {
 		return err
 	}
-	snapshot, ok := store.(vexostore.SnapshotKVStore)
-	if !ok {
-		return ErrStakingSnapshot
-	}
-	pairs, err := snapshot.ExportNamespace(ctx, ModuleName)
+	states, err := loadValidatorStates(ctx, store)
 	if err != nil {
 		return err
 	}
-	validators, delegations, err := stakingRewardInputs(pairs)
-	if err != nil {
-		return err
-	}
-	totalPower, err := totalValidatorPower(validators)
-	if err != nil || totalPower == 0 {
-		return err
-	}
-	delegationsByValidator := make(map[types.ValidatorID][]delegationRecord)
-	stakeByValidator := make(map[types.ValidatorID]uint64)
-	for _, delegation := range delegations {
-		delegationsByValidator[delegation.validatorID] = append(delegationsByValidator[delegation.validatorID], delegation)
-		if stakeByValidator[delegation.validatorID] > ^uint64(0)-delegation.stake {
+	eligible := make([]validatorState, 0, len(states))
+	totalPower := uint64(0)
+	for _, state := range states {
+		if !state.hasRecord || state.status.inactive() || state.status.power == 0 {
+			continue
+		}
+		if totalPower > ^uint64(0)-state.status.power {
 			return ErrStakeOverflow
 		}
-		stakeByValidator[delegation.validatorID] += delegation.stake
+		totalPower += state.status.power
+		eligible = append(eligible, state)
+	}
+	if totalPower == 0 {
+		return nil
 	}
 	rewards := make(map[string]*big.Int)
 	distributed := new(big.Int)
-	for _, validator := range validators {
-		validatorFee := proportionalShareBig(collectorBalance, validator.power, totalPower)
+	for _, state := range eligible {
+		validatorFee := proportionalShareBig(collectorBalance, state.status.power, totalPower)
 		if validatorFee.Sign() == 0 {
 			continue
 		}
-		commissionBPS, err := Commission(ctx, store, validator.validatorID)
+		validatorDelegations, totalStake, err := loadValidatorDelegations(ctx, store, state.id)
 		if err != nil {
 			return err
 		}
-		commission := proportionalShareBig(validatorFee, commissionBPS, commissionDenominatorBPS)
+		operator := state.record.Operator
+		commission := proportionalShareBig(validatorFee, state.commissionBPS, commissionDenominatorBPS)
 		if commission.Sign() > 0 {
-			if err := addReward(rewards, types.Address(validator.validatorID), validator.validatorID, commission); err != nil {
+			if err := addReward(rewards, operator, state.id, commission); err != nil {
 				return err
 			}
 		}
 		validatorDistributed := new(big.Int).Set(commission)
 		distributionPool := new(big.Int).Sub(validatorFee, commission)
-		validatorDelegations := delegationsByValidator[validator.validatorID]
-		totalStake := stakeByValidator[validator.validatorID]
 		if distributionPool.Sign() > 0 && (len(validatorDelegations) == 0 || totalStake == 0) {
-			if err := addReward(rewards, types.Address(validator.validatorID), validator.validatorID, distributionPool); err != nil {
+			if err := addReward(rewards, operator, state.id, distributionPool); err != nil {
 				return err
 			}
 			validatorDistributed.Add(validatorDistributed, distributionPool)
@@ -742,14 +963,14 @@ func (module *Module) distributeFees(ctx context.Context, store vexoapp.StateSto
 			if share.Sign() == 0 {
 				continue
 			}
-			if err := addReward(rewards, delegation.delegator, delegation.validatorID, share); err != nil {
+			if err := addReward(rewards, delegation.delegator, state.id, share); err != nil {
 				return err
 			}
 			validatorDistributed.Add(validatorDistributed, share)
 		}
 		if validatorDistributed.Cmp(validatorFee) < 0 {
 			remainder := new(big.Int).Sub(validatorFee, validatorDistributed)
-			if err := addReward(rewards, types.Address(validator.validatorID), validator.validatorID, remainder); err != nil {
+			if err := addReward(rewards, operator, state.id, remainder); err != nil {
 				return err
 			}
 		}
@@ -758,17 +979,21 @@ func (module *Module) distributeFees(ctx context.Context, store vexoapp.StateSto
 	if distributed.Sign() == 0 {
 		return nil
 	}
-	collectorRemainder := new(big.Int).Sub(collectorBalance, distributed)
 	writes := []kvbatch.KVWrite{
-		{Namespace: bankNamespace, Key: bankBalanceKey(module.feeCollector), Value: encodeBankBalanceBig(collectorRemainder)},
+		{Namespace: bankNamespace, Key: bankBalanceKey(module.feeCollector), Value: encodeBankBalanceBig(new(big.Int).Sub(collectorBalance, distributed))},
 	}
-	for encodedKey, amount := range rewards {
+	encodedKeys := make([]string, 0, len(rewards))
+	for encodedKey := range rewards {
+		encodedKeys = append(encodedKeys, encodedKey)
+	}
+	sort.Strings(encodedKeys)
+	for _, encodedKey := range encodedKeys {
 		delegator, validatorID := splitRewardMapKey(encodedKey)
 		current, err := RewardsBig(ctx, store, delegator, validatorID)
 		if err != nil {
 			return err
 		}
-		nextReward := new(big.Int).Add(current, amount)
+		nextReward := new(big.Int).Add(current, rewards[encodedKey])
 		if err := validateBankBalanceBig(nextReward); err != nil {
 			return err
 		}
@@ -841,164 +1066,6 @@ func bankBalanceKey(address types.Address) []byte {
 	return []byte("0x" + hex.EncodeToString(padded))
 }
 
-func setStake(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID, amount uint64) error {
-	return setUint64(ctx, store, ModuleName, stakeKey(delegator, validatorID), amount)
-}
-
-func setValidatorPower(ctx context.Context, store vexoapp.StateStore, validatorID types.ValidatorID, amount uint64) error {
-	return setUint64(ctx, store, ModuleName, validatorPowerKey(validatorID), amount)
-}
-
-func setUnbondingReleaseHeight(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID, releaseHeight types.Height) error {
-	return setUint64(ctx, store, ModuleName, unbondingKey(delegator, validatorID), uint64(releaseHeight))
-}
-
-func loadUnbondingEntries(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID) ([]unbondingEntry, error) {
-	if store == nil || delegator == "" || validatorID == "" {
-		return nil, ErrInvalidStakingTx
-	}
-	rawIndex, err := store.Get(ctx, ModuleName, unbondingIndexKey(delegator, validatorID))
-	if err != nil && !errors.Is(err, vexostore.ErrKeyNotFound) {
-		return nil, err
-	}
-	if err == nil && len(rawIndex) > 0 {
-		var ids []uint64
-		if err := json.Unmarshal(rawIndex, &ids); err != nil {
-			return nil, ErrInvalidStakeRecord
-		}
-		entries := make([]unbondingEntry, 0, len(ids))
-		for _, id := range ids {
-			rawEntry, err := store.Get(ctx, ModuleName, unbondingEntryKey(delegator, validatorID, id))
-			if err != nil {
-				return nil, err
-			}
-			var entry unbondingEntry
-			if err := json.Unmarshal(rawEntry, &entry); err != nil {
-				return nil, ErrInvalidStakeRecord
-			}
-			if entry.ID != id || entry.Amount == 0 || entry.ReleaseHeight == 0 {
-				return nil, ErrInvalidStakeRecord
-			}
-			entries = append(entries, entry)
-		}
-		return entries, nil
-	}
-	releaseHeight, err := getUint64(ctx, store, unbondingKey(delegator, validatorID))
-	if err != nil {
-		return nil, err
-	}
-	amount, err := getUint64(ctx, store, unbondingAmountKey(delegator, validatorID))
-	if err != nil {
-		return nil, err
-	}
-	if amount == 0 {
-		return nil, nil
-	}
-	if releaseHeight == 0 {
-		return nil, ErrInvalidStakeRecord
-	}
-	return []unbondingEntry{{
-		ID:            0,
-		Amount:        amount,
-		ReleaseHeight: types.Height(releaseHeight),
-		legacy:        true,
-	}}, nil
-}
-
-func appendUnbondingEntryWrites(ctx context.Context, store vexoapp.StateStore, delegator types.Address, validatorID types.ValidatorID, existing []unbondingEntry, amount uint64, releaseHeight types.Height) ([]kvbatch.KVWrite, error) {
-	nextID, err := getUint64(ctx, store, unbondingNextIDKey(delegator, validatorID))
-	if err != nil {
-		return nil, err
-	}
-	entries := make([]unbondingEntry, 0, len(existing)+1)
-	for _, entry := range existing {
-		if entry.ID == 0 {
-			nextID++
-			entry.ID = nextID
-			entry.legacy = false
-		}
-		if entry.ID > nextID {
-			nextID = entry.ID
-		}
-		entries = append(entries, entry)
-	}
-	nextID++
-	entries = append(entries, unbondingEntry{ID: nextID, Amount: amount, ReleaseHeight: releaseHeight})
-	return replaceUnbondingEntriesWritesWithNextID(delegator, validatorID, entries, nextID)
-}
-
-func replaceUnbondingEntriesWrites(delegator types.Address, validatorID types.ValidatorID, entries []unbondingEntry) ([]kvbatch.KVWrite, error) {
-	nextID := uint64(0)
-	for _, entry := range entries {
-		if entry.ID > nextID {
-			nextID = entry.ID
-		}
-	}
-	return replaceUnbondingEntriesWritesWithNextID(delegator, validatorID, entries, nextID)
-}
-
-func replaceUnbondingEntriesWritesWithNextID(delegator types.Address, validatorID types.ValidatorID, entries []unbondingEntry, nextID uint64) ([]kvbatch.KVWrite, error) {
-	ids := make([]uint64, 0, len(entries))
-	total := uint64(0)
-	var nextRelease types.Height
-	writes := make([]kvbatch.KVWrite, 0, len(entries)+5)
-	for _, entry := range entries {
-		if entry.Amount == 0 || entry.ReleaseHeight == 0 {
-			return nil, ErrInvalidStakeRecord
-		}
-		if entry.ID == 0 {
-			return nil, ErrInvalidStakeRecord
-		}
-		if total > ^uint64(0)-entry.Amount {
-			return nil, ErrStakeOverflow
-		}
-		total += entry.Amount
-		if nextRelease == 0 || entry.ReleaseHeight < nextRelease {
-			nextRelease = entry.ReleaseHeight
-		}
-		entry.legacy = false
-		encoded, err := json.Marshal(entry)
-		if err != nil {
-			return nil, err
-		}
-		ids = append(ids, entry.ID)
-		writes = append(writes, kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingEntryKey(delegator, validatorID, entry.ID), Value: encoded})
-	}
-	if len(entries) == 0 {
-		writes = append(writes,
-			kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingIndexKey(delegator, validatorID), Delete: true},
-			kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingKey(delegator, validatorID), Delete: true},
-			kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingAmountKey(delegator, validatorID), Delete: true},
-		)
-		return writes, nil
-	}
-	encodedIndex, err := json.Marshal(ids)
-	if err != nil {
-		return nil, err
-	}
-	writes = append(writes,
-		kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingIndexKey(delegator, validatorID), Value: encodedIndex},
-		kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingNextIDKey(delegator, validatorID), Value: encodeUint64(nextID)},
-		kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingKey(delegator, validatorID), Value: encodeUint64(uint64(nextRelease))},
-		kvbatch.KVWrite{Namespace: ModuleName, Key: unbondingAmountKey(delegator, validatorID), Value: encodeUint64(total)},
-	)
-	return writes, nil
-}
-
-func sumUnbondingEntries(entries []unbondingEntry) (uint64, error) {
-	total := uint64(0)
-	for _, entry := range entries {
-		if entry.Amount == 0 || entry.ReleaseHeight == 0 {
-			return 0, ErrInvalidStakeRecord
-		}
-		if total > ^uint64(0)-entry.Amount {
-			return 0, ErrStakeOverflow
-		}
-		total += entry.Amount
-	}
-	return total, nil
-}
-
 func applyAtomicWrites(ctx context.Context, store vexoapp.StateStore, writes []kvbatch.KVWrite) error {
 	batchStore, ok := store.(kvbatch.BatchKVStore)
 	if !ok {
@@ -1007,98 +1074,13 @@ func applyAtomicWrites(ctx context.Context, store vexoapp.StateStore, writes []k
 	return batchStore.SetBatch(ctx, writes)
 }
 
-func stakingRewardInputs(pairs []vexostore.KVPair) ([]validatorPowerRecord, []delegationRecord, error) {
-	validators := make([]validatorPowerRecord, 0)
-	delegations := make([]delegationRecord, 0)
-	for _, pair := range pairs {
-		key := string(pair.Key)
-		if strings.HasPrefix(key, "validator/") && strings.HasSuffix(key, "/power") {
-			validatorID, ok := parseValidatorPowerKey(key)
-			if !ok {
-				continue
-			}
-			power, err := decodeUint64(pair.Value)
-			if err != nil {
-				return nil, nil, err
-			}
-			if power > 0 {
-				validators = append(validators, validatorPowerRecord{validatorID: validatorID, power: power})
-			}
-			continue
-		}
-		if strings.HasPrefix(key, "stake/") {
-			delegator, validatorID, ok := parseStakeKey(key)
-			if !ok {
-				continue
-			}
-			stake, err := decodeUint64(pair.Value)
-			if err != nil {
-				return nil, nil, err
-			}
-			if stake > 0 {
-				delegations = append(delegations, delegationRecord{delegator: delegator, validatorID: validatorID, stake: stake})
-			}
-		}
-	}
-	return validators, delegations, nil
-}
-
-func delegationsForValidator(pairs []vexostore.KVPair, validatorID types.ValidatorID) []delegationRecord {
-	delegations := make([]delegationRecord, 0)
-	for _, pair := range pairs {
-		key := string(pair.Key)
-		if !strings.HasPrefix(key, "stake/") {
-			continue
-		}
-		delegator, parsedValidatorID, ok := parseStakeKey(key)
-		if !ok || parsedValidatorID != validatorID {
-			continue
-		}
-		stake, err := decodeUint64(pair.Value)
-		if err != nil || stake == 0 {
-			continue
-		}
-		delegations = append(delegations, delegationRecord{
-			delegator:   delegator,
-			validatorID: parsedValidatorID,
-			stake:       stake,
-		})
-	}
-	return delegations
-}
-
-func totalValidatorPower(validators []validatorPowerRecord) (uint64, error) {
-	var total uint64
-	for _, validator := range validators {
-		if total > ^uint64(0)-validator.power {
-			return 0, ErrStakeOverflow
-		}
-		total += validator.power
-	}
-	return total, nil
-}
-
-func parseValidatorPowerKey(key string) (types.ValidatorID, bool) {
-	parts := strings.Split(key, "/")
-	if len(parts) != 3 || parts[0] != "validator" || parts[1] == "" || parts[2] != "power" {
-		return "", false
-	}
-	return types.ValidatorID(parts[1]), true
-}
-
-func parseStakeKey(key string) (types.Address, types.ValidatorID, bool) {
-	parts := strings.Split(key, "/")
-	if len(parts) != 3 || parts[0] != "stake" || parts[1] == "" || parts[2] == "" {
-		return "", "", false
-	}
-	return types.Address(parts[1]), types.ValidatorID(parts[2]), true
-}
-
+// addReward accumulates a reward. Delegators are keyed by their canonical identity, so one account
+// never ends up with two partial rewards that overwrite each other.
 func addReward(rewards map[string]*big.Int, delegator types.Address, validatorID types.ValidatorID, amount *big.Int) error {
 	if amount == nil || amount.Sign() < 0 {
 		return ErrInvalidStakeRecord
 	}
-	key := rewardMapKey(delegator, validatorID)
+	key := rewardMapKey(types.Address(identityKey(delegator)), validatorID)
 	current := rewards[key]
 	if current == nil {
 		current = new(big.Int)
@@ -1114,14 +1096,6 @@ func rewardMapKey(delegator types.Address, validatorID types.ValidatorID) string
 func splitRewardMapKey(key string) (types.Address, types.ValidatorID) {
 	parts := strings.SplitN(key, "\x00", 2)
 	return types.Address(parts[0]), types.ValidatorID(parts[1])
-}
-
-func proportionalShare(total uint64, part uint64, whole uint64) uint64 {
-	share := proportionalShareBig(new(big.Int).SetUint64(total), part, whole)
-	if !share.IsUint64() {
-		return ^uint64(0)
-	}
-	return share.Uint64()
 }
 
 func proportionalShareBig(total *big.Int, part uint64, whole uint64) *big.Int {
@@ -1158,13 +1132,7 @@ func getUint64(ctx context.Context, store vexoapp.StateStore, key []byte) (uint6
 	if err != nil {
 		return 0, err
 	}
-	if len(value) == 0 {
-		return 0, nil
-	}
-	if len(value) != 8 {
-		return 0, ErrInvalidStakeRecord
-	}
-	return binary.BigEndian.Uint64(value), nil
+	return decodeUint64(value)
 }
 
 func decodeUint64(value []byte) (uint64, error) {
@@ -1188,17 +1156,10 @@ func encodeUint64(amount uint64) []byte {
 }
 
 func encodeBankBalanceBig(amount *big.Int) []byte {
-	if amount == nil || amount.Sign() == 0 {
+	if amount == nil || amount.Sign() <= 0 {
 		return []byte{0}
 	}
-	if amount.Sign() < 0 {
-		return []byte{0}
-	}
-	encoded := amount.Bytes()
-	if len(encoded) > 32 {
-		return encoded
-	}
-	return encoded
+	return amount.Bytes()
 }
 
 func validateBankBalanceBig(amount *big.Int) error {
@@ -1206,21 +1167,6 @@ func validateBankBalanceBig(amount *big.Int) error {
 		return ErrStakeOverflow
 	}
 	return nil
-}
-
-func encodeSlashMarker(receipt slashing.PenaltyReceipt) []byte {
-	encoded := make([]byte, 16)
-	binary.BigEndian.PutUint64(encoded[:8], uint64(receipt.PreviousPower))
-	binary.BigEndian.PutUint64(encoded[8:], uint64(receipt.RemainingPower))
-	return encoded
-}
-
-func stakingSlashKey(evidence slashing.Evidence) []byte {
-	key := vexostore.EvidenceKey(evidence)
-	if key == "" {
-		return nil
-	}
-	return []byte("slash/" + key)
 }
 
 func parseAmount(value string) (uint64, error) {
@@ -1248,52 +1194,4 @@ func isExecutionTagPart(part string) bool {
 		strings.HasPrefix(part, "gas=") ||
 		strings.HasPrefix(part, "signer=") ||
 		strings.HasPrefix(part, "nonce=")
-}
-
-func stakeKey(delegator types.Address, validatorID types.ValidatorID) []byte {
-	return []byte("stake/" + string(delegator) + "/" + string(validatorID))
-}
-
-func validatorPowerKey(validatorID types.ValidatorID) []byte {
-	return []byte("validator/" + string(validatorID) + "/power")
-}
-
-func validatorKeyKey(validatorID types.ValidatorID) []byte {
-	return []byte("validator/" + string(validatorID) + "/public_key")
-}
-
-func jailKey(validatorID types.ValidatorID) []byte {
-	return []byte("validator/" + string(validatorID) + "/jail")
-}
-
-func tombstoneKey(validatorID types.ValidatorID) []byte {
-	return []byte("validator/" + string(validatorID) + "/tombstone")
-}
-
-func unbondingKey(delegator types.Address, validatorID types.ValidatorID) []byte {
-	return []byte("unbonding/" + string(delegator) + "/" + string(validatorID))
-}
-
-func unbondingAmountKey(delegator types.Address, validatorID types.ValidatorID) []byte {
-	return []byte("unbonding_amount/" + string(delegator) + "/" + string(validatorID))
-}
-
-func unbondingIndexKey(delegator types.Address, validatorID types.ValidatorID) []byte {
-	return []byte("unbonding_entries/" + string(delegator) + "/" + string(validatorID) + "/index")
-}
-
-func unbondingNextIDKey(delegator types.Address, validatorID types.ValidatorID) []byte {
-	return []byte("unbonding_entries/" + string(delegator) + "/" + string(validatorID) + "/next_id")
-}
-
-func unbondingEntryKey(delegator types.Address, validatorID types.ValidatorID, id uint64) []byte {
-	return []byte("unbonding_entries/" + string(delegator) + "/" + string(validatorID) + "/" + strconv.FormatUint(id, 10))
-}
-
-func rewardKey(delegator types.Address, validatorID types.ValidatorID) []byte {
-	return []byte("rewards/" + string(delegator) + "/" + string(validatorID))
-}
-
-func commissionKey(validatorID types.ValidatorID) []byte {
-	return []byte("validator/" + string(validatorID) + "/commission_bps")
 }

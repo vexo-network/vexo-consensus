@@ -207,16 +207,30 @@ func (adapter BLSTBLSAdapter) ValidatePublicKey(publicKey types.PublicKey) error
 	return err
 }
 
+// ProofOfPossession signs the prefixed public key under the dedicated proof-of-possession tag,
+// never under the signing tag.
 func (adapter BLSTBLSAdapter) ProofOfPossession() (types.Signature, error) {
-	publicKey := adapter.PublicKey()
-	if len(publicKey) == 0 {
+	if adapter.privateKey == nil {
 		return nil, ErrMissingBLSPrivateKey
 	}
-	return adapter.Sign(blsProofOfPossessionMessage(publicKey))
+	publicKey := adapter.PublicKey()
+	proof := new(blst.P2Affine).Sign(adapter.privateKey, blsProofOfPossessionMessage(publicKey), []byte(blsProofOfPossessionDST), true)
+	if proof == nil {
+		return nil, ErrMissingBLSPrivateKey
+	}
+	return types.Signature(proof.Compress()), nil
 }
 
 func (adapter BLSTBLSAdapter) VerifyProofOfPossession(publicKey types.PublicKey, proof types.Signature) bool {
-	return adapter.Verify(publicKey, blsProofOfPossessionMessage(publicKey), proof)
+	parsedPublicKey, err := parseBLSTBLSPublicKey(publicKey)
+	if err != nil {
+		return false
+	}
+	parsedProof, err := parseBLSTBLSSignature(proof)
+	if err != nil {
+		return false
+	}
+	return parsedProof.Verify(true, parsedPublicKey, true, blsProofOfPossessionMessage(publicKey), []byte(blsProofOfPossessionDST), true)
 }
 
 func (adapter BLSTBLSAdapter) Metadata() BLSAdapterMetadata {

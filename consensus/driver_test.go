@@ -10,7 +10,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/validator"
 )
 
-func TestStepDriverDrivesThreeBlockFinality(t *testing.T) {
+func TestStepDriverDrivesTwoChainFinality(t *testing.T) {
 	machine, driver := newTestDriver(t)
 	machine.StartRound(1, 0)
 
@@ -18,26 +18,35 @@ func TestStepDriverDrivesThreeBlockFinality(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(machine.CommitDecisions()) != 0 {
+		t.Fatal("a block with a single certificate must not be final")
+	}
 	second, err := driver.StepBlock(context.Background(), types.Block{Header: types.Header{Height: 2}}, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if second.Proposal.JustifyQC.BlockHash != first.BlockHash {
+		t.Fatal("expected second proposal to justify first block")
+	}
+	if machine.Status(context.Background()).LastFinalized != first.BlockHash {
+		t.Fatal("expected first block to finalize through the two-chain rule")
+	}
+	if len(machine.CommitDecisions()) != 1 {
+		t.Fatal("expected one commit decision")
+	}
+
 	third, err := driver.StepBlock(context.Background(), types.Block{Header: types.Header{Height: 3}}, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if second.Proposal.JustifyQC.BlockHash != first.BlockHash {
-		t.Fatal("expected second proposal to justify first block")
-	}
 	if third.Proposal.JustifyQC.BlockHash != second.BlockHash {
 		t.Fatal("expected third proposal to justify second block")
 	}
-	if machine.Status(context.Background()).LastFinalized != first.BlockHash {
-		t.Fatal("expected first block to finalize through three-chain rule")
+	if machine.Status(context.Background()).LastFinalized != second.BlockHash {
+		t.Fatal("expected second block to finalize")
 	}
-	if len(machine.CommitDecisions()) != 1 {
-		t.Fatal("expected one commit decision")
+	if len(machine.CommitDecisions()) != 2 {
+		t.Fatal("expected two commit decisions")
 	}
 }
 
@@ -49,7 +58,6 @@ func TestStepDriverTimeoutFeedsNextProposalHighQC(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	machine.StartRound(2, 0)
 
 	timeoutCert, err := driver.TimeoutQuorum(context.Background(), first.QuorumQC)
 	if err != nil {
@@ -58,19 +66,22 @@ func TestStepDriverTimeoutFeedsNextProposalHighQC(t *testing.T) {
 	if timeoutCert.HighQC.BlockHash != first.BlockHash {
 		t.Fatalf("expected timeout cert to carry first block qc, got %+v", timeoutCert.HighQC)
 	}
-	if machine.Status(context.Background()).Round != 1 {
-		t.Fatal("expected timeout quorum to advance round")
+	if machine.Status(context.Background()).Round != 2 {
+		t.Fatal("expected timeout quorum to advance the view past the certified one")
 	}
 
 	proposed, err := driver.Propose(context.Background(), types.Block{Header: types.Header{Height: 2}}, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if proposed.Proposal.Round != 1 {
-		t.Fatal("expected proposal in advanced round")
+	if proposed.Proposal.Round != 2 {
+		t.Fatal("expected proposal in advanced view")
 	}
 	if proposed.Proposal.JustifyQC.BlockHash != first.BlockHash {
 		t.Fatal("expected proposal to use timeout high qc")
+	}
+	if proposed.Proposal.TimeoutCert.Round != 1 {
+		t.Fatalf("expected the proposal to carry the timeout certificate of view 1, got %+v", proposed.Proposal.TimeoutCert)
 	}
 }
 
@@ -92,67 +103,68 @@ func TestStepDriverRejectsForkWithMismatchedHighQC(t *testing.T) {
 }
 
 func TestStepDriverRejectsEmptyValidatorSet(t *testing.T) {
-	machine, err := NewStateMachine(StateMachineConfig{
-		ChainID:      "vexo-test",
-		ValidatorSet: newTestValidatorSet(nil),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := NewStepDriver(machine); !errors.Is(err, ErrNoValidators) {
+	cluster := newTestCluster(t)
+	machine := cluster.newMachine()
+	if _, err := NewStepDriver(machine, cluster.signers); !errors.Is(err, ErrNoValidators) {
 		t.Fatalf("expected no validators, got %v", err)
 	}
 }
 
-func TestStepDriverReturnsNoQuorumWithInsufficientPower(t *testing.T) {
-	set := newTestValidatorSet([]validator.Validator{
-		{ID: "a", VotingPower: 1},
-		{ID: "b", VotingPower: 1},
-		{ID: "c", VotingPower: 10},
-	})
-	machine, err := NewStateMachine(StateMachineConfig{
-		ChainID:      "vexo-test",
-		ValidatorSet: set,
-		Aggregator:   testAggregateSigner{},
-	})
+func TestStepDriverRequiresASignerPerValidator(t *testing.T) {
+	cluster := newThreeValidatorCluster(t)
+	machine := cluster.newMachine()
+	machine.StartRound(1, 0)
+	driver, err := NewStepDriver(machine, SimulationSigners{"a": cluster.signers["a"]})
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	if _, err := driver.Propose(context.Background(), types.Block{Header: types.Header{Height: 1}}, "b"); !errors.Is(err, ErrMissingSigner) {
+		t.Fatalf("expected a proposer without a key to be refused, got %v", err)
+	}
+	proposed, err := driver.Propose(context.Background(), types.Block{Header: types.Header{Height: 1}}, "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := driver.VoteQuorum(context.Background(), proposed.BlockHash); !errors.Is(err, ErrMissingSigner) {
+		t.Fatalf("expected a voter without a key to be refused, got %v", err)
+	}
+}
+
+func TestStepDriverReturnsNoQuorumWithInsufficientPower(t *testing.T) {
+	cluster := newTestCluster(t,
+		validator.Validator{ID: "a", VotingPower: 1},
+		validator.Validator{ID: "b", VotingPower: 1},
+		validator.Validator{ID: "c", VotingPower: 10},
+	)
+	machine := cluster.newMachine()
 	machine.StartRound(1, 0)
 
 	proposal, err := machine.CreateProposal(types.Block{Header: types.Header{Height: 1}}, 0, "a", finality.QuorumCert{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := cluster.signers.signProposal(&proposal); err != nil {
+		t.Fatal(err)
+	}
 	if err := machine.OnProposal(context.Background(), proposal); err != nil {
 		t.Fatal(err)
 	}
 
-	err = machine.OnVote(context.Background(), Vote{Height: 1, Round: 0, BlockHash: machine.hashBlock(proposal.Block), ValidatorID: "a"})
-	if err != nil {
+	blockHash := machine.hashBlock(proposal.Block)
+	if err := machine.OnVote(context.Background(), cluster.vote("a", 1, 0, blockHash)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := machine.BuildQuorumCert(1, 0, machine.hashBlock(proposal.Block)); !errors.Is(err, ErrNoQuorum) {
+	if _, err := machine.BuildQuorumCert(1, 0, blockHash); !errors.Is(err, ErrNoQuorum) {
 		t.Fatalf("expected no quorum, got %v", err)
 	}
 }
 
 func newTestDriver(t *testing.T) (*StateMachine, *StepDriver) {
 	t.Helper()
-	set := newTestValidatorSet([]validator.Validator{
-		{ID: "a", VotingPower: 1},
-		{ID: "b", VotingPower: 1},
-		{ID: "c", VotingPower: 1},
-	})
-	machine, err := NewStateMachine(StateMachineConfig{
-		ChainID:      "vexo-test",
-		ValidatorSet: set,
-		Aggregator:   testAggregateSigner{},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	driver, err := NewStepDriver(machine)
+	cluster := newThreeValidatorCluster(t)
+	machine := cluster.newMachine()
+	driver, err := NewStepDriver(machine, cluster.signers)
 	if err != nil {
 		t.Fatal(err)
 	}

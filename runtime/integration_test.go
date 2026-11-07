@@ -1,7 +1,9 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"testing"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/fairordering"
 	"github.com/vexo-network/vexo-consensus/modules/bank"
 	"github.com/vexo-network/vexo-consensus/modules/evm/ethcompat"
+	"github.com/vexo-network/vexo-consensus/modules/staking"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
@@ -48,7 +51,10 @@ func TestRuntimeExecuteBlockUsesConfiguredApplication(t *testing.T) {
 	}
 }
 
-func TestRuntimeUpdatesAndRecoversDynamicBaseFee(t *testing.T) {
+// The base fee is application state: the runtime keeps no copy of it. A block is priced against
+// what the previous block stored, so a runtime that recovers from the store prices the next block
+// exactly like the one that never stopped.
+func TestRuntimeTakesTheFeeMarketFromTheApplicationAndRecoversIt(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -56,23 +62,25 @@ func TestRuntimeUpdatesAndRecoversDynamicBaseFee(t *testing.T) {
 	defer storage.Close()
 
 	cfg := config.Default("vexo-test")
-	cfg.Execution.BaseFee = 100
-	cfg.Execution.DynamicBaseFee = true
-	cfg.Execution.TargetGas = 10
-	cfg.Execution.BaseFeeChangeDenominator = 8
-	cfg.Execution.MinBaseFee = 1
-	cfg.Execution.RequireNonce = true
-	cfg.Execution.MinFee = 1
-
-	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{bank.NewModule()}, vexoapp.PrefixRouter{})
-	if err != nil {
-		t.Fatal(err)
+	newApplication := func() *vexoapp.Runtime {
+		application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{bank.NewModule()}, vexoapp.PrefixRouter{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		application.WithAnte(vexoapp.NewAnteKeeper(vexoapp.AnteConfig{
+			BaseFee:      100,
+			RequireNonce: true,
+			FeeMarket: vexoapp.FeeMarketConfig{
+				DynamicBaseFee:           true,
+				TargetGas:                10,
+				BaseFeeChangeDenominator: 8,
+				MinBaseFee:               1,
+			},
+		}))
+		application.WithStore(storage)
+		return application
 	}
-	application.WithAnte(vexoapp.NewAnteKeeper(vexoapp.AnteConfig{
-		BaseFee:      cfg.Execution.BaseFee,
-		RequireNonce: true,
-	}))
-	application.WithStore(storage)
+	application := newApplication()
 	if _, err := application.InitChain(vexoapp.InitChainRequest{Genesis: vexoapp.GenesisState{"bank:alice": []byte("10000")}}); err != nil {
 		t.Fatal(err)
 	}
@@ -83,36 +91,28 @@ func TestRuntimeUpdatesAndRecoversDynamicBaseFee(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	block := types.Block{
+	first, err := runtime.ExecuteBlock(context.Background(), types.Block{
 		Header: types.Header{ChainID: "vexo-test", Height: 1},
 		Txs: fairordering.SortTxsWithSalt([]types.Tx{
 			[]byte("bank:send:alice:bob:1:fee=1000:gas=10:signer=alice:nonce=1"),
 			[]byte("bank:send:alice:bob:1:fee=1000:gas=10:signer=alice:nonce=2"),
 		}, fairordering.HeightSalt("vexo-test", 1)),
-	}
-	if _, err := runtime.ExecuteBlock(context.Background(), block); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if runtime.CurrentBaseFee() != 112 {
-		t.Fatalf("expected next base fee 112, got %d", runtime.CurrentBaseFee())
+	if first.FeeMarket.BaseFee != 100 || first.FeeMarket.NextBaseFee != 112 {
+		t.Fatalf("expected the block to move the base fee from 100 to 112, got %+v", first.FeeMarket)
 	}
 	state, err := storage.LatestState(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if state.BaseFee != 100 || state.NextBaseFee != 112 {
-		t.Fatalf("unexpected persisted fee market state: %+v", state)
+		t.Fatalf("the state record must keep the fee market the application reported: %+v", state)
 	}
 
-	recoveredApplication, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{bank.NewModule()}, vexoapp.PrefixRouter{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	recoveredApplication.WithAnte(vexoapp.NewAnteKeeper(vexoapp.AnteConfig{
-		BaseFee:      cfg.Execution.BaseFee,
-		RequireNonce: true,
-	}))
-	recovered, err := NewWithStore(cfg, recoveredApplication, []validator.Validator{
+	recovered, err := NewWithStore(cfg, newApplication(), []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
 	}, nil, storage)
 	if err != nil {
@@ -121,145 +121,76 @@ func TestRuntimeUpdatesAndRecoversDynamicBaseFee(t *testing.T) {
 	if _, err := recovered.Recover(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if recovered.CurrentBaseFee() != 112 {
-		t.Fatalf("expected recovered base fee 112, got %d", recovered.CurrentBaseFee())
-	}
-}
-
-func TestEphemeralRuntimeUpdatesDynamicBaseFee(t *testing.T) {
-	cfg := config.Default("vexo-test")
-	cfg.Execution.BaseFee = 100
-	cfg.Execution.DynamicBaseFee = true
-	cfg.Execution.TargetGas = 10
-	cfg.Execution.BaseFeeChangeDenominator = 8
-	cfg.Execution.MinBaseFee = 1
-	cfg.Execution.RequireNonce = true
-	cfg.Execution.MinFee = 1
-
-	runtime, err := NewEphemeral(cfg, gasApp{gasUsed: 10}, []validator.Validator{
-		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
-	}, nil)
+	second, err := recovered.ExecuteBlock(context.Background(), types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 2},
+		Txs: []types.Tx{
+			[]byte("bank:send:alice:bob:1:fee=1000:gas=10:signer=alice:nonce=3"),
+			[]byte("bank:send:alice:bob:1:fee=1120:gas=10:signer=alice:nonce=3"),
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	block := types.Block{
-		Header: types.Header{ChainID: "vexo-test", Height: 1},
-		Txs:    []types.Tx{[]byte("a"), []byte("b")},
+	if second.FeeMarket.BaseFee != 112 {
+		t.Fatalf("the recovered runtime must price the block at 112, got %+v", second.FeeMarket)
 	}
-	if _, err := runtime.ExecuteBlock(context.Background(), block); err != nil {
-		t.Fatal(err)
-	}
-	if runtime.CurrentBaseFee() != 112 {
-		t.Fatalf("expected next base fee 112, got %d", runtime.CurrentBaseFee())
+	if second.Results[0].Code == 0 || second.Results[1].Code != 0 {
+		t.Fatalf("a fee of 1000 is below 10 gas at 112 and a fee of 1120 is exactly enough: %+v", second.Results)
 	}
 }
 
-type gasApp struct {
-	gasUsed uint64
+// reportingApplication reports a fixed fee market for every block, to show what the runtime does
+// with the report.
+type reportingApplication struct {
+	*vexoapp.Runtime
+	report vexoapp.FeeMarketReport
 }
 
-func (gasApp) InitChain(req vexoapp.InitChainRequest) (vexoapp.InitChainResponse, error) {
-	return vexoapp.InitChainResponse{}, nil
+func (application reportingApplication) FinalizeBlockStagedContext(ctx context.Context, req vexoapp.FinalizeBlockRequest) (vexoapp.FinalizeBlockResponse, []store.KVWrite, error) {
+	response, writes, err := application.Runtime.FinalizeBlockStagedContext(ctx, req)
+	response.FeeMarket = application.report
+	return response, writes, err
 }
 
-func (gasApp) CheckTx(tx types.Tx) vexoapp.CheckTxResponse {
-	return vexoapp.CheckTxResponse{}
-}
-
-func (gasApp) PrepareProposal(req vexoapp.PrepareProposalRequest) (vexoapp.PrepareProposalResponse, error) {
-	return vexoapp.PrepareProposalResponse{Txs: req.Txs}, nil
-}
-
-func (gasApp) ProcessProposal(req vexoapp.ProcessProposalRequest) vexoapp.ProcessProposalResponse {
-	return vexoapp.ProcessProposalResponse{Accepted: true}
-}
-
-func (application gasApp) FinalizeBlock(req vexoapp.FinalizeBlockRequest) (vexoapp.FinalizeBlockResponse, error) {
-	results := make([]types.Result, 0, len(req.Block.Txs))
-	for range req.Block.Txs {
-		results = append(results, types.Result{GasUsed: application.gasUsed})
-	}
-	return vexoapp.FinalizeBlockResponse{Results: results}, nil
-}
-
-func (gasApp) Commit() (vexoapp.CommitResponse, error) {
-	return vexoapp.CommitResponse{}, nil
-}
-
-func (gasApp) Query(req vexoapp.QueryRequest) vexoapp.QueryResponse {
-	return vexoapp.QueryResponse{}
-}
-
-func TestRuntimeUpdatesAndRecoversDynamicBlobBaseFee(t *testing.T) {
+func TestRuntimeStateRecordKeepsTheReportedFeeMarket(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer storage.Close()
-
-	cfg := config.Default("vexo-test")
-	cfg.Execution.BlobBaseFee = 100
-	cfg.Execution.DynamicBlobBaseFee = true
-	cfg.Execution.TargetBlobGas = 10
-	cfg.Execution.MaxBlobGas = 100
-	cfg.Execution.BlobFeeChangeDenominator = 8
-	cfg.Execution.MinBlobBaseFee = 1
-
-	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{bank.NewModule()}, vexoapp.PrefixRouter{})
+	inner, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{&runtimeModule{name: "bank"}}, vexoapp.PrefixRouter{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	application.WithStore(storage)
-	if _, err := application.InitChain(vexoapp.InitChainRequest{Genesis: vexoapp.GenesisState{"bank:alice": []byte("10000")}}); err != nil {
-		t.Fatal(err)
-	}
+	cfg := config.Default("vexo-test")
+	cfg.Execution.TargetBlobGas = 10
+	application := reportingApplication{Runtime: inner, report: vexoapp.FeeMarketReport{BaseFee: 7, NextBaseFee: 8, BlobBaseFee: 9, NextBlobBaseFee: 10, BlobGasUsed: 25}}
 	runtime, err := NewWithStore(cfg, application, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
 	}, nil, storage)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	block := types.Block{
-		Header: types.Header{ChainID: "vexo-test", Height: 1},
-		Txs: []types.Tx{
-			[]byte("bank:send:alice:bob:1:fee=1:gas=1:" + ethcompat.TagBlobGas + "=20"),
-		},
-	}
-	if _, err := runtime.ExecuteBlock(context.Background(), block); err != nil {
+	response, err := runtime.ExecuteBlock(context.Background(), types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1}})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if runtime.CurrentBlobBaseFee() != 112 {
-		t.Fatalf("expected next blob base fee 112, got %d", runtime.CurrentBlobBaseFee())
+	if response.FeeMarket != application.report {
+		t.Fatalf("the runtime must pass the report on, got %+v", response.FeeMarket)
 	}
 	state, err := storage.LatestState(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.BlobBaseFee != 100 || state.NextBlobBaseFee != 112 || state.BlobGasUsed != 20 || state.ExcessBlobGas != 10 {
-		t.Fatalf("unexpected persisted blob fee state: %+v", state)
-	}
-
-	recoveredApplication, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{bank.NewModule()}, vexoapp.PrefixRouter{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	recovered, err := NewWithStore(cfg, recoveredApplication, []validator.Validator{
-		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
-	}, nil, storage)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := recovered.Recover(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if recovered.CurrentBlobBaseFee() != 112 {
-		t.Fatalf("expected recovered blob base fee 112, got %d", recovered.CurrentBlobBaseFee())
+	if state.BaseFee != 7 || state.NextBaseFee != 8 || state.BlobBaseFee != 9 || state.NextBlobBaseFee != 10 || state.BlobGasUsed != 25 || state.ExcessBlobGas != 15 {
+		t.Fatalf("the state record must mirror the reported fee market: %+v", state)
 	}
 }
 
-func TestRuntimeRejectsBlockAboveMaxBlobGas(t *testing.T) {
+// A certified block is executed whatever its content: limits such as the blob gas cap are enforced
+// when a block is proposed, and a runtime that refused a block a quorum already certified would
+// stop the node.
+func TestRuntimeExecutesACertifiedBlockAboveMaxBlobGas(t *testing.T) {
 	cfg := config.Default("vexo-test")
 	cfg.Execution.TargetBlobGas = 5
 	cfg.Execution.MaxBlobGas = 10
@@ -273,14 +204,17 @@ func TestRuntimeRejectsBlockAboveMaxBlobGas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	block := types.Block{
+	response, err := runtime.ExecuteBlock(context.Background(), types.Block{
 		Header: types.Header{ChainID: "vexo-test", Height: 1},
 		Txs: []types.Tx{
 			[]byte("bank:send:alice:bob:1:" + ethcompat.TagBlobGas + "=11"),
 		},
+	})
+	if err != nil {
+		t.Fatalf("a certified block must not fail in the runtime: %v", err)
 	}
-	if _, err := runtime.ExecuteBlock(context.Background(), block); !errors.Is(err, ErrBlobGasLimitExceeded) {
-		t.Fatalf("expected blob gas limit rejection, got %v", err)
+	if len(response.Results) != 1 {
+		t.Fatalf("expected one result, got %d", len(response.Results))
 	}
 }
 
@@ -318,8 +252,8 @@ func TestRuntimeExecuteBlockPersistsBlockAndState(t *testing.T) {
 	if record.AppHash != response.AppHash {
 		t.Fatalf("expected stored app hash %x, got %x", response.AppHash, record.AppHash)
 	}
-	if len(record.StateRoots) != 1 || record.StateRoots[0].Namespace != "bank" {
-		t.Fatalf("expected stored block state root summary, got %+v", record.StateRoots)
+	if namespaces := runtime.StateNamespaces(); len(record.StateRoots) != len(namespaces) || record.StateRoots[0].Namespace != "bank" || record.StateRoots[len(namespaces)-1].Namespace != "validator_registry" {
+		t.Fatalf("expected a stored root for every namespace of %v, got %+v", namespaces, record.StateRoots)
 	}
 	state, err := storage.LatestState(context.Background())
 	if err != nil {
@@ -364,7 +298,7 @@ func TestRuntimeExecuteBlockAppliesValidatorUpdates(t *testing.T) {
 		runtimeModule: runtimeModule{name: "staking"},
 		updates: []types.ValidatorUpdate{
 			{ID: "alice", Address: "alice", VotingPower: 2},
-			{ID: "bob", Address: "bob", VotingPower: 1, Stake: 1},
+			joinUpdate("bob", 1),
 		},
 	}}, vexoapp.PrefixRouter{})
 	if err != nil {
@@ -417,6 +351,9 @@ func TestRuntimeExecuteBlockAppliesValidatorUpdates(t *testing.T) {
 	if !found || bob.VotingPower != 1 {
 		t.Fatalf("expected bob joined with power 1, got %+v found=%v", bob, found)
 	}
+	if !bytes.Equal(bob.PublicKey, joinKey("bob")) {
+		t.Fatalf("expected bob to join with the key of the update, got %x", bob.PublicKey)
+	}
 	state, err := storage.LatestState(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -430,12 +367,106 @@ func TestRuntimeExecuteBlockAppliesValidatorUpdates(t *testing.T) {
 	}
 }
 
-func TestRuntimeStagedValidatorUpdatesRollbackWhenCommitFails(t *testing.T) {
+// The validator set changes through the staking module: the create-validator transaction of an
+// operator registers the consensus key and its self-delegation backs the power, and the validator joins
+// the set at the next height with exactly that key and power. A delegation moves the power of a genesis
+// validator and keeps its key.
+func TestRuntimeAppliesAStakingCreateValidatorToTheValidatorSet(t *testing.T) {
+	ctx := context.Background()
+	cfg := config.Default("vexo-test")
+	aliceKey := joinKey("alice")
+	bobKey := joinKey("bob")
+	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{
+		bank.NewModule(),
+		staking.NewModuleWithPolicy(staking.Policy{
+			CryptoBackend: cfg.Crypto.Backend,
+			Admission:     validator.NewConfigurableAdmissionPolicy(cfg.Validator),
+		}),
+	}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	runtime, err := NewWithStore(cfg, application, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: aliceKey},
+	}, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.InitChain(ctx, vexoapp.InitChainRequest{
+		Genesis:    vexoapp.GenesisState{"bank:alice": []byte("10"), "bank:bob": []byte("10")},
+		Validators: []types.ValidatorUpdate{{ID: "alice", Address: "alice", PublicKey: aliceKey, VotingPower: 1, Stake: 1}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	initialSet, err := runtime.Validators.ValidatorSet(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := runtime.ExecuteBlock(ctx, types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 5, ValidatorSetHash: initialSet.Hash()},
+		Txs: []types.Tx{
+			types.Tx("staking:create-validator:bob:bob:3:" + base64.RawStdEncoding.EncodeToString(bobKey) + ":signer=bob"),
+			types.Tx("staking:delegate:alice:alice:2:signer=alice"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, result := range response.Results {
+		if result.Code != 0 {
+			t.Fatalf("staking transaction %d failed: %+v", index, result)
+		}
+	}
+	if len(response.ValidatorUpdates) != 2 {
+		t.Fatalf("expected an update for alice and one for bob, got %+v", response.ValidatorUpdates)
+	}
+	beforeSet, err := runtime.Validators.ValidatorSet(ctx, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := beforeSet.Get("bob"); found {
+		t.Fatal("bob must not join before the next validator-set height")
+	}
+	updatedSet, err := runtime.Validators.ValidatorSet(ctx, 6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alice, found := updatedSet.Get("alice")
+	if !found || alice.VotingPower != 3 || !bytes.Equal(alice.PublicKey, aliceKey) {
+		t.Fatalf("expected alice with power 3 and her genesis key, got %+v found=%v", alice, found)
+	}
+	bob, found := updatedSet.Get("bob")
+	if !found || bob.VotingPower != 3 || !bytes.Equal(bob.PublicKey, bobKey) {
+		t.Fatalf("expected bob to join with power 3 and the key of his create-validator transaction, got %+v found=%v", bob, found)
+	}
+	state, err := storage.LatestState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.ValidatorSetHash != updatedSet.Hash() {
+		t.Fatal("expected the persisted state to commit to the updated validator set")
+	}
+}
+
+// A block is executed after a quorum certified it, so a validator update the registry cannot apply never
+// fails the block: it is skipped, and the updates around it still apply. An unknown validator joins only
+// with a consensus key, and only when the admission policy accepts it.
+func TestRuntimeSkipsValidatorJoinsTheRegistryRefuses(t *testing.T) {
+	ctx := context.Background()
+	cfg := config.Default("vexo-test")
+	cfg.Validator.MinStake = 5
 	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{&validatorUpdateModule{
 		runtimeModule: runtimeModule{name: "staking"},
 		updates: []types.ValidatorUpdate{
-			{ID: "alice", Address: "alice", VotingPower: 2},
-			{ID: "bob", Address: "bob", VotingPower: 1, Stake: 1},
+			{ID: "keyless", Address: "keyless", VotingPower: 5, Stake: 5},
+			joinUpdate("underfunded", 1),
+			joinUpdate("dave", 5),
 		},
 	}}, vexoapp.PrefixRouter{})
 	if err != nil {
@@ -446,7 +477,64 @@ func TestRuntimeStagedValidatorUpdatesRollbackWhenCommitFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer storage.Close()
-	failingStore := failingAppCommitStore{LevelDBStore: storage}
+	runtime, err := NewWithStore(cfg, application, []validator.Validator{
+		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
+	}, nil, storage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialSet, err := runtime.Validators.ValidatorSet(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := runtime.ExecuteBlock(ctx, types.Block{
+		Header: types.Header{ChainID: "vexo-test", Height: 5, ValidatorSetHash: initialSet.Hash()},
+		Txs:    []types.Tx{[]byte("staking:update")},
+	}); err != nil {
+		t.Fatalf("an update the registry refuses must not fail the certified block: %v", err)
+	}
+	updatedSet, err := runtime.Validators.ValidatorSet(ctx, 6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, refused := range []types.ValidatorID{"keyless", "underfunded"} {
+		if _, found := updatedSet.Get(refused); found {
+			t.Fatalf("%s must not join the validator set", refused)
+		}
+	}
+	if dave, found := updatedSet.Get("dave"); !found || dave.VotingPower != 5 {
+		t.Fatalf("expected the accepted join next to the refused ones, got %+v found=%v", dave, found)
+	}
+	if _, found := updatedSet.Get("alice"); !found || len(updatedSet.List()) != 2 {
+		t.Fatalf("expected only alice and dave, got %+v", updatedSet.List())
+	}
+	if events := runtime.Validators.RotationEvents(); len(events) != 1 || events[0].ValidatorID != "dave" || events[0].Type != validator.RotationEventJoin {
+		t.Fatalf("expected a single join event for dave, got %+v", events)
+	}
+	if _, err := storage.StateByHeight(ctx, 5); err != nil {
+		t.Fatalf("expected the block to be committed: %v", err)
+	}
+}
+
+func TestRuntimeStagedValidatorUpdatesRollbackWhenCommitFails(t *testing.T) {
+	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{&validatorUpdateModule{
+		runtimeModule: runtimeModule{name: "staking"},
+		updates: []types.ValidatorUpdate{
+			{ID: "alice", Address: "alice", VotingPower: 2},
+			joinUpdate("bob", 1),
+		},
+	}}, vexoapp.PrefixRouter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	attempted := new([]store.KVWrite)
+	failingStore := failingAppCommitStore{LevelDBStore: storage, attempted: attempted}
 	runtime, err := NewWithStore(config.Default("vexo-test"), application, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
 	}, nil, failingStore)
@@ -464,6 +552,16 @@ func TestRuntimeStagedValidatorUpdatesRollbackWhenCommitFails(t *testing.T) {
 	})
 	if !errors.Is(err, errRuntimeCommitFailed) {
 		t.Fatalf("expected commit failure, got %v", err)
+	}
+	// The join of bob was part of the batch that failed: the rollback below is not for lack of a join.
+	joinStaged := false
+	for _, write := range *attempted {
+		if write.Namespace == validator.RegistryNamespace && bytes.Contains(write.Value, []byte(`"bob"`)) {
+			joinStaged = true
+		}
+	}
+	if !joinStaged {
+		t.Fatalf("expected the validator set with bob in the failed commit, got %d writes", len(*attempted))
 	}
 	reopened, err := validator.NewStoreRegistry(context.Background(), storage, nil, 1, nil)
 	if err != nil {
@@ -729,15 +827,37 @@ type validatorUpdateModule struct {
 	updates []types.ValidatorUpdate
 }
 
+// joinKey is the consensus key joinUpdate gives a validator.
+func joinKey(id types.ValidatorID) types.PublicKey {
+	return types.PublicKey("consensus-key-" + string(id))
+}
+
+// joinUpdate is the update the staking module reports for a validator that is not in the set yet: its
+// full identity, the consensus key included. The registry admits a validator only with a key.
+func joinUpdate(id types.ValidatorID, power types.VotingPower) types.ValidatorUpdate {
+	return types.ValidatorUpdate{
+		ID:          id,
+		Address:     types.Address(id),
+		PublicKey:   joinKey(id),
+		VotingPower: power,
+		Stake:       uint64(power),
+	}
+}
+
 func (module *validatorUpdateModule) ValidatorUpdates(ctx vexoapp.Context) []types.ValidatorUpdate {
 	return module.updates
 }
 
 type failingAppCommitStore struct {
 	*store.LevelDBStore
+	// attempted receives the writes of every commit the store refused.
+	attempted *[]store.KVWrite
 }
 
-func (failingAppCommitStore) CommitBlockStateWithWrites(ctx context.Context, writes []store.KVWrite, block store.BlockRecord, state store.StateRecord, roots []store.StateRootRecord) error {
+func (failing failingAppCommitStore) CommitBlockStateWithWrites(ctx context.Context, writes []store.KVWrite, block store.BlockRecord, state store.StateRecord, roots []store.StateRootRecord) error {
+	if failing.attempted != nil {
+		*failing.attempted = append(*failing.attempted, writes...)
+	}
 	return errRuntimeCommitFailed
 }
 

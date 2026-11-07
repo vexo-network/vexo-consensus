@@ -8,6 +8,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
+	"github.com/vexo-network/vexo-consensus/validator"
 )
 
 var (
@@ -87,11 +88,37 @@ func (runtime *Runtime) replayFromFreshStore(ctx context.Context, from types.Hei
 		return ReplayResult{}, err
 	}
 	defer replayStore.Close()
+	if err := runtime.importValidatorRegistry(ctx, to, replayStore); err != nil {
+		return ReplayResult{}, err
+	}
 	replayApp, err := factory.NewReplayApp(replayStore)
 	if err != nil {
 		return ReplayResult{}, err
 	}
+	// The chain began with InitChain: its genesis state is part of every app hash. A chain whose
+	// genesis was never persisted had no InitChain to repeat.
+	request, found, err := runtime.storedInitChain(ctx)
+	if err != nil {
+		return ReplayResult{}, err
+	}
+	if found {
+		if _, err := replayApp.InitChain(request); err != nil {
+			return ReplayResult{}, err
+		}
+	}
 	return runtime.ReplayWithApp(ctx, from, to, replayApp)
+}
+
+// importValidatorRegistry copies the validator-set snapshots up to height into the store of a
+// replay. Modules that judge past events, such as evidence, read the validator set of the height
+// they judge from state; a lookup returns the latest snapshot at or below that height, so snapshots
+// of later heights are never read by an earlier block.
+func (runtime *Runtime) importValidatorRegistry(ctx context.Context, height types.Height, replayStore *store.LevelDBStore) error {
+	pairs, err := runtime.Store.ExportNamespaceAt(ctx, height, validator.RegistryNamespace)
+	if err != nil {
+		return err
+	}
+	return replayStore.ImportNamespace(ctx, validator.RegistryNamespace, pairs)
 }
 
 func (runtime *Runtime) ReplayStrictFromGenesis(ctx context.Context, from types.Height, to types.Height) (ReplayResult, error) {
@@ -152,6 +179,9 @@ func (runtime *Runtime) ReplayFromHistoricalSnapshot(ctx context.Context, from t
 			return ReplayResult{}, err
 		}
 	}
+	if err := runtime.importValidatorRegistry(ctx, to, replayStore); err != nil {
+		return ReplayResult{}, err
+	}
 	replayApp, err := factory.NewReplayApp(replayStore)
 	if err != nil {
 		return ReplayResult{}, err
@@ -174,6 +204,9 @@ func (runtime *Runtime) replayNamespaces() []string {
 		}
 		seen[namespace] = struct{}{}
 		namespaces = append(namespaces, namespace)
+	}
+	for _, namespace := range app.CoreNamespaces() {
+		add(namespace)
 	}
 	for _, module := range runtime.AppModules() {
 		add(module.Name())

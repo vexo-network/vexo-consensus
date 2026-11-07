@@ -3,6 +3,7 @@ package contract
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"sort"
 	"sync"
@@ -14,7 +15,19 @@ var (
 	ErrVMNotFound        = errors.New("contract VM not found")
 	ErrVMAlreadyExists   = errors.New("contract VM already exists")
 	ErrInvalidInvocation = errors.New("invalid contract invocation")
+	// ErrTxRejected marks a deterministic execution rejection: the invocation
+	// is invalid for the state it ran against (bad nonce, insufficient funds,
+	// intrinsic gas, fee caps, malformed payload). Every node reaches the same
+	// verdict, so callers report it as a failed transaction result. Any other
+	// Execute error is an infrastructure failure (state reads, cancellation)
+	// and must never be recorded as a transaction outcome.
+	ErrTxRejected = errors.New("contract invocation rejected")
 )
+
+// Rejected wraps err as a deterministic execution rejection.
+func Rejected(err error) error {
+	return fmt.Errorf("%w: %w", ErrTxRejected, err)
+}
 
 type Invocation struct {
 	VM         string            `json:"vm"`
@@ -30,6 +43,9 @@ type Invocation struct {
 	State      StateReader       `json:"-"`
 	ReadOnly   bool              `json:"-"`
 	AccessList []AccessListEntry `json:"-"`
+	// Trace requests a bounded opcode trace in Result.VMTrace. It is only set
+	// by explicit debug/trace queries, never by consensus execution.
+	Trace bool `json:"-"`
 
 	BlockNumber               uint64        `json:"-"`
 	Nonce                     uint64        `json:"-"`

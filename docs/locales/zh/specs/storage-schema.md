@@ -65,11 +65,8 @@
 - `auth/nonce/{0x_address}`
 - `evm/code/{0x_address}`
 - `evm/storage/{0x_address}/{slot}`
-- `evm_ethstate/{height}/meta`
-- `evm_ethstate/{height}/accounts/{0x_address}`
 - `eth_getProof`
 - `stateRoot`
-- `evm_ethstate/{height}`
 - `EndBlock`
 - `H + 1`
 - `seen_ttl`
@@ -113,16 +110,12 @@
 
 ### 保持不变的接口
 - `store.Store` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
-- `evm_ethstate` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `eth_getBalance` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `eth_getProof` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `bank/{0x_address}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `auth/nonce/{0x_address}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `evm/code/{0x_address}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `evm/storage/{0x_address}/{slot}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
-- `evm_ethstate/{height}/meta` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
-- `evm_ethstate/{height}/accounts/{0x_address}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
-- `evm_ethstate/{height}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `seen_ttl` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `code/{address}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `storage/{address}/{slot}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
@@ -130,3 +123,7 @@
 - `logs/by_height/{height}/{tx_hash}/{log_index}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `logs/by_address/{address}/{height}/{tx_hash}/{log_index}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `logs/{address}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `evm_receipts` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `receipt_index/{tx_hash}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `blob_sidecars/by_tx/{tx_hash}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `blob_sidecars/by_blob/{blob_hash}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

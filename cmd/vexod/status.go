@@ -45,9 +45,11 @@ func writeStatus(writer io.Writer, cfg config.Config) {
 	fmt.Fprintf(writer, "execution.allow_unprotected_legacy_tx: %t\n", cfg.Execution.AllowUnprotectedLegacyTx)
 	fmt.Fprintf(writer, "execution.max_blob_sidecar_blobs: %d\n", cfg.Execution.MaxBlobSidecarBlobs)
 	fmt.Fprintf(writer, "execution.max_blob_sidecar_bytes: %d\n", cfg.Execution.MaxBlobSidecarBytes)
+	fmt.Fprintf(writer, "execution.rpc_gas_cap: %d\n", cfg.Execution.RPCGasCap)
 	fmt.Fprintf(writer, "bank.mint_authority: %s\n", cfg.Bank.MintAuthority)
-	fmt.Fprintf(writer, "governance.quorum_power: %d\n", cfg.Governance.QuorumPower)
-	fmt.Fprintf(writer, "governance.yes_threshold_power: %d\n", cfg.Governance.YesThresholdPower)
+	fmt.Fprintf(writer, "governance.quorum_bps: %d\n", cfg.Governance.QuorumBPS)
+	fmt.Fprintf(writer, "governance.yes_threshold_bps: %d\n", cfg.Governance.YesThresholdBPS)
+	fmt.Fprintf(writer, "governance.veto_bps: %d\n", cfg.Governance.VetoBPS)
 	fmt.Fprintf(writer, "governance.voting_period: %d\n", cfg.Governance.VotingPeriod)
 	fmt.Fprintf(writer, "governance.timelock: %d\n", cfg.Governance.Timelock)
 	fmt.Fprintf(writer, "governance.require_deposit: %t\n", cfg.Governance.RequireDeposit)
@@ -183,6 +185,7 @@ type executionStatus struct {
 	AllowUnprotectedLegacyTx bool   `json:"allow_unprotected_legacy_tx"`
 	MaxBlobSidecarBlobs      uint64 `json:"max_blob_sidecar_blobs"`
 	MaxBlobSidecarBytes      uint64 `json:"max_blob_sidecar_bytes"`
+	RPCGasCap                uint64 `json:"rpc_gas_cap"`
 }
 
 type bankStatus struct {
@@ -190,16 +193,16 @@ type bankStatus struct {
 }
 
 type governanceStatus struct {
-	QuorumPower       types.VotingPower `json:"quorum_power"`
-	YesThresholdPower types.VotingPower `json:"yes_threshold_power"`
-	VetoPower         types.VotingPower `json:"veto_power,omitempty"`
-	VotingPeriod      uint64            `json:"voting_period"`
-	Timelock          uint64            `json:"timelock"`
-	RequireDeposit    bool              `json:"require_deposit"`
-	MinDeposit        string            `json:"min_deposit,omitempty"`
-	DepositDenom      string            `json:"deposit_denom,omitempty"`
-	DepositEscrow     string            `json:"deposit_escrow,omitempty"`
-	RejectedDeposits  string            `json:"rejected_deposits,omitempty"`
+	QuorumBPS        uint64 `json:"quorum_bps"`
+	YesThresholdBPS  uint64 `json:"yes_threshold_bps"`
+	VetoBPS          uint64 `json:"veto_bps,omitempty"`
+	VotingPeriod     uint64 `json:"voting_period"`
+	Timelock         uint64 `json:"timelock"`
+	RequireDeposit   bool   `json:"require_deposit"`
+	MinDeposit       string `json:"min_deposit,omitempty"`
+	DepositDenom     string `json:"deposit_denom,omitempty"`
+	DepositEscrow    string `json:"deposit_escrow,omitempty"`
+	RejectedDeposits string `json:"rejected_deposits,omitempty"`
 }
 
 type validatorStatus struct {
@@ -294,21 +297,22 @@ func newStatusDocument(cfg config.Config) statusDocument {
 			AllowUnprotectedLegacyTx: cfg.Execution.AllowUnprotectedLegacyTx,
 			MaxBlobSidecarBlobs:      cfg.Execution.MaxBlobSidecarBlobs,
 			MaxBlobSidecarBytes:      cfg.Execution.MaxBlobSidecarBytes,
+			RPCGasCap:                cfg.Execution.RPCGasCap,
 		},
 		Bank: bankStatus{
 			MintAuthority: cfg.Bank.MintAuthority,
 		},
 		Governance: governanceStatus{
-			QuorumPower:       cfg.Governance.QuorumPower,
-			YesThresholdPower: cfg.Governance.YesThresholdPower,
-			VetoPower:         cfg.Governance.VetoPower,
-			VotingPeriod:      cfg.Governance.VotingPeriod,
-			Timelock:          cfg.Governance.Timelock,
-			RequireDeposit:    cfg.Governance.RequireDeposit,
-			MinDeposit:        cfg.Governance.MinDeposit,
-			DepositDenom:      cfg.Governance.DepositDenom,
-			DepositEscrow:     string(cfg.Governance.DepositEscrow),
-			RejectedDeposits:  string(cfg.Governance.RejectedDeposits),
+			QuorumBPS:        cfg.Governance.QuorumBPS,
+			YesThresholdBPS:  cfg.Governance.YesThresholdBPS,
+			VetoBPS:          cfg.Governance.VetoBPS,
+			VotingPeriod:     cfg.Governance.VotingPeriod,
+			Timelock:         cfg.Governance.Timelock,
+			RequireDeposit:   cfg.Governance.RequireDeposit,
+			MinDeposit:       cfg.Governance.MinDeposit,
+			DepositDenom:     cfg.Governance.DepositDenom,
+			DepositEscrow:    string(cfg.Governance.DepositEscrow),
+			RejectedDeposits: string(cfg.Governance.RejectedDeposits),
 		},
 		Validator: validatorStatus{
 			Permissionless: cfg.Validator.Permissionless,

@@ -50,9 +50,19 @@ const defaultMaxRequestBytes = 1024 * 1024
 const defaultMaxWeb3Filters = 1024
 const defaultMaxWeb3LogResults = 10_000
 const defaultMaxWeb3LogBlockRange = 10_000
+
+// maxWeb3LogAddresses is the most addresses one log filter may name.
+const maxWeb3LogAddresses = 32
 const defaultWeb3BlockGasLimit = 10_000_000
 const stableAPIPrefix = "/v1"
 
+// Config configures the RPC server.
+//
+// The admin endpoints fail closed: without AdminToken or AdminTokens none is authorized.
+// CORSAllowedOrigins lists the browser origins allowed to call the API; empty means no
+// cross-origin access, and a WebSocket handshake that carries an unlisted Origin is refused.
+// AllowedHosts lists the host names, besides localhost and IP literals, that an admin
+// request may address.
 type Config struct {
 	Address                       string
 	ReadHeaderTimeout             time.Duration
@@ -64,11 +74,13 @@ type Config struct {
 	AdminTokens                   map[string][]string
 	AdminAuditSink                func(AdminAuditEvent)
 	CORSAllowedOrigins            []string
+	AllowedHosts                  []string
 	TLSConfig                     *tls.Config
 	EnablePprof                   bool
 	AllowUnprotectedLegacyTx      bool
 	EVMChainConfigJSON            string
 	StrictEVMStateRoot            bool
+	RPCGasCap                     uint64
 	EnableEVMManagedAccounts      bool
 	EVMAccountPrivateKeys         []string
 	Web3SubscriptionInterval      time.Duration
@@ -229,21 +241,15 @@ type SubmitEvidenceRequest struct {
 	Encoding  string `json:"encoding,omitempty"`
 }
 
+// SubmitEvidenceResponse acknowledges evidence that was verified, pooled and gossiped. Nothing is
+// punished yet: EvidenceHash identifies the payload to wrap in a transaction for a block.
 type SubmitEvidenceResponse struct {
-	Accepted       bool            `json:"accepted"`
-	Applied        bool            `json:"applied"`
-	Type           string          `json:"type"`
-	Validator      string          `json:"validator"`
-	Height         uint64          `json:"height"`
-	Round          uint64          `json:"round"`
-	PreviousPower  uint64          `json:"previous_power,omitempty"`
-	RemainingPower uint64          `json:"remaining_power,omitempty"`
-	Penalty        PenaltyResponse `json:"penalty,omitempty"`
-}
-
-type PenaltyResponse struct {
-	SlashFraction string `json:"slash_fraction,omitempty"`
-	JailDuration  uint64 `json:"jail_duration,omitempty"`
+	Accepted     bool   `json:"accepted"`
+	EvidenceHash string `json:"evidence_hash"`
+	Type         string `json:"type"`
+	Validator    string `json:"validator"`
+	Height       uint64 `json:"height"`
+	Round        uint64 `json:"round"`
 }
 
 type BlockResponse struct {
@@ -352,16 +358,26 @@ type StateSnapshotResponse struct {
 	StateRoots       []StateRootResponse `json:"state_roots"`
 }
 
+// SnapshotExportResponse is the snapshot document a node restores from (vexod snapshot sync and
+// state sync read it as is): Modules names every namespace of the replicated state, and Checksum
+// covers the whole document.
 type SnapshotExportResponse struct {
-	SchemaVersion string                  `json:"schema_version"`
-	State         store.StateRecord       `json:"state"`
-	StateRoots    []store.StateRootRecord `json:"state_roots"`
-	KV            []store.KVPair          `json:"kv,omitempty"`
-	Checksum      string                  `json:"checksum,omitempty"`
+	SchemaVersion string   `json:"schema_version"`
+	ChainID       string   `json:"chain_id,omitempty"`
+	Modules       []string `json:"modules,omitempty"`
+	// Header is the committed block header whose app hash commits State.
+	Header     types.Header            `json:"header"`
+	State      store.StateRecord       `json:"state"`
+	StateRoots []store.StateRootRecord `json:"state_roots"`
+	KV         []store.KVPair          `json:"kv,omitempty"`
+	Checksum   string                  `json:"checksum,omitempty"`
 }
 
 type SnapshotChunkResponse struct {
 	SchemaVersion    string                  `json:"schema_version"`
+	ChainID          string                  `json:"chain_id,omitempty"`
+	Modules          []string                `json:"modules,omitempty"`
+	Header           types.Header            `json:"header"`
 	State            store.StateRecord       `json:"state"`
 	StateRoots       []store.StateRootRecord `json:"state_roots"`
 	KV               []store.KVPair          `json:"kv,omitempty"`
@@ -637,7 +653,7 @@ func newHandlerWithConfig(provider StatusProvider, cfg Config, filters *web3Filt
 	}
 	mux := http.NewServeMux()
 	if cfg.EnablePprof {
-		registerPprofHandlers(mux)
+		registerPprofHandlers(mux, cfg)
 	}
 	mux.HandleFunc("/healthz", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
@@ -756,12 +772,12 @@ func newHandlerWithConfig(provider StatusProvider, cfg Config, filters *web3Filt
 			writeError(writer, http.StatusBadRequest, err.Error())
 			return
 		}
-		result, applied, err := submitter.SubmitEvidence(request.Context(), evidence)
+		hash, err := submitter.SubmitEvidence(request.Context(), evidence)
 		if err != nil {
 			writeError(writer, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeJSON(writer, http.StatusAccepted, evidenceResponse(evidence, result, applied))
+		writeJSON(writer, http.StatusAccepted, evidenceResponse(evidence, hash))
 	})
 	mux.HandleFunc("/blocks", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
@@ -992,60 +1008,45 @@ func newHandlerWithConfig(provider StatusProvider, cfg Config, filters *web3Filt
 		}
 		writeJSON(writer, http.StatusOK, IBCQueryResponse{Path: path, Value: append(json.RawMessage(nil), response.Value...)})
 	})
+	snapshots := newSnapshotExports(provider)
 	mux.HandleFunc("/snapshot/latest", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
 			return
 		}
-		snapshotProvider, ok := provider.(SnapshotProvider)
-		if !ok {
+		if snapshots == nil {
 			writeError(writer, http.StatusNotImplemented, "snapshot query is unavailable")
 			return
 		}
-		snapshot, err := snapshotProvider.StateSnapshot(request.Context())
-		if errors.Is(err, store.ErrStateNotFound) {
-			writeError(writer, http.StatusNotFound, "snapshot not found")
+		head, err := snapshots.provider.StateSnapshotHead(request.Context())
+		if writeSnapshotError(writer, err) {
 			return
 		}
-		if errors.Is(err, store.ErrStateRootNotFound) {
-			writeError(writer, http.StatusNotFound, "snapshot state root not found")
-			return
-		}
-		if err != nil {
-			writeError(writer, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(writer, http.StatusOK, stateSnapshotResponse(snapshot))
+		writeJSON(writer, http.StatusOK, stateSnapshotResponse(head))
 	})
 	mux.HandleFunc("/snapshot/export", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
 			return
 		}
-		snapshotProvider, ok := provider.(SnapshotProvider)
-		if !ok {
+		if snapshots == nil {
 			writeError(writer, http.StatusNotImplemented, "snapshot export is unavailable")
 			return
 		}
-		snapshot, err := snapshotProvider.StateSnapshot(request.Context())
-		if errors.Is(err, store.ErrStateNotFound) {
-			writeError(writer, http.StatusNotFound, "snapshot not found")
-			return
-		}
-		if errors.Is(err, store.ErrStateRootNotFound) {
-			writeError(writer, http.StatusNotFound, "snapshot state root not found")
-			return
-		}
+		blockHeight, err := parseOptionalUintQuery(request, "height", 0)
 		if err != nil {
-			writeError(writer, http.StatusInternalServerError, err.Error())
+			writeError(writer, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeJSON(writer, http.StatusOK, snapshotExportResponse(snapshot))
+		export, err := snapshots.at(request.Context(), types.Height(blockHeight))
+		if writeSnapshotError(writer, err) {
+			return
+		}
+		writeJSON(writer, http.StatusOK, export)
 	})
 	mux.HandleFunc("/snapshot/chunk", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {
 			return
 		}
-		snapshotProvider, ok := provider.(SnapshotProvider)
-		if !ok {
+		if snapshots == nil {
 			writeError(writer, http.StatusNotImplemented, "snapshot chunk export is unavailable")
 			return
 		}
@@ -1054,29 +1055,25 @@ func newHandlerWithConfig(provider StatusProvider, cfg Config, filters *web3Filt
 			writeError(writer, http.StatusBadRequest, err.Error())
 			return
 		}
-		size, err := parseOptionalUintQuery(request, "size", 10000)
+		size, err := parseOptionalUintQuery(request, "size", defaultSnapshotChunkSize)
 		if err != nil {
 			writeError(writer, http.StatusBadRequest, err.Error())
 			return
 		}
-		if size == 0 {
-			writeError(writer, http.StatusBadRequest, "snapshot chunk size must be positive")
+		if size == 0 || size > maxSnapshotChunkSize {
+			writeError(writer, http.StatusBadRequest, fmt.Sprintf("snapshot chunk size must be between 1 and %d", maxSnapshotChunkSize))
 			return
 		}
-		snapshot, err := snapshotProvider.StateSnapshot(request.Context())
-		if errors.Is(err, store.ErrStateNotFound) {
-			writeError(writer, http.StatusNotFound, "snapshot not found")
-			return
-		}
-		if errors.Is(err, store.ErrStateRootNotFound) {
-			writeError(writer, http.StatusNotFound, "snapshot state root not found")
-			return
-		}
+		blockHeight, err := parseOptionalUintQuery(request, "height", 0)
 		if err != nil {
-			writeError(writer, http.StatusInternalServerError, err.Error())
+			writeError(writer, http.StatusBadRequest, err.Error())
 			return
 		}
-		chunk, err := snapshotChunkResponse(snapshot, index, size)
+		export, err := snapshots.at(request.Context(), types.Height(blockHeight))
+		if writeSnapshotError(writer, err) {
+			return
+		}
+		chunk, err := snapshotChunkResponse(export, index, size)
 		if err != nil {
 			writeError(writer, http.StatusBadRequest, err.Error())
 			return
@@ -1094,7 +1091,7 @@ func newHandlerWithConfig(provider StatusProvider, cfg Config, filters *web3Filt
 			report, err := recoveryProvider.RecoveryReport(request.Context(), false)
 			writeRecoveryReport(writer, report, err)
 		case http.MethodPost:
-			if !allowAdmin(writer, request, cfg, "recovery") {
+			if !allowAdmin(writer, request, cfg, "recovery") || !requireJSONContentType(writer, request) {
 				return
 			}
 			report, err := recoveryProvider.RecoveryReport(request.Context(), true)
@@ -1134,10 +1131,7 @@ func newHandlerWithConfig(provider StatusProvider, cfg Config, filters *web3Filt
 		writeJSON(writer, http.StatusOK, stateRootResponse(root))
 	})
 	mux.HandleFunc("/prune", func(writer http.ResponseWriter, request *http.Request) {
-		if !allowPost(writer, request) {
-			return
-		}
-		if !allowAdmin(writer, request, cfg, "prune") {
+		if !allowAdminPost(writer, request, cfg, "prune") {
 			return
 		}
 		pruner, ok := provider.(PruneProvider)
@@ -1166,10 +1160,7 @@ func newHandlerWithConfig(provider StatusProvider, cfg Config, filters *web3Filt
 		writeJSON(writer, http.StatusOK, pruneResponse(result))
 	})
 	mux.HandleFunc("/replay", func(writer http.ResponseWriter, request *http.Request) {
-		if !allowPost(writer, request) {
-			return
-		}
-		if !allowAdmin(writer, request, cfg, "replay") {
+		if !allowAdminPost(writer, request, cfg, "replay") {
 			return
 		}
 		replayer, ok := provider.(ReplayProvider)
@@ -1226,10 +1217,7 @@ func newHandlerWithConfig(provider StatusProvider, cfg Config, filters *web3Filt
 		writeJSON(writer, http.StatusOK, replayResponse(result))
 	})
 	mux.HandleFunc("/consensus/start", func(writer http.ResponseWriter, request *http.Request) {
-		if !allowPost(writer, request) {
-			return
-		}
-		if !allowAdmin(writer, request, cfg, "consensus") {
+		if !allowAdminPost(writer, request, cfg, "consensus") {
 			return
 		}
 		controller, ok := provider.(ConsensusLoopController)
@@ -1249,10 +1237,7 @@ func newHandlerWithConfig(provider StatusProvider, cfg Config, filters *web3Filt
 		writeJSON(writer, http.StatusOK, consensusLoopResponse("start", true, loopConfig))
 	})
 	mux.HandleFunc("/consensus/stop", func(writer http.ResponseWriter, request *http.Request) {
-		if !allowPost(writer, request) {
-			return
-		}
-		if !allowAdmin(writer, request, cfg, "consensus") {
+		if !allowAdminPost(writer, request, cfg, "consensus") {
 			return
 		}
 		controller, ok := provider.(ConsensusLoopController)
@@ -1422,7 +1407,7 @@ func writeFinalityProof(writer http.ResponseWriter, proof finality.Proof, err er
 		writeError(writer, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if requireStrict && !proof.HasThreeChainCommitProof() {
+	if requireStrict && !proof.HasCommitProof() {
 		writeError(writer, http.StatusNotFound, "strict finality proof not found")
 		return
 	}
@@ -1663,7 +1648,7 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 	case "trace_replayBlockTransactions":
 		return web3TraceReplayBlockTransactions(ctx, provider, params)
 	case "eth_getLogs":
-		filter, rpcErr := web3LogFilterParam(ctx, provider, cfg, params)
+		filter, rpcErr := web3LogFilterParam(ctx, provider, params)
 		if rpcErr != nil {
 			return nil, rpcErr
 		}
@@ -1704,7 +1689,7 @@ func executeWeb3Method(ctx context.Context, provider StatusProvider, cfg Config,
 		if filters == nil {
 			return nil, &JSONRPCError{Code: -32000, Message: "filter store is unavailable"}
 		}
-		filter, rpcErr := web3LogFilterParam(ctx, provider, cfg, params)
+		filter, rpcErr := web3LogFilterParam(ctx, provider, params)
 		if rpcErr != nil {
 			return nil, rpcErr
 		}
@@ -2509,6 +2494,7 @@ type web3CallRequest struct {
 	StateOverrides            map[string]evmmodule.CallStateOverride `json:"state_overrides,omitempty"`
 	BlockOverride             evmmodule.CallBlockOverride            `json:"block_override,omitempty"`
 	SetCodeAuthorizationsJSON string                                 `json:"set_code_authorizations_json,omitempty"`
+	Trace                     bool                                   `json:"trace,omitempty"`
 }
 
 type web3TransactionCall struct {
@@ -2557,7 +2543,6 @@ type web3Receipt struct {
 	Output          string `json:"output,omitempty"`
 	Logs            []any  `json:"logs,omitempty"`
 	StateDiff       any    `json:"state_diff,omitempty"`
-	VMTrace         any    `json:"vm_trace,omitempty"`
 }
 
 type web3ReceiptIndex struct {
@@ -3702,7 +3687,7 @@ func web3DebugTraceBlockRecord(record store.BlockRecord) any {
 		item := map[string]any{
 			"txHash":  receipt.TxHash,
 			"result":  web3ReceiptDebugTraceResult(receipt),
-			"vmTrace": web3VMTraceFromReceipt(receipt),
+			"vmTrace": nil,
 		}
 		if index < len(record.Block.Txs) {
 			item["transaction"] = web3TransactionFromBlockRecord(record, index, receipt.TxHash, record.Block.Txs[index])
@@ -3916,7 +3901,7 @@ func web3TraceReplayTransaction(ctx context.Context, provider StatusProvider, pa
 	if !ok {
 		return nil, &JSONRPCError{Code: -32000, Message: "invalid EVM receipt"}
 	}
-	return web3ReplayResponse(receipt.Output, traces, replayTypes, receipt.StateDiff, web3VMTraceFromReceipt(receipt)), nil
+	return web3ReplayResponse(receipt.Output, traces, replayTypes, receipt.StateDiff, nil), nil
 }
 
 func web3TraceReplayBlockTransactions(ctx context.Context, provider StatusProvider, params []json.RawMessage) (any, *JSONRPCError) {
@@ -3944,7 +3929,7 @@ func web3TraceReplayBlockTransactions(ctx context.Context, provider StatusProvid
 		if trace == nil {
 			continue
 		}
-		response := web3ReplayResponse(receipt.Output, []any{trace}, replayTypes, receipt.StateDiff, web3VMTraceFromReceipt(receipt))
+		response := web3ReplayResponse(receipt.Output, []any{trace}, replayTypes, receipt.StateDiff, nil)
 		response["transactionHash"] = receipt.TxHash
 		responses = append(responses, response)
 	}
@@ -3993,19 +3978,12 @@ func web3ReplayResponse(output string, traces any, types map[string]bool, stateD
 	return response
 }
 
-func web3VMTraceFromReceipt(receipt web3Receipt) any {
-	if receipt.VMTrace != nil {
-		return receipt.VMTrace
-	}
-	return nil
-}
-
 func web3ReceiptDebugTraceResult(receipt web3Receipt) map[string]any {
 	return map[string]any{
 		"gas":         receipt.GasUsed,
 		"failed":      receipt.Status == 0,
 		"returnValue": strings.TrimPrefix(receipt.Output, "0x"),
-		"structLogs":  web3StructLogs(receipt.VMTrace),
+		"structLogs":  []any{},
 	}
 }
 
@@ -4035,9 +4013,6 @@ func web3ReceiptCallTrace(ctx context.Context, provider StatusProvider, receipt 
 		result["value"] = "0x0"
 		result["gas"] = hexQuantity(receipt.GasUsed)
 		result["input"] = "0x"
-	}
-	if calls := web3CallTraceChildren(receipt.VMTrace); len(calls) > 0 {
-		result["calls"] = calls
 	}
 	if receipt.Status == 0 {
 		result["error"] = web3ReceiptError(receipt)
@@ -4171,9 +4146,7 @@ func web3TraceListFromReceipt(ctx context.Context, provider StatusProvider, rece
 	if trace == nil {
 		return nil
 	}
-	traces := []any{trace}
-	traces = append(traces, web3ParityTraceChildren(receipt.VMTrace, []uint64{})...)
-	return traces
+	return []any{trace}
 }
 
 func web3TraceFromReceipt(ctx context.Context, provider StatusProvider, receipt web3Receipt) any {
@@ -4462,11 +4435,11 @@ func web3EstimateGas(ctx context.Context, provider StatusProvider, cfg Config, p
 		return "", rpcErr
 	}
 	high := call.GasLimit
-	if high == 0 {
-		high = defaultWeb3BlockGasLimit
-	}
 	if high < intrinsicGas {
 		high = intrinsicGas
+	}
+	if gasCap := cfg.rpcGasCap(); high > gasCap {
+		return "", &JSONRPCError{Code: -32000, Message: fmt.Sprintf("gas required exceeds allowance (%d)", gasCap)}
 	}
 	probe := call
 	probe.GasLimit = high
@@ -4486,6 +4459,12 @@ func web3EstimateGas(ctx context.Context, provider StatusProvider, cfg Config, p
 	}
 	left, right := low, high
 	for left < right {
+		// A cancelled request must stop the search: every probe after the
+		// cancellation fails, and a search that reads failures as "too little
+		// gas" would converge on, and report, the upper bound.
+		if err := ctx.Err(); err != nil {
+			return "", &JSONRPCError{Code: -32000, Message: err.Error()}
+		}
 		mid := left + (right-left)/2
 		probe.GasLimit = mid
 		response, rpcErr := web3EVMCallRequest(ctx, provider, probe)
@@ -4494,6 +4473,9 @@ func web3EstimateGas(ctx context.Context, provider StatusProvider, cfg Config, p
 			continue
 		}
 		right = mid
+	}
+	if err := ctx.Err(); err != nil {
+		return "", &JSONRPCError{Code: -32000, Message: err.Error()}
 	}
 	return hexQuantity(left), nil
 }
@@ -4522,6 +4504,18 @@ func web3EVMCall(ctx context.Context, provider StatusProvider, cfg Config, param
 	if rpcErr != nil {
 		return web3EVMCallResponse{}, rpcErr
 	}
+	return web3EVMCallRequest(ctx, provider, call)
+}
+
+// web3TracedEVMCall runs a call that records an opcode trace. Tracing is the
+// one thing that makes an execution expensive beyond its gas, so only the
+// debug and trace methods ask for it.
+func web3TracedEVMCall(ctx context.Context, provider StatusProvider, cfg Config, params []json.RawMessage) (web3EVMCallResponse, *JSONRPCError) {
+	call, rpcErr := web3PreparedEVMCall(ctx, provider, cfg, params)
+	if rpcErr != nil {
+		return web3EVMCallResponse{}, rpcErr
+	}
+	call.Trace = true
 	return web3EVMCallRequest(ctx, provider, call)
 }
 
@@ -4561,8 +4555,29 @@ func web3PreparedEVMCall(ctx context.Context, provider StatusProvider, cfg Confi
 			call.BlobBaseFee = override.BlobBaseFee
 		}
 	}
-	_ = cfg
+	call.GasLimit = cfg.callGasLimit(call.GasLimit)
 	return call, nil
+}
+
+// callGasLimit is the gas a read-only execution runs with: the caller's
+// request, or the default block gas limit when it names none, held to the
+// RPC gas cap. Every call, estimate and trace funnels through it, so no
+// request can make the node run the interpreter longer than the cap allows.
+func (cfg Config) callGasLimit(requested uint64) uint64 {
+	if requested == 0 {
+		requested = defaultWeb3BlockGasLimit
+	}
+	if gasCap := cfg.rpcGasCap(); requested > gasCap {
+		return gasCap
+	}
+	return requested
+}
+
+func (cfg Config) rpcGasCap() uint64 {
+	if cfg.RPCGasCap == 0 {
+		return evmmodule.DefaultPolicy().RPCGasCap
+	}
+	return cfg.RPCGasCap
 }
 
 func web3EffectiveCallGasPrice(baseFee uint64, maxFeePerGas uint64, maxPriorityFeePerGas uint64) uint64 {
@@ -4886,7 +4901,7 @@ func web3DebugTraceCall(ctx context.Context, provider StatusProvider, cfg Config
 		return nil, rpcErr
 	}
 	executionParams := web3DebugTraceExecutionParams(params)
-	callResponse, rpcErr := web3EVMCall(ctx, provider, cfg, executionParams)
+	callResponse, rpcErr := web3TracedEVMCall(ctx, provider, cfg, executionParams)
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
@@ -4935,7 +4950,7 @@ func web3TraceCall(ctx context.Context, provider StatusProvider, cfg Config, par
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
-	callResponse, rpcErr := web3EVMCall(ctx, provider, cfg, params)
+	callResponse, rpcErr := web3TracedEVMCall(ctx, provider, cfg, params)
 	if rpcErr != nil {
 		return nil, rpcErr
 	}
@@ -5044,7 +5059,12 @@ func lastParam(params []json.RawMessage) json.RawMessage {
 	return params[len(params)-1]
 }
 
-func web3LogsForAddress(ctx context.Context, provider StatusProvider, address string) ([]any, *JSONRPCError) {
+// web3LogsForAddress fetches the logs of one address, or of every address when
+// address is empty, for the inclusive block range [fromBlock, toBlock] that
+// match topics, at most limit of them. The module reads only the heights in the
+// range and filters while it reads, so the cost of a query is bounded by the
+// range and the limit, not by the length of the chain or the logs it holds.
+func web3LogsForAddress(ctx context.Context, provider StatusProvider, address string, fromBlock uint64, toBlock uint64, topics [][]string, limit uint64) ([]any, *JSONRPCError) {
 	query, ok := provider.(AppQueryProvider)
 	if !ok {
 		return nil, &JSONRPCError{Code: -32000, Message: "application query is unavailable"}
@@ -5053,7 +5073,11 @@ func web3LogsForAddress(ctx context.Context, provider StatusProvider, address st
 	if address != "" {
 		path = append(path, address)
 	}
-	response, err := query.AppQuery(ctx, path, nil)
+	data, err := json.Marshal(evmmodule.LogsRequest{FromBlock: fromBlock, ToBlock: toBlock, Topics: topics, Limit: limit})
+	if err != nil {
+		return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
+	}
+	response, err := query.AppQuery(ctx, path, data)
 	if err != nil {
 		return nil, &JSONRPCError{Code: -32000, Message: err.Error()}
 	}
@@ -5070,12 +5094,62 @@ func web3LogsForAddress(ctx context.Context, provider StatusProvider, address st
 	return web3LogArray(logs), nil
 }
 
-func web3LogsForFilter(ctx context.Context, provider StatusProvider, cfg Config, filter web3Filter) ([]any, *JSONRPCError) {
+// web3LogWindow resolves the blocks a log filter covers right now: an open
+// ended filter follows the head and a bound past the head stops at it. The
+// width limit applies to the resolved window, so a filter cannot avoid it by
+// leaving its upper bound open.
+func web3LogWindow(ctx context.Context, provider StatusProvider, cfg Config, filter web3Filter) (uint64, uint64, bool, *JSONRPCError) {
+	latest := uint64(provider.Status(ctx).LatestHeight)
+	toBlock := filter.ToBlock
+	if toBlock > latest {
+		toBlock = latest
+	}
+	// Genesis carries no transactions and so no logs.
+	if toBlock == 0 || filter.FromBlock > toBlock {
+		return 0, 0, false, nil
+	}
+	if toBlock-filter.FromBlock >= cfg.logMaxBlockRange() {
+		return 0, 0, false, &JSONRPCError{Code: -32602, Message: "eth_getLogs block range exceeds configured limit"}
+	}
+	return filter.FromBlock, toBlock, true, nil
+}
+
+// logMaxResults is the most logs one log query may return: the configured limit, never above
+// what the EVM module returns for one query.
+func (cfg Config) logMaxResults() int {
 	maxResults := cfg.Web3LogMaxResults
 	if maxResults <= 0 {
 		maxResults = defaultMaxWeb3LogResults
 	}
+	if maxResults > evmmodule.MaxLogQueryResults {
+		maxResults = evmmodule.MaxLogQueryResults
+	}
+	return maxResults
+}
+
+// logMaxBlockRange is the most blocks one log query may cover: the configured
+// limit, never above what the EVM module itself reads for one query.
+func (cfg Config) logMaxBlockRange() uint64 {
+	maxRange := cfg.Web3LogMaxBlockRange
+	if maxRange == 0 {
+		maxRange = defaultMaxWeb3LogBlockRange
+	}
+	if maxRange > evmmodule.MaxLogBlockRange {
+		maxRange = evmmodule.MaxLogBlockRange
+	}
+	return maxRange
+}
+
+func web3LogsForFilter(ctx context.Context, provider StatusProvider, cfg Config, filter web3Filter) ([]any, *JSONRPCError) {
+	maxResults := cfg.logMaxResults()
 	results := make([]any, 0)
+	fromBlock, toBlock, nonEmpty, rpcErr := web3LogWindow(ctx, provider, cfg, filter)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	if !nonEmpty {
+		return results, nil
+	}
 	locationCache := make(map[uint64]map[string]web3LogLocation)
 	appendMatching := func(logs []any) *JSONRPCError {
 		for _, log := range logs {
@@ -5094,18 +5168,14 @@ func web3LogsForFilter(ctx context.Context, provider StatusProvider, cfg Config,
 		}
 		return nil
 	}
-	if len(filter.Addresses) == 0 {
-		logs, rpcErr := web3LogsForAddress(ctx, provider, "")
-		if rpcErr != nil {
-			return nil, rpcErr
-		}
-		if rpcErr := appendMatching(logs); rpcErr != nil {
-			return nil, rpcErr
-		}
-		return results, nil
+	addresses := filter.Addresses
+	if len(addresses) == 0 {
+		addresses = []string{""}
 	}
-	for _, address := range filter.Addresses {
-		logs, rpcErr := web3LogsForAddress(ctx, provider, address)
+	for _, address := range addresses {
+		// One more log than may still be returned shows that the limit is exceeded.
+		limit := uint64(maxResults-len(results)) + 1
+		logs, rpcErr := web3LogsForAddress(ctx, provider, address, fromBlock, toBlock, filter.Topics, limit)
 		if rpcErr != nil {
 			return nil, rpcErr
 		}
@@ -5636,12 +5706,10 @@ func web3CallValueHex(call web3CallRequest) string {
 	return hexQuantity(call.Value)
 }
 
+// web3TxHash is the hash the EVM module stores a transaction's receipt under,
+// so a hash the RPC reports always finds the receipt it names.
 func web3TxHash(tx types.Tx) string {
-	if hash, found := vexoapp.TxTag(tx, ethcompat.TagHash); found && hash != "" {
-		return hash
-	}
-	hash := mempool.HashTx(tx)
-	return "0x" + hex.EncodeToString(hash[:])
+	return evmmodule.TxHash(tx)
 }
 
 func web3ReceiptFromResult(result types.Result) (web3Receipt, bool) {
@@ -6128,7 +6196,7 @@ func web3ContractAccessList(entries []web3AccessListEntry) []contract.AccessList
 	return out
 }
 
-func web3LogFilterParam(ctx context.Context, provider StatusProvider, cfg Config, params []json.RawMessage) (web3Filter, *JSONRPCError) {
+func web3LogFilterParam(ctx context.Context, provider StatusProvider, params []json.RawMessage) (web3Filter, *JSONRPCError) {
 	if len(params) != 1 {
 		return web3Filter{}, &JSONRPCError{Code: -32602, Message: "filter object is required"}
 	}
@@ -6146,19 +6214,14 @@ func web3LogFilterParam(ctx context.Context, provider StatusProvider, cfg Config
 		return web3Filter{}, rpcErr
 	}
 	latest := uint64(provider.Status(ctx).LatestHeight)
-	fromBlock, rpcErr := web3LogBlockBound(ctx, provider, payload.FromBlock, latest, 0)
+	// As in Ethereum, an omitted fromBlock is the latest block, not genesis.
+	fromBlock, rpcErr := web3LogBlockBound(ctx, provider, payload.FromBlock, latest, latest)
 	if rpcErr != nil {
 		return web3Filter{}, rpcErr
 	}
 	toBlock, rpcErr := web3LogBlockBound(ctx, provider, payload.ToBlock, latest, ^uint64(0))
 	if rpcErr != nil {
 		return web3Filter{}, rpcErr
-	}
-	if cfg.Web3LogMaxBlockRange == 0 {
-		cfg.Web3LogMaxBlockRange = defaultMaxWeb3LogBlockRange
-	}
-	if toBlock != ^uint64(0) && toBlock >= fromBlock && toBlock-fromBlock+1 > cfg.Web3LogMaxBlockRange {
-		return web3Filter{}, &JSONRPCError{Code: -32602, Message: "eth_getLogs block range exceeds configured limit"}
 	}
 	topics, rpcErr := web3LogTopics(payload.Topics)
 	if rpcErr != nil {
@@ -6180,12 +6243,22 @@ func web3LogAddresses(value any) ([]string, *JSONRPCError) {
 		if len(address) == 0 {
 			return nil, nil
 		}
+		// Every address is a scan of the whole block range.
+		if len(address) > maxWeb3LogAddresses {
+			return nil, &JSONRPCError{Code: -32602, Message: fmt.Sprintf("a log filter accepts at most %d addresses", maxWeb3LogAddresses)}
+		}
 		addresses := make([]string, 0, len(address))
+		seen := make(map[string]struct{}, len(address))
 		for _, item := range address {
 			text, ok := item.(string)
 			if !ok || text == "" {
 				return nil, &JSONRPCError{Code: -32602, Message: "address is required"}
 			}
+			key := strings.ToLower(text)
+			if _, duplicate := seen[key]; duplicate {
+				continue
+			}
+			seen[key] = struct{}{}
 			addresses = append(addresses, text)
 		}
 		return addresses, nil
@@ -6226,6 +6299,9 @@ func web3LogTopics(raw json.RawMessage) ([][]string, *JSONRPCError) {
 	if err := json.Unmarshal(raw, &values); err != nil {
 		return nil, &JSONRPCError{Code: -32602, Message: "invalid log topics"}
 	}
+	if len(values) > evmmodule.MaxLogTopics {
+		return nil, &JSONRPCError{Code: -32602, Message: fmt.Sprintf("a log filter has at most %d topic positions", evmmodule.MaxLogTopics)}
+	}
 	topics := make([][]string, 0, len(values))
 	for _, value := range values {
 		switch item := value.(type) {
@@ -6234,6 +6310,9 @@ func web3LogTopics(raw json.RawMessage) ([][]string, *JSONRPCError) {
 		case string:
 			topics = append(topics, []string{strings.ToLower(item)})
 		case []any:
+			if len(item) > evmmodule.MaxLogTopicOptions {
+				return nil, &JSONRPCError{Code: -32602, Message: fmt.Sprintf("a log topic position accepts at most %d options", evmmodule.MaxLogTopicOptions)}
+			}
 			options := make([]string, 0, len(item))
 			for _, option := range item {
 				text, ok := option.(string)

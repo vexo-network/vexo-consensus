@@ -218,6 +218,9 @@ func TestRuntimeSkipsInvalidReplayTxs(t *testing.T) {
 	if err := vexoapp.NewAccountKeeper().SetSequence(context.Background(), storage, signer, 1); err != nil {
 		t.Fatal(err)
 	}
+	if err := storage.Set(context.Background(), "bank", []byte(signer), encodeRuntimeTestUint64(100)); err != nil {
+		t.Fatal(err)
+	}
 
 	walPath := filepath.Join(t.TempDir(), "mempool.wal")
 	wal, err := mempool.OpenWAL(walPath)
@@ -361,6 +364,10 @@ func TestRuntimeReplayDetectsAppHashMismatch(t *testing.T) {
 		Hash:    types.Hash{1},
 		AppHash: types.Hash{9},
 	}); err != nil {
+		t.Fatal(err)
+	}
+	// Replay reads the validator registry as of the block's committed state.
+	if err := storage.SaveState(context.Background(), store.StateRecord{Height: 1, AppHash: types.Hash{9}, LastBlockHash: types.Hash{1}}); err != nil {
 		t.Fatal(err)
 	}
 

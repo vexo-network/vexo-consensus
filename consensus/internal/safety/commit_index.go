@@ -26,3 +26,23 @@ func (index *CommitIndex) Record(height types.Height, blockHash types.Hash) erro
 	index.byHeight[height] = blockHash
 	return nil
 }
+
+// Get returns the block recorded as committed at height.
+func (index *CommitIndex) Get(height types.Height) (types.Hash, bool) {
+	blockHash, found := index.byHeight[height]
+	return blockHash, found
+}
+
+// Prune forgets every commit recorded strictly below height.
+func (index *CommitIndex) Prune(height types.Height) {
+	for recorded := range index.byHeight {
+		if recorded < height {
+			delete(index.byHeight, recorded)
+		}
+	}
+}
+
+// Len reports how many heights are currently tracked.
+func (index *CommitIndex) Len() int {
+	return len(index.byHeight)
+}

@@ -121,3 +121,12 @@
 - `--validator-set` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `blst-bls12381-minpk-v1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `supranational/blst` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `consensus.TwoChainCommitRule` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `1..Header.Height` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `0 < Proof.ValidatorSetHeight <= Header.Height` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `link.BlockHash == HeaderHash(link.Header)` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `link.Header.Height == Header.Height + 1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `link.Header.PreviousBlockHash == Proof.BlockHash` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `link.QuorumCert` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `link.QuorumCert.Round == QuorumCert.Round + 1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `RuntimeSuite.RegisterValidators` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

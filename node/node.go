@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -12,9 +13,11 @@ import (
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
+	"github.com/vexo-network/vexo-consensus/slashing"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/transport"
 	"github.com/vexo-network/vexo-consensus/types"
+	"github.com/vexo-network/vexo-consensus/validator"
 )
 
 var (
@@ -34,6 +37,13 @@ var (
 	ErrNonSequentialCommit   = errors.New("block commit height is not sequential")
 	ErrLocalVoteRecorded     = errors.New("local vote already recorded for a different block")
 	ErrValidatorKeyMismatch  = errors.New("validator signer public key does not match genesis validator public key")
+	ErrInvalidCommitBlock    = errors.New("invalid commit block")
+	ErrBlockParentMismatch   = errors.New("block does not extend the last committed block")
+	// ErrAppHashMismatch reports a header whose app hash is not the one this node computed for the
+	// height the header names: either the proposer lies or this node's state diverged.
+	ErrAppHashMismatch  = errors.New("block header app hash does not match the local state")
+	ErrProposalRejected = errors.New("application rejected the proposal")
+	ErrUnauthorizedVote = errors.New("vote does not match an accepted proposal")
 )
 
 type Status struct {
@@ -94,6 +104,16 @@ type Node struct {
 	scoreLastSaved time.Time
 	running        bool
 	startedAt      time.Time
+	// reconciledHeight is the committed height whose post-commit steps have all completed.
+	reconciledHeight types.Height
+	// finalityPersisted is the height up to which every finality decision is durably stored.
+	finalityPersisted types.Height
+	recoveryGate      recoveryGate
+
+	// evidenceMu guards deferredEvidence, the equivocation this node detected in a view the evidence
+	// pool cannot judge yet. It is kept in memory only: the pool takes it over once it can judge it.
+	evidenceMu       sync.Mutex
+	deferredEvidence []slashing.Evidence
 }
 
 type proposalRound struct {
@@ -150,6 +170,16 @@ func (node *Node) WithEventLogger(logger EventLogger) *Node {
 }
 
 func (node *Node) Start(ctx context.Context) error {
+	if err := node.start(ctx); err != nil {
+		return err
+	}
+	// The pool of verified evidence outlives a restart, the mempool does not, so the evidence is
+	// queued for a block again once the node runs.
+	node.queuePooledEvidence(ctx)
+	return nil
+}
+
+func (node *Node) start(ctx context.Context) error {
 	node.mu.Lock()
 	defer node.mu.Unlock()
 
@@ -210,17 +240,25 @@ func (node *Node) Start(ctx context.Context) error {
 		storage.Close()
 		return err
 	}
-	consensusState, err := runtime.NewConsensusStateMachineWithSignatures(ctx, startHeight, node.signer)
+	consensusState, anchored, err := node.newConsensusMachine(ctx, runtime, startHeight)
 	if err != nil {
 		storage.Close()
 		return err
 	}
-	consensusState.StartRound(startHeight, 0)
 	consensusWAL, err := consensus.OpenWAL(node.cfg.ConsensusWALPath())
 	if err != nil {
 		storage.Close()
 		return err
 	}
+	if node.cfg.ValidatorID != "" {
+		// A validator that cannot restore what it already signed must not sign anything new.
+		if err := restoreSafetyState(consensusState, consensusWAL, startHeight-1, anchored); err != nil {
+			consensusWAL.Close()
+			storage.Close()
+			return fmt.Errorf("restore consensus safety state: %w", err)
+		}
+	}
+	consensusState.StartRound(startHeight, 0)
 	var localVoter *autoVoteReactor
 	if node.cfg.ValidatorID != "" {
 		localVoter = &autoVoteReactor{
@@ -228,6 +266,7 @@ func (node *Node) Start(ctx context.Context) error {
 			chainID:            node.cfg.Chain.ChainID,
 			validatorID:        node.cfg.ValidatorID,
 			signer:             node.signer,
+			validateProposal:   node.processProposal,
 			onProposalAccepted: node.cacheProposal,
 			onProposalRejected: node.handleRejectedProposal,
 			onVoteAccepted:     node.wakeConsensus,
@@ -329,14 +368,32 @@ func (node *Node) initializeRuntime(ctx context.Context, runtime *vexoruntime.Ru
 		storage.Close()
 		return 0, err
 	}
-	if _, err := node.app.InitChain(app.InitChainRequest{
-		ChainID: node.genesis.ChainID,
-		Genesis: node.genesis.AppState,
+	if _, err := runtime.InitChain(ctx, app.InitChainRequest{
+		ChainID:    node.genesis.ChainID,
+		Genesis:    node.genesis.AppState,
+		Validators: genesisValidatorUpdates(node.genesis.Validators),
 	}); err != nil {
 		storage.Close()
 		return 0, err
 	}
 	return 1, nil
+}
+
+// genesisValidatorUpdates hands the genesis validator set to the modules that seed their state from it.
+// Without it the staking module knows no genesis validator, so nothing could ever be slashed.
+func genesisValidatorUpdates(validators []validator.Validator) []types.ValidatorUpdate {
+	updates := make([]types.ValidatorUpdate, 0, len(validators))
+	for _, info := range validators {
+		updates = append(updates, types.ValidatorUpdate{
+			ID:          info.ID,
+			Address:     info.Address,
+			PublicKey:   info.PublicKey,
+			VotingPower: info.VotingPower,
+			Stake:       info.Stake,
+			Metadata:    info.Metadata,
+		})
+	}
+	return updates
 }
 
 func (node *Node) Stop(ctx context.Context) error {
@@ -387,8 +444,14 @@ func (node *Node) Stop(ctx context.Context) error {
 		node.mu.Lock()
 	}
 	if node.reactor != nil {
-		if err := node.reactor.Stop(ctx); err != nil {
-			return err
+		// The consumers it waits for take node.mu themselves (to cache a proposal or to log an event),
+		// so waiting for them with node.mu held would deadlock a stop that races with a message.
+		reactor := node.reactor
+		node.mu.Unlock()
+		stopErr := reactor.Stop(ctx)
+		node.mu.Lock()
+		if stopErr != nil {
+			return stopErr
 		}
 	}
 	err := node.persistPeerScoresLocked()
@@ -500,7 +563,7 @@ func (node *Node) Status(ctx context.Context) Status {
 		if proofStore, ok := node.runtime.Store.(store.FinalityProofStore); ok && proofStore != nil {
 			if proof, err := proofStore.LatestFinalityProof(ctx); err == nil {
 				loaded := finalityProofFromRecord(proof)
-				if loaded.HasThreeChainCommitProof() {
+				if loaded.HasCommitProof() {
 					status.LatestFinalizedHeight = loaded.Header.Height
 					status.LatestFinalizedHash = loaded.BlockHash
 				}

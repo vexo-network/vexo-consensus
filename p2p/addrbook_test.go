@@ -98,7 +98,9 @@ func TestAddrBookMarksFailureAndFiltersBannedPeers(t *testing.T) {
 	}
 }
 
-func TestAddrBookEvictsOnlyNonPermanentBannedPeers(t *testing.T) {
+// A dial-failure ban must survive in the book until it expires: deleting the record would let the
+// peer be learned again with a clean history.
+func TestAddrBookKeepsBanRecordsAndNeverBansPermanentPeers(t *testing.T) {
 	book, err := OpenAddrBookWithPolicy("", 1)
 	if err != nil {
 		t.Fatal(err)
@@ -107,11 +109,15 @@ func TestAddrBookEvictsOnlyNonPermanentBannedPeers(t *testing.T) {
 	book.Add("bad", "127.0.0.1:26666", "handshake", false)
 	book.MarkFailure("seed", 0)
 	book.MarkFailure("bad", 0)
-	if evicted := book.EvictBanned(); evicted != 1 {
-		t.Fatalf("expected one evicted peer, got %d", evicted)
+	if !book.IsBanned("bad") {
+		t.Fatalf("expected bad peer banned: %+v", book.peers["bad"])
 	}
-	if _, found := book.peers["bad"]; found {
-		t.Fatalf("expected bad peer evicted: %+v", book.peers)
+	book.Add("bad", "127.0.0.1:26667", "handshake", false)
+	if !book.IsBanned("bad") {
+		t.Fatalf("expected relearning a banned peer to keep its ban: %+v", book.peers["bad"])
+	}
+	if _, found := book.LearnedPeerMap("")["bad"]; found {
+		t.Fatalf("expected banned peer excluded from dial candidates")
 	}
 	if _, found := book.peers["seed"]; !found {
 		t.Fatalf("expected permanent seed retained: %+v", book.peers)
@@ -139,5 +145,42 @@ func TestAddrBookIsBannedExpiresTemporaryBan(t *testing.T) {
 	now = now.Add(time.Minute + time.Second)
 	if book.IsBanned("bob") {
 		t.Fatal("expected bob ban to expire")
+	}
+}
+
+// A transport saves the book behind its peer hooks. Close must write what is pending and leave no
+// save that could still write the file after the owner is gone.
+func TestAddrBookCloseWritesPendingChangesAndStopsDeferredSaves(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "addrbook.json")
+	book, err := OpenAddrBook(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	book.Add("alice", "127.0.0.1:26656", "handshake", false)
+	book.SaveDeferred()
+	if err := book.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenAddrBook(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := reopened.PeerMap("")["alice"]; !found {
+		t.Fatal("Close must write the change the deferred save was holding")
+	}
+
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	book.Add("bob", "127.0.0.1:26657", "handshake", false)
+	book.SaveDeferred()
+	book.mu.Lock()
+	pending := book.saveTimer != nil
+	book.mu.Unlock()
+	if pending {
+		t.Fatal("a closed book must not schedule a deferred save")
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a closed book must not write behind, stat: %v", err)
 	}
 }

@@ -729,28 +729,21 @@ func NewUnavailableDataEvidence(proposal Proposal, reason string) (slashing.Evid
 	}, nil
 }
 
+// The Decode*Proof functions are strict: a proof has exactly one spelling, the one json.Marshal gives
+// the value it decodes to, and anything else is rejected (see slashing.DecodeProof). A proof is part
+// of an evidence transaction, so a second spelling of one proof would be a second transaction for
+// the same offence.
+
 func DecodeConflictingVoteProof(proof []byte) (ConflictingVoteProof, error) {
-	var decoded ConflictingVoteProof
-	if err := json.Unmarshal(proof, &decoded); err != nil {
-		return ConflictingVoteProof{}, err
-	}
-	return decoded, nil
+	return slashing.DecodeProof[ConflictingVoteProof](proof)
 }
 
 func DecodeConflictingTimeoutVoteProof(proof []byte) (ConflictingTimeoutVoteProof, error) {
-	var decoded ConflictingTimeoutVoteProof
-	if err := json.Unmarshal(proof, &decoded); err != nil {
-		return ConflictingTimeoutVoteProof{}, err
-	}
-	return decoded, nil
+	return slashing.DecodeProof[ConflictingTimeoutVoteProof](proof)
 }
 
 func DecodeInvalidProposalProof(proof []byte) (InvalidProposalProof, error) {
-	var decoded InvalidProposalProof
-	if err := json.Unmarshal(proof, &decoded); err != nil {
-		return InvalidProposalProof{}, err
-	}
-	return decoded, nil
+	return slashing.DecodeProof[InvalidProposalProof](proof)
 }
 
 func cloneQueryProof(proof queryproof.Proof) *queryproof.Proof {
@@ -768,11 +761,7 @@ func cloneQueryProof(proof queryproof.Proof) *queryproof.Proof {
 }
 
 func DecodeUnavailableDataProof(proof []byte) (UnavailableDataProof, error) {
-	var decoded UnavailableDataProof
-	if err := json.Unmarshal(proof, &decoded); err != nil {
-		return UnavailableDataProof{}, err
-	}
-	return decoded, nil
+	return slashing.DecodeProof[UnavailableDataProof](proof)
 }
 
 func VerifyConflictingVoteEvidence(evidence slashing.Evidence) error {

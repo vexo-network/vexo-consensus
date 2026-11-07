@@ -23,15 +23,25 @@ import (
 const (
 	maxPendingVoteBlocks    = 256
 	maxPendingVotesPerBlock = 1024
-	consensusGossipTimeout  = 15 * time.Second
+	// maxBufferedVotesPerValidator bounds the votes of one validator kept for blocks this node has
+	// not seen yet. A validator signs one vote per view, so honest traffic stays far below it, and a
+	// validator that floods votes only uses up its own budget.
+	maxBufferedVotesPerValidator = 64
+	// maxCachedLocalVotes bounds the cache of this validator's own votes. A vote that falls out of
+	// the cache is still in the WAL, which restores it.
+	maxCachedLocalVotes    = 1024
+	consensusGossipTimeout = 15 * time.Second
 )
 
 type autoVoteReactor struct {
-	machine            *consensus.StateMachine
-	chainID            string
-	validatorID        types.ValidatorID
-	signer             vexocrypto.Signer
-	broadcastVote      func(context.Context, consensus.Vote) error
+	machine       *consensus.StateMachine
+	chainID       string
+	validatorID   types.ValidatorID
+	signer        vexocrypto.Signer
+	broadcastVote func(context.Context, consensus.Vote) error
+	// validateProposal asks the application whether it accepts the block of a proposal. The validator
+	// votes for a proposal only when it does.
+	validateProposal   func(context.Context, consensus.Proposal) error
 	onProposalAccepted func(consensus.Proposal, types.Hash)
 	onProposalRejected func(consensus.Proposal, error)
 	onVoteAccepted     func(context.Context)
@@ -46,6 +56,9 @@ type autoVoteReactor struct {
 	pendingVotes       map[types.Hash][]consensus.Vote
 	localVotes         map[voteRound]consensus.Vote
 	unknownVotes       map[unknownVoteKey]consensus.Vote
+	// pendingPerValidator and unknownPerValidator count the buffered votes of each validator.
+	pendingPerValidator map[types.ValidatorID]int
+	unknownPerValidator map[types.ValidatorID]int
 }
 
 type voteRound struct {
@@ -80,6 +93,11 @@ func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consens
 			}
 			return nil
 		}
+		if proposalRetryable(err) {
+			// Judged once its parent arrives or the block its validator set depends on is
+			// executed; the proposer delivers it again.
+			return err
+		}
 		reactor.reportError("proposal_rejected", err)
 		if reactor.onProposalRejected != nil {
 			reactor.onProposalRejected(proposal, err)
@@ -90,11 +108,24 @@ func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consens
 	if reactor.onProposalAccepted != nil {
 		reactor.onProposalAccepted(proposal, blockHash)
 	}
+	if reactor.validateProposal != nil {
+		if err := reactor.validateProposal(ctx, proposal); err != nil {
+			// The proposal is authentic and the other validators may still certify it, so it stays
+			// cached for execution. This validator just does not vote for it, and the relaying
+			// peer is not at fault.
+			reactor.reportError("proposal_declined", err)
+			reactor.replayPendingVotes(ctx, blockHash)
+			reactor.publishNewEvidence(ctx, before)
+			return nil
+		}
+	}
 	vote, selected, err := reactor.localVote(proposal.Block.Header.Height, proposal.Round, blockHash)
 	if err != nil {
 		return err
 	}
 	if !selected {
+		reactor.replayPendingVotes(ctx, blockHash)
+		reactor.publishNewEvidence(ctx, before)
 		return nil
 	}
 	if err := reactor.machine.OnVote(ctx, vote); err != nil {
@@ -136,6 +167,11 @@ func (reactor *autoVoteReactor) localVote(height types.Height, round types.Round
 			reactor.cacheLocalVote(vote)
 			return vote, recordedHash == blockHash, nil
 		}
+	}
+	// The machine already moved its lock and last voted view when it accepted the proposal. They are
+	// persisted before anything is signed, so a restart cannot vote against them.
+	if err := reactor.recordSafetyState(); err != nil {
+		return consensus.Vote{}, false, err
 	}
 	vote, err := reactor.signLocalVote(height, round, blockHash)
 	if err != nil {
@@ -204,7 +240,71 @@ func (reactor *autoVoteReactor) cacheLocalVote(vote consensus.Vote) {
 	if reactor.localVotes == nil {
 		reactor.localVotes = make(map[voteRound]consensus.Vote)
 	}
-	reactor.localVotes[voteRound{height: vote.Height, round: vote.Round}] = vote
+	key := voteRound{height: vote.Height, round: vote.Round}
+	if _, cached := reactor.localVotes[key]; !cached && len(reactor.localVotes) >= maxCachedLocalVotes {
+		oldest, found := voteRound{}, false
+		for candidate := range reactor.localVotes {
+			if !found || candidate.height < oldest.height || (candidate.height == oldest.height && candidate.round < oldest.round) {
+				oldest, found = candidate, true
+			}
+		}
+		delete(reactor.localVotes, oldest)
+	}
+	reactor.localVotes[key] = vote
+}
+
+// recordSafetyState persists the lock, the highest certificate and the last voted view of the
+// machine. The validator calls it before it signs a vote, so what it signed can never be voted
+// against after a restart.
+func (reactor *autoVoteReactor) recordSafetyState() error {
+	if reactor.wal == nil || reactor.machine == nil {
+		return nil
+	}
+	if err := reactor.wal.RecordSafetyState(reactor.machine.SafetyState()); err != nil {
+		reactor.reportError("safety_state_wal_failed", err)
+		return err
+	}
+	return nil
+}
+
+// pruneAtOrBelow drops everything the reactor buffers for heights that are committed.
+func (reactor *autoVoteReactor) pruneAtOrBelow(height types.Height) {
+	reactor.mu.Lock()
+	defer reactor.mu.Unlock()
+	for blockHash, votes := range reactor.pendingVotes {
+		kept := votes[:0]
+		for _, vote := range votes {
+			if vote.Height <= height {
+				reactor.releaseBuffered(reactor.pendingPerValidator, vote.ValidatorID)
+				continue
+			}
+			kept = append(kept, vote)
+		}
+		if len(kept) == 0 {
+			delete(reactor.pendingVotes, blockHash)
+			continue
+		}
+		reactor.pendingVotes[blockHash] = kept
+	}
+	for key := range reactor.unknownVotes {
+		if key.height <= height {
+			delete(reactor.unknownVotes, key)
+			reactor.releaseBuffered(reactor.unknownPerValidator, key.validatorID)
+		}
+	}
+	for key := range reactor.localVotes {
+		if key.height <= height {
+			delete(reactor.localVotes, key)
+		}
+	}
+}
+
+func (reactor *autoVoteReactor) releaseBuffered(counts map[types.ValidatorID]int, validatorID types.ValidatorID) {
+	if counts[validatorID] <= 1 {
+		delete(counts, validatorID)
+		return
+	}
+	counts[validatorID]--
 }
 
 func (reactor *autoVoteReactor) OnVote(ctx context.Context, vote consensus.Vote) error {
@@ -245,7 +345,13 @@ func (reactor *autoVoteReactor) publishUnknownVoteEvidence(ctx context.Context, 
 	key := unknownVoteKey{height: vote.Height, round: vote.Round, validatorID: vote.ValidatorID}
 	previous, found := reactor.unknownVotes[key]
 	if !found {
-		reactor.unknownVotes[key] = vote
+		if reactor.unknownPerValidator[vote.ValidatorID] < maxBufferedVotesPerValidator {
+			reactor.unknownVotes[key] = vote
+			if reactor.unknownPerValidator == nil {
+				reactor.unknownPerValidator = make(map[types.ValidatorID]int)
+			}
+			reactor.unknownPerValidator[vote.ValidatorID]++
+		}
 		reactor.mu.Unlock()
 		return
 	}
@@ -285,6 +391,13 @@ func (reactor *autoVoteReactor) cachePendingVote(vote consensus.Vote) {
 			return
 		}
 	}
+	if reactor.pendingPerValidator[vote.ValidatorID] >= maxBufferedVotesPerValidator {
+		return
+	}
+	if reactor.pendingPerValidator == nil {
+		reactor.pendingPerValidator = make(map[types.ValidatorID]int)
+	}
+	reactor.pendingPerValidator[vote.ValidatorID]++
 	reactor.pendingVotes[vote.BlockHash] = append(votes, vote)
 }
 
@@ -308,6 +421,9 @@ func (reactor *autoVoteReactor) takePendingVotes(blockHash types.Hash) []consens
 		return nil
 	}
 	delete(reactor.pendingVotes, blockHash)
+	for _, vote := range votes {
+		reactor.releaseBuffered(reactor.pendingPerValidator, vote.ValidatorID)
+	}
 	return append([]consensus.Vote(nil), votes...)
 }
 
@@ -370,13 +486,16 @@ func (node *Node) ProposeBlock(ctx context.Context, block types.Block) (consensu
 		}
 		candidateBlock := block
 		candidateBlock.Header.Height = height
+		// Views are global: the proposal goes into the current view whatever its height.
 		round := status.Round
-		if status.Height != height {
-			round = 0
-		}
 
 		proposal, err := machine.CreateProposal(candidateBlock, round, node.cfg.ValidatorID, finality.QuorumCert{})
 		if err != nil {
+			return consensus.Proposal{}, types.Hash{}, err
+		}
+		// The proposer votes for its own proposal, so the block must pass the application check every
+		// other validator runs before it is signed.
+		if err := node.processProposal(ctx, proposal); err != nil {
 			return consensus.Proposal{}, types.Hash{}, err
 		}
 		if err := node.signConsensusProposal(&proposal); err != nil {
@@ -515,6 +634,22 @@ func (node *Node) VoteBlock(ctx context.Context, height types.Height, round type
 	if voter == nil {
 		return finality.QuorumCert{}, false, ErrMissingValidatorID
 	}
+	// A vote is signed only for the proposal the machine accepted for the view: the lock and the last
+	// voted view were checked when it did. The application must accept the block as well, unless this
+	// validator voted already, which it did only after the application accepted it.
+	proposal, accepted := node.acceptedProposalFor(machine, height, round, blockHash)
+	if !accepted {
+		return finality.QuorumCert{}, false, ErrUnauthorizedVote
+	}
+	recorded, err := voter.hasLocalVote(height, round)
+	if err != nil {
+		return finality.QuorumCert{}, false, err
+	}
+	if !recorded {
+		if err := node.processProposal(ctx, proposal); err != nil {
+			return finality.QuorumCert{}, false, err
+		}
+	}
 	vote, selected, err := voter.localVote(height, round, blockHash)
 	if err != nil {
 		return finality.QuorumCert{}, false, err
@@ -572,6 +707,11 @@ func (node *Node) TimeoutRound(ctx context.Context) (finality.TimeoutCert, bool,
 		Round:       status.Round,
 		ValidatorID: node.cfg.ValidatorID,
 		HighQC:      machine.HighQC(ctx),
+	}
+	// Leaving the view is persisted before the timeout vote is signed, so a restart cannot vote in a
+	// view this validator has already given up on.
+	if err := node.recordTimeoutSafety(machine, vote); err != nil {
+		return finality.TimeoutCert{}, false, err
 	}
 	if err := node.signConsensusTimeoutVote(&vote); err != nil {
 		return finality.TimeoutCert{}, false, err
@@ -787,7 +927,20 @@ func (node *Node) recordConsensusTimeoutVote(vote consensus.TimeoutVote) error {
 	return wal.RecordTimeoutVote(vote)
 }
 
+// commitBlock executes a certified block and finishes its commit. A commit raises the height the
+// evidence pool and the mempool judge at, which makes the evidence of that height admissible, so the
+// evidence that waits for it is taken up once the commit released its locks. That follows every
+// commit that made a block durable, even when finishing it failed or the broadcast of the commit did.
 func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert finality.QuorumCert, requireLocalQC bool, broadcast bool) (app.FinalizeBlockResponse, error) {
+	before, _ := node.currentCommitHeight(ctx)
+	response, err := node.executeCommit(ctx, block, quorumCert, requireLocalQC, broadcast)
+	if after, ok := node.currentCommitHeight(ctx); ok && after > before {
+		node.queueEvidence(ctx)
+	}
+	return response, err
+}
+
+func (node *Node) executeCommit(ctx context.Context, block types.Block, quorumCert finality.QuorumCert, requireLocalQC bool, broadcast bool) (app.FinalizeBlockResponse, error) {
 	started := time.Now()
 	if quorumCert.Height != block.Header.Height {
 		return app.FinalizeBlockResponse{}, fmt.Errorf("%w: height mismatch", ErrInvalidCommitQC)
@@ -796,19 +949,15 @@ func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert
 	if quorumCert.BlockHash != blockHash {
 		return app.FinalizeBlockResponse{}, fmt.Errorf("%w: block hash mismatch", ErrInvalidCommitQC)
 	}
+	// The certificate vouches for the header hash alone. The transactions are bound to the header
+	// by the body checks, so a block whose transactions were swapped never reaches execution.
+	if err := consensus.VerifyBlockBody(block); err != nil {
+		return app.FinalizeBlockResponse{}, fmt.Errorf("%w: %w", ErrInvalidCommitBlock, err)
+	}
 	node.commitMu.Lock()
 	defer node.commitMu.Unlock()
 	node.admissionMu.Lock()
 	defer node.admissionMu.Unlock()
-	if committedHeight, ok := node.currentCommitHeight(ctx); ok {
-		if block.Header.Height <= committedHeight {
-			return app.FinalizeBlockResponse{}, fmt.Errorf("%w: height=%d committed=%d", ErrBlockAlreadyCommitted, block.Header.Height, committedHeight)
-		}
-		if block.Header.Height != committedHeight+1 {
-			return app.FinalizeBlockResponse{}, fmt.Errorf("%w: height=%d expected=%d", ErrNonSequentialCommit, block.Header.Height, committedHeight+1)
-		}
-	}
-
 	runtime, err := node.Runtime()
 	if err != nil {
 		return app.FinalizeBlockResponse{}, err
@@ -817,10 +966,32 @@ func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert
 	if err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
+	committedHeight, ok := node.currentCommitHeight(ctx)
+	if !ok {
+		return app.FinalizeBlockResponse{}, ErrNodeNotRunning
+	}
+	if block.Header.Height <= committedHeight {
+		return app.FinalizeBlockResponse{}, fmt.Errorf("%w: height=%d committed=%d", ErrBlockAlreadyCommitted, block.Header.Height, committedHeight)
+	}
+	if expected, _ := nextHeightAfter(committedHeight); block.Header.Height != expected {
+		return app.FinalizeBlockResponse{}, fmt.Errorf("%w: height=%d expected=%d", ErrNonSequentialCommit, block.Header.Height, expected)
+	}
+	if err := checkParentBinding(ctx, runtime, committedHeight, block.Header); err != nil {
+		return app.FinalizeBlockResponse{}, err
+	}
+	// A certified header whose app hash differs from the local state means this node's state
+	// diverged from the quorum's: it stops here rather than build on a state no one else has. A
+	// node holds no state below the snapshot it was restored from, so it has nothing to compare
+	// there.
+	if err := checkHeaderAppHash(ctx, runtime, block.Header); err != nil && !errors.Is(err, vexoruntime.ErrAppHashUnavailable) {
+		return app.FinalizeBlockResponse{}, err
+	}
 	if requireLocalQC {
-		if _, err := machine.BuildQuorumCert(quorumCert.Height, quorumCert.Round, quorumCert.BlockHash); err != nil {
+		localQC, err := machine.BuildQuorumCert(quorumCert.Height, quorumCert.Round, quorumCert.BlockHash)
+		if err != nil {
 			return app.FinalizeBlockResponse{}, err
 		}
+		quorumCert = localQC
 	} else if err := node.verifyCommitCertificate(ctx, block, quorumCert); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
@@ -832,6 +1003,8 @@ func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert
 		}
 		return app.FinalizeBlockResponse{}, err
 	}
+	// The block is durable from here on. Everything that follows is repeated by reconcileCommitted
+	// when it fails, because the block can never be committed twice.
 	var commitProof finality.Proof
 	if broadcast {
 		proof, err := node.buildCommitFinalityProof(ctx, runtime, block, quorumCert)
@@ -842,40 +1015,17 @@ func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert
 			commitProof = proof
 		}
 	}
-	if err := runtime.Mempool.MarkCommitted(ctx, block.Txs); err != nil {
+	if err := node.finishCommit(ctx, runtime, machine, block, &quorumCert); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
-	if len(block.Txs) > 0 {
-		if err := runtime.Mempool.CompactWAL(ctx); err != nil {
-			return app.FinalizeBlockResponse{}, err
-		}
-	}
-	if err := machine.ObserveCommittedBlock(block, quorumCert); err != nil {
-		return app.FinalizeBlockResponse{}, err
-	}
-	if err := node.persistFinalityDecisions(ctx, runtime, machine); err != nil {
-		return app.FinalizeBlockResponse{}, err
-	}
-	nextRegistryHeight := block.Header.Height + 1
-	if err := machine.UpdateValidatorSetFromRegistry(ctx, runtime.Validators, nextRegistryHeight); err != nil {
-		return app.FinalizeBlockResponse{}, err
-	}
-	nextConsensusHeight := nextRegistryHeight
-	if highQC := machine.HighQC(ctx); highQC.Height >= nextConsensusHeight {
-		nextConsensusHeight = highQC.Height + 1
-	}
-	machine.StartRound(nextConsensusHeight, 0)
 	node.logEvent("block_committed", map[string]any{
 		"chain_id":   block.Header.ChainID,
 		"height":     block.Header.Height,
 		"round":      quorumCert.Round,
-		"block_hash": fmt.Sprintf("%x", consensus.HashBlock(block)),
+		"block_hash": fmt.Sprintf("%x", blockHash),
 		"app_hash":   fmt.Sprintf("%x", response.AppHash),
 		"tx_count":   len(block.Txs),
 	})
-	node.removePendingAtOrBelow(block.Header.Height)
-	node.removeProposedAtOrBelow(block.Header.Height)
-	node.removeTimeoutVotesAtOrBelow(block.Header.Height)
 	if broadcast {
 		if err := node.broadcastCommit(ctx, block, quorumCert, commitProof); err != nil {
 			return app.FinalizeBlockResponse{}, err
@@ -885,39 +1035,77 @@ func (node *Node) commitBlock(ctx context.Context, block types.Block, quorumCert
 	return response, nil
 }
 
+// persistFinalityDecisions stores the finality proof of every commit decision the machine holds. A
+// high-water mark records the height up to which every decision is stored, so a commit does not
+// rebuild the proofs of the decisions it already stored.
 func (node *Node) persistFinalityDecisions(ctx context.Context, runtime *vexoruntime.Runtime, machine *consensus.StateMachine) error {
 	proofStore, ok := runtime.Store.(store.FinalityProofStore)
 	if !ok || proofStore == nil {
 		return nil
 	}
-	for _, decision := range machine.CommitDecisions() {
-		proof, err := runtime.FinalityProof(ctx, decision.CommittedHeight, decision.CommitQC)
-		if errors.Is(err, store.ErrFinalityNotFound) {
+	decisions := machine.CommitDecisions()
+	sort.Slice(decisions, func(left, right int) bool {
+		return decisions[left].CommittedHeight < decisions[right].CommittedHeight
+	})
+	node.mu.Lock()
+	persisted := node.finalityPersisted
+	node.mu.Unlock()
+	contiguous := true
+	for _, decision := range decisions {
+		if decision.CommittedHeight <= persisted {
 			continue
+		}
+		stored, err := node.persistFinalityDecision(ctx, runtime, proofStore, decision)
+		if errors.Is(err, store.ErrBlockNotFound) {
+			// The block is not executed yet, and neither is any block above it.
+			break
 		}
 		if err != nil {
 			return err
 		}
-		if enriched, err := node.attachCommitChainProof(ctx, runtime, proof); err == nil {
-			proof = enriched
-		} else if !errors.Is(err, ErrFinalityNotFound) {
-			return err
-		} else {
+		if !stored {
+			// The child of the block is not known yet. The decision is retried by the next commit.
+			contiguous = false
 			continue
 		}
-		record := finalityProofRecord(proof)
-		stored, err := proofStore.FinalityProof(ctx, decision.CommittedHeight)
-		if err == nil && reflect.DeepEqual(stored, record) {
-			continue
-		}
-		if err != nil && !errors.Is(err, store.ErrFinalityNotFound) {
-			return err
-		}
-		if err := proofStore.SaveFinalityProof(ctx, record); err != nil {
-			return err
+		if contiguous {
+			node.mu.Lock()
+			node.finalityPersisted = decision.CommittedHeight
+			node.mu.Unlock()
 		}
 	}
 	return nil
+}
+
+// persistFinalityDecision stores the proof of one decision. It reports false when the child that
+// completes the proof is not known yet.
+func (node *Node) persistFinalityDecision(ctx context.Context, runtime *vexoruntime.Runtime, proofStore store.FinalityProofStore, decision consensus.CommitDecision) (bool, error) {
+	proof, err := runtime.FinalityProof(ctx, decision.CommittedHeight, decision.CommitQC)
+	if errors.Is(err, store.ErrFinalityNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	proof, err = node.attachCommitChainProof(ctx, runtime, proof)
+	if errors.Is(err, ErrFinalityNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	record := finalityProofRecord(proof)
+	stored, err := proofStore.FinalityProof(ctx, decision.CommittedHeight)
+	if err == nil && reflect.DeepEqual(stored, record) {
+		return true, nil
+	}
+	if err != nil && !errors.Is(err, store.ErrFinalityNotFound) {
+		return false, err
+	}
+	if err := proofStore.SaveFinalityProof(ctx, record); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (node *Node) buildCommitFinalityProof(ctx context.Context, runtime *vexoruntime.Runtime, block types.Block, quorumCert finality.QuorumCert) (finality.Proof, error) {
@@ -928,93 +1116,101 @@ func (node *Node) buildCommitFinalityProof(ctx context.Context, runtime *vexorun
 	return node.attachCommitChainProof(ctx, runtime, proof)
 }
 
+// attachCommitChainProof completes proof, which proves block B with QC(B), with the single child link
+// of the 2-chain commit rule: the child C of B and QC(C), the certificate formed in the view right
+// after the view of QC(B). It returns ErrFinalityNotFound while the child is not known, or when no
+// child certified in that view exists.
 func (node *Node) attachCommitChainProof(ctx context.Context, runtime *vexoruntime.Runtime, proof finality.Proof) (finality.Proof, error) {
-	pending := node.pendingProposals()
-	first, found := findCommitChild(pending, proof.Header, proof.BlockHash)
-	if found {
-		second, found := findCommitChild(pending, first.Header, first.BlockHash)
-		if found {
-			proof.CommitChain = []finality.CommitLink{first, second}
-			return proof, nil
+	if machine, err := node.Consensus(); err == nil {
+		pending := node.pendingProposals()
+		if child, found := findCommitChild(pending, proof.Header, proof.BlockHash, proof.QuorumCert.Round); found {
+			if childQC, found := childQuorumCert(ctx, machine, pending, child); found {
+				return proof.WithChild(child.Block.Header, childQC), nil
+			}
 		}
 	}
 	return attachCommitChainProofFromStore(ctx, runtime, proof)
 }
 
+// attachCommitChainProofFromStore completes proof with the child that is already executed: its block
+// and the certificate the store keeps for it.
 func attachCommitChainProofFromStore(ctx context.Context, runtime *vexoruntime.Runtime, proof finality.Proof) (finality.Proof, error) {
 	if runtime == nil {
 		return finality.Proof{}, ErrFinalityNotFound
 	}
-	firstRecord, err := runtime.BlockByHeight(ctx, proof.Header.Height+1)
+	childHeight, ok := nextHeightAfter(proof.Header.Height)
+	if !ok {
+		return finality.Proof{}, ErrFinalityNotFound
+	}
+	record, err := runtime.BlockByHeight(ctx, childHeight)
 	if err != nil {
 		if errors.Is(err, store.ErrBlockNotFound) {
 			return finality.Proof{}, ErrFinalityNotFound
 		}
 		return finality.Proof{}, err
 	}
-	if firstRecord.Hash == (types.Hash{}) ||
-		firstRecord.Block.Header.ChainID != proof.Header.ChainID ||
-		firstRecord.Block.Header.Height != proof.Header.Height+1 ||
-		firstRecord.Block.Header.PreviousBlockHash != proof.BlockHash {
+	if record.Hash == (types.Hash{}) ||
+		record.Block.Header.ChainID != proof.Header.ChainID ||
+		record.Block.Header.Height != childHeight ||
+		record.Block.Header.PreviousBlockHash != proof.BlockHash ||
+		record.QuorumCert == nil {
 		return finality.Proof{}, ErrFinalityNotFound
 	}
-	if firstRecord.QuorumCert == nil ||
-		firstRecord.QuorumCert.Height != firstRecord.Block.Header.Height ||
-		firstRecord.QuorumCert.BlockHash != firstRecord.Hash {
+	childQC := finalityQuorumCertFromRecord(*record.QuorumCert)
+	if childQC.Height != childHeight || childQC.BlockHash != record.Hash || !consecutiveViews(proof.QuorumCert, childQC) {
 		return finality.Proof{}, ErrFinalityNotFound
 	}
-	secondRecord, err := runtime.BlockByHeight(ctx, proof.Header.Height+2)
-	if err != nil {
-		if errors.Is(err, store.ErrBlockNotFound) {
-			return finality.Proof{}, ErrFinalityNotFound
-		}
-		return finality.Proof{}, err
-	}
-	if secondRecord.Hash == (types.Hash{}) ||
-		secondRecord.Block.Header.ChainID != proof.Header.ChainID ||
-		secondRecord.Block.Header.Height != firstRecord.Block.Header.Height+1 ||
-		secondRecord.Block.Header.PreviousBlockHash != firstRecord.Hash {
-		return finality.Proof{}, ErrFinalityNotFound
-	}
-	proof.CommitChain = []finality.CommitLink{
-		{
-			Header:     firstRecord.Block.Header,
-			BlockHash:  firstRecord.Hash,
-			QuorumCert: proof.QuorumCert,
-		},
-		{
-			Header:     secondRecord.Block.Header,
-			BlockHash:  secondRecord.Hash,
-			QuorumCert: finalityQuorumCertFromRecord(*firstRecord.QuorumCert),
-		},
-	}
-	return proof, nil
+	return proof.WithChild(record.Block.Header, childQC), nil
 }
 
-func findCommitChild(pending map[types.Hash]consensus.Proposal, parentHeader types.Header, parentHash types.Hash) (finality.CommitLink, bool) {
-	for childHash, proposal := range pending {
-		if proposal.Block.Header.ChainID != parentHeader.ChainID {
-			continue
-		}
-		if proposal.Block.Header.Height != parentHeader.Height+1 {
-			continue
-		}
-		if proposal.Block.Header.PreviousBlockHash != parentHash {
-			continue
-		}
-		if proposal.JustifyQC.Height != parentHeader.Height {
-			continue
-		}
-		if proposal.JustifyQC.BlockHash != parentHash {
-			continue
-		}
-		return finality.CommitLink{
-			Header:     proposal.Block.Header,
-			BlockHash:  childHash,
-			QuorumCert: proposal.JustifyQC,
-		}, true
+// consecutiveViews reports whether childQC was formed in the view right after the view of blockQC,
+// which is what makes the child a witness that the block is final.
+func consecutiveViews(blockQC finality.QuorumCert, childQC finality.QuorumCert) bool {
+	return blockQC.Round != ^types.Round(0) && childQC.Round == blockQC.Round+1
+}
+
+// findCommitChild returns the pending proposal that is the child C of the block with the given header
+// and hash: it extends the block by one height, names it as its parent, and was proposed in the view
+// right after the view of the block's certificate. A view has one proposer, so at most one pending
+// proposal matches.
+func findCommitChild(pending map[types.Hash]consensus.Proposal, parentHeader types.Header, parentHash types.Hash, blockQCRound types.Round) (consensus.Proposal, bool) {
+	childHeight, ok := nextHeightAfter(parentHeader.Height)
+	if !ok || blockQCRound == ^types.Round(0) {
+		return consensus.Proposal{}, false
 	}
-	return finality.CommitLink{}, false
+	for _, proposal := range pending {
+		header := proposal.Block.Header
+		if header.ChainID != parentHeader.ChainID ||
+			header.Height != childHeight ||
+			header.PreviousBlockHash != parentHash ||
+			proposal.JustifyQC.Height != parentHeader.Height ||
+			proposal.JustifyQC.BlockHash != parentHash ||
+			proposal.Round != blockQCRound+1 {
+			continue
+		}
+		return proposal, true
+	}
+	return consensus.Proposal{}, false
+}
+
+// childQuorumCert returns QC(C) of the child proposal: the certificate a pending proposal that extends
+// C carries as its justification, the highest certificate of the machine, or one built from the votes
+// the machine holds.
+func childQuorumCert(ctx context.Context, machine *consensus.StateMachine, pending map[types.Hash]consensus.Proposal, child consensus.Proposal) (finality.QuorumCert, bool) {
+	childHash := consensus.HashBlock(child.Block)
+	height := child.Block.Header.Height
+	for _, proposal := range pending {
+		if proposal.JustifyQC.Height == height && proposal.JustifyQC.BlockHash == childHash && proposal.JustifyQC.Round == child.Round {
+			return proposal.JustifyQC, true
+		}
+	}
+	if highQC := machine.HighQC(ctx); highQC.Height == height && highQC.BlockHash == childHash && highQC.Round == child.Round {
+		return highQC, true
+	}
+	if built, err := machine.BuildQuorumCert(height, child.Round, childHash); err == nil {
+		return built, true
+	}
+	return finality.QuorumCert{}, false
 }
 
 type CommitReadyResult struct {
@@ -1033,13 +1229,22 @@ func (node *Node) UnsafeCommitReadyBlock(ctx context.Context) (CommitReadyResult
 	if err != nil {
 		return CommitReadyResult{}, false, err
 	}
-	status := machine.Status(ctx)
+	// The machine leaves a height as soon as a certificate for it forms, so the block to execute
+	// next is judged against the committed height, not against the height of the current view.
+	committed, ok := node.currentCommitHeight(ctx)
+	if !ok {
+		return CommitReadyResult{}, false, ErrNodeNotRunning
+	}
+	next, ok := nextHeightAfter(committed)
+	if !ok {
+		return CommitReadyResult{}, false, nil
+	}
 	for blockHash, proposal := range node.pendingProposals() {
-		if proposal.Block.Header.Height < status.Height {
+		if proposal.Block.Header.Height < next {
 			node.removePending(blockHash)
 			continue
 		}
-		if proposal.Block.Header.Height > status.Height {
+		if proposal.Block.Header.Height > next {
 			continue
 		}
 		qc, err := machine.BuildQuorumCert(proposal.Block.Header.Height, proposal.Round, blockHash)
@@ -1061,28 +1266,49 @@ func (node *Node) UnsafeCommitReadyBlock(ctx context.Context) (CommitReadyResult
 }
 
 func (node *Node) CommitFinalizedBlock(ctx context.Context) (CommitReadyResult, bool, error) {
+	return node.commitFinalizedBlock(ctx, node.recoveryFinalityGateEnabled())
+}
+
+// commitFinalizedBlock executes the next block the 2-chain commit rule finalized. Only the block right
+// above the committed height can be executed, so every other decision is skipped without being
+// examined. With the recovery gate on, the recovery report is consulted, once per committed height.
+func (node *Node) commitFinalizedBlock(ctx context.Context, recoveryGate bool) (CommitReadyResult, bool, error) {
 	machine, err := node.Consensus()
 	if err != nil {
 		return CommitReadyResult{}, false, err
 	}
-	report, reportErr := node.RecoveryReport(ctx, false)
 	decisions := machine.CommitDecisions()
 	if len(decisions) == 0 {
 		return CommitReadyResult{}, false, nil
 	}
+	committed, ok := node.currentCommitHeight(ctx)
+	if !ok {
+		return CommitReadyResult{}, false, ErrNodeNotRunning
+	}
+	next, ok := nextHeightAfter(committed)
+	if !ok {
+		return CommitReadyResult{}, false, nil
+	}
 	pending := node.pendingProposals()
 	for _, decision := range decisions {
-		if node.hasCommitted(ctx, decision.CommittedHeight) {
+		if decision.CommittedHeight <= committed {
 			node.removePending(decision.CommittedBlockHash)
 			continue
 		}
-		if node.loopConfig.RecoveryFinalityGateEnabled && reportErr == nil && !recoveryFinalityAllowsCommit(report, decision.CommittedHeight) {
-			node.metrics.observeRecoveryFinalityDeferral()
-			node.logEvent("recovery_finality_deferred", map[string]any{
-				"height":      decision.CommittedHeight,
-				"safe_height": report.SafeHeight,
-			})
+		if decision.CommittedHeight != next {
 			continue
+		}
+		if recoveryGate {
+			report, reportErr := node.recoveryReportAt(ctx, committed)
+			if reportErr == nil && !recoveryFinalityAllowsCommit(report, decision.CommittedHeight) {
+				node.forgetRecoveryReport()
+				node.metrics.observeRecoveryFinalityDeferral()
+				node.logEvent("recovery_finality_deferred", map[string]any{
+					"height":      decision.CommittedHeight,
+					"safe_height": report.SafeHeight,
+				})
+				continue
+			}
 		}
 		proposal, found := pending[decision.CommittedBlockHash]
 		if !found {

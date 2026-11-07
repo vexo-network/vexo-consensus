@@ -95,10 +95,19 @@ type Header struct {
 	Height            Height
 	TimeUnixNano      int64
 	PreviousBlockHash Hash
-	AppHash           Hash
-	ValidatorSetHash  Hash
-	ConsensusHash     Hash
-	TxRoot            Hash
+	// AppHash is the app hash of the state after executing block ValidatorSetHeight-1, the
+	// genesis state when that is height 0 (see finality.AppHashHeight).
+	AppHash          Hash
+	ValidatorSetHash Hash
+	ConsensusHash    Hash
+	TxRoot           Hash
+	// Round is the view the block is proposed in, and JustifyRound the view of the certificate
+	// of its parent the proposal carries (zero for the first block).
+	Round        Round
+	JustifyRound Round
+	// ValidatorSetHeight is the registry height of the validator set that certifies the block:
+	// the set the registry holds after executing block ValidatorSetHeight-1.
+	ValidatorSetHeight Height
 }
 
 type Block struct {

@@ -299,6 +299,51 @@ func TestLevelDBStorePersistsUpgradePlansByHeightAndName(t *testing.T) {
 	}
 }
 
+func TestNextUpgradePlanReturnsTheLowestPlanAtOrAboveTheHeight(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	for _, plan := range []upgrade.Plan{
+		{Name: "v3", Height: 30, BinaryVersion: "v3"},
+		{Name: "v2", Height: 20, BinaryVersion: "v2"},
+		{Name: "v4", Height: 40, BinaryVersion: "v4"},
+	} {
+		if err := store.SaveUpgradePlan(context.Background(), plan); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for height, want := range map[types.Height]string{1: "v2", 20: "v2", 21: "v3", 30: "v3", 31: "v4", 40: "v4"} {
+		plan, found, err := store.NextUpgradePlan(context.Background(), height)
+		if err != nil || !found || plan.Name != want {
+			t.Fatalf("next plan at %d: want %s, got %+v found=%t err=%v", height, want, plan, found, err)
+		}
+	}
+	if _, found, err := store.NextUpgradePlan(context.Background(), 41); err != nil || found {
+		t.Fatalf("no plan is at or above 41, found=%t err=%v", found, err)
+	}
+}
+
+func TestSaveUpgradePlanRejectsAPlanTheChainAlreadyReached(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	if err := store.SaveState(context.Background(), StateRecord{Height: 10, AppHash: types.Hash{1}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, height := range []types.Height{1, 9, 10} {
+		err := store.SaveUpgradePlan(context.Background(), upgrade.Plan{Name: "late", Height: height, BinaryVersion: "v2"})
+		if !errors.Is(err, upgrade.ErrPlanNotInFuture) {
+			t.Fatalf("a plan for height %d must be rejected at chain height 10, got %v", height, err)
+		}
+	}
+	if _, found, err := store.NextUpgradePlan(context.Background(), 1); err != nil || found {
+		t.Fatalf("a rejected plan must not be stored, found=%t err=%v", found, err)
+	}
+	if err := store.SaveUpgradePlan(context.Background(), upgrade.Plan{Name: "next", Height: 11, BinaryVersion: "v2"}); err != nil {
+		t.Fatalf("a plan above the chain height must be accepted: %v", err)
+	}
+}
+
 func TestLevelDBStoreBlockIndexTracksRangeAndUniqueBlocks(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
@@ -948,8 +993,6 @@ func TestLevelDBStoreSavesAndLoadsEvidence(t *testing.T) {
 			Round:     2,
 			Proof:     []byte("proof"),
 		},
-		Applied:   true,
-		CreatedAt: 123,
 	}
 	if err := store.SaveEvidence(context.Background(), record); err != nil {
 		t.Fatal(err)
@@ -965,7 +1008,7 @@ func TestLevelDBStoreSavesAndLoadsEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Evidence.Validator != "alice" || !loaded.Applied || loaded.CreatedAt != 123 {
+	if loaded.Evidence.Validator != "alice" {
 		t.Fatalf("unexpected evidence record: %+v", loaded)
 	}
 	if err := store.SaveEvidence(context.Background(), record); err != nil {
@@ -1005,7 +1048,7 @@ func TestLevelDBStorePersistsFinalityProofs(t *testing.T) {
 		t.Fatal(err)
 	}
 	proof := FinalityProofRecord{
-		Header:    types.Header{ChainID: "vexo-test", Height: 7},
+		Header:    types.Header{ChainID: "vexo-test", Height: 7, Round: 2},
 		BlockHash: types.Hash{7},
 		QuorumCert: QuorumCertRecord{
 			Height:    7,
@@ -1083,6 +1126,96 @@ func TestLevelDBStoreRejectsInvalidFinalityProof(t *testing.T) {
 	}
 }
 
+func twoChainFinalityRecord() FinalityProofRecord {
+	validatorSetHash := types.Hash{1}
+	return FinalityProofRecord{
+		Header:    types.Header{ChainID: "vexo-test", Height: 7, Round: 4, JustifyRound: 3, ValidatorSetHeight: 6, ValidatorSetHash: validatorSetHash},
+		BlockHash: types.Hash{7},
+		QuorumCert: QuorumCertRecord{
+			Height:    7,
+			Round:     4,
+			BlockHash: types.Hash{7},
+			Signers:   types.Bitmap("alice"),
+		},
+		CommitChain: []CommitLinkRecord{{
+			Header:    types.Header{ChainID: "vexo-test", Height: 8, Round: 5, JustifyRound: 4, PreviousBlockHash: types.Hash{7}, ValidatorSetHeight: 7, ValidatorSetHash: types.Hash{2}},
+			BlockHash: types.Hash{8},
+			QuorumCert: QuorumCertRecord{
+				Height:    8,
+				Round:     5,
+				BlockHash: types.Hash{8},
+				Signers:   types.Bitmap("alice"),
+			},
+		}},
+		ValidatorSetHeight: 6,
+		ValidatorSetHash:   validatorSetHash,
+	}
+}
+
+// The commit link of a stored finality proof is the child of the block certified by its own quorum
+// certificate in the next view; anything else is not a 2-chain commit proof.
+func TestLevelDBStoreValidatesTwoChainCommitLink(t *testing.T) {
+	storage := openTestStore(t)
+	defer closeStore(t, storage)
+
+	valid := twoChainFinalityRecord()
+	if err := storage.SaveFinalityProof(context.Background(), valid); err != nil {
+		t.Fatalf("expected a one-link commit chain to be accepted, got %v", err)
+	}
+	loaded, err := storage.FinalityProof(context.Background(), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.CommitChain) != 1 || loaded.CommitChain[0].QuorumCert.Round != 5 {
+		t.Fatalf("unexpected loaded commit chain: %+v", loaded.CommitChain)
+	}
+
+	cases := map[string]func(record *FinalityProofRecord){
+		"two links": func(record *FinalityProofRecord) {
+			record.CommitChain = append(record.CommitChain, record.CommitChain[0])
+		},
+		"view gap": func(record *FinalityProofRecord) {
+			record.CommitChain[0].QuorumCert.Round = 6
+		},
+		"same view": func(record *FinalityProofRecord) {
+			record.CommitChain[0].QuorumCert.Round = 4
+		},
+		"view overflow": func(record *FinalityProofRecord) {
+			record.QuorumCert.Round = ^types.Round(0)
+			record.CommitChain[0].QuorumCert.Round = 0
+		},
+		"parent certificate in the link": func(record *FinalityProofRecord) {
+			record.CommitChain[0].QuorumCert = record.QuorumCert
+		},
+		"certificate for another block": func(record *FinalityProofRecord) {
+			record.CommitChain[0].QuorumCert.BlockHash = types.Hash{9}
+		},
+		"height gap": func(record *FinalityProofRecord) {
+			record.CommitChain[0].Header.Height = 9
+			record.CommitChain[0].QuorumCert.Height = 9
+		},
+		"fork": func(record *FinalityProofRecord) {
+			record.CommitChain[0].Header.PreviousBlockHash = types.Hash{99}
+		},
+		"child not justified by the block's view": func(record *FinalityProofRecord) {
+			record.CommitChain[0].Header.JustifyRound = 3
+		},
+		"block certificate of another view than the block's": func(record *FinalityProofRecord) {
+			record.Header.Round = 3
+		},
+		"record naming another validator set than its header": func(record *FinalityProofRecord) {
+			record.ValidatorSetHeight = 7
+		},
+	}
+	for name, mutate := range cases {
+		record := twoChainFinalityRecord()
+		mutate(&record)
+		if err := storage.SaveFinalityProof(context.Background(), record); !errors.Is(err, ErrInvalidFinality) {
+			t.Fatalf("%s: expected invalid finality, got %v", name, err)
+		}
+	}
+}
+
 func TestLevelDBStoreRecoverIndexesRebuildsAfterCrash(t *testing.T) {
 	store := openTestStore(t)
 	defer closeStore(t, store)
@@ -1099,7 +1232,6 @@ func TestLevelDBStoreRecoverIndexesRebuildsAfterCrash(t *testing.T) {
 			Height:    1,
 			Proof:     []byte("proof"),
 		},
-		Applied: true,
 	}
 	if err := store.SaveEvidence(context.Background(), evidence); err != nil {
 		t.Fatal(err)
@@ -1107,21 +1239,15 @@ func TestLevelDBStoreRecoverIndexesRebuildsAfterCrash(t *testing.T) {
 	if err := store.db.Delete(blockIndexKey, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.db.Delete(evidenceIndexKey, nil); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := store.BlockIndex(context.Background()); !errors.Is(err, ErrBlockIndexNotFound) {
 		t.Fatalf("expected missing block index, got %v", err)
-	}
-	if _, err := store.EvidenceIndex(context.Background()); !errors.Is(err, ErrEvidenceNotFound) {
-		t.Fatalf("expected missing evidence index, got %v", err)
 	}
 
 	result, err := store.RecoverIndexes(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.BlockIndexKeys != 3 || result.EvidenceKeys != 1 || result.RecoveredIndexes != 2 {
+	if result.BlockIndexKeys != 3 || result.EvidenceKeys != 1 || result.RecoveredIndexes != 1 {
 		t.Fatalf("unexpected recover result: %+v", result)
 	}
 	index, err := store.BlockIndex(context.Background())
@@ -1165,5 +1291,135 @@ func closeStore(t *testing.T, store *LevelDBStore) {
 	t.Helper()
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func testEvidenceRecord(evidenceType slashing.EvidenceType, validator types.ValidatorID, height types.Height, proof string) EvidenceRecord {
+	return EvidenceRecord{
+		Evidence: slashing.Evidence{Type: evidenceType, Validator: validator, Height: height, Round: 1, Proof: []byte(proof)},
+	}
+}
+
+func TestEvidenceKeyIsPerOffenceNotPerLabelOrProof(t *testing.T) {
+	legacy := testEvidenceRecord(slashing.EvidenceDoubleSign, "alice", 9, "proof one").Evidence
+	canonical := testEvidenceRecord(slashing.EvidenceConflictingVote, "alice", 9, "another proof").Evidence
+	if EvidenceKey(legacy) == "" || EvidenceKey(legacy) != EvidenceKey(canonical) {
+		t.Fatalf("one offence must have one key, got %q and %q", EvidenceKey(legacy), EvidenceKey(canonical))
+	}
+	if EvidenceKey(testEvidenceRecord(slashing.EvidenceConflictingVote, "alice", 10, "p").Evidence) == EvidenceKey(canonical) {
+		t.Fatal("a different height is a different offence")
+	}
+	for name, evidence := range map[string]slashing.Evidence{
+		"no proof":     {Type: slashing.EvidenceConflictingVote, Validator: "alice", Height: 1},
+		"unknown type": {Type: "other", Validator: "alice", Height: 1, Proof: []byte("p")},
+	} {
+		if key := EvidenceKey(evidence); key != "" {
+			t.Fatalf("%s must have no key, got %q", name, key)
+		}
+	}
+}
+
+// SaveEvidence used to rewrite the whole index on every insert. A save must touch only its own
+// record, whatever the number of stored records.
+func TestSaveEvidenceWritesOnlyItsOwnRecord(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	for height := types.Height(1); height <= 50; height++ {
+		if err := store.SaveEvidence(context.Background(), testEvidenceRecord(slashing.EvidenceConflictingVote, "alice", height, "proof")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.db.Get([]byte("evidence:index"), nil); err == nil {
+		t.Fatal("an evidence index record exists; every save would rewrite it")
+	}
+	keys, err := store.EvidenceIndex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 50 {
+		t.Fatalf("expected 50 records, got %d", len(keys))
+	}
+	for _, key := range keys {
+		if _, err := store.EvidenceByKey(context.Background(), key); err != nil {
+			t.Fatalf("record %q: %v", key, err)
+		}
+	}
+}
+
+func TestDeleteEvidenceRemovesOnlyThatRecord(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	first := testEvidenceRecord(slashing.EvidenceConflictingVote, "alice", 1, "proof")
+	second := testEvidenceRecord(slashing.EvidenceConflictingVote, "bob", 2, "proof")
+	for _, record := range []EvidenceRecord{first, second} {
+		if err := store.SaveEvidence(context.Background(), record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.DeleteEvidence(context.Background(), EvidenceKey(first.Evidence)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.EvidenceByKey(context.Background(), EvidenceKey(first.Evidence)); !errors.Is(err, ErrEvidenceNotFound) {
+		t.Fatalf("expected the deleted record to be gone, got %v", err)
+	}
+	if _, err := store.EvidenceByKey(context.Background(), EvidenceKey(second.Evidence)); err != nil {
+		t.Fatalf("the other record must stay: %v", err)
+	}
+	if err := store.DeleteEvidence(context.Background(), EvidenceKey(first.Evidence)); err != nil {
+		t.Fatalf("deleting a missing record must succeed: %v", err)
+	}
+	if err := store.DeleteEvidence(context.Background(), ""); !errors.Is(err, ErrInvalidKey) {
+		t.Fatalf("expected invalid key, got %v", err)
+	}
+}
+
+func TestSaveEvidenceReplacesTheRecordOfTheSameOffence(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	first := testEvidenceRecord(slashing.EvidenceConflictingVote, "alice", 1, "proof")
+	if err := store.SaveEvidence(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	again := testEvidenceRecord(slashing.EvidenceDoubleSign, "alice", 1, "other proof")
+	if err := store.SaveEvidence(context.Background(), again); err != nil {
+		t.Fatal(err)
+	}
+	keys, err := store.EvidenceIndex(context.Background())
+	if err != nil || len(keys) != 1 {
+		t.Fatalf("one offence must be one record, got %v err=%v", keys, err)
+	}
+	loaded, err := store.EvidenceByKey(context.Background(), keys[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(loaded.Evidence.Proof) != "other proof" || loaded.Evidence.Type != slashing.EvidenceDoubleSign {
+		t.Fatalf("expected the later record, got %+v", loaded)
+	}
+}
+
+func TestEvidenceByKeyReportsCorruptRecords(t *testing.T) {
+	store := openTestStore(t)
+	defer closeStore(t, store)
+
+	record := testEvidenceRecord(slashing.EvidenceConflictingVote, "alice", 1, "proof")
+	key := EvidenceKey(record.Evidence)
+	if err := store.put(evidenceKey(key), []byte("{not json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.EvidenceByKey(context.Background(), key); !errors.Is(err, ErrEvidenceCorrupt) {
+		t.Fatalf("expected a corrupt record error, got %v", err)
+	}
+	keys, err := store.EvidenceIndex(context.Background())
+	if err != nil || len(keys) != 1 || keys[0] != key {
+		t.Fatalf("a corrupt record must stay listed so it can be deleted, got %v err=%v", keys, err)
+	}
+	if err := store.DeleteEvidence(context.Background(), key); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.EvidenceIndex(context.Background()); !errors.Is(err, ErrEvidenceNotFound) {
+		t.Fatalf("expected an empty pool after deleting the corrupt record, got %v", err)
 	}
 }

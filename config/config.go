@@ -73,6 +73,9 @@ type ExecutionConfig struct {
 	AllowUnprotectedLegacyTx bool
 	MaxBlobSidecarBlobs      uint64
 	MaxBlobSidecarBytes      uint64
+	// RPCGasCap bounds the gas of any single read-only EVM execution
+	// (eth_call, eth_estimateGas, debug and trace calls).
+	RPCGasCap uint64
 }
 
 type StakingConfig struct {
@@ -92,8 +95,18 @@ const (
 	CryptoBackendBLS           CryptoBackend = "bls"
 )
 
+// The default mempool bounds: DefaultMempoolMaxTotalBytes limits the memory all
+// pending transactions hold together and DefaultMempoolMaxTxsPerSender the
+// share of the pool one account may occupy.
+const (
+	DefaultMempoolMaxTotalBytes   int64 = 256 * 1024 * 1024
+	DefaultMempoolMaxTxsPerSender int   = 256
+)
+
 const (
 	DefaultEVMChainID               uint64 = 83960
+	DefaultRPCGasCap                uint64 = 50_000_000
+	DefaultMaxGas                   uint64 = 10_000_000
 	NetworkSafeVRFAdapterECVRFP256         = "ecvrf-p256-sha256-tai-v1"
 	NetworkSafeVRFAuditReport              = "built-in-ecvrf-p256-runtime-validation"
 	NetworkSafeVRFDependencyAudit          = "github.com/vechain/go-ecvrf@v0.0.0-20251211112124-5d5a3ef70fc9"
@@ -108,7 +121,7 @@ const (
 )
 
 func DefaultApplicationModules() []string {
-	return []string{"bank", "staking", "governance", "params", "ibc"}
+	return []string{"bank", "staking", "governance", "params", "ibc", "slashing"}
 }
 
 type CryptoConfig struct {
@@ -143,7 +156,7 @@ func Default(chainID string) Config {
 		},
 		Execution: ExecutionConfig{
 			EVMChainID:               DefaultEVMChainID,
-			MaxGas:                   10_000_000,
+			MaxGas:                   DefaultMaxGas,
 			TargetGas:                5_000_000,
 			BlobBaseFee:              1,
 			TargetBlobGas:            393_216,
@@ -161,6 +174,7 @@ func Default(chainID string) Config {
 			StrictEVMStateRoot:       true,
 			MaxBlobSidecarBlobs:      6,
 			MaxBlobSidecarBytes:      2 * 1024 * 1024,
+			RPCGasCap:                DefaultRPCGasCap,
 		},
 		Crypto: CryptoConfig{
 			Backend: CryptoBackendDeterministic,
@@ -178,6 +192,8 @@ func Default(chainID string) Config {
 		Mempool: mempool.FIFOConfig{
 			MaxTxBytes:         1024 * 1024,
 			MaxTxs:             100000,
+			MaxTotalBytes:      DefaultMempoolMaxTotalBytes,
+			MaxTxsPerSender:    DefaultMempoolMaxTxsPerSender,
 			EnableReplacement:  true,
 			ReplacementBumpBPS: 1000,
 		},
@@ -187,13 +203,14 @@ func Default(chainID string) Config {
 			MaxCommissionBPS: 10000,
 		},
 		Governance: governance.TallyPolicy{
-			QuorumPower:       1,
-			YesThresholdPower: 1,
-			VotingPeriod:      100,
-			Timelock:          10,
-			DepositDenom:      economics.AtomicDenom,
-			DepositEscrow:     "module:governance:deposit_escrow",
-			RejectedDeposits:  "module:governance:rejected_deposits",
+			QuorumBPS:        governance.DefaultQuorumBPS,
+			YesThresholdBPS:  governance.DefaultYesThresholdBPS,
+			VetoBPS:          governance.DefaultVetoBPS,
+			VotingPeriod:     100,
+			Timelock:         10,
+			DepositDenom:     economics.AtomicDenom,
+			DepositEscrow:    "module:governance:deposit_escrow",
+			RejectedDeposits: "module:governance:rejected_deposits",
 		},
 		P2P: p2p.ScoreConfig{
 			InitialScore:              100,
@@ -329,7 +346,8 @@ func (config Config) Validate() error {
 		}
 	}
 	if config.Execution.MaxBlobSidecarBlobs == 0 ||
-		config.Execution.MaxBlobSidecarBytes == 0 {
+		config.Execution.MaxBlobSidecarBytes == 0 ||
+		config.Execution.RPCGasCap == 0 {
 		return ErrInvalidConfig
 	}
 	if config.Execution.DisplayDenom != economics.DisplayDenom ||
@@ -347,6 +365,8 @@ func (config Config) Validate() error {
 	}
 	if config.Mempool.MaxTxBytes <= 0 ||
 		config.Mempool.MaxTxs <= 0 ||
+		config.Mempool.MaxTotalBytes < config.Mempool.MaxTxBytes ||
+		config.Mempool.MaxTxsPerSender <= 0 ||
 		config.Mempool.SeenTTL < 0 {
 		return ErrInvalidConfig
 	}
@@ -358,8 +378,7 @@ func (config Config) Validate() error {
 		config.Staking.MaxCommissionBPS > 10000 {
 		return ErrInvalidConfig
 	}
-	if config.Governance.QuorumPower == 0 ||
-		config.Governance.YesThresholdPower == 0 ||
+	if config.Governance.Validate() != nil ||
 		config.Governance.VotingPeriod == 0 ||
 		config.Governance.Timelock == 0 {
 		return ErrInvalidConfig

@@ -70,14 +70,27 @@ func OpenDurableDAG(ctx context.Context, path string, base *FIFO) (*DAG, error) 
 		}
 		switch event.Op {
 		case walOpAddTx:
-			if dag.base.config.ReplayCheckTx != nil {
-				if err := dag.base.config.ReplayCheckTx(ctx, event.Tx); err != nil {
+			// A future-nonce transaction is not executable yet but is still the
+			// sender's pending work: only a transaction that can never execute
+			// is dropped on replay.
+			if replay := dag.base.config.ReplayCheckTx; replay != nil {
+				if err := replay(ctx, event.Tx); err != nil && !errors.Is(err, ErrTxNotReady) {
+					if ctxErr := ctx.Err(); ctxErr != nil {
+						_ = wal.Close()
+						return nil, ctxErr
+					}
 					continue
 				}
 			}
-			if err := dag.base.AddTx(ctx, event.Tx); err != nil && !errors.Is(err, ErrDuplicateTx) {
-				_ = wal.Close()
-				return nil, err
+			// A logged transaction the current pool policy refuses (limits or
+			// minimum fee changed since it was logged, duplicate) is dropped;
+			// it must not prevent the node from starting.
+			if err := dag.base.AddTx(ctx, event.Tx); err != nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					_ = wal.Close()
+					return nil, ctxErr
+				}
+				continue
 			}
 		case walOpAddBatch:
 			if err := dag.AddBatch(ctx, event.Batch); err != nil && !errors.Is(err, ErrDuplicateBatch) {

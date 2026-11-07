@@ -191,3 +191,9 @@
 - `eth_blobBaseFee` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `eth_maxPriorityFeePerGas` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `eth_feeHistory` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `Authorization: Bearer <token>` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `rpc.allowed_hosts` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `Content-Type: application/json` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `rpc.enable_pprof` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `rpc.cors_allowed_origins` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `https://remix.ethereum.org` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

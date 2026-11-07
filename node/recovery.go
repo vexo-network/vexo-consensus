@@ -64,7 +64,7 @@ func (node *Node) RecoveryReport(ctx context.Context, repairIndexes bool) (Recov
 		report.LatestBlock = index.LatestHeight
 		report.TotalBlocks = index.TotalBlocks
 	}
-	if _, err := node.StateSnapshot(ctx); err != nil {
+	if _, err := node.StateSnapshotHead(ctx); err != nil {
 		report.addProblem(err)
 	} else {
 		report.SnapshotAvailable = true

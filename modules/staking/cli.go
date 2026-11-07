@@ -18,7 +18,8 @@ func stakingCLICommand() vexoapp.CLICommand {
 		Usage:       "staking <command>",
 		Description: "staking module commands for delegation, unbonding, and validator queries",
 		Examples: []string{
-			"staking tx delegate alice validator-1 100 <base64-public-key>",
+			"staking tx create-validator operator-1 validator-1 100 <unpadded-base64-public-key> --signer operator-1",
+			"staking tx delegate alice validator-1 100 --signer alice",
 			"staking tx undelegate alice validator-1 50",
 			"staking tx withdraw-unbonded alice validator-1",
 			"staking tx claim-rewards alice validator-1",
@@ -34,14 +35,26 @@ func stakingCLICommand() vexoapp.CLICommand {
 				Description: "build staking transaction payloads",
 				Children: []vexoapp.CLICommand{
 					{
-						Name:        "delegate",
-						Usage:       "staking tx delegate <delegator> <validator> <amount> <public_key>",
-						Description: "build a delegation transaction payload",
+						Name:        "create-validator",
+						Usage:       "staking tx create-validator <operator> <validator> <amount> <public_key> [bls_pop] --signer <operator>",
+						Description: "build a validator registration transaction payload; the operator self-delegates amount",
 						Args: []vexoapp.CLIArg{
-							{Name: "delegator", Description: "delegator account address"},
+							{Name: "operator", Description: "operator account address, must be the signer"},
+							{Name: "validator", Description: "new validator id"},
+							{Name: "amount", Description: "positive integer self-delegation"},
+							{Name: "public_key", Description: "unpadded base64 validator consensus public key"},
+							{Name: "bls_pop", Description: "unpadded base64 BLS proof of possession, required for BLS keys"},
+						},
+						Run: runCreateValidatorCLI,
+					},
+					{
+						Name:        "delegate",
+						Usage:       "staking tx delegate <delegator> <validator> <amount> --signer <delegator>",
+						Description: "build a delegation transaction payload for a registered validator",
+						Args: []vexoapp.CLIArg{
+							{Name: "delegator", Description: "delegator account address, must be the signer"},
 							{Name: "validator", Description: "validator id"},
 							{Name: "amount", Description: "positive integer stake amount"},
-							{Name: "public_key", Description: "base64 validator consensus public key"},
 						},
 						Run: runDelegateCLI,
 					},
@@ -58,8 +71,8 @@ func stakingCLICommand() vexoapp.CLICommand {
 					},
 					{
 						Name:        "unjail",
-						Usage:       "staking tx unjail <validator>",
-						Description: "build a validator unjail transaction payload",
+						Usage:       "staking tx unjail <validator> --signer <operator>",
+						Description: "build a validator unjail transaction payload; the operator signs it once the jail expired",
 						Args: []vexoapp.CLIArg{
 							{Name: "validator", Description: "validator id"},
 						},
@@ -169,10 +182,57 @@ func stakingCLICommand() vexoapp.CLICommand {
 						},
 						Run: runTombstoneQueryCLI,
 					},
+					{
+						Name:        "jail",
+						Usage:       "staking query jail <validator>",
+						Description: "build a validator jail end height query path",
+						Args: []vexoapp.CLIArg{
+							{Name: "validator", Description: "validator id"},
+						},
+						Run: runJailQueryCLI,
+					},
+					{
+						Name:        "operator",
+						Usage:       "staking query operator <validator>",
+						Description: "build a validator operator account query path",
+						Args: []vexoapp.CLIArg{
+							{Name: "validator", Description: "validator id"},
+						},
+						Run: runOperatorQueryCLI,
+					},
 				},
 			},
 		},
 	}
+}
+
+func runCreateValidatorCLI(writer io.Writer, args []string) error {
+	args, tags, err := splitExecutionTags(args)
+	if err != nil {
+		return err
+	}
+	if len(args) != 4 && len(args) != 5 {
+		return vexoapp.ErrCLIUsage("staking tx create-validator <operator> <validator> <amount> <public_key> [bls_pop]")
+	}
+	amount, err := parseCLIAmount(args[2])
+	if err != nil {
+		return err
+	}
+	txArgs := []string{args[0], args[1], strconv.FormatUint(amount, 10), args[3]}
+	if len(args) == 5 {
+		txArgs = append(txArgs, args[4])
+	}
+	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
+		Module: ModuleName,
+		Action: "create-validator",
+		Args:   txArgs,
+		Tags:   tags,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(writer, "tx: %s\n", tx)
+	return nil
 }
 
 func runDelegateCLI(writer io.Writer, args []string) error {
@@ -180,8 +240,8 @@ func runDelegateCLI(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(args) != 4 {
-		return vexoapp.ErrCLIUsage("staking tx delegate <delegator> <validator> <amount> <public_key>")
+	if len(args) != 3 {
+		return vexoapp.ErrCLIUsage("staking tx delegate <delegator> <validator> <amount>")
 	}
 	amount, err := parseCLIAmount(args[2])
 	if err != nil {
@@ -190,7 +250,7 @@ func runDelegateCLI(writer io.Writer, args []string) error {
 	tx, err := vexoapp.BuildCanonicalTx(vexoapp.CanonicalTx{
 		Module: ModuleName,
 		Action: "delegate",
-		Args:   []string{args[0], args[1], strconv.FormatUint(amount, 10), args[3]},
+		Args:   []string{args[0], args[1], strconv.FormatUint(amount, 10)},
 		Tags:   tags,
 	})
 	if err != nil {
@@ -358,6 +418,22 @@ func runCommissionQueryCLI(writer io.Writer, args []string) error {
 		return vexoapp.ErrCLIUsage("staking query commission <validator>")
 	}
 	fmt.Fprintf(writer, "query_path: %s/commission/%s\n", ModuleName, args[0])
+	return nil
+}
+
+func runJailQueryCLI(writer io.Writer, args []string) error {
+	if len(args) != 1 {
+		return vexoapp.ErrCLIUsage("staking query jail <validator>")
+	}
+	fmt.Fprintf(writer, "query_path: %s/jail/%s\n", ModuleName, args[0])
+	return nil
+}
+
+func runOperatorQueryCLI(writer io.Writer, args []string) error {
+	if len(args) != 1 {
+		return vexoapp.ErrCLIUsage("staking query operator <validator>")
+	}
+	fmt.Fprintf(writer, "query_path: %s/operator/%s\n", ModuleName, args[0])
 	return nil
 }
 

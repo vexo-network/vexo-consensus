@@ -9,6 +9,7 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/types"
+	"github.com/vexo-network/vexo-consensus/validator"
 )
 
 var ErrUnsupportedCryptoBackend = errors.New("unsupported crypto backend")
@@ -18,8 +19,7 @@ var ErrBLSAdapterUnsafe = errors.New("bls adapter does not satisfy production sa
 type BLSAdapterFactory func() (BLSAdapter, error)
 
 type RuntimeSuiteRegistry struct {
-	blsFactory     BLSAdapterFactory
-	blsCredentials []BLSValidatorCredential
+	blsFactory BLSAdapterFactory
 }
 
 func NewRuntimeSuiteRegistry() RuntimeSuiteRegistry {
@@ -28,11 +28,6 @@ func NewRuntimeSuiteRegistry() RuntimeSuiteRegistry {
 
 func (registry RuntimeSuiteRegistry) RegisterBLS(factory BLSAdapterFactory) RuntimeSuiteRegistry {
 	registry.blsFactory = factory
-	return registry
-}
-
-func (registry RuntimeSuiteRegistry) RegisterBLSValidatorCredentials(credentials []BLSValidatorCredential) RuntimeSuiteRegistry {
-	registry.blsCredentials = append([]BLSValidatorCredential(nil), credentials...)
 	return registry
 }
 
@@ -46,6 +41,19 @@ type RuntimeSuite struct {
 	ConsensusVerifier interface {
 		Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool
 	}
+	blsKeys *BLSKeyRegistry
+}
+
+// RegisterValidators admits the consensus keys of one validator-set snapshot. For the BLS backend
+// it verifies every validator's bls_pop proof of possession and registers the keys with
+// FinalityVerifier, which rejects aggregates over any key that was never registered; the call is
+// all-or-nothing and cheap for keys registered before. It must run for every validator set used to
+// verify a certificate, before that verification. Other backends need no registration.
+func (suite RuntimeSuite) RegisterValidators(validators []validator.Validator) error {
+	if suite.blsKeys == nil {
+		return nil
+	}
+	return suite.blsKeys.RegisterValidators(validators)
 }
 
 func NewRuntimeSuite(cfg config.CryptoConfig) (RuntimeSuite, error) {
@@ -84,14 +92,11 @@ func (registry RuntimeSuiteRegistry) NewRuntimeSuite(cfg config.CryptoConfig) (R
 		if err := validateBLSAdapterConfig(cfg, adapter.Metadata()); err != nil {
 			return RuntimeSuite{}, err
 		}
-		if len(registry.blsCredentials) > 0 {
-			verifier, err := NewBLSAggregateVerifier(adapter, registry.blsCredentials)
-			if err != nil {
-				return RuntimeSuite{}, err
-			}
-			return RuntimeSuite{FinalityVerifier: verifier, ConsensusAggregator: adapter, ConsensusVerifier: adapter}, nil
+		keys, err := NewBLSKeyRegistry(adapter)
+		if err != nil {
+			return RuntimeSuite{}, err
 		}
-		return RuntimeSuite{FinalityVerifier: adapter, ConsensusAggregator: adapter, ConsensusVerifier: adapter}, nil
+		return RuntimeSuite{FinalityVerifier: keys, ConsensusAggregator: adapter, ConsensusVerifier: adapter, blsKeys: keys}, nil
 	default:
 		return RuntimeSuite{}, ErrUnsupportedCryptoBackend
 	}

@@ -143,7 +143,7 @@ func buildAuditPackDocument() auditPackDocument {
 			"go run ./cmd/vexod network longrun --validators 4 --duration 1h --rate 50 --output dist/longrun-evidence.json",
 			"go run ./cmd/vexod network chaos-plan --validators 4 --duration 24h",
 			"go run ./cmd/vexod network load --validators 4 --duration 1h --rate 50 --dry-run",
-			"go run ./cmd/vexod keys verify-remote --home .vexo --challenge audit-challenge --height 1 --type consensus_vote --domain vexo.consensus.vote.v1",
+			"go run ./cmd/vexod keys verify-remote --home .vexo --challenge audit-challenge --height 1",
 			"make release VERSION=<version>",
 			"go run ./cmd/vexod release pack --dist dist --version <version> --longrun-evidence dist/longrun-evidence.json --adversarial-evidence dist/adversarial-evidence.json --fuzz-evidence dist/fuzz-evidence.txt",
 			"make sign-release VERSION=<version>",
@@ -294,29 +294,37 @@ func strictSeverity(strict bool) string {
 	return "warning"
 }
 
-func isPrivateListenAddress(address string) bool {
+// listenHost returns the host of a listen or dial address without the brackets
+// of an IPv6 literal. An address without a port is taken as a bare host.
+func listenHost(address string) string {
 	host := address
 	if splitHost, _, err := net.SplitHostPort(address); err == nil {
 		host = splitHost
 	}
-	if host == "" || host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(strings.Trim(host, "[]"))
-	if ip == nil {
-		return false
-	}
-	return ip.IsLoopback() || ip.IsPrivate()
+	return strings.Trim(host, "[]")
 }
 
-func isLoopbackListenAddress(address string) bool {
-	host := address
-	if splitHost, _, err := net.SplitHostPort(address); err == nil {
-		host = splitHost
-	}
-	if host == "" || host == "localhost" {
+// isPrivateListenAddress reports whether address is confined to loopback or a
+// private network. A listener with no host (":26656") or an unspecified one
+// ("0.0.0.0", "[::]") binds every interface and is therefore public, as is any
+// host name, whose resolution is not under the operator's control.
+func isPrivateListenAddress(address string) bool {
+	host := listenHost(address)
+	if host == "localhost" {
 		return true
 	}
-	ip := net.ParseIP(strings.Trim(host, "[]"))
+	ip := net.ParseIP(host)
+	return ip != nil && !ip.IsUnspecified() && (ip.IsLoopback() || ip.IsPrivate())
+}
+
+// isLoopbackListenAddress reports whether address only accepts connections from
+// the local machine. Like isPrivateListenAddress it treats an empty or
+// unspecified host as reachable from outside.
+func isLoopbackListenAddress(address string) bool {
+	host := listenHost(address)
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
 }

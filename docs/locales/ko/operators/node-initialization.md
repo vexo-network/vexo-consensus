@@ -221,7 +221,7 @@ vexod start --home .vexo-archive-1
 
 `network_config.json` P2P 설정에는 `auth_replay_path`, `require_auth_replay_store` 및 `dial_timeout`이 포함됩니다. 생성된 기본값은 nonce 재생 증거를 `data/p2p_auth_replay.jsonl`에 기록하고 `10s` 아웃바운드 다이얼 시간 초과를 사용합니다. 개인 루프백 테스트의 경우 재생 저장소는 대부분 무해한 장부입니다. 공개 인증된 P2P의 경우 다시 시작한 후 캡처된 서명된 핸드셰이크 임시 값이 재생되는 것을 방지하기 때문에 안전 요구 사항입니다. `dial_timeout`은 TLS, 서명된 핸드셰이크 확인 및 지역 간 대기 시간을 위해 충분히 길어야 합니다. 너무 낮게 설정하면 건강한 피어가 불안정해 보이고 다시 시작한 후 활성 상태가 느려질 수 있습니다.
 
-`network_config.json`은(는) 시작 상태 동기화도 소유합니다. 이는 아카이브 노드, 교체 유효성 검사기 또는 깨끗한 시스템에 복원된 노드에 유용합니다. `state_sync.enabled`가 true인 경우 `vexod start`은 `state_sync.snapshot_urls`에서 첫 번째 유효한 스냅샷을 다운로드하고 체인 ID, 체크섬, 상태 루트 및 KV 네임스페이스를 확인하고 이를 LevelDB로 복원하고 인덱스를 다시 빌드한 다음 노드를 시작합니다. 로컬 상태가 이미 `state_sync.min_height`을 충족하고 `state_sync.trust_local_higher`이 true인 경우 시작 시 `state_sync_skipped`을 기록하고 로컬 저장소를 유지합니다.
+`network_config.json`은(는) 시작 상태 동기화도 소유합니다. 이는 아카이브 노드, 교체 유효성 검사기 또는 깨끗한 시스템에 복원된 노드에 유용합니다. `state_sync.enabled`가 true인 경우 `vexod start`는 `state_sync.snapshot_urls` 각각에 신뢰 블록 `state_sync.trust_height` / `state_sync.trust_hash`에 고정된 스냅샷을 요청하고(URL에 `height` 쿼리 파라미터가 붙습니다), 그 블록의 state임이 증명되는 첫 스냅샷만 복원합니다. 스냅샷 헤더의 해시가 `trust_hash`와 같아야 하고, KV 쌍의 네임스페이스 루트로 다시 계산한 app hash가 헤더가 커밋하는 값(블록 `ValidatorSetHeight - 1` 실행 후 state)과 같아야 하며, 복제 state의 네임스페이스만 정확히 담아야 하고, validator registry는 헤더의 `ValidatorSetHeight`를 넘는 set을 가지면 안 되며 그 높이의 set 해시가 헤더의 `ValidatorSetHash`와 같아야 합니다. 이를 통과해야 LevelDB로 복원하고 인덱스를 다시 빌드한 다음 노드를 시작합니다. 따라서 스냅샷 소스는 신뢰하지 않으며, 신뢰 블록 해시는 신뢰하는 validator나 직접 운영하는 노드처럼 다른 경로에서 받아야 합니다. `vexod snapshot restore`, `chunk-restore`, `sync`도 같은 신뢰를 `--trust-height`, `--trust-hash`로 받고, `vexod snapshot export --height`는 지정한 커밋 블록에 고정된 스냅샷을 내보냅니다. 로컬 상태가 이미 `state_sync.min_height`을 충족하고 `state_sync.trust_local_higher`이 true인 경우 시작 시 `state_sync_skipped`을 기록하고 로컬 저장소를 유지합니다.
 
 예 `state_sync` 블록:
 ```json
@@ -234,11 +234,13 @@ vexod start --home .vexo-archive-1
     "require_fresh": true,
     "trust_local_higher": true,
     "max_snapshot_bytes": 268435456,
-    "retry_all_snapshots": true
+    "retry_all_snapshots": true,
+    "trust_height": 1000002,
+    "trust_hash": "<신뢰하는 소스에서 받은 높이 1000002 블록의 hex 해시>"
   }
 }
 ```
-시작 시 가져오기 오류의 경우 `state_sync_candidate_failed`, 유효하지 않거나 오래된 스냅샷의 경우 `state_sync_candidate_rejected`, 확인된 복원 후에는 `state_sync_applied`을 기록합니다. `max_snapshot_bytes`을(를) 인프라가 의도적으로 제공하는 최대 스냅샷보다 낮게 유지하되 정상적인 상태 성장에는 충분히 높게 유지하세요. 운영자가 해당 소스에 대한 대역 외 신뢰 정책 및 최종성/라이트 클라이언트 증거를 갖고 있지 않는 한 인증되지 않은 타사 스냅샷 소스에서 공개 노드를 가리키지 마십시오.
+시작 시 가져오기 오류의 경우 `state_sync_candidate_failed`, 유효하지 않거나 오래된 스냅샷의 경우 `state_sync_candidate_rejected`, 확인된 복원 후에는 `state_sync_applied`을 기록합니다. `max_snapshot_bytes`을(를) 인프라가 의도적으로 제공하는 최대 스냅샷보다 낮게 유지하되 정상적인 상태 성장에는 충분히 높게 유지하세요. 스냅샷 소스는 신뢰할 필요가 없지만 신뢰 블록 해시는 신뢰해야 합니다. 잘못된 `trust_hash`를 주면 노드는 그 해시가 가리키는 체인을 그대로 받아들입니다.
 
 필드가 네트워크 동작을 변경하는 경우 분할 구성 파일을 편집하고 검토된 파일을 커밋하거나 배포합니다. 런타임 동작에 긴 `vexod start` 플래그를 사용하지 마십시오. 시작 명령은 합의 타이밍, 빈 블록, P2P 인증, RPC 관리자 및 관리형 Web3 키 플래그를 의도적으로 거부하므로 운영자가 실수로 검토된 구성과 다른 동작을 실행하지 않습니다.
 
@@ -296,7 +298,7 @@ VRF 키는 합의 서명자가 아닙니다. 이는 VRF 지원 위원회 선택�
 {
   "schema_version": "v1",
   "application": {
-    "Modules": ["bank", "staking", "governance", "params", "ibc"]
+    "Modules": ["bank", "staking", "governance", "params", "ibc", "slashing"]
   },
   "execution": {
     "RequireSigned": true,
@@ -674,3 +676,17 @@ vexod network init \
 
 - `EVMForkPreset: "latest"`
 - `params.ChainConfig`
+- `https://remix.ethereum.org` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `rpc.cors_allowed_origins` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `rpc.admin_token` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `rpc.admin_tokens` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `rpc.allowed_hosts` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `state_sync.trust_height` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `state_sync.trust_hash` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `trust_hash` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `ValidatorSetHeight - 1` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `vexod snapshot restore` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `chunk-restore` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `--trust-height` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `--trust-hash` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `vexod snapshot export --height` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.

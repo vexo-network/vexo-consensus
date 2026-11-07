@@ -146,7 +146,7 @@ func (node *Node) storedLatestFinalityProof(ctx context.Context) (finality.Proof
 		return finality.Proof{}, false, err
 	}
 	loaded := finalityProofFromRecord(proof)
-	if loaded.HasThreeChainCommitProof() {
+	if loaded.HasCommitProof() {
 		return loaded, true, nil
 	}
 	if enriched, err := node.enrichStoredFinalityProof(ctx, loaded); err == nil {
@@ -174,7 +174,7 @@ func (node *Node) storedFinalityProof(ctx context.Context, height types.Height) 
 		return finality.Proof{}, false, err
 	}
 	loaded := finalityProofFromRecord(proof)
-	if loaded.HasThreeChainCommitProof() {
+	if loaded.HasCommitProof() {
 		return loaded, true, nil
 	}
 	if enriched, err := node.enrichStoredFinalityProof(ctx, loaded); err == nil {

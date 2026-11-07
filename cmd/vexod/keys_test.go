@@ -292,10 +292,10 @@ func TestRunKeysVerifyRemote(t *testing.T) {
 	if err := runKeys(&output, []string{"verify-remote", "--home", home, "--challenge", "kms-check"}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "remote signer verified") || !strings.Contains(output.String(), "signature:") || !strings.Contains(output.String(), "policy: "+defaultChainID+"/1/0/consensus_vote/vexo.consensus.vote.v1") {
+	if !strings.Contains(output.String(), "remote signer verified") || !strings.Contains(output.String(), "signature:") || !strings.Contains(output.String(), "policy: "+defaultChainID+"/1/remote_signer_probe/vexo.remote_signer.probe.v1") {
 		t.Fatalf("unexpected verify remote output:\n%s", output.String())
 	}
-	if observedPolicy == nil || observedPolicy.ChainID != defaultChainID || observedPolicy.Height != 1 || observedPolicy.Type != vexocrypto.SignTypeConsensusVote || observedPolicy.Domain != vexocrypto.DomainConsensusVote {
+	if observedPolicy == nil || observedPolicy.ChainID != defaultChainID || observedPolicy.Height != 1 || observedPolicy.Type != vexocrypto.SignTypeRemoteSignerProbe || observedPolicy.Domain != vexocrypto.DomainRemoteSignerProbe {
 		t.Fatalf("unexpected observed policy: %+v", observedPolicy)
 	}
 }

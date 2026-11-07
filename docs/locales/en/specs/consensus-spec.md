@@ -41,6 +41,7 @@ Consensus state is keyed by:
 - A vote is safe only for a known proposal that passes the same lock rule.
 - A QC is valid only when signer voting power reaches `>= 2/3` of the validator set.
 - QCs must contain unique known signers and the recomputed voting power must match the QC voting power when present.
+- A block header's `AppHash` is the app hash of the state after executing block `ValidatorSetHeight - 1` (the genesis state when that is `0`), the state its validator set was taken from. The proposer stamps it, a validator votes only for a proposal whose `AppHash` matches its own state at that height, and a node refuses to execute a certified block whose `AppHash` disagrees with its state. A certificate therefore vouches for the application state of that height, which is what a state-synced node checks a snapshot against.
 
 ## Finality Rule
 

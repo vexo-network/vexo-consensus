@@ -2,20 +2,14 @@ package finality
 
 import "github.com/vexo-network/vexo-consensus/types"
 
+// NewProof builds the proof skeleton of the block with the given header and its quorum
+// certificate. The proof is not final until the child link is attached with WithChild.
 func NewProof(header types.Header, quorumCert QuorumCert) Proof {
-	blockHash := quorumCert.BlockHash
-	if blockHash == (types.Hash{}) {
-		blockHash = Proof{Header: header}.HeaderHash()
-	}
 	return Proof{
 		Header:             header,
-		BlockHash:          blockHash,
+		BlockHash:          HeaderHash(header),
 		QuorumCert:         quorumCert,
-		ValidatorSetHeight: header.Height,
+		ValidatorSetHeight: header.ValidatorSetHeight,
 		ValidatorSetHash:   header.ValidatorSetHash,
 	}
-}
-
-func HeaderHash(header types.Header) types.Hash {
-	return hashHeader(header)
 }

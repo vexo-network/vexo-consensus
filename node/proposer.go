@@ -32,12 +32,18 @@ func ProposerSchedule(validators []validator.Validator, height types.Height, rou
 	return schedule, nil
 }
 
+// Proposer returns the proposer of the view for the next block: it is scheduled from the validator
+// set that block must name, the one its parent, the highest certified block, fixes for it. The
+// set fails with consensus.ErrValidatorSetPending until the block it depends on is executed.
 func (node *Node) Proposer(ctx context.Context, height types.Height, round types.Round) (types.ValidatorID, error) {
-	runtime, err := node.Runtime()
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	machine, err := node.Consensus()
 	if err != nil {
 		return "", err
 	}
-	validatorSet, err := runtime.Validators.ValidatorSet(ctx, height)
+	validatorSet, err := machine.ProposalValidatorSet()
 	if err != nil {
 		return "", err
 	}
@@ -75,6 +81,10 @@ func (node *Node) tickConsensusWithProposalOptions(ctx context.Context, cfg Cons
 		height = 1
 	}
 	isProposer, err := node.IsProposer(ctx, height, status.Round)
+	if errors.Is(err, consensus.ErrValidatorSetPending) {
+		// The set of the next block depends on a block this node has not executed yet.
+		return consensus.Proposal{}, types.Hash{}, false, nil
+	}
 	if err != nil {
 		return consensus.Proposal{}, types.Hash{}, false, err
 	}
@@ -163,12 +173,24 @@ func (node *Node) cachedProposalStillValid(ctx context.Context, proposal consens
 	return appRuntime.ProcessProposalContext(ctx, app.ProcessProposalRequest{Block: proposal.Block}).Accepted
 }
 
+// handleRejectedProposal reacts to a proposal the consensus machine refused. A refusal says nothing
+// about the proposal the node holds: most refusal reasons are reached before the proposer's signature
+// is checked, so a forged copy of a genuine pending proposal is refused as well, and so is a replay
+// that only changes a certificate the proposer's signature does not cover. The node evicts only when
+// the refused proposal is authentic and is exactly the signed proposal it holds.
 func (node *Node) handleRejectedProposal(proposal consensus.Proposal, err error) {
-	if err == nil {
+	if err == nil || proposalRetryable(err) {
 		return
 	}
-	node.removePending(consensus.HashBlock(proposal.Block))
-	node.removeProposed(proposal.Block.Header.Height, proposal.Round)
+	if !node.proposalIsAuthentic(context.Background(), proposal) {
+		return
+	}
+	if !node.removePendingIfSame(consensus.HashBlock(proposal.Block), proposal) {
+		return
+	}
+	if proposal.Proposer == node.cfg.ValidatorID {
+		node.removeProposed(proposal.Block.Header.Height, proposal.Round)
+	}
 	if !strings.Contains(err.Error(), "invalid transaction nonce") {
 		return
 	}
@@ -200,4 +222,11 @@ func (node *Node) removeNonceInvalidProposalTxs(block types.Block, round types.R
 	})
 	node.removePending(consensus.HashBlock(block))
 	node.removeProposed(block.Header.Height, round)
+}
+
+// proposalRetryable reports whether the consensus machine refused a proposal only for now: the
+// validator set it names depends on a block the node has not executed, or its parent has not
+// arrived. The proposal stays cached and is delivered again.
+func proposalRetryable(err error) bool {
+	return errors.Is(err, consensus.ErrValidatorSetPending) || errors.Is(err, consensus.ErrUnknownParent)
 }

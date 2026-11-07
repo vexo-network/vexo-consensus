@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/consensus"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/fairordering"
@@ -265,8 +266,9 @@ func TestNodeConsensusLoopBroadcastsProposalAndCollectsVotes(t *testing.T) {
 	if record.Hash != blockHash {
 		t.Fatalf("stored block hash mismatch: %x != %x", record.Hash, blockHash)
 	}
+	// Views are global, so the view that follows the certified view 0 is view 1 at the next height.
 	waitForConsensusStatus(t, aliceConsensus, func(status consensus.Status) bool {
-		return status.Height == 2 && status.Round == 0 && status.Phase == consensus.PhasePropose
+		return status.Height == 2 && status.Round == 1 && status.Phase == consensus.PhasePropose
 	})
 }
 
@@ -403,12 +405,43 @@ func TestNodeTickConsensusOnlyProposerBuildsMempoolProposal(t *testing.T) {
 	if proposal.Proposer != "alice" || blockHash == (types.Hash{}) {
 		t.Fatalf("unexpected proposal result: proposer=%s hash=%x", proposal.Proposer, blockHash)
 	}
-	waitForConsensusStatus(t, bobConsensus, func(status consensus.Status) bool {
-		return status.Height == 1 && (status.Phase == consensus.PhaseVote || status.Phase == consensus.PhaseCommit)
-	})
+	// bob accepted the proposal and voted for it, so the votes of the validators form a certificate
+	// in the view of the proposal. The certificate moves bob on, so its height is not stable.
+	waitForQuorumCert(t, bobConsensus, proposal.Block.Header.Height, proposal.Round, blockHash)
 }
 
 func TestNodeTickConsensusDoesNotReproposeSameRound(t *testing.T) {
+	// Only alice runs, so no certificate forms and the view of her proposal stays current.
+	alice, _, _ := newConsensusLoopNodes(t)
+	startNode(t, alice)
+	defer alice.Stop(context.Background())
+
+	machine, err := alice.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(1, 0)
+
+	firstProposal, firstHash, proposed, err := alice.TickConsensus(context.Background(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !proposed || firstProposal.Proposer != "alice" || firstHash == (types.Hash{}) {
+		t.Fatalf("expected first proposal from alice, proposed=%v proposal=%+v hash=%x", proposed, firstProposal, firstHash)
+	}
+	secondProposal, secondHash, proposed, err := alice.TickConsensus(context.Background(), 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposed || secondHash != (types.Hash{}) || secondProposal.Proposer != "" {
+		t.Fatalf("expected same round reproposal to be suppressed, proposed=%v proposal=%+v hash=%x", proposed, secondProposal, secondHash)
+	}
+	if status := machine.Status(context.Background()); status.Height != 1 || status.Round != 0 {
+		t.Fatalf("expected the proposed view to stay current without a certificate, got %+v", status)
+	}
+}
+
+func TestNodeTickConsensusRotatesProposerAfterTimeout(t *testing.T) {
 	alice, bob, carol := newConsensusLoopNodes(t)
 	startNode(t, alice)
 	defer alice.Stop(context.Background())
@@ -425,27 +458,22 @@ func TestNodeTickConsensusDoesNotReproposeSameRound(t *testing.T) {
 		machine.StartRound(1, 0)
 	}
 
-	firstProposal, firstHash, proposed, err := alice.TickConsensus(context.Background(), 1024)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !proposed || firstProposal.Proposer != "alice" || firstHash == (types.Hash{}) {
-		t.Fatalf("expected first proposal from alice, proposed=%v proposal=%+v hash=%x", proposed, firstProposal, firstHash)
-	}
-	secondProposal, secondHash, proposed, err := alice.TickConsensus(context.Background(), 1024)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if proposed || secondHash != (types.Hash{}) || secondProposal.Proposer != "" {
-		t.Fatalf("expected same round reproposal to be suppressed, proposed=%v proposal=%+v hash=%x", proposed, secondProposal, secondHash)
-	}
-
+	// Every validator gives up on the view of alice, whose proposal never arrives.
 	for _, node := range []*Node{alice, bob, carol} {
 		if _, _, err := node.TimeoutRound(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 	}
-	_, _, proposed, err = alice.TickConsensus(context.Background(), 1024)
+	for _, node := range []*Node{alice, bob, carol} {
+		machine, err := node.Consensus()
+		if err != nil {
+			t.Fatal(err)
+		}
+		waitForConsensusStatus(t, machine, func(status consensus.Status) bool {
+			return status.Height == 1 && status.Round == 1
+		})
+	}
+	_, _, proposed, err := alice.TickConsensus(context.Background(), 1024)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,6 +486,9 @@ func TestNodeTickConsensusDoesNotReproposeSameRound(t *testing.T) {
 	}
 	if !proposed || nextProposal.Proposer != "bob" || nextProposal.Round != 1 || nextHash == (types.Hash{}) {
 		t.Fatalf("expected bob to propose after round rotation, proposed=%v proposal=%+v hash=%x", proposed, nextProposal, nextHash)
+	}
+	if nextProposal.TimeoutCert.Round != 0 {
+		t.Fatalf("expected the proposal of the new view to carry the timeout certificate of view 0, got %+v", nextProposal.TimeoutCert)
 	}
 }
 
@@ -602,15 +633,39 @@ func TestNodeStepConsensusProposesThenCommitsReadyBlock(t *testing.T) {
 	if status.LatestHeight != 1 {
 		t.Fatalf("expected bob committed height 1, got %+v", status)
 	}
-	emptyProposalStep, err := bob.StepConsensusWithConfig(context.Background(), ConsensusLoopConfig{MaxBlockBytes: 1024, CreateEmptyBlocks: true, ExecutionCommitMode: ExecutionCommitModeQC, AllowUnsafeQCCommit: true})
+	// The view after the certified view 0 is view 1, whose proposer is carol, so bob has nothing to propose.
+	bobIdleStep, err := bob.StepConsensusWithConfig(context.Background(), ConsensusLoopConfig{MaxBlockBytes: 1024, CreateEmptyBlocks: true, ExecutionCommitMode: ExecutionCommitModeQC, AllowUnsafeQCCommit: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bobIdleStep.Committed || bobIdleStep.Proposed {
+		t.Fatalf("expected bob to neither commit nor propose in the view of carol, got %+v", bobIdleStep)
+	}
+
+	carolConsensus, err := carol.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForQuorumCert(t, carolConsensus, proposeStep.Proposal.Block.Header.Height, proposeStep.Proposal.Round, proposeStep.BlockHash)
+	carolCommitStep, err := carol.StepConsensusWithConfig(context.Background(), ConsensusLoopConfig{MaxBlockBytes: 1024, CreateEmptyBlocks: true, ExecutionCommitMode: ExecutionCommitModeQC, AllowUnsafeQCCommit: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !carolCommitStep.Committed || carolCommitStep.Proposed || carolCommitStep.Commit.BlockHash != proposeStep.BlockHash {
+		t.Fatalf("expected carol to commit the certified block first, got %+v", carolCommitStep)
+	}
+	emptyProposalStep, err := carol.StepConsensusWithConfig(context.Background(), ConsensusLoopConfig{MaxBlockBytes: 1024, CreateEmptyBlocks: true, ExecutionCommitMode: ExecutionCommitModeQC, AllowUnsafeQCCommit: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if emptyProposalStep.Committed || !emptyProposalStep.Proposed {
 		t.Fatalf("expected next-height empty proposal after commit, got %+v", emptyProposalStep)
 	}
-	if len(emptyProposalStep.Proposal.Block.Txs) != 0 || emptyProposalStep.Proposal.Block.Header.Height != 2 {
+	if len(emptyProposalStep.Proposal.Block.Txs) != 0 || emptyProposalStep.Proposal.Block.Header.Height != 2 || emptyProposalStep.Proposal.Round != 1 {
 		t.Fatalf("unexpected empty proposal after commit: %+v", emptyProposalStep.Proposal.Block)
+	}
+	if emptyProposalStep.Proposal.JustifyQC.Height != 1 || emptyProposalStep.Proposal.JustifyQC.BlockHash != proposeStep.BlockHash {
+		t.Fatalf("expected the next proposal to extend the committed block with its certificate, got %+v", emptyProposalStep.Proposal.JustifyQC)
 	}
 }
 
@@ -625,59 +680,55 @@ func TestNodeCommitGossipSyncsPeerThatMissedProposal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	carolConsensus, err := carol.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
 	aliceConsensus.StartRound(1, 0)
+	carolConsensus.StartRound(1, 0)
 
 	if err := alice.SubmitTx(context.Background(), []byte("bank:missed-proposal")); err != nil {
 		t.Fatal(err)
 	}
+	// bob is offline, so he misses both proposals; alice and carol are two of three validators, a quorum.
 	proposal, blockHash, err := alice.ProposeFromMempool(context.Background(), 1024)
 	if err != nil {
 		t.Fatal(err)
 	}
-	quorumCert, ok, err := alice.VoteBlock(context.Background(), proposal.Block.Header.Height, proposal.Round, blockHash)
-	if err != nil {
-		t.Fatalf("vote block: %v", err)
-	}
-	if !ok {
-		quorumCert = forceTestQuorumCert(t, aliceConsensus, proposal.Block.Header.Height, proposal.Round, blockHash)
-	}
-	// Proposals must be created by the scheduled proposer. For this fixture,
-	// rotate the manually constructed chain to alice's scheduled rounds.
-	aliceConsensus.StartRound(2, 2)
-	parentProposal, parentHash, err := alice.ProposeBlock(context.Background(), types.Block{
-		Header: types.Header{Height: 2},
-	})
+	waitForQuorumCert(t, aliceConsensus, proposal.Block.Header.Height, proposal.Round, blockHash)
+	quorumCert, err := aliceConsensus.BuildQuorumCert(proposal.Block.Header.Height, proposal.Round, blockHash)
 	if err != nil {
 		t.Fatal(err)
 	}
-	parentQC, ok, err := alice.VoteBlock(context.Background(), parentProposal.Block.Header.Height, parentProposal.Round, parentHash)
+
+	// The block is final once its child is certified in the next view, whose proposer is carol.
+	waitForQuorumCert(t, carolConsensus, proposal.Block.Header.Height, proposal.Round, blockHash)
+	childProposal, childHash, proposed, err := carol.TickConsensus(context.Background(), 1024)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ok {
-		parentQC = forceTestQuorumCert(t, aliceConsensus, parentProposal.Block.Header.Height, parentProposal.Round, parentHash)
+	if !proposed || childProposal.Block.Header.Height != 2 || childProposal.Round != proposal.Round+1 {
+		t.Fatalf("expected carol to propose the child in the next view, proposed=%v proposal=%+v", proposed, childProposal)
 	}
-	aliceConsensus.StartRound(3, 1)
-	childProposal, childHash, err := alice.ProposeBlock(context.Background(), types.Block{
-		Header: types.Header{Height: 3},
-	})
-	if err != nil {
-		t.Fatal(err)
+	if childProposal.JustifyQC.Height != quorumCert.Height || childProposal.JustifyQC.BlockHash != quorumCert.BlockHash {
+		t.Fatalf("expected the child proposal to carry the certificate of its parent, got %+v want %+v", childProposal.JustifyQC, quorumCert)
 	}
-	if childProposal.JustifyQC.Height != parentQC.Height || childProposal.JustifyQC.BlockHash != parentQC.BlockHash {
-		t.Fatalf("expected child proposal to carry parent QC, got %+v want %+v", childProposal.JustifyQC, parentQC)
-	}
-	if childProposal.Block.Header.PreviousBlockHash != parentHash || childHash == (types.Hash{}) {
+	if childProposal.Block.Header.PreviousBlockHash != blockHash || childHash == (types.Hash{}) {
 		t.Fatalf("unexpected child proposal: hash=%x proposal=%+v", childHash, childProposal)
 	}
+	waitForQuorumCert(t, aliceConsensus, childProposal.Block.Header.Height, childProposal.Round, childHash)
 
 	startNode(t, bob)
 	defer bob.Stop(context.Background())
 	if status := bob.Status(context.Background()); status.LatestHeight != 0 {
 		t.Fatalf("expected bob to miss proposal before commit gossip, got %+v", status)
 	}
-	if _, err := alice.CommitBlock(context.Background(), proposal.Block, quorumCert); err != nil {
+	committed, ok, err := alice.CommitFinalizedBlock(context.Background())
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !ok || committed.BlockHash != blockHash {
+		t.Fatalf("expected alice to commit the finalized block, committed=%v result=%+v", ok, committed)
 	}
 
 	waitForNodeHeight(t, bob, 1)
@@ -685,15 +736,18 @@ func TestNodeCommitGossipSyncsPeerThatMissedProposal(t *testing.T) {
 	if record.Hash != blockHash {
 		t.Fatalf("expected bob to store committed block %x, got %x", blockHash, record.Hash)
 	}
-	nextProposal, _, proposed, err := bob.TickConsensus(context.Background(), 1024)
+	// The certificate of the gossiped commit seeds bob's machine: it is his high QC, so what he proposes
+	// next extends the committed block, and he joins the view after it.
+	bobConsensus, err := bob.Consensus()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !proposed || nextProposal.Block.Header.Height != 2 {
-		t.Fatalf("expected bob to propose next height after commit gossip, proposed=%v proposal=%+v", proposed, nextProposal)
+	highQC := bobConsensus.HighQC(context.Background())
+	if highQC.Height != quorumCert.Height || highQC.BlockHash != quorumCert.BlockHash || highQC.Round != quorumCert.Round {
+		t.Fatalf("expected commit gossip QC to seed bob's high QC, got %+v want %+v", highQC, quorumCert)
 	}
-	if nextProposal.JustifyQC.Height != quorumCert.Height || nextProposal.JustifyQC.BlockHash != quorumCert.BlockHash {
-		t.Fatalf("expected commit gossip QC to seed next proposal highQC, got %+v want %+v", nextProposal.JustifyQC, quorumCert)
+	if status := bobConsensus.Status(context.Background()); status.Height != 2 || status.Round != proposal.Round+1 {
+		t.Fatalf("expected bob to join the view after the committed certificate, got %+v", status)
 	}
 }
 
@@ -748,143 +802,6 @@ func TestNodeLogsCommittedBlockWithRound(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for block commit log")
 	}
-}
-
-func forceTestQuorumCert(t *testing.T, machine *consensus.StateMachine, height types.Height, round types.Round, blockHash types.Hash) finality.QuorumCert {
-	t.Helper()
-	for _, validatorID := range []types.ValidatorID{"bob", "carol"} {
-		vote := signedNodeTestVote(t, deterministicSignerForID(validatorID), validatorID, height, round, blockHash)
-		if err := machine.OnVote(context.Background(), vote); err != nil {
-			t.Fatal(err)
-		}
-	}
-	qc, err := machine.BuildQuorumCert(height, round, blockHash)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return qc
-}
-
-func TestNodeGossipsConflictingVoteEvidenceAndSlashesValidator(t *testing.T) {
-	alice, bob, carol := newSlashingNodes(t)
-	startNode(t, alice)
-	defer alice.Stop(context.Background())
-	startNode(t, bob)
-	defer bob.Stop(context.Background())
-	startNode(t, carol)
-	defer carol.Stop(context.Background())
-
-	aliceConsensus, err := alice.Consensus()
-	if err != nil {
-		t.Fatal(err)
-	}
-	firstProposal, err := aliceConsensus.CreateProposal(types.Block{
-		Header: types.Header{Height: 1},
-		Txs:    []types.Tx{[]byte("bank:first-conflict-target")},
-	}, 0, "alice", finality.QuorumCert{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := alice.signConsensusProposal(&firstProposal); err != nil {
-		t.Fatal(err)
-	}
-	if err := aliceConsensus.OnProposal(context.Background(), firstProposal); err != nil {
-		t.Fatal(err)
-	}
-	secondProposal, err := aliceConsensus.CreateProposal(types.Block{
-		Header: types.Header{Height: 1},
-		Txs:    []types.Tx{[]byte("bank:second-conflict-target")},
-	}, 0, "alice", finality.QuorumCert{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := alice.signConsensusProposal(&secondProposal); err != nil {
-		t.Fatal(err)
-	}
-	if err := aliceConsensus.OnProposal(context.Background(), secondProposal); err != nil {
-		t.Fatal(err)
-	}
-	firstHash := consensus.HashBlock(firstProposal.Block)
-	secondHash := consensus.HashBlock(secondProposal.Block)
-
-	bobReactor, err := bob.ConsensusReactor()
-	if err != nil {
-		t.Fatal(err)
-	}
-	firstVote := consensus.Vote{
-		Height:      1,
-		Round:       0,
-		BlockHash:   firstHash,
-		ValidatorID: "bob",
-	}
-	if err := bob.signConsensusVote(&firstVote); err != nil {
-		t.Fatal(err)
-	}
-	if err := bobReactor.BroadcastVote(context.Background(), firstVote); err != nil {
-		t.Fatal(err)
-	}
-	secondVote := consensus.Vote{
-		Height:      1,
-		Round:       0,
-		BlockHash:   secondHash,
-		ValidatorID: "bob",
-	}
-	if err := bob.signConsensusVote(&secondVote); err != nil {
-		t.Fatal(err)
-	}
-	if err := bobReactor.BroadcastVote(context.Background(), secondVote); err != nil {
-		t.Fatal(err)
-	}
-	evidence, err := consensus.NewConflictingVoteEvidence(firstVote, secondVote)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, applied, err := alice.SubmitEvidence(context.Background(), evidence); err != nil || !applied {
-		t.Fatalf("expected alice to submit conflicting vote evidence, applied=%t err=%v", applied, err)
-	}
-
-	waitForAppliedEvidence(t, alice, "bob")
-	waitForValidatorPower(t, alice, "bob", 95)
-	waitForValidatorPower(t, bob, "bob", 95)
-	waitForValidatorPower(t, carol, "bob", 95)
-	runtime, err := alice.Runtime()
-	if err != nil {
-		t.Fatal(err)
-	}
-	index, err := runtime.Store.EvidenceIndex(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(index) != 1 {
-		t.Fatalf("expected persisted evidence index, got %d", len(index))
-	}
-	record, err := runtime.Store.EvidenceByKey(context.Background(), index[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if record.Evidence.Validator != "bob" || !record.Applied {
-		t.Fatalf("unexpected persisted evidence: %+v", record)
-	}
-}
-
-func waitForAppliedEvidence(t *testing.T, node *Node, validatorID types.ValidatorID) {
-	t.Helper()
-	for attempt := 0; attempt < int(transportTestWaitTimeout/time.Millisecond); attempt++ {
-		runtime, err := node.Runtime()
-		if err == nil && runtime.Store != nil {
-			index, err := runtime.Store.EvidenceIndex(context.Background())
-			if err == nil {
-				for _, key := range index {
-					record, err := runtime.Store.EvidenceByKey(context.Background(), key)
-					if err == nil && record.Evidence.Validator == validatorID && record.Applied {
-						return
-					}
-				}
-			}
-		}
-		time.Sleep(time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for applied evidence for %s", validatorID)
 }
 
 func TestNodePenalizesAndBansInvalidPeerMessages(t *testing.T) {
@@ -1115,7 +1032,7 @@ func TestNodeTreatsFutureCommitGossipAsValidRace(t *testing.T) {
 	}
 }
 
-func TestNodeTreatsInvalidCommitProofAsNonBanningRace(t *testing.T) {
+func TestNodePenalizesAndBansPeerForInvalidCommitProof(t *testing.T) {
 	cfg := DefaultConfig("vexo-test", t.TempDir())
 	cfg.ValidatorID = "alice"
 	cfg.Chain.P2P.InitialScore = 2
@@ -1145,8 +1062,11 @@ func TestNodeTreatsInvalidCommitProofAsNonBanningRace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if score != 4 {
-		t.Fatalf("expected invalid commit proof to avoid peer ban, got score %d", score)
+	if score != -3 {
+		t.Fatalf("expected the invalid commit proof to cost the peer its score, got %d", score)
+	}
+	if !node.peerBanned(context.Background(), "bob") {
+		t.Fatal("expected the peer that sent an invalid commit proof to be banned")
 	}
 	if status := node.Status(context.Background()); status.LatestHeight != 0 {
 		t.Fatalf("invalid commit proof must not mutate local state, got %+v", status)
@@ -1589,8 +1509,24 @@ func TestNodeStepFinalizedModeProgressesSequentialTransactions(t *testing.T) {
 
 	driveUntilMempoolEmpty(types.Tx("bank:finalized-sequential-one"))
 	driveUntilMempoolEmpty(types.Tx("bank:finalized-sequential-two"))
-	if status := alice.Status(context.Background()); status.LatestHeight < 4 {
-		t.Fatalf("expected certification blocks and both transaction blocks to execute, got %+v", status)
+	// A block executes once its child is certified in the next view: the empty block above the first
+	// transaction block finalizes it, and the second transaction block executes the same way.
+	status := alice.Status(context.Background())
+	if status.LatestHeight != 3 {
+		t.Fatalf("expected the two transaction blocks and the certification block between them to execute, got %+v", status)
+	}
+	for height, expected := range map[types.Height][]types.Tx{
+		1: {types.Tx("bank:finalized-sequential-one")},
+		2: nil,
+		3: {types.Tx("bank:finalized-sequential-two")},
+	} {
+		record, err := alice.BlockByHeight(context.Background(), height)
+		if err != nil {
+			t.Fatalf("block %d: %v", height, err)
+		}
+		if len(record.Block.Txs) != len(expected) || (len(expected) == 1 && string(record.Block.Txs[0]) != string(expected[0])) {
+			t.Fatalf("unexpected transactions in block %d: %q", height, record.Block.Txs)
+		}
 	}
 }
 
@@ -1829,23 +1765,26 @@ func newBLSConsensusLoopNodes(t *testing.T) (*Node, *Node, *Node) {
 			},
 		})
 	}
-	alice := newConsensusLoopNodeWithSigner(t, bus, genesis, "alice", signers["alice"])
-	bob := newConsensusLoopNodeWithSigner(t, bus, genesis, "bob", signers["bob"])
-	carol := newConsensusLoopNodeWithSigner(t, bus, genesis, "carol", signers["carol"])
+	alice := newConsensusLoopNodeWithSigner(t, bus, genesis, "alice", signers["alice"], config.CryptoBackendBLS)
+	bob := newConsensusLoopNodeWithSigner(t, bus, genesis, "bob", signers["bob"], config.CryptoBackendBLS)
+	carol := newConsensusLoopNodeWithSigner(t, bus, genesis, "carol", signers["carol"], config.CryptoBackendBLS)
 	return alice, bob, carol
 }
 
 func newConsensusLoopNode(t *testing.T, bus *transport.InMemoryBus, genesis Genesis, validatorID types.ValidatorID) *Node {
-	return newConsensusLoopNodeWithSigner(t, bus, genesis, validatorID, deterministicSignerForID(validatorID))
+	return newConsensusLoopNodeWithSigner(t, bus, genesis, validatorID, deterministicSignerForID(validatorID), config.CryptoBackendDeterministic)
 }
 
-func newConsensusLoopNodeWithSigner(t *testing.T, bus *transport.InMemoryBus, genesis Genesis, validatorID types.ValidatorID, signer vexocrypto.Signer) *Node {
+// newConsensusLoopNodeWithSigner builds a validator whose runtime verifies consensus messages with
+// the given backend, which must be the backend the signer signs for.
+func newConsensusLoopNodeWithSigner(t *testing.T, bus *transport.InMemoryBus, genesis Genesis, validatorID types.ValidatorID, signer vexocrypto.Signer, backend config.CryptoBackend) *Node {
 	t.Helper()
 	wire, err := bus.NewPeer(p2p.PeerID(validatorID))
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := DefaultConfig("vexo-test", t.TempDir())
+	cfg.Chain.Crypto.Backend = backend
 	cfg.ValidatorID = validatorID
 	node, err := New(cfg, genesis, newTestApplication(t))
 	if err != nil {
@@ -1854,24 +1793,6 @@ func newConsensusLoopNodeWithSigner(t *testing.T, bus *transport.InMemoryBus, ge
 	node.WithTransport(wire)
 	node.WithSigner(signer)
 	return node
-}
-
-func newSlashingNodes(t *testing.T) (*Node, *Node, *Node) {
-	t.Helper()
-	bus := transport.NewInMemoryBus()
-	genesis := Genesis{
-		ChainID: "vexo-test",
-		Validators: []validator.Validator{
-			{ID: "alice", Address: "alice", VotingPower: 100, Stake: 100, PublicKey: deterministicPublicKeyForID("alice")},
-			{ID: "bob", Address: "bob", VotingPower: 100, Stake: 100, PublicKey: deterministicPublicKeyForID("bob")},
-			{ID: "carol", Address: "carol", VotingPower: 100, Stake: 100, PublicKey: deterministicPublicKeyForID("carol")},
-		},
-		Governance: map[types.Address]types.VotingPower{"alice": 100, "bob": 100, "carol": 100},
-	}
-	alice := newConsensusLoopNode(t, bus, genesis, "alice")
-	bob := newConsensusLoopNode(t, bus, genesis, "bob")
-	carol := newConsensusLoopNode(t, bus, genesis, "carol")
-	return alice, bob, carol
 }
 
 func newScoredNodes(t *testing.T) (*Node, *Node, *Node) {
@@ -2074,40 +1995,6 @@ func waitForBlockByHeight(t *testing.T, node *Node, height types.Height) store.B
 		t.Fatal(err)
 	}
 	return record
-}
-
-func waitForValidatorPower(t *testing.T, node *Node, validatorID types.ValidatorID, expected types.VotingPower) {
-	t.Helper()
-	for attempt := 0; attempt < transportTestWaitAttempts; attempt++ {
-		runtime, err := node.Runtime()
-		if err == nil {
-			for _, height := range []types.Height{0, 1} {
-				set, err := runtime.Validators.ValidatorSet(context.Background(), height)
-				if err == nil {
-					validatorInfo, found := set.Get(validatorID)
-					if found && validatorInfo.VotingPower == expected {
-						return
-					}
-				}
-			}
-		}
-		yieldTransportTest()
-	}
-	runtime, err := node.Runtime()
-	if err != nil {
-		t.Fatal(err)
-	}
-	set, err := runtime.Validators.ValidatorSet(context.Background(), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	validatorInfo, found := set.Get(validatorID)
-	if !found {
-		t.Fatalf("validator %s not found", validatorID)
-	}
-	if validatorInfo.VotingPower != expected {
-		t.Fatalf("expected validator %s power %d, got %d", validatorID, expected, validatorInfo.VotingPower)
-	}
 }
 
 func waitForPeerScore(t *testing.T, node *Node, peer p2p.PeerID, expected int64) {

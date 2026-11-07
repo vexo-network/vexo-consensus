@@ -49,6 +49,37 @@ func TestEd25519SignerRejectsWrongMessageKeyAndSignature(t *testing.T) {
 	}
 }
 
+func TestEd25519SignerVerifyRejectsMalformedKeysAndSignaturesWithoutPanicking(t *testing.T) {
+	signer, err := GenerateEd25519Signer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := []byte("vote")
+	signature, err := signer.Sign(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, malformed := range map[string]types.PublicKey{
+		"nil":   nil,
+		"short": signer.PublicKey()[:ed25519.PublicKeySize-1],
+		"long":  append(signer.PublicKey(), 0),
+	} {
+		if signer.Verify(malformed, message, signature) {
+			t.Fatalf("%s public key verified", name)
+		}
+	}
+	for name, malformed := range map[string]types.Signature{
+		"nil":   nil,
+		"short": signature[:ed25519.SignatureSize-1],
+		"long":  append(append(types.Signature(nil), signature...), 0),
+	} {
+		if signer.Verify(signer.PublicKey(), message, malformed) {
+			t.Fatalf("%s signature verified", name)
+		}
+	}
+}
+
 func TestNewEd25519SignerRejectsInvalidKeys(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
@@ -124,5 +155,57 @@ func TestCombineEd25519SignaturesRejectsInvalidInputs(t *testing.T) {
 	}
 	if _, err := CombineEd25519Signatures([]types.Signature{[]byte("bad")}); !errors.Is(err, ErrEmptySignature) {
 		t.Fatalf("expected invalid signature, got %v", err)
+	}
+}
+
+func TestEd25519MultiVerifierRejectsMalformedPublicKeysWithoutPanicking(t *testing.T) {
+	signer, err := GenerateEd25519Signer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := []byte("vote")
+	signature, err := signer.Sign(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined, err := CombineEd25519Signatures([]types.Signature{signature, signature})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	verifier := Ed25519MultiVerifier{}
+	for name, malformed := range map[string]types.PublicKey{
+		"nil":        nil,
+		"short":      make(types.PublicKey, ed25519.PublicKeySize-1),
+		"long":       make(types.PublicKey, ed25519.PublicKeySize+1),
+		"all zeroes": make(types.PublicKey, ed25519.PublicKeySize),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if verifier.VerifyAggregate([]types.PublicKey{signer.PublicKey(), malformed}, message, combined) {
+				t.Fatal("expected malformed public key to fail verification")
+			}
+			if verifier.VerifyAggregate([]types.PublicKey{malformed, signer.PublicKey()}, message, combined) {
+				t.Fatal("expected malformed public key to fail verification")
+			}
+		})
+	}
+}
+
+func TestEd25519MultiVerifierRejectsDuplicatePublicKeys(t *testing.T) {
+	signer, err := GenerateEd25519Signer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := []byte("vote")
+	signature, err := signer.Sign(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined, err := CombineEd25519Signatures([]types.Signature{signature, signature})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if (Ed25519MultiVerifier{}).VerifyAggregate([]types.PublicKey{signer.PublicKey(), signer.PublicKey()}, message, combined) {
+		t.Fatal("expected one signer counted twice to fail verification")
 	}
 }
