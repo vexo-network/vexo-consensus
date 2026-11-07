@@ -600,15 +600,6 @@ func containsHeight(heights []types.Height, height types.Height) bool {
 	return false
 }
 
-// RegisteredHeights returns the registry heights store holds a validator set for, in ascending
-// order, or ErrValidatorSetNotFound when it holds none.
-func RegisteredHeights(ctx context.Context, store KVStore) ([]types.Height, error) {
-	if store == nil {
-		return nil, errors.New("validator registry store is required")
-	}
-	return (&StoreRegistry{store: store}).loadHeights(ctx)
-}
-
 // LoadValidatorSet reads the persisted validator set in effect at height. Unlike NewStoreRegistry it
 // never creates registry state: it returns ErrValidatorSetNotFound when no set was persisted yet.
 func LoadValidatorSet(ctx context.Context, store KVStore, height types.Height) (Set, error) {

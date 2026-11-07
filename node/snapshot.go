@@ -85,8 +85,12 @@ func (node *Node) StateSnapshot(ctx context.Context, blockHeight types.Height) (
 	if err != nil {
 		return StateSnapshot{}, err
 	}
-	if head.State.AppHash != header.AppHash {
-		return StateSnapshot{}, fmt.Errorf("%w: block %d names app hash %x of height %d, the store holds %x", ErrAppHashMismatch, blockHeight, header.AppHash, height, head.State.AppHash)
+	headerAppHash, err := runtime.HeaderAppHashAt(ctx, height)
+	if err != nil {
+		return StateSnapshot{}, err
+	}
+	if headerAppHash != header.AppHash {
+		return StateSnapshot{}, fmt.Errorf("%w: block %d names app hash %x of height %d, the store holds %x", ErrAppHashMismatch, blockHeight, header.AppHash, height, headerAppHash)
 	}
 	snapshot := StateSnapshot{StateSnapshotHead: head, Header: header}
 	for _, namespace := range head.Namespaces {

@@ -688,3 +688,4 @@ Este apéndice asegura que la traducción conserve las interfaces ejecutables y 
 - `--trust-height` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `--trust-hash` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `vexod snapshot export --height` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `validator_registry` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.

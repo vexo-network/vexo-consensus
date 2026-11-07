@@ -338,14 +338,14 @@ func (node *Node) processProposal(ctx context.Context, proposal consensus.Propos
 	return nil
 }
 
-// headerAppHash returns the app hash a header must commit: that of the state finality.AppHashHeight
-// names for it.
+// headerAppHash returns the app hash a header must commit: the header app hash of the state
+// finality.AppHashHeight names for it.
 func headerAppHash(ctx context.Context, runtime *vexoruntime.Runtime, header types.Header) (types.Hash, error) {
 	height, ok := finality.AppHashHeight(header)
 	if !ok {
 		return types.Hash{}, fmt.Errorf("%w: height %d names no validator set height", ErrBlockParentMismatch, header.Height)
 	}
-	return runtime.AppHashAt(ctx, height)
+	return runtime.HeaderAppHashAt(ctx, height)
 }
 
 // checkHeaderAppHash verifies that header commits the app hash this node computed for the height it

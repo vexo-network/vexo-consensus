@@ -282,12 +282,12 @@ const genesisNamespace = "runtime"
 
 var genesisKey = []byte("init_chain")
 
-// genesisAppHashKey locates the app hash of the genesis state, the state block headers name
-// until the validator set first changes registry height.
-var genesisAppHashKey = []byte("init_chain_app_hash")
+// genesisHeaderAppHashKey locates the header app hash (finality.HeaderAppHash) of the genesis
+// state, the state block headers name until the validator set first changes registry height.
+var genesisHeaderAppHashKey = []byte("init_chain_header_app_hash")
 
-// ErrAppHashUnavailable reports a height whose app hash the node does not hold: not executed
-// yet, pruned, or below the snapshot the node was restored from.
+// ErrAppHashUnavailable reports a height whose header app hash the node does not hold: not
+// executed yet, pruned, or below the snapshot the node was restored from.
 var ErrAppHashUnavailable = errors.New("app hash of the height is not held")
 
 // InitChain initializes the application from the chain's genesis. It persists the request first, so
@@ -308,21 +308,27 @@ func (runtime *Runtime) InitChain(ctx context.Context, request app.InitChainRequ
 		return app.InitChainResponse{}, err
 	}
 	if runtime.Store != nil {
-		if err := runtime.Store.Set(ctx, genesisNamespace, genesisAppHashKey, response.AppHash[:]); err != nil {
+		registryRoot, err := runtime.Store.Root(ctx, validator.RegistryNamespace)
+		if err != nil {
+			return app.InitChainResponse{}, err
+		}
+		headerAppHash := finality.HeaderAppHash(response.AppHash, registryRoot)
+		if err := runtime.Store.Set(ctx, genesisNamespace, genesisHeaderAppHashKey, headerAppHash[:]); err != nil {
 			return app.InitChainResponse{}, err
 		}
 	}
 	return response, nil
 }
 
-// AppHashAt returns the app hash of the state after executing block height, the genesis state
-// for height 0.
-func (runtime *Runtime) AppHashAt(ctx context.Context, height types.Height) (types.Hash, error) {
+// HeaderAppHashAt returns the hash a block header commits for the state after executing block
+// height, the genesis state for height 0: finality.HeaderAppHash of the state's app hash and the
+// root of its validator registry.
+func (runtime *Runtime) HeaderAppHashAt(ctx context.Context, height types.Height) (types.Hash, error) {
 	if runtime.Store == nil {
 		return types.Hash{}, ErrAppHashUnavailable
 	}
 	if height == 0 {
-		encoded, err := runtime.Store.Get(ctx, genesisNamespace, genesisAppHashKey)
+		encoded, err := runtime.Store.Get(ctx, genesisNamespace, genesisHeaderAppHashKey)
 		if errors.Is(err, store.ErrKeyNotFound) {
 			return types.Hash{}, fmt.Errorf("%w: genesis", ErrAppHashUnavailable)
 		}
@@ -343,7 +349,14 @@ func (runtime *Runtime) AppHashAt(ctx context.Context, height types.Height) (typ
 	if err != nil {
 		return types.Hash{}, err
 	}
-	return state.AppHash, nil
+	registry, err := runtime.Store.StateRoot(ctx, height, validator.RegistryNamespace)
+	if errors.Is(err, store.ErrStateRootNotFound) {
+		return types.Hash{}, fmt.Errorf("%w: validator registry root of height %d", ErrAppHashUnavailable, height)
+	}
+	if err != nil {
+		return types.Hash{}, err
+	}
+	return finality.HeaderAppHash(state.AppHash, registry.Root), nil
 }
 
 // storedInitChain returns the InitChain request the chain started from, if one was persisted.
@@ -709,7 +722,7 @@ func (runtime *Runtime) NewConsensusStateMachine(ctx context.Context, height typ
 		EnforceProposerSelection: true,
 		// The machine outlives the context it is built in; an app hash lookup reads the store.
 		AppHashes: func(height types.Height) (types.Hash, error) {
-			return runtime.AppHashAt(context.Background(), height)
+			return runtime.HeaderAppHashAt(context.Background(), height)
 		},
 	})
 }

@@ -662,7 +662,7 @@ func TestValidatorRefusesToVoteForAProposalNamingAnotherAppHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	genesis, err := runtime.AppHashAt(ctx, 0)
+	genesis, err := runtime.HeaderAppHashAt(ctx, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -95,8 +95,9 @@ type Header struct {
 	Height            Height
 	TimeUnixNano      int64
 	PreviousBlockHash Hash
-	// AppHash is the app hash of the state after executing block ValidatorSetHeight-1, the
-	// genesis state when that is height 0 (see finality.AppHashHeight).
+	// AppHash commits the replicated state after executing block ValidatorSetHeight-1, the
+	// genesis state when that is height 0: the application's app hash together with the root of
+	// the validator registry (see finality.AppHashHeight and finality.HeaderAppHash).
 	AppHash          Hash
 	ValidatorSetHash Hash
 	ConsensusHash    Hash

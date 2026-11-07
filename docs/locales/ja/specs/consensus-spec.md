@@ -148,3 +148,4 @@ Proposal は `chain_id` と height から salt を作り、signer ごとの tran
 - `actual_time_unix_nano` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `parity_shards` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `ValidatorSetHeight - 1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `validator_registry` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

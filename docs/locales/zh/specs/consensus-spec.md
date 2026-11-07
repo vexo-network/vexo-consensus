@@ -148,3 +148,4 @@ Proposal 由 `chain_id` 和 height 生成 salt，将每个 signer 的 transactio
 - `actual_time_unix_nano` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `parity_shards` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `ValidatorSetHeight - 1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `validator_registry` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

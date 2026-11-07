@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http/httptest"
 	"path/filepath"
@@ -67,7 +69,7 @@ func startCommittedSnapshotChain(t *testing.T) committedSnapshotChain {
 		if height == 3 {
 			setHeight = 2
 		}
-		appHash, err := runtime.AppHashAt(ctx, setHeight-1)
+		appHash, err := runtime.HeaderAppHashAt(ctx, setHeight-1)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -140,7 +142,11 @@ func TestSnapshotSyncRestoresTheStateOfTheTrustedBlock(t *testing.T) {
 	}
 	defer target.Close()
 	state, err := target.LatestState(ctx)
-	if err != nil || state.Height != 1 || state.AppHash != chain.anchor.AppHash {
+	sourceState, err2 := runtime.Store.StateByHeight(ctx, 1)
+	if err2 != nil {
+		t.Fatal(err2)
+	}
+	if err != nil || state != sourceState {
 		t.Fatalf("expected the state after block 1 restored, got %+v (%v)", state, err)
 	}
 	for _, namespace := range runtime.StateNamespaces() {
@@ -224,7 +230,7 @@ func TestSnapshotRestoreRefusesASnapshotThatIsNotTheStateOfTheTrustedBlock(t *te
 		trust    snapshotTrust
 	}{reroot(forged), chain.trust()}
 
-	// The registry is outside the app hash; the header's validator set hash still binds it.
+	// The header app hash commits the validator registry root, so no registry entry can be planted.
 	registry := clone()
 	for index, pair := range registry.KV {
 		if pair.Namespace == validator.RegistryNamespace && string(pair.Key) == "heights" {
@@ -235,6 +241,74 @@ func TestSnapshotRestoreRefusesASnapshotThatIsNotTheStateOfTheTrustedBlock(t *te
 		document snapshotDocument
 		trust    snapshotTrust
 	}{reroot(registry), chain.trust()}
+
+	// Evidence of a past height is judged against the validator set of that height. A registry that
+	// forges the set of height 1, and keeps the genuine set as the one of height 2 the header names,
+	// agrees with the header's validator set hash; only the registry root the header commits tells it
+	// apart.
+	history := clone()
+	setKey := func(height uint64) []byte {
+		key := []byte("set/")
+		return binary.BigEndian.AppendUint64(key, height)
+	}
+	var genuineSet []byte
+	for _, pair := range history.KV {
+		if pair.Namespace == validator.RegistryNamespace && bytes.Equal(pair.Key, setKey(1)) {
+			genuineSet = pair.Value
+		}
+	}
+	if genuineSet == nil {
+		t.Fatal("expected the registry to hold the genesis validator set")
+	}
+	var forgedSet struct {
+		Height     types.Height          `json:"height"`
+		Validators []validator.Validator `json:"validators"`
+	}
+	if err := json.Unmarshal(genuineSet, &forgedSet); err != nil {
+		t.Fatal(err)
+	}
+	forgedSet.Height = 2
+	genuineAtTwo, err := json.Marshal(forgedSet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forgedSet.Height = 1
+	for index := range forgedSet.Validators {
+		forgedSet.Validators[index].PublicKey = append(types.PublicKey(nil), bytes.Repeat([]byte{0x42}, len(forgedSet.Validators[index].PublicKey))...)
+	}
+	forgedAtOne, err := json.Marshal(forgedSet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	historyKV := []store.KVPair{
+		{Namespace: validator.RegistryNamespace, Key: []byte("heights"), Value: []byte("[1,2]")},
+		{Namespace: validator.RegistryNamespace, Key: setKey(1), Value: forgedAtOne},
+		{Namespace: validator.RegistryNamespace, Key: setKey(2), Value: genuineAtTwo},
+	}
+	for _, pair := range history.KV {
+		if pair.Namespace == validator.RegistryNamespace && (bytes.HasPrefix(pair.Key, []byte("set/")) || string(pair.Key) == "heights") {
+			continue
+		}
+		historyKV = append(historyKV, pair)
+	}
+	history.KV = historyKV
+	forgedRegistry := registryPairs{}
+	for _, pair := range history.KV {
+		if pair.Namespace == validator.RegistryNamespace {
+			forgedRegistry[string(pair.Key)] = pair.Value
+		}
+	}
+	atHeader, err := validator.LoadValidatorSet(ctx, forgedRegistry, chain.anchor.ValidatorSetHeight)
+	if err != nil || atHeader.Hash() != chain.anchor.ValidatorSetHash {
+		t.Fatalf("expected the forged registry to agree with the header's validator set, got %v", err)
+	}
+	if atOne, err := validator.LoadValidatorSet(ctx, forgedRegistry, 1); err != nil || atOne.Hash() == chain.anchor.ValidatorSetHash {
+		t.Fatalf("expected the forged registry to hold another set for height 1, got %v", err)
+	}
+	cases["a forged validator set of a past height"] = struct {
+		document snapshotDocument
+		trust    snapshotTrust
+	}{reroot(history), chain.trust()}
 
 	extra := clone()
 	extra.Modules = append(extra.Modules, "evm_receipts")
@@ -265,4 +339,23 @@ func TestSnapshotRestoreRefusesASnapshotThatIsNotTheStateOfTheTrustedBlock(t *te
 	if err := runSnapshot(&bytes.Buffer{}, []string{"sync", "--home", home, "--url", "http://127.0.0.1:1/snapshot/export"}); !errors.Is(err, ErrUntrustedSnapshot) {
 		t.Fatalf("expected snapshot sync without a trusted block to be refused, got %v", err)
 	}
+}
+
+// registryPairs is a read-only validator registry store over the key-value pairs of a snapshot.
+type registryPairs map[string][]byte
+
+func (pairs registryPairs) Get(_ context.Context, _ string, key []byte) ([]byte, error) {
+	value, found := pairs[string(key)]
+	if !found {
+		return nil, store.ErrKeyNotFound
+	}
+	return value, nil
+}
+
+func (registryPairs) Set(context.Context, string, []byte, []byte) error {
+	return errors.New("read-only registry")
+}
+
+func (registryPairs) Delete(context.Context, string, []byte) error {
+	return errors.New("read-only registry")
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/fairordering"
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/types"
+	"github.com/vexo-network/vexo-consensus/validator"
 )
 
 const (
@@ -90,7 +91,7 @@ func (fixture *commitFixture) block(height types.Height, parent types.Hash, txs 
 	if err != nil {
 		fixture.t.Fatal(err)
 	}
-	appHash, err := runtime.AppHashAt(context.Background(), validatorSetHeight-1)
+	appHash, err := runtime.HeaderAppHashAt(context.Background(), validatorSetHeight-1)
 	if err != nil {
 		fixture.t.Fatal(err)
 	}
@@ -463,7 +464,7 @@ func TestCommitGossipRefusesAHeaderNamingAnotherAppHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	genesis, err := runtime.AppHashAt(ctx, 0)
+	genesis, err := runtime.HeaderAppHashAt(ctx, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -490,7 +491,7 @@ func TestCommitGossipRefusesAHeaderNamingAnotherAppHash(t *testing.T) {
 	if height, _ := fixture.deliver(fixture.commit(second)); height != 2 {
 		t.Fatalf("expected the second block to be applied, node is at height %d", height)
 	}
-	afterFirst, err := runtime.AppHashAt(ctx, 1)
+	afterFirst, err := runtime.HeaderAppHashAt(ctx, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -502,6 +503,23 @@ func TestCommitGossipRefusesAHeaderNamingAnotherAppHash(t *testing.T) {
 	stale.Header.AppHash = genesis
 	if height, _ := fixture.deliver(fixture.commit(stale)); height != 2 {
 		t.Fatalf("expected the block naming a stale app hash to be refused, node is at height %d", height)
+	}
+	// The application's own app hash leaves the validator registry out; the header commits both.
+	stateOne, err := runtime.StateByHeight(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registryOne, err := runtime.StateRoot(ctx, 1, validator.RegistryNamespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterFirst != finality.HeaderAppHash(stateOne.AppHash, registryOne.Root) {
+		t.Fatal("expected block 3 to commit the app hash and the validator registry root of height 1")
+	}
+	applicationOnly := third
+	applicationOnly.Header.AppHash = stateOne.AppHash
+	if height, _ := fixture.deliver(fixture.commit(applicationOnly)); height != 2 {
+		t.Fatalf("expected the block naming only the application app hash to be refused, node is at height %d", height)
 	}
 	if height, _ := fixture.deliver(fixture.commit(third)); height != 3 {
 		t.Fatalf("expected the block naming the executed app hash to be applied, node is at height %d", height)

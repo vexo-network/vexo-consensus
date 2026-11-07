@@ -4018,6 +4018,18 @@ func TestHandlerBuildsTheSnapshotExportOncePerCommittedBlock(t *testing.T) {
 	if builds != 2 || chunk.Header.Height != 3 || export.Header.Height != 5 {
 		t.Fatalf("expected the exports of both blocks to stay cached, built %d", builds)
 	}
+	// One export of an older block is built per committed block, so requests cycling through more
+	// blocks than the cache holds cannot force a build each.
+	var busy map[string]string
+	getJSON(t, handler, "/snapshot/export?height=4", http.StatusTooManyRequests, &busy)
+	getJSON(t, handler, "/snapshot/chunk?height=2&index=0&size=1", http.StatusTooManyRequests, &busy)
+	if builds != 2 || busy["error"] == "" {
+		t.Fatalf("expected a second older export at the same height to be refused, built %d response %+v", builds, busy)
+	}
+	getJSON(t, handler, "/snapshot/chunk?height=3&index=0&size=1", http.StatusOK, &chunk)
+	if builds != 2 || chunk.Header.Height != 3 {
+		t.Fatalf("expected the cached older export to stay served, built %d", builds)
+	}
 
 	provider.snapshot.State.Height = 6
 	provider.snapshot.State.AppHash = types.Hash{2}
@@ -4025,6 +4037,11 @@ func TestHandlerBuildsTheSnapshotExportOncePerCommittedBlock(t *testing.T) {
 	if builds != 3 || export.State.Height != 6 || export.Header.Height != 6 {
 		t.Fatalf("expected a new committed block to be exported anew, built %d export %+v", builds, export.State)
 	}
+	getJSON(t, handler, "/snapshot/export?height=4", http.StatusOK, &export)
+	if builds != 4 || export.Header.Height != 4 {
+		t.Fatalf("expected the next committed block to allow another older export, built %d header %+v", builds, export.Header)
+	}
+	getJSON(t, handler, "/snapshot/export?height=2", http.StatusTooManyRequests, &busy)
 	getJSON(t, handler, "/snapshot/export?height=x", http.StatusBadRequest, &struct{}{})
 }
 

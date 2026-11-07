@@ -555,9 +555,6 @@ func buildSnapshotDocument(storage store.Store, chainID string, namespaces []str
 	if err != nil {
 		return snapshotDocument{}, err
 	}
-	if state.AppHash != header.AppHash {
-		return snapshotDocument{}, fmt.Errorf("block %d names app hash %x of height %d, the store holds %x", blockHeight, header.AppHash, height, state.AppHash)
-	}
 	roots := make([]store.StateRootRecord, 0)
 	kv := make([]store.KVPair, 0)
 	for _, namespace := range namespaces {
@@ -572,6 +569,13 @@ func buildSnapshotDocument(storage store.Store, chainID string, namespaces []str
 			return snapshotDocument{}, err
 		}
 		kv = append(kv, pairs...)
+	}
+	headerAppHash, err := snapshotHeaderAppHash(state.AppHash, roots)
+	if err != nil {
+		return snapshotDocument{}, err
+	}
+	if headerAppHash != header.AppHash {
+		return snapshotDocument{}, fmt.Errorf("block %d names app hash %x of height %d, the store holds %x", blockHeight, header.AppHash, height, headerAppHash)
 	}
 	return snapshotDocumentFromState(chainID, namespaces, header, state, roots, kv), nil
 }
@@ -886,7 +890,7 @@ func validateSnapshotDocument(document snapshotDocument, expectedChainID string)
 	if document.State.Height == 0 {
 		return store.ErrInvalidStateRecord
 	}
-	if err := validateSnapshotHeader(document.Header, document.ChainID, document.State); err != nil {
+	if err := validateSnapshotHeader(document); err != nil {
 		return err
 	}
 	modules := sortedStrings(document.Modules)
@@ -929,9 +933,11 @@ func validateSnapshotDocument(document snapshotDocument, expectedChainID string)
 	return nil
 }
 
-// validateSnapshotHeader checks that header is a block header of the snapshot's chain that commits
-// the snapshot state: names its height as the one it commits the app hash of, and that app hash.
-func validateSnapshotHeader(header types.Header, chainID string, state store.StateRecord) error {
+// validateSnapshotHeader checks that the snapshot header is a block header of the snapshot's chain
+// that commits the snapshot state: names its height as the one it commits the app hash of, and the
+// header app hash of the state's app hash and validator registry root.
+func validateSnapshotHeader(document snapshotDocument) error {
+	header, chainID, state := document.Header, document.ChainID, document.State
 	if chainID != "" && header.ChainID != chainID {
 		return fmt.Errorf("snapshot header chain id mismatch: snapshot %s header %s", chainID, header.ChainID)
 	}
@@ -939,8 +945,12 @@ func validateSnapshotHeader(header types.Header, chainID string, state store.Sta
 	if !ok || height != state.Height {
 		return fmt.Errorf("snapshot header of block %d does not commit the state of height %d", header.Height, state.Height)
 	}
-	if header.AppHash != state.AppHash {
-		return fmt.Errorf("snapshot header commits app hash %x, snapshot state has %x", header.AppHash, state.AppHash)
+	headerAppHash, err := snapshotHeaderAppHash(state.AppHash, document.StateRoots)
+	if err != nil {
+		return err
+	}
+	if header.AppHash != headerAppHash {
+		return fmt.Errorf("%w: snapshot header commits app hash %x, snapshot state has %x", ErrUntrustedSnapshot, header.AppHash, headerAppHash)
 	}
 	return nil
 }

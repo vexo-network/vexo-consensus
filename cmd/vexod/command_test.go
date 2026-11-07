@@ -36,6 +36,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/transport"
 	"github.com/vexo-network/vexo-consensus/types"
+	"github.com/vexo-network/vexo-consensus/validator"
 )
 
 var commandReleaseTestPrivateKey = ed25519.NewKeyFromSeed(bytes.Repeat([]byte{9}, ed25519.SeedSize))
@@ -2857,6 +2858,16 @@ func TestWriteOperationalLogJSON(t *testing.T) {
 	}
 }
 
+// testHeaderAppHash is the header app hash of state with the validator registry root among roots.
+func testHeaderAppHash(t *testing.T, state store.StateRecord, roots []store.StateRootRecord) types.Hash {
+	t.Helper()
+	hash, err := snapshotHeaderAppHash(state.AppHash, roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return hash
+}
+
 // restoredSnapshotState opens the store of home and returns its latest state and its root of every
 // namespace document names.
 func restoredSnapshotState(t *testing.T, home string, document snapshotDocument) store.StateRecord {
@@ -2940,7 +2951,7 @@ func TestRunSnapshotExportAndRestore(t *testing.T) {
 	if err := runSnapshot(&restoreOutput, append([]string{"restore", "--home", restoreHome, "--input", snapshotPath}, chain.trustFlags()...)); err != nil {
 		t.Fatal(err)
 	}
-	if state := restoredSnapshotState(t, restoreHome, document); state.Height != 1 || state.AppHash != chain.anchor.AppHash {
+	if state := restoredSnapshotState(t, restoreHome, document); state.Height != 1 || testHeaderAppHash(t, state, document.StateRoots) != chain.anchor.AppHash {
 		t.Fatalf("unexpected restored state: %+v", state)
 	}
 }
@@ -3012,7 +3023,7 @@ func TestRunSnapshotChunkExportRestore(t *testing.T) {
 	if !strings.Contains(restoreOutput.String(), "snapshot chunks restored") || !strings.Contains(restoreOutput.String(), "chunks: "+strconv.Itoa(len(chunks))) {
 		t.Fatalf("unexpected chunk restore output:\n%s", restoreOutput.String())
 	}
-	if state := restoredSnapshotState(t, restoreHome, document); state.Height != 1 || state.AppHash != chain.anchor.AppHash {
+	if state := restoredSnapshotState(t, restoreHome, document); state.Height != 1 || testHeaderAppHash(t, state, document.StateRoots) != chain.anchor.AppHash {
 		t.Fatalf("unexpected restored chunk state=%+v", state)
 	}
 }
@@ -3034,12 +3045,12 @@ func TestSnapshotChunksRejectTamperingAndMissingChunks(t *testing.T) {
 	if err := sourceStore.Close(); err != nil {
 		t.Fatal(err)
 	}
-	document := snapshotDocumentFromState("vexo-test", []string{"bank"}, snapshotTestHeaderFor(7, types.Hash{7}), store.StateRecord{
+	document := snapshotDocumentFromState("vexo-test", []string{"bank", validator.RegistryNamespace}, snapshotTestHeaderFor(7, types.Hash{7}), store.StateRecord{
 		Height:           7,
 		AppHash:          types.Hash{7},
 		LastBlockHash:    types.Hash{8},
 		ValidatorSetHash: types.Hash{9},
-	}, []store.StateRootRecord{{Height: 7, Namespace: "bank", Root: root}}, []store.KVPair{
+	}, []store.StateRootRecord{{Height: 7, Namespace: "bank", Root: root}, snapshotTestRegistryRoot(7)}, []store.KVPair{
 		{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")},
 		{Namespace: "bank", Key: []byte("bob"), Value: []byte("70")},
 		{Namespace: "bank", Key: []byte("carol"), Value: []byte("30")},
@@ -3070,12 +3081,12 @@ func TestRunSnapshotVerifyRejectsChecksumMismatch(t *testing.T) {
 	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
 		t.Fatal(err)
 	}
-	document := snapshotDocumentFromState("vexo-test", []string{"bank"}, snapshotTestHeaderFor(3, types.Hash{1}), store.StateRecord{
+	document := snapshotDocumentFromState("vexo-test", []string{"bank", validator.RegistryNamespace}, snapshotTestHeaderFor(3, types.Hash{1}), store.StateRecord{
 		Height:           3,
 		AppHash:          types.Hash{1},
 		LastBlockHash:    types.Hash{2},
 		ValidatorSetHash: types.Hash{3},
-	}, []store.StateRootRecord{{Height: 3, Namespace: "bank", Root: types.Hash{4}}}, []store.KVPair{{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")}})
+	}, []store.StateRootRecord{{Height: 3, Namespace: "bank", Root: types.Hash{4}}, snapshotTestRegistryRoot(3)}, []store.KVPair{{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")}})
 	document.KV[0].Value = []byte("999")
 	path := filepath.Join(t.TempDir(), "corrupt-snapshot.json")
 	file, err := os.Create(path)
@@ -3097,7 +3108,7 @@ func TestValidateSnapshotRejectsMissingRootAndUnknownKVNamespace(t *testing.T) {
 	document := snapshotDocument{
 		SchemaVersion: "v1",
 		ChainID:       "vexo-test",
-		Modules:       []string{"bank"},
+		Modules:       []string{"bank", validator.RegistryNamespace},
 		Header:        snapshotTestHeaderFor(3, types.Hash{1}),
 		State: store.StateRecord{
 			Height:           3,
@@ -3111,12 +3122,12 @@ func TestValidateSnapshotRejectsMissingRootAndUnknownKVNamespace(t *testing.T) {
 		t.Fatal("expected missing root rejection")
 	}
 
-	document = snapshotDocumentFromState("vexo-test", []string{"bank"}, snapshotTestHeaderFor(3, types.Hash{1}), store.StateRecord{
+	document = snapshotDocumentFromState("vexo-test", []string{"bank", validator.RegistryNamespace}, snapshotTestHeaderFor(3, types.Hash{1}), store.StateRecord{
 		Height:           3,
 		AppHash:          types.Hash{1},
 		LastBlockHash:    types.Hash{2},
 		ValidatorSetHash: types.Hash{3},
-	}, []store.StateRootRecord{{Height: 3, Namespace: "bank", Root: types.Hash{4}}}, []store.KVPair{{Namespace: "evil", Key: []byte("alice"), Value: []byte("100")}})
+	}, []store.StateRootRecord{{Height: 3, Namespace: "bank", Root: types.Hash{4}}, snapshotTestRegistryRoot(3)}, []store.KVPair{{Namespace: "evil", Key: []byte("alice"), Value: []byte("100")}})
 	if err := validateSnapshotDocument(document, "vexo-test"); err == nil {
 		t.Fatal("expected unknown KV namespace rejection")
 	}
@@ -3137,12 +3148,12 @@ func TestRunSnapshotFetchFromRPCExport(t *testing.T) {
 	if err := sourceStore.Close(); err != nil {
 		t.Fatal(err)
 	}
-	document := snapshotDocumentFromState("vexo-test", []string{"bank"}, snapshotTestHeaderFor(7, types.Hash{7}), store.StateRecord{
+	document := snapshotDocumentFromState("vexo-test", []string{"bank", validator.RegistryNamespace}, snapshotTestHeaderFor(7, types.Hash{7}), store.StateRecord{
 		Height:           7,
 		AppHash:          types.Hash{7},
 		LastBlockHash:    types.Hash{8},
 		ValidatorSetHash: types.Hash{9},
-	}, []store.StateRootRecord{{Height: 7, Namespace: "bank", Root: sourceRoot}}, []store.KVPair{{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")}})
+	}, []store.StateRootRecord{{Height: 7, Namespace: "bank", Root: sourceRoot}, snapshotTestRegistryRoot(7)}, []store.KVPair{{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")}})
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/snapshot/export" {
 			http.NotFound(writer, request)
@@ -3164,7 +3175,7 @@ func TestRunSnapshotFetchFromRPCExport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fetched.State.Height != 7 || len(fetched.StateRoots) != 1 {
+	if fetched.State.Height != 7 || len(fetched.StateRoots) != 2 {
 		t.Fatalf("unexpected fetched snapshot: %+v", fetched)
 	}
 
@@ -3228,7 +3239,11 @@ func TestMaybeRunStartupStateSyncFetchesSnapshotBeforeNodeStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.Height != 1 || state.AppHash != chain.anchor.AppHash {
+	registryRoot, err := storage.StateRoot(ctx, state.Height, validator.RegistryNamespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Height != 1 || testHeaderAppHash(t, state, []store.StateRootRecord{registryRoot}) != chain.anchor.AppHash {
 		t.Fatalf("unexpected startup state sync state=%+v", state)
 	}
 	if !stringSliceContains(events, "state_sync_candidate_failed") || !stringSliceContains(events, "state_sync_applied") {
@@ -3242,12 +3257,12 @@ func TestMaybeRunStartupStateSyncFetchesSnapshotBeforeNodeStart(t *testing.T) {
 }
 
 func TestMaybeRunStartupStateSyncRejectsOversizedSnapshot(t *testing.T) {
-	document := snapshotDocumentFromState("vexo-test", []string{"bank"}, snapshotTestHeaderFor(9, types.Hash{9}), store.StateRecord{
+	document := snapshotDocumentFromState("vexo-test", []string{"bank", validator.RegistryNamespace}, snapshotTestHeaderFor(9, types.Hash{9}), store.StateRecord{
 		Height:           9,
 		AppHash:          types.Hash{9},
 		LastBlockHash:    types.Hash{10},
 		ValidatorSetHash: types.Hash{11},
-	}, []store.StateRootRecord{{Height: 9, Namespace: "bank", Root: types.Hash{12}}}, []store.KVPair{{Namespace: "bank", Key: []byte("alice"), Value: bytes.Repeat([]byte("x"), 256)}})
+	}, []store.StateRootRecord{{Height: 9, Namespace: "bank", Root: types.Hash{12}}, snapshotTestRegistryRoot(9)}, []store.KVPair{{Namespace: "bank", Key: []byte("alice"), Value: bytes.Repeat([]byte("x"), 256)}})
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if err := writeSnapshotDocument(writer, document); err != nil {
 			t.Fatal(err)
@@ -3279,9 +3294,16 @@ func TestMaybeRunStartupStateSyncRejectsOversizedSnapshot(t *testing.T) {
 }
 
 // snapshotTestHeaderFor is a header that names state height as the one it commits the app hash
-// of. It binds a synthetic snapshot's own fields together; it is not a block of any chain.
+// of, the header app hash of appHash and snapshotTestRegistryRoot. It binds a synthetic snapshot's
+// own fields together; it is not a block of any chain.
 func snapshotTestHeaderFor(height types.Height, appHash types.Hash) types.Header {
-	return types.Header{ChainID: "vexo-test", Height: height + 2, ValidatorSetHeight: height + 1, AppHash: appHash}
+	headerAppHash := finality.HeaderAppHash(appHash, snapshotTestRegistryRoot(height).Root)
+	return types.Header{ChainID: "vexo-test", Height: height + 2, ValidatorSetHeight: height + 1, AppHash: headerAppHash}
+}
+
+// snapshotTestRegistryRoot is the validator registry root of a synthetic snapshot of height.
+func snapshotTestRegistryRoot(height types.Height) store.StateRootRecord {
+	return store.StateRootRecord{Height: height, Namespace: validator.RegistryNamespace, Root: types.Hash{0xaa}}
 }
 
 func stringSliceContains(values []string, expected string) bool {
@@ -3311,7 +3333,7 @@ func TestRunDoctorReportsOperationalReadinessAndRepairsIndexes(t *testing.T) {
 	}
 	// Block 3 names the validator set of registry height 2, so it commits the state of height 1.
 	if err := storage.SaveBlock(context.Background(), store.BlockRecord{
-		Block:   types.Block{Header: types.Header{Height: 3, ChainID: "vexo-test", ValidatorSetHeight: 2, AppHash: types.Hash{7}}},
+		Block:   types.Block{Header: snapshotTestHeaderFor(1, types.Hash{7})},
 		Hash:    types.Hash{3},
 		AppHash: types.Hash{4},
 	}); err != nil {
@@ -3321,6 +3343,9 @@ func TestRunDoctorReportsOperationalReadinessAndRepairsIndexes(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := storage.SaveStateRoot(context.Background(), store.StateRootRecord{Height: 1, Namespace: "bank", Root: types.Hash{6}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.SaveStateRoot(context.Background(), snapshotTestRegistryRoot(1)); err != nil {
 		t.Fatal(err)
 	}
 	if err := storage.SaveState(context.Background(), store.StateRecord{

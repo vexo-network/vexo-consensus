@@ -148,3 +148,4 @@ Este apêndice garante que a tradução preserve as interfaces executáveis e as
 - `actual_time_unix_nano` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `parity_shards` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `ValidatorSetHeight - 1` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `validator_registry` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.

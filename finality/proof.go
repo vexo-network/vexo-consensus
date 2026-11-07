@@ -41,12 +41,28 @@ const FirstValidatorSetHeight types.Height = 1
 // validator set of the header was taken from, after executing block ValidatorSetHeight-1 (the
 // genesis state for the first set). Every validator that verifies the block has executed that
 // block, so each checks the hash against its own state before it votes, and a certificate of the
-// header vouches for the application state of that height.
+// header vouches for the replicated state of that height (see HeaderAppHash).
 func AppHashHeight(header types.Header) (types.Height, bool) {
 	if header.ValidatorSetHeight == 0 {
 		return 0, false
 	}
 	return header.ValidatorSetHeight - 1, true
+}
+
+// HeaderAppHash returns the hash a block header carries as its AppHash for a state: the
+// application's app hash of the state together with the root of the validator registry after it.
+// The application writes no validator set; the runtime records the sets the application's updates
+// produce in the same atomic commit, after the application hashed its state. Committing both
+// covers the whole replicated state, so the validator sets of past heights, which evidence is
+// judged against, are as certified as the application state they came from.
+func HeaderAppHash(appHash types.Hash, validatorRegistryRoot types.Hash) types.Hash {
+	hasher := sha256.New()
+	hasher.Write([]byte("vexo/header-app-hash/v1"))
+	hasher.Write(appHash[:])
+	hasher.Write(validatorRegistryRoot[:])
+	var hash types.Hash
+	copy(hash[:], hasher.Sum(nil))
+	return hash
 }
 
 // ChildValidatorSetHeight returns the registry height of the validator set that certifies a child

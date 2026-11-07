@@ -82,8 +82,9 @@ type StateMachineConfig struct {
 	// the state machine, so the verifier must not wrap the message itself.
 	AggregateVerifier        aggregateVerifier
 	EnforceProposerSelection bool
-	// AppHashes returns the app hash of the state after executing block height (the genesis state
-	// for 0). With it, a proposal commits the app hash of the height finality.AppHashHeight names
+	// AppHashes returns the header app hash (finality.HeaderAppHash) of the state after executing
+	// block height (the genesis state for 0). With it, a proposal commits the app hash of the
+	// height finality.AppHashHeight names
 	// in its header; without it, as for a machine that runs no application, the field stays zero.
 	AppHashes func(height types.Height) (types.Hash, error)
 }

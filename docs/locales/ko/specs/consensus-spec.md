@@ -97,7 +97,7 @@
 
 ## 헤더 app hash
 
-블록 헤더의 `AppHash`는 블록 `ValidatorSetHeight - 1`을 실행한 뒤의 state app hash입니다(그 값이 `0`이면 genesis state). 즉 헤더의 validator set을 가져온 state입니다. proposer가 이 값을 채우고, validator는 자기 state의 같은 높이 app hash와 일치하는 proposal에만 투표하며, 노드는 `AppHash`가 자기 state와 다른 인증 블록을 실행하지 않습니다. 따라서 인증서는 그 높이의 application state를 보증하고, state sync 노드는 snapshot을 이 값과 대조합니다.
+블록 헤더의 `AppHash`는 블록 `ValidatorSetHeight - 1`을 실행한 뒤의 state를 커밋합니다(그 값이 `0`이면 genesis state). 즉 헤더의 validator set을 가져온 state입니다. 값은 application app hash와 그 블록 이후 `validator_registry` 네임스페이스 루트의 `HeaderAppHash`이므로, evidence 판정에 쓰이는 과거 높이의 validator set도 application state와 함께 커밋됩니다. proposer가 이 값을 채우고, validator는 자기 state의 같은 높이 app hash와 일치하는 proposal에만 투표하며, 노드는 `AppHash`가 자기 state와 다른 인증 블록을 실행하지 않습니다. 따라서 인증서는 그 높이의 복제 state 전체를 보증하고, state sync 노드는 snapshot을 이 값과 대조합니다.
 
 ## 빈 블록과 라운드 회복
 

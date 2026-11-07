@@ -688,3 +688,4 @@ vexod network init \
 - `--trust-height` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `--trust-hash` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `vexod snapshot export --height` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `validator_registry` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

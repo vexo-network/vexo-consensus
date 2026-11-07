@@ -1,14 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
 	"net/url"
-	"sort"
 	"strconv"
 
 	vexoconfig "github.com/vexo-network/vexo-consensus/config"
@@ -68,10 +66,10 @@ func snapshotExportURL(rawURL string, trustHeight types.Height) (string, error) 
 //
 //   - the snapshot header is the trusted block, by height and hash;
 //   - the key-value pairs have the namespace roots the snapshot names;
-//   - those roots give the app hash the header commits, recomputed the way the application of chain
-//     computes it, so every namespace the app hash covers is exactly the trusted state; and
-//   - the validator registry, which the app hash does not cover, holds no set past the registry
-//     height the header names, and the set at that height is the one whose hash the header carries.
+//   - those roots give the header app hash the header commits: the app hash recomputed the way the
+//     application of chain computes it, together with the validator registry root
+//     (finality.HeaderAppHash), so every namespace, the registry with the validator sets of past
+//     heights included, is exactly the trusted state.
 //
 // The snapshot must carry exactly the namespaces of the replicated state, so no namespace outside
 // what the checks above cover is imported.
@@ -108,27 +106,24 @@ func verifySnapshotTrust(ctx context.Context, document snapshotDocument, chain v
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrUntrustedSnapshot, err)
 	}
-	if appHash != header.AppHash {
-		return fmt.Errorf("%w: snapshot state has app hash %x, block %d commits %x", ErrUntrustedSnapshot, appHash, header.Height, header.AppHash)
-	}
-	registry := snapshotKV(sortedKVPairs(kvForNamespace(document.KV, validator.RegistryNamespace)))
-	heights, err := validator.RegisteredHeights(ctx, registry)
+	headerAppHash, err := snapshotHeaderAppHash(appHash, document.StateRoots)
 	if err != nil {
-		return fmt.Errorf("%w: validator registry: %w", ErrUntrustedSnapshot, err)
+		return fmt.Errorf("%w: %w", ErrUntrustedSnapshot, err)
 	}
-	for _, registered := range heights {
-		if registered > header.ValidatorSetHeight {
-			return fmt.Errorf("%w: validator registry holds a set for height %d past the state's %d", ErrUntrustedSnapshot, registered, header.ValidatorSetHeight)
-		}
-	}
-	validatorSet, err := validator.LoadValidatorSet(ctx, registry, header.ValidatorSetHeight)
-	if err != nil {
-		return fmt.Errorf("%w: validator registry: %w", ErrUntrustedSnapshot, err)
-	}
-	if validatorSet.Hash() != header.ValidatorSetHash {
-		return fmt.Errorf("%w: validator set of height %d has hash %x, block %d names %x", ErrUntrustedSnapshot, header.ValidatorSetHeight, validatorSet.Hash(), header.Height, header.ValidatorSetHash)
+	if headerAppHash != header.AppHash {
+		return fmt.Errorf("%w: snapshot state has header app hash %x, block %d commits %x", ErrUntrustedSnapshot, headerAppHash, header.Height, header.AppHash)
 	}
 	return nil
+}
+
+// snapshotHeaderAppHash returns the header app hash (finality.HeaderAppHash) of a snapshot state
+// with app hash appHash: the root the snapshot names for the validator registry completes it.
+func snapshotHeaderAppHash(appHash types.Hash, roots []store.StateRootRecord) (types.Hash, error) {
+	registryRoot, err := snapshotRoots(roots).Root(context.Background(), validator.RegistryNamespace)
+	if err != nil {
+		return types.Hash{}, err
+	}
+	return finality.HeaderAppHash(appHash, registryRoot), nil
 }
 
 // snapshotRoots serves the namespace roots a snapshot names.
@@ -141,23 +136,4 @@ func (roots snapshotRoots) Root(_ context.Context, namespace string) (types.Hash
 		}
 	}
 	return types.Hash{}, fmt.Errorf("snapshot has no root for namespace %q", namespace)
-}
-
-// snapshotKV is a read-only view of the key-value pairs of one snapshot namespace, sorted by key.
-type snapshotKV []store.KVPair
-
-func (pairs snapshotKV) Get(_ context.Context, _ string, key []byte) ([]byte, error) {
-	index := sort.Search(len(pairs), func(index int) bool { return bytes.Compare(pairs[index].Key, key) >= 0 })
-	if index < len(pairs) && bytes.Equal(pairs[index].Key, key) {
-		return append([]byte(nil), pairs[index].Value...), nil
-	}
-	return nil, store.ErrKeyNotFound
-}
-
-func (snapshotKV) Set(context.Context, string, []byte, []byte) error {
-	return errors.New("snapshot state is read-only")
-}
-
-func (snapshotKV) Delete(context.Context, string, []byte) error {
-	return errors.New("snapshot state is read-only")
 }

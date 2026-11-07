@@ -151,7 +151,11 @@ func TestStateSnapshotExportsTheStateItsBlockHeaderCommits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.State != stateOne || snapshot.Header.AppHash != stateOne.AppHash {
+	headerAppHashOne, err := runtime.HeaderAppHashAt(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.State != stateOne || snapshot.Header.AppHash != headerAppHashOne {
 		t.Fatalf("expected the state after block 1 %+v, got %+v", stateOne, snapshot.State)
 	}
 	want := []string{"bank", "auth", "feemarket", "validator_registry"}

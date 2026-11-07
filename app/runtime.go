@@ -889,15 +889,13 @@ func cloneResults(results []types.Result) []types.Result {
 // the chain and the height only. A store that cannot report roots, or fails to
 // report one, fails the hash: it must never silently omit a namespace.
 //
-// The validator registry (validator.RegistryNamespace) is deliberately not
-// one of the namespaces. The runtime writes it in the same atomic commit as the
-// block, after this hash is computed, so a root over it would describe the
-// registry before the block that changed it. What consensus depends on is
-// committed elsewhere: every header carries the hash of the validator set that
-// governs its height, which the quorum certificate of the block signs, and the
-// per-height record of which snapshot applied is derived from that header. The
-// registry itself is recomputable at any time as the root of its namespace
-// (Store.Root, or ExportNamespaceAt for a past height).
+// The validator registry (validator.RegistryNamespace) is not one of the
+// namespaces. The runtime writes it in the same atomic commit as the block,
+// after this hash is computed, so a root over it here would describe the
+// registry before the block that changed it. The block header commits it
+// instead: its AppHash is finality.HeaderAppHash of this hash and the registry
+// root after the block, so the validator sets of past heights are as certified
+// as the application state.
 // AppHashOfRoots returns the app hash of a state of height whose namespaces have the roots reports:
 // the hash this runtime commits for a block of height executed into that state. A snapshot restore
 // recomputes it from the namespace roots the snapshot carries, without a store.
