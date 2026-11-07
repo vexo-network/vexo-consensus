@@ -432,9 +432,7 @@ func (f *fixture) stageValidatorSet(height types.Height, updates []types.Validat
 	if err := f.store.SetBatch(context.Background(), writes); err != nil {
 		f.t.Fatal(err)
 	}
-	if err := f.registry.CommitStagedValidatorUpdates(context.Background(), height, updates); err != nil {
-		f.t.Fatal(err)
-	}
+	f.registry.CommitStagedValidatorUpdates(height)
 }
 
 func (f *fixture) validatorSetAt(height types.Height) validator.Set {

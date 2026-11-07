@@ -120,7 +120,7 @@ func TestStoreRegistrySnapshotIsImmutable(t *testing.T) {
 	}
 }
 
-func TestStoreRegistryStagesCommitsLeavesAndRotationEvents(t *testing.T) {
+func TestStoreRegistryStagesCommitsAndLeaves(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -148,8 +148,8 @@ func TestStoreRegistryStagesCommitsLeavesAndRotationEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(writes) != 3 {
-		t.Fatalf("expected staged snapshot writes, got %+v", writes)
+	if len(writes) != 2 || string(writes[0].Key) != string(validatorSetKey(2)) || string(writes[1].Key) != "heights" {
+		t.Fatalf("expected the staged set and the registered heights to be the only writes, got %+v", writes)
 	}
 	if total := staged.TotalVotingPower(); total != 17 {
 		t.Fatalf("expected staged total power 17, got %d", total)
@@ -162,12 +162,7 @@ func TestStoreRegistryStagesCommitsLeavesAndRotationEvents(t *testing.T) {
 	if err := storage.SetBatch(context.Background(), writes); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.CommitStagedValidatorUpdates(context.Background(), 2, []types.ValidatorUpdate{
-		{ID: "alice", VotingPower: 12},
-		{ID: "bob", VotingPower: 5},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	registry.CommitStagedValidatorUpdates(2)
 	set2, err := registry.ValidatorSet(context.Background(), 2)
 	if err != nil {
 		t.Fatal(err)
@@ -190,25 +185,6 @@ func TestStoreRegistryStagesCommitsLeavesAndRotationEvents(t *testing.T) {
 	if _, _, err := registry.StageValidatorUpdatesAt(context.Background(), 4, []types.ValidatorUpdate{{ID: "charlie", VotingPower: 0}}); err != nil {
 		t.Fatalf("a removal of an unknown validator must be skipped, got %v", err)
 	}
-	events := registry.RotationEvents()
-	if len(events) < 3 {
-		t.Fatalf("expected join/power/leave events, got %+v", events)
-	}
-	seenJoin, seenPower, seenLeave := false, false, false
-	for _, event := range events {
-		if event.Type == RotationEventJoin && event.ValidatorID == "bob" && event.ValidatorSetHash != (types.Hash{}) {
-			seenJoin = true
-		}
-		if event.Type == RotationEventPowerChange && event.ValidatorID == "alice" && event.VotingPower == 12 {
-			seenPower = true
-		}
-		if event.Type == RotationEventLeave && event.ValidatorID == "bob" {
-			seenLeave = true
-		}
-	}
-	if !seenJoin || !seenPower || !seenLeave {
-		t.Fatalf("missing expected rotation events: %+v", events)
-	}
 	reopened, err := NewStoreRegistry(context.Background(), storage, nil, 4, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -220,13 +196,9 @@ func TestStoreRegistryStagesCommitsLeavesAndRotationEvents(t *testing.T) {
 	if _, found := reopenedSet.Get("bob"); found {
 		t.Fatal("expected bob leave to persist")
 	}
-	reopenedEvents := reopened.RotationEvents()
-	if len(reopenedEvents) < 3 {
-		t.Fatalf("expected persisted rotation events after reopen, got %+v", reopenedEvents)
-	}
 }
 
-func TestStoreRegistryPersistsStagedRotationEventsBeforeInMemoryCommit(t *testing.T) {
+func TestStoreRegistryServesAStagedSetCommittedBeforeTheInMemoryCommit(t *testing.T) {
 	storage, err := store.OpenLevelDB(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -247,9 +219,12 @@ func TestStoreRegistryPersistsStagedRotationEventsBeforeInMemoryCommit(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	events := reopened.RotationEvents()
-	if len(events) != 1 || events[0].Type != RotationEventJoin || events[0].ValidatorID != "bob" || events[0].Height != 2 {
-		t.Fatalf("expected staged rotation event to survive crash before in-memory commit, got %+v", events)
+	set, err := reopened.ValidatorSet(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bob, found := set.Get("bob"); !found || bob.VotingPower != 5 {
+		t.Fatalf("expected the staged set to survive a crash before the in-memory commit, got %+v found=%t", bob, found)
 	}
 }
 
@@ -262,9 +237,7 @@ func stagedSet(t *testing.T, registry *StoreRegistry, storage *store.LevelDBStor
 	if err := storage.SetBatch(context.Background(), writes); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.CommitStagedValidatorUpdates(context.Background(), height, updates); err != nil {
-		t.Fatal(err)
-	}
+	registry.CommitStagedValidatorUpdates(height)
 	return set
 }
 

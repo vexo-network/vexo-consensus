@@ -53,7 +53,7 @@ type Runtime struct {
 
 type stagedValidatorUpdateRegistry interface {
 	StageValidatorUpdatesAt(ctx context.Context, height types.Height, updates []types.ValidatorUpdate) (validator.Set, []store.KVWrite, error)
-	CommitStagedValidatorUpdates(ctx context.Context, height types.Height, updates []types.ValidatorUpdate) error
+	CommitStagedValidatorUpdates(height types.Height)
 }
 
 func New(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower) (*Runtime, error) {
@@ -494,14 +494,12 @@ func (runtime *Runtime) executeBlockStaged(ctx context.Context, block types.Bloc
 }
 
 // reconcileAfterCommit refreshes what is derived from the block that just committed: the registry's
-// in-memory rotation events and the evidence pool. Both are rebuilt from committed state (by the
-// registry on load, by ReconcileEvidence on start), so a failure is counted and never fails a block
-// that is already durable.
+// effective height, the crypto keys of a new validator set and the evidence pool. The keys and the
+// pool are rebuilt from committed state on start (RegisterValidatorsAt, ReconcileEvidence), so a
+// failure is counted and never fails a block that is already durable.
 func (runtime *Runtime) reconcileAfterCommit(ctx context.Context, registry stagedValidatorUpdateRegistry, validatorUpdateHeight types.Height, updates []types.ValidatorUpdate) {
 	if registry != nil {
-		if err := registry.CommitStagedValidatorUpdates(ctx, validatorUpdateHeight, updates); err != nil {
-			atomic.AddUint64(&runtime.reconcileFailures, 1)
-		}
+		registry.CommitStagedValidatorUpdates(validatorUpdateHeight)
 	}
 	if len(updates) > 0 {
 		// The new validator set verifies the certificates of the next heights; admit its keys now.

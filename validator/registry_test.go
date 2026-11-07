@@ -139,7 +139,7 @@ func TestInMemoryRegistryLeaveAndUpdatePower(t *testing.T) {
 	}
 }
 
-func TestInMemoryRegistryKeepsHeightVersionedSetsAndEvents(t *testing.T) {
+func TestInMemoryRegistryKeepsHeightVersionedSets(t *testing.T) {
 	registry, err := NewInMemoryRegistry(nil, []Validator{{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1}})
 	if err != nil {
 		t.Fatal(err)
@@ -183,15 +183,6 @@ func TestInMemoryRegistryKeepsHeightVersionedSetsAndEvents(t *testing.T) {
 	}
 	if _, found := set9.Get("bob"); found {
 		t.Fatal("bob must be removed at height 9")
-	}
-
-	events := registry.RotationEvents()
-	if len(events) != 3 ||
-		events[0].Type != RotationEventJoin ||
-		events[1].Type != RotationEventPowerChange ||
-		events[2].Type != RotationEventLeave ||
-		events[2].ValidatorSetHash == (types.Hash{}) {
-		t.Fatalf("unexpected rotation events: %+v", events)
 	}
 }
 

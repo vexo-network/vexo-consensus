@@ -361,10 +361,6 @@ func TestRuntimeExecuteBlockAppliesValidatorUpdates(t *testing.T) {
 	if state.ValidatorSetHash != updatedSet.Hash() {
 		t.Fatal("expected persisted state to use updated validator set hash")
 	}
-	events := runtime.Validators.RotationEvents()
-	if len(events) != 2 || events[0].Height != 6 || events[1].Height != 6 {
-		t.Fatalf("expected validator update events at height 6, got %+v", events)
-	}
 }
 
 // The validator set changes through the staking module: the create-validator transaction of an
@@ -509,9 +505,6 @@ func TestRuntimeSkipsValidatorJoinsTheRegistryRefuses(t *testing.T) {
 	if _, found := updatedSet.Get("alice"); !found || len(updatedSet.List()) != 2 {
 		t.Fatalf("expected only alice and dave, got %+v", updatedSet.List())
 	}
-	if events := runtime.Validators.RotationEvents(); len(events) != 1 || events[0].ValidatorID != "dave" || events[0].Type != validator.RotationEventJoin {
-		t.Fatalf("expected a single join event for dave, got %+v", events)
-	}
 	if _, err := storage.StateByHeight(ctx, 5); err != nil {
 		t.Fatalf("expected the block to be committed: %v", err)
 	}
@@ -583,7 +576,7 @@ func TestRuntimeStagedValidatorUpdatesRollbackWhenCommitFails(t *testing.T) {
 	}
 }
 
-func TestRuntimeRecoversStagedValidatorReconcileFailure(t *testing.T) {
+func TestRuntimeCountsAPostCommitReconcileFailureWithoutFailingTheBlock(t *testing.T) {
 	application, err := vexoapp.NewRuntime("vexo-test", []vexoapp.Module{&validatorUpdateModule{
 		runtimeModule: runtimeModule{name: "staking"},
 		updates: []types.ValidatorUpdate{
@@ -609,7 +602,8 @@ func TestRuntimeRecoversStagedValidatorReconcileFailure(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected store registry, got %T", runtime.Validators)
 	}
-	runtime.Validators = failingStagedValidatorRegistry{StoreRegistry: storeRegistry}
+	failures := 1
+	runtime.Validators = failingKeyRegistry{StoreRegistry: storeRegistry, failHeight: 6, failures: &failures}
 	initialSet, err := runtime.Validators.ValidatorSet(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)
@@ -861,10 +855,18 @@ func (failing failingAppCommitStore) CommitBlockStateWithWrites(ctx context.Cont
 	return errRuntimeCommitFailed
 }
 
-type failingStagedValidatorRegistry struct {
+// failingKeyRegistry fails the first lookups of the validator set of height failHeight, which the
+// runtime makes after the commit to admit the keys of a new set.
+type failingKeyRegistry struct {
 	*validator.StoreRegistry
+	failHeight types.Height
+	failures   *int
 }
 
-func (registry failingStagedValidatorRegistry) CommitStagedValidatorUpdates(ctx context.Context, height types.Height, updates []types.ValidatorUpdate) error {
-	return errRuntimeCommitFailed
+func (registry failingKeyRegistry) ValidatorSet(ctx context.Context, height types.Height) (validator.Set, error) {
+	if height == registry.failHeight && *registry.failures > 0 {
+		*registry.failures--
+		return nil, errRuntimeCommitFailed
+	}
+	return registry.StoreRegistry.ValidatorSet(ctx, height)
 }

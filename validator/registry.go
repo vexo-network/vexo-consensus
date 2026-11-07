@@ -36,7 +36,6 @@ type InMemoryRegistry struct {
 	validators      map[types.ValidatorID]Validator
 	effectiveHeight types.Height
 	versions        []validatorSetVersion
-	events          []RotationEvent
 }
 
 type VersionedRegistry interface {
@@ -45,29 +44,11 @@ type VersionedRegistry interface {
 	ApplyJoinAt(ctx context.Context, height types.Height, candidate Candidate) (Validator, error)
 	ApplyLeaveAt(ctx context.Context, height types.Height, id types.ValidatorID) error
 	UpdateVotingPowerAt(ctx context.Context, height types.Height, id types.ValidatorID, power types.VotingPower) error
-	RotationEvents() []RotationEvent
-}
-
-type RotationEventType string
-
-const (
-	RotationEventJoin        RotationEventType = "join"
-	RotationEventLeave       RotationEventType = "leave"
-	RotationEventPowerChange RotationEventType = "power_change"
-)
-
-type RotationEvent struct {
-	Height           types.Height
-	Type             RotationEventType
-	ValidatorID      types.ValidatorID
-	VotingPower      types.VotingPower
-	ValidatorSetHash types.Hash
 }
 
 type validatorSetVersion struct {
 	height     types.Height
 	validators map[types.ValidatorID]Validator
-	hash       types.Hash
 }
 
 func NewInMemoryRegistry(policy AdmissionPolicy, initialValidators []Validator) (*InMemoryRegistry, error) {
@@ -146,7 +127,7 @@ func (registry *InMemoryRegistry) ApplyJoinAt(ctx context.Context, height types.
 	}
 
 	registry.validators[validatorID] = cloneValidator(validatorInfo)
-	registry.recordMutation(height, RotationEventJoin, validatorID, validatorInfo.VotingPower)
+	registry.recordMutation(height)
 	return cloneValidator(validatorInfo), nil
 }
 
@@ -169,7 +150,7 @@ func (registry *InMemoryRegistry) ApplyLeaveAt(ctx context.Context, height types
 		return ErrValidatorNotFound
 	}
 	delete(registry.validators, id)
-	registry.recordMutation(height, RotationEventLeave, id, 0)
+	registry.recordMutation(height)
 	return nil
 }
 
@@ -197,12 +178,8 @@ func (registry *InMemoryRegistry) UpdateVotingPowerAt(ctx context.Context, heigh
 	}
 	validatorInfo.VotingPower = power
 	registry.validators[id] = validatorInfo
-	registry.recordMutation(height, RotationEventPowerChange, id, power)
+	registry.recordMutation(height)
 	return nil
-}
-
-func (registry *InMemoryRegistry) RotationEvents() []RotationEvent {
-	return append([]RotationEvent(nil), registry.events...)
 }
 
 func (registry *InMemoryRegistry) snapshot() setSnapshot {
@@ -226,39 +203,26 @@ func (registry *InMemoryRegistry) snapshotAt(height types.Height) setSnapshot {
 	return newSetSnapshot(sortedValidatorMap(selected.validators))
 }
 
-func (registry *InMemoryRegistry) recordMutation(height types.Height, eventType RotationEventType, validatorID types.ValidatorID, power types.VotingPower) {
-	hash := registry.recordVersion(height)
-	registry.events = append(registry.events, RotationEvent{
-		Height:           height,
-		Type:             eventType,
-		ValidatorID:      validatorID,
-		VotingPower:      power,
-		ValidatorSetHash: hash,
-	})
+func (registry *InMemoryRegistry) recordMutation(height types.Height) {
+	registry.recordVersion(height)
 	registry.effectiveHeight = height
 }
 
-func (registry *InMemoryRegistry) recordVersion(height types.Height) types.Hash {
+func (registry *InMemoryRegistry) recordVersion(height types.Height) {
 	if height == 0 {
 		height = 1
 	}
-	snapshot := registry.snapshot()
-	version := validatorSetVersion{
-		height:     height,
-		validators: snapshot.toMap(),
-		hash:       snapshot.Hash(),
-	}
+	version := validatorSetVersion{height: height, validators: registry.snapshot().toMap()}
 	for index := range registry.versions {
 		if registry.versions[index].height == height {
 			registry.versions[index] = version
-			return version.hash
+			return
 		}
 	}
 	registry.versions = append(registry.versions, version)
 	sort.Slice(registry.versions, func(left, right int) bool {
 		return registry.versions[left].height < registry.versions[right].height
 	})
-	return version.hash
 }
 
 func (set setSnapshot) toMap() map[types.ValidatorID]Validator {

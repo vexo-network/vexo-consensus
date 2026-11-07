@@ -70,6 +70,6 @@
     "specs/networking-spec.md": "2db4b453e68f25da0c064c84a7e036a9c66d4abee5000442b0d354de6ce67932",
     "specs/storage-schema.md": "0852666a4a162d68b7e6ff34ed0556d4bb8272ef2547407cbfec808869962570",
     "specs/tx-format.md": "3af7b42bda936ca1999c565f05568f7748b11cfaa44794fab678698f3600a35a",
-    "specs/validator-lifecycle.md": "4dbe83d6eae7aadf4f269de335d8e27ab5b6905b65c9c83f366469bbeac065e3"
+    "specs/validator-lifecycle.md": "0fbfebc8ca39637ea9024f970833f68295875fa4e429d57b8f20fcf8f056dabc"
   }
 }
