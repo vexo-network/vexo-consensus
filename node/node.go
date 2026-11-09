@@ -70,14 +70,17 @@ type Node struct {
 	app     app.Application
 	wire    transport.Transport
 
-	mu             sync.Mutex
-	stepMu         sync.Mutex
-	commitMu       sync.Mutex
-	admissionMu    sync.Mutex
-	broadcastMu    sync.Mutex
-	runtime        *vexoruntime.Runtime
-	consensus      *consensus.StateMachine
-	reactor        *consensus.TransportReactor
+	mu          sync.Mutex
+	stepMu      sync.Mutex
+	commitMu    sync.Mutex
+	admissionMu sync.Mutex
+	broadcastMu sync.Mutex
+	runtime     *vexoruntime.Runtime
+	consensus   *consensus.StateMachine
+	reactor     *consensus.TransportReactor
+	// overflowTxs holds gossiped transactions the pool had no room for, to rebuild compact
+	// proposals with.
+	overflowTxs    *overflowTxs
 	localVoter     *autoVoteReactor
 	txCancel       context.CancelFunc
 	txGossipOnce   sync.Once
@@ -154,6 +157,7 @@ func New(cfg Config, genesis Genesis, application app.Application) (*Node, error
 		proposed:     make(map[proposalRound]time.Time),
 		timeoutVotes: make(map[proposalRound]consensus.TimeoutVote),
 		broadcasts:   make(map[string]struct{}),
+		overflowTxs:  newOverflowTxs(),
 	}, nil
 }
 
@@ -293,6 +297,10 @@ func (node *Node) start(ctx context.Context) error {
 		}
 		reactor = consensus.NewTransportReactor(node.wire, receiver)
 		reactor.SetPeerScoring(node.admitPeerMessage, node.observePeerMessage)
+		// Transactions reach every validator through gossip: proposals name them by short id.
+		if runtime.Mempool != nil {
+			reactor.EnableCompactProposals(proposalTxSource{pool: runtime.Mempool, overflow: node.overflowTxs})
+		}
 		node.configureTransportPeerGate(runtime)
 		if voter, ok := receiver.(*autoVoteReactor); ok {
 			voter.broadcastVote = func(ctx context.Context, vote consensus.Vote) error {

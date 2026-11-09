@@ -284,18 +284,20 @@ func TestVerifierRejectsMissingValidatorSetHeight(t *testing.T) {
 func TestVerifierAcceptsHistoricalValidatorSetHeight(t *testing.T) {
 	set := testValidatorSet(t, []validator.Validator{{ID: "a", VotingPower: 1, PublicKey: []byte("a-pub")}})
 	// Block 10 keeps the set of registry height 7 when no block since proved a commit.
-	header := types.Header{ChainID: "vexo-test", Height: 10, Round: 4, JustifyRound: 1, ValidatorSetHeight: 7, ValidatorSetHash: set.Hash()}
+	header := types.Header{ChainID: "vexo-test", Height: 10, Round: 4, JustifyRound: 1, ValidatorSetHeight: 7, StateHeight: 6, ValidatorSetHash: set.Hash(), NextValidatorSetHash: set.Hash()}
 	child := types.Header{
-		ChainID:            header.ChainID,
-		Height:             11,
-		Round:              5,
-		JustifyRound:       4,
-		PreviousBlockHash:  HeaderHash(header),
-		ValidatorSetHeight: ChildValidatorSetHeight(header),
-		ValidatorSetHash:   set.Hash(),
+		ChainID:              header.ChainID,
+		Height:               11,
+		Round:                5,
+		JustifyRound:         4,
+		PreviousBlockHash:    HeaderHash(header),
+		ValidatorSetHeight:   ChildValidatorSetHeight(header),
+		StateHeight:          ChildStateHeight(header),
+		ValidatorSetHash:     set.Hash(),
+		NextValidatorSetHash: set.Hash(),
 	}
-	if child.ValidatorSetHeight != 7 {
-		t.Fatalf("expected the child of a block after a view change to keep registry height 7, got %d", child.ValidatorSetHeight)
+	if child.ValidatorSetHeight != 7 || child.StateHeight != 6 {
+		t.Fatalf("expected the child of a block after a view change to keep registry height 7 and state 6, got %d and %d", child.ValidatorSetHeight, child.StateHeight)
 	}
 	proof := NewProof(header, certFor(set, header, 4, []types.ValidatorID{"a"})).WithChild(child, certFor(set, child, 5, []types.ValidatorID{"a"}))
 	if err := NewVerifier(set, acceptSignatureVerifier{}).VerifyFinalityProof(proof); err != nil {
@@ -424,8 +426,8 @@ func TestRegistryVerifierUsesTheValidatorSetTheHeaderNames(t *testing.T) {
 	}
 }
 
-// The child is certified by the set the proven block fixes for it, which may differ from the
-// proven block's own set: the set changes at the child of a block whose ancestry proves a commit.
+// The child is certified by the next set the proven block names, which may differ from the
+// proven block's own set: the set after the state the block commits.
 func TestRegistryVerifierChecksTheChildWithItsOwnValidatorSet(t *testing.T) {
 	oldSet := abcSet(t)
 	newSet := testValidatorSet(t, []validator.Validator{
@@ -436,20 +438,22 @@ func TestRegistryVerifierChecksTheChildWithItsOwnValidatorSet(t *testing.T) {
 	registry := heightRegistry{sets: map[types.Height]validator.Set{4: oldSet, 5: newSet}}
 	verifier := NewRegistryVerifier(registry, acceptSignatureVerifier{})
 
-	// Block 5 is proposed directly after the view of its justify certificate, so its child names
-	// registry height 5.
-	header := types.Header{ChainID: "vexo-test", Height: 5, Round: 3, JustifyRound: 2, ValidatorSetHeight: 4, ValidatorSetHash: oldSet.Hash()}
+	// Block 6 commits the state after block 4, whose updates produce the set of registry height 5:
+	// it names that set as next, and its child is certified by it.
+	header := types.Header{ChainID: "vexo-test", Height: 6, Round: 3, JustifyRound: 2, ValidatorSetHeight: 4, StateHeight: 4, ValidatorSetHash: oldSet.Hash(), NextValidatorSetHash: newSet.Hash()}
 	child := types.Header{
-		ChainID:            header.ChainID,
-		Height:             6,
-		Round:              4,
-		JustifyRound:       3,
-		PreviousBlockHash:  HeaderHash(header),
-		ValidatorSetHeight: ChildValidatorSetHeight(header),
-		ValidatorSetHash:   newSet.Hash(),
+		ChainID:              header.ChainID,
+		Height:               7,
+		Round:                4,
+		JustifyRound:         3,
+		PreviousBlockHash:    HeaderHash(header),
+		ValidatorSetHeight:   ChildValidatorSetHeight(header),
+		StateHeight:          ChildStateHeight(header),
+		ValidatorSetHash:     newSet.Hash(),
+		NextValidatorSetHash: newSet.Hash(),
 	}
-	if child.ValidatorSetHeight != 5 {
-		t.Fatalf("expected the child to name registry height 5, got %d", child.ValidatorSetHeight)
+	if child.ValidatorSetHeight != 5 || child.StateHeight != 5 {
+		t.Fatalf("expected the child to name registry height 5 and state 5, got %d and %d", child.ValidatorSetHeight, child.StateHeight)
 	}
 	proof := NewProof(header, certFor(oldSet, header, 3, []types.ValidatorID{"a", "b"})).
 		WithChild(child, certFor(newSet, child, 4, []types.ValidatorID{"b", "d"}))
@@ -466,6 +470,18 @@ func TestRegistryVerifierChecksTheChildWithItsOwnValidatorSet(t *testing.T) {
 		WithChild(stale, certFor(oldSet, stale, 4, []types.ValidatorID{"b", "c"}))
 	if err := verifier.VerifyFinalityProof(staleProof); !errors.Is(err, ErrValidatorSetMismatch) {
 		t.Fatalf("expected a child naming the wrong set to be rejected, got %v", err)
+	}
+
+	// The proven block's quorum signed the next set: a block naming another one cannot be completed
+	// by the child of the new set.
+	misnamed := header
+	misnamed.NextValidatorSetHash = oldSet.Hash()
+	misnamedChild := child
+	misnamedChild.PreviousBlockHash = HeaderHash(misnamed)
+	misnamedProof := NewProof(misnamed, certFor(oldSet, misnamed, 3, []types.ValidatorID{"a", "b"})).
+		WithChild(misnamedChild, certFor(newSet, misnamedChild, 4, []types.ValidatorID{"b", "d"}))
+	if err := verifier.VerifyFinalityProof(misnamedProof); !errors.Is(err, ErrValidatorSetMismatch) {
+		t.Fatalf("expected a child outside the next set its parent names to be rejected, got %v", err)
 	}
 
 	// The child must be justified by the certificate of the proven block's view.
@@ -626,26 +642,32 @@ func validProof(set validator.Set, signers []types.ValidatorID) Proof {
 // height+1 is proposed and certified in view round+1.
 func proofAt(set validator.Set, height types.Height, appHash types.Hash, round types.Round, signers []types.ValidatorID) Proof {
 	setHeight := FirstValidatorSetHeight
+	var stateHeight types.Height
 	if height > 1 {
 		setHeight = height - 1
+		stateHeight = height - 2
 	}
 	header := types.Header{
-		ChainID:            "vexo-test",
-		Height:             height,
-		Round:              round,
-		AppHash:            appHash,
-		ValidatorSetHeight: setHeight,
-		ValidatorSetHash:   set.Hash(),
+		ChainID:              "vexo-test",
+		Height:               height,
+		Round:                round,
+		AppHash:              appHash,
+		ValidatorSetHeight:   setHeight,
+		StateHeight:          stateHeight,
+		ValidatorSetHash:     set.Hash(),
+		NextValidatorSetHash: set.Hash(),
 	}
 	proof := NewProof(header, certFor(set, header, round, signers))
 	childHeader := types.Header{
-		ChainID:            header.ChainID,
-		Height:             header.Height + 1,
-		Round:              round + 1,
-		JustifyRound:       round,
-		PreviousBlockHash:  proof.BlockHash,
-		ValidatorSetHeight: ChildValidatorSetHeight(header),
-		ValidatorSetHash:   set.Hash(),
+		ChainID:              header.ChainID,
+		Height:               header.Height + 1,
+		Round:                round + 1,
+		JustifyRound:         round,
+		PreviousBlockHash:    proof.BlockHash,
+		ValidatorSetHeight:   ChildValidatorSetHeight(header),
+		StateHeight:          ChildStateHeight(header),
+		ValidatorSetHash:     set.Hash(),
+		NextValidatorSetHash: set.Hash(),
 	}
 	return proof.WithChild(childHeader, certFor(set, childHeader, round+1, signers))
 }

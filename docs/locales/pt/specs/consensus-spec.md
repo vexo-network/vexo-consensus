@@ -85,6 +85,7 @@ Este documento ajuda a entender especificação normativa da state machine de co
 - State
 - Message Types
 - Safety Rules
+- Block Time
 - Finality Rule
 - Execution Commit Policy
 - Liveness Assumptions
@@ -155,3 +156,8 @@ Este apêndice garante que a tradução preserve as interfaces executáveis e as
 - `C.height = B.height + 1` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `da_mismatch` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `missing_data` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `compact_proposal` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `proposal_request` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `proposal_txs` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `next_validator_set_hash` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `parent_linkage` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.

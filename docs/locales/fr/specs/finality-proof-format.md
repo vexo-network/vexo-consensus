@@ -79,6 +79,7 @@ Ce document aide à comprendre les champs finality proof, l’ordre de vérifica
 - Header Fields
 - Quorum Certificate Fields
 - Verification Algorithm
+- Light Client Verification
 - Accountable Safety Detection
 - Ed25519 Model
 - BLS Model
@@ -130,3 +131,20 @@ Cette annexe garantit que la traduction conserve les interfaces exécutables et 
 - `link.QuorumCert` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
 - `link.QuorumCert.Round == QuorumCert.Round + 1` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
 - `RuntimeSuite.RegisterValidators` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `finality.LightClient` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `/v1/light/{height}` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `vexod light verify` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `finality.VerifyLightBlock` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `Header.ValidatorSetHeight` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `state_height` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `validator_set_height = 1` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `state_height = 0` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `state_height = parent.height - 1` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `validator_set_height` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `state_height + 1` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `Proof.ValidatorSetHeight == Header.ValidatorSetHeight` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `Proof.ValidatorSetHash == Header.ValidatorSetHash` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `Header.Height - 2` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `link.Header.ValidatorSetHash == Header.NextValidatorSetHash` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `link.Header.ValidatorSetHeight` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `next_validator_set_hash` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.

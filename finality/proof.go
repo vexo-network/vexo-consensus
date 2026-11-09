@@ -27,6 +27,8 @@ func HeaderHash(header types.Header) types.Hash {
 	writeUint64(hasher, uint64(header.Round))
 	writeUint64(hasher, uint64(header.JustifyRound))
 	writeUint64(hasher, uint64(header.ValidatorSetHeight))
+	writeUint64(hasher, uint64(header.StateHeight))
+	hasher.Write(header.NextValidatorSetHash[:])
 
 	var hash types.Hash
 	copy(hash[:], hasher.Sum(nil))
@@ -37,16 +39,16 @@ func HeaderHash(header types.Header) types.Hash {
 // genesis set.
 const FirstValidatorSetHeight types.Height = 1
 
-// AppHashHeight returns the height of the state whose app hash a header commits: the state the
-// validator set of the header was taken from, after executing block ValidatorSetHeight-1 (the
-// genesis state for the first set). Every validator that verifies the block has executed that
-// block, so each checks the hash against its own state before it votes, and a certificate of the
-// header vouches for the replicated state of that height (see HeaderAppHash).
+// AppHashHeight returns the height of the state whose app hash a header commits, its StateHeight
+// (the genesis state for 0). Every validator that verifies the block has executed that block
+// (ChildStateHeight), so each checks the hash against its own state before it votes, and a
+// certificate of the header vouches for the replicated state of that height (see HeaderAppHash).
+// It reports false for a header that names no validator set, which no block can be.
 func AppHashHeight(header types.Header) (types.Height, bool) {
 	if header.ValidatorSetHeight == 0 {
 		return 0, false
 	}
-	return header.ValidatorSetHeight - 1, true
+	return header.StateHeight, true
 }
 
 // HeaderAppHash returns the hash a block header carries as its AppHash for a state: the
@@ -65,20 +67,29 @@ func HeaderAppHash(appHash types.Hash, validatorRegistryRoot types.Hash) types.H
 	return hash
 }
 
-// ChildValidatorSetHeight returns the registry height of the validator set that certifies a child
-// of parent. The set changes only where the chain itself proves a commit: a child carries QC(parent),
-// and when the parent was proposed in the view directly after its own justify certificate QC(G),
-// the pair QC(G), QC(parent) is in consecutive views and commits the grandparent G under the 2-chain
-// rule. Every validator that verifies the child has then executed G, so the child is certified by
-// the set the registry holds after G, at registry height G.Height+1 = parent.Height. Otherwise the
-// child keeps the set of its parent. The rule depends only on the parent header, so every node, a
-// light client included, derives the same set for the same block, and a validator set update never
-// applies to a height that may already be certified by the previous set.
-func ChildValidatorSetHeight(parent types.Header) types.Height {
+// ChildStateHeight returns the state height a child of parent commits. The state advances only
+// where the chain itself proves a commit: a child carries QC(parent), and when the parent was
+// proposed in the view directly after its own justify certificate QC(G), the pair QC(G),
+// QC(parent) is in consecutive views and commits the grandparent G under the 2-chain rule. Every
+// validator that verifies the child has then executed G, at height parent.Height-1. Otherwise the
+// child commits the state of its parent.
+func ChildStateHeight(parent types.Header) types.Height {
 	if parent.Height >= 2 && parent.JustifyRound != ^types.Round(0) && parent.Round == parent.JustifyRound+1 {
-		return parent.Height
+		return parent.Height - 1
 	}
-	return parent.ValidatorSetHeight
+	return parent.StateHeight
+}
+
+// ChildValidatorSetHeight returns the registry height of the validator set that certifies a child
+// of parent: the set after the state the parent commits, parent.StateHeight+1. The parent's
+// AppHash commits that state and its NextValidatorSetHash names the set, so a certified header
+// fixes the set of its children before that set signs anything: a light client that trusts a
+// header verifies its child with full quorum, whatever the set change. A validator set update so
+// applies one commit after the state that produced it, and never to a height that may already be
+// certified by the previous set. The rule depends only on the parent header, so every node, a
+// light client included, derives the same set for the same block.
+func ChildValidatorSetHeight(parent types.Header) types.Height {
+	return parent.StateHeight + 1
 }
 
 // SignBytes returns the bytes validators sign when they vote for the certified block in the

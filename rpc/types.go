@@ -192,7 +192,12 @@ type HeaderResponse struct {
 	PreviousBlockHash string `json:"previous_block_hash"`
 	AppHash           string `json:"app_hash"`
 	ValidatorSetHash  string `json:"validator_set_hash"`
-	ConsensusHash     string `json:"consensus_hash"`
+	// NextValidatorSetHash names the validator set that certifies the block's children, the set
+	// after the state of StateHeight that AppHash commits.
+	NextValidatorSetHash string `json:"next_validator_set_hash"`
+	ConsensusHash        string `json:"consensus_hash"`
+	ValidatorSetHeight   uint64 `json:"validator_set_height"`
+	StateHeight          uint64 `json:"state_height"`
 }
 
 type QuorumCertResponse struct {

@@ -16,6 +16,7 @@ import (
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/events"
+	"github.com/vexo-network/vexo-consensus/finality"
 	ibckeeper "github.com/vexo-network/vexo-consensus/ibc"
 	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/node"
@@ -442,6 +443,27 @@ func newHandlerWithConfig(provider StatusProvider, cfg Config, filters *web3Filt
 		}
 		proof, err := finalityProvider.FinalityProof(request.Context(), height)
 		writeFinalityProof(writer, proof, err, strictFinalityRequested(request))
+	})
+	mux.HandleFunc("/light/", func(writer http.ResponseWriter, request *http.Request) {
+		if !allowGet(writer, request) {
+			return
+		}
+		lightProvider, ok := provider.(LightBlockProvider)
+		if !ok {
+			writeError(writer, http.StatusNotImplemented, "light block query is unavailable")
+			return
+		}
+		height, ok := parseHeightSelector(request.URL.Path, "/light/")
+		if !ok {
+			writeError(writer, http.StatusBadRequest, "invalid light block height")
+			return
+		}
+		block, err := lightProvider.LightBlock(request.Context(), height)
+		if err != nil {
+			writeFinalityProof(writer, finality.Proof{}, err, false)
+			return
+		}
+		writeJSON(writer, http.StatusOK, lightBlockResponse(block))
 	})
 	mux.HandleFunc("/events", func(writer http.ResponseWriter, request *http.Request) {
 		if !allowGet(writer, request) {

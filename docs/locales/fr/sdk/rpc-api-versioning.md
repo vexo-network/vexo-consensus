@@ -199,3 +199,4 @@ Cette annexe garantit que la traduction conserve les interfaces exécutables et 
 - `https://remix.ethereum.org` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
 - `path.siblings` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
 - `path.neighbor` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `/v1/light/{height}` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.

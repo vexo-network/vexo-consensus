@@ -104,6 +104,8 @@ func (cluster *testCluster) block(height types.Height, parent types.Hash, txs ..
 		Height:            height,
 		PreviousBlockHash: parent,
 		ValidatorSetHash:  cluster.set.Hash(),
+		// Block time only has to increase along a chain.
+		TimeUnixNano: int64(height),
 	}}
 	for _, tx := range txs {
 		block.Txs = append(block.Txs, types.Tx(tx))
@@ -131,8 +133,13 @@ func (cluster *testCluster) seal(block types.Block, round types.Round, justifyRo
 	block.Header.Round = round
 	block.Header.JustifyRound = justifyRound
 	block.Header.ValidatorSetHeight = finality.FirstValidatorSetHeight
+	block.Header.StateHeight = 0
 	if parent, found := cluster.headers[block.Header.PreviousBlockHash]; found && block.Header.Height > 1 {
 		block.Header.ValidatorSetHeight = finality.ChildValidatorSetHeight(parent)
+		block.Header.StateHeight = finality.ChildStateHeight(parent)
+	}
+	if block.Header.NextValidatorSetHash == (types.Hash{}) {
+		block.Header.NextValidatorSetHash = cluster.set.Hash()
 	}
 	cluster.headers[HashBlock(block)] = block.Header
 	return block

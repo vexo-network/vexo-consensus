@@ -72,21 +72,24 @@ func TestRunProofDetectFinalityConflict(t *testing.T) {
 func signedFinalityProof(t *testing.T, validatorSet validator.Set, signers map[types.ValidatorID]vexocrypto.Ed25519Signer, appHash types.Hash, signerIDs []types.ValidatorID) finality.Proof {
 	t.Helper()
 	header := types.Header{
-		ChainID:            "vexo-test",
-		Height:             1,
-		AppHash:            appHash,
-		ConsensusHash:      appHash,
-		ValidatorSetHeight: finality.FirstValidatorSetHeight,
-		ValidatorSetHash:   validatorSet.Hash(),
+		ChainID:              "vexo-test",
+		Height:               1,
+		AppHash:              appHash,
+		ConsensusHash:        appHash,
+		ValidatorSetHeight:   finality.FirstValidatorSetHeight,
+		ValidatorSetHash:     validatorSet.Hash(),
+		NextValidatorSetHash: validatorSet.Hash(),
 	}
 	childHeader := types.Header{
-		ChainID:            header.ChainID,
-		Height:             header.Height + 1,
-		Round:              1,
-		JustifyRound:       0,
-		PreviousBlockHash:  finality.HeaderHash(header),
-		ValidatorSetHeight: finality.ChildValidatorSetHeight(header),
-		ValidatorSetHash:   validatorSet.Hash(),
+		ChainID:              header.ChainID,
+		Height:               header.Height + 1,
+		Round:                1,
+		JustifyRound:         0,
+		PreviousBlockHash:    finality.HeaderHash(header),
+		ValidatorSetHeight:   finality.ChildValidatorSetHeight(header),
+		StateHeight:          finality.ChildStateHeight(header),
+		ValidatorSetHash:     validatorSet.Hash(),
+		NextValidatorSetHash: validatorSet.Hash(),
 	}
 	return finality.NewProof(header, signedQuorumCert(t, validatorSet, signers, header, 0, signerIDs)).
 		WithChild(childHeader, signedQuorumCert(t, validatorSet, signers, childHeader, 1, signerIDs))

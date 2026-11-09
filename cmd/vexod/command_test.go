@@ -3203,7 +3203,7 @@ func TestMaybeRunStartupStateSyncRejectsOversizedSnapshot(t *testing.T) {
 // own fields together; it is not a block of any chain.
 func snapshotTestHeaderFor(height types.Height, appHash types.Hash) types.Header {
 	headerAppHash := finality.HeaderAppHash(appHash, snapshotTestRegistryRoot(height).Root)
-	return types.Header{ChainID: "vexo-test", Height: height + 2, ValidatorSetHeight: height + 1, AppHash: headerAppHash}
+	return types.Header{ChainID: "vexo-test", Height: height + 2, ValidatorSetHeight: height + 1, StateHeight: height, AppHash: headerAppHash}
 }
 
 // snapshotTestRegistryRoot is the validator registry root of a synthetic snapshot of height.

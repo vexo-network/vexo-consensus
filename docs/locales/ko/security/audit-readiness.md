@@ -67,6 +67,12 @@
 ## 규범 원문
 
 - [영어 정본 문서](../../en/security/audit-readiness.md)
+## 알려진 한계 갱신
+
+- 라이트 클라이언트: 모든 헤더가 자식을 인증할 set(`next_validator_set_hash`)을 가리키므로, set이 한 블록 사이에 크게 바뀌어도 연속 블록까지 bisection해 따라갈 수 있습니다. 신뢰 가정은 trusting period 동안 신뢰한 set의 결함 power가 1/3 미만이라는 것이고, trusting period는 검증자가 set을 떠난 뒤 슬래싱 가능한 기간보다 짧아야 합니다.
+- Invalid-proposal evidence 사유는 `da_mismatch`, `missing_data`, `validator_set_hash`, `next_validator_set_hash`, `app_hash`, `parent_linkage`(높이, 시간, set/state 높이)입니다. 로컬 시계나 재실행이 필요한 결함은 evidence가 아닙니다.
+- 블록마다 단일 leader가 제안합니다. compact proposal은 트랜잭션이 먼저 gossip된 경우 leader 업로드를 validator당 트랜잭션당 8바이트로 줄이지만, DAG mempool(Narwhal 방식)처럼 전파를 validator들에 분산하지는 않으므로 leader 대역폭과 1 MiB 블록 한도가 여전히 처리량 상한입니다.
+
 ## 감사 준비 추가 설명
 
 감사자는 코드 존재 여부보다 증거의 재현성을 먼저 봅니다. 따라서 위협 모델, 알려진 한계, BLS/VRF 감사 자료, EVM conformance 결과, longrun/chaos 결과, KMS 서명 증거, snapshot/replay 증거가 동일한 바이너리와 동일한 설정에서 생성되었는지 확인해야 합니다. 운영자는 예외를 숨기지 말고 release gate가 거절한 항목을 그대로 기록한 뒤, 담당자와 재검증 조건을 runbook에 남겨야 합니다.
@@ -102,3 +108,5 @@
 - `missing_data` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `validator_set_hash` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `app_hash` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `finality.LightClient` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `vexod light verify` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.

@@ -105,3 +105,7 @@
 - `missing_data` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `validator_set_hash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `app_hash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `finality.LightClient` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod light verify` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `next_validator_set_hash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `parent_linkage` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

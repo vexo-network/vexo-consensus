@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"context"
 	"errors"
 
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
@@ -52,6 +53,15 @@ type CertifiedAppHashSource interface {
 // block committed an app hash for: there is nothing to compare the proposal with.
 var ErrAppHashNotCertified = errors.New("no certified app hash for the state height the proposal names")
 
+// validatorSets returns the source of the replicated validator sets of past registry heights:
+// FinalitySets, or validatorSet for every height without it.
+func (verifier EvidenceVerifierBundle) validatorSets(validatorSet validator.Set) finality.ValidatorSetSource {
+	if verifier.FinalitySets != nil {
+		return verifier.FinalitySets
+	}
+	return finality.StaticValidatorSets(validatorSet)
+}
+
 func NewEvidenceVerifier(signatures EvidenceSignatureVerifier, finalityVerifier EvidenceAggregateVerifier) EvidenceVerifierBundle {
 	return EvidenceVerifierBundle{Signatures: signatures, Finality: finalityVerifier}
 }
@@ -68,11 +78,14 @@ func (verifier EvidenceVerifierBundle) VerifyAggregate(publicKeys []types.Public
 // proof and validatorSet, the validator set in effect at evidence.Height. It has no side effects.
 // Evidence that is already normalized or still carries the legacy double_sign label is accepted.
 //
-// The accepted faults are decidable from those two inputs alone: conflicting votes, conflicting
-// timeout votes, a finality conflict, an unavailable-data proposal and an invalid proposal whose
-// invalidity is a data-availability or validator-set-hash mismatch. An app-hash mismatch is judged
-// against verifier.CertifiedAppHashes, which serves replicated state, so every node decides it
-// alike; without it the evidence is ErrEvidenceNotSelfContained.
+// The accepted faults are decidable from the proof and replicated state alone: conflicting votes,
+// conflicting timeout votes, a finality conflict, an unavailable-data proposal, and an invalid
+// proposal whose invalidity is a data-availability mismatch, a broken link to the parent header it
+// names (parent_linkage), or a validator-set or next-validator-set hash other than the replicated
+// set of the registry height the header names (from verifier.FinalitySets, validatorSet for every
+// height without it). An app-hash mismatch is judged against verifier.CertifiedAppHashes, which
+// serves replicated state, so every node decides it alike; without it the evidence is
+// ErrEvidenceNotSelfContained.
 //
 // For the BLS backend, validatorSet's keys must have been registered with the crypto suite behind
 // verifier, which verifies their proofs of possession.
@@ -121,9 +134,24 @@ func VerifyEvidence(evidence slashing.Evidence, validatorSet validator.Set, veri
 			return err
 		}
 		var expected types.Hash
+		header := decoded.Proposal.Block.Header
 		switch decoded.Reason {
-		case InvalidProposalReasonValidatorSetHash:
-			expected = validatorSet.Hash()
+		case InvalidProposalReasonValidatorSetHash, InvalidProposalReasonNextValidatorSetHash:
+			// The set of a registry height is replicated state: a header naming another hash for
+			// the set of the height it names is wrong whatever height it should have named, which
+			// parent_linkage evidence judges.
+			registryHeight := header.ValidatorSetHeight
+			if decoded.Reason == InvalidProposalReasonNextValidatorSetHash {
+				registryHeight = header.StateHeight + 1
+			}
+			if registryHeight == 0 || registryHeight > evidence.Height {
+				return ErrInvalidProposal
+			}
+			set, err := verifier.validatorSets(validatorSet).ValidatorSet(context.Background(), registryHeight)
+			if err != nil {
+				return err
+			}
+			expected = set.Hash()
 		case InvalidProposalReasonAppHash:
 			if verifier.CertifiedAppHashes == nil {
 				return ErrEvidenceNotSelfContained
@@ -158,10 +186,7 @@ func VerifyEvidence(evidence slashing.Evidence, validatorSet validator.Set, veri
 		if verifier.Finality == nil {
 			return ErrEvidenceFinalityVerifier
 		}
-		sets := verifier.FinalitySets
-		if sets == nil {
-			sets = finality.StaticValidatorSets(validatorSet)
-		}
+		sets := verifier.validatorSets(validatorSet)
 		_, err := finality.VerifyConflictEvidence(sets, verifier, evidence)
 		return err
 	default:

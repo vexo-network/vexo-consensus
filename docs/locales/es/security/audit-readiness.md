@@ -99,3 +99,7 @@ Este apéndice asegura que la traducción conserve las interfaces ejecutables y 
 - `missing_data` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `validator_set_hash` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `app_hash` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `finality.LightClient` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `vexod light verify` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `next_validator_set_hash` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `parent_linkage` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.

@@ -99,6 +99,9 @@ func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consens
 			return err
 		}
 		reactor.reportError("proposal_rejected", err)
+		// A signed proposal whose header breaks a rule every node judges alike is evidence
+		// against its proposer.
+		reactor.publishNewEvidence(ctx, before)
 		if reactor.onProposalRejected != nil {
 			reactor.onProposalRejected(proposal, err)
 		}
@@ -486,6 +489,9 @@ func (node *Node) ProposeBlock(ctx context.Context, block types.Block) (consensu
 		}
 		candidateBlock := block
 		candidateBlock.Header.Height = height
+		if candidateBlock.Header.TimeUnixNano == 0 {
+			candidateBlock.Header.TimeUnixNano = time.Now().UnixNano()
+		}
 		// Views are global: the proposal goes into the current view whatever its height.
 		round := status.Round
 

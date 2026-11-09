@@ -32,6 +32,7 @@ Stable endpoints are exposed under `/v1`. The unversioned paths remain compatibi
 - `/v1/proof?namespace={namespace}&key={key}&height=latest`
 - `/v1/finality/latest`
 - `/v1/finality/{height}`
+- `/v1/light/{height}`
 - `/v1/ibc/client/{client_id}`
 - `/v1/ibc/connection/{connection_id}`
 - `/v1/ibc/channel/{port_id}/{channel_id}`

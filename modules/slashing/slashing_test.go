@@ -269,9 +269,9 @@ func (f *fixture) qc(height types.Height, round types.Round, blockHash types.Has
 func (f *fixture) finalityProof(height types.Height, appHash types.Hash, round types.Round, voters ...types.ValidatorID) finality.Proof {
 	f.t.Helper()
 	setHash := f.validatorSetAt(1).Hash()
-	header := types.Header{ChainID: testChainID, Height: height, Round: round, AppHash: appHash, ValidatorSetHeight: finality.FirstValidatorSetHeight, ValidatorSetHash: setHash}
+	header := types.Header{ChainID: testChainID, Height: height, Round: round, AppHash: appHash, ValidatorSetHeight: finality.FirstValidatorSetHeight, ValidatorSetHash: setHash, NextValidatorSetHash: setHash}
 	proof := finality.NewProof(header, f.qc(height, round, finality.HeaderHash(header), voters...))
-	child := types.Header{ChainID: testChainID, Height: height + 1, Round: round + 1, JustifyRound: round, PreviousBlockHash: proof.BlockHash, ValidatorSetHeight: finality.ChildValidatorSetHeight(header), ValidatorSetHash: setHash}
+	child := types.Header{ChainID: testChainID, Height: height + 1, Round: round + 1, JustifyRound: round, PreviousBlockHash: proof.BlockHash, ValidatorSetHeight: finality.ChildValidatorSetHeight(header), StateHeight: finality.ChildStateHeight(header), ValidatorSetHash: setHash, NextValidatorSetHash: setHash}
 	return proof.WithChild(child, f.qc(child.Height, round+1, finality.HeaderHash(child), voters...))
 }
 
@@ -1361,7 +1361,7 @@ func TestBlockCarriesOneEvidenceTransactionPerOffence(t *testing.T) {
 
 // certifiedBlock is a block of height whose header commits appHash for the state of stateHeight.
 func certifiedBlock(height types.Height, stateHeight types.Height, appHash types.Hash, txs ...types.Tx) types.Block {
-	return types.Block{Header: types.Header{ChainID: testChainID, Height: height, ValidatorSetHeight: stateHeight + 1, AppHash: appHash}, Txs: txs}
+	return types.Block{Header: types.Header{ChainID: testChainID, Height: height, ValidatorSetHeight: stateHeight + 1, StateHeight: stateHeight, AppHash: appHash}, Txs: txs}
 }
 
 // appHashEvidence is invalid-proposal evidence that proposer signed a block of height naming

@@ -79,6 +79,7 @@ Tài liệu này giúp hiểu các trường finality proof, thứ tự xác min
 - Header Fields
 - Quorum Certificate Fields
 - Verification Algorithm
+- Light Client Verification
 - Accountable Safety Detection
 - Ed25519 Model
 - BLS Model
@@ -130,3 +131,20 @@ Phụ lục này bảo đảm bản dịch vẫn giữ các giao diện có th�
 - `link.QuorumCert` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `link.QuorumCert.Round == QuorumCert.Round + 1` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `RuntimeSuite.RegisterValidators` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `finality.LightClient` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `/v1/light/{height}` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `vexod light verify` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `finality.VerifyLightBlock` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `Header.ValidatorSetHeight` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `state_height` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `validator_set_height = 1` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `state_height = 0` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `state_height = parent.height - 1` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `validator_set_height` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `state_height + 1` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `Proof.ValidatorSetHeight == Header.ValidatorSetHeight` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `Proof.ValidatorSetHash == Header.ValidatorSetHash` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `Header.Height - 2` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `link.Header.ValidatorSetHash == Header.NextValidatorSetHash` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `link.Header.ValidatorSetHeight` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `next_validator_set_hash` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.

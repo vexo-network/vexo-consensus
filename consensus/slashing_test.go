@@ -203,9 +203,9 @@ func (fixture evidenceFixture) unavailableData(proposer types.ValidatorID) slash
 // signers with their real keys.
 func (fixture evidenceFixture) finalityProof(height types.Height, appHash types.Hash, round types.Round, signers ...types.ValidatorID) finality.Proof {
 	fixture.t.Helper()
-	header := types.Header{ChainID: testChainID, Height: height, Round: round, AppHash: appHash, ValidatorSetHeight: finality.FirstValidatorSetHeight, ValidatorSetHash: fixture.set.Hash()}
+	header := types.Header{ChainID: testChainID, Height: height, Round: round, AppHash: appHash, ValidatorSetHeight: finality.FirstValidatorSetHeight, ValidatorSetHash: fixture.set.Hash(), NextValidatorSetHash: fixture.set.Hash()}
 	proof := finality.NewProof(header, fixture.cluster.qc(height, round, finality.HeaderHash(header), signers...))
-	child := types.Header{ChainID: testChainID, Height: height + 1, Round: round + 1, JustifyRound: round, PreviousBlockHash: proof.BlockHash, ValidatorSetHeight: finality.ChildValidatorSetHeight(header), ValidatorSetHash: fixture.set.Hash()}
+	child := types.Header{ChainID: testChainID, Height: height + 1, Round: round + 1, JustifyRound: round, PreviousBlockHash: proof.BlockHash, ValidatorSetHeight: finality.ChildValidatorSetHeight(header), StateHeight: finality.ChildStateHeight(header), ValidatorSetHash: fixture.set.Hash(), NextValidatorSetHash: fixture.set.Hash()}
 	return proof.WithChild(child, fixture.cluster.qc(child.Height, round+1, finality.HeaderHash(child), signers...))
 }
 

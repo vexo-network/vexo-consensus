@@ -56,6 +56,16 @@ func (suite RuntimeSuite) RegisterValidators(validators []validator.Validator) e
 	return suite.blsKeys.RegisterValidators(validators)
 }
 
+// VerifyAggregate verifies a certificate signature with the suite's finality verifier. Together with
+// RegisterValidators the suite verifies for a light client, which registers each validator set it
+// fetches before it verifies a certificate of that set.
+func (suite RuntimeSuite) VerifyAggregate(publicKeys []types.PublicKey, message []byte, signature types.AggregateSignature) bool {
+	if suite.FinalityVerifier == nil {
+		return false
+	}
+	return suite.FinalityVerifier.VerifyAggregate(publicKeys, message, signature)
+}
+
 func NewRuntimeSuite(cfg config.CryptoConfig) (RuntimeSuite, error) {
 	return NewRuntimeSuiteRegistry().NewRuntimeSuite(cfg)
 }

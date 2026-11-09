@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/committee"
@@ -127,6 +128,27 @@ func (node *Node) FinalityProof(ctx context.Context, height types.Height) (final
 		return proof, err
 	}
 	return node.finalityProof(ctx, height)
+}
+
+// LightBlock returns what a light client verifies the final block at height with: its finality
+// proof, the validator set its header names and the next set it names, which certifies its children.
+func (node *Node) LightBlock(ctx context.Context, height types.Height) (finality.LightBlock, error) {
+	proof, err := node.FinalityProof(ctx, height)
+	if err != nil {
+		return finality.LightBlock{}, err
+	}
+	if !proof.HasCommitProof() {
+		return finality.LightBlock{}, fmt.Errorf("%w: block %d has no commit child yet", ErrFinalityNotFound, height)
+	}
+	set, err := node.ValidatorSet(ctx, proof.Header.ValidatorSetHeight)
+	if err != nil {
+		return finality.LightBlock{}, err
+	}
+	nextSet, err := node.ValidatorSet(ctx, finality.ChildValidatorSetHeight(proof.Header))
+	if err != nil {
+		return finality.LightBlock{}, err
+	}
+	return finality.LightBlock{Proof: proof, ValidatorSet: set, NextValidatorSet: nextSet}, nil
 }
 
 func (node *Node) storedLatestFinalityProof(ctx context.Context) (finality.Proof, bool, error) {

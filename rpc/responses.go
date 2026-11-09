@@ -308,13 +308,16 @@ func finalityProofResponse(proof finality.Proof) FinalityProofResponse {
 
 func headerResponse(header types.Header) HeaderResponse {
 	return HeaderResponse{
-		ChainID:           header.ChainID,
-		Height:            uint64(header.Height),
-		TimeUnixNano:      header.TimeUnixNano,
-		PreviousBlockHash: hex.EncodeToString(header.PreviousBlockHash[:]),
-		AppHash:           hex.EncodeToString(header.AppHash[:]),
-		ValidatorSetHash:  hex.EncodeToString(header.ValidatorSetHash[:]),
-		ConsensusHash:     hex.EncodeToString(header.ConsensusHash[:]),
+		ChainID:              header.ChainID,
+		Height:               uint64(header.Height),
+		TimeUnixNano:         header.TimeUnixNano,
+		PreviousBlockHash:    hex.EncodeToString(header.PreviousBlockHash[:]),
+		AppHash:              hex.EncodeToString(header.AppHash[:]),
+		ValidatorSetHash:     hex.EncodeToString(header.ValidatorSetHash[:]),
+		NextValidatorSetHash: hex.EncodeToString(header.NextValidatorSetHash[:]),
+		ConsensusHash:        hex.EncodeToString(header.ConsensusHash[:]),
+		ValidatorSetHeight:   uint64(header.ValidatorSetHeight),
+		StateHeight:          uint64(header.StateHeight),
 	}
 }
 
@@ -542,4 +545,16 @@ func sortedStrings(values []string) []string {
 	sorted := append([]string(nil), values...)
 	sort.Strings(sorted)
 	return sorted
+}
+
+// LightBlockResponse carries a light block in the encoding of its Go types, so a light client
+// decodes exactly the bytes the block hash and the validator set hash are computed from.
+type LightBlockResponse struct {
+	Proof            finality.Proof        `json:"proof"`
+	ValidatorSet     []validator.Validator `json:"validator_set"`
+	NextValidatorSet []validator.Validator `json:"next_validator_set"`
+}
+
+func lightBlockResponse(block finality.LightBlock) LightBlockResponse {
+	return LightBlockResponse{Proof: block.Proof, ValidatorSet: block.ValidatorSet.List(), NextValidatorSet: block.NextValidatorSet.List()}
 }

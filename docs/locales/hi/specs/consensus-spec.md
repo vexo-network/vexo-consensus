@@ -85,6 +85,7 @@
 - State
 - Message Types
 - Safety Rules
+- Block Time
 - Finality Rule
 - Execution Commit Policy
 - Liveness Assumptions
@@ -155,3 +156,8 @@ Proposal `chain_id` और height से salt बनाता है, हर sig
 - `C.height = B.height + 1` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
 - `da_mismatch` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
 - `missing_data` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
+- `compact_proposal` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
+- `proposal_request` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
+- `proposal_txs` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
+- `next_validator_set_hash` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
+- `parent_linkage` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।

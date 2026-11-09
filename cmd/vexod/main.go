@@ -77,6 +77,7 @@ func coreCommands() commandset.Registry {
 		{Name: "keys", Description: "manage local and remote validator keys", Handler: runKeys},
 		{Name: "tx", Description: "build or parse canonical transaction payloads", Handler: runTx},
 		{Name: "proof", Description: "build and verify state, IBC, and finality proofs", Handler: runProof},
+		{Name: "light", Description: "verify a block as a light client from a trusted block", Handler: runLight},
 		{Name: "relayer", Description: "build, prove, and submit IBC relayer transactions", Handler: runRelayer},
 		{Name: "start", Description: "validate files, prepare startup, or run a node", Handler: runStart},
 		{Name: "network", Description: "manage node networks and local execution harnesses", Handler: runNetwork},

@@ -85,6 +85,7 @@
 - State
 - Message Types
 - Safety Rules
+- Block Time
 - Finality Rule
 - Execution Commit Policy
 - Liveness Assumptions
@@ -97,11 +98,37 @@
 
 ## 헤더 app hash
 
-블록 헤더의 `AppHash`는 블록 `ValidatorSetHeight - 1`을 실행한 뒤의 state를 커밋합니다(그 값이 `0`이면 genesis state). 즉 헤더의 validator set을 가져온 state입니다. 값은 application app hash와 그 블록 이후 `validator_registry` 네임스페이스 루트의 `HeaderAppHash`이므로, evidence 판정에 쓰이는 과거 높이의 validator set도 application state와 함께 커밋됩니다. proposer가 이 값을 채우고, validator는 자기 state의 같은 높이 app hash와 일치하는 proposal에만 투표하며, 노드는 `AppHash`가 자기 state와 다른 인증 블록을 실행하지 않습니다. 따라서 인증서는 그 높이의 복제 state 전체를 보증하고, state sync 노드는 snapshot을 이 값과 대조합니다.
+블록 헤더의 `AppHash`는 블록 `StateHeight`를 실행한 뒤의 state를 커밋합니다(그 값이 `0`이면 genesis state). 이는 헤더를 검증하는 모든 validator에게 체인이 커밋을 증명한 가장 최근 블록입니다. 헤더의 `NextValidatorSetHash`는 그 state 이후 registry가 가진 set, 즉 자식 블록을 인증할 set을 가리킵니다. 자식의 `ValidatorSetHeight`는 부모의 `StateHeight + 1`이고 자식의 `ValidatorSetHash`는 부모의 `NextValidatorSetHash`와 같아야 하며, validator는 다음 set이 자기 registry와 일치하는 proposal에만 투표합니다. 값은 application app hash와 그 블록 이후 `validator_registry` 네임스페이스 루트의 `HeaderAppHash`이므로, evidence 판정에 쓰이는 과거 높이의 validator set도 application state와 함께 커밋됩니다. proposer가 이 값을 채우고, validator는 자기 state의 같은 높이 app hash와 일치하는 proposal에만 투표하며, 노드는 `AppHash`가 자기 state와 다른 인증 블록을 실행하지 않습니다. 따라서 인증서는 그 높이의 복제 state 전체를 보증하고, state sync 노드는 snapshot을 이 값과 대조합니다.
 
 다른 app hash를 담은 서명된 proposal을 거부한 validator는 proposer를 `app_hash` 사유의 invalid-proposal evidence로 신고합니다. slashing 모듈은 각 블록 헤더가 커밋한 app hash를 state 높이별로 기록해 두고(evidence 유효 기간 동안 유지), evidence를 이 인증된 값과 대조해 판정합니다. 따라서 모든 노드가 같은 결론을 내리며, 자기 state가 어긋난 노드는 정직한 proposer를 처벌할 수 없습니다.
 
 노드는 복원한 snapshot 아래나 보관 기간(retention) 아래의 state를 갖고 있지 않지만, 헤더는 체인이 커밋을 증명할 때까지 자기 validator set의 state를 계속 가리키므로 그런 state를 가리킬 수 있습니다. 이때 노드는 slashing 모듈이 그 state에 대해 인증된 값으로 기록한 `AppHash`를 사용해, state를 가진 노드와 똑같이 그 헤더에 투표하고 실행합니다.
+
+## 블록 시간
+
+블록의 `TimeUnixNano`는 부모 블록의 시간보다 엄격히 커야 하고, 첫 블록의 시간은 양수여야 합니다. 이를 어긴 제안은 서명이 올바르더라도 무효입니다. 제안자는 자기 시계로 시간을 찍고, 시계가 부모보다 뒤처져 있으면 부모 시간 + 1ns로 올립니다. 검증자는 블록 시간이 자기 시계보다 `MaxBlockTimeDrift`(2초) 넘게 앞서 있으면 투표하지 않습니다. 따라서 인증된 블록의 시간은 정직한 검증자 시계의 drift 범위 안에 있고, 라이트 클라이언트의 trusting period와 EVM `TIMESTAMP`는 이 값을 기준으로 합니다.
+
+## Invalid-proposal evidence 사유
+
+모든 사유는 모든 노드가 똑같이 가진 데이터로 판정됩니다.
+
+- `da_mismatch`, `missing_data`: proposal 자신의 트랜잭션으로 판정합니다.
+- `validator_set_hash`: 헤더가 가리키는 registry 높이의 set으로 판정합니다. `next_validator_set_hash`: 헤더가 가리키는 state 이후의 set으로 판정합니다. 높이가 0이거나 헤더 높이보다 크면 거부합니다. 정직한 proposer는 자기 복제 state의 set을 가리키므로 누명을 쓸 수 없습니다.
+- `app_hash`: slashing 모듈이 기록한, 인증 블록이 커밋한 app hash로 판정합니다.
+- `parent_linkage`: 증명이 부모 헤더를 담고, 부모는 proposal의 `PreviousBlockHash`로 해시되어야 합니다. proposal이 부모만으로 정해지는 규칙(높이 = 부모 + 1, 시간 > 부모 시간, 부모가 정한 set/state 높이)을 어겼음을 보입니다. 첫 블록은 부모 없이 previous hash 0, 양의 시간, genesis set/state 높이를 검사합니다.
+
+다른 체인 데이터, 로컬 시계, 재실행이 필요한 결함(시계보다 앞선 블록 시간, 무효 트랜잭션 등)은 노드마다 판단이 다를 수 있으므로 evidence가 아닙니다. 증명은 모두 proposer가 proposal domain으로 서명한 proposal이어야 합니다.
+
+## Compact proposal
+
+proposer는 트랜잭션이 있는 proposal을 `compact_proposal`로 보냅니다. 트랜잭션을 뺀 서명된 proposal과, 블록 순서대로 각 트랜잭션 해시의 앞 8바이트 short id입니다. 트랜잭션은 gossip으로 먼저 퍼지므로 validator는 mempool과, mempool이 가득 차서 받지 못한 gossip 트랜잭션을 담는 bounded overflow에서 블록을 재구성합니다. 블록 형식, 해시, 서명 대상은 바뀌지 않습니다.
+
+- 재구성한 블록은 트랜잭션 루트가 헤더와 일치할 때만 판정하므로 short id 충돌로 다른 블록을 판정하는 일은 없습니다.
+- 일부가 없으면 위치를 담은 `proposal_request`를 proposer에게 보내고 `proposal_txs`로 받습니다. 절반 넘게 없거나 트랜잭션 루트가 맞지 않으면 전체 `proposal`을 요청합니다.
+- 해당 위치의 short id와 다른 트랜잭션을 보낸 peer는 감점됩니다. 재구성하지 못한 compact proposal은 보낸 쪽 잘못이 아닙니다.
+- 노드는 보유한 proposal을 peer마다 최대 두 번만 보내고, 최근 32개 proposal만 보유합니다.
+
+gossip이 먼저 도달하면 leader의 validator당 업로드는 트랜잭션 크기 대신 트랜잭션당 8바이트로 줄어듭니다.
 
 ## 최종성 규칙
 

@@ -166,8 +166,9 @@ func (verifier Verifier) VerifyFinalityProofWithContext(ctx context.Context, pro
 
 // checkProofStructure checks everything about a finality proof but the signatures: the proof's
 // validator set fields repeat what the header names, both headers name a set they may name, the
-// child extends the proven block and names the set the proven block fixes for it, and the
-// certificates are in consecutive views that match the headers.
+// child extends the proven block and names the set and state the proven block fixes for it, its
+// set being the one the proven block names as next, and the certificates are in consecutive views
+// that match the headers.
 func checkProofStructure(proof Proof) (CommitLink, error) {
 	if proof.ValidatorSetHeight != proof.Header.ValidatorSetHeight {
 		return CommitLink{}, ErrHeightMismatch
@@ -192,7 +193,10 @@ func checkProofStructure(proof Proof) (CommitLink, error) {
 	if err != nil {
 		return CommitLink{}, err
 	}
-	if child.Header.ValidatorSetHeight != ChildValidatorSetHeight(proof.Header) {
+	if child.Header.ValidatorSetHeight != ChildValidatorSetHeight(proof.Header) || child.Header.StateHeight != ChildStateHeight(proof.Header) {
+		return CommitLink{}, ErrValidatorSetMismatch
+	}
+	if child.Header.ValidatorSetHash != proof.Header.NextValidatorSetHash {
 		return CommitLink{}, ErrValidatorSetMismatch
 	}
 	if child.Header.JustifyRound != proof.Header.Round || child.QuorumCert.Round != child.Header.Round {
@@ -201,19 +205,20 @@ func checkProofStructure(proof Proof) (CommitLink, error) {
 	return child, nil
 }
 
-// checkHeaderValidatorSetHeight rejects a header naming a set no block of its height can have: the
-// first block has the genesis set, and a later block at most the set after its grandparent.
+// checkHeaderValidatorSetHeight rejects a header naming a set or a state no block of its height
+// can have: the first block has the genesis set and state; a later block commits at most the state
+// of its grandparent, and is certified by the set after a state no later than the one it commits.
 func checkHeaderValidatorSetHeight(header types.Header) error {
 	if header.ValidatorSetHeight == 0 {
 		return ErrHeightMismatch
 	}
 	if header.Height <= 1 {
-		if header.ValidatorSetHeight != FirstValidatorSetHeight {
+		if header.ValidatorSetHeight != FirstValidatorSetHeight || header.StateHeight != 0 {
 			return ErrHeightMismatch
 		}
 		return nil
 	}
-	if header.ValidatorSetHeight > header.Height-1 {
+	if header.StateHeight > header.Height-2 || header.ValidatorSetHeight > header.StateHeight+1 {
 		return ErrHeightMismatch
 	}
 	return nil

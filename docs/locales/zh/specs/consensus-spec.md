@@ -85,6 +85,7 @@
 - State
 - Message Types
 - Safety Rules
+- Block Time
 - Finality Rule
 - Execution Commit Policy
 - Liveness Assumptions
@@ -155,3 +156,8 @@ Proposal 由 `chain_id` 和 height 生成 salt，将每个 signer 的 transactio
 - `C.height = B.height + 1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `da_mismatch` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `missing_data` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `compact_proposal` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `proposal_request` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `proposal_txs` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `next_validator_set_hash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `parent_linkage` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

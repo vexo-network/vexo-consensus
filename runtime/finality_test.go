@@ -40,7 +40,7 @@ func newTwoChainFixture(t *testing.T) *twoChainFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	block := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHeight: finality.FirstValidatorSetHeight, ValidatorSetHash: validatorSet.Hash()}}
+	block := types.Block{Header: types.Header{ChainID: "vexo-test", Height: 1, ValidatorSetHeight: finality.FirstValidatorSetHeight, ValidatorSetHash: validatorSet.Hash(), NextValidatorSetHash: validatorSet.Hash()}}
 	if _, err := runtime.ExecuteBlock(context.Background(), block); err != nil {
 		t.Fatal(err)
 	}
@@ -54,13 +54,15 @@ func newTwoChainFixture(t *testing.T) *twoChainFixture {
 // after the parent's with the parent's certificate, under the same chain and validator set.
 func (fixture *twoChainFixture) childOf(parent types.Header) types.Header {
 	return types.Header{
-		ChainID:            parent.ChainID,
-		Height:             parent.Height + 1,
-		Round:              parent.Round + 1,
-		JustifyRound:       parent.Round,
-		PreviousBlockHash:  finality.HeaderHash(parent),
-		ValidatorSetHeight: finality.ChildValidatorSetHeight(parent),
-		ValidatorSetHash:   parent.ValidatorSetHash,
+		ChainID:              parent.ChainID,
+		Height:               parent.Height + 1,
+		Round:                parent.Round + 1,
+		JustifyRound:         parent.Round,
+		PreviousBlockHash:    finality.HeaderHash(parent),
+		ValidatorSetHeight:   finality.ChildValidatorSetHeight(parent),
+		StateHeight:          finality.ChildStateHeight(parent),
+		ValidatorSetHash:     parent.NextValidatorSetHash,
+		NextValidatorSetHash: parent.NextValidatorSetHash,
 	}
 }
 

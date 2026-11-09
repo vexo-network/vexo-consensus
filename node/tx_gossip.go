@@ -174,7 +174,9 @@ func (node *Node) acceptGossipTxBatch(ctx context.Context, from p2p.PeerID, mess
 		case errors.Is(err, ErrAdmissionStateChanged), errors.Is(err, mempool.ErrMempoolFull),
 			errors.Is(err, mempool.ErrSenderLimit), errors.Is(err, mempool.ErrReplacementUnderpriced):
 			// Local churn or capacity: what the pool already holds decided it, not the peer. A
-			// full pool must not ban the honest validators that keep relaying to it.
+			// full pool must not ban the honest validators that keep relaying to it. The leader may
+			// still propose the transaction: it is kept to rebuild compact proposals with.
+			node.overflowTxs.add(tx)
 		default:
 			judged, valid = true, false
 		}

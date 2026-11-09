@@ -180,6 +180,11 @@ func (dag *DAG) ReadyBatches(ctx context.Context) ([]Batch, error) {
 	return ready, nil
 }
 
+// TxByShortID finds a pending transaction by short id (FIFO.TxByShortID).
+func (dag *DAG) TxByShortID(id uint64) (types.Tx, bool) {
+	return dag.base.TxByShortID(id)
+}
+
 func (dag *DAG) Len() int {
 	return dag.base.Len()
 }

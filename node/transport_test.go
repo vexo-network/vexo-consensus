@@ -1715,6 +1715,13 @@ func newTransportNodes(t *testing.T) (*Node, *Node) {
 
 func newConsensusLoopNodes(t *testing.T) (*Node, *Node, *Node) {
 	t.Helper()
+	_, alice, bob, carol := newConsensusLoopNodesOnBus(t)
+	return alice, bob, carol
+}
+
+// newConsensusLoopNodesOnBus is newConsensusLoopNodes with the bus they share.
+func newConsensusLoopNodesOnBus(t *testing.T) (*transport.InMemoryBus, *Node, *Node, *Node) {
+	t.Helper()
 	bus := transport.NewInMemoryBus()
 	genesis := Genesis{
 		ChainID: "vexo-test",
@@ -1728,7 +1735,7 @@ func newConsensusLoopNodes(t *testing.T) (*Node, *Node, *Node) {
 	alice := newConsensusLoopNode(t, bus, genesis, "alice")
 	bob := newConsensusLoopNode(t, bus, genesis, "bob")
 	carol := newConsensusLoopNode(t, bus, genesis, "carol")
-	return alice, bob, carol
+	return bus, alice, bob, carol
 }
 
 func newBLSConsensusLoopNodes(t *testing.T) (*Node, *Node, *Node) {

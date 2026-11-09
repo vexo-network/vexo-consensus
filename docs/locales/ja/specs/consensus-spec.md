@@ -85,6 +85,7 @@
 - State
 - Message Types
 - Safety Rules
+- Block Time
 - Finality Rule
 - Execution Commit Policy
 - Liveness Assumptions
@@ -155,3 +156,8 @@ Proposal は `chain_id` と height から salt を作り、signer ごとの tran
 - `C.height = B.height + 1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `da_mismatch` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `missing_data` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `compact_proposal` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `proposal_request` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `proposal_txs` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `next_validator_set_hash` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `parent_linkage` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

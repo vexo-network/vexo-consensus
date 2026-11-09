@@ -74,10 +74,12 @@ type admission struct {
 }
 
 type FIFO struct {
-	mu           sync.Mutex
-	config       FIFOConfig
-	txs          []*entry
-	index        map[types.Hash]*entry
+	mu     sync.Mutex
+	config FIFOConfig
+	txs    []*entry
+	index  map[types.Hash]*entry
+	// shortIndex finds the entries by short id (ShortTxID); colliding entries share a slot.
+	shortIndex   map[uint64][]*entry
 	replacements map[string]*entry
 	senders      map[string]int
 	// evictions orders the pending entries by evictsBefore, so the entry a full pool evicts
@@ -93,6 +95,7 @@ func NewFIFO(config FIFOConfig) *FIFO {
 	return &FIFO{
 		config:       config,
 		index:        make(map[types.Hash]*entry),
+		shortIndex:   make(map[uint64][]*entry),
 		replacements: make(map[string]*entry),
 		senders:      make(map[string]int),
 		seen:         make(map[types.Hash]time.Time),
@@ -365,6 +368,7 @@ func (pool *FIFO) insertLocked(candidate *entry) {
 	pool.sequence++
 	pool.txs = append(pool.txs, candidate)
 	pool.index[candidate.hash] = candidate
+	pool.indexShortLocked(candidate)
 	if candidate.key != "" {
 		pool.replacements[candidate.key] = candidate
 	}
@@ -388,6 +392,7 @@ func (pool *FIFO) replaceLocked(old *entry, candidate *entry) {
 	pool.txs[position] = candidate
 	pool.unindexLocked(old)
 	pool.index[candidate.hash] = candidate
+	pool.indexShortLocked(candidate)
 	if candidate.key != "" {
 		pool.replacements[candidate.key] = candidate
 	}
@@ -416,6 +421,7 @@ func (pool *FIFO) unindexLocked(removed *entry) {
 	if pool.index[removed.hash] == removed {
 		delete(pool.index, removed.hash)
 	}
+	pool.unindexShortLocked(removed)
 	if removed.key != "" && pool.replacements[removed.key] == removed {
 		delete(pool.replacements, removed.key)
 	}
@@ -698,6 +704,39 @@ func (pool *FIFO) markSeen(hash types.Hash) {
 	pool.seen[hash] = pool.now()
 }
 
+// TxByShortID returns the pending transaction with short id, false when the pool holds none or
+// more than one: a colliding id names no transaction for sure.
+func (pool *FIFO) TxByShortID(id uint64) (types.Tx, bool) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	entries := pool.shortIndex[id]
+	if len(entries) != 1 {
+		return nil, false
+	}
+	return entries[0].tx, true
+}
+
+func (pool *FIFO) indexShortLocked(added *entry) {
+	id := ShortTxID(added.hash)
+	pool.shortIndex[id] = append(pool.shortIndex[id], added)
+}
+
+func (pool *FIFO) unindexShortLocked(removed *entry) {
+	id := ShortTxID(removed.hash)
+	entries := pool.shortIndex[id]
+	for index, candidate := range entries {
+		if candidate != removed {
+			continue
+		}
+		if len(entries) == 1 {
+			delete(pool.shortIndex, id)
+			return
+		}
+		pool.shortIndex[id] = append(entries[:index:index], entries[index+1:]...)
+		return
+	}
+}
+
 func (pool *FIFO) Len() int {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
@@ -708,6 +747,7 @@ func (pool *FIFO) Len() int {
 // cached hashes and sizes only; it never hashes or parses a payload.
 func (pool *FIFO) rebuildIndex() {
 	pool.index = make(map[types.Hash]*entry, len(pool.txs))
+	pool.shortIndex = make(map[uint64][]*entry, len(pool.txs))
 	pool.replacements = make(map[string]*entry, len(pool.txs))
 	pool.senders = make(map[string]int)
 	pool.evictions = make(evictionHeap, 0, len(pool.txs))
@@ -716,6 +756,7 @@ func (pool *FIFO) rebuildIndex() {
 		pending.evictAt = len(pool.evictions)
 		pool.evictions = append(pool.evictions, pending)
 		pool.index[pending.hash] = pending
+		pool.indexShortLocked(pending)
 		if pending.key != "" {
 			pool.replacements[pending.key] = pending
 		}

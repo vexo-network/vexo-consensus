@@ -342,20 +342,94 @@ func (machine *StateMachine) validatorSetForCert(height types.Height, blockHash 
 	return validatorSet, true, err
 }
 
-// expectedValidatorSetHeight returns the registry height the header of a new block must name. It
-// derives from the parent header, so the machine must hold the parent.
-func (machine *StateMachine) expectedValidatorSetHeight(header types.Header) (types.Height, error) {
+// chainHeights are the registry height of the validator set a header names and the height of the
+// state it commits.
+type chainHeights struct {
+	set   types.Height
+	state types.Height
+}
+
+// expectedChainHeights returns the set and state heights the header of a new block must name. They
+// derive from the parent header, so the machine must hold the parent.
+func (machine *StateMachine) expectedChainHeights(header types.Header) (chainHeights, error) {
 	if header.Height <= 1 {
-		return finality.FirstValidatorSetHeight, nil
+		return chainHeights{set: finality.FirstValidatorSetHeight}, nil
 	}
 	parent, found := machine.blockTree.Get(header.PreviousBlockHash)
 	if !found {
-		return 0, fmt.Errorf("%w: height %d parent %x", ErrUnknownParent, header.Height, header.PreviousBlockHash)
+		return chainHeights{}, fmt.Errorf("%w: height %d parent %x", ErrUnknownParent, header.Height, header.PreviousBlockHash)
 	}
 	if parent.Block.Header.Height+1 != header.Height {
-		return 0, fmt.Errorf("%w: parent height %d does not precede height %d", ErrInvalidProposal, parent.Block.Header.Height, header.Height)
+		return chainHeights{}, fmt.Errorf("%w: parent height %d does not precede height %d", ErrInvalidProposal, parent.Block.Header.Height, header.Height)
 	}
-	return finality.ChildValidatorSetHeight(parent.Block.Header), nil
+	return chainHeights{set: finality.ChildValidatorSetHeight(parent.Block.Header), state: finality.ChildStateHeight(parent.Block.Header)}, nil
+}
+
+// checkProposalHeader checks the header of a proposal whose signature verified against the rules
+// its parent header and the replicated validator sets fix for it: its heights, chain and time
+// against the parent the machine holds, its validator set hash against validatorSet, the set of the
+// height the chain fixes, and its next validator set hash against nextSet (nil for a block at or
+// below the finalized height, whose next set may be pruned). The proposer signed the header, so a
+// broken rule is recorded as evidence against it, which every node judges alike.
+func (machine *StateMachine) checkProposalHeader(proposal Proposal, validatorSet validator.Set, nextSet validator.Set) error {
+	header := proposal.Block.Header
+	var parent *types.Header
+	if header.Height > 1 {
+		if held, found := machine.blockTree.Get(header.PreviousBlockHash); found {
+			parentHeader := held.Block.Header
+			parent = &parentHeader
+		}
+	}
+	if parent != nil || header.Height <= 1 {
+		if fault := ParentLinkageFault(header, parent); fault != nil {
+			machine.recordProposalEvidence(NewParentLinkageEvidence(proposal, parent))
+			return fault
+		}
+	} else if header.TimeUnixNano <= 0 {
+		return fmt.Errorf("%w: block time %d", ErrInvalidProposal, header.TimeUnixNano)
+	}
+	if header.ValidatorSetHash != validatorSet.Hash() {
+		machine.recordProposalEvidence(NewInvalidProposalHashEvidence(proposal, InvalidProposalReasonValidatorSetHash, validatorSet.Hash()))
+		return fmt.Errorf("%w: validator set hash mismatch", ErrInvalidProposal)
+	}
+	if nextSet != nil && header.NextValidatorSetHash != nextSet.Hash() {
+		machine.recordProposalEvidence(NewInvalidProposalHashEvidence(proposal, InvalidProposalReasonNextValidatorSetHash, nextSet.Hash()))
+		return fmt.Errorf("%w: next validator set hash mismatch", ErrInvalidProposal)
+	}
+	return nil
+}
+
+// recordProposalEvidence records evidence against a proposer once: a proposer retransmits its
+// proposal, and the same fault is one offence.
+func (machine *StateMachine) recordProposalEvidence(evidence slashing.Evidence, err error) {
+	if err != nil {
+		return
+	}
+	offence, err := slashing.OffenceKey(evidence)
+	if err != nil {
+		return
+	}
+	for _, recorded := range machine.evidence {
+		if key, err := slashing.OffenceKey(recorded); err == nil && key == offence {
+			return
+		}
+	}
+	machine.evidence = append(machine.evidence, evidence)
+}
+
+// parentTime returns the time of the parent of the block with header, zero for the first block or
+// a parent the machine does not hold. Block time is strictly increasing along the chain: a block's
+// time is after its parent's, so the time of a certified header bounds the time of every block
+// below it.
+func (machine *StateMachine) parentTime(header types.Header) int64 {
+	if header.Height <= 1 {
+		return 0
+	}
+	parent, found := machine.blockTree.Get(header.PreviousBlockHash)
+	if !found {
+		return 0
+	}
+	return parent.Block.Header.TimeUnixNano
 }
 
 func (machine *StateMachine) currentValidatorSet() validator.Set {
@@ -373,11 +447,11 @@ func (machine *StateMachine) ProposalValidatorSet() (validator.Set, error) {
 	if highQC.Height < machine.floorHeight {
 		header = types.Header{Height: machine.floorHeight + 1, PreviousBlockHash: machine.floorHash}
 	}
-	registryHeight, err := machine.expectedValidatorSetHeight(header)
+	heights, err := machine.expectedChainHeights(header)
 	if err != nil {
 		return nil, err
 	}
-	return machine.validatorSetAt(registryHeight)
+	return machine.validatorSetAt(heights.set)
 }
 
 // CreateProposal builds the proposal for a view. A block above height 1 must extend a
@@ -405,15 +479,24 @@ func (machine *StateMachine) CreateProposal(block types.Block, round types.Round
 	}
 	block.Header.Round = round
 	block.Header.JustifyRound = justifyQC.Round
-	setHeight, err := machine.expectedValidatorSetHeight(block.Header)
+	if parentTime := machine.parentTime(block.Header); block.Header.TimeUnixNano <= parentTime {
+		block.Header.TimeUnixNano = parentTime + 1
+	}
+	heights, err := machine.expectedChainHeights(block.Header)
 	if err != nil {
 		return Proposal{}, err
 	}
-	block.Header.ValidatorSetHeight = setHeight
-	validatorSet, err := machine.validatorSetAt(setHeight)
+	block.Header.ValidatorSetHeight = heights.set
+	block.Header.StateHeight = heights.state
+	validatorSet, err := machine.validatorSetAt(heights.set)
 	if err != nil {
 		return Proposal{}, err
 	}
+	nextSet, err := machine.validatorSetAt(heights.state + 1)
+	if err != nil {
+		return Proposal{}, err
+	}
+	block.Header.NextValidatorSetHash = nextSet.Hash()
 	if _, found := validatorSet.Get(proposer); !found {
 		return Proposal{}, ErrUnknownValidator
 	}
@@ -491,19 +574,26 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 	if header.Height > machine.floorHeight+maxHeightWindow {
 		return fmt.Errorf("%w: proposal height %d", ErrOutOfWindow, header.Height)
 	}
-	setHeight, err := machine.proposalValidatorSetHeight(proposal)
+	heights, err := machine.proposalChainHeights(proposal)
 	if err != nil {
 		return err
 	}
-	if header.ValidatorSetHeight != setHeight {
-		return fmt.Errorf("%w: validator set height %d, the chain fixes %d", ErrInvalidProposal, header.ValidatorSetHeight, setHeight)
-	}
-	validatorSet, err := machine.validatorSetAt(setHeight)
+	validatorSet, err := machine.validatorSetAt(heights.set)
 	if errors.Is(err, ErrValidatorSetPending) {
 		return machine.observePendingJustify(proposal, err)
 	}
 	if err != nil {
 		return err
+	}
+	var nextSet validator.Set
+	if header.Height > machine.floorHeight {
+		nextSet, err = machine.validatorSetAt(heights.state + 1)
+		if errors.Is(err, ErrValidatorSetPending) {
+			return machine.observePendingJustify(proposal, err)
+		}
+		if err != nil {
+			return err
+		}
 	}
 	proposerInfo, found := validatorSet.Get(proposal.Proposer)
 	if !found {
@@ -512,10 +602,10 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 	if err := machine.validateProposer(validatorSet, header.Height, proposal.Round, proposal.Proposer); err != nil {
 		return err
 	}
-	if header.ValidatorSetHash != validatorSet.Hash() {
-		return fmt.Errorf("%w: validator set hash mismatch", ErrInvalidProposal)
-	}
 	if err := machine.verifyProposalSignature(proposal, proposerInfo); err != nil {
+		return err
+	}
+	if err := machine.checkProposalHeader(proposal, validatorSet, nextSet); err != nil {
 		return err
 	}
 	if err := VerifyBlockBody(proposal.Block); err != nil {
@@ -624,30 +714,30 @@ func (machine *StateMachine) checkProposalChain(proposal Proposal) error {
 	return nil
 }
 
-// proposalValidatorSetHeight returns the registry height the proposal's block must name. A block
+// proposalChainHeights returns the set and state heights the proposal's block must name. A block
 // the machine already holds keeps the height it was accepted with: its parent may be pruned once
 // it is finalized. A block at or below the finalized height can only be stale or conflict with the
 // finalized chain; it is authenticated against the kept set its header names, and is never
 // inserted. Above the finalized height the parent must be known; a proposal whose parent is not
 // has its justify certificate checked first, so a forged certificate is reported as such.
-func (machine *StateMachine) proposalValidatorSetHeight(proposal Proposal) (types.Height, error) {
+func (machine *StateMachine) proposalChainHeights(proposal Proposal) (chainHeights, error) {
 	header := proposal.Block.Header
-	setHeight, err := machine.expectedValidatorSetHeight(header)
+	heights, err := machine.expectedChainHeights(header)
 	if !errors.Is(err, ErrUnknownParent) {
-		return setHeight, err
+		return heights, err
 	}
 	if held, found := machine.blockTree.Get(machine.hashBlock(proposal.Block)); found {
-		return held.Block.Header.ValidatorSetHeight, nil
+		return chainHeights{set: held.Block.Header.ValidatorSetHeight, state: held.Block.Header.StateHeight}, nil
 	}
 	if header.Height <= machine.floorHeight {
-		return header.ValidatorSetHeight, nil
+		return chainHeights{set: header.ValidatorSetHeight, state: header.StateHeight}, nil
 	}
 	if proposal.JustifyQC.Height > 0 {
 		if qcErr := machine.verifyQuorumCert(proposal.JustifyQC); qcErr != nil {
-			return 0, qcErr
+			return chainHeights{}, qcErr
 		}
 	}
-	return 0, err
+	return chainHeights{}, err
 }
 
 // observePendingJustify handles a proposal whose validator set is the set after a block this node

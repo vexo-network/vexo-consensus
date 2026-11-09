@@ -79,6 +79,7 @@
 - Header Fields
 - Quorum Certificate Fields
 - Verification Algorithm
+- Light Client Verification
 - Accountable Safety Detection
 - Ed25519 Model
 - BLS Model
@@ -130,3 +131,20 @@
 - `link.QuorumCert` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `link.QuorumCert.Round == QuorumCert.Round + 1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `RuntimeSuite.RegisterValidators` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `finality.LightClient` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/v1/light/{height}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexod light verify` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `finality.VerifyLightBlock` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `Header.ValidatorSetHeight` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `state_height` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `validator_set_height = 1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `state_height = 0` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `state_height = parent.height - 1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `validator_set_height` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `state_height + 1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `Proof.ValidatorSetHeight == Header.ValidatorSetHeight` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `Proof.ValidatorSetHash == Header.ValidatorSetHash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `Header.Height - 2` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `link.Header.ValidatorSetHash == Header.NextValidatorSetHash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `link.Header.ValidatorSetHeight` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `next_validator_set_hash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

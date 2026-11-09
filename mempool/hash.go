@@ -16,6 +16,15 @@ func HashTx(tx types.Tx) types.Hash {
 	return hash
 }
 
+// ShortTxID is the short id of the transaction with hash: the first eight bytes of the hash. A
+// compact proposal names its transactions by short id, and a receiver finds them in its pool
+// (FIFO.TxByShortID). Short ids may collide, by chance or by a sender grinding them; a receiver
+// then misses the transaction and fetches the whole proposal, and the block hash still decides
+// which transactions the block holds.
+func ShortTxID(hash types.Hash) uint64 {
+	return binary.BigEndian.Uint64(hash[:8])
+}
+
 func HashBatch(batch Batch) types.Hash {
 	hasher := sha256.New()
 	hasher.Write([]byte(batch.Author))

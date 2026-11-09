@@ -43,7 +43,7 @@ func TestStateMachineRejectsReorderedProposalTxs(t *testing.T) {
 	)
 	reordered := []types.Tx{ordered[1], ordered[0], ordered[2]}
 	block := dataavailability.AttachCommitment(types.Block{
-		Header: types.Header{ChainID: testChainID, Height: 1, ValidatorSetHash: cluster.set.Hash(), TxRoot: TxRoot(reordered), ValidatorSetHeight: finality.FirstValidatorSetHeight},
+		Header: types.Header{ChainID: testChainID, Height: 1, TimeUnixNano: 1, ValidatorSetHash: cluster.set.Hash(), TxRoot: TxRoot(reordered), ValidatorSetHeight: finality.FirstValidatorSetHeight},
 		Txs:    reordered,
 	})
 	err := machine.OnProposal(context.Background(), cluster.proposal("a", block, 0, finality.QuorumCert{}, finality.TimeoutCert{}))
@@ -54,7 +54,7 @@ func TestStateMachineRejectsReorderedProposalTxs(t *testing.T) {
 	// The same transactions in fair order are accepted, so the rejection above is about
 	// the ordering and nothing else.
 	valid := dataavailability.AttachCommitment(types.Block{
-		Header: types.Header{ChainID: testChainID, Height: 1, ValidatorSetHash: cluster.set.Hash(), TxRoot: TxRoot(ordered), ValidatorSetHeight: finality.FirstValidatorSetHeight},
+		Header: types.Header{ChainID: testChainID, Height: 1, TimeUnixNano: 1, ValidatorSetHash: cluster.set.Hash(), TxRoot: TxRoot(ordered), ValidatorSetHeight: finality.FirstValidatorSetHeight},
 		Txs:    ordered,
 	})
 	if err := machine.OnProposal(context.Background(), cluster.proposal("a", valid, 0, finality.QuorumCert{}, finality.TimeoutCert{})); err != nil {

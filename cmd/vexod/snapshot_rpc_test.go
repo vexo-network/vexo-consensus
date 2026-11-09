@@ -25,8 +25,8 @@ import (
 )
 
 // committedSnapshotChain is a running node of chain vexo-test that executed three blocks. Block 3
-// names the validator set of registry height 2, so its header commits the app hash of the state
-// after block 1: the state a snapshot anchored to block 3 carries.
+// commits the state after block 1 and names the validator set after it as next: the state a
+// snapshot anchored to block 3 carries.
 type committedSnapshotChain struct {
 	home   string
 	node   *vexonode.Node
@@ -67,26 +67,32 @@ func startCommittedSnapshotChain(t *testing.T) committedSnapshotChain {
 	var parent types.Hash
 	var anchor types.Header
 	for height := types.Height(1); height <= 3; height++ {
-		setHeight := finality.FirstValidatorSetHeight
+		var stateHeight types.Height
 		if height == 3 {
-			setHeight = 2
+			stateHeight = 1
 		}
-		appHash, err := runtime.HeaderAppHashAt(ctx, setHeight-1)
+		appHash, err := runtime.HeaderAppHashAt(ctx, stateHeight)
 		if err != nil {
 			t.Fatal(err)
 		}
-		validatorSet, err := runtime.Validators.ValidatorSet(ctx, setHeight)
+		validatorSet, err := runtime.Validators.ValidatorSet(ctx, finality.FirstValidatorSetHeight)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nextSet, err := runtime.Validators.ValidatorSet(ctx, stateHeight+1)
 		if err != nil {
 			t.Fatal(err)
 		}
 		block := types.Block{Header: types.Header{
-			ChainID:            "vexo-test",
-			Height:             height,
-			PreviousBlockHash:  parent,
-			AppHash:            appHash,
-			ValidatorSetHeight: setHeight,
-			ValidatorSetHash:   validatorSet.Hash(),
-			TxRoot:             consensus.TxRoot(nil),
+			ChainID:              "vexo-test",
+			Height:               height,
+			PreviousBlockHash:    parent,
+			AppHash:              appHash,
+			ValidatorSetHeight:   finality.FirstValidatorSetHeight,
+			StateHeight:          stateHeight,
+			ValidatorSetHash:     validatorSet.Hash(),
+			NextValidatorSetHash: nextSet.Hash(),
+			TxRoot:               consensus.TxRoot(nil),
 		}}
 		if _, err := runtime.ExecuteBlock(ctx, block); err != nil {
 			t.Fatal(err)
@@ -295,9 +301,9 @@ func TestSnapshotRestoreRefusesASnapshotThatIsNotTheStateOfTheTrustedBlock(t *te
 	}{reroot(registry), chain.trust()}
 
 	// Evidence of a past height is judged against the validator set of that height. A registry that
-	// forges the set of height 1, and keeps the genuine set as the one of height 2 the header names,
-	// agrees with the header's validator set hash; only the registry root the header commits tells it
-	// apart.
+	// forges the set of height 1, and keeps the genuine set as the one of height 2 the header names
+	// as next, agrees with the header's next validator set hash; only the registry root the header
+	// commits tells it apart.
 	history := clone()
 	setKey := func(height uint64) []byte {
 		key := []byte("set/")
@@ -350,11 +356,11 @@ func TestSnapshotRestoreRefusesASnapshotThatIsNotTheStateOfTheTrustedBlock(t *te
 			forgedRegistry[string(pair.Key)] = pair.Value
 		}
 	}
-	atHeader, err := validator.LoadValidatorSet(ctx, forgedRegistry, chain.anchor.ValidatorSetHeight)
-	if err != nil || atHeader.Hash() != chain.anchor.ValidatorSetHash {
-		t.Fatalf("expected the forged registry to agree with the header's validator set, got %v", err)
+	atHeader, err := validator.LoadValidatorSet(ctx, forgedRegistry, finality.ChildValidatorSetHeight(chain.anchor))
+	if err != nil || atHeader.Hash() != chain.anchor.NextValidatorSetHash {
+		t.Fatalf("expected the forged registry to agree with the header's next validator set, got %v", err)
 	}
-	if atOne, err := validator.LoadValidatorSet(ctx, forgedRegistry, 1); err != nil || atOne.Hash() == chain.anchor.ValidatorSetHash {
+	if atOne, err := validator.LoadValidatorSet(ctx, forgedRegistry, 1); err != nil || atOne.Hash() == chain.anchor.NextValidatorSetHash {
 		t.Fatalf("expected the forged registry to hold another set for height 1, got %v", err)
 	}
 	cases["a forged validator set of a past height"] = struct {

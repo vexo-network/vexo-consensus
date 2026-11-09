@@ -95,11 +95,11 @@ func (cluster *registryCluster) certify(machine *StateMachine, proposal Proposal
 // TestValidatorSetChangesOnlyWhereTheChainProvesTheCommit is the regression for the chain halt
 // after a validator set update. The node executes block H once it is final and the registry holds
 // the new set from registry height H+1, but in the pipelined 2-chain protocol block H+1 is already
-// proposed and certified under the old set by then. Installing the new set for height H+1 made
-// every node reject the next proposal with a validator set hash mismatch. The set of a block now
-// derives from its parent header: it changes exactly at the child of a block proposed in the view
-// directly after its justify certificate, whose ancestry proves the commit of the block the set
-// depends on.
+// proposed and certified under the old set by then. The state a block commits derives from its
+// parent header: it advances exactly at the child of a block proposed in the view directly after
+// its justify certificate, whose ancestry proves the commit of that state. The block that first
+// commits the state names the set after it as its next set, and only its children are certified by
+// that set, so every certified header names the set of its children.
 func TestValidatorSetChangesOnlyWhereTheChainProvesTheCommit(t *testing.T) {
 	ctx := context.Background()
 	cluster := newRegistryCluster(t, "a", "b", "c")
@@ -112,8 +112,8 @@ func TestValidatorSetChangesOnlyWhereTheChainProvesTheCommit(t *testing.T) {
 	first := cluster.propose(machine, 0, "a")
 	cluster.certify(machine, first, "a", "b", "c")
 	second := cluster.propose(machine, 1, "b")
-	if second.Block.Header.ValidatorSetHeight != 1 {
-		t.Fatalf("the second block must keep the genesis set, got registry height %d", second.Block.Header.ValidatorSetHeight)
+	if second.Block.Header.ValidatorSetHeight != 1 || second.Block.Header.StateHeight != 0 {
+		t.Fatalf("the second block must keep the genesis set and state, got %+v", second.Block.Header)
 	}
 	secondQC := cluster.certify(machine, second, "a", "b", "c")
 	// A follower sees only the proposals: it learns the certificate of the second block from the
@@ -137,19 +137,21 @@ func TestValidatorSetChangesOnlyWhereTheChainProvesTheCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The third block extends a parent proposed directly after its justify view, so it carries
-	// the commit of the first block and is certified by the set after it. Until the first block is
-	// executed the set is pending, but the certificate the proposal carries is observed, and that
-	// is what finalizes the first block.
+	// The third block extends a parent proposed directly after its justify view, so it carries the
+	// commit of the first block: it commits the state after it and names the set after it as next,
+	// while the old set still certifies it. Until the first block is executed the next set is
+	// pending, but the certificate the proposal carries is observed, and that is what finalizes
+	// the first block.
 	third := cluster.block(3, HashBlock(second.Block))
-	third.Header.ValidatorSetHash = newSet.Hash()
+	third.Header.ValidatorSetHash = oldSet.Hash()
+	third.Header.NextValidatorSetHash = newSet.Hash()
 	third = cluster.seal(third, 2, secondQC.Round)
-	if third.Header.ValidatorSetHeight != 2 {
-		t.Fatalf("the third block must name the set after the first block, got registry height %d", third.Header.ValidatorSetHeight)
+	if third.Header.ValidatorSetHeight != 1 || third.Header.StateHeight != 1 {
+		t.Fatalf("the third block must commit the state after the first block on the old set, got %+v", third.Header)
 	}
 	pending := cluster.proposal("b", third, 2, secondQC, finality.TimeoutCert{})
 	if err := follower.OnProposal(ctx, pending); !errors.Is(err, ErrValidatorSetPending) {
-		t.Fatalf("expected the set of the third block to be pending, got %v", err)
+		t.Fatalf("expected the next set of the third block to be pending, got %v", err)
 	}
 	if decisions := follower.CommitDecisions(); len(decisions) != 1 || decisions[0].CommittedHeight != 1 {
 		t.Fatalf("the carried certificate must finalize the first block, got %+v", decisions)
@@ -158,58 +160,60 @@ func TestValidatorSetChangesOnlyWhereTheChainProvesTheCommit(t *testing.T) {
 	if err := follower.OnProposal(ctx, pending); err != nil {
 		t.Fatalf("the same proposal is accepted once the first block is executed, got %v", err)
 	}
-
 	if _, err := machine.CreateProposal(types.Block{}, 2, "b", finality.QuorumCert{}); !errors.Is(err, ErrValidatorSetPending) {
-		t.Fatalf("a proposer must not build on a set it has not executed, got %v", err)
+		t.Fatalf("a proposer must not name a next set it has not executed, got %v", err)
 	}
 	cluster.executed(machine, 2)
 	if machine.Status(ctx).ValidatorSetHash != newSet.Hash() {
 		t.Fatal("the machine reports the newest executed set")
 	}
+	misnamed := cluster.block(3, HashBlock(second.Block))
+	misnamed.Header.ValidatorSetHash = oldSet.Hash()
+	misnamed.Header.NextValidatorSetHash = oldSet.Hash()
+	if err := machine.OnProposal(ctx, cluster.proposal("b", misnamed, 2, secondQC, finality.TimeoutCert{})); !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected a block naming another next set than the registry's to be invalid, got %v", err)
+	}
 	if err := machine.OnProposal(ctx, pending); err != nil {
 		t.Fatalf("the proposer's machine accepts the proposal once the first block is executed, got %v", err)
 	}
-	if pending.Block.Header.ValidatorSetHash == oldSet.Hash() {
+	if newSet.Hash() == oldSet.Hash() {
 		t.Fatal("setup: the sets must differ")
 	}
-
-	// The removed validator has no say in the third block; the remaining two certify it.
+	// The old set, the removed validator included, certifies the third block.
 	thirdHash := HashBlock(pending.Block)
-	if err := machine.OnVote(ctx, cluster.vote("a", 3, 2, thirdHash)); !errors.Is(err, ErrUnknownValidator) {
+	thirdQC := cluster.certify(machine, pending, "a", "b", "c")
+	if err := machine.VerifyQuorumCert(cluster.qc(3, 2, thirdHash, "a", "b")); err != nil {
+		t.Fatalf("the removed validator still counts for the third block, got %v", err)
+	}
+
+	// The fourth block is certified by the next set the third named; the removed validator has no
+	// say in it.
+	// The fourth block commits the state after the second, final with the third's certificate.
+	cluster.executed(machine, 3)
+	fourth := cluster.propose(machine, 3, "c")
+	if fourth.Block.Header.ValidatorSetHeight != 2 || fourth.Block.Header.ValidatorSetHash != newSet.Hash() {
+		t.Fatalf("expected the fourth block on the next set of the third, got %+v", fourth.Block.Header)
+	}
+	fourthHash := HashBlock(fourth.Block)
+	if err := machine.OnVote(ctx, cluster.vote("a", 4, 3, fourthHash)); !errors.Is(err, ErrUnknownValidator) {
 		t.Fatalf("expected the removed validator's vote to be refused, got %v", err)
 	}
-	thirdQC := cluster.certify(machine, pending, "b", "c")
-	if err := machine.VerifyQuorumCert(thirdQC); err != nil {
-		t.Fatalf("the new set certifies the third block: %v", err)
-	}
-	// The second block stays certified by the set that certified it.
-	if err := machine.VerifyQuorumCert(secondQC); err != nil {
-		t.Fatalf("the second block keeps the old set: %v", err)
-	}
-	if err := machine.VerifyQuorumCert(cluster.qc(2, 1, HashBlock(second.Block), "a", "b")); err != nil {
-		t.Fatalf("the removed validator still counts for the second block, got %v", err)
-	}
-	if err := machine.VerifyQuorumCert(cluster.qc(3, 2, thirdHash, "a", "b")); !errors.Is(err, ErrInvalidQuorumCert) {
-		t.Fatalf("the removed validator must not count for the third block, got %v", err)
+	cluster.certify(machine, fourth, "b", "c")
+	if err := machine.VerifyQuorumCert(cluster.qc(4, 3, fourthHash, "a", "b")); !errors.Is(err, ErrInvalidQuorumCert) {
+		t.Fatalf("the removed validator must not count for the fourth block, got %v", err)
 	}
 
 	// A proposal that names the old set where the chain fixes the new one is invalid.
 	stale := cluster.block(4, thirdHash)
-	stale = cluster.seal(stale, 3, thirdQC.Round)
+	stale = cluster.seal(stale, 4, thirdQC.Round)
 	stale.Header.ValidatorSetHeight = 1
 	stale.Header.ValidatorSetHash = oldSet.Hash()
-	staleProposal := Proposal{Block: stale, Round: 3, Proposer: "c", JustifyQC: thirdQC}
+	staleProposal := Proposal{Block: stale, Round: 4, Proposer: "b", JustifyQC: thirdQC, TimeoutCert: finality.TimeoutCert{}}
 	if err := cluster.signers.signProposal(&staleProposal); err != nil {
 		t.Fatal(err)
 	}
-	if err := machine.OnProposal(ctx, staleProposal); !errors.Is(err, ErrInvalidProposal) {
+	if err := machine.OnProposal(ctx, staleProposal); !errors.Is(err, ErrInvalidProposal) && !errors.Is(err, ErrInvalidTimeoutCert) {
 		t.Fatalf("expected a block naming a superseded set to be invalid, got %v", err)
-	}
-	// The second block is final now and executed; the fourth block names the set after it.
-	cluster.executed(machine, 3)
-	fourth := cluster.propose(machine, 3, "c")
-	if fourth.Block.Header.ValidatorSetHeight != 3 || fourth.Block.Header.ValidatorSetHash != newSet.Hash() {
-		t.Fatalf("expected the fourth block on the set after the second block, got %+v", fourth.Block.Header)
 	}
 }
 

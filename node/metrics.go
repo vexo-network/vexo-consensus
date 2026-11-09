@@ -51,6 +51,12 @@ type Metrics struct {
 	SigningFailures             uint64
 	ReconciliationFailures      uint64
 	RetentionPruneFailures      uint64
+	// CompactProposalsRebuilt, CompactProposalsCompleted and CompactProposalsFetched count the
+	// compact proposals the node rebuilt from its pool alone, completed with the missing
+	// transactions fetched from a peer, and fetched whole.
+	CompactProposalsRebuilt   uint64
+	CompactProposalsCompleted uint64
+	CompactProposalsFetched   uint64
 }
 
 func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
@@ -119,6 +125,12 @@ func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
 	}
 	if runtime.Mempool != nil {
 		metrics.MempoolSize = uint64(runtime.Mempool.Len())
+	}
+	if reactor, err := node.ConsensusReactor(); err == nil {
+		stats := reactor.CompactProposalStats()
+		metrics.CompactProposalsRebuilt = stats.Rebuilt
+		metrics.CompactProposalsCompleted = stats.Completed
+		metrics.CompactProposalsFetched = stats.Fetched
 	}
 	metrics.ReconciliationFailures = runtime.PostCommitReconciliationFailures()
 	index, err := runtime.BlockIndex(ctx)

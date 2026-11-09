@@ -265,3 +265,35 @@ func TestRejectedVotesDoNotGrowTheVoteTables(t *testing.T) {
 		t.Fatalf("expected equivocation evidence, got %d", len(machine.Evidence()))
 	}
 }
+
+// Block time increases strictly along the chain. A proposal with no time, or a time that does not
+// follow its parent's, is invalid however well signed; the machine stamps a proposal it builds on
+// a parent with a later time than the parent's.
+func TestBlockTimeMustFollowTheParent(t *testing.T) {
+	cluster := newThreeValidatorCluster(t)
+	machine := cluster.newMachine()
+
+	untimed := cluster.block(1, types.Hash{})
+	untimed.Header.TimeUnixNano = 0
+	if err := machine.OnProposal(context.Background(), cluster.proposal("a", untimed, 0, finality.QuorumCert{}, finality.TimeoutCert{})); !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected a first block without a time to be invalid, got %v", err)
+	}
+
+	first := cluster.extend(machine, nil, 0, finality.TimeoutCert{})
+	for _, offset := range []int64{0, -1} {
+		child := cluster.block(2, first.hash)
+		child.Header.TimeUnixNano = first.block.Header.TimeUnixNano + offset
+		proposal := cluster.proposal(cluster.ids[1], child, 1, first.qc, finality.TimeoutCert{})
+		if err := machine.OnProposal(context.Background(), proposal); !errors.Is(err, ErrInvalidProposal) {
+			t.Fatalf("expected a child at parent time %+d to be invalid, got %v", offset, err)
+		}
+	}
+
+	built, err := machine.CreateProposal(types.Block{Header: types.Header{TimeUnixNano: first.block.Header.TimeUnixNano}}, 1, cluster.ids[1], first.qc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if built.Block.Header.TimeUnixNano != first.block.Header.TimeUnixNano+1 {
+		t.Fatalf("expected the built child to be stamped right after its parent, got %d", built.Block.Header.TimeUnixNano)
+	}
+}

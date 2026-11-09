@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/finality"
@@ -388,6 +389,13 @@ func TestCommitBlockRejectsBlockThatDoesNotExtendCommittedChain(t *testing.T) {
 	if _, err := node.commitBlock(ctx, forked, forkedQC, false, false); !errors.Is(err, ErrBlockParentMismatch) {
 		t.Fatalf("expected a block that does not extend the committed block to be rejected, got %v", err)
 	}
+	// It must name as next the set the registry holds after the state it commits.
+	misnamed := second.Block
+	misnamed.Header.NextValidatorSetHash = types.Hash{9}
+	misnamedQC := finality.QuorumCert{Height: 2, Round: 1, BlockHash: consensus.HashBlock(misnamed)}
+	if _, err := node.commitBlock(ctx, misnamed, misnamedQC, false, false); !errors.Is(err, ErrBlockParentMismatch) {
+		t.Fatalf("expected a block naming another next set to be rejected, got %v", err)
+	}
 	if committed, _ := node.currentCommitHeight(ctx); committed != 1 {
 		t.Fatalf("expected the committed height to stay 1, got %d", committed)
 	}
@@ -733,5 +741,47 @@ func TestValidatorRefusesToVoteForAProposalNamingAnotherAppHash(t *testing.T) {
 	}
 	if _, err := machine.BuildQuorumCert(1, status.Round, consensus.HashBlock(forged.Block)); err == nil {
 		t.Fatal("expected no vote for the proposal naming a forged app hash")
+	}
+}
+
+// A validator stamps its proposals with its clock and does not vote for a block whose time is more
+// than MaxBlockTimeDrift ahead of its own clock.
+func TestValidatorRefusesToVoteForABlockFromTheFuture(t *testing.T) {
+	ctx := context.Background()
+	alice, bob, carol := newConsensusLoopNodes(t)
+	for _, member := range []*Node{alice, bob, carol} {
+		startNode(t, member)
+		defer member.Stop(ctx)
+	}
+	mustConsensus(t, alice).StartRound(1, 0)
+	before := time.Now().UnixNano()
+	proposal, _, err := alice.ProposeBlock(ctx, types.Block{Header: types.Header{Height: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stamped := proposal.Block.Header.TimeUnixNano; stamped < before || stamped > time.Now().UnixNano() {
+		t.Fatalf("expected the proposal to carry the proposer's clock, got %d", stamped)
+	}
+
+	node := newStartedValidator(t, t.TempDir())
+	machine := mustConsensus(t, node)
+	status := machine.Status(ctx)
+	future := time.Now().Add(MaxBlockTimeDrift + time.Minute).UnixNano()
+	proposal, err = machine.CreateProposal(types.Block{Header: types.Header{ChainID: "vexo-test", TimeUnixNano: future}}, status.Round, "alice", finality.QuorumCert{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := node.signConsensusProposal(&proposal); err != nil {
+		t.Fatal(err)
+	}
+	if err := node.processProposal(ctx, proposal); !errors.Is(err, ErrProposalRejected) {
+		t.Fatalf("expected a block from the future to be refused, got %v", err)
+	}
+	proposal.Block.Header.TimeUnixNano = time.Now().Add(MaxBlockTimeDrift / 2).UnixNano()
+	if err := node.signConsensusProposal(&proposal); err != nil {
+		t.Fatal(err)
+	}
+	if err := node.processProposal(ctx, proposal); err != nil {
+		t.Fatalf("expected a block within the drift to be accepted, got %v", err)
 	}
 }

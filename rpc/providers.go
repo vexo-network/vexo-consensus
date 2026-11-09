@@ -105,6 +105,12 @@ type FinalityProvider interface {
 	LatestFinalityProof(ctx context.Context) (finality.Proof, error)
 }
 
+// LightBlockProvider serves light client verification data: a block's finality proof, the
+// validator set its header names and the next set it names.
+type LightBlockProvider interface {
+	LightBlock(ctx context.Context, height types.Height) (finality.LightBlock, error)
+}
+
 type PruneProvider interface {
 	PruneBelow(ctx context.Context, retainFrom types.Height) (store.PruneResult, error)
 }

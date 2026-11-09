@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/consensus"
@@ -308,6 +309,11 @@ func (node *Node) recoveryFinalityGateEnabled() bool {
 	return node.loopConfig.RecoveryFinalityGateEnabled
 }
 
+// MaxBlockTimeDrift is how far ahead of the local clock a block's time may be for a validator to
+// vote for it. The proposer stamps its clock; the chain only orders block times, so this vote rule
+// is what keeps the time of a certified block within the drift of an honest validator's clock.
+const MaxBlockTimeDrift = 2 * time.Second
+
 // processProposal asks the application whether it accepts the block of proposal, and checks that a
 // block built directly on the committed chain extends the last committed block. A validator votes for
 // a proposal only when this passes: a vote is a promise that the block is executable.
@@ -317,6 +323,9 @@ func (node *Node) processProposal(ctx context.Context, proposal consensus.Propos
 		return err
 	}
 	header := proposal.Block.Header
+	if limit := time.Now().Add(MaxBlockTimeDrift).UnixNano(); header.TimeUnixNano > limit {
+		return fmt.Errorf("%w: block time %s is more than %s ahead of the local clock", ErrProposalRejected, time.Unix(0, header.TimeUnixNano).UTC().Format(time.RFC3339Nano), MaxBlockTimeDrift)
+	}
 	if committed, ok := node.currentCommitHeight(ctx); ok {
 		if next, ok := nextHeightAfter(committed); ok && header.Height == next {
 			if err := node.checkParentBinding(ctx, runtime, committed, header); err != nil {
@@ -421,12 +430,15 @@ func (node *Node) reportInvalidAppHashProposal(ctx context.Context, proposal con
 
 // checkParentBinding verifies that header extends the last committed block: the block at committed
 // must be the one header names as its parent, and the first block names no parent. The header must
-// also name the validator set that parent fixes for it. A certificate only vouches for the header it
-// signs, so the chain linkage, and with it the set that certified the header, is checked against
-// the store.
+// also name the validator set and state that parent fixes for it, and as its next set the one the
+// registry holds after that state. A certificate only vouches for the header it signs, so the chain
+// linkage, and with it the set that certified the header and the set it names for its children, is
+// checked against the store.
 func (node *Node) checkParentBinding(ctx context.Context, runtime *vexoruntime.Runtime, committed types.Height, header types.Header) error {
 	var parent types.Hash
+	var parentTime int64
 	setHeight := finality.FirstValidatorSetHeight
+	var stateHeight types.Height
 	if committed > 0 {
 		state, err := runtime.LatestState(ctx)
 		if err != nil {
@@ -441,12 +453,24 @@ func (node *Node) checkParentBinding(ctx context.Context, runtime *vexoruntime.R
 			return err
 		}
 		setHeight = finality.ChildValidatorSetHeight(parentHeader)
+		stateHeight = finality.ChildStateHeight(parentHeader)
+		parentTime = parentHeader.TimeUnixNano
 	}
 	if header.PreviousBlockHash != parent {
 		return fmt.Errorf("%w: height %d names parent %x, last committed block is %x", ErrBlockParentMismatch, header.Height, header.PreviousBlockHash, parent)
 	}
-	if header.ValidatorSetHeight != setHeight {
-		return fmt.Errorf("%w: height %d names validator set height %d, its parent fixes %d", ErrBlockParentMismatch, header.Height, header.ValidatorSetHeight, setHeight)
+	if header.TimeUnixNano <= parentTime {
+		return fmt.Errorf("%w: height %d has time %d, its parent %d", ErrBlockParentMismatch, header.Height, header.TimeUnixNano, parentTime)
+	}
+	if header.ValidatorSetHeight != setHeight || header.StateHeight != stateHeight {
+		return fmt.Errorf("%w: height %d names validator set height %d and state height %d, its parent fixes %d and %d", ErrBlockParentMismatch, header.Height, header.ValidatorSetHeight, header.StateHeight, setHeight, stateHeight)
+	}
+	nextSet, err := runtime.Validators.ValidatorSet(ctx, stateHeight+1)
+	if err != nil {
+		return err
+	}
+	if header.NextValidatorSetHash != nextSet.Hash() {
+		return fmt.Errorf("%w: height %d names next validator set %x, the registry holds %x after height %d", ErrBlockParentMismatch, header.Height, header.NextValidatorSetHash, nextSet.Hash(), stateHeight)
 	}
 	return nil
 }

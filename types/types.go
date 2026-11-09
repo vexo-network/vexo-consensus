@@ -95,13 +95,18 @@ type Header struct {
 	Height            Height
 	TimeUnixNano      int64
 	PreviousBlockHash Hash
-	// AppHash commits the replicated state after executing block ValidatorSetHeight-1, the
-	// genesis state when that is height 0: the application's app hash together with the root of
-	// the validator registry (see finality.AppHashHeight and finality.HeaderAppHash).
+	// AppHash commits the replicated state after executing block StateHeight, the genesis state
+	// when that is height 0: the application's app hash together with the root of the validator
+	// registry (see finality.HeaderAppHash).
 	AppHash          Hash
 	ValidatorSetHash Hash
-	ConsensusHash    Hash
-	TxRoot           Hash
+	// NextValidatorSetHash is the hash of the validator set that certifies the children of the
+	// block: the set the registry holds after executing block StateHeight, which is part of the
+	// state AppHash commits. A certified header so names the set of its children before that set
+	// signs anything (see finality.ChildValidatorSetHeight).
+	NextValidatorSetHash Hash
+	ConsensusHash        Hash
+	TxRoot               Hash
 	// Round is the view the block is proposed in, and JustifyRound the view of the certificate
 	// of its parent the proposal carries (zero for the first block).
 	Round        Round
@@ -109,6 +114,8 @@ type Header struct {
 	// ValidatorSetHeight is the registry height of the validator set that certifies the block:
 	// the set the registry holds after executing block ValidatorSetHeight-1.
 	ValidatorSetHeight Height
+	// StateHeight is the height of the executed block whose resulting state AppHash commits.
+	StateHeight Height
 }
 
 type Block struct {

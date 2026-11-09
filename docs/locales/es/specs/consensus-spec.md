@@ -85,6 +85,7 @@ Este documento ayuda a entender especificación normativa de la state machine de
 - State
 - Message Types
 - Safety Rules
+- Block Time
 - Finality Rule
 - Execution Commit Policy
 - Liveness Assumptions
@@ -155,3 +156,8 @@ Este apéndice asegura que la traducción conserve las interfaces ejecutables y 
 - `C.height = B.height + 1` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `da_mismatch` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `missing_data` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `compact_proposal` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `proposal_request` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `proposal_txs` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `next_validator_set_hash` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `parent_linkage` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
