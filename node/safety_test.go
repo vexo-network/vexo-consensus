@@ -50,7 +50,7 @@ func newStartedValidator(t *testing.T, dataDir string) *Node {
 func TestFullNodeConsensusMachineVerifiesSignatures(t *testing.T) {
 	ctx := context.Background()
 	// A full node has neither a signer nor a validator id.
-	node, err := New(DefaultConfig("vexo-test", t.TempDir()), validGenesis(), newTestApplication(t))
+	node, err := New(UnsafeTestConfig("vexo-test", t.TempDir()), validGenesis(), newTestApplication(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestRestartedValidatorRefusesToVoteAgainstPersistedLock(t *testing.T) {
 func TestValidatorRefusesToStartWhenSafetyStateCannotBeRestored(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()
-	cfg := DefaultConfig("vexo-test", dataDir)
+	cfg := UnsafeTestConfig("vexo-test", dataDir)
 	wal, err := consensus.OpenWAL(cfg.ConsensusWALPath())
 	if err != nil {
 		t.Fatal(err)

@@ -333,7 +333,7 @@ func TestAdmissionKeepsTheRejectionOfATransactionWithoutASequence(t *testing.T) 
 }
 
 func TestGossipedTxIsNotScoredWhenAdmissionKeepsRacingCommits(t *testing.T) {
-	cfg := DefaultConfig("vexo-test", t.TempDir())
+	cfg := UnsafeTestConfig("vexo-test", t.TempDir())
 	cfg.ValidatorID = "alice"
 	cfg.Chain.P2P.InitialScore = 10
 	cfg.Chain.P2P.ValidMessageReward = 1

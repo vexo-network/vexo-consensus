@@ -50,6 +50,7 @@ type Metrics struct {
 	ReplayHealthy               bool
 	SigningFailures             uint64
 	ReconciliationFailures      uint64
+	RetentionPruneFailures      uint64
 }
 
 func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
@@ -97,6 +98,7 @@ func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
 	metrics.CommitLatencyP95Nanos = snapshot.commitP95Nanos
 	metrics.CommitLatencyP99Nanos = snapshot.commitP99Nanos
 	metrics.SigningFailures = snapshot.signingFailures
+	metrics.RetentionPruneFailures = snapshot.pruneFailures
 	if snapshot.committedBlocks > 0 && snapshot.firstCommitUnixNano > 0 && snapshot.latestCommitUnixNano > snapshot.firstCommitUnixNano {
 		elapsed := time.Duration(snapshot.latestCommitUnixNano - snapshot.firstCommitUnixNano)
 		metrics.HeightRatePerMinute = float64(snapshot.committedBlocks) / elapsed.Minutes()

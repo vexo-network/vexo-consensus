@@ -228,7 +228,7 @@ Ejemplo de bloque `state_sync`:
 {
   "state_sync": {
     "enabled": true,
-    "snapshot_urls": ["https://snapshots.example.com/vexo-chain/latest.json"],
+    "snapshot_urls": ["https://rpc.example.com/v1"],
     "timeout": "30s",
     "min_height": 1000000,
     "require_fresh": true,
@@ -684,8 +684,13 @@ Este apéndice asegura que la traducción conserve las interfaces ejecutables y 
 - `trust_hash` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `ValidatorSetHeight - 1` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `vexod snapshot restore` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
-- `chunk-restore` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `--trust-height` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `--trust-hash` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `vexod snapshot export --height` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `validator_registry` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `/snapshot/manifest` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `/snapshot/pairs` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `earliest_height` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `state_sync.max_snapshot_bytes` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `retain_blocks` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `vexo_retention_prune_failures` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.

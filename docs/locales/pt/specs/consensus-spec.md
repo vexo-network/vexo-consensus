@@ -149,3 +149,9 @@ Este apêndice garante que a tradução preserve as interfaces executáveis e as
 - `parity_shards` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `ValidatorSetHeight - 1` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `validator_registry` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `app_hash` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `consensus.TwoChainCommitRule` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `C.PreviousBlockHash = hash(B)` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `C.height = B.height + 1` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `da_mismatch` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `missing_data` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.

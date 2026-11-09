@@ -1375,7 +1375,7 @@ func releaseEvidenceFixture(name string) []byte {
 
 func TestRunProofVerifyCommand(t *testing.T) {
 	proof := queryproof.Proof{
-		SchemaVersion: queryproof.SchemaVersionV1,
+		SchemaVersion: queryproof.SchemaVersionV2,
 		ChainID:       "vexo-test",
 		Height:        7,
 		Namespace:     "bank",
@@ -1626,14 +1626,13 @@ func TestRunRelayerBuildsFetchesAndSubmitsIBCTx(t *testing.T) {
 	proofPath := ""
 	proofBody, err := json.Marshal(map[string]queryproof.Proof{
 		"proof": {
-			SchemaVersion: queryproof.SchemaVersionV1,
+			SchemaVersion: queryproof.SchemaVersionV2,
 			ChainID:       "counterparty",
 			Height:        9,
 			Namespace:     "ibc",
 			Key:           []byte("packets"),
 			Exists:        true,
 			StateRoot:     types.Hash{1},
-			LeafHash:      types.Hash{2},
 		},
 	})
 	if err != nil {
@@ -1833,14 +1832,13 @@ func TestRunRelayerDiscoverFindsIndexedPackets(t *testing.T) {
 func TestRunRelayerLoopRetriesProofAndSubmits(t *testing.T) {
 	proofBody, err := json.Marshal(map[string]queryproof.Proof{
 		"proof": {
-			SchemaVersion: queryproof.SchemaVersionV1,
+			SchemaVersion: queryproof.SchemaVersionV2,
 			ChainID:       "counterparty",
 			Height:        11,
 			Namespace:     "ibc",
 			Key:           []byte("packets"),
 			Exists:        true,
 			StateRoot:     types.Hash{1},
-			LeafHash:      types.Hash{2},
 		},
 	})
 	if err != nil {
@@ -1907,14 +1905,13 @@ func TestRunRelayerLoopRetriesProofAndSubmits(t *testing.T) {
 func TestRunRelayerLoopCheckpointSkipsDuplicateSubmit(t *testing.T) {
 	proofBody, err := json.Marshal(map[string]queryproof.Proof{
 		"proof": {
-			SchemaVersion: queryproof.SchemaVersionV1,
+			SchemaVersion: queryproof.SchemaVersionV2,
 			ChainID:       "counterparty",
 			Height:        11,
 			Namespace:     "ibc",
 			Key:           []byte("packets"),
 			Exists:        true,
 			StateRoot:     types.Hash{1},
-			LeafHash:      types.Hash{2},
 		},
 	})
 	if err != nil {
@@ -2005,14 +2002,13 @@ func TestRunRelayerLoopHonorsCanceledContext(t *testing.T) {
 func TestRunRelayerConfigRunsMultipleJobs(t *testing.T) {
 	proofBody, err := json.Marshal(map[string]queryproof.Proof{
 		"proof": {
-			SchemaVersion: queryproof.SchemaVersionV1,
+			SchemaVersion: queryproof.SchemaVersionV2,
 			ChainID:       "counterparty",
 			Height:        12,
 			Namespace:     "ibc",
 			Key:           []byte("packets"),
 			Exists:        true,
 			StateRoot:     types.Hash{1},
-			LeafHash:      types.Hash{2},
 		},
 	})
 	if err != nil {
@@ -2868,9 +2864,9 @@ func testHeaderAppHash(t *testing.T, state store.StateRecord, roots []store.Stat
 	return hash
 }
 
-// restoredSnapshotState opens the store of home and returns its latest state and its root of every
-// namespace document names.
-func restoredSnapshotState(t *testing.T, home string, document snapshotDocument) store.StateRecord {
+// restoredSnapshotState opens the store of home and returns its latest state, checking that every
+// namespace of the state has the root of that state.
+func restoredSnapshotState(t *testing.T, home string) store.StateRecord {
 	t.Helper()
 	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
 	if err != nil {
@@ -2888,16 +2884,83 @@ func restoredSnapshotState(t *testing.T, home string, document snapshotDocument)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, root := range document.StateRoots {
-		actual, err := restored.Root(context.Background(), root.Namespace)
+	namespaces, err := replicatedNamespaces(cfg.Chain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, namespace := range namespaces {
+		want, err := restored.StateRoot(context.Background(), state.Height, namespace)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if actual != root.Root {
-			t.Fatalf("restored namespace %s has root %x, the snapshot %x", root.Namespace, actual, root.Root)
+		actual, err := restored.Root(context.Background(), namespace)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if actual != want.Root {
+			t.Fatalf("restored namespace %s has root %x, its state root is %x", namespace, actual, want.Root)
 		}
 	}
 	return state
+}
+
+// restoredRegistryRoot is the validator registry root of the latest state of home.
+func restoredRegistryRoot(t *testing.T, home string, state store.StateRecord) []store.StateRootRecord {
+	t.Helper()
+	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := store.OpenLevelDB(cfg.StoreDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	root, err := restored.StateRoot(context.Background(), state.Height, validator.RegistryNamespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return []store.StateRootRecord{root}
+}
+
+// readSnapshotFileValues reads the manifest and the pages of a snapshot file.
+func readSnapshotFileValues(t *testing.T, path string) (snapshotManifest, []snapshotPage) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	var manifest snapshotManifest
+	if err := decoder.Decode(&manifest); err != nil {
+		t.Fatal(err)
+	}
+	var pages []snapshotPage
+	for decoder.More() {
+		var page snapshotPage
+		if err := decoder.Decode(&page); err != nil {
+			t.Fatal(err)
+		}
+		pages = append(pages, page)
+	}
+	return manifest, pages
+}
+
+func writeSnapshotFileValues(t *testing.T, path string, manifest snapshotManifest, pages []snapshotPage) {
+	t.Helper()
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	if err := encoder.Encode(manifest); err != nil {
+		t.Fatal(err)
+	}
+	for _, page := range pages {
+		if err := encoder.Encode(page); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(path, buffer.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestRunSnapshotExportAndRestore(t *testing.T) {
@@ -2909,15 +2972,12 @@ func TestRunSnapshotExportAndRestore(t *testing.T) {
 	if err := runSnapshot(&exportOutput, []string{"export", "--home", chain.home, "--output", snapshotPath}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(exportOutput.String(), "snapshot exported") || !strings.Contains(exportOutput.String(), "height: 1") {
+	if !strings.Contains(exportOutput.String(), "snapshot exported") || !strings.Contains(exportOutput.String(), "height: 1") || !strings.Contains(exportOutput.String(), "anchor_height: 3") {
 		t.Fatalf("unexpected export output:\n%s", exportOutput.String())
 	}
-	document, err := readSnapshotDocument(snapshotPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if finality.HeaderHash(document.Header) != chain.trust().Hash || len(document.KV) == 0 {
-		t.Fatalf("expected the snapshot of the latest block to be anchored to block 3, got %+v", document.Header)
+	manifest, pages := readSnapshotFileValues(t, snapshotPath)
+	if finality.HeaderHash(manifest.Header) != chain.trust().Hash || len(pages) < len(manifest.Modules) {
+		t.Fatalf("expected the snapshot of the latest block to be anchored to block 3 with a page per namespace, got %+v and %d pages", manifest.Header, len(pages))
 	}
 	var verifyOutput bytes.Buffer
 	if err := runSnapshot(&verifyOutput, []string{"verify", "--home", chain.home, "--input", snapshotPath}); err != nil {
@@ -2937,7 +2997,7 @@ func TestRunSnapshotExportAndRestore(t *testing.T) {
 	if err := runSnapshot(&drillOutput, []string{"drill-plan", "--input", snapshotPath, "--chain-id", "vexo-test", "--min-height", "1"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"snapshot drill plan", "height: 1", "checksum ok=true", "height catch-up"} {
+	for _, expected := range []string{"snapshot drill plan", "height: 1", "pages ok=true", "state_roots ok=true", "height catch-up"} {
 		if !strings.Contains(drillOutput.String(), expected) {
 			t.Fatalf("expected snapshot drill output to contain %q, got:\n%s", expected, drillOutput.String())
 		}
@@ -2951,11 +3011,14 @@ func TestRunSnapshotExportAndRestore(t *testing.T) {
 	if err := runSnapshot(&restoreOutput, append([]string{"restore", "--home", restoreHome, "--input", snapshotPath}, chain.trustFlags()...)); err != nil {
 		t.Fatal(err)
 	}
-	if state := restoredSnapshotState(t, restoreHome, document); state.Height != 1 || testHeaderAppHash(t, state, document.StateRoots) != chain.anchor.AppHash {
+	state := restoredSnapshotState(t, restoreHome)
+	if state.Height != 1 || testHeaderAppHash(t, state, restoredRegistryRoot(t, restoreHome, state)) != chain.anchor.AppHash {
 		t.Fatalf("unexpected restored state: %+v", state)
 	}
 }
 
+// A snapshot file is checked page by page: pairs that do not have the roots the manifest names are
+// refused by verify and restore, and pages out of key order are reported by the drill plan.
 func TestRunSnapshotRestoreRejectsTamperedKVBeforeWritingState(t *testing.T) {
 	chain := startCommittedSnapshotChain(t)
 	chain.stop(t)
@@ -2964,221 +3027,79 @@ func TestRunSnapshotRestoreRejectsTamperedKVBeforeWritingState(t *testing.T) {
 	if err := runSnapshot(&bytes.Buffer{}, []string{"export", "--home", chain.home, "--output", snapshotPath}); err != nil {
 		t.Fatal(err)
 	}
-	document, err := readSnapshotDocument(snapshotPath)
-	if err != nil {
-		t.Fatal(err)
+	manifest, pages := readSnapshotFileValues(t, snapshotPath)
+	tampered := -1
+	for index, page := range pages {
+		if len(page.Pairs) > 0 {
+			tampered = index
+			break
+		}
 	}
-	if len(document.KV) == 0 {
+	if tampered < 0 {
 		t.Fatal("expected exported KV")
 	}
-	document.KV[0].Value = []byte("999")
+	pages[tampered].Pairs[0].Value = []byte("999")
 	tamperedPath := filepath.Join(t.TempDir(), "tampered.json")
-	tamperedFile, err := os.OpenFile(tamperedPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := writeSnapshotDocument(tamperedFile, document); err != nil {
-		_ = tamperedFile.Close()
-		t.Fatal(err)
-	}
-	if err := tamperedFile.Close(); err != nil {
-		t.Fatal(err)
-	}
+	writeSnapshotFileValues(t, tamperedPath, manifest, pages)
 
-	restoreHome := freshSnapshotHome(t)
-	if err := runSnapshot(&bytes.Buffer{}, append([]string{"restore", "--home", restoreHome, "--input", tamperedPath}, chain.trustFlags()...)); err == nil {
-		t.Fatal("expected tampered snapshot restore to fail")
+	if err := runSnapshot(&bytes.Buffer{}, []string{"verify", "--home", chain.home, "--input", tamperedPath}); !errors.Is(err, ErrUntrustedSnapshot) {
+		t.Fatalf("expected tampered snapshot verify to fail, got %v", err)
 	}
-	if state := restoredSnapshotState(t, restoreHome, snapshotDocument{}); state.Height != 0 {
+	restoreHome := freshSnapshotHome(t)
+	if err := runSnapshot(&bytes.Buffer{}, append([]string{"restore", "--home", restoreHome, "--input", tamperedPath}, chain.trustFlags()...)); !errors.Is(err, ErrUntrustedSnapshot) {
+		t.Fatalf("expected tampered snapshot restore to fail, got %v", err)
+	}
+	if state := restoredSnapshotState(t, restoreHome); state.Height != 0 {
 		t.Fatalf("expected restore to fail before writing state, got %+v", state)
 	}
+
+	// Pairs repeated across pages are out of key order.
+	_, pages = readSnapshotFileValues(t, snapshotPath)
+	pages[tampered].Pairs = append(pages[tampered].Pairs, pages[tampered].Pairs[0])
+	disorderedPath := filepath.Join(t.TempDir(), "disordered.json")
+	writeSnapshotFileValues(t, disorderedPath, manifest, pages)
+	var drillOutput bytes.Buffer
+	if err := runSnapshot(&drillOutput, []string{"drill-plan", "--input", disorderedPath}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(drillOutput.String(), "pages ok=false") {
+		t.Fatalf("expected the drill plan to report disordered pages, got:\n%s", drillOutput.String())
+	}
 }
 
-func TestRunSnapshotChunkExportRestore(t *testing.T) {
+// A snapshot fetched from a node's RPC endpoints, one request per page, is a snapshot file that
+// restores the state of the trusted block.
+func TestRunSnapshotFetchFromRPCPages(t *testing.T) {
 	chain := startCommittedSnapshotChain(t)
-	chain.stop(t)
-
-	chunkDir := filepath.Join(t.TempDir(), "chunks")
-	var exportOutput bytes.Buffer
-	if err := runSnapshot(&exportOutput, []string{"chunk-export", "--home", chain.home, "--output-dir", chunkDir, "--chunk-size", "2", "--height", "3"}); err != nil {
-		t.Fatal(err)
-	}
-	chunks, err := readSnapshotChunksFromDir(chunkDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(chunks) < 2 || !strings.Contains(exportOutput.String(), "chunks: "+strconv.Itoa(len(chunks))) {
-		t.Fatalf("unexpected chunk export output:\n%s", exportOutput.String())
-	}
-	document, err := snapshotDocumentFromChunks(chunks)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	restoreHome := freshSnapshotHome(t)
-	var restoreOutput bytes.Buffer
-	if err := runSnapshot(&restoreOutput, append([]string{"chunk-restore", "--home", restoreHome, "--input-dir", chunkDir}, chain.trustFlags()...)); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(restoreOutput.String(), "snapshot chunks restored") || !strings.Contains(restoreOutput.String(), "chunks: "+strconv.Itoa(len(chunks))) {
-		t.Fatalf("unexpected chunk restore output:\n%s", restoreOutput.String())
-	}
-	if state := restoredSnapshotState(t, restoreHome, document); state.Height != 1 || testHeaderAppHash(t, state, document.StateRoots) != chain.anchor.AppHash {
-		t.Fatalf("unexpected restored chunk state=%+v", state)
-	}
-}
-
-func TestSnapshotChunksRejectTamperingAndMissingChunks(t *testing.T) {
-	sourceStore, err := store.OpenLevelDB(filepath.Join(t.TempDir(), "source-store"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for account, balance := range map[string]string{"alice": "100", "bob": "70", "carol": "30"} {
-		if err := sourceStore.Set(context.Background(), "bank", []byte(account), []byte(balance)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	root, err := sourceStore.Root(context.Background(), "bank")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := sourceStore.Close(); err != nil {
-		t.Fatal(err)
-	}
-	document := snapshotDocumentFromState("vexo-test", []string{"bank", validator.RegistryNamespace}, snapshotTestHeaderFor(7, types.Hash{7}), store.StateRecord{
-		Height:           7,
-		AppHash:          types.Hash{7},
-		LastBlockHash:    types.Hash{8},
-		ValidatorSetHash: types.Hash{9},
-	}, []store.StateRootRecord{{Height: 7, Namespace: "bank", Root: root}, snapshotTestRegistryRoot(7)}, []store.KVPair{
-		{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")},
-		{Namespace: "bank", Key: []byte("bob"), Value: []byte("70")},
-		{Namespace: "bank", Key: []byte("carol"), Value: []byte("30")},
-	})
-	chunks, err := snapshotChunks(document, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rebuilt, err := snapshotDocumentFromChunks(chunks)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rebuilt.Checksum != document.Checksum || len(rebuilt.KV) != 3 {
-		t.Fatalf("unexpected rebuilt snapshot checksum=%s kv=%d", rebuilt.Checksum, len(rebuilt.KV))
-	}
-	if _, err := snapshotDocumentFromChunks(chunks[:1]); err == nil {
-		t.Fatal("expected missing chunk rejection")
-	}
-	tampered := append([]snapshotChunkDocument(nil), chunks...)
-	tampered[0].KV[0].Value = []byte("999")
-	if _, err := snapshotDocumentFromChunks(tampered); err == nil {
-		t.Fatal("expected tampered chunk rejection")
-	}
-}
-
-func TestRunSnapshotVerifyRejectsChecksumMismatch(t *testing.T) {
-	home := t.TempDir()
-	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
-		t.Fatal(err)
-	}
-	document := snapshotDocumentFromState("vexo-test", []string{"bank", validator.RegistryNamespace}, snapshotTestHeaderFor(3, types.Hash{1}), store.StateRecord{
-		Height:           3,
-		AppHash:          types.Hash{1},
-		LastBlockHash:    types.Hash{2},
-		ValidatorSetHash: types.Hash{3},
-	}, []store.StateRootRecord{{Height: 3, Namespace: "bank", Root: types.Hash{4}}, snapshotTestRegistryRoot(3)}, []store.KVPair{{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")}})
-	document.KV[0].Value = []byte("999")
-	path := filepath.Join(t.TempDir(), "corrupt-snapshot.json")
-	file, err := os.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := writeSnapshotDocument(file, document); err != nil {
-		t.Fatal(err)
-	}
-	if err := file.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := runSnapshot(&bytes.Buffer{}, []string{"verify", "--home", home, "--input", path}); err == nil {
-		t.Fatal("expected checksum mismatch")
-	}
-}
-
-func TestValidateSnapshotRejectsMissingRootAndUnknownKVNamespace(t *testing.T) {
-	document := snapshotDocument{
-		SchemaVersion: "v1",
-		ChainID:       "vexo-test",
-		Modules:       []string{"bank", validator.RegistryNamespace},
-		Header:        snapshotTestHeaderFor(3, types.Hash{1}),
-		State: store.StateRecord{
-			Height:           3,
-			AppHash:          types.Hash{1},
-			LastBlockHash:    types.Hash{2},
-			ValidatorSetHash: types.Hash{3},
-		},
-	}
-	document.Checksum = snapshotChecksum(document)
-	if err := validateSnapshotDocument(document, "vexo-test"); err == nil {
-		t.Fatal("expected missing root rejection")
-	}
-
-	document = snapshotDocumentFromState("vexo-test", []string{"bank", validator.RegistryNamespace}, snapshotTestHeaderFor(3, types.Hash{1}), store.StateRecord{
-		Height:           3,
-		AppHash:          types.Hash{1},
-		LastBlockHash:    types.Hash{2},
-		ValidatorSetHash: types.Hash{3},
-	}, []store.StateRootRecord{{Height: 3, Namespace: "bank", Root: types.Hash{4}}, snapshotTestRegistryRoot(3)}, []store.KVPair{{Namespace: "evil", Key: []byte("alice"), Value: []byte("100")}})
-	if err := validateSnapshotDocument(document, "vexo-test"); err == nil {
-		t.Fatal("expected unknown KV namespace rejection")
-	}
-}
-
-func TestRunSnapshotFetchFromRPCExport(t *testing.T) {
-	sourceStore, err := store.OpenLevelDB(filepath.Join(t.TempDir(), "source-store"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := sourceStore.Set(context.Background(), "bank", []byte("alice"), []byte("100")); err != nil {
-		t.Fatal(err)
-	}
-	sourceRoot, err := sourceStore.Root(context.Background(), "bank")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := sourceStore.Close(); err != nil {
-		t.Fatal(err)
-	}
-	document := snapshotDocumentFromState("vexo-test", []string{"bank", validator.RegistryNamespace}, snapshotTestHeaderFor(7, types.Hash{7}), store.StateRecord{
-		Height:           7,
-		AppHash:          types.Hash{7},
-		LastBlockHash:    types.Hash{8},
-		ValidatorSetHash: types.Hash{9},
-	}, []store.StateRootRecord{{Height: 7, Namespace: "bank", Root: sourceRoot}, snapshotTestRegistryRoot(7)}, []store.KVPair{{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")}})
+	var requested []string
+	handler := vexorpc.NewHandler(chain.node)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/snapshot/export" {
-			http.NotFound(writer, request)
-			return
-		}
-		writer.Header().Set("Content-Type", "application/json")
-		if err := writeSnapshotDocument(writer, document); err != nil {
-			t.Fatal(err)
-		}
+		requested = append(requested, request.URL.Path)
+		handler.ServeHTTP(writer, request)
 	}))
 	defer server.Close()
 
 	snapshotPath := filepath.Join(t.TempDir(), "remote-snapshot.json")
 	var fetchOutput bytes.Buffer
-	if err := runSnapshot(&fetchOutput, []string{"fetch", "--url", server.URL + "/snapshot/export", "--output", snapshotPath}); err != nil {
+	if err := runSnapshot(&fetchOutput, []string{"fetch", "--url", server.URL + "/v1", "--height", "3", "--output", snapshotPath}); err != nil {
 		t.Fatal(err)
 	}
-	fetched, err := readSnapshotDocument(snapshotPath)
-	if err != nil {
+	if !strings.Contains(fetchOutput.String(), "snapshot fetched") || !strings.Contains(fetchOutput.String(), "anchor_height: 3") {
+		t.Fatalf("unexpected fetch output:\n%s", fetchOutput.String())
+	}
+	if len(requested) < 2 || requested[0] != "/v1/snapshot/manifest" || requested[1] != "/v1/snapshot/pairs" {
+		t.Fatalf("expected the manifest and then pages to be requested, got %v", requested)
+	}
+	restoreHome := freshSnapshotHome(t)
+	if err := runSnapshot(&bytes.Buffer{}, append([]string{"restore", "--home", restoreHome, "--input", snapshotPath}, chain.trustFlags()...)); err != nil {
 		t.Fatal(err)
 	}
-	if fetched.State.Height != 7 || len(fetched.StateRoots) != 2 {
-		t.Fatalf("unexpected fetched snapshot: %+v", fetched)
+	if state := restoredSnapshotState(t, restoreHome); state.Height != 1 {
+		t.Fatalf("unexpected restored state: %+v", state)
 	}
-
+	if _, err := os.Stat(snapshotPath + ".partial"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected no partial snapshot file left, got %v", err)
+	}
 }
 
 func TestMaybeRunStartupStateSyncFetchesSnapshotBeforeNodeStart(t *testing.T) {
@@ -3188,7 +3109,7 @@ func TestMaybeRunStartupStateSyncFetchesSnapshotBeforeNodeStart(t *testing.T) {
 	var requested []string
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		requested = append(requested, request.URL.String())
-		if request.URL.Path == "/bad" {
+		if strings.HasPrefix(request.URL.Path, "/bad") {
 			http.Error(writer, "not ready", http.StatusServiceUnavailable)
 			return
 		}
@@ -3209,7 +3130,7 @@ func TestMaybeRunStartupStateSyncFetchesSnapshotBeforeNodeStart(t *testing.T) {
 	runtimeConfig := startRuntimeConfig{
 		StateSync: runtimeStateSyncConfig{
 			Enabled:           true,
-			SnapshotURLs:      []string{server.URL + "/bad", server.URL + "/snapshot/export"},
+			SnapshotURLs:      []string{server.URL + "/bad", server.URL},
 			Timeout:           "2s",
 			MinHeight:         1,
 			RequireFresh:      true,
@@ -3223,27 +3144,11 @@ func TestMaybeRunStartupStateSyncFetchesSnapshotBeforeNodeStart(t *testing.T) {
 	if err := maybeRunStartupStateSync(ctx, inputs, runtimeConfig, logEvent); err != nil {
 		t.Fatal(err)
 	}
-	if len(requested) != 2 || requested[1] != "/snapshot/export?height=3" {
-		t.Fatalf("expected the export anchored to the trusted block to be requested, got %v", requested)
+	if len(requested) < 3 || requested[0] != "/bad/snapshot/manifest?height=3" || requested[1] != "/snapshot/manifest?height=3" {
+		t.Fatalf("expected the manifest anchored to the trusted block to be requested, got %v", requested)
 	}
-	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
-	if err != nil {
-		t.Fatal(err)
-	}
-	storage, err := store.OpenLevelDB(cfg.StoreDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer storage.Close()
-	state, err := storage.LatestState(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	registryRoot, err := storage.StateRoot(ctx, state.Height, validator.RegistryNamespace)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if state.Height != 1 || testHeaderAppHash(t, state, []store.StateRootRecord{registryRoot}) != chain.anchor.AppHash {
+	state := restoredSnapshotState(t, home)
+	if state.Height != 1 || testHeaderAppHash(t, state, restoredRegistryRoot(t, home, state)) != chain.anchor.AppHash {
 		t.Fatalf("unexpected startup state sync state=%+v", state)
 	}
 	if !stringSliceContains(events, "state_sync_candidate_failed") || !stringSliceContains(events, "state_sync_applied") {
@@ -3256,40 +3161,40 @@ func TestMaybeRunStartupStateSyncFetchesSnapshotBeforeNodeStart(t *testing.T) {
 	}
 }
 
+// max_snapshot_bytes bounds the whole snapshot, across every request.
 func TestMaybeRunStartupStateSyncRejectsOversizedSnapshot(t *testing.T) {
-	document := snapshotDocumentFromState("vexo-test", []string{"bank", validator.RegistryNamespace}, snapshotTestHeaderFor(9, types.Hash{9}), store.StateRecord{
-		Height:           9,
-		AppHash:          types.Hash{9},
-		LastBlockHash:    types.Hash{10},
-		ValidatorSetHash: types.Hash{11},
-	}, []store.StateRootRecord{{Height: 9, Namespace: "bank", Root: types.Hash{12}}, snapshotTestRegistryRoot(9)}, []store.KVPair{{Namespace: "bank", Key: []byte("alice"), Value: bytes.Repeat([]byte("x"), 256)}})
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if err := writeSnapshotDocument(writer, document); err != nil {
-			t.Fatal(err)
-		}
-	}))
+	chain := startCommittedSnapshotChain(t)
+	server := httptest.NewServer(vexorpc.NewHandler(chain.node))
 	defer server.Close()
 
-	home := t.TempDir()
-	if err := runInit(&bytes.Buffer{}, []string{"--home", home, "--chain-id", "vexo-test"}); err != nil {
-		t.Fatal(err)
-	}
+	home := freshSnapshotHome(t)
 	inputs, err := loadStartInputs(home, "", "", "", nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = maybeRunStartupStateSync(context.Background(), inputs, startRuntimeConfig{StateSync: runtimeStateSyncConfig{
-		Enabled:          true,
-		SnapshotURLs:     []string{server.URL},
-		Timeout:          "2s",
-		MinHeight:        1,
-		RequireFresh:     true,
-		MaxSnapshotBytes: 32,
-		TrustHeight:      11,
-		TrustHash:        hex.EncodeToString(make([]byte, 32)),
-	}}, func(string, map[string]any) {})
+	trust := chain.trust()
+	stateSync := runtimeStateSyncConfig{
+		Enabled:      true,
+		SnapshotURLs: []string{server.URL},
+		Timeout:      "2s",
+		TrustHeight:  uint64(trust.Height),
+		TrustHash:    hex.EncodeToString(trust.Hash[:]),
+	}
+	source, err := newHTTPSnapshotSource(server.URL, trust.Height, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.Manifest(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// Enough for the manifest, not for the pages after it.
+	stateSync.MaxSnapshotBytes = source.maxBytes - source.remaining + 1
+	err = maybeRunStartupStateSync(context.Background(), inputs, startRuntimeConfig{StateSync: stateSync}, func(string, map[string]any) {})
 	if err == nil || !strings.Contains(err.Error(), "exceeds max bytes") {
 		t.Fatalf("expected oversized snapshot rejection, got %v", err)
+	}
+	if state := restoredSnapshotState(t, home); state.Height != 0 {
+		t.Fatalf("expected an oversized snapshot to write nothing, got %+v", state)
 	}
 }
 
@@ -3342,11 +3247,28 @@ func TestRunDoctorReportsOperationalReadinessAndRepairsIndexes(t *testing.T) {
 	if err := storage.SaveState(context.Background(), store.StateRecord{Height: 1, AppHash: types.Hash{7}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := storage.SaveStateRoot(context.Background(), store.StateRootRecord{Height: 1, Namespace: "bank", Root: types.Hash{6}}); err != nil {
+	// The snapshot of block 3 needs the blocks down to the state it commits and a root of every
+	// namespace.
+	for height := types.Height(1); height <= 2; height++ {
+		if err := storage.SaveBlock(context.Background(), store.BlockRecord{
+			Block: types.Block{Header: types.Header{ChainID: "vexo-test", Height: height}},
+			Hash:  types.Hash{byte(height)},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	namespaces, err := replicatedNamespaces(cfg.Chain)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := storage.SaveStateRoot(context.Background(), snapshotTestRegistryRoot(1)); err != nil {
-		t.Fatal(err)
+	for _, namespace := range namespaces {
+		root := store.StateRootRecord{Height: 1, Namespace: namespace, Root: types.Hash{6}}
+		if namespace == validator.RegistryNamespace {
+			root = snapshotTestRegistryRoot(1)
+		}
+		if err := storage.SaveStateRoot(context.Background(), root); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := storage.SaveState(context.Background(), store.StateRecord{
 		Height:           3,
@@ -3371,7 +3293,7 @@ func TestRunDoctorReportsOperationalReadinessAndRepairsIndexes(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
 		t.Fatal(err)
 	}
-	if !document.OK || document.RecoverResult == nil || document.RecoverResult.BlockIndexKeys != 1 || document.RecoverResult.RecoveredIndexes == 0 {
+	if !document.OK || document.RecoverResult == nil || document.RecoverResult.BlockIndexKeys != 3 || document.RecoverResult.RecoveredIndexes == 0 {
 		t.Fatalf("unexpected doctor document: %+v", document)
 	}
 

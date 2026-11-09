@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -51,9 +52,11 @@ type fakeStatusProvider struct {
 	statusWaitCancel      chan struct{}
 	metrics               node.Metrics
 	metricsErr            error
-	snapshot              node.StateSnapshot
+	snapshot              node.StateSnapshotManifest
+	snapshotPairs         []store.KVPair
 	snapshotErr           error
-	snapshotBuilds        *int
+	snapshotEarliest      types.Height
+	snapshotPages         *[]string
 	recoveryReport        node.RecoveryReport
 	recoveryErr           error
 	recoveryRepairs       int
@@ -190,16 +193,37 @@ func (provider fakeStatusProvider) StateSnapshotHead(ctx context.Context) (node.
 	return provider.snapshot.StateSnapshotHead, nil
 }
 
-func (provider fakeStatusProvider) StateSnapshot(ctx context.Context, blockHeight types.Height) (node.StateSnapshot, error) {
+func (provider fakeStatusProvider) StateSnapshotManifest(ctx context.Context, blockHeight types.Height) (node.StateSnapshotManifest, error) {
 	if provider.snapshotErr != nil {
-		return node.StateSnapshot{}, provider.snapshotErr
-	}
-	if provider.snapshotBuilds != nil {
-		*provider.snapshotBuilds++
+		return node.StateSnapshotManifest{}, provider.snapshotErr
 	}
 	snapshot := provider.snapshot
 	snapshot.Header.Height = blockHeight
 	return snapshot, nil
+}
+
+func (provider fakeStatusProvider) StateSnapshotPairs(ctx context.Context, blockHeight types.Height, namespace string, after []byte, limit int) ([]store.KVPair, bool, error) {
+	if provider.snapshotErr != nil {
+		return nil, false, provider.snapshotErr
+	}
+	if provider.snapshotPages != nil {
+		*provider.snapshotPages = append(*provider.snapshotPages, fmt.Sprintf("%d/%s/%x/%d", blockHeight, namespace, after, limit))
+	}
+	page := make([]store.KVPair, 0, limit)
+	for _, pair := range provider.snapshotPairs {
+		if pair.Namespace != namespace || (after != nil && bytes.Compare(pair.Key, after) <= 0) {
+			continue
+		}
+		if len(page) == limit {
+			return page, true, nil
+		}
+		page = append(page, pair)
+	}
+	return page, false, nil
+}
+
+func (provider fakeStatusProvider) EarliestSnapshotHeight(ctx context.Context) (types.Height, error) {
+	return provider.snapshotEarliest, nil
 }
 
 func (provider *fakeStatusProvider) RecoveryReport(ctx context.Context, repairIndexes bool) (node.RecoveryReport, error) {
@@ -3699,7 +3723,7 @@ func TestHandlerReportsFinalityProof(t *testing.T) {
 
 func TestHandlerReportsEventsAndQueryProof(t *testing.T) {
 	proof := queryproof.Proof{
-		SchemaVersion: queryproof.SchemaVersionV1,
+		SchemaVersion: queryproof.SchemaVersionV2,
 		ChainID:       "vexo-test",
 		Height:        9,
 		Namespace:     "bank",
@@ -3707,7 +3731,6 @@ func TestHandlerReportsEventsAndQueryProof(t *testing.T) {
 		Value:         []byte("100"),
 		Exists:        true,
 		StateRoot:     types.Hash{9},
-		LeafHash:      types.Hash{8},
 	}
 	handler := NewHandler(fakeStatusProvider{
 		eventRecords: []events.Record{
@@ -3760,7 +3783,7 @@ func TestHandlerReportsIBCQueries(t *testing.T) {
 
 func TestHandlerReportsIBCPacketProof(t *testing.T) {
 	proof := queryproof.Proof{
-		SchemaVersion: queryproof.SchemaVersionV1,
+		SchemaVersion: queryproof.SchemaVersionV2,
 		ChainID:       "vexo-test",
 		Height:        12,
 		Namespace:     "ibc",
@@ -3768,7 +3791,6 @@ func TestHandlerReportsIBCPacketProof(t *testing.T) {
 		Value:         []byte(`{"acknowledged":true}`),
 		Exists:        true,
 		StateRoot:     types.Hash{9},
-		LeafHash:      types.Hash{8},
 	}
 	handler := NewHandler(fakeStatusProvider{queryProof: proof})
 
@@ -3872,7 +3894,7 @@ func TestHandlerReportsStateProviderErrors(t *testing.T) {
 }
 
 func TestHandlerReportsLatestSnapshot(t *testing.T) {
-	handler := NewHandler(fakeStatusProvider{snapshot: node.StateSnapshot{
+	handler := NewHandler(fakeStatusProvider{snapshot: node.StateSnapshotManifest{
 		StateSnapshotHead: node.StateSnapshotHead{
 			State: store.StateRecord{
 				Height:           5,
@@ -3897,185 +3919,74 @@ func TestHandlerReportsLatestSnapshot(t *testing.T) {
 	}
 }
 
-func TestHandlerExportsRestorableSnapshotDocument(t *testing.T) {
-	handler := NewHandler(fakeStatusProvider{snapshot: node.StateSnapshot{
+// A snapshot is served as a manifest and pages of pairs: every page request reads one page from
+// the provider, so serving a snapshot never copies the state.
+func TestHandlerServesSnapshotManifestAndPages(t *testing.T) {
+	var pages []string
+	handler := NewHandler(fakeStatusProvider{snapshotPages: &pages, snapshot: node.StateSnapshotManifest{
 		StateSnapshotHead: node.StateSnapshotHead{
-			State: store.StateRecord{
-				Height:           5,
-				AppHash:          types.Hash{1},
-				LastBlockHash:    types.Hash{2},
-				ValidatorSetHash: types.Hash{3},
-			},
-			StateRoots: []store.StateRootRecord{
-				{Height: 5, Namespace: "bank", Root: types.Hash{4}},
-			},
+			ChainID:    "vexo-test",
+			Namespaces: []string{"staking", "bank"},
+			State:      store.StateRecord{Height: 5, AppHash: types.Hash{1}},
+			StateRoots: []store.StateRootRecord{{Height: 5, Namespace: "staking", Root: types.Hash{5}}, {Height: 5, Namespace: "bank", Root: types.Hash{4}}},
 		},
-		KV: []store.KVPair{{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")}},
+		Links: []types.Header{{Height: 6}},
+		Block: store.BlockRecord{Block: types.Block{Header: types.Header{Height: 5}}, Hash: types.Hash{9}},
+	}, snapshotPairs: []store.KVPair{
+		{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")},
+		{Namespace: "bank", Key: []byte("bob"), Value: []byte("70")},
+		{Namespace: "bank", Key: []byte("carol"), Value: []byte("30")},
 	}})
 
-	var snapshot SnapshotExportResponse
-	getJSON(t, handler, "/snapshot/export", http.StatusOK, &snapshot)
-	if snapshot.SchemaVersion != "v1" || snapshot.State.Height != 5 || snapshot.State.AppHash != (types.Hash{1}) {
-		t.Fatalf("unexpected snapshot export identity: %+v", snapshot)
+	var manifest SnapshotManifestResponse
+	getJSON(t, handler, "/snapshot/manifest?height=7", http.StatusOK, &manifest)
+	if manifest.SchemaVersion != SnapshotSchemaVersion || manifest.Header.Height != 7 || manifest.State.Height != 5 || manifest.Block.Hash != (types.Hash{9}) || len(manifest.Links) != 1 {
+		t.Fatalf("unexpected manifest %+v", manifest)
 	}
-	if len(snapshot.StateRoots) != 1 || snapshot.StateRoots[0].Namespace != "bank" || snapshot.StateRoots[0].Root != (types.Hash{4}) {
-		t.Fatalf("unexpected snapshot export roots: %+v", snapshot.StateRoots)
-	}
-	if len(snapshot.KV) != 1 || snapshot.KV[0].Namespace != "bank" || string(snapshot.KV[0].Key) != "alice" {
-		t.Fatalf("unexpected snapshot export kv: %+v", snapshot.KV)
-	}
-	if snapshot.Checksum == "" {
-		t.Fatal("expected snapshot checksum")
-	}
-}
-
-func TestHandlerExportsSnapshotChunks(t *testing.T) {
-	handler := NewHandler(fakeStatusProvider{snapshot: node.StateSnapshot{
-		StateSnapshotHead: node.StateSnapshotHead{
-			State: store.StateRecord{
-				Height:           5,
-				AppHash:          types.Hash{1},
-				LastBlockHash:    types.Hash{2},
-				ValidatorSetHash: types.Hash{3},
-			},
-			StateRoots: []store.StateRootRecord{
-				{Height: 5, Namespace: "bank", Root: types.Hash{4}},
-			},
-		},
-		KV: []store.KVPair{
-			{Namespace: "bank", Key: []byte("carol"), Value: []byte("30")},
-			{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")},
-			{Namespace: "bank", Key: []byte("bob"), Value: []byte("70")},
-		},
-	}})
-
-	var first SnapshotChunkResponse
-	getJSON(t, handler, "/snapshot/chunk?index=0&size=2", http.StatusOK, &first)
-	if first.SchemaVersion != "v1" || first.ChunkIndex != 0 || first.ChunkCount != 2 || len(first.KV) != 2 {
-		t.Fatalf("unexpected first chunk: %+v", first)
-	}
-	if first.SnapshotChecksum == "" || first.ChunkChecksum == "" {
-		t.Fatalf("expected chunk checksums: %+v", first)
-	}
-	if string(first.KV[0].Key) != "alice" || string(first.KV[1].Key) != "bob" {
-		t.Fatalf("expected deterministic chunk ordering, got %+v", first.KV)
+	if fmt.Sprint(manifest.Modules) != "[bank staking]" || manifest.StateRoots[0].Namespace != "bank" {
+		t.Fatalf("expected sorted namespaces and roots, got %v %+v", manifest.Modules, manifest.StateRoots)
 	}
 
-	var second SnapshotChunkResponse
-	getJSON(t, handler, "/snapshot/chunk?index=1&size=2", http.StatusOK, &second)
-	if second.ChunkIndex != 1 || second.ChunkCount != 2 || len(second.KV) != 1 || string(second.KV[0].Key) != "carol" {
-		t.Fatalf("unexpected second chunk: %+v", second)
+	var first SnapshotPairsResponse
+	getJSON(t, handler, "/snapshot/pairs?height=7&namespace=bank&limit=2", http.StatusOK, &first)
+	if len(first.Pairs) != 2 || !first.More || string(first.Pairs[1].Key) != "bob" {
+		t.Fatalf("unexpected first page %+v", first)
 	}
-	if second.SnapshotChecksum != first.SnapshotChecksum {
-		t.Fatalf("expected same snapshot checksum, first=%s second=%s", first.SnapshotChecksum, second.SnapshotChecksum)
+	var second SnapshotPairsResponse
+	getJSON(t, handler, "/snapshot/pairs?height=7&namespace=bank&limit=2&after="+hex.EncodeToString([]byte("bob")), http.StatusOK, &second)
+	if len(second.Pairs) != 1 || second.More || string(second.Pairs[0].Key) != "carol" {
+		t.Fatalf("unexpected second page %+v", second)
 	}
-}
-
-// Building an export copies the whole application state. Anonymous callers asking for the export
-// and its chunks must not each pay for a build: one build serves every request for one committed
-// block, and the latest snapshot needs none.
-func TestHandlerBuildsTheSnapshotExportOncePerCommittedBlock(t *testing.T) {
-	builds := 0
-	provider := &fakeStatusProvider{snapshotBuilds: &builds, snapshot: node.StateSnapshot{
-		StateSnapshotHead: node.StateSnapshotHead{
-			State: store.StateRecord{
-				Height:  5,
-				AppHash: types.Hash{1},
-			},
-			StateRoots: []store.StateRootRecord{{Height: 5, Namespace: "bank", Root: types.Hash{4}}},
-		},
-		KV: []store.KVPair{
-			{Namespace: "bank", Key: []byte("alice"), Value: []byte("100")},
-			{Namespace: "bank", Key: []byte("bob"), Value: []byte("70")},
-		},
-	}}
-	handler := NewHandler(provider)
-	var latest StateSnapshotResponse
-	getJSON(t, handler, "/snapshot/latest", http.StatusOK, &latest)
-	if builds != 0 {
-		t.Fatalf("the latest snapshot needs no export, built %d", builds)
+	if fmt.Sprint(pages) != "[7/bank//2 7/bank/626f62/2]" {
+		t.Fatalf("expected one provider read per page, got %v", pages)
 	}
-	var export SnapshotExportResponse
-	for range 3 {
-		getJSON(t, handler, "/snapshot/export", http.StatusOK, &export)
-	}
-	var chunk SnapshotChunkResponse
-	getJSON(t, handler, "/snapshot/chunk?index=1&size=1", http.StatusOK, &chunk)
-	if builds != 1 || chunk.SnapshotChecksum != export.Checksum || string(chunk.KV[0].Key) != "bob" {
-		t.Fatalf("expected one build shared by every request, built %d chunk %+v", builds, chunk)
-	}
-
-	if export.Header.Height != 5 {
-		t.Fatalf("expected the export of the latest block to be anchored to it, got %+v", export.Header)
-	}
-
-	getJSON(t, handler, "/snapshot/export?height=3", http.StatusOK, &export)
-	if builds != 2 || export.Header.Height != 3 {
-		t.Fatalf("expected the export of another block to be built, built %d header %+v", builds, export.Header)
-	}
-	getJSON(t, handler, "/snapshot/chunk?height=3&index=0&size=1", http.StatusOK, &chunk)
-	getJSON(t, handler, "/snapshot/export?height=5", http.StatusOK, &export)
-	if builds != 2 || chunk.Header.Height != 3 || export.Header.Height != 5 {
-		t.Fatalf("expected the exports of both blocks to stay cached, built %d", builds)
-	}
-	// One export of an older block is built per committed block, so requests cycling through more
-	// blocks than the cache holds cannot force a build each.
-	var busy map[string]string
-	getJSON(t, handler, "/snapshot/export?height=4", http.StatusTooManyRequests, &busy)
-	getJSON(t, handler, "/snapshot/chunk?height=2&index=0&size=1", http.StatusTooManyRequests, &busy)
-	if builds != 2 || busy["error"] == "" {
-		t.Fatalf("expected a second older export at the same height to be refused, built %d response %+v", builds, busy)
-	}
-	getJSON(t, handler, "/snapshot/chunk?height=3&index=0&size=1", http.StatusOK, &chunk)
-	if builds != 2 || chunk.Header.Height != 3 {
-		t.Fatalf("expected the cached older export to stay served, built %d", builds)
-	}
-
-	provider.snapshot.State.Height = 6
-	provider.snapshot.State.AppHash = types.Hash{2}
-	getJSON(t, handler, "/snapshot/export", http.StatusOK, &export)
-	if builds != 3 || export.State.Height != 6 || export.Header.Height != 6 {
-		t.Fatalf("expected a new committed block to be exported anew, built %d export %+v", builds, export.State)
-	}
-	getJSON(t, handler, "/snapshot/export?height=4", http.StatusOK, &export)
-	if builds != 4 || export.Header.Height != 4 {
-		t.Fatalf("expected the next committed block to allow another older export, built %d header %+v", builds, export.Header)
-	}
-	getJSON(t, handler, "/snapshot/export?height=2", http.StatusTooManyRequests, &busy)
-	getJSON(t, handler, "/snapshot/export?height=x", http.StatusBadRequest, &struct{}{})
-}
-
-func TestHandlerRejectsInvalidSnapshotChunkQuery(t *testing.T) {
-	handler := NewHandler(fakeStatusProvider{snapshot: node.StateSnapshot{
-		StateSnapshotHead: node.StateSnapshotHead{
-			State: store.StateRecord{
-				Height:           5,
-				AppHash:          types.Hash{1},
-				LastBlockHash:    types.Hash{2},
-				ValidatorSetHash: types.Hash{3},
-			},
-			StateRoots: []store.StateRootRecord{{Height: 5, Namespace: "bank", Root: types.Hash{4}}},
-		},
-	}})
 
 	var response map[string]string
-	getJSON(t, handler, "/snapshot/chunk?index=0&size=0", http.StatusBadRequest, &response)
-	if response["error"] == "" {
-		t.Fatalf("expected invalid size error, got %+v", response)
+	for _, query := range []string{
+		"/snapshot/pairs?namespace=bank",
+		"/snapshot/pairs?height=7&namespace=bank&limit=0",
+		fmt.Sprintf("/snapshot/pairs?height=7&namespace=bank&limit=%d", node.MaxSnapshotPairsPage+1),
+		"/snapshot/pairs?height=7&namespace=bank&after=zz",
+		"/snapshot/manifest?height=x",
+	} {
+		response = nil
+		getJSON(t, handler, query, http.StatusBadRequest, &response)
+		if response["error"] == "" {
+			t.Fatalf("%s: expected an error, got %+v", query, response)
+		}
 	}
-	getJSON(t, handler, "/snapshot/chunk?index=1&size=10", http.StatusBadRequest, &response)
-	if response["error"] == "" {
-		t.Fatalf("expected out of range error, got %+v", response)
+	if len(pages) != 2 {
+		t.Fatalf("expected invalid requests to read nothing, got %v", pages)
 	}
-	response = nil
-	getJSON(t, handler, "/snapshot/chunk?index=0&size=100001", http.StatusBadRequest, &response)
-	if response["error"] == "" {
-		t.Fatalf("expected an oversized chunk to be refused, got %+v", response)
-	}
-	response = nil
-	getJSON(t, handler, "/snapshot/chunk?index=18446744073709551615&size=100000", http.StatusBadRequest, &response)
-	if response["error"] == "" {
-		t.Fatalf("expected out of range error, got %+v", response)
+}
+
+// The snapshot of a pruned anchor is 410 Gone and names the lowest anchor the node serves.
+func TestHandlerReportsAPrunedSnapshotAnchor(t *testing.T) {
+	handler := NewHandler(fakeStatusProvider{snapshotErr: fmt.Errorf("%w: block 3", node.ErrSnapshotPruned), snapshotEarliest: 40})
+	var response SnapshotErrorResponse
+	getJSON(t, handler, "/snapshot/manifest?height=3", http.StatusGone, &response)
+	if response.EarliestHeight != 40 || response.Error == "" {
+		t.Fatalf("unexpected pruned response %+v", response)
 	}
 }
 

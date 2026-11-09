@@ -23,6 +23,9 @@ type Config struct {
 	DataDir              string
 	ValidatorID          types.ValidatorID
 	RequireNetworkSafety bool
+	// RetainBlocks is how many of the latest heights the node keeps the blocks, states and history
+	// of; it prunes the older ones as it commits. Zero keeps every height (an archive node).
+	RetainBlocks uint64
 }
 
 type Genesis struct {
@@ -30,14 +33,6 @@ type Genesis struct {
 	Validators []validator.Validator
 	AppState   map[string][]byte
 	Governance map[types.Address]types.VotingPower
-}
-
-// DefaultConfig returns the legacy test-friendly node config.
-//
-// Deprecated: use NetworkSafeConfig for real network nodes. Tests that
-// intentionally need deterministic crypto should use UnsafeTestConfig.
-func DefaultConfig(chainID string, dataDir string) Config {
-	return UnsafeTestConfig(chainID, dataDir)
 }
 
 func UnsafeTestConfig(chainID string, dataDir string) Config {
@@ -62,7 +57,7 @@ func (cfg Config) Validate() error {
 	if cfg.DataDir == "" {
 		return ErrMissingDataDir
 	}
-	return nil
+	return validateRetainBlocks(cfg.RetainBlocks)
 }
 
 func (cfg Config) StoreDir() string {

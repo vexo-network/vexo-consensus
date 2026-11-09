@@ -134,3 +134,4 @@ Este apéndice conserva nombres técnicos que deben permanecer iguales a la vers
 - `vexo_post_commit_reconciliation_failures > 0`
 - `timeout_propose`
 - `max_txs`
+- `vexo_retention_prune_failures`

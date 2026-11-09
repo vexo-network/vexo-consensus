@@ -1664,6 +1664,18 @@ func TestModulePrunesHistoricalEthereumReceiptsLogsAndBlobSidecars(t *testing.T)
 	if _, err := storage.Get(ctx, ReceiptNamespace, receiptIndexKey(newReceipt.TxHash)); err != nil {
 		t.Fatalf("expected retained receipt index, got %v", err)
 	}
+	// A prune visits only the heights it prunes: the receipts of height 2 go with the next one.
+	if writes, err := evmHistoryPruneWrites(ctx, storage, 2); err != nil || len(writes) != 0 {
+		t.Fatalf("expected a prune to the pruned height to do nothing, got %d writes (%v)", len(writes), err)
+	}
+	if err := module.Prune(vexoapp.Context{Ctx: ctx, Store: storage}, 3); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range [][]byte{receiptKey(newReceipt.TxHash), receiptIndexKey(newReceipt.TxHash), receiptHeightKey(newReceipt.Height, newReceipt.TxHash)} {
+		if _, err := storage.Get(ctx, ReceiptNamespace, key); !errors.Is(err, store.ErrKeyNotFound) {
+			t.Fatalf("expected EVM history key %q to be pruned, got %v", key, err)
+		}
+	}
 }
 
 func TestModuleRejectsUnprotectedLegacyEthereumTxUnlessPolicyAllows(t *testing.T) {

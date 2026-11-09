@@ -228,7 +228,7 @@ vexod start --home .vexo-archive-1
 {
   "state_sync": {
     "enabled": true,
-    "snapshot_urls": ["https://snapshots.example.com/vexo-chain/latest.json"],
+    "snapshot_urls": ["https://rpc.example.com/v1"],
     "timeout": "30s",
     "min_height": 1000000,
     "require_fresh": true,
@@ -684,8 +684,13 @@ vexod network init \
 - `trust_hash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `ValidatorSetHeight - 1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `vexod snapshot restore` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
-- `chunk-restore` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `--trust-height` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `--trust-hash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `vexod snapshot export --height` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `validator_registry` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/snapshot/manifest` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `/snapshot/pairs` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `earliest_height` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `state_sync.max_snapshot_bytes` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `retain_blocks` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `vexo_retention_prune_failures` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

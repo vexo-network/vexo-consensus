@@ -48,8 +48,8 @@
 - `/v1/evidence`
 - `/v1/recovery`
 - `/v1/snapshot/latest`
-- `/v1/snapshot/export`
-- `/v1/snapshot/chunk?index=0&size=10000`
+- `/v1/snapshot/manifest?height={block_height}`
+- `/v1/snapshot/pairs?height={block_height}&namespace={namespace}&after={hex_key}&limit=1000`
 - `/v1/blocks`
 - `/v1/blocks/latest`
 - `/v1/blocks/{height}`
@@ -197,3 +197,5 @@ Mined transaction response में `gas` भेजा गया gas limit र�
 - `rpc.enable_pprof` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
 - `rpc.cors_allowed_origins` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
 - `https://remix.ethereum.org` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
+- `path.siblings` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
+- `path.neighbor` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।

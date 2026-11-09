@@ -127,3 +127,6 @@
 - `receipt_index/{tx_hash}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `blob_sidecars/by_tx/{tx_hash}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `blob_sidecars/by_blob/{blob_hash}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `tree:` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `receipt_height/{height}/{tx_hash}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `receipt_pruned_below` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

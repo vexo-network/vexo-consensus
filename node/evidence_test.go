@@ -14,6 +14,7 @@ import (
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/consensus"
+	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/mempool"
 	appslashing "github.com/vexo-network/vexo-consensus/modules/slashing"
 	"github.com/vexo-network/vexo-consensus/modules/staking"
@@ -74,7 +75,7 @@ func newEvidenceNode(t *testing.T, bus *transport.InMemoryBus, genesis Genesis, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := DefaultConfig("vexo-test", dataDir)
+	cfg := UnsafeTestConfig("vexo-test", dataDir)
 	cfg.Chain.Crypto.Backend = config.CryptoBackendDeterministic
 	cfg.ValidatorID = validatorID
 	for _, change := range adjust {
@@ -518,10 +519,12 @@ func TestNodeRejectsEvidenceItCannotVerify(t *testing.T) {
 		Round:    0,
 		Proposer: "bob",
 	})
-	nodeLocal, err := consensus.NewInvalidProposalTimestampEvidence(proposal, 100, 200)
+	// A timestamp fault is no evidence: nodes could judge it differently.
+	timestampProof, err := json.Marshal(consensus.InvalidProposalProof{Proposal: proposal, Reason: "timestamp", ExpectedHash: types.Hash{1}, ActualHash: types.Hash{2}})
 	if err != nil {
 		t.Fatal(err)
 	}
+	nodeLocal := slashing.Evidence{Type: slashing.EvidenceInvalidProposal, Validator: "bob", Height: 1, Round: 0, Proof: timestampProof}
 
 	cases := []struct {
 		name     string
@@ -533,7 +536,7 @@ func TestNodeRejectsEvidenceItCannotVerify(t *testing.T) {
 		{"validator outside the set", stranger, consensus.ErrEvidenceValidatorNotFound},
 		{"votes for the same block", slashing.Evidence{Type: slashing.EvidenceConflictingVote, Validator: "bob", Height: 1, Round: 0, Proof: sameBlockProof}, consensus.ErrVotesDoNotConflict},
 		{"height that has not been reached", bobEquivocation(t, 9, 0), appslashing.ErrEvidenceFromFuture},
-		{"fault that only this node can judge", nodeLocal, consensus.ErrEvidenceNotSelfContained},
+		{"fault nodes could judge differently", nodeLocal, consensus.ErrUnsupportedProposalReason},
 		{"no proof", slashing.Evidence{Type: slashing.EvidenceConflictingVote, Validator: "bob", Height: 1, Round: 0}, slashing.ErrEmptyProof},
 		{"unknown type", slashing.Evidence{Type: "gossip", Validator: "bob", Height: 1, Round: 0, Proof: []byte("{}")}, slashing.ErrUnknownEvidenceType},
 	}
@@ -926,4 +929,63 @@ func TestNodeQueuesOneTransactionPerOffence(t *testing.T) {
 		t.Fatal("expected a transaction that is not evidence to be refused")
 	}
 	requireMempoolTxs(t, alice, firstTx)
+}
+
+// A validator that refuses a proposal because its header names another app hash than the certified
+// one reports the proposer: the evidence is pooled once the chain reached its height, and the
+// slashing module judges it against the app hash the certified blocks committed.
+func TestValidatorReportsAProposalNamingAnotherAppHash(t *testing.T) {
+	ctx := context.Background()
+	bus := transport.NewInMemoryBus()
+	alice := newEvidenceNode(t, bus, evidenceGenesis(), "alice", t.TempDir())
+	startEvidenceNode(t, alice)
+	stepToHeight(t, alice, 2)
+
+	committed := alice.Status(ctx).LatestHeight
+	runtime := evidenceRuntime(t, alice)
+	block, err := runtime.Store.BlockByHeight(ctx, committed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forged := consensus.Proposal{Block: block.Block, Round: block.Block.Header.Round, Proposer: "bob"}
+	forged.Block.Header.AppHash[0] ^= 0xff
+	signature, err := vexocrypto.SignWithDomain(deterministicSignerForID("bob"), vexocrypto.DomainConsensusProposal, consensus.ProposalSignBytes(forged))
+	if err != nil {
+		t.Fatal(err)
+	}
+	forged.Signature = signature
+	refusal := alice.processProposal(ctx, forged)
+	if !errors.Is(refusal, ErrAppHashMismatch) {
+		t.Fatalf("expected the forged app hash to be refused, got %v", refusal)
+	}
+	alice.reportInvalidAppHashProposal(ctx, forged, refusal)
+
+	pooled := pooledEvidence(t, alice)
+	if len(pooled) != 1 {
+		t.Fatalf("expected the proposal to be reported, pooled %v", pooled)
+	}
+	record, err := runtime.Store.EvidenceByKey(ctx, pooled[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Evidence.Type != slashing.EvidenceInvalidProposal || record.Evidence.Validator != "bob" {
+		t.Fatalf("expected invalid-proposal evidence against bob, got %+v", record.Evidence)
+	}
+	stepUntil(t, alice, "the evidence to be applied", func() bool { return len(pooledEvidence(t, alice)) == 0 })
+	offence, err := slashing.OffenceKey(record.Evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.Store.Get(ctx, appslashing.ModuleName, []byte("offence/"+offence)); err != nil {
+		t.Fatalf("expected a block to punish the offence, got %v", err)
+	}
+
+	// The proposer's own proposals and a refusal for another reason are not reported.
+	alice.reportInvalidAppHashProposal(ctx, forged, ErrProposalRejected)
+	own := forged
+	own.Proposer = "alice"
+	alice.reportInvalidAppHashProposal(ctx, own, refusal)
+	if pooled := pooledEvidence(t, alice); len(pooled) != 0 {
+		t.Fatalf("expected nothing more to be reported, pooled %v", pooled)
+	}
 }

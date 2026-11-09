@@ -24,8 +24,12 @@ func TestBuildAndVerifyQueryProof(t *testing.T) {
 	if !proof.Exists || !EqualValue(proof, []byte("100")) {
 		t.Fatalf("unexpected proof: %+v", proof)
 	}
-	if len(proof.MerklePath) != 0 {
-		t.Fatalf("single-leaf proof should not need siblings: %+v", proof.MerklePath)
+	if len(proof.Path.Siblings) != 0 || proof.Path.Neighbor != nil {
+		t.Fatalf("a single-leaf proof needs no siblings: %+v", proof.Path)
+	}
+	root, err := storage.Root(ctx, "bank")
+	if err != nil || proof.StateRoot != root {
+		t.Fatalf("expected the proof against the stored root %x, got %x (%v)", root, proof.StateRoot, err)
 	}
 	if err := Verify(proof, "vexo-test", 3, proof.StateRoot); err != nil {
 		t.Fatal(err)
@@ -64,14 +68,77 @@ func TestBuildAndVerifyNonMembershipQueryProof(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if proof.Exists || proof.AbsenceLeft == nil || proof.AbsenceRight != nil || len(proof.NamespaceLeaves) != 0 {
-		t.Fatalf("expected compact non-membership proof, got %+v", proof)
+	if proof.Exists {
+		t.Fatalf("expected a non-membership proof, got %+v", proof)
 	}
 	if err := Verify(proof, "vexo-test", 3, proof.StateRoot); err != nil {
 		t.Fatal(err)
 	}
-	proof.AbsenceLeft.Key = []byte("zara")
-	if err := Verify(proof, "vexo-test", 3, proof.StateRoot); err != ErrInvalidProof {
-		t.Fatalf("expected tampered absence proof rejection, got %v", err)
+	claimed := proof
+	claimed.Exists = true
+	if err := Verify(claimed, "vexo-test", 3, proof.StateRoot); err != ErrInvalidProof {
+		t.Fatalf("expected an absence proof to prove no value, got %v", err)
+	}
+
+	// The absence proof of a present key cannot be assembled from the proofs of other keys.
+	present, err := Build(ctx, storage, "vexo-test", 3, "bank", []byte("bob"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	forged := present
+	forged.Exists = false
+	forged.Value = nil
+	forged.Path = proof.Path
+	if err := Verify(forged, "vexo-test", 3, proof.StateRoot); err != ErrInvalidProof {
+		t.Fatalf("expected a forged absence of bob to be rejected, got %v", err)
+	}
+	other, err := Build(ctx, storage, "vexo-test", 3, "bank", []byte("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	neighbor := other.Path
+	forged.Path = neighbor
+	if err := Verify(forged, "vexo-test", 3, proof.StateRoot); err != ErrInvalidProof {
+		t.Fatalf("expected the path of alice not to prove bob absent, got %v", err)
+	}
+}
+
+// A proof built from the pairs of a past height matches the proof the store's tree serves.
+func TestProofsFromPairsMatchTheStoredTree(t *testing.T) {
+	storage, err := store.OpenLevelDB(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storage.Close()
+	ctx := context.Background()
+	for index, account := range []string{"alice", "bob", "carol", "dave", "erin"} {
+		if err := storage.Set(ctx, "bank", []byte(account), []byte{byte(index)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := storage.Delete(ctx, "bank", []byte("carol")); err != nil {
+		t.Fatal(err)
+	}
+	pairs, err := storage.ExportNamespace(ctx, "bank")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, account := range []string{"alice", "carol", "erin", "frank"} {
+		stored, err := Build(ctx, storage, "vexo-test", 3, "bank", []byte(account))
+		if err != nil {
+			t.Fatal(err)
+		}
+		rebuilt, err := BuildFromKVPairs("vexo-test", 3, "bank", []byte(account), pairs, stored.StateRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		storedJSON, _ := Encode(stored)
+		rebuiltJSON, _ := Encode(rebuilt)
+		if string(storedJSON) != string(rebuiltJSON) {
+			t.Fatalf("%s: stored proof %s, rebuilt %s", account, storedJSON, rebuiltJSON)
+		}
+		if err := Verify(stored, "vexo-test", 3, stored.StateRoot); err != nil {
+			t.Fatalf("%s: %v", account, err)
+		}
 	}
 }

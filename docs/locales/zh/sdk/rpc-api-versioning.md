@@ -48,8 +48,8 @@
 - `/v1/evidence`
 - `/v1/recovery`
 - `/v1/snapshot/latest`
-- `/v1/snapshot/export`
-- `/v1/snapshot/chunk?index=0&size=10000`
+- `/v1/snapshot/manifest?height={block_height}`
+- `/v1/snapshot/pairs?height={block_height}&namespace={namespace}&after={hex_key}&limit=1000`
 - `/v1/blocks`
 - `/v1/blocks/latest`
 - `/v1/blocks/{height}`
@@ -197,3 +197,5 @@
 - `rpc.enable_pprof` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `rpc.cors_allowed_origins` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `https://remix.ethereum.org` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `path.siblings` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `path.neighbor` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

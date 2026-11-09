@@ -251,7 +251,7 @@ Node homes use separate config files so operators can edit one subsystem without
 
 `network_config.json` P2P settings include `auth_replay_path`, `require_auth_replay_store`, and `dial_timeout`. The generated default writes nonce replay evidence to `data/p2p_auth_replay.jsonl` and uses a `10s` outbound dial timeout. For private loopback testing the replay store is mostly harmless bookkeeping; for public authenticated P2P it is a safety requirement because it prevents a captured signed handshake nonce from being replayed after restart. `dial_timeout` should be long enough for TLS, signed handshake verification, and cross-region latency; setting it too low makes healthy peers look flaky and can slow liveness after restarts.
 
-`network_config.json` also owns startup state sync. This is useful for archive nodes, replacement validators, or nodes restored onto a clean machine. When `state_sync.enabled` is true, `vexod start` asks each of `state_sync.snapshot_urls` for the snapshot anchored to the trusted block `state_sync.trust_height` / `state_sync.trust_hash` (the URL gets a `height` query parameter), and restores the first one that proves to be the state of that block: its header must hash to `trust_hash`, the namespace roots of its KV pairs must recompute the app hash the header commits (the state after block `ValidatorSetHeight - 1`, together with the root of its `validator_registry`, so the validator sets of every past height are bound too), and it must carry exactly the namespaces of the replicated state. Only then does it restore into LevelDB, rebuild indexes, and start the node. A snapshot source is therefore never trusted; the trusted block hash must come from somewhere else, such as a validator you trust or a node you run. `vexod snapshot restore`, `chunk-restore`, and `sync` take the same trust as `--trust-height` and `--trust-hash`, and `vexod snapshot export --height` exports the snapshot a given committed block anchors. A source reads that state from its version history, so it serves only trusted blocks whose state it has not pruned and answers `404 snapshot not found` otherwise: pick a recent trusted block, or a source that keeps history, such as an archive node. Building an export copies the whole state, so a source builds, per committed block, the export of the latest block and one export of an older block; it keeps a few exports cached and answers `429` to a request that would need another build until the next block commits. If local state already satisfies `state_sync.min_height` and `state_sync.trust_local_higher` is true, startup logs `state_sync_skipped` and keeps the local store.
+`network_config.json` also owns startup state sync. This is useful for archive nodes, replacement validators, or nodes restored onto a clean machine. When `state_sync.enabled` is true, `vexod start` asks each of `state_sync.snapshot_urls` for the snapshot anchored to the trusted block `state_sync.trust_height` / `state_sync.trust_hash` (each URL is the RPC URL of a node, which is asked for the manifest of that block on `/snapshot/manifest` and then for the pairs of every namespace page by page on `/snapshot/pairs`), and restores the first one that proves to be the state of that block: its header must hash to `trust_hash`, the namespace roots of its KV pairs must recompute the app hash of its state record and the header commits (the state after block `ValidatorSetHeight - 1`, together with the root of its `validator_registry`, so the validator sets of every past height are bound too), it must carry exactly the namespaces of the replicated state, and the headers it carries must link the trusted block back by hash to the block of the state, which the node continues the chain from. Only then does it restore into LevelDB, rebuild indexes, and start the node. A snapshot source is therefore never trusted; the trusted block hash must come from somewhere else, such as a validator you trust or a node you run. `vexod snapshot restore` and `sync` take the same trust as `--trust-height` and `--trust-hash`, and `vexod snapshot export --height` exports the snapshot a given committed block anchors. A source reads that state from its version history, so it serves only trusted blocks whose state it has not pruned and answers `410 Gone` otherwise, naming the lowest block whose snapshot it still serves as `earliest_height`: pick a recent trusted block, or a source that keeps history, such as an archive node. Neither side holds the state in memory: a source reads each page from its versions of that state, and the restoring node imports the pages into a staging store that replaces its store only once every namespace has the root the snapshot names, so a refused or interrupted restore leaves the store as it was. `state_sync.max_snapshot_bytes` bounds the bytes of the whole snapshot, across every request. If local state already satisfies `state_sync.min_height` and `state_sync.trust_local_higher` is true, startup logs `state_sync_skipped` and keeps the local store.
 
 Example `state_sync` block:
 
@@ -259,7 +259,7 @@ Example `state_sync` block:
 {
   "state_sync": {
     "enabled": true,
-    "snapshot_urls": ["https://snapshots.example.com/vexo-chain/latest.json"],
+    "snapshot_urls": ["https://rpc.example.com/v1"],
     "timeout": "30s",
     "min_height": 1000000,
     "require_fresh": true,
@@ -328,11 +328,14 @@ VRF keys are not consensus signers. They are used for VRF-backed committee selec
   "network_config_path": "network_config.json",
   "consensus_config_path": "consensus_config.json",
   "mempool_config_path": "mempool_config.json",
-  "log_config_path": "log_config.json"
+  "log_config_path": "log_config.json",
+  "retain_blocks": 1209600
 }
 ```
 
 Each path may be absolute or relative to the node home. If omitted, `vexod` uses the default `<home>/<name>_config.json` file.
+
+`retain_blocks` is how many of the latest heights the node keeps the blocks, states, state history, and EVM receipts of. As it commits, the node prunes the older heights once it holds 1% more than it retains, so its store stays bounded. Without the field the node retains 1,209,600 heights, the window evidence stays punishable in; `0` keeps every height (an archive node). A pruning node retains at least 1,026 heights, so the state at its earliest height stays anchored by a certified block and it always serves a snapshot. A failed prune does not stop consensus: it counts in `vexo_retention_prune_failures` and the next commit retries.
 
 Example `module_config.json`:
 

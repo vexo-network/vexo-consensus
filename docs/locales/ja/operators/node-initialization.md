@@ -228,7 +228,7 @@ vexod start --home .vexo-archive-1
 {
   "state_sync": {
     "enabled": true,
-    "snapshot_urls": ["https://snapshots.example.com/vexo-chain/latest.json"],
+    "snapshot_urls": ["https://rpc.example.com/v1"],
     "timeout": "30s",
     "min_height": 1000000,
     "require_fresh": true,
@@ -684,8 +684,13 @@ vexod network init \
 - `trust_hash` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `ValidatorSetHeight - 1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `vexod snapshot restore` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
-- `chunk-restore` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `--trust-height` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `--trust-hash` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `vexod snapshot export --height` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `validator_registry` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/snapshot/manifest` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `/snapshot/pairs` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `earliest_height` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `state_sync.max_snapshot_bytes` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `retain_blocks` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `vexo_retention_prune_failures` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

@@ -48,8 +48,8 @@ Este documento ajuda a entender versionamento da RPC API, aliases de compatibili
 - `/v1/evidence`
 - `/v1/recovery`
 - `/v1/snapshot/latest`
-- `/v1/snapshot/export`
-- `/v1/snapshot/chunk?index=0&size=10000`
+- `/v1/snapshot/manifest?height={block_height}`
+- `/v1/snapshot/pairs?height={block_height}&namespace={namespace}&after={hex_key}&limit=1000`
 - `/v1/blocks`
 - `/v1/blocks/latest`
 - `/v1/blocks/{height}`
@@ -197,3 +197,5 @@ Este apêndice garante que a tradução preserve as interfaces executáveis e as
 - `rpc.enable_pprof` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `rpc.cors_allowed_origins` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `https://remix.ethereum.org` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `path.siblings` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `path.neighbor` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.

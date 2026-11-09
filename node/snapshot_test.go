@@ -1,6 +1,7 @@
 package node
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"sync/atomic"
@@ -140,10 +141,15 @@ func TestStateSnapshotExportsTheStateItsBlockHeaderCommits(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	snapshot, err := fixture.node.StateSnapshot(ctx, 0)
+	snapshot, err := fixture.node.StateSnapshotManifest(ctx, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The manifest carries the block of the state, and the headers linking the anchor back to it.
+	if snapshot.Block.Hash != consensus.HashBlock(first) || len(snapshot.Links) != 1 || snapshot.Links[0] != second.Header {
+		t.Fatalf("expected block 1 linked to the anchor by block 2, got block %x links %+v", snapshot.Block.Hash, snapshot.Links)
+	}
+	kv := snapshotKV(t, fixture.node, 3, snapshot.Namespaces)
 	if finality.HeaderHash(snapshot.Header) != consensus.HashBlock(third) {
 		t.Fatalf("expected the latest snapshot to be anchored to block 3, got header %+v", snapshot.Header)
 	}
@@ -170,7 +176,7 @@ func TestStateSnapshotExportsTheStateItsBlockHeaderCommits(t *testing.T) {
 		if snapshot.Namespaces[index] != namespace || snapshot.StateRoots[index] != root {
 			t.Fatalf("expected the roots of height 1 for %v, got %v roots %+v", want, snapshot.Namespaces, snapshot.StateRoots)
 		}
-		pairs, err := stateproof.Root(namespace, snapshotPairs(snapshot.KV, namespace))
+		pairs, err := stateproof.Root(namespace, snapshotPairs(kv, namespace))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -178,18 +184,69 @@ func TestStateSnapshotExportsTheStateItsBlockHeaderCommits(t *testing.T) {
 			t.Fatalf("snapshot pairs of %s do not have the root of height 1", namespace)
 		}
 	}
-	for _, pair := range snapshot.KV {
+	for _, pair := range kv {
 		if pair.Namespace == "bank" && string(pair.Key) == "balance/late" {
 			t.Fatal("a write after the anchored state must not be in the snapshot")
 		}
 	}
 
-	if _, err := fixture.node.StateSnapshot(ctx, 2); !errors.Is(err, ErrSnapshotNotAnchored) {
+	if _, err := fixture.node.StateSnapshotManifest(ctx, 2); !errors.Is(err, ErrSnapshotNotAnchored) {
 		t.Fatalf("block 2 commits the genesis state, which is no snapshot, got %v", err)
 	}
-	if _, err := fixture.node.StateSnapshot(ctx, 9); !errors.Is(err, store.ErrBlockNotFound) {
+	if _, err := fixture.node.StateSnapshotManifest(ctx, 9); !errors.Is(err, store.ErrBlockNotFound) {
 		t.Fatalf("expected an uncommitted block to have no snapshot, got %v", err)
 	}
+	if _, _, err := fixture.node.StateSnapshotPairs(ctx, 3, "evm_receipts", nil, 10); !errors.Is(err, ErrSnapshotPage) {
+		t.Fatalf("expected a namespace outside the replicated state to be refused, got %v", err)
+	}
+	if earliest, err := fixture.node.EarliestSnapshotHeight(ctx); err != nil || earliest != 3 {
+		t.Fatalf("expected block 3 to be the earliest anchor, got %d %v", earliest, err)
+	}
+
+	// Once the state block 3 commits is pruned, its snapshot is gone and the next anchor is named.
+	fourth := fixture.block(4, consensus.HashBlock(third), types.Tx("bank:send:d"))
+	if height, _ := fixture.deliver(fixture.commit(fourth)); height != 4 {
+		t.Fatalf("expected block 4 to be applied, node is at height %d", height)
+	}
+	if _, err := runtime.Store.PruneBelow(ctx, 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.node.StateSnapshotManifest(ctx, 3); !errors.Is(err, ErrSnapshotPruned) {
+		t.Fatalf("expected the snapshot of a pruned state to be gone, got %v", err)
+	}
+	if earliest, err := fixture.node.EarliestSnapshotHeight(ctx); err != nil || earliest != 4 {
+		t.Fatalf("expected block 4 to be the earliest anchor after pruning, got %d %v", earliest, err)
+	}
+}
+
+// snapshotKV reads every pair of the snapshot anchored to blockHeight page by page, two pairs a
+// page, checking that the pages follow each other in key order.
+func snapshotKV(t *testing.T, node *Node, blockHeight types.Height, namespaces []string) []store.KVPair {
+	t.Helper()
+	var kv []store.KVPair
+	for _, namespace := range namespaces {
+		var after []byte
+		for {
+			page, more, err := node.StateSnapshotPairs(context.Background(), blockHeight, namespace, after, 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(page) > 2 || (more && len(page) != 2) {
+				t.Fatalf("unexpected page of %d pairs, more %t", len(page), more)
+			}
+			for _, pair := range page {
+				if after != nil && bytes.Compare(pair.Key, after) <= 0 {
+					t.Fatalf("pages of %s are out of key order at %q", namespace, pair.Key)
+				}
+				after = pair.Key
+			}
+			kv = append(kv, page...)
+			if !more {
+				break
+			}
+		}
+	}
+	return kv
 }
 
 func snapshotPairs(kv []store.KVPair, namespace string) []stateproof.Pair {

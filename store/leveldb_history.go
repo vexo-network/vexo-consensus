@@ -4,11 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"math"
-	"sort"
 
 	"github.com/syndtr/goleveldb/leveldb"
 	leveldberrors "github.com/syndtr/goleveldb/leveldb/errors"
@@ -87,8 +85,35 @@ func (history *historyBatch) put(record kvHistoryRecord) error {
 	if err != nil {
 		return err
 	}
-	history.batch.Put(kvHistoryKey(record.Height, record.Namespace, record.Key), encoded)
+	putVersion(history.batch, kvVersionIndexPrefix, kvHistoryKey(record.Height, record.Namespace, record.Key), record.Height, encoded)
 	return nil
+}
+
+// Version index.
+//
+// Every version is also listed under its height in a version index (kvVersionIndexPrefix for the
+// versions of keys, stateTreeVersionIndexPrefix for those of tree nodes), so pruning visits the
+// versions below the height it retains from, not every version. A version a prune keeps, because
+// the heights from retainFrom on still read it, is listed again under the last height it is read
+// at, below the version that replaces it, so each version is visited at most twice whatever the
+// size of the history. Versions dropped with their namespace (an import) leave entries that the
+// next prune drops.
+var (
+	kvVersionIndexPrefix        = []byte("hidx:")
+	stateTreeVersionIndexPrefix = []byte("tidx:")
+)
+
+func versionIndexKey(indexPrefix []byte, height types.Height, versionKey []byte) []byte {
+	key := make([]byte, 0, len(indexPrefix)+8+len(versionKey))
+	key = append(key, indexPrefix...)
+	key = binary.BigEndian.AppendUint64(key, uint64(height))
+	return append(key, versionKey...)
+}
+
+// putVersion adds to batch a version and its entry in the version index under its height.
+func putVersion(batch *leveldb.Batch, indexPrefix []byte, versionKey []byte, height types.Height, value []byte) {
+	batch.Put(versionKey, value)
+	batch.Put(versionIndexKey(indexPrefix, height, versionKey), nil)
 }
 
 func (store *LevelDBStore) hasVersions(prefix []byte) (bool, error) {
@@ -143,11 +168,15 @@ func (store *LevelDBStore) applyDirectWrites(ctx context.Context, writes []KVWri
 	}
 	batch := new(leveldb.Batch)
 	history := newHistoryBatch(store, batch, height)
+	trees := newStateTrees(store.db)
 	for _, write := range writes {
 		if versioned {
 			if err := history.record(write); err != nil {
 				return err
 			}
+		}
+		if err := trees.apply(write); err != nil {
+			return err
 		}
 		key := kvKey(write.Namespace, write.Key)
 		if write.Delete {
@@ -155,6 +184,9 @@ func (store *LevelDBStore) applyDirectWrites(ctx context.Context, writes []KVWri
 			continue
 		}
 		batch.Put(key, append([]byte(nil), write.Value...))
+	}
+	if err := trees.persist(batch, versioned, height); err != nil {
+		return err
 	}
 	return store.writeBatch(batch)
 }
@@ -238,14 +270,26 @@ func (store *LevelDBStore) GetAt(ctx context.Context, height types.Height, names
 	if err := store.requireCommittedState(height); err != nil {
 		return nil, err
 	}
+	return getAt(store.db, height, namespace, key)
+}
+
+// getAt reads the value of key at a committed height from reader.
+func getAt(reader dbReader, height types.Height, namespace string, key []byte) ([]byte, error) {
 	prefix := kvHistoryPrefixKey(namespace, key)
-	iterator := store.db.NewIterator(util.BytesPrefix(prefix), nil)
+	iterator := reader.NewIterator(util.BytesPrefix(prefix), nil)
 	defer iterator.Release()
 	if !iterator.First() {
 		if err := iterator.Error(); err != nil {
 			return nil, err
 		}
-		return store.Get(ctx, namespace, key)
+		value, err := reader.Get(kvKey(namespace, key), nil)
+		if errors.Is(err, leveldberrors.ErrNotFound) {
+			return nil, ErrKeyNotFound
+		}
+		if err != nil {
+			return nil, err
+		}
+		return append([]byte(nil), value...), nil
 	}
 	if !versionAt(iterator, prefix, height) {
 		if err := iterator.Error(); err != nil {
@@ -272,61 +316,145 @@ func (store *LevelDBStore) ExportNamespaceAt(ctx context.Context, height types.H
 // changed under the prefix plus a scan of the prefix's current pairs, however
 // many versions the keys have.
 func (store *LevelDBStore) ExportPrefixAt(ctx context.Context, height types.Height, namespace string, keyPrefix []byte) ([]KVPair, error) {
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-	if namespace == "" {
-		return nil, ErrInvalidNamespace
-	}
-	if err := store.requireCommittedState(height); err != nil {
-		return nil, err
-	}
-	namespacePrefix := kvHistoryNamespacePrefix(namespace)
-	rangePrefix := append(append([]byte(nil), namespacePrefix...), []byte(hex.EncodeToString(keyPrefix))...)
-	iterator := store.db.NewIterator(util.BytesPrefix(rangePrefix), nil)
-	defer iterator.Release()
-
-	versioned := make(map[string]struct{})
 	pairs := make([]KVPair, 0)
-	for valid := iterator.First(); valid; {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
-		keyPrefixOfVersion, rawKey, ok := historyKeyGroup(namespacePrefix, iterator.Key())
-		if !ok {
-			return nil, ErrInvalidStateRecord
-		}
-		versioned[string(rawKey)] = struct{}{}
-		if versionAt(iterator, keyPrefixOfVersion, height) {
-			record, err := decodeHistoryRecord(keyPrefixOfVersion, iterator.Key(), iterator.Value(), namespace)
-			if err != nil {
-				return nil, err
-			}
-			if !record.Deleted {
-				pairs = append(pairs, KVPair{Namespace: namespace, Key: record.Key, Value: record.Value})
-			}
-		}
-		valid = iterator.Seek(nextHistoryKeyGroup(keyPrefixOfVersion))
-	}
-	if err := iterator.Error(); err != nil {
-		return nil, err
-	}
-	current, err := store.ExportPrefix(ctx, namespace, keyPrefix)
+	err := store.historicalPairs(ctx, height, namespace, keyPrefix, nil, func(pair KVPair) bool {
+		pairs = append(pairs, pair)
+		return true
+	})
 	if err != nil {
 		return nil, err
 	}
-	for _, pair := range current {
-		if _, found := versioned[string(pair.Key)]; found {
-			continue
+	return pairs, nil
+}
+
+// ExportRangeAt returns at most limit pairs of namespace as they were at height, sorted by key,
+// starting with the first key after after (the first key of the namespace for nil after). more
+// reports that pairs follow the last one returned. A page costs a seek per key it returns, so a
+// caller can stream a namespace of any size at a past height in bounded memory.
+func (store *LevelDBStore) ExportRangeAt(ctx context.Context, height types.Height, namespace string, after []byte, limit int) (pairs []KVPair, more bool, err error) {
+	if limit <= 0 {
+		return nil, false, ErrInvalidKey
+	}
+	pairs = make([]KVPair, 0, limit)
+	err = store.historicalPairs(ctx, height, namespace, nil, after, func(pair KVPair) bool {
+		if len(pairs) == limit {
+			more = true
+			return false
 		}
 		pairs = append(pairs, pair)
+		return true
+	})
+	if err != nil {
+		return nil, false, err
 	}
-	sort.Slice(pairs, func(i, j int) bool { return bytes.Compare(pairs[i].Key, pairs[j].Key) < 0 })
-	return pairs, nil
+	return pairs, more, nil
+}
+
+// historicalPairs calls emit, in key order, with every pair of namespace under keyPrefix as it
+// was at height whose key sorts after after (every key for nil after), until emit returns false.
+//
+// It merges two streams that are both in key order: the version groups of the keys that ever
+// changed, whose value at height is their highest version at or below it, and the current pairs,
+// which hold the value of every key that never changed.
+func (store *LevelDBStore) historicalPairs(ctx context.Context, height types.Height, namespace string, keyPrefix []byte, after []byte, emit func(KVPair) bool) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	if namespace == "" {
+		return ErrInvalidNamespace
+	}
+	if err := store.requireCommittedState(height); err != nil {
+		return err
+	}
+	snapshot, err := store.db.GetSnapshot()
+	if err != nil {
+		return err
+	}
+	defer snapshot.Release()
+
+	namespacePrefix := kvHistoryNamespacePrefix(namespace)
+	historyRange := util.BytesPrefix(appendOrderedKeyBody(append([]byte(nil), namespacePrefix...), keyPrefix))
+	currentRange := util.BytesPrefix(append(kvNamespacePrefix(namespace), keyPrefix...))
+	if after != nil {
+		if start := nextHistoryKeyGroup(kvHistoryPrefixKey(namespace, after)); bytes.Compare(start, historyRange.Start) > 0 {
+			historyRange.Start = start
+		}
+		if start := append(kvKey(namespace, after), 0x00); bytes.Compare(start, currentRange.Start) > 0 {
+			currentRange.Start = start
+		}
+	}
+	history := snapshot.NewIterator(historyRange, nil)
+	defer history.Release()
+	current := snapshot.NewIterator(currentRange, nil)
+	defer current.Release()
+	currentPrefix := len(kvNamespacePrefix(namespace))
+
+	type versioned struct {
+		key     []byte
+		value   []byte
+		present bool
+	}
+	nextVersioned := func(valid bool) (versioned, bool, error) {
+		if !valid {
+			return versioned{}, false, history.Error()
+		}
+		group, key, ok := historyKeyGroup(namespacePrefix, history.Key())
+		if !ok {
+			return versioned{}, false, ErrInvalidStateRecord
+		}
+		entry := versioned{key: key}
+		if versionAt(history, group, height) {
+			record, err := decodeHistoryRecord(group, history.Key(), history.Value(), namespace)
+			if err != nil {
+				return versioned{}, false, err
+			}
+			entry.present = !record.Deleted
+			entry.value = record.Value
+		}
+		history.Seek(nextHistoryKeyGroup(group))
+		return entry, true, nil
+	}
+
+	version, versionOK, err := nextVersioned(history.First())
+	if err != nil {
+		return err
+	}
+	currentOK := current.First()
+	for versionOK || currentOK {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		var currentKey []byte
+		if currentOK {
+			currentKey = current.Key()[currentPrefix:]
+		}
+		if versionOK && (!currentOK || bytes.Compare(version.key, currentKey) <= 0) {
+			if currentOK && bytes.Equal(version.key, currentKey) {
+				currentOK = current.Next()
+			}
+			if version.present && !emit(KVPair{Namespace: namespace, Key: version.key, Value: version.value}) {
+				return nil
+			}
+			valid := history.Valid()
+			if version, versionOK, err = nextVersioned(valid); err != nil {
+				return err
+			}
+			continue
+		}
+		pair := KVPair{Namespace: namespace, Key: append([]byte(nil), currentKey...), Value: append([]byte(nil), current.Value()...)}
+		currentOK = current.Next()
+		if !emit(pair) {
+			return nil
+		}
+	}
+	if err := current.Error(); err != nil {
+		return err
+	}
+	return history.Error()
 }
 
 func kvHistoryNamespacePrefix(namespace string) []byte {
@@ -342,22 +470,19 @@ func historyKeyGroup(namespacePrefix []byte, dbKey []byte) ([]byte, []byte, bool
 		return nil, nil, false
 	}
 	groupEnd := len(dbKey) - 8
-	if dbKey[groupEnd-1] != ':' {
-		return nil, nil, false
-	}
-	key, err := hex.DecodeString(string(dbKey[len(namespacePrefix) : groupEnd-1]))
-	if err != nil || len(key) == 0 {
+	key, ok := decodeOrderedKey(dbKey[len(namespacePrefix):groupEnd])
+	if !ok {
 		return nil, nil, false
 	}
 	return append([]byte(nil), dbKey[:groupEnd]...), key, true
 }
 
 // nextHistoryKeyGroup is the smallest database key after every version sharing
-// prefix. A key group ends in ':', which no hex digit of a longer key can
-// follow, so ';' bounds the group exactly.
+// prefix. A key group ends in the terminator 0x00 0x01 of its ordered key, and
+// only heights follow it, so raising the terminator bounds the group exactly.
 func nextHistoryKeyGroup(prefix []byte) []byte {
 	next := append([]byte(nil), prefix...)
-	next[len(next)-1] = ';'
+	next[len(next)-1]++
 	return next
 }
 
@@ -368,74 +493,99 @@ func nextHistoryKeyGroup(prefix []byte) []byte {
 // highest version below retainFrom is a deletion keeps none of them: having no
 // version at or below a height reads as absent. A key with no version from
 // retainFrom on keeps none at all: its current value is its value at every
-// retained height.
-func (store *LevelDBStore) pruneHistoryBelow(ctx context.Context, batch *leveldb.Batch, retainFrom types.Height) (uint64, error) {
-	iterator := store.db.NewIterator(util.BytesPrefix(kvHistoryPrefix), nil)
-	defer iterator.Release()
-
-	var pruned uint64
-	var group []byte
-	var below [][]byte
-	var top []byte
-	var topValue []byte
-	var retained, replacedAtRetainFrom bool
-	flush := func() error {
-		if len(below) == 0 {
-			return nil
+// retained height. Its cost is in the versions below retainFrom (see Version
+// index), not in the size of the history.
+//
+// The versions of the state tree nodes are pruned by the same rule.
+func (store *LevelDBStore) pruneHistoryBelow(ctx context.Context, batch *leveldb.Batch, retainFrom types.Height) (uint64, uint64, error) {
+	pruned, err := store.pruneVersionsBelow(ctx, batch, kvVersionIndexPrefix, retainFrom, func(value []byte) (bool, error) {
+		var record kvHistoryRecord
+		if err := json.Unmarshal(value, &record); err != nil {
+			return false, err
 		}
-		keepTop := retained && !replacedAtRetainFrom
-		if keepTop {
-			var record kvHistoryRecord
-			if err := json.Unmarshal(topValue, &record); err != nil {
-				return err
-			}
-			keepTop = !record.Deleted
-		}
-		for _, key := range below {
-			if keepTop && bytes.Equal(key, top) {
-				continue
-			}
-			batch.Delete(key)
-			pruned++
-		}
-		return nil
+		return record.Deleted, nil
+	})
+	if err != nil {
+		return 0, 0, err
 	}
-	for iterator.Next() {
+	prunedNodes, err := store.pruneVersionsBelow(ctx, batch, stateTreeVersionIndexPrefix, retainFrom, func(value []byte) (bool, error) {
+		return len(value) == 0, nil
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+	return pruned, prunedNodes, nil
+}
+
+// pruneVersionsBelow prunes the versions the version index under indexPrefix lists below
+// retainFrom. A version's database key is the prefix every version of its key shares followed by
+// its big-endian height; deleted reports whether a version is a deletion. A version is kept only
+// when it is the highest version of its key below retainFrom, a value, and followed by a version
+// above retainFrom: the heights from retainFrom up to that version read it. Without a following
+// version the current value is read, and a version at retainFrom replaces it.
+func (store *LevelDBStore) pruneVersionsBelow(ctx context.Context, batch *leveldb.Batch, indexPrefix []byte, retainFrom types.Height, deleted func([]byte) (bool, error)) (uint64, error) {
+	entries := store.db.NewIterator(&util.Range{Start: indexPrefix, Limit: versionIndexKey(indexPrefix, retainFrom, nil)}, nil)
+	defer entries.Release()
+	var pruned uint64
+	for entries.Next() {
 		select {
 		case <-ctx.Done():
 			return 0, ctx.Err()
 		default:
 		}
-		dbKey := iterator.Key()
-		if len(dbKey) < len(kvHistoryPrefix)+9 {
+		entry := entries.Key()
+		if len(entry) < len(indexPrefix)+8+9 {
 			return 0, ErrInvalidStateRecord
 		}
-		keyGroup := dbKey[:len(dbKey)-8]
-		if !bytes.Equal(keyGroup, group) {
-			if err := flush(); err != nil {
-				return 0, err
-			}
-			group = append(group[:0], keyGroup...)
-			below = below[:0]
-			top, topValue, retained, replacedAtRetainFrom = nil, nil, false, false
-		}
-		height := types.Height(binary.BigEndian.Uint64(dbKey[len(dbKey)-8:]))
-		if height >= retainFrom {
-			retained = true
-			replacedAtRetainFrom = replacedAtRetainFrom || height == retainFrom
+		batch.Delete(append([]byte(nil), entry...))
+		versionKey := append([]byte(nil), entry[len(indexPrefix)+8:]...)
+		value, err := store.db.Get(versionKey, nil)
+		if errors.Is(err, leveldberrors.ErrNotFound) {
 			continue
 		}
-		top = append([]byte(nil), dbKey...)
-		topValue = append([]byte(nil), iterator.Value()...)
-		below = append(below, top)
+		if err != nil {
+			return 0, err
+		}
+		group, height := versionKey[:len(versionKey)-8], types.Height(binary.BigEndian.Uint64(versionKey[len(versionKey)-8:]))
+		next, found, err := store.nextVersionHeight(group, height)
+		if err != nil {
+			return 0, err
+		}
+		if found && next > retainFrom {
+			isDeleted, err := deleted(value)
+			if err != nil {
+				return 0, err
+			}
+			if !isDeleted {
+				// Visited again by the first prune that retains from next on.
+				batch.Put(versionIndexKey(indexPrefix, next-1, versionKey), nil)
+				continue
+			}
+		}
+		batch.Delete(versionKey)
+		pruned++
 	}
-	if err := iterator.Error(); err != nil {
-		return 0, err
-	}
-	if err := flush(); err != nil {
+	if err := entries.Error(); err != nil {
 		return 0, err
 	}
 	return pruned, nil
+}
+
+// nextVersionHeight returns the height of the version of group that follows the one at height.
+func (store *LevelDBStore) nextVersionHeight(group []byte, height types.Height) (types.Height, bool, error) {
+	if height == math.MaxUint64 {
+		return 0, false, nil
+	}
+	versions := store.db.NewIterator(util.BytesPrefix(group), nil)
+	defer versions.Release()
+	if !versions.Seek(binary.BigEndian.AppendUint64(append([]byte(nil), group...), uint64(height)+1)) {
+		return 0, false, versions.Error()
+	}
+	key := versions.Key()
+	if len(key) != len(group)+8 {
+		return 0, false, ErrInvalidStateRecord
+	}
+	return types.Height(binary.BigEndian.Uint64(key[len(group):])), true, nil
 }
 
 // deleteNamespaceHistory drops every version of namespace.

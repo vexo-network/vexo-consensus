@@ -143,7 +143,7 @@ func daMismatchCase() proposalEvidenceCase {
 		name:  "data availability mismatch",
 		block: mismatchedCommitmentBlock(),
 		build: func(_ evidenceFixture, proposal Proposal) (slashing.Evidence, error) {
-			return NewInvalidProposalEvidence(proposal, string(InvalidProposalReasonDAMismatch))
+			return NewDataAvailabilityInvalidProposalEvidence(proposal, InvalidProposalReasonDAMismatch)
 		},
 	}
 }
@@ -163,8 +163,7 @@ func validatorSetHashCase() proposalEvidenceCase {
 		name:  "validator set hash",
 		block: staleSetBlock(),
 		build: func(fixture evidenceFixture, proposal Proposal) (slashing.Evidence, error) {
-			context := InvalidProposalVerificationContext{ExpectedValidatorSetHash: fixture.set.Hash()}
-			return NewInvalidProposalEvidenceWithContext(proposal, context, InvalidProposalReasonValidatorSetHash, staleValidatorSetHash, "")
+			return NewInvalidProposalHashEvidence(proposal, InvalidProposalReasonValidatorSetHash, fixture.set.Hash())
 		},
 	}
 }
@@ -508,7 +507,7 @@ func TestVerifyEvidenceRejectsDataMismatchFramedOntoAnHonestProposal(t *testing.
 	// The attacker keeps the signed header and swaps the body to fake a commitment mismatch.
 	swapped := honest
 	swapped.Block.Txs = []types.Tx{[]byte("swapped")}
-	evidence := fixture.need(NewInvalidProposalEvidence(swapped, string(InvalidProposalReasonDAMismatch)))
+	evidence := fixture.need(NewDataAvailabilityInvalidProposalEvidence(swapped, InvalidProposalReasonDAMismatch))
 	if err := fixture.verify(evidence); !errors.Is(err, ErrInvalidProposal) {
 		t.Fatalf("expected invalid proposal for a swapped body, got %v", err)
 	}
@@ -527,124 +526,77 @@ func TestVerifyEvidenceChecksValidatorSetHashClaimsAgainstTheSet(t *testing.T) {
 	proposal := fixture.proposalOf("a", staleSetBlock())
 
 	// The claim must name the hash of the set the evidence is judged against.
-	wrongExpectation := InvalidProposalVerificationContext{ExpectedValidatorSetHash: types.Hash{8}}
-	claimed := fixture.need(NewInvalidProposalEvidenceWithContext(proposal, wrongExpectation, InvalidProposalReasonValidatorSetHash, staleValidatorSetHash, ""))
+	claimed := fixture.need(NewInvalidProposalHashEvidence(proposal, InvalidProposalReasonValidatorSetHash, types.Hash{8}))
 	if err := fixture.verify(claimed); !errors.Is(err, ErrInvalidProposal) {
 		t.Fatalf("expected invalid proposal for a wrong expected hash, got %v", err)
 	}
 
 	// A proposer that used the right hash cannot be blamed for using the wrong one.
 	right := fixture.proposalOf("a", types.Block{Header: types.Header{ChainID: testChainID, Height: 1, ValidatorSetHash: fixture.set.Hash()}})
-	framing := InvalidProposalVerificationContext{ExpectedValidatorSetHash: staleValidatorSetHash}
-	framed := fixture.need(NewInvalidProposalEvidenceWithContext(right, framing, InvalidProposalReasonValidatorSetHash, fixture.set.Hash(), ""))
+	framed := fixture.need(NewInvalidProposalHashEvidence(right, InvalidProposalReasonValidatorSetHash, staleValidatorSetHash))
 	if err := fixture.verify(framed); !errors.Is(err, ErrInvalidProposal) {
 		t.Fatalf("expected invalid proposal for a proposer that used the right hash, got %v", err)
 	}
+}
 
-	// Evidence that is not bound to its context proves nothing.
-	correct := InvalidProposalVerificationContext{ExpectedValidatorSetHash: fixture.set.Hash()}
-	unbound := fixture.need(NewInvalidProposalHashEvidence(proposal, string(InvalidProposalReasonValidatorSetHash), correct.ExpectedValidatorSetHash, staleValidatorSetHash))
-	if err := fixture.verify(unbound); !errors.Is(err, ErrInvalidProposalContext) {
-		t.Fatalf("expected a missing context, got %v", err)
+// staticAppHashes serves one certified app hash per state height.
+type staticAppHashes map[types.Height]types.Hash
+
+func (hashes staticAppHashes) CertifiedAppHash(height types.Height) (types.Hash, bool, error) {
+	hash, found := hashes[height]
+	return hash, found, nil
+}
+
+// App-hash evidence is judged against the app hash certified blocks committed for the state the
+// proposal names, which replicated state serves alike to every node; without it a node does not
+// judge the evidence.
+func TestVerifyEvidenceJudgesAppHashClaimsAgainstTheCertifiedAppHash(t *testing.T) {
+	fixture := newEvidenceFixture(t)
+	certified := types.Hash{9}
+	proposal := fixture.proposalOf("a", types.Block{Header: types.Header{ChainID: testChainID, Height: 1, AppHash: types.Hash{1}}})
+	evidence := fixture.need(NewInvalidProposalHashEvidence(proposal, InvalidProposalReasonAppHash, certified))
+
+	if err := fixture.verify(evidence); !errors.Is(err, ErrEvidenceNotSelfContained) {
+		t.Fatalf("expected app-hash evidence without certified app hashes to be refused, got %v", err)
+	}
+	judge := func(hashes staticAppHashes) error {
+		verifier := fixture.verifier
+		verifier.CertifiedAppHashes = hashes
+		return VerifyEvidence(evidence, fixture.set, verifier)
+	}
+	// The first block names the genesis validator set, so it commits the genesis state (height 0).
+	if err := judge(staticAppHashes{0: certified}); err != nil {
+		t.Fatalf("expected app-hash evidence to verify against the certified app hash, got %v", err)
+	}
+	if err := judge(staticAppHashes{0: types.Hash{5}}); !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected evidence naming another app hash than the certified one to be refused, got %v", err)
+	}
+	if err := judge(staticAppHashes{1: certified}); !errors.Is(err, ErrAppHashNotCertified) {
+		t.Fatalf("expected evidence about an uncertified state height to be refused, got %v", err)
+	}
+	honest := fixture.proposalOf("a", types.Block{Header: types.Header{ChainID: testChainID, Height: 1, AppHash: certified}})
+	framed := fixture.handmade(slashing.EvidenceInvalidProposal, "a", 1, honest.Round, InvalidProposalProof{Proposal: honest, Reason: InvalidProposalReasonAppHash, ExpectedHash: types.Hash{5}, ActualHash: certified})
+	verifier := fixture.verifier
+	verifier.CertifiedAppHashes = staticAppHashes{0: types.Hash{5}}
+	if err := VerifyEvidence(framed, fixture.set, verifier); err != nil {
+		t.Fatalf("control: the certified hash differs, so this claim holds: %v", err)
+	}
+	verifier.CertifiedAppHashes = staticAppHashes{0: certified}
+	if err := VerifyEvidence(framed, fixture.set, verifier); !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected a proposer that carried the certified app hash not to be blamed, got %v", err)
 	}
 }
 
-func TestVerifyEvidenceRejectsProposalFaultsThatNeedNodeLocalData(t *testing.T) {
+// A proof naming a fault nodes could judge differently, such as a bad timestamp or an invalid
+// transaction, is refused.
+func TestVerifyEvidenceRefusesProposalFaultsNodesCouldJudgeDifferently(t *testing.T) {
 	fixture := newEvidenceFixture(t)
-	expectedAppHash := types.Hash{9}
-	actualAppHash := types.Hash{1}
-	appHashProposal := fixture.proposalOf("a", types.Block{Header: types.Header{ChainID: testChainID, Height: 1, AppHash: actualAppHash}})
-	appHashEvidence := fixture.need(NewInvalidProposalHashEvidence(appHashProposal, string(InvalidProposalReasonAppHash), expectedAppHash, actualAppHash))
-
-	txProposal := fixture.proposalOf("a", types.Block{Header: types.Header{ChainID: testChainID, Height: 1}, Txs: []types.Tx{[]byte("bad-tx")}})
-	expectedResults := []types.Result{{Code: 1, Log: "ante rejected tx"}}
-	actualResults := []types.Result{{Code: 0, Log: "accepted"}}
-	txEvidence := fixture.need(NewInvalidProposalTxExecutionEvidence(txProposal, expectedResults, actualResults, 0, "ante rejected tx"))
-
-	timestampProposal := fixture.proposalOf("a", types.Block{Header: types.Header{ChainID: testChainID, Height: 1, TimeUnixNano: 200}})
-	timestampEvidence := fixture.need(NewInvalidProposalTimestampEvidence(timestampProposal, 100, 200))
-
-	// The application hash, the result of a transaction and the time of a block are facts of the
-	// chain, which a node that pruned them cannot check. A node must not slash on them.
-	appHashContext := InvalidProposalVerificationContext{ExpectedAppHash: expectedAppHash}
-	appHashContext.ContextProofHash = appHashContext.ProofHash()
-	txContext := InvalidProposalVerificationContext{ExpectedTxResultsHash: HashTxResults(expectedResults)}
-	txContext.ContextProofHash = txContext.ProofHash()
-	timestampContext := InvalidProposalVerificationContext{ExpectedTimeUnixNano: 100}
-	timestampContext.ContextProofHash = timestampContext.ProofHash()
-	cases := []struct {
-		name     string
-		evidence slashing.Evidence
-		context  InvalidProposalVerificationContext
-	}{
-		{"app hash", appHashEvidence, appHashContext},
-		{"tx validity", txEvidence, txContext},
-		{"timestamp", timestampEvidence, timestampContext},
-	}
-	for _, testCase := range cases {
-		if err := fixture.verify(testCase.evidence); !errors.Is(err, ErrEvidenceNotSelfContained) {
-			t.Fatalf("%s: expected evidence that is not self-contained, got %v", testCase.name, err)
+	proposal := fixture.proposalOf("a", types.Block{Header: types.Header{ChainID: testChainID, Height: 1, TimeUnixNano: 200}, Txs: []types.Tx{[]byte("bad-tx")}})
+	for _, reason := range []InvalidProposalReason{"timestamp", "tx_validity"} {
+		evidence := fixture.handmade(slashing.EvidenceInvalidProposal, "a", 1, proposal.Round, InvalidProposalProof{Proposal: proposal, Reason: reason, ExpectedHash: types.Hash{1}, ActualHash: types.Hash{2}})
+		if err := fixture.verify(evidence); !errors.Is(err, ErrUnsupportedProposalReason) {
+			t.Fatalf("%s: expected ErrUnsupportedProposalReason, got %v", reason, err)
 		}
-		bound, err := BindInvalidProposalEvidenceContext(testCase.evidence, testCase.context)
-		if err != nil {
-			t.Fatalf("%s: %v", testCase.name, err)
-		}
-		if err := fixture.verify(bound); !errors.Is(err, ErrEvidenceNotSelfContained) {
-			t.Fatalf("%s: binding a context must not make the claim decidable, got %v", testCase.name, err)
-		}
-	}
-}
-
-func TestVerifyInvalidProposalAppHashEvidenceWithContextBindsTheContextProofHash(t *testing.T) {
-	fixture := newEvidenceFixture(t)
-	expectedAppHash := types.Hash{9}
-	actualAppHash := types.Hash{1}
-	proposal := fixture.proposalOf("a", types.Block{Header: types.Header{ChainID: testChainID, Height: 1, AppHash: actualAppHash}})
-	evidence := fixture.need(NewInvalidProposalHashEvidence(proposal, string(InvalidProposalReasonAppHash), expectedAppHash, actualAppHash))
-
-	context := InvalidProposalVerificationContext{ExpectedAppHash: expectedAppHash}
-	context.ContextProofHash = context.ProofHash()
-	if err := VerifyInvalidProposalEvidenceWithContext(evidence, context); !errors.Is(err, ErrInvalidProposalContext) {
-		t.Fatalf("expected an unbound claim to need its context, got %v", err)
-	}
-	bound := fixture.need(BindInvalidProposalEvidenceContext(evidence, context))
-
-	if err := VerifyInvalidProposalEvidenceWithContext(bound, InvalidProposalVerificationContext{ExpectedAppHash: expectedAppHash}); !errors.Is(err, ErrInvalidProposalContext) {
-		t.Fatalf("expected a missing context proof hash, got %v", err)
-	}
-	wrongProofHash := InvalidProposalVerificationContext{ExpectedAppHash: expectedAppHash, ContextProofHash: types.Hash{8}}
-	if err := VerifyInvalidProposalEvidenceWithContext(bound, wrongProofHash); !errors.Is(err, ErrInvalidProposalContext) {
-		t.Fatalf("expected a context proof hash mismatch, got %v", err)
-	}
-	otherExpectation := InvalidProposalVerificationContext{ExpectedAppHash: types.Hash{5}}
-	otherExpectation.ContextProofHash = otherExpectation.ProofHash()
-	if err := VerifyInvalidProposalEvidenceWithContext(bound, otherExpectation); !errors.Is(err, ErrInvalidProposal) {
-		t.Fatalf("expected a context for another expected hash to be rejected, got %v", err)
-	}
-	if err := VerifyInvalidProposalEvidenceWithContext(bound, context); err != nil {
-		t.Fatalf("expected evidence with its matching context to verify, got %v", err)
-	}
-}
-
-func TestVerifyInvalidProposalTxValidityEvidenceWithContextBindsTheExpectedResults(t *testing.T) {
-	fixture := newEvidenceFixture(t)
-	proposal := fixture.proposalOf("a", types.Block{Header: types.Header{ChainID: testChainID, Height: 1}, Txs: []types.Tx{[]byte("bad-tx")}})
-	expectedResults := []types.Result{{Code: 1, Log: "ante rejected tx"}}
-	actualResults := []types.Result{{Code: 0, Log: "accepted"}}
-	evidence := fixture.need(NewInvalidProposalTxExecutionEvidence(proposal, expectedResults, actualResults, 0, "ante rejected tx"))
-
-	context := InvalidProposalVerificationContext{ExpectedTxResultsHash: HashTxResults(expectedResults)}
-	context.ContextProofHash = context.ProofHash()
-	if err := VerifyInvalidProposalEvidenceWithContext(evidence, context); !errors.Is(err, ErrInvalidProposalContext) {
-		t.Fatalf("expected an unbound claim to need its context, got %v", err)
-	}
-	bound := fixture.need(BindInvalidProposalEvidenceContext(evidence, context))
-
-	if err := VerifyInvalidProposalEvidenceWithContext(bound, InvalidProposalVerificationContext{ExpectedTxResultsHash: types.Hash{9}}); !errors.Is(err, ErrInvalidProposalContext) {
-		t.Fatalf("expected a tx result hash mismatch, got %v", err)
-	}
-	if err := VerifyInvalidProposalEvidenceWithContext(bound, context); err != nil {
-		t.Fatalf("expected evidence with its matching context to verify, got %v", err)
 	}
 }
 

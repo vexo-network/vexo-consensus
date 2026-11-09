@@ -602,15 +602,9 @@ func maybeRunStartupStateSync(ctx context.Context, inputs startInputs, runtimeCo
 	if maxSnapshotBytes == 0 {
 		maxSnapshotBytes = defaultStateSyncSnapshotMaxBytes
 	}
-	storage, err := store.OpenLevelDB(inputs.Config.StoreDir())
+	localState, localFound, err := localStoreState(ctx, inputs.Config.StoreDir())
 	if err != nil {
 		return err
-	}
-	defer storage.Close()
-	localState, localErr := storage.LatestState(ctx)
-	localFound := localErr == nil
-	if localErr != nil && !errors.Is(localErr, store.ErrStateNotFound) {
-		return localErr
 	}
 	if localFound && stateSync.TrustLocalHigher {
 		minHeight := types.Height(stateSync.MinHeight)
@@ -625,34 +619,29 @@ func maybeRunStartupStateSync(ctx context.Context, inputs startInputs, runtimeCo
 		if snapshotURL == "" {
 			continue
 		}
-		exportURL, err := snapshotExportURL(snapshotURL, trust.Height)
+		source, err := newHTTPSnapshotSource(snapshotURL, trust.Height, timeout, maxSnapshotBytes)
 		if err != nil {
 			return err
 		}
-		document, err := downloadSnapshotDocumentWithLimitContext(ctx, exportURL, timeout, maxSnapshotBytes)
+		var rejected error
+		accept := func(manifest snapshotManifest) error {
+			rejected = validateStartupStateSyncCandidate(manifest, localState, localFound, stateSync)
+			return rejected
+		}
+		manifest, pairs, err := restoreSnapshot(ctx, inputs.Config.StoreDir(), source, inputs.Config.Chain, trust, accept)
 		if err != nil {
 			lastErr = err
-			logEvent("state_sync_candidate_failed", map[string]any{"url": snapshotURL, "error": err.Error()})
+			event := "state_sync_candidate_failed"
+			if rejected != nil || errors.Is(err, ErrUntrustedSnapshot) {
+				event = "state_sync_candidate_rejected"
+			}
+			logEvent(event, map[string]any{"url": snapshotURL, "error": err.Error()})
 			if !stateSync.RetryAllSnapshots {
 				return err
 			}
 			continue
 		}
-		if err := validateStartupStateSyncCandidate(ctx, document, inputs.Config.Chain, localState, localFound, stateSync, trust); err != nil {
-			lastErr = err
-			logEvent("state_sync_candidate_rejected", map[string]any{"url": snapshotURL, "height": document.State.Height, "error": err.Error()})
-			if !stateSync.RetryAllSnapshots {
-				return err
-			}
-			continue
-		}
-		if err := restoreSnapshotDocumentWithContext(ctx, storage, document, inputs.Config.Chain, trust); err != nil {
-			return err
-		}
-		if _, err := storage.RecoverIndexes(ctx); err != nil {
-			return err
-		}
-		logEvent("state_sync_applied", map[string]any{"url": snapshotURL, "height": document.State.Height, "modules": document.Modules})
+		logEvent("state_sync_applied", map[string]any{"url": snapshotURL, "height": manifest.State.Height, "anchor_height": manifest.Header.Height, "modules": manifest.Modules, "kv_pairs": pairs})
 		return nil
 	}
 	if lastErr != nil {
@@ -661,20 +650,32 @@ func maybeRunStartupStateSync(ctx context.Context, inputs startInputs, runtimeCo
 	return errors.New("state sync failed: no usable snapshot URLs configured")
 }
 
-// validateStartupStateSyncCandidate checks a downloaded snapshot before it is restored, so a
-// snapshot that is not the state of the trusted block lets state sync try the next source.
-func validateStartupStateSyncCandidate(ctx context.Context, document snapshotDocument, chain vexoconfig.Config, localState store.StateRecord, localFound bool, stateSync runtimeStateSyncConfig, trust snapshotTrust) error {
-	if err := validateSnapshotDocument(document, chain.ChainID); err != nil {
-		return err
+// localStoreState returns the latest state of the store at dir, if it holds one.
+func localStoreState(ctx context.Context, dir string) (store.StateRecord, bool, error) {
+	storage, err := store.OpenLevelDB(dir)
+	if err != nil {
+		return store.StateRecord{}, false, err
 	}
-	if err := verifySnapshotTrust(ctx, document, chain, trust); err != nil {
-		return err
+	defer storage.Close()
+	state, err := storage.LatestState(ctx)
+	if errors.Is(err, store.ErrStateNotFound) {
+		return store.StateRecord{}, false, nil
 	}
-	if stateSync.RequireFresh && stateSync.MinHeight > 0 && document.State.Height < types.Height(stateSync.MinHeight) {
-		return fmt.Errorf("snapshot height %d is below required state_sync.min_height %d", document.State.Height, stateSync.MinHeight)
+	if err != nil {
+		return store.StateRecord{}, false, err
 	}
-	if localFound && document.State.Height <= localState.Height {
-		return fmt.Errorf("snapshot height %d is not newer than local height %d", document.State.Height, localState.Height)
+	return state, true, nil
+}
+
+// validateStartupStateSyncCandidate checks a snapshot that proved to be the state of the trusted
+// block against the state sync policy before it is imported, so a stale one lets state sync try the
+// next source.
+func validateStartupStateSyncCandidate(manifest snapshotManifest, localState store.StateRecord, localFound bool, stateSync runtimeStateSyncConfig) error {
+	if stateSync.RequireFresh && stateSync.MinHeight > 0 && manifest.State.Height < types.Height(stateSync.MinHeight) {
+		return fmt.Errorf("snapshot height %d is below required state_sync.min_height %d", manifest.State.Height, stateSync.MinHeight)
+	}
+	if localFound && manifest.State.Height <= localState.Height {
+		return fmt.Errorf("snapshot height %d is not newer than local height %d", manifest.State.Height, localState.Height)
 	}
 	return nil
 }

@@ -149,3 +149,9 @@ Proposal 由 `chain_id` 和 height 生成 salt，将每个 signer 的 transactio
 - `parity_shards` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `ValidatorSetHeight - 1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `validator_registry` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `app_hash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `consensus.TwoChainCommitRule` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `C.PreviousBlockHash = hash(B)` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `C.height = B.height + 1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `da_mismatch` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `missing_data` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

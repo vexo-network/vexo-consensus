@@ -28,6 +28,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/crypto"
+	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/modules/staking"
 	vexoslashing "github.com/vexo-network/vexo-consensus/slashing"
 	vexostore "github.com/vexo-network/vexo-consensus/store"
@@ -143,11 +144,16 @@ func (module *Module) InitGenesis(ctx vexoapp.Context, genesis vexoapp.GenesisSt
 	return nil
 }
 
+// BeginBlock records the app hash the header of the executing block commits, which a quorum
+// certified, for app-hash evidence to be judged against (see recordCertifiedAppHash).
 func (module *Module) BeginBlock(ctx vexoapp.Context, header types.Header) error {
 	module.mu.Lock()
 	module.slashed = nil
 	module.mu.Unlock()
-	return nil
+	if ctx.Store == nil {
+		return nil
+	}
+	return module.recordCertifiedAppHash(ctx.GoContext(), ctx.Store, header)
 }
 
 func (module *Module) EndBlock(ctx vexoapp.Context) error {
@@ -402,6 +408,7 @@ func (module *Module) verify(ctx context.Context, store vexoapp.StateStore, heig
 	}
 	bundle := consensus.NewEvidenceVerifier(module.suite.ConsensusVerifier, module.suite.FinalityVerifier)
 	bundle.FinalitySets = storedValidatorSets{store: store, module: module, height: evidence.Height}
+	bundle.CertifiedAppHashes = certifiedAppHashes{ctx: ctx, store: store}
 	if err := consensus.VerifyEvidence(evidence, set, bundle); err != nil {
 		return verifiedEvidence{}, err
 	}
@@ -515,4 +522,117 @@ func (sets storedValidatorSets) ValidatorSet(ctx context.Context, height types.H
 		return nil, err
 	}
 	return set, nil
+}
+
+// Certified app hashes.
+//
+// Every block header commits the header app hash of the state of finality.AppHashHeight, and a
+// quorum certified that header before the block executes. The module records that hash per state
+// height, so a proposal that names another app hash for the same height is evidence of an invalid
+// proposal every node judges alike, from replicated state. A record is kept while a block that
+// named its height is young enough for evidence about it (Lifecycle.EvidenceMaxAge): each block
+// also records which state height it named, and the block that falls out of the window drops the
+// record unless a later block named the same height.
+
+const (
+	certifiedAppHashPrefix = "certified_app_hash/"
+	certifiedNamingPrefix  = "certified_app_hash_named/"
+)
+
+func certifiedAppHashKey(stateHeight types.Height) []byte {
+	return append([]byte(certifiedAppHashPrefix), encodeHeight(stateHeight)...)
+}
+
+func certifiedNamingKey(blockHeight types.Height) []byte {
+	return append([]byte(certifiedNamingPrefix), encodeHeight(blockHeight)...)
+}
+
+// encodeCertifiedAppHash encodes the record of a state height: its header app hash and the
+// latest block height whose header named it.
+func encodeCertifiedAppHash(hash types.Hash, namedAt types.Height) []byte {
+	return append(append([]byte(nil), hash[:]...), encodeHeight(namedAt)...)
+}
+
+func decodeCertifiedAppHash(encoded []byte) (types.Hash, types.Height, error) {
+	var hash types.Hash
+	if len(encoded) != len(hash)+8 {
+		return types.Hash{}, 0, errMarkerCorrupt
+	}
+	copy(hash[:], encoded[:len(hash)])
+	return hash, types.Height(binary.BigEndian.Uint64(encoded[len(hash):])), nil
+}
+
+func (module *Module) recordCertifiedAppHash(ctx context.Context, store vexoapp.StateStore, header types.Header) error {
+	stateHeight, ok := finality.AppHashHeight(header)
+	if !ok || header.Height == 0 {
+		return nil
+	}
+	if err := store.Set(ctx, ModuleName, certifiedAppHashKey(stateHeight), encodeCertifiedAppHash(header.AppHash, header.Height)); err != nil {
+		return err
+	}
+	if err := store.Set(ctx, ModuleName, certifiedNamingKey(header.Height), encodeHeight(stateHeight)); err != nil {
+		return err
+	}
+	window := uint64(module.policy.Lifecycle.EvidenceMaxAge) + 1
+	if uint64(header.Height) <= window {
+		return nil
+	}
+	expired := header.Height - types.Height(window)
+	named, err := store.Get(ctx, ModuleName, certifiedNamingKey(expired))
+	if errors.Is(err, vexostore.ErrKeyNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if len(named) != 8 {
+		return errMarkerCorrupt
+	}
+	if err := store.Delete(ctx, ModuleName, certifiedNamingKey(expired)); err != nil {
+		return err
+	}
+	expiredState := types.Height(binary.BigEndian.Uint64(named))
+	encoded, err := store.Get(ctx, ModuleName, certifiedAppHashKey(expiredState))
+	if errors.Is(err, vexostore.ErrKeyNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, namedAt, err := decodeCertifiedAppHash(encoded)
+	if err != nil {
+		return err
+	}
+	if namedAt != expired {
+		return nil
+	}
+	return store.Delete(ctx, ModuleName, certifiedAppHashKey(expiredState))
+}
+
+// certifiedAppHashes serves the recorded certified app hashes to evidence verification.
+type certifiedAppHashes struct {
+	ctx   context.Context
+	store vexoapp.StateStore
+}
+
+// CertifiedAppHash returns the header app hash certified blocks committed for the state of
+// stateHeight, as the replicated state in store records it; found is false when no block in the
+// evidence window named that height.
+func CertifiedAppHash(ctx context.Context, store vexoapp.StateStore, stateHeight types.Height) (types.Hash, bool, error) {
+	return certifiedAppHashes{ctx: ctx, store: store}.CertifiedAppHash(stateHeight)
+}
+
+func (hashes certifiedAppHashes) CertifiedAppHash(stateHeight types.Height) (types.Hash, bool, error) {
+	encoded, err := hashes.store.Get(hashes.ctx, ModuleName, certifiedAppHashKey(stateHeight))
+	if errors.Is(err, vexostore.ErrKeyNotFound) {
+		return types.Hash{}, false, nil
+	}
+	if err != nil {
+		return types.Hash{}, false, err
+	}
+	hash, _, err := decodeCertifiedAppHash(encoded)
+	if err != nil {
+		return types.Hash{}, false, err
+	}
+	return hash, true, nil
 }

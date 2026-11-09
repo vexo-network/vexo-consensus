@@ -134,3 +134,4 @@ In diesem Anhang werden technische Namen festgehalten, die mit der kanonischen V
 - `vexo_post_commit_reconciliation_failures > 0`
 - `timeout_propose`
 - `max_txs`
+- `vexo_retention_prune_failures`

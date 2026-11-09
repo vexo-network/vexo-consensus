@@ -99,13 +99,21 @@
 
 블록 헤더의 `AppHash`는 블록 `ValidatorSetHeight - 1`을 실행한 뒤의 state를 커밋합니다(그 값이 `0`이면 genesis state). 즉 헤더의 validator set을 가져온 state입니다. 값은 application app hash와 그 블록 이후 `validator_registry` 네임스페이스 루트의 `HeaderAppHash`이므로, evidence 판정에 쓰이는 과거 높이의 validator set도 application state와 함께 커밋됩니다. proposer가 이 값을 채우고, validator는 자기 state의 같은 높이 app hash와 일치하는 proposal에만 투표하며, 노드는 `AppHash`가 자기 state와 다른 인증 블록을 실행하지 않습니다. 따라서 인증서는 그 높이의 복제 state 전체를 보증하고, state sync 노드는 snapshot을 이 값과 대조합니다.
 
+다른 app hash를 담은 서명된 proposal을 거부한 validator는 proposer를 `app_hash` 사유의 invalid-proposal evidence로 신고합니다. slashing 모듈은 각 블록 헤더가 커밋한 app hash를 state 높이별로 기록해 두고(evidence 유효 기간 동안 유지), evidence를 이 인증된 값과 대조해 판정합니다. 따라서 모든 노드가 같은 결론을 내리며, 자기 state가 어긋난 노드는 정직한 proposer를 처벌할 수 없습니다.
+
+노드는 복원한 snapshot 아래나 보관 기간(retention) 아래의 state를 갖고 있지 않지만, 헤더는 체인이 커밋을 증명할 때까지 자기 validator set의 state를 계속 가리키므로 그런 state를 가리킬 수 있습니다. 이때 노드는 slashing 모듈이 그 state에 대해 인증된 값으로 기록한 `AppHash`를 사용해, state를 가진 노드와 똑같이 그 헤더에 투표하고 실행합니다.
+
+## 최종성 규칙
+
+Vexo는 global view 위의 two-chain commit rule(`consensus.TwoChainCommitRule`)을 씁니다. 블록 `B`는 `QC(B)`가 view `b`에서 만들어지고, 자식 `C`가 `QC(B)`를 justify certificate로 담고, `QC(C)`가 바로 다음 view `b + 1`에서 만들어졌을 때 최종화됩니다. 최종 블록의 모든 조상도 최종입니다.
+
 ## 빈 블록과 라운드 회복
 
 `create_empty_blocks=false`이면 mempool이 비어 있을 때 height가 멈춰 보일 수 있습니다. 이는 정상 idle 상태입니다. 거래가 들어와도 노드는 현재 `(height, round)`의 결정적 proposer일 때만 제안하며, proposer가 아니라고 로컬에서 다른 round로 건너뛰지 않습니다. round는 유효한 timeout certificate 또는 certified finality 전환으로만 진행되고, 블록 실행·저장 오류는 timeout으로 처리되지 않습니다.
 
 ## 적응형 라운드 timeout
 
-`adaptive_round_timeout_enabled = true`이면 base timeout, proposal/vote/commit 처리 시간의 rolling p95, 진행 성공 여부, active peer 부족을 사용해 timeout을 계산합니다. timeout 발생 시 1.5배로 증가하고, 진행 성공 시 0.8배로 감소하며, 관측 처리 시간의 3배를 안전 예산으로 반영해 base와 base의 8배 사이로 제한합니다. 이 정책은 safe-vote, proposer, quorum power, QC, three-chain finality를 바꾸지 않습니다.
+`adaptive_round_timeout_enabled = true`이면 base timeout, proposal/vote/commit 처리 시간의 rolling p95, 진행 성공 여부, active peer 부족을 사용해 timeout을 계산합니다. timeout 발생 시 1.5배로 증가하고, 진행 성공 시 0.8배로 감소하며, 관측 처리 시간의 3배를 안전 예산으로 반영해 base와 base의 8배 사이로 제한합니다. 이 정책은 safe-vote, proposer, quorum power, QC, two-chain commit rule을 바꾸지 않습니다.
 
 ## 복구 최종성 gate
 
@@ -151,3 +159,7 @@ Proposal은 `chain_id`와 height로 salt를 만들고 signer별 transaction chai
 - `actual_hash` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `actual_time_unix_nano` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `parity_shards` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `C.PreviousBlockHash = hash(B)` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `C.height = B.height + 1` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `da_mismatch` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `missing_data` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http/httptest"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"testing"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/finality"
 	vexonode "github.com/vexo-network/vexo-consensus/node"
 	vexorpc "github.com/vexo-network/vexo-consensus/rpc"
+	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/stateproof"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -124,7 +126,7 @@ func TestSnapshotSyncRestoresTheStateOfTheTrustedBlock(t *testing.T) {
 
 	home := freshSnapshotHome(t)
 	var output bytes.Buffer
-	args := append([]string{"sync", "--home", home, "--url", server.URL + "/snapshot/export"}, chain.trustFlags()...)
+	args := append([]string{"sync", "--home", home, "--url", server.URL}, chain.trustFlags()...)
 	if err := runSnapshot(&output, args); err != nil {
 		t.Fatal(err)
 	}
@@ -167,6 +169,48 @@ func TestSnapshotSyncRestoresTheStateOfTheTrustedBlock(t *testing.T) {
 			}
 		}
 	}
+	// The restored node continues the chain from the block of the state.
+	sourceBlock, err := runtime.Store.BlockByHeight(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := target.BlockByHeight(ctx, 1)
+	if err != nil || block.Hash != sourceBlock.Hash || consensus.HashBlock(block.Block) != sourceBlock.Hash || block.QuorumCert != nil {
+		t.Fatalf("expected block 1 restored without a certificate, got %+v (%v)", block, err)
+	}
+	target.Close()
+
+	inputs, err := loadStartInputs(home, "", "", "", nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := buildStartNode(inputs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restored.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Stop(context.Background())
+	if _, err := restored.StepConsensus(ctx, 1<<20); err != nil {
+		t.Fatalf("expected the restored node to step from the restored block, got %v", err)
+	}
+	// The restored node holds no state below the snapshot, yet judges headers that name the
+	// genesis state, as blocks 1 and 2 did, by the app hash the chain certified for it.
+	restoredRuntime, err := restored.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := runtime.HeaderAppHashAt(ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := restoredRuntime.HeaderAppHashAt(ctx, 0); err != nil || got != want {
+		t.Fatalf("expected the restored node to know the certified genesis app hash %x, got %x (%v)", want, got, err)
+	}
+	if _, err := restoredRuntime.HeaderAppHashAt(ctx, 5); !errors.Is(err, vexoruntime.ErrAppHashUnavailable) {
+		t.Fatalf("expected a state no block named to be unavailable, got %v", err)
+	}
 }
 
 // Whoever serves a snapshot is not trusted: a snapshot is restored only when it is the state the
@@ -174,22 +218,21 @@ func TestSnapshotSyncRestoresTheStateOfTheTrustedBlock(t *testing.T) {
 func TestSnapshotRestoreRefusesASnapshotThatIsNotTheStateOfTheTrustedBlock(t *testing.T) {
 	ctx := context.Background()
 	chain := startCommittedSnapshotChain(t)
-	snapshot, err := chain.node.StateSnapshot(ctx, chain.anchor.Height)
-	if err != nil {
-		t.Fatal(err)
-	}
-	genuine := snapshotDocumentFromState(snapshot.ChainID, snapshot.Namespaces, snapshot.Header, snapshot.State, snapshot.StateRoots, snapshot.KV)
+	genuine := readWholeSnapshot(t, chain.node, chain.anchor.Height)
 	home := freshSnapshotHome(t)
 	cfg, err := loadNodeConfig(filepath.Join(home, configFileName))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := verifySnapshotTrust(ctx, genuine, cfg.Chain, chain.trust()); err != nil {
-		t.Fatalf("expected the genuine snapshot to be the state of the trusted block, got %v", err)
+	if err := verifySnapshotTrust(genuine.snapshotManifest, chain.trust()); err != nil {
+		t.Fatalf("expected the genuine snapshot to be anchored to the trusted block, got %v", err)
+	}
+	if err := checkSnapshotManifest(ctx, genuine.snapshotManifest, cfg.Chain); err != nil {
+		t.Fatalf("expected the genuine snapshot to be the state its anchor commits, got %v", err)
 	}
 
-	// reroot recomputes the roots and the checksum, so only the trust check can catch the change.
-	reroot := func(document snapshotDocument) snapshotDocument {
+	// reroot recomputes the roots of the pairs, so only the app hash they give can catch the change.
+	reroot := func(document wholeSnapshot) wholeSnapshot {
 		for index, root := range document.StateRoots {
 			var pairs []stateproof.Pair
 			for _, pair := range document.KV {
@@ -203,11 +246,13 @@ func TestSnapshotRestoreRefusesASnapshotThatIsNotTheStateOfTheTrustedBlock(t *te
 			}
 			document.StateRoots[index].Root = value
 		}
-		return snapshotDocumentFromState(document.ChainID, document.Modules, document.Header, document.State, document.StateRoots, document.KV)
+		return document
 	}
-	clone := func() snapshotDocument {
+	clone := func() wholeSnapshot {
 		document := genuine
 		document.StateRoots = append([]store.StateRootRecord(nil), genuine.StateRoots...)
+		document.Links = append([]types.Header(nil), genuine.Links...)
+		document.Block.Block.Txs = append([]types.Tx(nil), genuine.Block.Block.Txs...)
 		document.KV = make([]store.KVPair, len(genuine.KV))
 		for index, pair := range genuine.KV {
 			document.KV[index] = store.KVPair{Namespace: pair.Namespace, Key: append([]byte(nil), pair.Key...), Value: append([]byte(nil), pair.Value...)}
@@ -215,18 +260,25 @@ func TestSnapshotRestoreRefusesASnapshotThatIsNotTheStateOfTheTrustedBlock(t *te
 		return document
 	}
 	cases := map[string]struct {
-		document snapshotDocument
+		document wholeSnapshot
 		trust    snapshotTrust
 	}{}
 	cases["another trusted block"] = struct {
-		document snapshotDocument
+		document wholeSnapshot
 		trust    snapshotTrust
 	}{genuine, snapshotTrust{Height: chain.anchor.Height, Hash: types.Hash{1}}}
+
+	minted := clone()
+	minted.KV = append(minted.KV, store.KVPair{Namespace: "bank", Key: []byte("balance/mallory"), Value: []byte("1000000")})
+	cases["pairs with a minted balance"] = struct {
+		document wholeSnapshot
+		trust    snapshotTrust
+	}{minted, chain.trust()}
 
 	forged := clone()
 	forged.KV = append(forged.KV, store.KVPair{Namespace: "bank", Key: []byte("balance/mallory"), Value: []byte("1000000")})
 	cases["a minted balance"] = struct {
-		document snapshotDocument
+		document wholeSnapshot
 		trust    snapshotTrust
 	}{reroot(forged), chain.trust()}
 
@@ -238,7 +290,7 @@ func TestSnapshotRestoreRefusesASnapshotThatIsNotTheStateOfTheTrustedBlock(t *te
 		}
 	}
 	cases["a validator set planted for a later height"] = struct {
-		document snapshotDocument
+		document wholeSnapshot
 		trust    snapshotTrust
 	}{reroot(registry), chain.trust()}
 
@@ -306,7 +358,7 @@ func TestSnapshotRestoreRefusesASnapshotThatIsNotTheStateOfTheTrustedBlock(t *te
 		t.Fatalf("expected the forged registry to hold another set for height 1, got %v", err)
 	}
 	cases["a forged validator set of a past height"] = struct {
-		document snapshotDocument
+		document wholeSnapshot
 		trust    snapshotTrust
 	}{reroot(history), chain.trust()}
 
@@ -315,30 +367,127 @@ func TestSnapshotRestoreRefusesASnapshotThatIsNotTheStateOfTheTrustedBlock(t *te
 	extra.KV = append(extra.KV, store.KVPair{Namespace: "evm_receipts", Key: []byte("receipt"), Value: []byte("forged")})
 	extra.StateRoots = append(extra.StateRoots, store.StateRootRecord{Height: extra.State.Height, Namespace: "evm_receipts"})
 	cases["a namespace outside the replicated state"] = struct {
-		document snapshotDocument
+		document wholeSnapshot
 		trust    snapshotTrust
 	}{reroot(extra), chain.trust()}
 
+	// The state record and the block a restored node continues from are bound to the anchor too.
+	lastBlock := clone()
+	lastBlock.State.LastBlockHash = types.Hash{0xee}
+	cases["a state record naming another last block"] = struct {
+		document wholeSnapshot
+		trust    snapshotTrust
+	}{lastBlock, chain.trust()}
+	appHash := clone()
+	appHash.State.AppHash = types.Hash{0xee}
+	cases["a state record naming another app hash"] = struct {
+		document wholeSnapshot
+		trust    snapshotTrust
+	}{appHash, chain.trust()}
+	block := clone()
+	block.Block.Block.Txs = append(block.Block.Block.Txs, types.Tx("bank:send:forged"))
+	cases["a block of the state with a forged transaction"] = struct {
+		document wholeSnapshot
+		trust    snapshotTrust
+	}{block, chain.trust()}
+	rootless := clone()
+	rootless.StateRoots = rootless.StateRoots[1:]
+	cases["a namespace without its root"] = struct {
+		document wholeSnapshot
+		trust    snapshotTrust
+	}{rootless, chain.trust()}
+	link := clone()
+	link.Links[0].TimeUnixNano++
+	cases["a forged link to the anchor"] = struct {
+		document wholeSnapshot
+		trust    snapshotTrust
+	}{link, chain.trust()}
+
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
-			target, err := store.OpenLevelDB(filepath.Join(t.TempDir(), "target"))
+			dir := filepath.Join(t.TempDir(), "target")
+			local, err := store.OpenLevelDB(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := local.Set(ctx, "bank", []byte("local"), []byte("kept")); err != nil {
+				t.Fatal(err)
+			}
+			local.Close()
+			_, _, err = restoreSnapshot(ctx, dir, testCase.document.source(), cfg.Chain, testCase.trust, nil)
+			if !errors.Is(err, ErrUntrustedSnapshot) {
+				t.Fatalf("expected the snapshot to be refused, got %v", err)
+			}
+			target, err := store.OpenLevelDB(dir)
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer target.Close()
-			err = restoreSnapshotDocumentWithContext(ctx, target, testCase.document, cfg.Chain, testCase.trust)
-			if !errors.Is(err, ErrUntrustedSnapshot) {
-				t.Fatalf("expected the snapshot to be refused, got %v", err)
-			}
 			if _, err := target.LatestState(ctx); !errors.Is(err, store.ErrStateNotFound) {
 				t.Fatalf("a refused snapshot must write nothing, got %v", err)
+			}
+			if value, err := target.Get(ctx, "bank", []byte("local")); err != nil || string(value) != "kept" {
+				t.Fatalf("a refused snapshot must leave the store as it was, got %q %v", value, err)
 			}
 		})
 	}
 
-	if err := runSnapshot(&bytes.Buffer{}, []string{"sync", "--home", home, "--url", "http://127.0.0.1:1/snapshot/export"}); !errors.Is(err, ErrUntrustedSnapshot) {
+	if err := runSnapshot(&bytes.Buffer{}, []string{"sync", "--home", home, "--url", "http://127.0.0.1:1"}); !errors.Is(err, ErrUntrustedSnapshot) {
 		t.Fatalf("expected snapshot sync without a trusted block to be refused, got %v", err)
 	}
+}
+
+// wholeSnapshot is a snapshot held whole in memory, served one page per namespace, so a test can
+// change any part of it.
+type wholeSnapshot struct {
+	snapshotManifest
+	KV []store.KVPair
+}
+
+// readWholeSnapshot reads the snapshot node serves for block blockHeight through its RPC handler.
+func readWholeSnapshot(t *testing.T, node *vexonode.Node, blockHeight types.Height) wholeSnapshot {
+	t.Helper()
+	server := httptest.NewServer(vexorpc.NewHandler(node))
+	defer server.Close()
+	source, err := newHTTPSnapshotSource(server.URL, blockHeight, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := source.Manifest(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := wholeSnapshot{snapshotManifest: manifest}
+	if err := readSnapshotPages(context.Background(), source, manifest, func(page snapshotPage) error {
+		snapshot.KV = append(snapshot.KV, page.Pairs...)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return snapshot
+}
+
+func (snapshot wholeSnapshot) source() snapshotSource {
+	return wholeSnapshotSource{snapshot}
+}
+
+type wholeSnapshotSource struct {
+	snapshot wholeSnapshot
+}
+
+func (source wholeSnapshotSource) Manifest(context.Context) (snapshotManifest, error) {
+	return source.snapshot.snapshotManifest, nil
+}
+
+func (source wholeSnapshotSource) Page(_ context.Context, namespace string, _ []byte) (snapshotPage, error) {
+	var pairs []store.KVPair
+	for _, pair := range source.snapshot.KV {
+		if pair.Namespace == namespace {
+			pairs = append(pairs, pair)
+		}
+	}
+	sort.Slice(pairs, func(i, j int) bool { return bytes.Compare(pairs[i].Key, pairs[j].Key) < 0 })
+	return snapshotPage{SchemaVersion: vexorpc.SnapshotSchemaVersion, Height: uint64(source.snapshot.Header.Height), Namespace: namespace, Pairs: pairs}, nil
 }
 
 // registryPairs is a read-only validator registry store over the key-value pairs of a snapshot.

@@ -1088,7 +1088,7 @@ func TestLoadStartRuntimeConfigParsesStateSyncConfig(t *testing.T) {
 	networkDocument := defaultNetworkConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
 	networkDocument.StateSync = runtimeStateSyncConfig{
 		Enabled:           true,
-		SnapshotURLs:      []string{"http://127.0.0.1:26657/v1/snapshot/export"},
+		SnapshotURLs:      []string{"http://127.0.0.1:26657/v1"},
 		Timeout:           "7s",
 		MinHeight:         100,
 		RequireFresh:      true,
@@ -1107,7 +1107,7 @@ func TestLoadStartRuntimeConfigParsesStateSyncConfig(t *testing.T) {
 	}
 	if !cfg.StateSync.Enabled ||
 		len(cfg.StateSync.SnapshotURLs) != 1 ||
-		cfg.StateSync.SnapshotURLs[0] != "http://127.0.0.1:26657/v1/snapshot/export" ||
+		cfg.StateSync.SnapshotURLs[0] != "http://127.0.0.1:26657/v1" ||
 		cfg.StateSync.Timeout != "7s" ||
 		cfg.StateSync.MinHeight != 100 ||
 		!cfg.StateSync.RequireFresh ||
@@ -1442,5 +1442,39 @@ func writeTestJSON(t *testing.T, path string, value any) {
 	encoder := json.NewEncoder(file)
 	if err := encoder.Encode(value); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A new home keeps node.DefaultRetainBlocks, a config without retain_blocks keeps it too,
+// retain_blocks 0 keeps every height, and a retention too short to serve a snapshot is refused.
+func TestLoadNodeConfigReadsTheBlockRetention(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, configFileName)
+	load := func(document configDocument) (vexonode.Config, error) {
+		t.Helper()
+		writeTestJSON(t, path, document)
+		return loadNodeConfig(path)
+	}
+	document := defaultConfigDocument("vexo-test", filepath.Join(home, "data"), "alice")
+	if document.RetainBlocks == nil || *document.RetainBlocks != vexonode.DefaultRetainBlocks {
+		t.Fatalf("expected a new home to write retain_blocks %d, got %v", vexonode.DefaultRetainBlocks, document.RetainBlocks)
+	}
+	for _, test := range []struct {
+		retain *uint64
+		want   uint64
+	}{
+		{retain: nil, want: vexonode.DefaultRetainBlocks},
+		{retain: new(uint64(0)), want: 0},
+		{retain: new(vexonode.MinRetainBlocks), want: vexonode.MinRetainBlocks},
+	} {
+		document.RetainBlocks = test.retain
+		cfg, err := load(document)
+		if err != nil || cfg.RetainBlocks != test.want {
+			t.Fatalf("retain_blocks %v: got %d (%v), want %d", test.retain, cfg.RetainBlocks, err, test.want)
+		}
+	}
+	document.RetainBlocks = new(vexonode.MinRetainBlocks - 1)
+	if _, err := load(document); !errors.Is(err, vexonode.ErrRetainBlocksTooFew) {
+		t.Fatalf("expected a short retention to be refused, got %v", err)
 	}
 }

@@ -36,7 +36,7 @@ type commitFixture struct {
 
 func newCommitFixture(t *testing.T) *commitFixture {
 	t.Helper()
-	cfg := DefaultConfig("vexo-test", t.TempDir())
+	cfg := UnsafeTestConfig("vexo-test", t.TempDir())
 	cfg.ValidatorID = "alice"
 	cfg.Chain.P2P.InitialScore = gossipInitialScore
 	cfg.Chain.P2P.ValidMessageReward = gossipValidReward

@@ -310,7 +310,7 @@ func (module *auxReplayModule) DeliverTx(ctx vexoapp.Context, tx types.Tx) types
 func (module *auxReplayModule) EndBlock(ctx vexoapp.Context) error { return nil }
 
 func TestRuntimeReplayRejectsInvalidRange(t *testing.T) {
-	runtime, err := NewEphemeral(config.Default("vexo-test"), noopApp{}, nil, nil)
+	runtime, err := NewEphemeralForTesting(config.Default("vexo-test"), noopApp{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

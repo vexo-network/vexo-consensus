@@ -42,23 +42,25 @@ Consensus state is keyed by:
 - A QC is valid only when signer voting power reaches `>= 2/3` of the validator set.
 - QCs must contain unique known signers and the recomputed voting power must match the QC voting power when present.
 - A block header's `AppHash` commits the state after executing block `ValidatorSetHeight - 1` (the genesis state when that is `0`), the state its validator set was taken from: it is `HeaderAppHash` of the application's app hash and the root of the `validator_registry` namespace after that block, so the validator sets of past heights, which evidence is judged against, are committed with the application state. The proposer stamps it, a validator votes only for a proposal whose `AppHash` matches its own state at that height, and a node refuses to execute a certified block whose `AppHash` disagrees with its state. A certificate therefore vouches for the replicated state of that height, which is what a state-synced node checks a snapshot against.
+- A validator that refuses a signed proposal because its header names another `AppHash` reports the proposer with invalid-proposal evidence of reason `app_hash`. The slashing module records, per state height, the `AppHash` each executed block header committed, for as long as evidence about that block is punishable, and judges the evidence against that certified value, so every node decides it alike and a node whose own state diverged cannot frame an honest proposer.
+- A node holds no state below the snapshot it was restored from or below its retention, yet a header keeps naming the state of its validator set until the chain proves a commit, so a header may name such a state. For it the node uses the `AppHash` the slashing module recorded as certified for that state: it votes on, and executes, those headers as the nodes holding the state do.
 
 ## Finality Rule
 
-Vexo uses three-chain finality:
+Vexo uses a two-chain commit rule over global views (`consensus.TwoChainCommitRule`):
 
-- If block `B3` has QC for `B2`, and `B2` has QC for `B1`, then `B1` is finalized.
+- Block `B` is finalized when `QC(B)` formed in view `b`, its child `C` (`C.PreviousBlockHash = hash(B)`, `C.height = B.height + 1`) carries `QC(B)` as its justify certificate, and `QC(C)` formed in the next view `b + 1`. Every ancestor of a final block is final.
 - Finalized block hash is recorded as `last_finalized`.
 - Conflicting finalization must be impossible unless at least one validator equivocates and produces accountable evidence.
 
-The commit rule validates the full height/hash binding before accepting the three-chain decision: `B3.height = B2.height + 1`, `B2.height = B1.height + 1`, `B3`'s block QC certifies `B2`, and `B2`'s parent QC certifies `B1`. A QC with a matching hash but the wrong certified height is invalid for finality.
+The commit rule validates the full height/hash binding before accepting the decision. A QC with a matching hash but the wrong certified height, or a child QC that is not from the view directly after the block's, is invalid for finality.
 
 ## Execution Commit Policy
 
 Node execution is configurable and explicit:
 
 - `execution_commit = "qc"`: execute and persist a QC-certified block as soon as its commit certificate verifies.
-- `execution_commit = "finalized"`: execute and persist only the finalized ancestor selected by the three-chain rule.
+- `execution_commit = "finalized"`: execute and persist only the finalized ancestor selected by the two-chain commit rule.
 
 In both modes, finality proofs remain tied to the consensus finality rule and the validator set at the proof height. `block_committed` means the application state boundary has committed according to the configured policy; it does not by itself redefine light-client finality.
 
@@ -123,7 +125,7 @@ Invalid proposal evidence is reason-specific:
 - tx-validity proofs must include the deterministic expected transaction-result hash, the proposed transaction-set hash, and a verifier message.
 - proposer-signature proofs still pass normal proposal envelope checks, then fail domain-separated proposer signature verification during slashing validation.
 
-Current invalid-proposal evidence is a runtime-verifiable mismatch proof format. DA mismatch and missing-data evidence are self-contained. Validator-set-hash, app-hash, timestamp, and transaction-validity evidence deliberately fail closed unless the runtime injects the height-specific verification context. Validator-set-hash evidence is checked against the height-specific validator set. App-hash evidence can be applied when the node has the committed state record for the evidence height and can inject that expected app hash into the slashing verifier. Timestamp evidence uses the committed block header at the evidence height when retained; otherwise it fails closed instead of guessing. Transaction-validity evidence is fail-closed: it must bind the proposed transaction-set hash and an independently computed deterministic transaction-result hash before slashing can apply. Context-bound invalid-proposal evidence may also carry a native Merkle query proof; the verifier checks chain ID, evidence height, expected state root, namespace, key, existence, and value before the penalty path can continue. Application chains can register consensus-critical custom invalid-proposal reasons with `RegisterInvalidProposalVerifier` or `RegisterInvalidProposalVerifierWithOptions`; custom verifiers are part of the chain binary and should be treated like consensus code.
+Invalid-proposal evidence proves a proposal's header carries another hash than the one its height requires, and every reason is decidable from data every node holds alike. `da_mismatch` and `missing_data` evidence is decided from the proposal's own transactions. `validator_set_hash` evidence is judged against the validator set of the evidence height. `app_hash` evidence is judged against the app hash certified blocks committed for the state the proposal names, which replicated state records (see above); without that record the evidence is refused. Faults that would need other chain data or a re-execution, such as a bad timestamp or an invalid transaction, are not evidence: nodes could judge them differently, in particular one that pruned the data, and the chain refuses a proof that names them.
 
 The consensus/data-availability hash is the Merkle root of canonical length-prefixed transaction chunks.
 Nodes can verify individual chunk samples against that root and recover bounded missing chunks with the
@@ -133,5 +135,3 @@ The data-availability package also exposes deterministic one-dimensional and two
 planning plus sample-report verification against chunk inclusion proofs. The 2D planner samples
 deterministic row and column crosses over the configured chunk grid, so operators can tune large-network
 sampling policy without replacing the commitment or proof format.
-
-The native query-proof binding is intentionally narrow: it proves namespace/key membership or non-membership against a retained Vexo state root. Chains can add richer reason-specific proof decoders through the invalid-proposal verifier registry, and context-required custom reasons can force `VerifyInvalidProposalEvidenceWithBoundContext` before slashing. The default invalid-proposal path no longer accepts context-bound hash claims without optional state-root proof verification when the runtime requires it.

@@ -221,14 +221,14 @@ vexod start --home .vexo-archive-1
 
 `network_config.json` P2P 설정에는 `auth_replay_path`, `require_auth_replay_store` 및 `dial_timeout`이 포함됩니다. 생성된 기본값은 nonce 재생 증거를 `data/p2p_auth_replay.jsonl`에 기록하고 `10s` 아웃바운드 다이얼 시간 초과를 사용합니다. 개인 루프백 테스트의 경우 재생 저장소는 대부분 무해한 장부입니다. 공개 인증된 P2P의 경우 다시 시작한 후 캡처된 서명된 핸드셰이크 임시 값이 재생되는 것을 방지하기 때문에 안전 요구 사항입니다. `dial_timeout`은 TLS, 서명된 핸드셰이크 확인 및 지역 간 대기 시간을 위해 충분히 길어야 합니다. 너무 낮게 설정하면 건강한 피어가 불안정해 보이고 다시 시작한 후 활성 상태가 느려질 수 있습니다.
 
-`network_config.json`은(는) 시작 상태 동기화도 소유합니다. 이는 아카이브 노드, 교체 유효성 검사기 또는 깨끗한 시스템에 복원된 노드에 유용합니다. `state_sync.enabled`가 true인 경우 `vexod start`는 `state_sync.snapshot_urls` 각각에 신뢰 블록 `state_sync.trust_height` / `state_sync.trust_hash`에 고정된 스냅샷을 요청하고(URL에 `height` 쿼리 파라미터가 붙습니다), 그 블록의 state임이 증명되는 첫 스냅샷만 복원합니다. 스냅샷 헤더의 해시가 `trust_hash`와 같아야 하고, KV 쌍의 네임스페이스 루트로 다시 계산한 app hash가 헤더가 커밋하는 값(블록 `ValidatorSetHeight - 1` 실행 후 state와 그 `validator_registry` 루트이므로 모든 과거 높이의 validator set도 함께 묶입니다)과 같아야 하며, 복제 state의 네임스페이스만 정확히 담아야 합니다. 이를 통과해야 LevelDB로 복원하고 인덱스를 다시 빌드한 다음 노드를 시작합니다. 따라서 스냅샷 소스는 신뢰하지 않으며, 신뢰 블록 해시는 신뢰하는 validator나 직접 운영하는 노드처럼 다른 경로에서 받아야 합니다. `vexod snapshot restore`, `chunk-restore`, `sync`도 같은 신뢰를 `--trust-height`, `--trust-hash`로 받고, `vexod snapshot export --height`는 지정한 커밋 블록에 고정된 스냅샷을 내보냅니다. 소스는 그 state를 버전 히스토리에서 읽으므로, state를 아직 pruning하지 않은 신뢰 블록만 제공하고 그 외에는 `404 snapshot not found`를 반환합니다. 최근 신뢰 블록을 고르거나 archive 노드처럼 히스토리를 보관하는 소스를 사용하세요. export 빌드는 전체 state를 복사하므로, 소스는 커밋 블록마다 최신 블록의 export와 이전 블록의 export 하나만 빌드합니다. 몇 개의 export를 캐시하고, 추가 빌드가 필요한 요청에는 다음 블록이 커밋될 때까지 `429`를 반환합니다. 로컬 상태가 이미 `state_sync.min_height`을 충족하고 `state_sync.trust_local_higher`이 true인 경우 시작 시 `state_sync_skipped`을 기록하고 로컬 저장소를 유지합니다.
+`network_config.json`은(는) 시작 상태 동기화도 소유합니다. 이는 아카이브 노드, 교체 유효성 검사기 또는 깨끗한 시스템에 복원된 노드에 유용합니다. `state_sync.enabled`가 true인 경우 `vexod start`는 `state_sync.snapshot_urls` 각각에 신뢰 블록 `state_sync.trust_height` / `state_sync.trust_hash`에 고정된 스냅샷을 요청하고(각 URL은 노드의 RPC URL이며, 먼저 `/snapshot/manifest`에서 그 블록의 manifest를, 이어서 `/snapshot/pairs`에서 모든 네임스페이스의 쌍을 페이지 단위로 받습니다), 그 블록의 state임이 증명되는 첫 스냅샷만 복원합니다. 스냅샷 헤더의 해시가 `trust_hash`와 같아야 하고, KV 쌍의 네임스페이스 루트로 다시 계산한 app hash가 state 레코드의 값 및 헤더가 커밋하는 값(블록 `ValidatorSetHeight - 1` 실행 후 state와 그 `validator_registry` 루트이므로 모든 과거 높이의 validator set도 함께 묶입니다)과 같아야 하며, 복제 state의 네임스페이스만 정확히 담아야 하고, 함께 담긴 헤더들이 신뢰 블록에서 state의 블록까지 해시로 이어져야 합니다. 노드는 그 블록에서 체인을 이어갑니다. 이를 통과해야 LevelDB로 복원하고 인덱스를 다시 빌드한 다음 노드를 시작합니다. 따라서 스냅샷 소스는 신뢰하지 않으며, 신뢰 블록 해시는 신뢰하는 validator나 직접 운영하는 노드처럼 다른 경로에서 받아야 합니다. `vexod snapshot restore`와 `sync`도 같은 신뢰를 `--trust-height`, `--trust-hash`로 받고, `vexod snapshot export --height`는 지정한 커밋 블록에 고정된 스냅샷을 내보냅니다. 소스는 그 state를 버전 히스토리에서 읽으므로, state를 아직 pruning하지 않은 신뢰 블록만 제공하고 그 외에는 아직 제공하는 가장 낮은 블록을 `earliest_height`로 담아 `410 Gone`을 반환합니다. 최근 신뢰 블록을 고르거나 archive 노드처럼 히스토리를 보관하는 소스를 사용하세요. 어느 쪽도 state를 메모리에 통째로 올리지 않습니다. 소스는 각 페이지를 그 state의 버전에서 읽고, 복원하는 노드는 페이지를 staging 저장소로 가져온 뒤 모든 네임스페이스가 스냅샷이 명시한 루트를 가질 때만 기존 저장소를 교체하므로, 거부되거나 중단된 복원은 저장소를 그대로 둡니다. `state_sync.max_snapshot_bytes`는 모든 요청을 합친 스냅샷 전체 바이트를 제한합니다. 로컬 상태가 이미 `state_sync.min_height`을 충족하고 `state_sync.trust_local_higher`이 true인 경우 시작 시 `state_sync_skipped`을 기록하고 로컬 저장소를 유지합니다.
 
 예 `state_sync` 블록:
 ```json
 {
   "state_sync": {
     "enabled": true,
-    "snapshot_urls": ["https://snapshots.example.com/vexo-chain/latest.json"],
+    "snapshot_urls": ["https://rpc.example.com/v1"],
     "timeout": "30s",
     "min_height": 1000000,
     "require_fresh": true,
@@ -288,10 +288,13 @@ VRF 키는 합의 서명자가 아닙니다. 이는 VRF 지원 위원회 선택�
   "network_config_path": "network_config.json",
   "consensus_config_path": "consensus_config.json",
   "mempool_config_path": "mempool_config.json",
-  "log_config_path": "log_config.json"
+  "log_config_path": "log_config.json",
+  "retain_blocks": 1209600
 }
 ```
 각 경로는 절대 경로이거나 노드 홈에 상대적인 경로일 수 있습니다. 생략하면 `vexod`은 기본 `<home>/<name>_config.json` 파일을 사용합니다.
+
+`retain_blocks`는 노드가 블록, 상태, 상태 이력, EVM 영수증을 보관하는 최근 높이의 수입니다. 노드는 커밋하면서 보관량보다 1% 더 많은 높이를 갖게 되면 오래된 높이를 정리(prune)하므로 저장소 크기가 제한됩니다. 이 필드가 없으면 증거가 처벌 가능한 기간인 1,209,600개 높이를 보관하고, `0`은 모든 높이를 보관합니다(아카이브 노드). 정리하는 노드는 최소 1,026개 높이를 보관하므로 가장 이른 높이의 상태가 항상 인증된 블록에 앵커링되고 스냅샷을 제공할 수 있습니다. 정리가 실패해도 합의는 멈추지 않으며, `vexo_retention_prune_failures`에 집계되고 다음 커밋에서 다시 시도합니다.
 
 예 `module_config.json`:
 ```json
@@ -686,7 +689,6 @@ vexod network init \
 - `trust_hash` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `ValidatorSetHeight - 1` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `vexod snapshot restore` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
-- `chunk-restore` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `--trust-height` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `--trust-hash` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `vexod snapshot export --height` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.

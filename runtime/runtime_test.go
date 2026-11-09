@@ -21,7 +21,7 @@ import (
 
 func TestRuntimeNewWiresModules(t *testing.T) {
 	cfg := config.Default("vexo-test")
-	runtime, err := NewEphemeral(cfg, noopApp{}, []validator.Validator{
+	runtime, err := NewEphemeralForTesting(cfg, noopApp{}, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
 	}, map[types.Address]types.VotingPower{"alice": 1})
 	if err != nil {
@@ -44,14 +44,14 @@ func TestRuntimeNewRequiresDurableStore(t *testing.T) {
 }
 
 func TestRuntimeNewEphemeralRejectsNetworkLikeChainID(t *testing.T) {
-	_, err := NewEphemeral(config.Default("vexo-chain"), noopApp{}, nil, nil)
+	_, err := NewEphemeralForTesting(config.Default("vexo-chain"), noopApp{}, nil, nil)
 	if !errors.Is(err, ErrEphemeralRuntimeNotAllowed) {
 		t.Fatalf("expected ephemeral runtime opt-in error, got %v", err)
 	}
 }
 
 func TestRuntimeRejectsInvalidConfig(t *testing.T) {
-	_, err := NewEphemeral(config.Default(""), noopApp{}, nil, nil)
+	_, err := NewEphemeralForTesting(config.Default(""), noopApp{}, nil, nil)
 	if !errors.Is(err, config.ErrMissingChainID) {
 		t.Fatalf("expected missing chain id, got %v", err)
 	}
@@ -60,7 +60,7 @@ func TestRuntimeRejectsInvalidConfig(t *testing.T) {
 func TestRuntimeRejectsUnsupportedCryptoBackend(t *testing.T) {
 	cfg := config.Default("vexo-test")
 	cfg.Crypto.Backend = "unknown"
-	_, err := NewEphemeral(cfg, noopApp{}, nil, nil)
+	_, err := NewEphemeralForTesting(cfg, noopApp{}, nil, nil)
 	if !errors.Is(err, config.ErrInvalidConfig) {
 		t.Fatalf("expected invalid config, got %v", err)
 	}
@@ -69,7 +69,7 @@ func TestRuntimeRejectsUnsupportedCryptoBackend(t *testing.T) {
 func TestRuntimeRejectsUnsupportedCommitteeBackend(t *testing.T) {
 	cfg := config.Default("vexo-test")
 	cfg.Committee.Backend = "unknown"
-	_, err := NewEphemeral(cfg, noopApp{}, nil, nil)
+	_, err := NewEphemeralForTesting(cfg, noopApp{}, nil, nil)
 	if !errors.Is(err, config.ErrInvalidConfig) {
 		t.Fatalf("expected invalid config, got %v", err)
 	}
@@ -87,7 +87,7 @@ func TestRuntimeBuildsVRFCommitteeSelector(t *testing.T) {
 	cfg.VRF.AdapterName = vexocrypto.VRFAdapterECVRFP256Name
 	cfg.VRF.Keys = map[string][]byte{base64.StdEncoding.EncodeToString(publicKey): privateKey}
 
-	runtime, err := NewEphemeral(cfg, noopApp{}, []validator.Validator{
+	runtime, err := NewEphemeralForTesting(cfg, noopApp{}, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: publicKey},
 	}, nil)
 	if err != nil {
@@ -113,7 +113,7 @@ func TestRuntimeDoesNotLoadVRFAdapterForDeterministicCommittee(t *testing.T) {
 	cfg.VRF.ProductionAdapter = true
 	cfg.VRF.AdapterName = "missing-vrf"
 
-	if _, err := NewEphemeral(cfg, noopApp{}, []validator.Validator{
+	if _, err := NewEphemeralForTesting(cfg, noopApp{}, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: []byte("alice-pub")},
 	}, nil); err != nil {
 		t.Fatalf("deterministic committee must not require VRF adapter: %v", err)
@@ -122,7 +122,7 @@ func TestRuntimeDoesNotLoadVRFAdapterForDeterministicCommittee(t *testing.T) {
 
 func TestRuntimeBuildsConsensusStateMachine(t *testing.T) {
 	cfg := config.Default("vexo-test")
-	runtime, err := NewEphemeral(cfg, noopApp{}, []validator.Validator{
+	runtime, err := NewEphemeralForTesting(cfg, noopApp{}, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
 	}, nil)
 	if err != nil {
@@ -144,7 +144,7 @@ func TestRuntimeBuildsConsensusStateMachine(t *testing.T) {
 // not executed yet is pending, not answered with the latest set.
 func TestRuntimeFinalityVerifierRefusesValidatorSetsItHasNotExecuted(t *testing.T) {
 	cfg := config.Default("vexo-test")
-	runtime, err := NewEphemeral(cfg, noopApp{}, []validator.Validator{
+	runtime, err := NewEphemeralForTesting(cfg, noopApp{}, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: []byte("pub")},
 	}, nil)
 	if err != nil {
@@ -402,7 +402,7 @@ func TestRuntimeWithStoreUsesDurableValidatorRegistry(t *testing.T) {
 func TestRuntimeBuildsEd25519FinalityVerifier(t *testing.T) {
 	cfg := config.Default("vexo-test")
 	cfg.Crypto.Backend = config.CryptoBackendEd25519
-	runtime, err := NewEphemeral(cfg, noopApp{}, []validator.Validator{
+	runtime, err := NewEphemeralForTesting(cfg, noopApp{}, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: []byte("pub")},
 	}, nil)
 	if err != nil {
@@ -420,7 +420,7 @@ func TestRuntimeBuildsEd25519FinalityVerifier(t *testing.T) {
 
 func TestRuntimeContextCancellation(t *testing.T) {
 	cfg := config.Default("vexo-test")
-	runtime, err := NewEphemeral(cfg, noopApp{}, []validator.Validator{
+	runtime, err := NewEphemeralForTesting(cfg, noopApp{}, []validator.Validator{
 		{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1},
 	}, nil)
 	if err != nil {

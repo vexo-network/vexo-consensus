@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 
+	vexoconfig "github.com/vexo-network/vexo-consensus/config"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/store"
 )
@@ -115,7 +116,7 @@ func buildDoctorDocument(home string, configPath string, genesisPath string, key
 	document.addCheck("latest_state", latestStateErr)
 	_, blockIndexErr := storage.BlockIndex(context.Background())
 	document.addCheck("block_index", blockIndexErr)
-	_, snapshotErr := buildSnapshotDocument(storage, cfg.Chain.ChainID, snapshotNamespaces(cfg.Chain.Application.Modules), 0)
+	snapshotErr := doctorSnapshotCheck(storage, cfg.Chain)
 	document.addCheck("snapshot", snapshotErr)
 	return document
 }
@@ -167,4 +168,15 @@ func failedDoctorChecks(checks []doctorCheckDocument) int {
 		}
 	}
 	return count
+}
+
+// doctorSnapshotCheck checks that the store serves the snapshot of its latest committed block: its
+// manifest, without reading the state.
+func doctorSnapshotCheck(storage store.Store, chain vexoconfig.Config) error {
+	source, err := newStoreSnapshotSource(storage, chain, 0)
+	if err != nil {
+		return err
+	}
+	_, err = source.Manifest(context.Background())
+	return err
 }

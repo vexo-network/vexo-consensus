@@ -5,6 +5,7 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/kvbatch"
 	"github.com/vexo-network/vexo-consensus/slashing"
+	"github.com/vexo-network/vexo-consensus/stateproof"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/upgrade"
 )
@@ -58,6 +59,8 @@ type PruneResult struct {
 	PrunedStateRoots uint64
 	// PrunedStateVersions counts the key versions no retained height reads.
 	PrunedStateVersions uint64
+	// PrunedStateTreeVersions counts the state tree node versions no retained height reads.
+	PrunedStateTreeVersions uint64
 }
 
 type RetentionPolicy struct {
@@ -117,6 +120,7 @@ func EvidenceKey(evidence slashing.Evidence) string {
 type Store interface {
 	KVStore
 	HistoricalSnapshotKVStore
+	StateTreeStore
 	SaveBlock(ctx context.Context, record BlockRecord) error
 	BlockByHeight(ctx context.Context, height types.Height) (BlockRecord, error)
 	BlockByHash(ctx context.Context, hash types.Hash) (BlockRecord, error)
@@ -151,6 +155,13 @@ type AppBlockCommitStore interface {
 	CommitBlockStateWithWrites(ctx context.Context, writes []KVWrite, block BlockRecord, state StateRecord, roots []StateRootRecord) error
 }
 
+// StateTreeStore keeps the state tree of every namespace, with the versions of its nodes, and
+// proves keys from it (see stateproof): of the current state, and of any retained height.
+type StateTreeStore interface {
+	StateProof(ctx context.Context, namespace string, key []byte) (types.Hash, []byte, bool, stateproof.Proof, error)
+	StateProofAt(ctx context.Context, height types.Height, namespace string, key []byte) (types.Hash, []byte, bool, stateproof.Proof, error)
+}
+
 type RootWithWritesStore interface {
 	RootWithWrites(ctx context.Context, namespace string, writes []KVWrite) (types.Hash, error)
 }
@@ -173,6 +184,8 @@ type HistoricalKVStore interface {
 
 type HistoricalSnapshotKVStore interface {
 	ExportNamespaceAt(ctx context.Context, height types.Height, namespace string) ([]KVPair, error)
+	// ExportRangeAt pages through a namespace at a past height in key order (see LevelDBStore).
+	ExportRangeAt(ctx context.Context, height types.Height, namespace string, after []byte, limit int) ([]KVPair, bool, error)
 }
 
 type HistoricalPrefixKVStore interface {

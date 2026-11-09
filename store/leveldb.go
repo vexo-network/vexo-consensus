@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"sync"
@@ -208,13 +209,14 @@ func (store *LevelDBStore) PruneBelow(ctx context.Context, retainFrom types.Heig
 	}
 	result.PrunedStates = prunedStates
 	result.PrunedStateRoots = prunedRoots
-	prunedVersions, err := store.pruneHistoryBelow(ctx, batch, retainFrom)
+	prunedVersions, prunedTreeVersions, err := store.pruneHistoryBelow(ctx, batch, retainFrom)
 	if err != nil {
 		return PruneResult{}, err
 	}
 	result.PrunedStateVersions = prunedVersions
+	result.PrunedStateTreeVersions = prunedTreeVersions
 
-	newIndex, err := store.indexAfterPrune(ctx, retainFrom, index.LatestHeight)
+	newIndex, err := store.indexAfterPrune(ctx, index, retainFrom, result.PrunedBlocks)
 	if err != nil {
 		return PruneResult{}, err
 	}
@@ -527,9 +529,13 @@ func (store *LevelDBStore) commitBlockStateBatch(ctx context.Context, writes []K
 	defer store.writeMu.Unlock()
 	batch := new(leveldb.Batch)
 	history := newHistoryBatch(store, batch, state.Height)
+	trees := newStateTrees(store.db)
 	for _, write := range writes {
 		key := kvKey(write.Namespace, write.Key)
 		if err := history.record(write); err != nil {
+			return err
+		}
+		if err := trees.apply(write); err != nil {
 			return err
 		}
 		if write.Delete {
@@ -537,6 +543,9 @@ func (store *LevelDBStore) commitBlockStateBatch(ctx context.Context, writes []K
 			continue
 		}
 		batch.Put(key, append([]byte(nil), write.Value...))
+	}
+	if err := trees.persist(batch, true, state.Height); err != nil {
+		return err
 	}
 	batch.Put(blockHeightKey(block.Block.Header.Height), encodedBlock)
 	batch.Put(blockHashKey(block.Hash), encodedBlock)
@@ -733,53 +742,6 @@ func (store *LevelDBStore) SetBatch(ctx context.Context, writes []KVWrite) error
 	return store.applyDirectWrites(ctx, writes)
 }
 
-func (store *LevelDBStore) Root(ctx context.Context, namespace string) (types.Hash, error) {
-	pairs, err := store.ExportNamespace(ctx, namespace)
-	if err != nil {
-		return types.Hash{}, err
-	}
-	return stateproof.Root(namespace, stateProofPairs(pairs))
-}
-
-func (store *LevelDBStore) RootWithWrites(ctx context.Context, namespace string, writes []KVWrite) (types.Hash, error) {
-	select {
-	case <-ctx.Done():
-		return types.Hash{}, ctx.Err()
-	default:
-	}
-	if namespace == "" {
-		return types.Hash{}, ErrInvalidNamespace
-	}
-
-	pairs, err := store.ExportNamespace(ctx, namespace)
-	if err != nil {
-		return types.Hash{}, err
-	}
-	values := make(map[string][]byte, len(pairs)+len(writes))
-	for _, pair := range pairs {
-		values[string(pair.Key)] = append([]byte(nil), pair.Value...)
-	}
-	for _, write := range writes {
-		if write.Namespace != namespace {
-			continue
-		}
-		if len(write.Key) == 0 {
-			return types.Hash{}, ErrInvalidKey
-		}
-		key := string(write.Key)
-		if write.Delete {
-			delete(values, key)
-			continue
-		}
-		values[key] = append([]byte(nil), write.Value...)
-	}
-	merged := make([]KVPair, 0, len(values))
-	for rawKey, value := range values {
-		merged = append(merged, KVPair{Namespace: namespace, Key: []byte(rawKey), Value: value})
-	}
-	return stateproof.Root(namespace, stateProofPairs(merged))
-}
-
 func (store *LevelDBStore) ExportNamespace(ctx context.Context, namespace string) ([]KVPair, error) {
 	select {
 	case <-ctx.Done():
@@ -864,6 +826,9 @@ func (store *LevelDBStore) ImportNamespace(ctx context.Context, namespace string
 	defer store.writeMu.Unlock()
 	batch := new(leveldb.Batch)
 	if err := store.deleteNamespaceHistory(ctx, batch, namespace); err != nil {
+		return err
+	}
+	if err := store.replaceStateTree(ctx, batch, namespace, pairs); err != nil {
 		return err
 	}
 	prefix := kvNamespacePrefix(namespace)
@@ -962,55 +927,36 @@ func (store *LevelDBStore) getBlock(key []byte) (BlockRecord, error) {
 	return record, nil
 }
 
+// pruneStateRootsBelow drops the state roots of the heights below retainFrom; root keys start
+// with their big-endian height, so only the pruned keys are visited.
 func (store *LevelDBStore) pruneStateRootsBelow(ctx context.Context, batch *leveldb.Batch, retainFrom types.Height) (uint64, error) {
-	iterator := store.db.NewIterator(nil, nil)
-	defer iterator.Release()
-
-	var pruned uint64
-	for ok := iterator.Seek(stateRootPrefix); ok; ok = iterator.Next() {
-		select {
-		case <-ctx.Done():
-			return 0, ctx.Err()
-		default:
-		}
-		key := iterator.Key()
-		if len(key) < len(stateRootPrefix) || string(key[:len(stateRootPrefix)]) != string(stateRootPrefix) {
-			break
-		}
-		height, ok := stateRootHeightFromKey(key)
-		if !ok {
-			continue
-		}
-		if height < retainFrom {
-			batch.Delete(append([]byte(nil), key...))
-			pruned++
-		}
-	}
-	if err := iterator.Error(); err != nil {
-		return 0, err
-	}
-	return pruned, nil
+	return store.pruneHeightKeysBelow(ctx, batch, stateRootPrefix, retainFrom)
 }
 
+// pruneStatesBelow drops the state records of the heights below retainFrom.
 func (store *LevelDBStore) pruneStatesBelow(ctx context.Context, batch *leveldb.Batch, retainFrom types.Height) (uint64, error) {
-	iterator := store.db.NewIterator(util.BytesPrefix(stateHeightPrefix), nil)
+	return store.pruneHeightKeysBelow(ctx, batch, stateHeightPrefix, retainFrom)
+}
+
+// pruneHeightKeysBelow drops the keys under prefix whose big-endian height that follows the prefix
+// is below retainFrom.
+func (store *LevelDBStore) pruneHeightKeysBelow(ctx context.Context, batch *leveldb.Batch, prefix []byte, retainFrom types.Height) (uint64, error) {
+	limit := binary.BigEndian.AppendUint64(append([]byte(nil), prefix...), uint64(retainFrom))
+	iterator := store.db.NewIterator(&util.Range{Start: prefix, Limit: limit}, nil)
 	defer iterator.Release()
 
 	var pruned uint64
-	for ok := iterator.First(); ok; ok = iterator.Next() {
+	for iterator.Next() {
 		select {
 		case <-ctx.Done():
 			return 0, ctx.Err()
 		default:
 		}
-		height, ok := stateHeightFromKey(iterator.Key())
-		if !ok {
+		if len(iterator.Key()) < len(prefix)+8 {
 			continue
 		}
-		if height < retainFrom {
-			batch.Delete(append([]byte(nil), iterator.Key()...))
-			pruned++
-		}
+		batch.Delete(append([]byte(nil), iterator.Key()...))
+		pruned++
 	}
 	if err := iterator.Error(); err != nil {
 		return 0, err
@@ -1018,27 +964,30 @@ func (store *LevelDBStore) pruneStatesBelow(ctx context.Context, batch *leveldb.
 	return pruned, nil
 }
 
-func (store *LevelDBStore) indexAfterPrune(ctx context.Context, retainFrom types.Height, latest types.Height) (BlockIndex, error) {
-	var nextIndex BlockIndex
-	for height := retainFrom; height <= latest; height++ {
+// indexAfterPrune returns the block index once the blocks below retainFrom, pruned of them, are
+// gone: the earliest block is the first one from retainFrom on, found by visiting only the heights
+// up to it.
+func (store *LevelDBStore) indexAfterPrune(ctx context.Context, index BlockIndex, retainFrom types.Height, pruned uint64) (BlockIndex, error) {
+	if pruned >= index.TotalBlocks {
+		return BlockIndex{}, nil
+	}
+	next := BlockIndex{LatestHeight: index.LatestHeight, TotalBlocks: index.TotalBlocks - pruned}
+	for height := max(retainFrom, index.EarliestHeight); height <= index.LatestHeight; height++ {
 		select {
 		case <-ctx.Done():
 			return BlockIndex{}, ctx.Err()
 		default:
 		}
-		if _, err := store.getBlock(blockHeightKey(height)); err != nil {
-			if errors.Is(err, ErrBlockNotFound) {
-				continue
-			}
+		found, err := store.db.Has(blockHeightKey(height), nil)
+		if err != nil {
 			return BlockIndex{}, err
 		}
-		if nextIndex.TotalBlocks == 0 {
-			nextIndex.EarliestHeight = height
+		if found {
+			next.EarliestHeight = height
+			return next, nil
 		}
-		nextIndex.LatestHeight = height
-		nextIndex.TotalBlocks++
 	}
-	return nextIndex, nil
+	return BlockIndex{}, nil
 }
 
 func (store *LevelDBStore) nextBlockIndex(height types.Height) (BlockIndex, error) {

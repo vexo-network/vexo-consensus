@@ -20,8 +20,8 @@ Stable endpoints are exposed under `/v1`. The unversioned paths remain compatibi
 - `/v1/evidence`
 - `/v1/recovery`
 - `/v1/snapshot/latest`
-- `/v1/snapshot/export`
-- `/v1/snapshot/chunk?index=0&size=10000`
+- `/v1/snapshot/manifest?height={block_height}`
+- `/v1/snapshot/pairs?height={block_height}&namespace={namespace}&after={hex_key}&limit=1000`
 - `/v1/blocks`
 - `/v1/blocks/latest`
 - `/v1/blocks/{height}`
@@ -128,7 +128,7 @@ curl 'http://127.0.0.1:26657/v1/proof?namespace=bank&key=alice'
 curl 'http://127.0.0.1:26657/v1/proof?height=10&namespace=bank&key=alice'
 ```
 
-LevelDB stores height-versioned KV writes during atomic block commits, so historical proofs rebuild the namespace snapshot at the requested height and bind membership or non-membership to the state root saved for that height. Existing-key proofs include a compact Merkle path. Missing-key proofs include compact left/right neighbor absence proofs; legacy full namespace absence witnesses remain verifier-compatible. Stores that do not implement historical namespace reads must reject historical proof requests instead of returning latest values for older heights.
+Proofs use schema `v2`: `path.siblings` are the sibling hashes from the namespace root down to the node at the key's position in the namespace's Merkle radix tree. A present key's node is its own leaf. An absent key's node is empty, or is the leaf of another key sharing the prefix, given as `path.neighbor`; because a present key would occupy that very position, absence cannot be proven from other leaves. Latest proofs read the key's path from the store's state tree; historical proofs rebuild the namespace at the requested height from its height-versioned writes and bind to the state root saved for that height. Stores that do not implement historical namespace reads must reject historical proof requests instead of returning latest values for older heights.
 
 `/v1/finality/latest` and `/v1/finality/{height}` return the latest or height-specific finality proof known by the node. The JSON response includes `strict: true` only when the proof carries the explicit two-link descendant `commit_chain` needed for external/light-client 3-chain verification. Add `?strict=true` when an API consumer must fail closed unless that strict proof is available; the endpoint returns HTTP 404 instead of silently serving a compatibility-only bare-QC proof. These endpoints expose consensus finality, while `/v1/status.latest_height` reports application state commit height.
 

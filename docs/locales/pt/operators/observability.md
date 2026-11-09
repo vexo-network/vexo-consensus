@@ -290,3 +290,4 @@ Este apêndice garante que a tradução preserve as interfaces executáveis e as
 - `upgrade_halt` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `upgrade_applied` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `dist/` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `vexo_retention_prune_failures` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.

@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/events"
@@ -73,18 +74,18 @@ func (runtime *Runtime) QueryProof(ctx context.Context, height types.Height, nam
 	if height == 0 {
 		height = state.Height
 	}
-	if height == state.Height {
-		return queryproof.Build(ctx, runtime.Store, runtime.Config.ChainID, state.Height, namespace, key)
-	}
 	rootRecord, err := runtime.Store.StateRoot(ctx, height, namespace)
 	if err != nil {
 		return queryproof.Proof{}, err
 	}
-	pairs, err := runtime.Store.ExportNamespaceAt(ctx, height, namespace)
+	proof, err := queryproof.BuildAt(ctx, runtime.Store, runtime.Config.ChainID, height, namespace, key)
 	if err != nil {
 		return queryproof.Proof{}, err
 	}
-	return queryproof.BuildFromKVPairs(runtime.Config.ChainID, height, namespace, key, pairs, rootRecord.Root)
+	if proof.StateRoot != rootRecord.Root {
+		return queryproof.Proof{}, fmt.Errorf("%w: namespace %q at height %d: the state tree has root %x, the state root record %x", queryproof.ErrRootMismatch, namespace, height, proof.StateRoot, rootRecord.Root)
+	}
+	return proof, nil
 }
 
 func (runtime *Runtime) IBCQuery(ctx context.Context, path []string) (app.QueryResponse, error) {

@@ -127,3 +127,6 @@
 - `receipt_index/{tx_hash}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `blob_sidecars/by_tx/{tx_hash}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `blob_sidecars/by_blob/{blob_hash}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `tree:` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `receipt_height/{height}/{tx_hash}` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `receipt_pruned_below` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

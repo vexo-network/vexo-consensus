@@ -149,3 +149,9 @@ Proposal は `chain_id` と height から salt を作り、signer ごとの tran
 - `parity_shards` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `ValidatorSetHeight - 1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `validator_registry` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `app_hash` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `consensus.TwoChainCommitRule` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `C.PreviousBlockHash = hash(B)` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `C.height = B.height + 1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `da_mismatch` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `missing_data` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

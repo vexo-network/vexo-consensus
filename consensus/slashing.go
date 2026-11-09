@@ -17,11 +17,10 @@ var (
 	ErrUnsupportedEvidenceProof        = errors.New("unsupported evidence proof")
 	ErrInvalidEvidenceVoteSignature    = errors.New("invalid evidence vote signature")
 	ErrInvalidEvidenceTimeoutSignature = errors.New("invalid evidence timeout vote signature")
-	// ErrEvidenceNotSelfContained rejects evidence whose truth depends on data outside the proof and
-	// the validator set of its height, such as the application hash or the block timestamp of a
-	// height. Such evidence cannot be judged identically by every node, in particular by one that
-	// pruned the data, so block execution must not act on it.
-	ErrEvidenceNotSelfContained = errors.New("evidence is not decidable from the proof and the validator set")
+	// ErrEvidenceNotSelfContained rejects app-hash evidence judged without the certified app hashes
+	// of replicated state (EvidenceVerifierBundle.CertifiedAppHashes): judged from node-local data,
+	// nodes could disagree about it, so block execution must not act on it.
+	ErrEvidenceNotSelfContained = errors.New("evidence is not decidable from the proof and replicated state")
 )
 
 type EvidenceSignatureVerifier interface {
@@ -38,7 +37,20 @@ type EvidenceVerifierBundle struct {
 	// FinalitySets serves the validator sets the headers of a finality conflict name. Without it
 	// a conflict is judged with the set of the evidence height alone.
 	FinalitySets finality.ValidatorSetSource
+	// CertifiedAppHashes serves the app hash certified blocks committed for a state height
+	// (finality.AppHashHeight), from replicated state. Without it app-hash evidence is not judged.
+	CertifiedAppHashes CertifiedAppHashSource
 }
+
+// CertifiedAppHashSource serves the header app hash certified blocks committed for the state of a
+// height; found is false when no retained certified block named that height.
+type CertifiedAppHashSource interface {
+	CertifiedAppHash(height types.Height) (hash types.Hash, found bool, err error)
+}
+
+// ErrAppHashNotCertified reports app-hash evidence about a state height no retained certified
+// block committed an app hash for: there is nothing to compare the proposal with.
+var ErrAppHashNotCertified = errors.New("no certified app hash for the state height the proposal names")
 
 func NewEvidenceVerifier(signatures EvidenceSignatureVerifier, finalityVerifier EvidenceAggregateVerifier) EvidenceVerifierBundle {
 	return EvidenceVerifierBundle{Signatures: signatures, Finality: finalityVerifier}
@@ -58,9 +70,9 @@ func (verifier EvidenceVerifierBundle) VerifyAggregate(publicKeys []types.Public
 //
 // The accepted faults are decidable from those two inputs alone: conflicting votes, conflicting
 // timeout votes, a finality conflict, an unavailable-data proposal and an invalid proposal whose
-// invalidity is a data-availability or validator-set-hash mismatch. An invalid proposal that has
-// to be compared with other chain data is ErrEvidenceNotSelfContained. Deciding it from node-local
-// data would let a node that pruned that data disagree with the others about a block.
+// invalidity is a data-availability or validator-set-hash mismatch. An app-hash mismatch is judged
+// against verifier.CertifiedAppHashes, which serves replicated state, so every node decides it
+// alike; without it the evidence is ErrEvidenceNotSelfContained.
 //
 // For the BLS backend, validatorSet's keys must have been registered with the crypto suite behind
 // verifier, which verifies their proofs of possession.
@@ -108,19 +120,29 @@ func VerifyEvidence(evidence slashing.Evidence, validatorSet validator.Set, veri
 		if err != nil {
 			return err
 		}
+		var expected types.Hash
 		switch decoded.Reason {
-		case InvalidProposalReasonDAMismatch, InvalidProposalReasonMissingData:
-			if err := VerifyInvalidProposalEvidenceWithContext(evidence, InvalidProposalVerificationContext{}); err != nil {
-				return err
-			}
 		case InvalidProposalReasonValidatorSetHash:
-			context := InvalidProposalVerificationContext{ExpectedValidatorSetHash: validatorSet.Hash()}
-			context.ContextProofHash = context.ProofHash()
-			if err := VerifyInvalidProposalEvidenceWithBoundContext(evidence, context); err != nil {
+			expected = validatorSet.Hash()
+		case InvalidProposalReasonAppHash:
+			if verifier.CertifiedAppHashes == nil {
+				return ErrEvidenceNotSelfContained
+			}
+			stateHeight, ok := finality.AppHashHeight(decoded.Proposal.Block.Header)
+			if !ok {
+				return ErrInvalidProposal
+			}
+			certified, found, err := verifier.CertifiedAppHashes.CertifiedAppHash(stateHeight)
+			if err != nil {
 				return err
 			}
-		default:
-			return ErrEvidenceNotSelfContained
+			if !found {
+				return ErrAppHashNotCertified
+			}
+			expected = certified
+		}
+		if err := VerifyInvalidProposalEvidence(evidence, expected); err != nil {
+			return err
 		}
 		return verifyProposalEvidenceSignature(decoded.Proposal, validatorInfo, verifier)
 	case slashing.EvidenceUnavailableData:

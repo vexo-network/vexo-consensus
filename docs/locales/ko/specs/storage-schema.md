@@ -93,6 +93,10 @@
 
 - [영어 정본 문서](../../en/specs/storage-schema.md)
 
+## State tree
+
+store는 namespace마다 state tree(`stateproof`)를 KV 쌍 옆 `tree:` 아래에 보관합니다. key의 경로는 `sha256(key)`이고, 빈 subtree는 0, key가 하나뿐인 subtree는 그 key의 leaf, 나머지는 두 절반의 internal node입니다. 모양은 key 집합에만 의존하므로 모든 replica가 같은 root를 얻습니다. 쓰기는 같은 원자 batch 안에서 그 key 경로의 노드만 다시 쓰므로, 블록의 state root 비용은 namespace 크기가 아니라 `O(쓰기 수 × 깊이)`입니다. `ImportNamespace`는 그 namespace의 tree를 다시 만듭니다.
+
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록
 
@@ -127,3 +131,5 @@
 - `receipt_index/{tx_hash}` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `blob_sidecars/by_tx/{tx_hash}` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `blob_sidecars/by_blob/{blob_hash}` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `receipt_height/{height}/{tx_hash}` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `receipt_pruned_below` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.

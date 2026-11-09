@@ -134,3 +134,4 @@ Lampiran ini mempertahankan nama teknis yang harus tetap sama dengan versi kanon
 - `vexo_post_commit_reconciliation_failures > 0`
 - `timeout_propose`
 - `max_txs`
+- `vexo_retention_prune_failures`

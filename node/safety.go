@@ -254,6 +254,7 @@ func (node *Node) finishCommit(ctx context.Context, runtime *vexoruntime.Runtime
 	node.mu.Lock()
 	node.reconciledHeight = height
 	node.mu.Unlock()
+	node.pruneToRetention(ctx, runtime)
 	return nil
 }
 
@@ -362,6 +363,32 @@ func checkHeaderAppHash(ctx context.Context, runtime *vexoruntime.Runtime, heade
 		return fmt.Errorf("%w: height %d names app hash %x of height %d, local state has %x", ErrAppHashMismatch, header.Height, header.AppHash, height, expected)
 	}
 	return nil
+}
+
+// reportInvalidAppHashProposal turns a proposal this validator refused because its header names
+// another app hash than the certified one into invalid-proposal evidence against its proposer. The
+// expected hash is this node's header app hash of the state the header names; the slashing module
+// judges the evidence against the app hash certified blocks committed for that height, so a node
+// whose own state diverged produces evidence no block applies. Evidence of a height still being
+// decided waits for its commit (handleLocalEvidence).
+func (node *Node) reportInvalidAppHashProposal(ctx context.Context, proposal consensus.Proposal, refusal error) {
+	if !errors.Is(refusal, ErrAppHashMismatch) || len(proposal.Signature) == 0 || proposal.Proposer == node.cfg.ValidatorID {
+		return
+	}
+	runtime, err := node.Runtime()
+	if err != nil {
+		return
+	}
+	expected, err := headerAppHash(ctx, runtime, proposal.Block.Header)
+	if err != nil {
+		return
+	}
+	evidence, err := consensus.NewInvalidProposalHashEvidence(proposal, consensus.InvalidProposalReasonAppHash, expected)
+	if err != nil {
+		node.logEvent("evidence_build_failed", map[string]any{"reason": string(consensus.InvalidProposalReasonAppHash), "error": err.Error()})
+		return
+	}
+	node.handleLocalEvidence(ctx, evidence)
 }
 
 // checkParentBinding verifies that header extends the last committed block: the block at committed

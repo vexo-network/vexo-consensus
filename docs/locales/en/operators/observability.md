@@ -58,6 +58,7 @@ The text endpoint exposes gauges such as:
 - `vexo_replay_healthy`
 - `vexo_validator_signing_failures`
 - `vexo_post_commit_reconciliation_failures`
+- `vexo_retention_prune_failures`
 
 `vexo_peer_count` is kept for older dashboards. New dashboards should chart `vexo_active_peer_count`, `vexo_configured_peer_count`, and `vexo_scored_peer_count` separately.
 

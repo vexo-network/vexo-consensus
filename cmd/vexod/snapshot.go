@@ -1,9 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -11,44 +11,53 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	vexoconfig "github.com/vexo-network/vexo-consensus/config"
+	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/finality"
-	"github.com/vexo-network/vexo-consensus/stateproof"
+	appmodules "github.com/vexo-network/vexo-consensus/modules"
+	vexonode "github.com/vexo-network/vexo-consensus/node"
+	vexorpc "github.com/vexo-network/vexo-consensus/rpc"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
 
-type snapshotDocument struct {
-	SchemaVersion string   `json:"schema_version"`
-	ChainID       string   `json:"chain_id,omitempty"`
-	Modules       []string `json:"modules,omitempty"`
-	// Header is the committed block header whose app hash commits State.
-	Header     types.Header            `json:"header"`
-	State      store.StateRecord       `json:"state"`
-	StateRoots []store.StateRootRecord `json:"state_roots"`
-	KV         []store.KVPair          `json:"kv,omitempty"`
-	Checksum   string                  `json:"checksum,omitempty"`
-}
+// Snapshots.
+//
+// A snapshot is the replicated state a committed block header commits the app hash of
+// (finality.AppHashHeight), anchored to that block. It is a manifest (the anchor header, the
+// headers linking it back to the block of the state, that block, the state record and the root of
+// every namespace) followed by the pairs of every namespace in key order, page by page. The RPC
+// snapshot endpoints serve that stream one request per page, and a snapshot file holds it as one
+// JSON value after another, so neither exporting nor restoring a snapshot holds the state in memory.
+//
+// Whoever serves a snapshot is not trusted. It is restored only when it proves to be the state of a
+// block the operator trusts (checkSnapshotManifest, verifySnapshotTrust), and every imported
+// namespace has the root the manifest names; it is imported into a staging store that replaces the
+// node's store only once complete, so a refused or interrupted restore leaves the store as it was.
 
-type snapshotChunkDocument struct {
-	SchemaVersion    string                  `json:"schema_version"`
-	ChainID          string                  `json:"chain_id,omitempty"`
-	Modules          []string                `json:"modules,omitempty"`
-	Header           types.Header            `json:"header"`
-	State            store.StateRecord       `json:"state"`
-	StateRoots       []store.StateRootRecord `json:"state_roots"`
-	KV               []store.KVPair          `json:"kv,omitempty"`
-	ChunkIndex       uint64                  `json:"chunk_index"`
-	ChunkCount       uint64                  `json:"chunk_count"`
-	SnapshotChecksum string                  `json:"snapshot_checksum"`
-	ChunkChecksum    string                  `json:"chunk_checksum,omitempty"`
+type snapshotManifest = vexorpc.SnapshotManifestResponse
+
+type snapshotPage = vexorpc.SnapshotPairsResponse
+
+// snapshotPageSize is the number of pairs a snapshot page holds when this node writes or asks for one.
+const snapshotPageSize = 1_000
+
+// snapshotSource yields a snapshot: its manifest first, then the pages of every namespace of the
+// manifest in order, each after the last key of the page before.
+type snapshotSource interface {
+	Manifest(ctx context.Context) (snapshotManifest, error)
+	Page(ctx context.Context, namespace string, after []byte) (snapshotPage, error)
 }
 
 type snapshotDrillPlanDocument struct {
@@ -56,9 +65,9 @@ type snapshotDrillPlanDocument struct {
 	Input         string                   `json:"input"`
 	ChainID       string                   `json:"chain_id"`
 	Height        uint64                   `json:"height"`
+	AnchorHeight  uint64                   `json:"anchor_height"`
 	Modules       []string                 `json:"modules"`
-	KVPairCount   int                      `json:"kv_pair_count"`
-	Checksum      string                   `json:"checksum"`
+	KVPairCount   uint64                   `json:"kv_pair_count"`
 	Checks        []snapshotDrillPlanCheck `json:"checks"`
 	Steps         []string                 `json:"steps"`
 	Warnings      []string                 `json:"warnings,omitempty"`
@@ -77,14 +86,10 @@ func runSnapshot(writer io.Writer, args []string) error {
 	switch args[0] {
 	case "export":
 		return runSnapshotExport(writer, args[1:])
-	case "chunk-export":
-		return runSnapshotChunkExport(writer, args[1:])
 	case "verify":
 		return runSnapshotVerify(writer, args[1:])
 	case "restore":
 		return runSnapshotRestore(writer, args[1:])
-	case "chunk-restore":
-		return runSnapshotChunkRestore(writer, args[1:])
 	case "fetch":
 		return runSnapshotFetch(writer, args[1:])
 	case "sync":
@@ -115,83 +120,21 @@ func runSnapshotExport(writer io.Writer, args []string) error {
 		return err
 	}
 	defer storage.Close()
-	document, err := buildSnapshotDocument(storage, cfg.Chain.ChainID, snapshotNamespaces(cfg.Chain.Application.Modules), types.Height(*blockHeight))
+	source, err := newStoreSnapshotSource(storage, cfg.Chain, types.Height(*blockHeight))
 	if err != nil {
 		return err
 	}
 	if *outputPath == "" {
-		return writeSnapshotDocument(writer, document)
-	}
-	file, err := os.OpenFile(*outputPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
-	if err != nil {
+		_, _, err := writeSnapshotStream(context.Background(), writer, source)
 		return err
 	}
-	defer file.Close()
-	if err := writeSnapshotDocument(file, document); err != nil {
+	manifest, pairs, err := writeSnapshotFile(context.Background(), *outputPath, source)
+	if err != nil {
 		return err
 	}
 	fmt.Fprintf(writer, "snapshot exported\n")
 	fmt.Fprintf(writer, "path: %s\n", *outputPath)
-	fmt.Fprintf(writer, "height: %d\n", document.State.Height)
-	return nil
-}
-
-func runSnapshotChunkExport(writer io.Writer, args []string) error {
-	flags := flag.NewFlagSet("snapshot chunk-export", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	home := flags.String("home", defaultHomeDir, "node home directory")
-	configPath := flags.String("config", "", "config file path")
-	outputDir := flags.String("output-dir", "", "snapshot chunk output directory")
-	chunkSize := flags.Int("chunk-size", 10000, "maximum KV pairs per chunk")
-	blockHeight := flags.Uint64("height", 0, "committed block the snapshot is anchored to; the latest when 0")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if *outputDir == "" {
-		return errors.New("snapshot chunk output directory is required")
-	}
-	if *chunkSize <= 0 {
-		return errors.New("snapshot chunk size must be positive")
-	}
-	cfg, err := loadNodeConfig(resolveConfigPath(*home, *configPath))
-	if err != nil {
-		return err
-	}
-	storage, err := store.OpenLevelDB(cfg.StoreDir())
-	if err != nil {
-		return err
-	}
-	defer storage.Close()
-	document, err := buildSnapshotDocument(storage, cfg.Chain.ChainID, snapshotNamespaces(cfg.Chain.Application.Modules), types.Height(*blockHeight))
-	if err != nil {
-		return err
-	}
-	chunks, err := snapshotChunks(document, *chunkSize)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(*outputDir, 0o755); err != nil {
-		return err
-	}
-	for _, chunk := range chunks {
-		path := filepath.Join(*outputDir, snapshotChunkFileName(chunk.ChunkIndex, chunk.ChunkCount))
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
-		if err != nil {
-			return err
-		}
-		if err := writeSnapshotChunkDocument(file, chunk); err != nil {
-			file.Close()
-			return err
-		}
-		if err := file.Close(); err != nil {
-			return err
-		}
-	}
-	fmt.Fprintf(writer, "snapshot chunks exported\n")
-	fmt.Fprintf(writer, "output_dir: %s\n", *outputDir)
-	fmt.Fprintf(writer, "height: %d\n", document.State.Height)
-	fmt.Fprintf(writer, "chunks: %d\n", len(chunks))
-	fmt.Fprintf(writer, "checksum: %s\n", document.Checksum)
+	writeSnapshotSummary(writer, manifest, pairs)
 	return nil
 }
 
@@ -212,34 +155,49 @@ func runSnapshotVerify(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	document, err := readSnapshotDocument(*inputPath)
-	if err != nil {
-		return err
-	}
-	if err := validateSnapshotDocument(document, cfg.Chain.ChainID); err != nil {
-		return err
-	}
-	// Without a trusted block the check is only of the document's own consistency.
+	// Without a trusted block the check is of the snapshot's own consistency: its manifest, and
+	// the roots of its pairs.
 	trusted := *trustHeight != 0 || *trustHash != ""
+	var trust *snapshotTrust
 	if trusted {
-		trust, err := parseSnapshotTrust(*trustHeight, *trustHash)
+		parsed, err := parseSnapshotTrust(*trustHeight, *trustHash)
 		if err != nil {
 			return err
 		}
-		if err := verifySnapshotTrust(context.Background(), document, cfg.Chain, trust); err != nil {
+		trust = &parsed
+	}
+	source, closeSource, err := openSnapshotFile(*inputPath)
+	if err != nil {
+		return err
+	}
+	defer closeSource()
+	ctx := context.Background()
+	manifest, err := source.Manifest(ctx)
+	if err != nil {
+		return err
+	}
+	if trust != nil {
+		if err := verifySnapshotTrust(manifest, *trust); err != nil {
 			return err
 		}
+	}
+	if err := checkSnapshotManifest(ctx, manifest, cfg.Chain); err != nil {
+		return err
+	}
+	scratch, err := os.MkdirTemp("", "vexo-snapshot-verify-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(scratch)
+	pairs, err := importSnapshot(ctx, filepath.Join(scratch, "store"), source, manifest)
+	if err != nil {
+		return err
 	}
 	fmt.Fprintf(writer, "snapshot verified\n")
 	fmt.Fprintf(writer, "trusted: %t\n", trusted)
 	fmt.Fprintf(writer, "path: %s\n", *inputPath)
-	fmt.Fprintf(writer, "chain_id: %s\n", document.ChainID)
-	fmt.Fprintf(writer, "height: %d\n", document.State.Height)
-	fmt.Fprintf(writer, "modules: %v\n", document.Modules)
-	fmt.Fprintf(writer, "kv_pairs: %d\n", len(document.KV))
-	if document.Checksum != "" {
-		fmt.Fprintf(writer, "checksum: %s\n", document.Checksum)
-	}
+	fmt.Fprintf(writer, "chain_id: %s\n", manifest.ChainID)
+	writeSnapshotSummary(writer, manifest, pairs)
 	return nil
 }
 
@@ -264,115 +222,50 @@ func runSnapshotRestore(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	document, err := readSnapshotDocument(*inputPath)
+	source, closeSource, err := openSnapshotFile(*inputPath)
 	if err != nil {
 		return err
 	}
-	if err := validateSnapshotDocument(document, cfg.Chain.ChainID); err != nil {
-		return err
-	}
-	storage, err := store.OpenLevelDB(cfg.StoreDir())
+	defer closeSource()
+	manifest, pairs, err := restoreSnapshot(context.Background(), cfg.StoreDir(), source, cfg.Chain, trust, nil)
 	if err != nil {
-		return err
-	}
-	defer storage.Close()
-	if err := restoreSnapshotDocumentWithContext(context.Background(), storage, document, cfg.Chain, trust); err != nil {
 		return err
 	}
 	fmt.Fprintf(writer, "snapshot restored\n")
 	fmt.Fprintf(writer, "path: %s\n", *inputPath)
-	fmt.Fprintf(writer, "height: %d\n", document.State.Height)
-	return nil
-}
-
-func runSnapshotChunkRestore(writer io.Writer, args []string) error {
-	flags := flag.NewFlagSet("snapshot chunk-restore", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	home := flags.String("home", defaultHomeDir, "node home directory")
-	configPath := flags.String("config", "", "config file path")
-	inputDir := flags.String("input-dir", "", "snapshot chunk input directory")
-	trustHeight, trustHash := snapshotTrustFlags(flags)
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if *inputDir == "" {
-		return errors.New("snapshot chunk input directory is required")
-	}
-	trust, err := parseSnapshotTrust(*trustHeight, *trustHash)
-	if err != nil {
-		return err
-	}
-	cfg, err := loadNodeConfig(resolveConfigPath(*home, *configPath))
-	if err != nil {
-		return err
-	}
-	chunks, err := readSnapshotChunksFromDir(*inputDir)
-	if err != nil {
-		return err
-	}
-	for _, chunk := range chunks {
-		if err := validateSnapshotChunk(chunk, cfg.Chain.ChainID); err != nil {
-			return err
-		}
-	}
-	document, err := snapshotDocumentFromChunks(chunks)
-	if err != nil {
-		return err
-	}
-	if err := validateSnapshotDocument(document, cfg.Chain.ChainID); err != nil {
-		return err
-	}
-	storage, err := store.OpenLevelDB(cfg.StoreDir())
-	if err != nil {
-		return err
-	}
-	defer storage.Close()
-	ctx := context.Background()
-	if err := restoreSnapshotDocumentWithContext(ctx, storage, document, cfg.Chain, trust); err != nil {
-		return err
-	}
-	if _, err := storage.RecoverIndexes(ctx); err != nil {
-		return err
-	}
-	fmt.Fprintf(writer, "snapshot chunks restored\n")
-	fmt.Fprintf(writer, "input_dir: %s\n", *inputDir)
-	fmt.Fprintf(writer, "height: %d\n", document.State.Height)
-	fmt.Fprintf(writer, "chunks: %d\n", len(chunks))
-	fmt.Fprintf(writer, "checksum: %s\n", document.Checksum)
+	writeSnapshotSummary(writer, manifest, pairs)
 	return nil
 }
 
 func runSnapshotFetch(writer io.Writer, args []string) error {
 	flags := flag.NewFlagSet("snapshot fetch", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	url := flags.String("url", "", "snapshot export URL")
+	rpcURL := flags.String("url", "", "RPC URL of the snapshot source")
 	outputPath := flags.String("output", "", "snapshot output path")
-	timeout := flags.Duration("timeout", 10*time.Second, "snapshot download timeout")
+	blockHeight := flags.Uint64("height", 0, "committed block the snapshot is anchored to; the latest when 0")
+	timeout := flags.Duration("timeout", 10*time.Second, "timeout of each snapshot request")
+	maxBytes := flags.Int64("max-bytes", defaultStateSyncSnapshotMaxBytes, "most bytes the whole snapshot may take")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if *url == "" {
+	if *rpcURL == "" {
 		return errors.New("snapshot URL is required")
 	}
 	if *outputPath == "" {
 		return errors.New("snapshot output path is required")
 	}
-	document, err := downloadSnapshotDocument(*url, *timeout)
+	source, err := newHTTPSnapshotSource(*rpcURL, types.Height(*blockHeight), *timeout, *maxBytes)
 	if err != nil {
 		return err
 	}
-	file, err := os.OpenFile(*outputPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	manifest, pairs, err := writeSnapshotFile(context.Background(), *outputPath, source)
 	if err != nil {
-		return err
-	}
-	defer file.Close()
-	if err := writeSnapshotDocument(file, document); err != nil {
 		return err
 	}
 	fmt.Fprintf(writer, "snapshot fetched\n")
-	fmt.Fprintf(writer, "url: %s\n", *url)
+	fmt.Fprintf(writer, "url: %s\n", *rpcURL)
 	fmt.Fprintf(writer, "path: %s\n", *outputPath)
-	fmt.Fprintf(writer, "height: %d\n", document.State.Height)
+	writeSnapshotSummary(writer, manifest, pairs)
 	return nil
 }
 
@@ -381,20 +274,17 @@ func runSnapshotSync(writer io.Writer, args []string) error {
 	flags.SetOutput(io.Discard)
 	home := flags.String("home", defaultHomeDir, "node home directory")
 	configPath := flags.String("config", "", "config file path")
-	url := flags.String("url", "", "snapshot export URL")
-	timeout := flags.Duration("timeout", 10*time.Second, "snapshot download timeout")
+	rpcURL := flags.String("url", "", "RPC URL of the snapshot source")
+	timeout := flags.Duration("timeout", 10*time.Second, "timeout of each snapshot request")
+	maxBytes := flags.Int64("max-bytes", defaultStateSyncSnapshotMaxBytes, "most bytes the whole snapshot may take")
 	trustHeight, trustHash := snapshotTrustFlags(flags)
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if *url == "" {
+	if *rpcURL == "" {
 		return errors.New("snapshot URL is required")
 	}
 	trust, err := parseSnapshotTrust(*trustHeight, *trustHash)
-	if err != nil {
-		return err
-	}
-	exportURL, err := snapshotExportURL(*url, trust.Height)
 	if err != nil {
 		return err
 	}
@@ -402,28 +292,17 @@ func runSnapshotSync(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	document, err := downloadSnapshotDocument(exportURL, *timeout)
+	source, err := newHTTPSnapshotSource(*rpcURL, trust.Height, *timeout, *maxBytes)
 	if err != nil {
 		return err
 	}
-	if err := validateSnapshotDocument(document, cfg.Chain.ChainID); err != nil {
-		return err
-	}
-	storage, err := store.OpenLevelDB(cfg.StoreDir())
+	manifest, pairs, err := restoreSnapshot(context.Background(), cfg.StoreDir(), source, cfg.Chain, trust, nil)
 	if err != nil {
-		return err
-	}
-	defer storage.Close()
-	ctx := context.Background()
-	if err := restoreSnapshotDocumentWithContext(ctx, storage, document, cfg.Chain, trust); err != nil {
-		return err
-	}
-	if _, err := storage.RecoverIndexes(ctx); err != nil {
 		return err
 	}
 	fmt.Fprintf(writer, "snapshot synced\n")
-	fmt.Fprintf(writer, "url: %s\n", *url)
-	fmt.Fprintf(writer, "height: %d\n", document.State.Height)
+	fmt.Fprintf(writer, "url: %s\n", *rpcURL)
+	writeSnapshotSummary(writer, manifest, pairs)
 	return nil
 }
 
@@ -441,11 +320,22 @@ func runSnapshotDrillPlan(writer io.Writer, args []string) error {
 	if *inputPath == "" {
 		return errors.New("snapshot input path is required")
 	}
-	document, err := readSnapshotDocument(*inputPath)
+	source, closeSource, err := openSnapshotFile(*inputPath)
 	if err != nil {
 		return err
 	}
-	plan := buildSnapshotDrillPlanDocument(*inputPath, document, *expectedChainID, *minHeight, *requireKV)
+	defer closeSource()
+	ctx := context.Background()
+	manifest, err := source.Manifest(ctx)
+	if err != nil {
+		return err
+	}
+	var pairs uint64
+	pagesErr := readSnapshotPages(ctx, source, manifest, func(page snapshotPage) error {
+		pairs += uint64(len(page.Pairs))
+		return nil
+	})
+	plan := buildSnapshotDrillPlanDocument(*inputPath, manifest, pairs, pagesErr, *expectedChainID, *minHeight, *requireKV)
 	if *jsonOutput {
 		encoder := json.NewEncoder(writer)
 		encoder.SetIndent("", "  ")
@@ -455,49 +345,34 @@ func runSnapshotDrillPlan(writer io.Writer, args []string) error {
 	return nil
 }
 
-func buildSnapshotDrillPlanDocument(inputPath string, document snapshotDocument, expectedChainID string, minHeight uint64, requireKV bool) snapshotDrillPlanDocument {
+func buildSnapshotDrillPlanDocument(inputPath string, manifest snapshotManifest, pairs uint64, pagesErr error, expectedChainID string, minHeight uint64, requireKV bool) snapshotDrillPlanDocument {
 	plan := snapshotDrillPlanDocument{
-		SchemaVersion: "v1",
+		SchemaVersion: "v2",
 		Input:         inputPath,
-		ChainID:       document.ChainID,
-		Height:        uint64(document.State.Height),
-		Modules:       append([]string(nil), document.Modules...),
-		KVPairCount:   len(document.KV),
-		Checksum:      document.Checksum,
+		ChainID:       manifest.ChainID,
+		Height:        uint64(manifest.State.Height),
+		AnchorHeight:  uint64(manifest.Header.Height),
+		Modules:       append([]string(nil), manifest.Modules...),
+		KVPairCount:   pairs,
 		Steps: []string{
-			"verify snapshot checksum before copying to a new node",
+			"run snapshot verify with the trusted block before copying to a new node",
 			"restore snapshot into an empty node home",
-			"run snapshot verify against the restored home",
 			"run doctor and require snapshot, store, and recovery checks to pass",
 			"start the node and verify replay health plus height catch-up",
-			"archive snapshot checksum, restore logs, and recovered state height",
+			"archive the trusted block, restore logs, and recovered state height",
 		},
 	}
-	plan.Checks = append(plan.Checks, snapshotDrillPlanCheck{
-		Name:    "height",
-		OK:      plan.Height >= minHeight,
-		Message: fmt.Sprintf("snapshot height must be at least %d", minHeight),
-	})
-	plan.Checks = append(plan.Checks, snapshotDrillPlanCheck{
-		Name:    "chain_id",
-		OK:      expectedChainID == "" || plan.ChainID == expectedChainID,
-		Message: "snapshot chain id must match the target chain",
-	})
-	plan.Checks = append(plan.Checks, snapshotDrillPlanCheck{
-		Name:    "state_roots",
-		OK:      len(document.StateRoots) >= len(document.Modules),
-		Message: "snapshot must include state roots for all declared modules",
-	})
-	plan.Checks = append(plan.Checks, snapshotDrillPlanCheck{
-		Name:    "kv_payload",
-		OK:      !requireKV || len(document.KV) > 0,
-		Message: "state sync restore should include module KV payloads",
-	})
-	plan.Checks = append(plan.Checks, snapshotDrillPlanCheck{
-		Name:    "checksum",
-		OK:      document.Checksum != "" && document.Checksum == snapshotChecksum(document),
-		Message: "snapshot checksum must be present and valid",
-	})
+	pagesMessage := "snapshot pages must cover every namespace in key order"
+	if pagesErr != nil {
+		pagesMessage += ": " + pagesErr.Error()
+	}
+	plan.Checks = []snapshotDrillPlanCheck{
+		{Name: "height", OK: plan.Height >= minHeight, Message: fmt.Sprintf("snapshot height must be at least %d", minHeight)},
+		{Name: "chain_id", OK: expectedChainID == "" || plan.ChainID == expectedChainID, Message: "snapshot chain id must match the target chain"},
+		{Name: "state_roots", OK: snapshotRootsCover(manifest), Message: "snapshot must include one state root for every declared module"},
+		{Name: "kv_payload", OK: !requireKV || pairs > 0, Message: "state sync restore should include module KV payloads"},
+		{Name: "pages", OK: pagesErr == nil, Message: pagesMessage},
+	}
 	for _, check := range plan.Checks {
 		if !check.OK {
 			plan.Warnings = append(plan.Warnings, check.Message)
@@ -511,9 +386,9 @@ func writeSnapshotDrillPlan(writer io.Writer, plan snapshotDrillPlanDocument) {
 	fmt.Fprintf(writer, "input: %s\n", plan.Input)
 	fmt.Fprintf(writer, "chain_id: %s\n", plan.ChainID)
 	fmt.Fprintf(writer, "height: %d\n", plan.Height)
+	fmt.Fprintf(writer, "anchor_height: %d\n", plan.AnchorHeight)
 	fmt.Fprintf(writer, "modules: %v\n", plan.Modules)
 	fmt.Fprintf(writer, "kv_pairs: %d\n", plan.KVPairCount)
-	fmt.Fprintf(writer, "checksum: %s\n", plan.Checksum)
 	fmt.Fprintf(writer, "checks:\n")
 	for _, check := range plan.Checks {
 		fmt.Fprintf(writer, "- %s ok=%t %s\n", check.Name, check.OK, check.Message)
@@ -530,590 +405,496 @@ func writeSnapshotDrillPlan(writer io.Writer, plan snapshotDrillPlanDocument) {
 	}
 }
 
-// buildSnapshotDocument exports the state the header of committed block blockHeight commits the app
-// hash of (finality.AppHashHeight), with that header; blockHeight 0 selects the latest committed
-// block. The state is read at its height from the store's versions.
-func buildSnapshotDocument(storage store.Store, chainID string, namespaces []string, blockHeight types.Height) (snapshotDocument, error) {
-	ctx := context.Background()
-	if blockHeight == 0 {
-		latest, err := storage.LatestState(ctx)
-		if err != nil {
-			return snapshotDocument{}, err
-		}
-		blockHeight = latest.Height
-	}
-	record, err := storage.BlockByHeight(ctx, blockHeight)
-	if err != nil {
-		return snapshotDocument{}, err
-	}
-	header := record.Block.Header
-	height, ok := finality.AppHashHeight(header)
-	if !ok || height == 0 {
-		return snapshotDocument{}, fmt.Errorf("block %d commits no executed state to snapshot", blockHeight)
-	}
-	state, err := storage.StateByHeight(ctx, height)
-	if err != nil {
-		return snapshotDocument{}, err
-	}
-	roots := make([]store.StateRootRecord, 0)
-	kv := make([]store.KVPair, 0)
-	for _, namespace := range namespaces {
-		root, err := storage.StateRoot(ctx, height, namespace)
-		if err == nil {
-			roots = append(roots, root)
-		} else if !errors.Is(err, store.ErrStateRootNotFound) {
-			return snapshotDocument{}, err
-		}
-		pairs, err := storage.ExportNamespaceAt(ctx, height, namespace)
-		if err != nil {
-			return snapshotDocument{}, err
-		}
-		kv = append(kv, pairs...)
-	}
-	headerAppHash, err := snapshotHeaderAppHash(state.AppHash, roots)
-	if err != nil {
-		return snapshotDocument{}, err
-	}
-	if headerAppHash != header.AppHash {
-		return snapshotDocument{}, fmt.Errorf("block %d names app hash %x of height %d, the store holds %x", blockHeight, header.AppHash, height, headerAppHash)
-	}
-	return snapshotDocumentFromState(chainID, namespaces, header, state, roots, kv), nil
+func writeSnapshotSummary(writer io.Writer, manifest snapshotManifest, pairs uint64) {
+	fmt.Fprintf(writer, "height: %d\n", manifest.State.Height)
+	fmt.Fprintf(writer, "anchor_height: %d\n", manifest.Header.Height)
+	fmt.Fprintf(writer, "modules: %v\n", manifest.Modules)
+	fmt.Fprintf(writer, "kv_pairs: %d\n", pairs)
 }
 
-func snapshotDocumentFromState(chainID string, modules []string, header types.Header, state store.StateRecord, roots []store.StateRootRecord, kv []store.KVPair) snapshotDocument {
-	document := snapshotDocument{
-		SchemaVersion: "v1",
-		ChainID:       chainID,
-		Modules:       activeSnapshotNamespaces(modules, roots, kv),
-		Header:        header,
-		State:         state,
-		StateRoots:    sortedStateRoots(roots),
-		KV:            sortedKVPairs(kv),
-	}
-	document.Checksum = snapshotChecksum(document)
-	return document
+// storeSnapshotSource reads the snapshot anchored to a committed block of a local store.
+type storeSnapshotSource struct {
+	source vexonode.SnapshotSource
+	height types.Height
 }
 
-func snapshotChunks(document snapshotDocument, chunkSize int) ([]snapshotChunkDocument, error) {
-	if err := validateSnapshotDocument(document, ""); err != nil {
+func newStoreSnapshotSource(storage store.Store, chain vexoconfig.Config, blockHeight types.Height) (*storeSnapshotSource, error) {
+	namespaces, err := replicatedNamespaces(chain)
+	if err != nil {
 		return nil, err
 	}
-	if chunkSize <= 0 {
-		return nil, errors.New("snapshot chunk size must be positive")
-	}
-	kv := sortedKVPairs(document.KV)
-	chunkCount := uint64(1)
-	if len(kv) > 0 {
-		chunkCount = uint64((len(kv) + chunkSize - 1) / chunkSize)
-	}
-	chunks := make([]snapshotChunkDocument, 0, chunkCount)
-	for index := uint64(0); index < chunkCount; index++ {
-		start := int(index) * chunkSize
-		end := start + chunkSize
-		if start > len(kv) {
-			start = len(kv)
-		}
-		if end > len(kv) {
-			end = len(kv)
-		}
-		chunk := snapshotChunkDocument{
-			SchemaVersion:    "v1",
-			ChainID:          document.ChainID,
-			Modules:          sortedStrings(document.Modules),
-			Header:           document.Header,
-			State:            document.State,
-			StateRoots:       sortedStateRoots(document.StateRoots),
-			KV:               sortedKVPairs(kv[start:end]),
-			ChunkIndex:       index,
-			ChunkCount:       chunkCount,
-			SnapshotChecksum: document.Checksum,
-		}
-		chunk.ChunkChecksum = snapshotChunkChecksum(chunk)
-		chunks = append(chunks, chunk)
-	}
-	return chunks, nil
+	return &storeSnapshotSource{source: vexonode.SnapshotSource{Store: storage, ChainID: chain.ChainID, Namespaces: namespaces}, height: blockHeight}, nil
 }
 
-func snapshotDocumentFromChunks(chunks []snapshotChunkDocument) (snapshotDocument, error) {
-	if len(chunks) == 0 {
-		return snapshotDocument{}, errors.New("snapshot chunks are required")
+func (source *storeSnapshotSource) Manifest(ctx context.Context) (snapshotManifest, error) {
+	manifest, err := source.source.Manifest(ctx, source.height)
+	if err != nil {
+		return snapshotManifest{}, err
 	}
-	ordered := make([]snapshotChunkDocument, len(chunks))
-	seen := make(map[uint64]struct{}, len(chunks))
-	var chunkCount uint64
-	for _, chunk := range chunks {
-		if err := validateSnapshotChunk(chunk, ""); err != nil {
-			return snapshotDocument{}, err
-		}
-		if chunkCount == 0 {
-			chunkCount = chunk.ChunkCount
-			if int(chunkCount) != len(chunks) {
-				return snapshotDocument{}, fmt.Errorf("snapshot chunk count mismatch: expected %d got %d", chunkCount, len(chunks))
-			}
-		}
-		if chunk.ChunkCount != chunkCount {
-			return snapshotDocument{}, errors.New("snapshot chunks disagree on chunk count")
-		}
-		if chunk.ChunkIndex >= chunkCount {
-			return snapshotDocument{}, fmt.Errorf("snapshot chunk index out of range: %d/%d", chunk.ChunkIndex, chunkCount)
-		}
-		if _, found := seen[chunk.ChunkIndex]; found {
-			return snapshotDocument{}, fmt.Errorf("duplicate snapshot chunk index %d", chunk.ChunkIndex)
-		}
-		seen[chunk.ChunkIndex] = struct{}{}
-		ordered[chunk.ChunkIndex] = chunk
-	}
-	first := ordered[0]
-	kv := make([]store.KVPair, 0)
-	for _, chunk := range ordered {
-		if chunk.SchemaVersion != first.SchemaVersion ||
-			chunk.ChainID != first.ChainID ||
-			chunk.State.Height != first.State.Height ||
-			chunk.State.AppHash != first.State.AppHash ||
-			finality.HeaderHash(chunk.Header) != finality.HeaderHash(first.Header) ||
-			chunk.SnapshotChecksum != first.SnapshotChecksum {
-			return snapshotDocument{}, errors.New("snapshot chunks belong to different snapshots")
-		}
-		if !sameStringSet(chunk.Modules, first.Modules) || !sameStateRoots(chunk.StateRoots, first.StateRoots) {
-			return snapshotDocument{}, errors.New("snapshot chunks disagree on module roots")
-		}
-		kv = append(kv, chunk.KV...)
-	}
-	document := snapshotDocument{
-		SchemaVersion: first.SchemaVersion,
-		ChainID:       first.ChainID,
-		Modules:       sortedStrings(first.Modules),
-		Header:        first.Header,
-		State:         first.State,
-		StateRoots:    sortedStateRoots(first.StateRoots),
-		KV:            sortedKVPairs(kv),
-		Checksum:      first.SnapshotChecksum,
-	}
-	if err := validateSnapshotDocument(document, ""); err != nil {
-		return snapshotDocument{}, err
-	}
-	return document, nil
+	source.height = manifest.Header.Height
+	return vexorpc.NewSnapshotManifestResponse(manifest), nil
 }
 
-// restoreSnapshotDocumentWithContext restores document into storage once it proves to be the state
-// of the trusted block (verifySnapshotTrust); nothing is written otherwise.
-func restoreSnapshotDocumentWithContext(ctx context.Context, storage store.Store, document snapshotDocument, chain vexoconfig.Config, trust snapshotTrust) error {
-	if err := validateSnapshotDocument(document, chain.ChainID); err != nil {
+func (source *storeSnapshotSource) Page(ctx context.Context, namespace string, after []byte) (snapshotPage, error) {
+	pairs, more, err := source.source.Pairs(ctx, source.height, namespace, after, snapshotPageSize)
+	if err != nil {
+		return snapshotPage{}, err
+	}
+	return snapshotPage{SchemaVersion: vexorpc.SnapshotSchemaVersion, Height: uint64(source.height), Namespace: namespace, Pairs: pairs, More: more}, nil
+}
+
+// errSnapshotSourcePruned reports a source that no longer retains the state of the block asked for.
+var errSnapshotSourcePruned = errors.New("the snapshot source has pruned the state of the block")
+
+// httpSnapshotSource reads a snapshot from the RPC snapshot endpoints of a node, within a budget
+// of bytes for the whole snapshot.
+type httpSnapshotSource struct {
+	base      *url.URL
+	height    types.Height
+	client    http.Client
+	maxBytes  int64
+	remaining int64
+}
+
+func newHTTPSnapshotSource(rawURL string, blockHeight types.Height, timeout time.Duration, maxBytes int64) (*httpSnapshotSource, error) {
+	base, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot URL %q: %w", rawURL, err)
+	}
+	if base.Scheme != "http" && base.Scheme != "https" {
+		return nil, fmt.Errorf("snapshot URL %q must be an http or https RPC URL", rawURL)
+	}
+	if timeout <= 0 {
+		timeout = defaultStateSyncTimeout
+	}
+	if maxBytes <= 0 {
+		maxBytes = defaultStateSyncSnapshotMaxBytes
+	}
+	return &httpSnapshotSource{base: base, height: blockHeight, client: http.Client{Timeout: timeout}, maxBytes: maxBytes, remaining: maxBytes}, nil
+}
+
+func (source *httpSnapshotSource) Manifest(ctx context.Context) (snapshotManifest, error) {
+	query := url.Values{}
+	query.Set("height", strconv.FormatUint(uint64(source.height), 10))
+	var manifest snapshotManifest
+	if err := source.get(ctx, "/snapshot/manifest", query, &manifest); err != nil {
+		return snapshotManifest{}, err
+	}
+	if manifest.SchemaVersion != vexorpc.SnapshotSchemaVersion {
+		return snapshotManifest{}, fmt.Errorf("unsupported snapshot schema %q", manifest.SchemaVersion)
+	}
+	if source.height != 0 && manifest.Header.Height != source.height {
+		return snapshotManifest{}, fmt.Errorf("%w: asked for the snapshot of block %d, got block %d", ErrUntrustedSnapshot, source.height, manifest.Header.Height)
+	}
+	source.height = manifest.Header.Height
+	return manifest, nil
+}
+
+func (source *httpSnapshotSource) Page(ctx context.Context, namespace string, after []byte) (snapshotPage, error) {
+	query := url.Values{}
+	query.Set("height", strconv.FormatUint(uint64(source.height), 10))
+	query.Set("namespace", namespace)
+	query.Set("limit", strconv.Itoa(snapshotPageSize))
+	if after != nil {
+		query.Set("after", hex.EncodeToString(after))
+	}
+	var page snapshotPage
+	if err := source.get(ctx, "/snapshot/pairs", query, &page); err != nil {
+		return snapshotPage{}, err
+	}
+	if len(page.Pairs) > snapshotPageSize {
+		return snapshotPage{}, fmt.Errorf("%w: a page of %d pairs, %d were asked for", ErrUntrustedSnapshot, len(page.Pairs), snapshotPageSize)
+	}
+	return page, nil
+}
+
+func (source *httpSnapshotSource) get(ctx context.Context, endpoint string, query url.Values, into any) error {
+	target := *source.base
+	target.Path = strings.TrimSuffix(target.Path, "/") + endpoint
+	target.RawQuery = query.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
+	if err != nil {
 		return err
 	}
-	if err := verifySnapshotTrust(ctx, document, chain, trust); err != nil {
+	response, err := source.client.Do(request)
+	if err != nil {
 		return err
 	}
-	importer, canImportKV := storage.(store.SnapshotKVStore)
-	if len(document.KV) > 0 && !canImportKV {
-		return errors.New("snapshot KV restore is unavailable")
+	defer response.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(response.Body, source.remaining+1))
+	if err != nil {
+		return err
 	}
-	if canImportKV {
-		for _, namespace := range document.Modules {
-			if err := importer.ImportNamespace(ctx, namespace, kvForNamespace(document.KV, namespace)); err != nil {
-				return err
-			}
+	if int64(len(data)) > source.remaining {
+		return fmt.Errorf("snapshot download exceeds max bytes %d", source.maxBytes)
+	}
+	source.remaining -= int64(len(data))
+	if response.StatusCode != http.StatusOK {
+		var refusal vexorpc.SnapshotErrorResponse
+		_ = json.Unmarshal(data, &refusal)
+		if response.StatusCode == http.StatusGone {
+			return fmt.Errorf("%w %d: %s; it serves snapshots from block %d on", errSnapshotSourcePruned, source.height, refusal.Error, refusal.EarliestHeight)
 		}
+		return fmt.Errorf("snapshot download failed: status %d: %s", response.StatusCode, refusal.Error)
 	}
-	if err := storage.SaveState(ctx, document.State); err != nil {
-		return err
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(into)
+}
+
+// fileSnapshotSource reads a snapshot file: the manifest, then the pages of every namespace in order.
+type fileSnapshotSource struct {
+	decoder *json.Decoder
+	height  types.Height
+}
+
+func openSnapshotFile(path string) (*fileSnapshotSource, func(), error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
 	}
-	for _, root := range document.StateRoots {
-		if err := storage.SaveStateRoot(ctx, root); err != nil {
-			return err
-		}
-		if len(document.KV) > 0 {
-			actualRoot, err := storage.Root(ctx, root.Namespace)
+	decoder := json.NewDecoder(bufio.NewReader(file))
+	decoder.DisallowUnknownFields()
+	return &fileSnapshotSource{decoder: decoder}, func() { file.Close() }, nil
+}
+
+func (source *fileSnapshotSource) Manifest(context.Context) (snapshotManifest, error) {
+	var manifest snapshotManifest
+	if err := source.decoder.Decode(&manifest); err != nil {
+		return snapshotManifest{}, fmt.Errorf("snapshot manifest: %w", err)
+	}
+	if manifest.SchemaVersion != vexorpc.SnapshotSchemaVersion {
+		return snapshotManifest{}, fmt.Errorf("unsupported snapshot schema %q", manifest.SchemaVersion)
+	}
+	source.height = manifest.Header.Height
+	return manifest, nil
+}
+
+func (source *fileSnapshotSource) Page(_ context.Context, namespace string, _ []byte) (snapshotPage, error) {
+	var page snapshotPage
+	if err := source.decoder.Decode(&page); err != nil {
+		return snapshotPage{}, fmt.Errorf("snapshot page of namespace %q: %w", namespace, err)
+	}
+	return page, nil
+}
+
+// readSnapshotPages reads the pages of every namespace of manifest from source in order, handing
+// each to visit. Each page must be of the namespace and anchor asked for, and its keys
+// must ascend strictly after those of the pages before.
+func readSnapshotPages(ctx context.Context, source snapshotSource, manifest snapshotManifest, visit func(page snapshotPage) error) error {
+	for _, namespace := range manifest.Modules {
+		var after []byte
+		for {
+			page, err := source.Page(ctx, namespace, after)
 			if err != nil {
 				return err
 			}
-			if actualRoot != root.Root {
-				return fmt.Errorf("snapshot state root mismatch for namespace %q", root.Namespace)
+			if page.SchemaVersion != vexorpc.SnapshotSchemaVersion || page.Namespace != namespace || page.Height != uint64(manifest.Header.Height) {
+				return fmt.Errorf("%w: a %s page of namespace %q of block %d where namespace %q of block %d was asked for", ErrUntrustedSnapshot, page.SchemaVersion, page.Namespace, page.Height, namespace, manifest.Header.Height)
+			}
+			if page.More && len(page.Pairs) == 0 {
+				return fmt.Errorf("%w: an empty page of namespace %q announces more pairs", ErrUntrustedSnapshot, namespace)
+			}
+			for _, pair := range page.Pairs {
+				if pair.Namespace != namespace || len(pair.Key) == 0 || (after != nil && bytes.Compare(pair.Key, after) <= 0) {
+					return fmt.Errorf("%w: pair %x of namespace %q is out of the namespace's key order", ErrUntrustedSnapshot, pair.Key, pair.Namespace)
+				}
+				after = pair.Key
+			}
+			if err := visit(page); err != nil {
+				return err
+			}
+			if !page.More {
+				break
 			}
 		}
 	}
 	return nil
 }
 
-func validateSnapshotKVRoots(document snapshotDocument) error {
-	if len(document.KV) == 0 {
-		return nil
+// writeSnapshotStream writes the snapshot of source to writer as a snapshot file.
+func writeSnapshotStream(ctx context.Context, writer io.Writer, source snapshotSource) (snapshotManifest, uint64, error) {
+	buffered := bufio.NewWriter(writer)
+	encoder := json.NewEncoder(buffered)
+	manifest, err := source.Manifest(ctx)
+	if err != nil {
+		return snapshotManifest{}, 0, err
 	}
-	for _, root := range document.StateRoots {
-		actualRoot, err := stateproof.Root(root.Namespace, snapshotStateProofPairs(kvForNamespace(document.KV, root.Namespace)))
+	if err := encoder.Encode(manifest); err != nil {
+		return snapshotManifest{}, 0, err
+	}
+	var pairs uint64
+	err = readSnapshotPages(ctx, source, manifest, func(page snapshotPage) error {
+		pairs += uint64(len(page.Pairs))
+		return encoder.Encode(page)
+	})
+	if err != nil {
+		return snapshotManifest{}, 0, err
+	}
+	return manifest, pairs, buffered.Flush()
+}
+
+// writeSnapshotFile writes the snapshot of source to the file at path, which it replaces only once
+// the snapshot is complete.
+func writeSnapshotFile(ctx context.Context, path string, source snapshotSource) (snapshotManifest, uint64, error) {
+	partial := path + ".partial"
+	file, err := os.OpenFile(partial, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return snapshotManifest{}, 0, err
+	}
+	manifest, pairs, err := writeSnapshotStream(ctx, file, source)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Rename(partial, path)
+	}
+	if err != nil {
+		os.Remove(partial)
+		return snapshotManifest{}, 0, err
+	}
+	return manifest, pairs, nil
+}
+
+// restoreSnapshot restores the snapshot of source as the store at storeDir once its manifest proves
+// to be the state of the trusted block and accept, when set, takes it. The snapshot is imported into
+// a staging store that replaces the store at storeDir only once every namespace has its root, so the
+// store is left as it was when the snapshot is refused or the restore fails.
+func restoreSnapshot(ctx context.Context, storeDir string, source snapshotSource, chain vexoconfig.Config, trust snapshotTrust, accept func(snapshotManifest) error) (snapshotManifest, uint64, error) {
+	manifest, err := source.Manifest(ctx)
+	if err != nil {
+		return snapshotManifest{}, 0, err
+	}
+	if err := verifySnapshotTrust(manifest, trust); err != nil {
+		return snapshotManifest{}, 0, err
+	}
+	if err := checkSnapshotManifest(ctx, manifest, chain); err != nil {
+		return snapshotManifest{}, 0, err
+	}
+	if accept != nil {
+		if err := accept(manifest); err != nil {
+			return snapshotManifest{}, 0, err
+		}
+	}
+	storeDir = filepath.Clean(storeDir)
+	staging, replaced := storeDir+".restore", storeDir+".replaced"
+	for _, leftover := range []string{staging, replaced} {
+		if err := os.RemoveAll(leftover); err != nil {
+			return snapshotManifest{}, 0, err
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(storeDir), 0o755); err != nil {
+		return snapshotManifest{}, 0, err
+	}
+	pairs, err := importSnapshot(ctx, staging, source, manifest)
+	if err != nil {
+		os.RemoveAll(staging)
+		return snapshotManifest{}, 0, err
+	}
+	if _, err := os.Stat(storeDir); err == nil {
+		if err := os.Rename(storeDir, replaced); err != nil {
+			os.RemoveAll(staging)
+			return snapshotManifest{}, 0, err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		os.RemoveAll(staging)
+		return snapshotManifest{}, 0, err
+	}
+	if err := os.Rename(staging, storeDir); err != nil {
+		return snapshotManifest{}, 0, err
+	}
+	if err := os.RemoveAll(replaced); err != nil {
+		return snapshotManifest{}, 0, err
+	}
+	return manifest, pairs, nil
+}
+
+// importSnapshot imports the pages of the snapshot of manifest from source into a new store at dir,
+// checks the root of every namespace against the manifest, and saves the state, its roots and the
+// block of the state, which the restored node continues the chain from. It returns the number of
+// pairs imported. The block is saved without its quorum certificate: the hash links from the
+// trusted anchor prove the block, not the certificate a source hands over.
+func importSnapshot(ctx context.Context, dir string, source snapshotSource, manifest snapshotManifest) (uint64, error) {
+	target, err := store.OpenLevelDB(dir)
+	if err != nil {
+		return 0, err
+	}
+	defer target.Close()
+	roots := make(map[string]types.Hash, len(manifest.StateRoots))
+	for _, root := range manifest.StateRoots {
+		roots[root.Namespace] = root.Root
+	}
+	var (
+		pairs    uint64
+		current  string
+		importer *store.NamespaceImport
+	)
+	finish := func() error {
+		if importer == nil {
+			return nil
+		}
+		root, err := importer.Root(ctx)
 		if err != nil {
 			return err
 		}
-		if actualRoot != root.Root {
-			return fmt.Errorf("snapshot state root mismatch for namespace %q", root.Namespace)
+		if root != roots[current] {
+			return fmt.Errorf("%w: the pairs of namespace %q have root %x, the snapshot names %x", ErrUntrustedSnapshot, current, root, roots[current])
+		}
+		return nil
+	}
+	err = readSnapshotPages(ctx, source, manifest, func(page snapshotPage) error {
+		if importer == nil || page.Namespace != current {
+			if err := finish(); err != nil {
+				return err
+			}
+			if importer, err = target.BeginNamespaceImport(ctx, page.Namespace); err != nil {
+				return err
+			}
+			current = page.Namespace
+		}
+		pairs += uint64(len(page.Pairs))
+		if err := importer.Add(ctx, page.Pairs); err != nil {
+			return fmt.Errorf("%w: %w", ErrUntrustedSnapshot, err)
+		}
+		return nil
+	})
+	if err == nil {
+		err = finish()
+	}
+	if err != nil {
+		return 0, err
+	}
+	for _, root := range manifest.StateRoots {
+		if err := target.SaveStateRoot(ctx, root); err != nil {
+			return 0, err
 		}
 	}
-	return nil
+	block := store.BlockRecord{Block: manifest.Block.Block, Hash: manifest.Block.Hash, AppHash: manifest.State.AppHash, StateRoots: manifest.StateRoots}
+	if err := target.SaveBlock(ctx, block); err != nil {
+		return 0, err
+	}
+	if err := target.SaveState(ctx, manifest.State); err != nil {
+		return 0, err
+	}
+	if _, err := target.RecoverIndexes(ctx); err != nil {
+		return 0, err
+	}
+	return pairs, nil
 }
 
-func snapshotStateProofPairs(pairs []store.KVPair) []stateproof.Pair {
-	out := make([]stateproof.Pair, 0, len(pairs))
-	for _, pair := range pairs {
-		out = append(out, stateproof.Pair{
-			Key:   append([]byte(nil), pair.Key...),
-			Value: append([]byte(nil), pair.Value...),
-		})
-	}
-	return out
-}
-
-func downloadSnapshotDocument(url string, timeout time.Duration) (snapshotDocument, error) {
-	return downloadSnapshotDocumentWithLimit(url, timeout, 32*1024*1024)
-}
-
-func downloadSnapshotDocumentWithLimit(url string, timeout time.Duration, maxBytes int64) (snapshotDocument, error) {
-	return downloadSnapshotDocumentWithLimitContext(context.Background(), url, timeout, maxBytes)
-}
-
-func downloadSnapshotDocumentWithLimitContext(ctx context.Context, url string, timeout time.Duration, maxBytes int64) (snapshotDocument, error) {
-	if timeout <= 0 {
-		timeout = 10 * time.Second
-	}
-	if maxBytes <= 0 {
-		maxBytes = 32 * 1024 * 1024
-	}
-	client := http.Client{Timeout: timeout}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return snapshotDocument{}, err
-	}
-	response, err := client.Do(request)
-	if err != nil {
-		return snapshotDocument{}, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return snapshotDocument{}, fmt.Errorf("snapshot download failed: status %d", response.StatusCode)
-	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, maxBytes+1))
-	if err != nil {
-		return snapshotDocument{}, err
-	}
-	if int64(len(data)) > maxBytes {
-		return snapshotDocument{}, fmt.Errorf("snapshot download exceeds max bytes %d", maxBytes)
-	}
-	var document snapshotDocument
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&document); err != nil {
-		return snapshotDocument{}, err
-	}
-	if document.SchemaVersion != "v1" {
-		return snapshotDocument{}, fmt.Errorf("unsupported snapshot schema %q", document.SchemaVersion)
-	}
-	if err := validateSnapshotDocument(document, ""); err != nil {
-		return snapshotDocument{}, err
-	}
-	return document, nil
-}
-
-func writeSnapshotDocument(writer io.Writer, document snapshotDocument) error {
-	encoder := json.NewEncoder(writer)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(document)
-}
-
-func writeSnapshotChunkDocument(writer io.Writer, document snapshotChunkDocument) error {
-	encoder := json.NewEncoder(writer)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(document)
-}
-
-func readSnapshotDocument(path string) (snapshotDocument, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return snapshotDocument{}, err
-	}
-	defer file.Close()
-	var document snapshotDocument
-	decoder := json.NewDecoder(file)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&document); err != nil {
-		return snapshotDocument{}, err
-	}
-	if err := validateSnapshotDocument(document, ""); err != nil {
-		return snapshotDocument{}, err
-	}
-	return document, nil
-}
-
-func readSnapshotChunkDocument(path string) (snapshotChunkDocument, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return snapshotChunkDocument{}, err
-	}
-	defer file.Close()
-	var document snapshotChunkDocument
-	decoder := json.NewDecoder(file)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&document); err != nil {
-		return snapshotChunkDocument{}, err
-	}
-	if err := validateSnapshotChunk(document, ""); err != nil {
-		return snapshotChunkDocument{}, err
-	}
-	return document, nil
-}
-
-func readSnapshotChunksFromDir(inputDir string) ([]snapshotChunkDocument, error) {
-	paths, err := filepath.Glob(filepath.Join(inputDir, "snapshot-chunk-*.json"))
+// replicatedNamespaces is every namespace of the replicated state of chain, as runtime.StateNamespaces
+// names them.
+func replicatedNamespaces(chain vexoconfig.Config) ([]string, error) {
+	application, err := appmodules.NewRuntimeWithChainConfig(chain.ChainID, chain)
 	if err != nil {
 		return nil, err
 	}
-	if len(paths) == 0 {
-		return nil, errors.New("snapshot chunk files not found")
+	modules := make([]string, 0, len(application.Modules()))
+	for _, module := range application.Modules() {
+		modules = append(modules, module.Name())
 	}
-	sort.Strings(paths)
-	chunks := make([]snapshotChunkDocument, 0, len(paths))
-	for _, path := range paths {
-		chunk, err := readSnapshotChunkDocument(path)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
-		}
-		chunks = append(chunks, chunk)
-	}
-	return chunks, nil
+	return snapshotNamespaces(modules), nil
 }
 
-func validateSnapshotDocument(document snapshotDocument, expectedChainID string) error {
-	if document.SchemaVersion != "v1" {
-		return fmt.Errorf("unsupported snapshot schema %q", document.SchemaVersion)
+// checkSnapshotManifest checks that manifest is consistent and is the state its anchor header
+// commits:
+//
+//   - it carries exactly the namespaces of the replicated state of chain, each with one root of the
+//     state's height, so no namespace outside what the checks below cover is imported;
+//   - those roots give the state's app hash, recomputed the way the application of chain computes
+//     it, and with the validator registry root the header app hash the anchor commits
+//     (finality.HeaderAppHash), so every namespace, the registry with the validator sets of past
+//     heights included, is exactly the committed state;
+//   - the links and the block of the state chain back from the anchor by their hashes, so the block
+//     the restored node continues from is the committed block of the state's height.
+//
+// The roots of the pairs themselves are checked as they are imported (importSnapshot).
+func checkSnapshotManifest(ctx context.Context, manifest snapshotManifest, chain vexoconfig.Config) error {
+	untrusted := func(format string, args ...any) error {
+		return fmt.Errorf("%w: "+format, append([]any{ErrUntrustedSnapshot}, args...)...)
 	}
-	if expectedChainID != "" && document.ChainID != "" && document.ChainID != expectedChainID {
-		return fmt.Errorf("snapshot chain id mismatch: expected %s got %s", expectedChainID, document.ChainID)
-	}
-	if document.State.Height == 0 {
-		return store.ErrInvalidStateRecord
-	}
-	if err := validateSnapshotHeader(document); err != nil {
-		return err
-	}
-	modules := sortedStrings(document.Modules)
-	rootNamespaces := make(map[string]struct{}, len(document.StateRoots))
-	for _, root := range document.StateRoots {
-		if root.Height != document.State.Height {
-			return fmt.Errorf("snapshot root height mismatch: state=%d root=%d namespace=%s", document.State.Height, root.Height, root.Namespace)
-		}
-		if root.Namespace == "" {
-			return store.ErrInvalidNamespace
-		}
-		if _, found := rootNamespaces[root.Namespace]; found {
-			return fmt.Errorf("snapshot duplicate state root namespace %q", root.Namespace)
-		}
-		rootNamespaces[root.Namespace] = struct{}{}
-	}
-	for _, namespace := range modules {
-		if _, found := rootNamespaces[namespace]; !found {
-			return fmt.Errorf("snapshot missing state root for namespace %q", namespace)
-		}
-	}
-	moduleSet := make(map[string]struct{}, len(modules))
-	for _, namespace := range modules {
-		moduleSet[namespace] = struct{}{}
-	}
-	for _, pair := range document.KV {
-		if pair.Namespace == "" {
-			return store.ErrInvalidNamespace
-		}
-		if len(pair.Key) == 0 {
-			return store.ErrInvalidKey
-		}
-		if _, found := moduleSet[pair.Namespace]; !found {
-			return fmt.Errorf("snapshot KV namespace %q is not declared", pair.Namespace)
-		}
-	}
-	if document.Checksum != "" && document.Checksum != snapshotChecksum(document) {
-		return errors.New("snapshot checksum mismatch")
-	}
-	return nil
-}
-
-// validateSnapshotHeader checks that the snapshot header is a block header of the snapshot's chain
-// that commits the snapshot state: names its height as the one it commits the app hash of, and the
-// header app hash of the state's app hash and validator registry root.
-func validateSnapshotHeader(document snapshotDocument) error {
-	header, chainID, state := document.Header, document.ChainID, document.State
-	if chainID != "" && header.ChainID != chainID {
-		return fmt.Errorf("snapshot header chain id mismatch: snapshot %s header %s", chainID, header.ChainID)
+	header, state := manifest.Header, manifest.State
+	if manifest.ChainID != chain.ChainID || header.ChainID != chain.ChainID {
+		return untrusted("snapshot of chain %q anchored to a block of chain %q, node runs %q", manifest.ChainID, header.ChainID, chain.ChainID)
 	}
 	height, ok := finality.AppHashHeight(header)
-	if !ok || height != state.Height {
-		return fmt.Errorf("snapshot header of block %d does not commit the state of height %d", header.Height, state.Height)
+	if !ok || height == 0 || height != state.Height || header.Height <= state.Height {
+		return untrusted("header of block %d does not commit the state of height %d", header.Height, state.Height)
 	}
-	headerAppHash, err := snapshotHeaderAppHash(state.AppHash, document.StateRoots)
+	want, err := replicatedNamespaces(chain)
 	if err != nil {
 		return err
 	}
-	if header.AppHash != headerAppHash {
-		return fmt.Errorf("%w: snapshot header commits app hash %x, snapshot state has %x", ErrUntrustedSnapshot, header.AppHash, headerAppHash)
+	if !slices.Equal(manifest.Modules, want) {
+		return untrusted("snapshot namespaces %v, the replicated state has %v", manifest.Modules, want)
 	}
-	return nil
-}
-
-func validateSnapshotChunk(document snapshotChunkDocument, expectedChainID string) error {
-	if document.SchemaVersion != "v1" {
-		return fmt.Errorf("unsupported snapshot chunk schema %q", document.SchemaVersion)
+	if !snapshotRootsCover(manifest) {
+		return untrusted("snapshot does not name one root of height %d for each of its namespaces", state.Height)
 	}
-	if expectedChainID != "" && document.ChainID != "" && document.ChainID != expectedChainID {
-		return fmt.Errorf("snapshot chunk chain id mismatch: expected %s got %s", expectedChainID, document.ChainID)
-	}
-	if document.ChunkCount == 0 {
-		return errors.New("snapshot chunk count must be positive")
-	}
-	if document.ChunkIndex >= document.ChunkCount {
-		return fmt.Errorf("snapshot chunk index out of range: %d/%d", document.ChunkIndex, document.ChunkCount)
-	}
-	if document.SnapshotChecksum == "" {
-		return errors.New("snapshot chunk is missing snapshot checksum")
-	}
-	if document.ChunkChecksum == "" {
-		return errors.New("snapshot chunk is missing chunk checksum")
-	}
-	if document.ChunkChecksum != snapshotChunkChecksum(document) {
-		return errors.New("snapshot chunk checksum mismatch")
-	}
-	candidate := snapshotDocument{
-		SchemaVersion: document.SchemaVersion,
-		ChainID:       document.ChainID,
-		Modules:       sortedStrings(document.Modules),
-		State:         document.State,
-		StateRoots:    sortedStateRoots(document.StateRoots),
-		KV:            sortedKVPairs(document.KV),
-	}
-	if candidate.State.Height == 0 {
-		return store.ErrInvalidStateRecord
-	}
-	if err := validateSnapshotChunkPayload(candidate); err != nil {
+	application, err := appmodules.NewRuntimeWithChainConfig(chain.ChainID, chain)
+	if err != nil {
 		return err
 	}
-	return nil
-}
-
-func validateSnapshotChunkPayload(document snapshotDocument) error {
-	if document.SchemaVersion != "v1" {
-		return fmt.Errorf("unsupported snapshot schema %q", document.SchemaVersion)
+	appHash, err := application.AppHashOfRoots(ctx, height, snapshotRoots(manifest.StateRoots))
+	if err != nil {
+		return untrusted("%v", err)
 	}
-	modules := sortedStrings(document.Modules)
-	rootNamespaces := make(map[string]struct{}, len(document.StateRoots))
-	for _, root := range document.StateRoots {
-		if root.Height != document.State.Height {
-			return fmt.Errorf("snapshot root height mismatch: state=%d root=%d namespace=%s", document.State.Height, root.Height, root.Namespace)
-		}
-		if root.Namespace == "" {
-			return store.ErrInvalidNamespace
-		}
-		rootNamespaces[root.Namespace] = struct{}{}
+	if appHash != state.AppHash {
+		return untrusted("snapshot roots give app hash %x, the snapshot state names %x", appHash, state.AppHash)
 	}
-	moduleSet := make(map[string]struct{}, len(modules))
-	for _, namespace := range modules {
-		if _, found := rootNamespaces[namespace]; !found {
-			return fmt.Errorf("snapshot missing state root for namespace %q", namespace)
-		}
-		moduleSet[namespace] = struct{}{}
+	headerAppHash, err := snapshotHeaderAppHash(appHash, manifest.StateRoots)
+	if err != nil {
+		return untrusted("%v", err)
 	}
-	for _, pair := range document.KV {
-		if pair.Namespace == "" {
-			return store.ErrInvalidNamespace
+	if headerAppHash != header.AppHash {
+		return untrusted("snapshot state has header app hash %x, block %d commits %x", headerAppHash, header.Height, header.AppHash)
+	}
+	if uint64(len(manifest.Links)) != uint64(header.Height-state.Height-1) {
+		return untrusted("%d headers link block %d to block %d", len(manifest.Links), header.Height, state.Height)
+	}
+	expected := header.PreviousBlockHash
+	for index := len(manifest.Links) - 1; index >= 0; index-- {
+		link := manifest.Links[index]
+		if link.ChainID != chain.ChainID || link.Height != state.Height+1+types.Height(index) || consensus.HashHeader(link) != expected {
+			return untrusted("header of height %d does not link to block %d", link.Height, header.Height)
 		}
-		if len(pair.Key) == 0 {
-			return store.ErrInvalidKey
-		}
-		if _, found := moduleSet[pair.Namespace]; !found {
-			return fmt.Errorf("snapshot KV namespace %q is not declared", pair.Namespace)
-		}
+		expected = link.PreviousBlockHash
+	}
+	block := manifest.Block
+	if block.Block.Header.Height != state.Height || consensus.HashBlock(block.Block) != expected || block.Hash != expected || state.LastBlockHash != expected {
+		return untrusted("the block of the snapshot state is not block %d of the anchored chain", state.Height)
 	}
 	return nil
 }
 
-func snapshotChecksum(document snapshotDocument) string {
-	document.Checksum = ""
-	document.Modules = sortedStrings(document.Modules)
-	document.StateRoots = sortedStateRoots(document.StateRoots)
-	document.KV = sortedKVPairs(document.KV)
-	data, _ := json.Marshal(document)
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
-}
-
-func snapshotChunkChecksum(document snapshotChunkDocument) string {
-	document.ChunkChecksum = ""
-	document.Modules = sortedStrings(document.Modules)
-	document.StateRoots = sortedStateRoots(document.StateRoots)
-	document.KV = sortedKVPairs(document.KV)
-	data, _ := json.Marshal(document)
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
-}
-
-func snapshotChunkFileName(index uint64, count uint64) string {
-	return fmt.Sprintf("snapshot-chunk-%06d-of-%06d.json", index+1, count)
-}
-
-func sameStringSet(left []string, right []string) bool {
-	left = sortedStrings(left)
-	right = sortedStrings(right)
-	if len(left) != len(right) {
+// snapshotRootsCover reports whether manifest names exactly one root of its state's height for
+// every namespace it carries, and no other.
+func snapshotRootsCover(manifest snapshotManifest) bool {
+	if len(manifest.StateRoots) != len(manifest.Modules) {
 		return false
 	}
-	for index := range left {
-		if left[index] != right[index] {
+	seen := make(map[string]struct{}, len(manifest.StateRoots))
+	for _, root := range manifest.StateRoots {
+		if root.Height != manifest.State.Height {
+			return false
+		}
+		seen[root.Namespace] = struct{}{}
+	}
+	for _, namespace := range manifest.Modules {
+		if _, found := seen[namespace]; !found {
 			return false
 		}
 	}
-	return true
-}
-
-func sameStateRoots(left []store.StateRootRecord, right []store.StateRootRecord) bool {
-	left = sortedStateRoots(left)
-	right = sortedStateRoots(right)
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
+	return len(seen) == len(manifest.Modules)
 }
 
 // snapshotNamespaces is every namespace of the replicated state of a chain with modules, as
-// runtime.StateNamespaces names them.
+// runtime.StateNamespaces names them, in sorted order.
 func snapshotNamespaces(modules []string) []string {
 	namespaces := append([]string(nil), modules...)
 	namespaces = append(namespaces, vexoapp.CoreNamespaces()...)
 	namespaces = append(namespaces, validator.RegistryNamespace)
 	return sortedStrings(namespaces)
-}
-
-func activeSnapshotNamespaces(namespaces []string, roots []store.StateRootRecord, kv []store.KVPair) []string {
-	allowed := make(map[string]struct{}, len(namespaces))
-	for _, namespace := range namespaces {
-		if namespace != "" {
-			allowed[namespace] = struct{}{}
-		}
-	}
-	active := make(map[string]struct{}, len(roots)+len(kv))
-	for _, root := range roots {
-		if _, found := allowed[root.Namespace]; found {
-			active[root.Namespace] = struct{}{}
-		}
-	}
-	for _, pair := range kv {
-		if _, found := allowed[pair.Namespace]; found {
-			active[pair.Namespace] = struct{}{}
-		}
-	}
-	values := make([]string, 0, len(active))
-	for namespace := range active {
-		values = append(values, namespace)
-	}
-	return sortedStrings(values)
 }
 
 func sortedStrings(values []string) []string {
@@ -1131,36 +912,4 @@ func sortedStrings(values []string) []string {
 	}
 	sort.Strings(sorted)
 	return sorted
-}
-
-func sortedStateRoots(roots []store.StateRootRecord) []store.StateRootRecord {
-	sorted := append([]store.StateRootRecord(nil), roots...)
-	sort.Slice(sorted, func(i, j int) bool {
-		if sorted[i].Height != sorted[j].Height {
-			return sorted[i].Height < sorted[j].Height
-		}
-		return sorted[i].Namespace < sorted[j].Namespace
-	})
-	return sorted
-}
-
-func sortedKVPairs(pairs []store.KVPair) []store.KVPair {
-	sorted := append([]store.KVPair(nil), pairs...)
-	sort.Slice(sorted, func(i, j int) bool {
-		if sorted[i].Namespace != sorted[j].Namespace {
-			return sorted[i].Namespace < sorted[j].Namespace
-		}
-		return bytes.Compare(sorted[i].Key, sorted[j].Key) < 0
-	})
-	return sorted
-}
-
-func kvForNamespace(pairs []store.KVPair, namespace string) []store.KVPair {
-	filtered := make([]store.KVPair, 0)
-	for _, pair := range pairs {
-		if pair.Namespace == namespace {
-			filtered = append(filtered, pair)
-		}
-	}
-	return filtered
 }

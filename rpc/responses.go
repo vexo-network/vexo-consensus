@@ -3,10 +3,8 @@ package rpc
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -98,6 +96,7 @@ func metricsResponse(metrics node.Metrics) MetricsResponse {
 		ReplayHealthy:               metrics.ReplayHealthy,
 		SigningFailures:             metrics.SigningFailures,
 		ReconciliationFailures:      metrics.ReconciliationFailures,
+		RetentionPruneFailures:      metrics.RetentionPruneFailures,
 	}
 }
 
@@ -213,6 +212,7 @@ func metricsText(metrics node.Metrics) string {
 	writeGauge("vexo_replay_healthy", "Whether replay verification is healthy.", boolGauge(metrics.ReplayHealthy))
 	writeGauge("vexo_validator_signing_failures", "Validator signing failures.", metrics.SigningFailures)
 	writeGauge("vexo_post_commit_reconciliation_failures", "Post-commit reconciliation failures recovered from durable state.", metrics.ReconciliationFailures)
+	writeGauge("vexo_retention_prune_failures", "Pruning to the configured block retention failed.", metrics.RetentionPruneFailures)
 	fmt.Fprintf(&builder, "# HELP vexo_height_rate_per_minute Height increase rate per minute.\n")
 	fmt.Fprintf(&builder, "# TYPE vexo_height_rate_per_minute gauge\n")
 	fmt.Fprintf(&builder, "vexo_height_rate_per_minute %.6f\n", metrics.HeightRatePerMinute)
@@ -370,51 +370,6 @@ func stateSnapshotResponse(head node.StateSnapshotHead) StateSnapshotResponse {
 	}
 }
 
-func snapshotExportResponse(snapshot node.StateSnapshot) SnapshotExportResponse {
-	modules := append([]string(nil), snapshot.Namespaces...)
-	sort.Strings(modules)
-	response := SnapshotExportResponse{
-		SchemaVersion: "v1",
-		ChainID:       snapshot.ChainID,
-		Modules:       modules,
-		Header:        snapshot.Header,
-		State:         snapshot.State,
-		StateRoots:    sortedStateRoots(snapshot.StateRoots),
-		KV:            sortedKVPairs(snapshot.KV),
-	}
-	response.Checksum = snapshotChecksum(response)
-	return response
-}
-
-// snapshotChunkResponse returns chunk index of export, whose key-value pairs are already sorted.
-// size is at most maxSnapshotChunkSize, so the offsets below cannot overflow.
-func snapshotChunkResponse(export SnapshotExportResponse, index uint64, size uint64) (SnapshotChunkResponse, error) {
-	kv := export.KV
-	chunkCount := uint64(1)
-	if len(kv) > 0 {
-		chunkCount = (uint64(len(kv)) + size - 1) / size
-	}
-	if index >= chunkCount {
-		return SnapshotChunkResponse{}, fmt.Errorf("snapshot chunk index out of range: %d/%d", index, chunkCount)
-	}
-	start := min(index*size, uint64(len(kv)))
-	end := min(start+size, uint64(len(kv)))
-	chunk := SnapshotChunkResponse{
-		SchemaVersion:    "v1",
-		ChainID:          export.ChainID,
-		Modules:          append([]string(nil), export.Modules...),
-		Header:           export.Header,
-		State:            export.State,
-		StateRoots:       append([]store.StateRootRecord(nil), export.StateRoots...),
-		KV:               append([]store.KVPair(nil), kv[start:end]...),
-		ChunkIndex:       index,
-		ChunkCount:       chunkCount,
-		SnapshotChecksum: export.Checksum,
-	}
-	chunk.ChunkChecksum = snapshotChunkChecksum(chunk)
-	return chunk, nil
-}
-
 func recoveryReportResponse(report node.RecoveryReport) RecoveryReportResponse {
 	response := RecoveryReportResponse{
 		OK:                report.OK,
@@ -464,26 +419,6 @@ func stateRootResponse(root store.StateRootRecord) StateRootResponse {
 		Namespace: root.Namespace,
 		Root:      hex.EncodeToString(root.Root[:]),
 	}
-}
-
-func snapshotChecksum(response SnapshotExportResponse) string {
-	response.Checksum = ""
-	response.Modules = sortedStrings(response.Modules)
-	response.StateRoots = sortedStateRoots(response.StateRoots)
-	response.KV = sortedKVPairs(response.KV)
-	data, _ := json.Marshal(response)
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
-}
-
-func snapshotChunkChecksum(response SnapshotChunkResponse) string {
-	response.ChunkChecksum = ""
-	response.Modules = sortedStrings(response.Modules)
-	response.StateRoots = sortedStateRoots(response.StateRoots)
-	response.KV = sortedKVPairs(response.KV)
-	data, _ := json.Marshal(response)
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
 }
 
 func sortedStateRoots(roots []store.StateRootRecord) []store.StateRootRecord {

@@ -1,3 +1,5 @@
+// Package queryproof proves the value of a state key, or its absence, at a height against the state
+// root of its namespace at that height.
 package queryproof
 
 import (
@@ -11,7 +13,8 @@ import (
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
-const SchemaVersionV1 = "v1"
+// SchemaVersionV2 is the proof schema of the radix state tree (stateproof).
+const SchemaVersionV2 = "v2"
 
 var (
 	ErrInvalidProof = errors.New("invalid query proof")
@@ -19,40 +22,51 @@ var (
 )
 
 type Proof struct {
-	SchemaVersion   string                      `json:"schema_version"`
-	ChainID         string                      `json:"chain_id"`
-	Height          types.Height                `json:"height"`
-	Namespace       string                      `json:"namespace"`
-	Key             []byte                      `json:"key"`
-	Value           []byte                      `json:"value,omitempty"`
-	Exists          bool                        `json:"exists"`
-	StateRoot       types.Hash                  `json:"state_root"`
-	LeafHash        types.Hash                  `json:"leaf_hash"`
-	MerklePath      []stateproof.Step           `json:"merkle_path,omitempty"`
-	NamespaceLeaves []stateproof.Pair           `json:"namespace_leaves,omitempty"`
-	AbsenceLeft     *stateproof.AbsenceNeighbor `json:"absence_left,omitempty"`
-	AbsenceRight    *stateproof.AbsenceNeighbor `json:"absence_right,omitempty"`
+	SchemaVersion string           `json:"schema_version"`
+	ChainID       string           `json:"chain_id"`
+	Height        types.Height     `json:"height"`
+	Namespace     string           `json:"namespace"`
+	Key           []byte           `json:"key"`
+	Value         []byte           `json:"value,omitempty"`
+	Exists        bool             `json:"exists"`
+	StateRoot     types.Hash       `json:"state_root"`
+	Path          stateproof.Proof `json:"path"`
 }
 
-func Build(ctx context.Context, kv store.KVStore, chainID string, height types.Height, namespace string, key []byte) (Proof, error) {
-	if kv == nil || chainID == "" || height == 0 || namespace == "" || len(key) == 0 {
+// TreeStore serves proofs from the state trees it keeps.
+type TreeStore interface {
+	StateProof(ctx context.Context, namespace string, key []byte) (types.Hash, []byte, bool, stateproof.Proof, error)
+	StateProofAt(ctx context.Context, height types.Height, namespace string, key []byte) (types.Hash, []byte, bool, stateproof.Proof, error)
+}
+
+// Build proves key against the current state of namespace, the state of height, from the store's
+// state tree: it reads the nodes on the key's path, not the namespace.
+func Build(ctx context.Context, trees TreeStore, chainID string, height types.Height, namespace string, key []byte) (Proof, error) {
+	if trees == nil || chainID == "" || height == 0 || namespace == "" || len(key) == 0 {
 		return Proof{}, ErrInvalidProof
 	}
-	snapshot, ok := kv.(store.SnapshotKVStore)
-	if !ok {
-		return Proof{}, ErrInvalidProof
-	}
-	pairs, err := snapshot.ExportNamespace(ctx, namespace)
+	root, value, exists, path, err := trees.StateProof(ctx, namespace, key)
 	if err != nil {
 		return Proof{}, err
 	}
-	root, err := kv.Root(ctx, namespace)
+	return newProof(chainID, height, namespace, key, value, exists, root, path), nil
+}
+
+// BuildAt proves key against the state of namespace at committed height, from the versions of
+// the store's state tree nodes on the key's path.
+func BuildAt(ctx context.Context, trees TreeStore, chainID string, height types.Height, namespace string, key []byte) (Proof, error) {
+	if trees == nil || chainID == "" || height == 0 || namespace == "" || len(key) == 0 {
+		return Proof{}, ErrInvalidProof
+	}
+	root, value, exists, path, err := trees.StateProofAt(ctx, height, namespace, key)
 	if err != nil {
 		return Proof{}, err
 	}
-	return BuildFromKVPairs(chainID, height, namespace, key, pairs, root)
+	return newProof(chainID, height, namespace, key, value, exists, root, path), nil
 }
 
+// BuildFromKVPairs proves key against stateRoot from every pair of a namespace, for a proof built
+// outside a store, such as from a snapshot.
 func BuildFromKVPairs(chainID string, height types.Height, namespace string, key []byte, pairs []store.KVPair, stateRoot types.Hash) (Proof, error) {
 	return BuildFromPairs(chainID, height, namespace, key, storePairsToProofPairs(pairs), stateRoot)
 }
@@ -61,46 +75,34 @@ func BuildFromPairs(chainID string, height types.Height, namespace string, key [
 	if chainID == "" || height == 0 || namespace == "" || len(key) == 0 || stateRoot == (types.Hash{}) {
 		return Proof{}, ErrInvalidProof
 	}
-	root, value, exists, path, err := stateproof.BuildMembership(namespace, pairs, key)
+	root, value, exists, path, err := stateproof.Prove(namespace, pairs, key)
 	if err != nil {
 		return Proof{}, err
 	}
 	if root != stateRoot {
 		return Proof{}, ErrRootMismatch
 	}
-	proofPairs := []stateproof.Pair(nil)
-	var absenceLeft *stateproof.AbsenceNeighbor
-	var absenceRight *stateproof.AbsenceNeighbor
-	if !exists {
-		absenceRoot, left, right, absenceExists, err := stateproof.BuildNonMembership(namespace, pairs, key)
-		if err != nil {
-			return Proof{}, err
-		}
-		if absenceExists || absenceRoot != stateRoot {
-			return Proof{}, ErrInvalidProof
-		}
-		absenceLeft = left
-		absenceRight = right
-	}
-	return Proof{
-		SchemaVersion:   SchemaVersionV1,
-		ChainID:         chainID,
-		Height:          height,
-		Namespace:       namespace,
-		Key:             append([]byte(nil), key...),
-		Value:           append([]byte(nil), value...),
-		Exists:          exists,
-		StateRoot:       stateRoot,
-		LeafHash:        leafHash(namespace, key, value),
-		MerklePath:      append([]stateproof.Step(nil), path...),
-		NamespaceLeaves: proofPairs,
-		AbsenceLeft:     absenceLeft,
-		AbsenceRight:    absenceRight,
-	}, nil
+	return newProof(chainID, height, namespace, key, value, exists, root, path), nil
 }
 
+func newProof(chainID string, height types.Height, namespace string, key []byte, value []byte, exists bool, root types.Hash, path stateproof.Proof) Proof {
+	return Proof{
+		SchemaVersion: SchemaVersionV2,
+		ChainID:       chainID,
+		Height:        height,
+		Namespace:     namespace,
+		Key:           append([]byte(nil), key...),
+		Value:         append([]byte(nil), value...),
+		Exists:        exists,
+		StateRoot:     root,
+		Path:          path,
+	}
+}
+
+// Verify checks proof against the chain, the height and the namespace root the verifier trusts;
+// an empty expectation is not checked.
 func Verify(proof Proof, expectedChainID string, expectedHeight types.Height, expectedRoot types.Hash) error {
-	if proof.SchemaVersion != SchemaVersionV1 ||
+	if proof.SchemaVersion != SchemaVersionV2 ||
 		proof.ChainID == "" ||
 		proof.Height == 0 ||
 		proof.Namespace == "" ||
@@ -116,22 +118,13 @@ func Verify(proof Proof, expectedChainID string, expectedHeight types.Height, ex
 	if expectedRoot != (types.Hash{}) && proof.StateRoot != expectedRoot {
 		return ErrRootMismatch
 	}
-	if proof.LeafHash != leafHash(proof.Namespace, proof.Key, proof.Value) {
-		return ErrInvalidProof
-	}
 	if proof.Exists {
-		if !stateproof.VerifyMembership(proof.Namespace, proof.Key, proof.Value, proof.MerklePath, proof.StateRoot) {
+		if !stateproof.VerifyMembership(proof.Namespace, proof.Key, proof.Value, proof.Path, proof.StateRoot) {
 			return ErrInvalidProof
 		}
 		return nil
 	}
-	if proof.AbsenceLeft != nil || proof.AbsenceRight != nil {
-		if !stateproof.VerifyNonMembershipCompact(proof.Namespace, proof.Key, proof.StateRoot, proof.AbsenceLeft, proof.AbsenceRight) {
-			return ErrInvalidProof
-		}
-		return nil
-	}
-	if !stateproof.VerifyNonMembership(proof.Namespace, proof.NamespaceLeaves, proof.Key, proof.StateRoot) {
+	if len(proof.Value) != 0 || !stateproof.VerifyNonMembership(proof.Namespace, proof.Key, proof.Path, proof.StateRoot) {
 		return ErrInvalidProof
 	}
 	return nil
@@ -147,10 +140,6 @@ func Decode(data []byte) (Proof, error) {
 		return Proof{}, err
 	}
 	return proof, nil
-}
-
-func leafHash(namespace string, key []byte, value []byte) types.Hash {
-	return stateproof.LeafHash(namespace, key, value)
 }
 
 func EqualValue(proof Proof, value []byte) bool {

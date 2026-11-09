@@ -647,6 +647,7 @@ func (node *Node) VoteBlock(ctx context.Context, height types.Height, round type
 	}
 	if !recorded {
 		if err := node.processProposal(ctx, proposal); err != nil {
+			node.reportInvalidAppHashProposal(ctx, proposal, err)
 			return finality.QuorumCert{}, false, err
 		}
 	}
@@ -980,9 +981,10 @@ func (node *Node) executeCommit(ctx context.Context, block types.Block, quorumCe
 		return app.FinalizeBlockResponse{}, err
 	}
 	// A certified header whose app hash differs from the local state means this node's state
-	// diverged from the quorum's: it stops here rather than build on a state no one else has. A
-	// node holds no state below the snapshot it was restored from, so it has nothing to compare
-	// there.
+	// diverged from the quorum's: it stops here rather than build on a state no one else has. Below
+	// the snapshot it was restored from, or its retention, a node compares with the app hash the
+	// chain certified for the state (runtime.HeaderAppHashAt); a state no certified block named
+	// leaves nothing to compare.
 	if err := checkHeaderAppHash(ctx, runtime, block.Header); err != nil && !errors.Is(err, vexoruntime.ErrAppHashUnavailable) {
 		return app.FinalizeBlockResponse{}, err
 	}

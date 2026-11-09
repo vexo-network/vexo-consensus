@@ -12,7 +12,7 @@ It follows a Tendermint/Cosmos SDK-style developer experience, but it is not a T
 
 ## Highlights
 
-- HotStuff-style BFT core with proposals, votes, quorum certificates, timeout certificates, locked-QC safety, and three-chain finality.
+- HotStuff-style BFT core with proposals, votes, quorum certificates, timeout certificates, locked-QC safety, and a two-chain commit rule over global views.
 - Height-versioned validator registry with validator-set hash binding for consensus and light-client verification.
 - Modular application runtime with pluggable modules and module-owned CLI commands.
 - Split subsystem configuration through `config.json`, `module_config.json`, `network_config.json`, `consensus_config.json`, `mempool_config.json`, and `log_config.json`.

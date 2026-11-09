@@ -956,7 +956,7 @@ func TestNodeResetsPeerRateLimitWindow(t *testing.T) {
 
 func TestNodeDisconnectsPeerWhenScoreBanApplies(t *testing.T) {
 	wire := newDisconnectRecordingTransport("alice")
-	cfg := DefaultConfig("vexo-test", t.TempDir())
+	cfg := UnsafeTestConfig("vexo-test", t.TempDir())
 	cfg.ValidatorID = "alice"
 	cfg.Chain.P2P.InitialScore = 1
 	cfg.Chain.P2P.InvalidMessageCost = 2
@@ -994,7 +994,7 @@ func TestNodeSubmitTxAcceptsLocalMempoolWhenGossipFails(t *testing.T) {
 }
 
 func TestNodeTreatsFutureCommitGossipAsValidRace(t *testing.T) {
-	cfg := DefaultConfig("vexo-test", t.TempDir())
+	cfg := UnsafeTestConfig("vexo-test", t.TempDir())
 	cfg.ValidatorID = "alice"
 	cfg.Chain.P2P.InitialScore = 2
 	cfg.Chain.P2P.ValidMessageReward = 2
@@ -1033,7 +1033,7 @@ func TestNodeTreatsFutureCommitGossipAsValidRace(t *testing.T) {
 }
 
 func TestNodePenalizesAndBansPeerForInvalidCommitProof(t *testing.T) {
-	cfg := DefaultConfig("vexo-test", t.TempDir())
+	cfg := UnsafeTestConfig("vexo-test", t.TempDir())
 	cfg.ValidatorID = "alice"
 	cfg.Chain.P2P.InitialScore = 2
 	cfg.Chain.P2P.ValidMessageReward = 2
@@ -1075,7 +1075,7 @@ func TestNodePenalizesAndBansPeerForInvalidCommitProof(t *testing.T) {
 
 func TestNodePersistsPeerScoresAcrossRestart(t *testing.T) {
 	dataDir := t.TempDir()
-	cfg := DefaultConfig("vexo-test", dataDir)
+	cfg := UnsafeTestConfig("vexo-test", dataDir)
 	cfg.ValidatorID = "alice"
 	cfg.Chain.P2P.InitialScore = 1
 	cfg.Chain.P2P.InvalidMessageCost = 2
@@ -1698,11 +1698,11 @@ func newTransportNodes(t *testing.T) (*Node, *Node) {
 		},
 		Governance: map[types.Address]types.VotingPower{"alice": 1, "bob": 1, "carol": 1},
 	}
-	alice, err := New(DefaultConfig("vexo-test", t.TempDir()), genesis, newTestApplication(t))
+	alice, err := New(UnsafeTestConfig("vexo-test", t.TempDir()), genesis, newTestApplication(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	bob, err := New(DefaultConfig("vexo-test", t.TempDir()), genesis, newTestApplication(t))
+	bob, err := New(UnsafeTestConfig("vexo-test", t.TempDir()), genesis, newTestApplication(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1783,7 +1783,7 @@ func newConsensusLoopNodeWithSigner(t *testing.T, bus *transport.InMemoryBus, ge
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := DefaultConfig("vexo-test", t.TempDir())
+	cfg := UnsafeTestConfig("vexo-test", t.TempDir())
 	cfg.Chain.Crypto.Backend = backend
 	cfg.ValidatorID = validatorID
 	node, err := New(cfg, genesis, newTestApplication(t))
@@ -1819,7 +1819,7 @@ func newScoredNode(t *testing.T, bus *transport.InMemoryBus, genesis Genesis, va
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := DefaultConfig("vexo-test", t.TempDir())
+	cfg := UnsafeTestConfig("vexo-test", t.TempDir())
 	cfg.ValidatorID = validatorID
 	cfg.Chain.P2P.InitialScore = 2
 	cfg.Chain.P2P.ValidMessageReward = 2
@@ -1860,7 +1860,7 @@ func newRateLimitedNode(t *testing.T, bus *transport.InMemoryBus, genesis Genesi
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := DefaultConfig("vexo-test", t.TempDir())
+	cfg := UnsafeTestConfig("vexo-test", t.TempDir())
 	cfg.ValidatorID = validatorID
 	cfg.Chain.P2P.InitialScore = 10
 	cfg.Chain.P2P.ValidMessageReward = 1

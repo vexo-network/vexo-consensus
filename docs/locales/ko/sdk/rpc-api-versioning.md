@@ -48,8 +48,8 @@
 - `/v1/evidence`
 - `/v1/recovery`
 - `/v1/snapshot/latest`
-- `/v1/snapshot/export`
-- `/v1/snapshot/chunk?index=0&size=10000`
+- `/v1/snapshot/manifest?height={block_height}`
+- `/v1/snapshot/pairs?height={block_height}&namespace={namespace}&after={hex_key}&limit=1000`
 - `/v1/blocks`
 - `/v1/blocks/latest`
 - `/v1/blocks/{height}`
@@ -82,6 +82,10 @@
 새 RPC capability discovery 인터페이스입니다. 운영자는 `/v1/capabilities`로 실제 연결된 provider 기능을 확인하고, SDK 임베더는 `rpc.Config.RequiredCapabilities` 또는 `rpc.Config.RequireAllCapabilities`로 누락된 기능을 시작 시점에 실패 처리할 수 있습니다.
 
 다음 인터페이스 이름은 그대로 유지하세요: `/v1/capabilities`, `CapabilityResponse`, `CapabilitySnapshot`, `RequiredCapabilities`, `RequireAllCapabilities`, `metrics`, `blocks`, `finality`, `strict_replay`, `consensus_control`.
+
+## Query proof
+
+`/v1/proof`는 schema `v2` 증명을 반환합니다. `path.siblings`는 namespace 루트에서 key 위치의 노드까지 내려가는 Merkle radix tree의 형제 해시입니다. 존재하는 key의 노드는 자기 leaf이고, 없는 key의 노드는 비어 있거나 같은 prefix를 가진 다른 key의 leaf(`path.neighbor`)입니다. 존재하는 key라면 바로 그 위치를 차지하므로 다른 leaf로 부재를 증명할 수 없습니다. 최신 증명은 store의 state tree에서 key 경로만 읽고, 과거 증명은 높이별 버전으로 namespace를 재구성해 그 높이의 state root에 묶습니다.
 
 ## 채굴된 EVM 객체 계약
 

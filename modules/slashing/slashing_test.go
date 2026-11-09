@@ -746,8 +746,9 @@ func TestEvidenceThatDoesNotVerifyChangesNothing(t *testing.T) {
 	proposalAsVotes := f.missingData("b", 1)
 	proposalAsVotes.Type = vexoslashing.EvidenceConflictingVote
 
-	appHashProposal := f.proposal("b", types.Block{Header: types.Header{ChainID: testChainID, Height: 1, AppHash: types.Hash{1}}})
-	needsNodeData := f.need(consensus.NewInvalidProposalHashEvidence(appHashProposal, string(consensus.InvalidProposalReasonAppHash), types.Hash{9}, types.Hash{1}))
+	timestampProposal := f.proposal("b", types.Block{Header: types.Header{ChainID: testChainID, Height: 1, TimeUnixNano: 5}})
+	// A timestamp fault is no evidence: nodes could judge it differently.
+	needsNodeData := f.handmade(vexoslashing.EvidenceInvalidProposal, "b", 1, timestampProposal.Round, consensus.InvalidProposalProof{Proposal: timestampProposal, Reason: "timestamp", ExpectedHash: types.Hash{9}, ActualHash: types.Hash{5}})
 
 	noProof := genuine
 	noProof.Proof = nil
@@ -774,7 +775,7 @@ func TestEvidenceThatDoesNotVerifyChangesNothing(t *testing.T) {
 		{"another round than the proof names", otherRound, consensus.ErrVotePairMismatch},
 		{"votes presented as timeout votes", votesAsTimeoutVotes, nil},
 		{"a proposal fault presented as votes", proposalAsVotes, nil},
-		{"a fault that needs data of the node", needsNodeData, consensus.ErrEvidenceNotSelfContained},
+		{"a fault nodes could judge differently", needsNodeData, consensus.ErrUnsupportedProposalReason},
 		{"a proof that is no proof", notAProof, nil},
 		{"no proof", noProof, vexoslashing.ErrEmptyProof},
 		{"no accused validator", noAccused, vexoslashing.ErrMissingValidator},
@@ -1355,5 +1356,78 @@ func TestBlockCarriesOneEvidenceTransactionPerOffence(t *testing.T) {
 	}
 	if response := f.runtime.ProcessProposal(vexoapp.ProcessProposalRequest{Block: blockOf(3, prepared.Txs...)}); !response.Accepted {
 		t.Fatalf("expected the prepared block to be accepted, got %q", response.Reason)
+	}
+}
+
+// certifiedBlock is a block of height whose header commits appHash for the state of stateHeight.
+func certifiedBlock(height types.Height, stateHeight types.Height, appHash types.Hash, txs ...types.Tx) types.Block {
+	return types.Block{Header: types.Header{ChainID: testChainID, Height: height, ValidatorSetHeight: stateHeight + 1, AppHash: appHash}, Txs: txs}
+}
+
+// appHashEvidence is invalid-proposal evidence that proposer signed a block of height naming
+// claimed as the app hash of stateHeight, which expected the reporter says it is.
+func (f *fixture) appHashEvidence(proposer types.ValidatorID, height types.Height, stateHeight types.Height, claimed types.Hash, expected types.Hash) vexoslashing.Evidence {
+	f.t.Helper()
+	proposal := f.proposal(proposer, certifiedBlock(height, stateHeight, claimed))
+	return f.need(consensus.NewInvalidProposalHashEvidence(proposal, consensus.InvalidProposalReasonAppHash, expected))
+}
+
+func (f *fixture) finalizeBlock(block types.Block) vexoapp.FinalizeBlockResponse {
+	f.t.Helper()
+	response, err := f.runtime.FinalizeBlock(vexoapp.FinalizeBlockRequest{Block: block})
+	if err != nil {
+		f.t.Fatalf("finalize block %d: %v", block.Header.Height, err)
+	}
+	return response
+}
+
+// A proposal whose header names another app hash for a state height than the certified blocks
+// committed is punished; the judgement reads only the certified app hashes the chain recorded, so
+// a reporter whose own state diverged cannot frame an honest proposer.
+func TestAProposalNamingAnotherAppHashThanTheCertifiedOneIsPunished(t *testing.T) {
+	f := newFixture(t)
+	certified := types.Hash{0xc0}
+	f.finalizeBlock(certifiedBlock(1, 0, certified))
+	f.finalizeBlock(certifiedBlock(2, 0, certified))
+
+	forged := f.appHashEvidence("b", 2, 0, types.Hash{0xba}, certified)
+	response := f.finalizeBlock(certifiedBlock(3, 0, certified, f.tx(forged)))
+	requireApplied(t, response.Results[0], forged)
+
+	// The honest proposer named the certified hash; a reporter claiming another one is refused.
+	framed := f.appHashEvidence("c", 2, 0, certified, types.Hash{0x0d})
+	if err := f.check(4, framed); !errors.Is(err, consensus.ErrInvalidProposal) {
+		t.Fatalf("expected evidence against the certified app hash to be refused, got %v", err)
+	}
+	// No certified block named state height 5, so nothing can be judged about it.
+	unknown := f.appHashEvidence("d", 3, 5, types.Hash{0xba}, certified)
+	if err := f.check(4, unknown); !errors.Is(err, consensus.ErrAppHashNotCertified) {
+		t.Fatalf("expected evidence about an uncertified state height to be refused, got %v", err)
+	}
+}
+
+// A certified app hash is kept while a block that named its state height is within the evidence
+// window, and dropped after it.
+func TestCertifiedAppHashesAreKeptForTheEvidenceWindow(t *testing.T) {
+	f := newFixture(t, withPolicy(Policy{Penalties: testPenalties(), Lifecycle: vexoslashing.LifecyclePolicy{EvidenceMaxAge: 4}}))
+	window := types.Height(4)
+	certified := types.Hash{0xc1}
+	f.finalizeBlock(certifiedBlock(1, 0, certified))
+	hashes := certifiedAppHashes{ctx: context.Background(), store: f.store}
+	for height := types.Height(2); height <= window+1; height++ {
+		f.finalizeBlock(certifiedBlock(height, 1, types.Hash{0xc2}))
+	}
+	if _, found, err := hashes.CertifiedAppHash(0); err != nil || !found {
+		t.Fatalf("expected the app hash of state 0 to be kept while block 1 is in the window, found=%v err=%v", found, err)
+	}
+	f.finalizeBlock(certifiedBlock(window+2, 1, types.Hash{0xc2}))
+	if _, found, err := hashes.CertifiedAppHash(0); err != nil || found {
+		t.Fatalf("expected the app hash of state 0 to be dropped once block 1 left the window, found=%v err=%v", found, err)
+	}
+	if hash, found, err := hashes.CertifiedAppHash(1); err != nil || !found || hash != (types.Hash{0xc2}) {
+		t.Fatalf("expected the app hash of state 1 to stay, got %x found=%v err=%v", hash, found, err)
+	}
+	if _, err := f.store.Get(context.Background(), ModuleName, certifiedNamingKey(1)); !errors.Is(err, vexostore.ErrKeyNotFound) {
+		t.Fatalf("expected the naming record of block 1 to be dropped, got %v", err)
 	}
 }

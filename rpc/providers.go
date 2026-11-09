@@ -24,13 +24,15 @@ type MetricsProvider interface {
 	Metrics(ctx context.Context) (node.Metrics, error)
 }
 
-// SnapshotProvider exposes the latest committed state. StateSnapshotHead is cheap; StateSnapshot
-// copies every key-value pair of the application state.
+// SnapshotProvider serves state snapshots for state sync: the manifest of the snapshot a committed
+// block anchors, and the pairs of its namespaces page by page, so no request copies the state.
 type SnapshotProvider interface {
 	StateSnapshotHead(ctx context.Context) (node.StateSnapshotHead, error)
-	// StateSnapshot exports the state committed block blockHeight anchors (see
-	// node.StateSnapshot); 0 selects the latest committed block.
-	StateSnapshot(ctx context.Context, blockHeight types.Height) (node.StateSnapshot, error)
+	// StateSnapshotManifest describes the snapshot committed block blockHeight anchors (see
+	// node.StateSnapshotManifest); 0 selects the latest committed block.
+	StateSnapshotManifest(ctx context.Context, blockHeight types.Height) (node.StateSnapshotManifest, error)
+	StateSnapshotPairs(ctx context.Context, blockHeight types.Height, namespace string, after []byte, limit int) ([]store.KVPair, bool, error)
+	EarliestSnapshotHeight(ctx context.Context) (types.Height, error)
 }
 
 type RecoveryProvider interface {

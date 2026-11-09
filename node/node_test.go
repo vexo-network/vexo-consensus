@@ -47,7 +47,7 @@ func TestNodeStartStopLifecycle(t *testing.T) {
 }
 
 func TestNodeRejectsUnsafeConfigWhenNetworkSafetyRequired(t *testing.T) {
-	cfg := DefaultConfig("vexo-test", t.TempDir())
+	cfg := UnsafeTestConfig("vexo-test", t.TempDir())
 	cfg.RequireNetworkSafety = true
 	if _, err := New(cfg, validGenesis(), newTestApplication(t)); !errors.Is(err, config.ErrUnsafeNetworkConfig) {
 		t.Fatalf("expected unsafe network config error, got %v", err)
@@ -151,7 +151,7 @@ func TestNodeInvalidatesStaleCachedProposalBeforeRebroadcast(t *testing.T) {
 	if runtimeApp, ok := application.(*vexoapp.Runtime); ok {
 		runtimeApp.WithAnte(vexoapp.NewAnteKeeper(vexoapp.AnteConfig{RequireNonce: true}))
 	}
-	node, err := New(DefaultConfig("vexo-test", t.TempDir()), validGenesis(), application)
+	node, err := New(UnsafeTestConfig("vexo-test", t.TempDir()), validGenesis(), application)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +218,7 @@ func TestNodeRemovesNonceInvalidProposalTxs(t *testing.T) {
 	if runtimeApp, ok := application.(*vexoapp.Runtime); ok {
 		runtimeApp.WithAnte(vexoapp.NewAnteKeeper(vexoapp.AnteConfig{RequireNonce: true}))
 	}
-	node, err := New(DefaultConfig("vexo-test", t.TempDir()), validGenesis(), application)
+	node, err := New(UnsafeTestConfig("vexo-test", t.TempDir()), validGenesis(), application)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -782,7 +782,7 @@ func TestNodeMetricsReportsStoppedSnapshot(t *testing.T) {
 func TestNodeStateSnapshotRequiresRunningNode(t *testing.T) {
 	node := newTestNode(t)
 
-	if _, err := node.StateSnapshot(context.Background(), 0); !errors.Is(err, ErrNodeNotRunning) {
+	if _, err := node.StateSnapshotManifest(context.Background(), 0); !errors.Is(err, ErrNodeNotRunning) {
 		t.Fatalf("expected not running snapshot error, got %v", err)
 	}
 }
@@ -1062,26 +1062,26 @@ func TestNodeRecoversAfterPruneAndRestart(t *testing.T) {
 
 func TestNodeValidation(t *testing.T) {
 	application := newTestApplication(t)
-	_, err := New(DefaultConfig("vexo-test", ""), validGenesis(), application)
+	_, err := New(UnsafeTestConfig("vexo-test", ""), validGenesis(), application)
 	if !errors.Is(err, ErrMissingDataDir) {
 		t.Fatalf("expected missing data dir, got %v", err)
 	}
-	_, err = New(DefaultConfig("vexo-test", t.TempDir()), Genesis{ChainID: "other"}, application)
+	_, err = New(UnsafeTestConfig("vexo-test", t.TempDir()), Genesis{ChainID: "other"}, application)
 	if !errors.Is(err, ErrGenesisChainID) {
 		t.Fatalf("expected genesis chain id mismatch, got %v", err)
 	}
-	_, err = New(DefaultConfig("vexo-test", t.TempDir()), Genesis{ChainID: "vexo-test"}, application)
+	_, err = New(UnsafeTestConfig("vexo-test", t.TempDir()), Genesis{ChainID: "vexo-test"}, application)
 	if !errors.Is(err, ErrMissingValidators) {
 		t.Fatalf("expected missing validators, got %v", err)
 	}
-	_, err = New(DefaultConfig("vexo-test", t.TempDir()), validGenesis(), nil)
+	_, err = New(UnsafeTestConfig("vexo-test", t.TempDir()), validGenesis(), nil)
 	if !errors.Is(err, ErrMissingApplication) {
 		t.Fatalf("expected missing application, got %v", err)
 	}
 }
 
 func TestNodeValidatorModeRequiresSigner(t *testing.T) {
-	cfg := DefaultConfig("vexo-test", t.TempDir())
+	cfg := UnsafeTestConfig("vexo-test", t.TempDir())
 	cfg.ValidatorID = "alice"
 	node, err := New(cfg, validGenesis(), newTestApplication(t))
 	if err != nil {
@@ -1210,7 +1210,7 @@ func TestNodeSignsConsensusMessagesWithDomains(t *testing.T) {
 }
 
 func TestNodeConsensusSigningFailsClosedWithoutSigner(t *testing.T) {
-	node, err := New(DefaultConfig("vexo-test", t.TempDir()), validGenesis(), newTestApplication(t))
+	node, err := New(UnsafeTestConfig("vexo-test", t.TempDir()), validGenesis(), newTestApplication(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1446,7 +1446,7 @@ func newTestNodeWithSigner(t *testing.T, signer vexocrypto.Signer) *Node {
 		},
 		Governance: map[types.Address]types.VotingPower{"alice": 1},
 	}
-	node, err := New(DefaultConfig("vexo-test", t.TempDir()), genesis, newTestApplication(t))
+	node, err := New(UnsafeTestConfig("vexo-test", t.TempDir()), genesis, newTestApplication(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1489,7 +1489,7 @@ func newTestNode(t *testing.T) *Node {
 
 func newTestNodeWithDataDir(t *testing.T, dataDir string) *Node {
 	t.Helper()
-	node, err := New(DefaultConfig("vexo-test", dataDir), validGenesis(), newTestApplication(t))
+	node, err := New(UnsafeTestConfig("vexo-test", dataDir), validGenesis(), newTestApplication(t))
 	if err != nil {
 		t.Fatal(err)
 	}

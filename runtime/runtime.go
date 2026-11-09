@@ -17,6 +17,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/finality"
 	"github.com/vexo-network/vexo-consensus/governance"
 	"github.com/vexo-network/vexo-consensus/mempool"
+	appslashing "github.com/vexo-network/vexo-consensus/modules/slashing"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -26,7 +27,7 @@ import (
 
 var ErrAtomicAppCommitUnavailable = errors.New("atomic app block commit store is required")
 var ErrDurableStoreRequired = errors.New("durable store is required; use NewEphemeral only for isolated tests and examples")
-var ErrEphemeralRuntimeNotAllowed = errors.New("ephemeral runtime requires a test/example/demo chain id; use NewEphemeralForTesting for tests or NewNetworkSafeWithStore for nodes")
+var ErrEphemeralRuntimeNotAllowed = errors.New("ephemeral runtime requires a test/example/demo chain id; use NewNetworkSafeWithStore for nodes")
 var ErrUpgradeExecutorMissing = errors.New("upgrade executor is required")
 
 type Runtime struct {
@@ -65,22 +66,13 @@ func New(cfg config.Config, application app.Application, initialValidators []val
 // Do not use it for a running network: it does not persist validator registry,
 // governance, slashing, mempool, block, state, or finality-proof data.
 func NewEphemeralForTesting(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower) (*Runtime, error) {
-	return newWithStoreAndCryptoRegistry(context.Background(), cfg, application, initialValidators, governancePower, nil, crypto.NewRuntimeSuiteRegistry(), true)
-}
-
-// NewEphemeral creates an in-memory runtime for isolated tests and examples.
-//
-// Deprecated: use NewEphemeralForTesting. Running networks must use NewWithStore
-// or NewWithStoreAndCryptoRegistry so validator, governance, slashing, block,
-// state, and finality-proof data survive restart.
-func NewEphemeral(cfg config.Config, application app.Application, initialValidators []validator.Validator, governancePower map[types.Address]types.VotingPower) (*Runtime, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 	if !ephemeralChainIDAllowed(cfg.ChainID) {
 		return nil, ErrEphemeralRuntimeNotAllowed
 	}
-	return NewEphemeralForTesting(cfg, application, initialValidators, governancePower)
+	return newWithStoreAndCryptoRegistry(context.Background(), cfg, application, initialValidators, governancePower, nil, crypto.NewRuntimeSuiteRegistry(), true)
 }
 
 func ephemeralChainIDAllowed(chainID string) bool {
@@ -287,7 +279,8 @@ var genesisKey = []byte("init_chain")
 var genesisHeaderAppHashKey = []byte("init_chain_header_app_hash")
 
 // ErrAppHashUnavailable reports a height whose header app hash the node does not hold: not
-// executed yet, pruned, or below the snapshot the node was restored from.
+// executed yet, or pruned or below the snapshot the node was restored from and named by no block
+// whose certified app hash the replicated state records.
 var ErrAppHashUnavailable = errors.New("app hash of the height is not held")
 
 // InitChain initializes the application from the chain's genesis. It persists the request first, so
@@ -323,10 +316,33 @@ func (runtime *Runtime) InitChain(ctx context.Context, request app.InitChainRequ
 // HeaderAppHashAt returns the hash a block header commits for the state after executing block
 // height, the genesis state for height 0: finality.HeaderAppHash of the state's app hash and the
 // root of its validator registry.
+//
+// A node restored from a snapshot holds no state below it, and a pruning node none below its
+// retention, yet headers may still name such a state: a header keeps naming the state of its
+// validator set until the chain proves a commit. For those it returns the header app hash
+// certified blocks committed for the state, which the replicated state records (slashing
+// CertifiedAppHash): every header naming the state must commit that hash, so the node judges such
+// headers as the nodes that hold the state do.
 func (runtime *Runtime) HeaderAppHashAt(ctx context.Context, height types.Height) (types.Hash, error) {
 	if runtime.Store == nil {
 		return types.Hash{}, ErrAppHashUnavailable
 	}
+	hash, err := runtime.localHeaderAppHashAt(ctx, height)
+	if !errors.Is(err, ErrAppHashUnavailable) {
+		return hash, err
+	}
+	certified, found, certifiedErr := appslashing.CertifiedAppHash(ctx, runtime.Store, height)
+	if certifiedErr != nil {
+		return types.Hash{}, certifiedErr
+	}
+	if !found {
+		return types.Hash{}, err
+	}
+	return certified, nil
+}
+
+// localHeaderAppHashAt computes the header app hash of height from the state the node holds.
+func (runtime *Runtime) localHeaderAppHashAt(ctx context.Context, height types.Height) (types.Hash, error) {
 	if height == 0 {
 		encoded, err := runtime.Store.Get(ctx, genesisNamespace, genesisHeaderAppHashKey)
 		if errors.Is(err, store.ErrKeyNotFound) {

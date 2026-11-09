@@ -127,3 +127,6 @@ Este apêndice garante que a tradução preserve as interfaces executáveis e as
 - `receipt_index/{tx_hash}` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `blob_sidecars/by_tx/{tx_hash}` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `blob_sidecars/by_blob/{blob_hash}` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `tree:` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `receipt_height/{height}/{tx_hash}` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `receipt_pruned_below` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.

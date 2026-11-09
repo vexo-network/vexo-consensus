@@ -17,6 +17,7 @@ type nodeMetrics struct {
 	voteLatencyNanos     atomic.Uint64
 	commitLatencyNanos   atomic.Uint64
 	signingFailures      atomic.Uint64
+	pruneFailures        atomic.Uint64
 	committedBlocks      atomic.Uint64
 	firstCommitUnixNano  atomic.Int64
 	latestCommitUnixNano atomic.Int64
@@ -39,6 +40,7 @@ type nodeMetricsSnapshot struct {
 	commitP95Nanos       uint64
 	commitP99Nanos       uint64
 	signingFailures      uint64
+	pruneFailures        uint64
 	committedBlocks      uint64
 	firstCommitUnixNano  int64
 	latestCommitUnixNano int64
@@ -81,6 +83,10 @@ func (metrics *nodeMetrics) observeSigningFailure() {
 	metrics.signingFailures.Add(1)
 }
 
+func (metrics *nodeMetrics) observeRetentionPruneFailure() {
+	metrics.pruneFailures.Add(1)
+}
+
 func (metrics *nodeMetrics) snapshot() nodeMetricsSnapshot {
 	proposalP95, proposalP99 := metrics.proposalWindow.percentiles()
 	voteP95, voteP99 := metrics.voteWindow.percentiles()
@@ -99,6 +105,7 @@ func (metrics *nodeMetrics) snapshot() nodeMetricsSnapshot {
 		commitP95Nanos:       commitP95,
 		commitP99Nanos:       commitP99,
 		signingFailures:      metrics.signingFailures.Load(),
+		pruneFailures:        metrics.pruneFailures.Load(),
 		committedBlocks:      metrics.committedBlocks.Load(),
 		firstCommitUnixNano:  metrics.firstCommitUnixNano.Load(),
 		latestCommitUnixNano: metrics.latestCommitUnixNano.Load(),

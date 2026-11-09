@@ -46,7 +46,11 @@ Fields:
 
 - height
 - module namespace
-- Merkle state root for sorted namespace KV pairs
+- state root of the namespace: the root of its binary Merkle radix tree keyed by `sha256(key)` (see State Trees)
+
+### State Trees
+
+The store keeps the state tree of every namespace (`stateproof`) next to its KV pairs, under `tree:`. A key's path is `sha256(key)`; an empty subtree hashes to zero, a subtree holding one key is that key's leaf node, placed as high as it is alone, and any other subtree is the internal node of its two halves. The shape depends only on the set of keys, so every replica derives the same root. Every write that changes a pair rewrites only the nodes on its path in the same atomic batch, so a block's state roots cost `O(writes × depth)` instead of rehashing each namespace, and a latest-state proof reads the nodes on the key's path. `ImportNamespace` rebuilds the namespace's tree.
 
 ### Evidence Record
 
@@ -91,7 +95,7 @@ The Web3 bridge reconstructs Ethereum account/storage tries from these committed
 
 Latest `eth_getProof` and latest Web3 `stateRoot` are generated from the live reconstructed go-ethereum MPT. Historical `eth_getProof`, historical calls, historical account/code/storage reads and historical Web3 block `stateRoot` read the same keys as of the requested height from the store's state history; the EVM module keeps no per-block copy of the Ethereum state. A height whose state record is not held (never committed, pruned, or below a restored snapshot) fails explicitly.
 
-LevelDB keeps state history as per-key versions: a block's writes at its height, a direct write at the next committed height, and a key's prior value at height 0 on its first change, so genesis values stay readable. Storage grows with the number of changes, never with the state size per block, and `PruneBelow` drops the versions no retained height reads. Historical query proofs rebuild the namespace at the requested height from those records, then verify membership with a compact Merkle path or non-membership with compact adjacent-neighbor absence proofs. Verifiers still accept legacy full namespace absence witnesses for compatibility. Evidence records are monotonic for the `Applied` flag: once an evidence record is marked applied, later pending saves in the same process cannot downgrade it back to unapplied.
+LevelDB keeps state history as per-key versions: a block's writes at its height, a direct write at the next committed height, and a key's prior value at height 0 on its first change, so genesis values stay readable. Storage grows with the number of changes, never with the state size per block, and `PruneBelow` drops the versions no retained height reads. Historical query proofs read the namespace's radix tree at the requested height: every tree node change is versioned like a key, so a proof at a past height costs what a proof of the current state costs and never rebuilds the namespace. Membership proves with the path to the key's leaf; non-membership with the path to the leaf or empty branch the key's path ends at. Every version is also listed under its height in a version index, so `PruneBelow` visits only the versions below the height it retains from, and the block, state and state root records it drops are keyed by height first; pruning costs what it drops, not the size of the history. Evidence records are monotonic for the `Applied` flag: once an evidence record is marked applied, later pending saves in the same process cannot downgrade it back to unapplied.
 
 When an app block produces validator updates, the store-backed validator registry stages the height `H + 1` validator-set snapshot as KV writes and commits those writes in the same LevelDB batch as app writes, block metadata, state metadata, and state roots. If the block commit fails, the future validator-set snapshot is not persisted.
 
@@ -132,10 +136,10 @@ Legacy array-style `logs` and `logs/{address}` values remain query-compatible, b
 
 ## Snapshot Validation
 
-- Snapshot documents include only active namespaces that have state roots or exported KV.
-- Every declared namespace must have exactly one state root at the snapshot height.
-- KV entries must belong to declared namespaces and must have non-empty keys.
-- Snapshot checksum covers chain ID, state metadata, state roots, and sorted KV pairs.
+- A snapshot is a manifest followed by pages of KV pairs. The manifest carries the chain ID, the state record, the state root of every replicated namespace, the block of the state with the headers that link it to a certified anchor header, and the anchor header.
+- The replicated namespaces must be exactly the ones the node replicates, each with one state root at the snapshot height, and those roots must give the state's app hash and the anchor header's app hash.
+- Pages carry the pairs of one namespace in strictly ascending key order; the radix-tree root of a namespace's pairs must equal its state root, so a snapshot cannot add, drop, or alter a pair.
+- Integrity comes from the trusted anchor header and the state roots it commits to, not from a checksum.
 
 ## Schema Migration
 
@@ -144,3 +148,5 @@ Store migrations must be height-gated through an upgrade plan and support rollba
 - `receipt_index/{tx_hash}`: address-scoped log index.
 - `blob_sidecars/by_tx/{tx_hash}`: address-scoped log index.
 - `blob_sidecars/by_blob/{blob_hash}`: address-scoped log index.
+- `receipt_height/{height}/{tx_hash}`: address-scoped log index.
+- `receipt_pruned_below`: address-scoped log index.
