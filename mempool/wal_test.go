@@ -36,7 +36,7 @@ func TestDurableDAGReplaysPendingTransactions(t *testing.T) {
 	if reopened.Len() != 2 {
 		t.Fatalf("expected 2 replayed txs, got %d", reopened.Len())
 	}
-	batch, err := reopened.BuildBatch(ctx, 1024)
+	batch, err := reopened.BuildBatch(ctx, 1024, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

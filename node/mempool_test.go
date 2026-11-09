@@ -364,7 +364,7 @@ func TestGossipedTxIsNotScoredWhenAdmissionKeepsRacingCommits(t *testing.T) {
 	scripted.batch = func(context.Context, []types.Tx) app.CheckTxResponse { return rejectTx }
 	runtime.App = scripted
 
-	node.acceptGossipTx(context.Background(), "bob", nonceTx("alice", 1))
+	node.acceptGossipTxBatch(context.Background(), "bob", encodeTxBatch([]types.Tx{nonceTx("alice", 1)}))
 	score, err := node.PeerScore(context.Background(), "bob")
 	if err != nil {
 		t.Fatal(err)
@@ -374,7 +374,7 @@ func TestGossipedTxIsNotScoredWhenAdmissionKeepsRacingCommits(t *testing.T) {
 	}
 
 	racing = false
-	node.acceptGossipTx(context.Background(), "bob", nonceTx("alice", 2))
+	node.acceptGossipTxBatch(context.Background(), "bob", encodeTxBatch([]types.Tx{nonceTx("alice", 2)}))
 	score, err = node.PeerScore(context.Background(), "bob")
 	if err != nil {
 		t.Fatal(err)
@@ -384,5 +384,42 @@ func TestGossipedTxIsNotScoredWhenAdmissionKeepsRacingCommits(t *testing.T) {
 	}
 	if got := runtime.Mempool.Len(); got != 0 {
 		t.Fatalf("expected no pooled transaction, got %d", got)
+	}
+}
+
+// A peer relaying into a full pool is honest: the pool's capacity kept its transactions out, so
+// the peer is not scored for them.
+func TestGossipIntoAFullPoolDoesNotScoreThePeer(t *testing.T) {
+	cfg := UnsafeTestConfig("vexo-test", t.TempDir())
+	cfg.ValidatorID = "alice"
+	cfg.Chain.Mempool.MaxTxs = 1
+	cfg.Chain.P2P.InitialScore = 10
+	cfg.Chain.P2P.ValidMessageReward = 1
+	cfg.Chain.P2P.InvalidMessageCost = 3
+	cfg.Chain.P2P.BanThreshold = -100
+	cfg.Chain.P2P.ScoreRecovery = 0
+	node, err := New(cfg, validGenesis(), newTestApplication(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	node.WithSigner(deterministicSignerForID("alice"))
+	startNode(t, node)
+	defer node.Stop(context.Background())
+
+	node.acceptGossipTxBatch(context.Background(), "bob", encodeTxBatch([]types.Tx{types.Tx("bank:full-1")}))
+	node.acceptGossipTxBatch(context.Background(), "bob", encodeTxBatch([]types.Tx{types.Tx("bank:full-2"), types.Tx("bank:full-3")}))
+	score, err := node.PeerScore(context.Background(), "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score != 11 {
+		t.Fatalf("expected one reward for the admitted transaction and no verdict for the full pool, got score %d", score)
+	}
+	runtime, err := node.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runtime.Mempool.Len(); got != 1 {
+		t.Fatalf("expected the full pool to hold one transaction, got %d", got)
 	}
 }

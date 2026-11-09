@@ -527,7 +527,8 @@ func (node *Node) ProposeBlock(ctx context.Context, block types.Block) (consensu
 			node.removeProposed(proposal.Block.Header.Height, proposal.Round)
 			return consensus.Proposal{}, types.Hash{}, ErrLocalVoteRecorded
 		}
-		node.broadcastAncestorProposals(reactor, proposal.Block.Header.Height)
+		// The ancestors went out when they were proposed; a peer that missed one gets it with the
+		// retransmission of this proposal (tickConsensusWithProposalOptions).
 		node.broadcastConsensusAsync("proposal_broadcast_failed", map[string]any{
 			"height": proposal.Block.Header.Height,
 			"round":  proposal.Round,
@@ -977,7 +978,7 @@ func (node *Node) executeCommit(ctx context.Context, block types.Block, quorumCe
 	if expected, _ := nextHeightAfter(committedHeight); block.Header.Height != expected {
 		return app.FinalizeBlockResponse{}, fmt.Errorf("%w: height=%d expected=%d", ErrNonSequentialCommit, block.Header.Height, expected)
 	}
-	if err := checkParentBinding(ctx, runtime, committedHeight, block.Header); err != nil {
+	if err := node.checkParentBinding(ctx, runtime, committedHeight, block.Header); err != nil {
 		return app.FinalizeBlockResponse{}, err
 	}
 	// A certified header whose app hash differs from the local state means this node's state
@@ -1007,6 +1008,9 @@ func (node *Node) executeCommit(ctx context.Context, block types.Block, quorumCe
 	}
 	// The block is durable from here on. Everything that follows is repeated by reconcileCommitted
 	// when it fails, because the block can never be committed twice.
+	node.mu.Lock()
+	node.committedHeader = new(block.Header)
+	node.mu.Unlock()
 	var commitProof finality.Proof
 	if broadcast {
 		proof, err := node.buildCommitFinalityProof(ctx, runtime, block, quorumCert)
@@ -1039,8 +1043,9 @@ func (node *Node) executeCommit(ctx context.Context, block types.Block, quorumCe
 
 // persistFinalityDecisions stores the finality proof of every commit decision the machine holds. A
 // high-water mark records the height up to which every decision is stored, so a commit does not
-// rebuild the proofs of the decisions it already stored.
-func (node *Node) persistFinalityDecisions(ctx context.Context, runtime *vexoruntime.Runtime, machine *consensus.StateMachine) error {
+// rebuild the proofs of the decisions it already stored. committed, when not nil, is the block the
+// caller just made durable; its proof is built from it instead of reading it back.
+func (node *Node) persistFinalityDecisions(ctx context.Context, runtime *vexoruntime.Runtime, machine *consensus.StateMachine, committed *types.Block) error {
 	proofStore, ok := runtime.Store.(store.FinalityProofStore)
 	if !ok || proofStore == nil {
 		return nil
@@ -1057,7 +1062,7 @@ func (node *Node) persistFinalityDecisions(ctx context.Context, runtime *vexorun
 		if decision.CommittedHeight <= persisted {
 			continue
 		}
-		stored, err := node.persistFinalityDecision(ctx, runtime, proofStore, decision)
+		stored, err := node.persistFinalityDecision(ctx, runtime, proofStore, decision, committed)
 		if errors.Is(err, store.ErrBlockNotFound) {
 			// The block is not executed yet, and neither is any block above it.
 			break
@@ -1081,8 +1086,14 @@ func (node *Node) persistFinalityDecisions(ctx context.Context, runtime *vexorun
 
 // persistFinalityDecision stores the proof of one decision. It reports false when the child that
 // completes the proof is not known yet.
-func (node *Node) persistFinalityDecision(ctx context.Context, runtime *vexoruntime.Runtime, proofStore store.FinalityProofStore, decision consensus.CommitDecision) (bool, error) {
-	proof, err := runtime.FinalityProof(ctx, decision.CommittedHeight, decision.CommitQC)
+func (node *Node) persistFinalityDecision(ctx context.Context, runtime *vexoruntime.Runtime, proofStore store.FinalityProofStore, decision consensus.CommitDecision, committed *types.Block) (bool, error) {
+	var proof finality.Proof
+	var err error
+	if committed != nil && committed.Header.Height == decision.CommittedHeight {
+		proof, err = vexoruntime.NewFinalityProof(committed.Header, consensus.HashBlock(*committed), decision.CommitQC)
+	} else {
+		proof, err = runtime.FinalityProof(ctx, decision.CommittedHeight, decision.CommitQC)
+	}
 	if errors.Is(err, store.ErrFinalityNotFound) {
 		return false, nil
 	}
@@ -1111,7 +1122,7 @@ func (node *Node) persistFinalityDecision(ctx context.Context, runtime *vexorunt
 }
 
 func (node *Node) buildCommitFinalityProof(ctx context.Context, runtime *vexoruntime.Runtime, block types.Block, quorumCert finality.QuorumCert) (finality.Proof, error) {
-	proof, err := runtime.FinalityProof(ctx, block.Header.Height, quorumCert)
+	proof, err := vexoruntime.NewFinalityProof(block.Header, consensus.HashBlock(block), quorumCert)
 	if err != nil {
 		return finality.Proof{}, err
 	}
@@ -1372,13 +1383,28 @@ func (node *Node) hasProposed(height types.Height, round types.Round) bool {
 	return ok
 }
 
+// markProposed records that this node proposed, and broadcast, in round at height now.
 func (node *Node) markProposed(height types.Height, round types.Round) {
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	if node.proposed == nil {
-		node.proposed = make(map[proposalRound]struct{})
+		node.proposed = make(map[proposalRound]time.Time)
 	}
-	node.proposed[proposalRound{height: height, round: round}] = struct{}{}
+	node.proposed[proposalRound{height: height, round: round}] = time.Now()
+}
+
+// proposalRetransmitDue reports whether the proposal of round at height was last broadcast at
+// least interval ago, and if so restarts its interval.
+func (node *Node) proposalRetransmitDue(height types.Height, round types.Round, interval time.Duration) bool {
+	node.mu.Lock()
+	defer node.mu.Unlock()
+	key := proposalRound{height: height, round: round}
+	broadcast, ok := node.proposed[key]
+	if !ok || time.Since(broadcast) < interval {
+		return false
+	}
+	node.proposed[key] = time.Now()
+	return true
 }
 
 func (node *Node) removeProposedAtOrBelow(height types.Height) {

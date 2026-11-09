@@ -396,7 +396,6 @@ VRF 密钥不是共识签名者。它们用于 VRF 支持的委员会选择，�
     "timeout_propose": "3s",
     "timeout_prevote": "1s",
     "timeout_precommit": "1s",
-    "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false,
     "execution_commit": "finalized"
@@ -484,7 +483,6 @@ vexod start --home .vexo-archive-1
     "timeout_propose": "3s",
     "timeout_prevote": "1s",
     "timeout_precommit": "1s",
-    "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false,
     "execution_commit": "finalized"
@@ -494,7 +492,6 @@ vexod start --home .vexo-archive-1
 - `timeout_propose` 控制一轮等待提案的时间。
 - `timeout_prevote` 控制投票收集窗口。
 - `timeout_precommit` 控制提交证书收集窗口。
-- `timeout_commit` 控制提交块后的最小延迟。
 - `create_empty_blocks: false` 表示节点仅在交易可用时提出建议。
 - `execution_commit: "finalized"` 在执行最终祖先之前等待 HotStuff 三链最终决定，并且是生成的验证器默认值。 `execution_commit: "qc"` 立即执行并保留 QC 认证的块，但安全门拒绝它。
 
@@ -654,7 +651,6 @@ vexod network init \
 - `timeout_propose` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `timeout_prevote` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `timeout_precommit` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
-- `timeout_commit` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `create_empty_blocks: false` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `execution_commit: "finalized"` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `execution_commit: "qc"` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

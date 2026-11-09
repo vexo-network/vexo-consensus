@@ -943,7 +943,6 @@ func TestDefaultConfigWritesTendermintStyleConsensusTimeouts(t *testing.T) {
 	if consensus.TimeoutPropose != "3s" ||
 		consensus.TimeoutPrevote != "1s" ||
 		consensus.TimeoutPrecommit != "1s" ||
-		consensus.TimeoutCommit != "1s" ||
 		consensus.RoundTimeout != "3s" {
 		t.Fatalf("unexpected consensus timeouts: %+v", consensus)
 	}
@@ -1154,7 +1153,6 @@ func TestLoadStartRuntimeConfigParsesConsensusTimeoutsAndEmptyBlocks(t *testing.
 	consensusDocument.Consensus.TimeoutPropose = "4s"
 	consensusDocument.Consensus.TimeoutPrevote = "1500ms"
 	consensusDocument.Consensus.TimeoutPrecommit = "2s"
-	consensusDocument.Consensus.TimeoutCommit = "250ms"
 	consensusDocument.Consensus.CreateEmptyBlocks = true
 	consensusDocument.Consensus.ExecutionCommit = string(vexonode.ExecutionCommitModeFinalized)
 	writeTestJSON(t, path, document)
@@ -1167,7 +1165,6 @@ func TestLoadStartRuntimeConfigParsesConsensusTimeoutsAndEmptyBlocks(t *testing.
 	if cfg.ConsensusLoop.TimeoutPropose != 4*time.Second ||
 		cfg.ConsensusLoop.TimeoutPrevote != 1500*time.Millisecond ||
 		cfg.ConsensusLoop.TimeoutPrecommit != 2*time.Second ||
-		cfg.ConsensusLoop.TimeoutCommit != 250*time.Millisecond ||
 		!cfg.ConsensusLoop.CreateEmptyBlocks ||
 		!cfg.ConsensusLoop.AdaptiveRoundTimeoutEnabled ||
 		!cfg.ConsensusLoop.RecoveryFinalityGateEnabled ||

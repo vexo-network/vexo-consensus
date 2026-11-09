@@ -42,10 +42,18 @@ func (node *Node) admitPeerMessage(ctx context.Context, peer p2p.PeerID) bool {
 		return true
 	}
 	err = runtime.P2PScore.AdmitMessage(ctx, peer)
-	if errors.Is(err, p2p.ErrPeerBanned) || errors.Is(err, p2p.ErrRateLimitExceeded) {
+	switch {
+	case errors.Is(err, p2p.ErrPeerBanned):
+		// Banned before this message, and persisted when the ban was applied.
+		node.disconnectPeer(peer)
+		return false
+	case errors.Is(err, p2p.ErrRateLimitExceeded):
+		// Only a ban is persisted at once: a flooding peer must not turn every message it sends
+		// past its limit into a write of the score file.
 		node.markPeerScoresDirty()
-		_ = node.persistPeerScoresIfDirty(true)
-		if errors.Is(err, p2p.ErrPeerBanned) || node.peerBanned(ctx, peer) {
+		banned := node.peerBanned(ctx, peer)
+		_ = node.persistPeerScoresIfDirty(banned)
+		if banned {
 			node.disconnectPeer(peer)
 		}
 		return false

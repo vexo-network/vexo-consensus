@@ -396,7 +396,6 @@ Contoh `consensus_config.json`:
     "timeout_propose": "3s",
     "timeout_prevote": "1s",
     "timeout_precommit": "1s",
-    "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false,
     "execution_commit": "finalized"
@@ -484,7 +483,6 @@ Waktu putaran konsensus ada di `consensus_config.json`:
     "timeout_propose": "3s",
     "timeout_prevote": "1s",
     "timeout_precommit": "1s",
-    "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false,
     "execution_commit": "finalized"
@@ -494,7 +492,6 @@ Waktu putaran konsensus ada di `consensus_config.json`:
 - `timeout_propose` mengontrol berapa lama suatu putaran menunggu proposal.
 - `timeout_prevote` mengontrol jendela pengumpulan suara.
 - `timeout_precommit` mengontrol jendela pengumpulan sertifikat komit.
-- `timeout_commit` mengontrol penundaan minimum setelah blok berkomitmen.
 - `create_empty_blocks: false` berarti node hanya mengusulkan ketika transaksi tersedia.
 - `execution_commit: "finalized"` menunggu keputusan finalitas tiga rantai HotStuff sebelum mengeksekusi leluhur yang diselesaikan dan merupakan default validator yang dihasilkan. `execution_commit: "qc"` segera mengeksekusi dan mempertahankan blok bersertifikasi QC, tetapi gerbang keselamatan menolaknya.
 
@@ -654,7 +651,6 @@ Lampiran ini memastikan terjemahan tetap membawa antarmuka yang dapat dijalankan
 - `timeout_propose` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.
 - `timeout_prevote` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.
 - `timeout_precommit` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.
-- `timeout_commit` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.
 - `create_empty_blocks: false` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.
 - `execution_commit: "finalized"` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.
 - `execution_commit: "qc"` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.

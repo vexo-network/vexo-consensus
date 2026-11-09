@@ -2135,3 +2135,84 @@ func (wire *disconnectRecordingTransport) disconnectedPeer(peerID p2p.PeerID) bo
 	defer wire.mu.Unlock()
 	return wire.disconnected[peerID]
 }
+
+// A proposer waiting on its round broadcasts the proposal once, and again only when a
+// retransmission interval passed: the ticks every vote and gossiped batch trigger must not make
+// its peers re-verify the whole block each time.
+func TestProposerRetransmitsItsProposalOnlyAfterTheInterval(t *testing.T) {
+	ctx := context.Background()
+	bus := transport.NewInMemoryBus()
+	genesis := Genesis{
+		ChainID: "vexo-test",
+		Validators: []validator.Validator{
+			{ID: "alice", Address: "alice", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("alice")},
+			{ID: "bob", Address: "bob", VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID("bob")},
+		},
+		Governance: map[types.Address]types.VotingPower{"alice": 1, "bob": 1},
+	}
+	alice := newConsensusLoopNode(t, bus, genesis, "alice")
+	startNode(t, alice)
+	defer alice.Stop(ctx)
+	bob, err := bus.NewPeer("bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := bob.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	proposals, err := bob.Subscribe(ctx, p2p.TopicProposal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine, err := alice.Consensus()
+	if err != nil {
+		t.Fatal(err)
+	}
+	round := types.Round(0)
+	for ; ; round++ {
+		proposer, err := alice.IsProposer(ctx, 1, round)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if proposer {
+			break
+		}
+	}
+	machine.StartRound(1, round)
+	cfg := ConsensusLoopConfig{RoundTimeout: 400 * time.Millisecond, MaxBlockBytes: 1024, CreateEmptyBlocks: true}
+	received := func(window time.Duration) int {
+		count := 0
+		deadline := time.After(window)
+		for {
+			select {
+			case <-proposals:
+				count++
+			case <-deadline:
+				return count
+			}
+		}
+	}
+	if _, _, proposed, err := alice.TickConsensusWithConfig(ctx, cfg); err != nil || !proposed {
+		t.Fatalf("expected alice to propose, got proposed=%v err=%v", proposed, err)
+	}
+	if got := received(20 * time.Millisecond); got != 1 {
+		t.Fatalf("expected the proposal once, got %d", got)
+	}
+	for range 20 {
+		if _, _, _, err := alice.TickConsensusWithConfig(ctx, cfg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := received(20 * time.Millisecond); got != 0 {
+		t.Fatalf("expected no retransmission within the interval, got %d", got)
+	}
+	time.Sleep(cfg.proposalRetransmitInterval())
+	for range 5 {
+		if _, _, _, err := alice.TickConsensusWithConfig(ctx, cfg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := received(20 * time.Millisecond); got != 1 {
+		t.Fatalf("expected one retransmission after the interval, got %d", got)
+	}
+}

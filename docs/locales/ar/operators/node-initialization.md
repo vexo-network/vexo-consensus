@@ -396,7 +396,6 @@ VEXO_KEY_PASSPHRASE='change-me' vexod keys gen --home .vexo-vrf --type vrf --enc
     "timeout_propose": "3s",
     "timeout_prevote": "1s",
     "timeout_precommit": "1s",
-    "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false,
     "execution_commit": "finalized"
@@ -484,7 +483,6 @@ vexod start --home .vexo-archive-1
     "timeout_propose": "3s",
     "timeout_prevote": "1s",
     "timeout_precommit": "1s",
-    "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false,
     "execution_commit": "finalized"
@@ -494,7 +492,6 @@ vexod start --home .vexo-archive-1
 - `timeout_propose` يتحكم في مدة انتظار الجولة للاقتراح.
 - `timeout_prevote` يتحكم في نافذة جمع الأصوات.
 - `timeout_precommit` يتحكم في نافذة تجميع شهادة الالتزام.
-- `timeout_commit` يتحكم في الحد الأدنى من التأخير بعد الحظر الملتزم به.
 - `create_empty_blocks: false` يعني أن العقدة تقترح فقط عندما تكون المعاملات متاحة.
 - `execution_commit: "finalized"` ينتظر قرار HotStuff ثلاثي السلاسل قبل تنفيذ السلف النهائي وهو الإعداد الافتراضي للمدقق الذي تم إنشاؤه. `execution_commit: "qc"` ينفذ ويستمر في تنفيذ الكتل المعتمدة من QC على الفور، لكن بوابة الأمان ترفضها.
 
@@ -654,7 +651,6 @@ vexod network init \
 - `timeout_propose` — يُستخدم هذا الاسم كما هو في أمثلة التشغيل والتحقق من الإعداد، لذلك لا يُترجم.
 - `timeout_prevote` — يُستخدم هذا الاسم كما هو في أمثلة التشغيل والتحقق من الإعداد، لذلك لا يُترجم.
 - `timeout_precommit` — يُستخدم هذا الاسم كما هو في أمثلة التشغيل والتحقق من الإعداد، لذلك لا يُترجم.
-- `timeout_commit` — يُستخدم هذا الاسم كما هو في أمثلة التشغيل والتحقق من الإعداد، لذلك لا يُترجم.
 - `create_empty_blocks: false` — يُستخدم هذا الاسم كما هو في أمثلة التشغيل والتحقق من الإعداد، لذلك لا يُترجم.
 - `execution_commit: "finalized"` — يُستخدم هذا الاسم كما هو في أمثلة التشغيل والتحقق من الإعداد، لذلك لا يُترجم.
 - `execution_commit: "qc"` — يُستخدم هذا الاسم كما هو في أمثلة التشغيل والتحقق من الإعداد، لذلك لا يُترجم.

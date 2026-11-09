@@ -247,7 +247,7 @@ func TestFIFOReplayCheckDoesNotBlockAdmission(t *testing.T) {
 
 	built := make(chan error, 1)
 	go func() {
-		_, err := pool.BuildBatch(ctx, 1<<20)
+		_, err := pool.BuildBatch(ctx, 1<<20, nil)
 		built <- err
 	}()
 	select {
@@ -423,7 +423,7 @@ func TestDurableDAGBuildBatchDoesNotBlockAdmission(t *testing.T) {
 	}
 	built := make(chan error, 1)
 	go func() {
-		_, err := dag.BuildBatch(ctx, 1<<20)
+		_, err := dag.BuildBatch(ctx, 1<<20, nil)
 		built <- err
 	}()
 	select {

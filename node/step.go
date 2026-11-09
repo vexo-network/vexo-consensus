@@ -43,15 +43,16 @@ func (node *Node) StepConsensusWithConfig(ctx context.Context, cfg ConsensusLoop
 	}
 
 	proposalOptions := ProposalOptions{AllowEmpty: cfg.CreateEmptyBlocks}
-	needsEmptyFinalityBlock := node.needsFinalityProgress(ctx, cfg.ExecutionCommitMode)
-	if needsEmptyFinalityBlock || node.mempoolHasPendingTx(ctx) {
+	needsFinality := node.needsFinalityProgress(ctx, cfg.ExecutionCommitMode)
+	if needsFinality || node.mempoolHasPendingTx(ctx) {
 		if err := node.advanceFinalityRound(ctx); err != nil {
 			return ConsensusStepResult{}, err
 		}
 	}
-	if needsEmptyFinalityBlock {
+	if needsFinality {
+		// A proposed block with transactions is final only once a child is certified on top of
+		// it. The child carries the next transactions, or none when there are none to carry.
 		proposalOptions.AllowEmpty = true
-		proposalOptions.ForceEmpty = true
 	}
 
 	proposal, blockHash, proposed, err := node.tickConsensusWithProposalOptions(ctx, cfg, proposalOptions)

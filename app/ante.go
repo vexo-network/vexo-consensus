@@ -144,12 +144,27 @@ func parseAdmission(tx types.Tx) (admission, error) {
 // admit runs the stateless admission checks of tx against the context's chain
 // parameters and fee market state.
 func (keeper *AnteKeeper) admit(ctx Context, tx types.Tx) (admission, error) {
+	return keeper.admitWith(ctx, tx, true)
+}
+
+// admitCertified admits tx of a certified block, which a quorum already authenticated, for a
+// simulation of its account effects: it skips the signature checks admit runs.
+func (keeper *AnteKeeper) admitCertified(ctx Context, tx types.Tx) (admission, error) {
+	return keeper.admitWith(ctx, tx, false)
+}
+
+func (keeper *AnteKeeper) admitWith(ctx Context, tx types.Tx, authenticate bool) (admission, error) {
 	adm, err := parseAdmission(tx)
 	if err != nil {
 		return admission{}, err
 	}
 	signed := txcodec.IsSigned(tx)
 	if !signed && isEvidenceTx(adm) {
+		if !authenticate {
+			// Evidence pays no fee and bumps no nonce: it has no account effect to simulate.
+			adm.payer = ""
+			return adm, nil
+		}
 		return keeper.admitEvidence(ctx, adm)
 	}
 	switch {
@@ -157,13 +172,17 @@ func (keeper *AnteKeeper) admit(ctx Context, tx types.Tx) (admission, error) {
 		// Ethereum tags are never a way around the signature requirement: they
 		// are honoured only for an unsigned transaction addressed to the evm
 		// module whose raw signature the evm module verified.
-		if err := keeper.authenticateEthereum(ctx, adm, signed); err != nil {
-			return admission{}, err
+		if authenticate {
+			if err := keeper.authenticateEthereum(ctx, adm, signed); err != nil {
+				return admission{}, err
+			}
 		}
 		adm.ethereum = true
 	case signed:
-		if err := VerifySignedTx(ctx.ChainID, tx, keeper.signatureVerifier()); err != nil {
-			return admission{}, err
+		if authenticate {
+			if err := VerifySignedTx(ctx.ChainID, tx, keeper.signatureVerifier()); err != nil {
+				return admission{}, err
+			}
 		}
 	case keeper.config.RequireSigned:
 		return admission{}, ErrInvalidSignedTx

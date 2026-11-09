@@ -2,6 +2,7 @@ package mempool
 
 import (
 	"bytes"
+	"container/heap"
 	"context"
 	"errors"
 	"fmt"
@@ -61,6 +62,8 @@ type entry struct {
 	sender   string
 	key      string
 	sequence uint64
+	// evictAt is the entry's position in the pool's eviction heap.
+	evictAt int
 }
 
 // admission is the outcome of a successful admission check: the entry the new
@@ -77,10 +80,13 @@ type FIFO struct {
 	index        map[types.Hash]*entry
 	replacements map[string]*entry
 	senders      map[string]int
-	totalBytes   int64
-	sequence     uint64
-	seen         map[types.Hash]time.Time
-	now          func() time.Time
+	// evictions orders the pending entries by evictsBefore, so the entry a full pool evicts
+	// first is found without scanning the pool.
+	evictions  evictionHeap
+	totalBytes int64
+	sequence   uint64
+	seen       map[types.Hash]time.Time
+	now        func() time.Time
 }
 
 func NewFIFO(config FIFOConfig) *FIFO {
@@ -205,13 +211,9 @@ func (pool *FIFO) evictionPlan(candidate *entry) ([]*entry, error) {
 		}
 		return []*entry{victim}, nil
 	}
-	ranked := append([]*entry(nil), pool.txs...)
-	sort.SliceStable(ranked, func(left int, right int) bool {
-		return evictsBefore(ranked[left], ranked[right])
-	})
 	var victims []*entry
 	var freed int64
-	for _, victim := range ranked {
+	for victim := range pool.evictions.ascending() {
 		if len(victims) >= needCount && freed >= needBytes {
 			break
 		}
@@ -228,13 +230,78 @@ func (pool *FIFO) evictionPlan(candidate *entry) ([]*entry, error) {
 }
 
 func (pool *FIFO) lowestEntry() *entry {
-	var lowest *entry
-	for _, candidate := range pool.txs {
-		if lowest == nil || evictsBefore(candidate, lowest) {
-			lowest = candidate
+	if len(pool.evictions) == 0 {
+		return nil
+	}
+	return pool.evictions[0]
+}
+
+// evictionHeap is a binary min-heap of entries under evictsBefore.
+type evictionHeap []*entry
+
+func (h evictionHeap) Len() int           { return len(h) }
+func (h evictionHeap) Less(i, j int) bool { return evictsBefore(h[i], h[j]) }
+func (h evictionHeap) Swap(i, j int) {
+	h[i], h[j] = h[j], h[i]
+	h[i].evictAt = i
+	h[j].evictAt = j
+}
+
+func (h *evictionHeap) Push(value any) {
+	pending := value.(*entry)
+	pending.evictAt = len(*h)
+	*h = append(*h, pending)
+}
+
+func (h *evictionHeap) Pop() any {
+	old := *h
+	last := old[len(old)-1]
+	old[len(old)-1] = nil
+	*h = old[:len(old)-1]
+	last.evictAt = -1
+	return last
+}
+
+// ascending yields the entries in eviction order without changing the heap, in O(k log k) for
+// the first k: a frontier of heap positions, smallest first, whose children join it as each is
+// yielded.
+func (h evictionHeap) ascending() func(func(*entry) bool) {
+	return func(yield func(*entry) bool) {
+		if len(h) == 0 {
+			return
+		}
+		frontier := &positionHeap{entries: h, positions: []int{0}}
+		for frontier.Len() > 0 {
+			position := heap.Pop(frontier).(int)
+			if !yield(h[position]) {
+				return
+			}
+			for _, child := range [2]int{2*position + 1, 2*position + 2} {
+				if child < len(h) {
+					heap.Push(frontier, child)
+				}
+			}
 		}
 	}
-	return lowest
+}
+
+type positionHeap struct {
+	entries   evictionHeap
+	positions []int
+}
+
+func (h *positionHeap) Len() int { return len(h.positions) }
+func (h *positionHeap) Less(i, j int) bool {
+	return evictsBefore(h.entries[h.positions[i]], h.entries[h.positions[j]])
+}
+func (h *positionHeap) Swap(i, j int) {
+	h.positions[i], h.positions[j] = h.positions[j], h.positions[i]
+}
+func (h *positionHeap) Push(value any) { h.positions = append(h.positions, value.(int)) }
+func (h *positionHeap) Pop() any {
+	last := h.positions[len(h.positions)-1]
+	h.positions = h.positions[:len(h.positions)-1]
+	return last
 }
 
 func evictsBefore(left *entry, right *entry) bool {
@@ -305,6 +372,7 @@ func (pool *FIFO) insertLocked(candidate *entry) {
 		pool.senders[candidate.sender]++
 	}
 	pool.totalBytes += candidate.size
+	heap.Push(&pool.evictions, candidate)
 	pool.markSeen(candidate.hash)
 }
 
@@ -327,6 +395,7 @@ func (pool *FIFO) replaceLocked(old *entry, candidate *entry) {
 		pool.senders[candidate.sender]++
 	}
 	pool.totalBytes += candidate.size
+	heap.Push(&pool.evictions, candidate)
 	pool.markSeen(old.hash)
 	pool.markSeen(candidate.hash)
 }
@@ -358,6 +427,9 @@ func (pool *FIFO) unindexLocked(removed *entry) {
 		}
 	}
 	pool.totalBytes -= removed.size
+	if removed.evictAt >= 0 && removed.evictAt < len(pool.evictions) && pool.evictions[removed.evictAt] == removed {
+		heap.Remove(&pool.evictions, removed.evictAt)
+	}
 }
 
 func (pool *FIFO) positionOf(target *entry) int {
@@ -369,35 +441,26 @@ func (pool *FIFO) positionOf(target *entry) int {
 	return -1
 }
 
-func (pool *FIFO) BuildBatch(ctx context.Context, maxBytes int64) (Batch, error) {
+func (pool *FIFO) BuildBatch(ctx context.Context, maxBytes int64, proposed map[types.Hash]struct{}) (Batch, error) {
 	if err := pool.checkContext(ctx); err != nil {
 		return Batch{}, err
 	}
 	if maxBytes <= 0 {
 		return Batch{}, ErrInvalidMaxBytes
 	}
-	live, err := pool.liveEntries(ctx)
+	var totalBytes int64
+	batch := Batch{Author: pool.config.Author}
+	err := pool.eachLiveEntry(ctx, proposed, func(pending *entry) bool {
+		if totalBytes+pending.size > maxBytes {
+			return false
+		}
+		totalBytes += pending.size
+		batch.Txs = append(batch.Txs, append(types.Tx(nil), pending.tx...))
+		return true
+	})
 	if err != nil {
 		return Batch{}, err
 	}
-
-	var totalBytes int64
-	batch := Batch{
-		Author: pool.config.Author,
-		Txs:    make([]types.Tx, 0, len(live)),
-	}
-	for _, pending := range live {
-		txSize := pending.size
-		if len(batch.Txs) > 0 && totalBytes+txSize > maxBytes {
-			break
-		}
-		if len(batch.Txs) == 0 && txSize > maxBytes {
-			break
-		}
-		totalBytes += txSize
-		batch.Txs = append(batch.Txs, append(types.Tx(nil), pending.tx...))
-	}
-
 	batch.ID = HashBatch(batch)
 	return batch, nil
 }
@@ -406,11 +469,15 @@ func (pool *FIFO) PendingTxs(ctx context.Context) ([]types.Tx, error) {
 	if err := pool.checkContext(ctx); err != nil {
 		return nil, err
 	}
-	live, err := pool.liveEntries(ctx)
+	var live []types.Tx
+	err := pool.eachLiveEntry(ctx, nil, func(pending *entry) bool {
+		live = append(live, append(types.Tx(nil), pending.tx...))
+		return true
+	})
 	if err != nil {
 		return nil, err
 	}
-	return copyTxs(live), nil
+	return live, nil
 }
 
 // SnapshotTxs returns the currently admitted entries without replaying CheckTx.
@@ -464,10 +531,11 @@ func (pool *FIFO) markCommittedLocked(committed []types.Tx) error {
 	return nil
 }
 
-// filterLocked keeps the entries for which keep returns true, marks the rest as
-// recently seen and rebuilds the derived lookups.
+// filterLocked keeps the entries for which keep returns true and removes the rest, marking them
+// recently seen. Only the removed entries leave the derived lookups, so a commit costs what it
+// removes plus one pass over the queue.
 func (pool *FIFO) filterLocked(keep func(*entry) bool) int {
-	remaining := make([]*entry, 0, len(pool.txs))
+	remaining := pool.txs[:0]
 	removed := 0
 	for _, pending := range pool.txs {
 		if keep(pending) {
@@ -475,13 +543,11 @@ func (pool *FIFO) filterLocked(keep func(*entry) bool) int {
 			continue
 		}
 		removed++
+		pool.unindexLocked(pending)
 		pool.markSeen(pending.hash)
 	}
-	if removed == 0 {
-		return 0
-	}
+	clear(pool.txs[len(remaining):])
 	pool.txs = remaining
-	pool.rebuildIndex()
 	return removed
 }
 
@@ -521,12 +587,12 @@ func (pool *FIFO) RetainTxs(ctx context.Context, keep func(types.Tx) bool) (int,
 func (pool *FIFO) orderedTxs() []types.Tx {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
-	return copyTxs(pool.rankLocked(pool.txs))
+	return copyTxs(pool.rankLocked(append([]*entry(nil), pool.txs...)))
 }
 
-// rankLocked applies the configured proposal order to a copy of entries.
+// rankLocked applies the configured proposal order to entries, in place.
 func (pool *FIFO) rankLocked(entries []*entry) []*entry {
-	ordered := append([]*entry(nil), entries...)
+	ordered := entries
 	if !pool.config.EnablePriority {
 		return ordered
 	}
@@ -542,39 +608,47 @@ func (pool *FIFO) rankLocked(entries []*entry) []*entry {
 	return ordered
 }
 
-// liveEntries replays the application check on every pending transaction and
-// returns the survivors in proposal order. The replay runs on a snapshot
-// outside the pool lock: a slow application check must never block admission.
-func (pool *FIFO) liveEntries(ctx context.Context) ([]*entry, error) {
+// eachLiveEntry walks the pending transactions not in proposed in proposal order and yields the
+// ones the application check still accepts, until yield returns false. A transaction is checked
+// only when the walk reaches it, so a block costs the checks of what it carries, not of the whole
+// pool. The checks run on a snapshot outside the pool lock, as a slow application check must
+// never block admission; the transactions they reject are dropped.
+func (pool *FIFO) eachLiveEntry(ctx context.Context, proposed map[types.Hash]struct{}, yield func(*entry) bool) error {
 	pool.mu.Lock()
-	snapshot := append([]*entry(nil), pool.txs...)
+	snapshot := make([]*entry, 0, len(pool.txs))
+	for _, pending := range pool.txs {
+		if _, found := proposed[pending.hash]; !found {
+			snapshot = append(snapshot, pending)
+		}
+	}
+	ranked := pool.rankLocked(snapshot)
 	replay := pool.config.ReplayCheckTx
 	pool.mu.Unlock()
 
-	live := snapshot
-	if replay != nil {
-		live = make([]*entry, 0, len(snapshot))
-		var dead []*entry
-		for _, pending := range snapshot {
-			if err := pool.checkContext(ctx); err != nil {
-				return nil, err
-			}
+	var dead []*entry
+	defer func() {
+		if len(dead) > 0 {
+			pool.dropEntries(dead)
+		}
+	}()
+	for _, pending := range ranked {
+		if err := pool.checkContext(ctx); err != nil {
+			return err
+		}
+		if replay != nil {
 			if err := replay(ctx, append(types.Tx(nil), pending.tx...)); err != nil && !errors.Is(err, ErrTxNotReady) {
 				if ctxErr := pool.checkContext(ctx); ctxErr != nil {
-					return nil, ctxErr
+					return ctxErr
 				}
 				dead = append(dead, pending)
 				continue
 			}
-			live = append(live, pending)
 		}
-		if len(dead) > 0 {
-			pool.dropEntries(dead)
+		if !yield(pending) {
+			return nil
 		}
 	}
-	pool.mu.Lock()
-	defer pool.mu.Unlock()
-	return pool.rankLocked(live), nil
+	return nil
 }
 
 func (pool *FIFO) dropEntries(dead []*entry) {
@@ -636,8 +710,11 @@ func (pool *FIFO) rebuildIndex() {
 	pool.index = make(map[types.Hash]*entry, len(pool.txs))
 	pool.replacements = make(map[string]*entry, len(pool.txs))
 	pool.senders = make(map[string]int)
+	pool.evictions = make(evictionHeap, 0, len(pool.txs))
 	pool.totalBytes = 0
 	for _, pending := range pool.txs {
+		pending.evictAt = len(pool.evictions)
+		pool.evictions = append(pool.evictions, pending)
 		pool.index[pending.hash] = pending
 		if pending.key != "" {
 			pool.replacements[pending.key] = pending
@@ -647,6 +724,7 @@ func (pool *FIFO) rebuildIndex() {
 		}
 		pool.totalBytes += pending.size
 	}
+	heap.Init(&pool.evictions)
 }
 
 func (pool *FIFO) replacementTarget(candidate *entry) *entry {

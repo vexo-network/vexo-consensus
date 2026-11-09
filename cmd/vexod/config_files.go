@@ -207,7 +207,6 @@ type runtimeConsensusConfig struct {
 	TimeoutPropose              string `json:"timeout_propose,omitempty"`
 	TimeoutPrevote              string `json:"timeout_prevote,omitempty"`
 	TimeoutPrecommit            string `json:"timeout_precommit,omitempty"`
-	TimeoutCommit               string `json:"timeout_commit,omitempty"`
 	RoundTimeout                string `json:"round_timeout,omitempty"`
 	MaxBlockBytes               int64  `json:"max_block_bytes,omitempty"`
 	CreateEmptyBlocks           bool   `json:"create_empty_blocks"`

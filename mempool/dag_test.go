@@ -14,7 +14,7 @@ func TestDAGBuildBatchUsesCurrentTipsAsParents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first, err := dag.BuildBatch(context.Background(), 10)
+	first, err := dag.BuildBatch(context.Background(), 10, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestDAGBuildBatchUsesCurrentTipsAsParents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	second, err := dag.BuildBatch(context.Background(), 10)
+	second, err := dag.BuildBatch(context.Background(), 10, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -25,6 +25,14 @@ func blockHashKey(hash types.Hash) []byte {
 	return append(key, hash[:]...)
 }
 
+// blockHashValue is what a block hash key holds: the height of the block, whose record the height
+// key keeps. The record is stored once.
+func blockHashValue(height types.Height) []byte {
+	var buffer [8]byte
+	binary.BigEndian.PutUint64(buffer[:], uint64(height))
+	return buffer[:]
+}
+
 func stateRootKey(height types.Height, namespace string) []byte {
 	key := append([]byte(nil), stateRootPrefix...)
 	var buffer [8]byte

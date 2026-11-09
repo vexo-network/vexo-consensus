@@ -50,10 +50,10 @@ func (dag *DAG) AddTx(ctx context.Context, tx types.Tx) error {
 	})
 }
 
-func (dag *DAG) BuildBatch(ctx context.Context, maxBytes int64) (Batch, error) {
+func (dag *DAG) BuildBatch(ctx context.Context, maxBytes int64, proposed map[types.Hash]struct{}) (Batch, error) {
 	// The base pool replays application checks while it builds; that must not
 	// run under the DAG lock or every AddTx would wait behind it.
-	batch, err := dag.base.BuildBatch(ctx, maxBytes)
+	batch, err := dag.base.BuildBatch(ctx, maxBytes, proposed)
 	if err != nil {
 		return Batch{}, err
 	}

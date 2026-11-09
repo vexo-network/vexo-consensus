@@ -57,8 +57,17 @@ func OpenLevelDB(path string) (*LevelDBStore, error) {
 	return OpenLevelDBWithOptions(path, LevelDBOptions{SyncWrites: true})
 }
 
+// levelDBWriteBuffer is the size of the memtable. A block commit is one batch holding the whole
+// block, so the memtable must hold several: a batch larger than it bypasses the memtable and is
+// written as level-0 tables in the commit itself, and a small memtable flushes on nearly every
+// block, stalling writes behind level-0 compaction.
+const levelDBWriteBuffer = 64 << 20
+
 func OpenLevelDBWithOptions(path string, options LevelDBOptions) (*LevelDBStore, error) {
-	db, err := leveldb.OpenFile(path, nil)
+	db, err := leveldb.OpenFile(path, &opt.Options{
+		WriteBuffer:         levelDBWriteBuffer,
+		CompactionTableSize: 8 << 20,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +109,7 @@ func (store *LevelDBStore) SaveBlock(ctx context.Context, record BlockRecord) er
 	}
 	batch := new(leveldb.Batch)
 	batch.Put(blockHeightKey(record.Block.Header.Height), encoded)
-	batch.Put(blockHashKey(record.Hash), encoded)
+	batch.Put(blockHashKey(record.Hash), blockHashValue(record.Block.Header.Height))
 	index, err := store.nextBlockIndex(record.Block.Header.Height)
 	if err != nil {
 		return err
@@ -135,7 +144,17 @@ func (store *LevelDBStore) BlockByHash(ctx context.Context, hash types.Hash) (Bl
 		return BlockRecord{}, ctx.Err()
 	default:
 	}
-	record, err := store.getBlock(blockHashKey(hash))
+	encodedHeight, err := store.db.Get(blockHashKey(hash), nil)
+	if err != nil {
+		if errors.Is(err, leveldberrors.ErrNotFound) {
+			return BlockRecord{}, ErrBlockNotFound
+		}
+		return BlockRecord{}, err
+	}
+	if len(encodedHeight) != 8 {
+		return BlockRecord{}, ErrInvalidBlockRecord
+	}
+	record, err := store.getBlock(blockHeightKey(types.Height(binary.BigEndian.Uint64(encodedHeight))))
 	if err != nil {
 		return BlockRecord{}, err
 	}
@@ -548,7 +567,7 @@ func (store *LevelDBStore) commitBlockStateBatch(ctx context.Context, writes []K
 		return err
 	}
 	batch.Put(blockHeightKey(block.Block.Header.Height), encodedBlock)
-	batch.Put(blockHashKey(block.Hash), encodedBlock)
+	batch.Put(blockHashKey(block.Hash), blockHashValue(block.Block.Header.Height))
 	batch.Put(blockIndexKey, encodedIndex)
 	batch.Put(stateLatestKey, encodedState)
 	batch.Put(stateHeightKey(state.Height), encodedState)

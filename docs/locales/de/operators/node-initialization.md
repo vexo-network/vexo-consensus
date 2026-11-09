@@ -396,7 +396,6 @@ Beispiel `consensus_config.json`:
     "timeout_propose": "3s",
     "timeout_prevote": "1s",
     "timeout_precommit": "1s",
-    "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false,
     "execution_commit": "finalized"
@@ -484,7 +483,6 @@ Das Timing der Konsensschleife lebt in `consensus_config.json`:
     "timeout_propose": "3s",
     "timeout_prevote": "1s",
     "timeout_precommit": "1s",
-    "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false,
     "execution_commit": "finalized"
@@ -494,7 +492,6 @@ Das Timing der Konsensschleife lebt in `consensus_config.json`:
 - `timeout_propose` steuert, wie lange eine Runde auf einen Vorschlag wartet.
 - `timeout_prevote` steuert das Fenster zur Stimmensammlung.
 – `timeout_precommit` steuert das Commit-Zertifikat-Sammelfenster.
-- `timeout_commit` steuert die minimale Verzögerung nach einem festgeschriebenen Block.
 - `create_empty_blocks: false` bedeutet, dass der Knoten nur dann Vorschläge macht, wenn Transaktionen verfügbar sind.
 – `execution_commit: "finalized"` wartet auf die Drei-Ketten-Finalitätsentscheidung von HotStuff, bevor der finalisierte Vorfahre ausgeführt wird, und ist der generierte Validator-Standard. `execution_commit: "qc"` führt QC-zertifizierte Blöcke sofort aus und behält sie bei, wird jedoch vom Sicherheitstor abgelehnt.
 
@@ -654,7 +651,6 @@ Dieser Anhang stellt sicher, dass die Übersetzung die ausführbaren Schnittstel
 - `timeout_propose` — Dieser Name wird in ausführbaren Beispielen und Konfigurationsprüfungen unverändert verwendet und darf nicht übersetzt werden.
 - `timeout_prevote` — Dieser Name wird in ausführbaren Beispielen und Konfigurationsprüfungen unverändert verwendet und darf nicht übersetzt werden.
 - `timeout_precommit` — Dieser Name wird in ausführbaren Beispielen und Konfigurationsprüfungen unverändert verwendet und darf nicht übersetzt werden.
-- `timeout_commit` — Dieser Name wird in ausführbaren Beispielen und Konfigurationsprüfungen unverändert verwendet und darf nicht übersetzt werden.
 - `create_empty_blocks: false` — Dieser Name wird in ausführbaren Beispielen und Konfigurationsprüfungen unverändert verwendet und darf nicht übersetzt werden.
 - `execution_commit: "finalized"` — Dieser Name wird in ausführbaren Beispielen und Konfigurationsprüfungen unverändert verwendet und darf nicht übersetzt werden.
 - `execution_commit: "qc"` — Dieser Name wird in ausführbaren Beispielen und Konfigurationsprüfungen unverändert verwendet und darf nicht übersetzt werden.

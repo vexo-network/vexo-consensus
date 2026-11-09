@@ -10,6 +10,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/consensus"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/finality"
+	"github.com/vexo-network/vexo-consensus/mempool"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/store"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -233,7 +234,7 @@ func (node *Node) finishCommit(ctx context.Context, runtime *vexoruntime.Runtime
 		}
 	}
 	machine.Prune(height)
-	if err := node.persistFinalityDecisions(ctx, runtime, machine); err != nil {
+	if err := node.persistFinalityDecisions(ctx, runtime, machine, &block); err != nil {
 		return err
 	}
 	nextHeight, ok := nextHeightAfter(height)
@@ -318,7 +319,7 @@ func (node *Node) processProposal(ctx context.Context, proposal consensus.Propos
 	header := proposal.Block.Header
 	if committed, ok := node.currentCommitHeight(ctx); ok {
 		if next, ok := nextHeightAfter(committed); ok && header.Height == next {
-			if err := checkParentBinding(ctx, runtime, committed, header); err != nil {
+			if err := node.checkParentBinding(ctx, runtime, committed, header); err != nil {
 				return fmt.Errorf("%w: %w", ErrProposalRejected, err)
 			}
 		}
@@ -327,6 +328,13 @@ func (node *Node) processProposal(ctx context.Context, proposal consensus.Propos
 		return fmt.Errorf("%w: %w", ErrProposalRejected, err)
 	}
 	request := app.ProcessProposalRequest{Block: proposal.Block}
+	if len(proposal.Block.Txs) > 0 {
+		inFlight, err := node.proposalInFlightTxs(ctx, proposal.Block)
+		if err != nil {
+			return err
+		}
+		request.Pending = inFlight.txs
+	}
 	var response app.ProcessProposalResponse
 	if contextual, ok := runtime.App.(app.ContextProcessProposalApplication); ok {
 		response = contextual.ProcessProposalContext(ctx, request)
@@ -337,6 +345,26 @@ func (node *Node) processProposal(ctx context.Context, proposal consensus.Propos
 		return fmt.Errorf("%w: %s", ErrProposalRejected, response.Reason)
 	}
 	return nil
+}
+
+// proposalInFlightTxs returns the transactions of the uncommitted ancestors of block, which
+// executes after them. A block that carries one of them again, or whose uncommitted ancestors are
+// not all held, is refused: a transaction must execute once.
+func (node *Node) proposalInFlightTxs(ctx context.Context, block types.Block) (inFlightTxs, error) {
+	header := block.Header
+	if header.Height == 0 {
+		return inFlightTxs{}, nil
+	}
+	inFlight, known := node.uncommittedAncestors(ctx, header.PreviousBlockHash, header.Height-1)
+	if !known {
+		return inFlightTxs{}, fmt.Errorf("%w: an uncommitted ancestor of height %d is not held", ErrProposalRejected, header.Height)
+	}
+	for _, tx := range block.Txs {
+		if _, found := inFlight.hashes[mempool.HashTx(tx)]; found {
+			return inFlightTxs{}, fmt.Errorf("%w: a transaction of an uncommitted ancestor is proposed again", ErrProposalRejected)
+		}
+	}
+	return inFlight, nil
 }
 
 // headerAppHash returns the app hash a header must commit: the header app hash of the state
@@ -396,7 +424,7 @@ func (node *Node) reportInvalidAppHashProposal(ctx context.Context, proposal con
 // also name the validator set that parent fixes for it. A certificate only vouches for the header it
 // signs, so the chain linkage, and with it the set that certified the header, is checked against
 // the store.
-func checkParentBinding(ctx context.Context, runtime *vexoruntime.Runtime, committed types.Height, header types.Header) error {
+func (node *Node) checkParentBinding(ctx context.Context, runtime *vexoruntime.Runtime, committed types.Height, header types.Header) error {
 	var parent types.Hash
 	setHeight := finality.FirstValidatorSetHeight
 	if committed > 0 {
@@ -408,11 +436,11 @@ func checkParentBinding(ctx context.Context, runtime *vexoruntime.Runtime, commi
 			return fmt.Errorf("%w: latest state is at height %d, committed height is %d", ErrBlockParentMismatch, state.Height, committed)
 		}
 		parent = state.LastBlockHash
-		record, err := runtime.BlockByHeight(ctx, committed)
+		parentHeader, err := node.committedParentHeader(ctx, runtime, committed, parent)
 		if err != nil {
 			return err
 		}
-		setHeight = finality.ChildValidatorSetHeight(record.Block.Header)
+		setHeight = finality.ChildValidatorSetHeight(parentHeader)
 	}
 	if header.PreviousBlockHash != parent {
 		return fmt.Errorf("%w: height %d names parent %x, last committed block is %x", ErrBlockParentMismatch, header.Height, header.PreviousBlockHash, parent)
@@ -421,6 +449,22 @@ func checkParentBinding(ctx context.Context, runtime *vexoruntime.Runtime, commi
 		return fmt.Errorf("%w: height %d names validator set height %d, its parent fixes %d", ErrBlockParentMismatch, header.Height, header.ValidatorSetHeight, setHeight)
 	}
 	return nil
+}
+
+// committedParentHeader returns the header of the committed block at height, whose hash is
+// blockHash: the header the node executed last when it is that block, the stored one otherwise.
+func (node *Node) committedParentHeader(ctx context.Context, runtime *vexoruntime.Runtime, height types.Height, blockHash types.Hash) (types.Header, error) {
+	node.mu.Lock()
+	cached := node.committedHeader
+	node.mu.Unlock()
+	if cached != nil && cached.Height == height && consensus.HashHeader(*cached) == blockHash {
+		return *cached, nil
+	}
+	record, err := runtime.BlockByHeight(ctx, height)
+	if err != nil {
+		return types.Header{}, err
+	}
+	return record.Block.Header, nil
 }
 
 // acceptedProposalFor reports whether blockHash is the proposal the consensus machine accepted for the

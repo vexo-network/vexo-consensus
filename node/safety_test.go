@@ -393,6 +393,42 @@ func TestCommitBlockRejectsBlockThatDoesNotExtendCommittedChain(t *testing.T) {
 	}
 }
 
+// The parent binding reads the committed parent from memory only when it is the block the latest
+// state names; any other remembered header is ignored for the stored one.
+func TestParentBindingUsesTheExecutedHeaderOnlyWhenItIsTheCommittedBlock(t *testing.T) {
+	ctx := context.Background()
+	node := newStartedValidator(t, t.TempDir())
+	defer node.Stop(ctx)
+	machine := mustConsensus(t, node)
+	first, _ := proposeAndVote(t, node)
+	proposeAndVote(t, node)
+	if _, err := node.CommitBlock(ctx, first.Block, machine.CommitDecisions()[0].CommitQC); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := node.Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := runtime.LatestState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if node.committedHeader == nil || consensus.HashHeader(*node.committedHeader) != state.LastBlockHash {
+		t.Fatalf("expected the executed header to be the committed block %x, got %+v", state.LastBlockHash, node.committedHeader)
+	}
+
+	stale := first.Block.Header
+	stale.ValidatorSetHeight += 5
+	node.committedHeader = &stale
+	header, err := node.committedParentHeader(ctx, runtime, 1, state.LastBlockHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if header.ValidatorSetHeight != first.Block.Header.ValidatorSetHeight {
+		t.Fatalf("a remembered header that is not the committed block was used: %+v", header)
+	}
+}
+
 func TestCommitFinalizedBlockComputesRecoveryReportOncePerCommittedHeight(t *testing.T) {
 	ctx := context.Background()
 	node := newStartedValidator(t, t.TempDir())
@@ -538,7 +574,7 @@ func TestPersistFinalityDecisionsSkipsStoredHeights(t *testing.T) {
 		t.Fatalf("expected the decision for B1 to be retained, got %+v", decisions)
 	}
 	for index := 0; index < 3; index++ {
-		if err := node.persistFinalityDecisions(ctx, runtime, machine); err != nil {
+		if err := node.persistFinalityDecisions(ctx, runtime, machine, nil); err != nil {
 			t.Fatal(err)
 		}
 	}

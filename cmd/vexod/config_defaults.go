@@ -215,7 +215,6 @@ func defaultRuntimeConfig(validatorID string) runtimeConfig {
 			TimeoutPropose:              "3s",
 			TimeoutPrevote:              "1s",
 			TimeoutPrecommit:            "1s",
-			TimeoutCommit:               "1s",
 			RoundTimeout:                "3s",
 			MaxBlockBytes:               1024 * 1024,
 			CreateEmptyBlocks:           false,

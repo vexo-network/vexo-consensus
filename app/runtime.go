@@ -173,7 +173,7 @@ func (runtime *Runtime) CheckTxContext(goCtx context.Context, tx types.Tx) Check
 }
 
 func (runtime *Runtime) CheckTxsContext(goCtx context.Context, txs []types.Tx) CheckTxResponse {
-	if err := runtime.validateTxsContext(goCtx, runtime.currentHeight(), types.Header{}, txs); err != nil {
+	if err := runtime.validateTxsContext(goCtx, runtime.currentHeight(), types.Header{}, nil, txs); err != nil {
 		return rejectedCheck(err)
 	}
 	return CheckTxResponse{Result: types.Result{}}
@@ -241,7 +241,7 @@ func (runtime *Runtime) PrepareProposalContext(goCtx context.Context, req Prepar
 		if err := goCtx.Err(); err != nil {
 			return PrepareProposalResponse{}, err
 		}
-		sim := ante.newSimulation(ctx)
+		sim := runtime.simulationAfter(ctx, req.Pending)
 		kept := make([]preparedTx, 0, len(items))
 		var blobGas uint64
 		// The first transaction of a key in the order of the block keeps it, as a validator of the
@@ -307,17 +307,17 @@ func (runtime *Runtime) ProcessProposalContext(goCtx context.Context, req Proces
 	if !fairordering.IsOrderedWithSalt(req.Block.Txs, runtime.orderingSalt(req.Block.Header.Height)) {
 		return ProcessProposalResponse{Accepted: false, Reason: "transaction ordering mismatch"}
 	}
-	if err := runtime.validateTxsContext(goCtx, req.Block.Header.Height, req.Block.Header, req.Block.Txs); err != nil {
+	if err := runtime.validateTxsContext(goCtx, req.Block.Header.Height, req.Block.Header, req.Pending, req.Block.Txs); err != nil {
 		return ProcessProposalResponse{Accepted: false, Reason: err.Error()}
 	}
 	return ProcessProposalResponse{Accepted: true}
 }
 
-// validateTxsContext admits txs as one block against the committed state. The
-// account state advances from transaction to transaction, so a sender's nonces
-// must be consecutive and its fees affordable together, and the blob gas of
-// the whole block must fit the limit.
-func (runtime *Runtime) validateTxsContext(goCtx context.Context, height types.Height, header types.Header, txs []types.Tx) error {
+// validateTxsContext admits txs as one block against the committed state after the pending
+// transactions of the uncommitted ancestors. The account state advances from transaction to
+// transaction, so a sender's nonces must be consecutive and its fees affordable together, and the
+// blob gas of the whole block must fit the limit.
+func (runtime *Runtime) validateTxsContext(goCtx context.Context, height types.Height, header types.Header, pending []types.Tx, txs []types.Tx) error {
 	if goCtx == nil {
 		goCtx = context.Background()
 	}
@@ -329,7 +329,7 @@ func (runtime *Runtime) validateTxsContext(goCtx context.Context, height types.H
 		return err
 	}
 	ante := runtime.currentAnte()
-	sim := ante.newSimulation(ctx)
+	sim := runtime.simulationAfter(ctx, pending)
 	var blobGas uint64
 	claimed := make(map[string]struct{})
 	for _, tx := range txs {
@@ -367,6 +367,23 @@ func (runtime *Runtime) validateTxsContext(goCtx context.Context, height types.H
 		return ErrBlobGasLimitExceeded
 	}
 	return nil
+}
+
+// simulationAfter returns a simulation of the committed state in ctx after pending, the
+// transactions of the certified, uncommitted ancestors of a block. A pending transaction that does
+// not admit changes nothing, as it changes nothing when its block executes.
+func (runtime *Runtime) simulationAfter(ctx Context, pending []types.Tx) *simulation {
+	ante := runtime.currentAnte()
+	sim := ante.newSimulation(ctx)
+	if sim == nil {
+		return nil
+	}
+	for _, tx := range pending {
+		if adm, err := ante.admitCertified(ctx, tx); err == nil {
+			_ = sim.apply(adm)
+		}
+	}
+	return sim
 }
 
 // admit parses and, with an ante handler, authenticates and prices tx.

@@ -5,7 +5,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math/rand"
 	"reflect"
+	"sort"
 	"testing"
 	"time"
 
@@ -20,7 +23,7 @@ func TestFIFOAddAndBuildBatchInOrder(t *testing.T) {
 		}
 	}
 
-	batch, err := pool.BuildBatch(context.Background(), 10)
+	batch, err := pool.BuildBatch(context.Background(), 10, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +73,7 @@ func TestFIFOBuildBatchRespectsMaxBytes(t *testing.T) {
 		}
 	}
 
-	batch, err := pool.BuildBatch(context.Background(), 5)
+	batch, err := pool.BuildBatch(context.Background(), 5, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +88,7 @@ func TestFIFOBuildBatchSkipsOversizedFirstTx(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	batch, err := pool.BuildBatch(context.Background(), 3)
+	batch, err := pool.BuildBatch(context.Background(), 3, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +99,7 @@ func TestFIFOBuildBatchSkipsOversizedFirstTx(t *testing.T) {
 
 func TestFIFOBuildBatchRejectsInvalidMaxBytes(t *testing.T) {
 	pool := NewFIFO(FIFOConfig{})
-	_, err := pool.BuildBatch(context.Background(), 0)
+	_, err := pool.BuildBatch(context.Background(), 0, nil)
 	if !errors.Is(err, ErrInvalidMaxBytes) {
 		t.Fatalf("expected invalid max bytes, got %v", err)
 	}
@@ -183,7 +186,7 @@ func TestFIFOMarkCommittedRemovesTxsAndAllowsReadd(t *testing.T) {
 	if pool.Len() != 2 {
 		t.Fatalf("expected len 2, got %d", pool.Len())
 	}
-	batch, err := pool.BuildBatch(context.Background(), 10)
+	batch, err := pool.BuildBatch(context.Background(), 10, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +348,7 @@ func TestFIFOBuildBatchPrioritizesPriorityThenFee(t *testing.T) {
 		}
 	}
 
-	batch, err := pool.BuildBatch(context.Background(), 1024)
+	batch, err := pool.BuildBatch(context.Background(), 1024, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +463,7 @@ func TestFIFOContextCancellation(t *testing.T) {
 	if err := pool.AddTx(ctx, []byte("a")); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected add canceled, got %v", err)
 	}
-	if _, err := pool.BuildBatch(ctx, 1); !errors.Is(err, context.Canceled) {
+	if _, err := pool.BuildBatch(ctx, 1, nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected build canceled, got %v", err)
 	}
 	if err := pool.MarkCommitted(ctx, []types.Tx{[]byte("a")}); !errors.Is(err, context.Canceled) {
@@ -473,5 +476,118 @@ func TestHashBatchChangesWithContent(t *testing.T) {
 	second := HashBatch(Batch{Author: "a", Txs: []types.Tx{[]byte("two")}})
 	if first == second {
 		t.Fatal("expected different batch hashes")
+	}
+}
+
+// A full pool evicts what pays least, the newest first among equal fees, across random
+// admissions, commits and evictions that keep the eviction heap in step with the pool.
+func TestFIFOEvictsInFeeOrderUnderChurn(t *testing.T) {
+	ctx := context.Background()
+	random := rand.New(rand.NewSource(3))
+	pool := NewFIFO(FIFOConfig{MaxTxs: 40, MaxTotalBytes: 40 * 48})
+	reference := map[string]uint64{}
+	for index := range 2000 {
+		fee := uint64(random.Intn(50))
+		tx := types.Tx(fmt.Sprintf("bank:send:fee=%d:id=%06d", fee, index))
+		lowest := pool.lowestEntry()
+		err := pool.AddTx(ctx, tx)
+		if len(reference) >= 40 {
+			if lowest == nil {
+				t.Fatal("a full pool has a lowest entry")
+			}
+			for _, other := range reference {
+				if other < lowest.fee {
+					t.Fatalf("lowest entry pays %d, another pays %d", lowest.fee, other)
+				}
+			}
+			if fee <= lowest.fee {
+				if !errors.Is(err, ErrMempoolFull) {
+					t.Fatalf("tx paying %d over a lowest of %d: expected ErrMempoolFull, got %v", fee, lowest.fee, err)
+				}
+				continue
+			}
+			delete(reference, string(lowest.tx))
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		reference[string(tx)] = fee
+		if random.Intn(10) == 0 {
+			pending, err := pool.SnapshotTxs(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			committed := pending[random.Intn(len(pending))]
+			if err := pool.MarkCommitted(ctx, []types.Tx{committed}); err != nil {
+				t.Fatal(err)
+			}
+			delete(reference, string(committed))
+		}
+		if pool.Len() != len(reference) || len(pool.evictions) != len(reference) {
+			t.Fatalf("pool holds %d (heap %d), want %d", pool.Len(), len(pool.evictions), len(reference))
+		}
+		var size int64
+		for _, pending := range pool.txs {
+			size += pending.size
+			if pool.index[pending.hash] != pending || pool.evictions[pending.evictAt] != pending {
+				t.Fatalf("entry %q is out of its lookups", pending.tx)
+			}
+		}
+		if len(pool.index) != len(pool.txs) || pool.totalBytes != size {
+			t.Fatalf("index holds %d of %d entries, total bytes %d of %d", len(pool.index), len(pool.txs), pool.totalBytes, size)
+		}
+	}
+}
+
+// The eviction heap yields the pending entries in exactly evictsBefore order.
+func TestEvictionHeapYieldsEntriesInEvictionOrder(t *testing.T) {
+	random := rand.New(rand.NewSource(9))
+	pool := NewFIFO(FIFOConfig{})
+	for index := range 300 {
+		if err := pool.AddTx(context.Background(), types.Tx(fmt.Sprintf("bank:send:fee=%d:id=%d", random.Intn(20), index))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := append([]*entry(nil), pool.txs...)
+	sort.SliceStable(want, func(left, right int) bool { return evictsBefore(want[left], want[right]) })
+	index := 0
+	for got := range pool.evictions.ascending() {
+		if got != want[index] {
+			t.Fatalf("position %d: fee %d seq %d, want fee %d seq %d", index, got.fee, got.sequence, want[index].fee, want[index].sequence)
+		}
+		index++
+	}
+	if index != len(want) {
+		t.Fatalf("yielded %d of %d entries", index, len(want))
+	}
+}
+
+// A batch checks the transactions it takes, not the whole pool, and skips the transactions of
+// proposed blocks that are not committed yet.
+func TestBuildBatchChecksOnlyWhatItTakesAndSkipsProposedTxs(t *testing.T) {
+	ctx := context.Background()
+	checked := 0
+	pool := NewFIFO(FIFOConfig{ReplayCheckTx: func(context.Context, types.Tx) error {
+		checked++
+		return nil
+	}})
+	var txs []types.Tx
+	for index := range 1000 {
+		tx := types.Tx(fmt.Sprintf("bank:send:id=%04d", index))
+		txs = append(txs, tx)
+		if err := pool.AddTx(ctx, tx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	proposed := map[types.Hash]struct{}{HashTx(txs[0]): {}, HashTx(txs[1]): {}}
+	batch, err := pool.BuildBatch(ctx, int64(10*len(txs[0])), proposed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batch.Txs) != 10 || string(batch.Txs[0]) != string(txs[2]) || string(batch.Txs[9]) != string(txs[11]) {
+		t.Fatalf("expected txs 2..11, got %d txs starting %q", len(batch.Txs), batch.Txs[0])
+	}
+	if checked != 11 {
+		t.Fatalf("expected the batch to check the 10 txs it took and the one that did not fit, got %d checks", checked)
 	}
 }

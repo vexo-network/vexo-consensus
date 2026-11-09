@@ -70,7 +70,7 @@ The safest operator workflow is: initialize node home, review all split config f
 
 - `execution_commit` should be `finalized` for value-bearing networks.
 - `allow_unsafe_qc_commit` must stay disabled outside controlled testing.
-- `timeout_propose`, `timeout_prevote`, `timeout_precommit`, and `timeout_commit` must match real network latency.
+- `timeout_propose`, `timeout_prevote`, and `timeout_precommit` must match real network latency.
 - `create_empty_blocks` should be chosen intentionally. If disabled, transaction-triggered liveness must be tested.
 - Validator-set hash must be included in headers and finality verification paths.
 - Light-client verification must know which validator set verifies which height.

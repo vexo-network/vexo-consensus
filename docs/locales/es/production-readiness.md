@@ -118,7 +118,6 @@ Este apéndice asegura que la traducción conserve las interfaces ejecutables y 
 - `timeout_propose` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `timeout_prevote` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `timeout_precommit` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
-- `timeout_commit` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `create_empty_blocks` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `eth_getProof` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `go.mod` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.

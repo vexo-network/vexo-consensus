@@ -396,7 +396,6 @@ VEXO_KEY_PASSPHRASE='change-me' vexod keys gen --home .vexo-vrf --type vrf --enc
     "timeout_propose": "3s",
     "timeout_prevote": "1s",
     "timeout_precommit": "1s",
-    "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false,
     "execution_commit": "finalized"
@@ -484,7 +483,6 @@ vexod start --home .vexo-archive-1
     "timeout_propose": "3s",
     "timeout_prevote": "1s",
     "timeout_precommit": "1s",
-    "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false,
     "execution_commit": "finalized"
@@ -494,7 +492,6 @@ vexod start --home .vexo-archive-1
 - `timeout_propose` यह नियंत्रित करता है कि एक दौर किसी प्रस्ताव के लिए कितनी देर तक प्रतीक्षा करता है।
 - `timeout_prevote` वोट संग्रह विंडो को नियंत्रित करता है।
 - `timeout_precommit` कमिट-सर्टिफिकेट संग्रह विंडो को नियंत्रित करता है।
-- `timeout_commit` प्रतिबद्ध ब्लॉक के बाद न्यूनतम विलंब को नियंत्रित करता है।
 - `create_empty_blocks: false` का अर्थ है कि नोड केवल तभी प्रस्तावित करता है जब लेनदेन उपलब्ध हो।
 - `execution_commit: "finalized"` अंतिम पूर्वज को निष्पादित करने से पहले HotStuff तीन-श्रृंखला अंतिम निर्णय की प्रतीक्षा करता है और जेनरेट किया गया सत्यापनकर्ता डिफ़ॉल्ट है। `execution_commit: "qc"` QC-प्रमाणित ब्लॉक को तुरंत निष्पादित और जारी रखता है, लेकिन सुरक्षा द्वार इसे अस्वीकार कर देता है।
 
@@ -654,7 +651,6 @@ vexod network init \
 - `timeout_propose` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
 - `timeout_prevote` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
 - `timeout_precommit` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
-- `timeout_commit` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
 - `create_empty_blocks: false` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
 - `execution_commit: "finalized"` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
 - `execution_commit: "qc"` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।

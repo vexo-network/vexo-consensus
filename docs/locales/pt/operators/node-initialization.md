@@ -396,7 +396,6 @@ Exemplo `consensus_config.json`:
     "timeout_propose": "3s",
     "timeout_prevote": "1s",
     "timeout_precommit": "1s",
-    "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false,
     "execution_commit": "finalized"
@@ -484,7 +483,6 @@ O tempo do loop de consenso reside em `consensus_config.json`:
     "timeout_propose": "3s",
     "timeout_prevote": "1s",
     "timeout_precommit": "1s",
-    "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false,
     "execution_commit": "finalized"
@@ -494,7 +492,6 @@ O tempo do loop de consenso reside em `consensus_config.json`:
 - `timeout_propose` controla quanto tempo uma rodada espera por uma proposta.
 - `timeout_prevote` controla a janela de coleta de votos.
 - `timeout_precommit` controla a janela de coleta de certificados de commit.
-- `timeout_commit` controla o atraso mínimo após um bloco confirmado.
 - `create_empty_blocks: false` significa que o nó só propõe quando as transações estão disponíveis.
 - `execution_commit: "finalized"` aguarda a decisão de finalidade de três cadeias do HotStuff antes de executar o ancestral finalizado e é o padrão do validador gerado. `execution_commit: "qc"` executa e persiste os blocos certificados pelo QC imediatamente, mas a porta de segurança os rejeita.
 
@@ -654,7 +651,6 @@ Este apêndice garante que a tradução preserve as interfaces executáveis e as
 - `timeout_propose` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `timeout_prevote` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `timeout_precommit` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
-- `timeout_commit` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `create_empty_blocks: false` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `execution_commit: "finalized"` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `execution_commit: "qc"` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.

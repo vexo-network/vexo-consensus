@@ -21,15 +21,21 @@ func (runtime *Runtime) FinalityProof(ctx context.Context, height types.Height, 
 	if err != nil {
 		return finality.Proof{}, err
 	}
-	if quorumCert.Height != height {
+	return NewFinalityProof(record.Block.Header, record.Hash, quorumCert)
+}
+
+// NewFinalityProof returns the proof skeleton of the block with header and blockHash, the skeleton
+// FinalityProof returns once the block is stored. A caller that holds the block it just executed
+// builds the skeleton with it instead of reading the block back.
+func NewFinalityProof(header types.Header, blockHash types.Hash, quorumCert finality.QuorumCert) (finality.Proof, error) {
+	if quorumCert.Height != header.Height {
 		return finality.Proof{}, ErrFinalityProofHeightMismatch
 	}
-
-	proof := finality.NewProof(record.Block.Header, quorumCert)
-	proof.BlockHash = record.Hash
-	if quorumCert.BlockHash != record.Hash {
+	if quorumCert.BlockHash != blockHash {
 		return finality.Proof{}, ErrFinalityProofBlockMismatch
 	}
+	proof := finality.NewProof(header, quorumCert)
+	proof.BlockHash = blockHash
 	return proof, nil
 }
 

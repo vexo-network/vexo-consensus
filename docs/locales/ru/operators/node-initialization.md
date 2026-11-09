@@ -396,7 +396,6 @@ VEXO_KEY_PASSPHRASE='change-me' vexod keys gen --home .vexo-vrf --type vrf --enc
     "timeout_propose": "3s",
     "timeout_prevote": "1s",
     "timeout_precommit": "1s",
-    "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false,
     "execution_commit": "finalized"
@@ -484,7 +483,6 @@ vexod start --home .vexo-archive-1
     "timeout_propose": "3s",
     "timeout_prevote": "1s",
     "timeout_precommit": "1s",
-    "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false,
     "execution_commit": "finalized"
@@ -494,7 +492,6 @@ vexod start --home .vexo-archive-1
 - `timeout_propose` определяет, как долго раунд ожидает предложения.
 - `timeout_prevote` управляет окном сбора голосов.
 - `timeout_precommit` управляет окном сбора сертификатов фиксации.
-- `timeout_commit` контролирует минимальную задержку после зафиксированного блока.
 - `create_empty_blocks: false` означает, что узел предлагает только тогда, когда транзакции доступны.
 - `execution_commit: "finalized"` ожидает решения о окончательности трех цепочек HotStuff перед выполнением финализированного предка и является сгенерированным валидатором по умолчанию. `execution_commit: "qc"` немедленно выполняет и сохраняет блоки, сертифицированные QC, но шлюз безопасности отклоняет их.
 
@@ -654,7 +651,6 @@ vexod network init \
 - `timeout_propose` — Это имя используется без изменений в исполняемых примерах и проверке конфигурации, поэтому его нельзя переводить.
 - `timeout_prevote` — Это имя используется без изменений в исполняемых примерах и проверке конфигурации, поэтому его нельзя переводить.
 - `timeout_precommit` — Это имя используется без изменений в исполняемых примерах и проверке конфигурации, поэтому его нельзя переводить.
-- `timeout_commit` — Это имя используется без изменений в исполняемых примерах и проверке конфигурации, поэтому его нельзя переводить.
 - `create_empty_blocks: false` — Это имя используется без изменений в исполняемых примерах и проверке конфигурации, поэтому его нельзя переводить.
 - `execution_commit: "finalized"` — Это имя используется без изменений в исполняемых примерах и проверке конфигурации, поэтому его нельзя переводить.
 - `execution_commit: "qc"` — Это имя используется без изменений в исполняемых примерах и проверке конфигурации, поэтому его нельзя переводить.

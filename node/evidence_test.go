@@ -920,7 +920,7 @@ func TestNodeQueuesOneTransactionPerOffence(t *testing.T) {
 	if err := alice.SubmitTx(ctx, evidenceTx(t, bobEquivocationOf(t, 1, 0, types.Hash{2}, types.Hash{3}))); err != nil {
 		t.Fatal(err)
 	}
-	alice.acceptGossipTx(ctx, "carol", evidenceTx(t, bobEquivocationOf(t, 1, 0, types.Hash{4}, types.Hash{5})))
+	alice.acceptGossipTxBatch(ctx, "carol", encodeTxBatch([]types.Tx{evidenceTx(t, bobEquivocationOf(t, 1, 0, types.Hash{4}, types.Hash{5}))}))
 	alice.acceptEvidenceMessage(ctx, "carol", evidenceTx(t, bobEquivocationOf(t, 1, 0, types.Hash{6}, types.Hash{7})))
 	requireMempoolTxs(t, alice, firstTx)
 	requirePooledEvidence(t, alice, first)

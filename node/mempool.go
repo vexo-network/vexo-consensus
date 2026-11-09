@@ -55,12 +55,8 @@ func (node *Node) SubmitTx(ctx context.Context, tx types.Tx) error {
 	if err := node.admitMempoolTx(ctx, runtime.App, runtime.Mempool, tx); err != nil {
 		return err
 	}
-	wire, ok := node.runningTransport()
-	if !ok {
-		return nil
-	}
-	if err := wire.Publish(ctx, p2p.TopicTx, append([]byte(nil), tx...)); err != nil {
-		node.logEvent("tx_gossip_failed", map[string]any{"error": err.Error()})
+	if _, ok := node.runningTransport(); ok {
+		node.gossipTx(tx)
 	}
 	node.wakeConsensus(context.Background())
 	return nil
@@ -134,7 +130,6 @@ func (node *Node) ProposeFromMempool(ctx context.Context, maxBytes int64) (conse
 
 type ProposalOptions struct {
 	AllowEmpty bool
-	ForceEmpty bool
 }
 
 func (node *Node) ProposeFromMempoolWithOptions(ctx context.Context, maxBytes int64, options ProposalOptions) (consensus.Proposal, types.Hash, error) {
@@ -147,10 +142,15 @@ func (node *Node) ProposeFromMempoolWithOptions(ctx context.Context, maxBytes in
 		return consensus.Proposal{}, types.Hash{}, err
 	}
 
+	// The block extends the highest certified block. The proposed blocks between it and the
+	// committed height execute first, so their transactions are not proposed again, and the block
+	// is selected as executing after them. While one of them is not held the block stays empty.
+	highQC := machine.HighQC(ctx)
+	inFlight, known := node.uncommittedAncestors(ctx, highQC.BlockHash, highQC.Height)
 	batch := mempool.Batch{}
-	if !options.ForceEmpty {
+	if known {
 		var err error
-		batch, err = runtime.Mempool.BuildBatch(ctx, maxBytes)
+		batch, err = runtime.Mempool.BuildBatch(ctx, maxBytes, inFlight.hashes)
 		if err != nil {
 			return consensus.Proposal{}, types.Hash{}, err
 		}
@@ -165,8 +165,9 @@ func (node *Node) ProposeFromMempoolWithOptions(ctx context.Context, maxBytes in
 		height = 1
 	}
 	proposalResponse, err := prepareProposalWithContext(ctx, runtime.App, app.PrepareProposalRequest{
-		Height: height,
-		Txs:    batch.Txs,
+		Height:  height,
+		Txs:     batch.Txs,
+		Pending: inFlight.txs,
 	})
 	if err != nil {
 		return consensus.Proposal{}, types.Hash{}, err
@@ -180,6 +181,40 @@ func (node *Node) ProposeFromMempoolWithOptions(ctx context.Context, maxBytes in
 		Txs:    proposalResponse.Txs,
 	})
 	return proposal, blockHash, err
+}
+
+// inFlightTxs are the transactions of proposed blocks that are not committed yet, oldest first,
+// and the set of their mempool hashes.
+type inFlightTxs struct {
+	txs    []types.Tx
+	hashes map[types.Hash]struct{}
+}
+
+// uncommittedAncestors returns the transactions of the held proposals from the block parent, at
+// parentHeight, down to the committed height. known is false when one of those blocks is not held.
+func (node *Node) uncommittedAncestors(ctx context.Context, parent types.Hash, parentHeight types.Height) (inFlightTxs, bool) {
+	committed, ok := node.currentCommitHeight(ctx)
+	if !ok || parentHeight <= committed {
+		return inFlightTxs{}, true
+	}
+	held := node.pendingProposals()
+	chain := make([]types.Block, 0, parentHeight-committed)
+	for hash, height := parent, parentHeight; height > committed; height-- {
+		proposal, found := held[hash]
+		if !found || proposal.Block.Header.Height != height {
+			return inFlightTxs{}, false
+		}
+		chain = append(chain, proposal.Block)
+		hash = proposal.Block.Header.PreviousBlockHash
+	}
+	inFlight := inFlightTxs{hashes: make(map[types.Hash]struct{})}
+	for index := len(chain) - 1; index >= 0; index-- {
+		for _, tx := range chain[index].Txs {
+			inFlight.txs = append(inFlight.txs, tx)
+			inFlight.hashes[mempool.HashTx(tx)] = struct{}{}
+		}
+	}
+	return inFlight, true
 }
 
 type appCheckError string
@@ -242,37 +277,9 @@ func (node *Node) consumeTxGossip(ctx context.Context, events <-chan transport.E
 			if !ok {
 				return
 			}
-			node.acceptGossipTx(ctx, envelope.From, envelope.Data)
+			node.acceptGossipTxBatch(ctx, envelope.From, envelope.Data)
 		}
 	}
-}
-
-func (node *Node) acceptGossipTx(ctx context.Context, from p2p.PeerID, tx types.Tx) {
-	if isUnsignedEvidenceTx(tx) {
-		node.acceptEvidenceMessage(ctx, from, tx)
-		return
-	}
-	if !node.admitPeerMessage(ctx, from) {
-		return
-	}
-	runtime, err := node.Runtime()
-	if err != nil {
-		return
-	}
-	if err := node.admitMempoolTx(ctx, runtime.App, runtime.Mempool, tx); err != nil {
-		if errors.Is(err, mempool.ErrDuplicateTx) {
-			node.observePeerMessage(ctx, from, true)
-			return
-		}
-		if errors.Is(err, ErrAdmissionStateChanged) {
-			// Local churn, not a verdict on the peer or its transaction.
-			return
-		}
-		node.observePeerMessage(ctx, from, false)
-		return
-	}
-	node.observePeerMessage(ctx, from, true)
-	node.wakeConsensus(context.Background())
 }
 
 // admitMempoolTx checks tx against the committed state and adds it to the pool.

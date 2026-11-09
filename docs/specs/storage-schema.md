@@ -12,7 +12,7 @@ The default backend is LevelDB. Storage is accessed through the `store.Store` in
 
 ### Block Record
 
-Keyed by height and hash.
+Keyed by height. The hash index maps a block hash to its height, so the record is stored once.
 
 Fields:
 

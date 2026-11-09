@@ -92,6 +92,12 @@ func (node *Node) tickConsensusWithProposalOptions(ctx context.Context, cfg Cons
 		return consensus.Proposal{}, types.Hash{}, false, nil
 	}
 	if node.hasProposed(height, status.Round) {
+		// Peers already have the proposal unless a message was lost. Retransmit it, and the
+		// ancestors it needs, only once a retransmission interval passed: every tick (and a tick
+		// follows each vote and gossiped batch) would make each peer re-verify the whole block.
+		if !node.proposalRetransmitDue(height, status.Round, cfg.proposalRetransmitInterval()) {
+			return consensus.Proposal{}, types.Hash{}, false, nil
+		}
 		proposal, _, ok := node.cachedProposalForRound(height, status.Round)
 		if !ok {
 			return consensus.Proposal{}, types.Hash{}, false, nil
@@ -170,7 +176,11 @@ func (node *Node) cachedProposalStillValid(ctx context.Context, proposal consens
 	if !ok || appRuntime == nil {
 		return true
 	}
-	return appRuntime.ProcessProposalContext(ctx, app.ProcessProposalRequest{Block: proposal.Block}).Accepted
+	inFlight, err := node.proposalInFlightTxs(ctx, proposal.Block)
+	if err != nil {
+		return false
+	}
+	return appRuntime.ProcessProposalContext(ctx, app.ProcessProposalRequest{Block: proposal.Block, Pending: inFlight.txs}).Accepted
 }
 
 // handleRejectedProposal reacts to a proposal the consensus machine refused. A refusal says nothing

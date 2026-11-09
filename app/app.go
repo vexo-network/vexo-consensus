@@ -140,6 +140,10 @@ type CheckTxResponse struct {
 type PrepareProposalRequest struct {
 	Height types.Height
 	Txs    []types.Tx
+	// Pending are the transactions of the proposed, not yet committed ancestors of the block, in
+	// chain order. The block executes after them, so its transactions are selected as if they
+	// had already applied.
+	Pending []types.Tx
 }
 
 type PrepareProposalResponse struct {
@@ -148,6 +152,9 @@ type PrepareProposalResponse struct {
 
 type ProcessProposalRequest struct {
 	Block types.Block
+	// Pending are the transactions of the not yet committed ancestors of the block, in chain
+	// order; the block is validated as executing after them.
+	Pending []types.Tx
 }
 
 type ProcessProposalResponse struct {

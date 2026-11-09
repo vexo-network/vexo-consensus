@@ -80,6 +80,8 @@ type Node struct {
 	reactor        *consensus.TransportReactor
 	localVoter     *autoVoteReactor
 	txCancel       context.CancelFunc
+	txGossipOnce   sync.Once
+	txGossip       *txGossipBatcher
 	txDone         chan struct{}
 	commitCancel   context.CancelFunc
 	commitDone     chan struct{}
@@ -92,7 +94,7 @@ type Node struct {
 	loopWake       chan struct{}
 	loopConfig     ConsensusLoopConfig
 	pending        map[types.Hash]consensus.Proposal
-	proposed       map[proposalRound]struct{}
+	proposed       map[proposalRound]time.Time
 	timeoutVotes   map[proposalRound]consensus.TimeoutVote
 	broadcasts     map[string]struct{}
 	metrics        nodeMetrics
@@ -108,7 +110,10 @@ type Node struct {
 	reconciledHeight types.Height
 	// finalityPersisted is the height up to which every finality decision is durably stored.
 	finalityPersisted types.Height
-	recoveryGate      recoveryGate
+	// committedHeader is the header of the last block this node executed. checkParentBinding uses
+	// it in place of the stored block when its hash is the latest state's block hash.
+	committedHeader *types.Header
+	recoveryGate    recoveryGate
 
 	// evidenceMu guards deferredEvidence, the equivocation this node detected in a view the evidence
 	// pool cannot judge yet. It is kept in memory only: the pool takes it over once it can judge it.
@@ -146,7 +151,7 @@ func New(cfg Config, genesis Genesis, application app.Application) (*Node, error
 		genesis:      genesis,
 		app:          application,
 		pending:      make(map[types.Hash]consensus.Proposal),
-		proposed:     make(map[proposalRound]struct{}),
+		proposed:     make(map[proposalRound]time.Time),
 		timeoutVotes: make(map[proposalRound]consensus.TimeoutVote),
 		broadcasts:   make(map[string]struct{}),
 	}, nil
@@ -334,7 +339,7 @@ func (node *Node) start(ctx context.Context) error {
 	node.reactor = reactor
 	node.localVoter = localVoter
 	node.pending = make(map[types.Hash]consensus.Proposal)
-	node.proposed = make(map[proposalRound]struct{})
+	node.proposed = make(map[proposalRound]time.Time)
 	node.store = storage
 	node.running = true
 	node.startedAt = time.Now().UTC()

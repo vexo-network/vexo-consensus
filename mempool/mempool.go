@@ -17,7 +17,9 @@ type Batch struct {
 type Mempool interface {
 	CheckTx(ctx context.Context, tx types.Tx) error
 	AddTx(ctx context.Context, tx types.Tx) error
-	BuildBatch(ctx context.Context, maxBytes int64) (Batch, error)
+	// BuildBatch selects pending transactions for a block, skipping those whose hash is in
+	// proposed: the transactions of the proposed blocks that are not committed yet.
+	BuildBatch(ctx context.Context, maxBytes int64, proposed map[types.Hash]struct{}) (Batch, error)
 	MarkCommitted(ctx context.Context, txs []types.Tx) error
 	PendingTxs(ctx context.Context) ([]types.Tx, error)
 }

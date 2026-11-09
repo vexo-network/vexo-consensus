@@ -396,7 +396,6 @@ Ví dụ `consensus_config.json`:
     "timeout_propose": "3s",
     "timeout_prevote": "1s",
     "timeout_precommit": "1s",
-    "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false,
     "execution_commit": "finalized"
@@ -484,7 +483,6 @@ Thời gian vòng lặp đồng thuận tồn tại trong `consensus_config.json
     "timeout_propose": "3s",
     "timeout_prevote": "1s",
     "timeout_precommit": "1s",
-    "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false,
     "execution_commit": "finalized"
@@ -494,7 +492,6 @@ Thời gian vòng lặp đồng thuận tồn tại trong `consensus_config.json
 - `timeout_propose` kiểm soát thời gian chờ đề xuất của một vòng.
 - `timeout_prevote` kiểm soát cửa sổ thu thập phiếu bầu.
 - `timeout_precommit` kiểm soát cửa sổ thu thập chứng chỉ cam kết.
-- `timeout_commit` kiểm soát độ trễ tối thiểu sau một khối đã cam kết.
 - `create_empty_blocks: false` nghĩa là nút chỉ đề xuất khi có giao dịch.
 - `execution_commit: "finalized"` chờ quyết định cuối cùng ba chuỗi HotStuff trước khi thực thi tổ tiên cuối cùng và là mặc định của trình xác thực được tạo. `execution_commit: "qc"` thực thi và duy trì các khối được chứng nhận QC ngay lập tức nhưng cổng an toàn từ chối nó.
 
@@ -654,7 +651,6 @@ Phụ lục này bảo đảm bản dịch vẫn giữ các giao diện có th�
 - `timeout_propose` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `timeout_prevote` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `timeout_precommit` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
-- `timeout_commit` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `create_empty_blocks: false` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `execution_commit: "finalized"` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `execution_commit: "qc"` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.

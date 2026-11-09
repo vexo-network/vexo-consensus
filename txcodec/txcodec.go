@@ -10,6 +10,7 @@
 package txcodec
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -26,6 +27,8 @@ import (
 
 // SignedPrefix marks a transaction wrapped in a signed envelope.
 const SignedPrefix = "signed:"
+
+var signedPrefix = []byte(SignedPrefix)
 
 // EthereumTagPrefix is the prefix shared by every Ethereum compatibility tag
 // (eth_raw, eth_hash, eth_gas_price, ...). Those tags describe an Ethereum
@@ -63,7 +66,7 @@ type Canonical struct {
 
 // IsSigned reports whether tx is wrapped in a signed envelope.
 func IsSigned(tx types.Tx) bool {
-	return strings.HasPrefix(string(tx), SignedPrefix)
+	return bytes.HasPrefix(tx, signedPrefix)
 }
 
 // DecodeEnvelope decodes a signed transaction into its envelope and the
@@ -72,7 +75,10 @@ func DecodeEnvelope(tx types.Tx) (Envelope, types.Tx, error) {
 	if !IsSigned(tx) {
 		return Envelope{}, nil, ErrInvalidSignedTx
 	}
-	document, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(string(tx), SignedPrefix))
+	encoded := tx[len(signedPrefix):]
+	document := make([]byte, base64.StdEncoding.DecodedLen(len(encoded)))
+	written, err := base64.StdEncoding.Decode(document, encoded)
+	document = document[:written]
 	if err != nil {
 		return Envelope{}, nil, ErrInvalidSignedTx
 	}
@@ -249,35 +255,62 @@ func Tags(tx types.Tx) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	parts := strings.Split(string(payload), ":")
-	if len(parts) < 3 {
+	if bytes.IndexByte(payload, '=') < 0 {
+		// Only key=value parts are tags, so a payload without '=' has none.
 		return nil, nil
 	}
-	_, tags, err := splitTail(parts[2:])
-	return tags, err
+	_, tail, found := strings.Cut(string(payload), ":")
+	if !found {
+		return nil, nil
+	}
+	if _, tail, found = strings.Cut(tail, ":"); !found {
+		return nil, nil
+	}
+	var tags map[string]string
+	for {
+		part, rest, more := strings.Cut(tail, ":")
+		if _, err := addTag(&tags, part); err != nil {
+			return nil, err
+		}
+		if !more {
+			return tags, nil
+		}
+		tail = rest
+	}
 }
 
 func splitTail(parts []string) ([]string, map[string]string, error) {
 	var args []string
 	var tags map[string]string
 	for _, part := range parts {
-		key, value, found := strings.Cut(part, "=")
-		if !found {
+		tag, err := addTag(&tags, part)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !tag {
 			args = append(args, part)
-			continue
 		}
-		if key == "" {
-			return nil, nil, fmt.Errorf("%w: empty tag key", ErrInvalidCanonicalTx)
-		}
-		if _, duplicate := tags[key]; duplicate {
-			return nil, nil, fmt.Errorf("%w: duplicate tag %q", ErrInvalidCanonicalTx, key)
-		}
-		if tags == nil {
-			tags = make(map[string]string)
-		}
-		tags[key] = value
 	}
 	return args, tags, nil
+}
+
+// addTag records part in tags when it is a key=value tag, and reports whether it was one.
+func addTag(tags *map[string]string, part string) (bool, error) {
+	key, value, found := strings.Cut(part, "=")
+	if !found {
+		return false, nil
+	}
+	if key == "" {
+		return true, fmt.Errorf("%w: empty tag key", ErrInvalidCanonicalTx)
+	}
+	if _, duplicate := (*tags)[key]; duplicate {
+		return true, fmt.Errorf("%w: duplicate tag %q", ErrInvalidCanonicalTx, key)
+	}
+	if *tags == nil {
+		*tags = make(map[string]string)
+	}
+	(*tags)[key] = value
+	return true, nil
 }
 
 // ParseAmount parses a fee or value tag with the economics amount grammar.

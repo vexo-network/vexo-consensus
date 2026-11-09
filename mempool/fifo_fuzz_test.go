@@ -29,7 +29,7 @@ func FuzzFIFOAddAndBuildBatch(f *testing.F) {
 				t.Fatalf("expected empty tx rejection, got %v", err)
 			}
 		}
-		batch, err := pool.BuildBatch(context.Background(), maxBatchBytes%2048+1)
+		batch, err := pool.BuildBatch(context.Background(), maxBatchBytes%2048+1, nil)
 		if err != nil {
 			t.Fatalf("unexpected batch build error: %v", err)
 		}

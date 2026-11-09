@@ -12,7 +12,6 @@ const (
 	defaultConsensusTimeoutPropose   = 3 * time.Second
 	defaultConsensusTimeoutPrevote   = time.Second
 	defaultConsensusTimeoutPrecommit = time.Second
-	defaultConsensusTimeoutCommit    = time.Second
 	defaultConsensusMaxBytes         = 1024 * 1024
 )
 
@@ -28,7 +27,6 @@ type ConsensusLoopConfig struct {
 	TimeoutPropose              time.Duration
 	TimeoutPrevote              time.Duration
 	TimeoutPrecommit            time.Duration
-	TimeoutCommit               time.Duration
 	RoundTimeout                time.Duration
 	MaxBlockBytes               int64
 	CreateEmptyBlocks           bool
@@ -44,7 +42,6 @@ func DefaultConsensusLoopConfig() ConsensusLoopConfig {
 		TimeoutPropose:              defaultConsensusTimeoutPropose,
 		TimeoutPrevote:              defaultConsensusTimeoutPrevote,
 		TimeoutPrecommit:            defaultConsensusTimeoutPrecommit,
-		TimeoutCommit:               defaultConsensusTimeoutCommit,
 		MaxBlockBytes:               defaultConsensusMaxBytes,
 		CreateEmptyBlocks:           false,
 		ExecutionCommitMode:         ExecutionCommitModeFinalized,
@@ -131,7 +128,6 @@ func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig,
 	defer close(done)
 
 	lastTimeout := time.Now()
-	lastCommit := time.Time{}
 	adaptiveRoundTimeout := cfg.roundTimeout()
 	adaptiveEnabled := cfg.AdaptiveRoundTimeoutEnabled
 	for {
@@ -157,9 +153,6 @@ func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig,
 			}
 			lastTimeout = time.Now()
 		}
-		if result.Committed {
-			lastCommit = time.Now()
-		}
 		workPending := node.consensusWorkPending(ctx, cfg)
 		if !workPending {
 			// Idle time must not consume consensus rounds. Start a fresh timeout
@@ -179,13 +172,9 @@ func (node *Node) runConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig,
 			lastTimeout = time.Now()
 		}
 
-		wait := cfg.Interval
-		if !lastCommit.IsZero() && cfg.TimeoutCommit > wait {
-			if remaining := cfg.TimeoutCommit - time.Since(lastCommit); remaining > wait {
-				wait = remaining
-			}
-		}
-		if !waitConsensusLoop(ctx, wake, wait) {
+		// No wait follows a commit: the protocol is optimistically responsive, so the next view
+		// starts as soon as its certificate is in, at the speed of the network.
+		if !waitConsensusLoop(ctx, wake, cfg.Interval) {
 			return
 		}
 	}
@@ -241,9 +230,6 @@ func normalizeConsensusLoopConfig(cfg ConsensusLoopConfig) ConsensusLoopConfig {
 	if cfg.TimeoutPrecommit <= 0 {
 		cfg.TimeoutPrecommit = defaults.TimeoutPrecommit
 	}
-	if cfg.TimeoutCommit <= 0 {
-		cfg.TimeoutCommit = defaults.TimeoutCommit
-	}
 	if cfg.RoundTimeout <= 0 {
 		cfg.RoundTimeout = cfg.roundTimeout()
 	}
@@ -254,6 +240,13 @@ func normalizeConsensusLoopConfig(cfg ConsensusLoopConfig) ConsensusLoopConfig {
 		cfg.ExecutionCommitMode = defaults.ExecutionCommitMode
 	}
 	return cfg
+}
+
+// proposalRetransmitInterval is how long a proposer waits for its round to progress before it
+// broadcasts its proposal again: a quarter of the round timeout, so a lost proposal is resent
+// several times before the round times out.
+func (cfg ConsensusLoopConfig) proposalRetransmitInterval() time.Duration {
+	return cfg.roundTimeout() / 4
 }
 
 func (cfg ConsensusLoopConfig) roundTimeout() time.Duration {

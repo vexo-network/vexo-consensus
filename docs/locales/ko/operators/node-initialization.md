@@ -401,7 +401,6 @@ VRF 키는 합의 서명자가 아닙니다. 이는 VRF 지원 위원회 선택�
     "timeout_propose": "3s",
     "timeout_prevote": "1s",
     "timeout_precommit": "1s",
-    "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false,
     "execution_commit": "finalized"
@@ -489,7 +488,6 @@ vexod start --home .vexo-archive-1
     "timeout_propose": "3s",
     "timeout_prevote": "1s",
     "timeout_precommit": "1s",
-    "timeout_commit": "1s",
     "max_block_bytes": 1048576,
     "create_empty_blocks": false,
     "execution_commit": "finalized"
@@ -499,7 +497,6 @@ vexod start --home .vexo-archive-1
 - `timeout_propose`은 라운드가 제안을 기다리는 시간을 제어합니다.
 - `timeout_prevote`은 투표 수집 창을 제어합니다.
 - `timeout_precommit`는 커밋 인증서 수집 창을 제어합니다.
-- `timeout_commit`은 커밋된 블록 이후의 최소 지연을 제어합니다.
 - `create_empty_blocks: false`는 트랜잭션이 가능할 때만 노드가 제안한다는 의미입니다.
 - `execution_commit: "finalized"`는 최종 조상을 실행하기 전에 HotStuff 3체인 최종 결정을 기다리며 생성된 검증인 기본값입니다. `execution_commit: "qc"`은 QC 인증 블록을 즉시 실행하고 유지하지만 안전 게이트에서는 이를 거부합니다.
 
@@ -659,7 +656,6 @@ vexod network init \
 - `timeout_propose` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `timeout_prevote` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `timeout_precommit` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
-- `timeout_commit` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `create_empty_blocks: false` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `execution_commit: "finalized"` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `execution_commit: "qc"` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.

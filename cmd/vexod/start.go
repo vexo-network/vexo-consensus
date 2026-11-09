@@ -144,7 +144,6 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 	timeoutPropose := flags.Duration("timeout-propose", 0, "consensus proposal timeout")
 	timeoutPrevote := flags.Duration("timeout-prevote", 0, "consensus prevote timeout")
 	timeoutPrecommit := flags.Duration("timeout-precommit", 0, "consensus precommit timeout")
-	timeoutCommit := flags.Duration("timeout-commit", 0, "minimum delay after each committed block")
 	roundTimeout := flags.Duration("consensus-round-timeout", 0, "deprecated aggregate round timeout")
 	maxBlockBytes := flags.Int64("consensus-max-block-bytes", 0, "maximum bytes to include when building a block")
 	createEmptyBlocks := flags.Bool("create-empty-blocks", false, "create blocks even when the mempool is empty")
@@ -195,7 +194,6 @@ func runStartWithContext(ctx context.Context, writer io.Writer, args []string) e
 		timeoutPropose:          *timeoutPropose,
 		timeoutPrevote:          *timeoutPrevote,
 		timeoutPrecommit:        *timeoutPrecommit,
-		timeoutCommit:           *timeoutCommit,
 		roundTimeout:            *roundTimeout,
 		maxBlockBytes:           *maxBlockBytes,
 		createEmptyBlocks:       *createEmptyBlocks,
@@ -248,7 +246,6 @@ type startFlagValues struct {
 	timeoutPropose          time.Duration
 	timeoutPrevote          time.Duration
 	timeoutPrecommit        time.Duration
-	timeoutCommit           time.Duration
 	roundTimeout            time.Duration
 	maxBlockBytes           int64
 	createEmptyBlocks       bool
@@ -296,7 +293,6 @@ var runtimeConfigOnlyStartFlags = map[string]string{
 	"rpc-rate-limit-window":     "network_config.json:rpc.rate_limit_window",
 	"rpc-request-timeout":       "network_config.json:rpc.request_timeout",
 	"shutdown-timeout":          "network_config.json:rpc.shutdown_timeout",
-	"timeout-commit":            "consensus_config.json:consensus.timeout_commit",
 	"timeout-precommit":         "consensus_config.json:consensus.timeout_precommit",
 	"timeout-prevote":           "consensus_config.json:consensus.timeout_prevote",
 	"timeout-propose":           "consensus_config.json:consensus.timeout_propose",
@@ -370,9 +366,6 @@ func applyStartFlagOverrides(cfg *startRuntimeConfig, visited map[string]bool, v
 	}
 	if visited["timeout-precommit"] {
 		cfg.ConsensusLoop.TimeoutPrecommit = values.timeoutPrecommit
-	}
-	if visited["timeout-commit"] {
-		cfg.ConsensusLoop.TimeoutCommit = values.timeoutCommit
 	}
 	if visited["consensus-round-timeout"] {
 		cfg.ConsensusLoop.RoundTimeout = values.roundTimeout
@@ -1031,13 +1024,6 @@ func runtimeConfigFromDocuments(home string, document configDocument, networkDoc
 			return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.timeout_precommit: %w", err)
 		}
 		cfg.ConsensusLoop.TimeoutPrecommit = duration
-	}
-	if runtime.Consensus.TimeoutCommit != "" {
-		duration, err := time.ParseDuration(runtime.Consensus.TimeoutCommit)
-		if err != nil {
-			return startRuntimeConfig{}, fmt.Errorf("runtime.consensus.timeout_commit: %w", err)
-		}
-		cfg.ConsensusLoop.TimeoutCommit = duration
 	}
 	if runtime.Consensus.RoundTimeout != "" {
 		duration, err := time.ParseDuration(runtime.Consensus.RoundTimeout)
