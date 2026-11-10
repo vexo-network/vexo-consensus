@@ -180,9 +180,9 @@ func (dag *DAG) ReadyBatches(ctx context.Context) ([]Batch, error) {
 	return ready, nil
 }
 
-// TxByShortID finds a pending transaction by short id (FIFO.TxByShortID).
-func (dag *DAG) TxByShortID(id uint64) (types.Tx, bool) {
-	return dag.base.TxByShortID(id)
+// Has reports whether the pool holds the transaction of hash (FIFO.Has).
+func (dag *DAG) Has(hash types.Hash) bool {
+	return dag.base.Has(hash)
 }
 
 func (dag *DAG) Len() int {

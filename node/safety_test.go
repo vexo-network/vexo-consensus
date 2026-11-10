@@ -302,7 +302,7 @@ func TestTimedOutValidatorDoesNotVoteInTheViewItLeft(t *testing.T) {
 	}
 
 	// The proposer of view 0 is late: its proposal arrives after alice gave up on the view.
-	proposerID, err := alice.Proposer(ctx, 1, 0)
+	proposerID, err := alice.Proposer(ctx, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

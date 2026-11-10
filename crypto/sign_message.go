@@ -66,6 +66,14 @@ var signKinds = [...]signKind{
 		signType: SignTypeRemoteSignerProbe,
 		domain:   DomainRemoteSignerProbe,
 	},
+	{
+		signType: SignTypeLaneBatch,
+		domain:   DomainLaneBatch,
+	},
+	{
+		signType: SignTypeLaneBatchAck,
+		domain:   DomainLaneBatchAck,
+	},
 }
 
 func signKindOf(signType SignType) (signKind, bool) {
@@ -78,7 +86,7 @@ func signKindOf(signType SignType) (signKind, bool) {
 }
 
 // guarded reports whether the kind is a consensus statement, which is subject to the
-// double-sign high-water mark. The probe is not.
+// double-sign high-water mark. The probe and the lane statements are not.
 func (kind signKind) guarded() bool {
 	return kind.tag != ""
 }

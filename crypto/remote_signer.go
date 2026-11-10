@@ -43,6 +43,8 @@ const (
 	SignTypeConsensusVote        SignType = "consensus_vote"
 	SignTypeConsensusTimeoutVote SignType = "consensus_timeout_vote"
 	SignTypeRemoteSignerProbe    SignType = "remote_signer_probe"
+	SignTypeLaneBatch            SignType = "lane_batch"
+	SignTypeLaneBatchAck         SignType = "lane_batch_ack"
 )
 
 type SignPolicy struct {

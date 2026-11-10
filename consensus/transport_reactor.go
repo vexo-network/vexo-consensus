@@ -3,11 +3,10 @@ package consensus
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
-	"github.com/vexo-network/vexo-consensus/mempool"
+	"github.com/vexo-network/vexo-consensus/lanes"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	"github.com/vexo-network/vexo-consensus/transport"
 	"github.com/vexo-network/vexo-consensus/types"
@@ -26,14 +25,20 @@ type TransportReactor struct {
 	admit     func(context.Context, p2p.PeerID) bool
 	observe   func(context.Context, p2p.PeerID, bool) bool
 
-	// proposalsMu guards the compact proposal state: the transaction source that rebuilds
-	// compact proposals, the full proposals this node can serve, and the requests in flight.
+	// proposalsMu guards the lane proposal state: the lanes that rebuild lane proposals, the full
+	// proposals this node can serve, and the lane proposals waiting for batches.
 	proposalsMu sync.Mutex
-	txSource    TxSource
+	lanes       *lanes.Lanes
+	authentic   LaneAuthenticator
 	held        []heldProposal
-	pending     []pendingCompact
+	pending     []pendingLane
 	requested   map[types.Hash]time.Time
-	compact     CompactProposalStats
+	stats       LaneProposalStats
+	runCtx      context.Context
+	// deferred are the proposals this node could not judge yet, and retry signals that what they
+	// wait for may have arrived.
+	deferred []deferredProposal
+	retry    chan struct{}
 
 	// mu serializes Start and Stop.
 	mu        sync.Mutex
@@ -46,6 +51,7 @@ func NewTransportReactor(transport transport.Transport, reactor Reactor) *Transp
 	return &TransportReactor{
 		transport: transport,
 		reactor:   reactor,
+		retry:     make(chan struct{}, 1),
 	}
 }
 
@@ -56,18 +62,35 @@ func (reactor *TransportReactor) SetPeerScoring(admit func(context.Context, p2p.
 	reactor.observe = observe
 }
 
-// heldProposals bounds the full proposals a node keeps to serve requests, and the compact
-// proposals it waits on transactions for: the recent views only.
+// heldProposals bounds the full proposals a node keeps to serve requests, and the lane proposals
+// it waits on batches for: the recent views only.
 const heldProposals = 32
 
-// maxProposalServes bounds how often a node serves one proposal to one peer: the missing
-// transactions, then the whole proposal when those did not complete it. A request cannot make the
-// node upload a block repeatedly.
+// maxProposalServes bounds how often a node serves one whole proposal to one peer, so a request
+// cannot make the node upload a block repeatedly.
 const maxProposalServes = 2
 
-// proposalRequestInterval is how long a node waits for what it asked a peer for before it asks
-// again.
-const proposalRequestInterval = 200 * time.Millisecond
+// proposalRequestInterval is how long a node waits for the batches of a lane proposal before it
+// asks the sender for the whole proposal.
+const proposalRequestInterval = 300 * time.Millisecond
+
+// maxDeferredProposals bounds the proposals a node keeps until it can judge them: those of the
+// next views only. Past it the oldest is dropped, and its proposer's retransmission delivers it.
+const maxDeferredProposals = 16
+
+// deferredProposal is a proposal, whole or by lanes, that the node could not judge yet: the block
+// its validator set depends on is not executed, or its parent has not arrived.
+type deferredProposal struct {
+	blockHash types.Hash
+	from      p2p.PeerID
+	message   WireMessage
+}
+
+// proposalPending reports whether err refuses a proposal only until the node executes the block
+// its validator set depends on or receives its parent.
+func proposalPending(err error) bool {
+	return errors.Is(err, ErrValidatorSetPending) || errors.Is(err, ErrUnknownParent)
+}
 
 // heldProposal is a full proposal this node broadcast or verified, with how often it was served to
 // each peer.
@@ -77,47 +100,47 @@ type heldProposal struct {
 	served    map[p2p.PeerID]int
 }
 
-// pendingCompact is a compact proposal waiting for the transactions this node asked a peer for.
-type pendingCompact struct {
+// pendingLane is a lane proposal waiting for batches this node asked for.
+type pendingLane struct {
 	blockHash types.Hash
-	compact   CompactProposal
-	txs       []types.Tx
+	compact   LaneProposal
 	from      p2p.PeerID
-	whole     bool
+	// whole is set once the node asked for the whole proposal instead of the batches.
+	whole bool
 }
 
-// CompactProposalStats counts the compact proposals a node received: those it rebuilt from its
-// pool alone, those it completed with the missing transactions fetched from a peer, and those it
-// fetched whole.
-type CompactProposalStats struct {
+// LaneProposalStats counts the lane proposals a node received: those it rebuilt from the batches
+// it stored, those it rebuilt after fetching batches, and those it fetched whole.
+type LaneProposalStats struct {
 	Rebuilt   uint64
 	Completed uint64
 	Fetched   uint64
-	// FetchedTxs counts the transactions fetched for compact proposals, whole proposals included.
-	FetchedTxs uint64
-	// ServedBytes counts the bytes this node sent to peers that asked for transactions.
+	// ServedBytes counts the bytes of the whole proposals this node sent to peers that asked.
 	ServedBytes uint64
 }
 
-// CompactProposalStats returns the counts of the compact proposals received so far.
-func (reactor *TransportReactor) CompactProposalStats() CompactProposalStats {
+// LaneProposalStats returns the counts of the lane proposals received so far.
+func (reactor *TransportReactor) LaneProposalStats() LaneProposalStats {
 	reactor.proposalsMu.Lock()
 	defer reactor.proposalsMu.Unlock()
-	return reactor.compact
+	return reactor.stats
 }
 
-// EnableCompactProposals makes the reactor broadcast proposals compactly (CompactProposal) and
-// rebuild the compact proposals it receives from the transactions source holds.
-func (reactor *TransportReactor) EnableCompactProposals(source TxSource) {
+// EnableLanes makes the reactor broadcast proposals by the lane batches their blocks are made of
+// (LaneProposal) and rebuild the lane proposals it receives from the batches the lanes store.
+// authentic judges a lane proposal before the reactor fetches batches for it.
+func (reactor *TransportReactor) EnableLanes(service *lanes.Lanes, authentic LaneAuthenticator) {
 	reactor.proposalsMu.Lock()
-	defer reactor.proposalsMu.Unlock()
-	reactor.txSource = source
+	reactor.lanes = service
+	reactor.authentic = authentic
+	reactor.proposalsMu.Unlock()
+	service.OnArrival(reactor.onBatchArrival)
 }
 
-func (reactor *TransportReactor) compactSource() (TxSource, bool) {
+func (reactor *TransportReactor) laneService() *lanes.Lanes {
 	reactor.proposalsMu.Lock()
 	defer reactor.proposalsMu.Unlock()
-	return reactor.txSource, reactor.txSource != nil
+	return reactor.lanes
 }
 
 // hold keeps proposal to serve the peers that cannot rebuild it.
@@ -158,16 +181,62 @@ func (reactor *TransportReactor) serve(peer p2p.PeerID, blockHash types.Hash) (P
 	return Proposal{}, false
 }
 
-// await records a compact proposal waiting for transactions, and reports whether to ask for them
-// now: not while a request for the same block is in flight.
-func (reactor *TransportReactor) await(waiting pendingCompact) bool {
+// await records a lane proposal waiting for batches.
+func (reactor *TransportReactor) await(waiting pendingLane) {
+	reactor.proposalsMu.Lock()
+	defer reactor.proposalsMu.Unlock()
+	for index, pending := range reactor.pending {
+		if pending.blockHash == waiting.blockHash {
+			reactor.pending[index] = waiting
+			return
+		}
+	}
+	if len(reactor.pending) == heldProposals {
+		copy(reactor.pending, reactor.pending[1:])
+		reactor.pending = reactor.pending[:heldProposals-1]
+	}
+	reactor.pending = append(reactor.pending, waiting)
+}
+
+// takePending removes and returns the lane proposal of blockHash waiting for batches.
+func (reactor *TransportReactor) takePending(blockHash types.Hash) (pendingLane, bool) {
+	reactor.proposalsMu.Lock()
+	defer reactor.proposalsMu.Unlock()
+	for index, pending := range reactor.pending {
+		if pending.blockHash == blockHash {
+			reactor.pending = append(reactor.pending[:index], reactor.pending[index+1:]...)
+			return pending, true
+		}
+	}
+	return pendingLane{}, false
+}
+
+// pendingNaming returns the lane proposals waiting for the batch of id.
+func (reactor *TransportReactor) pendingNaming(id types.Hash) []pendingLane {
+	reactor.proposalsMu.Lock()
+	defer reactor.proposalsMu.Unlock()
+	var naming []pendingLane
+	for _, pending := range reactor.pending {
+		for _, ref := range pending.compact.Batches {
+			if ref.ID == id {
+				naming = append(naming, pending)
+				break
+			}
+		}
+	}
+	return naming
+}
+
+// shouldRequest reports whether to ask for the whole proposal of blockHash now: not while a request
+// for it is in flight.
+func (reactor *TransportReactor) shouldRequest(blockHash types.Hash) bool {
 	reactor.proposalsMu.Lock()
 	defer reactor.proposalsMu.Unlock()
 	if reactor.requested == nil {
 		reactor.requested = make(map[types.Hash]time.Time)
 	}
 	now := time.Now()
-	if last, found := reactor.requested[waiting.blockHash]; found && now.Sub(last) < proposalRequestInterval {
+	if last, found := reactor.requested[blockHash]; found && now.Sub(last) < proposalRequestInterval {
 		return false
 	}
 	if len(reactor.requested) >= heldProposals {
@@ -177,53 +246,14 @@ func (reactor *TransportReactor) await(waiting pendingCompact) bool {
 			}
 		}
 	}
-	reactor.requested[waiting.blockHash] = now
-	for index, pending := range reactor.pending {
-		if pending.blockHash == waiting.blockHash {
-			reactor.pending[index] = waiting
-			return true
-		}
-	}
-	if len(reactor.pending) == heldProposals {
-		copy(reactor.pending, reactor.pending[1:])
-		reactor.pending = reactor.pending[:heldProposals-1]
-	}
-	reactor.pending = append(reactor.pending, waiting)
+	reactor.requested[blockHash] = now
 	return true
 }
 
-// takePending removes and returns the compact proposal of blockHash waiting on transactions from
-// peer.
-func (reactor *TransportReactor) takePending(blockHash types.Hash, peer p2p.PeerID) (pendingCompact, bool) {
+func (reactor *TransportReactor) count(update func(*LaneProposalStats)) {
 	reactor.proposalsMu.Lock()
 	defer reactor.proposalsMu.Unlock()
-	for index, pending := range reactor.pending {
-		if pending.blockHash == blockHash && pending.from == peer {
-			reactor.pending = append(reactor.pending[:index], reactor.pending[index+1:]...)
-			delete(reactor.requested, blockHash)
-			return pending, true
-		}
-	}
-	return pendingCompact{}, false
-}
-
-// settled drops what the node waited on for blockHash once it holds the full proposal.
-func (reactor *TransportReactor) settled(blockHash types.Hash) {
-	reactor.proposalsMu.Lock()
-	defer reactor.proposalsMu.Unlock()
-	for index, pending := range reactor.pending {
-		if pending.blockHash == blockHash {
-			reactor.pending = append(reactor.pending[:index], reactor.pending[index+1:]...)
-			break
-		}
-	}
-	delete(reactor.requested, blockHash)
-}
-
-func (reactor *TransportReactor) count(update func(*CompactProposalStats)) {
-	reactor.proposalsMu.Lock()
-	defer reactor.proposalsMu.Unlock()
-	update(&reactor.compact)
+	update(&reactor.stats)
 }
 
 func (reactor *TransportReactor) Start(ctx context.Context) error {
@@ -240,6 +270,11 @@ func (reactor *TransportReactor) Start(ctx context.Context) error {
 	}
 
 	consumers := new(sync.WaitGroup)
+	consumers.Add(1)
+	go func() {
+		defer consumers.Done()
+		reactor.judgeDeferred(runCtx)
+	}()
 	for _, topic := range []p2p.Topic{p2p.TopicProposal, p2p.TopicVote, p2p.TopicTimeout} {
 		events, err := reactor.transport.Subscribe(runCtx, topic)
 		if err != nil {
@@ -257,6 +292,9 @@ func (reactor *TransportReactor) Start(ctx context.Context) error {
 	reactor.cancel = cancel
 	reactor.consumers = consumers
 	reactor.running = true
+	reactor.proposalsMu.Lock()
+	reactor.runCtx = runCtx
+	reactor.proposalsMu.Unlock()
 	return nil
 }
 
@@ -296,12 +334,22 @@ func waitForConsumers(ctx context.Context, consumers *sync.WaitGroup) error {
 	}
 }
 
+// BroadcastProposal publishes proposal. With lanes, a block whose transactions lane batches carry
+// travels as a LaneProposal naming them, and the proposal is held for the peers that cannot
+// rebuild it.
 func (reactor *TransportReactor) BroadcastProposal(ctx context.Context, proposal Proposal) error {
 	var data []byte
 	var err error
-	if _, compact := reactor.compactSource(); compact && len(proposal.Block.Txs) > 0 {
+	service := reactor.laneService()
+	var batches []lanes.Batch
+	if service != nil && len(proposal.Block.Txs) > 0 {
+		batches = service.Covering(proposal.Block.Txs)
+	}
+	if len(batches) > 0 {
 		reactor.hold(proposal)
-		data, err = EncodeCompactProposal(NewCompactProposal(proposal))
+		compact := NewLaneProposal(proposal, batches)
+		service.Reference(HashBlock(proposal.Block), proposal.Block.Header.Height, compact.IDs())
+		data, err = EncodeLaneProposal(compact)
 	} else {
 		data, err = EncodeProposal(proposal)
 	}
@@ -352,14 +400,10 @@ func (reactor *TransportReactor) handleEnvelope(ctx context.Context, envelope tr
 	}
 	var handleErr error
 	switch message.Type {
-	case MessageProposal:
-		handleErr = reactor.onWholeProposal(ctx, envelope.From, *message.Proposal)
-	case MessageCompactProposal:
-		handleErr = reactor.onCompactProposal(ctx, envelope.From, *message.CompactProposal)
+	case MessageProposal, MessageLaneProposal:
+		handleErr = reactor.judgeProposal(ctx, envelope.From, message)
 	case MessageProposalRequest:
 		reactor.onProposalRequest(ctx, envelope.From, *message.ProposalRequest)
-	case MessageProposalTxs:
-		handleErr = reactor.onProposalTxs(ctx, envelope.From, *message.ProposalTxs)
 	case MessageVote:
 		handleErr = reactor.reactor.OnVote(ctx, *message.Vote)
 	case MessageTimeoutVote:
@@ -370,145 +414,236 @@ func (reactor *TransportReactor) handleEnvelope(ctx context.Context, envelope tr
 	reactor.observePeer(ctx, envelope.From, !isPenalizedConsensusError(handleErr))
 }
 
-// onWholeProposal judges a full proposal off the wire, counting a whole proposal this node fetched
-// for a compact one.
-func (reactor *TransportReactor) onWholeProposal(ctx context.Context, from p2p.PeerID, proposal Proposal) error {
-	if len(proposal.Block.Txs) > 0 {
-		if waiting, ok := reactor.takePending(HashBlock(proposal.Block), from); ok && waiting.whole {
-			reactor.count(func(stats *CompactProposalStats) {
-				stats.Fetched++
-				stats.FetchedTxs += uint64(len(proposal.Block.Txs))
-			})
-		}
+// judgeProposal judges a proposal off the wire, whole or by lanes. One the node cannot judge yet is
+// kept and judged again once the node executed a block or accepted another proposal (Retry), so
+// a validator that is behind does not wait for the proposer to retransmit, and the next leader,
+// whose view needs the proposal's certificate, does not lose its view.
+func (reactor *TransportReactor) judgeProposal(ctx context.Context, from p2p.PeerID, message WireMessage) error {
+	var err error
+	var blockHash types.Hash
+	if message.Type == MessageProposal {
+		blockHash = HashBlock(message.Proposal.Block)
+		err = reactor.onWholeProposal(ctx, *message.Proposal)
+	} else {
+		blockHash = message.LaneProposal.BlockHash()
+		err = reactor.onLaneProposal(ctx, from, *message.LaneProposal)
 	}
-	return reactor.onProposal(ctx, proposal)
-}
-
-// onProposal judges a full proposal and, once it is accepted, holds it for the peers that cannot
-// rebuild its compact form.
-func (reactor *TransportReactor) onProposal(ctx context.Context, proposal Proposal) error {
-	if _, compact := reactor.compactSource(); compact && len(proposal.Block.Txs) > 0 {
-		reactor.settled(HashBlock(proposal.Block))
-	}
-	err := reactor.reactor.OnProposal(ctx, proposal)
-	if err == nil {
-		if _, compact := reactor.compactSource(); compact {
-			reactor.hold(proposal)
-		}
+	if proposalPending(err) {
+		reactor.deferProposal(deferredProposal{blockHash: blockHash, from: from, message: message})
 	}
 	return err
 }
 
-// onCompactProposal rebuilds a compact proposal from the pool and judges it. When transactions
-// are missing it asks the sending peer for them, or for the whole proposal when most are missing;
-// the sender is not at fault.
-func (reactor *TransportReactor) onCompactProposal(ctx context.Context, from p2p.PeerID, compact CompactProposal) error {
-	source, _ := reactor.compactSource()
-	txs, missing, err := compact.Rebuild(source)
+// deferProposal keeps a proposal the node cannot judge yet.
+func (reactor *TransportReactor) deferProposal(waiting deferredProposal) {
+	reactor.proposalsMu.Lock()
+	defer reactor.proposalsMu.Unlock()
+	for index, deferred := range reactor.deferred {
+		if deferred.blockHash == waiting.blockHash {
+			reactor.deferred[index] = waiting
+			return
+		}
+	}
+	if len(reactor.deferred) == maxDeferredProposals {
+		reactor.deferred[0] = deferredProposal{}
+		reactor.deferred = reactor.deferred[1:]
+	}
+	reactor.deferred = append(reactor.deferred, waiting)
+}
+
+// Retry makes the reactor judge again the proposals it could not judge yet. The node calls it once
+// it executed a block, which may be the one their validator set depends on.
+func (reactor *TransportReactor) Retry() {
+	select {
+	case reactor.retry <- struct{}{}:
+	default:
+	}
+}
+
+// judgeDeferred judges the deferred proposals each time Retry is called.
+func (reactor *TransportReactor) judgeDeferred(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-reactor.retry:
+		}
+		reactor.proposalsMu.Lock()
+		deferred := reactor.deferred
+		reactor.deferred = nil
+		reactor.proposalsMu.Unlock()
+		for _, waiting := range deferred {
+			if ctx.Err() != nil {
+				return
+			}
+			err := reactor.judgeProposal(ctx, waiting.from, waiting.message)
+			reactor.observePeer(ctx, waiting.from, !isPenalizedConsensusError(err))
+		}
+	}
+}
+
+// onWholeProposal judges a full proposal off the wire, counting a whole proposal this node fetched
+// for a lane proposal.
+func (reactor *TransportReactor) onWholeProposal(ctx context.Context, proposal Proposal) error {
+	if len(proposal.Block.Txs) > 0 {
+		if _, waited := reactor.takePending(HashBlock(proposal.Block)); waited {
+			reactor.count(func(stats *LaneProposalStats) { stats.Fetched++ })
+		}
+	}
+	return reactor.onProposal(ctx, proposal, nil)
+}
+
+// onProposal judges a full proposal and, once it is accepted, holds it for the peers that cannot
+// rebuild its lane form.
+// ids are the lane batches the block is made of, nil when it arrived whole.
+func (reactor *TransportReactor) onProposal(ctx context.Context, proposal Proposal, ids []types.Hash) error {
+	err := reactor.reactor.OnProposal(ctx, proposal)
+	if err == nil {
+		// The proposal may be the parent a deferred one waits for.
+		reactor.Retry()
+	}
+	if service := reactor.laneService(); err == nil && service != nil && len(proposal.Block.Txs) > 0 {
+		reactor.hold(proposal)
+		if ids == nil {
+			for _, batch := range service.Covering(proposal.Block.Txs) {
+				ids = append(ids, batch.ID())
+			}
+		}
+		// The batches are not proposed again while the block is pending.
+		service.Reference(HashBlock(proposal.Block), proposal.Block.Header.Height, ids)
+	}
+	return err
+}
+
+// onLaneProposal rebuilds a lane proposal from the stored batches and judges it. Missing batches
+// are asked from their authors and the sender; when they do not arrive in time, or the batches
+// make another block than the header commits to, the whole proposal is asked from the sender. The
+// sender is not at fault for either.
+func (reactor *TransportReactor) onLaneProposal(ctx context.Context, from p2p.PeerID, compact LaneProposal) error {
+	service := reactor.laneService()
+	if service == nil {
+		return reactor.requestWhole(ctx, compact.BlockHash(), from)
+	}
+	proposal, missing, complete, err := compact.Rebuild(service.Get)
 	if err != nil {
 		return err
 	}
-	if len(missing) == 0 {
-		if proposal, ok := compact.Complete(txs); ok {
-			if len(txs) > 0 {
-				reactor.count(func(stats *CompactProposalStats) { stats.Rebuilt++ })
+	blockHash := compact.BlockHash()
+	if len(missing) > 0 {
+		// Fetching batches costs this node and the validators it asks, so only for a proposal of
+		// the scheduled leader. One it cannot judge yet is asked whole from the sender, which pays
+		// for it alone.
+		if err := reactor.authenticate(ctx, compact); err != nil {
+			if errors.Is(err, ErrInvalidProposal) || proposalPending(err) {
+				// A proposal whose validator set is pending is judged again once the node executed
+				// the block the set depends on, before anything is fetched for it.
+				return err
 			}
-			return reactor.onProposal(ctx, proposal)
+			return reactor.fetchWhole(ctx, pendingLane{blockHash: blockHash, compact: compact, from: from})
 		}
-		return reactor.requestTxs(ctx, pendingCompact{blockHash: compact.BlockHash(), compact: compact, from: from, whole: true})
-	}
-	return reactor.requestTxs(ctx, pendingCompact{blockHash: compact.BlockHash(), compact: compact, txs: txs, from: from, whole: 2*len(missing) > len(txs)})
-}
-
-// requestTxs asks waiting.from for what the compact proposal misses: the missing transactions, or
-// the whole proposal.
-func (reactor *TransportReactor) requestTxs(ctx context.Context, waiting pendingCompact) error {
-	if !reactor.await(waiting) {
+		reactor.await(pendingLane{blockHash: blockHash, compact: compact, from: from})
+		peers := make([]p2p.PeerID, 0, len(compact.Batches)+1)
+		for _, ref := range compact.Batches {
+			peers = append(peers, p2p.PeerID(ref.Author))
+		}
+		service.Request(ctx, missing, append(peers, from))
+		time.AfterFunc(proposalRequestInterval, func() {
+			if waiting, still := reactor.takePending(blockHash); still {
+				println("DBG whole timer", compact.Proposal.Block.Header.Height, time.Now().Format("15:04:05.000"))
+				_ = reactor.fetchWhole(reactor.backgroundContext(), waiting)
+			}
+		})
 		return nil
 	}
-	request := ProposalRequest{BlockHash: waiting.blockHash}
-	if !waiting.whole {
-		for index, tx := range waiting.txs {
-			if tx == nil {
-				request.Missing = append(request.Missing, uint32(index))
-			}
-		}
+	if !complete {
+		return reactor.fetchWhole(ctx, pendingLane{blockHash: blockHash, compact: compact, from: from})
 	}
-	data, err := EncodeProposalRequest(request)
+	reactor.count(func(stats *LaneProposalStats) { stats.Rebuilt++ })
+	return reactor.onProposal(ctx, proposal, compact.IDs())
+}
+
+// onBatchArrival completes the lane proposals waiting for the batch of id.
+func (reactor *TransportReactor) onBatchArrival(id types.Hash) {
+	service := reactor.laneService()
+	if service == nil {
+		return
+	}
+	for _, waiting := range reactor.pendingNaming(id) {
+		if waiting.whole {
+			continue
+		}
+		proposal, missing, complete, err := waiting.compact.Rebuild(service.Get)
+		if err != nil || len(missing) > 0 {
+			continue
+		}
+		if _, still := reactor.takePending(waiting.blockHash); !still {
+			continue
+		}
+		ctx := reactor.backgroundContext()
+		if !complete {
+			_ = reactor.fetchWhole(ctx, waiting)
+			continue
+		}
+		reactor.count(func(stats *LaneProposalStats) { stats.Completed++ })
+		err = reactor.onProposal(ctx, proposal, waiting.compact.IDs())
+		reactor.observePeer(ctx, waiting.from, !isPenalizedConsensusError(err))
+	}
+}
+
+func (reactor *TransportReactor) authenticate(ctx context.Context, compact LaneProposal) error {
+	reactor.proposalsMu.Lock()
+	authentic := reactor.authentic
+	reactor.proposalsMu.Unlock()
+	if authentic == nil {
+		return errors.New("no lane proposal authenticator")
+	}
+	return authentic(ctx, compact)
+}
+
+func (reactor *TransportReactor) backgroundContext() context.Context {
+	reactor.proposalsMu.Lock()
+	defer reactor.proposalsMu.Unlock()
+	if reactor.runCtx == nil {
+		return context.Background()
+	}
+	return reactor.runCtx
+}
+
+// fetchWhole asks the sender of a lane proposal for the whole proposal, and waits for it in place
+// of the batches.
+func (reactor *TransportReactor) fetchWhole(ctx context.Context, waiting pendingLane) error {
+	waiting.whole = true
+	reactor.await(waiting)
+	return reactor.requestWhole(ctx, waiting.blockHash, waiting.from)
+}
+
+// requestWhole asks peer for the whole proposal of blockHash.
+func (reactor *TransportReactor) requestWhole(ctx context.Context, blockHash types.Hash, peer p2p.PeerID) error {
+	if !reactor.shouldRequest(blockHash) {
+		return nil
+	}
+	data, err := EncodeProposalRequest(ProposalRequest{BlockHash: blockHash})
 	if err != nil {
 		return err
 	}
 	// A failed send is retried on the proposer's retransmission.
-	_ = reactor.transport.Send(ctx, waiting.from, p2p.TopicProposal, data)
+	_ = reactor.transport.Send(ctx, peer, p2p.TopicProposal, data)
 	return nil
 }
 
-// onProposalRequest sends peer what it asked for: the transactions at the missing positions, or the
-// whole proposal.
+// onProposalRequest sends peer the whole proposal it asked for.
 func (reactor *TransportReactor) onProposalRequest(ctx context.Context, peer p2p.PeerID, request ProposalRequest) {
 	proposal, ok := reactor.serve(peer, request.BlockHash)
 	if !ok {
 		return
 	}
-	var data []byte
-	var err error
-	if len(request.Missing) == 0 {
-		data, err = EncodeProposal(proposal)
-	} else {
-		answer := ProposalTxs{BlockHash: request.BlockHash, Indexes: make([]uint32, 0, len(request.Missing)), Txs: make([]types.Tx, 0, len(request.Missing))}
-		for _, index := range request.Missing {
-			if int(index) >= len(proposal.Block.Txs) {
-				return
-			}
-			answer.Indexes = append(answer.Indexes, index)
-			answer.Txs = append(answer.Txs, proposal.Block.Txs[index])
-		}
-		data, err = EncodeProposalTxs(answer)
-	}
+	data, err := EncodeProposal(proposal)
 	if err != nil {
 		return
 	}
 	if reactor.transport.Send(ctx, peer, p2p.TopicProposal, data) == nil {
-		reactor.count(func(stats *CompactProposalStats) { stats.ServedBytes += uint64(len(data)) })
+		reactor.count(func(stats *LaneProposalStats) { stats.ServedBytes += uint64(len(data)) })
 	}
-}
-
-// onProposalTxs completes the compact proposal waiting on the transactions peer sent. A transaction
-// whose short id is not the one the proposal names was not asked for: the peer is at fault. When
-// the transactions complete a block other than the header commits to, the pool held a colliding
-// transaction, and the whole proposal is fetched.
-func (reactor *TransportReactor) onProposalTxs(ctx context.Context, peer p2p.PeerID, answer ProposalTxs) error {
-	waiting, ok := reactor.takePending(answer.BlockHash, peer)
-	if !ok || waiting.whole {
-		return nil
-	}
-	for position, index := range answer.Indexes {
-		tx := answer.Txs[position]
-		if int(index) >= len(waiting.txs) || len(tx) == 0 ||
-			mempool.ShortTxID(mempool.HashTx(tx)) != waiting.compact.ShortID(int(index)) {
-			return fmt.Errorf("%w: a transaction the compact proposal does not name", ErrInvalidProposal)
-		}
-		if waiting.txs[index] == nil {
-			waiting.txs[index] = tx
-		}
-	}
-	for _, tx := range waiting.txs {
-		if tx == nil {
-			// The answer was to an earlier request; ask for the rest.
-			return reactor.requestTxs(ctx, waiting)
-		}
-	}
-	proposal, complete := waiting.compact.Complete(waiting.txs)
-	if !complete {
-		waiting.whole = true
-		waiting.txs = nil
-		return reactor.requestTxs(ctx, waiting)
-	}
-	reactor.count(func(stats *CompactProposalStats) {
-		stats.Completed++
-		stats.FetchedTxs += uint64(len(answer.Txs))
-	})
-	return reactor.onProposal(ctx, proposal)
 }
 
 func (reactor *TransportReactor) admitPeer(ctx context.Context, peer p2p.PeerID) bool {

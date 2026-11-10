@@ -374,19 +374,19 @@ func TestNodeTickConsensusOnlyProposerBuildsMempoolProposal(t *testing.T) {
 	}
 	bobConsensus.StartRound(1, 0)
 
-	proposer, err := alice.Proposer(context.Background(), 1, 0)
+	proposer, err := alice.Proposer(context.Background(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if proposer != "alice" {
 		t.Fatalf("expected alice proposer at h1/r0, got %s", proposer)
 	}
-	nextProposer, err := alice.Proposer(context.Background(), 1, 1)
+	nextProposer, err := alice.Proposer(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if nextProposer != "bob" {
-		t.Fatalf("expected bob proposer at h1/r1, got %s", nextProposer)
+	if nextProposer != "carol" {
+		t.Fatalf("expected carol proposer at view 1, got %s", nextProposer)
 	}
 
 	if err := alice.SubmitTx(context.Background(), []byte("bank:auto-propose")); err != nil {
@@ -478,14 +478,14 @@ func TestNodeTickConsensusRotatesProposerAfterTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	if proposed {
-		t.Fatal("expected alice not to propose after round rotation moves proposer to bob")
+		t.Fatal("expected alice not to propose after round rotation moves proposer to carol")
 	}
-	nextProposal, nextHash, proposed, err := bob.TickConsensus(context.Background(), 1024)
+	nextProposal, nextHash, proposed, err := carol.TickConsensus(context.Background(), 1024)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !proposed || nextProposal.Proposer != "bob" || nextProposal.Round != 1 || nextHash == (types.Hash{}) {
-		t.Fatalf("expected bob to propose after round rotation, proposed=%v proposal=%+v hash=%x", proposed, nextProposal, nextHash)
+	if !proposed || nextProposal.Proposer != "carol" || nextProposal.Round != 1 || nextHash == (types.Hash{}) {
+		t.Fatalf("expected carol to propose after round rotation, proposed=%v proposal=%+v hash=%x", proposed, nextProposal, nextHash)
 	}
 	if nextProposal.TimeoutCert.Round != 0 {
 		t.Fatalf("expected the proposal of the new view to carry the timeout certificate of view 0, got %+v", nextProposal.TimeoutCert)
@@ -854,7 +854,8 @@ func TestNodeBansMaliciousFloodWithoutBlockingHonestPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForMempoolLen(t, alice, 1)
-	waitForPeerScore(t, alice, "carol", 4)
+	// Carol's batch and its certificate are two valid messages.
+	waitForPeerScore(t, alice, "carol", 6)
 }
 
 func TestNodeRewardsValidPeerMessages(t *testing.T) {
@@ -867,7 +868,8 @@ func TestNodeRewardsValidPeerMessages(t *testing.T) {
 	if err := bob.SubmitTx(context.Background(), []byte("bank:valid-score")); err != nil {
 		t.Fatal(err)
 	}
-	waitForPeerScore(t, alice, "bob", 4)
+	// Bob's batch and its certificate are two valid messages.
+	waitForPeerScore(t, alice, "bob", 6)
 }
 
 func TestNodeReportsPeerScoreSnapshots(t *testing.T) {
@@ -882,7 +884,8 @@ func TestNodeReportsPeerScoreSnapshots(t *testing.T) {
 	if err := bob.SubmitTx(context.Background(), []byte("bank:snapshot-valid")); err != nil {
 		t.Fatal(err)
 	}
-	waitForPeerScore(t, alice, "bob", 4)
+	// Bob's batch and its certificate are two valid messages.
+	waitForPeerScore(t, alice, "bob", 6)
 
 	carolWire, ok := carol.wire.(transport.Transport)
 	if !ok {
@@ -900,7 +903,7 @@ func TestNodeReportsPeerScoreSnapshots(t *testing.T) {
 	if len(snapshot) != 2 {
 		t.Fatalf("expected 2 peer snapshots, got %d", len(snapshot))
 	}
-	if snapshot[0].Peer != "bob" || snapshot[0].Score != 4 || snapshot[0].Banned {
+	if snapshot[0].Peer != "bob" || snapshot[0].Score != 6 || snapshot[0].Banned {
 		t.Fatalf("unexpected bob snapshot: %+v", snapshot[0])
 	}
 	if snapshot[1].Peer != "carol" || snapshot[1].Score != 1 || snapshot[1].Banned {
@@ -926,12 +929,15 @@ func TestNodeDropsRateLimitedPeerMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForMempoolLen(t, alice, 1)
-	waitForPeerScore(t, alice, "bob", 11)
+	// The batch is the one message of the window (+1); the certificate that follows it is over the
+	// limit (-5).
+	waitForPeerScore(t, alice, "bob", 6)
 
 	if err := bob.SubmitTx(context.Background(), []byte("bank:dropped-by-rate-limit")); err != nil {
 		t.Fatal(err)
 	}
-	waitForPeerScore(t, alice, "bob", 6)
+	// The second batch is dropped (-5), and so is its certificate (-5).
+	waitForPeerScore(t, alice, "bob", -4)
 	waitForMempoolLen(t, alice, 1)
 }
 
@@ -1611,16 +1617,16 @@ func TestNodeSkippedProposerRecoversOnNextRound(t *testing.T) {
 	startNode(t, carol)
 	defer carol.Stop(context.Background())
 
-	if err := bob.SubmitTx(context.Background(), []byte("bank:recover-after-skip")); err != nil {
+	if err := carol.SubmitTx(context.Background(), []byte("bank:recover-after-skip")); err != nil {
 		t.Fatal(err)
 	}
-	bobMachine, err := bob.Consensus()
+	carolMachine, err := carol.Consensus()
 	if err != nil {
 		t.Fatal(err)
 	}
-	bobMachine.StartRound(1, 0)
-	if _, _, proposed, err := bob.TickConsensus(context.Background(), 1024); err != nil || proposed {
-		t.Fatalf("expected bob not to propose in round 0, proposed=%v err=%v", proposed, err)
+	carolMachine.StartRound(1, 0)
+	if _, _, proposed, err := carol.TickConsensus(context.Background(), 1024); err != nil || proposed {
+		t.Fatalf("expected carol not to propose in round 0, proposed=%v err=%v", proposed, err)
 	}
 
 	for _, node := range []*Node{alice, bob, carol} {
@@ -1635,16 +1641,16 @@ func TestNodeSkippedProposerRecoversOnNextRound(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	waitForConsensusStatus(t, bobMachine, func(status consensus.Status) bool {
+	waitForConsensusStatus(t, carolMachine, func(status consensus.Status) bool {
 		return status.Height == 1 && status.Round >= 1 && status.Phase == consensus.PhasePropose
 	})
 
-	proposal, blockHash, proposed, err := bob.TickConsensus(context.Background(), 1024)
+	proposal, blockHash, proposed, err := carol.TickConsensus(context.Background(), 1024)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !proposed || proposal.Round != 1 || blockHash == (types.Hash{}) {
-		t.Fatalf("expected bob to recover liveness as round 1 proposer, proposed=%v proposal=%+v hash=%x", proposed, proposal, blockHash)
+		t.Fatalf("expected carol to recover liveness as round 1 proposer, proposed=%v proposal=%+v hash=%x", proposed, proposal, blockHash)
 	}
 }
 
@@ -2177,7 +2183,7 @@ func TestProposerRetransmitsItsProposalOnlyAfterTheInterval(t *testing.T) {
 	}
 	round := types.Round(0)
 	for ; ; round++ {
-		proposer, err := alice.IsProposer(ctx, 1, round)
+		proposer, err := alice.IsProposer(ctx, round)
 		if err != nil {
 			t.Fatal(err)
 		}

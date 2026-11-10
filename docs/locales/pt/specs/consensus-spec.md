@@ -156,8 +156,14 @@ Este apêndice garante que a tradução preserve as interfaces executáveis e as
 - `C.height = B.height + 1` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `da_mismatch` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `missing_data` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
-- `compact_proposal` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `proposal_request` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
-- `proposal_txs` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `next_validator_set_hash` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
 - `parent_linkage` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `validator.SelectProposer(validators, round)` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `0..W−1` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `lanes.Batch` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `lanes.MaxBatchTxs` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `lanes.MaxBatchBytes` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `lanes.Owner(members, sender)` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `lanes.FallbackDelay` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.
+- `lane_proposal` — Este nome é usado sem alteração em exemplos executáveis e validação de configuração; não deve ser traduzido.

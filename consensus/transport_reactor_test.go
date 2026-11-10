@@ -722,3 +722,99 @@ func (reactor *recordingReactor) counts() (int, int, int) {
 	defer reactor.mu.Unlock()
 	return reactor.proposals, reactor.votes, reactor.timeouts
 }
+
+// pendingReactor refuses proposals with ErrValidatorSetPending until the block their set depends
+// on is executed, then accepts them.
+type pendingReactor struct {
+	errorReactor
+	mu       sync.Mutex
+	executed bool
+	judged   int
+	accepted []Proposal
+}
+
+func (reactor *pendingReactor) OnProposal(_ context.Context, proposal Proposal) error {
+	reactor.mu.Lock()
+	defer reactor.mu.Unlock()
+	reactor.judged++
+	if !reactor.executed {
+		return fmt.Errorf("%w: registry height 2, executed through 1", ErrValidatorSetPending)
+	}
+	reactor.accepted = append(reactor.accepted, proposal)
+	return nil
+}
+
+func (reactor *pendingReactor) execute() {
+	reactor.mu.Lock()
+	defer reactor.mu.Unlock()
+	reactor.executed = true
+}
+
+func (reactor *pendingReactor) state() (int, int) {
+	reactor.mu.Lock()
+	defer reactor.mu.Unlock()
+	return reactor.judged, len(reactor.accepted)
+}
+
+// A validator that receives a proposal before it executed the block the proposal's validator set
+// depends on judges the proposal as soon as it executed that block, without a retransmission.
+func TestTransportReactorJudgesAPendingProposalOnceItsSetIsExecuted(t *testing.T) {
+	bus := transport.NewInMemoryBus()
+	aliceTransport, err := bus.NewPeer("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobTransport, err := bus.NewPeer("bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceReactor := NewTransportReactor(aliceTransport, newRecordingReactor())
+	bob := &pendingReactor{}
+	bobReactor := NewTransportReactor(bobTransport, bob)
+	for _, reactor := range []*TransportReactor{aliceReactor, bobReactor} {
+		if err := reactor.Start(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		defer reactor.Stop(context.Background())
+	}
+	proposal := Proposal{Round: 3, Proposer: "alice", Block: types.Block{Header: types.Header{Height: 3}}}
+	if err := aliceReactor.BroadcastProposal(context.Background(), proposal); err != nil {
+		t.Fatal(err)
+	}
+	waitFor := func(what string, done func(judged, accepted int) bool) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for judged, accepted := bob.state(); !done(judged, accepted); judged, accepted = bob.state() {
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for %s: judged %d, accepted %d", what, judged, accepted)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	waitFor("the first judgement", func(judged, _ int) bool { return judged == 1 })
+	// Another commit that is not the one the set depends on: the proposal is still pending.
+	bobReactor.Retry()
+	waitFor("the second judgement", func(judged, _ int) bool { return judged == 2 })
+	bob.execute()
+	bobReactor.Retry()
+	waitFor("the proposal accepted", func(_, accepted int) bool { return accepted == 1 })
+	bobReactor.Retry()
+	time.Sleep(50 * time.Millisecond)
+	if judged, accepted := bob.state(); judged != 3 || accepted != 1 {
+		t.Fatalf("an accepted proposal must not be judged again: judged %d, accepted %d", judged, accepted)
+	}
+}
+
+func TestTransportReactorBoundsTheDeferredProposals(t *testing.T) {
+	reactor := NewTransportReactor(nil, &pendingReactor{})
+	for height := 1; height <= maxDeferredProposals+5; height++ {
+		proposal := Proposal{Round: types.Round(height), Block: types.Block{Header: types.Header{Height: types.Height(height)}}}
+		reactor.deferProposal(deferredProposal{blockHash: HashBlock(proposal.Block), message: WireMessage{Type: MessageProposal, Proposal: &proposal}})
+	}
+	if len(reactor.deferred) != maxDeferredProposals {
+		t.Fatalf("expected %d deferred proposals, got %d", maxDeferredProposals, len(reactor.deferred))
+	}
+	if oldest := reactor.deferred[0].message.Proposal.Block.Header.Height; oldest != 6 {
+		t.Fatalf("expected the oldest deferred proposal dropped first, oldest kept is %d", oldest)
+	}
+}

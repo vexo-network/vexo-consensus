@@ -47,7 +47,7 @@
   "translation_policy": "Locale directories mirror the canonical English document tree. Commands, config keys, RPC methods, and code identifiers must remain unchanged across translations.",
   "ci_policy": "go test ./cmd/vexod -run TestDocsLocalesMirrorCanonicalTree and make docs-check fail when any locale misses or adds a Markdown path outside the canonical tree.",
   "canonical_hashes": {
-    "README.md": "e5b0021d507d537ebdb4823ee28ff0cfb72056baa48cd0c89d00741403d92c73",
+    "README.md": "8007205e8fef4c6026c08118f647b0c4f02a048bb69acf2c2edad12409f323bb",
     "consensus-protocol.md": "c2af7f4b86af6e24ffc0804177c3b46d06ebc4a717a929603fbe70b0c8c631e2",
     "operators/add-validator.md": "e179c0f86fa3f14403c9a1a0eb55354bc8bdb5d71b23778571e4d68c68acae0e",
     "operators/evm-update-guide.md": "96335f0e33ecd394b053b23e845cc44f505d80bdf5fd16e286d286886a9fa51e",
@@ -55,6 +55,7 @@
     "operators/observability.md": "b7a72de84544f6527028fbbe5d3d9c79c2d5ed930ae687766e092ec0b00ab011",
     "production-readiness.md": "94d74fe8096c604a6ecf4b0b08a5275475f210ebcb1c7c4665ae60c4e38799a9",
     "research/adaptive-recovery-hotstuff-paper.md": "4701ee6828da26f361a45272abfb2a74ceeacab3ddeccb9c497a884ddd21d6a8",
+    "research/vexo-lanes-paper.md": "c53b37d2089939038e468b822bff284a0b2dae1a1a6f14359f0eb3e518851bff",
     "release/cosmos-comparison-gate.md": "7674da13bf525c3180aa729e260c45c8b04655abae6f5c3bc64cece674237549",
     "release/launch-runbook.md": "8f839ac66263a7297e426ad1ab9ffa60e8123cdd6892037c65b858582bbfb0e0",
     "release/release-pipeline.md": "e51ce123397a3b74307cf5e02d4864bd010ec46af987ce377b939a9577af4236",
@@ -64,12 +65,12 @@
     "sdk/custom-storage-transport.md": "09e952add6cf9d50451ce57667716b41a07bf6a9ad2c6d554dd6a192f4f45c38",
     "sdk/rpc-api-versioning.md": "4bf84c9b87df613c25b54f6ba4b5ce63cbcc0965eb97d7eb80d9d251d67e3805",
     "security/audit-readiness.md": "fc400d051acfa4fd621e426b5a2851186d08392992caab816d586c4ec9040a14",
-    "specs/consensus-spec.md": "a45c970842194ba23ccb9769f479183dfcab4f8f85ba654f1a197437076f7827",
+    "specs/consensus-spec.md": "28ebff5c92dcb08fa0d64bc60888fa5bf05bb744fa6e4d4b315ad65c7fb73834",
     "specs/evm-native-accounting.md": "847b2c8408a1b78bcfa187d426a5dda2796b11444f60b8feb9c73f62b2cbda80",
     "specs/finality-proof-format.md": "050c6d8b445248c81ebf4c15bd5807d6dfdf0b36b521c8fa37e1f5b371be1e55",
     "specs/networking-spec.md": "2db4b453e68f25da0c064c84a7e036a9c66d4abee5000442b0d354de6ce67932",
     "specs/storage-schema.md": "3134788c2b088a16b71614390dd8b10552b49e873930f5563568ddd3665f3c64",
     "specs/tx-format.md": "3af7b42bda936ca1999c565f05568f7748b11cfaa44794fab678698f3600a35a",
-    "specs/validator-lifecycle.md": "0fbfebc8ca39637ea9024f970833f68295875fa4e429d57b8f20fcf8f056dabc"
+    "specs/validator-lifecycle.md": "f76de523e45c645ac36092bebdaf5c4bb0b954793e151a0658d8f34ebf546d0f"
   }
 }

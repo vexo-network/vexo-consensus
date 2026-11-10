@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/finality"
@@ -16,10 +18,89 @@ import (
 
 var ErrInvalidCommitMessage = errors.New("invalid commit message")
 
+// commitMessage announces a final block, or asks for one. A node announces each block it commits
+// without its transactions (Bodiless): its peers hold the block already from its proposal, and a
+// peer that does not asks the announcer for it (Want), which answers with the whole block.
+// Announcing whole blocks would make every validator upload every block to every peer, which
+// alone would bound the throughput by a validator's bandwidth.
 type commitMessage struct {
 	Block         types.Block         `json:"block"`
 	QuorumCert    finality.QuorumCert `json:"quorum_cert"`
 	FinalityProof finality.Proof      `json:"finality_proof,omitempty"`
+	Bodiless      bool                `json:"bodiless,omitempty"`
+	Want          types.Height        `json:"want,omitempty"`
+}
+
+const (
+	// recentCommits bounds the whole commits a node keeps to serve the peers that ask, and
+	// maxCommitServes how often it serves one to one peer.
+	recentCommits   = 8
+	maxCommitServes = 2
+)
+
+// servedCommit is a whole commit message this node announced, with how often it served it.
+type servedCommit struct {
+	height types.Height
+	data   []byte
+	served map[p2p.PeerID]int
+}
+
+// commitServer keeps the recent whole commits of a node, and when it last asked for the body of a
+// height it misses: every validator announces each commit, and one body is enough.
+type commitServer struct {
+	mu      sync.Mutex
+	commits []servedCommit
+	wanted  types.Height
+	asked   time.Time
+}
+
+// commitBodyRetry is how long a node waits for a body it asked for before it asks the next
+// announcer.
+const commitBodyRetry = time.Second
+
+// shouldAsk reports whether to ask for the body of height now.
+func (server *commitServer) shouldAsk(height types.Height) bool {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	now := time.Now()
+	if server.wanted == height && now.Sub(server.asked) < commitBodyRetry {
+		return false
+	}
+	server.wanted, server.asked = height, now
+	return true
+}
+
+func (server *commitServer) keep(height types.Height, data []byte) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	for _, commit := range server.commits {
+		if commit.height == height {
+			return
+		}
+	}
+	if len(server.commits) == recentCommits {
+		copy(server.commits, server.commits[1:])
+		server.commits = server.commits[:recentCommits-1]
+	}
+	server.commits = append(server.commits, servedCommit{height: height, data: data, served: make(map[p2p.PeerID]int)})
+}
+
+// serve returns the whole commit of height for peer, false when the node holds none or served it
+// to peer as often as it may.
+func (server *commitServer) serve(peer p2p.PeerID, height types.Height) ([]byte, bool) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	for _, commit := range server.commits {
+		if commit.height != height {
+			continue
+		}
+		if commit.served[peer] >= maxCommitServes {
+			return nil, false
+		}
+		commit.served[peer]++
+		return commit.data, true
+	}
+	return nil, false
 }
 
 func encodeCommitMessage(block types.Block, quorumCert finality.QuorumCert, proofs ...finality.Proof) ([]byte, error) {
@@ -38,6 +119,13 @@ func decodeCommitMessage(data []byte) (commitMessage, error) {
 	var message commitMessage
 	if err := json.Unmarshal(data, &message); err != nil {
 		return commitMessage{}, err
+	}
+	if message.Want != 0 {
+		// A request names the height it wants and nothing else.
+		if message.Block.Header.Height != 0 || message.QuorumCert.Height != 0 || message.Bodiless {
+			return commitMessage{}, ErrInvalidCommitMessage
+		}
+		return message, nil
 	}
 	if message.Block.Header.Height == 0 || message.QuorumCert.Height == 0 {
 		return commitMessage{}, ErrInvalidCommitMessage
@@ -95,10 +183,33 @@ func (node *Node) acceptCommitMessage(ctx context.Context, from p2p.PeerID, data
 		node.observePeerMessage(ctx, from, false)
 		return
 	}
+	if message.Want != 0 {
+		if whole, ok := node.commits.serve(from, message.Want); ok {
+			if wire, running := node.runningTransport(); running {
+				_ = wire.Send(ctx, from, p2p.TopicCommit, whole)
+			}
+		}
+		node.observePeerMessage(ctx, from, true)
+		return
+	}
 	commitHeight, ok := node.currentCommitHeight(ctx)
 	if !ok || message.Block.Header.Height <= commitHeight || message.Block.Header.Height > commitHeight+1 {
 		node.observePeerMessage(ctx, from, true)
 		return
+	}
+	if message.Bodiless {
+		if len(message.Block.Txs) != 0 {
+			node.observePeerMessage(ctx, from, false)
+			return
+		}
+		proposal, held := node.pendingProposals()[message.FinalityProof.BlockHash]
+		if !held || proposal.Block.Header != message.Block.Header {
+			// The node misses the block: the announcement must prove it final before the node asks
+			// the announcer for it.
+			node.requestCommitBody(ctx, from, message)
+			return
+		}
+		message.Block = proposal.Block
 	}
 	if err := node.verifyCommitFinalityProof(ctx, message.Block, message.QuorumCert, message.FinalityProof); err != nil {
 		if !commitVerificationUnavailable(err) {
@@ -128,7 +239,46 @@ func (node *Node) broadcastCommit(ctx context.Context, block types.Block, quorum
 	if err != nil {
 		return err
 	}
+	if len(block.Txs) > 0 {
+		node.commits.keep(block.Header.Height, data)
+		bodiless := block
+		bodiless.Txs = nil
+		data, err = json.Marshal(commitMessage{Block: bodiless, QuorumCert: quorumCert, FinalityProof: proof, Bodiless: true})
+		if err != nil {
+			return err
+		}
+	}
 	return wire.Publish(ctx, p2p.TopicCommit, data)
+}
+
+// requestCommitBody verifies the finality proof of a bodiless announcement and asks the announcer
+// for the whole block. A proof that does not verify counts against the announcer.
+func (node *Node) requestCommitBody(ctx context.Context, from p2p.PeerID, message commitMessage) {
+	proof := message.FinalityProof
+	err := error(nil)
+	switch {
+	case proof.Header != message.Block.Header || !sameQuorumCert(proof.QuorumCert, message.QuorumCert):
+		err = fmt.Errorf("%w: proof does not describe the announced block", ErrInvalidCommitQC)
+	default:
+		var verifier finality.RegistryVerifier
+		if verifier, err = node.commitVerifier(); err == nil {
+			err = verifier.VerifyFinalityProofWithContext(ctx, proof)
+		}
+	}
+	if err != nil {
+		if !commitVerificationUnavailable(err) {
+			node.observePeerMessage(ctx, from, false)
+		}
+		return
+	}
+	node.observePeerMessage(ctx, from, true)
+	wire, running := node.runningTransport()
+	if !running || !node.commits.shouldAsk(message.Block.Header.Height) {
+		return
+	}
+	if request, err := json.Marshal(commitMessage{Want: message.Block.Header.Height}); err == nil {
+		_ = wire.Send(ctx, from, p2p.TopicCommit, request)
+	}
 }
 
 // errCommitVerifierUnavailable marks a failure to set up the verification of a

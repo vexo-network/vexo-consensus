@@ -125,23 +125,27 @@ type StateMachine struct {
 	status                   Status
 	votes                    map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote
 	votedVotes               map[types.Height]map[types.Round]map[types.ValidatorID]Vote
-	evidence                 []slashing.Evidence
-	timeouts                 *TimeoutCollector
-	timeoutCerts             map[types.Round]finality.TimeoutCert
-	pacemaker                *Pacemaker
-	blockTree                *BlockTree
-	viewSlots                map[types.Round]viewSlot
-	lockedQC                 finality.QuorumCert
-	lastVotedHeight          types.Height
-	lastVotedRound           types.Round
-	commitRule               TwoChainCommitRule
-	committed                []CommitDecision
-	committedSet             map[types.Hash]struct{}
-	commitIndex              safety.CommitIndex
-	pendingFinal             map[types.Hash]CommitDecision
-	floorHeight              types.Height
-	floorHash                types.Hash
-	verifiedQCs              map[[sha256.Size]byte]struct{}
+	// evidence is the window of the latest offences recorded, evidenceBase the number recorded
+	// before it, and offences the keys of the offences in it.
+	evidence        []slashing.Evidence
+	evidenceBase    uint64
+	offences        map[string]struct{}
+	timeouts        *TimeoutCollector
+	timeoutCerts    map[types.Round]finality.TimeoutCert
+	pacemaker       *Pacemaker
+	blockTree       *BlockTree
+	viewSlots       map[types.Round]viewSlot
+	lockedQC        finality.QuorumCert
+	lastVotedHeight types.Height
+	lastVotedRound  types.Round
+	commitRule      TwoChainCommitRule
+	committed       []CommitDecision
+	committedSet    map[types.Hash]struct{}
+	commitIndex     safety.CommitIndex
+	pendingFinal    map[types.Hash]CommitDecision
+	floorHeight     types.Height
+	floorHash       types.Hash
+	verifiedQCs     map[[sha256.Size]byte]struct{}
 }
 
 func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
@@ -182,6 +186,7 @@ func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
 		votes:        make(map[types.Height]map[types.Round]map[types.Hash]map[types.ValidatorID]Vote),
 		votedVotes:   make(map[types.Height]map[types.Round]map[types.ValidatorID]Vote),
 		evidence:     make([]slashing.Evidence, 0),
+		offences:     make(map[string]struct{}),
 		timeoutCerts: make(map[types.Round]finality.TimeoutCert),
 		pacemaker:    NewPacemaker(0, 0),
 		blockTree:    NewBlockTree(),
@@ -399,21 +404,38 @@ func (machine *StateMachine) checkProposalHeader(proposal Proposal, validatorSet
 	return nil
 }
 
-// recordProposalEvidence records evidence against a proposer once: a proposer retransmits its
-// proposal, and the same fault is one offence.
+// maxRetainedEvidence bounds the offences a machine keeps for its readers. Every offence is signed
+// by its offender, so a faulty validator could otherwise grow the window without end; the node
+// publishes each offence as it is recorded, well before it leaves the window.
+const maxRetainedEvidence = 1024
+
+// recordProposalEvidence records evidence against a proposer.
 func (machine *StateMachine) recordProposalEvidence(evidence slashing.Evidence, err error) {
 	if err != nil {
 		return
 	}
+	machine.recordEvidence(evidence)
+}
+
+// recordEvidence records an offence once: an offender retransmits its messages, peers relay them,
+// and the same fault is one offence.
+func (machine *StateMachine) recordEvidence(evidence slashing.Evidence) {
 	offence, err := slashing.OffenceKey(evidence)
 	if err != nil {
 		return
 	}
-	for _, recorded := range machine.evidence {
-		if key, err := slashing.OffenceKey(recorded); err == nil && key == offence {
-			return
-		}
+	if _, recorded := machine.offences[offence]; recorded {
+		return
 	}
+	if len(machine.evidence) == maxRetainedEvidence {
+		if oldest, err := slashing.OffenceKey(machine.evidence[0]); err == nil {
+			delete(machine.offences, oldest)
+		}
+		machine.evidence[0] = slashing.Evidence{}
+		machine.evidence = machine.evidence[1:]
+		machine.evidenceBase++
+	}
+	machine.offences[offence] = struct{}{}
 	machine.evidence = append(machine.evidence, evidence)
 }
 
@@ -761,7 +783,7 @@ func (machine *StateMachine) validateProposer(validatorSet validator.Set, height
 	if !machine.enforceProposerSelection {
 		return nil
 	}
-	expected, ok := validator.SelectProposer(validatorSet.List(), height, round)
+	expected, ok := validator.SelectProposer(validatorSet.List(), round)
 	if !ok {
 		return fmt.Errorf("%w: no active validators", ErrUnexpectedProposer)
 	}
@@ -806,7 +828,7 @@ func (machine *StateMachine) OnVote(ctx context.Context, vote Vote) error {
 	}
 	if previous, found := machine.votedVote(vote); found && previous.BlockHash != vote.BlockHash {
 		if evidence, err := NewConflictingVoteEvidence(previous, vote); err == nil {
-			machine.evidence = append(machine.evidence, evidence)
+			machine.recordEvidence(evidence)
 		}
 		return ErrConflictingVote
 	}
@@ -877,7 +899,7 @@ func (machine *StateMachine) OnTimeoutVote(ctx context.Context, vote TimeoutVote
 	previous, conflicting := machine.timeouts.ConflictingVote(vote)
 	if conflicting {
 		if evidence, err := NewConflictingTimeoutVoteEvidence(previous, vote); err == nil {
-			machine.evidence = append(machine.evidence, evidence)
+			machine.recordEvidence(evidence)
 		}
 		return finality.TimeoutCert{}, ErrConflictingTimeoutVote
 	}
@@ -1120,11 +1142,37 @@ func (machine *StateMachine) Status(ctx context.Context) Status {
 	}
 }
 
+// Evidence returns the offences the machine keeps, oldest first.
 func (machine *StateMachine) Evidence() []slashing.Evidence {
 	machine.mu.Lock()
 	defer machine.mu.Unlock()
 
 	return append([]slashing.Evidence(nil), machine.evidence...)
+}
+
+// EvidenceCursor returns the number of offences recorded so far.
+func (machine *StateMachine) EvidenceCursor() uint64 {
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
+
+	return machine.evidenceBase + uint64(len(machine.evidence))
+}
+
+// EvidenceSince returns the offences recorded from cursor on that the machine still keeps, and
+// the cursor after them.
+func (machine *StateMachine) EvidenceSince(cursor uint64) ([]slashing.Evidence, uint64) {
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
+
+	next := machine.evidenceBase + uint64(len(machine.evidence))
+	if cursor >= next {
+		return nil, next
+	}
+	start := uint64(0)
+	if cursor > machine.evidenceBase {
+		start = cursor - machine.evidenceBase
+	}
+	return append([]slashing.Evidence(nil), machine.evidence[start:]...), next
 }
 
 func (machine *StateMachine) CommitDecisions() []CommitDecision {

@@ -26,6 +26,10 @@ type Config struct {
 	// RetainBlocks is how many of the latest heights the node keeps the blocks, states and history
 	// of; it prunes the older ones as it commits. Zero keeps every height (an archive node).
 	RetainBlocks uint64
+	// DisseminateByProposal makes a validator run without lanes: it gossips the transactions
+	// submitted to it to every peer, and a leader broadcasts each block whole. It is the baseline
+	// the lane dissemination is measured against (docs/research), not a production mode.
+	DisseminateByProposal bool
 }
 
 type Genesis struct {

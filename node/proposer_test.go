@@ -9,43 +9,25 @@ import (
 	"github.com/vexo-network/vexo-consensus/validator"
 )
 
-func TestProposerScheduleRotatesByHeightAndRound(t *testing.T) {
+func TestProposerScheduleRotatesByView(t *testing.T) {
 	validators := []validator.Validator{
 		{ID: "alice", VotingPower: 1},
 		{ID: "bob", VotingPower: 1},
 		{ID: "carol", VotingPower: 1},
 		{ID: "dave", VotingPower: 1},
 	}
-
+	// Four slots, stride 3: every validator leads once in any four consecutive views.
 	cases := []struct {
 		name     string
-		height   types.Height
-		rounds   uint64
+		first    types.Round
 		expected []types.ValidatorID
 	}{
-		{
-			name:     "height one starts at first validator",
-			height:   1,
-			rounds:   5,
-			expected: []types.ValidatorID{"alice", "bob", "carol", "dave", "alice"},
-		},
-		{
-			name:     "height two starts at second validator",
-			height:   2,
-			rounds:   5,
-			expected: []types.ValidatorID{"bob", "carol", "dave", "alice", "bob"},
-		},
-		{
-			name:     "zero height normalizes to height one",
-			height:   0,
-			rounds:   3,
-			expected: []types.ValidatorID{"alice", "bob", "carol"},
-		},
+		{name: "from view zero", first: 0, expected: []types.ValidatorID{"alice", "dave", "carol", "bob", "alice"}},
+		{name: "from view two", first: 2, expected: []types.ValidatorID{"carol", "bob", "alice", "dave", "carol"}},
 	}
-
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			schedule, err := ProposerSchedule(validators, testCase.height, testCase.rounds)
+			schedule, err := ProposerSchedule(validators, testCase.first, uint64(len(testCase.expected)))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -57,7 +39,7 @@ func TestProposerScheduleRotatesByHeightAndRound(t *testing.T) {
 }
 
 func TestSelectProposerRejectsEmptyValidatorSet(t *testing.T) {
-	_, err := SelectProposer(nil, 1, 0)
+	_, err := SelectProposer(nil, 0)
 	if !errors.Is(err, ErrMissingValidators) {
 		t.Fatalf("expected missing validators, got %v", err)
 	}
@@ -70,7 +52,7 @@ func TestProposerScheduleSortsAndSkipsZeroPowerValidators(t *testing.T) {
 		{ID: "bob", VotingPower: 0},
 	}
 
-	schedule, err := ProposerSchedule(validators, 1, 4)
+	schedule, err := ProposerSchedule(validators, 0, 4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +63,7 @@ func TestProposerScheduleSortsAndSkipsZeroPowerValidators(t *testing.T) {
 }
 
 func TestSelectProposerRejectsOnlyZeroPowerValidators(t *testing.T) {
-	_, err := SelectProposer([]validator.Validator{{ID: "alice", VotingPower: 0}}, 1, 0)
+	_, err := SelectProposer([]validator.Validator{{ID: "alice", VotingPower: 0}}, 0)
 	if !errors.Is(err, ErrMissingValidators) {
 		t.Fatalf("expected missing validators, got %v", err)
 	}

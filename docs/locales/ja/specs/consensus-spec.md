@@ -156,8 +156,14 @@ Proposal は `chain_id` と height から salt を作り、signer ごとの tran
 - `C.height = B.height + 1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `da_mismatch` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `missing_data` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
-- `compact_proposal` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `proposal_request` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
-- `proposal_txs` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `next_validator_set_hash` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `parent_linkage` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `validator.SelectProposer(validators, round)` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `0..W−1` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `lanes.Batch` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `lanes.MaxBatchTxs` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `lanes.MaxBatchBytes` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `lanes.Owner(members, sender)` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `lanes.FallbackDelay` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `lane_proposal` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

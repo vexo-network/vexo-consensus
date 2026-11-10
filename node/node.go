@@ -11,6 +11,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/consensus"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
+	"github.com/vexo-network/vexo-consensus/lanes"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	vexoruntime "github.com/vexo-network/vexo-consensus/runtime"
 	"github.com/vexo-network/vexo-consensus/slashing"
@@ -78,9 +79,11 @@ type Node struct {
 	runtime     *vexoruntime.Runtime
 	consensus   *consensus.StateMachine
 	reactor     *consensus.TransportReactor
-	// overflowTxs holds gossiped transactions the pool had no room for, to rebuild compact
-	// proposals with.
-	overflowTxs    *overflowTxs
+	// lanes disseminates the transactions this validator batches and stores those of the others
+	// (see package lanes); nil for a node that runs no validator or no transport.
+	lanes *lanes.Lanes
+	// commits are the whole commits this node announced bodiless, for the peers that ask.
+	commits        commitServer
 	localVoter     *autoVoteReactor
 	txCancel       context.CancelFunc
 	txGossipOnce   sync.Once
@@ -157,7 +160,6 @@ func New(cfg Config, genesis Genesis, application app.Application) (*Node, error
 		proposed:     make(map[proposalRound]time.Time),
 		timeoutVotes: make(map[proposalRound]consensus.TimeoutVote),
 		broadcasts:   make(map[string]struct{}),
-		overflowTxs:  newOverflowTxs(),
 	}, nil
 }
 
@@ -297,9 +299,10 @@ func (node *Node) start(ctx context.Context) error {
 		}
 		reactor = consensus.NewTransportReactor(node.wire, receiver)
 		reactor.SetPeerScoring(node.admitPeerMessage, node.observePeerMessage)
-		// Transactions reach every validator through gossip: proposals name them by short id.
-		if runtime.Mempool != nil {
-			reactor.EnableCompactProposals(proposalTxSource{pool: runtime.Mempool, overflow: node.overflowTxs})
+		var service *lanes.Lanes
+		if node.cfg.ValidatorID != "" && runtime.Mempool != nil && !node.cfg.DisseminateByProposal {
+			service = node.newLanes(runtime, consensusState)
+			reactor.EnableLanes(service, node.laneProposalIsAuthentic)
 		}
 		node.configureTransportPeerGate(runtime)
 		if voter, ok := receiver.(*autoVoteReactor); ok {
@@ -339,6 +342,18 @@ func (node *Node) start(ctx context.Context) error {
 			storage.Close()
 			return err
 		}
+		if service != nil {
+			if err := service.Start(ctx, node.wire); err != nil {
+				consensusWAL.Close()
+				node.evidenceCancel()
+				node.commitCancel()
+				node.txCancel()
+				reactor.Stop(ctx)
+				storage.Close()
+				return err
+			}
+			node.lanes = service
+		}
 	}
 
 	node.runtime = runtime
@@ -352,6 +367,18 @@ func (node *Node) start(ctx context.Context) error {
 	node.running = true
 	node.startedAt = time.Now().UTC()
 	node.startPeerScoreWindowReset(ctx)
+	if node.lanes != nil {
+		// The pool outlives a restart through its log, the lanes do not: what it holds and no batch
+		// carries is batched on this lane after the fallback delay.
+		service := node.lanes
+		go func() {
+			if txs, err := runtime.Mempool.PendingTxs(context.Background()); err == nil {
+				for _, tx := range txs {
+					service.Hold(tx)
+				}
+			}
+		}()
+	}
 	return nil
 }
 
@@ -454,6 +481,14 @@ func (node *Node) Stop(ctx context.Context) error {
 		loopDone := node.loopDone
 		node.mu.Unlock()
 		waitLoopDone(ctx, loopDone)
+		node.mu.Lock()
+	}
+	if node.lanes != nil {
+		// The lane loop reads the validator set through node.mu.
+		service := node.lanes
+		node.lanes = nil
+		node.mu.Unlock()
+		service.Stop()
 		node.mu.Lock()
 	}
 	if node.reactor != nil {

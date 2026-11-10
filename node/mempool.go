@@ -7,6 +7,7 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/consensus"
+	"github.com/vexo-network/vexo-consensus/lanes"
 	"github.com/vexo-network/vexo-consensus/mempool"
 	appslashing "github.com/vexo-network/vexo-consensus/modules/slashing"
 	"github.com/vexo-network/vexo-consensus/p2p"
@@ -55,7 +56,11 @@ func (node *Node) SubmitTx(ctx context.Context, tx types.Tx) error {
 	if err := node.admitMempoolTx(ctx, runtime.App, runtime.Mempool, tx); err != nil {
 		return err
 	}
-	if _, ok := node.runningTransport(); ok {
+	// A validator carries what is submitted to it on its own lane; a full node gossips it to the
+	// validators.
+	if service := node.laneService(); service != nil {
+		service.Submit(tx)
+	} else if _, ok := node.runningTransport(); ok {
 		node.gossipTx(tx)
 	}
 	node.wakeConsensus(context.Background())
@@ -112,6 +117,9 @@ func (node *Node) mempoolHasPendingTx(ctx context.Context) bool {
 		return false
 	default:
 	}
+	if service := node.laneService(); service != nil && service.HasProposable() {
+		return true
+	}
 	return runtime.Mempool.Len() > 0
 }
 
@@ -148,7 +156,13 @@ func (node *Node) ProposeFromMempoolWithOptions(ctx context.Context, maxBytes in
 	highQC := machine.HighQC(ctx)
 	inFlight, known := node.uncommittedAncestors(ctx, highQC.BlockHash, highQC.Height)
 	batch := mempool.Batch{}
-	if known {
+	service := node.laneService()
+	if known && service != nil {
+		// The block is made of the lane batches: its own, which it seals now, and the certified
+		// batches of the other validators.
+		service.Flush(ctx)
+		batch.Txs = laneCandidates(service, maxBytes, inFlight.hashes)
+	} else if known {
 		var err error
 		batch, err = runtime.Mempool.BuildBatch(ctx, maxBytes, inFlight.hashes)
 		if err != nil {
@@ -180,7 +194,21 @@ func (node *Node) ProposeFromMempoolWithOptions(ctx context.Context, maxBytes in
 		Header: types.Header{Height: height},
 		Txs:    proposalResponse.Txs,
 	})
+	if err == nil && service != nil {
+		node.referenceLaneBatches(service, proposal, blockHash)
+	}
 	return proposal, blockHash, err
+}
+
+// referenceLaneBatches records the batches the block of proposal is made of, so they are not
+// proposed again while it is pending.
+func (node *Node) referenceLaneBatches(service *lanes.Lanes, proposal consensus.Proposal, blockHash types.Hash) {
+	batches := service.Covering(proposal.Block.Txs)
+	ids := make([]types.Hash, 0, len(batches))
+	for _, batch := range batches {
+		ids = append(ids, batch.ID())
+	}
+	service.Reference(blockHash, proposal.Block.Header.Height, ids)
 }
 
 // inFlightTxs are the transactions of proposed blocks that are not committed yet, oldest first,

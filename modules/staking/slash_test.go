@@ -325,9 +325,9 @@ func TestJailedValidatorLeavesValidatorSetAndProposerRotation(t *testing.T) {
 	if _, found := set.Get("validator-1"); found {
 		t.Fatal("a jailed validator must leave the validator set")
 	}
-	for height := types.Height(1); height <= 6; height++ {
-		if proposer, ok := vexovalidator.SelectProposer(set.List(), height, 0); !ok || proposer != "validator-2" {
-			t.Fatalf("height %d: expected the only free validator to propose, got %q ok=%t", height, proposer, ok)
+	for view := types.Round(0); view < 6; view++ {
+		if proposer, ok := vexovalidator.SelectProposer(set.List(), view); !ok || proposer != "validator-2" {
+			t.Fatalf("view %d: expected the only free validator to propose, got %q ok=%t", view, proposer, ok)
 		}
 	}
 	module.BeginBlock(vexoapp.Context{}, types.Header{Height: 20})

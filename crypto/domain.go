@@ -16,6 +16,13 @@ const (
 	// DomainRemoteSignerProbe wraps operator challenges that prove a remote signer holds
 	// its key. No verifier accepts it, so a probe signature never authorizes anything.
 	DomainRemoteSignerProbe Domain = "vexo.remote_signer.probe.v1"
+
+	// DomainLaneBatch signs a batch of transactions a validator disseminates on its lane, and
+	// DomainLaneBatchAck the acknowledgement of a validator that stores it (see package lanes).
+	// Neither is a consensus statement: they order nothing and are not subject to the double-sign
+	// guard.
+	DomainLaneBatch    Domain = "vexo.lanes.batch.v1"
+	DomainLaneBatchAck Domain = "vexo.lanes.batch_ack.v1"
 )
 
 // domainMessageTag opens every domain-separated message: tag, NUL, domain, big-endian

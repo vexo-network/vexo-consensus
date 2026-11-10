@@ -156,8 +156,14 @@ Proposal 由 `chain_id` 和 height 生成 salt，将每个 signer 的 transactio
 - `C.height = B.height + 1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `da_mismatch` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `missing_data` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
-- `compact_proposal` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `proposal_request` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
-- `proposal_txs` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `next_validator_set_hash` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `parent_linkage` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `validator.SelectProposer(validators, round)` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `0..W−1` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `lanes.Batch` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `lanes.MaxBatchTxs` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `lanes.MaxBatchBytes` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `lanes.Owner(members, sender)` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `lanes.FallbackDelay` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `lane_proposal` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

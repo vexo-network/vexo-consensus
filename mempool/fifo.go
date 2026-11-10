@@ -74,12 +74,10 @@ type admission struct {
 }
 
 type FIFO struct {
-	mu     sync.Mutex
-	config FIFOConfig
-	txs    []*entry
-	index  map[types.Hash]*entry
-	// shortIndex finds the entries by short id (ShortTxID); colliding entries share a slot.
-	shortIndex   map[uint64][]*entry
+	mu           sync.Mutex
+	config       FIFOConfig
+	txs          []*entry
+	index        map[types.Hash]*entry
 	replacements map[string]*entry
 	senders      map[string]int
 	// evictions orders the pending entries by evictsBefore, so the entry a full pool evicts
@@ -87,15 +85,28 @@ type FIFO struct {
 	evictions  evictionHeap
 	totalBytes int64
 	sequence   uint64
-	seen       map[types.Hash]time.Time
-	now        func() time.Time
+	// seen holds when each recently seen transaction was seen, and seenOrder the same records in
+	// the order they were made, so expiry pops the oldest instead of scanning the cache.
+	seen      map[types.Hash]time.Time
+	seenOrder []seenRecord
+	seenHead  int
+	now       func() time.Time
 }
+
+type seenRecord struct {
+	hash types.Hash
+	at   time.Time
+}
+
+// MaxSeenTxs bounds the seen cache. Past it the oldest records go first: a relayed copy of a
+// transaction committed that long ago may enter the pool again, which nonces still refuse for the
+// sequenced transactions every production chain requires.
+const MaxSeenTxs = 1 << 20
 
 func NewFIFO(config FIFOConfig) *FIFO {
 	return &FIFO{
 		config:       config,
 		index:        make(map[types.Hash]*entry),
-		shortIndex:   make(map[uint64][]*entry),
 		replacements: make(map[string]*entry),
 		senders:      make(map[string]int),
 		seen:         make(map[types.Hash]time.Time),
@@ -368,7 +379,6 @@ func (pool *FIFO) insertLocked(candidate *entry) {
 	pool.sequence++
 	pool.txs = append(pool.txs, candidate)
 	pool.index[candidate.hash] = candidate
-	pool.indexShortLocked(candidate)
 	if candidate.key != "" {
 		pool.replacements[candidate.key] = candidate
 	}
@@ -392,7 +402,6 @@ func (pool *FIFO) replaceLocked(old *entry, candidate *entry) {
 	pool.txs[position] = candidate
 	pool.unindexLocked(old)
 	pool.index[candidate.hash] = candidate
-	pool.indexShortLocked(candidate)
 	if candidate.key != "" {
 		pool.replacements[candidate.key] = candidate
 	}
@@ -421,7 +430,6 @@ func (pool *FIFO) unindexLocked(removed *entry) {
 	if pool.index[removed.hash] == removed {
 		delete(pool.index, removed.hash)
 	}
-	pool.unindexShortLocked(removed)
 	if removed.key != "" && pool.replacements[removed.key] == removed {
 		delete(pool.replacements, removed.key)
 	}
@@ -518,7 +526,11 @@ func (pool *FIFO) markCommittedLocked(committed []types.Tx) error {
 	hashes := make(map[types.Hash]struct{}, len(committed))
 	keys := make(map[string]struct{}, len(committed))
 	for _, tx := range committed {
-		hashes[HashTx(tx)] = struct{}{}
+		hash := HashTx(tx)
+		hashes[hash] = struct{}{}
+		// A committed transaction the pool never held is seen as well: a copy that a peer relays
+		// after the commit must not enter the pool and a later block again.
+		pool.markSeen(hash)
 		if key, ok := ReplacementKey(tx); ok {
 			keys[key] = struct{}{}
 		}
@@ -685,15 +697,27 @@ func (pool *FIFO) seenRecently(hash types.Hash) bool {
 	return true
 }
 
+// pruneSeenExpired drops the expired records, oldest first, and the oldest past MaxSeenTxs. A
+// call costs what it drops.
 func (pool *FIFO) pruneSeenExpired() {
-	if pool.config.SeenTTL <= 0 || len(pool.seen) == 0 {
+	if pool.config.SeenTTL <= 0 {
 		return
 	}
 	now := pool.now()
-	for hash, seenAt := range pool.seen {
-		if now.Sub(seenAt) > pool.config.SeenTTL {
-			delete(pool.seen, hash)
+	for pool.seenHead < len(pool.seenOrder) {
+		record := pool.seenOrder[pool.seenHead]
+		if now.Sub(record.at) <= pool.config.SeenTTL && len(pool.seenOrder)-pool.seenHead <= MaxSeenTxs {
+			break
 		}
+		if pool.seen[record.hash].Equal(record.at) {
+			delete(pool.seen, record.hash)
+		}
+		pool.seenOrder[pool.seenHead] = seenRecord{}
+		pool.seenHead++
+	}
+	if pool.seenHead > 0 && pool.seenHead*2 >= len(pool.seenOrder) {
+		pool.seenOrder = append(pool.seenOrder[:0], pool.seenOrder[pool.seenHead:]...)
+		pool.seenHead = 0
 	}
 }
 
@@ -701,40 +725,17 @@ func (pool *FIFO) markSeen(hash types.Hash) {
 	if pool.config.SeenTTL <= 0 {
 		return
 	}
-	pool.seen[hash] = pool.now()
+	now := pool.now()
+	pool.seen[hash] = now
+	pool.seenOrder = append(pool.seenOrder, seenRecord{hash: hash, at: now})
 }
 
-// TxByShortID returns the pending transaction with short id, false when the pool holds none or
-// more than one: a colliding id names no transaction for sure.
-func (pool *FIFO) TxByShortID(id uint64) (types.Tx, bool) {
+// Has reports whether the pool holds the transaction of hash.
+func (pool *FIFO) Has(hash types.Hash) bool {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
-	entries := pool.shortIndex[id]
-	if len(entries) != 1 {
-		return nil, false
-	}
-	return entries[0].tx, true
-}
-
-func (pool *FIFO) indexShortLocked(added *entry) {
-	id := ShortTxID(added.hash)
-	pool.shortIndex[id] = append(pool.shortIndex[id], added)
-}
-
-func (pool *FIFO) unindexShortLocked(removed *entry) {
-	id := ShortTxID(removed.hash)
-	entries := pool.shortIndex[id]
-	for index, candidate := range entries {
-		if candidate != removed {
-			continue
-		}
-		if len(entries) == 1 {
-			delete(pool.shortIndex, id)
-			return
-		}
-		pool.shortIndex[id] = append(entries[:index:index], entries[index+1:]...)
-		return
-	}
+	_, found := pool.index[hash]
+	return found
 }
 
 func (pool *FIFO) Len() int {
@@ -747,7 +748,6 @@ func (pool *FIFO) Len() int {
 // cached hashes and sizes only; it never hashes or parses a payload.
 func (pool *FIFO) rebuildIndex() {
 	pool.index = make(map[types.Hash]*entry, len(pool.txs))
-	pool.shortIndex = make(map[uint64][]*entry, len(pool.txs))
 	pool.replacements = make(map[string]*entry, len(pool.txs))
 	pool.senders = make(map[string]int)
 	pool.evictions = make(evictionHeap, 0, len(pool.txs))
@@ -756,7 +756,6 @@ func (pool *FIFO) rebuildIndex() {
 		pending.evictAt = len(pool.evictions)
 		pool.evictions = append(pool.evictions, pending)
 		pool.index[pending.hash] = pending
-		pool.indexShortLocked(pending)
 		if pending.key != "" {
 			pool.replacements[pending.key] = pending
 		}

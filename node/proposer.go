@@ -12,18 +12,20 @@ import (
 	"github.com/vexo-network/vexo-consensus/validator"
 )
 
-func SelectProposer(validators []validator.Validator, height types.Height, round types.Round) (types.ValidatorID, error) {
-	proposer, ok := validator.SelectProposer(validators, height, round)
+// SelectProposer returns the validator that leads view round (validator.SelectProposer).
+func SelectProposer(validators []validator.Validator, round types.Round) (types.ValidatorID, error) {
+	proposer, ok := validator.SelectProposer(validators, round)
 	if !ok {
 		return "", ErrMissingValidators
 	}
 	return proposer, nil
 }
 
-func ProposerSchedule(validators []validator.Validator, height types.Height, rounds uint64) ([]types.ValidatorID, error) {
-	schedule := make([]types.ValidatorID, 0, rounds)
-	for round := uint64(0); round < rounds; round++ {
-		proposer, err := SelectProposer(validators, height, types.Round(round))
+// ProposerSchedule returns the leaders of the views from first on, count of them.
+func ProposerSchedule(validators []validator.Validator, first types.Round, count uint64) ([]types.ValidatorID, error) {
+	schedule := make([]types.ValidatorID, 0, count)
+	for offset := uint64(0); offset < count; offset++ {
+		proposer, err := SelectProposer(validators, first+types.Round(offset))
 		if err != nil {
 			return nil, err
 		}
@@ -32,10 +34,10 @@ func ProposerSchedule(validators []validator.Validator, height types.Height, rou
 	return schedule, nil
 }
 
-// Proposer returns the proposer of the view for the next block: it is scheduled from the validator
+// Proposer returns the leader of view round for the next block: it is scheduled from the validator
 // set that block must name, the one its parent, the highest certified block, fixes for it. The
 // set fails with consensus.ErrValidatorSetPending until the block it depends on is executed.
-func (node *Node) Proposer(ctx context.Context, height types.Height, round types.Round) (types.ValidatorID, error) {
+func (node *Node) Proposer(ctx context.Context, round types.Round) (types.ValidatorID, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -47,11 +49,11 @@ func (node *Node) Proposer(ctx context.Context, height types.Height, round types
 	if err != nil {
 		return "", err
 	}
-	return SelectProposer(validatorSet.List(), height, round)
+	return SelectProposer(validatorSet.List(), round)
 }
 
-func (node *Node) IsProposer(ctx context.Context, height types.Height, round types.Round) (bool, error) {
-	proposer, err := node.Proposer(ctx, height, round)
+func (node *Node) IsProposer(ctx context.Context, round types.Round) (bool, error) {
+	proposer, err := node.Proposer(ctx, round)
 	if err != nil {
 		return false, err
 	}
@@ -80,7 +82,7 @@ func (node *Node) tickConsensusWithProposalOptions(ctx context.Context, cfg Cons
 	if height == 0 {
 		height = 1
 	}
-	isProposer, err := node.IsProposer(ctx, height, status.Round)
+	isProposer, err := node.IsProposer(ctx, status.Round)
 	if errors.Is(err, consensus.ErrValidatorSetPending) {
 		// The set of the next block depends on a block this node has not executed yet.
 		return consensus.Proposal{}, types.Hash{}, false, nil

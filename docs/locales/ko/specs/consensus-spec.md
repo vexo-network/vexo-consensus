@@ -86,6 +86,8 @@
 - Message Types
 - Safety Rules
 - Block Time
+- Leader Schedule
+- Lanes
 - Finality Rule
 - Execution Commit Policy
 - Liveness Assumptions
@@ -119,16 +121,21 @@
 
 다른 체인 데이터, 로컬 시계, 재실행이 필요한 결함(시계보다 앞선 블록 시간, 무효 트랜잭션 등)은 노드마다 판단이 다를 수 있으므로 evidence가 아닙니다. 증명은 모두 proposer가 proposal domain으로 서명한 proposal이어야 합니다.
 
-## Compact proposal
+## 리더 스케줄
 
-proposer는 트랜잭션이 있는 proposal을 `compact_proposal`로 보냅니다. 트랜잭션을 뺀 서명된 proposal과, 블록 순서대로 각 트랜잭션 해시의 앞 8바이트 short id입니다. 트랜잭션은 gossip으로 먼저 퍼지므로 validator는 mempool과, mempool이 가득 차서 받지 못한 gossip 트랜잭션을 담는 bounded overflow에서 블록을 재구성합니다. 블록 형식, 해시, 서명 대상은 바뀌지 않습니다.
+view `round`의 리더는 `validator.SelectProposer(validators, round)`입니다. 활성 validator를 id 순으로 정렬해 각자 `VotingPower`개의 연속 슬롯을 `[0, W)`에서 가지며(`W`는 총 voting power), view `v`는 슬롯 `v·S mod W`의 주인이 이끕니다. stride `S`는 `ceil(W·(φ−1))`부터 찾은, `W`와 서로소인 첫 정수이므로 view `0..W−1`은 모든 슬롯을 한 번씩 지납니다. 따라서 연속한 `W`개 view의 어떤 창에서도 각 validator는 정확히 자기 power만큼 view를 이끌고, 황금비 stride가 한 validator의 view를 서로 떨어뜨려 놓아 죽은 validator는 고립된 view만 잃게 합니다. 스케줄은 view에만 의존하고 높이에는 의존하지 않습니다. 총 power가 64비트를 넘으면 리더를 고르지 않습니다.
 
-- 재구성한 블록은 트랜잭션 루트가 헤더와 일치할 때만 판정하므로 short id 충돌로 다른 블록을 판정하는 일은 없습니다.
-- 일부가 없으면 위치를 담은 `proposal_request`를 proposer에게 보내고 `proposal_txs`로 받습니다. 절반 넘게 없거나 트랜잭션 루트가 맞지 않으면 전체 `proposal`을 요청합니다.
-- 해당 위치의 short id와 다른 트랜잭션을 보낸 peer는 감점됩니다. 재구성하지 못한 compact proposal은 보낸 쪽 잘못이 아닙니다.
-- 노드는 보유한 proposal을 peer마다 최대 두 번만 보내고, 최근 32개 proposal만 보유합니다.
+## Lanes
 
-gossip이 먼저 도달하면 leader의 validator당 업로드는 트랜잭션 크기 대신 트랜잭션당 8바이트로 줄어듭니다.
+트랜잭션 전파는 순서 결정과 분리되어 있습니다(패키지 `lanes`). 블록 형식, 해시, 트랜잭션 루트, validator가 서명·실행하는 대상은 바뀌지 않고, lanes는 블록이 전달되는 방식만 바꿉니다.
+
+- 모든 validator는 자기 lane을 가집니다. 자기가 소유한 트랜잭션을 서명된 `lanes.Batch`(체인, 작성자, 순번, 트랜잭션; 최대 `lanes.MaxBatchTxs`개, `lanes.MaxBatchBytes`바이트)로 봉인해 모든 validator에게 보냅니다. 올바른 batch를 저장한 validator는 `DomainLaneBatchAck` 도메인으로 ack에 서명하고, voting power `>= 2/3`의 ack가 모이면 `BatchCert`가 됩니다. 따라서 인증된 batch는 power의 1/3 초과를 가진 validator들이 저장하고 있으며 그중 적어도 하나는 정직합니다. 직전 batch가 16 KiB 미만인 lane은 그 batch가 인증될 때까지, 최대 봉인 후 50 ms까지 다음 batch를 기다려서, 부하가 낮은 lane이 트랜잭션 몇 개마다 서명과 인증서 비용을 치르지 않게 합니다.
+- 트랜잭션은 `lanes.Owner(members, sender)` lane에 속합니다. 한 sender의 트랜잭션은 한 lane에서 작성자가 받아들인 순서로 이동하므로 lane이 nonce 순서를 쪼개지 않습니다. 다른 lane 소유 트랜잭션을 가진 validator는 `lanes.FallbackDelay` 동안 그것을 담은 batch가 없으면 직접 batch로 만들기 때문에, 결함 있는 소유자가 sender를 검열할 수 없습니다.
+- 리더는 인증된 batch만, lane마다 순번 순서로 첫 미인증 batch 직전까지, lane을 번갈아 가며 제안하고 `lane_proposal`을 보냅니다. 이는 트랜잭션을 뺀 서명된 proposal, batch id들, 애플리케이션 검사에서 거부된 batch 트랜잭션의 위치(`Excluded`), batch에 없는 트랜잭션(`Extra`)입니다. 리더의 validator당 업로드는 블록 크기와 무관하게 batch당 몇 바이트이고, 전파 부하는 모든 validator에게 분산됩니다.
+- validator는 무엇이든 가져오기 전에 proposal 서명과 리더를 먼저 판정합니다. 위조된 `lane_proposal`은 아무에게도 업로드 비용을 지우지 못하고 보낸 peer의 점수를 깎습니다. 저장한 batch로 블록을 재구성하고, 없는 batch는 작성자나 다른 인증자에게서 받아오며, 재구성한 블록이 헤더가 커밋한 블록과 정확히 같을 때만 판정합니다. validator set이 아직 실행하지 않은 블록에 의존하는 proposal(전체든 lanes든)은 최대 16개까지 보관했다가, 블록을 하나 실행하거나 다른 proposal을 받아들이면 무엇도 가져오기 전에 다시 판정합니다. 재구성한 블록이 서명된 블록과 다르거나 batch가 제때 오지 않으면 보낸 peer에게 `proposal_request`를 보내 전체 `proposal`을 기다립니다. 노드는 보관한 proposal을 peer마다 최대 두 번 제공하고 최근 32개를 보관합니다.
+- 작성자마다 아직 소비되지 않은 batch는 저장소의 바이트 몫으로 제한되므로, lane을 범람시키는 validator는 자기 몫만 채웁니다. 커밋된 블록이 소비하지 않은 batch는 만료되고, 소비된 batch는 따라잡는 validator를 위해 몇 초 더 제공됩니다.
+
+lanes 없이 동작하는 것은 측정 기준선(`DisseminateByProposal`)뿐이며, 이때 validator는 받은 트랜잭션을 gossip하고 리더는 블록 전체를 보냅니다.
 
 ## 최종성 규칙
 

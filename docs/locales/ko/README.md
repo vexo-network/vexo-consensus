@@ -174,7 +174,7 @@
 
 ## 연구 및 논문 작성
 
-논문을 준비할 때는 [`Adaptive Recovery-Gated HotStuff Research Draft`](./research/adaptive-recovery-hotstuff-paper.md)부터 읽으세요. 이 문서는 구현된 적응형 라운드 타임아웃, 복구 최종성 게이트, 결정적 트랜잭션 순서를 선행 연구와 구분하고, 연구 질문, 가설, 실험 절차, 재현성 산출물, 연구 윤리를 한곳에 정리합니다. 측정하지 않은 성능을 결과처럼 주장하지 않으며 PoS, BFT, HotStuff 자체를 새 기여로 주장하지 않습니다.
+논문을 준비할 때는 [`Adaptive Recovery-Gated HotStuff Research Draft`](./research/adaptive-recovery-hotstuff-paper.md)부터 읽으세요. 이 문서는 구현된 적응형 라운드 타임아웃, 복구 최종성 게이트, 결정적 트랜잭션 순서를 선행 연구와 구분하고, 연구 질문, 가설, 실험 절차, 재현성 산출물, 연구 윤리를 한곳에 정리합니다. 측정하지 않은 성능을 결과처럼 주장하지 않으며 PoS, BFT, HotStuff 자체를 새 기여로 주장하지 않습니다. [`Vexo Lanes`](./research/vexo-lanes-paper.md)는 합의 아래의 인증 batch 전파 계층을 설명·측정하고, 평가 과정에서 드러난 결함을 정리합니다.
 
 언어별 탐색에서 사용하는 정본 문서명은 `Node Initialization`, `Docker Deployment`, `Observability Guide`, `RPC API Versioning`, `Production Readiness`, `Release Pipeline`, `Adaptive Recovery-Gated HotStuff Research Draft`입니다.
 

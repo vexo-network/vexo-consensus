@@ -12,7 +12,11 @@ import (
 // ProposalSignBytes binds the proposer's signature to the block, its view, the
 // justifying quorum certificate and the timeout certificate that licenses a view jump.
 func ProposalSignBytes(proposal Proposal) []byte {
-	blockHash := HashBlock(proposal.Block)
+	return proposalSignBytes(proposal, HashBlock(proposal.Block))
+}
+
+// proposalSignBytes returns what the proposer of proposal signs, for the block of blockHash.
+func proposalSignBytes(proposal Proposal, blockHash types.Hash) []byte {
 	message := make([]byte, 0, 192)
 	message = append(message, []byte("proposal")...)
 	message = appendUint64(message, uint64(proposal.Block.Header.Height))

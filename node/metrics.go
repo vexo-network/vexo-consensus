@@ -51,12 +51,17 @@ type Metrics struct {
 	SigningFailures             uint64
 	ReconciliationFailures      uint64
 	RetentionPruneFailures      uint64
-	// CompactProposalsRebuilt, CompactProposalsCompleted and CompactProposalsFetched count the
-	// compact proposals the node rebuilt from its pool alone, completed with the missing
-	// transactions fetched from a peer, and fetched whole.
-	CompactProposalsRebuilt   uint64
-	CompactProposalsCompleted uint64
-	CompactProposalsFetched   uint64
+	// LaneProposalsRebuilt, LaneProposalsCompleted and LaneProposalsFetched count the lane
+	// proposals the node rebuilt from the batches it stored, rebuilt after fetching batches, and
+	// fetched whole.
+	LaneProposalsRebuilt   uint64
+	LaneProposalsCompleted uint64
+	LaneProposalsFetched   uint64
+	// LaneBatchesSealed, LaneBatchesCertified and LaneBytesSent count the batches this validator
+	// sealed on its lane, the batches it learnt certified, and the lane bytes it uploaded.
+	LaneBatchesSealed    uint64
+	LaneBatchesCertified uint64
+	LaneBytesSent        uint64
 }
 
 func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
@@ -127,10 +132,16 @@ func (node *Node) Metrics(ctx context.Context) (Metrics, error) {
 		metrics.MempoolSize = uint64(runtime.Mempool.Len())
 	}
 	if reactor, err := node.ConsensusReactor(); err == nil {
-		stats := reactor.CompactProposalStats()
-		metrics.CompactProposalsRebuilt = stats.Rebuilt
-		metrics.CompactProposalsCompleted = stats.Completed
-		metrics.CompactProposalsFetched = stats.Fetched
+		stats := reactor.LaneProposalStats()
+		metrics.LaneProposalsRebuilt = stats.Rebuilt
+		metrics.LaneProposalsCompleted = stats.Completed
+		metrics.LaneProposalsFetched = stats.Fetched
+	}
+	if service := node.laneService(); service != nil {
+		stats := service.Stats()
+		metrics.LaneBatchesSealed = stats.Sealed
+		metrics.LaneBatchesCertified = stats.Certified
+		metrics.LaneBytesSent = stats.SentBytes
 	}
 	metrics.ReconciliationFailures = runtime.PostCommitReconciliationFailures()
 	index, err := runtime.BlockIndex(ctx)

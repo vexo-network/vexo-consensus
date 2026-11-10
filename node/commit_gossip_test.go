@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -156,7 +157,7 @@ func (fixture *commitFixture) commitWithChildView(block types.Block, childView t
 // and the peer's score afterwards.
 func (fixture *commitFixture) deliver(message commitMessage) (types.Height, int64) {
 	fixture.t.Helper()
-	data, err := encodeCommitMessage(message.Block, message.QuorumCert, message.FinalityProof)
+	data, err := json.Marshal(message)
 	if err != nil {
 		fixture.t.Fatal(err)
 	}
@@ -416,6 +417,14 @@ func TestCommitGossipPenalizesEveryFailedVerification(t *testing.T) {
 		{"proof of another validator set", func(_ *commitFixture, message *commitMessage) {
 			message.FinalityProof.ValidatorSetHash = types.Hash{0xCD}
 		}},
+		{"bodiless announcement carrying transactions", func(_ *commitFixture, message *commitMessage) {
+			message.Bodiless = true
+		}},
+		{"bodiless announcement with a forged proof", func(_ *commitFixture, message *commitMessage) {
+			message.Block.Txs = nil
+			message.Bodiless = true
+			message.FinalityProof.CommitChain[0].QuorumCert.Signature = types.AggregateSignature("forged")
+		}},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -545,5 +554,26 @@ func TestCommitGossipRefusesAHeaderNamingAnotherAppHash(t *testing.T) {
 	}
 	if height, _ := fixture.deliver(fixture.commit(third)); height != 3 {
 		t.Fatalf("expected the block naming the executed app hash to be applied, node is at height %d", height)
+	}
+}
+
+// Every validator announces each commit; a node missing the body asks one announcer, and the
+// next only once that request had time to be answered.
+func TestCommitServerAsksOnceForABodyPerRetry(t *testing.T) {
+	var server commitServer
+	if !server.shouldAsk(5) {
+		t.Fatal("expected the first announcement of a missing body to ask")
+	}
+	for range 8 {
+		if server.shouldAsk(5) {
+			t.Fatal("expected the other announcers not to be asked again before the retry")
+		}
+	}
+	if !server.shouldAsk(6) {
+		t.Fatal("expected a new height to be asked at once")
+	}
+	server.asked = server.asked.Add(-commitBodyRetry)
+	if !server.shouldAsk(6) {
+		t.Fatal("expected an unanswered request to be retried")
 	}
 }

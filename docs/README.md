@@ -22,7 +22,7 @@ If you only have a few minutes, read the docs in this order:
 
 If you are reviewing a release candidate, start with [`Production Readiness`](./production-readiness.md) and [`Release Pipeline`](./release/release-pipeline.md) before looking at the deeper specs.
 
-If you are preparing an academic paper, start with [`Adaptive Recovery-Gated HotStuff Research Draft`](./research/adaptive-recovery-hotstuff-paper.md). It separates implemented mechanisms, hypotheses, prior art, experiment design, and claims that still require evidence.
+If you are preparing an academic paper, start with [`Adaptive Recovery-Gated HotStuff Research Draft`](./research/adaptive-recovery-hotstuff-paper.md). It separates implemented mechanisms, hypotheses, prior art, experiment design, and claims that still require evidence. [`Vexo Lanes`](./research/vexo-lanes-paper.md) describes and measures the certified batch dissemination layer beneath the consensus, with the defects its evaluation exposed.
 
 ## How to Read This Set
 
@@ -118,6 +118,7 @@ If you are reviewing the protocol or preparing a release, use this order:
 | Document | Purpose |
 |---|---|
 | [Adaptive Recovery-Gated HotStuff Research Draft](./research/adaptive-recovery-hotstuff-paper.md) | Paper-style protocol description, novelty boundary, implementation mapping, experiment design, correctness scope, reproducibility, and research ethics |
+| [Vexo Lanes](./research/vexo-lanes-paper.md) | Certified batch dissemination decoupled from ordering, the stake-proportional leader schedule, the measured throughput and latency matrix, and its threats to validity |
 
 The research document is intentionally conservative. It does not claim that PoS, BFT, or HotStuff is new, and it does not turn unmeasured hypotheses into performance results.
 

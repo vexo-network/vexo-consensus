@@ -1126,9 +1126,9 @@ func (transport *GRPCTransport) validatePayloadSize(data []byte) error {
 	return nil
 }
 
-// deliver hands envelope to every subscriber of its topic. Consensus topics
-// wait for buffer space until ctx ends or the subscription is torn down; every
-// other topic is dropped and counted when a subscriber is behind.
+// deliver hands envelope to every subscriber of its topic. Consensus topics and
+// lane batches wait for buffer space until ctx ends or the subscription is torn
+// down; every other topic is dropped and counted when a subscriber is behind.
 func (transport *GRPCTransport) deliver(ctx context.Context, envelope Envelope) {
 	transport.mu.RLock()
 	subscribers := append([]*subscription(nil), transport.subscribers[envelope.Topic]...)
@@ -1141,8 +1141,11 @@ func (transport *GRPCTransport) deliver(ctx context.Context, envelope Envelope) 
 	}
 }
 
+// isReliableTopic reports whether a slow subscriber holds the stream back instead of losing the
+// message. Lane batches are: a dropped batch costs its author a retransmission to the validator,
+// and a block naming it a fetch.
 func isReliableTopic(topic p2p.Topic) bool {
-	return topic == p2p.TopicProposal || topic == p2p.TopicVote || topic == p2p.TopicTimeout
+	return topic == p2p.TopicProposal || topic == p2p.TopicVote || topic == p2p.TopicTimeout || topic == p2p.TopicBatch
 }
 
 func (transport *GRPCTransport) recordDroppedMessage() {

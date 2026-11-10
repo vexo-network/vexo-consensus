@@ -224,6 +224,9 @@ func (node *Node) finishCommit(ctx context.Context, runtime *vexoruntime.Runtime
 	if err := runtime.Mempool.MarkCommitted(ctx, block.Txs); err != nil {
 		return err
 	}
+	if service := node.laneService(); service != nil {
+		service.Committed(consensus.HashBlock(block), height, block.Txs)
+	}
 	if len(block.Txs) > 0 {
 		if err := runtime.Mempool.CompactWAL(ctx); err != nil {
 			return err
@@ -256,6 +259,10 @@ func (node *Node) finishCommit(ctx context.Context, runtime *vexoruntime.Runtime
 	node.mu.Lock()
 	node.reconciledHeight = height
 	node.mu.Unlock()
+	// The validator set of the next block is known now: the proposals that waited for it are judged.
+	if reactor, err := node.ConsensusReactor(); err == nil {
+		reactor.Retry()
+	}
 	node.pruneToRetention(ctx, runtime)
 	return nil
 }
@@ -510,34 +517,57 @@ func (node *Node) acceptedProposalFor(machine *consensus.StateMachine, height ty
 // consensus machine says nothing about the proposal it refused unless the proposal is authentic: most
 // refusals happen before the signature is checked.
 func (node *Node) proposalIsAuthentic(ctx context.Context, proposal consensus.Proposal) bool {
-	if ctx.Err() != nil {
-		return false
+	return node.checkProposalSignature(ctx, proposal, consensus.ProposalSignBytes(proposal)) == nil
+}
+
+// laneProposalIsAuthentic judges the signature of a lane proposal, whose block the node has not
+// rebuilt yet (consensus.LaneAuthenticator).
+func (node *Node) laneProposalIsAuthentic(ctx context.Context, compact consensus.LaneProposal) error {
+	return node.checkProposalSignature(ctx, compact.Proposal, compact.SignBytes())
+}
+
+// errProposalUnjudged reports that the node cannot judge a proposal signature yet: it does not
+// know the validator set the header names.
+var errProposalUnjudged = errors.New("proposal signature cannot be judged yet")
+
+// checkProposalSignature checks that the proposer of proposal is the leader of its view in the
+// validator set its header names and signed signBytes. It fails with consensus.ErrInvalidProposal
+// for a proposal that is not authentic, and with errProposalUnjudged when the node cannot tell.
+func (node *Node) checkProposalSignature(ctx context.Context, proposal consensus.Proposal, signBytes []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	runtime, err := node.Runtime()
-	if err != nil || len(proposal.Signature) == 0 {
-		return false
+	if err != nil {
+		return err
 	}
 	machine, err := node.Consensus()
 	if err != nil {
-		return false
+		return err
 	}
 	validatorSet, err := machine.ValidatorSetAt(proposal.Block.Header.ValidatorSetHeight)
-	if err != nil || validatorSet.Hash() != proposal.Block.Header.ValidatorSetHash {
-		return false
+	if err != nil {
+		return fmt.Errorf("%w: %w", errProposalUnjudged, err)
 	}
-	leader, err := SelectProposer(validatorSet.List(), proposal.Block.Header.Height, proposal.Round)
-	if err != nil || leader != proposal.Proposer {
-		return false
+	if validatorSet.Hash() != proposal.Block.Header.ValidatorSetHash {
+		return fmt.Errorf("%w: validator set hash", consensus.ErrInvalidProposal)
+	}
+	leader, err := SelectProposer(validatorSet.List(), proposal.Round)
+	if err != nil {
+		return err
 	}
 	proposer, found := validatorSet.Get(leader)
-	if !found {
-		return false
+	if leader != proposal.Proposer || !found || len(proposal.Signature) == 0 {
+		return fmt.Errorf("%w: not the leader of view %d", consensus.ErrInvalidProposal, proposal.Round)
 	}
-	message, err := vexocrypto.DomainMessage(vexocrypto.DomainConsensusProposal, consensus.ProposalSignBytes(proposal))
+	message, err := vexocrypto.DomainMessage(vexocrypto.DomainConsensusProposal, signBytes)
 	if err != nil {
-		return false
+		return err
 	}
-	return runtime.Crypto.ConsensusVerifier.Verify(proposer.PublicKey, message, proposal.Signature)
+	if !runtime.Crypto.ConsensusVerifier.Verify(proposer.PublicKey, message, proposal.Signature) {
+		return fmt.Errorf("%w: proposer signature", consensus.ErrInvalidProposal)
+	}
+	return nil
 }
 
 // removePendingIfSame drops the cached proposal for blockHash when it is exactly proposal.

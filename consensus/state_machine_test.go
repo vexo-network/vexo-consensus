@@ -808,3 +808,68 @@ func TestStateMachineStatusIsMonotonic(t *testing.T) {
 		t.Fatalf("StartRound must never lower the height or view, got %+v", status)
 	}
 }
+
+// An equivocator that retransmits its conflicting vote, or a peer that relays it, commits one
+// offence: the machine records it once.
+func TestStateMachineRecordsAnEquivocationOnce(t *testing.T) {
+	cluster := newThreeValidatorCluster(t)
+	machine := cluster.newMachine()
+	ctx := context.Background()
+	first := cluster.block(1, types.Hash{}, "first")
+	second := cluster.block(1, types.Hash{}, "second")
+	if err := machine.OnProposal(ctx, cluster.proposal("a", first, 0, finality.QuorumCert{}, finality.TimeoutCert{})); err != nil {
+		t.Fatal(err)
+	}
+	if err := machine.OnVote(ctx, cluster.vote("a", 1, 0, HashBlock(first))); err != nil {
+		t.Fatal(err)
+	}
+	machine.StartRound(2, 1)
+	timeoutFirst := cluster.timeoutVote("a", 2, 1, cluster.qc(1, 0, types.Hash{1}))
+	timeoutSecond := cluster.timeoutVote("a", 2, 1, finality.QuorumCert{})
+	if _, err := machine.OnTimeoutVote(ctx, timeoutFirst); !errors.Is(err, ErrNoQuorum) {
+		t.Fatalf("expected no quorum, got %v", err)
+	}
+	for range 50 {
+		if err := machine.OnVote(ctx, cluster.vote("a", 1, 0, HashBlock(second))); !errors.Is(err, ErrConflictingVote) {
+			t.Fatalf("expected conflicting vote, got %v", err)
+		}
+		if _, err := machine.OnTimeoutVote(ctx, timeoutSecond); !errors.Is(err, ErrConflictingTimeoutVote) {
+			t.Fatalf("expected conflicting timeout vote, got %v", err)
+		}
+	}
+	evidence, next := machine.EvidenceSince(0)
+	if len(evidence) != 2 || next != 2 {
+		t.Fatalf("expected the vote and the timeout equivocation once each, got %d (next %d)", len(evidence), next)
+	}
+}
+
+// The machine keeps a bounded window of evidence: a reader that falls behind it resumes at the
+// oldest evidence kept.
+func TestStateMachineKeepsABoundedEvidenceWindow(t *testing.T) {
+	cluster := newThreeValidatorCluster(t)
+	machine := cluster.newMachine()
+	ctx := context.Background()
+	total := maxRetainedEvidence + 10
+	for view := 1; view <= total; view++ {
+		machine.StartRound(2, types.Round(view))
+		first := cluster.timeoutVote("a", 2, types.Round(view), cluster.qc(1, 0, types.Hash{1}))
+		second := cluster.timeoutVote("a", 2, types.Round(view), finality.QuorumCert{})
+		_, _ = machine.OnTimeoutVote(ctx, first)
+		if _, err := machine.OnTimeoutVote(ctx, second); !errors.Is(err, ErrConflictingTimeoutVote) {
+			t.Fatalf("view %d: expected conflicting timeout vote, got %v", view, err)
+		}
+	}
+	if kept := len(machine.Evidence()); kept != maxRetainedEvidence {
+		t.Fatalf("expected %d evidence kept, got %d", maxRetainedEvidence, kept)
+	}
+	evidence, next := machine.EvidenceSince(0)
+	if len(evidence) != maxRetainedEvidence || next != uint64(total) {
+		t.Fatalf("expected the window from a stale cursor, got %d (next %d)", len(evidence), next)
+	}
+	if evidence[0].Round != 11 {
+		t.Fatalf("expected the oldest kept evidence of view 11, got %d", evidence[0].Round)
+	}
+	if fresh, again := machine.EvidenceSince(next); len(fresh) != 0 || again != next {
+		t.Fatalf("expected nothing new, got %d (next %d)", len(fresh), again)
+	}
+}

@@ -7,7 +7,7 @@ This spec defines the consensus state machine, safety rules, liveness assumption
 ## Roles
 
 - **Validator**: proposes blocks, votes, timeout-votes, and can be slashed for accountable faults.
-- **Proposer**: validator selected for `(height, round)` by deterministic proposer rotation.
+- **Proposer**: validator that leads view `round`, chosen by the stake-proportional leader schedule (see Leader Schedule).
 - **Full node**: verifies blocks, QCs, validator-set hashes, app state, and evidence.
 - **Light client**: verifies finality proofs against the correct validator set for the proof height.
 
@@ -53,16 +53,21 @@ Consensus state is keyed by:
 - A validator does not vote for a block whose time is more than `MaxBlockTimeDrift` (2s) ahead of its own clock. The proposal stays cached; the relaying peer is not at fault.
 - A certified block's time is therefore within the drift of an honest validator's clock, and a header's time bounds the time of every block below it. Light clients measure their trusting period against it, and the EVM `TIMESTAMP` reads it.
 
-## Compact Proposals
+## Leader Schedule
 
-A proposer broadcasts a proposal with transactions as a `compact_proposal`: the signed proposal without its transactions, and the 8-byte short id of each transaction in block order (the first 8 bytes of its hash). Transactions reach validators through gossip first, so a validator rebuilds the block from its mempool, and from a bounded overflow of gossiped transactions its full mempool turned away. The block format, its hash, and what validators sign are unchanged.
+The leader of view `round` is `validator.SelectProposer(validators, round)`: the active validators, sorted by id, own `VotingPower` consecutive slots each of `[0, W)`, `W` their total power, and view `v` is led by the owner of slot `v·S mod W`. The stride `S` is the first integer from `ceil(W·(φ−1))` coprime to `W`, so the views `0..W−1` visit every slot once: every window of `W` consecutive views gives each validator exactly its power in views, and the golden-ratio stride spreads the views of one validator apart, so a crashed validator costs isolated views. The schedule depends on the view alone, never on the height. A total power that overflows 64 bits selects no leader.
 
-- A rebuilt block is judged only when its transaction root matches the header, so a short-id collision cannot make a validator judge another block.
-- A validator missing some transactions sends the proposer a `proposal_request` naming their positions, and the proposer answers with `proposal_txs`. A validator missing more than half, or whose rebuilt block fails the transaction root, requests the whole proposal, which the proposer answers with the full `proposal`.
-- A served transaction whose short id is not the one at its position counts against the serving peer. A compact proposal a validator cannot rebuild is not the sender's fault.
-- A node serves a proposal it holds at most twice to each peer, so a peer cannot make it upload a block repeatedly. It holds the 32 most recent proposals.
+## Lanes
 
-The leader's upload per validator then scales with 8 bytes per transaction instead of the transaction size.
+Transaction dissemination is decoupled from ordering (package `lanes`). The block format, its hash, its transaction root, and what validators sign and execute are unchanged; lanes only change how a block travels.
+
+- Every validator authors a lane: it seals the transactions it owns into a signed `lanes.Batch` (chain, author, sequence number, transactions; at most `lanes.MaxBatchTxs` transactions and `lanes.MaxBatchBytes` bytes) and sends it to every validator. A validator that stores a well-formed batch signs an acknowledgement in domain `DomainLaneBatchAck`; acknowledgements of `>= 2/3` of the voting power aggregate into a `BatchCert`, so a certified batch is stored by validators holding more than one third of the power, at least one of them honest. A lane whose previous batch was below 16 KiB seals its next batch once that batch is certified, at most 50 ms after sealing it, so a lightly loaded lane does not pay a signature and a certificate per few transactions.
+- A transaction belongs to the lane `lanes.Owner(members, sender)`, so the transactions of one sender travel on one lane in the order its author admits them and lanes never split a nonce sequence. A validator holding a transaction another lane owns batches it itself when no batch it stores carries it after `lanes.FallbackDelay`, so a faulty owner cannot censor a sender.
+- A leader proposes certified batches only, in sequence order per lane up to the first uncertified batch, the lanes taking turns, and broadcasts a `lane_proposal`: the signed proposal without its transactions, the ids of its batches, the positions of the batch transactions its application check refused (`Excluded`), and the transactions no batch carries (`Extra`). Its upload per validator is a few bytes per batch whatever the block size, and the dissemination load is spread over all validators.
+- A validator judges the proposal signature and leader before it fetches anything, so a forged `lane_proposal` costs nobody an upload and counts against its sender. It rebuilds the block from the batches it stores, fetches a missing batch from its author or another certifier, and judges the rebuilt block only when it is exactly the block the header commits to. A proposal, whole or by lanes, whose validator set depends on a block the validator has not executed yet is kept (at most 16) and judged once the validator executed a block or accepted another proposal, before anything is fetched for it. When a rebuilt block is not the signed one, or its batches do not arrive in time, the validator sends the sender a `proposal_request` and waits for the whole `proposal`; a node serves a proposal it holds at most twice to each peer and holds the 32 most recent.
+- Each author's unconsumed batches are bounded by a byte share of the store, so a validator flooding its lane fills its own share only. A batch no committed block consumed expires; a consumed one is served a few seconds longer to validators that catch up.
+
+A validator runs without lanes only in the measured baseline (`DisseminateByProposal`), where it gossips the transactions submitted to it and a leader broadcasts each block whole.
 
 ## Finality Rule
 

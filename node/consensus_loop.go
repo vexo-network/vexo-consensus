@@ -79,7 +79,7 @@ func (reactor *autoVoteReactor) OnProposal(ctx context.Context, proposal consens
 			reactor.onProposalLatency(time.Since(started))
 		}
 	}()
-	before := len(reactor.machine.Evidence())
+	before := reactor.machine.EvidenceCursor()
 	if err := reactor.machine.OnProposal(ctx, proposal); err != nil {
 		if errors.Is(err, consensus.ErrStaleProposal) {
 			blockHash := consensus.HashBlock(proposal.Block)
@@ -317,7 +317,7 @@ func (reactor *autoVoteReactor) OnVote(ctx context.Context, vote consensus.Vote)
 			reactor.onVoteLatency(time.Since(started))
 		}
 	}()
-	before := len(reactor.machine.Evidence())
+	before := reactor.machine.EvidenceCursor()
 	err := reactor.machine.OnVote(ctx, vote)
 	if errors.Is(err, consensus.ErrUnknownVoteBlock) {
 		reactor.publishUnknownVoteEvidence(ctx, vote)
@@ -407,7 +407,7 @@ func (reactor *autoVoteReactor) cachePendingVote(vote consensus.Vote) {
 func (reactor *autoVoteReactor) replayPendingVotes(ctx context.Context, blockHash types.Hash) {
 	votes := reactor.takePendingVotes(blockHash)
 	for _, vote := range votes {
-		before := len(reactor.machine.Evidence())
+		before := reactor.machine.EvidenceCursor()
 		err := reactor.machine.OnVote(ctx, vote)
 		reactor.publishNewEvidence(ctx, before)
 		if err == nil && reactor.onVoteAccepted != nil {
@@ -450,15 +450,12 @@ func (reactor *autoVoteReactor) OnTimeoutVote(ctx context.Context, vote consensu
 	return timeoutCert, err
 }
 
-func (reactor *autoVoteReactor) publishNewEvidence(ctx context.Context, previousCount int) {
+func (reactor *autoVoteReactor) publishNewEvidence(ctx context.Context, cursor uint64) {
 	if reactor.onEvidence == nil {
 		return
 	}
-	evidence := reactor.machine.Evidence()
-	if previousCount >= len(evidence) {
-		return
-	}
-	for _, item := range evidence[previousCount:] {
+	evidence, _ := reactor.machine.EvidenceSince(cursor)
+	for _, item := range evidence {
 		reactor.onEvidence(ctx, item)
 	}
 }

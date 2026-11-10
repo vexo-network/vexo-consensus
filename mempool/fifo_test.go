@@ -219,6 +219,18 @@ func TestFIFORejectsRecentlySeenCommittedTx(t *testing.T) {
 	}
 }
 
+// A transaction committed before a peer relayed it to the pool is refused when the copy arrives: it
+// would otherwise enter a later block again.
+func TestFIFORejectsACommittedTxItNeverHeld(t *testing.T) {
+	pool := NewFIFO(FIFOConfig{SeenTTL: time.Minute})
+	if err := pool.MarkCommitted(context.Background(), []types.Tx{[]byte("late")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.AddTx(context.Background(), []byte("late")); !errors.Is(err, ErrDuplicateTx) {
+		t.Fatalf("expected the committed tx to be refused, got %v", err)
+	}
+}
+
 func TestFIFOPendingTxsPrunesReplayRejectedTxs(t *testing.T) {
 	pool := NewFIFO(FIFOConfig{
 		ReplayCheckTx: func(ctx context.Context, tx types.Tx) error {
@@ -317,8 +329,52 @@ func TestFIFOPrunesExpiredSeenCache(t *testing.T) {
 	if err := pool.CheckTx(context.Background(), []byte("b")); err != nil {
 		t.Fatal(err)
 	}
-	if len(pool.seen) != 0 {
+	if len(pool.seen) != 0 || len(pool.seenOrder)-pool.seenHead != 0 {
 		t.Fatalf("expected expired seen cache to be pruned, got %d", len(pool.seen))
+	}
+}
+
+// Admission costs what expiry drops, not a scan of the seen cache: a cache of committed
+// transactions made every admission linear in it.
+func TestFIFOSeenCacheExpiryIsBoundedAndOldestFirst(t *testing.T) {
+	pool := NewFIFO(FIFOConfig{SeenTTL: time.Minute})
+	now := time.Unix(100, 0)
+	pool.now = func() time.Time { return now }
+	committed := make([]types.Tx, 0, MaxSeenTxs+10)
+	for index := 0; index < MaxSeenTxs+10; index++ {
+		committed = append(committed, types.Tx(fmt.Sprintf("tx-%d", index)))
+	}
+	if err := pool.MarkCommitted(context.Background(), committed); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.CheckTx(context.Background(), []byte("probe")); err != nil {
+		t.Fatal(err)
+	}
+	if len(pool.seen) != MaxSeenTxs {
+		t.Fatalf("expected the seen cache bounded at %d, got %d", MaxSeenTxs, len(pool.seen))
+	}
+	if err := pool.AddTx(context.Background(), []byte("tx-0")); err != nil {
+		t.Fatalf("expected the oldest record to go first, got %v", err)
+	}
+	if err := pool.AddTx(context.Background(), []byte(fmt.Sprintf("tx-%d", MaxSeenTxs+9))); !errors.Is(err, ErrDuplicateTx) {
+		t.Fatalf("expected the newest record kept, got %v", err)
+	}
+	// A million live records: an admission that scanned them would take seconds for these.
+	started := time.Now()
+	for index := 0; index < 2000; index++ {
+		if err := pool.CheckTx(context.Background(), types.Tx(fmt.Sprintf("fresh-%d", index))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("2000 admissions over a full seen cache took %s", elapsed)
+	}
+	now = now.Add(time.Minute + time.Second)
+	if err := pool.CheckTx(context.Background(), []byte("after-expiry")); err != nil {
+		t.Fatal(err)
+	}
+	if len(pool.seen) != 0 {
+		t.Fatalf("expected the expired cache dropped, got %d", len(pool.seen))
 	}
 }
 

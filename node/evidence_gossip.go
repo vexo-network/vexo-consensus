@@ -64,6 +64,12 @@ func (node *Node) queueEvidenceTx(ctx context.Context, runtime *vexoruntime.Runt
 	if errors.Is(err, mempool.ErrDuplicateTx) {
 		return false, nil
 	}
+	if err == nil {
+		if service := node.laneService(); service != nil {
+			// Blocks are made of lane batches: the evidence travels on this validator's lane.
+			service.Submit(tx)
+		}
+	}
 	return err == nil, err
 }
 
