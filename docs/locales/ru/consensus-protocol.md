@@ -82,3 +82,4 @@ Vexo не является новым названием неизмененно�
 - `mempool_config.json`
 - `log_config.json`
 - `consensus.TwoChainCommitRule`
+- `/v1/committee/{height}/{round}`

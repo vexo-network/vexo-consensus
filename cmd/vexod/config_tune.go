@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/cmd/vexod/internal/tuning"
+	"github.com/vexo-network/vexo-consensus/consensus"
 )
 
 func runConfigTune(writer io.Writer, args []string) error {
@@ -17,7 +18,7 @@ func runConfigTune(writer io.Writer, args []string) error {
 	targetTPS := flags.Int("tps", 100, "target transactions per second")
 	regions := flags.Int("regions", 1, "deployment region count")
 	averageLatency := flags.Duration("latency", 150*time.Millisecond, "average inter-validator latency")
-	blockBytes := flags.Int64("block-bytes", 4*1024*1024, "target maximum block bytes")
+	blockBytes := flags.Int64("block-bytes", consensus.MaxBlockBytes, "target maximum block bytes")
 	faultPercentage := flags.Int("fault-percent", 20, "expected Byzantine/offline validator percentage")
 	jsonOutput := flags.Bool("json", false, "write JSON output")
 	if err := flags.Parse(args); err != nil {

@@ -5,14 +5,14 @@
 
 ## 문서 개요
 
-이 문서는 RPC API 버전 관리, 호환성 별칭, 안정화 정책을 이해하고 실제 구현·운영 판단에 연결하도록 돕습니다. 예제와 식별자는 구현 호환성을 위해 영어 표기를 유지하지만, 읽는 흐름과 운영상 판단 기준은 한국어로 설명합니다.
+이 문서는 RPC API 버전 관리(`/v1` 전용 경로)와 안정화 정책을 이해하고 실제 구현·운영 판단에 연결하도록 돕습니다. 예제와 식별자는 구현 호환성을 위해 영어 표기를 유지하지만, 읽는 흐름과 운영상 판단 기준은 한국어로 설명합니다.
 
 - Canonical path: `docs/sdk/rpc-api-versioning.md`
 - Locale path: `docs/locales/ko/sdk/rpc-api-versioning.md`
 
 ## 이 문서를 읽는 이유
 
-- RPC API 버전 관리, 호환성 별칭, 안정화 정책
+- RPC API 버전 관리(`/v1` 전용 경로)와 안정화 정책
 - 영어 원문에서 MUST/SHOULD/MAY 문장을 먼저 확인합니다.
 - 이 페이지는 영어 원문의 직역본이며, 감사·릴리즈·보안 판단은 영어 원문으로 확정합니다.
 
@@ -202,3 +202,8 @@
 - `rpc.cors_allowed_origins` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `https://remix.ethereum.org` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
 - `/v1/light/{height}` — 이 이름은 실행 예제와 설정 검증에서 그대로 사용되므로 번역하지 않습니다.
+- `endpoint not found: the API is served under /v1`
+- `/web3`
+- `/debug/pprof/*`
+- `snapshot_urls`
+- `--url`

@@ -170,3 +170,10 @@
 - `consensus.MaxBlockBytes` — يُستخدم هذا الاسم كما هو في أمثلة التشغيل والتحقق من الإعداد، لذلك لا يُترجم.
 - `consensus.BlockTxBytes` — يُستخدم هذا الاسم كما هو في أمثلة التشغيل والتحقق من الإعداد، لذلك لا يُترجم.
 - `max_block_bytes` — يُستخدم هذا الاسم كما هو في أمثلة التشغيل والتحقق من الإعداد، لذلك لا يُترجم.
+- `types.TxCost`
+- `types.TxOverheadBytes`
+- `transport.MinMessageBytes`
+- `consensus.Leader`
+- `Header.Benched`
+- `consensus.ChildBench(parent, round, set)`
+- `consensus.BenchViews`

@@ -89,3 +89,4 @@ Im Betrieb sollten `vexo_quorum_health_ratio` und `adaptive_round_timeout_enable
 - `qc` sollte nur in kontrollierten Testnetzen aktiviert werden.
 - `recovery_finality_gate_enabled` sollte mit Snapshot- und Replay-Nachweisen geprüft werden.
 - `consensus.TwoChainCommitRule` sollte mit Snapshot- und Replay-Nachweisen geprüft werden.
+- `/v1/committee/{height}/{round}`

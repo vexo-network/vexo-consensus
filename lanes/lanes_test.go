@@ -325,7 +325,7 @@ func TestCandidatesKeepLaneOrderAndTakeLanesInTurn(t *testing.T) {
 	if fmt.Sprint(order) != "[a1 b1 b2]" {
 		t.Fatalf("expected alice's lane to stop at its uncertified batch and the lanes to alternate, got %v", order)
 	}
-	if limited := service.Candidates(4); len(limited) != 2 {
+	if limited := service.Candidates(2 * types.TxCost(types.Tx("a1"))); len(limited) != 2 {
 		t.Fatalf("expected the byte limit to bound the candidates, got %d", len(limited))
 	}
 }

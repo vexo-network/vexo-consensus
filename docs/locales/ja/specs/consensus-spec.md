@@ -170,3 +170,10 @@ Proposal は `chain_id` と height から salt を作り、signer ごとの tran
 - `consensus.MaxBlockBytes` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `consensus.BlockTxBytes` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `max_block_bytes` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `types.TxCost`
+- `types.TxOverheadBytes`
+- `transport.MinMessageBytes`
+- `consensus.Leader`
+- `Header.Benched`
+- `consensus.ChildBench(parent, round, set)`
+- `consensus.BenchViews`

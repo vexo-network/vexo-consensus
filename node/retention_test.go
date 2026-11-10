@@ -14,13 +14,13 @@ import (
 func TestNodePrunesToItsRetentionAsItCommits(t *testing.T) {
 	ctx := context.Background()
 	fixture := newCommitFixture(t)
-	fixture.node.cfg.RetainBlocks = 2
+	fixture.node.cfg.RetainBlocks = 3
 	runtime, err := fixture.node.Runtime()
 	if err != nil {
 		t.Fatal(err)
 	}
 	parent := types.Hash{}
-	for height := types.Height(1); height <= 5; height++ {
+	for height := types.Height(1); height <= 6; height++ {
 		block := fixture.block(height, parent, types.Tx("bank:send:a"))
 		if applied, _ := fixture.deliver(fixture.commit(block)); applied != height {
 			t.Fatalf("expected block %d to be applied, node is at height %d", height, applied)
@@ -30,9 +30,10 @@ func TestNodePrunesToItsRetentionAsItCommits(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// Pruned once it holds one height past its retention of two.
-		if index.TotalBlocks > 2 || index.LatestHeight != height || index.EarliestHeight != max(height, 2)-1 {
-			t.Fatalf("after block %d: index %+v, want the last two heights", height, index)
+		// Pruned once it holds one height past its retention of three: the state the next block
+		// commits, three below it, stays.
+		if index.TotalBlocks > 3 || index.LatestHeight != height || index.EarliestHeight != max(height, 3)-2 {
+			t.Fatalf("after block %d: index %+v, want the last three heights", height, index)
 		}
 	}
 	if _, err := runtime.Store.StateByHeight(ctx, 3); !errors.Is(err, store.ErrStateNotFound) {

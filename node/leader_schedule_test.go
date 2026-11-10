@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -55,9 +56,9 @@ func TestEveryValidatorOfAnEvenSetLeadsBlocks(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		leader, err := SelectProposer(set.List(), record.Block.Header.Round)
-		if err != nil {
-			t.Fatal(err)
+		leader, ok := consensus.Leader(record.Block.Header, set)
+		if !ok {
+			t.Fatal("no leader")
 		}
 		led[leader]++
 	}
@@ -117,5 +118,61 @@ func TestLanesCommitEveryTransactionWithACrashedValidator(t *testing.T) {
 			}
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// A crashed validator fails the first view it leads and is benched: the views that directly follow a
+// certified block pass over it, and only the views after a timeout, led by the whole set, can still
+// fall on it. Scheduled by stake alone it would fail a quarter of the views.
+func TestACrashedLeaderIsBenchedAfterItFailsAView(t *testing.T) {
+	nodes, links := newThroughputValidators(t, 4, 0, 0, false)
+	running := nodes[:3]
+	for _, node := range running {
+		startNode(t, node)
+		defer node.Stop(context.Background())
+	}
+	for _, link := range links {
+		defer link.close()
+	}
+	ctx := context.Background()
+	loop := ConsensusLoopConfig{Interval: time.Millisecond, RoundTimeout: 200 * time.Millisecond, MaxBlockBytes: 1 << 20, CreateEmptyBlocks: true, ExecutionCommitMode: ExecutionCommitModeFinalized}
+	for _, node := range running {
+		if err := node.StartConsensusLoop(ctx, loop); err != nil {
+			t.Fatal(err)
+		}
+		defer node.StopConsensusLoop(context.Background())
+	}
+	const blocks = 60
+	deadline := time.Now().Add(60 * time.Second)
+	for running[0].Status(ctx).LatestHeight < blocks {
+		if time.Now().After(deadline) {
+			t.Fatalf("the chain did not reach height %d: %+v", blocks, running[0].Status(ctx))
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	runtime, err := running[0].Runtime()
+	if err != nil {
+		t.Fatal(err)
+	}
+	crashed := nodes[3].cfg.ValidatorID
+	failed, benched := 0, 0
+	for height := types.Height(2); height <= blocks; height++ {
+		record, err := runtime.BlockByHeight(ctx, height)
+		if err != nil {
+			t.Fatal(err)
+		}
+		header := record.Block.Header
+		failed += int(header.Round - header.JustifyRound - 1)
+		for _, entry := range header.Benched {
+			if entry.Validator == crashed {
+				benched++
+			}
+		}
+	}
+	if failed > 6 {
+		t.Fatalf("expected the crashed validator to cost a few views over %d blocks, %d views failed", blocks, failed)
+	}
+	if benched < blocks-10 {
+		t.Fatalf("expected the crashed validator benched in nearly every block, it is in %d of %d", benched, blocks-1)
 	}
 }

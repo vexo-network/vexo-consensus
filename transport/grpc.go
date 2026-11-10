@@ -25,9 +25,13 @@ const (
 	defaultReconnectInterval = 500 * time.Millisecond
 	defaultReconnectBackoff  = 500 * time.Millisecond
 	maxReconnectBackoff      = 30 * time.Second
-	defaultMaxMessageBytes   = 4 * 1024 * 1024
 	defaultSubscriberBuffer  = 32
 )
+
+// MinMessageBytes is the smallest message limit a transport may have, and its default: the largest
+// consensus message, a whole proposal or a committed block of consensus.MaxBlockBytes with its
+// certificates, fits it. A node with a smaller limit could not receive a valid block.
+const MinMessageBytes = 4 << 20
 
 var (
 	ErrHandshakeFailed     = errors.New("p2p handshake failed")
@@ -40,6 +44,7 @@ var (
 	ErrNodeIDMismatch      = errors.New("p2p node id does not match its public key")
 	ErrHandshakeBusy       = errors.New("p2p handshake capacity exhausted")
 	ErrMessageTooLarge     = errors.New("p2p message too large")
+	ErrMessageLimitTooLow  = errors.New("p2p message limit below the largest consensus message")
 	ErrPeerBackoffActive   = errors.New("peer reconnect backoff active")
 	ErrPeerDialInProgress  = errors.New("peer dial already in progress")
 	ErrTLSRequired         = errors.New("p2p tls is required")
@@ -181,7 +186,10 @@ func NewGRPCTransport(config GRPCConfig) (*GRPCTransport, error) {
 		config.ProtocolVersion = GRPCProtocolVersion
 	}
 	if config.MaxMessageBytes == 0 {
-		config.MaxMessageBytes = defaultMaxMessageBytes
+		config.MaxMessageBytes = MinMessageBytes
+	}
+	if config.MaxMessageBytes < MinMessageBytes {
+		return nil, fmt.Errorf("%w: %d bytes, at least %d", ErrMessageLimitTooLow, config.MaxMessageBytes, MinMessageBytes)
 	}
 	if config.SubscriberBuffer <= 0 {
 		config.SubscriberBuffer = defaultSubscriberBuffer

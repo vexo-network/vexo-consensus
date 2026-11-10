@@ -12,7 +12,7 @@ Vexo는 proposal, vote, quorum certificate(QC), timeout certificate, locked-QC �
 
 Vexo는 수정하지 않은 HotStuff의 새 이름이 아니며 AptosBFT, DiemBFT, Jolteon, Ditto, Tendermint, CometBFT와 동일한 프로토콜이나 구현도 아닙니다. 별도 Go 런타임에서 HotStuff 계열 안전 개념을 재사용하고, 적응형 라운드 시간, 내구성 복구, 결정적 트랜잭션 순서, 모듈 실행, 높이별 validator set 정책을 결합합니다.
 
-현재 투표 경로는 높이별 전체 validator set과 결정적 proposer 선택을 사용합니다. 저장소의 VRF committee selector는 컴포넌트와 조회 경로에는 존재하지만 proposal 자격이나 quorum 구성에는 연결되지 않았습니다. 따라서 VRF committee 합의는 활성 기능이 아니라 후속 연구로만 기술해야 합니다. 기여 범위와 실험 절차는 [Adaptive Recovery-Gated HotStuff for Modular Proof-of-Stake Networks](./research/adaptive-recovery-hotstuff-paper.md)를 참조하세요.
+합의는 설계상 높이별 전체 validator set으로 투표합니다. 전체 set의 quorum이 있어야 faulty power가 1/3 미만일 때 안전성이 결정적으로 성립하기 때문입니다. VRF로 표본 추출한 committee는 안전성을 표본에 대한 높은 확률로만 보장하므로 프로토콜에 포함하지 않습니다. committee selector는 표본 집합이 필요한 애플리케이션을 위한 조회 서비스(`/v1/committee/{height}/{round}`)이며, proposal 자격이나 quorum 구성에 영향을 주지 않습니다. 기여 범위와 실험 절차는 [Adaptive Recovery-Gated HotStuff for Modular Proof-of-Stake Networks](./research/adaptive-recovery-hotstuff-paper.md)를 참조하세요.
 
 ## 실행 및 복구 경계
 
@@ -32,7 +32,7 @@ QC 인증, HotStuff 최종화, 애플리케이션 실행, 상태 커밋은 서�
 - `deterministic` backend는 시험 전용이며 network safety 검사를 통과하지 못합니다.
 - 공개 네트워크 시험과 출시 준비에는 `ed25519`를 사용할 수 있습니다.
 - `bls`는 기본적으로 `blst-bls12381-minpk-v1`을 사용하며 proof-of-possession, subgroup 검사, public-key 검증, 의존성 감사와 release-gate 증거가 필요합니다.
-- VRF adapter metadata는 네트워크 안전성 검사에 필요하지만, 이는 VRF committee가 활성 합의 경로라는 뜻이 아닙니다.
+- VRF adapter metadata는 네트워크 안전성 검사에 필요하지만, VRF committee는 합의 경로에 속하지 않습니다.
 
 - 모든 검증인 홈에 대한 엄격한 구성 감사
 - 릴리스 게이트 증거

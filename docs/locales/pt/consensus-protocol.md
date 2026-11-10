@@ -81,3 +81,4 @@ Este apêndice resume o que precisa permanecer igual à versão inglesa: interfa
 - `remote signer`
 - `two-chain finality`
 - `consensus.TwoChainCommitRule`
+- `/v1/committee/{height}/{round}`

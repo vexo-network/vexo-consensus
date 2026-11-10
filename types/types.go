@@ -15,6 +15,16 @@ type ValidatorID string
 
 type Tx []byte
 
+// TxOverheadBytes is what a block charges a transaction beyond its own bytes: its framing in the
+// encodings that carry it. Block limits count TxCost, so a block of many small transactions
+// encodes within the same bound as one of a few large ones.
+const TxOverheadBytes = 16
+
+// TxCost returns the bytes a block limit charges tx.
+func TxCost(tx Tx) int {
+	return len(tx) + TxOverheadBytes
+}
+
 type Height uint64
 
 type Round uint64
@@ -116,6 +126,17 @@ type Header struct {
 	ValidatorSetHeight Height
 	// StateHeight is the height of the executed block whose resulting state AppHash commits.
 	StateHeight Height
+	// Benched names the validators that failed to lead a recent view, sorted by validator, each
+	// with the last view it is benched for. The leader of a view that directly follows the
+	// certificate of the block's parent is scheduled from the validators not benched (see
+	// consensus.Leader); the list derives from the parent header (see consensus.ChildBench).
+	Benched []Bench
+}
+
+// Bench is a validator left out of the leader schedule through view Until.
+type Bench struct {
+	Validator ValidatorID
+	Until     Round
 }
 
 type Block struct {

@@ -23,7 +23,7 @@ The implementation (`consensus.TwoChainCommitRule`) binds the decision to explic
 
 Vexo is not a new name for the unmodified HotStuff protocol, and it is not the same protocol or implementation as AptosBFT, DiemBFT, Jolteon, Ditto, Tendermint, or CometBFT. It reuses established HotStuff-style safety concepts inside a separate Go runtime and adds implementation-level policies for adaptive round timing, durable recovery, deterministic transaction ordering, modular execution, and height-versioned validator sets.
 
-The active consensus vote path uses the full height-versioned validator set and deterministic proposer selection. The repository's VRF committee selector is available through the committee component and query surface, but it is not yet connected to proposal eligibility or quorum formation. Documentation and papers must therefore describe VRF committee consensus as future work, not as an enabled consensus property.
+Consensus votes with the full height-versioned validator set by design: a quorum of the whole set is what makes safety deterministic under fewer than a third faulty power. A committee sampled by VRF would make safety hold only with high probability over the sample, so committees are not part of the protocol. The committee selector is a query service (`/v1/committee/{height}/{round}`) for applications that need a sampled subset; it never affects proposal eligibility or quorum formation.
 
 For the paper-style contribution statement, implementation mapping, prior-art comparison, and experiment protocol, see [Adaptive Recovery-Gated HotStuff for Modular Proof-of-Stake Networks](./research/adaptive-recovery-hotstuff-paper.md).
 

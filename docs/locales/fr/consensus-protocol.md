@@ -89,3 +89,4 @@ En production, `vexo_quorum_health_ratio` et `adaptive_round_timeout_enabled` do
 - `qc` ne doit être activé que dans des réseaux de test contrôlés.
 - `recovery_finality_gate_enabled` doit être vérifié avec les preuves de snapshot et de replay.
 - `consensus.TwoChainCommitRule` doit être vérifié avec les preuves de snapshot et de replay.
+- `/v1/committee/{height}/{round}`

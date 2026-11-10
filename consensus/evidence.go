@@ -169,8 +169,8 @@ func ParentLinkageFault(header types.Header, parent *types.Header) error {
 			return fmt.Errorf("%w: the first block has no parent", ErrParentNotNamed)
 		}
 		if header.PreviousBlockHash != (types.Hash{}) || header.TimeUnixNano <= 0 ||
-			header.ValidatorSetHeight != finality.FirstValidatorSetHeight || header.StateHeight != 0 {
-			return fmt.Errorf("%w: the first block must name no parent, a positive time, the genesis set and state", ErrInvalidProposal)
+			header.ValidatorSetHeight != finality.FirstValidatorSetHeight || header.StateHeight != 0 || len(header.Benched) != 0 {
+			return fmt.Errorf("%w: the first block must name no parent, a positive time, the genesis set and state, and bench no one", ErrInvalidProposal)
 		}
 		return nil
 	}

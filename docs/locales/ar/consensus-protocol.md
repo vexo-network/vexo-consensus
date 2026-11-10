@@ -89,3 +89,4 @@ Vexo ليس اسما جديدا لـ HotStuff غير المعدل، ولا يط�
 - يجب تفعيل `qc` فقط في شبكات اختبار مضبوطة.
 - يجب التحقق من `recovery_finality_gate_enabled` مع أدلة snapshot و replay.
 - `consensus.TwoChainCommitRule` له الأولوية.
+- `/v1/committee/{height}/{round}`

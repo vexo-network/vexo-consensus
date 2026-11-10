@@ -552,12 +552,15 @@ func (node *Node) checkProposalSignature(ctx context.Context, proposal consensus
 	if validatorSet.Hash() != proposal.Block.Header.ValidatorSetHash {
 		return fmt.Errorf("%w: validator set hash", consensus.ErrInvalidProposal)
 	}
-	leader, err := SelectProposer(validatorSet.List(), proposal.Round)
-	if err != nil {
+	if err := machine.CheckBench(proposal.Block.Header); err != nil {
 		return err
 	}
+	leader, ok := consensus.Leader(proposal.Block.Header, validatorSet)
+	if !ok {
+		return ErrMissingValidators
+	}
 	proposer, found := validatorSet.Get(leader)
-	if leader != proposal.Proposer || !found || len(proposal.Signature) == 0 {
+	if leader != proposal.Proposer || proposal.Round != proposal.Block.Header.Round || !found || len(proposal.Signature) == 0 {
 		return fmt.Errorf("%w: not the leader of view %d", consensus.ErrInvalidProposal, proposal.Round)
 	}
 	message, err := vexocrypto.DomainMessage(vexocrypto.DomainConsensusProposal, signBytes)

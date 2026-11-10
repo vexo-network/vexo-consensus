@@ -89,3 +89,4 @@ production में `vexo_quorum_health_ratio` और `adaptive_round_timeout_e
 - `qc` केवल नियंत्रित testnet में चालू करें।
 - `recovery_finality_gate_enabled` को snapshot और replay प्रमाणों के साथ सत्यापित करें।
 - `consensus.TwoChainCommitRule` को snapshot और replay प्रमाणों के साथ सत्यापित करें।
+- `/v1/committee/{height}/{round}`

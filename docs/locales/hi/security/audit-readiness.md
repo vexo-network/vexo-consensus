@@ -103,3 +103,4 @@ Audit सामग्री में BLS के साथ VRF adapter audit evi
 - `vexod light verify` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
 - `next_validator_set_hash` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
 - `parent_linkage` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
+- `consensus.MaxBlockBytes`

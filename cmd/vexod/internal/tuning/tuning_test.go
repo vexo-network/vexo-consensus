@@ -12,7 +12,7 @@ func TestRecommendProducesSafeDefaults(t *testing.T) {
 		TargetTPS:      5_000,
 		Regions:        3,
 		AverageLatency: 120 * time.Millisecond,
-		BlockBytes:     8 * 1024 * 1024,
+		BlockBytes:     2 * 1024 * 1024,
 	})
 
 	if recommendation.SchemaVersion != "v1" {

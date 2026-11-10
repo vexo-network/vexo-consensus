@@ -103,3 +103,4 @@ Este apéndice asegura que la traducción conserve las interfaces ejecutables y 
 - `vexod light verify` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `next_validator_set_hash` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `parent_linkage` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `consensus.MaxBlockBytes`

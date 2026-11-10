@@ -170,3 +170,10 @@ Lampiran ini memastikan terjemahan tetap membawa antarmuka yang dapat dijalankan
 - `consensus.MaxBlockBytes` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.
 - `consensus.BlockTxBytes` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.
 - `max_block_bytes` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.
+- `types.TxCost`
+- `types.TxOverheadBytes`
+- `transport.MinMessageBytes`
+- `consensus.Leader`
+- `Header.Benched`
+- `consensus.ChildBench(parent, round, set)`
+- `consensus.BenchViews`

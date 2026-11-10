@@ -81,3 +81,4 @@ Phụ lục này tóm tắt những gì phải giữ nguyên so với bản ti�
 - `remote signer`
 - `two-chain finality`
 - `consensus.TwoChainCommitRule`
+- `/v1/committee/{height}/{round}`

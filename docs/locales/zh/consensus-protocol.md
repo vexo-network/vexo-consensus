@@ -89,3 +89,4 @@ QC 认证、HotStuff 终局化、应用执行和状态提交是不同事件。�
 - `qc` 路径只应保留给受控测试网。
 - 同时检查 `recovery_finality_gate_enabled` 与 snapshot/replay health。
 - `consensus.TwoChainCommitRule` 路径只应保留给受控测试网。
+- `/v1/committee/{height}/{round}`

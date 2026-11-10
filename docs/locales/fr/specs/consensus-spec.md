@@ -170,3 +170,10 @@ Cette annexe garantit que la traduction conserve les interfaces exécutables et 
 - `consensus.MaxBlockBytes` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
 - `consensus.BlockTxBytes` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
 - `max_block_bytes` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `types.TxCost`
+- `types.TxOverheadBytes`
+- `transport.MinMessageBytes`
+- `consensus.Leader`
+- `Header.Benched`
+- `consensus.ChildBench(parent, round, set)`
+- `consensus.BenchViews`

@@ -170,3 +170,10 @@ Proposal 由 `chain_id` 和 height 生成 salt，将每个 signer 的 transactio
 - `consensus.MaxBlockBytes` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `consensus.BlockTxBytes` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `max_block_bytes` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `types.TxCost`
+- `types.TxOverheadBytes`
+- `transport.MinMessageBytes`
+- `consensus.Leader`
+- `Header.Benched`
+- `consensus.ChildBench(parent, round, set)`
+- `consensus.BenchViews`

@@ -200,3 +200,8 @@ Este apéndice asegura que la traducción conserve las interfaces ejecutables y 
 - `path.siblings` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `path.neighbor` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `/v1/light/{height}` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `endpoint not found: the API is served under /v1`
+- `/web3`
+- `/debug/pprof/*`
+- `snapshot_urls`
+- `--url`

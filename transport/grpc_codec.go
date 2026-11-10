@@ -296,7 +296,7 @@ func readBinaryPeerMap(reader io.Reader) (map[p2p.PeerID]string, error) {
 }
 
 func readBinaryBytes(reader io.Reader) ([]byte, error) {
-	return readBoundedBytes(reader, defaultMaxMessageBytes)
+	return readBoundedBytes(reader, MinMessageBytes)
 }
 
 func readBoundedBytes(reader io.Reader, limit uint32) ([]byte, error) {

@@ -71,7 +71,7 @@
 
 - 라이트 클라이언트: 모든 헤더가 자식을 인증할 set(`next_validator_set_hash`)을 가리키므로, set이 한 블록 사이에 크게 바뀌어도 연속 블록까지 bisection해 따라갈 수 있습니다. 신뢰 가정은 trusting period 동안 신뢰한 set의 결함 power가 1/3 미만이라는 것이고, trusting period는 검증자가 set을 떠난 뒤 슬래싱 가능한 기간보다 짧아야 합니다.
 - Invalid-proposal evidence 사유는 `da_mismatch`, `missing_data`, `validator_set_hash`, `next_validator_set_hash`, `app_hash`, `parent_linkage`(높이, 시간, set/state 높이)입니다. 로컬 시계나 재실행이 필요한 결함은 evidence가 아닙니다.
-- 블록마다 단일 leader가 제안합니다. compact proposal은 트랜잭션이 먼저 gossip된 경우 leader 업로드를 validator당 트랜잭션당 8바이트로 줄이지만, DAG mempool(Narwhal 방식)처럼 전파를 validator들에 분산하지는 않으므로 leader 대역폭과 1 MiB 블록 한도가 여전히 처리량 상한입니다.
+- 블록마다 단일 leader가 순서를 정합니다. 트랜잭션 데이터는 모든 validator가 봉인하고 제공하는 인증된 lane batch(Vexo Lanes)로 전달되므로 leader는 트랜잭션이 아니라 batch 참조만 올립니다. 다만 DAG 프로토콜(Bullshark, Mysticeti)처럼 leader 없이 순서를 정하지는 않으며, 블록 하나는 2 MiB 한도(`consensus.MaxBlockBytes`)를 넘을 수 없습니다.
 
 ## 감사 준비 추가 설명
 

@@ -134,9 +134,11 @@ func (cluster *testCluster) seal(block types.Block, round types.Round, justifyRo
 	block.Header.JustifyRound = justifyRound
 	block.Header.ValidatorSetHeight = finality.FirstValidatorSetHeight
 	block.Header.StateHeight = 0
+	block.Header.Benched = nil
 	if parent, found := cluster.headers[block.Header.PreviousBlockHash]; found && block.Header.Height > 1 {
 		block.Header.ValidatorSetHeight = finality.ChildValidatorSetHeight(parent)
 		block.Header.StateHeight = finality.ChildStateHeight(parent)
+		block.Header.Benched = ChildBench(&parent, round, cluster.set)
 	}
 	if block.Header.NextValidatorSetHash == (types.Hash{}) {
 		block.Header.NextValidatorSetHash = cluster.set.Hash()

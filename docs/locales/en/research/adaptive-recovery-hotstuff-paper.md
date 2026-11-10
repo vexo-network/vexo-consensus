@@ -136,7 +136,7 @@ It does not prove first-seen fairness, censorship resistance, confidentiality, o
 
 ### 4.5 Validator and Committee Boundary
 
-Consensus voting currently uses the height-versioned active validator set and deterministic proposer selection. The repository also contains deterministic and ECVRF-backed committee-selection components and query surfaces. Those committee results are not currently wired into the consensus vote-quorum path. Consequently, VRF committee consensus is future work and must not appear as an implemented experimental treatment in this paper.
+Consensus voting currently uses the height-versioned active validator set and deterministic proposer selection. The repository also contains deterministic and ECVRF-backed committee-selection components and query surfaces. Those committee results are not part of the consensus vote-quorum path, by design: a sampled committee would make safety probabilistic, so VRF committee consensus is not a treatment of this paper.
 
 ## 5. Implementation Mapping
 

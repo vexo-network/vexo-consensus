@@ -15,7 +15,7 @@
 
 | Version | RPC | Config Schema | Store Schema | App State Schema | Notes |
 |---|---|---:|---:|---:|---|
-| pre-audit | `/v1/*` stable paths, unversioned aliases | 1 | 1 | 1 | Requires release-gate evidence before value-bearing launch |
+| pre-audit | `/v1/*` stable paths only | 1 | 1 | 1 | Requires release-gate evidence before value-bearing launch |
 
 ## Upgrade Compatibility Checklist
 

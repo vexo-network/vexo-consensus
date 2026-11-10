@@ -71,15 +71,15 @@ func newCommitFixture(t *testing.T) *commitFixture {
 // parent fixes for it.
 func (fixture *commitFixture) block(height types.Height, parent types.Hash, txs ...types.Tx) types.Block {
 	round := gossipBlockView + types.Round(height-1)
-	// Every block proves the commit of its grandparent, so a block commits the state of its
-	// grandparent and is certified by the set after its parent's state.
+	// Every block proves the commit of its grandparent, so a block commits the state one block below
+	// its grandparent and is certified by the set after its parent's state.
 	var stateHeight types.Height
-	if height > 2 {
-		stateHeight = height - 2
+	if height > 3 {
+		stateHeight = height - 3
 	}
 	validatorSetHeight := finality.FirstValidatorSetHeight
-	if height > 3 {
-		validatorSetHeight = height - 2
+	if height > 4 {
+		validatorSetHeight = height - 3
 	}
 	block := types.Block{
 		Header: types.Header{
@@ -340,32 +340,36 @@ func TestCommitGossipRequiresTheValidatorSetHeightOfTheBlock(t *testing.T) {
 		if height, _ := fixture.deliver(fixture.commit(second)); height != 2 {
 			t.Fatalf("expected the second block to be applied, node is at height %d", height)
 		}
-		// Block 2 directly follows the view of its parent, so it proves block 1 committed: block 3
-		// commits the state after block 1 and names the set after it as next, the set of registry
-		// height 2 that certifies block 4. A quorum of an older set certifying a block 4 that keeps
-		// registry height 1 does not make it a block of this chain.
 		third := fixture.block(3, consensus.HashBlock(second), types.Tx("bank:send:c"))
-		if third.Header.ValidatorSetHeight != 1 || third.Header.StateHeight != 1 {
-			t.Fatalf("expected block 3 to commit state 1 on registry height 1, got %+v", third.Header)
-		}
 		if height, _ := fixture.deliver(fixture.commit(third)); height != 3 {
 			t.Fatalf("expected the third block to be applied, node is at height %d", height)
 		}
+		// Block 3 directly follows the view of its parent, so it proves block 2 committed: block 4
+		// commits the state one block below it, after block 1, and names the set after it as next,
+		// the set of registry height 2 that certifies block 5. A quorum of an older set certifying a
+		// block 5 that keeps registry height 1 does not make it a block of this chain.
 		fourth := fixture.block(4, consensus.HashBlock(third), types.Tx("bank:send:d"))
-		if fourth.Header.ValidatorSetHeight != 2 {
-			t.Fatalf("expected block 4 to name registry height 2, got %d", fourth.Header.ValidatorSetHeight)
-		}
-		stale := fourth
-		stale.Header.ValidatorSetHeight = 1
-		if height, _ := fixture.deliver(fixture.commit(stale)); height != 3 {
-			t.Fatalf("expected the block naming a stale validator set to be refused, node is at height %d", height)
-		}
-		misnamed := fourth
-		misnamed.Header.NextValidatorSetHash = types.Hash{0xEE}
-		if height, _ := fixture.deliver(fixture.commit(misnamed)); height != 3 {
-			t.Fatalf("expected the block naming another next set to be refused, node is at height %d", height)
+		if fourth.Header.ValidatorSetHeight != 1 || fourth.Header.StateHeight != 1 {
+			t.Fatalf("expected block 4 to commit state 1 on registry height 1, got %+v", fourth.Header)
 		}
 		if height, _ := fixture.deliver(fixture.commit(fourth)); height != 4 {
+			t.Fatalf("expected the fourth block to be applied, node is at height %d", height)
+		}
+		fifth := fixture.block(5, consensus.HashBlock(fourth), types.Tx("bank:send:e"))
+		if fifth.Header.ValidatorSetHeight != 2 {
+			t.Fatalf("expected block 5 to name registry height 2, got %d", fifth.Header.ValidatorSetHeight)
+		}
+		stale := fifth
+		stale.Header.ValidatorSetHeight = 1
+		if height, _ := fixture.deliver(fixture.commit(stale)); height != 4 {
+			t.Fatalf("expected the block naming a stale validator set to be refused, node is at height %d", height)
+		}
+		misnamed := fifth
+		misnamed.Header.NextValidatorSetHash = types.Hash{0xEE}
+		if height, _ := fixture.deliver(fixture.commit(misnamed)); height != 4 {
+			t.Fatalf("expected the block naming another next set to be refused, node is at height %d", height)
+		}
+		if height, _ := fixture.deliver(fixture.commit(fifth)); height != 5 {
 			t.Fatalf("expected the block naming the set its parent fixes to be applied, node is at height %d", height)
 		}
 	})
@@ -522,17 +526,21 @@ func TestCommitGossipRefusesAHeaderNamingAnotherAppHash(t *testing.T) {
 	if height, _ := fixture.deliver(fixture.commit(second)); height != 2 {
 		t.Fatalf("expected the second block to be applied, node is at height %d", height)
 	}
+	third := fixture.block(3, consensus.HashBlock(second), types.Tx("bank:send:c"))
+	if height, _ := fixture.deliver(fixture.commit(third)); height != 3 {
+		t.Fatalf("expected the third block to be applied, node is at height %d", height)
+	}
 	afterFirst, err := runtime.HeaderAppHashAt(ctx, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	third := fixture.block(3, consensus.HashBlock(second), types.Tx("bank:send:c"))
-	if third.Header.AppHash != afterFirst || afterFirst == genesis {
-		t.Fatalf("expected block 3 to commit the app hash after block 1 %x, got %x", afterFirst, third.Header.AppHash)
+	fourth := fixture.block(4, consensus.HashBlock(third), types.Tx("bank:send:d"))
+	if fourth.Header.AppHash != afterFirst || afterFirst == genesis {
+		t.Fatalf("expected block 4 to commit the app hash after block 1 %x, got %x", afterFirst, fourth.Header.AppHash)
 	}
-	stale := third
+	stale := fourth
 	stale.Header.AppHash = genesis
-	if height, _ := fixture.deliver(fixture.commit(stale)); height != 2 {
+	if height, _ := fixture.deliver(fixture.commit(stale)); height != 3 {
 		t.Fatalf("expected the block naming a stale app hash to be refused, node is at height %d", height)
 	}
 	// The application's own app hash leaves the validator registry out; the header commits both.
@@ -545,14 +553,14 @@ func TestCommitGossipRefusesAHeaderNamingAnotherAppHash(t *testing.T) {
 		t.Fatal(err)
 	}
 	if afterFirst != finality.HeaderAppHash(stateOne.AppHash, registryOne.Root) {
-		t.Fatal("expected block 3 to commit the app hash and the validator registry root of height 1")
+		t.Fatal("expected block 4 to commit the app hash and the validator registry root of height 1")
 	}
-	applicationOnly := third
+	applicationOnly := fourth
 	applicationOnly.Header.AppHash = stateOne.AppHash
-	if height, _ := fixture.deliver(fixture.commit(applicationOnly)); height != 2 {
+	if height, _ := fixture.deliver(fixture.commit(applicationOnly)); height != 3 {
 		t.Fatalf("expected the block naming only the application app hash to be refused, node is at height %d", height)
 	}
-	if height, _ := fixture.deliver(fixture.commit(third)); height != 3 {
+	if height, _ := fixture.deliver(fixture.commit(fourth)); height != 4 {
 		t.Fatalf("expected the block naming the executed app hash to be applied, node is at height %d", height)
 	}
 }

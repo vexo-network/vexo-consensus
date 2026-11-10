@@ -651,16 +651,12 @@ func TestNodeStepConsensusProposesThenCommitsReadyBlock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !carolCommitStep.Committed || carolCommitStep.Proposed || carolCommitStep.Commit.BlockHash != proposeStep.BlockHash {
-		t.Fatalf("expected carol to commit the certified block first, got %+v", carolCommitStep)
+	// The leader of the view proposes before it executes, in the same step: the block it proposes
+	// does not wait for the execution of the one it commits.
+	if !carolCommitStep.Committed || !carolCommitStep.Proposed || carolCommitStep.Commit.BlockHash != proposeStep.BlockHash {
+		t.Fatalf("expected carol to propose and commit the certified block in one step, got %+v", carolCommitStep)
 	}
-	emptyProposalStep, err := carol.StepConsensusWithConfig(context.Background(), ConsensusLoopConfig{MaxBlockBytes: 1024, CreateEmptyBlocks: true, ExecutionCommitMode: ExecutionCommitModeQC, AllowUnsafeQCCommit: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if emptyProposalStep.Committed || !emptyProposalStep.Proposed {
-		t.Fatalf("expected next-height empty proposal after commit, got %+v", emptyProposalStep)
-	}
+	emptyProposalStep := carolCommitStep
 	if len(emptyProposalStep.Proposal.Block.Txs) != 0 || emptyProposalStep.Proposal.Block.Header.Height != 2 || emptyProposalStep.Proposal.Round != 1 {
 		t.Fatalf("unexpected empty proposal after commit: %+v", emptyProposalStep.Proposal.Block)
 	}

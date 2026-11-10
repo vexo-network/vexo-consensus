@@ -52,17 +52,18 @@ func (chain *lightChain) set(registryHeight types.Height) validator.Set {
 	return testValidatorSet(chain.t, validators)
 }
 
-// Every block of a lightChain proves the commit of its grandparent, so a block at height h >= 2
-// commits the state of h-2 and is certified by the set after its parent's state.
+// Every block of a lightChain proves the commit of its grandparent and commits the state one block
+// below it, so a block at height h >= 3 commits the state of h-3 and is certified by the set after
+// its parent's state.
 func lightStateHeight(height types.Height) types.Height {
-	if height < 2 {
+	if height < 3 {
 		return 0
 	}
-	return height - 2
+	return height - 3
 }
 
 func lightSetHeight(height types.Height) types.Height {
-	if height <= 2 {
+	if height <= 3 {
 		return FirstValidatorSetHeight
 	}
 	return lightStateHeight(height-1) + 1

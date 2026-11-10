@@ -51,7 +51,7 @@ func (runtime *Runtime) VerifyFinalityProof(ctx context.Context, proof finality.
 	if proof.BlockHash != record.Hash {
 		return ErrFinalityProofBlockMismatch
 	}
-	if proof.Header != record.Block.Header {
+	if finality.HeaderHash(proof.Header) != finality.HeaderHash(record.Block.Header) {
 		return ErrFinalityProofBlockMismatch
 	}
 	return runtime.NewFinalityVerifier().VerifyFinalityProofWithContext(ctx, proof)

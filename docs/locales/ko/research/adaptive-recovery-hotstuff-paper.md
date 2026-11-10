@@ -53,7 +53,7 @@ recovery gate는 durable state height Hs와 block-index height Hb가 모두 존�
 
 deterministic ordering은 chain ID와 height로 salt를 만들고 signer/nonce가 있는 transaction을 signer chain으로 묶습니다. 각 chain 내부는 nonce 오름차순이고, chain head는 salted transaction hash로 merge됩니다. 이 방식은 같은 후보 집합의 결과를 동일하게 만들지만 first-seen fairness, censorship resistance, confidentiality 또는 strong order fairness를 증명하지 않습니다. proposer가 후보 집합 자체를 선택할 여지는 남습니다.
 
-현재 consensus vote path는 전체 height-versioned validator set과 deterministic proposer를 사용합니다. repository의 ECVRF committee selector는 component와 query surface에 존재하지만 quorum formation과 proposal eligibility에 연결되어 있지 않습니다. 따라서 “VRF committee consensus가 구현 완료되었다”는 주장은 하지 않고 future work로 둡니다.
+현재 consensus vote path는 전체 height-versioned validator set과 deterministic proposer를 사용합니다. repository의 ECVRF committee selector는 component와 query surface에 존재하지만, 설계상 quorum formation과 proposal eligibility에 쓰이지 않습니다. 표본 committee는 안전성을 확률적으로 만들기 때문에 VRF committee consensus는 이 논문의 실험 대상이 아닙니다.
 
 ## 구현 근거와 실험 설계
 

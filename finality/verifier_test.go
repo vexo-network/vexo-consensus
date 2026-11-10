@@ -393,12 +393,12 @@ func TestRegistryVerifierUsesTheValidatorSetTheHeaderNames(t *testing.T) {
 		{ID: "c", VotingPower: 1, PublicKey: []byte("stale-c")},
 	})
 	currentSet := abcSet(t)
-	registry := heightRegistry{sets: map[types.Height]validator.Set{7: staleSet, 9: currentSet, 10: currentSet}}
+	registry := heightRegistry{sets: map[types.Height]validator.Set{7: staleSet, 8: currentSet, 9: currentSet}}
 	verifier := NewRegistryVerifier(registry, acceptSignatureVerifier{})
 
 	honest := proofAt(currentSet, 10, types.Hash{}, 0, []types.ValidatorID{"a", "b"})
-	if honest.Header.ValidatorSetHeight != 9 {
-		t.Fatalf("expected the block at height 10 to name registry height 9, got %d", honest.Header.ValidatorSetHeight)
+	if honest.Header.ValidatorSetHeight != 8 {
+		t.Fatalf("expected the block at height 10 to name registry height 8, got %d", honest.Header.ValidatorSetHeight)
 	}
 	if err := verifier.VerifyFinalityProof(honest); err != nil {
 		t.Fatal(err)
@@ -438,12 +438,12 @@ func TestRegistryVerifierChecksTheChildWithItsOwnValidatorSet(t *testing.T) {
 	registry := heightRegistry{sets: map[types.Height]validator.Set{4: oldSet, 5: newSet}}
 	verifier := NewRegistryVerifier(registry, acceptSignatureVerifier{})
 
-	// Block 6 commits the state after block 4, whose updates produce the set of registry height 5:
+	// Block 7 commits the state after block 4, whose updates produce the set of registry height 5:
 	// it names that set as next, and its child is certified by it.
-	header := types.Header{ChainID: "vexo-test", Height: 6, Round: 3, JustifyRound: 2, ValidatorSetHeight: 4, StateHeight: 4, ValidatorSetHash: oldSet.Hash(), NextValidatorSetHash: newSet.Hash()}
+	header := types.Header{ChainID: "vexo-test", Height: 7, Round: 3, JustifyRound: 2, ValidatorSetHeight: 4, StateHeight: 4, ValidatorSetHash: oldSet.Hash(), NextValidatorSetHash: newSet.Hash()}
 	child := types.Header{
 		ChainID:              header.ChainID,
-		Height:               7,
+		Height:               8,
 		Round:                4,
 		JustifyRound:         3,
 		PreviousBlockHash:    HeaderHash(header),
@@ -452,6 +452,7 @@ func TestRegistryVerifierChecksTheChildWithItsOwnValidatorSet(t *testing.T) {
 		ValidatorSetHash:     newSet.Hash(),
 		NextValidatorSetHash: newSet.Hash(),
 	}
+	// The child commits the state one block below the grandparent its parent finalizes, block 5.
 	if child.ValidatorSetHeight != 5 || child.StateHeight != 5 {
 		t.Fatalf("expected the child to name registry height 5 and state 5, got %d and %d", child.ValidatorSetHeight, child.StateHeight)
 	}
@@ -643,9 +644,9 @@ func validProof(set validator.Set, signers []types.ValidatorID) Proof {
 func proofAt(set validator.Set, height types.Height, appHash types.Hash, round types.Round, signers []types.ValidatorID) Proof {
 	setHeight := FirstValidatorSetHeight
 	var stateHeight types.Height
-	if height > 1 {
-		setHeight = height - 1
-		stateHeight = height - 2
+	if height > 3 {
+		setHeight = height - 2
+		stateHeight = height - 3
 	}
 	header := types.Header{
 		ChainID:              "vexo-test",

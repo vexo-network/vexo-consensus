@@ -89,3 +89,4 @@ QC certified、HotStuff finalized、application executed、state committed は�
 - `qc` 経路は管理された試験網だけで使います。
 - `recovery_finality_gate_enabled` と snapshot/replay health を同時に確認します。
 - `consensus.TwoChainCommitRule` と snapshot/replay health を同時に確認します。
+- `/v1/committee/{height}/{round}`

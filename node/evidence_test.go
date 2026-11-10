@@ -390,7 +390,7 @@ func TestNodeSubmittedEvidenceSlashesOffenderWhenItsBlockExecutes(t *testing.T) 
 
 	t.Run("chain continues after the slash", func(t *testing.T) {
 		committed := alice.Status(ctx).LatestHeight
-		stepToHeight(t, alice, committed+3)
+		stepToHeight(t, alice, committed+4)
 		latest := alice.Status(ctx).LatestHeight
 		last, err := alice.BlockByHeight(ctx, latest)
 		if err != nil {

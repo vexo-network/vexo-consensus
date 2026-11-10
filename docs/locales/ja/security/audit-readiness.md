@@ -106,3 +106,4 @@
 - `vexod light verify` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `next_validator_set_hash` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `parent_linkage` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `consensus.MaxBlockBytes`

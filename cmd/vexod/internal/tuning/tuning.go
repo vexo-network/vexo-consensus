@@ -5,6 +5,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/vexo-network/vexo-consensus/consensus"
+	"github.com/vexo-network/vexo-consensus/transport"
 )
 
 type Inputs struct {
@@ -136,7 +139,7 @@ func Recommend(inputs Inputs) Recommendation {
 		Networking: NetworkingTuning{
 			OutboundPeers:       outboundPeers,
 			InboundPeerBudget:   inboundBudget,
-			MaxMessageBytes:     maxInt64(normalized.BlockBytes*2, 1_048_576),
+			MaxMessageBytes:     transport.MinMessageBytes,
 			HandshakeTimeout:    clampDuration(latency*8, duration("1s"), duration("10s")).String(),
 			ReconnectMinBackoff: clampDuration(latency*2, duration("250ms"), duration("2s")).String(),
 			ReconnectMaxBackoff: clampDuration(latency*40, duration("5s"), duration("60s")).String(),
@@ -192,7 +195,7 @@ func normalize(inputs Inputs) Inputs {
 		inputs.AverageLatency = 150 * time.Millisecond
 	}
 	if inputs.BlockBytes <= 0 {
-		inputs.BlockBytes = 4 * 1024 * 1024
+		inputs.BlockBytes = consensus.MaxBlockBytes
 	}
 	if inputs.FaultPercentage <= 0 {
 		inputs.FaultPercentage = 20
@@ -205,7 +208,7 @@ func validate(inputs Inputs, estimatedByzantines int, faultTolerance int) []Vali
 		{Name: "validator_count", OK: inputs.Validators >= 4, Message: "at least four validators are recommended for BFT fault tolerance"},
 		{Name: "fault_budget", OK: estimatedByzantines <= faultTolerance, Message: "estimated Byzantine validators must fit within f < n/3"},
 		{Name: "region_spread", OK: inputs.Regions >= 1 && inputs.Regions <= inputs.Validators, Message: "regions must be positive and not exceed validator count"},
-		{Name: "block_size", OK: inputs.BlockBytes >= 1_048_576 && inputs.BlockBytes <= 64*1024*1024, Message: "block size should stay within safe gossip and memory bounds"},
+		{Name: "block_size", OK: inputs.BlockBytes >= 1_048_576 && inputs.BlockBytes <= consensus.MaxBlockBytes, Message: "block size must be between 1 MiB and the consensus block limit"},
 		{Name: "latency_budget", OK: inputs.AverageLatency <= duration("2s"), Message: "average latency above 2s requires conservative timeout tuning and launch review"},
 	}
 }

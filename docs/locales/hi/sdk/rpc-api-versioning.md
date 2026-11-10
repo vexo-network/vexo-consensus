@@ -200,3 +200,8 @@ Mined transaction response में `gas` भेजा गया gas limit र�
 - `path.siblings` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
 - `path.neighbor` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
 - `/v1/light/{height}` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
+- `endpoint not found: the API is served under /v1`
+- `/web3`
+- `/debug/pprof/*`
+- `snapshot_urls`
+- `--url`

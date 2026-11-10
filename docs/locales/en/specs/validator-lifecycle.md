@@ -37,7 +37,7 @@ root with the app hash.
 
 ## Rotation
 
-The proposer of a view is chosen by the stake-proportional leader schedule, which depends on the view only (see Leader Schedule in the consensus specification). Committee rotation is height and round dependent: deterministic rotation is the default, and VRF-backed rotation can be configured.
+The proposer of a view is chosen by the leader schedule: stake-proportional over the view, passing over the validators that recently failed to lead a view (see Leader Schedule in the consensus specification). Committee rotation is height and round dependent: deterministic rotation is the default, and VRF-backed rotation can be configured.
 
 Runtime validator updates produced while executing height `H` are written for height `H + 1`. This avoids
 mid-block validator-set ambiguity and keeps finality proofs bound to a single validator set per height.

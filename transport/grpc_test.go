@@ -428,7 +428,7 @@ func TestGRPCTransportRejectsOversizedMessage(t *testing.T) {
 		NetworkID:       "vexo-network",
 		ChainID:         "vexo-test",
 		GenesisHash:     GenesisHash([]byte("genesis")),
-		MaxMessageBytes: 4,
+		MaxMessageBytes: MinMessageBytes,
 	}
 	alice := newStartedGRPCPeer(t, "alice", config)
 	bob := newStartedGRPCPeer(t, "bob", config)
@@ -436,7 +436,7 @@ func TestGRPCTransportRejectsOversizedMessage(t *testing.T) {
 	defer stopGRPCPeer(t, bob)
 	alice.SetPeer("bob", bob.Address())
 
-	err := alice.Send(context.Background(), "bob", p2p.TopicTx, []byte("12345"))
+	err := alice.Send(context.Background(), "bob", p2p.TopicTx, make([]byte, MinMessageBytes+1))
 	if !errors.Is(err, ErrMessageTooLarge) {
 		t.Fatalf("expected message too large, got %v", err)
 	}
@@ -1134,5 +1134,14 @@ func TestGRPCTransportStopRunsTheStoppedHookLast(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("expected the hook to run once, ran %d times", calls)
+	}
+}
+
+// A transport whose message limit is below the largest consensus message could not receive a valid
+// block, and is refused.
+func TestGRPCTransportRefusesAMessageLimitBelowTheLargestConsensusMessage(t *testing.T) {
+	_, err := NewGRPCTransport(GRPCConfig{PeerID: "alice", MaxMessageBytes: MinMessageBytes - 1})
+	if !errors.Is(err, ErrMessageLimitTooLow) {
+		t.Fatalf("expected a limit of %d bytes refused, got %v", MinMessageBytes-1, err)
 	}
 }

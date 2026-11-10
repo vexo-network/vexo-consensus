@@ -29,6 +29,12 @@ func HeaderHash(header types.Header) types.Hash {
 	writeUint64(hasher, uint64(header.ValidatorSetHeight))
 	writeUint64(hasher, uint64(header.StateHeight))
 	hasher.Write(header.NextValidatorSetHash[:])
+	writeUint64(hasher, uint64(len(header.Benched)))
+	for _, bench := range header.Benched {
+		writeUint64(hasher, uint64(len(bench.Validator)))
+		hasher.Write([]byte(bench.Validator))
+		writeUint64(hasher, uint64(bench.Until))
+	}
 
 	var hash types.Hash
 	copy(hash[:], hasher.Sum(nil))
@@ -70,12 +76,14 @@ func HeaderAppHash(appHash types.Hash, validatorRegistryRoot types.Hash) types.H
 // ChildStateHeight returns the state height a child of parent commits. The state advances only
 // where the chain itself proves a commit: a child carries QC(parent), and when the parent was
 // proposed in the view directly after its own justify certificate QC(G), the pair QC(G),
-// QC(parent) is in consecutive views and commits the grandparent G under the 2-chain rule. Every
-// validator that verifies the child has then executed G, at height parent.Height-1. Otherwise the
+// QC(parent) is in consecutive views and commits the grandparent G under the 2-chain rule. The
+// child commits the state one block below G, at height parent.Height-2, which was final a view
+// earlier: the leader of a view proposes without waiting to execute the block the view's
+// certificate just made final, and every validator executes it while the view runs. Otherwise the
 // child commits the state of its parent.
 func ChildStateHeight(parent types.Header) types.Height {
 	if parent.Height >= 2 && parent.JustifyRound != ^types.Round(0) && parent.Round == parent.JustifyRound+1 {
-		return parent.Height - 1
+		return max(parent.StateHeight, parent.Height-2)
 	}
 	return parent.StateHeight
 }

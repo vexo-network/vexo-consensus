@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -12,7 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vexo-network/vexo-consensus/config"
 	"github.com/vexo-network/vexo-consensus/consensus"
+	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/p2p"
 	"github.com/vexo-network/vexo-consensus/transport"
@@ -303,9 +306,30 @@ func newThroughputValidators(t *testing.T, count int, rate float64, latency time
 		genesis.Validators = append(genesis.Validators, validator.Validator{ID: ids[index], Address: types.Address(ids[index]), VotingPower: 1, Stake: 1, PublicKey: deterministicPublicKeyForID(ids[index])})
 		genesis.Governance[types.Address(ids[index])] = 1
 	}
+	// VEXO_CRYPTO=bls signs and verifies with the production BLS backend (blst) instead of the
+	// deterministic test signatures.
+	bls := os.Getenv("VEXO_CRYPTO") == "bls"
+	signers := make([]vexocrypto.Signer, count)
+	for index, id := range ids {
+		signers[index] = deterministicSignerForID(id)
+		if !bls {
+			continue
+		}
+		adapter, err := vexocrypto.NewBLSTBLSAdapterFromSeed([]byte(fmt.Sprintf("vexo-throughput-bls-seed-%s-padding-32", id)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		proof, err := adapter.ProofOfPossession()
+		if err != nil {
+			t.Fatal(err)
+		}
+		signers[index] = adapter
+		genesis.Validators[index].PublicKey = adapter.PublicKey()
+		genesis.Validators[index].Metadata = map[string]string{vexocrypto.BLSProofOfPossessionMetadataKey: base64.StdEncoding.EncodeToString(proof)}
+	}
 	nodes := make([]*Node, 0, count)
 	links := make([]*shapedTransport, 0, count)
-	for _, id := range ids {
+	for index, id := range ids {
 		inner, err := bus.NewPeer(p2p.PeerID(id))
 		if err != nil {
 			t.Fatal(err)
@@ -314,6 +338,9 @@ func newThroughputValidators(t *testing.T, count int, rate float64, latency time
 		cfg := UnsafeTestConfig("vexo-test", t.TempDir())
 		cfg.ValidatorID = id
 		cfg.DisseminateByProposal = byProposal
+		if bls {
+			cfg.Chain.Crypto.Backend = config.CryptoBackendBLS
+		}
 		// As the network-safe template: a relayed copy of a committed transaction is refused.
 		cfg.Chain.Mempool.SeenTTL = time.Hour
 		node, err := New(cfg, genesis, newTestApplication(t))
@@ -321,7 +348,7 @@ func newThroughputValidators(t *testing.T, count int, rate float64, latency time
 			t.Fatal(err)
 		}
 		node.WithTransport(link)
-		node.WithSigner(deterministicSignerForID(id))
+		node.WithSigner(signers[index])
 		nodes = append(nodes, node)
 		links = append(links, link)
 	}

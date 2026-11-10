@@ -6,7 +6,7 @@ Vexo RPC should be stable enough for operators, wallets, dashboards, and automat
 
 ## Current Stable API
 
-Stable endpoints are exposed under `/v1`. The unversioned paths remain compatibility aliases.
+Stable endpoints are exposed under `/v1` only. An unversioned API path answers `404` with `endpoint not found: the API is served under /v1`.
 
 - `/v1/healthz`
 - `/v1/readyz`
@@ -104,11 +104,11 @@ Important capability names include `metrics`, `snapshot`, `recovery`, `tx`, `pen
 
 Use this endpoint in deployment checks before advertising an RPC endpoint to wallets, indexers, dashboards, relayers, or validators. A missing optional capability may be acceptable for a custom read-only service, but a validator node intended to expose the full API should fail closed through startup configuration.
 
-## Compatibility Aliases
+## Unversioned Paths
 
-Unversioned paths such as `/status`, `/tx`, and `/blocks/latest` are compatibility aliases for `/v1/status`, `/v1/tx`, and `/v1/blocks/latest`.
+There are no unversioned aliases: `/status`, `/tx`, and `/blocks/latest` are not served; use `/v1/status`, `/v1/tx`, and `/v1/blocks/latest`. Only process endpoints stay outside the prefix: `/`, `/healthz`, `/readyz`, `/metrics/text`, `/web3` (the Ethereum JSON-RPC endpoint), and the admin-protected `/debug/pprof/*`. A snapshot source URL (`snapshot_urls`, `--url`) is a base that ends in `/v1`.
 
-New clients should use `/v1/*`. Future breaking API changes should use a new prefix such as `/v2/*`.
+Clients use `/v1/*`. Future breaking API changes should use a new prefix such as `/v2/*`.
 
 ## Error Format
 

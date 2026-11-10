@@ -115,28 +115,28 @@ func TestStateSnapshotHeadReadsNoApplicationState(t *testing.T) {
 }
 
 // A snapshot is the state a committed block header commits the app hash of, read at that height:
-// block 3 names the validator set of registry height 2, so it commits the state after block 1, and
-// what changed since is not in it.
+// block 4 commits the state after block 1, and what changed since is not in it.
 func TestStateSnapshotExportsTheStateItsBlockHeaderCommits(t *testing.T) {
 	ctx := context.Background()
 	fixture := newCommitFixture(t)
 	first := fixture.block(1, types.Hash{}, types.Tx("bank:send:a"))
 	second := fixture.block(2, consensus.HashBlock(first), types.Tx("bank:send:b"))
-	for _, block := range []types.Block{first, second} {
+	third := fixture.block(3, consensus.HashBlock(second), types.Tx("bank:send:c"))
+	for _, block := range []types.Block{first, second, third} {
 		if height, _ := fixture.deliver(fixture.commit(block)); height != block.Header.Height {
 			t.Fatalf("expected block %d to be applied, node is at height %d", block.Header.Height, height)
 		}
 	}
-	third := fixture.block(3, consensus.HashBlock(second), types.Tx("bank:send:c"))
-	if height, _ := fixture.deliver(fixture.commit(third)); height != 3 {
-		t.Fatalf("expected block 3 to be applied, node is at height %d", height)
+	fourth := fixture.block(4, consensus.HashBlock(third), types.Tx("bank:send:d"))
+	if height, _ := fixture.deliver(fixture.commit(fourth)); height != 4 {
+		t.Fatalf("expected block 4 to be applied, node is at height %d", height)
 	}
 	runtime, err := fixture.node.Runtime()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Written after block 3, so it is state of height 4 on, not of the state block 3 commits.
+	// Written after block 4, so it is state of height 5 on, not of the state block 4 commits.
 	if err := runtime.Store.Set(ctx, "bank", []byte("balance/late"), []byte("9")); err != nil {
 		t.Fatal(err)
 	}
@@ -146,12 +146,12 @@ func TestStateSnapshotExportsTheStateItsBlockHeaderCommits(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The manifest carries the block of the state, and the headers linking the anchor back to it.
-	if snapshot.Block.Hash != consensus.HashBlock(first) || len(snapshot.Links) != 1 || snapshot.Links[0] != second.Header {
-		t.Fatalf("expected block 1 linked to the anchor by block 2, got block %x links %+v", snapshot.Block.Hash, snapshot.Links)
+	if snapshot.Block.Hash != consensus.HashBlock(first) || len(snapshot.Links) != 2 || consensus.HashHeader(snapshot.Links[0]) != consensus.HashHeader(second.Header) || consensus.HashHeader(snapshot.Links[1]) != consensus.HashHeader(third.Header) {
+		t.Fatalf("expected block 1 linked to the anchor by blocks 2 and 3, got block %x links %+v", snapshot.Block.Hash, snapshot.Links)
 	}
-	kv := snapshotKV(t, fixture.node, 3, snapshot.Namespaces)
-	if finality.HeaderHash(snapshot.Header) != consensus.HashBlock(third) {
-		t.Fatalf("expected the latest snapshot to be anchored to block 3, got header %+v", snapshot.Header)
+	kv := snapshotKV(t, fixture.node, 4, snapshot.Namespaces)
+	if finality.HeaderHash(snapshot.Header) != consensus.HashBlock(fourth) {
+		t.Fatalf("expected the latest snapshot to be anchored to block 4, got header %+v", snapshot.Header)
 	}
 	stateOne, err := runtime.Store.StateByHeight(ctx, 1)
 	if err != nil {
@@ -190,32 +190,32 @@ func TestStateSnapshotExportsTheStateItsBlockHeaderCommits(t *testing.T) {
 		}
 	}
 
-	if _, err := fixture.node.StateSnapshotManifest(ctx, 2); !errors.Is(err, ErrSnapshotNotAnchored) {
-		t.Fatalf("block 2 commits the genesis state, which is no snapshot, got %v", err)
+	if _, err := fixture.node.StateSnapshotManifest(ctx, 3); !errors.Is(err, ErrSnapshotNotAnchored) {
+		t.Fatalf("block 3 commits the genesis state, which is no snapshot, got %v", err)
 	}
 	if _, err := fixture.node.StateSnapshotManifest(ctx, 9); !errors.Is(err, store.ErrBlockNotFound) {
 		t.Fatalf("expected an uncommitted block to have no snapshot, got %v", err)
 	}
-	if _, _, err := fixture.node.StateSnapshotPairs(ctx, 3, "evm_receipts", nil, 10); !errors.Is(err, ErrSnapshotPage) {
+	if _, _, err := fixture.node.StateSnapshotPairs(ctx, 4, "evm_receipts", nil, 10); !errors.Is(err, ErrSnapshotPage) {
 		t.Fatalf("expected a namespace outside the replicated state to be refused, got %v", err)
 	}
-	if earliest, err := fixture.node.EarliestSnapshotHeight(ctx); err != nil || earliest != 3 {
-		t.Fatalf("expected block 3 to be the earliest anchor, got %d %v", earliest, err)
+	if earliest, err := fixture.node.EarliestSnapshotHeight(ctx); err != nil || earliest != 4 {
+		t.Fatalf("expected block 4 to be the earliest anchor, got %d %v", earliest, err)
 	}
 
-	// Once the state block 3 commits is pruned, its snapshot is gone and the next anchor is named.
-	fourth := fixture.block(4, consensus.HashBlock(third), types.Tx("bank:send:d"))
-	if height, _ := fixture.deliver(fixture.commit(fourth)); height != 4 {
-		t.Fatalf("expected block 4 to be applied, node is at height %d", height)
+	// Once the state block 4 commits is pruned, its snapshot is gone and the next anchor is named.
+	fifth := fixture.block(5, consensus.HashBlock(fourth), types.Tx("bank:send:e"))
+	if height, _ := fixture.deliver(fixture.commit(fifth)); height != 5 {
+		t.Fatalf("expected block 5 to be applied, node is at height %d", height)
 	}
 	if _, err := runtime.Store.PruneBelow(ctx, 2); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.node.StateSnapshotManifest(ctx, 3); !errors.Is(err, ErrSnapshotPruned) {
+	if _, err := fixture.node.StateSnapshotManifest(ctx, 4); !errors.Is(err, ErrSnapshotPruned) {
 		t.Fatalf("expected the snapshot of a pruned state to be gone, got %v", err)
 	}
-	if earliest, err := fixture.node.EarliestSnapshotHeight(ctx); err != nil || earliest != 4 {
-		t.Fatalf("expected block 4 to be the earliest anchor after pruning, got %d %v", earliest, err)
+	if earliest, err := fixture.node.EarliestSnapshotHeight(ctx); err != nil || earliest != 5 {
+		t.Fatalf("expected block 5 to be the earliest anchor after pruning, got %d %v", earliest, err)
 	}
 }
 

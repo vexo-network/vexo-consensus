@@ -151,8 +151,8 @@ func TestRuntimeFinalityVerifierRefusesValidatorSetsItHasNotExecuted(t *testing.
 		t.Fatal(err)
 	}
 	verifier := runtime.NewFinalityVerifier()
-	header := types.Header{ChainID: "vexo-test", Height: 5, ValidatorSetHeight: 4, StateHeight: 3}
-	err = verifier.VerifyBlockCertWithContext(context.Background(), header, finality.QuorumCert{Height: 5, BlockHash: finality.HeaderHash(header)})
+	header := types.Header{ChainID: "vexo-test", Height: 6, ValidatorSetHeight: 4, StateHeight: 3}
+	err = verifier.VerifyBlockCertWithContext(context.Background(), header, finality.QuorumCert{Height: 6, BlockHash: finality.HeaderHash(header)})
 	if !errors.Is(err, consensus.ErrValidatorSetPending) {
 		t.Fatalf("expected a pending validator set, got %v", err)
 	}

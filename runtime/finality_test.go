@@ -103,7 +103,7 @@ func TestRuntimeBuildsAndVerifiesStoredFinalityProof(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if skeleton.Header != fixture.block.Header || skeleton.BlockHash != qc.BlockHash || skeleton.HasCommitProof() {
+	if finality.HeaderHash(skeleton.Header) != finality.HeaderHash(fixture.block.Header) || skeleton.BlockHash != qc.BlockHash || skeleton.HasCommitProof() {
 		t.Fatalf("expected the proof skeleton of the stored block, got %+v", skeleton)
 	}
 	if err := fixture.runtime.VerifyBlockCert(ctx, 1, qc); err != nil {

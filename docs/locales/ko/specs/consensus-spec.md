@@ -112,7 +112,7 @@
 
 ## 블록 크기
 
-블록의 트랜잭션은 인코딩된 바이트 합이 `consensus.MaxBlockBytes`(2 MiB)를 넘을 수 없으며, 크기는 `consensus.BlockTxBytes`로 셉니다. 한도를 넘는 제안은 서명이 올바르더라도 무효이고, 가리키는 batch가 한도를 넘는 lane 제안은 블록으로 재구성되지 않습니다. 노드는 한도보다 큰 `max_block_bytes` 설정을 시작 시 거부합니다.
+블록의 트랜잭션은 `consensus.MaxBlockBytes`(2 MiB)를 넘을 수 없으며, 크기는 `consensus.BlockTxBytes`로 셉니다. 이 함수는 트랜잭션마다 `types.TxCost`, 즉 길이에 `types.TxOverheadBytes`(16, 트랜잭션을 싣는 인코딩의 framing)를 더한 값을 부과합니다. 그래서 작은 트랜잭션이 많은 블록도 큰 트랜잭션 몇 개인 블록과 같은 상한 안에서 인코딩되며, 가장 큰 합의 메시지(한도 크기의 전체 제안이나 인증서가 붙은 커밋 블록)는 `transport.MinMessageBytes`(4 MiB)에 들어갑니다. transport는 그보다 작은 메시지 한도를 거부하며 이 값이 기본값입니다. 더 작은 한도의 노드는 유효한 블록을 받을 수 없기 때문입니다. 한도를 넘는 제안은 서명이 올바르더라도 무효이고, 가리키는 batch가 한도를 넘는 lane 제안은 블록으로 재구성되지 않습니다. 노드는 한도보다 큰 `max_block_bytes` 설정을 시작 시 거부합니다.
 
 ## Invalid-proposal evidence 사유
 
@@ -127,7 +127,13 @@
 
 ## 리더 스케줄
 
-view `round`의 리더는 `validator.SelectProposer(validators, round)`입니다. 활성 validator를 id 순으로 정렬해 각자 `VotingPower`개의 연속 슬롯을 `[0, W)`에서 가지며(`W`는 총 voting power), view `v`는 슬롯 `v·S mod W`의 주인이 이끕니다. stride `S`는 `ceil(W·(φ−1))`부터 찾은, `W`와 서로소인 첫 정수이므로 view `0..W−1`은 모든 슬롯을 한 번씩 지납니다. 따라서 연속한 `W`개 view의 어떤 창에서도 각 validator는 정확히 자기 power만큼 view를 이끌고, 황금비 stride가 한 validator의 view를 서로 떨어뜨려 놓아 죽은 validator는 고립된 view만 잃게 합니다. 스케줄은 view에만 의존하고 높이에는 의존하지 않습니다. 총 power가 64비트를 넘으면 리더를 고르지 않습니다.
+view의 리더는 그 view에 제안된 블록의 header와 그 블록을 인증하는 validator set으로 정해집니다(`consensus.Leader`). 기본은 stake 스케줄 `validator.SelectProposer(validators, round)`입니다. 활성 validator를 id 순으로 정렬해 각자 `VotingPower`개의 연속 슬롯을 `[0, W)`에서 가지며(`W`는 총 voting power), view `v`는 슬롯 `v·S mod W`의 주인이 이끕니다. stride `S`는 `ceil(W·(φ−1))`부터 찾은, `W`와 서로소인 첫 정수이므로 view `0..W−1`은 모든 슬롯을 한 번씩 지납니다. 따라서 연속한 `W`개 view의 어떤 창에서도 각 validator는 정확히 자기 power만큼 view를 이끌고, 황금비 stride가 한 validator의 view를 서로 떨어뜨려 놓아 죽은 validator는 고립된 view만 잃게 합니다. stake 스케줄은 view에만 의존하고 높이에는 의존하지 않습니다. 총 power가 64비트를 넘으면 리더를 고르지 않습니다.
+
+timeout certificate 뒤의 view(`Round != JustifyRound+1`)는 전체 set의 stake 스케줄이 이끕니다. 그래서 어떤 인증 블록을 가졌든 모든 validator가 같은 리더에 합의합니다. 부모 블록의 인증서 바로 다음 view는 header가 bench하지 않은 validator들의 stake 스케줄이 이끕니다.
+
+`Header.Benched`는 id 순으로 정렬된 validator와 각자 bench되는 마지막 view를 담으며, 부모가 정합니다(`consensus.ChildBench(parent, round, set)`). 부모의 목록에서 view가 지난 항목과 set에서 power가 없는 validator를 빼고, 부모의 view와 `round` 사이의 모든 view의 리더를 그 view + `consensus.BenchViews`(1000)까지 추가합니다. 그런 view는 체인이 잇는 블록을 만들지 못했으므로 그 리더가 실패한 것입니다. 첫 view의 리더는 부모의 bench로 정해진 리더이고, 이후 view의 리더는 전체 set 스케줄의 리더입니다. `round − BenchViews` 이후의 view만 세며, bench된 power가 전체의 1/3에 이르게 하는 실패는 아무도 bench하지 않으므로 스케줄은 항상 2/3 넘는 power를 유지합니다. 첫 블록은 아무도 bench하지 않습니다. 부모가 정한 것과 다른 목록을 담은 header는 무효이지만, 판단에 validator set이 필요하므로 증거가 아니라 거부로 처리합니다.
+
+bench는 liveness 규칙입니다. 누가 제안하는지만 바꾸고 무엇에 투표해도 안전한지는 바꾸지 않습니다. 죽은 validator는 실패한 view 하나와, 이후에는 timeout 뒤 전체 set 스케줄이 그에게 떨어지는 view만 잃게 하며, 모든 view의 stake 비율만큼 잃게 하지 않습니다.
 
 ## Lanes
 

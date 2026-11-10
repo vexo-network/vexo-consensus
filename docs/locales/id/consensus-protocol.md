@@ -89,3 +89,4 @@ Di produksi, `vexo_quorum_health_ratio` dan `adaptive_round_timeout_enabled` har
 - `qc` hanya boleh diaktifkan pada testnet yang dikontrol.
 - `recovery_finality_gate_enabled` harus diverifikasi dengan bukti snapshot dan replay.
 - `consensus.TwoChainCommitRule` harus diverifikasi dengan bukti snapshot dan replay.
+- `/v1/committee/{height}/{round}`

@@ -200,3 +200,8 @@
 - `path.siblings` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `path.neighbor` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `/v1/light/{height}` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `endpoint not found: the API is served under /v1`
+- `/web3`
+- `/debug/pprof/*`
+- `snapshot_urls`
+- `--url`

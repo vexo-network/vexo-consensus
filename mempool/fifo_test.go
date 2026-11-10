@@ -23,7 +23,7 @@ func TestFIFOAddAndBuildBatchInOrder(t *testing.T) {
 		}
 	}
 
-	batch, err := pool.BuildBatch(context.Background(), 10, nil)
+	batch, err := pool.BuildBatch(context.Background(), 10+3*types.TxOverheadBytes, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,8 @@ func TestFIFOBuildBatchRespectsMaxBytes(t *testing.T) {
 		}
 	}
 
-	batch, err := pool.BuildBatch(context.Background(), 5, nil)
+	// Each transaction costs its bytes and the per-transaction overhead.
+	batch, err := pool.BuildBatch(context.Background(), 5+2*types.TxOverheadBytes, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +89,7 @@ func TestFIFOBuildBatchSkipsOversizedFirstTx(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	batch, err := pool.BuildBatch(context.Background(), 3, nil)
+	batch, err := pool.BuildBatch(context.Background(), 3+types.TxOverheadBytes, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +187,7 @@ func TestFIFOMarkCommittedRemovesTxsAndAllowsReadd(t *testing.T) {
 	if pool.Len() != 2 {
 		t.Fatalf("expected len 2, got %d", pool.Len())
 	}
-	batch, err := pool.BuildBatch(context.Background(), 10, nil)
+	batch, err := pool.BuildBatch(context.Background(), 10+3*types.TxOverheadBytes, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -636,7 +637,7 @@ func TestBuildBatchChecksOnlyWhatItTakesAndSkipsProposedTxs(t *testing.T) {
 		}
 	}
 	proposed := map[types.Hash]struct{}{HashTx(txs[0]): {}, HashTx(txs[1]): {}}
-	batch, err := pool.BuildBatch(ctx, int64(10*len(txs[0])), proposed)
+	batch, err := pool.BuildBatch(ctx, int64(10*types.TxCost(txs[0])), proposed)
 	if err != nil {
 		t.Fatal(err)
 	}

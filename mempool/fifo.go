@@ -465,10 +465,11 @@ func (pool *FIFO) BuildBatch(ctx context.Context, maxBytes int64, proposed map[t
 	var totalBytes int64
 	batch := Batch{Author: pool.config.Author}
 	err := pool.eachLiveEntry(ctx, proposed, func(pending *entry) bool {
-		if totalBytes+pending.size > maxBytes {
+		cost := int64(types.TxCost(pending.tx))
+		if totalBytes+cost > maxBytes {
 			return false
 		}
-		totalBytes += pending.size
+		totalBytes += cost
 		batch.Txs = append(batch.Txs, append(types.Tx(nil), pending.tx...))
 		return true
 	})

@@ -91,7 +91,7 @@ func TestParentLinkageFaultsAreEvidence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if proof.Reason != InvalidProposalReasonParentLinkage || proof.Parent == nil || *proof.Parent != second.Block.Header {
+			if proof.Reason != InvalidProposalReasonParentLinkage || proof.Parent == nil || HashHeader(*proof.Parent) != HashHeader(second.Block.Header) {
 				t.Fatalf("expected parent_linkage evidence carrying the parent header, got %+v", proof)
 			}
 
@@ -146,7 +146,9 @@ func TestValidatorSetHashEvidenceIsJudgedAtTheHeightsTheHeaderNames(t *testing.T
 	first := cluster.propose(machine, 0, "a")
 	cluster.certify(machine, first, "a", "b", "c")
 	second := cluster.propose(machine, 1, "b")
-	secondQC := cluster.certify(machine, second, "a", "b", "c")
+	cluster.certify(machine, second, "a", "b", "c")
+	third := cluster.propose(machine, 2, "c")
+	thirdQC := cluster.certify(machine, third, "a", "b", "c")
 	// Executing the first block removes "a": the registry holds another set from height 2.
 	if err := cluster.registry.ApplyLeaveAt(ctx, 2, "a"); err != nil {
 		t.Fatal(err)
@@ -154,16 +156,16 @@ func TestValidatorSetHashEvidenceIsJudgedAtTheHeightsTheHeaderNames(t *testing.T
 	cluster.executed(machine, 2)
 	oldSet, newSet := mustSet(t, cluster.registry, 1), mustSet(t, cluster.registry, 2)
 
-	// Block 3 commits the state after block 1: the old set certifies it, the new one is next.
+	// Block 4 commits the state after block 1: the old set certifies it, the new one is next.
 	build := func() Proposal {
-		block := cluster.block(3, HashBlock(second.Block))
+		block := cluster.block(4, HashBlock(third.Block))
 		block.Header.ValidatorSetHash = oldSet.Hash()
 		block.Header.NextValidatorSetHash = newSet.Hash()
-		return cluster.proposal("c", block, 2, secondQC, finality.TimeoutCert{})
+		return cluster.proposal("b", block, 3, thirdQC, finality.TimeoutCert{})
 	}
 	honest := build()
 	if honest.Block.Header.ValidatorSetHeight != 1 || honest.Block.Header.StateHeight != 1 {
-		t.Fatalf("setup: block 3 must name set 1 and state 1, got %+v", honest.Block.Header)
+		t.Fatalf("setup: block 4 must name set 1 and state 1, got %+v", honest.Block.Header)
 	}
 
 	staleNext := build()

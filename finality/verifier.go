@@ -207,18 +207,19 @@ func checkProofStructure(proof Proof) (CommitLink, error) {
 
 // checkHeaderValidatorSetHeight rejects a header naming a set or a state no block of its height
 // can have: the first block has the genesis set and state; a later block commits at most the state
-// of its grandparent, and is certified by the set after a state no later than the one it commits.
+// one block below its grandparent (ChildStateHeight), and is certified by the set after a state no
+// later than the one it commits.
 func checkHeaderValidatorSetHeight(header types.Header) error {
 	if header.ValidatorSetHeight == 0 {
 		return ErrHeightMismatch
 	}
-	if header.Height <= 1 {
+	if header.Height <= 3 {
 		if header.ValidatorSetHeight != FirstValidatorSetHeight || header.StateHeight != 0 {
 			return ErrHeightMismatch
 		}
 		return nil
 	}
-	if header.StateHeight > header.Height-2 || header.ValidatorSetHeight > header.StateHeight+1 {
+	if header.StateHeight > header.Height-3 || header.ValidatorSetHeight > header.StateHeight+1 {
 		return ErrHeightMismatch
 	}
 	return nil

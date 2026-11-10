@@ -83,7 +83,7 @@ func TestLightClientFollowsARunningChainFromATrustedBlock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if verified.Header != record.Block.Header {
+	if finality.HeaderHash(verified.Header) != finality.HeaderHash(record.Block.Header) {
 		t.Fatalf("expected the client to trust the committed block 6, got %+v", verified.Header)
 	}
 	if verified.Header.TimeUnixNano <= trusted.Header.TimeUnixNano || verified.Header.TimeUnixNano > time.Now().UnixNano() {

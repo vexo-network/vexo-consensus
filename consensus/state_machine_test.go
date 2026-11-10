@@ -3,11 +3,13 @@ package consensus
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/finality"
+	"github.com/vexo-network/vexo-consensus/transport"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
@@ -879,12 +881,57 @@ func TestStateMachineKeepsABoundedEvidenceWindow(t *testing.T) {
 // execute a larger one.
 func TestStateMachineRefusesABlockOverTheByteLimit(t *testing.T) {
 	cluster := newThreeValidatorCluster(t)
-	full := "bank:" + strings.Repeat("x", MaxBlockBytes-len("bank:"))
+	full := "bank:" + strings.Repeat("x", MaxBlockBytes-types.TxOverheadBytes-len("bank:"))
 	if err := cluster.newMachine().OnProposal(context.Background(), cluster.proposal("a", cluster.block(1, types.Hash{}, full), 0, finality.QuorumCert{}, finality.TimeoutCert{})); err != nil {
 		t.Fatalf("expected a block of MaxBlockBytes accepted, got %v", err)
 	}
 	over := cluster.proposal("a", cluster.block(1, types.Hash{}, full, "b"), 0, finality.QuorumCert{}, finality.TimeoutCert{})
 	if err := cluster.newMachine().OnProposal(context.Background(), over); !errors.Is(err, ErrInvalidProposal) {
 		t.Fatalf("expected a block over MaxBlockBytes refused, got %v", err)
+	}
+	// Every transaction is charged its overhead: a block of small transactions reaches the limit
+	// with fewer transaction bytes.
+	var small []string
+	for index := 0; index <= MaxBlockBytes/types.TxCost(types.Tx("bank:00000000")); index++ {
+		small = append(small, fmt.Sprintf("bank:%08d", index))
+	}
+	many := cluster.proposal("a", cluster.block(1, types.Hash{}, small...), 0, finality.QuorumCert{}, finality.TimeoutCert{})
+	if err := cluster.newMachine().OnProposal(context.Background(), many); !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected a block of %d small transactions over MaxBlockBytes refused, got %v", len(small), err)
+	}
+}
+
+// The largest proposal, a block of MaxBlockBytes justified by a certificate of a hundred validators
+// after a timeout certificate of theirs, encodes within transport.MinMessageBytes whatever the sizes of
+// its transactions.
+func TestTheLargestProposalFitsTheSmallestTransportMessage(t *testing.T) {
+	ids := make([]types.ValidatorID, 100)
+	for index := range ids {
+		ids[index] = types.ValidatorID(fmt.Sprintf("validator-%03d", index))
+	}
+	cluster := newEqualTestCluster(t, ids...)
+	for _, txBytes := range []int{1, 2, 64, 1000, 1 << 20} {
+		var txs []string
+		for budget := MaxBlockBytes; budget >= txBytes+types.TxOverheadBytes; budget -= txBytes + types.TxOverheadBytes {
+			txs = append(txs, strings.Repeat("x", txBytes))
+		}
+		block := cluster.block(2, types.Hash{1}, txs...)
+		if size := BlockTxBytes(block); size > MaxBlockBytes {
+			t.Fatalf("%d-byte transactions: the block charges %d bytes", txBytes, size)
+		}
+		// Signatures as large as an Ed25519 multisignature, one 64-byte signature per signer.
+		justify := cluster.qc(1, 5, types.Hash{1})
+		justify.Signature = make(types.AggregateSignature, 64*len(ids))
+		timeoutCert := cluster.timeoutCert(1, 6, cluster.qc(1, 5, types.Hash{1}), ids...)
+		timeoutCert.Signature = make(types.AggregateSignature, 64*len(ids))
+		timeoutCert.HighQC = justify
+		proposal := Proposal{Block: block, Round: 7, Proposer: ids[0], JustifyQC: justify, TimeoutCert: timeoutCert, Signature: make(types.Signature, 96)}
+		encoded, err := EncodeProposal(proposal)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(encoded) > transport.MinMessageBytes {
+			t.Fatalf("%d-byte transactions: the proposal encodes to %d bytes, more than %d", txBytes, len(encoded), transport.MinMessageBytes)
+		}
 	}
 }

@@ -103,3 +103,4 @@ Phụ lục này bảo đảm bản dịch vẫn giữ các giao diện có th�
 - `vexod light verify` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `next_validator_set_hash` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `parent_linkage` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `consensus.MaxBlockBytes`

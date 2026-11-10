@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -70,16 +71,17 @@ const (
 	maxValidatorSetHistory = 64
 )
 
-// MaxBlockBytes bounds the transaction bytes of a block: a validator refuses a larger proposal, so a
-// leader cannot make the validators fetch, execute and store more than one block's worth per view,
-// whatever it names. A whole proposal of that size fits a transport message.
+// MaxBlockBytes bounds the transaction bytes of a block, each transaction charged its TxCost: a
+// validator refuses a larger proposal, so a leader cannot make the validators fetch, execute and
+// store more than one block's worth per view, whatever it names. A whole proposal of that size, and
+// a committed block with its certificates, fit a transport message of transport.MinMessageBytes.
 const MaxBlockBytes = 2 << 20
 
-// BlockTxBytes returns the transaction bytes of block.
+// BlockTxBytes returns the transaction bytes of block, each transaction charged its TxCost.
 func BlockTxBytes(block types.Block) int {
 	total := 0
 	for _, tx := range block.Txs {
-		total += len(tx)
+		total += types.TxCost(tx)
 	}
 	return total
 }
@@ -407,6 +409,11 @@ func (machine *StateMachine) checkProposalHeader(proposal Proposal, validatorSet
 	} else if header.TimeUnixNano <= 0 {
 		return fmt.Errorf("%w: block time %d", ErrInvalidProposal, header.TimeUnixNano)
 	}
+	if parent != nil {
+		if bench := ChildBench(parent, header.Round, validatorSet); !slices.Equal(header.Benched, bench) {
+			return fmt.Errorf("%w: benched validators %v, the parent fixes %v", ErrInvalidProposal, header.Benched, bench)
+		}
+	}
 	if header.ValidatorSetHash != validatorSet.Hash() {
 		machine.recordProposalEvidence(NewInvalidProposalHashEvidence(proposal, InvalidProposalReasonValidatorSetHash, validatorSet.Hash()))
 		return fmt.Errorf("%w: validator set hash mismatch", ErrInvalidProposal)
@@ -453,6 +460,20 @@ func (machine *StateMachine) recordEvidence(evidence slashing.Evidence) {
 	machine.evidence = append(machine.evidence, evidence)
 }
 
+// parentHeader returns the header of the parent of the block with header, nil for the first block
+// or a parent the machine does not hold.
+func (machine *StateMachine) parentHeader(header types.Header) *types.Header {
+	if header.Height <= 1 {
+		return nil
+	}
+	parent, found := machine.blockTree.Get(header.PreviousBlockHash)
+	if !found {
+		return nil
+	}
+	parentHeader := parent.Block.Header
+	return &parentHeader
+}
+
 // parentTime returns the time of the parent of the block with header, zero for the first block or
 // a parent the machine does not hold. Block time is strictly increasing along the chain: a block's
 // time is after its parent's, so the time of a certified header bounds the time of every block
@@ -478,16 +499,83 @@ func (machine *StateMachine) ProposalValidatorSet() (validator.Set, error) {
 	machine.mu.Lock()
 	defer machine.mu.Unlock()
 
+	_, validatorSet, err := machine.nextProposalHeader(0)
+	return validatorSet, err
+}
+
+// ProposalLeader returns the leader of view round for the next block the machine would propose: the
+// child of the highest certified block, scheduled from its set with the benched list its parent
+// fixes for it (Leader).
+func (machine *StateMachine) ProposalLeader(round types.Round) (types.ValidatorID, error) {
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
+
+	header, validatorSet, err := machine.nextProposalHeader(round)
+	if err != nil {
+		return "", err
+	}
+	leader, ok := Leader(header, validatorSet)
+	if !ok {
+		return "", fmt.Errorf("%w: no active validators", ErrUnexpectedProposer)
+	}
+	return leader, nil
+}
+
+// CheckBench reports a header whose benched list is not the one its parent fixes, nil when it is or
+// the machine does not hold the parent. A leader is scheduled from the header's own list (Leader),
+// so a node that authenticates a proposal before it holds the block checks the list as far as it
+// can.
+func (machine *StateMachine) CheckBench(header types.Header) error {
+	machine.mu.Lock()
+	defer machine.mu.Unlock()
+
+	if header.Height <= 1 {
+		if len(header.Benched) != 0 {
+			return fmt.Errorf("%w: the first block benches no one", ErrInvalidProposal)
+		}
+		return nil
+	}
+	parent := machine.parentHeader(header)
+	if parent == nil {
+		return nil
+	}
+	validatorSet, err := machine.validatorSetAt(header.ValidatorSetHeight)
+	if err != nil {
+		return nil
+	}
+	if bench := ChildBench(parent, header.Round, validatorSet); !slices.Equal(header.Benched, bench) {
+		return fmt.Errorf("%w: benched validators %v, the parent fixes %v", ErrInvalidProposal, header.Benched, bench)
+	}
+	return nil
+}
+
+// nextProposalHeader returns the scheduling fields of the header of a child of the highest certified
+// block proposed in view round, and the validator set that certifies it.
+func (machine *StateMachine) nextProposalHeader(round types.Round) (types.Header, validator.Set, error) {
 	highQC := machine.blockTree.HighQC()
-	header := types.Header{Height: highQC.Height + 1, PreviousBlockHash: highQC.BlockHash}
+	header := types.Header{Height: highQC.Height + 1, PreviousBlockHash: highQC.BlockHash, Round: round, JustifyRound: highQC.Round}
 	if highQC.Height < machine.floorHeight {
-		header = types.Header{Height: machine.floorHeight + 1, PreviousBlockHash: machine.floorHash}
+		header = types.Header{Height: machine.floorHeight + 1, PreviousBlockHash: machine.floorHash, Round: round}
 	}
 	heights, err := machine.expectedChainHeights(header)
 	if err != nil {
-		return nil, err
+		return types.Header{}, nil, err
 	}
-	return machine.validatorSetAt(heights.set)
+	validatorSet, err := machine.validatorSetAt(heights.set)
+	if err != nil {
+		return types.Header{}, nil, err
+	}
+	// The header names the set after the state it commits: the block cannot be built before that
+	// state is executed.
+	if _, err := machine.validatorSetAt(heights.state + 1); err != nil {
+		return types.Header{}, nil, err
+	}
+	parent := machine.parentHeader(header)
+	if parent != nil {
+		header.JustifyRound = parent.Round
+	}
+	header.Benched = ChildBench(parent, round, validatorSet)
+	return header, validatorSet, nil
 }
 
 // CreateProposal builds the proposal for a view. A block above height 1 must extend a
@@ -533,10 +621,11 @@ func (machine *StateMachine) CreateProposal(block types.Block, round types.Round
 		return Proposal{}, err
 	}
 	block.Header.NextValidatorSetHash = nextSet.Hash()
+	block.Header.Benched = ChildBench(machine.parentHeader(block.Header), round, validatorSet)
 	if _, found := validatorSet.Get(proposer); !found {
 		return Proposal{}, ErrUnknownValidator
 	}
-	if err := machine.validateProposer(validatorSet, block.Header.Height, round, proposer); err != nil {
+	if err := machine.validateProposer(validatorSet, block.Header, proposer); err != nil {
 		return Proposal{}, err
 	}
 
@@ -638,7 +727,7 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 	if !found {
 		return ErrUnknownValidator
 	}
-	if err := machine.validateProposer(validatorSet, header.Height, proposal.Round, proposal.Proposer); err != nil {
+	if err := machine.validateProposer(validatorSet, header, proposal.Proposer); err != nil {
 		return err
 	}
 	if err := machine.verifyProposalSignature(proposal, proposerInfo); err != nil {
@@ -796,16 +885,18 @@ func (machine *StateMachine) observePendingJustify(proposal Proposal, pending er
 	return pending
 }
 
-func (machine *StateMachine) validateProposer(validatorSet validator.Set, height types.Height, round types.Round, proposer types.ValidatorID) error {
+// validateProposer checks that proposer leads the view of header (Leader). The benched list the
+// leader is scheduled from is checked against the parent by checkProposalHeader.
+func (machine *StateMachine) validateProposer(validatorSet validator.Set, header types.Header, proposer types.ValidatorID) error {
 	if !machine.enforceProposerSelection {
 		return nil
 	}
-	expected, ok := validator.SelectProposer(validatorSet.List(), round)
+	expected, ok := Leader(header, validatorSet)
 	if !ok {
 		return fmt.Errorf("%w: no active validators", ErrUnexpectedProposer)
 	}
 	if expected != proposer {
-		return fmt.Errorf("%w: height=%d round=%d expected=%s actual=%s", ErrUnexpectedProposer, height, round, expected, proposer)
+		return fmt.Errorf("%w: height=%d round=%d expected=%s actual=%s", ErrUnexpectedProposer, header.Height, header.Round, expected, proposer)
 	}
 	return nil
 }

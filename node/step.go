@@ -30,18 +30,31 @@ func (node *Node) StepConsensusWithConfig(ctx context.Context, cfg ConsensusLoop
 	if err := checkBlockBytes(cfg); err != nil {
 		return ConsensusStepResult{}, err
 	}
+	if err := checkExecutionCommitMode(cfg); err != nil {
+		return ConsensusStepResult{}, err
+	}
 	// A commit that failed after its block became durable is finished before anything else happens.
 	if err := node.reconcileCommitted(ctx); err != nil {
+		return ConsensusStepResult{}, err
+	}
+	// The leader of the view proposes before it executes a finalized block: a block names the state
+	// of an older height (finality.ChildStateHeight), so the proposal never waits for the execution,
+	// which then overlaps the view.
+	proposal, blockHash, proposed, err := node.proposeFirst(ctx, cfg)
+	if err != nil {
 		return ConsensusStepResult{}, err
 	}
 	commit, committed, err := node.commitCandidateForMode(ctx, cfg)
 	if err != nil {
 		return ConsensusStepResult{}, err
 	}
-	if committed {
+	if committed || proposed {
 		return ConsensusStepResult{
-			Committed: true,
+			Committed: committed,
 			Commit:    commit,
+			Proposed:  proposed,
+			Proposal:  proposal,
+			BlockHash: blockHash,
 		}, nil
 	}
 
@@ -58,7 +71,7 @@ func (node *Node) StepConsensusWithConfig(ctx context.Context, cfg ConsensusLoop
 		proposalOptions.AllowEmpty = true
 	}
 
-	proposal, blockHash, proposed, err := node.tickConsensusWithProposalOptions(ctx, cfg, proposalOptions)
+	proposal, blockHash, proposed, err = node.tickConsensusWithProposalOptions(ctx, cfg, proposalOptions)
 	if err != nil {
 		return ConsensusStepResult{}, err
 	}
@@ -69,23 +82,42 @@ func (node *Node) StepConsensusWithConfig(ctx context.Context, cfg ConsensusLoop
 	}, nil
 }
 
-func (node *Node) commitCandidateForMode(ctx context.Context, cfg ConsensusLoopConfig) (CommitReadyResult, bool, error) {
+// checkExecutionCommitMode refuses an unknown execution boundary, and the QC boundary without its
+// unsafe opt-in.
+func checkExecutionCommitMode(cfg ConsensusLoopConfig) error {
 	switch cfg.ExecutionCommitMode {
 	case ExecutionCommitModeQC:
 		if !cfg.AllowUnsafeQCCommit {
-			return CommitReadyResult{}, false, ErrInvalidLoopConfig
+			return ErrInvalidLoopConfig
 		}
-		return node.UnsafeCommitReadyBlock(ctx)
+		return nil
 	case "", ExecutionCommitModeFinalized:
-		return node.commitFinalizedBlock(ctx, cfg.RecoveryFinalityGateEnabled)
+		return nil
 	default:
-		return CommitReadyResult{}, false, ErrInvalidLoopConfig
+		return ErrInvalidLoopConfig
 	}
+}
+
+func (node *Node) commitCandidateForMode(ctx context.Context, cfg ConsensusLoopConfig) (CommitReadyResult, bool, error) {
+	if err := checkExecutionCommitMode(cfg); err != nil {
+		return CommitReadyResult{}, false, err
+	}
+	if cfg.ExecutionCommitMode == ExecutionCommitModeQC {
+		return node.UnsafeCommitReadyBlock(ctx)
+	}
+	return node.commitFinalizedBlock(ctx, cfg.RecoveryFinalityGateEnabled)
 }
 
 func (node *Node) needsFinalityProgress(ctx context.Context, mode ExecutionCommitMode) bool {
 	if mode != "" && mode != ExecutionCommitModeFinalized {
 		return false
+	}
+	// A block at or below the highest decided height is final: it waits for its execution only.
+	var decided types.Height
+	if machine, err := node.Consensus(); err == nil {
+		for _, decision := range machine.CommitDecisions() {
+			decided = max(decided, decision.CommittedHeight)
+		}
 	}
 	for _, proposal := range node.pendingProposals() {
 		select {
@@ -93,7 +125,7 @@ func (node *Node) needsFinalityProgress(ctx context.Context, mode ExecutionCommi
 			return false
 		default:
 		}
-		if len(proposal.Block.Txs) > 0 {
+		if len(proposal.Block.Txs) > 0 && proposal.Block.Header.Height > decided {
 			return true
 		}
 	}
@@ -115,4 +147,23 @@ func (node *Node) advanceFinalityRound(ctx context.Context) error {
 		machine.StartRound(boundedNextHeight(committed, highQC.Height), 0)
 	}
 	return nil
+}
+
+// proposeFirst proposes for the current view when the node leads it and has a block to propose:
+// transactions, or a block the chain needs to finalize its tip.
+func (node *Node) proposeFirst(ctx context.Context, cfg ConsensusLoopConfig) (consensus.Proposal, types.Hash, bool, error) {
+	machine, err := node.Consensus()
+	if err != nil {
+		return consensus.Proposal{}, types.Hash{}, false, err
+	}
+	status := machine.Status(ctx)
+	height := max(status.Height, 1)
+	if node.hasProposed(height, status.Round) {
+		return consensus.Proposal{}, types.Hash{}, false, nil
+	}
+	if leads, err := node.IsProposer(ctx, status.Round); err != nil || !leads {
+		return consensus.Proposal{}, types.Hash{}, false, nil
+	}
+	options := ProposalOptions{AllowEmpty: cfg.CreateEmptyBlocks || node.needsFinalityProgress(ctx, cfg.ExecutionCommitMode)}
+	return node.tickConsensusWithProposalOptions(ctx, cfg, options)
 }

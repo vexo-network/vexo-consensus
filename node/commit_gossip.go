@@ -203,7 +203,7 @@ func (node *Node) acceptCommitMessage(ctx context.Context, from p2p.PeerID, data
 			return
 		}
 		proposal, held := node.pendingProposals()[message.FinalityProof.BlockHash]
-		if !held || proposal.Block.Header != message.Block.Header {
+		if !held || consensus.HashHeader(proposal.Block.Header) != consensus.HashHeader(message.Block.Header) {
 			// The node misses the block: the announcement must prove it final before the node asks
 			// the announcer for it.
 			node.requestCommitBody(ctx, from, message)
@@ -257,7 +257,7 @@ func (node *Node) requestCommitBody(ctx context.Context, from p2p.PeerID, messag
 	proof := message.FinalityProof
 	err := error(nil)
 	switch {
-	case proof.Header != message.Block.Header || !sameQuorumCert(proof.QuorumCert, message.QuorumCert):
+	case consensus.HashHeader(proof.Header) != consensus.HashHeader(message.Block.Header) || !sameQuorumCert(proof.QuorumCert, message.QuorumCert):
 		err = fmt.Errorf("%w: proof does not describe the announced block", ErrInvalidCommitQC)
 	default:
 		var verifier finality.RegistryVerifier
@@ -322,7 +322,7 @@ func (node *Node) verifyCommitCertificate(ctx context.Context, block types.Block
 // the proof does not choose them.
 func (node *Node) verifyCommitFinalityProof(ctx context.Context, block types.Block, quorumCert finality.QuorumCert, proof finality.Proof) error {
 	blockHash := consensus.HashBlock(block)
-	if proof.Header != block.Header || proof.BlockHash != blockHash {
+	if consensus.HashHeader(proof.Header) != consensus.HashHeader(block.Header) || proof.BlockHash != blockHash {
 		return fmt.Errorf("%w: proof does not describe the committed block", ErrInvalidCommitQC)
 	}
 	if !sameQuorumCert(proof.QuorumCert, quorumCert) {

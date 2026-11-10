@@ -9,34 +9,12 @@ import (
 	"github.com/vexo-network/vexo-consensus/consensus"
 	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/types"
-	"github.com/vexo-network/vexo-consensus/validator"
 )
 
-// SelectProposer returns the validator that leads view round (validator.SelectProposer).
-func SelectProposer(validators []validator.Validator, round types.Round) (types.ValidatorID, error) {
-	proposer, ok := validator.SelectProposer(validators, round)
-	if !ok {
-		return "", ErrMissingValidators
-	}
-	return proposer, nil
-}
-
-// ProposerSchedule returns the leaders of the views from first on, count of them.
-func ProposerSchedule(validators []validator.Validator, first types.Round, count uint64) ([]types.ValidatorID, error) {
-	schedule := make([]types.ValidatorID, 0, count)
-	for offset := uint64(0); offset < count; offset++ {
-		proposer, err := SelectProposer(validators, first+types.Round(offset))
-		if err != nil {
-			return nil, err
-		}
-		schedule = append(schedule, proposer)
-	}
-	return schedule, nil
-}
-
-// Proposer returns the leader of view round for the next block: it is scheduled from the validator
-// set that block must name, the one its parent, the highest certified block, fixes for it. The
-// set fails with consensus.ErrValidatorSetPending until the block it depends on is executed.
+// Proposer returns the leader of view round for the next block (consensus.Leader): it is scheduled
+// from the validator set that block must name, the one its parent, the highest certified block,
+// fixes for it, with the benched list the parent fixes. It fails with
+// consensus.ErrValidatorSetPending until the block the set depends on is executed.
 func (node *Node) Proposer(ctx context.Context, round types.Round) (types.ValidatorID, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -45,11 +23,7 @@ func (node *Node) Proposer(ctx context.Context, round types.Round) (types.Valida
 	if err != nil {
 		return "", err
 	}
-	validatorSet, err := machine.ProposalValidatorSet()
-	if err != nil {
-		return "", err
-	}
-	return SelectProposer(validatorSet.List(), round)
+	return machine.ProposalLeader(round)
 }
 
 func (node *Node) IsProposer(ctx context.Context, round types.Round) (bool, error) {

@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+
+	"github.com/vexo-network/vexo-consensus/transport"
 )
 
 type deploymentTemplateDocument struct {
@@ -180,7 +182,7 @@ func buildDeploymentTemplateDocument() deploymentTemplateDocument {
 		Runtime: deploymentRuntimeTemplate{
 			RPCMaxRequestBytes:      1_048_576,
 			RPCRateLimitMaxRequests: 100,
-			P2PMaxMessageBytes:      1_048_576,
+			P2PMaxMessageBytes:      transport.MinMessageBytes,
 			P2PAuthTokenRequired:    true,
 			RPCAdminTokenRequired:   true,
 			PprofLoopbackOnly:       true,

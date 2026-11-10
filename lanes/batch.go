@@ -64,11 +64,12 @@ func (batch Batch) ID() types.Hash {
 	return id
 }
 
-// Size returns the transaction bytes of the batch.
+// Size returns the transaction bytes of the batch, each transaction charged its types.TxCost as in
+// a block.
 func (batch Batch) Size() int {
 	size := 0
 	for _, tx := range batch.Txs {
-		size += len(tx)
+		size += types.TxCost(tx)
 	}
 	return size
 }
