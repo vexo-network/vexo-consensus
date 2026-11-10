@@ -6,7 +6,7 @@
 
 ## सारांश
 
-यह पांडुलिपि मॉड्यूलर Proof-of-Stake नेटवर्क के लिए HotStuff-शैली BFT state-machine replication का अध्ययन करती है। implementation three-chain finality और height-versioned validator set को तीन operational mechanisms के साथ जोड़ता है। सीमित adaptive controller proposal, vote और commit की p95 processing latency तथा active peer health के आधार पर round timeout को बदलता है। recovery finality gate durable block history और application state history के साझा सुरक्षित height से ऊपर अलग होने पर finalized application commit को रोकता है। deterministic transaction ordering एक ही transaction set के लिए local mempool arrival order का प्रभाव हटाता है, जबकि प्रत्येक signer की nonce dependency को बनाए रखता है।
+यह पांडुलिपि मॉड्यूलर Proof-of-Stake नेटवर्क के लिए HotStuff-शैली BFT state-machine replication का अध्ययन करती है। implementation two-chain finality और height-versioned validator set को तीन operational mechanisms के साथ जोड़ता है। सीमित adaptive controller proposal, vote और commit की p95 processing latency तथा active peer health के आधार पर round timeout को बदलता है। recovery finality gate durable block history और application state history के साझा सुरक्षित height से ऊपर अलग होने पर finalized application commit को रोकता है। deterministic transaction ordering एक ही transaction set के लिए local mempool arrival order का प्रभाव हटाता है, जबकि प्रत्येक signer की nonce dependency को बनाए रखता है।
 
 योगदान यह दावा नहीं करता कि PoS, BFT, HotStuff, adaptive view synchronization या order fairness नए हैं। अधिक संकीर्ण प्रश्न यह है कि क्या control, recovery और ordering का यह bounded composition मूल HotStuff safety rule बदले बिना अनावश्यक timeout और recovery inconsistency को घटाता है। लागू तथ्य, खंडनीय hypotheses और अभी experiment मांगने वाले conclusions अलग रखे जाते हैं। pinned binary, config, topology और workload के repeated measurement के बिना throughput या latency improvement को result नहीं कहा जाएगा।
 
@@ -30,7 +30,7 @@ network को partially synchronous माना जाता है। safety 
 
 EVM, Vexo consensus के नीचे application workload है। Ethereum bytecode execution और `/web3` tooling compatibility का अर्थ Ethereum fork choice या devp2p consensus लागू करना नहीं है।
 
-base safety rule `locked_qc` और `high_qc` track करता है। proposal तभी safe है जब वह lock को extend करे या lock जितना नया justify QC लाए। validator समान height/round में अलग blocks के लिए vote नहीं कर सकता। height और hash से जुड़े तीन consecutive certified links grandparent को finalize करते हैं। adaptive controller इस predicate, quorum threshold, QC verification या three-chain rule को नहीं बदलता।
+base safety rule `locked_qc` और `high_qc` track करता है। proposal तभी safe है जब वह lock को extend करे या lock जितना नया justify QC लाए। validator समान height/round में अलग blocks के लिए vote नहीं कर सकता। height और hash से जुड़े तीन consecutive certified links grandparent को finalize करते हैं। adaptive controller इस predicate, quorum threshold, QC verification या two-chain rule को नहीं बदलता।
 
 adaptive timeout base budget T0, current budget Tt, proposal/vote/commit p95 latency sum और peer deficit floor का उपयोग करता है। timeout के बाद value 1.5×Tt की ओर बढ़ती है; progress के बाद 0.8×Tt की ओर घटती है। observed latency का तीन गुना candidate floor बनता है और result T0 तथा 8×T0 के बीच bounded रहता है। active peer न होने पर peer floor 2×T0 है। pending work रहित idle समय और local execution/storage error round consume नहीं करते। यह bounded operational controller है, theoretically optimal pacemaker का proof नहीं।
 

@@ -423,3 +423,100 @@ func TestALightlyLoadedLaneWaitsForItsPreviousCertificate(t *testing.T) {
 		t.Fatalf("a lane whose previous batch was large must not wait, waits %s", wait)
 	}
 }
+
+// A transaction whose owner does not batch it is batched by one validator per fallback turn, not
+// by every validator that holds it: the validator after the owner first, and the next one only
+// when that one is down too.
+func TestOneValidatorPerFallbackTurnBatchesAnOrphan(t *testing.T) {
+	ids := []types.ValidatorID{"alice", "bob", "carol", "dave", "erin"}
+	net := newLaneNet(t, ids...)
+	tx := types.Tx("bank:orphan-turns")
+	members := Members(net.set)
+	owner, first := ownerAt(members, tx, 0), ownerAt(members, tx, 1)
+	net.services[owner].Stop()
+	net.services[first].Stop()
+	net.mu.Lock()
+	for _, id := range ids {
+		net.pending[id][mempool.HashTx(tx)] = true
+	}
+	net.mu.Unlock()
+	for _, id := range ids {
+		if id != owner && id != first {
+			net.services[id].Hold(tx)
+		}
+	}
+	sealed := func() (total uint64) {
+		for _, id := range ids {
+			total += net.services[id].Stats().Sealed
+		}
+		return total
+	}
+	time.Sleep(FallbackDelay + FallbackDelay/2)
+	if total := sealed(); total != 0 {
+		t.Fatalf("expected the holders to wait for the first fallback turn, %d batches sealed", total)
+	}
+	second := ownerAt(members, tx, 2)
+	waitFor(t, "the second turn to batch the orphan", func() bool { return net.services[second].Stats().Sealed == 1 })
+	time.Sleep(FallbackDelay / 2)
+	if total := sealed(); total != 1 {
+		t.Fatalf("expected one batch of the orphan, got %d", total)
+	}
+}
+
+// A committed transaction consumes every batch that carries it, whichever arrived first, and a
+// batch that arrives after the commit; the validators so agree on which batches are spent.
+func TestACommitConsumesEveryBatchCarryingItsTransaction(t *testing.T) {
+	set := testSet(t, "alice", "bob", "carol")
+	signer := testSigner(t, "carol")
+	service := New(Config{
+		ChainID: testChain, Self: "carol", Signatures: signer,
+		Sign: func(_ vexocrypto.SignType, domain vexocrypto.Domain, message []byte) (types.Signature, error) {
+			return vexocrypto.SignWithDomain(signer, domain, message)
+		},
+		ValidatorSet: func(context.Context) (validator.Set, error) { return set, nil },
+	})
+	store := func(batch Batch) {
+		service.mu.Lock()
+		stored := service.storeLocked(batch, batch.ID())
+		stored.cert = &Cert{BatchID: batch.ID()}
+		service.mu.Unlock()
+	}
+	store(signedBatch(t, "alice", 1, "bank:shared", "bank:alice"))
+	store(signedBatch(t, "bob", 1, "bank:shared", "bank:bob"))
+	service.Committed(types.Hash{1}, 1, []types.Tx{types.Tx("bank:shared"), types.Tx("bank:alice")})
+	if ids := candidateIDs(service); len(ids) != 0 {
+		t.Fatalf("expected both batches carrying the committed transaction consumed, got %d candidates", len(ids))
+	}
+	late := signedBatch(t, "alice", 2, "bank:alice", "bank:later")
+	if err := service.onBatch(context.Background(), late, set); err != nil {
+		t.Fatal(err)
+	}
+	service.mu.Lock()
+	stored, held := service.entries[late.ID()]
+	if held {
+		stored.cert = &Cert{BatchID: late.ID()}
+	}
+	service.mu.Unlock()
+	if !held || stored.batch == nil {
+		t.Fatal("expected the late batch stored")
+	}
+	if ids := candidateIDs(service); len(ids) != 0 {
+		t.Fatalf("expected a batch arriving after its transaction committed consumed, got %d candidates", len(ids))
+	}
+}
+
+// A proposal names, for a transaction two batches carry, the one the other validators can serve:
+// certified, rather than an uncertified copy stored first.
+func TestCoveringNamesTheCertifiedCopyOfATransaction(t *testing.T) {
+	service := New(Config{ChainID: testChain, Self: "zed"})
+	uncertified := signedBatch(t, "alice", 1, "bank:copy")
+	certified := signedBatch(t, "bob", 1, "bank:copy")
+	service.mu.Lock()
+	service.storeLocked(uncertified, uncertified.ID())
+	service.storeLocked(certified, certified.ID()).cert = &Cert{BatchID: certified.ID()}
+	service.mu.Unlock()
+	covering := service.Covering([]types.Tx{types.Tx("bank:copy")})
+	if len(covering) != 1 || covering[0].ID() != certified.ID() {
+		t.Fatalf("expected the certified batch named, got %+v", covering)
+	}
+}

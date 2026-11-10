@@ -44,6 +44,7 @@ func (node *Node) newLanes(runtime *vexoruntime.Runtime, machine *consensus.Stat
 			return machine.ProposalValidatorSet()
 		},
 		Pending: runtime.Mempool.Has,
+		Key:     laneKey,
 		Ready:   func() { node.wakeConsensus(context.Background()) },
 		Stored:  node.admitLaneBatch,
 		Admit:   node.admitPeerMessage,
@@ -84,11 +85,19 @@ func (node *Node) laneOwner(tx types.Tx) bool {
 	if err != nil {
 		return true
 	}
-	key := []byte(tx)
-	if slot, ok := slotOf(tx); ok {
-		key = []byte(slot.signer)
+	key := laneKey(tx)
+	if key == nil {
+		key = tx
 	}
 	return lanes.Owner(lanes.Members(set), key) == node.cfg.ValidatorID
+}
+
+// laneKey returns the key lanes.Owner takes for tx: its signer, or nil when it names none.
+func laneKey(tx types.Tx) []byte {
+	if slot, ok := slotOf(tx); ok {
+		return []byte(slot.signer)
+	}
+	return nil
 }
 
 // routeGossipedTx hands a transaction a peer gossiped to the lanes: the owner batches it, the

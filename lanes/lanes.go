@@ -59,6 +59,8 @@ const (
 	maxServes = 2
 	// maxHeld bounds the transactions a node holds for other lanes.
 	maxHeld = 1 << 17
+	// maxSettled bounds the committed transactions a generation of the settled record holds.
+	maxSettled = 1 << 19
 	// storedQueue bounds the stored batches waiting for the Stored hook; past it the hook misses
 	// batches, which only the pool's view of what is pending loses.
 	storedQueue = 1024
@@ -86,6 +88,9 @@ type Config struct {
 	ValidatorSet func(context.Context) (validator.Set, error)
 	// Pending reports whether the node still holds the transaction of hash in its pool, uncommitted.
 	Pending func(types.Hash) bool
+	// Key returns the key Owner takes for tx: its sender, or nil when it names none, which makes
+	// its hash the key.
+	Key func(types.Tx) []byte
 	// Ready is called when a batch becomes proposable.
 	Ready func()
 	// Stored is called, in the order the batches arrive and off the message loop, with every batch
@@ -124,9 +129,20 @@ type Lanes struct {
 	stored  chan Batch
 	entries map[types.Hash]*entry
 	lanes   map[types.ValidatorID]*lane
-	// index names, for a transaction, the first stored batch that carries it.
-	index map[types.Hash]*entry
-	bytes int
+	// index names, for a transaction, the first stored batch that carries it, and copies the
+	// other ones, in the order they arrived: a transaction is carried twice only when its owner and
+	// a fallback batch it.
+	index  map[types.Hash]*entry
+	copies map[types.Hash][]*entry
+	// settled and settledBefore record the committed transactions, the current generation since
+	// settledSince and the one before, so a batch that arrives after one of its transactions
+	// committed is consumed as one that arrived before. A generation lasts batchTTL, or until it
+	// holds maxSettled transactions: a commit is remembered for batchTTL at least, unless more than
+	// maxSettled others committed since.
+	settled       map[types.Hash]struct{}
+	settledBefore map[types.Hash]struct{}
+	settledSince  time.Time
+	bytes         int
 	// The author state: the next sequence number, the transactions waiting for a batch, and the
 	// batch that carries each transaction of this node's lane.
 	seq        uint64
@@ -186,10 +202,17 @@ type entry struct {
 	ownBatch bool
 }
 
+// heldTx is a transaction this node keeps until a batch carries it. At its deadline the validator
+// of the fallback turn attempt (ownerAt) batches it, and the others wait another FallbackDelay for
+// the next turn, so one validator per turn batches a transaction its owner did not, instead of
+// every validator that holds it. mine marks a transaction this node batches itself whatever the
+// turn: one of its own lane whose batch it could not sign.
 type heldTx struct {
 	tx       types.Tx
 	hash     types.Hash
 	deadline time.Time
+	attempt  int
+	mine     bool
 }
 
 type blockRef struct {
@@ -204,9 +227,13 @@ func New(cfg Config) *Lanes {
 		entries: make(map[types.Hash]*entry),
 		lanes:   make(map[types.ValidatorID]*lane),
 		index:   make(map[types.Hash]*entry),
-		queued:  make(map[types.Hash]struct{}),
-		batched: make(map[types.Hash]types.Hash),
-		refs:    make(map[types.Hash]blockRef),
+		copies:  make(map[types.Hash][]*entry),
+		settled: make(map[types.Hash]struct{}),
+		// The first generation starts with the service.
+		settledSince: time.Now(),
+		queued:       make(map[types.Hash]struct{}),
+		batched:      make(map[types.Hash]types.Hash),
+		refs:         make(map[types.Hash]blockRef),
 		// A restarted author continues past every sequence number it used before.
 		seq: uint64(time.Now().UnixNano()),
 	}
@@ -307,11 +334,32 @@ func (lanes *Lanes) Stats() Stats {
 // keys in turn by their hash. One lane carries all the transactions of a sender, in the order its
 // author admits them, so lanes never split a nonce sequence.
 func Owner(members []types.ValidatorID, key []byte) types.ValidatorID {
+	return ownerAt(members, key, 0)
+}
+
+// ownerAt returns the validator of fallback turn attempt for the transactions of key: the owner at
+// turn zero, then the next members in turn, so a turn of faulty validators delays a sender by one
+// FallbackDelay each and a sender reaches an honest lane within f+1 turns.
+func ownerAt(members []types.ValidatorID, key []byte, attempt int) types.ValidatorID {
 	if len(members) == 0 {
 		return ""
 	}
+	return members[(ownerIndex(members, key)+attempt)%len(members)]
+}
+
+func ownerIndex(members []types.ValidatorID, key []byte) int {
 	hash := mempool.HashTx(key)
-	return members[binary.BigEndian.Uint64(hash[:8])%uint64(len(members))]
+	return int(binary.BigEndian.Uint64(hash[:8]) % uint64(len(members)))
+}
+
+// keyOf returns the key Owner takes for tx.
+func (lanes *Lanes) keyOf(tx types.Tx) []byte {
+	if lanes.cfg.Key != nil {
+		if key := lanes.cfg.Key(tx); key != nil {
+			return key
+		}
+	}
+	return tx
 }
 
 // Members returns the validators of set sorted by id.
@@ -340,6 +388,10 @@ func (lanes *Lanes) Submit(tx types.Tx) {
 		lanes.mu.Unlock()
 		return
 	}
+	if lanes.isSettledLocked(hash) {
+		lanes.mu.Unlock()
+		return
+	}
 	if _, found := lanes.queued[hash]; found {
 		lanes.mu.Unlock()
 		return
@@ -363,15 +415,16 @@ func (lanes *Lanes) Submit(tx types.Tx) {
 	}
 }
 
-// Hold keeps tx, a transaction another validator's lane carries, and batches it on this node's
-// lane when the pool still holds it after FallbackDelay.
+// Hold keeps tx, a transaction another validator's lane carries. When the pool still holds it and
+// no stored batch carries it after FallbackDelay, the validator of the first fallback turn batches
+// it, and the next ones in turn after each further FallbackDelay.
 func (lanes *Lanes) Hold(tx types.Tx) {
 	lanes.mu.Lock()
 	defer lanes.mu.Unlock()
 	if lanes.wire == nil || len(lanes.held) >= maxHeld {
 		return
 	}
-	lanes.held = append(lanes.held, heldTx{tx: append(types.Tx(nil), tx...), hash: mempool.HashTx(tx), deadline: time.Now().Add(FallbackDelay)})
+	lanes.held = append(lanes.held, heldTx{tx: append(types.Tx(nil), tx...), hash: mempool.HashTx(tx), deadline: time.Now().Add(FallbackDelay), attempt: 1})
 }
 
 // Flush seals the transactions waiting for a batch now, so a proposal can carry them.
@@ -455,7 +508,7 @@ func (lanes *Lanes) seal(ctx context.Context, txs []types.Tx) {
 			hash := mempool.HashTx(tx)
 			delete(lanes.queued, hash)
 			if len(lanes.held) < maxHeld {
-				lanes.held = append(lanes.held, heldTx{tx: tx, hash: hash, deadline: now.Add(FallbackDelay)})
+				lanes.held = append(lanes.held, heldTx{tx: tx, hash: hash, deadline: now.Add(FallbackDelay), mine: true})
 			}
 		}
 		lanes.mu.Unlock()
@@ -467,6 +520,21 @@ func (lanes *Lanes) seal(ctx context.Context, txs []types.Tx) {
 	stored.ack = ack
 	stored.ownBatch = true
 	stored.acks = map[types.ValidatorID]types.Signature{lanes.cfg.Self: ack}
+	for _, hash := range stored.hashes {
+		lanes.batched[hash] = id
+	}
+	if lanes.settledLocked(stored) {
+		// A block committed one of the transactions while the batch was signed: the batch is
+		// consumed, as every validator consumes it, and the others are batched again.
+		for _, hash := range stored.hashes {
+			delete(lanes.queued, hash)
+		}
+		released := lanes.consumeLocked(stored, time.Now())
+		pending := lanes.cfg.Pending
+		lanes.mu.Unlock()
+		lanes.resubmit(released, pending)
+		return
+	}
 	stored.lastSent = time.Now()
 	lanes.uncertified, lanes.uncertifiedSince = types.Hash{}, time.Time{}
 	if batch.Size() < paceBytes {
@@ -474,7 +542,6 @@ func (lanes *Lanes) seal(ctx context.Context, txs []types.Tx) {
 	}
 	for _, hash := range stored.hashes {
 		delete(lanes.queued, hash)
-		lanes.batched[hash] = id
 	}
 	lanes.stats.Sealed++
 	wire := lanes.wire
@@ -519,11 +586,92 @@ func (lanes *Lanes) storeLocked(batch Batch, id types.Hash) *entry {
 	copy(authorLane.entries[position+1:], authorLane.entries[position:])
 	authorLane.entries[position] = stored
 	for _, hash := range stored.hashes {
-		if _, indexed := lanes.index[hash]; !indexed {
+		if _, indexed := lanes.index[hash]; indexed {
+			lanes.copies[hash] = append(lanes.copies[hash], stored)
+		} else {
 			lanes.index[hash] = stored
 		}
 	}
 	return stored
+}
+
+// carriersLocked returns the stored batches that carry the transaction of hash, in the order they
+// arrived.
+func (lanes *Lanes) carriersLocked(hash types.Hash) []*entry {
+	first, found := lanes.index[hash]
+	if !found {
+		return nil
+	}
+	copies := lanes.copies[hash]
+	if len(copies) == 0 {
+		return []*entry{first}
+	}
+	return append([]*entry{first}, copies...)
+}
+
+// settledLocked reports whether a committed block carries one of the transactions of stored.
+func (lanes *Lanes) settledLocked(stored *entry) bool {
+	for _, hash := range stored.hashes {
+		if lanes.isSettledLocked(hash) {
+			return true
+		}
+	}
+	return false
+}
+
+func (lanes *Lanes) isSettledLocked(hash types.Hash) bool {
+	if _, found := lanes.settled[hash]; found {
+		return true
+	}
+	_, found := lanes.settledBefore[hash]
+	return found
+}
+
+// settleLocked records the commit of the transaction of hash, starting a generation when the
+// current one is over.
+func (lanes *Lanes) settleLocked(hash types.Hash, now time.Time) {
+	if now.Sub(lanes.settledSince) > batchTTL || len(lanes.settled) >= maxSettled {
+		lanes.settledBefore = lanes.settled
+		lanes.settled = make(map[types.Hash]struct{}, len(lanes.settledBefore))
+		lanes.settledSince = now
+	}
+	lanes.settled[hash] = struct{}{}
+}
+
+// consumeLocked marks stored consumed and returns the transactions of this node's batch that a
+// next batch carries instead.
+func (lanes *Lanes) consumeLocked(stored *entry, now time.Time) []types.Tx {
+	if stored.consumed {
+		return nil
+	}
+	stored.consumed = true
+	stored.settled = now
+	stored.referenced = types.Hash{}
+	if stored.batch == nil {
+		return nil
+	}
+	if authorLane := lanes.lanes[stored.author]; authorLane != nil {
+		authorLane.bytes -= stored.batch.Size()
+	}
+	var released []types.Tx
+	if stored.ownBatch {
+		for index, hash := range stored.hashes {
+			if lanes.batched[hash] == stored.id {
+				delete(lanes.batched, hash)
+				released = append(released, stored.batch.Txs[index])
+			}
+		}
+	}
+	return released
+}
+
+// resubmit batches again the transactions of txs the pool still holds.
+func (lanes *Lanes) resubmit(txs []types.Tx, pending func(types.Hash) bool) {
+	for _, tx := range txs {
+		if pending != nil && pending(mempool.HashTx(tx)) {
+			lanes.Submit(tx)
+		}
+	}
 }
 
 // removeLocked forgets a stored batch.
@@ -549,8 +697,25 @@ func (lanes *Lanes) removeLocked(stored *entry) {
 		}
 	}
 	for _, hash := range stored.hashes {
+		copies := lanes.copies[hash]
 		if lanes.index[hash] == stored {
-			delete(lanes.index, hash)
+			if len(copies) == 0 {
+				delete(lanes.index, hash)
+				continue
+			}
+			lanes.index[hash], copies = copies[0], copies[1:]
+		} else {
+			for index, carrier := range copies {
+				if carrier == stored {
+					copies = append(copies[:index], copies[index+1:]...)
+					break
+				}
+			}
+		}
+		if len(copies) == 0 {
+			delete(lanes.copies, hash)
+		} else {
+			lanes.copies[hash] = copies
 		}
 	}
 }
@@ -582,8 +747,8 @@ func (lanes *Lanes) Covering(txs []types.Tx) []Batch {
 	seen := make(map[types.Hash]struct{})
 	var batches []Batch
 	for _, tx := range txs {
-		stored, found := lanes.index[mempool.HashTx(tx)]
-		if !found {
+		stored := lanes.coveringLocked(mempool.HashTx(tx))
+		if stored == nil {
 			continue
 		}
 		if _, named := seen[stored.id]; named {
@@ -644,6 +809,29 @@ func (lanes *Lanes) Candidates(maxBytes int) []Batch {
 	return batches
 }
 
+// coveringLocked returns the stored batch a proposal names for the transaction of hash: one that
+// is proposable and no block consumed, which the other validators hold, before any other.
+func (lanes *Lanes) coveringLocked(hash types.Hash) *entry {
+	if len(lanes.copies[hash]) == 0 {
+		return lanes.index[hash]
+	}
+	carriers := lanes.carriersLocked(hash)
+	for _, stored := range carriers {
+		if !stored.consumed && lanes.proposableLocked(stored) {
+			return stored
+		}
+	}
+	for _, stored := range carriers {
+		if !stored.consumed {
+			return stored
+		}
+	}
+	if len(carriers) > 0 {
+		return carriers[0]
+	}
+	return nil
+}
+
 func (lanes *Lanes) proposableLocked(stored *entry) bool {
 	return stored.batch != nil && (stored.cert != nil || stored.author == lanes.cfg.Self)
 }
@@ -684,45 +872,29 @@ func (lanes *Lanes) Reference(blockHash types.Hash, height types.Height, ids []t
 }
 
 // Committed records the commit of the block of blockHash at height with txs. The batches it names,
-// and those that carry one of its transactions, are consumed; the batches only an abandoned block
+// and every batch that carries one of its transactions, now or when it arrives within batchTTL,
+// are consumed; the batches only an abandoned block
 // of that height or below named are proposable again. The transactions of this node's consumed
 // batches that the pool still holds, which the block left out, are batched again.
 func (lanes *Lanes) Committed(blockHash types.Hash, height types.Height, txs []types.Tx) {
 	now := time.Now()
 	var released []types.Tx
 	lanes.mu.Lock()
-	consume := func(stored *entry) {
-		if stored.consumed {
-			return
-		}
-		stored.consumed = true
-		stored.settled = now
-		stored.referenced = types.Hash{}
-		if stored.batch == nil {
-			return
-		}
-		if authorLane := lanes.lanes[stored.author]; authorLane != nil {
-			authorLane.bytes -= stored.batch.Size()
-		}
-		if stored.ownBatch {
-			for index, hash := range stored.hashes {
-				if lanes.batched[hash] == stored.id {
-					delete(lanes.batched, hash)
-					released = append(released, stored.batch.Txs[index])
-				}
-			}
-		}
-	}
 	if ref, found := lanes.refs[blockHash]; found {
 		for _, id := range ref.ids {
 			if stored, found := lanes.entries[id]; found {
-				consume(stored)
+				released = append(released, lanes.consumeLocked(stored, now)...)
 			}
 		}
 	}
 	for _, tx := range txs {
-		if stored, found := lanes.index[mempool.HashTx(tx)]; found {
-			consume(stored)
+		hash := mempool.HashTx(tx)
+		lanes.settleLocked(hash, now)
+		if stored, found := lanes.index[hash]; found {
+			released = append(released, lanes.consumeLocked(stored, now)...)
+			for _, copy := range lanes.copies[hash] {
+				released = append(released, lanes.consumeLocked(copy, now)...)
+			}
 		}
 	}
 	for hash, ref := range lanes.refs {
@@ -738,11 +910,7 @@ func (lanes *Lanes) Committed(blockHash types.Hash, height types.Height, txs []t
 	}
 	pending := lanes.cfg.Pending
 	lanes.mu.Unlock()
-	for _, tx := range released {
-		if pending != nil && pending(mempool.HashTx(tx)) {
-			lanes.Submit(tx)
-		}
-	}
+	lanes.resubmit(released, pending)
 	lanes.ready()
 }
 
@@ -867,6 +1035,11 @@ func (lanes *Lanes) onBatch(ctx context.Context, batch Batch, set validator.Set)
 			return nil
 		}
 		stored = lanes.storeLocked(batch, id)
+		if lanes.settledLocked(stored) {
+			// It arrived after a block committed one of its transactions: consumed, as the
+			// validators that held it then consumed it, and its author batches the others again.
+			lanes.consumeLocked(stored, time.Now())
+		}
 		if batch.Author != lanes.cfg.Self {
 			lanes.stats.Received++
 			select {
@@ -1111,8 +1284,9 @@ func (lanes *Lanes) tick(ctx context.Context) {
 	var resends []resend
 	var certs []Cert
 	var wanted []types.Hash
-	var fallback []types.Tx
+	var due []heldTx
 	var released []types.Tx
+	members := Members(set)
 	lanes.mu.Lock()
 	for _, stored := range lanes.entries {
 		switch {
@@ -1131,10 +1305,11 @@ func (lanes *Lanes) tick(ctx context.Context) {
 				}
 			}
 			if !stored.ownBatch && stored.batch != nil {
-				// No block took the batch up: the validators that hold its transactions batch them.
+				// No block took the batch up: the validators that hold its transactions batch them,
+				// in fallback turns from the validator after its author.
 				for index, tx := range stored.batch.Txs {
 					if len(lanes.held) < maxHeld {
-						lanes.held = append(lanes.held, heldTx{tx: tx, hash: stored.hashes[index], deadline: now})
+						lanes.held = append(lanes.held, heldTx{tx: tx, hash: stored.hashes[index], deadline: now, attempt: turnAfter(members, lanes.keyOf(tx), stored.author)})
 					}
 				}
 			}
@@ -1167,9 +1342,20 @@ func (lanes *Lanes) tick(ctx context.Context) {
 			kept = append(kept, held)
 			continue
 		}
-		if _, carried := lanes.index[held.hash]; !carried {
-			fallback = append(fallback, held.tx)
+		if _, carried := lanes.index[held.hash]; carried {
+			continue
 		}
+		if lanes.isSettledLocked(held.hash) {
+			continue
+		}
+		if held.mine || ownerAt(members, lanes.keyOf(held.tx), held.attempt) == lanes.cfg.Self {
+			due = append(due, held)
+			continue
+		}
+		// Another validator's turn: this one batches it in a later turn if that one does not.
+		held.attempt++
+		held.deadline = now.Add(FallbackDelay)
+		kept = append(kept, held)
 	}
 	lanes.held = kept
 	pending := lanes.cfg.Pending
@@ -1193,9 +1379,21 @@ func (lanes *Lanes) tick(ctx context.Context) {
 		lanes.broadcast(ctx, Message{Type: MessageCert, Cert: &certs[index]})
 	}
 	lanes.ask(ctx, wanted)
-	for _, tx := range append(fallback, released...) {
-		if pending == nil || pending(mempool.HashTx(tx)) {
-			lanes.Submit(tx)
+	for _, held := range due {
+		// Once its batch is stored this node carries the transaction; if no block takes the batch
+		// up, the batch expires and the validators after this one batch it in turn.
+		if pending == nil || pending(held.hash) {
+			lanes.Submit(held.tx)
 		}
 	}
+	lanes.resubmit(released, pending)
+}
+
+// turnAfter returns the fallback turn of the validator after author for the transactions of key.
+func turnAfter(members []types.ValidatorID, key []byte, author types.ValidatorID) int {
+	if len(members) == 0 {
+		return 0
+	}
+	position := sort.Search(len(members), func(index int) bool { return members[index] >= author })
+	return ((position+1-ownerIndex(members, key))%len(members) + len(members)) % len(members)
 }

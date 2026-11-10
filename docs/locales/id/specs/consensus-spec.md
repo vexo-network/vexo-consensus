@@ -102,7 +102,7 @@ Dengan `create_empty_blocks=false`, height yang stabil saat mempool kosong adala
 
 ## Timeout ronde adaptif
 
-Saat `adaptive_round_timeout_enabled = true`, node menghitung timeout dari nilai dasar, rolling p95 pemrosesan proposal/vote/commit, hasil progress, dan defisit peer aktif. Timeout menaikkan budget 1,5 kali, progress berhasil menerapkan 0,8, latency teramati memberi margin 3 kali, lalu hasil dibatasi antara base dan 8 kali base. Safe-vote, proposer, quorum power, QC, dan three-chain finality tidak berubah.
+Saat `adaptive_round_timeout_enabled = true`, node menghitung timeout dari nilai dasar, rolling p95 pemrosesan proposal/vote/commit, hasil progress, dan defisit peer aktif. Timeout menaikkan budget 1,5 kali, progress berhasil menerapkan 0,8, latency teramati memberi margin 3 kali, lalu hasil dibatasi antara base dan 8 kali base. Safe-vote, proposer, quorum power, QC, dan two-chain finality tidak berubah.
 
 ## Gerbang finalitas pemulihan
 
@@ -167,3 +167,6 @@ Lampiran ini memastikan terjemahan tetap membawa antarmuka yang dapat dijalankan
 - `lanes.Owner(members, sender)` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.
 - `lanes.FallbackDelay` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.
 - `lane_proposal` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.
+- `consensus.MaxBlockBytes` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.
+- `consensus.BlockTxBytes` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.
+- `max_block_bytes` — Nama ini digunakan apa adanya dalam contoh yang dapat dijalankan dan validasi konfigurasi, jadi jangan diterjemahkan.

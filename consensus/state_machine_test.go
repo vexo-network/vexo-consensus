@@ -3,6 +3,7 @@ package consensus
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
@@ -871,5 +872,19 @@ func TestStateMachineKeepsABoundedEvidenceWindow(t *testing.T) {
 	}
 	if fresh, again := machine.EvidenceSince(next); len(fresh) != 0 || again != next {
 		t.Fatalf("expected nothing new, got %d (next %d)", len(fresh), again)
+	}
+}
+
+// A block may carry MaxBlockBytes of transactions and no more: a leader cannot make the validators
+// execute a larger one.
+func TestStateMachineRefusesABlockOverTheByteLimit(t *testing.T) {
+	cluster := newThreeValidatorCluster(t)
+	full := "bank:" + strings.Repeat("x", MaxBlockBytes-len("bank:"))
+	if err := cluster.newMachine().OnProposal(context.Background(), cluster.proposal("a", cluster.block(1, types.Hash{}, full), 0, finality.QuorumCert{}, finality.TimeoutCert{})); err != nil {
+		t.Fatalf("expected a block of MaxBlockBytes accepted, got %v", err)
+	}
+	over := cluster.proposal("a", cluster.block(1, types.Hash{}, full, "b"), 0, finality.QuorumCert{}, finality.TimeoutCert{})
+	if err := cluster.newMachine().OnProposal(context.Background(), over); !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("expected a block over MaxBlockBytes refused, got %v", err)
 	}
 }

@@ -6,7 +6,7 @@
 
 ## Abstract
 
-This paper studies a systems variant of HotStuff-style Byzantine fault-tolerant state-machine replication for modular Proof-of-Stake networks. The implementation combines three-chain finality and height-versioned validator sets with three operational mechanisms: a bounded adaptive round-timeout controller, a recovery-aware finality gate, and deterministic transaction ordering that preserves per-signer nonce dependencies. The adaptive controller uses observed proposal, vote, and commit latency together with active-peer health to increase timeouts during stalls and decrease them after progress. The recovery gate prevents a finalized application commit from advancing beyond the height at which durable block and state histories are mutually consistent. The ordering rule removes local mempool arrival order from proposal construction while retaining each account's nonce order.
+This paper studies a systems variant of HotStuff-style Byzantine fault-tolerant state-machine replication for modular Proof-of-Stake networks. The implementation combines two-chain finality and height-versioned validator sets with three operational mechanisms: a bounded adaptive round-timeout controller, a recovery-aware finality gate, and deterministic transaction ordering that preserves per-signer nonce dependencies. The adaptive controller uses observed proposal, vote, and commit latency together with active-peer health to increase timeouts during stalls and decrease them after progress. The recovery gate prevents a finalized application commit from advancing beyond the height at which durable block and state histories are mutually consistent. The ordering rule removes local mempool arrival order from proposal construction while retaining each account's nonce order.
 
 The contribution is not a claim that Proof-of-Stake, BFT, HotStuff, adaptive view synchronization, or fair ordering is new in isolation. The research question is whether this specific bounded control and recovery composition improves liveness and operational consistency without changing the underlying HotStuff safety rule. The paper therefore separates implemented facts, hypotheses, and claims that require experiments. It defines fixed-timeout and gate-disabled baselines, fault and latency workloads, EVM contract-deployment workloads, metrics, statistical reporting rules, and artifact requirements. No throughput or latency improvement is claimed until the prescribed experiments are run against a pinned binary, configuration, topology, and dataset.
 
@@ -14,7 +14,7 @@ The contribution is not a claim that Proof-of-Stake, BFT, HotStuff, adaptive vie
 
 The primary question is:
 
-> Can a bounded latency- and peer-aware pacemaker, combined with a durable-history finality gate and nonce-preserving deterministic ordering, reduce avoidable round timeouts and recovery-induced stalls in a HotStuff-style PoS network without weakening its voting or three-chain finality rules?
+> Can a bounded latency- and peer-aware pacemaker, combined with a durable-history finality gate and nonce-preserving deterministic ordering, reduce avoidable round timeouts and recovery-induced stalls in a HotStuff-style PoS network without weakening its voting or two-chain finality rules?
 
 The paper evaluates four subquestions:
 
@@ -53,7 +53,7 @@ Both systems use stake-weighted validator concepts and HotStuff-derived vocabula
 
 | Dimension | This repository | Aptos lineage |
 | --- | --- | --- |
-| Consensus core | HotStuff-style three-chain rule implemented in Go | AptosBFT lineage derived from DiemBFT/Jolteon, implemented in Rust |
+| Consensus core | HotStuff-style two-chain rule implemented in Go | AptosBFT lineage derived from DiemBFT/Jolteon, implemented in Rust |
 | Execution | Modular Vexo application runtime with a geth-backed EVM adapter | Move VM and Aptos execution pipeline |
 | Transaction dissemination | Vexo mempool and proposal gossip | Aptos mempool/Quorum Store architecture |
 | Proposed study | Bounded adaptive timeout, recovery gate, nonce-preserving deterministic ordering | Separate production protocol and performance evolution |
@@ -88,7 +88,7 @@ The application is deterministic for a given ordered block. Durable storage cont
 
 The consensus state machine tracks `locked_qc`, `high_qc`, the current height and round, and known proposals. A proposal is safe only if it extends the locked certificate or carries a justify certificate at least as new as the lock. A validator must not vote for conflicting block hashes at the same height and round. Proposals and votes are domain-separated and bound to the chain and height-specific validator set.
 
-Three consecutive, height-bound certified links are required to finalize the grandparent. The implementation verifies both hashes and heights: skipped-height or synthetic certificate chains do not satisfy the commit rule. The adaptive controller described below never changes this predicate, the quorum threshold, or the commit rule.
+A block is final once its direct child carries the block's QC and is itself certified in the next view (a two-chain rule over global views). The implementation verifies both hashes and heights: skipped-height or synthetic certificate chains do not satisfy the commit rule. The adaptive controller described below never changes this predicate, the quorum threshold, or the commit rule.
 
 ### 4.2 Bounded Adaptive Round Timeout
 
@@ -143,7 +143,7 @@ Consensus voting currently uses the height-versioned active validator set and de
 | Mechanism | Primary implementation | Principal verification |
 | --- | --- | --- |
 | Proposal/vote safety and locked QC | `consensus/state_machine.go` | `consensus/state_machine_test.go`, adversarial tests |
-| Three-chain height/hash binding | `consensus/commit_rule.go` | `consensus/commit_rule_test.go` |
+| Two-chain height/hash binding | `consensus/commit_rule.go` | `consensus/commit_rule_test.go` |
 | Timeout certificates | `consensus/timeout.go`, `consensus/pacemaker.go` | timeout and state-machine tests |
 | Adaptive controller | `node/adaptive_timeout.go`, `node/loop.go` | `node/adaptive_timeout_test.go`, loop tests |
 | Recovery finality gate | `node/recovery.go`, `node/consensus_loop.go` | recovery and node tests |

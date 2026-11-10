@@ -19,6 +19,7 @@ import (
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	gethtypes "github.com/ethereum/go-ethereum/core/types"
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/vexo-network/vexo-consensus/consensus"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/modules"
 	"github.com/vexo-network/vexo-consensus/node"
@@ -271,7 +272,7 @@ func TestWeb3DeployAndUpgradeAcrossFourValidatorConsensus(t *testing.T) {
 	loopConfig := node.ConsensusLoopConfig{
 		Interval:            time.Millisecond,
 		RoundTimeout:        250 * time.Millisecond,
-		MaxBlockBytes:       4 * 1024 * 1024,
+		MaxBlockBytes:       consensus.MaxBlockBytes,
 		CreateEmptyBlocks:   false,
 		ExecutionCommitMode: node.ExecutionCommitModeFinalized,
 	}
@@ -573,7 +574,7 @@ func commitWeb3Transaction(t *testing.T, handler http.Handler, runningNode *node
 	loopConfig := node.ConsensusLoopConfig{
 		Interval:            time.Millisecond,
 		RoundTimeout:        time.Hour,
-		MaxBlockBytes:       4 * 1024 * 1024,
+		MaxBlockBytes:       consensus.MaxBlockBytes,
 		CreateEmptyBlocks:   false,
 		ExecutionCommitMode: node.ExecutionCommitModeFinalized,
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -106,14 +107,19 @@ func TestLaneProposalRefusesWhatNamesNoBlock(t *testing.T) {
 	repeated.Excluded = []uint32{2, 1}
 	tooMany := valid
 	tooMany.Batches = make([]LaneRef, MaxLaneRefs+1)
+	// The leader signed a block over the limit; its validators refuse it as they rebuild it.
+	first, second := "bank:"+strings.Repeat("1", MaxBlockBytes/2), "bank:"+strings.Repeat("2", MaxBlockBytes/2)
+	oversized := []lanes.Batch{laneBatch("alice", 2, first), laneBatch("bob", 2, second), laneBatch("carol", 2, "bank:over")}
+	overLimit := NewLaneProposal(cluster.proposal("alice", cluster.block(1, types.Hash{}, first, second, "bank:over"), 0, finality.QuorumCert{}, finality.TimeoutCert{}), oversized)
 	for name, compact := range map[string]LaneProposal{
 		"carrying transactions": carrying,
 		"no batch":              {Proposal: valid.Proposal},
 		"exclusion beyond":      beyond,
 		"exclusions unordered":  repeated,
 		"too many batches":      tooMany,
+		"over the block limit":  overLimit,
 	} {
-		get := batchGetter(batch, laneBatch("alice", 1, "bank:a", "bank:b", "bank:c"))
+		get := batchGetter(append([]lanes.Batch{batch, laneBatch("alice", 1, "bank:a", "bank:b", "bank:c")}, oversized...)...)
 		if _, _, _, err := compact.Rebuild(get); !errors.Is(err, ErrInvalidProposal) {
 			t.Fatalf("%s: expected an invalid proposal, got %v", name, err)
 		}
@@ -328,4 +334,41 @@ func TestTransportReactorDefersALaneProposalItCannotJudgeYet(t *testing.T) {
 	verdictMu.Unlock()
 	carol.reactor.Retry()
 	waitUntil(t, "carol to ask for the missing batch", func() bool { return carol.lanes.Stats().Requested > 0 })
+}
+
+// A validator waits for the batches of a lane proposal while they still arrive, instead of asking
+// the leader for the whole block after a fixed delay, and asks for it whole once they stop
+// arriving for proposalRequestInterval, or after maxLaneWait whatever arrives.
+func TestTransportReactorWaitsForBatchesThatStillArrive(t *testing.T) {
+	for _, trickle := range []time.Duration{3 * proposalRequestInterval, 2 * maxLaneWait} {
+		cluster := newEqualTestCluster(t, "alice", "bob", "carol")
+		validators := newLaneValidators(t, cluster, func(context.Context, LaneProposal) error { return nil })
+		alice, carol := validators["alice"], validators["carol"]
+		proposal := cluster.proposal("alice", cluster.block(1, types.Hash{}, "bank:slow-1", "bank:slow-2"), 0, finality.QuorumCert{}, finality.TimeoutCert{})
+		first, second := laneBatch("alice", 98, "bank:slow-1"), laneBatch("alice", 99, "bank:slow-2")
+		data, err := EncodeLaneProposal(NewLaneProposal(proposal, []lanes.Batch{first, second}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		alice.reactor.hold(proposal)
+		started := time.Now()
+		carol.reactor.handleEnvelope(context.Background(), transport.Envelope{Topic: p2p.TopicProposal, From: "alice", To: "carol", Data: data})
+		// A batch the proposal names arrives every half interval; the other never does.
+		for time.Since(started) < trickle && len(carol.received.received()) == 0 {
+			time.Sleep(proposalRequestInterval / 2)
+			carol.reactor.onBatchArrival(first.ID())
+		}
+		received := len(carol.received.received())
+		waited := time.Since(started)
+		switch {
+		case trickle < maxLaneWait && received != 0:
+			t.Fatalf("expected no whole fetch while batches arrive, fetched after %s", waited)
+		case trickle > maxLaneWait && (received == 0 || waited > maxLaneWait+proposalRequestInterval):
+			t.Fatalf("expected the whole proposal fetched by maxLaneWait, got %d after %s", received, waited)
+		}
+		waitUntil(t, "carol to fetch the whole proposal", func() bool { return len(carol.received.received()) == 1 })
+		if stats := carol.reactor.LaneProposalStats(); stats.Fetched != 1 {
+			t.Fatalf("expected one whole fetch, got %+v", stats)
+		}
+	}
 }

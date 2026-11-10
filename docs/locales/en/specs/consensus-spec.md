@@ -51,6 +51,10 @@ Consensus state is keyed by:
 - A block's `TimeUnixNano` is strictly greater than its parent's; the first block's is positive. A proposal that breaks this is invalid however well signed.
 - The proposer stamps its own clock, raised to one nanosecond after the parent's time when its clock is behind.
 - A validator does not vote for a block whose time is more than `MaxBlockTimeDrift` (2s) ahead of its own clock. The proposal stays cached; the relaying peer is not at fault.
+
+## Block Size
+
+The transactions of a block total at most `consensus.MaxBlockBytes` (2 MiB) of encoded bytes, counted by `consensus.BlockTxBytes`. A proposal over the limit is invalid however well signed, and a lane proposal whose named batches exceed it rebuilds no block. A node refuses a `max_block_bytes` above the limit at startup.
 - A certified block's time is therefore within the drift of an honest validator's clock, and a header's time bounds the time of every block below it. Light clients measure their trusting period against it, and the EVM `TIMESTAMP` reads it.
 
 ## Leader Schedule
@@ -99,7 +103,7 @@ In both modes, finality proofs remain tied to the consensus finality rule and th
 
 When `adaptive_round_timeout_enabled = true`, the node computes a bounded operational timeout from the configured base budget, rolling p95 proposal/vote/commit processing latency, progress or timeout outcome, and active-peer deficit. A timeout grows the current budget by 1.5x, successful progress decays it by 0.8x, observed processing latency contributes a 3x safety budget, and the result is clamped between the base and 8x the base.
 
-This policy changes only when the node attempts timeout recovery. It does not change proposer selection, proposal validity, the safe-vote predicate, quorum power, QC verification, or the three-chain finality rule. Idle time and local execution/storage errors do not consume rounds.
+This policy changes only when the node attempts timeout recovery. It does not change proposer selection, proposal validity, the safe-vote predicate, quorum power, QC verification, or the two-chain finality rule. Idle time and local execution/storage errors do not consume rounds.
 
 ## Recovery Finality Gate
 

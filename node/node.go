@@ -368,13 +368,14 @@ func (node *Node) start(ctx context.Context) error {
 	node.startedAt = time.Now().UTC()
 	node.startPeerScoreWindowReset(ctx)
 	if node.lanes != nil {
-		// The pool outlives a restart through its log, the lanes do not: what it holds and no batch
-		// carries is batched on this lane after the fallback delay.
+		// The pool outlives a restart through its log, the lanes do not: what it holds goes to the
+		// lanes as a gossiped transaction does, batched now on the lane that owns it and held
+		// otherwise.
 		service := node.lanes
 		go func() {
 			if txs, err := runtime.Mempool.PendingTxs(context.Background()); err == nil {
 				for _, tx := range txs {
-					service.Hold(tx)
+					node.routeGossipedTx(service, tx)
 				}
 			}
 		}()

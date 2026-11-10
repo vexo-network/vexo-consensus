@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/vexo-network/vexo-consensus/consensus"
 )
 
 func TestNormalizeConsensusLoopConfigDefaultsExecutionCommitMode(t *testing.T) {
@@ -60,5 +62,20 @@ func TestConsensusLoopDoesNotTimeoutAfterStepFailure(t *testing.T) {
 	}
 	if !shouldTimeoutConsensusRound(nil, true, false, false, time.Now().Add(-time.Hour), time.Millisecond) {
 		t.Fatal("a healthy stalled step should still advance the round after timeout")
+	}
+}
+
+// A consensus loop is not configured to build blocks larger than validators accept.
+func TestConsensusLoopRejectsBlocksOverTheConsensusLimit(t *testing.T) {
+	node := &Node{}
+	over := ConsensusLoopConfig{MaxBlockBytes: consensus.MaxBlockBytes + 1}
+	if err := node.StartConsensusLoop(context.Background(), over); !errors.Is(err, ErrInvalidLoopConfig) {
+		t.Fatalf("expected the loop refused, got %v", err)
+	}
+	if _, err := node.StepConsensusWithConfig(context.Background(), over); !errors.Is(err, ErrInvalidLoopConfig) {
+		t.Fatalf("expected the step refused, got %v", err)
+	}
+	if err := node.StartConsensusLoop(context.Background(), ConsensusLoopConfig{MaxBlockBytes: consensus.MaxBlockBytes}); errors.Is(err, ErrInvalidLoopConfig) {
+		t.Fatalf("expected a loop at the limit allowed, got %v", err)
 	}
 }

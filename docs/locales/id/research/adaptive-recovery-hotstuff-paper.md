@@ -30,7 +30,7 @@ Network diasumsikan partially synchronous. Safety mengandalkan Byzantine voting 
 
 EVM adalah application workload di bawah Vexo consensus. Ethereum bytecode execution dan kompatibilitas tooling `/web3` tidak berarti Ethereum fork choice atau devp2p consensus diimplementasikan.
 
-Aturan keselamatan dasar melacak `locked_qc` dan `high_qc`. Proposal hanya aman bila memperpanjang lock atau membawa justify QC setidaknya sama baru dengan lock. Validator tidak boleh vote untuk block berbeda pada height/round yang sama. Tiga certified link berturut-turut yang terikat pada height dan hash memfinalkan grandparent. Adaptive controller tidak mengubah predicate tersebut, quorum threshold, QC verification, atau three-chain rule.
+Aturan keselamatan dasar melacak `locked_qc` dan `high_qc`. Proposal hanya aman bila memperpanjang lock atau membawa justify QC setidaknya sama baru dengan lock. Validator tidak boleh vote untuk block berbeda pada height/round yang sama. Tiga certified link berturut-turut yang terikat pada height dan hash memfinalkan grandparent. Adaptive controller tidak mengubah predicate tersebut, quorum threshold, QC verification, atau two-chain rule.
 
 Adaptive timeout memakai base budget T0, current budget Tt, jumlah proposal/vote/commit p95 latency, dan floor berdasarkan peer deficit. Setelah timeout nilai tumbuh menuju 1,5×Tt; setelah progress turun menuju 0,8×Tt. Tiga kali observed latency menjadi candidate floor dan hasil dibatasi antara T0 dan 8×T0. Bila tidak ada active peer, peer floor menjadi 2×T0. Idle tanpa pending work serta local execution/storage error tidak menghabiskan round. Ini bounded operational controller, bukan pacemaker yang terbukti optimal.
 

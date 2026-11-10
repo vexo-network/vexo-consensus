@@ -102,7 +102,7 @@ Mit `create_empty_blocks=false` ist eine stabile height bei leerem mempool ein n
 
 ## Adaptives Runden-Timeout
 
-Bei `adaptive_round_timeout_enabled = true` berechnet der Knoten das Timeout aus Basiswert, rollierendem p95 der proposal/vote/commit-Verarbeitung, Fortschritt und Defizit aktiver Peers. Ein Timeout erhöht den Wert um Faktor 1,5, Erfolg senkt ihn mit Faktor 0,8, die gemessene Verarbeitung liefert eine dreifache Sicherheitsmarge; der Wert bleibt zwischen Basis und achtfacher Basis. Safe-vote, proposer, quorum power, QC und three-chain finality bleiben unverändert.
+Bei `adaptive_round_timeout_enabled = true` berechnet der Knoten das Timeout aus Basiswert, rollierendem p95 der proposal/vote/commit-Verarbeitung, Fortschritt und Defizit aktiver Peers. Ein Timeout erhöht den Wert um Faktor 1,5, Erfolg senkt ihn mit Faktor 0,8, die gemessene Verarbeitung liefert eine dreifache Sicherheitsmarge; der Wert bleibt zwischen Basis und achtfacher Basis. Safe-vote, proposer, quorum power, QC und two-chain finality bleiben unverändert.
 
 ## Recovery-Finalitäts-Gate
 
@@ -167,3 +167,6 @@ Dieser Anhang stellt sicher, dass die Übersetzung die ausführbaren Schnittstel
 - `lanes.Owner(members, sender)` — Dieser Name wird in ausführbaren Beispielen und Konfigurationsprüfungen unverändert verwendet und darf nicht übersetzt werden.
 - `lanes.FallbackDelay` — Dieser Name wird in ausführbaren Beispielen und Konfigurationsprüfungen unverändert verwendet und darf nicht übersetzt werden.
 - `lane_proposal` — Dieser Name wird in ausführbaren Beispielen und Konfigurationsprüfungen unverändert verwendet und darf nicht übersetzt werden.
+- `consensus.MaxBlockBytes` — Dieser Name wird in ausführbaren Beispielen und Konfigurationsprüfungen unverändert verwendet und darf nicht übersetzt werden.
+- `consensus.BlockTxBytes` — Dieser Name wird in ausführbaren Beispielen und Konfigurationsprüfungen unverändert verwendet und darf nicht übersetzt werden.
+- `max_block_bytes` — Dieser Name wird in ausführbaren Beispielen und Konfigurationsprüfungen unverändert verwendet und darf nicht übersetzt werden.

@@ -39,7 +39,7 @@ Important fields:
 |---|---|---|
 | `running` | Node process has started and owns runtime state | `true` does not prove consensus liveness by itself |
 | `latest_height` | Latest locally committed app height | Must increase over time on a live validator network |
-| `latest_finalized_height` | Latest HotStuff three-chain finalized height | Should not lag indefinitely behind executed/committed height |
+| `latest_finalized_height` | Latest HotStuff two-chain finalized height | Should not lag indefinitely behind executed/committed height |
 | `latest_app_hash` | App commit hash | Should match peers at the same height |
 | `peer_count` | Backward-compatible connected/scored peer summary | Prefer the more specific peer fields below |
 | `active_peer_count` | Active transport sessions, when the transport can report them | Best quick signal for live P2P connectivity |

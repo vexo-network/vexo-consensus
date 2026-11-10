@@ -78,7 +78,7 @@ Este apéndice conserva los términos técnicos y las interfaces que no deben ca
 - `ecvrf-p256-sha256-tai-v1`
 - `proof-of-possession`
 - `remote signer`
-- `three-chain finality`
+- `two-chain finality`
 
 ## Notas operativas
 
@@ -88,3 +88,4 @@ En producción, `vexo_quorum_health_ratio` y `adaptive_round_timeout_enabled` de
 - `execution_commit=finalized` tiene prioridad.
 - `qc` solo debe activarse en redes de prueba controladas.
 - `recovery_finality_gate_enabled` debe verificarse con pruebas de snapshot y replay.
+- `consensus.TwoChainCommitRule` debe verificarse con pruebas de snapshot y replay.

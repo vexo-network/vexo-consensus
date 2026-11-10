@@ -50,8 +50,24 @@ func versionedHandler(handler http.Handler) http.Handler {
 			handler.ServeHTTP(writer, versionedRequest)
 			return
 		}
+		if !unversionedPath(request.URL.Path) {
+			writeError(writer, http.StatusNotFound, "endpoint not found: the API is served under "+stableAPIPrefix)
+			return
+		}
 		handler.ServeHTTP(writer, request)
 	})
+}
+
+// unversionedPath reports whether path is served without the version prefix: the probes, the
+// Prometheus text metrics and the profiler, whose paths scrapers and orchestrators fix, and the
+// Web3 JSON-RPC endpoints, whose paths Ethereum clients fix. Every other endpoint is an API of
+// stableAPIPrefix only.
+func unversionedPath(path string) bool {
+	switch path {
+	case "/", "/healthz", "/readyz", "/metrics/text", "/web3":
+		return true
+	}
+	return strings.HasPrefix(path, "/debug/pprof/")
 }
 
 // registerPprofHandlers serves the profiler behind the admin token: its cmdline and heap

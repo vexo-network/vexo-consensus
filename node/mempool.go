@@ -153,6 +153,8 @@ func (node *Node) ProposeFromMempoolWithOptions(ctx context.Context, maxBytes in
 	// The block extends the highest certified block. The proposed blocks between it and the
 	// committed height execute first, so their transactions are not proposed again, and the block
 	// is selected as executing after them. While one of them is not held the block stays empty.
+	// No block carries more than a validator accepts.
+	maxBytes = min(maxBytes, consensus.MaxBlockBytes)
 	highQC := machine.HighQC(ctx)
 	inFlight, known := node.uncommittedAncestors(ctx, highQC.BlockHash, highQC.Height)
 	batch := mempool.Batch{}

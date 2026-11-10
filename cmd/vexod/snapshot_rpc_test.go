@@ -132,7 +132,7 @@ func TestSnapshotSyncRestoresTheStateOfTheTrustedBlock(t *testing.T) {
 
 	home := freshSnapshotHome(t)
 	var output bytes.Buffer
-	args := append([]string{"sync", "--home", home, "--url", server.URL}, chain.trustFlags()...)
+	args := append([]string{"sync", "--home", home, "--url", server.URL + "/v1"}, chain.trustFlags()...)
 	if err := runSnapshot(&output, args); err != nil {
 		t.Fatal(err)
 	}
@@ -455,7 +455,7 @@ func readWholeSnapshot(t *testing.T, node *vexonode.Node, blockHeight types.Heig
 	t.Helper()
 	server := httptest.NewServer(vexorpc.NewHandler(node))
 	defer server.Close()
-	source, err := newHTTPSnapshotSource(server.URL, blockHeight, 0, 0)
+	source, err := newHTTPSnapshotSource(server.URL+"/v1", blockHeight, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

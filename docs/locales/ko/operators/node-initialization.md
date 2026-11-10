@@ -498,7 +498,7 @@ vexod start --home .vexo-archive-1
 - `timeout_prevote`은 투표 수집 창을 제어합니다.
 - `timeout_precommit`는 커밋 인증서 수집 창을 제어합니다.
 - `create_empty_blocks: false`는 트랜잭션이 가능할 때만 노드가 제안한다는 의미입니다.
-- `execution_commit: "finalized"`는 최종 조상을 실행하기 전에 HotStuff 3체인 최종 결정을 기다리며 생성된 검증인 기본값입니다. `execution_commit: "qc"`은 QC 인증 블록을 즉시 실행하고 유지하지만 안전 게이트에서는 이를 거부합니다.
+- `execution_commit: "finalized"`는 최종 조상을 실행하기 전에 HotStuff 2체인 최종 결정을 기다리며 생성된 검증인 기본값입니다. `execution_commit: "qc"`은 QC 인증 블록을 즉시 실행하고 유지하지만 안전 게이트에서는 이를 거부합니다.
 
 `round_timeout`은 호환성 집계로만 유지됩니다. 위의 Tendermint 스타일 타임아웃 필드를 선호하세요.
 

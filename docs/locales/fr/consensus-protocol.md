@@ -78,7 +78,7 @@ Cette annexe garde les termes techniques et les interfaces qui ne doivent pas ch
 - `ecvrf-p256-sha256-tai-v1`
 - `proof-of-possession`
 - `remote signer`
-- `three-chain finality`
+- `two-chain finality`
 
 ## Notes d'exploitation
 
@@ -88,3 +88,4 @@ En production, `vexo_quorum_health_ratio` et `adaptive_round_timeout_enabled` do
 - `execution_commit=finalized` reste la priorité.
 - `qc` ne doit être activé que dans des réseaux de test contrôlés.
 - `recovery_finality_gate_enabled` doit être vérifié avec les preuves de snapshot et de replay.
+- `consensus.TwoChainCommitRule` doit être vérifié avec les preuves de snapshot et de replay.

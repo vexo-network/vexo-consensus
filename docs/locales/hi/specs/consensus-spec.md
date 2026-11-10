@@ -102,7 +102,7 @@
 
 ## Adaptive round timeout
 
-`adaptive_round_timeout_enabled = true` होने पर node base timeout, proposal/vote/commit processing के rolling p95, progress outcome और active peer deficit से timeout निकालता है। Timeout पर budget 1.5 गुना, सफल progress पर 0.8 गुना होता है; observed processing latency 3 गुना safety budget देती है और परिणाम base से 8 गुना base के बीच सीमित रहता है। Safe-vote, proposer, quorum power, QC और three-chain finality नहीं बदलते।
+`adaptive_round_timeout_enabled = true` होने पर node base timeout, proposal/vote/commit processing के rolling p95, progress outcome और active peer deficit से timeout निकालता है। Timeout पर budget 1.5 गुना, सफल progress पर 0.8 गुना होता है; observed processing latency 3 गुना safety budget देती है और परिणाम base से 8 गुना base के बीच सीमित रहता है। Safe-vote, proposer, quorum power, QC और two-chain finality नहीं बदलते।
 
 ## Recovery finality gate
 
@@ -167,3 +167,6 @@ Proposal `chain_id` और height से salt बनाता है, हर sig
 - `lanes.Owner(members, sender)` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
 - `lanes.FallbackDelay` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
 - `lane_proposal` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
+- `consensus.MaxBlockBytes` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
+- `consensus.BlockTxBytes` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।
+- `max_block_bytes` — यह नाम executable examples और configuration validation में ज्यों का त्यों उपयोग होता है, इसलिए इसका अनुवाद न करें।

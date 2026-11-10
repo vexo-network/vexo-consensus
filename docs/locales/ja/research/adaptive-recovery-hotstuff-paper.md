@@ -6,7 +6,7 @@
 
 ## 要旨
 
-本稿は、モジュール型 Proof-of-Stake ネットワークを対象とした HotStuff 系 BFT 状態機械複製を検討します。実装は three-chain finality と高さごとに版管理された validator set に、三つの運用機構を組み合わせます。第一は、proposal、vote、commit の p95 処理時間と active peer の状態に基づき、round timeout を上限付きで増減する適応制御です。第二は、永続化された block 履歴と application state 履歴が一致しない場合、安全な回復高さを超える finalized commit を保留する recovery finality gate です。第三は、同一の transaction 集合に対して mempool 到着順序に依存しない結果を作り、同一 signer の nonce 依存関係を維持する決定的順序付けです。
+本稿は、モジュール型 Proof-of-Stake ネットワークを対象とした HotStuff 系 BFT 状態機械複製を検討します。実装は two-chain finality と高さごとに版管理された validator set に、三つの運用機構を組み合わせます。第一は、proposal、vote、commit の p95 処理時間と active peer の状態に基づき、round timeout を上限付きで増減する適応制御です。第二は、永続化された block 履歴と application state 履歴が一致しない場合、安全な回復高さを超える finalized commit を保留する recovery finality gate です。第三は、同一の transaction 集合に対して mempool 到着順序に依存しない結果を作り、同一 signer の nonce 依存関係を維持する決定的順序付けです。
 
 PoS、BFT、HotStuff、適応型 view synchronization、または fair ordering そのものを新規発明として主張するものではありません。研究対象は、この限定された制御・回復・順序付けの合成が、基礎となる HotStuff の安全規則を変更せずに不要な timeout と回復時の不整合を減らせるかどうかです。実装済みの事実、検証対象の仮説、実験を必要とする主張を明確に分離し、固定した binary、config、topology、workload による反復測定が完了するまで throughput や latency の改善値を結果として提示しません。
 
@@ -44,7 +44,7 @@ deterministic ordering は chain ID と height から salt を作り、signer/no
 
 ## 実装対応と実験方法
 
-state-machine safety と locked QC、three-chain height/hash binding、adaptive controller、recovery gate、fair ordering、validator registry、staking、vote WAL、EVM workload の各実装位置は英語原文の mapping table に固定されています。ファイル移動や意味変更があれば paper revision と source revision を同時に更新します。
+state-machine safety と locked QC、two-chain height/hash binding、adaptive controller、recovery gate、fair ordering、validator registry、staking、vote WAL、EVM workload の各実装位置は英語原文の mapping table に固定されています。ファイル移動や意味変更があれば paper revision と source revision を同時に更新します。
 
 比較 treatment は同一 binary と application config を使い、fixed adaptive-off/gate-on、adaptive-on/gate-on、隔離環境だけで使う adaptive-on/gate-off の三条件です。4、7、16、31 validator を可能な範囲で使用し、single-host は smoke test に限定します。10/50/100/250 ms latency、step delay、jitter、0/1/5/10% loss、proposer restart、minority partition/heal、signer delay、durable history mismatch を含めます。
 

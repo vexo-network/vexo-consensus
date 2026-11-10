@@ -6,7 +6,7 @@
 
 ## 摘要
 
-本文研究一种用于模块化 Proof-of-Stake 网络的 HotStuff 风格 BFT 状态机复制系统。当前实现把 three-chain finality 和按高度版本化的 validator set 与三项运行机制组合起来。第一项是有界的自适应 round timeout 控制器，它根据 proposal、vote、commit 的 p95 处理延迟以及 active peer 健康度增大或减小 timeout。第二项是 recovery finality gate：当持久化 block history 与 application state history 不一致时，它阻止 finalized application commit 超过双方一致的安全恢复高度。第三项是保留 nonce 依赖的 deterministic transaction ordering：同一 transaction 集合不受本地 mempool 到达顺序影响，同时同一 signer 的 transaction 仍按 nonce 递增。
+本文研究一种用于模块化 Proof-of-Stake 网络的 HotStuff 风格 BFT 状态机复制系统。当前实现把 two-chain finality 和按高度版本化的 validator set 与三项运行机制组合起来。第一项是有界的自适应 round timeout 控制器，它根据 proposal、vote、commit 的 p95 处理延迟以及 active peer 健康度增大或减小 timeout。第二项是 recovery finality gate：当持久化 block history 与 application state history 不一致时，它阻止 finalized application commit 超过双方一致的安全恢复高度。第三项是保留 nonce 依赖的 deterministic transaction ordering：同一 transaction 集合不受本地 mempool 到达顺序影响，同时同一 signer 的 transaction 仍按 nonce 递增。
 
 本文不声称 PoS、BFT、HotStuff、adaptive view synchronization 或 order fairness 本身是新发明。研究问题是：这一具体的有界控制、恢复门控和确定性排序组合，能否在不改变 HotStuff 基本安全规则的前提下减少不必要的 timeout 和恢复期间的不一致。因此，文档明确区分已实现事实、待检验假设和必须通过实验才可提出的结论。在固定 binary、config、topology 和 workload 的重复实验完成之前，不报告 throughput 或 latency 改进数字。
 
@@ -32,7 +32,7 @@ EVM 是 Vexo consensus 下的 application workload。它提供 Ethereum bytecode
 
 ## 协议与控制策略
 
-基础安全状态跟踪 `locked_qc` 和 `high_qc`。proposal 只有在扩展 lock，或携带不旧于 lock 的 justify QC 时才安全。validator 不能在同一 height/round 为不同 block 投票。只有高度和 hash 都连续绑定的三个 certified link 才能 finalize grandparent。adaptive controller 不修改安全 predicate、quorum threshold、QC verification 或 three-chain commit rule。
+基础安全状态跟踪 `locked_qc` 和 `high_qc`。proposal 只有在扩展 lock，或携带不旧于 lock 的 justify QC 时才安全。validator 不能在同一 height/round 为不同 block 投票。只有高度和 hash 都连续绑定的三个 certified link 才能 finalize grandparent。adaptive controller 不修改安全 predicate、quorum threshold、QC verification 或 two-chain commit rule。
 
 自适应 timeout 使用 base budget T0、current budget Tt、proposal/vote/commit p95 latency 之和以及 peer deficit。发生 timeout 时向 1.5×current 增长，取得 progress 时向 0.8×current 衰减，观测 latency 之和乘 3 作为候选下限。最终值限制在 T0 与 8×T0 之间；active peer 为零时 peer floor 为 2×T0。没有 pending work 的 idle 时间以及 local execution/storage error 不会消耗 round。该机制是有界运行控制器，不宣称是理论最优 pacemaker。
 
@@ -44,7 +44,7 @@ deterministic ordering 根据 chain ID 和 height 生成 salt，将含 signer/no
 
 ## 实现映射与实验方法
 
-state-machine safety、three-chain height/hash binding、adaptive controller、recovery gate、deterministic ordering、validator registry、staking、vote WAL 和 EVM workload 的权威文件位置列在英文原文的 implementation mapping 中。任何文件或语义变更都必须同时更新 source revision 和 paper revision。
+state-machine safety、two-chain height/hash binding、adaptive controller、recovery gate、deterministic ordering、validator registry、staking、vote WAL 和 EVM workload 的权威文件位置列在英文原文的 implementation mapping 中。任何文件或语义变更都必须同时更新 source revision 和 paper revision。
 
 实验保持相同 binary 与 application config，比较 fixed/adaptive-off gate-on、adaptive-on gate-on、以及仅限隔离研究网络的 adaptive-on gate-off 三种 treatment。资源允许时使用 4、7、16、31 validator，single-host 只作 smoke。网络条件至少包括 10/50/100/250 ms latency、step delay、jitter、0/1/5/10% loss、proposer restart、minority partition/heal、signer delay 和 durable history mismatch。
 

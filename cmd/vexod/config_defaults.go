@@ -9,6 +9,7 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/committee"
 	"github.com/vexo-network/vexo-consensus/config"
+	"github.com/vexo-network/vexo-consensus/consensus"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/economics"
 	"github.com/vexo-network/vexo-consensus/governance"
@@ -216,7 +217,7 @@ func defaultRuntimeConfig(validatorID string) runtimeConfig {
 			TimeoutPrevote:              "1s",
 			TimeoutPrecommit:            "1s",
 			RoundTimeout:                "3s",
-			MaxBlockBytes:               1024 * 1024,
+			MaxBlockBytes:               consensus.MaxBlockBytes,
 			CreateEmptyBlocks:           false,
 			ExecutionCommit:             string(node.ExecutionCommitModeFinalized),
 			AdaptiveRoundTimeoutEnabled: boolPtr(true),

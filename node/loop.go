@@ -3,8 +3,11 @@ package node
 import (
 	"context"
 	"errors"
+	"fmt"
 	goruntime "runtime"
 	"time"
+
+	"github.com/vexo-network/vexo-consensus/consensus"
 )
 
 const (
@@ -12,7 +15,7 @@ const (
 	defaultConsensusTimeoutPropose   = 3 * time.Second
 	defaultConsensusTimeoutPrevote   = time.Second
 	defaultConsensusTimeoutPrecommit = time.Second
-	defaultConsensusMaxBytes         = 1024 * 1024
+	defaultConsensusMaxBytes         = consensus.MaxBlockBytes
 )
 
 type ExecutionCommitMode string
@@ -52,6 +55,9 @@ func DefaultConsensusLoopConfig() ConsensusLoopConfig {
 
 func (node *Node) StartConsensusLoop(ctx context.Context, cfg ConsensusLoopConfig) error {
 	cfg = normalizeConsensusLoopConfig(cfg)
+	if err := checkBlockBytes(cfg); err != nil {
+		return err
+	}
 
 	node.mu.Lock()
 	if !node.running {
@@ -240,6 +246,14 @@ func normalizeConsensusLoopConfig(cfg ConsensusLoopConfig) ConsensusLoopConfig {
 		cfg.ExecutionCommitMode = defaults.ExecutionCommitMode
 	}
 	return cfg
+}
+
+// checkBlockBytes refuses a configuration that would build blocks the validators refuse.
+func checkBlockBytes(cfg ConsensusLoopConfig) error {
+	if cfg.MaxBlockBytes > consensus.MaxBlockBytes {
+		return fmt.Errorf("%w: max block bytes %d exceed the %d a block may carry", ErrInvalidLoopConfig, cfg.MaxBlockBytes, consensus.MaxBlockBytes)
+	}
+	return nil
 }
 
 // proposalRetransmitInterval is how long a proposer waits for its round to progress before it

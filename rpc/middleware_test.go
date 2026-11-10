@@ -10,7 +10,7 @@ import (
 )
 
 func adminRequest(method string, host string, headers map[string]string) *http.Request {
-	request := httptest.NewRequest(method, "/prune", strings.NewReader(`{}`))
+	request := httptest.NewRequest(method, "/v1/prune", strings.NewReader(`{}`))
 	request.Host = host
 	for key, value := range headers {
 		request.Header.Set(key, value)
@@ -278,7 +278,7 @@ func TestWebSocketHandshakeFromUnlistedOriginIsRefused(t *testing.T) {
 }
 
 func rateLimitRequest(remoteAddr string) *http.Request {
-	request := httptest.NewRequest(http.MethodGet, "/status", nil)
+	request := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
 	request.RemoteAddr = remoteAddr
 	return request
 }

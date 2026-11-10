@@ -78,7 +78,7 @@ Lampiran ini mempertahankan istilah teknis dan antarmuka yang tidak boleh beruba
 - `ecvrf-p256-sha256-tai-v1`
 - `proof-of-possession`
 - `remote signer`
-- `three-chain finality`
+- `two-chain finality`
 
 ## Catatan operasional
 
@@ -88,3 +88,4 @@ Di produksi, `vexo_quorum_health_ratio` dan `adaptive_round_timeout_enabled` har
 - `execution_commit=finalized` tetap menjadi prioritas.
 - `qc` hanya boleh diaktifkan pada testnet yang dikontrol.
 - `recovery_finality_gate_enabled` harus diverifikasi dengan bukti snapshot dan replay.
+- `consensus.TwoChainCommitRule` harus diverifikasi dengan bukti snapshot dan replay.

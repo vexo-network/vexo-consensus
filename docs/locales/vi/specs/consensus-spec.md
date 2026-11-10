@@ -102,7 +102,7 @@ Khi `create_empty_blocks=false`, height đứng yên lúc mempool rỗng là tr�
 
 ## Timeout vòng thích ứng
 
-Khi `adaptive_round_timeout_enabled = true`, node tính timeout từ giá trị cơ sở, rolling p95 của xử lý proposal/vote/commit, kết quả progress và thiếu hụt peer hoạt động. Timeout tăng ngân sách 1,5 lần, progress thành công áp dụng 0,8, latency quan sát tạo biên an toàn 3 lần, rồi giới hạn giữa base và 8 lần base. Safe-vote, proposer, quorum power, QC và three-chain finality không đổi.
+Khi `adaptive_round_timeout_enabled = true`, node tính timeout từ giá trị cơ sở, rolling p95 của xử lý proposal/vote/commit, kết quả progress và thiếu hụt peer hoạt động. Timeout tăng ngân sách 1,5 lần, progress thành công áp dụng 0,8, latency quan sát tạo biên an toàn 3 lần, rồi giới hạn giữa base và 8 lần base. Safe-vote, proposer, quorum power, QC và two-chain finality không đổi.
 
 ## Cổng finality khi phục hồi
 
@@ -167,3 +167,6 @@ Phụ lục này bảo đảm bản dịch vẫn giữ các giao diện có th�
 - `lanes.Owner(members, sender)` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `lanes.FallbackDelay` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
 - `lane_proposal` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `consensus.MaxBlockBytes` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `consensus.BlockTxBytes` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.
+- `max_block_bytes` — Tên này được dùng nguyên dạng trong ví dụ có thể chạy và kiểm tra cấu hình, nên không dịch.

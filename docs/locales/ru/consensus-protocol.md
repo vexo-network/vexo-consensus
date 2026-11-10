@@ -72,7 +72,7 @@ Vexo не является новым названием неизмененно�
 - `ecvrf-p256-sha256-tai-v1`
 - `proof-of-possession`
 - `remote signer`
-- `three-chain finality`
+- `two-chain finality`
 
 ### Конфигурационные файлы
 - `config.json`
@@ -81,3 +81,4 @@ Vexo не является новым названием неизмененно�
 - `consensus_config.json`
 - `mempool_config.json`
 - `log_config.json`
+- `consensus.TwoChainCommitRule`

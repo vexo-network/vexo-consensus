@@ -117,15 +117,19 @@ func (compact LaneProposal) Rebuild(get func(types.Hash) (lanes.Batch, bool)) (p
 		return Proposal{}, missing, false, nil
 	}
 	txs := make([]types.Tx, 0)
-	position, next := uint32(0), 0
+	position, next, size := uint32(0), 0, BlockTxBytes(types.Block{Txs: compact.Extra})
 	for _, batch := range batches {
 		for _, tx := range batch.Txs {
 			if next < len(compact.Excluded) && compact.Excluded[next] == position {
 				next++
 			} else {
 				txs = append(txs, tx)
+				size += len(tx)
 			}
 			position++
+		}
+		if size > MaxBlockBytes {
+			return Proposal{}, nil, false, fmt.Errorf("%w: the named batches carry more than %d transaction bytes", ErrInvalidProposal, MaxBlockBytes)
 		}
 	}
 	if next != len(compact.Excluded) {

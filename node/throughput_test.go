@@ -64,7 +64,7 @@ func TestConsensusThroughput(t *testing.T) {
 	loopConfig := ConsensusLoopConfig{
 		Interval:            time.Millisecond,
 		RoundTimeout:        roundTimeout,
-		MaxBlockBytes:       1 << 20,
+		MaxBlockBytes:       int64(envInt(t, "VEXO_BLOCK_BYTES", 1<<20)),
 		CreateEmptyBlocks:   true,
 		ExecutionCommitMode: ExecutionCommitModeFinalized,
 	}
@@ -150,7 +150,11 @@ func TestConsensusThroughput(t *testing.T) {
 	}
 	const drainGrace = 10 * time.Second
 	deadline := time.Now().Add(10 * time.Minute)
-	committed, counted := 0, types.Height(0)
+	// committed counts the distinct transactions committed, duplicates the commits of a
+	// transaction a block committed before: the workload's transactions carry no nonce, so only the
+	// dissemination keeps a block from committing one again.
+	committed, duplicates, counted := 0, 0, types.Height(0)
+	done := make([]bool, total)
 	lastProgress := time.Now()
 	latencies := make([]time.Duration, 0, total)
 	for committed < total && ctx.Err() == nil {
@@ -161,10 +165,16 @@ func TestConsensusThroughput(t *testing.T) {
 				t.Fatal(err)
 			}
 			if len(record.Block.Txs) > 0 {
-				committed += len(record.Block.Txs)
 				lastProgress = time.Now()
 				for _, tx := range record.Block.Txs {
-					if at := admitted[throughputTxIndex(t, tx)].Load(); at != 0 {
+					index := throughputTxIndex(t, tx)
+					if done[index] {
+						duplicates++
+						continue
+					}
+					done[index] = true
+					committed++
+					if at := admitted[index].Load(); at != 0 {
 						latencies = append(latencies, time.Duration(lastProgress.UnixNano()-at))
 					}
 				}
@@ -250,6 +260,9 @@ func TestConsensusThroughput(t *testing.T) {
 		mode, count, uplink, latency, roundTimeout, committed, total, time.Duration(submitted.Load()), height, empty, elapsed, float64(committed)/elapsed.Seconds(), float64(height)/elapsed.Seconds(),
 		percentile(0.50), percentile(0.95), percentile(0.99), time.Duration(metrics.CommitLatencyNanos), time.Duration(metrics.CommitLatencyP95Nanos), metrics.RoundTimeouts,
 		maxUpload, maxProposal, proposals.Rebuilt, proposals.Completed, proposals.Fetched)
+	if duplicates > 0 {
+		t.Errorf("%d commits of transactions committed before", duplicates)
+	}
 }
 
 // throughputTxIndex returns the index of a transaction of the throughput workload.

@@ -71,7 +71,7 @@ This package is intended for independent reviewers evaluating Vexo consensus, ne
 4. A QC requires at least two-thirds voting power from unique known validators in the validator set for that height.
 5. Any two QCs for conflicting blocks at the same height require overlapping voting power. With less than one-third Byzantine power, at least one honest validator would have to double-vote, which honest logic rejects.
 6. Locking rejects votes/proposals that do not extend the locked QC or carry a sufficiently new justify QC.
-7. Three-chain finality only finalizes a grandparent when descendant and parent QCs prove a safe chain extension.
+7. Two-chain finality only finalizes a grandparent when descendant and parent QCs prove a safe chain extension.
 8. Therefore conflicting finality requires either a quorum intersection violation, invalid validator-set binding, or validator equivocation. The verifier rejects the former two and evidence accounts for equivocation.
 
 ## Required Evidence for Audit
@@ -122,7 +122,7 @@ make sign-release VERSION=<version>
 ## Auditor Focus Areas
 
 - finality verifier and validator-set hash binding
-- consensus lock safety and three-chain finality
+- consensus lock safety and two-chain finality
 - signature domain separation
 - remote signer policy and double-sign guard assumptions
 - evidence lifecycle and false-slashing resistance
@@ -138,7 +138,7 @@ Auditors should review the project in the same order a validator would trust it:
 1. **Build boundary**: verify `go.mod`, release flags, cgo/no-cgo behavior, checksums, SBOM, and the exact binary under test.
 2. **Genesis/config boundary**: verify chain ID, genesis hash, validator set, BLS/VRF metadata, split config files, peer addresses, TLS/auth settings, base fee, gas policy, and mempool WAL path.
 3. **Key boundary**: verify validator key custody, remote signer policy, double-sign guard durability, nonce replay store, remote VRF key custody, and operator rotation procedure.
-4. **Consensus boundary**: verify proposal validation, vote domain separation, QC verification, three-chain proof verification, validator-set hash binding, and accountable evidence.
+4. **Consensus boundary**: verify proposal validation, vote domain separation, QC verification, two-chain proof verification, validator-set hash binding, and accountable evidence.
 5. **Execution boundary**: verify staged app writes, block/state/root batch commit, replay isolation, staking/slashing accounting, bank mint authority, EVM native balance movement, and fee collection.
 6. **Networking boundary**: verify chain/genesis-bound handshake, peer score caps, rate limits, bans, reconnect/backoff, auth replay protection, and public advertised address policy.
 7. **Recovery boundary**: verify WAL replay/compaction, snapshot verification, restore behavior, pruning retention, index repair, and recovery report output.

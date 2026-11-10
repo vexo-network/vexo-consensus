@@ -6,7 +6,7 @@
 
 ## モデル
 
-Vexo は proposal、vote、quorum certificate(QC)、timeout certificate、locked-QC safety、three-chain finality を備えた HotStuff スタイルの BFT コアを使用します。ブロックが安全に投票対象となるのは locked QC を拡張するか、lock 以上に新しい justify QC を持つ場合だけです。ブロック、親、祖父の高さとハッシュを明示的に結ばない合成 QC や高さを飛ばす QC chain は、finality 決定前に拒否されます。
+Vexo は proposal、vote、quorum certificate(QC)、timeout certificate、locked-QC safety、two-chain finality を備えた HotStuff スタイルの BFT コアを使用します。ブロックが安全に投票対象となるのは locked QC を拡張するか、lock 以上に新しい justify QC を持つ場合だけです。ブロック、親、祖父の高さとハッシュを明示的に結ばない合成 QC や高さを飛ばす QC chain は、finality 決定前に拒否されます。
 
 ## プロトコルの同一性と研究境界
 
@@ -16,7 +16,7 @@ Vexo は未変更の HotStuff の別名ではなく、AptosBFT、DiemBFT、Jolte
 
 ## 実行と復旧の境界
 
-QC certified、HotStuff finalized、application executed、state committed は別の事象です。既定の `execution_commit=finalized` は three-chain rule が選んだ祖先だけを実行します。適応型 pacemaker と `recovery_finality_gate_enabled` は遅延および再起動復旧の方針であり、proposer、quorum power、safe-vote、three-chain finality は変更しません。
+QC certified、HotStuff finalized、application executed、state committed は別の事象です。既定の `execution_commit=finalized` は two-chain rule が選んだ祖先だけを実行します。適応型 pacemaker と `recovery_finality_gate_enabled` は遅延および再起動復旧の方針であり、proposer、quorum power、safe-vote、two-chain finality は変更しません。
 
 ## 安全境界
 
@@ -56,7 +56,7 @@ QC certified、HotStuff finalized、application executed、state committed は�
 - `log_config.json`
 
 ### セクション追跡
-- section: Model - HotStuff 風 BFT、three-chain finality、QC、timeout certificate、locked-QC safety をまとめて確認します。
+- section: Model - HotStuff 風 BFT、two-chain finality、QC、timeout certificate、locked-QC safety をまとめて確認します。
 - section: Execution Terms - QC certified、finalized、executed、state committed の違いをはっきり区別します。
 - section: Safety Boundary - 3分の1未満の Byzantine、domain separation、validator-set hash binding、accountable evidence を扱います。
 - section: Crypto Boundary - `deterministic`、`ed25519`、`bls`、`blst-bls12381-minpk-v1`、`ecvrf-p256-sha256-tai-v1` を同じ基準で確認します。
@@ -79,7 +79,7 @@ QC certified、HotStuff finalized、application executed、state committed は�
 - `ecvrf-p256-sha256-tai-v1`
 - `proof-of-possession`
 - `remote signer`
-- `three-chain finality`
+- `two-chain finality`
 
 ## 運用メモ
 
@@ -88,3 +88,4 @@ QC certified、HotStuff finalized、application executed、state committed は�
 - `execution_commit=finalized` を優先します。
 - `qc` 経路は管理された試験網だけで使います。
 - `recovery_finality_gate_enabled` と snapshot/replay health を同時に確認します。
+- `consensus.TwoChainCommitRule` と snapshot/replay health を同時に確認します。

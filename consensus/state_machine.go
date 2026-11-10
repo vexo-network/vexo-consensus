@@ -70,6 +70,20 @@ const (
 	maxValidatorSetHistory = 64
 )
 
+// MaxBlockBytes bounds the transaction bytes of a block: a validator refuses a larger proposal, so a
+// leader cannot make the validators fetch, execute and store more than one block's worth per view,
+// whatever it names. A whole proposal of that size fits a transport message.
+const MaxBlockBytes = 2 << 20
+
+// BlockTxBytes returns the transaction bytes of block.
+func BlockTxBytes(block types.Block) int {
+	total := 0
+	for _, tx := range block.Txs {
+		total += len(tx)
+	}
+	return total
+}
+
 type StateMachineConfig struct {
 	ChainID      string
 	ValidatorSet validator.Set
@@ -586,6 +600,9 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 	}
 	if header.ChainID != machine.chainID {
 		return fmt.Errorf("%w: chain id mismatch: %s", ErrInvalidProposal, header.ChainID)
+	}
+	if size := BlockTxBytes(proposal.Block); size > MaxBlockBytes {
+		return fmt.Errorf("%w: the block carries %d transaction bytes, more than %d", ErrInvalidProposal, size, MaxBlockBytes)
 	}
 	if header.Round != proposal.Round || header.JustifyRound != proposal.JustifyQC.Round {
 		return fmt.Errorf("%w: header views %d/%d do not match the proposal views %d/%d", ErrInvalidProposal, header.Round, header.JustifyRound, proposal.Round, proposal.JustifyQC.Round)

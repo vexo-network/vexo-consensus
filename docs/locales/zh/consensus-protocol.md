@@ -6,7 +6,7 @@
 
 ## 模型
 
-Vexo 使用 HotStuff 风格的 BFT 核心，包含 proposal、vote、quorum certificate(QC)、timeout certificate、locked-QC 安全规则和 three-chain finality。只有扩展 locked QC，或携带不早于当前锁的 justify QC 时，区块才可安全投票。未明确绑定区块、父区块和祖父区块高度及哈希的合成 QC 或跳高 QC 链会在终局性决定前被拒绝。
+Vexo 使用 HotStuff 风格的 BFT 核心，包含 proposal、vote、quorum certificate(QC)、timeout certificate、locked-QC 安全规则和 two-chain finality。只有扩展 locked QC，或携带不早于当前锁的 justify QC 时，区块才可安全投票。未明确绑定区块、父区块和祖父区块高度及哈希的合成 QC 或跳高 QC 链会在终局性决定前被拒绝。
 
 ## 协议身份与研究边界
 
@@ -16,7 +16,7 @@ Vexo 不是原始 HotStuff 的新名称，也不等同于 AptosBFT、DiemBFT、J
 
 ## 执行与恢复边界
 
-QC 认证、HotStuff 终局化、应用执行和状态提交是不同事件。默认 `execution_commit=finalized` 只执行 three-chain 规则选出的祖先。自适应 pacemaker 和 `recovery_finality_gate_enabled` 仅控制延迟与重启恢复，不改变 proposer 选择、quorum power、safe-vote 规则或 three-chain finality。
+QC 认证、HotStuff 终局化、应用执行和状态提交是不同事件。默认 `execution_commit=finalized` 只执行 two-chain 规则选出的祖先。自适应 pacemaker 和 `recovery_finality_gate_enabled` 仅控制延迟与重启恢复，不改变 proposer 选择、quorum power、safe-vote 规则或 two-chain finality。
 
 ## 安全边界
 
@@ -56,7 +56,7 @@ QC 认证、HotStuff 终局化、应用执行和状态提交是不同事件。�
 - `log_config.json`
 
 ### 章节跟踪
-- section: Model - HotStuff、three-chain finality、QC、timeout certificate、locked-QC safety 需要一起阅读。
+- section: Model - HotStuff、two-chain finality、QC、timeout certificate、locked-QC safety 需要一起阅读。
 - section: Execution Terms - QC certified、finalized、executed、state committed 的运维含义不同。
 - section: Safety Boundary - 少于三分之一的 Byzantine 投票权、domain separation、validator-set hash binding、accountable evidence 都是安全要求。
 - section: Crypto Boundary - `deterministic`、`ed25519`、`bls`、`blst-bls12381-minpk-v1`、`ecvrf-p256-sha256-tai-v1` 需要统一对待。
@@ -79,7 +79,7 @@ QC 认证、HotStuff 终局化、应用执行和状态提交是不同事件。�
 - `ecvrf-p256-sha256-tai-v1`
 - `proof-of-possession`
 - `remote signer`
-- `three-chain finality`
+- `two-chain finality`
 
 ## 运维备注
 
@@ -88,3 +88,4 @@ QC 认证、HotStuff 终局化、应用执行和状态提交是不同事件。�
 - 优先使用 `execution_commit=finalized`。
 - `qc` 路径只应保留给受控测试网。
 - 同时检查 `recovery_finality_gate_enabled` 与 snapshot/replay health。
+- `consensus.TwoChainCommitRule` 路径只应保留给受控测试网。

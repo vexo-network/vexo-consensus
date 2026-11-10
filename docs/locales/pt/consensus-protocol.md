@@ -56,7 +56,7 @@ Este apêndice resume o que precisa permanecer igual à versão inglesa: interfa
 - `log_config.json`
 
 ### Rastreamento de seções
-- section: Model - HotStuff, three-chain finality, QC, timeout certificate e locked-QC safety devem ser lidos em conjunto.
+- section: Model - HotStuff, two-chain finality, QC, timeout certificate e locked-QC safety devem ser lidos em conjunto.
 - section: Execution Terms - QC certified, finalized, executed e state committed têm significados operacionais diferentes.
 - section: Safety Boundary - menos de 1/3 de poder Byzantino, domain separation, validator-set hash binding e accountable evidence são requisitos de segurança.
 - section: Crypto Boundary - `deterministic`, `ed25519`, `bls`, `blst-bls12381-minpk-v1` e `ecvrf-p256-sha256-tai-v1` precisam ser tratados com o mesmo cuidado.
@@ -79,4 +79,5 @@ Este apêndice resume o que precisa permanecer igual à versão inglesa: interfa
 - `ecvrf-p256-sha256-tai-v1`
 - `proof-of-possession`
 - `remote signer`
-- `three-chain finality`
+- `two-chain finality`
+- `consensus.TwoChainCommitRule`

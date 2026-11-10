@@ -6,7 +6,7 @@
 
 ## الملخص
 
-تدرس هذه الوثيقة تكرار آلة حالة BFT بأسلوب HotStuff لشبكات Proof-of-Stake معيارية. يجمع التنفيذ بين three-chain finality ومجموعات validator ذات إصدارات مرتبطة بالارتفاع، وبين ثلاث آليات تشغيلية. تضبط وحدة تحكم تكيفية محدودة round timeout باستخدام زمن المعالجة p95 لكل من proposal وvote وcommit وحالة active peers. تؤجل recovery finality gate أي finalized application commit عندما يختلف سجل blocks الدائم عن سجل application state فوق ارتفاع آمن مشترك. كما تزيل deterministic transaction ordering أثر ترتيب وصول المعاملات إلى mempool المحلي عند تساوي مجموعة المعاملات، مع الحفاظ على اعتماد nonce لكل signer.
+تدرس هذه الوثيقة تكرار آلة حالة BFT بأسلوب HotStuff لشبكات Proof-of-Stake معيارية. يجمع التنفيذ بين two-chain finality ومجموعات validator ذات إصدارات مرتبطة بالارتفاع، وبين ثلاث آليات تشغيلية. تضبط وحدة تحكم تكيفية محدودة round timeout باستخدام زمن المعالجة p95 لكل من proposal وvote وcommit وحالة active peers. تؤجل recovery finality gate أي finalized application commit عندما يختلف سجل blocks الدائم عن سجل application state فوق ارتفاع آمن مشترك. كما تزيل deterministic transaction ordering أثر ترتيب وصول المعاملات إلى mempool المحلي عند تساوي مجموعة المعاملات، مع الحفاظ على اعتماد nonce لكل signer.
 
 لا يدعي البحث أن PoS أو BFT أو HotStuff أو adaptive view synchronization أو order fairness اختراعات جديدة. السؤال أضيق: هل يقلل هذا التركيب المحدود للتحكم والاسترداد والترتيب timeouts غير الضرورية وعدم الاتساق أثناء recovery من دون تغيير قاعدة أمان HotStuff الأساسية؟ تفصل الوثيقة بين الحقائق المنفذة والفرضيات القابلة للدحض والنتائج التي ما زالت تحتاج إلى تجربة. لا يجوز نشر أرقام تحسن throughput أو latency قبل تكرار التجارب باستخدام binary وconfig وtopology وworkload مثبتة.
 
@@ -30,7 +30,7 @@
 
 تعد EVM application workload تحت Vexo consensus. تنفيذ Ethereum bytecode وتوافق أدوات `/web3` لا يعني تنفيذ Ethereum fork choice أو devp2p consensus.
 
-تتابع قاعدة الأمان `locked_qc` و`high_qc`. لا يكون proposal آمنا إلا إذا مدد lock أو حمل justify QC ليس أقدم منه. لا يجوز لـ validator التصويت إلى blocks مختلفة في height/round نفسها. تؤدي ثلاثة certified links متتالية مرتبطة بالارتفاع وhash إلى finalize للـ grandparent. لا تغير وحدة التحكم هذا الشرط أو quorum threshold أو QC verification أو three-chain rule.
+تتابع قاعدة الأمان `locked_qc` و`high_qc`. لا يكون proposal آمنا إلا إذا مدد lock أو حمل justify QC ليس أقدم منه. لا يجوز لـ validator التصويت إلى blocks مختلفة في height/round نفسها. تؤدي ثلاثة certified links متتالية مرتبطة بالارتفاع وhash إلى finalize للـ grandparent. لا تغير وحدة التحكم هذا الشرط أو quorum threshold أو QC verification أو two-chain rule.
 
 تستخدم adaptive timeout ميزانية أساسية T0 وحالية Tt ومجموع proposal/vote/commit p95 latency وfloor مرتبطا بنقص peers. بعد timeout تزيد القيمة باتجاه 1.5×Tt، وبعد progress تنخفض باتجاه 0.8×Tt. يصبح ثلاثة أمثال observed latency candidate floor، وتحصر النتيجة بين T0 و8×T0. إذا لم يوجد active peer يكون peer floor مساويا 2×T0. لا تستهلك حالة idle بلا pending work ولا local execution/storage error أي round. هذه وحدة تحكم تشغيلية محدودة وليست pacemaker ثبت أنه مثالي.
 

@@ -30,7 +30,7 @@ A rede é parcialmente síncrona. Safety depende de menos de um terço de poder 
 
 EVM é um workload de aplicação sob Vexo consensus. Executar bytecode Ethereum e oferecer compatibilidade `/web3` não significa implementar fork choice ou devp2p consensus do Ethereum.
 
-A regra de segurança acompanha `locked_qc` e `high_qc`. Uma proposta só é segura se estender o lock ou carregar um justify QC pelo menos tão recente. Um validador não pode votar em blocos diferentes na mesma altura e round. Três links certificados consecutivos, ligados por altura e hash, finalizam o bloco avô. O controlador não altera esse predicado, quorum threshold, QC verification ou three-chain rule.
+A regra de segurança acompanha `locked_qc` e `high_qc`. Uma proposta só é segura se estender o lock ou carregar um justify QC pelo menos tão recente. Um validador não pode votar em blocos diferentes na mesma altura e round. Três links certificados consecutivos, ligados por altura e hash, finalizam o bloco avô. O controlador não altera esse predicado, quorum threshold, QC verification ou two-chain rule.
 
 O timeout adaptativo usa base budget T0, current budget Tt, soma das latências p95 e um floor associado ao déficit de peers. Após timeout cresce na direção de 1,5×Tt; após progress decai na direção de 0,8×Tt. Três vezes a latência observada forma um floor candidato e o resultado fica entre T0 e 8×T0. Sem peer ativo, o floor é 2×T0. Idle sem trabalho e erro local de execution/storage não consomem round. Trata-se de controlador operacional limitado, não de pacemaker teoricamente ótimo.
 

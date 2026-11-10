@@ -102,7 +102,7 @@
 
 ## 適応型ラウンド timeout
 
-`adaptive_round_timeout_enabled = true` の場合、base timeout、proposal/vote/commit 処理時間の rolling p95、進捗結果、active peer 不足から timeout を算出します。timeout 後は 1.5 倍、成功後は 0.8 倍とし、観測処理時間の 3 倍を安全予算に加え、base から base の 8 倍に clamp します。safe-vote、proposer、quorum power、QC、three-chain finality は変更しません。
+`adaptive_round_timeout_enabled = true` の場合、base timeout、proposal/vote/commit 処理時間の rolling p95、進捗結果、active peer 不足から timeout を算出します。timeout 後は 1.5 倍、成功後は 0.8 倍とし、観測処理時間の 3 倍を安全予算に加え、base から base の 8 倍に clamp します。safe-vote、proposer、quorum power、QC、two-chain finality は変更しません。
 
 ## 復旧 finality gate
 
@@ -167,3 +167,6 @@ Proposal は `chain_id` と height から salt を作り、signer ごとの tran
 - `lanes.Owner(members, sender)` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `lanes.FallbackDelay` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
 - `lane_proposal` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `consensus.MaxBlockBytes` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `consensus.BlockTxBytes` — この名前は実行例と設定検証でそのまま使うため翻訳しません。
+- `max_block_bytes` — この名前は実行例と設定検証でそのまま使うため翻訳しません。

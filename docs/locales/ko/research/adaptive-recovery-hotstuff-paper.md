@@ -45,7 +45,7 @@ EVM은 Vexo consensus 아래의 application workload입니다. Ethereum bytecode
 
 ## 제안 메커니즘
 
-기본 안전 규칙은 `locked_qc`와 `high_qc`를 추적합니다. proposal은 lock을 연장하거나 lock 이상으로 새로운 justify QC를 가져야 안전합니다. 같은 height와 round에서 서로 다른 block에 투표할 수 없습니다. 세 개의 연속된 height/hash 인증 link가 있을 때 grandparent가 finalized됩니다. controller는 이 predicate, quorum threshold, commit rule을 바꾸지 않습니다.
+기본 안전 규칙은 `locked_qc`와 `high_qc`를 추적합니다. proposal은 lock을 연장하거나 lock 이상으로 새로운 justify QC를 가져야 안전합니다. 같은 height와 round에서 서로 다른 block에 투표할 수 없습니다. 블록은 바로 다음 높이의 자식이 그 블록의 QC를 담고 그 자식이 다음 view에 인증되면 finalized됩니다(global view 위의 two-chain 규칙). controller는 이 predicate, quorum threshold, commit rule을 바꾸지 않습니다.
 
 adaptive timeout은 base budget T0, current budget Tt, proposal/vote/commit p95 latency 합, active peer deficit을 사용합니다. timeout이면 current를 1.5배 방향으로 증가시키고, progress가 있으면 0.8배 방향으로 감소시킵니다. 관측 latency 합에는 3배 budget을 두며 최종값은 T0와 8×T0 사이로 제한합니다. peer가 전혀 없으면 최소 floor가 2×T0가 됩니다. pending work가 없는 idle 시간과 execution/storage error는 round timeout으로 계산하지 않습니다.
 
@@ -57,7 +57,7 @@ deterministic ordering은 chain ID와 height로 salt를 만들고 signer/nonce�
 
 ## 구현 근거와 실험 설계
 
-state-machine safety와 locked QC는 consensus package, three-chain binding은 commit rule, adaptive controller는 node loop, recovery gate는 recovery/commit path, ordering은 fairordering package에 있습니다. validator registry와 staking module은 height-versioned PoS set을 제공하며 consensus WAL은 crash 이후 double vote를 막는 영속 기록을 제공합니다. EVM workload는 EVM module, geth adapter, RPC integration으로 검증합니다.
+state-machine safety와 locked QC는 consensus package, two-chain binding은 commit rule, adaptive controller는 node loop, recovery gate는 recovery/commit path, ordering은 fairordering package에 있습니다. validator registry와 staking module은 height-versioned PoS set을 제공하며 consensus WAL은 crash 이후 double vote를 막는 영속 기록을 제공합니다. EVM workload는 EVM module, geth adapter, RPC integration으로 검증합니다.
 
 실험 treatment는 같은 binary와 app config를 사용합니다.
 

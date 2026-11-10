@@ -3130,7 +3130,7 @@ func TestMaybeRunStartupStateSyncFetchesSnapshotBeforeNodeStart(t *testing.T) {
 	runtimeConfig := startRuntimeConfig{
 		StateSync: runtimeStateSyncConfig{
 			Enabled:           true,
-			SnapshotURLs:      []string{server.URL + "/bad", server.URL},
+			SnapshotURLs:      []string{server.URL + "/bad", server.URL + "/v1"},
 			Timeout:           "2s",
 			MinHeight:         1,
 			RequireFresh:      true,
@@ -3144,7 +3144,7 @@ func TestMaybeRunStartupStateSyncFetchesSnapshotBeforeNodeStart(t *testing.T) {
 	if err := maybeRunStartupStateSync(ctx, inputs, runtimeConfig, logEvent); err != nil {
 		t.Fatal(err)
 	}
-	if len(requested) < 3 || requested[0] != "/bad/snapshot/manifest?height=3" || requested[1] != "/snapshot/manifest?height=3" {
+	if len(requested) < 3 || requested[0] != "/bad/snapshot/manifest?height=3" || requested[1] != "/v1/snapshot/manifest?height=3" {
 		t.Fatalf("expected the manifest anchored to the trusted block to be requested, got %v", requested)
 	}
 	state := restoredSnapshotState(t, home)
@@ -3175,12 +3175,12 @@ func TestMaybeRunStartupStateSyncRejectsOversizedSnapshot(t *testing.T) {
 	trust := chain.trust()
 	stateSync := runtimeStateSyncConfig{
 		Enabled:      true,
-		SnapshotURLs: []string{server.URL},
+		SnapshotURLs: []string{server.URL + "/v1"},
 		Timeout:      "2s",
 		TrustHeight:  uint64(trust.Height),
 		TrustHash:    hex.EncodeToString(trust.Hash[:]),
 	}
-	source, err := newHTTPSnapshotSource(server.URL, trust.Height, 0, 0)
+	source, err := newHTTPSnapshotSource(server.URL+"/v1", trust.Height, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4426,7 +4426,7 @@ func (writer *rpcHealthCheckWriter) Write(data []byte) (int, error) {
 		return count, err
 	}
 	_ = response.Body.Close()
-	metricsResponse, requestErr := writer.client.Get("http://" + match[1] + "/metrics")
+	metricsResponse, requestErr := writer.client.Get("http://" + match[1] + "/v1/metrics")
 	if requestErr != nil {
 		return count, err
 	}

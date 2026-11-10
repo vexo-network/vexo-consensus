@@ -23,7 +23,7 @@ func FuzzSubmitTxRequest(f *testing.F) {
 			maxRequestBytes = -maxRequestBytes
 		}
 		maxRequestBytes = maxRequestBytes%4096 + 1
-		request := httptest.NewRequest(http.MethodPost, "/tx", strings.NewReader(body))
+		request := httptest.NewRequest(http.MethodPost, "/v1/tx", strings.NewReader(body))
 		response := httptest.NewRecorder()
 		tx, err := decodeSubmitTxRequest(response, request, maxRequestBytes)
 		if err != nil {
@@ -51,7 +51,7 @@ func FuzzSubmitEvidenceRequest(f *testing.F) {
 			maxRequestBytes = -maxRequestBytes
 		}
 		maxRequestBytes = maxRequestBytes%4096 + 1
-		request := httptest.NewRequest(http.MethodPost, "/evidence", strings.NewReader(body))
+		request := httptest.NewRequest(http.MethodPost, "/v1/evidence", strings.NewReader(body))
 		response := httptest.NewRecorder()
 		evidence, err := decodeSubmitEvidenceRequest(response, request, maxRequestBytes)
 		if err != nil {

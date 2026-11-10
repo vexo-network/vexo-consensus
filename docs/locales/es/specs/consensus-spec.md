@@ -102,7 +102,7 @@ Con `create_empty_blocks=false`, una height estable con mempool vacío es un est
 
 ## Timeout de ronda adaptativo
 
-Con `adaptive_round_timeout_enabled = true`, el nodo calcula el timeout usando el valor base, el p95 móvil del procesamiento proposal/vote/commit, el resultado del progreso y el déficit de peers activos. Un timeout multiplica por 1,5, el progreso reduce por 0,8 y la latencia observada aporta un margen de 3 veces, limitado entre la base y 8 veces la base. No cambia safe-vote, proposer, quorum power, QC ni three-chain finality.
+Con `adaptive_round_timeout_enabled = true`, el nodo calcula el timeout usando el valor base, el p95 móvil del procesamiento proposal/vote/commit, el resultado del progreso y el déficit de peers activos. Un timeout multiplica por 1,5, el progreso reduce por 0,8 y la latencia observada aporta un margen de 3 veces, limitado entre la base y 8 veces la base. No cambia safe-vote, proposer, quorum power, QC ni two-chain finality.
 
 ## Compuerta de finalidad durante recuperación
 
@@ -167,3 +167,6 @@ Este apéndice asegura que la traducción conserve las interfaces ejecutables y 
 - `lanes.Owner(members, sender)` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `lanes.FallbackDelay` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
 - `lane_proposal` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `consensus.MaxBlockBytes` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `consensus.BlockTxBytes` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.
+- `max_block_bytes` — Este nombre se usa tal cual en ejemplos ejecutables y validación de configuración; no debe traducirse.

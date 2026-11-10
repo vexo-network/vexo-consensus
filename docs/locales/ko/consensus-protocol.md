@@ -6,7 +6,7 @@
 
 ## 모델
 
-Vexo는 proposal, vote, quorum certificate(QC), timeout certificate, locked-QC 안전 규칙, three-chain finality를 갖는 HotStuff 스타일 BFT 코어를 사용합니다. 블록은 locked QC를 확장하거나 lock보다 오래되지 않은 justify QC를 포함할 때만 안전하게 투표할 수 있습니다. 블록, 부모, 조부모 높이와 해시를 명시적으로 연결하지 못한 합성 QC 또는 높이를 건너뛴 QC 체인은 최종성 결정 전에 거부됩니다.
+Vexo는 proposal, vote, quorum certificate(QC), timeout certificate, locked-QC 안전 규칙, two-chain finality를 갖는 HotStuff 스타일 BFT 코어를 사용합니다. 블록은 locked QC를 확장하거나 lock보다 오래되지 않은 justify QC를 포함할 때만 안전하게 투표할 수 있습니다. 블록은 QC를 가지고, 바로 다음 높이의 자식이 그 QC를 justify certificate로 담고, 자식의 QC가 바로 다음 view에 형성되면 최종화됩니다(`consensus.TwoChainCommitRule`). 블록과 자식의 높이와 해시를 명시적으로 연결하지 못한 합성 QC 또는 높이를 건너뛴 QC 체인은 최종성 결정 전에 거부됩니다.
 
 ## 프로토콜 정체성과 연구 경계
 
@@ -16,7 +16,7 @@ Vexo는 수정하지 않은 HotStuff의 새 이름이 아니며 AptosBFT, DiemBF
 
 ## 실행 및 복구 경계
 
-QC 인증, HotStuff 최종화, 애플리케이션 실행, 상태 커밋은 서로 다른 사건입니다. 기본 `execution_commit=finalized`는 three-chain 규칙이 선택한 조상만 실행합니다. 적응형 pacemaker와 `recovery_finality_gate_enabled`는 지연 및 재시작 복구 정책일 뿐 proposer 선택, quorum power, safe-vote 규칙, three-chain finality를 변경하지 않습니다.
+QC 인증, HotStuff 최종화, 애플리케이션 실행, 상태 커밋은 서로 다른 사건입니다. 기본 `execution_commit=finalized`는 two-chain 규칙이 선택한 조상만 실행합니다. 적응형 pacemaker와 `recovery_finality_gate_enabled`는 지연 및 재시작 복구 정책일 뿐 proposer 선택, quorum power, safe-vote 규칙, two-chain finality를 변경하지 않습니다.
 
 ## 안전 경계
 
@@ -56,7 +56,7 @@ QC 인증, HotStuff 최종화, 애플리케이션 실행, 상태 커밋은 서�
 - `log_config.json`
 
 ### 섹션 추적
-- section: Model - HotStuff 스타일 BFT, three-chain finality, QC, timeout certificate, locked-QC safety를 함께 읽어야 합니다.
+- section: Model - HotStuff 스타일 BFT, two-chain finality, QC, timeout certificate, locked-QC safety를 함께 읽어야 합니다.
 - section: Execution Terms - QC certified, finalized, executed, state committed의 차이를 구분해야 합니다.
 - section: Safety Boundary - 1/3 미만 Byzantine, domain separation, validator-set hash binding, accountable evidence를 확인해야 합니다.
 - section: Crypto Boundary - `deterministic`, `ed25519`, `bls`, `blst-bls12381-minpk-v1`, `ecvrf-p256-sha256-tai-v1` 를 동일한 기준으로 봐야 합니다.
@@ -79,7 +79,7 @@ QC 인증, HotStuff 최종화, 애플리케이션 실행, 상태 커밋은 서�
 - `ecvrf-p256-sha256-tai-v1`
 - `proof-of-possession`
 - `remote signer`
-- `three-chain finality`
+- `two-chain finality`
 
 ## 운영 메모
 

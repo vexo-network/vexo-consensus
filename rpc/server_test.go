@@ -531,7 +531,7 @@ func TestHandlerReportsHealthStatusAndPeers(t *testing.T) {
 	}
 
 	var status StatusResponse
-	getJSON(t, handler, "/status", http.StatusOK, &status)
+	getJSON(t, handler, "/v1/status", http.StatusOK, &status)
 	if status.ChainID != "vexo-test" || !status.Running || status.LatestHeight != 7 {
 		t.Fatalf("unexpected status: %+v", status)
 	}
@@ -543,7 +543,7 @@ func TestHandlerReportsHealthStatusAndPeers(t *testing.T) {
 	}
 
 	var peers PeersResponse
-	getJSON(t, handler, "/peers", http.StatusOK, &peers)
+	getJSON(t, handler, "/v1/peers", http.StatusOK, &peers)
 	if len(peers.Peers) != 2 {
 		t.Fatalf("expected 2 peers, got %d", len(peers.Peers))
 	}
@@ -592,6 +592,27 @@ func TestHandlerExposesStableV1Routes(t *testing.T) {
 	}
 }
 
+// The API is served under its version prefix only; the probes, the Prometheus text metrics and the
+// Web3 endpoints keep the paths their clients fix.
+func TestHandlerServesTheAPIUnderItsVersionOnly(t *testing.T) {
+	handler := NewHandler(fakeStatusProvider{status: node.Status{ChainID: "vexo-test", Running: true}})
+	for _, path := range []string{"/status", "/blocks/latest", "/state/latest", "/snapshot/manifest", "/metrics"} {
+		var response map[string]string
+		getJSON(t, handler, path, http.StatusNotFound, &response)
+		if !strings.Contains(response["error"], stableAPIPrefix) {
+			t.Fatalf("%s: expected the error to name the API prefix, got %q", path, response["error"])
+		}
+	}
+	for _, path := range []string{"/healthz", "/readyz", "/metrics/text"} {
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s: expected the unversioned endpoint served, got %d %s", path, response.Code, response.Body.String())
+		}
+	}
+}
+
 func TestHandlerReportsNotReadyWhenNodeStopped(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{status: node.Status{ChainID: "vexo-test"}})
 
@@ -633,7 +654,7 @@ func TestHandlerReportsMetrics(t *testing.T) {
 	}})
 
 	var metrics MetricsResponse
-	getJSON(t, handler, "/metrics", http.StatusOK, &metrics)
+	getJSON(t, handler, "/v1/metrics", http.StatusOK, &metrics)
 	if metrics.ChainID != "vexo-test" || !metrics.Running || metrics.StartedAtUnix != 1710000000 || metrics.UptimeSeconds != 42 || metrics.LatestHeight != 9 || metrics.TotalBlocks != 9 {
 		t.Fatalf("unexpected metrics identity: %+v", metrics)
 	}
@@ -706,7 +727,7 @@ func TestHandlerReportsMetricsText(t *testing.T) {
 
 func TestHandlerRejectsUnavailableMetricsProvider(t *testing.T) {
 	var response map[string]string
-	getJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/metrics", http.StatusNotImplemented, &response)
+	getJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/v1/metrics", http.StatusNotImplemented, &response)
 	if response["error"] == "" {
 		t.Fatalf("expected unavailable metrics error, got %+v", response)
 	}
@@ -716,7 +737,7 @@ func TestHandlerReportsMetricsProviderErrors(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{metricsErr: errors.New("metrics failed")})
 
 	var response map[string]string
-	getJSON(t, handler, "/metrics", http.StatusInternalServerError, &response)
+	getJSON(t, handler, "/v1/metrics", http.StatusInternalServerError, &response)
 	if response["error"] != "metrics failed" {
 		t.Fatalf("unexpected metrics error: %+v", response)
 	}
@@ -759,7 +780,7 @@ func TestHandlerReportsHealthyDiagnostics(t *testing.T) {
 	})
 
 	var diagnostics DiagnosticsResponse
-	getJSON(t, handler, "/diagnostics", http.StatusOK, &diagnostics)
+	getJSON(t, handler, "/v1/diagnostics", http.StatusOK, &diagnostics)
 	if !diagnostics.OK || diagnostics.Status != "healthy" {
 		t.Fatalf("expected healthy diagnostics, got %+v", diagnostics)
 	}
@@ -789,7 +810,7 @@ func TestHandlerReportsDegradedDiagnostics(t *testing.T) {
 	})
 
 	var diagnostics DiagnosticsResponse
-	getJSON(t, handler, "/diagnostics", http.StatusServiceUnavailable, &diagnostics)
+	getJSON(t, handler, "/v1/diagnostics", http.StatusServiceUnavailable, &diagnostics)
 	if diagnostics.OK || diagnostics.Status != "degraded" {
 		t.Fatalf("expected degraded diagnostics, got %+v", diagnostics)
 	}
@@ -810,7 +831,7 @@ func TestHandlerReportsNotReadyDiagnostics(t *testing.T) {
 	})
 
 	var diagnostics DiagnosticsResponse
-	getJSON(t, handler, "/diagnostics", http.StatusServiceUnavailable, &diagnostics)
+	getJSON(t, handler, "/v1/diagnostics", http.StatusServiceUnavailable, &diagnostics)
 	if diagnostics.OK || diagnostics.Status != "not_ready" {
 		t.Fatalf("expected not_ready diagnostics, got %+v", diagnostics)
 	}
@@ -828,7 +849,7 @@ func TestHandlerReportsProviderCapabilities(t *testing.T) {
 	}, Config{RequiredCapabilities: []string{"metrics", "blocks", "finality"}})
 
 	var capabilities CapabilityResponse
-	getJSON(t, handler, "/capabilities", http.StatusOK, &capabilities)
+	getJSON(t, handler, "/v1/capabilities", http.StatusOK, &capabilities)
 	if capabilities.Complete || len(capabilities.Missing) != 1 || capabilities.Missing[0] != "finality" {
 		t.Fatalf("expected missing finality capability, got %+v", capabilities)
 	}
@@ -1018,7 +1039,7 @@ func TestHandlerRateLimitIgnoresForwardedForHeader(t *testing.T) {
 }
 
 func TestHandlerRejectsNonGET(t *testing.T) {
-	request := httptest.NewRequest(http.MethodPost, "/status", nil)
+	request := httptest.NewRequest(http.MethodPost, "/v1/status", nil)
 	response := httptest.NewRecorder()
 
 	NewHandler(fakeStatusProvider{}).ServeHTTP(response, request)
@@ -1037,7 +1058,7 @@ func TestHandlerSubmitsBase64Transaction(t *testing.T) {
 
 	var response SubmitTxResponse
 	body := `{"tx":"` + base64.StdEncoding.EncodeToString([]byte("bank:send")) + `"}`
-	postJSON(t, handler, "/tx", body, http.StatusAccepted, &response)
+	postJSON(t, handler, "/v1/tx", body, http.StatusAccepted, &response)
 
 	if !response.Accepted || response.TxHash == "" {
 		t.Fatalf("unexpected response: %+v", response)
@@ -3395,7 +3416,7 @@ func TestHandlerSubmitsPlainTransaction(t *testing.T) {
 	handler := NewHandler(provider)
 
 	var response SubmitTxResponse
-	postJSON(t, handler, "/tx", `{"tx":"bank:plain","encoding":"plain"}`, http.StatusAccepted, &response)
+	postJSON(t, handler, "/v1/tx", `{"tx":"bank:plain","encoding":"plain"}`, http.StatusAccepted, &response)
 
 	if !response.Accepted || len(provider.submitted) != 1 || string(provider.submitted[0]) != "bank:plain" {
 		t.Fatalf("unexpected plain submit: response=%+v txs=%+v", response, provider.submitted)
@@ -3404,7 +3425,7 @@ func TestHandlerSubmitsPlainTransaction(t *testing.T) {
 
 func TestHandlerRejectsUnavailableTxSubmitter(t *testing.T) {
 	var response map[string]string
-	postJSON(t, NewHandler(fakeStatusProvider{}), "/tx", `{"tx":"YmFuaw=="}`, http.StatusNotImplemented, &response)
+	postJSON(t, NewHandler(fakeStatusProvider{}), "/v1/tx", `{"tx":"YmFuaw=="}`, http.StatusNotImplemented, &response)
 	if response["error"] == "" {
 		t.Fatalf("expected error response, got %+v", response)
 	}
@@ -3421,7 +3442,7 @@ func TestHandlerRejectsInvalidTransactionRequests(t *testing.T) {
 	}
 	for _, body := range cases {
 		var response map[string]string
-		postJSON(t, handler, "/tx", body, http.StatusBadRequest, &response)
+		postJSON(t, handler, "/v1/tx", body, http.StatusBadRequest, &response)
 		if response["error"] == "" {
 			t.Fatalf("expected error for %s, got %+v", body, response)
 		}
@@ -3432,7 +3453,7 @@ func TestHandlerRejectsOversizedTransactionRequest(t *testing.T) {
 	handler := NewHandlerWithConfig(&fakeStatusProvider{status: node.Status{Running: true}}, Config{MaxRequestBytes: 8})
 
 	var response map[string]string
-	postJSON(t, handler, "/tx", `{"tx":"YmFuaw=="}`, http.StatusBadRequest, &response)
+	postJSON(t, handler, "/v1/tx", `{"tx":"YmFuaw=="}`, http.StatusBadRequest, &response)
 	if response["error"] == "" {
 		t.Fatalf("expected oversized error, got %+v", response)
 	}
@@ -3442,14 +3463,14 @@ func TestHandlerReportsSubmitTxError(t *testing.T) {
 	handler := NewHandler(&fakeStatusProvider{status: node.Status{Running: true}, submitErr: errors.New("mempool full")})
 
 	var response map[string]string
-	postJSON(t, handler, "/tx", `{"tx":"YmFuaw=="}`, http.StatusBadRequest, &response)
+	postJSON(t, handler, "/v1/tx", `{"tx":"YmFuaw=="}`, http.StatusBadRequest, &response)
 	if response["error"] != "mempool full" {
 		t.Fatalf("unexpected submit error: %+v", response)
 	}
 }
 
 func TestHandlerRejectsNonPOSTTx(t *testing.T) {
-	request := httptest.NewRequest(http.MethodGet, "/tx", nil)
+	request := httptest.NewRequest(http.MethodGet, "/v1/tx", nil)
 	response := httptest.NewRecorder()
 
 	NewHandler(&fakeStatusProvider{}).ServeHTTP(response, request)
@@ -3468,7 +3489,7 @@ func TestHandlerAcceptsEvidenceSubmission(t *testing.T) {
 	handler := NewHandler(provider)
 
 	var response SubmitEvidenceResponse
-	postJSON(t, handler, "/evidence", `{"type":"invalid_proposal","validator":"alice","height":7,"round":2,"proof":"cHJvb2Y="}`, http.StatusAccepted, &response)
+	postJSON(t, handler, "/v1/evidence", `{"type":"invalid_proposal","validator":"alice","height":7,"round":2,"proof":"cHJvb2Y="}`, http.StatusAccepted, &response)
 
 	if !response.Accepted || response.EvidenceHash != hex.EncodeToString(evidenceHash[:]) || response.Type != "invalid_proposal" || response.Validator != "alice" || response.Height != 7 || response.Round != 2 {
 		t.Fatalf("unexpected evidence response: %+v", response)
@@ -3482,7 +3503,7 @@ func TestHandlerReportsEvidenceSubmissionAsNotYetPunished(t *testing.T) {
 	handler := NewHandler(&fakeStatusProvider{})
 
 	var response map[string]any
-	postJSON(t, handler, "/evidence", `{"type":"double_sign","validator":"alice","height":7,"proof":"plain-proof","encoding":"plain"}`, http.StatusAccepted, &response)
+	postJSON(t, handler, "/v1/evidence", `{"type":"double_sign","validator":"alice","height":7,"proof":"plain-proof","encoding":"plain"}`, http.StatusAccepted, &response)
 
 	for _, field := range []string{"applied", "previous_power", "remaining_power", "penalty"} {
 		if _, present := response[field]; present {
@@ -3498,7 +3519,7 @@ func TestHandlerRejectsEvidenceThatTheNodeRefuses(t *testing.T) {
 	provider := &fakeStatusProvider{evidenceErr: errors.New("evidence failed verification")}
 
 	var response map[string]string
-	postJSON(t, NewHandler(provider), "/evidence", `{"type":"double_sign","validator":"alice","height":7,"proof":"cHJvb2Y="}`, http.StatusBadRequest, &response)
+	postJSON(t, NewHandler(provider), "/v1/evidence", `{"type":"double_sign","validator":"alice","height":7,"proof":"cHJvb2Y="}`, http.StatusBadRequest, &response)
 
 	if response["error"] != "evidence failed verification" {
 		t.Fatalf("unexpected evidence error: %+v", response)
@@ -3507,7 +3528,7 @@ func TestHandlerRejectsEvidenceThatTheNodeRefuses(t *testing.T) {
 
 func TestHandlerRejectsUnavailableEvidenceSubmitter(t *testing.T) {
 	var response map[string]string
-	postJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/evidence", `{"type":"double_sign","validator":"alice","height":1,"proof":"cHJvb2Y="}`, http.StatusNotImplemented, &response)
+	postJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/v1/evidence", `{"type":"double_sign","validator":"alice","height":1,"proof":"cHJvb2Y="}`, http.StatusNotImplemented, &response)
 	if response["error"] == "" {
 		t.Fatalf("expected unavailable evidence error, got %+v", response)
 	}
@@ -3526,7 +3547,7 @@ func TestHandlerRejectsInvalidEvidenceRequests(t *testing.T) {
 	}
 	for _, body := range cases {
 		var response map[string]string
-		postJSON(t, handler, "/evidence", body, http.StatusBadRequest, &response)
+		postJSON(t, handler, "/v1/evidence", body, http.StatusBadRequest, &response)
 		if response["error"] == "" {
 			t.Fatalf("expected evidence error for %s, got %+v", body, response)
 		}
@@ -3537,14 +3558,14 @@ func TestHandlerReportsSubmitEvidenceError(t *testing.T) {
 	handler := NewHandler(&fakeStatusProvider{evidenceErr: errors.New("invalid evidence")})
 
 	var response map[string]string
-	postJSON(t, handler, "/evidence", `{"type":"double_sign","validator":"alice","height":1,"proof":"cHJvb2Y="}`, http.StatusBadRequest, &response)
+	postJSON(t, handler, "/v1/evidence", `{"type":"double_sign","validator":"alice","height":1,"proof":"cHJvb2Y="}`, http.StatusBadRequest, &response)
 	if response["error"] != "invalid evidence" {
 		t.Fatalf("unexpected evidence error: %+v", response)
 	}
 }
 
 func TestHandlerRejectsNonPOSTEvidence(t *testing.T) {
-	request := httptest.NewRequest(http.MethodGet, "/evidence", nil)
+	request := httptest.NewRequest(http.MethodGet, "/v1/evidence", nil)
 	response := httptest.NewRecorder()
 
 	NewHandler(&fakeStatusProvider{}).ServeHTTP(response, request)
@@ -3576,27 +3597,27 @@ func TestHandlerReportsBlocksByHeightAndLatest(t *testing.T) {
 	})
 
 	var index BlockIndexResponse
-	getJSON(t, handler, "/blocks", http.StatusOK, &index)
+	getJSON(t, handler, "/v1/blocks", http.StatusOK, &index)
 	if index.EarliestHeight != 1 || index.LatestHeight != 2 || index.TotalBlocks != 2 {
 		t.Fatalf("unexpected block index: %+v", index)
 	}
 
 	var byHeight BlockResponse
-	getJSON(t, handler, "/blocks/2", http.StatusOK, &byHeight)
+	getJSON(t, handler, "/v1/blocks/2", http.StatusOK, &byHeight)
 	assertBlockResponse(t, byHeight)
 
 	var latest BlockResponse
-	getJSON(t, handler, "/blocks/latest", http.StatusOK, &latest)
+	getJSON(t, handler, "/v1/blocks/latest", http.StatusOK, &latest)
 	assertBlockResponse(t, latest)
 }
 
 func TestHandlerRejectsInvalidBlockRequests(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{blocks: map[types.Height]store.BlockRecord{}})
 	cases := map[string]int{
-		"/blocks/0":       http.StatusBadRequest,
-		"/blocks/not-num": http.StatusBadRequest,
-		"/blocks/9":       http.StatusNotFound,
-		"/blocks/latest":  http.StatusNotFound,
+		"/v1/blocks/0":       http.StatusBadRequest,
+		"/v1/blocks/not-num": http.StatusBadRequest,
+		"/v1/blocks/9":       http.StatusNotFound,
+		"/v1/blocks/latest":  http.StatusNotFound,
 	}
 	for path, expectedStatus := range cases {
 		var response map[string]string
@@ -3609,7 +3630,7 @@ func TestHandlerRejectsInvalidBlockRequests(t *testing.T) {
 
 func TestHandlerRejectsUnavailableBlockProvider(t *testing.T) {
 	var response map[string]string
-	getJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/blocks/latest", http.StatusNotImplemented, &response)
+	getJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/v1/blocks/latest", http.StatusNotImplemented, &response)
 	if response["error"] == "" {
 		t.Fatalf("expected unavailable block error, got %+v", response)
 	}
@@ -3619,7 +3640,7 @@ func TestHandlerReportsBlockProviderErrors(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{blockErr: errors.New("store failed")})
 
 	var response map[string]string
-	getJSON(t, handler, "/blocks/latest", http.StatusInternalServerError, &response)
+	getJSON(t, handler, "/v1/blocks/latest", http.StatusInternalServerError, &response)
 	if response["error"] != "store failed" {
 		t.Fatalf("unexpected block error: %+v", response)
 	}
@@ -3639,13 +3660,13 @@ func TestHandlerReportsLatestStateAndStateRoot(t *testing.T) {
 	})
 
 	var state StateResponse
-	getJSON(t, handler, "/state/latest", http.StatusOK, &state)
+	getJSON(t, handler, "/v1/state/latest", http.StatusOK, &state)
 	if state.Height != 3 || state.AppHash[:2] != "03" || state.LastBlockHash[:2] != "04" || state.ValidatorSetHash[:2] != "05" {
 		t.Fatalf("unexpected state response: %+v", state)
 	}
 
 	var root StateRootResponse
-	getJSON(t, handler, "/state/3/bank", http.StatusOK, &root)
+	getJSON(t, handler, "/v1/state/3/bank", http.StatusOK, &root)
 	if root.Height != 3 || root.Namespace != "bank" || root.Root[:2] != "06" {
 		t.Fatalf("unexpected state root response: %+v", root)
 	}
@@ -3804,11 +3825,11 @@ func TestHandlerReportsIBCPacketProof(t *testing.T) {
 func TestHandlerRejectsInvalidIBCQueries(t *testing.T) {
 	handler := NewHandler(&fakeStatusProvider{})
 	cases := map[string]int{
-		"/ibc/unknown/value":               http.StatusBadRequest,
-		"/ibc/client":                      http.StatusBadRequest,
-		"/ibc/channel/transfer":            http.StatusBadRequest,
-		"/ibc/packet/1/transfer/channel-0": http.StatusBadRequest,
-		"/ibc/client/07-vexo-0/extra":      http.StatusBadRequest,
+		"/v1/ibc/unknown/value":               http.StatusBadRequest,
+		"/v1/ibc/client":                      http.StatusBadRequest,
+		"/v1/ibc/channel/transfer":            http.StatusBadRequest,
+		"/v1/ibc/packet/1/transfer/channel-0": http.StatusBadRequest,
+		"/v1/ibc/client/07-vexo-0/extra":      http.StatusBadRequest,
 	}
 	for path, expectedStatus := range cases {
 		var response map[string]string
@@ -3819,12 +3840,12 @@ func TestHandlerRejectsInvalidIBCQueries(t *testing.T) {
 	}
 	notFoundHandler := NewHandler(&fakeStatusProvider{ibcQueryResponse: vexoapp.QueryResponse{Code: 3, Log: "IBC state not found"}})
 	var response map[string]string
-	getJSON(t, notFoundHandler, "/ibc/client/missing", http.StatusNotFound, &response)
+	getJSON(t, notFoundHandler, "/v1/ibc/client/missing", http.StatusNotFound, &response)
 	if response["error"] != "IBC state not found" {
 		t.Fatalf("unexpected not found response: %+v", response)
 	}
 	var proofResponse map[string]string
-	getJSON(t, handler, "/ibc/proof/packet/0/transfer/channel-0/transfer/channel-1", http.StatusBadRequest, &proofResponse)
+	getJSON(t, handler, "/v1/ibc/proof/packet/0/transfer/channel-0/transfer/channel-1", http.StatusBadRequest, &proofResponse)
 	if proofResponse["error"] == "" {
 		t.Fatalf("expected proof path error, got %+v", proofResponse)
 	}
@@ -3833,11 +3854,11 @@ func TestHandlerRejectsInvalidIBCQueries(t *testing.T) {
 func TestHandlerRejectsInvalidEventAndProofRequests(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{})
 	cases := map[string]int{
-		"/events":               http.StatusBadRequest,
-		"/events?key=sender":    http.StatusBadRequest,
-		"/proof":                http.StatusBadRequest,
-		"/proof?namespace=bank": http.StatusBadRequest,
-		"/proof?namespace=bank&key=alice&height=bad": http.StatusBadRequest,
+		"/v1/events":               http.StatusBadRequest,
+		"/v1/events?key=sender":    http.StatusBadRequest,
+		"/v1/proof":                http.StatusBadRequest,
+		"/v1/proof?namespace=bank": http.StatusBadRequest,
+		"/v1/proof?namespace=bank&key=alice&height=bad": http.StatusBadRequest,
 	}
 	for path, expectedStatus := range cases {
 		var response map[string]string
@@ -3848,7 +3869,7 @@ func TestHandlerRejectsInvalidEventAndProofRequests(t *testing.T) {
 	}
 	proofHandler := NewHandler(fakeStatusProvider{queryProofErr: store.ErrStateNotFound})
 	var response map[string]string
-	getJSON(t, proofHandler, "/proof?namespace=bank&key=alice", http.StatusNotFound, &response)
+	getJSON(t, proofHandler, "/v1/proof?namespace=bank&key=alice", http.StatusNotFound, &response)
 	if response["error"] == "" {
 		t.Fatalf("expected proof not found error, got %+v", response)
 	}
@@ -3857,11 +3878,11 @@ func TestHandlerRejectsInvalidEventAndProofRequests(t *testing.T) {
 func TestHandlerRejectsInvalidStateRequests(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{})
 	cases := map[string]int{
-		"/state/latest":       http.StatusNotFound,
-		"/state/0/bank":       http.StatusBadRequest,
-		"/state/not-num/bank": http.StatusBadRequest,
-		"/state/3":            http.StatusBadRequest,
-		"/state/3/bank":       http.StatusNotFound,
+		"/v1/state/latest":       http.StatusNotFound,
+		"/v1/state/0/bank":       http.StatusBadRequest,
+		"/v1/state/not-num/bank": http.StatusBadRequest,
+		"/v1/state/3":            http.StatusBadRequest,
+		"/v1/state/3/bank":       http.StatusNotFound,
 	}
 	for path, expectedStatus := range cases {
 		var response map[string]string
@@ -3874,7 +3895,7 @@ func TestHandlerRejectsInvalidStateRequests(t *testing.T) {
 
 func TestHandlerRejectsUnavailableChainQueryProvider(t *testing.T) {
 	handler := NewHandler(struct{ StatusProvider }{fakeStatusProvider{}})
-	for _, path := range []string{"/blocks", "/state/latest", "/state/3/bank"} {
+	for _, path := range []string{"/v1/blocks", "/v1/state/latest", "/v1/state/3/bank"} {
 		var response map[string]string
 		getJSON(t, handler, path, http.StatusNotImplemented, &response)
 		if response["error"] == "" {
@@ -3887,7 +3908,7 @@ func TestHandlerReportsStateProviderErrors(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{stateErr: errors.New("state failed")})
 
 	var response map[string]string
-	getJSON(t, handler, "/state/latest", http.StatusInternalServerError, &response)
+	getJSON(t, handler, "/v1/state/latest", http.StatusInternalServerError, &response)
 	if response["error"] != "state failed" {
 		t.Fatalf("unexpected state error: %+v", response)
 	}
@@ -3910,7 +3931,7 @@ func TestHandlerReportsLatestSnapshot(t *testing.T) {
 	}})
 
 	var snapshot StateSnapshotResponse
-	getJSON(t, handler, "/snapshot/latest", http.StatusOK, &snapshot)
+	getJSON(t, handler, "/v1/snapshot/latest", http.StatusOK, &snapshot)
 	if snapshot.Height != 5 || snapshot.AppHash[:2] != "01" || snapshot.LastBlockHash[:2] != "02" || snapshot.ValidatorSetHash[:2] != "03" {
 		t.Fatalf("unexpected snapshot identity: %+v", snapshot)
 	}
@@ -3939,7 +3960,7 @@ func TestHandlerServesSnapshotManifestAndPages(t *testing.T) {
 	}})
 
 	var manifest SnapshotManifestResponse
-	getJSON(t, handler, "/snapshot/manifest?height=7", http.StatusOK, &manifest)
+	getJSON(t, handler, "/v1/snapshot/manifest?height=7", http.StatusOK, &manifest)
 	if manifest.SchemaVersion != SnapshotSchemaVersion || manifest.Header.Height != 7 || manifest.State.Height != 5 || manifest.Block.Hash != (types.Hash{9}) || len(manifest.Links) != 1 {
 		t.Fatalf("unexpected manifest %+v", manifest)
 	}
@@ -3948,12 +3969,12 @@ func TestHandlerServesSnapshotManifestAndPages(t *testing.T) {
 	}
 
 	var first SnapshotPairsResponse
-	getJSON(t, handler, "/snapshot/pairs?height=7&namespace=bank&limit=2", http.StatusOK, &first)
+	getJSON(t, handler, "/v1/snapshot/pairs?height=7&namespace=bank&limit=2", http.StatusOK, &first)
 	if len(first.Pairs) != 2 || !first.More || string(first.Pairs[1].Key) != "bob" {
 		t.Fatalf("unexpected first page %+v", first)
 	}
 	var second SnapshotPairsResponse
-	getJSON(t, handler, "/snapshot/pairs?height=7&namespace=bank&limit=2&after="+hex.EncodeToString([]byte("bob")), http.StatusOK, &second)
+	getJSON(t, handler, "/v1/snapshot/pairs?height=7&namespace=bank&limit=2&after="+hex.EncodeToString([]byte("bob")), http.StatusOK, &second)
 	if len(second.Pairs) != 1 || second.More || string(second.Pairs[0].Key) != "carol" {
 		t.Fatalf("unexpected second page %+v", second)
 	}
@@ -3963,11 +3984,11 @@ func TestHandlerServesSnapshotManifestAndPages(t *testing.T) {
 
 	var response map[string]string
 	for _, query := range []string{
-		"/snapshot/pairs?namespace=bank",
-		"/snapshot/pairs?height=7&namespace=bank&limit=0",
-		fmt.Sprintf("/snapshot/pairs?height=7&namespace=bank&limit=%d", node.MaxSnapshotPairsPage+1),
-		"/snapshot/pairs?height=7&namespace=bank&after=zz",
-		"/snapshot/manifest?height=x",
+		"/v1/snapshot/pairs?namespace=bank",
+		"/v1/snapshot/pairs?height=7&namespace=bank&limit=0",
+		fmt.Sprintf("/v1/snapshot/pairs?height=7&namespace=bank&limit=%d", node.MaxSnapshotPairsPage+1),
+		"/v1/snapshot/pairs?height=7&namespace=bank&after=zz",
+		"/v1/snapshot/manifest?height=x",
 	} {
 		response = nil
 		getJSON(t, handler, query, http.StatusBadRequest, &response)
@@ -3984,7 +4005,7 @@ func TestHandlerServesSnapshotManifestAndPages(t *testing.T) {
 func TestHandlerReportsAPrunedSnapshotAnchor(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{snapshotErr: fmt.Errorf("%w: block 3", node.ErrSnapshotPruned), snapshotEarliest: 40})
 	var response SnapshotErrorResponse
-	getJSON(t, handler, "/snapshot/manifest?height=3", http.StatusGone, &response)
+	getJSON(t, handler, "/v1/snapshot/manifest?height=3", http.StatusGone, &response)
 	if response.EarliestHeight != 40 || response.Error == "" {
 		t.Fatalf("unexpected pruned response %+v", response)
 	}
@@ -3992,7 +4013,7 @@ func TestHandlerReportsAPrunedSnapshotAnchor(t *testing.T) {
 
 func TestHandlerRejectsUnavailableSnapshotProvider(t *testing.T) {
 	var response map[string]string
-	getJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/snapshot/latest", http.StatusNotImplemented, &response)
+	getJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/v1/snapshot/latest", http.StatusNotImplemented, &response)
 	if response["error"] == "" {
 		t.Fatalf("expected unavailable snapshot error, got %+v", response)
 	}
@@ -4010,7 +4031,7 @@ func TestHandlerReportsSnapshotErrors(t *testing.T) {
 	for _, testCase := range cases {
 		handler := NewHandler(fakeStatusProvider{snapshotErr: testCase.err})
 		var response map[string]string
-		getJSON(t, handler, "/snapshot/latest", testCase.expectedStatus, &response)
+		getJSON(t, handler, "/v1/snapshot/latest", testCase.expectedStatus, &response)
 		if response["error"] == "" {
 			t.Fatalf("expected snapshot error for %v, got %+v", testCase.err, response)
 		}
@@ -4039,8 +4060,8 @@ func TestHandlerReportsRecoveryAndRepairsIndexes(t *testing.T) {
 	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
 
 	var response RecoveryReportResponse
-	requestJSON(t, handler, http.MethodPost, "/recovery", ``, "127.0.0.1:1", http.StatusUnauthorized, &map[string]string{})
-	postJSONWithToken(t, handler, "/recovery", ``, "secret", http.StatusOK, &response)
+	requestJSON(t, handler, http.MethodPost, "/v1/recovery", ``, "127.0.0.1:1", http.StatusUnauthorized, &map[string]string{})
+	postJSONWithToken(t, handler, "/v1/recovery", ``, "secret", http.StatusOK, &response)
 	if provider.recoveryRepairs != 1 {
 		t.Fatalf("expected one repair request, got %d", provider.recoveryRepairs)
 	}
@@ -4056,7 +4077,7 @@ func TestHandlerReportsDegradedRecovery(t *testing.T) {
 	}})
 
 	var response RecoveryReportResponse
-	getJSON(t, handler, "/recovery", http.StatusServiceUnavailable, &response)
+	getJSON(t, handler, "/v1/recovery", http.StatusServiceUnavailable, &response)
 	if response.OK || len(response.Problems) != 1 {
 		t.Fatalf("expected degraded recovery response, got %+v", response)
 	}
@@ -4064,7 +4085,7 @@ func TestHandlerReportsDegradedRecovery(t *testing.T) {
 
 func TestHandlerRejectsUnavailableRecoveryProvider(t *testing.T) {
 	var response map[string]string
-	getJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/recovery", http.StatusNotImplemented, &response)
+	getJSON(t, NewHandler(struct{ StatusProvider }{fakeStatusProvider{}}), "/v1/recovery", http.StatusNotImplemented, &response)
 	if response["error"] == "" {
 		t.Fatalf("expected unavailable recovery error, got %+v", response)
 	}
@@ -4080,7 +4101,7 @@ func TestHandlerPrunesBlocksAndStateRoots(t *testing.T) {
 	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
 
 	var response PruneResponse
-	postJSONWithToken(t, handler, "/prune", `{"retain_from_height":3}`, "secret", http.StatusOK, &response)
+	postJSONWithToken(t, handler, "/v1/prune", `{"retain_from_height":3}`, "secret", http.StatusOK, &response)
 
 	if response.RetainFromHeight != 3 || response.PrunedBlocks != 2 || response.PrunedStates != 1 || response.PrunedStateRoots != 4 {
 		t.Fatalf("unexpected prune response: %+v", response)
@@ -4102,7 +4123,7 @@ func TestHandlerRequiresAdminTokenForPrune(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			var response map[string]string
-			postJSONWithToken(t, handler, "/prune", `{"retain_from_height":3}`, testCase.token, testCase.expectedStatus, &response)
+			postJSONWithToken(t, handler, "/v1/prune", `{"retain_from_height":3}`, testCase.token, testCase.expectedStatus, &response)
 			if response["error"] == "" {
 				t.Fatalf("expected admin auth error, got %+v", response)
 			}
@@ -4115,7 +4136,7 @@ func TestHandlerRejectsMalformedAdminAuthorizationScheme(t *testing.T) {
 	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
 	for _, header := range []string{"Basic secret", "secret", "Bearer", "Bearer "} {
 		var response map[string]string
-		requestJSONWithHeaders(t, handler, http.MethodPost, "/prune", `{"retain_from_height":3}`, "192.0.2.1:1234", map[string]string{"Authorization": header}, http.StatusUnauthorized, &response)
+		requestJSONWithHeaders(t, handler, http.MethodPost, "/v1/prune", `{"retain_from_height":3}`, "192.0.2.1:1234", map[string]string{"Authorization": header}, http.StatusUnauthorized, &response)
 	}
 	if len(provider.prunedHeights) != 0 {
 		t.Fatalf("expected no prune for a malformed credential, got %+v", provider.prunedHeights)
@@ -4127,7 +4148,7 @@ func TestHandlerAcceptsAdminTokenForPrune(t *testing.T) {
 	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
 
 	var response PruneResponse
-	postJSONWithToken(t, handler, "/prune", `{"retain_from_height":3}`, "secret", http.StatusOK, &response)
+	postJSONWithToken(t, handler, "/v1/prune", `{"retain_from_height":3}`, "secret", http.StatusOK, &response)
 	if response.RetainFromHeight != 3 || len(provider.prunedHeights) != 1 {
 		t.Fatalf("unexpected authorized prune: response=%+v heights=%+v", response, provider.prunedHeights)
 	}
@@ -4138,11 +4159,11 @@ func TestHandlerAdminEndpointsFailClosedWithoutConfiguredToken(t *testing.T) {
 	handler := NewHandlerWithConfig(provider, Config{})
 
 	for _, endpoint := range []struct{ path, body string }{
-		{"/prune", `{"retain_from_height":3}`},
-		{"/replay", `{"all":true}`},
-		{"/consensus/start", `{}`},
-		{"/consensus/stop", `{}`},
-		{"/recovery", ``},
+		{"/v1/prune", `{"retain_from_height":3}`},
+		{"/v1/replay", `{"all":true}`},
+		{"/v1/consensus/start", `{}`},
+		{"/v1/consensus/stop", `{}`},
+		{"/v1/recovery", ``},
 	} {
 		for _, headers := range []map[string]string{nil, {"Authorization": "Bearer "}, {"Authorization": "Bearer secret"}} {
 			var response map[string]string
@@ -4161,7 +4182,7 @@ func TestHandlerAdminRejectsUnexpectedHost(t *testing.T) {
 	provider := &fakeStatusProvider{pruneResult: store.PruneResult{RetainFromHeight: 3, PrunedBlocks: 1}}
 	body := `{"retain_from_height":3}`
 	post := func(handler http.Handler, host string) int {
-		request := httptest.NewRequest(http.MethodPost, "/prune", strings.NewReader(body))
+		request := httptest.NewRequest(http.MethodPost, "/v1/prune", strings.NewReader(body))
 		request.Host = host
 		request.RemoteAddr = "192.0.2.1:1234"
 		request.Header.Set("Content-Type", "application/json")
@@ -4196,7 +4217,7 @@ func TestHandlerAdminRejectsUnexpectedHost(t *testing.T) {
 func TestHandlerStateChangingPostsRequireJSONContentType(t *testing.T) {
 	provider := &fakeStatusProvider{pruneResult: store.PruneResult{RetainFromHeight: 3, PrunedBlocks: 1}}
 	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
-	for _, path := range []string{"/tx", "/evidence", "/web3", "/prune", "/replay", "/consensus/start", "/consensus/stop", "/recovery"} {
+	for _, path := range []string{"/v1/tx", "/v1/evidence", "/web3", "/v1/prune", "/v1/replay", "/v1/consensus/start", "/v1/consensus/stop", "/v1/recovery"} {
 		for _, contentType := range []string{"", "text/plain", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x"} {
 			request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"retain_from_height":3}`))
 			request.Host = "127.0.0.1:26657"
@@ -4235,14 +4256,14 @@ func TestHandlerEnforcesScopedAdminTokensAndAudits(t *testing.T) {
 	})
 
 	var forbidden map[string]string
-	postJSONWithToken(t, handler, "/prune", `{"retain_from_height":3}`, "replay-token", http.StatusForbidden, &forbidden)
+	postJSONWithToken(t, handler, "/v1/prune", `{"retain_from_height":3}`, "replay-token", http.StatusForbidden, &forbidden)
 	if forbidden["error"] == "" {
 		t.Fatalf("expected scoped auth failure, got %+v", forbidden)
 	}
 	var prune PruneResponse
-	postJSONWithToken(t, handler, "/prune", `{"retain_from_height":3}`, "prune-token", http.StatusOK, &prune)
+	postJSONWithToken(t, handler, "/v1/prune", `{"retain_from_height":3}`, "prune-token", http.StatusOK, &prune)
 	var replay ReplayResponse
-	postJSONWithToken(t, handler, "/replay", `{"all":true}`, "root-token", http.StatusOK, &replay)
+	postJSONWithToken(t, handler, "/v1/replay", `{"all":true}`, "root-token", http.StatusOK, &replay)
 
 	if len(events) != 3 {
 		t.Fatalf("expected three audit events, got %+v", events)
@@ -4268,7 +4289,7 @@ func TestHandlerRejectsInvalidPruneRequests(t *testing.T) {
 	}
 	for _, body := range cases {
 		var response map[string]string
-		postJSONWithToken(t, handler, "/prune", body, "secret", http.StatusBadRequest, &response)
+		postJSONWithToken(t, handler, "/v1/prune", body, "secret", http.StatusBadRequest, &response)
 		if response["error"] == "" {
 			t.Fatalf("expected prune error for %s, got %+v", body, response)
 		}
@@ -4277,7 +4298,7 @@ func TestHandlerRejectsInvalidPruneRequests(t *testing.T) {
 
 func TestHandlerRejectsUnavailablePruneProvider(t *testing.T) {
 	var response map[string]string
-	postJSONWithToken(t, NewHandlerWithConfig(struct{ StatusProvider }{fakeStatusProvider{}}, Config{AdminToken: "secret"}), "/prune", `{"retain_from_height":2}`, "secret", http.StatusNotImplemented, &response)
+	postJSONWithToken(t, NewHandlerWithConfig(struct{ StatusProvider }{fakeStatusProvider{}}, Config{AdminToken: "secret"}), "/v1/prune", `{"retain_from_height":2}`, "secret", http.StatusNotImplemented, &response)
 	if response["error"] == "" {
 		t.Fatalf("expected unavailable prune error, got %+v", response)
 	}
@@ -4295,7 +4316,7 @@ func TestHandlerReportsPruneErrors(t *testing.T) {
 	for _, testCase := range cases {
 		handler := NewHandlerWithConfig(&fakeStatusProvider{pruneErr: testCase.err}, Config{AdminToken: "secret"})
 		var response map[string]string
-		postJSONWithToken(t, handler, "/prune", `{"retain_from_height":2}`, "secret", testCase.expectedStatus, &response)
+		postJSONWithToken(t, handler, "/v1/prune", `{"retain_from_height":2}`, "secret", testCase.expectedStatus, &response)
 		if response["error"] == "" {
 			t.Fatalf("expected prune error for %v, got %+v", testCase.err, response)
 		}
@@ -4303,7 +4324,7 @@ func TestHandlerReportsPruneErrors(t *testing.T) {
 }
 
 func TestHandlerRejectsNonPOSTPrune(t *testing.T) {
-	assertAdminRejectsNonPOST(t, "/prune")
+	assertAdminRejectsNonPOST(t, "/v1/prune")
 }
 
 func TestHandlerReplaysStoredBlocks(t *testing.T) {
@@ -4316,7 +4337,7 @@ func TestHandlerReplaysStoredBlocks(t *testing.T) {
 	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
 
 	var response ReplayResponse
-	postJSONWithToken(t, handler, "/replay", `{"from_height":2,"to_height":4}`, "secret", http.StatusOK, &response)
+	postJSONWithToken(t, handler, "/v1/replay", `{"from_height":2,"to_height":4}`, "secret", http.StatusOK, &response)
 
 	if response.FromHeight != 2 || response.ToHeight != 4 || response.Blocks != 3 || response.LastHash[:2] != "09" {
 		t.Fatalf("unexpected replay response: %+v", response)
@@ -4336,7 +4357,7 @@ func TestHandlerReplaysAllStoredBlocks(t *testing.T) {
 	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
 
 	var response ReplayResponse
-	postJSONWithToken(t, handler, "/replay", `{"all":true}`, "secret", http.StatusOK, &response)
+	postJSONWithToken(t, handler, "/v1/replay", `{"all":true}`, "secret", http.StatusOK, &response)
 
 	if !provider.replayAllCalled || response.FromHeight != 1 || response.ToHeight != 5 || response.Blocks != 5 {
 		t.Fatalf("unexpected replay all response: called=%v response=%+v", provider.replayAllCalled, response)
@@ -4353,7 +4374,7 @@ func TestHandlerReplaysStrictStoredBlocks(t *testing.T) {
 	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
 
 	var response ReplayResponse
-	postJSONWithToken(t, handler, "/replay", `{"from_height":2,"to_height":4,"strict":true}`, "secret", http.StatusOK, &response)
+	postJSONWithToken(t, handler, "/v1/replay", `{"from_height":2,"to_height":4,"strict":true}`, "secret", http.StatusOK, &response)
 
 	if response.FromHeight != 2 || response.ToHeight != 4 || response.Blocks != 3 {
 		t.Fatalf("unexpected strict replay response: %+v", response)
@@ -4373,7 +4394,7 @@ func TestHandlerReplaysAllStrictStoredBlocks(t *testing.T) {
 	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
 
 	var response ReplayResponse
-	postJSONWithToken(t, handler, "/replay", `{"all":true,"strict":true}`, "secret", http.StatusOK, &response)
+	postJSONWithToken(t, handler, "/v1/replay", `{"all":true,"strict":true}`, "secret", http.StatusOK, &response)
 
 	if !provider.strictReplayAllCalled || provider.replayAllCalled || response.FromHeight != 1 || response.ToHeight != 5 {
 		t.Fatalf("unexpected strict replay all response: strict=%v normal=%v response=%+v", provider.strictReplayAllCalled, provider.replayAllCalled, response)
@@ -4392,7 +4413,7 @@ func TestHandlerRequiresAdminTokenForReplay(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			var response map[string]string
-			postJSONWithToken(t, handler, "/replay", `{"all":true}`, testCase.token, testCase.expectedStatus, &response)
+			postJSONWithToken(t, handler, "/v1/replay", `{"all":true}`, testCase.token, testCase.expectedStatus, &response)
 			if response["error"] == "" {
 				t.Fatalf("expected admin auth error, got %+v", response)
 			}
@@ -4405,7 +4426,7 @@ func TestHandlerAcceptsAdminTokenForReplay(t *testing.T) {
 	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
 
 	var response ReplayResponse
-	postJSONWithToken(t, handler, "/replay", `{"all":true}`, "secret", http.StatusOK, &response)
+	postJSONWithToken(t, handler, "/v1/replay", `{"all":true}`, "secret", http.StatusOK, &response)
 	if !provider.replayAllCalled || response.Blocks != 1 {
 		t.Fatalf("unexpected authorized replay: called=%v response=%+v", provider.replayAllCalled, response)
 	}
@@ -4422,7 +4443,7 @@ func TestHandlerRejectsInvalidReplayRequests(t *testing.T) {
 	}
 	for _, body := range cases {
 		var response map[string]string
-		postJSONWithToken(t, handler, "/replay", body, "secret", http.StatusBadRequest, &response)
+		postJSONWithToken(t, handler, "/v1/replay", body, "secret", http.StatusBadRequest, &response)
 		if response["error"] == "" {
 			t.Fatalf("expected replay error for %s, got %+v", body, response)
 		}
@@ -4431,7 +4452,7 @@ func TestHandlerRejectsInvalidReplayRequests(t *testing.T) {
 
 func TestHandlerRejectsUnavailableReplayProvider(t *testing.T) {
 	var response map[string]string
-	postJSONWithToken(t, NewHandlerWithConfig(struct{ StatusProvider }{fakeStatusProvider{}}, Config{AdminToken: "secret"}), "/replay", `{"all":true}`, "secret", http.StatusNotImplemented, &response)
+	postJSONWithToken(t, NewHandlerWithConfig(struct{ StatusProvider }{fakeStatusProvider{}}, Config{AdminToken: "secret"}), "/v1/replay", `{"all":true}`, "secret", http.StatusNotImplemented, &response)
 	if response["error"] == "" {
 		t.Fatalf("expected unavailable replay error, got %+v", response)
 	}
@@ -4451,7 +4472,7 @@ func TestHandlerReportsReplayErrors(t *testing.T) {
 	for _, testCase := range cases {
 		handler := NewHandlerWithConfig(&fakeStatusProvider{replayErr: testCase.err}, Config{AdminToken: "secret"})
 		var response map[string]string
-		postJSONWithToken(t, handler, "/replay", `{"all":true}`, "secret", testCase.expectedStatus, &response)
+		postJSONWithToken(t, handler, "/v1/replay", `{"all":true}`, "secret", testCase.expectedStatus, &response)
 		if response["error"] == "" {
 			t.Fatalf("expected replay error for %v, got %+v", testCase.err, response)
 		}
@@ -4459,7 +4480,7 @@ func TestHandlerReportsReplayErrors(t *testing.T) {
 }
 
 func TestHandlerRejectsNonPOSTReplay(t *testing.T) {
-	assertAdminRejectsNonPOST(t, "/replay")
+	assertAdminRejectsNonPOST(t, "/v1/replay")
 }
 
 func TestHandlerStartsConsensusLoop(t *testing.T) {
@@ -4467,7 +4488,7 @@ func TestHandlerStartsConsensusLoop(t *testing.T) {
 	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
 
 	var response ConsensusLoopResponse
-	postJSONWithToken(t, handler, "/consensus/start", `{"interval_millis":25,"round_timeout_millis":250,"max_block_bytes":4096}`, "secret", http.StatusOK, &response)
+	postJSONWithToken(t, handler, "/v1/consensus/start", `{"interval_millis":25,"round_timeout_millis":250,"max_block_bytes":4096}`, "secret", http.StatusOK, &response)
 
 	if !response.Running || response.Action != "start" || response.IntervalMillis != 25 || response.RoundTimeoutMillis != 250 || response.MaxBlockBytes != 4096 {
 		t.Fatalf("unexpected consensus start response: %+v", response)
@@ -4486,7 +4507,7 @@ func TestHandlerStartsConsensusLoopWithDefaults(t *testing.T) {
 	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
 
 	var response ConsensusLoopResponse
-	postJSONWithToken(t, handler, "/consensus/start", ``, "secret", http.StatusOK, &response)
+	postJSONWithToken(t, handler, "/v1/consensus/start", ``, "secret", http.StatusOK, &response)
 
 	if !response.Running || response.Action != "start" {
 		t.Fatalf("unexpected default consensus start response: %+v", response)
@@ -4501,7 +4522,7 @@ func TestHandlerStopsConsensusLoop(t *testing.T) {
 	handler := NewHandlerWithConfig(provider, Config{AdminToken: "secret"})
 
 	var response ConsensusLoopResponse
-	postJSONWithToken(t, handler, "/consensus/stop", `{}`, "secret", http.StatusOK, &response)
+	postJSONWithToken(t, handler, "/v1/consensus/stop", `{}`, "secret", http.StatusOK, &response)
 
 	if response.Running || response.Action != "stop" || provider.loopRunning {
 		t.Fatalf("unexpected consensus stop response: response=%+v running=%v", response, provider.loopRunning)
@@ -4516,10 +4537,10 @@ func TestHandlerRequiresAdminTokenForConsensusControl(t *testing.T) {
 		token          string
 		expectedStatus int
 	}{
-		{name: "start missing", path: "/consensus/start", expectedStatus: http.StatusUnauthorized},
-		{name: "start wrong", path: "/consensus/start", token: "wrong", expectedStatus: http.StatusForbidden},
-		{name: "stop missing", path: "/consensus/stop", expectedStatus: http.StatusUnauthorized},
-		{name: "stop wrong", path: "/consensus/stop", token: "wrong", expectedStatus: http.StatusForbidden},
+		{name: "start missing", path: "/v1/consensus/start", expectedStatus: http.StatusUnauthorized},
+		{name: "start wrong", path: "/v1/consensus/start", token: "wrong", expectedStatus: http.StatusForbidden},
+		{name: "stop missing", path: "/v1/consensus/stop", expectedStatus: http.StatusUnauthorized},
+		{name: "stop wrong", path: "/v1/consensus/stop", token: "wrong", expectedStatus: http.StatusForbidden},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			var response map[string]string
@@ -4538,11 +4559,11 @@ func TestHandlerReportsConsensusControlErrors(t *testing.T) {
 		provider       *fakeStatusProvider
 		expectedStatus int
 	}{
-		{name: "start node stopped", path: "/consensus/start", provider: &fakeStatusProvider{loopStartErr: node.ErrNodeNotRunning}, expectedStatus: http.StatusConflict},
-		{name: "start already running", path: "/consensus/start", provider: &fakeStatusProvider{loopStartErr: node.ErrLoopAlreadyRunning}, expectedStatus: http.StatusConflict},
-		{name: "stop not running", path: "/consensus/stop", provider: &fakeStatusProvider{loopStopErr: node.ErrLoopNotRunning}, expectedStatus: http.StatusConflict},
-		{name: "start internal", path: "/consensus/start", provider: &fakeStatusProvider{loopStartErr: errors.New("start failed")}, expectedStatus: http.StatusInternalServerError},
-		{name: "stop internal", path: "/consensus/stop", provider: &fakeStatusProvider{loopStopErr: errors.New("stop failed")}, expectedStatus: http.StatusInternalServerError},
+		{name: "start node stopped", path: "/v1/consensus/start", provider: &fakeStatusProvider{loopStartErr: node.ErrNodeNotRunning}, expectedStatus: http.StatusConflict},
+		{name: "start already running", path: "/v1/consensus/start", provider: &fakeStatusProvider{loopStartErr: node.ErrLoopAlreadyRunning}, expectedStatus: http.StatusConflict},
+		{name: "stop not running", path: "/v1/consensus/stop", provider: &fakeStatusProvider{loopStopErr: node.ErrLoopNotRunning}, expectedStatus: http.StatusConflict},
+		{name: "start internal", path: "/v1/consensus/start", provider: &fakeStatusProvider{loopStartErr: errors.New("start failed")}, expectedStatus: http.StatusInternalServerError},
+		{name: "stop internal", path: "/v1/consensus/stop", provider: &fakeStatusProvider{loopStopErr: errors.New("stop failed")}, expectedStatus: http.StatusInternalServerError},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -4563,7 +4584,7 @@ func TestHandlerRejectsInvalidConsensusStartRequests(t *testing.T) {
 		`{`,
 	} {
 		var response map[string]string
-		postJSONWithToken(t, handler, "/consensus/start", body, "secret", http.StatusBadRequest, &response)
+		postJSONWithToken(t, handler, "/v1/consensus/start", body, "secret", http.StatusBadRequest, &response)
 		if response["error"] == "" {
 			t.Fatalf("expected consensus start error for %s, got %+v", body, response)
 		}
@@ -4572,18 +4593,18 @@ func TestHandlerRejectsInvalidConsensusStartRequests(t *testing.T) {
 
 func TestHandlerRejectsUnavailableConsensusController(t *testing.T) {
 	var response map[string]string
-	postJSONWithToken(t, NewHandlerWithConfig(struct{ StatusProvider }{fakeStatusProvider{}}, Config{AdminToken: "secret"}), "/consensus/start", `{}`, "secret", http.StatusNotImplemented, &response)
+	postJSONWithToken(t, NewHandlerWithConfig(struct{ StatusProvider }{fakeStatusProvider{}}, Config{AdminToken: "secret"}), "/v1/consensus/start", `{}`, "secret", http.StatusNotImplemented, &response)
 	if response["error"] == "" {
 		t.Fatalf("expected unavailable consensus start error, got %+v", response)
 	}
-	postJSONWithToken(t, NewHandlerWithConfig(struct{ StatusProvider }{fakeStatusProvider{}}, Config{AdminToken: "secret"}), "/consensus/stop", `{}`, "secret", http.StatusNotImplemented, &response)
+	postJSONWithToken(t, NewHandlerWithConfig(struct{ StatusProvider }{fakeStatusProvider{}}, Config{AdminToken: "secret"}), "/v1/consensus/stop", `{}`, "secret", http.StatusNotImplemented, &response)
 	if response["error"] == "" {
 		t.Fatalf("expected unavailable consensus stop error, got %+v", response)
 	}
 }
 
 func TestHandlerRejectsNonPOSTConsensusControl(t *testing.T) {
-	for _, path := range []string{"/consensus/start", "/consensus/stop"} {
+	for _, path := range []string{"/v1/consensus/start", "/v1/consensus/stop"} {
 		assertAdminRejectsNonPOST(t, path)
 	}
 }
@@ -4639,7 +4660,7 @@ func TestHandlerReportsValidatorsAndCommittee(t *testing.T) {
 	})
 
 	var validators ValidatorSetResponse
-	getJSON(t, handler, "/validators/7", http.StatusOK, &validators)
+	getJSON(t, handler, "/v1/validators/7", http.StatusOK, &validators)
 	if validators.Height != 7 || validators.TotalValidators != 2 || validators.TotalPower != 30 || validators.ValidatorSetHash == "" {
 		t.Fatalf("unexpected validator set: %+v", validators)
 	}
@@ -4648,7 +4669,7 @@ func TestHandlerReportsValidatorsAndCommittee(t *testing.T) {
 	}
 
 	var committeeResponse CommitteeResponse
-	getJSON(t, handler, "/committee/7/3?seed="+hexHash(seed), http.StatusOK, &committeeResponse)
+	getJSON(t, handler, "/v1/committee/7/3?seed="+hexHash(seed), http.StatusOK, &committeeResponse)
 	if committeeResponse.Height != 7 || committeeResponse.Epoch != 2 || committeeResponse.Round != 3 || committeeResponse.Seed != hexHash(seed) {
 		t.Fatalf("unexpected committee identity: %+v", committeeResponse)
 	}
@@ -4660,12 +4681,12 @@ func TestHandlerReportsValidatorsAndCommittee(t *testing.T) {
 func TestHandlerRejectsInvalidValidatorRequests(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{validators: newTestValidatorSet(t, nil)})
 	cases := []string{
-		"/validators/0",
-		"/validators/not-num",
-		"/committee/0/1",
-		"/committee/1/not-num",
-		"/committee/1",
-		"/committee/1/0?seed=bad",
+		"/v1/validators/0",
+		"/v1/validators/not-num",
+		"/v1/committee/0/1",
+		"/v1/committee/1/not-num",
+		"/v1/committee/1",
+		"/v1/committee/1/0?seed=bad",
 	}
 	for _, path := range cases {
 		var response map[string]string
@@ -4678,7 +4699,7 @@ func TestHandlerRejectsInvalidValidatorRequests(t *testing.T) {
 
 func TestHandlerRejectsUnavailableValidatorQueryProvider(t *testing.T) {
 	handler := NewHandler(struct{ StatusProvider }{fakeStatusProvider{}})
-	for _, path := range []string{"/validators/1", "/committee/1/0"} {
+	for _, path := range []string{"/v1/validators/1", "/v1/committee/1/0"} {
 		var response map[string]string
 		getJSON(t, handler, path, http.StatusNotImplemented, &response)
 		if response["error"] == "" {
@@ -4691,7 +4712,7 @@ func TestHandlerReportsValidatorQueryErrors(t *testing.T) {
 	handler := NewHandler(fakeStatusProvider{validatorErr: errors.New("validator failed")})
 
 	var response map[string]string
-	getJSON(t, handler, "/validators/1", http.StatusInternalServerError, &response)
+	getJSON(t, handler, "/v1/validators/1", http.StatusInternalServerError, &response)
 	if response["error"] != "validator failed" {
 		t.Fatalf("unexpected validator error: %+v", response)
 	}

@@ -562,7 +562,7 @@ Consensus loop timing lives in `consensus_config.json`:
 - `timeout_prevote` controls the vote collection window.
 - `timeout_precommit` controls the commit-certificate collection window.
 - `create_empty_blocks: false` means the node only proposes when transactions are available.
-- `execution_commit: "finalized"` waits for the HotStuff three-chain finality decision before executing the finalized ancestor and is the generated validator default. `execution_commit: "qc"` executes and persists QC-certified blocks immediately, but the safety gate rejects it.
+- `execution_commit: "finalized"` waits for the HotStuff two-chain finality decision before executing the finalized ancestor and is the generated validator default. `execution_commit: "qc"` executes and persists QC-certified blocks immediately, but the safety gate rejects it.
 
 `round_timeout` is kept only as a compatibility aggregate. Prefer the Tendermint-style timeout fields above.
 

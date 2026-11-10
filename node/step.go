@@ -27,6 +27,9 @@ func (node *Node) StepConsensusWithConfig(ctx context.Context, cfg ConsensusLoop
 	defer node.stepMu.Unlock()
 
 	cfg = normalizeConsensusLoopConfig(cfg)
+	if err := checkBlockBytes(cfg); err != nil {
+		return ConsensusStepResult{}, err
+	}
 	// A commit that failed after its block became durable is finished before anything else happens.
 	if err := node.reconcileCommitted(ctx); err != nil {
 		return ConsensusStepResult{}, err

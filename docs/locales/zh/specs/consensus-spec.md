@@ -102,7 +102,7 @@
 
 ## 自适应轮次 timeout
 
-当 `adaptive_round_timeout_enabled = true` 时，节点根据 base timeout、proposal/vote/commit 处理延迟的 rolling p95、进展结果和 active peer 缺口计算 timeout。超时后扩大 1.5 倍，成功进展后缩小到 0.8 倍，观测延迟贡献 3 倍安全预算，最终限制在 base 到 8 倍 base 之间。该策略不改变 safe-vote、proposer、quorum power、QC 或 three-chain finality。
+当 `adaptive_round_timeout_enabled = true` 时，节点根据 base timeout、proposal/vote/commit 处理延迟的 rolling p95、进展结果和 active peer 缺口计算 timeout。超时后扩大 1.5 倍，成功进展后缩小到 0.8 倍，观测延迟贡献 3 倍安全预算，最终限制在 base 到 8 倍 base 之间。该策略不改变 safe-vote、proposer、quorum power、QC 或 two-chain finality。
 
 ## 恢复终局性 gate
 
@@ -167,3 +167,6 @@ Proposal 由 `chain_id` 和 height 生成 salt，将每个 signer 的 transactio
 - `lanes.Owner(members, sender)` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `lanes.FallbackDelay` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
 - `lane_proposal` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `consensus.MaxBlockBytes` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `consensus.BlockTxBytes` — 此名称会直接用于执行示例和配置验证，因此不要翻译。
+- `max_block_bytes` — 此名称会直接用于执行示例和配置验证，因此不要翻译。

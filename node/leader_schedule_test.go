@@ -97,11 +97,11 @@ func TestLanesCommitEveryTransactionWithACrashedValidator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	committed, counted := 0, types.Height(0)
+	committed, counted := map[string]struct{}{}, types.Height(0)
 	deadline := time.Now().Add(60 * time.Second)
-	for committed < total {
+	for len(committed) < total {
 		if time.Now().After(deadline) {
-			t.Fatalf("committed %d of %d transactions: %+v", committed, total, running[0].Status(ctx))
+			t.Fatalf("committed %d of %d transactions: %+v", len(committed), total, running[0].Status(ctx))
 		}
 		for height := running[0].Status(ctx).LatestHeight; counted < height; {
 			counted++
@@ -109,11 +109,13 @@ func TestLanesCommitEveryTransactionWithACrashedValidator(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			committed += len(record.Block.Txs)
+			for _, tx := range record.Block.Txs {
+				if _, again := committed[string(tx)]; again {
+					t.Fatalf("transaction %q committed twice", tx)
+				}
+				committed[string(tx)] = struct{}{}
+			}
 		}
 		time.Sleep(5 * time.Millisecond)
-	}
-	if committed != total {
-		t.Fatalf("committed %d transactions, submitted %d", committed, total)
 	}
 }

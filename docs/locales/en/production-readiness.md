@@ -42,7 +42,7 @@ Never promote a network by changing a mode flag. Promote it by replacing weak as
 
 | Area | Primary Packages | Primary Docs | What Must Be Proven |
 |---|---|---|---|
-| Consensus/finality | `consensus`, `finality`, `node`, `signbytes` | `docs/specs/consensus-spec.md`, `docs/specs/finality-proof-format.md` | No conflicting finality, correct three-chain commit proofs, domain-separated vote signatures |
+| Consensus/finality | `consensus`, `finality`, `node`, `signbytes` | `docs/specs/consensus-spec.md`, `docs/specs/finality-proof-format.md` | No conflicting finality, correct two-chain commit proofs, domain-separated vote signatures |
 | Validator lifecycle | `validator`, `slashing`, `modules/staking`, `governance` | `docs/specs/validator-lifecycle.md` | Height-versioned validator sets, safe rotation, slash/jail/unbonding accounting, governance-controlled changes |
 | Runtime/app state | `app`, `runtime`, `modules/*`, `store`, `kvbatch` | `docs/sdk/app-module-guide.md`, `docs/specs/storage-schema.md` | Atomic staged commits, deterministic replay, schema compatibility, module-owned indexes |
 | Transactions/economics | `app`, `economics`, `mempool`, `modules/bank`, `modules/staking` | `docs/specs/tx-format.md`, `docs/specs/evm-native-accounting.md` | Signed tx admission, nonce policy, base fee/blob base fee, gas accounting, fee collection/distribution |
@@ -216,7 +216,7 @@ Release blockers are not documentation tasks. Fix the code, config, or evidence 
 | Peers configured but no gossip | Address not reachable, TLS/auth mismatch, genesis mismatch, replay store issue | `active_peer_count`, peer event logs, networking spec |
 | Tx accepted locally but never committed | Mempool fee/nonce/gas mismatch or proposal filtering | `mempool` metrics, CheckTx response, base fee |
 | EVM tooling sees missing namespace | Tool expects Ethereum full-node namespace | `vexo_web3Capabilities`, unsupported namespace list |
-| Finality proof rejected | Wrong validator set, missing three-chain proof, wrong domain/sign bytes | finality proof format and validator-set hash |
+| Finality proof rejected | Wrong validator set, missing two-chain proof, wrong domain/sign bytes | finality proof format and validator-set hash |
 | Recovery reports mismatch | App state, block record, or state root diverged | recovery report, replay diagnostics, storage schema |
 | Release gate fails | Evidence missing, dry-run, placeholder, unpinned, or wrong category | release gate JSON and evidence manifest |
 

@@ -6,7 +6,7 @@
 
 ## मॉडल
 
-Vexo proposal, vote, quorum certificate(QC), timeout certificate, locked-QC सुरक्षा और three-chain finality वाला HotStuff शैली का BFT core उपयोग करता है। किसी block को vote देना तभी सुरक्षित है जब वह locked QC को बढ़ाए या lock जितना नया justify QC रखे। block, parent और grandparent की height तथा hash को स्पष्ट रूप से न बांधने वाली synthetic या height-skipping QC chain finality निर्णय से पहले अस्वीकार होती है।
+Vexo proposal, vote, quorum certificate(QC), timeout certificate, locked-QC सुरक्षा और two-chain finality वाला HotStuff शैली का BFT core उपयोग करता है। किसी block को vote देना तभी सुरक्षित है जब वह locked QC को बढ़ाए या lock जितना नया justify QC रखे। block, parent और grandparent की height तथा hash को स्पष्ट रूप से न बांधने वाली synthetic या height-skipping QC chain finality निर्णय से पहले अस्वीकार होती है।
 
 ## प्रोटोकॉल पहचान और शोध सीमा
 
@@ -16,7 +16,7 @@ Vexo अपरिवर्तित HotStuff का नया नाम नह�
 
 ## निष्पादन और recovery सीमा
 
-QC certification, HotStuff finalization, application execution और state commit अलग घटनाएं हैं। डिफॉल्ट `execution_commit=finalized` केवल three-chain rule द्वारा चुने ancestor को execute करता है। adaptive pacemaker और `recovery_finality_gate_enabled` latency और restart recovery नियंत्रित करते हैं; वे proposer, quorum power, safe-vote या finality rule नहीं बदलते।
+QC certification, HotStuff finalization, application execution और state commit अलग घटनाएं हैं। डिफॉल्ट `execution_commit=finalized` केवल two-chain rule द्वारा चुने ancestor को execute करता है। adaptive pacemaker और `recovery_finality_gate_enabled` latency और restart recovery नियंत्रित करते हैं; वे proposer, quorum power, safe-vote या finality rule नहीं बदलते।
 
 ## सुरक्षा सीमा
 
@@ -48,7 +48,7 @@ QC certification, HotStuff finalization, application execution और state comm
 यह परिशिष्ट उन तकनीकी शब्दों और इंटरफेस को सुरक्षित रखता है जो कैनॉनिकल संस्करण और अनुवाद के बीच नहीं बदलने चाहिए।
 
 ### सेक्शन ट्रैकिंग
-- section: Model - HotStuff, three-chain finality, QC, timeout certificate और locked-QC safety को साथ पढ़ना चाहिए।
+- section: Model - HotStuff, two-chain finality, QC, timeout certificate और locked-QC safety को साथ पढ़ना चाहिए।
 - section: Execution Terms - qc certified, finalized, executed और state committed के बीच का अंतर स्पष्ट रहना चाहिए।
 - section: Safety Boundary - एक-तिहाई से कम byzantine सीमा, domain separation, validator-set hash binding और accountable evidence की जाँच करें।
 - section: Crypto Boundary - `deterministic`, `ed25519`, `bls`, `blst-bls12381-minpk-v1` और `ecvrf-p256-sha256-tai-v1` पहचानकर्ताओं को स्थिर रखें।
@@ -78,7 +78,7 @@ QC certification, HotStuff finalization, application execution और state comm
 - `ecvrf-p256-sha256-tai-v1`
 - `proof-of-possession`
 - `remote signer`
-- `three-chain finality`
+- `two-chain finality`
 
 ## संचालन नोट्स
 
@@ -88,3 +88,4 @@ production में `vexo_quorum_health_ratio` और `adaptive_round_timeout_e
 - `execution_commit=finalized` को प्राथमिकता दें।
 - `qc` केवल नियंत्रित testnet में चालू करें।
 - `recovery_finality_gate_enabled` को snapshot और replay प्रमाणों के साथ सत्यापित करें।
+- `consensus.TwoChainCommitRule` को snapshot और replay प्रमाणों के साथ सत्यापित करें।

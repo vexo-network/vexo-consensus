@@ -78,7 +78,7 @@ Vexo ليس اسما جديدا لـ HotStuff غير المعدل، ولا يط�
 - `ecvrf-p256-sha256-tai-v1`
 - `proof-of-possession`
 - `remote signer`
-- `three-chain finality`
+- `two-chain finality`
 
 ## ملاحظات تشغيلية
 
@@ -88,3 +88,4 @@ Vexo ليس اسما جديدا لـ HotStuff غير المعدل، ولا يط�
 - `execution_commit=finalized` له الأولوية.
 - يجب تفعيل `qc` فقط في شبكات اختبار مضبوطة.
 - يجب التحقق من `recovery_finality_gate_enabled` مع أدلة snapshot و replay.
+- `consensus.TwoChainCommitRule` له الأولوية.

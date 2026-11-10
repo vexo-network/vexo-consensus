@@ -6,7 +6,7 @@
 
 ## Tóm tắt
 
-Tài liệu này nghiên cứu cơ chế sao chép state machine BFT theo phong cách HotStuff cho mạng Proof-of-Stake mô-đun. Triển khai kết hợp three-chain finality và validator set được phiên bản hóa theo height với ba cơ chế vận hành. Bộ điều khiển thích nghi có giới hạn điều chỉnh round timeout dựa trên độ trễ xử lý p95 của proposal, vote và commit cùng tình trạng active peer. Recovery finality gate trì hoãn finalized application commit khi lịch sử block bền vững và lịch sử application state khác nhau phía trên height an toàn chung. Deterministic transaction ordering loại bỏ ảnh hưởng của thứ tự đến mempool cục bộ đối với cùng một tập transaction nhưng vẫn giữ quan hệ nonce của từng signer.
+Tài liệu này nghiên cứu cơ chế sao chép state machine BFT theo phong cách HotStuff cho mạng Proof-of-Stake mô-đun. Triển khai kết hợp two-chain finality và validator set được phiên bản hóa theo height với ba cơ chế vận hành. Bộ điều khiển thích nghi có giới hạn điều chỉnh round timeout dựa trên độ trễ xử lý p95 của proposal, vote và commit cùng tình trạng active peer. Recovery finality gate trì hoãn finalized application commit khi lịch sử block bền vững và lịch sử application state khác nhau phía trên height an toàn chung. Deterministic transaction ordering loại bỏ ảnh hưởng của thứ tự đến mempool cục bộ đối với cùng một tập transaction nhưng vẫn giữ quan hệ nonce của từng signer.
 
 Đóng góp không phải là tuyên bố PoS, BFT, HotStuff, adaptive view synchronization hay order fairness là phát minh mới. Câu hỏi hẹp hơn là liệu tổ hợp bộ điều khiển, cổng phục hồi và ordering có giới hạn này có giảm timeout không cần thiết và bất nhất khi phục hồi mà không thay đổi quy tắc an toàn HotStuff cơ sở hay không. Tài liệu tách riêng sự thật đã triển khai, giả thuyết có thể bác bỏ và kết luận còn cần thí nghiệm. Không công bố số cải thiện throughput hay latency trước khi có các lần lặp với binary, config, topology và workload được ghim.
 
@@ -30,7 +30,7 @@ Network được giả định partially synchronous. Safety cần Byzantine vot
 
 EVM là application workload bên dưới Vexo consensus. Thực thi Ethereum bytecode và tương thích tooling `/web3` không đồng nghĩa với Ethereum fork choice hay devp2p consensus.
 
-Quy tắc an toàn cơ sở theo dõi `locked_qc` và `high_qc`. Proposal chỉ an toàn nếu mở rộng lock hoặc mang justify QC mới ít nhất bằng lock. Validator không thể vote cho block khác nhau tại cùng height/round. Ba certified link liên tiếp được ràng buộc height và hash sẽ finalize grandparent. Adaptive controller không đổi predicate, quorum threshold, QC verification hay three-chain rule.
+Quy tắc an toàn cơ sở theo dõi `locked_qc` và `high_qc`. Proposal chỉ an toàn nếu mở rộng lock hoặc mang justify QC mới ít nhất bằng lock. Validator không thể vote cho block khác nhau tại cùng height/round. Ba certified link liên tiếp được ràng buộc height và hash sẽ finalize grandparent. Adaptive controller không đổi predicate, quorum threshold, QC verification hay two-chain rule.
 
 Adaptive timeout dùng base budget T0, current budget Tt, tổng proposal/vote/commit p95 latency và floor theo peer deficit. Sau timeout giá trị tăng về 1,5×Tt; sau progress giảm về 0,8×Tt. Ba lần observed latency tạo candidate floor, kết quả bị giới hạn giữa T0 và 8×T0. Khi không có active peer, peer floor là 2×T0. Idle không có pending work và local execution/storage error không tiêu thụ round. Đây là bounded operational controller, không phải pacemaker được chứng minh tối ưu.
 

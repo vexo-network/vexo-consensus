@@ -102,7 +102,7 @@ Avec `create_empty_blocks=false`, une height stable quand le mempool est vide si
 
 ## Timeout de ronde adaptatif
 
-Lorsque `adaptive_round_timeout_enabled = true`, le noeud calcule le timeout à partir du délai de base, du p95 glissant du traitement proposal/vote/commit, du résultat de progression et du déficit de pairs actifs. Un timeout multiplie le budget par 1,5; un progrès réussi applique 0,8; la latence observée apporte une marge de 3 fois, bornée entre la base et 8 fois la base. Cette politique ne change ni safe-vote, proposer, quorum power, QC ni three-chain finality.
+Lorsque `adaptive_round_timeout_enabled = true`, le noeud calcule le timeout à partir du délai de base, du p95 glissant du traitement proposal/vote/commit, du résultat de progression et du déficit de pairs actifs. Un timeout multiplie le budget par 1,5; un progrès réussi applique 0,8; la latence observée apporte une marge de 3 fois, bornée entre la base et 8 fois la base. Cette politique ne change ni safe-vote, proposer, quorum power, QC ni two-chain finality.
 
 ## Barrière de finalité pendant la récupération
 
@@ -167,3 +167,6 @@ Cette annexe garantit que la traduction conserve les interfaces exécutables et 
 - `lanes.Owner(members, sender)` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
 - `lanes.FallbackDelay` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
 - `lane_proposal` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `consensus.MaxBlockBytes` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `consensus.BlockTxBytes` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.
+- `max_block_bytes` — Ce nom est utilisé tel quel dans les exemples exécutables et la validation de configuration; il ne doit pas être traduit.

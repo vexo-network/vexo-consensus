@@ -70,9 +70,16 @@ const heldProposals = 32
 // cannot make the node upload a block repeatedly.
 const maxProposalServes = 2
 
-// proposalRequestInterval is how long a node waits for the batches of a lane proposal before it
-// asks the sender for the whole proposal.
+// proposalRequestInterval is how long a node waits for the next batch of a lane proposal before it
+// asks the sender for the whole proposal: the batches of a proposal it rebuilds arrive one after
+// the other, a 512 KiB batch over a congested link taking longer than this, and asking the leader
+// for the whole block while they still arrive puts on its uplink what lanes take off it.
 const proposalRequestInterval = 300 * time.Millisecond
+
+// maxLaneWait bounds how long a node waits for the batches of a lane proposal while they still
+// arrive: past it the proposal is asked whole, so peers that serve batches slowly cannot hold a
+// vote back for longer.
+const maxLaneWait = 2 * time.Second
 
 // maxDeferredProposals bounds the proposals a node keeps until it can judge them: those of the
 // next views only. Past it the oldest is dropped, and its proposer's retransmission delivers it.
@@ -107,6 +114,10 @@ type pendingLane struct {
 	from      p2p.PeerID
 	// whole is set once the node asked for the whole proposal instead of the batches.
 	whole bool
+	// since is when the node started to wait for the batches, progressed when the last of them
+	// arrived.
+	since      time.Time
+	progressed time.Time
 }
 
 // LaneProposalStats counts the lane proposals a node received: those it rebuilt from the batches
@@ -187,6 +198,10 @@ func (reactor *TransportReactor) await(waiting pendingLane) {
 	defer reactor.proposalsMu.Unlock()
 	for index, pending := range reactor.pending {
 		if pending.blockHash == waiting.blockHash {
+			// A retransmission does not restart the wait maxLaneWait bounds.
+			if !pending.since.IsZero() && (waiting.since.IsZero() || pending.since.Before(waiting.since)) {
+				waiting.since = pending.since
+			}
 			reactor.pending[index] = waiting
 			return
 		}
@@ -541,18 +556,14 @@ func (reactor *TransportReactor) onLaneProposal(ctx context.Context, from p2p.Pe
 			}
 			return reactor.fetchWhole(ctx, pendingLane{blockHash: blockHash, compact: compact, from: from})
 		}
-		reactor.await(pendingLane{blockHash: blockHash, compact: compact, from: from})
+		now := time.Now()
+		reactor.await(pendingLane{blockHash: blockHash, compact: compact, from: from, since: now, progressed: now})
 		peers := make([]p2p.PeerID, 0, len(compact.Batches)+1)
 		for _, ref := range compact.Batches {
 			peers = append(peers, p2p.PeerID(ref.Author))
 		}
 		service.Request(ctx, missing, append(peers, from))
-		time.AfterFunc(proposalRequestInterval, func() {
-			if waiting, still := reactor.takePending(blockHash); still {
-				println("DBG whole timer", compact.Proposal.Block.Header.Height, time.Now().Format("15:04:05.000"))
-				_ = reactor.fetchWhole(reactor.backgroundContext(), waiting)
-			}
-		})
+		reactor.watchBatches(blockHash, proposalRequestInterval)
 		return nil
 	}
 	if !complete {
@@ -560,6 +571,47 @@ func (reactor *TransportReactor) onLaneProposal(ctx context.Context, from p2p.Pe
 	}
 	reactor.count(func(stats *LaneProposalStats) { stats.Rebuilt++ })
 	return reactor.onProposal(ctx, proposal, compact.IDs())
+}
+
+// watchBatches asks for the whole lane proposal of blockHash after wait, unless a batch it names
+// arrived since: then it watches again, until maxLaneWait passed since the node started to wait.
+func (reactor *TransportReactor) watchBatches(blockHash types.Hash, wait time.Duration) {
+	time.AfterFunc(wait, func() {
+		reactor.proposalsMu.Lock()
+		var waiting pendingLane
+		found := false
+		for _, pending := range reactor.pending {
+			if pending.blockHash == blockHash {
+				waiting, found = pending, true
+				break
+			}
+		}
+		reactor.proposalsMu.Unlock()
+		if !found || waiting.whole {
+			return
+		}
+		now := time.Now()
+		next := waiting.progressed.Add(proposalRequestInterval)
+		if now.Before(next) && now.Sub(waiting.since) < maxLaneWait {
+			reactor.watchBatches(blockHash, min(next.Sub(now), maxLaneWait-now.Sub(waiting.since)))
+			return
+		}
+		if waiting, still := reactor.takePending(blockHash); still && !waiting.whole {
+			_ = reactor.fetchWhole(reactor.backgroundContext(), waiting)
+		}
+	})
+}
+
+// progress records that a batch the lane proposal of blockHash names arrived.
+func (reactor *TransportReactor) progress(blockHash types.Hash, now time.Time) {
+	reactor.proposalsMu.Lock()
+	defer reactor.proposalsMu.Unlock()
+	for index := range reactor.pending {
+		if reactor.pending[index].blockHash == blockHash {
+			reactor.pending[index].progressed = now
+			return
+		}
+	}
 }
 
 // onBatchArrival completes the lane proposals waiting for the batch of id.
@@ -573,7 +625,11 @@ func (reactor *TransportReactor) onBatchArrival(id types.Hash) {
 			continue
 		}
 		proposal, missing, complete, err := waiting.compact.Rebuild(service.Get)
-		if err != nil || len(missing) > 0 {
+		if err != nil {
+			continue
+		}
+		if len(missing) > 0 {
+			reactor.progress(waiting.blockHash, time.Now())
 			continue
 		}
 		if _, still := reactor.takePending(waiting.blockHash); !still {

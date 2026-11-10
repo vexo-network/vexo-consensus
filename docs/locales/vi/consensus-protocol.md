@@ -56,7 +56,7 @@ Phụ lục này tóm tắt những gì phải giữ nguyên so với bản ti�
 - `log_config.json`
 
 ### Theo dõi phần
-- section: Model - HotStuff, three-chain finality, QC, timeout certificate và locked-QC safety phải được đọc cùng nhau.
+- section: Model - HotStuff, two-chain finality, QC, timeout certificate và locked-QC safety phải được đọc cùng nhau.
 - section: Execution Terms - QC certified, finalized, executed và state committed có ý nghĩa vận hành khác nhau.
 - section: Safety Boundary - ít hơn 1/3 quyền Byzantine, domain separation, validator-set hash binding và accountable evidence là yêu cầu an toàn.
 - section: Crypto Boundary - `deterministic`, `ed25519`, `bls`, `blst-bls12381-minpk-v1` và `ecvrf-p256-sha256-tai-v1` phải được xử lý nhất quán.
@@ -79,4 +79,5 @@ Phụ lục này tóm tắt những gì phải giữ nguyên so với bản ti�
 - `ecvrf-p256-sha256-tai-v1`
 - `proof-of-possession`
 - `remote signer`
-- `three-chain finality`
+- `two-chain finality`
+- `consensus.TwoChainCommitRule`
