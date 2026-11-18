@@ -108,6 +108,10 @@ Dokumen ini membantu memahami P2P handshake, gossip, peer scoring, dan kebijakan
 
 Kegagalan dial sementara saja tidak akan ban configured peer atau seed. Kegagalan tetap masuk backoff dan diagnostics; ban harus berasal dari bukti perilaku seperti malicious gossip, auth failure, atau rate-limit abuse. Atur `p2p.dial_timeout` berdasarkan latensi multi-region dan biaya TLS/auth.
 
+## Pesan konsensus dan commit biner
+
+Pesan pada topic konsensus dan commit bersifat biner: pesan konsensus adalah byte versi, byte tipe, dan body; pesan commit adalah byte kind dan body; setiap body dalam encoding kanonis `types` (`types.AppendBlock`) dan `finality` (`finality.AppendQuorumCert`, `AppendTimeoutCert`, `AppendProof`). Setiap decoder menolak input terpotong, byte sisa, panjang tidak minimal, dan field di atas batasnya. Encoding ini, envelope transaksi bertanda tangan, WAL konsensus, dan WAL mempool menggantikan format JSON dan teks sebelumnya tanpa konverter: node versi ini tidak dapat bertukar pesan dengan node lama dan tidak dapat membaca file WAL-nya. Tingkatkan semua validator bersamaan dan mulai masing-masing dari `consensus.wal` dan `mempool.wal` kosong.
+
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis
 

@@ -21,22 +21,22 @@ import (
 // rebuilt block is judged only when it is exactly the block the header commits to; otherwise, or
 // when a batch cannot be fetched, the validator asks for the whole proposal.
 type LaneProposal struct {
-	Proposal Proposal  `json:"proposal"`
-	Batches  []LaneRef `json:"batches"`
+	Proposal Proposal
+	Batches  []LaneRef
 	// Excluded are increasing positions in the transactions of Batches, concatenated.
-	Excluded []uint32   `json:"excluded,omitempty"`
-	Extra    []types.Tx `json:"extra,omitempty"`
+	Excluded []uint32
+	Extra    []types.Tx
 }
 
 // LaneRef names a batch, with its author, which serves it.
 type LaneRef struct {
-	ID     types.Hash        `json:"id"`
-	Author types.ValidatorID `json:"author"`
+	ID     types.Hash
+	Author types.ValidatorID
 }
 
 // ProposalRequest asks a peer for the whole proposal of a block it announced by lane batches.
 type ProposalRequest struct {
-	BlockHash types.Hash `json:"block_hash"`
+	BlockHash types.Hash
 }
 
 // NewLaneProposal returns proposal naming batches: the transactions of the block that batches

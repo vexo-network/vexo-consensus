@@ -34,6 +34,23 @@ type TxAuthenticator interface {
 	AuthenticateTx(ctx Context, tx types.Tx) error
 }
 
+// CacheableAuthenticator is a TxAuthenticator that names the inputs of its verdict, which lets the
+// ante handler authenticate a transaction once instead of once per CheckTx, proposal, validation
+// and execution, and authenticate the transactions of a block on several goroutines.
+//
+// Implementing it is a promise. AuthenticateTx(ctx, tx) must be a pure function of tx, of
+// ctx.ChainID and of the bytes AuthenticationKey returns for ctx and tx: it must not read the state
+// store, which the parallel pass withholds, or any field of ctx that those bytes leave out, and it
+// must be safe to call from several goroutines at once. The ante handler remembers only successes,
+// so an authenticator may reject for reasons that change from one context to the next.
+type CacheableAuthenticator interface {
+	TxAuthenticator
+	// AuthenticationKey returns the inputs of the verdict other than the chain id and the
+	// transaction bytes, which the ante handler adds itself. ok is false when this call must not be
+	// remembered.
+	AuthenticationKey(ctx Context, tx types.Tx) (key []byte, ok bool)
+}
+
 type AnteConfig struct {
 	MinFee uint64
 	// BaseFee is the initial base fee per gas of the fee market. After the first
@@ -44,11 +61,16 @@ type AnteConfig struct {
 	RequireNonce  bool
 	FeeCollector  string
 	RequireSigned bool
-	// SignatureVerifier verifies signed envelopes; nil selects Ed25519.
+	// SignatureVerifier verifies signed envelopes; nil selects Ed25519. The ante
+	// handler remembers the envelopes it verified and verifies the transactions
+	// of a block on several goroutines, so Verify must be a pure function of its
+	// arguments and safe for concurrent use.
 	SignatureVerifier TxSignatureVerifier
 	// EthereumAuthenticator authenticates unsigned Ethereum transactions
 	// (eth_raw/eth_hash tags) addressed to the evm module. Without one every
-	// transaction carrying an Ethereum tag is rejected.
+	// transaction carrying an Ethereum tag is rejected. An authenticator that is
+	// a CacheableAuthenticator is remembered and run in parallel; any other runs
+	// once per admission, one transaction at a time.
 	EthereumAuthenticator TxAuthenticator
 	// EvidenceAuthenticator admits unsigned, fee-less misbehaviour evidence
 	// transactions addressed to the slashing module. The evidence carries the
@@ -89,10 +111,15 @@ type TxMeta struct {
 type AnteKeeper struct {
 	config   AnteConfig
 	accounts AccountKeeper
+	// verified remembers the authentications this keeper made. The proof of an authentication holds
+	// for the keeper's own verifier and authenticator only, so the cache lives and dies with the
+	// keeper: a runtime that is given another keeper, or a replay application that shares this one,
+	// can never be answered by a proof the other made.
+	verified *VerifyCache
 }
 
 func NewAnteKeeper(config AnteConfig) *AnteKeeper {
-	return &AnteKeeper{config: config, accounts: NewAccountKeeper()}
+	return &AnteKeeper{config: config, accounts: NewAccountKeeper(), verified: NewVerifyCache(VerifyCacheCapacity)}
 }
 
 func ParseTxMeta(tx types.Tx) TxMeta {
@@ -180,7 +207,7 @@ func (keeper *AnteKeeper) admitWith(ctx Context, tx types.Tx, authenticate bool)
 		adm.ethereum = true
 	case signed:
 		if authenticate {
-			if err := VerifySignedTx(ctx.ChainID, tx, keeper.signatureVerifier()); err != nil {
+			if err := keeper.verifySigned(ctx.ChainID, tx); err != nil {
 				return admission{}, err
 			}
 		}
@@ -247,18 +274,28 @@ func (keeper *AnteKeeper) admitEvidence(ctx Context, adm admission) (admission, 
 	return adm, nil
 }
 
-func (keeper *AnteKeeper) authenticateEthereum(ctx Context, adm admission, signed bool) error {
+// ethereumAuthenticator returns the authenticator that is to authenticate adm, or the error with
+// which admission rejects adm before it authenticates anything.
+func (keeper *AnteKeeper) ethereumAuthenticator(adm admission, signed bool) (TxAuthenticator, error) {
 	_, hasRaw := adm.meta.Tags[txcodec.TagEthereumRaw]
 	_, hasHash := adm.meta.Tags[txcodec.TagEthereumHash]
 	authenticator := keeper.config.EthereumAuthenticator
 	if signed || !hasRaw || !hasHash || authenticator == nil {
-		return ErrInvalidTxSignature
+		return nil, ErrInvalidTxSignature
 	}
 	canonical, err := txcodec.ParseCanonical(adm.payload)
 	if err != nil || canonical.Module != ethereumModuleName {
-		return ErrInvalidTxSignature
+		return nil, ErrInvalidTxSignature
 	}
-	if err := authenticator.AuthenticateTx(ctx, adm.tx); err != nil {
+	return authenticator, nil
+}
+
+func (keeper *AnteKeeper) authenticateEthereum(ctx Context, adm admission, signed bool) error {
+	authenticator, err := keeper.ethereumAuthenticator(adm, signed)
+	if err != nil {
+		return err
+	}
+	if err := keeper.authenticateWith(ctx, authenticator, adm.tx); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidTxSignature, err)
 	}
 	return nil

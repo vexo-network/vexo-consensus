@@ -324,29 +324,43 @@ func (node *Node) consumeTxGossip(ctx context.Context, events <-chan transport.E
 // just removed or invalidated, and adds the transaction. If a block did commit,
 // the checks run again against the new state.
 func (node *Node) admitMempoolTx(ctx context.Context, application app.Application, pool *mempool.DAG, tx types.Tx) error {
+	durable, err := node.queueMempoolTx(ctx, application, pool, tx)
+	if err != nil {
+		return err
+	}
+	// The wait for the WAL sync runs without admissionMu, so concurrent admissions share one sync
+	// and a commit never waits behind it.
+	return durable.Wait(ctx)
+}
+
+// queueMempoolTx admits tx like admitMempoolTx but returns once the record of the admission is
+// queued in the pool's WAL; the Durable waits for it.
+func (node *Node) queueMempoolTx(ctx context.Context, application app.Application, pool *mempool.DAG, tx types.Tx) (mempool.Durable, error) {
 	for attempt := 0; attempt < maxAdmissionAttempts; attempt++ {
 		checkedAt, _ := node.currentCommitHeight(ctx)
 		if err := checkAdmission(ctx, application, pool, tx); err != nil {
-			return err
+			return mempool.Durable{}, err
 		}
-		added, err := node.addAdmittedTx(ctx, pool, tx, checkedAt)
-		if added || err != nil {
-			return err
+		durable, added, err := node.addAdmittedTx(ctx, pool, tx, checkedAt)
+		if err != nil || added {
+			return durable, err
 		}
 	}
-	return ErrAdmissionStateChanged
+	return mempool.Durable{}, ErrAdmissionStateChanged
 }
 
 // addAdmittedTx adds tx to the pool under admissionMu, provided the committed
 // height is still checkedAt, the one the checks read. added reports whether it
-// was; the error is then the pool's verdict on tx.
-func (node *Node) addAdmittedTx(ctx context.Context, pool *mempool.DAG, tx types.Tx, checkedAt types.Height) (added bool, err error) {
+// was; the error is then the pool's verdict on tx. The returned Durable waits
+// for the record of the addition.
+func (node *Node) addAdmittedTx(ctx context.Context, pool *mempool.DAG, tx types.Tx, checkedAt types.Height) (mempool.Durable, bool, error) {
 	node.admissionMu.Lock()
 	defer node.admissionMu.Unlock()
 	if committed, _ := node.currentCommitHeight(ctx); committed != checkedAt {
-		return false, nil
+		return mempool.Durable{}, false, nil
 	}
-	return true, pool.AddTx(ctx, tx)
+	durable, err := pool.QueueTx(ctx, tx)
+	return durable, err == nil, err
 }
 
 // checkAdmission decides whether tx may enter the pool. A transaction the
@@ -403,7 +417,7 @@ func slotOf(tx types.Tx) (txSlot, bool) {
 // pool order, then the nonced ones in nonce order. It fails with
 // ErrAdmissionSequenceTooLong when that sequence exceeds maxAdmissionSequence.
 func signerSequence(ctx context.Context, pool *mempool.DAG, candidate txSlot, tx types.Tx) ([]types.Tx, error) {
-	pending, err := pool.SnapshotTxs(ctx)
+	pending, err := pool.SenderTxs(ctx, candidate.signer)
 	if err != nil {
 		return nil, err
 	}

@@ -68,6 +68,10 @@ Hồ sơ audit phải có VRF adapter audit evidence ngoài BLS. Pin SHA-256 c�
 - `vrf.audit_evidence_sha256`
 - `docs/security/ecvrf-audit-evidence.json`
 
+## WAL của mempool và WAL đồng thuận
+
+Mọi sự kiện tx hoặc batch được chấp nhận đều bền vững trước khi lệnh gửi trả về. Bản ghi có dạng `uvarint(length) | op | payload | CRC-32C`; các lần nhận đồng thời dùng chung một fsync (group commit), và node chờ nó mà không giữ khóa nhận. Replay cắt bỏ bản ghi cuối bị rách hoặc hỏng và từ chối log hỏng trước phần cuối (`ErrWALCorrupt`). Sau lỗi I/O, việc ghi thêm dừng cho đến khi log được ghi lại từ pool. WAL đồng thuận dùng cùng cách đóng khung (độ dài big-endian 4 byte, payload, CRC-32C 4 byte): đuôi bị rách được cắt, hỏng ở giữa bị từ chối.
+
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật
 

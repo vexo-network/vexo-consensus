@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +17,11 @@ import (
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/config"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
+	"github.com/vexo-network/vexo-consensus/mempool"
+	vexonode "github.com/vexo-network/vexo-consensus/node"
+	vexorpc "github.com/vexo-network/vexo-consensus/rpc"
+	"github.com/vexo-network/vexo-consensus/txcodec"
+	"github.com/vexo-network/vexo-consensus/types"
 )
 
 func TestRunKeysGenAndShow(t *testing.T) {
@@ -348,8 +355,11 @@ func TestRunKeysSupportsExplicitPath(t *testing.T) {
 	}
 }
 
-func TestRunKeysSignTx(t *testing.T) {
-	home := t.TempDir()
+// generateSigningKey creates an Ed25519 key in a fresh home and returns the home with the account
+// address of the key.
+func generateSigningKey(t *testing.T) (home string, account string) {
+	t.Helper()
+	home = t.TempDir()
 	if err := runKeys(&bytes.Buffer{}, []string{"gen", "--home", home, "--type", "ed25519"}); err != nil {
 		t.Fatal(err)
 	}
@@ -365,16 +375,191 @@ func TestRunKeysSignTx(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return home, string(accountAddress)
+}
+
+// signTxFields runs keys sign-tx for chain vexo-test and returns the fields it prints by name.
+func signTxFields(t *testing.T, home string, payload string) map[string]string {
+	t.Helper()
 	var output bytes.Buffer
-	if err := runKeys(&output, []string{"sign-tx", "--home", home, "--chain-id", "vexo-test", "--tx", "bank:send:" + string(accountAddress) + ":bob:1:fee=1:gas=1:signer=" + string(accountAddress) + ":nonce=1"}); err != nil {
+	if err := runKeys(&output, []string{"sign-tx", "--home", home, "--chain-id", "vexo-test", "--tx", payload}); err != nil {
 		t.Fatal(err)
 	}
-	signedTx := strings.TrimSpace(strings.TrimPrefix(output.String(), "tx: "))
-	if !vexoapp.IsSignedTx([]byte(signedTx)) {
-		t.Fatalf("expected signed tx output, got %s", output.String())
+	fields := make(map[string]string)
+	for _, line := range strings.Split(strings.TrimSpace(output.String()), "\n") {
+		name, value, found := strings.Cut(line, ": ")
+		if !found {
+			t.Fatalf("unexpected keys sign-tx line %q in:\n%s", line, output.String())
+		}
+		fields[name] = value
 	}
-	if err := vexoapp.VerifySignedTx("vexo-test", []byte(signedTx), vexocrypto.Ed25519Signer{}); err != nil {
+	return fields
+}
+
+func TestRunKeysSignTx(t *testing.T) {
+	home, account := generateSigningKey(t)
+	payload := "bank:send:" + account + ":bob:1:fee=1:gas=1:signer=" + account + ":nonce=1"
+	fields := signTxFields(t, home, payload)
+	if len(fields) != 2 || fields["encoding"] != txcodec.EncodingBase64 {
+		t.Fatalf("expected the transaction and the encoding it is printed in, got %v", fields)
+	}
+	// The envelope is binary: what is printed is its base64, never the bytes themselves.
+	signedTx, err := base64.StdEncoding.DecodeString(fields["tx"])
+	if err != nil {
+		t.Fatalf("expected the signed tx to be printed as base64: %v", err)
+	}
+	if !vexoapp.IsSignedTx(signedTx) {
+		t.Fatalf("expected signed tx output, got %v", fields)
+	}
+	if err := vexoapp.VerifySignedTx("vexo-test", signedTx, vexocrypto.Ed25519Signer{}); err != nil {
 		t.Fatal(err)
+	}
+	if string(vexoapp.TxPayload(signedTx)) != payload {
+		t.Fatalf("unexpected signed payload %q", vexoapp.TxPayload(signedTx))
+	}
+}
+
+// txSink is the smallest RPC provider that takes transactions: it keeps what the submit handler
+// decoded from a request.
+type txSink struct {
+	submitted []types.Tx
+}
+
+func (sink *txSink) Status(context.Context) vexonode.Status { return vexonode.Status{} }
+
+func (sink *txSink) SubmitTx(_ context.Context, tx types.Tx) error {
+	sink.submitted = append(sink.submitted, bytes.Clone(tx))
+	return nil
+}
+
+// submitTxRequest is the request that submits body to the RPC transaction endpoint.
+func submitTxRequest(body []byte) *http.Request {
+	request := httptest.NewRequest(http.MethodPost, "/v1/tx", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	return request
+}
+
+// What keys sign-tx prints is what the RPC submit endpoint decodes: the transaction that reaches
+// the node is the signed one, byte for byte, whether the request names the printed encoding or
+// leaves it to the default.
+func TestKeysSignTxOutputGoesThroughTheRPCDecodePath(t *testing.T) {
+	home, account := generateSigningKey(t)
+	payload := "bank:send:" + account + ":bob:1:fee=1:gas=1:signer=" + account + ":nonce=1"
+	fields := signTxFields(t, home, payload)
+	want, err := base64.StdEncoding.DecodeString(fields["tx"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantHash := mempool.HashTx(want)
+
+	for name, request := range map[string]map[string]string{
+		"printed encoding": {"tx": fields["tx"], "encoding": fields["encoding"]},
+		"default encoding": {"tx": fields["tx"]},
+	} {
+		sink := &txSink{}
+		body, err := json.Marshal(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := httptest.NewRecorder()
+		vexorpc.NewHandler(sink).ServeHTTP(response, submitTxRequest(body))
+		if response.Code != http.StatusAccepted {
+			t.Fatalf("%s: expected the signed tx to be accepted, got HTTP %d: %s", name, response.Code, response.Body.String())
+		}
+		if len(sink.submitted) != 1 || !bytes.Equal(sink.submitted[0], want) {
+			t.Fatalf("%s: the node received %x instead of %x", name, sink.submitted, want)
+		}
+		var accepted vexorpc.SubmitTxResponse
+		if err := json.Unmarshal(response.Body.Bytes(), &accepted); err != nil {
+			t.Fatal(err)
+		}
+		if !accepted.Accepted || accepted.TxHash != hex.EncodeToString(wantHash[:]) {
+			t.Fatalf("%s: unexpected submit response %+v", name, accepted)
+		}
+		if err := vexoapp.VerifySignedTx("vexo-test", sink.submitted[0], vexocrypto.Ed25519Signer{}); err != nil {
+			t.Fatalf("%s: the submitted tx does not verify: %v", name, err)
+		}
+	}
+
+	// Text that is not base64 does not get to the node: the signed tx is binary, and plain would
+	// hand the node the characters of the base64.
+	sink := &txSink{}
+	response := httptest.NewRecorder()
+	vexorpc.NewHandler(sink).ServeHTTP(response, submitTxRequest([]byte(`{"tx":"not base64!"}`)))
+	if response.Code != http.StatusBadRequest || len(sink.submitted) != 0 {
+		t.Fatalf("expected invalid base64 to be rejected, got HTTP %d with %d submitted", response.Code, len(sink.submitted))
+	}
+}
+
+// The submission the network commands make for their smoke and load transactions is the one the
+// RPC handler decodes.
+func TestSubmitNetworkTxCarriesSignedTxThroughTheRPCDecodePath(t *testing.T) {
+	home, account := generateSigningKey(t)
+	document, err := vexocrypto.LoadKeyDocument(resolveKeyPath(home, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := document.SignerWithPassphrase("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	signedTx, err := vexoapp.SignTx("vexo-test", types.Tx("bank:send:"+account+":bob:1:fee=1:gas=1:signer="+account+":nonce=1"), signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sink := &txSink{}
+	server := httptest.NewServer(vexorpc.NewHandler(sink))
+	defer server.Close()
+	if err := submitNetworkTx(context.Background(), http.Client{}, strings.TrimPrefix(server.URL, "http://"), signedTx); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.submitted) != 1 || !bytes.Equal(sink.submitted[0], signedTx) {
+		t.Fatalf("the node received %x instead of %x", sink.submitted, []byte(signedTx))
+	}
+}
+
+// keys sign-tx prints the base64 of a binary transaction, and tx parse reads that base64 back
+// when it is told so; the default stays the plain text that tx build prints.
+func TestTxParseReadsTheSignedTxThatKeysSignTxPrints(t *testing.T) {
+	home, account := generateSigningKey(t)
+	payload := "bank:send:" + account + ":bob:1:fee=1:gas=1:signer=" + account + ":nonce=1"
+	fields := signTxFields(t, home, payload)
+
+	var parsed bytes.Buffer
+	if err := runCommand(&parsed, &bytes.Buffer{}, []string{"tx", "parse", "--tx", fields["tx"], "--encoding", fields["encoding"], "--json"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{`"module": "bank"`, `"action": "send"`, `"nonce": "1"`, `"signer": "` + account + `"`} {
+		if !strings.Contains(parsed.String(), expected) {
+			t.Fatalf("expected tx parse to read the signed payload, missing %s in:\n%s", expected, parsed.String())
+		}
+	}
+	parsed.Reset()
+	if err := runCommand(&parsed, &bytes.Buffer{}, []string{"tx", "parse", "--tx", fields["tx"], "--encoding", fields["encoding"]}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(parsed.String(), "module: bank\n") || !strings.Contains(parsed.String(), "nonce: 1\n") {
+		t.Fatalf("unexpected tx parse output:\n%s", parsed.String())
+	}
+
+	// Without the encoding the base64 is a plain payload, which is not a transaction.
+	if err := runCommand(&bytes.Buffer{}, &bytes.Buffer{}, []string{"tx", "parse", "--tx", fields["tx"]}); err == nil {
+		t.Fatal("expected the base64 of a signed tx to be rejected as a plain payload")
+	}
+	for name, args := range map[string][]string{
+		"unknown encoding": {"tx", "parse", "--tx", fields["tx"], "--encoding", "hex"},
+		"invalid base64":   {"tx", "parse", "--tx", "not base64!", "--encoding", "base64"},
+		"truncated signed": {"tx", "parse", "--tx", base64.StdEncoding.EncodeToString([]byte(txcodec.SignedPrefix + "\x01")), "--encoding", "base64"},
+	} {
+		if err := runCommand(&bytes.Buffer{}, &bytes.Buffer{}, args); err == nil {
+			t.Fatalf("%s: expected tx parse to fail", name)
+		}
+	}
+	var unknown bytes.Buffer
+	err := runCommand(&unknown, &bytes.Buffer{}, []string{"tx", "parse", "--tx", "bank:send:alice:bob:1", "--encoding", "hex"})
+	if err == nil || !strings.Contains(err.Error(), `unsupported transaction encoding "hex"`) {
+		t.Fatalf("expected an unsupported encoding error, got %v", err)
 	}
 }
 

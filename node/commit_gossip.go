@@ -3,9 +3,10 @@ package node
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -23,35 +24,82 @@ var ErrInvalidCommitMessage = errors.New("invalid commit message")
 // peer that does not asks the announcer for it (Want), which answers with the whole block.
 // Announcing whole blocks would make every validator upload every block to every peer, which
 // alone would bound the throughput by a validator's bandwidth.
+//
+// The finality proof proves Block itself or a descendant of it: a block whose child was certified
+// only after a timeout is final as an ancestor of a later block that the 2-chain rule finalizes
+// directly, and has no proof of its own. Linkage then holds the headers strictly between Block and
+// the proven block, which chain Block to it by hash; it is empty when the proven block is the child.
 type commitMessage struct {
-	Block         types.Block         `json:"block"`
-	QuorumCert    finality.QuorumCert `json:"quorum_cert"`
-	FinalityProof finality.Proof      `json:"finality_proof,omitempty"`
-	Bodiless      bool                `json:"bodiless,omitempty"`
-	Want          types.Height        `json:"want,omitempty"`
+	Block         types.Block
+	QuorumCert    finality.QuorumCert
+	FinalityProof finality.Proof
+	Linkage       []types.Header
+	Bodiless      bool
+	Want          types.Height
 }
 
+// maxCommitLinkage bounds the headers that link a block to the descendant its finality proof
+// proves: the views that time out in a row before a block is finalized directly again.
+const maxCommitLinkage = 64
+
+// A commit message is a kind byte and the fields of its kind in the canonical binary encoding of
+// package types, so a message has exactly one encoding and the decoder refuses any other. A block
+// message is the Bodiless flag, the block, its quorum certificate, its finality proof and the
+// linkage headers. A request is the height it Wants and nothing else.
 const (
-	// recentCommits bounds the whole commits a node keeps to serve the peers that ask, and
-	// maxCommitServes how often it serves one to one peer.
-	recentCommits   = 8
-	maxCommitServes = 2
+	commitKindBlock byte = iota + 1
+	commitKindWant
 )
 
-// servedCommit is a whole commit message this node announced, with how often it served it.
+// commitSlack is room the encoder adds to the length of the block for the certificates and the
+// proof behind it. A message that outgrows it costs a reallocation, never correctness.
+const commitSlack = 4096
+
+const (
+	// recentCommits bounds the whole commits a node keeps in memory to serve the peers that ask,
+	// maxCommitServes how often it serves one height to one peer, and maxTrackedServes the
+	// (peer, height) pairs it counts serves of.
+	recentCommits    = 8
+	maxCommitServes  = 2
+	maxTrackedServes = 4096
+)
+
+// commitCatchUpDelay is how long a node stays at one commit height while its peers announce higher
+// ones before it fetches the next block from them. A node that is only a block behind, because it
+// executes a little later than its peers, commits that block through consensus first; one that
+// missed a block for good would otherwise wait forever, since every validator announces each commit
+// once.
+const commitCatchUpDelay = time.Second
+
+// servedCommit is a whole commit message this node announced.
 type servedCommit struct {
 	height types.Height
 	data   []byte
-	served map[p2p.PeerID]int
 }
 
-// commitServer keeps the recent whole commits of a node, and when it last asked for the body of a
-// height it misses: every validator announces each commit, and one body is enough.
+// commitServe is one height served to one peer.
+type commitServe struct {
+	peer   p2p.PeerID
+	height types.Height
+}
+
+// commitServer keeps the recent whole commits of a node and how often it served each height to
+// each peer, when it last asked for a block it misses (every validator announces each commit, and
+// one copy is enough), and how far ahead its peers are.
 type commitServer struct {
 	mu      sync.Mutex
 	commits []servedCommit
+	served  map[commitServe]int
 	wanted  types.Height
 	asked   time.Time
+
+	// ahead is the highest height a peer announced above the next height this node commits, and
+	// aheadPeer the last peer that announced a height above it. lagging is the next height the node
+	// commits since lagSince, when it first learned that peers are ahead of it.
+	ahead     types.Height
+	aheadPeer p2p.PeerID
+	lagging   types.Height
+	lagSince  time.Time
 }
 
 // commitBodyRetry is how long a node waits for a body it asked for before it asks the next
@@ -82,52 +130,107 @@ func (server *commitServer) keep(height types.Height, data []byte) {
 		copy(server.commits, server.commits[1:])
 		server.commits = server.commits[:recentCommits-1]
 	}
-	server.commits = append(server.commits, servedCommit{height: height, data: data, served: make(map[p2p.PeerID]int)})
+	server.commits = append(server.commits, servedCommit{height: height, data: data})
 }
 
-// serve returns the whole commit of height for peer, false when the node holds none or served it
-// to peer as often as it may.
-func (server *commitServer) serve(peer p2p.PeerID, height types.Height) ([]byte, bool) {
+// recent returns the whole commit of height the node keeps in memory.
+func (server *commitServer) recent(height types.Height) ([]byte, bool) {
 	server.mu.Lock()
 	defer server.mu.Unlock()
 	for _, commit := range server.commits {
-		if commit.height != height {
-			continue
+		if commit.height == height {
+			return commit.data, true
 		}
-		if commit.served[peer] >= maxCommitServes {
-			return nil, false
-		}
-		commit.served[peer]++
-		return commit.data, true
 	}
 	return nil, false
 }
 
-func encodeCommitMessage(block types.Block, quorumCert finality.QuorumCert, proofs ...finality.Proof) ([]byte, error) {
-	var proof finality.Proof
-	if len(proofs) > 0 {
-		proof = proofs[0]
+// admitServe counts a serve of height to peer and reports whether the node may serve it: a peer
+// gets each height at most maxCommitServes times among the last maxTrackedServes pairs served.
+func (server *commitServer) admitServe(peer p2p.PeerID, height types.Height) bool {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	key := commitServe{peer: peer, height: height}
+	if server.served[key] >= maxCommitServes {
+		return false
 	}
-	return json.Marshal(commitMessage{
-		Block:         block,
-		QuorumCert:    quorumCert,
-		FinalityProof: proof,
-	})
+	if server.served == nil || len(server.served) >= maxTrackedServes {
+		server.served = make(map[commitServe]int)
+	}
+	server.served[key]++
+	return true
+}
+
+// observeAhead records that peer announced height, above next, the height this node commits next,
+// and reports whether the node has stayed at next for commitCatchUpDelay since it first learned
+// that its peers are ahead.
+func (server *commitServer) observeAhead(peer p2p.PeerID, next types.Height, height types.Height, now time.Time) bool {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	server.ahead = max(server.ahead, height)
+	server.aheadPeer = peer
+	if server.lagging != next {
+		server.lagging, server.lagSince = next, now
+		return false
+	}
+	return now.Sub(server.lagSince) >= commitCatchUpDelay
+}
+
+// aheadOf returns the peer that last announced a height above committed, false when no peer did.
+func (server *commitServer) aheadOf(committed types.Height) (p2p.PeerID, bool) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	return server.aheadPeer, server.ahead > committed && server.aheadPeer != ""
+}
+
+// appendCommitMessage appends the encoding of message to dst. A message that wants a height is a
+// request and carries nothing else.
+func appendCommitMessage(dst []byte, message commitMessage) []byte {
+	if message.Want != 0 {
+		return binary.AppendUvarint(append(dst, commitKindWant), uint64(message.Want))
+	}
+	dst = slices.Grow(dst, 2+types.BlockSize(message.Block)+commitSlack)
+	dst = append(dst, commitKindBlock, 0)
+	if message.Bodiless {
+		dst[len(dst)-1] = 1
+	}
+	dst = types.AppendBlock(dst, message.Block)
+	dst = finality.AppendQuorumCert(dst, message.QuorumCert)
+	dst = finality.AppendProof(dst, message.FinalityProof)
+	dst = binary.AppendUvarint(dst, uint64(len(message.Linkage)))
+	for _, header := range message.Linkage {
+		dst = types.AppendHeader(dst, header)
+	}
+	return dst
 }
 
 func decodeCommitMessage(data []byte) (commitMessage, error) {
+	reader := types.NewReader(data)
 	var message commitMessage
-	if err := json.Unmarshal(data, &message); err != nil {
-		return commitMessage{}, err
-	}
-	if message.Want != 0 {
-		// A request names the height it wants and nothing else.
-		if message.Block.Header.Height != 0 || message.QuorumCert.Height != 0 || message.Bodiless {
-			return commitMessage{}, ErrInvalidCommitMessage
+	switch reader.Byte() {
+	case commitKindBlock:
+		message.Bodiless = reader.Bool()
+		message.Block = reader.Block(consensus.MaxBlockBytes)
+		message.QuorumCert = finality.ReadQuorumCert(reader)
+		message.FinalityProof = finality.ReadProof(reader)
+		if count := reader.Uvarint(); count > maxCommitLinkage {
+			reader.Fail("commit linkage too long")
+		} else if count > 0 {
+			message.Linkage = make([]types.Header, 0, count)
+			for range count {
+				message.Linkage = append(message.Linkage, reader.Header())
+			}
 		}
-		return message, nil
+	case commitKindWant:
+		message.Want = types.Height(reader.Uvarint())
+	default:
+		reader.Fail("unknown commit message kind")
 	}
-	if message.Block.Header.Height == 0 || message.QuorumCert.Height == 0 {
+	if err := reader.Done(); err != nil {
+		return commitMessage{}, fmt.Errorf("%w: %w", ErrInvalidCommitMessage, err)
+	}
+	if message.Want == 0 && (message.Block.Header.Height == 0 || message.QuorumCert.Height == 0) {
+		// A request names a height, and a block message the block and the certificate of one.
 		return commitMessage{}, ErrInvalidCommitMessage
 	}
 	return message, nil
@@ -184,21 +287,27 @@ func (node *Node) acceptCommitMessage(ctx context.Context, from p2p.PeerID, data
 		return
 	}
 	if message.Want != 0 {
-		if whole, ok := node.commits.serve(from, message.Want); ok {
-			if wire, running := node.runningTransport(); running {
-				_ = wire.Send(ctx, from, p2p.TopicCommit, whole)
-			}
-		}
+		node.serveCommit(ctx, from, message.Want)
 		node.observePeerMessage(ctx, from, true)
 		return
 	}
 	commitHeight, ok := node.currentCommitHeight(ctx)
-	if !ok || message.Block.Header.Height <= commitHeight || message.Block.Header.Height > commitHeight+1 {
+	if ok && message.Block.Header.Height > commitHeight+1 {
+		// The peer is ahead. The node commits the next block through consensus as a rule, and asks
+		// the peer for it only once it stayed behind for a while: it may never receive the block
+		// otherwise.
+		if node.commits.observeAhead(from, commitHeight+1, message.Block.Header.Height, time.Now()) {
+			node.askCommit(ctx, from, commitHeight+1)
+		}
+		node.observePeerMessage(ctx, from, true)
+		return
+	}
+	if !ok || message.Block.Header.Height <= commitHeight {
 		node.observePeerMessage(ctx, from, true)
 		return
 	}
 	if message.Bodiless {
-		if len(message.Block.Txs) != 0 {
+		if len(message.Block.Txs) != 0 || len(message.Linkage) != 0 {
 			node.observePeerMessage(ctx, from, false)
 			return
 		}
@@ -211,20 +320,90 @@ func (node *Node) acceptCommitMessage(ctx context.Context, from p2p.PeerID, data
 		}
 		message.Block = proposal.Block
 	}
-	if err := node.verifyCommitFinalityProof(ctx, message.Block, message.QuorumCert, message.FinalityProof); err != nil {
+	if err := node.verifyCommitMessage(ctx, message); err != nil {
 		if !commitVerificationUnavailable(err) {
 			node.observePeerMessage(ctx, from, false)
 		}
 		return
 	}
-	if _, err := node.commitBlock(ctx, message.Block, message.QuorumCert, false, false); err != nil &&
-		!errors.Is(err, ErrBlockAlreadyCommitted) && !errors.Is(err, ErrNonSequentialCommit) {
+	_, err = node.commitBlock(ctx, message.Block, message.QuorumCert, false, false)
+	if err != nil && !errors.Is(err, ErrBlockAlreadyCommitted) && !errors.Is(err, ErrNonSequentialCommit) {
 		node.logEvent("commit_gossip_apply_failed", map[string]any{
 			"height": message.Block.Header.Height,
 			"error":  err.Error(),
 		})
 	}
 	node.observePeerMessage(ctx, from, true)
+	if err == nil {
+		// A node that commits from gossip while its peers are further ahead is catching up: it asks
+		// for the next block at once rather than waiting for the next announcement.
+		if peer, behind := node.commits.aheadOf(message.Block.Header.Height); behind {
+			node.askCommit(ctx, peer, message.Block.Header.Height+1)
+		}
+	}
+}
+
+// askCommit asks peer for the whole commit of height, unless the node asked for it within
+// commitBodyRetry.
+func (node *Node) askCommit(ctx context.Context, peer p2p.PeerID, height types.Height) {
+	wire, running := node.runningTransport()
+	if !running || !node.commits.shouldAsk(height) {
+		return
+	}
+	_ = wire.Send(ctx, peer, p2p.TopicCommit, appendCommitMessage(nil, commitMessage{Want: height}))
+}
+
+// serveCommit answers a peer that wants the whole commit of height: from the recent commits the node
+// keeps, or else from its store, which holds every committed block it retains with its certificate
+// and finality proof. The peer verifies the commit like any other.
+func (node *Node) serveCommit(ctx context.Context, peer p2p.PeerID, height types.Height) {
+	wire, running := node.runningTransport()
+	if !running || !node.commits.admitServe(peer, height) {
+		return
+	}
+	data, ok := node.commits.recent(height)
+	if !ok {
+		if data, ok = node.storedCommit(ctx, height); !ok {
+			return
+		}
+	}
+	_ = wire.Send(ctx, peer, p2p.TopicCommit, data)
+}
+
+// storedCommit encodes the whole commit of height from the store: the block, its certificate and
+// the finality proof of the block or, when its child was certified only after a timeout, of the
+// first descendant the 2-chain rule finalizes directly, with the headers that link the two. A
+// proof is completed by the child of the proven block, which the node executed or holds certified.
+// It reports false when the node lacks any of them.
+func (node *Node) storedCommit(ctx context.Context, height types.Height) ([]byte, bool) {
+	runtime, err := node.Runtime()
+	if err != nil {
+		return nil, false
+	}
+	record, err := runtime.BlockByHeight(ctx, height)
+	if err != nil || record.QuorumCert == nil {
+		return nil, false
+	}
+	message := commitMessage{Block: record.Block, QuorumCert: finalityQuorumCertFromRecord(*record.QuorumCert)}
+	proven := record
+	for {
+		proof, err := node.buildCommitFinalityProof(ctx, runtime, proven.Block, finalityQuorumCertFromRecord(*proven.QuorumCert))
+		if err == nil {
+			message.FinalityProof = proof
+			return appendCommitMessage(nil, message), true
+		}
+		if !errors.Is(err, ErrFinalityNotFound) || len(message.Linkage) == maxCommitLinkage {
+			return nil, false
+		}
+		if proven.Block.Header.Height != height {
+			message.Linkage = append(message.Linkage, proven.Block.Header)
+		}
+		next, err := runtime.BlockByHeight(ctx, proven.Block.Header.Height+1)
+		if err != nil || next.QuorumCert == nil || next.Block.Header.PreviousBlockHash != proven.Hash {
+			return nil, false
+		}
+		proven = next
+	}
 }
 
 func (node *Node) broadcastCommit(ctx context.Context, block types.Block, quorumCert finality.QuorumCert, proof finality.Proof) error {
@@ -235,18 +414,12 @@ func (node *Node) broadcastCommit(ctx context.Context, block types.Block, quorum
 	if proof.Header.Height == 0 || !proof.HasCommitProof() {
 		return nil
 	}
-	data, err := encodeCommitMessage(block, quorumCert, proof)
-	if err != nil {
-		return err
-	}
+	data := appendCommitMessage(nil, commitMessage{Block: block, QuorumCert: quorumCert, FinalityProof: proof})
 	if len(block.Txs) > 0 {
 		node.commits.keep(block.Header.Height, data)
 		bodiless := block
 		bodiless.Txs = nil
-		data, err = json.Marshal(commitMessage{Block: bodiless, QuorumCert: quorumCert, FinalityProof: proof, Bodiless: true})
-		if err != nil {
-			return err
-		}
+		data = appendCommitMessage(nil, commitMessage{Block: bodiless, QuorumCert: quorumCert, FinalityProof: proof, Bodiless: true})
 	}
 	return wire.Publish(ctx, p2p.TopicCommit, data)
 }
@@ -272,13 +445,7 @@ func (node *Node) requestCommitBody(ctx context.Context, from p2p.PeerID, messag
 		return
 	}
 	node.observePeerMessage(ctx, from, true)
-	wire, running := node.runningTransport()
-	if !running || !node.commits.shouldAsk(message.Block.Header.Height) {
-		return
-	}
-	if request, err := json.Marshal(commitMessage{Want: message.Block.Header.Height}); err == nil {
-		_ = wire.Send(ctx, from, p2p.TopicCommit, request)
-	}
+	node.askCommit(ctx, from, message.Block.Header.Height)
 }
 
 // errCommitVerifierUnavailable marks a failure to set up the verification of a
@@ -310,6 +477,47 @@ func (node *Node) verifyCommitCertificate(ctx context.Context, block types.Block
 		return err
 	}
 	return verifier.VerifyBlockCertWithContext(ctx, block.Header, quorumCert)
+}
+
+// verifyCommitMessage checks that the block of a gossiped commit is final: by its own finality
+// proof, or as an ancestor of the block the proof proves, linked to it by the linkage headers.
+func (node *Node) verifyCommitMessage(ctx context.Context, message commitMessage) error {
+	if message.FinalityProof.Header.Height == message.Block.Header.Height && len(message.Linkage) == 0 {
+		return node.verifyCommitFinalityProof(ctx, message.Block, message.QuorumCert, message.FinalityProof)
+	}
+	return node.verifyLinkedCommit(ctx, message.Block, message.QuorumCert, message.Linkage, message.FinalityProof)
+}
+
+// verifyLinkedCommit checks that block is final as an ancestor of the block proof proves: the body
+// matches the header, quorumCert certifies block, and linkage chains block by hash, one height at a
+// time, to the parent of the proven block, whose finality proof verifies in full. A final block
+// finalizes its ancestors, so block is final although no proof of its own exists. The certificate
+// is checked on its own, since the proof does not cover it and execution records it.
+func (node *Node) verifyLinkedCommit(ctx context.Context, block types.Block, quorumCert finality.QuorumCert, linkage []types.Header, proof finality.Proof) error {
+	if err := consensus.VerifyBlockBody(block); err != nil {
+		return err
+	}
+	parent, height := consensus.HashBlock(block), block.Header.Height
+	for _, header := range linkage {
+		if header.Height != height+1 || header.PreviousBlockHash != parent || header.ChainID != block.Header.ChainID {
+			return fmt.Errorf("%w: linkage header at height %d does not extend height %d", ErrInvalidCommitQC, header.Height, height)
+		}
+		parent, height = consensus.HashHeader(header), header.Height
+	}
+	if proof.Header.Height != height+1 || proof.Header.PreviousBlockHash != parent || proof.BlockHash != consensus.HashHeader(proof.Header) {
+		return fmt.Errorf("%w: the proven block does not extend the linkage", ErrInvalidCommitQC)
+	}
+	if proof.ValidatorSetHeight != proof.Header.ValidatorSetHeight {
+		return fmt.Errorf("%w: validator set height %d for a block naming %d", finality.ErrHeightMismatch, proof.ValidatorSetHeight, proof.Header.ValidatorSetHeight)
+	}
+	if err := node.verifyCommitCertificate(ctx, block, quorumCert); err != nil {
+		return err
+	}
+	verifier, err := node.commitVerifier()
+	if err != nil {
+		return err
+	}
+	return verifier.VerifyFinalityProofWithContext(ctx, proof)
 }
 
 // verifyCommitFinalityProof checks that a gossiped commit is final under the

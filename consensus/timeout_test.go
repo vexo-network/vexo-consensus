@@ -1,7 +1,10 @@
 package consensus
 
 import (
+	"bytes"
 	"errors"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/finality"
@@ -154,6 +157,116 @@ func TestTimeoutCollectorGroupsVotesBySignedMessage(t *testing.T) {
 	if signed != 3 {
 		t.Fatalf("every signer belongs to exactly one group, got %d", signed)
 	}
+}
+
+// The signature groups are signed over: a proposal commits to the hash of the bytes. A set of
+// votes must so produce the same bytes whatever order the votes arrived in.
+func TestTimeoutCertDoesNotDependOnTheOrderOfVotes(t *testing.T) {
+	set := newTestValidatorSet([]validator.Validator{
+		{ID: "a", VotingPower: 1},
+		{ID: "b", VotingPower: 1},
+		{ID: "c", VotingPower: 1},
+		{ID: "d", VotingPower: 1},
+	})
+	first := finality.QuorumCert{Height: 1, Round: 0, BlockHash: types.Hash{1}}
+	second := finality.QuorumCert{Height: 1, Round: 1, BlockHash: types.Hash{2}}
+	votes := []TimeoutVote{
+		testCollectorTimeoutVote(2, 4, "a", first),
+		testCollectorTimeoutVote(2, 4, "b", second),
+		testCollectorTimeoutVote(3, 4, "c", first),
+		testCollectorTimeoutVote(2, 4, "d", second),
+	}
+	var want finality.TimeoutCert
+	for _, order := range [][]int{{0, 1, 2, 3}, {3, 2, 1, 0}, {1, 3, 0, 2}, {2, 0, 3, 1}} {
+		collector := NewTimeoutCollector(set, testAggregateSigner{})
+		for _, index := range order {
+			if err := collector.AddVote(votes[index]); err != nil {
+				t.Fatal(err)
+			}
+		}
+		timeoutCert, err := collector.BuildTimeoutCert(4)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want.Signature == nil {
+			want = timeoutCert
+			continue
+		}
+		if !reflect.DeepEqual(timeoutCert, want) {
+			t.Fatalf("votes arriving in the order %v built another certificate\n got: %x\nwant: %x", order, timeoutCert.Signature, want.Signature)
+		}
+	}
+}
+
+// A group that gains a field the codec does not carry fails here: the field is set to a non-zero
+// value and the decoded group has its zero value.
+func TestTimeoutSignatureGroupsRoundTrip(t *testing.T) {
+	groups := filledWire[[]timeoutSignatureGroup](t)
+	encoded := encodeTimeoutSignatureGroups(groups)
+	decoded, err := decodeTimeoutSignatureGroups(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(decoded, groups) {
+		t.Fatalf("the groups changed in a round trip\n got: %+v\nwant: %+v", decoded, groups)
+	}
+	if !bytes.Equal(encodeTimeoutSignatureGroups(decoded), encoded) {
+		t.Fatal("decoded groups must encode to the bytes they came from")
+	}
+
+	bare, err := decodeTimeoutSignatureGroups(encodeTimeoutSignatureGroups([]timeoutSignatureGroup{{Height: 1}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bare) != 1 || bare[0].Signers != nil || bare[0].Signature != nil {
+		t.Fatalf("expected one group without signers or signature, got %+v", bare)
+	}
+}
+
+// The groups of a certificate list at most maxTimeoutSigners signers between them, whatever the
+// number of groups they are spread over.
+func TestTimeoutSignatureGroupsAreBounded(t *testing.T) {
+	signers := func(count int) []types.ValidatorID {
+		ids := make([]types.ValidatorID, count)
+		for index := range ids {
+			ids[index] = "v"
+		}
+		return ids
+	}
+	full := []timeoutSignatureGroup{{Height: 1, Signers: signers(maxTimeoutSigners)}}
+	if _, err := decodeTimeoutSignatureGroups(encodeTimeoutSignatureGroups(full)); err != nil {
+		t.Fatalf("expected %d signers to be accepted, got %v", maxTimeoutSigners, err)
+	}
+	for name, groups := range map[string][]timeoutSignatureGroup{
+		"in one group":     {{Height: 1, Signers: signers(maxTimeoutSigners + 1)}},
+		"in two groups":    {{Height: 1, Signers: signers(maxTimeoutSigners)}, {Height: 1, Signers: signers(1)}},
+		"a long signer id": {{Height: 1, Signers: []types.ValidatorID{types.ValidatorID(strings.Repeat("v", types.MaxIDBytes+1))}}},
+	} {
+		_, err := decodeTimeoutSignatureGroups(encodeTimeoutSignatureGroups(groups))
+		if !errors.Is(err, types.ErrInvalidEncoding) || !strings.Contains(err.Error(), "longer than the limit") {
+			t.Fatalf("%s: expected the groups over the limit to be refused, got %v", name, err)
+		}
+	}
+}
+
+func FuzzDecodeTimeoutSignatureGroups(f *testing.F) {
+	f.Add([]byte(encodeTimeoutSignatureGroups(filledWire[[]timeoutSignatureGroup](f))))
+	f.Add([]byte(encodeTimeoutSignatureGroups([]timeoutSignatureGroup{{Height: 1}})))
+	f.Add([]byte(encodeTimeoutSignatureGroups(nil)))
+	f.Add([]byte{})
+	f.Add([]byte("[]"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		groups, err := decodeTimeoutSignatureGroups(data)
+		if err != nil {
+			return
+		}
+		if len(groups) == 0 {
+			t.Fatal("decoded a certificate without groups")
+		}
+		if encoded := encodeTimeoutSignatureGroups(groups); !bytes.Equal(encoded, data) {
+			t.Fatalf("groups decoded from %x encode to %x", data, encoded)
+		}
+	})
 }
 
 func TestTimeoutCollectorPruneForgetsOldViews(t *testing.T) {

@@ -102,6 +102,10 @@ VEXO_DISSEMINATION=proposals VEXO_THROUGHPUT=150000 VEXO_VALIDATORS=4 VEXO_UPLIN
 
 `VEXO_ROUND_TIMEOUT_MS` ändert den Timeout; ohne `VEXO_UPLINK_MBIT` und `VEXO_LATENCY_MS` läuft der unbegrenzte Link. Jede veröffentlichte Zahl braucht Revision, Rechner, Go-Version und vollständige Logzeilen.
 
+## Änderungen seit der Messung
+
+In den gemessenen Läufen forderte ein Validator 300 ms nach Beginn des Wartens auf Batches den ganzen Proposal an. Jetzt beginnt das Warten neu, sobald ein vom Proposal genannter Batch ankommt, und der ganze Proposal wird erst nach 300 ms ohne Batch oder nach insgesamt 2 s (`maxLaneWait`) angefordert; die Matrix wurde seither nicht neu gemessen. Gemessen wurde mit einer Testanwendung ohne Signaturen, Ante-Handler, Mempool-WAL und LevelDB. Mit dem Produktionsstack (`VEXO_APP=runtime`: signierte 288-Byte-Überweisungen, Ante-Handler, Mempool-WAL, LevelDB) committen 4 ungeformte Validatoren auf demselben Host 50.000 Überweisungen mit etwa 2.000–2.200 tx/s; im CPU-Profil dominiert die Blockausführung, vor allem Aktualisierungen und Lesezugriffe der Zustandsbäume im LevelDB-Store.
+
 <!-- vexo-docs:technical-parity -->
 
 ## Anhang zur technischen Parität

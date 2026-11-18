@@ -88,6 +88,12 @@ Tài liệu này giúp hiểu các trường finality proof, thứ tự xác min
 
 - [Tài liệu chuẩn tiếng Anh](../../en/specs/finality-proof-format.md)
 
+## Commit liên kết và bắt kịp
+
+Một khối mà khối con chỉ được chứng nhận sau timeout thì không có bằng chứng riêng: nó là final với tư cách tổ tiên của khối tiếp theo mà quy tắc 2-chain finalize trực tiếp. Thông điệp commit của nó mang bằng chứng của hậu duệ đó và, trong `Linkage`, các header nằm giữa (tối đa 64). Bên nhận kiểm tra body của khối, QC của chính khối theo set mà header nêu, việc linkage nối khối tới khối được chứng minh bằng hash từng độ cao một, và toàn bộ bằng chứng của hậu duệ.
+
+Node công bố mỗi commit một lần và không kèm giao dịch, nên một node tụt lại vĩnh viễn sẽ không bao giờ thấy khối bị thiếu: khi các peer công bố độ cao trên độ cao kế tiếp của nó mà nó không tiến trong một giây, nó xin độ cao kế tiếp từ peer đã công bố, và sau khi commit khối lấy về, nó xin ngay khối tiếp theo chừng nào peer còn đi trước. Peer trả lời từ các commit trong bộ nhớ hoặc dựng commit từ store, tối đa hai lần cho mỗi độ cao và mỗi peer.
+
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật
 

@@ -507,6 +507,27 @@ func (pool *FIFO) SnapshotTxs(ctx context.Context) ([]types.Tx, error) {
 	return copyTxs(pool.txs), nil
 }
 
+// SenderTxs returns the pending transactions of sender, a normalized signer address, in pool order.
+// The pool counts the transactions of each sender, so a sender without any costs no scan.
+func (pool *FIFO) SenderTxs(ctx context.Context, sender string) ([]types.Tx, error) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	if err := pool.checkContext(ctx); err != nil {
+		return nil, err
+	}
+	count := pool.senders[sender]
+	if sender == "" || count == 0 {
+		return nil, nil
+	}
+	txs := make([]types.Tx, 0, count)
+	for _, pending := range pool.txs {
+		if pending.sender == sender {
+			txs = append(txs, append(types.Tx(nil), pending.tx...))
+		}
+	}
+	return txs, nil
+}
+
 func (pool *FIFO) MarkCommitted(ctx context.Context, committed []types.Tx) error {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()

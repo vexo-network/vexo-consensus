@@ -21,6 +21,7 @@ import (
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/ops"
+	"github.com/vexo-network/vexo-consensus/txcodec"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -1788,8 +1789,10 @@ func networkMetrics(ctx context.Context, client http.Client, address string) (op
 	return metrics, json.NewDecoder(response.Body).Decode(&metrics)
 }
 
+// submitNetworkTx submits tx to the RPC of address. A signed transaction is binary, so the
+// request names the base64 encoding instead of relying on the RPC default.
 func submitNetworkTx(ctx context.Context, client http.Client, address string, tx []byte) error {
-	body, err := json.Marshal(map[string]string{"tx": base64.StdEncoding.EncodeToString(tx)})
+	body, err := json.Marshal(map[string]string{"tx": base64.StdEncoding.EncodeToString(tx), "encoding": txcodec.EncodingBase64})
 	if err != nil {
 		return err
 	}

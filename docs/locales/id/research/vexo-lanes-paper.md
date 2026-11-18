@@ -102,6 +102,10 @@ VEXO_DISSEMINATION=proposals VEXO_THROUGHPUT=150000 VEXO_VALIDATORS=4 VEXO_UPLIN
 
 `VEXO_ROUND_TIMEOUT_MS` mengubah timeout; tanpa `VEXO_UPLINK_MBIT` dan `VEXO_LATENCY_MS` tautan tidak dibatasi. Setiap angka yang dipublikasikan harus mencatat revisi, host, versi Go, dan baris log lengkap.
 
+## Perubahan sejak pengukuran
+
+Pada run yang diukur, validator meminta proposal utuh 300 ms setelah mulai menunggu batch. Kini penantian dimulai ulang setiap kali batch yang dinamai proposal tiba, dan proposal utuh baru diminta setelah 300 ms tanpa batch atau setelah total 2 s (`maxLaneWait`); matriks belum diukur ulang. Pengukuran memakai aplikasi uji tanpa tanda tangan, ante handler, WAL mempool, atau LevelDB. Dengan stack produksi (`VEXO_APP=runtime`: transfer bertanda tangan 288 byte, ante handler, WAL mempool, LevelDB), 4 validator tanpa shaping di host yang sama meng-commit 50.000 transfer sekitar 2.000–2.200 tx/s; pada profil CPU eksekusi blok mendominasi, terutama pembaruan dan pembacaan pohon state di store LevelDB.
+
 <!-- vexo-docs:technical-parity -->
 
 ## Lampiran kesetaraan teknis

@@ -70,6 +70,10 @@
 
 - [영어 정본 문서](../../en/release/version-compatibility.md)
 
+## 형식 호환성
+
+바이너리 consensus wire, 서명 트랜잭션 envelope, consensus WAL, mempool WAL 형식은 이전 pre-audit 빌드와 호환되지 않습니다. 업그레이드 절차는 networking spec을 보세요.
+
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록
 

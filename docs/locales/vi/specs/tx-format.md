@@ -93,6 +93,14 @@ Tài liệu này giúp hiểu quy tắc transaction format, signing, fee và gas
 
 - [Tài liệu chuẩn tiếng Anh](../../en/specs/tx-format.md)
 
+## Envelope ký dạng nhị phân
+
+Giao dịch đã ký là dữ liệu nhị phân (`txcodec.EncodeEnvelope`): tiền tố hai byte `0x89 'V'` (`txcodec.SignedPrefix`), byte phiên bản `1`, rồi bốn trường, mỗi trường có độ dài uvarint đứng trước: chain ID (tối đa `txcodec.MaxChainIDLength`, 128 byte), khóa công khai (tối đa `txcodec.MaxPublicKeyLength`), chữ ký (tối đa `txcodec.MaxSignatureLength`) và payload. Bộ giải mã từ chối độ dài không tối thiểu, trường vượt giới hạn, phiên bản không biết và byte thừa ở cuối, nên một giao dịch đã ký chỉ có một cách mã hóa. `0x89` không phải UTF-8 hợp lệ, nên không payload văn bản nào bị nhầm là envelope. Node từ chối khi khởi động chain ID dài hơn `txcodec.MaxChainIDLength` (`config.ErrChainIDTooLong`).
+
+Các giao diện văn bản truyền giao dịch đã ký dưới dạng base64. `vexod keys sign-tx` in ra `tx: <base64>` và `encoding: base64`; `POST /v1/tx` đọc `tx` dạng base64 trừ khi yêu cầu đặt `"encoding": "plain"`; `vexod tx parse --encoding base64` đọc giao dịch đã ký, còn `--encoding plain` (mặc định) đọc payload văn bản. Cả ba giải mã qua `txcodec.DecodeTxEncoding`.
+
+Ante handler chỉ ghi nhớ các lần xác thực thành công (`app.VerifyCache`, tối đa `app.VerifyCacheCapacity`), với khóa là digest của byte giao dịch và mọi thứ mà phán quyết phụ thuộc, như chain ID; thất bại không bao giờ được ghi nhớ. Chữ ký của một khối được kiểm tra song song trước khi khối được xử lý theo thứ tự.
+
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật
 

@@ -196,6 +196,10 @@ VEXO_DISSEMINATION=proposals VEXO_THROUGHPUT=150000 VEXO_VALIDATORS=4 VEXO_UPLIN
 
 `VEXO_ROUND_TIMEOUT_MS`는 round timeout을 바꾸고, `VEXO_RATE=4000 VEXO_THROUGHPUT=20000`은 지연 칸을 실행합니다. `VEXO_UPLINK_MBIT`와 `VEXO_LATENCY_MS`를 빼면 제한 없는 링크입니다. 공개하는 모든 수치에는 저장소 revision, 호스트, Go 버전, 각 실행의 전체 로그 줄을 함께 기록해야 합니다.
 
+## 측정 이후 바뀐 점
+
+측정 당시 validator는 batch를 기다리기 시작하고 300 ms 뒤 전체 proposal을 요청했습니다. 지금은 proposal이 가리키는 batch가 도착할 때마다 대기가 다시 시작되고, batch 없이 300 ms가 지나거나 총 2 s(`maxLaneWait`)가 지나야 전체 proposal을 요청합니다. 이후 매트릭스는 다시 측정하지 않았습니다. 측정은 서명, ante handler, mempool WAL, LevelDB가 없는 테스트 애플리케이션으로 이루어졌습니다. 프로덕션 스택(`VEXO_APP=runtime`: 서명된 288바이트 transfer, ante handler, mempool WAL, LevelDB)에서는 같은 호스트의 shaping 없는 validator 4개가 50,000 transfer를 약 2,000–2,200 tx/s로 commit하며, CPU profile에서는 블록 실행, 특히 LevelDB store의 state tree 갱신과 읽기가 지배적입니다.
+
 <!-- vexo-docs:technical-parity -->
 
 ## 기술 동등성 부록

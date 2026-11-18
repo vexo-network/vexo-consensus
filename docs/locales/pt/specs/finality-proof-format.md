@@ -88,6 +88,12 @@ Este documento ajuda a entender campos de finality proof, ordem de verificação
 
 - [Documento canônico em inglês](../../en/specs/finality-proof-format.md)
 
+## Commits encadeados e recuperação
+
+Um bloco cujo filho só foi certificado após um timeout não tem prova própria: é final como ancestral do próximo bloco que a regra 2-chain finaliza diretamente. Sua mensagem de commit leva a prova desse descendente e, em `Linkage`, os headers intermediários (no máximo 64). O receptor verifica o body do bloco, o QC próprio do bloco contra o set que seu header nomeia, que o linkage liga o bloco ao bloco provado por hash, altura a altura, e a prova completa do descendente.
+
+Um nó anuncia cada commit uma vez e sem transações, então um nó atrasado para sempre nunca veria o bloco que lhe falta: quando peers anunciam alturas acima da sua próxima e ele não avança por um segundo, pede sua próxima altura a quem anunciou, e após o commit de um bloco obtido pede o seguinte imediatamente enquanto peers estiverem à frente. Um peer responde com os commits em memória ou constrói o commit a partir do store, no máximo duas vezes por altura e peer.
+
 <!-- vexo-docs:technical-parity -->
 ## Apêndice de paridade técnica
 

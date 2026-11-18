@@ -70,6 +70,10 @@
 
 - [英語の正規文書](../../en/release/version-compatibility.md)
 
+## 形式の互換性
+
+バイナリの consensus wire、署名済みトランザクション envelope、consensus WAL、mempool WAL の形式は、以前の pre-audit ビルドと互換性がありません。アップグレード手順は networking spec を参照してください。
+
 <!-- vexo-docs:technical-parity -->
 ## 技術的同等性付録
 

@@ -68,6 +68,10 @@ Les éléments remis aux auditeurs doivent inclure l’audit VRF adapter en plus
 
 - [Document canonique anglais](../../en/security/audit-readiness.md)
 
+## WAL du mempool et WAL de consensus
+
+Chaque événement de tx ou de batch accepté est durable avant le retour de sa soumission. Les enregistrements sont `uvarint(length) | op | payload | CRC-32C` ; les admissions concurrentes partagent un fsync (group commit) et le nœud l'attend sans tenir le verrou d'admission. Le replay tronque un dernier enregistrement déchiré ou corrompu et refuse un journal endommagé avant sa fin (`ErrWALCorrupt`). Après un échec d'E/S, les ajouts s'arrêtent jusqu'à la réécriture du journal depuis le pool. Le WAL de consensus utilise le même découpage (longueur big-endian de 4 octets, payload, CRC-32C de 4 octets) : une fin déchirée est tronquée, une corruption au milieu refusée.
+
 <!-- vexo-docs:technical-parity -->
 ## Annexe de parité technique
 

@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -13,11 +14,13 @@ import (
 	"github.com/vexo-network/vexo-consensus/governance"
 	"github.com/vexo-network/vexo-consensus/mempool"
 	"github.com/vexo-network/vexo-consensus/p2p"
+	"github.com/vexo-network/vexo-consensus/txcodec"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
 
 var (
 	ErrMissingChainID      = errors.New("chain id is required")
+	ErrChainIDTooLong      = fmt.Errorf("chain id is longer than %d bytes, the most a signed transaction names", txcodec.MaxChainIDLength)
 	ErrInvalidConfig       = errors.New("invalid config")
 	ErrUnsafeNetworkConfig = errors.New("unsafe network config")
 )
@@ -278,6 +281,10 @@ func NetworkSafeTemplate(chainID string, dataDir string) Config {
 func (config Config) Validate() error {
 	if config.ChainID == "" {
 		return ErrMissingChainID
+	}
+	if len(config.ChainID) > txcodec.MaxChainIDLength {
+		// No signed transaction could name the chain, so it could execute none.
+		return ErrChainIDTooLong
 	}
 	if len(config.Application.CoreModules) > 0 {
 		if !sameStringSlice(config.Application.CoreModules, DefaultApplicationModules()) {

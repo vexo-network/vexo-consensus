@@ -1,8 +1,6 @@
 package app
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 
 	"github.com/vexo-network/vexo-consensus/address"
@@ -17,35 +15,35 @@ var (
 	ErrSignerAddressMismatch = errors.New("signer address does not match transaction public key")
 )
 
-// SignedTxEnvelope is the JSON document a signed transaction carries.
+// SignedTxEnvelope is the decoded form of a signed transaction: see txcodec.Envelope for
+// the binary record a signed transaction is.
 type SignedTxEnvelope = txcodec.Envelope
 
 type TxSignatureVerifier interface {
 	Verify(publicKey types.PublicKey, message []byte, signature types.Signature) bool
 }
 
+// SignTx signs payload for chainID and returns the signed transaction. A payload or chain id
+// that has no signed form (an empty payload, one that is already signed) is an error.
 func SignTx(chainID string, payload types.Tx, signer vexocrypto.Signer) (types.Tx, error) {
-	if err := validatePayloadSignerAddress(payload, signer.PublicKey()); err != nil {
+	publicKey := signer.PublicKey()
+	if err := validatePayloadSignerAddress(payload, publicKey); err != nil {
 		return nil, err
 	}
 	signature, err := signer.Sign(SignedTxSignBytes(chainID, payload))
 	if err != nil {
 		return nil, err
 	}
-	envelope := SignedTxEnvelope{
-		SchemaVersion: "v1",
-		ChainID:       chainID,
-		Payload:       base64.StdEncoding.EncodeToString(payload),
-		PublicKey:     base64.StdEncoding.EncodeToString(signer.PublicKey()),
-		Signature:     base64.StdEncoding.EncodeToString(signature),
-	}
-	encoded, err := json.Marshal(envelope)
-	if err != nil {
-		return nil, err
-	}
-	return types.Tx(txcodec.SignedPrefix + base64.StdEncoding.EncodeToString(encoded)), nil
+	return txcodec.EncodeEnvelope(SignedTxEnvelope{
+		ChainID:   chainID,
+		PublicKey: publicKey,
+		Signature: signature,
+		Payload:   payload,
+	})
 }
 
+// VerifySignedTx checks that tx is a well-formed signed transaction of chainID whose
+// signature the verifier accepts and whose signer tag, if any, names the signing key.
 func VerifySignedTx(chainID string, tx types.Tx, verifier TxSignatureVerifier) error {
 	envelope, payload, err := DecodeSignedTx(tx)
 	if err != nil {
@@ -57,23 +55,16 @@ func VerifySignedTx(chainID string, tx types.Tx, verifier TxSignatureVerifier) e
 	if envelope.ChainID != chainID {
 		return ErrInvalidSignedTx
 	}
-	publicKey, err := base64.StdEncoding.DecodeString(envelope.PublicKey)
-	if err != nil {
-		return ErrInvalidSignedTx
-	}
-	signature, err := base64.StdEncoding.DecodeString(envelope.Signature)
-	if err != nil {
-		return ErrInvalidSignedTx
-	}
-	if !verifier.Verify(publicKey, SignedTxSignBytes(chainID, payload), signature) {
+	if !verifier.Verify(envelope.PublicKey, SignedTxSignBytes(chainID, payload), envelope.Signature) {
 		return ErrInvalidTxSignature
 	}
-	return validatePayloadSignerAddress(payload, publicKey)
+	return validatePayloadSignerAddress(payload, envelope.PublicKey)
 }
 
 // DecodeSignedTx decodes a signed transaction into its envelope and payload.
 // A payload that is itself a signed transaction is rejected: nesting would let
-// the outer and inner signer disagree about who authorized the transaction.
+// the outer and inner signer disagree about who authorized the transaction. The
+// public key, signature and payload alias tx and must not be modified.
 func DecodeSignedTx(tx types.Tx) (SignedTxEnvelope, types.Tx, error) {
 	return txcodec.DecodeEnvelope(tx)
 }

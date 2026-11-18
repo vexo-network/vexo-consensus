@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"math"
 	"slices"
 	"strings"
 
@@ -49,84 +50,140 @@ func Leader(header types.Header, validatorSet validator.Set) (types.ValidatorID,
 //
 // The list derives from the chain only, so every validator that holds the parent computes the same
 // one, and the leader of a view never depends on what a validator observed locally.
+//
+// It takes a step for each view it considers, at most BenchViews of them, and prepares the schedule
+// of the whole set once for all of them instead of copying the validators for each.
 func ChildBench(parent *types.Header, round types.Round, validatorSet validator.Set) []types.Bench {
 	if parent == nil || round <= parent.Round {
 		return nil
 	}
 	total := uint64(validatorSet.TotalVotingPower())
-	bench := slices.Clone(parent.Benched)
+	list := newBenchList(parent.Benched, validatorSet)
+	leaders := viewLeaders{validatorSet: validatorSet}
 	first := parent.Round + 1
 	if round > BenchViews && round-BenchViews > first {
 		first = round - BenchViews
 	}
 	for view := first; view < round; view++ {
-		bench = liveBench(bench, view, validatorSet)
-		failed, ok := failedLeader(parent, bench, view, validatorSet)
+		list.expire(view)
+		failed, power, ok := leaders.failed(parent, list.entries, view)
 		if !ok {
 			continue
 		}
-		bench = benchLeader(bench, failed, view+BenchViews, validatorSet, total)
+		list.bench(failed, uint64(power), view+BenchViews, total)
 	}
-	bench = liveBench(bench, round, validatorSet)
-	if len(bench) == 0 {
+	list.expire(round)
+	if len(list.entries) == 0 {
 		return nil
 	}
-	return bench
+	return slices.Clip(list.entries)
 }
 
-// failedLeader returns the leader of view, a view without a block between parent's view and its
-// child's: the view directly after the parent's was scheduled with the parent's bench, and every
-// later one followed a timeout certificate.
-func failedLeader(parent *types.Header, bench []types.Bench, view types.Round, validatorSet validator.Set) (types.ValidatorID, bool) {
-	return Leader(types.Header{Round: view, JustifyRound: view - 1, Benched: benchAt(parent, bench, view)}, validatorSet)
+// viewLeaders finds the leaders of the views ChildBench considers.
+type viewLeaders struct {
+	validatorSet validator.Set
+	// schedule is the schedule of the whole set, prepared by the first view that needs it, and
+	// scheduled whether the set has one.
+	schedule  validator.Schedule
+	prepared  bool
+	scheduled bool
 }
 
-// benchAt is the bench the schedule of view used: the parent's for the view directly after it,
-// none for the views after a timeout certificate (Leader ignores it there).
-func benchAt(parent *types.Header, bench []types.Bench, view types.Round) []types.Bench {
-	if view == parent.Round+1 {
-		return bench
+// failed returns the leader of view, a view without a block between parent's view and its child's,
+// and its voting power: the view directly after the parent's was scheduled with the parent's bench
+// (bench, as it stands in that view), and every later one followed a timeout certificate, whose
+// leader comes from the schedule of the whole set (Leader).
+func (leaders *viewLeaders) failed(parent *types.Header, bench []types.Bench, view types.Round) (types.ValidatorID, types.VotingPower, bool) {
+	if view == parent.Round+1 && len(bench) > 0 {
+		leader, ok := Leader(types.Header{Round: view, JustifyRound: view - 1, Benched: bench}, leaders.validatorSet)
+		if !ok {
+			return "", 0, false
+		}
+		member, _ := leaders.validatorSet.Get(leader)
+		return leader, member.VotingPower, true
 	}
-	return nil
+	if !leaders.prepared {
+		leaders.schedule, leaders.scheduled = validator.NewSchedule(leaders.validatorSet.List())
+		leaders.prepared = true
+	}
+	if !leaders.scheduled {
+		return "", 0, false
+	}
+	leader, power := leaders.schedule.Proposer(view)
+	return leader, power, true
 }
 
-// liveBench drops the entries benched through a view before view, and those of validators without
-// power in validatorSet.
-func liveBench(bench []types.Bench, view types.Round, validatorSet validator.Set) []types.Bench {
-	live := bench[:0:0]
+// benchList is the benched list ChildBench walks through the views: the entries ordered by
+// validator, the voting power of each entry's validator, and the sum of those powers, so that
+// neither the expiry of entries nor the power check of a new one visits the validator set. Sums
+// are plain uint64 arithmetic.
+type benchList struct {
+	entries []types.Bench
+	powers  []uint64
+	sum     uint64
+	// earliest is at most the first view through which an entry stays benched: no entry expires
+	// before the view after it.
+	earliest types.Round
+}
+
+// newBenchList returns a copy of bench without the entries of validators without power in
+// validatorSet.
+func newBenchList(bench []types.Bench, validatorSet validator.Set) benchList {
+	list := benchList{
+		entries:  make([]types.Bench, 0, len(bench)),
+		powers:   make([]uint64, 0, len(bench)),
+		earliest: math.MaxUint64,
+	}
 	for _, entry := range bench {
-		if entry.Until < view {
+		member, found := validatorSet.Get(entry.Validator)
+		if !found || member.VotingPower == 0 {
 			continue
 		}
-		if member, found := validatorSet.Get(entry.Validator); !found || member.VotingPower == 0 {
-			continue
-		}
-		live = append(live, entry)
+		list.entries = append(list.entries, entry)
+		list.powers = append(list.powers, uint64(member.VotingPower))
+		list.sum += uint64(member.VotingPower)
+		list.earliest = min(list.earliest, entry.Until)
 	}
-	return live
+	return list
 }
 
-// benchLeader benches id through until, or extends its bench, unless the benched power would reach
-// a third of total.
-func benchLeader(bench []types.Bench, id types.ValidatorID, until types.Round, validatorSet validator.Set, total uint64) []types.Bench {
-	index, found := slices.BinarySearchFunc(bench, id, func(entry types.Bench, target types.ValidatorID) int {
+// expire drops the entries benched through a view before view.
+func (list *benchList) expire(view types.Round) {
+	if list.earliest >= view {
+		return
+	}
+	kept := 0
+	list.earliest = math.MaxUint64
+	for index, entry := range list.entries {
+		if entry.Until < view {
+			list.sum -= list.powers[index]
+			continue
+		}
+		list.entries[kept], list.powers[kept] = entry, list.powers[index]
+		list.earliest = min(list.earliest, entry.Until)
+		kept++
+	}
+	list.entries, list.powers = list.entries[:kept], list.powers[:kept]
+}
+
+// bench benches id, a validator of power, through until, or extends its bench, unless the benched
+// power would reach a third of total.
+func (list *benchList) bench(id types.ValidatorID, power uint64, until types.Round, total uint64) {
+	index, found := slices.BinarySearchFunc(list.entries, id, func(entry types.Bench, target types.ValidatorID) int {
 		return strings.Compare(string(entry.Validator), string(target))
 	})
 	if found {
-		bench[index].Until = max(bench[index].Until, until)
-		return bench
+		list.entries[index].Until = max(list.entries[index].Until, until)
+		return
 	}
-	member, _ := validatorSet.Get(id)
-	power := uint64(member.VotingPower)
-	for _, entry := range bench {
-		benched, _ := validatorSet.Get(entry.Validator)
-		power += uint64(benched.VotingPower)
-	}
-	if power >= total/3+min(total%3, 1) {
+	if list.sum+power >= total/3+min(total%3, 1) {
 		// 3·power ≥ total, without overflow.
-		return bench
+		return
 	}
-	return slices.Insert(bench, index, types.Bench{Validator: id, Until: until})
+	list.entries = slices.Insert(list.entries, index, types.Bench{Validator: id, Until: until})
+	list.powers = slices.Insert(list.powers, index, power)
+	list.sum += power
+	list.earliest = min(list.earliest, until)
 }
 
 func isBenched(bench []types.Bench, id types.ValidatorID) bool {

@@ -102,6 +102,10 @@ VEXO_DISSEMINATION=proposals VEXO_THROUGHPUT=150000 VEXO_VALIDATORS=4 VEXO_UPLIN
 
 `VEXO_ROUND_TIMEOUT_MS` modifie le délai ; sans `VEXO_UPLINK_MBIT` ni `VEXO_LATENCY_MS`, le lien n'est pas contraint. Tout chiffre publié doit indiquer la révision, la machine, la version de Go et les lignes de journal complètes.
 
+## Évolutions depuis la mesure
+
+Dans les exécutions mesurées, un validateur demandait la proposition entière 300 ms après avoir commencé à attendre les batches. L'attente redémarre désormais à chaque arrivée d'un batch nommé par la proposition, et la proposition entière n'est demandée qu'après 300 ms sans batch ou 2 s au total (`maxLaneWait`) ; la matrice n'a pas été remesurée depuis. Les mesures utilisaient une application de test sans signatures, ante handler, WAL du mempool ni LevelDB. Avec la pile de production (`VEXO_APP=runtime` : transferts signés de 288 octets, ante handler, WAL du mempool, LevelDB), 4 validateurs sans mise en forme sur le même hôte valident 50 000 transferts à environ 2 000–2 200 tx/s ; dans le profil CPU, l'exécution des blocs domine, surtout les mises à jour et lectures des arbres d'état du store LevelDB.
+
 <!-- vexo-docs:technical-parity -->
 
 ## Annexe de parité technique

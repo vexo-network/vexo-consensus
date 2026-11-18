@@ -93,6 +93,14 @@
 
 - [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/specs/tx-format.md)
 
+## बाइनरी हस्ताक्षरित envelope
+
+हस्ताक्षरित ट्रांज़ैक्शन बाइनरी है (`txcodec.EncodeEnvelope`): दो बाइट का prefix `0x89 'V'` (`txcodec.SignedPrefix`), संस्करण बाइट `1`, फिर uvarint लंबाई से शुरू होने वाले चार फ़ील्ड: chain ID (अधिकतम `txcodec.MaxChainIDLength`, यानी 128 बाइट), सार्वजनिक कुंजी (अधिकतम `txcodec.MaxPublicKeyLength`), हस्ताक्षर (अधिकतम `txcodec.MaxSignatureLength`) और payload। डिकोडर गैर-न्यूनतम लंबाई, सीमा से बड़े फ़ील्ड, अज्ञात संस्करण और अंत में बचे बाइट अस्वीकार करता है, इसलिए हस्ताक्षरित ट्रांज़ैक्शन की केवल एक एन्कोडिंग होती है। `0x89` मान्य UTF-8 नहीं है, इसलिए कोई टेक्स्ट payload envelope नहीं समझा जाता। नोड शुरू होते समय `txcodec.MaxChainIDLength` से लंबा chain ID अस्वीकार करता है (`config.ErrChainIDTooLong`)।
+
+टेक्स्ट इंटरफ़ेस हस्ताक्षरित ट्रांज़ैक्शन को base64 में ले जाते हैं। `vexod keys sign-tx` `tx: <base64>` और `encoding: base64` छापता है; `POST /v1/tx` `tx` को base64 मानता है जब तक अनुरोध `"encoding": "plain"` न बताए; `vexod tx parse --encoding base64` हस्ताक्षरित ट्रांज़ैक्शन पढ़ता है और `--encoding plain` (डिफ़ॉल्ट) टेक्स्ट payload। तीनों `txcodec.DecodeTxEncoding` से डिकोड करते हैं।
+
+ante handler केवल सफल प्रमाणीकरण याद रखता है (`app.VerifyCache`, अधिकतम `app.VerifyCacheCapacity`), जिसकी कुंजी ट्रांज़ैक्शन बाइट और chain ID जैसी हर उस चीज़ का digest है जिस पर निर्णय निर्भर है; विफलता कभी याद नहीं रखी जाती। ब्लॉक के हस्ताक्षर क्रम से प्रोसेस होने से पहले समानांतर में जाँचे जाते हैं।
+
 <!-- vexo-docs:technical-parity -->
 ## तकनीकी समानता परिशिष्ट
 

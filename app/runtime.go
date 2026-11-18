@@ -329,6 +329,7 @@ func (runtime *Runtime) validateTxsContext(goCtx context.Context, height types.H
 		return err
 	}
 	ante := runtime.currentAnte()
+	ante.preverify(ctx, txs)
 	sim := runtime.simulationAfter(ctx, pending)
 	var blobGas uint64
 	claimed := make(map[string]struct{})
@@ -523,6 +524,8 @@ func (runtime *Runtime) finalizeBlock(goCtx context.Context, req FinalizeBlockRe
 			return FinalizeBlockResponse{}, nil, err
 		}
 	}
+
+	ante.preverify(ctx, req.Block.Txs)
 
 	results := make([]types.Result, 0, len(req.Block.Txs))
 	txEvents := make([][]events.Event, 0, len(req.Block.Txs))

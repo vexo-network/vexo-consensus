@@ -68,6 +68,10 @@ La entrega de auditoría debe incluir VRF adapter audit evidence además de BLS.
 
 - [Documento canónico en inglés](../../en/security/audit-readiness.md)
 
+## WAL del mempool y WAL de consenso
+
+Cada evento de tx o batch aceptado es durable antes de que su envío retorne. Los registros son `uvarint(length) | op | payload | CRC-32C`; las admisiones concurrentes comparten un fsync (group commit) y el nodo lo espera sin mantener el lock de admisión. El replay trunca un último registro roto o corrupto y rechaza un log dañado antes de su final (`ErrWALCorrupt`). Tras un fallo de I/O se detienen las escrituras hasta reescribir el log desde el pool. El WAL de consenso usa el mismo formato de trama (longitud big-endian de 4 bytes, payload, CRC-32C de 4 bytes): trunca un final roto y rechaza la corrupción intermedia.
+
 <!-- vexo-docs:technical-parity -->
 ## Apéndice de paridad técnica
 

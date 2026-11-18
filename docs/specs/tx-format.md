@@ -62,15 +62,34 @@ Ethereum raw transactions are verified against the explicit execution `evm_chain
 
 ## Signed Envelope
 
-Signed transactions use an envelope over the raw payload:
+A signed transaction is binary (`txcodec.EncodeEnvelope`): the two-byte prefix `0x89 'V'`
+(`txcodec.SignedPrefix`), the version byte `1`, then four fields, each a uvarint length followed by its
+bytes:
 
-- schema version
+- chain ID, at most `txcodec.MaxChainIDLength` (128) bytes
+- public key, at most `txcodec.MaxPublicKeyLength` bytes
+- signature, at most `txcodec.MaxSignatureLength` bytes
 - payload
-- public key
-- signature
+
+The decoder refuses a non-minimal length, a field over its bound, an unknown version and trailing
+bytes, so a signed transaction has exactly one encoding. The prefix byte `0x89` is not valid UTF-8,
+so no text payload can be mistaken for an envelope. A node refuses a chain ID longer than
+`txcodec.MaxChainIDLength` at startup (`config.ErrChainIDTooLong`): no signed transaction could name
+that chain.
 
 The signature is domain-separated by chain ID. The envelope public key is also used to verify the
 payload signer address when the `signer` tag is present.
+
+Because a signed transaction is binary, text interfaces carry it in base64. `vexod keys sign-tx`
+prints `tx: <base64>` and `encoding: base64`; `POST /v1/tx` reads `tx` as base64 unless the request
+sets `"encoding": "plain"`; `vexod tx parse --encoding base64` reads a signed transaction and
+`--encoding plain` (the default) a text payload. All three decode through `txcodec.DecodeTxEncoding`.
+
+The ante handler remembers the authentications that succeeded (`app.VerifyCache`, at most
+`app.VerifyCacheCapacity` of them), keyed by a digest of the transaction bytes and everything else the
+verdict depends on, such as the chain ID, so a transaction checked at admission is not verified again
+in proposal checks and execution. A failure is never remembered. A block's signatures are verified in parallel
+before the block is processed in order.
 
 ## Authorization
 
@@ -163,6 +182,8 @@ Public-network load tests should use realistic signed `bank:send` payloads with 
 vexod keys show --home .vexo
 vexod tx build --module bank --action send --args vexo1...,vexo1...,1 --tags fee=1gvxo,gas=100,signer=vexo1...,nonce=7
 vexod tx parse --tx bank:send:vexo1...:vexo1...:1:fee=1gvxo:gas=100:signer=vexo1...:nonce=7 --json
+vexod keys sign-tx --home .vexo --chain-id vexo-chain --tx bank:send:vexo1...:vexo1...:1:fee=1gvxo:gas=100:signer=vexo1...:nonce=7
+vexod tx parse --encoding base64 --tx <base64 printed by keys sign-tx> --json
 vexod evm tx call evm 0xaaaa 0xbbbb call 0x 21000 0x10000000000000000
 ```
 

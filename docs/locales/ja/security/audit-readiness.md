@@ -71,6 +71,10 @@
 
 監査者は、コードが存在するかだけでなく、証拠が再現できるかを最初に確認します。そのため、脅威モデル、既知の制限、BLS/VRF 監査資料、EVM conformance 結果、longrun/chaos 結果、KMS 署名証拠、snapshot/replay 証拠は、同じ候補バイナリと同じ設定から生成されている必要があります。運用者は例外を隠さず、release gate が拒否した項目、担当者、再検証条件を runbook に残すべきです。
 
+## mempool WAL と consensus WAL
+
+受け入れたすべての tx または batch イベントは、送信が返る前に永続化されます。レコードは `uvarint(length) | op | payload | CRC-32C` で、同時に来た admission は一つの fsync を共有し(group commit)、ノードは admission ロックを保持せずにそれを待ちます。replay は途切れた、または破損した最後のレコードを切り詰め、終端より前で壊れたログは拒否します(`ErrWALCorrupt`)。I/O 失敗が起きると、ログを pool から書き直すまで append を止めます。consensus WAL も同じ framing(4 バイト big-endian の長さ、payload、4 バイトの CRC-32C)を使い、途切れた末尾は切り詰め、途中の破損は拒否します。
+
 <!-- vexo-docs:technical-parity -->
 ## 技術的同等性付録
 

@@ -70,6 +70,10 @@ Este documento ayuda a entender matriz de compatibilidad de versiones y criterio
 
 - [Documento canónico en inglés](../../en/release/version-compatibility.md)
 
+## Compatibilidad de formatos
+
+Los formatos del wire binario de consenso, del sobre de transacción firmada, del WAL de consenso y del WAL del mempool son incompatibles con builds pre-audit anteriores; el procedimiento de actualización está en la especificación de networking.
+
 <!-- vexo-docs:technical-parity -->
 ## Apéndice de paridad técnica
 

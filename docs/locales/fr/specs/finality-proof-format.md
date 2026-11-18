@@ -88,6 +88,12 @@ Ce document aide à comprendre les champs finality proof, l’ordre de vérifica
 
 - [Document canonique anglais](../../en/specs/finality-proof-format.md)
 
+## Commits chaînés et rattrapage
+
+Un bloc dont l'enfant n'a été certifié qu'après un timeout n'a pas de preuve propre : il est final comme ancêtre du bloc suivant que la règle 2-chain finalise directement. Son message de commit porte la preuve de ce descendant et, dans `Linkage`, les headers intermédiaires (au plus 64). Le récepteur vérifie le body du bloc, le QC propre du bloc contre le set que nomme son header, que le linkage relie le bloc au bloc prouvé par hash, hauteur après hauteur, et la preuve complète du descendant.
+
+Un nœud annonce chaque commit une seule fois, sans transactions ; un nœud durablement en retard ne verrait donc jamais le bloc qui lui manque. Quand des peers annoncent des hauteurs au-delà de sa prochaine et qu'il n'avance pas pendant une seconde, il demande sa prochaine hauteur à l'annonceur, puis, après le commit d'un bloc récupéré, demande aussitôt le suivant tant que des peers sont en avance. Un peer répond depuis les commits en mémoire ou construit le commit depuis son store, au plus deux fois par hauteur et par peer.
+
 <!-- vexo-docs:technical-parity -->
 ## Annexe de parité technique
 

@@ -11,6 +11,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/address"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
 	"github.com/vexo-network/vexo-consensus/store"
+	"github.com/vexo-network/vexo-consensus/txcodec"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -256,11 +257,16 @@ func TestAnteKeeperRejectsAmbiguousTags(t *testing.T) {
 		"invalid nonce":      "bank:send:alice:bob:1:signer=alice:nonce=x",
 		"invalid fee":        "bank:send:alice:bob:1:signer=alice:fee=-1",
 		"overlong fee":       "bank:send:alice:bob:1:signer=alice:fee=" + strings.Repeat("9", 200),
-		"undecodable signed": "signed:@@@",
+		"undecodable signed": txcodec.SignedPrefix + "@@@",
 	} {
 		if _, err := keeper.admit(Context{}, types.Tx(tx)); err == nil {
 			t.Fatalf("%s: expected the ambiguous transaction to be rejected", name)
 		}
+	}
+	// The magic claims a signed transaction, so an envelope that does not decode is refused as a
+	// broken one instead of being reinterpreted as a plain payload and refused for what that lacks.
+	if _, err := keeper.admit(Context{}, types.Tx(txcodec.SignedPrefix+"@@@")); !errors.Is(err, ErrInvalidSignedTx) {
+		t.Fatalf("expected a broken envelope to fail as an invalid signed transaction, got %v", err)
 	}
 }
 

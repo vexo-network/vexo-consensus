@@ -108,6 +108,10 @@
 
 सिर्फ अस्थायी dial failure से configured peer या seed ban नहीं होता। failure backoff और diagnostics में दिखता है; ban malicious gossip, auth failure, या rate-limit abuse जैसे व्यवहार प्रमाण से होना चाहिए। `p2p.dial_timeout` multi-region latency और TLS/auth cost देखकर सेट करें।
 
+## बाइनरी consensus और commit संदेश
+
+consensus और commit topic के संदेश बाइनरी हैं: consensus संदेश संस्करण बाइट, प्रकार बाइट और body है, commit संदेश kind बाइट और body; हर body `types` (`types.AppendBlock`) और `finality` (`finality.AppendQuorumCert`, `AppendTimeoutCert`, `AppendProof`) की मानक एन्कोडिंग में है। हर डिकोडर कटा हुआ इनपुट, अंत में बचे बाइट, गैर-न्यूनतम लंबाई और सीमा से बड़े फ़ील्ड अस्वीकार करता है। इस एन्कोडिंग, हस्ताक्षरित ट्रांज़ैक्शन envelope, consensus WAL और mempool WAL ने बिना कनवर्टर के पुराने JSON और टेक्स्ट प्रारूपों की जगह ली है: इस संस्करण का नोड पुराने नोड से संदेश नहीं बदल सकता और उसकी WAL फ़ाइलें नहीं पढ़ सकता। सभी validator एक साथ अपग्रेड करें और हर एक को खाली `consensus.wal` और `mempool.wal` से शुरू करें।
+
 <!-- vexo-docs:technical-parity -->
 ## तकनीकी समानता परिशिष्ट
 

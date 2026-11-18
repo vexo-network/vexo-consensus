@@ -70,6 +70,10 @@ Dieses Dokument hilft dabei, Version-Kompatibilitätsmatrix und Upgrade-Entschei
 
 - [Englisches kanonisches Dokument](../../en/release/version-compatibility.md)
 
+## Formatkompatibilität
+
+Die Formate des binären Konsens-Wire, des signierten Transaktionsumschlags, des Konsens-WAL und des Mempool-WAL sind mit früheren pre-audit-Builds inkompatibel; das Upgrade-Vorgehen beschreibt die Networking-Spezifikation.
+
 <!-- vexo-docs:technical-parity -->
 ## Anhang zur technischen Parität
 

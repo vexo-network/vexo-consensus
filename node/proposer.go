@@ -57,8 +57,9 @@ func (node *Node) tickConsensusWithProposalOptions(ctx context.Context, cfg Cons
 		height = 1
 	}
 	isProposer, err := node.IsProposer(ctx, status.Round)
-	if errors.Is(err, consensus.ErrValidatorSetPending) {
-		// The set of the next block depends on a block this node has not executed yet.
+	if proposalRetryable(err) {
+		// The set of the next block depends on a block this node has not executed yet, or the node
+		// holds a certificate for a block it has not received; commit gossip fetches it.
 		return consensus.Proposal{}, types.Hash{}, false, nil
 	}
 	if err != nil {

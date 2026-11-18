@@ -68,6 +68,10 @@ Audit सामग्री में BLS के साथ VRF adapter audit evi
 
 - [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/security/audit-readiness.md)
 
+## mempool WAL और consensus WAL
+
+हर स्वीकृत tx या batch घटना सबमिशन लौटने से पहले टिकाऊ हो जाती है। रिकॉर्ड `uvarint(length) | op | payload | CRC-32C` हैं; समवर्ती admission एक ही fsync साझा करते हैं (group commit) और नोड admission लॉक पकड़े बिना उसकी प्रतीक्षा करता है। replay टूटे या दूषित अंतिम रिकॉर्ड को काट देता है और अंत से पहले क्षतिग्रस्त लॉग अस्वीकार करता है (`ErrWALCorrupt`)। I/O विफलता के बाद append तब तक रुके रहते हैं जब तक लॉग pool से दोबारा न लिखा जाए। consensus WAL भी वही framing (4 बाइट big-endian लंबाई, payload, 4 बाइट CRC-32C) उपयोग करता है: टूटा अंत काटा जाता है, बीच की क्षति अस्वीकार होती है।
+
 <!-- vexo-docs:technical-parity -->
 ## तकनीकी समानता परिशिष्ट
 

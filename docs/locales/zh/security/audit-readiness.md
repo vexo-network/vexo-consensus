@@ -74,6 +74,10 @@
 在提交审计包之前，团队应重新运行 release gate、docs-quality、EVM/Web3 conformance、state sync 验证和网络 E2E，并确认所有输出都写入 evidence manifest。任何手工步骤都需要负责人、时间戳和回滚条件，否则不能作为公开发布的安全依据。
 此外，审计说明必须区分“代码已经实现”“测试已经通过”“外部证据已经归档”这三种状态。只有当三者都指向同一版本、同一 commit、同一 genesis 和同一配置文件时，运营者才可以把该功能写入发布声明。
 
+## mempool WAL 与 consensus WAL
+
+每个被接受的 tx 或 batch 事件在提交返回之前即已持久化。记录格式为 `uvarint(length) | op | payload | CRC-32C`;并发的准入共享一次 fsync(group commit),节点在不持有准入锁的情况下等待它。replay 会截断撕裂或损坏的最后一条记录,并拒绝在末尾之前损坏的日志(`ErrWALCorrupt`)。发生 I/O 失败后,在日志从 pool 重写之前停止追加。consensus WAL 使用相同的 framing(4 字节 big-endian 长度、payload、4 字节 CRC-32C):截断撕裂的尾部,拒绝中间损坏。
+
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录
 

@@ -1,18 +1,27 @@
 package consensus
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
+// FuzzDecodeWireMessage checks that no input makes the decoder panic, and that what decodes has one
+// encoding: the bytes it came from.
 func FuzzDecodeWireMessage(f *testing.F) {
-	seeds := [][]byte{
-		[]byte(`{"type":"proposal","proposal":{"round":0,"proposer":"alice"}}`),
-		[]byte(`{"type":"vote","vote":{"height":1,"round":0,"validator_id":"alice"}}`),
-		[]byte(`{"type":"timeout_vote","timeout_vote":{"height":1,"round":0,"validator_id":"alice"}}`),
-		[]byte(`{"type":"unknown"}`),
-		[]byte(`not-json`),
+	for _, testCase := range wireCases(f) {
+		data, err := encodeWireMessage(testCase.message)
+		if err != nil {
+			f.Fatal(err)
+		}
+		f.Add(data)
+		f.Add(data[:len(data)/2])
 	}
-	for _, seed := range seeds {
-		f.Add(seed)
-	}
+	f.Add([]byte{})
+	f.Add([]byte{wireVersion})
+	f.Add([]byte{wireVersion, wireVote})
+	f.Add([]byte{wireVersion + 1, wireVote})
+	f.Add([]byte(`{"type":"proposal","proposal":{"round":0,"proposer":"alice"}}`))
+	f.Add([]byte(`not-json`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		message, err := DecodeWireMessage(data)
 		if err != nil {
@@ -21,21 +30,27 @@ func FuzzDecodeWireMessage(f *testing.F) {
 		if _, err := TopicForMessage(message.Type); err != nil {
 			t.Fatalf("decoded unsupported consensus message type %q", message.Type)
 		}
-		switch message.Type {
-		case MessageProposal:
-			if message.Proposal == nil {
-				t.Fatal("decoded proposal message without proposal")
+		present := 0
+		for _, set := range []bool{
+			message.Proposal != nil,
+			message.LaneProposal != nil,
+			message.ProposalRequest != nil,
+			message.Vote != nil,
+			message.TimeoutVote != nil,
+		} {
+			if set {
+				present++
 			}
-		case MessageVote:
-			if message.Vote == nil {
-				t.Fatal("decoded vote message without vote")
-			}
-		case MessageTimeoutVote:
-			if message.TimeoutVote == nil {
-				t.Fatal("decoded timeout message without timeout vote")
-			}
-		default:
-			t.Fatalf("decoded unknown message type %q", message.Type)
+		}
+		if present != 1 {
+			t.Fatalf("a %q message must carry exactly one body, got %d", message.Type, present)
+		}
+		encoded, err := encodeWireMessage(message)
+		if err != nil {
+			t.Fatalf("a decoded %q message does not encode: %v", message.Type, err)
+		}
+		if !bytes.Equal(encoded, data) {
+			t.Fatalf("a %q message decoded from %x encodes to %x", message.Type, data, encoded)
 		}
 	})
 }

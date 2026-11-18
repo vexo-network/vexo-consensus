@@ -68,6 +68,10 @@ Audit-Unterlagen müssen neben BLS auch VRF adapter audit evidence enthalten. Pi
 
 - [Englisches kanonisches Dokument](../../en/security/audit-readiness.md)
 
+## Mempool-WAL und Konsens-WAL
+
+Jedes angenommene Tx- oder Batch-Ereignis ist dauerhaft gespeichert, bevor seine Einreichung zurückkehrt. Datensätze sind `uvarint(length) | op | payload | CRC-32C`; gleichzeitige Aufnahmen teilen sich ein fsync (Group Commit), und der Knoten wartet darauf, ohne die Aufnahmesperre zu halten. Das Replay schneidet einen abgerissenen oder beschädigten letzten Datensatz ab und lehnt ein vor seinem Ende beschädigtes Log ab (`ErrWALCorrupt`). Nach einem I/O-Fehler stoppen Anhänge, bis das Log aus dem Pool neu geschrieben ist. Das Konsens-WAL nutzt dasselbe Framing (4-Byte-Länge big-endian, Payload, 4-Byte-CRC-32C): Ein abgerissenes Ende wird abgeschnitten, Beschädigung in der Mitte abgelehnt.
+
 <!-- vexo-docs:technical-parity -->
 ## Anhang zur technischen Parität
 

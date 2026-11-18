@@ -102,6 +102,10 @@ VEXO_DISSEMINATION=proposals VEXO_THROUGHPUT=150000 VEXO_VALIDATORS=4 VEXO_UPLIN
 
 `VEXO_ROUND_TIMEOUT_MS` đổi timeout; bỏ `VEXO_UPLINK_MBIT` và `VEXO_LATENCY_MS` để chạy liên kết không giới hạn. Mọi con số công bố cần ghi revision, máy, phiên bản Go và dòng log đầy đủ.
 
+## Thay đổi kể từ khi đo
+
+Trong các lần chạy được đo, validator yêu cầu toàn bộ proposal 300 ms sau khi bắt đầu chờ batch. Giờ đây việc chờ bắt đầu lại mỗi khi một batch mà proposal nêu tên đến, và toàn bộ proposal chỉ được yêu cầu sau 300 ms không có batch nào hoặc sau tổng cộng 2 s (`maxLaneWait`); ma trận chưa được đo lại. Phép đo dùng ứng dụng thử nghiệm không có chữ ký, ante handler, WAL của mempool hay LevelDB. Với stack sản xuất (`VEXO_APP=runtime`: chuyển khoản đã ký 288 byte, ante handler, WAL của mempool, LevelDB), 4 validator không định hình trên cùng máy commit 50.000 chuyển khoản ở khoảng 2.000–2.200 tx/s; trong CPU profile, thực thi khối chiếm ưu thế, chủ yếu là cập nhật và đọc cây trạng thái của store LevelDB.
+
 <!-- vexo-docs:technical-parity -->
 
 ## Phụ lục tương đương kỹ thuật

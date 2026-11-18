@@ -108,6 +108,10 @@ Dieses Dokument hilft dabei, P2P handshake, gossip, peer scoring und ban policy 
 
 Ein temporärer Dial-Fehler allein bannt keinen configured peer oder seed. Der Fehler bleibt in Backoff und Diagnostik sichtbar; Bans entstehen durch Verhaltensnachweise wie bösartiges gossip, Authentifizierungsfehler oder rate-limit abuse. `p2p.dial_timeout` sollte Latenz zwischen Regionen und TLS/auth Kosten berücksichtigen.
 
+## Binäre Konsens- und Commit-Nachrichten
+
+Die Nachrichten der Konsens- und Commit-Topics sind binär: Eine Konsensnachricht besteht aus Versionsbyte, Typbyte und Body, eine Commit-Nachricht aus Kind-Byte und Body; jeder Body in der kanonischen Kodierung von `types` (`types.AppendBlock`) und `finality` (`finality.AppendQuorumCert`, `AppendTimeoutCert`, `AppendProof`). Jeder Decoder lehnt abgeschnittene Eingaben, überzählige Bytes, nicht minimale Längen und zu große Felder ab. Diese Kodierung, der signierte Transaktionsumschlag, das Konsens-WAL und das Mempool-WAL haben frühere JSON- und Textformate ohne Konverter ersetzt: Ein Knoten dieser Version kann weder mit einem älteren Nachrichten austauschen noch dessen WAL-Dateien lesen. Aktualisieren Sie alle Validatoren gemeinsam und starten Sie jeden mit leerem `consensus.wal` und `mempool.wal`.
+
 <!-- vexo-docs:technical-parity -->
 ## Anhang zur technischen Parität
 

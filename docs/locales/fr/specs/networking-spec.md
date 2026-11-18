@@ -108,6 +108,10 @@ Ce document aide à comprendre P2P handshake, gossip, peer scoring et politique 
 
 Un simple échec dial temporaire ne ban pas un configured peer ni un seed. L’échec reste visible dans le backoff et les diagnostics ; le ban doit venir de preuves de comportement comme gossip malveillant, échec d’authentification ou rate-limit abuse. Ajustez `p2p.dial_timeout` selon la latence multi-région et le coût TLS/auth.
 
+## Messages binaires de consensus et de commit
+
+Les messages des topics de consensus et de commit sont binaires : un message de consensus est un octet de version, un octet de type et le body ; un message de commit, un octet de kind et le body ; chaque body dans l'encodage canonique de `types` (`types.AppendBlock`) et `finality` (`finality.AppendQuorumCert`, `AppendTimeoutCert`, `AppendProof`). Chaque décodeur refuse les entrées tronquées, les octets en trop, les longueurs non minimales et les champs au-delà de leur borne. Cet encodage, l'enveloppe de transaction signée, le WAL de consensus et le WAL du mempool ont remplacé les anciens formats JSON et texte sans convertisseur : un nœud de cette version ne peut ni échanger de messages avec un ancien ni lire ses fichiers WAL. Mettez à jour tous les validateurs ensemble et démarrez chacun avec des `consensus.wal` et `mempool.wal` vides.
+
 <!-- vexo-docs:technical-parity -->
 ## Annexe de parité technique
 

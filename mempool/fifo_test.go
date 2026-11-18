@@ -1,9 +1,8 @@
 package mempool
 
 import (
+	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -12,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vexo-network/vexo-consensus/txcodec"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -492,17 +492,15 @@ func TestTxFeeAndPriorityParseTags(t *testing.T) {
 
 func signedTestMempoolPayload(t *testing.T, payload string) types.Tx {
 	t.Helper()
-	document := map[string]string{
-		"schema_version": "v1",
-		"payload":        base64.StdEncoding.EncodeToString([]byte(payload)),
-		"public_key":     base64.StdEncoding.EncodeToString([]byte("public-key")),
-		"signature":      base64.StdEncoding.EncodeToString([]byte("signature")),
-	}
-	encoded, err := json.Marshal(document)
+	tx, err := txcodec.EncodeEnvelope(txcodec.Envelope{
+		PublicKey: []byte("public-key"),
+		Signature: []byte("signature"),
+		Payload:   []byte(payload),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return types.Tx("signed:" + base64.StdEncoding.EncodeToString(encoded))
+	return tx
 }
 
 func TestTxFeeAndPriorityUnwrapSignedTx(t *testing.T) {
@@ -646,5 +644,45 @@ func TestBuildBatchChecksOnlyWhatItTakesAndSkipsProposedTxs(t *testing.T) {
 	}
 	if checked != 11 {
 		t.Fatalf("expected the batch to check the 10 txs it took and the one that did not fit, got %d checks", checked)
+	}
+}
+
+// SenderTxs returns exactly the pending transactions of one signer, in pool order, matching the
+// signer however its address is spelled, and nothing for a signer without any.
+func TestFIFOSenderTxsListsOnlyTheSignersTransactions(t *testing.T) {
+	ctx := context.Background()
+	pool := NewFIFO(FIFOConfig{Author: "alice"})
+	txs := []types.Tx{
+		types.Tx("bank:send:fee=1:signer=alice:nonce=1"),
+		types.Tx("bank:send:fee=1:signer=bob:nonce=1"),
+		types.Tx("bank:send:fee=1:signer=alice:nonce=2"),
+		types.Tx("bank:send:fee=1"),
+	}
+	for _, tx := range txs {
+		if err := pool.AddTx(ctx, tx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := pool.SenderTxs(ctx, txcodec.NormalizeAddress("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || !bytes.Equal(got[0], txs[0]) || !bytes.Equal(got[1], txs[2]) {
+		t.Fatalf("expected alice's two transactions in pool order, got %q", got)
+	}
+	got[0][0] = 'X'
+	if again, _ := pool.SenderTxs(ctx, txcodec.NormalizeAddress("alice")); again[0][0] == 'X' {
+		t.Fatal("expected SenderTxs to return copies")
+	}
+	for _, sender := range []string{txcodec.NormalizeAddress("carol"), ""} {
+		if none, err := pool.SenderTxs(ctx, sender); err != nil || len(none) != 0 {
+			t.Fatalf("expected no transactions for %q, got %q (%v)", sender, none, err)
+		}
+	}
+	if err := pool.MarkCommitted(ctx, txs[:1]); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := pool.SenderTxs(ctx, txcodec.NormalizeAddress("alice")); len(got) != 1 || !bytes.Equal(got[0], txs[2]) {
+		t.Fatalf("expected the committed transaction gone, got %q", got)
 	}
 }

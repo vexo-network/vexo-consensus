@@ -88,6 +88,12 @@ Este documento ayuda a entender campos de finality proof, orden de verificación
 
 - [Documento canónico en inglés](../../en/specs/finality-proof-format.md)
 
+## Commits enlazados y puesta al día
+
+Un bloque cuyo hijo se certificó solo tras un timeout no tiene prueba propia: es final como ancestro del siguiente bloque que la regla 2-chain finaliza directamente. Su mensaje de commit lleva la prueba de ese descendiente y, en `Linkage`, los headers intermedios (como máximo 64). El receptor comprueba el body del bloque, el QC propio del bloque frente al set que nombra su header, que el linkage encadene el bloque al bloque probado por hash, altura a altura, y la prueba completa del descendiente.
+
+Un nodo anuncia cada commit una vez y sin transacciones, así que un nodo atrasado para siempre nunca vería el bloque que le falta: cuando los peers anuncian alturas por encima de la siguiente suya y no avanza durante un segundo, pide su siguiente altura a quien la anunció, y tras hacer commit de un bloque obtenido pide el siguiente de inmediato mientras los peers sigan por delante. Un peer responde con los commits en memoria o construye el commit desde su store, como máximo dos veces por altura y peer.
+
 <!-- vexo-docs:technical-parity -->
 ## Apéndice de paridad técnica
 

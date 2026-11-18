@@ -108,6 +108,10 @@
 
 일시적인 dial 실패만으로 configured peer 또는 seed를 ban하지 않습니다. 실패는 backoff와 진단 정보에 남지만, ban은 악성 gossip, 인증 실패, rate-limit abuse 같은 행동 증거에 의해 결정됩니다. `p2p.dial_timeout`은 지역 간 지연과 TLS/auth 비용을 고려해 정해야 합니다.
 
+## 바이너리 consensus·commit 메시지
+
+consensus와 commit topic의 메시지는 바이너리입니다. consensus 메시지는 버전 바이트, 타입 바이트, body이고, commit 메시지는 kind 바이트와 body이며, body는 `types`(`types.AppendBlock`)와 `finality`(`finality.AppendQuorumCert`, `AppendTimeoutCert`, `AppendProof`)의 정규 인코딩입니다. 모든 디코더는 잘린 입력, 뒤에 남는 바이트, 최소가 아닌 길이, 한도를 넘는 필드를 거부합니다. 이 인코딩과 서명 트랜잭션 envelope, consensus WAL, mempool WAL은 변환기 없이 이전 JSON·텍스트 형식을 대체했습니다. 이 버전의 노드는 이전 노드와 메시지를 주고받을 수 없고 이전 노드의 WAL 파일도 읽지 못합니다. 모든 validator를 함께 업그레이드하고 각각 빈 `consensus.wal`과 `mempool.wal`로 시작하세요.
+
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록
 

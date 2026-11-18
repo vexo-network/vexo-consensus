@@ -93,6 +93,14 @@ Dokumen ini membantu memahami aturan transaction format, signing, fee, dan gas d
 
 - [Dokumen kanonik bahasa Inggris](../../en/specs/tx-format.md)
 
+## Envelope bertanda tangan biner
+
+Transaksi bertanda tangan bersifat biner (`txcodec.EncodeEnvelope`): prefix dua byte `0x89 'V'` (`txcodec.SignedPrefix`), byte versi `1`, lalu empat field yang masing-masing diawali panjang uvarint: chain ID (paling banyak `txcodec.MaxChainIDLength`, 128 byte), kunci publik (paling banyak `txcodec.MaxPublicKeyLength`), tanda tangan (paling banyak `txcodec.MaxSignatureLength`), dan payload. Decoder menolak panjang yang tidak minimal, field di atas batasnya, versi yang tidak dikenal, dan byte sisa, sehingga transaksi bertanda tangan hanya punya satu encoding. `0x89` bukan UTF-8 yang valid, jadi payload teks tidak pernah dikira envelope. Node menolak saat start chain ID yang lebih panjang dari `txcodec.MaxChainIDLength` (`config.ErrChainIDTooLong`).
+
+Antarmuka teks membawa transaksi bertanda tangan dalam base64. `vexod keys sign-tx` mencetak `tx: <base64>` dan `encoding: base64`; `POST /v1/tx` membaca `tx` sebagai base64 kecuali permintaan menyetel `"encoding": "plain"`; `vexod tx parse --encoding base64` membaca transaksi bertanda tangan dan `--encoding plain` (default) payload teks. Ketiganya mendekode lewat `txcodec.DecodeTxEncoding`.
+
+Ante handler hanya mengingat autentikasi yang berhasil (`app.VerifyCache`, paling banyak `app.VerifyCacheCapacity`), dengan kunci digest dari byte transaksi dan semua hal yang menentukan putusan seperti chain ID; kegagalan tidak pernah diingat. Tanda tangan sebuah blok diverifikasi secara paralel sebelum blok diproses berurutan.
+
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis
 

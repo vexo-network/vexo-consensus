@@ -73,6 +73,8 @@ Do not commit real auth tokens, private keys, or TLS private keys to the reposit
 
 The gRPC binary stream codec carries a version byte. Version `2` includes signed-handshake fields (`signature_nonce`, `node_public_key`, and `signature`). Decoders still accept version `1` frames so older unsigned peers can fail at the explicit handshake-policy layer instead of being misdecoded. Operators should roll out nodes with matching handshake policy before requiring signed P2P on public networks.
 
+The messages on the consensus and commit topics are binary: a consensus message is a version byte, a type byte and the body, a commit message a kind byte and the body, each body in the canonical encoding of `types` (`types.AppendBlock`) and `finality` (`finality.AppendQuorumCert`, `AppendTimeoutCert`, `AppendProof`). Every decoder refuses truncated input, trailing bytes, non-minimal lengths and fields over their bounds. This encoding, the signed transaction envelope, the consensus WAL and the mempool WAL replaced earlier JSON and text formats without a converter: a node of this version cannot exchange messages with an older one and cannot read an older node's WAL files. Upgrade every validator together and start each from an empty `consensus.wal` and `mempool.wal`.
+
 ## Address Roles
 
 Vexo separates local bind addresses, peer dial addresses, and public advertised addresses:

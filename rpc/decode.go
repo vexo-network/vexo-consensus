@@ -11,6 +11,7 @@ import (
 
 	"github.com/vexo-network/vexo-consensus/node"
 	"github.com/vexo-network/vexo-consensus/slashing"
+	"github.com/vexo-network/vexo-consensus/txcodec"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -25,27 +26,12 @@ func decodeSubmitTxRequest(writer http.ResponseWriter, request *http.Request, ma
 	if payload.Tx == "" {
 		return nil, errors.New("transaction is required")
 	}
+	// A signed transaction is binary, so a request that names no encoding carries base64.
 	encoding := payload.Encoding
 	if encoding == "" {
-		encoding = "base64"
+		encoding = txcodec.EncodingBase64
 	}
-	var tx []byte
-	switch encoding {
-	case "base64":
-		decoded, err := base64.StdEncoding.DecodeString(payload.Tx)
-		if err != nil {
-			return nil, fmt.Errorf("invalid base64 transaction: %w", err)
-		}
-		tx = decoded
-	case "plain":
-		tx = []byte(payload.Tx)
-	default:
-		return nil, fmt.Errorf("unsupported transaction encoding %q", payload.Encoding)
-	}
-	if len(tx) == 0 {
-		return nil, errors.New("transaction is empty")
-	}
-	return types.Tx(tx), nil
+	return txcodec.DecodeTxEncoding(payload.Tx, encoding)
 }
 
 func decodeSubmitEvidenceRequest(writer http.ResponseWriter, request *http.Request, maxRequestBytes int64) (slashing.Evidence, error) {

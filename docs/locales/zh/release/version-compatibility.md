@@ -70,6 +70,10 @@
 
 - [英文规范文档](../../en/release/version-compatibility.md)
 
+## 格式兼容性
+
+二进制 consensus wire、签名交易 envelope、consensus WAL 和 mempool WAL 格式与早期 pre-audit 构建不兼容。升级步骤见 networking spec。
+
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录
 

@@ -1012,14 +1012,11 @@ func TestNodeTreatsFutureCommitGossipAsValidRace(t *testing.T) {
 
 	block := testCommitBlock(t, node, 2)
 	blockHash := consensus.HashBlock(block)
-	data, err := encodeCommitMessage(block, finality.QuorumCert{
+	data := appendCommitMessage(nil, commitMessage{Block: block, QuorumCert: finality.QuorumCert{
 		Height:    2,
 		Round:     0,
 		BlockHash: blockHash,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	}})
 	node.acceptCommitMessage(context.Background(), "bob", data)
 
 	score, err := node.PeerScore(context.Background(), "bob")
@@ -1050,14 +1047,11 @@ func TestNodePenalizesAndBansPeerForInvalidCommitProof(t *testing.T) {
 	defer node.Stop(context.Background())
 
 	block := testCommitBlock(t, node, 1)
-	data, err := encodeCommitMessage(block, finality.QuorumCert{
+	data := appendCommitMessage(nil, commitMessage{Block: block, QuorumCert: finality.QuorumCert{
 		Height:    1,
 		Round:     0,
 		BlockHash: types.Hash{9},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	}})
 	node.acceptCommitMessage(context.Background(), "bob", data)
 
 	score, err := node.PeerScore(context.Background(), "bob")

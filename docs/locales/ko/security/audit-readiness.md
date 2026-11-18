@@ -77,6 +77,10 @@
 
 감사자는 코드 존재 여부보다 증거의 재현성을 먼저 봅니다. 따라서 위협 모델, 알려진 한계, BLS/VRF 감사 자료, EVM conformance 결과, longrun/chaos 결과, KMS 서명 증거, snapshot/replay 증거가 동일한 바이너리와 동일한 설정에서 생성되었는지 확인해야 합니다. 운영자는 예외를 숨기지 말고 release gate가 거절한 항목을 그대로 기록한 뒤, 담당자와 재검증 조건을 runbook에 남겨야 합니다.
 
+## mempool WAL과 consensus WAL
+
+수락된 모든 tx 또는 batch 이벤트는 제출이 반환되기 전에 내구성을 갖습니다. 레코드는 `uvarint(length) | op | payload | CRC-32C`이고, 동시에 들어온 admission은 하나의 fsync를 공유하며(group commit), 노드는 admission 잠금을 잡지 않은 채 그 fsync를 기다립니다. replay는 찢어지거나 손상된 마지막 레코드를 잘라내고, 끝 이전에서 손상된 로그는 거부합니다(`ErrWALCorrupt`). I/O 실패가 나면 로그를 pool에서 다시 쓸 때까지 append를 멈춥니다. consensus WAL도 같은 framing(4바이트 big-endian 길이, payload, 4바이트 CRC-32C)을 쓰며, 찢어진 끝은 잘라내고 중간 손상은 거부합니다.
+
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록
 

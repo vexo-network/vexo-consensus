@@ -116,6 +116,12 @@
 
 - [영어 정본 문서](../../en/specs/finality-proof-format.md)
 
+## 연결된 commit과 따라잡기
+
+자식이 timeout 이후에야 인증된 블록은 자기 증명이 없습니다. 2-chain 규칙이 직접 확정하는 다음 블록의 조상으로서 확정됩니다. 그 commit 메시지는 그 후손의 증명과, `Linkage`에 둘 사이의 header(최대 64개)를 담습니다. 받는 쪽은 블록 body, header가 지정한 set에 대한 블록 자신의 QC, linkage가 높이 하나씩 hash로 블록을 증명된 블록까지 잇는지, 그리고 후손의 증명 전체를 검사합니다.
+
+노드는 각 commit을 transaction 없이 한 번만 알립니다. 영구히 뒤처진 노드는 놓친 블록을 다시 볼 일이 없으므로, peer가 자기 다음 높이보다 높은 높이를 알리는데 1초 동안 진전이 없으면 알린 peer에게 다음 높이를 요청하고, 가져온 블록을 commit한 뒤에도 peer가 앞서 있으면 곧바로 그다음을 요청합니다. peer는 메모리의 commit이나 store에서 만든 commit으로 답하며, 높이와 peer마다 최대 두 번입니다.
+
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록
 

@@ -3,7 +3,6 @@ package consensus
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"slices"
@@ -64,8 +63,6 @@ const (
 	// maxChainView and maxChainHeight reject values whose successor would overflow.
 	maxChainView   types.Round  = 1 << 62
 	maxChainHeight types.Height = 1 << 62
-	// maxVerifiedQCCache bounds the cache of already verified certificates.
-	maxVerifiedQCCache = 1024
 	// maxValidatorSetHistory bounds the validator set snapshots kept for verifying
 	// certificates of earlier heights.
 	maxValidatorSetHistory = 64
@@ -125,6 +122,10 @@ type viewSlot struct {
 	height    types.Height
 }
 
+// StateMachine is the consensus state of one validator. The lock mu guards all of it except the
+// fields NewStateMachine sets and nothing assigns again (chainID, hashBlock, signatures,
+// aggregator, aggregates, enforceProposerSelection, appHashes and cache): the verification of a
+// message before the lock reads those without it (see sigCache).
 type StateMachine struct {
 	mu            sync.Mutex
 	chainID       string
@@ -161,7 +162,10 @@ type StateMachine struct {
 	pendingFinal    map[types.Hash]CommitDecision
 	floorHeight     types.Height
 	floorHash       types.Hash
-	verifiedQCs     map[[sha256.Size]byte]struct{}
+	// cache holds the signatures and certificates this machine verified.
+	cache *sigCache
+	// benches remembers the benched lists the machine computed (childBench).
+	benches generations[benchKey, []types.Bench]
 }
 
 func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
@@ -212,7 +216,8 @@ func NewStateMachine(config StateMachineConfig) (*StateMachine, error) {
 		committedSet: make(map[types.Hash]struct{}),
 		commitIndex:  safety.NewCommitIndex(),
 		pendingFinal: make(map[types.Hash]CommitDecision),
-		verifiedQCs:  make(map[[sha256.Size]byte]struct{}),
+		cache:        newSigCache(maxVerifiedSignatures, maxVerifiedCertificates),
+		benches:      newGenerations[benchKey, []types.Bench](maxChildBenches),
 	}
 	machine.timeouts = newTimeoutCollector(machine.validatorSetForHeight, config.Aggregator)
 	return machine, nil
@@ -410,7 +415,7 @@ func (machine *StateMachine) checkProposalHeader(proposal Proposal, validatorSet
 		return fmt.Errorf("%w: block time %d", ErrInvalidProposal, header.TimeUnixNano)
 	}
 	if parent != nil {
-		if bench := ChildBench(parent, header.Round, validatorSet); !slices.Equal(header.Benched, bench) {
+		if bench := machine.childBench(header.PreviousBlockHash, parent, header.Round, validatorSet); !slices.Equal(header.Benched, bench) {
 			return fmt.Errorf("%w: benched validators %v, the parent fixes %v", ErrInvalidProposal, header.Benched, bench)
 		}
 	}
@@ -493,6 +498,32 @@ func (machine *StateMachine) currentValidatorSet() validator.Set {
 	return machine.validatorSets[len(machine.validatorSets)-1].set
 }
 
+// benchKey identifies a benched list by what it derives from: the parent block, whose hash fixes
+// its header, the view, and the validator set, whose hash fixes its members and their power.
+type benchKey struct {
+	parent types.Hash
+	round  types.Round
+	set    types.Hash
+}
+
+// childBench returns ChildBench(parent, round, validatorSet) for the parent block of hash
+// parentHash, which the machine holds. The list is a function of the key, so a repeat is answered
+// from the memory of the machine instead of walking the views again: every proposal checks its list,
+// and the node asks for the leader of the same view on every tick. The list is shared; a caller that
+// keeps it clones it. The caller holds the machine lock.
+func (machine *StateMachine) childBench(parentHash types.Hash, parent *types.Header, round types.Round, validatorSet validator.Set) []types.Bench {
+	if parent == nil {
+		return nil
+	}
+	key := benchKey{parent: parentHash, round: round, set: validatorSet.Hash()}
+	if bench, found := machine.benches.get(key); found {
+		return bench
+	}
+	bench := ChildBench(parent, round, validatorSet)
+	machine.benches.put(key, bench)
+	return bench
+}
+
 // ProposalValidatorSet returns the validator set of the next block the machine would propose: the
 // child of the highest certified block. It is the set the proposer of the view is scheduled from.
 func (machine *StateMachine) ProposalValidatorSet() (validator.Set, error) {
@@ -543,7 +574,7 @@ func (machine *StateMachine) CheckBench(header types.Header) error {
 	if err != nil {
 		return nil
 	}
-	if bench := ChildBench(parent, header.Round, validatorSet); !slices.Equal(header.Benched, bench) {
+	if bench := machine.childBench(header.PreviousBlockHash, parent, header.Round, validatorSet); !slices.Equal(header.Benched, bench) {
 		return fmt.Errorf("%w: benched validators %v, the parent fixes %v", ErrInvalidProposal, header.Benched, bench)
 	}
 	return nil
@@ -574,7 +605,7 @@ func (machine *StateMachine) nextProposalHeader(round types.Round) (types.Header
 	if parent != nil {
 		header.JustifyRound = parent.Round
 	}
-	header.Benched = ChildBench(parent, round, validatorSet)
+	header.Benched = slices.Clone(machine.childBench(header.PreviousBlockHash, parent, round, validatorSet))
 	return header, validatorSet, nil
 }
 
@@ -621,7 +652,7 @@ func (machine *StateMachine) CreateProposal(block types.Block, round types.Round
 		return Proposal{}, err
 	}
 	block.Header.NextValidatorSetHash = nextSet.Hash()
-	block.Header.Benched = ChildBench(machine.parentHeader(block.Header), round, validatorSet)
+	block.Header.Benched = slices.Clone(machine.childBench(block.Header.PreviousBlockHash, machine.parentHeader(block.Header), round, validatorSet))
 	if _, found := validatorSet.Get(proposer); !found {
 		return Proposal{}, ErrUnknownValidator
 	}
@@ -677,28 +708,14 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 		return ctx.Err()
 	default:
 	}
+	machine.preverifyProposal(proposal)
 	machine.mu.Lock()
 	defer machine.mu.Unlock()
 
-	header := proposal.Block.Header
-	if header.Height == 0 {
-		return fmt.Errorf("%w: missing height", ErrInvalidProposal)
-	}
-	if header.Height > maxChainHeight || proposal.Round > maxChainView {
-		return fmt.Errorf("%w: height or view out of range", ErrInvalidProposal)
-	}
-	if header.ChainID != machine.chainID {
-		return fmt.Errorf("%w: chain id mismatch: %s", ErrInvalidProposal, header.ChainID)
-	}
-	if size := BlockTxBytes(proposal.Block); size > MaxBlockBytes {
-		return fmt.Errorf("%w: the block carries %d transaction bytes, more than %d", ErrInvalidProposal, size, MaxBlockBytes)
-	}
-	if header.Round != proposal.Round || header.JustifyRound != proposal.JustifyQC.Round {
-		return fmt.Errorf("%w: header views %d/%d do not match the proposal views %d/%d", ErrInvalidProposal, header.Round, header.JustifyRound, proposal.Round, proposal.JustifyQC.Round)
-	}
-	if err := machine.checkProposalChain(proposal); err != nil {
+	if err := machine.checkProposalShape(proposal); err != nil {
 		return err
 	}
+	header := proposal.Block.Header
 	if header.Height > machine.floorHeight+maxHeightWindow {
 		return fmt.Errorf("%w: proposal height %d", ErrOutOfWindow, header.Height)
 	}
@@ -797,6 +814,30 @@ func (machine *StateMachine) OnProposal(ctx context.Context, proposal Proposal) 
 	machine.advanceView(header.Height, proposal.Round)
 	machine.status.Phase = PhaseVote
 	return nil
+}
+
+// checkProposalShape checks the rules a proposal meets or breaks whatever the state of the machine,
+// in the order OnProposal applies them, before any signature work: its heights and views, its chain
+// id, the size of its block, and the structural rules that tie it to its justify QC and to the view
+// sequence. It reads only the chain id, which is never assigned again.
+func (machine *StateMachine) checkProposalShape(proposal Proposal) error {
+	header := proposal.Block.Header
+	if header.Height == 0 {
+		return fmt.Errorf("%w: missing height", ErrInvalidProposal)
+	}
+	if header.Height > maxChainHeight || proposal.Round > maxChainView {
+		return fmt.Errorf("%w: height or view out of range", ErrInvalidProposal)
+	}
+	if header.ChainID != machine.chainID {
+		return fmt.Errorf("%w: chain id mismatch: %s", ErrInvalidProposal, header.ChainID)
+	}
+	if size := BlockTxBytes(proposal.Block); size > MaxBlockBytes {
+		return fmt.Errorf("%w: the block carries %d transaction bytes, more than %d", ErrInvalidProposal, size, MaxBlockBytes)
+	}
+	if header.Round != proposal.Round || header.JustifyRound != proposal.JustifyQC.Round {
+		return fmt.Errorf("%w: header views %d/%d do not match the proposal views %d/%d", ErrInvalidProposal, header.Round, header.JustifyRound, proposal.Round, proposal.JustifyQC.Round)
+	}
+	return machine.checkProposalChain(proposal)
 }
 
 // checkProposalChain checks the cheap structural rules that tie a proposal to its justify
@@ -914,6 +955,7 @@ func (machine *StateMachine) OnVote(ctx context.Context, vote Vote) error {
 		return ctx.Err()
 	default:
 	}
+	machine.preverifyVote(vote)
 	machine.mu.Lock()
 	defer machine.mu.Unlock()
 
@@ -985,6 +1027,7 @@ func (machine *StateMachine) OnTimeoutVote(ctx context.Context, vote TimeoutVote
 		return finality.TimeoutCert{}, ctx.Err()
 	default:
 	}
+	machine.preverifyTimeoutVote(vote)
 	machine.mu.Lock()
 	defer machine.mu.Unlock()
 
@@ -1563,25 +1606,38 @@ func (machine *StateMachine) verifyOptionalQuorumCert(qc finality.QuorumCert) er
 }
 
 func (machine *StateMachine) verifyQuorumCert(qc finality.QuorumCert) error {
-	if qc.Height == 0 || qc.BlockHash == (types.Hash{}) {
-		return fmt.Errorf("%w: missing height or block hash", ErrInvalidQuorumCert)
-	}
-	if qc.Height > maxChainHeight || qc.Round > maxChainView {
-		return fmt.Errorf("%w: height or view out of range", ErrInvalidQuorumCert)
-	}
-	validatorSet, known, err := machine.validatorSetForCert(qc.Height, qc.BlockHash)
+	validatorSet, err := machine.certificateSet(qc)
 	if err != nil {
 		return err
-	}
-	if known {
-		if node, _ := machine.blockTree.Get(qc.BlockHash); node.Block.Header.Round != qc.Round {
-			return fmt.Errorf("%w: block is proposed in view %d, not view %d", ErrInvalidQuorumCert, node.Block.Header.Round, qc.Round)
-		}
 	}
 	return machine.verifyQuorumCertWithSet(qc, validatorSet)
 }
 
-// verifyQuorumCertWithSet verifies qc against validatorSet.
+// certificateSet returns the validator set that verifies qc: the set of the block it certifies. It
+// reports a certificate the machine rejects without checking a signature, and a set it cannot
+// resolve yet. The caller holds the machine lock.
+func (machine *StateMachine) certificateSet(qc finality.QuorumCert) (validator.Set, error) {
+	if qc.Height == 0 || qc.BlockHash == (types.Hash{}) {
+		return nil, fmt.Errorf("%w: missing height or block hash", ErrInvalidQuorumCert)
+	}
+	if qc.Height > maxChainHeight || qc.Round > maxChainView {
+		return nil, fmt.Errorf("%w: height or view out of range", ErrInvalidQuorumCert)
+	}
+	validatorSet, known, err := machine.validatorSetForCert(qc.Height, qc.BlockHash)
+	if err != nil {
+		return nil, err
+	}
+	if known {
+		if node, _ := machine.blockTree.Get(qc.BlockHash); node.Block.Header.Round != qc.Round {
+			return nil, fmt.Errorf("%w: block is proposed in view %d, not view %d", ErrInvalidQuorumCert, node.Block.Header.Round, qc.Round)
+		}
+	}
+	return validatorSet, nil
+}
+
+// verifyQuorumCertWithSet verifies qc against validatorSet, unless this machine verified exactly
+// that certificate against that set before. It reads only the fields NewStateMachine sets, so it
+// runs with or without the machine lock.
 func (machine *StateMachine) verifyQuorumCertWithSet(qc finality.QuorumCert, validatorSet validator.Set) error {
 	if qc.Height == 0 || qc.BlockHash == (types.Hash{}) {
 		return fmt.Errorf("%w: missing height or block hash", ErrInvalidQuorumCert)
@@ -1592,8 +1648,12 @@ func (machine *StateMachine) verifyQuorumCertWithSet(qc finality.QuorumCert, val
 	if len(qc.Signature) == 0 {
 		return fmt.Errorf("%w: missing aggregate signature", ErrInvalidQuorumCert)
 	}
-	cacheKey := quorumCertCacheKey(qc, validatorSet.Hash())
-	if _, verified := machine.verifiedQCs[cacheKey]; verified {
+	message, err := vexocrypto.DomainMessage(vexocrypto.DomainConsensusVote, VoteSignBytes(Vote{Height: qc.Height, Round: qc.Round, BlockHash: qc.BlockHash}))
+	if err != nil {
+		return err
+	}
+	digest := certificateDigest(validatorSet.Hash(), message, qc.VotingPower, qc.Signers, qc.Signature)
+	if machine.cache.certificates.contains(digest) {
 		return nil
 	}
 	signers, err := finality.ParseSigners(qc.Signers)
@@ -1627,36 +1687,11 @@ func (machine *StateMachine) verifyQuorumCertWithSet(qc finality.QuorumCert, val
 	if qc.VotingPower != 0 && qc.VotingPower != votingPower {
 		return fmt.Errorf("%w: voting power mismatch", ErrInvalidQuorumCert)
 	}
-	message, err := vexocrypto.DomainMessage(vexocrypto.DomainConsensusVote, VoteSignBytes(Vote{Height: qc.Height, Round: qc.Round, BlockHash: qc.BlockHash}))
-	if err != nil {
-		return err
-	}
 	if !machine.aggregates.VerifyAggregate(publicKeys, message, qc.Signature) {
 		return fmt.Errorf("%w: invalid aggregate signature", ErrInvalidQuorumCert)
 	}
-	if len(machine.verifiedQCs) >= maxVerifiedQCCache {
-		machine.verifiedQCs = make(map[[sha256.Size]byte]struct{})
-	}
-	machine.verifiedQCs[cacheKey] = struct{}{}
+	machine.cache.certificates.add(digest)
 	return nil
-}
-
-// quorumCertCacheKey identifies a certificate by every field that influences its
-// verification, including the signature and the validator set that verifies it.
-func quorumCertCacheKey(qc finality.QuorumCert, validatorSetHash types.Hash) [sha256.Size]byte {
-	hasher := sha256.New()
-	hasher.Write(validatorSetHash[:])
-	writeUint64(hasher, uint64(qc.Height))
-	writeUint64(hasher, uint64(qc.Round))
-	hasher.Write(qc.BlockHash[:])
-	writeUint64(hasher, uint64(qc.VotingPower))
-	writeUint64(hasher, uint64(len(qc.Signers)))
-	hasher.Write(qc.Signers)
-	writeUint64(hasher, uint64(len(qc.Signature)))
-	hasher.Write(qc.Signature)
-	var key [sha256.Size]byte
-	copy(key[:], hasher.Sum(nil))
-	return key
 }
 
 // verifyTimeoutCert checks a timeout certificate: its signatures are grouped by signed
@@ -1674,12 +1709,7 @@ func (machine *StateMachine) verifyTimeoutCert(timeoutCert finality.TimeoutCert)
 	if err != nil {
 		return invalid("%v", err)
 	}
-	var maxHeight types.Height
-	for _, group := range groups {
-		if group.Height > maxHeight {
-			maxHeight = group.Height
-		}
-	}
+	maxHeight := highestGroupHeight(groups)
 	if timeoutCert.Height != maxHeight {
 		return invalid("height %d is not the highest vote height %d", timeoutCert.Height, maxHeight)
 	}
@@ -1715,15 +1745,11 @@ func (machine *StateMachine) verifyTimeoutCert(timeoutCert finality.TimeoutCert)
 			publicKeys = append(publicKeys, validatorInfo.PublicKey)
 			allSigners = append(allSigners, signer)
 		}
-		message, err := vexocrypto.DomainMessage(vexocrypto.DomainConsensusTimeoutVote, TimeoutVoteSignBytes(TimeoutVote{
-			Height: group.Height,
-			Round:  timeoutCert.Round,
-			HighQC: group.HighQC,
-		}))
+		verified, err := machine.verifyGroupAggregate(validatorSet, timeoutCert.Round, group, publicKeys)
 		if err != nil {
 			return err
 		}
-		if !machine.aggregates.VerifyAggregate(publicKeys, message, group.Signature) {
+		if !verified {
 			return invalid("invalid aggregate signature")
 		}
 		if isBetterQC(group.HighQC, bestQC) {
@@ -1741,6 +1767,15 @@ func (machine *StateMachine) verifyTimeoutCert(timeoutCert finality.TimeoutCert)
 		return invalid("high qc is not the best qc of the signature groups")
 	}
 	return nil
+}
+
+// highestGroupHeight returns the greatest height of the signature groups of a timeout certificate.
+func highestGroupHeight(groups []timeoutSignatureGroup) types.Height {
+	var highest types.Height
+	for _, group := range groups {
+		highest = max(highest, group.Height)
+	}
+	return highest
 }
 
 func (machine *StateMachine) buildQuorumCert(height types.Height, round types.Round, blockHash types.Hash) (finality.QuorumCert, error) {
@@ -1809,6 +1844,9 @@ func (machine *StateMachine) buildQuorumCert(height types.Height, round types.Ro
 	return qc, nil
 }
 
+// verifyProposalSignature verifies the signature of proposal by proposer, unless this machine
+// verified exactly that signature before. It reads only the fields NewStateMachine sets, so it runs
+// with or without the machine lock.
 func (machine *StateMachine) verifyProposalSignature(proposal Proposal, proposer validator.Validator) error {
 	if len(proposal.Signature) == 0 {
 		return fmt.Errorf("%w: missing proposal signature", ErrInvalidProposal)
@@ -1817,12 +1855,14 @@ func (machine *StateMachine) verifyProposalSignature(proposal Proposal, proposer
 	if err != nil {
 		return err
 	}
-	if !machine.signatures.Verify(proposer.PublicKey, message, proposal.Signature) {
+	if !machine.verifySignature(proposer.PublicKey, message, proposal.Signature) {
 		return fmt.Errorf("%w: invalid proposal signature", ErrInvalidProposal)
 	}
 	return nil
 }
 
+// verifyVoteSignature verifies the signature of vote by voter, unless this machine verified exactly
+// that signature before. It reads only the fields NewStateMachine sets.
 func (machine *StateMachine) verifyVoteSignature(vote Vote, voter validator.Validator) error {
 	if len(vote.Signature) == 0 {
 		return fmt.Errorf("%w: missing vote signature", ErrInvalidVote)
@@ -1831,12 +1871,14 @@ func (machine *StateMachine) verifyVoteSignature(vote Vote, voter validator.Vali
 	if err != nil {
 		return err
 	}
-	if !machine.signatures.Verify(voter.PublicKey, message, vote.Signature) {
+	if !machine.verifySignature(voter.PublicKey, message, vote.Signature) {
 		return fmt.Errorf("%w: invalid vote signature", ErrInvalidVote)
 	}
 	return nil
 }
 
+// verifyTimeoutVoteSignature verifies the signature of vote by voter, unless this machine verified
+// exactly that signature before. It reads only the fields NewStateMachine sets.
 func (machine *StateMachine) verifyTimeoutVoteSignature(vote TimeoutVote, voter validator.Validator) error {
 	if len(vote.Signature) == 0 {
 		return fmt.Errorf("%w: missing timeout vote signature", ErrInvalidVote)
@@ -1845,7 +1887,7 @@ func (machine *StateMachine) verifyTimeoutVoteSignature(vote TimeoutVote, voter 
 	if err != nil {
 		return err
 	}
-	if !machine.signatures.Verify(voter.PublicKey, message, vote.Signature) {
+	if !machine.verifySignature(voter.PublicKey, message, vote.Signature) {
 		return fmt.Errorf("%w: invalid timeout vote signature", ErrInvalidVote)
 	}
 	return nil

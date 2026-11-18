@@ -93,6 +93,14 @@
 
 - [英文规范文档](../../en/specs/tx-format.md)
 
+## 二进制签名 envelope
+
+签名交易是二进制的(`txcodec.EncodeEnvelope`):两字节前缀 `0x89 'V'`(`txcodec.SignedPrefix`)、版本字节 `1`,随后是四个带 uvarint 长度前缀的字段:chain ID(最多 `txcodec.MaxChainIDLength`,即 128 字节)、公钥(最多 `txcodec.MaxPublicKeyLength`)、签名(最多 `txcodec.MaxSignatureLength`)和 payload。解码器拒绝非最小长度、超限字段、未知版本和多余的尾部字节,因此签名交易只有一种编码。`0x89` 不是合法的 UTF-8,文本 payload 不会被误认为 envelope。节点在启动时拒绝长于 `txcodec.MaxChainIDLength` 的 chain ID(`config.ErrChainIDTooLong`)。
+
+文本接口以 base64 传递签名交易。`vexod keys sign-tx` 输出 `tx: <base64>` 和 `encoding: base64`;`POST /v1/tx` 除非请求设置 `"encoding": "plain"`,否则按 base64 读取 `tx`;`vexod tx parse --encoding base64` 读取签名交易,`--encoding plain`(默认)读取文本 payload。三者都通过 `txcodec.DecodeTxEncoding` 解码。
+
+ante handler 只记住成功的认证(`app.VerifyCache`,最多 `app.VerifyCacheCapacity` 条),键是交易字节以及 chain ID 等判定所依赖的一切内容的摘要;失败从不被记住。区块中的签名在按顺序处理之前并行验证。
+
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录
 

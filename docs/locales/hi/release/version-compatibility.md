@@ -70,6 +70,10 @@
 
 - [अंग्रेज़ी प्रामाणिक दस्तावेज़](../../en/release/version-compatibility.md)
 
+## प्रारूप संगतता
+
+बाइनरी consensus wire, हस्ताक्षरित ट्रांज़ैक्शन envelope, consensus WAL और mempool WAL प्रारूप पुराने pre-audit बिल्ड के साथ असंगत हैं; अपग्रेड प्रक्रिया के लिए networking spec देखें।
+
 <!-- vexo-docs:technical-parity -->
 ## तकनीकी समानता परिशिष्ट
 

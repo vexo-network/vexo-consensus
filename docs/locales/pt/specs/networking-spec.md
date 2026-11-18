@@ -108,6 +108,10 @@ Este documento ajuda a entender P2P handshake, gossip, peer scoring e política 
 
 Uma falha temporária de dial não bane sozinha um configured peer ou seed. A falha aparece no backoff e nos diagnósticos; ban deve vir de evidência de comportamento como gossip malicioso, falha de autenticação ou rate-limit abuse. Ajuste `p2p.dial_timeout` pela latência multi-região e custo TLS/auth.
 
+## Mensagens binárias de consenso e commit
+
+As mensagens dos topics de consenso e commit são binárias: uma mensagem de consenso é um byte de versão, um byte de tipo e o body; uma mensagem de commit, um byte de kind e o body; cada body na codificação canônica de `types` (`types.AppendBlock`) e `finality` (`finality.AppendQuorumCert`, `AppendTimeoutCert`, `AppendProof`). Todo decodificador recusa entrada truncada, bytes sobrando, comprimentos não mínimos e campos acima do limite. Essa codificação, o envelope de transação assinada, o WAL de consenso e o WAL do mempool substituíram os formatos JSON e de texto anteriores sem conversor: um nó desta versão não troca mensagens com um anterior nem lê os arquivos WAL dele. Atualize todos os validadores juntos e inicie cada um com `consensus.wal` e `mempool.wal` vazios.
+
 <!-- vexo-docs:technical-parity -->
 ## Apêndice de paridade técnica
 

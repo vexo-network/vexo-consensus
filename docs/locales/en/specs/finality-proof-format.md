@@ -55,6 +55,10 @@ External commit gossip is intentionally stricter than a single block plus QC. A 
 
 The certificate C carries for B is the proof's own `QuorumCert`. This lets a peer that missed earlier proposals verify the same 2-chain finality decision before executing the committed block. A proof without the child link only shows that B is certified, not that it is final; the receiver treats block+QC-only commit gossip as insufficient and does not mutate local state from it.
 
+A block whose child was certified only after a timeout has no proof of its own: it is final as an ancestor of the next block the 2-chain rule finalizes directly. Its commit message carries that descendant's proof and, in `Linkage`, the headers strictly between the two (at most 64). The receiver checks the block body, the block's own QC against the set its header names, that the linkage chains the block to the proven block by hash one height at a time, and the descendant's proof in full.
+
+A node announces each commit once, without its transactions. A node that falls behind for good would therefore never see the block it misses: when peers announce heights above its next one and it has not advanced for one second, it asks the announcer for its next height, and once it commits a fetched block while peers are still ahead it asks for the following one at once. A peer answers from the commits it keeps in memory or builds the commit from its store, at most twice per height and peer.
+
 When a node commits a certified block, the block record also stores the QC that certified that block. This lets a restarted node reconstruct the child link from durable block records instead of relying only on in-memory pending proposals. Node-level `/v1/finality/*` queries fail closed when a strict proof cannot be built.
 
 ## Verification Algorithm

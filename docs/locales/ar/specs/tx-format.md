@@ -93,6 +93,14 @@
 
 - [الوثيقة الإنجليزية المرجعية](../../en/specs/tx-format.md)
 
+## الغلاف الموقّع الثنائي
+
+المعاملة الموقّعة ثنائية (`txcodec.EncodeEnvelope`): بادئة من بايتين `0x89 'V'` (`txcodec.SignedPrefix`)، ثم بايت الإصدار `1`، ثم أربعة حقول يسبق كلًّا منها طوله بترميز uvarint: معرّف السلسلة chain ID (بحد أقصى `txcodec.MaxChainIDLength`، أي 128 بايت)، والمفتاح العام (بحد أقصى `txcodec.MaxPublicKeyLength`)، والتوقيع (بحد أقصى `txcodec.MaxSignatureLength`)، والحمولة payload. يرفض المفكّك الأطوال غير الدنيا والحقول التي تتجاوز حدودها والإصدارات المجهولة والبايتات الزائدة في النهاية، فللمعاملة الموقّعة ترميز واحد فقط. البايت `0x89` ليس UTF-8 صالحًا، لذا لا تُحسب حمولة نصية غلافًا. ترفض العقدة عند الإقلاع أي chain ID أطول من `txcodec.MaxChainIDLength` (`config.ErrChainIDTooLong`).
+
+تنقل الواجهات النصية المعاملة الموقّعة بترميز base64. يطبع `vexod keys sign-tx` السطرين `tx: <base64>` و`encoding: base64`؛ ويقرأ `POST /v1/tx` الحقل `tx` بترميز base64 ما لم يحدد الطلب `"encoding": "plain"`؛ ويقرأ `vexod tx parse --encoding base64` معاملة موقّعة، و`--encoding plain` (الافتراضي) حمولة نصية. وتفكّ الثلاثة الترميز عبر `txcodec.DecodeTxEncoding`.
+
+يتذكّر ante handler عمليات المصادقة الناجحة فقط (`app.VerifyCache`، بحد أقصى `app.VerifyCacheCapacity`)، بمفتاح هو ملخّص لبايتات المعاملة ولكل ما يعتمد عليه الحكم مثل chain ID؛ ولا يتذكّر أي فشل. تُتحقق تواقيع الكتلة بالتوازي قبل معالجة الكتلة بالترتيب.
+
 <!-- vexo-docs:technical-parity -->
 ## ملحق التكافؤ التقني
 

@@ -93,6 +93,14 @@
 
 - [영어 정본 문서](../../en/specs/tx-format.md)
 
+## 바이너리 서명 envelope
+
+서명된 트랜잭션은 바이너리입니다(`txcodec.EncodeEnvelope`). 2바이트 prefix `0x89 'V'`(`txcodec.SignedPrefix`), 버전 바이트 `1`, 그리고 uvarint 길이가 앞에 붙은 네 필드가 이어집니다: chain ID(최대 `txcodec.MaxChainIDLength`, 128바이트), 공개키(최대 `txcodec.MaxPublicKeyLength`), 서명(최대 `txcodec.MaxSignatureLength`), payload. 디코더는 최소가 아닌 길이, 한도를 넘는 필드, 알 수 없는 버전, 뒤에 남는 바이트를 거부하므로 서명 트랜잭션의 인코딩은 하나뿐입니다. `0x89`는 유효한 UTF-8이 아니어서 텍스트 payload가 envelope로 오인되지 않습니다. 노드는 `txcodec.MaxChainIDLength`보다 긴 chain ID를 시작 시 거부합니다(`config.ErrChainIDTooLong`).
+
+텍스트 인터페이스는 서명 트랜잭션을 base64로 전달합니다. `vexod keys sign-tx`는 `tx: <base64>`와 `encoding: base64`를 출력하고, `POST /v1/tx`는 요청이 `"encoding": "plain"`을 지정하지 않으면 `tx`를 base64로 읽으며, `vexod tx parse --encoding base64`는 서명 트랜잭션을, `--encoding plain`(기본값)은 텍스트 payload를 읽습니다. 셋 모두 `txcodec.DecodeTxEncoding`으로 디코딩합니다.
+
+ante handler는 성공한 인증만 기억합니다(`app.VerifyCache`, 최대 `app.VerifyCacheCapacity`개). 키는 트랜잭션 바이트와 chain ID처럼 판정이 의존하는 모든 것의 digest이며, 실패는 기억하지 않습니다. 블록의 서명은 순서대로 처리되기 전에 병렬로 검증됩니다.
+
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록
 

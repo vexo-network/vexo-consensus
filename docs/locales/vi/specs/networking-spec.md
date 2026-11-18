@@ -108,6 +108,10 @@ Tài liệu này giúp hiểu P2P handshake, gossip, peer scoring và chính sá
 
 Một dial failure tạm thời không tự ban configured peer hoặc seed. Lỗi vẫn nằm trong backoff và diagnostics; ban cần dựa trên bằng chứng hành vi như malicious gossip, auth failure, hoặc rate-limit abuse. Đặt `p2p.dial_timeout` theo độ trễ đa vùng và chi phí TLS/auth.
 
+## Thông điệp đồng thuận và commit nhị phân
+
+Thông điệp trên các topic đồng thuận và commit là nhị phân: thông điệp đồng thuận gồm byte phiên bản, byte loại và body; thông điệp commit gồm byte kind và body; mỗi body theo mã hóa chuẩn của `types` (`types.AppendBlock`) và `finality` (`finality.AppendQuorumCert`, `AppendTimeoutCert`, `AppendProof`). Mọi bộ giải mã đều từ chối đầu vào bị cắt, byte thừa, độ dài không tối thiểu và trường vượt giới hạn. Cách mã hóa này, envelope giao dịch đã ký, WAL đồng thuận và WAL của mempool đã thay các định dạng JSON và văn bản trước đây mà không có công cụ chuyển đổi: node phiên bản này không trao đổi thông điệp được với node cũ và không đọc được tệp WAL của nó. Hãy nâng cấp mọi validator cùng lúc và khởi động mỗi node với `consensus.wal` và `mempool.wal` trống.
+
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật
 

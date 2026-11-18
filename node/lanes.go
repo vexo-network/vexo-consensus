@@ -54,17 +54,25 @@ func (node *Node) newLanes(runtime *vexoruntime.Runtime, machine *consensus.Stat
 
 // admitLaneBatch admits the transactions of another validator's batch into the pool, which so
 // knows what is pending, refuses a duplicate submission, and keeps a transaction whose batch no
-// block took up. The pool's verdicts do not reach the batch: blocks judge the transactions.
+// block took up. The pool's verdicts do not reach the batch: blocks judge the transactions. The
+// admissions are logged together, so the batch costs one WAL sync, not one per transaction.
 func (node *Node) admitLaneBatch(batch lanes.Batch) {
 	runtime, err := node.Runtime()
 	if err != nil || runtime.Mempool == nil {
 		return
 	}
+	ctx := context.Background()
+	queued := make([]mempool.Durable, 0, len(batch.Txs))
 	for _, tx := range batch.Txs {
 		if isUnsignedEvidenceTx(tx) {
 			continue
 		}
-		_ = node.admitMempoolTx(context.Background(), runtime.App, runtime.Mempool, tx)
+		if durable, err := node.queueMempoolTx(ctx, runtime.App, runtime.Mempool, tx); err == nil {
+			queued = append(queued, durable)
+		}
+	}
+	for _, durable := range queued {
+		_ = durable.Wait(ctx)
 	}
 }
 

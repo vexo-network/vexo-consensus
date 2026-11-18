@@ -68,6 +68,10 @@
 
 يجب أن تتضمن مواد التدقيق VRF adapter audit evidence إضافة إلى BLS. ثبت SHA-256 لملف مثل `docs/security/ecvrf-audit-evidence.json` في `vrf.audit_evidence_sha256` أو `--vrf-audit-sha256`، وراجع dependency audit و key custody و TLS/mTLS أو pinned CA و auth و replay defense و service availability كحد أمني واحد.
 
+## سجل WAL للـ mempool وسجل WAL للإجماع
+
+يصبح كل حدث tx أو batch مقبول دائمًا قبل أن يعود الإرسال. السجلات بصيغة `uvarint(length) | op | payload | CRC-32C`؛ وتتشارك عمليات القبول المتزامنة عملية fsync واحدة (group commit)، وتنتظرها العقدة دون الإمساك بقفل القبول. تقتطع إعادة التشغيل replay السجلّ الأخير الممزق أو التالف، وترفض السجل التالف قبل نهايته (`ErrWALCorrupt`). بعد فشل في الإدخال/الإخراج تتوقف الإضافات حتى يُعاد كتابة السجل من الـ pool. يستخدم WAL الإجماع التأطير نفسه (طول big-endian من 4 بايتات، ثم payload، ثم CRC-32C من 4 بايتات): يُقتطع الذيل الممزق ويُرفض التلف في الوسط.
+
 <!-- vexo-docs:technical-parity -->
 ## ملحق التكافؤ التقني
 

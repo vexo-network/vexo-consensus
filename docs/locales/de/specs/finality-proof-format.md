@@ -88,6 +88,12 @@ Dieses Dokument hilft dabei, finality proof Felder, Prüfreihenfolge und validat
 
 - [Englisches kanonisches Dokument](../../en/specs/finality-proof-format.md)
 
+## Verkettete Commits und Aufholen
+
+Ein Block, dessen Kind erst nach einem Timeout zertifiziert wurde, hat keinen eigenen Beweis: Er ist final als Vorfahr des nächsten Blocks, den die 2-Chain-Regel direkt finalisiert. Seine Commit-Nachricht trägt den Beweis dieses Nachfahren und in `Linkage` die Header dazwischen (höchstens 64). Der Empfänger prüft den Block-Body, das eigene QC des Blocks gegen das Set seines Headers, dass die Linkage den Block Höhe für Höhe per Hash mit dem bewiesenen Block verbindet, und den Beweis des Nachfahren vollständig.
+
+Ein Knoten kündigt jeden Commit einmal und ohne Transaktionen an. Ein dauerhaft zurückgefallener Knoten sähe den fehlenden Block deshalb nie: Kündigen Peers Höhen über seiner nächsten an und kommt er eine Sekunde lang nicht voran, fragt er den Ankündigenden nach seiner nächsten Höhe, und nach dem Commit eines geholten Blocks fragt er sofort nach dem folgenden, solange Peers voraus sind. Ein Peer antwortet aus den Commits im Speicher oder baut den Commit aus seinem Store, höchstens zweimal pro Höhe und Peer.
+
 <!-- vexo-docs:technical-parity -->
 ## Anhang zur technischen Parität
 

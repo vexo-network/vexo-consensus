@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/vexo-network/vexo-consensus/committee"
+	"github.com/vexo-network/vexo-consensus/txcodec"
 )
 
 func TestDefaultConfigIsValid(t *testing.T) {
@@ -29,6 +30,16 @@ func TestDefaultApplicationModulesArePinned(t *testing.T) {
 func TestConfigValidateRejectsMissingChainID(t *testing.T) {
 	if err := Default("").Validate(); !errors.Is(err, ErrMissingChainID) {
 		t.Fatalf("expected missing chain id, got %v", err)
+	}
+}
+
+// A chain id no signed transaction can name is refused; the longest one a transaction names is not.
+func TestConfigValidateBoundsTheChainIDByWhatATransactionNames(t *testing.T) {
+	if err := Default(strings.Repeat("c", txcodec.MaxChainIDLength+1)).Validate(); !errors.Is(err, ErrChainIDTooLong) {
+		t.Fatalf("expected a chain id over the limit refused, got %v", err)
+	}
+	if err := Default(strings.Repeat("c", txcodec.MaxChainIDLength)).Validate(); err != nil {
+		t.Fatalf("expected a chain id at the limit accepted, got %v", err)
 	}
 }
 

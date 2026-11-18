@@ -68,6 +68,10 @@ Materi audit harus mencakup VRF adapter audit evidence selain BLS. Pin SHA-256 f
 
 - [Dokumen kanonik bahasa Inggris](../../en/security/audit-readiness.md)
 
+## WAL mempool dan WAL konsensus
+
+Setiap event tx atau batch yang diterima sudah tahan lama sebelum pengirimannya kembali. Record berbentuk `uvarint(length) | op | payload | CRC-32C`; admission yang bersamaan berbagi satu fsync (group commit), dan node menunggunya tanpa memegang lock admission. Replay memotong record terakhir yang robek atau rusak dan menolak log yang rusak sebelum akhirnya (`ErrWALCorrupt`). Setelah kegagalan I/O, append berhenti sampai log ditulis ulang dari pool. WAL konsensus memakai framing yang sama (panjang big-endian 4 byte, payload, CRC-32C 4 byte): ekor yang robek dipotong, kerusakan di tengah ditolak.
+
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis
 

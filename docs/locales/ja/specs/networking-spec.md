@@ -108,6 +108,10 @@
 
 一時的な dial 失敗だけでは configured peer や seed を ban しません。失敗は backoff と診断に残りますが、ban は悪意ある gossip、認証失敗、rate-limit abuse などの行動証拠で判断します。`p2p.dial_timeout` はリージョン間遅延と TLS/auth コストを見て設定します。
 
+## バイナリの consensus・commit メッセージ
+
+consensus と commit の topic のメッセージはバイナリです。consensus メッセージはバージョンバイト、タイプバイト、body、commit メッセージは kind バイトと body で、body は `types`(`types.AppendBlock`)と `finality`(`finality.AppendQuorumCert`、`AppendTimeoutCert`、`AppendProof`)の正準エンコーディングです。すべてのデコーダは途切れた入力、末尾の余剰バイト、最小でない長さ、上限を超えるフィールドを拒否します。このエンコーディング、署名済みトランザクションの envelope、consensus WAL、mempool WAL は変換ツールなしで以前の JSON・テキスト形式を置き換えました。このバージョンのノードは古いノードとメッセージを交換できず、古いノードの WAL ファイルも読めません。すべての validator を同時にアップグレードし、それぞれ空の `consensus.wal` と `mempool.wal` から開始してください。
+
 <!-- vexo-docs:technical-parity -->
 ## 技術的同等性付録
 

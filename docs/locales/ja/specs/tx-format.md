@@ -93,6 +93,14 @@
 
 - [英語の正規文書](../../en/specs/tx-format.md)
 
+## バイナリ署名 envelope
+
+署名済みトランザクションはバイナリです(`txcodec.EncodeEnvelope`)。2 バイトの prefix `0x89 'V'`(`txcodec.SignedPrefix`)、バージョンバイト `1`、続いて uvarint 長を前置した 4 つのフィールド: chain ID(最大 `txcodec.MaxChainIDLength`、128 バイト)、公開鍵(最大 `txcodec.MaxPublicKeyLength`)、署名(最大 `txcodec.MaxSignatureLength`)、payload。デコーダは最小でない長さ、上限を超えるフィールド、未知のバージョン、末尾の余剰バイトを拒否するため、署名済みトランザクションのエンコーディングは一つだけです。`0x89` は有効な UTF-8 ではないので、テキスト payload が envelope と誤認されることはありません。ノードは `txcodec.MaxChainIDLength` より長い chain ID を起動時に拒否します(`config.ErrChainIDTooLong`)。
+
+テキストのインターフェースは署名済みトランザクションを base64 で運びます。`vexod keys sign-tx` は `tx: <base64>` と `encoding: base64` を出力し、`POST /v1/tx` はリクエストが `"encoding": "plain"` を指定しない限り `tx` を base64 として読み、`vexod tx parse --encoding base64` は署名済みトランザクションを、`--encoding plain`(既定)はテキスト payload を読みます。三つとも `txcodec.DecodeTxEncoding` でデコードします。
+
+ante handler は成功した認証だけを記憶します(`app.VerifyCache`、最大 `app.VerifyCacheCapacity` 件)。キーはトランザクションのバイトと chain ID など判定が依存するすべての digest で、失敗は記憶しません。ブロックの署名は順に処理される前に並列で検証されます。
+
 <!-- vexo-docs:technical-parity -->
 ## 技術的同等性付録
 

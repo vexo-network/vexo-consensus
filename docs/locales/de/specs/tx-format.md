@@ -93,6 +93,14 @@ Dieses Dokument hilft dabei, transaction format, signing, fee und gas-Regeln zu 
 
 - [Englisches kanonisches Dokument](../../en/specs/tx-format.md)
 
+## Binärer signierter Umschlag
+
+Eine signierte Transaktion ist binär (`txcodec.EncodeEnvelope`): das Zwei-Byte-Präfix `0x89 'V'` (`txcodec.SignedPrefix`), das Versionsbyte `1` und vier Felder mit vorangestellter uvarint-Länge: Chain-ID (höchstens `txcodec.MaxChainIDLength`, 128 Byte), öffentlicher Schlüssel (höchstens `txcodec.MaxPublicKeyLength`), Signatur (höchstens `txcodec.MaxSignatureLength`) und Payload. Der Decoder lehnt nicht minimale Längen, zu große Felder, unbekannte Versionen und überzählige Bytes ab, sodass eine signierte Transaktion genau eine Kodierung hat. `0x89` ist kein gültiges UTF-8, ein Text-Payload wird daher nie für einen Umschlag gehalten. Ein Knoten lehnt beim Start eine Chain-ID ab, die länger als `txcodec.MaxChainIDLength` ist (`config.ErrChainIDTooLong`).
+
+Textschnittstellen transportieren signierte Transaktionen in Base64. `vexod keys sign-tx` gibt `tx: <base64>` und `encoding: base64` aus; `POST /v1/tx` liest `tx` als Base64, sofern die Anfrage nicht `"encoding": "plain"` setzt; `vexod tx parse --encoding base64` liest eine signierte Transaktion, `--encoding plain` (Standard) einen Text-Payload. Alle drei dekodieren über `txcodec.DecodeTxEncoding`.
+
+Der Ante-Handler merkt sich nur erfolgreiche Authentifizierungen (`app.VerifyCache`, höchstens `app.VerifyCacheCapacity`), geschlüsselt über einen Digest der Transaktionsbytes und alles, wovon das Urteil abhängt, etwa die Chain-ID; ein Fehlschlag wird nie gemerkt. Die Signaturen eines Blocks werden parallel geprüft, bevor der Block der Reihe nach verarbeitet wird.
+
 <!-- vexo-docs:technical-parity -->
 ## Anhang zur technischen Parität
 

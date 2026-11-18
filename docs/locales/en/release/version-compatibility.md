@@ -15,7 +15,7 @@
 
 | Version | RPC | Config Schema | Store Schema | App State Schema | Notes |
 |---|---|---:|---:|---:|---|
-| pre-audit | `/v1/*` stable paths only | 1 | 1 | 1 | Requires release-gate evidence before value-bearing launch |
+| pre-audit | `/v1/*` stable paths only | 1 | 1 | 1 | Requires release-gate evidence before value-bearing launch. Binary consensus wire, signed transaction envelope, consensus WAL and mempool WAL formats are incompatible with earlier pre-audit builds; see the networking spec |
 
 ## Upgrade Compatibility Checklist
 

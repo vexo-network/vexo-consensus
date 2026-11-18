@@ -88,6 +88,12 @@ Dokumen ini membantu memahami field finality proof, urutan verifikasi, dan valid
 
 - [Dokumen kanonik bahasa Inggris](../../en/specs/finality-proof-format.md)
 
+## Commit tertaut dan mengejar ketertinggalan
+
+Blok yang anaknya baru disertifikasi setelah timeout tidak punya bukti sendiri: blok itu final sebagai leluhur dari blok berikutnya yang difinalkan langsung oleh aturan 2-chain. Pesan commit-nya membawa bukti keturunan itu dan, di `Linkage`, header di antara keduanya (paling banyak 64). Penerima memeriksa body blok, QC milik blok itu terhadap set yang dinamai header-nya, bahwa linkage menautkan blok ke blok yang dibuktikan dengan hash satu ketinggian demi satu, dan bukti lengkap keturunan.
+
+Node mengumumkan setiap commit sekali dan tanpa transaksi, sehingga node yang tertinggal permanen tidak akan pernah melihat blok yang hilang: ketika peer mengumumkan ketinggian di atas ketinggian berikutnya dan node tidak maju selama satu detik, node meminta ketinggian berikutnya kepada pengumum, dan setelah meng-commit blok yang diambil, langsung meminta yang berikutnya selama peer masih di depan. Peer menjawab dari commit di memori atau membangun commit dari store-nya, paling banyak dua kali per ketinggian dan peer.
+
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis
 

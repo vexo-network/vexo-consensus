@@ -1,9 +1,12 @@
 package node
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
+	"math"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/consensus"
@@ -11,6 +14,7 @@ import (
 	"github.com/vexo-network/vexo-consensus/dataavailability"
 	"github.com/vexo-network/vexo-consensus/fairordering"
 	"github.com/vexo-network/vexo-consensus/finality"
+	"github.com/vexo-network/vexo-consensus/transport"
 	"github.com/vexo-network/vexo-consensus/types"
 	"github.com/vexo-network/vexo-consensus/validator"
 )
@@ -37,6 +41,12 @@ type commitFixture struct {
 
 func newCommitFixture(t *testing.T) *commitFixture {
 	t.Helper()
+	return newCommitFixtureOn(t, nil)
+}
+
+// newCommitFixtureOn is newCommitFixture with the node running on wire, none when wire is nil.
+func newCommitFixtureOn(t *testing.T, wire transport.Transport) *commitFixture {
+	t.Helper()
 	cfg := UnsafeTestConfig("vexo-test", t.TempDir())
 	cfg.ValidatorID = "alice"
 	cfg.Chain.P2P.InitialScore = gossipInitialScore
@@ -50,6 +60,9 @@ func newCommitFixture(t *testing.T) *commitFixture {
 	}
 	signer := deterministicSignerForID("alice")
 	node.WithSigner(signer)
+	if wire != nil {
+		node.WithTransport(wire)
+	}
 	startNode(t, node)
 	t.Cleanup(func() { node.Stop(context.Background()) })
 
@@ -97,20 +110,26 @@ func (fixture *commitFixture) block(height types.Height, parent types.Hash, txs 
 		Txs: fairordering.SortTxsWithSalt(txs, fairordering.HeightSalt("vexo-test", height)),
 	}
 	// The header commits the app hash of its state.
-	runtime, err := fixture.node.Runtime()
-	if err != nil {
-		fixture.t.Fatal(err)
-	}
-	appHash, err := runtime.HeaderAppHashAt(context.Background(), stateHeight)
-	if err != nil {
-		fixture.t.Fatal(err)
-	}
-	block.Header.AppHash = appHash
+	block.Header.AppHash = fixture.appHashAt(stateHeight)
 	block.Header.TxRoot = consensus.TxRoot(block.Txs)
 	if len(block.Txs) > 0 {
 		block = dataavailability.AttachCommitment(block)
 	}
 	return block
+}
+
+// appHashAt is the app hash a header committing the state of height names.
+func (fixture *commitFixture) appHashAt(height types.Height) types.Hash {
+	fixture.t.Helper()
+	runtime, err := fixture.node.Runtime()
+	if err != nil {
+		fixture.t.Fatal(err)
+	}
+	appHash, err := runtime.HeaderAppHashAt(context.Background(), height)
+	if err != nil {
+		fixture.t.Fatal(err)
+	}
+	return appHash
 }
 
 // quorumCert is a certificate the validator set signed for a block in a view.
@@ -148,6 +167,8 @@ func (fixture *commitFixture) commitWithChildView(block types.Block, childView t
 	child.Header.Round = childView
 	child.Header.JustifyRound = block.Header.Round
 	child.Header.ValidatorSetHeight = finality.ChildValidatorSetHeight(block.Header)
+	child.Header.StateHeight = finality.ChildStateHeight(block.Header)
+	child.Header.AppHash = fixture.appHashAt(child.Header.StateHeight)
 	childQC := fixture.quorumCert(child.Header.Height, childView, finality.HeaderHash(child.Header))
 	proof := finality.NewProof(block.Header, quorumCert).WithChild(child.Header, childQC)
 	return commitMessage{Block: block, QuorumCert: quorumCert, FinalityProof: proof}
@@ -157,11 +178,7 @@ func (fixture *commitFixture) commitWithChildView(block types.Block, childView t
 // and the peer's score afterwards.
 func (fixture *commitFixture) deliver(message commitMessage) (types.Height, int64) {
 	fixture.t.Helper()
-	data, err := json.Marshal(message)
-	if err != nil {
-		fixture.t.Fatal(err)
-	}
-	fixture.node.acceptCommitMessage(context.Background(), "bob", data)
+	fixture.node.acceptCommitMessage(context.Background(), "bob", appendCommitMessage(nil, message))
 	score, err := fixture.node.PeerScore(context.Background(), "bob")
 	if err != nil {
 		fixture.t.Fatal(err)
@@ -584,4 +601,172 @@ func TestCommitServerAsksOnceForABodyPerRetry(t *testing.T) {
 	if !server.shouldAsk(6) {
 		t.Fatal("expected an unanswered request to be retried")
 	}
+}
+
+// sampleCommitMessage is a commit with every field of its kinds set: a block of transactions, its
+// certificate, and a proof that carries the child that makes it final.
+func sampleCommitMessage() commitMessage {
+	header := types.Header{
+		ChainID:              "vexo-test",
+		Height:               5,
+		TimeUnixNano:         1_700_000_000_000_000_005,
+		PreviousBlockHash:    types.Hash{1},
+		AppHash:              types.Hash{2},
+		ValidatorSetHash:     types.Hash{3},
+		NextValidatorSetHash: types.Hash{4},
+		ConsensusHash:        types.Hash{5},
+		TxRoot:               types.Hash{6},
+		Round:                7,
+		JustifyRound:         6,
+		ValidatorSetHeight:   4,
+		StateHeight:          3,
+		Benched:              []types.Bench{{Validator: "bob", Until: 9}},
+	}
+	block := types.Block{Header: header, Txs: []types.Tx{types.Tx("bank:send:a"), types.Tx("bank:send:b")}}
+	quorumCert := finality.QuorumCert{Height: 5, Round: 7, BlockHash: types.Hash{7}, Signers: types.Bitmap("alice,bob"), Signature: types.AggregateSignature("aggregate"), VotingPower: 2}
+	child := header
+	child.Height, child.Round, child.JustifyRound = 6, 8, 7
+	childCert := finality.QuorumCert{Height: 6, Round: 8, BlockHash: types.Hash{8}, Signers: types.Bitmap("alice,bob"), Signature: types.AggregateSignature("child"), VotingPower: 2}
+	proof := finality.NewProof(header, quorumCert).WithChild(child, childCert)
+	proof.ValidatorSetHeight, proof.ValidatorSetHash = 4, types.Hash{9}
+	return commitMessage{Block: block, QuorumCert: quorumCert, FinalityProof: proof}
+}
+
+func sampleCommitMessages() map[string]commitMessage {
+	whole := sampleCommitMessage()
+	bodiless := whole
+	bodiless.Block.Txs = nil
+	bodiless.Bodiless = true
+	unproven := whole
+	unproven.FinalityProof = finality.Proof{}
+	linked := whole
+	linked.Linkage = []types.Header{whole.FinalityProof.Header, whole.Block.Header}
+	return map[string]commitMessage{"whole": whole, "bodiless": bodiless, "unproven": unproven, "linked": linked, "request": {Want: 42}}
+}
+
+func TestCommitMessageCodecRoundTrips(t *testing.T) {
+	for name, message := range sampleCommitMessages() {
+		t.Run(name, func(t *testing.T) {
+			data := appendCommitMessage(nil, message)
+			decoded, err := decodeCommitMessage(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(decoded, message) {
+				t.Fatalf("a message changed in a round trip\n got: %+v\nwant: %+v", decoded, message)
+			}
+			if !bytes.Equal(appendCommitMessage(nil, decoded), data) {
+				t.Fatal("a decoded message must encode to the bytes it came from")
+			}
+		})
+	}
+}
+
+// A request names a height and nothing else: a message that wants a height carries no block.
+func TestCommitMessageThatWantsAHeightIsARequestOnly(t *testing.T) {
+	message := sampleCommitMessage()
+	message.Want = 42
+	decoded, err := decodeCommitMessage(appendCommitMessage(nil, message))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (commitMessage{Want: 42}); !reflect.DeepEqual(decoded, want) {
+		t.Fatalf("expected only the height wanted, got %+v", decoded)
+	}
+}
+
+func TestCommitMessageDecodingIsStrict(t *testing.T) {
+	for name, message := range sampleCommitMessages() {
+		t.Run(name, func(t *testing.T) {
+			data := appendCommitMessage(nil, message)
+			for length := range len(data) {
+				if _, err := decodeCommitMessage(data[:length]); !errors.Is(err, ErrInvalidCommitMessage) {
+					t.Fatalf("expected the first %d of %d bytes not to decode, got %v", length, len(data), err)
+				}
+			}
+			for _, extra := range [][]byte{{0}, {1}, bytes.Repeat([]byte{0xff}, 16)} {
+				if _, err := decodeCommitMessage(append(append([]byte(nil), data...), extra...)); !errors.Is(err, ErrInvalidCommitMessage) {
+					t.Fatalf("expected trailing bytes %x to be refused, got %v", extra, err)
+				}
+			}
+		})
+	}
+
+	whole := appendCommitMessage(nil, sampleCommitMessage())
+	notBoolean := append([]byte(nil), whole...)
+	notBoolean[1] = 2
+	noHeight := sampleCommitMessage()
+	noHeight.Block.Header.Height = 0
+	noCertificateHeight := sampleCommitMessage()
+	noCertificateHeight.QuorumCert.Height = 0
+	overBudget := sampleCommitMessage()
+	overBudget.Block.Txs = []types.Tx{bytes.Repeat([]byte{1}, consensus.MaxBlockBytes/2), bytes.Repeat([]byte{2}, consensus.MaxBlockBytes/2)}
+	tooLong := sampleCommitMessage()
+	tooLong.Block.Header.ChainID = strings.Repeat("c", types.MaxIDBytes+1)
+	overLinked := sampleCommitMessage()
+	overLinked.Linkage = make([]types.Header, maxCommitLinkage+1)
+	for index := range overLinked.Linkage {
+		overLinked.Linkage[index] = overLinked.Block.Header
+	}
+	cases := map[string][]byte{
+		"nothing":                            nil,
+		"json":                               []byte(`{"block":{}}`),
+		"an unknown kind":                    append([]byte{commitKindWant + 1}, whole[1:]...),
+		"kind zero":                          append([]byte{0}, whole[1:]...),
+		"a bodiless flag that is no boolean": notBoolean,
+		"a request for no height":            {commitKindWant, 0},
+		"a height that is not minimal":       {commitKindWant, 0x81, 0x00},
+		"a height past 64 bits":              append([]byte{commitKindWant}, bytes.Repeat([]byte{0xff}, 11)...),
+		"a block without a height":           appendCommitMessage(nil, noHeight),
+		"a certificate without a height":     appendCommitMessage(nil, noCertificateHeight),
+		"a block over the byte limit":        appendCommitMessage(nil, overBudget),
+		"a chain id over the limit":          appendCommitMessage(nil, tooLong),
+		"a linkage over the limit":           appendCommitMessage(nil, overLinked),
+	}
+	for name, data := range cases {
+		if _, err := decodeCommitMessage(data); !errors.Is(err, ErrInvalidCommitMessage) {
+			t.Fatalf("%s: expected an invalid commit message, got %v", name, err)
+		}
+	}
+	atLimit := sampleCommitMessage()
+	atLimit.Block.Txs = []types.Tx{bytes.Repeat([]byte{1}, consensus.MaxBlockBytes-types.TxOverheadBytes)}
+	if _, err := decodeCommitMessage(appendCommitMessage(nil, atLimit)); err != nil {
+		t.Fatalf("expected a block of the whole byte limit to be accepted, got %v", err)
+	}
+	extreme := sampleCommitMessage()
+	extreme.Want, extreme.Block, extreme.QuorumCert = math.MaxUint64, types.Block{}, finality.QuorumCert{}
+	if decoded, err := decodeCommitMessage(appendCommitMessage(nil, extreme)); err != nil || decoded.Want != math.MaxUint64 {
+		t.Fatalf("expected the largest height to be wanted, got %+v %v", decoded, err)
+	}
+}
+
+// FuzzDecodeCommitMessage checks that no input makes the decoder panic, and that what decodes has
+// one encoding: the bytes it came from.
+func FuzzDecodeCommitMessage(f *testing.F) {
+	for _, message := range sampleCommitMessages() {
+		data := appendCommitMessage(nil, message)
+		f.Add(data)
+		f.Add(data[:len(data)/2])
+	}
+	f.Add([]byte{})
+	f.Add([]byte{commitKindWant, 0})
+	f.Add([]byte(`{"block":{}}`))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		message, err := decodeCommitMessage(data)
+		if err != nil {
+			if !errors.Is(err, ErrInvalidCommitMessage) {
+				t.Fatalf("a commit message was refused with an error that is not ErrInvalidCommitMessage: %v", err)
+			}
+			return
+		}
+		if message.Want == 0 && (message.Block.Header.Height == 0 || message.QuorumCert.Height == 0) {
+			t.Fatalf("decoded a commit without a block height or a certificate height: %+v", message)
+		}
+		if message.Want != 0 && !reflect.DeepEqual(message, commitMessage{Want: message.Want}) {
+			t.Fatalf("decoded a request that carries more than a height: %+v", message)
+		}
+		if encoded := appendCommitMessage(nil, message); !bytes.Equal(encoded, data) {
+			t.Fatalf("a message decoded from %x encodes to %x", data, encoded)
+		}
+	})
 }

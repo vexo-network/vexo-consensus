@@ -93,6 +93,14 @@ Ce document aide à comprendre transaction format, signing, fee et règles de ga
 
 - [Document canonique anglais](../../en/specs/tx-format.md)
 
+## Enveloppe signée binaire
+
+Une transaction signée est binaire (`txcodec.EncodeEnvelope`) : le préfixe de deux octets `0x89 'V'` (`txcodec.SignedPrefix`), l'octet de version `1`, puis quatre champs précédés de leur longueur uvarint : chain ID (au plus `txcodec.MaxChainIDLength`, 128 octets), clé publique (au plus `txcodec.MaxPublicKeyLength`), signature (au plus `txcodec.MaxSignatureLength`) et payload. Le décodeur refuse les longueurs non minimales, les champs au-delà de leur borne, les versions inconnues et les octets en trop : une transaction signée n'a qu'un seul encodage. `0x89` n'est pas de l'UTF-8 valide, donc aucun payload texte n'est pris pour une enveloppe. Un nœud refuse au démarrage un chain ID plus long que `txcodec.MaxChainIDLength` (`config.ErrChainIDTooLong`).
+
+Les interfaces texte transportent la transaction signée en base64. `vexod keys sign-tx` affiche `tx: <base64>` et `encoding: base64` ; `POST /v1/tx` lit `tx` en base64 sauf si la requête indique `"encoding": "plain"` ; `vexod tx parse --encoding base64` lit une transaction signée et `--encoding plain` (par défaut) un payload texte. Les trois décodent avec `txcodec.DecodeTxEncoding`.
+
+L'ante handler ne retient que les authentifications réussies (`app.VerifyCache`, au plus `app.VerifyCacheCapacity`), indexées par un condensé des octets de la transaction et de tout ce dont dépend le verdict, comme le chain ID ; un échec n'est jamais retenu. Les signatures d'un bloc sont vérifiées en parallèle avant que le bloc soit traité dans l'ordre.
+
 <!-- vexo-docs:technical-parity -->
 ## Annexe de parité technique
 

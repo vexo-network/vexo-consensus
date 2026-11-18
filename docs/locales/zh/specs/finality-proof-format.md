@@ -88,6 +88,12 @@
 
 - [英文规范文档](../../en/specs/finality-proof-format.md)
 
+## 链接的 commit 与追赶
+
+子块只在 timeout 之后才被认证的区块没有自己的证明:它作为 2-chain 规则直接确定的下一个区块的祖先而最终确定。其 commit 消息携带该后代的证明,并在 `Linkage` 中携带两者之间的 header(最多 64 个)。接收方检查区块 body、区块自身针对其 header 所指 set 的 QC、linkage 是否按高度逐一以 hash 将该区块连接到被证明的区块,以及后代的完整证明。
+
+节点对每个 commit 只公告一次,且不带交易。永久落后的节点因此再也看不到它缺失的区块:当 peer 公告高于其下一高度的高度、而它一秒内没有前进时,它向公告者请求下一高度;在提交取回的区块后若 peer 仍然领先,则立即请求再下一个。peer 用内存中的 commit 或从 store 构建的 commit 应答,每个高度每个 peer 最多两次。
+
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录
 

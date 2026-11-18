@@ -2,15 +2,15 @@ package consensus
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -34,22 +34,27 @@ const (
 	WALEventSafetyState WALEventType = "safety_state"
 )
 
+// WALEvent is one record of the log. Its Type tells which of the other fields it has: a proposal
+// and a vote have a validator, a height, a round and a block hash; a timeout vote has the vote,
+// whose validator, height and round it repeats; a safety state has the state, whose last voted
+// height and round it repeats as its height and round.
 type WALEvent struct {
-	Type        WALEventType      `json:"type"`
-	Time        time.Time         `json:"time"`
-	ValidatorID types.ValidatorID `json:"validator_id,omitempty"`
-	Height      types.Height      `json:"height,omitempty"`
-	Round       types.Round       `json:"round,omitempty"`
-	BlockHash   string            `json:"block_hash,omitempty"`
-	HighQC      string            `json:"high_qc,omitempty"`
-	TimeoutVote *TimeoutVote      `json:"timeout_vote,omitempty"`
-	Safety      *SafetyState      `json:"safety_state,omitempty"`
+	Type        WALEventType
+	Time        time.Time
+	ValidatorID types.ValidatorID
+	Height      types.Height
+	Round       types.Round
+	BlockHash   types.Hash
+	TimeoutVote *TimeoutVote
+	Safety      *SafetyState
 }
 
-// WAL is the write-ahead log of the local validator's signing decisions. Every record is
-// one line "<crc32 hex> <json>\n" and is fsynced before the append returns. A torn tail
-// from a crash mid-write is detected by the checksum and truncated when the log is
-// opened; a damaged record that is followed by valid records is reported as corruption.
+// WAL is the write-ahead log of the local validator's signing decisions. The file is a header
+// that names the format, followed by records, and every record is fsynced before the append
+// returns. A record is the length of its payload, the payload, and the CRC-32C of both. A torn
+// tail from a crash mid-write is detected by the length and the checksum and truncated when the log
+// is opened; a damaged record that is followed by an intact record is reported as corruption, and
+// so is a file that does not start with the header.
 type WAL struct {
 	mu        sync.Mutex
 	path      string
@@ -65,7 +70,7 @@ type WAL struct {
 // walVote is the single block a validator may vote for in one view.
 type walVote struct {
 	height    types.Height
-	blockHash string
+	blockHash types.Hash
 }
 
 func OpenWAL(path string) (*WAL, error) {
@@ -76,39 +81,47 @@ func OpenWAL(path string) (*WAL, error) {
 	if err != nil {
 		return nil, err
 	}
-	scan, err := scanWAL(file)
-	if err != nil {
-		file.Close()
-		return nil, err
+	wal := &WAL{
+		path:     path,
+		file:     file,
+		votes:    make(map[types.ValidatorID]map[types.Round]walVote),
+		timeouts: make(map[types.ValidatorID]map[types.Round]TimeoutVote),
 	}
-	info, err := file.Stat()
-	if err != nil {
-		file.Close()
-		return nil, err
-	}
-	if info.Size() > scan.validBytes {
-		if err := file.Truncate(scan.validBytes); err != nil {
-			file.Close()
-			return nil, fmt.Errorf("truncate torn wal tail: %w", err)
-		}
-	}
-	if err := file.Sync(); err != nil {
+	if err := wal.recover(); err != nil {
 		file.Close()
 		return nil, err
 	}
 	syncDirectory(filepath.Dir(path))
-
-	wal := &WAL{
-		path:     path,
-		file:     file,
-		size:     scan.validBytes,
-		votes:    make(map[types.ValidatorID]map[types.Round]walVote),
-		timeouts: make(map[types.ValidatorID]map[types.Round]TimeoutVote),
-	}
-	for _, event := range scan.events {
-		wal.apply(event)
-	}
 	return wal, nil
+}
+
+// recover rebuilds the guards from the records of the log, drops a torn tail, and writes the
+// header of a log that has none yet.
+func (wal *WAL) recover() error {
+	info, err := wal.file.Stat()
+	if err != nil {
+		return err
+	}
+	valid, err := scanWAL(wal.file, info.Size(), wal.apply)
+	if err != nil {
+		return err
+	}
+	if valid < info.Size() {
+		if err := wal.file.Truncate(valid); err != nil {
+			return fmt.Errorf("truncate torn wal tail: %w", err)
+		}
+	}
+	if valid == 0 {
+		if _, err := wal.file.Write(walHeader); err != nil {
+			return err
+		}
+		valid = int64(len(walHeader))
+	}
+	if err := wal.file.Sync(); err != nil {
+		return err
+	}
+	wal.size = valid
+	return nil
 }
 
 func (wal *WAL) Path() string {
@@ -137,7 +150,7 @@ func (wal *WAL) RecordProposal(proposal Proposal) error {
 		ValidatorID: proposal.Proposer,
 		Height:      proposal.Block.Header.Height,
 		Round:       proposal.Round,
-		BlockHash:   hashString(HashBlock(proposal.Block)),
+		BlockHash:   HashBlock(proposal.Block),
 	})
 }
 
@@ -149,9 +162,8 @@ func (wal *WAL) RecordVote(vote Vote) error {
 	if err := wal.ensureOpen(); err != nil {
 		return err
 	}
-	blockHash := hashString(vote.BlockHash)
-	if previous, ok := wal.votes[vote.ValidatorID][vote.Round]; ok && (previous.blockHash != blockHash || previous.height != vote.Height) {
-		return fmt.Errorf("%w: validator=%s round=%d previous=%d/%s next=%d/%s", ErrDoubleSignDetected, vote.ValidatorID, vote.Round, previous.height, previous.blockHash, vote.Height, blockHash)
+	if previous, ok := wal.votes[vote.ValidatorID][vote.Round]; ok && (previous.blockHash != vote.BlockHash || previous.height != vote.Height) {
+		return fmt.Errorf("%w: validator=%s round=%d previous=%d/%x next=%d/%x", ErrDoubleSignDetected, vote.ValidatorID, vote.Round, previous.height, previous.blockHash, vote.Height, vote.BlockHash)
 	}
 	if err := wal.appendLocked(WALEvent{
 		Type:        WALEventVote,
@@ -159,14 +171,14 @@ func (wal *WAL) RecordVote(vote Vote) error {
 		ValidatorID: vote.ValidatorID,
 		Height:      vote.Height,
 		Round:       vote.Round,
-		BlockHash:   blockHash,
+		BlockHash:   vote.BlockHash,
 	}); err != nil {
 		return err
 	}
 	if wal.votes[vote.ValidatorID] == nil {
 		wal.votes[vote.ValidatorID] = make(map[types.Round]walVote)
 	}
-	wal.votes[vote.ValidatorID][vote.Round] = walVote{height: vote.Height, blockHash: blockHash}
+	wal.votes[vote.ValidatorID][vote.Round] = walVote{height: vote.Height, blockHash: vote.BlockHash}
 	return nil
 }
 
@@ -183,16 +195,7 @@ func (wal *WAL) RecordedVote(validatorID types.ValidatorID, height types.Height,
 	if !ok || recorded.height != height {
 		return types.Hash{}, false, nil
 	}
-	decoded, err := hex.DecodeString(recorded.blockHash)
-	if err != nil {
-		return types.Hash{}, false, fmt.Errorf("decode recorded vote hash: %w", err)
-	}
-	var blockHash types.Hash
-	if len(decoded) != len(blockHash) {
-		return types.Hash{}, false, fmt.Errorf("decode recorded vote hash: expected %d bytes, got %d", len(blockHash), len(decoded))
-	}
-	copy(blockHash[:], decoded)
-	return blockHash, true, nil
+	return recorded.blockHash, true, nil
 }
 
 // RecordTimeoutVote persists the complete signed timeout vote so it can be replayed after a
@@ -212,7 +215,6 @@ func (wal *WAL) RecordTimeoutVote(vote TimeoutVote) error {
 		ValidatorID: vote.ValidatorID,
 		Height:      vote.Height,
 		Round:       vote.Round,
-		HighQC:      quorumCertFingerprint(vote.HighQC),
 		TimeoutVote: &vote,
 	}); err != nil {
 		return err
@@ -293,8 +295,8 @@ func regressesQC(previous finality.QuorumCert, next finality.QuorumCert) bool {
 	return next.Height == 0 || next.Round < previous.Round
 }
 
-// Replay returns every valid record in the log. A torn tail is ignored; a corrupt record
-// followed by valid records is an error.
+// Replay returns every valid record in the log. A torn tail is ignored; a damaged record
+// followed by an intact record is an error. It does not modify the log.
 func (wal *WAL) Replay() ([]WALEvent, error) {
 	file, err := os.Open(wal.path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -304,11 +306,15 @@ func (wal *WAL) Replay() ([]WALEvent, error) {
 		return nil, err
 	}
 	defer file.Close()
-	scan, err := scanWAL(file)
+	info, err := file.Stat()
 	if err != nil {
 		return nil, err
 	}
-	return scan.events, nil
+	var events []WALEvent
+	if _, err := scanWAL(file, info.Size(), func(event WALEvent) { events = append(events, event) }); err != nil {
+		return nil, err
+	}
+	return events, nil
 }
 
 func (wal *WAL) apply(event WALEvent) {
@@ -345,11 +351,10 @@ func (wal *WAL) append(event WALEvent) error {
 }
 
 func (wal *WAL) appendLocked(event WALEvent) error {
-	payload, err := json.Marshal(event)
+	record, err := appendWALRecord(nil, event)
 	if err != nil {
 		return err
 	}
-	record := fmt.Appendf(nil, "%08x %s\n", crc32.ChecksumIEEE(payload), payload)
 	if _, err := wal.file.Write(record); err != nil {
 		// Drop whatever part of the record reached the file so the next append starts on
 		// a record boundary.
@@ -373,61 +378,226 @@ func (wal *WAL) ensureOpen() error {
 	return nil
 }
 
-type walScanResult struct {
-	events     []WALEvent
-	validBytes int64
+// walHeader begins every log and names its format. A file of another format, such as a log of the
+// JSON lines an earlier version wrote, is refused as corrupt instead of being read as a damaged tail
+// and truncated, which would erase the votes it records.
+var walHeader = []byte("vexo-wal\x01")
+
+// A record is its length, its payload and its checksum. The length is the number of bytes of the
+// payload, four bytes big-endian, and the checksum is the CRC-32C of the length and the payload,
+// four bytes big-endian. The payload is the kind of the record, its time in nanoseconds since the
+// Unix epoch as eight bytes big-endian, and the fields of the kind in the canonical encoding of
+// package types, so that a record has exactly one encoding.
+const (
+	walLengthBytes   = 4
+	walChecksumBytes = 4
+	walFrameBytes    = walLengthBytes + walChecksumBytes
+	// maxWALPayload bounds a payload: the largest record holds two certificates, each of the largest
+	// signer list and signature.
+	maxWALPayload = 8 << 20
+	// walReadBytes is the size of the buffer that reads the log when it is opened.
+	walReadBytes = 64 << 10
+)
+
+const (
+	walKindProposal byte = iota + 1
+	walKindVote
+	walKindTimeoutVote
+	walKindSafetyState
+)
+
+var walChecksums = crc32.MakeTable(crc32.Castagnoli)
+
+// appendWALRecord appends the record of event to dst. It refuses an event that the log could not
+// read back, so that no record appended and fsynced can make the log fail to open.
+func appendWALRecord(dst []byte, event WALEvent) ([]byte, error) {
+	start := len(dst)
+	dst = append(dst, 0, 0, 0, 0)
+	switch event.Type {
+	case WALEventProposal:
+		dst = append(dst, walKindProposal)
+	case WALEventVote:
+		dst = append(dst, walKindVote)
+	case WALEventTimeoutVote:
+		dst = append(dst, walKindTimeoutVote)
+	case WALEventSafetyState:
+		dst = append(dst, walKindSafetyState)
+	default:
+		return dst[:start], fmt.Errorf("unknown wal event type %q", event.Type)
+	}
+	dst = binary.BigEndian.AppendUint64(dst, uint64(event.Time.UnixNano()))
+	switch event.Type {
+	case WALEventProposal, WALEventVote:
+		dst = types.AppendBytes(dst, event.ValidatorID)
+		dst = binary.AppendUvarint(dst, uint64(event.Height))
+		dst = binary.AppendUvarint(dst, uint64(event.Round))
+		dst = append(dst, event.BlockHash[:]...)
+	case WALEventTimeoutVote:
+		if event.TimeoutVote == nil {
+			return dst[:start], errors.New("wal timeout vote event without a vote")
+		}
+		dst = appendTimeoutVote(dst, *event.TimeoutVote)
+	case WALEventSafetyState:
+		if event.Safety == nil {
+			return dst[:start], errors.New("wal safety state event without a state")
+		}
+		dst = finality.AppendQuorumCert(dst, event.Safety.LockedQC)
+		dst = finality.AppendQuorumCert(dst, event.Safety.HighQC)
+		dst = binary.AppendUvarint(dst, uint64(event.Safety.LastVotedHeight))
+		dst = binary.AppendUvarint(dst, uint64(event.Safety.LastVotedRound))
+	}
+	payload := dst[start+walLengthBytes:]
+	if len(payload) > maxWALPayload {
+		return dst[:start], fmt.Errorf("wal record of %d bytes is over the limit of %d", len(payload), maxWALPayload)
+	}
+	if _, err := readWALEvent(payload); err != nil {
+		return dst[:start], fmt.Errorf("wal record does not read back: %w", err)
+	}
+	binary.BigEndian.PutUint32(dst[start:], uint32(len(payload)))
+	return binary.BigEndian.AppendUint32(dst, crc32.Checksum(dst[start:], walChecksums)), nil
 }
 
-// scanWAL reads checksummed records until the first damaged one. Damage confined to the
-// tail is reported through validBytes; a valid record after damage is corruption.
-func scanWAL(reader io.Reader) (walScanResult, error) {
-	var result walScanResult
-	buffered := bufio.NewReader(reader)
-	var offset int64
-	damagedAt := int64(-1)
-	for {
-		line, err := buffered.ReadBytes('\n')
-		if len(line) == 0 && errors.Is(err, io.EOF) {
-			return result, nil
+// readWALEvent decodes the payload of a record.
+func readWALEvent(payload []byte) (WALEvent, error) {
+	reader := types.NewReader(payload)
+	kind := reader.Byte()
+	event := WALEvent{Time: time.Unix(0, reader.Int64()).UTC()}
+	switch kind {
+	case walKindProposal, walKindVote:
+		event.Type = WALEventProposal
+		if kind == walKindVote {
+			event.Type = WALEventVote
 		}
-		if err != nil && !errors.Is(err, io.EOF) {
-			return walScanResult{}, err
-		}
-		start := offset
-		offset += int64(len(line))
-		if event, ok := decodeWALRecord(line); ok {
-			if damagedAt >= 0 {
-				return walScanResult{}, fmt.Errorf("%w: valid record at offset %d follows damaged record at offset %d", ErrWALCorrupt, start, damagedAt)
-			}
-			result.events = append(result.events, event)
-			result.validBytes = offset
-		} else if damagedAt < 0 {
-			damagedAt = start
-		}
-		if err != nil {
-			return result, nil
-		}
+		event.ValidatorID = types.ValidatorID(reader.String(types.MaxIDBytes))
+		event.Height = types.Height(reader.Uvarint())
+		event.Round = types.Round(reader.Uvarint())
+		event.BlockHash = reader.Hash()
+	case walKindTimeoutVote:
+		vote := readTimeoutVote(reader)
+		event.Type = WALEventTimeoutVote
+		event.ValidatorID, event.Height, event.Round = vote.ValidatorID, vote.Height, vote.Round
+		event.TimeoutVote = &vote
+	case walKindSafetyState:
+		var state SafetyState
+		state.LockedQC = finality.ReadQuorumCert(reader)
+		state.HighQC = finality.ReadQuorumCert(reader)
+		state.LastVotedHeight = types.Height(reader.Uvarint())
+		state.LastVotedRound = types.Round(reader.Uvarint())
+		event.Type = WALEventSafetyState
+		event.Height, event.Round = state.LastVotedHeight, state.LastVotedRound
+		event.Safety = &state
+	default:
+		reader.Fail("unknown record kind")
 	}
+	if err := reader.Done(); err != nil {
+		return WALEvent{}, err
+	}
+	return event, nil
 }
 
-func decodeWALRecord(line []byte) (WALEvent, bool) {
-	const checksumHexLength = 8
-	if len(line) < checksumHexLength+3 || line[len(line)-1] != '\n' || line[checksumHexLength] != ' ' {
-		return WALEvent{}, false
+// parseWALRecord parses the record at the front of data. It returns ok false when the bytes are not
+// an intact record: they end early, their length is out of range, or their checksum does not match.
+// A record that matches its checksum and does not decode is an error, because a crash does not
+// produce one.
+func parseWALRecord(data []byte) (event WALEvent, length int, ok bool, err error) {
+	if len(data) < walFrameBytes+1 {
+		return WALEvent{}, 0, false, nil
 	}
-	checksum, err := hex.DecodeString(string(line[:checksumHexLength]))
+	payloadLength := uint64(binary.BigEndian.Uint32(data))
+	if payloadLength == 0 || payloadLength > maxWALPayload || walFrameBytes+payloadLength > uint64(len(data)) {
+		return WALEvent{}, 0, false, nil
+	}
+	length = walFrameBytes + int(payloadLength)
+	checked, checksum := data[:length-walChecksumBytes], binary.BigEndian.Uint32(data[length-walChecksumBytes:length])
+	if crc32.Checksum(checked, walChecksums) != checksum {
+		return WALEvent{}, 0, false, nil
+	}
+	event, err = readWALEvent(checked[walLengthBytes:])
 	if err != nil {
-		return WALEvent{}, false
+		return WALEvent{}, 0, false, fmt.Errorf("%w: a record that matches its checksum does not decode: %w", ErrWALCorrupt, err)
 	}
-	payload := line[checksumHexLength+1 : len(line)-1]
-	if binary.BigEndian.Uint32(checksum) != crc32.ChecksumIEEE(payload) {
-		return WALEvent{}, false
+	return event, length, true, nil
+}
+
+// readWALRecord reads the record at the front of reader, which has remaining bytes left, into
+// buffer and parses it.
+func readWALRecord(reader io.Reader, remaining int64, buffer *[]byte) (event WALEvent, length int, ok bool, err error) {
+	if remaining < walFrameBytes+1 {
+		return WALEvent{}, 0, false, nil
 	}
-	var event WALEvent
-	if err := json.Unmarshal(payload, &event); err != nil {
-		return WALEvent{}, false
+	var frame [walLengthBytes]byte
+	if _, err := io.ReadFull(reader, frame[:]); err != nil {
+		return WALEvent{}, 0, false, err
 	}
-	return event, true
+	payloadLength := int64(binary.BigEndian.Uint32(frame[:]))
+	if payloadLength == 0 || payloadLength > maxWALPayload || walFrameBytes+payloadLength > remaining {
+		return WALEvent{}, 0, false, nil
+	}
+	record := slices.Grow((*buffer)[:0], int(walFrameBytes+payloadLength))[:walFrameBytes+payloadLength]
+	*buffer = record
+	copy(record, frame[:])
+	if _, err := io.ReadFull(reader, record[walLengthBytes:]); err != nil {
+		return WALEvent{}, 0, false, err
+	}
+	return parseWALRecord(record)
+}
+
+// scanWAL reads the log in src, which holds size bytes, and passes the event of every intact record
+// to visit in order. It returns the length of the prefix of the log that ends the last intact
+// record, which is shorter than size when the log ends in a torn record. A log of zero bytes or of a
+// part of the header is a log that was never written, and has the prefix 0.
+func scanWAL(src io.ReaderAt, size int64, visit func(WALEvent)) (int64, error) {
+	head := make([]byte, min(size, int64(len(walHeader))))
+	if _, err := io.ReadFull(io.NewSectionReader(src, 0, int64(len(head))), head); err != nil {
+		return 0, err
+	}
+	if !bytes.HasPrefix(walHeader, head) {
+		return 0, fmt.Errorf("%w: the file does not start with the header of a consensus wal", ErrWALCorrupt)
+	}
+	if len(head) < len(walHeader) {
+		return 0, nil
+	}
+	valid := int64(len(walHeader))
+	reader := bufio.NewReaderSize(io.NewSectionReader(src, valid, size-valid), walReadBytes)
+	var buffer []byte
+	for valid < size {
+		event, length, ok, err := readWALRecord(reader, size-valid, &buffer)
+		if err != nil {
+			return 0, err
+		}
+		if !ok {
+			break
+		}
+		visit(event)
+		valid += int64(length)
+	}
+	if valid < size {
+		if err := checkWALTail(src, valid, size); err != nil {
+			return 0, err
+		}
+	}
+	return valid, nil
+}
+
+// checkWALTail judges the bytes of the log from the damaged record on, which are not an intact
+// record. They are the torn tail of a crash only when a crash could have left them: a record is
+// appended whole and fsynced before the next one, so the tail is shorter than one record and no intact
+// record follows the damage. Otherwise the damage is in the middle of the log, and the records it
+// hides cannot be trusted.
+func checkWALTail(src io.ReaderAt, damaged, size int64) error {
+	if size-damaged > walFrameBytes+maxWALPayload {
+		return fmt.Errorf("%w: %d damaged bytes from offset %d", ErrWALCorrupt, size-damaged, damaged)
+	}
+	tail := make([]byte, size-damaged)
+	if _, err := io.ReadFull(io.NewSectionReader(src, damaged, size-damaged), tail); err != nil {
+		return err
+	}
+	for offset := 1; offset < len(tail); offset++ {
+		if _, _, ok, err := parseWALRecord(tail[offset:]); ok || err != nil {
+			return fmt.Errorf("%w: an intact record at offset %d follows the damaged record at offset %d", ErrWALCorrupt, damaged+int64(offset), damaged)
+		}
+	}
+	return nil
 }
 
 func syncDirectory(path string) {
@@ -437,17 +607,4 @@ func syncDirectory(path string) {
 	}
 	_ = directory.Sync()
 	_ = directory.Close()
-}
-
-func hashString(hash types.Hash) string {
-	return hex.EncodeToString(hash[:])
-}
-
-func quorumCertFingerprint(qc finality.QuorumCert) string {
-	data, _ := json.Marshal(struct {
-		Height    types.Height `json:"height"`
-		Round     types.Round  `json:"round"`
-		BlockHash string       `json:"block_hash"`
-	}{Height: qc.Height, Round: qc.Round, BlockHash: hashString(qc.BlockHash)})
-	return hex.EncodeToString(data)
 }

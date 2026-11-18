@@ -17,6 +17,7 @@ import (
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
 	"github.com/vexo-network/vexo-consensus/config"
 	vexocrypto "github.com/vexo-network/vexo-consensus/crypto"
+	"github.com/vexo-network/vexo-consensus/txcodec"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -374,7 +375,10 @@ func runKeysSignTx(writer io.Writer, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(writer, "tx: %s\n", signedTx)
+	// A signed transaction is binary, so it is printed as base64 together with the encoding that
+	// names it: POST {"tx": <tx>, "encoding": <encoding>} to /v1/tx, or pass both to tx parse.
+	fmt.Fprintf(writer, "tx: %s\n", base64.StdEncoding.EncodeToString(signedTx))
+	fmt.Fprintf(writer, "encoding: %s\n", txcodec.EncodingBase64)
 	return nil
 }
 

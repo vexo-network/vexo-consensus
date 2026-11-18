@@ -68,6 +68,10 @@ type Module struct {
 	policy   Policy
 	initErr  error
 	roots    *stateRootCache
+	// validated remembers the Ethereum transactions whose raw transaction checked out, see
+	// validateEthereumRawTx. The clones of a module share it: what it holds is a function of the
+	// transaction and the decode options alone, and the options are part of what it is keyed by.
+	validated *vexoapp.VerifyCache
 }
 
 type Policy struct {
@@ -241,9 +245,13 @@ type StateBackendInfo struct {
 func NewModule() Module {
 	registry := contract.NewRegistry()
 	if err := registry.Register(gethbackend.New()); err != nil {
-		return Module{policy: DefaultPolicy(), roots: newStateRootCache(), initErr: fmt.Errorf("%w: register geth EVM backend: %v", ErrVMBackendUnavailable, err)}
+		return Module{policy: DefaultPolicy(), roots: newStateRootCache(), validated: newValidatedCache(), initErr: fmt.Errorf("%w: register geth EVM backend: %v", ErrVMBackendUnavailable, err)}
 	}
-	return Module{registry: registry, policy: DefaultPolicy(), roots: newStateRootCache()}
+	return Module{registry: registry, policy: DefaultPolicy(), roots: newStateRootCache(), validated: newValidatedCache()}
+}
+
+func newValidatedCache() *vexoapp.VerifyCache {
+	return vexoapp.NewVerifyCache(vexoapp.VerifyCacheCapacity)
 }
 
 func DefaultPolicy() Policy {
@@ -284,15 +292,15 @@ func NewModuleWithPolicy(policy Policy) (Module, error) {
 	if err := registry.Register(vm); err != nil {
 		return Module{}, err
 	}
-	return Module{registry: registry, policy: policy, roots: newStateRootCache()}, nil
+	return Module{registry: registry, policy: policy, roots: newStateRootCache(), validated: newValidatedCache()}, nil
 }
 
 func NewModuleWithRegistry(registry *contract.Registry) Module {
-	return Module{registry: registry, policy: DefaultPolicy(), roots: newStateRootCache()}
+	return Module{registry: registry, policy: DefaultPolicy(), roots: newStateRootCache(), validated: newValidatedCache()}
 }
 
 func (module Module) CloneModule() vexoapp.Module {
-	return Module{registry: module.registry, policy: module.policy, initErr: module.initErr, roots: newStateRootCache()}
+	return Module{registry: module.registry, policy: module.policy, initErr: module.initErr, roots: newStateRootCache(), validated: module.validated}
 }
 
 func (module Module) Name() string { return ModuleName }
@@ -367,19 +375,38 @@ func (Module) Prune(ctx vexoapp.Context, retainFrom types.Height) error {
 	return applyKVWrites(ctx.GoContext(), ctx.Store, writes)
 }
 
+// validateEthereumRawTx checks an Ethereum transaction against the raw transaction it carries.
+// The check recovers the sender from the signature, so a transaction that passed it under the
+// same options is not checked again; one that failed is checked afresh, as its failure may depend
+// on the options.
 func (module Module) validateEthereumRawTx(ctx vexoapp.Context, tx types.Tx) error {
 	if !ethcompat.IsEthereumTx(tx) {
 		return nil
 	}
+	options := module.decodeOptions(ctx)
+	digest := rawTxDigest(options, tx)
+	if module.validated.Contains(digest) {
+		return nil
+	}
+	if err := validateRawTx(tx, options); err != nil {
+		return err
+	}
+	module.validated.Add(digest)
+	return nil
+}
+
+// decodeOptions are the chain parameters the raw signature and the fee caps of an Ethereum
+// transaction are checked against in ctx. They are everything about the context and the module
+// that the verdict of validateEthereumRawTx depends on: AuthenticationKey names exactly these.
+func (module Module) decodeOptions(ctx vexoapp.Context) ethcompat.DecodeOptions {
 	chainID := ctx.EVMChainID
 	if chainID == 0 {
 		chainID = ethcompat.ChainNumericID(ctx.ChainID)
 	}
-	options := ethcompat.DecodeOptions{
+	return ethcompat.DecodeOptions{
 		ChainID:                chainID,
 		BaseFee:                ctx.BaseFee,
 		BlobBaseFee:            ctx.BlobBaseFee,
 		AllowUnprotectedLegacy: module.policy.AllowUnprotectedLegacyTx,
 	}
-	return ethcompat.ValidateCanonicalTxForExecution(tx, options)
 }

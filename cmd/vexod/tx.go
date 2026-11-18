@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	vexoapp "github.com/vexo-network/vexo-consensus/app"
+	"github.com/vexo-network/vexo-consensus/txcodec"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -56,7 +57,8 @@ func runTxBuild(writer io.Writer, args []string) error {
 func runTxParse(writer io.Writer, args []string) error {
 	flags := flag.NewFlagSet("tx parse", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	txValue := flags.String("tx", "", "raw or signed transaction")
+	txValue := flags.String("tx", "", "transaction to parse")
+	encoding := flags.String("encoding", txcodec.EncodingPlain, "how --tx is encoded: plain or base64; a signed transaction is binary, so pass the base64 that keys sign-tx prints")
 	jsonOutput := flags.Bool("json", false, "write JSON output")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -64,10 +66,14 @@ func runTxParse(writer io.Writer, args []string) error {
 	if *txValue == "" {
 		return errors.New("tx is required")
 	}
-	if *jsonOutput {
-		return writeParsedCanonicalTxJSON(writer, types.Tx(*txValue))
+	tx, err := txcodec.DecodeTxEncoding(*txValue, *encoding)
+	if err != nil {
+		return err
 	}
-	parsed, err := vexoapp.ParseCanonicalTx(types.Tx(*txValue))
+	if *jsonOutput {
+		return writeParsedCanonicalTxJSON(writer, tx)
+	}
+	parsed, err := vexoapp.ParseCanonicalTx(tx)
 	if err != nil {
 		return err
 	}

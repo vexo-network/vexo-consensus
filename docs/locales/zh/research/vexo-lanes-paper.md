@@ -102,6 +102,10 @@ VEXO_DISSEMINATION=proposals VEXO_THROUGHPUT=150000 VEXO_VALIDATORS=4 VEXO_UPLIN
 
 `VEXO_ROUND_TIMEOUT_MS` 用于修改超时；省略 `VEXO_UPLINK_MBIT` 和 `VEXO_LATENCY_MS` 即为不受限链路。每个公布的数字都必须记录版本、主机、Go 版本和完整日志行。
 
+## 测量之后的变化
+
+测量时,validator 开始等待 batch 后 300 ms 即请求完整 proposal。现在,每当 proposal 所指的某个 batch 到达,等待就重新开始;只有在 300 ms 内没有 batch 到达或总计超过 2 s(`maxLaneWait`)时才请求完整 proposal。此后未重新测量矩阵。测量使用的是没有签名、ante handler、mempool WAL 和 LevelDB 的测试应用。在生产栈(`VEXO_APP=runtime`:签名的 288 字节转账、ante handler、mempool WAL、LevelDB)上,同一主机上 4 个未整形的 validator 以约 2,000–2,200 tx/s 提交 50,000 笔转账;CPU profile 中区块执行占主导,主要是 LevelDB store 的状态树更新和读取。
+
 <!-- vexo-docs:technical-parity -->
 
 ## 技术一致性附录

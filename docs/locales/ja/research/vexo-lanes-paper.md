@@ -102,6 +102,10 @@ VEXO_DISSEMINATION=proposals VEXO_THROUGHPUT=150000 VEXO_VALIDATORS=4 VEXO_UPLIN
 
 `VEXO_ROUND_TIMEOUT_MS` でタイムアウトを変更し、`VEXO_UPLINK_MBIT` と `VEXO_LATENCY_MS` を省くと制限なしのリンクになります。公表する数値にはリビジョン、ホスト、Go のバージョン、完全なログ行を記録してください。
 
+## 測定後の変更
+
+測定当時、validator は batch を待ち始めてから 300 ms 後に proposal 全体を要求していました。現在は proposal が指す batch が届くたびに待機がやり直され、batch なしで 300 ms 経つか合計 2 s(`maxLaneWait`)経ったときにだけ proposal 全体を要求します。以後マトリクスは再測定していません。測定は署名、ante handler、mempool WAL、LevelDB を持たないテストアプリケーションで行いました。プロダクションスタック(`VEXO_APP=runtime`: 署名済み 288 バイトの transfer、ante handler、mempool WAL、LevelDB)では、同じホストの shaping なしの validator 4 台が 50,000 件の transfer を約 2,000–2,200 tx/s で commit し、CPU profile ではブロック実行、特に LevelDB store の state tree の更新と読み出しが支配的です。
+
 <!-- vexo-docs:technical-parity -->
 
 ## 技術的同等性の付録

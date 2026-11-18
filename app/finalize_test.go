@@ -5,11 +5,13 @@ import (
 	"errors"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/fairordering"
 	"github.com/vexo-network/vexo-consensus/kvbatch"
 	"github.com/vexo-network/vexo-consensus/store"
+	"github.com/vexo-network/vexo-consensus/txcodec"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -127,7 +129,7 @@ func TestFinalizeBlockNeverFailsBecauseOfTransactionContent(t *testing.T) {
 	runtime := newFeeRuntime(t, storage, module, AnteConfig{MinFee: 1})
 
 	txs := []types.Tx{
-		[]byte("signed:@@@"),
+		[]byte(txcodec.SignedPrefix + "@@@"),
 		[]byte("bank:ok:fee=1:gas=20:signer=alice:signer=bob:nonce=1"),
 		[]byte("bank:ok:fee=1:gas=20:signer=alice:nonce=99"),
 		[]byte("bank:ok:fee=0:gas=20:signer=alice:nonce=1"),
@@ -142,6 +144,9 @@ func TestFinalizeBlockNeverFailsBecauseOfTransactionContent(t *testing.T) {
 	}
 	if len(response.Results) != len(txs) || len(response.TxEvents) != len(txs) {
 		t.Fatalf("expected one result and one event list per transaction, got %d and %d", len(response.Results), len(response.TxEvents))
+	}
+	if response.Results[0].Code == 0 || !strings.HasPrefix(response.Results[0].Log, ErrInvalidSignedTx.Error()) {
+		t.Fatalf("expected the broken envelope to fail at decoding, got %+v", response.Results[0])
 	}
 	succeeded := 0
 	for _, result := range response.Results {

@@ -70,6 +70,10 @@ Dokumen ini membantu memahami matriks kompatibilitas versi dan kriteria upgrade 
 
 - [Dokumen kanonik bahasa Inggris](../../en/release/version-compatibility.md)
 
+## Kompatibilitas format
+
+Format wire konsensus biner, envelope transaksi bertanda tangan, WAL konsensus, dan WAL mempool tidak kompatibel dengan build pre-audit sebelumnya; prosedur peningkatan ada di spesifikasi networking.
+
 <!-- vexo-docs:technical-parity -->
 ## Lampiran Paritas Teknis
 

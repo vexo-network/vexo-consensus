@@ -1,7 +1,7 @@
 package consensus
 
 import (
-	"encoding/json"
+	"encoding/binary"
 	"errors"
 	"sort"
 
@@ -31,11 +31,19 @@ type TimeoutVote struct {
 // with different Height or HighQC values sign different messages, so a TimeoutCert keeps
 // one aggregate signature per distinct signed message, encoded in TimeoutCert.Signature.
 type timeoutSignatureGroup struct {
-	Height    types.Height             `json:"height"`
-	HighQC    finality.QuorumCert      `json:"high_qc"`
-	Signers   []types.ValidatorID      `json:"signers"`
-	Signature types.AggregateSignature `json:"signature"`
+	Height    types.Height
+	HighQC    finality.QuorumCert
+	Signers   []types.ValidatorID
+	Signature types.AggregateSignature
 }
+
+// maxTimeoutSigners bounds the signers a timeout certificate lists across its signature groups,
+// and so its groups: a group has at least one signer.
+const maxTimeoutSigners = 1 << 16
+
+// minTimeoutGroupBytes is the length of the encoding of the smallest group, which bounds the groups
+// an input can hold.
+var minTimeoutGroupBytes = len(appendTimeoutSignatureGroup(nil, timeoutSignatureGroup{}))
 
 // TimeoutCollector gathers timeout votes per global view. Callers verify the vote
 // signature and its HighQC before adding it.
@@ -173,25 +181,63 @@ func (collector *TimeoutCollector) BuildTimeoutCert(round types.Round) (finality
 			Signature: aggregateSignature,
 		})
 	}
-	encoded, err := json.Marshal(encodedGroups)
-	if err != nil {
-		return finality.TimeoutCert{}, err
-	}
 	return finality.TimeoutCert{
 		Height:    certHeight,
 		Round:     round,
 		HighQC:    highQC,
 		Signers:   finality.EncodeSigners(signers),
-		Signature: types.AggregateSignature(encoded),
+		Signature: encodeTimeoutSignatureGroups(encodedGroups),
 	}, nil
+}
+
+// The signature groups of a timeout certificate are encoded as the count of groups followed by each
+// group: its height, its high QC, the count of its signers followed by each signer, and its
+// aggregate signature, in the canonical encoding of package types. A proposal signature commits to
+// the hash of these bytes, so a set of groups has exactly one encoding and the decoder refuses any
+// other.
+
+func appendTimeoutSignatureGroup(dst []byte, group timeoutSignatureGroup) []byte {
+	dst = binary.AppendUvarint(dst, uint64(group.Height))
+	dst = finality.AppendQuorumCert(dst, group.HighQC)
+	dst = binary.AppendUvarint(dst, uint64(len(group.Signers)))
+	for _, signer := range group.Signers {
+		dst = types.AppendBytes(dst, signer)
+	}
+	return types.AppendBytes(dst, group.Signature)
+}
+
+func encodeTimeoutSignatureGroups(groups []timeoutSignatureGroup) types.AggregateSignature {
+	encoded := binary.AppendUvarint(nil, uint64(len(groups)))
+	for _, group := range groups {
+		encoded = appendTimeoutSignatureGroup(encoded, group)
+	}
+	return types.AggregateSignature(encoded)
 }
 
 func decodeTimeoutSignatureGroups(signature types.AggregateSignature) ([]timeoutSignatureGroup, error) {
 	if len(signature) == 0 {
 		return nil, errors.New("missing timeout signature groups")
 	}
+	reader := types.NewReader(signature)
 	var groups []timeoutSignatureGroup
-	if err := json.Unmarshal(signature, &groups); err != nil {
+	listed := 0
+	if count := reader.Count(maxTimeoutSigners, minTimeoutGroupBytes); count > 0 {
+		groups = make([]timeoutSignatureGroup, count)
+		for index := range groups {
+			group := &groups[index]
+			group.Height = types.Height(reader.Uvarint())
+			group.HighQC = finality.ReadQuorumCert(reader)
+			if signers := reader.Count(maxTimeoutSigners-listed, 1); signers > 0 {
+				listed += signers
+				group.Signers = make([]types.ValidatorID, signers)
+				for position := range group.Signers {
+					group.Signers[position] = types.ValidatorID(reader.String(types.MaxIDBytes))
+				}
+			}
+			group.Signature = types.AggregateSignature(reader.Bytes(finality.MaxAggregateSignatureBytes))
+		}
+	}
+	if err := reader.Done(); err != nil {
 		return nil, err
 	}
 	if len(groups) == 0 {

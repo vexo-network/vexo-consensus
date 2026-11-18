@@ -2,9 +2,10 @@ package consensus
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"math"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/vexo-network/vexo-consensus/finality"
@@ -18,11 +19,7 @@ func reencodeTimeoutCert(t *testing.T, timeoutCert finality.TimeoutCert, mutate 
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.Marshal(mutate(groups))
-	if err != nil {
-		t.Fatal(err)
-	}
-	timeoutCert.Signature = types.AggregateSignature(encoded)
+	timeoutCert.Signature = encodeTimeoutSignatureGroups(mutate(groups))
 	return timeoutCert
 }
 
@@ -68,16 +65,6 @@ func TestVerifyTimeoutCertRejectsMalformedCertificates(t *testing.T) {
 		{"missing signature groups", func() finality.TimeoutCert {
 			cert := genuine
 			cert.Signature = nil
-			return cert
-		}},
-		{"signature groups that are not json", func() finality.TimeoutCert {
-			cert := genuine
-			cert.Signature = types.AggregateSignature("not-json")
-			return cert
-		}},
-		{"no signature groups", func() finality.TimeoutCert {
-			cert := genuine
-			cert.Signature = types.AggregateSignature("[]")
 			return cert
 		}},
 		{"garbage group signature", func() finality.TimeoutCert {
@@ -150,6 +137,54 @@ func TestVerifyTimeoutCertRejectsMalformedCertificates(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			if err := machine.VerifyTimeoutCert(testCase.cert()); !errors.Is(err, ErrInvalidTimeoutCert) {
 				t.Fatalf("expected an invalid timeout certificate, got %v", err)
+			}
+		})
+	}
+}
+
+// The signature groups of a timeout certificate have one canonical encoding. The verifier refuses
+// anything else while it decodes the groups, before it judges a signature, and says why.
+func TestVerifyTimeoutCertRefusesMalformedSignatureGroups(t *testing.T) {
+	cluster := newThreeValidatorCluster(t)
+	machine := cluster.newMachine()
+	genuine := cluster.timeoutCert(2, 4, cluster.qc(1, 0, types.Hash{1}), "a", "b", "c")
+
+	// A group whose signature is ten bytes ends the encoding with them, so cutting five of them
+	// leaves a length prefix that is larger than the bytes behind it.
+	groups, err := decodeTimeoutSignatureGroups(genuine.Signature)
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups[len(groups)-1].Signature = types.AggregateSignature("0123456789")
+	encoded := []byte(encodeTimeoutSignatureGroups(groups))
+
+	cases := []struct {
+		name      string
+		signature []byte
+		reason    string
+	}{
+		{"no bytes", nil, "missing timeout signature groups"},
+		{"a list of no groups", encodeTimeoutSignatureGroups(nil), "empty timeout signature groups"},
+		{"bytes behind the last group", append(slices.Clone(encoded), 0), "trailing bytes"},
+		{"a length larger than the bytes left", encoded[:len(encoded)-5], "byte string longer than the input"},
+		{"a count of groups larger than the bytes left", []byte{0x7f}, "list longer than the input"},
+		{"a count that is cut short", []byte{0x80}, "truncated input"},
+		{"a count that is not minimal", []byte{0x81, 0x00}, "uvarint is not minimal"},
+		{"the json spelling of no groups", []byte("[]"), "list longer than the input"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			cert := genuine
+			cert.Signature = types.AggregateSignature(testCase.signature)
+			_, decodeErr := decodeTimeoutSignatureGroups(cert.Signature)
+			if decodeErr == nil || !strings.Contains(decodeErr.Error(), testCase.reason) {
+				t.Fatalf("expected the groups to be refused because of %q, got %v", testCase.reason, decodeErr)
+			}
+			// The verifier reports the decoder's reason, so the certificate is refused for the groups and
+			// not for something else.
+			err := machine.VerifyTimeoutCert(cert)
+			if !errors.Is(err, ErrInvalidTimeoutCert) || !strings.Contains(err.Error(), decodeErr.Error()) {
+				t.Fatalf("expected the certificate to be refused with %q, got %v", decodeErr, err)
 			}
 		})
 	}

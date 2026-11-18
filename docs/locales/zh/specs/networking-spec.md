@@ -108,6 +108,10 @@
 
 仅因为临时 dial 失败，不会 ban configured peer 或 seed。失败会进入 backoff 和诊断信息；ban 应来自恶意 gossip、认证失败或 rate-limit abuse 等行为证据。`p2p.dial_timeout` 应根据跨区域延迟以及 TLS/auth 成本来设置。
 
+## 二进制 consensus 与 commit 消息
+
+consensus 与 commit topic 上的消息是二进制的:consensus 消息由版本字节、类型字节和 body 组成,commit 消息由 kind 字节和 body 组成,body 采用 `types`(`types.AppendBlock`)和 `finality`(`finality.AppendQuorumCert`、`AppendTimeoutCert`、`AppendProof`)的规范编码。所有解码器都拒绝截断的输入、多余的尾部字节、非最小长度和超限字段。该编码、签名交易 envelope、consensus WAL 和 mempool WAL 在没有转换器的情况下替换了早期的 JSON 和文本格式:此版本的节点无法与旧节点交换消息,也无法读取旧节点的 WAL 文件。请同时升级所有 validator,并让每个节点从空的 `consensus.wal` 和 `mempool.wal` 启动。
+
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录
 

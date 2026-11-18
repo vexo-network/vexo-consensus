@@ -14,6 +14,9 @@ var (
 	ErrUnknownParentBatch = errors.New("unknown parent batch")
 )
 
+// DAG keeps the batches of a pool as a graph. With a WAL attached, its lock orders every change of
+// the pool against the record of the change: both happen while the lock is held, and only the wait
+// for the sync is left to the caller afterwards.
 type DAG struct {
 	mu       sync.Mutex
 	base     *FIFO
@@ -39,15 +42,48 @@ func (dag *DAG) CheckTx(ctx context.Context, tx types.Tx) error {
 	return dag.base.CheckTx(ctx, tx)
 }
 
+// AddTx admits tx and, when the DAG has a WAL, returns once the admission is durable.
+//
+// The record is queued and the pool updated under the DAG lock, so the log lists the changes in
+// the order the pool made them; the wait for the sync happens after the lock is released, so
+// concurrent admissions share one sync. If ctx ends during that wait, AddTx returns ctx.Err()
+// although the transaction is in the pool: its record is still written.
 func (dag *DAG) AddTx(ctx context.Context, tx types.Tx) error {
+	durable, err := dag.QueueTx(ctx, tx)
+	if err != nil {
+		return err
+	}
+	return durable.Wait(ctx)
+}
+
+// Durable is a change of the pool whose WAL record is queued: Wait returns once the record is
+// durable, at once for a DAG without a WAL.
+type Durable struct {
+	ticket walTicket
+}
+
+// Wait returns once the change is durable, or ctx.Err() if ctx ends first; the record is still
+// written then.
+func (durable Durable) Wait(ctx context.Context) error {
+	return durable.ticket.wait(ctx)
+}
+
+// QueueTx admits tx like AddTx but returns as soon as its record is queued, so a caller that
+// orders admissions under a lock of its own can release it before the sync and let concurrent
+// admissions share one. The transaction is in the pool when QueueTx returns.
+func (dag *DAG) QueueTx(ctx context.Context, tx types.Tx) (Durable, error) {
 	dag.mu.Lock()
 	defer dag.mu.Unlock()
-	return dag.base.addTxWithHook(ctx, tx, func() error {
-		if dag.wal != nil {
-			return dag.wal.AppendAddTx(ctx, tx)
-		}
-		return nil
+	if err := dag.repairWAL(ctx); err != nil {
+		return Durable{}, err
+	}
+	var ticket walTicket
+	err := dag.base.addTxWithHook(ctx, tx, func() error {
+		var err error
+		ticket, err = dag.queue(WALEvent{Op: walOpAddTx, Tx: tx})
+		return err
 	})
+	return Durable{ticket: ticket}, err
 }
 
 func (dag *DAG) BuildBatch(ctx context.Context, maxBytes int64, proposed map[types.Hash]struct{}) (Batch, error) {
@@ -73,15 +109,36 @@ func (dag *DAG) SnapshotTxs(ctx context.Context) ([]types.Tx, error) {
 	return dag.base.SnapshotTxs(ctx)
 }
 
+// SenderTxs returns the pending transactions of sender (FIFO.SenderTxs).
+func (dag *DAG) SenderTxs(ctx context.Context, sender string) ([]types.Tx, error) {
+	return dag.base.SenderTxs(ctx, sender)
+}
+
+// MarkCommitted removes the committed transactions and, when the DAG has a WAL, returns once the
+// removal is durable; see AddTx for how the log is ordered and awaited.
 func (dag *DAG) MarkCommitted(ctx context.Context, txs []types.Tx) error {
+	ticket, err := dag.markCommittedQueued(ctx, txs)
+	if err != nil {
+		return err
+	}
+	return ticket.wait(ctx)
+}
+
+func (dag *DAG) markCommittedQueued(ctx context.Context, txs []types.Tx) (walTicket, error) {
 	dag.mu.Lock()
 	defer dag.mu.Unlock()
-	return dag.base.markCommittedWithHook(ctx, txs, func() error {
-		if dag.wal != nil {
-			return dag.wal.AppendMarkCommitted(ctx, txs)
+	if len(txs) > 0 {
+		if err := dag.repairWAL(ctx); err != nil {
+			return walTicket{}, err
 		}
-		return nil
+	}
+	var ticket walTicket
+	err := dag.base.markCommittedWithHook(ctx, txs, func() error {
+		var err error
+		ticket, err = dag.queue(WALEvent{Op: walOpMarkCommitted, Txs: txs})
+		return err
 	})
+	return ticket, err
 }
 
 func (dag *DAG) RetainTxs(ctx context.Context, keep func(types.Tx) bool) (int, error) {
@@ -89,20 +146,52 @@ func (dag *DAG) RetainTxs(ctx context.Context, keep func(types.Tx) bool) (int, e
 }
 
 func (dag *DAG) CompactWAL(ctx context.Context) error {
-	if dag == nil || dag.wal == nil {
+	if dag == nil {
 		return nil
 	}
 	dag.mu.Lock()
 	defer dag.mu.Unlock()
+	if dag.wal == nil {
+		return nil
+	}
 	return dag.wal.Compact(ctx, dag)
 }
 
+// queue queues event in the WAL and returns the ticket to wait on, or the zero ticket when the
+// DAG has no WAL. The caller holds the DAG lock.
+func (dag *DAG) queue(event WALEvent) (walTicket, error) {
+	if dag.wal == nil {
+		return walTicket{}, nil
+	}
+	return dag.wal.queue(event)
+}
+
+// repairWAL rewrites a WAL that an I/O error stopped from the DAG, which still holds every change
+// the log lost, so a transient fault ends with the fault instead of at the next restart. The
+// caller holds the DAG lock.
+func (dag *DAG) repairWAL(ctx context.Context) error {
+	if dag.wal == nil || dag.wal.failure() == nil {
+		return nil
+	}
+	return dag.wal.Compact(ctx, dag)
+}
+
+// AddBatch adds batch and, when the DAG has a WAL, returns once the addition is durable; see
+// AddTx for how the log is ordered and awaited.
 func (dag *DAG) AddBatch(ctx context.Context, batch Batch) error {
+	ticket, err := dag.addBatchQueued(ctx, batch)
+	if err != nil {
+		return err
+	}
+	return ticket.wait(ctx)
+}
+
+func (dag *DAG) addBatchQueued(ctx context.Context, batch Batch) (walTicket, error) {
 	dag.mu.Lock()
 	defer dag.mu.Unlock()
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return walTicket{}, ctx.Err()
 	default:
 	}
 
@@ -110,21 +199,23 @@ func (dag *DAG) AddBatch(ctx context.Context, batch Batch) error {
 		batch.ID = HashBatch(batch)
 	}
 	if _, found := dag.batches[batch.ID]; found {
-		return ErrDuplicateBatch
+		return walTicket{}, ErrDuplicateBatch
 	}
 	for _, parent := range batch.Parents {
 		if _, found := dag.batches[parent]; !found {
-			return ErrUnknownParentBatch
+			return walTicket{}, ErrUnknownParentBatch
 		}
 	}
 
-	if dag.wal != nil {
-		if err := dag.wal.AppendAddBatch(ctx, batch); err != nil {
-			return err
-		}
+	if err := dag.repairWAL(ctx); err != nil {
+		return walTicket{}, err
+	}
+	ticket, err := dag.queue(WALEvent{Op: walOpAddBatch, Batch: batch})
+	if err != nil {
+		return walTicket{}, err
 	}
 	dag.addBatchUnchecked(batch)
-	return nil
+	return ticket, nil
 }
 
 func (dag *DAG) AttachWAL(wal *WAL) {

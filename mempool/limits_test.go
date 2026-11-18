@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vexo-network/vexo-consensus/txcodec"
 	"github.com/vexo-network/vexo-consensus/types"
 )
 
@@ -25,6 +26,7 @@ func sendTx(signer string, nonce uint64, fee uint64) types.Tx {
 // is refused outright.
 func TestFIFORejectsTransactionsWithRepeatedTags(t *testing.T) {
 	pool := NewFIFO(FIFOConfig{EnableReplacement: true})
+	validSigned := signedTestMempoolPayload(t, "bank:send:a:b:1:fee=1:signer=alice:nonce=1")
 	for name, tx := range map[string]types.Tx{
 		"duplicate fee":      types.Tx("bank:send:a:b:1:fee=1000:fee=0:signer=alice:nonce=1"),
 		"duplicate signer":   types.Tx("bank:send:a:b:1:fee=1:signer=alice:signer=bob:nonce=1"),
@@ -33,7 +35,9 @@ func TestFIFORejectsTransactionsWithRepeatedTags(t *testing.T) {
 		"empty signer":       types.Tx("bank:send:a:b:1:fee=1:signer=:nonce=1"),
 		"invalid nonce":      types.Tx("bank:send:a:b:1:fee=1:signer=alice:nonce=x"),
 		"signed duplicate":   signedTestMempoolPayload(t, "bank:send:a:b:1:fee=1:fee=2:signer=alice:nonce=1"),
-		"undecodable signed": types.Tx("signed:@@@"),
+		"undecodable signed": types.Tx(txcodec.SignedPrefix),
+		"truncated signed":   validSigned[:len(validSigned)-1],
+		"signed with excess": append(append(types.Tx(nil), validSigned...), 0),
 	} {
 		if err := pool.AddTx(context.Background(), tx); !errors.Is(err, ErrInvalidTx) {
 			t.Fatalf("%s: expected ErrInvalidTx, got %v", name, err)

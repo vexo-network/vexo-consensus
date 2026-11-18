@@ -70,6 +70,10 @@ Tài liệu này giúp hiểu ma trận tương thích phiên bản và tiêu ch
 
 - [Tài liệu chuẩn tiếng Anh](../../en/release/version-compatibility.md)
 
+## Tương thích định dạng
+
+Các định dạng wire đồng thuận nhị phân, envelope giao dịch đã ký, WAL đồng thuận và WAL của mempool không tương thích với các bản build pre-audit trước đó; xem networking spec để biết quy trình nâng cấp.
+
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật
 
