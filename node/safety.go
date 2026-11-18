@@ -228,7 +228,7 @@ func (node *Node) finishCommit(ctx context.Context, runtime *vexoruntime.Runtime
 		service.Committed(consensus.HashBlock(block), height, block.Txs)
 	}
 	if len(block.Txs) > 0 {
-		if err := runtime.Mempool.CompactWAL(ctx); err != nil {
+		if err := runtime.Mempool.CompactWALWhenGrown(ctx); err != nil {
 			return err
 		}
 	}

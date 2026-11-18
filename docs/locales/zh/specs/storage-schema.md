@@ -105,6 +105,10 @@
 
 状态历史是按 key 的版本组成的 undo log。key 在某个高度变化时(区块的写入在其高度,第一个 committed state 之后的直接写入(`Set`、`Delete`、`SetBatch`)在下一个 committed 高度),store 把 key 在此之前的值(包括不存在)记录为该高度的版本,每个 key 和高度只记录一次。在提交该高度的区块之前进行的直接写入保留其中第一个记录的版本(`hdirect` 指出该高度)。key 在某个 committed 高度的值是该高度之上最低版本所记录的值;没有这样的版本时就是当前值。记录变化只读取 key 的当前值,不读取历史;历史读取是对 key 版本的一次 seek。`PruneBelow` 删除保留起始高度及以下的所有版本。tree node 以同样方式记录版本。两个内存结构减少区块的 tree 工作,都不持久化,也不改变结果:tree node cache 最多保存当前 tree 的 2^18 个已编码 node(store 提交的每个 batch 都会更新它,batch 提交期间为奇数的 generation 使 reader 只在其 snapshot 的状态下使用 cache);以及按 namespace 保存最近一次 root 计算的 root 和 node 变化,以该 generation 和 namespace 写入的 SHA-256 digest 为键,使 app hash、state root 和 commit 对相同写入只计算一次。
 
+## Mempool WAL 压缩与 genesis batch
+
+只有当 mempool WAL 至少 4 MiB 且达到上次压缩(或打开)后大小的两倍时,commit 才会压缩日志。因此每个追加的字节平均只被重写约一次,重启时 replay 的日志保持在 live 内容的两倍或 4 MiB 以内。显式压缩(`Node.Compact`,或启动时丢弃 application 拒绝的 replay 交易)总是重写日志。`InitChain` 把所有 module 的 genesis state 作为一个 batch 写入,因此账户很多的 genesis 也只需一次持久写入,失败的 genesis 不会在 store 中留下任何内容。
+
 <!-- vexo-docs:technical-parity -->
 ## 技术等价附录
 

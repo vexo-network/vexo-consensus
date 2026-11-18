@@ -105,6 +105,10 @@
 
 state history प्रति key संस्करणों का undo log है। जब कोई key किसी ऊँचाई पर बदलती है (ब्लॉक के लेखन उसकी ऊँचाई पर, पहली committed state के बाद का सीधा लेखन (`Set`, `Delete`, `SetBatch`) अगली committed ऊँचाई पर), store उस key का पहले वाला मान, अनुपस्थिति सहित, उस ऊँचाई के संस्करण के रूप में हर key और ऊँचाई के लिए एक बार दर्ज करता है; उस ऊँचाई को commit करने वाले ब्लॉक से पहले के सीधे लेखन उनमें से पहले द्वारा दर्ज संस्करण रखते हैं (`hdirect` वह ऊँचाई बताता है)। किसी committed ऊँचाई पर key का मान वह है जो उस ऊँचाई के ऊपर उसका सबसे निचला संस्करण दर्ज करता है, और ऐसा संस्करण न हो तो उसका वर्तमान मान। बदलाव दर्ज करना केवल key का वर्तमान मान पढ़ता है, history नहीं, और ऐतिहासिक पढ़ना key के संस्करणों में एक seek है। `PruneBelow` उस ऊँचाई पर या उससे नीचे के सभी संस्करण हटाता है जहाँ से वह रखता है। tree node भी इसी तरह संस्करण रखते हैं। स्मृति की दो संरचनाएँ ब्लॉक का tree काम घटाती हैं; कोई भी स्थायी नहीं है और कोई परिणाम नहीं बदलती: वर्तमान tree के अधिकतम 2^18 encoded node रखने वाला tree node cache (store का हर batch इसे अद्यतन करता है, और ऐसे batch के commit होते समय विषम रहने वाली generation के कारण reader cache का उपयोग केवल अपने snapshot की स्थिति पर करता है), और हर namespace के लिए पिछली root गणना का root और node बदलाव, जो उस generation और namespace के लेखनों के SHA-256 digest से जुड़े हैं, ताकि app hash, state roots और commit एक जैसे लेखन एक ही बार गणना करें।
 
+## Mempool WAL compaction और genesis batch
+
+commit mempool WAL को तभी compact करता है जब उसमें कम से कम 4 MiB हो और पिछले compaction या खोलने के बाद के आकार का दोगुना हो। इसलिए जोड़ा गया हर byte औसतन लगभग एक बार ही दोबारा लिखा जाता है, और restart जिस log को replay करता है वह live सामग्री के दोगुने या 4 MiB के भीतर रहता है। स्पष्ट compaction (`Node.Compact`, या start जो application द्वारा अस्वीकृत replay tx हटाता है) हमेशा उसे दोबारा लिखता है। `InitChain` सभी module की genesis state एक batch में लिखता है, इसलिए कई खातों वाला genesis एक durable write में होता है और विफल genesis store में कुछ नहीं छोड़ता।
+
 <!-- vexo-docs:technical-parity -->
 ## तकनीकी समानता परिशिष्ट
 

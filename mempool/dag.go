@@ -157,6 +157,21 @@ func (dag *DAG) CompactWAL(ctx context.Context) error {
 	return dag.wal.Compact(ctx, dag)
 }
 
+// CompactWALWhenGrown compacts the WAL once it has grown enough since it was last compacted for a
+// rewrite to pay (see walCompactMinBytes), so a commit does not rewrite the whole pool and the log
+// stays proportional to the pool's content.
+func (dag *DAG) CompactWALWhenGrown(ctx context.Context) error {
+	if dag == nil {
+		return nil
+	}
+	dag.mu.Lock()
+	defer dag.mu.Unlock()
+	if dag.wal == nil || !dag.wal.grown() {
+		return nil
+	}
+	return dag.wal.Compact(ctx, dag)
+}
+
 // queue queues event in the WAL and returns the ticket to wait on, or the zero ticket when the
 // DAG has no WAL. The caller holds the DAG lock.
 func (dag *DAG) queue(event WALEvent) (walTicket, error) {

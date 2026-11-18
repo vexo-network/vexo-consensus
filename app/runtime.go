@@ -120,14 +120,31 @@ func (runtime *Runtime) InitChain(req InitChainRequest) (InitChainResponse, erro
 	runtime.chainID = chainID
 	runtime.mu.Unlock()
 
+	// The modules write their genesis state into a layer over the store, which reaches the store
+	// as one batch: a genesis of many accounts costs one durable write, not one per key, and a
+	// failed genesis leaves nothing behind.
 	store := runtime.currentStore()
-	ctx, err := runtime.newContext(context.Background(), 0, types.Header{}, store)
+	genesisStore := store
+	var staged *StagedStore
+	if store != nil {
+		staged = NewStagedStore(store)
+		genesisStore = staged
+	}
+	ctx, err := runtime.newContext(context.Background(), 0, types.Header{}, genesisStore)
 	if err != nil {
 		return InitChainResponse{}, err
 	}
 	for _, module := range runtime.modules {
 		ctx.GenesisValidators = cloneValidatorUpdates(req.Validators)
 		if err := module.InitGenesis(ctx, req.Genesis); err != nil {
+			return InitChainResponse{}, err
+		}
+	}
+	if staged != nil {
+		if err := staged.Fault(); err != nil {
+			return InitChainResponse{}, err
+		}
+		if err := staged.ApplyTo(ctx.GoContext(), store); err != nil {
 			return InitChainResponse{}, err
 		}
 	}

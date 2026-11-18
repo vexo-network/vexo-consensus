@@ -46,6 +46,16 @@ const walChecksumBytes = 4
 // compaction follows every block that commits transactions, so the buffer stays small.
 const walSnapshotBufferBytes = 64 << 10
 
+// walCompactMinBytes and walCompactGrowth decide when the log is worth compacting: once it holds
+// at least walCompactMinBytes and walCompactGrowth times what it held after it was last compacted
+// or opened. Compacting rewrites the live content, at most what the log held then, so on average
+// each appended byte is rewritten at most once, and the log a restart replays stays within
+// walCompactGrowth times the live content, or walCompactMinBytes.
+const (
+	walCompactMinBytes = 4 << 20
+	walCompactGrowth   = 2
+)
+
 // walSpareBufferBytes bounds the write buffer kept for the next batch, so one huge batch does not
 // pin its memory.
 const walSpareBufferBytes = 1 << 20
@@ -102,6 +112,10 @@ type WAL struct {
 	failed error
 	// closed is set by Close. Nothing is queued afterwards.
 	closed bool
+	// size is the length of the log; compacted is its length after it was last compacted or
+	// opened. They decide when compacting pays (walCompactMinBytes).
+	size      int64
+	compacted int64
 }
 
 // walBatch is the records that one write and one sync make durable together.
@@ -144,6 +158,7 @@ func OpenWAL(path string) (*WAL, error) {
 		_ = file.Close()
 		return nil, err
 	}
+	wal.compacted = wal.size
 	// The records synced later live in a file whose directory entry must be durable as well.
 	syncDirectory(filepath.Dir(path))
 	return wal, nil
@@ -366,7 +381,18 @@ func (wal *WAL) writeBatch(records []byte) error {
 	if err := wal.syncFile(wal.file); err != nil {
 		return wal.fail(err)
 	}
+	wal.mu.Lock()
+	wal.size += int64(len(records))
+	wal.mu.Unlock()
 	return nil
+}
+
+// grown reports that the log has grown enough since it was last compacted for compacting it to
+// pay; see walCompactMinBytes.
+func (wal *WAL) grown() bool {
+	wal.mu.Lock()
+	defer wal.mu.Unlock()
+	return wal.size >= walCompactMinBytes && wal.size >= walCompactGrowth*wal.compacted
 }
 
 // fail stops the WAL after err and returns the error that every later append returns.
@@ -426,6 +452,9 @@ func (wal *WAL) scanFile() ([]WALEvent, error) {
 			return nil, err
 		}
 	}
+	wal.mu.Lock()
+	wal.size = int64(scan.validBytes)
+	wal.mu.Unlock()
 	return scan.events, nil
 }
 
@@ -450,18 +479,26 @@ func (wal *WAL) Compact(ctx context.Context, dag *DAG) error {
 	if err := os.MkdirAll(filepath.Dir(wal.path), 0o700); err != nil {
 		return err
 	}
-	if err := writeWALSnapshot(ctx, tempPath, dag); err != nil {
+	size, err := writeWALSnapshot(ctx, tempPath, dag)
+	if err != nil {
 		_ = os.Remove(tempPath)
 		return err
 	}
-	return wal.swapFile(tempPath)
+	if err := wal.swapFile(tempPath); err != nil {
+		return err
+	}
+	wal.mu.Lock()
+	wal.size, wal.compacted = size, size
+	wal.mu.Unlock()
+	return nil
 }
 
-// writeWALSnapshot writes the live content of dag to a new log at path and syncs it.
-func writeWALSnapshot(ctx context.Context, path string, dag *DAG) (err error) {
+// writeWALSnapshot writes the live content of dag to a new log at path, syncs it and returns its
+// length.
+func writeWALSnapshot(ctx context.Context, path string, dag *DAG) (size int64, err error) {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer func() {
 		if closeErr := file.Close(); err == nil {
@@ -471,16 +508,18 @@ func writeWALSnapshot(ctx context.Context, path string, dag *DAG) (err error) {
 
 	writer := bufio.NewWriterSize(file, walSnapshotBufferBytes)
 	var record []byte
+	var written int64
 	for _, tx := range dag.base.orderedTxs() {
 		if err := ctx.Err(); err != nil {
-			return err
+			return 0, err
 		}
 		if record, err = appendWALEvent(record[:0], WALEvent{Op: walOpAddTx, Tx: tx}); err != nil {
-			return err
+			return 0, err
 		}
 		if _, err := writer.Write(record); err != nil {
-			return err
+			return 0, err
 		}
+		written += int64(len(record))
 	}
 	emitted := make(map[types.Hash]bool, len(dag.batches))
 	var emitBatch func(types.Hash) error
@@ -507,18 +546,22 @@ func writeWALSnapshot(ctx context.Context, path string, dag *DAG) (err error) {
 		if _, err := writer.Write(record); err != nil {
 			return err
 		}
+		written += int64(len(record))
 		emitted[id] = true
 		return nil
 	}
 	for id := range dag.batches {
 		if err := emitBatch(id); err != nil {
-			return err
+			return 0, err
 		}
 	}
 	if err := writer.Flush(); err != nil {
-		return err
+		return 0, err
 	}
-	return file.Sync()
+	if err := file.Sync(); err != nil {
+		return 0, err
+	}
+	return written, nil
 }
 
 // swapFile replaces the log by the complete, durable file at tempPath. The old handle is closed

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -814,4 +815,58 @@ func mustAppHash(t *testing.T, runtime *Runtime, height types.Height, storage St
 		t.Fatal(err)
 	}
 	return hash
+}
+
+// genesisWriter writes keys at genesis and, with fail set, fails after writing them.
+type genesisWriter struct {
+	statefulModule
+	keys int
+	fail bool
+}
+
+func (module *genesisWriter) InitGenesis(ctx Context, genesis GenesisState) error {
+	for index := range module.keys {
+		key := []byte(fmt.Sprintf("account/%d", index))
+		if err := ctx.Store.Set(ctx.GoContext(), module.name, key, []byte("1")); err != nil {
+			return err
+		}
+		// A module reads back what it wrote during genesis.
+		if value, err := ctx.Store.Get(ctx.GoContext(), module.name, key); err != nil || string(value) != "1" {
+			return fmt.Errorf("genesis cannot read its own write: %q, %v", value, err)
+		}
+	}
+	if module.fail {
+		return errors.New("genesis failed")
+	}
+	return nil
+}
+
+// Genesis reaches the store as one batch: it is all there after InitChain, and nothing of a
+// genesis that fails is.
+func TestInitChainWritesTheGenesisStateAtomically(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(fmt.Sprintf("fail=%v", fail), func(t *testing.T) {
+			storage, err := store.OpenPebble(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer storage.Close()
+			runtime, err := NewRuntime("vexo-test", []Module{&genesisWriter{statefulModule: statefulModule{name: "bank"}, keys: 100, fail: fail}}, PrefixRouter{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			runtime.WithStore(storage)
+			_, err = runtime.InitChain(InitChainRequest{ChainID: "vexo-test"})
+			if fail != (err != nil) {
+				t.Fatalf("InitChain error %v, want a failure %v", err, fail)
+			}
+			pairs, err := storage.ExportNamespace(context.Background(), "bank")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := map[bool]int{false: 100, true: 0}[fail]; len(pairs) != want {
+				t.Fatalf("the store holds %d genesis keys, want %d", len(pairs), want)
+			}
+		})
+	}
 }

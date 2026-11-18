@@ -1423,3 +1423,81 @@ func FuzzWALScan(f *testing.F) {
 		}
 	})
 }
+
+// The log is compacted once it holds walCompactMinBytes and walCompactGrowth times what it held
+// after the last compaction, not on every commit; whatever it holds, a restart replays the pool.
+func TestCompactWALWhenGrownRewritesOnlyALogThatGrew(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "mempool.wal")
+	dag, err := OpenDurableDAG(ctx, path, NewFIFO(FIFOConfig{Author: "alice"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The test counts bytes, not durability; a sync per admission would only slow it down.
+	dag.wal.syncFile = func(*os.File) error { return nil }
+	size := func() int64 {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return info.Size()
+	}
+	payload := bytes.Repeat([]byte("x"), 1000)
+	var pending []types.Tx
+	next := 0
+	block := func(add, commit int) {
+		for range add {
+			tx := append([]byte(fmt.Sprintf("tx-%d-", next)), payload...)
+			next++
+			if err := dag.AddTx(ctx, tx); err != nil {
+				t.Fatal(err)
+			}
+			pending = append(pending, tx)
+		}
+		if err := dag.MarkCommitted(ctx, pending[:commit]); err != nil {
+			t.Fatal(err)
+		}
+		pending = pending[commit:]
+		if err := dag.CompactWALWhenGrown(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	block(100, 90)
+	if got := size(); got < 100*1000 {
+		t.Fatalf("a log of %d bytes, under walCompactMinBytes, must not be compacted", got)
+	}
+	compactions := 0
+	for range 200 {
+		before := size()
+		block(100, 100)
+		if size() < before {
+			compactions++
+		}
+		if got := size(); got > walCompactMinBytes+200*1100 {
+			t.Fatalf("the log grew to %d bytes, past walCompactMinBytes and one block", got)
+		}
+	}
+	if compactions == 0 || compactions > 10 {
+		t.Fatalf("200 commits compacted the log %d times, want at least once and about every %d bytes", compactions, walCompactMinBytes)
+	}
+	if err := dag.wal.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := OpenDurableDAG(ctx, path, NewFIFO(FIFOConfig{Author: "alice"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.wal.Close()
+	replayed, err := reopened.PendingTxs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(replayed) != len(pending) {
+		t.Fatalf("restart replays %d pending transactions, want %d", len(replayed), len(pending))
+	}
+	for index := range pending {
+		if !bytes.Equal(replayed[index], pending[index]) {
+			t.Fatalf("restart replays transaction %d as %q", index, replayed[index][:8])
+		}
+	}
+}

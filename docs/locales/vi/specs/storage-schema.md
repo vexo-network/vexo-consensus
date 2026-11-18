@@ -105,6 +105,10 @@ Backend mặc định là Pebble (`github.com/cockroachdb/pebble/v2`), mở vớ
 
 Lịch sử state là undo log các phiên bản theo key. Khi một key thay đổi ở một độ cao (các lần ghi của khối ở độ cao của nó, ghi trực tiếp (`Set`, `Delete`, `SetBatch`) sau state committed đầu tiên ở độ cao committed kế tiếp), store ghi lại giá trị key có trước đó, kể cả vắng mặt, làm phiên bản của key ở độ cao đó, một lần cho mỗi key và độ cao; các lần ghi trực tiếp trước khối commit độ cao của chúng giữ phiên bản mà lần đầu tiên ghi lại (`hdirect` chỉ độ cao đó). Giá trị của key ở một độ cao committed là giá trị mà phiên bản thấp nhất của nó phía trên độ cao đó ghi lại, hoặc giá trị hiện tại nếu không có. Ghi một thay đổi chỉ đọc giá trị hiện tại của key, không bao giờ đọc lịch sử, và một lần đọc lịch sử là một lần seek vào các phiên bản của key. `PruneBelow` xóa mọi phiên bản tại hoặc dưới độ cao mà nó giữ từ đó. Node của cây được lưu phiên bản theo cùng cách. Hai cấu trúc trong bộ nhớ giảm công việc cây của mỗi khối; không cấu trúc nào được lưu bền vững hay thay đổi kết quả: cache node cây chứa tối đa 2^18 node đã mã hóa của các cây hiện tại (mọi batch của store cập nhật nó, và generation lẻ trong khi một batch như vậy commit khiến reader chỉ dùng cache ở state của snapshot của mình), và theo từng namespace, root và thay đổi node của lần tính root gần nhất, khóa theo generation đó và digest SHA-256 của các lần ghi của namespace, nên app hash, state roots và commit chỉ tính cùng các lần ghi một lần.
 
+## Nén WAL của mempool và batch genesis
+
+Commit chỉ nén WAL của mempool khi nó chứa ít nhất 4 MiB và gấp đôi lượng nó chứa sau lần nén hoặc mở gần nhất. Vì vậy mỗi byte được ghi thêm trung bình chỉ được ghi lại khoảng một lần, và log mà lần khởi động lại phát lại luôn nằm trong gấp đôi nội dung sống hoặc 4 MiB. Nén tường minh (`Node.Compact`, hoặc lần khởi động bỏ các giao dịch phát lại mà ứng dụng từ chối) luôn ghi lại nó. `InitChain` ghi state genesis của mọi module thành một batch, nên genesis nhiều tài khoản chỉ tốn một lần ghi bền vững và genesis thất bại không để lại gì trong store.
+
 <!-- vexo-docs:technical-parity -->
 ## Phụ lục tương đương kỹ thuật
 

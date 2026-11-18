@@ -109,6 +109,10 @@ store는 namespace마다 state tree(`stateproof`)를 KV 쌍 옆 `tree:` 아래�
 
 state history는 key별 버전의 undo log입니다. key가 어떤 높이에서 바뀌면(블록의 쓰기는 그 높이, 첫 committed state 이후의 직접 쓰기(`Set`, `Delete`, `SetBatch`)는 다음 committed 높이) store는 key가 그 전에 가졌던 값(없음 포함)을 그 높이의 버전으로 key와 높이마다 한 번 기록합니다. 그 높이를 commit하는 블록보다 먼저 한 직접 쓰기는 첫 번째 것이 기록한 버전을 유지합니다(`hdirect`가 그 높이를 가리킵니다). committed 높이에서 key의 값은 그 높이보다 위의 가장 낮은 버전이 기록한 값이며, 그런 버전이 없으면 현재 값입니다. 변경 기록은 key의 현재 값만 읽고 history는 읽지 않으며, 과거 조회는 key 버전에 대한 seek 한 번입니다. `PruneBelow`는 유지 시작 높이 이하의 버전을 모두 지웁니다. tree node도 같은 방식으로 버전을 남깁니다. 메모리 구조 두 가지가 블록의 tree 작업을 줄이며, 둘 다 영속되지 않고 결과를 바꾸지 않습니다: 현재 tree의 인코딩된 node를 최대 2^18개 담는 tree node cache(store가 commit하는 모든 batch가 갱신하고, batch가 commit되는 동안 홀수인 generation 덕분에 reader는 자기 snapshot의 상태에서만 cache를 씁니다), 그리고 namespace마다 마지막 root 계산의 root와 node 변경을 그 generation과 namespace 쓰기의 SHA-256 digest로 보관해 app hash, state root, commit이 같은 쓰기를 한 번만 계산하게 하는 구조입니다.
 
+## Mempool WAL compaction과 genesis batch
+
+commit은 mempool WAL이 4 MiB 이상이면서 마지막 compaction(또는 열기) 직후 크기의 두 배 이상이 되었을 때만 log를 compaction합니다. 그래서 append된 바이트는 평균 한 번 정도만 다시 쓰이고, 재시작 때 replay하는 log는 live 내용의 두 배 또는 4 MiB 이내로 유지됩니다. 명시적 compaction(`Node.Compact`, 또는 시작 시 application이 거부한 replay tx를 버리는 경우)은 항상 다시 씁니다. `InitChain`은 모든 module의 genesis state를 하나의 batch로 쓰므로 계정이 많은 genesis도 durable write 한 번이면 되고, 실패한 genesis는 store에 아무것도 남기지 않습니다.
+
 <!-- vexo-docs:technical-parity -->
 ## 기술 동등성 부록
 
